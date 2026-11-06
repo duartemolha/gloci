@@ -47,3 +47,13 @@ pub enum GenomeError {
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[error("chromosome \"{0}\" is not in the genome")]
 pub struct UnknownChrom(pub String);
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum FractionError {
+    #[error("\"{0}\" is not a plain decimal fraction (use e.g. 0.5 or 1; no signs or exponents)")]
+    Syntax(String),
+    #[error("fraction \"{0}\" must be greater than 0 and at most 1")]
+    OutOfRange(String),
+    #[error("fraction \"{0}\" has more than 18 fractional digits")]
+    TooPrecise(String),
+}
