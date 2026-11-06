@@ -10,6 +10,7 @@ gloci-core.workspace = true
 noodles-bgzf.workspace = true
 flate2.workspace = true
 thiserror.workspace = true
+ctrlc.workspace = true
 
 [dev-dependencies]
 gloci-testkit.workspace = true

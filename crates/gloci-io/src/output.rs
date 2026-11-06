@@ -1,0 +1,298 @@
+//! Output specification (D17), format/level validation, and the atomic/BGZF output writer.
+
+use crate::atomic::AtomicFile;
+use crate::detect::Format;
+use crate::error::{IoError, UsageError};
+use noodles_bgzf::io::multithreaded_writer::Builder as BgzfBuilder;
+use noodles_bgzf::io::writer::CompressionLevel;
+use std::ffi::OsString;
+use std::io::{self, BufWriter, Stdout, StdoutLock, Write};
+use std::num::NonZeroUsize;
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutFormat {
+    Bed,
+    BedGraph,
+    Vcf,
+    Bcf,
+    Gff3,
+    Gtf,
+    Tsv,
+}
+
+impl OutFormat {
+    /// The output format that corresponds to an input format.
+    pub fn family(f: Format) -> OutFormat {
+        match f {
+            Format::Bed => OutFormat::Bed,
+            Format::BedGraph => OutFormat::BedGraph,
+            Format::Vcf => OutFormat::Vcf,
+            Format::Bcf => OutFormat::Bcf,
+            Format::Gff3 => OutFormat::Gff3,
+            Format::Gtf => OutFormat::Gtf,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutputSpec {
+    /// `None` means stdout.
+    pub path: Option<PathBuf>,
+    /// `None` means "same as the input".
+    pub format: Option<OutFormat>,
+    pub bgzf: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct OutputOptions {
+    pub threads: NonZeroUsize,
+    pub level: u8,
+    pub write_index: bool,
+}
+
+const ACCEPTED: &str = ".bed, .bed.gz, .bedgraph, .bedgraph.gz, .vcf, .vcf.gz, .bcf, \
+.tsv, .tsv.gz, .gff, .gff.gz, .gff3, .gff3.gz, .gtf, .gtf.gz";
+
+/// `(suffix without dot, format, bgzf)`, matched case-insensitively.
+fn lookup(s: &str) -> Option<(OutFormat, bool)> {
+    use OutFormat::*;
+    Some(match s {
+        "bed" => (Bed, false),
+        "bed.gz" => (Bed, true),
+        "bedgraph" => (BedGraph, false),
+        "bedgraph.gz" => (BedGraph, true),
+        "vcf" => (Vcf, false),
+        "vcf.gz" => (Vcf, true),
+        "bcf" => (Bcf, true),
+        "tsv" => (Tsv, false),
+        "tsv.gz" => (Tsv, true),
+        "gff" | "gff3" => (Gff3, false),
+        "gff.gz" | "gff3.gz" => (Gff3, true),
+        "gtf" => (Gtf, false),
+        "gtf.gz" => (Gtf, true),
+        _ => return None,
+    })
+}
+
+fn from_extension(path: &Path) -> Option<(OutFormat, bool)> {
+    let name = path.file_name()?.to_string_lossy().to_ascii_lowercase();
+    // try two-part suffix first (x.bed.gz), then one-part
+    let mut dots = name.match_indices('.').map(|(i, _)| i).rev();
+    let last = dots.next()?;
+    if let Some(prev) = dots.next() {
+        if let Some(r) = lookup(&name[prev + 1..]) {
+            return Some(r);
+        }
+    }
+    lookup(&name[last + 1..])
+}
+
+pub fn parse_output_spec(
+    output: Option<&Path>,
+    output_format: Option<&str>,
+) -> Result<OutputSpec, UsageError> {
+    // "-" means stdout.
+    let path = output.filter(|p| p.as_os_str() != "-");
+    let from_o = match output_format {
+        None => None,
+        Some(s) => {
+            let key = s.trim_start_matches('.').to_ascii_lowercase();
+            Some(lookup(&key).ok_or_else(|| {
+                UsageError(format!(
+                    "unknown output format '{s}' for -O; use one of: {ACCEPTED}"
+                ))
+            })?)
+        }
+    };
+    let from_ext = match path {
+        None => None,
+        Some(p) => match from_extension(p) {
+            Some(r) => Some(r),
+            // An unrecognised extension is acceptable when -O names the format.
+            None if from_o.is_some() => None,
+            None => {
+                return Err(UsageError(format!(
+                    "cannot tell the output format from '{}'; use an extension from: {ACCEPTED}, or pass -O",
+                    p.display()
+                )));
+            }
+        },
+    };
+    let (format, bgzf) = match (from_ext, from_o) {
+        (Some(a), Some(b)) if a != b => {
+            return Err(UsageError(format!(
+                "-o {} and -O {} disagree about the output format; drop one of them",
+                path.map(|p| p.display().to_string()).unwrap_or_default(),
+                output_format.unwrap_or_default()
+            )));
+        }
+        (Some(a), _) | (None, Some(a)) => (Some(a.0), a.1),
+        (None, None) => (None, false),
+    };
+    Ok(OutputSpec {
+        path: path.map(Path::to_path_buf),
+        format,
+        bgzf,
+    })
+}
+
+pub fn check_level(n: u8) -> Result<u8, UsageError> {
+    if n <= 12 {
+        Ok(n)
+    } else {
+        Err(UsageError(format!(
+            "--compression-level {n} is out of range; use a value from 0 to 12"
+        )))
+    }
+}
+
+pub fn refuse_binary_to_tty(is_tty: bool, f: OutFormat, bgzf: bool) -> Result<(), UsageError> {
+    if is_tty && (f == OutFormat::Bcf || bgzf) {
+        Err(UsageError(
+            "refusing to write binary (BCF or BGZF) output to a terminal; \
+use -o FILE, or choose a text format with -O (e.g. -O vcf or -O bed)"
+                .into(),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+type FileBuf = BufWriter<AtomicFile>;
+
+enum Sink {
+    StdoutPlain(BufWriter<StdoutLock<'static>>),
+    StdoutBgzf(noodles_bgzf::io::MultithreadedWriter<BufWriter<Stdout>>),
+    FilePlain(FileBuf),
+    FileBgzf(noodles_bgzf::io::MultithreadedWriter<FileBuf>),
+}
+
+pub struct Output {
+    sink: Sink,
+    dest: Option<PathBuf>,
+}
+
+const BUF: usize = 1 << 20;
+
+pub fn open_output(
+    spec: &OutputSpec,
+    f: OutFormat,
+    opts: &OutputOptions,
+) -> Result<Output, IoError> {
+    let bgzf = spec.bgzf || f == OutFormat::Bcf;
+    let level = CompressionLevel::try_from(check_level(opts.level)?)
+        .map_err(|e| UsageError(e.to_string()))?;
+    if opts.write_index {
+        if spec.path.is_none() {
+            return Err(UsageError(
+                "--write-index needs -o FILE; an index cannot be written for stdout".into(),
+            )
+            .into());
+        }
+        if !bgzf {
+            return Err(UsageError(
+                "--write-index needs BGZF output; use a .gz output name (or .bcf)".into(),
+            )
+            .into());
+        }
+        if f == OutFormat::Tsv {
+            return Err(UsageError("--write-index is not supported for TSV output".into()).into());
+        }
+        return Err(UsageError("--write-index is not supported yet".into()).into());
+    }
+    let builder = || {
+        BgzfBuilder::default()
+            .set_compression_level(level)
+            .set_worker_count(opts.threads)
+    };
+    let sink = match &spec.path {
+        None if bgzf => Sink::StdoutBgzf(
+            builder().build_from_writer(BufWriter::with_capacity(BUF, io::stdout())),
+        ),
+        None => Sink::StdoutPlain(BufWriter::with_capacity(BUF, io::stdout().lock())),
+        Some(p) => {
+            let af = AtomicFile::create(p).map_err(|source| IoError::Open {
+                path: p.display().to_string(),
+                source,
+            })?;
+            let w = BufWriter::with_capacity(BUF, af);
+            if bgzf {
+                Sink::FileBgzf(builder().build_from_writer(w))
+            } else {
+                Sink::FilePlain(w)
+            }
+        }
+    };
+    Ok(Output {
+        sink,
+        dest: spec.path.clone(),
+    })
+}
+
+impl Output {
+    fn dest_name(&self) -> String {
+        self.dest
+            .as_ref()
+            .map_or_else(|| "<stdout>".into(), |p| p.display().to_string())
+    }
+
+    /// Finishes the stream (BGZF EOF block), publishes the file atomically, and removes
+    /// stale `PATH.tbi`/`PATH.csi` (D19).
+    pub fn finish(self) -> Result<(), IoError> {
+        let name = self.dest_name();
+        let werr = |source| IoError::Write {
+            path: name.clone(),
+            source,
+        };
+        let atomic: Option<AtomicFile> = match self.sink {
+            Sink::StdoutPlain(mut w) => {
+                w.flush().map_err(werr)?;
+                None
+            }
+            Sink::StdoutBgzf(mut w) => {
+                let mut inner = w.finish().map_err(werr)?;
+                inner.flush().map_err(werr)?;
+                None
+            }
+            Sink::FilePlain(w) => Some(w.into_inner().map_err(|e| werr(e.into_error()))?),
+            Sink::FileBgzf(mut w) => {
+                let inner = w.finish().map_err(werr)?;
+                Some(inner.into_inner().map_err(|e| werr(e.into_error()))?)
+            }
+        };
+        if let (Some(af), Some(dest)) = (atomic, self.dest.as_ref()) {
+            af.commit().map_err(werr)?;
+            for ext in ["tbi", "csi"] {
+                let mut s: OsString = dest.clone().into_os_string();
+                s.push(".");
+                s.push(ext);
+                match std::fs::remove_file(&s) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                    Err(source) => return Err(werr(source)),
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Write for Output {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match &mut self.sink {
+            Sink::StdoutPlain(w) => w.write(buf),
+            Sink::StdoutBgzf(w) => w.write(buf),
+            Sink::FilePlain(w) => w.write(buf),
+            Sink::FileBgzf(w) => w.write(buf),
+        }
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        match &mut self.sink {
+            Sink::StdoutPlain(w) => w.flush(),
+            Sink::StdoutBgzf(w) => w.flush(),
+            Sink::FilePlain(w) => w.flush(),
+            Sink::FileBgzf(w) => w.flush(),
+        }
+    }
+}
