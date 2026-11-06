@@ -323,6 +323,7 @@ dependencies = [
  "flate2",
  "gloci-core",
  "gloci-testkit",
+ "memchr",
  "noodles-bgzf",
  "tempfile",
  "thiserror",
