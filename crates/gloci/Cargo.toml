@@ -1,0 +1,22 @@
+[package]
+name = "gloci"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "gloci"
+path = "src/main.rs"
+
+[dependencies]
+gloci-ops.workspace = true
+clap.workspace = true
+mimalloc.workspace = true
+
+[dev-dependencies]
+gloci-testkit.workspace = true
+assert_cmd.workspace = true
