@@ -215,17 +215,14 @@ fn bedgraph_and_vcf_dispatch() {
     )
     .unwrap();
     assert_eq!(r.format(), Format::BedGraph);
-    let e = open_reader_from(
+    let v = open_reader_from(
         "x.vcf",
         Box::new(Cursor::new(
             b"##fileformat=VCFv4.3\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n".to_vec(),
         )),
         &opts(None, InvalidPolicy::Fail),
     )
-    .err()
     .unwrap();
-    assert!(
-        e.to_string()
-            .contains("VCF/BCF reading is not supported yet")
-    );
+    assert_eq!(v.format(), Format::Vcf);
+    assert!(matches!(v.header(), Header::Vcf(_)));
 }

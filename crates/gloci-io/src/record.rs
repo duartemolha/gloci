@@ -6,7 +6,6 @@ use crate::error::{IoError, Loc};
 use crate::input::{Input, InputOptions, open_input, open_input_from};
 use gloci_core::{ChromId, ChromTable, CoordError, Interval, OrderSource, VcfSpan};
 use std::io::{BufRead, Read};
-use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 
 /// One record's position data; its raw bytes live in `RecordBatch::buf`.
@@ -57,6 +56,7 @@ pub enum Header {
     None,
     /// Header lines, each terminated by `\n`.
     Lines(Vec<u8>),
+    Vcf(crate::vcf::VcfHeader),
 }
 
 pub trait RecordReader: Send {
@@ -111,7 +111,10 @@ fn dispatch(input: Input, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, Io
         Format::Gff3 | Format::Gtf => {
             Ok(Box::new(crate::gff::GffReader::open_gff(input, o.invalid)?))
         }
-        Format::Vcf | Format::Bcf => Err(IoError::Detect {
+        Format::Vcf => Ok(Box::new(crate::vcf::VcfReader::open_vcf(
+            input, o.invalid, o.vcf_span,
+        )?)),
+        Format::Bcf => Err(IoError::Detect {
             msg: format!("{}: VCF/BCF reading is not supported yet", input.name),
             path: input.name,
         }),
@@ -130,7 +133,11 @@ pub(crate) enum Class {
 
 pub(crate) trait TextKind: Send + 'static {
     fn classify(line: &[u8], seen_record: bool) -> Class;
-    fn parse(line: &[u8], chroms: &mut ChromTable) -> Result<(ChromId, u64, Interval), String>;
+    fn parse(
+        &self,
+        line: &[u8],
+        chroms: &mut ChromTable,
+    ) -> Result<(ChromId, u64, Interval), String>;
 }
 
 /// Intern `name`, explaining a failure against a closed table.
@@ -162,7 +169,7 @@ pub(crate) struct TextReader<K: TextKind> {
     name: String,
     format: Format,
     compression: Compression,
-    header: Header,
+    pub(crate) header: Header,
     diag: Diagnostics,
     policy: InvalidPolicy,
     src: Box<dyn BufRead + Send>,
@@ -170,11 +177,11 @@ pub(crate) struct TextReader<K: TextKind> {
     pending: Option<Vec<u8>>,
     seen_record: bool,
     eof: bool,
-    _k: PhantomData<K>,
+    kind: K,
 }
 
 impl<K: TextKind> TextReader<K> {
-    pub(crate) fn open(input: Input, policy: InvalidPolicy) -> Result<Self, IoError> {
+    pub(crate) fn open(input: Input, policy: InvalidPolicy, kind: K) -> Result<Self, IoError> {
         let mut r = TextReader {
             name: input.name,
             format: input.format,
@@ -187,7 +194,7 @@ impl<K: TextKind> TextReader<K> {
             pending: None,
             seen_record: false,
             eof: false,
-            _k: PhantomData,
+            kind,
         };
         let mut head = Vec::new();
         let mut line = Vec::new();
@@ -301,7 +308,7 @@ impl<K: TextKind> RecordReader for TextReader<K> {
             let parsed = if len > u32::MAX as usize {
                 Err("line is longer than 4 GiB".to_string())
             } else {
-                K::parse(line, chroms)
+                self.kind.parse(line, chroms)
             };
             match parsed {
                 Ok((chrom, key, span)) => {

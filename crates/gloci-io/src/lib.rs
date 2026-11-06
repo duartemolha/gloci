@@ -9,6 +9,7 @@ pub mod gff;
 pub mod input;
 pub mod output;
 pub mod record;
+pub mod vcf;
 
 pub use atomic::{
     AtomicFile, TempGuard, cleanup_registered, install_cleanup_handlers, register_temp,
@@ -25,3 +26,4 @@ pub use output::{
 pub use record::{
     Header, ReaderOptions, RecordBatch, RecordMeta, RecordReader, open_reader, open_reader_from,
 };
+pub use vcf::{VcfHeader, shell_quote_args};

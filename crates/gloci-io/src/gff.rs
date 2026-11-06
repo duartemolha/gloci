@@ -6,12 +6,13 @@ use crate::input::Input;
 use crate::record::{Class, TextKind, TextReader, coord, intern_chrom};
 use gloci_core::{ChromId, ChromTable, Interval, one_based_closed};
 
+#[derive(Default)]
 pub(crate) struct Gff;
 pub(crate) type GffReader = TextReader<Gff>;
 
 impl TextReader<Gff> {
     pub(crate) fn open_gff(input: Input, policy: InvalidPolicy) -> Result<Self, IoError> {
-        Self::open(input, policy)
+        Self::open(input, policy, Gff)
     }
 }
 
@@ -30,7 +31,11 @@ impl TextKind for Gff {
         }
     }
 
-    fn parse(line: &[u8], chroms: &mut ChromTable) -> Result<(ChromId, u64, Interval), String> {
+    fn parse(
+        &self,
+        line: &[u8],
+        chroms: &mut ChromTable,
+    ) -> Result<(ChromId, u64, Interval), String> {
         let mut f = line.split(|&b| b == b'\t');
         let c = f.next().unwrap_or_default();
         let (Some(s), Some(e)) = (f.nth(2), f.next()) else {

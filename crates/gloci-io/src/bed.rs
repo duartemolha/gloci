@@ -6,12 +6,13 @@ use crate::input::Input;
 use crate::record::{Class, TextKind, TextReader, coord, intern_chrom};
 use gloci_core::{ChromId, ChromTable, Interval};
 
+#[derive(Default)]
 pub(crate) struct Bed;
 pub(crate) type BedReader = TextReader<Bed>;
 
 impl TextReader<Bed> {
     pub(crate) fn open_bed(input: Input, policy: InvalidPolicy) -> Result<Self, IoError> {
-        Self::open(input, policy)
+        Self::open(input, policy, Bed)
     }
 }
 
@@ -30,7 +31,11 @@ impl TextKind for Bed {
         }
     }
 
-    fn parse(line: &[u8], chroms: &mut ChromTable) -> Result<(ChromId, u64, Interval), String> {
+    fn parse(
+        &self,
+        line: &[u8],
+        chroms: &mut ChromTable,
+    ) -> Result<(ChromId, u64, Interval), String> {
         let mut f = line.split(|&b| b == b'\t');
         let (Some(c), Some(s), Some(e)) = (f.next(), f.next(), f.next()) else {
             let n = line.split(|&b| b == b'\t').count();
