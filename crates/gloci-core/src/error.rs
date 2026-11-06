@@ -57,3 +57,21 @@ pub enum FractionError {
     #[error("fraction \"{0}\" has more than 18 fractional digits")]
     TooPrecise(String),
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum FootprintError {
+    #[error("POS 0 (telomere) is not supported; VCF positions start at 1")]
+    PosZero,
+    #[error("REF is empty; a VCF record needs at least one REF base")]
+    EmptyRef,
+    #[error("symbolic ALT {alt} needs INFO/END or INFO/SVLEN")]
+    MissingSvEnd { alt: String },
+    #[error("INFO/END {end} is before POS {pos}; fix the record or drop END")]
+    EndBeforePos { pos: u64, end: u64 },
+    #[error("INFO/SVLEN value \"{value}\" is not an integer (or '.'); fix the record")]
+    BadSvlen { value: String },
+    #[error(
+        "INFO/SVLEN has {svlen} values but the record has {alts} ALT alleles; it needs 1 or {alts}"
+    )]
+    SvlenCount { svlen: usize, alts: usize },
+}
