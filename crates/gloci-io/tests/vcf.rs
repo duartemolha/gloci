@@ -34,10 +34,7 @@ fn run(bytes: &[u8], o: ReaderOptions) -> Result<(Header, Vec<Rec>, Diagnostics)
             break;
         }
     }
-    let d = Diagnostics {
-        skipped: r.diagnostics().skipped,
-        examples: r.diagnostics().examples.clone(),
-    };
+    let d = r.diagnostics().clone();
     Ok((r.header().clone(), out, d))
 }
 fn read_all(bytes: impl AsRef<[u8]>, o: ReaderOptions) -> (Header, Vec<Rec>, Diagnostics) {

@@ -134,6 +134,18 @@ impl ChromTable {
         }
     }
 
+    /// Compare two names in the table's order without interning them.
+    /// `None` when the order is by id and either name is not in the table
+    /// (a genome or VCF header that lacks it, or a first-appearance table
+    /// that has not seen it).
+    pub fn cmp_names(&self, a: &[u8], b: &[u8]) -> Option<Ordering> {
+        match self.mode {
+            Mode::Lexicographic => Some(a.cmp(b)),
+            Mode::Karyotype => Some(karyotype_cmp(a, b)),
+            Mode::ById => Some(self.get(a)?.cmp(&self.get(b)?)),
+        }
+    }
+
     /// Dense rank of each id in the table's order.
     pub fn ranks(&self) -> Vec<u32> {
         let n = self.names.len();

@@ -88,20 +88,30 @@ Examples:
   gloci sort huge.bed --max-mem 8G --tmp-dir /scratch -t 16 -o huge.sorted.bed.gz
   gloci sort --check peaks.sorted.bed")]
     Sort(SortArgs),
-    /// Stream a file, convert VCF to BCF and back, or print only the header.
+    /// Print the records in regions, stream or recompress a file, convert
+    /// VCF to BCF and back, or print only the header.
     ///
-    /// With no options the records are written exactly as read, so view can
+    /// With no regions the records are written exactly as read, so view can
     /// recompress a file (-o FILE.gz is BGZF) or index it (--write-index).
     /// VCF and BCF convert to each other with -O or the -o extension;
     /// the header is kept as it is, plus a ##glociCommand line. BED and GFF
     /// header lines are kept by default. Conversions between other formats are not
     /// available yet (they will be gloci convert).
+    ///
+    /// With regions, view prints the records whose footprint (per
+    /// --vcf-span) overlaps a region, each once, in file order. A point
+    /// (a zero-length BED record, an insertion) overlaps a region only when
+    /// strictly inside it, unless --inclusive-points is given. Regions are
+    /// read through a .tbi/.csi index when the file has one, found by
+    /// binary search in an uncompressed sorted BED file (in -g or
+    /// --chrom-order order), and otherwise by scanning the whole file, with
+    /// a warning. The input's sort order is checked as it is read.
     #[command(after_long_help = "\
 Examples:
+  gloci view calls.vcf.gz chr1:1,000,000-2,000,000 chrX
+  gloci view peaks.bed --regions-file targets.bed --inclusive-points
   gloci view calls.bcf -O vcf | less
-  gloci view calls.vcf.gz -o calls.bcf --write-index
-  gloci view peaks.bed -o peaks.bed.gz --write-index
-  gloci view calls.vcf.gz --header-only")]
+  gloci view calls.vcf.gz -o calls.bcf --write-index")]
     View(ViewArgs),
 }
 
@@ -110,6 +120,20 @@ pub struct ViewArgs {
     /// Input file (`-` for stdin).
     #[arg(value_name = "FILE")]
     pub file: String,
+    /// Regions such as chr1, chr1:1,000-2,000 or chr1:5,000- (1-based,
+    /// inclusive); write {name}:start-end for a name containing ':'.
+    #[arg(value_name = "REGION")]
+    pub regions: Vec<String>,
+    /// Read regions from FILE (BED: 0-based, half-open).
+    #[arg(long, value_name = "FILE")]
+    pub regions_file: Option<PathBuf>,
+    /// A point on the edge of a region overlaps it.
+    #[arg(long)]
+    pub inclusive_points: bool,
+    #[command(flatten)]
+    pub genome: GenomeArg,
+    #[command(flatten)]
+    pub chrom_order: ChromOrderArg,
     /// Write only the header lines.
     #[arg(long, conflicts_with = "no_header")]
     pub header_only: bool,

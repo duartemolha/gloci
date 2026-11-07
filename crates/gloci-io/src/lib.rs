@@ -21,13 +21,15 @@ pub use atomic::{
     AtomicFile, TempGuard, cleanup_registered, install_cleanup_handlers, register_temp,
 };
 pub use bcf::{BcfDicts, read_bcf_header, write_bcf_header};
-pub use bed::bed12_blocks;
+pub use bed::{bed12_blocks, is_bed_record_line};
 pub use convert::{HeaderMode, convert_variants};
 pub use detect::{Compression, Format, detect_compression, detect_format};
 pub use diag::{Diagnostics, InvalidPolicy};
 pub use error::{IoError, Loc, OrderError, UsageError};
 pub use genome::{chrom_table_for, load_genome};
-pub use index::{IndexInfo, IndexKind, find_index, open_region_reader, write_index};
+pub use index::{
+    IndexInfo, IndexKind, find_index, index_reference_names, open_region_reader, write_index,
+};
 pub use input::{Input, InputOptions, open_input, open_input_from};
 pub use output::{
     OutFormat, Output, OutputOptions, OutputSpec, check_level, open_output, parse_output_spec,

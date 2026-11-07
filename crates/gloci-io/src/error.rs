@@ -104,4 +104,16 @@ impl IoError {
             e => e,
         }
     }
+
+    /// Like `with_output_name`, for read errors reported under the
+    /// placeholder path `input`.
+    pub fn with_input_name(self, name: &str) -> IoError {
+        match self {
+            IoError::Read { path, source } if path == "input" => IoError::Read {
+                path: name.to_string(),
+                source,
+            },
+            e => e,
+        }
+    }
 }

@@ -2,6 +2,7 @@
 
 use crate::error::{CoordError, RegionError};
 use crate::interval::{Interval, one_based_closed, parse_coord};
+use crate::overlap::overlaps;
 
 /// A 0-based region; `end: None` means to the chromosome end.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +58,60 @@ impl Region {
             start: self.start,
             end,
         }
+    }
+}
+
+/// The regions requested on one chromosome, sorted and without duplicates
+/// (D10). A span matches when it overlaps one of them under §4.3. They are
+/// not merged into their union: a point between two bookended regions is in
+/// neither.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RegionSet {
+    regions: Vec<Interval>,
+    /// `reach[i]`: the largest end among `regions[..=i]`.
+    reach: Vec<u64>,
+}
+
+impl RegionSet {
+    pub fn new(mut regions: Vec<Interval>) -> RegionSet {
+        regions.sort_unstable();
+        regions.dedup();
+        let mut reach = Vec::with_capacity(regions.len());
+        let mut m = 0;
+        for r in &regions {
+            m = r.end.max(m);
+            reach.push(m);
+        }
+        RegionSet { regions, reach }
+    }
+
+    /// The regions, sorted by start.
+    pub fn regions(&self) -> &[Interval] {
+        &self.regions
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.regions.is_empty()
+    }
+
+    /// The largest region end (0 when there are none). No span that starts
+    /// after it can match.
+    pub fn end(&self) -> u64 {
+        self.reach.last().copied().unwrap_or(0)
+    }
+
+    /// Does `span` overlap one of the regions under §4.3?
+    pub fn matches(&self, span: Interval, inclusive_points: bool) -> bool {
+        let n = self.regions.partition_point(|r| r.start <= span.end);
+        for i in (0..n).rev() {
+            if self.reach[i] < span.start {
+                break;
+            }
+            if overlaps(span, self.regions[i], inclusive_points) {
+                return true;
+            }
+        }
+        false
     }
 }
 

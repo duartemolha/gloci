@@ -206,6 +206,65 @@ fn guard_start_backwards_across_batches_and_hint() {
     );
 }
 
+/// Run a contiguity guard over `bed` read with `chroms`, in batches of `max`.
+fn contiguous(bed: &[u8], mut chroms: ChromTable, max: usize) -> Result<(), IoError> {
+    let mut r = reader("x.bed", bed, Format::Bed);
+    let mut guard = OrderGuard::contiguous("x.bed", Format::Bed);
+    let mut batch = RecordBatch::default();
+    loop {
+        batch.clear();
+        let more = r.read_batch(&mut chroms, &mut batch, max).unwrap();
+        guard.check(&chroms, &batch)?;
+        if !more {
+            return Ok(());
+        }
+    }
+}
+
+#[test]
+fn contiguity_guard() {
+    // any chromosome order, whatever the table's order
+    let lex = b"chr1\t5\t9\nchr10\t1\t2\nchr10\t1\t5\nchr2\t0\t3\n";
+    for max in [1, 1000] {
+        contiguous(lex, ChromTable::karyotype(), max).unwrap();
+        contiguous(
+            b"chrX\t1\t2\nchr1\t1\t2\n",
+            ChromTable::lexicographic(),
+            max,
+        )
+        .unwrap();
+    }
+    // a chromosome that comes back, across batches too, and no lex note
+    for max in [1, 1000] {
+        let e = contiguous(
+            b"chr1\t5\t9\nchr2\t1\t2\nchr1\t7\t8\n",
+            ChromTable::karyotype(),
+            max,
+        )
+        .unwrap_err()
+        .to_string();
+        assert_eq!(
+            e,
+            "x.bed is not sorted: line 3 (chr1\t7\t8) comes after line 2 (chr2\t1\t2)\nhint: run: gloci sort x.bed"
+        );
+    }
+    let e = contiguous(
+        b"chr1\t50\t60\nchr1\t5\t9\n",
+        ChromTable::lexicographic(),
+        1,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        e.contains("line 2 (chr1\t5\t9) comes after line 1 (chr1\t50\t60)"),
+        "{e}"
+    );
+    assert!(
+        e.ends_with("hint: run: gloci sort x.bed --chrom-order lex"),
+        "{e}"
+    );
+}
+
 #[test]
 fn sort_hints() {
     let p = PathBuf::from("g.fai");

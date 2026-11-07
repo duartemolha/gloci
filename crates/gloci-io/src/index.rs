@@ -23,7 +23,7 @@ use crate::record::{
 };
 use crate::sorted::OrderGuard;
 use crate::vcf::{Vcf, VcfHeader};
-use gloci_core::{ChromId, ChromTable, Interval, VcfSpan, overlaps, parse_coord, thousands};
+use gloci_core::{ChromId, ChromTable, Interval, RegionSet, VcfSpan, parse_coord, thousands};
 use noodles_bgzf::VirtualPosition;
 use noodles_bgzf::io::MultithreadedReader;
 use noodles_core::Position;
@@ -953,12 +953,9 @@ fn bin_chunks<I: BinIndexKind>(
 struct Plan {
     rid: usize,
     name: Vec<u8>,
-    /// Sorted by start, without duplicates. Records are tested against
-    /// these, not against their union: a point between two bookended
-    /// regions is in neither (§4.3).
-    regions: Vec<Interval>,
-    /// `reach[i]`: the largest end among `regions[..=i]`.
-    reach: Vec<u64>,
+    /// Records are tested against each region, not against their union: a
+    /// point between two bookended regions is in neither (§4.3).
+    set: RegionSet,
     /// Disjoint query windows in coordinate order: each region widened by
     /// one base on both sides (so points on region edges, and zero-length
     /// records indexed as `[s, s+1)`, are found), merged, and clamped to
@@ -967,17 +964,10 @@ struct Plan {
 }
 
 impl Plan {
-    fn new(rid: usize, name: Vec<u8>, mut regions: Vec<Interval>, max_pos: u64) -> Plan {
-        regions.sort_unstable();
-        regions.dedup();
-        let mut reach = Vec::with_capacity(regions.len());
-        let mut m = 0;
-        for r in &regions {
-            m = r.end.max(m);
-            reach.push(m);
-        }
+    fn new(rid: usize, name: Vec<u8>, regions: Vec<Interval>, max_pos: u64) -> Plan {
+        let set = RegionSet::new(regions);
         let mut windows: Vec<(u64, u64)> = Vec::new();
-        for r in &regions {
+        for r in set.regions() {
             let lo = r.start.saturating_sub(1);
             let hi = r.end.saturating_add(1).min(max_pos);
             if lo >= hi {
@@ -991,24 +981,9 @@ impl Plan {
         Plan {
             rid,
             name,
-            regions,
-            reach,
+            set,
             windows,
         }
-    }
-
-    /// Does `span` overlap any region under §4.3?
-    fn matches(&self, span: Interval, inclusive: bool) -> bool {
-        let n = self.regions.partition_point(|r| r.start <= span.end);
-        for i in (0..n).rev() {
-            if self.reach[i] < span.start {
-                break;
-            }
-            if overlaps(span, self.regions[i], inclusive) {
-                return true;
-            }
-        }
-        false
     }
 }
 
@@ -1197,7 +1172,8 @@ impl RegionReader {
                 self.loaded = false;
                 continue;
             }
-            if plan.matches(span, self.inclusive) && self.last_emitted.is_none_or(|l| start > l) {
+            if plan.set.matches(span, self.inclusive) && self.last_emitted.is_none_or(|l| start > l)
+            {
                 let len = (batch.buf.len() - off) as u32;
                 batch.recs.push(RecordMeta {
                     chrom,
@@ -1339,6 +1315,35 @@ pub fn open_region_reader(
     }))
 }
 
+/// The reference names the index `info` of `data` knows, in reference id
+/// order: the names stored in a TBI/CSI header, or, for a BCF's CSI (which
+/// has none), the contig dictionary of the BCF header.
+pub fn index_reference_names(data: &Path, info: &IndexInfo) -> Result<Vec<Vec<u8>>, IoError> {
+    if let Some(names) = Loaded::read(info)?.names() {
+        return Ok(names.iter().map(|n| n.to_vec()).collect());
+    }
+    let name = data.display().to_string();
+    let file = File::open(data).map_err(|source| IoError::Open {
+        path: name.clone(),
+        source,
+    })?;
+    let mut src = noodles_bgzf::io::Reader::new(BufReader::new(file));
+    let h = read_bcf_header(&mut src).map_err(|msg| IoError::Detect {
+        msg: format!(
+            "{name}: the index {} lists no chromosome names, as only a BCF index may, \
+but the BCF header cannot be read: {msg}",
+            info.path.display()
+        ),
+        path: name.clone(),
+    })?;
+    let dicts = h.bcf.expect("read_bcf_header builds the dictionaries");
+    Ok(dicts
+        .contigs
+        .into_iter()
+        .filter(|c| !c.is_empty())
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1474,7 +1479,7 @@ mod tests {
             vec![iv(10, 20), iv(0, 0), iv(21, 30), iv(100, 100), iv(10, 20)],
             1 << 29,
         );
-        assert_eq!(p.regions.len(), 4);
+        assert_eq!(p.set.regions().len(), 4);
         // [0,0) -> (0,1); [10,20) and [21,30) widen into touching windows
         assert_eq!(p.windows, [(0, 1), (9, 31), (99, 101)]);
         let p = Plan::new(
@@ -1484,8 +1489,8 @@ mod tests {
             1 << 29,
         );
         assert_eq!(p.windows, [(4, 1 << 29)]);
-        assert!(p.matches(iv(7, 7), false));
-        assert!(!p.matches(iv(5, 5), false));
-        assert!(p.matches(iv(5, 5), true));
+        assert!(p.set.matches(iv(7, 7), false));
+        assert!(!p.set.matches(iv(5, 5), false));
+        assert!(p.set.matches(iv(5, 5), true));
     }
 }

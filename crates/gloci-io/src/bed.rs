@@ -20,11 +20,21 @@ fn is_word(line: &[u8], w: &[u8]) -> bool {
     line.starts_with(w) && line.get(w.len()).is_none_or(|b| *b == b' ' || *b == b'\t')
 }
 
+fn is_header_line(line: &[u8]) -> bool {
+    line.first() == Some(&b'#') || is_word(line, b"track") || is_word(line, b"browser")
+}
+
+/// Is `line` (without its line terminator) a BED record, rather than a
+/// blank, `#`, `track` or `browser` line (D14)?
+pub fn is_bed_record_line(line: &[u8]) -> bool {
+    !line.is_empty() && !is_header_line(line)
+}
+
 impl TextKind for Bed {
     fn classify(line: &[u8], _seen: bool) -> Class {
         if line.is_empty() {
             Class::Skip
-        } else if line[0] == b'#' || is_word(line, b"track") || is_word(line, b"browser") {
+        } else if is_header_line(line) {
             Class::Header
         } else {
             Class::Record

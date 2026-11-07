@@ -151,6 +151,55 @@ fn genome_and_closed_tables() {
 }
 
 #[test]
+fn compare_names_in_table_order() {
+    let lex = ChromTable::lexicographic();
+    assert_eq!(lex.cmp_names(b"chr10", b"chr2"), Some(Ordering::Less));
+    let kar = ChromTable::karyotype();
+    assert_eq!(kar.cmp_names(b"chr10", b"chr2"), Some(Ordering::Greater));
+    assert_eq!(kar.cmp_names(b"chrX", b"chrX"), Some(Ordering::Equal));
+    assert!(kar.is_empty()); // nothing was interned
+    let g = Genome::parse_sizes(b"chr2\t100\nchr1\t100\n").unwrap();
+    let closed = ChromTable::closed(&g, OrderSource::GenomeFile("g".into()));
+    assert_eq!(closed.cmp_names(b"chr2", b"chr1"), Some(Ordering::Less));
+    assert_eq!(closed.cmp_names(b"chr2", b"chr3"), None);
+    let fa = ChromTable::first_appearance();
+    assert_eq!(fa.cmp_names(b"a", b"b"), None);
+}
+
+#[test]
+fn region_sets_test_each_region() {
+    let iv = |s, e| Interval { start: s, end: e };
+    let set = RegionSet::new(vec![
+        iv(20, 30),
+        iv(10, 20),
+        iv(10, 20),
+        iv(0, 100),
+        iv(40, 40),
+    ]);
+    assert_eq!(
+        set.regions(),
+        [iv(0, 100), iv(10, 20), iv(20, 30), iv(40, 40)]
+    );
+    assert_eq!(set.end(), 100);
+    assert!(set.matches(iv(99, 120), false));
+    assert!(!set.matches(iv(100, 120), false));
+    assert!(set.matches(iv(100, 100), true));
+    assert!(set.matches(iv(40, 40), false)); // equal points
+    // a point between two bookended regions is in neither
+    let set = RegionSet::new(vec![iv(10, 20), iv(20, 30)]);
+    assert!(!set.matches(iv(20, 20), false));
+    assert!(set.matches(iv(20, 20), true));
+    assert!(set.matches(iv(19, 21), false));
+    // a long region early on is still tested for a late span
+    let set = RegionSet::new(vec![iv(0, 1000), iv(5, 6), iv(7, 8)]);
+    assert!(set.matches(iv(500, 501), false));
+    assert!(!set.matches(iv(1000, 1001), false));
+    assert!(RegionSet::default().is_empty());
+    assert_eq!(RegionSet::default().end(), 0);
+    assert!(!RegionSet::default().matches(iv(0, 5), true));
+}
+
+#[test]
 fn many_contigs_stay_fast() {
     let mut t = ChromTable::lexicographic();
     for i in 0..100_000 {

@@ -22,4 +22,4 @@ pub use genome::Genome;
 pub use interval::{Interval, Strand, one_based_closed, parse_coord};
 pub use order::{OrderChecker, OrderViolation};
 pub use overlap::{Fraction, OverlapCriteria, StrandRule, Window, overlap_len, overlaps};
-pub use region::Region;
+pub use region::{Region, RegionSet};

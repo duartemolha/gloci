@@ -1,4 +1,4 @@
-//! `gloci view`: streaming, VCF/BCF conversion and header options.
+//! `gloci view`: region queries, streaming, VCF/BCF conversion and header options.
 use crate::Ctx;
 use crate::cli::{VcfSpan, ViewArgs};
 use gloci_io::{
@@ -39,6 +39,14 @@ pub fn run(ctx: &Ctx, a: &ViewArgs) -> anyhow::Result<()> {
     let vo = ViewOptions {
         header_only: a.header_only,
         no_header: a.no_header,
+        regions: a.regions.clone(),
+        regions_file: a
+            .regions_file
+            .as_ref()
+            .map(|p| p.to_string_lossy().into_owned()),
+        inclusive_points: a.inclusive_points,
+        genome: a.genome.genome.clone(),
+        chrom_order: a.chrom_order.chrom_order,
     };
     run_view(&a.file, &vo, &ro, &spec, &oo, &wo)?;
     Ok(())

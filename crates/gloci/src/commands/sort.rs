@@ -166,7 +166,7 @@ sort the inputs without -m to remove or find duplicates",
             sorter
                 .finish(&chroms, &mut |raw| w.write_record(raw))
                 .map_err(|e| e.with_output_name(&dest))?;
-            w.finish()?;
+            w.finish().map_err(|e| e.with_output_name(&dest))?;
         }
         None => {
             let mut w = open_record_writer(output, format, out_format, &header, &wopts)
@@ -175,7 +175,7 @@ sort the inputs without -m to remove or find duplicates",
                 w.write_record(raw)
             })
             .map_err(|e| e.with_output_name(&dest))?;
-            w.finish()?;
+            w.finish().map_err(|e| e.with_output_name(&dest))?;
         }
     }
     warn_skipped(&readers);

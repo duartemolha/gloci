@@ -53,14 +53,7 @@ fn run(
             break;
         }
     }
-    Ok((
-        r.header().clone(),
-        out,
-        Diagnostics {
-            skipped: r.diagnostics().skipped,
-            examples: r.diagnostics().examples.clone(),
-        },
-    ))
+    Ok((r.header().clone(), out, r.diagnostics().clone()))
 }
 
 fn read_all(bytes: &[u8], o: ReaderOptions) -> (Header, Vec<Rec>, Diagnostics) {
