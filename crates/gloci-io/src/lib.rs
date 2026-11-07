@@ -1,6 +1,7 @@
-//! gloci-io: format detection and input opening.
+//! gloci-io: format detection, input opening and record readers.
 
 pub mod atomic;
+pub mod bcf;
 pub mod bed;
 pub mod detect;
 pub mod diag;
@@ -14,6 +15,7 @@ pub mod vcf;
 pub use atomic::{
     AtomicFile, TempGuard, cleanup_registered, install_cleanup_handlers, register_temp,
 };
+pub use bcf::{BcfDicts, read_bcf_header, write_bcf_header};
 pub use bed::bed12_blocks;
 pub use detect::{Compression, Format, detect_compression, detect_format};
 pub use diag::{Diagnostics, InvalidPolicy};

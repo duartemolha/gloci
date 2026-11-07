@@ -114,10 +114,9 @@ fn dispatch(input: Input, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, Io
         Format::Vcf => Ok(Box::new(crate::vcf::VcfReader::open_vcf(
             input, o.invalid, o.vcf_span,
         )?)),
-        Format::Bcf => Err(IoError::Detect {
-            msg: format!("{}: VCF/BCF reading is not supported yet", input.name),
-            path: input.name,
-        }),
+        Format::Bcf => Ok(Box::new(crate::bcf::BcfReader::open_bcf(
+            input, o.invalid, o.vcf_span,
+        )?)),
     }
 }
 

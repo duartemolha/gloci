@@ -1,5 +1,6 @@
 //! Policy and bookkeeping for invalid records (`--skip-invalid`).
 
+use crate::error::Loc;
 use gloci_core::thousands;
 
 /// What to do when a record cannot be parsed.
@@ -18,16 +19,19 @@ const MAX_EXAMPLES: usize = 10;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Diagnostics {
     pub skipped: u64,
-    /// At most 10 entries, each `"line N: msg"`.
+    /// At most 10 entries, each `"line N: msg"` (`"record N: msg"` for BCF).
     pub examples: Vec<String>,
 }
 
 impl Diagnostics {
     pub fn record(&mut self, line: u64, msg: &str) {
+        self.record_at(Loc::Line(line), msg);
+    }
+
+    pub fn record_at(&mut self, loc: Loc, msg: &str) {
         self.skipped += 1;
         if self.examples.len() < MAX_EXAMPLES {
-            self.examples
-                .push(format!("line {}: {msg}", thousands(line)));
+            self.examples.push(format!("{loc}: {msg}"));
         }
     }
 

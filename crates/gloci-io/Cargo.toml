@@ -16,3 +16,5 @@ ctrlc.workspace = true
 [dev-dependencies]
 gloci-testkit.workspace = true
 tempfile.workspace = true
+noodles-vcf.workspace = true
+noodles-bcf.workspace = true

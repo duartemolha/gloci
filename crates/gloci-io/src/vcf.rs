@@ -1,5 +1,6 @@
 //! VCF text reader, header parsing and provenance line.
 
+use crate::bcf::BcfDicts;
 use crate::diag::InvalidPolicy;
 use crate::error::IoError;
 use crate::input::Input;
@@ -16,6 +17,8 @@ pub struct VcfHeader {
     pub contigs: Vec<(Vec<u8>, Option<u64>)>,
     /// `#CHROM` columns from the tenth onward.
     pub samples: Vec<Vec<u8>>,
+    /// BCF dictionaries; `None` for text VCF.
+    pub bcf: Option<BcfDicts>,
 }
 
 impl VcfHeader {
@@ -24,6 +27,8 @@ impl VcfHeader {
         let mut contigs = Vec::new();
         let mut samples = None;
         for line in raw.split(|&b| b == b'\n').filter(|l| !l.is_empty()) {
+            // BCF header text does not go through the text reader's CR stripping.
+            let line = line.strip_suffix(b"\r").unwrap_or(line);
             if line.starts_with(b"#CHROM") {
                 if samples.is_some() {
                     return Err("VCF header has more than one #CHROM line".into());
@@ -43,6 +48,7 @@ impl VcfHeader {
             raw,
             contigs,
             samples,
+            bcf: None,
         })
     }
 
@@ -65,12 +71,11 @@ impl VcfHeader {
 
 fn parse_contig(line: &[u8], body: &[u8]) -> Result<(Vec<u8>, Option<u64>), String> {
     let shown = String::from_utf8_lossy(line);
-    let body = body.strip_suffix(b">").unwrap_or(body);
     let (mut id, mut len) = (None, None);
-    for kv in body.split(|&b| b == b',') {
-        if let Some(v) = kv.strip_prefix(b"ID=") {
+    for (k, v) in header_fields(body) {
+        if k == b"ID" {
             id.get_or_insert(v.to_vec());
-        } else if let Some(v) = kv.strip_prefix(b"length=") {
+        } else if k == b"length" {
             let n = std::str::from_utf8(v)
                 .ok()
                 .and_then(|s| s.parse::<u64>().ok())
@@ -82,6 +87,44 @@ fn parse_contig(line: &[u8], body: &[u8]) -> Result<(Vec<u8>, Option<u64>), Stri
         .filter(|i| !i.is_empty())
         .ok_or_else(|| format!("header line {shown} has no ID"))?;
     Ok((id, len))
+}
+
+/// Split the body of a structured header line (after `##KEY=<`) into
+/// `key=value` pairs. Commas inside double quotes do not split, quotes are
+/// removed from the value, and a trailing `>` is ignored.
+pub(crate) fn header_fields(body: &[u8]) -> Vec<(&[u8], &[u8])> {
+    let body = body.strip_suffix(b">").unwrap_or(body);
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < body.len() {
+        let start = i;
+        let (mut quoted, mut escaped) = (false, false);
+        while i < body.len() {
+            let b = body[i];
+            if escaped {
+                escaped = false;
+            } else if quoted && b == b'\\' {
+                escaped = true;
+            } else if b == b'"' {
+                quoted = !quoted;
+            } else if b == b',' && !quoted {
+                break;
+            }
+            i += 1;
+        }
+        let field = &body[start..i];
+        i += 1; // the comma
+        let (k, v) = match memchr::memchr(b'=', field) {
+            Some(eq) => (&field[..eq], &field[eq + 1..]),
+            None => (field, &field[field.len()..]),
+        };
+        let v = match v {
+            [b'"', inner @ .., b'"'] => inner,
+            v => v,
+        };
+        out.push((k, v));
+    }
+    out
 }
 
 /// Quote a command line for the `##glociCommand` header line: arguments with
@@ -130,7 +173,10 @@ impl TextReader<Vcf> {
             Header::Lines(l) => l,
             _ => Vec::new(),
         };
-        let h = VcfHeader::parse(raw).map_err(|msg| IoError::Detect { path: name, msg })?;
+        let h = VcfHeader::parse(raw).map_err(|msg| IoError::Detect {
+            msg: format!("{name}: {msg}"),
+            path: name,
+        })?;
         r.header = Header::Vcf(h);
         Ok(r)
     }

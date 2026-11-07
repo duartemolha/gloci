@@ -100,7 +100,7 @@ fn more_errors_and_edge_cases() {
     );
     assert_eq!(
         err("chr1\t1\t.\tA\tG\t.\t.\t.\n"),
-        "VCF header has no #CHROM line"
+        "x.vcf: VCF header has no #CHROM line"
     );
     // HOMEND= must not be read as END=
     assert!(
@@ -117,7 +117,11 @@ fn more_errors_and_edge_cases() {
     let Header::Vcf(h) = r.0 else { panic!() };
     assert_eq!(h.raw, H.as_bytes());
     let bad = "##fileformat=VCFv4.3\n##contig=<ID=c,length=abc>\n#CHROM\tPOS\n".to_string();
-    assert!(err(bad).contains("length=abc"));
+    let e = err(bad);
+    assert!(
+        e.starts_with("x.vcf: header line ") && e.contains("length=abc"),
+        "{e}"
+    );
 }
 
 #[test]
