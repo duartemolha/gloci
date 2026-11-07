@@ -239,3 +239,86 @@ fn bcf_output_refuses_undeclared_contigs() {
     );
     gloci().args(["view", &ok, "-o", &o]).assert().success();
 }
+
+// ---- Group C: multi-VCF sort header definitions ----
+
+fn vcf_with(defs: &str, recs: &[&str]) -> String {
+    let mut s = format!("##fileformat=VCFv4.3\n{defs}##contig=<ID=chr1,length=1000>\n{VCF_COLS}");
+    for r in recs {
+        s.push_str(r);
+        s.push('\n');
+    }
+    s
+}
+
+const DP: &str = "##INFO=<ID=DP,Number=1,Type=Integer,Description=\"Depth\">\n";
+const REC1: &str = "chr1\t5\t.\tA\tC\t.\t.\tDP=3";
+const REC2: &str = "chr1\t2\t.\tA\tC\t.\t.\t.";
+
+#[test]
+fn multi_vcf_sort_refuses_a_definition_only_one_file_has() {
+    let d = tempdir();
+    let a = w(d.path(), "a.vcf", &vcf_with("", &[REC2]));
+    let b = w(d.path(), "b.vcf", &vcf_with(DP, &[REC1]));
+    let (an, bn) = (a.as_str(), b.as_str());
+    gloci()
+        .args(["sort", an, bn])
+        .assert()
+        .code(1)
+        .stderr(contains(format!(
+            "{b} defines ##INFO=<ID=DP> but {a} does not; give the files the same header definitions, or sort them separately"
+        )));
+    // the other way round names the file that has it too
+    gloci()
+        .args(["sort", bn, an])
+        .assert()
+        .code(1)
+        .stderr(contains(format!("{b} defines ##INFO=<ID=DP> but {a} does not")));
+    // -m is a multi-file path too, and --check does not merge anything
+    gloci().args(["sort", "-m", an, bn]).assert().code(1);
+    gloci().args(["sort", "--check", an, bn]).assert().success();
+}
+
+#[test]
+fn multi_vcf_sort_refuses_conflicting_definitions() {
+    let d = tempdir();
+    let dp_float = "##INFO=<ID=DP,Number=1,Type=Float,Description=\"Depth\">\n";
+    let a = w(d.path(), "a.vcf", &vcf_with(DP, &[REC1]));
+    let b = w(d.path(), "b.vcf", &vcf_with(dp_float, &[REC2]));
+    gloci()
+        .args(["sort", &a, &b])
+        .assert()
+        .code(1)
+        .stderr(contains("define ##INFO=<ID=DP> differently").and(contains("Type=Float")));
+}
+
+#[test]
+fn multi_vcf_sort_treats_pass_as_implicit_and_ignores_other_meta_lines() {
+    let d = tempdir();
+    let pass = "##FILTER=<ID=PASS,Description=\"All filters passed\">\n";
+    let a = w(d.path(), "a.vcf", &vcf_with(&format!("{pass}{DP}"), &[REC1]));
+    let b = w(
+        d.path(),
+        "b.vcf",
+        &vcf_with(&format!("##source=other\n{DP}"), &[REC2]),
+    );
+    let out = gloci()
+        .args(["sort", &a, &b])
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(records(&text), vec![REC2, REC1]);
+    // the first file's header is kept
+    assert!(text.contains("##FILTER=<ID=PASS") && !text.contains("##source=other"));
+}
+
+#[test]
+fn multi_vcf_sort_accepts_identical_headers() {
+    let d = tempdir();
+    let a = w(d.path(), "a.vcf", &vcf_with(DP, &[REC1]));
+    let b = w(d.path(), "b.vcf", &vcf_with(DP, &[REC2]));
+    gloci().args(["sort", &a, &b]).assert().success();
+    gloci().args(["sort", "-m", &a, &b]).assert().success();
+}

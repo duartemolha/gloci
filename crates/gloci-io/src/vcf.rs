@@ -52,6 +52,33 @@ impl VcfHeader {
         })
     }
 
+    /// The structured definition lines (`##INFO`, `##FILTER`, `##FORMAT`,
+    /// `##ALT`, `##contig`) by kind and ID, each as its whole line without
+    /// the line terminator. A kind and ID defined twice keeps the first.
+    pub fn definitions(&self) -> std::collections::BTreeMap<(&'static str, Vec<u8>), Vec<u8>> {
+        const KINDS: [(&str, &[u8]); 5] = [
+            ("INFO", b"##INFO=<"),
+            ("FILTER", b"##FILTER=<"),
+            ("FORMAT", b"##FORMAT=<"),
+            ("ALT", b"##ALT=<"),
+            ("contig", b"##contig=<"),
+        ];
+        let mut out = std::collections::BTreeMap::new();
+        for line in self.raw.split(|&b| b == b'\n') {
+            let line = line.strip_suffix(b"\r").unwrap_or(line);
+            for (kind, prefix) in KINDS {
+                if let Some(body) = line.strip_prefix(prefix) {
+                    if let Some((_, id)) = header_fields(body).into_iter().find(|(k, _)| *k == b"ID")
+                    {
+                        out.entry((kind, id.to_vec())).or_insert_with(|| line.to_vec());
+                    }
+                    break;
+                }
+            }
+        }
+        out
+    }
+
     /// `raw` with a `##glociCommand` line inserted immediately before `#CHROM`.
     pub fn with_command_line(&self, cmd: &str, version: &str) -> Vec<u8> {
         let mut out = Vec::with_capacity(self.raw.len() + cmd.len() + 40);

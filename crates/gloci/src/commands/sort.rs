@@ -73,6 +73,9 @@ sort the inputs without -m to remove or find duplicates",
         }
     }
     check_samples(&readers)?;
+    if !a.check {
+        check_definitions(&readers)?;
+    }
     let refs: Vec<&dyn RecordReader> = readers.iter().map(|r| r.as_ref()).collect();
     let mut chroms = chrom_table_for(a.genome.genome.as_deref(), &refs, a.chrom_order.chrom_order)?;
 
@@ -224,6 +227,64 @@ Convert them to VCF first (gloci view FILE -O vcf.gz) or use inputs with identic
                     list(&first.samples)
                 ),
             });
+        }
+    }
+    Ok(())
+}
+
+/// Inputs that are VCF/BCF must define the same INFO, FILTER, FORMAT, ALT and
+/// contig lines: the output keeps the first file's header, so a definition
+/// only another file has would be lost, leaving records that use an
+/// undeclared key. Other meta lines may differ. `##FILTER=<ID=PASS>` is
+/// implicitly present in every header.
+fn check_definitions(readers: &[Box<dyn RecordReader>]) -> Result<(), IoError> {
+    let Header::Vcf(first) = readers[0].header() else {
+        return Ok(());
+    };
+    let base = first.definitions();
+    let implicit = |kind: &str, id: &[u8]| kind == "FILTER" && id == b"PASS";
+    let show = |kind: &str, id: &[u8]| format!("##{kind}=<ID={}>", String::from_utf8_lossy(id));
+    let fail = |path: &str, msg: String| IoError::Detect {
+        path: path.to_string(),
+        msg,
+    };
+    let fix = "give the files the same header definitions, or sort them separately";
+    for r in &readers[1..] {
+        let Header::Vcf(h) = r.header() else {
+            continue;
+        };
+        let (name, other) = (readers[0].name(), r.name());
+        let theirs = h.definitions();
+        for ((kind, id), line) in &theirs {
+            match base.get(&(*kind, id.clone())) {
+                None if implicit(kind, id) => {}
+                None => {
+                    return Err(fail(
+                        other,
+                        format!("{other} defines {} but {name} does not; {fix}", show(kind, id)),
+                    ));
+                }
+                Some(mine) if mine != line => {
+                    return Err(fail(
+                        other,
+                        format!(
+                            "{name} and {other} define {} differently ({} vs {}); {fix}",
+                            show(kind, id),
+                            String::from_utf8_lossy(mine),
+                            String::from_utf8_lossy(line)
+                        ),
+                    ));
+                }
+                Some(_) => {}
+            }
+        }
+        for (kind, id) in base.keys() {
+            if !theirs.contains_key(&(*kind, id.clone())) && !implicit(kind, id) {
+                return Err(fail(
+                    name,
+                    format!("{name} defines {} but {other} does not; {fix}", show(kind, id)),
+                ));
+            }
         }
     }
     Ok(())
