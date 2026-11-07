@@ -228,7 +228,7 @@ gloci ships chromosome names and sizes for common assemblies, so `-g hg38` works
   - UCSC ids use `chr`-prefixed names.
   - GRC/Ensembl ids use the Ensembl names (`1 … 22, X, Y, MT`).
   - Each entry is built from its own project's published tables. They are not renamed copies: hg19 `chrM` (16,571 bp) is not GRCh37 `MT` (16,569 bp).
-- **Order.** Built-ins list chromosomes in the same karyotype order gloci uses without `-g` (Section 4.5), so `-g NAME` adds lengths and the exact chromosome set but never reorders. The exception is genomes with Roman-numeral chromosome names (yeast), which keep reference order.
+- **Order.** Built-ins list chromosomes in the same karyotype order gloci uses without `-g` (Section 4.5), so `-g NAME` adds lengths and the exact chromosome set but never reorders. The exception is genomes with Roman-numeral chromosome names (yeast `sacCer3`/`R64`, worm `ce11`/`WBcel235`). These list their Roman-numeral chromosomes in numeric order (I, II, … XVI), followed by the rest.
 - **Initial list:**
   - Human: `hg19`, `hg38`, `hs1` (T2T-CHM13v2.0), `GRCh37`, `GRCh38`.
   - Mouse: `mm10`, `mm39`, `GRCm38`, `GRCm39`.
@@ -238,7 +238,9 @@ gloci ships chromosome names and sizes for common assemblies, so `-g hg38` works
   - *C. elegans*: `ce11`, `WBcel235`.
   - Budding yeast: `sacCer3`, `R64`.
   - *Arabidopsis*: `TAIR10`.
-- **Each entry contains every sequence in its source table** (including alts, randoms and unplaced contigs). The source URL, retrieval date and checksum are recorded in the repository.
+- **What each entry contains.** The source URL, retrieval date and checksum of each entry are recorded in the repository.
+  - UCSC entries contain every sequence in the UCSC table, including alts, randoms and unplaced contigs, each with its real length.
+  - Ensembl-named entries use Ensembl's primary assembly: chromosomes plus unlocalized and unplaced contigs, with LRG regions excluded. They leave out haplotype and patch regions, because Ensembl stores those as N-padded copies the length of a whole chromosome. Those copies would distort genome-wide operations such as `complement -g` or `windows -g`. A file that uses such contigs can pass a `.fai` instead. **[revised 2026-11-07]**
 - **The data is compiled into the binary** (a few hundred KB), so installing and building need no network. A maintainer script refreshes it.
 - **`gloci genomes`** lists the built-ins: id, species, assembly, naming style, sequence count and total length. `gloci genomes show NAME` prints one as a 2-column `.genome` file.
 
