@@ -8,7 +8,8 @@ rewritten.
 
 Without `-g` and without a VCF/BCF header that lists contigs, gloci uses
 **karyotype order**: `chr1, chr2 ... chr22, chrX, chrY, chrM`. `sort -k1,1`,
-bedops `sort-bed` and `bedtools sort` use **lexicographic** order:
+bedops `sort-bed` and `bedtools sort` use **lexicographic** order (for `sort`,
+only with `LC_ALL=C`; other locales order names differently again):
 `chr1, chr10, chr11 ... chr19, chr2, chr20 ...`.
 
 Same records, `chr1, chr2, chr10, chrX`:
@@ -55,13 +56,13 @@ Names that follow no common pattern, such as yeast's Roman numerals, need `-g`.
 Before:
 
 ```sh
-sort -k1,1 -k2,2n peaks.bed > peaks.sorted.bed
-sort -k1,1 -k2,2n genes.bed > genes.sorted.bed
+LC_ALL=C sort -k1,1 -k2,2n peaks.bed > peaks.sorted.bed
+LC_ALL=C sort -k1,1 -k2,2n genes.bed > genes.sorted.bed
 bedtools intersect -sorted -a peaks.sorted.bed -b genes.sorted.bed -u > hits.bed
 ```
 
-After, with karyotype order (`sort` and `intersect` land in later releases; the
-command lines below are the intended forms):
+After, with karyotype order (`gloci sort` is available now; `gloci intersect`
+arrives in a later release, so its lines show the intended form):
 
 ```sh
 gloci sort peaks.bed > peaks.sorted.bed
@@ -69,7 +70,8 @@ gloci sort genes.bed > genes.sorted.bed
 gloci intersect -a peaks.sorted.bed -b genes.sorted.bed > hits.bed
 ```
 
-After, keeping the old order so `hits.bed` is unchanged:
+After, keeping the old order so `hits.bed` is unchanged (again, `intersect` is
+the intended form):
 
 ```sh
 gloci sort peaks.bed --chrom-order lex > peaks.sorted.bed
