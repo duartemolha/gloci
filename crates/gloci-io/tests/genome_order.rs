@@ -210,19 +210,19 @@ fn guard_start_backwards_across_batches_and_hint() {
 fn sort_hints() {
     let p = PathBuf::from("g.fai");
     assert_eq!(
-        sort_hint("a.bed", &OrderSource::GenomeFile(p), true),
+        sort_hint("a.bed", &OrderSource::GenomeFile(p)),
         "run: gloci sort a.bed -g g.fai"
     );
     assert_eq!(
-        sort_hint("a.bed", &OrderSource::VcfHeader("v".into()), true),
+        sort_hint("a.bed", &OrderSource::VcfHeader("v".into())),
         "run: gloci sort a.bed"
     );
     assert_eq!(
-        sort_hint("a.bed", &OrderSource::Lexicographic, false),
+        sort_hint("a.bed", &OrderSource::Lexicographic),
         "run: gloci sort a.bed --chrom-order lex"
     );
     assert_eq!(
-        sort_hint("a.bed", &OrderSource::Karyotype, true),
+        sort_hint("a.bed", &OrderSource::Karyotype),
         "run: gloci sort a.bed"
     );
 }

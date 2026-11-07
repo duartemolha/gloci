@@ -27,3 +27,7 @@ gloci-testkit.workspace = true
 assert_cmd.workspace = true
 predicates.workspace = true
 tempfile.workspace = true
+noodles-bgzf.workspace = true
+noodles-bcf.workspace = true
+noodles-tabix.workspace = true
+noodles-vcf.workspace = true

@@ -19,6 +19,19 @@ pub struct Ctx {
     pub version: &'static str,
 }
 
+/// The spill directory: the command's `--tmp-dir` (which clap also fills from
+/// `GLOCI_TMPDIR`), else a non-empty `GLOCI_TMPDIR`, else the system temp dir.
+fn resolve_tmp_dir(arg: Option<PathBuf>) -> PathBuf {
+    let non_empty = |p: &PathBuf| !p.as_os_str().is_empty();
+    arg.filter(non_empty)
+        .or_else(|| {
+            std::env::var_os("GLOCI_TMPDIR")
+                .map(PathBuf::from)
+                .filter(non_empty)
+        })
+        .unwrap_or_else(std::env::temp_dir)
+}
+
 /// The clap command tree (used by xtask for man pages and completions).
 pub fn command() -> clap::Command {
     Cli::command()
@@ -68,8 +81,9 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
     logging::init(cli.quiet, cli.verbose);
     install_cleanup_handlers();
 
-    let requested = match &cli.command {
-        Commands::Index(a) => a.threads.threads,
+    let (requested, tmp_arg) = match &cli.command {
+        Commands::Index(a) => (a.threads.threads, None),
+        Commands::Sort(a) => (a.threads.threads, a.tmp_dir.tmp_dir.clone()),
     };
     let threads = requested
         .unwrap_or_else(|| std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN));
@@ -80,15 +94,14 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
 
     let ctx = Ctx {
         threads,
-        tmp_dir: std::env::var_os("GLOCI_TMPDIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(std::env::temp_dir),
+        tmp_dir: resolve_tmp_dir(tmp_arg),
         command_line: shell_quote_args(&args),
         version: env!("CARGO_PKG_VERSION"),
     };
 
     let result = match &cli.command {
         Commands::Index(a) => commands::index::run(&ctx, a),
+        Commands::Sort(a) => commands::sort::run(&ctx, a),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

@@ -11,7 +11,7 @@ const SHOW_CHARS: usize = 120;
 const KEEP_BYTES: usize = SHOW_CHARS * 4;
 
 /// The `hint:` line for a sortedness error.
-pub fn sort_hint(name: &str, source: &OrderSource, _chrom_backwards: bool) -> String {
+pub fn sort_hint(name: &str, source: &OrderSource) -> String {
     match source {
         OrderSource::GenomeFile(p) => format!("run: gloci sort {name} -g {}", p.display()),
         OrderSource::Lexicographic => format!("run: gloci sort {name} --chrom-order lex"),
@@ -73,11 +73,7 @@ impl OrderGuard {
                     loc: loc(m.loc),
                     rec: show(&cur),
                     hint: {
-                        let mut hint = sort_hint(
-                            &self.name,
-                            chroms.order_source(),
-                            matches!(v, OrderViolation::ChromBackwards { .. }),
-                        );
+                        let mut hint = sort_hint(&self.name, chroms.order_source());
                         if let OrderViolation::ChromBackwards { prev, next } = v
                             && *chroms.order_source() == OrderSource::Karyotype
                             && chroms.name(prev) < chroms.name(next)

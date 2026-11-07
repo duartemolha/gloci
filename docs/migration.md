@@ -24,6 +24,9 @@ chrX    100  200                                    chrX    100  200
 
 Within a chromosome the order is the same. Only the chromosome order differs.
 
+Records that share a start are ordered by end by `gloci sort` (`sort -k1,1 -k2,2n`
+leaves them in input order). Add `--full-key` to order such ties by the whole line.
+
 ### What you will see
 
 A file sorted by an old tool is rejected by gloci's streaming commands:

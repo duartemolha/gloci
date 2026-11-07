@@ -14,6 +14,7 @@ pub mod output;
 pub mod record;
 pub mod sorted;
 pub mod vcf;
+pub mod writer;
 
 pub use atomic::{
     AtomicFile, TempGuard, cleanup_registered, install_cleanup_handlers, register_temp,
@@ -35,3 +36,4 @@ pub use record::{
 };
 pub use sorted::{OrderGuard, sort_hint};
 pub use vcf::{VcfHeader, shell_quote_args};
+pub use writer::{RecordWriter, WriterOptions, check_family, open_record_writer};

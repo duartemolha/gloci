@@ -65,6 +65,68 @@ Examples:
   gloci index calls.vcf.gz
   gloci index peaks.bed.gz -t 8")]
     Index(IndexArgs),
+    /// Sort BED/bedGraph/GFF/VCF/BCF files with bounded memory.
+    ///
+    /// Records are ordered by chromosome, then start, then end. The
+    /// chromosome order comes from -g, else from the ##contig lines of a
+    /// VCF/BCF header, else from --chrom-order (karyotype by default).
+    /// Records that tie keep their input order unless --full-key is given.
+    /// BED header lines are kept only with --header; the leading ## lines of
+    /// a GFF and the header of a VCF/BCF are always kept. VCF/BCF records are
+    /// ordered by POS and REF end whatever --vcf-span says, so the output is
+    /// tabix-compatible. The output format is the input format: -o must
+    /// match it. Use -o with the same path as an input to sort a file in
+    /// place.
+    ///
+    /// Sorting spills to --tmp-dir when the input is larger than --max-mem.
+    /// That directory must exist and be writable; it is checked before any
+    /// input is read.
+    #[command(after_long_help = "\
+Examples:
+  gloci sort peaks.bed > peaks.sorted.bed
+  gloci sort calls.vcf.gz -o calls.sorted.vcf.gz --write-index
+  gloci sort huge.bed --max-mem 8G --tmp-dir /scratch -t 16 -o huge.sorted.bed.gz
+  gloci sort --check peaks.sorted.bed")]
+    Sort(SortArgs),
+}
+
+#[derive(Args)]
+pub struct SortArgs {
+    /// Input files (default: stdin).
+    #[arg(value_name = "FILES")]
+    pub files: Vec<String>,
+    #[command(flatten)]
+    pub genome: GenomeArg,
+    #[command(flatten)]
+    pub chrom_order: ChromOrderArg,
+    /// Memory budget for sorting, in binary units (K, M, G, T); at least 16M.
+    #[arg(long, value_name = "SIZE", default_value = "2G", value_parser = parse_size)]
+    pub max_mem: u64,
+    #[command(flatten)]
+    pub tmp_dir: TmpDirArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    /// Break ties on the whole record instead of keeping input order.
+    #[arg(long)]
+    pub full_key: bool,
+    /// Write one copy of each distinct record (implies --full-key).
+    #[arg(long, conflicts_with = "duplicates")]
+    pub unique: bool,
+    /// Write one copy of each record that occurs more than once (implies --full-key).
+    #[arg(long)]
+    pub duplicates: bool,
+    /// Merge inputs that are already sorted instead of sorting them.
+    #[arg(short = 'm', long)]
+    pub merge_sorted: bool,
+    /// Only check that the inputs are sorted; write nothing, exit 1 if not.
+    #[arg(long)]
+    pub check: bool,
+    #[command(flatten)]
+    pub header: HeaderArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub out: OutputArgs,
 }
 
 #[derive(Args)]
@@ -144,8 +206,9 @@ pub struct InvalidArg {
 
 #[derive(Args, Debug, Clone)]
 pub struct TmpDirArg {
-    /// Directory for temporary spill files.
-    #[arg(long, value_name = "DIR", env = "GLOCI_TMPDIR")]
+    /// Directory for temporary spill files; it must exist and be writable
+    /// (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir).
+    #[arg(long, value_name = "DIR")]
     pub tmp_dir: Option<PathBuf>,
 }
 
