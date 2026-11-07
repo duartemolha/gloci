@@ -1,0 +1,410 @@
+//! Differential harness: runs gloci and the pinned reference tools (bedtools,
+//! bedops, GNU sort, htslib, bcftools) on the same inputs inside the
+//! `gloci-diff:p0` container and compares the outputs.
+//!
+//! Every case in `xtask/diff/cases.toml` either must match, or names a
+//! documented difference (an anchor in `docs/differences.md`) and must differ.
+//! `--update-golden` stores the reference output of each single-invocation case
+//! under `crates/gloci/tests/golden/<case>/`, which plain `cargo test` checks
+//! without Docker (`crates/gloci/tests/golden.rs`).
+//!
+//! Commands run with the case directory as working directory: the input is
+//! `input.<ext>` and every `aux` file keeps its basename. `gloci` is on PATH.
+use anyhow::{Context, Result, anyhow, bail, ensure};
+pub use gloci_testkit::differential::{Verdict, compare};
+use serde::Deserialize;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
+
+pub use crate::bench::DEFAULT_IMAGE;
+
+#[derive(Deserialize, Default, Clone, Debug)]
+pub struct Input {
+    /// Arguments of `cargo xtask gen`: `["bed", "--records", "1500"]`.
+    #[serde(rename = "gen")]
+    pub generate: Option<Vec<String>>,
+    /// A committed file, relative to the workspace root.
+    pub file: Option<String>,
+}
+
+#[derive(Deserialize, Default, Clone, Debug)]
+pub struct Case {
+    pub name: String,
+    #[serde(default)]
+    pub input: Input,
+    /// Extra files (workspace-relative) copied next to the input by basename.
+    #[serde(default)]
+    pub aux: Vec<String>,
+    /// Shell command; stdout is compared.
+    #[serde(default)]
+    pub gloci: String,
+    #[serde(default)]
+    pub reference: String,
+    #[serde(default = "exact")]
+    pub compare: String,
+    /// Anchor in docs/differences.md of the documented difference.
+    pub expected_difference: Option<String>,
+}
+
+fn exact() -> String {
+    "exact".into()
+}
+
+#[derive(Deserialize)]
+struct CaseFile {
+    case: Vec<Case>,
+}
+
+pub fn workspace_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf()
+}
+
+pub fn load_cases(path: &Path) -> Result<Vec<Case>> {
+    let text = std::fs::read_to_string(path).with_context(|| path.display().to_string())?;
+    let cases = toml::from_str::<CaseFile>(&text)?.case;
+    for c in &cases {
+        ensure!(
+            matches!(
+                c.compare.as_str(),
+                "exact" | "lines-unordered" | "vcf-records"
+            ),
+            "{}: unknown compare mode `{}`",
+            c.name,
+            c.compare
+        );
+        ensure!(
+            c.input.generate.is_some() != c.input.file.is_some(),
+            "{}: input needs exactly one of gen or file",
+            c.name
+        );
+        ensure!(
+            !c.gloci.is_empty() && !c.reference.is_empty(),
+            "{}: gloci and reference are required",
+            c.name
+        );
+    }
+    Ok(cases)
+}
+
+/// A documented difference must name an anchor that exists.
+pub fn validate(c: &Case, doc: &str) -> Result<(), String> {
+    match &c.expected_difference {
+        Some(a) => gloci_testkit::differential::check_anchor(doc, a),
+        None => Ok(()),
+    }
+}
+
+pub fn verdict(c: &Case, equal: bool) -> Verdict {
+    gloci_testkit::differential::verdict(c.expected_difference.as_deref(), equal)
+}
+
+/// The gloci arguments when the case is a single plain `gloci ARGS...`
+/// invocation (no shell syntax), which the golden test can replay.
+pub fn golden_args(c: &Case) -> Option<String> {
+    let rest = c.gloci.trim().strip_prefix("gloci ")?;
+    if rest.contains(['\n', ';', '&', '|', '<', '>', '$', '"', '\'', '`', '\\']) {
+        return None;
+    }
+    Some(rest.split_whitespace().collect::<Vec<_>>().join(" "))
+}
+
+fn input_ext(c: &Case) -> String {
+    match (&c.input.generate, &c.input.file) {
+        (Some(g), _) => g[0].clone(),
+        (_, Some(f)) => Path::new(f)
+            .extension()
+            .map(|e| e.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        _ => unreachable!(),
+    }
+}
+
+/// `(file name, bytes)` of the input and aux files of a case.
+pub fn case_files(c: &Case, root: &Path) -> Result<Vec<(String, Vec<u8>)>> {
+    let mut v = Vec::new();
+    let bytes = match (&c.input.generate, &c.input.file) {
+        (Some(g), _) => {
+            let mut b = Vec::new();
+            crate::synth::run_args(g, &mut b)?;
+            b
+        }
+        (_, Some(f)) => std::fs::read(root.join(f)).with_context(|| format!("{}: {f}", c.name))?,
+        _ => unreachable!(),
+    };
+    v.push((format!("input.{}", input_ext(c)), bytes));
+    for a in &c.aux {
+        let name = Path::new(a)
+            .file_name()
+            .ok_or_else(|| anyhow!("{}: bad aux {a}", c.name))?
+            .to_string_lossy()
+            .into_owned();
+        v.push((
+            name,
+            std::fs::read(root.join(a)).with_context(|| format!("{}: {a}", c.name))?,
+        ));
+    }
+    Ok(v)
+}
+
+pub struct Args {
+    pub image: String,
+    pub cases: PathBuf,
+    pub only: Option<String>,
+    pub update_golden: bool,
+    /// gloci binary to mount (default: `cargo build` for the host).
+    pub gloci: Option<PathBuf>,
+}
+
+/// Run `script` with `sh -c` inside the container: the case directory is
+/// mounted at /work (the working directory) and gloci at /usr/local/bin/gloci.
+fn docker_sh(image: &str, gloci: &Path, dir: &Path, script: &str) -> Result<Output> {
+    let id = |f: &str| -> Result<String> {
+        let o = Command::new("id").arg(f).output()?;
+        Ok(String::from_utf8(o.stdout)?.trim().to_string())
+    };
+    Command::new("docker")
+        .args(["run", "--rm", "--network", "none", "--user"])
+        .arg(format!("{}:{}", id("-u")?, id("-g")?))
+        .args(["-e", "HOME=/tmp", "-w", "/work", "-v"])
+        .arg(format!("{}:/work", dir.display()))
+        .arg("-v")
+        .arg(format!("{}:/usr/local/bin/gloci:ro", gloci.display()))
+        .arg(image)
+        .args(["sh", "-c", script])
+        .output()
+        .context("running docker")
+}
+
+fn stderr_of(o: &Output) -> String {
+    String::from_utf8_lossy(&o.stderr).trim().to_string()
+}
+
+fn write_golden(c: &Case, root: &Path, args: &str, expected: &[u8]) -> Result<()> {
+    let dir = root.join("crates/gloci/tests/golden").join(&c.name);
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir)?;
+    }
+    std::fs::create_dir_all(&dir)?;
+    for (n, b) in case_files(c, root)? {
+        std::fs::write(dir.join(n), b)?;
+    }
+    std::fs::write(dir.join("args"), format!("{args}\n"))?;
+    std::fs::write(dir.join("compare"), format!("{}\n", c.compare))?;
+    if let Some(a) = &c.expected_difference {
+        std::fs::write(dir.join("expected_difference"), format!("{a}\n"))?;
+    }
+    std::fs::write(dir.join("expected"), expected)?;
+    Ok(())
+}
+
+/// Returns true when every case passed.
+pub fn run(a: &Args) -> Result<bool> {
+    let root = workspace_root();
+    let gloci = match &a.gloci {
+        Some(p) => std::fs::canonicalize(p)
+            .with_context(|| format!("gloci binary {} not found", p.display()))?,
+        None => {
+            let st = Command::new("cargo")
+                .args(["build", "-p", "gloci"])
+                .current_dir(&root)
+                .status()?;
+            ensure!(st.success(), "cargo build failed");
+            root.join("target/debug/gloci")
+        }
+    };
+    let ok = Command::new("docker")
+        .args(["image", "inspect", &a.image])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    ensure!(
+        ok,
+        "image {0} not found: docker build -t {0} xtask/docker",
+        a.image
+    );
+    let doc = std::fs::read_to_string(root.join("docs/differences.md"))?;
+    let cases = load_cases(&a.cases)?;
+    let work = root.join("target/diff-work");
+    let mut all_ok = true;
+    let mut ran = 0;
+    for c in cases
+        .iter()
+        .filter(|c| a.only.as_ref().is_none_or(|o| *o == c.name))
+    {
+        if let Err(e) = validate(c, &doc) {
+            eprintln!("FAIL  {}: {e}", c.name);
+            all_ok = false;
+            continue;
+        }
+        let golden = golden_args(c);
+        if a.update_golden && golden.is_none() {
+            eprintln!(
+                "skip  {} (not a single gloci invocation; live only)",
+                c.name
+            );
+            continue;
+        }
+        ran += 1;
+        let dir = work.join(&c.name);
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir)?;
+        }
+        std::fs::create_dir_all(&dir)?;
+        for (n, b) in case_files(c, &root)? {
+            std::fs::write(dir.join(n), b)?;
+        }
+        let reference = docker_sh(&a.image, &gloci, &dir, &c.reference)?;
+        if !reference.status.success() {
+            bail!(
+                "{}: reference command failed: {}",
+                c.name,
+                stderr_of(&reference)
+            );
+        }
+        if a.update_golden {
+            write_golden(c, &root, golden.as_deref().unwrap(), &reference.stdout)?;
+            eprintln!("wrote {}", c.name);
+            continue;
+        }
+        let mine = docker_sh(&a.image, &gloci, &dir, &c.gloci)?;
+        if !mine.status.success() {
+            eprintln!("FAIL  {}: gloci failed: {}", c.name, stderr_of(&mine));
+            all_ok = false;
+            continue;
+        }
+        let equal = compare(&c.compare, &mine.stdout, &reference.stdout);
+        let v = verdict(c, equal);
+        let word = match v {
+            Verdict::Pass if c.expected_difference.is_some() => "ok    (differs as documented)",
+            Verdict::Pass => "ok    (matches)",
+            Verdict::Mismatch => "FAIL  mismatch",
+            Verdict::StaleDifference => "FAIL  stale expected_difference: outputs are now equal",
+        };
+        eprintln!("{word}  {}", c.name);
+        if v != Verdict::Pass {
+            all_ok = false;
+            let _ = std::fs::write(dir.join("gloci.out"), &mine.stdout);
+            let _ = std::fs::write(dir.join("reference.out"), &reference.stdout);
+            eprintln!("      outputs in {}", dir.display());
+        }
+        if v == Verdict::Pass {
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+    ensure!(ran > 0, "no case matched");
+    Ok(all_ok)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn case(expected: Option<&str>) -> Case {
+        Case {
+            name: "c".into(),
+            expected_difference: expected.map(String::from),
+            ..Case::default()
+        }
+    }
+
+    #[test]
+    fn compare_modes() {
+        assert!(compare("exact", b"a\nb\n", b"a\nb\n"));
+        assert!(
+            compare("lines-unordered", b"a\nb\n", b"b\na\n")
+                && !compare("exact", b"a\nb\n", b"b\na\n")
+        );
+        assert!(compare(
+            "vcf-records",
+            b"##x=1\n#CHROM\nr1\n",
+            b"##y=2\n#CHROM\nr1\n"
+        ));
+        assert!(!compare("vcf-records", b"#h\nr1\nr2\n", b"#h\nr2\nr1\n"));
+    }
+
+    #[test]
+    fn expected_difference_rules() {
+        let doc = "## View region footprints {#view-region-footprints}\n";
+        assert!(validate(&case(Some("view-region-footprints")), doc).is_ok());
+        assert!(validate(&case(Some("#view-region-footprints")), doc).is_ok());
+        assert!(validate(&case(Some("nope")), doc).is_err());
+        assert!(validate(&case(None), doc).is_ok());
+        assert_eq!(
+            verdict(&case(Some("view-region-footprints")), true),
+            Verdict::StaleDifference
+        );
+        assert_eq!(
+            verdict(&case(Some("view-region-footprints")), false),
+            Verdict::Pass
+        );
+        assert_eq!(verdict(&case(None), false), Verdict::Mismatch);
+        assert_eq!(verdict(&case(None), true), Verdict::Pass);
+    }
+
+    #[test]
+    fn manifest_parses_and_all_anchors_exist() {
+        let root = workspace_root();
+        let cases = load_cases(&root.join("xtask/diff/cases.toml")).unwrap();
+        let doc = std::fs::read_to_string(root.join("docs/differences.md")).unwrap();
+        let names: Vec<_> = cases.iter().map(|c| c.name.as_str()).collect();
+        for want in [
+            "sort-bed-vs-sort-bed",
+            "sort-bed-vs-bedtools-sort",
+            "sort-bed-vs-gnu-sort",
+            "sort-bed-karyotype-default-vs-bedtools-sort",
+            "sort-bed-vs-bedtools-sort-genome",
+            "sort-vcf-vs-bcftools-sort",
+            "view-region-ref-inclusive-vs-tabix",
+            "view-region-default-vs-tabix",
+            "index-interop-tabix-queries",
+        ] {
+            assert!(names.contains(&want), "missing case {want}");
+        }
+        let mut seen = std::collections::HashSet::new();
+        for c in &cases {
+            assert!(seen.insert(&c.name), "duplicate case {}", c.name);
+            validate(c, &doc).unwrap_or_else(|e| panic!("{}: {e}", c.name));
+        }
+    }
+
+    #[test]
+    fn golden_dirs_match_the_manifest() {
+        let root = workspace_root();
+        let cases = load_cases(&root.join("xtask/diff/cases.toml")).unwrap();
+        let golden = root.join("crates/gloci/tests/golden");
+        let mut eligible = 0;
+        for c in &cases {
+            let Some(args) = golden_args(c) else { continue };
+            eligible += 1;
+            let dir = golden.join(&c.name);
+            let read = |f: &str| {
+                std::fs::read(dir.join(f)).unwrap_or_else(|e| {
+                    panic!(
+                        "{}: {f}: {e} (run cargo xtask diff --update-golden)",
+                        c.name
+                    )
+                })
+            };
+            assert_eq!(read("args"), format!("{args}\n").into_bytes(), "{}", c.name);
+            assert_eq!(read("compare"), format!("{}\n", c.compare).into_bytes());
+            for (name, bytes) in case_files(c, &root).unwrap() {
+                assert_eq!(read(&name), bytes, "{}: {name} is stale", c.name);
+            }
+            assert!(!read("expected").is_empty(), "{}", c.name);
+        }
+        assert!(eligible >= 8, "only {eligible} golden cases");
+        // no orphan directories
+        for e in std::fs::read_dir(&golden).unwrap() {
+            let n = e.unwrap().file_name().to_string_lossy().into_owned();
+            assert!(
+                cases
+                    .iter()
+                    .any(|c| c.name == n && golden_args(c).is_some()),
+                "orphan golden dir {n}"
+            );
+        }
+    }
+}

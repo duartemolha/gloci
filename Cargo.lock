@@ -1264,6 +1264,7 @@ dependencies = [
  "clap_complete",
  "clap_mangen",
  "gloci",
+ "gloci-testkit",
  "rand",
  "rand_chacha",
  "serde",

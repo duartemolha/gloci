@@ -21,6 +21,22 @@ enum Task {
         #[command(subcommand)]
         kind: Gen,
     },
+    /// Compare gloci with the pinned reference tools (needs Docker)
+    Diff {
+        #[arg(long, default_value = xtask::diff::DEFAULT_IMAGE)]
+        image: String,
+        #[arg(long, default_value = "xtask/diff/cases.toml")]
+        cases: PathBuf,
+        /// Run only this case
+        #[arg(long)]
+        only: Option<String>,
+        /// Rewrite crates/gloci/tests/golden from the reference tools
+        #[arg(long)]
+        update_golden: bool,
+        /// gloci binary to test (default: cargo build for the host)
+        #[arg(long)]
+        gloci: Option<PathBuf>,
+    },
     /// Run the benchmark suite
     Bench {
         #[arg(long, default_value = "xtask/bench/cases.toml")]
@@ -129,6 +145,21 @@ fn run(cli: Cli) -> Result<bool> {
                 xtask::synth::vcf(&o, &mut std::fs::File::create(output)?)?
             }
         },
+        Task::Diff {
+            image,
+            cases,
+            only,
+            update_golden,
+            gloci,
+        } => {
+            return xtask::diff::run(&xtask::diff::Args {
+                image,
+                cases,
+                only,
+                update_golden,
+                gloci,
+            });
+        }
         Task::Bench {
             cases,
             out,

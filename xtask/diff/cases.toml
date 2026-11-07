@@ -1,0 +1,123 @@
+# Differential cases. Commands run with the case directory as working directory:
+# the input is `input.<ext>`, `aux` files keep their basename, `gloci` is on PATH.
+# A case without `expected_difference` must match; one with it must differ, and
+# the anchor must exist in docs/differences.md.
+#
+# A case whose `gloci` is a single plain `gloci ARGS` invocation (no shell
+# syntax) also becomes a committed golden case, replayed by `cargo test`.
+
+# Inputs: ties.bed has start ties (different ends, names, exact duplicates),
+# points, bookended and nested features in a shuffled order over chr1, chr2,
+# chr10, chrX, chrM. ties-nopoints.bed drops the points (sort-bed rejects
+# zero-length records). distinct-starts.bed keeps the first record per
+# (chrom, start), so tie order cannot matter.
+
+[[case]]
+name = "sort-bed-vs-sort-bed"
+input = { file = "xtask/diff/inputs/ties-nopoints.bed" }
+gloci = "gloci sort --chrom-order lex --full-key input.bed"
+reference = "sort-bed input.bed"
+compare = "exact"
+
+[[case]]
+name = "sort-bed-tie-order-vs-sort-bed"
+input = { file = "xtask/diff/inputs/ties-nopoints.bed" }
+gloci = "gloci sort --chrom-order lex input.bed"
+reference = "sort-bed input.bed"
+compare = "exact"
+expected_difference = "#sort-tie-order"
+
+[[case]]
+name = "sort-bed-vs-bedtools-sort"
+input = { file = "xtask/diff/inputs/distinct-starts.bed" }
+gloci = "gloci sort --chrom-order lex input.bed"
+reference = "bedtools sort -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "sort-bed-tie-order-vs-bedtools-sort"
+input = { file = "xtask/diff/inputs/ties.bed" }
+gloci = "gloci sort --chrom-order lex input.bed"
+reference = "bedtools sort -i input.bed"
+compare = "exact"
+expected_difference = "#sort-tie-order"
+
+[[case]]
+name = "sort-bed-generated-vs-bedtools-sort"
+input = { gen = ["bed", "--records", "1500", "--chroms", "12", "--seed", "11"] }
+gloci = "gloci sort --chrom-order lex input.bed"
+reference = "bedtools sort -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "sort-bed-vs-gnu-sort"
+input = { file = "xtask/diff/inputs/distinct-starts.bed" }
+gloci = "gloci sort --chrom-order lex input.bed"
+reference = "LC_ALL=C sort -k1,1 -k2,2n -s input.bed"
+compare = "exact"
+
+[[case]]
+name = "sort-bed-karyotype-default-vs-bedtools-sort"
+input = { file = "xtask/diff/inputs/distinct-starts.bed" }
+gloci = "gloci sort input.bed"
+reference = "bedtools sort -i input.bed"
+compare = "exact"
+expected_difference = "#karyotype-chromosome-order"
+
+[[case]]
+name = "sort-bed-vs-bedtools-sort-genome"
+input = { file = "xtask/diff/inputs/distinct-starts.bed" }
+aux = ["xtask/diff/inputs/genome.txt"]
+gloci = "gloci sort -g genome.txt input.bed"
+reference = "bedtools sort -i input.bed -g genome.txt"
+compare = "exact"
+
+[[case]]
+name = "sort-vcf-vs-bcftools-sort"
+input = { file = "xtask/diff/inputs/unsorted-distinct.vcf" }
+gloci = "gloci sort input.vcf"
+reference = "bcftools sort input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "sort-vcf-tie-order-vs-bcftools-sort"
+input = { file = "xtask/diff/inputs/unsorted-ties.vcf" }
+gloci = "gloci sort input.vcf"
+reference = "bcftools sort input.vcf"
+compare = "vcf-records"
+expected_difference = "#sort-tie-order"
+
+# tabix reads a BGZF copy through its own index; gloci scans the plain file.
+# Regions are disjoint so that no record is printed twice.
+
+[[case]]
+name = "view-region-ref-inclusive-vs-tabix"
+input = { file = "xtask/diff/inputs/regions.vcf" }
+gloci = "gloci view --no-header --vcf-span ref --inclusive-points input.vcf chr1:100-100 chr1:101-101 chr1:150-190 chr1:200-200 chr1:300-420 chr2:100-100 chr2:495-505"
+reference = "bgzip -c input.vcf > i.vcf.gz && tabix -p vcf i.vcf.gz && tabix i.vcf.gz chr1:100-100 chr1:101-101 chr1:150-190 chr1:200-200 chr1:300-420 chr2:100-100 chr2:495-505"
+compare = "exact"
+
+[[case]]
+name = "view-region-default-vs-tabix"
+input = { file = "xtask/diff/inputs/regions.vcf" }
+gloci = "gloci view --no-header input.vcf chr1:100-100 chr1:101-101 chr1:150-190 chr1:200-200 chr1:300-420 chr2:100-100 chr2:495-505"
+reference = "bgzip -c input.vcf > i.vcf.gz && tabix -p vcf i.vcf.gz && tabix i.vcf.gz chr1:100-100 chr1:101-101 chr1:150-190 chr1:200-200 chr1:300-420 chr2:100-100 chr2:495-505"
+compare = "exact"
+expected_difference = "#view-region-footprints"
+
+# htslib reads through the index gloci built and through its own: the queries
+# must return the same records.
+
+[[case]]
+name = "index-interop-tabix-queries"
+input = { gen = ["vcf", "--records", "1500", "--chroms", "5", "--seed", "21"] }
+gloci = '''gloci sort input.vcf -o g.vcf.gz --write-index && for q in chr1:1-50000000 chr2:100000000-180000000 chr3 chr4:1-1000 chr5:60000000-250000000; do tabix g.vcf.gz $q; done'''
+reference = '''bgzip -c input.vcf > t.vcf.gz && tabix -p vcf t.vcf.gz && for q in chr1:1-50000000 chr2:100000000-180000000 chr3 chr4:1-1000 chr5:60000000-250000000; do tabix t.vcf.gz $q; done'''
+compare = "exact"
+
+[[case]]
+name = "index-interop-tabix-queries-small"
+input = { file = "xtask/diff/inputs/regions.vcf" }
+gloci = '''gloci sort input.vcf -o g.vcf.gz --write-index && for q in chr1:100-100 chr1:250-250 chr1:399-401 chr1:402-1000 chr2 chr2:499-499; do tabix g.vcf.gz $q; done'''
+reference = '''bgzip -c input.vcf > t.vcf.gz && tabix -p vcf t.vcf.gz && for q in chr1:100-100 chr1:250-250 chr1:399-401 chr1:402-1000 chr2 chr2:499-499; do tabix t.vcf.gz $q; done'''
+compare = "exact"
