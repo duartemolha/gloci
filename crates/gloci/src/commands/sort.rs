@@ -202,6 +202,20 @@ fn check_samples(readers: &[Box<dyn RecordReader>]) -> Result<(), IoError> {
     };
     for r in &readers[1..] {
         if let Header::Vcf(h) = r.header()
+            && let (Some(a), Some(b)) = (&first.bcf, &h.bcf)
+            && a != b
+        {
+            let (name, other) = (readers[0].name(), r.name());
+            return Err(IoError::Detect {
+                path: other.to_string(),
+                msg: format!(
+                    "the BCF headers of {name} and {other} differ (contig or INFO/FILTER/FORMAT dictionaries); \
+BCF records refer to them by index, so they cannot be sorted together as they are. \
+Convert them to VCF first (gloci view FILE -O vcf.gz) or use inputs with identical headers"
+                ),
+            });
+        }
+        if let Header::Vcf(h) = r.header()
             && h.samples != first.samples
         {
             let list = |s: &[Vec<u8>]| {

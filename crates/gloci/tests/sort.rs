@@ -557,3 +557,97 @@ fn help_documents_tmp_dir() {
     let flat = help.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(flat.contains("must exist and be writable"), "{help}");
 }
+
+fn bcf_in(d: &Path, name: &str, head: &str, recs: &[&str]) -> std::path::PathBuf {
+    fixtures::write(
+        d,
+        name,
+        &fixtures::vcf_to_bcf(vcf(head, VCF_COLS, recs).as_bytes()),
+    )
+}
+
+#[test]
+fn multi_bcf_needs_identical_dictionaries() {
+    let d = tempdir();
+    let swapped =
+        "##fileformat=VCFv4.3\n##contig=<ID=chr1,length=1000>\n##contig=<ID=chr2,length=1000>\n";
+    let a = bcf_in(
+        d.path(),
+        "a.bcf",
+        VCF_HEAD_21,
+        &["chr2\t9\t.\tA\tC\t.\t.\t."],
+    );
+    let b = bcf_in(d.path(), "b.bcf", swapped, &["chr1\t3\t.\tA\tC\t.\t.\t."]);
+    let o = d.path().join("o.bcf");
+    gloci()
+        .arg("sort")
+        .arg(&a)
+        .arg(&b)
+        .arg("-o")
+        .arg(&o)
+        .assert()
+        .code(1)
+        .stderr(
+            contains("BCF headers of")
+                .and(contains("a.bcf"))
+                .and(contains("b.bcf"))
+                .and(contains("differ"))
+                .and(contains("gloci view FILE -O vcf.gz")),
+        );
+    assert!(!o.exists());
+
+    // the same header in both: sorted and readable
+    let c = bcf_in(
+        d.path(),
+        "c.bcf",
+        VCF_HEAD_21,
+        &["chr1\t3\t.\tA\tC\t.\t.\t."],
+    );
+    gloci()
+        .arg("sort")
+        .arg(&a)
+        .arg(&c)
+        .arg("-o")
+        .arg(&o)
+        .assert()
+        .success();
+    let mut r = noodles_bcf::io::Reader::new(std::fs::File::open(&o).unwrap());
+    let header = r.read_header().unwrap();
+    let got: Vec<(String, usize)> = r
+        .records()
+        .map(|rec| {
+            let rec = rec.unwrap();
+            (
+                noodles_vcf::variant::Record::reference_sequence_name(&rec, &header)
+                    .unwrap()
+                    .to_string(),
+                noodles_vcf::variant::Record::variant_start(&rec)
+                    .unwrap()
+                    .unwrap()
+                    .get(),
+            )
+        })
+        .collect();
+    assert_eq!(got, [("chr2".to_string(), 9), ("chr1".to_string(), 3)]);
+}
+
+#[test]
+fn two_vcfs_one_command_line_first_header() {
+    let d = tempdir();
+    let h1 = "##fileformat=VCFv4.3\n##source=first\n##contig=<ID=chr1,length=1000>\n";
+    let h2 = "##fileformat=VCFv4.3\n##source=second\n##contig=<ID=chr1,length=1000>\n";
+    let a = w(
+        d.path(),
+        "a.vcf",
+        &vcf(h1, VCF_COLS, &["chr1\t5\t.\tA\tC\t.\t.\t."]),
+    );
+    let b = w(
+        d.path(),
+        "b.vcf",
+        &vcf(h2, VCF_COLS, &["chr1\t2\t.\tA\tC\t.\t.\t."]),
+    );
+    let out = stdout_of(&["sort", &a, &b]);
+    assert_eq!(out.matches("##glociCommand=").count(), 1);
+    assert!(out.contains("##source=first\n") && !out.contains("##source=second"));
+    assert!(out.find("\nchr1\t2").unwrap() < out.find("\nchr1\t5").unwrap());
+}
