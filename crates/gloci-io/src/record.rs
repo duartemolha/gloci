@@ -59,6 +59,20 @@ pub enum Header {
     Vcf(crate::vcf::VcfHeader),
 }
 
+/// Bytes of records to read per batch, and the bound on the record count.
+const BATCH_BYTES: usize = 4 << 20;
+const MAX_BATCH: usize = 16384;
+
+/// Records to request next, so a batch is about `BATCH_BYTES` whatever the
+/// record length (a VCF line can be megabytes).
+pub fn next_batch_size(batch: &RecordBatch, current: usize) -> usize {
+    if batch.is_empty() {
+        return current;
+    }
+    let per_rec = batch.buf.len() / batch.len() + 1;
+    (BATCH_BYTES / per_rec).clamp(1, MAX_BATCH)
+}
+
 pub trait RecordReader: Send {
     fn name(&self) -> &str;
     fn format(&self) -> Format;

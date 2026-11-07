@@ -88,6 +88,45 @@ Examples:
   gloci sort huge.bed --max-mem 8G --tmp-dir /scratch -t 16 -o huge.sorted.bed.gz
   gloci sort --check peaks.sorted.bed")]
     Sort(SortArgs),
+    /// Stream a file, convert VCF to BCF and back, or print only the header.
+    ///
+    /// With no options the records are written exactly as read, so view can
+    /// recompress a file (-o FILE.gz is BGZF) or index it (--write-index).
+    /// VCF and BCF convert to each other with -O or the -o extension;
+    /// the header is kept as it is, plus a ##glociCommand line. BED and GFF
+    /// header lines are kept by default. The input must be sorted; it is
+    /// checked as it streams. Conversions between other formats are not
+    /// available yet (they will be gloci convert).
+    #[command(after_long_help = "\
+Examples:
+  gloci view calls.bcf -O vcf | less
+  gloci view calls.vcf.gz -o calls.bcf --write-index
+  gloci view peaks.bed -o peaks.bed.gz --write-index
+  gloci view calls.vcf.gz --header-only")]
+    View(ViewArgs),
+}
+
+#[derive(Args)]
+pub struct ViewArgs {
+    /// Input file (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// Write only the header lines.
+    #[arg(long, conflicts_with = "no_header")]
+    pub header_only: bool,
+    /// Write only the records, without the header.
+    #[arg(long)]
+    pub no_header: bool,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub format: FormatArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub out: OutputArgs,
 }
 
 #[derive(Args)]

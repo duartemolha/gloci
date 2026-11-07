@@ -84,6 +84,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
     let (requested, tmp_arg) = match &cli.command {
         Commands::Index(a) => (a.threads.threads, None),
         Commands::Sort(a) => (a.threads.threads, a.tmp_dir.tmp_dir.clone()),
+        Commands::View(a) => (a.threads.threads, None),
     };
     let threads = requested
         .unwrap_or_else(|| std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN));
@@ -102,6 +103,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
     let result = match &cli.command {
         Commands::Index(a) => commands::index::run(&ctx, a),
         Commands::Sort(a) => commands::sort::run(&ctx, a),
+        Commands::View(a) => commands::view::run(&ctx, a),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

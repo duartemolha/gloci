@@ -4,17 +4,14 @@ use crate::cli::SortArgs;
 use gloci_core::VcfSpan;
 use gloci_io::{
     Format, Header, IoError, OrderGuard, OutFormat, OutputOptions, ReaderOptions, RecordBatch,
-    RecordReader, UsageError, WriterOptions, check_family, chrom_table_for, open_output,
-    open_reader, open_record_writer, parse_output_spec, refuse_binary_to_tty,
+    RecordReader, UsageError, WriterOptions, check_family, chrom_table_for, next_batch_size,
+    open_output, open_reader, open_record_writer, parse_output_spec, refuse_binary_to_tty,
 };
 use gloci_ops::{Dedup, SortConfig, Sorter, Tie, merge_sorted};
 use std::io::IsTerminal;
 
 /// `--max-mem` below this is a usage error (D23).
 const MIN_MAX_MEM: u64 = 16 << 20;
-/// Bytes of records to read per batch, and the bounds on the record count.
-const BATCH_BYTES: usize = 4 << 20;
-const MAX_BATCH: usize = 16384;
 
 fn usage(msg: impl Into<String>) -> anyhow::Error {
     UsageError(msg.into()).into()
@@ -183,16 +180,6 @@ sort the inputs without -m to remove or find duplicates",
     }
     warn_skipped(&readers);
     Ok(())
-}
-
-/// Records to request next, so a batch is about `BATCH_BYTES` whatever the
-/// record length (a VCF line can be megabytes).
-fn next_batch_size(batch: &RecordBatch, current: usize) -> usize {
-    if batch.is_empty() {
-        return current;
-    }
-    let per_rec = batch.buf.len() / batch.len() + 1;
-    (BATCH_BYTES / per_rec).clamp(1, MAX_BATCH)
 }
 
 /// Inputs that are VCF/BCF need identical sample columns (D29).

@@ -3,6 +3,7 @@
 pub mod atomic;
 pub mod bcf;
 pub mod bed;
+pub mod convert;
 pub mod detect;
 pub mod diag;
 pub mod error;
@@ -21,6 +22,7 @@ pub use atomic::{
 };
 pub use bcf::{BcfDicts, read_bcf_header, write_bcf_header};
 pub use bed::bed12_blocks;
+pub use convert::{HeaderMode, convert_variants};
 pub use detect::{Compression, Format, detect_compression, detect_format};
 pub use diag::{Diagnostics, InvalidPolicy};
 pub use error::{IoError, Loc, OrderError, UsageError};
@@ -32,8 +34,11 @@ pub use output::{
     refuse_binary_to_tty,
 };
 pub use record::{
-    Header, ReaderOptions, RecordBatch, RecordMeta, RecordReader, open_reader, open_reader_from,
+    Header, ReaderOptions, RecordBatch, RecordMeta, RecordReader, next_batch_size, open_reader,
+    open_reader_from,
 };
 pub use sorted::{OrderGuard, sort_hint};
 pub use vcf::{VcfHeader, shell_quote_args};
-pub use writer::{RecordWriter, WriterOptions, check_family, open_record_writer};
+pub use writer::{
+    RecordWriter, WriterOptions, check_family, open_headerless_writer, open_record_writer,
+};

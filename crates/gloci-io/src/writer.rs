@@ -120,3 +120,21 @@ pub fn open_record_writer(
         Box::new(TextWriter { out })
     })
 }
+
+/// A writer for text records with no header at all (`view --no-header`).
+/// `to` must be `records`' family, and a text one: BCF cannot do without its
+/// header.
+pub fn open_headerless_writer(
+    out: Output,
+    records: Format,
+    to: OutFormat,
+) -> Result<Box<dyn RecordWriter>, IoError> {
+    check_family(records, to)?;
+    if records == Format::Bcf {
+        return Err(UsageError(
+            "--no-header cannot be used with BCF output; BCF records need their header".into(),
+        )
+        .into());
+    }
+    Ok(Box::new(TextWriter { out }))
+}

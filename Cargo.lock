@@ -485,6 +485,7 @@ dependencies = [
  "gloci-core",
  "gloci-io",
  "gloci-testkit",
+ "log",
  "lz4_flex",
  "proptest",
  "rayon",
