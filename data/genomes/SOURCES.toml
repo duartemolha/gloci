@@ -2,8 +2,9 @@
 # `cargo xtask genomes refresh` rewrites the retrieved, sha256, sequences and
 # total_length fields. format "chrom-sizes": url is the file itself and sha256
 # is its hash. format "ensembl-core": url is an Ensembl core database dump
-# directory; the top-level sequences (the contents of the dna.toplevel FASTA)
-# come from seq_region, seq_region_attrib, attrib_type and coord_system (LRG regions
+# directory; the primary assembly (chromosomes plus unlocalized and unplaced
+# contigs; no haplotypes or patches, which carry the non_ref attribute) comes
+# from seq_region, seq_region_attrib, attrib_type and coord_system (LRG regions
 # left out), and sha256 is the hash of those four .txt.gz files concatenated
 # in that order.
 
@@ -40,8 +41,8 @@ format = "ensembl-core"
 url = "https://ftp.ensembl.org/pub/release-75/mysql/homo_sapiens_core_75_37/"
 retrieved = "2026-11-07"
 sha256 = "fc5c2f66f471582b7ca4b30bad1eafa2bfeca9690455a33c987986e8394d3a27"
-sequences = 297
-total_length = 32036512383
+sequences = 84
+total_length = 3101804739
 
 [[genome]]
 id = "GRCh38"
@@ -49,8 +50,8 @@ format = "ensembl-core"
 url = "https://ftp.ensembl.org/pub/release-112/mysql/homo_sapiens_core_112_38/"
 retrieved = "2026-11-07"
 sha256 = "f177074f0765fcc3785afc1cdc0b196373c1ae829a11c6abf03bfeb8a3450f4f"
-sequences = 706
-total_length = 3291585349
+sequences = 194
+total_length = 3099750718
 
 [[genome]]
 id = "mm10"
@@ -76,8 +77,8 @@ format = "ensembl-core"
 url = "https://ftp.ensembl.org/pub/release-102/mysql/mus_musculus_core_102_38/"
 retrieved = "2026-11-07"
 sha256 = "d7cd36f4e97a51c4b6c6fb5a16f94cafd0101b206317556fa93d157113d308c5"
-sequences = 139
-total_length = 12551251109
+sequences = 66
+total_length = 2730871774
 
 [[genome]]
 id = "GRCm39"
@@ -112,8 +113,8 @@ format = "ensembl-core"
 url = "https://ftp.ensembl.org/pub/release-112/mysql/danio_rerio_core_112_11/"
 retrieved = "2026-11-07"
 sha256 = "bc87c56929e6e968d8b6c0f2e263e70ae442d46950e90e2c81f555283f45d269"
-sequences = 1923
-total_length = 52633079901
+sequences = 993
+total_length = 1373471384
 
 [[genome]]
 id = "dm6"
@@ -137,6 +138,7 @@ total_length = 143726002
 id = "ce11"
 format = "chrom-sizes"
 url = "https://hgdownload.soe.ucsc.edu/goldenPath/ce11/bigZips/ce11.chrom.sizes"
+order = "reference"
 retrieved = "2026-11-07"
 sha256 = "23ea9e94fed2b21e2610788cfb2691c15e515abb9526a1112fb568581f6f5b93"
 sequences = 7
@@ -146,6 +148,7 @@ total_length = 100286401
 id = "WBcel235"
 format = "ensembl-core"
 url = "https://ftp.ensembl.org/pub/release-112/mysql/caenorhabditis_elegans_core_112_282/"
+order = "reference"
 retrieved = "2026-11-07"
 sha256 = "462d71490bfbdec6b76efdc767668b8902d97c949d468b7ff556b5952a70aba0"
 sequences = 7

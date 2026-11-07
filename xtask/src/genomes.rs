@@ -1,4 +1,3 @@
-//! `cargo xtask genomes refresh`: rebuild `data/genomes/*.genome` from the
 //! sources listed in `data/genomes/SOURCES.toml`.
 
 use anyhow::{Context, Result, bail};
@@ -58,8 +57,9 @@ const MANIFEST_HEADER: &str = "\
 # `cargo xtask genomes refresh` rewrites the retrieved, sha256, sequences and
 # total_length fields. format \"chrom-sizes\": url is the file itself and sha256
 # is its hash. format \"ensembl-core\": url is an Ensembl core database dump
-# directory; the top-level sequences (the contents of the dna.toplevel FASTA)
-# come from seq_region, seq_region_attrib, attrib_type and coord_system (LRG regions
+# directory; the primary assembly (chromosomes plus unlocalized and unplaced
+# contigs; no haplotypes or patches, which carry the non_ref attribute) comes
+# from seq_region, seq_region_attrib, attrib_type and coord_system (LRG regions
 # left out), and sha256 is the hash of those four .txt.gz files concatenated
 # in that order.
 
@@ -132,10 +132,13 @@ pub fn normalize(text: &str, reference_order: bool) -> Result<Vec<(String, u64)>
     Ok(rows)
 }
 
-/// The top-level sequences of an Ensembl core database as `name<TAB>length`
-/// lines, in `seq_region` order. LRG regions are flagged top-level in the
-/// database but are not in the `dna.toplevel` FASTA, so they are left out.
-pub fn ensembl_toplevel(
+/// The primary assembly of an Ensembl core database as `name<TAB>length`
+/// lines, in `seq_region` order: the top-level sequences (chromosomes,
+/// unlocalized and unplaced contigs) minus the regions that carry the
+/// `non_ref` attribute (haplotypes and patches, which Ensembl stores as
+/// N-padded copies the length of a chromosome) and minus LRG regions. The
+/// dumps' `assembly_exception` table is empty, so `non_ref` is the mechanism.
+pub fn ensembl_primary(
     seq_region: &str,
     attrib: &str,
     attrib_type: &str,
@@ -148,12 +151,23 @@ pub fn ensembl_toplevel(
         .find(|c| c.get(1).map(String::as_str) == Some("toplevel"))
         .and_then(|c| c.into_iter().next())
         .context("attrib_type has no \"toplevel\" attribute")?;
-    let top: HashSet<String> = attrib
-        .lines()
-        .map(cols)
-        .filter(|c| c.get(1) == Some(&top_id))
-        .map(|c| c[0].clone())
-        .collect();
+    let attrib_code = |code: &str| {
+        attrib_type
+            .lines()
+            .map(cols)
+            .find(|c| c.get(1).map(String::as_str) == Some(code))
+            .and_then(|c| c.into_iter().next())
+    };
+    let regions_with = |id: &Option<String>| -> HashSet<String> {
+        attrib
+            .lines()
+            .map(cols)
+            .filter(|c| c.get(1) == id.as_ref())
+            .map(|c| c[0].clone())
+            .collect()
+    };
+    let top = regions_with(&Some(top_id));
+    let non_ref = regions_with(&attrib_code("non_ref"));
     let lrg: HashSet<String> = coord_system
         .lines()
         .map(cols)
@@ -166,7 +180,7 @@ pub fn ensembl_toplevel(
         if c.len() < 4 {
             bail!("malformed seq_region row {line:?}");
         }
-        if top.contains(&c[0]) && !lrg.contains(&c[2]) {
+        if top.contains(&c[0]) && !non_ref.contains(&c[0]) && !lrg.contains(&c[2]) {
             out.push_str(&format!("{}\t{}\n", c[1], c[3]));
         }
     }
@@ -215,7 +229,7 @@ fn download(e: &Entry) -> Result<(String, String)> {
                 t.push(gunzip(&b).with_context(|| url.clone())?);
             }
             Ok((
-                ensembl_toplevel(&t[0], &t[1], &t[2], &t[3])?,
+                ensembl_primary(&t[0], &t[1], &t[2], &t[3])?,
                 hex(&h.finalize()),
             ))
         }
@@ -347,15 +361,20 @@ mod tests {
     }
 
     #[test]
-    fn ensembl_toplevel_selects_flagged_regions() {
+    fn ensembl_primary_selects_flagged_regions() {
         let sr = "1\tctg1\t1\t10\n2\tI\t2\t100\n";
         let at = "2\t6\tx\n3\t6\t\n3\t9\t1\n";
         let ty = "1\tembl_acc\tx\n6\ttoplevel\tTop Level\n";
         let cs = "1\t1\tcontig\t\\N\t3\n2\t1\tchromosome\tX\t1\n3\t1\tlrg\t\\N\t5\n";
-        assert_eq!(ensembl_toplevel(sr, at, ty, cs).unwrap(), "I\t100\n");
+        assert_eq!(ensembl_primary(sr, at, ty, cs).unwrap(), "I\t100\n");
         // An LRG region flagged top-level is left out.
         let sr = "2\tI\t2\t100\n3\tLRG_1\t3\t5\n";
-        assert_eq!(ensembl_toplevel(sr, at, ty, cs).unwrap(), "I\t100\n");
+        assert_eq!(ensembl_primary(sr, at, ty, cs).unwrap(), "I\t100\n");
+        // A non_ref (haplotype or patch) region is left out.
+        let sr = "2\tI\t2\t100\n4\tHG1_PATCH\t2\t99\n";
+        let at = "2\t6\tx\n4\t6\t\n4\t16\t1\n";
+        let ty = "6\ttoplevel\tTop Level\n16\tnon_ref\tNon Reference\n";
+        assert_eq!(ensembl_primary(sr, at, ty, cs).unwrap(), "I\t100\n");
     }
 
     #[test]

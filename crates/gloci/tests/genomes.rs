@@ -103,3 +103,30 @@ fn out_of_order_hint_names_the_builtin() {
         .code(1)
         .stdout(contains("-g hg38"));
 }
+
+#[test]
+fn a_file_named_like_a_builtin_wins_with_a_warning() {
+    let d = tempfile::tempdir().unwrap();
+    plain_file(d.path(), "hg38", "chrA\t10\n");
+    let bed = plain_file(d.path(), "a.bed", "chrA\t1\t2\n");
+    gloci()
+        .current_dir(d.path())
+        .args(["sort", bed.to_str().unwrap(), "-g", "hg38"])
+        .assert()
+        .success()
+        .stdout("chrA\t1\t2\n")
+        .stderr(contains("rename or move that file"));
+}
+
+#[test]
+fn a_directory_named_like_a_builtin_does_not_hijack_it() {
+    let d = tempfile::tempdir().unwrap();
+    std::fs::create_dir(d.path().join("hg38")).unwrap();
+    let bed = plain_file(d.path(), "a.bed", "chr2\t5\t6\nchr1\t1\t2\n");
+    gloci()
+        .current_dir(d.path())
+        .args(["sort", bed.to_str().unwrap(), "-g", "hg38"])
+        .assert()
+        .success()
+        .stdout("chr1\t1\t2\nchr2\t5\t6\n");
+}

@@ -178,14 +178,14 @@ pub fn unknown_genome(arg: &str) -> IoError {
 }
 
 /// Resolve a `-g` value. A value with a `/` in it, or one that names an
-/// existing path, is a file; otherwise it is a built-in genome id.
+/// existing file, is a file (a directory does not count); otherwise it is a built-in genome id.
 pub fn resolve_genome(arg: &str) -> Result<(Genome, OrderSource), IoError> {
     let path = Path::new(arg);
     let built = builtin(arg);
-    if arg.contains('/') || path.exists() {
+    if arg.contains('/') || path.is_file() {
         if built.is_some() {
             log::warn!(
-                "-g {arg} names a file, so it is used instead of the built-in genome {arg}; use ./{arg} to be explicit, or rename the file"
+                "-g {arg} names a file in the current directory, so it is used instead of the built-in genome {arg}; to get the built-in genome, rename or move that file; to use the file, pass its path, e.g. -g ./{arg}"
             );
         }
         let g = load_genome(path)?;

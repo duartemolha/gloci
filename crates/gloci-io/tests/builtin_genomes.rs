@@ -54,6 +54,80 @@ fn every_id_present_and_case_insensitive() {
     assert_eq!(builtin_genomes().len(), IDS.len());
 }
 
+/// The ids marked `order = "reference"` in SOURCES.toml: the one place the
+/// Roman-numeral exception is listed.
+fn reference_ordered() -> Vec<String> {
+    let manifest = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../data/genomes/SOURCES.toml"
+    ))
+    .unwrap();
+    let t: toml::Table = manifest.parse().unwrap();
+    t["genome"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e.get("order").and_then(|o| o.as_str()) == Some("reference"))
+        .map(|e| e["id"].as_str().unwrap().to_string())
+        .collect()
+}
+
+fn names_of(id: &str) -> Vec<String> {
+    let g = builtin(id).unwrap().genome();
+    (0..g.len())
+        .map(|i| String::from_utf8(g.name(i).to_vec()).unwrap())
+        .collect()
+}
+
+#[test]
+fn roman_numeral_genomes_are_in_reference_order() {
+    let mut r = reference_ordered();
+    r.sort();
+    assert_eq!(r, ["R64", "WBcel235", "ce11", "sacCer3"]);
+    assert_eq!(
+        names_of("ce11"),
+        ["chrI", "chrII", "chrIII", "chrIV", "chrV", "chrX", "chrM"]
+    );
+    assert_eq!(
+        names_of("WBcel235"),
+        ["I", "II", "III", "IV", "V", "X", "MtDNA"]
+    );
+    assert_eq!(&names_of("R64")[..5], ["I", "II", "III", "IV", "V"]);
+    assert_eq!(names_of("R64")[15..], ["XVI", "Mito"]);
+}
+
+#[test]
+fn ensembl_tables_are_primary_assemblies() {
+    let (human, mouse) = (3_000_000_000..=3_300_000_000, 2_600_000_000..=2_800_000_000);
+    for (id, range) in [
+        ("GRCh38", &human),
+        ("GRCh37", &human),
+        ("GRCm38", &mouse),
+        ("GRCm39", &mouse),
+    ] {
+        let t = builtin(id).unwrap().total_length();
+        assert!(range.contains(&t), "{id}: {t}");
+    }
+    for b in builtin_genomes()
+        .iter()
+        .filter(|b| b.naming == gloci_io::Naming::Ensembl)
+    {
+        for n in names_of(b.id) {
+            assert!(
+                !["PATCH", "HSCHR", "CHR_", "LRG"]
+                    .iter()
+                    .any(|p| n.contains(p)),
+                "{}: {n}",
+                b.id
+            );
+        }
+        // No N-padded chromosome-length copy: nothing is longer than chr1.
+        let g = b.genome();
+        let max = (0..g.len()).filter_map(|i| g.length(i)).max().unwrap();
+        assert!(max < 400_000_000, "{}: {max}", b.id);
+    }
+}
+
 #[test]
 fn orders() {
     let g = builtin("hg38").unwrap().genome();
@@ -70,9 +144,10 @@ fn orders() {
     let y = builtin("sacCer3").unwrap().genome();
     assert_eq!(y.name(3), b"chrIV");
     assert_eq!(y.name(8), b"chrIX"); // reference order kept
+    let reference = reference_ordered();
     for b in builtin_genomes()
         .iter()
-        .filter(|b| !["sacCer3", "R64"].contains(&b.id))
+        .filter(|b| !reference.iter().any(|r| r == b.id))
     {
         let g = b.genome();
         let names: Vec<_> = (0..g.len()).map(|i| g.name(i).to_vec()).collect();
