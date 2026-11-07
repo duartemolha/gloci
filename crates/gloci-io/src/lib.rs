@@ -7,6 +7,7 @@ pub mod convert;
 pub mod detect;
 pub mod diag;
 pub mod error;
+pub mod fuzz_bodies;
 pub mod genome;
 pub mod gff;
 pub mod index;
