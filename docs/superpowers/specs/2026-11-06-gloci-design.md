@@ -422,7 +422,7 @@ How the old commands map onto `partition`:
 **`gloci view FILE [REGION...]`** — P0. Replaces bedops `bedextract`, `tabix` region queries, and vcftools `--recode` as a pure format conversion.
 
 - Region queries use the index if one exists.
-- On sorted, **uncompressed** BED without an index, regions are found by binary search on the file, like bedextract.
+- On **uncompressed** BED without an index, gloci scans the file and checks its order, so an unsorted file is an error and never a wrong answer. With `--assume-sorted`, regions are found by binary search on the file instead, like bedextract. This is fast, but it checks only the chromosome block it reads, so it trusts the user that the file is sorted. Indexing (`gloci sort … -o x.bed.gz --write-index`) gives both speed and safety. **[you: correctness first; revised 2026-11-07]**
 - Also handles format conversion (`-O vcf.gz|bcf|...`), `--header-only` and `--no-header`.
 
 **`gloci genomes [show NAME]`** — P0. Lists the built-in genomes, or prints one as a `.genome` file (Section 5.3).
