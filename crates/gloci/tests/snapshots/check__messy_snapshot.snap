@@ -6,8 +6,9 @@ messy.bed: BED, plain
   records:      2
   chromosomes:  1 (chr1)
   order:        NOT sorted
+                hint: run: gloci sort messy.bed
   errors:       14
-    line 2: chr1 start 50 is before the previous start 100 (hint: run: gloci sort messy.bed)
+    line 2: chr1 start 50 is before the previous start 100
     line 3: start 10 is greater than end 5
     line 4: start "abc" is not an integer
     line 5: start "abc" is not an integer

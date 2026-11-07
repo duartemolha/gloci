@@ -9,13 +9,11 @@
 
 use gloci_core::{ChromId, ChromOrder, OrderChecker, OrderSource, OrderViolation, thousands};
 use gloci_io::{
-    Compression, Format, Header, InputOptions, IoError, LEX_SORTED_NOTE, Loc, ReaderOptions,
-    RecordBatch, bed12_blocks, chrom_table_for, load_genome, next_batch_size, open_input,
-    open_reader, sort_hint,
+    Compression, Format, Header, IoError, LEX_SORTED_NOTE, Loc, ReaderOptions, RecordBatch,
+    bed12_blocks, chrom_table_for, load_genome, next_batch_size, open_reader, sort_hint,
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::io::BufRead;
 use std::path::Path;
 
 /// Problems listed per category.
@@ -39,6 +37,10 @@ pub struct CheckReport {
     pub chroms: Vec<(Vec<u8>, u64)>,
     /// `sorted (karyotype order)` or `NOT sorted`.
     pub order: String,
+    /// How to fix a file that is NOT sorted (one line).
+    pub order_hint: Option<String>,
+    /// The file could not be opened or read at all; `errors` says why.
+    pub unreadable: bool,
     pub errors: Problems,
     pub warnings: Problems,
 }
@@ -73,12 +75,38 @@ fn order_source_name(s: &OrderSource) -> String {
 }
 
 impl CheckReport {
+    /// A report for a file that could not be checked.
+    pub fn unreadable(name: &str, msg: String) -> CheckReport {
+        CheckReport {
+            name: name.to_string(),
+            format: Format::Bed,
+            compression: Compression::None,
+            records: 0,
+            chroms: Vec::new(),
+            order: String::new(),
+            order_hint: None,
+            unreadable: true,
+            errors: Problems {
+                count: 1,
+                first: vec![msg],
+            },
+            warnings: Problems::default(),
+        }
+    }
+
     pub fn has_errors(&self) -> bool {
         self.errors.count > 0
     }
 
     /// The summary of one file, ending with a newline.
     pub fn render(&self) -> String {
+        if self.unreadable {
+            let mut s = format!("{}: cannot be checked\n  errors:       1\n", self.name);
+            for l in &self.errors.first {
+                s.push_str(&format!("    {l}\n"));
+            }
+            return s;
+        }
         let mut s = format!(
             "{}: {}, {}\n  records:      {}\n",
             self.name,
@@ -108,6 +136,9 @@ impl CheckReport {
             ));
         }
         s.push_str(&format!("  order:        {}\n", self.order));
+        if let Some(h) = &self.order_hint {
+            s.push_str(&format!("                hint: {h}\n"));
+        }
         for (label, p) in [
             ("errors:      ", &self.errors),
             ("warnings:    ", &self.warnings),
@@ -185,39 +216,6 @@ fn loc_of(binary: bool, n: u64) -> Loc {
     if binary { Loc::Record(n) } else { Loc::Line(n) }
 }
 
-/// Line numbers of blank lines in a text file, counted and the first few listed.
-fn blank_lines(path: &str, ro: &ReaderOptions) -> Result<Problems, IoError> {
-    let mut input = open_input(
-        path,
-        &InputOptions {
-            threads: ro.threads,
-            format: ro.format,
-        },
-    )?;
-    let mut p = Problems::default();
-    let (mut line, mut n) = (Vec::new(), 0u64);
-    loop {
-        line.clear();
-        let got = input
-            .reader
-            .read_until(b'\n', &mut line)
-            .map_err(|source| IoError::Read {
-                path: path.to_string(),
-                source,
-            })?;
-        if got == 0 {
-            return Ok(p);
-        }
-        n += 1;
-        if line == b"\n" || line == b"\r\n" {
-            p.count += 1;
-            if p.first.len() < MAX_LISTED {
-                p.first.push(format!("{}: blank line", Loc::Line(n)));
-            }
-        }
-    }
-}
-
 /// Check `path`, reading all of it. `genome` (`-g`) supplies chromosome
 /// order, names and lengths; without it `order` is the fallback order.
 pub fn check_file(
@@ -250,10 +248,15 @@ pub fn check_file(
     let mut counts: Vec<u64> = Vec::new();
     let mut appearance: Vec<ChromId> = Vec::new();
     let mut lengths: Vec<Option<Option<u64>>> = Vec::new();
-    let (mut records, mut gaps, mut prev_loc) = (0u64, 0u64, 0u64);
+    let genome_lens: Option<HashMap<Vec<u8>, Option<u64>>> = genome_data.as_ref().map(|g| {
+        (0..g.len())
+            .map(|k| (g.name(k).to_vec(), g.length(k)))
+            .collect()
+    });
+    let mut records = 0u64;
     let (mut order_errs, mut other_errs, mut dups) =
         (Found::default(), Found::default(), Found::default());
-    let mut order_hint_added = false;
+    let mut lex_looking = false;
     let mut group: Option<(ChromId, u64)> = None;
     let mut seen: HashSet<u64> = HashSet::new();
     let mut fatal: Option<String> = None;
@@ -276,10 +279,6 @@ pub fn check_file(
             let raw = batch.raw(i);
             let at = |msg: String| format!("{}: {msg}", loc_of(binary, m.loc));
             records += 1;
-            if prev_loc > 0 {
-                gaps += m.loc.saturating_sub(prev_loc + 1);
-            }
-            prev_loc = m.loc;
 
             let idx = m.chrom.0 as usize;
             if counts.len() <= idx {
@@ -291,7 +290,7 @@ pub fn check_file(
             counts[idx] += 1;
 
             if let Err(v) = checker.check(&chroms, m.chrom, m.key) {
-                let mut msg = match &v {
+                let msg = match &v {
                     OrderViolation::ChromBackwards { prev, next } => format!(
                         "chromosome {} is out of order: it sorts before {}, which came earlier",
                         String::from_utf8_lossy(chroms.name(*next)),
@@ -304,30 +303,21 @@ pub fn check_file(
                         thousands(*prev)
                     ),
                 };
-                if !order_hint_added {
-                    order_hint_added = true;
-                    msg.push_str(&format!(" (hint: {}", sort_hint(reader.name(), &source)));
-                    if let OrderViolation::ChromBackwards { prev, next } = v
-                        && source == OrderSource::Karyotype
-                        && chroms.name(prev) < chroms.name(next)
-                    {
-                        msg.push_str(LEX_SORTED_NOTE);
-                    }
-                    msg.push(')');
+                if let OrderViolation::ChromBackwards { prev, next } = v
+                    && source == OrderSource::Karyotype
+                    && chroms.name(prev) < chroms.name(next)
+                {
+                    lex_looking = true;
                 }
                 order_errs.add(m.loc, at(msg));
             }
 
-            if let Some(g) = &genome_data {
+            if let Some(g) = &genome_lens {
                 if lengths.len() <= idx {
                     lengths.resize(idx + 1, None);
                 }
-                let len = *lengths[idx].get_or_insert_with(|| {
-                    let name = chroms.name(m.chrom);
-                    (0..g.len())
-                        .find(|&k| g.name(k) == name)
-                        .and_then(|k| g.length(k))
-                });
+                let len = *lengths[idx]
+                    .get_or_insert_with(|| g.get(chroms.name(m.chrom)).copied().flatten());
                 if let Some(len) = len
                     && m.span.end > len
                 {
@@ -415,15 +405,15 @@ pub fn check_file(
         count: dups.count,
         first: dups.first.into_iter().map(|(_, m)| m).collect(),
     };
-    // Blank lines are dropped by the reader; they show as gaps between
-    // records, so only then is the file read again to find them.
-    if gaps > 0 && !binary && path != "-" {
-        let blanks = blank_lines(path, &ro)?;
-        warnings.count += blanks.count;
-        warnings.first.extend(blanks.first);
-        warnings.first.sort_by_key(|m| problem_line(m));
-        warnings.first.truncate(MAX_LISTED);
-    }
+    // Blank lines are dropped by the text readers, which count them.
+    warnings.count += diag.blank_lines;
+    warnings.first.extend(
+        diag.blank_examples
+            .iter()
+            .map(|n| format!("{}: blank line", Loc::Line(*n))),
+    );
+    warnings.first.sort_by_key(|m| problem_line(m));
+    warnings.first.truncate(MAX_LISTED);
 
     let order_text = if order_errs.count == 0 {
         format!("sorted ({})", order_source_name(&source))
@@ -440,6 +430,14 @@ pub fn check_file(
             .map(|&id| (chroms.name(id).to_vec(), counts[id.0 as usize]))
             .collect(),
         order: order_text,
+        order_hint: (order_errs.count > 0).then(|| {
+            let mut h = sort_hint(reader.name(), &source);
+            if lex_looking {
+                h.push_str(LEX_SORTED_NOTE);
+            }
+            h
+        }),
+        unreadable: false,
         errors,
         warnings,
     })

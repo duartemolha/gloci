@@ -1,8 +1,8 @@
 //! `gloci check`: validate files and print a one-screen summary of each.
 use crate::Ctx;
 use crate::cli::{CheckArgs, VcfSpan};
-use gloci_io::{Format, InvalidPolicy, ReaderOptions, UsageError};
-use gloci_ops::check_file;
+use gloci_io::{Format, InvalidPolicy, IoError, ReaderOptions, UsageError};
+use gloci_ops::{CheckReport, check_file};
 
 /// Returns true when no file has errors.
 pub fn run(ctx: &Ctx, a: &CheckArgs) -> anyhow::Result<bool> {
@@ -19,32 +19,39 @@ pub fn run(ctx: &Ctx, a: &CheckArgs) -> anyhow::Result<bool> {
         },
         invalid: InvalidPolicy::Skip,
     };
-    let mut out = String::new();
+    use std::io::Write;
+    let mut stdout = std::io::stdout().lock();
     let mut failed = 0;
     for (i, f) in a.files.iter().enumerate() {
-        let report = check_file(
+        let report = match check_file(
             f,
             a.genome.genome.as_deref(),
             a.chrom_order.chrom_order,
             &ro,
-        )?;
+        ) {
+            Ok(r) => r,
+            // A usage problem applies to the whole command.
+            Err(e @ IoError::Usage(_)) => return Err(e.into()),
+            Err(e) => CheckReport::unreadable(f, e.to_string()),
+        };
         if i > 0 {
-            out.push('\n');
+            stdout.write_all(b"\n")?;
         }
-        out.push_str(&report.render());
+        stdout.write_all(report.render().as_bytes())?;
+        stdout.flush()?;
         if report.has_errors() {
             failed += 1;
         }
     }
     if failed == 0 {
-        out.push_str("result: OK\n");
+        writeln!(stdout, "result: OK")?;
     } else {
-        out.push_str(&format!(
-            "result: FAILED ({failed} of {} files have errors)\n",
+        writeln!(
+            stdout,
+            "result: FAILED ({failed} of {} files have errors)",
             a.files.len()
-        ));
+        )?;
     }
-    use std::io::Write;
-    std::io::stdout().lock().write_all(out.as_bytes())?;
+    stdout.flush()?;
     Ok(failed == 0)
 }

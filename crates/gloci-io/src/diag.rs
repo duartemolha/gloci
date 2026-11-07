@@ -21,12 +21,23 @@ pub struct Diagnostics {
     pub skipped: u64,
     /// At most 10 entries, each `"line N: msg"` (`"record N: msg"` for BCF).
     pub examples: Vec<String>,
+    /// Blank lines a text reader dropped, and the first 10 line numbers.
+    pub blank_lines: u64,
+    pub blank_examples: Vec<u64>,
     /// `(example index, line, msg)` for the examples recorded by line, so
     /// `shift_lines` can renumber them.
     lines: Vec<(usize, u64, String)>,
 }
 
 impl Diagnostics {
+    /// Note a blank line that was dropped.
+    pub fn record_blank(&mut self, line: u64) {
+        self.blank_lines += 1;
+        if self.blank_examples.len() < MAX_EXAMPLES {
+            self.blank_examples.push(line);
+        }
+    }
+
     pub fn record(&mut self, line: u64, msg: &str) {
         if self.examples.len() < MAX_EXAMPLES {
             self.lines
@@ -42,11 +53,18 @@ impl Diagnostics {
             *line += by;
             self.examples[*i] = format!("{}: {msg}", Loc::Line(*line));
         }
+        for l in &mut self.blank_examples {
+            *l += by;
+        }
     }
 
     /// Add the counts and examples of `other` (keeping at most 10 examples).
     pub fn absorb(&mut self, other: Diagnostics) {
         self.skipped += other.skipped;
+        self.blank_lines += other.blank_lines;
+        let room = MAX_EXAMPLES.saturating_sub(self.blank_examples.len());
+        self.blank_examples
+            .extend(other.blank_examples.into_iter().take(room));
         let base = self.examples.len();
         let room = MAX_EXAMPLES.saturating_sub(base);
         self.lines.extend(

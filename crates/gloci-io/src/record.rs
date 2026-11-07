@@ -220,7 +220,11 @@ impl<K: TextKind> TextReader<K> {
                 break;
             }
             match K::classify(&line, false) {
-                Class::Skip => {}
+                Class::Skip => {
+                    if line.is_empty() {
+                        r.diag.record_blank(r.line);
+                    }
+                }
                 Class::Header => {
                     head.extend_from_slice(&line);
                     head.push(b'\n');
@@ -313,6 +317,9 @@ impl<K: TextKind> RecordReader for TextReader<K> {
             let line = &batch.buf[start..];
             match K::classify(line, self.seen_record) {
                 Class::Skip | Class::Header => {
+                    if line.is_empty() {
+                        self.diag.record_blank(self.line);
+                    }
                     batch.buf.truncate(start);
                     continue;
                 }

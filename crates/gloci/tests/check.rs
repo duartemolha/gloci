@@ -108,6 +108,87 @@ fn duplicates_warn_only() {
 }
 
 #[test]
+fn missing_file_does_not_discard_other_reports() {
+    let d = tempdir();
+    let good = clean_bed(d.path());
+    let good2 = p(&plain_file(d.path(), "good2.bed", "chrX\t1\t2\n"));
+    let missing = p(&d.path().join("missing.bed"));
+    let s = stdout_of(&["check", &good, &missing, &good2]);
+    assert!(s.contains("records:      3"), "{s}");
+    assert!(s.contains("chromosomes:  1 (chrX)"), "{s}");
+    assert!(s.contains("missing.bed: cannot be checked"), "{s}");
+    assert!(s.contains("cannot open"), "{s}");
+    assert!(
+        s.contains("result: FAILED (1 of 3 files have errors)"),
+        "{s}"
+    );
+    gloci()
+        .args(["check", &good, &missing, &good2])
+        .assert()
+        .code(1);
+}
+
+#[test]
+fn hint_visible_after_many_parse_errors() {
+    let d = tempdir();
+    let mut t = String::from("chr1\t10\t20\n");
+    for _ in 0..12 {
+        t.push_str("chr1\tabc\t20\n");
+    }
+    t.push_str("chr1\t100\t200\nchr1\t50\t60\nchr10\t1\t2\nchr2\t1\t2\n");
+    let f = p(&plain_file(d.path(), "h.bed", &t));
+    let s = stdout_of(&["check", &f]);
+    assert!(
+        !s.contains("line 15:"),
+        "order problems are past the listed 10: {s}"
+    );
+    assert!(
+        s.contains("order:        NOT sorted\n                hint: run: gloci sort"),
+        "{s}"
+    );
+    // The lex note comes from a later chromosome violation.
+    assert!(s.contains("--chrom-order lex"), "{s}");
+}
+
+#[test]
+fn blank_lines_start_middle_end_plain_and_stdin() {
+    let d = tempdir();
+    let text = "\nchr1\t1\t2\n\nchr1\t3\t4\n\n\n";
+    let f = p(&plain_file(d.path(), "b.bed", text));
+    let check = |s: String| {
+        assert!(s.contains("warnings:     4"), "{s}");
+        for n in [1, 3, 5, 6] {
+            assert!(s.contains(&format!("line {n}: blank line")), "{s}");
+        }
+    };
+    check(stdout_of(&["check", &f]));
+    let o = gloci()
+        .args(["check", "-", "--format", "bed"])
+        .write_stdin(text)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    check(String::from_utf8(o).unwrap());
+}
+
+#[test]
+fn comments_and_invalid_lines_are_not_blank_warnings() {
+    let d = tempdir();
+    let f = p(&plain_file(
+        d.path(),
+        "c.bed",
+        "chr1\t1\t2\n# note\nchr1\tx\t4\nchr1\t5\t6\n",
+    ));
+    gloci()
+        .args(["check", &f])
+        .assert()
+        .code(1)
+        .stdout(contains("warnings:     0"));
+}
+
+#[test]
 fn blank_lines_warn() {
     let d = tempdir();
     let f = p(&plain_file(
