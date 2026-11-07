@@ -124,3 +124,65 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         },
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Error, ErrorKind};
+
+    fn pipe() -> Error {
+        Error::from(ErrorKind::BrokenPipe)
+    }
+
+    /// An error whose `source()` is a `UsageError`.
+    #[derive(Debug)]
+    struct HasUsage(UsageError);
+    impl std::fmt::Display for HasUsage {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "has usage")
+        }
+    }
+    impl std::error::Error for HasUsage {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(&self.0)
+        }
+    }
+
+    #[test]
+    fn usage_error_beats_broken_pipe_in_same_chain() {
+        // chain: io::Error(BrokenPipe) -> UsageError (a custom io::Error
+        // forwards `source()` of its payload), so both are in one chain.
+        let io = Error::new(
+            ErrorKind::BrokenPipe,
+            HasUsage(UsageError("bad flag".into())),
+        );
+        let e = anyhow::Error::new(io);
+        let kinds: Vec<_> = e
+            .chain()
+            .map(|c| c.downcast_ref::<UsageError>().is_some())
+            .collect();
+        assert!(kinds.contains(&true), "fixture must hold both: {kinds:?}");
+        assert!(matches!(classify(&e), Outcome::Usage(m) if m == "bad flag"));
+        let wrapped = anyhow::Error::new(IoError::Usage(UsageError("u".into()))).context("ctx");
+        assert!(matches!(classify(&wrapped), Outcome::Usage(_)));
+    }
+
+    #[test]
+    fn write_broken_pipe_is_quiet_success() {
+        let e = anyhow::Error::new(IoError::Write {
+            path: "out".into(),
+            source: pipe(),
+        });
+        assert!(matches!(classify(&e), Outcome::BrokenPipe));
+    }
+
+    #[test]
+    fn bare_broken_pipe_is_quiet_success() {
+        assert!(matches!(
+            classify(&anyhow::Error::new(pipe())),
+            Outcome::BrokenPipe
+        ));
+        let other = anyhow::Error::new(Error::from(ErrorKind::NotFound));
+        assert!(matches!(classify(&other), Outcome::Failure(_)));
+    }
+}
