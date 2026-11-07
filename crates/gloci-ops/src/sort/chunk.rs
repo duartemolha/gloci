@@ -27,10 +27,16 @@ const FIRST_TARGET: usize = 64 << 10;
 /// The capacity held by `arena` and `entries` together never exceeds the
 /// budget, except for a single record larger than the budget, which gets a
 /// chunk of its own. Growth goes through targets `budget / 2^j`, split
-/// between the two vectors by the mix of record lengths seen so far, so the
-/// last step goes from 1/16 of the budget straight to all of it. A vector is only moved
-/// to a larger allocation while its old copy, the copied part of the new
-/// one and the other vector together fit in the budget.
+/// between the two vectors by the mix of record lengths seen so far; once
+/// the next target would exceed `budget / 16` it jumps straight to the full
+/// budget, so freed intermediate allocations stay small (at most about
+/// `budget / 8` in total) instead of piling up in the allocator. A vector is
+/// only moved to a larger allocation while its old copy, the copied part of
+/// the new one and the other vector together fit in the budget. During the
+/// jump the virtual size can transiently reach about `budget + budget / 16`
+/// (the old copy plus the new allocation), while resident memory stays
+/// within the budget because the new allocation is only touched as records
+/// arrive.
 ///
 /// Whether a record fits depends only on the budget and the records pushed
 /// so far, never on the thread count.
