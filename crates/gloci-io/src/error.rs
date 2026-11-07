@@ -16,6 +16,12 @@ pub enum IoError {
         #[source]
         source: std::io::Error,
     },
+    #[error("cannot create {path}: {source}; check that the directory exists and is writable")]
+    Create {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
     #[error("error reading {path}: {source}; the file may be corrupt or the stream was cut off")]
     Read {
         path: String,
@@ -36,6 +42,8 @@ pub enum IoError {
     Usage(#[from] UsageError),
     #[error("{0}")]
     Order(Box<OrderError>),
+    #[error("internal error: {0}; this is a bug, please report it")]
+    Internal(String),
     #[error("{path}: BGZF end-of-file marker missing; the file is probably truncated")]
     Truncated { path: String },
 }

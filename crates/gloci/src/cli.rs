@@ -284,7 +284,8 @@ pub struct IndexArgs {
 /// Output destination and encoding.
 #[derive(Args, Debug, Clone)]
 pub struct OutputArgs {
-    /// Write output to FILE (format from its extension) instead of stdout.
+    /// Write output to FILE (format from its extension) instead of stdout. A
+    /// device or pipe such as /dev/null or >(cmd) is written to directly.
     #[arg(short, long, value_name = "FILE")]
     pub output: Option<PathBuf>,
     /// Output format when writing to stdout.

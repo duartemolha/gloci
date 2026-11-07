@@ -5,7 +5,8 @@ use crate::detect::Format;
 use crate::error::{IoError, UsageError};
 use noodles_bgzf::io::multithreaded_writer::Builder as BgzfBuilder;
 use noodles_bgzf::io::writer::CompressionLevel;
-use std::io::{self, BufWriter, Stdout, StdoutLock, Write};
+use std::fs::{File, OpenOptions};
+use std::io::{self, BufWriter, IsTerminal, Stdout, StdoutLock, Write};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
@@ -53,6 +54,10 @@ pub struct OutputSpec {
     /// `None` means "same as the input".
     pub format: Option<OutFormat>,
     pub bgzf: bool,
+    /// `path` names an existing device, pipe or other non-regular file
+    /// (`/dev/null`, `/dev/fd/N`, a FIFO): it is written to directly, with
+    /// no temp file, rename or index.
+    pub direct: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -103,8 +108,20 @@ pub fn parse_output_spec(
     output: Option<&Path>,
     output_format: Option<&str>,
 ) -> Result<OutputSpec, UsageError> {
-    // "-" means stdout.
-    let path = output.filter(|p| p.as_os_str() != "-");
+    // "-" and /dev/stdout mean stdout. (Opening /dev/stdout again would
+    // restart at offset 0 of a file the shell redirected to.)
+    let path = output.filter(|p| p.as_os_str() != "-" && *p != Path::new("/dev/stdout"));
+    // An existing path that is not a regular file once symlinks are followed
+    // cannot take a temp file and a rename; its format is chosen as for stdout.
+    // A descriptor path (`/dev/fd/N`, as in `-o >(cmd)` or `3> file`) counts
+    // even when it leads to a regular file, because the directory it sits in
+    // cannot hold a temp file.
+    let direct = path.is_some_and(|p| {
+        p.starts_with("/dev/fd")
+            || p.starts_with("/proc/self/fd")
+            || p == Path::new("/dev/stderr")
+            || std::fs::metadata(p).is_ok_and(|m| !m.is_file() && !m.is_dir())
+    });
     let from_o = match output_format {
         None => None,
         Some(s) => {
@@ -121,7 +138,7 @@ pub fn parse_output_spec(
         Some(p) => match from_extension(p) {
             Some(r) => Some(r),
             // An unrecognised extension is acceptable when -O names the format.
-            None if from_o.is_some() => None,
+            None if from_o.is_some() || direct => None,
             None => {
                 return Err(UsageError(format!(
                     "cannot tell the output format from '{}'; use an extension from: {ACCEPTED}, or pass -O",
@@ -145,6 +162,7 @@ pub fn parse_output_spec(
         path: path.map(Path::to_path_buf),
         format,
         bgzf,
+        direct,
     })
 }
 
@@ -177,6 +195,9 @@ enum Sink {
     StdoutBgzf(noodles_bgzf::io::MultithreadedWriter<BufWriter<Stdout>>),
     FilePlain(FileBuf),
     FileBgzf(noodles_bgzf::io::MultithreadedWriter<FileBuf>),
+    /// A device or pipe, written to directly.
+    DirectPlain(BufWriter<File>),
+    DirectBgzf(noodles_bgzf::io::MultithreadedWriter<BufWriter<File>>),
 }
 
 pub struct Output {
@@ -204,6 +225,14 @@ pub fn open_output(
             )
             .into());
         }
+        if spec.direct {
+            return Err(UsageError(format!(
+                "--write-index needs a regular output file, but {} is a device or pipe; \
+write to a file such as -o out.bed.gz and index that",
+                spec.path.as_deref().unwrap_or(Path::new("")).display()
+            ))
+            .into());
+        }
         if !bgzf {
             return Err(UsageError(
                 "--write-index needs BGZF output; use a .gz output name (or .bcf)".into(),
@@ -225,8 +254,22 @@ pub fn open_output(
             builder().build_from_writer(BufWriter::with_capacity(BUF, io::stdout())),
         ),
         None => Sink::StdoutPlain(BufWriter::with_capacity(BUF, io::stdout().lock())),
+        Some(p) if spec.direct => {
+            let create = |source| IoError::Create {
+                path: p.display().to_string(),
+                source,
+            };
+            let file = OpenOptions::new().write(true).open(p).map_err(create)?;
+            refuse_binary_to_tty(file.is_terminal(), f, bgzf)?;
+            let w = BufWriter::with_capacity(BUF, file);
+            if bgzf {
+                Sink::DirectBgzf(builder().build_from_writer(w))
+            } else {
+                Sink::DirectPlain(w)
+            }
+        }
         Some(p) => {
-            let af = AtomicFile::create(p).map_err(|source| IoError::Open {
+            let af = AtomicFile::create(p).map_err(|source| IoError::Create {
                 path: p.display().to_string(),
                 source,
             })?;
@@ -272,6 +315,15 @@ impl Output {
                 inner.flush().map_err(werr)?;
                 None
             }
+            Sink::DirectPlain(mut w) => {
+                w.flush().map_err(werr)?;
+                None
+            }
+            Sink::DirectBgzf(mut w) => {
+                let mut inner = w.finish().map_err(werr)?;
+                inner.flush().map_err(werr)?;
+                None
+            }
             Sink::FilePlain(w) => Some(w.into_inner().map_err(|e| werr(e.into_error()))?),
             Sink::FileBgzf(mut w) => {
                 let inner = w.finish().map_err(werr)?;
@@ -312,6 +364,8 @@ impl Write for Output {
             Sink::StdoutBgzf(w) => w.write(buf),
             Sink::FilePlain(w) => w.write(buf),
             Sink::FileBgzf(w) => w.write(buf),
+            Sink::DirectPlain(w) => w.write(buf),
+            Sink::DirectBgzf(w) => w.write(buf),
         }
     }
     fn flush(&mut self) -> io::Result<()> {
@@ -320,6 +374,8 @@ impl Write for Output {
             Sink::StdoutBgzf(w) => w.flush(),
             Sink::FilePlain(w) => w.flush(),
             Sink::FileBgzf(w) => w.flush(),
+            Sink::DirectPlain(w) => w.flush(),
+            Sink::DirectBgzf(w) => w.flush(),
         }
     }
 }

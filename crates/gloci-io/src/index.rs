@@ -768,7 +768,7 @@ pub(crate) fn build_index(
 /// [`AtomicFile::commit`].
 pub(crate) fn stage_index(path: &Path, bytes: &[u8]) -> Result<AtomicFile, IoError> {
     let shown = || path.display().to_string();
-    let mut af = AtomicFile::create(path).map_err(|source| IoError::Open {
+    let mut af = AtomicFile::create(path).map_err(|source| IoError::Create {
         path: shown(),
         source,
     })?;

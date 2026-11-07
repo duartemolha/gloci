@@ -322,3 +322,150 @@ fn multi_vcf_sort_accepts_identical_headers() {
     gloci().args(["sort", &a, &b]).assert().success();
     gloci().args(["sort", "-m", &a, &b]).assert().success();
 }
+
+// ---- Group E: device and special-file outputs ----
+
+#[cfg(unix)]
+mod special_outputs {
+    use super::*;
+
+    const BED: &str = "chr1\t30\t40\nchr1\t10\t20\n";
+
+    #[test]
+    fn dev_null_succeeds_for_sort_and_view() {
+        let d = tempdir();
+        let i = w(d.path(), "x.bed", BED);
+        for cmd in ["sort", "view"] {
+            gloci()
+                .args([cmd, &i, "-o", "/dev/null"])
+                .assert()
+                .success()
+                .stdout("")
+                .stderr("");
+        }
+        // an explicit -O still picks the format
+        gloci()
+            .args(["sort", &i, "-o", "/dev/null", "-O", "bed.gz"])
+            .assert()
+            .success();
+    }
+
+    #[test]
+    fn dev_stdout_writes_the_records() {
+        let d = tempdir();
+        let i = w(d.path(), "x.bed", BED);
+        gloci()
+            .args(["sort", &i, "-o", "/dev/stdout"])
+            .assert()
+            .success()
+            .stdout("chr1\t10\t20\nchr1\t30\t40\n");
+        gloci()
+            .args(["view", &i, "-o", "/dev/stdout"])
+            .assert()
+            .success()
+            .stdout(BED);
+    }
+
+    #[test]
+    fn dev_fd_path_is_written_directly() {
+        // The shell hands gloci fd 3 on a regular file; /dev/fd/3 must not
+        // get a temp file beside it.
+        let d = tempdir();
+        let i = w(d.path(), "x.bed", BED);
+        let target = d.path().join("captured");
+        let bin = assert_cmd::cargo::cargo_bin("gloci");
+        let st = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(r#""$0" sort "$1" -o /dev/fd/3 3>"$2""#)
+            .arg(&bin)
+            .arg(&i)
+            .arg(&target)
+            .status()
+            .unwrap();
+        assert!(st.success());
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "chr1\t10\t20\nchr1\t30\t40\n"
+        );
+    }
+
+    #[test]
+    fn fifo_destination_works() {
+        let d = tempdir();
+        let i = w(d.path(), "x.bed", BED);
+        let fifo = d.path().join("pipe");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let reader = {
+            let fifo = fifo.clone();
+            std::thread::spawn(move || std::fs::read_to_string(fifo).unwrap())
+        };
+        gloci()
+            .args(["sort", &i, "-o", &fifo.to_string_lossy()])
+            .assert()
+            .success();
+        assert_eq!(reader.join().unwrap(), "chr1\t10\t20\nchr1\t30\t40\n");
+        // no temp files beside the FIFO, and the FIFO is still a FIFO
+        let names: Vec<_> = std::fs::read_dir(d.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(names.iter().all(|n| !n.contains(".tmp-")), "{names:?}");
+    }
+
+    #[test]
+    fn write_index_to_a_device_is_a_usage_error() {
+        let d = tempdir();
+        let i = w(d.path(), "x.bed", BED);
+        for cmd in ["sort", "view"] {
+            gloci()
+                .args([cmd, &i, "-o", "/dev/null", "-O", "bed.gz", "--write-index"])
+                .assert()
+                .code(2)
+                .stderr(contains("regular output file").and(contains("/dev/null")));
+        }
+    }
+
+    #[test]
+    fn missing_output_directory_says_cannot_create() {
+        let d = tempdir();
+        let i = w(d.path(), "x.bed", BED);
+        let o = p(d.path(), "nope/out.bed");
+        for cmd in ["sort", "view"] {
+            gloci()
+                .args([cmd, &i, "-o", &o])
+                .assert()
+                .code(1)
+                .stderr(
+                    contains(format!("cannot create {o}"))
+                        .and(contains("check that the directory exists and is writable"))
+                        .and(contains("readable").not()),
+                );
+        }
+    }
+
+    #[test]
+    fn index_staging_failure_says_cannot_create() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tempdir();
+        let i = w(d.path(), "x.bed", "chr1\t1\t2\n");
+        let gz = p(d.path(), "x.bed.gz");
+        gloci().args(["view", &i, "-o", &gz]).assert().success();
+        let dir = d.path();
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let denied = std::fs::File::create(dir.join("probe")).is_err();
+        let out = gloci().args(["index", &gz]).assert().get_output().clone();
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        if denied {
+            // (skipped when running as root, which can write anywhere)
+            let err = String::from_utf8(out.stderr).unwrap();
+            assert!(err.contains("cannot create") && !err.contains("readable"), "{err}");
+            assert_eq!(out.status.code(), Some(1));
+        }
+    }
+}

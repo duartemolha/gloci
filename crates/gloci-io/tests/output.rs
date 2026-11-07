@@ -158,6 +158,7 @@ fn stale_index_removed_and_write_index_builds() {
         path: None,
         format: Some(OutFormat::Bed),
         bgzf: true,
+        direct: false,
     };
     assert!(matches!(
         open_output(&stdout, OutFormat::Bed, &opts(1, true)),
@@ -193,6 +194,7 @@ fn bcf_output_is_always_bgzf_and_empty_output_is_valid() {
         path: Some(dir.path().join("x.dat")),
         format: Some(OutFormat::Bcf),
         bgzf: false,
+        direct: false,
     };
     let out = open_output(&spec, OutFormat::Bcf, &opts(1, false)).unwrap();
     out.finish().unwrap();
