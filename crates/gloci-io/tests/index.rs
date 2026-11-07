@@ -434,6 +434,68 @@ fn bcf_out_of_dictionary_order_is_unsorted() {
     assert!(e.to_string().contains("record 5"), "{e}");
 }
 
+/// `(chromosome, POS)` of every record of `r` (BCF records are binary).
+fn positions(mut r: Box<dyn RecordReader>) -> Vec<(String, u64)> {
+    let mut chroms = ChromTable::first_appearance();
+    let mut batch = RecordBatch::default();
+    let mut out = Vec::new();
+    loop {
+        batch.clear();
+        let more = r.read_batch(&mut chroms, &mut batch, 2).unwrap();
+        for m in &batch.recs {
+            let c = String::from_utf8(chroms.name(m.chrom).to_vec()).unwrap();
+            out.push((c, m.key + 1));
+        }
+        if !more {
+            return out;
+        }
+    }
+}
+
+#[test]
+fn htslib_bcf_index_with_contigs_out_of_dictionary_order() {
+    // bcftools indexes a BCF whose contigs are contiguous but not in
+    // dictionary order (e.g. made from a sort -k1,1 VCF): here chr2 (id 1)
+    // comes before chr1 (id 0). A query on both returns both, in file order.
+    let vcf = b"##fileformat=VCFv4.3\n\
+##contig=<ID=chr1,length=1000>\n\
+##contig=<ID=chr2,length=1000>\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+chr2\t5\t.\tA\tC\t.\t.\t.\n\
+chr2\t9\t.\tG\tT\t.\t.\t.\n\
+chr1\t7\t.\tA\tG\t.\t.\t.\n";
+    let bcf = fixtures::vcf_to_bcf(vcf);
+    let p = tmp("any.bcf");
+    std::fs::write(&p, &bcf).unwrap();
+    std::fs::write(
+        format!("{}.csi", p.display()),
+        fixtures::bcf_csi_any_order(&bcf),
+    )
+    .unwrap();
+    assert_eq!(find_index(&p).unwrap().kind, IndexKind::Csi);
+    let o = opts(VcfSpan::Allele);
+    let q = |regions: &[(&str, Interval)]| {
+        let regions: Vec<(Vec<u8>, Interval)> = regions
+            .iter()
+            .map(|(c, iv)| (c.as_bytes().to_vec(), *iv))
+            .collect();
+        positions(open_region_reader(&p, &regions, &o, false).unwrap())
+    };
+    let all = iv(0, u64::MAX);
+    let both = vec![
+        ("chr2".to_string(), 5),
+        ("chr2".to_string(), 9),
+        ("chr1".to_string(), 7),
+    ];
+    assert_eq!(q(&[("chr1", all), ("chr2", all)]), both);
+    assert_eq!(q(&[("chr2", all), ("chr1", all)]), both);
+    assert_eq!(q(&[("chr1", all)]), [("chr1".to_string(), 7)]);
+    assert_eq!(
+        q(&[("chr1", iv(0, 100)), ("chr2", iv(8, 9))]),
+        [("chr2".to_string(), 9), ("chr1".to_string(), 7)]
+    );
+}
+
 #[test]
 fn region_edges_on_index_window_boundaries() {
     // a ends exactly where the second 16 kb window starts, and b, the first

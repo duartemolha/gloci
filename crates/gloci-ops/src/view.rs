@@ -4,10 +4,12 @@
 //!
 //! A region query returns the records whose footprint (per `--vcf-span`)
 //! overlaps a region under §4.3, each once, in file order (D9, D10). It
-//! reads through an index when the file has one; binary-searches an
-//! uncompressed BED file (D11); and otherwise scans the whole file with a
-//! warning. Every path checks the order of what it reads, so an unsorted
-//! file is an error, never a wrong answer.
+//! reads through an index when the file has one, and otherwise scans the
+//! whole file with a warning, checking the order of every record, so an
+//! unsorted file is an error, never a wrong answer. With `assume_sorted`,
+//! an uncompressed BED file without an index is binary-searched instead
+//! (D11): fast, but only the chromosome block it reads is checked, so the
+//! answer is right only if the file really is sorted.
 
 use crate::bedsearch::{BlockScan, Located, append_matching, locate_blocks};
 use gloci_core::{
@@ -40,6 +42,9 @@ pub struct ViewOptions {
     pub genome: Option<PathBuf>,
     /// The order binary search assumes without `-g` (D32).
     pub chrom_order: ChromOrder,
+    /// Binary-search an uncompressed BED file without an index instead of
+    /// scanning it: trusts that the file is sorted (D11).
+    pub assume_sorted: bool,
 }
 
 impl ViewOptions {
@@ -123,17 +128,20 @@ fn read_regions_file(path: &str, ro: &ReaderOptions) -> Result<Vec<(Vec<u8>, Int
 }
 
 /// How to fix a file that must be scanned for want of an index.
-fn index_hint(name: &str, compression: Compression) -> String {
+fn index_hint(name: &str, format: Format, compression: Compression) -> String {
     if compression == Compression::Bgzf {
-        format!("create one with: gloci index {name}")
-    } else {
-        let out = if name.ends_with(".gz") {
-            name.to_string()
-        } else {
-            format!("{name}.gz")
-        };
-        format!("compress and index it with: gloci view {name} -o {out} --write-index")
+        return format!("create one with: gloci index {name}");
     }
+    let out = if name.ends_with(".gz") {
+        name.to_string()
+    } else {
+        format!("{name}.gz")
+    };
+    let mut hint = format!("sort and index it with: gloci sort {name} -o {out} --write-index");
+    if compression == Compression::None && matches!(format, Format::Bed | Format::BedGraph) {
+        hint.push_str("; or, if it is sorted, pass --assume-sorted to binary-search it");
+    }
+    hint
 }
 
 /// Choose how to read the records of `head` (an open reader of `path`)
@@ -231,7 +239,9 @@ fn select(
     } else if let (Some(p), Some(_)) = (file, &index) {
         Src::Indexed(open_region_reader(p, &wanted, ro, opts.inclusive_points)?)
     } else if let Some(p) = file.filter(|_| {
-        compression == Compression::None && matches!(format, Format::Bed | Format::BedGraph)
+        opts.assume_sorted
+            && compression == Compression::None
+            && matches!(format, Format::Bed | Format::BedGraph)
     }) {
         match locate_blocks(p, &name, sets.clone(), chroms)? {
             Located::Blocks(blocks) => {
@@ -250,7 +260,7 @@ fn select(
         if path != "-" {
             log::warn!(
                 "no index for {name}; scanning the whole file ({})",
-                index_hint(&name, compression)
+                index_hint(&name, format, compression)
             );
         }
         warn_unseen = known_in.is_none();

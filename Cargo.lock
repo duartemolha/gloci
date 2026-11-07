@@ -500,6 +500,7 @@ dependencies = [
  "gloci-core",
  "noodles-bcf",
  "noodles-bgzf",
+ "noodles-csi",
  "noodles-vcf",
  "proptest",
 ]

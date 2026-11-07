@@ -1,7 +1,8 @@
-//! Region queries on uncompressed BED without an index (D11): find the first
-//! line of a chromosome by bisecting byte offsets, as bedops `bedextract`
-//! does, then scan that chromosome, so features that start before a region
-//! and reach into it are found.
+//! Region queries on uncompressed BED without an index under
+//! `--assume-sorted` (D11): find the first line of a chromosome by bisecting
+//! byte offsets, as bedops `bedextract` does, then scan that chromosome, so
+//! features that start before a region and reach into it are found. Only
+//! the blocks read are checked for order; the file is trusted to be sorted.
 
 use gloci_core::{ChromTable, RegionSet};
 use gloci_io::{

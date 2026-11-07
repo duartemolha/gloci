@@ -39,14 +39,16 @@ pub fn run(ctx: &Ctx, a: &ViewArgs) -> anyhow::Result<()> {
     let vo = ViewOptions {
         header_only: a.header_only,
         no_header: a.no_header,
-        regions: a.regions.clone(),
+        regions: a.regions.iter().chain(&a.region.region).cloned().collect(),
         regions_file: a
+            .region
             .regions_file
             .as_ref()
             .map(|p| p.to_string_lossy().into_owned()),
         inclusive_points: a.inclusive_points,
         genome: a.genome.genome.clone(),
         chrom_order: a.chrom_order.chrom_order,
+        assume_sorted: a.assume_sorted,
     };
     run_view(&a.file, &vo, &ro, &spec, &oo, &wo)?;
     Ok(())

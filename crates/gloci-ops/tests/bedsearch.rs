@@ -1,8 +1,9 @@
 //! Binary search on uncompressed sorted BED (D11), and region views read
-//! that way, against the naive oracle.
+//! that way (`assume_sorted`) or by the default checked scan, against the
+//! naive oracle.
 
 use gloci_core::{ChromOrder, ChromTable, Genome, Interval, OrderSource};
-use gloci_io::{InvalidPolicy, ReaderOptions, RecordBatch};
+use gloci_io::{InvalidPolicy, IoError, ReaderOptions, RecordBatch};
 use gloci_ops::{ChromBlock, ViewOptions, find_chrom_block, open_view};
 use gloci_testkit::naive;
 use gloci_testkit::strategies::{ABSENT_CHROM, CHROMS, TestRec, bed_records, regions};
@@ -26,12 +27,16 @@ fn reader_options() -> ReaderOptions {
 
 /// Every record line `open_view` yields, with a newline each.
 fn view(path: &str, opts: &ViewOptions) -> String {
-    let (mut r, mut chroms) = open_view(path, opts, &reader_options()).unwrap();
+    try_view(path, opts).unwrap()
+}
+
+fn try_view(path: &str, opts: &ViewOptions) -> Result<String, IoError> {
+    let (mut r, mut chroms) = open_view(path, opts, &reader_options())?;
     let mut out = String::new();
     let mut batch = RecordBatch::default();
     loop {
         batch.clear();
-        let more = r.read_batch(&mut chroms, &mut batch, 7).unwrap();
+        let more = r.read_batch(&mut chroms, &mut batch, 7)?;
         for i in 0..batch.len() {
             out.push_str(std::str::from_utf8(batch.raw(i)).unwrap());
             out.push('\n');
@@ -40,7 +45,45 @@ fn view(path: &str, opts: &ViewOptions) -> String {
             break;
         }
     }
-    out
+    Ok(out)
+}
+
+/// Region strings (1-based, closed) for regions of the strategy.
+fn region_strings(regs: &[(Vec<u8>, Interval)]) -> Vec<String> {
+    regs.iter()
+        .map(|(c, iv)| {
+            let c = String::from_utf8_lossy(c);
+            if iv.end == u64::MAX {
+                format!("{c}:{}-", iv.start + 1)
+            } else {
+                format!("{c}:{}-{}", iv.start + 1, iv.end)
+            }
+        })
+        .collect()
+}
+
+/// The records that overlap a region, once each, in file order.
+fn naive_view(recs: &[TestRec], regs: &[(Vec<u8>, Interval)], inclusive: bool) -> String {
+    recs.iter()
+        .filter(|r| {
+            regs.iter()
+                .any(|(c, iv)| naive::matches(r, c, *iv, inclusive))
+        })
+        .map(|r| r.bed_line() + "\n")
+        .collect()
+}
+
+/// Are each chromosome's records contiguous and sorted by start?
+fn contiguous_sorted(recs: &[TestRec]) -> bool {
+    let mut done = std::collections::HashSet::new();
+    recs.windows(2).all(|w| {
+        if w[0].chrom == w[1].chrom {
+            w[1].start >= w[0].start
+        } else {
+            done.insert(w[0].chrom.clone());
+            !done.contains(&w[1].chrom)
+        }
+    })
 }
 
 fn table(lex: bool) -> ChromTable {
@@ -169,9 +212,10 @@ proptest! {
         }
     }
 
-    /// A region view of a plain sorted BED file (binary search, or the
-    /// verified full scan when the search misses) equals the naive query:
-    /// every record overlapping a region, once, in file order.
+    /// A region view of a plain sorted BED file with `assume_sorted`
+    /// (binary search, or the verified full scan when the search misses)
+    /// equals the naive query: every record overlapping a region, once, in
+    /// file order.
     #[test]
     fn view_by_bisection_matches_naive(
         recs in bed_records(),
@@ -186,32 +230,46 @@ proptest! {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a.bed");
         std::fs::write(&path, &text).unwrap();
-        let strings: Vec<String> = regs
-            .iter()
-            .map(|(c, iv)| {
-                let c = String::from_utf8_lossy(c);
-                if iv.end == u64::MAX {
-                    format!("{c}:{}-", iv.start + 1)
-                } else {
-                    format!("{c}:{}-{}", iv.start + 1, iv.end)
-                }
-            })
-            .collect();
         let opts = ViewOptions {
-            regions: strings,
+            regions: region_strings(&regs),
             inclusive_points: inclusive,
             chrom_order: if query_lex { ChromOrder::Lex } else { ChromOrder::Karyotype },
+            assume_sorted: true,
             ..ViewOptions::default()
         };
-        let want: String = recs
-            .iter()
-            .filter(|r| {
-                regs.iter().any(|(c, iv)| {
-                    naive::matches(r, c, Interval { start: iv.start, end: iv.end }, inclusive)
-                })
-            })
-            .map(|r| r.bed_line() + "\n")
-            .collect();
-        prop_assert_eq!(view(&path.to_string_lossy(), &opts), want);
+        prop_assert_eq!(view(&path.to_string_lossy(), &opts), naive_view(&recs, &regs, inclusive));
+    }
+
+    /// Without `assume_sorted`, a plain BED file is scanned with its order
+    /// checked: the answer is the naive one exactly when each chromosome's
+    /// records are contiguous and sorted, and an order error otherwise, so
+    /// never a wrong answer.
+    #[test]
+    fn default_scan_is_right_or_refuses(
+        recs in bed_records(),
+        regs in regions(4),
+        sorted in any::<bool>(),
+        inclusive in any::<bool>(),
+    ) {
+        let recs = if sorted { naive::sort(recs, rank(false)) } else { recs };
+        let (text, _) = bed_text(&recs, false);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.bed");
+        std::fs::write(&path, &text).unwrap();
+        let opts = ViewOptions {
+            regions: region_strings(&regs),
+            inclusive_points: inclusive,
+            ..ViewOptions::default()
+        };
+        match try_view(&path.to_string_lossy(), &opts) {
+            Ok(out) => {
+                prop_assert!(contiguous_sorted(&recs), "unsorted input accepted");
+                prop_assert_eq!(out, naive_view(&recs, &regs, inclusive));
+            }
+            Err(e) => {
+                prop_assert!(matches!(e, IoError::Order(_)), "{}", e);
+                prop_assert!(!contiguous_sorted(&recs), "sorted input refused: {}", e);
+            }
+        }
     }
 }

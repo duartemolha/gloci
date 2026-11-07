@@ -12,3 +12,4 @@ noodles-bgzf.workspace = true
 flate2.workspace = true
 noodles-vcf.workspace = true
 noodles-bcf.workspace = true
+noodles-csi.workspace = true

@@ -855,6 +855,24 @@ impl Loaded {
         h.map(CsiHeader::reference_sequence_names)
     }
 
+    /// Where the records of reference `rid` begin in the file: the smallest
+    /// chunk start among its bins and its metadata pseudo-bin. `None` when
+    /// the index holds no records for it.
+    fn first_offset(&self, rid: usize) -> Option<VirtualPosition> {
+        fn first<I: BinIndexKind>(rs: &ReferenceSequence<I>) -> Option<VirtualPosition> {
+            rs.bins()
+                .values()
+                .flat_map(|b| b.chunks())
+                .map(|c| c.start())
+                .chain(rs.metadata().map(|m| m.start_position()))
+                .min()
+        }
+        match self {
+            Loaded::Tbi(i) => i.reference_sequences().get(rid).and_then(first),
+            Loaded::Csi(i) => i.reference_sequences().get(rid).and_then(first),
+        }
+    }
+
     /// One past the largest position the index can hold.
     fn max_position(&self) -> u64 {
         let (min_shift, depth) = match self {
@@ -1225,9 +1243,12 @@ impl RecordReader for RegionReader {
 
 /// Read the records of the indexed BGZF file `path` whose span (per
 /// `o.vcf_span`) overlaps one of `regions` under §4.3 (D9). Each record is
-/// yielded once, in file order; the regions are taken in the index's
-/// reference order and merged (D10). Regions on chromosomes the index does
-/// not know yield nothing. The header is read from the start of the file.
+/// yielded once, in file order: the regions are merged per reference (D10)
+/// and the references are visited in the order their records appear in the
+/// file, which need not be their id order (htslib indexes a BCF whose
+/// contigs are contiguous but not in dictionary order). Regions on
+/// chromosomes the index does not know yield nothing. The header is read
+/// from the start of the file.
 ///
 /// Records carry `loc` 0: their line numbers are unknown. Parse errors name
 /// the record's BGZF virtual offset instead.
@@ -1288,10 +1309,14 @@ pub fn open_region_reader(
         }
     }
     let max_pos = index.max_position();
-    let plans = by_rid
+    let mut plans: Vec<Plan> = by_rid
         .into_iter()
         .map(|(rid, (name, ivs))| Plan::new(rid, name, ivs, max_pos))
         .collect();
+    // File order, so that `last_emitted` only ever drops a record already
+    // emitted. References without records yield nothing; their place is
+    // irrelevant.
+    plans.sort_by_key(|p| index.first_offset(p.rid).unwrap_or(VirtualPosition::MAX));
 
     let file = File::open(path).map_err(open_err)?;
     Ok(Box::new(RegionReader {

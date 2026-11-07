@@ -102,10 +102,13 @@ Examples:
     /// --vcf-span) overlaps a region, each once, in file order. A point
     /// (a zero-length BED record, an insertion) overlaps a region only when
     /// strictly inside it, unless --inclusive-points is given. Regions are
-    /// read through a .tbi/.csi index when the file has one, found by
-    /// binary search in an uncompressed sorted BED file (in -g or
-    /// --chrom-order order), and otherwise by scanning the whole file, with
-    /// a warning. The input's sort order is checked as it is read.
+    /// read through a .tbi/.csi index when the file has one, and otherwise
+    /// by scanning the whole file, with a warning. Either way the order of
+    /// every record read is checked, so an unsorted file is an error, never
+    /// a wrong answer. With --assume-sorted, an uncompressed BED file
+    /// without an index is binary-searched instead (like bedextract); that
+    /// trusts the file to be sorted. Index the file (gloci sort FILE -o
+    /// FILE.gz --write-index) for speed and checking both.
     #[command(after_long_help = "\
 Examples:
   gloci view calls.vcf.gz chr1:1,000,000-2,000,000 chrX
@@ -124,12 +127,17 @@ pub struct ViewArgs {
     /// inclusive); write {name}:start-end for a name containing ':'.
     #[arg(value_name = "REGION")]
     pub regions: Vec<String>,
-    /// Read regions from FILE (BED: 0-based, half-open).
-    #[arg(long, value_name = "FILE")]
-    pub regions_file: Option<PathBuf>,
+    #[command(flatten)]
+    pub region: RegionArgs,
     /// A point on the edge of a region overlaps it.
     #[arg(long)]
     pub inclusive_points: bool,
+    /// Find regions in an uncompressed BED file without an index by binary
+    /// search, like bedextract. Fast, but it trusts that the file is sorted
+    /// (in -g or --chrom-order order) and checks only the chromosome block
+    /// it reads; on an unsorted file the answer can be incomplete.
+    #[arg(long)]
+    pub assume_sorted: bool,
     #[command(flatten)]
     pub genome: GenomeArg,
     #[command(flatten)]
@@ -279,7 +287,7 @@ pub struct RegionArgs {
     /// Restrict to a region such as chr1:1,000-2,000 (repeatable).
     #[arg(long, value_name = "REGION")]
     pub region: Vec<String>,
-    /// Read regions from FILE (BED).
+    /// Read regions from FILE (BED: 0-based, half-open).
     #[arg(long, value_name = "FILE")]
     pub regions_file: Option<PathBuf>,
 }

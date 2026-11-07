@@ -1,5 +1,6 @@
-//! `gloci view FILE REGION...`: region queries through an index, by binary
-//! search on plain BED, and by scanning (§4.3, §7.4, D8-D11, D26).
+//! `gloci view FILE REGION...`: region queries through an index, by
+//! scanning (checked), and by binary search on plain BED with
+//! `--assume-sorted` (§4.3, §7.4, D8-D11, D26).
 mod common;
 use common::*;
 use gloci_core::Interval;
@@ -51,12 +52,16 @@ impl Fx {
         p
     }
 
-    /// The same BED text through each access path: binary search, scan, index.
-    fn every_path(&self, text: &str) -> [String; 3] {
+    /// The same BED text through each access path: plain BED scanned (the
+    /// default) and binary-searched (`--assume-sorted`), BGZF scanned, and
+    /// BGZF through its index.
+    fn every_path(&self, text: &str) -> [Access; 4] {
+        let plain = self.plain_bed(text);
         [
-            self.plain_bed(text),
-            self.bgzf_bed_unindexed(text),
-            self.bgzf_bed_indexed(text),
+            Access::new(&plain, &[]),
+            Access::new(&plain, &["--assume-sorted"]),
+            Access::new(&self.bgzf_bed_unindexed(text), &[]),
+            Access::new(&self.bgzf_bed_indexed(text), &[]),
         ]
     }
 
@@ -71,11 +76,34 @@ impl Fx {
     }
 }
 
+/// A file and the flags that choose how view reads it.
+struct Access {
+    file: String,
+    flags: Vec<&'static str>,
+}
+
+impl Access {
+    fn new(file: &str, flags: &[&'static str]) -> Access {
+        Access {
+            file: file.to_string(),
+            flags: flags.to_vec(),
+        }
+    }
+
+    /// stdout of `gloci view FILE FLAGS... ARGS...`, which must succeed.
+    fn view(&self, args: &[&str]) -> String {
+        let mut all = vec!["view", self.file.as_str()];
+        all.extend(&self.flags);
+        all.extend(args);
+        stdout_of(all)
+    }
+}
+
 fn index(path: &str) {
     gloci().args(["index", path]).assert().success();
 }
 
-fn stdout_of<const N: usize>(args: [&str; N]) -> String {
+fn stdout_of<'a>(args: impl IntoIterator<Item = &'a str>) -> String {
     let out = gloci()
         .args(args)
         .assert()
@@ -161,13 +189,12 @@ const VCF_HEAD: &str = "##fileformat=VCFv4.3\n\
 fn insertion_site_inside_feature() {
     // the user's §4.3 example, every access path
     let fx = Fx::new();
-    let [plain, unindexed, indexed] = fx.every_path("chr1\t10\t10\tins\n");
-    for f in [plain, indexed, unindexed] {
-        assert_eq!(stdout_of(["view", &f, "chr1:6-15"]), "chr1\t10\t10\tins\n");
+    for f in fx.every_path("chr1\t10\t10\tins\n") {
+        assert_eq!(f.view(&["chr1:6-15"]), "chr1\t10\t10\tins\n");
         // point on left edge of [10,15)
-        assert_eq!(stdout_of(["view", &f, "chr1:11-15"]), "");
+        assert_eq!(f.view(&["chr1:11-15"]), "");
         assert_eq!(
-            stdout_of(["view", &f, "chr1:11-15", "--inclusive-points"]),
+            f.view(&["chr1:11-15", "--inclusive-points"]),
             "chr1\t10\t10\tins\n"
         );
     }
@@ -180,18 +207,15 @@ fn point_on_right_edge_and_equal_points() {
     let fx = Fx::new();
     let text = "chr1\t5\t9\ta\nchr1\t15\t15\tp\nchr1\t15\t20\tb\nchr1\t30\t40\tc\n";
     for f in fx.every_path(text) {
-        assert_eq!(stdout_of(["view", &f, "chr1:11-15"]), "");
+        assert_eq!(f.view(&["chr1:11-15"]), "");
         assert_eq!(
-            stdout_of(["view", &f, "chr1:11-15", "--inclusive-points"]),
+            f.view(&["chr1:11-15", "--inclusive-points"]),
             "chr1\t15\t15\tp\n"
         );
         // the point between bases 15 and 16 (1-based), as a region
-        assert_eq!(stdout_of(["view", &f, "chr1:16-15"]), "chr1\t15\t15\tp\n");
+        assert_eq!(f.view(&["chr1:16-15"]), "chr1\t15\t15\tp\n");
         let r = fx.plain_bed("chr1\t15\t15\n");
-        assert_eq!(
-            stdout_of(["view", &f, "--regions-file", &r]),
-            "chr1\t15\t15\tp\n"
-        );
+        assert_eq!(f.view(&["--regions-file", &r]), "chr1\t15\t15\tp\n");
     }
 }
 
@@ -247,15 +271,10 @@ fn overlapping_regions_once_in_order() {
         expected
     );
     for f in fx.every_path(&text) {
-        assert_eq!(
-            stdout_of(["view", &f, "chr1:150-300", "chr1:100-200"]),
-            expected
-        );
+        assert_eq!(f.view(&["chr1:150-300", "chr1:100-200"]), expected);
         // repeated and nested regions change nothing
         assert_eq!(
-            stdout_of([
-                "view",
-                &f,
+            f.view(&[
                 "chr1:100-200",
                 "chr1:150-300",
                 "chr1:160-170",
@@ -272,15 +291,12 @@ fn regions_on_several_chromosomes_in_file_order() {
     let text = "chr1\t1\t5\ta\nchr1\t10\t20\tb\nchr2\t1\t5\tc\nchr2\t30\t40\td\nchr10\t5\t8\te\nchrX\t3\t4\tf\n";
     for f in fx.every_path(text) {
         assert_eq!(
-            stdout_of(["view", &f, "chrX", "chr2:31-35", "chr1:2-3", "chr10:1-100"]),
+            f.view(&["chrX", "chr2:31-35", "chr1:2-3", "chr10:1-100"]),
             "chr1\t1\t5\ta\nchr2\t30\t40\td\nchr10\t5\t8\te\nchrX\t3\t4\tf\n"
         );
         // a whole chromosome, and a region open to the chromosome end
-        assert_eq!(
-            stdout_of(["view", &f, "chr2"]),
-            "chr2\t1\t5\tc\nchr2\t30\t40\td\n"
-        );
-        assert_eq!(stdout_of(["view", &f, "chr2:6-"]), "chr2\t30\t40\td\n");
+        assert_eq!(f.view(&["chr2"]), "chr2\t1\t5\tc\nchr2\t30\t40\td\n");
+        assert_eq!(f.view(&["chr2:6-"]), "chr2\t30\t40\td\n");
     }
 }
 
@@ -290,12 +306,12 @@ fn long_feature_starting_before_region_found_unindexed() {
     let text = "chr1\t0\t1000000\tbig\nchr1\t500\t600\tsmall\nchr1\t999990\t999999\tx\n";
     let f = fx.plain_bed(text);
     assert_eq!(
-        stdout_of(["view", &f, "chr1:999991-999995"]),
+        stdout_of(["view", &f, "chr1:999991-999995", "--assume-sorted"]),
         "chr1\t0\t1000000\tbig\nchr1\t999990\t999999\tx\n"
     );
     for f in fx.every_path(text) {
         assert_eq!(
-            stdout_of(["view", &f, "chr1:999991-999995"]),
+            f.view(&["chr1:999991-999995"]),
             "chr1\t0\t1000000\tbig\nchr1\t999990\t999999\tx\n"
         );
     }
@@ -331,24 +347,39 @@ fn other_chrom_order_without_flag_still_correct() {
     let fx = Fx::new();
     let lex_sorted = fx.plain_bed(&lex_sorted_text());
     gloci()
-        .args(["view", &lex_sorted, "chr10:1-100"])
+        .args(["view", &lex_sorted, "chr10:1-100", "--assume-sorted"])
         .assert()
         .success()
         .stdout(CHR10_RECS)
         .stderr(contains("scanning the whole file"));
     gloci()
-        .args(["view", &lex_sorted, "chr10:1-100"])
+        .args(["view", &lex_sorted, "chr10:1-100", "--assume-sorted"])
         .assert()
         .stderr(contains(
             "warning: could not locate chr10 by binary search; scanning the whole file (sort it with gloci sort, or index it)",
         ));
     // bisection hits
     gloci()
-        .args(["view", &lex_sorted, "chr10:1-100", "--chrom-order", "lex"])
+        .args([
+            "view",
+            &lex_sorted,
+            "chr10:1-100",
+            "--assume-sorted",
+            "--chrom-order",
+            "lex",
+        ])
         .assert()
         .success()
         .stdout(CHR10_RECS)
         .stderr(contains("scanning").not());
+    // without --assume-sorted the whole file is scanned and its order
+    // checked: a lexicographically sorted file passes
+    gloci()
+        .args(["view", &lex_sorted, "chr10:1-100"])
+        .assert()
+        .success()
+        .stdout(CHR10_RECS)
+        .stderr(contains("no index for"));
 }
 
 #[test]
@@ -358,14 +389,30 @@ fn genome_order_for_bisection() {
     let g = fx.write(".genome", b"chr2\t1000\nchr1\t1000\n");
     let f = fx.plain_bed("chr2\t1\t5\ta\nchr2\t8\t9\tb\nchr1\t1\t5\tc\nchr1\t7\t9\td\n");
     gloci()
-        .args(["view", &f, "chr1:6-9", "chr2:1-2", "-g", &g])
+        .args([
+            "view",
+            &f,
+            "chr1:6-9",
+            "chr2:1-2",
+            "-g",
+            &g,
+            "--assume-sorted",
+        ])
         .assert()
         .success()
         .stdout("chr2\t1\t5\ta\nchr1\t7\t9\td\n")
         .stderr(contains("scanning").not());
     // a chromosome missing from -g is reported and yields nothing
     gloci()
-        .args(["view", &f, "chr3:1-100", "chr1:1-2", "-g", &g])
+        .args([
+            "view",
+            &f,
+            "chr3:1-100",
+            "chr1:1-2",
+            "-g",
+            &g,
+            "--assume-sorted",
+        ])
         .assert()
         .success()
         .stdout("chr1\t1\t5\tc\n")
@@ -381,8 +428,41 @@ fn unsorted_plain_bed_errors_not_wrong() {
         .assert()
         .code(1)
         .stderr(contains("is not sorted"));
-    // scanned files are checked too: out of order, and a chromosome that
-    // comes back after another one
+    gloci()
+        .args(["view", &unsorted, "chr1:1-100", "--assume-sorted"])
+        .assert()
+        .code(1)
+        .stderr(contains("is not sorted"));
+    // a chromosome that comes back (as in a BED with several track
+    // sections) is an error by default ...
+    let back = "chr1\t10\t20\ta\nchr2\t5\t6\tb\nchr1\t30\t40\tc\n";
+    let tracks =
+        "track name=one\nchr1\t10\t20\ta\nchr2\t5\t6\tb\ntrack name=two\nchr1\t30\t40\tc\n";
+    for text in [back, tracks] {
+        let f = fx.plain_bed(text);
+        gloci()
+            .args(["view", &f, "chr1:1-100"])
+            .assert()
+            .code(1)
+            .stderr(contains("is not sorted"))
+            .stderr(contains("line"));
+    }
+    // ... while --assume-sorted reads and checks only the chr1 block that
+    // binary search finds, as documented: the later chr1 record is missed
+    let f = fx.plain_bed(back);
+    gloci()
+        .args(["view", &f, "chr1:1-100", "--assume-sorted"])
+        .assert()
+        .success()
+        .stdout("chr1\t10\t20\ta\n");
+    let f = fx.plain_bed(tracks);
+    gloci()
+        .args(["view", &f, "chr1:1-100", "--assume-sorted"])
+        .assert()
+        .success()
+        .stdout("track name=one\nchr1\t10\t20\ta\n");
+    // scanned BGZF files are checked too: out of order, and a chromosome
+    // that comes back after another one
     for text in [
         "chr1\t50\t60\nchr1\t10\t20\n",
         "chr1\t1\t2\nchr2\t1\t2\nchr1\t5\t6\n",
@@ -398,8 +478,8 @@ fn unsorted_plain_bed_errors_not_wrong() {
 
 #[test]
 fn order_errors_name_the_real_line() {
-    // The chr2 block is reached by binary search; the error still names the
-    // line's number in the whole file.
+    // Scanned, or with the chr2 block reached by binary search, errors name
+    // the line's number in the whole file.
     let fx = Fx::new();
     let mut text = String::from("track name=t\n");
     for s in 0..50 {
@@ -407,36 +487,33 @@ fn order_errors_name_the_real_line() {
     }
     text.push_str("chr2\t10\t20\nchr2\t30\t40\nchr2\t5\t6\nchr3\t1\t2\n");
     let f = fx.plain_bed(&text);
-    gloci()
-        .args(["view", &f, "chr2:1-100"])
-        .assert()
-        .code(1)
-        .stderr(contains(
-            "line 54 (chr2\t5\t6) comes after line 53 (chr2\t30\t40)",
-        ))
-        .stderr(contains("scanning").not());
-    // and an invalid record found that way
     let bad = fx.plain_bed(&text.replace("chr2\t30\t40", "chr2\t3x\t40"));
-    gloci()
-        .args(["view", &bad, "chr2:1-100"])
-        .assert()
-        .code(1)
-        .stderr(contains("line 53: start \"3x\" is not an integer"));
-    gloci()
-        .args(["view", &bad, "chr2:1-100", "--skip-invalid"])
-        .assert()
-        .code(1)
-        .stderr(contains(
+    let skip = fx.plain_bed(&text.replace("chr2\t5\t6", "chr2\t55\t5x"));
+    for flags in [&[][..], &["--assume-sorted"][..]] {
+        let run = |file: &str, extra: &[&str]| {
+            let mut c = gloci();
+            c.args(["view", file, "chr2:1-100"]).args(flags).args(extra);
+            c.assert()
+        };
+        let a = run(&f, &[]).code(1).stderr(contains(
+            "line 54 (chr2\t5\t6) comes after line 53 (chr2\t30\t40)",
+        ));
+        if !flags.is_empty() {
+            a.stderr(contains("scanning").not());
+        }
+        // an invalid record
+        run(&bad, &[])
+            .code(1)
+            .stderr(contains("line 53: start \"3x\" is not an integer"));
+        run(&bad, &["--skip-invalid"]).code(1).stderr(contains(
             "line 54 (chr2\t5\t6) comes after line 52 (chr2\t10\t20)",
         ));
-    let skip = fx.plain_bed(&text.replace("chr2\t5\t6", "chr2\t55\t5x"));
-    gloci()
-        .args(["view", &skip, "chr2:1-100", "--skip-invalid"])
-        .assert()
-        .success()
-        .stdout("track name=t\nchr2\t10\t20\nchr2\t30\t40\n")
-        .stderr(contains("skipped 1 invalid records"))
-        .stderr(contains("line 54: end \"5x\" is not an integer"));
+        run(&skip, &["--skip-invalid"])
+            .success()
+            .stdout("track name=t\nchr2\t10\t20\nchr2\t30\t40\n")
+            .stderr(contains("skipped 1 invalid records"))
+            .stderr(contains("line 54: end \"5x\" is not an integer"));
+    }
 }
 
 #[test]
@@ -457,6 +534,23 @@ fn no_index_warns_and_scans() {
         .stderr(contains(format!(
             "warning: no index for {vcf_gz_no_index}; scanning the whole file (create one with: gloci index {vcf_gz_no_index})"
         )));
+    // plain BED is scanned unless --assume-sorted
+    let bed = fx.plain_bed("chr1\t1\t5\n");
+    gloci()
+        .args(["view", &bed, "chr1:1-3"])
+        .assert()
+        .success()
+        .stdout("chr1\t1\t5\n")
+        .stderr(format!(
+            "warning: no index for {bed}; scanning the whole file (sort and index it with: \
+gloci sort {bed} -o {bed}.gz --write-index; or, if it is sorted, pass --assume-sorted to binary-search it)\n"
+        ));
+    gloci()
+        .args(["view", &bed, "chr1:1-3", "--assume-sorted"])
+        .assert()
+        .success()
+        .stdout("chr1\t1\t5\n")
+        .stderr("");
     // an indexed file needs no warning
     let indexed = fx.vcf_gz_indexed(&text);
     gloci()
@@ -554,20 +648,17 @@ fn regions_file() {
     let r = fx.plain_bed("track name=regions\nchr1\t149\t300\nchr1\t99\t200\tsecond\n");
     let r_gz = fx.bgzf_bed_unindexed("chr1\t149\t300\nchr1\t99\t200\n");
     for f in fx.every_path(&text) {
-        assert_eq!(
-            stdout_of(["view", &f, "chr1:150-300", "chr1:100-200"]),
-            expected
-        );
-        assert_eq!(stdout_of(["view", &f, "--regions-file", &r]), expected);
-        assert_eq!(stdout_of(["view", &f, "--regions-file", &r_gz]), expected);
+        assert_eq!(f.view(&["chr1:150-300", "chr1:100-200"]), expected);
+        assert_eq!(f.view(&["--regions-file", &r]), expected);
+        assert_eq!(f.view(&["--regions-file", &r_gz]), expected);
         // combined with positional regions
         assert_eq!(
-            stdout_of(["view", &f, "--regions-file", &r, "chr2:1-1000"]),
+            f.view(&["--regions-file", &r, "chr2:1-1000"]),
             format!("{expected}chr2\t150\t160\tf\t0\t.\n")
         );
         // an empty regions file selects nothing
         let empty = fx.plain_bed("");
-        assert_eq!(stdout_of(["view", &f, "--regions-file", &empty]), "");
+        assert_eq!(f.view(&["--regions-file", &empty]), "");
     }
     // a bad regions file is an error naming its line
     let bad = fx.plain_bed("chr1\t10\t5\n");
@@ -583,14 +674,8 @@ fn headers_and_conversion_with_regions() {
     let fx = Fx::new();
     // BED header lines are kept, as in plain view
     for f in fx.every_path("track name=t\nchr1\t1\t5\nchr1\t10\t20\n") {
-        assert_eq!(
-            stdout_of(["view", &f, "chr1:11-12"]),
-            "track name=t\nchr1\t10\t20\n"
-        );
-        assert_eq!(
-            stdout_of(["view", &f, "chr1:11-12", "--no-header"]),
-            "chr1\t10\t20\n"
-        );
+        assert_eq!(f.view(&["chr1:11-12"]), "track name=t\nchr1\t10\t20\n");
+        assert_eq!(f.view(&["chr1:11-12", "--no-header"]), "chr1\t10\t20\n");
     }
     // VCF to BCF and back, restricted to a region
     let text = format!("{VCF_HEAD}chr1\t5\t.\tA\tC\t.\t.\t.\nchr2\t7\t.\tG\tT\t.\t.\t.\n");
@@ -645,5 +730,61 @@ fn stdin_and_header_only_with_regions() {
     assert_eq!(
         stdout_of(["view", &f, "chr1:2-3", "--header-only"]),
         "track name=t\n"
+    );
+}
+
+#[test]
+fn region_flag_equals_positional() {
+    // spec §6.1: --region chr:s-e, repeatable, means the same as REGION
+    let fx = Fx::new();
+    let recs = idx_recs();
+    let expected = naive_once_sorted(&recs, &[(150, 300), (100, 200)]);
+    for f in fx.every_path(&bed_text(&recs)) {
+        assert_eq!(
+            f.view(&["--region", "chr1:150-300", "--region", "chr1:100-200"]),
+            expected
+        );
+        assert_eq!(
+            f.view(&["chr1:150-300", "--region", "chr1:100-200"]),
+            expected
+        );
+        let r = fx.plain_bed("chr1\t149\t300\n");
+        assert_eq!(
+            f.view(&["--regions-file", &r, "--region", "chr1:100-200"]),
+            expected
+        );
+    }
+    let f = fx.plain_bed("chr1\t1\t5\n");
+    gloci()
+        .args(["view", &f, "--region", "chr1:0-5"])
+        .assert()
+        .code(2)
+        .stderr(contains("invalid region"));
+}
+
+#[test]
+fn htslib_bcf_index_with_contigs_out_of_dictionary_order() {
+    // bcftools indexes a BCF whose contigs are contiguous but not in
+    // dictionary order (chr2, id 1, before chr1, id 0): a query on both
+    // returns both, in file order.
+    let fx = Fx::new();
+    let text = format!(
+        "{VCF_HEAD}chr2\t5\t.\tA\tC\t.\t.\t.\nchr2\t9\t.\tG\tT\t.\t.\t.\nchr1\t7\t.\tA\tG\t.\t.\t.\n"
+    );
+    let bcf = fixtures::vcf_to_bcf(text.as_bytes());
+    let f = fx.write(".bcf", &bcf);
+    std::fs::write(format!("{f}.csi"), fixtures::bcf_csi_any_order(&bcf)).unwrap();
+    let both = "chr2\t5\t.\tA\tC\t.\t.\t.\nchr2\t9\t.\tG\tT\t.\t.\t.\nchr1\t7\t.\tA\tG\t.\t.\t.\n";
+    for args in [["chr1", "chr2"], ["chr2", "chr1"]] {
+        gloci()
+            .args(["view", &f, args[0], args[1], "-O", "vcf"])
+            .assert()
+            .success()
+            .stdout(contains(both))
+            .stderr("");
+    }
+    assert_eq!(
+        records(&stdout_of(["view", &f, "chr1", "-O", "vcf"])),
+        "chr1\t7\t.\tA\tG\t.\t.\t.\n"
     );
 }

@@ -96,3 +96,88 @@ pub fn bam_header(refs: &[(&str, u32)]) -> Vec<u8> {
     }
     bgzip(&out)
 }
+
+/// htslib's `hts_reg2bin` for the 0-based region `[beg, end)`.
+fn reg2bin(beg: u64, end: u64, min_shift: u32, depth: u32) -> usize {
+    let end = end.max(beg + 1) - 1;
+    let (mut s, mut t) = (min_shift, ((1u64 << (3 * depth)) - 1) / 7);
+    let mut l = depth;
+    while l > 0 {
+        if beg >> s == end >> s {
+            return (t + (beg >> s)) as usize;
+        }
+        l -= 1;
+        s += 3;
+        t -= 1 << (3 * l);
+    }
+    0
+}
+
+/// A CSI index (min_shift 14, depth 5) for a BGZF BCF, built the way
+/// htslib's `bcftools index` builds one: it accepts contigs in any order as
+/// long as each one's records are contiguous, so reference ids need not
+/// rise through the file. noodles' indexer (and gloci's) refuse such files,
+/// so the index is assembled from its parts. Record spans are the REF span.
+pub fn bcf_csi_any_order(bcf: &[u8]) -> Vec<u8> {
+    use noodles_csi::binning_index::index::ReferenceSequence;
+    use noodles_csi::binning_index::index::reference_sequence::bin::Chunk;
+    use noodles_csi::binning_index::index::reference_sequence::{Bin, Metadata};
+    use noodles_vcf::variant::record::ReferenceBases as _;
+    use std::collections::BTreeMap;
+
+    const MIN_SHIFT: u8 = 14;
+    const DEPTH: u8 = 5;
+    let mut reader = noodles_bcf::io::Reader::new(bcf);
+    let header = reader.read_header().expect("fixture BCF header");
+    let n_refs = header.contigs().len();
+    // rid -> (bin -> chunks, record count)
+    type Refs = BTreeMap<usize, (BTreeMap<usize, Vec<Chunk>>, u64)>;
+    let mut refs: Refs = BTreeMap::new();
+    let mut spans = Vec::new();
+    let mut rec = noodles_bcf::Record::default();
+    loop {
+        let start = reader.get_ref().virtual_position();
+        if reader.read_record(&mut rec).expect("fixture BCF record") == 0 {
+            break;
+        }
+        let end = reader.get_ref().virtual_position();
+        let rid = rec.reference_sequence_id().expect("CHROM");
+        let pos = usize::from(rec.variant_start().expect("POS").expect("POS")) as u64 - 1;
+        let ref_len = rec.reference_bases().len() as u64;
+        let bin = reg2bin(pos, pos + ref_len.max(1), MIN_SHIFT.into(), DEPTH.into());
+        let entry = refs.entry(rid).or_default();
+        let chunks = entry.0.entry(bin).or_default();
+        match chunks.last_mut() {
+            Some(c) if c.end() == start => *c = Chunk::new(c.start(), end),
+            _ => chunks.push(Chunk::new(start, end)),
+        }
+        entry.1 += 1;
+        spans.push((rid, start, end));
+    }
+    let reference_sequences = (0..n_refs)
+        .map(|rid| {
+            let Some((bins, count)) = refs.remove(&rid) else {
+                return ReferenceSequence::new(Default::default(), Default::default(), None);
+            };
+            let first = spans.iter().find(|s| s.0 == rid).expect("a record").1;
+            let last = spans.iter().rev().find(|s| s.0 == rid).expect("a record").2;
+            let loffsets = bins
+                .iter()
+                .map(|(&id, chunks)| (id, chunks[0].start()))
+                .collect();
+            let bins = bins
+                .into_iter()
+                .map(|(id, chunks)| (id, Bin::new(chunks)))
+                .collect();
+            ReferenceSequence::new(bins, loffsets, Some(Metadata::new(first, last, count, 0)))
+        })
+        .collect();
+    let index = noodles_csi::Index::builder()
+        .set_min_shift(MIN_SHIFT)
+        .set_depth(DEPTH)
+        .set_reference_sequences(reference_sequences)
+        .build();
+    let mut w = noodles_csi::io::Writer::new(Vec::new());
+    w.write_index(&index).expect("write CSI");
+    w.into_inner().finish().expect("finish CSI")
+}
