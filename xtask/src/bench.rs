@@ -168,13 +168,17 @@ fn prepare_input(case: &Case, setup: &str, gloci: &Path, dir: &Path) -> Result<P
     }
     if case.input.ends_with(".gz") {
         eprintln!("compressing to {}", want.display());
+        // Write to a partial name first so an interrupted run never leaves a
+        // truncated cached input.
+        let tmp = dir.join(format!("{stem}.partial.{}", case.input));
         run_ok(
             Command::new(gloci)
                 .arg("view")
                 .arg(&plain)
                 .arg("-o")
-                .arg(&want),
+                .arg(&tmp),
         )?;
+        std::fs::rename(&tmp, &want)?;
         std::fs::remove_file(&plain)?;
     }
     Ok(want)

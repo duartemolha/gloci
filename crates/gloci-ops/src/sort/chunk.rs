@@ -28,7 +28,7 @@ const FIRST_TARGET: usize = 64 << 10;
 /// budget, except for a single record larger than the budget, which gets a
 /// chunk of its own. Growth goes through targets `budget / 2^j`, split
 /// between the two vectors by the mix of record lengths seen so far, so the
-/// last step goes from half the budget to all of it. A vector is only moved
+/// last step goes from 1/16 of the budget straight to all of it. A vector is only moved
 /// to a larger allocation while its old copy, the copied part of the new
 /// one and the other vector together fit in the budget.
 ///
@@ -129,6 +129,14 @@ impl Chunk {
         let mut target = b;
         while target / 2 >= floor {
             target /= 2;
+        }
+        // Past 1/16 of the budget, go straight to the whole budget: the
+        // freed intermediate allocations would otherwise pile up in the
+        // allocator (they are not returned to the OS promptly) and push
+        // the peak RSS well past the budget. The untouched part of the
+        // allocation costs no resident memory.
+        if target > b / 16 {
+            target = b;
         }
         // Split the target by the mix of record bytes to entries so far.
         let per_rec = need_a / need_e;
