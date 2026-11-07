@@ -159,7 +159,13 @@ Further rules:
 - **Chromosome order is chosen in this order** **[my call]**:
   1. `--genome FILE` order, if given. FILE can be `.fai`, a 2-column `.genome`, `.dict`, or a VCF/BCF/BAM header.
   2. Otherwise, the contig order declared in a VCF/BCF header among the inputs, if any.
-  3. Otherwise, lexicographic byte order, the same as `sort -k1,1` and bedops `sort-bed`.
+  3. Otherwise, **karyotype order** **[you]**, which matches how people read chromosomes and how reference genomes (and therefore most VCFs) are laid out. Names are compared with any leading `chr` prefix ignored:
+     1. names that are a number, optionally followed by letters (`1`, `2`, `22`, `2L`, `2A`), by number and then suffix;
+     2. then `X`, `Y`, and `M`/`MT`, in that order;
+     3. then everything else (`chr1_KI270706v1_random`, `chrUn_…`, `chrEBV`, `HLA-…`) in natural order, with digit runs compared as numbers;
+     4. remaining ties (`1` vs `chr1`, `chr01` vs `chr1`) are broken by raw bytes, so the order is total.
+
+     This gives `chr1 … chr22, chrX, chrY, chrM` for human, the GRCh38 layout. `--chrom-order lex` selects lexicographic byte order instead, the same as `sort -k1,1`, bedops `sort-bed` and `bedtools sort`. Names that don't follow these patterns, such as yeast's Roman numerals, need `-g`.
 - **Validation:** sortedness is **checked on the fly** in every streaming command.
   - At the first violation, the command stops with exit code 1.
   - The error names the file, line number and both offending records, and gives a hint such as: `run: gloci sort FILE -g <genome>`.
@@ -224,6 +230,7 @@ Further rules:
 | `--compression-level N` | BGZF level (default 6) |
 | `-t, --threads N` | default: `available_parallelism()`, which honours cgroups and CPU affinity (so SLURM allocations); env `GLOCI_THREADS` |
 | `-g, --genome FILE` | chromosome sizes and order (`.fai`, `.genome`, `.dict`, VCF/BCF/BAM header) |
+| `--chrom-order karyotype\|lex` | chromosome order when neither `-g` nor a VCF/BCF header sets one (Section 4.5), default `karyotype` |
 | `--vcf-span allele\|ref` | variant footprint rule (Section 4.2), default `allele` |
 | `--unsorted` | allow unsorted input via the in-memory index (Section 4.5) |
 | `--region chr:s-e` (repeatable), `--regions-file BED` | restrict work to regions; uses the index when present |
@@ -602,7 +609,7 @@ Reference machine: 8-core x86_64, NVMe, 32 GB RAM. Baselines: bedtools 2.31.x, b
 2. **Property tests:** every two-input and n-ary operation is compared with a **naive O(n·m) reference implementation** on random inputs. Inputs include points, bookended features, duplicates, nesting, huge intervals, empty chromosomes and strand mixes.
 3. **Differential tests:**
    - Pinned bedtools, bedops and vcftools run in a container on a test corpus.
-   - Every difference must be either fixed as a bug or listed in `docs/differences.md` with the reason. Examples of listed differences: default `--vcf-span allele`, MAF on multi-allelic sites, and INFO kept by default.
+   - Every difference must be either fixed as a bug or listed in `docs/differences.md` with the reason. Examples of listed differences: default `--vcf-span allele`, default karyotype chromosome order, MAF on multi-allelic sites, and INFO kept by default.
 4. **Fuzzing:** BED, VCF, BCF, GFF and BGZF readers, plus region-string parsing.
 5. **Thread determinism:** every command runs with `-t 1`, `-t 2` and `-t 8`, and the outputs must be byte-identical.
 6. **Large-file tests (nightly):**
@@ -635,6 +642,17 @@ Reference machine: 8-core x86_64, NVMe, 32 GB RAM. Baselines: bedtools 2.31.x, b
 ---
 
 ## 11. Migration guide (old → new)
+
+The user-facing version of this guide lives in `docs/migration.md` (later part of the mdBook). It starts with the behaviour changes below, because these make pipelines fail or give different output even after the flags are rewritten.
+
+### Behaviour changes to know about
+
+**Chromosome order.** Without `-g` or a VCF/BCF header, gloci sorts and expects chromosomes in karyotype order (`chr1, chr2 … chr22, chrX, chrY, chrM`). bedtools, bedops `sort-bed` and `sort -k1,1` use lexicographic order (`chr1, chr10, chr11 …`). In practice:
+
+- Files sorted by the old tools are reported as **not sorted** by gloci's streaming commands. The error names both records. When the pair is in lexicographic order, the hint says the file looks sorted by `sort`/`sort-bed`/`bedtools sort`, and gives both fixes: re-sort with `gloci sort FILE`, or pass `--chrom-order lex`.
+- `gloci sort` output differs from `sort-bed`/`bedtools sort` output in chromosome order only. Within a chromosome, records are ordered the same way. `gloci sort --chrom-order lex` reproduces the old order.
+- `-g genome.fai` and VCF/BCF header order still take precedence, so pipelines that already pass a genome file behave as before.
+- Re-sort stored intermediate files once with `gloci sort`, or keep `--chrom-order lex` on every gloci command in a pipeline that must stay byte-compatible with old outputs. Mixing the two orders within one pipeline is reported as an error, never as a silent wrong answer.
 
 ### bedtools
 
@@ -684,7 +702,7 @@ Reference machine: 8-core x86_64, NVMe, 32 GB RAM. Baselines: bedtools 2.31.x, b
 | `bedmap --echo-map`, `--echo-map-id` | `map -c 0:records`, `map -c 4:collapse` |
 | `bedmap --bases`, `--fraction-*` | `map -c 0:bases`, `-f/-F/-e` |
 | `closest-features` | `closest --each-side [--distance]` |
-| `sort-bed [--max-mem --tmpdir --check-sort --unique --duplicates]` | `sort [--max-mem --tmp-dir --check --unique --duplicates]` |
+| `sort-bed [--max-mem --tmpdir --check-sort --unique --duplicates]` | `sort [--max-mem --tmp-dir --check --unique --duplicates]`; add `--chrom-order lex` to reproduce sort-bed's chromosome order |
 | `bedextract` | `view FILE REGION` |
 | `convert2bed`, `vcf2bed [--snvs/--insertions/--deletions]`, `gff2bed`, `gtf2bed` | `convert [--types snv/ins/del]` |
 | `starch`, `unstarch`, `starchcat` | not planned |

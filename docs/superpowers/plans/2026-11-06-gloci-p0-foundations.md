@@ -71,6 +71,7 @@ The spec is silent or ambiguous on these points. Each is the plan's call; change
 | D29 | Multiple VCF inputs to `sort` must have identical sample columns; the header comes from the first file. |
 | D30 | A seekable BGZF file without the 28-byte EOF marker is an error ("probably truncated"). stdin can't be checked. |
 | D31 | Being killed by SIGINT, SIGTERM or SIGHUP removes registered temp files and spill dirs, then exits 130. A panic hook does the same before abort. |
+| D32 | (User decision, 2026-11-07, spec §4.5 rule 3.) The fallback chromosome order is **karyotype**: `chr` ignored; numeric names (optionally followed by letters) by number, then X, Y, M/MT, then the rest in natural order, ties broken by raw bytes. `--chrom-order lex` restores lexicographic order. When a karyotype-mode order error looks like a lexicographically sorted file, the hint says so and gives both fixes. Users get `docs/migration.md`. Added as Task 14b. |
 
 ## Review Focus
 
@@ -1029,6 +1030,102 @@ proptest! {
 
 ---
 
+### Task 14b: Karyotype chromosome order, `--chrom-order`, migration docs
+
+(User decision D32. This runs after Task 14 and before Task 15, and changes code from Tasks 2, 11 and 13 plus the tests that pin the old default.)
+
+**Files:**
+- Modify: `crates/gloci-core/src/chrom.rs`, `crates/gloci-core/src/lib.rs`, `crates/gloci-core/tests/{coords.rs,order.rs}`
+- Modify: `crates/gloci-io/src/{genome.rs,sorted.rs}`, `crates/gloci-io/tests/genome_order.rs`
+- Modify: `crates/gloci-testkit/src/naive.rs` (add `karyotype_rank`)
+- Modify: `crates/gloci/src/cli.rs` (add `ChromOrderArg`)
+- Create: `docs/migration.md`
+
+**Interfaces:**
+- Produces (core):
+  - `pub fn karyotype_cmp(a: &[u8], b: &[u8]) -> Ordering` (a total order).
+  - `pub enum ChromOrder { Karyotype, Lex }` (Default = Karyotype; `FromStr` accepts `karyotype` and `lex`).
+  - `ChromTable::karyotype()` (an open table ordered by `karyotype_cmp`); `ChromTable::lexicographic()` stays.
+  - A new `OrderSource::Karyotype` variant.
+- Produces (io):
+  - `chrom_table_for(genome: Option<&Path>, inputs: &[&dyn RecordReader], fallback: ChromOrder)`. The fallback is used only when neither `-g` nor a header with contigs applies.
+  - `sort_hint` for `Karyotype` gives `run: gloci sort {name}`, and for `Lexicographic` gives `run: gloci sort {name} --chrom-order lex`.
+  - In karyotype mode, a `ChromBackwards` violation where the two names are in lexicographic byte order (`prev < next` as bytes) appends ` (this file looks sorted by sort -k1,1, sort-bed or bedtools sort; re-sort it with gloci sort, or pass --chrom-order lex; see docs/migration.md)`. That replaces the generic "-g" suffix.
+- Produces (cli): `ChromOrderArg { --chrom-order karyotype|lex (default karyotype) }` with help text naming spec §4.5. Tasks 15, 17 and 18 flatten it.
+- testkit: `naive::karyotype_rank(names: &[&str]) -> impl Fn(&str) -> u32`.
+
+`karyotype_cmp(a, b)` algorithm, exactly:
+
+1. Strip one leading `chr` (case-insensitive) from each name if something remains.
+2. Classify the remainder:
+   - class 0 if it matches `^[0-9]+[A-Za-z]*$`;
+   - class 1 if it is `X`;
+   - class 2 if it is `Y`;
+   - class 3 if it is `M` or `MT`;
+   - class 4 otherwise.
+3. Compare by class.
+4. Within class 0, compare by the numeric value of the digits (ignoring leading zeros; longer run means larger; never parse into a fixed-width integer), then by the letter suffix as bytes.
+5. Within class 4, compare the remainders naturally: split into digit and non-digit runs, compare digit runs numerically and non-digit runs as bytes; a sequence that is a prefix of the other comes first.
+6. If still equal, compare the full raw names as bytes.
+
+- [ ] **Step 1: Write the failing tests**
+
+```rust
+// crates/gloci-core/tests/coords.rs (add)
+fn ksort(v: &[&str]) -> Vec<String> { let mut v: Vec<_> = v.to_vec(); v.sort_by(|a, b| karyotype_cmp(a.as_bytes(), b.as_bytes())); v.iter().map(|s| s.to_string()).collect() }
+#[test] fn karyotype_order() {
+    assert_eq!(ksort(&["chrM","chr10","chr1_KI270706v1_random","chr2","chrY","chr1","chrX","chrUn_GL000220v1","chr22","chrEBV","HLA-A*01:01:01:01"]),
+               ["chr1","chr2","chr10","chr22","chrX","chrY","chrM","chr1_KI270706v1_random","chrEBV","HLA-A*01:01:01:01","chrUn_GL000220v1"]);
+    assert_eq!(ksort(&["MT","X","10","2","1","Y"]), ["1","2","10","X","Y","MT"]);                                  // Ensembl
+    assert_eq!(ksort(&["chrX","chr4","chr3R","chr2L","chrY","chr3L","chr2R","chrM"]),
+               ["chr2L","chr2R","chr3L","chr3R","chr4","chrX","chrY","chrM"]);                                    // dm6
+    assert_eq!(ksort(&["chr2B","chr1","chr2A","chr3"]), ["chr1","chr2A","chr2B","chr3"]);                        // panTro
+    assert_ne!(karyotype_cmp(b"1", b"chr1"), Ordering::Equal);
+    assert_ne!(karyotype_cmp(b"chr01", b"chr1"), Ordering::Equal);
+    assert_eq!(karyotype_cmp(b"chr99999999999999999999999", b"chr100000000000000000000000"), Ordering::Less);  // no overflow
+}
+proptest! {
+    #[test] fn karyotype_cmp_is_a_total_order(a in "[a-zA-Z0-9_]{0,8}", b in "[a-zA-Z0-9_]{0,8}", c in "[a-zA-Z0-9_]{0,8}") {
+        let (a, b, c) = (a.as_bytes(), b.as_bytes(), c.as_bytes());
+        prop_assert_eq!(karyotype_cmp(a, b), karyotype_cmp(b, a).reverse());
+        prop_assert_eq!(karyotype_cmp(a, b) == Ordering::Equal, a == b);
+        if karyotype_cmp(a, b) != Ordering::Greater && karyotype_cmp(b, c) != Ordering::Greater { prop_assert_ne!(karyotype_cmp(a, c), Ordering::Greater); }
+    }
+}
+#[test] fn karyotype_table_ranks() {
+    let mut t = ChromTable::karyotype();
+    for n in ["chr2", "chr10", "chr1", "chrX"] { t.intern(n.as_bytes()).unwrap(); }
+    assert_eq!(t.ranks(), vec![1, 2, 0, 3]);
+    assert_eq!(*t.order_source(), OrderSource::Karyotype);
+}
+// crates/gloci-core/tests/order.rs (add)
+#[test] fn karyotype_checker() {
+    let mut t = ChromTable::karyotype(); let mut c = OrderChecker::new();
+    for (n, k) in [("chr1", 5), ("chr2", 0), ("chr10", 3), ("chrX", 0), ("chrM", 0)] { let id = t.intern(n.as_bytes()).unwrap(); c.check(&t, id, k).unwrap(); }
+    let mut t = ChromTable::karyotype(); let mut c = OrderChecker::new();
+    let (c10, c2) = (t.intern(b"chr10").unwrap(), t.intern(b"chr2").unwrap());
+    c.check(&t, c10, 0).unwrap();
+    assert!(matches!(c.check(&t, c2, 0), Err(OrderViolation::ChromBackwards { .. })));
+}
+// crates/gloci-io/tests/genome_order.rs (change + add)
+assert_eq!(*chrom_table_for(None, &[&bed_reader], ChromOrder::Karyotype).unwrap().order_source(), OrderSource::Karyotype);
+assert_eq!(*chrom_table_for(None, &[&bed_reader], ChromOrder::Lex).unwrap().order_source(), OrderSource::Lexicographic);
+assert!(matches!(chrom_table_for(None, &[&vcf_reader], ChromOrder::Lex).unwrap().order_source(), OrderSource::VcfHeader(_)));  // header still wins
+let e = guard_err_karyotype(b"chr1\t5\t9\nchr10\t1\t2\nchr2\t0\t3\n").to_string();       // lexicographically sorted input
+assert!(e.contains("line 3 (chr2\t0\t3) comes after line 2 (chr10\t1\t2)"));
+assert!(e.contains("looks sorted by sort -k1,1, sort-bed or bedtools sort") && e.contains("--chrom-order lex") && e.contains("docs/migration.md"));
+assert!(guard_err_lex(b"chr2\t5\t9\nchr10\t1\t2\n").to_string().contains("hint: run: gloci sort x.bed --chrom-order lex"));
+```
+
+- [ ] **Step 2: Run** `cargo test -p gloci-core -p gloci-io`. Expected: FAIL to compile.
+- [ ] **Step 3: Implement** the core comparator and table, the `chrom_table_for` parameter, the hints, `ChromOrderArg`, and testkit's `karyotype_rank`. Update existing tests that pinned the old default (Task 11's `chrom_table_for` calls) to pass `ChromOrder::Karyotype`, and keep their lexicographic cases by passing `ChromOrder::Lex`. Then write `docs/migration.md` for pipeline maintainers, with these sections:
+  - **Chromosome order (behaviour change).** What changed, with a before/after example of `sort-bed` output against `gloci sort` output on `chr1, chr2, chr10, chrX`. What error message users will see on old-sorted files, with the actual hint text. The two fixes (`gloci sort FILE` once, or `--chrom-order lex` everywhere). The fact that `-g` and VCF/BCF headers still take precedence. A worked pipeline example, before (`sort -k1,1 -k2,2n | bedtools intersect -sorted …`) and after.
+  - **Command mapping.** A short pointer to the full old→new tables (spec §11 for now; these move here in P1).
+- [ ] **Step 4: Run** `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace`. Expected: PASS.
+- [ ] **Step 5: Commit** `git commit -am "feat: karyotype chromosome order by default, --chrom-order lex, migration guide"`
+
+---
+
 ### Task 15: `gloci sort` command
 
 **Files:**
@@ -1041,7 +1138,7 @@ proptest! {
   - `pub trait RecordWriter { fn write_record(&mut self, raw: &[u8]) -> io::Result<()>; fn finish(self: Box<Self>) -> Result<(), IoError>; }`.
   - `pub struct WriterOptions { pub write_header: bool, pub command_line: Option<String>, pub version: &'static str }`.
   - `pub fn open_record_writer(out: Output, records: Format, to: OutFormat, header: &Header, o: &WriterOptions) -> Result<Box<dyn RecordWriter>, IoError>`. Text formats get `raw + '\n'`; BCF records are copied as framed bytes. The header is written first: `Lines` only when `write_header`, VCF/BCF always with `with_command_line`. A family mismatch is a `UsageError` (D18).
-- CLI: `gloci sort FILES... [-g] [--max-mem SIZE=2G] [--tmp-dir] [-t] [--full-key] [--unique|--duplicates] [-m/--merge-sorted] [--check] [--header] [--skip-invalid] [OutputArgs]`.
+- CLI: `gloci sort FILES... [-g] [--chrom-order karyotype|lex] [--max-mem SIZE=2G] [--tmp-dir] [-t] [--full-key] [--unique|--duplicates] [-m/--merge-sorted] [--check] [--header] [--skip-invalid] [OutputArgs]`.
   - Readers open with `VcfSpan::Ref` (D2).
   - Multiple VCF inputs need identical sample lists (D29). Mixed formats are a usage error.
   - `--check` writes nothing and exits 0 or 1 (D12).
@@ -1051,9 +1148,12 @@ proptest! {
 
 ```rust
 // crates/gloci/tests/sort.rs
-#[test] fn bed_lexicographic_default() {
-    gloci().args(["sort", &w("u.bed", "chr2\t5\t10\nchr10\t1\t2\nchr1\t7\t9\nchr1\t3\t4\n")]).assert().success()
-      .stdout("chr1\t3\t4\nchr1\t7\t9\nchr10\t1\t2\nchr2\t5\t10\n");
+#[test] fn bed_karyotype_default() {                                           // D32
+    let u = w("u.bed", "chr2\t5\t10\nchrX\t1\t2\nchr10\t1\t2\nchr1\t7\t9\nchrM\t0\t5\nchr1\t3\t4\n");
+    gloci().args(["sort", &u]).assert().success()
+      .stdout("chr1\t3\t4\nchr1\t7\t9\nchr2\t5\t10\nchr10\t1\t2\nchrX\t1\t2\nchrM\t0\t5\n");
+    gloci().args(["sort", &u, "--chrom-order", "lex"]).assert().success()       // sort-bed order
+      .stdout("chr1\t3\t4\nchr1\t7\t9\nchr10\t1\t2\nchr2\t5\t10\nchrM\t0\t5\nchrX\t1\t2\n");
 }
 #[test] fn genome_order() { /* -g g.genome (chr1,chr2,chr10) → chr1,chr1,chr2,chr10 */ }
 #[test] fn ties_keep_input_order_and_full_key() { /* "chr1\t1\t5\tb" before "chr1\t1\t5\ta" kept; with --full-key a before b */ }
@@ -1085,7 +1185,12 @@ proptest! {
     gloci().args(["sort", empty_bed, "-o", "e.bed.gz", "--write-index"]).assert().success(); assert!(exists("e.bed.gz.tbi"));
     gloci().args(["sort", "-"]).write_stdin("").assert().success().stdout("");
 }
-#[test] fn many_contigs() { /* 100k scaffolds × 3 records, shuffled → sorted lexicographically, completes < 10 s */ }   // Review Focus 4
+#[test] fn many_contigs() { /* 100k scaffolds × 3 records, shuffled → sorted in karyotype (natural) order, completes < 10 s */ }   // Review Focus 4
+#[test] fn check_on_old_lex_sorted_file_explains() {                            // D32 migration hint
+    gloci().args(["sort", "--check", &w("l.bed", "chr1\t1\t2\nchr10\t1\t2\nchr2\t1\t2\n")]).assert().code(1)
+      .stderr(contains("looks sorted by sort -k1,1, sort-bed or bedtools sort"));
+    gloci().args(["sort", "--check", "--chrom-order", "lex", &w("l2.bed", "chr1\t1\t2\nchr10\t1\t2\nchr2\t1\t2\n")]).assert().success();
+}
 ```
 
 - [ ] **Step 2: Run** `cargo test -p gloci --test sort`. Expected: FAIL.
@@ -1107,7 +1212,7 @@ proptest! {
   - `pub fn convert_variants(input: &str, out: Output, to: OutFormat, o: &WriterOptions, threads) -> Result<u64, IoError>` handles VCF↔BCF via noodles `variant::io::Write`, keeping the original header lines plus `##glociCommand`.
   - `pub struct ViewOptions { pub header_only: bool, pub no_header: bool, pub regions: Vec<Region>, pub inclusive_points: bool, pub genome: Option<PathBuf> }`.
   - `pub fn run_view(path: &str, opts: &ViewOptions, ro: &ReaderOptions, out_spec: &OutputSpec, oo: &OutputOptions, wo: &WriterOptions) -> Result<(), IoError>`. Regions arrive in Task 17; with none given it streams.
-- CLI: `gloci view FILE [REGION...] [--regions-file BED] [--header-only] [--no-header] [--vcf-span] [--inclusive-points] [-g] [--format] [--skip-invalid] [OutputArgs]`.
+- CLI: `gloci view FILE [REGION...] [--regions-file BED] [--header-only] [--no-header] [--vcf-span] [--inclusive-points] [-g] [--chrom-order] [--format] [--skip-invalid] [OutputArgs]`.
   - A cross-family `-O` (e.g. VCF to BED) is a usage error: `use gloci convert for format conversion (coming in a later release)`.
   - `--no-header` with BCF output is a usage error.
   - BCF or BGZF output to a TTY is a usage error (D17).
@@ -1183,9 +1288,10 @@ In every path, records are selected with `overlaps(span, region, inclusive_point
     let f = plain_bed("chr1\t0\t1000000\tbig\nchr1\t500\t600\tsmall\nchr1\t999990\t999999\tx\n");
     assert_eq!(stdout_of(["view", &f, "chr1:999991-999995"]), "chr1\t0\t1000000\tbig\nchr1\t999990\t999999\tx\n");
 }
-#[test] fn karyotype_order_without_genome_still_correct() {
-    // chr1, chr2, ..., chr10 order; lexicographic bisection may miss → fallback full scan, correct answer + warning
-    gloci().args(["view", &kary, "chr10:1-100"]).assert().success().stdout(CHR10_RECS).stderr(contains("scanning the whole file"));
+#[test] fn other_chrom_order_without_flag_still_correct() {
+    // file in lexicographic order (chr1, chr10, chr2, …) queried in default karyotype mode: bisection may miss → full scan, correct answer + warning
+    gloci().args(["view", &lex_sorted, "chr10:1-100"]).assert().success().stdout(CHR10_RECS).stderr(contains("scanning the whole file"));
+    gloci().args(["view", &lex_sorted, "chr10:1-100", "--chrom-order", "lex"]).assert().success().stdout(CHR10_RECS);   // bisection hits
 }
 #[test] fn unsorted_plain_bed_errors_not_wrong() { gloci().args(["view", &unsorted, "chr1:1-100"]).assert().code(1).stderr(contains("is not sorted")); }
 #[test] fn no_index_warns_and_scans() { gloci().args(["view", &vcf_gz_no_index, "chr1:1-1000"]).assert().success().stderr(contains("no index for")); }
@@ -1216,7 +1322,7 @@ In every path, records are selected with `overlaps(span, region, inclusive_point
 - Produces:
   - `pub struct CheckReport { pub name: String, pub format: Format, pub compression: Compression, pub records: u64, pub chroms: Vec<(Vec<u8>, u64)>, pub order: String, pub errors: Problems, pub warnings: Problems }`.
   - `pub struct Problems { pub count: u64, pub first: Vec<String> }` (at most 10).
-  - `pub fn check_file(path: &str, genome: Option<&Path>, ro: &ReaderOptions) -> Result<CheckReport, IoError>`.
+  - `pub fn check_file(path: &str, genome: Option<&Path>, order: ChromOrder, ro: &ReaderOptions) -> Result<CheckReport, IoError>` (`gloci check` takes `-g` and `--chrom-order`).
   - `CheckReport::render(&self) -> String`.
 
 Errors cover parse problems (from diagnostics), order violations (the checker continues after each), `end > chromosome length` and a chromosome missing from `-g` (when `-g` is given), BED12 block problems, and VCF data lines whose column count isn't `8`, or `9 + samples` when samples are declared. Warnings (D25) cover exact duplicate lines among records with the same `(chrom, key)` and blank lines.
@@ -1276,7 +1382,7 @@ Exit 1 when any file has errors.
   - `cargo xtask gen vcf --records N --samples M --seed S -o FILE` mixes SNV, MNV, ins, del, multi-allelic and `<DEL>` with END.
   - `cargo xtask bench [--cases xtask/bench/cases.toml] [--out bench-results] [--check-targets]` runs `hyperfine --warmup 1 --runs 5 --export-json` per case and stores `bench-results/<gloci version>/<case>.json`. `--check-targets` evaluates each case's `targets` and exits 1 on a miss.
   - `cases.toml` schema: `[[case]] name, setup (gen args), commands = { gloci = "...", sort-bed = "...", gnu-sort = "LC_ALL=C sort -k1,1 -k2,2n --parallel=8 -S 2G {in}", bedtools = "..." }, targets = ["gloci < sort-bed", "gloci <= 1.5 * gnu-sort"]`.
-  - P0 cases: `sort-plain-10M` (BED, 10M records) and `sort-bgzf-10M` (`.bed.gz` input and output, `-t 8`).
+  - P0 cases: `sort-plain-10M` (BED, 10M records) and `sort-bgzf-10M` (`.bed.gz` input and output, `-t 8`). The gloci command uses `--chrom-order lex`, so every tool produces the same output.
 
 Large-file tests (`#[ignore]`, nightly):
 - `sort` on a 2 GiB generated BED with `--max-mem 512M`: the output passes `gloci sort --check`, and child peak RSS is ≤ 512 MiB + 150 MiB.
@@ -1330,10 +1436,12 @@ Golden files (bedtools agreement in every CI run, no Docker needed):
 - `crates/gloci/tests/golden.rs` runs on every `cargo test`. For each case directory it runs the gloci binary with `args` on the input and compares the output with `expected` using the case's compare mode. The rules match the live harness: a case without `expected_difference` must match, and a case with one must differ (a stale entry fails).
 - A golden case cannot drift silently. When a reference tool version changes, `--update-golden` rewrites `expected`, and the diff shows up in review.
 
-P0 cases:
+P0 cases (gloci runs with `--chrom-order lex` wherever the reference tool sorts lexicographically, so the outputs are comparable):
 - `sort-bed-vs-sort-bed`
 - `sort-bed-vs-bedtools-sort` (bedtools 2.31.1 `sort -i`)
 - `sort-bed-vs-gnu-sort` (`LC_ALL=C sort -k1,1 -k2,2n -s`)
+- `sort-bed-karyotype-default-vs-bedtools-sort` (gloci without `--chrom-order`; expected difference `#karyotype-chromosome-order`)
+- `sort-bed-vs-bedtools-sort-genome` (both with `-g genome.txt`; must match)
 - `sort-vcf-vs-bcftools-sort` (vcf-records)
 - `view-region-ref-inclusive-vs-tabix` (`--vcf-span ref --inclusive-points`; must match)
 - `view-region-default-vs-tabix` (expected difference `#view-region-footprints`)
@@ -1341,6 +1449,7 @@ P0 cases:
 
 `docs/differences.md` starts with these sections, each with an anchor, the gloci behaviour, the old behaviour and the reason:
 - default `--vcf-span allele`
+- default karyotype chromosome order (D32), anchor `karyotype-chromosome-order`, linking to `docs/migration.md`
 - `view` region footprints and points (D9)
 - `##glociCommand` header line
 - `sort --check` checks `(chrom, start)` only (D12)
