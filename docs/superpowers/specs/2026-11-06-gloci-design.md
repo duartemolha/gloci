@@ -135,7 +135,7 @@ Further rules:
 | `chr1 5 10` | `chr1 10 15` | no | bookended, no shared base |
 | `chr1 5 11` | `chr1 10 15` | yes | share base 10 |
 - **Fraction thresholds:**
-  - `-f` is the minimum fraction of A covered, and `-F` is the minimum fraction of B covered.
+  - `-f` is the minimum fraction of A covered, and `-F` is the minimum fraction of B covered. Both accept a decimal (`0.5`) or a percentage (`50%`), as bedops `-e 50%` does. **[you, 2026-11-07]**
   - `-r` requires both, and `-e` requires either.
   - `--min-bases N` sets an absolute minimum overlap.
   - A threshold on a point side counts as met whenever the point overlaps.
@@ -591,7 +591,12 @@ xtask/         benchmark runner, differential-test runner, synthetic data genera
   - It evicts B whose `end + window <= a.start`.
   - Memory is limited by overlap depth, not file size.
   - Pathological depth, such as a whole-chromosome feature against everything, is documented, and the active set must stay correct when it happens.
-- **Unsorted mode** loads one side into a cache-friendly interval index per chromosome. Candidates are `coitrees`, a cgranges-style implicit tree, or `rust-lapper`; the builder picks by benchmark.
+- **One core intersection primitive (P1) [you, 2026-11-07, after reviewing bedder-rs].** The engine emits, for each A record, every overlapping B record tagged by its source file. Optionally it also emits the n nearest B within a maximum distance. `intersect`, `subtract`, `closest`, `map` and `coverage` are reporting layers over this one sweep, not separate algorithms.
+  - Internally, what to report is described by a "piece" model, after bedder's `--a-piece`/`--b-piece`: whole A, the overlapping piece, the inverse piece (which is `subtract`), or none. The user-facing `--mode` flags in Section 7 map onto it.
+- **Unsorted mode** loads one side into a cache-friendly interval index per chromosome. The preferred index is `coitrees`: pure Rust, with SIMD on AVX2 and on ARM NEON. The builder may swap it with benchmark evidence (a cgranges-style implicit tree, `rust-lapper`, superintervals). Because coitrees intervals are end-inclusive integers with no zero-length intervals, it is used only to generate candidates:
+  - Queries are widened by one base on each side, and every candidate is re-tested with Section 4.3's exact rules. Points and bookended intervals therefore behave exactly as in sorted mode.
+  - Chromosomes with coordinates beyond the index's integer range fall back to a 64-bit implementation.
+  - When the streamed side happens to be sorted, the index's sorted-query mode is used.
 
 ### 8.3 Parallelism
 
@@ -670,6 +675,8 @@ Reference machine: 8-core x86_64, NVMe, 32 GB RAM. Baselines: bedtools 2.31.x, b
   - ENCODE cCREs and peaks.
   - A large bedGraph signal track.
 - **Synthetic generator:** produces 10M–1B intervals with controlled length distributions, overlap depth and chromosome counts, including pathological cases (deep nesting, a whole-chromosome feature, many points).
+- **Public workload:** the coitrees benchmark set (A ≈ 2.76M intervals against B ≈ 62M, coverage counts), a realistic large case next to the synthetic data.
+- **Baselines:** bedtools, bedops and vcftools (the tools replaced, and binding per Section 2), plus the Rust and C alternatives as yardsticks: gia, bedder, granges and bedtk. These are pinned in the benchmark container. **[you, 2026-11-07]**
 - Results are stored per release so regressions show up.
 
 ### 9.3 Testing
@@ -708,6 +715,7 @@ Reference machine: 8-core x86_64, NVMe, 32 GB RAM. Baselines: bedtools 2.31.x, b
 **Docs:**
 
 - An mdBook with a semantics chapter (Section 4), the migration guide (Section 11) and the differences list.
+- A `SKILL.md` agent usage guide, generated from the CLI help and the migration guide, so AI coding agents use gloci correctly (P1). This follows bedder-rs. **[you, 2026-11-07]**
 
 ---
 
