@@ -126,7 +126,7 @@ fn precedence() {
     let g = write("g.genome", b"chrA\t10\n");
     let (v, b, n) = (vcf_reader(), bed_reader(), vcf_without_contigs());
     assert_eq!(
-        *chrom_table_for(Some(&g), &[&*v], ChromOrder::Karyotype)
+        *chrom_table_for(Some(g.to_str().unwrap()), &[&*v], ChromOrder::Karyotype)
             .unwrap()
             .order_source(),
         OrderSource::GenomeFile(g.clone())

@@ -7,14 +7,15 @@
 //! BED12 block consistency, for a numeric bedGraph value and for the VCF
 //! column count. Exact duplicate lines and blank lines are warnings (D25).
 
-use gloci_core::{ChromId, ChromOrder, OrderChecker, OrderSource, OrderViolation, thousands};
+use gloci_core::{
+    ChromId, ChromOrder, ChromTable, OrderChecker, OrderSource, OrderViolation, thousands,
+};
 use gloci_io::{
     Compression, Format, Header, IoError, LEX_SORTED_NOTE, Loc, ReaderOptions, RecordBatch,
-    bed12_blocks, chrom_table_for, load_genome, next_batch_size, open_reader, sort_hint,
+    bed12_blocks, chrom_table_for, next_batch_size, open_reader, resolve_genome, sort_hint,
 };
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::path::Path;
 
 /// Problems listed per category.
 const MAX_LISTED: usize = 10;
@@ -67,6 +68,7 @@ fn compression_name(c: Compression) -> &'static str {
 fn order_source_name(s: &OrderSource) -> String {
     match s {
         OrderSource::GenomeFile(p) => format!("genome file {}", p.display()),
+        OrderSource::BuiltinGenome(id) => format!("built-in genome {id}"),
         OrderSource::VcfHeader(n) => format!("##contig order of {n}"),
         OrderSource::Lexicographic => "lexicographic order".to_string(),
         OrderSource::Karyotype => "karyotype order".to_string(),
@@ -220,18 +222,22 @@ fn loc_of(binary: bool, n: u64) -> Loc {
 /// order, names and lengths; without it `order` is the fallback order.
 pub fn check_file(
     path: &str,
-    genome: Option<&Path>,
+    genome: Option<&str>,
     order: ChromOrder,
     ro: &ReaderOptions,
 ) -> Result<CheckReport, IoError> {
     let mut ro = ro.clone();
     ro.invalid = gloci_io::InvalidPolicy::Skip;
     let mut reader = open_reader(path, &ro)?;
-    let genome_data = match genome {
-        Some(p) => Some(load_genome(p)?),
+    let resolved = match genome {
+        Some(arg) => Some(resolve_genome(arg)?),
         None => None,
     };
-    let mut chroms = chrom_table_for(genome, &[reader.as_ref()], order)?;
+    let mut chroms = match &resolved {
+        Some((g, source)) => ChromTable::closed(g, source.clone()),
+        None => chrom_table_for(None, &[reader.as_ref()], order)?,
+    };
+    let genome_data = resolved.map(|(g, _)| g);
     let format = reader.format();
     let binary = format == Format::Bcf;
     let expected_cols = match reader.header() {

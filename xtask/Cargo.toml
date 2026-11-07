@@ -10,6 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 gloci = { path = "../crates/gloci" }
+gloci-core.workspace = true
 gloci-testkit.workspace = true
 clap.workspace = true
 clap_complete.workspace = true
@@ -19,6 +20,8 @@ rand.workspace = true
 rand_chacha.workspace = true
 serde.workspace = true
 toml.workspace = true
+sha2.workspace = true
+flate2.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]

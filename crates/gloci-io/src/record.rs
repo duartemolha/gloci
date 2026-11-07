@@ -161,6 +161,9 @@ pub(crate) fn intern_chrom(chroms: &mut ChromTable, name: &[u8]) -> Result<Chrom
     chroms.intern(name).map_err(|e| {
         let place = match chroms.order_source() {
             OrderSource::GenomeFile(p) => format!("the genome file {}", p.display()),
+            OrderSource::BuiltinGenome(id) => {
+                format!("the built-in genome {id} (gloci genomes show {id} lists its names)")
+            }
             OrderSource::VcfHeader(n) => format!("the ##contig lines of {n}"),
             OrderSource::Lexicographic | OrderSource::Karyotype | OrderSource::FirstAppearance => {
                 "the genome".to_string()

@@ -14,6 +14,7 @@ const KEEP_BYTES: usize = SHOW_CHARS * 4;
 pub fn sort_hint(name: &str, source: &OrderSource) -> String {
     match source {
         OrderSource::GenomeFile(p) => format!("run: gloci sort {name} -g {}", p.display()),
+        OrderSource::BuiltinGenome(id) => format!("run: gloci sort {name} -g {id}"),
         OrderSource::Lexicographic => format!("run: gloci sort {name} --chrom-order lex"),
         _ => format!("run: gloci sort {name}"),
     }

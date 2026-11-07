@@ -19,12 +19,12 @@ use gloci_io::{
     Compression, Diagnostics, Format, Header, HeaderMode, InvalidPolicy, IoError, OrderGuard,
     OutFormat, OutputOptions, OutputSpec, ReaderOptions, RecordBatch, RecordMeta, RecordReader,
     UsageError, WriterOptions, check_family, chrom_table_for, convert_variants, find_index,
-    index_reference_names, load_genome, next_batch_size, open_headerless_writer, open_output,
-    open_reader, open_record_writer, open_region_reader, refuse_binary_to_tty,
+    index_reference_names, next_batch_size, open_headerless_writer, open_output, open_reader,
+    open_record_writer, open_region_reader, refuse_binary_to_tty, resolve_genome,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::IsTerminal;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[derive(Debug, Clone, Default)]
 pub struct ViewOptions {
@@ -38,8 +38,9 @@ pub struct ViewOptions {
     pub regions_file: Option<String>,
     /// A point on a region's edge overlaps it (§4.3).
     pub inclusive_points: bool,
-    /// `-g`: chromosome names and the order binary search assumes.
-    pub genome: Option<PathBuf>,
+    /// `-g`: a built-in genome id or a file giving the chromosome names and
+    /// the order binary search assumes.
+    pub genome: Option<String>,
     /// The order binary search assumes without `-g` (D32).
     pub chrom_order: ChromOrder,
     /// Binary-search an uncompressed BED file without an index instead of
@@ -68,17 +69,17 @@ pub fn open_view(
 ) -> Result<(Box<dyn RecordReader>, ChromTable), IoError> {
     let reader = open_reader(path, ro)?;
     let genome = match &opts.genome {
-        Some(p) => Some((p.as_path(), load_genome(p)?)),
+        Some(arg) => Some(resolve_genome(arg)?),
         None => None,
     };
     let chroms = match &genome {
-        Some((p, g)) => ChromTable::closed(g, OrderSource::GenomeFile(p.to_path_buf())),
+        Some((g, source)) => ChromTable::closed(g, source.clone()),
         None => chrom_table_for(None, &[reader.as_ref()], opts.chrom_order)?,
     };
     if !opts.has_regions() {
         return Ok((reader, chroms));
     }
-    let genome = genome.as_ref().map(|(p, g)| (*p, g));
+    let genome = genome.as_ref().map(|(g, source)| (source, g));
     let selection = select(path, reader, opts, ro, genome, &chroms)?;
     Ok((Box::new(selection), chroms))
 }
@@ -151,7 +152,7 @@ fn select(
     head: Box<dyn RecordReader>,
     opts: &ViewOptions,
     ro: &ReaderOptions,
-    genome: Option<(&Path, &Genome)>,
+    genome: Option<(&OrderSource, &Genome)>,
     chroms: &ChromTable,
 ) -> Result<Selection, IoError> {
     let name = head.name().to_string();
@@ -196,9 +197,13 @@ fn select(
             known_in = Some(name.clone());
         }
     }
-    if let Some((p, g)) = genome {
+    if let Some((source, g)) = genome {
         known.extend((0..g.len()).map(|i| g.name(i).to_vec()));
-        known_in.get_or_insert_with(|| p.display().to_string());
+        known_in.get_or_insert_with(|| match source {
+            OrderSource::BuiltinGenome(id) => format!("the built-in genome {id}"),
+            OrderSource::GenomeFile(p) => p.display().to_string(),
+            _ => "the genome".to_string(),
+        });
     }
 
     let mut wanted: Vec<(Vec<u8>, Interval)> = Vec::new();

@@ -1,6 +1,7 @@
 //! `--genome` loading and chromosome-table resolution (spec §4.5, D7, D27).
 
 use crate::bcf::read_bcf_header;
+use crate::builtin::resolve_genome;
 use crate::error::{IoError, Loc};
 use crate::record::{Header, RecordReader};
 use crate::vcf::VcfHeader;
@@ -178,19 +179,17 @@ fn header_genome(name: &str, h: &VcfHeader) -> Result<Genome, IoError> {
     })
 }
 
-/// Choose the chromosome table: `--genome`, else the first VCF/BCF header
-/// with contigs, else `fallback` (karyotype by default, spec §4.5).
+/// Choose the chromosome table: `--genome` (the raw `-g` value: a built-in
+/// genome id or a file), else the first VCF/BCF header with contigs, else
+/// `fallback` (karyotype by default, spec §4.5).
 pub fn chrom_table_for(
-    genome: Option<&Path>,
+    genome: Option<&str>,
     inputs: &[&dyn RecordReader],
     fallback: ChromOrder,
 ) -> Result<ChromTable, IoError> {
-    if let Some(p) = genome {
-        let g = load_genome(p)?;
-        return Ok(ChromTable::closed(
-            &g,
-            OrderSource::GenomeFile(p.to_path_buf()),
-        ));
+    if let Some(arg) = genome {
+        let (g, source) = resolve_genome(arg)?;
+        return Ok(ChromTable::closed(&g, source));
     }
     for r in inputs {
         if let Header::Vcf(h) = r.header() {

@@ -13,6 +13,8 @@ pub struct ChromId(pub u32);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OrderSource {
     GenomeFile(PathBuf),
+    /// A genome built into gloci, by id (`-g hg38`).
+    BuiltinGenome(String),
     VcfHeader(String),
     Lexicographic,
     Karyotype,

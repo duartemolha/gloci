@@ -59,6 +59,19 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
+    /// List the built-in genomes that -g accepts, or print one.
+    ///
+    /// Without a subcommand, prints one line per built-in genome with the
+    /// columns id, species, assembly, naming (ucsc or ensembl), sequences
+    /// and total_bp, separated by tabs. The lengths come from UCSC
+    /// chrom.sizes files and from the Ensembl core databases; the sources
+    /// are recorded in data/genomes/SOURCES.toml in the source tree.
+    #[command(after_long_help = "\
+Examples:
+  gloci genomes
+  gloci genomes show hg38
+  gloci sort peaks.bed -g hg38 > peaks.sorted.bed")]
+    Genomes(GenomesArgs),
     /// Build a .tbi/.csi index for a sorted BGZF file.
     #[command(after_long_help = "\
 Examples:
@@ -235,6 +248,30 @@ pub struct SortArgs {
 }
 
 #[derive(Args)]
+#[command(args_conflicts_with_subcommands = true)]
+pub struct GenomesArgs {
+    #[command(subcommand)]
+    pub action: Option<GenomesAction>,
+}
+
+#[derive(Subcommand)]
+pub enum GenomesAction {
+    /// Print one built-in genome as name and length, tab-separated.
+    ///
+    /// The chromosomes come in the order -g uses for sorting. The output is
+    /// a valid .genome file, so it can also be saved and edited.
+    #[command(after_long_help = "\
+Examples:
+  gloci genomes show hg38
+  gloci genomes show GRCh38 > GRCh38.genome
+  gloci genomes show mm39 | cut -f1")]
+    Show {
+        /// Genome id (case-insensitive), as listed by gloci genomes.
+        name: String,
+    },
+}
+
+#[derive(Args)]
 pub struct IndexArgs {
     /// Sorted, BGZF-compressed BED/GFF/VCF/BCF file to index.
     pub file: PathBuf,
@@ -269,9 +306,10 @@ pub struct ThreadArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct GenomeArg {
-    /// Chromosome order and sizes (.fai, .genome, .dict or BAM header).
-    #[arg(short, long, value_name = "FILE")]
-    pub genome: Option<PathBuf>,
+    /// Chromosome order and sizes: a built-in genome such as hg38 (see
+    /// gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file.
+    #[arg(short, long, value_name = "NAME|FILE")]
+    pub genome: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]

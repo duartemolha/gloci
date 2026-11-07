@@ -182,6 +182,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
     install_cleanup_handlers();
 
     let (requested, tmp_arg) = match &cli.command {
+        Commands::Genomes(_) => (None, None),
         Commands::Index(a) => (a.threads.threads, None),
         Commands::Sort(a) => (a.threads.threads, a.tmp_dir.tmp_dir.clone()),
         Commands::View(a) => (a.threads.threads, None),
@@ -203,6 +204,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
 
     let mut all_ok = true;
     let result = match &cli.command {
+        Commands::Genomes(a) => commands::genomes::run(a),
         Commands::Index(a) => commands::index::run(&ctx, a),
         Commands::Sort(a) => commands::sort::run(&ctx, a),
         Commands::View(a) => commands::view::run(&ctx, a),

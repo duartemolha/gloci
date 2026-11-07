@@ -3,6 +3,7 @@
 pub mod atomic;
 pub mod bcf;
 pub mod bed;
+pub mod builtin;
 pub mod convert;
 pub mod detect;
 pub mod diag;
@@ -24,6 +25,9 @@ pub use atomic::{
 };
 pub use bcf::{BcfDicts, read_bcf_header, write_bcf_header};
 pub use bed::{bed12_blocks, is_bed_record_line};
+pub use builtin::{
+    BuiltinGenome, Naming, builtin, builtin_genomes, resolve_genome, unknown_genome,
+};
 pub use convert::{HeaderMode, convert_variants};
 pub use detect::{Compression, Format, detect_compression, detect_format};
 pub use diag::{Diagnostics, InvalidPolicy};

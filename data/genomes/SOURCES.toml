@@ -1,0 +1,181 @@
+# Provenance of the built-in genomes in this directory.
+# `cargo xtask genomes refresh` rewrites the retrieved, sha256, sequences and
+# total_length fields. format "chrom-sizes": url is the file itself and sha256
+# is its hash. format "ensembl-core": url is an Ensembl core database dump
+# directory; the top-level sequences (the contents of the dna.toplevel FASTA)
+# come from seq_region, seq_region_attrib, attrib_type and coord_system (LRG regions
+# left out), and sha256 is the hash of those four .txt.gz files concatenated
+# in that order.
+
+[[genome]]
+id = "hg19"
+format = "chrom-sizes"
+url = "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/bigZips/hg19.chrom.sizes"
+retrieved = "2026-11-07"
+sha256 = "b404927655a4aada254ea94ad4da0c8901ed0737e67a0dcabedf673354b1f505"
+sequences = 93
+total_length = 3137161264
+
+[[genome]]
+id = "hg38"
+format = "chrom-sizes"
+url = "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.chrom.sizes"
+retrieved = "2026-11-07"
+sha256 = "e1d9152418038457a959e949d99c9caf7ae3e4f87cfbb4ffe7d8b9a54ba1202b"
+sequences = 455
+total_length = 3209286105
+
+[[genome]]
+id = "hs1"
+format = "chrom-sizes"
+url = "https://hgdownload.soe.ucsc.edu/goldenPath/hs1/bigZips/hs1.chrom.sizes"
+retrieved = "2026-11-07"
+sha256 = "acd8997731252a8315286f89ac12a4f03d6cf84f2848189bba41463386cf9be7"
+sequences = 25
+total_length = 3117292070
+
+[[genome]]
+id = "GRCh37"
+format = "ensembl-core"
+url = "https://ftp.ensembl.org/pub/release-75/mysql/homo_sapiens_core_75_37/"
+retrieved = "2026-11-07"
+sha256 = "fc5c2f66f471582b7ca4b30bad1eafa2bfeca9690455a33c987986e8394d3a27"
+sequences = 297
+total_length = 32036512383
+
+[[genome]]
+id = "GRCh38"
+format = "ensembl-core"
+url = "https://ftp.ensembl.org/pub/release-112/mysql/homo_sapiens_core_112_38/"
+retrieved = "2026-11-07"
+sha256 = "f177074f0765fcc3785afc1cdc0b196373c1ae829a11c6abf03bfeb8a3450f4f"
+sequences = 706
+total_length = 3291585349
+
+[[genome]]
+id = "mm10"
+format = "chrom-sizes"
+url = "https://hgdownload.soe.ucsc.edu/goldenPath/mm10/bigZips/mm10.chrom.sizes"
+retrieved = "2026-11-07"
+sha256 = "55463d59f400b2c8260d100f4b521800ee773fa9711fe3f6dad9c7887db2574f"
+sequences = 66
+total_length = 2730871774
+
+[[genome]]
+id = "mm39"
+format = "chrom-sizes"
+url = "https://hgdownload.soe.ucsc.edu/goldenPath/mm39/bigZips/mm39.chrom.sizes"
+retrieved = "2026-11-07"
+sha256 = "acd0edeab2409fe5e112444846dd89c4f8873df1f8ee4ca616aed6cf75be2a05"
+sequences = 61
+total_length = 2728222451
+
+[[genome]]
+id = "GRCm38"
+format = "ensembl-core"
+url = "https://ftp.ensembl.org/pub/release-102/mysql/mus_musculus_core_102_38/"
+retrieved = "2026-11-07"
+sha256 = "d7cd36f4e97a51c4b6c6fb5a16f94cafd0101b206317556fa93d157113d308c5"
+sequences = 139
+total_length = 12551251109
+
+[[genome]]
+id = "GRCm39"
+format = "ensembl-core"
+url = "https://ftp.ensembl.org/pub/release-112/mysql/mus_musculus_core_112_39/"
+retrieved = "2026-11-07"
+sha256 = "3c3399f70b9c55c6e609fd97a47b63d0cdd5101636ebe4ede952178ba9b1b4e3"
+sequences = 61
+total_length = 2728222451
+
+[[genome]]
+id = "rn7"
+format = "chrom-sizes"
+url = "https://hgdownload.soe.ucsc.edu/goldenPath/rn7/bigZips/rn7.chrom.sizes"
+retrieved = "2026-11-07"
+sha256 = "554712b227ff68db3929ca10e7abbc1be1e6b8959c89158b08c3fbefe6157e17"
+sequences = 176
+total_length = 2647915728
+
+[[genome]]
+id = "danRer11"
+format = "chrom-sizes"
+url = "https://hgdownload.soe.ucsc.edu/goldenPath/danRer11/bigZips/danRer11.chrom.sizes"
+retrieved = "2026-11-07"
+sha256 = "0197c1c71d8b66d6b9de927c768fa338798329b2d556075f14849a6d0afe3513"
+sequences = 1923
+total_length = 1679203469
+
+[[genome]]
+id = "GRCz11"
+format = "ensembl-core"
+url = "https://ftp.ensembl.org/pub/release-112/mysql/danio_rerio_core_112_11/"
+retrieved = "2026-11-07"
+sha256 = "bc87c56929e6e968d8b6c0f2e263e70ae442d46950e90e2c81f555283f45d269"
+sequences = 1923
+total_length = 52633079901
+
+[[genome]]
+id = "dm6"
+format = "chrom-sizes"
+url = "https://hgdownload.soe.ucsc.edu/goldenPath/dm6/bigZips/dm6.chrom.sizes"
+retrieved = "2026-11-07"
+sha256 = "6b390aa891d6530f5d824fcbedb07010c214987a1d6445312a60bb17d4717248"
+sequences = 1870
+total_length = 143726002
+
+[[genome]]
+id = "BDGP6"
+format = "ensembl-core"
+url = "https://ftp.ensembl.org/pub/release-112/mysql/drosophila_melanogaster_core_112_10/"
+retrieved = "2026-11-07"
+sha256 = "91df09f9b7677fa4711e05f2bb8e72aaa756ba035d90ebab7e3ca891943fa27d"
+sequences = 1870
+total_length = 143726002
+
+[[genome]]
+id = "ce11"
+format = "chrom-sizes"
+url = "https://hgdownload.soe.ucsc.edu/goldenPath/ce11/bigZips/ce11.chrom.sizes"
+retrieved = "2026-11-07"
+sha256 = "23ea9e94fed2b21e2610788cfb2691c15e515abb9526a1112fb568581f6f5b93"
+sequences = 7
+total_length = 100286401
+
+[[genome]]
+id = "WBcel235"
+format = "ensembl-core"
+url = "https://ftp.ensembl.org/pub/release-112/mysql/caenorhabditis_elegans_core_112_282/"
+retrieved = "2026-11-07"
+sha256 = "462d71490bfbdec6b76efdc767668b8902d97c949d468b7ff556b5952a70aba0"
+sequences = 7
+total_length = 100286401
+
+[[genome]]
+id = "sacCer3"
+format = "chrom-sizes"
+url = "https://hgdownload.soe.ucsc.edu/goldenPath/sacCer3/bigZips/sacCer3.chrom.sizes"
+order = "reference"
+retrieved = "2026-11-07"
+sha256 = "2902e8842f76f87c6b5f49d2059a4e5fa6f375abbc51d267c28ff71330205479"
+sequences = 17
+total_length = 12157105
+
+[[genome]]
+id = "R64"
+format = "ensembl-core"
+url = "https://ftp.ensembl.org/pub/release-112/mysql/saccharomyces_cerevisiae_core_112_4/"
+order = "reference"
+retrieved = "2026-11-07"
+sha256 = "89a3105329935235bf4eb39703dfe800c4021f48fa7fce79b9d39d0377a29bcf"
+sequences = 17
+total_length = 12157105
+
+[[genome]]
+id = "TAIR10"
+format = "ensembl-core"
+url = "https://ftp.ensemblgenomes.ebi.ac.uk/pub/plants/release-59/mysql/arabidopsis_thaliana_core_59_112_11/"
+retrieved = "2026-11-07"
+sha256 = "8a327ce130f40b55c5b1873f6e9dfbd298c9375a8761b3ee152fb8fda27975fc"
+sequences = 7
+total_length = 119667750

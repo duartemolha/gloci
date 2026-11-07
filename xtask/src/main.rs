@@ -37,6 +37,11 @@ enum Task {
         #[arg(long)]
         gloci: Option<PathBuf>,
     },
+    /// Maintain the built-in genomes in data/genomes
+    Genomes {
+        #[command(subcommand)]
+        action: GenomesAction,
+    },
     /// Run the benchmark suite
     Bench {
         #[arg(long, default_value = "xtask/bench/cases.toml")]
@@ -63,6 +68,18 @@ enum Task {
         /// Where generated inputs are cached
         #[arg(long, default_value = "target/bench-data")]
         data_dir: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum GenomesAction {
+    /// Download every source in SOURCES.toml and rewrite the .genome files
+    Refresh {
+        /// Refresh only this genome id
+        #[arg(long)]
+        only: Option<String>,
+        #[arg(long, default_value = xtask::genomes::DEFAULT_DIR)]
+        dir: PathBuf,
     },
 }
 
@@ -143,6 +160,11 @@ fn run(cli: Cli) -> Result<bool> {
                     chroms,
                 };
                 xtask::synth::vcf(&o, &mut std::fs::File::create(output)?)?
+            }
+        },
+        Task::Genomes { action } => match action {
+            GenomesAction::Refresh { only, dir } => {
+                return xtask::genomes::run(&xtask::genomes::Args { dir, only });
             }
         },
         Task::Diff {
