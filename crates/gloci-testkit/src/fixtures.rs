@@ -81,3 +81,18 @@ pub fn write(dir: &Path, name: &str, bytes: &[u8]) -> PathBuf {
     std::fs::write(&p, bytes).expect("write fixture");
     p
 }
+
+/// A BGZF-wrapped BAM header (`BAM\1`, `l_text = 0`) listing `refs` as name and length.
+pub fn bam_header(refs: &[(&str, u32)]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(b"BAM\x01");
+    out.extend_from_slice(&0i32.to_le_bytes());
+    out.extend_from_slice(&(refs.len() as i32).to_le_bytes());
+    for (name, len) in refs {
+        out.extend_from_slice(&(name.len() as i32 + 1).to_le_bytes());
+        out.extend_from_slice(name.as_bytes());
+        out.push(0);
+        out.extend_from_slice(&(*len as i32).to_le_bytes());
+    }
+    bgzip(&out)
+}

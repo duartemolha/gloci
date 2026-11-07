@@ -34,6 +34,8 @@ pub enum IoError {
     },
     #[error("{0}")]
     Usage(#[from] UsageError),
+    #[error("{0}")]
+    Order(Box<OrderError>),
     #[error("{path}: BGZF end-of-file marker missing; the file is probably truncated")]
     Truncated { path: String },
 }
@@ -58,3 +60,33 @@ impl fmt::Display for UsageError {
 }
 
 impl std::error::Error for UsageError {}
+
+/// A record that breaks the input's sort order; both records are quoted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OrderError {
+    pub path: String,
+    pub prev_loc: Loc,
+    pub prev: String,
+    pub loc: Loc,
+    pub rec: String,
+    pub hint: String,
+}
+
+impl fmt::Display for OrderError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{} is not sorted: {} ({}) comes after {} ({})\nhint: {}",
+            self.path, self.loc, self.rec, self.prev_loc, self.prev, self.hint
+        )
+    }
+}
+
+impl std::error::Error for OrderError {}
+
+// Boxed so that `Result<_, IoError>` stays small (clippy::result_large_err).
+impl From<OrderError> for IoError {
+    fn from(e: OrderError) -> IoError {
+        IoError::Order(Box::new(e))
+    }
+}
