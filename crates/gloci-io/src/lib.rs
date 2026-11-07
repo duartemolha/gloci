@@ -32,7 +32,7 @@ pub use convert::{HeaderMode, convert_variants};
 pub use detect::{Compression, Format, detect_compression, detect_format};
 pub use diag::{Diagnostics, InvalidPolicy};
 pub use error::{IoError, Loc, OrderError, UsageError};
-pub use genome::{chrom_table_for, load_genome};
+pub use genome::{chrom_table_for, chrom_table_lenient, load_genome};
 pub use index::{
     IndexInfo, IndexKind, find_index, index_reference_names, open_region_reader, write_index,
 };

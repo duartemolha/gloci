@@ -169,8 +169,29 @@ pub(crate) fn intern_chrom(chroms: &mut ChromTable, name: &[u8]) -> Result<Chrom
                 "the genome".to_string()
             }
         };
-        format!("chromosome \"{}\" is not in {place}", e.0)
+        let hint = match chroms.order_source() {
+            OrderSource::VcfHeader(_) => format!(
+                "; add ##contig=<ID={}> to the header, or pass -g with a genome that lists it",
+                e.0
+            ),
+            _ => String::new(),
+        };
+        format!("chromosome \"{}\" is not in {place}{hint}", e.0)
     })
+}
+
+/// Warn once about each contig a record named that the header does not
+/// declare (htslib accepts such records). `loc` is where the first record
+/// on it was found, when known.
+pub(crate) fn warn_undeclared(chroms: &mut ChromTable, name: &str, loc: Option<Loc>) {
+    for id in chroms.take_undeclared() {
+        let chrom = String::from_utf8_lossy(chroms.name(id)).into_owned();
+        let at = loc.map_or(String::new(), |l| format!(" {l}"));
+        log::warn!(
+            "{name}{at}: chromosome \"{chrom}\" is not in the ##contig lines; \
+add ##contig=<ID={chrom}> to the header"
+        );
+    }
 }
 
 /// Parse a coordinate field, naming it in the error.
@@ -347,6 +368,9 @@ impl<K: TextKind> RecordReader for TextReader<K> {
                     });
                     self.seen_record = true;
                     n += 1;
+                    if chroms.has_undeclared() {
+                        warn_undeclared(chroms, &self.name, Some(Loc::Line(self.line)));
+                    }
                 }
                 Err(msg) => {
                     batch.buf.truncate(start);

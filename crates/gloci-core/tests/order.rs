@@ -70,3 +70,21 @@ fn karyotype_checker() {
         Err(OrderViolation::ChromBackwards { .. })
     ));
 }
+
+#[test]
+fn declared_table_appends_and_reports_undeclared_names_once() {
+    let g = Genome::parse_sizes(b"chr1\t1000\nchr2\t1000\n").unwrap();
+    let mut t = ChromTable::declared(&g, OrderSource::VcfHeader("x.vcf".into()));
+    assert!(!t.has_undeclared());
+    let known = t.intern(b"chr2").unwrap();
+    assert!(!t.has_undeclared());
+    let extra = t.intern(b"chrZ").unwrap();
+    assert_eq!(t.intern(b"chrZ").unwrap(), extra);
+    assert_eq!(t.take_undeclared(), vec![extra]);
+    assert!(t.take_undeclared().is_empty());
+    // appended after the declared names, in order by id
+    assert!(t.cmp(known, extra).is_lt());
+    // a closed table still rejects
+    let mut c = ChromTable::closed(&g, OrderSource::VcfHeader("x.vcf".into()));
+    assert!(c.intern(b"chrZ").is_err());
+}

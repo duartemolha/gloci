@@ -145,6 +145,21 @@ impl Converter {
             };
             match &mut self.enc {
                 Encoder::ToBcf(w) => {
+                    // BCF needs every contig in the header's dictionary.
+                    let chrom = raw.split(|&b| b == b'\t').next().unwrap_or_default();
+                    let declared = std::str::from_utf8(chrom)
+                        .is_ok_and(|c| self.header.contigs().contains_key(c));
+                    if !declared {
+                        let c = String::from_utf8_lossy(chrom);
+                        return Err(IoError::Parse {
+                            path: self.name.clone(),
+                            loc,
+                            msg: format!(
+                                "chromosome \"{c}\" is not in the ##contig lines, and BCF needs every contig in its header; \
+add ##contig=<ID={c}> to the header"
+                            ),
+                        });
+                    }
                     let rec = noodles_vcf::Record::try_from(raw).map_err(fail)?;
                     w.write_variant_record(&self.header, &rec).map_err(fail)?;
                     out.write_all(w.get_ref()).map_err(werr)?;

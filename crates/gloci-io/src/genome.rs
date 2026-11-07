@@ -187,6 +187,26 @@ pub fn chrom_table_for(
     inputs: &[&dyn RecordReader],
     fallback: ChromOrder,
 ) -> Result<ChromTable, IoError> {
+    chrom_table(genome, inputs, fallback, false)
+}
+
+/// Like [`chrom_table_for`], for commands that need no chromosome order
+/// beyond contiguity (`view`): a record on a contig the VCF header does not
+/// declare is accepted, with a warning, as htslib does. `-g` stays strict.
+pub fn chrom_table_lenient(
+    genome: Option<&str>,
+    inputs: &[&dyn RecordReader],
+    fallback: ChromOrder,
+) -> Result<ChromTable, IoError> {
+    chrom_table(genome, inputs, fallback, true)
+}
+
+fn chrom_table(
+    genome: Option<&str>,
+    inputs: &[&dyn RecordReader],
+    fallback: ChromOrder,
+    lenient: bool,
+) -> Result<ChromTable, IoError> {
     if let Some(arg) = genome {
         let (g, source) = resolve_genome(arg)?;
         return Ok(ChromTable::closed(&g, source));
@@ -196,10 +216,12 @@ pub fn chrom_table_for(
             let entries = header_entries(h);
             if !entries.is_empty() {
                 let g = header_genome(r.name(), h)?;
-                return Ok(ChromTable::closed(
-                    &g,
-                    OrderSource::VcfHeader(r.name().to_string()),
-                ));
+                let source = OrderSource::VcfHeader(r.name().to_string());
+                return Ok(if lenient {
+                    ChromTable::declared(&g, source)
+                } else {
+                    ChromTable::closed(&g, source)
+                });
             }
         }
     }

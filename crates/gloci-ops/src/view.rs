@@ -18,7 +18,7 @@ use gloci_core::{
 use gloci_io::{
     Compression, Diagnostics, Format, Header, HeaderMode, InvalidPolicy, IoError, OrderGuard,
     OutFormat, OutputOptions, OutputSpec, ReaderOptions, RecordBatch, RecordMeta, RecordReader,
-    UsageError, WriterOptions, check_family, chrom_table_for, convert_variants, find_index,
+    UsageError, WriterOptions, check_family, chrom_table_lenient, convert_variants, find_index,
     index_reference_names, next_batch_size, open_headerless_writer, open_output, open_reader,
     open_record_writer, open_region_reader, refuse_binary_to_tty, resolve_genome,
 };
@@ -74,7 +74,7 @@ pub fn open_view(
     };
     let chroms = match &genome {
         Some((g, source)) => ChromTable::closed(g, source.clone()),
-        None => chrom_table_for(None, &[reader.as_ref()], opts.chrom_order)?,
+        None => chrom_table_lenient(None, &[reader.as_ref()], opts.chrom_order)?,
     };
     if !opts.has_regions() {
         return Ok((reader, chroms));
@@ -183,9 +183,13 @@ fn select(
     // it, and what to name in warnings about the others.
     let mut known: HashSet<Vec<u8>> = HashSet::new();
     let mut known_in: Option<String> = None;
+    // The list is complete when an index or a genome gives it; a VCF header
+    // may omit contigs that records use, which htslib accepts.
+    let mut complete = genome.is_some();
     if let (Some(p), Some(info)) = (file, &index) {
         known.extend(index_reference_names(p, info)?);
         known_in = Some(name.clone());
+        complete = true;
     }
     if let Header::Vcf(h) = &header {
         let before = known.len();
@@ -217,7 +221,7 @@ fn select(
     if let Some(f) = &opts.regions_file {
         wanted.extend(read_regions_file(f, ro)?);
     }
-    if let Some(place) = &known_in {
+    if let Some(place) = known_in.as_ref().filter(|_| complete) {
         let mut warned = HashSet::new();
         wanted.retain(|(c, _)| {
             if known.contains(c) {
@@ -257,7 +261,7 @@ fn select(
                     "could not locate {} by binary search; scanning the whole file (sort it with gloci sort, or index it)",
                     missing.join(", ")
                 );
-                warn_unseen = known_in.is_none();
+                warn_unseen = !complete;
                 Src::Scan(head)
             }
         }
@@ -268,7 +272,7 @@ fn select(
                 index_hint(&name, format, compression)
             );
         }
-        warn_unseen = known_in.is_none();
+        warn_unseen = !complete;
         Src::Scan(head)
     };
 

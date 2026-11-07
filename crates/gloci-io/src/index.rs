@@ -19,7 +19,7 @@ use crate::error::{IoError, Loc, UsageError};
 use crate::gff::Gff;
 use crate::input::{BGZF_EOF, read_up_to};
 use crate::record::{
-    Class, Header, ReaderOptions, RecordBatch, RecordMeta, RecordReader, TextKind, open_reader_from,
+    Class, Header, ReaderOptions, RecordBatch, RecordMeta, RecordReader, TextKind, open_reader_from, warn_undeclared,
 };
 use crate::sorted::OrderGuard;
 use crate::vcf::{Vcf, VcfHeader};
@@ -1182,6 +1182,9 @@ impl RegionReader {
                     continue;
                 }
             };
+            if chroms.has_undeclared() {
+                warn_undeclared(chroms, &self.name, None);
+            }
             if key >= hi {
                 // past this window; later windows may still want it
                 batch.buf.truncate(off);

@@ -56,6 +56,10 @@ pub struct ChromTable {
     names: Vec<Box<[u8]>>,
     mode: Mode,
     closed: bool,
+    /// Names interned beyond a declared list (see [`ChromTable::declared`])
+    /// that no one has reported yet.
+    track_undeclared: bool,
+    undeclared: Vec<ChromId>,
     source: OrderSource,
 }
 
@@ -66,6 +70,8 @@ impl ChromTable {
             names: Vec::new(),
             mode,
             closed,
+            track_undeclared: false,
+            undeclared: Vec::new(),
             source,
         }
     }
@@ -94,6 +100,18 @@ impl ChromTable {
         t
     }
 
+    /// Like [`ChromTable::closed`], but a name outside the genome is
+    /// appended after the declared ones instead of being rejected, and
+    /// remembered for [`ChromTable::take_undeclared`]. This is how htslib
+    /// treats records on contigs a VCF header does not declare; use it only
+    /// where no chromosome order is needed beyond contiguity.
+    pub fn declared(genome: &Genome, source: OrderSource) -> ChromTable {
+        let mut t = Self::closed(genome, source);
+        t.closed = false;
+        t.track_undeclared = true;
+        t
+    }
+
     fn insert(&mut self, name: &[u8]) -> ChromId {
         let id = ChromId(self.names.len() as u32);
         let boxed: Box<[u8]> = name.into();
@@ -109,7 +127,21 @@ impl ChromTable {
         if self.closed {
             return Err(UnknownChrom(String::from_utf8_lossy(name).into_owned()));
         }
-        Ok(self.insert(name))
+        let id = self.insert(name);
+        if self.track_undeclared {
+            self.undeclared.push(id);
+        }
+        Ok(id)
+    }
+
+    /// Are there undeclared names no one has reported yet?
+    pub fn has_undeclared(&self) -> bool {
+        !self.undeclared.is_empty()
+    }
+
+    /// The undeclared names interned since the last call, to report once.
+    pub fn take_undeclared(&mut self) -> Vec<ChromId> {
+        std::mem::take(&mut self.undeclared)
     }
 
     pub fn get(&self, name: &[u8]) -> Option<ChromId> {

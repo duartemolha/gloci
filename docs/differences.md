@@ -205,3 +205,22 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   (`ties-nopoints.bed`).
 - **Pinned by:** `sort-bed-points-vs-sort-bed` (gloci exit status 0, `sort-bed`
   exit status 1). The bedtools and GNU sort cases include points and must match.
+
+## `sort` refuses records on undeclared contigs {#undeclared-contig-sort}
+
+- **gloci:** `sort`, `sort --check` and `sort -m` exit 1 on a VCF whose
+  records use a contig that its `##contig` lines omit, naming the line and
+  saying to add `##contig=<ID=...>` to the header or to pass `-g` with a genome
+  that lists it. Writing such a record to BCF (`view -O bcf`) is refused the
+  same way, because BCF needs every contig in the header. `view` (with or
+  without regions, with `--write-index`) and `index` accept the records, with
+  one warning per contig on stderr, as htslib does.
+- **Old behaviour:** `bcftools sort` accepts the file and appends the contig
+  to the order, in order of first appearance.
+- **Reason:** a sort needs a chromosome order, and a contig the header does not
+  declare has none, so appending it would silently pick an order the
+  header does not state. Add the `##contig` line, or pass `-g`, and the sort
+  is exact.
+- **Pinned by:** `sort-undeclared-contig-vs-bcftools-sort` (exit status: must
+  differ). `view-region-undeclared-contig-vs-tabix` and
+  `view-region-undeclared-contig-vs-bcftools-view` pin the agreeing side.
