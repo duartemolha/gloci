@@ -676,7 +676,18 @@ Reference machine: 8-core x86_64, NVMe, 32 GB RAM. Baselines: bedtools 2.31.x, b
   - A large bedGraph signal track.
 - **Synthetic generator:** produces 10M–1B intervals with controlled length distributions, overlap depth and chromosome counts, including pathological cases (deep nesting, a whole-chromosome feature, many points).
 - **Public workload:** the coitrees benchmark set (A ≈ 2.76M intervals against B ≈ 62M, coverage counts), a realistic large case next to the synthetic data.
-- **Baselines:** bedtools, bedops and vcftools (the tools replaced, and binding per Section 2), plus the Rust and C alternatives as yardsticks: gia, bedder, granges and bedtk. These are pinned in the benchmark container. **[you, 2026-11-07]**
+- **Baselines.** The binding comparisons (Section 2) are against the tools gloci replaces: bedtools, bedops and vcftools. The rest are yardsticks, so gloci's numbers stand up next to current alternatives. All are pinned in the benchmark container. **[you, 2026-11-07]**
+
+| Area | Phase | Baselines |
+|---|---|---|
+| Interval operations (sort, intersect, merge, subtract, closest, map, coverage) | P0–P1 | bedtools, bedops; yardsticks gia, bedder, granges, bedtk, grit-genomics |
+| `vcf filter` | P1 | vcftools `--recode`; yardsticks bcftools `view`, vcfkit, vcfexpress |
+| `vcf stats` (several statistics in one pass) | P2 | vcftools, one run per statistic; yardsticks bcftools `stats`, PLINK 2, VariantFlow |
+| Python library | P2 | pybedtools; yardsticks polars-bio, PyRanges v1, bioframe |
+| BAM/CRAM `coverage`/`genomecov` | P3 | bedtools; yardstick mosdepth |
+| Unsorted-mode interval index (internal) | P1 | coitrees (preferred) against superintervals, a cgranges-style tree and rust-lapper |
+
+- **External datasets:** the datasets of the published interval-query benchmark (bioRxiv 2025.02.19.639167, which found AIList, bedtk and granges consistently fastest). This lets gloci's results be compared with published numbers.
 - Results are stored per release so regressions show up.
 
 ### 9.3 Testing
