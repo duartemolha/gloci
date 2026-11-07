@@ -1,0 +1,7 @@
+track name=peaks
+browser position chr1:1-1000
+chr1	100	200	p1	5	+
+chr1	150	300	p2	6	-
+chr1	5000	5100	p3	7	+
+chr2	10	90	p4	8	+
+chr2	95	400	p5	9	-

@@ -293,3 +293,44 @@ gloci = "gloci sort input.vcf"
 reference = "bcftools sort input.vcf"
 compare = "exit-status"
 expected_difference = "#undeclared-contig-sort"
+
+# Index interop for every index type: htslib reads the index gloci built and
+# the queries must return what the same tool returns through its own index.
+
+[[case]]
+name = "index-interop-bcf-csi-bcftools-view"
+input = { file = "xtask/diff/inputs/regions.vcf" }
+gloci = '''set -e; gloci view input.vcf -o g.bcf --write-index; for q in chr1:100-100 chr1:150-160 chr1:260-390 chr1:402-1000 chr2 chr2:499-499; do bcftools view -H -r $q g.bcf; done'''
+reference = '''set -e; bcftools view -Ob -o t.bcf input.vcf; bcftools index t.bcf; for q in chr1:100-100 chr1:150-160 chr1:260-390 chr1:402-1000 chr2 chr2:499-499; do bcftools view -H -r $q t.bcf; done'''
+compare = "exact"
+
+# The first two lines are a track and a browser line: the index must skip them.
+[[case]]
+name = "index-interop-bed-tbi-header-lines-tabix"
+input = { file = "xtask/diff/inputs/track-header.bed" }
+gloci = '''set -e; gloci sort --chrom-order lex --header input.bed -o g.bed.gz --write-index; for q in chr1:150-160 chr1:4000-6000 chr2 chr2:92-96; do tabix g.bed.gz $q; done'''
+reference = '''set -e; bgzip -c input.bed > t.bed.gz; tabix -p bed -S 2 t.bed.gz; for q in chr1:150-160 chr1:4000-6000 chr2 chr2:92-96; do tabix t.bed.gz $q; done'''
+compare = "exact"
+
+[[case]]
+name = "index-interop-bedgraph-tbi-tabix"
+input = { file = "xtask/diff/inputs/signal.bedgraph" }
+gloci = '''set -e; gloci sort --chrom-order lex input.bedgraph -o g.bedgraph.gz --write-index; for q in chr1:90-110 chr1:30000-45000 chr2 chr2:499-501; do tabix g.bedgraph.gz $q; done'''
+reference = '''set -e; bgzip -c input.bedgraph > t.bedgraph.gz; tabix -p bed t.bedgraph.gz; for q in chr1:90-110 chr1:30000-45000 chr2 chr2:499-501; do tabix t.bedgraph.gz $q; done'''
+compare = "exact"
+
+[[case]]
+name = "index-interop-gff3-tbi-tabix"
+input = { file = "xtask/diff/inputs/feats.gff3" }
+gloci = '''set -e; gloci sort --chrom-order lex --header input.gff3 -o g.gff3.gz --write-index; for q in chr1:150-160 chr1:350-450 chr1:25000-25100 chr2 chr2:1500-1600; do tabix g.gff3.gz $q; done'''
+reference = '''set -e; bgzip -c input.gff3 > t.gff3.gz; tabix -p gff t.gff3.gz; for q in chr1:150-160 chr1:350-450 chr1:25000-25100 chr2 chr2:1500-1600; do tabix t.gff3.gz $q; done'''
+compare = "exact"
+
+# A feature ends beyond 2^29: gloci writes a CSI (TBI cannot hold it) and tabix
+# must read it.
+[[case]]
+name = "index-interop-bed-csi-large-end-tabix"
+input = { file = "xtask/diff/inputs/bigend.bed" }
+gloci = '''set -e; gloci sort --chrom-order lex input.bed -o g.bed.gz --write-index; test -f g.bed.gz.csi; for q in chr1:1500-1600 chr1:600000010-600000020 chr1:600000500-600000600 chr2:536870900-536871100 chr2:699999999-700001000; do tabix g.bed.gz $q; done'''
+reference = '''set -e; bgzip -c input.bed > t.bed.gz; tabix -C -p bed t.bed.gz; for q in chr1:1500-1600 chr1:600000010-600000020 chr1:600000500-600000600 chr2:536870900-536871100 chr2:699999999-700001000; do tabix t.bed.gz $q; done'''
+compare = "exact"

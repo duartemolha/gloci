@@ -1,0 +1,8 @@
+##gff-version 3
+chr1	src	exon	100	300	.	+	.	ID=e1;Parent=m1
+chr1	src	gene	100	900	.	+	.	ID=g1
+chr1	src	mRNA	100	900	.	+	.	ID=m1;Parent=g1
+chr1	src	exon	500	900	.	+	.	ID=e2;Parent=m1
+chr1	src	gene	20000	30000	.	-	.	ID=g2
+chr2	src	gene	50	400	.	+	.	ID=g3
+chr2	src	gene	1000	2000	.	-	.	ID=g4
