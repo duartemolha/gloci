@@ -1,0 +1,12 @@
+##fileformat=VCFv4.3
+##contig=<ID=chr1,length=248956422>
+##contig=<ID=chr2,length=242193529>
+##INFO=<ID=END,Number=1,Type=Integer,Description="End">
+##INFO=<ID=SVLEN,Number=.,Type=Integer,Description="Len">
+##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="GT">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	S0
+chr1	100	.	ACGT	A	.	PASS	.	GT	0/1
+chr1	200	.	A	<DEL>	.	PASS	END=300;SVLEN=-100;SVTYPE=DEL	GT	1|1
+chr2	5	.	G	GT,*	.	PASS	.	GT	.
+chr2	9	.	C	C]chr1:5]	.	PASS	SVTYPE=BND	GT	0/1

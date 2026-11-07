@@ -64,6 +64,8 @@ pub enum FootprintError {
     PosZero,
     #[error("REF is empty; a VCF record needs at least one REF base")]
     EmptyRef,
+    #[error("POS {pos} is too large: POS plus the REF length overflows a 64-bit coordinate")]
+    PosOverflow { pos: u64 },
     #[error("symbolic ALT {alt} needs INFO/END or INFO/SVLEN")]
     MissingSvEnd { alt: String },
     #[error("INFO/END {end} is before POS {pos}; fix the record or drop END")]

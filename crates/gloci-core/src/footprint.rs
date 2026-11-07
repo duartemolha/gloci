@@ -148,6 +148,10 @@ fn validate(v: &Variant, alts: &[Alt]) -> Result<(), FootprintError> {
     if v.reference.is_empty() {
         return Err(FootprintError::EmptyRef);
     }
+    // `ref_end` and the SEQ footprint add the REF length to POS.
+    if (v.pos - 1).checked_add(v.reference.len() as u64).is_none() {
+        return Err(FootprintError::PosOverflow { pos: v.pos });
+    }
     let symbolic = alts
         .iter()
         .any(|a| matches!(a, Alt::Gvcf | Alt::Ins | Alt::Sv(_)));

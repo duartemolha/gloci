@@ -71,11 +71,17 @@ jobs:
           workspaces: fuzz
       - run: cargo install cargo-fuzz --locked
       - name: Fuzz each target for 60 s
-        working-directory: fuzz
         run: |
+          rc=0
           for t in bed_reader vcf_reader bcf_reader gff_reader bgzf_input region_parse; do
-            cargo fuzz run "$t" -- -max_total_time=60
+            # Seed inputs (valid files past the headers); generated inputs stay untracked.
+            mkdir -p "fuzz/corpus/$t"
+            cp -n fuzz/seeds/"$t"/* "fuzz/corpus/$t"/
+            dict=""
+            [ "$t" = vcf_reader ] && dict="-dict=fuzz/vcf.dict"
+            cargo fuzz run --fuzz-dir fuzz "$t" -- -max_total_time=60 $dict || rc=1
           done
+          exit $rc
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

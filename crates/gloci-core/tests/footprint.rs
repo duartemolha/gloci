@@ -155,3 +155,23 @@ fn error_cases() {
         "symbolic ALT <DEL> needs INFO/END or INFO/SVLEN"
     );
 }
+
+/// Found by the structured VCF fuzz test: POS near u64::MAX overflowed in debug
+/// builds (and wrapped silently in release).
+#[test]
+fn pos_plus_ref_length_overflow_is_an_error_not_a_panic() {
+    for alts in [&b"A"[..], b"<DEL>", b"A]chr1:1]", b"*"] {
+        let v = Variant {
+            pos: u64::MAX,
+            reference: b"ACGT",
+            alts,
+            end: None,
+            svlen: None,
+        };
+        assert!(matches!(
+            footprint(&v, VcfSpan::Allele),
+            Err(FootprintError::PosOverflow { .. })
+        ));
+        assert!(alt_footprints(&v).is_err());
+    }
+}
