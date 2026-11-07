@@ -1,5 +1,8 @@
 # Migrating from bedtools, bedops and vcftools
 
+gloci (pronounced GLOH-sigh, like "loci") is one tool for genomic interval and
+variant work.
+
 This guide is for people moving existing pipelines to gloci. It starts with the
 behaviour changes that break or alter a pipeline even after the flags are
 rewritten.
