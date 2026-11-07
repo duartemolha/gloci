@@ -46,3 +46,27 @@ fn first_appearance() {
     }
     assert!(c.check(&t, t.get(b"chr1").unwrap(), 0).is_err());
 }
+
+#[test]
+fn karyotype_checker() {
+    let mut t = ChromTable::karyotype();
+    let mut c = OrderChecker::new();
+    for (n, k) in [
+        ("chr1", 5),
+        ("chr2", 0),
+        ("chr10", 3),
+        ("chrX", 0),
+        ("chrM", 0),
+    ] {
+        let id = t.intern(n.as_bytes()).unwrap();
+        c.check(&t, id, k).unwrap();
+    }
+    let mut t = ChromTable::karyotype();
+    let mut c = OrderChecker::new();
+    let (c10, c2) = (t.intern(b"chr10").unwrap(), t.intern(b"chr2").unwrap());
+    c.check(&t, c10, 0).unwrap();
+    assert!(matches!(
+        c.check(&t, c2, 0),
+        Err(OrderViolation::ChromBackwards { .. })
+    ));
+}

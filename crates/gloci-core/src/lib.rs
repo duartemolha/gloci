@@ -11,7 +11,7 @@ pub mod order;
 pub mod overlap;
 pub mod region;
 
-pub use chrom::{ChromId, ChromTable, OrderSource};
+pub use chrom::{ChromId, ChromOrder, ChromTable, OrderSource, karyotype_cmp};
 pub use distance::{SignFrame, distance, signed_distance};
 pub use error::{
     CoordError, FootprintError, FractionError, GenomeError, RegionError, UnknownChrom,

@@ -158,3 +158,96 @@ fn many_contigs_stay_fast() {
     }
     assert_eq!(t.ranks().len(), 100_000);
 }
+
+fn ksort(v: &[&str]) -> Vec<String> {
+    let mut v: Vec<_> = v.to_vec();
+    v.sort_by(|a, b| karyotype_cmp(a.as_bytes(), b.as_bytes()));
+    v.iter().map(|s| s.to_string()).collect()
+}
+
+#[test]
+fn karyotype_order() {
+    assert_eq!(
+        ksort(&[
+            "chrM",
+            "chr10",
+            "chr1_KI270706v1_random",
+            "chr2",
+            "chrY",
+            "chr1",
+            "chrX",
+            "chrUn_GL000220v1",
+            "chr22",
+            "chrEBV",
+            "HLA-A*01:01:01:01"
+        ]),
+        [
+            "chr1",
+            "chr2",
+            "chr10",
+            "chr22",
+            "chrX",
+            "chrY",
+            "chrM",
+            "chr1_KI270706v1_random",
+            "chrEBV",
+            "HLA-A*01:01:01:01",
+            "chrUn_GL000220v1"
+        ]
+    );
+    assert_eq!(
+        ksort(&["MT", "X", "10", "2", "1", "Y"]),
+        ["1", "2", "10", "X", "Y", "MT"]
+    ); // Ensembl
+    assert_eq!(
+        ksort(&[
+            "chrX", "chr4", "chr3R", "chr2L", "chrY", "chr3L", "chr2R", "chrM"
+        ]),
+        [
+            "chr2L", "chr2R", "chr3L", "chr3R", "chr4", "chrX", "chrY", "chrM"
+        ]
+    ); // dm6
+    assert_eq!(
+        ksort(&["chr2B", "chr1", "chr2A", "chr3"]),
+        ["chr1", "chr2A", "chr2B", "chr3"]
+    ); // panTro
+    assert_ne!(karyotype_cmp(b"1", b"chr1"), Ordering::Equal);
+    assert_ne!(karyotype_cmp(b"chr01", b"chr1"), Ordering::Equal);
+    assert_eq!(
+        karyotype_cmp(
+            b"chr99999999999999999999999",
+            b"chr100000000000000000000000"
+        ),
+        Ordering::Less
+    ); // no overflow
+}
+
+proptest::proptest! {
+    #[test]
+    fn karyotype_cmp_is_a_total_order(a in "[a-zA-Z0-9_]{0,8}", b in "[a-zA-Z0-9_]{0,8}", c in "[a-zA-Z0-9_]{0,8}") {
+        let (a, b, c) = (a.as_bytes(), b.as_bytes(), c.as_bytes());
+        proptest::prop_assert_eq!(karyotype_cmp(a, b), karyotype_cmp(b, a).reverse());
+        proptest::prop_assert_eq!(karyotype_cmp(a, b) == Ordering::Equal, a == b);
+        if karyotype_cmp(a, b) != Ordering::Greater && karyotype_cmp(b, c) != Ordering::Greater {
+            proptest::prop_assert_ne!(karyotype_cmp(a, c), Ordering::Greater);
+        }
+    }
+}
+
+#[test]
+fn karyotype_table_ranks() {
+    let mut t = ChromTable::karyotype();
+    for n in ["chr2", "chr10", "chr1", "chrX"] {
+        t.intern(n.as_bytes()).unwrap();
+    }
+    assert_eq!(t.ranks(), vec![1, 2, 0, 3]);
+    assert_eq!(*t.order_source(), OrderSource::Karyotype);
+}
+
+#[test]
+fn chrom_order_parses() {
+    assert_eq!("karyotype".parse(), Ok(ChromOrder::Karyotype));
+    assert_eq!("lex".parse(), Ok(ChromOrder::Lex));
+    assert!("natural".parse::<ChromOrder>().is_err());
+    assert_eq!(ChromOrder::default(), ChromOrder::Karyotype);
+}

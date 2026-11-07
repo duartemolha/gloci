@@ -4,7 +4,7 @@ use crate::bcf::read_bcf_header;
 use crate::error::{IoError, Loc};
 use crate::record::{Header, RecordReader};
 use crate::vcf::VcfHeader;
-use gloci_core::{ChromTable, Genome, GenomeError, OrderSource};
+use gloci_core::{ChromOrder, ChromTable, Genome, GenomeError, OrderSource};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
@@ -179,10 +179,11 @@ fn header_genome(name: &str, h: &VcfHeader) -> Result<Genome, IoError> {
 }
 
 /// Choose the chromosome table: `--genome`, else the first VCF/BCF header
-/// with contigs, else lexicographic order.
+/// with contigs, else `fallback` (karyotype by default, spec §4.5).
 pub fn chrom_table_for(
     genome: Option<&Path>,
     inputs: &[&dyn RecordReader],
+    fallback: ChromOrder,
 ) -> Result<ChromTable, IoError> {
     if let Some(p) = genome {
         let g = load_genome(p)?;
@@ -203,5 +204,8 @@ pub fn chrom_table_for(
             }
         }
     }
-    Ok(ChromTable::lexicographic())
+    Ok(match fallback {
+        ChromOrder::Karyotype => ChromTable::karyotype(),
+        ChromOrder::Lex => ChromTable::lexicographic(),
+    })
 }

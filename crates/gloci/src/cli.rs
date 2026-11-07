@@ -1,4 +1,5 @@
 //! clap definitions: global flags, shared option groups and the subcommands.
+use clap::builder::TypedValueParser as _;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
@@ -106,6 +107,21 @@ pub struct GenomeArg {
     pub genome: Option<PathBuf>,
 }
 
+#[derive(Args, Debug, Clone)]
+pub struct ChromOrderArg {
+    /// Chromosome order when neither -g nor a VCF/BCF header sets one (spec
+    /// section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte
+    /// order, as sort -k1,1, sort-bed and bedtools sort).
+    #[arg(
+        long,
+        value_name = "ORDER",
+        default_value = "karyotype",
+        value_parser = clap::builder::PossibleValuesParser::new(["karyotype", "lex"])
+            .try_map(|s| s.parse::<gloci_core::ChromOrder>())
+    )]
+    pub chrom_order: gloci_core::ChromOrder,
+}
+
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
 pub enum VcfSpan {
     Allele,
@@ -155,4 +171,27 @@ pub struct FormatArg {
     /// Input format, overriding detection (bed, bedgraph, gff, vcf, bcf).
     #[arg(long, value_name = "FMT")]
     pub format: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gloci_core::ChromOrder;
+
+    #[derive(Parser)]
+    struct T {
+        #[command(flatten)]
+        o: ChromOrderArg,
+    }
+
+    #[test]
+    fn chrom_order_arg() {
+        let order = |a: &[&str]| T::try_parse_from(a).map(|t| t.o.chrom_order);
+        assert_eq!(order(&["t"]).unwrap(), ChromOrder::Karyotype);
+        assert_eq!(
+            order(&["t", "--chrom-order", "lex"]).unwrap(),
+            ChromOrder::Lex
+        );
+        assert!(order(&["t", "--chrom-order", "natural"]).is_err());
+    }
 }

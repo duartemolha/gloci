@@ -148,7 +148,9 @@ pub(crate) fn intern_chrom(chroms: &mut ChromTable, name: &[u8]) -> Result<Chrom
         let place = match chroms.order_source() {
             OrderSource::GenomeFile(p) => format!("the genome file {}", p.display()),
             OrderSource::VcfHeader(n) => format!("the ##contig lines of {n}"),
-            OrderSource::Lexicographic | OrderSource::FirstAppearance => "the genome".to_string(),
+            OrderSource::Lexicographic | OrderSource::Karyotype | OrderSource::FirstAppearance => {
+                "the genome".to_string()
+            }
         };
         format!("chromosome \"{}\" is not in {place}", e.0)
     })

@@ -11,15 +11,18 @@ const SHOW_CHARS: usize = 120;
 const KEEP_BYTES: usize = SHOW_CHARS * 4;
 
 /// The `hint:` line for a sortedness error.
-pub fn sort_hint(name: &str, source: &OrderSource, chrom_backwards: bool) -> String {
+pub fn sort_hint(name: &str, source: &OrderSource, _chrom_backwards: bool) -> String {
     match source {
         OrderSource::GenomeFile(p) => format!("run: gloci sort {name} -g {}", p.display()),
-        OrderSource::Lexicographic if chrom_backwards => format!(
-            "run: gloci sort {name} (or pass -g <genome> if the file uses another chromosome order)"
-        ),
+        OrderSource::Lexicographic => format!("run: gloci sort {name} --chrom-order lex"),
         _ => format!("run: gloci sort {name}"),
     }
 }
+
+/// Added to the hint when a karyotype-order check fails on a pair of
+/// chromosomes that are in lexicographic order: the file was probably
+/// sorted by an old tool.
+const LEX_SORTED_NOTE: &str = " (this file looks sorted by sort -k1,1, sort-bed or bedtools sort; re-sort it with gloci sort, or pass --chrom-order lex; see docs/migration.md)";
 
 /// Checks that one input's records arrive in `(chrom, key)` order.
 pub struct OrderGuard {
@@ -69,11 +72,20 @@ impl OrderGuard {
                     prev,
                     loc: loc(m.loc),
                     rec: show(&cur),
-                    hint: sort_hint(
-                        &self.name,
-                        chroms.order_source(),
-                        matches!(v, OrderViolation::ChromBackwards { .. }),
-                    ),
+                    hint: {
+                        let mut hint = sort_hint(
+                            &self.name,
+                            chroms.order_source(),
+                            matches!(v, OrderViolation::ChromBackwards { .. }),
+                        );
+                        if let OrderViolation::ChromBackwards { prev, next } = v
+                            && *chroms.order_source() == OrderSource::Karyotype
+                            && chroms.name(prev) < chroms.name(next)
+                        {
+                            hint.push_str(LEX_SORTED_NOTE);
+                        }
+                        hint
+                    },
                 }
                 .into());
             }

@@ -1,4 +1,4 @@
-use gloci_core::{ChromTable, Genome, OrderSource};
+use gloci_core::{ChromOrder, ChromTable, Genome, OrderSource};
 use gloci_io::*;
 use gloci_testkit::fixtures;
 use std::io::Cursor;
@@ -48,9 +48,16 @@ fn vcf_without_contigs() -> Box<dyn RecordReader> {
     )
 }
 
-fn guard_err(bed: &[u8]) -> IoError {
+fn guard_err_karyotype(bed: &[u8]) -> IoError {
+    guard_err_with(bed, ChromTable::karyotype())
+}
+
+fn guard_err_lex(bed: &[u8]) -> IoError {
+    guard_err_with(bed, ChromTable::lexicographic())
+}
+
+fn guard_err_with(bed: &[u8], mut chroms: ChromTable) -> IoError {
     let mut r = reader("x.bed", bed, Format::Bed);
-    let mut chroms = ChromTable::lexicographic();
     let mut guard = OrderGuard::new("x.bed", Format::Bed);
     let mut batch = RecordBatch::default();
     loop {
@@ -110,7 +117,7 @@ fn bcf_header_order_is_dictionary_order() {
         ["chr2", "chr1"]
     );
     let r = reader("o.bcf", &bcf, Format::Bcf);
-    let t = chrom_table_for(None, &[&*r]).unwrap();
+    let t = chrom_table_for(None, &[&*r], ChromOrder::Karyotype).unwrap();
     assert_eq!(t.get(b"chr2"), Some(gloci_core::ChromId(0)));
 }
 
@@ -119,37 +126,72 @@ fn precedence() {
     let g = write("g.genome", b"chrA\t10\n");
     let (v, b, n) = (vcf_reader(), bed_reader(), vcf_without_contigs());
     assert_eq!(
-        *chrom_table_for(Some(&g), &[&*v]).unwrap().order_source(),
+        *chrom_table_for(Some(&g), &[&*v], ChromOrder::Karyotype)
+            .unwrap()
+            .order_source(),
         OrderSource::GenomeFile(g.clone())
     );
     assert!(matches!(
-        chrom_table_for(None, &[&*v]).unwrap().order_source(),
+        chrom_table_for(None, &[&*v], ChromOrder::Lex)
+            .unwrap()
+            .order_source(),
         OrderSource::VcfHeader(_)
     ));
     assert_eq!(
-        *chrom_table_for(None, &[&*b]).unwrap().order_source(),
+        *chrom_table_for(None, &[&*b], ChromOrder::Karyotype)
+            .unwrap()
+            .order_source(),
+        OrderSource::Karyotype
+    );
+    assert_eq!(
+        *chrom_table_for(None, &[&*b], ChromOrder::Lex)
+            .unwrap()
+            .order_source(),
         OrderSource::Lexicographic
     );
     assert_eq!(
-        *chrom_table_for(None, &[&*n]).unwrap().order_source(),
-        OrderSource::Lexicographic
+        *chrom_table_for(None, &[&*n], ChromOrder::Karyotype)
+            .unwrap()
+            .order_source(),
+        OrderSource::Karyotype
     );
 }
 
 #[test]
 fn guard_message() {
-    let e = guard_err(b"chr2\t5\t9\nchr10\t1\t2\n").to_string();
+    let e = guard_err_lex(b"chr2\t5\t9\nchr10\t1\t2\n").to_string();
     assert_eq!(
         e,
         "x.bed is not sorted: line 2 (chr10\t1\t2) comes after line 1 (chr2\t5\t9)\n\
-                   hint: run: gloci sort x.bed (or pass -g <genome> if the file uses another chromosome order)"
+                   hint: run: gloci sort x.bed --chrom-order lex"
     );
+}
+
+#[test]
+fn guard_karyotype_explains_old_sort_order() {
+    let e = guard_err_karyotype(b"chr1\t5\t9\nchr10\t1\t2\nchr2\t0\t3\n").to_string();
+    assert!(
+        e.contains("line 3 (chr2\t0\t3) comes after line 2 (chr10\t1\t2)"),
+        "{e}"
+    );
+    assert!(
+        e.contains("looks sorted by sort -k1,1, sort-bed or bedtools sort")
+            && e.contains("--chrom-order lex")
+            && e.contains("docs/migration.md"),
+        "{e}"
+    );
+    // Not a lexicographic pair: plain hint, no note.
+    let e = guard_err_karyotype(b"chr2\t5\t9\nchr1\t1\t2\n").to_string();
+    assert!(e.ends_with("hint: run: gloci sort x.bed"), "{e}");
+    // Start-backwards never gets the note.
+    let e = guard_err_karyotype(b"chr1\t5\t9\nchr1\t1\t2\n").to_string();
+    assert!(e.ends_with("hint: run: gloci sort x.bed"), "{e}");
 }
 
 #[test]
 fn guard_start_backwards_across_batches_and_hint() {
     let mut r = reader("x.bed", b"chr1\t50\t60\nchr1\t5\t9\n", Format::Bed);
-    let mut chroms = ChromTable::lexicographic();
+    let mut chroms = ChromTable::karyotype();
     let mut guard = OrderGuard::new("x.bed", Format::Bed);
     let mut batch = RecordBatch::default();
     batch.clear();
@@ -177,6 +219,10 @@ fn sort_hints() {
     );
     assert_eq!(
         sort_hint("a.bed", &OrderSource::Lexicographic, false),
+        "run: gloci sort a.bed --chrom-order lex"
+    );
+    assert_eq!(
+        sort_hint("a.bed", &OrderSource::Karyotype, true),
         "run: gloci sort a.bed"
     );
 }
@@ -190,7 +236,7 @@ fn bcf_guard_renders_chrom_pos() {
     .concat();
     let bcf = fixtures::vcf_to_bcf(&vcf);
     let mut r = reader("c.bcf", &bcf, Format::Bcf);
-    let mut chroms = chrom_table_for(None, &[&*r]).unwrap();
+    let mut chroms = chrom_table_for(None, &[&*r], ChromOrder::Karyotype).unwrap();
     let mut guard = OrderGuard::new("c.bcf", Format::Bcf);
     let mut batch = RecordBatch::default();
     r.read_batch(&mut chroms, &mut batch, 10).unwrap();

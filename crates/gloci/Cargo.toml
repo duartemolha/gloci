@@ -13,6 +13,7 @@ name = "gloci"
 path = "src/main.rs"
 
 [dependencies]
+gloci-core.workspace = true
 gloci-io.workspace = true
 gloci-ops.workspace = true
 clap.workspace = true
