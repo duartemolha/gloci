@@ -1311,9 +1311,9 @@ Large-file tests (`#[ignore]`, nightly):
 ### Task 20: Differential harness and `docs/differences.md`
 
 **Files:**
-- Create: `xtask/src/diff.rs`, `xtask/diff/cases.toml`, `xtask/docker/Dockerfile`, `docs/differences.md`
+- Create: `xtask/src/diff.rs`, `xtask/diff/cases.toml`, `xtask/docker/Dockerfile`, `docs/differences.md`, `crates/gloci/tests/golden.rs`, `crates/gloci/tests/golden/<case>/{input.*,args,expected}` (committed reference outputs)
 - Modify: `.github/workflows/nightly.yml`
-- Test: `xtask/src/diff.rs` (`#[cfg(test)]`)
+- Test: `xtask/src/diff.rs` (`#[cfg(test)]`), `crates/gloci/tests/golden.rs`
 
 **Interfaces:**
 - Produces:
@@ -1325,8 +1325,15 @@ Semantics:
 - A case without `expected_difference` must match.
 - A case with `expected_difference` must differ, and the anchor must exist in `docs/differences.md`. A stale entry (outputs now equal) fails, so the differences list stays honest.
 
+Golden files (bedtools agreement in every CI run, no Docker needed):
+- `cargo xtask diff --update-golden` runs each case's reference command inside the container on a small committed input and writes `crates/gloci/tests/golden/<case>/expected`, plus `args` (the gloci arguments) and the input file. Golden inputs stay small (≤ 2,000 records) so they can be committed.
+- `crates/gloci/tests/golden.rs` runs on every `cargo test`. For each case directory it runs the gloci binary with `args` on the input and compares the output with `expected` using the case's compare mode. The rules match the live harness: a case without `expected_difference` must match, and a case with one must differ (a stale entry fails).
+- A golden case cannot drift silently. When a reference tool version changes, `--update-golden` rewrites `expected`, and the diff shows up in review.
+
 P0 cases:
 - `sort-bed-vs-sort-bed`
+- `sort-bed-vs-bedtools-sort` (bedtools 2.31.1 `sort -i`)
+- `sort-bed-vs-gnu-sort` (`LC_ALL=C sort -k1,1 -k2,2n -s`)
 - `sort-vcf-vs-bcftools-sort` (vcf-records)
 - `view-region-ref-inclusive-vs-tabix` (`--vcf-span ref --inclusive-points`; must match)
 - `view-region-default-vs-tabix` (expected difference `#view-region-footprints`)
@@ -1357,11 +1364,17 @@ P0 cases:
     assert_eq!(verdict(&case(None), false), Verdict::Mismatch);
 }
 #[test] fn manifest_parses_and_all_anchors_exist() { /* load xtask/diff/cases.toml + docs/differences.md */ }
+// crates/gloci/tests/golden.rs
+#[test] fn every_golden_case_agrees_with_its_reference_tool() {
+    let cases = golden_cases();                                 // one per crates/gloci/tests/golden/<case>/
+    assert!(cases.iter().any(|c| c.name == "sort-bed-vs-bedtools-sort"));
+    for c in cases { assert_eq!(c.verdict(run_gloci(&c.args, &c.input)), Verdict::Pass, "{}", c.name); }
+}
 ```
 
 - [ ] **Step 2: Run** `cargo test -p xtask`. Expected: FAIL.
 - [ ] **Step 3: Implement** `diff.rs`, the Dockerfile, `cases.toml` and `differences.md`, and add a nightly job: `docker build -t gloci-diff:p0 xtask/docker && cargo xtask diff`.
-- [ ] **Step 4: Run** `cargo test -p xtask`, then `docker build -t gloci-diff:p0 xtask/docker && cargo xtask diff` if Docker is available. Expected: every case passes; any mismatch is fixed or documented.
+- [ ] **Step 4: Run** `cargo test -p xtask`, then `docker build -t gloci-diff:p0 xtask/docker && cargo xtask diff --update-golden && cargo xtask diff`, then `cargo test -p gloci --test golden`. Expected: every case passes; any mismatch is fixed or documented. If the container can't run on this host, generate the golden files in CI and note it in the report.
 - [ ] **Step 5: Commit** `git commit -am "feat(xtask): differential harness against pinned bedtools/bedops/vcftools/htslib"`
 
 ---
