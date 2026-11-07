@@ -417,7 +417,22 @@ How the old commands map onto `partition`:
 - `--unique` / `--duplicates`: keep only unique lines, or only duplicated ones.
 - Output can be BGZF with `--write-index`.
 
-**`gloci index FILE`** — P0. Writes `.tbi` or `.csi` for bgzipped VCF, BED and GFF, and `.csi` for BCF.
+**`gloci index FILE`** — P0, extended in P1 and P3. Replaces `tabix`, `bcftools index`, `samtools index` and `samtools faidx` for the formats gloci reads. **[you]**
+
+- `gloci index FILE` chooses the index type from the file's content, with no format flags. The one exception is arbitrary TSV (below).
+- Index types by phase:
+
+| Input | Index | Replaces | Phase |
+|---|---|---|---|
+| bgzipped VCF, BED, bedGraph, GFF/GTF | `.tbi`, or `.csi` when an end exceeds 2^29 | `tabix -p vcf\|bed\|gff` | P0 |
+| BCF | `.csi` | `bcftools index` | P0 |
+| any bgzipped tab-separated file | `.tbi`/`.csi`, using `-s/--seq-col`, `-b/--begin-col`, `-e/--end-col`, `--zero-based`, `--skip-lines N`, `--comment CHAR` | `tabix -s -b -e` | P1, so TSV outputs of `map`, `coverage` and `intersect --mode pairs` can be indexed |
+| BAM | `.bai`, or `.csi` with `--csi` or for long references | `samtools index` | P3, with BAM input |
+| CRAM | `.crai` | `samtools index` | P3, with CRAM input and reference handling |
+| FASTA, bgzipped FASTA | `.fai`, plus `.gzi` for BGZF | `samtools faidx` | P3, with `getfasta`/`maskfasta`/`nuc` |
+
+- Each new index type ships with differential tests showing that the reference tool (htslib, samtools) reads gloci's index and returns identical query results (Section 9.3).
+- Indexing formats gloci reads is in scope; becoming a general samtools replacement is not (Section 2).
 
 **`gloci view FILE [REGION...]`** — P0. Replaces bedops `bedextract`, `tabix` region queries, and vcftools `--recode` as a pure format conversion.
 
@@ -679,9 +694,9 @@ Reference machine: 8-core x86_64, NVMe, 32 GB RAM. Baselines: bedtools 2.31.x, b
 | Phase | Contents | Done when |
 |---|---|---|
 | **P0 Foundations** | workspace; Section 4 core types and rules; BED/VCF/BCF/GFF I/O; parallel BGZF; sort validation; atomic writer; built-in genomes (`-g hg38`); `sort`, `index`, `view`, `check`, `genomes`; benchmark + differential + property-test harnesses | `sort` beats `sort-bed`; harnesses run in CI |
-| **P1 Core replacement** | `intersect`, `subtract`, `closest`, `map` (core ops), `coverage`, `merge`, `complement`, `slop`, `flank`, `windows`, `convert` (VCF/GFF/BED12), `vcf filter` (no expressions); unsorted mode; per-chromosome parallelism for indexed inputs; every op callable on in-memory record streams (Section 8.1) | the team's most common bedtools/bedops/vcftools pipeline steps can be rewritten on gloci; P1 performance targets met |
+| **P1 Core replacement** | `intersect`, `subtract`, `closest`, `map` (core ops), `coverage`, `merge`, `complement`, `slop`, `flank`, `windows`, `convert` (VCF/GFF/BED12), `vcf filter` (no expressions); unsorted mode; per-chromosome parallelism for indexed inputs; every op callable on in-memory record streams (Section 8.1); tabix-style indexing of any bgzipped TSV | the team's most common bedtools/bedops/vcftools pipeline steps can be rewritten on gloci; P1 performance targets met |
 | **P2 Breadth** | `partition`, `cluster`, `spacing`, `shift`, `groupby`, `genomecov` (BED), full `map` ops, `vcf stats`, `vcf extract`, `vcf concat`, filter expressions, `--chrom-map`, WIG input; bioconda package; **Python library** (`pip install gloci`, Section 8.5) | vcftools no longer needed for QC/filtering |
-| **P3 Extended** | BAM/CRAM input (intersect, coverage, genomecov, convert); `getfasta`, `maskfasta`, `nuc`; `stats jaccard/fisher/reldist`; `sample`/`random`/`shuffle`; BEDPE pair ops; `vcf popgen`; `vcf compare` | all three tools can be uninstalled |
+| **P3 Extended** | BAM/CRAM input (intersect, coverage, genomecov, convert) and indexing (`.bai`/`.csi`, `.crai`); FASTA indexing (`.fai`/`.gzi`); `getfasta`, `maskfasta`, `nuc`; `stats jaccard/fisher/reldist`; `sample`/`random`/`shuffle`; BEDPE pair ops; `vcf popgen`; `vcf compare` | all three tools can be uninstalled |
 
 **Distribution:**
 
