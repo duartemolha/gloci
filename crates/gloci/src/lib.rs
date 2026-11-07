@@ -37,6 +37,40 @@ pub fn command() -> clap::Command {
     Cli::command()
 }
 
+/// The arguments without thread options (`-t N`, `-tN`, `--threads N`,
+/// `--threads=N`), so the recorded `##glociCommand` does not depend on them.
+/// Everything after `--` is kept verbatim.
+fn strip_thread_options(args: &[OsString]) -> Vec<OsString> {
+    let mut out = Vec::with_capacity(args.len());
+    let mut it = args.iter().enumerate();
+    while let Some((i, a)) = it.next() {
+        // argv[0] is the program name
+        if i == 0 {
+            out.push(a.clone());
+            continue;
+        }
+        let Some(s) = a.to_str() else {
+            out.push(a.clone());
+            continue;
+        };
+        match s {
+            "--" => {
+                out.extend(args[i..].iter().cloned());
+                break;
+            }
+            "-t" | "--threads" => {
+                it.next();
+            }
+            _ if s.starts_with("--threads=") => {}
+            _ if s.len() > 2
+                && s.starts_with("-t")
+                && s[2..].bytes().all(|b| b.is_ascii_digit()) => {}
+            _ => out.push(a.clone()),
+        }
+    }
+    out
+}
+
 /// What an error means for the exit status.
 enum Outcome {
     Usage(String),
@@ -97,7 +131,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
     let ctx = Ctx {
         threads,
         tmp_dir: resolve_tmp_dir(tmp_arg),
-        command_line: shell_quote_args(&args),
+        command_line: shell_quote_args(&strip_thread_options(&args)),
         version: env!("CARGO_PKG_VERSION"),
     };
 
@@ -129,6 +163,62 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
 mod tests {
     use super::*;
     use std::io::{Error, ErrorKind};
+
+    fn strip(a: &[&str]) -> Vec<String> {
+        let v: Vec<OsString> = a.iter().map(OsString::from).collect();
+        strip_thread_options(&v)
+            .into_iter()
+            .map(|s| s.into_string().unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn thread_options_are_stripped_from_command_line() {
+        assert_eq!(
+            strip(&["gloci", "sort", "-t", "4", "a.bed"]),
+            ["gloci", "sort", "a.bed"]
+        );
+        assert_eq!(
+            strip(&["gloci", "sort", "-t4", "a.bed"]),
+            ["gloci", "sort", "a.bed"]
+        );
+        assert_eq!(
+            strip(&["gloci", "sort", "--threads", "4", "a.bed"]),
+            ["gloci", "sort", "a.bed"]
+        );
+        assert_eq!(
+            strip(&["gloci", "sort", "--threads=4", "a.bed"]),
+            ["gloci", "sort", "a.bed"]
+        );
+        // others untouched
+        assert_eq!(
+            strip(&[
+                "gloci",
+                "sort",
+                "-o",
+                "t.vcf",
+                "--tmp-dir",
+                "t",
+                "-tx",
+                "-q"
+            ]),
+            [
+                "gloci",
+                "sort",
+                "-o",
+                "t.vcf",
+                "--tmp-dir",
+                "t",
+                "-tx",
+                "-q"
+            ]
+        );
+        // after `--` everything is verbatim
+        assert_eq!(
+            strip(&["gloci", "view", "-t", "2", "--", "-t", "x"]),
+            ["gloci", "view", "--", "-t", "x"]
+        );
+    }
 
     fn pipe() -> Error {
         Error::from(ErrorKind::BrokenPipe)

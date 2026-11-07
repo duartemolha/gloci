@@ -3,6 +3,7 @@
 mod common;
 use common::*;
 use gloci_testkit::fixtures::{bgzip, vcf_to_bcf, write};
+use predicates::prelude::*;
 use predicates::str::contains;
 use std::fmt::Write as _;
 use std::io::Read;
@@ -52,9 +53,14 @@ fn vcf_text(n: usize, sorted: bool) -> String {
     s
 }
 
+/// Run with a thread option in the given spelling (`-t 1`, `-t2`, `--threads=8`).
 fn stdout_with(args: &[&str], t: &str) -> Vec<u8> {
-    // GLOCI_THREADS rather than -t, so the recorded ##glociCommand is identical.
-    let out = gloci().args(args).env("GLOCI_THREADS", t).output().unwrap();
+    let opt: Vec<String> = match t {
+        "1" => vec!["-t".into(), "1".into()],
+        "2" => vec!["-t2".into()],
+        n => vec![format!("--threads={n}")],
+    };
+    let out = gloci().args(args).args(&opt).output().unwrap();
     assert_eq!(
         out.status.code(),
         Some(0),
@@ -116,10 +122,16 @@ fn thread_count_never_changes_bytes() {
         assert!(r.windows(2).all(|w| w[0] == w[1]), "{args:?}");
     }
     // sort that spills with a 16M budget
-    let big = p(&plain_file(d.path(), "big.bed", &bed_text(600_000)));
+    // The input (~65 MB) is far above the 16M budget, so it must spill; the
+    // default (2G) budget sorts in memory and must give the same bytes.
+    let big_path = plain_file(d.path(), "big.bed", &bed_text(1_600_000));
+    assert!(std::fs::metadata(&big_path).unwrap().len() > 2 * (16 << 20));
+    let big = p(&big_path);
     let spill = vec!["sort", &big, "--max-mem", "16M", "-O", "bed.gz"];
     let r: Vec<_> = ["1", "8"].iter().map(|t| stdout_with(&spill, t)).collect();
     assert_eq!(r[0], r[1], "spilling sort");
+    let in_mem = stdout_with(&["sort", &big, "-O", "bed.gz"], "2");
+    assert_eq!(r[0], in_mem, "spilled vs in-memory");
     // index bytes
     let src = PathBuf::from(&sorted_gz);
     assert_eq!(index_bytes(&src, "1"), index_bytes(&src, "8"));
@@ -152,22 +164,49 @@ fn broken_pipe_is_quiet_success() {
     );
 }
 
+const BGZF_EOF: [u8; 28] = [
+    0x1f, 0x8b, 0x08, 0x04, 0, 0, 0, 0, 0, 0xff, 0x06, 0, 0x42, 0x43, 0x02, 0, 0x1b, 0, 0x03, 0, 0,
+    0, 0, 0, 0, 0, 0, 0,
+];
+
 #[test]
 fn truncated_bgzf_errors() {
     let d = tempdir();
-    let full = bgzip(bed_text(50_000).as_bytes());
-    let mid = write(d.path(), "mid.bed.gz", &full[..full.len() / 2]);
-    gloci()
-        .args(["view", mid.to_str().unwrap()])
-        .assert()
-        .code(1);
-    // drop only the 28-byte EOF marker
-    let no_eof = write(d.path(), "noeof.bed.gz", &full[..full.len() - 28]);
-    gloci()
-        .args(["view", no_eof.to_str().unwrap()])
-        .assert()
-        .code(1)
-        .stderr(contains("truncated"));
+    let vcf = vcf_text(50_000, true);
+    let payloads: Vec<(&str, Vec<u8>)> = vec![
+        ("bed.gz", bgzip(bed_text(50_000).as_bytes())),
+        ("vcf.gz", bgzip(vcf.as_bytes())),
+        ("bcf", vcf_to_bcf(vcf.as_bytes())),
+    ];
+    for (ext, full) in payloads {
+        let name = format!("t.{ext}");
+        // 1. cut mid-block, then a valid EOF marker: only the block is wrong
+        let mut cut = full[..full.len() / 2].to_vec();
+        cut.extend_from_slice(&BGZF_EOF);
+        let mid = write(d.path(), &format!("mid-{name}"), &cut);
+        let out = gloci()
+            .args(["view", mid.to_str().unwrap()])
+            .output()
+            .unwrap();
+        let err = String::from_utf8_lossy(&out.stderr).into_owned();
+        assert_eq!(out.status.code(), Some(1), "{ext}: {err}");
+        assert!(err.starts_with("error: "), "{ext}: {err}");
+        assert!(!err.contains("end-of-file marker missing"), "{ext}: {err}");
+        // same corruption through stdin
+        gloci()
+            .args(["view", "-"])
+            .write_stdin(cut)
+            .assert()
+            .code(1)
+            .stderr(predicates::str::contains("error: "));
+        // 2. whole file but without the 28-byte EOF marker
+        let no_eof = write(d.path(), &format!("noeof-{name}"), &full[..full.len() - 28]);
+        gloci()
+            .args(["view", no_eof.to_str().unwrap()])
+            .assert()
+            .code(1)
+            .stderr(contains("end-of-file marker missing").and(contains("truncated")));
+    }
 }
 
 /// Names in `dir` other than `keep`.
@@ -194,6 +233,40 @@ fn no_partial_outputs_on_error() {
         .code(1);
     assert!(!out.exists());
     assert_eq!(leftovers(d.path(), &["bad.bed"]), Vec::<String>::new());
+}
+
+#[test]
+fn no_partial_outputs_when_error_follows_spilling() {
+    let d = tempdir();
+    let mut text = bed_text(1_500_000);
+    let at = text.len() * 9 / 10;
+    let at = text[at..].find('\n').unwrap() + at + 1;
+    let line_no = text[..at].matches('\n').count() + 1;
+    text.insert_str(at, "chr1\tnotanumber\t5\n");
+    assert!(text.len() > 2 * (16 << 20));
+    let input = plain_file(d.path(), "bad.bed", &text);
+    let spill = d.path().join("spill");
+    std::fs::create_dir(&spill).unwrap();
+    let out = d.path().join("out.bed");
+    gloci()
+        .current_dir(d.path())
+        .args(["sort", "bad.bed", "--max-mem", "16M", "--tmp-dir"])
+        .arg(&spill)
+        .arg("-o")
+        .arg(&out)
+        .assert()
+        .code(1)
+        .stderr(contains(format!(
+            "bad.bed line {}",
+            gloci_core::thousands(line_no as u64)
+        )));
+    assert!(!out.exists());
+    assert_eq!(
+        leftovers(d.path(), &["bad.bed", "spill"]),
+        Vec::<String>::new()
+    );
+    assert!(std::fs::read_dir(&spill).unwrap().next().is_none());
+    drop(input);
 }
 
 fn wait_until(what: &str, mut f: impl FnMut() -> bool) {
@@ -266,4 +339,23 @@ fn error_format() {
         .assert()
         .code(1)
         .stderr("error: bad.vcf line 3: POS \"12a4\" is not an integer\n");
+}
+
+#[test]
+fn error_format_thousands_separator_in_line_number() {
+    let d = tempdir();
+    let mut text =
+        String::from("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n");
+    for i in 0..1231 {
+        writeln!(text, "chr1\t{}\t.\tA\tC\t.\t.\t.", i + 1).unwrap();
+    }
+    text.push_str("chr1\t12a4\t.\tA\tC\t.\t.\t.\n");
+    assert_eq!(text.matches('\n').count(), 1234);
+    plain_file(d.path(), "bad.vcf", &text);
+    gloci()
+        .current_dir(d.path())
+        .args(["sort", "bad.vcf"])
+        .assert()
+        .code(1)
+        .stderr("error: bad.vcf line 1,234: POS \"12a4\" is not an integer\n");
 }
