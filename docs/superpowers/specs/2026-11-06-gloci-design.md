@@ -63,7 +63,7 @@ gloci vcf filter cohort.bcf --pass-only --min-qual 30 --min-maf 0.01 --max-missi
 gloci vcf stats cohort.vcf.gz --freq --missing-site --missing-indv --het --tstv --out-prefix qc/cohort
 ```
 
-**Name:** `gloci`, for "genomic loci". **[you]** It is used for the binary, the crate, the repository and the bioconda package. On 2026-11-06 the name was free on crates.io, bioconda, conda-forge, PyPI, CRAN and Debian. The nearest existing name is `cloci`, an unrelated Python gene-cluster tool.
+**Name:** `gloci`, for "genomic loci", pronounced **GLOH-sigh** (/ˈɡloʊsaɪ/), with the ending said the way English speakers say "loci". **[you]** It is used for the binary, the crate, the repository and the bioconda package. On 2026-11-06 the name was free on crates.io, bioconda, conda-forge, PyPI, CRAN and Debian. The nearest existing name is `cloci`, an unrelated Python gene-cluster tool.
 
 ---
 
