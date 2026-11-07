@@ -1,0 +1,12 @@
+chr1	50	500	big_chr1	0	+
+chr1	100	300	b_chr1	0	+
+chr1	200	300	bk_chr1	0	+
+chr10	9	10	z_chr10	0	+
+chr10	50	500	big_chr10	0	+
+chr2	50	500	big_chr2	0	+
+chr2	100	200	c_chr2	5	-
+chr2	100	200	a_chr2	0	+
+chr2	100	300	b_chr2	0	+
+chr2	100	150	d_chr2	9	-
+chr2	100	200	a_chr2	0	+
+chrX	9	10	z_chrX	0	+

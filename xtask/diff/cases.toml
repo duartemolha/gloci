@@ -100,10 +100,155 @@ compare = "exact"
 [[case]]
 name = "view-region-default-vs-tabix"
 input = { file = "xtask/diff/inputs/regions.vcf" }
-gloci = "gloci view --no-header input.vcf chr1:100-100 chr1:101-101 chr1:150-190 chr1:200-200 chr1:300-420 chr2:100-100 chr2:495-505"
-reference = "bgzip -c input.vcf > i.vcf.gz && tabix -p vcf i.vcf.gz && tabix i.vcf.gz chr1:100-100 chr1:101-101 chr1:150-190 chr1:200-200 chr1:300-420 chr2:100-100 chr2:495-505"
+# Insertions only (points under the allele span): strictly-inside rule.
+gloci = "gloci view --no-header input.vcf chr1:100-100 chr1:101-101 chr1:200-200 chr2:100-100"
+reference = "bgzip -c input.vcf > i.vcf.gz && tabix -p vcf i.vcf.gz && tabix i.vcf.gz chr1:100-100 chr1:101-101 chr1:200-200 chr2:100-100"
 compare = "exact"
 expected_difference = "#view-region-footprints"
+
+[[case]]
+name = "view-region-allele-inclusive-vs-tabix"
+input = { file = "xtask/diff/inputs/regions.vcf" }
+# Same queries with inclusive points: the point rule alone explains the gap above.
+gloci = "gloci view --no-header --inclusive-points input.vcf chr1:100-100 chr1:101-101 chr1:200-200 chr2:100-100"
+reference = "bgzip -c input.vcf > i.vcf.gz && tabix -p vcf i.vcf.gz && tabix i.vcf.gz chr1:100-100 chr1:101-101 chr1:200-200 chr2:100-100"
+compare = "exact"
+
+[[case]]
+name = "view-region-allele-span-vs-tabix"
+input = { file = "xtask/diff/inputs/regions.vcf" }
+# A deletion (ACGT>A at 150): its allele footprint starts after the anchor base.
+gloci = "gloci view --no-header --inclusive-points input.vcf chr1:150-150"
+reference = "bgzip -c input.vcf > i.vcf.gz && tabix -p vcf i.vcf.gz && tabix i.vcf.gz chr1:150-150"
+compare = "exact"
+expected_difference = "#default-vcf-span-allele"
+
+[[case]]
+name = "view-svlen-only-sv-vs-tabix"
+input = { file = "xtask/diff/inputs/svlen.vcf" }
+# <DEL> with SVLEN=-50000 and no END at 1000: the region 40000-40100 touches only its tail, in another 16 kb index bin than its start.
+gloci = "gloci view --no-header input.vcf chr1:40000-40100"
+reference = "bgzip -c input.vcf > i.vcf.gz && tabix -p vcf i.vcf.gz && tabix i.vcf.gz chr1:40000-40100"
+compare = "exact"
+expected_difference = "#htslib-index-svlen"
+
+[[case]]
+name = "index-svlen-only-sv-vs-tabix"
+input = { file = "xtask/diff/inputs/svlen.vcf" }
+gloci = "set -e; gloci sort input.vcf -o g.vcf.gz --write-index; gloci view --no-header g.vcf.gz chr1:40000-40100"
+reference = "set -e; bgzip -c input.vcf > t.vcf.gz; tabix -p vcf t.vcf.gz; tabix t.vcf.gz chr1:40000-40100"
+compare = "exact"
+expected_difference = "#htslib-index-svlen"
+
+# The limitation the other way round: gloci reading an htslib-built index sees
+# what htslib sees, so it misses the tail-touching SV too.
+[[case]]
+name = "index-htslib-built-svlen-gloci-view-vs-tabix"
+input = { file = "xtask/diff/inputs/svlen.vcf" }
+gloci = "set -e; bgzip -c input.vcf > u.vcf.gz; tabix -p vcf u.vcf.gz; gloci view --no-header u.vcf.gz chr1:40000-40100"
+reference = "set -e; bgzip -c input.vcf > t.vcf.gz; tabix -p vcf t.vcf.gz; tabix t.vcf.gz chr1:40000-40100"
+compare = "exact"
+
+# BED regions: sorted-nopoints.bed has start ties, bookended and nested
+# features but no points; sorted-points.bed has zero-length records. One region
+# per chromosome, so no record is printed twice.
+
+[[case]]
+name = "view-bed-region-vs-tabix"
+input = { file = "xtask/diff/inputs/sorted-nopoints.bed" }
+gloci = "gloci view --chrom-order lex input.bed chr1:201-210 chr10:1-60 chr2:100-120 chrM:1-5 chrX:9-12"
+reference = "bgzip -c input.bed > i.bed.gz && tabix -p bed i.bed.gz && tabix i.bed.gz chr1:201-210 chr10:1-60 chr2:100-120 chrM:1-5 chrX:9-12"
+compare = "exact"
+
+# tabix treats a zero-length BED record as empty, so it never returns a point
+# on a region's edge but does return one strictly inside. gloci's default
+# agrees; --inclusive-points deliberately differs.
+[[case]]
+name = "view-bed-region-points-vs-tabix"
+input = { file = "xtask/diff/inputs/sorted-points.bed" }
+gloci = "gloci view --chrom-order lex input.bed chr1:101-101 chr10:1-1 chr2:91-110 chrM:101-101 chrX:91-110"
+reference = "bgzip -c input.bed > i.bed.gz && tabix -p bed i.bed.gz && tabix i.bed.gz chr1:101-101 chr10:1-1 chr2:91-110 chrM:101-101 chrX:91-110"
+compare = "exact"
+
+[[case]]
+name = "view-bed-region-points-inclusive-vs-tabix"
+input = { file = "xtask/diff/inputs/sorted-points.bed" }
+gloci = "gloci view --chrom-order lex --inclusive-points input.bed chr1:101-101 chr10:1-1 chr2:91-110 chrM:101-101 chrX:91-110"
+reference = "bgzip -c input.bed > i.bed.gz && tabix -p bed i.bed.gz && tabix i.bed.gz chr1:101-101 chr10:1-1 chr2:91-110 chrM:101-101 chrX:91-110"
+compare = "exact"
+expected_difference = "#view-region-footprints"
+
+[[case]]
+name = "view-bed-assume-sorted-vs-bedextract"
+input = { file = "xtask/diff/inputs/nonnested.bed" }
+aux = ["xtask/diff/inputs/regions.bed"]
+gloci = "gloci view --chrom-order lex --assume-sorted input.bed --regions-file regions.bed"
+reference = "bedextract input.bed regions.bed"
+compare = "exact"
+
+# bedextract silently misses a long feature that starts before the region and
+# drops fully nested features; gloci finds the long feature.
+[[case]]
+name = "view-bed-assume-sorted-nested-vs-bedextract"
+input = { file = "xtask/diff/inputs/nestedsorted.bed" }
+aux = ["xtask/diff/inputs/regions.bed"]
+gloci = "gloci view --chrom-order lex --assume-sorted input.bed --regions-file regions.bed"
+reference = "bedextract input.bed regions.bed"
+compare = "exact"
+expected_difference = "#view-assume-sorted"
+
+# Error behaviour is pinned by exit status.
+
+# bedextract trusts the order of an unsorted file; gloci's default scan checks it.
+[[case]]
+name = "view-bed-unsorted-vs-bedextract"
+input = { file = "xtask/diff/inputs/unsorted.bed" }
+gloci = "gloci view --chrom-order lex input.bed chr1:1-100"
+reference = "bedextract chr1 input.bed"
+compare = "exit-status"
+expected_difference = "#view-assume-sorted"
+
+[[case]]
+name = "sort-check-start-ties-vs-sort-bed"
+input = { file = "xtask/diff/inputs/check-ends.bed" }
+gloci = "gloci sort --check input.bed"
+reference = "sort-bed --check-sort input.bed"
+compare = "exit-status"
+expected_difference = "#sort-check-chrom-start"
+
+[[case]]
+name = "truncated-bgzf-vs-bgzip"
+input = { file = "xtask/diff/inputs/truncated.bed.gz" }
+gloci = "gloci view input.bed.gz"
+reference = "bgzip -dc input.bed.gz"
+compare = "exit-status"
+expected_difference = "#bgzf-eof-marker"
+
+[[case]]
+name = "vcf-to-bcf-bad-header-vs-bcftools"
+input = { file = "xtask/diff/inputs/dup-info.vcf" }
+gloci = "gloci view -O bcf input.vcf"
+reference = "bcftools view -Ob input.vcf"
+compare = "exit-status"
+expected_difference = "#vcf-header-conversion"
+
+[[case]]
+name = "sort-bed-points-vs-sort-bed"
+input = { file = "xtask/diff/inputs/ties.bed" }
+gloci = "gloci sort --chrom-order lex input.bed"
+reference = "sort-bed input.bed"
+compare = "exit-status"
+expected_difference = "#zero-length-bed-records"
+
+# The header: the ##glociCommand line is the only difference here (the input
+# already has the ##FILTER=<ID=PASS> line htslib puts second).
+[[case]]
+name = "sort-vcf-header-vs-bcftools-sort"
+input = { file = "xtask/diff/inputs/hdr-distinct.vcf" }
+gloci = "gloci sort input.vcf"
+reference = "bcftools sort input.vcf"
+compare = "exact"
+expected_difference = "#glocicommand-header"
 
 # htslib reads through the index gloci built and through its own: the queries
 # must return the same records.
@@ -111,13 +256,13 @@ expected_difference = "#view-region-footprints"
 [[case]]
 name = "index-interop-tabix-queries"
 input = { gen = ["vcf", "--records", "1500", "--chroms", "5", "--seed", "21"] }
-gloci = '''gloci sort input.vcf -o g.vcf.gz --write-index && for q in chr1:1-50000000 chr2:100000000-180000000 chr3 chr4:1-1000 chr5:60000000-250000000; do tabix g.vcf.gz $q; done'''
-reference = '''bgzip -c input.vcf > t.vcf.gz && tabix -p vcf t.vcf.gz && for q in chr1:1-50000000 chr2:100000000-180000000 chr3 chr4:1-1000 chr5:60000000-250000000; do tabix t.vcf.gz $q; done'''
+gloci = '''set -e; gloci sort input.vcf -o g.vcf.gz --write-index; for q in chr1:1-50000000 chr2:100000000-180000000 chr3 chr4:1-1000 chr5:60000000-250000000; do tabix g.vcf.gz $q; done'''
+reference = '''set -e; bgzip -c input.vcf > t.vcf.gz; tabix -p vcf t.vcf.gz; for q in chr1:1-50000000 chr2:100000000-180000000 chr3 chr4:1-1000 chr5:60000000-250000000; do tabix t.vcf.gz $q; done'''
 compare = "exact"
 
 [[case]]
 name = "index-interop-tabix-queries-small"
 input = { file = "xtask/diff/inputs/regions.vcf" }
-gloci = '''gloci sort input.vcf -o g.vcf.gz --write-index && for q in chr1:100-100 chr1:250-250 chr1:399-401 chr1:402-1000 chr2 chr2:499-499; do tabix g.vcf.gz $q; done'''
-reference = '''bgzip -c input.vcf > t.vcf.gz && tabix -p vcf t.vcf.gz && for q in chr1:100-100 chr1:250-250 chr1:399-401 chr1:402-1000 chr2 chr2:499-499; do tabix t.vcf.gz $q; done'''
+gloci = '''set -e; gloci sort input.vcf -o g.vcf.gz --write-index; for q in chr1:100-100 chr1:250-250 chr1:399-401 chr1:402-1000 chr2 chr2:499-499; do tabix g.vcf.gz $q; done'''
+reference = '''set -e; bgzip -c input.vcf > t.vcf.gz; tabix -p vcf t.vcf.gz; for q in chr1:100-100 chr1:250-250 chr1:399-401 chr1:402-1000 chr2 chr2:499-499; do tabix t.vcf.gz $q; done'''
 compare = "exact"

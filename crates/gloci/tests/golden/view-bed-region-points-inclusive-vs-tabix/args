@@ -1,0 +1,1 @@
+view --chrom-order lex --inclusive-points input.bed chr1:101-101 chr10:1-1 chr2:91-110 chrM:101-101 chrX:91-110

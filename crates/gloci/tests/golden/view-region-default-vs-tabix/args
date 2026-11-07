@@ -1,1 +1,1 @@
-view --no-header input.vcf chr1:100-100 chr1:101-101 chr1:150-190 chr1:200-200 chr1:300-420 chr2:100-100 chr2:495-505
+view --no-header input.vcf chr1:100-100 chr1:101-101 chr1:200-200 chr2:100-100

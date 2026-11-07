@@ -69,7 +69,7 @@ pub fn load_cases(path: &Path) -> Result<Vec<Case>> {
         ensure!(
             matches!(
                 c.compare.as_str(),
-                "exact" | "lines-unordered" | "vcf-records"
+                "exact" | "lines-unordered" | "vcf-records" | "exit-status"
             ),
             "{}: unknown compare mode `{}`",
             c.name,
@@ -114,9 +114,12 @@ pub fn golden_args(c: &Case) -> Option<String> {
 fn input_ext(c: &Case) -> String {
     match (&c.input.generate, &c.input.file) {
         (Some(g), _) => g[0].clone(),
+        // everything after the first dot: `bed.gz` for `x.bed.gz`
         (_, Some(f)) => Path::new(f)
-            .extension()
-            .map(|e| e.to_string_lossy().into_owned())
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.split_once('.'))
+            .map(|(_, e)| e.to_string())
             .unwrap_or_default(),
         _ => unreachable!(),
     }
@@ -182,7 +185,13 @@ fn stderr_of(o: &Output) -> String {
     String::from_utf8_lossy(&o.stderr).trim().to_string()
 }
 
-fn write_golden(c: &Case, root: &Path, args: &str, expected: &[u8]) -> Result<()> {
+fn write_golden(
+    c: &Case,
+    root: &Path,
+    args: &str,
+    expected: &[u8],
+    expected_gloci: Option<&[u8]>,
+) -> Result<()> {
     let dir = root.join("crates/gloci/tests/golden").join(&c.name);
     if dir.exists() {
         std::fs::remove_dir_all(&dir)?;
@@ -197,6 +206,11 @@ fn write_golden(c: &Case, root: &Path, args: &str, expected: &[u8]) -> Result<()
         std::fs::write(dir.join("expected_difference"), format!("{a}\n"))?;
     }
     std::fs::write(dir.join("expected"), expected)?;
+    // gloci's own current output, so a regression to a different wrong output
+    // cannot pass as "still differs".
+    if let Some(g) = expected_gloci {
+        std::fs::write(dir.join("expected_gloci"), g)?;
+    }
     Ok(())
 }
 
@@ -256,26 +270,47 @@ pub fn run(a: &Args) -> Result<bool> {
         for (n, b) in case_files(c, &root)? {
             std::fs::write(dir.join(n), b)?;
         }
+        let outcome = c.compare == "exit-status";
+        let observe = |o: &Output| {
+            gloci_testkit::differential::observe(&c.compare, o.status.code(), &o.stdout)
+        };
         let reference = docker_sh(&a.image, &gloci, &dir, &c.reference)?;
-        if !reference.status.success() {
+        if !outcome && !reference.status.success() {
             bail!(
                 "{}: reference command failed: {}",
                 c.name,
                 stderr_of(&reference)
             );
         }
+        let reference_out = observe(&reference);
         if a.update_golden {
-            write_golden(c, &root, golden.as_deref().unwrap(), &reference.stdout)?;
+            let mine_out = if c.expected_difference.is_some() {
+                let mine = docker_sh(&a.image, &gloci, &dir, &c.gloci)?;
+                if !outcome && !mine.status.success() {
+                    bail!("{}: gloci failed: {}", c.name, stderr_of(&mine));
+                }
+                Some(observe(&mine))
+            } else {
+                None
+            };
+            write_golden(
+                c,
+                &root,
+                golden.as_deref().unwrap(),
+                &reference_out,
+                mine_out.as_deref(),
+            )?;
             eprintln!("wrote {}", c.name);
             continue;
         }
         let mine = docker_sh(&a.image, &gloci, &dir, &c.gloci)?;
-        if !mine.status.success() {
+        if !outcome && !mine.status.success() {
             eprintln!("FAIL  {}: gloci failed: {}", c.name, stderr_of(&mine));
             all_ok = false;
             continue;
         }
-        let equal = compare(&c.compare, &mine.stdout, &reference.stdout);
+        let mine_out = observe(&mine);
+        let equal = compare(&c.compare, &mine_out, &reference_out);
         let v = verdict(c, equal);
         let word = match v {
             Verdict::Pass if c.expected_difference.is_some() => "ok    (differs as documented)",
@@ -286,8 +321,8 @@ pub fn run(a: &Args) -> Result<bool> {
         eprintln!("{word}  {}", c.name);
         if v != Verdict::Pass {
             all_ok = false;
-            let _ = std::fs::write(dir.join("gloci.out"), &mine.stdout);
-            let _ = std::fs::write(dir.join("reference.out"), &reference.stdout);
+            let _ = std::fs::write(dir.join("gloci.out"), &mine_out);
+            let _ = std::fs::write(dir.join("reference.out"), &reference_out);
             eprintln!("      outputs in {}", dir.display());
         }
         if v == Verdict::Pass {
@@ -371,6 +406,22 @@ mod tests {
     }
 
     #[test]
+    fn every_documented_difference_is_pinned_by_a_case() {
+        let root = workspace_root();
+        let cases = load_cases(&root.join("xtask/diff/cases.toml")).unwrap();
+        let doc = std::fs::read_to_string(root.join("docs/differences.md")).unwrap();
+        for a in gloci_testkit::differential::anchors(&doc) {
+            assert!(
+                cases.iter().any(|c| c
+                    .expected_difference
+                    .as_deref()
+                    .is_some_and(|d| d.trim_start_matches('#') == a)),
+                "docs/differences.md section {{#{a}}} is not pinned by any case"
+            );
+        }
+    }
+
+    #[test]
     fn golden_dirs_match_the_manifest() {
         let root = workspace_root();
         let cases = load_cases(&root.join("xtask/diff/cases.toml")).unwrap();
@@ -393,7 +444,19 @@ mod tests {
             for (name, bytes) in case_files(c, &root).unwrap() {
                 assert_eq!(read(&name), bytes, "{}: {name} is stale", c.name);
             }
-            assert!(!read("expected").is_empty(), "{}", c.name);
+            // an empty reference output is meaningful only for a documented
+            // difference (the reference tool misses what gloci finds)
+            assert!(
+                c.expected_difference.is_some() || !read("expected").is_empty(),
+                "{}: empty expected output makes the case vacuous",
+                c.name
+            );
+            assert_eq!(
+                dir.join("expected_gloci").exists(),
+                c.expected_difference.is_some(),
+                "{}: expected_gloci must exist exactly for documented differences",
+                c.name
+            );
         }
         assert!(eligible >= 8, "only {eligible} golden cases");
         // no orphan directories

@@ -8,33 +8,39 @@ htslib 1.21, bcftools 1.21, GNU coreutils) on the same inputs, and
 `crates/gloci/tests/golden/` holds the reference outputs, which every
 `cargo test` checks without Docker.
 
-Each section has an anchor. A case in `xtask/diff/cases.toml` that names a
-section as its `expected_difference` must produce different output from the
-reference tool, so a section whose behaviour stops differing fails the build
-until the section is removed. Cases without an `expected_difference` must match
-the reference output exactly (or under their compare mode); `cases.toml` and
-the golden directory list them all.
+Each section has an anchor and lists the cases that pin it. A case in
+`xtask/diff/cases.toml` that names a section as its `expected_difference` must
+produce different output (or a different exit status) from the reference tool,
+and gloci's own output for it is committed (`expected_gloci`) and must stay
+byte for byte the same, so a difference cannot quietly turn into a different
+wrong answer. If the behaviour stops differing, the case fails as stale until
+the section is removed. Cases without an `expected_difference` must match the
+reference tool. Most cases run on every `cargo test` from committed reference
+outputs; the few marked "live only" need Docker and run nightly (`cargo xtask
+diff`). The commit history of `crates/gloci/tests/golden/` shows every change in
+a reference tool's output.
 
 Each section gives the gloci behaviour, the old behaviour and the reason.
 
 ## Default `--vcf-span allele` {#default-vcf-span-allele}
 
 - **gloci:** a VCF record's footprint is the reference bases its ALT alleles
-  change (spec section 4.2): the shared prefix and suffix of REF and ALT are
-  trimmed, and a pure insertion is a point. `--vcf-span ref` gives the REF span.
+  change: the shared prefix and suffix of REF and ALT are trimmed, and a pure
+  insertion is a point. `--vcf-span ref` gives the REF span.
 - **Old behaviour:** bedtools, tabix and bcftools use `[POS-1, POS-1+len(REF))`
   (and INFO/END for symbolic alleles). That is `--vcf-span ref`.
 - **Reason:** the REF span ignores the alleles, so for example
   `bedtools subtract` against a VCF removes the wrong number of bases for an
   indel or a padded SNV. Pass `--vcf-span ref` for the old result.
-- **Pinned by:** `view-region-ref-inclusive-vs-tabix` (must match) and
-  `view-region-default-vs-tabix` (must differ).
+- **Pinned by:** `view-region-allele-span-vs-tabix` (a deletion whose anchor
+  base is in the region: must differ) and `view-region-ref-inclusive-vs-tabix`
+  (`--vcf-span ref`: must match).
 
 ## Default karyotype chromosome order {#karyotype-chromosome-order}
 
 - **gloci:** without `-g` and without a VCF/BCF header that lists contigs,
-  chromosomes are ordered `chr1, chr2 ... chr22, chrX, chrY, chrM` (decision
-  D32). `--chrom-order lex` selects byte order.
+  chromosomes are ordered `chr1, chr2 ... chr22, chrX, chrY, chrM`.
+  `--chrom-order lex` selects byte order.
 - **Old behaviour:** `sort-bed`, `bedtools sort`, and `LC_ALL=C sort -k1,1` order
   lexicographically: `chr1, chr10, chr11 ... chr2`.
 - **Reason:** karyotype order is what people expect from a sorted genome file,
@@ -63,59 +69,78 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
     input order (`sort-vcf-tie-order-vs-bcftools-sort`). gloci keeps input order
     for equal POS and REF end. The files agree whenever POS is distinct
     (`sort-vcf-vs-bcftools-sort`).
-- **Reason:** a total, documented order (start, then end) makes the output
-  independent of input order for the common case, and stability keeps the
-  rest predictable. Use `--full-key` to reproduce `sort-bed` exactly.
+- **Reason:** ordering by start and then end gives one defined order, and
+  records that tie on all three keys keep their input order, so repeated runs
+  give identical output. Use `--full-key` to reproduce `sort-bed` exactly.
+- **Pinned by:** `sort-bed-tie-order-vs-sort-bed`,
+  `sort-bed-tie-order-vs-bedtools-sort`, `sort-vcf-tie-order-vs-bcftools-sort`
+  (must differ) and, on inputs without ties, `sort-bed-vs-sort-bed` (with
+  `--full-key`), `sort-bed-vs-bedtools-sort`, `sort-bed-vs-gnu-sort`,
+  `sort-bed-vs-bedtools-sort-genome`, `sort-vcf-vs-bcftools-sort` (must match).
 
 ## `view` region footprints and points {#view-region-footprints}
 
 - **gloci:** `view` selects records whose footprint (per `--vcf-span`)
-  overlaps the region under the half-open rules of spec section 4.3. A point
-  (a zero-length BED record, an insertion under `allele`) overlaps a region
-  only when strictly inside it, so an insertion on a region's edge is
-  excluded. `--inclusive-points` includes points on the edge.
-- **Old behaviour:** `tabix` returns every record whose REF span touches the
-  1-based region, so an insertion anchored on the first or last base of the
-  region is returned.
+  overlaps the region (half-open intervals, so bookended features do not
+  overlap). A point (a zero-length BED record, an insertion under `allele`)
+  overlaps a region only when strictly inside it, so an insertion on a region's
+  edge is excluded. `--inclusive-points` includes points on either edge.
+- **Old behaviour:** for VCF, `tabix` returns every record whose REF span
+  touches the 1-based region, so an insertion anchored on the first or last
+  base of the region is returned. For BED, `tabix` treats a zero-length record
+  as empty: it returns a point strictly inside the region and never one on the
+  edge, which is gloci's default; `--inclusive-points` therefore adds edge
+  points that tabix does not return.
 - **Reason:** an insertion between two bases belongs to neither base, so it is
-  in a region only when the region contains both neighbours (decision D9).
-  `--vcf-span ref --inclusive-points` reproduces tabix.
-- **Pinned by:** `view-region-ref-inclusive-vs-tabix` (must match),
-  `view-region-default-vs-tabix` (must differ).
+  in a region only when the region contains both neighbours.
+  `--vcf-span ref --inclusive-points` reproduces tabix for VCF.
+- **Pinned by:** `view-region-default-vs-tabix` (insertions on region edges:
+  must differ), `view-region-allele-inclusive-vs-tabix` (same queries with
+  `--inclusive-points`: must match), `view-bed-region-points-inclusive-vs-tabix`
+  (must differ), `view-bed-region-points-vs-tabix` and `view-bed-region-vs-tabix`
+  (must match).
 
 ## `##glociCommand` header line {#glocicommand-header}
 
 - **gloci:** VCF and BCF output of `sort` and `view` carries the original header
   plus one `##glociCommand=<command line>; Version=<version>` line.
-- **Old behaviour:** `bcftools sort` (1.21) copies the header unchanged;
-  `tabix` prints no header for a region query; GNU sort and `sort-bed` never
-  add header lines.
-- **Reason:** provenance in the file, in one line a tool can recognise.
-- **Pinned by:** the `vcf-records` compare mode, which ignores header lines
-  (`sort-vcf-vs-bcftools-sort`). Header text is therefore not compared against
-  the reference tools.
+- **Old behaviour:** `bcftools sort` (htslib 1.21) adds no provenance line, but
+  it does rewrite the header: it puts `##FILTER=<ID=PASS,Description="All
+  filters passed">` second (adding it when the input lacks it), which gloci does
+  not do. `tabix` prints no header for a region query; GNU sort and `sort-bed`
+  never add header lines.
+- **Reason:** provenance in the file, in one line a tool can recognise. The
+  `##glociCommand` line is normalised in the committed gloci outputs because it
+  holds the command line.
+- **Pinned by:** `sort-vcf-header-vs-bcftools-sort` (the input already has the
+  PASS line second, so the `##glociCommand` line is the only difference: must
+  differ). The `vcf-records` cases ignore header lines.
 
 ## `sort --check` checks `(chrom, start)` only {#sort-check-chrom-start}
 
 - **gloci:** `sort --check` accepts a file ordered by chromosome and start. Two
-  records with the same start may be in any order of end.
+  records with the same start may be in any order of end (exit status 0).
 - **Old behaviour:** `sort-bed --check-sort` also requires ends to be ordered
   when starts are equal ("not properly sorted by end coordinates when start
   coordinates are identical"), and `sort -c -k1,1 -k2,2n` rejects such a file
   through its last-resort whole-line comparison.
-- **Reason:** `(chrom, start)` is the order every streaming command needs
-  (decision D12), and files sorted by `bedtools sort` or `sort -k1,1 -k2,2n`,
+- **Reason:** `(chrom, start)` is the order every streaming command needs, and
+  files sorted by `bedtools sort` or `sort -k1,1 -k2,2n`,
   which leave ends unordered, must be accepted. A file that `gloci sort` wrote
   passes as well.
+- **Pinned by:** `sort-check-start-ties-vs-sort-bed` (exit status 0 against
+  `sort-bed --check-sort` exit status 1).
 
 ## A missing BGZF end-of-file marker is an error {#bgzf-eof-marker}
 
 - **gloci:** a seekable BGZF file without the 28-byte end-of-file block is
   rejected: `BGZF end-of-file marker missing; the file is probably truncated`
-  (decision D30). Standard input cannot be checked.
+  (exit status 1). Standard input cannot be checked.
 - **Old behaviour:** htslib (`tabix`, `bcftools`) prints the warning `EOF
   marker is absent. The input may be truncated` and carries on with exit
   status 0.
+- **Pinned by:** `truncated-bgzf-vs-bgzip` (a file cut at a block boundary:
+  gloci exit status 1, `bgzip -dc` exit status 0).
 - **Reason:** a missing marker is the signature of a truncated download or an
   interrupted write, and gloci never gives a quiet partial answer.
 
@@ -125,26 +150,35 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   chromosome's records and checks their order, so an unsorted file is an
   error. `--assume-sorted` binary-searches instead (like `bedextract`) and trusts
   the file to be sorted in the order given by `-g` or `--chrom-order`; it checks
-  only the block it reads, and on an unsorted file the answer can be incomplete
-  (decision D11, revised).
-- **Old behaviour:** `bedextract` always trusts the order. bedtools and tabix
-  read an index or the whole file.
+  only the block it reads, and on an unsorted file the answer can be incomplete.
+- **Old behaviour:** `bedextract` always trusts the order, and it silently
+  misses a long feature that starts before the region and any fully nested
+  feature; gloci's search finds them. bedtools and tabix read an index or the
+  whole file.
+- **Pinned by:** `view-bed-unsorted-vs-bedextract` (unsorted file: gloci exit
+  status 1, `bedextract` exit status 0), `view-bed-assume-sorted-nested-vs-bedextract`
+  (must differ) and `view-bed-assume-sorted-vs-bedextract` (sorted, non-nested
+  file: must match).
 - **Reason:** correct by default, fast on request. Index the file
   (`gloci sort FILE -o FILE.gz --write-index`) to get speed and checking.
 
 ## Indexes built by htslib and SVs with only `SVLEN` {#htslib-index-svlen}
 
 - **gloci:** the footprint of a symbolic SV without INFO/END is
-  `POS + |SVLEN|` (spec section 4.2), and the index spans gloci builds include
-  it. Queries on a gloci-built index are correct, and htslib reads that index
-  correctly (`index-interop-tabix-queries`).
-- **Old behaviour:** htslib ignores SVLEN. An index built by `tabix` or `bcftools
-  index` spans such a record only over its REF bases, so a region that touches
-  only the tail of an SVLEN-only SV is missed when gloci reads it through that
-  index.
+  `POS + |SVLEN|`, and the index spans gloci builds include it. Queries on a
+  gloci-built index find the record from any region it touches, and htslib reads
+  that index correctly (`index-interop-tabix-queries`).
+- **Old behaviour:** htslib ignores SVLEN. An index built by `tabix` or
+  `bcftools index` spans such a record only over its REF bases, so a region that
+  touches only the tail of an SVLEN-only SV (in another index bin) is missed by
+  `tabix`, and also by gloci when it reads that htslib-built index.
 - **Reason:** the SVLEN-derived end is part of the footprint rules. Rebuild the
   index with `gloci index` if a file has SVLEN-only SVs and you query regions
   inside them. Records with INFO/END are unaffected.
+- **Pinned by:** `view-svlen-only-sv-vs-tabix` (scan: gloci finds the SV,
+  tabix does not), and live only: `index-svlen-only-sv-vs-tabix` (gloci-built
+  index against a tabix-built one), `index-htslib-built-svlen-gloci-view-vs-tabix`
+  (must match: gloci misses it through an htslib-built index, like tabix).
 
 ## VCF headers noodles rejects cannot be converted {#vcf-header-conversion}
 
@@ -159,12 +193,15 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Reason:** gloci does not convert records against a header it cannot
   interpret, because a wrong BCF dictionary gives wrong records. Fix the
   header (the error names the line) and convert again.
+- **Pinned by:** `vcf-to-bcf-bad-header-vs-bcftools` (a duplicated INFO ID:
+  gloci exit status 1, `bcftools view -Ob` exit status 0).
 
-## Zero-length BED records
+## Zero-length BED records {#zero-length-bed-records}
 
-- **gloci:** accepted as points (spec section 4.1).
+- **gloci:** accepted, and treated as points.
 - **Old behaviour:** `sort-bed` rejects them (`Genomic end coordinate is less
   than (or equal to) start coordinate`); `bedtools sort` and GNU sort accept
-  them. The sort-bed cases therefore use an input without points
-  (`ties-nopoints.bed`), and the points are covered by the bedtools and GNU
-  cases.
+  them. The other sort-bed cases therefore use an input without points
+  (`ties-nopoints.bed`).
+- **Pinned by:** `sort-bed-points-vs-sort-bed` (gloci exit status 0, `sort-bed`
+  exit status 1). The bedtools and GNU sort cases include points and must match.

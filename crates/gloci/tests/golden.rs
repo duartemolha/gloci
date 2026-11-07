@@ -6,7 +6,7 @@
 //! The rules match the live harness: a case without `expected_difference`
 //! must match, one with it must differ (a stale entry fails), and the anchor
 //! must exist in docs/differences.md.
-use gloci_testkit::differential::{Verdict, check_anchor, compare, verdict};
+use gloci_testkit::differential::{Verdict, check_anchor, compare, observe, verdict};
 use std::path::{Path, PathBuf};
 
 struct GoldenCase {
@@ -16,6 +16,9 @@ struct GoldenCase {
     compare: String,
     expected_difference: Option<String>,
     expected: Vec<u8>,
+    /// gloci's own output where it differs from the reference tool, pinned
+    /// exactly (present exactly when `expected_difference` is).
+    expected_gloci: Option<Vec<u8>>,
 }
 
 fn read_line(dir: &Path, file: &str) -> Option<String> {
@@ -40,6 +43,7 @@ fn golden_cases() -> Vec<GoldenCase> {
             compare: read_line(&dir, "compare").unwrap_or_else(|| "exact".into()),
             expected_difference: read_line(&dir, "expected_difference"),
             expected: std::fs::read(dir.join("expected")).unwrap(),
+            expected_gloci: std::fs::read(dir.join("expected_gloci")).ok(),
             dir,
         })
         .collect();
@@ -57,13 +61,13 @@ impl GoldenCase {
             .output()
             .unwrap();
         assert!(
-            out.status.success(),
+            self.compare == "exit-status" || out.status.success(),
             "{}: gloci {:?} failed: {}",
             self.name,
             self.args,
             String::from_utf8_lossy(&out.stderr)
         );
-        out.stdout
+        observe(&self.compare, out.status.code(), &out.stdout)
     }
 
     fn verdict(&self, got: &[u8]) -> Verdict {
@@ -99,6 +103,20 @@ fn every_golden_case_agrees_with_its_reference_tool() {
             check_anchor(&doc, a).unwrap_or_else(|e| panic!("{}: {e}", c.name));
         }
         let got = c.run_gloci();
+        assert_eq!(
+            c.expected_gloci.is_some(),
+            c.expected_difference.is_some(),
+            "{}: expected_gloci must exist exactly for documented differences",
+            c.name
+        );
+        if let Some(pinned) = &c.expected_gloci {
+            assert_eq!(
+                String::from_utf8_lossy(&got),
+                String::from_utf8_lossy(pinned),
+                "{}: gloci's output changed (it still differs from the reference tool, but differently)",
+                c.name
+            );
+        }
         assert_eq!(
             c.verdict(&got),
             Verdict::Pass,

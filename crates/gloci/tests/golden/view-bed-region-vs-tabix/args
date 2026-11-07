@@ -1,0 +1,1 @@
+view --chrom-order lex input.bed chr1:201-210 chr10:1-60 chr2:100-120 chrM:1-5 chrX:9-12

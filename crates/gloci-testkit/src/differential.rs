@@ -7,13 +7,35 @@
 /// - `lines-unordered`: the same lines, in any order.
 /// - `vcf-records`: header lines (starting with `#`) are ignored, the records
 ///   must be identical and in the same order.
+/// - `exit-status`: the observed values are exit codes (see [`observe`]); they
+///   must be equal. This pins error behaviour (gloci refuses, the reference
+///   tool accepts, or the reverse).
 pub fn compare(mode: &str, a: &[u8], b: &[u8]) -> bool {
     match mode {
         "exact" => a == b,
         "lines-unordered" => sorted_lines(a) == sorted_lines(b),
         "vcf-records" => records(a) == records(b),
+        "exit-status" => a == b,
         other => panic!("unknown compare mode `{other}`"),
     }
+}
+
+/// What a command produced, as compared and stored: the exit code for the
+/// `exit-status` mode, else standard output with the machine-specific
+/// `##glociCommand` header line normalised.
+pub fn observe(mode: &str, code: Option<i32>, stdout: &[u8]) -> Vec<u8> {
+    if mode == "exit-status" {
+        return format!("{}\n", code.unwrap_or(-1)).into_bytes();
+    }
+    let mut out = Vec::with_capacity(stdout.len());
+    for line in stdout.split_inclusive(|&c| c == b'\n') {
+        if line.starts_with(b"##glociCommand=") {
+            out.extend_from_slice(b"##glociCommand=<normalised>\n");
+        } else {
+            out.extend_from_slice(line);
+        }
+    }
+    out
 }
 
 fn sorted_lines(x: &[u8]) -> Vec<&[u8]> {

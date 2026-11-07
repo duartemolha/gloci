@@ -1,0 +1,8 @@
+##fileformat=VCFv4.2
+##contig=<ID=chr1,length=100000>
+##ALT=<ID=DEL,Description="Deletion">
+##INFO=<ID=SVTYPE,Number=1,Type=String,Description="SV type">
+##INFO=<ID=SVLEN,Number=1,Type=Integer,Description="SV length">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+chr1	1000	svlen1000	N	<DEL>	50	PASS	SVTYPE=DEL;SVLEN=-50000
+chr1	60000	snv60000	A	C	50	PASS	.

@@ -1,0 +1,1 @@
+view --chrom-order lex --assume-sorted input.bed --regions-file regions.bed

@@ -1,0 +1,7 @@
+chr1	100	snv100	C	T	50	PASS	.
+chr1	100	ins100	C	CTT	50	PASS	.
+chr1	101	ins101	G	GAA	50	PASS	.
+chr1	200	snv200	T	C	50	PASS	.
+chr1	200	ins200	T	TA	50	PASS	.
+chr2	100	snv100b	A	T	50	PASS	.
+chr2	100	ins100b	A	AGG	50	PASS	.

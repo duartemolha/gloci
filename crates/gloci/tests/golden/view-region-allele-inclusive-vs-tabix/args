@@ -1,0 +1,1 @@
+view --no-header --inclusive-points input.vcf chr1:100-100 chr1:101-101 chr1:200-200 chr2:100-100

@@ -1,0 +1,3 @@
+chr1	100	snv100	C	T	50	PASS	.
+chr1	200	snv200	T	C	50	PASS	.
+chr2	100	snv100b	A	T	50	PASS	.
