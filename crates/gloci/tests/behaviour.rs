@@ -359,3 +359,34 @@ fn error_format_thousands_separator_in_line_number() {
         .code(1)
         .stderr("error: bad.vcf line 1,234: POS \"12a4\" is not an integer\n");
 }
+
+#[test]
+fn vcf_output_ignores_thread_option_spelling() {
+    let d = tempdir();
+    let f = plain_file(d.path(), "x.vcf", &vcf_text(500, false));
+    let x = f.to_str().unwrap();
+    // -q and -v stay in the recorded command, so compare within a flag set
+    let groups: [&[&[&str]]; 3] = [
+        &[
+            &[],
+            &["-t", "1"],
+            &["-t=2"],
+            &["-t2"],
+            &["--threads", "3"],
+            &["--threads=4"],
+        ],
+        &[&["-q"], &["-qt2"], &["-qt", "3"], &["-qt=4"]],
+        &[&["-v"], &["-vt2"], &["-vt=4"]],
+    ];
+    for g in groups {
+        let outs: Vec<Vec<u8>> = g
+            .iter()
+            .map(|t| {
+                let o = gloci().args(["sort", x]).args(*t).output().unwrap();
+                assert_eq!(o.status.code(), Some(0), "{t:?}");
+                o.stdout
+            })
+            .collect();
+        assert!(outs.windows(2).all(|w| w[0] == w[1]), "{g:?}");
+    }
+}

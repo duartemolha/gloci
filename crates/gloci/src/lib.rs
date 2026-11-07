@@ -37,36 +37,102 @@ pub fn command() -> clap::Command {
     Cli::command()
 }
 
-/// The arguments without thread options (`-t N`, `-tN`, `--threads N`,
-/// `--threads=N`), so the recorded `##glociCommand` does not depend on them.
-/// Everything after `--` is kept verbatim.
+/// The arguments without the thread option, so the recorded `##glociCommand`
+/// does not depend on it. Uses clap's option metadata, so every spelling clap
+/// accepts is handled: `-t N`, `-tN`, `-t=N`, clusters such as `-qt2` or
+/// `-vt=2`, `--threads N` and `--threads=N`. Values of other options (even if
+/// they look like `-t`) and everything after `--` are kept verbatim.
 fn strip_thread_options(args: &[OsString]) -> Vec<OsString> {
+    let mut root = command();
+    root.build();
+    let takes_value = |a: &clap::Arg| a.get_action().takes_values();
+    let is_threads = |a: &clap::Arg| a.get_long() == Some("threads");
+    let mut cmd: &clap::Command = &root;
     let mut out = Vec::with_capacity(args.len());
-    let mut it = args.iter().enumerate();
-    while let Some((i, a)) = it.next() {
-        // argv[0] is the program name
-        if i == 0 {
-            out.push(a.clone());
-            continue;
-        }
+    let mut i = 0;
+    if let Some(first) = args.first() {
+        out.push(first.clone());
+        i = 1;
+    }
+    while i < args.len() {
+        let a = &args[i];
+        i += 1;
         let Some(s) = a.to_str() else {
             out.push(a.clone());
             continue;
         };
-        match s {
-            "--" => {
-                out.extend(args[i..].iter().cloned());
-                break;
-            }
-            "-t" | "--threads" => {
-                it.next();
-            }
-            _ if s.starts_with("--threads=") => {}
-            _ if s.len() > 2
-                && s.starts_with("-t")
-                && s[2..].bytes().all(|b| b.is_ascii_digit()) => {}
-            _ => out.push(a.clone()),
+        if s == "--" {
+            out.push(a.clone());
+            out.extend(args[i..].iter().cloned());
+            break;
         }
+        if let Some(long) = s.strip_prefix("--") {
+            let (name, has_eq) = match long.split_once('=') {
+                Some((n, _)) => (n, true),
+                None => (long, false),
+            };
+            let arg = cmd.get_arguments().find(|x| x.get_long() == Some(name));
+            let separate = !has_eq && arg.is_some_and(takes_value);
+            if arg.is_some_and(is_threads) {
+                if separate {
+                    i += 1;
+                }
+                continue;
+            }
+            out.push(a.clone());
+            if separate && i < args.len() {
+                out.push(args[i].clone());
+                i += 1;
+            }
+            continue;
+        }
+        if s.len() > 1 && s.starts_with('-') {
+            let chars: Vec<char> = s[1..].chars().collect();
+            let mut kept = String::from("-");
+            let mut next_is_value = false;
+            let mut drop_next = false;
+            let mut k = 0;
+            while k < chars.len() {
+                let c = chars[k];
+                k += 1;
+                let arg = cmd.get_arguments().find(|x| x.get_short() == Some(c));
+                let Some(arg) = arg else {
+                    // unknown to clap: keep the rest verbatim
+                    kept.push(c);
+                    kept.extend(&chars[k..]);
+                    break;
+                };
+                if takes_value(arg) {
+                    let rest: String = chars[k..].iter().collect();
+                    if is_threads(arg) {
+                        drop_next = rest.is_empty();
+                    } else {
+                        kept.push(c);
+                        kept.push_str(&rest);
+                        next_is_value = rest.is_empty();
+                    }
+                    break;
+                }
+                kept.push(c);
+            }
+            if kept.len() > 1 {
+                out.push(OsString::from(kept));
+            }
+            if (drop_next || next_is_value) && i < args.len() {
+                if next_is_value {
+                    out.push(args[i].clone());
+                }
+                i += 1;
+            }
+            continue;
+        }
+        // a bare word before the subcommand is the subcommand
+        if std::ptr::eq(cmd, &root)
+            && let Some(sub) = root.find_subcommand(s)
+        {
+            cmd = sub;
+        }
+        out.push(a.clone());
     }
     out
 }
@@ -174,49 +240,60 @@ mod tests {
 
     #[test]
     fn thread_options_are_stripped_from_command_line() {
+        let want = ["gloci", "sort", "a.bed"];
+        for t in [
+            &["-t", "2"][..],
+            &["-t2"],
+            &["-t=2"],
+            &["--threads", "2"],
+            &["--threads=2"],
+        ] {
+            let mut v = vec!["gloci", "sort", "a.bed"];
+            v.extend_from_slice(t);
+            assert_eq!(strip(&v), want, "{t:?}");
+            let mut v = vec!["gloci", "sort"];
+            v.extend_from_slice(t);
+            v.push("a.bed");
+            assert_eq!(strip(&v), want, "{t:?} first");
+        }
+        // clusters, keeping the other flags
         assert_eq!(
-            strip(&["gloci", "sort", "-t", "4", "a.bed"]),
-            ["gloci", "sort", "a.bed"]
+            strip(&["gloci", "sort", "a.bed", "-qt2"]),
+            ["gloci", "sort", "a.bed", "-q"]
         );
         assert_eq!(
-            strip(&["gloci", "sort", "-t4", "a.bed"]),
-            ["gloci", "sort", "a.bed"]
+            strip(&["gloci", "sort", "a.bed", "-qt", "2"]),
+            ["gloci", "sort", "a.bed", "-q"]
         );
         assert_eq!(
-            strip(&["gloci", "sort", "--threads", "4", "a.bed"]),
-            ["gloci", "sort", "a.bed"]
+            strip(&["gloci", "sort", "a.bed", "-vt=2"]),
+            ["gloci", "sort", "a.bed", "-v"]
         );
         assert_eq!(
-            strip(&["gloci", "sort", "--threads=4", "a.bed"]),
-            ["gloci", "sort", "a.bed"]
+            strip(&["gloci", "sort", "a.bed", "-qvt2"]),
+            ["gloci", "sort", "a.bed", "-qv"]
         );
-        // others untouched
         assert_eq!(
-            strip(&[
-                "gloci",
-                "sort",
-                "-o",
-                "t.vcf",
-                "--tmp-dir",
-                "t",
-                "-tx",
-                "-q"
-            ]),
-            [
-                "gloci",
-                "sort",
-                "-o",
-                "t.vcf",
-                "--tmp-dir",
-                "t",
-                "-tx",
-                "-q"
-            ]
+            strip(&["gloci", "-qv", "sort", "a.bed", "-t2"]),
+            ["gloci", "-qv", "sort", "a.bed"]
+        );
+        // values that merely look like the option are kept
+        assert_eq!(
+            strip(&["gloci", "sort", "a.bed", "-o", "-t", "-t", "3"]),
+            ["gloci", "sort", "a.bed", "-o", "-t"]
+        );
+        assert_eq!(
+            strip(&["gloci", "sort", "a.bed", "--tmp-dir", "-t2", "-t2"]),
+            ["gloci", "sort", "a.bed", "--tmp-dir", "-t2"]
+        );
+        assert_eq!(
+            strip(&["gloci", "sort", "-o", "t.vcf", "--tmp-dir=t", "-q"]),
+            ["gloci", "sort", "-o", "t.vcf", "--tmp-dir=t", "-q"]
         );
         // after `--` everything is verbatim
         assert_eq!(
-            strip(&["gloci", "view", "-t", "2", "--", "-t", "x"]),
-            ["gloci", "view", "--", "-t", "x"]
+            strip(&["gloci", "view", "-t", "2", "--", "-t2", "x"]),
+            ["gloci", "view", "--", "-t2", "x"]
         );
     }
 
