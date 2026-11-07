@@ -72,6 +72,7 @@ The spec is silent or ambiguous on these points. Each is the plan's call; change
 | D30 | A seekable BGZF file without the 28-byte EOF marker is an error ("probably truncated"). stdin can't be checked. |
 | D31 | Being killed by SIGINT, SIGTERM or SIGHUP removes registered temp files and spill dirs, then exits 130. A panic hook does the same before abort. |
 | D32 | (User decision, 2026-11-07, spec §4.5 rule 3.) The fallback chromosome order is **karyotype**: `chr` ignored; numeric names (optionally followed by letters) by number, then X, Y, M/MT, then the rest in natural order, ties broken by raw bytes. `--chrom-order lex` restores lexicographic order. When a karyotype-mode order error looks like a lexicographically sorted file, the hint says so and gives both fixes. Users get `docs/migration.md`. Added as Task 14b. |
+| D33 | (User request, 2026-11-07, spec §5.3.) `-g` accepts a built-in genome name (`hg38`, `GRCh38`, `mm39` …) or a file. Value with `/` or naming an existing file → file; otherwise built-in lookup (case-insensitive); unknown → usage error with "did you mean". UCSC and Ensembl naming are separate entries from their own sources. Built-ins are in karyotype order (Roman-numeral genomes keep reference order). Data is committed and compiled in. `gloci genomes [show NAME]`. Added as Task 23. |
 
 ## Review Focus
 
@@ -1554,3 +1555,86 @@ Each target reads every batch and must never panic. `region_parse` additionally 
 - [ ] **Step 2: Run** `cargo test -p gloci --test behaviour`. Expected: PASS. Any failure is a defect in the owning task's module. Fix it there with a unit test, then re-run.
 - [ ] **Step 3: Run the full suite** `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace`. Expected: PASS.
 - [ ] **Step 4: Commit** `git commit -am "test: cross-command determinism, broken pipe, truncation, atomicity and signal behaviour"`
+
+---
+
+### Task 23: Built-in genomes (`-g hg38`) and `gloci genomes`
+
+(User request D33. This runs after Task 22.)
+
+**Files:**
+- Create: `data/genomes/<id>.genome` (2-column `name<TAB>length`, in the order defined below), `data/genomes/SOURCES.toml`, `crates/gloci-io/src/builtin.rs`, `xtask/src/genomes.rs`, `crates/gloci/src/commands/genomes.rs`
+- Modify: `crates/gloci-io/src/{genome.rs,sorted.rs,lib.rs}`, `crates/gloci-core/src/chrom.rs` (new `OrderSource` variant), `crates/gloci/src/{cli.rs,lib.rs}`, `docs/migration.md` (one paragraph: `bedtools ... -g human.hg38.genome` becomes `-g hg38`)
+- Test: `crates/gloci-io/tests/builtin_genomes.rs`, `crates/gloci/tests/genomes.rs`, `xtask/src/genomes.rs` (`#[cfg(test)]`)
+
+**Interfaces:**
+- Produces (io):
+  - `pub enum Naming { Ucsc, Ensembl }`.
+  - `pub struct BuiltinGenome { pub id: &'static str, pub species: &'static str, pub assembly: &'static str, pub naming: Naming, data: &'static str }`, with `.genome() -> Genome`, `.len()` and `.total_length()`.
+  - `pub fn builtin_genomes() -> &'static [BuiltinGenome]` (data via `include_str!`).
+  - `pub fn builtin(id: &str) -> Option<&'static BuiltinGenome>` (case-insensitive).
+  - `pub fn resolve_genome(arg: &str) -> Result<(Genome, OrderSource), IoError>`. A value containing `/`, or an existing path, is loaded with `load_genome` and gives `OrderSource::GenomeFile`; a warning is printed when a built-in with the same name also exists. Otherwise the built-in lookup gives `OrderSource::BuiltinGenome(id)`. An unknown name is `IoError::Usage("unknown genome \"{arg}\"; built-in genomes: … (did you mean {closest}?); or pass a .fai/.genome/.dict file")`, where the closest match uses edit distance ≤ 2 on lowercased ids.
+  - `chrom_table_for(genome: Option<&str>, inputs, fallback)` now takes the raw `-g` value and calls `resolve_genome`.
+  - `sort_hint` for `BuiltinGenome(id)` gives `run: gloci sort {name} -g {id}`.
+  - An unknown chromosome under a built-in reads `chromosome "{n}" is not in the built-in genome {id} (gloci genomes show {id} lists its names)`.
+- Produces (core): `OrderSource::BuiltinGenome(String)`.
+- Produces (cli): `-g/--genome` becomes a `String` (`NAME|FILE`) in `GenomeArg`. New subcommand `gloci genomes` lists `id  species  assembly  naming  sequences  total_bp`, one per line. `gloci genomes show NAME` writes `name<TAB>length` lines to stdout. Both carry 2–4 help examples.
+- Produces (xtask): `cargo xtask genomes refresh [--only ID]` downloads every source listed in `SOURCES.toml`, normalises it, and rewrites `data/genomes/<id>.genome` plus the entry's `retrieved` date, `sha256` (of the downloaded source), `sequences` and `total_length`. Normalising means: take the first two columns; reject duplicate names; order with `karyotype_cmp`, except ids marked `order = "reference"` (`sacCer3`, `R64`), which keep source order.
+
+Sources:
+- UCSC ids: `https://hgdownload.soe.ucsc.edu/goldenPath/<db>/bigZips/<db>.chrom.sizes`. Verify the exact `hs1` file name on the server.
+- Ensembl-named ids: the `.fai` of the Ensembl `dna.toplevel` FASTA at a pinned release, e.g. release 112 for GRCh38, GRCm39, GRCz11, BDGP6, WBcel235 and R64; release 102 for GRCm38; `grch37.ensembl.org` release 75 for GRCh37; Ensembl Plants for TAIR10.
+- Record each URL in `SOURCES.toml`. If a listed source is unavailable, pick the project's authoritative equivalent and note it in the report.
+
+Ids: `hg19`, `hg38`, `hs1`, `GRCh37`, `GRCh38`, `mm10`, `mm39`, `GRCm38`, `GRCm39`, `rn7`, `danRer11`, `GRCz11`, `dm6`, `BDGP6`, `ce11`, `WBcel235`, `sacCer3`, `R64`, `TAIR10`.
+
+- [ ] **Step 1: Run** `cargo xtask genomes refresh` (network) and commit the data. Then write the failing tests below. If a pinned length below disagrees with the authoritative source, the source wins; report the discrepancy.
+
+```rust
+// crates/gloci-io/tests/builtin_genomes.rs
+fn len(id: &str, chrom: &str) -> u64 { let g = builtin(id).unwrap().genome(); (0..g.len()).find(|&i| g.name(i) == chrom.as_bytes()).and_then(|i| g.length(i)).unwrap() }
+#[test] fn known_lengths() {
+    for (id, c, l) in [("hg38","chr1",248956422), ("hg38","chrX",156040895), ("hg38","chrM",16569), ("hg19","chr1",249250621), ("hg19","chrM",16571),
+                       ("GRCh37","1",249250621), ("GRCh37","MT",16569), ("GRCh38","1",248956422), ("hs1","chr1",248387328), ("mm10","chr1",195471971),
+                       ("mm39","chr1",195154279), ("GRCm39","1",195154279), ("dm6","chr2L",23513712), ("BDGP6","2L",23513712), ("ce11","chrI",15072434),
+                       ("WBcel235","I",15072434), ("sacCer3","chrI",230218), ("R64","I",230218), ("danRer11","chr1",59578282), ("TAIR10","1",30427671)] {
+        assert_eq!(len(id, c), l, "{id} {c}");
+    }
+}
+#[test] fn every_id_present_and_case_insensitive() { for id in IDS { assert!(builtin(id).is_some() && builtin(&id.to_uppercase()).is_some(), "{id}"); } }
+#[test] fn orders() {
+    let g = builtin("hg38").unwrap().genome();
+    let first: Vec<_> = (0..25).map(|i| String::from_utf8(g.name(i).to_vec()).unwrap()).collect();
+    assert_eq!(first, (1..=22).map(|i| format!("chr{i}")).chain(["chrX","chrY","chrM"].map(String::from)).collect::<Vec<_>>());
+    let y = builtin("sacCer3").unwrap().genome();
+    assert_eq!(y.name(3), b"chrIV"); assert_eq!(y.name(8), b"chrIX");                     // reference order kept
+    for b in builtin_genomes().iter().filter(|b| !["sacCer3","R64"].contains(&b.id)) {
+        let g = b.genome(); let names: Vec<_> = (0..g.len()).map(|i| g.name(i).to_vec()).collect();
+        let mut s = names.clone(); s.sort_by(|a, b| karyotype_cmp(a, b)); assert_eq!(names, s, "{}", b.id);
+    }
+}
+#[test] fn resolution() {
+    assert!(matches!(resolve_genome("HG38").unwrap().1, OrderSource::BuiltinGenome(ref id) if id == "hg38"));
+    let e = resolve_genome("hg37").unwrap_err().to_string(); assert!(e.contains("did you mean") && e.contains("hg38") || e.contains("hg19"));
+    assert!(resolve_genome("./hg38").is_err());                                              // path form, no such file
+    let d = tempfile::tempdir().unwrap(); let f = fixtures::write(d.path(), "hg38", b"chrA\t10\n");
+    assert!(matches!(resolve_genome(f.to_str().unwrap()).unwrap().1, OrderSource::GenomeFile(_)));   // files win
+}
+#[test] fn sources_manifest_matches_data() { /* every id has data + SOURCES entry with url, retrieved, sha256; sequences/total_length agree with data */ }
+// crates/gloci/tests/genomes.rs
+#[test] fn sort_with_builtin_genome() {
+    gloci().args(["sort", &w("u.bed", "chr2\t5\t6\nchr1\t1\t2\n"), "-g", "hg38"]).assert().success().stdout("chr1\t1\t2\nchr2\t5\t6\n");
+    gloci().args(["sort", &w("v.bed", "chrZ\t1\t2\n"), "-g", "hg38"]).assert().code(1).stderr(contains("is not in the built-in genome hg38"));
+    gloci().args(["sort", &w("x.bed", "1\t1\t2\n"), "-g", "hg37"]).assert().code(2).stderr(contains("did you mean"));
+}
+#[test] fn genomes_command() {
+    let out = stdout_of(["genomes"]); for id in IDS { assert!(out.contains(id), "{id}"); }
+    assert!(stdout_of(["genomes", "show", "hg38"]).starts_with("chr1\t248956422\nchr2\t242193529\nchr3\t198295559\n"));
+}
+#[test] fn check_bounds_with_builtin() { gloci().args(["check", &w("b.bed", "chrM\t0\t20000\n"), "-g", "hg38"]).assert().code(1).stdout(contains("past the end of chrM")); }
+```
+
+- [ ] **Step 2: Run** `cargo test -p gloci-io --test builtin_genomes && cargo test -p gloci --test genomes`. Expected: FAIL.
+- [ ] **Step 3: Implement** `builtin.rs`, `resolve_genome` and its wiring, the `OrderSource` variant and hint, `GenomeArg` as `String`, the `genomes` command, and the xtask normaliser (unit-test it on a small sample: karyotype sorting, the reference-order exception, duplicate rejection). Add the migration paragraph.
+- [ ] **Step 4: Run** `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace`. Expected: PASS. Note the release binary size before and after in the report.
+- [ ] **Step 5: Commit** `git commit -am "feat: built-in genomes (-g hg38 etc.) and gloci genomes"`

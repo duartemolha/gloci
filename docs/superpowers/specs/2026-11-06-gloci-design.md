@@ -157,7 +157,7 @@ Further rules:
 
 - Streaming operations need inputs sorted by **(chromosome, start)**. The sort order of `end` doesn't matter for correctness.
 - **Chromosome order is chosen in this order** **[my call]**:
-  1. `--genome FILE` order, if given. FILE can be `.fai`, a 2-column `.genome`, `.dict`, or a VCF/BCF/BAM header.
+  1. `--genome NAME|FILE` order, if given. NAME is a built-in genome such as `hg38` (Section 5.3). FILE can be `.fai`, a 2-column `.genome`, `.dict`, or a VCF/BCF/BAM header.
   2. Otherwise, the contig order declared in a VCF/BCF header among the inputs, if any.
   3. Otherwise, **karyotype order** **[you]**, which matches how people read chromosomes and how reference genomes (and therefore most VCFs) are laid out. Names are compared with any leading `chr` prefix ignored:
      1. names that are a number, optionally followed by letters (`1`, `2`, `22`, `2L`, `2A`), by number and then suffix;
@@ -218,6 +218,29 @@ Further rules:
 
 ---
 
+### 5.3 Built-in genomes **[you]**
+
+gloci ships chromosome names and sizes for common assemblies, so `-g hg38` works without a file. Passing a file still works.
+
+- **How `-g` resolves.** A value containing `/`, or naming an existing file, is a file. Otherwise it is looked up as a built-in name (case-insensitive). An unknown name is an error listing the built-ins, with a "did you mean" suggestion.
+- **Naming styles are separate entries**, because names must match exactly (Section 4.5):
+  - UCSC ids use `chr`-prefixed names.
+  - GRC/Ensembl ids use the Ensembl names (`1 … 22, X, Y, MT`).
+  - Each entry is built from its own project's published tables. They are not renamed copies: hg19 `chrM` (16,571 bp) is not GRCh37 `MT` (16,569 bp).
+- **Order.** Built-ins list chromosomes in the same karyotype order gloci uses without `-g` (Section 4.5), so `-g NAME` adds lengths and the exact chromosome set but never reorders. The exception is genomes with Roman-numeral chromosome names (yeast), which keep reference order.
+- **Initial list:**
+  - Human: `hg19`, `hg38`, `hs1` (T2T-CHM13v2.0), `GRCh37`, `GRCh38`.
+  - Mouse: `mm10`, `mm39`, `GRCm38`, `GRCm39`.
+  - Rat: `rn7`.
+  - Zebrafish: `danRer11`, `GRCz11`.
+  - Fruit fly: `dm6`, `BDGP6`.
+  - *C. elegans*: `ce11`, `WBcel235`.
+  - Budding yeast: `sacCer3`, `R64`.
+  - *Arabidopsis*: `TAIR10`.
+- **Each entry contains every sequence in its source table** (including alts, randoms and unplaced contigs). The source URL, retrieval date and checksum are recorded in the repository.
+- **The data is compiled into the binary** (a few hundred KB), so installing and building need no network. A maintainer script refreshes it.
+- **`gloci genomes`** lists the built-ins: id, species, assembly, naming style, sequence count and total length. `gloci genomes show NAME` prints one as a 2-column `.genome` file.
+
 ## 6. CLI conventions
 
 ### 6.1 Global options (where relevant to a command)
@@ -229,7 +252,7 @@ Further rules:
 | `--write-index` | write `.tbi`/`.csi` next to the output |
 | `--compression-level N` | BGZF level (default 6) |
 | `-t, --threads N` | default: `available_parallelism()`, which honours cgroups and CPU affinity (so SLURM allocations); env `GLOCI_THREADS` |
-| `-g, --genome FILE` | chromosome sizes and order (`.fai`, `.genome`, `.dict`, VCF/BCF/BAM header) |
+| `-g, --genome NAME\|FILE` | chromosome sizes and order: a built-in genome name (`hg38`, `GRCh38`, `mm39` …, see `gloci genomes`) or a file (`.fai`, `.genome`, `.dict`, VCF/BCF/BAM header) |
 | `--chrom-order karyotype\|lex` | chromosome order when neither `-g` nor a VCF/BCF header sets one (Section 4.5), default `karyotype` |
 | `--vcf-span allele\|ref` | variant footprint rule (Section 4.2), default `allele` |
 | `--unsorted` | allow unsorted input via the in-memory index (Section 4.5) |
@@ -400,6 +423,8 @@ How the old commands map onto `partition`:
 - Region queries use the index if one exists.
 - On sorted, **uncompressed** BED without an index, regions are found by binary search on the file, like bedextract.
 - Also handles format conversion (`-O vcf.gz|bcf|...`), `--header-only` and `--no-header`.
+
+**`gloci genomes [show NAME]`** — P0. Lists the built-in genomes, or prints one as a `.genome` file (Section 5.3).
 
 **`gloci check FILE...`** — P0.
 
@@ -624,7 +649,7 @@ Reference machine: 8-core x86_64, NVMe, 32 GB RAM. Baselines: bedtools 2.31.x, b
 
 | Phase | Contents | Done when |
 |---|---|---|
-| **P0 Foundations** | workspace; Section 4 core types and rules; BED/VCF/BCF/GFF I/O; parallel BGZF; sort validation; atomic writer; `sort`, `index`, `view`, `check`; benchmark + differential + property-test harnesses | `sort` beats `sort-bed`; harnesses run in CI |
+| **P0 Foundations** | workspace; Section 4 core types and rules; BED/VCF/BCF/GFF I/O; parallel BGZF; sort validation; atomic writer; built-in genomes (`-g hg38`); `sort`, `index`, `view`, `check`, `genomes`; benchmark + differential + property-test harnesses | `sort` beats `sort-bed`; harnesses run in CI |
 | **P1 Core replacement** | `intersect`, `subtract`, `closest`, `map` (core ops), `coverage`, `merge`, `complement`, `slop`, `flank`, `windows`, `convert` (VCF/GFF/BED12), `vcf filter` (no expressions); unsorted mode; per-chromosome parallelism for indexed inputs | the team's most common bedtools/bedops/vcftools pipeline steps can be rewritten on gloci; P1 performance targets met |
 | **P2 Breadth** | `partition`, `cluster`, `spacing`, `shift`, `groupby`, `genomecov` (BED), full `map` ops, `vcf stats`, `vcf extract`, `vcf concat`, filter expressions, `--chrom-map`, WIG input; bioconda package | vcftools no longer needed for QC/filtering |
 | **P3 Extended** | BAM/CRAM input (intersect, coverage, genomecov, convert); `getfasta`, `maskfasta`, `nuc`; `stats jaccard/fisher/reldist`; `sample`/`random`/`shuffle`; BEDPE pair ops; `vcf popgen`; `vcf compare` | all three tools can be uninstalled |
