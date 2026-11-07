@@ -119,7 +119,7 @@ fn atomic_file_semantics() {
 }
 
 #[test]
-fn stale_index_removed_and_write_index_unsupported() {
+fn stale_index_removed_and_write_index_builds() {
     let _s = serial();
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("o.bed.gz.tbi"), b"stale").unwrap();
@@ -129,8 +129,20 @@ fn stale_index_removed_and_write_index_unsupported() {
     assert!(!dir.path().join("o.bed.gz.csi").exists());
     assert!(dir.path().join("o.bed.gz").exists());
 
-    let e = write_via_output(dir.path(), "p.bed.gz", b"x", true).unwrap_err();
-    assert!(matches!(e, IoError::Usage(_)) && e.to_string().contains("not supported yet"));
+    // --write-index builds the index from the finished temp file (Task 12)
+    fs::write(dir.path().join("p.bed.gz.csi"), b"stale").unwrap();
+    write_via_output(dir.path(), "p.bed.gz", b"chr1\t1\t2\n", true).unwrap();
+    let tbi = noodles_tabix::fs::read(dir.path().join("p.bed.gz.tbi")).unwrap();
+    assert_eq!(tbi.reference_sequences().len(), 1);
+    assert!(!dir.path().join("p.bed.gz.csi").exists());
+    // an index that cannot be built publishes nothing
+    let e =
+        write_via_output(dir.path(), "u.bed.gz", b"chr1\t5\t6\nchr1\t1\t2\n", true).unwrap_err();
+    assert!(matches!(e, IoError::Order(_)), "{e}");
+    assert!(e.to_string().contains("u.bed.gz is not sorted"), "{e}");
+    assert!(!dir.path().join("u.bed.gz").exists());
+    assert!(!dir.path().join("u.bed.gz.tbi").exists());
+    assert!(no_tmp_files(dir.path()));
     // validation: stdout and non-BGZF
     let stdout = OutputSpec {
         path: None,

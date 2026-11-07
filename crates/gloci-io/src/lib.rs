@@ -8,6 +8,7 @@ pub mod diag;
 pub mod error;
 pub mod genome;
 pub mod gff;
+pub mod index;
 pub mod input;
 pub mod output;
 pub mod record;
@@ -23,6 +24,7 @@ pub use detect::{Compression, Format, detect_compression, detect_format};
 pub use diag::{Diagnostics, InvalidPolicy};
 pub use error::{IoError, Loc, OrderError, UsageError};
 pub use genome::{chrom_table_for, load_genome};
+pub use index::{IndexInfo, IndexKind, find_index, open_region_reader, write_index};
 pub use input::{Input, InputOptions, open_input, open_input_from};
 pub use output::{
     OutFormat, Output, OutputOptions, OutputSpec, check_level, open_output, parse_output_spec,

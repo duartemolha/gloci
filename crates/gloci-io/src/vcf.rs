@@ -161,6 +161,12 @@ pub(crate) struct Vcf {
 }
 pub(crate) type VcfReader = TextReader<Vcf>;
 
+impl Vcf {
+    pub(crate) fn new(span: VcfSpan) -> Vcf {
+        Vcf { span }
+    }
+}
+
 impl TextReader<Vcf> {
     pub(crate) fn open_vcf(
         input: Input,

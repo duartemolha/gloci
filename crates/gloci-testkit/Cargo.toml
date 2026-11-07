@@ -6,6 +6,8 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+gloci-core.workspace = true
+proptest.workspace = true
 noodles-bgzf.workspace = true
 flate2.workspace = true
 noodles-vcf.workspace = true

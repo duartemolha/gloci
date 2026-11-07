@@ -8,6 +8,9 @@ publish.workspace = true
 [dependencies]
 gloci-core.workspace = true
 noodles-bgzf.workspace = true
+noodles-core.workspace = true
+noodles-csi.workspace = true
+noodles-tabix.workspace = true
 flate2.workspace = true
 thiserror.workspace = true
 memchr.workspace = true
@@ -18,3 +21,4 @@ gloci-testkit.workspace = true
 tempfile.workspace = true
 noodles-vcf.workspace = true
 noodles-bcf.workspace = true
+proptest.workspace = true

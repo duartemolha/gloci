@@ -22,6 +22,18 @@ pub enum OutFormat {
 }
 
 impl OutFormat {
+    /// The record format an index of this output describes (`None` for TSV).
+    pub fn index_format(self) -> Option<Format> {
+        match self {
+            OutFormat::Bed | OutFormat::BedGraph => Some(Format::Bed),
+            OutFormat::Vcf => Some(Format::Vcf),
+            OutFormat::Bcf => Some(Format::Bcf),
+            OutFormat::Gff3 => Some(Format::Gff3),
+            OutFormat::Gtf => Some(Format::Gtf),
+            OutFormat::Tsv => None,
+        }
+    }
+
     /// The output format that corresponds to an input format.
     pub fn family(f: Format) -> OutFormat {
         match f {
@@ -171,6 +183,8 @@ enum Sink {
 pub struct Output {
     sink: Sink,
     dest: Option<PathBuf>,
+    /// `--write-index`: the record format and thread count to index with.
+    index: Option<(Format, NonZeroUsize)>,
 }
 
 const BUF: usize = 1 << 20;
@@ -183,6 +197,7 @@ pub fn open_output(
     let bgzf = spec.bgzf || f == OutFormat::Bcf;
     let level = CompressionLevel::try_from(check_level(opts.level)?)
         .map_err(|e| UsageError(e.to_string()))?;
+    let mut index = None;
     if opts.write_index {
         if spec.path.is_none() {
             return Err(UsageError(
@@ -196,10 +211,10 @@ pub fn open_output(
             )
             .into());
         }
-        if f == OutFormat::Tsv {
+        let Some(format) = f.index_format() else {
             return Err(UsageError("--write-index is not supported for TSV output".into()).into());
-        }
-        return Err(UsageError("--write-index is not supported yet".into()).into());
+        };
+        index = Some((format, opts.threads));
     }
     let builder = || {
         BgzfBuilder::default()
@@ -227,6 +242,7 @@ pub fn open_output(
     Ok(Output {
         sink,
         dest: spec.path.clone(),
+        index,
     })
 }
 
@@ -237,8 +253,10 @@ impl Output {
             .map_or_else(|| "<stdout>".into(), |p| p.display().to_string())
     }
 
-    /// Finishes the stream (BGZF EOF block), publishes the file atomically, and removes
-    /// stale `PATH.tbi`/`PATH.csi` (D19).
+    /// Finishes the stream (BGZF EOF block), builds the index from the temp
+    /// file when `--write-index` is set, publishes the file atomically, and
+    /// removes stale `PATH.tbi`/`PATH.csi` (D19). If indexing fails, nothing
+    /// is published.
     pub fn finish(self) -> Result<(), IoError> {
         let name = self.dest_name();
         let werr = |source| IoError::Write {
@@ -262,6 +280,15 @@ impl Output {
             }
         };
         if let (Some(af), Some(dest)) = (atomic, self.dest.as_ref()) {
+            if let Some((format, threads)) = self.index {
+                // write_index replaces the other kind of index too
+                let idx = crate::index::write_index(af.temp_path(), dest, format, threads)?;
+                if let Err(source) = af.commit() {
+                    let _ = std::fs::remove_file(&idx);
+                    return Err(werr(source));
+                }
+                return Ok(());
+            }
             af.commit().map_err(werr)?;
             for ext in ["tbi", "csi"] {
                 let mut s: OsString = dest.clone().into_os_string();

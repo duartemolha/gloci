@@ -7,7 +7,7 @@ use std::num::NonZeroUsize;
 const PEEK: usize = 64 * 1024;
 
 /// The 28-byte BGZF end-of-file block.
-const BGZF_EOF: [u8; 28] = [
+pub(crate) const BGZF_EOF: [u8; 28] = [
     0x1f, 0x8b, 0x08, 0x04, 0, 0, 0, 0, 0, 0xff, 0x06, 0, 0x42, 0x43, 0x02, 0, 0x1b, 0, 0x03, 0, 0,
     0, 0, 0, 0, 0, 0, 0,
 ];
@@ -26,7 +26,7 @@ pub struct Input {
 }
 
 /// Read until `buf` is full or EOF; returns bytes read.
-fn read_up_to(r: &mut dyn Read, n: usize) -> std::io::Result<Vec<u8>> {
+pub(crate) fn read_up_to(r: &mut dyn Read, n: usize) -> std::io::Result<Vec<u8>> {
     let mut v = vec![0u8; n];
     let mut got = 0;
     while got < n {

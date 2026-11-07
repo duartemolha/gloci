@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 92c0f7acff9e9184862e6fc4d7dcca2a143ac30878887103e3cbce914e3786c5 # shrinks to recs = [TestRec { chrom: "chr1", start: 0, end: 2, strand: '+', name: "r0" }, TestRec { chrom: "chr1", start: 0, end: 0, strand: '+', name: "r1" }], regions = [([99, 104, 114, 49], Interval { start: 0, end: 0 }), ([99, 104, 114, 49], Interval { start: 3, end: 3 })]
+cc 42fbf179b47127d46793d322e95b93b4f091f5aa78faf830d72cea44f50ba823 # shrinks to recs = [TestRec { chrom: "chr1", start: 2, end: 2, strand: '+', name: "r0" }], regions = [([99, 104, 114, 49], Interval { start: 1, end: 2 })]
+cc c36f97a5325da424319ca57ec1d97743cdca83f87d79d22000312bb77ff61e96 # shrinks to recs = [TestRec { chrom: "chr10", start: 0, end: 536870913, strand: '+', name: "r0" }, TestRec { chrom: "chr10", start: 11, end: 11, strand: '-', name: "r1" }], regions = [([99, 104, 114, 49, 48], Interval { start: 93769, end: 163147 }), ([99, 104, 114, 49], Interval { start: 12, end: 12 }), ([99, 104, 114, 49], Interval { start: 2, end: 2 }), ([99, 104, 114, 49], Interval { start: 160958616198, end: 160958616198 })]

@@ -29,9 +29,14 @@ impl Diagnostics {
     }
 
     pub fn record_at(&mut self, loc: Loc, msg: &str) {
+        self.record_place(&loc.to_string(), msg);
+    }
+
+    /// Like `record_at`, for a place that is not a line or record number.
+    pub fn record_place(&mut self, place: &str, msg: &str) {
         self.skipped += 1;
         if self.examples.len() < MAX_EXAMPLES {
-            self.examples.push(format!("{loc}: {msg}"));
+            self.examples.push(format!("{place}: {msg}"));
         }
     }
 

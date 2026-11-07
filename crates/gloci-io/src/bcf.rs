@@ -400,7 +400,7 @@ pub(crate) mod typed {
 use typed::Int;
 
 /// Per-reader decoding state; the buffers are reused for every record.
-struct Decoder {
+pub(crate) struct Decoder {
     span: VcfSpan,
     end_key: Option<i32>,
     svlen_key: Option<i32>,
@@ -412,7 +412,7 @@ struct Decoder {
 }
 
 impl Decoder {
-    fn new(span: VcfSpan, dicts: &BcfDicts) -> Decoder {
+    pub(crate) fn new(span: VcfSpan, dicts: &BcfDicts) -> Decoder {
         let key = |id: &[u8]| {
             dicts
                 .strings
@@ -432,7 +432,7 @@ impl Decoder {
     }
 
     /// Decode a whole framed record (`l_shared`, `l_indiv`, shared, indiv).
-    fn decode(
+    pub(crate) fn decode(
         &mut self,
         rec: &[u8],
         dicts: &BcfDicts,
@@ -519,6 +519,39 @@ impl Decoder {
         Ok((chrom, pos - 1, span))
     }
 
+    /// INFO/END of a framed record, whatever its ALT alleles (index spans
+    /// use it for every record, D20). Call after a successful `decode`.
+    pub(crate) fn info_end(&self, rec: &[u8]) -> Result<Option<u64>, String> {
+        let Some(end_key) = self.end_key else {
+            return Ok(None);
+        };
+        let l_shared = u32::from_le_bytes([rec[0], rec[1], rec[2], rec[3]]) as usize;
+        let shared = &rec[8..8 + l_shared];
+        let n_allele_info = u32::from_le_bytes([shared[16], shared[17], shared[18], shared[19]]);
+        let (n_allele, n_info) = (n_allele_info >> 16, n_allele_info & 0xffff);
+        let mut cur = &shared[24..];
+        typed::read(&mut cur)?; // ID
+        for _ in 0..n_allele {
+            typed::read(&mut cur)?;
+        }
+        typed::read(&mut cur)?; // FILTER
+        for _ in 0..n_info {
+            let k = typed::read(&mut cur)?;
+            let key = match k.int(0) {
+                Some(Int::Value(key)) if k.n == 1 => key,
+                _ => return Err("an INFO key is not a single integer".into()),
+            };
+            let v = typed::read(&mut cur)?;
+            if key == end_key {
+                return Ok(match v.int(0) {
+                    Some(Int::Value(e)) if e >= 0 => Some(e as u64),
+                    _ => None,
+                });
+            }
+        }
+        Ok(None)
+    }
+
     fn chrom(
         &mut self,
         contig: i32,
@@ -552,7 +585,7 @@ impl Decoder {
 /// Append up to `n` bytes of `src` to `out`; returns how many were read
 /// (fewer only at end of input). `out` grows with the data actually read, so
 /// a corrupt length can't cause a huge allocation.
-fn append(src: &mut dyn BufRead, out: &mut Vec<u8>, n: usize) -> io::Result<usize> {
+pub(crate) fn append(src: &mut dyn BufRead, out: &mut Vec<u8>, n: usize) -> io::Result<usize> {
     let mut left = n;
     while left > 0 {
         let avail = match src.fill_buf() {
@@ -638,7 +671,7 @@ impl BcfReader {
     }
 }
 
-const RECORD_TRUNCATED: &str = "record is truncated; the file was probably cut off";
+pub(crate) const RECORD_TRUNCATED: &str = "record is truncated; the file was probably cut off";
 
 impl RecordReader for BcfReader {
     fn name(&self) -> &str {
