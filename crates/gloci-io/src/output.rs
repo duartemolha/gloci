@@ -5,7 +5,6 @@ use crate::detect::Format;
 use crate::error::{IoError, UsageError};
 use noodles_bgzf::io::multithreaded_writer::Builder as BgzfBuilder;
 use noodles_bgzf::io::writer::CompressionLevel;
-use std::ffi::OsString;
 use std::io::{self, BufWriter, Stdout, StdoutLock, Write};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
@@ -254,9 +253,9 @@ impl Output {
     }
 
     /// Finishes the stream (BGZF EOF block), builds the index from the temp
-    /// file when `--write-index` is set, publishes the file atomically, and
-    /// removes stale `PATH.tbi`/`PATH.csi` (D19). If indexing fails, nothing
-    /// is published.
+    /// file when `--write-index` is set, removes stale `PATH.tbi`/`PATH.csi`
+    /// (D19), and publishes the file, then the index, atomically. If indexing
+    /// fails, nothing is published.
     pub fn finish(self) -> Result<(), IoError> {
         let name = self.dest_name();
         let werr = |source| IoError::Write {
@@ -280,25 +279,26 @@ impl Output {
             }
         };
         if let (Some(af), Some(dest)) = (atomic, self.dest.as_ref()) {
-            if let Some((format, threads)) = self.index {
-                // write_index replaces the other kind of index too
-                let idx = crate::index::write_index(af.temp_path(), dest, format, threads)?;
-                if let Err(source) = af.commit() {
-                    let _ = std::fs::remove_file(&idx);
-                    return Err(werr(source));
+            // Publish order: build (and so validate) the index from the temp
+            // file, remove the old PATH.tbi/PATH.csi, rename the data, then
+            // rename the index. Interrupted at any point, PATH is left with
+            // no index, never beside an index of other data (D19).
+            let staged = match self.index {
+                Some((format, threads)) => {
+                    let (kind, bytes) =
+                        crate::index::build_index(af.temp_path(), dest, format, threads)?;
+                    let path = crate::index::index_path(dest, kind);
+                    Some((crate::index::stage_index(&path, &bytes)?, path))
                 }
-                return Ok(());
-            }
+                None => None,
+            };
+            crate::index::remove_indexes(dest)?;
             af.commit().map_err(werr)?;
-            for ext in ["tbi", "csi"] {
-                let mut s: OsString = dest.clone().into_os_string();
-                s.push(".");
-                s.push(ext);
-                match std::fs::remove_file(&s) {
-                    Ok(()) => {}
-                    Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-                    Err(source) => return Err(werr(source)),
-                }
+            if let Some((idx, path)) = staged {
+                idx.commit().map_err(|source| IoError::Write {
+                    path: path.display().to_string(),
+                    source,
+                })?;
             }
         }
         Ok(())

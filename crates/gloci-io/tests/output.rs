@@ -135,6 +135,16 @@ fn stale_index_removed_and_write_index_builds() {
     let tbi = noodles_tabix::fs::read(dir.path().join("p.bed.gz.tbi")).unwrap();
     assert_eq!(tbi.reference_sequences().len(), 1);
     assert!(!dir.path().join("p.bed.gz.csi").exists());
+    // the index is published after the data, so it is not older (D26)
+    let info = find_index(&dir.path().join("p.bed.gz")).unwrap();
+    assert_eq!(info.kind, IndexKind::Tbi);
+    assert!(!info.stale);
+    // replacing an indexed file with --write-index keeps exactly one fresh index
+    write_via_output(dir.path(), "p.bed.gz", b"chr1\t5\t9\nchr2\t1\t2\n", true).unwrap();
+    let tbi = noodles_tabix::fs::read(dir.path().join("p.bed.gz.tbi")).unwrap();
+    assert_eq!(tbi.reference_sequences().len(), 2);
+    assert!(!dir.path().join("p.bed.gz.csi").exists());
+    assert!(no_tmp_files(dir.path()));
     // an index that cannot be built publishes nothing
     let e =
         write_via_output(dir.path(), "u.bed.gz", b"chr1\t5\t6\nchr1\t1\t2\n", true).unwrap_err();

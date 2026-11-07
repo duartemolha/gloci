@@ -510,3 +510,41 @@ fn records_in_parent_bins_and_between_chunks_tbi_and_csi() {
         assert_eq!(count(&p, "chr1", iv(16500, 16501), false), 1, "{kind:?}");
     }
 }
+
+#[test]
+fn index_bytes_do_not_depend_on_threads() {
+    // write_bgzf_bed puts every line in its own BGZF block (and splits
+    // some), so the 4-thread reader really decodes blocks in parallel
+    for (big, kind) in [(false, IndexKind::Tbi), (true, IndexKind::Csi)] {
+        let mut recs: Vec<TestRec> = (0..3000u64)
+            .map(|i| TestRec {
+                chrom: if i < 2000 { "chr1" } else { "chr2" }.to_string(),
+                start: i * 37,
+                end: i * 37 + 50 + (i % 7) * 1000,
+                strand: '+',
+                name: format!("r{i}"),
+            })
+            .collect();
+        if big {
+            recs.push(TestRec {
+                chrom: "chr2".into(),
+                start: 1 << 35,
+                end: (1 << 35) + 10,
+                strand: '-',
+                name: "big".into(),
+            });
+        }
+        let p = write_bgzf_bed(&recs);
+        let bytes =
+            |t: usize| std::fs::read(write_index(&p, &p, Format::Bed, nz(t)).unwrap()).unwrap();
+        let one = bytes(1);
+        assert_eq!(one, bytes(4), "{kind:?}");
+        assert_eq!(find_index(&p).unwrap().kind, kind);
+    }
+    let bcf = tmp("t.bcf");
+    std::fs::write(&bcf, fixtures::vcf_to_bcf(VCF_FIXTURE)).unwrap();
+    let bytes =
+        |t: usize| std::fs::read(write_index(&bcf, &bcf, Format::Bcf, nz(t)).unwrap()).unwrap();
+    let one = bytes(1);
+    assert_eq!(one, bytes(4), "BCF");
+}

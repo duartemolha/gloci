@@ -53,8 +53,11 @@ const MIN_SHIFT: u8 = 14;
 const TBI_DEPTH: u8 = 5;
 /// The deepest CSI index noodles reads and writes covers 2^(14 + 3*9).
 const MAX_INDEX_END: u64 = 1 << 41;
-/// Records checked for order and indexed at a time.
+/// Records checked for order and indexed at a time ...
 const BATCH: usize = 4096;
+/// ... or fewer, once their raw bytes reach this, so memory stays flat with
+/// multi-megabyte VCF/BCF records (100k+ samples).
+const BATCH_BYTES: usize = 16 << 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IndexKind {
@@ -88,7 +91,7 @@ pub struct IndexInfo {
 }
 
 /// `DATA.tbi` or `DATA.csi`.
-fn index_path(data: &Path, kind: IndexKind) -> PathBuf {
+pub(crate) fn index_path(data: &Path, kind: IndexKind) -> PathBuf {
     let mut s: OsString = data.as_os_str().to_owned();
     s.push(".");
     s.push(kind.extension());
@@ -292,6 +295,9 @@ struct Scanned {
     /// `track`/`browser` line (`#` lines are skipped as comments anyway).
     skip: u32,
     max_end: u64,
+    /// The most raw record bytes held at once.
+    #[cfg(test)]
+    peak_bytes: usize,
 }
 
 /// Reads records with their virtual positions, checks order in
@@ -304,6 +310,8 @@ struct Scanner<'a> {
     batch: RecordBatch,
     entries: Vec<Entry>,
     max_end: u64,
+    #[cfg(test)]
+    peak_bytes: usize,
     sink: &'a mut dyn FnMut(&Entry) -> Result<(), IoError>,
 }
 
@@ -363,7 +371,11 @@ impl Scanner<'_> {
             loc: n,
         });
         self.max_end = self.max_end.max(end);
-        if self.entries.len() >= BATCH {
+        #[cfg(test)]
+        {
+            self.peak_bytes = self.peak_bytes.max(self.batch.buf.len());
+        }
+        if self.entries.len() >= BATCH || self.batch.buf.len() >= BATCH_BYTES {
             self.flush()?;
         }
         Ok(())
@@ -500,6 +512,8 @@ fn scan(
         batch: RecordBatch::default(),
         entries: Vec::with_capacity(BATCH),
         max_end: 0,
+        #[cfg(test)]
+        peak_bytes: 0,
         sink,
     };
     let (skip, ref_count) = if binary {
@@ -521,6 +535,8 @@ fn scan(
         ref_count,
         skip,
         max_end: sc.max_end,
+        #[cfg(test)]
+        peak_bytes: sc.peak_bytes,
     })
 }
 
@@ -695,21 +711,21 @@ fn csi_bytes(index: &noodles_csi::Index) -> io::Result<Vec<u8>> {
     w.into_inner().finish()
 }
 
-/// Build a TBI or CSI index (D20) for the finished BGZF file `data`, write
-/// it atomically to `final_data_path` + `.tbi`/`.csi`, remove an index of
-/// the other kind, and return the index path. `data` may be a temp file
-/// that becomes `final_data_path`; messages name `final_data_path`.
+/// Build the TBI or CSI index (D20) of the finished BGZF file `data` and
+/// return its kind and bytes, without writing anything. `data` may be a
+/// temp file that becomes `final_data_path`; messages name
+/// `final_data_path`.
 ///
 /// Order is checked in first-appearance mode (BCF: dictionary order). TBI is
 /// used unless an index span ends beyond 2^29; then CSI with min_shift 14
 /// and the smallest depth (at least 5) that covers the largest end. BCF
 /// always gets CSI, keyed by the contig dictionary.
-pub fn write_index(
+pub(crate) fn build_index(
     data: &Path,
     final_data_path: &Path,
     format: Format,
     threads: NonZeroUsize,
-) -> Result<PathBuf, IoError> {
+) -> Result<(IndexKind, Vec<u8>), IoError> {
     let name = final_data_path.display().to_string();
     check_bgzf(data, &name)?;
     let changed = || IoError::Detect {
@@ -741,19 +757,63 @@ pub fn write_index(
             }
         }
     };
-    let path = index_path(final_data_path, kind);
-    let shown = path.display().to_string();
-    let werr = |source| IoError::Write {
-        path: shown.clone(),
-        source,
-    };
-    let bytes = bytes.map_err(werr)?;
-    let mut af = AtomicFile::create(&path).map_err(|source| IoError::Open {
-        path: shown.clone(),
+    let bytes = bytes.map_err(|source| IoError::Write {
+        path: index_path(final_data_path, kind).display().to_string(),
         source,
     })?;
-    af.write_all(&bytes).map_err(werr)?;
-    af.commit().map_err(werr)?;
+    Ok((kind, bytes))
+}
+
+/// Write index `bytes` to a temp file next to `path`; publish it with
+/// [`AtomicFile::commit`].
+pub(crate) fn stage_index(path: &Path, bytes: &[u8]) -> Result<AtomicFile, IoError> {
+    let shown = || path.display().to_string();
+    let mut af = AtomicFile::create(path).map_err(|source| IoError::Open {
+        path: shown(),
+        source,
+    })?;
+    af.write_all(bytes).map_err(|source| IoError::Write {
+        path: shown(),
+        source,
+    })?;
+    Ok(af)
+}
+
+/// Remove `DATA.tbi` and `DATA.csi` if they exist (D19).
+pub(crate) fn remove_indexes(data: &Path) -> Result<(), IoError> {
+    for kind in [IndexKind::Tbi, IndexKind::Csi] {
+        let p = index_path(data, kind);
+        match fs::remove_file(&p) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(source) => {
+                return Err(IoError::Write {
+                    path: p.display().to_string(),
+                    source,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Build a TBI or CSI index for the BGZF file `data` (see `build_index`),
+/// write it atomically to `final_data_path` + `.tbi`/`.csi`, remove an index
+/// of the other kind, and return the index path. Messages name
+/// `final_data_path`.
+pub fn write_index(
+    data: &Path,
+    final_data_path: &Path,
+    format: Format,
+    threads: NonZeroUsize,
+) -> Result<PathBuf, IoError> {
+    let (kind, bytes) = build_index(data, final_data_path, format, threads)?;
+    let path = index_path(final_data_path, kind);
+    let af = stage_index(&path, &bytes)?;
+    af.commit().map_err(|source| IoError::Write {
+        path: path.display().to_string(),
+        source,
+    })?;
     let other = index_path(final_data_path, kind.other());
     match fs::remove_file(&other) {
         Ok(()) => {}
@@ -1282,6 +1342,93 @@ pub fn open_region_reader(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Records over 1 MB each (a 300k-sample VCF): the scan holds at most
+    /// `BATCH_BYTES` plus one record, not a whole 4096-record batch, and
+    /// queries still find the right records.
+    #[test]
+    fn scan_memory_is_bounded_by_bytes() {
+        let samples = "\t0|1".repeat(300_000);
+        let mut vcf = b"##fileformat=VCFv4.3\n##contig=<ID=chr1>\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts0\n"
+            .to_vec();
+        let mut longest = 0;
+        let mut records = 0;
+        for i in 0..24u64 {
+            let line = format!(
+                "chr1\t{}\t.\tA\tG\t.\tPASS\t.\tGT{samples}\n",
+                1000 + i * 100
+            );
+            longest = longest.max(line.len());
+            records += line.len();
+            vcf.extend_from_slice(line.as_bytes());
+        }
+        assert!(records > BATCH_BYTES + 8 * longest);
+        let mut w = noodles_bgzf::io::Writer::new(Vec::new());
+        w.write_all(&vcf).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("big.vcf.gz");
+        fs::write(&p, w.finish().unwrap()).unwrap();
+
+        let mut n = 0;
+        let mut sink = |_: &Entry| -> Result<(), IoError> {
+            n += 1;
+            Ok(())
+        };
+        let threads = NonZeroUsize::new(2).unwrap();
+        let s = scan(&p, "big.vcf.gz", Format::Vcf, threads, &mut sink).unwrap();
+        assert_eq!(n, 24);
+        assert!(
+            s.peak_bytes <= BATCH_BYTES + longest,
+            "held {} bytes, budget {} + one record of {longest}",
+            s.peak_bytes,
+            BATCH_BYTES
+        );
+
+        write_index(&p, &p, Format::Vcf, threads).unwrap();
+        let o = ReaderOptions {
+            threads,
+            format: None,
+            vcf_span: VcfSpan::Allele,
+            invalid: InvalidPolicy::Fail,
+        };
+        let mut chroms = ChromTable::first_appearance();
+        let mut batch = RecordBatch::default();
+        let mut query = |iv: Interval| -> Vec<(u64, u32)> {
+            let regions = [(b"chr1".to_vec(), iv)];
+            let mut r = open_region_reader(&p, &regions, &o, false).unwrap();
+            let mut out = Vec::new();
+            loop {
+                batch.clear();
+                let more = r.read_batch(&mut chroms, &mut batch, 4).unwrap();
+                out.extend(batch.recs.iter().map(|m| (m.key, m.len)));
+                if !more {
+                    break;
+                }
+            }
+            out
+        };
+        let len = |i: u64| {
+            format!("chr1\t{}\t.\tA\tG\t.\tPASS\t.\tGT{samples}", 1000 + i * 100).len() as u32
+        };
+        assert_eq!(
+            query(Interval {
+                start: 2099,
+                end: 2100
+            }),
+            [(2099, len(11))]
+        );
+        let all = query(Interval {
+            start: 0,
+            end: 1 << 20,
+        });
+        assert_eq!(all.len(), 24);
+        assert!(
+            all.iter()
+                .enumerate()
+                .all(|(i, &(k, l))| k == 999 + 100 * i as u64 && l == len(i as u64))
+        );
+    }
 
     #[test]
     fn bin_starts_follow_the_csi_layout() {
