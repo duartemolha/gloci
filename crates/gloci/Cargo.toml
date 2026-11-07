@@ -13,10 +13,16 @@ name = "gloci"
 path = "src/main.rs"
 
 [dependencies]
+gloci-io.workspace = true
 gloci-ops.workspace = true
 clap.workspace = true
+anyhow.workspace = true
+log.workspace = true
+rayon.workspace = true
 mimalloc.workspace = true
 
 [dev-dependencies]
 gloci-testkit.workspace = true
 assert_cmd.workspace = true
+predicates.workspace = true
+tempfile.workspace = true
