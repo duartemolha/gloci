@@ -1,0 +1,42 @@
+name: nightly
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  large-files:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --release -- --ignored
+
+  bench:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build the reference-tool image
+        run: docker build -t gloci-diff:p0 xtask/docker
+      # A static binary runs inside the container whatever its glibc.
+      - run: cargo build --release --target x86_64-unknown-linux-musl -p gloci
+      - name: Benchmarks
+        run: >
+          cargo xtask bench --check-targets
+          --gloci target/x86_64-unknown-linux-musl/release/gloci
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-results
+          path: bench-results/

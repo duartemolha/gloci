@@ -1,0 +1,25 @@
+# Benchmark cases. Every gloci command uses --chrom-order lex so that all tools
+# produce the same order. {gloci}, {in} and {out} are substituted by the runner.
+# Targets: NAME (<|<=) [FACTOR *] NAME, over the medians of the named commands.
+
+[[case]]
+name = "sort-plain-10M"
+setup = "bed --records 10000000 --chroms 24 --seed 1 --profile uniform"
+input = "bed"
+targets = ["gloci < sort-bed", "gloci <= 1.5 * gnu-sort"]
+[case.commands]
+gloci = "{gloci} sort --chrom-order lex -o {out} {in}"
+sort-bed = "sort-bed --max-mem 2G {in} > {out}"
+gnu-sort = "LC_ALL=C sort -k1,1 -k2,2n --parallel=8 -S 2G {in} > {out}"
+bedtools = "bedtools sort -i {in} > {out}"
+
+[[case]]
+name = "sort-bgzf-10M"
+setup = "bed --records 10000000 --chroms 24 --seed 1 --profile uniform"
+input = "bed.gz"
+targets = ["gloci < sort-bed", "gloci <= 1.5 * gnu-sort"]
+[case.commands]
+gloci = "{gloci} sort --chrom-order lex -t 8 -o {out} {in}"
+sort-bed = "bgzip -dc {in} | sort-bed --max-mem 2G - | bgzip -@ 8 > {out}"
+gnu-sort = "bgzip -dc {in} | LC_ALL=C sort -k1,1 -k2,2n --parallel=8 -S 2G | bgzip -@ 8 > {out}"
+bedtools = "bedtools sort -i {in} | bgzip -@ 8 > {out}"

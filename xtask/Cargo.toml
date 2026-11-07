@@ -14,6 +14,11 @@ clap.workspace = true
 clap_complete.workspace = true
 clap_mangen.workspace = true
 anyhow.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true
+serde.workspace = true
+toml.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
