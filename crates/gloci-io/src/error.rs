@@ -90,3 +90,18 @@ impl From<OrderError> for IoError {
         IoError::Order(Box::new(e))
     }
 }
+
+impl IoError {
+    /// Libraries report output write errors under the placeholder path
+    /// `output`; name the real destination, keeping the `io::ErrorKind` so a
+    /// broken pipe is still recognised.
+    pub fn with_output_name(self, name: &str) -> IoError {
+        match self {
+            IoError::Write { path, source } if path == "output" => IoError::Write {
+                path: name.to_string(),
+                source,
+            },
+            e => e,
+        }
+    }
+}

@@ -3,10 +3,9 @@
 
 use gloci_core::ChromOrder;
 use gloci_io::{
-    HeaderMode, IoError, OrderGuard, OutFormat, OutputOptions, OutputSpec, ReaderOptions,
-    RecordBatch, UsageError, WriterOptions, check_family, chrom_table_for, convert_variants,
-    next_batch_size, open_headerless_writer, open_output, open_reader, open_record_writer,
-    refuse_binary_to_tty,
+    HeaderMode, IoError, OutFormat, OutputOptions, OutputSpec, ReaderOptions, RecordBatch,
+    UsageError, WriterOptions, check_family, chrom_table_for, convert_variants, next_batch_size,
+    open_headerless_writer, open_output, open_reader, open_record_writer, refuse_binary_to_tty,
 };
 use std::io::IsTerminal;
 
@@ -22,20 +21,8 @@ fn usage(msg: impl Into<String>) -> IoError {
     UsageError(msg.into()).into()
 }
 
-/// Libraries report output write errors under the placeholder path
-/// `output`; name the real destination, keeping the `io::ErrorKind`.
-fn named(e: IoError, dest: &str) -> IoError {
-    match e {
-        IoError::Write { path, source } if path == "output" => IoError::Write {
-            path: dest.to_string(),
-            source,
-        },
-        e => e,
-    }
-}
-
 /// View `path` into the output `out_spec`. With no regions the file is
-/// streamed, its order checked on the way.
+/// streamed in file order; sortedness is not required.
 pub fn run_view(
     path: &str,
     opts: &ViewOptions,
@@ -92,19 +79,19 @@ view only converts between VCF and BCF",
                 mode,
                 None,
             )
-            .map_err(|e| named(e, &dest))?;
+            .map_err(|e| e.with_output_name(&dest))?;
         } else {
             let header = reader.header().clone();
             open_record_writer(out, format, out_format, &header, &wo)
-                .map_err(|e| named(e, &dest))?
-                .finish()?;
+                .map_err(|e| e.with_output_name(&dest))?
+                .finish()
+                .map_err(|e| e.with_output_name(&dest))?;
         }
         return Ok(());
     }
 
     let refs = [reader.as_ref()];
     let mut chroms = chrom_table_for(None, &refs, ChromOrder::default())?;
-    let mut guard = OrderGuard::new(reader.name(), format);
     if out_format != family {
         let mode = if opts.no_header {
             HeaderMode::None
@@ -118,9 +105,9 @@ view only converts between VCF and BCF",
             out_format,
             &wo,
             mode,
-            Some(&mut guard),
+            None,
         )
-        .map_err(|e| named(e, &dest))?;
+        .map_err(|e| e.with_output_name(&dest))?;
     } else {
         check_family(format, out_format)?;
         let header = reader.header().clone();
@@ -129,13 +116,12 @@ view only converts between VCF and BCF",
         } else {
             open_record_writer(out, format, out_format, &header, &wo)
         }
-        .map_err(|e| named(e, &dest))?;
+        .map_err(|e| e.with_output_name(&dest))?;
         let mut batch = RecordBatch::default();
         let mut max = 1;
         loop {
             batch.clear();
             let more = reader.read_batch(&mut chroms, &mut batch, max)?;
-            guard.check(&chroms, &batch)?;
             for i in 0..batch.len() {
                 w.write_record(batch.raw(i))
                     .map_err(|source| IoError::Write {
@@ -148,7 +134,7 @@ view only converts between VCF and BCF",
                 break;
             }
         }
-        w.finish()?;
+        w.finish().map_err(|e| e.with_output_name(&dest))?;
     }
     if let Some(s) = reader.diagnostics().summary(reader.name()) {
         log::warn!("{s}");

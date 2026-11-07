@@ -94,8 +94,7 @@ Examples:
     /// recompress a file (-o FILE.gz is BGZF) or index it (--write-index).
     /// VCF and BCF convert to each other with -O or the -o extension;
     /// the header is kept as it is, plus a ##glociCommand line. BED and GFF
-    /// header lines are kept by default. The input must be sorted; it is
-    /// checked as it streams. Conversions between other formats are not
+    /// header lines are kept by default. Conversions between other formats are not
     /// available yet (they will be gloci convert).
     #[command(after_long_help = "\
 Examples:

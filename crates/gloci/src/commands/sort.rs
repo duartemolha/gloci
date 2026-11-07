@@ -162,19 +162,19 @@ sort the inputs without -m to remove or find duplicates",
                 }
             }
             let mut w = open_record_writer(output, format, out_format, &header, &wopts)
-                .map_err(|e| super::name_output(e, &dest))?;
+                .map_err(|e| e.with_output_name(&dest))?;
             sorter
                 .finish(&chroms, &mut |raw| w.write_record(raw))
-                .map_err(|e| super::name_output(e, &dest))?;
+                .map_err(|e| e.with_output_name(&dest))?;
             w.finish()?;
         }
         None => {
             let mut w = open_record_writer(output, format, out_format, &header, &wopts)
-                .map_err(|e| super::name_output(e, &dest))?;
+                .map_err(|e| e.with_output_name(&dest))?;
             merge_sorted(&mut readers, &mut chroms, tie, &mut |raw| {
                 w.write_record(raw)
             })
-            .map_err(|e| super::name_output(e, &dest))?;
+            .map_err(|e| e.with_output_name(&dest))?;
             w.finish()?;
         }
     }

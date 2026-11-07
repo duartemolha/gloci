@@ -385,14 +385,21 @@ fn stdin_input() {
 }
 
 #[test]
-fn unsorted_input_is_refused() {
+fn plain_view_does_not_need_sorted_input() {
     let d = tempdir();
-    let bed = s(&plain_file(d.path(), "u.bed", "chr1\t10\t20\nchr1\t1\t5\n"));
-    gloci()
-        .args(["view", &bed])
-        .assert()
-        .code(1)
-        .stderr(contains("gloci sort"));
+    for (name, text) in [
+        ("u.bed", "chr1\t10\t20\nchr1\t1\t5\n"),
+        ("lex.bed", "chr1\t1\t5\nchr10\t1\t5\nchr2\t1\t5\n"),
+    ] {
+        let bed = s(&plain_file(d.path(), name, text));
+        assert_eq!(stdout_of(&["view", &bed]), text);
+        let o = d.path().join(format!("{name}.gz"));
+        gloci()
+            .args(["view", &bed, "-o", &s(&o)])
+            .assert()
+            .success();
+        assert_eq!(bgzf_text(&o), text);
+    }
 }
 
 #[test]
