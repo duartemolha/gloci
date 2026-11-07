@@ -85,6 +85,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         Commands::Index(a) => (a.threads.threads, None),
         Commands::Sort(a) => (a.threads.threads, a.tmp_dir.tmp_dir.clone()),
         Commands::View(a) => (a.threads.threads, None),
+        Commands::Check(a) => (a.threads.threads, None),
     };
     let threads = requested
         .unwrap_or_else(|| std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN));
@@ -100,13 +101,16 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         version: env!("CARGO_PKG_VERSION"),
     };
 
+    let mut all_ok = true;
     let result = match &cli.command {
         Commands::Index(a) => commands::index::run(&ctx, a),
         Commands::Sort(a) => commands::sort::run(&ctx, a),
         Commands::View(a) => commands::view::run(&ctx, a),
+        Commands::Check(a) => commands::check::run(&ctx, a).map(|ok| all_ok = ok),
     };
     match result {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(()) if all_ok => ExitCode::SUCCESS,
+        Ok(()) => ExitCode::from(1),
         Err(e) => match classify(&e) {
             Outcome::Usage(msg) => {
                 eprintln!("error: {msg}");

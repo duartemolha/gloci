@@ -22,7 +22,7 @@ pub fn sort_hint(name: &str, source: &OrderSource) -> String {
 /// Added to the hint when a karyotype-order check fails on a pair of
 /// chromosomes that are in lexicographic order: the file was probably
 /// sorted by an old tool.
-const LEX_SORTED_NOTE: &str = " (this file looks sorted by sort -k1,1, sort-bed or bedtools sort; re-sort it with gloci sort, or pass --chrom-order lex; see docs/migration.md)";
+pub const LEX_SORTED_NOTE: &str = " (this file looks sorted by sort -k1,1, sort-bed or bedtools sort; re-sort it with gloci sort, or pass --chrom-order lex; see docs/migration.md)";
 
 /// Checks that one input's records arrive in `(chrom, key)` order.
 pub struct OrderGuard {

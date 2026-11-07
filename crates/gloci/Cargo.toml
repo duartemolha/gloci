@@ -25,6 +25,7 @@ mimalloc.workspace = true
 [dev-dependencies]
 gloci-testkit.workspace = true
 assert_cmd.workspace = true
+insta.workspace = true
 predicates.workspace = true
 tempfile.workspace = true
 noodles-bgzf.workspace = true

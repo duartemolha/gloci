@@ -116,6 +116,41 @@ Examples:
   gloci view calls.bcf -O vcf | less
   gloci view calls.vcf.gz -o calls.bcf --write-index")]
     View(ViewArgs),
+    /// Validate files and print a one-screen summary of each.
+    ///
+    /// check reads every file to the end, keeps going past problems and
+    /// reports the record count, the chromosomes, whether the records are
+    /// sorted, and the first 10 errors and warnings with their line numbers.
+    /// Errors: records that do not parse, records out of order, an end past
+    /// the chromosome length or a chromosome missing from -g, bad BED12
+    /// blocks, a bedGraph value that is not a number, a VCF line with the
+    /// wrong number of columns. Warnings: exact duplicate lines at the same
+    /// position, and blank lines. Exit status 1 when any file has errors.
+    /// The order is checked against -g, else the ##contig lines of a
+    /// VCF/BCF, else --chrom-order (karyotype by default).
+    #[command(after_long_help = "\
+Examples:
+  gloci check peaks.bed
+  gloci check calls.vcf.gz -g hg38.fa.fai
+  gloci check a.bed b.bed --chrom-order lex")]
+    Check(CheckArgs),
+}
+
+#[derive(Args)]
+pub struct CheckArgs {
+    /// Input files.
+    #[arg(value_name = "FILES", required = true)]
+    pub files: Vec<String>,
+    #[command(flatten)]
+    pub genome: GenomeArg,
+    #[command(flatten)]
+    pub chrom_order: ChromOrderArg,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub format: FormatArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
 }
 
 #[derive(Args)]

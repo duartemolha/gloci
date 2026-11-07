@@ -39,7 +39,7 @@ pub use record::{
     Header, ReaderOptions, RecordBatch, RecordMeta, RecordReader, next_batch_size, open_reader,
     open_reader_from,
 };
-pub use sorted::{OrderGuard, sort_hint};
+pub use sorted::{LEX_SORTED_NOTE, OrderGuard, sort_hint};
 pub use vcf::{VcfHeader, shell_quote_args};
 pub use writer::{
     RecordWriter, WriterOptions, check_family, open_headerless_writer, open_record_writer,
