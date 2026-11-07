@@ -42,9 +42,13 @@ sort the inputs without -m to remove or find duplicates",
     } else {
         a.files.clone()
     };
+    let format = match a.format.format.as_deref() {
+        None => None,
+        Some(s) => Some(s.parse::<Format>().map_err(UsageError)?),
+    };
     let opts = ReaderOptions {
         threads: ctx.threads,
-        format: None,
+        format,
         vcf_span: VcfSpan::Ref,
         invalid: if a.invalid.skip_invalid {
             gloci_io::InvalidPolicy::Skip

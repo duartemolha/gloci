@@ -217,6 +217,8 @@ pub struct SortArgs {
     pub genome: GenomeArg,
     #[command(flatten)]
     pub chrom_order: ChromOrderArg,
+    #[command(flatten)]
+    pub format: FormatArg,
     /// Memory budget for sorting, in binary units (K, M, G, T); at least 16M.
     #[arg(long, value_name = "SIZE", default_value = "2G", value_parser = parse_size)]
     pub max_mem: u64,

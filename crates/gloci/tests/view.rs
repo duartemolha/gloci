@@ -299,13 +299,13 @@ fn cross_family_refused() {
         .args(["view", &vcf, "-O", "bed"])
         .assert()
         .code(2)
-        .stderr(contains("gloci convert"));
+        .stderr(contains("the input is"));
     let bed = s(&plain_file(d.path(), "a.bed", "chr1\t1\t5\n"));
     gloci()
         .args(["view", &bed, "-O", "vcf"])
         .assert()
         .code(2)
-        .stderr(contains("gloci convert"));
+        .stderr(contains("the input is"));
 }
 
 #[test]

@@ -479,11 +479,9 @@ pub fn run_view(
     let family = OutFormat::family(format);
     let out_format = out_spec.format.unwrap_or(family);
     let is_variant = |f: OutFormat| matches!(f, OutFormat::Vcf | OutFormat::Bcf);
-    if out_format != family && !(is_variant(family) && is_variant(out_format)) {
-        return Err(usage(
-            "use gloci convert for format conversion (coming in a later release); \
-view only converts between VCF and BCF",
-        ));
+    let converting = is_variant(family) && is_variant(out_format) && out_format != family;
+    if !converting {
+        check_family(format, out_format)?;
     }
     if opts.no_header && out_format == OutFormat::Bcf {
         return Err(usage(
@@ -508,7 +506,7 @@ view only converts between VCF and BCF",
     if opts.header_only {
         // No records are read, so nothing is checked either.
         let mode = HeaderMode::Only;
-        if out_format != family {
+        if converting {
             convert_variants(
                 reader.as_mut(),
                 &mut chroms,
@@ -529,7 +527,7 @@ view only converts between VCF and BCF",
         return Ok(());
     }
 
-    if out_format != family {
+    if converting {
         let mode = if opts.no_header {
             HeaderMode::None
         } else {
@@ -547,7 +545,6 @@ view only converts between VCF and BCF",
         )
         .map_err(|e| e.with_output_name(&dest))?;
     } else {
-        check_family(format, out_format)?;
         let header = reader.header().clone();
         let mut w = if opts.no_header {
             open_headerless_writer(out, format, out_format)

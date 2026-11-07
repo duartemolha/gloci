@@ -26,17 +26,37 @@ pub struct WriterOptions {
     pub version: &'static str,
 }
 
-/// Is `to` the output family of `records`? Format conversion is not a
-/// writer's job (D18).
+/// Do the records of `records` fit the output format `to`? BED and bedGraph
+/// are one family: the bytes pass through unchanged, and most bedGraph
+/// files have no track line, so detection calls them BED. Format conversion
+/// is not a writer's job (D18).
 pub fn check_family(records: Format, to: OutFormat) -> Result<(), UsageError> {
-    if OutFormat::family(records) == to {
+    let is_bed = |f: OutFormat| matches!(f, OutFormat::Bed | OutFormat::BedGraph);
+    let from = OutFormat::family(records);
+    if from == to || (is_bed(from) && is_bed(to)) {
         return Ok(());
     }
-    let (from, into) = (family_name(OutFormat::family(records)), family_name(to));
-    Err(UsageError(format!(
-        "the input is {from} but the output format is {into}; sort and view keep the format \
-(convert VCF and BCF with gloci view; other conversions are not available yet)"
-    )))
+    Err(family_mismatch(records, to))
+}
+
+/// The one message for output that does not match the records' format,
+/// used by `sort` and `view`.
+pub fn family_mismatch(records: Format, to: OutFormat) -> UsageError {
+    let from = OutFormat::family(records);
+    let fits = match from {
+        OutFormat::Bed | OutFormat::BedGraph => ".bed, .bed.gz, .bedgraph or .bedgraph.gz",
+        OutFormat::Vcf | OutFormat::Bcf => ".vcf, .vcf.gz or .bcf",
+        OutFormat::Gff3 => ".gff, .gff.gz, .gff3 or .gff3.gz",
+        OutFormat::Gtf => ".gtf or .gtf.gz",
+        OutFormat::Tsv => ".tsv or .tsv.gz",
+    };
+    UsageError(format!(
+        "the input is {} but the output format is {}; sort and view keep the format, so pick an \
+output extension that matches ({fits}) or pass -O with a matching format (other conversions are \
+not available yet)",
+        family_name(from),
+        family_name(to)
+    ))
 }
 
 fn family_name(f: OutFormat) -> &'static str {
