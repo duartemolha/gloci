@@ -25,6 +25,7 @@ A single, fast, correct Rust command-line tool that replaces **bedtools**, **bed
 3. **Be correct before being fast.** Coordinate handling is precisely defined (Section 4), variant intervals come from alleles, and nothing is silently skipped or assumed. **[you, confirmed playback]**
 4. **Provide one coherent interface.** One binary with subcommands, the same flag for the same idea everywhere, and output that is safe to pipe. **[you, confirmed playback]**
 5. **Ship as one static binary** with no runtime dependencies such as Perl, Python or htslib, so it is easy to install on HPC clusters. **[my call]**
+6. **Be usable as a Python library** (P2), filling the role pybedtools fills for bedtools. It calls the same Rust engine in-process, with no subprocess or temp files (Section 8.5). **[you]**
 
 ### Non-goals
 
@@ -35,7 +36,7 @@ A single, fast, correct Rust command-line tool that replaces **bedtools**, **bed
 - The bedops **Starch** format, and legacy genotype export formats (IMPUTE, BEAGLE, LDhat, PLINK ped/tped). **[my call]**
 - bedtools' BAM-specific utilities: `bamtofastq`, `bedtobam`, `bedpetobam`, `tag`, `multicov`, `igv`, `links`. **[my call]**
 - Native Windows. WSL works. **[my call]**
-- A stable Rust library API or Python bindings in v1. The code is still organized as library crates, so these can come later. **[my call]**
+- A stable public Rust library API in v1. The crates are internal; the stable, versioned API is the Python one from P2 (Section 8.5). **[my call, revised: Python bindings moved to goals]**
 
 ### Anti-goals (failure even if it "works")
 
@@ -553,8 +554,12 @@ crates/
   gloci-vcf      genotype decoding, selection pipeline, stats, popgen
   gloci        clap-based `gloci` binary, published as `gloci` so `cargo install gloci` works;
                no logic beyond argument wiring
+  gloci-py     PyO3 extension module for the Python library (P2); no logic beyond wiring,
+               like the CLI crate
 xtask/         benchmark runner, differential-test runner, synthetic data generator (not shipped)
 ```
+
+**Requirement from P1 on [you, enabling Section 8.5]:** every operation in `gloci-ops` takes its inputs as record streams (the `RecordReader` interface) and writes to a record sink. It never takes only file paths. That way the CLI, tests and the Python library can feed files, in-memory data or Arrow tables to the same code.
 
 ### 8.2 Data flow
 
@@ -599,6 +604,30 @@ Output must be byte-identical for every thread count (Section 6.4).
 - Rust stable, edition 2024.
 - Release profile: `lto = "fat"`, `codegen-units = 1`, `panic = "abort"`.
 - Portable x86-64 builds, plus an optional `x86-64-v3` build.
+
+### 8.5 Python library (P2) **[you; design my call]**
+
+- **Packaging.** `pip install gloci` installs prebuilt wheels built with maturin: abi3, Linux x86_64 and aarch64 (manylinux), and macOS arm64. There are no runtime dependencies beyond Python. The same package goes to bioconda. The name was free on PyPI on 2026-11-06.
+- **In-process, not a CLI wrapper.** Calls go straight into `gloci-ops` through PyO3 and release the GIL during work. There is no subprocess and no temp-file shuttling, unlike pybedtools. Results and semantics are identical to the CLI because it is the same code.
+- **Fluent, lazy pipelines.** Each step is recorded, and the chain runs as one streaming pass when a terminal method is called. Keyword arguments use the CLI flag names with `-` replaced by `_`.
+
+  ```python
+  import gloci
+  (gloci.open("calls.vcf.gz")                 # path, file object, DataFrame/Arrow table, or iterable
+        .intersect(b="targets.bed")           # same semantics and defaults as `gloci intersect`
+        .merge(max_gap=50)
+        .save("on_target.bed.gz", write_index=True))
+  ```
+
+  - **Terminal methods:** `.save(path, ...)`, `.to_arrow()`, `.to_polars()`, `.to_pandas()`, `.count()`, and iteration over records (the slow, convenient path).
+- **Data frames.** Conversion goes through Apache Arrow, with zero-copy hand-off to `pyarrow` and `polars`. `pandas` goes through `pyarrow`. Coordinates follow Section 4 (0-based half-open), and the columns are named `chrom`, `start`, `end`, then format-specific columns.
+- **Errors are typed exceptions** carrying the same information as the CLI messages:
+  - a base `gloci.GlociError`;
+  - `gloci.UsageError` (also a `ValueError`);
+  - `gloci.DataError`, with `.path` and `.line`;
+  - `gloci.UnsortedError(DataError)`, with both offending records and the hint.
+- **Stability.** The Python API is versioned with semantic versioning. Rust crate APIs stay internal (Section 2).
+- **Testing.** Python tests (pytest) run each fluent pipeline against the equivalent CLI command and assert identical output. That reuses the bedtools golden files (Section 9.3).
 
 ---
 
@@ -650,8 +679,8 @@ Reference machine: 8-core x86_64, NVMe, 32 GB RAM. Baselines: bedtools 2.31.x, b
 | Phase | Contents | Done when |
 |---|---|---|
 | **P0 Foundations** | workspace; Section 4 core types and rules; BED/VCF/BCF/GFF I/O; parallel BGZF; sort validation; atomic writer; built-in genomes (`-g hg38`); `sort`, `index`, `view`, `check`, `genomes`; benchmark + differential + property-test harnesses | `sort` beats `sort-bed`; harnesses run in CI |
-| **P1 Core replacement** | `intersect`, `subtract`, `closest`, `map` (core ops), `coverage`, `merge`, `complement`, `slop`, `flank`, `windows`, `convert` (VCF/GFF/BED12), `vcf filter` (no expressions); unsorted mode; per-chromosome parallelism for indexed inputs | the team's most common bedtools/bedops/vcftools pipeline steps can be rewritten on gloci; P1 performance targets met |
-| **P2 Breadth** | `partition`, `cluster`, `spacing`, `shift`, `groupby`, `genomecov` (BED), full `map` ops, `vcf stats`, `vcf extract`, `vcf concat`, filter expressions, `--chrom-map`, WIG input; bioconda package | vcftools no longer needed for QC/filtering |
+| **P1 Core replacement** | `intersect`, `subtract`, `closest`, `map` (core ops), `coverage`, `merge`, `complement`, `slop`, `flank`, `windows`, `convert` (VCF/GFF/BED12), `vcf filter` (no expressions); unsorted mode; per-chromosome parallelism for indexed inputs; every op callable on in-memory record streams (Section 8.1) | the team's most common bedtools/bedops/vcftools pipeline steps can be rewritten on gloci; P1 performance targets met |
+| **P2 Breadth** | `partition`, `cluster`, `spacing`, `shift`, `groupby`, `genomecov` (BED), full `map` ops, `vcf stats`, `vcf extract`, `vcf concat`, filter expressions, `--chrom-map`, WIG input; bioconda package; **Python library** (`pip install gloci`, Section 8.5) | vcftools no longer needed for QC/filtering |
 | **P3 Extended** | BAM/CRAM input (intersect, coverage, genomecov, convert); `getfasta`, `maskfasta`, `nuc`; `stats jaccard/fisher/reldist`; `sample`/`random`/`shuffle`; BEDPE pair ops; `vcf popgen`; `vcf compare` | all three tools can be uninstalled |
 
 **Distribution:**
@@ -659,6 +688,7 @@ Reference machine: 8-core x86_64, NVMe, 32 GB RAM. Baselines: bedtools 2.31.x, b
 - Static Linux binaries (x86_64 and aarch64 musl) and macOS binaries on releases from P1.
 - `cargo install` and a container image.
 - Bioconda from P2.
+- Python wheels on PyPI (`pip install gloci`) from P2.
 
 **Docs:**
 
