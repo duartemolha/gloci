@@ -595,6 +595,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "gloci-vcf"
+version = "0.1.0"
+dependencies = [
+ "gloci-core",
+ "gloci-io",
+ "gloci-testkit",
+ "memchr",
+ "noodles-bgzf",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

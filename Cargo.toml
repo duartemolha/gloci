@@ -13,6 +13,7 @@ publish = false
 gloci-core = { path = "crates/gloci-core" }
 gloci-io = { path = "crates/gloci-io" }
 gloci-engine = { path = "crates/gloci-engine" }
+gloci-vcf = { path = "crates/gloci-vcf" }
 gloci-ops = { path = "crates/gloci-ops" }
 gloci-testkit = { path = "crates/gloci-testkit" }
 noodles-bgzf = { version = "0.52", features = ["libdeflate"] }

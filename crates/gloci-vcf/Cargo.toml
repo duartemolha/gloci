@@ -1,0 +1,15 @@
+[package]
+name = "gloci-vcf"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+gloci-core.workspace = true
+gloci-io.workspace = true
+memchr.workspace = true
+
+[dev-dependencies]
+gloci-testkit.workspace = true
+noodles-bgzf.workspace = true

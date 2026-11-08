@@ -185,14 +185,14 @@ pub fn write_bcf_header(w: &mut dyn Write, header_text: &[u8]) -> io::Result<()>
 }
 
 /// BCF typed values (BCF2.2 §6.3.3).
-pub(crate) mod typed {
+pub mod typed {
     use std::io::Write;
 
     const PAST_END: &str = "a typed value runs past the end of the record's shared section";
     const BAD_LEN: &str = "a typed value has an invalid length";
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub(crate) enum Ty {
+    pub enum Ty {
         Missing,
         Int8,
         Int16,
@@ -214,7 +214,7 @@ pub(crate) mod typed {
             })
         }
 
-        fn width(self) -> usize {
+        pub fn width(self) -> usize {
             match self {
                 Ty::Missing => 0,
                 Ty::Int8 | Ty::Char => 1,
@@ -226,7 +226,7 @@ pub(crate) mod typed {
 
     /// One element of an integer vector.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub(crate) enum Int {
+    pub enum Int {
         Value(i32),
         Missing,
         /// End-of-vector padding: no further elements.
@@ -235,7 +235,7 @@ pub(crate) mod typed {
 
     /// One element of a float vector.
     #[derive(Debug, Clone, Copy, PartialEq)]
-    pub(crate) enum Float {
+    pub enum Float {
         Value(f32),
         Missing,
         End,
@@ -243,10 +243,10 @@ pub(crate) mod typed {
 
     /// A typed value: `n` elements of `ty` in `data`.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub(crate) struct Value<'a> {
-        pub(crate) ty: Ty,
-        pub(crate) n: usize,
-        pub(crate) data: &'a [u8],
+    pub struct Value<'a> {
+        pub ty: Ty,
+        pub n: usize,
+        pub data: &'a [u8],
     }
 
     fn take_u8(src: &mut &[u8]) -> Result<u8, String> {
@@ -258,13 +258,8 @@ pub(crate) mod typed {
     /// Read one typed value from the front of `src` and advance past it.
     /// The type is in the low 4 bits of the descriptor and the count in the
     /// high 4 bits; a count of 15 means the count follows as a typed integer.
-    pub(crate) fn read<'a>(src: &mut &'a [u8]) -> Result<Value<'a>, String> {
-        let d = take_u8(src)?;
-        let ty = Ty::from_code(d & 0x0f)?;
-        let mut n = usize::from(d >> 4);
-        if n == 15 {
-            n = overflow_len(src)?;
-        }
+    pub fn read<'a>(src: &mut &'a [u8]) -> Result<Value<'a>, String> {
+        let (ty, n) = read_descriptor(src)?;
         let len = n
             .checked_mul(ty.width())
             .filter(|&l| l <= src.len())
@@ -272,6 +267,19 @@ pub(crate) mod typed {
         let (data, rest) = src.split_at(len);
         *src = rest;
         Ok(Value { ty, n, data })
+    }
+
+    /// Read only a type descriptor (type and element count) and advance past
+    /// it. FORMAT fields use this: the data that follows holds the count for
+    /// every sample, not just one.
+    pub fn read_descriptor(src: &mut &[u8]) -> Result<(Ty, usize), String> {
+        let d = take_u8(src)?;
+        let ty = Ty::from_code(d & 0x0f)?;
+        let mut n = usize::from(d >> 4);
+        if n == 15 {
+            n = overflow_len(src)?;
+        }
+        Ok((ty, n))
     }
 
     /// The count of an overflowed typed value: a single int8/16/32 (never
@@ -300,7 +308,7 @@ pub(crate) mod typed {
 
     impl<'a> Value<'a> {
         /// Element `i` of an integer vector; `None` for other types or past `n`.
-        pub(crate) fn int(&self, i: usize) -> Option<Int> {
+        pub fn int(&self, i: usize) -> Option<Int> {
             if i >= self.n {
                 return None;
             }
@@ -327,7 +335,7 @@ pub(crate) mod typed {
         }
 
         /// Element `i` of a float vector; `None` for other types or past `n`.
-        pub(crate) fn float(&self, i: usize) -> Option<Float> {
+        pub fn float(&self, i: usize) -> Option<Float> {
             if self.ty != Ty::Float || i >= self.n {
                 return None;
             }
@@ -341,7 +349,7 @@ pub(crate) mod typed {
 
         /// A character string without NUL padding (empty for a missing
         /// value); `None` for numeric types.
-        pub(crate) fn chars(&self) -> Option<&'a [u8]> {
+        pub fn chars(&self) -> Option<&'a [u8]> {
             match self.ty {
                 Ty::Char => {
                     let end = self.data.iter().rposition(|&b| b != 0).map_or(0, |p| p + 1);
@@ -354,7 +362,7 @@ pub(crate) mod typed {
 
         /// Append the value as VCF text (`-50,.` for an integer vector with a
         /// missing element). Returns false for a value-less entry (a flag).
-        pub(crate) fn render(&self, out: &mut Vec<u8>) -> bool {
+        pub fn render(&self, out: &mut Vec<u8>) -> bool {
             fn list<T>(
                 out: &mut Vec<u8>,
                 items: impl Iterator<Item = Option<T>>,
