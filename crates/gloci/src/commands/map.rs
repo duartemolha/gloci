@@ -1,6 +1,7 @@
 //! `gloci map`: aggregate B columns over each A.
 use crate::Ctx;
-use crate::cli::{MapArgs, VcfSpan};
+use crate::cli::MapArgs;
+use crate::commands::{open_span, relation_hint, sort_relation_inputs};
 use gloci_io::{
     Format, InvalidPolicy, OutputOptions, ReaderOptions, UsageError, WriterOptions, open_reader,
     parse_output_spec,
@@ -39,10 +40,7 @@ pub fn run(ctx: &Ctx, a: &MapArgs) -> anyhow::Result<()> {
     let reader_opts = |format| ReaderOptions {
         threads: ctx.threads,
         format,
-        vcf_span: match a.vcf_span.vcf_span {
-            VcfSpan::Allele => gloci_core::VcfSpan::Allele,
-            VcfSpan::Ref => gloci_core::VcfSpan::Ref,
-        },
+        vcf_span: open_span(&a.sort, a.vcf_span.vcf_span),
         invalid: if a.invalid.skip_invalid {
             InvalidPolicy::Skip
         } else {
@@ -57,6 +55,15 @@ pub fn run(ctx: &Ctx, a: &MapArgs) -> anyhow::Result<()> {
             .iter()
             .map(|f| open_reader(f, &ro_b))
             .collect::<Result<Vec<_>, _>>()?;
+    let (reader_a, readers_b) = sort_relation_inputs(
+        ctx,
+        &a.sort,
+        a.genome.genome.as_deref(),
+        &a.chrom_order,
+        a.vcf_span.vcf_span,
+        reader_a,
+        readers_b,
+    )?;
     let b_formats: Vec<Format> = readers_b.iter().map(|r| r.format()).collect();
     validate(&o, &b_formats, &a.b.b)?;
 
@@ -83,7 +90,10 @@ pub fn run(ctx: &Ctx, a: &MapArgs) -> anyhow::Result<()> {
         a: reader_a,
         b: readers_b,
     };
-    map(inputs, &o, w.as_mut())?;
+    map(inputs, &o, w.as_mut()).map_err(|e| {
+        e.with_order_hint(relation_hint(&a.sort))
+            .with_sorted_input_loc()
+    })?;
     w.finish()?;
     Ok(())
 }

@@ -197,6 +197,15 @@ Examples:
     /// own order, and every -b file is loaded into memory, so memory grows
     /// with the size of B. Pairs and count write TSV (a VCF A gets a
     /// #CHROM line naming the columns); clip does not accept VCF/BCF.
+    ///
+    /// Two ways to deal with inputs that are not sorted. Use --sort when the
+    /// inputs are too big for memory or you want sorted output: A and every
+    /// -b file are sorted first with an external sort bounded by --max-mem
+    /// (spilling to --tmp-dir), then the normal sweep runs, so the result
+    /// equals gloci sort on each input followed by this command. It needs
+    /// disk, about twice the input size in --tmp-dir, and removes it
+    /// afterwards. Use --unsorted when you want A's order kept and every
+    /// -b file fits in memory. The two cannot be combined.
     #[command(after_long_help = "\
 Examples:
   gloci intersect -a peaks.bed -b genes.bed
@@ -284,6 +293,15 @@ Examples:
     /// checked as they are read. With --unsorted, any order works, A is
     /// still streamed and written in its own order, and every -b file is
     /// loaded into memory, so memory grows with the size of B.
+    ///
+    /// Two ways to deal with inputs that are not sorted. Use --sort when the
+    /// inputs are too big for memory or you want sorted output: A and every
+    /// -b file are sorted first with an external sort bounded by --max-mem
+    /// (spilling to --tmp-dir), then the normal sweep runs, so the result
+    /// equals gloci sort on each input followed by this command. It needs
+    /// disk, about twice the input size in --tmp-dir, and removes it
+    /// afterwards. Use --unsorted when you want A's order kept and every
+    /// -b file fits in memory. The two cannot be combined.
     #[command(after_long_help = "\
 Examples:
   gloci subtract -a peaks.bed -b blacklist.bed
@@ -332,6 +350,15 @@ Examples:
     /// B of that chromosome. --max-distance bounds this. With --unsorted
     /// every -b file is loaded into memory instead, so memory grows with
     /// the size of B, and A is streamed and written in its own order.
+    ///
+    /// Two ways to deal with inputs that are not sorted. Use --sort when the
+    /// inputs are too big for memory or you want sorted output: A and every
+    /// -b file are sorted first with an external sort bounded by --max-mem
+    /// (spilling to --tmp-dir), then the normal sweep runs, so the result
+    /// equals gloci sort on each input followed by this command. It needs
+    /// disk, about twice the input size in --tmp-dir, and removes it
+    /// afterwards. Use --unsorted when you want A's order kept and every
+    /// -b file fits in memory. The two cannot be combined.
     #[command(after_long_help = "\
 Examples:
   gloci closest -a genes.bed -b peaks.bed --distance
@@ -367,6 +394,15 @@ Examples:
     /// checked as they are read. With --unsorted, any order works, A is
     /// still streamed in its own order, and every -b file is loaded into
     /// memory, so memory grows with the size of B.
+    ///
+    /// Two ways to deal with inputs that are not sorted. Use --sort when the
+    /// inputs are too big for memory or you want sorted output: A and every
+    /// -b file are sorted first with an external sort bounded by --max-mem
+    /// (spilling to --tmp-dir), then the normal sweep runs, so the result
+    /// equals gloci sort on each input followed by this command. It needs
+    /// disk, about twice the input size in --tmp-dir, and removes it
+    /// afterwards. Use --unsorted when you want A's order kept and every
+    /// -b file fits in memory. The two cannot be combined.
     #[command(after_long_help = "\
 Examples:
   gloci map -a genes.bed -b scores.bedgraph -c 4:mean
@@ -399,6 +435,15 @@ Examples:
     /// still streamed in its own order, and every -b file is loaded into
     /// memory, so memory grows with the size of B. The output is TSV with
     /// A's columns first.
+    ///
+    /// Two ways to deal with inputs that are not sorted. Use --sort when the
+    /// inputs are too big for memory or you want sorted output: A and every
+    /// -b file are sorted first with an external sort bounded by --max-mem
+    /// (spilling to --tmp-dir), then the normal sweep runs, so the result
+    /// equals gloci sort on each input followed by this command. It needs
+    /// disk, about twice the input size in --tmp-dir, and removes it
+    /// afterwards. Use --unsorted when you want A's order kept and every
+    /// -b file fits in memory. The two cannot be combined.
     #[command(after_long_help = "\
 Examples:
   gloci coverage -a genes.bed -b reads.bed
@@ -461,6 +506,8 @@ pub struct IntersectArgs {
     #[command(flatten)]
     pub u: UnsortedArg,
     #[command(flatten)]
+    pub sort: SortArg,
+    #[command(flatten)]
     pub genome: GenomeArg,
     #[command(flatten)]
     pub chrom_order: ChromOrderArg,
@@ -495,6 +542,8 @@ pub struct SubtractArgs {
     pub w: WindowArgs,
     #[command(flatten)]
     pub u: UnsortedArg,
+    #[command(flatten)]
+    pub sort: SortArg,
     #[command(flatten)]
     pub genome: GenomeArg,
     #[command(flatten)]
@@ -583,6 +632,8 @@ pub struct ClosestArgs {
     #[command(flatten)]
     pub u: UnsortedArg,
     #[command(flatten)]
+    pub sort: SortArg,
+    #[command(flatten)]
     pub genome: GenomeArg,
     #[command(flatten)]
     pub chrom_order: ChromOrderArg,
@@ -617,6 +668,8 @@ pub struct CoverageArgs {
     pub o: OverlapArgs,
     #[command(flatten)]
     pub u: UnsortedArg,
+    #[command(flatten)]
+    pub sort: SortArg,
     #[command(flatten)]
     pub genome: GenomeArg,
     #[command(flatten)]
@@ -658,6 +711,8 @@ pub struct MapArgs {
     pub w: WindowArgs,
     #[command(flatten)]
     pub u: UnsortedArg,
+    #[command(flatten)]
+    pub sort: SortArg,
     #[command(flatten)]
     pub genome: GenomeArg,
     #[command(flatten)]
@@ -1182,8 +1237,10 @@ impl WindowArgs {
 /// Sort-free mode for B (spec 8.2).
 #[derive(Args, Debug, Clone)]
 pub struct UnsortedArg {
-    /// Accept inputs in any order; B is held in memory (8.2: unsorted mode).
-    #[arg(long)]
+    /// Accept inputs in any order and keep A's order in the output; every -b
+    /// file is held in memory (8.2: unsorted mode). Cannot be combined with
+    /// --sort.
+    #[arg(long, conflicts_with = "sort")]
     pub unsorted: bool,
 }
 
@@ -1221,6 +1278,8 @@ mod tests {
         w: WindowArgs,
         #[command(flatten)]
         u: UnsortedArg,
+        #[command(flatten)]
+        sort: SortArg,
     }
 
     fn parse(args: &[&str]) -> Result<R, clap::Error> {

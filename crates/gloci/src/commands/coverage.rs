@@ -1,6 +1,7 @@
 //! `gloci coverage`: how much of each A the B records cover.
 use crate::Ctx;
-use crate::cli::{CoverageArgs, VcfSpan};
+use crate::cli::CoverageArgs;
+use crate::commands::{open_span, relation_hint, sort_relation_inputs};
 use gloci_io::{
     Format, InvalidPolicy, OutputOptions, ReaderOptions, UsageError, WriterOptions, open_reader,
     parse_output_spec,
@@ -43,10 +44,7 @@ pub fn run(ctx: &Ctx, a: &CoverageArgs) -> anyhow::Result<()> {
     let reader_opts = |format| ReaderOptions {
         threads: ctx.threads,
         format,
-        vcf_span: match a.vcf_span.vcf_span {
-            VcfSpan::Allele => gloci_core::VcfSpan::Allele,
-            VcfSpan::Ref => gloci_core::VcfSpan::Ref,
-        },
+        vcf_span: open_span(&a.sort, a.vcf_span.vcf_span),
         invalid: if a.invalid.skip_invalid {
             InvalidPolicy::Skip
         } else {
@@ -61,6 +59,15 @@ pub fn run(ctx: &Ctx, a: &CoverageArgs) -> anyhow::Result<()> {
             .iter()
             .map(|f| open_reader(f, &ro_b))
             .collect::<Result<Vec<_>, _>>()?;
+    let (reader_a, readers_b) = sort_relation_inputs(
+        ctx,
+        &a.sort,
+        a.genome.genome.as_deref(),
+        &a.chrom_order,
+        a.vcf_span.vcf_span,
+        reader_a,
+        readers_b,
+    )?;
 
     let oo = OutputOptions {
         threads: ctx.threads,
@@ -90,7 +97,11 @@ pub fn run(ctx: &Ctx, a: &CoverageArgs) -> anyhow::Result<()> {
         .path
         .as_ref()
         .map_or_else(|| "stdout".to_string(), |p| p.display().to_string());
-    let (_, totals) = coverage(inputs, &o, w.as_mut()).map_err(|e| e.with_output_name(&dest))?;
+    let (_, totals) = coverage(inputs, &o, w.as_mut()).map_err(|e| {
+        e.with_output_name(&dest)
+            .with_order_hint(relation_hint(&a.sort))
+            .with_sorted_input_loc()
+    })?;
     if report == CoverageReport::Hist {
         write_hist_totals(&totals, w.as_mut()).map_err(|e| e.with_output_name(&dest))?;
     }

@@ -187,13 +187,13 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         Commands::Sort(a) => (a.threads.threads, a.tmp_dir.tmp_dir.clone()),
         Commands::View(a) => (a.threads.threads, None),
         Commands::Check(a) => (a.threads.threads, None),
-        Commands::Intersect(a) => (a.threads.threads, None),
+        Commands::Intersect(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
         Commands::Merge(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
         Commands::Complement(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
-        Commands::Subtract(a) => (a.threads.threads, None),
-        Commands::Closest(a) => (a.threads.threads, None),
-        Commands::Map(a) => (a.threads.threads, None),
-        Commands::Coverage(a) => (a.threads.threads, None),
+        Commands::Subtract(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
+        Commands::Closest(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
+        Commands::Map(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
+        Commands::Coverage(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
     };
     let threads = requested
         .unwrap_or_else(|| std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN));

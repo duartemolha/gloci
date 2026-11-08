@@ -13,6 +13,7 @@ pub mod view;
 
 use crate::Ctx;
 use crate::cli::{ChromOrderArg, SortArg, VcfSpan};
+use gloci_io::IoError;
 use gloci_io::{
     Format, InvalidPolicy, ReaderOptions, RecordReader, UsageError, chrom_table_for, open_reader,
 };
@@ -88,4 +89,75 @@ pub fn open_inputs(
     };
     let sorted = sort_readers(readers, &mut chroms, &settings, &reopen)?;
     Ok((vec![sorted], chroms))
+}
+
+/// Appended to the hint of an order error from a relation command: both ways
+/// out, sorting first (sorted output) or `--unsorted` (A's order kept, B in
+/// memory).
+pub const RELATION_FLAGS_HINT: &str = ", or pass --sort to sort the inputs first (output in sorted order), or --unsorted to keep A's order (every -b file is then held in memory)";
+
+/// The hint extra for a relation command's order errors: none once `--sort`
+/// has sorted the inputs (the sorted stream cannot be out of order).
+pub fn relation_hint(sort: &SortArg) -> &'static str {
+    if sort.sort { "" } else { RELATION_FLAGS_HINT }
+}
+
+/// The VCF span to open a relation command's inputs with: `gloci sort` keys
+/// VCF records by their REF span, so with `--sort` they are read that way and
+/// the sorted stream is read back with the user's span.
+pub fn open_span(sort: &SortArg, span: VcfSpan) -> gloci_core::VcfSpan {
+    if sort.sort {
+        return gloci_core::VcfSpan::Ref;
+    }
+    user_span(span)
+}
+
+fn user_span(span: VcfSpan) -> gloci_core::VcfSpan {
+    match span {
+        VcfSpan::Allele => gloci_core::VcfSpan::Allele,
+        VcfSpan::Ref => gloci_core::VcfSpan::Ref,
+    }
+}
+
+/// A's reader and the readers of the `-b` files.
+pub type ARelation = (Box<dyn RecordReader>, Vec<Box<dyn RecordReader>>);
+
+/// With `--sort`, sort A and then each B on its own (so the B files stay
+/// distinct and hit order is file, then input order) and return the sorted
+/// readers; without it, return them unchanged. The inputs must have been
+/// opened with [`open_span`].
+pub fn sort_relation_inputs(
+    ctx: &Ctx,
+    sort: &SortArg,
+    genome: Option<&str>,
+    chrom_order: &ChromOrderArg,
+    span: VcfSpan,
+    a: Box<dyn RecordReader>,
+    b: Vec<Box<dyn RecordReader>>,
+) -> Result<ARelation, IoError> {
+    if !sort.sort {
+        return Ok((a, b));
+    }
+    let mut chroms = {
+        let all: Vec<&dyn RecordReader> = std::iter::once(a.as_ref())
+            .chain(b.iter().map(|r| r.as_ref()))
+            .collect();
+        chrom_table_for(genome, &all, chrom_order.chrom_order)?
+    };
+    let reopen = ReaderOptions {
+        threads: ctx.threads,
+        format: None,
+        vcf_span: user_span(span),
+        invalid: InvalidPolicy::Fail,
+    };
+    let settings = SortSettings {
+        max_mem: sort.max_mem,
+        tmp_dir: ctx.tmp_dir.clone(),
+    };
+    let a = sort_readers(vec![a], &mut chroms, &settings, &reopen)?;
+    let b = b
+        .into_iter()
+        .map(|r| sort_readers(vec![r], &mut chroms, &settings, &reopen))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((a, b))
 }
