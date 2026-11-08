@@ -27,7 +27,7 @@ pub struct Variant<'a> {
     pub svlen: Option<&'a [u8]>,
 }
 
-enum Alt<'a> {
+pub(crate) enum Alt<'a> {
     /// `.`, empty, `*`: no footprint.
     None,
     /// `<*>` / `<NON_REF>`: gVCF block.
@@ -52,7 +52,7 @@ fn symbolic_name(alt: &[u8]) -> Option<&[u8]> {
     }
 }
 
-fn classify(alt: &[u8]) -> Alt<'_> {
+pub(crate) fn classify(alt: &[u8]) -> Alt<'_> {
     if alt.is_empty() || alt == b"." || alt == b"*" {
         return Alt::None;
     }
@@ -73,7 +73,7 @@ fn classify(alt: &[u8]) -> Alt<'_> {
     Alt::Seq(alt)
 }
 
-fn split_alts(alts: &[u8]) -> Vec<&[u8]> {
+pub(crate) fn split_alts(alts: &[u8]) -> Vec<&[u8]> {
     let mut out = Vec::new();
     let mut rest = alts;
     while let Some(i) = memchr::memchr(b',', rest) {

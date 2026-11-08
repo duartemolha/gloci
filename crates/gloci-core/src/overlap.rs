@@ -33,19 +33,33 @@ pub fn overlap_len(a: Interval, b: Interval) -> u64 {
     a.end.min(b.end).saturating_sub(a.start.max(b.start))
 }
 
-/// An exact decimal fraction in (0, 1], stored as `num / 10^digits`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// An exact decimal fraction in (0, 1], stored as `num / scale` (`scale` is a
+/// power of ten). Equality compares by value: `1` equals `1.0`, `50%` equals `0.5`.
+#[derive(Clone, Copy, Debug)]
 pub struct Fraction {
     num: u64,
-    digits: u32,
+    scale: u128,
 }
+
+impl PartialEq for Fraction {
+    fn eq(&self, other: &Self) -> bool {
+        u128::from(self.num) * other.scale == u128::from(other.num) * self.scale
+    }
+}
+
+impl Eq for Fraction {}
 
 impl Fraction {
     pub fn parse(s: &str) -> Result<Fraction, FractionError> {
         let syntax = || FractionError::Syntax(s.to_string());
-        let (int, frac) = match s.split_once('.') {
+        // A trailing `%` divides by 100: "50%" is 0.5.
+        let (body, extra_digits) = match s.strip_suffix('%') {
+            Some(b) => (b, 2),
+            None => (s, 0),
+        };
+        let (int, frac) = match body.split_once('.') {
             Some((i, f)) => (i, f),
-            None => (s, ""),
+            None => (body, ""),
         };
         if int.is_empty() && frac.is_empty() {
             return Err(syntax());
@@ -53,10 +67,10 @@ impl Fraction {
         if !int.bytes().chain(frac.bytes()).all(|b| b.is_ascii_digit()) {
             return Err(syntax());
         }
-        if frac.len() > 18 {
+        if frac.len() + extra_digits > 18 {
             return Err(FractionError::TooPrecise(s.to_string()));
         }
-        let digits = frac.len() as u32;
+        let digits = (frac.len() + extra_digits) as u32;
         let scale = 10u128.pow(digits);
         let out_of_range = || FractionError::OutOfRange(s.to_string());
         let mut num: u128 = 0;
@@ -72,13 +86,13 @@ impl Fraction {
         }
         Ok(Fraction {
             num: num as u64,
-            digits,
+            scale,
         })
     }
 
     /// Is `part / whole >= self`? Exact integer arithmetic.
     pub fn met(&self, part: u64, whole: u64) -> bool {
-        u128::from(part) * 10u128.pow(self.digits) >= u128::from(self.num) * u128::from(whole)
+        u128::from(part) * self.scale >= u128::from(self.num) * u128::from(whole)
     }
 }
 
@@ -108,15 +122,19 @@ impl OverlapCriteria {
         }
         let ov = overlap_len(a, b);
 
-        let min_b = if self.reciprocal && self.min_frac_b.is_none() {
-            self.min_frac_a
+        // D34 (spec 4.3, amended 2026-11-08): every threshold counts as met when
+        // either side is a point. `-r` with one fraction applies it to both sides.
+        let point = a.is_point() || b.is_point();
+        let (min_a, min_b) = if self.reciprocal {
+            let one = self.min_frac_a.or(self.min_frac_b);
+            (self.min_frac_a.or(one), self.min_frac_b.or(one))
         } else {
-            self.min_frac_b
+            (self.min_frac_a, self.min_frac_b)
         };
-        // A threshold on a point side counts as met. With `either`, only the
-        // thresholds actually given take part, so one threshold reduces to itself.
-        let fa = self.min_frac_a.map(|f| a.is_point() || f.met(ov, a.len()));
-        let fb = min_b.map(|f| b.is_point() || f.met(ov, b.len()));
+        // With `either`, only the thresholds actually given take part, so one
+        // threshold reduces to itself.
+        let fa = min_a.map(|f| point || f.met(ov, a.len()));
+        let fb = min_b.map(|f| point || f.met(ov, b.len()));
         let frac_ok = match (fa, fb) {
             (None, None) => true,
             (Some(x), None) | (None, Some(x)) => x,
@@ -129,9 +147,7 @@ impl OverlapCriteria {
             }
         };
 
-        let bases_ok = self
-            .min_bases
-            .is_none_or(|n| a.is_point() || b.is_point() || ov >= n);
+        let bases_ok = self.min_bases.is_none_or(|n| point || ov >= n);
 
         let strand_ok = match self.strand {
             StrandRule::Any => true,
@@ -166,4 +182,24 @@ impl Window {
             end: b.end.saturating_add(r),
         }
     }
+}
+
+/// Do any block of `a` and any block of `b` overlap (spec 4.3 point rules)?
+pub fn blocks_overlap(a: &[Interval], b: &[Interval], inclusive_points: bool) -> bool {
+    a.iter()
+        .any(|&x| b.iter().any(|&y| overlaps(x, y, inclusive_points)))
+}
+
+/// Total shared bases between two block lists, each sorted and disjoint.
+pub fn blocks_overlap_len(a: &[Interval], b: &[Interval]) -> u64 {
+    let (mut i, mut j, mut total) = (0, 0, 0u64);
+    while i < a.len() && j < b.len() {
+        total += overlap_len(a[i], b[j]);
+        if a[i].end <= b[j].end {
+            i += 1;
+        } else {
+            j += 1;
+        }
+    }
+    total
 }

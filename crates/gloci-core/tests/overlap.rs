@@ -63,6 +63,8 @@ fn criteria() {
         min_bases: Some(6),
         ..Default::default()
     }));
+    // Spec 4.3 (amended 2026-11-08, D34, superseding D5): a threshold counts as met
+    // when EITHER side is a point, not only the point's own side. See overlap_p1.rs.
     let point_ok = OverlapCriteria {
         min_frac_a: f("0.9"),
         min_bases: Some(6),

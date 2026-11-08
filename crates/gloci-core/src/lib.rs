@@ -10,6 +10,7 @@ pub mod interval;
 pub mod order;
 pub mod overlap;
 pub mod region;
+pub mod variant_kind;
 
 pub use chrom::{ChromId, ChromOrder, ChromTable, OrderSource, karyotype_cmp};
 pub use distance::{SignFrame, distance, signed_distance};
@@ -21,5 +22,9 @@ pub use footprint::{Variant, VcfSpan, alt_footprints, footprint};
 pub use genome::Genome;
 pub use interval::{Interval, Strand, one_based_closed, parse_coord};
 pub use order::{OrderChecker, OrderViolation};
-pub use overlap::{Fraction, OverlapCriteria, StrandRule, Window, overlap_len, overlaps};
+pub use overlap::{
+    Fraction, OverlapCriteria, StrandRule, Window, blocks_overlap, blocks_overlap_len, overlap_len,
+    overlaps,
+};
 pub use region::{Region, RegionSet};
+pub use variant_kind::{VariantKind, alt_kinds, trimmed_alleles};
