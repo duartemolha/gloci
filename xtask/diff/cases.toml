@@ -1276,3 +1276,14 @@ gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-split-b.bed --spli
 reference = "bedtools coverage -a input.bed -b cov-split-b.bed -split -hist"
 compare = "numeric"
 expected_difference = "#coverage-split-length"
+
+# `bedtools coverage -d -split` ignores -split (A and B are whole spans, offsets
+# run along A's span); gloci --per-base --split walks A's blocks.
+[[case]]
+name = "coverage-split-per-base-vs-bedtools"
+input = { file = "xtask/diff/inputs/cov-split-a.bed" }
+aux = ["xtask/diff/inputs/cov-split-b.bed"]
+gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-split-b.bed --split --per-base"
+reference = "bedtools coverage -a input.bed -b cov-split-b.bed -split -d"
+compare = "numeric"
+expected_difference = "#coverage-split-length"

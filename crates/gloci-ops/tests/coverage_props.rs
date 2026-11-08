@@ -2,13 +2,13 @@
 //! sorted inputs and shuffled ones with `--unsorted`, with thresholds,
 //! strand rules, points, and several `-b` files.
 
-use gloci_core::{ChromOrder, Fraction, OverlapCriteria, StrandRule, VcfSpan};
+use gloci_core::{ChromOrder, Fraction, Interval, OverlapCriteria, StrandRule, VcfSpan};
 use gloci_io::{Format, InvalidPolicy, ReaderOptions, RecordWriter};
 use gloci_ops::coverage::{CoverageOptions, CoverageReport, coverage, write_hist_totals};
 use gloci_ops::{RelateInputs, RelateOptions};
 use gloci_testkit::TestRec;
 use gloci_testkit::mem::mem_reader;
-use gloci_testkit::naive::{self, NaiveDepth, naive_depth};
+use gloci_testkit::naive::{self, NaiveBlocks, NaiveDepth, naive_depth};
 use gloci_testkit::strategies::{CHROMS, relation_inputs};
 use proptest::prelude::*;
 use std::collections::BTreeMap;
@@ -37,8 +37,52 @@ fn reader_opts() -> ReaderOptions {
     }
 }
 
+/// The blocks of a record, derived from its coordinates: two blocks with a
+/// gap for some records of three or more bases, else the span as one block.
+fn blocks_of(r: &TestRec) -> Vec<Interval> {
+    let len = r.end - r.start;
+    if len >= 3 && !(r.start + r.end).is_multiple_of(3) {
+        let l1 = 1 + r.start % (len - 2);
+        let l2 = 1 + r.end % (len - l1 - 1);
+        vec![
+            Interval {
+                start: r.start,
+                end: r.start + l1,
+            },
+            Interval {
+                start: r.end - l2,
+                end: r.end,
+            },
+        ]
+    } else {
+        vec![Interval {
+            start: r.start,
+            end: r.end,
+        }]
+    }
+}
+
+/// The records as BED12 lines (a point as BED6, which has no blocks).
 fn text(recs: &[TestRec]) -> String {
-    recs.iter().map(|r| format!("{}\n", r.bed_line())).collect()
+    recs.iter().map(|r| format!("{}\n", line(r))).collect()
+}
+
+fn line(r: &TestRec) -> String {
+    if r.start == r.end {
+        return r.bed_line();
+    }
+    let b = blocks_of(r);
+    let sizes: Vec<String> = b.iter().map(|x| (x.end - x.start).to_string()).collect();
+    let starts: Vec<String> = b.iter().map(|x| (x.start - r.start).to_string()).collect();
+    format!(
+        "{}\t{}\t{}\t0\t{}\t{}\t{}",
+        r.bed_line(),
+        r.start,
+        r.end,
+        b.len(),
+        sizes.join(","),
+        starts.join(",")
+    )
 }
 
 fn shuffle(v: Vec<TestRec>, seed: u64) -> Vec<TestRec> {
@@ -65,7 +109,7 @@ fn ratio(n: u64, d: u64) -> String {
 fn expected(a: &[TestRec], depths: &[NaiveDepth], report: CoverageReport) -> Vec<String> {
     let mut rows = Vec::new();
     for (ra, nd) in a.iter().zip(depths) {
-        let line = ra.bed_line();
+        let line = line(ra);
         let len = nd.len();
         let covered = nd.covered();
         match report {
@@ -170,9 +214,10 @@ proptest! {
                 let (_, totals) = coverage(inputs, &o, &mut sink).unwrap();
                 (sink.0, totals)
             };
+            let nb: Option<NaiveBlocks> = if split { Some(&blocks_of) } else { None };
             // every report over the first file alone
             let one = &b[..1];
-            let depths = naive_depth(&a, one, &criteria);
+            let depths = naive_depth(&a, one, &criteria, nb);
             for report in [
                 CoverageReport::Summary,
                 CoverageReport::Hist,
@@ -210,10 +255,10 @@ proptest! {
             // several files: one covered fraction per file
             let (got, _) = run(CoverageReport::Summary, &b);
             let per_file: Vec<Vec<NaiveDepth>> =
-                b.iter().map(|f| naive_depth(&a, std::slice::from_ref(f), &criteria)).collect();
+                b.iter().map(|f| naive_depth(&a, std::slice::from_ref(f), &criteria, nb)).collect();
             if b.len() > 1 {
                 let want: Vec<String> = a.iter().enumerate().map(|(i, ra)| {
-                    let mut row = ra.bed_line();
+                    let mut row = line(ra);
                     for pf in &per_file {
                         let d = &pf[i];
                         row.push('\t');

@@ -228,6 +228,33 @@ fn split_blocks() {
 }
 
 #[test]
+fn split_hist_and_mean() {
+    let fx = Fx::new();
+    let a = "chr1\t100\t200\tsp\t0\t+\t100\t200\t0\t2\t20,20\t0,80\n";
+    let row = |t: &str| format!("{}{t}", a.trim_end());
+    // B1 blocks 100-120 and 160-180, B2 (plain) 110-190: over A's blocks
+    // depth is 1 on 100-110, 2 on 110-120, 1 on 180-190, 0 on 190-200
+    let b = "chr1\t100\t180\tsb\t0\t+\t100\t180\t0\t2\t20,20\t0,60\nchr1\t110\t190\tp\n";
+    assert_eq!(
+        fx.run(a, &[b], &["--split", "--hist"]),
+        [
+            row(&format!("\t0\t10\t40\t{}", f(10, 40))),
+            row(&format!("\t1\t20\t40\t{}", f(20, 40))),
+            row(&format!("\t2\t10\t40\t{}", f(10, 40))),
+            format!("all\t0\t10\t40\t{}", f(10, 40)),
+            format!("all\t1\t20\t40\t{}", f(20, 40)),
+            format!("all\t2\t10\t40\t{}", f(10, 40)),
+        ]
+    );
+    assert_eq!(fx.run(a, &[b], &["--split", "--mean"]), [row("\t1")]);
+    // without --split B1 and B2 are plain spans over A's whole span
+    assert_eq!(
+        fx.run(a, &[b], &["--mean"]),
+        [row(&format!("\t{}", f(80 + 80, 100)))]
+    );
+}
+
+#[test]
 fn vcf_a() {
     let fx = Fx::new();
     let vcf = fx.file(
@@ -292,10 +319,43 @@ fn usage_and_data_errors() {
     assert_eq!(code(&["coverage", "-a", &bad, "-b", &b]), 1);
 }
 
+/// A deterministic sorted BED over chr1-chr3: `n` records per chromosome,
+/// spaced `step` apart with lengths from `len`..`len + spread`.
+fn generated_bed(n: u64, step: u64, len: u64, spread: u64, seed: u64) -> String {
+    let mut x = seed;
+    let mut next = move || {
+        x = x
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        x >> 33
+    };
+    let mut out = String::new();
+    for chrom in ["chr1", "chr2", "chr3"] {
+        for i in 0..n {
+            let start = i * step + next() % step;
+            let end = start + len + next() % spread;
+            let strand = ["+", "-", "."][(next() % 3) as usize];
+            out += &format!("{chrom}\t{start}\t{end}\tr{i}\t0\t{strand}\n");
+        }
+    }
+    out
+}
+
 #[test]
 fn determinism() {
-    let fx = Fx::new();
-    let (a, b) = (fx.file("a.bed", A), fx.file("b.bed", B));
+    let dir = tempdir();
+    // thousands of BGZF records, so -t 8 runs the threaded read and write
+    // paths; A is short enough for --per-base
+    let a = s(&bgzf_file(
+        dir.path(),
+        "a.bed.gz",
+        &generated_bed(1500, 400, 100, 100, 1),
+    ));
+    let b = s(&bgzf_file(
+        dir.path(),
+        "b.bed.gz",
+        &generated_bed(3000, 200, 30, 300, 2),
+    ));
     for extra in [
         &[][..],
         &["--hist"],
@@ -315,8 +375,31 @@ fn determinism() {
                 .clone()
         };
         let one = run("1");
-        assert!(!one.is_empty());
+        assert!(one.len() > 100_000, "{extra:?}: {} bytes", one.len());
         assert_eq!(one, run("2"), "{extra:?}");
         assert_eq!(one, run("8"), "{extra:?}");
     }
+    // BGZF output, compressed on several threads
+    let out = |t: &str| {
+        let path = dir.path().join(format!("out{t}.tsv.gz"));
+        gloci()
+            .args(["coverage", "-a", &a, "-b", &b, "--hist", "-t", t, "-o"])
+            .arg(&path)
+            .assert()
+            .success();
+        std::fs::read(path).unwrap()
+    };
+    let one = out("1");
+    assert_eq!(one, out("8"));
+}
+
+#[test]
+fn write_error_names_the_destination() {
+    let fx = Fx::new();
+    let (a, b) = (fx.file("a.bed", A), fx.file("b.bed", B));
+    gloci()
+        .args(["coverage", "-a", &a, "-b", &b, "-o", "/dev/full"])
+        .assert()
+        .failure()
+        .stderr(contains("error writing /dev/full"));
 }

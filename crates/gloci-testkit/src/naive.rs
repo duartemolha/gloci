@@ -287,6 +287,14 @@ fn naive_accepts(c: &OverlapCriteria, a: Interval, sa: Strand, b: Interval, sb: 
     }
     let shared = shared_bases(a, b);
     let point = a.start == a.end || b.start == b.end;
+    thresholds_met(c, shared, a.end - a.start, b.end - b.start, point)
+}
+
+/// The threshold half of spec 4.3 for two features that overlap: `shared`
+/// bases, of `alen` and `blen`. Each threshold is met when either side is a
+/// point; `-r` with one fraction applies it to both sides; `-e` needs
+/// either of the given fractions.
+fn thresholds_met(c: &OverlapCriteria, shared: u64, alen: u64, blen: u64, point: bool) -> bool {
     if point {
         return true;
     }
@@ -299,8 +307,8 @@ fn naive_accepts(c: &OverlapCriteria, a: Interval, sa: Strand, b: Interval, sb: 
         fa = fa.or(one);
         fb = fb.or(one);
     }
-    let ok_a = fa.map(|f| f.met(shared, a.end - a.start));
-    let ok_b = fb.map(|f| f.met(shared, b.end - b.start));
+    let ok_a = fa.map(|f| f.met(shared, alen));
+    let ok_b = fb.map(|f| f.met(shared, blen));
     match (ok_a, ok_b) {
         (None, None) => true,
         (Some(x), None) | (None, Some(x)) => x,
@@ -905,40 +913,92 @@ impl NaiveDepth {
     }
 }
 
+/// The blocks of a record, as `coverage --split` sees them (BED12 blocks,
+/// or the span as one block).
+pub type NaiveBlocks<'a> = &'a dyn Fn(&TestRec) -> Vec<Interval>;
+
 /// `coverage` depth, by brute force: for each A in the order given, the
 /// number of B that count and A's depth, with each such B (from any of the
 /// `b` files) adding 1 over the bases it shares with A. The depth at each
-/// run is found by testing every counting B. A window is not supported, as
-/// in `coverage`.
+/// run is found by testing every block of every counting B. A window is not
+/// supported, as in `coverage`.
+///
+/// With `blocks` (`--split`), A and B are their blocks: a B counts when
+/// some pair of blocks overlaps (spec 4.3) and the thresholds, measured on
+/// the total block lengths and the total shared bases, are met; depth is
+/// counted only inside A's blocks, over B's blocks, so the runs tile A's
+/// blocks in order.
 pub fn naive_depth(
     a: &[TestRec],
     b: &[Vec<TestRec>],
     criteria: &OverlapCriteria,
+    blocks: Option<NaiveBlocks>,
 ) -> Vec<NaiveDepth> {
     a.iter()
         .map(|ra| {
-            let hits = naive_accepted(ra, b, criteria, None);
-            let s = ra.span();
-            let mut cuts = vec![s.start, s.end];
-            for (_, rb) in &hits {
-                let t = rb.span();
-                cuts.extend([t.start.clamp(s.start, s.end), t.end.clamp(s.start, s.end)]);
-            }
-            cuts.sort_unstable();
-            cuts.dedup();
-            let runs = cuts
-                .windows(2)
-                .map(|w| {
-                    let depth = hits
-                        .iter()
-                        .filter(|(_, rb)| {
-                            let t = rb.span();
-                            t.start <= w[0] && w[1] <= t.end && t.start < t.end
-                        })
-                        .count() as u64;
-                    (w[0], w[1], depth)
+            let a_blocks = match blocks {
+                Some(f) => f(ra),
+                None => vec![ra.span()],
+            };
+            let hits: Vec<&TestRec> = match blocks {
+                None => naive_accepted(ra, b, criteria, None)
+                    .into_iter()
+                    .map(|(_, r)| r)
+                    .collect(),
+                Some(f) => {
+                    let total = |v: &[Interval]| v.iter().map(|x| x.end - x.start).sum::<u64>();
+                    let mut v = Vec::new();
+                    for rb in b.iter().flatten() {
+                        if rb.chrom() != ra.chrom() {
+                            continue;
+                        }
+                        let bb = f(rb);
+                        let any = a_blocks.iter().any(|x| {
+                            bb.iter()
+                                .any(|y| spans_overlap(*x, *y, criteria.inclusive_points))
+                        });
+                        if !any || !strand_met(criteria.strand, ra.strand(), rb.strand()) {
+                            continue;
+                        }
+                        let shared: u64 = a_blocks
+                            .iter()
+                            .flat_map(|x| bb.iter().map(move |y| shared_bases(*x, *y)))
+                            .sum();
+                        let (alen, blen) = (total(&a_blocks), total(&bb));
+                        if thresholds_met(criteria, shared, alen, blen, alen == 0 || blen == 0) {
+                            v.push(rb);
+                        }
+                    }
+                    v
+                }
+            };
+            let b_blocks: Vec<Vec<Interval>> = hits
+                .iter()
+                .map(|rb| match blocks {
+                    Some(f) => f(rb),
+                    None => vec![rb.span()],
                 })
                 .collect();
+            let mut runs = Vec::new();
+            for ab in &a_blocks {
+                let mut cuts = vec![ab.start, ab.end];
+                for t in b_blocks.iter().flatten() {
+                    cuts.extend([
+                        t.start.clamp(ab.start, ab.end),
+                        t.end.clamp(ab.start, ab.end),
+                    ]);
+                }
+                cuts.sort_unstable();
+                cuts.dedup();
+                for w in cuts.windows(2) {
+                    let depth = b_blocks
+                        .iter()
+                        .flatten()
+                        .filter(|t| t.start < t.end && t.start <= w[0] && w[1] <= t.end)
+                        .count() as u64;
+                    runs.push((w[0], w[1], depth));
+                }
+            }
             NaiveDepth {
                 count: hits.len() as u64,
                 runs,

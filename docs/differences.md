@@ -457,9 +457,12 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   blocks.
 - **Old behaviour:** `bedtools coverage -split` counts the same covered
   bases but divides by A's whole span, so introns count as uncovered, and
-  `-hist` reports them at depth 0.
+  `-hist` reports them at depth 0. `bedtools coverage -d -split` ignores
+  `-split` altogether: it walks A's whole span and counts B's whole spans, so
+  a base in the gap between A's blocks gets a row and can have depth.
 - **Reason:** for a spliced feature the fraction of its own bases covered
   is the useful number, and it agrees with the block lengths that
   `-f`/`-F` use under `--split`.
-- **Pinned by:** `coverage-split-vs-bedtools` and
-  `coverage-split-hist-vs-bedtools` (must differ).
+- **Pinned by:** `coverage-split-vs-bedtools`,
+  `coverage-split-hist-vs-bedtools` and `coverage-split-per-base-vs-bedtools`
+  (must differ).

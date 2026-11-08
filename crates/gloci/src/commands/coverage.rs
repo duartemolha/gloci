@@ -86,10 +86,14 @@ pub fn run(ctx: &Ctx, a: &CoverageArgs) -> anyhow::Result<()> {
         a: reader_a,
         b: readers_b,
     };
-    let (_, totals) = coverage(inputs, &o, w.as_mut())?;
+    let dest = spec
+        .path
+        .as_ref()
+        .map_or_else(|| "stdout".to_string(), |p| p.display().to_string());
+    let (_, totals) = coverage(inputs, &o, w.as_mut()).map_err(|e| e.with_output_name(&dest))?;
     if report == CoverageReport::Hist {
-        write_hist_totals(&totals, w.as_mut())?;
+        write_hist_totals(&totals, w.as_mut()).map_err(|e| e.with_output_name(&dest))?;
     }
-    w.finish()?;
+    w.finish().map_err(|e| e.with_output_name(&dest))?;
     Ok(())
 }
