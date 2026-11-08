@@ -569,6 +569,7 @@ name = "gloci-ops"
 version = "0.1.0"
 dependencies = [
  "gloci-core",
+ "gloci-engine",
  "gloci-io",
  "gloci-testkit",
  "log",

@@ -424,6 +424,174 @@ pub struct FormatArg {
     pub format: Option<String>,
 }
 
+/// Parse a fraction such as `0.5` or `50%` (spec 4.3).
+fn parse_fraction(s: &str) -> Result<gloci_core::Fraction, String> {
+    gloci_core::Fraction::parse(s).map_err(|e| e.to_string())
+}
+
+/// The A input of a relation command.
+#[derive(Args, Debug, Clone)]
+pub struct AArg {
+    /// A: the file whose records are reported (`-` for stdin).
+    #[arg(short = 'a', long = "a", value_name = "FILE", required = true)]
+    pub a: String,
+    /// A's format, overriding detection (bed, bedgraph, gff, vcf, bcf).
+    #[arg(long, value_name = "FMT")]
+    pub a_format: Option<String>,
+}
+
+/// The B inputs of a relation command.
+#[derive(Args, Debug, Clone)]
+pub struct BArgs {
+    /// B: one or more files to relate A to, in the order given (-b x y or -b x -b y).
+    #[arg(
+        short = 'b',
+        long = "b",
+        value_name = "FILE",
+        required = true,
+        num_args = 1..,
+        action = clap::ArgAction::Append
+    )]
+    pub b: Vec<String>,
+    /// Labels for the B files, comma-separated, one per -b (default: the file
+    /// basenames, spec 5).
+    #[arg(long, value_name = "A,B,...", value_delimiter = ',')]
+    pub names: Option<Vec<String>>,
+    /// B's format, overriding detection (bed, bedgraph, gff, vcf, bcf).
+    #[arg(long, value_name = "FMT")]
+    pub b_format: Option<String>,
+}
+
+impl BArgs {
+    /// One label per B file: `--names`, or the basenames. Usage error (exit
+    /// 2) when `--names` does not give exactly one label per `-b`.
+    pub fn labels(&self) -> Result<Vec<String>, String> {
+        match &self.names {
+            Some(n) if n.len() != self.b.len() => Err(format!(
+                "--names gives {} label(s) but there are {} -b file(s); give one label per -b",
+                n.len(),
+                self.b.len()
+            )),
+            Some(n) => Ok(n.clone()),
+            None => Ok(self
+                .b
+                .iter()
+                .map(|p| {
+                    std::path::Path::new(p)
+                        .file_name()
+                        .map_or_else(|| p.clone(), |f| f.to_string_lossy().into_owned())
+                })
+                .collect()),
+        }
+    }
+}
+
+/// Overlap thresholds, strand rule and block mode (spec 4.3).
+#[derive(Args, Debug, Clone)]
+pub struct OverlapArgs {
+    /// Minimum fraction of A covered, e.g. 0.5 or 50% (4.3: fractions).
+    #[arg(short = 'f', long, value_name = "FRAC", value_parser = parse_fraction)]
+    pub min_frac_a: Option<gloci_core::Fraction>,
+    /// Minimum fraction of B covered, e.g. 0.5 or 50% (4.3: fractions).
+    #[arg(short = 'F', long, value_name = "FRAC", value_parser = parse_fraction)]
+    pub min_frac_b: Option<gloci_core::Fraction>,
+    /// Require both fractions to be met (4.3: -r).
+    #[arg(short = 'r', long)]
+    pub reciprocal: bool,
+    /// Require either fraction to be met (4.3: -e).
+    #[arg(short = 'e', long)]
+    pub either: bool,
+    /// Minimum number of overlapping bases (4.3: --min-bases).
+    #[arg(long, value_name = "N")]
+    pub min_bases: Option<u64>,
+    /// Only overlaps on the same strand; unknown strands never match (4.3: strand).
+    #[arg(short = 's', long = "same-strand", conflicts_with = "opposite_strand")]
+    pub same_strand: bool,
+    /// Only overlaps on opposite strands; unknown strands never match (4.3: strand).
+    #[arg(short = 'S', long = "opposite-strand")]
+    pub opposite_strand: bool,
+    /// Compare BED12 blocks (exons) instead of whole spans (4.3: BED12 blocks).
+    #[arg(long)]
+    pub split: bool,
+    /// A point on the edge of an interval overlaps it (4.3: points).
+    #[arg(long)]
+    pub inclusive_points: bool,
+}
+
+impl OverlapArgs {
+    pub fn criteria(&self) -> gloci_core::OverlapCriteria {
+        use gloci_core::StrandRule;
+        gloci_core::OverlapCriteria {
+            min_frac_a: self.min_frac_a,
+            min_frac_b: self.min_frac_b,
+            reciprocal: self.reciprocal,
+            either: self.either,
+            min_bases: self.min_bases,
+            strand: match (self.same_strand, self.opposite_strand) {
+                (true, _) => StrandRule::Same,
+                (_, true) => StrandRule::Opposite,
+                _ => StrandRule::Any,
+            },
+            inclusive_points: self.inclusive_points,
+        }
+    }
+}
+
+/// B padding (spec 4.3: windows). Cannot be combined with thresholds (D37).
+#[derive(Args, Debug, Clone)]
+pub struct WindowArgs {
+    /// Pad B by N on both sides before testing (4.3: windows).
+    #[arg(
+        short = 'w',
+        long = "window",
+        value_name = "N",
+        conflicts_with_all = WINDOW_CONFLICTS
+    )]
+    pub window: Option<u64>,
+    /// Pad B by N on the left (4.3: windows).
+    #[arg(long, value_name = "N", conflicts_with_all = WINDOW_CONFLICTS)]
+    pub left: Option<u64>,
+    /// Pad B by N on the right (4.3: windows).
+    #[arg(long, value_name = "N", conflicts_with_all = WINDOW_CONFLICTS)]
+    pub right: Option<u64>,
+    /// Left and right follow A's strand (4.3: windows).
+    #[arg(long, conflicts_with_all = WINDOW_CONFLICTS)]
+    pub strand_window: bool,
+}
+
+/// The threshold flags a window cannot be combined with (D37).
+const WINDOW_CONFLICTS: [&str; 5] = [
+    "min_frac_a",
+    "min_frac_b",
+    "reciprocal",
+    "either",
+    "min_bases",
+];
+
+impl WindowArgs {
+    /// The window, when any window flag is given. `--left`/`--right`
+    /// override `-w` for their side.
+    pub fn window(&self) -> Option<gloci_core::Window> {
+        if self.window.is_none() && self.left.is_none() && self.right.is_none() {
+            return None;
+        }
+        let w = self.window.unwrap_or(0);
+        Some(gloci_core::Window {
+            left: self.left.unwrap_or(w),
+            right: self.right.unwrap_or(w),
+            strand_aware: self.strand_window,
+        })
+    }
+}
+
+/// Sort-free mode for B (spec 8.2).
+#[derive(Args, Debug, Clone)]
+pub struct UnsortedArg {
+    /// Accept inputs in any order; B is held in memory (8.2: unsorted mode).
+    #[arg(long)]
+    pub unsorted: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -444,5 +612,112 @@ mod tests {
             ChromOrder::Lex
         );
         assert!(order(&["t", "--chrom-order", "natural"]).is_err());
+    }
+
+    #[derive(Parser)]
+    struct R {
+        #[command(flatten)]
+        a: AArg,
+        #[command(flatten)]
+        b: BArgs,
+        #[command(flatten)]
+        o: OverlapArgs,
+        #[command(flatten)]
+        w: WindowArgs,
+        #[command(flatten)]
+        u: UnsortedArg,
+    }
+
+    fn parse(args: &[&str]) -> Result<R, clap::Error> {
+        let mut v = vec!["t", "-a", "a.bed", "-b", "b.bed"];
+        v.extend_from_slice(args);
+        R::try_parse_from(v)
+    }
+
+    #[test]
+    fn relation_groups_parse() {
+        let r = R::try_parse_from([
+            "t",
+            "-a",
+            "a.bed",
+            "--a-format",
+            "bed",
+            "-b",
+            "x.bed",
+            "y.bed",
+            "-b",
+            "z.bed",
+            "--names",
+            "x,y,z",
+            "--b-format",
+            "bed",
+            "-f",
+            "50%",
+            "-F",
+            "0.25",
+            "-r",
+            "-e",
+            "--min-bases",
+            "3",
+            "-s",
+            "--split",
+            "--inclusive-points",
+            "--unsorted",
+        ])
+        .unwrap();
+        assert_eq!(r.a.a, "a.bed");
+        assert_eq!(r.b.b, ["x.bed", "y.bed", "z.bed"]);
+        assert_eq!(r.b.labels().unwrap(), ["x", "y", "z"]);
+        let c = r.o.criteria();
+        assert_eq!(
+            c.min_frac_a,
+            Some(gloci_core::Fraction::parse("0.5").unwrap())
+        );
+        assert_eq!(c.min_bases, Some(3));
+        assert_eq!(c.strand, gloci_core::StrandRule::Same);
+        assert!(r.o.split && r.u.unsorted && r.w.window().is_none());
+        assert!(parse(&["-f", "1.5"]).is_err());
+        assert!(
+            R::try_parse_from(["t", "-a", "a.bed"]).is_err(),
+            "-b is required"
+        );
+    }
+
+    #[test]
+    fn names_must_match_b_count() {
+        assert!(parse(&["--names", "x,y"]).unwrap().b.labels().is_err());
+        let r = parse(&[]).unwrap();
+        assert_eq!(r.b.labels().unwrap(), ["b.bed"]);
+    }
+
+    #[test]
+    fn window_conflicts_with_thresholds() {
+        use clap::error::ErrorKind::ArgumentConflict;
+        for w in [["-w", "5"], ["--left", "5"], ["--right", "5"]] {
+            for t in [
+                &["-f", "0.5"][..],
+                &["-F", "0.5"],
+                &["-r"],
+                &["-e"],
+                &["--min-bases", "1"],
+            ] {
+                let args: Vec<&str> = w.iter().chain(t).copied().collect();
+                let e = parse(&args)
+                    .err()
+                    .unwrap_or_else(|| panic!("{args:?} parsed"));
+                assert_eq!(e.kind(), ArgumentConflict, "{args:?}");
+                assert_eq!(e.exit_code(), 2);
+            }
+        }
+        assert!(parse(&["--strand-window", "-r"]).is_err());
+        let r = parse(&["-w", "10", "--left", "2", "--strand-window", "-s"]).unwrap();
+        let w = r.w.window().unwrap();
+        assert_eq!((w.left, w.right, w.strand_aware), (2, 10, true));
+    }
+
+    #[test]
+    fn same_and_opposite_strand_conflict() {
+        assert!(parse(&["-s", "-S"]).is_err());
+        assert!(parse(&["-S"]).is_ok());
     }
 }
