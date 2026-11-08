@@ -27,4 +27,4 @@ pub use overlap::{
     overlaps,
 };
 pub use region::{Region, RegionSet};
-pub use variant_kind::{VariantKind, alt_kinds, trimmed_alleles};
+pub use variant_kind::{VariantKind, alt_kind, alt_kinds, trimmed_alleles};

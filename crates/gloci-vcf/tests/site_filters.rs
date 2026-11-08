@@ -123,8 +123,12 @@ fn type_classifier_matches_core() {
         "AT",
         "<DEL>",
         "<INS:ME>",
+        "<INS>",
         "<*>",
+        "<*:X>",
         "<NON_REF>",
+        "<non_ref>",
+        "<>",
         ".",
         "*",
         "A]1:5]",
@@ -137,6 +141,19 @@ fn type_classifier_matches_core() {
         "C,<DEL>",
         "T,*",
         "",
+        "C,,G",
+        "C,G,AT",
+        ",",
+        "AT,A,<INS>",
+    ];
+    let all = [
+        (VcfType::Snv, VariantKind::Snv),
+        (VcfType::Mnv, VariantKind::Mnv),
+        (VcfType::Ins, VariantKind::Ins),
+        (VcfType::Del, VariantKind::Del),
+        (VcfType::Sv, VariantKind::Sv),
+        (VcfType::Ref, VariantKind::Ref),
+        (VcfType::Other, VariantKind::Other),
     ];
     for refs in ["A", "AT", "ATCG", "at"] {
         for alt in alts {
@@ -148,28 +165,77 @@ fn type_classifier_matches_core() {
                 end: None,
                 svlen: None,
             };
-            for (name, vt, kind) in [
-                ("snv", VcfType::Snv, VariantKind::Snv),
-                ("mnv", VcfType::Mnv, VariantKind::Mnv),
-                ("ins", VcfType::Ins, VariantKind::Ins),
-                ("del", VcfType::Del, VariantKind::Del),
-                ("sv", VcfType::Sv, VariantKind::Sv),
-                ("ref", VcfType::Ref, VariantKind::Ref),
-                ("other", VcfType::Other, VariantKind::Other),
-            ] {
-                let f = SiteFilters {
+            let kinds = alt_kinds(&v);
+            // The per-record union, checked through types and exclude_types.
+            for (vt, kind) in all {
+                let inc = SiteFilters {
                     types: Some(vec![vt]),
                     ..Default::default()
                 };
-                let want = alt_kinds(&v).contains(&kind);
+                let exc = SiteFilters {
+                    exclude_types: Some(vec![vt]),
+                    ..Default::default()
+                };
+                let want = kinds.contains(&kind);
                 assert_eq!(
-                    !kept(&f, &[&line]).is_empty(),
+                    !kept(&inc, &[&line]).is_empty(),
                     want,
-                    "{refs} -> {alt:?} as {name}"
+                    "{refs} -> {alt:?} {vt:?}"
+                );
+                assert_eq!(
+                    kept(&exc, &[&line]).is_empty(),
+                    want,
+                    "{refs} -> {alt:?} !{vt:?}"
                 );
             }
+            let full = SiteFilters {
+                types: Some(all.iter().map(|x| x.0).collect()),
+                ..Default::default()
+            };
+            assert_eq!(!kept(&full, &[&line]).is_empty(), !kinds.is_empty());
         }
     }
+}
+
+#[test]
+fn info_key_is_exact() {
+    for info in ["DPX=1;NS=3", "NS=3;DPX=1", "DPX", "NS=3;DPX"] {
+        let l = format!("1\t10\t.\tA\tC\t.\t.\t{info}");
+        let req = SiteFilters {
+            require_info: list(&["DP"]),
+            ..Default::default()
+        };
+        let exc = SiteFilters {
+            exclude_info: list(&["DP"]),
+            ..Default::default()
+        };
+        assert!(kept(&req, &[&l]).is_empty(), "{info}");
+        assert_eq!(kept(&exc, &[&l]), vec![10], "{info}");
+    }
+    for info in ["DP=1;NS=3", "NS=3;DP=1", "DP", "NS=3;DP"] {
+        let l = format!("1\t10\t.\tA\tC\t.\t.\t{info}");
+        let req = SiteFilters {
+            require_info: list(&["DP"]),
+            ..Default::default()
+        };
+        let exc = SiteFilters {
+            exclude_info: list(&["DP"]),
+            ..Default::default()
+        };
+        assert_eq!(kept(&req, &[&l]), vec![10], "{info}");
+        assert!(kept(&exc, &[&l]).is_empty(), "{info}");
+    }
+}
+
+#[test]
+fn pass_only_and_keep_filter_both_apply() {
+    let f = SiteFilters {
+        pass_only: true,
+        keep_filter: Some(list(&["PASS"])),
+        ..Default::default()
+    };
+    // POS 20 has FILTER `.`: kept by --pass-only alone, dropped here.
+    assert_eq!(kept(&f, R), vec![10, 50, 60, 70, 80]);
 }
 
 #[test]
@@ -578,6 +644,8 @@ fn bcf_view_equals_text_view() {
         "1\t20\t.\tA\tC,G\t.\t.\tDP=4",
         "1\t30\trs3\tAT\tA\t0.7\tLowQual\tDP=2",
         "1\t40\t.\tA\t.\t30\tLowQual;PASS\t.",
+        "1\t50\trs3;rs4\tA\tG\t20\tPASS\tDB;DP=2;NS=1",
+        "1\t60\t.\tA\tT\t20\t.\tDB",
     ];
     let text = vcf(
         &["s1"],
@@ -589,7 +657,7 @@ fn bcf_view_equals_text_view() {
     );
     let bcf = gloci_testkit::fixtures::vcf_to_bcf(text.as_bytes());
     let (dicts, raws) = bcf_records(&bcf);
-    assert_eq!(raws.len(), 4);
+    assert_eq!(raws.len(), 6);
     let mut site = BcfSite::default();
     for (raw, line) in raws.iter().zip(recs) {
         let t = SiteView::from_text(line.as_bytes(), span_of(line)).unwrap();
@@ -616,6 +684,48 @@ fn bcf_view_equals_text_view() {
                 .collect()
         };
         assert_eq!(keys(b.info), keys(t.info), "{line}");
+        // The same verdict on both views for a spread of filter settings.
+        let filters = [
+            SiteFilters {
+                pass_only: true,
+                ..Default::default()
+            },
+            SiteFilters {
+                min_qual: Some(25.0),
+                ..Default::default()
+            },
+            SiteFilters {
+                require_info: list(&["DB"]),
+                ..Default::default()
+            },
+            SiteFilters {
+                exclude_info: list(&["DP", "NS"]),
+                ..Default::default()
+            },
+            SiteFilters {
+                ids: Some(set(&["rs4"])),
+                ..Default::default()
+            },
+            SiteFilters {
+                exclude_ids: Some(set(&["rs1"])),
+                ..Default::default()
+            },
+            SiteFilters {
+                keep_filter: Some(list(&["LowQual"])),
+                ..Default::default()
+            },
+            SiteFilters {
+                max_alleles: Some(2),
+                ..Default::default()
+            },
+            SiteFilters {
+                types: Some(vec![VcfType::Snv]),
+                ..Default::default()
+            },
+        ];
+        for (i, f) in filters.iter().enumerate() {
+            assert_eq!(f.static_pass(&b), f.static_pass(&t), "filter {i} on {line}");
+        }
     }
     // 0.7 is not exactly representable in f32; it must still meet --min-qual 0.7.
     let f = SiteFilters {

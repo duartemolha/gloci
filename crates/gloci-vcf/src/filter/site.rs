@@ -2,7 +2,7 @@
 
 use super::{SiteFilters, VcfType};
 use crate::stats::SiteStats;
-use gloci_core::{ChromId, Interval, trimmed_alleles};
+use gloci_core::{ChromId, Interval, VariantKind, alt_kind};
 use gloci_io::BcfDicts;
 use gloci_io::bcf::typed::{self, Int};
 use memchr::memchr;
@@ -236,47 +236,22 @@ fn mask_of(list: &[VcfType]) -> u8 {
     list.iter().fold(0, |m, t| m | t.mask())
 }
 
-/// The kind of one ALT as a bit. This mirrors `gloci_core::alt_kinds`
-/// without allocating; a test pins the two together.
-fn alt_kind(pos: u64, ref_: &[u8], alt: &[u8]) -> u8 {
-    if alt == b"*" {
-        return OTHER;
-    }
-    if alt.is_empty() || alt == b"." {
-        return REF;
-    }
-    if alt.len() >= 2 && alt[0] == b'<' && alt[alt.len() - 1] == b'>' {
-        let inner = &alt[1..alt.len() - 1];
-        let name = match memchr(b':', inner) {
-            Some(i) => &inner[..i],
-            None => inner,
-        };
-        return if name == b"*" || name.eq_ignore_ascii_case(b"NON_REF") {
-            REF
-        } else {
-            SV
-        };
-    }
-    if alt.iter().any(|&b| b == b'[' || b == b']')
-        || (alt.len() > 1 && (alt[0] == b'.' || alt[alt.len() - 1] == b'.'))
-    {
-        return SV;
-    }
-    let (_, r, a) = trimmed_alleles(pos - 1, ref_, alt);
-    match (r.len(), a.len()) {
-        (0, 0) => REF,
-        (0, _) => INS,
-        (_, 0) => DEL,
-        (1, 1) => SNV,
-        (x, y) if x == y => MNV,
-        _ => OTHER,
+fn kind_bit(k: VariantKind) -> u8 {
+    match k {
+        VariantKind::Snv => SNV,
+        VariantKind::Mnv => MNV,
+        VariantKind::Ins => INS,
+        VariantKind::Del => DEL,
+        VariantKind::Sv => SV,
+        VariantKind::Ref => REF,
+        VariantKind::Other => OTHER,
     }
 }
 
 fn type_set(s: &SiteView) -> u8 {
     s.alts
         .split(|&b| b == b',')
-        .fold(0, |m, alt| m | alt_kind(s.pos, s.ref_, alt))
+        .fold(0, |m, alt| m | kind_bit(alt_kind(s.pos - 1, s.ref_, alt)))
 }
 
 fn n_alleles(alts: &[u8]) -> usize {
@@ -321,8 +296,9 @@ impl SiteFilters {
         self.thin.map(Thinner::new)
     }
 
-    /// The filters that need only the record's columns. Allocation free
-    /// (the first check that fails ends the call).
+    /// The filters that need only the record's columns. Allocation free.
+    /// `pass_only` and `keep_filter` both apply, so `--pass-only --keep-filter
+    /// PASS` drops FILTER `.` records, which `--pass-only` alone keeps.
     pub fn static_pass(&self, s: &SiteView) -> bool {
         if let Some(c) = &self.chroms
             && !c.contains(s.chrom)

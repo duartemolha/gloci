@@ -38,29 +38,33 @@ pub fn trimmed_alleles<'a>(pos0: u64, ref_: &'a [u8], alt: &'a [u8]) -> (u64, &'
     )
 }
 
+/// The kind of one ALT (a single comma-split element) of a record whose
+/// 0-based start is `pos0`. Does not allocate.
+pub fn alt_kind(pos0: u64, reference: &[u8], alt: &[u8]) -> VariantKind {
+    if alt == b"*" {
+        return VariantKind::Other;
+    }
+    match classify(alt) {
+        Alt::None | Alt::Gvcf => VariantKind::Ref,
+        Alt::Ins | Alt::Sv(_) | Alt::Breakend => VariantKind::Sv,
+        Alt::Seq(a) => {
+            let (_, r, a) = trimmed_alleles(pos0, reference, a);
+            match (r.len(), a.len()) {
+                (0, 0) => VariantKind::Ref,
+                (0, _) => VariantKind::Ins,
+                (_, 0) => VariantKind::Del,
+                (1, 1) => VariantKind::Snv,
+                (x, y) if x == y => VariantKind::Mnv,
+                _ => VariantKind::Other,
+            }
+        }
+    }
+}
+
 /// The kind of each ALT of `v`, in ALT order.
 pub fn alt_kinds(v: &Variant) -> Vec<VariantKind> {
     split_alts(v.alts)
         .into_iter()
-        .map(|raw| {
-            if raw == b"*" {
-                return VariantKind::Other;
-            }
-            match classify(raw) {
-                Alt::None | Alt::Gvcf => VariantKind::Ref,
-                Alt::Ins | Alt::Sv(_) | Alt::Breakend => VariantKind::Sv,
-                Alt::Seq(a) => {
-                    let (_, r, a) = trimmed_alleles(v.pos - 1, v.reference, a);
-                    match (r.len(), a.len()) {
-                        (0, 0) => VariantKind::Ref,
-                        (0, _) => VariantKind::Ins,
-                        (_, 0) => VariantKind::Del,
-                        (1, 1) => VariantKind::Snv,
-                        (x, y) if x == y => VariantKind::Mnv,
-                        _ => VariantKind::Other,
-                    }
-                }
-            }
-        })
+        .map(|raw| alt_kind(v.pos - 1, v.reference, raw))
         .collect()
 }

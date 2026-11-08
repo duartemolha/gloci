@@ -6,6 +6,8 @@ use std::io::Read;
 pub const HEADER: &str = "##fileformat=VCFv4.3\n\
 ##contig=<ID=1,length=1000>\n\
 ##INFO=<ID=DP,Number=1,Type=Integer,Description=\"d\">\n\
+##INFO=<ID=DB,Number=0,Type=Flag,Description=\"d\">\n\
+##INFO=<ID=NS,Number=1,Type=Integer,Description=\"n\">\n\
 ##FILTER=<ID=LowQual,Description=\"l\">\n\
 ##FORMAT=<ID=GT,Number=1,Type=String,Description=\"g\">\n\
 ##FORMAT=<ID=DP,Number=1,Type=Integer,Description=\"d\">\n\
