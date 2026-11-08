@@ -1,5 +1,6 @@
 //! gloci-ops: commands as library functions.
 
+pub mod agg;
 pub mod bedsearch;
 pub mod check;
 pub mod intersect;

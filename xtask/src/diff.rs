@@ -69,7 +69,7 @@ pub fn load_cases(path: &Path) -> Result<Vec<Case>> {
         ensure!(
             matches!(
                 c.compare.as_str(),
-                "exact" | "lines-unordered" | "vcf-records" | "exit-status"
+                "exact" | "lines-unordered" | "vcf-records" | "exit-status" | "numeric"
             ),
             "{}: unknown compare mode `{}`",
             c.name,
@@ -358,6 +358,8 @@ mod tests {
             b"##y=2\n#CHROM\nr1\n"
         ));
         assert!(!compare("vcf-records", b"#h\nr1\nr2\n", b"#h\nr2\nr1\n"));
+        assert!(compare("numeric", b"a\t2.5\n", b"a\t2.5000001\n"));
+        assert!(!compare("numeric", b"a\t2.5\n", b"a\t2.6\n"));
     }
 
     #[test]
