@@ -3,6 +3,7 @@
 use crate::atomic::AtomicFile;
 use crate::detect::Format;
 use crate::error::{IoError, UsageError};
+use crate::index::TsvColumns;
 use noodles_bgzf::io::multithreaded_writer::Builder as BgzfBuilder;
 use noodles_bgzf::io::writer::CompressionLevel;
 use std::fs::{File, OpenOptions};
@@ -203,8 +204,18 @@ enum Sink {
 pub struct Output {
     sink: Sink,
     dest: Option<PathBuf>,
-    /// `--write-index`: the record format and thread count to index with.
-    index: Option<(Format, NonZeroUsize)>,
+    index: IndexPlan,
+}
+
+/// What `--write-index` builds at `finish`.
+enum IndexPlan {
+    None,
+    /// The record format and thread count to index with.
+    Format(Format, NonZeroUsize),
+    /// TSV output: the columns are not known until the TSV writer sets them
+    /// (D43, from A's format); finishing without them is a bug.
+    TsvPending(NonZeroUsize),
+    Tsv(TsvColumns, NonZeroUsize),
 }
 
 const BUF: usize = 1 << 20;
@@ -217,7 +228,7 @@ pub fn open_output(
     let bgzf = spec.bgzf || f == OutFormat::Bcf;
     let level = CompressionLevel::try_from(check_level(opts.level)?)
         .map_err(|e| UsageError(e.to_string()))?;
-    let mut index = None;
+    let mut index = IndexPlan::None;
     if opts.write_index {
         if spec.path.is_none() {
             return Err(UsageError(
@@ -239,10 +250,11 @@ write to a file such as -o out.bed.gz and index that",
             )
             .into());
         }
-        let Some(format) = f.index_format() else {
-            return Err(UsageError("--write-index is not supported for TSV output".into()).into());
+        index = match f.index_format() {
+            Some(format) => IndexPlan::Format(format, opts.threads),
+            // The columns depend on A's format (D43); `open_tsv_writer` decides.
+            None => IndexPlan::TsvPending(opts.threads),
         };
-        index = Some((format, opts.threads));
     }
     let builder = || {
         BgzfBuilder::default()
@@ -289,6 +301,19 @@ write to a file such as -o out.bed.gz and index that",
 }
 
 impl Output {
+    /// Index this TSV output by `cols` at `finish` (D43). Only meaningful
+    /// when `--write-index` was given to `open_output`.
+    pub fn set_tsv_index(&mut self, cols: TsvColumns) {
+        if let IndexPlan::TsvPending(t) | IndexPlan::Tsv(_, t) = self.index {
+            self.index = IndexPlan::Tsv(cols, t);
+        }
+    }
+
+    /// Whether `--write-index` was asked for.
+    pub(crate) fn wants_index(&self) -> bool {
+        !matches!(self.index, IndexPlan::None)
+    }
+
     fn dest_name(&self) -> String {
         self.dest
             .as_ref()
@@ -335,10 +360,31 @@ impl Output {
             // file, remove the old PATH.tbi/PATH.csi, rename the data, then
             // rename the index. Interrupted at any point, PATH is left with
             // no index, never beside an index of other data (D19).
-            let staged = match self.index {
-                Some((format, threads)) => {
-                    let (kind, bytes) =
-                        crate::index::build_index(af.temp_path(), dest, format, threads)?;
+            let built = match &self.index {
+                IndexPlan::None => None,
+                IndexPlan::Format(format, threads) => Some(crate::index::build_index(
+                    af.temp_path(),
+                    dest,
+                    *format,
+                    *threads,
+                )?),
+                IndexPlan::Tsv(cols, threads) => Some(crate::index::build_tsv_index(
+                    af.temp_path(),
+                    dest,
+                    cols,
+                    *threads,
+                )?),
+                IndexPlan::TsvPending(_) => {
+                    return Err(IoError::Detect {
+                        path: name.clone(),
+                        msg:
+                            "internal error: TSV output asked for an index but no columns were set"
+                                .into(),
+                    });
+                }
+            };
+            let staged = match built {
+                Some((kind, bytes)) => {
                     let path = crate::index::index_path(dest, kind);
                     Some((crate::index::stage_index(&path, &bytes)?, path))
                 }

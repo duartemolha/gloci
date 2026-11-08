@@ -164,3 +164,16 @@ pub fn write_tsv_index(
         build::build_index_with(data, final_data_path, Format::Bed, Some(cols), threads)?;
     build::publish_index(final_data_path, kind, &bytes)
 }
+
+/// `write_tsv_index` split for the output path: build (and so validate) the
+/// index bytes of `data` without writing anything, so the caller can publish
+/// them in its own order (data renamed, then index).
+pub(crate) fn build_tsv_index(
+    data: &Path,
+    final_data_path: &Path,
+    cols: &TsvColumns,
+    threads: NonZeroUsize,
+) -> Result<(IndexKind, Vec<u8>), IoError> {
+    cols.check()?;
+    build::build_index_with(data, final_data_path, Format::Bed, Some(cols), threads)
+}

@@ -71,8 +71,8 @@ fn family_name(f: OutFormat) -> &'static str {
     }
 }
 
-struct TextWriter {
-    out: Output,
+pub(crate) struct TextWriter {
+    pub(crate) out: Output,
 }
 
 impl RecordWriter for TextWriter {

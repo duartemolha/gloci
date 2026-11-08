@@ -18,6 +18,7 @@ pub mod input;
 pub mod output;
 pub mod record;
 pub mod sorted;
+pub mod tsv;
 pub mod vcf;
 pub mod writer;
 
@@ -50,6 +51,7 @@ pub use record::{
     open_reader_from,
 };
 pub use sorted::{LEX_SORTED_NOTE, OrderGuard, sort_hint};
+pub use tsv::{TsvHeader, open_tsv_writer, tsv_output_ok};
 pub use vcf::{VcfHeader, shell_quote_args};
 pub use writer::{
     RecordWriter, WriterOptions, check_family, family_mismatch, open_headerless_writer,

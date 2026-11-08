@@ -265,6 +265,7 @@ pub(crate) use build::{build_index, remove_indexes, stage_index};
 use query::Plan;
 pub use query::{index_reference_names, open_region_reader};
 use tsv::TsvKind;
+pub(crate) use tsv::build_tsv_index;
 pub use tsv::{TsvColumns, write_tsv_index};
 
 #[cfg(test)]
