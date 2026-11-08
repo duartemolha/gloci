@@ -27,7 +27,7 @@ fn parse_format(s: Option<&str>) -> anyhow::Result<Option<Format>> {
 /// does the width of the placeholder row of `--keep-unmatched`. The first
 /// record is peeked through a second reader; stdin cannot be reopened, so a
 /// BED `-b -` gets 3 names.
-fn b_column_names(b: &dyn RecordReader, path: &str, ro: &ReaderOptions) -> Vec<String> {
+pub(crate) fn b_column_names(b: &dyn RecordReader, path: &str, ro: &ReaderOptions) -> Vec<String> {
     let numbered = |n: usize| (1..=n).map(|i| format!("b_{i}")).collect::<Vec<_>>();
     match (b.format(), b.header()) {
         (Format::Vcf | Format::Bcf, Header::Vcf(h)) => {

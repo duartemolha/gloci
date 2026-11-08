@@ -263,6 +263,49 @@ Examples:
   gloci subtract -a reads.bed -b exons.bed --sum-overlaps -f 0.8 -s
   gloci subtract -a calls.vcf.gz -b blacklist.bed -o filtered.vcf.gz")]
     Subtract(SubtractArgs),
+    /// Find the nearest B to each A (bedtools closest, bedops closest-features).
+    ///
+    /// For each A, reports the nearest B as TSV rows: A's record, a label
+    /// column when there are several -b files, B's record, and with
+    /// --distance the distance. An overlapping B has distance 0, bookended
+    /// features 1, and otherwise the gap in bases plus 1. An A with no
+    /// candidate gets one row with a placeholder B (`. -1 -1 ...`) and
+    /// distance -1. A VCF/BCF A gets a column-name line.
+    ///
+    /// -k N reports the N nearest, and every B tied with the N-th. With
+    /// --ties first or last, only as many of the tied B as N still needs
+    /// are kept: the first or the last by (file, input order). Rows are
+    /// ordered by distance, then by file and input order.
+    /// --signed ref|a|b prints signed distances (and implies --distance):
+    /// negative is upstream, where ref means lower coordinates, a follows
+    /// A's strand and b follows B's strand; unknown strand counts as +.
+    /// --ignore-upstream and --ignore-downstream drop B by that sign in the
+    /// same frame (ref when --signed is absent), --ignore-overlaps drops
+    /// overlapping B, and --max-distance N drops B farther than N. -s and
+    /// -S keep only B on the same or the opposite strand; B and A of
+    /// unknown strand never match.
+    ///
+    /// --each-side writes one row per A with the nearest upstream B and
+    /// then the nearest downstream B; with --distance each distance is
+    /// signed (as closest-features does). An overlapping B counts on both sides. -k
+    /// applies per side, and extra ranks and ties add rows. With several
+    /// -b files, the nearest are chosen across all of them, or with
+    /// --per-file in each file, whose rows are written in file order.
+    ///
+    /// Memory and a pathology: the sorted sweep looks ahead in B for the
+    /// nearest B to the right of A. Under -s/-S, or with --signed b and
+    /// --ignore-upstream/--ignore-downstream, a chromosome where one strand
+    /// has no B left makes the look-ahead read and buffer all the remaining
+    /// B of that chromosome. --max-distance bounds this. With --unsorted
+    /// every -b file is loaded into memory instead, so memory grows with
+    /// the size of B, and A is streamed and written in its own order.
+    #[command(after_long_help = "\
+Examples:
+  gloci closest -a genes.bed -b peaks.bed --distance
+  gloci closest -a genes.bed -b peaks.bed -k 3 --signed a -s
+  gloci closest -a snps.vcf.gz -b genes.bed --max-distance 10000 --ignore-overlaps
+  gloci closest -a genes.bed -b peaks.bed --each-side --distance")]
+    Closest(ClosestArgs),
 }
 
 /// What `intersect` reports.
@@ -350,6 +393,93 @@ pub struct SubtractArgs {
     pub o: OverlapArgs,
     #[command(flatten)]
     pub w: WindowArgs,
+    #[command(flatten)]
+    pub u: UnsortedArg,
+    #[command(flatten)]
+    pub genome: GenomeArg,
+    #[command(flatten)]
+    pub chrom_order: ChromOrderArg,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub header: HeaderArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+/// The frame of signed distances (`--signed`).
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum SignedFrame {
+    /// Upstream is lower coordinates.
+    Ref,
+    /// Upstream follows A's strand.
+    A,
+    /// Upstream follows B's strand.
+    B,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum ClosestTies {
+    All,
+    First,
+    Last,
+}
+
+#[derive(Args)]
+pub struct ClosestArgs {
+    #[command(flatten)]
+    pub a: AArg,
+    #[command(flatten)]
+    pub b: BArgs,
+    /// Report the N nearest B (and their ties).
+    #[arg(
+        short = 'k',
+        long,
+        value_name = "N",
+        default_value_t = 1,
+        value_parser = clap::value_parser!(u64).range(1..)
+    )]
+    pub k: u64,
+    /// Among B tied at the N-th distance: keep all, the first or the last.
+    #[arg(long, value_enum, default_value = "all", value_name = "WHICH")]
+    pub ties: ClosestTies,
+    /// Add the distance as the last column (-1 with no candidate).
+    #[arg(long)]
+    pub distance: bool,
+    /// Print signed distances in this frame (implies --distance): ref, a or b.
+    #[arg(long, value_enum, value_name = "FRAME")]
+    pub signed: Option<SignedFrame>,
+    /// Ignore B that overlap A.
+    #[arg(long)]
+    pub ignore_overlaps: bool,
+    /// Ignore B upstream of A (in the --signed frame, default ref).
+    #[arg(long)]
+    pub ignore_upstream: bool,
+    /// Ignore B downstream of A (in the --signed frame, default ref).
+    #[arg(long)]
+    pub ignore_downstream: bool,
+    /// Ignore B farther than N from A.
+    #[arg(long, value_name = "N")]
+    pub max_distance: Option<u64>,
+    /// One row per A: the nearest upstream B, then the nearest downstream B.
+    #[arg(long)]
+    pub each_side: bool,
+    /// With several -b files: choose the nearest in each file.
+    #[arg(long)]
+    pub per_file: bool,
+    /// Only B on the same strand; unknown strands never match.
+    #[arg(short = 's', long = "same-strand", conflicts_with = "opposite_strand")]
+    pub same_strand: bool,
+    /// Only B on the opposite strand; unknown strands never match.
+    #[arg(short = 'S', long = "opposite-strand")]
+    pub opposite_strand: bool,
+    /// A point on the edge of an interval overlaps it (4.3: points).
+    #[arg(long)]
+    pub inclusive_points: bool,
     #[command(flatten)]
     pub u: UnsortedArg,
     #[command(flatten)]

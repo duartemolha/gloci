@@ -1,0 +1,1 @@
+closest --chrom-order lex -a input.bed -b closest-b.bed closest-b2.bed --names 1,2 --per-file --distance

@@ -770,3 +770,193 @@ aux = ["xtask/diff/inputs/rel-b.bed", "xtask/diff/inputs/rel-a-merged.bed"]
 gloci = "gloci subtract --chrom-order lex -a rel-a-merged.bed -b rel-b.bed"
 reference = "bedops --difference input.bed rel-b.bed"
 compare = "exact"
+
+# closest. bedtools closest and bedops closest-features (spec 4.4, D45, D55, D57).
+
+[[case]]
+name = "closest-d-vs-bedtools"
+input = { file = "xtask/diff/inputs/closest-a.bed" }
+aux = ["xtask/diff/inputs/closest-b.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-b.bed --distance"
+reference = "bedtools closest -a input.bed -b closest-b.bed -d"
+compare = "exact"
+
+[[case]]
+name = "closest-signed-ref-vs-bedtools"
+input = { file = "xtask/diff/inputs/closest-a.bed" }
+aux = ["xtask/diff/inputs/closest-b.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-b.bed --signed ref"
+reference = "bedtools closest -a input.bed -b closest-b.bed -D ref"
+compare = "exact"
+
+[[case]]
+name = "closest-signed-a-vs-bedtools"
+input = { file = "xtask/diff/inputs/closest-a.bed" }
+aux = ["xtask/diff/inputs/closest-b.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-b.bed --signed a"
+reference = "bedtools closest -a input.bed -b closest-b.bed -D a"
+compare = "exact"
+
+[[case]]
+name = "closest-signed-b-vs-bedtools"
+input = { file = "xtask/diff/inputs/closest-a.bed" }
+aux = ["xtask/diff/inputs/closest-b.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-b.bed --signed b"
+reference = "bedtools closest -a input.bed -b closest-b.bed -D b"
+compare = "exact"
+
+[[case]]
+name = "closest-k2-vs-bedtools"
+input = { file = "xtask/diff/inputs/closest-a.bed" }
+aux = ["xtask/diff/inputs/closest-b.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-b.bed -k 2 --distance"
+reference = "bedtools closest -a input.bed -b closest-b.bed -k 2 -d"
+compare = "exact"
+
+[[case]]
+name = "closest-ties-first-vs-bedtools"
+input = { file = "xtask/diff/inputs/closest-a.bed" }
+aux = ["xtask/diff/inputs/closest-b.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-b.bed --ties first --distance"
+reference = "bedtools closest -a input.bed -b closest-b.bed -t first -d"
+compare = "exact"
+
+[[case]]
+name = "closest-ties-last-vs-bedtools"
+input = { file = "xtask/diff/inputs/closest-a.bed" }
+aux = ["xtask/diff/inputs/closest-b.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-b.bed --ties last --distance"
+reference = "bedtools closest -a input.bed -b closest-b.bed -t last -d"
+compare = "exact"
+
+[[case]]
+name = "closest-ignore-overlaps-vs-bedtools"
+input = { file = "xtask/diff/inputs/closest-a.bed" }
+aux = ["xtask/diff/inputs/closest-b.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-b.bed --ignore-overlaps --distance"
+reference = "bedtools closest -a input.bed -b closest-b.bed -io -d"
+compare = "exact"
+
+[[case]]
+name = "closest-ignore-upstream-vs-bedtools"
+input = { file = "xtask/diff/inputs/closest-a.bed" }
+aux = ["xtask/diff/inputs/closest-b.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-b.bed --ignore-upstream --signed ref"
+reference = "bedtools closest -a input.bed -b closest-b.bed -iu -D ref"
+compare = "exact"
+
+[[case]]
+name = "closest-ignore-downstream-vs-bedtools"
+input = { file = "xtask/diff/inputs/closest-a.bed" }
+aux = ["xtask/diff/inputs/closest-b.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-b.bed --ignore-downstream --signed ref"
+reference = "bedtools closest -a input.bed -b closest-b.bed -id -D ref"
+compare = "exact"
+
+[[case]]
+name = "closest-ignore-upstream-a-vs-bedtools"
+input = { file = "xtask/diff/inputs/closest-a.bed" }
+aux = ["xtask/diff/inputs/closest-b.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-b.bed --ignore-upstream --signed a"
+reference = "bedtools closest -a input.bed -b closest-b.bed -iu -D a"
+compare = "exact"
+
+[[case]]
+name = "closest-ignore-upstream-b-vs-bedtools"
+input = { file = "xtask/diff/inputs/closest-a.bed" }
+aux = ["xtask/diff/inputs/closest-b.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-b.bed --ignore-upstream --signed b"
+reference = "bedtools closest -a input.bed -b closest-b.bed -iu -D b"
+compare = "exact"
+
+[[case]]
+name = "closest-ignore-downstream-b-vs-bedtools"
+input = { file = "xtask/diff/inputs/closest-a.bed" }
+aux = ["xtask/diff/inputs/closest-b.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-b.bed --ignore-downstream --signed b"
+reference = "bedtools closest -a input.bed -b closest-b.bed -id -D b"
+compare = "exact"
+
+[[case]]
+name = "closest-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/closest-a.bed" }
+aux = ["xtask/diff/inputs/closest-b.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-b.bed -s --distance"
+reference = "bedtools closest -a input.bed -b closest-b.bed -s -d"
+compare = "exact"
+
+[[case]]
+name = "closest-opposite-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/closest-a.bed" }
+aux = ["xtask/diff/inputs/closest-b.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-b.bed -S --distance"
+reference = "bedtools closest -a input.bed -b closest-b.bed -S -d"
+compare = "exact"
+
+[[case]]
+name = "closest-per-file-vs-bedtools"
+input = { file = "xtask/diff/inputs/closest-a.bed" }
+aux = ["xtask/diff/inputs/closest-b.bed", "xtask/diff/inputs/closest-b2.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-b.bed closest-b2.bed --names 1,2 --per-file --distance"
+reference = "bedtools closest -a input.bed -b closest-b.bed closest-b2.bed -mdb each -d"
+compare = "exact"
+
+[[case]]
+name = "closest-per-file-k2-vs-bedtools"
+input = { file = "xtask/diff/inputs/closest-a.bed" }
+aux = ["xtask/diff/inputs/closest-b.bed", "xtask/diff/inputs/closest-b2.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-b.bed closest-b2.bed --names 1,2 --per-file -k 2 --distance"
+reference = "bedtools closest -a input.bed -b closest-b.bed closest-b2.bed -mdb each -k 2 -d"
+compare = "exact"
+
+# bedops closest-features writes `|` between columns: a live shell case, plus a
+# golden-able twin whose reference output is `|` already translated to tabs.
+
+[[case]]
+name = "closest-each-side-vs-bedops"
+input = { file = "xtask/diff/inputs/closest-fa.bed" }
+aux = ["xtask/diff/inputs/closest-fb.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-fb.bed --each-side --distance --ignore-overlaps"
+reference = "closest-features --dist --no-overlaps input.bed closest-fb.bed | tr '|' '\t'"
+compare = "exact"
+
+[[case]]
+name = "closest-each-side-nodist-vs-bedops"
+input = { file = "xtask/diff/inputs/closest-fa.bed" }
+aux = ["xtask/diff/inputs/closest-fb.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-fb.bed --each-side --ignore-overlaps"
+reference = "closest-features --no-overlaps input.bed closest-fb.bed | tr '|' '\t'"
+compare = "exact"
+
+# gloci counts an overlapping B on both sides, bedops gives it precedence on
+# one side and reports the nearest non-overlapping B on the other.
+[[case]]
+name = "closest-each-side-overlap-vs-bedops"
+input = { file = "xtask/diff/inputs/closest-fa.bed" }
+aux = ["xtask/diff/inputs/closest-fb.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-fb.bed --each-side --distance"
+reference = "closest-features --dist input.bed closest-fb.bed | tr '|' '\t'"
+compare = "exact"
+expected_difference = "#closest-each-side"
+
+# A missing side is the D45 placeholder here, `NA` in bedops.
+[[case]]
+name = "closest-each-side-missing-vs-bedops"
+input = { file = "xtask/diff/inputs/closest-a.bed" }
+aux = ["xtask/diff/inputs/closest-fb.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-fb.bed --each-side --distance --ignore-overlaps"
+reference = "closest-features --dist --no-overlaps input.bed closest-fb.bed | tr '|' '\t'"
+compare = "exact"
+expected_difference = "#closest-each-side"
+
+# `-k 2 -t first`: bedtools collapses the ties of every distance and counts
+# distinct distances (a3: the 501 pair gives one row, then 721); gloci cuts
+# only the ties at the k-th distance.
+[[case]]
+name = "closest-k2-ties-first-vs-bedtools"
+input = { file = "xtask/diff/inputs/closest-a.bed" }
+aux = ["xtask/diff/inputs/closest-b.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-b.bed -k 2 --ties first --distance"
+reference = "bedtools closest -a input.bed -b closest-b.bed -k 2 -t first -d"
+compare = "exact"
+expected_difference = "#closest-ties-k"

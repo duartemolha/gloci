@@ -585,3 +585,156 @@ pub fn naive_merge(
         })
         .collect()
 }
+
+/// Which of several equally near B `naive_closest` reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NaiveTies {
+    All,
+    First,
+    Last,
+}
+
+/// What `naive_closest` is asked for; the fields mirror `gloci closest`.
+#[derive(Debug, Clone)]
+pub struct NaiveClosest {
+    pub k: usize,
+    pub ties: NaiveTies,
+    pub distance: bool,
+    pub signed: Option<gloci_core::SignFrame>,
+    pub ignore_overlaps: bool,
+    pub ignore_upstream: bool,
+    pub ignore_downstream: bool,
+    pub max_distance: Option<u64>,
+    pub each_side: bool,
+    pub per_file: bool,
+    pub strand: StrandRule,
+    pub inclusive_points: bool,
+    /// One label per B file, written when there are several.
+    pub labels: Vec<String>,
+}
+
+/// `closest`, by brute force, as the TSV rows gloci writes for BED inputs.
+///
+/// Every B of A's chromosome that meets the strand rule is a candidate
+/// (distance 0 when it overlaps A, else the gap plus 1, signed in the
+/// frame). The ignore flags and `max_distance` drop candidates; the rest
+/// are sorted by (distance, file, input order) and the `k` nearest are
+/// kept with the ties at the k-th distance (all of them, or as many as `k`
+/// still needs, first or last). `per_file` does this for each file with
+/// candidates, in file order; `each_side` pairs the upstream and downstream
+/// selections rank by rank (an overlap counts on both sides). No row at
+/// all gives the placeholder row.
+pub fn naive_closest(a: &[TestRec], b: &[Vec<TestRec>], q: &NaiveClosest) -> Vec<String> {
+    use gloci_core::{SignFrame, signed_distance};
+    let frame = q.signed.unwrap_or(SignFrame::Ref);
+    let show_distance = q.distance || q.signed.is_some();
+    let sign_shown = q.signed.is_some() || q.each_side;
+    let strand_ok = |x: Strand, y: Strand| match q.strand {
+        StrandRule::Any => true,
+        rule => {
+            x != Strand::Unknown && y != Strand::Unknown && ((x == y) == (rule == StrandRule::Same))
+        }
+    };
+    // (distance, file, index in file, signed distance)
+    type Cand = (u64, usize, usize, i64);
+    let pick = |c: &[Cand]| -> Vec<Cand> {
+        if c.len() <= q.k {
+            return c.to_vec();
+        }
+        let d = c[q.k - 1].0;
+        let mut out: Vec<Cand> = c.iter().filter(|x| x.0 < d).copied().collect();
+        let need = q.k - out.len();
+        let tied: Vec<Cand> = c.iter().filter(|x| x.0 == d).copied().collect();
+        match q.ties {
+            NaiveTies::All => out.extend(tied),
+            NaiveTies::First => out.extend(&tied[..need]),
+            NaiveTies::Last => out.extend(&tied[tied.len() - need..]),
+        }
+        out
+    };
+    let labelled = b.len() > 1;
+    let cell = |c: Option<Cand>| -> String {
+        let mut s = String::new();
+        match c {
+            Some((d, f, i, signed)) => {
+                if labelled {
+                    s.push_str(&format!("\t{}", q.labels[f]));
+                }
+                s.push_str(&format!("\t{}", b[f][i].bed_line()));
+                if show_distance {
+                    s.push_str(&format!("\t{}", if sign_shown { signed } else { d as i64 }));
+                }
+            }
+            None => {
+                if labelled {
+                    s.push_str("\t.");
+                }
+                s.push_str("\t.\t-1\t-1\t.\t-1\t.");
+                if show_distance {
+                    s.push_str("\t-1");
+                }
+            }
+        }
+        s
+    };
+    let mut rows = Vec::new();
+    for ra in a {
+        let x = ra.span();
+        let mut cands: Vec<Cand> = Vec::new();
+        for (f, file) in b.iter().enumerate() {
+            for (i, rb) in file.iter().enumerate() {
+                if rb.chrom != ra.chrom || !strand_ok(ra.strand(), rb.strand()) {
+                    continue;
+                }
+                let y = rb.span();
+                let d = distance(x, y, q.inclusive_points);
+                if (d == 0 && q.ignore_overlaps) || q.max_distance.is_some_and(|m| d > m) {
+                    continue;
+                }
+                let signed =
+                    signed_distance(x, ra.strand(), y, rb.strand(), frame, q.inclusive_points);
+                if (signed < 0 && q.ignore_upstream) || (signed > 0 && q.ignore_downstream) {
+                    continue;
+                }
+                cands.push((d, f, i, signed));
+            }
+        }
+        cands.sort();
+        // the candidate groups: all of them, or each file's
+        let groups: Vec<Vec<Cand>> = if q.per_file {
+            (0..b.len())
+                .map(|f| cands.iter().filter(|c| c.1 == f).copied().collect())
+                .collect()
+        } else {
+            vec![cands]
+        };
+        let start = rows.len();
+        for g in groups {
+            if q.each_side {
+                let up = pick(&g.iter().filter(|c| c.3 <= 0).copied().collect::<Vec<_>>());
+                let down = pick(&g.iter().filter(|c| c.3 >= 0).copied().collect::<Vec<_>>());
+                for r in 0..up.len().max(down.len()) {
+                    rows.push(format!(
+                        "{}{}{}",
+                        ra.bed_line(),
+                        cell(up.get(r).copied()),
+                        cell(down.get(r).copied())
+                    ));
+                }
+            } else {
+                for c in pick(&g) {
+                    rows.push(format!("{}{}", ra.bed_line(), cell(Some(c))));
+                }
+            }
+        }
+        if rows.len() == start {
+            let second = if q.each_side {
+                cell(None)
+            } else {
+                String::new()
+            };
+            rows.push(format!("{}{}{}", ra.bed_line(), cell(None), second));
+        }
+    }
+    rows
+}

@@ -107,7 +107,7 @@ alleles of two records, not how much they overlap; drop {flag} or use --match ov
 }
 
 /// Passes records through and notes the column count of the first one.
-struct ColumnWatch {
+pub(crate) struct ColumnWatch {
     inner: Box<dyn RecordReader>,
     columns: Arc<AtomicUsize>,
 }
@@ -145,13 +145,13 @@ impl RecordReader for ColumnWatch {
 }
 
 /// How to print one input's records as text.
-struct Text {
-    format: Format,
+pub(crate) struct Text {
+    pub(crate) format: Format,
     bcf: Option<BcfText>,
 }
 
 impl Text {
-    fn new(r: &dyn RecordReader) -> Result<Text, IoError> {
+    pub(crate) fn new(r: &dyn RecordReader) -> Result<Text, IoError> {
         Ok(Text {
             format: r.format(),
             bcf: BcfText::for_reader(r)?,
@@ -159,7 +159,7 @@ impl Text {
     }
 
     /// The record as a text line (a BCF record is rendered as VCF).
-    fn of<'a>(&'a mut self, raw: &'a [u8], loc: u64) -> Result<&'a [u8], IoError> {
+    pub(crate) fn of<'a>(&'a mut self, raw: &'a [u8], loc: u64) -> Result<&'a [u8], IoError> {
         match &mut self.bcf {
             Some(b) => b.render(raw, loc),
             None => Ok(raw),
@@ -200,6 +200,49 @@ fn share_allele(a: &[u8], b: &[u8]) -> bool {
     })
 }
 
+/// How many columns a missing B (D45) has: known up front for VCF/GFF,
+/// else read from B's first record. With `watch`, the first B input is
+/// wrapped to note that record's column count as it is read.
+pub(crate) fn missing_b_columns(inputs: &mut RelateInputs, watch: bool) -> Columns {
+    match inputs.b.first().map(|r| (r.format(), r.header())) {
+        Some((Format::Bed | Format::BedGraph, _)) | None => {
+            let seen = Arc::new(AtomicUsize::new(0));
+            if watch && !inputs.b.is_empty() {
+                let first = inputs.b.remove(0);
+                inputs.b.insert(
+                    0,
+                    Box::new(ColumnWatch {
+                        inner: first,
+                        columns: seen.clone(),
+                    }),
+                );
+            }
+            Columns::FirstRecord(seen)
+        }
+        Some((Format::Gff3 | Format::Gtf, _)) => Columns::Fixed(9),
+        Some((_, Header::Vcf(h))) => Columns::Fixed(if h.samples.is_empty() {
+            8
+        } else {
+            9 + h.samples.len()
+        }),
+        Some(_) => Columns::Fixed(8),
+    }
+}
+
+impl Columns {
+    /// The count to give `b_placeholder`: B is empty or unread means the
+    /// shortest BED line.
+    pub(crate) fn count(&self) -> usize {
+        match self {
+            Columns::Fixed(n) => *n,
+            Columns::FirstRecord(c) => match c.load(Ordering::Relaxed) {
+                0 => 3,
+                n => n,
+            },
+        }
+    }
+}
+
 struct Reporter<'o, 'w> {
     mode: Mode,
     matching: Match,
@@ -217,7 +260,7 @@ struct Reporter<'o, 'w> {
     a_line: Vec<u8>,
 }
 
-enum Columns {
+pub(crate) enum Columns {
     Fixed(usize),
     FirstRecord(Arc<AtomicUsize>),
 }
@@ -330,14 +373,7 @@ impl Visitor for Reporter<'_, '_> {
                         self.row.extend_from_slice(b"\t.");
                     }
                     self.row.push(b'\t');
-                    let columns = match &self.b0_columns {
-                        Columns::Fixed(n) => *n,
-                        // B is empty or unread: the shortest BED line
-                        Columns::FirstRecord(c) => match c.load(Ordering::Relaxed) {
-                            0 => 3,
-                            n => n,
-                        },
-                    };
+                    let columns = self.b0_columns.count();
                     b_placeholder(self.b[0].format, columns, &mut self.row);
                     if overlap_bases {
                         self.row.extend_from_slice(b"\t0");
@@ -374,35 +410,14 @@ pub fn intersect(
         .iter()
         .map(|r| Text::new(r.as_ref()))
         .collect::<Result<Vec<_>, _>>()?;
-    let b0_columns = match inputs.b.first().map(|r| (r.format(), r.header())) {
-        Some((Format::Bed | Format::BedGraph, _)) | None => {
-            let seen = Arc::new(AtomicUsize::new(0));
-            if matches!(
-                o.mode,
-                Mode::Pairs {
-                    keep_unmatched: true,
-                    ..
-                }
-            ) {
-                let first = inputs.b.remove(0);
-                inputs.b.insert(
-                    0,
-                    Box::new(ColumnWatch {
-                        inner: first,
-                        columns: seen.clone(),
-                    }),
-                );
-            }
-            Columns::FirstRecord(seen)
+    let watch = matches!(
+        o.mode,
+        Mode::Pairs {
+            keep_unmatched: true,
+            ..
         }
-        Some((Format::Gff3 | Format::Gtf, _)) => Columns::Fixed(9),
-        Some((_, Header::Vcf(h))) => Columns::Fixed(if h.samples.is_empty() {
-            8
-        } else {
-            9 + h.samples.len()
-        }),
-        Some(_) => Columns::Fixed(8),
-    };
+    );
+    let b0_columns = missing_b_columns(&mut inputs, watch);
     // Candidates for allele matching: a shared trimmed allele lies at most
     // one base from each record's footprint (an insertion is a point just
     // past an anchor base, and a footprint can end where the other starts),

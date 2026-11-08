@@ -353,3 +353,42 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Pinned by:** `subtract-sum-overlaps-equal-vs-bedtools` (must differ: A
   `chr1 600 700` is covered exactly 50% and bedtools keeps it).
   `subtract-sum-overlaps-vs-bedtools` (`-f 0.6`) must match.
+
+## `closest --each-side` counts an overlap on both sides {#closest-each-side}
+
+- **gloci:** `closest --each-side` (the replacement for `bedops
+  closest-features`) treats an overlapping B as the nearest B on both sides,
+  at distance 0, unless `--ignore-overlaps` is given. A side with no B is the
+  D45 placeholder (`. -1 -1 ...`, distance `-1`), as in plain `closest`. `-k`
+  and `--ties` apply per side, and several equally near B on one side add
+  rows instead of choosing one. With `--distance` the distances are signed
+  in the `--signed` frame (default `ref`).
+- **Old behaviour:** `closest-features` gives an overlapping element
+  precedence on one side and reports the nearest non-overlapping element on
+  the other ("elements reported as closest to the left and right edges are
+  never the same"); it writes `NA` for a missing side, and always one row.
+- **Reason:** counting an overlap on both sides is the same rule as
+  `closest` without `--each-side`, and the placeholder keeps the columns of
+  every row the same width.
+- **Pinned by:** `closest-each-side-overlap-vs-bedops` and
+  `closest-each-side-missing-vs-bedops` (must differ). With
+  `--ignore-overlaps` and every side present, `closest-each-side-vs-bedops`
+  and `closest-each-side-nodist-vs-bedops` match exactly.
+
+## `closest -k N --ties first|last` cuts only the ties at the N-th distance {#closest-ties-k}
+
+- **gloci:** `-k N` reports the N nearest B and every B tied with the N-th.
+  `--ties first|last` keeps, among the B tied at the N-th distance, only as
+  many as N still needs (the first or last by file and input order). With
+  `-k 1` that is exactly one row, as in bedtools.
+- **Old behaviour:** `bedtools closest -k N -t first|last` collapses the
+  ties of every distance to one B and counts distinct distances, so two B at
+  the same distance below the N-th use up one of the N places only once and a
+  farther B follows. Its default `-t all` agrees with gloci.
+- **Reason:** gloci's rule keeps the output to N rows without ties and is
+  the one `-t all` already follows; bedtools' counting of distinct distances
+  needs an unbounded look at farther B.
+- **Pinned by:** `closest-k2-ties-first-vs-bedtools` (must differ: the
+  equally near `chr1 450 500` pair gives `b6` and `b7` in gloci, `b6` and
+  the farther `b5` in bedtools). `-k 1 --ties first|last` and `-k 2` with
+  `--ties all` match exactly.
