@@ -11,20 +11,24 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-fn leftovers(root: &Path, keep: &[&str]) -> Vec<PathBuf> {
+/// Every entry under `root` except `big.bed` and the (empty) `spill` directory
+/// itself; anything inside `spill` counts as a leftover.
+fn leftovers(root: &Path) -> Vec<PathBuf> {
+    let spill = root.join("spill");
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(d) = stack.pop() {
         for e in std::fs::read_dir(&d).unwrap() {
             let p = e.unwrap().path();
-            let name = p.file_name().unwrap().to_string_lossy().into_owned();
-            if keep.contains(&name.as_str()) {
+            if p == root.join("big.bed") {
                 continue;
             }
-            if p.is_dir() && name != "spill" {
+            if p.is_dir() {
                 stack.push(p.clone());
             }
-            out.push(p);
+            if p != spill {
+                out.push(p);
+            }
         }
     }
     out
@@ -77,7 +81,7 @@ fn sigterm_at_random_moments_leaves_nothing() {
         unsafe { libc::kill(c.id() as i32, libc::SIGTERM) };
         let st = c.wait().unwrap();
         // Killed before the handler was installed (143) or a clean 130.
-        let left = leftovers(d.path(), &["big.bed", "spill"]);
+        let left = leftovers(d.path());
         if !left.is_empty() || !matches!(st.code(), Some(130) | None) || out.exists() {
             bad.push(format!("run {run}: status {st:?}, leftovers {left:?}"));
         }

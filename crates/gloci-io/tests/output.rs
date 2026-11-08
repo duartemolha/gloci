@@ -287,3 +287,51 @@ fn panic_with_registry_locked_exits_instead_of_hanging() {
     };
     assert_eq!(status.code(), Some(1));
 }
+
+/// SIGTERM while another thread holds the registry lock exits 130 after the
+/// bounded wait instead of hanging. Runs in a subprocess.
+#[test]
+fn sigterm_with_registry_locked_exits_130_instead_of_hanging() {
+    if std::env::var_os("GLOCI_TEST_SIGTERM_LOCKED").is_some() {
+        install_cleanup_handlers();
+        __test_with_registry_locked(|_| {
+            println!("locked");
+            std::thread::sleep(std::time::Duration::from_secs(60));
+        });
+        unreachable!();
+    }
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "sigterm_with_registry_locked_exits_130_instead_of_hanging",
+            "--exact",
+            "--nocapture",
+        ])
+        .env("GLOCI_TEST_SIGTERM_LOCKED", "1")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    // Wait until the child holds the lock.
+    let mut out = std::io::BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    while !line.contains("locked") {
+        line.clear();
+        assert!(
+            std::io::BufRead::read_line(&mut out, &mut line).unwrap() > 0,
+            "child exited before locking"
+        );
+    }
+    unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
+    let t = std::time::Instant::now();
+    let status = loop {
+        if let Some(st) = child.try_wait().unwrap() {
+            break st;
+        }
+        if t.elapsed() > std::time::Duration::from_secs(20) {
+            child.kill().unwrap();
+            panic!("child hung on SIGTERM with the registry lock held");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+    assert_eq!(status.code(), Some(130));
+}

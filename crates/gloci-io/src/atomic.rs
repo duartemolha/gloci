@@ -57,8 +57,10 @@ pub fn create_file_in_temp_dir(path: &Path) -> io::Result<File> {
     File::create(path)
 }
 
-/// Test hook: runs `f` with the registry lock held, passing the registered
-/// paths. Not part of the API.
+/// TEST-ONLY hook: runs `f` with the registry lock held, passing the registered
+/// paths. Never call it from production code. Calling any registry function,
+/// any `create_*` function or `cleanup_registered` inside `f` self-deadlocks.
+/// Not part of the API.
 #[doc(hidden)]
 pub fn __test_with_registry_locked<T>(f: impl FnOnce(&mut Vec<PathBuf>) -> T) -> T {
     f(&mut registry().paths)
@@ -105,6 +107,8 @@ pub fn cleanup_registered() {
 /// removal and the exit. Lock holders make a single syscall, so the lock is
 /// waited for at most ~2 s; if it is still unavailable (a panic raised while
 /// this thread holds it, which is a bug) exit without cleanup rather than hang.
+/// Trade-off: if another thread holds the lock longer than that (for example a
+/// create on slow network storage), gloci exits without cleaning up.
 fn cleanup_and_exit(code: i32) -> ! {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
     loop {
