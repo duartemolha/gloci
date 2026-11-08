@@ -171,7 +171,7 @@ Further rules:
   - At the first violation, the command stops with exit code 1.
   - The error names the file, line number and both offending records, and gives a hint such as: `run: gloci sort FILE -g <genome>`.
   - This check is cheap and is never turned off.
-- **`--unsorted`:** opts into an in-memory mode. The smaller or B-side input is loaded into an interval index and the other input is streamed in any order. Memory is then proportional to the loaded file, and the help text says so.
+- **`--unsorted`:** allows unsorted input. In the relation commands it opts into an in-memory mode: the B side is loaded into an interval index and A is streamed in any order. Memory is then proportional to the loaded file, and the help text says so. In `merge` and `complement` it sorts the inputs first with the external sorter, so memory stays within `--max-mem`. **[you, 2026-11-08, for merge/complement]**
 - **Indexed inputs** (bgzip with `.tbi`/`.csi`) can be read chromosome by chromosome through the index. Chromosome order differences between inputs therefore don't matter in that mode.
 - **Chromosome naming:**
   - Names must match exactly.
