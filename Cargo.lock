@@ -526,6 +526,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gloci-engine"
+version = "0.1.0"
+dependencies = [
+ "gloci-core",
+ "gloci-io",
+ "gloci-testkit",
+ "proptest",
+]
+
+[[package]]
 name = "gloci-io"
 version = "0.1.0"
 dependencies = [
@@ -567,6 +577,7 @@ version = "0.1.0"
 dependencies = [
  "flate2",
  "gloci-core",
+ "gloci-io",
  "noodles-bcf",
  "noodles-bgzf",
  "noodles-csi",

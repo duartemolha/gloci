@@ -196,6 +196,87 @@ pub fn bed_records() -> impl Strategy<Value = Vec<TestRec>> {
         })
 }
 
+/// A and 1–3 B record sets for a relation property test, unsorted like
+/// [`bed_records`] (sort each with `naive::sort` before writing).
+#[derive(Debug, Clone)]
+pub struct RelationInputs {
+    pub a: Vec<TestRec>,
+    pub b: Vec<Vec<TestRec>>,
+}
+
+/// How a B record derived from an A record relates to it.
+#[derive(Debug, Clone, Copy)]
+enum Derived {
+    SameInterval,
+    /// Ends where A starts.
+    BookendLeft,
+    /// Starts where A ends.
+    BookendRight,
+    PointOnStart,
+    PointOnEnd,
+    PointInside,
+    Nested,
+    Containing,
+}
+
+fn derived() -> impl Strategy<Value = Derived> {
+    prop_oneof![
+        Just(Derived::SameInterval),
+        Just(Derived::BookendLeft),
+        Just(Derived::BookendRight),
+        Just(Derived::PointOnStart),
+        Just(Derived::PointOnEnd),
+        Just(Derived::PointInside),
+        Just(Derived::Nested),
+        Just(Derived::Containing),
+    ]
+}
+
+/// Inputs for an A-against-B relation over [`CHROMS`]. A and each B are
+/// drawn like [`bed_records`] (points, bookended, duplicate, nested and
+/// huge features with mixed strands, on a random subset of chromosomes),
+/// and each B also gets up to 12 records derived from A's: the same
+/// interval, bookended on either side, a point on either edge or inside,
+/// nested inside, or containing it. That makes the edge cases of §4.3
+/// meet across files, not only within one.
+pub fn relation_inputs() -> impl Strategy<Value = RelationInputs> {
+    let picks = prop::collection::vec((any::<Index>(), derived(), 0u64..1000, strand()), 0..=12);
+    let b_file = (bed_records(), picks);
+    (bed_records(), prop::collection::vec(b_file, 1..=3)).prop_map(|(a, files)| {
+        let b = files
+            .into_iter()
+            .map(|(mut recs, picks)| {
+                if a.is_empty() {
+                    return recs;
+                }
+                for (i, (idx, how, d, strand)) in picks.into_iter().enumerate() {
+                    let p = &a[idx.index(a.len())];
+                    let inside = p.start + d % (p.end - p.start + 1);
+                    let (start, end) = match how {
+                        Derived::SameInterval => (p.start, p.end),
+                        Derived::BookendLeft => (p.start.saturating_sub(d + 1), p.start),
+                        Derived::BookendRight => (p.end, p.end + d + 1),
+                        Derived::PointOnStart => (p.start, p.start),
+                        Derived::PointOnEnd => (p.end, p.end),
+                        Derived::PointInside => (inside, inside),
+                        Derived::Nested => (inside, inside + (d / 7) % (p.end - inside + 1)),
+                        Derived::Containing => (p.start.saturating_sub(d), p.end + d),
+                    };
+                    recs.push(TestRec {
+                        chrom: p.chrom.clone(),
+                        start,
+                        end,
+                        strand,
+                        name: format!("d{i}"),
+                    });
+                }
+                recs
+            })
+            .collect();
+        RelationInputs { a, b }
+    })
+}
+
 fn region_start() -> impl Strategy<Value = u64> {
     prop_oneof![
         7 => 0u64..16,

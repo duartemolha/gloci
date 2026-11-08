@@ -2,9 +2,14 @@
 //!
 //! The §4.3 overlap rule is written out here independently of gloci-core,
 //! so the oracle does not share code with the implementation under test.
+//! The relation references (`naive_hits`) are the exception: they apply
+//! gloci-core's `overlaps` and `Window` in a plain double loop, so their
+//! property tests check an engine's bookkeeping (loading, eviction,
+//! chromosome changes, hit order) rather than a second copy of §4.3, which
+//! gloci-core's own table tests pin.
 
 use crate::strategies::TestRec;
-use gloci_core::Interval;
+use gloci_core::{Interval, Strand, Window, overlaps};
 
 fn inside(p: u64, start: u64, end: u64, inclusive: bool) -> bool {
     if inclusive {
@@ -35,6 +40,47 @@ pub fn region_query(recs: &[TestRec], chrom: &[u8], iv: Interval, inclusive: boo
     recs.iter()
         .filter(|r| matches(r, chrom, iv, inclusive))
         .cloned()
+        .collect()
+}
+
+/// A test record's strand as gloci-core reads BED column 6.
+fn core_strand(c: char) -> Strand {
+    match c {
+        '+' => Strand::Plus,
+        '-' => Strand::Minus,
+        _ => Strand::Unknown,
+    }
+}
+
+/// Candidate hits of a relation (D36, D38), by brute force: for each A in
+/// the order given, every B of `b[f]` on A's chromosome whose span, padded
+/// by `window` relative to A's strand, overlaps A under §4.3. Each hit is
+/// `(f, B's BED line)`, ordered by file, then by B's order in `b[f]`.
+pub fn naive_hits(
+    a: &[TestRec],
+    b: &[Vec<TestRec>],
+    window: Option<Window>,
+    inclusive_points: bool,
+) -> Vec<Vec<(u16, String)>> {
+    a.iter()
+        .map(|ra| {
+            let mut hits = Vec::new();
+            for (f, file) in b.iter().enumerate() {
+                for rb in file {
+                    if rb.chrom != ra.chrom {
+                        continue;
+                    }
+                    let span = match window {
+                        Some(w) => w.apply(rb.interval(), core_strand(ra.strand)),
+                        None => rb.interval(),
+                    };
+                    if overlaps(ra.interval(), span, inclusive_points) {
+                        hits.push((f as u16, rb.bed_line()));
+                    }
+                }
+            }
+            hits
+        })
         .collect()
 }
 
