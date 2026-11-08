@@ -344,3 +344,41 @@ gloci = "gloci view input.vcf -o x.bcf && gloci index x.bcf"
 reference = "bcftools view -Ob -o x.bcf input.vcf && bcftools index x.bcf"
 compare = "exit-status"
 expected_difference = "#bcf-index-contig-order"
+
+# TSV indexing with -s/-b/-e: htslib reads the index gloci built, and the
+# queries must return what tabix returns through its own index.
+
+[[case]]
+name = "index-tsv-bed-like-vs-tabix"
+input = { file = "xtask/diff/inputs/bedlike.tsv" }
+gloci = '''set -e; bgzip -c input.tsv > g.tsv.gz; gloci index -s 1 -b 2 -e 3 --zero-based g.tsv.gz; for q in chr1:1-100 chr1:20050-40001 chr1:40005-40006 chr1:100000-200000 chr2:1-50000 chr2 chr10:30000-60000 chrX:1-1000000; do tabix g.tsv.gz $q; done'''
+reference = '''set -e; bgzip -c input.tsv > t.tsv.gz; tabix -s1 -b2 -e3 -0 t.tsv.gz; for q in chr1:1-100 chr1:20050-40001 chr1:40005-40006 chr1:100000-200000 chr2:1-50000 chr2 chr10:30000-60000 chrX:1-1000000; do tabix t.tsv.gz $q; done'''
+compare = "exact"
+
+[[case]]
+name = "index-tsv-one-based-vs-tabix"
+input = { file = "xtask/diff/inputs/onebased.tsv" }
+gloci = '''set -e; bgzip -c input.tsv > g.tsv.gz; gloci index -s 1 -b 2 -e 2 g.tsv.gz; for q in chr1:1-100 chr1:20050-40001 chr1:40005-40006 chr1:100000-200000 chr2:1-50000 chr2 chr10:30000-60000 chrX:1-1000000; do tabix g.tsv.gz $q; done'''
+reference = '''set -e; bgzip -c input.tsv > t.tsv.gz; tabix -s1 -b2 -e2 t.tsv.gz; for q in chr1:1-100 chr1:20050-40001 chr1:40005-40006 chr1:100000-200000 chr2:1-50000 chr2 chr10:30000-60000 chrX:1-1000000; do tabix t.tsv.gz $q; done'''
+compare = "exact"
+
+[[case]]
+name = "index-tsv-one-based-end-column-vs-tabix"
+input = { file = "xtask/diff/inputs/onebased.tsv" }
+gloci = '''set -e; bgzip -c input.tsv > g.tsv.gz; gloci index -s 1 -b 2 -e 3 g.tsv.gz; for q in chr1:1-100 chr1:20050-40001 chr1:40005-40006 chr1:100000-200000 chr2:1-50000 chr2 chr10:30000-60000 chrX:1-1000000; do tabix g.tsv.gz $q; done'''
+reference = '''set -e; bgzip -c input.tsv > t.tsv.gz; tabix -s1 -b2 -e3 t.tsv.gz; for q in chr1:1-100 chr1:20050-40001 chr1:40005-40006 chr1:100000-200000 chr2:1-50000 chr2 chr10:30000-60000 chrX:1-1000000; do tabix t.tsv.gz $q; done'''
+compare = "exact"
+
+[[case]]
+name = "index-tsv-skip-lines-vs-tabix"
+input = { file = "xtask/diff/inputs/positions.tsv" }
+gloci = '''set -e; bgzip -c input.tsv > g.tsv.gz; gloci index -s 1 -b 2 --skip-lines 1 --comment % g.tsv.gz; for q in chr1:1-100 chr1:20050-40001 chr1:40006-40006 chr1:40005-40005 chr2:1-50000 chr2 chr10:30000-60000 chrX:1-1000000; do tabix g.tsv.gz $q; done'''
+reference = '''set -e; bgzip -c input.tsv > t.tsv.gz; tabix -s1 -b2 -S1 -c% t.tsv.gz; for q in chr1:1-100 chr1:20050-40001 chr1:40006-40006 chr1:40005-40005 chr2:1-50000 chr2 chr10:30000-60000 chrX:1-1000000; do tabix t.tsv.gz $q; done'''
+compare = "exact"
+
+[[case]]
+name = "index-tsv-large-end-csi-vs-tabix"
+input = { file = "xtask/diff/inputs/bigend.bed" }
+gloci = '''set -e; bgzip -c input.bed > g.tsv.gz; gloci index -s 1 -b 2 -e 3 --zero-based g.tsv.gz && test -f g.tsv.gz.csi; for q in chr1:1500-1600 chr1:150-250 chr1:600000010-600000020 chr1:600000500-600000600 chr2:536870900-536871100 chr2:699999999-700001000; do tabix g.tsv.gz $q; done'''
+reference = '''set -e; bgzip -c input.bed > t.tsv.gz; tabix -C -s1 -b2 -e3 -0 t.tsv.gz; for q in chr1:1500-1600 chr1:150-250 chr1:600000010-600000020 chr1:600000500-600000600 chr2:536870900-536871100 chr2:699999999-700001000; do tabix t.tsv.gz $q; done'''
+compare = "exact"

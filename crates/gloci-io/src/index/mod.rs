@@ -166,6 +166,8 @@ enum Parser {
     Gff(Gff),
     Vcf(Vcf),
     Bcf(Box<(Decoder, BcfDicts)>),
+    /// A generic TSV indexed by user-given columns (build only).
+    Tsv(TsvKind),
 }
 
 impl Parser {
@@ -188,6 +190,7 @@ impl Parser {
             Parser::Gff(_) => <Gff as TextKind>::classify(line, seen_record),
             Parser::Vcf(_) => <Vcf as TextKind>::classify(line, seen_record),
             Parser::Bcf(_) => Class::Record,
+            Parser::Tsv(k) => k.classify(line),
         }
     }
 
@@ -201,6 +204,7 @@ impl Parser {
                 let (chrom, key, span) = dec.decode(raw, dicts, chroms)?;
                 Ok((chrom, key, span, Strand::Unknown))
             }
+            Parser::Tsv(k) => k.parse(raw, chroms),
         }
     }
 
@@ -215,6 +219,8 @@ impl Parser {
         let end = match self {
             Parser::Bed(_) | Parser::Gff(_) if span.is_point() => span.start.saturating_add(1),
             Parser::Bed(_) | Parser::Gff(_) => span.end,
+            // parse() already widened an empty TSV interval to one base
+            Parser::Tsv(_) => span.end,
             Parser::Vcf(_) => span.end.max(vcf_info_end(raw).unwrap_or(0)),
             Parser::Bcf(b) => {
                 // shared section: CHROM, POS, rlen, ...
@@ -248,16 +254,18 @@ impl Parser {
 
 mod build;
 mod query;
+mod tsv;
 
-pub(crate) use build::{build_index, remove_indexes, stage_index};
 use build::check_bgzf;
+pub use build::write_index;
 #[cfg(test)]
 use build::{Entry, Linear, bin_start, csi_depth, scan};
+pub(crate) use build::{build_index, remove_indexes, stage_index};
 #[cfg(test)]
 use query::Plan;
-pub use build::write_index;
 pub use query::{index_reference_names, open_region_reader};
-
+use tsv::TsvKind;
+pub use tsv::{TsvColumns, write_tsv_index};
 
 #[cfg(test)]
 mod tests {
@@ -296,7 +304,7 @@ mod tests {
             Ok(())
         };
         let threads = NonZeroUsize::new(2).unwrap();
-        let s = scan(&p, "big.vcf.gz", Format::Vcf, threads, &mut sink).unwrap();
+        let s = scan(&p, "big.vcf.gz", Format::Vcf, None, threads, &mut sink).unwrap();
         assert_eq!(n, 24);
         assert!(
             s.peak_bytes <= BATCH_BYTES + longest,

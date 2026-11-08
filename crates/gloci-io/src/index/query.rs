@@ -2,7 +2,6 @@
 
 use super::*;
 
-
 enum Loaded {
     Tbi(noodles_tabix::Index),
     Csi(noodles_csi::Index),

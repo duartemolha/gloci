@@ -39,6 +39,15 @@ fn parse_level(s: &str) -> Result<u8, String> {
     }
 }
 
+fn parse_comment(s: &str) -> Result<u8, String> {
+    match s.as_bytes() {
+        [b] if b.is_ascii() => Ok(*b),
+        _ => Err(format!(
+            "invalid comment character {s:?}: use one ASCII character"
+        )),
+    }
+}
+
 #[derive(Parser)]
 #[command(
     name = "gloci",
@@ -73,10 +82,22 @@ Examples:
   gloci sort peaks.bed -g hg38 > peaks.sorted.bed")]
     Genomes(GenomesArgs),
     /// Build a .tbi/.csi index for a sorted BGZF file.
+    ///
+    /// BED, GFF/GTF, VCF and BCF files are recognised by content. Any other
+    /// tab-separated file is indexed like tabix does when you name its
+    /// columns with -s (sequence), -b (begin) and -e (end, optional). The
+    /// columns are numbered from 1. Without --zero-based the begin column is
+    /// 1-based and a feature covers [begin-1, end]; with it, [begin, end).
+    /// Without -e a feature covers one base. Lines starting with --comment
+    /// (default #) and the first --skip-lines lines are not indexed; both
+    /// are recorded in the index. Chromosomes must be contiguous and sorted
+    /// by begin. The index is a .tbi, or a .csi when an end passes 2^29.
     #[command(after_long_help = "\
 Examples:
   gloci index calls.vcf.gz
-  gloci index peaks.bed.gz -t 8")]
+  gloci index peaks.bed.gz -t 8
+  gloci index scores.tsv.gz -s 1 -b 2 -e 3 --zero-based
+  gloci index sites.txt.gz -s 1 -b 2 --skip-lines 1 --comment %")]
     Index(IndexArgs),
     /// Sort BED/bedGraph/GFF/VCF/BCF files with bounded memory.
     ///
@@ -279,6 +300,25 @@ Examples:
 pub struct IndexArgs {
     /// Sorted, BGZF-compressed BED/GFF/VCF/BCF file to index.
     pub file: PathBuf,
+    /// Sequence (chromosome) column, numbered from 1. Selects TSV mode; needs -b.
+    #[arg(short = 's', long, value_name = "N")]
+    pub seq_col: Option<usize>,
+    /// Begin column, numbered from 1. Selects TSV mode; needs -s.
+    #[arg(short = 'b', long, value_name = "N")]
+    pub begin_col: Option<usize>,
+    /// End column, numbered from 1; without it a feature covers one base.
+    /// Selects TSV mode.
+    #[arg(short = 'e', long, value_name = "N")]
+    pub end_col: Option<usize>,
+    /// The begin column is 0-based (TSV mode).
+    #[arg(long)]
+    pub zero_based: bool,
+    /// Skip the first N lines (TSV mode).
+    #[arg(long, value_name = "N")]
+    pub skip_lines: Option<usize>,
+    /// Lines starting with this character are comments (TSV mode, default #).
+    #[arg(long, value_name = "CHAR", value_parser = parse_comment)]
+    pub comment: Option<u8>,
     #[command(flatten)]
     pub threads: ThreadArgs,
 }

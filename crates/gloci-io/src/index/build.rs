@@ -40,7 +40,6 @@ pub(super) fn check_bgzf(data: &Path, name: &str) -> Result<(), IoError> {
     Ok(())
 }
 
-
 /// One record to index.
 pub(super) struct Entry {
     rid: usize,
@@ -69,6 +68,8 @@ pub(super) struct Scanned {
 struct Scanner<'a> {
     name: &'a str,
     binary: bool,
+    /// Columns of a generic TSV being indexed (`format` is then nominal).
+    tsv: Option<&'a TsvColumns>,
     chroms: ChromTable,
     guard: OrderGuard,
     batch: RecordBatch,
@@ -152,6 +153,12 @@ impl Scanner<'_> {
             match e {
                 // The records of a BCF can be contiguous per contig and still
                 // fail here: the index needs the contigs in dictionary order.
+                IoError::Order(mut o) if self.tsv.is_some() => {
+                    o.hint = "sort the file by chromosome (each chromosome in one block) and then \
+by the begin column, for example: zcat FILE | sort -k1,1 -k2,2n | bgzip > FILE.sorted"
+                        .to_string();
+                    IoError::Order(o)
+                }
                 IoError::Order(mut o) if self.binary => {
                     o.hint.push_str(
                         "; an index of a BCF needs its contigs in the order of the header's \
@@ -172,8 +179,12 @@ contig dictionary, even when each contig is contiguous (bcftools index is less s
 
     /// Text formats; returns the line skip count.
     fn text(&mut self, r: &mut MultithreadedReader<File>, format: Format) -> Result<u32, IoError> {
-        let mut parser = Parser::text(format, VcfSpan::Ref);
-        let bed = matches!(format, Format::Bed | Format::BedGraph);
+        let mut parser = match self.tsv {
+            Some(cols) => Parser::Tsv(TsvKind::new(cols)),
+            None => Parser::text(format, VcfSpan::Ref),
+        };
+        let skip_lines = self.tsv.map_or(0, |c| c.skip_lines as u64);
+        let bed = self.tsv.is_none() && matches!(format, Format::Bed | Format::BedGraph);
         let (mut n, mut skip, mut seen) = (0u64, 0u32, false);
         loop {
             let start = r.virtual_position();
@@ -188,6 +199,11 @@ contig dictionary, even when each contig is contiguous (bcftools index is less s
             let end = r.virtual_position();
             strip_eol(&mut self.batch.buf, off);
             let line = &self.batch.buf[off..];
+            if n <= skip_lines {
+                skip = u32::try_from(n).unwrap_or(u32::MAX);
+                self.batch.buf.truncate(off);
+                continue;
+            }
             match parser.classify(line, seen) {
                 Class::Record => {}
                 Class::Header if !seen && bed && line.first() != Some(&b'#') => {
@@ -276,6 +292,7 @@ pub(super) fn scan(
     data: &Path,
     name: &str,
     format: Format,
+    tsv: Option<&TsvColumns>,
     threads: NonZeroUsize,
     sink: &mut dyn FnMut(&Entry) -> Result<(), IoError>,
 ) -> Result<Scanned, IoError> {
@@ -288,6 +305,7 @@ pub(super) fn scan(
     let mut sc = Scanner {
         name,
         binary,
+        tsv,
         chroms: ChromTable::first_appearance(),
         guard: OrderGuard::new(name, format),
         batch: RecordBatch::default(),
@@ -355,12 +373,13 @@ struct Pass<I> {
     linear: Vec<Linear>,
 }
 
-fn text_header(format: Format, s: &Scanned) -> Option<CsiHeader> {
-    let builder = match format {
-        Format::Bed | Format::BedGraph => HeaderBuilder::bed().set_line_skip_count(s.skip),
-        Format::Gff3 | Format::Gtf => HeaderBuilder::gff(),
-        Format::Vcf => HeaderBuilder::vcf(),
-        Format::Bcf => return None,
+fn text_header(format: Format, tsv: Option<&TsvColumns>, s: &Scanned) -> Option<CsiHeader> {
+    let builder = match (format, tsv) {
+        (_, Some(cols)) => cols.header_builder(),
+        (Format::Bed | Format::BedGraph, _) => HeaderBuilder::bed().set_line_skip_count(s.skip),
+        (Format::Gff3 | Format::Gtf, _) => HeaderBuilder::gff(),
+        (Format::Vcf, _) => HeaderBuilder::vcf(),
+        (Format::Bcf, _) => return None,
     };
     let mut names = ReferenceSequenceNames::default();
     for n in &s.names {
@@ -373,6 +392,7 @@ fn pass<I: BinIndexKind + Default>(
     data: &Path,
     name: &str,
     format: Format,
+    tsv: Option<&TsvColumns>,
     threads: NonZeroUsize,
     depth: u8,
 ) -> Result<Pass<I>, IoError> {
@@ -405,11 +425,11 @@ fn pass<I: BinIndexKind + Default>(
         linear[e.rid].add(e.end, e.chunk.start());
         Ok(())
     };
-    let scanned = scan(data, name, format, threads, &mut sink)?;
+    let scanned = scan(data, name, format, tsv, threads, &mut sink)?;
     let index = if full {
         None
     } else {
-        let indexer = match text_header(format, &scanned) {
+        let indexer = match text_header(format, tsv, &scanned) {
             Some(h) => indexer.set_header(h),
             None => indexer,
         };
@@ -507,6 +527,18 @@ pub(crate) fn build_index(
     format: Format,
     threads: NonZeroUsize,
 ) -> Result<(IndexKind, Vec<u8>), IoError> {
+    build_index_with(data, final_data_path, format, None, threads)
+}
+
+/// `build_index` for a generic TSV when `tsv` is given (`format` is then
+/// only nominal and must be a text format).
+pub(super) fn build_index_with(
+    data: &Path,
+    final_data_path: &Path,
+    format: Format,
+    tsv: Option<&TsvColumns>,
+    threads: NonZeroUsize,
+) -> Result<(IndexKind, Vec<u8>), IoError> {
     let name = final_data_path.display().to_string();
     check_bgzf(data, &name)?;
     let changed = || IoError::Detect {
@@ -518,22 +550,22 @@ pub(crate) fn build_index(
         None => Err(changed()),
     };
     let (kind, bytes) = if format == Format::Bcf {
-        let p = pass::<BinnedIndex>(data, &name, format, threads, TBI_DEPTH)?;
+        let p = pass::<BinnedIndex>(data, &name, format, tsv, threads, TBI_DEPTH)?;
         let p = match p.index {
             Some(_) => p,
             None => {
                 let depth = csi_depth(p.scanned.max_end);
-                pass::<BinnedIndex>(data, &name, format, threads, depth)?
+                pass::<BinnedIndex>(data, &name, format, tsv, threads, depth)?
             }
         };
         (IndexKind::Csi, csi_bytes(&csi(p)?))
     } else {
-        let p = pass::<LinearIndex>(data, &name, format, threads, TBI_DEPTH)?;
+        let p = pass::<LinearIndex>(data, &name, format, tsv, threads, TBI_DEPTH)?;
         match p.index {
             Some(index) => (IndexKind::Tbi, tbi_bytes(&index)),
             None => {
                 let depth = csi_depth(p.scanned.max_end);
-                let q = pass::<BinnedIndex>(data, &name, format, threads, depth)?;
+                let q = pass::<BinnedIndex>(data, &name, format, tsv, threads, depth)?;
                 (IndexKind::Csi, csi_bytes(&csi(q)?))
             }
         }
@@ -589,8 +621,18 @@ pub fn write_index(
     threads: NonZeroUsize,
 ) -> Result<PathBuf, IoError> {
     let (kind, bytes) = build_index(data, final_data_path, format, threads)?;
+    publish_index(final_data_path, kind, &bytes)
+}
+
+/// Write `bytes` atomically as the index of `final_data_path` and remove an
+/// index of the other kind; returns the index path.
+pub(super) fn publish_index(
+    final_data_path: &Path,
+    kind: IndexKind,
+    bytes: &[u8],
+) -> Result<PathBuf, IoError> {
     let path = index_path(final_data_path, kind);
-    let af = stage_index(&path, &bytes)?;
+    let af = stage_index(&path, bytes)?;
     af.commit().map_err(|source| IoError::Write {
         path: path.display().to_string(),
         source,
