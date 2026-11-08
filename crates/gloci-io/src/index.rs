@@ -19,12 +19,14 @@ use crate::error::{IoError, Loc, UsageError};
 use crate::gff::Gff;
 use crate::input::{BGZF_EOF, read_up_to};
 use crate::record::{
-    Class, Header, ReaderOptions, RecordBatch, RecordMeta, RecordReader, TextKind,
+    Class, Header, Parsed, ReaderOptions, RecordBatch, RecordMeta, RecordReader, TextKind,
     open_reader_from, warn_undeclared,
 };
 use crate::sorted::OrderGuard;
 use crate::vcf::{Vcf, VcfHeader};
-use gloci_core::{ChromId, ChromTable, Interval, RegionSet, VcfSpan, parse_coord, thousands};
+use gloci_core::{
+    ChromId, ChromTable, Interval, RegionSet, Strand, VcfSpan, parse_coord, thousands,
+};
 use noodles_bgzf::VirtualPosition;
 use noodles_bgzf::io::MultithreadedReader;
 use noodles_core::Position;
@@ -227,18 +229,15 @@ impl Parser {
         }
     }
 
-    fn parse(
-        &mut self,
-        raw: &[u8],
-        chroms: &mut ChromTable,
-    ) -> Result<(ChromId, u64, Interval), String> {
+    fn parse(&mut self, raw: &[u8], chroms: &mut ChromTable) -> Result<Parsed, String> {
         match self {
             Parser::Bed(k) => k.parse(raw, chroms),
             Parser::Gff(k) => k.parse(raw, chroms),
             Parser::Vcf(k) => k.parse(raw, chroms),
             Parser::Bcf(b) => {
                 let (dec, dicts) = &mut **b;
-                dec.decode(raw, dicts, chroms)
+                let (chrom, key, span) = dec.decode(raw, dicts, chroms)?;
+                Ok((chrom, key, span, Strand::Unknown))
             }
         }
     }
@@ -250,7 +249,7 @@ impl Parser {
         raw: &[u8],
         chroms: &mut ChromTable,
     ) -> Result<(ChromId, u64, u64), String> {
-        let (chrom, key, span) = self.parse(raw, chroms)?;
+        let (chrom, key, span, _) = self.parse(raw, chroms)?;
         let end = match self {
             Parser::Bed(_) | Parser::Gff(_) if span.is_point() => span.start.saturating_add(1),
             Parser::Bed(_) | Parser::Gff(_) => span.end,
@@ -367,6 +366,7 @@ impl Scanner<'_> {
             chrom,
             key: begin,
             span: Interval { start: begin, end },
+            strand: Strand::Unknown, // index scans never read strand
             loc: n,
             off,
             len,
@@ -1198,7 +1198,7 @@ impl RegionReader {
                 _ if raw.len() > u32::MAX as usize => Err("line is longer than 4 GiB".into()),
                 _ => self.parser.parse(raw, chroms),
             };
-            let (chrom, key, span) = match parsed {
+            let (chrom, key, span, strand) = match parsed {
                 Ok(p) => p,
                 Err(msg) => {
                     batch.buf.truncate(off);
@@ -1224,6 +1224,7 @@ impl RegionReader {
                     chrom,
                     key,
                     span,
+                    strand,
                     loc: 0,
                     off,
                     len,

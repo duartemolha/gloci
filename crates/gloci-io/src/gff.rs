@@ -3,8 +3,8 @@
 use crate::diag::InvalidPolicy;
 use crate::error::IoError;
 use crate::input::Input;
-use crate::record::{Class, TextKind, TextReader, coord, intern_chrom};
-use gloci_core::{ChromId, ChromTable, Interval, one_based_closed};
+use crate::record::{Class, Parsed, TextKind, TextReader, coord, intern_chrom};
+use gloci_core::{ChromTable, Strand, one_based_closed};
 
 #[derive(Default)]
 pub(crate) struct Gff;
@@ -31,24 +31,22 @@ impl TextKind for Gff {
         }
     }
 
-    fn parse(
-        &self,
-        line: &[u8],
-        chroms: &mut ChromTable,
-    ) -> Result<(ChromId, u64, Interval), String> {
+    fn parse(&self, line: &[u8], chroms: &mut ChromTable) -> Result<Parsed, String> {
         let mut f = line.split(|&b| b == b'\t');
         let c = f.next().unwrap_or_default();
         let (Some(s), Some(e)) = (f.nth(2), f.next()) else {
             return Err(too_few(line));
         };
-        if f.count() < 4 {
+        // Remaining: score, strand, phase, attributes.
+        let (Some(_), Some(st), Some(_), Some(_)) = (f.next(), f.next(), f.next(), f.next()) else {
             return Err(too_few(line));
-        }
+        };
+        let strand = Strand::parse(st).unwrap_or(Strand::Unknown);
         let start = coord("start", s)?;
         let end = coord("end", e)?;
         let span = one_based_closed(start, end).map_err(|e| e.to_string())?;
         let chrom = intern_chrom(chroms, c)?;
-        Ok((chrom, span.start, span))
+        Ok((chrom, span.start, span, strand))
     }
 }
 

@@ -4,7 +4,7 @@ use crate::detect::{Compression, Format};
 use crate::diag::{Diagnostics, InvalidPolicy};
 use crate::error::{IoError, Loc};
 use crate::input::{Input, InputOptions, open_input, open_input_from};
-use gloci_core::{ChromId, ChromTable, CoordError, Interval, OrderSource, VcfSpan};
+use gloci_core::{ChromId, ChromTable, CoordError, Interval, OrderSource, Strand, VcfSpan};
 use std::io::{BufRead, Read};
 use std::num::NonZeroUsize;
 
@@ -16,6 +16,8 @@ pub struct RecordMeta {
     pub key: u64,
     /// The record's footprint.
     pub span: Interval,
+    /// Strand (D54): BED column 6, GFF column 7; unknown otherwise.
+    pub strand: Strand,
     /// 1-based physical line number (or record number for binary formats).
     pub loc: u64,
     /// Offset of the raw bytes in `RecordBatch::buf`.
@@ -146,12 +148,11 @@ pub(crate) enum Class {
 
 pub(crate) trait TextKind: Send + 'static {
     fn classify(line: &[u8], seen_record: bool) -> Class;
-    fn parse(
-        &self,
-        line: &[u8],
-        chroms: &mut ChromTable,
-    ) -> Result<(ChromId, u64, Interval), String>;
+    fn parse(&self, line: &[u8], chroms: &mut ChromTable) -> Result<Parsed, String>;
 }
+
+/// A parsed text record: chromosome, sort key, footprint, strand.
+pub(crate) type Parsed = (ChromId, u64, Interval, Strand);
 
 /// Intern `name`, explaining a failure against a closed table.
 pub(crate) fn intern_chrom(chroms: &mut ChromTable, name: &[u8]) -> Result<ChromId, String> {
@@ -357,11 +358,12 @@ impl<K: TextKind> RecordReader for TextReader<K> {
                 self.kind.parse(line, chroms)
             };
             match parsed {
-                Ok((chrom, key, span)) => {
+                Ok((chrom, key, span, strand)) => {
                     batch.recs.push(RecordMeta {
                         chrom,
                         key,
                         span,
+                        strand,
                         loc: self.line,
                         off: start,
                         len: len as u32,

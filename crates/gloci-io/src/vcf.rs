@@ -4,8 +4,8 @@ use crate::bcf::BcfDicts;
 use crate::diag::InvalidPolicy;
 use crate::error::IoError;
 use crate::input::Input;
-use crate::record::{Class, Header, TextKind, TextReader, coord, intern_chrom};
-use gloci_core::{ChromId, ChromTable, Interval, Variant, VcfSpan, footprint};
+use crate::record::{Class, Header, Parsed, TextKind, TextReader, coord, intern_chrom};
+use gloci_core::{ChromTable, Strand, Variant, VcfSpan, footprint};
 use std::ffi::OsString;
 
 /// A parsed VCF header; `raw` holds every header line (including `#CHROM`),
@@ -228,11 +228,7 @@ impl TextKind for Vcf {
         }
     }
 
-    fn parse(
-        &self,
-        line: &[u8],
-        chroms: &mut ChromTable,
-    ) -> Result<(ChromId, u64, Interval), String> {
+    fn parse(&self, line: &[u8], chroms: &mut ChromTable) -> Result<Parsed, String> {
         let mut f = line.splitn(9, |&b| b == b'\t');
         let cols: Vec<&[u8]> = f.by_ref().take(8).collect();
         if cols.len() < 8 {
@@ -273,6 +269,6 @@ impl TextKind for Vcf {
         )
         .map_err(|e| e.to_string())?;
         let chrom = intern_chrom(chroms, cols[0])?;
-        Ok((chrom, pos - 1, span))
+        Ok((chrom, pos - 1, span, Strand::Unknown))
     }
 }

@@ -8,6 +8,7 @@ pub mod convert;
 pub mod detect;
 pub mod diag;
 pub mod error;
+pub mod fields;
 #[doc(hidden)]
 pub mod fuzz_bodies;
 pub mod genome;
@@ -33,6 +34,7 @@ pub use convert::{HeaderMode, convert_variants};
 pub use detect::{Compression, Format, detect_compression, detect_format};
 pub use diag::{Diagnostics, InvalidPolicy};
 pub use error::{IoError, Loc, OrderError, UsageError};
+pub use fields::{column_count, field, split_fields};
 pub use genome::{chrom_table_for, chrom_table_lenient, load_genome};
 pub use index::{
     IndexInfo, IndexKind, find_index, index_reference_names, open_region_reader, write_index,

@@ -12,7 +12,9 @@ use crate::error::{IoError, Loc};
 use crate::input::Input;
 use crate::record::{Header, RecordBatch, RecordMeta, RecordReader, coord, intern_chrom};
 use crate::vcf::{VcfHeader, header_fields};
-use gloci_core::{ChromId, ChromTable, FootprintError, Interval, Variant, VcfSpan, footprint};
+use gloci_core::{
+    ChromId, ChromTable, FootprintError, Interval, Strand, Variant, VcfSpan, footprint,
+};
 use std::collections::HashMap;
 use std::io::{self, BufRead, Read, Write};
 
@@ -736,6 +738,7 @@ impl RecordReader for BcfReader {
                         chrom,
                         key,
                         span,
+                        strand: Strand::Unknown,
                         loc: self.rec,
                         off: start,
                         len: len as u32,

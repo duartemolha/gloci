@@ -3,8 +3,8 @@
 use crate::diag::InvalidPolicy;
 use crate::error::IoError;
 use crate::input::Input;
-use crate::record::{Class, TextKind, TextReader, coord, intern_chrom};
-use gloci_core::{ChromId, ChromTable, Interval};
+use crate::record::{Class, Parsed, TextKind, TextReader, coord, intern_chrom};
+use gloci_core::{ChromTable, Interval, Strand};
 
 #[derive(Default)]
 pub(crate) struct Bed;
@@ -41,11 +41,7 @@ impl TextKind for Bed {
         }
     }
 
-    fn parse(
-        &self,
-        line: &[u8],
-        chroms: &mut ChromTable,
-    ) -> Result<(ChromId, u64, Interval), String> {
+    fn parse(&self, line: &[u8], chroms: &mut ChromTable) -> Result<Parsed, String> {
         let mut f = line.split(|&b| b == b'\t');
         let (Some(c), Some(s), Some(e)) = (f.next(), f.next(), f.next()) else {
             let n = line.split(|&b| b == b'\t').count();
@@ -62,7 +58,13 @@ impl TextKind for Bed {
         let end = coord("end", e)?;
         let span = Interval::new(start, end).map_err(|e| e.to_string())?;
         let chrom = intern_chrom(chroms, c)?;
-        Ok((chrom, start, span))
+        // Column 6 counts only as exactly `+`, `-` or `.` (D54).
+        let strand = match f.nth(2) {
+            Some(b"+") => Strand::Plus,
+            Some(b"-") => Strand::Minus,
+            _ => Strand::Unknown,
+        };
+        Ok((chrom, start, span, strand))
     }
 }
 
