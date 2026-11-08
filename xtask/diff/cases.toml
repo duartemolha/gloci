@@ -1500,3 +1500,75 @@ gloci = "gloci flank --left 5 --right 5 -s -g comp.genome input.bed"
 reference = "bedtools flank -i input.bed -g comp.genome -l 5 -r 5 -s"
 compare = "exact"
 expected_difference = "#flank-unknown-strand"
+
+# windows (Task 18). comp.genome gives lengths that do not divide evenly.
+# windows-in.bed is unsorted, has extra columns, a 3 bp interval (skipped by
+# -n 4 in both tools) and a feature that covers a whole chromosome.
+[[case]]
+name = "windows-size-step-vs-bedtools"
+input = { file = "xtask/diff/inputs/comp.genome" }
+gloci = "gloci windows -g input.genome -w 300 --step 200"
+reference = "bedtools makewindows -g input.genome -w 300 -s 200"
+compare = "exact"
+
+# A step larger than the size leaves gaps in both tools.
+[[case]]
+name = "windows-step-gaps-vs-bedtools"
+input = { file = "xtask/diff/inputs/comp.genome" }
+gloci = "gloci windows -g input.genome -w 100 --step 250"
+reference = "bedtools makewindows -g input.genome -w 100 -s 250"
+compare = "exact"
+
+[[case]]
+name = "windows-count-vs-bedtools"
+input = { file = "xtask/diff/inputs/comp.genome" }
+gloci = "gloci windows -g input.genome -n 3"
+reference = "bedtools makewindows -g input.genome -n 3"
+compare = "exact"
+
+[[case]]
+name = "windows-intervals-id-vs-bedtools"
+input = { file = "xtask/diff/inputs/windows-in.bed" }
+gloci = "gloci windows -i input.bed -w 100 --id-column"
+reference = "bedtools makewindows -b input.bed -w 100 -i winnum"
+compare = "exact"
+
+[[case]]
+name = "windows-intervals-count-reverse-vs-bedtools"
+input = { file = "xtask/diff/inputs/windows-in.bed" }
+gloci = "gloci windows -i input.bed -n 4 --id-column --reverse"
+reference = "bedtools makewindows -b input.bed -n 4 -i winnum -reverse"
+compare = "exact"
+
+[[case]]
+name = "windows-step-reverse-vs-bedtools"
+input = { file = "xtask/diff/inputs/windows-in.bed" }
+gloci = "gloci windows -i input.bed -w 40 --step 30 --id-column --reverse"
+reference = "bedtools makewindows -b input.bed -w 40 -s 30 -i winnum -reverse"
+compare = "exact"
+
+# bedtools reads a point (start == end) as the single base at 1-based
+# position `start` and windows [start - 1, start + 1); gloci gives none.
+[[case]]
+name = "windows-point-vs-bedtools"
+input = { file = "xtask/diff/inputs/windows-point.bed" }
+gloci = "gloci windows -i input.bed -w 4"
+reference = "bedtools makewindows -b input.bed -w 4"
+compare = "exact"
+expected_difference = "#windows-points"
+
+# bedops --chop cuts each input line, so overlapping input has to be merged
+# first: a live pipeline, plus a golden-able twin on a pre-merged file.
+[[case]]
+name = "windows-chop-pipeline-vs-bedops"
+input = { file = "xtask/diff/inputs/merge-in.bed" }
+gloci = "gloci merge --chrom-order lex input.bed | gloci windows -i - -w 100"
+reference = "bedops -m input.bed | bedops --chop 100 -"
+compare = "exact"
+
+[[case]]
+name = "windows-chop-vs-bedops"
+input = { file = "xtask/diff/inputs/windows-merged.bed" }
+gloci = "gloci windows -i input.bed -w 100"
+reference = "bedops --chop 100 input.bed"
+compare = "exact"

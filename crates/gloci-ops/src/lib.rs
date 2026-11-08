@@ -14,6 +14,7 @@ pub mod sort;
 pub mod subtract;
 pub mod transform;
 pub mod view;
+pub mod windows;
 
 pub use bedsearch::{ChromBlock, find_chrom_block};
 pub use check::{CheckReport, Problems, check_file};

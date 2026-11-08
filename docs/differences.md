@@ -538,3 +538,14 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Reason:** silently dropping features is worse than a defined default, and
   the two commands should agree.
 - **Pinned by:** `flank-unknown-strand-vs-bedtools` (must differ).
+
+## `windows` of a point {#windows-points}
+
+- **gloci:** a point `[p, p)` has no bases, so `windows -i` writes nothing
+  for it.
+- **Old behaviour:** `bedtools makewindows -b` reads a zero-length record as
+  the single base at 1-based position `p` and writes the window `[p - 1, p + 1)`
+  for it (with `-w 4`).
+- **Reason:** a point sits between bases (spec §4.3) and covers nothing to
+  cut.
+- **Pinned by:** `windows-point-vs-bedtools` (must differ).

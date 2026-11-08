@@ -300,6 +300,26 @@ Examples:
   gloci flank genes.bed --left 2000 -s -g hg38
   gloci flank peaks.bed --pct -b 0.25 -g genome.txt | gloci sort -g genome.txt -")]
     Flank(FlankArgs),
+    /// Cut chromosomes or intervals into windows (bedtools makewindows,
+    /// bedops --chop).
+    ///
+    /// -g cuts every chromosome of a genome (built-in, .genome, .fai or .dict
+    /// with lengths) in genome order; -i cuts the footprint of every record
+    /// of a file in input order (no sorting needed; points give no windows;
+    /// -i - reads stdin). -w SIZE gives windows of SIZE bases every --step
+    /// bases (default SIZE; a smaller step overlaps, a larger one leaves
+    /// gaps), the last one truncated at the interval end. -n COUNT gives
+    /// COUNT windows of floor(length / COUNT) bases, the last one taking
+    /// the remainder; an interval shorter than COUNT is skipped with a
+    /// warning. Output is BED3; --id-column adds the 1-based window number
+    /// of each source interval, counted from the end with --reverse.
+    #[command(after_long_help = "\
+Examples:
+  gloci windows -g hg38 -w 1000000 -o bins.bed
+  gloci windows -g genome.txt -w 1000 --step 500
+  gloci windows -i genes.bed -n 10 --id-column --reverse
+  gloci merge peaks.bed | gloci windows -i - -w 100")]
+    Windows(WindowsArgs),
     /// Remove from A the bases covered by B (bedtools subtract, bedops -d).
     ///
     /// Each A record is cut by the union of the B records that overlap it,
@@ -891,6 +911,44 @@ pub struct FlankArgs {
     pub format: FormatArg,
     #[command(flatten)]
     pub header: HeaderArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+#[derive(Args)]
+#[command(group(clap::ArgGroup::new("source").required(true).multiple(false).args(["genome", "intervals"])))]
+#[command(group(clap::ArgGroup::new("split").required(true).multiple(false).args(["size", "count"])))]
+pub struct WindowsArgs {
+    /// Cut every chromosome of a built-in genome such as hg38 (see gloci
+    /// genomes), or a .fai, .genome or .dict file with lengths.
+    #[arg(short, long, value_name = "NAME|FILE")]
+    pub genome: Option<String>,
+    /// Cut the footprint of every record of FILE (`-` for stdin).
+    #[arg(short = 'i', long, value_name = "FILE")]
+    pub intervals: Option<String>,
+    /// Window size in bases.
+    #[arg(short = 'w', long, value_name = "SIZE")]
+    pub size: Option<u64>,
+    /// Distance between window starts (default: the window size).
+    #[arg(long, value_name = "S", requires = "size", conflicts_with = "count")]
+    pub step: Option<u64>,
+    /// Split every interval into COUNT windows.
+    #[arg(short = 'n', long, value_name = "COUNT")]
+    pub count: Option<u64>,
+    /// Number the windows from the end of the interval.
+    #[arg(long)]
+    pub reverse: bool,
+    /// Append the 1-based window number of each source interval.
+    #[arg(long)]
+    pub id_column: bool,
+    #[command(flatten)]
+    pub format: FormatArg,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
     #[command(flatten)]
     pub invalid: InvalidArg,
     #[command(flatten)]

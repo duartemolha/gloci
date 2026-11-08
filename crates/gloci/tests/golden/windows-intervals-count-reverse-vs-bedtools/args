@@ -1,0 +1,1 @@
+windows -i input.bed -n 4 --id-column --reverse

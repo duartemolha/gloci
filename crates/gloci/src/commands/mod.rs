@@ -12,6 +12,7 @@ pub mod slop;
 pub mod sort;
 pub mod subtract;
 pub mod view;
+pub mod windows;
 
 use crate::Ctx;
 use crate::cli::{ChromOrderArg, SortArg, VcfSpan};
