@@ -236,7 +236,9 @@ Examples:
     /// one record per piece, in ascending order (BED columns 2-3, GFF
     /// columns 4-5). An A that nothing touches is written as read, and an A
     /// that is covered completely disappears. A point has no bases to cut:
-    /// it is dropped when a B contains it, and a B point removes nothing.
+    /// it is dropped when a B contains it, and a B point removes nothing
+    /// from a cut; under --whole, or --sum-overlaps without -f, a B point
+    /// strictly inside A still removes A (the point rule of intersect).
     /// The criteria (-f, -F, -r, -e, --min-bases, -s, -S) choose which B
     /// count and are measured as in intersect. -w, --left and --right pad B
     /// before it cuts.

@@ -13,7 +13,9 @@
 //!   hits take part; A is dropped when their overlap lengths add up to at
 //!   least `-f` of A, or when any takes part and there is no `-f` (D60).
 //! - **VCF/BCF A.** A record is a variant, not a span to cut: it is
-//!   dropped whole, exactly when `intersect --mode none` would drop it.
+//!   dropped whole, exactly when `intersect --mode none` would drop it (or,
+//!   with `--sum-overlaps -f`, when the summed overlaps reach `-f` of its
+//!   footprint).
 //! - **`--split`.** B is its BED12 blocks, not its span (D60).
 
 use crate::relate::{Acceptor, RelateInputs, RelateOptions, rewrite_coords, run_relation};
@@ -156,11 +158,13 @@ impl Visitor for Subtractor<'_, '_> {
     fn visit(&mut self, a: &ARec<'_>, hits: &[Hit<'_>], _: &Neighbours<'_>) -> Result<(), IoError> {
         let span = a.meta.span;
         let variant = matches!(self.format, Format::Vcf | Format::Bcf);
-        // Only the existence of an accepted hit matters.
-        let any_enough = variant
+        // Only the existence of an accepted hit matters, except for the
+        // `--sum-overlaps -f` test, which every record kind goes through.
+        let summing = self.sum_overlaps && self.sum_frac.is_some();
+        let any_enough = self.whole
             || span.is_point()
-            || self.whole
-            || (self.sum_overlaps && self.sum_frac.is_none());
+            || (self.sum_overlaps && !summing)
+            || (variant && !summing);
         self.removed.clear();
         let mut any = false;
         for h in hits {

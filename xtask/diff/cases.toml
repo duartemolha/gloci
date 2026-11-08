@@ -760,3 +760,13 @@ aux = ["xtask/diff/inputs/rel-b.bed"]
 gloci = "gloci merge --chrom-order lex input.bed | gloci subtract --chrom-order lex -a - -b rel-b.bed"
 reference = "bedops --difference input.bed rel-b.bed"
 compare = "exact"
+
+# Golden-able twin of the case above: rel-a-merged.bed is rel-a.bed after
+# `gloci merge --chrom-order lex`, so one gloci invocation does the job.
+[[case]]
+name = "subtract-difference-merged-vs-bedops"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed", "xtask/diff/inputs/rel-a-merged.bed"]
+gloci = "gloci subtract --chrom-order lex -a rel-a-merged.bed -b rel-b.bed"
+reference = "bedops --difference input.bed rel-b.bed"
+compare = "exact"

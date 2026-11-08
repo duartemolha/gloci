@@ -1,0 +1,1 @@
+subtract --chrom-order lex -a rel-a-merged.bed -b rel-b.bed

@@ -157,6 +157,29 @@ fn gff_pieces() {
     );
 }
 
+#[test]
+fn gff_one_base_piece() {
+    let fx = Fx::new();
+    let a = fx.file("a.gff", "chr1\tsrc\tgene\t1\t100\t.\t+\t.\tID=x\n");
+    let b = fx.file("b.bed", "chr1\t1\t99\n");
+    // [0,1) and [99,100) are single bases: start == end in 1-based columns
+    assert_eq!(
+        out(&["subtract", "-a", &a, "-b", &b]),
+        "chr1\tsrc\tgene\t1\t1\t.\t+\t.\tID=x\nchr1\tsrc\tgene\t100\t100\t.\t+\t.\tID=x\n"
+    );
+}
+
+#[test]
+fn b_point_with_whole_and_sum() {
+    let fx = Fx::new();
+    let a = "chr1\t0\t100\ta1\t0\t+\n";
+    let pt = "chr1\t50\t50\n";
+    assert_eq!(fx.run(a, pt, &[]), a);
+    assert_eq!(fx.run(a, pt, &["--whole"]), "");
+    assert_eq!(fx.run(a, pt, &["--sum-overlaps"]), "");
+    assert_eq!(fx.run(a, pt, &["--sum-overlaps", "-f", "0.5"]), a);
+}
+
 const VHEAD: &str = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n";
 
 #[test]
@@ -175,6 +198,35 @@ fn vcf_a_whole_records() {
     assert!(lines.iter().any(|l| l.starts_with("##glociCommand=")));
     assert_eq!(lines.last().unwrap(), &"chr1\t100\t.\tG\tT\t.\t.\t.");
     assert_eq!(lines.len(), 4, "{sub}");
+    // a 10-base REF (POS 11, --vcf-span ref) against 1 shared base
+    let long = fx.file(
+        "long.vcf",
+        &format!("{VHEAD}chr1\t11\t.\tAAAAAAAAAA\tC\t.\t.\t.\n"),
+    );
+    let one = fx.file("one.bed", "chr1\t10\t11\n");
+    let rec = "chr1\t11\t.\tAAAAAAAAAA\tC\t.\t.\t.";
+    let sum = |f: &str| {
+        out(&[
+            "subtract",
+            "-a",
+            &long,
+            "-b",
+            &one,
+            "--vcf-span",
+            "ref",
+            "--sum-overlaps",
+            "-f",
+            f,
+        ])
+    };
+    assert!(
+        sum("0.5").lines().any(|l| l == rec),
+        "1 of 10 bases is below 0.5"
+    );
+    assert!(
+        !sum("0.1").lines().any(|l| l == rec),
+        "1 of 10 bases reaches 0.1"
+    );
     // exactly what intersect --mode none keeps
     let strip = |t: &str| {
         t.lines()
@@ -182,6 +234,40 @@ fn vcf_a_whole_records() {
             .collect::<Vec<_>>()
             .join("\n")
     };
+    // an insertion (a point under the allele span) and a 4-base deletion
+    let a2 = fx.file(
+        "a2.vcf",
+        &format!(
+            "{VHEAD}chr1\t10\t.\tA\tAT\t.\t.\t.\nchr1\t11\t.\tATGC\tA\t.\t.\t.\nchr1\t30\t.\tG\tT\t.\t.\t.\n"
+        ),
+    );
+    let b2 = fx.file("b2.bed", "chr1\t9\t13\tb\t0\t+\nchr1\t30\t30\n");
+    let strip_ = |t: &str| strip(t);
+    for extra in [
+        &[][..],
+        &["-f", "0.5"],
+        &["-F", "0.5"],
+        &["-r", "-f", "0.5"],
+        &["-e", "-f", "0.9", "-F", "0.9"],
+        &["--inclusive-points"],
+        &["--vcf-span", "ref", "-f", "0.5"],
+    ] {
+        let mut x = vec!["intersect", "--mode", "none", "-a", &a2, "-b", &b2];
+        x.extend_from_slice(extra);
+        let mut y = vec!["subtract", "-a", &a2, "-b", &b2];
+        y.extend_from_slice(extra);
+        assert_eq!(strip_(&out(&y)), strip_(&out(&x)), "a2 {extra:?}");
+    }
+    // --sum-overlaps -f on variants: a point record drops on any hit, a
+    // span record needs the summed overlap (the deletion's 3 changed bases
+    // share 2 with the 4-base B: 0.67 of it)
+    let del = "chr1\t11\t.\tATGC\tA\t.\t.\t.";
+    let snv = "chr1\t30\t.\tG\tT\t.\t.\t.";
+    for (f, want) in [("0.5", vec![snv]), ("1", vec![del, snv])] {
+        let o = out(&["subtract", "-a", &a2, "-b", &b2, "--sum-overlaps", "-f", f]);
+        let keys: Vec<&str> = o.lines().filter(|l| !l.starts_with('#')).collect();
+        assert_eq!(keys, want, "-f {f}\n{o}");
+    }
     for extra in [&[][..], &["-w", "3"], &["--vcf-span", "ref"]] {
         let mut x = vec!["intersect", "--mode", "none", "-a", &a, "-b", &b];
         x.extend_from_slice(extra);
