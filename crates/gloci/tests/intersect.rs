@@ -300,7 +300,7 @@ fn vcf_a() {
     let pairs = out(&["intersect", "-a", &a, "-b", &b, "--mode", "pairs"]);
     assert_eq!(
         pairs,
-        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tb_record\n\
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tb_1\tb_2\tb_3\tb_4\n\
 chr1\t12\t.\tA\tC\t.\t.\t.\tchr1\t10\t20\tb\n"
     );
     let count = out(&["intersect", "-a", &a, "-b", &b, "--mode", "count"]);
@@ -477,7 +477,7 @@ fn bcf_inputs_are_rendered_as_vcf_text() {
     ]);
     assert_eq!(
         pairs,
-        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tb_record\n\
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tb_CHROM\tb_POS\tb_ID\tb_REF\tb_ALT\tb_QUAL\tb_FILTER\tb_INFO\n\
 chr1\t100\t.\tA\tACGT\t.\t.\t.\tchr1\t100\t.\tA\tACGT,G\t.\t.\t.\n"
     );
     let count = out(&[
@@ -509,4 +509,136 @@ chr1\t100\t.\tA\tACGT\t.\t.\t.\tchr1\t100\t.\tA\tACGT,G\t.\t.\t.\n"
     ]);
     let back = out(&["view", &s(&o), "-O", "vcf"]);
     assert!(back.contains("chr1\t100\t.\tA\tACGT"), "{back}");
+}
+
+/// The column-name line of a pairs report on a VCF A names every B column.
+#[test]
+fn pairs_header_names_every_b_column() {
+    let fx = Fx::new();
+    let a = fx.file("a.vcf", &vcf(&["chr1\t12\t.\tA\tC\t.\t.\t."]));
+    let width = |text: &str| {
+        let lines: Vec<&str> = text.lines().collect();
+        let (h, r) = (lines[0], lines[1]);
+        assert!(h.starts_with("#CHROM"), "{text}");
+        assert_eq!(
+            h.split('\t').count(),
+            r.split('\t').count(),
+            "names vs columns:\n{text}"
+        );
+        h.to_string()
+    };
+    let pairs = |b: &[&str], extra: &[&str]| {
+        let mut v = vec!["intersect", "-a", &a, "-b"];
+        v.extend_from_slice(b);
+        v.extend_from_slice(&["--mode", "pairs"]);
+        v.extend_from_slice(extra);
+        out(&v)
+    };
+    // BED6 B
+    let bed6 = fx.file("b6.bed", "chr1\t10\t20\tn\t0\t+\n");
+    let h = width(&pairs(&[&bed6], &[]));
+    assert!(h.ends_with("INFO\tb_1\tb_2\tb_3\tb_4\tb_5\tb_6"), "{h}");
+    // VCF B with samples
+    let vb = fx.file(
+        "bs.vcf",
+        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\ts2\n\
+chr1\t12\t.\tA\tC\t.\t.\t.\tGT\t0/1\t1/1\n",
+    );
+    let h = width(&pairs(&[&vb], &["--overlap-bases"]));
+    assert!(
+        h.ends_with("b_INFO\tb_FORMAT\tb_s1\tb_s2\toverlap_bases"),
+        "{h}"
+    );
+    // several -b: label column first, widths from the first file
+    let bed4 = fx.file("b4.bed", "chr1\t11\t13\tm\n");
+    let h = width(&pairs(&[&bed6, &bed4], &[]));
+    assert!(
+        h.ends_with("INFO\tb_name\tb_1\tb_2\tb_3\tb_4\tb_5\tb_6"),
+        "{h}"
+    );
+    // empty B: three names
+    let empty = fx.file("e.bed", "");
+    let o = out(&[
+        "intersect",
+        "-a",
+        &a,
+        "-b",
+        &empty,
+        "--b-format",
+        "bed",
+        "--mode",
+        "pairs",
+        "--keep-unmatched",
+    ]);
+    assert_eq!(
+        o,
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tb_1\tb_2\tb_3\n\
+chr1\t12\t.\tA\tC\t.\t.\t.\t.\t-1\t-1\n"
+    );
+}
+
+#[test]
+fn match_alleles_bookended_and_multiallelic() {
+    let fx = Fx::new();
+    let run = |a: &str, b: &str, span: &str| {
+        let (af, bf) = (fx.file("ba.vcf", &vcf(&[a])), fx.file("bb.vcf", &vcf(&[b])));
+        out(&[
+            "intersect",
+            "-a",
+            &af,
+            "-b",
+            &bf,
+            "--match",
+            "alleles",
+            "--vcf-span",
+            span,
+        ])
+        .lines()
+        .any(|l| !l.starts_with('#'))
+    };
+    // the same insertion of G after position 100, written two ways whose
+    // footprints are bookended under --vcf-span ref
+    let (a, b) = (
+        "chr1\t100\t.\tA\tAG\t.\t.\t.",
+        "chr1\t101\t.\tC\tGC\t.\t.\t.",
+    );
+    assert!(run(a, b, "ref"));
+    assert!(run(a, b, "allele"));
+    // multi-allelic, hulls bookended under the allele span
+    let (a, b) = (
+        "chr1\t100\t.\tA\tAG,T\t.\t.\t.",
+        "chr1\t101\t.\tC\tGC,T\t.\t.\t.",
+    );
+    assert!(run(a, b, "allele"));
+    assert!(run(a, b, "ref"));
+    // no shared allele: not a match, however close
+    assert!(!run(a, "chr1\t101\t.\tC\tT,CC\t.\t.\t.", "allele"));
+}
+
+#[test]
+fn match_alleles_refuses_overlap_options() {
+    let fx = Fx::new();
+    let a = fx.file("a.vcf", &vcf(&["chr1\t100\t.\tA\tC\t.\t.\t."]));
+    for extra in [
+        &["-f", "0.5"][..],
+        &["-F", "0.5"],
+        &["-r"],
+        &["-e"],
+        &["--min-bases", "1"],
+        &["-s"],
+        &["-S"],
+        &["--split"],
+        &["-w", "5"],
+        &["--left", "5"],
+        &["--right", "5"],
+        &["--inclusive-points"],
+    ] {
+        let mut v = vec!["intersect", "-a", &a, "-b", &a, "--match", "alleles"];
+        v.extend_from_slice(extra);
+        gloci()
+            .args(&v)
+            .assert()
+            .code(2)
+            .stderr(contains("--match alleles"));
+    }
 }

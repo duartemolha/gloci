@@ -301,3 +301,20 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Pinned by:** `intersect-fraction-vs-bedops` (must differ: bedops keeps a
   record gloci drops). `intersect-f-vs-bedtools` and the other threshold cases
   match bedtools.
+
+## `--match alleles` compares trimmed alleles {#trimmed-allele-match}
+
+- **gloci:** `intersect --match alleles` keeps a record when some ALT of it
+  equals some ALT of a B record after trimming the shared prefix and suffix
+  of REF and ALT, at the same trimmed position. `A>AG` at 100 matches `C>GC`
+  at 101 (an insertion of G), and records match when they share any one ALT of
+  several. The overlap options (`-f`, `-s`, `-w`, ...) are refused with it.
+- **Old behaviour:** `bcftools isec -c none` pairs records at the same
+  position with identical REF and ALT lists, and does not normalise.
+- **Reason:** the same variant is often written with different anchors, and a
+  multi-allelic record shares a variant with another that lists more or fewer
+  ALTs. Run `bcftools norm` on both inputs and the results then agree for
+  records with identical ALT lists.
+- **Pinned by:** `intersect-alleles-unnormalised-vs-bcftools` (must differ);
+  `intersect-alleles-vs-bcftools` and `intersect-alleles-multiallelic-vs-bcftools`
+  (must match).

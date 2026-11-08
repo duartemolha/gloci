@@ -182,3 +182,158 @@ proptest! {
         }
     }
 }
+
+// ---- --match alleles ----
+
+const VCF_HEAD: &str = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n";
+
+#[derive(Debug, Clone)]
+struct V {
+    pos: u64,
+    reference: String,
+    alts: Vec<String>,
+}
+
+impl V {
+    fn line(&self) -> String {
+        format!(
+            "chr1\t{}\t.\t{}\t{}\t.\t.\t.",
+            self.pos,
+            self.reference,
+            self.alts.join(",")
+        )
+    }
+}
+
+fn seq() -> impl Strategy<Value = String> {
+    prop::collection::vec(prop::sample::select(vec!['A', 'C', 'G']), 1..=3)
+        .prop_map(|v| v.into_iter().collect())
+}
+
+fn variants() -> impl Strategy<Value = Vec<V>> {
+    prop::collection::vec((1u64..8, seq(), prop::collection::vec(seq(), 1..=2)), 0..10).prop_map(
+        |v| {
+            let mut v: Vec<V> = v
+                .into_iter()
+                .map(|(pos, reference, alts)| V {
+                    pos,
+                    reference,
+                    alts,
+                })
+                .collect();
+            v.sort_by_key(|r| (r.pos, r.reference.len()));
+            v
+        },
+    )
+}
+
+/// (0-based position, REF, ALT) after trimming the shared prefix, then the
+/// shared suffix, written out here independently of gloci-core.
+fn trim(pos: u64, r: &str, a: &str) -> (u64, String, String) {
+    let (r, a) = (r.as_bytes(), a.as_bytes());
+    let mut p = 0;
+    while p < r.len() && p < a.len() && r[p] == a[p] {
+        p += 1;
+    }
+    let (mut re, mut ae) = (r.len(), a.len());
+    while re > p && ae > p && r[re - 1] == a[ae - 1] {
+        re -= 1;
+        ae -= 1;
+    }
+    (
+        pos - 1 + p as u64,
+        String::from_utf8(r[p..re].to_vec()).unwrap(),
+        String::from_utf8(a[p..ae].to_vec()).unwrap(),
+    )
+}
+
+fn shares(a: &V, b: &V) -> bool {
+    a.alts.iter().any(|x| {
+        b.alts
+            .iter()
+            .any(|y| trim(a.pos, &a.reference, x) == trim(b.pos, &b.reference, y))
+    })
+}
+
+fn vcf_text(v: &[V]) -> String {
+    let mut t = VCF_HEAD.to_string();
+    for r in v {
+        t.push_str(&r.line());
+        t.push('\n');
+    }
+    t
+}
+
+fn allele_options(mode: Mode, unsorted: bool) -> IntersectOptions {
+    IntersectOptions {
+        mode,
+        matching: Match::Alleles,
+        relate: RelateOptions {
+            criteria: OverlapCriteria::default(),
+            window: None,
+            split: false,
+            unsorted,
+            labels: vec![],
+            genome: None,
+            chrom_order: ChromOrder::Karyotype,
+            header: false,
+        },
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(512))]
+
+    /// A record is kept when some trimmed ALT of it equals some trimmed ALT
+    /// of some B record, under either footprint (--vcf-span) and in sorted
+    /// and unsorted mode, however the footprints sit (bookended included).
+    #[test]
+    fn match_alleles_equals_naive(
+        a in variants(),
+        b in variants(),
+        span_ref in any::<bool>(),
+        seed in any::<u64>(),
+    ) {
+        let ro = ReaderOptions {
+            threads: NonZeroUsize::MIN,
+            format: None,
+            vcf_span: if span_ref { VcfSpan::Ref } else { VcfSpan::Allele },
+            invalid: InvalidPolicy::Fail,
+        };
+        let want_lines: Vec<String> = a
+            .iter()
+            .filter(|x| b.iter().any(|y| shares(x, y)))
+            .map(V::line)
+            .collect();
+        let want_counts: Vec<String> = a
+            .iter()
+            .map(|x| format!("{}\t{}", x.line(), b.iter().filter(|y| shares(x, y)).count()))
+            .collect();
+        for unsorted in [false, true] {
+            // unsorted: A and B in a scrambled order, A's order reported
+            let scramble = |v: &[V]| -> Vec<V> {
+                let mut k: Vec<(u64, V)> = v.iter().cloned().enumerate()
+                    .map(|(i, r)| ((seed ^ (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)).rotate_left(13), r))
+                    .collect();
+                k.sort_by_key(|x| x.0);
+                k.into_iter().map(|x| x.1).collect()
+            };
+            let (a_in, b_in) = if unsorted { (scramble(&a), scramble(&b)) } else { (a.clone(), b.clone()) };
+            let want_lines: Vec<String> = if unsorted {
+                a_in.iter().filter(|x| b.iter().any(|y| shares(x, y))).map(V::line).collect()
+            } else { want_lines.clone() };
+            let want_counts: Vec<String> = if unsorted {
+                a_in.iter().map(|x| format!("{}\t{}", x.line(), b.iter().filter(|y| shares(x, y)).count())).collect()
+            } else { want_counts.clone() };
+            for (mode, want) in [(Mode::Any, &want_lines), (Mode::Count, &want_counts)] {
+                let inputs = RelateInputs {
+                    a: mem_reader("a.vcf", &vcf_text(&a_in), &ro),
+                    b: vec![mem_reader("b.vcf", &vcf_text(&b_in), &ro)],
+                };
+                let mut sink = Sink::default();
+                intersect(inputs, &allele_options(mode, unsorted), &mut sink).unwrap();
+                prop_assert_eq!(&sink.0, want, "{:?} unsorted={} ref={}", mode, unsorted, span_ref);
+            }
+        }
+    }
+}

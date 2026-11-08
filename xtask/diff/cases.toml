@@ -599,3 +599,25 @@ aux = ["xtask/diff/inputs/rel-b.bed"]
 gloci = "gloci intersect --chrom-order lex -a input.bed -b rel-b.bed"
 reference = "bedops --element-of 1 input.bed rel-b.bed"
 compare = "exact"
+
+# Multi-allelic records: bcftools `-c none` pairs records with the same
+# position and identical allele lists; the cases here have identical lists
+# (match) or lists with nothing in common (no match) so gloci agrees.
+[[case]]
+name = "intersect-alleles-multiallelic-vs-bcftools"
+input = { file = "xtask/diff/inputs/rel-multi-a.vcf" }
+aux = ["xtask/diff/inputs/rel-multi-b.vcf"]
+gloci = "gloci intersect --chrom-order lex --match alleles -a input.vcf -b rel-multi-b.vcf"
+reference = "bgzip -c input.vcf > a.vcf.gz && bgzip -c rel-multi-b.vcf > b.vcf.gz && tabix a.vcf.gz && tabix b.vcf.gz && bcftools isec -n=2 -w1 -c none a.vcf.gz b.vcf.gz"
+compare = "vcf-records"
+
+# The same insertion and deletion written with different anchors and
+# positions: gloci trims before comparing, bcftools does not normalise.
+[[case]]
+name = "intersect-alleles-unnormalised-vs-bcftools"
+input = { file = "xtask/diff/inputs/rel-trim-a.vcf" }
+aux = ["xtask/diff/inputs/rel-trim-b.vcf"]
+gloci = "gloci intersect --chrom-order lex --match alleles -a input.vcf -b rel-trim-b.vcf"
+reference = "bgzip -c input.vcf > a.vcf.gz && bgzip -c rel-trim-b.vcf > b.vcf.gz && tabix a.vcf.gz && tabix b.vcf.gz && bcftools isec -n=2 -w1 -c none a.vcf.gz b.vcf.gz"
+compare = "vcf-records"
+expected_difference = "#trimmed-allele-match"

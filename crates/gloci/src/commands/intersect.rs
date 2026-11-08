@@ -1,9 +1,10 @@
 //! `gloci intersect`: A's records by their overlaps with B.
 use crate::Ctx;
 use crate::cli::{IntersectArgs, IntersectMatch, IntersectMode, VcfSpan};
+use gloci_core::ChromTable;
 use gloci_io::{
-    Format, InvalidPolicy, OutputOptions, ReaderOptions, UsageError, WriterOptions, open_reader,
-    parse_output_spec,
+    Format, Header, InvalidPolicy, OutputOptions, ReaderOptions, RecordBatch, RecordReader,
+    UsageError, WriterOptions, column_count, open_reader, parse_output_spec,
 };
 use gloci_ops::intersect::{IntersectOptions, Match, Mode, intersect, validate};
 use gloci_ops::{RelateInputs, RelateOptions, ReportOutput, open_report};
@@ -16,6 +17,48 @@ fn parse_format(s: Option<&str>) -> anyhow::Result<Option<Format>> {
     match s {
         None => Ok(None),
         Some(s) => Ok(Some(s.parse::<Format>().map_err(UsageError)?)),
+    }
+}
+
+/// One name per column of B's rows, for the column-name line of a VCF/BCF
+/// A's TSV: `b_` plus each field of B's `#CHROM` line for a VCF/BCF B, else
+/// `b_1`..`b_n` with n the column count of B's first record (3 for an empty
+/// B). With several `-b` files the widths come from the first one, and so
+/// does the width of the placeholder row of `--keep-unmatched`. The first
+/// record is peeked through a second reader; stdin cannot be reopened, so a
+/// BED `-b -` gets 3 names.
+fn b_column_names(b: &dyn RecordReader, path: &str, ro: &ReaderOptions) -> Vec<String> {
+    let numbered = |n: usize| (1..=n).map(|i| format!("b_{i}")).collect::<Vec<_>>();
+    match (b.format(), b.header()) {
+        (Format::Vcf | Format::Bcf, Header::Vcf(h)) => {
+            let mut names: Vec<String> =
+                ["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO"]
+                    .iter()
+                    .map(|n| format!("b_{n}"))
+                    .collect();
+            if !h.samples.is_empty() {
+                names.push("b_FORMAT".to_string());
+                names.extend(
+                    h.samples
+                        .iter()
+                        .map(|s| format!("b_{}", String::from_utf8_lossy(s))),
+                );
+            }
+            names
+        }
+        (Format::Gff3 | Format::Gtf, _) => numbered(9),
+        _ => {
+            let first = (path != "-")
+                .then(|| open_reader(path, ro).ok())
+                .flatten()
+                .and_then(|mut r| {
+                    let mut batch = RecordBatch::default();
+                    r.read_batch(&mut ChromTable::karyotype(), &mut batch, 1)
+                        .ok()?;
+                    (!batch.is_empty()).then(|| column_count(batch.raw(0)))
+                });
+            numbered(first.unwrap_or(3))
+        }
     }
 }
 
@@ -90,7 +133,11 @@ pub fn run(ctx: &Ctx, a: &IntersectArgs) -> anyhow::Result<()> {
             if readers_b.len() > 1 {
                 names.push("b_name".to_string());
             }
-            names.push("b_record".to_string());
+            // Only a VCF/BCF A gets a column-name line (D42), so only then
+            // is B's width needed.
+            if matches!(reader_a.format(), Format::Vcf | Format::Bcf) {
+                names.extend(b_column_names(readers_b[0].as_ref(), &a.b.b[0], &ro_b));
+            }
             if overlap_bases {
                 names.push("overlap_bases".to_string());
             }

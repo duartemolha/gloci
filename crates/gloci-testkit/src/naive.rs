@@ -254,6 +254,61 @@ pub fn karyotype_rank(names: &[&str]) -> impl Fn(&str) -> u32 {
     move |n: &str| sorted.iter().position(|s| s == n).unwrap_or(sorted.len()) as u32
 }
 
+fn spans_overlap(a: Interval, b: Interval, inclusive: bool) -> bool {
+    match (a.start == a.end, b.start == b.end) {
+        (true, true) => a.start == b.start,
+        (true, false) => inside(a.start, b.start, b.end, inclusive),
+        (false, true) => inside(b.start, a.start, a.end, inclusive),
+        (false, false) => a.start < b.end && b.start < a.end,
+    }
+}
+
+fn shared_bases(a: Interval, b: Interval) -> u64 {
+    a.end.min(b.end).saturating_sub(a.start.max(b.start))
+}
+
+fn strand_met(rule: StrandRule, a: Strand, b: Strand) -> bool {
+    match rule {
+        StrandRule::Any => true,
+        _ if a == Strand::Unknown || b == Strand::Unknown => false,
+        StrandRule::Same => a == b,
+        StrandRule::Opposite => a != b,
+    }
+}
+
+/// Spec 4.3 written out with plain arithmetic: overlapping spans, the
+/// thresholds (each met when either side is a point; `-r` with one
+/// fraction applies it to both sides; `-e` needs either of the given
+/// fractions) and the strand rule. Only `Fraction::met` (exact decimal
+/// comparison) comes from gloci-core.
+fn naive_accepts(c: &OverlapCriteria, a: Interval, sa: Strand, b: Interval, sb: Strand) -> bool {
+    if !spans_overlap(a, b, c.inclusive_points) || !strand_met(c.strand, sa, sb) {
+        return false;
+    }
+    let shared = shared_bases(a, b);
+    let point = a.start == a.end || b.start == b.end;
+    if point {
+        return true;
+    }
+    if c.min_bases.is_some_and(|n| shared < n) {
+        return false;
+    }
+    let (mut fa, mut fb) = (c.min_frac_a, c.min_frac_b);
+    if c.reciprocal {
+        let one = fa.or(fb);
+        fa = fa.or(one);
+        fb = fb.or(one);
+    }
+    let ok_a = fa.map(|f| f.met(shared, a.end - a.start));
+    let ok_b = fb.map(|f| f.met(shared, b.end - b.start));
+    match (ok_a, ok_b) {
+        (None, None) => true,
+        (Some(x), None) | (None, Some(x)) => x,
+        (Some(x), Some(y)) if c.either => x || y,
+        (Some(x), Some(y)) => x && y,
+    }
+}
+
 /// What [`naive_intersect`] reports (the `intersect --mode` choices that
 /// write one line per record or pair).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -283,10 +338,6 @@ pub fn naive_intersect<R: Feature>(
     labels: Option<&[String]>,
 ) -> Vec<String> {
     let mut out = Vec::new();
-    let strand_only = OverlapCriteria {
-        strand: criteria.strand,
-        ..OverlapCriteria::default()
-    };
     let placeholder = if b.first().is_some_and(|f| !f.is_empty()) {
         ".\t-1\t-1\t.\t-1\t."
     } else {
@@ -303,17 +354,12 @@ pub fn naive_intersect<R: Feature>(
                     Some(w) => w.apply(rb.span(), ra.strand()),
                     None => rb.span(),
                 };
-                if !overlaps(ra.span(), padded, criteria.inclusive_points) {
+                if !spans_overlap(ra.span(), padded, criteria.inclusive_points) {
                     continue;
                 }
                 let ok = match window {
-                    Some(_) => strand_only.accepts(
-                        Interval::point(0),
-                        ra.strand(),
-                        Interval::point(0),
-                        rb.strand(),
-                    ),
-                    None => criteria.accepts(ra.span(), ra.strand(), rb.span(), rb.strand()),
+                    Some(_) => strand_met(criteria.strand, ra.strand(), rb.strand()),
+                    None => naive_accepts(criteria, ra.span(), ra.strand(), rb.span(), rb.strand()),
                 };
                 if ok {
                     accepted.push((f, rb));
@@ -342,7 +388,7 @@ pub fn naive_intersect<R: Feature>(
                         ra.line(),
                         label,
                         rb.line(),
-                        tail(gloci_core::overlap_len(ra.span(), rb.span()))
+                        tail(shared_bases(ra.span(), rb.span()))
                     ));
                 }
                 if accepted.is_empty() && keep_unmatched {

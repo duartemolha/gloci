@@ -1,0 +1,10 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##contig=<ID=chr1,length=100000>
+##contig=<ID=chr2,length=100000>
+##bcftools_isecVersion=1.21+htslib-1.21
+##bcftools_isecCommand=isec -n=2 -w1 -c none a.vcf.gz b.vcf.gz; Date=Sun Nov  8 10:55:38 2026
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+chr1	100	.	A	AG,T	.	.	.
+chr1	300	.	AT	A,ATT	.	.	.
+chr2	50	.	C	T,TT	.	.	.

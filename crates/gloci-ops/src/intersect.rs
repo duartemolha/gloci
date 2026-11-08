@@ -8,7 +8,7 @@
 use crate::relate::{
     Acceptor, RelateInputs, RelateOptions, b_placeholder, rewrite_coords, run_relation,
 };
-use gloci_core::{ChromTable, Interval, trimmed_alleles};
+use gloci_core::{ChromTable, Interval, StrandRule, Window, trimmed_alleles};
 use gloci_engine::{ARec, Hit, Neighbours, SweepSummary, Visitor};
 use gloci_io::{
     BcfText, Compression, Diagnostics, Format, Header, IoError, RecordBatch, RecordReader,
@@ -76,11 +76,32 @@ so there is no shared span to clip to; use --mode pairs",
             ));
         }
     }
-    if o.matching == Match::Alleles && !(is_variant(a) && b.iter().all(|f| is_variant(*f))) {
-        return Err(usage(
-            "--match alleles compares ALT alleles, so -a and every -b must be VCF or BCF files; \
+    if o.matching == Match::Alleles {
+        if !(is_variant(a) && b.iter().all(|f| is_variant(*f))) {
+            return Err(usage(
+                "--match alleles compares ALT alleles, so -a and every -b must be VCF or BCF files; \
 use --match overlap for other formats",
-        ));
+            ));
+        }
+        let r = &o.relate;
+        let c = &r.criteria;
+        let given = [
+            (c.min_frac_a.is_some(), "-f"),
+            (c.min_frac_b.is_some(), "-F"),
+            (c.reciprocal, "-r"),
+            (c.either, "-e"),
+            (c.min_bases.is_some(), "--min-bases"),
+            (c.strand != StrandRule::Any, "-s/-S"),
+            (c.inclusive_points, "--inclusive-points"),
+            (r.split, "--split"),
+            (r.window.is_some(), "-w/--left/--right"),
+        ];
+        if let Some((_, flag)) = given.iter().find(|(on, _)| *on) {
+            return Err(usage(format!(
+                "{flag} cannot be combined with --match alleles: allele matching compares the \
+alleles of two records, not how much they overlap; drop {flag} or use --match overlap"
+            )));
+        }
     }
     Ok(())
 }
@@ -146,15 +167,16 @@ impl Text {
     }
 }
 
-/// POS (0-based) and the trimmed (position, REF, ALT) of each usable ALT of
-/// a VCF line. Symbolic, breakend, `*` and missing ALTs have no sequence to
-/// compare and are skipped.
-fn alleles(line: &[u8]) -> Vec<(u64, Vec<u8>, Vec<u8>)> {
+/// Calls `f(pos, ref, alt)` with the trimmed (0-based position, REF, ALT)
+/// of each usable ALT of a VCF line until it returns true. Symbolic,
+/// breakend, `*` and missing ALTs have no sequence to compare and are
+/// skipped. Allocates nothing; compare the slices case-insensitively.
+fn any_allele(line: &[u8], mut f: impl FnMut(u64, &[u8], &[u8]) -> bool) -> bool {
     let pos = field(line, 1)
         .and_then(|p| std::str::from_utf8(p).ok())
         .and_then(|p| p.parse::<u64>().ok());
     let (Some(pos), Some(reference), Some(alt)) = (pos, field(line, 3), field(line, 4)) else {
-        return Vec::new();
+        return false;
     };
     alt.split(|&c| c == b',')
         .filter(|a| {
@@ -163,11 +185,19 @@ fn alleles(line: &[u8]) -> Vec<(u64, Vec<u8>, Vec<u8>)> {
                     .iter()
                     .any(|c| matches!(c, b'<' | b'[' | b']' | b'*' | b'.'))
         })
-        .map(|a| {
+        .any(|a| {
             let (p, r, a) = trimmed_alleles(pos.saturating_sub(1), reference, a);
-            (p, r.to_ascii_uppercase(), a.to_ascii_uppercase())
+            f(p, r, a)
         })
-        .collect()
+}
+
+/// Do two VCF lines share a trimmed (position, REF, ALT)?
+fn share_allele(a: &[u8], b: &[u8]) -> bool {
+    any_allele(b, |bp, br, ba| {
+        any_allele(a, |ap, ar, aa| {
+            ap == bp && ar.eq_ignore_ascii_case(br) && aa.eq_ignore_ascii_case(ba)
+        })
+    })
 }
 
 struct Reporter<'o, 'w> {
@@ -183,7 +213,8 @@ struct Reporter<'o, 'w> {
     /// from B's first record.
     b0_columns: Columns,
     row: Vec<u8>,
-    a_alleles: Vec<(u64, Vec<u8>, Vec<u8>)>,
+    /// A's VCF line, kept for the allele comparison.
+    a_line: Vec<u8>,
 }
 
 enum Columns {
@@ -194,18 +225,13 @@ enum Columns {
 impl Reporter<'_, '_> {
     /// Is `h` a hit that counts for `a`?
     fn counts(&mut self, a: &ARec, h: &Hit) -> Result<bool, IoError> {
-        if !self.acceptor.accepted(a, h)? {
-            return Ok(false);
-        }
         if self.matching == Match::Overlap {
-            return Ok(true);
+            return self.acceptor.accepted(a, h);
         }
+        // Allele matching: the shared allele is the whole test (the
+        // overlap criteria are refused by `validate`).
         let line = self.b[usize::from(h.file)].of(h.raw, h.loc)?;
-        let b_alleles = alleles(line);
-        Ok(self
-            .a_alleles
-            .iter()
-            .any(|x| b_alleles.iter().any(|y| x == y)))
+        Ok(share_allele(&self.a_line, line))
     }
 
     fn put(&mut self) -> Result<(), IoError> {
@@ -230,7 +256,8 @@ impl Visitor for Reporter<'_, '_> {
     fn visit(&mut self, a: &ARec<'_>, hits: &[Hit<'_>], _: &Neighbours<'_>) -> Result<(), IoError> {
         if self.matching == Match::Alleles {
             let line = self.a.of(a.raw, a.meta.loc)?;
-            self.a_alleles = alleles(line);
+            self.a_line.clear();
+            self.a_line.extend_from_slice(line);
         }
         match self.mode {
             Mode::Any | Mode::None => {
@@ -376,13 +403,18 @@ pub fn intersect(
         }),
         Some(_) => Columns::Fixed(8),
     };
-    // A shared allele is the test, not the overlap: an insertion sits as a
-    // point on the edge of a multi-allelic neighbour's span, where the
-    // exact rule says no overlap. Equal trimmed alleles at the same trimmed
-    // position are the same variant, so candidates may touch at an edge.
+    // Candidates for allele matching: a shared trimmed allele lies at most
+    // one base from each record's footprint (an insertion is a point just
+    // past an anchor base, and a footprint can end where the other starts),
+    // so pad B by one base on each side. The candidates are then accepted
+    // by allele equality alone.
     let mut relate = o.relate.clone();
     if o.matching == Match::Alleles {
-        relate.criteria.inclusive_points = true;
+        relate.window = Some(Window {
+            left: 1,
+            right: 1,
+            strand_aware: false,
+        });
     }
     let relate = &relate;
     let acceptor = Acceptor::new(relate, &inputs);
@@ -400,7 +432,7 @@ pub fn intersect(
         },
         b0_columns,
         row: Vec::new(),
-        a_alleles: Vec::new(),
+        a_line: Vec::new(),
     };
     run_relation(inputs, relate, None, &mut reporter)
 }
