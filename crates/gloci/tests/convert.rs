@@ -99,12 +99,19 @@ c1\t300\t.\tA\t<NON_REF>\t.\t.\t.\n",
 }
 
 #[test]
-fn split_alleles_ignores_vcf_span() {
+fn split_alleles_with_ref_span_gives_every_row_the_ref_footprint() {
     let dir = tempdir();
-    let f = vcf(dir.path(), "a.vcf", "c1\t100\t.\tACGT\tA,AC\t.\t.\t.\n");
+    let f = vcf(
+        dir.path(),
+        "a.vcf",
+        "c1\t100\t.\tACGT\tA,AC\t.\t.\t.\nc1\t200\t.\tA\tG,*\t.\t.\t.\n\
+c1\t300\t.\tN\t<DEL>,<INS>\t.\t.\tEND=500\n",
+    );
+    // `*` is still skipped; a symbolic ALT runs to END under ref.
     assert_eq!(
         out(&["convert", &f, "--split-alleles", "--vcf-span", "ref"]),
-        "c1\t100\t103\t.\tACGT\tA\t.\t.\nc1\t101\t103\t.\tACGT\tAC\t.\t.\n"
+        "c1\t99\t103\t.\tACGT\tA\t.\t.\nc1\t99\t103\t.\tACGT\tAC\t.\t.\n\
+c1\t199\t200\t.\tA\tG\t.\t.\nc1\t299\t500\t.\tN\t<DEL>\t.\t.\nc1\t299\t500\t.\tN\t<INS>\t.\t.\n"
     );
 }
 
@@ -370,5 +377,51 @@ fn determinism() {
         let one = run("1");
         assert_eq!(one, run("2"));
         assert_eq!(one, run("8"));
+    }
+}
+
+#[test]
+fn gff3_values_are_not_url_decoded() {
+    let dir = tempdir();
+    let f = s(&plain_file(
+        dir.path(),
+        "a.gff3",
+        "##gff-version 3\nc1\tsrc\tgene\t1\t10\t.\t+\t.\tID=a%3Bb%2Cc\n",
+    ));
+    assert_eq!(
+        out(&["convert", &f]),
+        "c1\t0\t10\ta%3Bb%2Cc\t.\t+\tsrc\tgene\t.\tID=a%3Bb%2Cc\n"
+    );
+}
+
+#[test]
+fn invalid_bed12_is_a_data_error_even_with_skip_invalid() {
+    let dir = tempdir();
+    let bad = |name: &str, tail: &str| {
+        s(&plain_file(
+            dir.path(),
+            name,
+            &format!("c1\t100\t200\tn\t5\t+\t100\t200\t0\t{tail}\n"),
+        ))
+    };
+    for (name, tail, msg) in [
+        ("zero.bed", "0\t\t", "blockCount is 0"),
+        ("count.bed", "2\t10,\t0,", "blockCount is 2"),
+        ("first.bed", "1\t100\t5", "first block"),
+        ("last.bed", "1\t50\t0", "last block ends at 150"),
+        ("overlap.bed", "2\t60,60\t0,40", "overlap"),
+    ] {
+        let f = bad(name, tail);
+        for extra in [vec![], vec!["--skip-invalid"]] {
+            let mut a = vec!["convert", &f, "--blocks"];
+            a.extend(&extra);
+            gloci()
+                .args(&a)
+                .assert()
+                .code(1)
+                .stderr(contains(name))
+                .stderr(contains("line 1"))
+                .stderr(contains(msg));
+        }
     }
 }

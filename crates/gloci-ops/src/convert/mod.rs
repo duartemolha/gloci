@@ -11,11 +11,14 @@ mod bed12;
 mod gff;
 mod vcf;
 
-use gloci_core::{ChromId, ChromTable, VariantKind};
+use gloci_core::{ChromId, ChromTable, VariantKind, VcfSpan};
 use gloci_io::{Format, IoError, RecordReader, RecordWriter, UsageError};
 
 #[derive(Debug, Clone, Default)]
 pub struct ConvertOptions {
+    /// VCF/BCF: the footprint rule. Must match the reader's span: `Ref` gives
+    /// every `--split-alleles` row the record's REF footprint.
+    pub vcf_span: VcfSpan,
     /// VCF/BCF: one row per ALT with that ALT's footprint.
     pub split_alleles: bool,
     /// VCF/BCF: keep records (with `split_alleles`, ALTs) of these kinds.

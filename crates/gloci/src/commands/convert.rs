@@ -14,6 +14,7 @@ use std::io::IsTerminal;
 pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
     let spec = parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref())?;
     let o = ConvertOptions {
+        vcf_span: user_span(a.vcf_span.vcf_span),
         split_alleles: a.split_alleles,
         types: (!a.types.is_empty())
             .then(|| a.types.iter().map(|&k| VariantKind::from(k)).collect()),

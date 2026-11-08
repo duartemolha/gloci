@@ -326,15 +326,19 @@ Examples:
     /// VCF/BCF gives one row per record: chrom, start, end, ID, REF, ALT,
     /// QUAL, FILTER, with the footprint chosen by --vcf-span.
     /// --split-alleles writes one row per ALT instead, each with that ALT's
-    /// own footprint (always the allele span; `*`, `<*>` and `<NON_REF>`
-    /// rows are skipped when other ALTs exist). --types keeps the records
+    /// own footprint (with --vcf-span ref, the record's REF footprint on
+    /// every row; `*`, `<*>` and `<NON_REF>` rows are skipped when other ALTs
+    /// exist). --types keeps the records
     /// (with --split-alleles, the ALTs) of the listed kinds: snv, mnv, ins,
     /// del, sv, ref, other; a record is kept when any of its ALTs is of a
     /// listed kind. GFF3/GTF gives 10 columns (bedops gff2bed): chrom,
     /// start, end, name, score, strand, source, type, phase, attributes.
     /// The name is the --name-attr attribute (default ID for GFF3, gene_id
     /// for GTF; `.` when absent). --feature keeps the listed column-3 types.
-    /// BED12 with --blocks gives one BED6 row per block. The input is
+    /// BED12 with --blocks gives one BED6 row per block; a line that is not
+    /// valid BED12 (fewer than 12 columns, block counts that disagree, blocks
+    /// out of order, a last block not ending at chromEnd) is an error, also
+    /// with --skip-invalid. The input is
     /// converted in its own order and needs no sorting. A conversion whose
     /// output goes out of order (allele footprints can start after their
     /// record) prints one warning; --write-index then fails.

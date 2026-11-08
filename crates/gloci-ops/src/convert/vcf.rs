@@ -1,11 +1,11 @@
 //! VCF/BCF to BED: chrom, start, end, ID, REF, ALT, QUAL, FILTER.
 //!
 //! Without `--split-alleles` the footprint is the record's, under the
-//! reader's `--vcf-span`. With it every row is one ALT's allele footprint
-//! whatever the span (spec 4.2: one interval per ALT).
+//! reader's `--vcf-span`. With it every row is one ALT's allele footprint,
+//! or under `--vcf-span ref` the record's REF footprint.
 
 use super::{ConvertOptions, Sink, push_num};
-use gloci_core::{ChromTable, Variant, VariantKind, alt_footprints, alt_kinds};
+use gloci_core::{ChromTable, Variant, VariantKind, VcfSpan, alt_footprints, alt_kinds};
 use gloci_io::{BcfText, IoError, Loc, RecordBatch, RecordReader, field, next_batch_size};
 
 pub(super) fn convert(
@@ -105,7 +105,12 @@ pub(super) fn convert(
                 if !wanted(*kind) {
                     continue;
                 }
-                write(sink, fp.start, fp.end, alt)?;
+                // Under `--vcf-span ref` every row has the record's REF footprint.
+                let (s, e) = match o.vcf_span {
+                    VcfSpan::Allele => (fp.start, fp.end),
+                    VcfSpan::Ref => (m.span.start, m.span.end),
+                };
+                write(sink, s, e, alt)?;
             }
         }
         max = next_batch_size(&batch, max);

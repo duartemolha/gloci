@@ -13,9 +13,17 @@ pub(super) fn attr_value<'a>(attrs: &'a [u8], key: &[u8], gtf: bool) -> Option<&
     while !rest.is_empty() {
         // One attribute, up to the `;` outside quotes.
         let mut quoted = false;
+        let mut skip = false;
         let mut end = rest.len();
         for (i, &b) in rest.iter().enumerate() {
+            if skip {
+                skip = false;
+                continue;
+            }
             match b {
+                // A backslash escapes the next byte in a GTF value; the value
+                // is written as it is, backslash included.
+                b'\\' if gtf => skip = true,
                 b'"' if gtf => quoted = !quoted,
                 b';' if !quoted => {
                     end = i;
@@ -118,5 +126,9 @@ mod tests {
         assert_eq!(attr_value(a, b"tag", true), Some(&b"basic"[..]));
         assert_eq!(attr_value(a, b"empty", true), None);
         assert_eq!(attr_value(a, b"gene", true), None);
+        // An escaped quote does not end the value.
+        let q = br#"gene_name "A\"B;C"; gene_id "g""#;
+        assert_eq!(attr_value(q, b"gene_name", true), Some(&br#"A\"B;C"#[..]));
+        assert_eq!(attr_value(q, b"gene_id", true), Some(&b"g"[..]));
     }
 }

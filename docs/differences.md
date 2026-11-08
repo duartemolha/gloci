@@ -292,8 +292,9 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   `bedtools subtract -A`) and `subtract-vcf-ref-span-vs-bedtools` (must match).
 - **`convert`:** the same holds for `gloci convert`. Its default rows start a
   deletion after its anchor base where `vcf2bed` starts at `POS-1`
-  (`--vcf-span ref` gives `vcf2bed`'s start), and `--split-alleles` gives each
-  ALT its own allele footprint. Pinned by `convert-vcf-allele-span-vs-vcf2bed`
+  (`--vcf-span ref` gives `vcf2bed`'s start), an insertion becomes a
+  zero-width row (`400 400`) where `vcf2bed` writes its anchor base, and
+  `--split-alleles` gives each ALT its own allele footprint. Pinned by `convert-vcf-allele-span-vs-vcf2bed`
   and `convert-vcf-split-deletions-vs-vcf2bed` (must differ);
   `convert-vcf-ref-vs-vcf2bed` (`--vcf-span ref`: must match).
 
@@ -617,13 +618,19 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   `--name-attr` the feature does not have, every other column matches:
   `convert-gff3-vs-gff2bed`.
 
-## `convert --blocks` rejects a record without 12 columns {#bed12-short-line}
+## `convert --blocks` rejects a record that is not valid BED12 {#bed12-short-line}
 
-- **gloci:** a record with fewer than 12 columns is a data error (exit 1)
-  naming the file, the line and the column count.
-- **Old behaviour:** `bedtools bed12tobed6` writes such a record unchanged and
-  exits 0.
-- **Reason:** a record that is not BED12 has no blocks, and passing it
-  through hides a wrong input file.
-- **Pinned by:** `convert-bed12-short-line-vs-bedtools` (must differ; exit
-  status).
+- **gloci:** a record with fewer than 12 columns, a first block that does not
+  start at offset 0, blocks that overlap or are out of order, or a last block
+  that does not end at chromEnd is a data error (exit 1) naming the file and
+  the line. `--skip-invalid` does not skip it. A blockCount of 0 or one that
+  disagrees with the block lists is an error too.
+- **Old behaviour:** `bedtools bed12tobed6` writes a record with fewer than 12
+  columns unchanged and exits 0, and for the other cases above (except a
+  zero or mismatched blockCount, which it also rejects) writes whatever
+  blocks the lists give.
+- **Reason:** such a record has no well-formed blocks, and passing it through
+  hides a wrong input file.
+- **Pinned by:** `convert-bed12-short-line-vs-bedtools` and
+  `convert-bed12-invalid-vs-bedtools` (must differ; exit status).
+  `convert-bed12-zero-blocks-vs-bedtools` must match (both exit 1).

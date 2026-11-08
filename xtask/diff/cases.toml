@@ -1666,7 +1666,8 @@ reference = "vcf2bed < input.vcf | awk -F'\\t' -v OFS='\\t' '{print $1,$2,$3,$4,
 compare = "exact"
 expected_difference = "#convert-multiallelic-rows"
 
-# --split-alleles gives each ALT its allele footprint, vcf2bed the REF span.
+# --split-alleles gives each ALT its allele footprint, vcf2bed only the
+# anchor base of the REF.
 [[case]]
 name = "convert-vcf-split-deletions-vs-vcf2bed"
 input = { file = "xtask/diff/inputs/convert-multi-del.vcf" }
@@ -1744,3 +1745,21 @@ gloci = "gloci convert input.bed --blocks"
 reference = "bedtools bed12tobed6 -i input.bed"
 compare = "exit-status"
 expected_difference = "#bed12-short-line"
+
+# bedtools writes a BED12 line whose first block does not start at 0, whose
+# last block does not end at chromEnd, or whose blocks overlap; gloci rejects
+# them. It also fails on a blockCount of 0, as gloci does.
+[[case]]
+name = "convert-bed12-invalid-vs-bedtools"
+input = { file = "xtask/diff/inputs/convert-bed12-invalid.bed" }
+gloci = "gloci convert input.bed --blocks"
+reference = "bedtools bed12tobed6 -i input.bed"
+compare = "exit-status"
+expected_difference = "#bed12-short-line"
+
+[[case]]
+name = "convert-bed12-zero-blocks-vs-bedtools"
+input = { file = "xtask/diff/inputs/convert-bed12-zero.bed" }
+gloci = "gloci convert input.bed --blocks"
+reference = "bedtools bed12tobed6 -i input.bed"
+compare = "exit-status"
