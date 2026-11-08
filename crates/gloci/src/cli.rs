@@ -214,7 +214,7 @@ Examples:
     /// (chrom, start, end), or TSV for -o x.tsv, and is not A's records.
     /// --count adds the number of records per cluster and -c COL:OP adds
     /// one aggregation column per option (count, sum, mean, median, min,
-    /// max, stdev, var, collapse, distinct, distinct_sorted, first, last,
+    /// max, stdev, var, stdev_pop, var_pop, collapse, distinct, distinct_sorted, first, last,
     /// count_distinct, indicator). -s clusters each strand separately
     /// (unknown strand apart from + and -) without adding a strand column.
     ///
@@ -319,12 +319,13 @@ Examples:
     /// column per -c COL:OP, in B file then B input order. COL is a 1-based
     /// column of B, 0 for the whole record (count, bases, indicator only),
     /// or for a VCF B QUAL, ID, FILTER or INFO/KEY. Ops: count
-    /// count_distinct sum mean median min max stdev var collapse distinct
-    /// distinct_sorted first last bases indicator. count counts every
+    /// count_distinct sum mean median min max stdev var stdev_pop var_pop
+    /// collapse distinct distinct_sorted first last bases indicator. count counts every
     /// overlapping B; the other ops skip `.` and empty values, and a value
     /// that is not a number in a numeric op is an error. sum, min and max
     /// print integers when every value was one; stdev and var are sample
-    /// statistics (one value gives --empty). bases is the overlap of A with
+    /// statistics (one value gives --empty); stdev_pop and var_pop divide by n
+    /// (one value gives 0), as bedtools stdev and var do. bases is the overlap of A with
     /// each B's own span, which is 0 for a B that is within a window only;
     /// indicator is 1 when any B counts, else 0. An A with no B gets 0 for
     /// count and count_distinct and --empty (default `.`) for the rest;

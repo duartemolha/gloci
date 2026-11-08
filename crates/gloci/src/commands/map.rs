@@ -58,7 +58,7 @@ pub fn run(ctx: &Ctx, a: &MapArgs) -> anyhow::Result<()> {
             .map(|f| open_reader(f, &ro_b))
             .collect::<Result<Vec<_>, _>>()?;
     let b_formats: Vec<Format> = readers_b.iter().map(|r| r.format()).collect();
-    validate(&o, &b_formats)?;
+    validate(&o, &b_formats, &a.b.b)?;
 
     let names = o.aggs.iter().map(|s| s.label.clone()).collect();
     let oo = OutputOptions {

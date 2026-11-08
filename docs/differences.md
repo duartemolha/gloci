@@ -400,14 +400,15 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 
 - **gloci:** `stdev` and `var` divide by n - 1. With one value they print the
   `--empty` value (default `.`), since a sample of one has no spread.
-- **Old behaviour:** `bedtools map -o stdev` (and `var`) is the population
-  form, dividing by n, and gives 0 for one value. `sstdev` and `svar` are the
+  `stdev_pop` and `var_pop` divide by n and print 0 for one value.
+- **Old behaviour:** `bedtools map -o stdev` is the population
+  form, dividing by n, and gives 0 for one value. `sstdev` is the
   sample form. bedmap's `--stdev` is the population form as well.
 - **Reason:** the sample form is what a user summarising a handful of
-  overlapping records expects, and it agrees with bedtools' `sstdev`; the
-  population forms are a P2 addition (`stdev_pop`, `var_pop`, spec 6.3).
-- **Pinned by:** `map-stdev-vs-bedtools` (must differ). `map-sstdev-vs-bedtools`
-  matches.
+  overlapping records expects, and it agrees with bedtools' `sstdev`. Use
+  `stdev_pop` / `var_pop` to reproduce bedtools' `stdev` / `var`.
+- **Pinned by:** `map-stdev-vs-bedtools` (must differ). `map-sstdev-vs-bedtools`,
+  and `map-stdev-pop-vs-bedtools` match (bedtools map has no `var` op).
 
 ## `map` `distinct` keeps first-seen order {#map-distinct-order}
 

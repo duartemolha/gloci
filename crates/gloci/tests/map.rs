@@ -279,7 +279,21 @@ fn errors() {
         .args(["map", "-a", &a, "-b", &b, &v, "-c", "0:count"])
         .assert()
         .code(2)
-        .stderr(contains("format family"));
+        .stderr(
+            contains("format family")
+                .and(contains("b.bed is BED"))
+                .and(contains("b.vcf is VCF")),
+        );
+    // and the other way round
+    gloci()
+        .args(["map", "-a", &a, "-b", &v, &b, "-c", "0:count"])
+        .assert()
+        .code(2)
+        .stderr(
+            contains("b.vcf is VCF")
+                .and(contains("b.bed is BED"))
+                .and(contains("Vcf").not()),
+        );
     // a value that is not a number is a data error
     gloci()
         .args(["map", "-a", &a, "-b", &b, "-c", "4:sum"])

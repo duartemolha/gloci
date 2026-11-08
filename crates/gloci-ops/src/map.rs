@@ -11,7 +11,7 @@
 //! `bases` is the overlap of A's span with the hit's own (unpadded) span,
 //! so with a window it is 0 for a hit that is within the window only.
 
-use crate::agg::{Accumulators, AggSpec, resolve};
+use crate::agg::{Accumulators, AggSpec, Op, resolve};
 use crate::intersect::Text;
 use crate::relate::{Acceptor, RelateInputs, RelateOptions, run_relation};
 use gloci_engine::{ARec, Hit, Neighbours, SweepSummary, Visitor};
@@ -33,6 +33,17 @@ fn usage(msg: impl Into<String>) -> IoError {
     UsageError(msg.into()).into()
 }
 
+fn format_name(f: Format) -> &'static str {
+    match f {
+        Format::Bed => "BED",
+        Format::BedGraph => "bedGraph",
+        Format::Vcf => "VCF",
+        Format::Bcf => "BCF",
+        Format::Gff3 => "GFF3",
+        Format::Gtf => "GTF",
+    }
+}
+
 fn family(f: Format) -> u8 {
     match f {
         Format::Vcf | Format::Bcf => 0,
@@ -41,19 +52,25 @@ fn family(f: Format) -> u8 {
     }
 }
 
-/// The option checks that need only the inputs' formats.
-pub fn validate(o: &MapOptions, b: &[Format]) -> Result<(), IoError> {
+/// The option checks that need only the inputs' formats; `names` are the
+/// `-b` files, for the message.
+pub fn validate(o: &MapOptions, b: &[Format], names: &[String]) -> Result<(), IoError> {
     if o.aggs.is_empty() {
         return Err(usage(
             "map needs at least one -c COL:OP, for example -c 5:sum",
         ));
     }
     if let Some(first) = b.first()
-        && let Some(other) = b.iter().find(|f| family(**f) != family(*first))
+        && let Some(i) = b.iter().position(|f| family(*f) != family(*first))
     {
+        let name = |i: usize| names.get(i).map_or("?", String::as_str);
         return Err(usage(format!(
             "all -b files must be one format family so that -c columns mean the same thing, \
-but the first is {first:?} and another is {other:?}; convert them or run map once per format"
+but {} is {} and {} is {}; convert them or run map once per format",
+            name(0),
+            format_name(*first),
+            name(i),
+            format_name(b[i])
         )));
     }
     Ok(())
@@ -61,6 +78,7 @@ but the first is {first:?} and another is {other:?}; convert them or run map onc
 
 struct Reporter<'o, 'w> {
     skip_unmatched: bool,
+    wants_bases: bool,
     acceptor: Acceptor<'o>,
     accs: Accumulators,
     w: &'w mut dyn RecordWriter,
@@ -78,7 +96,11 @@ impl Visitor for Reporter<'_, '_> {
                 continue;
             }
             any = true;
-            let bases = self.acceptor.overlap_len(a, h)?;
+            let bases = if self.wants_bases {
+                self.acceptor.overlap_len(a, h)?
+            } else {
+                0
+            };
             let f = usize::from(h.file);
             let line = self.b[f].of(h.raw, h.loc)?;
             self.accs.add(line, bases, &self.b_names[f], h.loc)?;
@@ -111,7 +133,8 @@ pub fn map(
     w: &mut dyn RecordWriter,
 ) -> Result<SweepSummary, IoError> {
     let b_formats: Vec<Format> = inputs.b.iter().map(|r| r.format()).collect();
-    validate(o, &b_formats)?;
+    let b_names: Vec<String> = inputs.b.iter().map(|r| r.name().to_string()).collect();
+    validate(o, &b_formats, &b_names)?;
     let resolved = match inputs.b.first() {
         Some(first) => resolve(&o.aggs, first.format(), first.header())?,
         None => return Err(usage("map needs at least one -b file")),
@@ -122,10 +145,10 @@ pub fn map(
         .iter()
         .map(|r| Text::new(r.as_ref()))
         .collect::<Result<Vec<_>, _>>()?;
-    let b_names = inputs.b.iter().map(|r| r.name().to_string()).collect();
     let acceptor = Acceptor::new(&o.relate, &inputs);
     let mut reporter = Reporter {
         skip_unmatched: o.skip_unmatched,
+        wants_bases: o.aggs.iter().any(|a| a.op == Op::Bases),
         acceptor,
         accs: Accumulators::new(resolved, o.empty.clone(), o.delim.clone()),
         w,

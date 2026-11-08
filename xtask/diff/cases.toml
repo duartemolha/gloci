@@ -1057,8 +1057,16 @@ gloci = "gloci map --chrom-order lex -a input.bed -b map-b.bed -c 5:stdev"
 reference = "bedtools map -a input.bed -b map-b.bed -c 5 -o sstdev"
 compare = "numeric"
 
-# bedtools `stdev` is the population form (one value gives 0); `sstdev` and
+# bedtools `stdev` is the population form (one value gives 0; it has no `var`); `sstdev` and
 # gloci's `stdev` are the sample form (one value gives the empty value).
+[[case]]
+name = "map-stdev-pop-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-b.bed -c 5:stdev_pop"
+reference = "bedtools map -a input.bed -b map-b.bed -c 5 -o stdev"
+compare = "numeric"
+
 [[case]]
 name = "map-stdev-vs-bedtools"
 input = { file = "xtask/diff/inputs/map-a.bed" }

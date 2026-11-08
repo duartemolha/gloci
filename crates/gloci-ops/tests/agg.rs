@@ -47,8 +47,6 @@ fn parse_errors() {
     assert!(parse_aggs(&[s("0:sum")]).is_err());
     assert!(parse_aggs(&[s("0:count")]).is_ok());
     for op in [
-        "stdev_pop",
-        "var_pop",
         "cv",
         "mad",
         "quantile:0.5",
@@ -81,6 +79,8 @@ fn values() {
         ("max", "4"),
         ("stdev", "1.2909944487358056"),
         ("var", "1.6666666666666667"),
+        ("stdev_pop", "1.118033988749895"),
+        ("var_pop", "1.25"),
         ("count", "4"),
         ("count_distinct", "4"),
         ("first", "1"),
@@ -104,6 +104,9 @@ fn missing_and_empty() {
     assert_eq!(run_with("5:sum", &[], "NA", ","), "NA");
     assert_eq!(run("stdev", &["7"]), ".");
     assert_eq!(run("var", &["7"]), ".");
+    assert_eq!(run("stdev_pop", &["7"]), "0");
+    assert_eq!(run("var_pop", &["7"]), "0");
+    assert_eq!(run("var_pop", &[]), ".");
     assert_eq!(run("max", &["1.5", "-2"]), "1.5");
     // Integer sums are exact beyond f64 precision.
     assert_eq!(run("sum", &["9007199254740993", "1"]), "9007199254740994");
@@ -121,6 +124,8 @@ fn reuse_resets() {
         "max",
         "stdev",
         "var",
+        "stdev_pop",
+        "var_pop",
         "collapse",
         "distinct",
         "distinct_sorted",
@@ -153,15 +158,15 @@ fn reuse_resets() {
     };
     assert_eq!(
         round(&["1", "2", "2"]),
-        "\t3\t2\t5\t1.6666666666666667\t2\t1\t2\t0.5773502691896257\t0.3333333333333333\t1,2,2\t1,2\t1,2\t1\t2\t9\t1"
+        "\t3\t2\t5\t1.6666666666666667\t2\t1\t2\t0.5773502691896257\t0.3333333333333333\t0.4714045207910317\t0.2222222222222222\t1,2,2\t1,2\t1,2\t1\t2\t9\t1"
     );
     assert_eq!(
         round(&["10", "30"]),
-        "\t2\t2\t40\t20\t20\t10\t30\t14.142135623730951\t200\t10,30\t10,30\t10,30\t10\t30\t6\t1"
+        "\t2\t2\t40\t20\t20\t10\t30\t14.142135623730951\t200\t10\t100\t10,30\t10,30\t10,30\t10\t30\t6\t1"
     );
     assert_eq!(
         round(&[]),
-        "\t0\t0\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\t0\t0"
+        "\t0\t0\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\t0\t0"
     );
 }
 

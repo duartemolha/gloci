@@ -14,6 +14,8 @@ pub enum Op {
     Max,
     Stdev,
     Var,
+    StdevPop,
+    VarPop,
     Collapse,
     Distinct,
     DistinctSorted,
@@ -42,8 +44,6 @@ pub struct AggSpec {
 
 /// Spec §6.3 ops that parse but are not in P1.
 const NOT_YET: &[&str] = &[
-    "stdev_pop",
-    "var_pop",
     "cv",
     "mad",
     "quantile",
@@ -70,6 +70,8 @@ fn parse_op(name: &str) -> Option<Op> {
         "max" => Op::Max,
         "stdev" => Op::Stdev,
         "var" => Op::Var,
+        "stdev_pop" => Op::StdevPop,
+        "var_pop" => Op::VarPop,
         "collapse" => Op::Collapse,
         "distinct" => Op::Distinct,
         "distinct_sorted" => Op::DistinctSorted,
@@ -96,7 +98,7 @@ fn parse_one(item: &str) -> Result<AggSpec, UsageError> {
     let Some((col_text, op_text)) = item.split_once(':') else {
         return Err(UsageError(format!(
             "-c {item}: expected COL:OP (for example 5:mean); \
-             ops: count count_distinct sum mean median min max stdev var collapse \
+             ops: count count_distinct sum mean median min max stdev var stdev_pop var_pop collapse \
              distinct distinct_sorted first last bases indicator"
         )));
     };
@@ -110,7 +112,7 @@ fn parse_one(item: &str) -> Result<AggSpec, UsageError> {
         }
         return Err(UsageError(format!(
             "-c {item}: unknown op `{op_name}`; ops: count count_distinct sum mean \
-             median min max stdev var collapse distinct distinct_sorted first last \
+             median min max stdev var stdev_pop var_pop collapse distinct distinct_sorted first last \
              bases indicator"
         )));
     };

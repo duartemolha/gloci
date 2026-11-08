@@ -740,7 +740,9 @@ pub fn naive_closest(a: &[TestRec], b: &[Vec<TestRec>], q: &NaiveClosest) -> Vec
 }
 
 /// An aggregation `naive_map` knows. Columns are those of the BED6 test
-/// record: 2 is its start and 3 its end, both integers.
+/// record as `map` sees it: 2 is its start and 3 its end (integers), 4 its
+/// name, and 5 its score, which `naive_map`'s `score` gives and may be
+/// missing (`.`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NaiveAgg {
     Count,
@@ -749,14 +751,36 @@ pub enum NaiveAgg {
     Sum(u8),
     Min(u8),
     Max(u8),
+    /// Values joined by `,` in hit order.
+    Collapse(u8),
+    /// Each value once, first-seen order.
+    Distinct(u8),
+    First(u8),
+    Last(u8),
+}
+
+/// The text of a test record as `map` reads it: `bed_line` with `score` in
+/// column 5 (`.` when `None`).
+pub fn scored_line(r: &TestRec, score: Option<u64>) -> String {
+    format!(
+        "{}\t{}\t{}\t{}\t{}\t{}",
+        r.chrom,
+        r.start,
+        r.end,
+        r.name,
+        score.map_or(".".to_string(), |s| s.to_string()),
+        r.strand
+    )
 }
 
 /// `map`, by brute force, as the TSV rows gloci writes for BED inputs: for
-/// each A in the order given, A's line and one value per aggregation over
-/// the B records that count (the same set as `naive_intersect`'s: D36, D37).
-/// `Bases` adds the overlap of A with each B's own span. With no counting B,
-/// `Count` and `Bases` give 0, `Indicator` 0, and the others `.`. An A with
-/// none is dropped under `skip_unmatched`.
+/// each A in the order given, A's line (score 0) and one value per
+/// aggregation over the B records that count (the same set as
+/// `naive_intersect`'s: D36, D37), in hit order. Missing values (`None`
+/// scores) are skipped by every op but `Count`. `Bases` adds the overlap of
+/// A with each B's own span. With no values, `Count` and `Bases` give 0,
+/// `Indicator` 0, and the others `.`. An A with no counting B is dropped
+/// under `skip_unmatched`.
 pub fn naive_map(
     a: &[TestRec],
     b: &[Vec<TestRec>],
@@ -764,6 +788,7 @@ pub fn naive_map(
     window: Option<Window>,
     aggs: &[NaiveAgg],
     skip_unmatched: bool,
+    score: &dyn Fn(&TestRec) -> Option<u64>,
 ) -> Vec<String> {
     let mut out = Vec::new();
     for ra in a {
@@ -773,7 +798,25 @@ pub fn naive_map(
         }
         let mut row = ra.bed_line();
         for agg in aggs {
-            let col = |rb: &TestRec, c: u8| i128::from(if c == 2 { rb.start } else { rb.end });
+            let value = |rb: &TestRec, c: u8| -> Option<String> {
+                match c {
+                    2 => Some(rb.start.to_string()),
+                    3 => Some(rb.end.to_string()),
+                    4 => Some(rb.name.clone()),
+                    _ => score(rb).map(|s| s.to_string()),
+                }
+            };
+            let values =
+                |c: u8| -> Vec<String> { hits.iter().filter_map(|(_, rb)| value(rb, c)).collect() };
+            let nums =
+                |c: u8| -> Vec<i128> { values(c).iter().map(|v| v.parse().unwrap()).collect() };
+            let join = |v: Vec<String>| {
+                if v.is_empty() {
+                    ".".to_string()
+                } else {
+                    v.join(",")
+                }
+            };
             let cell = match *agg {
                 NaiveAgg::Count => hits.len().to_string(),
                 NaiveAgg::Bases => hits
@@ -782,24 +825,28 @@ pub fn naive_map(
                     .sum::<u64>()
                     .to_string(),
                 NaiveAgg::Indicator => u8::from(!hits.is_empty()).to_string(),
-                NaiveAgg::Sum(c) if !hits.is_empty() => hits
-                    .iter()
-                    .map(|(_, rb)| col(rb, c))
-                    .sum::<i128>()
-                    .to_string(),
-                NaiveAgg::Min(c) if !hits.is_empty() => hits
-                    .iter()
-                    .map(|(_, rb)| col(rb, c))
-                    .min()
-                    .unwrap()
-                    .to_string(),
-                NaiveAgg::Max(c) if !hits.is_empty() => hits
-                    .iter()
-                    .map(|(_, rb)| col(rb, c))
-                    .max()
-                    .unwrap()
-                    .to_string(),
-                _ => ".".to_string(),
+                NaiveAgg::Sum(c) => {
+                    let n = nums(c);
+                    if n.is_empty() {
+                        ".".into()
+                    } else {
+                        n.iter().sum::<i128>().to_string()
+                    }
+                }
+                NaiveAgg::Min(c) => nums(c).iter().min().map_or(".".into(), |v| v.to_string()),
+                NaiveAgg::Max(c) => nums(c).iter().max().map_or(".".into(), |v| v.to_string()),
+                NaiveAgg::Collapse(c) => join(values(c)),
+                NaiveAgg::Distinct(c) => {
+                    let mut seen: Vec<String> = Vec::new();
+                    for v in values(c) {
+                        if !seen.contains(&v) {
+                            seen.push(v);
+                        }
+                    }
+                    join(seen)
+                }
+                NaiveAgg::First(c) => values(c).first().cloned().unwrap_or(".".into()),
+                NaiveAgg::Last(c) => values(c).last().cloned().unwrap_or(".".into()),
             };
             row.push('\t');
             row.push_str(&cell);

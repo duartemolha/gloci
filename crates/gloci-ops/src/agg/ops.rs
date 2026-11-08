@@ -193,9 +193,15 @@ impl State {
             Op::Count => State::Count(0),
             Op::Bases => State::Bases(0),
             Op::Indicator => State::Indicator(false),
-            Op::Sum | Op::Mean | Op::Median | Op::Min | Op::Max | Op::Stdev | Op::Var => {
-                State::Numeric(Numeric::default())
-            }
+            Op::Sum
+            | Op::Mean
+            | Op::Median
+            | Op::Min
+            | Op::Max
+            | Op::Stdev
+            | Op::Var
+            | Op::StdevPop
+            | Op::VarPop => State::Numeric(Numeric::default()),
             Op::CountDistinct => State::CountDistinct(HashSet::new()),
             Op::Collapse => State::List(Vec::new()),
             Op::Distinct => State::Distinct(HashSet::new(), Vec::new()),
@@ -400,6 +406,10 @@ fn finish_numeric(op: Op, n: &mut Numeric, empty: &str, out: &mut Vec<u8>) {
                 (n.vals[k / 2 - 1] + n.vals[k / 2]) / 2.0
             };
             fmt_f64(m, out);
+        }
+        Op::VarPop | Op::StdevPop => {
+            let var = n.m2 / n.n as f64;
+            fmt_f64(if op == Op::VarPop { var } else { var.sqrt() }, out);
         }
         Op::Var | Op::Stdev => {
             if n.n < 2 {
