@@ -621,3 +621,63 @@ gloci = "gloci intersect --chrom-order lex --match alleles -a input.vcf -b rel-t
 reference = "bgzip -c input.vcf > a.vcf.gz && bgzip -c rel-trim-b.vcf > b.vcf.gz && tabix a.vcf.gz && tabix b.vcf.gz && bcftools isec -n=2 -w1 -c none a.vcf.gz b.vcf.gz"
 compare = "vcf-records"
 expected_difference = "#trimmed-allele-match"
+
+# merge (Task 11): merge-in.bed is BED6, lex-sorted, with bookended, nested,
+# overlapping and nearby records on both strands and an unknown strand.
+[[case]]
+name = "merge-default-vs-bedtools"
+input = { file = "xtask/diff/inputs/merge-in.bed" }
+gloci = "gloci merge --chrom-order lex input.bed"
+reference = "bedtools merge -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "merge-gap-vs-bedtools"
+input = { file = "xtask/diff/inputs/merge-in.bed" }
+gloci = "gloci merge --chrom-order lex -d 10 input.bed"
+reference = "bedtools merge -d 10 -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "merge-negative-gap-vs-bedtools"
+input = { file = "xtask/diff/inputs/merge-in.bed" }
+gloci = "gloci merge --chrom-order lex -d -2 input.bed"
+reference = "bedtools merge -d -2 -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "merge-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/merge-in.bed" }
+gloci = "gloci merge --chrom-order lex -s input.bed"
+reference = "bedtools merge -s -i input.bed"
+compare = "exact"
+expected_difference = "#merge-unknown-strand"
+
+[[case]]
+name = "merge-max-vs-bedtools"
+input = { file = "xtask/diff/inputs/merge-in.bed" }
+gloci = "gloci merge --chrom-order lex -c 5:max input.bed"
+reference = "bedtools merge -i input.bed -c 5 -o max"
+compare = "numeric"
+
+[[case]]
+name = "merge-mean-vs-bedtools"
+input = { file = "xtask/diff/inputs/merge-in.bed" }
+gloci = "gloci merge --chrom-order lex -c 5:mean input.bed"
+reference = "bedtools merge -i input.bed -c 5 -o mean"
+compare = "numeric"
+
+[[case]]
+name = "merge-distinct-count-vs-bedtools"
+input = { file = "xtask/diff/inputs/merge-in.bed" }
+gloci = "gloci merge --chrom-order lex -c 4:distinct -c 4:count input.bed"
+reference = "bedtools merge -i input.bed -c 4,4 -o distinct,count"
+compare = "exact"
+
+[[case]]
+name = "merge-two-files-vs-bedops"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci merge --chrom-order lex input.bed rel-b.bed"
+reference = "bedops --merge input.bed rel-b.bed"
+compare = "exact"

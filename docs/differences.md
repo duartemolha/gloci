@@ -318,3 +318,18 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Pinned by:** `intersect-alleles-unnormalised-vs-bcftools` (must differ);
   `intersect-alleles-vs-bcftools` and `intersect-alleles-multiallelic-vs-bcftools`
   (must match).
+
+## `merge -s` keeps records of unknown strand {#merge-unknown-strand}
+
+- **gloci:** `merge -s` clusters `+` and `-` records separately and clusters
+  records of unknown strand (`.`, no strand column, VCF records) together, as
+  a third group, so they appear in the output. It warns once per input that
+  has such records. Output is sorted by chromosome, start, end.
+- **Old behaviour:** `bedtools merge -s` writes nothing for records whose
+  strand is `.`; they vanish from the output.
+- **Reason:** silently dropping records is a data-loss trap, and a feature of
+  unknown strand is still a feature. To drop them anyway, filter the input
+  first (`awk '$6 != "."'`).
+- **Pinned by:** `merge-strand-vs-bedtools` (must differ: bedtools drops the
+  `.`-strand records `chr1 600 700` and `chr1 690 720`). The other `merge`
+  cases match bedtools and bedops.

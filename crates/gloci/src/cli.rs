@@ -204,6 +204,31 @@ Examples:
   gloci intersect -a a.bed -b x.bed y.bed --mode pairs --overlap-bases --names X,Y
   gloci intersect -a reads.bed -b targets.bed -f 50% -s --mode count --unsorted")]
     Intersect(IntersectArgs),
+    /// Merge overlapping or nearby records into clusters (bedtools merge, bedops -m).
+    ///
+    /// Records are grouped by their footprints: a record joins the open
+    /// cluster when its start is at most the cluster end plus -d/--max-gap.
+    /// The default 0 joins overlapping and bookended features; a negative
+    /// gap such as -d -2 needs at least that many shared bases; a point
+    /// joins a cluster it lies inside or touches. The output is BED
+    /// (chrom, start, end), or TSV for -o x.tsv, and is not A's records.
+    /// --count adds the number of records per cluster and -c COL:OP adds
+    /// one aggregation column per option (count, sum, mean, median, min,
+    /// max, stdev, var, collapse, distinct, distinct_sorted, first, last,
+    /// count_distinct, indicator). -s clusters each strand separately
+    /// (unknown strand apart from + and -) without adding a strand column.
+    ///
+    /// Several files are merged together as one stream. Every input must be
+    /// sorted in one chromosome order, which is checked as it is read; an
+    /// unsorted input is an error whose hint is to run gloci sort. Memory
+    /// stays flat apart from the clusters being built.
+    #[command(after_long_help = "\
+Examples:
+  gloci merge peaks.bed
+  gloci merge a.bed b.bed -d 100 --count
+  gloci merge genes.bed -s -c 5:max -c 4:distinct
+  gloci merge calls.vcf.gz -d -1 -o regions.bed.gz --write-index")]
+    Merge(MergeArgs),
 }
 
 /// What `intersect` reports.
@@ -266,6 +291,53 @@ pub struct IntersectArgs {
     pub vcf_span: VcfSpanArg,
     #[command(flatten)]
     pub header: HeaderArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+#[derive(Args)]
+pub struct MergeArgs {
+    /// Input files (`-` for stdin).
+    #[arg(value_name = "FILES", required = true)]
+    pub files: Vec<String>,
+    /// Join records up to N bases apart; negative values require that much
+    /// overlap.
+    #[arg(
+        short = 'd',
+        long = "max-gap",
+        value_name = "N",
+        default_value_t = 0,
+        allow_negative_numbers = true
+    )]
+    pub max_gap: i64,
+    /// Cluster each strand separately.
+    #[arg(short = 's', long)]
+    pub strand: bool,
+    /// Add a column with the number of records in each cluster.
+    #[arg(long)]
+    pub count: bool,
+    /// Aggregate a column per cluster, such as 5:max or 4:distinct
+    /// (repeatable; commas also separate).
+    #[arg(short = 'c', long = "column", value_name = "COL:OP")]
+    pub columns: Vec<String>,
+    /// Value for an aggregation with no values.
+    #[arg(long, value_name = "S", default_value = ".")]
+    pub empty: String,
+    /// Separator for collapse and distinct lists.
+    #[arg(long, value_name = "S", default_value = ",")]
+    pub delim: String,
+    #[command(flatten)]
+    pub genome: GenomeArg,
+    #[command(flatten)]
+    pub chrom_order: ChromOrderArg,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub format: FormatArg,
     #[command(flatten)]
     pub invalid: InvalidArg,
     #[command(flatten)]

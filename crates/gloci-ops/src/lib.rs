@@ -4,6 +4,7 @@ pub mod agg;
 pub mod bedsearch;
 pub mod check;
 pub mod intersect;
+pub mod merge;
 pub mod relate;
 pub mod sort;
 pub mod view;

@@ -1,0 +1,1 @@
+merge --chrom-order lex -c 4:distinct -c 4:count input.bed

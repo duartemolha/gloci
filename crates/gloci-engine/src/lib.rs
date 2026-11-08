@@ -7,12 +7,14 @@
 mod active;
 pub mod hit;
 mod itree64;
+pub mod kmerge;
 mod nearest;
 pub mod sweep;
 mod unsorted;
 
 pub use hit::{ARec, Hit, Neighbours, Visitor};
 pub use itree64::ITree64;
+pub use kmerge::{kmerge, kmerge_with};
 #[doc(hidden)]
 pub use sweep::SweepStats;
 pub use sweep::{Inputs, NearestConfig, SweepConfig, SweepSummary, sweep_sorted};

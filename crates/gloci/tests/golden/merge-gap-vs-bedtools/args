@@ -1,0 +1,1 @@
+merge --chrom-order lex -d 10 input.bed

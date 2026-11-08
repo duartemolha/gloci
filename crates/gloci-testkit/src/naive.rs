@@ -407,3 +407,69 @@ pub fn naive_intersect<R: Feature>(
     }
     out
 }
+
+/// `(rank, start, end, strand slot, chrom, count, names)`.
+type MergeRow = (u32, u64, u64, usize, String, usize, Vec<String>);
+
+/// `merge` by brute force over BED records: all inputs are concatenated in
+/// input order and stably sorted by `(chromosome rank, start)`, which is the
+/// order a k-way merge yields; then clusters are swept per chromosome (and
+/// per strand with `per_strand`). A record joins the open cluster when
+/// `start <= cluster_end + max_gap`. Rows are `chrom start end count names`,
+/// where `names` is the comma-joined column 4 in that order, sorted by
+/// `(chromosome rank, start, end, strand)` with strands `+`, `-`, `.`.
+pub fn naive_merge(
+    inputs: &[Vec<TestRec>],
+    chrom_rank: impl Fn(&str) -> u32,
+    max_gap: i64,
+    per_strand: bool,
+) -> Vec<String> {
+    let mut all: Vec<&TestRec> = inputs.iter().flatten().collect();
+    all.sort_by_key(|r| (chrom_rank(&r.chrom), r.start));
+    let slot = |r: &TestRec| {
+        if !per_strand {
+            0
+        } else {
+            match r.strand {
+                '+' => 0,
+                '-' => 1,
+                _ => 2,
+            }
+        }
+    };
+    // (rank, start, end, slot, chrom, count, names)
+    let mut rows: Vec<MergeRow> = Vec::new();
+    let mut keys: Vec<(String, usize)> = all.iter().map(|r| (r.chrom.clone(), slot(r))).collect();
+    keys.sort();
+    keys.dedup();
+    for (chrom, s) in keys {
+        let mut cur: Option<(u64, u64, Vec<String>)> = None;
+        let rank = chrom_rank(&chrom);
+        let close = |c: Option<(u64, u64, Vec<String>)>, rows: &mut Vec<MergeRow>| {
+            if let Some((st, en, names)) = c {
+                rows.push((rank, st, en, s, chrom.clone(), names.len(), names));
+            }
+        };
+        for r in all.iter().filter(|r| r.chrom == chrom && slot(r) == s) {
+            match &mut cur {
+                Some((_, end, names))
+                    if (r.start as i128) <= (*end as i128) + (max_gap as i128) =>
+                {
+                    *end = (*end).max(r.end);
+                    names.push(r.name.clone());
+                }
+                _ => {
+                    close(cur.take(), &mut rows);
+                    cur = Some((r.start, r.end, vec![r.name.clone()]));
+                }
+            }
+        }
+        close(cur.take(), &mut rows);
+    }
+    rows.sort_by(|a, b| (a.0, a.1, a.2, a.3).cmp(&(b.0, b.1, b.2, b.3)));
+    rows.into_iter()
+        .map(|(_, st, en, _, chrom, n, names)| {
+            format!("{chrom}\t{st}\t{en}\t{n}\t{}", names.join(","))
+        })
+        .collect()
+}
