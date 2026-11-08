@@ -395,3 +395,39 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   equally near `chr1 450 500` pair gives `b6` and `b7` in gloci, `b6` and
   the farther `b5` in bedtools). `-k 1 --ties first|last` and `-k 2` with
   `--ties all` match exactly.
+
+## `map` `stdev` and `var` are sample statistics {#map-stdev-sample}
+
+- **gloci:** `stdev` and `var` divide by n - 1. With one value they print the
+  `--empty` value (default `.`), since a sample of one has no spread.
+- **Old behaviour:** `bedtools map -o stdev` (and `var`) is the population
+  form, dividing by n, and gives 0 for one value. `sstdev` and `svar` are the
+  sample form. bedmap's `--stdev` is the population form as well.
+- **Reason:** the sample form is what a user summarising a handful of
+  overlapping records expects, and it agrees with bedtools' `sstdev`; the
+  population forms are a P2 addition (`stdev_pop`, `var_pop`, spec 6.3).
+- **Pinned by:** `map-stdev-vs-bedtools` (must differ). `map-sstdev-vs-bedtools`
+  matches.
+
+## `map` `distinct` keeps first-seen order {#map-distinct-order}
+
+- **gloci:** `distinct` lists each value once in the order the B records were
+  seen (B file, then input order). `distinct_sorted` lists them in bytewise
+  order.
+- **Old behaviour:** `bedtools map -o distinct` lists them in bytewise order
+  (`10,3,5`).
+- **Reason:** first-seen order follows the records, which makes `distinct`
+  line up with `collapse`; the sorted form is kept under its own name.
+- **Pinned by:** `map-distinct-vs-bedtools` (must differ).
+  `map-distinct-sorted-vs-bedtools` matches.
+
+## `map` prints the empty value, not `NAN`, for no values {#map-empty-value}
+
+- **gloci:** an aggregation with no values prints `--empty` (default `.`);
+  `count` and `count_distinct` print 0.
+- **Old behaviour:** `bedmap --sum` and `--mean` print `NAN` for an element
+  with no mapped records. bedtools map prints `.` like gloci.
+- **Reason:** one placeholder for every operation, chosen by the user; the
+  bedtools default is the same.
+- **Pinned by:** `map-empty-sum-vs-bedops` (must differ). With every A
+  overlapped, `map-sum-vs-bedops` and `map-mean-vs-bedops` match.

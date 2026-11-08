@@ -311,6 +311,40 @@ Examples:
   gloci closest -a snps.vcf.gz -b genes.bed --max-distance 10000 --ignore-overlaps
   gloci closest -a genes.bed -b peaks.bed --each-side --distance")]
     Closest(ClosestArgs),
+    /// Aggregate columns of the B records over each A (bedtools map, bedops bedmap).
+    ///
+    /// For each A, in A's order, folds the B records that overlap it (the
+    /// criteria of intersect: -f, -F, -r, -e, --min-bases, -s, -S, --split,
+    /// or a window -w/--left/--right) and writes A's record followed by one
+    /// column per -c COL:OP, in B file then B input order. COL is a 1-based
+    /// column of B, 0 for the whole record (count, bases, indicator only),
+    /// or for a VCF B QUAL, ID, FILTER or INFO/KEY. Ops: count
+    /// count_distinct sum mean median min max stdev var collapse distinct
+    /// distinct_sorted first last bases indicator. count counts every
+    /// overlapping B; the other ops skip `.` and empty values, and a value
+    /// that is not a number in a numeric op is an error. sum, min and max
+    /// print integers when every value was one; stdev and var are sample
+    /// statistics (one value gives --empty). bases is the overlap of A with
+    /// each B's own span, which is 0 for a B that is within a window only;
+    /// indicator is 1 when any B counts, else 0. An A with no B gets 0 for
+    /// count and count_distinct and --empty (default `.`) for the rest;
+    /// --skip-unmatched drops such A instead.
+    ///
+    /// Columns are resolved against the first -b file, and all -b files must
+    /// be one format family. The output is TSV with A's columns first; a
+    /// VCF/BCF A gets a column-name line ending with the -c labels.
+    ///
+    /// A and every B must be sorted in one chromosome order, which is
+    /// checked as they are read. With --unsorted, any order works, A is
+    /// still streamed in its own order, and every -b file is loaded into
+    /// memory, so memory grows with the size of B.
+    #[command(after_long_help = "\
+Examples:
+  gloci map -a genes.bed -b scores.bedgraph -c 4:mean
+  gloci map -a windows.bed -b peaks.bed -c 0:count -c 5:max --skip-unmatched
+  gloci map -a snps.vcf.gz -b regions.bed -c 4:distinct --delim ';'
+  gloci map -a genes.bed -b peaks.bed -w 100 -c 0:count -c 0:bases")]
+    Map(MapArgs),
 }
 
 /// What `intersect` reports.
@@ -485,6 +519,47 @@ pub struct ClosestArgs {
     /// A point on the edge of an interval overlaps it (4.3: points).
     #[arg(long)]
     pub inclusive_points: bool,
+    #[command(flatten)]
+    pub u: UnsortedArg,
+    #[command(flatten)]
+    pub genome: GenomeArg,
+    #[command(flatten)]
+    pub chrom_order: ChromOrderArg,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub header: HeaderArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+#[derive(Args)]
+pub struct MapArgs {
+    #[command(flatten)]
+    pub a: AArg,
+    #[command(flatten)]
+    pub b: BArgs,
+    /// Aggregate a column of the overlapping B, such as 5:mean or 0:count
+    /// (repeatable; commas also separate).
+    #[arg(short = 'c', long = "column", value_name = "COL:OP", required = true)]
+    pub columns: Vec<String>,
+    /// Drop an A with no overlapping B instead of writing it.
+    #[arg(long)]
+    pub skip_unmatched: bool,
+    /// Value for an aggregation with no values.
+    #[arg(long, value_name = "S", default_value = ".")]
+    pub empty: String,
+    /// Separator for collapse and distinct lists.
+    #[arg(long, value_name = "S", default_value = ",")]
+    pub delim: String,
+    #[command(flatten)]
+    pub o: OverlapArgs,
+    #[command(flatten)]
+    pub w: WindowArgs,
     #[command(flatten)]
     pub u: UnsortedArg,
     #[command(flatten)]

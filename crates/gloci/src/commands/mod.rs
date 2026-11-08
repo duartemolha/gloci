@@ -3,6 +3,7 @@ pub mod closest;
 pub mod genomes;
 pub mod index;
 pub mod intersect;
+pub mod map;
 pub mod merge;
 pub mod sort;
 pub mod subtract;

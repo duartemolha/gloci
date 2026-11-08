@@ -5,6 +5,7 @@ pub mod bedsearch;
 pub mod check;
 pub mod closest;
 pub mod intersect;
+pub mod map;
 pub mod merge;
 pub mod relate;
 pub mod sort;

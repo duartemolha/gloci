@@ -971,3 +971,184 @@ aux = ["xtask/diff/inputs/closest-b.bed", "xtask/diff/inputs/closest-b2.bed"]
 gloci = "gloci closest --chrom-order lex -a input.bed -b closest-b.bed closest-b2.bed --names 1,2 --per-file --distance"
 reference = "bedtools closest -a input.bed -b closest-b.bed closest-b2.bed -mdb each -d"
 compare = "exact"
+
+# map. bedtools map and bedops bedmap (D36-D38, D46, D57).
+
+[[case]]
+name = "map-sum-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-b.bed -c 5:sum"
+reference = "bedtools map -a input.bed -b map-b.bed -c 5 -o sum"
+compare = "numeric"
+
+[[case]]
+name = "map-mean-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-b.bed -c 5:mean"
+reference = "bedtools map -a input.bed -b map-b.bed -c 5 -o mean"
+compare = "numeric"
+
+[[case]]
+name = "map-median-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-b.bed -c 5:median"
+reference = "bedtools map -a input.bed -b map-b.bed -c 5 -o median"
+compare = "numeric"
+
+[[case]]
+name = "map-min-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-b.bed -c 5:min"
+reference = "bedtools map -a input.bed -b map-b.bed -c 5 -o min"
+compare = "numeric"
+
+[[case]]
+name = "map-max-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-b.bed -c 5:max"
+reference = "bedtools map -a input.bed -b map-b.bed -c 5 -o max"
+compare = "numeric"
+
+[[case]]
+name = "map-count-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-b.bed -c 5:count"
+reference = "bedtools map -a input.bed -b map-b.bed -c 5 -o count"
+compare = "exact"
+
+[[case]]
+name = "map-collapse-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-b.bed -c 4:collapse"
+reference = "bedtools map -a input.bed -b map-b.bed -c 4 -o collapse"
+compare = "exact"
+
+# bedtools writes `distinct` values in bytewise order; gloci's `distinct`
+# keeps first-seen order, and `distinct_sorted` is bedtools' order.
+[[case]]
+name = "map-distinct-sorted-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-b.bed -c 5:distinct_sorted"
+reference = "bedtools map -a input.bed -b map-b.bed -c 5 -o distinct"
+compare = "exact"
+
+[[case]]
+name = "map-distinct-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-b.bed -c 5:distinct"
+reference = "bedtools map -a input.bed -b map-b.bed -c 5 -o distinct"
+compare = "exact"
+expected_difference = "#map-distinct-order"
+
+[[case]]
+name = "map-sstdev-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-b.bed -c 5:stdev"
+reference = "bedtools map -a input.bed -b map-b.bed -c 5 -o sstdev"
+compare = "numeric"
+
+# bedtools `stdev` is the population form (one value gives 0); `sstdev` and
+# gloci's `stdev` are the sample form (one value gives the empty value).
+[[case]]
+name = "map-stdev-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-b.bed -c 5:stdev"
+reference = "bedtools map -a input.bed -b map-b.bed -c 5 -o stdev"
+compare = "numeric"
+expected_difference = "#map-stdev-sample"
+
+[[case]]
+name = "map-fraction-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-b.bed -f 0.5 -c 5:sum"
+reference = "bedtools map -a input.bed -b map-b.bed -f 0.5 -c 5 -o sum"
+compare = "numeric"
+
+[[case]]
+name = "map-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-b.bed -s -c 5:sum"
+reference = "bedtools map -a input.bed -b map-b.bed -s -c 5 -o sum"
+compare = "numeric"
+
+[[case]]
+name = "map-count-vs-bedops"
+input = { file = "xtask/diff/inputs/map-a-hit.bed" }
+aux = ["xtask/diff/inputs/map-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-b.bed -c 0:count"
+reference = "bedmap --echo --count input.bed map-b.bed | tr '|' '\t'"
+compare = "exact"
+
+[[case]]
+name = "map-sum-vs-bedops"
+input = { file = "xtask/diff/inputs/map-a-hit.bed" }
+aux = ["xtask/diff/inputs/map-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-b.bed -c 5:sum"
+reference = "bedmap --echo --sum input.bed map-b.bed | tr '|' '\t'"
+compare = "numeric"
+
+[[case]]
+name = "map-mean-vs-bedops"
+input = { file = "xtask/diff/inputs/map-a-hit.bed" }
+aux = ["xtask/diff/inputs/map-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-b.bed -c 5:mean"
+reference = "bedmap --echo --mean input.bed map-b.bed | tr '|' '\t'"
+compare = "numeric"
+
+[[case]]
+name = "map-range-count-vs-bedops"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-b.bed -w 100 -c 0:count"
+reference = "bedmap --echo --range 100 --count input.bed map-b.bed | tr '|' '\t'"
+compare = "exact"
+
+[[case]]
+name = "map-bases-vs-bedops"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-b-disjoint.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-b-disjoint.bed -c 0:bases"
+reference = "bedmap --echo --bases input.bed map-b-disjoint.bed | tr '|' '\t'"
+compare = "exact"
+
+# bedmap writes `NAN` for a numeric operation with no values.
+[[case]]
+name = "map-empty-sum-vs-bedops"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-b.bed -c 5:sum"
+reference = "bedmap --echo --sum input.bed map-b.bed | tr '|' '\\t'"
+compare = "numeric"
+expected_difference = "#map-empty-value"
+
+# `bases` adds up each record's overlap with A, as bedmap --bases does (both
+# count the shared bases of overlapping B twice), and with a window it is the
+# overlap of the real spans: b9 is within A's window only and adds 0.
+[[case]]
+name = "map-bases-overlapping-vs-bedops"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-b.bed -c 0:bases"
+reference = "bedmap --echo --bases input.bed map-b.bed | tr '|' '\\t'"
+compare = "exact"
+
+[[case]]
+name = "map-range-bases-vs-bedops"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-b-disjoint.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-b-disjoint.bed -w 100 -c 0:bases"
+reference = "bedmap --echo --range 100 --bases input.bed map-b-disjoint.bed | tr '|' '\\t'"
+compare = "exact"

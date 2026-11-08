@@ -1,0 +1,1 @@
+map --chrom-order lex -a input.bed -b map-b.bed -c 4:collapse

@@ -1,0 +1,1 @@
+map --chrom-order lex -a input.bed -b map-b.bed -w 100 -c 0:count

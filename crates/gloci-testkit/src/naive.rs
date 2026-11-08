@@ -738,3 +738,73 @@ pub fn naive_closest(a: &[TestRec], b: &[Vec<TestRec>], q: &NaiveClosest) -> Vec
     }
     rows
 }
+
+/// An aggregation `naive_map` knows. Columns are those of the BED6 test
+/// record: 2 is its start and 3 its end, both integers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NaiveAgg {
+    Count,
+    Bases,
+    Indicator,
+    Sum(u8),
+    Min(u8),
+    Max(u8),
+}
+
+/// `map`, by brute force, as the TSV rows gloci writes for BED inputs: for
+/// each A in the order given, A's line and one value per aggregation over
+/// the B records that count (the same set as `naive_intersect`'s: D36, D37).
+/// `Bases` adds the overlap of A with each B's own span. With no counting B,
+/// `Count` and `Bases` give 0, `Indicator` 0, and the others `.`. An A with
+/// none is dropped under `skip_unmatched`.
+pub fn naive_map(
+    a: &[TestRec],
+    b: &[Vec<TestRec>],
+    criteria: &OverlapCriteria,
+    window: Option<Window>,
+    aggs: &[NaiveAgg],
+    skip_unmatched: bool,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    for ra in a {
+        let hits = naive_accepted(ra, b, criteria, window);
+        if hits.is_empty() && skip_unmatched {
+            continue;
+        }
+        let mut row = ra.bed_line();
+        for agg in aggs {
+            let col = |rb: &TestRec, c: u8| i128::from(if c == 2 { rb.start } else { rb.end });
+            let cell = match *agg {
+                NaiveAgg::Count => hits.len().to_string(),
+                NaiveAgg::Bases => hits
+                    .iter()
+                    .map(|(_, rb)| shared_bases(ra.span(), rb.span()))
+                    .sum::<u64>()
+                    .to_string(),
+                NaiveAgg::Indicator => u8::from(!hits.is_empty()).to_string(),
+                NaiveAgg::Sum(c) if !hits.is_empty() => hits
+                    .iter()
+                    .map(|(_, rb)| col(rb, c))
+                    .sum::<i128>()
+                    .to_string(),
+                NaiveAgg::Min(c) if !hits.is_empty() => hits
+                    .iter()
+                    .map(|(_, rb)| col(rb, c))
+                    .min()
+                    .unwrap()
+                    .to_string(),
+                NaiveAgg::Max(c) if !hits.is_empty() => hits
+                    .iter()
+                    .map(|(_, rb)| col(rb, c))
+                    .max()
+                    .unwrap()
+                    .to_string(),
+                _ => ".".to_string(),
+            };
+            row.push('\t');
+            row.push_str(&cell);
+        }
+        out.push(row);
+    }
+    out
+}
