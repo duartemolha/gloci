@@ -28,7 +28,10 @@ mod inputs;
 mod merge;
 mod spill;
 
-pub use inputs::{MIN_MAX_MEM, SortSettings, check_definitions, check_samples, sort_readers};
+pub use inputs::{
+    MIN_MAX_MEM, SortSettings, check_definitions, check_samples, sort_input_options, sort_readers,
+    sort_together,
+};
 pub use merge::merge_sorted;
 
 use chunk::Chunk;

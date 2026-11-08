@@ -22,6 +22,6 @@ pub use relate::{
 };
 pub use sort::{
     Dedup, MIN_MAX_MEM, SortConfig, SortSettings, SortStats, Sorter, Tie, check_definitions,
-    check_samples, merge_sorted, sort_readers,
+    check_samples, merge_sorted, sort_input_options, sort_readers, sort_together,
 };
 pub use view::{ViewOptions, open_view, run_view};

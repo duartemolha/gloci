@@ -10,21 +10,52 @@
 
 use super::{SortConfig, Sorter, Tie};
 use crate::sort::Dedup;
-use gloci_core::ChromTable;
+use gloci_core::{ChromTable, VcfSpan};
 use gloci_io::{
     Compression, Diagnostics, Format, Header, InvalidPolicy, IoError, OutFormat, OutputOptions,
     OutputSpec, ReaderOptions, RecordBatch, RecordReader, SORTED_INPUTS, TempGuard, UsageError,
     WriterOptions, create_temp_dir_in, next_batch_size, open_output, open_reader,
     open_record_writer,
 };
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use tempfile::TempDir;
 
-/// Settings of `--sort`: the memory budget and where spill files go.
+/// Settings of `--sort`: the memory budget, where spill files go, and how
+/// the sorted stream is read back.
 #[derive(Debug, Clone)]
 pub struct SortSettings {
     pub max_mem: u64,
     pub tmp_dir: PathBuf,
+    /// Threads for the sorter and the sorted file's writer and reader.
+    pub threads: NonZeroUsize,
+    /// The VCF/BCF span the sorted stream is read with: the caller's own
+    /// `--vcf-span`. (Sorting itself always keys VCF records by REF span.)
+    pub vcf_span: VcfSpan,
+}
+
+/// The options to open inputs with when they will be passed to
+/// [`sort_readers`] (or to a relation run with `RelateOptions::sort`):
+/// the same as `user`, except that VCF/BCF records are read by their REF
+/// span, the span `gloci sort` keys them by. Opening them with another
+/// span would sort them in an order the sorted file's reader then cannot
+/// vouch for, silently. The user's span goes in [`SortSettings::vcf_span`].
+pub fn sort_input_options(user: &ReaderOptions) -> ReaderOptions {
+    ReaderOptions {
+        vcf_span: VcfSpan::Ref,
+        ..user.clone()
+    }
+}
+
+/// Sort `inputs` together into one sorted reader, as a one-element list
+/// (the shape `merge` and `complement` take). The inputs must have been
+/// opened with [`sort_input_options`].
+pub fn sort_together(
+    inputs: Vec<Box<dyn RecordReader>>,
+    chroms: &mut ChromTable,
+    settings: &SortSettings,
+) -> Result<Vec<Box<dyn RecordReader>>, IoError> {
+    Ok(vec![sort_readers(inputs, chroms, settings)?])
 }
 
 /// `--max-mem` below this is a usage error (D23).
@@ -79,9 +110,9 @@ impl RecordReader for SortedReader {
 /// Sort all `inputs` together and return one reader of the sorted records.
 ///
 /// The inputs must be of one format family, with identical VCF/BCF samples
-/// and definitions (as for `gloci sort`). They should have been opened with
-/// `VcfSpan::Ref`, the span `gloci sort` keys VCF records by; `reopen`
-/// (threads, span) is used to read the sorted file back. `chroms` is the
+/// and definitions (as for `gloci sort`). They must have been opened with
+/// [`sort_input_options`] (REF span, the span `gloci sort` keys VCF records
+/// by); the sorted file is read back with `settings.vcf_span`. `chroms` is the
 /// table the caller will use for the sorted stream. Skipped-record warnings
 /// of the inputs are logged here. The result is named `the sorted inputs (A, B)`
 /// so errors do not show a temp path; `IoError::with_sorted_input_loc` turns
@@ -90,7 +121,6 @@ pub fn sort_readers(
     mut inputs: Vec<Box<dyn RecordReader>>,
     chroms: &mut ChromTable,
     settings: &SortSettings,
-    reopen: &ReaderOptions,
 ) -> Result<Box<dyn RecordReader>, IoError> {
     if settings.max_mem < MIN_MAX_MEM {
         return Err(UsageError(format!(
@@ -121,7 +151,7 @@ pub fn sort_readers(
     let mut sorter = Sorter::new(SortConfig {
         max_mem: settings.max_mem,
         tmp_dir: settings.tmp_dir.clone(),
-        threads: reopen.threads,
+        threads: settings.threads,
         tie: Tie::InputOrder,
         dedup: Dedup::All,
     })?;
@@ -169,7 +199,7 @@ pub fn sort_readers(
         &spec,
         out_format,
         &OutputOptions {
-            threads: reopen.threads,
+            threads: settings.threads,
             level: 1,
             write_index: false,
         },
@@ -196,9 +226,9 @@ pub fn sort_readers(
     drop(inputs);
 
     let ro = ReaderOptions {
-        threads: reopen.threads,
+        threads: settings.threads,
         format: None,
-        vcf_span: reopen.vcf_span,
+        vcf_span: settings.vcf_span,
         invalid: InvalidPolicy::Fail,
     };
     let inner = open_reader(&path.to_string_lossy(), &ro)?;

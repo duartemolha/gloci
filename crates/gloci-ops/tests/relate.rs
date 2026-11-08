@@ -15,6 +15,7 @@ fn opts() -> RelateOptions {
         window: None,
         split: false,
         unsorted: false,
+        sort: None,
         labels: vec![],
         genome: None,
         chrom_order: ChromOrder::Karyotype,

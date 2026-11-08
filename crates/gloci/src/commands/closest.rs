@@ -2,7 +2,7 @@
 use crate::Ctx;
 use crate::cli::{ClosestArgs, ClosestTies, SignedFrame};
 use crate::commands::intersect::b_column_names;
-use crate::commands::{open_span, relation_hint, sort_relation_inputs};
+use crate::commands::{relation_hint, sort_aware, sort_settings, user_span};
 use gloci_core::{OverlapCriteria, SignFrame, StrandRule};
 use gloci_io::{
     Format, InvalidPolicy, OutputOptions, ReaderOptions, UsageError, WriterOptions, open_reader,
@@ -56,6 +56,7 @@ pub fn run(ctx: &Ctx, a: &ClosestArgs) -> anyhow::Result<()> {
             window: None,
             split: false,
             unsorted: a.u.unsorted,
+            sort: sort_settings(ctx, &a.sort, a.vcf_span.vcf_span),
             labels,
             genome: a.genome.genome.clone(),
             chrom_order: a.chrom_order.chrom_order,
@@ -64,15 +65,20 @@ pub fn run(ctx: &Ctx, a: &ClosestArgs) -> anyhow::Result<()> {
     };
     validate(&o)?;
     let spec = parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref())?;
-    let reader_opts = |format| ReaderOptions {
-        threads: ctx.threads,
-        format,
-        vcf_span: open_span(&a.sort, a.vcf_span.vcf_span),
-        invalid: if a.invalid.skip_invalid {
-            InvalidPolicy::Skip
-        } else {
-            InvalidPolicy::Fail
-        },
+    let reader_opts = |format| {
+        sort_aware(
+            &a.sort,
+            ReaderOptions {
+                threads: ctx.threads,
+                format,
+                vcf_span: user_span(a.vcf_span.vcf_span),
+                invalid: if a.invalid.skip_invalid {
+                    InvalidPolicy::Skip
+                } else {
+                    InvalidPolicy::Fail
+                },
+            },
+        )
     };
     let ro_a = reader_opts(parse_format(a.a.a_format.as_deref())?);
     let ro_b = reader_opts(parse_format(a.b.b_format.as_deref())?);
@@ -82,15 +88,6 @@ pub fn run(ctx: &Ctx, a: &ClosestArgs) -> anyhow::Result<()> {
             .iter()
             .map(|f| open_reader(f, &ro_b))
             .collect::<Result<Vec<_>, _>>()?;
-    let (reader_a, readers_b) = sort_relation_inputs(
-        ctx,
-        &a.sort,
-        a.genome.genome.as_deref(),
-        &a.chrom_order,
-        a.vcf_span.vcf_span,
-        reader_a,
-        readers_b,
-    )?;
 
     // Column names matter only for the column-name line of a VCF/BCF A
     // (D42), so only then is B's width needed.
@@ -136,10 +133,7 @@ pub fn run(ctx: &Ctx, a: &ClosestArgs) -> anyhow::Result<()> {
         a: reader_a,
         b: readers_b,
     };
-    closest(inputs, &o, w.as_mut()).map_err(|e| {
-        e.with_order_hint(relation_hint(&a.sort))
-            .with_sorted_input_loc()
-    })?;
+    closest(inputs, &o, w.as_mut()).map_err(|e| e.with_order_hint(relation_hint(&a.sort)))?;
     w.finish()?;
     Ok(())
 }

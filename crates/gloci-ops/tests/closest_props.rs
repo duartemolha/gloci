@@ -158,6 +158,7 @@ proptest! {
                     window: None,
                     split: false,
                     unsorted,
+                    sort: None,
                     labels: labels.clone(),
                     genome: None,
                     chrom_order: ChromOrder::Karyotype,

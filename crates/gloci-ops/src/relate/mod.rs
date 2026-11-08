@@ -14,6 +14,7 @@ pub use criteria::Acceptor;
 pub use out::{ReportOutput, open_report};
 pub use rewrite::{b_placeholder, rewrite_coords};
 
+use crate::sort::{SortSettings, sort_readers};
 use gloci_core::{ChromOrder, ChromTable, OverlapCriteria, StrandRule, Window};
 use gloci_engine::{
     Inputs, NearestConfig, SweepConfig, SweepSummary, Visitor, sweep_sorted, sweep_unsorted,
@@ -34,6 +35,11 @@ pub struct RelateOptions {
     /// `--split`: compare BED12 blocks instead of spans.
     pub split: bool,
     pub unsorted: bool,
+    /// `--sort`: sort A and then each B on its own (so the B files stay
+    /// distinct) with the external sorter before the sorted sweep. The
+    /// readers in [`RelateInputs`] must have been opened with
+    /// [`crate::sort_input_options`]. Cannot be combined with `unsorted`.
+    pub sort: Option<SortSettings>,
     /// One label per B input (`--names`), for commands that print them.
     pub labels: Vec<String>,
     pub genome: Option<String>,
@@ -87,6 +93,11 @@ impl RecordReader for StrandWatch {
     }
 }
 
+/// Errors read from a sorted temporary file count data records, not lines.
+fn sorted_loc(e: IoError) -> IoError {
+    e.with_sorted_input_loc()
+}
+
 fn has_threshold(c: &OverlapCriteria) -> bool {
     c.min_frac_a.is_some()
         || c.min_frac_b.is_some()
@@ -112,6 +123,9 @@ pub fn run_relation(
         )
         .into());
     }
+    if o.sort.is_some() && o.unsorted {
+        return Err(UsageError("--sort and --unsorted cannot be combined".into()).into());
+    }
     let RelateInputs { a, b } = inputs;
     let mut chroms = {
         let all: Vec<&dyn RecordReader> = std::iter::once(a.as_ref())
@@ -119,14 +133,34 @@ pub fn run_relation(
             .collect();
         chrom_table_for(o.genome.as_deref(), &all, o.chrom_order)?
     };
+    // Messages that are not about a record of the sorted stream name the
+    // user's files, not the temporary sorted ones.
+    let names: Vec<String> = std::iter::once(a.name())
+        .chain(b.iter().map(|r| r.name()))
+        .map(str::to_string)
+        .collect();
+    let (a, b) = match &o.sort {
+        None => (a, b),
+        Some(settings) => {
+            let a = sort_readers(vec![a], &mut chroms, settings).map_err(sorted_loc)?;
+            let b = b
+                .into_iter()
+                .map(|r| sort_readers(vec![r], &mut chroms, settings))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(sorted_loc)?;
+            (a, b)
+        }
+    };
     let watching = o.criteria.strand != StrandRule::Any;
     let mut watched: Vec<(String, Arc<AtomicBool>)> = Vec::new();
+    let mut names = names.into_iter();
     let mut wrap = |r: Box<dyn RecordReader>| -> Box<dyn RecordReader> {
+        let name = names.next().unwrap_or_default();
         if !watching {
             return r;
         }
         let flag = Arc::new(AtomicBool::new(false));
-        watched.push((r.name().to_string(), flag.clone()));
+        watched.push((name, flag.clone()));
         Box::new(StrandWatch {
             inner: r,
             unknown: flag,
@@ -144,7 +178,7 @@ pub fn run_relation(
     let summary = if o.unsorted {
         sweep_unsorted(inputs, &mut chroms, &cfg, v)?
     } else {
-        sweep_sorted(inputs, &mut chroms, &cfg, v)?
+        sweep_sorted(inputs, &mut chroms, &cfg, v).map_err(sorted_loc)?
     };
     for (name, flag) in &watched {
         if flag.load(Ordering::Relaxed) {

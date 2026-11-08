@@ -141,6 +141,7 @@ proptest! {
                     window,
                     split,
                     unsorted,
+                    sort: None,
                     labels: Vec::new(),
                     genome: None,
                     chrom_order: ChromOrder::Karyotype,

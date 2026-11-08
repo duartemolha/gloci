@@ -354,3 +354,128 @@ fn sort_determinism() {
     assert_eq!(run_t("2"), base);
     assert_eq!(run_t("8"), base);
 }
+
+#[test]
+fn default_labels_under_sort_are_the_users_files() {
+    let dir = tempdir();
+    let (a, bs) = inputs(dir.path());
+    let out = run(&[
+        "intersect",
+        "--sort",
+        "--mode",
+        "pairs",
+        "-a",
+        &a,
+        "-b",
+        &bs[0],
+        &bs[1],
+    ]);
+    let text = String::from_utf8(out).unwrap();
+    assert!(!text.contains("sorted inputs"), "{text}");
+    let labels: std::collections::BTreeSet<&str> = text
+        .lines()
+        .map(|l| l.split('\t').nth(6).unwrap())
+        .collect();
+    // The same labels as the unsorted run gives, and not temp-file names.
+    let plain = run(&[
+        "intersect",
+        "--unsorted",
+        "--mode",
+        "pairs",
+        "-a",
+        &a,
+        "-b",
+        &bs[0],
+        &bs[1],
+    ]);
+    let plain = String::from_utf8(plain).unwrap();
+    let want: std::collections::BTreeSet<&str> = plain
+        .lines()
+        .map(|l| l.split('\t').nth(6).unwrap())
+        .collect();
+    assert_eq!(want.len(), 2);
+    assert_eq!(labels, want);
+}
+
+#[test]
+fn failure_after_the_sorts_exits_1_and_cleans_up() {
+    let dir = tempdir();
+    // Overlapping BED12 blocks: rejected mid-relation, with the user's file name.
+    let bad = s(&plain_file(
+        dir.path(),
+        "bad.bed",
+        "chr1\t0\t100\tn\t0\t+\t0\t100\t0\t2\t50,50\t0,40\n",
+    ));
+    let b = s(&plain_file(dir.path(), "b.bed", "chr1\t0\t200\n"));
+    let tmp = dir.path().join("spill");
+    std::fs::create_dir(&tmp).unwrap();
+    gloci()
+        .args([
+            "intersect",
+            "--sort",
+            "--split",
+            "-a",
+            &bad,
+            "-b",
+            &b,
+            "--tmp-dir",
+        ])
+        .arg(&tmp)
+        .assert()
+        .code(1)
+        .stderr(contains("bad.bed"))
+        .stderr(contains("invalid BED12 blocks"));
+    assert_eq!(std::fs::read_dir(&tmp).unwrap().count(), 0);
+}
+
+#[test]
+fn tmp_dir_needs_sort() {
+    let dir = tempdir();
+    let (a, bs) = inputs(dir.path());
+    gloci()
+        .args(["intersect", "-a", &a, "-b", &bs[0], "--tmp-dir"])
+        .arg(dir.path())
+        .assert()
+        .code(2);
+}
+
+#[test]
+fn usage_errors_come_before_any_sorting() {
+    let dir = tempdir();
+    let (a, bs) = inputs(dir.path());
+    let no_sort = |args: &[&str]| {
+        let out = gloci()
+            .args(args)
+            .args(["-v", "--sort", "-a", &a, "-b", &bs[0]])
+            .assert()
+            .code(2)
+            .get_output()
+            .clone();
+        let err = String::from_utf8_lossy(&out.stderr).into_owned();
+        assert!(
+            !err.contains("--sort: sorted"),
+            "{args:?} sorted first: {err}"
+        );
+    };
+    no_sort(&["intersect", "--overlap-bases"]);
+    no_sort(&["map", "-c", "5:nonsense"]);
+    no_sort(&["coverage", "--hist", "--per-base"]);
+}
+
+#[test]
+fn warnings_under_sort_name_the_users_files() {
+    let dir = tempdir();
+    let (a, bs) = inputs(dir.path());
+    let out = gloci()
+        .args(["intersect", "--sort", "-s", "-a", &a, "-b", &bs[0]])
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains(&format!("{a} has records with unknown strand")),
+        "{err}"
+    );
+    assert!(!err.contains("sorted inputs"), "{err}");
+}
