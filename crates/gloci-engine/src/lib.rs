@@ -4,6 +4,7 @@
 
 mod active;
 pub mod hit;
+mod nearest;
 pub mod sweep;
 
 pub use hit::{ARec, Hit, Neighbours, Visitor};

@@ -6,4 +6,4 @@ pub mod mem;
 pub mod naive;
 pub mod strategies;
 
-pub use strategies::{RelationInputs, TestRec};
+pub use strategies::{Feature, MixedInputs, RelationInputs, TestFile, TestRec};

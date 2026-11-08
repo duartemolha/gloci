@@ -2,6 +2,7 @@
 //! that can still overlap it or a later A, with their raw bytes in an arena.
 
 use crate::hit::Hit;
+use crate::nearest::NearScan;
 use gloci_core::{Interval, Strand};
 use gloci_io::RecordMeta;
 
@@ -14,6 +15,22 @@ struct Entry {
     off: usize,
     len: u32,
     strand: Strand,
+}
+
+impl Entry {
+    fn raw<'h>(&self, arena: &'h [u8]) -> &'h [u8] {
+        &arena[self.off..self.off + self.len as usize]
+    }
+
+    fn hit<'h>(&self, file: u16, arena: &'h [u8]) -> Hit<'h> {
+        Hit {
+            file,
+            span: self.span,
+            strand: self.strand,
+            raw: self.raw(arena),
+            loc: self.loc,
+        }
+    }
 }
 
 /// The live entries are `entries[head..]`, in load order, which is B's
@@ -77,13 +94,27 @@ impl ActiveSet {
         });
     }
 
+    /// The live entries whose key is beyond `lim`, as `(key, span start,
+    /// strand)`, in key order.
+    pub(crate) fn past(&self, lim: u64) -> impl Iterator<Item = (u64, u64, Strand)> + '_ {
+        let live = &self.entries[self.head..];
+        let first = live.partition_point(|e| e.key <= lim);
+        live[first..]
+            .iter()
+            .map(|e| (e.key, e.span.start, e.strand))
+    }
+
     /// Process the current A, whose key is `a_key` and whose padded end is
     /// `lim`: evict every entry with `span.end + pad < a_key` (it cannot
     /// overlap this or any later A), and push every entry whose span
     /// passes `is_hit` to `hits`, in input order. Only entries with
     /// `key <= lim` are looked at: the rest cannot overlap A, and since
     /// `end >= key > lim >= a_key` none of them can be evicted yet.
-    /// Returns the number of live entries.
+    ///
+    /// With `near` (`closest`), evicted entries also go to its pool, and
+    /// live ones, plus those past `lim` with `key <= near.right_bound`, to
+    /// it as candidate neighbours. Returns the number of live entries.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn scan<'h>(
         &'h mut self,
         file: u16,
@@ -92,6 +123,7 @@ impl ActiveSet {
         pad: u64,
         is_hit: impl Fn(Interval) -> bool,
         hits: &mut Vec<Hit<'h>>,
+        mut near: Option<&mut NearScan<'_, 'h>>,
     ) -> usize {
         let ActiveSet {
             entries,
@@ -102,21 +134,31 @@ impl ActiveSet {
         let arena: &'h [u8] = arena;
         let evicted = |e: &Entry| e.span.end.saturating_add(pad) < a_key;
         let mut last_evicted = None;
+        let mut past = entries.len();
         for (i, e) in entries.iter().enumerate().skip(*head) {
             if e.key > lim {
+                past = i;
                 break;
             }
             if evicted(e) {
                 *dead += e.len as usize;
                 last_evicted = Some(i);
-            } else if is_hit(e.span) {
-                hits.push(Hit {
-                    file,
-                    span: e.span,
-                    strand: e.strand,
-                    raw: &arena[e.off..e.off + e.len as usize],
-                    loc: e.loc,
-                });
+                if let Some(n) = near.as_deref_mut() {
+                    n.evicted(e.span, e.strand, e.loc, e.raw(arena));
+                }
+            } else {
+                if is_hit(e.span) {
+                    hits.push(e.hit(file, arena));
+                }
+                if let Some(n) = near.as_deref_mut() {
+                    n.live(e.hit(file, arena));
+                }
+            }
+        }
+        if let Some(n) = near {
+            let bound = n.right_bound;
+            for e in entries[past..].iter().take_while(|e| e.key <= bound) {
+                n.live(e.hit(file, arena));
             }
         }
         if let Some(last) = last_evicted {
@@ -157,7 +199,7 @@ mod tests {
     /// live entry overlaps, i.e. the live entries up to `lim`.
     fn live(set: &mut ActiveSet, a_key: u64, lim: u64) -> Vec<Vec<u8>> {
         let mut hits = Vec::new();
-        set.scan(0, lim, a_key, 0, |_| true, &mut hits);
+        set.scan(0, lim, a_key, 0, |_| true, &mut hits, None);
         hits.iter().map(|h| h.raw.to_vec()).collect()
     }
 

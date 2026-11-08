@@ -1,6 +1,7 @@
 //! The sorted sweep (spec §8.2, D36, D38): for each A, in A's input order,
 //! every B whose window-padded span overlaps A under §4.3, by file and then
-//! B input order. Checked against a brute-force reference.
+//! B input order. Checked against a brute-force reference, over BED inputs
+//! and over BED/VCF inputs whose VCF spans start after their key.
 
 use gloci_core::{ChromTable, Interval, Strand, StrandRule, VcfSpan, Window};
 use gloci_engine::{
@@ -10,8 +11,11 @@ use gloci_io::{InvalidPolicy, IoError, LEX_SORTED_NOTE, ReaderOptions};
 use gloci_testkit::TestRec;
 use gloci_testkit::mem::mem_reader;
 use gloci_testkit::naive::{self, naive_hits};
-use gloci_testkit::strategies::{CHROMS, HUGE, relation_inputs};
+use gloci_testkit::strategies::{
+    CHROMS, Feature, HUGE, MixedInputs, RelRec, relation_inputs, vcf_relation_inputs,
+};
 use proptest::prelude::*;
+use proptest::test_runner::TestCaseError;
 use std::num::NonZeroUsize;
 
 const VCF_HEAD: &str = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n";
@@ -26,12 +30,15 @@ fn opts() -> ReaderOptions {
 }
 
 /// What the visitor saw: each A (raw line, key, span) and its hits as
-/// `(file, B line)`.
+/// `(file, B line)`, and whether any A had neighbours in any of the
+/// `files` B inputs.
 #[derive(Debug, Default)]
 struct Seen {
+    files: u16,
     a: Vec<String>,
     a_pos: Vec<(u64, Interval)>,
     hits: Vec<Vec<(u16, String)>>,
+    near_seen: bool,
 }
 
 fn text(b: &[u8]) -> String {
@@ -45,7 +52,9 @@ impl Visitor for Seen {
         hits: &[Hit<'_>],
         near: &Neighbours<'_>,
     ) -> Result<(), IoError> {
-        assert!(near.left(0).is_empty() && near.right(0).is_empty());
+        for f in 0..self.files {
+            self.near_seen |= !near.left(f).is_empty() || !near.right(f).is_empty();
+        }
         self.a.push(text(a.raw));
         self.a_pos.push((a.meta.key, a.meta.span));
         self.hits
@@ -66,8 +75,14 @@ fn sweep(
         b: b.iter().map(|(n, t)| mem_reader(n, t, &o)).collect(),
     };
     let mut chroms = ChromTable::karyotype();
-    let mut seen = Seen::default();
+    let mut seen = Seen {
+        files: b.len() as u16,
+        ..Seen::default()
+    };
     let summary = sweep_sorted(inputs, &mut chroms, cfg, &mut seen)?;
+    if cfg.nearest.is_none() {
+        assert!(!seen.near_seen, "neighbours without a nearest request");
+    }
     Ok((seen, summary))
 }
 
@@ -99,49 +114,83 @@ fn pad() -> impl Strategy<Value = u64> {
     ]
 }
 
+/// Sort `input`, then sweep it without a window, with a window and with a
+/// strand-aware window, each with `--inclusive-points` off and on, and
+/// compare every run with the naive answer.
+fn check_hits(mut input: MixedInputs, left: u64, right: u64) -> Result<(), TestCaseError> {
+    let rank = naive::karyotype_rank(CHROMS);
+    input.a.sort(&rank);
+    for f in &mut input.b {
+        f.sort(&rank);
+    }
+    let a = &input.a.recs;
+    let b: Vec<Vec<RelRec>> = input.b.iter().map(|f| f.recs.clone()).collect();
+    let a_text = input.a.text();
+    let a_lines: Vec<String> = a.iter().map(Feature::line).collect();
+    let b_names: Vec<String> = (0..b.len()).map(|i| format!("b{i}")).collect();
+    let b_texts: Vec<String> = input.b.iter().map(|f| f.text()).collect();
+    let b_inputs: Vec<(&str, &str)> = b_names
+        .iter()
+        .zip(&b_texts)
+        .map(|(n, t)| (n.as_str(), t.as_str()))
+        .collect();
+    let shared = a
+        .iter()
+        .any(|ra| b.iter().flatten().any(|rb| rb.chrom() == ra.chrom()));
+    let windows = [
+        None,
+        Some(Window {
+            left,
+            right,
+            strand_aware: false,
+        }),
+        Some(Window {
+            left,
+            right,
+            strand_aware: true,
+        }),
+    ];
+    for window in windows {
+        for inclusive_points in [false, true] {
+            let cfg = SweepConfig {
+                window,
+                inclusive_points,
+                nearest: None,
+            };
+            let (seen, summary) = sweep(("a", &a_text), &b_inputs, &cfg).unwrap();
+            prop_assert_eq!(&seen.a, &a_lines);
+            prop_assert_eq!(
+                &seen.hits,
+                &naive_hits(a, &b, window, inclusive_points),
+                "window {:?}, inclusive points {}",
+                window,
+                inclusive_points
+            );
+            prop_assert_eq!(summary.a_records, a.len() as u64);
+            prop_assert_eq!(summary.b_records.len(), b.len());
+            for (n, f) in summary.b_records.iter().zip(&b) {
+                prop_assert!(*n <= f.len() as u64);
+            }
+            prop_assert_eq!(summary.shared_chroms, shared);
+        }
+    }
+    Ok(())
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
-    /// Every input runs without a window, with a window and with a
-    /// strand-aware window, each with `--inclusive-points` off and on.
+    /// BED inputs, where every key is the span start.
     #[test]
     fn sweep_matches_naive(input in relation_inputs(), left in pad(), right in pad()) {
-        let rank = naive::karyotype_rank(CHROMS);
-        let a = naive::sort(input.a, &rank);
-        let b: Vec<Vec<TestRec>> = input.b.into_iter().map(|f| naive::sort(f, &rank)).collect();
-        let a_text = bed(&a);
-        let a_lines: Vec<String> = a.iter().map(TestRec::bed_line).collect();
-        let b_names: Vec<String> = (0..b.len()).map(|i| format!("b{i}.bed")).collect();
-        let b_texts: Vec<String> = b.iter().map(|f| bed(f)).collect();
-        let b_inputs: Vec<(&str, &str)> = b_names
-            .iter()
-            .zip(&b_texts)
-            .map(|(n, t)| (n.as_str(), t.as_str()))
-            .collect();
-        let shared = a.iter().any(|ra| b.iter().flatten().any(|rb| rb.chrom == ra.chrom));
-        let windows = [
-            None,
-            Some(Window { left, right, strand_aware: false }),
-            Some(Window { left, right, strand_aware: true }),
-        ];
-        for window in windows {
-            for inclusive_points in [false, true] {
-                let cfg = SweepConfig { window, inclusive_points, nearest: None };
-                let (seen, summary) = sweep(("a.bed", &a_text), &b_inputs, &cfg).unwrap();
-                prop_assert_eq!(&seen.a, &a_lines);
-                prop_assert_eq!(
-                    &seen.hits,
-                    &naive_hits(&a, &b, window, inclusive_points),
-                    "window {:?}, inclusive points {}", window, inclusive_points
-                );
-                prop_assert_eq!(summary.a_records, a.len() as u64);
-                prop_assert_eq!(summary.b_records.len(), b.len());
-                for (n, f) in summary.b_records.iter().zip(&b) {
-                    prop_assert!(*n <= f.len() as u64);
-                }
-                prop_assert_eq!(summary.shared_chroms, shared);
-            }
-        }
+        check_hits(MixedInputs::from(input), left, right)?;
+    }
+
+    /// BED and VCF inputs, where VCF spans (of A and of B) can start after
+    /// the key: loading and eviction must go by A's key, not its span.
+    #[test]
+    fn sweep_matches_naive_vcf_style(input in vcf_relation_inputs(), left in pad(), right in pad()) {
+        check_hits(input, left, right)?;
     }
 }
 
@@ -324,8 +373,8 @@ fn edges_and_empties() {
     );
     assert!(summary.shared_chroms);
 
-    // Ruling R-P1: a nearest request is accepted; until Task 6 the hits
-    // are unchanged and the neighbours empty (`Seen` asserts that).
+    // A nearest request leaves the hits unchanged; the neighbours
+    // themselves are tested in tests/nearest.rs.
     let nearest = SweepConfig {
         nearest: Some(NearestConfig {
             k: 1,

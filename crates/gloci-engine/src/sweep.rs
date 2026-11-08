@@ -15,21 +15,28 @@
 //! - **Chromosomes.** When A moves to a new chromosome, the active sets
 //!   are cleared and each B reads past records on earlier chromosomes;
 //!   a record on a later one waits. Reading stops when A is exhausted.
+//! - **Neighbours** (`closest`). Evicted and skipped B go to a left pool
+//!   per B input, and B are read ahead of the load limit for the right
+//!   side; see `nearest`.
 
 use crate::active::ActiveSet;
-use crate::hit::{ARec, Hit, Neighbours, Visitor};
+use crate::hit::{ARec, Hit, Neighbours, Visitor, recycle};
+use crate::nearest::{LeftPool, LookAhead, NearScan, Target, Want, keep_nearest};
 use gloci_core::{ChromId, ChromTable, StrandRule, Window, overlaps, thousands};
 use gloci_io::{
     IoError, OrderGuard, RecordBatch, RecordMeta, RecordReader, UsageError, next_batch_size,
 };
 use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 
-/// What `closest` asks of the sweep. Task 6 implements it; until then the
-/// neighbours stay empty.
+/// What `closest` asks of the sweep: the `k` nearest B on each side of
+/// each A, per B file ([`Neighbours`]). `k = 0` asks for none.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NearestConfig {
     pub k: usize,
+    /// Only B at most this far from A (spec §4.4 distance).
     pub max_distance: Option<u64>,
+    /// Only B on the same (or opposite) strand as A (D55).
     pub strand: StrandRule,
 }
 
@@ -40,7 +47,7 @@ pub struct SweepConfig {
     pub window: Option<Window>,
     /// `--inclusive-points`: a point on an interval's edge overlaps it.
     pub inclusive_points: bool,
-    /// Also report the nearest B on each side (`closest`).
+    /// Also report the nearest B on each side of each A (`closest`).
     pub nearest: Option<NearestConfig>,
 }
 
@@ -62,11 +69,16 @@ pub struct SweepSummary {
     /// for tests: it is bounded by the overlap depth, not the file size.
     #[doc(hidden)]
     pub peak_active: usize,
+    /// The most B the left pools (all B inputs) held after any A, for
+    /// tests: it stays near `k` plus ties.
+    #[doc(hidden)]
+    pub peak_pool: usize,
 }
 
 /// Run the sweep: call `v` for every A record, in A's input order, with
-/// its candidate hits (D36, D38). Every input is order-checked against
-/// `chroms` (D51), and the first violation is an error naming that input.
+/// its candidate hits (D36, D38) and, when `cfg.nearest` is set, its
+/// neighbours. Every input is order-checked against `chroms` (D51), and
+/// the first violation is an error naming that input.
 pub fn sweep_sorted(
     inputs: Inputs,
     chroms: &mut ChromTable,
@@ -86,17 +98,23 @@ pub fn sweep_sorted(
     let pad = cfg.window.map_or(0, |w| w.left.max(w.right));
     let mut streams: Vec<BStream> = b.into_iter().map(BStream::new).collect();
     let mut active: Vec<ActiveSet> = streams.iter().map(|_| ActiveSet::default()).collect();
+    let nearest = cfg.nearest.filter(|n| n.k > 0);
+    let mut pools: Vec<LeftPool> = match &nearest {
+        Some(n) => streams.iter().map(|_| LeftPool::new(n)).collect(),
+        None => Vec::new(),
+    };
+    let mut right_bounds = vec![0; streams.len()];
+    let mut starts = BinaryHeap::new();
     let mut guard = OrderGuard::new(reader.name(), reader.format());
     let mut summary = SweepSummary {
         a_records: 0,
         b_records: Vec::new(),
         shared_chroms: false,
         peak_active: 0,
+        peak_pool: 0,
     };
-    // Ruling R-P1: `cfg.nearest` is accepted, and the neighbours stay
-    // empty until Task 6.
-    let near = Neighbours::default();
     let mut spare: Vec<Hit<'static>> = Vec::new();
+    let mut spare_near: Neighbours<'static> = Neighbours::default();
     let mut chrom = None;
     let (mut batch, mut max) = (RecordBatch::default(), 1);
     loop {
@@ -112,28 +130,60 @@ pub fn sweep_sorted(
                     set.clear();
                     summary.shared_chroms |= s.enter(chroms, a.chrom)?;
                 }
+                pools.iter_mut().for_each(LeftPool::clear);
             }
             let lim = a.span.end.saturating_add(pad);
-            for (s, set) in streams.iter_mut().zip(&mut active) {
+            let target = nearest.map(|n| Target::new(&n, a.span, a.strand, cfg.inclusive_points));
+            for (f, (s, set)) in streams.iter_mut().zip(&mut active).enumerate() {
                 set.compact();
-                s.load(chroms, a, lim, pad, set)?;
+                let mut pool = pools.get_mut(f);
+                if let Some(p) = pool.as_deref_mut() {
+                    p.compact();
+                    p.expire(a.key);
+                }
+                s.load(chroms, a, lim, pad, set, pool)?;
+                right_bounds[f] = match target {
+                    // Nothing past the load limit is looked at.
+                    Some(t) if t.want != Want::Nothing => {
+                        s.look_ahead(chroms, a, lim, LookAhead::new(t, &mut starts), set)?
+                    }
+                    _ => lim,
+                };
             }
             let mut hits = recycle(std::mem::take(&mut spare));
+            let mut near = std::mem::take(&mut spare_near).recycle();
             let mut live = 0;
-            for (f, set) in active.iter_mut().enumerate() {
-                let f = f as u16;
-                let ip = cfg.inclusive_points;
-                live += match cfg.window {
-                    None => set.scan(f, lim, a.key, 0, |b| overlaps(a.span, b, ip), &mut hits),
-                    Some(w) => set.scan(
-                        f,
-                        lim,
-                        a.key,
-                        pad,
-                        |b| overlaps(a.span, w.apply(b, a.strand), ip),
-                        &mut hits,
-                    ),
-                };
+            match target {
+                None => {
+                    for (f, set) in active.iter_mut().enumerate() {
+                        live += scan(set, f as u16, a, lim, pad, cfg, &mut hits, None);
+                    }
+                }
+                Some(t) => {
+                    let mut pooled = 0;
+                    for (f, (set, pool)) in active.iter_mut().zip(pools.iter_mut()).enumerate() {
+                        let (left, right) = (near.left.len(), near.right.len());
+                        let mut ns = NearScan {
+                            t,
+                            a_key: a.key,
+                            right_bound: right_bounds[f],
+                            pool: &mut *pool,
+                            left: &mut near.left,
+                            right: &mut near.right,
+                        };
+                        let f = f as u16;
+                        live += scan(set, f, a, lim, pad, cfg, &mut hits, Some(&mut ns));
+                        // The pool is done changing for this A; its members
+                        // are borrowed until the visit ends.
+                        let pool: &LeftPool = pool;
+                        pool.extend(f, &t, &mut near.left);
+                        keep_nearest(&mut near.left, left, &t);
+                        keep_nearest(&mut near.right, right, &t);
+                        near.end_file();
+                        pooled += pool.len();
+                    }
+                    summary.peak_pool = summary.peak_pool.max(pooled);
+                }
             }
             summary.peak_active = summary.peak_active.max(live);
             let rec = ARec {
@@ -142,6 +192,7 @@ pub fn sweep_sorted(
             };
             v.visit(&rec, &hits, &near)?;
             spare = recycle(hits);
+            spare_near = near.recycle();
         }
         if !more {
             break;
@@ -151,14 +202,32 @@ pub fn sweep_sorted(
     Ok(summary)
 }
 
-/// Reuse the allocation of a hit vector for hits that borrow something
-/// else: the vector is emptied, and collecting an empty `into_iter` of a
-/// same-layout type reuses its buffer.
-fn recycle<'x, 'y>(mut v: Vec<Hit<'x>>) -> Vec<Hit<'y>> {
-    v.clear();
-    v.into_iter()
-        .map(|_| unreachable!("the vector is empty"))
-        .collect()
+/// Match A against one B input's active set: `ActiveSet::scan` with the
+/// overlap test of `cfg` (its window applied relative to A's strand).
+#[allow(clippy::too_many_arguments)]
+fn scan<'h>(
+    set: &'h mut ActiveSet,
+    f: u16,
+    a: &RecordMeta,
+    lim: u64,
+    pad: u64,
+    cfg: &SweepConfig,
+    hits: &mut Vec<Hit<'h>>,
+    near: Option<&mut NearScan<'_, 'h>>,
+) -> usize {
+    let ip = cfg.inclusive_points;
+    match cfg.window {
+        None => set.scan(f, lim, a.key, 0, |b| overlaps(a.span, b, ip), hits, near),
+        Some(w) => set.scan(
+            f,
+            lim,
+            a.key,
+            pad,
+            |b| overlaps(a.span, w.apply(b, a.strand), ip),
+            hits,
+            near,
+        ),
+    }
 }
 
 /// Where a B stream's next record is, relative to A's chromosome.
@@ -252,8 +321,9 @@ impl BStream {
     }
 
     /// Load into `set` the records on A's chromosome with `key <= lim`,
-    /// except those already ending before A's key (with the pad). A record
-    /// on another chromosome is a later one: the order guard has checked it.
+    /// except those already ending before A's key (with the pad), which go
+    /// to `pool` when there is one. A record on another chromosome is a
+    /// later one: the order guard has checked it.
     fn load(
         &mut self,
         chroms: &mut ChromTable,
@@ -261,6 +331,7 @@ impl BStream {
         lim: u64,
         pad: u64,
         set: &mut ActiveSet,
+        mut pool: Option<&mut LeftPool>,
     ) -> Result<(), IoError> {
         if self.place != Place::Same {
             return Ok(());
@@ -276,11 +347,54 @@ impl BStream {
             }
             if m.span.end.saturating_add(pad) >= a.key {
                 set.push(m, self.batch.raw(i));
+            } else if let Some(p) = pool.as_deref_mut() {
+                p.offer(m.span, m.strand, m.loc, self.batch.raw(i), a.key);
             }
             self.pos += 1;
         }
         self.place = Place::Past;
         Ok(())
+    }
+
+    /// After `load`: read records past the load limit into `set` until no
+    /// later one can be among the nearest right of A, counting those
+    /// already there first (see `nearest`). Returns the largest key that
+    /// still can be.
+    fn look_ahead(
+        &mut self,
+        chroms: &mut ChromTable,
+        a: &RecordMeta,
+        lim: u64,
+        mut ahead: LookAhead<'_>,
+        set: &mut ActiveSet,
+    ) -> Result<u64, IoError> {
+        for (key, start, strand) in set.past(lim) {
+            if key > ahead.bound() {
+                return Ok(ahead.bound());
+            }
+            ahead.add(start, strand);
+        }
+        if self.place != Place::Same {
+            return Ok(ahead.bound());
+        }
+        while let Some(i) = self.peek(chroms)? {
+            let m = &self.batch.recs[i];
+            if m.chrom != a.chrom {
+                self.place = Place::Past;
+                return Ok(ahead.bound());
+            }
+            if m.key > ahead.bound() {
+                return Ok(ahead.bound());
+            }
+            // `load` took every record up to the limit, so this one starts
+            // after A's end and cannot be evicted for this A.
+            debug_assert!(m.key > lim);
+            set.push(m, self.batch.raw(i));
+            ahead.add(m.span.start, m.strand);
+            self.pos += 1;
+        }
+        self.place = Place::Past;
+        Ok(ahead.bound())
     }
 }
 

@@ -2,14 +2,15 @@
 //!
 //! The §4.3 overlap rule is written out here independently of gloci-core,
 //! so the oracle does not share code with the implementation under test.
-//! The relation references (`naive_hits`) are the exception: they apply
-//! gloci-core's `overlaps` and `Window` in a plain double loop, so their
-//! property tests check an engine's bookkeeping (loading, eviction,
-//! chromosome changes, hit order) rather than a second copy of §4.3, which
-//! gloci-core's own table tests pin.
+//! The relation references (`naive_hits`, `naive_neighbours`) are the
+//! exception: they apply gloci-core's `overlaps`, `distance` and `Window`
+//! in a plain double loop, so their property tests check an engine's
+//! bookkeeping (loading, eviction, look-ahead, chromosome changes, hit
+//! order) rather than a second copy of §4.3 and §4.4, which gloci-core's
+//! own table tests pin.
 
-use crate::strategies::TestRec;
-use gloci_core::{Interval, Strand, Window, overlaps};
+use crate::strategies::{Feature, TestRec};
+use gloci_core::{Interval, Strand, StrandRule, Window, distance, overlaps};
 
 fn inside(p: u64, start: u64, end: u64, inclusive: bool) -> bool {
     if inclusive {
@@ -43,22 +44,13 @@ pub fn region_query(recs: &[TestRec], chrom: &[u8], iv: Interval, inclusive: boo
         .collect()
 }
 
-/// A test record's strand as gloci-core reads BED column 6.
-fn core_strand(c: char) -> Strand {
-    match c {
-        '+' => Strand::Plus,
-        '-' => Strand::Minus,
-        _ => Strand::Unknown,
-    }
-}
-
 /// Candidate hits of a relation (D36, D38), by brute force: for each A in
 /// the order given, every B of `b[f]` on A's chromosome whose span, padded
-/// by `window` relative to A's strand, overlaps A under §4.3. Each hit is
-/// `(f, B's BED line)`, ordered by file, then by B's order in `b[f]`.
-pub fn naive_hits(
-    a: &[TestRec],
-    b: &[Vec<TestRec>],
+/// by `window` relative to A's strand, overlaps A's span under §4.3. Each
+/// hit is `(f, B's line)`, ordered by file, then by B's order in `b[f]`.
+pub fn naive_hits<R: Feature>(
+    a: &[R],
+    b: &[Vec<R>],
     window: Option<Window>,
     inclusive_points: bool,
 ) -> Vec<Vec<(u16, String)>> {
@@ -67,19 +59,84 @@ pub fn naive_hits(
             let mut hits = Vec::new();
             for (f, file) in b.iter().enumerate() {
                 for rb in file {
-                    if rb.chrom != ra.chrom {
+                    if rb.chrom() != ra.chrom() {
                         continue;
                     }
                     let span = match window {
-                        Some(w) => w.apply(rb.interval(), core_strand(ra.strand)),
-                        None => rb.interval(),
+                        Some(w) => w.apply(rb.span(), ra.strand()),
+                        None => rb.span(),
                     };
-                    if overlaps(ra.interval(), span, inclusive_points) {
-                        hits.push((f as u16, rb.bed_line()));
+                    if overlaps(ra.span(), span, inclusive_points) {
+                        hits.push((f as u16, rb.line()));
                     }
                 }
             }
             hits
+        })
+        .collect()
+}
+
+/// One file's neighbours of one A: `(left, right)`, as indices into the
+/// file's records, nearest first.
+pub type Sides = (Vec<usize>, Vec<usize>);
+
+/// Nearest-neighbour candidates (Task 6), by brute force: for each A in
+/// the order given and each `b[f]`, the B on A's chromosome that do not
+/// overlap A under §4.3, split into **left** (`end <= A.start`) and
+/// **right** (`start >= A.end`). Each side is sorted by gloci-core
+/// `distance`, ties in B's order in `b[f]`, and cut to the `k` nearest
+/// plus every B tied with the k-th. Only B at distance at most
+/// `max_distance` count. Under `Same`/`Opposite`, only B whose strand meets
+/// the rule against A's count: a B or A with unknown strand never does.
+pub fn naive_neighbours<R: Feature>(
+    a: &[R],
+    b: &[Vec<R>],
+    k: usize,
+    max_distance: Option<u64>,
+    strand: StrandRule,
+    inclusive_points: bool,
+) -> Vec<Vec<Sides>> {
+    let strand_ok = |x: Strand, y: Strand| match strand {
+        StrandRule::Any => true,
+        rule => {
+            x != Strand::Unknown && y != Strand::Unknown && ((x == y) == (rule == StrandRule::Same))
+        }
+    };
+    let nearest = |mut v: Vec<(u64, usize)>| -> Vec<usize> {
+        v.sort();
+        if v.len() > k {
+            let kth = v[k - 1].0;
+            v.retain(|&(d, _)| d <= kth);
+        }
+        v.into_iter().map(|(_, i)| i).collect()
+    };
+    a.iter()
+        .map(|ra| {
+            let x = ra.span();
+            b.iter()
+                .map(|file| {
+                    let (mut left, mut right) = (Vec::new(), Vec::new());
+                    for (i, rb) in file.iter().enumerate() {
+                        let y = rb.span();
+                        if rb.chrom() != ra.chrom()
+                            || !strand_ok(ra.strand(), rb.strand())
+                            || overlaps(x, y, inclusive_points)
+                        {
+                            continue;
+                        }
+                        let d = distance(x, y, inclusive_points);
+                        if max_distance.is_some_and(|m| d > m) {
+                            continue;
+                        }
+                        if y.end <= x.start {
+                            left.push((d, i));
+                        } else if y.start >= x.end {
+                            right.push((d, i));
+                        }
+                    }
+                    (nearest(left), nearest(right))
+                })
+                .collect()
         })
         .collect()
 }
