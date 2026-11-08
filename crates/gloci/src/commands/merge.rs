@@ -1,9 +1,9 @@
 //! `gloci merge`: cluster the footprints of sorted inputs.
+use super::{InputArgs, SORT_FLAG_HINT, open_inputs};
 use crate::Ctx;
-use crate::cli::{MergeArgs, VcfSpan};
+use crate::cli::MergeArgs;
 use gloci_io::{
-    Format, Header, InvalidPolicy, OutFormat, OutputOptions, ReaderOptions, RecordReader,
-    TsvHeader, UsageError, WriterOptions, chrom_table_for, open_output, open_reader,
+    Format, Header, OutFormat, OutputOptions, TsvHeader, WriterOptions, open_output,
     open_record_writer, open_tsv_writer, parse_output_spec, refuse_binary_to_tty,
 };
 use gloci_ops::agg::parse_aggs;
@@ -21,31 +21,19 @@ pub fn run(ctx: &Ctx, a: &MergeArgs) -> anyhow::Result<()> {
         delim: a.delim.clone(),
     };
     let spec = parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref())?;
-    let ro = ReaderOptions {
-        threads: ctx.threads,
-        format: match a.format.format.as_deref() {
-            None => None,
-            Some(s) => Some(s.parse::<Format>().map_err(UsageError)?),
+    let (readers, mut chroms) = open_inputs(
+        ctx,
+        &InputArgs {
+            files: &a.files,
+            format: a.format.format.as_deref(),
+            vcf_span: a.vcf_span.vcf_span,
+            invalid: a.invalid.skip_invalid,
+            genome: a.genome.genome.as_deref(),
+            chrom_order: &a.chrom_order,
+            sort: &a.sort,
         },
-        vcf_span: match a.vcf_span.vcf_span {
-            VcfSpan::Allele => gloci_core::VcfSpan::Allele,
-            VcfSpan::Ref => gloci_core::VcfSpan::Ref,
-        },
-        invalid: if a.invalid.skip_invalid {
-            InvalidPolicy::Skip
-        } else {
-            InvalidPolicy::Fail
-        },
-    };
-    let readers = a
-        .files
-        .iter()
-        .map(|f| open_reader(f, &ro))
-        .collect::<Result<Vec<_>, _>>()?;
-    let formats: Vec<Format> = readers.iter().map(|r| r.format()).collect();
-    validate(&formats, &o)?;
-    let refs: Vec<&dyn RecordReader> = readers.iter().map(|r| r.as_ref()).collect();
-    let mut chroms = chrom_table_for(a.genome.genome.as_deref(), &refs, a.chrom_order.chrom_order)?;
+        &|formats| validate(formats, &o),
+    )?;
 
     // The rows are new BED lines whatever the input format.
     let to = spec.format.unwrap_or(OutFormat::Bed);
@@ -75,7 +63,10 @@ pub fn run(ctx: &Ctx, a: &MergeArgs) -> anyhow::Result<()> {
         open_record_writer(out, Format::Bed, to, &Header::None, &wo)
     }
     .map_err(|e| e.with_output_name(&dest))?;
-    merge(readers, &mut chroms, &o, w.as_mut()).map_err(|e| e.with_output_name(&dest))?;
+    merge(readers, &mut chroms, &o, w.as_mut()).map_err(|e| {
+        e.with_output_name(&dest)
+            .with_order_hint(if a.sort.sort { "" } else { SORT_FLAG_HINT })
+    })?;
     w.finish().map_err(|e| e.with_output_name(&dest))?;
     Ok(())
 }

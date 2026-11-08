@@ -1287,3 +1287,23 @@ gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-split-b.bed --spli
 reference = "bedtools coverage -a input.bed -b cov-split-b.bed -split -d"
 compare = "numeric"
 expected_difference = "#coverage-split-length"
+
+# complement (Task 16): comp-in.bed is sorted in comp.genome order (chr1, chr2,
+# chr10, chrX, chrM) and has overlapping, nested and bookended features, a
+# feature starting at 0 and a chromosome (chrM) without features.
+[[case]]
+name = "complement-genome-vs-bedtools"
+input = { file = "xtask/diff/inputs/comp-in.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci complement -g comp.genome input.bed"
+reference = "bedtools complement -i input.bed -g comp.genome"
+compare = "exact"
+
+# Without a genome both tools report only the gaps between features of one
+# chromosome (no leading or trailing gap).
+[[case]]
+name = "complement-vs-bedops"
+input = { file = "xtask/diff/inputs/merge-in.bed" }
+gloci = "gloci complement --chrom-order lex input.bed"
+reference = "bedops --complement input.bed"
+compare = "exact"

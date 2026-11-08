@@ -220,8 +220,11 @@ Examples:
     ///
     /// Several files are merged together as one stream. Every input must be
     /// sorted in one chromosome order, which is checked as it is read; an
-    /// unsorted input is an error whose hint is to run gloci sort. Memory
-    /// stays flat apart from the clusters being built.
+    /// unsorted input is an error whose hint is to run gloci sort or to pass
+    /// --sort, which sorts the inputs first with an external sort bounded by
+    /// --max-mem (spilling to --tmp-dir); the result equals gloci sort
+    /// FILES | gloci merge -. Memory stays flat apart from the clusters
+    /// being built.
     #[command(after_long_help = "\
 Examples:
   gloci merge peaks.bed
@@ -229,6 +232,31 @@ Examples:
   gloci merge genes.bed -s -c 5:max -c 4:distinct
   gloci merge calls.vcf.gz -d -1 -o regions.bed.gz --write-index")]
     Merge(MergeArgs),
+    /// Write the bases no feature covers (bedtools complement, bedops -c).
+    ///
+    /// Features of all files are united, and the gaps between them are
+    /// written as BED (chrom, start, end). With -g, the gaps are taken over
+    /// each chromosome of the genome, in genome order: a chromosome with no
+    /// features becomes one row over its whole length, and the gaps before
+    /// the first and after the last feature are included. The genome needs
+    /// lengths (a built-in genome, .genome, .fai or .dict file); a feature
+    /// that reaches past the end of its chromosome is an error. Without -g
+    /// only the gaps between features of the same chromosome are written.
+    /// Points cover no bases and are ignored. Bookended features leave no
+    /// gap.
+    ///
+    /// Every input must be sorted in one chromosome order, which is checked
+    /// as it is read; with -g, use the genome's own order (gloci sort -g).
+    /// An unsorted input is an error whose hint names --sort, which sorts
+    /// the inputs first with an external sort bounded by --max-mem; the
+    /// result equals gloci sort FILES | gloci complement -.
+    #[command(after_long_help = "\
+Examples:
+  gloci complement peaks.bed
+  gloci complement peaks.bed -g hg38 -o uncovered.bed
+  gloci complement a.bed b.bed -g sacCer3
+  gloci complement shuffled.bed -g genome.txt --sort --max-mem 512M")]
+    Complement(ComplementArgs),
     /// Remove from A the bases covered by B (bedtools subtract, bedops -d).
     ///
     /// Each A record is cut by the union of the B records that overlap it,
@@ -690,6 +718,31 @@ pub struct MergeArgs {
     #[command(flatten)]
     pub threads: ThreadArgs,
     #[command(flatten)]
+    pub sort: SortArg,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+#[derive(Args)]
+pub struct ComplementArgs {
+    /// Input files (`-` for stdin).
+    #[arg(value_name = "FILES", required = true)]
+    pub files: Vec<String>,
+    #[command(flatten)]
+    pub genome: GenomeArg,
+    #[command(flatten)]
+    pub chrom_order: ChromOrderArg,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub format: FormatArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub sort: SortArg,
+    #[command(flatten)]
     pub out: OutputArgs,
 }
 
@@ -911,6 +964,20 @@ pub struct InvalidArg {
     /// Skip invalid records with a warning instead of failing.
     #[arg(long)]
     pub skip_invalid: bool,
+}
+
+/// `--sort` and the options that bound it (D39).
+#[derive(Args, Debug, Clone)]
+pub struct SortArg {
+    /// Sort the inputs first (external sort bounded by --max-mem), for
+    /// inputs that are unsorted or too large to sort in memory.
+    #[arg(long)]
+    pub sort: bool,
+    /// Memory budget for --sort, in binary units (K, M, G, T); at least 16M.
+    #[arg(long, value_name = "SIZE", default_value = "2G", value_parser = parse_size)]
+    pub max_mem: u64,
+    #[command(flatten)]
+    pub tmp_dir: TmpDirArg,
 }
 
 #[derive(Args, Debug, Clone)]

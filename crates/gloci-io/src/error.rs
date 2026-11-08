@@ -113,6 +113,18 @@ impl IoError {
         }
     }
 
+    /// An order error from a command that can sort its inputs itself gets
+    /// `extra` appended to its hint (for example the `--sort` flag).
+    pub fn with_order_hint(self, extra: &str) -> IoError {
+        match self {
+            IoError::Order(mut e) => {
+                e.hint.push_str(extra);
+                IoError::Order(e)
+            }
+            e => e,
+        }
+    }
+
     /// An order error found while indexing the output of `input` names the
     /// file that is out of order. The output is not published yet, so it
     /// is not the file the user can fix.

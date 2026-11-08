@@ -1006,3 +1006,67 @@ pub fn naive_depth(
         })
         .collect()
 }
+
+/// `complement` by brute force: BED3 rows of the bases no non-point feature
+/// covers. With `genome` (`(name, length)` in genome order) every chromosome
+/// is reported over `[0, length)`, empty ones included; without it, each
+/// chromosome that has a feature is reported between its first covered base
+/// and its last, in `chrom_rank` order. The covered set is found per
+/// elementary segment (between consecutive boundary coordinates), so it
+/// shares nothing with a sweep over sorted starts.
+pub fn naive_complement(
+    inputs: &[Vec<TestRec>],
+    genome: Option<&[(String, u64)]>,
+    chrom_rank: impl Fn(&str) -> u32,
+) -> Vec<String> {
+    let all: Vec<&TestRec> = inputs
+        .iter()
+        .flatten()
+        .filter(|r| r.start < r.end)
+        .collect();
+    let chroms: Vec<(String, u64, u64)> = match genome {
+        Some(g) => g.iter().map(|(n, l)| (n.clone(), 0, *l)).collect(),
+        None => {
+            let mut names: Vec<&str> = all.iter().map(|r| r.chrom.as_str()).collect();
+            names.sort_by_key(|n| chrom_rank(n));
+            names.dedup();
+            names
+                .into_iter()
+                .map(|n| {
+                    let on = all.iter().filter(|r| r.chrom == n);
+                    let lo = on.clone().map(|r| r.start).min().unwrap();
+                    let hi = on.map(|r| r.end).max().unwrap();
+                    (n.to_string(), lo, hi)
+                })
+                .collect()
+        }
+    };
+    let mut out = Vec::new();
+    for (name, lo, hi) in chroms {
+        let on: Vec<&&TestRec> = all.iter().filter(|r| r.chrom == name).collect();
+        let mut cuts: Vec<u64> = vec![lo, hi];
+        for r in &on {
+            cuts.extend([r.start, r.end]);
+        }
+        cuts.retain(|&c| c >= lo && c <= hi);
+        cuts.sort_unstable();
+        cuts.dedup();
+        let mut open: Option<u64> = None;
+        for w in cuts.windows(2) {
+            let (s, e) = (w[0], w[1]);
+            let covered = on.iter().any(|r| r.start <= s && e <= r.end);
+            match (covered, open) {
+                (false, None) => open = Some(s),
+                (true, Some(from)) => {
+                    out.push(format!("{name}\t{from}\t{s}"));
+                    open = None;
+                }
+                _ => {}
+            }
+        }
+        if let Some(from) = open {
+            out.push(format!("{name}\t{from}\t{hi}"));
+        }
+    }
+    out
+}

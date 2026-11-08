@@ -4,6 +4,7 @@ pub mod agg;
 pub mod bedsearch;
 pub mod check;
 pub mod closest;
+pub mod complement;
 pub mod coverage;
 pub mod intersect;
 pub mod map;
@@ -19,5 +20,8 @@ pub use relate::{
     Acceptor, RelateInputs, RelateOptions, ReportOutput, b_placeholder, open_report,
     rewrite_coords, run_relation,
 };
-pub use sort::{Dedup, SortConfig, SortStats, Sorter, Tie, merge_sorted};
+pub use sort::{
+    Dedup, MIN_MAX_MEM, SortConfig, SortSettings, SortStats, Sorter, Tie, check_definitions,
+    check_samples, merge_sorted, sort_readers,
+};
 pub use view::{ViewOptions, open_view, run_view};

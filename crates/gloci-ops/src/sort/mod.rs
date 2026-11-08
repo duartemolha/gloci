@@ -24,9 +24,11 @@
 //! depends on neither.
 
 mod chunk;
+mod inputs;
 mod merge;
 mod spill;
 
+pub use inputs::{MIN_MAX_MEM, SortSettings, check_definitions, check_samples, sort_readers};
 pub use merge::merge_sorted;
 
 use chunk::Chunk;
