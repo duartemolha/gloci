@@ -66,6 +66,14 @@ impl SiteStats {
         Some(second)
     }
 
+    /// Exact HWE p-value of the called diploid genotypes; `None` for a site
+    /// that is not biallelic (such a site passes `--hwe`). This is the only
+    /// place the `hwe_counts` order is mapped onto `hwe_p`'s arguments.
+    pub fn hwe_p(&self) -> Option<f64> {
+        let (hom_ref, het, hom_alt) = self.hwe_counts?;
+        Some(crate::hwe::hwe_p(het, hom_ref, hom_alt))
+    }
+
     pub fn missing_fraction(&self) -> f64 {
         if self.samples == 0 {
             0.0

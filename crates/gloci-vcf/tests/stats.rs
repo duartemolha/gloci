@@ -19,15 +19,15 @@ impl GenotypeSource for Fake {
 }
 
 fn sf(a: &[Option<u32>], phased: bool, dp: Option<u32>, gq: Option<u32>, ft: bool) -> SampleFields {
-    SampleFields {
-        gt: Some(Genotype {
-            alleles: a.to_vec(),
-            phased,
-        }),
-        dp,
-        gq,
-        ft_pass: ft,
-    }
+    let mut f = SampleFields::default();
+    f.gt = Some(Genotype {
+        alleles: a.to_vec(),
+        phased,
+    });
+    f.dp = dp;
+    f.gq = gq;
+    f.ft_pass = ft;
+    f
 }
 fn g(a: &[Option<u32>]) -> SampleFields {
     sf(a, false, None, None, true)
@@ -73,11 +73,10 @@ fn stats_from_genotypes() {
         sf(&[a, a], true, Some(20), None, true),
         g(&[None, a]), // missing, but its allele 1 still counts
         g(&[None, None]),
-        SampleFields {
-            gt: None,
-            dp: None,
-            gq: None,
-            ft_pass: true,
+        {
+            let mut f = SampleFields::default();
+            f.ft_pass = true;
+            f
         },
         g(&[c]),       // haploid: counts alleles, not HWE, not unphased
         g(&[c, c, a]), // triploid
@@ -149,4 +148,25 @@ fn masking() {
     assert_eq!(s.samples, 3);
     assert_eq!(s.called_alleles, 6);
     assert_eq!(masked.len(), 6);
+}
+
+#[test]
+fn site_hwe_p_maps_counts_in_one_place() {
+    // 9 hom-ref, 2 het, 9 hom-alt: heavy het deficit; swapping het with a
+    // hom count would give a very different p-value.
+    let (c, a) = (Some(0), Some(1));
+    let mut v = Vec::new();
+    v.extend((0..9).map(|_| g(&[c, c])));
+    v.extend((0..2).map(|_| g(&[c, a])));
+    v.extend((0..9).map(|_| g(&[a, a])));
+    let mut m = Vec::new();
+    let s = site_stats(&Fake(v), None, &NONE, 2, &mut m).unwrap();
+    assert_eq!(s.hwe_counts, Some((9, 2, 9)));
+    let p = s.hwe_p().unwrap();
+    assert_eq!(p, gloci_vcf::hwe_p(2, 9, 9));
+    assert!(p < 0.01, "{p}");
+    assert!((gloci_vcf::hwe_p(9, 2, 9) - p).abs() > 0.1);
+    // Not biallelic: no test.
+    let s = site_stats(&Fake(vec![g(&[c, a])]), None, &NONE, 3, &mut m).unwrap();
+    assert_eq!(s.hwe_p(), None);
 }

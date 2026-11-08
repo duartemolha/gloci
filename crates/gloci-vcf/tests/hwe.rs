@@ -55,3 +55,20 @@ fn hwe_matches_brute_force_on_a_grid() {
         }
     }
 }
+
+#[test]
+fn hwe_ties_are_robust() {
+    // Equal-probability het counts (n=6 rare=4: het 2 and 4; n=9 rare=5: het 3 and 5).
+    assert!((hwe_p(2, 1, 3) - 1.0).abs() < 1e-12);
+    assert!((hwe_p(4, 0, 2) - 1.0).abs() < 1e-12);
+    assert!((hwe_p(3, 1, 5) - 1.0).abs() < 1e-12);
+    assert!((hwe_p(5, 0, 4) - 1.0).abs() < 1e-12);
+}
+
+#[test]
+fn hwe_large_n() {
+    for (h, a, b) in [(1200, 600, 700), (2000, 250, 250), (10, 1200, 1289)] {
+        let (x, y) = (hwe_p(h, a, b), brute(h, a, b));
+        assert!((x - y).abs() < 1e-10, "({h},{a},{b}): {x} vs {y}");
+    }
+}

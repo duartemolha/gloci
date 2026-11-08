@@ -16,7 +16,12 @@ pub struct Genotype {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SampleFields {
     /// `None` when GT is absent from FORMAT or from a short sample column.
+    /// Read-only for callers: decoders recycle the allele buffer through a
+    /// private spare, so build values with `Default` and assign fields only
+    /// to test fakes.
     pub gt: Option<Genotype>,
+    /// Allele buffer parked while `gt` is `None`, so it is never reallocated.
+    spare: Vec<Option<u32>>,
     pub dp: Option<u32>,
     pub gq: Option<u32>,
     /// FT is `PASS`, `.` or absent (D50).
@@ -32,14 +37,22 @@ impl SampleFields {
         self.ft_pass = true;
     }
 
-    /// Mark GT absent.
+    /// Mark GT absent, parking the allele buffer.
     pub(crate) fn clear_gt(&mut self) {
-        self.gt = None;
+        if let Some(g) = self.gt.take() {
+            self.spare = g.alleles;
+        }
     }
 
     /// The genotype buffer, cleared, ready to be filled.
     pub(crate) fn gt_buf(&mut self) -> &mut Genotype {
-        let g = self.gt.get_or_insert_with(Genotype::default);
+        if self.gt.is_none() {
+            self.gt = Some(Genotype {
+                alleles: std::mem::take(&mut self.spare),
+                phased: false,
+            });
+        }
+        let g = self.gt.as_mut().expect("just set");
         g.alleles.clear();
         g.phased = false;
         g
@@ -49,7 +62,8 @@ impl SampleFields {
 /// Random access to the samples of one record.
 pub trait GenotypeSource {
     fn n_samples(&self) -> usize;
-    /// Decode sample `i` into `out`, overwriting every field.
+    /// Decode sample `i` into `out`, overwriting every field. Panics when
+    /// `i >= n_samples()`; a malformed sample is an `Err`.
     fn sample(&self, i: usize, out: &mut SampleFields) -> Result<(), String>;
 }
 
@@ -121,6 +135,8 @@ pub struct TextGenotypes<'a> {
     dp: Option<usize>,
     gq: Option<usize>,
     ft: Option<usize>,
+    /// Highest subfield index any wanted key has.
+    last: Option<usize>,
     /// Start and end of every sample column within `line`.
     samples: Vec<(u32, u32)>,
 }
@@ -134,7 +150,7 @@ pub fn text_genotypes(line: &[u8]) -> Result<TextGenotypes<'_>, String> {
         return Err("a VCF line over 4 GiB is not supported".into());
     }
     let mut tabs = memchr_iter(b'\t', line);
-    // Eight tabs end columns 1-8; the ninth (if any) ends FORMAT.
+    // Seven tabs end columns 1-7; the eighth ends INFO; the ninth (if any) ends FORMAT.
     for k in 0..7 {
         if tabs.next().is_none() {
             return Err(format!(
@@ -150,6 +166,7 @@ pub fn text_genotypes(line: &[u8]) -> Result<TextGenotypes<'_>, String> {
         dp: None,
         gq: None,
         ft: None,
+        last: None,
         samples: Vec::new(),
     };
     let Some(info_end) = info_end else {
@@ -167,6 +184,7 @@ pub fn text_genotypes(line: &[u8]) -> Result<TextGenotypes<'_>, String> {
         };
         slot.get_or_insert(idx);
     }
+    out.last = [out.gt, out.dp, out.gq, out.ft].into_iter().flatten().max();
     if fmt_end < line.len() {
         let mut start = fmt_end + 1;
         for t in tabs {

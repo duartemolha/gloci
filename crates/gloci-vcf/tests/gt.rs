@@ -140,3 +140,130 @@ fn gt_bcf_mixed_ploidy_handbuilt() {
     assert_eq!(b.n_samples(), 4);
     assert_eq!(all(&text_genotypes(line).unwrap()), all(&b));
 }
+
+#[test]
+fn gt_text_high_allele_and_mixed_phase() {
+    let l = line("GT", &["0/12", "10|11", "0/1|2", "0|1|2"]);
+    let r = all(&text_genotypes(&l).unwrap());
+    assert_eq!(r[0].0, Some((vec![Some(0), Some(12)], false)));
+    assert_eq!(r[1].0, Some((vec![Some(10), Some(11)], true)));
+    assert_eq!(r[2].0, Some((vec![Some(0), Some(1), Some(2)], false)));
+    assert_eq!(r[3].0, Some((vec![Some(0), Some(1), Some(2)], true)));
+}
+
+fn frame(shared: &[u8], indiv: &[u8]) -> Vec<u8> {
+    let mut raw = Vec::new();
+    raw.extend_from_slice(&(shared.len() as u32).to_le_bytes());
+    raw.extend_from_slice(&(indiv.len() as u32).to_le_bytes());
+    raw.extend_from_slice(shared);
+    raw.extend_from_slice(indiv);
+    raw
+}
+
+/// int16 GT/DP, the `Int::Missing` GT sentinel, NUL-padded Char FT, and a
+/// sample with no value for a FORMAT field.
+#[test]
+fn gt_bcf_int16_missing_sentinel_ft_and_absent_values() {
+    let dicts = gloci_io::BcfDicts {
+        contigs: vec![b"1".to_vec()],
+        strings: ["PASS", "GT", "DP", "FT", "GQ"]
+            .iter()
+            .map(|s| s.as_bytes().to_vec())
+            .collect(),
+    };
+    let mut shared = vec![0u8; 24];
+    shared[20..24].copy_from_slice(&((4u32 << 24) | 3).to_le_bytes()); // n_fmt=4, n_sample=3
+    shared.extend_from_slice(&[0x07, 0x07]);
+    let i16s = |v: &[i16]| v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>();
+    let mut indiv = vec![0x11, 1, 0x22]; // GT: int16 x2
+    // 0/70 (allele 70 -> (71<<1)=142, beyond int8), 70|0 phased, missing sentinel then end
+    indiv.extend(i16s(&[2, 142, 142, 3, i16::MIN, -32767]));
+    indiv.extend_from_slice(&[0x11, 2, 0x12]); // DP: int16 x1
+    indiv.extend(i16s(&[300, i16::MIN, 4000]));
+    indiv.extend_from_slice(&[0x11, 3, 0x87]); // FT: char x8
+    indiv.extend_from_slice(b"PASS\0\0\0\0LowQual\0.\0\0\0\0\0\0\0");
+    indiv.extend_from_slice(&[0x11, 4, 0x11]); // GQ: int8 x1, sample 2 has the missing value
+    indiv.extend_from_slice(&[40, 0x80, 41]);
+    let raw = frame(&shared, &indiv);
+    let b = bcf_genotypes(&raw, &dicts).unwrap();
+    let r = all(&b);
+    assert_eq!(
+        r[0],
+        (
+            Some((vec![Some(0), Some(70)], false)),
+            Some(300),
+            Some(40),
+            true
+        )
+    );
+    assert_eq!(
+        r[1],
+        (Some((vec![Some(70), Some(0)], true)), None, None, false)
+    );
+    assert_eq!(
+        r[2],
+        (Some((vec![None], false)), Some(4000), Some(41), true)
+    );
+}
+
+#[test]
+fn gt_bcf_field_with_no_value_for_any_sample() {
+    // GT present as type Missing (count 0): every sample has no GT.
+    let dicts = gloci_io::BcfDicts {
+        contigs: vec![b"1".to_vec()],
+        strings: ["PASS", "GT"]
+            .iter()
+            .map(|s| s.as_bytes().to_vec())
+            .collect(),
+    };
+    let mut shared = vec![0u8; 24];
+    shared[20..24].copy_from_slice(&((1u32 << 24) | 2).to_le_bytes());
+    shared.extend_from_slice(&[0x07, 0x07]);
+    let raw = frame(&shared, &[0x11, 1, 0x00]);
+    let r = all(&bcf_genotypes(&raw, &dicts).unwrap());
+    assert_eq!(r.len(), 2);
+    assert!(r.iter().all(|x| x.0.is_none() && x.3));
+}
+
+#[test]
+fn allele_buffer_survives_across_samples() {
+    // Text: sample 1 has no GT, so the buffer is parked and reused.
+    let l = line("DP:GT", &["5:0/1", "3", "5:1/1"]);
+    let t = text_genotypes(&l).unwrap();
+    let mut sf = SampleFields::default();
+    t.sample(0, &mut sf).unwrap();
+    let (ptr, cap) = {
+        let a = &sf.gt.as_ref().unwrap().alleles;
+        (a.as_ptr(), a.capacity())
+    };
+    t.sample(1, &mut sf).unwrap();
+    assert!(sf.gt.is_none());
+    t.sample(2, &mut sf).unwrap();
+    let a = &sf.gt.as_ref().unwrap().alleles;
+    assert_eq!((a.as_ptr(), a.capacity()), (ptr, cap));
+
+    // BCF: same, with a GT-less middle sample (typed GT of all-End).
+    let dicts = gloci_io::BcfDicts {
+        contigs: vec![b"1".to_vec()],
+        strings: ["PASS", "GT"]
+            .iter()
+            .map(|s| s.as_bytes().to_vec())
+            .collect(),
+    };
+    let mut shared = vec![0u8; 24];
+    shared[20..24].copy_from_slice(&((1u32 << 24) | 3).to_le_bytes());
+    shared.extend_from_slice(&[0x07, 0x07]);
+    let raw = frame(&shared, &[0x11, 1, 0x21, 2, 4, 0x81, 0x81, 4, 4]);
+    let b = bcf_genotypes(&raw, &dicts).unwrap();
+    let mut sf = SampleFields::default();
+    b.sample(0, &mut sf).unwrap();
+    let (ptr, cap) = {
+        let a = &sf.gt.as_ref().unwrap().alleles;
+        (a.as_ptr(), a.capacity())
+    };
+    b.sample(1, &mut sf).unwrap();
+    assert!(sf.gt.is_none());
+    b.sample(2, &mut sf).unwrap();
+    let a = &sf.gt.as_ref().unwrap().alleles;
+    assert_eq!((a.as_ptr(), a.capacity()), (ptr, cap));
+}
