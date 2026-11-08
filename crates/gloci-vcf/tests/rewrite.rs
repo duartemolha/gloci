@@ -217,6 +217,88 @@ fn recalc_ac() {
 }
 
 #[test]
+fn recalc_ac_multiallelic_with_missing() {
+    // 3 ALTs: C, G, T. Samples: 1/2, 0/3, ./.
+    let line = b"1\t100\t.\tA\tC,G,T\t30\tPASS\t.\tGT\t1/2\t0/3\t./.";
+    let gt = text_genotypes(line).unwrap();
+    let mut masked = Vec::new();
+    let stats = site_stats(&gt, None, &MaskRules::default(), 4, &mut masked).unwrap();
+
+    let plan = RewritePlan {
+        selection: None,
+        mask: MaskRules::default(),
+        keep_info: None,
+        drop_info: Vec::new(),
+        recalc_ac: true,
+    };
+
+    let mut out = Vec::new();
+    rewrite_text(line, &plan, &masked, Some(&stats), &mut out).unwrap();
+    // Called alleles: 4 (0: 1, 1: 1, 2: 1, 3: 1).
+    // AC=1,1,1;AN=4;AF=0.25,0.25,0.25
+    assert_eq!(
+        std::str::from_utf8(&out).unwrap(),
+        "1\t100\t.\tA\tC,G,T\t30\tPASS\tAC=1,1,1;AN=4;AF=0.25,0.25,0.25\tGT\t1/2\t0/3\t./."
+    );
+}
+
+#[test]
+fn info_key_boundaries() {
+    let raw = "##fileformat=VCFv4.3\n\
+##contig=<ID=1,length=1000>\n\
+##INFO=<ID=DP,Number=1,Type=Integer,Description=\"d\">\n\
+##INFO=<ID=DPX,Number=1,Type=Integer,Description=\"dx\">\n\
+##INFO=<ID=AC,Number=A,Type=Integer,Description=\"ac\">\n\
+##INFO=<ID=AC_POPMAX,Number=A,Type=Float,Description=\"ac_popmax\">\n\
+##FORMAT=<ID=GT,Number=1,Type=String,Description=\"g\">\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\ts2\n";
+
+    let h = VcfHeader::parse(raw.as_bytes().to_vec()).unwrap();
+    let plan = RewritePlan {
+        selection: None,
+        mask: MaskRules::default(),
+        keep_info: None,
+        drop_info: vec![b"DP".to_vec(), b"AC".to_vec()],
+        recalc_ac: false,
+    };
+
+    // Header: DP and AC removed, but DPX and AC_POPMAX preserved
+    let header_rewritten = rewrite_header(&h, &plan);
+    let h_str = std::str::from_utf8(&header_rewritten).unwrap();
+    assert!(!h_str.contains("##INFO=<ID=DP,"));
+    assert!(h_str.contains("##INFO=<ID=DPX,"));
+    assert!(!h_str.contains("##INFO=<ID=AC,"));
+    assert!(h_str.contains("##INFO=<ID=AC_POPMAX,"));
+
+    // Record: DP and AC pruned, but DPX and AC_POPMAX preserved
+    let line = b"1\t100\t.\tA\tC\t30\tPASS\tDP=20;DPX=10;AC=1;AC_POPMAX=0.01\tGT\t0/1\t0/0";
+    let mut out = Vec::new();
+    rewrite_text(line, &plan, &[], None, &mut out).unwrap();
+    assert_eq!(
+        std::str::from_utf8(&out).unwrap(),
+        "1\t100\t.\tA\tC\t30\tPASS\tDPX=10;AC_POPMAX=0.01\tGT\t0/1\t0/0"
+    );
+
+    // With recalc_ac: AC, AN, AF recalculated, without touching AC_POPMAX
+    let plan_recalc = RewritePlan {
+        selection: None,
+        mask: MaskRules::default(),
+        keep_info: None,
+        drop_info: Vec::new(),
+        recalc_ac: true,
+    };
+    let gt = text_genotypes(line).unwrap();
+    let mut masked = Vec::new();
+    let stats = site_stats(&gt, None, &MaskRules::default(), 2, &mut masked).unwrap();
+    out.clear();
+    rewrite_text(line, &plan_recalc, &masked, Some(&stats), &mut out).unwrap();
+    assert_eq!(
+        std::str::from_utf8(&out).unwrap(),
+        "1\t100\t.\tA\tC\t30\tPASS\tDP=20;DPX=10;AC=1;AC_POPMAX=0.01;AN=4;AF=0.25\tGT\t0/1\t0/0"
+    );
+}
+
+#[test]
 fn fmt_g6_cases() {
     assert_eq!(fmt_g6(0.333333333), "0.333333");
     assert_eq!(fmt_g6(0.5), "0.5");
@@ -292,30 +374,90 @@ fn read_samples_file() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+fn filter_bcf_record(
+    raw_bcf: &[u8],
+    loc: u64,
+    plan: &RewritePlan,
+    bcf_text: &mut BcfText,
+    text_to_bcf: &mut TextToBcf,
+    out: &mut Vec<u8>,
+) {
+    if plan.is_passthrough() {
+        out.clear();
+        out.extend_from_slice(raw_bcf);
+    } else {
+        let line = bcf_text.render(raw_bcf, loc).unwrap();
+        let mut rewritten = Vec::new();
+        rewrite_text(line, plan, &[], None, &mut rewritten).unwrap();
+        out.clear();
+        text_to_bcf.encode(&rewritten, loc, out).unwrap();
+    }
+}
+
 #[test]
 fn bcf_passthrough_bytes() {
     let raw_header = "##fileformat=VCFv4.3\n\
 ##contig=<ID=1,length=1000>\n\
 ##FORMAT=<ID=GT,Number=1,Type=String,Description=\"g\">\n\
-#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n";
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\ts2\n";
 
     let in_header = VcfHeader::parse(raw_header.as_bytes().to_vec()).unwrap();
-    let line = b"1\t100\t.\tA\tC\t30\tPASS\t.\tGT\t0/1";
+    let line = b"1\t100\t.\tA\tC\t30\tPASS\t.\tGT\t0/1\t0/0";
 
     let mut enc = TextToBcf::new("in.bcf", &in_header).unwrap();
     let mut bcf_rec = Vec::new();
     enc.encode(line, 1, &mut bcf_rec).unwrap();
 
-    let plan = RewritePlan {
+    let passthrough_plan = RewritePlan {
         selection: None,
         mask: MaskRules::default(),
         keep_info: None,
         drop_info: Vec::new(),
         recalc_ac: false,
     };
-    assert!(plan.is_passthrough());
+    assert!(passthrough_plan.is_passthrough());
 
-    // When passthrough, the raw bytes are untouched
-    let passthrough_bcf = bcf_rec.clone();
-    assert_eq!(passthrough_bcf, bcf_rec);
+    // 1. rewrite_text passthrough returns identical line bytes
+    let mut text_out = Vec::new();
+    rewrite_text(line, &passthrough_plan, &[], None, &mut text_out).unwrap();
+    assert_eq!(text_out, line);
+
+    // 2. BCF passthrough via filter_bcf_record routes to raw bytes pass-through
+    let mut bcf_text = BcfText::for_header("in.bcf", &in_header).unwrap();
+    let mut text_to_bcf = TextToBcf::new("out.bcf", &in_header).unwrap();
+    let mut bcf_out = Vec::new();
+    filter_bcf_record(
+        &bcf_rec,
+        1,
+        &passthrough_plan,
+        &mut bcf_text,
+        &mut text_to_bcf,
+        &mut bcf_out,
+    );
+    assert_eq!(bcf_out, bcf_rec);
+
+    // 3. Non-passthrough plan (subset samples) takes the decode-rewrite-encode branch
+    let sel = select_samples(&in_header.samples, Some(&["s1".into()]), &[]).unwrap();
+    let non_passthrough_plan = RewritePlan {
+        selection: Some(sel),
+        mask: MaskRules::default(),
+        keep_info: None,
+        drop_info: Vec::new(),
+        recalc_ac: false,
+    };
+    assert!(!non_passthrough_plan.is_passthrough());
+
+    let new_header = VcfHeader::parse(rewrite_header(&in_header, &non_passthrough_plan)).unwrap();
+    let mut non_pt_encoder = TextToBcf::new("out_sub.bcf", &new_header).unwrap();
+    let mut non_pt_bcf_out = Vec::new();
+    filter_bcf_record(
+        &bcf_rec,
+        1,
+        &non_passthrough_plan,
+        &mut bcf_text,
+        &mut non_pt_encoder,
+        &mut non_pt_bcf_out,
+    );
+    // Rewritten BCF is modified because sample s2 was dropped
+    assert_ne!(non_pt_bcf_out, bcf_rec);
 }

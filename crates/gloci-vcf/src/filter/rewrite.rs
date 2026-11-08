@@ -3,6 +3,7 @@
 use super::samples::SampleSelection;
 use crate::stats::{MaskRules, SiteStats};
 use gloci_io::VcfHeader;
+use std::io::Write;
 
 /// A plan describing how to rewrite VCF records and headers.
 #[derive(Clone, Debug, PartialEq)]
@@ -253,6 +254,37 @@ fn mask_sample(sample: &[u8], gt_idx: usize, out: &mut Vec<u8>) {
     }
 }
 
+fn write_ac(out: &mut Vec<u8>, s: &SiteStats, n_alts: usize) {
+    out.extend_from_slice(b"AC=");
+    for k in 1..=n_alts {
+        if k > 1 {
+            out.push(b',');
+        }
+        let c = s.allele_counts.get(k).copied().unwrap_or(0);
+        write!(out, "{c}").unwrap();
+    }
+}
+
+fn write_an(out: &mut Vec<u8>, s: &SiteStats) {
+    write!(out, "AN={}", s.called_alleles).unwrap();
+}
+
+fn write_af(out: &mut Vec<u8>, s: &SiteStats, n_alts: usize) {
+    out.extend_from_slice(b"AF=");
+    for k in 1..=n_alts {
+        if k > 1 {
+            out.push(b',');
+        }
+        if s.called_alleles == 0 {
+            out.push(b'0');
+        } else {
+            let c = s.allele_counts.get(k).copied().unwrap_or(0);
+            let freq = c as f64 / s.called_alleles as f64;
+            out.extend_from_slice(fmt_g6(freq).as_bytes());
+        }
+    }
+}
+
 fn rewrite_info(
     info_col: &[u8],
     alt_col: &[u8],
@@ -260,37 +292,24 @@ fn rewrite_info(
     stats: Option<&SiteStats>,
     out: &mut Vec<u8>,
 ) -> Result<(), String> {
-    let mut new_ac = None;
-    let mut new_an = None;
-    let mut new_af = None;
+    let s = if plan.recalc_ac {
+        Some(stats.ok_or_else(|| "recalc_ac requested but stats were not provided".to_string())?)
+    } else {
+        None
+    };
 
-    if plan.recalc_ac {
-        let s =
-            stats.ok_or_else(|| "recalc_ac requested but stats were not provided".to_string())?;
-        let n_alts = if alt_col == b"." || alt_col.is_empty() {
-            0
-        } else {
-            alt_col.split(|&b| b == b',').count()
-        };
-        if n_alts > 0 {
-            let mut ac_vals = Vec::with_capacity(n_alts);
-            let mut af_vals = Vec::with_capacity(n_alts);
-            for k in 1..=n_alts {
-                let c = s.allele_counts.get(k).copied().unwrap_or(0);
-                ac_vals.push(c.to_string());
-                if s.called_alleles == 0 {
-                    af_vals.push("0".to_string());
-                } else {
-                    af_vals.push(fmt_g6(c as f64 / s.called_alleles as f64));
-                }
-            }
-            new_ac = Some(format!("AC={}", ac_vals.join(",")));
-            new_af = Some(format!("AF={}", af_vals.join(",")));
-        }
-        new_an = Some(format!("AN={}", s.called_alleles));
-    }
+    let n_alts = if alt_col == b"." || alt_col.is_empty() {
+        0
+    } else {
+        alt_col.split(|&b| b == b',').count()
+    };
 
-    let mut kept_items: Vec<Vec<u8>> = Vec::new();
+    // If n_alts == 0, AC and AF are not applicable
+    let mut wrote_ac = !plan.recalc_ac || n_alts == 0;
+    let mut wrote_an = !plan.recalc_ac;
+    let mut wrote_af = !plan.recalc_ac || n_alts == 0;
+    let mut written_any = false;
+
     if info_col != b"." && !info_col.is_empty() {
         for item in info_col.split(|&b| b == b';') {
             if item.is_empty() {
@@ -305,50 +324,76 @@ fn rewrite_info(
             }
             if plan.recalc_ac {
                 if key == b"AC" {
-                    if let Some(ac) = new_ac.take() {
-                        kept_items.push(ac.into_bytes());
+                    if !wrote_ac {
+                        if written_any {
+                            out.push(b';');
+                        }
+                        write_ac(out, s.unwrap(), n_alts);
+                        wrote_ac = true;
+                        written_any = true;
                     }
                     continue;
                 }
                 if key == b"AN" {
-                    if let Some(an) = new_an.take() {
-                        kept_items.push(an.into_bytes());
+                    if !wrote_an {
+                        if written_any {
+                            out.push(b';');
+                        }
+                        write_an(out, s.unwrap());
+                        wrote_an = true;
+                        written_any = true;
                     }
                     continue;
                 }
                 if key == b"AF" {
-                    if let Some(af) = new_af.take() {
-                        kept_items.push(af.into_bytes());
+                    if !wrote_af {
+                        if written_any {
+                            out.push(b';');
+                        }
+                        write_af(out, s.unwrap(), n_alts);
+                        wrote_af = true;
+                        written_any = true;
                     }
                     continue;
                 }
             }
-            kept_items.push(item.to_vec());
+            if written_any {
+                out.push(b';');
+            }
+            out.extend_from_slice(item);
+            written_any = true;
         }
     }
 
     if plan.recalc_ac {
-        if let Some(ac) = new_ac.take() {
-            kept_items.push(ac.into_bytes());
+        let stats_ref = s.unwrap();
+        if !wrote_ac {
+            if written_any {
+                out.push(b';');
+            }
+            write_ac(out, stats_ref, n_alts);
+            written_any = true;
         }
-        if let Some(an) = new_an.take() {
-            kept_items.push(an.into_bytes());
+        if !wrote_an {
+            if written_any {
+                out.push(b';');
+            }
+            write_an(out, stats_ref);
+            written_any = true;
         }
-        if let Some(af) = new_af.take() {
-            kept_items.push(af.into_bytes());
+        if !wrote_af {
+            if written_any {
+                out.push(b';');
+            }
+            write_af(out, stats_ref, n_alts);
+            written_any = true;
         }
     }
 
-    if kept_items.is_empty() {
+    if !written_any {
         out.push(b'.');
-    } else {
-        for (i, item) in kept_items.iter().enumerate() {
-            if i > 0 {
-                out.push(b';');
-            }
-            out.extend_from_slice(item);
-        }
     }
+
     Ok(())
 }
 
@@ -375,49 +420,67 @@ pub fn rewrite_text(
         return Ok(());
     }
 
-    let cols: Vec<&[u8]> = raw.split(|&b| b == b'\t').collect();
-    if cols.len() < 8 {
-        return Err(format!(
-            "malformed VCF line: expected at least 8 columns, found {}",
-            cols.len()
-        ));
-    }
+    let mut iter = raw.split(|&b| b == b'\t');
+    let chrom = match iter.next() {
+        Some(c) => c,
+        None => return Err("malformed VCF line: expected at least 8 columns".to_string()),
+    };
+    let pos = match iter.next() {
+        Some(c) => c,
+        None => return Err("malformed VCF line: expected at least 8 columns".to_string()),
+    };
+    let id = match iter.next() {
+        Some(c) => c,
+        None => return Err("malformed VCF line: expected at least 8 columns".to_string()),
+    };
+    let ref_col = match iter.next() {
+        Some(c) => c,
+        None => return Err("malformed VCF line: expected at least 8 columns".to_string()),
+    };
+    let alt_col = match iter.next() {
+        Some(c) => c,
+        None => return Err("malformed VCF line: expected at least 8 columns".to_string()),
+    };
+    let qual = match iter.next() {
+        Some(c) => c,
+        None => return Err("malformed VCF line: expected at least 8 columns".to_string()),
+    };
+    let filter = match iter.next() {
+        Some(c) => c,
+        None => return Err("malformed VCF line: expected at least 8 columns".to_string()),
+    };
+    let info = match iter.next() {
+        Some(c) => c,
+        None => return Err("malformed VCF line: expected at least 8 columns".to_string()),
+    };
 
     out.clear();
     // CHROM, POS, ID, REF, ALT, QUAL, FILTER
-    for col in &cols[..7] {
+    for col in [chrom, pos, id, ref_col, alt_col, qual, filter] {
         out.extend_from_slice(col);
         out.push(b'\t');
     }
 
     // INFO
-    rewrite_info(cols[7], cols[4], plan, stats, out)?;
+    rewrite_info(info, alt_col, plan, stats, out)?;
 
-    if cols.len() == 8 {
+    let Some(format_col) = iter.next() else {
         return Ok(());
-    }
-
-    // FORMAT and samples
-    let format_col = cols[8];
-    let sample_cols = &cols[9..];
-    let n_samples = sample_cols.len();
-
-    let any_kept = if let Some(sel) = &plan.selection {
-        (0..n_samples).any(|i| sel.keep.get(i).copied().unwrap_or(true))
-    } else {
-        n_samples > 0
     };
 
-    if !any_kept {
+    // If sample selection was provided and selects 0 samples, omit FORMAT.
+    if plan.selection.as_ref().is_some_and(|s| s.count() == 0) {
         return Ok(());
     }
 
+    let info_end = out.len();
     out.push(b'\t');
     out.extend_from_slice(format_col);
 
     let gt_idx = format_col.split(|&b| b == b':').position(|k| k == b"GT");
 
-    for (i, &sample) in sample_cols.iter().enumerate() {
+    let mut samples_kept = 0;
+    for (i, sample) in iter.enumerate() {
         let keep = plan
             .selection
             .as_ref()
@@ -425,6 +488,7 @@ pub fn rewrite_text(
         if !keep {
             continue;
         }
+        samples_kept += 1;
         out.push(b'\t');
         let is_masked = masked.get(i).copied().unwrap_or(false);
         if is_masked {
@@ -436,6 +500,10 @@ pub fn rewrite_text(
         } else {
             out.extend_from_slice(sample);
         }
+    }
+
+    if samples_kept == 0 {
+        out.truncate(info_end);
     }
 
     Ok(())
