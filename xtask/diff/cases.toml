@@ -681,3 +681,82 @@ aux = ["xtask/diff/inputs/rel-b.bed"]
 gloci = "gloci merge --chrom-order lex input.bed rel-b.bed"
 reference = "bedops --merge input.bed rel-b.bed"
 compare = "exact"
+
+# subtract (Task 12): rel-a.bed / rel-b.bed as for intersect. bedtools
+# subtract is run on the same files; -A is --whole and -N is --sum-overlaps.
+[[case]]
+name = "subtract-pieces-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci subtract --chrom-order lex -a input.bed -b rel-b.bed"
+reference = "bedtools subtract -a input.bed -b rel-b.bed"
+compare = "exact"
+
+[[case]]
+name = "subtract-whole-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci subtract --chrom-order lex -a input.bed -b rel-b.bed --whole"
+reference = "bedtools subtract -A -a input.bed -b rel-b.bed"
+compare = "exact"
+
+[[case]]
+name = "subtract-sum-overlaps-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci subtract --chrom-order lex -a input.bed -b rel-b.bed --sum-overlaps -f 0.6"
+reference = "bedtools subtract -N -f 0.6 -a input.bed -b rel-b.bed"
+compare = "exact"
+
+# a4 is covered exactly 50% by b4: gloci removes it (the sum reaches -f),
+# bedtools -N keeps it (the sum must exceed -f).
+[[case]]
+name = "subtract-sum-overlaps-equal-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci subtract --chrom-order lex -a input.bed -b rel-b.bed --sum-overlaps -f 0.5"
+reference = "bedtools subtract -N -f 0.5 -a input.bed -b rel-b.bed"
+compare = "exact"
+expected_difference = "#sum-overlaps-threshold"
+
+[[case]]
+name = "subtract-f-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci subtract --chrom-order lex -a input.bed -b rel-b.bed -f 0.5"
+reference = "bedtools subtract -f 0.5 -a input.bed -b rel-b.bed"
+compare = "exact"
+
+[[case]]
+name = "subtract-s-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci subtract --chrom-order lex -a input.bed -b rel-b.bed -s"
+reference = "bedtools subtract -s -a input.bed -b rel-b.bed"
+compare = "exact"
+
+[[case]]
+name = "subtract-vcf-allele-span-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-a.vcf" }
+aux = ["xtask/diff/inputs/rel-vcf-b.bed"]
+gloci = "gloci subtract --chrom-order lex -a input.vcf -b rel-vcf-b.bed"
+reference = "bedtools subtract -A -a input.vcf -b rel-vcf-b.bed"
+compare = "vcf-records"
+expected_difference = "#vcf-allele-span"
+
+[[case]]
+name = "subtract-vcf-ref-span-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-a.vcf" }
+aux = ["xtask/diff/inputs/rel-vcf-b.bed"]
+gloci = "gloci subtract --chrom-order lex --vcf-span ref -a input.vcf -b rel-vcf-b.bed"
+reference = "bedtools subtract -A -a input.vcf -b rel-vcf-b.bed"
+compare = "vcf-records"
+
+# The spec 11 mapping of `bedops --difference`: A is merged first.
+[[case]]
+name = "subtract-difference-vs-bedops"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci merge --chrom-order lex input.bed | gloci subtract --chrom-order lex -a - -b rel-b.bed"
+reference = "bedops --difference input.bed rel-b.bed"
+compare = "exact"

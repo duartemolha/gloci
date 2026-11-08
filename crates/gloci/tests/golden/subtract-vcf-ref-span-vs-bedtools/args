@@ -1,0 +1,1 @@
+subtract --chrom-order lex --vcf-span ref -a input.vcf -b rel-vcf-b.bed

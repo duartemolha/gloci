@@ -229,6 +229,38 @@ Examples:
   gloci merge genes.bed -s -c 5:max -c 4:distinct
   gloci merge calls.vcf.gz -d -1 -o regions.bed.gz --write-index")]
     Merge(MergeArgs),
+    /// Remove from A the bases covered by B (bedtools subtract, bedops -d).
+    ///
+    /// Each A record is cut by the union of the B records that overlap it,
+    /// and what is left is written as A's own record with new coordinates:
+    /// one record per piece, in ascending order (BED columns 2-3, GFF
+    /// columns 4-5). An A that nothing touches is written as read, and an A
+    /// that is covered completely disappears. A point has no bases to cut:
+    /// it is dropped when a B contains it, and a B point removes nothing.
+    /// The criteria (-f, -F, -r, -e, --min-bases, -s, -S) choose which B
+    /// count and are measured as in intersect. -w, --left and --right pad B
+    /// before it cuts.
+    ///
+    /// --whole drops an A that has any counting B instead of cutting it
+    /// (bedtools -A). --sum-overlaps drops an A when the bases shared with
+    /// all the B that pass the strand rule add up to at least -f of A
+    /// (bedtools -N); it takes only -f, and without -f it acts like
+    /// --whole. --split cuts by the BED12 blocks of B, not its span.
+    /// A VCF/BCF A is never cut: a record is dropped whole, exactly when
+    /// intersect --mode none would drop it, and the output is VCF with its
+    /// header.
+    ///
+    /// A and every B must be sorted in one chromosome order, which is
+    /// checked as they are read. With --unsorted, any order works, A is
+    /// still streamed and written in its own order, and every -b file is
+    /// loaded into memory, so memory grows with the size of B.
+    #[command(after_long_help = "\
+Examples:
+  gloci subtract -a peaks.bed -b blacklist.bed
+  gloci subtract -a genes.bed -b repeats.bed -f 50% --whole -o clean.bed
+  gloci subtract -a reads.bed -b exons.bed --sum-overlaps -f 0.8 -s
+  gloci subtract -a calls.vcf.gz -b blacklist.bed -o filtered.vcf.gz")]
+    Subtract(SubtractArgs),
 }
 
 /// What `intersect` reports.
@@ -277,6 +309,41 @@ pub struct IntersectArgs {
         value_name = "HOW"
     )]
     pub matching: IntersectMatch,
+    #[command(flatten)]
+    pub o: OverlapArgs,
+    #[command(flatten)]
+    pub w: WindowArgs,
+    #[command(flatten)]
+    pub u: UnsortedArg,
+    #[command(flatten)]
+    pub genome: GenomeArg,
+    #[command(flatten)]
+    pub chrom_order: ChromOrderArg,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub header: HeaderArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+#[derive(Args)]
+pub struct SubtractArgs {
+    #[command(flatten)]
+    pub a: AArg,
+    #[command(flatten)]
+    pub b: BArgs,
+    /// Drop an A that has any counting B instead of cutting it.
+    #[arg(long)]
+    pub whole: bool,
+    /// Drop an A when the bases shared with all B (strand rule only) reach
+    /// -f of A; takes only -f.
+    #[arg(long)]
+    pub sum_overlaps: bool,
     #[command(flatten)]
     pub o: OverlapArgs,
     #[command(flatten)]

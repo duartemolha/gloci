@@ -286,7 +286,10 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Pinned by:** `intersect-vcf-allele-span-vs-bedtools` (must differ: bedtools
   also reports the insertion and the deletion whose anchor base is in a
   region) and `intersect-vcf-ref-span-vs-bedtools` (`--vcf-span ref`: must
-  match).
+  match). `subtract` on a VCF A removes the same whole records as
+  `intersect --mode none`, so it has the same difference:
+  `subtract-vcf-allele-span-vs-bedtools` (must differ, against
+  `bedtools subtract -A`) and `subtract-vcf-ref-span-vs-bedtools` (must match).
 
 ## Overlap fractions are measured per B record {#per-record-overlap-fraction}
 
@@ -334,3 +337,19 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Pinned by:** `merge-strand-vs-bedtools` (must differ: bedtools drops the
   `.`-strand records `chr1 600 700` and `chr1 690 720`). The other `merge`
   cases match bedtools and bedops.
+
+## `subtract --sum-overlaps` removes A when the sum reaches `-f` {#sum-overlaps-threshold}
+
+- **gloci:** `--sum-overlaps -f F` removes an A record when the bases shared
+  with the B records that pass the strand rule add up to at least `F` of A,
+  the same "at least" every other threshold uses. Without `-f` it removes A
+  when any such B overlaps it, like `--whole`.
+- **Old behaviour:** `bedtools subtract -N -f F` removes A only when the sum
+  is more than `F` of A: an A covered exactly 50% is kept by `-f 0.5`. Without
+  `-f`, `-N` is refused with "-f must be in the range (0.0, 1.0]".
+- **Reason:** one rule for "at least" across all thresholds (`-f 0.5` on
+  `intersect` accepts a 50% overlap), and a command that works without `-f`.
+  Raise `-f` slightly (for example to `0.51`) to get the bedtools result.
+- **Pinned by:** `subtract-sum-overlaps-equal-vs-bedtools` (must differ: A
+  `chr1 600 700` is covered exactly 50% and bedtools keeps it).
+  `subtract-sum-overlaps-vs-bedtools` (`-f 0.6`) must match.

@@ -141,6 +141,13 @@ impl<'o> Acceptor<'o> {
         Ok(blocks_overlap_len(ab, &bb))
     }
 
+    /// The blocks of `hit` (B's own, unpadded): its BED12 blocks under
+    /// `--split` when it has them, else its span as one block.
+    pub fn hit_blocks(&self, hit: &Hit) -> Result<Vec<Interval>, IoError> {
+        let (name, bed) = self.hit_input(hit)?;
+        blocks(*bed, name, hit.loc, hit.raw, hit.span)
+    }
+
     fn load_a_blocks(&mut self, a: &ARec) -> Result<(), IoError> {
         if self.a_blocks.as_ref().is_none_or(|(l, _)| *l != a.meta.loc) {
             let (name, bed) = &self.inputs[0];

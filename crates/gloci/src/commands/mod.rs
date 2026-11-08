@@ -4,4 +4,5 @@ pub mod index;
 pub mod intersect;
 pub mod merge;
 pub mod sort;
+pub mod subtract;
 pub mod view;

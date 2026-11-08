@@ -344,28 +344,7 @@ pub fn naive_intersect<R: Feature>(
         ".\t-1\t-1"
     };
     for ra in a {
-        let mut accepted: Vec<(usize, &R)> = Vec::new();
-        for (f, file) in b.iter().enumerate() {
-            for rb in file {
-                if rb.chrom() != ra.chrom() {
-                    continue;
-                }
-                let padded = match window {
-                    Some(w) => w.apply(rb.span(), ra.strand()),
-                    None => rb.span(),
-                };
-                if !spans_overlap(ra.span(), padded, criteria.inclusive_points) {
-                    continue;
-                }
-                let ok = match window {
-                    Some(_) => strand_met(criteria.strand, ra.strand(), rb.strand()),
-                    None => naive_accepts(criteria, ra.span(), ra.strand(), rb.span(), rb.strand()),
-                };
-                if ok {
-                    accepted.push((f, rb));
-                }
-            }
-        }
+        let accepted = naive_accepted(ra, b, criteria, window);
         match mode {
             NaiveMode::Any if !accepted.is_empty() => out.push(ra.line()),
             NaiveMode::None if accepted.is_empty() => out.push(ra.line()),
@@ -403,6 +382,139 @@ pub fn naive_intersect<R: Feature>(
                 }
             }
             _ => {}
+        }
+    }
+    out
+}
+
+/// The B records that count for `ra` (D36, D37): candidate hits (spans
+/// overlapping after the window) that pass `criteria` against B's own span,
+/// or only the strand rule when a window is given. As `(file, record)`, by
+/// file and then input order.
+fn naive_accepted<'b, R: Feature>(
+    ra: &R,
+    b: &'b [Vec<R>],
+    criteria: &OverlapCriteria,
+    window: Option<Window>,
+) -> Vec<(usize, &'b R)> {
+    let mut accepted = Vec::new();
+    for (f, file) in b.iter().enumerate() {
+        for rb in file {
+            if rb.chrom() != ra.chrom() {
+                continue;
+            }
+            let padded = match window {
+                Some(w) => w.apply(rb.span(), ra.strand()),
+                None => rb.span(),
+            };
+            if !spans_overlap(ra.span(), padded, criteria.inclusive_points) {
+                continue;
+            }
+            let ok = match window {
+                Some(_) => strand_met(criteria.strand, ra.strand(), rb.strand()),
+                None => naive_accepts(criteria, ra.span(), ra.strand(), rb.span(), rb.strand()),
+            };
+            if ok {
+                accepted.push((f, rb));
+            }
+        }
+    }
+    accepted
+}
+
+/// `subtract`, by brute force, as the lines gloci writes for BED inputs.
+///
+/// - **Default.** A point A is dropped when it has an accepted hit.
+///   Otherwise A's bases minus the bases of every accepted hit's windowed
+///   span, found by cutting A at every removal edge; each maximal run left is written as
+///   A's line with new coordinates. A with nothing removed is written as is.
+/// - **`whole`.** A is dropped when it has an accepted hit.
+/// - **`sum_overlaps`.** Only the strand rule (and the window) decide which
+///   hits take part; A is dropped when the shared bases of those hits sum
+///   to at least `criteria.min_frac_a` of A (any such hit when there is no
+///   fraction, or A is a point). Other thresholds in `criteria` are ignored.
+pub fn naive_subtract(
+    a: &[TestRec],
+    b: &[Vec<TestRec>],
+    criteria: &OverlapCriteria,
+    window: Option<Window>,
+    whole: bool,
+    sum_overlaps: bool,
+) -> Vec<String> {
+    let strand_only = OverlapCriteria {
+        min_frac_a: None,
+        min_frac_b: None,
+        reciprocal: false,
+        either: false,
+        min_bases: None,
+        ..*criteria
+    };
+    let used = if sum_overlaps { &strand_only } else { criteria };
+    let mut out = Vec::new();
+    for ra in a {
+        let accepted = naive_accepted(ra, b, used, window);
+        let span = ra.span();
+        let windowed = |rb: &TestRec| match window {
+            Some(w) => w.apply(rb.span(), ra.strand()),
+            None => rb.span(),
+        };
+        if sum_overlaps {
+            let sum: u64 = accepted
+                .iter()
+                .map(|(_, rb)| shared_bases(span, windowed(rb)))
+                .sum();
+            let drop = match criteria.min_frac_a {
+                Some(f) if span.start != span.end => f.met(sum, span.end - span.start),
+                _ => !accepted.is_empty(),
+            };
+            if !drop {
+                out.push(ra.line());
+            }
+            continue;
+        }
+        if whole || span.start == span.end {
+            if accepted.is_empty() {
+                out.push(ra.line());
+            }
+            continue;
+        }
+        // Cut A at every edge of a removal that falls inside it; a segment
+        // between two cuts is removed when some removal spans all of it.
+        let wins: Vec<Interval> = accepted.iter().map(|(_, rb)| windowed(rb)).collect();
+        let mut cuts = vec![span.start, span.end];
+        for w in &wins {
+            cuts.extend(
+                [w.start, w.end]
+                    .into_iter()
+                    .filter(|&c| span.start < c && c < span.end),
+            );
+        }
+        cuts.sort_unstable();
+        cuts.dedup();
+        let kept: Vec<(u64, u64)> = cuts
+            .windows(2)
+            .map(|c| (c[0], c[1]))
+            .filter(|&(from, to)| !wins.iter().any(|w| w.start <= from && to <= w.end))
+            .collect();
+        if kept == [(span.start, span.end)] {
+            out.push(ra.line());
+            continue;
+        }
+        // Join neighbouring kept segments into maximal runs.
+        let mut runs: Vec<(u64, u64)> = Vec::new();
+        for (from, to) in kept {
+            match runs.last_mut() {
+                Some(last) if last.1 == from => last.1 = to,
+                _ => runs.push((from, to)),
+            }
+        }
+        for (start, end) in runs {
+            let piece = TestRec {
+                start,
+                end,
+                ..ra.clone()
+            };
+            out.push(piece.bed_line());
         }
     }
     out

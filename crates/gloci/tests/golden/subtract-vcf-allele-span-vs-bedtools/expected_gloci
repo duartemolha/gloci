@@ -1,0 +1,9 @@
+##fileformat=VCFv4.2
+##contig=<ID=chr1,length=100000>
+##contig=<ID=chr2,length=100000>
+##glociCommand=<normalised>
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+chr1	200	.	A	ACGT	.	.	.
+chr1	300	.	AT	A	.	.	.
+chr1	400	.	G	T	.	.	.
+chr1	500	.	A	G	.	.	.
