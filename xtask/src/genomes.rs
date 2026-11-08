@@ -1,3 +1,4 @@
+//! `cargo xtask genomes refresh`: rebuild `data/genomes/*.genome` from the
 //! sources listed in `data/genomes/SOURCES.toml`.
 
 use anyhow::{Context, Result, bail};

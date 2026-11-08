@@ -334,3 +334,13 @@ input = { file = "xtask/diff/inputs/bigend.bed" }
 gloci = '''set -e; gloci sort --chrom-order lex input.bed -o g.bed.gz --write-index; test -f g.bed.gz.csi; for q in chr1:1500-1600 chr1:600000010-600000020 chr1:600000500-600000600 chr2:536870900-536871100 chr2:699999999-700001000; do tabix g.bed.gz $q; done'''
 reference = '''set -e; bgzip -c input.bed > t.bed.gz; tabix -C -p bed t.bed.gz; for q in chr1:1500-1600 chr1:600000010-600000020 chr1:600000500-600000600 chr2:536870900-536871100 chr2:699999999-700001000; do tabix t.bed.gz $q; done'''
 compare = "exact"
+
+# A BCF whose contigs are each contiguous but not in dictionary order:
+# bcftools index accepts it, gloci index refuses (exit 1).
+[[case]]
+name = "index-bcf-contigs-out-of-dictionary-order-vs-bcftools"
+input = { file = "xtask/diff/inputs/contig-reversed.vcf" }
+gloci = "gloci view input.vcf -o x.bcf && gloci index x.bcf"
+reference = "bcftools view -Ob -o x.bcf input.vcf && bcftools index x.bcf"
+compare = "exit-status"
+expected_difference = "#bcf-index-contig-order"

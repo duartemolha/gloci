@@ -147,7 +147,7 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 ## `view --assume-sorted` {#view-assume-sorted}
 
 - **gloci:** for an uncompressed BED file with no index, `view` scans the
-  chromosome's records and checks their order, so an unsorted file is an
+  whole file and checks the order of every record it reads, so an unsorted file is an
   error. `--assume-sorted` binary-searches instead (like `bedextract`) and trusts
   the file to be sorted in the order given by `-g` or `--chrom-order`; it checks
   only the block it reads, and on an unsorted file the answer can be incomplete.
@@ -224,3 +224,18 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Pinned by:** `sort-undeclared-contig-vs-bcftools-sort` (exit status: must
   differ). `view-region-undeclared-contig-vs-tabix` and
   `view-region-undeclared-contig-vs-bcftools-view` pin the agreeing side.
+
+## `index` refuses a BCF whose contigs are out of dictionary order {#bcf-index-contig-order}
+
+- **gloci:** `gloci index x.bcf` exits 1 when the records of one contig are
+  contiguous but the contigs are not in the order of the header's contig
+  dictionary (for example `chr2` records, then `chr1` records, with `chr1`
+  declared first). The error names the first out-of-order record and says to
+  run `gloci sort x.bcf`.
+- **Old behaviour:** `bcftools index` accepts such a file and indexes each
+  contig by its dictionary id.
+- **Reason:** the indexer gloci uses needs reference ids to increase through the
+  file. A BCF in dictionary order, which is what `gloci sort` writes, indexes
+  and queries the same as with htslib.
+- **Pinned by:** `index-bcf-contigs-out-of-dictionary-order-vs-bcftools` (exit
+  status: must differ).

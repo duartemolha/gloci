@@ -27,8 +27,11 @@ chrX    100  200                                    chrX    100  200
 
 Within a chromosome the order is the same. Only the chromosome order differs.
 
-Records that share a start are ordered by end by `gloci sort` (`sort -k1,1 -k2,2n`
-leaves them in input order). Add `--full-key` to order such ties by the whole line.
+Records that share a start are ordered by end by `gloci sort`. `sort -k1,1 -k2,2n -s`
+leaves them in input order; without `-s`, GNU `sort` falls back to comparing the
+whole line, so ties are not in input order either. `gloci sort` keeps input order
+for records that tie on chromosome, start and end, and `--full-key` orders such
+ties by the whole line (see [differences.md](differences.md#sort-tie-order)).
 
 ### What you will see
 
@@ -96,7 +99,46 @@ gloci intersect -a peaks.sorted.bed -b genes.sorted.bed --chrom-order lex > hits
 
 ## Command mapping
 
-The full old-to-new tables for bedtools, bedops and vcftools are in
-section 11 of the design spec
+These are the commands P0 ships. Every row was checked against `gloci --help`.
+
+| Old command | gloci |
+|---|---|
+| `sort-bed FILE`, `bedtools sort -i FILE`, `LC_ALL=C sort -k1,1 -k2,2n FILE` | `gloci sort FILE --chrom-order lex` (drop `--chrom-order lex` to get karyotype order) |
+| `bedtools sort -i FILE -g GENOME` | `gloci sort FILE -g GENOME` (`-g` also takes a built-in such as `hg38`) |
+| `vcf-sort FILE`, `bcftools sort FILE` | `gloci sort FILE` (the order comes from the `##contig` lines; `-g` overrides) |
+| `sort-bed --max-mem 8G --tmpdir DIR FILE` | `gloci sort FILE --max-mem 8G --tmp-dir DIR` |
+| `sort-bed --check-sort FILE` | `gloci sort --check FILE` (checks chromosome and start, which is what the streaming commands need) |
+| `bedops -u A B`, `sort -m A B` | `gloci sort -m A B` (inputs must already be sorted in the same order) |
+| `sort-bed FILE \| uniq`, `sort -u` | `gloci sort --unique FILE` (`--duplicates` is `uniq -d`) |
+| `bgzip -c FILE > FILE.gz` | `gloci view FILE -o FILE.gz` (always BGZF; `--compression-level N`, `-t` threads) |
+| `bgzip -dc FILE.gz > FILE` | `gloci view FILE.gz -o FILE` (the name needs a known extension such as `x.bed`; otherwise add `-O bed`) |
+| `tabix -p bed\|vcf\|gff FILE.gz`, `tabix -C ...` | `gloci index FILE.gz` (the type comes from the content; TBI, or CSI when a record ends past 2^29) |
+| `bcftools index FILE.bcf`, `bcftools index -c\|-t FILE.vcf.gz` | `gloci index FILE.bcf` (a BCF always gets a CSI; `.vcf.gz` gets a TBI, or a CSI when needed) |
+| `bgzip FILE && tabix -p vcf FILE.gz` | `gloci sort FILE -o FILE.gz --write-index`, or `gloci view FILE -o FILE.gz --write-index` for a file that is already sorted |
+| `tabix FILE.gz REGION...`, `bcftools view -r REGION FILE`, `bcftools view -H -r ...` | `gloci view FILE.gz REGION...` (add `--no-header` for `-H`) |
+| `tabix -h FILE.gz REGION`, `tabix -H FILE.gz` | `gloci view FILE.gz REGION` keeps the header; `gloci view --header-only FILE.gz` prints only it |
+| `tabix -R TARGETS FILE.gz`, `bcftools view -R TARGETS FILE` | `gloci view FILE.gz --regions-file TARGETS.bed` (0-based BED, like `bedextract`) |
+| `bedextract CHR FILE`, `bedextract FILE REGIONS.bed` | `gloci view FILE CHR`, or `gloci view FILE --regions-file REGIONS.bed`; add `--assume-sorted` for the binary search on an uncompressed BED file |
+| `bcftools view -Ob FILE.vcf`, `bcftools view -Ov FILE.bcf` | `gloci view FILE.vcf -o FILE.bcf`, `gloci view FILE.bcf -O vcf` |
+
+The full old-to-new tables for the P1 to P3 commands (bedtools, bedops and
+vcftools) are in section 11 of the design spec
 (`docs/superpowers/specs/2026-11-06-gloci-design.md`). They will move into this
-guide in P1.
+guide as those commands arrive.
+
+## Other behaviour changes
+
+- Region and point semantics differ from tabix: a zero-length BED record or an
+  insertion on a region's edge is not returned by default.
+  [differences.md](differences.md#view-region-footprints); `--vcf-span ref
+  --inclusive-points` reproduces tabix.
+- A BGZF file without its end-of-file marker is an error, not a warning.
+  [differences.md](differences.md#bgzf-eof-marker)
+- Records on a contig the VCF header does not declare: `view` and `index`
+  accept them with a warning, as htslib does, but `sort` and BCF output refuse
+  them. [differences.md](differences.md#undeclared-contig-sort)
+- `gloci index` refuses a BCF whose contigs are not in dictionary order, which
+  `bcftools index` accepts. Run `gloci sort` first.
+  [differences.md](differences.md#bcf-index-contig-order)
+- VCF records are footprinted by their alleles by default, not by REF.
+  [differences.md](differences.md#default-vcf-span-allele)

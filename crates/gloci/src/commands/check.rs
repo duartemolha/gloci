@@ -1,7 +1,7 @@
 //! `gloci check`: validate files and print a one-screen summary of each.
 use crate::Ctx;
 use crate::cli::{CheckArgs, VcfSpan};
-use gloci_io::{Format, InvalidPolicy, IoError, ReaderOptions, UsageError};
+use gloci_io::{Format, InvalidPolicy, IoError, ReaderOptions, UsageError, resolve_genome};
 use gloci_ops::{CheckReport, check_file};
 
 /// Returns true when no file has errors.
@@ -19,16 +19,13 @@ pub fn run(ctx: &Ctx, a: &CheckArgs) -> anyhow::Result<bool> {
         },
         invalid: InvalidPolicy::Skip,
     };
+    // A bad -g is one error for the command, not one per file.
+    let genome = a.genome.genome.as_deref().map(resolve_genome).transpose()?;
     use std::io::Write;
     let mut stdout = std::io::stdout().lock();
     let mut failed = 0;
     for (i, f) in a.files.iter().enumerate() {
-        let report = match check_file(
-            f,
-            a.genome.genome.as_deref(),
-            a.chrom_order.chrom_order,
-            &ro,
-        ) {
+        let report = match check_file(f, genome.as_ref(), a.chrom_order.chrom_order, &ro) {
             Ok(r) => r,
             // A usage problem applies to the whole command.
             Err(e @ IoError::Usage(_)) => return Err(e.into()),

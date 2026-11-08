@@ -135,8 +135,15 @@ fn check_bgzf(data: &Path, name: &str) -> Result<(), IoError> {
     let len = f.metadata().map_err(open_err)?.len();
     let head = read_up_to(&mut f, 18).map_err(read_err)?;
     if detect_compression(&head) != Compression::Bgzf {
+        // A .gz name is rewritten in place (plain gzip is not seekable, so
+        // it cannot be indexed); anything else gets a .gz name.
+        let out = if name.ends_with(".gz") {
+            name.to_string()
+        } else {
+            format!("{name}.gz")
+        };
         return Err(UsageError(format!(
-            "{name} is not BGZF-compressed; recompress with: gloci view {name} -o {name}.gz"
+            "{name} is not BGZF-compressed; recompress with: gloci view {name} -o {out}"
         ))
         .into());
     }
@@ -382,7 +389,21 @@ impl Scanner<'_> {
     }
 
     fn flush(&mut self) -> Result<(), IoError> {
-        self.guard.check(&self.chroms, &self.batch)?;
+        self.guard.check(&self.chroms, &self.batch).map_err(|e| {
+            let e: IoError = e.into();
+            match e {
+                // The records of a BCF can be contiguous per contig and still
+                // fail here: the index needs the contigs in dictionary order.
+                IoError::Order(mut o) if self.binary => {
+                    o.hint.push_str(
+                        "; an index of a BCF needs its contigs in the order of the header's \
+contig dictionary, even when each contig is contiguous (bcftools index is less strict)",
+                    );
+                    IoError::Order(o)
+                }
+                e => e,
+            }
+        })?;
         for e in &self.entries {
             (self.sink)(e)?;
         }
@@ -447,7 +468,9 @@ impl Scanner<'_> {
         })?;
         let dicts = h.bcf.expect("read_bcf_header builds the dictionaries");
         // Chromosome ids follow the dictionary, so the order check enforces
-        // the dictionary order BCF indexes need.
+        // dictionary order. That is stricter than htslib: the noodles indexer
+        // needs increasing reference ids, where `bcftools index` accepts
+        // contigs that are contiguous in any order.
         for c in dicts.contigs.iter().filter(|c| !c.is_empty()) {
             self.chroms
                 .intern(c)

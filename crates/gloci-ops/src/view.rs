@@ -501,6 +501,10 @@ pub fn run_view(
         .path
         .as_ref()
         .map_or_else(|| "<stdout>".to_string(), |p| p.display().to_string());
+    // Errors of the output side name the destination; an order error found
+    // while indexing names the input, which is the file that needs sorting.
+    let input_name = reader.name().to_string();
+    let named = |e: IoError| e.with_output_name(&dest).with_index_input(&input_name, &dest);
 
     let mut wo = wo.clone();
     // View keeps whatever header the file has unless told otherwise.
@@ -520,13 +524,13 @@ pub fn run_view(
                 mode,
                 None,
             )
-            .map_err(|e| e.with_output_name(&dest))?;
+            .map_err(named)?;
         } else {
             let header = reader.header().clone();
             open_record_writer(out, format, out_format, &header, &wo)
-                .map_err(|e| e.with_output_name(&dest))?
+                .map_err(named)?
                 .finish()
-                .map_err(|e| e.with_output_name(&dest))?;
+                .map_err(named)?;
         }
         return Ok(());
     }
@@ -547,7 +551,7 @@ pub fn run_view(
             mode,
             None,
         )
-        .map_err(|e| e.with_output_name(&dest))?;
+        .map_err(named)?;
     } else {
         let header = reader.header().clone();
         let mut w = if opts.no_header {
@@ -555,7 +559,7 @@ pub fn run_view(
         } else {
             open_record_writer(out, format, out_format, &header, &wo)
         }
-        .map_err(|e| e.with_output_name(&dest))?;
+        .map_err(named)?;
         let mut batch = RecordBatch::default();
         let mut max = 1;
         loop {
@@ -573,7 +577,7 @@ pub fn run_view(
                 break;
             }
         }
-        w.finish().map_err(|e| e.with_output_name(&dest))?;
+        w.finish().map_err(named)?;
     }
     if let Some(s) = reader.diagnostics().summary(reader.name()) {
         log::warn!("{s}");

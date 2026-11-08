@@ -139,9 +139,13 @@ impl Sorter {
             let (chrom, end) = (m.chrom.0, m.span.end);
             if !self.chunk.try_push(chrom, m.key, end, self.seq, raw) {
                 self.spill_chunk(chroms)?;
-                let pushed = self.chunk.try_push(chrom, m.key, end, self.seq, raw);
                 // Never drop a record silently.
-                assert!(pushed, "an empty chunk accepts any record");
+                if !self.chunk.try_push(chrom, m.key, end, self.seq, raw) {
+                    return Err(IoError::Internal(format!(
+                        "an empty sort chunk rejected a record of {} bytes",
+                        raw.len()
+                    )));
+                }
             }
             self.seq += 1;
         }

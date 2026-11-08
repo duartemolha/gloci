@@ -58,7 +58,23 @@ pub fn cleanup_registered() {
     }
 }
 
-/// Installs SIGINT/SIGTERM/SIGHUP handling (cleanup, exit 130) and a panic hook (cleanup).
+/// The line printed when the program panics, which is always a bug.
+pub fn internal_error_line(message: &str) -> String {
+    format!("error: internal error: {message}; this is a bug, please report it")
+}
+
+fn panic_message(info: &std::panic::PanicHookInfo<'_>) -> String {
+    let payload = info.payload();
+    payload
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "a panic with no message".to_string())
+}
+
+/// Installs SIGINT/SIGTERM/SIGHUP handling (cleanup, exit 130) and a panic hook
+/// that cleans up, reports an internal error and exits with status 1 (the
+/// release profile aborts on panic, which would otherwise end in SIGABRT).
 /// Safe to call more than once.
 pub fn install_cleanup_handlers() {
     INSTALL.call_once(|| {
@@ -66,10 +82,10 @@ pub fn install_cleanup_handlers() {
             cleanup_registered();
             std::process::exit(130);
         });
-        let prev = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |info| {
+        std::panic::set_hook(Box::new(|info| {
             cleanup_registered();
-            prev(info);
+            let _ = writeln!(io::stderr(), "{}", internal_error_line(&panic_message(info)));
+            std::process::exit(1);
         }));
     });
 }

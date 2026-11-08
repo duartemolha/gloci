@@ -104,8 +104,10 @@ Examples:
     /// Print the records in regions, stream or recompress a file, convert
     /// VCF to BCF and back, or print only the header.
     ///
-    /// With no regions the records are written exactly as read, so view can
-    /// recompress a file (-o FILE.gz is BGZF) or index it (--write-index).
+    /// With no regions the records are written as read (comment and track
+    /// lines after the first record and blank lines are dropped, and CRLF
+    /// line ends become LF), so view can recompress a file (-o FILE.gz is
+    /// BGZF) or index it (--write-index).
     /// VCF and BCF convert to each other with -O or the -o extension;
     /// the header is kept as it is, plus a ##glociCommand line. BED and GFF
     /// header lines are kept by default. Conversions between other formats are not

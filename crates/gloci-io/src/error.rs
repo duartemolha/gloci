@@ -113,6 +113,20 @@ impl IoError {
         }
     }
 
+    /// An order error found while indexing the output of `input` names the
+    /// file that is out of order. The output is not published yet, so it
+    /// is not the file the user can fix.
+    pub fn with_index_input(self, input: &str, output: &str) -> IoError {
+        match self {
+            IoError::Order(mut e) if e.path == output => {
+                e.hint = e.hint.replace(output, input);
+                e.path = input.to_string();
+                IoError::Order(e)
+            }
+            e => e,
+        }
+    }
+
     /// Like `with_output_name`, for read errors reported under the
     /// placeholder path `input`.
     pub fn with_input_name(self, name: &str) -> IoError {

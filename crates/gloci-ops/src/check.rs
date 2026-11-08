@@ -8,11 +8,11 @@
 //! column count. Exact duplicate lines and blank lines are warnings (D25).
 
 use gloci_core::{
-    ChromId, ChromOrder, ChromTable, OrderChecker, OrderSource, OrderViolation, thousands,
+    ChromId, ChromOrder, ChromTable, Genome, OrderChecker, OrderSource, OrderViolation, thousands,
 };
 use gloci_io::{
     Compression, Format, Header, IoError, LEX_SORTED_NOTE, Loc, ReaderOptions, RecordBatch,
-    bed12_blocks, chrom_table_for, next_batch_size, open_reader, resolve_genome, sort_hint,
+    bed12_blocks, chrom_table_for, next_batch_size, open_reader, sort_hint,
 };
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -222,22 +222,18 @@ fn loc_of(binary: bool, n: u64) -> Loc {
 /// order, names and lengths; without it `order` is the fallback order.
 pub fn check_file(
     path: &str,
-    genome: Option<&str>,
+    genome: Option<&(Genome, OrderSource)>,
     order: ChromOrder,
     ro: &ReaderOptions,
 ) -> Result<CheckReport, IoError> {
     let mut ro = ro.clone();
     ro.invalid = gloci_io::InvalidPolicy::Skip;
     let mut reader = open_reader(path, &ro)?;
-    let resolved = match genome {
-        Some(arg) => Some(resolve_genome(arg)?),
-        None => None,
-    };
-    let mut chroms = match &resolved {
+    let mut chroms = match genome {
         Some((g, source)) => ChromTable::closed(g, source.clone()),
         None => chrom_table_for(None, &[reader.as_ref()], order)?,
     };
-    let genome_data = resolved.map(|(g, _)| g);
+    let genome_data = genome.map(|(g, _)| g);
     let format = reader.format();
     let binary = format == Format::Bcf;
     let expected_cols = match reader.header() {

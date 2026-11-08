@@ -469,3 +469,111 @@ mod special_outputs {
         }
     }
 }
+
+// ---- Group G: minors ----
+
+#[test]
+fn view_write_index_on_unsorted_input_names_the_input() {
+    let d = tempdir();
+    let i = w(d.path(), "u.bed", "chr1\t2\t3\nchr2\t1\t2\nchr1\t5\t6\n");
+    let o = p(d.path(), "out.bed.gz");
+    gloci()
+        .args(["view", &i, "-o", &o, "--write-index"])
+        .assert()
+        .code(1)
+        .stderr(
+            contains(format!("{i} is not sorted"))
+                .and(contains(format!("gloci sort {i}")))
+                .and(contains("out.bed.gz").not()),
+        );
+    assert!(!Path::new(&o).exists());
+}
+
+#[test]
+fn genome_path_like_values_say_no_such_file() {
+    let d = tempdir();
+    let i = w(d.path(), "x.bed", "chr1\t1\t2\n");
+    for g in ["./missing.fai", "missing.genome", "dir/none", "ref.dict", "x.BAM"] {
+        gloci()
+            .args(["sort", &i, "-g", g])
+            .assert()
+            .code(2)
+            .stderr(contains(format!("no such file: {g}")).and(contains("unknown genome").not()));
+    }
+    // a plain word is still a genome id
+    gloci()
+        .args(["sort", &i, "-g", "hg39"])
+        .assert()
+        .code(2)
+        .stderr(contains("unknown genome"));
+}
+
+#[test]
+fn check_reports_a_bad_genome_once() {
+    let d = tempdir();
+    let a = w(d.path(), "a.bed", "chr1\t1\t2\n");
+    let b = w(d.path(), "b.bed", "chr1\t1\t2\n");
+    let out = gloci()
+        .args(["check", &a, &b, "-g", "./missing.fai"])
+        .assert()
+        .code(2)
+        .stdout("")
+        .get_output()
+        .clone();
+    let err = String::from_utf8(out.stderr).unwrap();
+    assert_eq!(err.matches("no such file").count(), 1, "{err}");
+    assert!(!err.contains(&a) && !err.contains(&b), "{err}");
+}
+
+#[test]
+fn index_plain_gzip_hint_rewrites_in_place_and_stdin_is_a_usage_error() {
+    let d = tempdir();
+    let gz = p(d.path(), "p.bed.gz");
+    gloci_testkit::fixtures::write(d.path(), "p.bed.gz", &gloci_testkit::fixtures::gzip(b"chr1\t1\t2\n"));
+    gloci()
+        .args(["index", &gz])
+        .assert()
+        .code(2)
+        .stderr(
+            contains(format!("gloci view {gz} -o {gz}"))
+                .and(contains(".gz.gz").not()),
+        );
+    gloci()
+        .args(["index", "-"])
+        .assert()
+        .code(2)
+        .stderr(contains("cannot read standard input"));
+}
+
+#[test]
+fn view_help_describes_what_is_dropped() {
+    let out = gloci().args(["view", "--help"]).assert().success().get_output().clone();
+    let help = String::from_utf8(out.stdout).unwrap();
+    assert!(!help.contains("exactly as read"), "{help}");
+    assert!(help.contains("blank lines") && help.contains("CRLF"), "{help}");
+}
+
+#[test]
+fn bcf_index_refusal_for_contiguous_contigs_out_of_dictionary_order() {
+    let d = tempdir();
+    let x = w(
+        d.path(),
+        "x.vcf",
+        &format!(
+            "##fileformat=VCFv4.3\n##contig=<ID=chr1,length=1000>\n##contig=<ID=chr2,length=1000>\n{VCF_COLS}\
+chr2\t7\t.\tA\tC\t.\t.\t.\nchr1\t5\t.\tA\tC\t.\t.\t.\n"
+        ),
+    );
+    let bcf = p(d.path(), "x.bcf");
+    gloci().args(["view", &x, "-o", &bcf]).assert().success();
+    gloci()
+        .args(["index", &bcf])
+        .assert()
+        .code(1)
+        .stderr(
+            contains("not sorted")
+                .and(contains(format!("gloci sort {bcf}")))
+                .and(contains("contig dictionary")),
+        );
+    assert!(!Path::new(&format!("{bcf}.csi")).exists());
+}

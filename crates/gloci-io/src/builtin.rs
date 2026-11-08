@@ -177,11 +177,31 @@ pub fn unknown_genome(arg: &str) -> IoError {
     )))
 }
 
+/// Does a `-g` value look like a path rather than a genome id: it has a path
+/// separator, or ends in the extension of a genome file?
+fn looks_like_path(arg: &str) -> bool {
+    const EXTS: [&str; 8] = [
+        "fai", "genome", "dict", "sizes", "txt", "bam", "cram", "sam",
+    ];
+    arg.contains(std::path::MAIN_SEPARATOR)
+        || arg.contains('/')
+        || Path::new(arg)
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| EXTS.iter().any(|x| e.eq_ignore_ascii_case(x)))
+}
+
 /// Resolve a `-g` value. A value with a `/` in it, or one that names an
 /// existing file, is a file (a directory does not count); otherwise it is a built-in genome id.
 pub fn resolve_genome(arg: &str) -> Result<(Genome, OrderSource), IoError> {
     let path = Path::new(arg);
     let built = builtin(arg);
+    if looks_like_path(arg) && !path.exists() {
+        return Err(IoError::Usage(UsageError(format!(
+            "no such file: {arg}; -g takes a built-in genome (gloci genomes lists them) \
+or an existing .fai, .genome, .dict, VCF/BCF or BAM file"
+        ))));
+    }
     if arg.contains('/') || path.is_file() {
         if built.is_some() {
             log::warn!(
