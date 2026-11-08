@@ -27,7 +27,12 @@ fn panic_hook_child() {
 fn panic_exits_with_status_one_after_cleanup() {
     let dir = tempfile::tempdir().unwrap();
     let out = Command::new(std::env::current_exe().unwrap())
-        .args(["panic_hook_child", "--exact", "--nocapture", "--test-threads=1"])
+        .args([
+            "panic_hook_child",
+            "--exact",
+            "--nocapture",
+            "--test-threads=1",
+        ])
         .env("GLOCI_PANIC_HOOK_DIR", dir.path())
         .output()
         .unwrap();
@@ -39,7 +44,10 @@ fn panic_exits_with_status_one_after_cleanup() {
         ),
         "{err}"
     );
-    assert!(!err.contains("panicked at"), "default panic output leaked: {err}");
+    assert!(
+        !err.contains("panicked at"),
+        "default panic output leaked: {err}"
+    );
     // the temp file is gone and nothing was published
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
 }

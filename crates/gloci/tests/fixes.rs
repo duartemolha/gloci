@@ -79,7 +79,10 @@ fn family_mismatch_message_is_identical_for_sort_and_view() {
     };
     let (s, vw) = (msg("sort"), msg("view"));
     assert_eq!(s, vw);
-    assert!(s.contains("the input is VCF but the output format is BED"), "{s}");
+    assert!(
+        s.contains("the input is VCF but the output format is BED"),
+        "{s}"
+    );
     assert!(s.contains("-O"), "{s}");
     assert!(!Path::new(&o).exists());
 }
@@ -94,7 +97,8 @@ fn undeclared_vcf() -> String {
 chr1\t5\t.\tA\tC\t.\t.\t.\nchr2\t7\t.\tA\tC\t.\t.\t.\nchr2\t9\t.\tG\tT\t.\t.\t.\n"
     )
 }
-const WARN2: &str = "chromosome \"chr2\" is not in the ##contig lines; add ##contig=<ID=chr2> to the header";
+const WARN2: &str =
+    "chromosome \"chr2\" is not in the ##contig lines; add ##contig=<ID=chr2> to the header";
 const SORT_HINT: &str =
     "add ##contig=<ID=chr2> to the header, or pass -g with a genome that lists it";
 
@@ -113,9 +117,16 @@ fn view_plain_and_recompress_accept_undeclared_contigs() {
         .success()
         .stderr(contains(WARN2).and(contains("x.vcf line 5")))
         // one warning per contig, not per record
-        .stderr(predicate::function(|s: &str| s.matches("warning:").count() == 1));
+        .stderr(predicate::function(|s: &str| {
+            s.matches("warning:").count() == 1
+        }));
     assert!(d.path().join("x.vcf.gz.tbi").exists());
-    let out = gloci().args(["view", &o]).assert().success().get_output().clone();
+    let out = gloci()
+        .args(["view", &o])
+        .assert()
+        .success()
+        .get_output()
+        .clone();
     let text = String::from_utf8(out.stdout).unwrap();
     assert_eq!(records(&text).len(), 3);
 }
@@ -217,7 +228,10 @@ fn sort_accepts_an_undeclared_contig_that_g_lists() {
         .clone();
     let text = String::from_utf8(out.stdout).unwrap();
     let recs = records(&text);
-    assert!(recs[0].starts_with("chr2\t7") && recs[2].starts_with("chr1\t5"), "{recs:?}");
+    assert!(
+        recs[0].starts_with("chr2\t7") && recs[2].starts_with("chr1\t5"),
+        "{recs:?}"
+    );
 }
 
 #[test]
@@ -273,7 +287,9 @@ fn multi_vcf_sort_refuses_a_definition_only_one_file_has() {
         .args(["sort", bn, an])
         .assert()
         .code(1)
-        .stderr(contains(format!("{b} defines ##INFO=<ID=DP> but {a} does not")));
+        .stderr(contains(format!(
+            "{b} defines ##INFO=<ID=DP> but {a} does not"
+        )));
     // -m is a multi-file path too, and --check does not merge anything
     gloci().args(["sort", "-m", an, bn]).assert().code(1);
     gloci().args(["sort", "--check", an, bn]).assert().success();
@@ -296,7 +312,11 @@ fn multi_vcf_sort_refuses_conflicting_definitions() {
 fn multi_vcf_sort_treats_pass_as_implicit_and_ignores_other_meta_lines() {
     let d = tempdir();
     let pass = "##FILTER=<ID=PASS,Description=\"All filters passed\">\n";
-    let a = w(d.path(), "a.vcf", &vcf_with(&format!("{pass}{DP}"), &[REC1]));
+    let a = w(
+        d.path(),
+        "a.vcf",
+        &vcf_with(&format!("{pass}{DP}"), &[REC1]),
+    );
     let b = w(
         d.path(),
         "b.vcf",
@@ -437,15 +457,11 @@ mod special_outputs {
         let i = w(d.path(), "x.bed", BED);
         let o = p(d.path(), "nope/out.bed");
         for cmd in ["sort", "view"] {
-            gloci()
-                .args([cmd, &i, "-o", &o])
-                .assert()
-                .code(1)
-                .stderr(
-                    contains(format!("cannot create {o}"))
-                        .and(contains("check that the directory exists and is writable"))
-                        .and(contains("readable").not()),
-                );
+            gloci().args([cmd, &i, "-o", &o]).assert().code(1).stderr(
+                contains(format!("cannot create {o}"))
+                    .and(contains("check that the directory exists and is writable"))
+                    .and(contains("readable").not()),
+            );
         }
     }
 
@@ -464,7 +480,10 @@ mod special_outputs {
         if denied {
             // (skipped when running as root, which can write anywhere)
             let err = String::from_utf8(out.stderr).unwrap();
-            assert!(err.contains("cannot create") && !err.contains("readable"), "{err}");
+            assert!(
+                err.contains("cannot create") && !err.contains("readable"),
+                "{err}"
+            );
             assert_eq!(out.status.code(), Some(1));
         }
     }
@@ -493,7 +512,13 @@ fn view_write_index_on_unsorted_input_names_the_input() {
 fn genome_path_like_values_say_no_such_file() {
     let d = tempdir();
     let i = w(d.path(), "x.bed", "chr1\t1\t2\n");
-    for g in ["./missing.fai", "missing.genome", "dir/none", "ref.dict", "x.BAM"] {
+    for g in [
+        "./missing.fai",
+        "missing.genome",
+        "dir/none",
+        "ref.dict",
+        "x.BAM",
+    ] {
         gloci()
             .args(["sort", &i, "-g", g])
             .assert()
@@ -529,15 +554,16 @@ fn check_reports_a_bad_genome_once() {
 fn index_plain_gzip_hint_rewrites_in_place_and_stdin_is_a_usage_error() {
     let d = tempdir();
     let gz = p(d.path(), "p.bed.gz");
-    gloci_testkit::fixtures::write(d.path(), "p.bed.gz", &gloci_testkit::fixtures::gzip(b"chr1\t1\t2\n"));
+    gloci_testkit::fixtures::write(
+        d.path(),
+        "p.bed.gz",
+        &gloci_testkit::fixtures::gzip(b"chr1\t1\t2\n"),
+    );
     gloci()
         .args(["index", &gz])
         .assert()
         .code(2)
-        .stderr(
-            contains(format!("gloci view {gz} -o {gz}"))
-                .and(contains(".gz.gz").not()),
-        );
+        .stderr(contains(format!("gloci view {gz} -o {gz}")).and(contains(".gz.gz").not()));
     gloci()
         .args(["index", "-"])
         .assert()
@@ -547,10 +573,18 @@ fn index_plain_gzip_hint_rewrites_in_place_and_stdin_is_a_usage_error() {
 
 #[test]
 fn view_help_describes_what_is_dropped() {
-    let out = gloci().args(["view", "--help"]).assert().success().get_output().clone();
+    let out = gloci()
+        .args(["view", "--help"])
+        .assert()
+        .success()
+        .get_output()
+        .clone();
     let help = String::from_utf8(out.stdout).unwrap();
     assert!(!help.contains("exactly as read"), "{help}");
-    assert!(help.contains("blank lines") && help.contains("CRLF"), "{help}");
+    assert!(
+        help.contains("blank lines") && help.contains("CRLF"),
+        "{help}"
+    );
 }
 
 #[test]
@@ -566,14 +600,121 @@ chr2\t7\t.\tA\tC\t.\t.\t.\nchr1\t5\t.\tA\tC\t.\t.\t.\n"
     );
     let bcf = p(d.path(), "x.bcf");
     gloci().args(["view", &x, "-o", &bcf]).assert().success();
-    gloci()
-        .args(["index", &bcf])
-        .assert()
-        .code(1)
-        .stderr(
-            contains("not sorted")
-                .and(contains(format!("gloci sort {bcf}")))
-                .and(contains("contig dictionary")),
-        );
+    gloci().args(["index", &bcf]).assert().code(1).stderr(
+        contains("not sorted")
+            .and(contains(format!("gloci sort {bcf}")))
+            .and(contains("contig dictionary")),
+    );
     assert!(!Path::new(&format!("{bcf}.csi")).exists());
+}
+
+// ---- Group G10: output is byte-identical for every --threads value ----
+
+/// `n` pseudo-random BED lines over chr1..chr4 (deterministic).
+fn random_bed(n: usize, seed: u64) -> String {
+    let mut x = seed;
+    let mut next = move || {
+        x = x
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        x >> 33
+    };
+    let mut s = String::new();
+    for i in 0..n {
+        let chrom = 1 + next() % 4;
+        let start = next() % 5_000_000;
+        let len = 1 + next() % 2_000;
+        s.push_str(&format!(
+            "chr{chrom}\t{start}\t{}\tf{i}\t{}\t+\n",
+            start + len,
+            next() % 1000
+        ));
+    }
+    s
+}
+
+fn stdout_bytes(args: &[&str]) -> Vec<u8> {
+    gloci()
+        .args(args)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone()
+}
+
+/// Run `args` with -t 1 and -t 4, to stdout and (when `file` names an output
+/// path template) to a BGZF file; every result must be identical.
+fn assert_thread_invariant(d: &Path, args: &[&str]) {
+    let run = |t: &str| {
+        let mut v: Vec<&str> = args.to_vec();
+        v.extend(["-t", t]);
+        stdout_bytes(&v)
+    };
+    let (one, four) = (run("1"), run("4"));
+    assert!(!one.is_empty(), "{args:?} produced no output");
+    assert_eq!(one, four, "{args:?}: stdout differs between -t 1 and -t 4");
+    // and as a BGZF file
+    let write = |t: &str, name: &str| {
+        let o = p(d, name);
+        let mut v: Vec<&str> = args.to_vec();
+        v.extend(["-t", t, "-o", &o]);
+        gloci().args(&v).assert().success();
+        std::fs::read(&o).unwrap()
+    };
+    assert_eq!(
+        write("1", "t1.bed.gz"),
+        write("4", "t4.bed.gz"),
+        "{args:?}: BGZF output differs between -t 1 and -t 4"
+    );
+}
+
+#[test]
+fn sort_merge_is_identical_across_threads() {
+    let d = tempdir();
+    let a = w(d.path(), "a.in.bed", &random_bed(60_000, 1));
+    let b = w(d.path(), "b.in.bed", &random_bed(60_000, 2));
+    let (sa, sb) = (p(d.path(), "a.bed"), p(d.path(), "b.bed"));
+    gloci().args(["sort", &a, "-o", &sa]).assert().success();
+    gloci().args(["sort", &b, "-o", &sb]).assert().success();
+    assert_thread_invariant(d.path(), &["sort", "-m", &sa, &sb]);
+}
+
+#[test]
+fn view_regions_are_identical_across_threads() {
+    let d = tempdir();
+    let raw = w(d.path(), "raw.bed", &random_bed(120_000, 3));
+    let plain = p(d.path(), "x.bed");
+    let gz = p(d.path(), "x.bed.gz");
+    gloci()
+        .args(["sort", &raw, "-o", &plain])
+        .assert()
+        .success();
+    gloci()
+        .args(["sort", &raw, "-o", &gz, "--write-index"])
+        .assert()
+        .success();
+    let regions = ["chr1:100000-2000000", "chr3", "chr2:4000000-"];
+    // indexed
+    let mut args = vec!["view", gz.as_str()];
+    args.extend(regions);
+    assert_thread_invariant(d.path(), &args);
+    // unindexed scan
+    let mut args = vec!["view", plain.as_str()];
+    args.extend(regions);
+    assert_thread_invariant(d.path(), &args);
+    // binary search
+    let mut args = vec!["view", plain.as_str(), "--assume-sorted"];
+    args.extend(regions);
+    assert_thread_invariant(d.path(), &args);
+    // all three agree with each other
+    let by = |extra: &[&str], file: &str| {
+        let mut v = vec!["view", file];
+        v.extend(regions);
+        v.extend(extra);
+        stdout_bytes(&v)
+    };
+    let indexed = by(&[], &gz);
+    assert_eq!(indexed, by(&[], &plain));
+    assert_eq!(indexed, by(&["--assume-sorted"], &plain));
 }

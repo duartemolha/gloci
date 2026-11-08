@@ -96,10 +96,10 @@ fn from_extension(path: &Path) -> Option<(OutFormat, bool)> {
     // try two-part suffix first (x.bed.gz), then one-part
     let mut dots = name.match_indices('.').map(|(i, _)| i).rev();
     let last = dots.next()?;
-    if let Some(prev) = dots.next() {
-        if let Some(r) = lookup(&name[prev + 1..]) {
-            return Some(r);
-        }
+    if let Some(prev) = dots.next()
+        && let Some(r) = lookup(&name[prev + 1..])
+    {
+        return Some(r);
     }
     lookup(&name[last + 1..])
 }

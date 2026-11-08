@@ -244,10 +244,8 @@ pub fn footprint(v: &Variant, span: VcfSpan) -> Result<Interval, FootprintError>
         .iter()
         .any(|a| matches!(a, Alt::Gvcf | Alt::Ins | Alt::Sv(_)));
     let mut end = ref_end(v);
-    if symbolic {
-        if let Some(e) = v.end.or(sv_max_end) {
-            end = end.max(e);
-        }
+    if symbolic && let Some(e) = v.end.or(sv_max_end) {
+        end = end.max(e);
     }
     Ok(iv(v.pos - 1, end))
 }

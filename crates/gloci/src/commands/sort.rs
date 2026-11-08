@@ -261,7 +261,10 @@ fn check_definitions(readers: &[Box<dyn RecordReader>]) -> Result<(), IoError> {
                 None => {
                     return Err(fail(
                         other,
-                        format!("{other} defines {} but {name} does not; {fix}", show(kind, id)),
+                        format!(
+                            "{other} defines {} but {name} does not; {fix}",
+                            show(kind, id)
+                        ),
                     ));
                 }
                 Some(mine) if mine != line => {
@@ -282,7 +285,10 @@ fn check_definitions(readers: &[Box<dyn RecordReader>]) -> Result<(), IoError> {
             if !theirs.contains_key(&(*kind, id.clone())) && !implicit(kind, id) {
                 return Err(fail(
                     name,
-                    format!("{name} defines {} but {other} does not; {fix}", show(kind, id)),
+                    format!(
+                        "{name} defines {} but {other} does not; {fix}",
+                        show(kind, id)
+                    ),
                 ));
             }
         }

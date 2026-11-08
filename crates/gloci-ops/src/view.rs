@@ -504,7 +504,10 @@ pub fn run_view(
     // Errors of the output side name the destination; an order error found
     // while indexing names the input, which is the file that needs sorting.
     let input_name = reader.name().to_string();
-    let named = |e: IoError| e.with_output_name(&dest).with_index_input(&input_name, &dest);
+    let named = |e: IoError| {
+        e.with_output_name(&dest)
+            .with_index_input(&input_name, &dest)
+    };
 
     let mut wo = wo.clone();
     // View keeps whatever header the file has unless told otherwise.

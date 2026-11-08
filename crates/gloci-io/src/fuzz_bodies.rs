@@ -84,9 +84,9 @@ pub fn region_parse(data: &[u8]) {
     let Ok(s) = std::str::from_utf8(data) else {
         return;
     };
-    if let Ok(r) = Region::parse(s, |name| name.starts_with(b"chr")) {
-        if let Some(end) = r.end {
-            assert!(r.start <= end, "start > end for {s:?}");
-        }
+    if let Ok(r) = Region::parse(s, |name| name.starts_with(b"chr"))
+        && let Some(end) = r.end
+    {
+        assert!(r.start <= end, "start > end for {s:?}");
     }
 }

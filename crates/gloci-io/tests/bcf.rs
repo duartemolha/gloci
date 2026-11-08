@@ -424,3 +424,79 @@ fn closed_tables_map_contigs_by_name() {
         "x.bcf record 4: chromosome \"chr1\" is not in the genome file g.txt"
     );
 }
+
+/// INFO fields of other types before END and SVLEN, alleles of 15 bytes or
+/// more (typed-length overflow encoding) and vectors/strings longer than 14
+/// elements (overflow-length typed values): the BCF decoder must skip them
+/// correctly to find END and SVLEN, and give the footprints of the VCF text path.
+const OVERFLOW_VCF: &[u8] = b"##fileformat=VCFv4.3\n\
+##INFO=<ID=DB,Number=0,Type=Flag,Description=\"In dbSNP\">\n\
+##INFO=<ID=AF,Number=A,Type=Float,Description=\"Allele frequency\">\n\
+##INFO=<ID=XD,Number=.,Type=Integer,Description=\"Depths\">\n\
+##INFO=<ID=STR,Number=1,Type=String,Description=\"A long string\">\n\
+##INFO=<ID=END,Number=1,Type=Integer,Description=\"End position\">\n\
+##INFO=<ID=SVLEN,Number=.,Type=Integer,Description=\"SV length\">\n\
+##ALT=<ID=DEL,Description=\"Deletion\">\n\
+##contig=<ID=chr1,length=100000>\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+chr1\t100\t.\tACGTACGTACGTACGTACGT\tA\t.\t.\tDB\n\
+chr1\t200\t.\tA\tACGTACGTACGTACGTA\t.\t.\tAF=0.5\n\
+chr1\t250\t.\tACGTACGTACGTACG\tACGTACGTACGTACT\t.\t.\t.\n\
+chr1\t300\t.\tN\t<DEL>\t.\t.\tDB;AF=0.5;XD=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20;STR=aaaaaaaaaaaaaaaaaaaaaaaaa;END=500\n\
+chr1\t600\t.\tN\t<DEL>\t.\t.\tDB;AF=0.25;XD=100000,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16;STR=bbbbbbbbbbbbbbbb;SVLEN=-100\n\
+chr1\t700\t.\tN\t<DEL>,ACGTACGTACGTACGTACGTACGT\t.\t.\tAF=0.1,0.2;XD=70000;END=900\n\
+chr1\t1000\t.\tA\tG\t.\t.\tXD=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15\n";
+
+#[test]
+fn overflow_encodings_and_earlier_info_types_match_the_vcf_text_path() {
+    let bcf_bytes = fixtures::vcf_to_bcf(OVERFLOW_VCF);
+    // the fixture really holds the encodings under test
+    let plain = bgzf_decompress(&bcf_bytes);
+    assert!(
+        plain.windows(2).any(|w| w[0] == 0xF7 && w[1] == 0x11),
+        "an allele string with an overflow length (type 0xF7 then an int8 length)"
+    );
+    for span in [VcfSpan::Allele, VcfSpan::Ref] {
+        let from_vcf = strip_raw(read_all(OVERFLOW_VCF, vcf(span)).1);
+        let from_bcf = strip_raw(read_all(&bcf_bytes, bcf(span)).1);
+        assert_eq!(from_bcf.len(), 7);
+        assert_eq!(from_vcf, from_bcf, "{span:?}");
+    }
+    // spot checks so a shared mistake in both readers cannot hide
+    let recs = strip_raw(read_all(&bcf_bytes, bcf(VcfSpan::Allele)).1);
+    assert_eq!(
+        recs[0],
+        ("chr1".into(), 99, iv(100, 119)),
+        "19-base deletion"
+    );
+    assert_eq!(
+        recs[1],
+        ("chr1".into(), 199, iv(200, 200)),
+        "16-base insertion is a point"
+    );
+    assert_eq!(
+        recs[2],
+        ("chr1".into(), 249, iv(263, 264)),
+        "15-base REF, SNV at its end"
+    );
+    assert_eq!(
+        recs[3],
+        ("chr1".into(), 299, iv(300, 500)),
+        "END after Flag, Float, int vector, string"
+    );
+    assert_eq!(
+        recs[4],
+        ("chr1".into(), 599, iv(600, 700)),
+        "SVLEN after overflow-length values"
+    );
+    assert_eq!(
+        recs[5],
+        ("chr1".into(), 699, iv(699, 900)),
+        "END with a 4-byte int before it"
+    );
+    let ref_span = strip_raw(read_all(&bcf_bytes, bcf(VcfSpan::Ref)).1);
+    assert_eq!(ref_span[0].2, iv(99, 119));
+    // the records pass through byte for byte
+    assert_eq!(bgzf_decompress(&copy_via_raw(&bcf_bytes)), plain);
+    assert_eq!(noodles_records(&bcf_bytes).len(), 7);
+}

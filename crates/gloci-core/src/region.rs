@@ -36,10 +36,11 @@ impl Region {
         }
         let split = s.rfind(':');
         if is_known(s.as_bytes()) {
-            if let Some(i) = split {
-                if is_known(&s.as_bytes()[..i]) && parse_range(s, &s[..i], &s[i + 1..]).is_ok() {
-                    return Err(RegionError::Ambiguous(s.into()));
-                }
+            if let Some(i) = split
+                && is_known(&s.as_bytes()[..i])
+                && parse_range(s, &s[..i], &s[i + 1..]).is_ok()
+            {
+                return Err(RegionError::Ambiguous(s.into()));
             }
             return Ok(whole(s));
         }

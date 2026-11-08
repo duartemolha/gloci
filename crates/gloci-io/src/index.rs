@@ -19,7 +19,8 @@ use crate::error::{IoError, Loc, UsageError};
 use crate::gff::Gff;
 use crate::input::{BGZF_EOF, read_up_to};
 use crate::record::{
-    Class, Header, ReaderOptions, RecordBatch, RecordMeta, RecordReader, TextKind, open_reader_from, warn_undeclared,
+    Class, Header, ReaderOptions, RecordBatch, RecordMeta, RecordReader, TextKind,
+    open_reader_from, warn_undeclared,
 };
 use crate::sorted::OrderGuard;
 use crate::vcf::{Vcf, VcfHeader};
@@ -390,7 +391,7 @@ impl Scanner<'_> {
 
     fn flush(&mut self) -> Result<(), IoError> {
         self.guard.check(&self.chroms, &self.batch).map_err(|e| {
-            let e: IoError = e.into();
+            let e: IoError = e;
             match e {
                 // The records of a BCF can be contiguous per contig and still
                 // fail here: the index needs the contigs in dictionary order.

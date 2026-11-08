@@ -84,7 +84,11 @@ pub fn install_cleanup_handlers() {
         });
         std::panic::set_hook(Box::new(|info| {
             cleanup_registered();
-            let _ = writeln!(io::stderr(), "{}", internal_error_line(&panic_message(info)));
+            let _ = writeln!(
+                io::stderr(),
+                "{}",
+                internal_error_line(&panic_message(info))
+            );
             std::process::exit(1);
         }));
     });

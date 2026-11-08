@@ -68,9 +68,11 @@ impl VcfHeader {
             let line = line.strip_suffix(b"\r").unwrap_or(line);
             for (kind, prefix) in KINDS {
                 if let Some(body) = line.strip_prefix(prefix) {
-                    if let Some((_, id)) = header_fields(body).into_iter().find(|(k, _)| *k == b"ID")
+                    if let Some((_, id)) =
+                        header_fields(body).into_iter().find(|(k, _)| *k == b"ID")
                     {
-                        out.entry((kind, id.to_vec())).or_insert_with(|| line.to_vec());
+                        out.entry((kind, id.to_vec()))
+                            .or_insert_with(|| line.to_vec());
                     }
                     break;
                 }
@@ -247,15 +249,15 @@ impl TextKind for Vcf {
         let (mut end, mut svlen) = (None, None);
         if memchr::memchr(b'<', alts).is_some() {
             for kv in info.split(|&b| b == b';') {
-                if end.is_none() {
-                    if let Some(v) = kv.strip_prefix(b"END=") {
-                        end = Some(coord("INFO/END", v)?);
-                    }
+                if end.is_none()
+                    && let Some(v) = kv.strip_prefix(b"END=")
+                {
+                    end = Some(coord("INFO/END", v)?);
                 }
-                if svlen.is_none() {
-                    if let Some(v) = kv.strip_prefix(b"SVLEN=") {
-                        svlen = Some(v);
-                    }
+                if svlen.is_none()
+                    && let Some(v) = kv.strip_prefix(b"SVLEN=")
+                {
+                    svlen = Some(v);
                 }
             }
         }
