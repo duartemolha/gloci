@@ -205,21 +205,23 @@ fn bcf_output_is_always_bgzf_and_empty_output_is_valid() {
 fn cleanup_registry() {
     let _s = serial();
     let dir = tempfile::tempdir().unwrap();
-    let p = dir.path().join("spill");
-    fs::create_dir(&p).unwrap();
-    fs::write(p.join("a"), b"1").unwrap();
-    let _g = register_temp(&p);
+    let (spill, _g) = create_temp_dir_in(dir.path(), "gloci-test-").unwrap();
+    let run = spill.path().join("a");
+    drop(create_file_in_temp_dir(&run).unwrap());
     let f = dir.path().join("t.tmp-abc");
-    fs::write(&f, b"1").unwrap();
-    let _g2 = register_temp(&f);
+    drop(create_temp_file(&f).unwrap());
+    assert!(
+        create_temp_file(&f).is_err(),
+        "create_new must not reuse a path"
+    );
     cleanup_registered();
-    assert!(!p.exists() && !f.exists());
+    assert!(!spill.path().exists() && !f.exists());
 }
 
-/// A path is created and registered as one step: cleanup that starts while a
-/// creation is paused (after the file exists, before it returns) must wait for
-/// it, then remove the file. Before the fix, creation and registration were
-/// separate steps and cleanup could run between them, leaving the file behind.
+/// Creation of a path and its registration are one step under the registry
+/// lock: cleanup that starts while a creation is paused (file on disk, path
+/// not yet registered) must stay blocked until the creation is registered,
+/// and then remove the file. Before the fix cleanup could run in that gap.
 #[test]
 fn cleanup_waits_for_in_flight_creation() {
     let _s = serial();
@@ -230,19 +232,58 @@ fn cleanup_waits_for_in_flight_creation() {
     let creator = {
         let f = f.clone();
         std::thread::spawn(move || {
-            create_registered_guarded(|| {
-                fs::write(&f, b"1")?;
+            // Stands in for create_temp_file's critical section, with a pause.
+            __test_with_registry_locked(|paths| {
+                fs::write(&f, b"1").unwrap();
                 created_tx.send(()).unwrap();
-                go_rx.recv().unwrap(); // paused with the file created, not yet registered
-                Ok(((), f.clone()))
-            })
-            .unwrap()
+                go_rx.recv().unwrap();
+                paths.push(f.clone());
+            });
         })
     };
     created_rx.recv().unwrap();
     let cleaner = std::thread::spawn(cleanup_registered);
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert!(
+        !cleaner.is_finished(),
+        "cleanup did not wait for the creation"
+    );
     go_tx.send(()).unwrap();
-    let _guard = creator.join().unwrap();
+    creator.join().unwrap();
     cleaner.join().unwrap();
     assert!(!f.exists(), "cleanup ran between creation and registration");
+}
+
+/// A panic while the registry lock is held must exit 1 (after at most a short
+/// wait for the lock), not hang. Runs the panic in a subprocess.
+#[test]
+fn panic_with_registry_locked_exits_instead_of_hanging() {
+    if std::env::var_os("GLOCI_TEST_PANIC_LOCKED").is_some() {
+        install_cleanup_handlers();
+        __test_with_registry_locked(|_| panic!("boom under lock"));
+        unreachable!();
+    }
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "panic_with_registry_locked_exits_instead_of_hanging",
+            "--exact",
+            "--nocapture",
+        ])
+        .env("GLOCI_TEST_PANIC_LOCKED", "1")
+        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let t = std::time::Instant::now();
+    let status = loop {
+        if let Some(st) = child.try_wait().unwrap() {
+            break st;
+        }
+        if t.elapsed() > std::time::Duration::from_secs(20) {
+            child.kill().unwrap();
+            panic!("child hung after a panic with the registry lock held");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+    assert_eq!(status.code(), Some(1));
 }

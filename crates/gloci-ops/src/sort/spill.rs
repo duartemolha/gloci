@@ -1,7 +1,7 @@
 //! Sorted runs on disk: LZ4 frames of `(chrom u32, key u64, end u64,
 //! seq u64, len u32, bytes)` records in a registered temp directory (D24).
 
-use gloci_io::{IoError, TempGuard, create_registered_guarded, create_unregistered};
+use gloci_io::{IoError, TempGuard, create_file_in_temp_dir, create_temp_dir_in};
 use lz4_flex::frame::{BlockMode, BlockSize, FrameDecoder, FrameEncoder, FrameInfo};
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Read, Write};
@@ -35,17 +35,11 @@ pub(crate) struct SpillDir {
 impl SpillDir {
     pub fn create(parent: &Path) -> Result<SpillDir, IoError> {
         // Created and registered under one lock, so a signal can't land between.
-        let (dir, guard) = create_registered_guarded(|| {
-            let dir = tempfile::Builder::new()
-                .prefix("gloci-sort-")
-                .tempdir_in(parent)?;
-            let path = dir.path().to_path_buf();
-            Ok((dir, path))
-        })
-        .map_err(|source| IoError::Write {
-            path: parent.display().to_string(),
-            source,
-        })?;
+        let (dir, guard) =
+            create_temp_dir_in(parent, "gloci-sort-").map_err(|source| IoError::Write {
+                path: parent.display().to_string(),
+                source,
+            })?;
         Ok(SpillDir {
             dir,
             _guard: guard,
@@ -59,8 +53,7 @@ impl SpillDir {
         self.next += 1;
         // Under the registry lock: the termination path removes the directory
         // while holding it, so no run file can appear mid-removal.
-        let file = create_unregistered(|| File::create(&path))
-            .map_err(|source| write_err(&path, source))?;
+        let file = create_file_in_temp_dir(&path).map_err(|source| write_err(&path, source))?;
         let info = FrameInfo::new()
             .block_size(BLOCK)
             .block_mode(BlockMode::Independent);

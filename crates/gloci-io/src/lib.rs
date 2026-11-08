@@ -23,8 +23,9 @@ pub mod vcf;
 pub mod writer;
 
 pub use atomic::{
-    AtomicFile, TempGuard, cleanup_registered, create_registered, create_registered_guarded,
-    create_unregistered, install_cleanup_handlers, internal_error_line, register_temp,
+    __test_with_registry_locked, AtomicFile, TempGuard, cleanup_registered,
+    create_file_in_temp_dir, create_temp_dir_in, create_temp_file, install_cleanup_handlers,
+    internal_error_line,
 };
 pub use bcf::{BcfDicts, read_bcf_header, write_bcf_header};
 pub use bed::{bed12_blocks, is_bed_record_line};

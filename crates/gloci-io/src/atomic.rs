@@ -20,25 +20,48 @@ fn registry() -> MutexGuard<'static, Registry> {
     REGISTRY.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Runs `create` under the registry lock and, on success, registers the path
-/// it returns before the lock is released. The termination path takes the
-/// same lock, so every created path is either registered before cleanup runs
-/// or created after the process is already exiting (the call then blocks
-/// until `exit`). `create` must be a plain filesystem call; it must not panic.
-pub fn create_registered<T>(create: impl FnOnce() -> io::Result<(T, PathBuf)>) -> io::Result<T> {
+// INVARIANT (protected by review): every filesystem creation of a temp path
+// happens in exactly one critical section that holds REGISTRY, makes one
+// syscall and, for registered paths, pushes the path before unlocking. The
+// termination path takes the same lock and holds it until `exit`. Keep all such
+// sections in this file, never run caller-supplied code under the lock, and
+// never call another registry function (or panic) while holding it.
+
+/// Creates `path` (which must not exist) for writing and registers it for
+/// removal on termination, as one step.
+pub fn create_temp_file(path: &Path) -> io::Result<File> {
     let mut r = registry();
-    let (value, path) = create()?;
-    r.paths.push(path);
-    Ok(value)
+    let file = OpenOptions::new().write(true).create_new(true).open(path)?;
+    r.paths.push(path.to_path_buf());
+    Ok(file)
 }
 
-/// Runs `create` under the registry lock without registering anything. Use it
-/// for files created inside an already registered directory: the termination
-/// path removes the directory while holding the lock, so no new file can
-/// appear in it during removal.
-pub fn create_unregistered<T>(create: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
+/// Creates a uniquely named directory `PREFIXxxxxxx` in `parent` and registers
+/// it for removal on termination, as one step. The guard unregisters it.
+pub fn create_temp_dir_in(
+    parent: &Path,
+    prefix: &str,
+) -> io::Result<(tempfile::TempDir, TempGuard)> {
+    let mut r = registry();
+    let dir = tempfile::Builder::new().prefix(prefix).tempdir_in(parent)?;
+    let path = dir.path().to_path_buf();
+    r.paths.push(path.clone());
+    Ok((dir, TempGuard { path }))
+}
+
+/// Creates a file inside a registered temp directory. The file needs no
+/// registration of its own, but creating it under the lock guarantees none
+/// appears while the termination path is removing the directory.
+pub fn create_file_in_temp_dir(path: &Path) -> io::Result<File> {
     let _r = registry();
-    create()
+    File::create(path)
+}
+
+/// Test hook: runs `f` with the registry lock held, passing the registered
+/// paths. Not part of the API.
+#[doc(hidden)]
+pub fn __test_with_registry_locked<T>(f: impl FnOnce(&mut Vec<PathBuf>) -> T) -> T {
+    f(&mut registry().paths)
 }
 
 fn unregister(path: &Path) {
@@ -60,30 +83,6 @@ impl Drop for TempGuard {
     }
 }
 
-/// Registers `path` (file or directory) for removal by [`cleanup_registered`].
-/// The path must already exist; to create and register atomically use
-/// [`create_registered`].
-pub fn register_temp(path: &Path) -> TempGuard {
-    registry().paths.push(path.to_path_buf());
-    TempGuard {
-        path: path.to_path_buf(),
-    }
-}
-
-/// Same as [`create_registered`], returning a guard that unregisters `path`.
-pub fn create_registered_guarded<T>(
-    create: impl FnOnce() -> io::Result<(T, PathBuf)>,
-) -> io::Result<(T, TempGuard)> {
-    let mut guard_path = None;
-    let v = create_registered(|| {
-        let (v, p) = create()?;
-        guard_path = Some(p.clone());
-        Ok((v, p))
-    })?;
-    let path = guard_path.expect("set on success");
-    Ok((v, TempGuard { path }))
-}
-
 fn remove_paths(paths: Vec<PathBuf>) {
     for p in paths {
         if p.is_dir() {
@@ -94,19 +93,38 @@ fn remove_paths(paths: Vec<PathBuf>) {
     }
 }
 
-/// Removes every registered file and directory (best effort).
+/// Removes every registered file and directory (best effort), holding the
+/// registry lock throughout so nothing is created mid-removal.
 pub fn cleanup_registered() {
-    let paths = std::mem::take(&mut registry().paths);
-    remove_paths(paths);
-}
-
-/// Termination path: removes everything and
-/// exits with `code` while still holding the lock, so nothing can be created
-/// (and left behind) between the removal and the exit.
-fn cleanup_and_exit(code: i32) -> ! {
     let mut r = registry();
     remove_paths(std::mem::take(&mut r.paths));
-    std::process::exit(code)
+}
+
+/// Termination path: removes everything and exits with `code` while still
+/// holding the lock, so nothing can be created (and left behind) between the
+/// removal and the exit. Lock holders make a single syscall, so the lock is
+/// waited for at most ~2 s; if it is still unavailable (a panic raised while
+/// this thread holds it, which is a bug) exit without cleanup rather than hang.
+fn cleanup_and_exit(code: i32) -> ! {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        match REGISTRY.try_lock() {
+            Ok(mut r) => {
+                remove_paths(std::mem::take(&mut r.paths));
+                std::process::exit(code)
+            }
+            Err(std::sync::TryLockError::Poisoned(e)) => {
+                remove_paths(std::mem::take(&mut e.into_inner().paths));
+                std::process::exit(code)
+            }
+            Err(std::sync::TryLockError::WouldBlock) => {
+                if std::time::Instant::now() >= deadline {
+                    std::process::exit(code);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        }
+    }
 }
 
 /// The line printed when the program panics, which is always a bug.
@@ -183,14 +201,7 @@ impl AtomicFile {
             let mut tname: OsString = name.to_owned();
             tname.push(format!(".tmp-{}", temp_suffix()));
             let tmp = dest.with_file_name(tname);
-            let opened = create_registered(|| {
-                OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(&tmp)
-                    .map(|f| (f, tmp.clone()))
-            });
-            match opened {
+            match create_temp_file(&tmp) {
                 Ok(file) => {
                     return Ok(AtomicFile {
                         file: Some(file),
