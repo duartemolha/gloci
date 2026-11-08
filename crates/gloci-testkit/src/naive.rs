@@ -669,7 +669,13 @@ pub fn naive_closest(a: &[TestRec], b: &[Vec<TestRec>], q: &NaiveClosest) -> Vec
                 if labelled {
                     s.push_str("\t.");
                 }
-                s.push_str("\t.\t-1\t-1\t.\t-1\t.");
+                // as the implementation: B's first record sets the width, 3
+                // columns when the first file is empty
+                if b.first().is_some_and(|f| !f.is_empty()) {
+                    s.push_str("\t.\t-1\t-1\t.\t-1\t.");
+                } else {
+                    s.push_str("\t.\t-1\t-1");
+                }
                 if show_distance {
                     s.push_str("\t-1");
                 }
