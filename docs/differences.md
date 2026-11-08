@@ -432,3 +432,34 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   bedtools default is the same.
 - **Pinned by:** `map-empty-sum-vs-bedops` (must differ). With every A
   overlapped, `map-sum-vs-bedops` and `map-mean-vs-bedops` match.
+
+## `coverage` of a point A has no bases {#coverage-point}
+
+- **gloci:** a point A (a zero-length feature) covers no bases. `coverage`
+  writes the number of B that overlap it (spec 4.3), 0 covered bases,
+  length 0 and fraction `.`. `--mean` writes `.`, and `--hist` and
+  `--per-base` write no rows for it. Points add nothing to the `all` rows.
+- **Old behaviour:** `bedtools coverage` treats the point as two bases long:
+  `chr1 10 10` with an overlapping B reports 2 covered bases of length 2
+  (fraction 1), two `-d` rows and a `-hist` row at depth 1.
+- **Reason:** a feature with no bases has no covered fraction, and counting
+  invented bases would skew the `all` totals.
+- **Pinned by:** `coverage-point-default-vs-bedtools`,
+  `coverage-point-hist-vs-bedtools`, `coverage-point-per-base-vs-bedtools` and
+  `coverage-point-mean-vs-bedtools` (must differ).
+
+## `coverage --split` measures A by its blocks {#coverage-split-length}
+
+- **gloci:** with `--split`, depth counts the bases shared by a block of A
+  and a block of B, and A's length is the sum of A's blocks, so the
+  fraction is covered block bases over block bases. `--hist` has no depth-0
+  row for the gap between blocks, and `--per-base` offsets run along the
+  blocks.
+- **Old behaviour:** `bedtools coverage -split` counts the same covered
+  bases but divides by A's whole span, so introns count as uncovered, and
+  `-hist` reports them at depth 0.
+- **Reason:** for a spliced feature the fraction of its own bases covered
+  is the useful number, and it agrees with the block lengths that
+  `-f`/`-F` use under `--split`.
+- **Pinned by:** `coverage-split-vs-bedtools` and
+  `coverage-split-hist-vs-bedtools` (must differ).

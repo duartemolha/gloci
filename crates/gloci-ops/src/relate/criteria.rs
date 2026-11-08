@@ -141,6 +141,13 @@ impl<'o> Acceptor<'o> {
         Ok(blocks_overlap_len(ab, &bb))
     }
 
+    /// A's blocks under `--split` (one block, its span, for a record
+    /// without BED12 blocks), kept for the hits of this A.
+    pub fn a_blocks(&mut self, a: &ARec) -> Result<&[Interval], IoError> {
+        self.load_a_blocks(a)?;
+        Ok(&self.a_blocks.as_ref().expect("set above").1)
+    }
+
     /// The blocks of `hit` (B's own, unpadded): its BED12 blocks under
     /// `--split` when it has them, else its span as one block.
     pub fn hit_blocks(&self, hit: &Hit) -> Result<Vec<Interval>, IoError> {

@@ -861,3 +861,88 @@ pub fn naive_map(
     }
     out
 }
+
+/// What [`naive_depth`] finds for one A record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NaiveDepth {
+    /// B records that count (as `naive_intersect`'s: D36, D37).
+    pub count: u64,
+    /// A's depth as runs `(start, end, depth)` that tile A's span in order,
+    /// cut at every edge of a counting B. Empty for a point.
+    pub runs: Vec<(u64, u64, u64)>,
+}
+
+impl NaiveDepth {
+    /// A's length in bases.
+    pub fn len(&self) -> u64 {
+        self.runs.iter().map(|r| r.1 - r.0).sum()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.runs.is_empty()
+    }
+
+    /// Bases with depth above 0.
+    pub fn covered(&self) -> u64 {
+        self.runs
+            .iter()
+            .filter(|r| r.2 > 0)
+            .map(|r| r.1 - r.0)
+            .sum()
+    }
+
+    /// Sum of the depth over all bases.
+    pub fn total_depth(&self) -> u64 {
+        self.runs.iter().map(|r| (r.1 - r.0) * r.2).sum()
+    }
+
+    /// The depth of each base in turn (for short A only).
+    pub fn per_base(&self) -> Vec<u64> {
+        self.runs
+            .iter()
+            .flat_map(|r| std::iter::repeat_n(r.2, usize::try_from(r.1 - r.0).unwrap()))
+            .collect()
+    }
+}
+
+/// `coverage` depth, by brute force: for each A in the order given, the
+/// number of B that count and A's depth, with each such B (from any of the
+/// `b` files) adding 1 over the bases it shares with A. The depth at each
+/// run is found by testing every counting B. A window is not supported, as
+/// in `coverage`.
+pub fn naive_depth(
+    a: &[TestRec],
+    b: &[Vec<TestRec>],
+    criteria: &OverlapCriteria,
+) -> Vec<NaiveDepth> {
+    a.iter()
+        .map(|ra| {
+            let hits = naive_accepted(ra, b, criteria, None);
+            let s = ra.span();
+            let mut cuts = vec![s.start, s.end];
+            for (_, rb) in &hits {
+                let t = rb.span();
+                cuts.extend([t.start.clamp(s.start, s.end), t.end.clamp(s.start, s.end)]);
+            }
+            cuts.sort_unstable();
+            cuts.dedup();
+            let runs = cuts
+                .windows(2)
+                .map(|w| {
+                    let depth = hits
+                        .iter()
+                        .filter(|(_, rb)| {
+                            let t = rb.span();
+                            t.start <= w[0] && w[1] <= t.end && t.start < t.end
+                        })
+                        .count() as u64;
+                    (w[0], w[1], depth)
+                })
+                .collect();
+            NaiveDepth {
+                count: hits.len() as u64,
+                runs,
+            }
+        })
+        .collect()
+}

@@ -1160,3 +1160,119 @@ aux = ["xtask/diff/inputs/map-b-disjoint.bed"]
 gloci = "gloci map --chrom-order lex -a input.bed -b map-b-disjoint.bed -w 100 -c 0:bases"
 reference = "bedmap --echo --range 100 --bases input.bed map-b-disjoint.bed | tr '|' '\\t'"
 compare = "exact"
+
+# coverage. bedtools coverage and annotate (D36-D38, D46, D56, D57).
+
+[[case]]
+name = "coverage-default-vs-bedtools"
+input = { file = "xtask/diff/inputs/cov-a.bed" }
+aux = ["xtask/diff/inputs/cov-b.bed"]
+gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-b.bed"
+reference = "bedtools coverage -a input.bed -b cov-b.bed"
+compare = "numeric"
+
+[[case]]
+name = "coverage-hist-vs-bedtools"
+input = { file = "xtask/diff/inputs/cov-a.bed" }
+aux = ["xtask/diff/inputs/cov-b.bed"]
+gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-b.bed --hist"
+reference = "bedtools coverage -a input.bed -b cov-b.bed -hist"
+compare = "numeric"
+
+[[case]]
+name = "coverage-per-base-vs-bedtools"
+input = { file = "xtask/diff/inputs/cov-a.bed" }
+aux = ["xtask/diff/inputs/cov-b.bed"]
+gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-b.bed --per-base"
+reference = "bedtools coverage -a input.bed -b cov-b.bed -d"
+compare = "numeric"
+
+[[case]]
+name = "coverage-mean-vs-bedtools"
+input = { file = "xtask/diff/inputs/cov-a.bed" }
+aux = ["xtask/diff/inputs/cov-b.bed"]
+gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-b.bed --mean"
+reference = "bedtools coverage -a input.bed -b cov-b.bed -mean"
+compare = "numeric"
+
+[[case]]
+name = "coverage-same-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/cov-a.bed" }
+aux = ["xtask/diff/inputs/cov-b.bed"]
+gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-b.bed -s"
+reference = "bedtools coverage -a input.bed -b cov-b.bed -s"
+compare = "numeric"
+
+[[case]]
+name = "coverage-fraction-vs-bedtools"
+input = { file = "xtask/diff/inputs/cov-a.bed" }
+aux = ["xtask/diff/inputs/cov-b.bed"]
+gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-b.bed -f 0.5"
+reference = "bedtools coverage -a input.bed -b cov-b.bed -f 0.5"
+compare = "numeric"
+
+# bedtools annotate prints one covered fraction per file, as coverage with several -b does.
+[[case]]
+name = "coverage-annotate-vs-bedtools"
+input = { file = "xtask/diff/inputs/cov-a.bed" }
+aux = ["xtask/diff/inputs/cov-b.bed", "xtask/diff/inputs/cov-b2.bed"]
+gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-b.bed cov-b2.bed"
+reference = "bedtools annotate -i input.bed -files cov-b.bed cov-b2.bed"
+compare = "numeric"
+
+# A point has no bases. gloci reports its overlapping B with 0 bases, length 0 and
+# fraction `.`; bedtools treats it as 2 bases long (D56). `-d`, `-hist` and `-mean` differ too.
+[[case]]
+name = "coverage-point-default-vs-bedtools"
+input = { file = "xtask/diff/inputs/cov-points-a.bed" }
+aux = ["xtask/diff/inputs/cov-points-b.bed"]
+gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-points-b.bed"
+reference = "bedtools coverage -a input.bed -b cov-points-b.bed"
+compare = "numeric"
+expected_difference = "#coverage-point"
+
+[[case]]
+name = "coverage-point-hist-vs-bedtools"
+input = { file = "xtask/diff/inputs/cov-points-a.bed" }
+aux = ["xtask/diff/inputs/cov-points-b.bed"]
+gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-points-b.bed --hist"
+reference = "bedtools coverage -a input.bed -b cov-points-b.bed -hist"
+compare = "numeric"
+expected_difference = "#coverage-point"
+
+[[case]]
+name = "coverage-point-per-base-vs-bedtools"
+input = { file = "xtask/diff/inputs/cov-points-a.bed" }
+aux = ["xtask/diff/inputs/cov-points-b.bed"]
+gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-points-b.bed --per-base"
+reference = "bedtools coverage -a input.bed -b cov-points-b.bed -d"
+compare = "numeric"
+expected_difference = "#coverage-point"
+
+[[case]]
+name = "coverage-point-mean-vs-bedtools"
+input = { file = "xtask/diff/inputs/cov-points-a.bed" }
+aux = ["xtask/diff/inputs/cov-points-b.bed"]
+gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-points-b.bed --mean"
+reference = "bedtools coverage -a input.bed -b cov-points-b.bed -mean"
+compare = "numeric"
+expected_difference = "#coverage-point"
+
+# With --split A's length is the sum of its blocks; bedtools divides by A's whole span.
+[[case]]
+name = "coverage-split-vs-bedtools"
+input = { file = "xtask/diff/inputs/cov-split-a.bed" }
+aux = ["xtask/diff/inputs/cov-split-b.bed"]
+gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-split-b.bed --split"
+reference = "bedtools coverage -a input.bed -b cov-split-b.bed -split"
+compare = "numeric"
+expected_difference = "#coverage-split-length"
+
+[[case]]
+name = "coverage-split-hist-vs-bedtools"
+input = { file = "xtask/diff/inputs/cov-split-a.bed" }
+aux = ["xtask/diff/inputs/cov-split-b.bed"]
+gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-split-b.bed --split --hist"
+reference = "bedtools coverage -a input.bed -b cov-split-b.bed -split -hist"
+compare = "numeric"
+expected_difference = "#coverage-split-length"

@@ -346,6 +346,38 @@ Examples:
   gloci map -a snps.vcf.gz -b regions.bed -c 4:distinct --delim ';'
   gloci map -a genes.bed -b peaks.bed -w 100 -c 0:count -c 0:bases")]
     Map(MapArgs),
+    /// How much of each A the B records cover (bedtools coverage and annotate).
+    ///
+    /// For each A, in A's order, counts the B records that overlap it (the
+    /// criteria of intersect: -f, -F, -r, -e, --min-bases, -s, -S, --split,
+    /// --inclusive-points) and writes A's record followed by the number of
+    /// hits, the bases of A covered by at least one hit, A's length and the
+    /// covered fraction. --hist writes one row per depth present in A
+    /// (depth, bases at that depth, A's length, fraction) and, after the
+    /// last A, `all` rows with the totals. --per-base writes one row per
+    /// base of A (1-based offset, depth). --mean writes the mean depth over
+    /// A. With several -b files only the default report is allowed and each
+    /// file gives one covered fraction (bedtools annotate).
+    ///
+    /// With --split, A and B are their BED12 blocks: depth counts the bases
+    /// shared by an A block and a B block, A's length is the sum of its
+    /// blocks, and --per-base offsets run along the blocks. A point A covers
+    /// no bases: it reports its hit count, 0, 0 and `.`, --mean gives `.`,
+    /// and --hist and --per-base write no rows for it. Fractions and means
+    /// print in the shortest exact decimal form (0.3, not 0.3000000).
+    ///
+    /// A and every B must be sorted in one chromosome order, which is
+    /// checked as they are read. With --unsorted, any order works, A is
+    /// still streamed in its own order, and every -b file is loaded into
+    /// memory, so memory grows with the size of B. The output is TSV with
+    /// A's columns first.
+    #[command(after_long_help = "\
+Examples:
+  gloci coverage -a genes.bed -b reads.bed
+  gloci coverage -a genes.bed -b reads.bed --hist
+  gloci coverage -a exons.bed -b reads.bed --per-base -s
+  gloci coverage -a peaks.bed -b rep1.bed rep2.bed --names r1,r2")]
+    Coverage(CoverageArgs),
 }
 
 /// What `intersect` reports.
@@ -520,6 +552,41 @@ pub struct ClosestArgs {
     /// A point on the edge of an interval overlaps it (4.3: points).
     #[arg(long)]
     pub inclusive_points: bool,
+    #[command(flatten)]
+    pub u: UnsortedArg,
+    #[command(flatten)]
+    pub genome: GenomeArg,
+    #[command(flatten)]
+    pub chrom_order: ChromOrderArg,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub header: HeaderArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+#[derive(Args)]
+pub struct CoverageArgs {
+    #[command(flatten)]
+    pub a: AArg,
+    #[command(flatten)]
+    pub b: BArgs,
+    /// One row per depth present in A, then `all` rows with the totals.
+    #[arg(long, group = "report")]
+    pub hist: bool,
+    /// One row per base of A: its 1-based offset and depth.
+    #[arg(long, group = "report")]
+    pub per_base: bool,
+    /// The mean depth over A.
+    #[arg(long, group = "report")]
+    pub mean: bool,
+    #[command(flatten)]
+    pub o: OverlapArgs,
     #[command(flatten)]
     pub u: UnsortedArg,
     #[command(flatten)]

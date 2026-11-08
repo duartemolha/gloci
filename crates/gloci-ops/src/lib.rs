@@ -4,6 +4,7 @@ pub mod agg;
 pub mod bedsearch;
 pub mod check;
 pub mod closest;
+pub mod coverage;
 pub mod intersect;
 pub mod map;
 pub mod merge;

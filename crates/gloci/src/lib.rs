@@ -192,6 +192,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         Commands::Subtract(a) => (a.threads.threads, None),
         Commands::Closest(a) => (a.threads.threads, None),
         Commands::Map(a) => (a.threads.threads, None),
+        Commands::Coverage(a) => (a.threads.threads, None),
     };
     let threads = requested
         .unwrap_or_else(|| std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN));
@@ -219,6 +220,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         Commands::Subtract(a) => commands::subtract::run(&ctx, a),
         Commands::Closest(a) => commands::closest::run(&ctx, a),
         Commands::Map(a) => commands::map::run(&ctx, a),
+        Commands::Coverage(a) => commands::coverage::run(&ctx, a),
     };
     match result {
         Ok(()) if all_ok => ExitCode::SUCCESS,
