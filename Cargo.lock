@@ -598,7 +598,6 @@ dependencies = [
 name = "gloci-vcf"
 version = "0.1.0"
 dependencies = [
- "gloci-core",
  "gloci-io",
  "gloci-testkit",
  "memchr",
