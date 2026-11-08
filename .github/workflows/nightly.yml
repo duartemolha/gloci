@@ -79,7 +79,7 @@ jobs:
             cp -n fuzz/seeds/"$t"/* "fuzz/corpus/$t"/
             dict=""
             [ "$t" = vcf_reader ] && dict="-dict=fuzz/vcf.dict"
-            cargo fuzz run --fuzz-dir fuzz "$t" -- -max_total_time=60 $dict || rc=1
+            cargo +nightly fuzz run --fuzz-dir fuzz "$t" -- -max_total_time=60 $dict || rc=1
           done
           exit $rc
       - uses: actions/upload-artifact@v4
