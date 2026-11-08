@@ -1,0 +1,1 @@
+intersect --chrom-order lex --vcf-span ref --mode pairs --keep-unmatched --overlap-bases -a input.bed -b rel-b.vcf

@@ -1,0 +1,4 @@
+##gff-version 3
+chr1	src	exon	100	300	.	+	.	ID=e1
+chr1	src	gene	600	650	.	+	.	ID=g1
+chr2	src	exon	45	55	.	-	.	ID=e2

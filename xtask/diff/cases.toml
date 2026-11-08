@@ -399,3 +399,203 @@ input = { file = "xtask/diff/inputs/bedlike.tsv" }
 gloci = '''set -e; bgzip -c input.tsv > g.tsv.gz; gloci index -s 1 -b 2 -e 3 --zero-based g.tsv.gz; zcat g.tsv.gz.tbi | head -c 32 | od -An -tx4'''
 reference = '''set -e; bgzip -c input.tsv > t.tsv.gz; tabix -s1 -b2 -e3 -0 t.tsv.gz; zcat t.tsv.gz.tbi | head -c 32 | od -An -tx4'''
 compare = "exact"
+
+# intersect (Task 9): rel-a.bed / rel-b.bed are BED6 with strands, lex-sorted, no
+# points. rel-points-*.bed hold points. rel-a.vcf / rel-b.vcf are for --match
+# alleles, rel-vcf-b.bed has regions on the anchor bases of an insertion and a
+# deletion.
+
+[[case]]
+name = "intersect-any-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci intersect --chrom-order lex -a input.bed -b rel-b.bed --mode any"
+reference = "bedtools intersect -sorted -a input.bed -b rel-b.bed -u"
+compare = "exact"
+
+[[case]]
+name = "intersect-none-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci intersect --chrom-order lex -a input.bed -b rel-b.bed --mode none"
+reference = "bedtools intersect -sorted -a input.bed -b rel-b.bed -v"
+compare = "exact"
+
+[[case]]
+name = "intersect-pairs-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci intersect --chrom-order lex -a input.bed -b rel-b.bed --mode pairs"
+reference = "bedtools intersect -sorted -a input.bed -b rel-b.bed -wa -wb"
+compare = "exact"
+
+[[case]]
+name = "intersect-overlap-bases-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci intersect --chrom-order lex -a input.bed -b rel-b.bed --mode pairs --overlap-bases"
+reference = "bedtools intersect -sorted -a input.bed -b rel-b.bed -wo"
+compare = "exact"
+
+[[case]]
+name = "intersect-keep-unmatched-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci intersect --chrom-order lex -a input.bed -b rel-b.bed --mode pairs --keep-unmatched --overlap-bases"
+reference = "bedtools intersect -sorted -a input.bed -b rel-b.bed -wao"
+compare = "exact"
+
+[[case]]
+name = "intersect-count-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci intersect --chrom-order lex -a input.bed -b rel-b.bed --mode count"
+reference = "bedtools intersect -sorted -a input.bed -b rel-b.bed -c"
+compare = "exact"
+
+[[case]]
+name = "intersect-clip-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci intersect --chrom-order lex -a input.bed -b rel-b.bed --mode clip"
+reference = "bedtools intersect -sorted -a input.bed -b rel-b.bed"
+compare = "exact"
+
+[[case]]
+name = "intersect-f-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci intersect --chrom-order lex -a input.bed -b rel-b.bed --mode pairs -f 0.5"
+reference = "bedtools intersect -sorted -a input.bed -b rel-b.bed -wa -wb -f 0.5"
+compare = "exact"
+
+[[case]]
+name = "intersect-F-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci intersect --chrom-order lex -a input.bed -b rel-b.bed --mode pairs -F 0.5"
+reference = "bedtools intersect -sorted -a input.bed -b rel-b.bed -wa -wb -F 0.5"
+compare = "exact"
+
+[[case]]
+name = "intersect-r-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci intersect --chrom-order lex -a input.bed -b rel-b.bed --mode pairs -r -f 0.5"
+reference = "bedtools intersect -sorted -a input.bed -b rel-b.bed -wa -wb -r -f 0.5"
+compare = "exact"
+
+[[case]]
+name = "intersect-e-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci intersect --chrom-order lex -a input.bed -b rel-b.bed --mode pairs -e -f 0.5 -F 0.5"
+reference = "bedtools intersect -sorted -a input.bed -b rel-b.bed -wa -wb -e -f 0.5 -F 0.5"
+compare = "exact"
+
+[[case]]
+name = "intersect-s-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci intersect --chrom-order lex -a input.bed -b rel-b.bed --mode pairs -s"
+reference = "bedtools intersect -sorted -a input.bed -b rel-b.bed -wa -wb -s"
+compare = "exact"
+
+[[case]]
+name = "intersect-S-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci intersect --chrom-order lex -a input.bed -b rel-b.bed --mode pairs -S"
+reference = "bedtools intersect -sorted -a input.bed -b rel-b.bed -wa -wb -S"
+compare = "exact"
+
+[[case]]
+name = "intersect-window-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci intersect --chrom-order lex -a input.bed -b rel-b.bed --mode pairs -w 10"
+reference = "bedtools window -a input.bed -b rel-b.bed -w 10"
+compare = "exact"
+
+[[case]]
+name = "intersect-strand-window-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci intersect --chrom-order lex -a input.bed -b rel-b.bed --mode pairs --left 5 --right 20 --strand-window"
+reference = "bedtools window -a input.bed -b rel-b.bed -l 5 -r 20 -sw"
+compare = "exact"
+
+[[case]]
+name = "intersect-fraction-vs-bedops"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci intersect --chrom-order lex -a input.bed -b rel-b.bed -f 50%"
+reference = "bedops --element-of 50% input.bed rel-b.bed"
+compare = "exact"
+expected_difference = "#per-record-overlap-fraction"
+
+[[case]]
+name = "intersect-none-vs-bedops"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci intersect --chrom-order lex -a input.bed -b rel-b.bed --mode none"
+reference = "bedops --not-element-of 1 input.bed rel-b.bed"
+compare = "exact"
+
+[[case]]
+name = "intersect-alleles-vs-bcftools"
+input = { file = "xtask/diff/inputs/rel-a.vcf" }
+aux = ["xtask/diff/inputs/rel-b.vcf"]
+gloci = "gloci intersect --chrom-order lex --match alleles -a input.vcf -b rel-b.vcf"
+reference = "bgzip -c input.vcf > a.vcf.gz && bgzip -c rel-b.vcf > b.vcf.gz && tabix a.vcf.gz && tabix b.vcf.gz && bcftools isec -n=2 -w1 -c none a.vcf.gz b.vcf.gz"
+compare = "vcf-records"
+
+[[case]]
+name = "intersect-vcf-ref-span-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-a.vcf" }
+aux = ["xtask/diff/inputs/rel-vcf-b.bed"]
+gloci = "gloci intersect --chrom-order lex --vcf-span ref --mode any -a input.vcf -b rel-vcf-b.bed"
+reference = "bedtools intersect -sorted -u -a input.vcf -b rel-vcf-b.bed"
+compare = "vcf-records"
+
+[[case]]
+name = "intersect-vcf-allele-span-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-a.vcf" }
+aux = ["xtask/diff/inputs/rel-vcf-b.bed"]
+gloci = "gloci intersect --chrom-order lex --mode any -a input.vcf -b rel-vcf-b.bed"
+reference = "bedtools intersect -sorted -u -a input.vcf -b rel-vcf-b.bed"
+compare = "vcf-records"
+expected_difference = "#vcf-allele-span"
+
+[[case]]
+name = "intersect-points-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-points-a.bed" }
+aux = ["xtask/diff/inputs/rel-points-b.bed"]
+gloci = "gloci intersect --chrom-order lex --mode pairs -a input.bed -b rel-points-b.bed"
+reference = "bedtools intersect -sorted -wa -wb -a input.bed -b rel-points-b.bed"
+compare = "exact"
+expected_difference = "#zero-length-overlap"
+
+[[case]]
+name = "intersect-keep-unmatched-vcf-b-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-vcf-b.bed" }
+aux = ["xtask/diff/inputs/rel-b.vcf"]
+gloci = "gloci intersect --chrom-order lex --vcf-span ref --mode pairs --keep-unmatched --overlap-bases -a input.bed -b rel-b.vcf"
+reference = "bedtools intersect -sorted -wao -a input.bed -b rel-b.vcf"
+compare = "exact"
+
+[[case]]
+name = "intersect-keep-unmatched-gff-b-vs-bedtools"
+input = { file = "xtask/diff/inputs/rel-vcf-b.bed" }
+aux = ["xtask/diff/inputs/rel-b.gff3"]
+gloci = "gloci intersect --chrom-order lex --mode pairs --keep-unmatched --overlap-bases -a input.bed -b rel-b.gff3"
+reference = "bedtools intersect -sorted -wao -a input.bed -b rel-b.gff3"
+compare = "exact"
+
+[[case]]
+name = "intersect-any-vs-bedops"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed"]
+gloci = "gloci intersect --chrom-order lex -a input.bed -b rel-b.bed"
+reference = "bedops --element-of 1 input.bed rel-b.bed"
+compare = "exact"

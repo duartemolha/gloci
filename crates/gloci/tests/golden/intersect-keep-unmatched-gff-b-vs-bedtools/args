@@ -1,0 +1,1 @@
+intersect --chrom-order lex --mode pairs --keep-unmatched --overlap-bases -a input.bed -b rel-b.gff3

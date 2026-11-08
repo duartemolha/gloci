@@ -30,17 +30,40 @@ pub fn rewrite_coords(format: Format, raw: &[u8], iv: Interval, out: &mut Vec<u8
     }
 }
 
-/// The columns written for a missing B (D45): for BED-family B, `.`, `-1`,
-/// `-1`, then `.` for each further column (`b_columns` is B's column
-/// count); for other formats, `.` for every column.
+/// The columns written for a missing B (D45, as bedtools writes them,
+/// verified against 2.31.1): `b_columns` is B's column count.
+///
+/// - **BED-family:** `.`, `-1`, `-1`, then `.` for each further column,
+///   except that the score of a 5- or 6-column B is `-1`.
+/// - **GFF/GTF:** `.` for seqid, source and type, `-1` for start and end,
+///   then `.`.
+/// - **VCF/BCF:** `.` for the chromosome, `-1` for POS, then `.`.
+///
+/// This corrects D45's first wording, which had `.` for every column of a
+/// VCF/GFF B and for the score of a BED5/BED6 B.
 pub fn b_placeholder(b_format: Format, b_columns: usize, out: &mut Vec<u8>) {
-    let mut fields: Vec<&str> = Vec::new();
-    match b_format {
+    let mut fields: Vec<&str> = match b_format {
         Format::Bed | Format::BedGraph => {
-            fields.extend([".", "-1", "-1"]);
-            fields.resize(b_columns.max(3), ".");
+            let mut f = vec![".", "-1", "-1"];
+            f.resize(b_columns.max(3), ".");
+            if matches!(b_columns, 5 | 6) {
+                f[4] = "-1";
+            }
+            f
         }
-        _ => fields.resize(b_columns, "."),
+        Format::Gff3 | Format::Gtf => {
+            let mut f = vec![".", ".", ".", "-1", "-1"];
+            f.resize(b_columns.max(5), ".");
+            f
+        }
+        Format::Vcf | Format::Bcf => {
+            let mut f = vec![".", "-1"];
+            f.resize(b_columns.max(2), ".");
+            f
+        }
+    };
+    if fields.is_empty() {
+        fields.push(".");
     }
     out.extend_from_slice(fields.join("\t").as_bytes());
 }

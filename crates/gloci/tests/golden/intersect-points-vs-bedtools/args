@@ -1,0 +1,1 @@
+intersect --chrom-order lex --mode pairs -a input.bed -b rel-points-b.bed

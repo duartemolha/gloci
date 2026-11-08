@@ -180,6 +180,58 @@ add ##contig=<ID={c}> to the header"
     }
 }
 
+/// Renders the records of a BCF input as VCF text lines, as `view -O vcf`
+/// writes them, for commands that print records in a TSV.
+pub struct BcfText {
+    name: String,
+    conv: Converter,
+    line: Vec<u8>,
+}
+
+impl BcfText {
+    /// A renderer for `reader` when it is BCF; `None` for any other
+    /// format, whose raw records are already text.
+    pub fn for_reader(reader: &dyn RecordReader) -> Result<Option<BcfText>, IoError> {
+        let (Format::Bcf, Header::Vcf(h)) = (reader.format(), reader.header()) else {
+            return Ok(None);
+        };
+        Ok(Some(BcfText {
+            name: reader.name().to_string(),
+            conv: Converter::new(reader.name(), h, Format::Bcf)?,
+            line: Vec::new(),
+        }))
+    }
+
+    /// The VCF line of the BCF record `raw` (record number `loc`), without
+    /// a newline. Valid until the next call.
+    pub fn render(&mut self, raw: &[u8], loc: u64) -> Result<&[u8], IoError> {
+        let fail = |e: std::io::Error| IoError::Parse {
+            path: self.name.clone(),
+            loc: Loc::Record(loc),
+            msg: format!("cannot render the record as VCF text: {e}"),
+        };
+        let Encoder::ToVcf(w) = &mut self.conv.enc else {
+            return Err(internal(
+                &self.name,
+                "internal error: not a BCF renderer".into(),
+            ));
+        };
+        let mut rec = noodles_bcf::Record::default();
+        noodles_bcf::io::Reader::from(raw)
+            .read_record(&mut rec)
+            .map_err(fail)?;
+        w.write_variant_record(&self.conv.header, &rec)
+            .map_err(fail)?;
+        self.line.clear();
+        self.line.extend_from_slice(w.get_ref());
+        w.get_mut().clear();
+        while self.line.last() == Some(&b'\n') {
+            self.line.pop();
+        }
+        Ok(&self.line)
+    }
+}
+
 /// Convert `reader`'s records (VCF to BCF or BCF to VCF) into `out`, in the
 /// format `to`, and publish the output. Returns the number of records
 /// written. `guard` checks the input's order batch by batch. Write errors

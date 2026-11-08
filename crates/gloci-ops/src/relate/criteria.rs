@@ -2,7 +2,7 @@
 
 use super::{RelateInputs, RelateOptions};
 use gloci_core::{
-    Interval, OverlapCriteria, Strand, StrandRule, blocks_overlap, blocks_overlap_len,
+    Interval, OverlapCriteria, Strand, StrandRule, blocks_overlap, blocks_overlap_len, overlap_len,
 };
 use gloci_engine::{ARec, Hit};
 use gloci_io::{Format, IoError, Loc, RecordReader, bed12_blocks};
@@ -87,16 +87,9 @@ impl<'o> Acceptor<'o> {
                 None => c.accepts(a_span, a.meta.strand, b_span, hit.strand),
             });
         }
-        if self.a_blocks.as_ref().is_none_or(|(l, _)| *l != a.meta.loc) {
-            let (name, bed) = &self.inputs[0];
-            let b = blocks(*bed, name, a.meta.loc, a.raw, a_span)?;
-            self.a_blocks = Some((a.meta.loc, b));
-        }
+        self.load_a_blocks(a)?;
         let ab = &self.a_blocks.as_ref().expect("set above").1;
-        let (name, bed) = self
-            .inputs
-            .get(usize::from(hit.file) + 1)
-            .ok_or_else(|| IoError::Internal(format!("hit from unknown B input {}", hit.file)))?;
+        let (name, bed) = self.hit_input(hit)?;
         let mut bb = blocks(*bed, name, hit.loc, hit.raw, b_span)?;
         if let Some(w) = o.window {
             for x in &mut bb {
@@ -133,5 +126,33 @@ impl<'o> Acceptor<'o> {
             ..*c
         };
         Ok(c.accepts(sa, a.meta.strand, sb, hit.strand))
+    }
+
+    /// Bases shared by `a` and `hit` (unpadded): the span overlap, or with
+    /// `--split` the overlap of the blocks. Zero for points.
+    pub fn overlap_len(&mut self, a: &ARec, hit: &Hit) -> Result<u64, IoError> {
+        if !self.o.split {
+            return Ok(overlap_len(a.meta.span, hit.span));
+        }
+        self.load_a_blocks(a)?;
+        let ab = &self.a_blocks.as_ref().expect("set above").1;
+        let (name, bed) = self.hit_input(hit)?;
+        let bb = blocks(*bed, name, hit.loc, hit.raw, hit.span)?;
+        Ok(blocks_overlap_len(ab, &bb))
+    }
+
+    fn load_a_blocks(&mut self, a: &ARec) -> Result<(), IoError> {
+        if self.a_blocks.as_ref().is_none_or(|(l, _)| *l != a.meta.loc) {
+            let (name, bed) = &self.inputs[0];
+            let b = blocks(*bed, name, a.meta.loc, a.raw, a.meta.span)?;
+            self.a_blocks = Some((a.meta.loc, b));
+        }
+        Ok(())
+    }
+
+    fn hit_input(&self, hit: &Hit) -> Result<&(String, bool), IoError> {
+        self.inputs
+            .get(usize::from(hit.file) + 1)
+            .ok_or_else(|| IoError::Internal(format!("hit from unknown B input {}", hit.file)))
     }
 }

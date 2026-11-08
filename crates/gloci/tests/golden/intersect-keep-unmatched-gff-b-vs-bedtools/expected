@@ -1,0 +1,5 @@
+chr1	95	105	r1	chr1	src	exon	100	300	.	+	.	ID=e1	6
+chr1	190	200	r2	chr1	src	exon	100	300	.	+	.	ID=e1	10
+chr1	295	300	r3	chr1	src	exon	100	300	.	+	.	ID=e1	5
+chr1	700	710	r5	.	.	.	-1	-1	.	.	.	.	0
+chr2	40	60	r4	chr2	src	exon	45	55	.	-	.	ID=e2	11

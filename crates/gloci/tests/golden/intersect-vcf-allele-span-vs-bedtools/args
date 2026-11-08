@@ -1,0 +1,1 @@
+intersect --chrom-order lex --mode any -a input.vcf -b rel-vcf-b.bed

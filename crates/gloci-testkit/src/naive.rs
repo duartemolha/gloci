@@ -10,7 +10,7 @@
 //! own table tests pin.
 
 use crate::strategies::{Feature, TestRec};
-use gloci_core::{Interval, Strand, StrandRule, Window, distance, overlaps};
+use gloci_core::{Interval, OverlapCriteria, Strand, StrandRule, Window, distance, overlaps};
 
 fn inside(p: u64, start: u64, end: u64, inclusive: bool) -> bool {
     if inclusive {
@@ -252,4 +252,112 @@ pub fn karyotype_rank(names: &[&str]) -> impl Fn(&str) -> u32 {
     sorted.sort_by_key(|n| key(n));
     sorted.dedup();
     move |n: &str| sorted.iter().position(|s| s == n).unwrap_or(sorted.len()) as u32
+}
+
+/// What [`naive_intersect`] reports (the `intersect --mode` choices that
+/// write one line per record or pair).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NaiveMode {
+    Any,
+    None,
+    Pairs {
+        overlap_bases: bool,
+        keep_unmatched: bool,
+    },
+    Count,
+}
+
+/// `intersect`, by brute force, as the lines gloci writes for BED inputs.
+/// For each A in the order given: the B that are candidate hits (as
+/// [`naive_hits`]) and pass `criteria` against B's own span (with a window,
+/// only the strand rule applies, D37). `labels` is `Some` with several B
+/// files: pairs rows then carry the file's label, and unmatched rows `.`.
+/// An unmatched row's B columns follow D45 for BED6 B (the test records),
+/// or 3 columns when the first B file is empty.
+pub fn naive_intersect<R: Feature>(
+    a: &[R],
+    b: &[Vec<R>],
+    criteria: &OverlapCriteria,
+    window: Option<Window>,
+    mode: NaiveMode,
+    labels: Option<&[String]>,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    let strand_only = OverlapCriteria {
+        strand: criteria.strand,
+        ..OverlapCriteria::default()
+    };
+    let placeholder = if b.first().is_some_and(|f| !f.is_empty()) {
+        ".\t-1\t-1\t.\t-1\t."
+    } else {
+        ".\t-1\t-1"
+    };
+    for ra in a {
+        let mut accepted: Vec<(usize, &R)> = Vec::new();
+        for (f, file) in b.iter().enumerate() {
+            for rb in file {
+                if rb.chrom() != ra.chrom() {
+                    continue;
+                }
+                let padded = match window {
+                    Some(w) => w.apply(rb.span(), ra.strand()),
+                    None => rb.span(),
+                };
+                if !overlaps(ra.span(), padded, criteria.inclusive_points) {
+                    continue;
+                }
+                let ok = match window {
+                    Some(_) => strand_only.accepts(
+                        Interval::point(0),
+                        ra.strand(),
+                        Interval::point(0),
+                        rb.strand(),
+                    ),
+                    None => criteria.accepts(ra.span(), ra.strand(), rb.span(), rb.strand()),
+                };
+                if ok {
+                    accepted.push((f, rb));
+                }
+            }
+        }
+        match mode {
+            NaiveMode::Any if !accepted.is_empty() => out.push(ra.line()),
+            NaiveMode::None if accepted.is_empty() => out.push(ra.line()),
+            NaiveMode::Count => out.push(format!("{}\t{}", ra.line(), accepted.len())),
+            NaiveMode::Pairs {
+                overlap_bases,
+                keep_unmatched,
+            } => {
+                let tail = |ov: u64| {
+                    if overlap_bases {
+                        format!("\t{ov}")
+                    } else {
+                        String::new()
+                    }
+                };
+                for (f, rb) in &accepted {
+                    let label = labels.map_or(String::new(), |l| format!("\t{}", l[*f]));
+                    out.push(format!(
+                        "{}{}\t{}{}",
+                        ra.line(),
+                        label,
+                        rb.line(),
+                        tail(gloci_core::overlap_len(ra.span(), rb.span()))
+                    ));
+                }
+                if accepted.is_empty() && keep_unmatched {
+                    let label = labels.map_or(String::new(), |_| "\t.".to_string());
+                    out.push(format!(
+                        "{}{}\t{}{}",
+                        ra.line(),
+                        label,
+                        placeholder,
+                        tail(0)
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+    out
 }

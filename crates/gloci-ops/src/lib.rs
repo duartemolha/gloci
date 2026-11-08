@@ -2,6 +2,7 @@
 
 pub mod bedsearch;
 pub mod check;
+pub mod intersect;
 pub mod relate;
 pub mod sort;
 pub mod view;

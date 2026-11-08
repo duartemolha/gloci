@@ -170,6 +170,108 @@ Examples:
   gloci check calls.vcf.gz -g hg38.fa.fai
   gloci check a.bed b.bed --chrom-order lex")]
     Check(CheckArgs),
+    /// Report the records of A that overlap, or do not overlap, records of B.
+    ///
+    /// The default mode is any: A's records that overlap at least one B
+    /// record are written as read, in A's format. --mode picks another
+    /// report: none (A's records with no overlap), pairs (one TSV row per
+    /// overlapping A and B pair; --overlap-bases adds the shared bases and
+    /// --keep-unmatched adds a row with placeholder B columns for each A
+    /// without one), clip (A cut to the shared span, once per overlap) and
+    /// count (A with its number of overlaps, summed over all -b files).
+    /// With several -b files, pairs rows carry a label column (--names,
+    /// else the file basename) before B's columns; unmatched rows get `.`.
+    ///
+    /// Overlap follows spec section 4.3: records overlap when they share a
+    /// base, a point overlaps an interval when strictly inside it (or on
+    /// its edge with --inclusive-points), and every threshold (-f, -F, -r,
+    /// -e, --min-bases) is met when either side is a point. Thresholds are
+    /// measured against B's own span; they cannot be combined with -w,
+    /// --left or --right. A VCF/BCF record covers the bases its ALT
+    /// alleles change (--vcf-span). --match alleles also requires some ALT
+    /// of A to equal some ALT of B after trimming (VCF/BCF inputs only).
+    ///
+    /// A and every B must be sorted in one chromosome order, which is
+    /// checked as they are read; a violation is an error with a fix. With
+    /// --unsorted, any order works, A is still streamed and reported in its
+    /// own order, and every -b file is loaded into memory, so memory grows
+    /// with the size of B. Pairs and count write TSV (a VCF A gets a
+    /// #CHROM line naming the columns); clip does not accept VCF/BCF.
+    #[command(after_long_help = "\
+Examples:
+  gloci intersect -a peaks.bed -b genes.bed
+  gloci intersect -a calls.vcf.gz -b exons.bed --mode none -o off_target.vcf.gz
+  gloci intersect -a a.bed -b x.bed y.bed --mode pairs --overlap-bases --names X,Y
+  gloci intersect -a reads.bed -b targets.bed -f 50% -s --mode count --unsorted")]
+    Intersect(IntersectArgs),
+}
+
+/// What `intersect` reports.
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum IntersectMode {
+    /// A's records with an overlap (default).
+    Any,
+    /// A's records without one.
+    #[value(name = "none")]
+    NoHit,
+    /// One TSV row per overlapping pair.
+    Pairs,
+    /// A cut to the shared span, once per overlap.
+    Clip,
+    /// A with its number of overlaps.
+    Count,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum IntersectMatch {
+    Overlap,
+    Alleles,
+}
+
+#[derive(Args)]
+pub struct IntersectArgs {
+    #[command(flatten)]
+    pub a: AArg,
+    #[command(flatten)]
+    pub b: BArgs,
+    /// What to report: any, none, pairs, clip or count.
+    #[arg(long, value_enum, default_value = "any", value_name = "MODE")]
+    pub mode: IntersectMode,
+    /// With --mode pairs: add the number of shared bases to each row.
+    #[arg(long)]
+    pub overlap_bases: bool,
+    /// With --mode pairs: also write each A without a hit, with placeholder B columns.
+    #[arg(long)]
+    pub keep_unmatched: bool,
+    /// What makes a hit count: overlap, or overlap plus a shared ALT allele
+    /// (alleles; VCF/BCF inputs only).
+    #[arg(
+        long = "match",
+        value_enum,
+        default_value = "overlap",
+        value_name = "HOW"
+    )]
+    pub matching: IntersectMatch,
+    #[command(flatten)]
+    pub o: OverlapArgs,
+    #[command(flatten)]
+    pub w: WindowArgs,
+    #[command(flatten)]
+    pub u: UnsortedArg,
+    #[command(flatten)]
+    pub genome: GenomeArg,
+    #[command(flatten)]
+    pub chrom_order: ChromOrderArg,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub header: HeaderArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
 }
 
 #[derive(Args)]

@@ -1,0 +1,6 @@
+chr1	100	100	pa1	0	+	chr1	100	200	pb1	0	+
+chr1	150	150	pa2	0	+	chr1	100	200	pb1	0	+
+chr1	150	150	pa2	0	+	chr1	150	150	pb2	0	+
+chr1	200	200	pa3	0	-	chr1	100	200	pb1	0	+
+chr1	300	400	pa4	0	+	chr1	350	350	pb3	0	-
+chr1	500	500	pa5	0	+	chr1	500	500	pb4	0	+

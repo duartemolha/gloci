@@ -96,9 +96,13 @@ fn placeholders() {
         String::from_utf8(o).unwrap()
     };
     assert_eq!(p(Format::Bed, 3), ".\t-1\t-1");
-    assert_eq!(p(Format::Bed, 5), ".\t-1\t-1\t.\t.");
-    assert_eq!(p(Format::Vcf, 8), ".\t.\t.\t.\t.\t.\t.\t.");
-    assert_eq!(p(Format::Gff3, 9).split('\t').count(), 9);
+    // as bedtools 2.31.1 writes them
+    assert_eq!(p(Format::Bed, 4), ".\t-1\t-1\t.");
+    assert_eq!(p(Format::Bed, 5), ".\t-1\t-1\t.\t-1");
+    assert_eq!(p(Format::Bed, 6), ".\t-1\t-1\t.\t-1\t.");
+    assert_eq!(p(Format::Bed, 7), ".\t-1\t-1\t.\t.\t.\t.");
+    assert_eq!(p(Format::Vcf, 8), ".\t-1\t.\t.\t.\t.\t.\t.");
+    assert_eq!(p(Format::Gff3, 9), ".\t.\t.\t-1\t-1\t.\t.\t.\t.");
 }
 
 #[test]

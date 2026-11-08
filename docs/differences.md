@@ -252,3 +252,52 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   `index-tsv-skip-lines-vs-tabix` case pins this).
 - **Pinned by:** `index-tsv-no-end-header-vs-tabix` (header words: must
   differ).
+
+## Points overlap an interval only when inside it {#zero-length-overlap}
+
+- **gloci:** a zero-length record (a point, such as an insertion site) overlaps
+  an interval only when it lies strictly inside it, and two points overlap
+  only when they are equal. `--inclusive-points` also lets a point on the
+  edge of an interval overlap it. This applies to every relation command, so
+  `intersect` keeps a point on B's edge out of `--mode any`, `pairs` and
+  `count`.
+- **Old behaviour:** `bedtools intersect` treats a point on either edge of an
+  interval as overlapping it (`chr1 100 100` against `chr1 100 200` and
+  `chr1 200 200` against the same interval are both reported). That is the
+  result of `--inclusive-points`.
+- **Reason:** a point on the edge sits between two bases, so it does not lie
+  within the interval's bases; counting it makes an insertion next to a
+  feature look like it hit the feature. Spec section 4.3 has the table.
+- **Pinned by:** `intersect-points-vs-bedtools` (must differ: bedtools reports
+  the two edge points, gloci does not). The `intersect` tests also check every
+  row of the spec table, with and without `--inclusive-points`.
+
+## `intersect` on a VCF uses the allele span {#vcf-allele-span}
+
+- **gloci:** a VCF A or B record covers the bases its ALT alleles change
+  (see [Default `--vcf-span allele`](#default-vcf-span-allele)). An insertion
+  is a point and a deletion covers only the deleted bases, so a region that
+  holds only the anchor base of an indel does not select it. `--vcf-span ref`
+  gives the old result.
+- **Old behaviour:** `bedtools intersect` uses `[POS-1, POS-1+len(REF))`, so a
+  region over the anchor base alone selects the insertion and the deletion.
+- **Reason:** the same as the default span: the anchor base is not changed by
+  the variant.
+- **Pinned by:** `intersect-vcf-allele-span-vs-bedtools` (must differ: bedtools
+  also reports the insertion and the deletion whose anchor base is in a
+  region) and `intersect-vcf-ref-span-vs-bedtools` (`--vcf-span ref`: must
+  match).
+
+## Overlap fractions are measured per B record {#per-record-overlap-fraction}
+
+- **gloci:** `-f`, `-F`, `-r`, `-e` and `--min-bases` are measured for each B
+  record separately, as bedtools does. A that is covered 80% by three B
+  records of 12%, 28% and 40% does not meet `-f 0.5` for any of them.
+- **Old behaviour:** `bedops --element-of 50%` adds up the coverage of all
+  B elements, so that A is kept.
+- **Reason:** per-record thresholds are what `bedtools intersect` users have,
+  and `--mode pairs` can then report which B records met them. To count the
+  summed coverage, run `gloci merge` on B first.
+- **Pinned by:** `intersect-fraction-vs-bedops` (must differ: bedops keeps a
+  record gloci drops). `intersect-f-vs-bedtools` and the other threshold cases
+  match bedtools.
