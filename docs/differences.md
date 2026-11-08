@@ -290,6 +290,12 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   `intersect --mode none`, so it has the same difference:
   `subtract-vcf-allele-span-vs-bedtools` (must differ, against
   `bedtools subtract -A`) and `subtract-vcf-ref-span-vs-bedtools` (must match).
+- **`convert`:** the same holds for `gloci convert`. Its default rows start a
+  deletion after its anchor base where `vcf2bed` starts at `POS-1`
+  (`--vcf-span ref` gives `vcf2bed`'s start), and `--split-alleles` gives each
+  ALT its own allele footprint. Pinned by `convert-vcf-allele-span-vs-vcf2bed`
+  and `convert-vcf-split-deletions-vs-vcf2bed` (must differ);
+  `convert-vcf-ref-vs-vcf2bed` (`--vcf-span ref`: must match).
 
 ## Overlap fractions are measured per B record {#per-record-overlap-fraction}
 
@@ -560,3 +566,64 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   of them should not fail a genome-wide run.
 - **Pinned by:** `windows-zero-length-chromosome-vs-bedtools` (must differ;
   exit status).
+
+## `convert` writes one row per VCF record {#convert-multiallelic-rows}
+
+- **gloci:** `gloci convert` writes one row per VCF/BCF record, with the ALT
+  column as it is (`A,AC`) and the footprint of the whole record.
+  `--split-alleles` gives one row per ALT instead.
+- **Old behaviour:** `vcf2bed` always writes one row per ALT allele.
+- **Reason:** one row per record keeps the record count and the ALT column
+  intact for a plain conversion; spec §4.2 makes the per-ALT rows an explicit
+  choice.
+- **Pinned by:** `convert-vcf-multiallelic-vs-vcf2bed` (must differ). With
+  `--split-alleles` and SNV alleles the output matches:
+  `convert-vcf-split-alleles-vs-vcf2bed`.
+
+## `convert` spans variants by their alleles, `vcf2bed` by their lengths {#vcf2bed-variant-spans}
+
+- **gloci:** with `--vcf-span ref` an MNV covers its whole REF, a symbolic ALT
+  runs to INFO/END (or POS plus SVLEN) and a breakend covers its REF base.
+  `--types` follows the variant kinds of spec §4.2, decided on the alleles
+  with their shared prefix and suffix trimmed: `ATG` to `AC` (`TG` to `C`) is
+  `other`, a breakend is `sv`.
+- **Old behaviour:** `vcf2bed` gives an MNV (`AC` to `GT`) a single base, a
+  symbolic ALT such as `<DEL>` its single anchor base whatever END says, and
+  a deletion `len(REF) - len(ALT) + 1` bases (so `ATG` to `AC` gets two) with
+  `--deletions` but only its anchor base without it.
+  `--deletions` and `--insertions` pick records by the lengths of REF and
+  ALT: `ATG` to `AC` is a deletion and a breakend is an insertion.
+- **Reason:** the footprint is what the variant changes on the reference
+  (spec §4.2), and a type should say what the variant is, not how long its
+  strings are.
+- **Pinned by:** `convert-vcf-spans-vs-vcf2bed`,
+  `convert-vcf-ref-deletions-vs-vcf2bed`,
+  `convert-vcf-types-del-vs-vcf2bed` and `convert-vcf-types-ins-vs-vcf2bed`
+  (must differ). For single-base SNVs, plain insertions and deletions the
+  output matches: `convert-vcf-ref-vs-vcf2bed`,
+  `convert-vcf-snvs-vs-vcf2bed`, `convert-vcf-insertions-vs-vcf2bed` and
+  `convert-vcf-deletions-vs-vcf2bed`.
+
+## `convert` names GFF3 features by their ID {#gff2bed-name}
+
+- **gloci:** the name column of a GFF3 row is the `ID` attribute (`.` when the
+  feature has none); `--name-attr KEY` picks another attribute. A GTF row is
+  named by `gene_id` by default, as `gtf2bed` does.
+- **Old behaviour:** `gff2bed` 2.4.41 writes `.` in the name column of every
+  GFF3 row.
+- **Reason:** a BED name of `.` throws away the one identifier GFF3 features
+  have.
+- **Pinned by:** `convert-gff3-name-vs-gff2bed` (must differ). With a
+  `--name-attr` the feature does not have, every other column matches:
+  `convert-gff3-vs-gff2bed`.
+
+## `convert --blocks` rejects a record without 12 columns {#bed12-short-line}
+
+- **gloci:** a record with fewer than 12 columns is a data error (exit 1)
+  naming the file, the line and the column count.
+- **Old behaviour:** `bedtools bed12tobed6` writes such a record unchanged and
+  exits 0.
+- **Reason:** a record that is not BED12 has no blocks, and passing it
+  through hides a wrong input file.
+- **Pinned by:** `convert-bed12-short-line-vs-bedtools` (must differ; exit
+  status).

@@ -1,0 +1,5 @@
+chr1	99	101	mnv	AC	GT	.	.
+chr1	199	500	sym	N	<DEL>	.	.
+chr1	599	600	bnd	G	G]17:198982]	.	.
+chr1	699	702	cdel	ATG	AC	.	.
+chr1	799	803	ldel	ACGT	AC	.	.

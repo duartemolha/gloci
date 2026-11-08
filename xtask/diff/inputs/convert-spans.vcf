@@ -1,0 +1,9 @@
+##fileformat=VCFv4.2
+##contig=<ID=chr1,length=100000>
+##INFO=<ID=END,Number=1,Type=Integer,Description="End">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+chr1	100	mnv	AC	GT	.	.	.
+chr1	200	sym	N	<DEL>	.	.	END=500
+chr1	600	bnd	G	G]17:198982]	.	.	.
+chr1	700	cdel	ATG	AC	.	.	.
+chr1	800	ldel	ACGT	AC	.	.	.

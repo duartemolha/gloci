@@ -1,6 +1,7 @@
 pub mod check;
 pub mod closest;
 pub mod complement;
+pub mod convert;
 pub mod coverage;
 pub mod flank;
 pub mod genomes;

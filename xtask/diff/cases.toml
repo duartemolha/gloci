@@ -1580,3 +1580,167 @@ gloci = "gloci windows -g input.genome -w 100"
 reference = "bedtools makewindows -g input.genome -w 100"
 compare = "exit-status"
 expected_difference = "#windows-zero-length-chromosome"
+
+# convert (Task 19). vcf2bed writes ID, QUAL, REF, ALT, FILTER, INFO after the
+# coordinates; the awk in the reference puts them in gloci's order (ID, REF,
+# ALT, QUAL, FILTER) and drops INFO. vcf2bed also writes one row per ALT and
+# spans each variant its own way, so most of these inputs are single-ALT.
+# bedops gff2bed leaves the name column "." for GFF3.
+
+[[case]]
+name = "convert-vcf-ref-vs-vcf2bed"
+input = { file = "xtask/diff/inputs/convert-snv-ins.vcf" }
+gloci = "gloci convert input.vcf --vcf-span ref"
+reference = "vcf2bed < input.vcf | awk -F'\\t' -v OFS='\\t' '{print $1,$2,$3,$4,$6,$7,$5,$8}'"
+compare = "exact"
+
+[[case]]
+name = "convert-vcf-ref-coordinates-vs-vcf2bed"
+input = { file = "xtask/diff/inputs/convert-snv-ins.vcf" }
+gloci = "gloci convert input.vcf --vcf-span ref | cut -f1-3"
+reference = "vcf2bed < input.vcf | cut -f1-3"
+compare = "exact"
+
+# Without --deletions vcf2bed gives a deletion its single anchor base.
+[[case]]
+name = "convert-vcf-ref-deletions-vs-vcf2bed"
+input = { file = "xtask/diff/inputs/convert-simple.vcf" }
+gloci = "gloci convert input.vcf --vcf-span ref"
+reference = "vcf2bed < input.vcf | awk -F'\\t' -v OFS='\\t' '{print $1,$2,$3,$4,$6,$7,$5,$8}'"
+compare = "exact"
+expected_difference = "#vcf2bed-variant-spans"
+
+[[case]]
+name = "convert-vcf-snvs-vs-vcf2bed"
+input = { file = "xtask/diff/inputs/convert-simple.vcf" }
+gloci = "gloci convert input.vcf --vcf-span ref --types snv"
+reference = "vcf2bed --snvs < input.vcf | awk -F'\\t' -v OFS='\\t' '{print $1,$2,$3,$4,$6,$7,$5,$8}'"
+compare = "exact"
+
+[[case]]
+name = "convert-vcf-insertions-vs-vcf2bed"
+input = { file = "xtask/diff/inputs/convert-simple.vcf" }
+gloci = "gloci convert input.vcf --vcf-span ref --types ins"
+reference = "vcf2bed --insertions < input.vcf | awk -F'\\t' -v OFS='\\t' '{print $1,$2,$3,$4,$6,$7,$5,$8}'"
+compare = "exact"
+
+[[case]]
+name = "convert-vcf-deletions-vs-vcf2bed"
+input = { file = "xtask/diff/inputs/convert-simple.vcf" }
+gloci = "gloci convert input.vcf --vcf-span ref --types del"
+reference = "vcf2bed --deletions < input.vcf | awk -F'\\t' -v OFS='\\t' '{print $1,$2,$3,$4,$6,$7,$5,$8}'"
+compare = "exact"
+
+[[case]]
+name = "convert-vcf-deletions-coordinates-vs-vcf2bed"
+input = { file = "xtask/diff/inputs/convert-simple.vcf" }
+gloci = "gloci convert input.vcf --vcf-span ref --types del | cut -f1-3"
+reference = "vcf2bed --deletions < input.vcf | cut -f1-3"
+compare = "exact"
+
+# The default allele span starts a deletion after its anchor base.
+[[case]]
+name = "convert-vcf-allele-span-vs-vcf2bed"
+input = { file = "xtask/diff/inputs/convert-simple.vcf" }
+gloci = "gloci convert input.vcf"
+reference = "vcf2bed < input.vcf | awk -F'\\t' -v OFS='\\t' '{print $1,$2,$3,$4,$6,$7,$5,$8}'"
+compare = "exact"
+expected_difference = "#vcf-allele-span"
+
+# One row per ALT: a multi-allelic SNV record matches vcf2bed with
+# --split-alleles, and differs without it. vcf2bed sorts the rows of one
+# position by their text, gloci keeps ALT order, so the rows are compared
+# as a set.
+[[case]]
+name = "convert-vcf-split-alleles-vs-vcf2bed"
+input = { file = "xtask/diff/inputs/convert-multi-snv.vcf" }
+gloci = "gloci convert input.vcf --split-alleles"
+reference = "vcf2bed < input.vcf | awk -F'\\t' -v OFS='\\t' '{print $1,$2,$3,$4,$6,$7,$5,$8}'"
+compare = "lines-unordered"
+
+[[case]]
+name = "convert-vcf-multiallelic-vs-vcf2bed"
+input = { file = "xtask/diff/inputs/convert-multi-snv.vcf" }
+gloci = "gloci convert input.vcf"
+reference = "vcf2bed < input.vcf | awk -F'\\t' -v OFS='\\t' '{print $1,$2,$3,$4,$6,$7,$5,$8}'"
+compare = "exact"
+expected_difference = "#convert-multiallelic-rows"
+
+# --split-alleles gives each ALT its allele footprint, vcf2bed the REF span.
+[[case]]
+name = "convert-vcf-split-deletions-vs-vcf2bed"
+input = { file = "xtask/diff/inputs/convert-multi-del.vcf" }
+gloci = "gloci convert input.vcf --split-alleles"
+reference = "vcf2bed < input.vcf | awk -F'\\t' -v OFS='\\t' '{print $1,$2,$3,$4,$6,$7,$5,$8}'"
+compare = "exact"
+expected_difference = "#vcf-allele-span"
+
+# vcf2bed spans an MNV with one base and a symbolic or breakend ALT with
+# its anchor base, and counts a complex REF/ALT pair by its lengths.
+[[case]]
+name = "convert-vcf-spans-vs-vcf2bed"
+input = { file = "xtask/diff/inputs/convert-spans.vcf" }
+gloci = "gloci convert input.vcf --vcf-span ref"
+reference = "vcf2bed < input.vcf | awk -F'\\t' -v OFS='\\t' '{print $1,$2,$3,$4,$6,$7,$5,$8}'"
+compare = "exact"
+expected_difference = "#vcf2bed-variant-spans"
+
+[[case]]
+name = "convert-vcf-types-del-vs-vcf2bed"
+input = { file = "xtask/diff/inputs/convert-spans.vcf" }
+gloci = "gloci convert input.vcf --vcf-span ref --types del"
+reference = "vcf2bed --deletions < input.vcf | awk -F'\\t' -v OFS='\\t' '{print $1,$2,$3,$4,$6,$7,$5,$8}'"
+compare = "exact"
+expected_difference = "#vcf2bed-variant-spans"
+
+[[case]]
+name = "convert-vcf-types-ins-vs-vcf2bed"
+input = { file = "xtask/diff/inputs/convert-spans.vcf" }
+gloci = "gloci convert input.vcf --vcf-span ref --types ins"
+reference = "vcf2bed --insertions < input.vcf | awk -F'\\t' -v OFS='\\t' '{print $1,$2,$3,$4,$6,$7,$5,$8}'"
+compare = "exact"
+expected_difference = "#vcf2bed-variant-spans"
+
+[[case]]
+name = "convert-gtf-vs-gtf2bed"
+input = { file = "xtask/diff/inputs/convert.gtf" }
+gloci = "gloci convert input.gtf"
+reference = "gtf2bed < input.gtf"
+compare = "exact"
+
+[[case]]
+name = "convert-gtf-feature-vs-gtf2bed"
+input = { file = "xtask/diff/inputs/convert.gtf" }
+gloci = "gloci convert input.gtf --feature exon"
+reference = "gtf2bed < input.gtf | awk -F'\\t' '$8 == \"exon\"'"
+compare = "exact"
+
+[[case]]
+name = "convert-gff3-vs-gff2bed"
+input = { file = "xtask/diff/inputs/convert.gff3" }
+gloci = "gloci convert input.gff3 --name-attr NoSuchAttribute"
+reference = "gff2bed < input.gff3"
+compare = "exact"
+
+[[case]]
+name = "convert-gff3-name-vs-gff2bed"
+input = { file = "xtask/diff/inputs/convert.gff3" }
+gloci = "gloci convert input.gff3"
+reference = "gff2bed < input.gff3"
+compare = "exact"
+expected_difference = "#gff2bed-name"
+
+[[case]]
+name = "convert-bed12-blocks-vs-bedtools"
+input = { file = "xtask/diff/inputs/convert-bed12.bed" }
+gloci = "gloci convert input.bed --blocks"
+reference = "bedtools bed12tobed6 -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "convert-bed12-short-line-vs-bedtools"
+input = { file = "xtask/diff/inputs/convert-bed6-line.bed" }
+gloci = "gloci convert input.bed --blocks"
+reference = "bedtools bed12tobed6 -i input.bed"
+compare = "exit-status"
+expected_difference = "#bed12-short-line"

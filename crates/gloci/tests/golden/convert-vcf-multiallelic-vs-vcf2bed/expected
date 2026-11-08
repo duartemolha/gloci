@@ -1,0 +1,6 @@
+chr1	99	100	rs1	A	G	50	PASS
+chr1	99	100	rs1	A	T	50	PASS
+chr1	199	200	rs2	C	A	.	.
+chr1	199	200	rs2	C	G	.	.
+chr1	199	200	rs2	C	T	.	.
+chr1	299	300	rs3	G	C	10	PASS

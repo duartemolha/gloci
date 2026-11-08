@@ -320,6 +320,31 @@ Examples:
   gloci windows -i genes.bed -n 10 --id-column --reverse
   gloci merge peaks.bed | gloci windows -i - -w 100")]
     Windows(WindowsArgs),
+    /// Convert VCF/BCF, GFF3/GTF or BED12 to BED (bedops convert2bed,
+    /// vcf2bed, gff2bed, gtf2bed; bedtools bed12tobed6).
+    ///
+    /// VCF/BCF gives one row per record: chrom, start, end, ID, REF, ALT,
+    /// QUAL, FILTER, with the footprint chosen by --vcf-span.
+    /// --split-alleles writes one row per ALT instead, each with that ALT's
+    /// own footprint (always the allele span; `*`, `<*>` and `<NON_REF>`
+    /// rows are skipped when other ALTs exist). --types keeps the records
+    /// (with --split-alleles, the ALTs) of the listed kinds: snv, mnv, ins,
+    /// del, sv, ref, other; a record is kept when any of its ALTs is of a
+    /// listed kind. GFF3/GTF gives 10 columns (bedops gff2bed): chrom,
+    /// start, end, name, score, strand, source, type, phase, attributes.
+    /// The name is the --name-attr attribute (default ID for GFF3, gene_id
+    /// for GTF; `.` when absent). --feature keeps the listed column-3 types.
+    /// BED12 with --blocks gives one BED6 row per block. The input is
+    /// converted in its own order and needs no sorting. A conversion whose
+    /// output goes out of order (allele footprints can start after their
+    /// record) prints one warning; --write-index then fails.
+    #[command(after_long_help = "\
+Examples:
+  gloci convert calls.vcf.gz -o calls.bed
+  gloci convert calls.vcf.gz --split-alleles --types del,ins
+  gloci convert genes.gtf --feature exon --name-attr gene_name
+  gloci convert transcripts.bed --blocks -o exons.bed")]
+    Convert(ConvertArgs),
     /// Remove from A the bases covered by B (bedtools subtract, bedops -d).
     ///
     /// Each A record is cut by the union of the B records that overlap it,
@@ -911,6 +936,66 @@ pub struct FlankArgs {
     pub format: FormatArg,
     #[command(flatten)]
     pub header: HeaderArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+/// A variant kind for `convert --types` (spec 4.2).
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum KindArg {
+    Snv,
+    Mnv,
+    Ins,
+    Del,
+    Sv,
+    Ref,
+    Other,
+}
+
+impl From<KindArg> for gloci_core::VariantKind {
+    fn from(k: KindArg) -> Self {
+        use gloci_core::VariantKind as K;
+        match k {
+            KindArg::Snv => K::Snv,
+            KindArg::Mnv => K::Mnv,
+            KindArg::Ins => K::Ins,
+            KindArg::Del => K::Del,
+            KindArg::Sv => K::Sv,
+            KindArg::Ref => K::Ref,
+            KindArg::Other => K::Other,
+        }
+    }
+}
+
+#[derive(Args)]
+pub struct ConvertArgs {
+    /// Input file (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// VCF/BCF: one row per ALT, with that ALT's footprint.
+    #[arg(long)]
+    pub split_alleles: bool,
+    /// VCF/BCF: keep records (with --split-alleles, ALTs) of these kinds.
+    #[arg(long, value_enum, value_delimiter = ',', value_name = "LIST")]
+    pub types: Vec<KindArg>,
+    /// GFF3/GTF: keep this column-3 type (repeatable or comma-separated).
+    #[arg(long, value_delimiter = ',', value_name = "NAME")]
+    pub feature: Vec<String>,
+    /// GFF3/GTF: the attribute for the name column (default ID for GFF3,
+    /// gene_id for GTF).
+    #[arg(long, value_name = "KEY", value_parser = clap::builder::NonEmptyStringValueParser::new())]
+    pub name_attr: Option<String>,
+    /// BED12: write one BED6 row per block.
+    #[arg(long)]
+    pub blocks: bool,
+    #[command(flatten)]
+    pub format: FormatArg,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
     #[command(flatten)]
     pub invalid: InvalidArg,
     #[command(flatten)]

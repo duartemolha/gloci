@@ -1,0 +1,5 @@
+chr1	src	exon	101	300	5.5	+	1	gene_id "g1"; transcript_id "t1"; gene_name "Foo";
+chr1	src	gene	201	900	.	-	.	gene_id "g2"; gene_name "Bar";
+chr1	src	CDS	301	500	.	.	0	gene_id "g2"; transcript_id "t2";
+chr2	src	exon	11	20	.	+	.	transcript_id "t3";
+chr2	src	exon	31	40	1	-	.	gene_id "g3"; transcript_id "t3";

@@ -1,0 +1,5 @@
+chr1	100	900	g1	.	+	src	gene	.	ID=g1;Name=Foo
+chr1	200	900	m1	5.5	-	src	mRNA	.	ID=m1;Parent=g1
+chr1	300	500	.	.	.	src	exon	1	Parent=m1
+chr1	600	700	cds1	2	+	hav	CDS	2	ID=cds1;Parent=m1;Name=Bar
+chr2	50	400	g2	.	+	src	gene	.	ID=g2

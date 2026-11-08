@@ -1,0 +1,1 @@
+convert input.vcf --vcf-span ref --types ins
