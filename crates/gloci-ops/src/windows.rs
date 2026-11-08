@@ -46,9 +46,22 @@ struct Cutter<'a> {
     o: &'a WindowsOptions,
     w: &'a mut dyn RecordWriter,
     row: Vec<u8>,
+    /// Intervals shorter than the window count: how many, and the first.
+    short: u64,
+    first_short: Option<String>,
 }
 
 impl Cutter<'_> {
+    /// One summary warning for the intervals `-n` had to skip.
+    fn finish(&self) {
+        if let (Some(first), Split::Count(c)) = (&self.first_short, self.o.split) {
+            log::warn!(
+                "{} interval(s) shorter than the {c} windows requested were skipped (first: {first})",
+                self.short
+            );
+        }
+    }
+
     fn emit(&mut self, name: &[u8], s: u64, e: u64, id: u64) -> Result<(), IoError> {
         self.row.clear();
         self.row.extend_from_slice(name);
@@ -68,8 +81,7 @@ impl Cutter<'_> {
             })
     }
 
-    /// Cut `[start, end)` of the chromosome `name`; `label` names the source
-    /// for the warning.
+    /// Cut `[start, end)` of the chromosome `name`.
     fn cut(&mut self, name: &[u8], start: u64, end: u64) -> Result<(), IoError> {
         let len = end - start;
         if len == 0 {
@@ -79,10 +91,11 @@ impl Cutter<'_> {
             Split::Size { size, step } => (len.div_ceil(step), size, step),
             Split::Count(c) => {
                 if len < c {
-                    log::warn!(
-                        "{}:{start}-{end} is shorter than the {c} windows requested; skipped",
-                        String::from_utf8_lossy(name)
-                    );
+                    self.short += 1;
+                    if self.first_short.is_none() {
+                        self.first_short =
+                            Some(format!("{}:{start}-{end}", String::from_utf8_lossy(name)));
+                    }
                     return Ok(());
                 }
                 (c, len / c, len / c)
@@ -113,6 +126,8 @@ pub fn windows_genome(
         o,
         w,
         row: Vec::new(),
+        short: 0,
+        first_short: None,
     };
     for i in 0..genome.len() {
         let Some(len) = genome.length(i) else {
@@ -123,8 +138,15 @@ pub fn windows_genome(
             ))
             .into());
         };
+        if len == 0 {
+            log::warn!(
+                "{} has length 0 in the genome; no windows written for it",
+                String::from_utf8_lossy(genome.name(i))
+            );
+        }
         c.cut(genome.name(i), 0, len)?;
     }
+    c.finish();
     Ok(())
 }
 
@@ -141,6 +163,8 @@ pub fn windows_intervals(
         o,
         w,
         row: Vec::new(),
+        short: 0,
+        first_short: None,
     };
     let mut batch = RecordBatch::default();
     let mut max = 1;
@@ -152,6 +176,7 @@ pub fn windows_intervals(
         }
         max = next_batch_size(&batch, max);
         if !more {
+            c.finish();
             return Ok(());
         }
     }

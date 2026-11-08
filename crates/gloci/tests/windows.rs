@@ -164,3 +164,95 @@ fn determinism() {
     assert_eq!(one, run("2"));
     assert_eq!(one, run("8"));
 }
+
+#[test]
+fn vcf_footprints() {
+    let dir = tempdir();
+    let f = s(&plain_file(
+        dir.path(),
+        "a.vcf",
+        "##fileformat=VCFv4.2\n##contig=<ID=c1,length=1000>\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+c1\t10\t.\tA\tG\t.\t.\t.\n\
+c1\t50\t.\tA\tAT\t.\t.\t.\n\
+c1\t100\t.\tACGTA\tA\t.\t.\t.\n",
+    ));
+    // SNV [9,10); insertion is a point (no window); deletion [100,104).
+    assert_eq!(
+        out(&["windows", "-i", &f, "-w", "3", "--id-column"]),
+        "c1\t9\t10\t1\nc1\t100\t103\t1\nc1\t103\t104\t2\n"
+    );
+}
+
+#[test]
+fn gff_footprints() {
+    let dir = tempdir();
+    let f = s(&plain_file(
+        dir.path(),
+        "a.gff3",
+        "##gff-version 3\nc1\tsrc\texon\t11\t20\t.\t+\t.\tID=e1\n",
+    ));
+    // 1-based closed 11..20 is [10, 20).
+    assert_eq!(
+        out(&["windows", "-i", &f, "-w", "4"]),
+        "c1\t10\t14\nc1\t14\t18\nc1\t18\t20\n"
+    );
+}
+
+#[test]
+fn extreme_size_and_step() {
+    let dir = tempdir();
+    let f = s(&plain_file(dir.path(), "a.bed", "c1\t10\t20\n"));
+    let max = u64::MAX.to_string();
+    assert_eq!(out(&["windows", "-i", &f, "-w", &max]), "c1\t10\t20\n");
+    assert_eq!(
+        out(&[
+            "windows",
+            "-i",
+            &f,
+            "-w",
+            &max,
+            "--step",
+            &max,
+            "--id-column"
+        ]),
+        "c1\t10\t20\t1\n"
+    );
+    // A step beyond the interval gives the one window.
+    assert_eq!(
+        out(&["windows", "-i", &f, "-w", "3", "--step", "1000"]),
+        "c1\t10\t13\n"
+    );
+}
+
+#[test]
+fn zero_length_chromosome_is_skipped_with_one_warning() {
+    let dir = tempdir();
+    let g = s(&plain_file(dir.path(), "g.genome", "c1\t5\ncE\t0\nc2\t3\n"));
+    gloci()
+        .args(["windows", "-g", &g, "-w", "10"])
+        .assert()
+        .success()
+        .stdout("c1\t0\t5\nc2\t0\t3\n")
+        .stderr(contains("cE has length 0"));
+}
+
+#[test]
+fn short_intervals_with_count_give_one_summary() {
+    let dir = tempdir();
+    let f = s(&plain_file(
+        dir.path(),
+        "a.bed",
+        "c1\t0\t2\nc1\t5\t6\nc1\t10\t20\n",
+    ));
+    let o = gloci()
+        .args(["windows", "-i", &f, "-n", "4"])
+        .assert()
+        .success();
+    let err = String::from_utf8(o.get_output().stderr.clone()).unwrap();
+    assert_eq!(err.matches("shorter than").count(), 1, "{err}");
+    assert!(
+        err.contains("2 interval(s)") && err.contains("c1:0-2"),
+        "{err}"
+    );
+}

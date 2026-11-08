@@ -1572,3 +1572,11 @@ input = { file = "xtask/diff/inputs/windows-merged.bed" }
 gloci = "gloci windows -i input.bed -w 100"
 reference = "bedops --chop 100 input.bed"
 compare = "exact"
+
+[[case]]
+name = "windows-zero-length-chromosome-vs-bedtools"
+input = { file = "xtask/diff/inputs/windows-zero.genome" }
+gloci = "gloci windows -g input.genome -w 100"
+reference = "bedtools makewindows -g input.genome -w 100"
+compare = "exit-status"
+expected_difference = "#windows-zero-length-chromosome"

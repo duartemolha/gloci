@@ -549,3 +549,14 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Reason:** a point sits between bases (spec §4.3) and covers nothing to
   cut.
 - **Pinned by:** `windows-point-vs-bedtools` (must differ).
+
+## `windows -g` skips a zero-length chromosome {#windows-zero-length-chromosome}
+
+- **gloci:** a chromosome of length 0 in `-g` gets no windows; one
+  `warning:` names it and the run goes on.
+- **Old behaviour:** `bedtools makewindows -g` exits 1 with "Each chromosome
+  must have non-zero length".
+- **Reason:** zero-length contigs occur in `.fai` and `.dict` files, and one
+  of them should not fail a genome-wide run.
+- **Pinned by:** `windows-zero-length-chromosome-vs-bedtools` (must differ;
+  exit status).
