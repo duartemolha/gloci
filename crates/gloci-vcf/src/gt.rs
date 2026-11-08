@@ -208,11 +208,9 @@ impl GenotypeSource for TextGenotypes<'_> {
         out.clear_gt();
         // Walk the colon-separated subfields in place, stopping once the
         // highest wanted index has been seen.
-        let last = [self.gt, self.dp, self.gq, self.ft]
-            .into_iter()
-            .flatten()
-            .max();
-        let Some(last) = last else { return Ok(()) };
+        let Some(last) = self.last else {
+            return Ok(());
+        };
         let mut rest = col;
         let mut idx = 0;
         loop {
