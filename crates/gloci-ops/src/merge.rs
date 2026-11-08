@@ -139,6 +139,8 @@ struct Merger<'a> {
     seq: u64,
     created: u64,
     keep_raw: bool,
+    /// The most closed clusters held back at once.
+    peak_closed: usize,
 }
 
 impl Merger<'_> {
@@ -175,6 +177,18 @@ impl Merger<'_> {
             },
         }));
         self.seq += 1;
+        // No later span starts before this key, so an open cluster that ends
+        // more than the gap before it can never grow: close it now, or one
+        // stale cluster of another strand would hold every closed cluster
+        // back until the chromosome ends.
+        for slot in 0..self.open.len() {
+            if self.open[slot]
+                .as_ref()
+                .is_some_and(|c| i128::from(c.end) + i128::from(self.o.max_gap) < i128::from(m.key))
+            {
+                self.close(slot);
+            }
+        }
         let horizon = self
             .open
             .iter()
@@ -226,6 +240,7 @@ impl Merger<'_> {
             order: (c.start, c.end, slot, self.created),
             row,
         }));
+        self.peak_closed = self.peak_closed.max(self.closed.len());
     }
 
     /// Write closed clusters that no later cluster can precede: those that
@@ -266,6 +281,18 @@ pub fn merge(
     o: &MergeOptions,
     w: &mut dyn RecordWriter,
 ) -> Result<(), IoError> {
+    merge_counting(inputs, chroms, o, w).map(|_| ())
+}
+
+/// [`merge`], returning the most finished clusters ever held back at once
+/// (for the memory-flatness test).
+#[doc(hidden)]
+pub fn merge_counting(
+    inputs: Vec<Box<dyn RecordReader>>,
+    chroms: &mut ChromTable,
+    o: &MergeOptions,
+    w: &mut dyn RecordWriter,
+) -> Result<usize, IoError> {
     let formats: Vec<Format> = inputs.iter().map(|r| r.format()).collect();
     validate(&formats, o)?;
     let names: Vec<String> = inputs.iter().map(|r| r.name().to_string()).collect();
@@ -291,6 +318,7 @@ pub fn merge(
         seq: 0,
         created: 0,
         keep_raw: !o.aggs.is_empty(),
+        peak_closed: 0,
     };
     kmerge_with(inputs, chroms, &mut |input, meta, raw, chroms| {
         if meta.strand == Strand::Unknown {
@@ -307,5 +335,5 @@ apart from + and - records"
             );
         }
     }
-    Ok(())
+    Ok(m.peak_closed)
 }

@@ -168,3 +168,45 @@ fn determinism() {
     assert_eq!(run("2"), base);
     assert_eq!(run("8"), base);
 }
+
+#[test]
+fn points_at_cluster_end() {
+    let dir = tempdir();
+    let f = s(&plain_file(
+        dir.path(),
+        "pe.bed",
+        "chr1\t1\t8\nchr1\t8\t8\n",
+    ));
+    assert_eq!(out(&["merge", &f, "-d", "0"]), "chr1\t1\t8\n");
+    assert_eq!(out(&["merge", &f, "-d", "-1"]), "chr1\t1\t8\nchr1\t8\t8\n");
+}
+
+const VCF_HEAD: &str = "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=1000>\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n";
+
+#[test]
+fn vcf_heap_orders_by_span_start() {
+    // The deletion has key 100 and span [101,105); the SNP after it has the
+    // same key and span [100,101), so it must be taken first: the cluster
+    // starts at 100, not 101.
+    let dir = tempdir();
+    let vcf = format!("{VCF_HEAD}chr1\t101\t.\tATTTT\tA\t.\t.\t.\nchr1\t101\t.\tA\tG\t.\t.\t.\n");
+    let f = s(&plain_file(dir.path(), "h.vcf", &vcf));
+    assert_eq!(out(&["merge", &f, "--count"]), "chr1\t100\t105\t2\n");
+}
+
+#[test]
+fn vcf_and_bed_kmerged() {
+    let dir = tempdir();
+    let vcf = format!("{VCF_HEAD}chr1\t101\t.\tATTTT\tA\t.\t.\t.\nchr1\t300\t.\tA\tG\t.\t.\t.\n");
+    let v = s(&plain_file(dir.path(), "k.vcf", &vcf));
+    let b = s(&plain_file(
+        dir.path(),
+        "k.bed",
+        "chr1\t104\t110\nchr1\t299\t300\nchr1\t500\t510\n",
+    ));
+    assert_eq!(
+        out(&["merge", &v, &b, "--count"]),
+        "chr1\t101\t110\t2\nchr1\t299\t300\t2\nchr1\t500\t510\t1\n"
+    );
+}

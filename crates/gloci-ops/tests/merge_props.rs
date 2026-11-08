@@ -68,3 +68,34 @@ proptest! {
         prop_assert_eq!(sink.0, naive_merge(&files, &rank, gap, per_strand));
     }
 }
+
+/// With `-s`, one early `-` and one early `.` record must not hold back the
+/// finished `+` clusters that follow: the reorder buffer stays small.
+#[test]
+fn per_strand_buffer_drains() {
+    use gloci_ops::merge::merge_counting;
+    let mut s = String::from("chr1\t0\t10\tm\t0\t-\nchr1\t5\t12\tu\t0\t.\n");
+    for i in 0..5000u64 {
+        s += &format!("chr1\t{}\t{}\tp{i}\t0\t+\n", 100 + i * 20, 110 + i * 20);
+    }
+    let ro = ReaderOptions {
+        threads: NonZeroUsize::MIN,
+        format: Some(Format::Bed),
+        vcf_span: VcfSpan::Allele,
+        invalid: InvalidPolicy::Fail,
+    };
+    let r = mem_reader("f.bed", &s, &ro);
+    let mut chroms = chrom_table_for(None, &[r.as_ref()], ChromOrder::Karyotype).unwrap();
+    let o = MergeOptions {
+        max_gap: 0,
+        per_strand: true,
+        count: false,
+        aggs: vec![],
+        empty: ".".into(),
+        delim: ",".into(),
+    };
+    let mut sink = Sink::default();
+    let peak = merge_counting(vec![r], &mut chroms, &o, &mut sink).unwrap();
+    assert_eq!(sink.0.len(), 5002);
+    assert!(peak <= 4, "reorder buffer peaked at {peak}");
+}

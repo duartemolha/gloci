@@ -323,10 +323,11 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 
 - **gloci:** `merge -s` clusters `+` and `-` records separately and clusters
   records of unknown strand (`.`, no strand column, VCF records) together, as
-  a third group, so they appear in the output. It warns once per input that
-  has such records. Output is sorted by chromosome, start, end.
+  a third group, so they appear in the output (the pinned case has `.` in
+  column 6). It warns once per input that has such records. Output is sorted by chromosome, start, end.
 - **Old behaviour:** `bedtools merge -s` writes nothing for records whose
-  strand is `.`; they vanish from the output.
+  column 6 is `.`; they vanish from the output. (Other inputs, such as BED3,
+  were not compared.)
 - **Reason:** silently dropping records is a data-loss trap, and a feature of
   unknown strand is still a feature. To drop them anyway, filter the input
   first (`awk '$6 != "."'`).
