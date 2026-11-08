@@ -362,7 +362,10 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   D45 placeholder (`. -1 -1 ...`, distance `-1`), as in plain `closest`. `-k`
   and `--ties` apply per side, and several equally near B on one side add
   rows instead of choosing one. With `--distance` the distances are signed
-  in the `--signed` frame (default `ref`).
+  in the `--signed` frame (default `ref`). With `--ignore-upstream` or
+  `--ignore-downstream`, an overlapping B (sign 0) still shows in the ignored
+  column at distance 0, since an overlap is neither upstream nor downstream;
+  add `--ignore-overlaps` to drop it.
 - **Old behaviour:** `closest-features` gives an overlapping element
   precedence on one side and reports the nearest non-overlapping element on
   the other ("elements reported as closest to the left and right edges are

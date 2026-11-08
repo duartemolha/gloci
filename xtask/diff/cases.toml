@@ -960,3 +960,14 @@ gloci = "gloci closest --chrom-order lex -a input.bed -b closest-b.bed -k 2 --ti
 reference = "bedtools closest -a input.bed -b closest-b.bed -k 2 -t first -d"
 compare = "exact"
 expected_difference = "#closest-ties-k"
+
+# A on a chromosome only the second file has: bedtools writes no row for the
+# file without a candidate, and gloci does the same (a file with no candidate
+# writes nothing; all files empty gives one placeholder row).
+[[case]]
+name = "closest-per-file-missing-chrom-vs-bedtools"
+input = { file = "xtask/diff/inputs/closest-pf-a.bed" }
+aux = ["xtask/diff/inputs/closest-b.bed", "xtask/diff/inputs/closest-b2.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-b.bed closest-b2.bed --names 1,2 --per-file --distance"
+reference = "bedtools closest -a input.bed -b closest-b.bed closest-b2.bed -mdb each -d"
+compare = "exact"

@@ -542,3 +542,115 @@ fn determinism() {
         assert_eq!(one, run("8"), "{extra:?}");
     }
 }
+
+#[test]
+fn per_file_skips_a_file_without_candidates() {
+    let fx = Fx::new();
+    let b1 = fx.file("b1.bed", "chr1\t50\t90\tx\t0\t+\n");
+    let b2 = fx.file("b2.bed", "chr1\t120\t130\tz\t0\t+\nchr4\t5\t15\tw\t0\t+\n");
+    let a = fx.file(
+        "a.bed",
+        "chr1\t100\t200\ta1\t0\t+\nchr3\t0\t5\ta2\t0\t+\nchr4\t30\t40\ta3\t0\t+\n",
+    );
+    let run = |extra: &[&str]| -> Vec<String> {
+        let mut v = vec![
+            "closest",
+            "-a",
+            &a,
+            "-b",
+            &b1,
+            &b2,
+            "--names",
+            "F,G",
+            "--per-file",
+        ];
+        v.extend_from_slice(extra);
+        let o = gloci().args(&v).assert().success();
+        String::from_utf8(o.get_output().stdout.clone())
+            .unwrap()
+            .lines()
+            .map(String::from)
+            .collect()
+    };
+    // a3: only G has chr4; F writes no row. a2: no file, one placeholder.
+    assert_eq!(
+        run(&["--distance"]),
+        [
+            "chr1\t100\t200\ta1\t0\t+\tF\tchr1\t50\t90\tx\t0\t+\t11",
+            "chr1\t100\t200\ta1\t0\t+\tG\tchr1\t120\t130\tz\t0\t+\t0",
+            "chr3\t0\t5\ta2\t0\t+\t.\t.\t-1\t-1\t.\t-1\t.\t-1",
+            "chr4\t30\t40\ta3\t0\t+\tG\tchr4\t5\t15\tw\t0\t+\t16",
+        ]
+    );
+    // --each-side: per file, a file with neither side writes nothing
+    assert_eq!(
+        run(&["--each-side"]),
+        [
+            "chr1\t100\t200\ta1\t0\t+\tF\tchr1\t50\t90\tx\t0\t+\t.\t.\t-1\t-1\t.\t-1\t.",
+            "chr1\t100\t200\ta1\t0\t+\tG\tchr1\t120\t130\tz\t0\t+\tG\tchr1\t120\t130\tz\t0\t+",
+            "chr3\t0\t5\ta2\t0\t+\t.\t.\t-1\t-1\t.\t-1\t.\t.\t.\t-1\t-1\t.\t-1\t.",
+            "chr4\t30\t40\ta3\t0\t+\tG\tchr4\t5\t15\tw\t0\t+\t.\t.\t-1\t-1\t.\t-1\t.",
+        ]
+    );
+}
+
+#[test]
+fn each_side_ignore_keeps_an_overlap_in_the_ignored_column() {
+    let fx = Fx::new();
+    let b = "chr1\t50\t90\tL\t0\t+\nchr1\t150\t160\tov\t0\t+\n";
+    assert_eq!(
+        fx.run(A, b, &["--each-side", "--ignore-upstream", "--distance"]),
+        ["chr1\t100\t200\ta1\t0\t+\tchr1\t150\t160\tov\t0\t+\t0\tchr1\t150\t160\tov\t0\t+\t0"]
+    );
+}
+
+#[test]
+fn unknown_strand_b_counts_as_plus_under_signed_b() {
+    let fx = Fx::new();
+    let b = "chr1\t50\t90\tL\t0\t.\nchr1\t210\t250\tR\t0\t.\n";
+    // as `+`: lower is downstream (+), higher is upstream (-)
+    assert_eq!(
+        fx.run(A, b, &["--signed", "b", "-k", "2"]),
+        [
+            "chr1\t100\t200\ta1\t0\t+\tchr1\t50\t90\tL\t0\t.\t11",
+            "chr1\t100\t200\ta1\t0\t+\tchr1\t210\t250\tR\t0\t.\t-11",
+        ]
+    );
+    assert_eq!(
+        b_names(&fx.run(A, b, &["--signed", "b", "--ignore-upstream"]), 6),
+        ["L"]
+    );
+}
+
+#[test]
+fn vcf_a_each_side_and_two_b_column_names() {
+    let fx = Fx::new();
+    let a = fx.file(
+        "a.vcf",
+        "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=10000>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nchr1\t150\t.\tA\tC\t.\t.\t.\n",
+    );
+    let b = fx.file("b.bed", "chr1\t10\t50\tb\t0\t+\n");
+    let b2 = fx.file("b2.bed", "chr1\t300\t400\tc\t0\t+\n");
+    let head = |extra: &[&str]| -> String {
+        let mut v = vec!["closest", "-a", &a, "-b", &b];
+        v.extend_from_slice(extra);
+        let o = gloci().args(&v).assert().success();
+        String::from_utf8(o.get_output().stdout.clone())
+            .unwrap()
+            .lines()
+            .next()
+            .unwrap()
+            .to_string()
+    };
+    let vcf = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO";
+    assert_eq!(
+        head(&["--each-side", "--distance"]),
+        format!(
+            "{vcf}\tup_b_1\tup_b_2\tup_b_3\tup_b_4\tup_b_5\tup_b_6\tup_distance\tdown_b_1\tdown_b_2\tdown_b_3\tdown_b_4\tdown_b_5\tdown_b_6\tdown_distance"
+        )
+    );
+    assert_eq!(
+        head(&[&b2, "--names", "x,y", "--distance"]),
+        format!("{vcf}\tb_name\tb_1\tb_2\tb_3\tb_4\tb_5\tb_6\tdistance")
+    );
+}

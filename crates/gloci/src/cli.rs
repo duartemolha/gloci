@@ -290,11 +290,16 @@ Examples:
     /// signed (as closest-features does). An overlapping B counts on both sides. -k
     /// applies per side, and extra ranks and ties add rows. With several
     /// -b files, the nearest are chosen across all of them, or with
-    /// --per-file in each file, whose rows are written in file order.
+    /// --per-file in each file, whose rows are written in file order; a
+    /// file with no candidate for an A writes no row (as bedtools -mdb
+    /// each), and an A with no candidate in any file gets one placeholder
+    /// row. --each-side with --ignore-upstream or --ignore-downstream
+    /// leaves that side empty except for an overlapping B, which still
+    /// shows there at distance 0 unless --ignore-overlaps is given.
     ///
     /// Memory and a pathology: the sorted sweep looks ahead in B for the
     /// nearest B to the right of A. Under -s/-S, or with --signed b and
-    /// --ignore-upstream/--ignore-downstream, a chromosome where one strand
+    /// --ignore-upstream, --ignore-downstream or --each-side, a chromosome where one strand
     /// has no B left makes the look-ahead read and buffer all the remaining
     /// B of that chromosome. --max-distance bounds this. With --unsorted
     /// every -b file is loaded into memory instead, so memory grows with
