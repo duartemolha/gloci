@@ -54,6 +54,8 @@ pub enum FractionError {
     Syntax(String),
     #[error("fraction \"{0}\" must be greater than 0 and at most 1")]
     OutOfRange(String),
+    #[error("scale \"{0}\" must be a non-negative decimal such as 0.5, 2 or 150%")]
+    RatioRange(String),
     #[error("fraction \"{0}\" has more than 18 fractional digits")]
     TooPrecise(String),
 }

@@ -266,6 +266,40 @@ Examples:
   gloci complement a.bed b.bed -g sacCer3
   gloci complement shuffled.bed -g genome.txt --sort --max-mem 512M")]
     Complement(ComplementArgs),
+    /// Grow each feature on its sides (bedtools slop, bedops --range).
+    ///
+    /// Every record is written with its coordinates changed to
+    /// [start - L, end + R), clipped at 0 and, with -g, at the end of its
+    /// chromosome (a built-in genome, .genome, .fai or .dict file with
+    /// lengths; a chromosome missing from it is an error). Amounts are bases,
+    /// or with --pct a decimal fraction of each feature's length (0.5 or
+    /// 50%, floored). -b pads both sides; --left and --right pad one each.
+    /// -s swaps them for minus-strand records (an unknown strand counts as
+    /// plus). BED and GFF/GTF only; VCF/BCF input is a usage error. The
+    /// input is streamed in its own order and needs no sorting; the output
+    /// keeps the input format, and a warning is printed once when -s or
+    /// --pct makes it go out of order.
+    #[command(after_long_help = "\
+Examples:
+  gloci slop genes.bed -b 1000 -g hg38
+  gloci slop genes.bed --left 2000 --right 500 -s -g hg38 -o promoters.bed
+  gloci slop peaks.bed --pct -b 0.5 -g genome.txt
+  gloci slop annotation.gff3 -b 100 -g hg38")]
+    Slop(SlopArgs),
+    /// Write the strips beside each feature (bedtools flank).
+    ///
+    /// For every record, a left strip [start - L, start) and then a right
+    /// strip [end, end + R) are written as records with the input's other
+    /// columns, clipped at 0 and, with -g, at the chromosome end. A strip
+    /// clipped to nothing is not written. Options as for slop: -b, --left,
+    /// --right, -s, --pct, -g. The output is in input order and may not be
+    /// sorted; a warning is printed once when it goes out of order.
+    #[command(after_long_help = "\
+Examples:
+  gloci flank genes.bed -b 100 -g hg38
+  gloci flank genes.bed --left 2000 -s -g hg38
+  gloci flank peaks.bed --pct -b 0.25 -g genome.txt | gloci sort -g genome.txt -")]
+    Flank(FlankArgs),
     /// Remove from A the bases covered by B (bedtools subtract, bedops -d).
     ///
     /// Each A record is cut by the union of the B records that overlap it,
@@ -797,6 +831,70 @@ pub struct ComplementArgs {
     pub threads: ThreadArgs,
     #[command(flatten)]
     pub sort: SortArg,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+/// The amounts shared by `slop` and `flank`.
+#[derive(Args, Debug, Clone)]
+pub struct PadArgs {
+    /// Pad both sides by N.
+    #[arg(short = 'b', long, value_name = "N", conflicts_with_all = ["left", "right"],
+          required_unless_present_any = ["left", "right"])]
+    pub both: Option<String>,
+    /// Pad the left side (smaller coordinates) by N.
+    #[arg(long, value_name = "N")]
+    pub left: Option<String>,
+    /// Pad the right side by N.
+    #[arg(long, value_name = "N")]
+    pub right: Option<String>,
+    /// Swap --left and --right for minus-strand records.
+    #[arg(short = 's')]
+    pub strand: bool,
+    /// Read each amount as a fraction of the feature length (0.5 or 50%,
+    /// floored) instead of bases.
+    #[arg(long)]
+    pub pct: bool,
+}
+
+#[derive(Args)]
+pub struct SlopArgs {
+    /// Input file (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    #[command(flatten)]
+    pub pad: PadArgs,
+    #[command(flatten)]
+    pub genome: GenomeArg,
+    #[command(flatten)]
+    pub format: FormatArg,
+    #[command(flatten)]
+    pub header: HeaderArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+#[derive(Args)]
+pub struct FlankArgs {
+    /// Input file (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    #[command(flatten)]
+    pub pad: PadArgs,
+    #[command(flatten)]
+    pub genome: GenomeArg,
+    #[command(flatten)]
+    pub format: FormatArg,
+    #[command(flatten)]
+    pub header: HeaderArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
     #[command(flatten)]
     pub out: OutputArgs,
 }

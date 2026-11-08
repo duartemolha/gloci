@@ -491,3 +491,50 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Reason:** a feature past the end almost always means the genome build
   does not match the input, and the output would silently be wrong.
 - **Pinned by:** `complement-past-end-vs-bedtools` (must differ; exit status).
+
+## `slop` and `flank` accept one side alone {#slop-flank-one-side}
+
+- **gloci:** `--left N` or `--right N` alone pads only that side.
+- **Old behaviour:** `bedtools slop` and `bedtools flank` exit 1 with "Need
+  both -l and -r" unless `-b` is given.
+- **Reason:** a one-sided promoter or flank is the common use, and writing
+  `-r 0` to say "nothing" only invites mistakes.
+- **Pinned by:** `flank-one-side-vs-bedtools` and `slop-one-side-vs-bedtools`
+  (must differ; exit status).
+
+## `flank` of a point {#flank-points}
+
+- **gloci:** a point `[p, p)` has its strips `[p - L, p)` and `[p, p + R)`,
+  as `slop` pads it to `[p - L, p + R)`.
+- **Old behaviour:** `bedtools flank` writes `[p - L - 1, p - 1)` and
+  `[p + 1, p + R + 1)`, leaving a base between the point and each strip.
+  `bedtools slop` agrees with gloci.
+- **Reason:** a point sits between bases (spec §4.3); the strips should touch
+  it.
+- **Pinned by:** `flank-point-vs-bedtools` (must differ). `slop-point-vs-bedtools`
+  must match.
+
+## `slop` and `flank` reject a feature beyond the chromosome end {#slop-flank-past-end}
+
+- **gloci:** with `-g`, a feature that starts at or after the end of its
+  chromosome (and so cannot be clipped to anything) is an error (exit 1)
+  naming the file and line, with a hint to check the genome build. A feature
+  that only straddles the end is clipped, as in bedtools.
+- **Old behaviour:** `bedtools slop` writes a 1-base feature at the very end
+  of the chromosome (`[len - 1, len)`) and `bedtools flank` writes a left
+  strip that lies beyond the end, both exit 0.
+- **Reason:** a feature past the end almost always means the genome build
+  does not match the input; the output would be meaningless (and an empty
+  GFF record is not representable).
+- **Pinned by:** `slop-past-end-vs-bedtools` and `flank-past-end-vs-bedtools`
+  (must differ; exit status).
+
+## `flank -s` on a record of unknown strand {#flank-unknown-strand}
+
+- **gloci:** with `-s`, a record whose strand is `.` (or missing) counts as
+  `+`, as in `slop -s` (D49).
+- **Old behaviour:** `bedtools flank -s` writes no strip at all for such a
+  record (`bedtools slop -s` treats it as `+`).
+- **Reason:** silently dropping features is worse than a defined default, and
+  the two commands should agree.
+- **Pinned by:** `flank-unknown-strand-vs-bedtools` (must differ).

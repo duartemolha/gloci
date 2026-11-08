@@ -12,6 +12,7 @@ pub mod merge;
 pub mod relate;
 pub mod sort;
 pub mod subtract;
+pub mod transform;
 pub mod view;
 
 pub use bedsearch::{ChromBlock, find_chrom_block};

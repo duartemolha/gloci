@@ -1346,3 +1346,157 @@ aux = ["xtask/diff/inputs/comp.genome"]
 gloci = "gloci complement -g comp.genome input.bed"
 reference = "bedtools complement -i input.bed -g comp.genome"
 compare = "exit-status"
+
+# slop and flank (Task 17). transform-in.bed has features at 0, at the end of
+# their chromosome, a minus strand and an unknown strand; both tools
+# need the genome (comp.genome). transform-in.gff3 is the GFF counterpart.
+[[case]]
+name = "slop-both-vs-bedtools"
+input = { file = "xtask/diff/inputs/transform-in.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci slop -b 10 -g comp.genome input.bed"
+reference = "bedtools slop -i input.bed -g comp.genome -b 10"
+compare = "exact"
+
+[[case]]
+name = "slop-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/transform-in.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci slop --left 5 --right 20 -s -g comp.genome input.bed"
+reference = "bedtools slop -i input.bed -g comp.genome -l 5 -r 20 -s"
+compare = "exact"
+
+[[case]]
+name = "slop-pct-vs-bedtools"
+input = { file = "xtask/diff/inputs/transform-in.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci slop --pct -b 0.1 -g comp.genome input.bed"
+reference = "bedtools slop -i input.bed -g comp.genome -pct -b 0.1"
+compare = "exact"
+
+[[case]]
+name = "slop-gff-vs-bedtools"
+input = { file = "xtask/diff/inputs/transform-in.gff3" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci slop -b 10 -g comp.genome input.gff3"
+reference = "bedtools slop -i input.gff3 -g comp.genome -b 10"
+compare = "exact"
+
+[[case]]
+name = "flank-both-vs-bedtools"
+input = { file = "xtask/diff/inputs/transform-in.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci flank -b 10 -g comp.genome input.bed"
+reference = "bedtools flank -i input.bed -g comp.genome -b 10"
+compare = "exact"
+
+[[case]]
+name = "flank-left-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/transform-stranded.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci flank --left 5 -s -g comp.genome input.bed"
+reference = "bedtools flank -i input.bed -g comp.genome -l 5 -r 0 -s"
+compare = "exact"
+
+[[case]]
+name = "flank-gff-vs-bedtools"
+input = { file = "xtask/diff/inputs/transform-in.gff3" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci flank -b 10 -g comp.genome input.gff3"
+reference = "bedtools flank -i input.gff3 -g comp.genome -b 10"
+compare = "exact"
+
+# bedtools needs -l and -r together (or -b); gloci takes either alone.
+[[case]]
+name = "flank-one-side-vs-bedtools"
+input = { file = "xtask/diff/inputs/transform-in.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci flank --left 5 -s -g comp.genome input.bed"
+reference = "bedtools flank -i input.bed -g comp.genome -l 5 -s"
+compare = "exit-status"
+expected_difference = "#slop-flank-one-side"
+
+[[case]]
+name = "slop-one-side-vs-bedtools"
+input = { file = "xtask/diff/inputs/transform-in.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci slop --right 5 -g comp.genome input.bed"
+reference = "bedtools slop -i input.bed -g comp.genome -r 5"
+compare = "exit-status"
+expected_difference = "#slop-flank-one-side"
+
+# A point: slop agrees; bedtools flank treats it as the single base at 1-based
+# position `start` and leaves a base between the point and each strip.
+[[case]]
+name = "slop-point-vs-bedtools"
+input = { file = "xtask/diff/inputs/transform-point.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci slop -b 10 -g comp.genome input.bed"
+reference = "bedtools slop -i input.bed -g comp.genome -b 10"
+compare = "exact"
+
+[[case]]
+name = "flank-point-vs-bedtools"
+input = { file = "xtask/diff/inputs/transform-point.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci flank -b 10 -g comp.genome input.bed"
+reference = "bedtools flank -i input.bed -g comp.genome -b 10"
+compare = "exact"
+expected_difference = "#flank-points"
+
+# A feature that straddles the chromosome end is clipped by both tools.
+[[case]]
+name = "slop-straddle-vs-bedtools"
+input = { file = "xtask/diff/inputs/transform-straddle.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci slop -b 10 -g comp.genome input.bed"
+reference = "bedtools slop -i input.bed -g comp.genome -b 10"
+compare = "exact"
+
+[[case]]
+name = "flank-straddle-vs-bedtools"
+input = { file = "xtask/diff/inputs/transform-straddle.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci flank -b 10 -g comp.genome input.bed"
+reference = "bedtools flank -i input.bed -g comp.genome -b 10"
+compare = "exact"
+
+# A feature wholly beyond the chromosome end: bedtools writes a 1-base slop
+# at the end (slop) or an unclipped strip (flank); gloci exits 1.
+[[case]]
+name = "slop-past-end-vs-bedtools"
+input = { file = "xtask/diff/inputs/transform-past.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci slop -b 10 -g comp.genome input.bed"
+reference = "bedtools slop -i input.bed -g comp.genome -b 10"
+compare = "exit-status"
+expected_difference = "#slop-flank-past-end"
+
+[[case]]
+name = "flank-past-end-vs-bedtools"
+input = { file = "xtask/diff/inputs/transform-past.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci flank -b 10 -g comp.genome input.bed"
+reference = "bedtools flank -i input.bed -g comp.genome -b 10"
+compare = "exit-status"
+expected_difference = "#slop-flank-past-end"
+
+# A chromosome that is not in the genome: both tools exit 1.
+[[case]]
+name = "slop-missing-chrom-vs-bedtools"
+input = { file = "xtask/diff/inputs/comp-missing.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci slop -b 10 -g comp.genome input.bed"
+reference = "bedtools slop -i input.bed -g comp.genome -b 10"
+compare = "exit-status"
+
+# flank -s on a record of unknown strand: bedtools writes nothing for it,
+# gloci treats it as `+` (D49). slop -s agrees (slop-strand-vs-bedtools).
+[[case]]
+name = "flank-unknown-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/transform-in.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci flank --left 5 --right 5 -s -g comp.genome input.bed"
+reference = "bedtools flank -i input.bed -g comp.genome -l 5 -r 5 -s"
+compare = "exact"
+expected_difference = "#flank-unknown-strand"

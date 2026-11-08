@@ -1,0 +1,13 @@
+chr1	50	55	a	1	+
+chr1	95	100	b	2	-
+chr1	160	165	b	2	-
+chr1	955	960	c	4	-
+chr1	990	995	d	5	.
+chr2	5	10	e	6	+
+chr2	110	115	e	6	+
+chr2	375	380	f	7	-
+chrX	195	200	h	9	-
+chrX	270	275	h	9	-
+chrX	475	480	i	10	+
+chrM	0	3	j	11	-
+chrM	97	100	j	11	-

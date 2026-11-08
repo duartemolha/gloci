@@ -1,0 +1,1 @@
+flank --left 5 --right 5 -s -g comp.genome input.bed

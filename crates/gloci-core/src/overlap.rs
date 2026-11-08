@@ -51,6 +51,23 @@ impl Eq for Fraction {}
 
 impl Fraction {
     pub fn parse(s: &str) -> Result<Fraction, FractionError> {
+        Self::parse_inner(s, true)
+    }
+
+    /// Like [`Fraction::parse`] for a scale factor: any non-negative decimal
+    /// (`0`, `0.5`, `2`, `150%`) that fits `u64` once scaled. Used by `slop`
+    /// and `flank --pct`, where `-b 2` means twice the feature length.
+    pub fn parse_ratio(s: &str) -> Result<Fraction, FractionError> {
+        Self::parse_inner(s, false)
+    }
+
+    /// `floor(self * len)`, exact, saturating at `u64::MAX`.
+    pub fn floor_mul(&self, len: u64) -> u64 {
+        let v = u128::from(self.num) * u128::from(len) / self.scale;
+        u64::try_from(v).unwrap_or(u64::MAX)
+    }
+
+    fn parse_inner(s: &str, unit: bool) -> Result<Fraction, FractionError> {
         let syntax = || FractionError::Syntax(s.to_string());
         // A trailing `%` divides by 100: "50%" is 0.5.
         let (body, extra_digits) = match s.strip_suffix('%') {
@@ -72,16 +89,28 @@ impl Fraction {
         }
         let digits = (frac.len() + extra_digits) as u32;
         let scale = 10u128.pow(digits);
-        let out_of_range = || FractionError::OutOfRange(s.to_string());
+        let out_of_range = || {
+            if unit {
+                FractionError::OutOfRange(s.to_string())
+            } else {
+                FractionError::RatioRange(s.to_string())
+            }
+        };
         let mut num: u128 = 0;
         for b in int.bytes().chain(frac.bytes()) {
             num = num
                 .checked_mul(10)
                 .and_then(|n| n.checked_add(u128::from(b - b'0')))
-                .filter(|&n| n <= scale)
+                .filter(|&n| {
+                    if unit {
+                        n <= scale
+                    } else {
+                        n <= u128::from(u64::MAX)
+                    }
+                })
                 .ok_or_else(out_of_range)?;
         }
-        if num == 0 || num > scale {
+        if unit && (num == 0 || num > scale) {
             return Err(out_of_range());
         }
         Ok(Fraction {
