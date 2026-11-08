@@ -39,7 +39,7 @@ impl FromIterator<(Vec<u8>, u64)> for PositionSet {
 
 /// Visit the data lines of a list file: `#` comments and blank lines are
 /// skipped, a trailing `\r` is removed.
-fn each_line(
+pub(crate) fn each_line(
     path: &str,
     mut f: impl FnMut(u64, &[u8]) -> Result<(), String>,
 ) -> Result<(), IoError> {

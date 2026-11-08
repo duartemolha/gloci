@@ -124,6 +124,47 @@ impl Converter {
         })
     }
 
+    /// Encode one VCF text record (no line terminator) as BCF into `out`.
+    fn encode_text(&mut self, raw: &[u8], loc: Loc, out: &mut dyn Write) -> Result<(), IoError> {
+        let fail = |e: std::io::Error| IoError::Parse {
+            path: self.name.clone(),
+            loc,
+            msg: format!(
+                "cannot convert the record: {e}; check that every contig, INFO, FILTER and FORMAT field it uses is declared in the header"
+            ),
+        };
+        let Encoder::ToBcf(w) = &mut self.enc else {
+            return Err(internal(
+                &self.name,
+                "internal error: not a BCF encoder".into(),
+            ));
+        };
+        // BCF needs every contig in the header's dictionary.
+        let chrom = raw.split(|&b| b == b'\t').next().unwrap_or_default();
+        let declared =
+            std::str::from_utf8(chrom).is_ok_and(|c| self.header.contigs().contains_key(c));
+        if !declared {
+            let c = String::from_utf8_lossy(chrom);
+            return Err(IoError::Parse {
+                path: self.name.clone(),
+                loc,
+                msg: format!(
+                    "chromosome \"{c}\" is not in the ##contig lines, and BCF needs every contig in its header; \
+add ##contig=<ID={c}> to the header"
+                ),
+            });
+        }
+        let rec = noodles_vcf::Record::try_from(raw).map_err(fail)?;
+        w.write_variant_record(&self.header, &rec).map_err(fail)?;
+        out.write_all(w.get_ref())
+            .map_err(|source| IoError::Write {
+                path: "output".to_string(),
+                source,
+            })?;
+        w.get_mut().clear();
+        Ok(())
+    }
+
     fn convert(&mut self, batch: &RecordBatch, out: &mut dyn Write) -> Result<(), IoError> {
         for (i, m) in batch.recs.iter().enumerate() {
             let loc = if self.from == Format::Bcf {
@@ -144,27 +185,7 @@ impl Converter {
                 source,
             };
             match &mut self.enc {
-                Encoder::ToBcf(w) => {
-                    // BCF needs every contig in the header's dictionary.
-                    let chrom = raw.split(|&b| b == b'\t').next().unwrap_or_default();
-                    let declared = std::str::from_utf8(chrom)
-                        .is_ok_and(|c| self.header.contigs().contains_key(c));
-                    if !declared {
-                        let c = String::from_utf8_lossy(chrom);
-                        return Err(IoError::Parse {
-                            path: self.name.clone(),
-                            loc,
-                            msg: format!(
-                                "chromosome \"{c}\" is not in the ##contig lines, and BCF needs every contig in its header; \
-add ##contig=<ID={c}> to the header"
-                            ),
-                        });
-                    }
-                    let rec = noodles_vcf::Record::try_from(raw).map_err(fail)?;
-                    w.write_variant_record(&self.header, &rec).map_err(fail)?;
-                    out.write_all(w.get_ref()).map_err(werr)?;
-                    w.get_mut().clear();
-                }
+                Encoder::ToBcf(_) => self.encode_text(raw, loc, out)?,
                 Encoder::ToVcf(w) => {
                     let mut rec = noodles_bcf::Record::default();
                     noodles_bcf::io::Reader::from(raw)
@@ -202,6 +223,15 @@ impl BcfText {
         }))
     }
 
+    /// A renderer for BCF records encoded against the header `h`.
+    pub fn for_header(name: &str, h: &VcfHeader) -> Result<BcfText, IoError> {
+        Ok(BcfText {
+            name: name.to_string(),
+            conv: Converter::new(name, h, Format::Bcf)?,
+            line: Vec::new(),
+        })
+    }
+
     /// The VCF line of the BCF record `raw` (record number `loc`), without
     /// a newline. Valid until the next call.
     pub fn render(&mut self, raw: &[u8], loc: u64) -> Result<&[u8], IoError> {
@@ -229,6 +259,28 @@ impl BcfText {
             self.line.pop();
         }
         Ok(&self.line)
+    }
+}
+
+/// Encodes VCF text records as BCF records against a header, for commands
+/// that rewrite records as text and write BCF.
+pub struct TextToBcf {
+    conv: Converter,
+}
+
+impl TextToBcf {
+    /// An encoder for records that use the dictionaries of `h`. The BCF
+    /// header text to write is `h.raw`, via [`write_bcf_header`].
+    pub fn new(name: &str, h: &VcfHeader) -> Result<TextToBcf, IoError> {
+        Ok(TextToBcf {
+            conv: Converter::new(name, h, Format::Vcf)?,
+        })
+    }
+
+    /// Append the BCF record for the VCF line `line` (no terminator; record
+    /// number `loc`, for messages) to `out`.
+    pub fn encode(&mut self, line: &[u8], loc: u64, out: &mut Vec<u8>) -> Result<(), IoError> {
+        self.conv.encode_text(line, Loc::Record(loc), out)
     }
 }
 

@@ -9,7 +9,8 @@ mod stats;
 
 pub use bcf_fmt::{BcfGenotypes, bcf_genotypes};
 pub use filter::{
-    BcfSite, PositionSet, SiteFilters, SiteView, Thinner, VcfType, read_ids, read_positions,
+    BcfSite, PositionSet, RewritePlan, SampleSelection, SiteFilters, SiteView, Thinner, VcfType,
+    fmt_g6, read_ids, read_positions, read_samples, rewrite_header, rewrite_text, select_samples,
 };
 pub use gt::{Genotype, GenotypeSource, SampleFields, TextGenotypes, text_genotypes};
 pub use hwe::hwe_p;

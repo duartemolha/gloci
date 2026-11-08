@@ -32,7 +32,7 @@ pub use bed::{bed12_blocks, is_bed_record_line};
 pub use builtin::{
     BuiltinGenome, Naming, builtin, builtin_genomes, resolve_genome, unknown_genome,
 };
-pub use convert::{BcfText, HeaderMode, convert_variants};
+pub use convert::{BcfText, HeaderMode, TextToBcf, convert_variants};
 pub use detect::{Compression, Format, detect_compression, detect_format};
 pub use diag::{Diagnostics, InvalidPolicy};
 pub use error::{IoError, Loc, OrderError, SORTED_INPUTS, UsageError};

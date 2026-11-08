@@ -1,9 +1,13 @@
 //! `vcf filter`: the site filters of spec 7.8 step 4 (decision D50).
 
 mod lists;
+mod rewrite;
+mod samples;
 mod site;
 
 pub use lists::{PositionSet, read_ids, read_positions};
+pub use rewrite::{RewritePlan, fmt_g6, rewrite_header, rewrite_text};
+pub use samples::{SampleSelection, read_samples, select_samples};
 pub use site::{BcfSite, SiteView, Thinner};
 
 use gloci_core::RegionSet;
