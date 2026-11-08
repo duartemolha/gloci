@@ -75,3 +75,38 @@ fn blocks() {
     assert!(!blocks_overlap(&[], &[iv(0, 5)], false));
     assert_eq!(blocks_overlap_len(&[iv(0, 5)], &[iv(5, 9)]), 0);
 }
+
+#[test]
+fn parse_ratio_bounds() {
+    use gloci_core::Fraction;
+    for ok in ["0", "0.5", "50%", "1", "2", "150%", "18446744073709551615"] {
+        assert!(Fraction::parse_ratio(ok).is_ok(), "{ok}");
+    }
+    for bad in [
+        "",
+        ".",
+        "-1",
+        "abc",
+        "1e3",
+        "18446744073709551616",
+        "0.1234567890123456789",
+    ] {
+        assert!(Fraction::parse_ratio(bad).is_err(), "{bad}");
+    }
+    // The unit parser keeps its (0, 1] range.
+    assert!(Fraction::parse("2").is_err());
+    assert!(Fraction::parse("0").is_err());
+}
+
+#[test]
+fn floor_mul_exact_and_saturating() {
+    use gloci_core::Fraction;
+    let f = |s| Fraction::parse_ratio(s).unwrap();
+    assert_eq!(f("0.5").floor_mul(7), 3);
+    assert_eq!(f("0.1").floor_mul(30), 3);
+    assert_eq!(f("0").floor_mul(u64::MAX), 0);
+    assert_eq!(f("1").floor_mul(u64::MAX), u64::MAX);
+    assert_eq!(f("0.5").floor_mul(u64::MAX), u64::MAX / 2);
+    assert_eq!(f("2").floor_mul(u64::MAX), u64::MAX, "saturates");
+    assert_eq!(f("18446744073709551615").floor_mul(u64::MAX), u64::MAX);
+}

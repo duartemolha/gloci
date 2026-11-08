@@ -5,7 +5,7 @@
 //! check applies to them. Output keeps the input format; only the
 //! coordinate columns change. When a transform's output goes out of order
 //! (`-s` or `--pct` in slop, any flank) one warning names the first
-//! offending output line.
+//! offending output record (input that is itself unsorted never triggers it).
 //!
 //! With a genome, a record that straddles the chromosome end is clipped, but
 //! one that lies wholly beyond it is an error (bedtools writes nonsense for
@@ -64,23 +64,36 @@ struct Out<'a> {
     w: &'a mut dyn RecordWriter,
     format: Format,
     buf: Vec<u8>,
-    last: Option<(ChromId, u64)>,
+    /// Chromosome, input start and output start of the previous record.
+    last: Option<(ChromId, u64, u64)>,
     lines: u64,
     warned: bool,
 }
 
 impl Out<'_> {
-    fn emit(&mut self, chrom: ChromId, raw: &[u8], iv: Interval) -> Result<(), IoError> {
+    fn emit(
+        &mut self,
+        chrom: ChromId,
+        in_start: u64,
+        raw: &[u8],
+        iv: Interval,
+    ) -> Result<(), IoError> {
         self.lines += 1;
-        if !self.warned && self.last.is_some_and(|l| l > (chrom, iv.start)) {
+        // Warn only when the transform itself breaks the order: same
+        // chromosome, input in order, output start going down.
+        if !self.warned
+            && self
+                .last
+                .is_some_and(|(c, i, o)| c == chrom && i <= in_start && o > iv.start)
+        {
             self.warned = true;
             log::warn!(
-                "output line {} is out of order; the output of this command is not sorted \
+                "output record {} is out of order; the output of this command is not sorted \
 (pipe the output through gloci sort)",
                 self.lines
             );
         }
-        self.last = Some((chrom, iv.start));
+        self.last = Some((chrom, in_start, iv.start));
         self.buf.clear();
         rewrite_coords(self.format, raw, iv, &mut self.buf);
         self.w
@@ -155,17 +168,20 @@ check that -g matches the genome build of the input",
                 end: b.min(limit),
             };
             match mode {
-                Mode::Slop => {
-                    out.emit(m.chrom, raw, iv(s.saturating_sub(l), e.saturating_add(r)))?
-                }
+                Mode::Slop => out.emit(
+                    m.chrom,
+                    s,
+                    raw,
+                    iv(s.saturating_sub(l), e.saturating_add(r)),
+                )?,
                 Mode::Flank => {
                     let left = iv(s.saturating_sub(l), s);
                     if !left.is_point() {
-                        out.emit(m.chrom, raw, left)?;
+                        out.emit(m.chrom, s, raw, left)?;
                     }
                     let right = iv(e, e.saturating_add(r));
                     if !right.is_point() {
-                        out.emit(m.chrom, raw, right)?;
+                        out.emit(m.chrom, s, raw, right)?;
                     }
                 }
             }

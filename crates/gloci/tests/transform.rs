@@ -216,7 +216,7 @@ fn order_warning_once() {
         .args(["flank", &f, "-b", "50", "-g", &g])
         .assert()
         .success()
-        .stderr(contains("output line 3 is out of order"))
+        .stderr(contains("output record 3 is out of order"))
         .stderr(contains("gloci sort"));
     let err = String::from_utf8(o.get_output().stderr.clone()).unwrap();
     assert_eq!(err.matches("out of order").count(), 1, "{err}");
@@ -230,7 +230,39 @@ fn order_warning_once() {
         .args(["slop", &f, "--left", "50", "-s"])
         .assert()
         .success()
-        .stderr(contains("output line 2 is out of order"));
+        .stderr(contains("output record 2 is out of order"));
+}
+
+#[test]
+fn no_false_warning() {
+    let dir = tempdir();
+    // Natural-order genome, input in lexicographic chromosome order.
+    let g = s(&plain_file(
+        dir.path(),
+        "n.genome",
+        "chr1\t1000\nchr2\t1000\nchr10\t1000\n",
+    ));
+    let f = s(&plain_file(
+        dir.path(),
+        "lex.bed",
+        "chr1\t100\t200\nchr10\t5\t9\nchr2\t7\t8\n",
+    ));
+    gloci()
+        .args(["slop", &f, "-b", "3", "-g", &g])
+        .assert()
+        .success()
+        .stderr(predicates::str::is_empty());
+    // An input that is already unsorted is not the transform's fault.
+    let u = s(&plain_file(
+        dir.path(),
+        "u.bed",
+        "chr1\t500\t600\nchr1\t100\t200\n",
+    ));
+    gloci()
+        .args(["slop", &u, "-b", "3"])
+        .assert()
+        .success()
+        .stderr(predicates::str::is_empty());
 }
 
 #[test]
