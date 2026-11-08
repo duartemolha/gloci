@@ -969,15 +969,21 @@ pub struct InvalidArg {
 /// `--sort` and the options that bound it (D39).
 #[derive(Args, Debug, Clone)]
 pub struct SortArg {
-    /// Sort the inputs first (external sort bounded by --max-mem), for
-    /// inputs that are unsorted or too large to sort in memory.
+    /// Sort the inputs first, for inputs that are unsorted or too large to
+    /// sort in memory (external sort bounded by --max-mem). The sorted
+    /// records are written to a temporary file in --tmp-dir and read back,
+    /// so besides the spill runs (about the size of the input, compressed)
+    /// the directory needs one uncompressed sorted copy: allow roughly twice
+    /// the input size. Everything is removed afterwards.
     #[arg(long)]
     pub sort: bool,
     /// Memory budget for --sort, in binary units (K, M, G, T); at least 16M.
-    #[arg(long, value_name = "SIZE", default_value = "2G", value_parser = parse_size)]
+    #[arg(long, value_name = "SIZE", default_value = "2G", value_parser = parse_size, requires = "sort")]
     pub max_mem: u64,
-    #[command(flatten)]
-    pub tmp_dir: TmpDirArg,
+    /// Directory for --sort's temporary files; it must exist and be writable
+    /// (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir).
+    #[arg(long, value_name = "DIR", requires = "sort")]
+    pub tmp_dir: Option<PathBuf>,
 }
 
 #[derive(Args, Debug, Clone)]

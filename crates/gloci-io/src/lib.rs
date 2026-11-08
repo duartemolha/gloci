@@ -35,7 +35,7 @@ pub use builtin::{
 pub use convert::{BcfText, HeaderMode, convert_variants};
 pub use detect::{Compression, Format, detect_compression, detect_format};
 pub use diag::{Diagnostics, InvalidPolicy};
-pub use error::{IoError, Loc, OrderError, UsageError};
+pub use error::{IoError, Loc, OrderError, SORTED_INPUTS, UsageError};
 pub use fields::{column_count, field, split_fields};
 pub use genome::{chrom_table_for, chrom_table_lenient, load_genome};
 pub use index::{

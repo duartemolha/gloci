@@ -8,6 +8,9 @@ pub enum Loc {
     Record(u64),
 }
 
+/// Start of the name of the reader over `--sort`ed inputs.
+pub const SORTED_INPUTS: &str = "the sorted inputs (";
+
 #[derive(Debug, thiserror::Error)]
 pub enum IoError {
     #[error("cannot open {path}: {source}; check that the path exists and is readable")]
@@ -108,6 +111,23 @@ impl IoError {
             IoError::Write { path, source } if path == "output" => IoError::Write {
                 path: name.to_string(),
                 source,
+            },
+            e => e,
+        }
+    }
+
+    /// A data error found in the stream `--sort` produced names the sorted
+    /// inputs, whose line numbers mean nothing to the user: count records.
+    pub fn with_sorted_input_loc(self) -> IoError {
+        match self {
+            IoError::Parse {
+                path,
+                loc: Loc::Line(n),
+                msg,
+            } if path.starts_with(SORTED_INPUTS) => IoError::Parse {
+                path,
+                loc: Loc::Record(n),
+                msg,
             },
             e => e,
         }

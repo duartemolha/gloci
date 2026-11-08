@@ -59,6 +59,7 @@ pub fn run(ctx: &Ctx, a: &ComplementArgs) -> anyhow::Result<()> {
     complement(readers, &mut chroms, genome.as_ref(), w.as_mut()).map_err(|e| {
         e.with_output_name(&dest)
             .with_order_hint(if a.sort.sort { "" } else { SORT_FLAG_HINT })
+            .with_sorted_input_loc()
     })?;
     w.finish().map_err(|e| e.with_output_name(&dest))?;
     Ok(())

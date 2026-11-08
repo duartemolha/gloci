@@ -466,3 +466,27 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Pinned by:** `coverage-split-vs-bedtools`,
   `coverage-split-hist-vs-bedtools` and `coverage-split-per-base-vs-bedtools`
   (must differ).
+
+## `complement` ignores points {#complement-points}
+
+- **gloci:** a point (a zero-length feature) covers no bases, so it is ignored:
+  it neither splits a gap nor makes a chromosome appear (D48).
+- **Old behaviour:** `bedtools complement` treats the point at `p` as a base
+  and splits the gap into `[.., p-1)` and `[p+1, ..)` (`chr1 200 299`,
+  `chr1 301 500` for a point at 300). `bedops --complement` writes
+  overlapping, out-of-order rows around a point.
+- **Reason:** a feature with no bases leaves no base uncovered or covered, and
+  inventing one would remove a base from the output.
+- **Pinned by:** `complement-point-vs-bedtools` and
+  `complement-point-vs-bedops` (must differ).
+
+## `complement` rejects a feature past the chromosome end {#complement-past-end}
+
+- **gloci:** with `-g`, a feature that ends beyond its chromosome's length is
+  an error (exit 1) naming the file and line, with a hint to check the genome
+  build.
+- **Old behaviour:** `bedtools complement` prints `WARNING: ... exceeds the
+  length of chromosome` and exits 0, writing the gaps it can.
+- **Reason:** a feature past the end almost always means the genome build
+  does not match the input, and the output would silently be wrong.
+- **Pinned by:** `complement-past-end-vs-bedtools` (must differ; exit status).

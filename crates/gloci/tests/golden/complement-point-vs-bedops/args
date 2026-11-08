@@ -1,0 +1,1 @@
+complement --chrom-order lex input.bed

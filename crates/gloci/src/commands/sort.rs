@@ -7,11 +7,10 @@ use gloci_io::{
     UsageError, WriterOptions, check_family, chrom_table_for, next_batch_size, open_output,
     open_reader, open_record_writer, parse_output_spec, refuse_binary_to_tty,
 };
-use gloci_ops::{Dedup, SortConfig, Sorter, Tie, check_definitions, check_samples, merge_sorted};
+use gloci_ops::{
+    Dedup, MIN_MAX_MEM, SortConfig, Sorter, Tie, check_definitions, check_samples, merge_sorted,
+};
 use std::io::IsTerminal;
-
-/// `--max-mem` below this is a usage error (D23).
-const MIN_MAX_MEM: u64 = 16 << 20;
 
 fn usage(msg: impl Into<String>) -> anyhow::Error {
     UsageError(msg.into()).into()

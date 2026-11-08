@@ -13,8 +13,9 @@ use crate::sort::Dedup;
 use gloci_core::ChromTable;
 use gloci_io::{
     Compression, Diagnostics, Format, Header, InvalidPolicy, IoError, OutFormat, OutputOptions,
-    OutputSpec, ReaderOptions, RecordBatch, RecordReader, TempGuard, UsageError, WriterOptions,
-    create_temp_dir_in, next_batch_size, open_output, open_reader, open_record_writer,
+    OutputSpec, ReaderOptions, RecordBatch, RecordReader, SORTED_INPUTS, TempGuard, UsageError,
+    WriterOptions, create_temp_dir_in, next_batch_size, open_output, open_reader,
+    open_record_writer,
 };
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -72,9 +73,9 @@ impl RecordReader for SortedReader {
 /// `VcfSpan::Ref`, the span `gloci sort` keys VCF records by; `reopen`
 /// (threads, span) is used to read the sorted file back. `chroms` is the
 /// table the caller will use for the sorted stream. Skipped-record warnings
-/// of the inputs are logged here. The result is named `sorted A,B`, so errors
-/// quote the inputs (a line number then counts the sorted records) rather
-/// than a temp path.
+/// of the inputs are logged here. The result is named `the sorted inputs (A, B)`
+/// so errors do not show a temp path; `IoError::with_sorted_input_loc` turns
+/// its line numbers into record numbers.
 pub fn sort_readers(
     mut inputs: Vec<Box<dyn RecordReader>>,
     chroms: &mut ChromTable,
@@ -169,14 +170,8 @@ pub fn sort_readers(
         version: env!("CARGO_PKG_VERSION"),
     };
     let header = inputs[0].header().clone();
-    let name = format!(
-        "sorted {}",
-        inputs
-            .iter()
-            .map(|r| r.name())
-            .collect::<Vec<_>>()
-            .join(",")
-    );
+    let names: Vec<&str> = inputs.iter().map(|r| r.name()).collect();
+    let name = format!("{SORTED_INPUTS}{})", names.join(", "));
     let mut w = open_record_writer(output, format, out_format, &header, &wopts)?;
     let dest = path.display().to_string();
     let stats = sorter

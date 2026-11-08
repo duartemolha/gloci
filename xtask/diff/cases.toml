@@ -1307,3 +1307,42 @@ input = { file = "xtask/diff/inputs/merge-in.bed" }
 gloci = "gloci complement --chrom-order lex input.bed"
 reference = "bedops --complement input.bed"
 compare = "exact"
+
+# complement edge cases. A point covers no bases (D48): bedtools complement
+# splits the gap around it into [.., p-1) and [p+1, ..), as if it were a base.
+[[case]]
+name = "complement-point-vs-bedtools"
+input = { file = "xtask/diff/inputs/comp-point.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci complement -g comp.genome input.bed"
+reference = "bedtools complement -i input.bed -g comp.genome"
+compare = "exact"
+expected_difference = "#complement-points"
+
+[[case]]
+name = "complement-point-vs-bedops"
+input = { file = "xtask/diff/inputs/comp-point-lex.bed" }
+gloci = "gloci complement --chrom-order lex input.bed"
+reference = "bedops --complement input.bed"
+compare = "exact"
+expected_difference = "#complement-points"
+
+# A feature past the end of its chromosome: bedtools warns and carries on,
+# gloci exits 1.
+[[case]]
+name = "complement-past-end-vs-bedtools"
+input = { file = "xtask/diff/inputs/comp-past.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci complement -g comp.genome input.bed"
+reference = "bedtools complement -i input.bed -g comp.genome"
+compare = "exit-status"
+expected_difference = "#complement-past-end"
+
+# A chromosome that is not in the genome: both tools exit 1.
+[[case]]
+name = "complement-missing-chrom-vs-bedtools"
+input = { file = "xtask/diff/inputs/comp-missing.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci complement -g comp.genome input.bed"
+reference = "bedtools complement -i input.bed -g comp.genome"
+compare = "exit-status"
