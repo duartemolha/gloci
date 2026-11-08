@@ -111,15 +111,66 @@ fn missing_and_empty() {
 
 #[test]
 fn reuse_resets() {
-    let specs = parse_aggs(&[s("5:sum,5:collapse")]).unwrap();
+    let ops = [
+        "count",
+        "count_distinct",
+        "sum",
+        "mean",
+        "median",
+        "min",
+        "max",
+        "stdev",
+        "var",
+        "collapse",
+        "distinct",
+        "distinct_sorted",
+        "first",
+        "last",
+        "bases",
+        "indicator",
+    ];
+    let specs = parse_aggs(&[ops
+        .iter()
+        .map(|o| format!("5:{o}"))
+        .collect::<Vec<_>>()
+        .join(",")])
+    .unwrap();
     let r = resolve(&specs, Format::Bed, &Header::None).unwrap();
     let mut acc = Accumulators::new(r, s("."), s(","));
-    for _ in 0..2 {
-        acc.add(b"c\t0\t1\tn\t2", 1, "b.bed", 1).unwrap();
+    let mut round = |vals: &[&str]| {
+        for (i, v) in vals.iter().enumerate() {
+            acc.add(
+                format!("c\t0\t1\tn\t{v}").as_bytes(),
+                3,
+                "b.bed",
+                i as u64 + 1,
+            )
+            .unwrap();
+        }
         let mut out = Vec::new();
         acc.finish_into(&mut out);
-        assert_eq!(out, b"\t2\t2");
-    }
+        String::from_utf8(out).unwrap()
+    };
+    assert_eq!(
+        round(&["1", "2", "2"]),
+        "\t3\t2\t5\t1.6666666666666667\t2\t1\t2\t0.5773502691896257\t0.3333333333333333\t1,2,2\t1,2\t1,2\t1\t2\t9\t1"
+    );
+    assert_eq!(
+        round(&["10", "30"]),
+        "\t2\t2\t40\t20\t20\t10\t30\t14.142135623730951\t200\t10,30\t10,30\t10,30\t10\t30\t6\t1"
+    );
+    assert_eq!(
+        round(&[]),
+        "\t0\t0\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\t0\t0"
+    );
+}
+
+#[test]
+fn mixed_int_and_float() {
+    assert_eq!(run("min", &["1", "2.5"]), "1");
+    assert_eq!(run("max", &["1", "2.5"]), "2.5");
+    assert_eq!(run("mean", &["1", "2.5"]), "1.75");
+    assert_eq!(run("sum", &["1", "2.5"]), "3.5");
 }
 
 #[test]

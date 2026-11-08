@@ -62,9 +62,21 @@ fn parse_f64(x: &[u8]) -> Option<f64> {
     f.is_finite().then_some(f)
 }
 
+fn is_int_literal(x: &[u8]) -> bool {
+    let d = match x.first() {
+        Some(b'-' | b'+') => &x[1..],
+        _ => x,
+    };
+    !d.is_empty() && d.iter().all(u8::is_ascii_digit)
+}
+
 fn field_equal(p: &[u8], q: &[u8]) -> bool {
     if p == q {
         return true;
+    }
+    // Integer literals (coordinates, counts) must match exactly.
+    if is_int_literal(p) && is_int_literal(q) {
+        return false;
     }
     match (parse_f64(p), parse_f64(q)) {
         (Some(x), Some(y)) => {
@@ -151,6 +163,15 @@ mod tests {
         assert!(!compare("numeric", b"a\t1\n", b"b\t1\n"));
         assert!(!compare("numeric", b"a\t1\n", b"a\t1\t2\n"));
         assert!(!compare("numeric", b"1\n2\n", b"1\n"));
+        assert!(!compare("numeric", b"100000000\n", b"100000500\n"));
+        assert!(!compare("numeric", b"100000\n", b"100001\n"));
+        assert!(compare("numeric", b"100000000\n", b"100000000\n"));
+        assert!(!compare("numeric", b".\n", b"NA\n"));
+        assert!(!compare("numeric", b".\n", b"0\n"));
+        assert!(!compare("numeric", b"nan\n", b"nan2\n"));
+        assert!(!compare("numeric", b"inf\n", b"1e308\n"));
+        assert!(!compare("numeric", b"inf\n", b"-inf\n"));
+        assert!(compare("numeric", b"nan\n", b"nan\n"));
         assert!(!compare("exact", b"x\t3\n", b"x\t3.0\n"));
     }
 }

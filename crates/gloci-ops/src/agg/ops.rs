@@ -328,15 +328,17 @@ impl Accumulators {
         for (agg, state) in self.aggs.iter().zip(self.states.iter_mut()) {
             out.push(b'\t');
             let delim = self.delim.as_bytes();
-            let join = |items: &[Vec<u8>], out: &mut Vec<u8>, empty: &str| {
-                if items.is_empty() {
-                    out.extend_from_slice(empty.as_bytes());
-                }
-                for (i, it) in items.iter().enumerate() {
-                    if i > 0 {
+            let join = |items: &mut dyn Iterator<Item = &[u8]>, out: &mut Vec<u8>, empty: &str| {
+                let mut any = false;
+                for it in items {
+                    if any {
                         out.extend_from_slice(delim);
                     }
+                    any = true;
                     out.extend_from_slice(it);
+                }
+                if !any {
+                    out.extend_from_slice(empty.as_bytes());
                 }
             };
             match state {
@@ -348,11 +350,10 @@ impl Accumulators {
                     let _ = write!(out, "{}", s.len());
                 }
                 State::Numeric(n) => finish_numeric(agg.op, n, &self.empty, out),
-                State::List(l) => join(l, out, &self.empty),
-                State::Distinct(_, l) => join(l, out, &self.empty),
+                State::List(l) => join(&mut l.iter().map(Vec::as_slice), out, &self.empty),
+                State::Distinct(_, l) => join(&mut l.iter().map(Vec::as_slice), out, &self.empty),
                 State::Sorted(s) => {
-                    let items: Vec<Vec<u8>> = s.iter().cloned().collect();
-                    join(&items, out, &self.empty);
+                    join(&mut s.iter().map(Vec::as_slice), out, &self.empty);
                 }
                 State::First(o) | State::Last(o) => match o {
                     Some(v) => out.extend_from_slice(v),
