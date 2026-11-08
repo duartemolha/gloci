@@ -9,6 +9,7 @@ publish.workspace = true
 gloci-core.workspace = true
 gloci-io.workspace = true
 gloci-engine.workspace = true
+gloci-vcf.workspace = true
 lz4_flex.workspace = true
 log.workspace = true
 rayon.workspace = true

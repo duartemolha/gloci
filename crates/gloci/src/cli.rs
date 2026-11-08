@@ -534,6 +534,13 @@ Examples:
   gloci coverage -a exons.bed -b reads.bed --per-base -s
   gloci coverage -a peaks.bed -b rep1.bed rep2.bed --names r1,r2")]
     Coverage(CoverageArgs),
+    /// VCF operations (spec §7.8).
+    #[command(after_long_help = "\
+Examples:
+  gloci vcf filter cohort.bcf --pass-only --min-qual 30 -o filtered.bcf
+  gloci vcf filter input.vcf --samples s1,s2 --min-dp 10 --recalc-ac -o out.vcf
+  gloci vcf filter variants.bcf --types indel --biallelic")]
+    Vcf(Box<VcfArgs>),
 }
 
 /// What `intersect` reports.
@@ -765,6 +772,207 @@ pub struct CoverageArgs {
     pub invalid: InvalidArg,
     #[command(flatten)]
     pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct VcfArgs {
+    #[command(subcommand)]
+    pub command: VcfCommand,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum VcfCommand {
+    /// Filter VCF/BCF files with the selection pipeline.
+    #[command(after_long_help = "\
+Examples:
+  gloci vcf filter cohort.bcf --pass-only --min-qual 30 --min-maf 0.01 --max-missing 0.1 -o filtered.bcf
+  gloci vcf filter input.vcf --samples s1,s2 --min-dp 10 --recalc-ac -o out.vcf
+  gloci vcf filter variants.bcf --types indel --biallelic")]
+    Filter(VcfFilterArgs),
+}
+
+/// A record type for `vcf filter --types` / `--exclude-types` (spec 7.8).
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum VcfTypeArg {
+    Snv,
+    Mnv,
+    Ins,
+    Del,
+    Indel,
+    Sv,
+    Ref,
+    Other,
+}
+
+impl From<VcfTypeArg> for gloci_vcf::VcfType {
+    fn from(t: VcfTypeArg) -> Self {
+        match t {
+            VcfTypeArg::Snv => gloci_vcf::VcfType::Snv,
+            VcfTypeArg::Mnv => gloci_vcf::VcfType::Mnv,
+            VcfTypeArg::Ins => gloci_vcf::VcfType::Ins,
+            VcfTypeArg::Del => gloci_vcf::VcfType::Del,
+            VcfTypeArg::Indel => gloci_vcf::VcfType::Indel,
+            VcfTypeArg::Sv => gloci_vcf::VcfType::Sv,
+            VcfTypeArg::Ref => gloci_vcf::VcfType::Ref,
+            VcfTypeArg::Other => gloci_vcf::VcfType::Other,
+        }
+    }
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct VcfFilterArgs {
+    /// Input VCF or BCF file (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+
+    /// Keep only these sample names (repeatable or comma-separated).
+    #[arg(long, value_delimiter = ',', value_name = "SAMPLES")]
+    pub samples: Option<Vec<String>>,
+    /// File containing sample names to keep, one per line.
+    #[arg(long, value_name = "FILE")]
+    pub samples_file: Option<PathBuf>,
+    /// Remove these sample names (repeatable or comma-separated).
+    #[arg(long, value_delimiter = ',', value_name = "SAMPLES")]
+    pub exclude_samples: Option<Vec<String>>,
+    /// File containing sample names to remove, one per line.
+    #[arg(long, value_name = "FILE")]
+    pub exclude_samples_file: Option<PathBuf>,
+
+    /// Mask genotypes with FORMAT/GQ below N.
+    #[arg(long, value_name = "N")]
+    pub min_gq: Option<u32>,
+    /// Mask genotypes with FORMAT/DP below N.
+    #[arg(long, value_name = "N")]
+    pub min_dp: Option<u32>,
+    /// Mask genotypes with FORMAT/DP above N.
+    #[arg(long, value_name = "N")]
+    pub max_dp: Option<u32>,
+    /// Mask genotypes whose FORMAT/FT is not PASS, . or absent.
+    #[arg(long)]
+    pub mask_filtered_genotypes: bool,
+
+    /// Restrict to regions.
+    #[command(flatten)]
+    pub region: RegionArgs,
+    /// Exclude records whose footprint overlaps a region in FILE (BED).
+    #[arg(long, value_name = "FILE")]
+    pub exclude_regions_file: Option<PathBuf>,
+    /// Keep records on these chromosomes (repeatable or comma-separated).
+    #[arg(long, value_delimiter = ',', value_name = "CHROM")]
+    pub chrom: Vec<String>,
+    /// Remove records on these chromosomes (repeatable or comma-separated).
+    #[arg(long, value_delimiter = ',', value_name = "CHROM")]
+    pub exclude_chrom: Vec<String>,
+
+    /// Keep records matching (chrom, POS) in FILE.
+    #[arg(long, value_name = "FILE")]
+    pub positions: Option<PathBuf>,
+    /// Remove records matching (chrom, POS) in FILE.
+    #[arg(long, value_name = "FILE")]
+    pub exclude_positions: Option<PathBuf>,
+    /// Keep records whose ID matches a name in FILE.
+    #[arg(long, value_name = "FILE")]
+    pub ids: Option<PathBuf>,
+    /// Remove records whose ID matches a name in FILE.
+    #[arg(long, value_name = "FILE")]
+    pub exclude_ids: Option<PathBuf>,
+
+    /// Keep records of these variant types (snv, mnv, ins, del, indel, sv, ref, other).
+    #[arg(long, value_enum, value_delimiter = ',', value_name = "LIST")]
+    pub types: Vec<VcfTypeArg>,
+    /// Remove records of these variant types.
+    #[arg(long, value_enum, value_delimiter = ',', value_name = "LIST")]
+    pub exclude_types: Vec<VcfTypeArg>,
+    /// Minimum number of listed alleles (REF + ALTs).
+    #[arg(long, value_name = "N")]
+    pub min_alleles: Option<usize>,
+    /// Maximum number of listed alleles (REF + ALTs).
+    #[arg(long, value_name = "N")]
+    pub max_alleles: Option<usize>,
+    /// Restrict to biallelic sites (equivalent to --min-alleles 2 --max-alleles 2).
+    #[arg(long)]
+    pub biallelic: bool,
+
+    /// Minimum QUAL score.
+    #[arg(long, value_name = "X")]
+    pub min_qual: Option<f64>,
+    /// Keep only records whose FILTER is PASS or .
+    #[arg(long)]
+    pub pass_only: bool,
+    /// Keep records containing any of these FILTER tags.
+    #[arg(long, value_delimiter = ',', value_name = "TAGS")]
+    pub keep_filter: Vec<String>,
+    /// Remove records containing any of these FILTER tags.
+    #[arg(long, value_delimiter = ',', value_name = "TAGS")]
+    pub remove_filter: Vec<String>,
+
+    /// Keep only records that define this INFO tag.
+    #[arg(long, value_name = "FLAG")]
+    pub require_info: Vec<String>,
+    /// Remove records that define this INFO tag.
+    #[arg(long, value_name = "FLAG")]
+    pub exclude_info: Vec<String>,
+    /// Keep only these INFO keys in output records and header.
+    #[arg(long, value_delimiter = ',', value_name = "KEYS")]
+    pub keep_info: Option<Vec<String>>,
+    /// Remove these INFO keys from output records and header.
+    #[arg(long, value_delimiter = ',', value_name = "KEYS")]
+    pub drop_info: Vec<String>,
+    /// Recalculate INFO/AC, AN and AF after sample selection and masking.
+    #[arg(long)]
+    pub recalc_ac: bool,
+
+    /// Minimum minor allele frequency among called genotypes [0, 1].
+    #[arg(long, value_name = "X")]
+    pub min_maf: Option<f64>,
+    /// Maximum minor allele frequency among called genotypes [0, 1].
+    #[arg(long, value_name = "X")]
+    pub max_maf: Option<f64>,
+    /// Minimum minor allele count among called genotypes.
+    #[arg(long, value_name = "N")]
+    pub min_mac: Option<u64>,
+    /// Maximum minor allele count among called genotypes.
+    #[arg(long, value_name = "N")]
+    pub max_mac: Option<u64>,
+
+    /// Maximum fraction of missing genotypes [0, 1].
+    #[arg(long, value_name = "FRAC")]
+    pub max_missing: Option<f64>,
+    /// Maximum count of missing genotypes across samples.
+    #[arg(long, value_name = "N")]
+    pub max_missing_count: Option<u64>,
+
+    /// Minimum mean read depth across samples with depth.
+    #[arg(long, value_name = "X")]
+    pub min_mean_dp: Option<f64>,
+    /// Maximum mean read depth across samples with depth.
+    #[arg(long, value_name = "X")]
+    pub max_mean_dp: Option<f64>,
+
+    /// Hardy-Weinberg p-value threshold (exact test on biallelic diploid sites).
+    #[arg(long, value_name = "P")]
+    pub hwe: Option<f64>,
+    /// Minimum distance between kept sites in bp (first wins; requires sorted input).
+    #[arg(long, value_name = "N")]
+    pub thin: Option<u64>,
+    /// Keep only sites where all called genotypes are phased.
+    #[arg(long)]
+    pub phased_only: bool,
+
+    /// A point on a region's edge overlaps it.
+    #[arg(long)]
+    pub inclusive_points: bool,
+
+    #[command(flatten)]
+    pub format: FormatArg,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
     #[command(flatten)]
     pub out: OutputArgs,
 }

@@ -127,9 +127,7 @@ fn strip_thread_options(args: &[OsString]) -> Vec<OsString> {
             continue;
         }
         // a bare word before the subcommand is the subcommand
-        if std::ptr::eq(cmd, &root)
-            && let Some(sub) = root.find_subcommand(s)
-        {
+        if let Some(sub) = cmd.find_subcommand(s) {
             cmd = sub;
         }
         out.push(a.clone());
@@ -198,6 +196,9 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         Commands::Closest(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
         Commands::Map(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
         Commands::Coverage(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
+        Commands::Vcf(a) => match &a.command {
+            cli::VcfCommand::Filter(f) => (f.threads.threads, None),
+        },
     };
     let threads = requested
         .unwrap_or_else(|| std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN));
@@ -231,6 +232,9 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         Commands::Closest(a) => commands::closest::run(&ctx, a),
         Commands::Map(a) => commands::map::run(&ctx, a),
         Commands::Coverage(a) => commands::coverage::run(&ctx, a),
+        Commands::Vcf(a) => match &a.command {
+            cli::VcfCommand::Filter(f) => commands::vcf::run_filter(&ctx, f),
+        },
     };
     match result {
         Ok(()) if all_ok => ExitCode::SUCCESS,

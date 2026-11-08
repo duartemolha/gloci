@@ -634,3 +634,61 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Pinned by:** `convert-bed12-short-line-vs-bedtools` and
   `convert-bed12-invalid-vs-bedtools` (must differ; exit status).
   `convert-bed12-zero-blocks-vs-bedtools` must match (both exit 1).
+
+## INFO kept by default in `vcf filter` {#info-kept-by-default}
+
+- **gloci:** `gloci vcf filter` keeps all INFO fields by default. `--keep-info`
+  and `--drop-info` selectively prune them.
+- **Old behaviour:** `vcftools --recode` removes all INFO fields unless
+  `--recode-INFO-all` is explicitly passed.
+- **Reason:** dropping data by default is unexpected in modern genomic pipelines;
+  INFO annotations should be preserved unless explicitly dropped.
+- **Pinned by:** `vcf-filter-info-default-vs-vcftools` (must differ). With
+  `--recode-INFO-all` vcftools matches gloci: `vcf-filter-min-qual-vs-vcftools`.
+
+## Inverted `--max-missing` parameter {#max-missing-inverted}
+
+- **gloci:** `--max-missing FRAC` specifies the maximum allowed fraction of
+  *missing* genotypes (between 0.0 and 1.0, where 0.1 means at most 10% missing).
+- **Old behaviour:** `vcftools --max-missing FRAC` specifies the minimum allowed
+  fraction of *present* (called) genotypes (where 0.9 means at least 90% called).
+- **Reason:** In gloci, all `--max-*` flags specify upper bounds on what is
+  being filtered; having `--max-missing` specify a minimum present rate was
+  a historical vcftools naming inversion.
+- **Pinned by:** `vcf-filter-max-missing-equiv-vs-vcftools` (gloci `--max-missing 0.2`
+  matches vcftools `--max-missing 0.8`).
+
+## Minor allele frequency and count on multi-allelic sites {#maf-multiallelic}
+
+- **gloci:** MAF is defined as the frequency of the second most common allele
+  among called alleles (spec §7.8). On biallelic sites this is `min(p, 1-p)`.
+  Similarly, `--min-mac` / `--max-mac` test the count of the second most common allele.
+- **Old behaviour:** `vcftools --maf` and `--mac` evaluate multi-allelic sites
+  against the least frequent alternate allele.
+- **Reason:** The second most common allele is the standard mathematical
+  definition of minor allele frequency for arbitrary ploidy and allele counts.
+- **Pinned by:** `vcf-filter-maf-multiallelic-vs-vcftools`,
+  `vcf-filter-min-mac-vs-vcftools`, and `vcf-filter-min-maf-vs-vcftools` (must differ).
+
+## HWE filtering on multiallelic sites {#hwe-multiallelic}
+
+- **gloci:** `--hwe P` evaluates Hardy-Weinberg equilibrium on diploid biallelic
+  sites; multiallelic or non-diploid sites pass the filter (spec §7.8).
+- **Old behaviour:** `vcftools --hwe` automatically removes all non-biallelic sites.
+- **Reason:** Filtering non-biallelic sites should be an explicit user choice
+  (via `--biallelic`) rather than an implicit side-effect of testing for HWE.
+- **Pinned by:** `vcf-filter-hwe-vs-vcftools` (must differ).
+
+## BED files without headers in region filtering {#bed-header-skipping}
+
+- **gloci:** `gloci vcf filter --regions-file` treats every line of a standard
+  BED file as a region (unless it starts with `#`, `browser`, or `track`).
+- **Old behaviour:** `vcftools --bed` unconditionally skips the first line of
+  any BED file, assuming it is a header line. If the BED file has no header, the
+  first interval is silently discarded.
+- **Reason:** Standard BED files created by bedtools or pipelines rarely contain
+  header lines; unconditionally discarding the first data row drops variants.
+- **Pinned by:** `vcf-filter-regions-file-vs-vcftools` (must differ).
+
+
+

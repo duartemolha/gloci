@@ -16,6 +16,7 @@ path = "src/main.rs"
 gloci-core.workspace = true
 gloci-io.workspace = true
 gloci-ops.workspace = true
+gloci-vcf.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 log.workspace = true

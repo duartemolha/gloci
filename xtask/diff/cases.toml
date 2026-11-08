@@ -1763,3 +1763,170 @@ input = { file = "xtask/diff/inputs/convert-bed12-zero.bed" }
 gloci = "gloci convert input.bed --blocks"
 reference = "bedtools bed12tobed6 -i input.bed"
 compare = "exit-status"
+
+# vcf filter (Task 23) vs vcftools 0.1.16
+
+[[case]]
+name = "vcf-filter-min-qual-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf filter input.vcf --min-qual 30"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --minQ 30"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-filter-pass-only-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf filter input.vcf --pass-only"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --remove-filtered-all"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-filter-min-maf-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf filter input.vcf --min-maf 0.2"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --maf 0.2"
+compare = "vcf-records"
+expected_difference = "#maf-multiallelic"
+
+[[case]]
+name = "vcf-filter-max-maf-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf filter input.vcf --max-maf 0.4"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --max-maf 0.4"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-filter-min-mac-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf filter input.vcf --min-mac 2"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --mac 2"
+compare = "vcf-records"
+expected_difference = "#maf-multiallelic"
+
+[[case]]
+name = "vcf-filter-biallelic-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf filter input.vcf --biallelic"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --min-alleles 2 --max-alleles 2"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-filter-max-missing-equiv-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf filter input.vcf --max-missing 0.2"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --max-missing 0.8"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-filter-min-mean-dp-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf filter input.vcf --min-mean-dp 10"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --min-meanDP 10"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-filter-hwe-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf filter input.vcf --hwe 0.01"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --hwe 0.01"
+compare = "vcf-records"
+expected_difference = "#hwe-multiallelic"
+
+[[case]]
+name = "vcf-filter-thin-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf filter input.vcf --thin 1000"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --thin 1000"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-filter-types-indel-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf filter input.vcf --types indel"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --keep-only-indels"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-filter-exclude-types-indel-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf filter input.vcf --exclude-types indel"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --remove-indels"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-filter-region-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf filter input.vcf --region chr2:100-500"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --chr chr2 --from-bp 100 --to-bp 500"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-filter-regions-file-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+aux = ["xtask/diff/inputs/filter-regions.bed"]
+gloci = "gloci vcf filter input.vcf --regions-file filter-regions.bed"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --bed filter-regions.bed"
+compare = "vcf-records"
+expected_difference = "#bed-header-skipping"
+
+[[case]]
+name = "vcf-filter-positions-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+aux = ["xtask/diff/inputs/filter-positions.txt"]
+gloci = "gloci vcf filter input.vcf --positions filter-positions.txt"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --positions filter-positions.txt"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-filter-ids-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+aux = ["xtask/diff/inputs/filter-ids.txt"]
+gloci = "gloci vcf filter input.vcf --ids filter-ids.txt"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --snps filter-ids.txt"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-filter-samples-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf filter input.vcf --samples s1,s3"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --indv s1 --indv s3"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-filter-phased-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf filter input.vcf --phased-only"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --phased"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-filter-info-default-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf filter input.vcf"
+reference = "vcftools --vcf input.vcf --recode --stdout"
+compare = "vcf-records"
+expected_difference = "#info-kept-by-default"
+
+[[case]]
+name = "vcf-filter-max-missing-inverted-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf filter input.vcf --max-missing 0.8"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --max-missing 0.8"
+compare = "vcf-records"
+expected_difference = "#max-missing-inverted"
+
+[[case]]
+name = "vcf-filter-maf-multiallelic-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf filter input.vcf --min-maf 0.25"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --maf 0.25"
+compare = "vcf-records"
+expected_difference = "#maf-multiallelic"
+
+[[case]]
+name = "vcf-filter-min-dp-mask-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf filter input.vcf --min-dp 10"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --minDP 10"
+compare = "vcf-records"
+

@@ -5,8 +5,8 @@
 ///
 /// - `exact`: byte for byte.
 /// - `lines-unordered`: the same lines, in any order.
-/// - `vcf-records`: header lines (starting with `#`) are ignored, the records
-///   must be identical and in the same order.
+/// - `vcf-records`: meta-header lines (starting with `##`) are ignored; the
+///   `#CHROM` line and data lines must be identical and in the same order.
 /// - `exit-status`: the observed values are exit codes (see [`observe`]); they
 ///   must be equal. This pins error behaviour (gloci refuses, the reference
 ///   tool accepts, or the reverse).
@@ -17,7 +17,7 @@ pub fn compare(mode: &str, a: &[u8], b: &[u8]) -> bool {
     match mode {
         "exact" => a == b,
         "lines-unordered" => sorted_lines(a) == sorted_lines(b),
-        "vcf-records" => records(a) == records(b),
+        "vcf-records" => vcf_records_equal(a, b),
         "exit-status" => a == b,
         "numeric" => numeric_equal(a, b),
         other => panic!("unknown compare mode `{other}`"),
@@ -99,8 +99,23 @@ fn sorted_lines(x: &[u8]) -> Vec<&[u8]> {
 
 fn records(x: &[u8]) -> Vec<&[u8]> {
     x.split(|&c| c == b'\n')
-        .filter(|l| !l.starts_with(b"#"))
+        .filter(|l| !l.is_empty() && !l.starts_with(b"##"))
         .collect()
+}
+
+fn vcf_records_equal(a: &[u8], b: &[u8]) -> bool {
+    let mut ra = records(a);
+    let mut rb = records(b);
+    let a_has_header = ra.first().is_some_and(|l| l.starts_with(b"#"));
+    let b_has_header = rb.first().is_some_and(|l| l.starts_with(b"#"));
+    if a_has_header != b_has_header {
+        if a_has_header {
+            ra.remove(0);
+        } else {
+            rb.remove(0);
+        }
+    }
+    ra == rb
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]

@@ -14,6 +14,10 @@ pub trait RecordWriter {
     fn write_record(&mut self, raw: &[u8]) -> io::Result<()>;
     /// Flush and publish the output (BGZF EOF block, index, atomic rename).
     fn finish(self: Box<Self>) -> Result<(), IoError>;
+    /// True when the writer accepts framed BCF records.
+    fn is_bcf(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -95,6 +99,9 @@ impl RecordWriter for BcfWriter {
     }
     fn finish(self: Box<Self>) -> Result<(), IoError> {
         self.out.finish()
+    }
+    fn is_bcf(&self) -> bool {
+        true
     }
 }
 

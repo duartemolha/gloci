@@ -6,7 +6,7 @@ use gloci_io::VcfHeader;
 use std::io::Write;
 
 /// A plan describing how to rewrite VCF records and headers.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct RewritePlan {
     pub selection: Option<SampleSelection>,
     pub mask: MaskRules,

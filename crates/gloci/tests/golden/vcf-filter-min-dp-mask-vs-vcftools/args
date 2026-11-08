@@ -1,0 +1,1 @@
+vcf filter input.vcf --min-dp 10

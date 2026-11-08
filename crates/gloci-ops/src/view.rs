@@ -102,7 +102,10 @@ fn not_found(chrom: &[u8], place: &str, has: impl Fn(&[u8]) -> bool) -> String {
 }
 
 /// The regions of a BED file: 0-based, half-open, as written.
-fn read_regions_file(path: &str, ro: &ReaderOptions) -> Result<Vec<(Vec<u8>, Interval)>, IoError> {
+pub fn read_regions_file(
+    path: &str,
+    ro: &ReaderOptions,
+) -> Result<Vec<(Vec<u8>, Interval)>, IoError> {
     let o = ReaderOptions {
         format: Some(Format::Bed),
         invalid: InvalidPolicy::Fail,

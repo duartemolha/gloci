@@ -12,6 +12,7 @@ pub mod merge;
 pub mod slop;
 pub mod sort;
 pub mod subtract;
+pub mod vcf;
 pub mod view;
 pub mod windows;
 

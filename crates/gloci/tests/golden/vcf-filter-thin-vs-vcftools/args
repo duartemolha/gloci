@@ -1,0 +1,1 @@
+vcf filter input.vcf --thin 1000

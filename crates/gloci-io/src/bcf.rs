@@ -31,7 +31,7 @@ pub struct BcfDicts {
 
 impl BcfDicts {
     /// Build the dictionaries from header text (BCF2.2 §6.2.1, §6.2.2).
-    pub(crate) fn from_header(raw: &[u8]) -> Result<BcfDicts, String> {
+    pub fn from_header(raw: &[u8]) -> Result<BcfDicts, String> {
         // A valid IDX can't be much larger than the number of header lines;
         // the cap keeps a corrupt IDX from allocating gigabytes.
         let cap = raw.len() + 65_536;

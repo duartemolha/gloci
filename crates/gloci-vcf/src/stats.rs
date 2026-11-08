@@ -14,6 +14,14 @@ pub struct MaskRules {
 }
 
 impl MaskRules {
+    /// True when no genotype masking rule is set.
+    pub fn is_empty(&self) -> bool {
+        self.min_gq.is_none()
+            && self.min_dp.is_none()
+            && self.max_dp.is_none()
+            && !self.mask_filtered
+    }
+
     fn masks(&self, f: &SampleFields) -> bool {
         self.min_gq.is_some_and(|m| f.gq.is_some_and(|g| g < m))
             || self.min_dp.is_some_and(|m| f.dp.is_some_and(|d| d < m))

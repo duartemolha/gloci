@@ -1,0 +1,1 @@
+vcf filter input.vcf --regions-file filter-regions.bed
