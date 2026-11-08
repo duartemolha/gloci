@@ -215,3 +215,34 @@ fn cleanup_registry() {
     cleanup_registered();
     assert!(!p.exists() && !f.exists());
 }
+
+/// A path is created and registered as one step: cleanup that starts while a
+/// creation is paused (after the file exists, before it returns) must wait for
+/// it, then remove the file. Before the fix, creation and registration were
+/// separate steps and cleanup could run between them, leaving the file behind.
+#[test]
+fn cleanup_waits_for_in_flight_creation() {
+    let _s = serial();
+    let dir = tempfile::tempdir().unwrap();
+    let f = dir.path().join("t.tmp-race");
+    let (created_tx, created_rx) = std::sync::mpsc::channel();
+    let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
+    let creator = {
+        let f = f.clone();
+        std::thread::spawn(move || {
+            create_registered_guarded(|| {
+                fs::write(&f, b"1")?;
+                created_tx.send(()).unwrap();
+                go_rx.recv().unwrap(); // paused with the file created, not yet registered
+                Ok(((), f.clone()))
+            })
+            .unwrap()
+        })
+    };
+    created_rx.recv().unwrap();
+    let cleaner = std::thread::spawn(cleanup_registered);
+    go_tx.send(()).unwrap();
+    let _guard = creator.join().unwrap();
+    cleaner.join().unwrap();
+    assert!(!f.exists(), "cleanup ran between creation and registration");
+}

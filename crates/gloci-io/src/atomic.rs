@@ -7,22 +7,44 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, Once};
 
-static REGISTRY: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+/// Temp paths to remove on termination.
+struct Registry {
+    paths: Vec<PathBuf>,
+}
+
+static REGISTRY: Mutex<Registry> = Mutex::new(Registry { paths: Vec::new() });
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 static INSTALL: Once = Once::new();
 
-fn registry() -> MutexGuard<'static, Vec<PathBuf>> {
+fn registry() -> MutexGuard<'static, Registry> {
     REGISTRY.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-fn register(path: &Path) {
-    registry().push(path.to_path_buf());
+/// Runs `create` under the registry lock and, on success, registers the path
+/// it returns before the lock is released. The termination path takes the
+/// same lock, so every created path is either registered before cleanup runs
+/// or created after the process is already exiting (the call then blocks
+/// until `exit`). `create` must be a plain filesystem call; it must not panic.
+pub fn create_registered<T>(create: impl FnOnce() -> io::Result<(T, PathBuf)>) -> io::Result<T> {
+    let mut r = registry();
+    let (value, path) = create()?;
+    r.paths.push(path);
+    Ok(value)
+}
+
+/// Runs `create` under the registry lock without registering anything. Use it
+/// for files created inside an already registered directory: the termination
+/// path removes the directory while holding the lock, so no new file can
+/// appear in it during removal.
+pub fn create_unregistered<T>(create: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
+    let _r = registry();
+    create()
 }
 
 fn unregister(path: &Path) {
     let mut r = registry();
-    if let Some(i) = r.iter().position(|p| p == path) {
-        r.swap_remove(i);
+    if let Some(i) = r.paths.iter().position(|p| p == path) {
+        r.paths.swap_remove(i);
     }
 }
 
@@ -39,16 +61,30 @@ impl Drop for TempGuard {
 }
 
 /// Registers `path` (file or directory) for removal by [`cleanup_registered`].
+/// The path must already exist; to create and register atomically use
+/// [`create_registered`].
 pub fn register_temp(path: &Path) -> TempGuard {
-    register(path);
+    registry().paths.push(path.to_path_buf());
     TempGuard {
         path: path.to_path_buf(),
     }
 }
 
-/// Removes every registered file and directory (best effort).
-pub fn cleanup_registered() {
-    let paths: Vec<PathBuf> = std::mem::take(&mut *registry());
+/// Same as [`create_registered`], returning a guard that unregisters `path`.
+pub fn create_registered_guarded<T>(
+    create: impl FnOnce() -> io::Result<(T, PathBuf)>,
+) -> io::Result<(T, TempGuard)> {
+    let mut guard_path = None;
+    let v = create_registered(|| {
+        let (v, p) = create()?;
+        guard_path = Some(p.clone());
+        Ok((v, p))
+    })?;
+    let path = guard_path.expect("set on success");
+    Ok((v, TempGuard { path }))
+}
+
+fn remove_paths(paths: Vec<PathBuf>) {
     for p in paths {
         if p.is_dir() {
             let _ = fs::remove_dir_all(&p);
@@ -56,6 +92,21 @@ pub fn cleanup_registered() {
             let _ = fs::remove_file(&p);
         }
     }
+}
+
+/// Removes every registered file and directory (best effort).
+pub fn cleanup_registered() {
+    let paths = std::mem::take(&mut registry().paths);
+    remove_paths(paths);
+}
+
+/// Termination path: removes everything and
+/// exits with `code` while still holding the lock, so nothing can be created
+/// (and left behind) between the removal and the exit.
+fn cleanup_and_exit(code: i32) -> ! {
+    let mut r = registry();
+    remove_paths(std::mem::take(&mut r.paths));
+    std::process::exit(code)
 }
 
 /// The line printed when the program panics, which is always a bug.
@@ -79,17 +130,15 @@ fn panic_message(info: &std::panic::PanicHookInfo<'_>) -> String {
 pub fn install_cleanup_handlers() {
     INSTALL.call_once(|| {
         let _ = ctrlc::set_handler(|| {
-            cleanup_registered();
-            std::process::exit(130);
+            cleanup_and_exit(130);
         });
         std::panic::set_hook(Box::new(|info| {
-            cleanup_registered();
             let _ = writeln!(
                 io::stderr(),
                 "{}",
                 internal_error_line(&panic_message(info))
             );
-            std::process::exit(1);
+            cleanup_and_exit(1);
         }));
     });
 }
@@ -134,9 +183,15 @@ impl AtomicFile {
             let mut tname: OsString = name.to_owned();
             tname.push(format!(".tmp-{}", temp_suffix()));
             let tmp = dest.with_file_name(tname);
-            match OpenOptions::new().write(true).create_new(true).open(&tmp) {
+            let opened = create_registered(|| {
+                OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&tmp)
+                    .map(|f| (f, tmp.clone()))
+            });
+            match opened {
                 Ok(file) => {
-                    register(&tmp);
                     return Ok(AtomicFile {
                         file: Some(file),
                         tmp,
