@@ -36,6 +36,8 @@ struct SortedReader {
     // its registration.
     inner: Box<dyn RecordReader>,
     name: String,
+    /// Data records returned so far.
+    records: u64,
     _dir: TempDir,
     _guard: TempGuard,
 }
@@ -59,7 +61,15 @@ impl RecordReader for SortedReader {
         batch: &mut RecordBatch,
         max: usize,
     ) -> Result<bool, IoError> {
-        self.inner.read_batch(chroms, batch, max)
+        let from = batch.recs.len();
+        let more = self.inner.read_batch(chroms, batch, max)?;
+        // The file's own line numbers include the header lines written to it
+        // and mean nothing to the user: number the data records instead.
+        for m in &mut batch.recs[from..] {
+            self.records += 1;
+            m.loc = self.records;
+        }
+        Ok(more)
     }
     fn diagnostics(&self) -> &Diagnostics {
         self.inner.diagnostics()
@@ -195,6 +205,7 @@ pub fn sort_readers(
     Ok(Box::new(SortedReader {
         inner,
         name,
+        records: 0,
         _dir: dir,
         _guard: guard,
     }))

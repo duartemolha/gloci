@@ -316,3 +316,32 @@ fn mixed_formats_with_sort_is_usage_error() {
         .code(2)
         .stderr(contains("one format"));
 }
+
+/// The record number in a data error counts data records, not the header
+/// lines of the sorted temp file or of the input.
+#[test]
+fn past_end_record_number_ignores_header_lines() {
+    let dir = tempdir();
+    let g = s(&plain_file(dir.path(), "g.genome", "chr1\t1000\n"));
+    // A 3-line VCF header; the second record (in sorted order) is past the end.
+    let vcf = s(&plain_file(
+        dir.path(),
+        "b.vcf",
+        "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=1000>\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+chr1\t1500\t.\tA\tG\t.\t.\t.\nchr1\t10\t.\tA\tG\t.\t.\t.\n",
+    ));
+    // A BED with track and comment lines before the data.
+    let bed = s(&plain_file(
+        dir.path(),
+        "b.bed",
+        "track name=x\n# comment\nchr1\t900\t1100\nchr1\t0\t10\n",
+    ));
+    for f in [&vcf, &bed] {
+        gloci()
+            .args(["complement", "--sort", f, "-g", &g])
+            .assert()
+            .code(1)
+            .stderr(contains(format!("the sorted inputs ({f}) record 2:")));
+    }
+}
