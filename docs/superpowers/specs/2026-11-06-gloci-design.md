@@ -171,7 +171,9 @@ Further rules:
   - At the first violation, the command stops with exit code 1.
   - The error names the file, line number and both offending records, and gives a hint such as: `run: gloci sort FILE -g <genome>`.
   - This check is cheap and is never turned off.
-- **`--unsorted`:** allows unsorted input. In the relation commands it opts into an in-memory mode: the B side is loaded into an interval index and A is streamed in any order. Memory is then proportional to the loaded file, and the help text says so. In `merge` and `complement` it sorts the inputs first with the external sorter, so memory stays within `--max-mem`. **[you, 2026-11-08, for merge/complement]**
+- **`--unsorted`** and **`--sort`** are two different choices for unsorted input, each with one meaning everywhere. **[you, 2026-11-08]**
+  - `--unsorted` means "work with my input in the order it is". It exists in the relation commands, where it loads the B side into an interval index and streams A in any order. Results follow A's order, and memory is proportional to the loaded file; the help text says so.
+  - `--sort` means "sort my inputs first". It exists in `merge`, `complement` and the relation commands. The inputs go through the external sorter, so memory stays within `--max-mem`, and results come out in sorted order.
 - **Indexed inputs** (bgzip with `.tbi`/`.csi`) can be read chromosome by chromosome through the index. Chromosome order differences between inputs therefore don't matter in that mode.
 - **Chromosome naming:**
   - Names must match exactly.
@@ -258,7 +260,8 @@ gloci ships chromosome names and sizes for common assemblies, so `-g hg38` works
 | `-g, --genome NAME\|FILE` | chromosome sizes and order: a built-in genome name (`hg38`, `GRCh38`, `mm39` …, see `gloci genomes`) or a file (`.fai`, `.genome`, `.dict`, VCF/BCF/BAM header) |
 | `--chrom-order karyotype\|lex` | chromosome order when neither `-g` nor a VCF/BCF header sets one (Section 4.5), default `karyotype` |
 | `--vcf-span allele\|ref` | variant footprint rule (Section 4.2), default `allele` |
-| `--unsorted` | allow unsorted input via the in-memory index (Section 4.5) |
+| `--unsorted` | process unsorted input in its own order via the in-memory index; results follow A's order (Section 4.5) |
+| `--sort` | sort the inputs first with bounded memory (`--max-mem`), then run the streaming pass; results in sorted order (Section 4.5) |
 | `--region chr:s-e` (repeatable), `--regions-file BED` | restrict work to regions; uses the index when present |
 | `--chrom-map FILE` | rename chromosomes on input (Phase 2) |
 | `--header` | carry BED/TSV header lines from A to the output |

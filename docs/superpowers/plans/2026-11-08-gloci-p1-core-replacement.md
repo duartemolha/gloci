@@ -72,7 +72,7 @@ P0's D1–D33 remain. These continue the numbering. Change any of them before ex
 | D36 | The engine yields **candidate hits**: every B whose window-padded span overlaps A's span under the exact §4.3 rule (with `--inclusive-points` when given). Thresholds and strand rules are applied by the reporting layer through `OverlapCriteria`, measured against the **unpadded** B span. |
 | D37 | `-w`/`--left`/`--right` cannot be combined with `-f`/`-F`/`-r`/`-e`/`--min-bases` (usage error, exit 2). bedtools `window` has no fractions either, and a fraction of a padded interval has no clear meaning. |
 | D38 | Hits for one A are ordered by B file (command-line order), then B input order. A records are reported in A's input order, in every mode, sorted or unsorted. |
-| D39 | `--unsorted` ("allow unsorted input") exists on `intersect`, `subtract`, `closest`, `map` and `coverage`, where all `-b` files are loaded into memory and A is streamed in any order. It also exists on `merge` and `complement` (revised 2026-11-08 at the user's suggestion), where it runs the inputs through the P0 external sorter (bounded by `--max-mem`, default 2G, spilling to `--tmp-dir`) before merging, so the output equals `gloci sort … \| gloci merge -`. Without the flag, an unsorted input to `merge`/`complement` is an order error whose hint names `--unsorted`. `windows -i` and transforms need no such flag. |
+| D39 | Two flags, one meaning each (revised 2026-11-08 with the user). **`--unsorted`** = "my input is in some order; work with it as it is": on `intersect`, `subtract`, `closest`, `map` and `coverage` only, all `-b` files are loaded into memory, A is streamed in any order, and results follow A's input order. **`--sort`** = "sort my inputs first": on `merge`, `complement` and the same five relation commands, all inputs go through the P0 external sorter (bounded by `--max-mem`, default 2G, spilling to `--tmp-dir`) and the normal streaming pass runs on the sorted streams, so results are in sorted order and equal `gloci sort …` piped into the command. `--sort` and `--unsorted` together are a usage error. An order error's hint names the flags the command offers. `windows -i` and transforms need neither. |
 | D40 | Unsorted index: coitrees for a chromosome whose padded B coordinates all fit in `i32`. Otherwise an own `u64` implicit augmented interval tree (cgranges-style), `ITree64`. Queries are widened by one base on each side, and every candidate is re-tested exactly (spec §8.2). Task 27's benchmark may swap the default with evidence. |
 | D41 | Per-chromosome parallelism is automatic when A and every B are regular BGZF files with a `.tbi`/`.csi` and `--unsorted` is not given. It applies to `intersect`, `subtract`, `closest`, `map` and `coverage`. Each chromosome's output goes to a chunk that keeps its first 64 MiB in memory and spills the rest to an LZ4 file in `--tmp-dir`. Chunks are written in chromosome-table order, and at most `threads` are in flight. The output equals the streaming path byte for byte. |
 | D42 | Appended-column output is TSV. `.tsv`/`.tsv.gz` (or `-O tsv`) always work. When A is BED-family, `.bed`/`.bed.gz`/`.bedgraph` also work, since the result is BED-like. Any other extension is a usage error. Stdout defaults to TSV. VCF A gets the line `#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO[\tFORMAT\t<samples>]\t<appended names>`. BED/GFF A get their header lines only with `--header`. |
@@ -797,7 +797,7 @@ Semantics (spec §7.2, D48):
 - **Without `-g`:** only gaps between merged features on the same chromosome.
 - Points are ignored. The output is BED3.
 
-**Also in this task (D39, revised):** add `--unsorted`, with `--max-mem SIZE` (default 2G) and `TmpDirArg`, to both `merge` (Task 11) and `complement`. With `--unsorted`, all inputs go through the P0 external sorter (`gloci_ops::Sorter`, same chromosome table and tie rules as `gloci sort`). The sorted records are then fed to the merge or complement logic through the sorter's ordered output (a callback, or a temp file in `--tmp-dir`), so memory stays within `--max-mem`. The output must equal `gloci sort INPUTS | gloci merge -` (or `complement`) byte for byte. Without the flag, the order-error hint names `--unsorted`. Tests: `merge_unsorted_equals_sort_pipe`, `complement_unsorted_equals_sort_pipe` (shuffled inputs, several files), and `unsorted_spills_within_max_mem` (a small `--max-mem` forces a spill, and the output is unchanged).
+**Also in this task (D39, revised):** add `--sort`, with `--max-mem SIZE` (default 2G) and `TmpDirArg`, to both `merge` (Task 11) and `complement`. Put the sorting step in one reusable helper, because Task 16b uses it for the relation commands. With `--sort`, all inputs go through the P0 external sorter (`gloci_ops::Sorter`, same chromosome table and tie rules as `gloci sort`). The sorted records are then fed to the merge or complement logic through the sorter's ordered output (a callback, or a temp file in `--tmp-dir`), so memory stays within `--max-mem`. The output must equal `gloci sort INPUTS | gloci merge -` (or `complement`) byte for byte. Without the flag, the order-error hint names `--sort`. Tests: `merge_sort_equals_sort_pipe`, `complement_sort_equals_sort_pipe` (shuffled inputs, several files), and `sort_spills_within_max_mem` (a small `--max-mem` forces a spill, and the output is unchanged).
 
 - [ ] **Step 1: Write the failing tests:** `with_genome` (an empty chromosome becomes one full-length row), `without_genome` (no leading or trailing gap), `points_ignored`, `bookended_no_gap`, `builtin_genome` (`-g sacCer3` gives 17 rows for a file with one feature on chrI), `past_end_error`, `determinism`, and a proptest against `naive_complement`.
 - [ ] **Step 2: Run** the tests. They fail.
@@ -805,6 +805,28 @@ Semantics (spec §7.2, D48):
 - [ ] **Step 4: Run** `cargo test --workspace`. Expected: pass.
 - [ ] **Step 5: Add differential cases:** `bedtools complement -i a -g g.genome` (with gloci `-g g.genome`); `bedops --complement a` against `gloci complement a`. Pin differences.
 - [ ] **Step 6: Commit** `feat: gloci complement (with and without -g)`
+
+### Task 16b: `--sort` on the relation commands
+
+**Files:**
+- Modify: `crates/gloci-ops/src/relate/mod.rs`, `crates/gloci/src/cli.rs` (a `SortArg` group: `--sort`, `--max-mem`, `TmpDirArg`; `--sort` conflicts with `--unsorted`), and the five command files
+- Test: `crates/gloci/tests/relation_sort.rs`
+
+**Interfaces:**
+- Consumes: Task 16's sorting helper, and `run_relation` (Task 8).
+- Produces: `RelateOptions.sort: Option<SortSettings { max_mem: u64, tmp_dir: PathBuf }>`. When it is set, `run_relation` sorts A and each B with the helper before the sorted sweep. The visitor and the output code are unchanged, and the order checks run on the sorted streams as usual.
+
+Semantics (D39): results are in sorted order and equal `gloci sort A > a.s; gloci sort B > b.s; gloci <cmd> -a a.s -b b.s …` byte for byte. Memory stays within `--max-mem` per sort. Each command's `--help` says when to use `--sort` (inputs too large for memory, sorted output wanted) and when to use `--unsorted` (keep A's order, B fits in memory).
+
+- [ ] **Step 1: Write the failing tests.**
+  - `sort_equals_presorted_pipeline` for intersect (any, pairs), subtract, closest, map and coverage, on shuffled A and B;
+  - `sort_and_unsorted_conflict` (exit 2);
+  - `sort_spills_within_max_mem`;
+  - `order_error_hint_names_both_flags`.
+- [ ] **Step 2: Run** `cargo test -p gloci --test relation_sort`. It fails.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run** `cargo test --workspace`. Expected: pass.
+- [ ] **Step 5: Commit** `feat: --sort on relation commands (external sort, then the sorted sweep)`
 
 ### Task 17: `gloci slop` and `gloci flank`
 
