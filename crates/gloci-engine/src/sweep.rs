@@ -38,6 +38,12 @@ pub struct NearestConfig {
     pub max_distance: Option<u64>,
     /// Only B on the same (or opposite) strand as A (D55).
     pub strand: StrandRule,
+    /// With `strand` `Any`: keep the `k` nearest (plus ties) of `-` B and,
+    /// separately, of the rest (`+` and unknown, which D6 counts as `+`),
+    /// and report both groups together. `closest --signed b` needs this:
+    /// whether a B is upstream there depends on its own strand. Under a
+    /// strand rule only one B strand counts, so it changes nothing.
+    pub split_by_b_strand: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -65,14 +71,22 @@ pub struct SweepSummary {
     pub b_records: Vec<u64>,
     /// At least one chromosome had both A and B records.
     pub shared_chroms: bool,
-    /// The largest active set (all B inputs) any A was matched against,
-    /// for tests: it is bounded by the overlap depth, not the file size.
     #[doc(hidden)]
+    pub stats: SweepStats,
+}
+
+/// Peak sizes, for tests: memory is bounded by the overlap depth and `k`
+/// (spec §8.2), not by the file size.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SweepStats {
+    /// The largest active set (all B inputs) any A was matched against.
     pub peak_active: usize,
-    /// The most B the left pools (all B inputs) held after any A, for
-    /// tests: it stays near `k` plus ties.
-    #[doc(hidden)]
+    /// The most B the left pools (all B inputs) held after any A.
     pub peak_pool: usize,
+    /// The most raw bytes each B input's left pool held at any moment,
+    /// summed over the inputs: a bound on what they held at once.
+    pub peak_pool_bytes: usize,
 }
 
 /// Run the sweep: call `v` for every A record, in A's input order, with
@@ -104,14 +118,13 @@ pub fn sweep_sorted(
         None => Vec::new(),
     };
     let mut right_bounds = vec![0; streams.len()];
-    let mut starts = BinaryHeap::new();
+    let mut starts: [BinaryHeap<u64>; 2] = Default::default();
     let mut guard = OrderGuard::new(reader.name(), reader.format());
     let mut summary = SweepSummary {
         a_records: 0,
         b_records: Vec::new(),
         shared_chroms: false,
-        peak_active: 0,
-        peak_pool: 0,
+        stats: SweepStats::default(),
     };
     let mut spare: Vec<Hit<'static>> = Vec::new();
     let mut spare_near: Neighbours<'static> = Neighbours::default();
@@ -138,7 +151,6 @@ pub fn sweep_sorted(
                 set.compact();
                 let mut pool = pools.get_mut(f);
                 if let Some(p) = pool.as_deref_mut() {
-                    p.compact();
                     p.expire(a.key);
                 }
                 s.load(chroms, a, lim, pad, set, pool)?;
@@ -182,10 +194,10 @@ pub fn sweep_sorted(
                         near.end_file();
                         pooled += pool.len();
                     }
-                    summary.peak_pool = summary.peak_pool.max(pooled);
+                    summary.stats.peak_pool = summary.stats.peak_pool.max(pooled);
                 }
             }
-            summary.peak_active = summary.peak_active.max(live);
+            summary.stats.peak_active = summary.stats.peak_active.max(live);
             let rec = ARec {
                 meta: *a,
                 raw: batch.raw(i),
@@ -199,6 +211,7 @@ pub fn sweep_sorted(
         }
     }
     summary.b_records = streams.iter().map(|s| s.read).collect();
+    summary.stats.peak_pool_bytes = pools.iter().map(LeftPool::peak_bytes).sum();
     Ok(summary)
 }
 

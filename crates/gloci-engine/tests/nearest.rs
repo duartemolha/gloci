@@ -113,8 +113,18 @@ fn nearest(k: usize, max_distance: Option<u64>, strand: StrandRule) -> SweepConf
             k,
             max_distance,
             strand,
+            split_by_b_strand: false,
         }),
     }
+}
+
+/// `nearest` with `split_by_b_strand`.
+fn split(k: usize, strand: StrandRule) -> SweepConfig {
+    let mut cfg = nearest(k, None, strand);
+    if let Some(n) = &mut cfg.nearest {
+        n.split_by_b_strand = true;
+    }
+    cfg
 }
 
 fn raws(v: &[Nb]) -> Vec<&str> {
@@ -155,8 +165,9 @@ fn max_distance() -> impl Strategy<Value = u64> {
     ]
 }
 
-/// Sort `input`, then sweep it with `k`, every strand rule,
-/// `--inclusive-points` off and on, and `max_distance` off and at `max_d`.
+/// Sort `input`, then sweep it with `k`, every strand rule with
+/// `split_by_b_strand` off and on, `--inclusive-points` off and on, and
+/// `max_distance` off and at `max_d`.
 /// Each A's neighbours must be exactly the naive ones (the same records,
 /// in the same order, bytes intact), and its hits unchanged.
 fn check_neighbours(
@@ -176,7 +187,8 @@ fn check_neighbours(
     let a_lines: Vec<String> = a.iter().map(Feature::line).collect();
     let b_texts: Vec<String> = input.b.iter().map(|f| f.text()).collect();
     let b_refs: Vec<&str> = b_texts.iter().map(String::as_str).collect();
-    for strand in [StrandRule::Any, StrandRule::Same, StrandRule::Opposite] {
+    let rules = [StrandRule::Any, StrandRule::Same, StrandRule::Opposite];
+    for (strand, split_by_b_strand) in rules.into_iter().flat_map(|r| [(r, false), (r, true)]) {
         for inclusive_points in [false, true] {
             for max_distance in [None, Some(max_d)] {
                 let cfg = SweepConfig {
@@ -186,6 +198,7 @@ fn check_neighbours(
                         k,
                         max_distance,
                         strand,
+                        split_by_b_strand,
                     }),
                 };
                 let (seen, _) = run(&a_text, &b_refs, &cfg).unwrap();
@@ -213,7 +226,15 @@ fn check_neighbours(
                 }
                 prop_assert_eq!(
                     &got,
-                    &naive_neighbours(a, &b, k, max_distance, strand, inclusive_points),
+                    &naive_neighbours(
+                        a,
+                        &b,
+                        k,
+                        max_distance,
+                        strand,
+                        split_by_b_strand,
+                        inclusive_points
+                    ),
                     "{:?}",
                     cfg
                 );
@@ -395,6 +416,42 @@ fn strand_rules_keep_a_pool_per_strand() {
 }
 
 #[test]
+fn split_by_b_strand_keeps_k_per_group() {
+    // A (+). Left: `-` m1 at 81, `+` p1 at 41, `.` u1 at 31. Right: `+`
+    // p2, p3, p4 at 2, 6 and 9, then `-` m2 at 21 past them. With the
+    // split, `-` B are a group of their own and `.` B join `+` (D6): each
+    // side holds the k nearest of each group, by distance. One pool would
+    // drop m1 behind p1 and u1; one look-ahead count would stop before m2.
+    let a = "chr1\t100\t110\ta\t0\t+\n";
+    let b = "chr1\t10\t20\tm1\t0\t-\nchr1\t50\t60\tp1\t0\t+\nchr1\t60\t70\tu1\t0\t.\n\
+             chr1\t111\t112\tp2\t0\t+\nchr1\t115\t116\tp3\t0\t+\nchr1\t118\t119\tp4\t0\t+\n\
+             chr1\t130\t131\tm2\t0\t-\n";
+    let name = |v: &[Nb]| -> Vec<String> {
+        v.iter()
+            .map(|n| n.raw.split('\t').nth(3).unwrap().to_string())
+            .collect()
+    };
+    let names = |v: &[&str]| -> Vec<String> { v.iter().map(|s| s.to_string()).collect() };
+    let cases: [(SweepConfig, &[&str], &[&str]); 5] = [
+        (nearest(1, None, StrandRule::Any), &["u1"], &["p2"]),
+        (split(1, StrandRule::Any), &["u1", "m1"], &["p2", "m2"]),
+        (
+            split(2, StrandRule::Any),
+            &["u1", "p1", "m1"],
+            &["p2", "p3", "m2"],
+        ),
+        // Under a strand rule the flag changes nothing.
+        (split(1, StrandRule::Same), &["p1"], &["p2"]),
+        (split(1, StrandRule::Opposite), &["m1"], &["m2"]),
+    ];
+    for (cfg, left, right) in cases {
+        let (seen, _) = run(a, &[b], &cfg).unwrap();
+        let (l, r) = &seen.near[0][0];
+        assert_eq!((name(l), name(r)), (names(left), names(right)), "{cfg:?}");
+    }
+}
+
+#[test]
 fn left_pool_goes_by_a_key() {
     // A1 `chr1 101 . AAATTT AAA` has key 100 and span [103,106); A2
     // `chr1 102 . A G` has key 101 and span [101,102), before A1's span.
@@ -498,11 +555,15 @@ fn retention_stays_near_k() {
         .collect();
     let cfg = nearest(2, None, StrandRule::Any);
     let (seen, summary) = run(&a, &[&b], &cfg).unwrap();
-    assert!(summary.peak_pool <= 2, "peak pool {}", summary.peak_pool);
     assert!(
-        summary.peak_active <= 4,
+        summary.stats.peak_pool <= 2,
+        "peak pool {}",
+        summary.stats.peak_pool
+    );
+    assert!(
+        summary.stats.peak_active <= 4,
         "peak active {}",
-        summary.peak_active
+        summary.stats.peak_active
     );
     for (i, files) in seen.near.iter().enumerate() {
         let (left, right) = &files[0];
@@ -518,7 +579,7 @@ fn retention_stays_near_k() {
     )
     .unwrap();
     assert_eq!(seen.near[0][0].0.len(), 1000);
-    assert_eq!(summary.peak_pool, 1000);
+    assert_eq!(summary.stats.peak_pool, 1000);
 
     // With k = 1,000 and a maximum distance of 50, the pool keeps only
     // the B in reach: those ending within 50 of the current A's key.
@@ -531,12 +592,82 @@ fn retention_stays_near_k() {
         .map(|j| format!("chr1\t{p}\t{p}\n", p = j * 99_997))
         .collect();
     let (seen, summary) = run(&a, &[&b], &nearest(1000, Some(50), StrandRule::Any)).unwrap();
-    assert!(summary.peak_pool <= 6, "peak pool {}", summary.peak_pool);
+    assert!(
+        summary.stats.peak_pool <= 6,
+        "peak pool {}",
+        summary.stats.peak_pool
+    );
     for (i, files) in seen.near.iter().enumerate() {
         let (left, right) = &files[0];
         assert!(
             (4..=6).contains(&left.len()) && (4..=6).contains(&right.len()),
             "A {i}"
+        );
+    }
+
+    // With `split_by_b_strand`, reading ahead waits for k B of each group:
+    // B alternate `+`/`-` here, so it still stops after a few. Under a
+    // strand rule the split changes nothing and there is no second group
+    // to wait for: B all `+` stop the look-ahead as soon as without it.
+    let alternating: String = (0..100_000u64)
+        .map(|i| {
+            let strand = if i % 2 == 0 { '+' } else { '-' };
+            format!("chr1\t{}\t{}\tb\t0\t{strand}\n", i * 10, i * 10 + 5)
+        })
+        .collect();
+    let plus: String = (0..100_000u64)
+        .map(|i| format!("chr1\t{}\t{}\tb\t0\t+\n", i * 10, i * 10 + 5))
+        .collect();
+    let a: String = (1..=9u64)
+        .map(|j| format!("chr1\t{p}\t{p}\ta\t0\t+\n", p = j * 99_997))
+        .collect();
+    for (b, cfg, sides) in [
+        (&alternating, split(1, StrandRule::Any), 2),
+        (&plus, split(1, StrandRule::Same), 1),
+    ] {
+        let (seen, summary) = run(&a, &[b], &cfg).unwrap();
+        assert!(
+            summary.stats.peak_active <= 6,
+            "{cfg:?}: peak active {}",
+            summary.stats.peak_active
+        );
+        assert!(
+            summary.stats.peak_pool <= 2,
+            "{cfg:?}: peak pool {}",
+            summary.stats.peak_pool
+        );
+        for (i, files) in seen.near.iter().enumerate() {
+            let (left, right) = &files[0];
+            assert_eq!((left.len(), right.len()), (sides, sides), "{cfg:?}, A {i}");
+        }
+    }
+}
+
+#[test]
+fn pool_bytes_stay_bounded_across_a_gap() {
+    // Two A 10 Mbp apart with 100,000 B between them: at the second A the
+    // whole gap is skipped into the left pool in one step. The pool must
+    // reclaim dropped members' bytes as it goes rather than buffer the
+    // gap (spec §8.2: memory bounded by depth and k, not file size).
+    let b: String = (0..100_000u64)
+        .map(|i| {
+            let s = 1_000 + i * 99;
+            format!("chr1\t{s}\t{}\tgap_feature_{i:06}\t0\t+\n", s + 50)
+        })
+        .collect();
+    let longest = b.lines().map(str::len).max().unwrap();
+    let last = b.lines().last().unwrap();
+    let a = "chr1\t0\t10\ta1\t0\t+\nchr1\t10000000\t10000010\ta2\t0\t+\n";
+    for rule in [StrandRule::Any, StrandRule::Same] {
+        let (seen, summary) = run(a, &[&b], &nearest(1, None, rule)).unwrap();
+        assert_eq!(raws(&seen.near[1][0].0), [last], "{rule:?}");
+        // One member (k = 1, no ties): the arena holds it, the bytes
+        // dropped since the last compaction (at most as many) and the
+        // record being inserted.
+        assert!(
+            summary.stats.peak_pool_bytes <= 3 * longest,
+            "{rule:?}: peak pool bytes {} for {longest}-byte lines",
+            summary.stats.peak_pool_bytes
         );
     }
 }

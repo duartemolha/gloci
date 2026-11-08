@@ -39,6 +39,9 @@ pub struct Hit<'a> {
 /// - When `strand` is not `Any`, only B whose strand meets the rule for
 ///   this A count. B with unknown strand never do, and an A with unknown
 ///   strand has no neighbours (D55).
+/// - With `split_by_b_strand` (and `strand` `Any`), the cut is made for
+///   `-` B and for the rest (`+`, unknown) separately, and each side is
+///   the union of the two, sorted the same way.
 ///
 /// The hits' raw bytes are valid only during the `visit` call.
 #[derive(Debug, Default)]

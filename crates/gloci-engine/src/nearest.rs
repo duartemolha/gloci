@@ -25,6 +25,10 @@
 //!
 //! Each side is then sorted by `(distance, input order)` and cut to the
 //! `k` nearest plus ties.
+//!
+//! With `split_by_b_strand` (and no strand rule), B form two groups, `-`
+//! and the rest (`+` and unknown), each with its own pool and look-ahead
+//! count, and the cut keeps the `k` nearest plus ties of each group.
 
 use crate::hit::Hit;
 use crate::sweep::NearestConfig;
@@ -62,6 +66,17 @@ impl Want {
     }
 }
 
+/// The group of a B: with `split`, `-` B are group 1 and the rest group
+/// 0; otherwise every B is group 0.
+fn group(split: bool, b: Strand) -> usize {
+    usize::from(split && b == Strand::Minus)
+}
+
+/// `split_by_b_strand` takes effect only without a strand rule.
+fn splits(cfg: &NearestConfig) -> bool {
+    cfg.split_by_b_strand && cfg.strand == StrandRule::Any
+}
+
 /// The current A, as the neighbour search sees it.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Target {
@@ -70,6 +85,8 @@ pub(crate) struct Target {
     k: usize,
     max_distance: Option<u64>,
     inclusive_points: bool,
+    /// `-` B are kept apart from the rest (`split_by_b_strand`).
+    split: bool,
 }
 
 impl Target {
@@ -87,7 +104,13 @@ impl Target {
             k: cfg.k,
             max_distance: cfg.max_distance,
             inclusive_points,
+            split: splits(cfg),
         }
+    }
+
+    /// How many groups of B are kept apart: 1, or 2 with the split.
+    fn groups(&self) -> usize {
+        1 + usize::from(self.split)
     }
 
     fn distance(&self, b: Interval) -> u64 {
@@ -141,12 +164,17 @@ impl<'h> NearScan<'_, 'h> {
 pub(crate) struct LeftPool {
     k: usize,
     max_distance: Option<u64>,
-    /// Under a strand rule, `+` B go to `subs[0]`, `-` B to `subs[1]`, and
-    /// B of unknown strand nowhere. Otherwise every B goes to `subs[0]`.
-    by_strand: bool,
+    /// A strand rule is active: `+` B go to `subs[0]`, `-` B to
+    /// `subs[1]`, and B of unknown strand nowhere.
+    rule: bool,
+    /// No rule, `split_by_b_strand`: `-` B go to `subs[1]`, the rest to
+    /// `subs[0]`. With neither, every B goes to `subs[0]`.
+    split: bool,
     subs: [SubPool; 2],
     /// Scratch space for compacting an arena.
     spare: Vec<u8>,
+    /// The most arena bytes (both sub-pools) held at any moment.
+    peak_bytes: usize,
 }
 
 #[derive(Debug, Default)]
@@ -173,10 +201,17 @@ impl LeftPool {
         LeftPool {
             k: cfg.k,
             max_distance: cfg.max_distance,
-            by_strand: cfg.strand != StrandRule::Any,
+            rule: cfg.strand != StrandRule::Any,
+            split: splits(cfg),
             subs: Default::default(),
             spare: Vec::new(),
+            peak_bytes: 0,
         }
+    }
+
+    /// The most raw bytes this pool held at any moment.
+    pub(crate) fn peak_bytes(&self) -> usize {
+        self.peak_bytes
     }
 
     /// Members, over both strands.
@@ -192,26 +227,6 @@ impl LeftPool {
         }
     }
 
-    /// Reclaim the bytes of dropped members once they are more than half
-    /// an arena (amortised O(1) per byte). Call it between A records, when
-    /// no hit borrows the arenas.
-    pub(crate) fn compact(&mut self) {
-        for s in &mut self.subs {
-            if s.dead * 2 <= s.arena.len() {
-                continue;
-            }
-            self.spare.clear();
-            for m in &mut s.members {
-                let n = m.len as usize;
-                let off = self.spare.len();
-                self.spare.extend_from_slice(&s.arena[m.off..m.off + n]);
-                m.off = off;
-            }
-            std::mem::swap(&mut s.arena, &mut self.spare);
-            s.dead = 0;
-        }
-    }
-
     /// Drop the members with `end + max_distance < a_key`: too far from
     /// this A and from every later one.
     pub(crate) fn expire(&mut self, a_key: u64) {
@@ -222,7 +237,7 @@ impl LeftPool {
             let keep = s
                 .members
                 .partition_point(|m| m.span.end.saturating_add(max) >= a_key);
-            s.drop_from(keep);
+            s.drop_from(keep, &mut self.spare);
         }
     }
 
@@ -242,50 +257,66 @@ impl LeftPool {
         {
             return;
         }
-        let sub = match (self.by_strand, strand) {
-            (false, _) | (true, Strand::Plus) => &mut self.subs[0],
-            (true, Strand::Minus) => &mut self.subs[1],
-            (true, Strand::Unknown) => return,
-        };
-        sub.offer(span, strand, loc, raw, self.k);
+        if self.rule && strand == Strand::Unknown {
+            // D55: under a strand rule a B of unknown strand never counts.
+            return;
+        }
+        let i = group(self.rule || self.split, strand);
+        if let Some(bytes) = self.subs[i].offer(span, strand, loc, raw, self.k, &mut self.spare) {
+            let held = bytes + self.subs[1 - i].arena.len();
+            self.peak_bytes = self.peak_bytes.max(held);
+        }
     }
 
-    /// Push the members of the strand `t` wants that are within its
+    /// Push the members of the strands `t` wants that are within its
     /// `max_distance`, as hits of `file`.
     pub(crate) fn extend<'h>(&'h self, file: u16, t: &Target, out: &mut Vec<Hit<'h>>) {
-        let sub = match t.want {
-            Want::Any | Want::Only(Strand::Plus) => &self.subs[0],
-            Want::Only(Strand::Minus) => &self.subs[1],
+        let subs = match t.want {
+            // `subs[1]` is empty unless the split is on.
+            Want::Any => &self.subs[..],
+            Want::Only(Strand::Plus) => &self.subs[..1],
+            Want::Only(Strand::Minus) => &self.subs[1..],
             Want::Nothing | Want::Only(Strand::Unknown) => return,
         };
-        for m in &sub.members {
-            debug_assert!(
-                m.span.end <= t.span.start && !overlaps(t.span, m.span, t.inclusive_points),
-                "a pool member ends before A's key, so before A"
-            );
-            if !t.within(m.span) {
-                // Latest end first: the rest are farther.
-                break;
+        for sub in subs {
+            for m in &sub.members {
+                debug_assert!(
+                    m.span.end <= t.span.start && !overlaps(t.span, m.span, t.inclusive_points),
+                    "a pool member ends before A's key, so before A"
+                );
+                if !t.within(m.span) {
+                    // Latest end first: the rest are farther.
+                    break;
+                }
+                out.push(Hit {
+                    file,
+                    span: m.span,
+                    strand: m.strand,
+                    raw: &sub.arena[m.off..m.off + m.len as usize],
+                    loc: m.loc,
+                });
             }
-            out.push(Hit {
-                file,
-                span: m.span,
-                strand: m.strand,
-                raw: &sub.arena[m.off..m.off + m.len as usize],
-                loc: m.loc,
-            });
         }
     }
 }
 
 impl SubPool {
     /// Insert in order unless `k` members end strictly later, then drop
-    /// the members that now have `k` ending strictly later.
-    fn offer(&mut self, span: Interval, strand: Strand, loc: u64, raw: &[u8], k: usize) {
+    /// the members that now have `k` ending strictly later. Returns the
+    /// arena's size just after the insertion, if any.
+    fn offer(
+        &mut self,
+        span: Interval,
+        strand: Strand,
+        loc: u64,
+        raw: &[u8],
+        k: usize,
+        spare: &mut Vec<u8>,
+    ) -> Option<usize> {
         let end = span.end;
         let later = self.members.partition_point(|m| m.span.end > end);
         if later >= k {
-            return;
+            return None;
         }
         let at =
             later + self.members[later..].partition_point(|m| m.span.end == end && m.loc < loc);
@@ -301,34 +332,54 @@ impl SubPool {
                 len: raw.len() as u32,
             },
         );
+        let bytes = self.arena.len();
         if self.members.len() > k {
             let kth = self.members[k - 1].span.end;
             let keep = k + self.members[k..].partition_point(|m| m.span.end == kth);
-            self.drop_from(keep);
+            self.drop_from(keep, spare);
         }
+        Some(bytes)
     }
 
-    fn drop_from(&mut self, keep: usize) {
+    /// Drop the members from `keep` on. Once dropped bytes are more than
+    /// half the arena, move the members' bytes to the front (through
+    /// `spare`). Each compaction copies fewer bytes than were dropped
+    /// since the last, so it costs O(1) per byte, and the arena never
+    /// holds much more than twice its members, even while one A step
+    /// skips a whole gap of B into the pool.
+    fn drop_from(&mut self, keep: usize, spare: &mut Vec<u8>) {
         for m in &self.members[keep..] {
             self.dead += m.len as usize;
         }
         self.members.truncate(keep);
+        if self.dead * 2 <= self.arena.len() {
+            return;
+        }
+        spare.clear();
+        for m in &mut self.members {
+            let n = m.len as usize;
+            let off = spare.len();
+            spare.extend_from_slice(&self.arena[m.off..m.off + n]);
+            m.off = off;
+        }
+        std::mem::swap(&mut self.arena, spare);
+        self.dead = 0;
     }
 }
 
 /// While reading ahead, the `k` smallest starts of the right neighbours of
-/// A found past the load limit, which say when to stop.
+/// A found past the load limit, per group of B, which say when to stop.
 pub(crate) struct LookAhead<'s> {
     t: Target,
-    /// A max-heap of the `k` smallest starts seen.
-    starts: &'s mut BinaryHeap<u64>,
+    /// Per group, a max-heap of the `k` smallest starts seen.
+    starts: &'s mut [BinaryHeap<u64>; 2],
     /// No B starting beyond this is within `max_distance`.
     cap: u64,
 }
 
 impl<'s> LookAhead<'s> {
-    pub(crate) fn new(t: Target, starts: &'s mut BinaryHeap<u64>) -> LookAhead<'s> {
-        starts.clear();
+    pub(crate) fn new(t: Target, starts: &'s mut [BinaryHeap<u64>; 2]) -> LookAhead<'s> {
+        starts.iter_mut().for_each(BinaryHeap::clear);
         let cap = t
             .max_distance
             .map_or(u64::MAX, |m| t.span.end.saturating_add(m));
@@ -336,13 +387,18 @@ impl<'s> LookAhead<'s> {
     }
 
     /// The largest key a B can have and still be among the `k` nearest
-    /// right of A. A B with a larger key starts beyond the k-th smallest
-    /// start already seen, or beyond `max_distance`.
+    /// right of A in its group. A B with a larger key starts beyond the
+    /// k-th smallest start already seen in every group, or beyond
+    /// `max_distance`.
     pub(crate) fn bound(&self) -> u64 {
-        let kth = match self.starts.peek() {
-            Some(&s) if self.starts.len() == self.t.k => s,
-            _ => u64::MAX,
-        };
+        let kth = self.starts[..self.t.groups()]
+            .iter()
+            .map(|h| match h.peek() {
+                Some(&s) if h.len() == self.t.k => s,
+                _ => u64::MAX,
+            })
+            .max()
+            .unwrap_or(u64::MAX);
         kth.min(self.cap)
     }
 
@@ -352,9 +408,10 @@ impl<'s> LookAhead<'s> {
         if !self.t.want.meets(strand) {
             return;
         }
-        if self.starts.len() < self.t.k {
-            self.starts.push(start);
-        } else if let Some(mut top) = self.starts.peek_mut()
+        let starts = &mut self.starts[group(self.t.split, strand)];
+        if starts.len() < self.t.k {
+            starts.push(start);
+        } else if let Some(mut top) = starts.peek_mut()
             && start < *top
         {
             *top = start;
@@ -362,14 +419,27 @@ impl<'s> LookAhead<'s> {
     }
 }
 
-/// Sort `v[from..]` nearest first, ties in input order, and keep the `k`
-/// nearest and every B tied with the k-th.
+/// Sort `v[from..]` nearest first, ties in input order, and keep, per
+/// group, the `k` nearest and every B tied with the k-th.
 pub(crate) fn keep_nearest(v: &mut Vec<Hit<'_>>, from: usize, t: &Target) {
-    let run = &mut v[from..];
-    run.sort_unstable_by_key(|h| (t.distance(h.span), h.loc));
-    if run.len() > t.k {
-        let kth = t.distance(run[t.k - 1].span);
-        let keep = t.k + run[t.k..].partition_point(|h| t.distance(h.span) == kth);
-        v.truncate(from + keep);
+    v[from..].sort_unstable_by_key(|h| (t.distance(h.span), h.loc));
+    // Per group: how many are kept, and the k-th distance once reached.
+    let mut kept = [0; 2];
+    let mut kth = [None; 2];
+    let mut w = from;
+    for r in from..v.len() {
+        let h = v[r];
+        let (g, d) = (group(t.split, h.strand), t.distance(h.span));
+        if kept[g] < t.k {
+            kept[g] += 1;
+            if kept[g] == t.k {
+                kth[g] = Some(d);
+            }
+        } else if kth[g] != Some(d) {
+            continue;
+        }
+        v[w] = h;
+        w += 1;
     }
+    v.truncate(w);
 }

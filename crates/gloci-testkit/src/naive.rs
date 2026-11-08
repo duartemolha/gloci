@@ -88,12 +88,15 @@ pub type Sides = (Vec<usize>, Vec<usize>);
 /// plus every B tied with the k-th. Only B at distance at most
 /// `max_distance` count. Under `Same`/`Opposite`, only B whose strand meets
 /// the rule against A's count: a B or A with unknown strand never does.
+/// With `split_by_b_strand` and `Any`, the cut is made separately for `-`
+/// B and for the rest, and each side is the union, sorted the same way.
 pub fn naive_neighbours<R: Feature>(
     a: &[R],
     b: &[Vec<R>],
     k: usize,
     max_distance: Option<u64>,
     strand: StrandRule,
+    split_by_b_strand: bool,
     inclusive_points: bool,
 ) -> Vec<Vec<Sides>> {
     let strand_ok = |x: Strand, y: Strand| match strand {
@@ -102,13 +105,30 @@ pub fn naive_neighbours<R: Feature>(
             x != Strand::Unknown && y != Strand::Unknown && ((x == y) == (rule == StrandRule::Same))
         }
     };
-    let nearest = |mut v: Vec<(u64, usize)>| -> Vec<usize> {
-        v.sort();
-        if v.len() > k {
-            let kth = v[k - 1].0;
-            v.retain(|&(d, _)| d <= kth);
+    // One group, or `-` B (`Some(true)`) apart from the rest.
+    let groups: &[Option<bool>] = if split_by_b_strand && strand == StrandRule::Any {
+        &[Some(false), Some(true)]
+    } else {
+        &[None]
+    };
+    // `v` holds (distance, index, whether B is on the `-` strand).
+    let nearest = |v: Vec<(u64, usize, bool)>| -> Vec<usize> {
+        let mut out = Vec::new();
+        for &g in groups {
+            let mut group: Vec<(u64, usize)> = v
+                .iter()
+                .filter(|x| g.is_none_or(|minus| x.2 == minus))
+                .map(|x| (x.0, x.1))
+                .collect();
+            group.sort();
+            if group.len() > k {
+                let kth = group[k - 1].0;
+                group.retain(|&(d, _)| d <= kth);
+            }
+            out.extend(group);
         }
-        v.into_iter().map(|(_, i)| i).collect()
+        out.sort();
+        out.into_iter().map(|(_, i)| i).collect()
     };
     a.iter()
         .map(|ra| {
@@ -128,10 +148,11 @@ pub fn naive_neighbours<R: Feature>(
                         if max_distance.is_some_and(|m| d > m) {
                             continue;
                         }
+                        let minus = rb.strand() == Strand::Minus;
                         if y.end <= x.start {
-                            left.push((d, i));
+                            left.push((d, i, minus));
                         } else if y.start >= x.end {
-                            right.push((d, i));
+                            right.push((d, i, minus));
                         }
                     }
                     (nearest(left), nearest(right))

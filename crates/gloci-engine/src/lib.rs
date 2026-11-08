@@ -8,4 +8,6 @@ mod nearest;
 pub mod sweep;
 
 pub use hit::{ARec, Hit, Neighbours, Visitor};
+#[doc(hidden)]
+pub use sweep::SweepStats;
 pub use sweep::{Inputs, NearestConfig, SweepConfig, SweepSummary, sweep_sorted};

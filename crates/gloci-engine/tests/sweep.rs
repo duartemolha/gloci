@@ -209,9 +209,9 @@ fn check_deep(a: &[TestRec], b: &[TestRec], depth: usize) {
         "hits differ from the naive answer"
     );
     assert!(
-        summary.peak_active <= depth + 1,
+        summary.stats.peak_active <= depth + 1,
         "peak active set {} for depth {depth} ({} B records)",
-        summary.peak_active,
+        summary.stats.peak_active,
         b.len()
     );
 }
@@ -380,6 +380,7 @@ fn edges_and_empties() {
             k: 1,
             max_distance: None,
             strand: StrandRule::Any,
+            split_by_b_strand: false,
         }),
         ..cfg
     };
