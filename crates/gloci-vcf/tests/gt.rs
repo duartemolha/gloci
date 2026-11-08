@@ -2,14 +2,14 @@ mod common;
 use common::*;
 use gloci_vcf::{GenotypeSource, SampleFields, bcf_genotypes, text_genotypes};
 
-fn all(
-    src: &dyn GenotypeSource,
-) -> Vec<(
+type Row = (
     Option<(Vec<Option<u32>>, bool)>,
     Option<u32>,
     Option<u32>,
     bool,
-)> {
+);
+
+fn all(src: &dyn GenotypeSource) -> Vec<Row> {
     let mut sf = SampleFields::default();
     (0..src.n_samples())
         .map(|i| {
