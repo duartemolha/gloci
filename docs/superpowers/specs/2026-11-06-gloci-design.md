@@ -138,7 +138,7 @@ Further rules:
   - `-f` is the minimum fraction of A covered, and `-F` is the minimum fraction of B covered. Both accept a decimal (`0.5`) or a percentage (`50%`), as bedops `-e 50%` does. **[you, 2026-11-07]**
   - `-r` requires both, and `-e` requires either.
   - `--min-bases N` sets an absolute minimum overlap.
-  - A threshold on a point side counts as met whenever the point overlaps.
+  - Every threshold (`-f`, `-F`, `-r`, `-e`, `--min-bases`) counts as met when either side of the overlap is a point. A point covers no bases, so no threshold can be measured, and an insertion inside a feature is never dropped by a threshold. **[my call, revised 2026-11-08: the earlier rule applied only to the point's own side, so `-F` dropped insertions while `--min-bases` kept them]**
 - **Strand:**
   - `-s` keeps only overlaps on the same strand, and `-S` only overlaps on opposite strands.
   - Features with unknown strand (`.`, or any VCF record) never match under `-s` or `-S`, and gloci warns once.
@@ -307,7 +307,7 @@ Phase markers are explained in Section 10.
 
 **`gloci intersect`** — P1. Replaces bedtools `intersect` and `window`, bedops `-e`/`-n`, vcftools `--bed`/`--exclude-bed`, and `vcf-isec`.
 
-- **`-m, --mode`** sets what is reported. The default is `any` **[my call]**, because it's the most common intent and never duplicates records.
+- **`--mode`** sets what is reported. The default is `any` **[my call]**, because it's the most common intent and never duplicates records. It has no short flag: `-m` is `sort --merge-sorted`, and one flag keeps one meaning. **[my call, revised 2026-11-08]**
   - `any`: each A once if it overlaps ≥1 B.
   - `none`: A with no overlap.
   - `pairs`: one line per A–B pair, A columns then B columns. `--overlap-bases` adds the overlap length. `--keep-unmatched` keeps A rows with no partner, padded with `.`.
