@@ -2,7 +2,7 @@
 
 use gloci_io::{
     Format, Header, IoError, OutFormat, OutputOptions, OutputSpec, RecordReader, RecordWriter,
-    TsvHeader, UsageError, WriterOptions, open_output, open_record_writer, open_tsv_writer,
+    TsvHeader, WriterOptions, open_output, open_record_writer, open_tsv_writer,
     refuse_binary_to_tty, tsv_output_ok,
 };
 use std::io::IsTerminal;
@@ -48,10 +48,9 @@ pub fn open_report(
                 },
                 (Header::Lines(l), _) if header => TsvHeader::Lines(l.clone()),
                 (_, Format::Vcf | Format::Bcf) => {
-                    return Err(UsageError(
-                        "internal error: a VCF/BCF input has no VCF header".into(),
-                    )
-                    .into());
+                    return Err(IoError::Internal(
+                        "a VCF/BCF input has no VCF header".into(),
+                    ));
                 }
                 _ => TsvHeader::None,
             };

@@ -9,7 +9,7 @@ pub mod view;
 pub use bedsearch::{ChromBlock, find_chrom_block};
 pub use check::{CheckReport, Problems, check_file};
 pub use relate::{
-    RelateInputs, RelateOptions, ReportOutput, accepted, b_placeholder, open_report,
+    Acceptor, RelateInputs, RelateOptions, ReportOutput, b_placeholder, open_report,
     rewrite_coords, run_relation,
 };
 pub use sort::{Dedup, SortConfig, SortStats, Sorter, Tie, merge_sorted};

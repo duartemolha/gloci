@@ -10,7 +10,7 @@ mod criteria;
 mod out;
 mod rewrite;
 
-pub use criteria::accepted;
+pub use criteria::Acceptor;
 pub use out::{ReportOutput, open_report};
 pub use rewrite::{b_placeholder, rewrite_coords};
 
@@ -19,7 +19,8 @@ use gloci_engine::{
     Inputs, NearestConfig, SweepConfig, SweepSummary, Visitor, sweep_sorted, sweep_unsorted,
 };
 use gloci_io::{
-    Compression, Diagnostics, Format, Header, IoError, RecordBatch, RecordReader, chrom_table_for,
+    Compression, Diagnostics, Format, Header, IoError, RecordBatch, RecordReader, UsageError,
+    chrom_table_for,
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -86,8 +87,17 @@ impl RecordReader for StrandWatch {
     }
 }
 
+fn has_threshold(c: &OverlapCriteria) -> bool {
+    c.min_frac_a.is_some()
+        || c.min_frac_b.is_some()
+        || c.reciprocal
+        || c.either
+        || c.min_bases.is_some()
+}
+
 /// Run the sweep over `inputs` and call `v` for every A record with its
-/// candidate hits (D36). The chromosome table is built per D51. With `-s`
+/// candidate hits (D36). A window together with any threshold is a usage
+/// error (D37). The chromosome table is built per D51. With `-s`
 /// or `-S`, warns once per input that has records of unknown strand (D54);
 /// the sorted sweep checks only the records it reads.
 pub fn run_relation(
@@ -96,6 +106,12 @@ pub fn run_relation(
     nearest: Option<NearestConfig>,
     v: &mut dyn Visitor,
 ) -> Result<SweepSummary, IoError> {
+    if o.window.is_some() && has_threshold(&o.criteria) {
+        return Err(UsageError(
+            "-w/--left/--right cannot be combined with -f, -F, -r, -e or --min-bases (D37)".into(),
+        )
+        .into());
+    }
     let RelateInputs { a, b } = inputs;
     let mut chroms = {
         let all: Vec<&dyn RecordReader> = std::iter::once(a.as_ref())

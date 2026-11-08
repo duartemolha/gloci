@@ -539,6 +539,7 @@ impl OverlapArgs {
 
 /// B padding (spec 4.3: windows). Cannot be combined with thresholds (D37).
 #[derive(Args, Debug, Clone)]
+#[command(group = clap::ArgGroup::new("pad").multiple(true).args(["window", "left", "right"]))]
 pub struct WindowArgs {
     /// Pad B by N on both sides before testing (4.3: windows).
     #[arg(
@@ -555,7 +556,7 @@ pub struct WindowArgs {
     #[arg(long, value_name = "N", conflicts_with_all = WINDOW_CONFLICTS)]
     pub right: Option<u64>,
     /// Left and right follow A's strand (4.3: windows).
-    #[arg(long, conflicts_with_all = WINDOW_CONFLICTS)]
+    #[arg(long, requires = "pad", conflicts_with_all = WINDOW_CONFLICTS)]
     pub strand_window: bool,
 }
 
@@ -710,6 +711,7 @@ mod tests {
             }
         }
         assert!(parse(&["--strand-window", "-r"]).is_err());
+        assert!(parse(&["--strand-window"]).is_err(), "needs a padding flag");
         let r = parse(&["-w", "10", "--left", "2", "--strand-window", "-s"]).unwrap();
         let w = r.w.window().unwrap();
         assert_eq!((w.left, w.right, w.strand_aware), (2, 10, true));
