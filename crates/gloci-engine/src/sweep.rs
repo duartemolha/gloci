@@ -66,8 +66,9 @@ pub struct Inputs {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SweepSummary {
     pub a_records: u64,
-    /// Records read from each B. Reading stops when A is exhausted, so
-    /// this can be less than the file holds.
+    /// Records read from each B. The sorted sweep stops reading when A is
+    /// exhausted, so this can be less than the file holds; unsorted mode
+    /// reads every record.
     pub b_records: Vec<u64>,
     /// At least one chromosome had both A and B records.
     pub shared_chroms: bool,
@@ -75,8 +76,9 @@ pub struct SweepSummary {
     pub stats: SweepStats,
 }
 
-/// Peak sizes, for tests: memory is bounded by the overlap depth and `k`
-/// (spec §8.2), not by the file size.
+/// What the sweep did, for tests. The sorted sweep fills the peak sizes
+/// (memory is bounded by the overlap depth and `k`, spec §8.2, not by the
+/// file size). `sweep_unsorted` leaves those 0 and fills the rest.
 #[doc(hidden)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SweepStats {
@@ -87,6 +89,13 @@ pub struct SweepStats {
     /// The most raw bytes each B input's left pool held at any moment,
     /// summed over the inputs: a bound on what they held at once.
     pub peak_pool_bytes: usize,
+    /// Unsorted mode: the (B input, chromosome) indexes built with
+    /// coitrees, and with [`ITree64`](crate::ITree64) (D40).
+    pub coitrees_indexes: usize,
+    pub itree64_indexes: usize,
+    /// Unsorted mode: the coitree queries a sorted querent answered (made
+    /// while A was still in order).
+    pub querent_queries: u64,
 }
 
 /// Run the sweep: call `v` for every A record, in A's input order, with
@@ -100,15 +109,7 @@ pub fn sweep_sorted(
     v: &mut dyn Visitor,
 ) -> Result<SweepSummary, IoError> {
     let Inputs { a: mut reader, b } = inputs;
-    let max_files = usize::from(u16::MAX) + 1;
-    if b.len() > max_files {
-        return Err(UsageError(format!(
-            "too many B inputs: {} (at most {})",
-            thousands(b.len() as u64),
-            thousands(max_files as u64)
-        ))
-        .into());
-    }
+    check_b_count(b.len())?;
     let pad = cfg.window.map_or(0, |w| w.left.max(w.right));
     let mut streams: Vec<BStream> = b.into_iter().map(BStream::new).collect();
     let mut active: Vec<ActiveSet> = streams.iter().map(|_| ActiveSet::default()).collect();
@@ -213,6 +214,20 @@ pub fn sweep_sorted(
     summary.b_records = streams.iter().map(|s| s.read).collect();
     summary.stats.peak_pool_bytes = pools.iter().map(LeftPool::peak_bytes).sum();
     Ok(summary)
+}
+
+/// A hit's `file` is a `u16`: at most 65,536 B inputs.
+pub(crate) fn check_b_count(n: usize) -> Result<(), IoError> {
+    let max_files = usize::from(u16::MAX) + 1;
+    if n > max_files {
+        return Err(UsageError(format!(
+            "too many B inputs: {} (at most {})",
+            thousands(n as u64),
+            thousands(max_files as u64)
+        ))
+        .into());
+    }
+    Ok(())
 }
 
 /// Match A against one B input's active set: `ActiveSet::scan` with the

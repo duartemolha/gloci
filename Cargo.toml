@@ -21,6 +21,7 @@ noodles-bcf = "0.94"
 noodles-csi = "0.62"
 noodles-tabix = "0.68"
 noodles-core = "0.21"
+coitrees = "0.4"
 clap = { version = "4.6", features = ["derive", "env", "wrap_help"] }
 clap_complete = "4.6"
 clap_mangen = "0.3"

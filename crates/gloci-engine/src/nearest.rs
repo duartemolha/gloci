@@ -34,6 +34,7 @@ use crate::hit::Hit;
 use crate::sweep::NearestConfig;
 use gloci_core::{Interval, Strand, StrandRule, distance, overlaps};
 use std::collections::BinaryHeap;
+use std::ops::Range;
 
 /// Which B strands count as neighbours of the current A.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,6 +65,45 @@ impl Want {
             Want::Only(s) => b == s,
         }
     }
+
+    /// The [`Buckets`] whose B count for this A.
+    pub(crate) fn buckets(self) -> Range<usize> {
+        match self {
+            // Bucket 1 is empty unless the split is on.
+            Want::Any => 0..2,
+            Want::Only(Strand::Plus) => 0..1,
+            Want::Only(Strand::Minus) => 1..2,
+            Want::Nothing | Want::Only(Strand::Unknown) => 0..0,
+        }
+    }
+}
+
+/// Which of two buckets a B is kept in, by its strand (the left pools'
+/// sub-pools, unsorted mode's sorted lists). Under a strand rule, `+` B go
+/// to 0, `-` B to 1 and B of unknown strand nowhere (D55). Otherwise, with
+/// `split_by_b_strand`, `-` B go to 1 and the rest to 0; with neither,
+/// every B goes to 0.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Buckets {
+    rule: bool,
+    split: bool,
+}
+
+impl Buckets {
+    pub(crate) fn new(cfg: &NearestConfig) -> Buckets {
+        Buckets {
+            rule: cfg.strand != StrandRule::Any,
+            split: splits(cfg),
+        }
+    }
+
+    pub(crate) fn of(self, b: Strand) -> Option<usize> {
+        if self.rule && b == Strand::Unknown {
+            // D55: under a strand rule a B of unknown strand never counts.
+            return None;
+        }
+        Some(group(self.rule || self.split, b))
+    }
 }
 
 /// The group of a B: with `split`, `-` B are group 1 and the rest group
@@ -82,7 +122,7 @@ fn splits(cfg: &NearestConfig) -> bool {
 pub(crate) struct Target {
     pub(crate) span: Interval,
     pub(crate) want: Want,
-    k: usize,
+    pub(crate) k: usize,
     max_distance: Option<u64>,
     inclusive_points: bool,
     /// `-` B are kept apart from the rest (`split_by_b_strand`).
@@ -113,11 +153,17 @@ impl Target {
         1 + usize::from(self.split)
     }
 
-    fn distance(&self, b: Interval) -> u64 {
+    /// Does `b` overlap A (spec §4.3)?
+    pub(crate) fn overlaps(&self, b: Interval) -> bool {
+        overlaps(self.span, b, self.inclusive_points)
+    }
+
+    pub(crate) fn distance(&self, b: Interval) -> u64 {
         distance(self.span, b, self.inclusive_points)
     }
 
-    fn within(&self, b: Interval) -> bool {
+    /// Is `b` at most `max_distance` from A?
+    pub(crate) fn within(&self, b: Interval) -> bool {
         self.max_distance.is_none_or(|m| self.distance(b) <= m)
     }
 }
@@ -164,12 +210,8 @@ impl<'h> NearScan<'_, 'h> {
 pub(crate) struct LeftPool {
     k: usize,
     max_distance: Option<u64>,
-    /// A strand rule is active: `+` B go to `subs[0]`, `-` B to
-    /// `subs[1]`, and B of unknown strand nowhere.
-    rule: bool,
-    /// No rule, `split_by_b_strand`: `-` B go to `subs[1]`, the rest to
-    /// `subs[0]`. With neither, every B goes to `subs[0]`.
-    split: bool,
+    /// Which of `subs` each B goes to.
+    buckets: Buckets,
     subs: [SubPool; 2],
     /// Scratch space for compacting an arena.
     spare: Vec<u8>,
@@ -201,8 +243,7 @@ impl LeftPool {
         LeftPool {
             k: cfg.k,
             max_distance: cfg.max_distance,
-            rule: cfg.strand != StrandRule::Any,
-            split: splits(cfg),
+            buckets: Buckets::new(cfg),
             subs: Default::default(),
             spare: Vec::new(),
             peak_bytes: 0,
@@ -257,11 +298,9 @@ impl LeftPool {
         {
             return;
         }
-        if self.rule && strand == Strand::Unknown {
-            // D55: under a strand rule a B of unknown strand never counts.
+        let Some(i) = self.buckets.of(strand) else {
             return;
-        }
-        let i = group(self.rule || self.split, strand);
+        };
         if let Some(bytes) = self.subs[i].offer(span, strand, loc, raw, self.k, &mut self.spare) {
             let held = bytes + self.subs[1 - i].arena.len();
             self.peak_bytes = self.peak_bytes.max(held);
@@ -271,14 +310,7 @@ impl LeftPool {
     /// Push the members of the strands `t` wants that are within its
     /// `max_distance`, as hits of `file`.
     pub(crate) fn extend<'h>(&'h self, file: u16, t: &Target, out: &mut Vec<Hit<'h>>) {
-        let subs = match t.want {
-            // `subs[1]` is empty unless the split is on.
-            Want::Any => &self.subs[..],
-            Want::Only(Strand::Plus) => &self.subs[..1],
-            Want::Only(Strand::Minus) => &self.subs[1..],
-            Want::Nothing | Want::Only(Strand::Unknown) => return,
-        };
-        for sub in subs {
+        for sub in &self.subs[t.want.buckets()] {
             for m in &sub.members {
                 debug_assert!(
                     m.span.end <= t.span.start && !overlaps(t.span, m.span, t.inclusive_points),
