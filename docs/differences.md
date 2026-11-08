@@ -239,3 +239,16 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   and queries the same as with htslib.
 - **Pinned by:** `index-bcf-contigs-out-of-dictionary-order-vs-bcftools` (exit
   status: must differ).
+
+## `index -s -b` without `-e` writes the begin column as the end column {#tsv-index-no-end-column}
+
+- **gloci:** `gloci index -s 1 -b 2 FILE` writes `col_end` = the begin column
+  (2) in the tabix header. A feature covers one base.
+- **Old behaviour:** `tabix -s1 -b2 FILE` leaves `col_end` at its built-in GFF
+  default, 5, and `tabix -e 0` is refused when the file is 1-based.
+- **Reason:** 5 is an accident: a file with a fifth column would have it read
+  as the end. An end column equal to the begin column is what htslib itself
+  treats as "no end column", so queries return the same lines (the
+  `index-tsv-skip-lines-vs-tabix` case pins this).
+- **Pinned by:** `index-tsv-no-end-header-vs-tabix` (header words: must
+  differ).

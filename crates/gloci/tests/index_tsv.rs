@@ -87,3 +87,24 @@ fn tsv_mode_non_bgzf_keeps_recompress_hint() {
         .code(2)
         .stderr(contains("recompress with: gloci view"));
 }
+
+#[test]
+fn column_zero_is_a_usage_error() {
+    let d = tempdir();
+    let p = bgzf_file(d.path(), "a.tsv.gz", "chr1\t10\t20\n");
+    for args in [["-s", "0", "-b", "2"], ["-s", "1", "-b", "0"]] {
+        gloci()
+            .arg("index")
+            .args(args)
+            .arg(&p)
+            .assert()
+            .code(2)
+            .stderr(contains("column is numbered from 1"));
+    }
+    gloci()
+        .args(["index", "-s", "1", "-b", "2", "-e", "0"])
+        .arg(&p)
+        .assert()
+        .code(2)
+        .stderr(contains("end column is numbered from 1"));
+}

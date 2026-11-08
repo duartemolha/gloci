@@ -382,3 +382,20 @@ input = { file = "xtask/diff/inputs/bigend.bed" }
 gloci = '''set -e; bgzip -c input.bed > g.tsv.gz; gloci index -s 1 -b 2 -e 3 --zero-based g.tsv.gz && test -f g.tsv.gz.csi; for q in chr1:1500-1600 chr1:150-250 chr1:600000010-600000020 chr1:600000500-600000600 chr2:536870900-536871100 chr2:699999999-700001000; do tabix g.tsv.gz $q; done'''
 reference = '''set -e; bgzip -c input.bed > t.tsv.gz; tabix -C -s1 -b2 -e3 -0 t.tsv.gz; for q in chr1:1500-1600 chr1:150-250 chr1:600000010-600000020 chr1:600000500-600000600 chr2:536870900-536871100 chr2:699999999-700001000; do tabix t.tsv.gz $q; done'''
 compare = "exact"
+
+# The header words of the index differ in col_end when there is no -e.
+[[case]]
+name = "index-tsv-no-end-header-vs-tabix"
+input = { file = "xtask/diff/inputs/positions.tsv" }
+gloci = '''set -e; bgzip -c input.tsv > g.tsv.gz; gloci index -s 1 -b 2 --skip-lines 1 --comment % g.tsv.gz; zcat g.tsv.gz.tbi | head -c 32 | od -An -tx4'''
+reference = '''set -e; bgzip -c input.tsv > t.tsv.gz; tabix -s1 -b2 -S1 -c% t.tsv.gz; zcat t.tsv.gz.tbi | head -c 32 | od -An -tx4'''
+compare = "exact"
+expected_difference = "#tsv-index-no-end-column"
+
+# The fixed header words (format, columns, meta char, skip) are tabix's.
+[[case]]
+name = "index-tsv-header-vs-tabix"
+input = { file = "xtask/diff/inputs/bedlike.tsv" }
+gloci = '''set -e; bgzip -c input.tsv > g.tsv.gz; gloci index -s 1 -b 2 -e 3 --zero-based g.tsv.gz; zcat g.tsv.gz.tbi | head -c 32 | od -An -tx4'''
+reference = '''set -e; bgzip -c input.tsv > t.tsv.gz; tabix -s1 -b2 -e3 -0 t.tsv.gz; zcat t.tsv.gz.tbi | head -c 32 | od -An -tx4'''
+compare = "exact"

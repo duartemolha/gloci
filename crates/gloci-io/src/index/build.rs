@@ -154,9 +154,7 @@ impl Scanner<'_> {
                 // The records of a BCF can be contiguous per contig and still
                 // fail here: the index needs the contigs in dictionary order.
                 IoError::Order(mut o) if self.tsv.is_some() => {
-                    o.hint = "sort the file by chromosome (each chromosome in one block) and then \
-by the begin column, for example: zcat FILE | sort -k1,1 -k2,2n | bgzip > FILE.sorted"
-                        .to_string();
+                    o.hint = tsv_sort_hint(&o.path, self.tsv.expect("checked above"));
                     IoError::Order(o)
                 }
                 IoError::Order(mut o) if self.binary => {
@@ -652,3 +650,25 @@ pub(super) fn publish_index(
 }
 
 // ---- index-backed region reader ----
+
+/// How to sort a TSV by its index columns while keeping the skipped leading
+/// lines and the comment lines at the top, where the index expects them.
+fn tsv_sort_hint(path: &str, c: &TsvColumns) -> String {
+    let comment = match c.comment {
+        b'\'' => "\"'\"".to_string(),
+        b => format!("'{}'", b as char),
+    };
+    let body = format!("zcat {path} | tail -n +{}", c.skip_lines + 1);
+    let head = if c.skip_lines > 0 {
+        format!("zcat {path} | head -n {}; ", c.skip_lines)
+    } else {
+        String::new()
+    };
+    format!(
+        "sort by chromosome (each one in a single block) and then by the begin column, keeping \
+the first lines and the comment lines on top: ({head}{body} | grep '^'{comment}; {body} | \
+grep -v '^'{comment} | LC_ALL=C sort -t $'\\t' -k{s},{s} -k{b},{b}n) | bgzip > {path}.sorted",
+        s = c.seq,
+        b = c.begin,
+    )
+}

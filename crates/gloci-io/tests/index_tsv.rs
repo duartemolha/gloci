@@ -1,7 +1,7 @@
 //! Tabix-style indexing of any BGZF TSV (`write_tsv_index`), checked by
 //! querying the written index directly with noodles.
 
-use gloci_io::{IndexKind, TsvColumns, find_index, write_tsv_index};
+use gloci_io::{IndexKind, IoError, TsvColumns, find_index, write_tsv_index};
 use gloci_testkit::fixtures;
 use noodles_bgzf::io::Reader as BgzfReader;
 use noodles_bgzf::io::Seek;
@@ -183,4 +183,62 @@ fn bad_column_is_a_data_error_naming_the_line() {
     let err = write_tsv_index(&p, &p, &cols(1, 2, Some(3), true), nz1()).unwrap_err();
     let msg = err.to_string();
     assert!(msg.contains("line 2") && msg.contains("begin"), "{msg}");
+}
+
+fn raw_tbi(idx: &Path) -> Vec<u8> {
+    use std::io::Read;
+    let mut v = Vec::new();
+    noodles_bgzf::io::Reader::new(std::fs::File::open(idx).unwrap())
+        .read_to_end(&mut v)
+        .unwrap();
+    v
+}
+
+/// The fixed header fields of a TBI: (format, col_seq, col_beg, col_end,
+/// meta char, skip), as `tabix -s -b -e [-0] -S -c` writes them.
+fn tbi_fields(raw: &[u8]) -> (u32, u32, u32, u32, u32, u32) {
+    assert_eq!(&raw[..4], b"TBI\x01");
+    let w = |i: usize| u32::from_le_bytes(raw[8 + 4 * i..12 + 4 * i].try_into().unwrap());
+    (w(0), w(1), w(2), w(3), w(4), w(5))
+}
+
+#[test]
+fn tbi_header_bytes_zero_based() {
+    let p = bgzf("# c\nchr1\t5\t10\tx\nchr1\t20\t30\ty\n");
+    let idx = write_tsv_index(&p, &p, &cols(1, 2, Some(3), true), nz1()).unwrap();
+    // tabix -s1 -b2 -e3 -0: format 0x10000, '#', no skipped lines
+    assert_eq!(
+        tbi_fields(&raw_tbi(&idx)),
+        (0x10000, 1, 2, 3, u32::from(b'#'), 0)
+    );
+}
+
+#[test]
+fn tbi_header_bytes_one_based_no_end() {
+    let p = bgzf("head\n% c\nchr1\t5\tx\nchr1\t20\ty\n");
+    let mut c = cols(1, 2, None, false);
+    c.skip_lines = 1;
+    c.comment = b'%';
+    let idx = write_tsv_index(&p, &p, &c, nz1()).unwrap();
+    // tabix -s1 -b2 -S1 -c%: format 0, '%', skip 1. col_end differs on
+    // purpose (docs/differences.md#tsv-index-no-end-column): tabix leaves
+    // its GFF default 5 there, gloci writes the begin column (2), which
+    // htslib reads as "no end column" the same way.
+    assert_eq!(tbi_fields(&raw_tbi(&idx)), (0, 1, 2, 2, u32::from(b'%'), 1));
+}
+
+#[test]
+fn order_hint_uses_the_given_columns_and_keeps_the_header() {
+    let p = bgzf("header\nx\ty\tchr1\tz\t50\nx\ty\tchr1\tz\t10\n");
+    let mut c = cols(3, 5, None, true);
+    c.skip_lines = 1;
+    let err = write_tsv_index(&p, &p, &c, nz1()).unwrap_err();
+    let IoError::Order(o) = err else {
+        panic!("expected an order error, got {err}")
+    };
+    assert!(o.hint.contains("-k3,3 -k5,5n"), "{}", o.hint);
+    assert!(o.hint.contains("LC_ALL=C"), "{}", o.hint);
+    assert!(o.hint.contains("head -n 1"), "{}", o.hint);
+    assert!(o.hint.contains("tail -n +2"), "{}", o.hint);
+    assert!(o.hint.contains("grep '^'"), "{}", o.hint);
 }
