@@ -16,6 +16,12 @@ enum Task {
     Man,
     /// Generate shell completions in target/assets/completions
     Completions,
+    /// Generate documentation artifacts (SKILL.md)
+    Docs {
+        /// Write the SKILL.md agent usage guide to PATH
+        #[arg(long, value_name = "PATH", default_value = "SKILL.md")]
+        skill: PathBuf,
+    },
     /// Generate synthetic data
     Gen {
         #[command(subcommand)]
@@ -146,6 +152,7 @@ fn run(cli: Cli) -> Result<bool> {
         Task::Completions => {
             xtask::docs::generate_completions(Path::new("target/assets/completions"))?
         }
+        Task::Docs { skill } => xtask::docs::generate_skill(&skill)?,
         Task::Gen { kind } => match kind {
             Gen::Bed {
                 records,

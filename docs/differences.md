@@ -286,15 +286,17 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Pinned by:** `intersect-vcf-allele-span-vs-bedtools` (must differ: bedtools
   also reports the insertion and the deletion whose anchor base is in a
   region) and `intersect-vcf-ref-span-vs-bedtools` (`--vcf-span ref`: must
-  match). `subtract` on a VCF A removes the same whole records as
-  `intersect --mode none`, so it has the same difference:
-  `subtract-vcf-allele-span-vs-bedtools` (must differ, against
+  match). In default or `--whole` mode `subtract` on a VCF A removes the same
+  whole records as `intersect --mode none` (under `--sum-overlaps -f` it drops
+  a record when the summed overlaps reach `-f` of its footprint), so it has the
+  same difference: `subtract-vcf-allele-span-vs-bedtools` (must differ, against
   `bedtools subtract -A`) and `subtract-vcf-ref-span-vs-bedtools` (must match).
 - **`convert`:** the same holds for `gloci convert`. Its default rows start a
   deletion after its anchor base where `vcf2bed` starts at `POS-1`
   (`--vcf-span ref` gives `vcf2bed`'s start), an insertion becomes a
   zero-width row (`400 400`) where `vcf2bed` writes its anchor base, and
-  `--split-alleles` gives each ALT its own allele footprint. Pinned by `convert-vcf-allele-span-vs-vcf2bed`
+  `--split-alleles` gives each ALT its own allele footprint by default (while
+  honouring `--vcf-span ref`). Pinned by `convert-vcf-allele-span-vs-vcf2bed`
   and `convert-vcf-split-deletions-vs-vcf2bed` (must differ);
   `convert-vcf-ref-vs-vcf2bed` (`--vcf-span ref`: must match).
 

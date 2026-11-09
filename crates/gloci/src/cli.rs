@@ -131,8 +131,8 @@ Examples:
     /// BGZF) or index it (--write-index).
     /// VCF and BCF convert to each other with -O or the -o extension;
     /// the header is kept as it is, plus a ##glociCommand line. BED and GFF
-    /// header lines are kept by default. Conversions between other formats are not
-    /// available yet (they will be gloci convert).
+    /// header lines are kept by default. For conversions to BED from VCF/BCF,
+    /// GFF3/GTF or BED12, use gloci convert.
     ///
     /// With regions, view prints the records whose footprint (per
     /// --vcf-span) overlaps a region, each once, in file order. A point
@@ -358,7 +358,8 @@ Examples:
     /// that is covered completely disappears. A point has no bases to cut:
     /// it is dropped when a B contains it, and a B point removes nothing
     /// from a cut; under --whole, or --sum-overlaps without -f, a B point
-    /// strictly inside A still removes A (the point rule of intersect).
+    /// strictly inside A (or on its edge with --inclusive-points) still
+    /// removes A (the point rule of intersect).
     /// The criteria (-f, -F, -r, -e, --min-bases, -s, -S) choose which B
     /// count and are measured as in intersect. -w, --left and --right pad B
     /// before it cuts.
@@ -368,9 +369,10 @@ Examples:
     /// all the B that pass the strand rule add up to at least -f of A
     /// (bedtools -N); it takes only -f, and without -f it acts like
     /// --whole. --split cuts by the BED12 blocks of B, not its span.
-    /// A VCF/BCF A is never cut: a record is dropped whole, exactly when
-    /// intersect --mode none would drop it, and the output is VCF with its
-    /// header.
+    /// A VCF/BCF A is never cut: a record is dropped whole, in default or
+    /// --whole mode when intersect --mode none would drop it (any accepted
+    /// hit), or with --sum-overlaps -f when the summed overlaps reach -f of
+    /// its footprint, and the output is VCF with its header.
     ///
     /// A and every B must be sorted in one chromosome order, which is
     /// checked as they are read. With --unsorted, any order works, A is
@@ -463,7 +465,7 @@ Examples:
     /// that is not a number in a numeric op is an error. sum, min and max
     /// print integers when every value was one; stdev and var are sample
     /// statistics (one value gives --empty); stdev_pop and var_pop divide by n
-    /// (one value gives 0), as bedtools stdev and var do. bases is the overlap of A with
+    /// (one value gives 0), as bedtools stdev does. bases is the overlap of A with
     /// each B's own span, which is 0 for a B that is within a window only;
     /// indicator is 1 when any B counts, else 0. An A with no B gets 0 for
     /// count and count_distinct and --empty (default `.`) for the rest;
