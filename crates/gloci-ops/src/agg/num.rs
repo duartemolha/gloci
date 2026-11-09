@@ -27,6 +27,10 @@ pub fn parse_num(s: &[u8]) -> Option<Num> {
         for &d in digits {
             v = v * 10 + i128::from(d - b'0');
         }
+        if v == 0 && s[0] == b'-' {
+            // bedtools reads every value as a double, so an integer `-0` keeps its sign
+            return Some(Num::Float(-0.0));
+        }
         return Some(Num::Int(if s[0] == b'-' { -v } else { v }));
     }
     let f: f64 = std::str::from_utf8(s).ok()?.parse().ok()?;

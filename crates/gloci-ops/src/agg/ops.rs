@@ -170,8 +170,13 @@ impl Numeric {
             Num::Float(_) => self.all_int = false,
         }
         self.fsum += f;
-        self.fmin = self.fmin.min(f);
-        self.fmax = self.fmax.max(f);
+        // strict comparisons keep the first of `-0` and `0`, as bedtools does
+        if f < self.fmin {
+            self.fmin = f;
+        }
+        if f > self.fmax {
+            self.fmax = f;
+        }
         let d = f - self.mean;
         self.mean += d / self.n as f64;
         self.m2 += d * (f - self.mean);
@@ -594,6 +599,12 @@ fn union_len(ivs: &mut [Interval]) -> u64 {
     total
 }
 
+/// Numeric order where `-0` and `0` tie (values are finite), so a stable sort keeps
+/// input order between them as bedtools does.
+fn cmp_stable(a: &f64, b: &f64) -> std::cmp::Ordering {
+    a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+}
+
 /// The median of sorted, non-empty `v`.
 fn median_sorted(v: &[f64]) -> f64 {
     let k = v.len();
@@ -644,26 +655,26 @@ fn finish_numeric(agg: &ResolvedAgg, n: &mut Numeric, empty: &str, out: &mut Vec
             fmt_f64(m, out);
         }
         Op::Median => {
-            n.vals.sort_unstable_by(|a, b| a.total_cmp(b));
+            n.vals.sort_by(cmp_stable);
             fmt_f64(median_sorted(&n.vals), out);
         }
         Op::Mad => {
-            n.vals.sort_unstable_by(|a, b| a.total_cmp(b));
+            n.vals.sort_by(cmp_stable);
             let med = median_sorted(&n.vals);
             let mut dev: Vec<f64> = n.vals.iter().map(|x| (x - med).abs()).collect();
-            dev.sort_unstable_by(|a, b| a.total_cmp(b));
+            dev.sort_by(cmp_stable);
             fmt_f64(median_sorted(&dev), out);
         }
         Op::Quantile => {
             let OpArg::Q(q) = agg.arg else { unreachable!() };
-            n.vals.sort_unstable_by(|a, b| a.total_cmp(b));
+            n.vals.sort_by(cmp_stable);
             fmt_f64(quantile_sorted(&n.vals, q), out);
         }
         Op::Tmean => {
             let OpArg::Range(lo, hi) = agg.arg else {
                 unreachable!()
             };
-            n.vals.sort_unstable_by(|a, b| a.total_cmp(b));
+            n.vals.sort_by(cmp_stable);
             let last = n.vals.len() - 1;
             // rank fraction of the i-th smallest is i / (n - 1); a lone value is kept
             let kept: Vec<f64> = n

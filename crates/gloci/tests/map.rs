@@ -426,3 +426,19 @@ fn usage_errors_for_op_arguments() {
             .stderr(contains(want));
     }
 }
+
+#[test]
+fn split_bases_uniq_and_frac_a_use_the_blocks_of_a() {
+    let fx = Fx::new();
+    // identical A coordinates, different blocks: 10+10 at the ends, 50+50 contiguous, one block
+    let a = "c\t0\t100\tA1\t0\t+\t0\t100\t0\t2\t10,10\t0,90\n\
+             c\t0\t100\tA2\t0\t+\t0\t100\t0\t2\t50,50\t0,50\n\
+             c\t0\t100\tA3\t0\t+\t0\t100\t0\t1\t100\t0\n";
+    let b = "c\t5\t95\tb1\t1\t+\nc\t40\t60\tb2\t1\t+\n";
+    let got = fx.run(a, b, &["--split", "-c", "0:bases_uniq", "-c", "0:frac_a"]);
+    let tails: Vec<&str> = got
+        .iter()
+        .map(|l| l.splitn(13, '\t').last().unwrap()) // after the 12 BED columns
+        .collect();
+    assert_eq!(tails, ["10\t0.5", "90\t0.9", "90\t0.9"], "{got:?}");
+}

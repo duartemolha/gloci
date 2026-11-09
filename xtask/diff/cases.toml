@@ -1143,7 +1143,7 @@ input = { file = "xtask/diff/inputs/map-a.bed" }
 aux = ["xtask/diff/inputs/map-ties-b.bed"]
 gloci = "gloci map --chrom-order lex -a input.bed -b map-ties-b.bed -c 5:mode"
 reference = "bedtools map -a input.bed -b map-ties-b.bed -c 5 -o mode"
-compare = "numeric"
+compare = "exact"
 
 [[case]]
 name = "map-antimode-ties-vs-bedtools"
@@ -1151,7 +1151,33 @@ input = { file = "xtask/diff/inputs/map-a.bed" }
 aux = ["xtask/diff/inputs/map-ties-b.bed"]
 gloci = "gloci map --chrom-order lex -a input.bed -b map-ties-b.bed -c 5:antimode"
 reference = "bedtools map -a input.bed -b map-ties-b.bed -c 5 -o antimode"
-compare = "numeric"
+compare = "exact"
+
+# Ties between text values (and negative numbers) also go to the bytewise smallest value.
+[[case]]
+name = "map-mode-text-ties-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-text-a.bed" }
+aux = ["xtask/diff/inputs/map-text-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-text-b.bed -c 5:mode"
+reference = "bedtools map -a input.bed -b map-text-b.bed -c 5 -o mode"
+compare = "exact"
+
+[[case]]
+name = "map-antimode-text-ties-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-text-a.bed" }
+aux = ["xtask/diff/inputs/map-text-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-text-b.bed -c 5:antimode"
+reference = "bedtools map -a input.bed -b map-text-b.bed -c 5 -o antimode"
+compare = "exact"
+
+# An integer `-0` keeps its sign in median, min and max, as in bedtools.
+[[case]]
+name = "map-negative-zero-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-negzero-a.bed" }
+aux = ["xtask/diff/inputs/map-negzero-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-negzero-b.bed -c 5:median,5:min,5:max,5:sum,5:mean"
+reference = "bedtools map -a input.bed -b map-negzero-b.bed -c 5,5,5,5,5 -o median,min,max,sum,mean"
+compare = "exact"
 
 # bedtools counts `.` as a value of `mode` and `antimode`; gloci skips missing values.
 [[case]]

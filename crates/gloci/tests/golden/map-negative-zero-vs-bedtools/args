@@ -1,0 +1,1 @@
+map --chrom-order lex -a input.bed -b map-negzero-b.bed -c 5:median,5:min,5:max,5:sum,5:mean
