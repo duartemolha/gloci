@@ -289,7 +289,9 @@ Examples:
     /// cover no bases, so they add neither segments nor boundaries. Only
     /// segments covered by at least one file are written. --min-files K and
     /// --max-files K keep segments covered by at least or at most K files;
-    /// --all keeps those covered by every file. By default a boundary is
+    /// --all keeps those covered by every file. --empty implies --min-files 0
+    /// (an explicit --min-files overrides it); --min-files 0 needs --empty.
+    /// By default a boundary is
     /// kept even where the membership does not change (as in bedops -p);
     /// --merge-adjacent joins neighbouring segments with the same output
     /// columns (as multiinter does). --no-membership writes coordinates

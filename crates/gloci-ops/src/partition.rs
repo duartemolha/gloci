@@ -82,6 +82,13 @@ drop --bedgraph for a membership table",
             "--empty needs --bedgraph; the membership table has no value columns to fill".into(),
         ));
     }
+    if o.min_files == Some(0) && o.empty.is_none() {
+        return Err(UsageError(
+            "--min-files 0 would keep segments no file covers, which are written only with \
+--empty; add --empty VALUE (with --bedgraph), or use --min-files 1 or drop it"
+                .into(),
+        ));
+    }
     if let (Some(lo), Some(hi)) = (o.min_files, o.max_files)
         && lo > hi
     {
@@ -123,6 +130,8 @@ struct Sweep<'a> {
     cursor: Option<u64>,
     pending: Option<Pending>,
     scratch: Vec<u8>,
+    /// Output row buffer, reused.
+    row: Vec<u8>,
     /// With a genome: the next genome chromosome not yet visited.
     next_genome: usize,
     peak_open: usize,
@@ -140,7 +149,9 @@ impl Sweep<'_> {
         end: u64,
         payload: &[u8],
     ) -> Result<(), IoError> {
-        let mut row = name.to_vec();
+        let mut row = std::mem::take(&mut self.row);
+        row.clear();
+        row.extend_from_slice(name);
         row.push(b'\t');
         row.extend_from_slice(start.to_string().as_bytes());
         row.push(b'\t');
@@ -149,10 +160,12 @@ impl Sweep<'_> {
             row.push(b'\t');
             row.extend_from_slice(payload);
         }
-        self.w.write_record(&row).map_err(|source| IoError::Write {
+        let r = self.w.write_record(&row).map_err(|source| IoError::Write {
             path: "output".into(),
             source,
-        })
+        });
+        self.row = row;
+        r
     }
 
     fn flush_pending(&mut self) -> Result<(), IoError> {
@@ -185,10 +198,11 @@ impl Sweep<'_> {
             });
             Ok(())
         } else {
-            let name = self.chrom_name.clone();
+            let name = std::mem::take(&mut self.chrom_name);
             let payload = std::mem::take(&mut self.scratch);
             let r = self.write_row(&name, start, end, &payload);
             self.scratch = payload;
+            self.chrom_name = name;
             r
         }
     }
@@ -344,8 +358,9 @@ check that -g matches the genome build of the input",
             if self.cover[input] > 0 {
                 return Err(at(format!(
                     "{}:{start}-{end} overlaps an earlier interval of the same file; \
---bedgraph needs non-overlapping intervals in each file, so merge them first \
-or drop --bedgraph",
+--bedgraph needs non-overlapping intervals in each file; resolve the overlap, \
+for example by summing with `gloci partition --bedgraph` on files split so that \
+none overlaps, or drop --bedgraph",
                     String::from_utf8_lossy(&self.chrom_name)
                 )));
             }
@@ -402,7 +417,18 @@ pub fn partition(
 ) -> Result<(), IoError> {
     partition_counting(inputs, chroms, genome, o, w)
         .map(|_| ())
-        .map_err(|e| e.with_sorted_input_loc())
+        .map_err(|e| match e.with_sorted_input_loc() {
+            IoError::Parse { path, loc, msg } if path.starts_with(gloci_io::SORTED_INPUTS) => {
+                IoError::Parse {
+                    path,
+                    loc,
+                    msg: format!(
+                        "{msg} (the record number counts records after --sort, not source lines)"
+                    ),
+                }
+            }
+            e => e,
+        })
 }
 
 /// [`partition`], returning the most intervals ever open at once (for the
@@ -461,6 +487,7 @@ pub fn partition_counting(
         cursor: None,
         pending: None,
         scratch: Vec::new(),
+        row: Vec::new(),
         next_genome: 0,
         peak_open: 0,
     };

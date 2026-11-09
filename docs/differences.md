@@ -606,12 +606,15 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 
 - **gloci:** a point (a zero-length feature) covers no bases, so it adds no
   segment and no boundary (D68).
-- **Old behaviour:** `bedtools multiinter` widens a point at `p` to the bases
-  around it (`[p-1, p+1)`, with an extra row for a point at `p`), and
+- **Old behaviour:** `bedtools multiinter` widens an isolated point at `p` to
+  `[p-1, p+1)` (a point inside an interval is ignored, so it adds no row
+  there), and
   `bedops --partition` writes it as a zero-length segment (`chr1 150 150`) and
   cuts the segments around it there.
 - **Reason:** a feature with no bases covers nothing; inventing bases changes
   coverage counts.
+- **Also differs:** default labels are file basenames in gloci; `multiinter`
+  numbers the inputs (`1,2,...`) unless `-names` is given.
 - **Pinned by:** `partition-points-vs-bedtools-multiinter` and
   `partition-points-vs-bedops-partition` (must differ).
 

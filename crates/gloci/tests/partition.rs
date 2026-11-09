@@ -122,6 +122,17 @@ fn count_filters_and_all() {
 }
 
 #[test]
+fn min_files_zero_needs_empty() {
+    let t = three();
+    gloci()
+        .args(["partition", &t.a, &t.c, "--min-files", "0"])
+        .assert()
+        .code(2)
+        .stderr(contains("--min-files 0"))
+        .stderr(contains("add --empty"));
+}
+
+#[test]
 fn merge_adjacent_joins_equal_columns_only() {
     let dir = tempdir();
     let x = s(&plain_file(
@@ -258,7 +269,15 @@ fn bedgraph_errors_say_where() {
         .assert()
         .code(1)
         .stderr(contains("ov.bg"))
-        .stderr(contains("overlaps an earlier interval"));
+        .stderr(contains("overlaps an earlier interval"))
+        .stderr(contains("resolve the overlap"));
+    // Under --sort the location is a record count, and the message says so.
+    gloci()
+        .args(["partition", &ov, &h, "--bedgraph", "--sort"])
+        .assert()
+        .code(1)
+        .stderr(contains("record 2"))
+        .stderr(contains("counts records after --sort"));
     let nov = s(&plain_file(dir.path(), "nov.bed", "chr1\t0\t10\n"));
     gloci()
         .args(["partition", &nov, &h, "--bedgraph"])
