@@ -38,6 +38,7 @@ chr1\t4000\t.\tA\t.\t.\t.\tDP=1\tGT\t0/0\t0/0\n";
 
 fn opts(format: Option<Format>, span: VcfSpan, invalid: InvalidPolicy) -> ReaderOptions {
     ReaderOptions {
+        chrom_map: None,
         threads: NonZeroUsize::new(1).unwrap(),
         format,
         vcf_span: span,

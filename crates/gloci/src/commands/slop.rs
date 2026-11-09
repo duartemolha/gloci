@@ -29,6 +29,7 @@ pub struct Shared<'a> {
     pub format: Option<&'a str>,
     pub header: bool,
     pub skip_invalid: bool,
+    pub chrom_map: &'a crate::cli::ChromMapArg,
     pub out: &'a crate::cli::OutputArgs,
 }
 
@@ -70,6 +71,7 @@ pub fn run_shared(ctx: &Ctx, s: &Shared, op: Op) -> anyhow::Result<()> {
         None => None,
     };
     let ro = ReaderOptions {
+        chrom_map: s.chrom_map.load()?,
         threads: ctx.threads,
         format: match s.format {
             None => None,
@@ -130,6 +132,7 @@ pub fn run(ctx: &Ctx, a: &SlopArgs) -> anyhow::Result<()> {
             format: a.format.format.as_deref(),
             header: a.header.header,
             skip_invalid: a.invalid.skip_invalid,
+            chrom_map: &a.chrom_map,
             out: &a.out,
         },
         gloci_ops::transform::slop,

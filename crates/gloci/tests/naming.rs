@@ -39,7 +39,7 @@ fn chr_prefix_mismatch_warns() {
         .stdout("")
         .stderr(contains(format!(
             "warning: {a} and {b} share no chromosome names ({a}: chr1; {b}: 1); \
-the names differ by a \"chr\" prefix — rename one file's chromosomes so they match"
+the names differ by a \"chr\" prefix — pass --chrom-map FILE (lines of old name, tab, new name) to rename one file's chromosomes so they match"
         )));
 }
 
@@ -112,7 +112,7 @@ fn merge_warns_on_disjoint_chroms() {
         .success()
         .stderr(contains(format!(
             "warning: {a} and {b} share no chromosome names ({a}: chr1; {b}: 1); \
-the names differ by a \"chr\" prefix — rename one file's chromosomes so they match"
+the names differ by a \"chr\" prefix — pass --chrom-map FILE (lines of old name, tab, new name) to rename one file's chromosomes so they match"
         )));
 }
 
@@ -127,7 +127,7 @@ fn complement_warns_on_disjoint_chroms() {
         .success()
         .stderr(contains(format!(
             "warning: {a} and {b} share no chromosome names ({a}: chr1; {b}: 1); \
-the names differ by a \"chr\" prefix — rename one file's chromosomes so they match"
+the names differ by a \"chr\" prefix — pass --chrom-map FILE (lines of old name, tab, new name) to rename one file's chromosomes so they match"
         )));
 }
 
@@ -143,7 +143,7 @@ fn indexed_relation_warns_on_disjoint_chroms() {
         .stdout("")
         .stderr(contains(format!(
             "warning: {a} and {b} share no chromosome names ({a}: chr1; {b}: 1); \
-the names differ by a \"chr\" prefix — rename one file's chromosomes so they match"
+the names differ by a \"chr\" prefix — pass --chrom-map FILE (lines of old name, tab, new name) to rename one file's chromosomes so they match"
         )));
 }
 
@@ -159,7 +159,7 @@ fn relation_sort_names_user_files() {
         .stdout("")
         .stderr(contains(format!(
             "warning: {a} and {b} share no chromosome names ({a}: chr1; {b}: 1); \
-the names differ by a \"chr\" prefix — rename one file's chromosomes so they match"
+the names differ by a \"chr\" prefix — pass --chrom-map FILE (lines of old name, tab, new name) to rename one file's chromosomes so they match"
         )));
 }
 
@@ -175,7 +175,7 @@ fn relation_unsorted_warns() {
         .stdout("")
         .stderr(contains(format!(
             "warning: {a} and {b} share no chromosome names ({a}: chr1; {b}: 1); \
-the names differ by a \"chr\" prefix — rename one file's chromosomes so they match"
+the names differ by a \"chr\" prefix — pass --chrom-map FILE (lines of old name, tab, new name) to rename one file's chromosomes so they match"
         )));
 }
 
@@ -190,7 +190,7 @@ fn merge_sort_warns_on_disjoint_chroms() {
         .success()
         .stderr(contains(format!(
             "warning: {a} and {b} share no chromosome names ({a}: chr1; {b}: 1); \
-the names differ by a \"chr\" prefix — rename one file's chromosomes so they match"
+the names differ by a \"chr\" prefix — pass --chrom-map FILE (lines of old name, tab, new name) to rename one file's chromosomes so they match"
         )));
 }
 
@@ -205,7 +205,7 @@ fn complement_sort_warns_on_disjoint_chroms() {
         .success()
         .stderr(contains(format!(
             "warning: {a} and {b} share no chromosome names ({a}: chr1; {b}: 1); \
-the names differ by a \"chr\" prefix — rename one file's chromosomes so they match"
+the names differ by a \"chr\" prefix — pass --chrom-map FILE (lines of old name, tab, new name) to rename one file's chromosomes so they match"
         )));
 }
 

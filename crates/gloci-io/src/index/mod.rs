@@ -264,7 +264,8 @@ pub(crate) use build::{build_index, remove_indexes, stage_index};
 #[cfg(test)]
 use query::Plan;
 pub use query::{
-    IndexedFile, index_non_empty_reference_names, index_reference_names, open_region_reader,
+    IndexedFile, file_chrom_name, index_non_empty_reference_names, index_reference_names,
+    open_region_reader,
 };
 use tsv::TsvKind;
 pub(crate) use tsv::build_tsv_index;
@@ -318,6 +319,7 @@ mod tests {
 
         write_index(&p, &p, Format::Vcf, threads).unwrap();
         let o = ReaderOptions {
+            chrom_map: None,
             threads,
             format: None,
             vcf_span: VcfSpan::Allele,

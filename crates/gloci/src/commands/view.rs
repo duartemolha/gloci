@@ -14,6 +14,7 @@ pub fn run(ctx: &Ctx, a: &ViewArgs) -> anyhow::Result<()> {
         Some(s) => Some(s.parse::<Format>().map_err(UsageError)?),
     };
     let ro = ReaderOptions {
+        chrom_map: a.chrom_map.load()?,
         threads: ctx.threads,
         format,
         vcf_span: match a.vcf_span.vcf_span {

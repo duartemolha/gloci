@@ -20,6 +20,7 @@ use crate::{
 pub fn read_all(data: &[u8], format: Option<Format>, invalid: InvalidPolicy) {
     let (cfg, data) = split_config(data);
     let o = ReaderOptions {
+        chrom_map: None,
         threads: threads(cfg),
         format,
         vcf_span: VcfSpan::Allele,

@@ -116,6 +116,7 @@ fn lines(mut r: Box<dyn RecordReader>) -> Vec<String> {
 
 fn opts(span: VcfSpan) -> ReaderOptions {
     ReaderOptions {
+        chrom_map: None,
         threads: nz(1),
         format: None,
         vcf_span: span,

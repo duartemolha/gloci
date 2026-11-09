@@ -1,18 +1,26 @@
 //! BED and bedGraph reader (bedGraph is BED with a value column).
 
+use crate::chrom_map::ChromMap;
 use crate::diag::InvalidPolicy;
 use crate::error::IoError;
 use crate::input::Input;
 use crate::record::{Class, Parsed, TextKind, TextReader, coord, intern_chrom};
 use gloci_core::{ChromTable, Interval, Strand};
+use std::sync::Arc;
 
 #[derive(Default)]
 pub(crate) struct Bed;
 pub(crate) type BedReader = TextReader<Bed>;
 
 impl TextReader<Bed> {
-    pub(crate) fn open_bed(input: Input, policy: InvalidPolicy) -> Result<Self, IoError> {
-        Self::open(input, policy, Bed)
+    pub(crate) fn open_bed(
+        input: Input,
+        policy: InvalidPolicy,
+        map: Option<Arc<ChromMap>>,
+    ) -> Result<Self, IoError> {
+        let mut r = Self::open(input, policy, Bed)?;
+        r.set_chrom_map(map);
+        Ok(r)
     }
 }
 

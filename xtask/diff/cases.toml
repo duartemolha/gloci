@@ -2032,3 +2032,30 @@ gloci = "gloci vcf filter input.vcf --regions-file filter-regions.bed --vcf-span
 reference = "bgzip -c input.vcf > in.vcf.gz && tabix -p vcf in.vcf.gz && bcftools view -R filter-regions.bed in.vcf.gz"
 compare = "vcf-records"
 
+
+# --chrom-map takes the table `bcftools annotate --rename-chrs` takes. The
+# records match; the header contig lines are compared in the second case
+# (not a golden: it is a pipeline).
+[[case]]
+name = "chrom-map-vcf-vs-bcftools-annotate"
+input = { file = "xtask/diff/inputs/chrom-map.vcf" }
+aux = ["xtask/diff/inputs/chrom-map.tsv"]
+gloci = "gloci view --chrom-map chrom-map.tsv input.vcf"
+reference = "bcftools annotate --rename-chrs chrom-map.tsv input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "chrom-map-vcf-contigs-vs-bcftools-annotate"
+input = { file = "xtask/diff/inputs/chrom-map.vcf" }
+aux = ["xtask/diff/inputs/chrom-map.tsv"]
+gloci = "gloci view --chrom-map chrom-map.tsv input.vcf | grep '^##contig'"
+reference = "bcftools annotate --rename-chrs chrom-map.tsv input.vcf | grep '^##contig'"
+compare = "exact"
+
+[[case]]
+name = "chrom-map-bcf-vs-bcftools-annotate"
+input = { file = "xtask/diff/inputs/chrom-map.vcf" }
+aux = ["xtask/diff/inputs/chrom-map.tsv"]
+gloci = "set -e; gloci view -O bcf input.vcf -o in.bcf; gloci view --chrom-map chrom-map.tsv in.bcf -o g.bcf; bcftools view -H g.bcf"
+reference = "set -e; bcftools view -Ob -o in.bcf input.vcf; bcftools annotate --rename-chrs chrom-map.tsv -Ob -o t.bcf in.bcf; bcftools view -H t.bcf"
+compare = "exact"

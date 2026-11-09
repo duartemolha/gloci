@@ -121,9 +121,12 @@ pub fn read_regions_file(
     path: &str,
     ro: &ReaderOptions,
 ) -> Result<Vec<(Vec<u8>, Interval)>, IoError> {
+    // Regions are written with the chromosome names the records have after
+    // `--chrom-map`, so the table is not applied to the regions file.
     let o = ReaderOptions {
         format: Some(Format::Bed),
         invalid: InvalidPolicy::Fail,
+        chrom_map: None,
         ..ro.clone()
     };
     let mut r = open_reader(path, &o)?;
@@ -205,7 +208,13 @@ fn select(
     // may omit contigs that records use, which htslib accepts.
     let mut complete = genome.is_some();
     if let (Some(p), Some(info)) = (file, &index) {
-        known.extend(index_reference_names(p, info)?);
+        // The index lists the file's own names; regions use the renamed ones.
+        let map = ro.chrom_map.as_deref();
+        known.extend(
+            index_reference_names(p, info)?
+                .into_iter()
+                .map(|n| map.map_or(n.clone(), |m| m.rename(&n).to_vec())),
+        );
         known_in = Some(name.clone());
         complete = true;
     }
@@ -260,13 +269,22 @@ fn select(
         .map(|(c, ivs)| (c, RegionSet::new(ivs)))
         .collect();
 
+    if opts.assume_sorted && ro.chrom_map.is_some() && index.is_none() {
+        log::warn!(
+            "--assume-sorted does not work with --chrom-map, which renames chromosomes while \
+reading; scanning the whole file instead"
+        );
+    }
     let mut warn_unseen = false;
     let src = if wanted.is_empty() {
         Src::Empty
     } else if let (Some(p), Some(_)) = (file, &index) {
         Src::Indexed(open_region_reader(p, &wanted, ro, opts.inclusive_points)?)
     } else if let Some(p) = file.filter(|_| {
+        // Bisection compares the file's raw names with the regions', which
+        // `--chrom-map` makes differ; scan instead.
         opts.assume_sorted
+            && ro.chrom_map.is_none()
             && compression == Compression::None
             && matches!(format, Format::Bed | Format::BedGraph)
     }) {

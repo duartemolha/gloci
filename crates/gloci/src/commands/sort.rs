@@ -50,6 +50,7 @@ sort the inputs without -m to remove or find duplicates",
         Some(s) => Some(s.parse::<Format>().map_err(UsageError)?),
     };
     let opts = ReaderOptions {
+        chrom_map: a.chrom_map.load()?,
         threads: ctx.threads,
         format,
         vcf_span: VcfSpan::Ref,

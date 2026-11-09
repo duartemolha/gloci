@@ -37,10 +37,12 @@ pub fn run(ctx: &Ctx, a: &IntersectArgs) -> anyhow::Result<()> {
     }
     let labels = a.b.labels().map_err(usage)?;
     let spec = parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref())?;
+    let chrom_map = a.chrom_map.load()?;
     let reader_opts = |format| {
         sort_aware(
             &a.sort,
             ReaderOptions {
+                chrom_map: chrom_map.clone(),
                 threads: ctx.threads,
                 format,
                 vcf_span: user_span(a.vcf_span.vcf_span),

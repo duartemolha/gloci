@@ -17,7 +17,7 @@ pub mod view;
 pub mod windows;
 
 use crate::Ctx;
-use crate::cli::{ChromOrderArg, RelationSortArg, SortArg, VcfSpan};
+use crate::cli::{ChromMapArg, ChromOrderArg, RelationSortArg, SortArg, VcfSpan};
 use gloci_io::{
     Format, InvalidPolicy, ReaderOptions, RecordReader, UsageError, chrom_table_for, open_reader,
 };
@@ -37,6 +37,7 @@ pub struct InputArgs<'a> {
     pub genome: Option<&'a str>,
     pub chrom_order: &'a ChromOrderArg,
     pub sort: &'a SortArg,
+    pub chrom_map: &'a ChromMapArg,
 }
 
 /// Open the inputs of a streaming command and build their chromosome table.
@@ -50,6 +51,7 @@ pub fn open_inputs(
     let ro = sort_aware(
         a.sort,
         ReaderOptions {
+            chrom_map: a.chrom_map.load()?,
             threads: ctx.threads,
             format: match a.format {
                 None => None,

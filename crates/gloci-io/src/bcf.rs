@@ -6,6 +6,7 @@
 //! their VCF text form and go through the same parsing as the text reader, so
 //! a BCF record gets exactly the footprint of the equivalent VCF line.
 
+use crate::chrom_map::ChromMap;
 use crate::detect::{Compression, Format};
 use crate::diag::{Diagnostics, InvalidPolicy};
 use crate::error::{IoError, Loc};
@@ -636,6 +637,7 @@ impl BcfReader {
         input: Input,
         policy: InvalidPolicy,
         span: VcfSpan,
+        map: Option<&ChromMap>,
     ) -> Result<Self, IoError> {
         let Input {
             name,
@@ -643,10 +645,16 @@ impl BcfReader {
             mut reader,
             ..
         } = input;
-        let h = read_bcf_header(&mut reader).map_err(|msg| IoError::Detect {
+        let detect = |msg: String| IoError::Detect {
             msg: format!("{name}: {msg}"),
             path: name.clone(),
-        })?;
+        };
+        let mut h = read_bcf_header(&mut reader).map_err(detect)?;
+        // Records name their contig by dictionary index, so renaming the
+        // header's contigs renames every record.
+        if let Some(m) = map {
+            h = h.renamed(m).map_err(detect)?;
+        }
         let dicts = h.bcf.clone().unwrap_or_default();
         let header = Header::Vcf(h);
         let dec = Decoder::new(span, &dicts);

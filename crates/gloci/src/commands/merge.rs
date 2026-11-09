@@ -31,6 +31,7 @@ pub fn run(ctx: &Ctx, a: &MergeArgs) -> anyhow::Result<()> {
             genome: a.genome.genome.as_deref(),
             chrom_order: &a.chrom_order,
             sort: &a.sort,
+            chrom_map: &a.chrom_map,
         },
         &|formats| validate(formats, &o),
     )?;

@@ -1,12 +1,14 @@
 //! VCF text reader, header parsing and provenance line.
 
 use crate::bcf::BcfDicts;
+use crate::chrom_map::ChromMap;
 use crate::diag::InvalidPolicy;
 use crate::error::IoError;
 use crate::input::Input;
 use crate::record::{Class, Header, Parsed, TextKind, TextReader, coord, intern_chrom};
 use gloci_core::{ChromTable, Strand, Variant, VcfSpan, footprint};
 use std::ffi::OsString;
+use std::sync::Arc;
 
 /// A parsed VCF header; `raw` holds every header line (including `#CHROM`),
 /// each terminated by `\n`.
@@ -50,6 +52,20 @@ impl VcfHeader {
             samples,
             bcf: None,
         })
+    }
+
+    /// This header with every `##contig` ID renamed by `map` (`--chrom-map`);
+    /// the BCF dictionaries, when there are any, keep their positions.
+    pub fn renamed(self, map: &ChromMap) -> Result<VcfHeader, String> {
+        let raw = map.rename_header(&self.raw)?;
+        if raw == self.raw {
+            return Ok(self);
+        }
+        let mut h = VcfHeader::parse(raw)?;
+        if self.bcf.is_some() {
+            h.bcf = Some(BcfDicts::from_header(&h.raw)?);
+        }
+        Ok(h)
     }
 
     /// The structured definition lines (`##INFO`, `##FILTER`, `##FORMAT`,
@@ -203,6 +219,7 @@ impl TextReader<Vcf> {
         input: Input,
         policy: InvalidPolicy,
         span: VcfSpan,
+        map: Option<Arc<ChromMap>>,
     ) -> Result<Self, IoError> {
         let name = input.name.clone();
         let mut r = Self::open(input, policy, Vcf { span })?;
@@ -210,11 +227,16 @@ impl TextReader<Vcf> {
             Header::Lines(l) => l,
             _ => Vec::new(),
         };
-        let h = VcfHeader::parse(raw).map_err(|msg| IoError::Detect {
+        let detect = |msg: String| IoError::Detect {
             msg: format!("{name}: {msg}"),
-            path: name,
-        })?;
+            path: name.clone(),
+        };
+        let mut h = VcfHeader::parse(raw).map_err(detect)?;
+        if let Some(m) = &map {
+            h = h.renamed(m).map_err(detect)?;
+        }
         r.header = Header::Vcf(h);
+        r.set_chrom_map(map);
         Ok(r)
     }
 }

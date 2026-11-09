@@ -29,6 +29,7 @@ pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
         spec.bgzf,
     )?;
     let ro = ReaderOptions {
+        chrom_map: a.chrom_map.load()?,
         threads: ctx.threads,
         format: match a.format.format.as_deref() {
             None => None,

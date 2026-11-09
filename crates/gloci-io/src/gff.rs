@@ -1,18 +1,26 @@
 //! GFF3 and GTF reader (1-based closed coordinates, 9 tab-separated columns).
 
+use crate::chrom_map::ChromMap;
 use crate::diag::InvalidPolicy;
 use crate::error::IoError;
 use crate::input::Input;
 use crate::record::{Class, Parsed, TextKind, TextReader, coord, intern_chrom};
 use gloci_core::{ChromTable, Strand, one_based_closed};
+use std::sync::Arc;
 
 #[derive(Default)]
 pub(crate) struct Gff;
 pub(crate) type GffReader = TextReader<Gff>;
 
 impl TextReader<Gff> {
-    pub(crate) fn open_gff(input: Input, policy: InvalidPolicy) -> Result<Self, IoError> {
-        Self::open(input, policy, Gff)
+    pub(crate) fn open_gff(
+        input: Input,
+        policy: InvalidPolicy,
+        map: Option<Arc<ChromMap>>,
+    ) -> Result<Self, IoError> {
+        let mut r = Self::open(input, policy, Gff)?;
+        r.set_chrom_map(map);
+        Ok(r)
     }
 }
 

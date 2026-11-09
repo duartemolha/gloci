@@ -18,6 +18,7 @@ fn find(text: &str, chrom: &str, table: &ChromTable) -> ChromBlock {
 
 fn reader_options() -> ReaderOptions {
     ReaderOptions {
+        chrom_map: None,
         threads: NonZeroUsize::MIN,
         format: None,
         vcf_span: gloci_core::VcfSpan::Allele,

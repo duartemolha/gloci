@@ -21,6 +21,7 @@ use std::num::NonZeroUsize;
 
 fn opts() -> ReaderOptions {
     ReaderOptions {
+        chrom_map: None,
         threads: NonZeroUsize::new(1).unwrap(),
         format: None,
         vcf_span: VcfSpan::Allele,

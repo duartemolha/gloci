@@ -5,6 +5,7 @@ pub mod bcf;
 pub mod bcf_encode;
 pub mod bed;
 pub mod builtin;
+pub mod chrom_map;
 pub mod convert;
 pub mod detect;
 pub mod diag;
@@ -35,6 +36,7 @@ pub use bed::{bed12_blocks, is_bed_record_line};
 pub use builtin::{
     BuiltinGenome, Naming, builtin, builtin_alias, builtin_genomes, resolve_genome, unknown_genome,
 };
+pub use chrom_map::ChromMap;
 pub use convert::{BcfText, HeaderMode, TextToBcf, convert_variants};
 pub use detect::{Compression, Format, detect_compression, detect_format};
 pub use diag::{Diagnostics, InvalidPolicy};
@@ -42,8 +44,9 @@ pub use error::{IoError, Loc, OrderError, SORTED_INPUTS, UsageError};
 pub use fields::{column_count, field, split_fields};
 pub use genome::{chrom_table_for, chrom_table_lenient, load_genome};
 pub use index::{
-    IndexInfo, IndexKind, IndexedFile, TsvColumns, find_index, index_non_empty_reference_names,
-    index_reference_names, open_region_reader, write_index, write_tsv_index,
+    IndexInfo, IndexKind, IndexedFile, TsvColumns, file_chrom_name, find_index,
+    index_non_empty_reference_names, index_reference_names, open_region_reader, write_index,
+    write_tsv_index,
 };
 pub use input::{Input, InputOptions, InputSpool, is_regular_file, open_input, open_input_from};
 pub use naming::{

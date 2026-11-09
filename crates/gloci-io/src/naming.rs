@@ -22,7 +22,7 @@ pub fn chr_prefix_hint(a_names: &[&[u8]], b_names: &[&[u8]]) -> Option<String> {
     });
     if explains {
         Some(
-            "the names differ by a \"chr\" prefix — rename one file's chromosomes so they match"
+            "the names differ by a \"chr\" prefix — pass --chrom-map FILE (lines of old name, tab, new name) to rename one file's chromosomes so they match"
                 .to_string(),
         )
     } else {

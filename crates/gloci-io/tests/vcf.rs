@@ -9,6 +9,7 @@ const H: &str = "##fileformat=VCFv4.3\n##contig=<ID=chr2,length=500>\n##contig=<
 
 fn vcf(span: VcfSpan) -> ReaderOptions {
     ReaderOptions {
+        chrom_map: None,
         threads: NonZeroUsize::new(1).unwrap(),
         format: Some(Format::Vcf),
         vcf_span: span,

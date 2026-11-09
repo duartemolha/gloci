@@ -179,6 +179,7 @@ impl Visitor for Collect {
 
 fn ro() -> ReaderOptions {
     ReaderOptions {
+        chrom_map: None,
         threads: NonZeroUsize::MIN,
         format: Some(Format::Bed),
         vcf_span: VcfSpan::Allele,

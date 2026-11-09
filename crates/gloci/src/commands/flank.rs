@@ -14,6 +14,7 @@ pub fn run(ctx: &Ctx, a: &FlankArgs) -> anyhow::Result<()> {
             format: a.format.format.as_deref(),
             header: a.header.header,
             skip_invalid: a.invalid.skip_invalid,
+            chrom_map: &a.chrom_map,
             out: &a.out,
         },
         gloci_ops::transform::flank,

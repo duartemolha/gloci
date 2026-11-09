@@ -199,6 +199,7 @@ pub fn vcf_filter(
     o.validate()?;
     vcf_header(input.as_ref())?;
     let region_ro = ReaderOptions {
+        chrom_map: None,
         format: Some(Format::Bed),
         vcf_span: VcfSpan::Ref,
         invalid: gloci_io::InvalidPolicy::Fail,
@@ -445,6 +446,7 @@ chr2\t300\trs3\tT\tA\t50\tPASS\t.\n";
         let temp = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(temp.path(), vcf_data).unwrap();
         let ro = ReaderOptions {
+            chrom_map: None,
             format: Some(Format::Vcf),
             vcf_span: VcfSpan::Ref,
             invalid: gloci_io::InvalidPolicy::Fail,

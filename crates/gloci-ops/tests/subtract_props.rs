@@ -29,6 +29,7 @@ impl RecordWriter for Sink {
 
 fn reader_opts() -> ReaderOptions {
     ReaderOptions {
+        chrom_map: None,
         threads: NonZeroUsize::MIN,
         format: Some(Format::Bed),
         vcf_span: VcfSpan::Allele,

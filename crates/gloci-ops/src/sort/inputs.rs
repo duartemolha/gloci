@@ -242,6 +242,7 @@ or run the command on each format separately",
     drop(inputs);
 
     let ro = ReaderOptions {
+        chrom_map: None,
         threads: settings.threads,
         format: None,
         vcf_span: settings.vcf_span,

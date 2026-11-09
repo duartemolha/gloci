@@ -25,6 +25,7 @@ const VCF_HEAD: &str = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tF
 
 fn opts() -> ReaderOptions {
     ReaderOptions {
+        chrom_map: None,
         threads: NonZeroUsize::new(1).unwrap(),
         format: None,
         vcf_span: VcfSpan::Allele,

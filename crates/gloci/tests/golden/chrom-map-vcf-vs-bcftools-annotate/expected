@@ -1,0 +1,13 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##contig=<ID=chr1,length=100000>
+##contig=<ID=chr2,length=100000>
+##contig=<ID=chrM,length=16569>
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Depth">
+##bcftools_annotateVersion=1.21+htslib-1.21
+##bcftools_annotateCommand=annotate --rename-chrs chrom-map.tsv input.vcf; Date=Mon Nov  9 21:25:50 2026
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+chr1	50	a	A	G	50	PASS	DP=3
+chr1	100	b	C	T	50	PASS	DP=4
+chr2	75	c	G	A	50	PASS	DP=5
+chrM	10	d	T	C	50	PASS	DP=6

@@ -1,0 +1,10 @@
+##fileformat=VCFv4.2
+##contig=<ID=1,length=100000>
+##contig=<ID=2,length=100000>
+##contig=<ID=chrM,length=16569>
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Depth">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+1	50	a	A	G	50	PASS	DP=3
+1	100	b	C	T	50	PASS	DP=4
+2	75	c	G	A	50	PASS	DP=5
+chrM	10	d	T	C	50	PASS	DP=6

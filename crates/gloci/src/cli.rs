@@ -656,6 +656,8 @@ pub struct IntersectArgs {
     #[command(flatten)]
     pub vcf_span: VcfSpanArg,
     #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
     pub header: HeaderArg,
     #[command(flatten)]
     pub invalid: InvalidArg,
@@ -692,6 +694,8 @@ pub struct SubtractArgs {
     pub chrom_order: ChromOrderArg,
     #[command(flatten)]
     pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
     #[command(flatten)]
     pub header: HeaderArg,
     #[command(flatten)]
@@ -782,6 +786,8 @@ pub struct ClosestArgs {
     #[command(flatten)]
     pub vcf_span: VcfSpanArg,
     #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
     pub header: HeaderArg,
     #[command(flatten)]
     pub invalid: InvalidArg,
@@ -818,6 +824,8 @@ pub struct CoverageArgs {
     pub chrom_order: ChromOrderArg,
     #[command(flatten)]
     pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
     #[command(flatten)]
     pub header: HeaderArg,
     #[command(flatten)]
@@ -1037,6 +1045,8 @@ pub struct VcfFilterArgs {
     #[command(flatten)]
     pub vcf_span: VcfSpanArg,
     #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
     pub threads: ThreadArgs,
     #[command(flatten)]
     pub invalid: InvalidArg,
@@ -1077,6 +1087,8 @@ pub struct MapArgs {
     pub chrom_order: ChromOrderArg,
     #[command(flatten)]
     pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
     #[command(flatten)]
     pub header: HeaderArg,
     #[command(flatten)]
@@ -1125,6 +1137,8 @@ pub struct MergeArgs {
     #[command(flatten)]
     pub vcf_span: VcfSpanArg,
     #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
     pub format: FormatArg,
     #[command(flatten)]
     pub invalid: InvalidArg,
@@ -1147,6 +1161,8 @@ pub struct ComplementArgs {
     pub chrom_order: ChromOrderArg,
     #[command(flatten)]
     pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
     #[command(flatten)]
     pub format: FormatArg,
     #[command(flatten)]
@@ -1197,6 +1213,8 @@ pub struct SlopArgs {
     #[command(flatten)]
     pub invalid: InvalidArg,
     #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
     pub threads: ThreadArgs,
     #[command(flatten)]
     pub out: OutputArgs,
@@ -1217,6 +1235,8 @@ pub struct FlankArgs {
     pub header: HeaderArg,
     #[command(flatten)]
     pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
     #[command(flatten)]
     pub threads: ThreadArgs,
     #[command(flatten)]
@@ -1276,6 +1296,8 @@ pub struct ConvertArgs {
     #[command(flatten)]
     pub vcf_span: VcfSpanArg,
     #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
     pub invalid: InvalidArg,
     #[command(flatten)]
     pub threads: ThreadArgs,
@@ -1314,6 +1336,8 @@ pub struct WindowsArgs {
     #[command(flatten)]
     pub vcf_span: VcfSpanArg,
     #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
     pub invalid: InvalidArg,
     #[command(flatten)]
     pub threads: ThreadArgs,
@@ -1332,6 +1356,8 @@ pub struct CheckArgs {
     pub chrom_order: ChromOrderArg,
     #[command(flatten)]
     pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
     #[command(flatten)]
     pub format: FormatArg,
     #[command(flatten)]
@@ -1370,6 +1396,8 @@ pub struct ViewArgs {
     pub no_header: bool,
     #[command(flatten)]
     pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
     #[command(flatten)]
     pub format: FormatArg,
     #[command(flatten)]
@@ -1417,6 +1445,8 @@ pub struct SortArgs {
     pub header: HeaderArg,
     #[command(flatten)]
     pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
     #[command(flatten)]
     pub out: OutputArgs,
 }
@@ -1532,6 +1562,27 @@ pub struct VcfSpanArg {
     /// Which footprint a VCF record covers: the allele span or the REF span.
     #[arg(long, value_enum, default_value = "allele", value_name = "MODE")]
     pub vcf_span: VcfSpan,
+}
+
+/// `--chrom-map` (D62), on every command that reads intervals or variants.
+#[derive(Args, Debug, Clone)]
+pub struct ChromMapArg {
+    /// Rename chromosomes on input with a two-column table (old name, new
+    /// name; tab-separated, `#` comments allowed). Unlisted names are kept.
+    /// Order checks, -g and the output all see the new names; -g itself is
+    /// never renamed.
+    #[arg(long, value_name = "FILE")]
+    pub chrom_map: Option<String>,
+}
+
+impl ChromMapArg {
+    /// Read the table, when one was given.
+    pub fn load(&self) -> Result<Option<std::sync::Arc<gloci_io::ChromMap>>, gloci_io::IoError> {
+        self.chrom_map
+            .as_deref()
+            .map(|p| gloci_io::ChromMap::load(p).map(std::sync::Arc::new))
+            .transpose()
+    }
 }
 
 #[derive(Args, Debug, Clone)]

@@ -1,6 +1,7 @@
 //! The index-backed region reader (§4.3, D9, D10).
 
 use super::*;
+use crate::chrom_map::{ChromMap, Renamer};
 use std::sync::Arc;
 
 enum Loaded {
@@ -202,6 +203,9 @@ struct RegionReader {
     inclusive: bool,
     src: noodles_bgzf::io::Reader<BufReader<File>>,
     parser: Parser,
+    /// `--chrom-map` for text records (a BCF's contigs are renamed in its
+    /// header, which `Parser::Bcf` already reads).
+    renamer: Option<Renamer>,
     index: Arc<Loaded>,
     plans: Vec<Plan>,
     /// Whole-chromosome reads: every record of each plan's reference is
@@ -372,6 +376,10 @@ impl RegionReader {
                 batch.buf.truncate(off);
                 continue;
             }
+            if let Some(r) = &mut self.renamer {
+                r.apply(&mut batch.buf, off);
+            }
+            let raw = &batch.buf[off..];
             if self.seen_last.is_none_or(|l| start > l) {
                 self.seen += 1;
                 self.seen_last = Some(start);
@@ -454,6 +462,29 @@ impl RecordReader for RegionReader {
     }
 }
 
+/// The name the file itself gives the chromosome that `--chrom-map` (when
+/// given) calls `requested`, which is what an index lists and the file's
+/// text records say; `None` when no chromosome of the file is called
+/// that. This is how a region's chromosome, named as the records are
+/// after renaming, is turned back into the file's own name before the
+/// index is queried.
+pub fn file_chrom_name<'a>(map: Option<&'a ChromMap>, requested: &'a [u8]) -> Option<&'a [u8]> {
+    match map {
+        Some(m) => m.file_name(requested),
+        None => Some(requested),
+    }
+}
+
+/// A renamer for the text records of a `format` file, when `o` has a map.
+fn text_renamer(format: Format, o: &ReaderOptions) -> Option<Renamer> {
+    match (&o.chrom_map, format) {
+        (Some(m), Format::Bed | Format::BedGraph | Format::Gff3 | Format::Gtf | Format::Vcf) => {
+            Some(Renamer::new(m.clone()))
+        }
+        _ => None,
+    }
+}
+
 /// Read the records of the indexed BGZF file `path` whose span (per
 /// `o.vcf_span`) overlaps one of `regions` under §4.3 (D9). Each record is
 /// yielded once, in file order: the regions are merged per reference (D10)
@@ -507,18 +538,31 @@ pub fn open_region_reader(
         ) => Parser::bcf(o.vcf_span, dicts.clone()),
         _ => Parser::text(format, o.vcf_span),
     };
-    let rid_of = |chrom: &[u8]| -> Option<usize> {
+    // The regions name chromosomes as the records are named after
+    // `--chrom-map`; the index and the file's text use the file's own names.
+    let map = o.chrom_map.as_deref();
+    let rid_of = |chrom: &[u8]| -> Option<(usize, Vec<u8>)> {
         match &parser {
-            Parser::Bcf(b) => b.1.contigs.iter().position(|c| !c.is_empty() && c == chrom),
-            _ => index.names().and_then(|n| n.get_index_of(chrom)),
+            // the header's dictionary is already renamed
+            Parser::Bcf(b) => {
+                b.1.contigs
+                    .iter()
+                    .position(|c| !c.is_empty() && c == chrom)
+                    .map(|rid| (rid, chrom.to_vec()))
+            }
+            _ => {
+                let own = file_chrom_name(map, chrom)?;
+                let rid = index.names().and_then(|n| n.get_index_of(own))?;
+                Some((rid, own.to_vec()))
+            }
         }
     };
     let mut by_rid: BTreeMap<usize, (Vec<u8>, Vec<Interval>)> = BTreeMap::new();
     for (chrom, iv) in regions {
-        if let Some(rid) = rid_of(chrom) {
+        if let Some((rid, own)) = rid_of(chrom) {
             by_rid
                 .entry(rid)
-                .or_insert_with(|| (chrom.clone(), Vec::new()))
+                .or_insert_with(|| (own, Vec::new()))
                 .1
                 .push(*iv);
         }
@@ -542,6 +586,7 @@ pub fn open_region_reader(
         policy: o.invalid,
         inclusive: inclusive_points,
         src: noodles_bgzf::io::Reader::new(BufReader::new(file)),
+        renamer: text_renamer(format, o),
         parser,
         index: Arc::new(index),
         plans,
@@ -680,7 +725,8 @@ impl IndexedFile {
         &self.info
     }
 
-    /// Reference ids of the chromosomes, by name: the BCF contig
+    /// Reference ids of the chromosomes, by name (as renamed by
+    /// `--chrom-map`): the BCF contig
     /// dictionary for a BCF's CSI (which stores no names), else the index's
     /// own names.
     fn rid_of(&self, chrom: &[u8]) -> Option<usize> {
@@ -691,7 +737,10 @@ impl IndexedFile {
                 .contigs
                 .iter()
                 .position(|c| !c.is_empty() && c == chrom),
-            _ => self.index.names().and_then(|n| n.get_index_of(chrom)),
+            _ => {
+                let own = file_chrom_name(self.opts.chrom_map.as_deref(), chrom)?;
+                self.index.names().and_then(|n| n.get_index_of(own))
+            }
         }
     }
 
@@ -699,7 +748,11 @@ impl IndexedFile {
     /// [`index_reference_names`] gives them.
     pub fn reference_names(&self) -> Vec<Vec<u8>> {
         if let Some(names) = self.index.names() {
-            return names.iter().map(|n| n.to_vec()).collect();
+            let map = self.opts.chrom_map.as_deref();
+            return names
+                .iter()
+                .map(|n| map.map_or(&n[..], |m| m.rename(n)).to_vec())
+                .collect();
         }
         match &self.header {
             Header::Vcf(VcfHeader {
@@ -769,9 +822,10 @@ impl IndexedFile {
             .iter()
             .filter_map(|c| {
                 self.rid_of(c).map(|rid| {
+                    let own = file_chrom_name(self.opts.chrom_map.as_deref(), c).unwrap_or(c);
                     Plan::new(
                         rid,
-                        c.clone(),
+                        own.to_vec(),
                         vec![Interval {
                             start: 0,
                             end: max_pos,
@@ -802,6 +856,7 @@ impl IndexedFile {
             policy: self.opts.invalid,
             inclusive: true,
             src: noodles_bgzf::io::Reader::new(BufReader::new(file)),
+            renamer: text_renamer(self.format, &self.opts),
             parser,
             index: self.index.clone(),
             plans,

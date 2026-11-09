@@ -29,6 +29,7 @@ impl RecordWriter for Sink {
 
 fn reader_opts() -> ReaderOptions {
     ReaderOptions {
+        chrom_map: None,
         threads: NonZeroUsize::MIN,
         format: Some(Format::Bed),
         vcf_span: VcfSpan::Allele,
@@ -296,7 +297,7 @@ proptest! {
         span_ref in any::<bool>(),
         seed in any::<u64>(),
     ) {
-        let ro = ReaderOptions {
+        let ro = ReaderOptions { chrom_map: None,
             threads: NonZeroUsize::MIN,
             format: None,
             vcf_span: if span_ref { VcfSpan::Ref } else { VcfSpan::Allele },
@@ -353,6 +354,7 @@ fn identical_insertions_match_at_every_position() {
             };
             for span_ref in [false, true] {
                 let ro = ReaderOptions {
+                    chrom_map: None,
                     threads: NonZeroUsize::MIN,
                     format: None,
                     vcf_span: if span_ref {

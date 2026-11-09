@@ -1,0 +1,1 @@
+view --chrom-map chrom-map.tsv input.vcf

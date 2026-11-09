@@ -1,5 +1,6 @@
 //! Record batches and the reader interface shared by every command.
 
+use crate::chrom_map::{ChromMap, Renamer};
 use crate::detect::{Compression, Format};
 use crate::diag::{Diagnostics, InvalidPolicy};
 use crate::error::{IoError, Loc};
@@ -7,6 +8,7 @@ use crate::input::{Input, InputOptions, open_input, open_input_from};
 use gloci_core::{ChromId, ChromTable, CoordError, Interval, Strand, VcfSpan};
 use std::io::{BufRead, Read};
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 
 /// One record's position data; its raw bytes live in `RecordBatch::buf`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,6 +103,8 @@ pub struct ReaderOptions {
     pub format: Option<Format>,
     pub vcf_span: VcfSpan,
     pub invalid: InvalidPolicy,
+    /// `--chrom-map` (D62): renames chromosomes as the records are read.
+    pub chrom_map: Option<Arc<ChromMap>>,
 }
 
 pub fn open_reader(path: &str, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, IoError> {
@@ -124,17 +128,27 @@ fn input_options(o: &ReaderOptions) -> InputOptions {
 
 fn dispatch(input: Input, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, IoError> {
     match input.format {
-        Format::Bed | Format::BedGraph => {
-            Ok(Box::new(crate::bed::BedReader::open_bed(input, o.invalid)?))
-        }
-        Format::Gff3 | Format::Gtf => {
-            Ok(Box::new(crate::gff::GffReader::open_gff(input, o.invalid)?))
-        }
+        Format::Bed | Format::BedGraph => Ok(Box::new(crate::bed::BedReader::open_bed(
+            input,
+            o.invalid,
+            o.chrom_map.clone(),
+        )?)),
+        Format::Gff3 | Format::Gtf => Ok(Box::new(crate::gff::GffReader::open_gff(
+            input,
+            o.invalid,
+            o.chrom_map.clone(),
+        )?)),
         Format::Vcf => Ok(Box::new(crate::vcf::VcfReader::open_vcf(
-            input, o.invalid, o.vcf_span,
+            input,
+            o.invalid,
+            o.vcf_span,
+            o.chrom_map.clone(),
         )?)),
         Format::Bcf => Ok(Box::new(crate::bcf::BcfReader::open_bcf(
-            input, o.invalid, o.vcf_span,
+            input,
+            o.invalid,
+            o.vcf_span,
+            o.chrom_map.as_deref(),
         )?)),
     }
 }
@@ -204,6 +218,8 @@ pub(crate) struct TextReader<K: TextKind> {
     seen_record: bool,
     eof: bool,
     kind: K,
+    /// `--chrom-map`: rewrites each record's chromosome column as it is read.
+    renamer: Option<Renamer>,
 }
 
 impl<K: TextKind> TextReader<K> {
@@ -221,6 +237,7 @@ impl<K: TextKind> TextReader<K> {
             seen_record: false,
             eof: false,
             kind,
+            renamer: None,
         };
         let mut head = Vec::new();
         let mut line = Vec::new();
@@ -253,6 +270,11 @@ impl<K: TextKind> TextReader<K> {
             r.header = Header::Lines(head);
         }
         Ok(r)
+    }
+
+    /// Rename chromosomes with `map` from now on (D62).
+    pub(crate) fn set_chrom_map(&mut self, map: Option<Arc<ChromMap>>) {
+        self.renamer = map.map(Renamer::new);
     }
 
     fn parse_err(&self, msg: String) -> IoError {
@@ -338,6 +360,10 @@ impl<K: TextKind> RecordReader for TextReader<K> {
                 Class::Fatal(msg) => return Err(self.parse_err(msg)),
                 Class::Record => {}
             }
+            if let Some(r) = &mut self.renamer {
+                r.apply(&mut batch.buf, start);
+            }
+            let line = &batch.buf[start..];
             let len = line.len();
             let parsed = if len > u32::MAX as usize {
                 Err("line is longer than 4 GiB".to_string())
