@@ -1569,6 +1569,7 @@ pub struct VcfSpanArg {
 pub struct ChromMapArg {
     /// Rename chromosomes on input with a two-column table (old name, new
     /// name; tab-separated, `#` comments allowed). Unlisted names are kept.
+    /// A file that has both an old name and its new name is refused.
     /// Order checks, -g and the output all see the new names; -g itself is
     /// never renamed.
     #[arg(long, value_name = "FILE")]

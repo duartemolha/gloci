@@ -292,11 +292,14 @@ impl RegionReader {
     /// a region read, which starts mid-file, by its BGZF virtual offset.
     fn bad(&mut self, at: VirtualPosition, msg: &str) -> Result<(), IoError> {
         let place = match self.plans.get(self.p) {
-            Some(plan) if self.whole => format!(
-                "record {} of {}",
-                self.seen,
-                String::from_utf8_lossy(&plan.name)
-            ),
+            Some(plan) if self.whole => {
+                // plans name the file's own chromosome; show the new name
+                let shown = self
+                    .renamer
+                    .as_ref()
+                    .map_or(&plan.name[..], |r| r.map().rename(&plan.name));
+                format!("record {} of {}", self.seen, String::from_utf8_lossy(shown))
+            }
             _ => {
                 let (c, u): (u64, u16) = at.into();
                 format!("record at BGZF offset {c}:{u}")
@@ -527,6 +530,9 @@ pub fn open_region_reader(
     let (format, header) = (head.format(), head.header().clone());
     drop(head);
     let index = Loaded::read(&info)?;
+    if let (Some(m), Some(names)) = (&o.chrom_map, index.names()) {
+        m.check_file_names(&name, names.iter().map(|n| &n[..]))?;
+    }
 
     // region chromosome -> index reference id
     let parser = match (&header, format) {
@@ -706,6 +712,9 @@ impl IndexedFile {
             ))
         })?;
         let index = Loaded::read(&info)?;
+        if let (Some(m), Some(names)) = (&o.chrom_map, index.names()) {
+            m.check_file_names(&name, names.iter().map(|n| &n[..]))?;
+        }
         Ok(IndexedFile {
             path: path.to_path_buf(),
             name,
@@ -822,7 +831,11 @@ impl IndexedFile {
             .iter()
             .filter_map(|c| {
                 self.rid_of(c).map(|rid| {
-                    let own = file_chrom_name(self.opts.chrom_map.as_deref(), c).unwrap_or(c);
+                    let own = if self.format == Format::Bcf {
+                        c
+                    } else {
+                        file_chrom_name(self.opts.chrom_map.as_deref(), c).unwrap_or(c)
+                    };
                     Plan::new(
                         rid,
                         own.to_vec(),

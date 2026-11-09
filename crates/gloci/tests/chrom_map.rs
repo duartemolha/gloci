@@ -269,8 +269,10 @@ fn chrom_map_errors() {
     gloci()
         .args(["sort", &bed, "--chrom-map", "/nonexistent/map.tsv"])
         .assert()
-        .failure()
-        .stderr(contains("cannot open /nonexistent/map.tsv"));
+        .code(2)
+        .stderr(contains(
+            "cannot read the --chrom-map file /nonexistent/map.tsv",
+        ));
 }
 
 #[test]
@@ -420,4 +422,138 @@ fn index_does_not_take_the_map() {
         .args(["index", &p, "--chrom-map", &fx.map()])
         .assert()
         .code(2);
+}
+
+#[test]
+fn index_with_both_old_and_new_name_is_refused() {
+    let fx = Fx::new();
+    let map = fx.map();
+    let idx = fx.indexed("both.bed.gz", "1\t10\t20\nchr1\t30\t40\n");
+    gloci()
+        .args(["view", &idx, "chr1", "--chrom-map", &map])
+        .assert()
+        .code(2)
+        .stderr(contains("both.bed.gz has both \"1\" and \"chr1\""))
+        .stderr(contains("which would merge them"));
+}
+
+#[test]
+fn assume_sorted_bisection_with_a_map() {
+    let fx = Fx::new();
+    let map = fx.map();
+    let bed = fx.plain("s.bed", "1\t10\t20\n1\t30\t40\n2\t5\t8\n2\t50\t60\n");
+    for region in ["chr1:25-100", "chr2", "chr2:1-6", "chr1"] {
+        let scan = stdout_of(&["view", &bed, region, "--chrom-map", &map]);
+        let bisect = stdout_of(&["view", &bed, region, "--chrom-map", &map, "--assume-sorted"]);
+        assert!(!scan.is_empty(), "{region}");
+        assert_eq!(scan, bisect, "{region}");
+    }
+    // a name the map renames away is missing, as on the indexed path
+    gloci()
+        .args([
+            "view",
+            &bed,
+            "1:1-100",
+            "--chrom-map",
+            &map,
+            "--assume-sorted",
+        ])
+        .assert()
+        .success()
+        .stdout("")
+        .stderr(contains("could not locate 1 by binary search"));
+}
+
+#[test]
+fn unreadable_map_is_a_usage_error() {
+    let fx = Fx::new();
+    let bed = fx.plain("a.bed", "1\t10\t20\n");
+    gloci()
+        .args(["sort", &bed, "--chrom-map", "/nonexistent/map.tsv"])
+        .assert()
+        .code(2)
+        .stderr(contains("/nonexistent/map.tsv"))
+        .stderr(contains("check the --chrom-map path"));
+}
+
+#[test]
+fn unsorted_relation_with_a_map() {
+    let fx = Fx::new();
+    let map = fx.map();
+    let a = fx.plain("a.bed", "2\t5\t8\n1\t10\t20\n");
+    let b = fx.plain("b.bed", "1\t15\t25\n2\t1\t6\n");
+    assert_eq!(
+        stdout_of(&[
+            "intersect",
+            "-a",
+            &a,
+            "-b",
+            &b,
+            "--unsorted",
+            "--chrom-map",
+            &map
+        ]),
+        "chr2\t5\t8\nchr1\t10\t20\n"
+    );
+}
+
+#[test]
+fn gzip_and_stdin_inputs_with_a_map() {
+    let fx = Fx::new();
+    let map = fx.map();
+    let gz = s(&bgzf_file(
+        fx.dir.path(),
+        "a.bed.gz",
+        "1\t10\t20\n2\t5\t8\n",
+    ));
+    assert_eq!(
+        stdout_of(&["sort", &gz, "--chrom-map", &map]),
+        "chr1\t10\t20\nchr2\t5\t8\n"
+    );
+    let o = gloci()
+        .args(["sort", "-", "--chrom-map", &map])
+        .write_stdin("2\t5\t8\n1\t10\t20\n")
+        .assert()
+        .success();
+    assert_eq!(
+        String::from_utf8_lossy(&o.get_output().stdout),
+        "chr1\t10\t20\nchr2\t5\t8\n"
+    );
+}
+
+#[test]
+fn spilling_sort_with_a_map() {
+    let fx = Fx::new();
+    let map = fx.map();
+    let mut text = String::new();
+    for i in (0..700_000u64).rev() {
+        text.push_str(&format!("1\t{}\t{}\tname{i}\n", i * 10, i * 10 + 5));
+    }
+    let bed = fx.plain("big.bed", &text);
+    let o = gloci()
+        .args(["sort", &bed, "--chrom-map", &map, "--max-mem", "16M", "-v"])
+        .assert()
+        .success();
+    let out = String::from_utf8_lossy(&o.get_output().stdout).into_owned();
+    assert_eq!(out.lines().count(), 700_000);
+    assert!(out.starts_with("chr1\t0\t5\tname0\n"));
+    assert!(out.ends_with("chr1\t6999990\t6999995\tname699999\n"));
+    assert!(out.lines().all(|l| l.starts_with("chr1\t")));
+}
+
+#[test]
+fn bcf_to_vcf_with_a_map() {
+    let fx = Fx::new();
+    let map = fx.map();
+    let text = stdout_of(&["view", &fx.bcf(), "--chrom-map", &map, "-O", "vcf"]);
+    assert!(text.contains("##contig=<ID=chr1,length=1000>\n"), "{text}");
+    assert!(text.contains("##contig=<ID=chr2,length=1000>\n"), "{text}");
+    assert!(
+        text.contains("\nchr1\t10\t.\tA\tC\t50\tPASS\t.\tGT\t0/1\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("\nchr2\t5\t.\tC\tA\t50\tPASS\t.\tGT\t0/0\n"),
+        "{text}"
+    );
 }

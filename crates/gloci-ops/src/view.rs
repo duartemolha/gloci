@@ -269,26 +269,17 @@ fn select(
         .map(|(c, ivs)| (c, RegionSet::new(ivs)))
         .collect();
 
-    if opts.assume_sorted && ro.chrom_map.is_some() && index.is_none() {
-        log::warn!(
-            "--assume-sorted does not work with --chrom-map, which renames chromosomes while \
-reading; scanning the whole file instead"
-        );
-    }
     let mut warn_unseen = false;
     let src = if wanted.is_empty() {
         Src::Empty
     } else if let (Some(p), Some(_)) = (file, &index) {
         Src::Indexed(open_region_reader(p, &wanted, ro, opts.inclusive_points)?)
     } else if let Some(p) = file.filter(|_| {
-        // Bisection compares the file's raw names with the regions', which
-        // `--chrom-map` makes differ; scan instead.
         opts.assume_sorted
-            && ro.chrom_map.is_none()
             && compression == Compression::None
             && matches!(format, Format::Bed | Format::BedGraph)
     }) {
-        match locate_blocks(p, &name, sets.clone(), chroms)? {
+        match locate_blocks(p, &name, sets.clone(), chroms, ro.chrom_map.as_deref())? {
             Located::Blocks(blocks) => {
                 Src::Blocks(Box::new(BlockScan::new(p, &name, format, ro, blocks)))
             }

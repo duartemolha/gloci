@@ -22,9 +22,10 @@ fn lossy(b: &[u8]) -> String {
 impl ChromMap {
     /// Read and parse the table in `path`.
     pub fn load(path: &str) -> Result<ChromMap, IoError> {
-        let text = std::fs::read(path).map_err(|source| IoError::Open {
-            path: path.to_string(),
-            source,
+        let text = std::fs::read(path).map_err(|e| {
+            UsageError(format!(
+                "cannot read the --chrom-map file {path}: {e}; check the --chrom-map path"
+            ))
         })?;
         Ok(ChromMap::parse(path, &text)?)
     }
@@ -99,6 +100,34 @@ cannot be renamed to the same name",
         }
     }
 
+    /// Refuse a file whose own names collide under the map: it has both an
+    /// old name and its new name, and the new name is not itself renamed
+    /// away, so renaming would merge two chromosomes. `file` names the file
+    /// in the error.
+    pub fn check_file_names<'a>(
+        &self,
+        file: &str,
+        names: impl IntoIterator<Item = &'a [u8]> + Clone,
+    ) -> Result<(), UsageError> {
+        for old in names.clone() {
+            let Some(new) = self.forward.get(old) else {
+                continue;
+            };
+            if new != old
+                && !self.forward.contains_key(new)
+                && names.clone().into_iter().any(|n| n == &new[..])
+            {
+                return Err(UsageError(format!(
+                    "{file} has both \"{o}\" and \"{n}\"; --chrom-map renames \"{o}\" to \"{n}\", \
+which would merge them; drop that row of the map or rename \"{n}\" too",
+                    o = lossy(old),
+                    n = lossy(new)
+                )));
+            }
+        }
+        Ok(())
+    }
+
     /// `raw` (VCF header text) with the ID of every `##contig` line renamed.
     /// Two contigs that end up with one name are an error.
     pub fn rename_header(&self, raw: &[u8]) -> Result<Vec<u8>, String> {
@@ -164,6 +193,10 @@ impl Renamer {
             renames: false,
             cached: false,
         }
+    }
+
+    pub(crate) fn map(&self) -> &ChromMap {
+        &self.map
     }
 
     /// Rewrite the first field of the line at `buf[start..]`.

@@ -6,8 +6,8 @@
 
 use gloci_core::{ChromTable, RegionSet};
 use gloci_io::{
-    Diagnostics, Format, IoError, Loc, OrderGuard, ReaderOptions, RecordBatch, RecordMeta,
-    RecordReader, is_bed_record_line, open_reader_from,
+    ChromMap, Diagnostics, Format, IoError, Loc, OrderGuard, ReaderOptions, RecordBatch,
+    RecordMeta, RecordReader, is_bed_record_line, open_reader_from,
 };
 use std::cmp::Ordering;
 use std::fs::File;
@@ -87,6 +87,21 @@ pub fn find_chrom_block(
     chrom: &[u8],
     table: &ChromTable,
 ) -> Result<ChromBlock, IoError> {
+    find_chrom_block_mapped(file, len, chrom, table, None)
+}
+
+/// [`find_chrom_block`] for a file read with `--chrom-map`: `chrom` and
+/// `table` use the renamed names, so each line's chromosome is renamed
+/// before it is compared. A chromosome the map renames away is not found.
+pub fn find_chrom_block_mapped(
+    file: &mut (impl Read + Seek),
+    len: u64,
+    chrom: &[u8],
+    table: &ChromTable,
+    map: Option<&ChromMap>,
+) -> Result<ChromBlock, IoError> {
+    let named =
+        |p: &Probe| -> Vec<u8> { map.map_or(p.chrom.clone(), |m| m.rename(&p.chrom).to_vec()) };
     let read_err = |source| IoError::Read {
         path: "input".to_string(),
         source,
@@ -99,7 +114,7 @@ pub fn find_chrom_block(
         let mid = lo + (hi - lo) / 2;
         match probe(file, mid, len).map_err(read_err)? {
             None => hi = mid,
-            Some(p) => match table.cmp_names(&p.chrom, chrom) {
+            Some(p) => match table.cmp_names(&named(&p), chrom) {
                 None => return Ok(ChromBlock::NotFoundByBisection),
                 // every offset up to p.start finds p as well
                 Some(Ordering::Less) => lo = p.start + 1,
@@ -108,7 +123,7 @@ pub fn find_chrom_block(
         }
     }
     Ok(match probe(file, lo, len).map_err(read_err)? {
-        Some(p) if p.chrom == chrom => ChromBlock::At(p.start),
+        Some(p) if named(&p) == chrom => ChromBlock::At(p.start),
         _ => ChromBlock::NotFoundByBisection,
     })
 }
@@ -134,6 +149,7 @@ pub(crate) fn locate_blocks(
     name: &str,
     sets: Vec<(Vec<u8>, RegionSet)>,
     table: &ChromTable,
+    map: Option<&ChromMap>,
 ) -> Result<Located, IoError> {
     let mut f = File::open(path).map_err(|source| IoError::Open {
         path: name.to_string(),
@@ -148,7 +164,9 @@ pub(crate) fn locate_blocks(
         .len();
     let (mut blocks, mut missing) = (Vec::new(), Vec::new());
     for (chrom, set) in sets {
-        match find_chrom_block(&mut f, len, &chrom, table).map_err(|e| e.with_input_name(name))? {
+        match find_chrom_block_mapped(&mut f, len, &chrom, table, map)
+            .map_err(|e| e.with_input_name(name))?
+        {
             ChromBlock::At(offset) => blocks.push(Block { offset, chrom, set }),
             ChromBlock::NotFoundByBisection => {
                 missing.push(String::from_utf8_lossy(&chrom).into_owned());
