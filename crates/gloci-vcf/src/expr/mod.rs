@@ -57,9 +57,11 @@ pub(crate) enum Field {
         ty: InfoTy,
         idx: Option<usize>,
     },
+    /// `FMT/DP`, `FMT/GQ`, `GT`: the optional index is a sample subscript
+    /// (0-based, numbered over the whole header), as in bcftools.
     FmtDp(Option<usize>),
     FmtGq(Option<usize>),
-    Gt,
+    Gt(Option<usize>),
     Maf,
     Ac(Option<usize>),
     An,
@@ -178,6 +180,14 @@ impl Expr {
         stats: Option<&SiteStats>,
         scratch: &mut EvalScratch,
     ) -> Result<bool, String> {
+        if self.needs_info && !site.info_has_values {
+            return Err(
+                "the expression reads INFO values but this BCF record view carries \
+                 INFO keys only; build the view with BcfSite::with_info_values() \
+                 (check Expr::needs_info_values()); this is a bug, please report it"
+                    .to_string(),
+            );
+        }
         eval::eval(&self.root, site, gt, stats, scratch)
     }
 }

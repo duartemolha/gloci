@@ -26,6 +26,10 @@ pub struct SiteView<'a> {
     /// The record's footprint (`RecordMeta.span`), used by
     /// `exclude_regions`.
     pub span: Interval,
+    /// True when `info` carries `KEY=value` text (always for a text record;
+    /// for BCF only with [`BcfSite::info_values`]), false when it holds the
+    /// keys alone.
+    pub info_has_values: bool,
 }
 
 fn parse_qual(f: &[u8]) -> Result<Option<f64>, String> {
@@ -78,6 +82,7 @@ impl<'a> SiteView<'a> {
             filter: cols[6],
             info: cols[7],
             span,
+            info_has_values: true,
         })
     }
 }
@@ -222,6 +227,7 @@ impl BcfSite {
             filter: &self.filter,
             info: &self.info,
             span,
+            info_has_values: self.info_values,
         })
     }
 }
@@ -236,6 +242,9 @@ fn push_info_value(out: &mut Vec<u8>, v: &typed::Value) {
     if v.ty == Ty::Char {
         let end = v.data.iter().rposition(|&b| b != 0).map_or(0, |p| p + 1);
         out.extend_from_slice(&v.data[..end]);
+        if end == 0 {
+            out.pop(); // an empty string is a missing value: no `=`
+        }
         return;
     }
     use std::io::Write;
@@ -261,6 +270,44 @@ fn push_info_value(out: &mut Vec<u8>, v: &typed::Value) {
     // An end-of-vector element after a separator leaves it dangling.
     if out.last() == Some(&b',') {
         out.pop();
+    }
+    // Every element was the end sentinel: a missing value, so no `=`.
+    if out.last() == Some(&b'=') {
+        out.pop();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use typed::{Ty, Value};
+
+    fn render(ty: Ty, n: usize, data: &[u8]) -> String {
+        let mut out = b"K".to_vec();
+        push_info_value(&mut out, &Value { ty, n, data });
+        String::from_utf8(out).unwrap()
+    }
+
+    #[test]
+    fn info_vectors_render_like_text() {
+        // int8: missing is 0x80, end-of-vector 0x81.
+        assert_eq!(render(Ty::Int8, 3, &[5, 0x81, 0x81]), "K=5");
+        assert_eq!(render(Ty::Int8, 2, &[0x81, 0x81]), "K");
+        assert_eq!(render(Ty::Int8, 2, &[0x80, 3]), "K=.,3");
+        assert_eq!(render(Ty::Int8, 1, &[0x80]), "K=.");
+        // int16 300, int32 70000.
+        assert_eq!(render(Ty::Int16, 1, &300i16.to_le_bytes()), "K=300");
+        assert_eq!(render(Ty::Int32, 1, &70000i32.to_le_bytes()), "K=70000");
+        // float: 0.2 then the missing NaN pattern, then end.
+        let mut f = 0.2f32.to_le_bytes().to_vec();
+        f.extend_from_slice(&0x7f80_0001u32.to_le_bytes());
+        f.extend_from_slice(&0x7f80_0002u32.to_le_bytes());
+        assert_eq!(render(Ty::Float, 3, &f), "K=0.2,.");
+        let mut e = 0x7f80_0002u32.to_le_bytes().to_vec();
+        e.extend_from_slice(&0x7f80_0002u32.to_le_bytes());
+        assert_eq!(render(Ty::Float, 2, &e), "K");
+        assert_eq!(render(Ty::Char, 3, b"ab\0"), "K=ab");
+        assert_eq!(render(Ty::Char, 2, b"\0\0"), "K");
     }
 }
 

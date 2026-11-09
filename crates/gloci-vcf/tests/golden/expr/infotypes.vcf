@@ -1,0 +1,13 @@
+##fileformat=VCFv4.2
+##contig=<ID=1,length=1000>
+##INFO=<ID=DP,Number=1,Type=Integer,Description="d">
+##INFO=<ID=AF,Number=A,Type=Float,Description="f">
+##INFO=<ID=AD,Number=.,Type=Integer,Description="i">
+##INFO=<ID=S,Number=.,Type=String,Description="s">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="g">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	s1
+1	10	.	A	C	.	.	DP=300;AF=.,0.1	GT	0/1
+1	20	.	A	C	.	.	DP=70000;AF=0.2,.	GT	0/1
+1	30	.	A	C	.	.	DP=7;AF=0.5	GT	0/1
+1	40	.	A	C	.	.	AD=1,2,300,.;S=x,y	GT	0/1
+1	50	.	A	C	.	.	AD=.,.	GT	0/1

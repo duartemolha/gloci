@@ -495,3 +495,127 @@ fn bcf_info_values_render_like_text() {
     let _ = h;
     let _: Option<&dyn GenotypeSource> = None;
 }
+
+// ---- fix round 1 -----------------------------------------------------------
+
+#[test]
+fn bare_ac_an_maf_read_header_info_and_compute_otherwise() {
+    // infoac.vcf defines INFO AC, AN and MAF (goldens pin the bcftools rows).
+    let v = fixture("infoac");
+    let h = header_of(&v);
+    let t = |s: &str| {
+        let e = parse_expr(s, &h).unwrap();
+        (e.needs_stats(), e.needs_info_values(), run_text(&e, &v))
+    };
+    assert_eq!(t("AN=99"), (false, true, vec![10]));
+    assert_eq!(t("MAF<0.02"), (false, true, vec![10]));
+    assert_eq!(t("AC=2"), (false, true, vec![10])); // any value of AC=3,2
+    // An INFO-resolved name is missing where the record lacks the key.
+    assert_eq!(t("AN!=99").2, vec![20, 30, 40]);
+    // F_MISSING / N_MISSING stay computed even when the header defines them.
+    assert!(t("N_MISSING=0").0);
+    // Without the header key the computed value is used.
+    let (v, h) = main_vcf();
+    let e = parse_expr("AN=6", &h).unwrap();
+    assert!(e.needs_stats() && !e.needs_info_values());
+    assert_eq!(run_text(&e, &v), vec![10]);
+}
+
+#[test]
+fn sample_subscripts_are_sample_numbers_over_the_whole_header() {
+    // main.vcf: s1 s2 s3; goldens pin the bcftools rows.
+    assert_eq!(hits("FMT/GQ[1]>35"), vec![30]);
+    assert_eq!(hits("FMT/GQ[0]>35"), vec![10]);
+    assert_eq!(hits("GT[1]=\"het\""), vec![20]);
+    assert_eq!(hits("N_PASS(FMT/GQ[1]>30)>=1"), vec![30]);
+    // bcftools -s numbers over the full header: the subscript still means the
+    // original column, and a sample outside the selection can be subscripted.
+    let (v, h) = main_vcf();
+    let mut sc = EvalScratch::default();
+    sc.set_selection(Some(&[false, true, true]));
+    let line = records(&v)[0]; // GQ 40, 20, 50
+    let site = SiteView::from_text(line.as_bytes(), span_of(line)).unwrap();
+    let g = text_genotypes(line.as_bytes()).unwrap();
+    let mut t = |s: &str| {
+        parse_expr(s, &h)
+            .unwrap()
+            .eval(&site, Some(&g), None, &mut sc)
+            .unwrap()
+    };
+    assert!(t("FMT/GQ[0]>35")); // s1 is not selected but is sample 0
+    assert!(!t("FMT/GQ[1]>35"));
+    assert!(t("FMT/GQ>35")); // unsubscripted: any selected sample (s3)
+}
+
+#[test]
+fn sample_subscript_past_the_header_is_a_parse_error() {
+    let e = err("FMT/GQ[7]>1");
+    assert!(
+        e.contains("sample index 7") && e.contains("3 samples") && e.contains("column 8"),
+        "{e}"
+    );
+    let e = err("GT[3]=\"het\"");
+    assert!(e.contains("sample index 3"), "{e}");
+    assert!(err("GT[x]=\"het\"").contains("whole number"));
+}
+
+#[test]
+fn bcf_info_edge_values_render_and_evaluate_like_text() {
+    let v = fixture("infotypes");
+    let (dicts, raws) = to_bcf(&v);
+    let mut bs = BcfSite::with_info_values();
+    let want = [
+        "DP=300;AF=.,0.1",
+        "DP=70000;AF=0.2,.",
+        "DP=7;AF=0.5",
+        "AD=1,2,300,.;S=x,y",
+        "AD=.,.",
+    ];
+    for ((raw, line), w) in raws.iter().zip(records(&v)).zip(want) {
+        let site = bs.view(raw, &dicts, span_of(line)).unwrap();
+        assert_eq!(String::from_utf8_lossy(site.info), w);
+    }
+}
+
+#[test]
+fn eval_refuses_a_keys_only_bcf_view() {
+    let v = fixture("main");
+    let h = header_of(&v);
+    let (dicts, raws) = to_bcf(&v);
+    let mut keys_only = BcfSite::default();
+    let g = bcf_genotypes(&raws[0], &dicts).unwrap();
+    let site = keys_only
+        .view(&raws[0], &dicts, span_of(records(&v)[0]))
+        .unwrap();
+    assert!(!site.info_has_values);
+    let mut sc = EvalScratch::default();
+    let needs = parse_expr("INFO/DP>10", &h).unwrap();
+    let msg = needs.eval(&site, Some(&g), None, &mut sc).unwrap_err();
+    assert!(msg.contains("with_info_values"), "{msg}");
+    // An expression that does not read INFO is fine on the same view.
+    let fine = parse_expr("QUAL>1", &h).unwrap();
+    assert!(fine.eval(&site, Some(&g), None, &mut sc).unwrap());
+}
+
+#[test]
+fn unsupported_format_key_is_a_usage_error() {
+    let vcf = "##fileformat=VCFv4.2\n##contig=<ID=1,length=10>\n\
+##FORMAT=<ID=GT,Number=1,Type=String,Description=\"g\">\n\
+##FORMAT=<ID=AD,Number=R,Type=Integer,Description=\"a\">\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n";
+    let h = header_of(vcf);
+    for ex in ["FMT/AD>1", "AD>1"] {
+        let e = parse_expr(ex, &h).unwrap_err().0;
+        assert!(
+            e.contains("FMT/AD is not supported; supported FORMAT fields: GT, DP, GQ")
+                && e.contains("column 1"),
+            "{e}"
+        );
+    }
+}
+
+#[test]
+fn difference_negated_bare_comparison_parses() {
+    // bcftools 1.21: `!POS=10` is "Could not parse the expression".
+    assert_eq!(hits("!POS=10 && POS<30"), vec![20]);
+}

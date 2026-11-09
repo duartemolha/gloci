@@ -102,19 +102,19 @@ fn compare(field: &Field, op: Op, rhs: &Rhs, cx: &mut Cx) -> Result<bool, String
             let m = type_matches(cx.site, *k);
             Ok(m == (op == Op::Eq))
         }
-        (Field::Gt, Rhs::GtKw(mask)) => {
+        (Field::Gt(sub), Rhs::GtKw(mask)) => {
             let want_in = op == Op::Eq;
             let mut hit = false;
-            each_sample(cx, &mut |_, f| {
+            each_sample(cx, *sub, &mut |_, f| {
                 let class = f.gt.as_ref().map_or(MIS, gt_class);
                 hit = (class & mask != 0) == want_in;
                 hit
             })?;
             Ok(hit)
         }
-        (Field::Gt, _) => {
+        (Field::Gt(sub), _) => {
             let mut hit = false;
-            each_sample(cx, &mut |buf, f| {
+            each_sample(cx, *sub, &mut |buf, f| {
                 render_gt(f.gt.as_ref(), buf);
                 hit = test(Val::Str(buf), op, rhs);
                 hit
@@ -240,18 +240,37 @@ fn need_stats<'a>(cx: &Cx<'a, '_>, what: &str) -> Result<&'a SiteStats, String> 
     })
 }
 
-/// Call `f` with each considered sample's fields (just the current one inside
-/// `N_PASS`), stopping when it returns true. The first argument is a scratch
-/// text buffer.
+/// Call `f` with each considered sample's fields, stopping when it returns
+/// true. The first argument is a scratch text buffer.
+///
+/// `sub` is a sample subscript (`FMT/GQ[1]`, `GT[1]`): only that sample is
+/// read, numbered over the whole header whatever `--samples` selects, as in
+/// bcftools. Inside `N_PASS` the subscripted field has a value only for its
+/// own sample, so the per-sample test fails for every other one.
 fn each_sample(
     cx: &mut Cx,
+    sub: Option<usize>,
     f: &mut dyn FnMut(&mut Vec<u8>, &SampleFields) -> bool,
 ) -> Result<bool, String> {
-    if cx.sample.is_some() {
+    if let Some(cur) = cx.sample {
+        if sub.is_some_and(|k| k != cur) {
+            return Ok(false);
+        }
         let s = &mut *cx.scratch;
         return Ok(f(&mut s.gt_text, &s.fields));
     }
     let src = need_gt(cx)?;
+    if let Some(k) = sub {
+        if k >= src.n_samples() {
+            return Err(format!(
+                "sample index {k} is too large: the record has {} samples",
+                src.n_samples()
+            ));
+        }
+        src.sample(k, &mut cx.scratch.fields)?;
+        let s = &mut *cx.scratch;
+        return Ok(f(&mut s.gt_text, &s.fields));
+    }
     for i in 0..src.n_samples() {
         if cx
             .scratch
@@ -302,21 +321,17 @@ fn visit(field: &Field, cx: &mut Cx, cb: &mut dyn FnMut(Val) -> bool) -> Result<
             cb(Val::Num(n as f64))
         }
         Field::Info { key, ty, idx } => visit_info(site.info, key, *ty, *idx, cb)?,
-        Field::FmtDp(idx) | Field::FmtGq(idx) => {
+        Field::FmtDp(sub) | Field::FmtGq(sub) => {
             let dp = matches!(field, Field::FmtDp(_));
             let mut stop = false;
-            each_sample(cx, &mut |_, f| {
+            each_sample(cx, *sub, &mut |_, f| {
                 let v = if dp { f.dp } else { f.gq };
-                let val = match (v, idx) {
-                    (Some(n), None | Some(0)) => Val::Num(f64::from(n)),
-                    _ => Val::Miss,
-                };
-                stop = cb(val);
+                stop = cb(v.map_or(Val::Miss, |n| Val::Num(f64::from(n))));
                 stop
             })?;
             stop
         }
-        Field::Gt => unreachable!("GT is compared through compare()"),
+        Field::Gt(_) => unreachable!("GT is compared through compare()"),
         Field::Type => unreachable!("TYPE is compared through compare()"),
         Field::Maf => cb(need_stats(cx, "MAF")?
             .expr_maf()

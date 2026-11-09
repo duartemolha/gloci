@@ -104,3 +104,50 @@ m	AC<3	1
 m	AC[1]=2	1,2
 m	AC!=2	2,3,4
 main	INFO/AF=0.3	20
+infoac	AN=99	10
+infoac	MAF<0.02	10
+infoac	AC=2	10
+infoac	AC=3	10
+infoac	AC>2	10
+infoac	AC[1]=2	10
+infoac	AC[0]=3	10
+infoac	AN=6	20
+infoac	AN=2	30
+infoac	MAF>0.3	20
+infoac	AC=0	
+infoac	AN!=99	20,30,40
+infoac	INFO/AC=2	10
+infoac	N_MISSING=0	10,20,30,40
+infoac	AC=4	
+infoac	MAF=0.5	
+infoac	MAF!=0.01	20,30,40
+main	FMT/GQ[1]>35	30
+main	FMT/GQ[0]>35	10
+main	FMT/GQ[2]>45	10
+main	GT[1]="het"	20
+main	GT[0]="het"	10,40
+main	GT[2]="hom"	10
+main	FMT/DP[1]>7	10
+main	N_PASS(FMT/GQ[1]>30)>=1	30
+main	N_PASS(FMT/GQ[1]>30)=0	10,20,40
+main	N_PASS(GT[1]="het")>=1	20
+main	N_PASS(GT[1]="het")=0	10,30,40
+main	FMT/GQ[1]!=36	10,20,40
+main	N_PASS(FMT/GQ[1]!=36)=0	30
+main	GT[1]="mis"	
+main	FMT/GQ[2]!=40	10,20,30,40
+infotypes	INFO/DP>299	10,20
+infotypes	INFO/DP=70000	20
+infotypes	INFO/DP<1000	10,30
+infotypes	INFO/DP!=7	10,20,40,50
+infotypes	INFO/AF>0.1	20,30
+infotypes	INFO/AF!=0.2	10,20,30,40,50
+infotypes	INFO/AF[1]!=0	10,20,30,40,50
+infotypes	INFO/AF[0]=0.2	20
+infotypes	INFO/AF[1]=0.1	10
+infotypes	INFO/AD>100	40
+infotypes	INFO/AD[3]!=1	10,20,30,40,50
+infotypes	INFO/AD[2]=300	40
+infotypes	INFO/AD[0]!=1	10,20,30,50
+infotypes	INFO/S="y"	40
+infotypes	INFO/S[1]="y"	40

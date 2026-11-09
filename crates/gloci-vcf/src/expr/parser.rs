@@ -156,7 +156,7 @@ fn kind_of(f: &Field) -> Kind {
         | Field::Alt
         | Field::Filter
         | Field::Type
-        | Field::Gt
+        | Field::Gt(_)
         | Field::Info {
             ty: InfoTy::Str, ..
         } => Kind::Str,
@@ -165,7 +165,7 @@ fn kind_of(f: &Field) -> Kind {
 }
 
 fn is_sample_wise(f: &Field) -> bool {
-    matches!(f, Field::FmtDp(_) | Field::FmtGq(_) | Field::Gt)
+    matches!(f, Field::FmtDp(_) | Field::FmtGq(_) | Field::Gt(_))
 }
 
 fn node_is_sample_wise(n: &Node) -> bool {
@@ -327,7 +327,7 @@ impl Parser {
                 lcol,
                 format!("TYPE is compared with one of {TYPE_KEYWORDS}"),
             ),
-            (Term::Str(s), Field::Gt) if !is_re => {
+            (Term::Str(s), Field::Gt(_)) if !is_re => {
                 if !matches!(op, Op::Eq | Op::Ne) {
                     return err(opcol, "GT supports only =, !=, ~ and !~");
                 }
@@ -507,6 +507,28 @@ impl Parser {
         Ok(Some(idx))
     }
 
+    /// An optional `[N]` sample subscript after a FORMAT field: N is numbered
+    /// over the whole header and must exist.
+    fn parse_sample_index(&mut self, _col: usize) -> Result<Option<usize>, SyntaxError> {
+        let col = self.toks.get(self.pos + 1).map_or(1, |t| t.col);
+        let Some(i) = self.parse_index()? else {
+            return Ok(None);
+        };
+        let n = self.schema.n_samples;
+        if i >= n {
+            return err(
+                col,
+                format!(
+                    "the sample index {i} is too large: the header has {n} sample{}; \
+                     use an index from 0 to {}",
+                    if n == 1 { "" } else { "s" },
+                    n.saturating_sub(1)
+                ),
+            );
+        }
+        Ok(Some(i))
+    }
+
     fn parse_field(&mut self, name: &str, col: usize) -> Result<Field, SyntaxError> {
         let no_index = |p: &mut Parser, f: Field| -> Result<Field, SyntaxError> {
             let c = p.peek().col;
@@ -531,8 +553,12 @@ impl Parser {
             }
             "GT" => {
                 self.flags.genotypes = true;
-                return no_index(self, Field::Gt);
+                return Ok(Field::Gt(self.parse_sample_index(col)?));
             }
+            // bcftools reads a header-defined INFO/AC, AN or MAF here and
+            // computes them only when the header lacks the key; F_MISSING
+            // and N_MISSING are always computed.
+            "MAF" | "AN" | "AC" if self.schema.info.contains_key(name.as_bytes()) => {}
             "MAF" | "AN" | "F_MISSING" | "N_MISSING" => {
                 self.flags.stats = true;
                 let f = match name {
@@ -590,9 +616,9 @@ impl Parser {
         if scope != Some(true) && is_fmt {
             self.flags.genotypes = true;
             return match key {
-                "GT" => no_index(self, Field::Gt),
-                "DP" => Ok(Field::FmtDp(self.parse_index()?)),
-                "GQ" => Ok(Field::FmtGq(self.parse_index()?)),
+                "GT" => Ok(Field::Gt(self.parse_sample_index(col)?)),
+                "DP" => Ok(Field::FmtDp(self.parse_sample_index(col)?)),
+                "GQ" => Ok(Field::FmtGq(self.parse_sample_index(col)?)),
                 _ => err(
                     col,
                     format!("FMT/{key} is not supported; supported FORMAT fields: GT, DP, GQ"),
