@@ -1,15 +1,20 @@
 # Benchmark external datasets.
-# Entries: name, url, sha256 (64 hex characters), unpack (boolean).
+# Entries: name, url, one checksum (sha256 or md5, hex), unpack (boolean).
 # Datasets are fetched to $GLOCI_BENCH_CACHE and verified before use.
+#
+# coitrees: the coitrees benchmark data (Ensembl annotations against RNA-Seq
+# alignments) has no public download: the repository has no releases and its
+# bench/bench.jl reads local test1/test2 BED files. The dataset and its two
+# yardstick cases were removed rather than point at an invented URL.
 
 [[dataset]]
+# 1000 Genomes 30x high coverage (NYGC, 3,202 samples), chr20 phased
+# SNV/INDEL/SV panel, 687,320,087 bytes. Listed with curl from
+# https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20220422_3202_phased_SNV_INDEL_SV/
+# Checksum source: the provider's manifest 20220804_manifest.txt in that
+# directory (md5). A download on 2026-11-09 matched it; its sha256 was
+# 9e936fdf434a4aa4ff1d37c0d386a13a43a7211d4f09fb5da811ed6eb5125626.
 name = "1kg-30x-chr20"
-url = "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B0_GRCh38_fine-mapping_chr20.recalibrated_variants.vcf.gz"
-sha256 = "c08170c0c8efaeecfcfb1319aa53a25375e2fa245a4be465715ef5eb94191953"
+url = "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20220422_3202_phased_SNV_INDEL_SV/1kGP_high_coverage_Illumina.chr20.filtered.SNV_INDEL_SV_phased_panel.vcf.gz"
+md5 = "34a9a5dbfb285e7eb9d1f2881953014b"
 unpack = false
-
-[[dataset]]
-name = "coitrees"
-url = "https://github.com/dcjones/coitrees/releases/download/v0.4.0/coitrees-bench-data.tar.gz"
-sha256 = "65718a7c29ae885822be72bc7d85311029c0a1a0c8651c6c5ea3e9c5bb0e1818"
-unpack = true

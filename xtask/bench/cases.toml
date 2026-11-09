@@ -1,5 +1,5 @@
-# Benchmark cases. Every gloci command uses --chrom-order lex so that all tools
-# produce the same order. {gloci}, {in}, {in_a}, {in_b} and {out} are substituted by the runner.
+# Benchmark cases. Every BED gloci command uses --chrom-order lex so that all
+# tools produce the same order (VCF commands follow the header's contigs). {gloci}, {in}, {in_a}, {in_b} and {out} are substituted by the runner.
 # Targets: NAME (<|<=) [FACTOR *] NAME, over the medians of the named commands.
 
 [[case]]
@@ -45,7 +45,7 @@ setup = "bed --records 10000000 --chroms 24 --seed 1 --profile uniform --sorted"
 input = "bed"
 targets = ["gloci <= 0.5 * bedtools", "gloci <= bedops"]
 [case.commands]
-gloci = "{gloci} merge --chrom-order lex -t 1 -i {in} > {out}"
+gloci = "{gloci} merge --chrom-order lex -t 1 {in} > {out}"
 bedtools = "bedtools merge -i {in} > {out}"
 bedops = "bedops -m {in} > {out}"
 gia = "gia merge -i {in} > {out}"
@@ -75,7 +75,7 @@ setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
 input = "bed"
 targets = ["gloci <= 0.5 * bedtools", "gloci <= bedops"]
 [case.commands]
-gloci = "{gloci} closest --chrom-order lex -t 1 -d -a {in_a} -b {in_b} > {out}"
+gloci = "{gloci} closest --chrom-order lex -t 1 --distance -a {in_a} -b {in_b} > {out}"
 bedtools = "bedtools closest -d -a {in_a} -b {in_b} > {out}"
 bedops = "closest-features --dist {in_a} {in_b} > {out}"
 gia = "gia closest -a {in_a} -b {in_b} > {out}"
@@ -128,7 +128,7 @@ setup = "bed --records 10000000 --chroms 24 --seed 1 --profile uniform --sorted"
 input = "bed.gz"
 targets = ["gloci <= 0.2 * bedtools"]
 [case.commands]
-gloci = "{gloci} merge --chrom-order lex -t 8 -i {in} -o {out}"
+gloci = "{gloci} merge --chrom-order lex -t 8 {in} -o {out}"
 bedtools = "bedtools merge -i {in} | bgzip -@ 8 > {out}"
 
 [[case]]
@@ -146,7 +146,7 @@ setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
 input = "bed.gz"
 targets = ["gloci <= 0.2 * bedtools"]
 [case.commands]
-gloci = "{gloci} closest --chrom-order lex -t 8 -d -a {in_a} -b {in_b} -o {out}"
+gloci = "{gloci} closest --chrom-order lex -t 8 --distance -a {in_a} -b {in_b} -o {out}"
 bedtools = "bedtools closest -d -a {in_a} -b {in_b} | bgzip -@ 8 > {out}"
 
 [[case]]
@@ -173,7 +173,7 @@ dataset = "1kg-30x-chr20"
 input = "vcf.gz"
 targets = ["gloci <= 0.2 * vcftools"]
 [case.commands]
-gloci = "{gloci} vcf filter --chrom-order lex --min-maf 0.01 --max-missing 0.1 --min-qual 30 {in} -o {out}"
+gloci = "{gloci} vcf filter --min-maf 0.01 --max-missing 0.1 --min-qual 30 {in} -o {out}"
 vcftools = "vcftools --gzvcf {in} --maf 0.01 --max-missing 0.9 --minQ 30 --recode --recode-INFO-all --stdout | bgzip -@ 8 > {out}"
 bcftools = "bcftools view -i 'MAF>=0.01 && F_MISSING<=0.1 && QUAL>=30' {in} -Oz -o {out}"
 vcfkit = "vk filter --maf 0.01 --missing 0.1 --min-qual 30 {in} | bgzip -@ 8 > {out}"
@@ -185,26 +185,8 @@ setup = "vcf --records 50000 --samples 2500 --seed 1 --chroms 1"
 input = "vcf.gz"
 targets = ["gloci <= 0.2 * vcftools"]
 [case.commands]
-gloci = "{gloci} vcf filter --chrom-order lex --min-maf 0.01 --max-missing 0.1 --min-qual 30 {in} -o {out}"
+gloci = "{gloci} vcf filter --min-maf 0.01 --max-missing 0.1 --min-qual 30 {in} -o {out}"
 vcftools = "vcftools --gzvcf {in} --maf 0.01 --max-missing 0.9 --minQ 30 --recode --recode-INFO-all --stdout | bgzip -@ 8 > {out}"
 bcftools = "bcftools view -i 'MAF>=0.01 && F_MISSING<=0.1 && QUAL>=30' {in} -Oz -o {out}"
 vcfkit = "vk filter --maf 0.01 --missing 0.1 --min-qual 30 {in} | bgzip -@ 8 > {out}"
 vcfexpress = "vcfexpress filter --expr 'maf >= 0.01 && missing <= 0.1 && qual >= 30' {in} -o {out}"
-
-[[case]]
-name = "coitrees-coverage"
-dataset = "coitrees"
-input = "bed"
-targets = []
-[case.commands]
-gloci = "{gloci} coverage --chrom-order lex -a {in_a} -b {in_b} > {out}"
-bedtools = "bedtools coverage -sorted -a {in_a} -b {in_b} > {out}"
-
-[[case]]
-name = "coitrees-intersect-count"
-dataset = "coitrees"
-input = "bed"
-targets = []
-[case.commands]
-gloci = "{gloci} intersect --chrom-order lex --mode count -a {in_a} -b {in_b} > {out}"
-bedtools = "bedtools intersect -sorted -c -a {in_a} -b {in_b} > {out}"

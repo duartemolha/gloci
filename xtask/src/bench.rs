@@ -47,9 +47,29 @@ pub fn eval(expr: &str, m: &Medians) -> Result<bool> {
 pub struct Dataset {
     pub name: String,
     pub url: String,
-    pub sha256: String,
+    /// The checksum to verify: the provider's own when it publishes one
+    /// (EBI publishes md5 manifests), else a sha256 computed on download.
+    /// Exactly one of the two is given.
+    #[serde(default)]
+    pub sha256: Option<String>,
+    #[serde(default)]
+    pub md5: Option<String>,
     #[serde(default)]
     pub unpack: bool,
+}
+
+impl Dataset {
+    /// The checksum algorithm and expected hex digest.
+    pub fn checksum(&self) -> Result<(&'static str, &str)> {
+        match (&self.sha256, &self.md5) {
+            (Some(h), None) => Ok(("sha256", h)),
+            (None, Some(h)) => Ok(("md5", h)),
+            _ => bail!(
+                "dataset `{}` needs exactly one of sha256 and md5",
+                self.name
+            ),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -72,7 +92,7 @@ pub struct Case {
     /// Arguments of `cargo xtask gen`, e.g. `bed --records 10000000 --seed 1`.
     #[serde(default)]
     pub setup: Option<String>,
-    /// Dataset from `datasets.toml`, e.g. `1kg-30x-chr20` or `coitrees`.
+    /// Dataset from `datasets.toml`, e.g. `1kg-30x-chr20`.
     #[serde(default)]
     pub dataset: Option<String>,
     /// `bed` (default), `bed.gz`, `vcf.gz`, etc.
@@ -148,12 +168,22 @@ pub fn bench_cache_dir(data_dir: &Path) -> PathBuf {
     }
 }
 
-fn sha256_file(path: &Path) -> Result<String> {
-    use sha2::{Digest, Sha256};
-    let mut f = std::fs::File::open(path)?;
-    let mut hasher = Sha256::new();
-    std::io::copy(&mut f, &mut hasher)?;
-    Ok(format!("{:x}", hasher.finalize()))
+/// The hex digest of `path` with `algorithm` (`sha256` or `md5`).
+fn digest_file(path: &Path, algorithm: &str) -> Result<String> {
+    use sha2::Digest;
+    fn hash<D: Digest + std::io::Write>(path: &Path, mut d: D) -> Result<String> {
+        let mut f = std::fs::File::open(path)?;
+        std::io::copy(&mut f, &mut d)?;
+        Ok(d.finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>())
+    }
+    match algorithm {
+        "sha256" => hash(path, sha2::Sha256::new()),
+        "md5" => hash(path, md5::Md5::new()),
+        _ => bail!("unknown checksum algorithm {algorithm}"),
+    }
 }
 
 pub fn ensure_dataset(ds: &Dataset, cache_dir: &Path) -> Result<PathBuf> {
@@ -172,13 +202,13 @@ pub fn ensure_dataset(ds: &Dataset, cache_dir: &Path) -> Result<PathBuf> {
         ensure!(st.success(), "curl failed to download {}", ds.url);
         std::fs::rename(&tmp, &target_path)?;
     }
-    let hash = sha256_file(&target_path)?;
+    let (algorithm, want) = ds.checksum()?;
+    let hash = digest_file(&target_path, algorithm)?;
     ensure!(
-        hash.eq_ignore_ascii_case(&ds.sha256),
-        "sha256 mismatch for {}: expected {}, got {}",
+        hash.eq_ignore_ascii_case(want),
+        "{algorithm} mismatch for {}: expected {want}, got {hash}; delete {} and fetch again",
         ds.name,
-        ds.sha256,
-        hash
+        target_path.display()
     );
     if ds.unpack {
         let unpacked_dir = cache_dir.join(&ds.name);
@@ -710,6 +740,54 @@ mod tests {
     use super::*;
 
     #[test]
+    fn digests() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("abc");
+        std::fs::write(&p, b"abc").unwrap();
+        assert_eq!(
+            digest_file(&p, "md5").unwrap(),
+            "900150983cd24fb0d6963f7d28e17f72"
+        );
+        assert_eq!(
+            digest_file(&p, "sha256").unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    /// Every `gloci` command line in cases.toml parses with gloci's own clap
+    /// parser, so a misspelled or removed flag fails `cargo test` instead of
+    /// a nightly benchmark run.
+    #[test]
+    fn every_gloci_bench_command_parses() {
+        use clap::Parser;
+        let text =
+            std::fs::read_to_string(workspace_root().join("xtask/bench/cases.toml")).unwrap();
+        let cases = parse_cases(&text).unwrap();
+        let mut checked = 0;
+        for c in &cases {
+            let Some(cmd) = c.commands.get("gloci") else {
+                continue;
+            };
+            // The gloci invocation ends at the first pipe or redirection.
+            let line = cmd.split(['|', '>']).next().unwrap();
+            let args: Vec<String> = line
+                .replace("{gloci}", "gloci")
+                .replace("{in_a}", "a.bed")
+                .replace("{in_b}", "b.bed")
+                .replace("{in}", "in.bed")
+                .replace("{out}", "out.bed")
+                .split_whitespace()
+                .map(str::to_string)
+                .collect();
+            if let Err(e) = gloci::cli::Cli::try_parse_from(&args) {
+                panic!("case `{}`: `{}` does not parse:\n{e}", c.name, line.trim());
+            }
+            checked += 1;
+        }
+        assert!(checked >= 14, "only {checked} gloci command lines found");
+    }
+
+    #[test]
     fn targets_evaluate() {
         let m = medians(&[("gloci", 1.0), ("sort-bed", 1.5), ("gnu-sort", 0.8)]);
         assert!(eval("gloci < sort-bed", &m).unwrap());
@@ -754,8 +832,6 @@ mod tests {
             "coverage-bgzf-10M",
             "vcf-filter-1kg-chr20",
             "vcf-filter-synthetic-2500",
-            "coitrees-coverage",
-            "coitrees-intersect-count",
         ];
         for exp in expected {
             assert!(names.contains(&exp), "missing expected case `{exp}`");
@@ -781,14 +857,15 @@ mod tests {
             std::fs::read_to_string(workspace_root().join("xtask/bench/datasets.toml")).unwrap();
         let datasets = parse_datasets(&text).unwrap();
         assert!(datasets.iter().any(|d| d.name == "1kg-30x-chr20"));
-        assert!(datasets.iter().any(|d| d.name == "coitrees"));
         for d in &datasets {
             assert!(!d.name.is_empty());
             assert!(d.url.starts_with("https://") || d.url.starts_with("http://"));
-            assert_eq!(d.sha256.len(), 64, "bad sha256 length for {}", d.name);
+            let (algorithm, hex) = d.checksum().unwrap();
+            let len = if algorithm == "md5" { 32 } else { 64 };
+            assert_eq!(hex.len(), len, "bad {algorithm} length for {}", d.name);
             assert!(
-                d.sha256.chars().all(|c| c.is_ascii_hexdigit()),
-                "bad sha256 hex for {}",
+                hex.chars().all(|c| c.is_ascii_hexdigit()),
+                "bad {algorithm} hex for {}",
                 d.name
             );
         }

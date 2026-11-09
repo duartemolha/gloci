@@ -14,7 +14,10 @@ lz4_flex.workspace = true
 tempfile.workspace = true
 
 [dev-dependencies]
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 gloci-testkit.workspace = true
+rust-lapper = "2.0"
+superintervals = "1.0"
 proptest.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true

@@ -30,20 +30,28 @@ USER root
 ENV CARGO_HOME=/usr/local/cargo
 ENV PATH="/usr/local/cargo/bin:${PATH}"
 
+# Each install that fails is reported as "skipped: ... not installed" in the
+# build log; the bench runner then skips that yardstick.
+
 # gia (genomic interval arithmetic): pinned 0.2.0
-RUN cargo install --version 0.2.0 gia || true
+RUN cargo install --version 0.2.0 gia \
+    || echo "skipped: gia not installed (cargo install --version 0.2.0 gia failed); its benchmark columns will be empty"
 
 # granges: pinned 0.2.0
-RUN cargo install --version 0.2.0 granges || true
+RUN cargo install --version 0.2.0 granges \
+    || echo "skipped: granges not installed (cargo install --version 0.2.0 granges failed); its benchmark columns will be empty"
 
 # grit-genomics: pinned 0.1.0
-RUN cargo install --version 0.1.0 grit-genomics || true
+RUN cargo install --version 0.1.0 grit-genomics \
+    || echo "skipped: grit-genomics not installed (cargo install --version 0.1.0 grit-genomics failed); its benchmark columns will be empty"
 
 # bedder: pinned commit
-RUN cargo install --git https://github.com/brentp/bedder --rev 4cf2ef6 bedder || true
+RUN cargo install --git https://github.com/brentp/bedder --rev 4cf2ef6 bedder \
+    || echo "skipped: bedder not installed (cargo install --git https://github.com/brentp/bedder --rev 4cf2ef6 bedder failed); its benchmark columns will be empty"
 
 # vcfexpress: pinned commit
-RUN cargo install --git https://github.com/vcfexpress/vcfexpress --rev 3a893cb vcfexpress || true
+RUN cargo install --git https://github.com/vcfexpress/vcfexpress --rev 3a893cb vcfexpress \
+    || echo "skipped: vcfexpress not installed (cargo install --git https://github.com/vcfexpress/vcfexpress --rev 3a893cb vcfexpress failed); its benchmark columns will be empty"
 
 USER micromamba
 WORKDIR /

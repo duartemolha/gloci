@@ -1,283 +1,223 @@
-//! Index micro-benchmark: compares coitrees, ITree64, superintervals, and rust-lapper.
+//! Index micro-benchmark (criterion): the unsorted-mode default `COITree`
+//! (D40) and gloci's `ITree64` against the real `superintervals` and
+//! `rust-lapper` crates, on two synthetic sets of 100,000 intervals over a
+//! 50 Mb chromosome: uniform positions (lengths 50–5,000), and clustered
+//! around 500 centres (lengths 50–20,000, deep overlaps). 10,000 queries
+//! each, in random order (unsorted mode queries A in input order).
 //!
-//! Evaluates construction time and query throughput on:
-//! 1. Synthetic dataset (uniform intervals)
-//! 2. Coitrees benchmark distribution (nested/clustered intervals)
+//! Run: `cargo bench -p gloci-engine --bench index`. D40's rule: a crate
+//! replaces coitrees only if it is at least 1.2x faster on both sets.
 
-use coitrees::{BasicCOITree, Interval as CoiInterval, IntervalTree};
+use coitrees::{COITree, Interval as CoiInterval, IntervalTree};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use gloci_core::Interval;
 use gloci_engine::ITree64;
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
+use rust_lapper::{Interval as LapInterval, Lapper};
 use std::hint::black_box;
-use std::time::Instant;
+use std::time::Duration;
+use superintervals::IntervalMap;
 
-#[derive(Clone, Copy, Debug)]
-pub struct LapIv {
-    pub start: u64,
-    pub end: u64,
-    pub val: u32,
+const CHROM_LEN: u64 = 50_000_000;
+const N_INTERVALS: usize = 100_000;
+const N_QUERIES: usize = 10_000;
+
+/// Half-open `[start, end)` intervals with their index, and the queries.
+struct Set {
+    name: &'static str,
+    ivs: Vec<(u64, u64, u32)>,
+    queries: Vec<(u64, u64)>,
 }
 
-/// rust-lapper implementation
-pub struct Lapper {
-    pub intervals: Vec<LapIv>,
-    pub max_len: u64,
-}
-
-impl Lapper {
-    pub fn new(mut intervals: Vec<LapIv>) -> Self {
-        intervals.sort_unstable_by_key(|iv| iv.start);
-        let mut max_len = 0;
-        for iv in &intervals {
-            max_len = max_len.max(iv.end.saturating_sub(iv.start));
-        }
-        Self { intervals, max_len }
-    }
-
-    pub fn query(&self, start: u64, end: u64, out: &mut Vec<u32>) {
-        let off = start.saturating_sub(self.max_len);
-        let idx = match self.intervals.binary_search_by_key(&off, |iv| iv.start) {
-            Ok(i) => i,
-            Err(i) => i,
-        };
-        for iv in &self.intervals[idx..] {
-            if iv.start > end {
-                break;
-            }
-            if iv.end >= start {
-                out.push(iv.val);
-            }
-        }
-    }
-}
-
-/// superintervals implementation (augmented array with pruning)
-pub struct SuperIntervals {
-    pub intervals: Vec<LapIv>,
-    pub max_ends: Vec<u64>,
-}
-
-impl SuperIntervals {
-    pub fn new(mut intervals: Vec<LapIv>) -> Self {
-        intervals.sort_unstable_by_key(|iv| iv.start);
-        let mut max_ends = Vec::with_capacity(intervals.len());
-        let mut m = 0;
-        for iv in &intervals {
-            m = m.max(iv.end);
-            max_ends.push(m);
-        }
-        Self {
-            intervals,
-            max_ends,
-        }
-    }
-
-    pub fn query(&self, start: u64, end: u64, out: &mut Vec<u32>) {
-        let idx = self.intervals.partition_point(|iv| iv.start <= end);
-        if idx == 0 {
-            return;
-        }
-        for i in (0..idx).rev() {
-            let iv = &self.intervals[i];
-            if iv.end >= start {
-                out.push(iv.val);
-            } else if self.max_ends[i] < start {
-                break;
-            }
-        }
-    }
-}
-
-fn generate_synthetic(n: usize, seed: u64) -> (Vec<LapIv>, Vec<(u64, u64)>) {
+fn uniform(seed: u64) -> Set {
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
-    let mut ivs = Vec::with_capacity(n);
-    let chrom_len = 50_000_000u64;
-    for i in 0..n {
-        let len = rng.random_range(50..=5_000);
-        let s = rng.random_range(0..=chrom_len - len);
-        ivs.push(LapIv {
-            start: s,
-            end: s + len,
-            val: i as u32,
-        });
+    let ivs = (0..N_INTERVALS)
+        .map(|i| {
+            let len = rng.random_range(50..=5_000);
+            let s = rng.random_range(0..=CHROM_LEN - len);
+            (s, s + len, i as u32)
+        })
+        .collect();
+    let queries = (0..N_QUERIES)
+        .map(|_| {
+            let len = rng.random_range(100..=1_000);
+            let s = rng.random_range(0..=CHROM_LEN - len);
+            (s, s + len)
+        })
+        .collect();
+    Set {
+        name: "uniform",
+        ivs,
+        queries,
     }
-    let mut queries = Vec::with_capacity(10_000);
-    for _ in 0..10_000 {
-        let len = rng.random_range(100..=1_000);
-        let s = rng.random_range(0..=chrom_len - len);
-        queries.push((s, s + len));
-    }
-    (ivs, queries)
 }
 
-fn generate_coitrees_dist(n: usize, seed: u64) -> (Vec<LapIv>, Vec<(u64, u64)>) {
+fn clustered(seed: u64) -> Set {
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
-    let mut ivs = Vec::with_capacity(n);
-    let chrom_len = 50_000_000u64;
-    let centres: Vec<u64> = (0..500).map(|_| rng.random_range(0..=chrom_len)).collect();
-    for i in 0..n {
+    let centres: Vec<u64> = (0..500).map(|_| rng.random_range(0..=CHROM_LEN)).collect();
+    let around = |rng: &mut ChaCha8Rng, lo: u64, hi: u64| {
         let c = centres[rng.random_range(0..centres.len())];
-        let len = rng.random_range(50..=20_000);
-        let s = c.saturating_sub(len / 2).min(chrom_len - len);
-        ivs.push(LapIv {
-            start: s,
-            end: s + len,
-            val: i as u32,
-        });
+        let len = rng.random_range(lo..=hi);
+        let s = c.saturating_sub(len / 2).min(CHROM_LEN - len);
+        (s, s + len)
+    };
+    let ivs = (0..N_INTERVALS)
+        .map(|i| {
+            let (s, e) = around(&mut rng, 50, 20_000);
+            (s, e, i as u32)
+        })
+        .collect();
+    let queries = (0..N_QUERIES)
+        .map(|_| around(&mut rng, 100, 2_000))
+        .collect();
+    Set {
+        name: "clustered",
+        ivs,
+        queries,
     }
-    let mut queries = Vec::with_capacity(10_000);
-    for _ in 0..10_000 {
-        let c = centres[rng.random_range(0..centres.len())];
-        let len = rng.random_range(100..=2_000);
-        let s = c.saturating_sub(len / 2).min(chrom_len - len);
-        queries.push((s, s + len));
-    }
-    (ivs, queries)
 }
 
-fn bench_queries<F>(mut f: F, queries: &[(u64, u64)]) -> f64
-where
-    F: FnMut(u64, u64, &mut Vec<u32>),
-{
-    let mut buf = Vec::with_capacity(64);
-    // Warmup
-    for &(s, e) in queries.iter().take(1000) {
+/// The four indexes over one set. coitrees and superintervals take closed
+/// `i32` coordinates, so `[s, e)` is stored as `[s, e - 1]` and a query
+/// `[qs, qe)` asks `[qs, qe - 1]`: every index reports the same hits.
+struct Indexes {
+    coitrees: COITree<u32, u32>,
+    itree64: ITree64,
+    superintervals: IntervalMap<u32>,
+    lapper: Lapper<u64, u32>,
+}
+
+fn coi_nodes(set: &Set) -> Vec<CoiInterval<u32>> {
+    set.ivs
+        .iter()
+        .map(|&(s, e, v)| CoiInterval::new(s as i32, e as i32 - 1, v))
+        .collect()
+}
+
+fn itree_items(set: &Set) -> Vec<(Interval, u32)> {
+    set.ivs
+        .iter()
+        .map(|&(s, e, v)| (Interval::new(s, e).unwrap(), v))
+        .collect()
+}
+
+fn superintervals(set: &Set) -> IntervalMap<u32> {
+    let mut m = IntervalMap::new();
+    for &(s, e, v) in &set.ivs {
+        m.add(s as i32, e as i32 - 1, v);
+    }
+    m.build();
+    m
+}
+
+fn lapper(set: &Set) -> Lapper<u64, u32> {
+    Lapper::new(
+        set.ivs
+            .iter()
+            .map(|&(start, stop, val)| LapInterval { start, stop, val })
+            .collect(),
+    )
+}
+
+fn build(set: &Set) -> Indexes {
+    Indexes {
+        coitrees: COITree::new(&coi_nodes(set)),
+        itree64: ITree64::new(itree_items(set)),
+        superintervals: superintervals(set),
+        lapper: lapper(set),
+    }
+}
+
+/// Hits of every query, summed.
+fn run_queries(
+    name: &str,
+    ix: &Indexes,
+    ivs: &[(u64, u64, u32)],
+    queries: &[(u64, u64)],
+    buf: &mut Vec<u32>,
+) -> usize {
+    let mut total = 0;
+    for &(s, e) in queries {
         buf.clear();
-        f(s, e, &mut buf);
-        black_box(&buf);
-    }
-    // Timed runs
-    let mut times = Vec::new();
-    for _ in 0..5 {
-        let t0 = Instant::now();
-        let mut total_hits = 0usize;
-        for &(s, e) in queries {
-            buf.clear();
-            f(s, e, &mut buf);
-            total_hits += buf.len();
+        match name {
+            "coitrees" => ix
+                .coitrees
+                .query(s as i32, e as i32 - 1, |n| buf.push(*n.metadata)),
+            // ITree64's candidates include intervals touching the query;
+            // the engine re-tests every candidate exactly, and so does this.
+            "ITree64" => {
+                ix.itree64.query(s, e, buf);
+                buf.retain(|&v| {
+                    let (is, ie, _) = ivs[v as usize];
+                    is < e && ie > s
+                });
+            }
+            "superintervals" => ix.superintervals.search_values(s as i32, e as i32 - 1, buf),
+            "rust-lapper" => buf.extend(ix.lapper.find(s, e).map(|iv| iv.val)),
+            _ => unreachable!(),
         }
-        black_box(total_hits);
-        times.push(t0.elapsed().as_secs_f64());
+        total += buf.len();
     }
-    times.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let median_secs = times[times.len() / 2];
-    (median_secs * 1e9) / (queries.len() as f64)
+    total
 }
 
-fn main() {
-    println!(
-        "Running index micro-benchmark (coitrees vs ITree64 vs superintervals vs rust-lapper)..."
-    );
-    let n_intervals = 100_000;
+const NAMES: [&str; 4] = ["coitrees", "ITree64", "superintervals", "rust-lapper"];
 
-    let (synth_ivs, synth_queries) = generate_synthetic(n_intervals, 42);
-    let (coi_ivs, coi_queries) = generate_coitrees_dist(n_intervals, 43);
-
-    // 1. coitrees
-    let coi_nodes_synth: Vec<CoiInterval<u32>> = synth_ivs
-        .iter()
-        .map(|iv| CoiInterval::new(iv.start as i32, iv.end as i32, iv.val))
-        .collect();
-    let t0 = Instant::now();
-    let coitree_synth = BasicCOITree::<u32, u32>::new(&coi_nodes_synth);
-    let coitree_synth_build = t0.elapsed().as_secs_f64() * 1000.0;
-    let coitree_synth_ns = bench_queries(
-        |s, e, out| {
-            coitree_synth.query(s as i32, e as i32, |n| {
-                out.push(n.metadata);
-            });
-        },
-        &synth_queries,
-    );
-
-    let coi_nodes_coi: Vec<CoiInterval<u32>> = coi_ivs
-        .iter()
-        .map(|iv| CoiInterval::new(iv.start as i32, iv.end as i32, iv.val))
-        .collect();
-    let coitree_coi = BasicCOITree::<u32, u32>::new(&coi_nodes_coi);
-    let coitree_coi_ns = bench_queries(
-        |s, e, out| {
-            coitree_coi.query(s as i32, e as i32, |n| {
-                out.push(n.metadata);
-            });
-        },
-        &coi_queries,
-    );
-
-    // 2. ITree64
-    let itree_items_synth: Vec<(Interval, u32)> = synth_ivs
-        .iter()
-        .map(|iv| (Interval::new(iv.start, iv.end).unwrap(), iv.val))
-        .collect();
-    let t0 = Instant::now();
-    let itree_synth = ITree64::new(itree_items_synth);
-    let itree_synth_build = t0.elapsed().as_secs_f64() * 1000.0;
-    let itree_synth_ns = bench_queries(|s, e, out| itree_synth.query(s, e, out), &synth_queries);
-
-    let itree_items_coi: Vec<(Interval, u32)> = coi_ivs
-        .iter()
-        .map(|iv| (Interval::new(iv.start, iv.end).unwrap(), iv.val))
-        .collect();
-    let itree_coi = ITree64::new(itree_items_coi);
-    let itree_coi_ns = bench_queries(|s, e, out| itree_coi.query(s, e, out), &coi_queries);
-
-    // 3. SuperIntervals
-    let t0 = Instant::now();
-    let super_synth = SuperIntervals::new(synth_ivs.clone());
-    let super_synth_build = t0.elapsed().as_secs_f64() * 1000.0;
-    let super_synth_ns = bench_queries(|s, e, out| super_synth.query(s, e, out), &synth_queries);
-
-    let super_coi = SuperIntervals::new(coi_ivs.clone());
-    let super_coi_ns = bench_queries(|s, e, out| super_coi.query(s, e, out), &coi_queries);
-
-    // 4. Lapper
-    let t0 = Instant::now();
-    let lapper_synth = Lapper::new(synth_ivs);
-    let lapper_synth_build = t0.elapsed().as_secs_f64() * 1000.0;
-    let lapper_synth_ns = bench_queries(|s, e, out| lapper_synth.query(s, e, out), &synth_queries);
-
-    let lapper_coi = Lapper::new(coi_ivs);
-    let lapper_coi_ns = bench_queries(|s, e, out| lapper_coi.query(s, e, out), &coi_queries);
-
-    println!("\n## Micro-Benchmark Results");
-    println!(
-        "| Index | Build (ms) | Synthetic (ns/query) | Coitrees (ns/query) | Speedup vs coitrees |"
-    );
-    println!("|---|---|---|---|---|");
-    println!(
-        "| coitrees | {coitree_synth_build:.2} | {coitree_synth_ns:.1} | {coitree_coi_ns:.1} | 1.00x |"
-    );
-    println!(
-        "| ITree64 | {itree_synth_build:.2} | {itree_synth_ns:.1} | {itree_coi_ns:.1} | {:.2}x / {:.2}x |",
-        coitree_synth_ns / itree_synth_ns,
-        coitree_coi_ns / itree_coi_ns
-    );
-    println!(
-        "| superintervals | {super_synth_build:.2} | {super_synth_ns:.1} | {super_coi_ns:.1} | {:.2}x / {:.2}x |",
-        coitree_synth_ns / super_synth_ns,
-        coitree_coi_ns / super_coi_ns
-    );
-    println!(
-        "| rust-lapper | {lapper_synth_build:.2} | {lapper_synth_ns:.1} | {lapper_coi_ns:.1} | {:.2}x / {:.2}x |",
-        coitree_synth_ns / lapper_synth_ns,
-        coitree_coi_ns / lapper_coi_ns
-    );
-
-    let itree_faster =
-        (coitree_synth_ns / itree_synth_ns >= 1.2) && (coitree_coi_ns / itree_coi_ns >= 1.2);
-    let super_faster =
-        (coitree_synth_ns / super_synth_ns >= 1.2) && (coitree_coi_ns / super_coi_ns >= 1.2);
-    let lapper_faster =
-        (coitree_synth_ns / lapper_synth_ns >= 1.2) && (coitree_coi_ns / lapper_coi_ns >= 1.2);
-
-    if itree_faster || super_faster || lapper_faster {
-        println!(
-            "\nRuling: An alternative index exceeded 1.2x speedup over coitrees on both datasets."
-        );
-    } else {
-        println!(
-            "\nRuling: coitrees remains fastest (van Emde Boas cache-oblivious layout); D40 default index upheld."
-        );
+fn bench_build(c: &mut Criterion) {
+    for set in [uniform(42), clustered(43)] {
+        let mut g = c.benchmark_group(format!("build/{}", set.name));
+        g.throughput(Throughput::Elements(set.ivs.len() as u64));
+        let nodes = coi_nodes(&set);
+        g.bench_function("coitrees", |b| {
+            b.iter(|| COITree::<u32, u32>::new(black_box(&nodes)))
+        });
+        g.bench_function("ITree64", |b| {
+            b.iter_with_setup(|| itree_items(&set), |items| ITree64::new(black_box(items)))
+        });
+        g.bench_function("superintervals", |b| {
+            b.iter(|| superintervals(black_box(&set)))
+        });
+        g.bench_function("rust-lapper", |b| b.iter(|| lapper(black_box(&set))));
+        g.finish();
     }
 }
+
+fn bench_query(c: &mut Criterion) {
+    for set in [uniform(42), clustered(43)] {
+        let ix = build(&set);
+        let mut buf = Vec::with_capacity(256);
+        // Every index finds the same hits.
+        let hits: Vec<usize> = NAMES
+            .iter()
+            .map(|n| run_queries(n, &ix, &set.ivs, &set.queries, &mut buf))
+            .collect();
+        assert!(
+            hits.iter().all(|&h| h == hits[0]),
+            "{}: hits differ: {hits:?}",
+            set.name
+        );
+        let mut g = c.benchmark_group(format!("query/{}", set.name));
+        g.throughput(Throughput::Elements(set.queries.len() as u64));
+        for name in NAMES {
+            g.bench_with_input(BenchmarkId::from_parameter(name), &name, |b, name| {
+                b.iter(|| run_queries(name, &ix, &set.ivs, black_box(&set.queries), &mut buf))
+            });
+        }
+        g.finish();
+    }
+}
+
+fn config() -> Criterion {
+    Criterion::default()
+        .sample_size(30)
+        .warm_up_time(Duration::from_secs(1))
+        .measurement_time(Duration::from_secs(3))
+}
+
+criterion_group! {
+    name = benches;
+    config = config();
+    targets = bench_build, bench_query
+}
+criterion_main!(benches);
