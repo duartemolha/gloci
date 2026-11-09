@@ -310,3 +310,271 @@ fn closed_table_unknown_b_contig_fails() {
         "stderr should name the unknown chromosome: {stderr}"
     );
 }
+
+/// Indexed and plain copies of `text` in `dir` (`NAME.bed.gz` with a
+/// `.tbi`, and `plain/NAME.bed.gz` without one).
+fn indexed_pair(dir: &Path, name: &str, text: &str) -> (String, String) {
+    let plain_dir = dir.join("plain");
+    fs::create_dir_all(&plain_dir).unwrap();
+    let idx = bgzf_file(dir, &format!("{name}.bed.gz"), text);
+    gloci().args(["index", &s(&idx)]).assert().success();
+    let plain = bgzf_file(&plain_dir, &format!("{name}.bed.gz"), text);
+    (s(&idx), s(&plain))
+}
+
+/// Run `args` (with `{A}`/`{B}` placeholders) streamed at `-t 1` on the
+/// plain copies, and per chromosome at `-t 2` and `-t 8` on the indexed
+/// ones; every output must be byte-identical.
+fn assert_indexed_equals_streaming(
+    name: &str,
+    template: &[&str],
+    a: &(String, String),
+    b: &(String, String),
+) {
+    let fill = |idx: bool| -> Vec<String> {
+        template
+            .iter()
+            .map(|t| match *t {
+                "{A}" => {
+                    if idx {
+                        a.0.clone()
+                    } else {
+                        a.1.clone()
+                    }
+                }
+                "{B}" => {
+                    if idx {
+                        b.0.clone()
+                    } else {
+                        b.1.clone()
+                    }
+                }
+                o => o.to_string(),
+            })
+            .collect()
+    };
+    let mut base = fill(false);
+    base.extend(["-t".into(), "1".into()]);
+    let base_refs: Vec<&str> = base.iter().map(String::as_str).collect();
+    let want = out(&base_refs);
+    for t in ["2", "8"] {
+        let mut args = fill(true);
+        args.extend(["-t".into(), t.into()]);
+        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        let got = out(&refs);
+        assert_eq!(
+            String::from_utf8_lossy(&got),
+            String::from_utf8_lossy(&want),
+            "{name} -t {t}: indexed output differs from streaming"
+        );
+    }
+}
+
+/// C3: a zero-length record at position 0 is read in indexed mode (whole
+/// chromosome reads apply no footprint filter).
+#[test]
+fn point_at_zero_indexed_equals_streaming() {
+    let dir = tempdir();
+    let a = indexed_pair(
+        dir.path(),
+        "a",
+        "chr1\t0\t0\ta0\nchr1\t5\t10\ta1\nchr2\t3\t8\ta2\n",
+    );
+    let b = indexed_pair(
+        dir.path(),
+        "b",
+        "chr1\t0\t0\tb0\nchr1\t6\t7\tb1\nchr2\t4\t5\tb2\n",
+    );
+    // B without the point: A's point survives subtract.
+    let b2 = indexed_pair(dir.path(), "b2", "chr1\t6\t7\tb1\nchr2\t4\t5\tb2\n");
+    let cases: &[(&str, &[&str])] = &[
+        ("subtract", &["subtract", "-a", "{A}", "-b", "{B}"]),
+        ("coverage", &["coverage", "-a", "{A}", "-b", "{B}"]),
+        (
+            "map",
+            &["map", "-a", "{A}", "-b", "{B}", "-c", "4:collapse"],
+        ),
+        (
+            "closest",
+            &["closest", "-a", "{A}", "-b", "{B}", "--distance"],
+        ),
+        (
+            "pairs",
+            &["intersect", "-a", "{A}", "-b", "{B}", "--mode", "pairs"],
+        ),
+    ];
+    for (name, template) in cases {
+        assert_indexed_equals_streaming(name, template, &a, &b);
+        assert_indexed_equals_streaming(name, template, &a, &b2);
+    }
+    // The point really is in the output.
+    let got = out(&[
+        "intersect",
+        "-a",
+        &a.0,
+        "-b",
+        &b.0,
+        "--mode",
+        "pairs",
+        "-t",
+        "2",
+    ]);
+    assert!(
+        String::from_utf8_lossy(&got).starts_with("chr1\t0\t0\ta0\tchr1\t0\t0\tb0\n"),
+        "{}",
+        String::from_utf8_lossy(&got)
+    );
+}
+
+/// Indexed and plain copies of a VCF.
+fn indexed_vcf_pair(dir: &Path, name: &str, text: &str) -> (String, String) {
+    let plain_dir = dir.join("plain");
+    fs::create_dir_all(&plain_dir).unwrap();
+    let idx = bgzf_file(dir, &format!("{name}.vcf.gz"), text);
+    gloci().args(["index", &s(&idx)]).assert().success();
+    let plain = bgzf_file(&plain_dir, &format!("{name}.vcf.gz"), text);
+    (s(&idx), s(&plain))
+}
+
+/// C2: chromosomes with no B get B file 1's real width in their
+/// placeholder rows, in indexed mode as in streaming mode.
+#[test]
+fn missing_b_chromosomes_indexed_equals_streaming() {
+    let dir = tempdir();
+    let mut a_text = String::new();
+    for c in ["chr1", "chr2", "chr3", "chr4"] {
+        a_text.push_str(&format!("{c}\t100\t200\ta_{c}\t1\t+\n"));
+        a_text.push_str(&format!("{c}\t500\t600\tb_{c}\t2\t-\n"));
+    }
+    let a = indexed_pair(dir.path(), "a", &a_text);
+    // B only on chr1 and chr3, six columns.
+    let b = indexed_pair(
+        dir.path(),
+        "b",
+        "chr1\t150\t160\tb1\t9\t+\nchr3\t700\t800\tb3\t9\t-\n",
+    );
+    let b2 = indexed_pair(dir.path(), "b2", "chr3\t120\t130\tc3\t8\t+\n");
+    let cases: &[(&str, &[&str])] = &[
+        (
+            "closest --distance",
+            &["closest", "-a", "{A}", "-b", "{B}", "--distance"],
+        ),
+        (
+            "closest --each-side",
+            &["closest", "-a", "{A}", "-b", "{B}", "--each-side"],
+        ),
+        (
+            "pairs --keep-unmatched",
+            &[
+                "intersect",
+                "-a",
+                "{A}",
+                "-b",
+                "{B}",
+                "--mode",
+                "pairs",
+                "--keep-unmatched",
+            ],
+        ),
+    ];
+    for (name, template) in cases {
+        assert_indexed_equals_streaming(name, template, &a, &b);
+    }
+    // --per-file over two B files (B file 1 sets the width).
+    let fill = |idx: bool, t: &str| -> Vec<String> {
+        let pick = |p: &(String, String)| if idx { p.0.clone() } else { p.1.clone() };
+        vec![
+            "closest".into(),
+            "-a".into(),
+            pick(&a),
+            "-b".into(),
+            pick(&b),
+            pick(&b2),
+            "--per-file".into(),
+            "--distance".into(),
+            "-t".into(),
+            t.into(),
+        ]
+    };
+    let base = fill(false, "1");
+    let want = out(&base.iter().map(String::as_str).collect::<Vec<_>>());
+    for t in ["2", "8"] {
+        let args = fill(true, t);
+        let got = out(&args.iter().map(String::as_str).collect::<Vec<_>>());
+        assert_eq!(
+            String::from_utf8_lossy(&got),
+            String::from_utf8_lossy(&want),
+            "closest --per-file -t {t}"
+        );
+    }
+    // Every placeholder has B's six columns.
+    let got = out(&[
+        "intersect",
+        "-a",
+        &a.0,
+        "-b",
+        &b.0,
+        "--mode",
+        "pairs",
+        "--keep-unmatched",
+        "-t",
+        "2",
+    ]);
+    let got = String::from_utf8(got).unwrap();
+    assert!(
+        got.contains("chr2\t100\t200\ta_chr2\t1\t+\t.\t-1\t-1\t.\t-1\t.\n"),
+        "{got}"
+    );
+    for line in got.lines() {
+        assert_eq!(line.split('\t').count(), 12, "ragged row: {line}");
+    }
+
+    // A VCF A: the #CHROM line names six B columns and every row has them.
+    let vcf = "##fileformat=VCFv4.3\n##contig=<ID=chr1,length=10000>\n\
+##contig=<ID=chr2,length=10000>\n##contig=<ID=chr3,length=10000>\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+chr1\t155\tv1\tA\tG\t.\tPASS\t.\nchr2\t155\tv2\tA\tG\t.\tPASS\t.\n\
+chr3\t755\tv3\tA\tG\t.\tPASS\t.\n";
+    let va = indexed_vcf_pair(dir.path(), "a", vcf);
+    let vcf_cases: &[(&str, &[&str])] = &[
+        (
+            "vcf closest",
+            &["closest", "-a", "{A}", "-b", "{B}", "--distance"],
+        ),
+        (
+            "vcf pairs --keep-unmatched",
+            &[
+                "intersect",
+                "-a",
+                "{A}",
+                "-b",
+                "{B}",
+                "--mode",
+                "pairs",
+                "--keep-unmatched",
+            ],
+        ),
+    ];
+    for (name, template) in vcf_cases {
+        assert_indexed_equals_streaming(name, template, &va, &b);
+    }
+    let got = out(&[
+        "intersect",
+        "-a",
+        &va.0,
+        "-b",
+        &b.0,
+        "--mode",
+        "pairs",
+        "--keep-unmatched",
+        "-t",
+        "2",
+    ]);
+    let got = String::from_utf8(got).unwrap();
+    let header = got.lines().next().unwrap();
+    assert!(header.ends_with("\tb_1\tb_2\tb_3\tb_4\tb_5\tb_6"), "{got}");
+    let width = header.split('\t').count();
+    for line in got.lines() {
+        assert_eq!(line.split('\t').count(), width, "ragged row: {line}");
+    }
+}

@@ -1,5 +1,5 @@
 use gloci_engine::chunk::ChunkSink;
-use gloci_engine::parallel::{all_indexed, run_per_chrom};
+use gloci_engine::parallel::{all_indexed, run_chunks};
 use gloci_io::{IoError, RecordWriter};
 use std::num::NonZeroUsize;
 use tempfile::tempdir;
@@ -63,7 +63,7 @@ fn chunk_sink_drop_cleans_up() {
 }
 
 #[test]
-fn run_per_chrom_order_and_determinism() {
+fn run_chunks_order_and_determinism() {
     let dir = tempdir().unwrap();
     let chroms = vec![
         b"chr1".to_vec(),
@@ -77,11 +77,11 @@ fn run_per_chrom_order_and_determinism() {
     let mut out = VecWriter::new();
     let threads = NonZeroUsize::new(4).unwrap();
 
-    let res = run_per_chrom(
+    let res = run_chunks(
         chroms.clone(),
         threads,
         dir.path(),
-        &|chrom: &[u8], sink: &mut ChunkSink| {
+        &|chrom: &Vec<u8>, sink: &mut ChunkSink| {
             let row = format!("{}\t10\t20", String::from_utf8_lossy(chrom));
             sink.write_record(row.as_bytes()).unwrap();
             Ok(chrom.to_vec())
@@ -99,7 +99,7 @@ fn run_per_chrom_order_and_determinism() {
 }
 
 #[test]
-fn run_per_chrom_error_stops_and_cleans_up() {
+fn run_chunks_error_stops_and_cleans_up() {
     let dir = tempdir().unwrap();
     let chroms = vec![
         b"chr1".to_vec(),
@@ -111,11 +111,11 @@ fn run_per_chrom_error_stops_and_cleans_up() {
     let mut out = VecWriter::new();
     let threads = NonZeroUsize::new(2).unwrap();
 
-    let err = run_per_chrom(
+    let err = run_chunks(
         chroms,
         threads,
         dir.path(),
-        &|chrom: &[u8], sink: &mut ChunkSink| {
+        &|chrom: &Vec<u8>, sink: &mut ChunkSink| {
             if chrom == b"chr2" {
                 return Err(IoError::Parse {
                     path: "test".to_string(),

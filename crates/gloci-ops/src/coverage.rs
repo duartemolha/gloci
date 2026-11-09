@@ -16,7 +16,10 @@
 //! fraction per file (D57).
 
 use crate::intersect::Text;
-use crate::relate::{Acceptor, RelateInputs, RelateOptions, run_relation};
+use crate::relate::{
+    Acceptor, RelateInputs, RelateOptions, RelationFiles, RunOptions, run_files, run_relation_in,
+};
+use gloci_core::ChromTable;
 use gloci_core::Interval;
 use gloci_engine::{ARec, Hit, Neighbours, SweepSummary, Visitor};
 use gloci_io::{IoError, RecordWriter, UsageError};
@@ -300,16 +303,52 @@ impl Visitor for Reporter<'_, '_> {
 }
 
 /// Run `coverage` over `inputs`, writing TSV rows to `w` (`open_report`
-/// with `ReportOutput::Tsv`, columns from `column_names`). Nothing is
-/// finished here, and the `--hist` `all` rows are not written: the caller
-/// calls `write_hist_totals` with the returned totals, then `finish`.
+/// with `ReportOutput::Tsv`, columns from `column_names`), and with
+/// `--hist` the `all` rows last. Nothing is finished here; the caller calls
+/// `finish`.
 pub fn coverage(
     inputs: RelateInputs,
     o: &CoverageOptions,
     w: &mut dyn RecordWriter,
 ) -> Result<(SweepSummary, CoverageTotals), IoError> {
+    validate(o, inputs.b.len())?;
+    let (summary, totals) = coverage_in(inputs, None, o, w)?;
+    if o.report == CoverageReport::Hist {
+        write_hist_totals(&totals, w)?;
+    }
+    Ok((summary, totals))
+}
+
+/// Run `coverage` over the files a command opened: per chromosome when
+/// every input is indexed (D41), else streamed. Writes as [`coverage`],
+/// the `--hist` totals summed over every chromosome.
+pub fn coverage_files(
+    files: RelationFiles,
+    o: &CoverageOptions,
+    w: &mut dyn RecordWriter,
+    run: &RunOptions,
+) -> Result<(SweepSummary, CoverageTotals), IoError> {
+    validate(o, files.b_count())?;
+    let (summary, parts) = run_files(files, &o.relate, run, w, &|inputs, chroms, w| {
+        coverage_in(inputs, chroms, o, w)
+    })?;
+    let mut totals = CoverageTotals::default();
+    for t in &parts {
+        totals.merge(t);
+    }
+    if o.report == CoverageReport::Hist {
+        write_hist_totals(&totals, w)?;
+    }
+    Ok((summary, totals))
+}
+
+fn coverage_in(
+    inputs: RelateInputs,
+    chroms: Option<ChromTable>,
+    o: &CoverageOptions,
+    w: &mut dyn RecordWriter,
+) -> Result<(SweepSummary, CoverageTotals), IoError> {
     let n_b = inputs.b.len();
-    validate(o, n_b)?;
     let a = Text::new(inputs.a.as_ref())?;
     let acceptor = Acceptor::new(&o.relate, &inputs);
     let mut reporter = Reporter {
@@ -322,6 +361,6 @@ pub fn coverage(
         row: Vec::new(),
         totals: CoverageTotals::default(),
     };
-    let summary = run_relation(inputs, &o.relate, None, &mut reporter)?;
+    let summary = run_relation_in(inputs, chroms, &o.relate, None, &mut reporter)?;
     Ok((summary, reporter.totals))
 }

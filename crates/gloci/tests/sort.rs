@@ -725,3 +725,192 @@ fn two_vcfs_one_command_line_first_header() {
     assert!(out.contains("##source=first\n") && !out.contains("##source=second"));
     assert!(out.find("\nchr1\t2").unwrap() < out.find("\nchr1\t5").unwrap());
 }
+
+// ---- C1: every input is read exactly once (stdin, pipes, FIFOs) ----
+
+#[cfg(unix)]
+#[test]
+fn stdin_plus_file_keeps_every_record() {
+    let d = tempdir();
+    let b = w(d.path(), "b.bed", "chr1\t5\t6\nchr1\t1\t2\n");
+    let out = bash_gloci(&format!("sort - '{b}'"), "chr2\t1\t2\nchr1\t3\t4\n");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(out.stdout).unwrap(),
+        "chr1\t1\t2\nchr1\t3\t4\nchr1\t5\t6\nchr2\t1\t2\n"
+    );
+    // File first, stdin second.
+    let out = bash_gloci(&format!("sort '{b}' -"), "chr2\t1\t2\nchr1\t3\t4\n");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(out.stdout).unwrap(),
+        "chr1\t1\t2\nchr1\t3\t4\nchr1\t5\t6\nchr2\t1\t2\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn process_substitutions_keep_every_record() {
+    let out = bash_gloci(
+        "sort <(printf 'chr2\\t1\\t2\\nchr1\\t9\\t10\\n') <(printf 'chr1\\t1\\t2\\n')",
+        "",
+    );
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(out.stdout).unwrap(),
+        "chr1\t1\t2\nchr1\t9\t10\nchr2\t1\t2\n"
+    );
+    let out = bash_gloci(
+        "sort -m <(printf 'chr1\\t1\\t2\\nchr1\\t5\\t6\\n') <(printf 'chr1\\t3\\t4\\n')",
+        "",
+    );
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(out.stdout).unwrap(),
+        "chr1\t1\t2\nchr1\t3\t4\nchr1\t5\t6\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn check_reads_piped_inputs() {
+    let out = bash_gloci(
+        "sort --check <(printf 'chr1\\t5\\t6\\nchr1\\t1\\t2\\n') <(printf 'chr1\\t3\\t4\\n')",
+        "",
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("is not sorted"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // Sorted pipes pass.
+    let out = bash_gloci(
+        "sort --check <(printf 'chr1\\t1\\t2\\n') <(printf 'chr1\\t3\\t4\\n')",
+        "",
+    );
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// A stdin of many batches (and more than the 64 KiB detection peek).
+fn many_lines(n: usize, chrom: &str) -> String {
+    (0..n)
+        .map(|i| format!("{chrom}\t{}\t{}\n", n - i, n - i + 1))
+        .collect()
+}
+
+#[cfg(unix)]
+#[test]
+fn large_stdin_plus_file() {
+    let d = tempdir();
+    let b = w(d.path(), "b.bed", "chr1\t0\t1\n");
+    let input = many_lines(30_000, "chr1");
+    let out = bash_gloci(&format!("sort - '{b}'"), &input);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let got = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(got.lines().count(), 30_001);
+    assert!(got.starts_with("chr1\t0\t1\nchr1\t1\t2\nchr1\t2\t3\n"));
+}
+
+/// More inputs than one merge round holds open (`--max-mem 16M` gives a
+/// fan-in of 42): stdin is spooled once and every record survives in
+/// `sort`, `sort -m` and `--check`.
+#[cfg(unix)]
+#[test]
+fn stdin_among_more_inputs_than_the_fan_in() {
+    let d = tempdir();
+    let mut files = Vec::new();
+    let mut want = Vec::new();
+    for i in 0..60u64 {
+        let s = 1000 + i * 10;
+        files.push(format!(
+            "'{}'",
+            w(
+                d.path(),
+                &format!("f{i:02}.bed"),
+                &format!("chr1\t{s}\t{}\n", s + 1)
+            )
+        ));
+        want.push((s, s + 1));
+    }
+    // stdin: sorted (for -m), many batches, interleaved with the files.
+    let mut input = String::new();
+    for i in 0..20_000u64 {
+        input.push_str(&format!("chr1\t{}\t{}\n", i * 2, i * 2 + 1));
+        want.push((i * 2, i * 2 + 1));
+    }
+    want.sort();
+    let want: String = want
+        .iter()
+        .map(|(s, e)| format!("chr1\t{s}\t{e}\n"))
+        .collect();
+    let mut args = files.clone();
+    args.insert(30, "-".into());
+    let list = args.join(" ");
+    let tmp = d.path().join("tmp");
+    std::fs::create_dir(&tmp).unwrap();
+    let tmp = tmp.display().to_string();
+    for mode in ["", "-m"] {
+        let out = bash_gloci(
+            &format!("sort {mode} --max-mem 16M --tmp-dir '{tmp}' {list}"),
+            &input,
+        );
+        assert!(
+            out.status.success(),
+            "{mode}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(
+            String::from_utf8(out.stdout).unwrap() == want,
+            "{mode}: output differs"
+        );
+    }
+    let out = bash_gloci(&format!("sort --check --max-mem 16M {list}"), &input);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // An unsorted stdin among them fails the check.
+    let out = bash_gloci(
+        &format!("sort --check --max-mem 16M {list}"),
+        "chr1\t9\t10\nchr1\t1\t2\n",
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // No spool left behind.
+    assert_eq!(std::fs::read_dir(&tmp).unwrap().count(), 0);
+}

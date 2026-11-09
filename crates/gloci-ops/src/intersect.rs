@@ -6,16 +6,12 @@
 //! order, hits by B file and then B input order (D38).
 
 use crate::relate::{
-    Acceptor, RelateInputs, RelateOptions, b_placeholder, rewrite_coords, run_relation,
+    Acceptor, RelateInputs, RelateOptions, RelationFiles, ReportOutput, RunOptions, b_placeholder,
+    b_width, relation_chroms, rewrite_coords, run_files, run_relation_in,
 };
 use gloci_core::{ChromTable, Interval, StrandRule, Window, trimmed_alleles};
 use gloci_engine::{ARec, Hit, Neighbours, SweepSummary, Visitor};
-use gloci_io::{
-    BcfText, Compression, Diagnostics, Format, Header, IoError, RecordBatch, RecordReader,
-    RecordWriter, UsageError, column_count, field,
-};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use gloci_io::{BcfText, Format, IoError, RecordReader, RecordWriter, UsageError, field};
 
 /// What `intersect` writes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -106,44 +102,6 @@ alleles of two records, not how much they overlap; drop {flag} or use --match ov
     Ok(())
 }
 
-/// Passes records through and notes the column count of the first one.
-pub(crate) struct ColumnWatch {
-    inner: Box<dyn RecordReader>,
-    columns: Arc<AtomicUsize>,
-}
-
-impl RecordReader for ColumnWatch {
-    fn name(&self) -> &str {
-        self.inner.name()
-    }
-    fn format(&self) -> Format {
-        self.inner.format()
-    }
-    fn compression(&self) -> Compression {
-        self.inner.compression()
-    }
-    fn header(&self) -> &Header {
-        self.inner.header()
-    }
-    fn read_batch(
-        &mut self,
-        chroms: &mut ChromTable,
-        batch: &mut RecordBatch,
-        max: usize,
-    ) -> Result<bool, IoError> {
-        let before = batch.len();
-        let more = self.inner.read_batch(chroms, batch, max)?;
-        if self.columns.load(Ordering::Relaxed) == 0 && batch.len() > before {
-            self.columns
-                .store(column_count(batch.raw(before)), Ordering::Relaxed);
-        }
-        Ok(more)
-    }
-    fn diagnostics(&self) -> &Diagnostics {
-        self.inner.diagnostics()
-    }
-}
-
 /// How to print one input's records as text.
 pub(crate) struct Text {
     pub(crate) format: Format,
@@ -200,49 +158,6 @@ fn share_allele(a: &[u8], b: &[u8]) -> bool {
     })
 }
 
-/// How many columns a missing B (D45) has: known up front for VCF/GFF,
-/// else read from B's first record. With `watch`, the first B input is
-/// wrapped to note that record's column count as it is read.
-pub(crate) fn missing_b_columns(inputs: &mut RelateInputs, watch: bool) -> Columns {
-    match inputs.b.first().map(|r| (r.format(), r.header())) {
-        Some((Format::Bed | Format::BedGraph, _)) | None => {
-            let seen = Arc::new(AtomicUsize::new(0));
-            if watch && !inputs.b.is_empty() {
-                let first = inputs.b.remove(0);
-                inputs.b.insert(
-                    0,
-                    Box::new(ColumnWatch {
-                        inner: first,
-                        columns: seen.clone(),
-                    }),
-                );
-            }
-            Columns::FirstRecord(seen)
-        }
-        Some((Format::Gff3 | Format::Gtf, _)) => Columns::Fixed(9),
-        Some((_, Header::Vcf(h))) => Columns::Fixed(if h.samples.is_empty() {
-            8
-        } else {
-            9 + h.samples.len()
-        }),
-        Some(_) => Columns::Fixed(8),
-    }
-}
-
-impl Columns {
-    /// The count to give `b_placeholder`: B is empty or unread means the
-    /// shortest BED line.
-    pub(crate) fn count(&self) -> usize {
-        match self {
-            Columns::Fixed(n) => *n,
-            Columns::FirstRecord(c) => match c.load(Ordering::Relaxed) {
-                0 => 3,
-                n => n,
-            },
-        }
-    }
-}
-
 struct Reporter<'o, 'w> {
     mode: Mode,
     matching: Match,
@@ -252,17 +167,11 @@ struct Reporter<'o, 'w> {
     b: Vec<Text>,
     /// One label per B file when there are several, else empty.
     labels: &'o [String],
-    /// Columns of a missing B (D45): known up front for VCF/GFF, else read
-    /// from B's first record.
-    b0_columns: Columns,
+    /// Columns of a missing B (D45): those of B file 1.
+    b_width: usize,
     row: Vec<u8>,
     /// A's VCF line, kept for the allele comparison.
     a_line: Vec<u8>,
-}
-
-pub(crate) enum Columns {
-    Fixed(usize),
-    FirstRecord(Arc<AtomicUsize>),
 }
 
 impl Reporter<'_, '_> {
@@ -373,8 +282,7 @@ impl Visitor for Reporter<'_, '_> {
                         self.row.extend_from_slice(b"\t.");
                     }
                     self.row.push(b'\t');
-                    let columns = self.b0_columns.count();
-                    b_placeholder(self.b[0].format, columns, &mut self.row);
+                    b_placeholder(self.b[0].format, self.b_width, &mut self.row);
                     if overlap_bases {
                         self.row.extend_from_slice(b"\t0");
                     }
@@ -386,6 +294,31 @@ impl Visitor for Reporter<'_, '_> {
     }
 }
 
+/// Whether the output can hold a missing-B placeholder (D45), whose width
+/// comes from B file 1.
+fn needs_b_width(o: &IntersectOptions) -> bool {
+    matches!(
+        o.mode,
+        Mode::Pairs {
+            keep_unmatched: true,
+            ..
+        }
+    )
+}
+
+/// The checks that need only the inputs' formats and count.
+fn check(a: Format, b: &[Format], o: &IntersectOptions) -> Result<(), IoError> {
+    validate(a, b, o)?;
+    if b.len() > 1 && matches!(o.mode, Mode::Pairs { .. }) && o.relate.labels.len() != b.len() {
+        return Err(usage(format!(
+            "{} -b files but {} labels; give one label per -b",
+            b.len(),
+            o.relate.labels.len()
+        )));
+    }
+    Ok(())
+}
+
 /// Run `intersect` over `inputs`, writing to `w`. The writer must already
 /// match the mode: A's format for `any`, `none` and `clip`, TSV otherwise
 /// (`open_report`). Nothing is finished here; the caller calls `finish`.
@@ -395,29 +328,81 @@ pub fn intersect(
     w: &mut dyn RecordWriter,
 ) -> Result<SweepSummary, IoError> {
     let b_formats: Vec<Format> = inputs.b.iter().map(|r| r.format()).collect();
-    validate(inputs.a.format(), &b_formats, o)?;
+    check(inputs.a.format(), &b_formats, o)?;
+    let (chroms, width) = if needs_b_width(o) {
+        let mut chroms = relation_chroms(&inputs, &o.relate)?;
+        let width = b_width(&mut inputs, &mut chroms)?;
+        (Some(chroms), width)
+    } else {
+        (None, 3)
+    };
+    intersect_in(inputs, chroms, width, o, w)
+}
+
+/// Run `intersect` over the files a command opened: per chromosome when
+/// every input is indexed (D41), else streamed. Writes as [`intersect`].
+pub fn intersect_files(
+    mut files: RelationFiles,
+    o: &IntersectOptions,
+    w: &mut dyn RecordWriter,
+    run: &RunOptions,
+) -> Result<SweepSummary, IoError> {
+    check(files.a().format(), &files.b_formats(), o)?;
+    let width = if needs_b_width(o) {
+        files.b_width(&o.relate)?
+    } else {
+        3
+    };
+    let (summary, _) = run_files(files, &o.relate, run, w, &|inputs, chroms, w| {
+        Ok((intersect_in(inputs, chroms, width, o, w)?, ()))
+    })?;
+    Ok(summary)
+}
+
+/// What `intersect` writes for `o.mode` over `files`: A's records, or TSV
+/// with the appended column names (D42). B's column names are needed only
+/// for a VCF/BCF A, which gets a column-name line.
+pub fn intersect_output(
+    files: &mut RelationFiles,
+    o: &IntersectOptions,
+) -> Result<ReportOutput, IoError> {
+    Ok(match o.mode {
+        Mode::Pairs { overlap_bases, .. } => {
+            let mut names = Vec::new();
+            if files.b_count() > 1 {
+                names.push("b_name".to_string());
+            }
+            if is_variant(files.a().format()) {
+                names.extend(files.b_column_names(&o.relate)?);
+            }
+            if overlap_bases {
+                names.push("overlap_bases".to_string());
+            }
+            ReportOutput::Tsv { appended: names }
+        }
+        Mode::Count => ReportOutput::Tsv {
+            appended: vec!["count".to_string()],
+        },
+        _ => ReportOutput::SameAsA,
+    })
+}
+
+/// [`intersect`] once the options are checked, with B file 1's width and,
+/// when something was read with it, the chromosome table.
+fn intersect_in(
+    inputs: RelateInputs,
+    chroms: Option<ChromTable>,
+    b_width: usize,
+    o: &IntersectOptions,
+    w: &mut dyn RecordWriter,
+) -> Result<SweepSummary, IoError> {
     let multi = inputs.b.len() > 1;
-    if multi && matches!(o.mode, Mode::Pairs { .. }) && o.relate.labels.len() != inputs.b.len() {
-        return Err(usage(format!(
-            "{} -b files but {} labels; give one label per -b",
-            inputs.b.len(),
-            o.relate.labels.len()
-        )));
-    }
     let a = Text::new(inputs.a.as_ref())?;
     let b = inputs
         .b
         .iter()
         .map(|r| Text::new(r.as_ref()))
         .collect::<Result<Vec<_>, _>>()?;
-    let watch = matches!(
-        o.mode,
-        Mode::Pairs {
-            keep_unmatched: true,
-            ..
-        }
-    );
-    let b0_columns = missing_b_columns(&mut inputs, watch);
     // Candidates for allele matching: a shared trimmed allele lies at most
     // one base from each record's footprint (an insertion is a point just
     // past an anchor base, and a footprint can end where the other starts),
@@ -445,9 +430,9 @@ pub fn intersect(
         } else {
             &[]
         },
-        b0_columns,
+        b_width,
         row: Vec::new(),
         a_line: Vec::new(),
     };
-    run_relation(inputs, relate, None, &mut reporter)
+    run_relation_in(inputs, chroms, relate, None, &mut reporter)
 }

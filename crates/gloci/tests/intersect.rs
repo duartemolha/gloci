@@ -642,3 +642,67 @@ fn match_alleles_refuses_overlap_options() {
             .stderr(contains("--match alleles"));
     }
 }
+
+/// A VCF A and a large BED6 B (more than the 64 KiB detection peek).
+#[cfg(unix)]
+fn vcf_a_and_big_bed(d: &Path) -> (String, String) {
+    let mut vcf = String::from(
+        "##fileformat=VCFv4.3\n##contig=<ID=chr1,length=10000000>\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n",
+    );
+    let mut bed = String::new();
+    for i in 0..5_000u64 {
+        let p = 1_000 + i * 100;
+        vcf.push_str(&format!("chr1\t{}\tv{i}\tA\tG\t.\tPASS\t.\n", p + 3));
+        bed.push_str(&format!("chr1\t{p}\t{}\tfeature_{i}\t0\t+\n", p + 10));
+    }
+    (
+        s(&plain_file(d, "a.vcf", &vcf)),
+        s(&plain_file(d, "big.bed", &bed)),
+    )
+}
+
+/// C4: a piped B with a VCF A loses no records (B's width is read ahead
+/// from the reader already open, never by reopening the pipe).
+#[cfg(unix)]
+#[test]
+fn piped_b_with_vcf_a_matches_regular_file() {
+    let d = tempdir();
+    let (a, b) = vcf_a_and_big_bed(d.path());
+    for extra in ["--mode pairs", "--mode pairs --keep-unmatched"] {
+        let want = bash_gloci(&format!("intersect -a '{a}' -b '{b}' {extra}"), "");
+        assert!(
+            want.status.success(),
+            "{}",
+            String::from_utf8_lossy(&want.stderr)
+        );
+        let got = bash_gloci(&format!("intersect -a '{a}' -b <(cat '{b}') {extra}"), "");
+        assert!(
+            got.status.success(),
+            "{}",
+            String::from_utf8_lossy(&got.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&got.stdout),
+            String::from_utf8_lossy(&want.stdout),
+            "{extra}"
+        );
+        // stdin as B too.
+        let bed = std::fs::read_to_string(&b).unwrap();
+        let got = bash_gloci(&format!("intersect -a '{a}' -b - {extra}"), &bed);
+        assert!(
+            got.status.success(),
+            "{}",
+            String::from_utf8_lossy(&got.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&got.stdout),
+            String::from_utf8_lossy(&want.stdout),
+            "stdin {extra}"
+        );
+    }
+    let want = bash_gloci(&format!("intersect -a '{a}' -b '{b}' --mode pairs"), "");
+    let text = String::from_utf8(want.stdout).unwrap();
+    assert!(text.lines().next().unwrap().ends_with("\tb_6"), "{text}");
+    assert_eq!(text.lines().count(), 5_001);
+}

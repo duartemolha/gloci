@@ -17,6 +17,20 @@ pub enum Format {
     Gtf,
 }
 
+impl Format {
+    /// The name users know the format by, for messages.
+    pub fn name(self) -> &'static str {
+        match self {
+            Format::Bed => "BED",
+            Format::BedGraph => "bedGraph",
+            Format::Vcf => "VCF",
+            Format::Bcf => "BCF",
+            Format::Gff3 => "GFF3",
+            Format::Gtf => "GTF",
+        }
+    }
+}
+
 impl FromStr for Format {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, String> {

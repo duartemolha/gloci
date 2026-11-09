@@ -44,15 +44,16 @@ pub fn all_indexed(paths: &[&str]) -> bool {
     true
 }
 
-/// Run `work` for each chromosome in `chroms` across up to `threads` workers,
-/// with at most `threads` chunks in flight. Drains finished chunks to `out` in
-/// strict chromosome order. Returns results in chromosome order.
+/// Run `work` for each chunk job in `chroms` (for example a chromosome, or a
+/// run of consecutive chromosomes) across up to `threads` workers, with at
+/// most `threads` chunks in flight. Drains finished chunks to `out` in strict
+/// job order. Returns results in job order.
 #[allow(clippy::type_complexity)]
-pub fn run_per_chrom<R: Send>(
-    chroms: Vec<Vec<u8>>,
+pub fn run_chunks<J: Clone + Send + Sync, R: Send>(
+    chroms: Vec<J>,
     threads: NonZeroUsize,
     tmp_dir: &Path,
-    work: &(dyn Fn(&[u8], &mut ChunkSink) -> Result<R, IoError> + Sync),
+    work: &(dyn Fn(&J, &mut ChunkSink) -> Result<R, IoError> + Sync),
     out: &mut dyn RecordWriter,
 ) -> Result<Vec<R>, IoError> {
     if chroms.is_empty() {
@@ -72,7 +73,7 @@ pub fn run_per_chrom<R: Send>(
 
     std::thread::scope(|s| {
         let num_workers = threads.get().min(chroms.len());
-        let (job_tx, job_rx) = crossbeam_channel::bounded::<(usize, Vec<u8>)>(threads.get());
+        let (job_tx, job_rx) = crossbeam_channel::bounded::<(usize, J)>(threads.get());
         let (result_tx, result_rx) =
             crossbeam_channel::bounded::<(usize, Result<(R, ChunkSink), IoError>)>(threads.get());
         let cancelled = Arc::new(AtomicBool::new(false));

@@ -22,11 +22,14 @@
 //! - **No candidate:** one row with the D45 placeholder for B and `-1` as
 //!   the distance.
 
-use crate::intersect::{Columns, Text, missing_b_columns};
-use crate::relate::{Acceptor, RelateInputs, RelateOptions, b_placeholder, run_relation};
-use gloci_core::{SignFrame, signed_distance};
+use crate::intersect::Text;
+use crate::relate::{
+    Acceptor, RelateInputs, RelateOptions, RelationFiles, ReportOutput, RunOptions, b_placeholder,
+    b_width, relation_chroms, run_files, run_relation_in,
+};
+use gloci_core::{ChromTable, SignFrame, signed_distance};
 use gloci_engine::{ARec, Hit, NearestConfig, Neighbours, SweepSummary, Visitor};
-use gloci_io::{IoError, RecordWriter, UsageError};
+use gloci_io::{Format, IoError, RecordWriter, UsageError};
 
 /// Which of several equally near B to report.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -116,7 +119,8 @@ struct Reporter<'o, 'w> {
     b: Vec<Text>,
     /// One label per B file when there are several, else empty.
     labels: &'o [String],
-    b0_columns: Columns,
+    /// Columns of a missing B (D45): those of B file 1.
+    b_width: usize,
     row: Vec<u8>,
     files: u16,
 }
@@ -160,7 +164,7 @@ impl Reporter<'_, '_> {
                     self.row.extend_from_slice(b"\t.");
                 }
                 self.row.push(b'\t');
-                b_placeholder(self.b[0].format, self.b0_columns.count(), &mut self.row);
+                b_placeholder(self.b[0].format, self.b_width, &mut self.row);
                 if with_distance {
                     self.row.extend_from_slice(b"\t-1");
                 }
@@ -296,6 +300,20 @@ impl Visitor for Reporter<'_, '_> {
     }
 }
 
+/// The checks that need only the number of B files.
+fn check(n_b: usize, o: &ClosestOptions) -> Result<(), IoError> {
+    validate(o)?;
+    if n_b > 1 && o.relate.labels.len() != n_b {
+        return Err(usage(format!(
+            "{} -b files but {} labels; give one label per -b",
+            n_b,
+            o.relate.labels.len()
+        )));
+    }
+    u16::try_from(n_b).map_err(|_| usage("too many -b files; closest takes at most 65535"))?;
+    Ok(())
+}
+
 /// Run `closest` over `inputs`, writing TSV rows to `w` (`open_report` with
 /// `ReportOutput::Tsv`). Nothing is finished here; the caller calls
 /// `finish`.
@@ -304,15 +322,67 @@ pub fn closest(
     o: &ClosestOptions,
     w: &mut dyn RecordWriter,
 ) -> Result<SweepSummary, IoError> {
-    validate(o)?;
-    let multi = inputs.b.len() > 1;
-    if multi && o.relate.labels.len() != inputs.b.len() {
-        return Err(usage(format!(
-            "{} -b files but {} labels; give one label per -b",
-            inputs.b.len(),
-            o.relate.labels.len()
-        )));
+    check(inputs.b.len(), o)?;
+    let mut chroms = relation_chroms(&inputs, &o.relate)?;
+    let width = b_width(&mut inputs, &mut chroms)?;
+    closest_in(inputs, Some(chroms), width, o, w)
+}
+
+/// Run `closest` over the files a command opened: per chromosome when
+/// every input is indexed (D41), else streamed. Writes as [`closest`].
+pub fn closest_files(
+    mut files: RelationFiles,
+    o: &ClosestOptions,
+    w: &mut dyn RecordWriter,
+    run: &RunOptions,
+) -> Result<SweepSummary, IoError> {
+    check(files.b_count(), o)?;
+    let width = files.b_width(&o.relate)?;
+    let (summary, _) = run_files(files, &o.relate, run, w, &|inputs, chroms, w| {
+        Ok((closest_in(inputs, chroms, width, o, w)?, ()))
+    })?;
+    Ok(summary)
+}
+
+/// The TSV columns `closest` appends (D42). They are named only for a
+/// VCF/BCF A, which gets a column-name line.
+pub fn closest_output(
+    files: &mut RelationFiles,
+    o: &ClosestOptions,
+) -> Result<ReportOutput, IoError> {
+    let mut names = Vec::new();
+    if matches!(files.a().format(), Format::Vcf | Format::Bcf) {
+        let multi = files.b_count() > 1;
+        let shows_distance = o.distance || o.signed.is_some();
+        let sides: &[&str] = if o.each_side {
+            &["up_", "down_"]
+        } else {
+            &[""]
+        };
+        let b = files.b_column_names(&o.relate)?;
+        for side in sides {
+            if multi {
+                names.push(format!("{side}b_name"));
+            }
+            names.extend(b.iter().map(|n| format!("{side}{n}")));
+            if shows_distance {
+                names.push(format!("{side}distance"));
+            }
+        }
     }
+    Ok(ReportOutput::Tsv { appended: names })
+}
+
+/// [`closest`] once the options are checked, with B file 1's width and,
+/// when something was read with it, the chromosome table.
+fn closest_in(
+    inputs: RelateInputs,
+    chroms: Option<ChromTable>,
+    b_width: usize,
+    o: &ClosestOptions,
+    w: &mut dyn RecordWriter,
+) -> Result<SweepSummary, IoError> {
+    let multi = inputs.b.len() > 1;
     let files = u16::try_from(inputs.b.len())
         .map_err(|_| usage("too many -b files; closest takes at most 65535"))?;
     let a = Text::new(inputs.a.as_ref())?;
@@ -321,7 +391,6 @@ pub fn closest(
         .iter()
         .map(|r| Text::new(r.as_ref()))
         .collect::<Result<Vec<_>, _>>()?;
-    let b0_columns = missing_b_columns(&mut inputs, true);
     let frame = o.signed.unwrap_or(SignFrame::Ref);
     // `--signed b` with a filter on direction: which side of A a B is on
     // does not tell its direction, so keep k per B strand.
@@ -343,9 +412,9 @@ pub fn closest(
         a,
         b,
         labels: if multi { &relate.labels } else { &[] },
-        b0_columns,
+        b_width,
         row: Vec::new(),
         files,
     };
-    run_relation(inputs, relate, Some(nearest), &mut reporter)
+    run_relation_in(inputs, chroms, relate, Some(nearest), &mut reporter)
 }

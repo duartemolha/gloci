@@ -1,16 +1,17 @@
 //! `gloci coverage`: how much of each A the B records cover.
 use crate::Ctx;
 use crate::cli::CoverageArgs;
-use crate::commands::{relation_hint, sort_aware, sort_settings, user_span};
+use crate::commands::{
+    relation_files, relation_hint, run_options, sort_aware, sort_settings, user_span,
+};
 use gloci_io::{
-    Format, InvalidPolicy, OutputOptions, ReaderOptions, UsageError, WriterOptions, open_reader,
+    Format, InvalidPolicy, OutputOptions, ReaderOptions, UsageError, WriterOptions,
     parse_output_spec,
 };
 use gloci_ops::coverage::{
-    CoverageOptions, CoverageReport, CoverageTotals, column_names, coverage, validate,
-    write_hist_totals,
+    CoverageOptions, CoverageReport, column_names, coverage_files, validate,
 };
-use gloci_ops::{RelateInputs, RelateOptions, ReportOutput, all_indexed, open_report, run_indexed};
+use gloci_ops::{RelateOptions, ReportOutput, open_report};
 
 fn parse_format(s: Option<&str>) -> anyhow::Result<Option<Format>> {
     match s {
@@ -60,12 +61,7 @@ pub fn run(ctx: &Ctx, a: &CoverageArgs) -> anyhow::Result<()> {
     };
     let ro_a = reader_opts(parse_format(a.a.a_format.as_deref())?);
     let ro_b = reader_opts(parse_format(a.b.b_format.as_deref())?);
-    let reader_a = open_reader(&a.a.a, &ro_a)?;
-    let readers_b =
-        a.b.b
-            .iter()
-            .map(|f| open_reader(f, &ro_b))
-            .collect::<Result<Vec<_>, _>>()?;
+    let files = relation_files(&a.a.a, &a.b.b, ro_a, ro_b)?;
 
     let oo = OutputOptions {
         threads: ctx.threads,
@@ -78,7 +74,7 @@ pub fn run(ctx: &Ctx, a: &CoverageArgs) -> anyhow::Result<()> {
         version: ctx.version,
     };
     let mut w = open_report(
-        reader_a.as_ref(),
+        files.a(),
         &ReportOutput::Tsv {
             appended: column_names(&o, a.b.b.len()),
         },
@@ -92,52 +88,10 @@ pub fn run(ctx: &Ctx, a: &CoverageArgs) -> anyhow::Result<()> {
         .as_ref()
         .map_or_else(|| "stdout".to_string(), |p| p.display().to_string());
 
-    let all_paths: Vec<&str> = std::iter::once(a.a.a.as_str())
-        .chain(a.b.b.iter().map(|s| s.as_str()))
-        .collect();
-    let use_indexed = all_indexed(&all_paths) && !a.u.unsorted && o.relate.sort.is_none();
-
-    if a.sort.tmp_dir.is_some() && !use_indexed && o.relate.sort.is_none() {
-        return Err(UsageError("--tmp-dir requires --sort or indexed inputs".into()).into());
-    }
-
-    let totals = if use_indexed {
-        let (_, chunk_totals) = run_indexed(
-            &a.a.a,
-            &a.b.b,
-            &ro_a,
-            &ro_b,
-            &o.relate,
-            a.o.criteria().inclusive_points,
-            ctx.threads,
-            &ctx.tmp_dir,
-            w.as_mut(),
-            &|chunk_inputs, chunk_sink| coverage(chunk_inputs, &o, chunk_sink),
-        )
-        .map_err(|e| {
-            e.with_output_name(&dest)
-                .with_order_hint(relation_hint(&a.sort))
-        })?;
-        let mut combined_totals = CoverageTotals::default();
-        for t in chunk_totals {
-            combined_totals.merge(&t);
-        }
-        combined_totals
-    } else {
-        let inputs = RelateInputs {
-            a: reader_a,
-            b: readers_b,
-        };
-        let (_, totals) = coverage(inputs, &o, w.as_mut()).map_err(|e| {
-            e.with_output_name(&dest)
-                .with_order_hint(relation_hint(&a.sort))
-        })?;
-        totals
-    };
-
-    if report == CoverageReport::Hist {
-        write_hist_totals(&totals, w.as_mut()).map_err(|e| e.with_output_name(&dest))?;
-    }
+    coverage_files(files, &o, w.as_mut(), &run_options(ctx)).map_err(|e| {
+        e.with_output_name(&dest)
+            .with_order_hint(relation_hint(&a.sort))
+    })?;
     w.finish().map_err(|e| e.with_output_name(&dest))?;
     Ok(())
 }

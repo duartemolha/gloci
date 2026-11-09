@@ -40,10 +40,10 @@ pub use error::{IoError, Loc, OrderError, SORTED_INPUTS, UsageError};
 pub use fields::{column_count, field, split_fields};
 pub use genome::{chrom_table_for, chrom_table_lenient, load_genome};
 pub use index::{
-    IndexInfo, IndexKind, TsvColumns, find_index, index_non_empty_reference_names,
+    IndexInfo, IndexKind, IndexedFile, TsvColumns, find_index, index_non_empty_reference_names,
     index_reference_names, open_region_reader, write_index, write_tsv_index,
 };
-pub use input::{Input, InputOptions, open_input, open_input_from};
+pub use input::{Input, InputOptions, InputSpool, is_regular_file, open_input, open_input_from};
 pub use naming::{
     chr_prefix_hint, format_chrom_list, format_disjoint_chroms_warning, unknown_chrom_err,
 };

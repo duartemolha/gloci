@@ -3,15 +3,18 @@ use crate::Ctx;
 use crate::cli::SortArgs;
 use gloci_core::VcfSpan;
 use gloci_io::{
-    Format, Header, OrderGuard, OutFormat, OutputOptions, ReaderOptions, RecordBatch, RecordReader,
-    UsageError, WriterOptions, check_family, chrom_table_for, next_batch_size, open_output,
-    open_reader, open_record_writer, parse_output_spec, refuse_binary_to_tty,
+    Format, Header, InputSpool, IoError, OrderGuard, OutFormat, OutputOptions, ReaderOptions,
+    RecordBatch, RecordReader, UsageError, WriterOptions, check_family, chrom_table_for,
+    is_regular_file, next_batch_size, open_output, open_reader, open_reader_from,
+    open_record_writer, parse_output_spec, refuse_binary_to_tty,
 };
 use gloci_ops::{
     Dedup, MIN_MAX_MEM, SortConfig, Sorter, Tie, check_definitions_pair, check_samples_pair,
-    merge_sorted, merge_sorted_batches,
+    merge_fan_in, merge_sorted_batches,
 };
+use std::fs::File;
 use std::io::IsTerminal;
+use std::path::{Path, PathBuf};
 
 fn usage(msg: impl Into<String>) -> anyhow::Error {
     UsageError(msg.into()).into()
@@ -56,18 +59,19 @@ sort the inputs without -m to remove or find duplicates",
             gloci_io::InvalidPolicy::Fail
         },
     };
-    let (format, header, mut chroms, single_reader) = if files.len() == 1 {
-        let r0 = open_reader(&files[0], &opts)?;
+    // Every input is opened exactly once. When the inputs fit in one merge
+    // round, the header-pass readers are kept for the record pass. Otherwise
+    // regular files are reopened per round and any input that cannot be
+    // reopened (stdin, a pipe, a FIFO) is first spooled once to --tmp-dir.
+    let mut sources = Sources::open(&files, &opts, merge_fan_in(a.max_mem), &ctx.tmp_dir)?;
+    let (format, header, mut chroms) = if files.len() == 1 {
+        let r0 = sources.peek(0)?;
         let format = r0.format();
         let header = r0.header().clone();
-        let chroms = chrom_table_for(
-            a.genome.genome.as_deref(),
-            &[r0.as_ref()],
-            a.chrom_order.chrom_order,
-        )?;
-        (format, header, chroms, Some(r0))
+        let chroms = chrom_table_for(a.genome.genome.as_deref(), &[r0], a.chrom_order.chrom_order)?;
+        (format, header, chroms)
     } else {
-        let r0 = open_reader(&files[0], &opts)?;
+        let r0 = sources.peek(0)?;
         let format = r0.format();
         let header = r0.header().clone();
         let mut chroms = None;
@@ -80,23 +84,19 @@ sort the inputs without -m to remove or find duplicates",
         } else if let Header::Vcf(vh) = r0.header()
             && !vh.contigs.is_empty()
         {
-            chroms = Some(chrom_table_for(
-                None,
-                &[r0.as_ref()],
-                a.chrom_order.chrom_order,
-            )?);
+            chroms = Some(chrom_table_for(None, &[r0], a.chrom_order.chrom_order)?);
         }
-        drop(r0);
+        sources.release(0);
 
-        for f in &files[1..] {
-            let r = open_reader(f, &opts)?;
+        for i in 1..files.len() {
+            let r = sources.peek(i)?;
             if OutFormat::family(r.format()) != OutFormat::family(format) {
                 return Err(usage(format!(
-                    "{} is {:?} but {} is {:?}; sort needs inputs of one format",
+                    "{} is {} but {} is {}; sort needs inputs of one format",
                     files[0],
-                    format,
+                    format.name(),
                     r.name(),
-                    r.format()
+                    r.format().name()
                 )));
             }
             if let (Header::Vcf(first), Header::Vcf(other)) = (&header, r.header()) {
@@ -105,24 +105,22 @@ sort the inputs without -m to remove or find duplicates",
                     check_definitions_pair(&files[0], first, r.name(), other)?;
                 }
                 if chroms.is_none() && !other.contigs.is_empty() {
-                    chroms = Some(chrom_table_for(
-                        None,
-                        &[r.as_ref()],
-                        a.chrom_order.chrom_order,
-                    )?);
+                    chroms = Some(chrom_table_for(None, &[r], a.chrom_order.chrom_order)?);
                 }
             }
+            sources.release(i);
         }
         let chroms = match chroms {
             Some(c) => c,
             None => chrom_table_for(None, &[], a.chrom_order.chrom_order)?,
         };
-        (format, header, chroms, None)
+        (format, header, chroms)
     };
 
     if a.check {
         let mut batch = RecordBatch::default();
-        if let Some(mut r) = single_reader {
+        for i in 0..files.len() {
+            let mut r = sources.take(i)?;
             let mut guard = OrderGuard::new(r.name(), r.format());
             let mut max = 1;
             loop {
@@ -136,24 +134,6 @@ sort the inputs without -m to remove or find duplicates",
             }
             if let Some(s) = r.diagnostics().summary(r.name()) {
                 log::warn!("{s}");
-            }
-        } else {
-            for f in &files {
-                let mut r = open_reader(f, &opts)?;
-                let mut guard = OrderGuard::new(r.name(), r.format());
-                let mut max = 1;
-                loop {
-                    batch.clear();
-                    let more = r.read_batch(&mut chroms, &mut batch, max)?;
-                    guard.check(&chroms, &batch)?;
-                    max = next_batch_size(&batch, max);
-                    if !more {
-                        break;
-                    }
-                }
-                if let Some(s) = r.diagnostics().summary(r.name()) {
-                    log::warn!("{s}");
-                }
             }
         }
         return Ok(());
@@ -216,7 +196,8 @@ sort the inputs without -m to remove or find duplicates",
     match sorter {
         Some(mut sorter) => {
             let mut batch = RecordBatch::default();
-            if let Some(mut r) = single_reader {
+            for i in 0..files.len() {
+                let mut r = sources.take(i)?;
                 let mut max = 1;
                 loop {
                     batch.clear();
@@ -230,23 +211,6 @@ sort the inputs without -m to remove or find duplicates",
                 if let Some(s) = r.diagnostics().summary(r.name()) {
                     log::warn!("{s}");
                 }
-            } else {
-                for f in &files {
-                    let mut r = open_reader(f, &opts)?;
-                    let mut max = 1;
-                    loop {
-                        batch.clear();
-                        let more = r.read_batch(&mut chroms, &mut batch, max)?;
-                        sorter.push(&chroms, &batch)?;
-                        max = next_batch_size(&batch, max);
-                        if !more {
-                            break;
-                        }
-                    }
-                    if let Some(s) = r.diagnostics().summary(r.name()) {
-                        log::warn!("{s}");
-                    }
-                }
             }
             let mut w = open_record_writer(output, format, out_format, &header, &wopts)
                 .map_err(|e| e.with_output_name(&dest))?;
@@ -258,35 +222,108 @@ sort the inputs without -m to remove or find duplicates",
         None => {
             let mut w = open_record_writer(output, format, out_format, &header, &wopts)
                 .map_err(|e| e.with_output_name(&dest))?;
-            if let Some(r) = single_reader {
-                let mut readers: [Box<dyn RecordReader>; 1] = [r];
-                merge_sorted(&mut readers, &mut chroms, tie, &mut |raw| {
-                    w.write_record(raw)
-                })
-                .map_err(|e| e.with_output_name(&dest))?;
-                if let Some(s) = readers[0].diagnostics().summary(readers[0].name()) {
-                    log::warn!("{s}");
-                }
-            } else {
-                merge_sorted_batches(
-                    files.len(),
-                    &mut chroms,
-                    tie,
-                    a.max_mem,
-                    &ctx.tmp_dir,
-                    |start, count| {
-                        let mut batch = Vec::with_capacity(count);
-                        for f in &files[start..start + count] {
-                            batch.push(open_reader(f, &opts)?);
-                        }
-                        Ok(batch)
-                    },
-                    &mut |raw| w.write_record(raw),
-                )
-                .map_err(|e| e.with_output_name(&dest))?;
-            }
+            merge_sorted_batches(
+                files.len(),
+                &mut chroms,
+                tie,
+                a.max_mem,
+                &ctx.tmp_dir,
+                |start, count| (start..start + count).map(|i| sources.take(i)).collect(),
+                &mut |raw| w.write_record(raw),
+            )
+            .map_err(|e| e.with_output_name(&dest))?;
             w.finish().map_err(|e| e.with_output_name(&dest))?;
         }
     }
     Ok(())
+}
+
+/// The inputs of one run. Each is read from its source exactly once: a
+/// reader opened for the header pass is kept for the record pass when every
+/// input fits in one merge round (`fan_in`); otherwise readers are dropped
+/// after the header pass and reopened, from the file itself for a regular
+/// file, or from a copy spooled before anything else is read for an input
+/// that cannot be reopened (stdin, a pipe, a FIFO, `/dev/fd/N`).
+struct Sources {
+    paths: Vec<String>,
+    opts: ReaderOptions,
+    keep: bool,
+    readers: Vec<Option<Box<dyn RecordReader>>>,
+    spooled: Vec<Option<PathBuf>>,
+    // Declared last: the spool files outlive every reader of them.
+    _spool: Option<InputSpool>,
+}
+
+impl Sources {
+    fn open(
+        paths: &[String],
+        opts: &ReaderOptions,
+        fan_in: usize,
+        tmp_dir: &Path,
+    ) -> Result<Sources, IoError> {
+        let keep = paths.len() <= fan_in;
+        let mut spool = None;
+        let mut spooled = vec![None; paths.len()];
+        if !keep {
+            for (i, p) in paths.iter().enumerate() {
+                if !is_regular_file(p) {
+                    let s = match &mut spool {
+                        Some(s) => s,
+                        None => spool.insert(InputSpool::create(tmp_dir)?),
+                    };
+                    spooled[i] = Some(s.spool(p)?);
+                }
+            }
+        }
+        Ok(Sources {
+            paths: paths.to_vec(),
+            opts: opts.clone(),
+            keep,
+            readers: (0..paths.len()).map(|_| None).collect(),
+            spooled,
+            _spool: spool,
+        })
+    }
+
+    fn reopen(&self, i: usize) -> Result<Box<dyn RecordReader>, IoError> {
+        match &self.spooled[i] {
+            None => open_reader(&self.paths[i], &self.opts),
+            Some(copy) => {
+                let name = if self.paths[i] == "-" {
+                    "stdin"
+                } else {
+                    &self.paths[i]
+                };
+                let f = File::open(copy).map_err(|source| IoError::Read {
+                    path: name.to_string(),
+                    source,
+                })?;
+                open_reader_from(name, Box::new(f), &self.opts)
+            }
+        }
+    }
+
+    /// The reader of input `i` for the header pass.
+    fn peek(&mut self, i: usize) -> Result<&dyn RecordReader, IoError> {
+        if self.readers[i].is_none() {
+            self.readers[i] = Some(self.reopen(i)?);
+        }
+        Ok(self.readers[i].as_deref().expect("just opened"))
+    }
+
+    /// End the header pass for input `i`: its reader is kept for the record
+    /// pass, or closed when it can be reopened.
+    fn release(&mut self, i: usize) {
+        if !self.keep {
+            self.readers[i] = None;
+        }
+    }
+
+    /// The reader of input `i` for the record pass.
+    fn take(&mut self, i: usize) -> Result<Box<dyn RecordReader>, IoError> {
+        match self.readers[i].take() {
+            Some(r) => Ok(r),
+            None => self.reopen(i),
+        }
+    }
 }

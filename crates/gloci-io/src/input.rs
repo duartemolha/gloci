@@ -123,3 +123,79 @@ impl std::fmt::Debug for Input {
             .finish_non_exhaustive()
     }
 }
+
+/// Whether `path` names a regular file, which can be opened again and read
+/// from the start. `-` (stdin), pipes, FIFOs and `/dev/fd/N` cannot: reading
+/// one twice silently loses data, so they must be read exactly once.
+pub fn is_regular_file(path: &str) -> bool {
+    path != "-" && std::fs::metadata(path).is_ok_and(|m| m.is_file())
+}
+
+/// Copies of inputs that cannot be reopened (stdin, pipes, FIFOs), kept in a
+/// registered temp directory so a command that must read an input in a later
+/// pass reads its source only once. The directory is removed on drop and, via
+/// the cleanup registry, on SIGINT/SIGTERM/SIGHUP or a panic.
+pub struct InputSpool {
+    // Dropped in this order: the directory is removed, then unregistered.
+    dir: tempfile::TempDir,
+    _guard: crate::atomic::TempGuard,
+    next: usize,
+}
+
+impl InputSpool {
+    /// Create the spool directory in `parent` (the `--tmp-dir`).
+    pub fn create(parent: &std::path::Path) -> Result<InputSpool, IoError> {
+        let (dir, guard) =
+            crate::atomic::create_temp_dir_in(parent, "gloci-spool-").map_err(|source| {
+                IoError::Write {
+                    path: parent.display().to_string(),
+                    source,
+                }
+            })?;
+        Ok(InputSpool {
+            dir,
+            _guard: guard,
+            next: 0,
+        })
+    }
+
+    /// Copy all of `path` (`-` is stdin) byte for byte into a new spool file
+    /// and return the file's path.
+    pub fn spool(&mut self, path: &str) -> Result<std::path::PathBuf, IoError> {
+        let name = if path == "-" { "stdin" } else { path };
+        let dest = self.dir.path().join(format!("input-{:06}", self.next));
+        self.next += 1;
+        let mut out =
+            crate::atomic::create_file_in_temp_dir(&dest).map_err(|source| IoError::Write {
+                path: dest.display().to_string(),
+                source,
+            })?;
+        let mut src: Box<dyn Read> = if path == "-" {
+            Box::new(std::io::stdin().lock())
+        } else {
+            Box::new(File::open(path).map_err(|source| IoError::Open {
+                path: path.to_string(),
+                source,
+            })?)
+        };
+        let mut buf = vec![0u8; 256 << 10];
+        loop {
+            let n = match src.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => n,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(source) => {
+                    return Err(IoError::Read {
+                        path: name.to_string(),
+                        source,
+                    });
+                }
+            };
+            std::io::Write::write_all(&mut out, &buf[..n]).map_err(|source| IoError::Write {
+                path: dest.display().to_string(),
+                source,
+            })?;
+        }
+        Ok(dest)
+    }
+}

@@ -18,7 +18,7 @@ pub use chunk::ChunkSink;
 pub use hit::{ARec, Hit, Neighbours, Visitor};
 pub use itree64::ITree64;
 pub use kmerge::{kmerge, kmerge_with};
-pub use parallel::{all_indexed, run_per_chrom};
+pub use parallel::{all_indexed, run_chunks};
 #[doc(hidden)]
 pub use sweep::SweepStats;
 pub use sweep::{Inputs, NearestConfig, SweepConfig, SweepSummary, sweep_sorted};

@@ -22,8 +22,8 @@ pub use bedsearch::{ChromBlock, find_chrom_block};
 pub use check::{CheckReport, Problems, check_file};
 pub use gloci_engine::all_indexed;
 pub use relate::{
-    Acceptor, RelateInputs, RelateOptions, ReportOutput, b_placeholder, open_report,
-    rewrite_coords, run_indexed, run_relation,
+    Acceptor, InputPaths, RelateInputs, RelateOptions, RelationFiles, ReportOutput, RunOptions,
+    b_placeholder, open_report, rewrite_coords, run_relation, runs_per_chromosome,
 };
 pub use sort::{
     Dedup, MIN_MAX_MEM, SortConfig, SortSettings, SortStats, Sorter, Tie, check_definitions,

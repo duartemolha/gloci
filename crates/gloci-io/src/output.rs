@@ -23,6 +23,19 @@ pub enum OutFormat {
 }
 
 impl OutFormat {
+    /// The name users know the format by, for messages.
+    pub fn name(self) -> &'static str {
+        match self {
+            OutFormat::Bed => "BED",
+            OutFormat::BedGraph => "bedGraph",
+            OutFormat::Vcf => "VCF",
+            OutFormat::Bcf => "BCF",
+            OutFormat::Gff3 => "GFF3",
+            OutFormat::Gtf => "GTF",
+            OutFormat::Tsv => "TSV",
+        }
+    }
+
     /// The record format an index of this output describes (`None` for TSV).
     pub fn index_format(self) -> Option<Format> {
         match self {

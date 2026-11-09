@@ -13,7 +13,10 @@
 
 use crate::agg::{Accumulators, AggSpec, Op, resolve};
 use crate::intersect::Text;
-use crate::relate::{Acceptor, RelateInputs, RelateOptions, run_relation};
+use crate::relate::{
+    Acceptor, RelateInputs, RelateOptions, RelationFiles, RunOptions, run_files, run_relation_in,
+};
+use gloci_core::ChromTable;
 use gloci_engine::{ARec, Hit, Neighbours, SweepSummary, Visitor};
 use gloci_io::{Format, IoError, RecordWriter, UsageError};
 
@@ -132,6 +135,29 @@ pub fn map(
     o: &MapOptions,
     w: &mut dyn RecordWriter,
 ) -> Result<SweepSummary, IoError> {
+    map_in(inputs, None, o, w)
+}
+
+/// Run `map` over the files a command opened: per chromosome when every
+/// input is indexed (D41), else streamed. Writes as [`map`].
+pub fn map_files(
+    files: RelationFiles,
+    o: &MapOptions,
+    w: &mut dyn RecordWriter,
+    run: &RunOptions,
+) -> Result<SweepSummary, IoError> {
+    let (summary, _) = run_files(files, &o.relate, run, w, &|inputs, chroms, w| {
+        Ok((map_in(inputs, chroms, o, w)?, ()))
+    })?;
+    Ok(summary)
+}
+
+fn map_in(
+    inputs: RelateInputs,
+    chroms: Option<ChromTable>,
+    o: &MapOptions,
+    w: &mut dyn RecordWriter,
+) -> Result<SweepSummary, IoError> {
     let b_formats: Vec<Format> = inputs.b.iter().map(|r| r.format()).collect();
     let b_names: Vec<String> = inputs.b.iter().map(|r| r.name().to_string()).collect();
     validate(o, &b_formats, &b_names)?;
@@ -157,5 +183,5 @@ pub fn map(
         b_names,
         row: Vec::new(),
     };
-    run_relation(inputs, &o.relate, None, &mut reporter)
+    run_relation_in(inputs, chroms, &o.relate, None, &mut reporter)
 }

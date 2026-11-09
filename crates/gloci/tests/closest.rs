@@ -654,3 +654,47 @@ fn vcf_a_each_side_and_two_b_column_names() {
         format!("{vcf}\tb_name\tb_1\tb_2\tb_3\tb_4\tb_5\tb_6\tdistance")
     );
 }
+
+/// C4: `closest` with a VCF A and a piped B loses no records.
+#[cfg(unix)]
+#[test]
+fn piped_b_with_vcf_a_matches_regular_file() {
+    let d = tempdir();
+    let mut vcf = String::from(
+        "##fileformat=VCFv4.3\n##contig=<ID=chr1,length=10000000>\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n",
+    );
+    let mut bed = String::new();
+    for i in 0..5_000u64 {
+        let p = 1_000 + i * 100;
+        vcf.push_str(&format!("chr1\t{}\tv{i}\tA\tG\t.\tPASS\t.\n", p + 50));
+        bed.push_str(&format!("chr1\t{p}\t{}\tfeature_{i}\t0\t+\n", p + 10));
+    }
+    let a = s(&plain_file(d.path(), "a.vcf", &vcf));
+    let b = s(&plain_file(d.path(), "big.bed", &bed));
+    let want = bash_gloci(&format!("closest -a '{a}' -b '{b}' --distance"), "");
+    assert!(
+        want.status.success(),
+        "{}",
+        String::from_utf8_lossy(&want.stderr)
+    );
+    let got = bash_gloci(&format!("closest -a '{a}' -b <(cat '{b}') --distance"), "");
+    assert!(
+        got.status.success(),
+        "{}",
+        String::from_utf8_lossy(&got.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&got.stdout),
+        String::from_utf8_lossy(&want.stdout)
+    );
+    let text = String::from_utf8(want.stdout).unwrap();
+    assert!(
+        text.lines().next().unwrap().ends_with("\tb_6\tdistance"),
+        "{text}"
+    );
+    assert!(
+        text.contains("\tfeature_4999\t0\t+\t"),
+        "last B row missing"
+    );
+}

@@ -428,13 +428,29 @@ fn failure_after_the_sorts_exits_1_and_cleans_up() {
     assert_eq!(std::fs::read_dir(&tmp).unwrap().count(), 0);
 }
 
+/// `--tmp-dir` is accepted, and ignored when nothing spills; `--max-mem`
+/// means something only with `--sort`.
 #[test]
-fn tmp_dir_needs_sort() {
+fn tmp_dir_accepted_without_sort() {
     let dir = tempdir();
     let (a, bs) = inputs(dir.path());
+    let a = sorted_copy(dir.path(), "a_sorted.bed", &a);
+    let bs = [sorted_copy(dir.path(), "b_sorted.bed", &bs[0])];
+    let want = gloci()
+        .args(["intersect", "-a", &a, "-b", &bs[0]])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
     gloci()
         .args(["intersect", "-a", &a, "-b", &bs[0], "--tmp-dir"])
         .arg(dir.path())
+        .assert()
+        .success()
+        .stdout(want);
+    gloci()
+        .args(["intersect", "-a", &a, "-b", &bs[0], "--max-mem", "64M"])
         .assert()
         .code(2);
 }

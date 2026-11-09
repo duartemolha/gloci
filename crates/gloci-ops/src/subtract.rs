@@ -18,7 +18,11 @@
 //!   footprint).
 //! - **`--split`.** B is its BED12 blocks, not its span (D60).
 
-use crate::relate::{Acceptor, RelateInputs, RelateOptions, rewrite_coords, run_relation};
+use crate::relate::{
+    Acceptor, RelateInputs, RelateOptions, RelationFiles, RunOptions, rewrite_coords, run_files,
+    run_relation_in,
+};
+use gloci_core::ChromTable;
 use gloci_core::{Fraction, Interval, OverlapCriteria, Window, overlap_len};
 use gloci_engine::{ARec, Hit, Neighbours, SweepSummary, Visitor};
 use gloci_io::{Format, IoError, RecordWriter, UsageError};
@@ -204,6 +208,30 @@ pub fn subtract(
     w: &mut dyn RecordWriter,
 ) -> Result<SweepSummary, IoError> {
     validate(o)?;
+    subtract_in(inputs, None, o, w)
+}
+
+/// Run `subtract` over the files a command opened: per chromosome when
+/// every input is indexed (D41), else streamed. Writes as [`subtract`].
+pub fn subtract_files(
+    files: RelationFiles,
+    o: &SubtractOptions,
+    w: &mut dyn RecordWriter,
+    run: &RunOptions,
+) -> Result<SweepSummary, IoError> {
+    validate(o)?;
+    let (summary, _) = run_files(files, &o.relate, run, w, &|inputs, chroms, w| {
+        Ok((subtract_in(inputs, chroms, o, w)?, ()))
+    })?;
+    Ok(summary)
+}
+
+fn subtract_in(
+    inputs: RelateInputs,
+    chroms: Option<ChromTable>,
+    o: &SubtractOptions,
+    w: &mut dyn RecordWriter,
+) -> Result<SweepSummary, IoError> {
     // `--sum-overlaps` picks hits by strand alone; its `-f` is applied to
     // their total.
     let mut relate = o.relate.clone();
@@ -230,5 +258,5 @@ pub fn subtract(
         removed: Vec::new(),
         row: Vec::new(),
     };
-    run_relation(inputs, relate, None, &mut s)
+    run_relation_in(inputs, chroms, relate, None, &mut s)
 }

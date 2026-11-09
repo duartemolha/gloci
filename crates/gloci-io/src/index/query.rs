@@ -1,6 +1,7 @@
 //! The index-backed region reader (§4.3, D9, D10).
 
 use super::*;
+use std::sync::Arc;
 
 enum Loaded {
     Tbi(noodles_tabix::Index),
@@ -201,8 +202,12 @@ struct RegionReader {
     inclusive: bool,
     src: noodles_bgzf::io::Reader<BufReader<File>>,
     parser: Parser,
-    index: Loaded,
+    index: Arc<Loaded>,
     plans: Vec<Plan>,
+    /// Whole-chromosome reads: every record of each plan's reference is
+    /// emitted, with no footprint test, and plans are visited in the order
+    /// given (each reference's records lie in one stretch of the file).
+    whole: bool,
     /// Current plan and window.
     p: usize,
     w: usize,
@@ -297,6 +302,11 @@ impl RegionReader {
                 self.p += 1;
                 self.w = 0;
                 self.loaded = false;
+                if self.whole {
+                    // A new reference: nothing of it has been emitted, and its
+                    // records may lie before the previous reference's.
+                    self.last_emitted = None;
+                }
                 continue;
             };
             if !self.loaded {
@@ -365,7 +375,8 @@ impl RegionReader {
                 self.loaded = false;
                 continue;
             }
-            if plan.set.matches(span, self.inclusive) && self.last_emitted.is_none_or(|l| start > l)
+            if (self.whole || plan.set.matches(span, self.inclusive))
+                && self.last_emitted.is_none_or(|l| start > l)
             {
                 let len = (batch.buf.len() - off) as u32;
                 batch.recs.push(RecordMeta {
@@ -504,8 +515,9 @@ pub fn open_region_reader(
         inclusive: inclusive_points,
         src: noodles_bgzf::io::Reader::new(BufReader::new(file)),
         parser,
-        index,
+        index: Arc::new(index),
         plans,
+        whole: false,
         p: 0,
         w: 0,
         chunks: Vec::new(),
@@ -585,4 +597,175 @@ but the BCF header cannot be read: {msg}",
         .filter(|(rid, c)| !c.is_empty() && loaded.first_offset(*rid).is_some())
         .map(|(_, c)| c)
         .collect())
+}
+
+/// An indexed BGZF file whose header and index are loaded once, from which
+/// whole-chromosome readers are made cheaply (per-chromosome parallelism,
+/// D41). The readers share the index.
+pub struct IndexedFile {
+    path: PathBuf,
+    name: String,
+    format: Format,
+    header: Header,
+    info: IndexInfo,
+    index: Arc<Loaded>,
+    opts: ReaderOptions,
+}
+
+impl IndexedFile {
+    /// Load the index of `path` (with `format` and `header` already read
+    /// from it, for example by the reader the command opened). The readers
+    /// made from it parse records with `o`.
+    pub fn open(
+        path: &Path,
+        format: Format,
+        header: Header,
+        o: &ReaderOptions,
+    ) -> Result<IndexedFile, IoError> {
+        let name = path.display().to_string();
+        check_bgzf(path, &name)?;
+        let info = find_index(path).ok_or_else(|| {
+            UsageError(format!(
+                "{name} has no index; create one with: gloci index {name}"
+            ))
+        })?;
+        let index = Loaded::read(&info)?;
+        Ok(IndexedFile {
+            path: path.to_path_buf(),
+            name,
+            format,
+            header,
+            info,
+            index: Arc::new(index),
+            opts: o.clone(),
+        })
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn info(&self) -> &IndexInfo {
+        &self.info
+    }
+
+    /// Reference ids of the chromosomes, by name: the BCF contig
+    /// dictionary for a BCF's CSI (which stores no names), else the index's
+    /// own names.
+    fn rid_of(&self, chrom: &[u8]) -> Option<usize> {
+        match &self.header {
+            Header::Vcf(VcfHeader {
+                bcf: Some(dicts), ..
+            }) if self.format == Format::Bcf => dicts
+                .contigs
+                .iter()
+                .position(|c| !c.is_empty() && c == chrom),
+            _ => self.index.names().and_then(|n| n.get_index_of(chrom)),
+        }
+    }
+
+    /// The reference names the index knows, in reference id order, as
+    /// [`index_reference_names`] gives them.
+    pub fn reference_names(&self) -> Vec<Vec<u8>> {
+        if let Some(names) = self.index.names() {
+            return names.iter().map(|n| n.to_vec()).collect();
+        }
+        match &self.header {
+            Header::Vcf(VcfHeader {
+                bcf: Some(dicts), ..
+            }) => dicts
+                .contigs
+                .iter()
+                .enumerate()
+                .filter(|(rid, c)| !c.is_empty() && self.index.first_offset(*rid).is_some())
+                .map(|(_, c)| c.clone())
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The reference names that hold records.
+    pub fn non_empty_reference_names(&self) -> Vec<Vec<u8>> {
+        self.reference_names()
+            .into_iter()
+            .filter(|n| self.weight(n) > 0)
+            .collect()
+    }
+
+    /// An estimate of how much of the file `chrom`'s records take: the
+    /// compressed bytes between its first and last chunk offsets, plus one;
+    /// 0 when the index holds no records for it.
+    pub fn weight(&self, chrom: &[u8]) -> u64 {
+        let Some(rid) = self.rid_of(chrom) else {
+            return 0;
+        };
+        fn span<I: BinIndexKind>(rs: &ReferenceSequence<I>) -> Option<(u64, u64)> {
+            let chunks = rs.bins().values().flat_map(|b| b.chunks());
+            let lo = chunks.clone().map(|c| c.start().compressed()).min()?;
+            let hi = chunks.map(|c| c.end().compressed()).max()?;
+            Some((lo, hi))
+        }
+        let s = match &*self.index {
+            Loaded::Tbi(i) => i.reference_sequences().get(rid).and_then(span),
+            Loaded::Csi(i) => i.reference_sequences().get(rid).and_then(span),
+        };
+        s.map_or(0, |(lo, hi)| hi.saturating_sub(lo) + 1)
+    }
+
+    /// Every record on `chroms`, chromosome by chromosome in the order
+    /// given, each chromosome's records in file order. There is no footprint
+    /// test, so zero-length records at position 0 are read too. Chromosomes
+    /// the index does not know yield nothing.
+    pub fn chromosomes_reader(&self, chroms: &[Vec<u8>]) -> Result<Box<dyn RecordReader>, IoError> {
+        let max_pos = self.index.max_position();
+        let plans: Vec<Plan> = chroms
+            .iter()
+            .filter_map(|c| {
+                self.rid_of(c).map(|rid| {
+                    Plan::new(
+                        rid,
+                        c.clone(),
+                        vec![Interval {
+                            start: 0,
+                            end: max_pos,
+                        }],
+                        max_pos,
+                    )
+                })
+            })
+            .collect();
+        let parser = match (&self.header, self.format) {
+            (
+                Header::Vcf(VcfHeader {
+                    bcf: Some(dicts), ..
+                }),
+                Format::Bcf,
+            ) => Parser::bcf(self.opts.vcf_span, dicts.clone()),
+            _ => Parser::text(self.format, self.opts.vcf_span),
+        };
+        let file = File::open(&self.path).map_err(|source| IoError::Open {
+            path: self.name.clone(),
+            source,
+        })?;
+        Ok(Box::new(RegionReader {
+            name: self.name.clone(),
+            format: self.format,
+            header: self.header.clone(),
+            diag: Diagnostics::default(),
+            policy: self.opts.invalid,
+            inclusive: true,
+            src: noodles_bgzf::io::Reader::new(BufReader::new(file)),
+            parser,
+            index: self.index.clone(),
+            plans,
+            whole: true,
+            p: 0,
+            w: 0,
+            chunks: Vec::new(),
+            c: 0,
+            loaded: false,
+            chunk_end: None,
+            last_emitted: None,
+        }))
+    }
 }

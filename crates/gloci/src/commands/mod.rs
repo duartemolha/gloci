@@ -21,7 +21,9 @@ use crate::cli::{ChromOrderArg, RelationSortArg, SortArg, VcfSpan};
 use gloci_io::{
     Format, InvalidPolicy, ReaderOptions, RecordReader, UsageError, chrom_table_for, open_reader,
 };
-use gloci_ops::{SortSettings, sort_input_options, sort_together};
+use gloci_ops::{
+    InputPaths, RelationFiles, RunOptions, SortSettings, sort_input_options, sort_together,
+};
 
 /// Appended to the hint of an order error from a command with `--sort`.
 pub const SORT_FLAG_HINT: &str = ", or pass --sort to sort the inputs first";
@@ -147,4 +149,27 @@ pub fn sort_settings(ctx: &Ctx, sort: impl SortArgLike, span: VcfSpan) -> Option
         threads: ctx.threads,
         vcf_span: user_span(span),
     })
+}
+
+/// Open a relation's A and B inputs, each once.
+pub fn relation_files(
+    a: &str,
+    b: &[String],
+    ro_a: ReaderOptions,
+    ro_b: ReaderOptions,
+) -> anyhow::Result<RelationFiles> {
+    Ok(RelationFiles::open(InputPaths {
+        a: a.to_string(),
+        b: b.to_vec(),
+        ro_a,
+        ro_b,
+    })?)
+}
+
+/// How a relation over files runs: threads and the spill directory.
+pub fn run_options(ctx: &Ctx) -> RunOptions {
+    RunOptions {
+        threads: ctx.threads,
+        tmp_dir: ctx.tmp_dir.clone(),
+    }
 }

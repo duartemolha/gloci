@@ -1,15 +1,16 @@
 //! `gloci closest`: the nearest B to each A.
 use crate::Ctx;
 use crate::cli::{ClosestArgs, ClosestTies, SignedFrame};
-use crate::commands::intersect::b_column_names;
-use crate::commands::{relation_hint, sort_aware, sort_settings, user_span};
+use crate::commands::{
+    relation_files, relation_hint, run_options, sort_aware, sort_settings, user_span,
+};
 use gloci_core::{OverlapCriteria, SignFrame, StrandRule};
 use gloci_io::{
-    Format, InvalidPolicy, OutputOptions, ReaderOptions, UsageError, WriterOptions, open_reader,
+    Format, InvalidPolicy, OutputOptions, ReaderOptions, UsageError, WriterOptions,
     parse_output_spec,
 };
-use gloci_ops::closest::{ClosestOptions, Ties, closest, validate};
-use gloci_ops::{RelateInputs, RelateOptions, ReportOutput, all_indexed, open_report, run_indexed};
+use gloci_ops::closest::{ClosestOptions, Ties, closest_files, closest_output, validate};
+use gloci_ops::{RelateOptions, open_report};
 
 fn parse_format(s: Option<&str>) -> anyhow::Result<Option<Format>> {
     match s {
@@ -82,35 +83,9 @@ pub fn run(ctx: &Ctx, a: &ClosestArgs) -> anyhow::Result<()> {
     };
     let ro_a = reader_opts(parse_format(a.a.a_format.as_deref())?);
     let ro_b = reader_opts(parse_format(a.b.b_format.as_deref())?);
-    let reader_a = open_reader(&a.a.a, &ro_a)?;
-    let readers_b =
-        a.b.b
-            .iter()
-            .map(|f| open_reader(f, &ro_b))
-            .collect::<Result<Vec<_>, _>>()?;
+    let mut files = relation_files(&a.a.a, &a.b.b, ro_a, ro_b)?;
 
-    // Column names matter only for the column-name line of a VCF/BCF A
-    // (D42), so only then is B's width needed.
-    let mut names = Vec::new();
-    let multi = readers_b.len() > 1;
-    let shows_distance = o.distance || o.signed.is_some();
-    let sides: &[&str] = if o.each_side {
-        &["up_", "down_"]
-    } else {
-        &[""]
-    };
-    if matches!(reader_a.format(), Format::Vcf | Format::Bcf) {
-        let b = b_column_names(readers_b[0].as_ref(), &a.b.b[0], &ro_b);
-        for side in sides {
-            if multi {
-                names.push(format!("{side}b_name"));
-            }
-            names.extend(b.iter().map(|n| format!("{side}{n}")));
-            if shows_distance {
-                names.push(format!("{side}distance"));
-            }
-        }
-    }
+    let kind = closest_output(&mut files, &o)?;
     let oo = OutputOptions {
         threads: ctx.threads,
         level: a.out.compression_level,
@@ -121,47 +96,9 @@ pub fn run(ctx: &Ctx, a: &ClosestArgs) -> anyhow::Result<()> {
         command_line: Some(ctx.command_line.clone()),
         version: ctx.version,
     };
-    let mut w = open_report(
-        reader_a.as_ref(),
-        &ReportOutput::Tsv { appended: names },
-        &spec,
-        &oo,
-        &wo,
-        a.header.header,
-    )?;
-    let all_paths: Vec<&str> = std::iter::once(a.a.a.as_str())
-        .chain(a.b.b.iter().map(|s| s.as_str()))
-        .collect();
-    let use_indexed = all_indexed(&all_paths) && !a.u.unsorted && o.relate.sort.is_none();
-
-    if a.sort.tmp_dir.is_some() && !use_indexed && o.relate.sort.is_none() {
-        return Err(UsageError("--tmp-dir requires --sort or indexed inputs".into()).into());
-    }
-
-    if use_indexed {
-        run_indexed(
-            &a.a.a,
-            &a.b.b,
-            &ro_a,
-            &ro_b,
-            &o.relate,
-            a.inclusive_points,
-            ctx.threads,
-            &ctx.tmp_dir,
-            w.as_mut(),
-            &|chunk_inputs, chunk_sink| {
-                let summary = closest(chunk_inputs, &o, chunk_sink)?;
-                Ok((summary, ()))
-            },
-        )
+    let mut w = open_report(files.a(), &kind, &spec, &oo, &wo, a.header.header)?;
+    closest_files(files, &o, w.as_mut(), &run_options(ctx))
         .map_err(|e| e.with_order_hint(relation_hint(&a.sort)))?;
-    } else {
-        let inputs = RelateInputs {
-            a: reader_a,
-            b: readers_b,
-        };
-        closest(inputs, &o, w.as_mut()).map_err(|e| e.with_order_hint(relation_hint(&a.sort)))?;
-    }
     w.finish()?;
     Ok(())
 }

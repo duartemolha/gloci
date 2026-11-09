@@ -1,13 +1,15 @@
 //! `gloci subtract`: remove from A the bases covered by B.
 use crate::Ctx;
 use crate::cli::SubtractArgs;
-use crate::commands::{relation_hint, sort_aware, sort_settings, user_span};
+use crate::commands::{
+    relation_files, relation_hint, run_options, sort_aware, sort_settings, user_span,
+};
 use gloci_io::{
-    Format, InvalidPolicy, OutputOptions, ReaderOptions, UsageError, WriterOptions, open_reader,
+    Format, InvalidPolicy, OutputOptions, ReaderOptions, UsageError, WriterOptions,
     parse_output_spec,
 };
-use gloci_ops::subtract::{SubtractOptions, subtract, validate};
-use gloci_ops::{RelateInputs, RelateOptions, ReportOutput, all_indexed, open_report, run_indexed};
+use gloci_ops::subtract::{SubtractOptions, subtract_files, validate};
+use gloci_ops::{RelateOptions, ReportOutput, open_report};
 
 fn parse_format(s: Option<&str>) -> anyhow::Result<Option<Format>> {
     match s {
@@ -52,12 +54,7 @@ pub fn run(ctx: &Ctx, a: &SubtractArgs) -> anyhow::Result<()> {
     };
     let ro_a = reader_opts(parse_format(a.a.a_format.as_deref())?);
     let ro_b = reader_opts(parse_format(a.b.b_format.as_deref())?);
-    let reader_a = open_reader(&a.a.a, &ro_a)?;
-    let readers_b =
-        a.b.b
-            .iter()
-            .map(|f| open_reader(f, &ro_b))
-            .collect::<Result<Vec<_>, _>>()?;
+    let files = relation_files(&a.a.a, &a.b.b, ro_a, ro_b)?;
     let oo = OutputOptions {
         threads: ctx.threads,
         level: a.out.compression_level,
@@ -69,46 +66,15 @@ pub fn run(ctx: &Ctx, a: &SubtractArgs) -> anyhow::Result<()> {
         version: ctx.version,
     };
     let mut w = open_report(
-        reader_a.as_ref(),
+        files.a(),
         &ReportOutput::SameAsA,
         &spec,
         &oo,
         &wo,
         a.header.header,
     )?;
-    let all_paths: Vec<&str> = std::iter::once(a.a.a.as_str())
-        .chain(a.b.b.iter().map(|s| s.as_str()))
-        .collect();
-    let use_indexed = all_indexed(&all_paths) && !a.u.unsorted && o.relate.sort.is_none();
-
-    if a.sort.tmp_dir.is_some() && !use_indexed && o.relate.sort.is_none() {
-        return Err(UsageError("--tmp-dir requires --sort or indexed inputs".into()).into());
-    }
-
-    if use_indexed {
-        run_indexed(
-            &a.a.a,
-            &a.b.b,
-            &ro_a,
-            &ro_b,
-            &o.relate,
-            a.o.criteria().inclusive_points,
-            ctx.threads,
-            &ctx.tmp_dir,
-            w.as_mut(),
-            &|chunk_inputs, chunk_sink| {
-                let summary = subtract(chunk_inputs, &o, chunk_sink)?;
-                Ok((summary, ()))
-            },
-        )
+    subtract_files(files, &o, w.as_mut(), &run_options(ctx))
         .map_err(|e| e.with_order_hint(relation_hint(&a.sort)))?;
-    } else {
-        let inputs = RelateInputs {
-            a: reader_a,
-            b: readers_b,
-        };
-        subtract(inputs, &o, w.as_mut()).map_err(|e| e.with_order_hint(relation_hint(&a.sort)))?;
-    }
     w.finish()?;
     Ok(())
 }

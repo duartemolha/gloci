@@ -4,7 +4,7 @@
 
 use gloci_core::{ChromOrder, Fraction, Interval, OverlapCriteria, StrandRule, VcfSpan};
 use gloci_io::{Format, InvalidPolicy, ReaderOptions, RecordWriter};
-use gloci_ops::coverage::{CoverageOptions, CoverageReport, coverage, write_hist_totals};
+use gloci_ops::coverage::{CoverageOptions, CoverageReport, coverage};
 use gloci_ops::{RelateInputs, RelateOptions};
 use gloci_testkit::TestRec;
 use gloci_testkit::mem::mem_reader;
@@ -229,12 +229,8 @@ proptest! {
                 if report == CoverageReport::PerBase && depths.iter().any(|d| d.len() > 300) {
                     continue;
                 }
-                let (mut got, totals) = run(report, one);
-                if report == CoverageReport::Hist {
-                    let mut w = Sink::default();
-                    write_hist_totals(&totals, &mut w).unwrap();
-                    got.extend(w.0);
-                }
+                // `coverage` writes the --hist totals itself.
+                let (got, _) = run(report, one);
                 let mut want = expected(&a, &depths, report);
                 if report == CoverageReport::Hist {
                     let mut by_depth: BTreeMap<u64, u64> = BTreeMap::new();
