@@ -173,7 +173,8 @@ enum Parser {
 impl Parser {
     fn text(format: Format, span: VcfSpan) -> Parser {
         match format {
-            Format::Bed | Format::BedGraph => Parser::Bed(Bed),
+            // WIG is never indexed; its lines would fail to parse as BED.
+            Format::Bed | Format::BedGraph | Format::Wig => Parser::Bed(Bed),
             Format::Gff3 | Format::Gtf => Parser::Gff(Gff),
             Format::Vcf => Parser::Vcf(Vcf::new(span)),
             Format::Bcf => unreachable!("BCF is not a text format"),

@@ -50,6 +50,7 @@ fn format_name(f: Format) -> &'static str {
     match f {
         Format::Bed => "BED",
         Format::BedGraph => "BEDGRAPH",
+        Format::Wig => "WIG",
         Format::Vcf => "VCF",
         Format::Bcf => "BCF",
         Format::Gff3 => "GFF3",

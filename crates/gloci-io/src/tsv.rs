@@ -24,7 +24,7 @@ pub enum TsvHeader {
 }
 
 fn is_bed(f: Format) -> bool {
-    matches!(f, Format::Bed | Format::BedGraph)
+    matches!(f, Format::Bed | Format::BedGraph | Format::Wig)
 }
 
 /// D42: output that appends columns is TSV. `.tsv`/`.tsv.gz` always work;
@@ -50,7 +50,7 @@ fn index_hint(a: Format) -> &'static str {
     match a {
         Format::Vcf | Format::Bcf => "-s 1 -b 2 -e 2",
         Format::Gff3 | Format::Gtf => "-s 1 -b 4 -e 5",
-        Format::Bed | Format::BedGraph => "-s 1 -b 2 -e 3",
+        Format::Bed | Format::BedGraph | Format::Wig => "-s 1 -b 2 -e 3",
     }
 }
 

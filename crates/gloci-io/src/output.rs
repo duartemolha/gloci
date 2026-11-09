@@ -52,7 +52,8 @@ impl OutFormat {
     pub fn family(f: Format) -> OutFormat {
         match f {
             Format::Bed => OutFormat::Bed,
-            Format::BedGraph => OutFormat::BedGraph,
+            // WIG is input only; its records are bedGraph rows.
+            Format::BedGraph | Format::Wig => OutFormat::BedGraph,
             Format::Vcf => OutFormat::Vcf,
             Format::Bcf => OutFormat::Bcf,
             Format::Gff3 => OutFormat::Gff3,

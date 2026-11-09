@@ -1,0 +1,11 @@
+track type=wiggle_0 name="hand checked"
+browser position chr1:100-130
+fixedStep chrom=chr1 start=101 step=10 span=5
+1.5
+2
+0.25
+variableStep chrom=chr2 span=3
+11 7
+20 -1.5
+variableStep chrom=chr2
+30 4

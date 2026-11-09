@@ -133,6 +133,11 @@ fn dispatch(input: Input, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, Io
             o.invalid,
             o.chrom_map.clone(),
         )?)),
+        Format::Wig => Ok(Box::new(crate::wig::WigReader::open(
+            input,
+            o.invalid,
+            o.chrom_map.clone(),
+        )?)),
         Format::Gff3 | Format::Gtf => Ok(Box::new(crate::gff::GffReader::open_gff(
             input,
             o.invalid,

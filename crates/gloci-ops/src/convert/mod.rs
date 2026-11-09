@@ -1,4 +1,4 @@
-//! `convert`: VCF/BCF, GFF3/GTF and BED12 to BED (replaces bedops
+//! `convert`: VCF/BCF, GFF3/GTF, WIG and BED12 to BED (replaces bedops
 //! `convert2bed`, `vcf2bed`, `gff2bed`, `gtf2bed` and bedtools
 //! `bed12tobed6`).
 //!
@@ -10,6 +10,7 @@
 mod bed12;
 mod gff;
 mod vcf;
+mod wig;
 
 use gloci_core::{ChromId, ChromTable, VariantKind, VcfSpan};
 use gloci_io::{Format, IoError, RecordReader, RecordWriter, UsageError};
@@ -82,11 +83,12 @@ fn what(format: Format) -> &'static str {
         Format::Vcf | Format::Bcf => "VCF/BCF",
         Format::Gff3 | Format::Gtf => "GFF3/GTF",
         Format::Bed | Format::BedGraph => "BED",
+        Format::Wig => "WIG",
     }
 }
 
 /// What `convert` does for each input, for usage errors.
-const SUMMARY: &str = "convert turns VCF/BCF, GFF3/GTF or (with --blocks) BED12 into BED";
+const SUMMARY: &str = "convert turns VCF/BCF, GFF3/GTF, WIG or (with --blocks) BED12 into BED";
 
 impl ConvertOptions {
     fn check(&self, format: Format) -> Result<(), UsageError> {
@@ -160,6 +162,7 @@ pub fn convert(
         Format::Vcf | Format::Bcf => vcf::convert(input, chroms, o, &mut sink),
         Format::Gff3 | Format::Gtf => gff::convert(input, chroms, o, &mut sink),
         Format::Bed => bed12::convert(input, chroms, &mut sink),
+        Format::Wig => wig::convert(input, chroms, &mut sink),
         Format::BedGraph => unreachable!("rejected by check"),
     }
 }

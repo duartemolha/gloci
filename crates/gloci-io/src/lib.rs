@@ -23,6 +23,7 @@ pub mod record;
 pub mod sorted;
 pub mod tsv;
 pub mod vcf;
+pub mod wig;
 pub mod writer;
 
 pub use atomic::{

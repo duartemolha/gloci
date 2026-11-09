@@ -133,7 +133,7 @@ pub(crate) fn b_width(
             }
         }
         (Format::Vcf | Format::Bcf, _) => 8,
-        (Format::Bed | Format::BedGraph, _) => {
+        (Format::Bed | Format::BedGraph | Format::Wig, _) => {
             let b0 = inputs.b.remove(0);
             let (b0, columns) = peek_first(b0, chroms)?;
             inputs.b.insert(0, b0);

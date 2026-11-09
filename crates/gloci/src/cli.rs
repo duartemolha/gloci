@@ -330,7 +330,7 @@ Examples:
   gloci windows -i genes.bed -n 10 --id-column --reverse
   gloci merge peaks.bed | gloci windows -i - -w 100")]
     Windows(WindowsArgs),
-    /// Convert VCF/BCF, GFF3/GTF or BED12 to BED (bedops convert2bed,
+    /// Convert VCF/BCF, GFF3/GTF, WIG or BED12 to BED (bedops convert2bed,
     /// vcf2bed, gff2bed, gtf2bed; bedtools bed12tobed6).
     ///
     /// VCF/BCF gives one row per record: chrom, start, end, ID, REF, ALT,
@@ -345,6 +345,9 @@ Examples:
     /// start, end, name, score, strand, source, type, phase, attributes.
     /// The name is the --name-attr attribute (default ID for GFF3, gene_id
     /// for GTF; `.` when absent). --feature keeps the listed column-3 types.
+    /// WIG (fixedStep or variableStep, with optional span) gives one bedGraph
+    /// row per data line: chrom, start, end, value; equal values are not
+    /// merged.
     /// BED12 with --blocks gives one BED6 row per block; a line that is not
     /// valid BED12 (fewer than 12 columns, block counts that disagree, blocks
     /// out of order, a last block not ending at chromEnd) is an error, also

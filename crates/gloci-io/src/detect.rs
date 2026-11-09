@@ -11,6 +11,8 @@ pub enum Compression {
 pub enum Format {
     Bed,
     BedGraph,
+    /// WIG (D63): input only; read as bedGraph-like records.
+    Wig,
     Vcf,
     Bcf,
     Gff3,
@@ -23,6 +25,7 @@ impl Format {
         match self {
             Format::Bed => "BED",
             Format::BedGraph => "bedGraph",
+            Format::Wig => "WIG",
             Format::Vcf => "VCF",
             Format::Bcf => "BCF",
             Format::Gff3 => "GFF3",
@@ -37,12 +40,13 @@ impl FromStr for Format {
         match s.to_ascii_lowercase().as_str() {
             "bed" => Ok(Format::Bed),
             "bedgraph" => Ok(Format::BedGraph),
+            "wig" => Ok(Format::Wig),
             "vcf" => Ok(Format::Vcf),
             "bcf" => Ok(Format::Bcf),
             "gff" | "gff3" => Ok(Format::Gff3),
             "gtf" => Ok(Format::Gtf),
             _ => Err(format!(
-                "unknown format '{s}'; expected bed, bedgraph, vcf, bcf, gff, gff3 or gtf"
+                "unknown format '{s}'; expected bed, bedgraph, wig, vcf, bcf, gff, gff3 or gtf"
             )),
         }
     }
@@ -98,6 +102,9 @@ pub fn detect_format(head: &[u8]) -> Result<Format, String> {
                 bedgraph = true;
             }
             continue;
+        }
+        if crate::wig::is_step_line(line.as_bytes()) {
+            return Ok(Format::Wig);
         }
         let cols: Vec<&str> = line.split('\t').collect();
         if cols.len() >= 9 && is_int(cols[3]) && is_int(cols[4]) && !is_int(cols[1]) {

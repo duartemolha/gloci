@@ -33,7 +33,7 @@ fn blocks(
 }
 
 fn is_bed(f: Format) -> bool {
-    matches!(f, Format::Bed | Format::BedGraph)
+    matches!(f, Format::Bed | Format::BedGraph | Format::Wig)
 }
 
 fn strand_ok(rule: StrandRule, a: Strand, b: Strand) -> bool {

@@ -375,6 +375,8 @@ fn text_header(format: Format, tsv: Option<&TsvColumns>, s: &Scanned) -> Option<
     let builder = match (format, tsv) {
         (_, Some(cols)) => cols.header_builder(),
         (Format::Bed | Format::BedGraph, _) => HeaderBuilder::bed().set_line_skip_count(s.skip),
+        // WIG is rejected before indexing (`build_index_with`).
+        (Format::Wig, _) => return None,
         (Format::Gff3 | Format::Gtf, _) => HeaderBuilder::gff(),
         (Format::Vcf, _) => HeaderBuilder::vcf(),
         (Format::Bcf, _) => return None,
@@ -538,6 +540,13 @@ pub(super) fn build_index_with(
     threads: NonZeroUsize,
 ) -> Result<(IndexKind, Vec<u8>), IoError> {
     let name = final_data_path.display().to_string();
+    if format == Format::Wig && tsv.is_none() {
+        return Err(UsageError(format!(
+            "{name} is WIG, which cannot be indexed; convert it first with \
+`gloci convert {name}`, which writes bedGraph, and index that"
+        ))
+        .into());
+    }
     check_bgzf(data, &name)?;
     let changed = || IoError::Detect {
         path: name.clone(),
