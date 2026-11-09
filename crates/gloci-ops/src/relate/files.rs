@@ -171,7 +171,7 @@ fn b_column_names(b: &dyn RecordReader, width: usize) -> Vec<String> {
 /// Whether a relation over these inputs runs per chromosome (D41): more
 /// than one thread, every input a regular BGZF file with an index, and
 /// neither `--unsorted` nor `--sort`. With one thread it streams. The output
-/// is the same either way.
+/// is the same either way for inputs in table order; others are refused alike.
 pub fn runs_per_chromosome(
     paths: &InputPaths,
     relate: &RelateOptions,

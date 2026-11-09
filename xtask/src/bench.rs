@@ -935,4 +935,111 @@ mod tests {
             inputs.in_a.display()
         );
     }
+
+    /// A case's `vcf filter` command must keep records on its data, or it
+    /// times nothing (the 1kg chr20 data has QUAL `.` throughout, so a
+    /// `--min-qual` there dropped every record for every tool). Dry-runs
+    /// gloci's command on the first 10,000 data lines of the dataset's
+    /// committed head fixture (`xtask/bench/fixtures/DATASET.head.vcf`, which
+    /// mimics its fields), or of a small generated VCF for setup cases.
+    #[test]
+    fn vcf_filter_cases_keep_records() {
+        use std::io::Write;
+        let root = workspace_root();
+        let cases =
+            parse_cases(&std::fs::read_to_string(root.join("xtask/bench/cases.toml")).unwrap())
+                .unwrap();
+        let gloci = match std::env::var_os("GLOCI_BIN") {
+            Some(b) => PathBuf::from(b),
+            None => built_gloci("debug").unwrap(),
+        };
+        let td = tempfile::tempdir().unwrap();
+        let input = td.path().join("in.vcf");
+        let mut checked = 0;
+        for c in &cases {
+            let Some(cmd) = c.commands.get("gloci") else {
+                continue;
+            };
+            if !cmd.contains("vcf filter") {
+                continue;
+            }
+            let mut w = std::io::BufWriter::new(std::fs::File::create(&input).unwrap());
+            if let Some(d) = &c.dataset {
+                let fixture = root.join(format!("xtask/bench/fixtures/{d}.head.vcf"));
+                let text = std::fs::read_to_string(&fixture).unwrap_or_else(|e| {
+                    panic!(
+                        "case `{}`: no head fixture {}: {e}",
+                        c.name,
+                        fixture.display()
+                    )
+                });
+                let mut data = 0;
+                for line in text.lines() {
+                    if !line.starts_with('#') {
+                        data += 1;
+                        if data > 10_000 {
+                            break;
+                        }
+                    }
+                    writeln!(w, "{line}").unwrap();
+                }
+            } else {
+                let setup = c.setup.as_deref().expect("a setup or a dataset");
+                let t: Vec<&str> = setup.split_whitespace().collect();
+                assert_eq!(
+                    t.first(),
+                    Some(&"vcf"),
+                    "case `{}`: unsupported setup",
+                    c.name
+                );
+                let get = |k: &str, d: u64| {
+                    t.iter()
+                        .position(|x| *x == k)
+                        .and_then(|i| t.get(i + 1))
+                        .map_or(d, |v| v.parse().unwrap())
+                };
+                crate::synth::vcf(
+                    &crate::synth::VcfOpts {
+                        records: get("--records", 1000).min(10_000),
+                        samples: get("--samples", 10).min(100) as u32,
+                        seed: get("--seed", 1),
+                        chroms: get("--chroms", 1) as u32,
+                    },
+                    &mut w,
+                )
+                .unwrap();
+            }
+            w.flush().unwrap();
+            drop(w);
+            let out = td.path().join("out.vcf");
+            let line = cmd.split(['|', '>']).next().unwrap();
+            let args: Vec<String> = line
+                .replace("{gloci}", gloci.to_str().unwrap())
+                .replace("{in}", input.to_str().unwrap())
+                .replace("{out}", out.to_str().unwrap())
+                .split_whitespace()
+                .map(str::to_string)
+                .collect();
+            let r = Command::new(&args[0]).args(&args[1..]).output().unwrap();
+            assert!(
+                r.status.success(),
+                "case `{}`: {}",
+                c.name,
+                String::from_utf8_lossy(&r.stderr)
+            );
+            let kept = std::fs::read_to_string(&out)
+                .unwrap()
+                .lines()
+                .filter(|l| !l.starts_with('#'))
+                .count();
+            assert!(
+                kept > 0,
+                "case `{}`: `{}` keeps no record of its input, so it would time nothing",
+                c.name,
+                line.trim()
+            );
+            checked += 1;
+        }
+        assert!(checked >= 2, "only {checked} vcf filter cases checked");
+    }
 }

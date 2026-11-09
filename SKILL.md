@@ -112,7 +112,7 @@ A and every B must be sorted in one chromosome order, which is checked as they a
 
 Two ways to deal with inputs that are not sorted. Use --sort when the inputs are too big for memory or you want sorted output: A and every -b file are sorted first with an external sort bounded by --max-mem (spilling to --tmp-dir), then the normal sweep runs, so the result equals gloci sort on each input followed by this command. It needs disk, about twice the input size in --tmp-dir, and removes it afterwards. Use --unsorted when you want A's order kept and every -b file fits in memory. The two cannot be combined.
 
-When A and every -b file are BGZF files with a .tbi or .csi index and more than one thread is used, the work runs on runs of chromosomes in parallel, which are read and written in the chromosome-table order (karyotype by default; -g, a VCF header or --chrom-order set it), whatever order the files hold them in. At most 8 runs are in flight (more threads speed up BGZF); their output waiting to be written shares 64 MiB of memory and the rest spills to --tmp-dir. The output is the same as with one thread.
+When A and every -b file are BGZF files with a .tbi or .csi index and more than one thread is used, the work runs on runs of chromosomes in parallel, which are read and written in the chromosome-table order (karyotype by default; -g, a VCF header or --chrom-order set it). At most 8 runs are in flight (more threads speed up BGZF); their output waiting to be written shares 64 MiB of memory and the rest spills to --tmp-dir. Indexed and streaming runs give identical output for inputs in chromosome-table order; an input that is not in table order is refused with the same error whatever the thread count.
 
 ```sh
 gloci intersect -a peaks.bed -b genes.bed
@@ -214,7 +214,7 @@ A and every B must be sorted in one chromosome order, which is checked as they a
 
 Two ways to deal with inputs that are not sorted. Use --sort when the inputs are too big for memory or you want sorted output: A and every -b file are sorted first with an external sort bounded by --max-mem (spilling to --tmp-dir), then the normal sweep runs, so the result equals gloci sort on each input followed by this command. It needs disk, about twice the input size in --tmp-dir, and removes it afterwards. Use --unsorted when you want A's order kept and every -b file fits in memory. The two cannot be combined.
 
-When A and every -b file are BGZF files with a .tbi or .csi index and more than one thread is used, the work runs on runs of chromosomes in parallel, which are read and written in the chromosome-table order (karyotype by default; -g, a VCF header or --chrom-order set it), whatever order the files hold them in. At most 8 runs are in flight (more threads speed up BGZF); their output waiting to be written shares 64 MiB of memory and the rest spills to --tmp-dir. The output is the same as with one thread.
+When A and every -b file are BGZF files with a .tbi or .csi index and more than one thread is used, the work runs on runs of chromosomes in parallel, which are read and written in the chromosome-table order (karyotype by default; -g, a VCF header or --chrom-order set it). At most 8 runs are in flight (more threads speed up BGZF); their output waiting to be written shares 64 MiB of memory and the rest spills to --tmp-dir. Indexed and streaming runs give identical output for inputs in chromosome-table order; an input that is not in table order is refused with the same error whatever the thread count.
 
 ```sh
 gloci subtract -a peaks.bed -b blacklist.bed
@@ -237,7 +237,7 @@ Memory and a pathology: the sorted sweep looks ahead in B for the nearest B to t
 
 Two ways to deal with inputs that are not sorted. Use --sort when the inputs are too big for memory or you want sorted output: A and every -b file are sorted first with an external sort bounded by --max-mem (spilling to --tmp-dir), then the normal sweep runs, so the result equals gloci sort on each input followed by this command. It needs disk, about twice the input size in --tmp-dir, and removes it afterwards. Use --unsorted when you want A's order kept and every -b file fits in memory. The two cannot be combined.
 
-When A and every -b file are BGZF files with a .tbi or .csi index and more than one thread is used, the work runs on runs of chromosomes in parallel, which are read and written in the chromosome-table order (karyotype by default; -g, a VCF header or --chrom-order set it), whatever order the files hold them in. At most 8 runs are in flight (more threads speed up BGZF); their output waiting to be written shares 64 MiB of memory and the rest spills to --tmp-dir. The output is the same as with one thread.
+When A and every -b file are BGZF files with a .tbi or .csi index and more than one thread is used, the work runs on runs of chromosomes in parallel, which are read and written in the chromosome-table order (karyotype by default; -g, a VCF header or --chrom-order set it). At most 8 runs are in flight (more threads speed up BGZF); their output waiting to be written shares 64 MiB of memory and the rest spills to --tmp-dir. Indexed and streaming runs give identical output for inputs in chromosome-table order; an input that is not in table order is refused with the same error whatever the thread count.
 
 ```sh
 gloci closest -a genes.bed -b peaks.bed --distance
@@ -258,7 +258,7 @@ A and every B must be sorted in one chromosome order, which is checked as they a
 
 Two ways to deal with inputs that are not sorted. Use --sort when the inputs are too big for memory or you want sorted output: A and every -b file are sorted first with an external sort bounded by --max-mem (spilling to --tmp-dir), then the normal sweep runs, so the result equals gloci sort on each input followed by this command. It needs disk, about twice the input size in --tmp-dir, and removes it afterwards. Use --unsorted when you want A's order kept and every -b file fits in memory. The two cannot be combined.
 
-When A and every -b file are BGZF files with a .tbi or .csi index and more than one thread is used, the work runs on runs of chromosomes in parallel, which are read and written in the chromosome-table order (karyotype by default; -g, a VCF header or --chrom-order set it), whatever order the files hold them in. At most 8 runs are in flight (more threads speed up BGZF); their output waiting to be written shares 64 MiB of memory and the rest spills to --tmp-dir. The output is the same as with one thread.
+When A and every -b file are BGZF files with a .tbi or .csi index and more than one thread is used, the work runs on runs of chromosomes in parallel, which are read and written in the chromosome-table order (karyotype by default; -g, a VCF header or --chrom-order set it). At most 8 runs are in flight (more threads speed up BGZF); their output waiting to be written shares 64 MiB of memory and the rest spills to --tmp-dir. Indexed and streaming runs give identical output for inputs in chromosome-table order; an input that is not in table order is refused with the same error whatever the thread count.
 
 ```sh
 gloci map -a genes.bed -b scores.bedgraph -c 4:mean
@@ -279,7 +279,7 @@ A and every B must be sorted in one chromosome order, which is checked as they a
 
 Two ways to deal with inputs that are not sorted. Use --sort when the inputs are too big for memory or you want sorted output: A and every -b file are sorted first with an external sort bounded by --max-mem (spilling to --tmp-dir), then the normal sweep runs, so the result equals gloci sort on each input followed by this command. It needs disk, about twice the input size in --tmp-dir, and removes it afterwards. Use --unsorted when you want A's order kept and every -b file fits in memory. The two cannot be combined.
 
-When A and every -b file are BGZF files with a .tbi or .csi index and more than one thread is used, the work runs on runs of chromosomes in parallel, which are read and written in the chromosome-table order (karyotype by default; -g, a VCF header or --chrom-order set it), whatever order the files hold them in. At most 8 runs are in flight (more threads speed up BGZF); their output waiting to be written shares 64 MiB of memory and the rest spills to --tmp-dir. The output is the same as with one thread.
+When A and every -b file are BGZF files with a .tbi or .csi index and more than one thread is used, the work runs on runs of chromosomes in parallel, which are read and written in the chromosome-table order (karyotype by default; -g, a VCF header or --chrom-order set it). At most 8 runs are in flight (more threads speed up BGZF); their output waiting to be written shares 64 MiB of memory and the rest spills to --tmp-dir. Indexed and streaming runs give identical output for inputs in chromosome-table order; an input that is not in table order is refused with the same error whatever the thread count.
 
 ```sh
 gloci coverage -a genes.bed -b reads.bed

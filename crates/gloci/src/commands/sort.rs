@@ -240,14 +240,20 @@ separately",
 }
 
 /// The inputs of one run. Each is read from its source exactly once: a
-/// reader opened for the header pass is kept for the record pass when every
-/// input fits in one merge round (`fan_in`); otherwise readers are dropped
-/// after the header pass and reopened, from the file itself for a regular
-/// file, or from a copy spooled before anything else is read for an input
-/// that cannot be reopened (stdin, a pipe, a FIFO, `/dev/fd/N`).
+/// regular file is reopened for each pass, so the number of open readers and
+/// their BGZF thread pools stays bounded however many files there are. An
+/// input that cannot be reopened (stdin, a pipe, a FIFO, `/dev/fd/N`) keeps
+/// its header-pass reader when every input fits in one merge round
+/// (`fan_in`), and is otherwise spooled to --tmp-dir before anything else is
+/// read.
 struct Sources {
     paths: Vec<String>,
     opts: ReaderOptions,
+    /// Per input: whether it is a regular file, which is reopened for each
+    /// pass rather than held open.
+    regular: Vec<bool>,
+    /// Whether the inputs that cannot be reopened fit in one merge round, so
+    /// their readers are kept for the record pass instead of being spooled.
     keep: bool,
     readers: Vec<Option<Box<dyn RecordReader>>>,
     spooled: Vec<Option<PathBuf>>,
@@ -263,11 +269,12 @@ impl Sources {
         tmp_dir: &Path,
     ) -> Result<Sources, IoError> {
         let keep = paths.len() <= fan_in;
+        let regular: Vec<bool> = paths.iter().map(|p| is_regular_file(p)).collect();
         let mut spool = None;
         let mut spooled = vec![None; paths.len()];
         if !keep {
             for (i, p) in paths.iter().enumerate() {
-                if !is_regular_file(p) {
+                if !regular[i] {
                     let s = match &mut spool {
                         Some(s) => s,
                         None => spool.insert(InputSpool::create(tmp_dir)?),
@@ -279,6 +286,7 @@ impl Sources {
         Ok(Sources {
             paths: paths.to_vec(),
             opts: opts.clone(),
+            regular,
             keep,
             readers: (0..paths.len()).map(|_| None).collect(),
             spooled,
@@ -312,10 +320,12 @@ impl Sources {
         Ok(self.readers[i].as_deref().expect("just opened"))
     }
 
-    /// End the header pass for input `i`: its reader is kept for the record
-    /// pass, or closed when it can be reopened.
+    /// End the header pass for input `i`: a regular file's reader is closed
+    /// (the file is reopened for the record pass, so at most one reader of
+    /// regular files is open at a time); any other reader is kept for the
+    /// record pass, or closed when it was spooled.
     fn release(&mut self, i: usize) {
-        if !self.keep {
+        if self.regular[i] || !self.keep {
             self.readers[i] = None;
         }
     }

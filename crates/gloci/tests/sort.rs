@@ -914,3 +914,87 @@ fn stdin_among_more_inputs_than_the_fan_in() {
     // No spool left behind.
     assert_eq!(std::fs::read_dir(&tmp).unwrap().count(), 0);
 }
+
+/// Sort `n` BGZF inputs of `records` records each at `-t 8`; returns the
+/// most threads the process had at once (polled from `/proc/PID/status`
+/// while it ran) and its peak RSS in bytes.
+#[cfg(target_os = "linux")]
+#[allow(clippy::zombie_processes)] // reaped by wait4, for its rusage
+fn sort_bgzf_inputs_peaks(n: usize, records: usize) -> (u64, u64) {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    let d = tempdir();
+    let files: Vec<String> = (0..n)
+        .map(|i| {
+            let mut text = String::new();
+            for r in 0..records {
+                // Interleaved across files so every input contributes to every part.
+                let start = (r * n + (n - i)) * 10;
+                text.push_str(&format!("chr1\t{start}\t{}\tf{i}_{r}\n", start + 5));
+            }
+            bgzf_file(d.path(), &format!("in_{i:03}.bed.gz"), &text)
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin("gloci"))
+        .args(["sort", "-t", "8", "-o", "/dev/null"])
+        .args(&files)
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    let peak = Arc::new(AtomicU64::new(0));
+    let stop = Arc::new(AtomicBool::new(false));
+    let poller = {
+        let (peak, stop) = (peak.clone(), stop.clone());
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                if let Ok(s) = std::fs::read_to_string(format!("/proc/{pid}/status"))
+                    && let Some(l) = s.lines().find_map(|l| l.strip_prefix("Threads:"))
+                    && let Ok(t) = l.trim().parse::<u64>()
+                {
+                    peak.fetch_max(t, Ordering::Relaxed);
+                }
+                std::thread::sleep(std::time::Duration::from_micros(200));
+            }
+        })
+    };
+    let mut status = 0;
+    let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
+    let r = unsafe { libc::wait4(pid as libc::pid_t, &mut status, 0, &mut ru) };
+    stop.store(true, Ordering::Relaxed);
+    poller.join().unwrap();
+    assert_eq!(r, pid as libc::pid_t, "wait4 failed");
+    let mut err = String::new();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut err)
+        .unwrap();
+    assert!(
+        libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0,
+        "sort failed: {err}"
+    );
+    (peak.load(Ordering::Relaxed), ru.ru_maxrss as u64 * 1024)
+}
+
+/// P1 follow-up: regular files are reopened per pass, so 100 BGZF inputs
+/// do not hold 100 readers (each with its own thread pool) open at once.
+#[cfg(target_os = "linux")]
+#[test]
+fn sort_many_bgzf_inputs_bounded() {
+    let (threads, _) = sort_bgzf_inputs_peaks(100, 50);
+    assert!(threads < 120, "peak {threads} threads for 100 inputs");
+}
+
+/// The same with real data volume: peak RSS stays under 150 MB.
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "heavy: 100 inputs of 2k records; run with --ignored"]
+fn sort_many_bgzf_inputs_bounded_rss() {
+    let (threads, rss) = sort_bgzf_inputs_peaks(100, 2_000);
+    assert!(threads < 120, "peak {threads} threads");
+    assert!(rss < 150_000_000, "peak RSS {rss} bytes");
+}

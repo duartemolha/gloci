@@ -215,7 +215,15 @@ pub fn run_chunks<J: Clone + Send + Sync, R: Send>(
         drop(pending);
         match first_error {
             Some((_, e)) => Err(e),
-            None => Ok(results),
+            None if results.len() == jobs.len() => Ok(results),
+            // Unreachable while workers run under `catch_unwind`: a lost
+            // result must never pass as a complete, shorter output.
+            None => Err(IoError::Internal(format!(
+                "parallel run returned {} results for {} chunks; this is a bug, \
+please report it",
+                results.len(),
+                jobs.len()
+            ))),
         }
     })
 }

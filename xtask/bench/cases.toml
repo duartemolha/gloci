@@ -173,11 +173,11 @@ dataset = "1kg-30x-chr20"
 input = "vcf.gz"
 targets = ["gloci <= 0.2 * vcftools"]
 [case.commands]
-gloci = "{gloci} vcf filter --min-maf 0.01 --max-missing 0.1 --min-qual 30 {in} -o {out}"
-vcftools = "vcftools --gzvcf {in} --maf 0.01 --max-missing 0.9 --minQ 30 --recode --recode-INFO-all --stdout | bgzip -@ 8 > {out}"
-bcftools = "bcftools view -i 'MAF>=0.01 && F_MISSING<=0.1 && QUAL>=30' {in} -Oz -o {out}"
-vcfkit = "vk filter --maf 0.01 --missing 0.1 --min-qual 30 {in} | bgzip -@ 8 > {out}"
-vcfexpress = "vcfexpress filter --expr 'maf >= 0.01 && missing <= 0.1 && qual >= 30' {in} -o {out}"
+gloci = "{gloci} vcf filter --min-maf 0.01 --max-missing 0.1 {in} -o {out}"
+vcftools = "vcftools --gzvcf {in} --maf 0.01 --max-missing 0.9 --recode --recode-INFO-all --stdout | bgzip -@ 8 > {out}"
+bcftools = "bcftools view -i 'MAF>=0.01 && F_MISSING<=0.1' {in} -Oz -o {out}"
+vcfkit = "vk filter --maf 0.01 --missing 0.1 {in} | bgzip -@ 8 > {out}"
+vcfexpress = "vcfexpress filter --expr 'maf >= 0.01 && missing <= 0.1' {in} -o {out}"
 
 [[case]]
 name = "vcf-filter-synthetic-2500"

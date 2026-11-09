@@ -221,6 +221,12 @@ struct RegionReader {
     /// Records emitted so far: each record's `loc` is its number in this
     /// reader's output, which keeps file order for tie-breaking (D38).
     emitted: u64,
+    /// Data records of the current reference read so far (each once, even
+    /// when chunks overlap) and the position of the last counted one. Only
+    /// whole-reference reads start at the reference's first record, so only
+    /// there is it the record's number within the chromosome.
+    seen: u64,
+    seen_last: Option<VirtualPosition>,
 }
 
 impl RegionReader {
@@ -277,11 +283,21 @@ impl RegionReader {
     }
 
     /// An invalid record at `at`: an error, or counted under `--skip-invalid`.
-    /// Index-backed reads have no line numbers, so the place is the record's
-    /// virtual offset.
+    /// Index-backed reads have no line numbers. A whole-reference read names
+    /// the record by its number within its chromosome ("record N of CHROM");
+    /// a region read, which starts mid-file, by its BGZF virtual offset.
     fn bad(&mut self, at: VirtualPosition, msg: &str) -> Result<(), IoError> {
-        let (c, u): (u64, u16) = at.into();
-        let place = format!("record at BGZF offset {c}:{u}");
+        let place = match self.plans.get(self.p) {
+            Some(plan) if self.whole => format!(
+                "record {} of {}",
+                self.seen,
+                String::from_utf8_lossy(&plan.name)
+            ),
+            _ => {
+                let (c, u): (u64, u16) = at.into();
+                format!("record at BGZF offset {c}:{u}")
+            }
+        };
         match self.policy {
             InvalidPolicy::Fail => Err(IoError::Detect {
                 path: self.name.clone(),
@@ -305,6 +321,8 @@ impl RegionReader {
                 self.p += 1;
                 self.w = 0;
                 self.loaded = false;
+                self.seen = 0;
+                self.seen_last = None;
                 if self.whole {
                     // A new reference: nothing of it has been emitted, and its
                     // records may lie before the previous reference's.
@@ -353,6 +371,10 @@ impl RegionReader {
             {
                 batch.buf.truncate(off);
                 continue;
+            }
+            if self.seen_last.is_none_or(|l| start > l) {
+                self.seen += 1;
+                self.seen_last = Some(start);
             }
             let parsed = match class {
                 Class::Fatal(msg) => Err(msg),
@@ -443,7 +465,8 @@ impl RecordReader for RegionReader {
 ///
 /// Line numbers are unknown, so each record's `loc` is its number among the
 /// records this reader yields (file order, which ties are broken by); parse
-/// errors name the record's BGZF virtual offset instead.
+/// errors name the record's BGZF virtual offset instead (whole-chromosome
+/// readers name "record N of CHROM").
 pub fn open_region_reader(
     path: &Path,
     regions: &[(Vec<u8>, Interval)],
@@ -531,6 +554,8 @@ pub fn open_region_reader(
         chunk_end: None,
         last_emitted: None,
         emitted: 0,
+        seen: 0,
+        seen_last: None,
     }))
 }
 
@@ -690,6 +715,22 @@ impl IndexedFile {
         }
     }
 
+    /// The reference names that hold records, in the order their records
+    /// appear in the file (by first chunk offset), which is the index's own
+    /// order for a TBI but the file's order, not the dictionary's, for a BCF.
+    pub fn file_order_reference_names(&self) -> Vec<Vec<u8>> {
+        let mut named: Vec<(VirtualPosition, Vec<u8>)> = self
+            .reference_names()
+            .into_iter()
+            .filter_map(|n| {
+                let at = self.index.first_offset(self.rid_of(&n)?)?;
+                Some((at, n))
+            })
+            .collect();
+        named.sort_by_key(|(at, _)| *at);
+        named.into_iter().map(|(_, n)| n).collect()
+    }
+
     /// The reference names that hold records.
     pub fn non_empty_reference_names(&self) -> Vec<Vec<u8>> {
         self.reference_names()
@@ -773,6 +814,8 @@ impl IndexedFile {
             chunk_end: None,
             last_emitted: None,
             emitted: 0,
+            seen: 0,
+            seen_last: None,
         }))
     }
 }

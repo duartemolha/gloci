@@ -125,10 +125,15 @@ impl std::fmt::Debug for Input {
 }
 
 /// Whether `path` names a regular file, which can be opened again and read
-/// from the start. `-` (stdin), pipes, FIFOs and `/dev/fd/N` cannot: reading
-/// one twice silently loses data, so they must be read exactly once.
+/// from the start. `-` (stdin), pipes, FIFOs and `/dev/fd/N` cannot (even
+/// when `/dev/fd/N` is a regular file, on macOS a reopen shares the file
+/// offset): reading one twice silently loses data, so they must be read
+/// exactly once.
 pub fn is_regular_file(path: &str) -> bool {
-    path != "-" && std::fs::metadata(path).is_ok_and(|m| m.is_file())
+    path != "-"
+        && !path.starts_with("/dev/fd/")
+        && !path.starts_with("/proc/self/fd/")
+        && std::fs::metadata(path).is_ok_and(|m| m.is_file())
 }
 
 /// Copies of inputs that cannot be reopened (stdin, pipes, FIFOs), kept in a
@@ -197,5 +202,21 @@ impl InputSpool {
             })?;
         }
         Ok(dest)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_regular_file;
+
+    #[test]
+    fn fd_paths_and_stdin_are_not_reopenable() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("f");
+        std::fs::write(&p, b"x").unwrap();
+        assert!(is_regular_file(p.to_str().unwrap()));
+        for s in ["-", "/dev/fd/0", "/dev/fd/63", "/proc/self/fd/3"] {
+            assert!(!is_regular_file(s), "{s}");
+        }
     }
 }

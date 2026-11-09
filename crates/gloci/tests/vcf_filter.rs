@@ -515,3 +515,20 @@ fn format_errors_use_user_facing_names() {
         .code(2)
         .stderr(contains("vcf filter writes VCF or BCF, not TSV"));
 }
+
+/// A bad threshold is a usage error (exit 2) even when a list file named on
+/// the same command line is missing: validation runs before any list file
+/// is read.
+#[test]
+fn usage_error_precedes_list_file_errors() {
+    let d = tempdir();
+    let missing = s(&d.path().join("no-such-samples.txt"));
+    gloci()
+        .args(["vcf", "filter", "--max-missing", "2", "--samples-file"])
+        .arg(&missing)
+        .arg("-")
+        .write_stdin("")
+        .assert()
+        .code(2)
+        .stderr(contains("--max-missing"));
+}

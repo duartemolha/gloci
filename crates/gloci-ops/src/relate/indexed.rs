@@ -45,6 +45,18 @@ pub(super) fn run_indexed<R: Send>(
         .zip(&inputs.b)
         .map(|(p, r)| open(p, r.as_ref(), &paths.ro_b))
         .collect::<Result<Vec<_>, _>>()?;
+
+    // An input whose records are not in table order is refused as streaming
+    // refuses it: run the streaming step, which raises the order error (with
+    // its line numbers and hint) exactly as at `-t 1`.
+    if std::iter::once(&file_a)
+        .chain(&files_b)
+        .any(|f| out_of_table_order(&chroms, f))
+    {
+        drop((file_a, files_b));
+        let (summary, r) = step(inputs, Some(chroms), out)?;
+        return Ok((summary, vec![r]));
+    }
     drop(inputs);
 
     for f in std::iter::once(&file_a).chain(&files_b) {
@@ -177,6 +189,15 @@ fn group_chromosomes(chroms: Vec<Vec<u8>>, weights: &[u64], target: usize) -> Ve
         groups.push(current);
     }
     groups
+}
+
+/// Whether the chromosomes of `f`, in the order its records show them, go
+/// backwards in `chroms`' order. Names the table cannot order are skipped
+/// (an unknown name is reported when the table is closed over them).
+fn out_of_table_order(chroms: &ChromTable, f: &IndexedFile) -> bool {
+    f.file_order_reference_names()
+        .windows(2)
+        .any(|w| chroms.cmp_names(&w[0], &w[1]) == Some(std::cmp::Ordering::Greater))
 }
 
 /// Intern the chromosomes `f`'s index lists; one missing from a closed

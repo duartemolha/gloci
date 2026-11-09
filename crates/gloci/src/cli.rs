@@ -210,11 +210,12 @@ Examples:
     /// When A and every -b file are BGZF files with a .tbi or .csi index and
     /// more than one thread is used, the work runs on runs of chromosomes in
     /// parallel, which are read and written in the chromosome-table order
-    /// (karyotype by default; -g, a VCF header or --chrom-order set it),
-    /// whatever order the files hold them in. At most 8 runs are in flight
-    /// (more threads speed up BGZF); their output waiting to be written
-    /// shares 64 MiB of memory and the rest spills to --tmp-dir. The output
-    /// is the same as with one thread.
+    /// (karyotype by default; -g, a VCF header or --chrom-order set it).
+    /// At most 8 runs are in flight (more threads speed up BGZF); their
+    /// output waiting to be written shares 64 MiB of memory and the rest
+    /// spills to --tmp-dir. Indexed and streaming runs give identical output
+    /// for inputs in chromosome-table order; an input that is not in table
+    /// order is refused with the same error whatever the thread count.
     #[command(after_long_help = "\
 Examples:
   gloci intersect -a peaks.bed -b genes.bed
@@ -400,11 +401,12 @@ Examples:
     /// When A and every -b file are BGZF files with a .tbi or .csi index and
     /// more than one thread is used, the work runs on runs of chromosomes in
     /// parallel, which are read and written in the chromosome-table order
-    /// (karyotype by default; -g, a VCF header or --chrom-order set it),
-    /// whatever order the files hold them in. At most 8 runs are in flight
-    /// (more threads speed up BGZF); their output waiting to be written
-    /// shares 64 MiB of memory and the rest spills to --tmp-dir. The output
-    /// is the same as with one thread.
+    /// (karyotype by default; -g, a VCF header or --chrom-order set it).
+    /// At most 8 runs are in flight (more threads speed up BGZF); their
+    /// output waiting to be written shares 64 MiB of memory and the rest
+    /// spills to --tmp-dir. Indexed and streaming runs give identical output
+    /// for inputs in chromosome-table order; an input that is not in table
+    /// order is refused with the same error whatever the thread count.
     #[command(after_long_help = "\
 Examples:
   gloci subtract -a peaks.bed -b blacklist.bed
@@ -466,11 +468,12 @@ Examples:
     /// When A and every -b file are BGZF files with a .tbi or .csi index and
     /// more than one thread is used, the work runs on runs of chromosomes in
     /// parallel, which are read and written in the chromosome-table order
-    /// (karyotype by default; -g, a VCF header or --chrom-order set it),
-    /// whatever order the files hold them in. At most 8 runs are in flight
-    /// (more threads speed up BGZF); their output waiting to be written
-    /// shares 64 MiB of memory and the rest spills to --tmp-dir. The output
-    /// is the same as with one thread.
+    /// (karyotype by default; -g, a VCF header or --chrom-order set it).
+    /// At most 8 runs are in flight (more threads speed up BGZF); their
+    /// output waiting to be written shares 64 MiB of memory and the rest
+    /// spills to --tmp-dir. Indexed and streaming runs give identical output
+    /// for inputs in chromosome-table order; an input that is not in table
+    /// order is refused with the same error whatever the thread count.
     #[command(after_long_help = "\
 Examples:
   gloci closest -a genes.bed -b peaks.bed --distance
@@ -519,11 +522,12 @@ Examples:
     /// When A and every -b file are BGZF files with a .tbi or .csi index and
     /// more than one thread is used, the work runs on runs of chromosomes in
     /// parallel, which are read and written in the chromosome-table order
-    /// (karyotype by default; -g, a VCF header or --chrom-order set it),
-    /// whatever order the files hold them in. At most 8 runs are in flight
-    /// (more threads speed up BGZF); their output waiting to be written
-    /// shares 64 MiB of memory and the rest spills to --tmp-dir. The output
-    /// is the same as with one thread.
+    /// (karyotype by default; -g, a VCF header or --chrom-order set it).
+    /// At most 8 runs are in flight (more threads speed up BGZF); their
+    /// output waiting to be written shares 64 MiB of memory and the rest
+    /// spills to --tmp-dir. Indexed and streaming runs give identical output
+    /// for inputs in chromosome-table order; an input that is not in table
+    /// order is refused with the same error whatever the thread count.
     #[command(after_long_help = "\
 Examples:
   gloci map -a genes.bed -b scores.bedgraph -c 4:mean
@@ -569,11 +573,12 @@ Examples:
     /// When A and every -b file are BGZF files with a .tbi or .csi index and
     /// more than one thread is used, the work runs on runs of chromosomes in
     /// parallel, which are read and written in the chromosome-table order
-    /// (karyotype by default; -g, a VCF header or --chrom-order set it),
-    /// whatever order the files hold them in. At most 8 runs are in flight
-    /// (more threads speed up BGZF); their output waiting to be written
-    /// shares 64 MiB of memory and the rest spills to --tmp-dir. The output
-    /// is the same as with one thread.
+    /// (karyotype by default; -g, a VCF header or --chrom-order set it).
+    /// At most 8 runs are in flight (more threads speed up BGZF); their
+    /// output waiting to be written shares 64 MiB of memory and the rest
+    /// spills to --tmp-dir. Indexed and streaming runs give identical output
+    /// for inputs in chromosome-table order; an input that is not in table
+    /// order is refused with the same error whatever the thread count.
     #[command(after_long_help = "\
 Examples:
   gloci coverage -a genes.bed -b reads.bed

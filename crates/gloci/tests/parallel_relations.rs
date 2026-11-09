@@ -205,6 +205,11 @@ fn chunk_error_cleans_up() {
 
     assert!(!cmd.status.success(), "expected failure on corrupted chr2");
     assert!(!out_file.exists(), "output file should not exist on error");
+    // The indexed reader has no line numbers: it names the record by its
+    // number within the chromosome, not by a BGZF offset.
+    let stderr = String::from_utf8_lossy(&cmd.stderr);
+    assert!(stderr.contains("record 1 of chr2"), "{stderr}");
+    assert!(!stderr.contains("BGZF offset"), "{stderr}");
 
     let tmp_entries: Vec<_> = fs::read_dir(&tmp_dir).unwrap().collect();
     assert!(
@@ -642,4 +647,45 @@ fn write_errors_name_the_destination() {
             assert!(e.contains("error writing /dev/full"), "{cmd} -t {t}: {e}");
         }
     }
+}
+
+/// Run `args` at `-t 1` and `-t 4` expecting failure; both must print the
+/// same message, which must contain every `needles` entry.
+fn assert_refuse_alike(args: &[&str], needles: &[&str]) {
+    let run = |t: &str| {
+        let mut a: Vec<&str> = args.to_vec();
+        a.extend(["-t", t]);
+        let o = gloci().args(&a).assert().failure().code(1);
+        String::from_utf8_lossy(&o.get_output().stderr).into_owned()
+    };
+    let (one, four) = (run("1"), run("4"));
+    assert_eq!(one, four, "-t 1 and -t 4 must refuse alike");
+    for n in needles {
+        assert!(one.contains(n), "missing {n:?} in: {one}");
+    }
+}
+
+/// Indexed and streaming relations refuse an input that is not in table
+/// order alike, whatever `--threads` is (a lex-sorted indexed BED; a VCF
+/// whose header lists its contigs in another order than its records).
+#[test]
+fn indexed_and_streaming_refuse_alike() {
+    let dir = tempdir();
+    let bed = |c: &str| format!("{c}\t10\t20\n");
+    let lex: String = ["chr1", "chr10", "chr2"].iter().map(|c| bed(c)).collect();
+    let (a, _) = indexed_pair(dir.path(), "lexa", &lex);
+    let (b, _) = indexed_pair(dir.path(), "lexb", &lex);
+    assert_refuse_alike(
+        &["intersect", "--a", &a, "--b", &b],
+        &["lexb.bed.gz is not sorted", "chr10", "chr2", "sort-bed"],
+    );
+
+    let vcf = "##fileformat=VCFv4.2\n##contig=<ID=chr2,length=1000>\n##contig=<ID=chr1,length=1000>\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+chr1\t10\t.\tA\tC\t.\t.\t.\nchr2\t10\t.\tA\tC\t.\t.\t.\n";
+    let (va, _) = indexed_vcf_pair(dir.path(), "hdr", vcf);
+    assert_refuse_alike(
+        &["intersect", "--a", &va, "--b", &va],
+        &["hdr.vcf.gz is not sorted"],
+    );
 }

@@ -8,7 +8,8 @@ use gloci_io::{
     open_output, open_record_writer, parse_output_spec, refuse_binary_to_tty,
 };
 use gloci_ops::{
-    VcfFilterOptions, open_vcf_filter, read_regions_file, vcf_filter_file, vcf_filter_output,
+    VcfFilterOptions, open_vcf_filter, read_regions_file, validate_thresholds, vcf_filter_file,
+    vcf_filter_output,
 };
 use gloci_vcf::{
     MaskRules, RewritePlan, SiteFilters, VcfType, read_ids, read_positions, read_samples,
@@ -17,6 +18,19 @@ use std::collections::{HashMap, HashSet};
 use std::io::IsTerminal;
 
 pub fn run_filter(ctx: &Ctx, a: &VcfFilterArgs) -> anyhow::Result<()> {
+    let (min_alleles, max_alleles) = if a.biallelic {
+        (Some(2), Some(2))
+    } else {
+        (a.min_alleles, a.max_alleles)
+    };
+    // Usage errors first: before any list file is read.
+    validate_thresholds(
+        a.min_maf,
+        a.max_maf,
+        a.max_missing,
+        min_alleles,
+        max_alleles,
+    )?;
     let include_samples = match (&a.samples, &a.samples_file) {
         (Some(list), None) => Some(list.clone()),
         (None, Some(path)) => Some(read_samples(&path.to_string_lossy())?),
@@ -43,12 +57,6 @@ pub fn run_filter(ctx: &Ctx, a: &VcfFilterArgs) -> anyhow::Result<()> {
     let exclude_ids = match &a.exclude_ids {
         Some(p) => Some(read_ids(&p.to_string_lossy())?),
         None => None,
-    };
-
-    let (min_alleles, max_alleles) = if a.biallelic {
-        (Some(2), Some(2))
-    } else {
-        (a.min_alleles, a.max_alleles)
     };
 
     let types = if a.types.is_empty() {

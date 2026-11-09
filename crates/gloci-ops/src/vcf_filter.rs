@@ -34,31 +34,49 @@ fn usage(msg: impl Into<String>) -> IoError {
     UsageError(msg.into()).into()
 }
 
+/// Check the numeric thresholds, which needs no input: callers run it before
+/// reading any list file, so a usage error is never reported as a file error.
+pub fn validate_thresholds(
+    min_maf: Option<f64>,
+    max_maf: Option<f64>,
+    max_missing: Option<f64>,
+    min_alleles: Option<usize>,
+    max_alleles: Option<usize>,
+) -> Result<(), IoError> {
+    let unit = [
+        ("--min-maf", min_maf),
+        ("--max-maf", max_maf),
+        ("--max-missing", max_missing),
+    ];
+    for (flag, v) in unit {
+        if let Some(v) = v
+            && !(0.0..=1.0).contains(&v)
+        {
+            return Err(usage(format!(
+                "{flag} {v} is not in [0, 1]; give a fraction between 0 and 1"
+            )));
+        }
+    }
+    if let (Some(lo), Some(hi)) = (min_alleles, max_alleles)
+        && lo > hi
+    {
+        return Err(usage(format!(
+            "--min-alleles {lo} is more than --max-alleles {hi}; no site could pass"
+        )));
+    }
+    Ok(())
+}
+
 impl VcfFilterOptions {
     /// The checks that need no input: thresholds within range.
     pub fn validate(&self) -> Result<(), IoError> {
-        let unit = [
-            ("--min-maf", self.sites.min_maf),
-            ("--max-maf", self.sites.max_maf),
-            ("--max-missing", self.sites.max_missing),
-        ];
-        for (flag, v) in unit {
-            if let Some(v) = v
-                && !(0.0..=1.0).contains(&v)
-            {
-                return Err(usage(format!(
-                    "{flag} {v} is not in [0, 1]; give a fraction between 0 and 1"
-                )));
-            }
-        }
-        if let (Some(lo), Some(hi)) = (self.sites.min_alleles, self.sites.max_alleles)
-            && lo > hi
-        {
-            return Err(usage(format!(
-                "--min-alleles {lo} is more than --max-alleles {hi}; no site could pass"
-            )));
-        }
-        Ok(())
+        validate_thresholds(
+            self.sites.min_maf,
+            self.sites.max_maf,
+            self.sites.max_missing,
+            self.sites.min_alleles,
+            self.sites.max_alleles,
+        )
     }
 
     /// The region selection, as `view` does it.
