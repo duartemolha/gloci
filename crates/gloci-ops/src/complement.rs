@@ -165,9 +165,15 @@ pub fn complement(
         ))
         .into());
     }
+    let names = inputs
+        .iter()
+        .map(|r| r.name().to_string())
+        .collect::<Vec<_>>();
+    let mut chroms_seen: Vec<Vec<Vec<u8>>> = vec![Vec::new(); inputs.len()];
+    let mut last_chrom: Vec<Option<ChromId>> = vec![None; inputs.len()];
     let mut c = Comp {
         genome,
-        names: inputs.iter().map(|r| r.name().to_string()).collect(),
+        names: names.clone(),
         binary: inputs.iter().map(|r| r.format() == Format::Bcf).collect(),
         w,
         heap: BinaryHeap::new(),
@@ -176,11 +182,39 @@ pub fn complement(
         next_genome: 0,
     };
     kmerge_with(inputs, chroms, &mut |input, meta, _raw, chroms| {
+        if last_chrom[input] != Some(meta.chrom) {
+            last_chrom[input] = Some(meta.chrom);
+            let c_name = chroms.name(meta.chrom);
+            if !chroms_seen[input].iter().any(|s| s.as_slice() == c_name) {
+                chroms_seen[input].push(c_name.to_vec());
+            }
+        }
         c.record(input, meta, chroms)
     })?;
     c.finish_chrom(chroms)?;
     if let Some(g) = genome {
         c.untouched_before(g.len())?;
+    }
+    let non_empty: Vec<usize> = (0..names.len())
+        .filter(|&i| !chroms_seen[i].is_empty())
+        .collect();
+    if non_empty.len() >= 2 {
+        for (idx, &i) in non_empty.iter().enumerate() {
+            for &j in &non_empty[idx + 1..] {
+                let shares = chroms_seen[i].iter().any(|c| chroms_seen[j].contains(c));
+                if !shares {
+                    log::warn!(
+                        "{}",
+                        gloci_io::naming::format_disjoint_chroms_warning(
+                            &names[i],
+                            &chroms_seen[i],
+                            &names[j],
+                            &chroms_seen[j],
+                        )
+                    );
+                }
+            }
+        }
     }
     Ok(())
 }

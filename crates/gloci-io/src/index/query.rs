@@ -547,3 +547,42 @@ but the BCF header cannot be read: {msg}",
         .map(|(_, c)| c)
         .collect())
 }
+
+/// The chromosome names declared in an index that actually hold records
+/// (at least one chunk offset is present).
+pub fn index_non_empty_reference_names(
+    data: &Path,
+    info: &IndexInfo,
+) -> Result<Vec<Vec<u8>>, IoError> {
+    let loaded = Loaded::read(info)?;
+    if let Some(names) = loaded.names() {
+        return Ok(names
+            .iter()
+            .enumerate()
+            .filter(|(rid, _)| loaded.first_offset(*rid).is_some())
+            .map(|(_, n)| n.to_vec())
+            .collect());
+    }
+    let name = data.display().to_string();
+    let file = File::open(data).map_err(|source| IoError::Open {
+        path: name.clone(),
+        source,
+    })?;
+    let mut src = noodles_bgzf::io::Reader::new(BufReader::new(file));
+    let h = read_bcf_header(&mut src).map_err(|msg| IoError::Detect {
+        msg: format!(
+            "{name}: the index {} lists no chromosome names, as only a BCF index may, \
+but the BCF header cannot be read: {msg}",
+            info.path.display()
+        ),
+        path: name.clone(),
+    })?;
+    let dicts = h.bcf.expect("read_bcf_header builds the dictionaries");
+    Ok(dicts
+        .contigs
+        .into_iter()
+        .enumerate()
+        .filter(|(rid, c)| !c.is_empty() && loaded.first_offset(*rid).is_some())
+        .map(|(_, c)| c)
+        .collect())
+}

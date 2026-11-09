@@ -305,6 +305,8 @@ pub fn merge_counting(
         .map(|_| Accumulators::new(resolved.clone(), o.empty.clone(), o.delim.clone()))
         .collect();
     let mut unknown_strand = vec![false; inputs.len()];
+    let mut chroms_seen: Vec<Vec<Vec<u8>>> = vec![Vec::new(); inputs.len()];
+    let mut last_chrom: Vec<Option<ChromId>> = vec![None; inputs.len()];
     let mut m = Merger {
         o,
         names: names.clone(),
@@ -324,9 +326,37 @@ pub fn merge_counting(
         if meta.strand == Strand::Unknown {
             unknown_strand[input] = true;
         }
+        if last_chrom[input] != Some(meta.chrom) {
+            last_chrom[input] = Some(meta.chrom);
+            let c_name = chroms.name(meta.chrom);
+            if !chroms_seen[input].iter().any(|s| s.as_slice() == c_name) {
+                chroms_seen[input].push(c_name.to_vec());
+            }
+        }
         m.record(input, meta, raw, chroms)
     })?;
     m.finish_chrom()?;
+    let non_empty: Vec<usize> = (0..names.len())
+        .filter(|&i| !chroms_seen[i].is_empty())
+        .collect();
+    if non_empty.len() >= 2 {
+        for (idx, &i) in non_empty.iter().enumerate() {
+            for &j in &non_empty[idx + 1..] {
+                let shares = chroms_seen[i].iter().any(|c| chroms_seen[j].contains(c));
+                if !shares {
+                    log::warn!(
+                        "{}",
+                        gloci_io::naming::format_disjoint_chroms_warning(
+                            &names[i],
+                            &chroms_seen[i],
+                            &names[j],
+                            &chroms_seen[j],
+                        )
+                    );
+                }
+            }
+        }
+    }
     if o.per_strand {
         for (name, _) in names.iter().zip(&unknown_strand).filter(|(_, u)| **u) {
             log::warn!(

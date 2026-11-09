@@ -4,7 +4,7 @@ use crate::detect::{Compression, Format};
 use crate::diag::{Diagnostics, InvalidPolicy};
 use crate::error::{IoError, Loc};
 use crate::input::{Input, InputOptions, open_input, open_input_from};
-use gloci_core::{ChromId, ChromTable, CoordError, Interval, OrderSource, Strand, VcfSpan};
+use gloci_core::{ChromId, ChromTable, CoordError, Interval, Strand, VcfSpan};
 use std::io::{BufRead, Read};
 use std::num::NonZeroUsize;
 
@@ -159,26 +159,9 @@ pub(crate) fn intern_chrom(chroms: &mut ChromTable, name: &[u8]) -> Result<Chrom
     if name.is_empty() {
         return Err("empty chromosome name".into());
     }
-    chroms.intern(name).map_err(|e| {
-        let place = match chroms.order_source() {
-            OrderSource::GenomeFile(p) => format!("the genome file {}", p.display()),
-            OrderSource::BuiltinGenome(id) => {
-                format!("the built-in genome {id} (gloci genomes show {id} lists its names)")
-            }
-            OrderSource::VcfHeader(n) => format!("the ##contig lines of {n}"),
-            OrderSource::Lexicographic | OrderSource::Karyotype | OrderSource::FirstAppearance => {
-                "the genome".to_string()
-            }
-        };
-        let hint = match chroms.order_source() {
-            OrderSource::VcfHeader(_) => format!(
-                "; add ##contig=<ID={}> to the header, or pass -g with a genome that lists it",
-                e.0
-            ),
-            _ => String::new(),
-        };
-        format!("chromosome \"{}\" is not in {place}{hint}", e.0)
-    })
+    chroms
+        .intern(name)
+        .map_err(|e| crate::naming::unknown_chrom_err(chroms.order_source(), &e.0))
 }
 
 /// Warn once about each contig a record named that the header does not

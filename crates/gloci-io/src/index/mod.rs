@@ -263,7 +263,7 @@ use build::{Entry, Linear, bin_start, csi_depth, scan};
 pub(crate) use build::{build_index, remove_indexes, stage_index};
 #[cfg(test)]
 use query::Plan;
-pub use query::{index_reference_names, open_region_reader};
+pub use query::{index_non_empty_reference_names, index_reference_names, open_region_reader};
 use tsv::TsvKind;
 pub(crate) use tsv::build_tsv_index;
 pub use tsv::{TsvColumns, write_tsv_index};

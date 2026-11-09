@@ -1,0 +1,145 @@
+//! Chromosome naming checks, prefix difference hints and genome aliases (D58).
+
+pub use crate::builtin::builtin_alias;
+
+/// When adding or stripping `"chr"` makes at least one chromosome name match
+/// between the two sets, returns the hint clause explaining the mismatch.
+pub fn chr_prefix_hint(a_names: &[&[u8]], b_names: &[&[u8]]) -> Option<String> {
+    let explains = a_names.iter().any(|&a| {
+        if let Some(rest) = a.strip_prefix(b"chr")
+            && !rest.is_empty()
+            && b_names.contains(&rest)
+        {
+            return true;
+        }
+        b_names.iter().any(|&b| {
+            if let Some(rest) = b.strip_prefix(b"chr") {
+                !rest.is_empty() && rest == a
+            } else {
+                false
+            }
+        })
+    });
+    if explains {
+        Some(
+            "the names differ by a \"chr\" prefix — rename one file's chromosomes so they match"
+                .to_string(),
+        )
+    } else {
+        None
+    }
+}
+
+/// Format up to 3 distinct chromosome names in seen order, appending `, …`
+/// if there are more than 3.
+pub fn format_chrom_list(names: &[impl AsRef<[u8]>]) -> String {
+    const MAX_SHOWN: usize = 3;
+    let shown: Vec<String> = names
+        .iter()
+        .take(MAX_SHOWN)
+        .map(|c| String::from_utf8_lossy(c.as_ref()).into_owned())
+        .collect();
+    if names.len() > MAX_SHOWN {
+        format!("{}, …", shown.join(", "))
+    } else {
+        shown.join(", ")
+    }
+}
+
+/// Format the warning message (for `log::warn!`) when two inputs share no chromosome names.
+pub fn format_disjoint_chroms_warning(
+    name_a: &str,
+    names_a: &[impl AsRef<[u8]>],
+    name_b: &str,
+    names_b: &[impl AsRef<[u8]>],
+) -> String {
+    let fmt_a = format_chrom_list(names_a);
+    let fmt_b = format_chrom_list(names_b);
+    let a_bytes: Vec<&[u8]> = names_a.iter().map(|n| n.as_ref()).collect();
+    let b_bytes: Vec<&[u8]> = names_b.iter().map(|n| n.as_ref()).collect();
+    let suffix = match chr_prefix_hint(&a_bytes, &b_bytes) {
+        Some(hint) => format!("; {hint}"),
+        None => String::new(),
+    };
+    format!(
+        "{name_a} and {name_b} share no chromosome names ({name_a}: {fmt_a}; {name_b}: {fmt_b}){suffix}"
+    )
+}
+
+/// Format an unknown-chromosome error message, adding a hint to use the alias
+/// genome when `-g` named a built-in genome and its alias contains `chrom`.
+pub fn unknown_chrom_err(source: &gloci_core::OrderSource, chrom: &str) -> String {
+    let place = match source {
+        gloci_core::OrderSource::GenomeFile(p) => format!("the genome file {}", p.display()),
+        gloci_core::OrderSource::BuiltinGenome(id) => {
+            format!("the built-in genome {id} (gloci genomes show {id} lists its names)")
+        }
+        gloci_core::OrderSource::VcfHeader(n) => format!("the ##contig lines of {n}"),
+        gloci_core::OrderSource::Lexicographic
+        | gloci_core::OrderSource::Karyotype
+        | gloci_core::OrderSource::FirstAppearance => "the genome".to_string(),
+    };
+    let hint = match source {
+        gloci_core::OrderSource::VcfHeader(_) => format!(
+            "; add ##contig=<ID={chrom}> to the header, or pass -g with a genome that lists it"
+        ),
+        gloci_core::OrderSource::BuiltinGenome(id) => {
+            if let Some(alias) = crate::builtin::builtin_alias(id) {
+                if let Some(b) = crate::builtin::builtin(alias) {
+                    if b.contains_chrom(chrom) {
+                        format!("; did you mean -g {alias}?")
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            }
+        }
+        _ => String::new(),
+    };
+    format!("chromosome \"{chrom}\" is not in {place}{hint}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_builtin_alias() {
+        assert_eq!(builtin_alias("hg38"), Some("GRCh38"));
+        assert_eq!(builtin_alias("GRCh38"), Some("hg38"));
+        assert_eq!(builtin_alias("HG38"), Some("GRCh38"));
+        assert_eq!(builtin_alias("grch38"), Some("hg38"));
+        assert_eq!(builtin_alias("mm10"), Some("GRCm38"));
+        assert_eq!(builtin_alias("sacCer3"), Some("R64"));
+        assert_eq!(builtin_alias("R64"), Some("sacCer3"));
+        assert_eq!(builtin_alias("hs1"), None);
+        assert_eq!(builtin_alias("foo"), None);
+    }
+
+    #[test]
+    fn test_chr_prefix_hint() {
+        assert!(chr_prefix_hint(&[b"chr1"], &[b"1"]).is_some());
+        assert!(chr_prefix_hint(&[b"1"], &[b"chr1"]).is_some());
+        assert!(chr_prefix_hint(&[b"chr1"], &[b"chr2"]).is_none());
+        assert!(chr_prefix_hint(&[b"1"], &[b"2"]).is_none());
+        assert!(chr_prefix_hint(&[b"chr1", b"chr2"], &[b"3", b"1"]).is_some());
+    }
+
+    #[test]
+    fn test_format_chrom_list() {
+        assert_eq!(format_chrom_list(&["chr1"]), "chr1");
+        assert_eq!(format_chrom_list(&["chr1", "chr2"]), "chr1, chr2");
+        assert_eq!(
+            format_chrom_list(&["chr1", "chr2", "chr3"]),
+            "chr1, chr2, chr3"
+        );
+        assert_eq!(
+            format_chrom_list(&["chr1", "chr2", "chr3", "chr4"]),
+            "chr1, chr2, chr3, …"
+        );
+    }
+}

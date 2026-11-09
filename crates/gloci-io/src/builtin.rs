@@ -64,6 +64,11 @@ impl BuiltinGenome {
     pub fn total_length(&self) -> u64 {
         self.rows().map(|r| r.1).sum()
     }
+
+    /// Whether this assembly declares a sequence named `chrom`.
+    pub fn contains_chrom(&self, chrom: &str) -> bool {
+        self.rows().any(|(n, _)| n == chrom)
+    }
 }
 
 macro_rules! genome {
@@ -138,6 +143,31 @@ pub fn builtin_genomes() -> &'static [BuiltinGenome] {
 /// Look a built-in genome up by id, ignoring case.
 pub fn builtin(id: &str) -> Option<&'static BuiltinGenome> {
     GENOMES.iter().find(|g| g.id.eq_ignore_ascii_case(id))
+}
+
+const ALIAS_PAIRS: &[(&str, &str)] = &[
+    ("hg19", "GRCh37"),
+    ("hg38", "GRCh38"),
+    ("mm10", "GRCm38"),
+    ("mm39", "GRCm39"),
+    ("danRer11", "GRCz11"),
+    ("dm6", "BDGP6"),
+    ("ce11", "WBcel235"),
+    ("sacCer3", "R64"),
+];
+
+/// The alternate naming style for a built-in genome (`hg38` <-> `GRCh38`,
+/// `mm10` <-> `GRCm38`, etc.), matched case-insensitively in both directions.
+pub fn builtin_alias(id: &str) -> Option<&'static str> {
+    for &(a, b) in ALIAS_PAIRS {
+        if id.eq_ignore_ascii_case(a) {
+            return Some(b);
+        }
+        if id.eq_ignore_ascii_case(b) {
+            return Some(a);
+        }
+    }
+    None
 }
 
 fn edit_distance(a: &str, b: &str) -> usize {

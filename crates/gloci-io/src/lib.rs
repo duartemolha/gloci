@@ -15,6 +15,7 @@ pub mod genome;
 pub mod gff;
 pub mod index;
 pub mod input;
+pub mod naming;
 pub mod output;
 pub mod record;
 pub mod sorted;
@@ -30,7 +31,7 @@ pub use atomic::{
 pub use bcf::{BcfDicts, read_bcf_header, write_bcf_header};
 pub use bed::{bed12_blocks, is_bed_record_line};
 pub use builtin::{
-    BuiltinGenome, Naming, builtin, builtin_genomes, resolve_genome, unknown_genome,
+    BuiltinGenome, Naming, builtin, builtin_alias, builtin_genomes, resolve_genome, unknown_genome,
 };
 pub use convert::{BcfText, HeaderMode, TextToBcf, convert_variants};
 pub use detect::{Compression, Format, detect_compression, detect_format};
@@ -39,10 +40,13 @@ pub use error::{IoError, Loc, OrderError, SORTED_INPUTS, UsageError};
 pub use fields::{column_count, field, split_fields};
 pub use genome::{chrom_table_for, chrom_table_lenient, load_genome};
 pub use index::{
-    IndexInfo, IndexKind, TsvColumns, find_index, index_reference_names, open_region_reader,
-    write_index, write_tsv_index,
+    IndexInfo, IndexKind, TsvColumns, find_index, index_non_empty_reference_names,
+    index_reference_names, open_region_reader, write_index, write_tsv_index,
 };
 pub use input::{Input, InputOptions, open_input, open_input_from};
+pub use naming::{
+    chr_prefix_hint, format_chrom_list, format_disjoint_chroms_warning, unknown_chrom_err,
+};
 pub use output::{
     OutFormat, Output, OutputOptions, OutputSpec, check_level, open_output, parse_output_spec,
     refuse_binary_to_tty,

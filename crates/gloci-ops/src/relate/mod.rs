@@ -27,8 +27,8 @@ use gloci_io::{
 };
 use std::num::NonZeroUsize;
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
 pub struct RelateOptions {
@@ -97,6 +97,51 @@ impl RecordReader for StrandWatch {
     }
 }
 
+/// Passes records through and records distinct chromosome names seen in first-seen order.
+struct ChromWatch {
+    inner: Box<dyn RecordReader>,
+    last_chrom: Option<gloci_core::ChromId>,
+    seen: Arc<Mutex<Vec<Vec<u8>>>>,
+}
+
+impl RecordReader for ChromWatch {
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+    fn format(&self) -> Format {
+        self.inner.format()
+    }
+    fn compression(&self) -> Compression {
+        self.inner.compression()
+    }
+    fn header(&self) -> &Header {
+        self.inner.header()
+    }
+    fn read_batch(
+        &mut self,
+        chroms: &mut ChromTable,
+        batch: &mut RecordBatch,
+        max: usize,
+    ) -> Result<bool, IoError> {
+        let before = batch.recs.len();
+        let more = self.inner.read_batch(chroms, batch, max)?;
+        for m in &batch.recs[before..] {
+            if self.last_chrom != Some(m.chrom) {
+                self.last_chrom = Some(m.chrom);
+                let name = chroms.name(m.chrom);
+                let mut seen = self.seen.lock().unwrap();
+                if !seen.iter().any(|s| s.as_slice() == name) {
+                    seen.push(name.to_vec());
+                }
+            }
+        }
+        Ok(more)
+    }
+    fn diagnostics(&self) -> &Diagnostics {
+        self.inner.diagnostics()
+    }
+}
+
 /// Errors read from a sorted temporary file count data records, not lines.
 fn sorted_loc(e: IoError) -> IoError {
     e.with_sorted_input_loc()
@@ -143,6 +188,8 @@ pub fn run_relation(
         .chain(b.iter().map(|r| r.name()))
         .map(str::to_string)
         .collect();
+    let name_a = names[0].clone();
+    let names_b: Vec<String> = names[1..].to_vec();
     let (a, b) = match &o.sort {
         None => (a, b),
         Some(settings) => {
@@ -157,22 +204,35 @@ pub fn run_relation(
     };
     let watching = o.criteria.strand != StrandRule::Any;
     let mut watched: Vec<(String, Arc<AtomicBool>)> = Vec::new();
-    let mut names = names.into_iter();
-    let mut wrap = |r: Box<dyn RecordReader>| -> Box<dyn RecordReader> {
-        let name = names.next().unwrap_or_default();
-        if !watching {
-            return r;
-        }
-        let flag = Arc::new(AtomicBool::new(false));
-        watched.push((name, flag.clone()));
-        Box::new(StrandWatch {
-            inner: r,
-            unknown: flag,
-        })
-    };
+    let seen_a = Arc::new(Mutex::new(Vec::new()));
+    let seen_bs: Vec<Arc<Mutex<Vec<Vec<u8>>>>> = (0..b.len())
+        .map(|_| Arc::new(Mutex::new(Vec::new())))
+        .collect();
+    let mut orig_names = names.into_iter();
+    let mut wrap =
+        |r: Box<dyn RecordReader>, seen: Arc<Mutex<Vec<Vec<u8>>>>| -> Box<dyn RecordReader> {
+            let name = orig_names.next().unwrap_or_default();
+            let r: Box<dyn RecordReader> = Box::new(ChromWatch {
+                inner: r,
+                last_chrom: None,
+                seen,
+            });
+            if !watching {
+                return r;
+            }
+            let flag = Arc::new(AtomicBool::new(false));
+            watched.push((name, flag.clone()));
+            Box::new(StrandWatch {
+                inner: r,
+                unknown: flag,
+            })
+        };
     let inputs = Inputs {
-        a: wrap(a),
-        b: b.into_iter().map(&mut wrap).collect(),
+        a: wrap(a, seen_a.clone()),
+        b: b.into_iter()
+            .zip(&seen_bs)
+            .map(|(r, seen)| wrap(r, seen.clone()))
+            .collect(),
     };
     let cfg = SweepConfig {
         window: o.window,
@@ -187,6 +247,23 @@ pub fn run_relation(
     for (name, flag) in &watched {
         if flag.load(Ordering::Relaxed) {
             log::warn!("{name} has records with unknown strand; they never match under -s or -S");
+        }
+    }
+    let a_chroms = seen_a.lock().unwrap().clone();
+    if !a_chroms.is_empty() {
+        for (b_name, b_seen_arc) in names_b.iter().zip(&seen_bs) {
+            let b_chroms = b_seen_arc.lock().unwrap().clone();
+            if !b_chroms.is_empty() {
+                let shares = a_chroms.iter().any(|a| b_chroms.contains(a));
+                if !shares {
+                    log::warn!(
+                        "{}",
+                        gloci_io::naming::format_disjoint_chroms_warning(
+                            &name_a, &a_chroms, b_name, &b_chroms
+                        )
+                    );
+                }
+            }
         }
     }
     Ok(summary)
@@ -242,29 +319,10 @@ pub fn run_indexed<R: Send>(
     let raw_names = index_reference_names(path_a_obj, &info_a)?;
 
     for name in &raw_names {
-        chroms.intern(name).map_err(|e| {
-            let place = match chroms.order_source() {
-                gloci_core::OrderSource::GenomeFile(p) => {
-                    format!("the genome file {}", p.display())
-                }
-                gloci_core::OrderSource::BuiltinGenome(id) => {
-                    format!("the built-in genome {id} (gloci genomes show {id} lists its names)")
-                }
-                gloci_core::OrderSource::VcfHeader(n) => format!("the ##contig lines of {n}"),
-                _ => "the genome".to_string(),
-            };
-            let hint = match chroms.order_source() {
-                gloci_core::OrderSource::VcfHeader(_) => format!(
-                    "; add ##contig=<ID={}> to the header, or pass -g with a genome that lists it",
-                    e.0
-                ),
-                _ => String::new(),
-            };
-            IoError::Parse {
-                path: path_a.to_string(),
-                loc: gloci_io::Loc::Line(1),
-                msg: format!("chromosome \"{}\" is not in {place}{hint}", e.0),
-            }
+        chroms.intern(name).map_err(|e| IoError::Parse {
+            path: path_a.to_string(),
+            loc: gloci_io::Loc::Line(1),
+            msg: gloci_io::naming::unknown_chrom_err(chroms.order_source(), &e.0),
         })?;
     }
 
@@ -280,33 +338,10 @@ pub fn run_indexed<R: Send>(
             if chroms.is_closed() {
                 let b_ref_names = index_reference_names(p_obj, &info_b)?;
                 for name in &b_ref_names {
-                    chroms.intern(name).map_err(|e| {
-                        let place = match chroms.order_source() {
-                            gloci_core::OrderSource::GenomeFile(p) => {
-                                format!("the genome file {}", p.display())
-                            }
-                            gloci_core::OrderSource::BuiltinGenome(id) => {
-                                format!(
-                                    "the built-in genome {id} (gloci genomes show {id} lists its names)"
-                                )
-                            }
-                            gloci_core::OrderSource::VcfHeader(n) => {
-                                format!("the ##contig lines of {n}")
-                            }
-                            _ => "the genome".to_string(),
-                        };
-                        let hint = match chroms.order_source() {
-                            gloci_core::OrderSource::VcfHeader(_) => format!(
-                                "; add ##contig=<ID={}> to the header, or pass -g with a genome that lists it",
-                                e.0
-                            ),
-                            _ => String::new(),
-                        };
-                        IoError::Parse {
-                            path: p.to_string(),
-                            loc: gloci_io::Loc::Line(1),
-                            msg: format!("chromosome \"{}\" is not in {place}{hint}", e.0),
-                        }
+                    chroms.intern(name).map_err(|e| IoError::Parse {
+                        path: p.to_string(),
+                        loc: gloci_io::Loc::Line(1),
+                        msg: gloci_io::naming::unknown_chrom_err(chroms.order_source(), &e.0),
                     })?;
                 }
             }
@@ -384,6 +419,32 @@ pub fn run_indexed<R: Send>(
                 log::warn!(
                     "{name} has records with unknown strand; they never match under -s or -S"
                 );
+            }
+        }
+    }
+
+    if combined_summary.a_records > 0 {
+        let a_refs = gloci_io::index_non_empty_reference_names(path_a_obj, &info_a)?;
+        if !a_refs.is_empty() {
+            for (i, p) in paths_b.iter().enumerate() {
+                let b_rec_count = combined_summary.b_records.get(i).copied().unwrap_or(0);
+                if b_rec_count == 0 {
+                    let p_obj = Path::new(p);
+                    if let Some(info_b) = find_index(p_obj) {
+                        let b_refs = gloci_io::index_non_empty_reference_names(p_obj, &info_b)?;
+                        if !b_refs.is_empty() {
+                            let shares = a_refs.iter().any(|a| b_refs.contains(a));
+                            if !shares {
+                                log::warn!(
+                                    "{}",
+                                    gloci_io::naming::format_disjoint_chroms_warning(
+                                        path_a, &a_refs, p, &b_refs
+                                    )
+                                );
+                            }
+                        }
+                    }
+                }
             }
         }
     }
