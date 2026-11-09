@@ -167,7 +167,7 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **gloci:** under the default `--vcf-span allele`, a record whose ALT is a
   symbolic SV allele (`<DEL>`, `<DUP>`, `<CNV>`, ...) with neither INFO/END nor
   INFO/SVLEN has no span, so it is an invalid record: an error that says to
-  "add INFO/END or INFO/SVLEN, or use --vcf-span ref, or --skip-invalid"
+  "add INFO/END or INFO/SVLEN, use --vcf-span ref, or skip invalid records where the command supports it"
   (`--skip-invalid` skips it with a warning, like other invalid records). Under
   `--vcf-span ref` (and in `sort`, which orders by the REF end) the span is the
   REF span and the record is kept. `<INS>`, `<*>` and `<NON_REF>` never need

@@ -167,7 +167,7 @@ fn error_cases() {
             .unwrap_err()
             .to_string(),
         "symbolic ALT <DEL> needs INFO/END or INFO/SVLEN to give it a span; add INFO/END or \
-INFO/SVLEN, or use --vcf-span ref, or --skip-invalid"
+INFO/SVLEN, use --vcf-span ref, or skip invalid records where the command supports it"
     );
 }
 

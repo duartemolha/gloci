@@ -399,7 +399,7 @@ fn invalid_records_follow_the_policy() {
     assert_eq!(
         e,
         "x.bcf record 1: symbolic ALT <DEL> needs INFO/END or INFO/SVLEN to give it a span; \
-add INFO/END or INFO/SVLEN, or use --vcf-span ref, or --skip-invalid"
+add INFO/END or INFO/SVLEN, use --vcf-span ref, or skip invalid records where the command supports it"
     );
 }
 

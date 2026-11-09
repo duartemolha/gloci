@@ -74,7 +74,7 @@ pub enum FootprintError {
     PosOverflow { pos: u64 },
     #[error(
         "symbolic ALT {alt} needs INFO/END or INFO/SVLEN to give it a span; add INFO/END or \
-INFO/SVLEN, or use --vcf-span ref, or --skip-invalid"
+INFO/SVLEN, use --vcf-span ref, or skip invalid records where the command supports it"
     )]
     MissingSvEnd { alt: String },
     #[error("INFO/END {end} is before POS {pos}; fix the record or drop END")]

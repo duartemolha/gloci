@@ -32,7 +32,7 @@ fn input() -> (tempfile::TempDir, String) {
     (d, f)
 }
 
-const FIX: &str = "add INFO/END or INFO/SVLEN, or use --vcf-span ref, or --skip-invalid";
+const FIX: &str = "add INFO/END or INFO/SVLEN, use --vcf-span ref, or skip invalid records where the command supports it";
 
 #[test]
 fn default_span_errors_with_the_fix() {
