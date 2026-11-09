@@ -509,7 +509,7 @@ impl Parser {
 
     /// An optional `[N]` sample subscript after a FORMAT field: N is numbered
     /// over the whole header and must exist.
-    fn parse_sample_index(&mut self, _col: usize) -> Result<Option<usize>, SyntaxError> {
+    fn parse_sample_index(&mut self) -> Result<Option<usize>, SyntaxError> {
         let col = self.toks.get(self.pos + 1).map_or(1, |t| t.col);
         let Some(i) = self.parse_index()? else {
             return Ok(None);
@@ -553,7 +553,7 @@ impl Parser {
             }
             "GT" => {
                 self.flags.genotypes = true;
-                return Ok(Field::Gt(self.parse_sample_index(col)?));
+                return Ok(Field::Gt(self.parse_sample_index()?));
             }
             // bcftools reads a header-defined INFO/AC, AN or MAF here and
             // computes them only when the header lacks the key; F_MISSING
@@ -616,9 +616,9 @@ impl Parser {
         if scope != Some(true) && is_fmt {
             self.flags.genotypes = true;
             return match key {
-                "GT" => Ok(Field::Gt(self.parse_sample_index(col)?)),
-                "DP" => Ok(Field::FmtDp(self.parse_sample_index(col)?)),
-                "GQ" => Ok(Field::FmtGq(self.parse_sample_index(col)?)),
+                "GT" => Ok(Field::Gt(self.parse_sample_index()?)),
+                "DP" => Ok(Field::FmtDp(self.parse_sample_index()?)),
+                "GQ" => Ok(Field::FmtGq(self.parse_sample_index()?)),
                 _ => err(
                     col,
                     format!("FMT/{key} is not supported; supported FORMAT fields: GT, DP, GQ"),

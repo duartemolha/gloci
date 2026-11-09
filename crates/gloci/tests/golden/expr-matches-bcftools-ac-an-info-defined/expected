@@ -1,0 +1,11 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##contig=<ID=1,length=1000>
+##INFO=<ID=AC,Number=A,Type=Integer,Description="a">
+##INFO=<ID=AN,Number=1,Type=Integer,Description="n">
+##INFO=<ID=MAF,Number=1,Type=Float,Description="m">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="g">
+##bcftools_viewVersion=1.21+htslib-1.21
+##bcftools_viewCommand=view -i 'AC=2 || AN=99' input.vcf; Date=Mon Nov  9 22:50:19 2026
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	s1	s2	s3
+1	10	.	A	C,G	.	.	AC=3,2;AN=99;MAF=0.01	GT	0/1	1/1	0/2

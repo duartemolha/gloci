@@ -1,0 +1,1 @@
+vcf filter input.vcf --include 'N_PASS(FMT/GQ>30)>=2'

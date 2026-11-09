@@ -1,0 +1,1 @@
+vcf filter input.vcf --include 'INFO/AF[1]>0.25'

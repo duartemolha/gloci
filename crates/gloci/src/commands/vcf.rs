@@ -8,8 +8,8 @@ use gloci_io::{
     open_output, open_record_writer, parse_output_spec, refuse_binary_to_tty,
 };
 use gloci_ops::{
-    VcfFilterOptions, open_vcf_filter, read_regions_file, validate_thresholds, vcf_filter_file,
-    vcf_filter_output,
+    FilterExpr, VcfFilterOptions, open_vcf_filter, read_regions_file, validate_thresholds,
+    vcf_filter_file, vcf_filter_output,
 };
 use gloci_vcf::{
     MaskRules, RewritePlan, SiteFilters, VcfType, read_ids, read_positions, read_samples,
@@ -200,6 +200,17 @@ pub fn run_filter(ctx: &Ctx, a: &VcfFilterArgs) -> anyhow::Result<()> {
             keep_info,
             drop_info,
             recalc_ac: a.recalc_ac,
+        },
+        expr: match (&a.include, &a.exclude) {
+            (Some(src), _) => Some(FilterExpr {
+                src: src.clone(),
+                exclude: false,
+            }),
+            (_, Some(src)) => Some(FilterExpr {
+                src: src.clone(),
+                exclude: true,
+            }),
+            _ => None,
         },
         regions: a.region.region.clone(),
         regions_file: a

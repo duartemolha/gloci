@@ -2111,3 +2111,193 @@ aux = ["xtask/diff/inputs/chrom-map.tsv"]
 gloci = "set -e; gloci view -O bcf input.vcf -o in.bcf; gloci view --chrom-map chrom-map.tsv in.bcf -o g.bcf; bcftools view -H g.bcf"
 reference = "set -e; bcftools view -Ob -o in.bcf input.vcf; bcftools annotate --rename-chrs chrom-map.tsv -Ob -o t.bcf in.bcf; bcftools view -H t.bcf"
 compare = "exact"
+
+# vcf filter --include/--exclude (Task 14, D71) vs bcftools view -i 1.21.
+# The matches-bcftools cases cover every supported grammar construct; the
+# differs-from-bcftools cases pin documented differences.
+
+[[case]]
+name = "expr-matches-bcftools-or-and-parens"
+input = { file = "xtask/diff/inputs/expr-main.vcf" }
+gloci = "gloci vcf filter input.vcf --include '(QUAL>30 || INFO/DP<5) && FILTER=\"PASS\"'"
+reference = "bcftools view -i '(QUAL>30 || INFO/DP<5) && FILTER=\"PASS\"' input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "expr-matches-bcftools-cmp-lt-gt"
+input = { file = "xtask/diff/inputs/expr-main.vcf" }
+gloci = "gloci vcf filter input.vcf --include 'QUAL<20 || QUAL>40'"
+reference = "bcftools view -i 'QUAL<20 || QUAL>40' input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "expr-matches-bcftools-cmp-le-ge"
+input = { file = "xtask/diff/inputs/expr-main.vcf" }
+gloci = "gloci vcf filter input.vcf --include 'QUAL<=10 || QUAL>=50'"
+reference = "bcftools view -i 'QUAL<=10 || QUAL>=50' input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "expr-matches-bcftools-cmp-eq-ne-missing"
+input = { file = "xtask/diff/inputs/expr-main.vcf" }
+gloci = "gloci vcf filter input.vcf --include 'INFO/DP=20 || INFO/DP!=3'"
+reference = "bcftools view -i 'INFO/DP=20 || INFO/DP!=3' input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "expr-matches-bcftools-regex-id"
+input = { file = "xtask/diff/inputs/expr-main.vcf" }
+gloci = "gloci vcf filter input.vcf --include 'ID~\"^rs\"'"
+reference = "bcftools view -i 'ID~\"^rs\"' input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "expr-matches-bcftools-info-indexed"
+input = { file = "xtask/diff/inputs/expr-main.vcf" }
+gloci = "gloci vcf filter input.vcf --include 'INFO/AF[1]>0.25'"
+reference = "bcftools view -i 'INFO/AF[1]>0.25' input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "expr-matches-bcftools-info-unindexed-bare-key"
+input = { file = "xtask/diff/inputs/expr-main.vcf" }
+gloci = "gloci vcf filter input.vcf --include 'INFO/DP>10 && AF>0.05'"
+reference = "bcftools view -i 'INFO/DP>10 && AF>0.05' input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "expr-matches-bcftools-fmt-any-sample"
+input = { file = "xtask/diff/inputs/expr-main.vcf" }
+gloci = "gloci vcf filter input.vcf --include 'FMT/GQ>45'"
+reference = "bcftools view -i 'FMT/GQ>45' input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "expr-matches-bcftools-fmt-sample-subscript"
+input = { file = "xtask/diff/inputs/expr-main.vcf" }
+gloci = "gloci vcf filter input.vcf --include 'FMT/DP[1]<10 && GT[1]=\"het\"'"
+reference = "bcftools view -i 'FMT/DP[1]<10 && GT[1]=\"het\"' input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "expr-matches-bcftools-n-pass"
+input = { file = "xtask/diff/inputs/expr-main.vcf" }
+gloci = "gloci vcf filter input.vcf --include 'N_PASS(FMT/GQ>30)>=2'"
+reference = "bcftools view -i 'N_PASS(FMT/GQ>30)>=2' input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "expr-matches-bcftools-gt-keywords"
+input = { file = "xtask/diff/inputs/expr-main.vcf" }
+gloci = "gloci vcf filter input.vcf --include '(GT=\"het\" && FMT/DP>5) || GT=\"hap\"'"
+reference = "bcftools view -i '(GT=\"het\" && FMT/DP>5) || GT=\"hap\"' input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "expr-matches-bcftools-type"
+input = { file = "xtask/diff/inputs/expr-main.vcf" }
+gloci = "gloci vcf filter input.vcf --include 'TYPE=\"indel\" || TYPE=\"other\"'"
+reference = "bcftools view -i 'TYPE=\"indel\" || TYPE=\"other\"' input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "expr-matches-bcftools-maf-first-alt"
+input = { file = "xtask/diff/inputs/expr-multi.vcf" }
+gloci = "gloci vcf filter input.vcf --include 'MAF>0.3'"
+reference = "bcftools view -i 'MAF>0.3' input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "expr-matches-bcftools-ac-an-computed"
+input = { file = "xtask/diff/inputs/expr-main.vcf" }
+gloci = "gloci vcf filter input.vcf --include 'AC>1 && AN>=4'"
+reference = "bcftools view -i 'AC>1 && AN>=4' input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "expr-matches-bcftools-ac-an-info-defined"
+input = { file = "xtask/diff/inputs/expr-infoac.vcf" }
+gloci = "gloci vcf filter input.vcf --include 'AC=2 || AN=99'"
+reference = "bcftools view -i 'AC=2 || AN=99' input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "expr-differs-from-bcftools-not-match"
+input = { file = "xtask/diff/inputs/expr-main.vcf" }
+gloci = "gloci vcf filter input.vcf --include 'ID!~\"^rs\"'"
+reference = "bcftools view -i 'ID!~\"^rs\"' input.vcf"
+compare = "vcf-records"
+expected_difference = "#expr-not-match"
+
+[[case]]
+name = "expr-differs-from-bcftools-index-past-end"
+input = { file = "xtask/diff/inputs/expr-main.vcf" }
+gloci = "gloci vcf filter input.vcf --include 'INFO/AF[5]>0'"
+reference = "bcftools view -i 'INFO/AF[5]>0' input.vcf"
+compare = "vcf-records"
+expected_difference = "#expr-index-past-end"
+
+[[case]]
+name = "expr-differs-from-bcftools-bare-flag"
+input = { file = "xtask/diff/inputs/expr-main.vcf" }
+gloci = "gloci vcf filter input.vcf --include 'INFO/DB'"
+reference = "bcftools view -i 'INFO/DB' input.vcf"
+compare = "vcf-records"
+expected_difference = "#expr-bare-flag"
+
+[[case]]
+name = "expr-differs-from-bcftools-negated-group"
+input = { file = "xtask/diff/inputs/expr-main.vcf" }
+gloci = "gloci vcf filter input.vcf --include '!(QUAL<20)'"
+reference = "bcftools view -i '!(QUAL<20)' input.vcf || true"
+compare = "vcf-records"
+expected_difference = "#expr-grammar-extensions"
+
+[[case]]
+name = "expr-differs-from-bcftools-missing-literal"
+input = { file = "xtask/diff/inputs/expr-main.vcf" }
+gloci = "gloci vcf filter input.vcf --include 'QUAL=.'"
+reference = "bcftools view -i 'QUAL=.' input.vcf || true"
+compare = "vcf-records"
+expected_difference = "#expr-grammar-extensions"
+
+[[case]]
+name = "expr-differs-from-bcftools-negated-comparison"
+input = { file = "xtask/diff/inputs/expr-main.vcf" }
+gloci = "gloci vcf filter input.vcf --include '!POS=10 && POS<30'"
+reference = "bcftools view -i '!POS=10 && POS<30' input.vcf || true"
+compare = "vcf-records"
+expected_difference = "#expr-grammar-extensions"
+
+[[case]]
+name = "expr-differs-from-bcftools-field-vs-field"
+input = { file = "xtask/diff/inputs/expr-main.vcf" }
+gloci = "gloci vcf filter input.vcf --include 'INFO/DP>FMT/DP'"
+reference = "bcftools view -i 'INFO/DP>FMT/DP' input.vcf"
+compare = "exit-status"
+expected_difference = "#expr-subset"
+
+[[case]]
+name = "expr-differs-from-bcftools-function-abs"
+input = { file = "xtask/diff/inputs/expr-main.vcf" }
+gloci = "gloci vcf filter input.vcf --include 'ABS(QUAL)>10'"
+reference = "bcftools view -i 'ABS(QUAL)>10' input.vcf"
+compare = "exit-status"
+expected_difference = "#expr-subset"
+
+[[case]]
+name = "expr-differs-from-bcftools-format-field-ad"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf filter input.vcf --include 'FMT/AD>1'"
+reference = "bcftools view -i 'FMT/AD>1' input.vcf"
+compare = "exit-status"
+expected_difference = "#expr-format-fields"
+
+[[case]]
+name = "expr-differs-from-bcftools-min-maf-is-not-expression-maf"
+input = { file = "xtask/diff/inputs/expr-multi.vcf" }
+gloci = "gloci vcf filter input.vcf --min-maf 0.3"
+reference = "bcftools view -i 'MAF>=0.3' input.vcf"
+compare = "vcf-records"
+expected_difference = "#expr-maf-first-alt"
+

@@ -24,6 +24,40 @@ pub fn compare(mode: &str, a: &[u8], b: &[u8]) -> bool {
     }
 }
 
+/// Split a golden `args` line into arguments: whitespace separates, and a
+/// single-quoted run is one argument's text verbatim (so an expression such as
+/// `'QUAL>30 && ID~"^rs"'` survives). `None` for an unbalanced quote.
+pub fn split_args(line: &str) -> Option<Vec<String>> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let (mut in_word, mut quoted) = (false, false);
+    for c in line.chars() {
+        match (c, quoted) {
+            ('\'', _) => {
+                quoted = !quoted;
+                in_word = true;
+            }
+            (c, false) if c.is_whitespace() => {
+                if in_word {
+                    out.push(std::mem::take(&mut cur));
+                    in_word = false;
+                }
+            }
+            (c, _) => {
+                cur.push(c);
+                in_word = true;
+            }
+        }
+    }
+    if quoted {
+        return None;
+    }
+    if in_word {
+        out.push(cur);
+    }
+    Some(out)
+}
+
 /// What a command produced, as compared and stored: the exit code for the
 /// `exit-status` mode, else standard output with the machine-specific
 /// `##glociCommand` header line normalised.
@@ -163,7 +197,17 @@ pub fn check_anchor(doc: &str, anchor: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::compare;
+    use super::{compare, split_args};
+
+    #[test]
+    fn split_args_keeps_single_quoted_runs() {
+        assert_eq!(
+            split_args("vcf filter  input.vcf --include 'A>1 && B~\"x\"'").unwrap(),
+            ["vcf", "filter", "input.vcf", "--include", "A>1 && B~\"x\""]
+        );
+        assert_eq!(split_args("a ''").unwrap(), ["a", ""]);
+        assert!(split_args("a 'b").is_none());
+    }
 
     #[test]
     fn numeric_mode() {

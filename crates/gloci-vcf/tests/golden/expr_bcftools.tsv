@@ -151,3 +151,11 @@ infotypes	INFO/AD[2]=300	40
 infotypes	INFO/AD[0]!=1	10,20,30,50
 infotypes	INFO/S="y"	40
 infotypes	INFO/S[1]="y"	40
+fmiss	F_MISSING>0.5	20
+fmiss	F_MISSING<0.5	10,30
+fmiss	N_MISSING=1	10
+fmiss	N_MISSING=7	
+fmiss	N_MISSING=0	30
+fmiss	F_MISSING=0.9	
+fmiss	INFO/N_MISSING=7	10
+fmiss	INFO/F_MISSING<0.5	20

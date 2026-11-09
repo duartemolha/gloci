@@ -1,0 +1,1 @@
+vcf filter input.vcf --include 'FMT/DP[1]<10 && GT[1]="het"'

@@ -756,3 +756,114 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 
 
 
+
+## Filter expressions: `!~` negates the match {#expr-not-match}
+
+- **gloci:** in `vcf filter --include/--exclude`, `FIELD !~ "re"` is true when
+  the regular expression does not match, and (like `!=`) when the value is
+  missing.
+- **Old behaviour:** `bcftools view -i 'ID!~"^rs"'` (1.21) selects the same
+  records as `ID~"^rs"`.
+- **Reason:** the operator is documented as the negation of `~`; bcftools 1.21
+  does not implement it.
+- **Pinned by:** `expr-differs-from-bcftools-not-match` (must differ) and
+  `difference_not_match_is_a_real_negation` in
+  `crates/gloci-vcf/tests/expr.rs`.
+
+## Filter expressions: an index past the end is missing {#expr-index-past-end}
+
+- **gloci:** `INFO/AF[5]` on a record with fewer values is a missing value, so
+  `INFO/AF[5]>0` is false.
+- **Old behaviour:** bcftools 1.21 evaluates it on a record with a single `AF`
+  value as if the index were in range and selects the record.
+- **Reason:** an out-of-range index has no value to compare.
+- **Pinned by:** `expr-differs-from-bcftools-index-past-end` (must differ).
+
+## Filter expressions: a bare INFO flag is its presence {#expr-bare-flag}
+
+- **gloci:** `INFO/DB` alone is true on records that carry the flag, so
+  `--include INFO/DB` and `--exclude INFO/DB` work as written. `INFO/DB=1` is
+  the same.
+- **Old behaviour:** bcftools 1.21 selects no record for a bare flag
+  (`-i 'INFO/DB'`), though `INFO/DB=1` works.
+- **Reason:** a bare flag that matches nothing is never what the user means.
+- **Pinned by:** `expr-differs-from-bcftools-bare-flag` (must differ).
+
+## Filter expressions: `!`, the missing literal and flipped operands {#expr-grammar-extensions}
+
+- **gloci:** `!` negates a parenthesised group (`!(QUAL<20 || DP<5)`) or a bare
+  comparison (`!POS=10 && POS<30`). `.` is the missing value for text and
+  numeric fields (`QUAL=.`, `QUAL!=.`, `ID=.`, `FILTER=.`, `INFO/AF=.`).
+  Operands may be flipped (`30<QUAL`).
+- **Old behaviour:** bcftools 1.21 fails with "Could not parse the expression"
+  on `!(QUAL<20)`, `!POS=10` and `!(POS=10)`, and with `the tag "." is not
+  defined` on `QUAL=.`, `INFO/AN=.` and `ID=.` (only `ID="."` works).
+- **Reason:** these are the natural spellings; rejecting them gains nothing.
+- **Pinned by:** `expr-differs-from-bcftools-negated-group`,
+  `expr-differs-from-bcftools-missing-literal` and
+  `expr-differs-from-bcftools-negated-comparison` (must differ).
+
+## Filter expressions: a supported subset of bcftools {#expr-subset}
+
+- **gloci:** the grammar of `vcf filter --include/--exclude` accepts one
+  function (`N_PASS`), the FORMAT fields `GT`, `DP` and `GQ` (see
+  [the FORMAT-field limitation](#expr-format-fields)), a field against a
+  number, string or `.` (never two fields), and Rust `regex` syntax for `~`.
+  Anything else is a usage error (exit 2) naming the token and its column. The
+  sample-wise `&` and `|` are rejected with "use && / ||".
+- **Old behaviour:** bcftools also has `ABS`, `STRLEN`, `MIN`, `MAX`, `SUM`,
+  `COUNT`, other FORMAT fields, field-against-field comparisons and POSIX
+  regular expressions.
+- **Reason:** gloci implements the subset its users need, with bcftools
+  semantics for everything it does accept.
+- **What matches bcftools 1.21 (not a difference):**
+  - Sample subscripts: `FMT/GQ[1]`, `FMT/DP[1]` and `GT[1]` select sample 1
+    (0-based), numbered over the whole header, so with `--samples` the
+    subscript still means the original column. An index at or past the sample
+    count is a usage error at parse time. Inside `N_PASS`, a subscripted field
+    holds only for its own sample. For INFO fields `[i]` is an element index.
+  - Bare `AC`, `AN` and `MAF` read INFO when the header defines the key
+    (any-value for a multi-valued INFO such as `AC=3,2`) and are computed from
+    the genotypes otherwise. `F_MISSING` and `N_MISSING` are always computed,
+    even when the header defines them as INFO keys (`INFO/F_MISSING` reads the
+    header key). An unindexed computed `AC` is the first ALT only, and missing
+    when no allele is called.
+  - A bare key defined as both INFO and FORMAT (such as `DP`) is an error that
+    says to write `INFO/DP` or `FMT/DP`; bcftools also refuses it.
+  - Any-sample FORMAT comparisons, `N_PASS`, the `GT` keywords, `TYPE`,
+    `FILTER` and `ID` follow bcftools; each is pinned by an
+    `expr-matches-bcftools-*` case.
+- **Pinned by:** `expr-differs-from-bcftools-field-vs-field` and
+  `expr-differs-from-bcftools-function-abs` (must differ), and
+  `unsupported_constructs_are_usage_errors_with_hints` in
+  `crates/gloci-vcf/tests/expr.rs`.
+
+## Filter expressions: only the FORMAT fields GT, DP and GQ {#expr-format-fields}
+
+- **gloci:** `FMT/GT`, `FMT/DP` and `FMT/GQ` (and bare `GT`, `DP`, `GQ`) are
+  the only FORMAT fields an expression can read. `FMT/AD`, `FMT/FT`, `FMT/PL`
+  and every other FORMAT key are a usage error, exit 2: "FMT/AD is not
+  supported; supported FORMAT fields: GT, DP, GQ".
+- **Old behaviour:** bcftools evaluates any FORMAT field, such as
+  `bcftools view -i 'FMT/AD>1'`.
+- **Reason:** gloci decodes only these three fields per sample. Selecting on
+  another field is not possible yet; filter with bcftools for those.
+- **Pinned by:** `expr-differs-from-bcftools-format-field-ad` (exit status
+  differs: gloci 2, bcftools 0) and `unsupported_format_key_is_a_usage_error`.
+
+## Filter expression `MAF` is not `--min-maf` {#expr-maf-first-alt}
+
+- **gloci:** in an expression, `MAF` is bcftools' `min(f, 1-f)` with `f` the
+  frequency of the first ALT among called alleles, and an unindexed `AC` is the
+  first ALT's count (`AC[i]` picks another). `vcf filter --min-maf` keeps the
+  second-most-common-allele definition (see
+  [multi-allelic MAF](#maf-multiallelic)).
+- **Old behaviour:** the two definitions agree on biallelic sites and differ
+  on multi-allelic ones (counts 2,6,2 of 10: expression `MAF` 0.4, `--min-maf`
+  0.2). `bcftools view -i 'MAF>=0.3'` keeps such a site; `--min-maf 0.3` drops
+  it.
+- **Reason:** `--include`/`--exclude` expressions must select what bcftools
+  selects; the filter flags keep the documented definition.
+- **Pinned by:**
+  `expr-differs-from-bcftools-min-maf-is-not-expression-maf` (must differ) and
+  `difference_maf_is_first_alt_not_second_most_common`.

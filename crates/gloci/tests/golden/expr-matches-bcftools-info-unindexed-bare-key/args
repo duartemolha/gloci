@@ -1,0 +1,1 @@
+vcf filter input.vcf --include 'INFO/DP>10 && AF>0.05'

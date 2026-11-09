@@ -7,9 +7,18 @@ use gloci_io::{
     RecordBatch, RecordReader, RecordWriter, TextToBcf, UsageError, VcfHeader, next_batch_size,
 };
 use gloci_vcf::{
-    BcfSite, MaskRules, RewritePlan, SiteFilters, SiteView, Thinner, bcf_genotypes, rewrite_header,
-    rewrite_text, select_samples, site_stats, text_genotypes,
+    BcfSite, EvalScratch, Expr, GenotypeSource, MaskRules, MaskedGenotypes, RewritePlan,
+    SiteFilters, SiteView, Thinner, bcf_genotypes, parse_expr, rewrite_header, rewrite_text,
+    select_samples, site_stats, text_genotypes,
 };
+
+/// A `--include` or `--exclude` expression (decision D71).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FilterExpr {
+    pub src: String,
+    /// `--exclude`: keep the records the expression does not hold on.
+    pub exclude: bool,
+}
 
 /// Options for `vcf filter`.
 #[derive(Clone, Debug, Default)]
@@ -19,6 +28,7 @@ pub struct VcfFilterOptions {
     pub mask: MaskRules,
     pub sites: SiteFilters,
     pub plan: RewritePlan,
+    pub expr: Option<FilterExpr>,
     pub regions: Vec<String>,
     pub regions_file: Option<String>,
 }
@@ -114,6 +124,14 @@ fn vcf_header(input: &dyn RecordReader) -> Result<VcfHeader, IoError> {
     }
 }
 
+/// Parse the expression of `o` against `h`, if there is one.
+fn parse_filter_expr(h: &VcfHeader, o: &VcfFilterOptions) -> Result<Option<Expr>, IoError> {
+    let Some(e) = &o.expr else {
+        return Ok(None);
+    };
+    parse_expr(&e.src, h).map(Some).map_err(IoError::from)
+}
+
 /// The rewrite of each record: the sample selection (from the include and
 /// exclude lists, else `o.plan`'s) and the masking rules.
 fn rewrite_plan(h: &VcfHeader, o: &VcfFilterOptions) -> Result<RewritePlan, IoError> {
@@ -147,6 +165,8 @@ or pass -O vcf or -O bcf",
         )));
     }
     let plan = rewrite_plan(&h, o)?;
+    // A bad expression is a usage error before any record is read.
+    parse_filter_expr(&h, o)?;
     let header = VcfHeader::parse(rewrite_header(&h, &plan)).map_err(|e| IoError::Detect {
         path: input.name().to_string(),
         msg: e,
@@ -221,6 +241,10 @@ fn filter(
     let vcf_header = vcf_header(input.as_ref())?;
     let in_format = input.format();
     let plan = rewrite_plan(&vcf_header, o)?;
+    let expr = parse_filter_expr(&vcf_header, o)?;
+    let exclude = o.expr.as_ref().is_some_and(|e| e.exclude);
+    let mut scratch = EvalScratch::default();
+    scratch.set_selection(plan.selection.as_ref().map(|s| s.keep.as_slice()));
 
     let input_is_bcf = in_format == Format::Bcf;
     let output_is_bcf = w.is_bcf();
@@ -249,7 +273,11 @@ fn filter(
         BcfDicts::default()
     };
 
-    let mut bcf_site = BcfSite::default();
+    let mut bcf_site = if expr.as_ref().is_some_and(Expr::needs_info_values) {
+        BcfSite::with_info_values()
+    } else {
+        BcfSite::default()
+    };
     let mut bcf_text = if input_is_bcf {
         Some(BcfText::for_header(input.name(), &vcf_header)?)
     } else {
@@ -263,7 +291,12 @@ fn filter(
     };
     let mut thinner: Option<Thinner> = o.sites.thinner();
 
-    let need_stats = o.sites.needs_genotypes() || !plan.mask.is_empty() || plan.recalc_ac;
+    let need_stats = o.sites.needs_genotypes()
+        || !plan.mask.is_empty()
+        || plan.recalc_ac
+        || expr
+            .as_ref()
+            .is_some_and(|e| e.needs_genotypes() || e.needs_stats());
     let mut masked_buf = Vec::new();
     let mut rewritten_buf = Vec::new();
     let mut bcf_enc_buf = Vec::new();
@@ -300,7 +333,7 @@ fn filter(
                 continue;
             }
 
-            // 2. Stats filters & masking
+            // 2. Stats filters, masking and the expression
             let stats = if need_stats {
                 let keep = plan.selection.as_ref().map(|s| s.keep.as_slice());
                 let n_alts = if view.alts.is_empty() || view.alts == b"." {
@@ -309,43 +342,79 @@ fn filter(
                     view.alts.split(|&b| b == b',').count()
                 };
                 let n_alleles = if n_alts == 0 { 1 } else { 1 + n_alts };
-                let st = if input_is_bcf {
-                    let gt = bcf_genotypes(raw, &dicts).map_err(|msg| IoError::Parse {
-                        path: input.name().to_string(),
-                        loc: Loc::Record(records_in),
-                        msg,
-                    })?;
-                    site_stats(&gt, keep, &plan.mask, n_alleles, &mut masked_buf)
-                } else {
-                    let gt = text_genotypes(raw).map_err(|msg| IoError::Parse {
-                        path: input.name().to_string(),
-                        loc: Loc::Record(records_in),
-                        msg,
-                    })?;
-                    site_stats(&gt, keep, &plan.mask, n_alleles, &mut masked_buf)
-                }
-                .map_err(|msg| IoError::Parse {
+                let parse_err = |msg| IoError::Parse {
                     path: input.name().to_string(),
                     loc: Loc::Record(records_in),
                     msg,
-                })?;
+                };
+                let bcf_gt;
+                let text_gt;
+                let gt: &dyn GenotypeSource = if input_is_bcf {
+                    bcf_gt = bcf_genotypes(raw, &dicts).map_err(parse_err)?;
+                    &bcf_gt
+                } else {
+                    text_gt = text_genotypes(raw).map_err(parse_err)?;
+                    &text_gt
+                };
+                let st = site_stats(gt, keep, &plan.mask, n_alleles, &mut masked_buf)
+                    .map_err(parse_err)?;
 
                 if !o.sites.stats_pass(&st) {
                     continue;
+                }
+
+                // 3. The include/exclude expression sees the masked genotypes of the
+                // selected samples.
+                if let Some(e) = expr
+                    .as_ref()
+                    .filter(|e| e.needs_genotypes() || e.needs_stats())
+                {
+                    let mg = MaskedGenotypes {
+                        inner: gt,
+                        masked: &masked_buf,
+                    };
+                    let hold = e
+                        .eval(
+                            &view,
+                            e.needs_genotypes().then_some(&mg as &dyn GenotypeSource),
+                            e.needs_stats().then_some(&st),
+                            &mut scratch,
+                        )
+                        .map_err(parse_err)?;
+                    if hold == exclude {
+                        continue;
+                    }
                 }
                 Some(st)
             } else {
                 None
             };
 
-            // 3. Thinning (runs last on passing sites)
+            // 3b. An expression over the site fields alone needs no genotypes.
+            if let Some(e) = expr
+                .as_ref()
+                .filter(|e| !e.needs_genotypes() && !e.needs_stats())
+            {
+                let hold =
+                    e.eval(&view, None, None, &mut scratch)
+                        .map_err(|msg| IoError::Parse {
+                            path: input.name().to_string(),
+                            loc: Loc::Record(records_in),
+                            msg,
+                        })?;
+                if hold == exclude {
+                    continue;
+                }
+            }
+
+            // 4. Thinning (runs last on passing sites)
             if let Some(t) = thinner.as_mut()
                 && !t.keep(m.chrom, view.pos)
             {
                 continue;
             }
 
-            // 4. Output record
+            // 5. Output record
             if input_is_bcf && output_is_bcf && plan.is_passthrough() {
                 w.write_record(raw).map_err(|source| IoError::Write {
                     path: "output".to_string(),

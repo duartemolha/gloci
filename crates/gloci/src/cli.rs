@@ -1024,6 +1024,16 @@ pub struct VcfFilterArgs {
     #[arg(long)]
     pub recalc_ac: bool,
 
+    /// Keep records for which the bcftools-style EXPR holds, e.g.
+    /// 'QUAL>30 && INFO/DP>10 && N_PASS(GT="het")>=2'. It sees masked genotypes
+    /// of the selected samples; FORMAT fields are limited to GT, DP and GQ.
+    #[arg(long, value_name = "EXPR", conflicts_with = "exclude")]
+    pub include: Option<String>,
+    /// Remove records for which the bcftools-style EXPR holds (same grammar as
+    /// --include).
+    #[arg(long, value_name = "EXPR")]
+    pub exclude: Option<String>,
+
     /// Minimum minor allele frequency among called genotypes [0, 1].
     #[arg(long, value_name = "X")]
     pub min_maf: Option<f64>,

@@ -410,6 +410,7 @@ Every row below was checked against `gloci <cmd> --help`.
 | **`--max-missing X`** (X = minimum fraction *called*) | **`--max-missing (1 - X)`** (maximum fraction *missing*; e.g. vcftools `0.9` becomes gloci `0.1`; `--max-missing-count N` bounds missing genotype count). Inverted on purpose; vcftools' meaning is a known trap. |
 | `--indv` / `--keep` / `--remove-indv` / `--remove` | `--samples` / `--samples-file` / `--exclude-samples` / `--exclude-samples-file` (add `--recalc-ac` to recompute `INFO/AC`, `AN`, `AF`) |
 | `--minGQ` / `--minDP` / `--maxDP`, `--remove-filtered-geno-all` | `--min-gq` / `--min-dp` / `--max-dp`, `--mask-filtered-genotypes` |
+| `bcftools view -i EXPR` / `-e EXPR` (subset: FORMAT fields GT, DP, GQ only; see [differences.md#expr-format-fields](differences.md#expr-format-fields)) | `gloci vcf filter FILE --include EXPR` / `--exclude EXPR` |
 | `vcf-sort`, `vcf-isec`, `vcf-subset` | `gloci sort`, `gloci intersect --match alleles`, `gloci vcf filter --samples ... --recalc-ac` |
 | `--freq`, `--depth`, `--missing-*`, `--het`, `--hardy`, `--TsTv*`, `--FILTER-summary`, `--SNPdensity`, `--singletons`, `--hist-indel-len`, `vcf-stats` | not yet available (`vcf stats`, P2) |
 | `--get-INFO`, `--extract-FORMAT-info`, `--012` | not yet available (`vcf extract`, P2) |

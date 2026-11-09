@@ -105,10 +105,25 @@ pub fn verdict(c: &Case, equal: bool) -> Verdict {
 /// invocation (no shell syntax), which the golden test can replay.
 pub fn golden_args(c: &Case) -> Option<String> {
     let rest = c.gloci.trim().strip_prefix("gloci ")?;
-    if rest.contains(['\n', ';', '&', '|', '<', '>', '$', '"', '\'', '`', '\\']) {
-        return None;
+    if !rest.contains('\'') {
+        if rest.contains(['\n', ';', '&', '|', '<', '>', '$', '"', '`', '\\']) {
+            return None;
+        }
+        return Some(rest.split_whitespace().collect::<Vec<_>>().join(" "));
     }
-    Some(rest.split_whitespace().collect::<Vec<_>>().join(" "))
+    // Single-quoted arguments (filter expressions) are plain text to the shell;
+    // outside the quotes no shell syntax is allowed.
+    let mut quoted = false;
+    for ch in rest.chars() {
+        match (ch, quoted) {
+            ('\'', _) => quoted = !quoted,
+            ('\n', _) => return None,
+            (';' | '&' | '|' | '<' | '>' | '$' | '"' | '`' | '\\', false) => return None,
+            _ => {}
+        }
+    }
+    gloci_testkit::differential::split_args(rest)?;
+    Some(rest.to_string())
 }
 
 fn input_ext(c: &Case) -> String {

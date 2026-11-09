@@ -1,0 +1,16 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##contig=<ID=1,length=1000>
+##INFO=<ID=DP,Number=1,Type=Integer,Description="d">
+##INFO=<ID=AF,Number=A,Type=Float,Description="d">
+##INFO=<ID=DB,Number=0,Type=Flag,Description="d">
+##INFO=<ID=S,Number=1,Type=String,Description="d">
+##INFO=<ID=END,Number=1,Type=Integer,Description="e">
+##FILTER=<ID=LowQ,Description="l">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="g">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="d">
+##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="q">
+##bcftools_viewVersion=1.21+htslib-1.21
+##bcftools_viewCommand=view -i INFO/AF[1]>0.25 input.vcf; Date=Mon Nov  9 22:50:13 2026
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	s1	s2	s3
+1	20	.	A	C,G	.	.	AF=0.2,0.3	GT:DP	./.:.	0|1:5	1:.

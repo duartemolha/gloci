@@ -6,7 +6,7 @@
 //! The rules match the live harness: a case without `expected_difference`
 //! must match, one with it must differ (a stale entry fails), and the anchor
 //! must exist in docs/differences.md.
-use gloci_testkit::differential::{Verdict, check_anchor, compare, observe, verdict};
+use gloci_testkit::differential::{Verdict, check_anchor, compare, observe, split_args, verdict};
 use std::path::{Path, PathBuf};
 
 struct GoldenCase {
@@ -35,11 +35,11 @@ fn golden_cases() -> Vec<GoldenCase> {
         .filter(|p| p.is_dir())
         .map(|dir| GoldenCase {
             name: dir.file_name().unwrap().to_string_lossy().into_owned(),
-            args: read_line(&dir, "args")
-                .unwrap_or_else(|| panic!("{}: no args file", dir.display()))
-                .split_whitespace()
-                .map(String::from)
-                .collect(),
+            args: split_args(
+                &read_line(&dir, "args")
+                    .unwrap_or_else(|| panic!("{}: no args file", dir.display())),
+            )
+            .unwrap_or_else(|| panic!("{}: unbalanced quote in args", dir.display())),
             compare: read_line(&dir, "compare").unwrap_or_else(|| "exact".into()),
             expected_difference: read_line(&dir, "expected_difference"),
             expected: std::fs::read(dir.join("expected")).unwrap(),

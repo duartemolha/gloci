@@ -200,6 +200,7 @@ Every row below was checked against `gloci <cmd> --help`.
 | **`--max-missing X`** (X = minimum fraction *called*) | **`--max-missing (1 - X)`** (maximum fraction *missing*; e.g. vcftools `0.9` becomes gloci `0.1`; `--max-missing-count N` bounds missing genotype count). Inverted on purpose; vcftools' meaning is a known trap. |
 | `--indv` / `--keep` / `--remove-indv` / `--remove` | `--samples` / `--samples-file` / `--exclude-samples` / `--exclude-samples-file` (add `--recalc-ac` to recompute `INFO/AC`, `AN`, `AF`) |
 | `--minGQ` / `--minDP` / `--maxDP`, `--remove-filtered-geno-all` | `--min-gq` / `--min-dp` / `--max-dp`, `--mask-filtered-genotypes` |
+| `bcftools view -i EXPR` / `-e EXPR` (subset: FORMAT fields GT, DP, GQ only; see [differences.md#expr-format-fields](differences.md#expr-format-fields)) | `gloci vcf filter FILE --include EXPR` / `--exclude EXPR` |
 | `vcf-sort`, `vcf-isec`, `vcf-subset` | `gloci sort`, `gloci intersect --match alleles`, `gloci vcf filter --samples ... --recalc-ac` |
 | `--freq`, `--depth`, `--missing-*`, `--het`, `--hardy`, `--TsTv*`, `--FILTER-summary`, `--SNPdensity`, `--singletons`, `--hist-indel-len`, `vcf-stats` | not yet available (`vcf stats`, P2) |
 | `--get-INFO`, `--extract-FORMAT-info`, `--012` | not yet available (`vcf extract`, P2) |
@@ -363,3 +364,16 @@ Every row below was checked against `gloci <cmd> --help`.
 - **`vcf filter --regions-file` on headerless BED:** Every non-header line of a
   BED file is used (`vcftools --bed` unconditionally skips line 1).
   [differences.md#bed-header-skipping](differences.md#bed-header-skipping)
+- **`vcf filter --include/--exclude` is a subset of `bcftools view -i/-e`:**
+  fields against numbers, strings or `.`, `N_PASS`, and the FORMAT fields GT,
+  DP and GQ only (other FORMAT keys such as AD and FT are rejected, exit 2).
+  Differences from bcftools 1.21: `!~` is a real negation, a bare INFO flag is
+  its presence, `!(...)` and `.` literals parse, an index past the end is
+  missing. The expression `MAF` is bcftools' first-ALT MAF, unlike `--min-maf`.
+  [differences.md#expr-subset](differences.md#expr-subset)
+  [differences.md#expr-format-fields](differences.md#expr-format-fields)
+  [differences.md#expr-not-match](differences.md#expr-not-match)
+  [differences.md#expr-bare-flag](differences.md#expr-bare-flag)
+  [differences.md#expr-grammar-extensions](differences.md#expr-grammar-extensions)
+  [differences.md#expr-index-past-end](differences.md#expr-index-past-end)
+  [differences.md#expr-maf-first-alt](differences.md#expr-maf-first-alt)

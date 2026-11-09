@@ -267,6 +267,8 @@ fn unknown_keys_and_ambiguity_are_usage_errors() {
         e.contains("ambiguous") && e.contains("INFO/DP") && e.contains("FMT/DP"),
         "{e}"
     );
+    let e = err("DP>10");
+    assert!(e.contains("write INFO/DP or FMT/DP"), "{e}");
     let e = err("FOO/DP>1");
     assert!(e.contains("unknown prefix"), "{e}");
     // A key defined once resolves bare.
@@ -512,8 +514,16 @@ fn bare_ac_an_maf_read_header_info_and_compute_otherwise() {
     assert_eq!(t("AC=2"), (false, true, vec![10])); // any value of AC=3,2
     // An INFO-resolved name is missing where the record lacks the key.
     assert_eq!(t("AN!=99").2, vec![20, 30, 40]);
-    // F_MISSING / N_MISSING stay computed even when the header defines them.
+    // F_MISSING / N_MISSING stay computed even when the header defines them
+    // (fmiss.vcf defines both; the goldens pin the bcftools rows).
     assert!(t("N_MISSING=0").0);
+    let v = fixture("fmiss");
+    let h = header_of(&v);
+    let run = |s: &str| run_text(&parse_expr(s, &h).unwrap(), &v);
+    assert_eq!(run("N_MISSING=1"), vec![10]); // not the INFO value 7
+    assert_eq!(run("N_MISSING=7"), Vec::<u64>::new());
+    assert_eq!(run("F_MISSING>0.5"), vec![20]);
+    assert_eq!(run("INFO/N_MISSING=7"), vec![10]); // the INFO key stays reachable
     // Without the header key the computed value is used.
     let (v, h) = main_vcf();
     let e = parse_expr("AN=6", &h).unwrap();
