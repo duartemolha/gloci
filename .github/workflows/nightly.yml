@@ -70,13 +70,20 @@ jobs:
         with:
           workspaces: fuzz
       - run: cargo install cargo-fuzz --locked
+      - name: Cache fuzz corpus
+        uses: actions/cache@v4
+        with:
+          path: fuzz/corpus
+          key: fuzz-corpus-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            fuzz-corpus-${{ runner.os }}-
       - name: Fuzz each target for 60 s
         run: |
           rc=0
           for t in bed_reader vcf_reader bcf_reader gff_reader bgzf_input region_parse; do
             # Seed inputs (valid files past the headers); generated inputs stay untracked.
             mkdir -p "fuzz/corpus/$t"
-            cp -n fuzz/seeds/"$t"/* "fuzz/corpus/$t"/
+            cp -n fuzz/seeds/"$t"/* "fuzz/corpus/$t"/ || true
             dict=""
             [ "$t" = vcf_reader ] && dict="-dict=fuzz/vcf.dict"
             cargo +nightly fuzz run --fuzz-dir fuzz "$t" -- -max_total_time=60 $dict || rc=1

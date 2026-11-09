@@ -249,9 +249,9 @@ fn kind_bit(k: VariantKind) -> u8 {
 }
 
 fn type_set(s: &SiteView) -> u8 {
-    s.alts
-        .split(|&b| b == b',')
-        .fold(0, |m, alt| m | kind_bit(alt_kind(s.pos - 1, s.ref_, alt)))
+    s.alts.split(|&b| b == b',').fold(0, |m, alt| {
+        m | kind_bit(alt_kind(s.pos.saturating_sub(1), s.ref_, alt))
+    })
 }
 
 fn n_alleles(alts: &[u8]) -> usize {

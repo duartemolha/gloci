@@ -363,6 +363,9 @@ pub mod typed {
         /// Append the value as VCF text (`-50,.` for an integer vector with a
         /// missing element). Returns false for a value-less entry (a flag).
         pub fn render(&self, out: &mut Vec<u8>) -> bool {
+            if self.n == 0 || self.ty == Ty::Missing {
+                return false;
+            }
             fn list<T>(
                 out: &mut Vec<u8>,
                 items: impl Iterator<Item = Option<T>>,
@@ -614,17 +617,11 @@ pub(crate) fn append(src: &mut dyn BufRead, out: &mut Vec<u8>, n: usize) -> io::
     Ok(n - left)
 }
 
-fn dicts(h: &Header) -> &BcfDicts {
-    match h {
-        Header::Vcf(VcfHeader { bcf: Some(d), .. }) => d,
-        _ => unreachable!("a BCF reader always has BCF dictionaries"),
-    }
-}
-
 pub(crate) struct BcfReader {
     name: String,
     compression: Compression,
     header: Header,
+    dicts: BcfDicts,
     diag: Diagnostics,
     policy: InvalidPolicy,
     src: Box<dyn BufRead + Send>,
@@ -650,12 +647,14 @@ impl BcfReader {
             msg: format!("{name}: {msg}"),
             path: name.clone(),
         })?;
+        let dicts = h.bcf.clone().unwrap_or_default();
         let header = Header::Vcf(h);
-        let dec = Decoder::new(span, dicts(&header));
+        let dec = Decoder::new(span, &dicts);
         Ok(BcfReader {
             name,
             compression,
             header,
+            dicts,
             diag: Diagnostics::default(),
             policy,
             src: reader,
@@ -706,6 +705,7 @@ impl RecordReader for BcfReader {
         batch: &mut RecordBatch,
         max: usize,
     ) -> Result<bool, IoError> {
+        debug_assert!(max > 0, "read_batch max must be > 0");
         let mut n = 0;
         while n < max {
             if self.eof {
@@ -737,9 +737,7 @@ impl RecordReader for BcfReader {
                 return Err(self.err(RECORD_TRUNCATED));
             }
             let len = batch.buf.len() - start;
-            let decoded = self
-                .dec
-                .decode(&batch.buf[start..], dicts(&self.header), chroms);
+            let decoded = self.dec.decode(&batch.buf[start..], &self.dicts, chroms);
             match decoded {
                 Ok((chrom, key, span)) => {
                     batch.recs.push(RecordMeta {
@@ -857,6 +855,16 @@ mod tests {
             (v.ty, v.chars(), rendered(v)),
             (Ty::Missing, Some(&b""[..]), None)
         );
+    }
+
+    #[test]
+    fn zero_count_typed_value_renders_as_absent() {
+        // Task 26 item 6: zero-count typed values (Flag END, etc.) count as absent (None)
+        assert_eq!(rendered(one(&[0x01])), None);
+        assert_eq!(rendered(one(&[0x02])), None);
+        assert_eq!(rendered(one(&[0x03])), None);
+        assert_eq!(rendered(one(&[0x05])), None);
+        assert_eq!(rendered(one(&[0x07])), None);
     }
 
     #[test]

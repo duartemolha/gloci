@@ -460,6 +460,8 @@ fn usage_errors_come_before_any_sorting() {
     no_sort(&["intersect", "--overlap-bases"]);
     no_sort(&["map", "-c", "5:nonsense"]);
     no_sort(&["coverage", "--hist", "--per-base"]);
+    no_sort(&["subtract", "--sum-overlaps", "--whole"]);
+    no_sort(&["closest", "-k", "0"]);
 }
 
 #[test]

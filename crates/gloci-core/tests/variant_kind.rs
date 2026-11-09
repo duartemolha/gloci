@@ -12,6 +12,19 @@ fn kinds(r: &str, a: &str) -> Vec<VariantKind> {
 }
 
 #[test]
+fn pos_zero_does_not_underflow() {
+    // Task 26 item 8: POS = 0 saturating arithmetic pos.saturating_sub(1)
+    let v = Variant {
+        pos: 0,
+        reference: b"A",
+        alts: b"G",
+        end: None,
+        svlen: None,
+    };
+    assert_eq!(alt_kinds(&v), [Snv]);
+}
+
+#[test]
 fn spec_4_2_rows() {
     assert_eq!(kinds("A", "G"), [Snv]);
     assert_eq!(kinds("AC", "GT"), [Mnv]);

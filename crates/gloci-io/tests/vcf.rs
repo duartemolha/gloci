@@ -47,6 +47,16 @@ fn err(bytes: impl AsRef<[u8]>) -> String {
 }
 
 #[test]
+fn chromx_is_not_the_chrom_line() {
+    let bad_header = "##fileformat=VCFv4.3\n#CHROMX\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n";
+    let e = err(bad_header.as_bytes());
+    assert!(
+        e.contains("no #CHROM line"),
+        "expected no #CHROM line error, got: {e}"
+    );
+}
+
+#[test]
 fn header_records_spans_and_provenance() {
     let same_input = format!("{H}chr1\t100\t.\tACGT\tA\t.\tPASS\t.\tGT\t0/1\t0/0\n");
     let (h, recs, _) = read_all(same_input.as_bytes(), vcf(VcfSpan::Allele));

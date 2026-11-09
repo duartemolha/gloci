@@ -26,8 +26,17 @@ impl Genome {
     pub fn parse_sizes(text: &[u8]) -> Result<Genome, GenomeError> {
         let mut entries = Vec::new();
         for (i, line) in lines(text) {
+            if line.starts_with(b"#") {
+                continue;
+            }
             let mut f = line.split(|&b| b == b'\t');
             let name = f.next().unwrap_or_default();
+            if name.is_empty() {
+                return Err(GenomeError::Line {
+                    line: i,
+                    msg: "empty chromosome name".into(),
+                });
+            }
             let len = f.next().ok_or_else(|| GenomeError::Line {
                 line: i,
                 msg: "expected name and length separated by a TAB".into(),
@@ -45,7 +54,7 @@ impl Genome {
     pub fn parse_dict(text: &[u8]) -> Result<Genome, GenomeError> {
         let mut entries = Vec::new();
         for (i, line) in lines(text) {
-            if !line.starts_with(b"@SQ") {
+            if !line.starts_with(b"@SQ\t") {
                 continue;
             }
             let (mut name, mut len) = (None, None);

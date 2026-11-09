@@ -271,7 +271,12 @@ write to a file such as -o out.bed.gz and index that",
                 path: p.display().to_string(),
                 source,
             };
-            let file = OpenOptions::new().write(true).open(p).map_err(create)?;
+            let truncate = std::fs::metadata(p).is_ok_and(|m| m.is_file());
+            let file = OpenOptions::new()
+                .write(true)
+                .truncate(truncate)
+                .open(p)
+                .map_err(create)?;
             refuse_binary_to_tty(file.is_terminal(), f, bgzf)?;
             let w = BufWriter::with_capacity(BUF, file);
             if bgzf {

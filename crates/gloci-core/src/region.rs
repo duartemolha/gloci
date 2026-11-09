@@ -124,12 +124,38 @@ fn whole(name: &str) -> Region {
     }
 }
 
+fn validate_commas(s: &str) -> bool {
+    if !s.contains(',') {
+        return true;
+    }
+    let mut parts = s.split(',');
+    let Some(first) = parts.next() else {
+        return false;
+    };
+    if first.is_empty() || first.len() > 3 || !first.chars().all(|c| c.is_ascii_digit()) {
+        return false;
+    }
+    let mut count = 0;
+    for part in parts {
+        count += 1;
+        if part.len() != 3 || !part.chars().all(|c| c.is_ascii_digit()) {
+            return false;
+        }
+    }
+    count > 0
+}
+
 fn parse_range(full: &str, chrom: &str, range: &str) -> Result<Region, RegionError> {
     let wrap = |source: CoordError| RegionError::Coord {
         region: full.into(),
         source,
     };
-    let num = |t: &str| parse_coord(t.replace(',', "").as_bytes()).map_err(wrap);
+    let num = |t: &str| {
+        if !validate_commas(t) {
+            return Err(wrap(CoordError::MalformedCommas(t.into())));
+        }
+        parse_coord(t.replace(',', "").as_bytes()).map_err(wrap)
+    };
     let (start, end) = match range.split_once('-') {
         None => (num(range)?, None),
         Some((a, "")) => (num(a)?, None),

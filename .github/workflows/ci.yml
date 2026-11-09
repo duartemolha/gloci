@@ -23,6 +23,9 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      - name: AVX2 coitrees test
+        if: matrix.os == 'ubuntu-24.04'
+        run: RUSTFLAGS="-C target-cpu=x86-64-v3" cargo test -p gloci-engine
 
   musl:
     runs-on: ubuntu-24.04
@@ -38,7 +41,8 @@ jobs:
         run: |
           BIN=target/x86_64-unknown-linux-musl/release/gloci
           file "$BIN"
-          if readelf -l "$BIN" | grep -q INTERP; then
+          readelf -l "$BIN" > target/readelf.txt
+          if grep -q INTERP target/readelf.txt; then
             echo "binary is dynamically linked"
             exit 1
           fi

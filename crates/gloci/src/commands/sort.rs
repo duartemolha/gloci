@@ -3,12 +3,13 @@ use crate::Ctx;
 use crate::cli::SortArgs;
 use gloci_core::VcfSpan;
 use gloci_io::{
-    Format, OrderGuard, OutFormat, OutputOptions, ReaderOptions, RecordBatch, RecordReader,
+    Format, Header, OrderGuard, OutFormat, OutputOptions, ReaderOptions, RecordBatch, RecordReader,
     UsageError, WriterOptions, check_family, chrom_table_for, next_batch_size, open_output,
     open_reader, open_record_writer, parse_output_spec, refuse_binary_to_tty,
 };
 use gloci_ops::{
-    Dedup, MIN_MAX_MEM, SortConfig, Sorter, Tie, check_definitions, check_samples, merge_sorted,
+    Dedup, MIN_MAX_MEM, SortConfig, Sorter, Tie, check_definitions_pair, check_samples_pair,
+    merge_sorted, merge_sorted_batches,
 };
 use std::io::IsTerminal;
 
@@ -55,32 +56,73 @@ sort the inputs without -m to remove or find duplicates",
             gloci_io::InvalidPolicy::Fail
         },
     };
-    let mut readers = files
-        .iter()
-        .map(|f| open_reader(f, &opts))
-        .collect::<Result<Vec<_>, _>>()?;
-    let format = readers[0].format();
-    for r in &readers[1..] {
-        if OutFormat::family(r.format()) != OutFormat::family(format) {
-            return Err(usage(format!(
-                "{} is {:?} but {} is {:?}; sort needs inputs of one format",
-                readers[0].name(),
-                format,
-                r.name(),
-                r.format()
-            )));
+    let (format, header, mut chroms, single_reader) = if files.len() == 1 {
+        let r0 = open_reader(&files[0], &opts)?;
+        let format = r0.format();
+        let header = r0.header().clone();
+        let chroms = chrom_table_for(
+            a.genome.genome.as_deref(),
+            &[r0.as_ref()],
+            a.chrom_order.chrom_order,
+        )?;
+        (format, header, chroms, Some(r0))
+    } else {
+        let r0 = open_reader(&files[0], &opts)?;
+        let format = r0.format();
+        let header = r0.header().clone();
+        let mut chroms = None;
+        if a.genome.genome.is_some() {
+            chroms = Some(chrom_table_for(
+                a.genome.genome.as_deref(),
+                &[],
+                a.chrom_order.chrom_order,
+            )?);
+        } else if let Header::Vcf(vh) = r0.header()
+            && !vh.contigs.is_empty()
+        {
+            chroms = Some(chrom_table_for(
+                None,
+                &[r0.as_ref()],
+                a.chrom_order.chrom_order,
+            )?);
         }
-    }
-    check_samples(&readers)?;
-    if !a.check {
-        check_definitions(&readers)?;
-    }
-    let refs: Vec<&dyn RecordReader> = readers.iter().map(|r| r.as_ref()).collect();
-    let mut chroms = chrom_table_for(a.genome.genome.as_deref(), &refs, a.chrom_order.chrom_order)?;
+        drop(r0);
+
+        for f in &files[1..] {
+            let r = open_reader(f, &opts)?;
+            if OutFormat::family(r.format()) != OutFormat::family(format) {
+                return Err(usage(format!(
+                    "{} is {:?} but {} is {:?}; sort needs inputs of one format",
+                    files[0],
+                    format,
+                    r.name(),
+                    r.format()
+                )));
+            }
+            if let (Header::Vcf(first), Header::Vcf(other)) = (&header, r.header()) {
+                check_samples_pair(&files[0], first, r.name(), other)?;
+                if !a.check {
+                    check_definitions_pair(&files[0], first, r.name(), other)?;
+                }
+                if chroms.is_none() && !other.contigs.is_empty() {
+                    chroms = Some(chrom_table_for(
+                        None,
+                        &[r.as_ref()],
+                        a.chrom_order.chrom_order,
+                    )?);
+                }
+            }
+        }
+        let chroms = match chroms {
+            Some(c) => c,
+            None => chrom_table_for(None, &[], a.chrom_order.chrom_order)?,
+        };
+        (format, header, chroms, None)
+    };
 
     if a.check {
         let mut batch = RecordBatch::default();
-        for r in &mut readers {
+        if let Some(mut r) = single_reader {
             let mut guard = OrderGuard::new(r.name(), r.format());
             let mut max = 1;
             loop {
@@ -92,8 +134,28 @@ sort the inputs without -m to remove or find duplicates",
                     break;
                 }
             }
+            if let Some(s) = r.diagnostics().summary(r.name()) {
+                log::warn!("{s}");
+            }
+        } else {
+            for f in &files {
+                let mut r = open_reader(f, &opts)?;
+                let mut guard = OrderGuard::new(r.name(), r.format());
+                let mut max = 1;
+                loop {
+                    batch.clear();
+                    let more = r.read_batch(&mut chroms, &mut batch, max)?;
+                    guard.check(&chroms, &batch)?;
+                    max = next_batch_size(&batch, max);
+                    if !more {
+                        break;
+                    }
+                }
+                if let Some(s) = r.diagnostics().summary(r.name()) {
+                    log::warn!("{s}");
+                }
+            }
         }
-        warn_skipped(&readers);
         return Ok(());
     }
 
@@ -150,12 +212,11 @@ sort the inputs without -m to remove or find duplicates",
         command_line: Some(ctx.command_line.clone()),
         version: ctx.version,
     };
-    let header = readers[0].header().clone();
 
     match sorter {
         Some(mut sorter) => {
             let mut batch = RecordBatch::default();
-            for r in &mut readers {
+            if let Some(mut r) = single_reader {
                 let mut max = 1;
                 loop {
                     batch.clear();
@@ -164,6 +225,26 @@ sort the inputs without -m to remove or find duplicates",
                     max = next_batch_size(&batch, max);
                     if !more {
                         break;
+                    }
+                }
+                if let Some(s) = r.diagnostics().summary(r.name()) {
+                    log::warn!("{s}");
+                }
+            } else {
+                for f in &files {
+                    let mut r = open_reader(f, &opts)?;
+                    let mut max = 1;
+                    loop {
+                        batch.clear();
+                        let more = r.read_batch(&mut chroms, &mut batch, max)?;
+                        sorter.push(&chroms, &batch)?;
+                        max = next_batch_size(&batch, max);
+                        if !more {
+                            break;
+                        }
+                    }
+                    if let Some(s) = r.diagnostics().summary(r.name()) {
+                        log::warn!("{s}");
                     }
                 }
             }
@@ -177,21 +258,35 @@ sort the inputs without -m to remove or find duplicates",
         None => {
             let mut w = open_record_writer(output, format, out_format, &header, &wopts)
                 .map_err(|e| e.with_output_name(&dest))?;
-            merge_sorted(&mut readers, &mut chroms, tie, &mut |raw| {
-                w.write_record(raw)
-            })
-            .map_err(|e| e.with_output_name(&dest))?;
+            if let Some(r) = single_reader {
+                let mut readers: [Box<dyn RecordReader>; 1] = [r];
+                merge_sorted(&mut readers, &mut chroms, tie, &mut |raw| {
+                    w.write_record(raw)
+                })
+                .map_err(|e| e.with_output_name(&dest))?;
+                if let Some(s) = readers[0].diagnostics().summary(readers[0].name()) {
+                    log::warn!("{s}");
+                }
+            } else {
+                merge_sorted_batches(
+                    files.len(),
+                    &mut chroms,
+                    tie,
+                    a.max_mem,
+                    &ctx.tmp_dir,
+                    |start, count| {
+                        let mut batch = Vec::with_capacity(count);
+                        for f in &files[start..start + count] {
+                            batch.push(open_reader(f, &opts)?);
+                        }
+                        Ok(batch)
+                    },
+                    &mut |raw| w.write_record(raw),
+                )
+                .map_err(|e| e.with_output_name(&dest))?;
+            }
             w.finish().map_err(|e| e.with_output_name(&dest))?;
         }
     }
-    warn_skipped(&readers);
     Ok(())
-}
-
-fn warn_skipped(readers: &[Box<dyn RecordReader>]) {
-    for r in readers {
-        if let Some(s) = r.diagnostics().summary(r.name()) {
-            log::warn!("{s}");
-        }
-    }
 }

@@ -281,13 +281,24 @@ pub fn merge(
     o: &MergeOptions,
     w: &mut dyn RecordWriter,
 ) -> Result<(), IoError> {
-    merge_counting(inputs, chroms, o, w).map(|_| ())
+    merge_counting(inputs, chroms, o, w)
+        .map(|_| ())
+        .map_err(|e| e.with_sorted_input_loc())
 }
 
 /// [`merge`], returning the most finished clusters ever held back at once
 /// (for the memory-flatness test).
 #[doc(hidden)]
 pub fn merge_counting(
+    inputs: Vec<Box<dyn RecordReader>>,
+    chroms: &mut ChromTable,
+    o: &MergeOptions,
+    w: &mut dyn RecordWriter,
+) -> Result<usize, IoError> {
+    merge_counting_impl(inputs, chroms, o, w).map_err(|e| e.with_sorted_input_loc())
+}
+
+fn merge_counting_impl(
     inputs: Vec<Box<dyn RecordReader>>,
     chroms: &mut ChromTable,
     o: &MergeOptions,

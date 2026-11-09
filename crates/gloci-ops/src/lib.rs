@@ -27,7 +27,8 @@ pub use relate::{
 };
 pub use sort::{
     Dedup, MIN_MAX_MEM, SortConfig, SortSettings, SortStats, Sorter, Tie, check_definitions,
-    check_samples, merge_sorted, sort_input_options, sort_readers, sort_together,
+    check_definitions_pair, check_samples, check_samples_pair, merge_fan_in, merge_sorted,
+    merge_sorted_batches, sort_input_options, sort_readers, sort_together,
 };
 pub use vcf_filter::{FilterSummary, VcfFilterOptions, vcf_filter};
 pub use view::{ViewOptions, open_view, read_regions_file, run_view};

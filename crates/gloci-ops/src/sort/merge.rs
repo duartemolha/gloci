@@ -2,16 +2,25 @@
 //! already sorted inputs (`sort -m`).
 
 use super::Tie;
-use super::spill::{RecHead, Run, RunReader};
+use super::spill::{RecHead, Run, RunReader, SpillDir};
 use gloci_core::ChromTable;
 use gloci_io::{IoError, OrderGuard, RecordBatch, RecordReader};
 use std::cmp::Ordering;
-use std::collections::BinaryHeap;
 use std::collections::binary_heap::PeekMut;
+use std::collections::{BinaryHeap, VecDeque};
 use std::io;
+use std::path::Path;
 
 /// The most runs merged at once (D24).
 pub(crate) const MAX_FAN_IN: usize = 128;
+
+/// Estimated buffer bytes per open input in `merge_sorted`.
+pub const MERGE_BUFFER_PER_INPUT: usize = 384 << 10;
+
+/// How many inputs to merge at once under memory budget `max_mem`, capped at 128.
+pub fn merge_fan_in(max_mem: u64) -> usize {
+    (max_mem as usize / MERGE_BUFFER_PER_INPUT).clamp(2, MAX_FAN_IN)
+}
 
 /// How many runs to merge at once: up to [`MAX_FAN_IN`], fewer when the
 /// longest record times the fan-in would exceed the budget (every open run
@@ -156,7 +165,7 @@ impl Input<'_> {
         }
     }
 
-    fn head<const FULL: bool>(&self, src: usize, ranks: &[u32]) -> Head<FULL> {
+    fn head<const FULL: bool>(&self, src: usize, base_seq: u64, ranks: &[u32]) -> Head<FULL> {
         let m = &self.batch.recs[self.pos];
         Head {
             rank: ranks[m.chrom.0 as usize],
@@ -165,7 +174,7 @@ impl Input<'_> {
                 key: m.key,
                 end: m.span.end,
                 // Ties between inputs go to the earlier input.
-                seq: src as u64,
+                seq: base_seq + src as u64,
             },
             src,
             bytes: if FULL {
@@ -190,6 +199,91 @@ impl Input<'_> {
     }
 }
 
+/// Cascade-merge `runs` down to `out`, merging up to `fan` runs at once.
+pub(crate) fn cascade_merge_runs<const FULL: bool>(
+    runs: Vec<Run>,
+    spill: &mut SpillDir,
+    ranks: &[u32],
+    fan: usize,
+    sink: &mut dyn FnMut(&[u8]) -> io::Result<()>,
+) -> Result<u64, IoError> {
+    let mut count = 0u64;
+    let mut runs: VecDeque<Run> = runs.into();
+    while runs.len() > fan {
+        let k = fan.min(runs.len() - fan + 1);
+        let group: Vec<Run> = runs.drain(..k).collect();
+        let mut w = spill.create_run()?;
+        merge_runs::<FULL>(&group, ranks, &mut |h, raw| w.write(h, raw))?;
+        runs.push_back(w.finish()?);
+        group.into_iter().for_each(Run::remove);
+    }
+    merge_runs::<FULL>(runs.make_contiguous(), ranks, &mut |_, raw| {
+        sink(raw).map_err(super::out_err)?;
+        count += 1;
+        Ok(())
+    })?;
+    Ok(count)
+}
+
+/// Merge inputs in batches of up to `fan_in` into LZ4 spill runs, closing
+/// each batch's readers before opening the next batch, then cascade-merge the runs.
+pub fn merge_sorted_batches<F>(
+    num_inputs: usize,
+    chroms: &mut ChromTable,
+    tie: Tie,
+    max_mem: u64,
+    tmp_dir: &Path,
+    mut open_batch: F,
+    out: &mut dyn FnMut(&[u8]) -> io::Result<()>,
+) -> Result<u64, IoError>
+where
+    F: FnMut(usize, usize) -> Result<Vec<Box<dyn RecordReader>>, IoError>,
+{
+    let fan = merge_fan_in(max_mem);
+    if num_inputs <= fan {
+        let mut readers = open_batch(0, num_inputs)?;
+        let res = merge_sorted(&mut readers, chroms, tie, out);
+        for r in &readers {
+            if let Some(s) = r.diagnostics().summary(r.name()) {
+                log::warn!("{s}");
+            }
+        }
+        return res;
+    }
+    let mut spill = SpillDir::create(tmp_dir)?;
+    let mut runs = Vec::new();
+    let mut start = 0;
+    while start < num_inputs {
+        let count = fan.min(num_inputs - start);
+        let mut readers = open_batch(start, count)?;
+        let mut w = spill.create_run()?;
+        let mut sink = |h: &RecHead, raw: &[u8]| w.write(h, raw).map_err(io::Error::other);
+        match tie {
+            Tie::InputOrder => {
+                merge_inputs::<false>(&mut readers, chroms, start as u64, &mut sink)?;
+            }
+            Tie::FullLine => {
+                merge_inputs::<true>(&mut readers, chroms, start as u64, &mut sink)?;
+            }
+        }
+        runs.push(w.finish()?);
+        for r in &readers {
+            if let Some(s) = r.diagnostics().summary(r.name()) {
+                log::warn!("{s}");
+            }
+        }
+        drop(readers);
+        start += count;
+    }
+    let ranks = chroms.ranks();
+    let total = match tie {
+        Tie::InputOrder => cascade_merge_runs::<false>(runs, &mut spill, &ranks, fan, out)?,
+        Tie::FullLine => cascade_merge_runs::<true>(runs, &mut spill, &ranks, fan, out)?,
+    };
+    spill.close();
+    Ok(total)
+}
+
 /// k-way merge of already sorted inputs (`sort -m`), in `(chromosome order,
 /// key, end, tiebreak)` order; ties go to the earlier input, or with
 /// [`Tie::FullLine`] to the smaller line first. Every input is checked by its
@@ -201,16 +295,46 @@ pub fn merge_sorted(
     tie: Tie,
     out: &mut dyn FnMut(&[u8]) -> io::Result<()>,
 ) -> Result<u64, IoError> {
-    match tie {
-        Tie::InputOrder => merge_inputs::<false>(readers, chroms, out),
-        Tie::FullLine => merge_inputs::<true>(readers, chroms, out),
+    if readers.len() <= MAX_FAN_IN {
+        return match tie {
+            Tie::InputOrder => merge_inputs::<false>(readers, chroms, 0, &mut |_, raw| out(raw)),
+            Tie::FullLine => merge_inputs::<true>(readers, chroms, 0, &mut |_, raw| out(raw)),
+        };
     }
+    let fan = MAX_FAN_IN;
+    let mut spill = SpillDir::create(&std::env::temp_dir())?;
+    let mut runs = Vec::new();
+    let mut start = 0;
+    while start < readers.len() {
+        let count = fan.min(readers.len() - start);
+        let mut w = spill.create_run()?;
+        let mut sink = |h: &RecHead, raw: &[u8]| w.write(h, raw).map_err(io::Error::other);
+        let chunk = &mut readers[start..start + count];
+        match tie {
+            Tie::InputOrder => {
+                merge_inputs::<false>(chunk, chroms, start as u64, &mut sink)?;
+            }
+            Tie::FullLine => {
+                merge_inputs::<true>(chunk, chroms, start as u64, &mut sink)?;
+            }
+        }
+        runs.push(w.finish()?);
+        start += count;
+    }
+    let ranks = chroms.ranks();
+    let total = match tie {
+        Tie::InputOrder => cascade_merge_runs::<false>(runs, &mut spill, &ranks, fan, out)?,
+        Tie::FullLine => cascade_merge_runs::<true>(runs, &mut spill, &ranks, fan, out)?,
+    };
+    spill.close();
+    Ok(total)
 }
 
 fn merge_inputs<const FULL: bool>(
     readers: &mut [Box<dyn RecordReader>],
     chroms: &mut ChromTable,
-    out: &mut dyn FnMut(&[u8]) -> io::Result<()>,
+    base_seq: u64,
+    sink: &mut dyn FnMut(&RecHead, &[u8]) -> io::Result<()>,
 ) -> Result<u64, IoError> {
     let mut inputs: Vec<Input> = readers
         .iter_mut()
@@ -235,7 +359,7 @@ fn merge_inputs<const FULL: bool>(
     let mut ranks = chroms.ranks();
     let mut heap: BinaryHeap<Head<FULL>> = live
         .into_iter()
-        .map(|src| inputs[src].head(src, &ranks))
+        .map(|src| inputs[src].head(src, base_seq, &ranks))
         .collect();
     let mut written = 0u64;
     loop {
@@ -243,7 +367,7 @@ fn merge_inputs<const FULL: bool>(
             break;
         };
         let input = &mut inputs[top.src];
-        out(input.batch.raw(input.pos)).map_err(super::out_err)?;
+        sink(&top.rec, input.batch.raw(input.pos)).map_err(super::out_err)?;
         written += 1;
         input.pos += 1;
         if input.pos < input.batch.len() {
@@ -262,7 +386,7 @@ fn merge_inputs<const FULL: bool>(
                 }
                 heap = BinaryHeap::from(heads);
             }
-            heap.push(input.head(src, &ranks));
+            heap.push(input.head(src, base_seq, &ranks));
         }
     }
     Ok(written)

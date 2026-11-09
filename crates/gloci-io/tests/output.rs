@@ -86,6 +86,42 @@ fn spec_parsing() {
     assert_eq!(OutFormat::family(Format::BedGraph), OutFormat::BedGraph);
 }
 
+#[cfg(unix)]
+#[test]
+fn direct_write_dev_fd_truncates_existing_file() {
+    use std::os::unix::io::AsRawFd;
+    let dir = tempfile::tempdir().unwrap();
+    let file_path = dir.path().join("preexisting.bed");
+    // Pre-populate with longer old content
+    fs::write(
+        &file_path,
+        b"chr1\t1000\t2000\told content that is longer than new content\n",
+    )
+    .unwrap();
+    assert!(fs::metadata(&file_path).unwrap().len() > 20);
+
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&file_path)
+        .unwrap();
+    let fd = file.as_raw_fd();
+    let dev_fd = format!("/dev/fd/{fd}");
+    let spec = parse_output_spec(Some(Path::new(&dev_fd)), Some("bed")).unwrap();
+    assert!(spec.direct, "expected direct output for /dev/fd");
+
+    let new_data = b"chr1\t1\t2\n";
+    let mut out = open_output(&spec, OutFormat::Bed, &opts(1, false)).unwrap();
+    out.write_all(new_data).unwrap();
+    out.finish().unwrap();
+
+    let content = fs::read(&file_path).unwrap();
+    assert_eq!(
+        content, new_data,
+        "file should be truncated to new data only, without old tail"
+    );
+}
+
 #[test]
 fn level_and_tty() {
     assert!(check_level(12).is_ok() && check_level(13).is_err());

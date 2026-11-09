@@ -65,11 +65,10 @@ pub fn load_genome(path: &Path) -> Result<Genome, IoError> {
     if first.starts_with(b"##fileformat=VCF") {
         let mut raw = first;
         loop {
-            if raw
-                .rsplit(|&b| b == b'\n')
-                .nth(1)
-                .is_some_and(|l| l.starts_with(b"#CHROM"))
-            {
+            if raw.rsplit(|&b| b == b'\n').nth(1).is_some_and(|l| {
+                let l = l.strip_suffix(b"\r").unwrap_or(l);
+                l == b"#CHROM" || l.starts_with(b"#CHROM\t")
+            }) {
                 break;
             }
             if src.read_until(b'\n', &mut raw).map_err(read_err)? == 0 {

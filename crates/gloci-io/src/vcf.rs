@@ -29,7 +29,7 @@ impl VcfHeader {
         for line in raw.split(|&b| b == b'\n').filter(|l| !l.is_empty()) {
             // BCF header text does not go through the text reader's CR stripping.
             let line = line.strip_suffix(b"\r").unwrap_or(line);
-            if line.starts_with(b"#CHROM") {
+            if line == b"#CHROM" || line.starts_with(b"#CHROM\t") {
                 if samples.is_some() {
                     return Err("VCF header has more than one #CHROM line".into());
                 }
@@ -86,7 +86,9 @@ impl VcfHeader {
         let mut out = Vec::with_capacity(self.raw.len() + cmd.len() + 40);
         let mut done = false;
         for line in self.raw.split_inclusive(|&b| b == b'\n') {
-            if !done && line.starts_with(b"#CHROM") {
+            let clean = line.strip_suffix(b"\n").unwrap_or(line);
+            let clean = clean.strip_suffix(b"\r").unwrap_or(clean);
+            if !done && (clean == b"#CHROM" || clean.starts_with(b"#CHROM\t")) {
                 out.extend_from_slice(
                     format!("##glociCommand={cmd}; Version={version}\n").as_bytes(),
                 );

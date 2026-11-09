@@ -275,6 +275,80 @@ fn merge_sorted_inputs() {
         .code(2);
 }
 
+#[cfg(unix)]
+#[test]
+fn sort_300_inputs() {
+    use std::os::unix::process::CommandExt;
+    let d = tempdir();
+    let mut files = Vec::new();
+    let mut all_records = Vec::new();
+
+    for i in 0..300 {
+        let name = format!("in_{:03}.bed", i);
+        let start1 = (300 - i) * 10;
+        let start2 = start1 + 5;
+        let content = format!(
+            "chr1\t{}\t{}\nchr1\t{}\t{}\n",
+            start1,
+            start1 + 1,
+            start2,
+            start2 + 1
+        );
+        let path = w(d.path(), &name, &content);
+        files.push(path);
+        all_records.push((start1, start1 + 1));
+        all_records.push((start2, start2 + 1));
+    }
+
+    all_records.sort();
+    let mut want = String::new();
+    for (s, e) in all_records {
+        want.push_str(&format!("chr1\t{s}\t{e}\n"));
+    }
+
+    let run_cmd = |extra_args: &[&str]| -> String {
+        let bin = assert_cmd::cargo::cargo_bin("gloci");
+        let mut cmd = std::process::Command::new(bin);
+        cmd.arg("sort");
+        cmd.args(extra_args);
+        cmd.args(&files);
+        unsafe {
+            cmd.pre_exec(|| {
+                let rlim = libc::rlimit {
+                    rlim_cur: 200,
+                    rlim_max: 200,
+                };
+                if libc::setrlimit(libc::RLIMIT_NOFILE, &rlim) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let out = cmd.output().expect("failed to execute gloci");
+        assert!(
+            out.status.success(),
+            "gloci exited with {}: {}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8(out.stdout).unwrap()
+    };
+
+    // Test 1: normal sort
+    let got_sort = run_cmd(&[]);
+    assert_eq!(
+        got_sort, want,
+        "gloci sort 300 inputs failed under ulimit -n 200"
+    );
+
+    // Test 2: sort -m (merge_sorted)
+    let got_merge = run_cmd(&["-m"]);
+    assert_eq!(
+        got_merge, want,
+        "gloci sort -m 300 inputs failed under ulimit -n 200"
+    );
+}
+
 #[test]
 fn unique_duplicates() {
     let d = tempdir();

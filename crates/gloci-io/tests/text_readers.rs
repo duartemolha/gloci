@@ -219,3 +219,26 @@ fn bedgraph_and_vcf_dispatch() {
     assert_eq!(v.format(), Format::Vcf);
     assert!(matches!(v.header(), Header::Vcf(_)));
 }
+
+#[test]
+fn final_line_cr_without_lf_strips_cr() {
+    let bytes = b"chr1\t10\t20\r";
+    let (_, recs, _) = read_all(bytes, bed());
+    assert_eq!(recs.len(), 1);
+    assert_eq!(recs[0].1, 10);
+    assert_eq!(recs[0].2, iv(10, 20));
+}
+
+#[test]
+#[should_panic(expected = "read_batch max must be > 0")]
+fn read_batch_zero_panics() {
+    let mut r = open_reader_from(
+        "x.bed",
+        Box::new(Cursor::new(b"chr1\t10\t20\n".to_vec())),
+        &bed(),
+    )
+    .unwrap();
+    let mut chroms = ChromTable::lexicographic();
+    let mut batch = RecordBatch::default();
+    let _ = r.read_batch(&mut chroms, &mut batch, 0);
+}

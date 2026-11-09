@@ -83,6 +83,9 @@ pub trait RecordReader: Send {
     /// Append up to `max` records to `batch` (the caller clears it).
     /// Returns `Ok(true)` while more input may remain and `Ok(false)` once the
     /// input is exhausted; records appended by that final call are valid.
+    ///
+    /// # Contract
+    /// `max` must be greater than 0 (`max > 0`).
     fn read_batch(
         &mut self,
         chroms: &mut ChromTable,
@@ -281,9 +284,9 @@ impl<K: TextKind> TextReader<K> {
         self.line += 1;
         if out.last() == Some(&b'\n') {
             out.pop();
-            if out.len() > start && out.last() == Some(&b'\r') {
-                out.pop();
-            }
+        }
+        if out.len() > start && out.last() == Some(&b'\r') {
+            out.pop();
         }
         Ok(true)
     }
@@ -312,6 +315,7 @@ impl<K: TextKind> RecordReader for TextReader<K> {
         batch: &mut RecordBatch,
         max: usize,
     ) -> Result<bool, IoError> {
+        debug_assert!(max > 0, "read_batch max must be > 0");
         let mut n = 0;
         while n < max {
             if self.eof {

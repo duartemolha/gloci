@@ -65,6 +65,6 @@ pub fn alt_kind(pos0: u64, reference: &[u8], alt: &[u8]) -> VariantKind {
 pub fn alt_kinds(v: &Variant) -> Vec<VariantKind> {
     split_alts(v.alts)
         .into_iter()
-        .map(|raw| alt_kind(v.pos - 1, v.reference, raw))
+        .map(|raw| alt_kind(v.pos.saturating_sub(1), v.reference, raw))
         .collect()
 }

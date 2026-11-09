@@ -29,10 +29,10 @@ mod merge;
 mod spill;
 
 pub use inputs::{
-    MIN_MAX_MEM, SortSettings, check_definitions, check_samples, sort_input_options, sort_readers,
-    sort_together,
+    MIN_MAX_MEM, SortSettings, check_definitions, check_definitions_pair, check_samples,
+    check_samples_pair, sort_input_options, sort_readers, sort_together,
 };
-pub use merge::merge_sorted;
+pub use merge::{MERGE_BUFFER_PER_INPUT, merge_fan_in, merge_sorted, merge_sorted_batches};
 
 use chunk::Chunk;
 use gloci_core::ChromTable;

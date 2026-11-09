@@ -155,6 +155,15 @@ pub fn complement(
     genome: Option<&Genome>,
     w: &mut dyn RecordWriter,
 ) -> Result<(), IoError> {
+    complement_impl(inputs, chroms, genome, w).map_err(|e| e.with_sorted_input_loc())
+}
+
+fn complement_impl(
+    inputs: Vec<Box<dyn RecordReader>>,
+    chroms: &mut ChromTable,
+    genome: Option<&Genome>,
+    w: &mut dyn RecordWriter,
+) -> Result<(), IoError> {
     if let Some(g) = genome
         && let Some(i) = (0..g.len()).find(|&i| g.length(i).is_none())
     {

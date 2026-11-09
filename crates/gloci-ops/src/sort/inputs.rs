@@ -279,43 +279,111 @@ pub fn sort_readers(
 }
 
 /// Inputs that are VCF/BCF need identical sample columns (D29).
+pub fn check_samples_pair(
+    first_name: &str,
+    first: &gloci_io::VcfHeader,
+    other_name: &str,
+    other: &gloci_io::VcfHeader,
+) -> Result<(), IoError> {
+    if let (Some(a), Some(b)) = (&first.bcf, &other.bcf)
+        && a != b
+    {
+        return Err(IoError::Detect {
+            path: other_name.to_string(),
+            msg: format!(
+                "the BCF headers of {first_name} and {other_name} differ (contig or INFO/FILTER/FORMAT dictionaries); \
+BCF records refer to them by index, so they cannot be sorted together as they are. \
+Convert them to VCF first (gloci view FILE -O vcf.gz) or use inputs with identical headers"
+            ),
+        });
+    }
+    if other.samples != first.samples {
+        let list = |s: &[Vec<u8>]| {
+            s.iter()
+                .map(|n| String::from_utf8_lossy(n).into_owned())
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+        return Err(IoError::Detect {
+            path: other_name.to_string(),
+            msg: format!(
+                "{other_name} has samples [{}] but {first_name} has [{}]; sort needs identical sample columns in every input",
+                list(&other.samples),
+                list(&first.samples)
+            ),
+        });
+    }
+    Ok(())
+}
+
+/// Inputs that are VCF/BCF need identical sample columns (D29).
 pub fn check_samples(readers: &[Box<dyn RecordReader>]) -> Result<(), IoError> {
     let Header::Vcf(first) = readers[0].header() else {
         return Ok(());
     };
     for r in &readers[1..] {
-        if let Header::Vcf(h) = r.header()
-            && let (Some(a), Some(b)) = (&first.bcf, &h.bcf)
-            && a != b
-        {
-            let (name, other) = (readers[0].name(), r.name());
-            return Err(IoError::Detect {
-                path: other.to_string(),
-                msg: format!(
-                    "the BCF headers of {name} and {other} differ (contig or INFO/FILTER/FORMAT dictionaries); \
-BCF records refer to them by index, so they cannot be sorted together as they are. \
-Convert them to VCF first (gloci view FILE -O vcf.gz) or use inputs with identical headers"
-                ),
-            });
+        if let Header::Vcf(h) = r.header() {
+            check_samples_pair(readers[0].name(), first, r.name(), h)?;
         }
-        if let Header::Vcf(h) = r.header()
-            && h.samples != first.samples
-        {
-            let list = |s: &[Vec<u8>]| {
-                s.iter()
-                    .map(|n| String::from_utf8_lossy(n).into_owned())
-                    .collect::<Vec<_>>()
-                    .join(",")
-            };
-            let (name, other) = (readers[0].name(), r.name());
-            return Err(IoError::Detect {
-                path: other.to_string(),
-                msg: format!(
-                    "{other} has samples [{}] but {name} has [{}]; sort needs identical sample columns in every input",
-                    list(&h.samples),
-                    list(&first.samples)
+    }
+    Ok(())
+}
+
+/// Inputs that are VCF/BCF must define the same INFO, FILTER, FORMAT, ALT and
+/// contig lines: the output keeps the first file's header, so a definition
+/// only another file has would be lost, leaving records that use an
+/// undeclared key. Other meta lines may differ. `##FILTER=<ID=PASS>` is
+/// implicitly present in every header.
+pub fn check_definitions_pair(
+    first_name: &str,
+    first: &gloci_io::VcfHeader,
+    other_name: &str,
+    other: &gloci_io::VcfHeader,
+) -> Result<(), IoError> {
+    let base = first.definitions();
+    let implicit = |kind: &str, id: &[u8]| kind == "FILTER" && id == b"PASS";
+    let show = |kind: &str, id: &[u8]| format!("##{kind}=<ID={}>", String::from_utf8_lossy(id));
+    let fail = |path: &str, msg: String| IoError::Detect {
+        path: path.to_string(),
+        msg,
+    };
+    let fix = "give the files the same header definitions, or sort them separately";
+    let theirs = other.definitions();
+    for ((kind, id), line) in &theirs {
+        match base.get(&(*kind, id.clone())) {
+            None if implicit(kind, id) => {}
+            None => {
+                return Err(fail(
+                    other_name,
+                    format!(
+                        "{other_name} defines {} but {first_name} does not; {fix}",
+                        show(kind, id)
+                    ),
+                ));
+            }
+            Some(mine) if mine != line => {
+                return Err(fail(
+                    other_name,
+                    format!(
+                        "{first_name} and {other_name} define {} differently ({} vs {}); {fix}",
+                        show(kind, id),
+                        String::from_utf8_lossy(mine),
+                        String::from_utf8_lossy(line)
+                    ),
+                ));
+            }
+            Some(_) => {}
+        }
+    }
+    for (kind, id) in base.keys() {
+        if !theirs.contains_key(&(*kind, id.clone())) && !implicit(kind, id) {
+            return Err(fail(
+                first_name,
+                format!(
+                    "{first_name} defines {} but {other_name} does not; {fix}",
+                    show(kind, id)
                 ),
-            });
+            ));
         }
     }
     Ok(())
@@ -330,56 +398,9 @@ pub fn check_definitions(readers: &[Box<dyn RecordReader>]) -> Result<(), IoErro
     let Header::Vcf(first) = readers[0].header() else {
         return Ok(());
     };
-    let base = first.definitions();
-    let implicit = |kind: &str, id: &[u8]| kind == "FILTER" && id == b"PASS";
-    let show = |kind: &str, id: &[u8]| format!("##{kind}=<ID={}>", String::from_utf8_lossy(id));
-    let fail = |path: &str, msg: String| IoError::Detect {
-        path: path.to_string(),
-        msg,
-    };
-    let fix = "give the files the same header definitions, or sort them separately";
     for r in &readers[1..] {
-        let Header::Vcf(h) = r.header() else {
-            continue;
-        };
-        let (name, other) = (readers[0].name(), r.name());
-        let theirs = h.definitions();
-        for ((kind, id), line) in &theirs {
-            match base.get(&(*kind, id.clone())) {
-                None if implicit(kind, id) => {}
-                None => {
-                    return Err(fail(
-                        other,
-                        format!(
-                            "{other} defines {} but {name} does not; {fix}",
-                            show(kind, id)
-                        ),
-                    ));
-                }
-                Some(mine) if mine != line => {
-                    return Err(fail(
-                        other,
-                        format!(
-                            "{name} and {other} define {} differently ({} vs {}); {fix}",
-                            show(kind, id),
-                            String::from_utf8_lossy(mine),
-                            String::from_utf8_lossy(line)
-                        ),
-                    ));
-                }
-                Some(_) => {}
-            }
-        }
-        for (kind, id) in base.keys() {
-            if !theirs.contains_key(&(*kind, id.clone())) && !implicit(kind, id) {
-                return Err(fail(
-                    name,
-                    format!(
-                        "{name} defines {} but {other} does not; {fix}",
-                        show(kind, id)
-                    ),
-                ));
-            }
+        if let Header::Vcf(h) = r.header() {
+            check_definitions_pair(readers[0].name(), first, r.name(), h)?;
         }
     }
     Ok(())

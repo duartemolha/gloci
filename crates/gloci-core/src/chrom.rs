@@ -165,6 +165,9 @@ impl ChromTable {
     }
 
     pub fn cmp(&self, a: ChromId, b: ChromId) -> Ordering {
+        if a == b {
+            return Ordering::Equal;
+        }
         match self.mode {
             Mode::Lexicographic => self.name(a).cmp(self.name(b)),
             Mode::Karyotype => karyotype_cmp(self.name(a), self.name(b)),

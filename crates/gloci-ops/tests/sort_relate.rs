@@ -153,3 +153,31 @@ fn merge_with_sort_together_equals_presorted_input() {
     assert!(!want.0.is_empty());
     assert_eq!(got.0, want.0);
 }
+
+#[test]
+fn ops_level_sorted_input_error_uses_record_loc() {
+    use gloci_core::Genome;
+    use gloci_ops::complement::complement;
+
+    let ro = sort_input_options(&user_opts());
+    let mut chroms = ChromTable::karyotype();
+    let sorted = sort_together(
+        vec![mem_reader("a.bed", "chr1\t10\t100\n", &ro)],
+        &mut chroms,
+        &settings(),
+    )
+    .unwrap();
+
+    let genome = Genome::parse_sizes(b"chr1\t50\n").unwrap();
+    let mut sink = Sink::default();
+    let err = complement(sorted, &mut chroms, Some(&genome), &mut sink).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("record 1"),
+        "expected 'record 1' in ops-level error, got: {msg}"
+    );
+    assert!(
+        !msg.contains("line 1"),
+        "did not expect 'line 1' in ops-level error, got: {msg}"
+    );
+}

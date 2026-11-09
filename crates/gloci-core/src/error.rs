@@ -6,6 +6,10 @@ use thiserror::Error;
 pub enum CoordError {
     #[error("\"{0}\" is not an integer")]
     NotInteger(String),
+    #[error(
+        "\"{0}\" has malformed comma groups (commas are only valid as thousands separators, e.g. 1,000,000)"
+    )]
+    MalformedCommas(String),
     #[error("\"{0}\" is negative")]
     Negative(String),
     #[error("\"{0}\" is too large")]
