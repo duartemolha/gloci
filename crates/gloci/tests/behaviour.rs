@@ -396,9 +396,13 @@ fn determinism_matrix() {
     let d = tempdir();
     let p = |f: &PathBuf| f.to_str().unwrap().to_string();
 
+    let genome_txt = "chr1\t10000\nchr2\t10000\nchr3\t10000\nchr4\t10000\n";
+    let genome = p(&plain_file(d.path(), "g.genome", genome_txt));
+
     // Multi-chromosome sorted BED files (chr1..chr4)
     let mut a_text = String::new();
     let mut b_text = String::new();
+    let mut bed12_text = String::new();
     for c in 1..=4 {
         for i in 0..50 {
             let start = 100 + i * 40;
@@ -406,6 +410,12 @@ fn determinism_matrix() {
             writeln!(
                 a_text,
                 "chr{c}\t{start}\t{end}\ta_{c}_{i}\t{}\t+",
+                10 + i % 100
+            )
+            .unwrap();
+            writeln!(
+                bed12_text,
+                "chr{c}\t{start}\t{end}\ta_{c}_{i}\t{}\t+\t{start}\t{end}\t0\t2\t10,10,\t0,20,",
                 10 + i % 100
             )
             .unwrap();
@@ -441,6 +451,69 @@ fn determinism_matrix() {
         .success();
     let b_idx = p(&b_idx);
 
+    // Multi-chromosome unsorted BED files for --unsorted relation modes
+    let mut ua_text = String::new();
+    let mut ub_text = String::new();
+    for i in (0..50).rev() {
+        for c in (1..=4).rev() {
+            let start = 100 + i * 40;
+            let end = start + 30;
+            writeln!(
+                ua_text,
+                "chr{c}\t{start}\t{end}\tua_{c}_{i}\t{}\t+",
+                10 + i % 100
+            )
+            .unwrap();
+            let b_start = 110 + i * 40;
+            let b_end = b_start + 35;
+            writeln!(
+                ub_text,
+                "chr{c}\t{b_start}\t{b_end}\tub_{c}_{i}\t{}\t+",
+                20 + i % 100
+            )
+            .unwrap();
+        }
+    }
+    let ua_plain = p(&plain_file(d.path(), "ua.bed", &ua_text));
+    let ub_plain = p(&plain_file(d.path(), "ub.bed", &ub_text));
+    let ua_bgzf = p(&bgzf_file(d.path(), "ua.bed.gz", &ua_text));
+    let ub_bgzf = p(&bgzf_file(d.path(), "ub.bed.gz", &ub_text));
+
+    // BED12 plain, BGZF, and indexed BGZF
+    let bed12_plain = p(&plain_file(d.path(), "a12.bed", &bed12_text));
+    let bed12_bgzf = p(&bgzf_file(d.path(), "a12.bed.gz", &bed12_text));
+    let bed12_idx = d.path().join("a12_idx.bed.gz");
+    std::fs::copy(&bed12_bgzf, &bed12_idx).unwrap();
+    gloci()
+        .args(["index", bed12_idx.to_str().unwrap()])
+        .assert()
+        .success();
+    let bed12_idx = p(&bed12_idx);
+
+    // Multi-chromosome sorted GFF3 for convert
+    let mut gff_text = String::from("##gff-version 3\n");
+    for c in 1..=4 {
+        for i in 0..50 {
+            let start = 101 + i * 40;
+            let end = start + 29;
+            writeln!(
+                gff_text,
+                "chr{c}\tsrc\tgene\t{start}\t{end}\t{}\t+\t.\tID=g_{c}_{i};Name=Gene_{c}_{i}",
+                10 + i % 100
+            )
+            .unwrap();
+        }
+    }
+    let gff_plain = p(&plain_file(d.path(), "a.gff3", &gff_text));
+    let gff_bgzf = p(&bgzf_file(d.path(), "a.gff3.gz", &gff_text));
+    let gff_idx = d.path().join("a_idx.gff3.gz");
+    std::fs::copy(&gff_bgzf, &gff_idx).unwrap();
+    gloci()
+        .args(["index", gff_idx.to_str().unwrap()])
+        .assert()
+        .success();
+    let gff_idx = p(&gff_idx);
+
     // Multi-chromosome sorted VCF
     let mut vcf_text = String::from(
         "##fileformat=VCFv4.2\n##contig=<ID=chr1>\n##contig=<ID=chr2>\n##contig=<ID=chr3>\n##contig=<ID=chr4>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n",
@@ -469,12 +542,16 @@ fn determinism_matrix() {
     // Command templates: each takes (a, b) and returns arguments
     enum Kind<'a> {
         BedRel(&'a [&'a str]),
+        BedUnsortedRel(&'a [&'a str]),
         BedSingle(&'a [&'a str]),
+        Bed12Single(&'a [&'a str]),
+        GffSingle(&'a [&'a str]),
+        GenomeSingle(&'a [&'a str]),
         VcfSingle(&'a [&'a str]),
     }
 
     let cases: &[(&str, Kind)] = &[
-        // intersect modes: any/pairs/count/wa-wb/wao/left-outer/v
+        // intersect modes: any/pairs/count/clip/wao/left-outer/v
         (
             "intersect any",
             Kind::BedRel(&["intersect", "-a", "{a}", "-b", "{b}", "--mode", "any"]),
@@ -488,8 +565,8 @@ fn determinism_matrix() {
             Kind::BedRel(&["intersect", "-a", "{a}", "-b", "{b}", "--mode", "count"]),
         ),
         (
-            "intersect wa-wb",
-            Kind::BedRel(&["intersect", "-a", "{a}", "-b", "{b}", "--mode", "pairs"]),
+            "intersect clip",
+            Kind::BedRel(&["intersect", "-a", "{a}", "-b", "{b}", "--mode", "clip"]),
         ),
         (
             "intersect wao",
@@ -522,13 +599,17 @@ fn determinism_matrix() {
             "intersect v",
             Kind::BedRel(&["intersect", "-a", "{a}", "-b", "{b}", "--mode", "none"]),
         ),
+        (
+            "intersect unsorted",
+            Kind::BedUnsortedRel(&["intersect", "-a", "{a}", "-b", "{b}", "--unsorted"]),
+        ),
         // merge
         ("merge", Kind::BedSingle(&["merge", "{a}"])),
         (
             "merge agg",
             Kind::BedSingle(&["merge", "{a}", "-c", "5:sum"]),
         ),
-        // subtract: piece/whole/any
+        // subtract: piece/whole/any/unsorted
         (
             "subtract piece",
             Kind::BedRel(&["subtract", "-a", "{a}", "-b", "{b}"]),
@@ -550,7 +631,11 @@ fn determinism_matrix() {
                 "0.5",
             ]),
         ),
-        // closest: standard/k/d
+        (
+            "subtract unsorted",
+            Kind::BedUnsortedRel(&["subtract", "-a", "{a}", "-b", "{b}", "--unsorted"]),
+        ),
+        // closest: standard/k/d/unsorted
         (
             "closest standard",
             Kind::BedRel(&["closest", "-a", "{a}", "-b", "{b}"]),
@@ -563,12 +648,20 @@ fn determinism_matrix() {
             "closest d",
             Kind::BedRel(&["closest", "-a", "{a}", "-b", "{b}", "--distance"]),
         ),
-        // map
+        (
+            "closest unsorted",
+            Kind::BedUnsortedRel(&["closest", "-a", "{a}", "-b", "{b}", "--unsorted"]),
+        ),
+        // map: standard/unsorted
         (
             "map",
             Kind::BedRel(&["map", "-a", "{a}", "-b", "{b}", "-c", "5:sum"]),
         ),
-        // coverage: summary/hist/per-base/counts
+        (
+            "map unsorted",
+            Kind::BedUnsortedRel(&["map", "-a", "{a}", "-b", "{b}", "-c", "5:sum", "--unsorted"]),
+        ),
+        // coverage: summary/hist/per-base/counts/unsorted
         (
             "coverage summary",
             Kind::BedRel(&["coverage", "-a", "{a}", "-b", "{b}"]),
@@ -585,8 +678,34 @@ fn determinism_matrix() {
             "coverage counts",
             Kind::BedRel(&["coverage", "-a", "{a}", "-b", "{b}", "--mean"]),
         ),
+        (
+            "coverage unsorted",
+            Kind::BedUnsortedRel(&["coverage", "-a", "{a}", "-b", "{b}", "--unsorted"]),
+        ),
         // complement
         ("complement", Kind::BedSingle(&["complement", "{a}"])),
+        // slop, flank, windows, convert
+        (
+            "slop",
+            Kind::BedSingle(&["slop", "{a}", "-g", &genome, "-b", "10"]),
+        ),
+        (
+            "flank",
+            Kind::BedSingle(&["flank", "{a}", "-g", &genome, "-b", "10"]),
+        ),
+        (
+            "windows -g",
+            Kind::GenomeSingle(&["windows", "-g", &genome, "-w", "100"]),
+        ),
+        (
+            "windows -i",
+            Kind::BedSingle(&["windows", "-i", "{a}", "-w", "5"]),
+        ),
+        (
+            "convert bed12-to-bed6",
+            Kind::Bed12Single(&["convert", "{a}", "--blocks"]),
+        ),
+        ("convert gff3-to-bed", Kind::GffSingle(&["convert", "{a}"])),
         // vcf filter
         (
             "vcf filter",
@@ -594,16 +713,35 @@ fn determinism_matrix() {
         ),
     ];
 
+    let strip_gloci_command = |bytes: &[u8]| -> Vec<u8> {
+        String::from_utf8_lossy(bytes)
+            .lines()
+            .filter(|l| !l.starts_with("##glociCommand="))
+            .collect::<Vec<_>>()
+            .join("\n")
+            .into_bytes()
+    };
+
     for (name, kind) in cases {
-        let (file_sets, is_bed): (Vec<(&str, &str)>, bool) = match kind {
+        let (file_sets, is_vcf): (Vec<(&str, &str)>, bool) = match kind {
             Kind::BedRel(_) => (
                 vec![(&a_plain, &b_plain), (&a_bgzf, &b_bgzf), (&a_idx, &b_idx)],
-                true,
+                false,
             ),
-            Kind::BedSingle(_) => (vec![(&a_plain, ""), (&a_bgzf, ""), (&a_idx, "")], true),
+            Kind::BedUnsortedRel(_) => (vec![(&ua_plain, &ub_plain), (&ua_bgzf, &ub_bgzf)], false),
+            Kind::BedSingle(_) => (vec![(&a_plain, ""), (&a_bgzf, ""), (&a_idx, "")], false),
+            Kind::Bed12Single(_) => (
+                vec![(&bed12_plain, ""), (&bed12_bgzf, ""), (&bed12_idx, "")],
+                false,
+            ),
+            Kind::GffSingle(_) => (
+                vec![(&gff_plain, ""), (&gff_bgzf, ""), (&gff_idx, "")],
+                false,
+            ),
+            Kind::GenomeSingle(_) => (vec![(&genome, "")], false),
             Kind::VcfSingle(_) => (
                 vec![(&vcf_plain, ""), (&vcf_bgzf, ""), (&vcf_idx, "")],
-                false,
+                true,
             ),
         };
 
@@ -611,7 +749,13 @@ fn determinism_matrix() {
 
         for (a_file, b_file) in file_sets {
             let template = match kind {
-                Kind::BedRel(tmpl) | Kind::BedSingle(tmpl) | Kind::VcfSingle(tmpl) => tmpl,
+                Kind::BedRel(tmpl)
+                | Kind::BedUnsortedRel(tmpl)
+                | Kind::BedSingle(tmpl)
+                | Kind::Bed12Single(tmpl)
+                | Kind::GffSingle(tmpl)
+                | Kind::GenomeSingle(tmpl)
+                | Kind::VcfSingle(tmpl) => tmpl,
             };
             let args: Vec<String> = template
                 .iter()
@@ -644,16 +788,18 @@ fn determinism_matrix() {
             format_outputs.push(t_outputs[0].clone());
         }
 
-        // For BED commands, plain, bgzf, and indexed bgzf must give identical bytes
-        if is_bed {
-            assert_eq!(
-                format_outputs[0], format_outputs[1],
-                "{name}: plain vs bgzf"
-            );
-            assert_eq!(
-                format_outputs[1], format_outputs[2],
-                "{name}: bgzf vs indexed bgzf"
-            );
+        if is_vcf {
+            for w in format_outputs.windows(2) {
+                assert_eq!(
+                    strip_gloci_command(&w[0]),
+                    strip_gloci_command(&w[1]),
+                    "{name}: plain vs bgzf vs indexed bgzf"
+                );
+            }
+        } else {
+            for w in format_outputs.windows(2) {
+                assert_eq!(w[0], w[1], "{name}: plain vs bgzf vs indexed bgzf");
+            }
         }
     }
 }
@@ -661,14 +807,24 @@ fn determinism_matrix() {
 #[test]
 fn broken_pipe_matrix() {
     let d = tempdir();
+    let genome = plain_file(d.path(), "g.genome", "chr1\t1000000\n");
     let mut a_text = String::new();
     let mut b_text = String::new();
+    let mut bed12_text = String::new();
     for i in 0..10_000 {
-        writeln!(a_text, "chr1\t{}\t{}\ta{i}\t100\t+", i * 20, i * 20 + 15).unwrap();
-        writeln!(b_text, "chr1\t{}\t{}\tb{i}\t50\t+", i * 20 + 5, i * 20 + 25).unwrap();
+        let s = i * 20;
+        let e = s + 15;
+        writeln!(a_text, "chr1\t{s}\t{e}\ta{i}\t100\t+").unwrap();
+        writeln!(b_text, "chr1\t{}\t{}\tb{i}\t50\t+", s + 5, s + 25).unwrap();
+        writeln!(
+            bed12_text,
+            "chr1\t{s}\t{e}\ta{i}\t100\t+\t{s}\t{e}\t0\t2\t5,5,\t0,10,"
+        )
+        .unwrap();
     }
     let a_bed = plain_file(d.path(), "a.bed", &a_text);
     let b_bed = plain_file(d.path(), "b.bed", &b_text);
+    let bed12 = plain_file(d.path(), "a12.bed", &bed12_text);
 
     let mut vcf_text = String::from(
         "##fileformat=VCFv4.2\n##contig=<ID=chr1>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n",
@@ -683,8 +839,10 @@ fn broken_pipe_matrix() {
     }
     let vcf = plain_file(d.path(), "v.vcf", &vcf_text);
 
+    let genome_str = genome.to_str().unwrap();
     let a_str = a_bed.to_str().unwrap();
     let b_str = b_bed.to_str().unwrap();
+    let bed12_str = bed12.to_str().unwrap();
     let vcf_str = vcf.to_str().unwrap();
 
     let cmds: &[&[&str]] = &[
@@ -695,6 +853,12 @@ fn broken_pipe_matrix() {
         &["map", "-a", a_str, "-b", b_str, "-c", "5:sum"],
         &["coverage", "-a", a_str, "-b", b_str],
         &["complement", a_str],
+        &["slop", a_str, "-g", genome_str, "-b", "2"],
+        &["flank", a_str, "-g", genome_str, "-b", "2"],
+        &["windows", "-g", genome_str, "-w", "10"],
+        &["windows", "-i", a_str, "-w", "5"],
+        &["convert", bed12_str, "--blocks"],
+        &["convert", vcf_str],
         &["vcf", "filter", vcf_str],
     ];
 
@@ -727,6 +891,7 @@ fn broken_pipe_matrix() {
 #[test]
 fn empty_inputs_matrix() {
     let d = tempdir();
+    let genome = plain_file(d.path(), "g.genome", "chr1\t1000\nchr2\t1000\n");
     let empty_bed = plain_file(d.path(), "empty.bed", "");
     let a_bed = plain_file(
         d.path(),
@@ -743,6 +908,7 @@ fn empty_inputs_matrix() {
     let empty_vcf = plain_file(d.path(), "empty.vcf", vcf_head);
     let b_diff = plain_file(d.path(), "b_diff.bed", "chr2\t20\t40\tb1\t50\t+\n");
 
+    let genome_str = genome.to_str().unwrap();
     let empty_bed_str = empty_bed.to_str().unwrap();
     let a_str = a_bed.to_str().unwrap();
     let b_str = b_bed.to_str().unwrap();
@@ -758,6 +924,11 @@ fn empty_inputs_matrix() {
         &["map", "-a", empty_bed_str, "-b", b_str, "-c", "5:sum"],
         &["coverage", "-a", empty_bed_str, "-b", b_str],
         &["complement", empty_bed_str],
+        &["slop", empty_bed_str, "-g", genome_str, "-b", "10"],
+        &["flank", empty_bed_str, "-g", genome_str, "-b", "10"],
+        &["windows", "-i", empty_bed_str, "-w", "10"],
+        &["convert", empty_bed_str, "--blocks"],
+        &["convert", empty_vcf_str],
     ];
     for args in empty_a_cmds {
         let o = gloci().args(*args).output().unwrap();
@@ -772,6 +943,7 @@ fn empty_inputs_matrix() {
     assert_eq!(o.status.code(), Some(0));
     let s = String::from_utf8(o.stdout).unwrap();
     assert!(s.starts_with("##fileformat=VCFv4.2\n"));
+    assert!(s.contains("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"));
     assert_eq!(s.lines().filter(|l| !l.starts_with('#')).count(), 0);
 
     // 2. Empty B -> exits 0 with expected output
@@ -805,7 +977,10 @@ fn empty_inputs_matrix() {
         .output()
         .unwrap();
     assert_eq!(o.status.code(), Some(0));
-    assert_eq!(String::from_utf8(o.stdout).unwrap().lines().count(), 2);
+    assert_eq!(
+        String::from_utf8(o.stdout).unwrap(),
+        "chr1\t10\t50\ta1\t100\t+\nchr1\t60\t100\ta2\t200\t-\n"
+    );
 
     // intersect --mode count: A with 0
     let o = gloci()
@@ -821,10 +996,10 @@ fn empty_inputs_matrix() {
         .output()
         .unwrap();
     assert_eq!(o.status.code(), Some(0));
-    let s = String::from_utf8(o.stdout).unwrap();
-    for l in s.lines() {
-        assert!(l.ends_with("\t0"), "{l}");
-    }
+    assert_eq!(
+        String::from_utf8(o.stdout).unwrap(),
+        "chr1\t10\t50\ta1\t100\t+\t0\nchr1\t60\t100\ta2\t200\t-\t0\n"
+    );
 
     // subtract: all A
     let o = gloci()
@@ -832,7 +1007,10 @@ fn empty_inputs_matrix() {
         .output()
         .unwrap();
     assert_eq!(o.status.code(), Some(0));
-    assert_eq!(String::from_utf8(o.stdout).unwrap().lines().count(), 2);
+    assert_eq!(
+        String::from_utf8(o.stdout).unwrap(),
+        "chr1\t10\t50\ta1\t100\t+\nchr1\t60\t100\ta2\t200\t-\n"
+    );
 
     // closest: A with placeholder B
     let o = gloci()
@@ -840,10 +1018,10 @@ fn empty_inputs_matrix() {
         .output()
         .unwrap();
     assert_eq!(o.status.code(), Some(0));
-    let s = String::from_utf8(o.stdout).unwrap();
-    for l in s.lines() {
-        assert!(l.contains(".\t-1\t-1"), "{l}");
-    }
+    assert_eq!(
+        String::from_utf8(o.stdout).unwrap(),
+        "chr1\t10\t50\ta1\t100\t+\t.\t-1\t-1\nchr1\t60\t100\ta2\t200\t-\t.\t-1\t-1\n"
+    );
 
     // map: A with empty aggregation value (.)
     let o = gloci()
@@ -851,10 +1029,10 @@ fn empty_inputs_matrix() {
         .output()
         .unwrap();
     assert_eq!(o.status.code(), Some(0));
-    let s = String::from_utf8(o.stdout).unwrap();
-    for l in s.lines() {
-        assert!(l.ends_with("\t."), "{l}");
-    }
+    assert_eq!(
+        String::from_utf8(o.stdout).unwrap(),
+        "chr1\t10\t50\ta1\t100\t+\t.\nchr1\t60\t100\ta2\t200\t-\t.\n"
+    );
 
     // coverage: A with 0 hits
     let o = gloci()
@@ -862,13 +1040,13 @@ fn empty_inputs_matrix() {
         .output()
         .unwrap();
     assert_eq!(o.status.code(), Some(0));
-    let s = String::from_utf8(o.stdout).unwrap();
-    for l in s.lines() {
-        assert!(l.ends_with("\t0\t0\t40\t0"), "{l}");
-    }
+    assert_eq!(
+        String::from_utf8(o.stdout).unwrap(),
+        "chr1\t10\t50\ta1\t100\t+\t0\t0\t40\t0\nchr1\t60\t100\ta2\t200\t-\t0\t0\t40\t0\n"
+    );
 
     // 3. Header-only VCF A -> exits 0 with header-only output
-    let vcf_cmds: &[&[&str]] = &[
+    let vcf_passthrough_cmds: &[&[&str]] = &[
         &[
             "intersect",
             "-a",
@@ -878,6 +1056,26 @@ fn empty_inputs_matrix() {
             "--mode",
             "any",
         ],
+        &["subtract", "-a", empty_vcf_str, "-b", b_str],
+        &["vcf", "filter", empty_vcf_str],
+    ];
+    for args in vcf_passthrough_cmds {
+        let o = gloci().args(*args).output().unwrap();
+        assert_eq!(o.status.code(), Some(0), "{args:?}");
+        let s = String::from_utf8(o.stdout).unwrap();
+        assert!(s.starts_with("##fileformat=VCFv4.2\n"), "{args:?}: {s}");
+        assert!(
+            s.contains("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"),
+            "{args:?}: {s}"
+        );
+        assert_eq!(
+            s.lines().filter(|l| !l.starts_with('#')).count(),
+            0,
+            "{args:?}"
+        );
+    }
+
+    let vcf_tsv_cmds: &[&[&str]] = &[
         &[
             "intersect",
             "-a",
@@ -896,16 +1094,19 @@ fn empty_inputs_matrix() {
             "--mode",
             "count",
         ],
-        &["subtract", "-a", empty_vcf_str, "-b", b_str],
         &["closest", "-a", empty_vcf_str, "-b", b_str],
         &["map", "-a", empty_vcf_str, "-b", b_str, "-c", "5:sum"],
         &["coverage", "-a", empty_vcf_str, "-b", b_str],
-        &["vcf", "filter", empty_vcf_str],
     ];
-    for args in vcf_cmds {
+    for args in vcf_tsv_cmds {
         let o = gloci().args(*args).output().unwrap();
         assert_eq!(o.status.code(), Some(0), "{args:?}");
         let s = String::from_utf8(o.stdout).unwrap();
+        assert!(!s.starts_with("##"), "{args:?}: {s}");
+        assert!(
+            s.starts_with("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO"),
+            "{args:?}: {s}"
+        );
         assert_eq!(
             s.lines().filter(|l| !l.starts_with('#')).count(),
             0,
@@ -913,18 +1114,49 @@ fn empty_inputs_matrix() {
         );
     }
 
-    // 4. B with no records on A's chromosomes -> exits 0
-    let diff_cmds: &[&[&str]] = &[
-        &["intersect", "-a", a_str, "-b", b_diff_str, "--mode", "any"],
-        &["intersect", "-a", a_str, "-b", b_diff_str, "--mode", "none"],
-        &["subtract", "-a", a_str, "-b", b_diff_str],
-        &["closest", "-a", a_str, "-b", b_diff_str],
-        &["map", "-a", a_str, "-b", b_diff_str, "-c", "5:sum"],
-        &["coverage", "-a", a_str, "-b", b_diff_str],
+    // 4. B with no records on A's chromosomes -> exits 0 with exact expected output
+    let diff_cases: &[(&[&str], &str)] = &[
+        (
+            &["intersect", "-a", a_str, "-b", b_diff_str, "--mode", "any"],
+            "",
+        ),
+        (
+            &["intersect", "-a", a_str, "-b", b_diff_str, "--mode", "none"],
+            "chr1\t10\t50\ta1\t100\t+\nchr1\t60\t100\ta2\t200\t-\n",
+        ),
+        (
+            &[
+                "intersect",
+                "-a",
+                a_str,
+                "-b",
+                b_diff_str,
+                "--mode",
+                "count",
+            ],
+            "chr1\t10\t50\ta1\t100\t+\t0\nchr1\t60\t100\ta2\t200\t-\t0\n",
+        ),
+        (
+            &["subtract", "-a", a_str, "-b", b_diff_str],
+            "chr1\t10\t50\ta1\t100\t+\nchr1\t60\t100\ta2\t200\t-\n",
+        ),
+        (
+            &["closest", "-a", a_str, "-b", b_diff_str],
+            "chr1\t10\t50\ta1\t100\t+\t.\t-1\t-1\t.\t-1\t.\nchr1\t60\t100\ta2\t200\t-\t.\t-1\t-1\t.\t-1\t.\n",
+        ),
+        (
+            &["map", "-a", a_str, "-b", b_diff_str, "-c", "5:sum"],
+            "chr1\t10\t50\ta1\t100\t+\t.\nchr1\t60\t100\ta2\t200\t-\t.\n",
+        ),
+        (
+            &["coverage", "-a", a_str, "-b", b_diff_str],
+            "chr1\t10\t50\ta1\t100\t+\t0\t0\t40\t0\nchr1\t60\t100\ta2\t200\t-\t0\t0\t40\t0\n",
+        ),
     ];
-    for args in diff_cmds {
+    for (args, expected) in diff_cases {
         let o = gloci().args(*args).output().unwrap();
         assert_eq!(o.status.code(), Some(0), "{args:?}");
+        assert_eq!(String::from_utf8(o.stdout).unwrap(), *expected, "{args:?}");
     }
 }
 
@@ -987,28 +1219,32 @@ fn vcf_a_matrix() {
 #[test]
 fn failure_matrix() {
     let d = tempdir();
-    let sorted_a = plain_file(d.path(), "sorted_a.bed", "chr1\t10\t20\nchr1\t200\t300\n");
+    let sorted_a = plain_file(
+        d.path(),
+        "sorted_a.bed",
+        "chr1\t10\t20\tr1\t10\t+\nchr1\t200\t300\tr2\t20\t+\n",
+    );
     let unsorted_a = plain_file(
         d.path(),
         "unsorted_a.bed",
-        "chr1\t100\t200\nchr1\t50\t150\n",
+        "chr1\t100\t200\tr1\t10\t+\nchr1\t50\t150\tr2\t20\t+\n",
     );
     let sorted_b = plain_file(
         d.path(),
         "sorted_b.bed",
-        "chr1\t10\t20\nchr1\t100\t200\nchr1\t250\t350\n",
+        "chr1\t10\t20\tb1\t10\t+\nchr1\t100\t200\tb2\t20\t+\nchr1\t250\t350\tb3\t30\t+\n",
     );
     let unsorted_b = plain_file(
         d.path(),
         "unsorted_b.bed",
-        "chr1\t100\t200\nchr1\t50\t150\n",
+        "chr1\t100\t200\tb1\t10\t+\nchr1\t50\t150\tb2\t20\t+\n",
     );
     let malformed_b = plain_file(
         d.path(),
         "malformed_b.bed",
-        "chr1\t100\t200\nchr1\tNOT_A_NUM\t250\n",
+        "chr1\t100\t200\tb1\t10\t+\nchr1\tNOT_A_NUM\t250\tb2\t20\t+\n",
     );
-    let full_bgzf = bgzip(b"chr1\t10\t20\nchr1\t100\t200\n");
+    let full_bgzf = bgzip(b"chr1\t10\t20\tb1\t10\t+\nchr1\t100\t200\tb2\t20\t+\n");
     let trunc_bgzf = d.path().join("trunc.bed.gz");
     std::fs::write(&trunc_bgzf, &full_bgzf[..full_bgzf.len() / 2]).unwrap();
 
@@ -1018,6 +1254,15 @@ fn failure_matrix() {
     let unsorted_b_str = unsorted_b.to_str().unwrap();
     let malformed_b_str = malformed_b.to_str().unwrap();
     let trunc_bgzf_str = trunc_bgzf.to_str().unwrap();
+
+    let assert_no_tmp = |dir: &Path| {
+        let tmps: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| n.contains(".tmp-"))
+            .collect();
+        assert!(tmps.is_empty(), "leftover .tmp- files in {dir:?}: {tmps:?}");
+    };
 
     let commands: &[&[&str]] = &[
         &["intersect", "-a", "{a}", "-b", "{b}"],
@@ -1057,6 +1302,7 @@ fn failure_matrix() {
                 "{err}"
             );
             assert!(!out_p.exists(), "partial output file left at {:?}", out_p);
+            assert_no_tmp(d.path());
         }
 
         // 2. Unsorted B
@@ -1087,6 +1333,7 @@ fn failure_matrix() {
                 "{err}"
             );
             assert!(!out_p.exists(), "partial output file left at {:?}", out_p);
+            assert_no_tmp(d.path());
         }
 
         // 3. Malformed B line
@@ -1117,6 +1364,7 @@ fn failure_matrix() {
                 "{err}"
             );
             assert!(!out_p.exists(), "partial output file left at {:?}", out_p);
+            assert_no_tmp(d.path());
         }
 
         // 4. Truncated BGZF
@@ -1149,6 +1397,7 @@ fn failure_matrix() {
                 "{err}"
             );
             assert!(!out_p.exists(), "partial output file left at {:?}", out_p);
+            assert_no_tmp(d.path());
         }
 
         // 5. Output to a missing directory
@@ -1178,6 +1427,104 @@ fn failure_matrix() {
                 "{err}"
             );
             assert!(!out_p.exists(), "partial output file left at {:?}", out_p);
+            assert_no_tmp(d.path());
+        }
+    }
+
+    // Single-input commands: merge and complement
+    let single_cmds: &[&[&str]] = &[&["merge", "{a}"], &["complement", "{a}"]];
+    for base_cmd in single_cmds {
+        // 1. Unsorted input
+        {
+            case_counter += 1;
+            let out_p = d.path().join(format!("out_{case_counter}.bed"));
+            let args: Vec<&str> = base_cmd
+                .iter()
+                .map(|&s| if s == "{a}" { unsorted_a_str } else { s })
+                .collect();
+            let o = gloci()
+                .args(&args)
+                .args(["-o", out_p.to_str().unwrap()])
+                .output()
+                .unwrap();
+            assert_eq!(o.status.code(), Some(1), "{args:?}");
+            let err = String::from_utf8_lossy(&o.stderr);
+            assert!(
+                err.contains("is not sorted") && err.contains("gloci sort"),
+                "{err}"
+            );
+            assert!(!out_p.exists(), "partial output file left at {:?}", out_p);
+            assert_no_tmp(d.path());
+        }
+
+        // 2. Malformed input line
+        {
+            case_counter += 1;
+            let out_p = d.path().join(format!("out_{case_counter}.bed"));
+            let args: Vec<&str> = base_cmd
+                .iter()
+                .map(|&s| if s == "{a}" { malformed_b_str } else { s })
+                .collect();
+            let o = gloci()
+                .args(&args)
+                .args(["-o", out_p.to_str().unwrap()])
+                .output()
+                .unwrap();
+            assert_eq!(o.status.code(), Some(1), "{args:?}");
+            let err = String::from_utf8_lossy(&o.stderr);
+            assert!(
+                err.contains("is not an integer") || err.contains("format"),
+                "{err}"
+            );
+            assert!(!out_p.exists(), "partial output file left at {:?}", out_p);
+            assert_no_tmp(d.path());
+        }
+
+        // 3. Truncated BGZF
+        {
+            case_counter += 1;
+            let out_p = d.path().join(format!("out_{case_counter}.bed"));
+            let args: Vec<&str> = base_cmd
+                .iter()
+                .map(|&s| if s == "{a}" { trunc_bgzf_str } else { s })
+                .collect();
+            let o = gloci()
+                .args(&args)
+                .args(["-o", out_p.to_str().unwrap()])
+                .output()
+                .unwrap();
+            assert_eq!(o.status.code(), Some(1), "{args:?}");
+            let err = String::from_utf8_lossy(&o.stderr);
+            assert!(
+                err.contains("marker missing")
+                    || err.contains("truncated")
+                    || err.contains("error: "),
+                "{err}"
+            );
+            assert!(!out_p.exists(), "partial output file left at {:?}", out_p);
+            assert_no_tmp(d.path());
+        }
+
+        // 4. Output to a missing directory
+        {
+            let out_p = d.path().join("missing_dir/subdir/out.bed");
+            let args: Vec<&str> = base_cmd
+                .iter()
+                .map(|&s| if s == "{a}" { sorted_a_str } else { s })
+                .collect();
+            let o = gloci()
+                .args(&args)
+                .args(["-o", out_p.to_str().unwrap()])
+                .output()
+                .unwrap();
+            assert_eq!(o.status.code(), Some(1), "{args:?}");
+            let err = String::from_utf8_lossy(&o.stderr);
+            assert!(
+                err.contains("No such file or directory") || err.contains("cannot create"),
+                "{err}"
+            );
+            assert!(!out_p.exists(), "partial output file left at {:?}", out_p);
+            assert_no_tmp(d.path());
         }
     }
 }
