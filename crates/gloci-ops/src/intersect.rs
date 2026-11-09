@@ -432,9 +432,13 @@ fn intersect_in(
     // one base from each record's footprint (an insertion is a point just
     // past an anchor base, and a footprint can end where the other starts),
     // so pad B by one base on each side. The candidates are then accepted
-    // by allele equality alone.
+    // by allele equality alone. Points count at the edge of the padded
+    // interval (`inclusive_points`): the padding saturates at position 0, so
+    // a point at 0 (an insertion at POS 1) would otherwise sit on the edge
+    // of its own padded copy and never be a candidate.
     let mut relate = o.relate.clone();
     if o.matching == Match::Alleles {
+        relate.criteria.inclusive_points = true;
         relate.window = Some(Window {
             left: 1,
             right: 1,

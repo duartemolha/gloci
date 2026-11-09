@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 2175efd8ee600b53a32e1640a9bfd1f49a0b20e0f87a79c4bc91fce80530865a # shrinks to input = RelationInputs { a: [TestRec { chrom: "chr1", start: 0, end: 0, strand: '+', name: "r0" }, TestRec { chrom: "chr1", start: 0, end: 148, strand: '+', name: "r1" }], b: [[TestRec { chrom: "chr1", start: 0, end: 149, strand: '+', name: "d0" }]] }, mut c = OverlapCriteria { min_frac_a: Some(Fraction { num: 1, scale: 10 }), min_frac_b: Some(Fraction { num: 1, scale: 1 }), reciprocal: true, either: false, min_bases: None, strand: Any, inclusive_points: false }, win = None, (m, nm) = (Any, Any), seed = 0
+cc c611ee41d94e1630b8bcbb372fa9c1fe762c02060d4d0cd7c504ef9a665711c7 # shrinks to a = [V { pos: 1, reference: "G", alts: ["AG"] }], b = [V { pos: 1, reference: "G", alts: ["AG"] }], span_ref = false, seed = 0

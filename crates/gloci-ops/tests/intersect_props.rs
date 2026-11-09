@@ -339,3 +339,47 @@ proptest! {
         }
     }
 }
+
+/// An insertion at POS 1 is a point at 0, where the candidate padding
+/// saturates; identical records must still match, at any position.
+#[test]
+fn identical_insertions_match_at_every_position() {
+    for pos in [1u64, 2, 5, 1000] {
+        for (reference, alt) in [("A", "CA"), ("G", "CGG"), ("AC", "A")] {
+            let v = V {
+                pos,
+                reference: reference.into(),
+                alts: vec![alt.into()],
+            };
+            for span_ref in [false, true] {
+                let ro = ReaderOptions {
+                    threads: NonZeroUsize::MIN,
+                    format: None,
+                    vcf_span: if span_ref {
+                        VcfSpan::Ref
+                    } else {
+                        VcfSpan::Allele
+                    },
+                    invalid: InvalidPolicy::Fail,
+                };
+                for unsorted in [false, true] {
+                    let inputs = RelateInputs {
+                        a: mem_reader("a.vcf", &vcf_text(std::slice::from_ref(&v)), &ro),
+                        b: vec![mem_reader(
+                            "b.vcf",
+                            &vcf_text(std::slice::from_ref(&v)),
+                            &ro,
+                        )],
+                    };
+                    let mut sink = Sink::default();
+                    intersect(inputs, &allele_options(Mode::Any, unsorted), &mut sink).unwrap();
+                    assert_eq!(
+                        sink.0,
+                        vec![v.line()],
+                        "pos {pos} {reference}>{alt} ref={span_ref} unsorted={unsorted}"
+                    );
+                }
+            }
+        }
+    }
+}

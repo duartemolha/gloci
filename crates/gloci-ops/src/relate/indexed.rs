@@ -195,7 +195,14 @@ fn group_chromosomes(chroms: Vec<Vec<u8>>, weights: &[u64], target: usize) -> Ve
 /// backwards in `chroms`' order. Names the table cannot order are skipped
 /// (an unknown name is reported when the table is closed over them).
 fn out_of_table_order(chroms: &ChromTable, f: &IndexedFile) -> bool {
-    f.file_order_reference_names()
+    // Names the table cannot order are dropped first, so a backwards step
+    // across one of them is still seen.
+    let known: Vec<Vec<u8>> = f
+        .file_order_reference_names()
+        .into_iter()
+        .filter(|n| chroms.cmp_names(n, n).is_some())
+        .collect();
+    known
         .windows(2)
         .any(|w| chroms.cmp_names(&w[0], &w[1]) == Some(std::cmp::Ordering::Greater))
 }

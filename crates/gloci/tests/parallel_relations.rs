@@ -688,4 +688,42 @@ chr1\t10\t.\tA\tC\t.\t.\t.\nchr2\t10\t.\tA\tC\t.\t.\t.\n";
         &["intersect", "--a", &va, "--b", &va],
         &["hdr.vcf.gz is not sorted"],
     );
+
+    // The same VCF as an indexed BCF (records in file order chr1, chr2; the
+    // dictionary lists chr2 first).
+    // `gloci index` refuses such a file, so its CSI is built the way
+    // bcftools would.
+    let bytes = gloci_testkit::fixtures::vcf_to_bcf(vcf.as_bytes());
+    let bcf = gloci_testkit::fixtures::write(dir.path(), "hdr.bcf", &bytes);
+    gloci_testkit::fixtures::write(
+        dir.path(),
+        "hdr.bcf.csi",
+        &gloci_testkit::fixtures::bcf_csi_any_order(&bytes),
+    );
+    assert_refuse_alike(
+        &["intersect", "--a", &s(&bcf), "--b", &s(&bcf)],
+        &["hdr.bcf is not sorted"],
+    );
+}
+
+/// No false positive: a file in karyotype order is accepted under the
+/// karyotype table, and indexed and streaming runs agree.
+#[test]
+fn karyotype_sorted_indexed_file_is_accepted() {
+    let dir = tempdir();
+    let bed = |c: &str| format!("{c}\t10\t20\n");
+    let text: String = ["chr1", "chr2", "chr10", "chrX"]
+        .iter()
+        .map(|c| bed(c))
+        .collect();
+    let a = indexed_pair(dir.path(), "kara", &text);
+    let b = indexed_pair(dir.path(), "karb", &text);
+    assert_indexed_equals_streaming(
+        "karyotype",
+        &["intersect", "--a", "{A}", "--b", "{B}"],
+        &a,
+        &b,
+    );
+    let got = out(&["intersect", "--a", &a.0, "--b", &b.0, "-t", "4"]);
+    assert_eq!(String::from_utf8_lossy(&got), text);
 }

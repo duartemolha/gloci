@@ -130,10 +130,17 @@ impl std::fmt::Debug for Input {
 /// offset): reading one twice silently loses data, so they must be read
 /// exactly once.
 pub fn is_regular_file(path: &str) -> bool {
-    path != "-"
-        && !path.starts_with("/dev/fd/")
-        && !path.starts_with("/proc/self/fd/")
-        && std::fs::metadata(path).is_ok_and(|m| m.is_file())
+    path != "-" && !is_fd_path(path) && std::fs::metadata(path).is_ok_and(|m| m.is_file())
+}
+
+/// `/dev/fd/N`, `/dev/stdin`, `/proc/self/fd/N` and `/proc/PID/fd/N`.
+fn is_fd_path(path: &str) -> bool {
+    if path == "/dev/stdin" || path.starts_with("/dev/fd/") {
+        return true;
+    }
+    path.strip_prefix("/proc/")
+        .and_then(|r| r.split_once("/fd/"))
+        .is_some_and(|(pid, _)| pid == "self" || pid.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// Copies of inputs that cannot be reopened (stdin, pipes, FIFOs), kept in a
@@ -215,7 +222,14 @@ mod tests {
         let p = dir.path().join("f");
         std::fs::write(&p, b"x").unwrap();
         assert!(is_regular_file(p.to_str().unwrap()));
-        for s in ["-", "/dev/fd/0", "/dev/fd/63", "/proc/self/fd/3"] {
+        for s in [
+            "-",
+            "/dev/fd/0",
+            "/dev/fd/63",
+            "/dev/stdin",
+            "/proc/self/fd/3",
+            "/proc/1234/fd/5",
+        ] {
             assert!(!is_regular_file(s), "{s}");
         }
     }

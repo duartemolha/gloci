@@ -1,4 +1,5 @@
 ##fileformat=VCFv4.2
+##comment=Synthetic mimic of the relevant fields of the 1kg-30x-chr20 dataset (QUAL is . throughout, 24 samples, phased GT, PASS); not the head of the real file.
 ##FILTER=<ID=PASS,Description="All filters passed">
 ##contig=<ID=chr20,length=64444167>
 ##INFO=<ID=AC,Number=A,Type=Integer,Description="Allele count">
