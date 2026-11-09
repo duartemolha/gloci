@@ -351,8 +351,9 @@ Every row below was checked against `gloci <cmd> --help`.
 - **`slop` and `flank` past chromosome end:** A feature starting at or beyond its
   chromosome length in `-g` exits 1.
   [differences.md#slop-flank-past-end](differences.md#slop-flank-past-end)
-- **`shift` past a chromosome edge:** A feature shifted wholly beyond 0 or the
-  chromosome end is dropped with a warning; bedtools writes a bogus interval.
+- **`shift` of a point past an edge:** A zero-length feature shifted wholly
+  beyond 0 or the chromosome end stays zero-length at the edge; bedtools writes
+  an inverted interval (such as `1 0`).
   [differences.md#shift-past-edge](differences.md#shift-past-edge)
 - **`flank -s` on unknown strand:** Treats `.` or missing strand as `+` (matching
   `slop -s`) instead of dropping the record.

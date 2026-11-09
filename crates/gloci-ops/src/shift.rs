@@ -5,7 +5,9 @@
 //! The shifted interval is clipped like `slop` output: each coordinate is
 //! held at 0 and, with a genome, at the chromosome length, so a feature
 //! pushed over an edge shrinks. One pushed wholly over an edge would be
-//! empty; it is dropped with a warning (bedtools writes a bogus interval).
+//! empty; as in bedtools it becomes the 1-base interval at that edge
+//! (`[len - 1, len)` or `[0, 1)`). A zero-length feature stays zero-length at
+//! the edge (bedtools writes an inverted interval).
 
 use crate::transform::{Mode, run};
 use gloci_core::{ChromTable, Fraction, Genome, Interval, Strand};
@@ -52,10 +54,22 @@ impl Shift {
     pub(crate) fn apply(&self, span: Interval, strand: Strand, limit: u64) -> Interval {
         let d = self.delta(span.len(), strand);
         let clip = |x: u64| (i128::from(x) + d).clamp(0, i128::from(limit)) as u64;
-        Interval {
+        let iv = Interval {
             start: clip(span.start),
             end: clip(span.end),
+        };
+        if iv.is_point() && !span.is_point() && limit > 0 {
+            // Pushed wholly over an edge: keep one base there.
+            return if iv.start == 0 {
+                Interval { start: 0, end: 1 }
+            } else {
+                Interval {
+                    start: limit - 1,
+                    end: limit,
+                }
+            };
         }
+        iv
     }
 }
 

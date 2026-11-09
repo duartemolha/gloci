@@ -2615,9 +2615,8 @@ gloci = "gloci shift --by 10 -g comp.genome input.gff3"
 reference = "bedtools shift -i input.gff3 -g comp.genome -s 10"
 compare = "exact"
 
-# A feature pushed wholly past an edge: bedtools writes a bogus interval,
-# gloci drops the record.
-
+# Wholly past an edge: bedtools writes [len-1, len) / [0, 1), gloci too; a
+# zero-length feature gets an inverted interval from bedtools only.
 [[case]]
 name = "shift-past-end-vs-bedtools"
 input = { file = "xtask/diff/inputs/transform-in.bed" }
@@ -2625,7 +2624,6 @@ aux = ["xtask/diff/inputs/comp.genome"]
 gloci = "gloci shift --by 10 -g comp.genome input.bed"
 reference = "bedtools shift -i input.bed -g comp.genome -s 10"
 compare = "exact"
-expected_difference = "#shift-past-edge"
 
 [[case]]
 name = "shift-below-zero-vs-bedtools"
@@ -2633,5 +2631,13 @@ input = { file = "xtask/diff/inputs/transform-in.bed" }
 aux = ["xtask/diff/inputs/comp.genome"]
 gloci = "gloci shift --by -100 -g comp.genome input.bed"
 reference = "bedtools shift -i input.bed -g comp.genome -s -100"
+compare = "exact"
+
+[[case]]
+name = "shift-point-edge-vs-bedtools"
+input = { file = "xtask/diff/inputs/shift-points.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci shift --by -10 -g comp.genome input.bed"
+reference = "bedtools shift -i input.bed -g comp.genome -s -10"
 compare = "exact"
 expected_difference = "#shift-past-edge"

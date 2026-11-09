@@ -664,21 +664,17 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Pinned by:** `slop-past-end-vs-bedtools` and `flank-past-end-vs-bedtools`
   (must differ; exit status).
 
-## `shift` drops a feature pushed wholly past a chromosome edge {#shift-past-edge}
+## `shift` keeps a zero-length feature valid at a chromosome edge {#shift-past-edge}
 
-- **gloci:** each shifted coordinate is clipped at 0 and (with `-g`) at the
-  chromosome end, as `slop` clips, so a feature pushed over an edge shrinks.
-  A feature with nothing left after clipping is not written; one warning
-  names how many records were dropped and the first one's line. A
-  zero-length input record stays zero-length.
-- **Old behaviour:** `bedtools shift` writes a bogus interval for such a
-  feature: a 1-base feature at the chromosome end (`[len - 1, len)`) when
-  pushed past the end, `[0, 1)` when pushed below 0, and an inverted
-  interval such as `1 0` for a zero-length feature shifted below 0. It exits 0.
-- **Reason:** the invented interval overlaps features the original never
-  touched, and an empty GFF record is not representable.
-- **Pinned by:** `shift-past-end-vs-bedtools` and
-  `shift-below-zero-vs-bedtools` (must differ).
+- **gloci:** a zero-length feature (`[p, p)`) shifted wholly past 0 or (with
+  `-g`) the chromosome end is written zero-length at the edge (`[0, 0)` or
+  `[len, len)`). A non-empty feature pushed wholly over an edge becomes the
+  1-base interval there (`[len - 1, len)` or `[0, 1)`), as in bedtools.
+- **Old behaviour:** `bedtools shift` writes an inverted interval such as
+  `1 0` (or `1000 999` at the end) for a zero-length feature pushed over an
+  edge, and exits 0.
+- **Reason:** an inverted interval is invalid and breaks every later tool.
+- **Pinned by:** `shift-point-edge-vs-bedtools` (must differ).
 
 ## `flank -s` on a record of unknown strand {#flank-unknown-strand}
 

@@ -79,10 +79,6 @@ struct Out<'a> {
     last: Option<(ChromId, u64, u64)>,
     lines: u64,
     warned: bool,
-    /// Shift only: records dropped because the shift left nothing of them,
-    /// and the first one's line.
-    dropped: u64,
-    first_dropped: Option<u64>,
 }
 
 impl Out<'_> {
@@ -147,8 +143,6 @@ pub(crate) fn run(
         last: None,
         lines: 0,
         warned: false,
-        dropped: 0,
-        first_dropped: None,
     };
     let mut batch = RecordBatch::default();
     let mut max = 1;
@@ -190,17 +184,7 @@ check that -g matches the genome build of the input",
                 end: b.min(limit),
             };
             match mode {
-                Mode::Shift(sh) => {
-                    let iv = sh.apply(m.span, m.strand, limit);
-                    // Nothing of the feature is left: drop it (a zero-length
-                    // GFF record is not representable). A point stays a point.
-                    if iv.is_point() && !m.span.is_point() {
-                        out.dropped += 1;
-                        out.first_dropped.get_or_insert(m.loc);
-                    } else {
-                        out.emit(m.chrom, s, raw, iv)?;
-                    }
-                }
+                Mode::Shift(sh) => out.emit(m.chrom, s, raw, sh.apply(m.span, m.strand, limit))?,
                 Mode::Slop(_) => out.emit(
                     m.chrom,
                     s,
@@ -221,14 +205,6 @@ check that -g matches the genome build of the input",
         }
         max = next_batch_size(&batch, max);
         if !more {
-            if let Some(line) = out.first_dropped {
-                log::warn!(
-                    "{} record(s) were dropped because the shift moved them wholly past the \
-start or end of their chromosome (first: {name} line {line}); bedtools shift writes a bogus \
-interval for them. Shift by less, or drop those records first",
-                    out.dropped
-                );
-            }
             crate::skipped::log_reader(input.as_ref());
             return Ok(());
         }

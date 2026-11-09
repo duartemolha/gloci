@@ -159,30 +159,52 @@ fn usage_errors() {
 }
 
 #[test]
-fn dropped_records() {
+fn wholly_past_an_edge() {
     let dir = tempdir();
     let g = genome(dir.path());
-    // The first two are pushed wholly past an edge; the point stays.
+    // Non-empty features pushed wholly over an edge keep one base there
+    // (as bedtools does); a point stays a point at the edge.
     let f = s(&plain_file(
         dir.path(),
         "d.bed",
         "chr1\t0\t5\tq\nchr1\t995\t1000\tp\nchr1\t10\t10\tz\nchr1\t500\t510\tk\n",
     ));
-    let o = gloci()
+    gloci()
         .args(["shift", &f, "--by", "-10", "-g", &g])
         .assert()
         .success()
-        .stderr(contains("1 record(s) were dropped"))
-        .stderr(contains("d.bed line 1"));
-    let got = String::from_utf8(o.get_output().stdout.clone()).unwrap();
-    assert_eq!(got, "chr1\t985\t990\tp\nchr1\t0\t0\tz\nchr1\t490\t500\tk\n");
+        .stderr(predicates::str::is_empty())
+        .stdout("chr1\t0\t1\tq\nchr1\t985\t990\tp\nchr1\t0\t0\tz\nchr1\t490\t500\tk\n");
     gloci()
         .args(["shift", &f, "--by", "10", "-g", &g])
         .assert()
         .success()
-        .stderr(contains("1 record(s) were dropped"))
-        .stderr(contains("d.bed line 2"))
-        .stdout("chr1\t10\t15\tq\nchr1\t20\t20\tz\nchr1\t510\t520\tk\n");
+        .stderr(predicates::str::is_empty())
+        .stdout("chr1\t10\t15\tq\nchr1\t999\t1000\tp\nchr1\t20\t20\tz\nchr1\t510\t520\tk\n");
+    let pt = s(&plain_file(dir.path(), "pt.bed", "chr1\t1000\t1000\ty\n"));
+    assert_eq!(
+        out(&["shift", &pt, "--by", "5", "-g", &g]),
+        "chr1\t1000\t1000\ty\n"
+    );
+}
+
+#[test]
+fn gff_edge_interval() {
+    let dir = tempdir();
+    let g = genome(dir.path());
+    let f = s(&plain_file(
+        dir.path(),
+        "e.gff3",
+        "chr1\tsrc\tgene\t996\t1000\t.\t+\t.\tID=a\nchr1\tsrc\tgene\t1\t5\t.\t+\t.\tID=b\n",
+    ));
+    assert_eq!(
+        out(&["shift", &f, "--by", "20", "-g", &g]),
+        "chr1\tsrc\tgene\t1000\t1000\t.\t+\t.\tID=a\nchr1\tsrc\tgene\t21\t25\t.\t+\t.\tID=b\n"
+    );
+    assert_eq!(
+        out(&["shift", &f, "--by", "-20", "-g", &g]),
+        "chr1\tsrc\tgene\t976\t980\t.\t+\t.\tID=a\nchr1\tsrc\tgene\t1\t1\t.\t+\t.\tID=b\n"
+    );
 }
 
 #[test]

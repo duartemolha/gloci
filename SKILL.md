@@ -197,7 +197,7 @@ gloci flank peaks.bed --pct -b 0.25 -g genome.txt | gloci sort -g genome.txt -
 
 Move each feature along its chromosome (bedtools shift).
 
---by N moves every record by N bases (negative moves toward 0); --pct reads N as a fraction of the feature's own length (0.5, -25%; the product is floored, as in bedtools). -s negates the shift on minus-strand records (an unknown strand counts as +), so a positive N moves every feature downstream. The result is clipped like slop: at 0 and, with -g, at the chromosome end, so a feature pushed over an edge shrinks; one pushed wholly over an edge is dropped with a warning (bedtools writes a bogus interval). BED and GFF/GTF only. The output is in input order and may not be sorted; a warning is printed once when the shift itself breaks the order.
+--by N moves every record by N bases (negative moves toward 0); --pct reads N as a fraction of the feature's own length (0.5, -25%; the product is floored, as in bedtools). -s negates the shift on minus-strand records (an unknown strand counts as +), so a positive N moves every feature downstream. The result is clipped like slop: at 0 and, with -g, at the chromosome end, so a feature pushed over an edge shrinks; one pushed wholly over an edge becomes the 1-base interval at that edge, as in bedtools (a zero-length feature stays zero-length there). BED and GFF/GTF only. The output is in input order and may not be sorted; a warning is printed once when the shift itself breaks the order.
 
 ```sh
 gloci shift genes.bed --by 100 -g hg38
