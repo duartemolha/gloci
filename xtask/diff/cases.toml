@@ -233,6 +233,14 @@ compare = "exit-status"
 expected_difference = "#vcf-header-conversion"
 
 [[case]]
+name = "vcf-to-bcf-mixed-ploidy-vs-bcftools"
+input = { file = "xtask/diff/inputs/mixed-ploidy-missing.vcf" }
+gloci = "gloci view -O bcf input.vcf"
+reference = "bcftools view -Ob input.vcf"
+compare = "exit-status"
+expected_difference = "#bcf-mixed-ploidy-missing"
+
+[[case]]
 name = "sort-bed-points-vs-sort-bed"
 input = { file = "xtask/diff/inputs/ties.bed" }
 gloci = "gloci sort --chrom-order lex input.bed"

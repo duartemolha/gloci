@@ -168,11 +168,16 @@ fn b_column_names(b: &dyn RecordReader, width: usize) -> Vec<String> {
     }
 }
 
-/// Whether a relation over these inputs runs per chromosome (D41): every
-/// input is a regular BGZF file with an index, and neither `--unsorted` nor
-/// `--sort` is given. The output is the same either way.
-pub fn runs_per_chromosome(paths: &InputPaths, relate: &RelateOptions) -> bool {
-    if relate.unsorted || relate.sort.is_some() {
+/// Whether a relation over these inputs runs per chromosome (D41): more
+/// than one thread, every input a regular BGZF file with an index, and
+/// neither `--unsorted` nor `--sort`. With one thread it streams. The output
+/// is the same either way.
+pub fn runs_per_chromosome(
+    paths: &InputPaths,
+    relate: &RelateOptions,
+    threads: NonZeroUsize,
+) -> bool {
+    if threads.get() == 1 || relate.unsorted || relate.sort.is_some() {
         return false;
     }
     let all: Vec<&str> = std::iter::once(paths.a.as_str())
@@ -193,8 +198,9 @@ pub(crate) type RelationStep<'a, R> = dyn Fn(
     + 'a;
 
 /// Run `step` over `files`: per chromosome when [`runs_per_chromosome`],
-/// else once over the streams. Returns the summary and each run's result,
-/// in chromosome order.
+/// else once over the streams. Warns about records skipped under
+/// `--skip-invalid` (every chunk's, together). Returns the summary and each
+/// run's result, in chromosome order.
 pub(crate) fn run_files<R: Send>(
     files: RelationFiles,
     relate: &RelateOptions,
@@ -202,10 +208,13 @@ pub(crate) fn run_files<R: Send>(
     w: &mut dyn RecordWriter,
     step: &RelationStep<R>,
 ) -> Result<(SweepSummary, Vec<R>), IoError> {
-    if runs_per_chromosome(&files.paths, relate) {
-        return super::indexed::run_indexed(files, relate, run, w, step);
-    }
-    let RelationFiles { inputs, chroms, .. } = files;
-    let (summary, r) = step(inputs, chroms, w)?;
-    Ok((summary, vec![r]))
+    let (summary, rs) = if runs_per_chromosome(&files.paths, relate, run.threads) {
+        super::indexed::run_indexed(files, relate, run, w, step)?
+    } else {
+        let RelationFiles { inputs, chroms, .. } = files;
+        let (summary, r) = step(inputs, chroms, w)?;
+        (summary, vec![r])
+    };
+    super::report_skipped(&summary);
+    Ok((summary, rs))
 }

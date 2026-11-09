@@ -208,3 +208,42 @@ fn complement_sort_warns_on_disjoint_chroms() {
 the names differ by a \"chr\" prefix — rename one file's chromosomes so they match"
         )));
 }
+
+/// I10: disjoint chromosome sets across many inputs are scatter/gather and
+/// draw no warning; the `chr`-prefix case warns once per run.
+#[test]
+fn nary_scatter_gather_is_quiet_and_prefix_case_warns_once() {
+    let fx = Fx::new();
+    let files: Vec<String> = (1..=24)
+        .map(|i| fx.file(&format!("part{i}.bed"), &format!("chr{i}\t10\t20\n")))
+        .collect();
+    for cmd in ["merge", "complement"] {
+        for sort in [false, true] {
+            let mut args: Vec<&str> = vec![cmd];
+            args.extend(files.iter().map(String::as_str));
+            if sort {
+                args.push("--sort");
+            }
+            gloci().args(&args).assert().success().stderr("");
+        }
+    }
+    let a = fx.file("a.bed", "chr1\t10\t20\n");
+    let b = fx.file("b.bed", "1\t15\t25\n");
+    let c = fx.file("c.bed", "2\t15\t25\n");
+    for cmd in ["merge", "complement"] {
+        for sort in [false, true] {
+            let mut args = vec![cmd, a.as_str(), b.as_str(), c.as_str()];
+            if sort {
+                args.push("--sort");
+            }
+            let o = gloci().args(&args).assert().success();
+            let e = String::from_utf8(o.get_output().stderr.clone()).unwrap();
+            assert_eq!(
+                e.matches("share no chromosome names").count(),
+                1,
+                "{cmd}: {e}"
+            );
+            assert!(e.contains("\"chr\" prefix"), "{e}");
+        }
+    }
+}

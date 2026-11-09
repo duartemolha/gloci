@@ -66,6 +66,33 @@ pub fn format_disjoint_chroms_warning(
     )
 }
 
+/// For commands over many inputs (`merge`, `complement`): the one warning
+/// to print about inputs that share no chromosome names, or `None`. Disjoint
+/// chromosome sets are normal there (scatter/gather by chromosome), so only
+/// the actionable case warns: two inputs whose names would match with a
+/// `chr` prefix added or removed. `names[i]` is input i's name and `seen[i]`
+/// the chromosomes its records were on; inputs without records are ignored.
+pub fn nary_naming_warning(names: &[String], seen: &[Vec<Vec<u8>>]) -> Option<String> {
+    let non_empty: Vec<usize> = (0..names.len().min(seen.len()))
+        .filter(|&i| !seen[i].is_empty())
+        .collect();
+    for (k, &i) in non_empty.iter().enumerate() {
+        for &j in &non_empty[k + 1..] {
+            if seen[i].iter().any(|c| seen[j].contains(c)) {
+                continue;
+            }
+            let a: Vec<&[u8]> = seen[i].iter().map(Vec::as_slice).collect();
+            let b: Vec<&[u8]> = seen[j].iter().map(Vec::as_slice).collect();
+            if chr_prefix_hint(&a, &b).is_some() {
+                return Some(format_disjoint_chroms_warning(
+                    &names[i], &seen[i], &names[j], &seen[j],
+                ));
+            }
+        }
+    }
+    None
+}
+
 /// Format an unknown-chromosome error message, adding a hint to use the alias
 /// genome when `-g` named a built-in genome and its alias contains `chrom`.
 pub fn unknown_chrom_err(source: &gloci_core::OrderSource, chrom: &str) -> String {
@@ -127,6 +154,27 @@ mod tests {
         assert!(chr_prefix_hint(&[b"chr1"], &[b"chr2"]).is_none());
         assert!(chr_prefix_hint(&[b"1"], &[b"2"]).is_none());
         assert!(chr_prefix_hint(&[b"chr1", b"chr2"], &[b"3", b"1"]).is_some());
+    }
+
+    #[test]
+    fn nary_warns_only_for_the_chr_prefix_case() {
+        let names: Vec<String> = (0..24).map(|i| format!("in{i}.bed")).collect();
+        let seen: Vec<Vec<Vec<u8>>> = (1..=24)
+            .map(|i| vec![format!("chr{i}").into_bytes()])
+            .collect();
+        assert_eq!(nary_naming_warning(&names, &seen), None);
+        let names = vec![
+            "a.bed".to_string(),
+            "b.bed".to_string(),
+            "c.bed".to_string(),
+        ];
+        let seen = vec![vec![b"chr1".to_vec()], vec![], vec![b"1".to_vec()]];
+        let w = nary_naming_warning(&names, &seen).unwrap();
+        assert!(
+            w.starts_with("a.bed and c.bed share no chromosome names"),
+            "{w}"
+        );
+        assert!(w.contains("\"chr\" prefix"), "{w}");
     }
 
     #[test]

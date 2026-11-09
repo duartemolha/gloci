@@ -560,3 +560,52 @@ fn index_2gib_bed_gz_rss() {
         "index file missing"
     );
 }
+
+/// I7: per-chromosome mode on indexed inputs keeps every in-flight chunk
+/// within one 128 MiB budget, so `-t 8` stays under the streaming ceiling
+/// even though `--mode pairs` writes more than it reads.
+#[test]
+#[ignore = "nightly: generates large file"]
+fn intersect_indexed_2gib_rss() {
+    let d = tempdir();
+    let a = d.path().join("a.bed.gz");
+    if std::fs::hard_link(big_bed_gz(), &a).is_err() {
+        std::fs::copy(big_bed_gz(), &a).unwrap();
+    }
+    let b = d.path().join("b.bed.gz");
+    for (args, what) in [
+        (
+            vec![
+                "view".into(),
+                big_bed_b().display().to_string(),
+                "-o".into(),
+                b.display().to_string(),
+            ],
+            "bgzip B",
+        ),
+        (vec!["index".into(), a.display().to_string()], "index A"),
+        (vec!["index".into(), b.display().to_string()], "index B"),
+    ] {
+        let st = Command::new(gloci_bin()).args(&args).status().unwrap();
+        assert!(st.success(), "{what} failed");
+    }
+    let t0 = std::time::Instant::now();
+    let child = Command::new(gloci_bin())
+        .args(["intersect", "--mode", "pairs", "-t", "8", "-a"])
+        .arg(&a)
+        .arg("-b")
+        .arg(&b)
+        .arg("--tmp-dir")
+        .arg(d.path())
+        .stdout(Stdio::null())
+        .spawn()
+        .unwrap();
+    let (ok, rss) = wait_rss(&child);
+    eprintln!(
+        "intersect indexed -t 8 large: {:.1}s, peak RSS {} MiB",
+        t0.elapsed().as_secs_f64(),
+        rss / MIB
+    );
+    assert!(ok, "gloci intersect (indexed) failed");
+    assert!(rss <= 200_000_000, "peak RSS {} bytes exceeds 200 MB", rss);
+}

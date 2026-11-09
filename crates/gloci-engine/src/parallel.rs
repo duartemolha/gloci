@@ -7,8 +7,7 @@ use std::fs::{self, File};
 use std::io::Read;
 use std::num::NonZeroUsize;
 use std::path::Path;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Returns true when every path in `paths` is a regular BGZF file with a `.tbi`
 /// or `.csi` index, and no path is `"-"`. Returns false if `paths` is empty.
@@ -44,119 +43,174 @@ pub fn all_indexed(paths: &[&str]) -> bool {
     true
 }
 
-/// Run `work` for each chunk job in `chroms` (for example a chromosome, or a
-/// run of consecutive chromosomes) across up to `threads` workers, with at
-/// most `threads` chunks in flight. Drains finished chunks to `out` in strict
-/// job order. Returns results in job order.
+/// The memory every in-flight chunk together may hold before spilling to
+/// `--tmp-dir` (D41 as amended): each chunk gets this divided by the chunks
+/// in flight, at least [`MIN_CHUNK_MEM`].
+pub const CHUNK_MEM_BUDGET: usize = 128 << 20;
+/// The least a chunk keeps in memory.
+pub const MIN_CHUNK_MEM: usize = 1 << 20;
+
+/// TEST HOOK, not a user setting: overrides each chunk's in-memory limit in
+/// bytes, so tests can force chunks to spill. Read by [`run_chunks`].
+pub const TEST_CHUNK_MEM_ENV: &str = "GLOCI_TEST_CHUNK_MEM_LIMIT";
+
+/// The in-memory limit of one chunk with `in_flight` chunks in flight.
+pub fn chunk_mem_limit(in_flight: usize) -> usize {
+    if let Some(n) = std::env::var(TEST_CHUNK_MEM_ENV)
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+    {
+        return n;
+    }
+    (CHUNK_MEM_BUDGET / in_flight.max(1)).max(MIN_CHUNK_MEM)
+}
+
+/// A worker's panic as an error (a panic is always a bug).
+fn panic_error(payload: Box<dyn std::any::Any + Send>) -> IoError {
+    let msg = payload
+        .downcast_ref::<&str>()
+        .map(|s| s.to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "unknown panic".to_string());
+    IoError::Internal(format!("a worker thread panicked: {msg}"))
+}
+
+/// Run `work` for each chunk job in `jobs` (a run of consecutive
+/// chromosomes, say) across up to `threads` workers, with at most `threads`
+/// chunks in flight, which share [`CHUNK_MEM_BUDGET`] of memory before they
+/// spill to `tmp_dir`. Finished chunks are drained to `out` in strict job
+/// order, and results come back in job order. When chunks fail, the error
+/// of the first failing job in job order is returned (whatever finished
+/// first), so the message is the same for every thread count; a panicking
+/// worker becomes an error.
 #[allow(clippy::type_complexity)]
 pub fn run_chunks<J: Clone + Send + Sync, R: Send>(
-    chroms: Vec<J>,
+    jobs: Vec<J>,
     threads: NonZeroUsize,
     tmp_dir: &Path,
     work: &(dyn Fn(&J, &mut ChunkSink) -> Result<R, IoError> + Sync),
     out: &mut dyn RecordWriter,
 ) -> Result<Vec<R>, IoError> {
-    if chroms.is_empty() {
+    if jobs.is_empty() {
         return Ok(Vec::new());
     }
+    let in_flight = threads.get().min(jobs.len());
+    let mem_limit = chunk_mem_limit(in_flight);
+    // One buffer per chunk in flight, reused from chunk to chunk: allocating
+    // and freeing a buffer per chunk leaves freed buffers resident in the
+    // allocator for a while, beyond the budget.
+    let mut buffers: Vec<Vec<u8>> = (0..in_flight).map(|_| Vec::new()).collect();
+    let run_one = |job: &J, buf: Vec<u8>| -> Result<(R, ChunkSink), IoError> {
+        let mut sink = ChunkSink::with_buffer(tmp_dir, mem_limit, buf);
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(job, &mut sink)))
+            .map_err(panic_error)??;
+        Ok((r, sink))
+    };
 
-    if threads.get() == 1 {
-        let mut results = Vec::with_capacity(chroms.len());
-        for chrom in &chroms {
-            let mut sink = ChunkSink::new(tmp_dir);
-            let r = work(chrom, &mut sink)?;
+    if in_flight == 1 {
+        let mut results = Vec::with_capacity(jobs.len());
+        let mut buf = buffers.pop().unwrap_or_default();
+        for job in &jobs {
+            let (r, mut sink) = run_one(job, buf)?;
             sink.drain_to(out)?;
+            buf = sink.into_buffer();
             results.push(r);
         }
         return Ok(results);
     }
 
+    // The smallest index of a failed job so far; later jobs are skipped.
+    let fail_at = AtomicUsize::new(usize::MAX);
     std::thread::scope(|s| {
-        let num_workers = threads.get().min(chroms.len());
-        let (job_tx, job_rx) = crossbeam_channel::bounded::<(usize, J)>(threads.get());
-        let (result_tx, result_rx) =
-            crossbeam_channel::bounded::<(usize, Result<(R, ChunkSink), IoError>)>(threads.get());
-        let cancelled = Arc::new(AtomicBool::new(false));
+        let (job_tx, job_rx) = crossbeam_channel::bounded::<(usize, J, Vec<u8>)>(in_flight);
+        // `None`: the job was skipped because an earlier one failed.
+        type Done<R> = Option<Result<(R, ChunkSink), IoError>>;
+        let (result_tx, result_rx) = crossbeam_channel::bounded::<(usize, Done<R>)>(in_flight);
 
-        for _ in 0..num_workers {
+        for _ in 0..in_flight {
             let job_rx = job_rx.clone();
             let result_tx = result_tx.clone();
-            let cancelled = cancelled.clone();
+            let (run_one, fail_at) = (&run_one, &fail_at);
             s.spawn(move || {
-                while let Ok((idx, chrom)) = job_rx.recv() {
-                    if cancelled.load(Ordering::Relaxed) {
-                        break;
-                    }
-                    let mut sink = ChunkSink::new(tmp_dir);
-                    let res = work(&chrom, &mut sink);
-                    if cancelled.load(Ordering::Relaxed) {
-                        break;
-                    }
-                    let to_send = match res {
-                        Ok(r) => Ok((r, sink)),
-                        Err(e) => Err(e),
+                while let Ok((idx, job, buf)) = job_rx.recv() {
+                    let res = if idx > fail_at.load(Ordering::Relaxed) {
+                        None
+                    } else {
+                        let r = run_one(&job, buf);
+                        if r.is_err() {
+                            fail_at.fetch_min(idx, Ordering::Relaxed);
+                        }
+                        Some(r)
                     };
-                    let _ = result_tx.send((idx, to_send));
+                    if result_tx.send((idx, res)).is_err() {
+                        break;
+                    }
                 }
             });
         }
         drop(result_tx);
+        drop(job_rx);
 
         let mut next_to_launch = 0;
         let mut next_to_drain = 0;
         let mut pending: BTreeMap<usize, (R, ChunkSink)> = BTreeMap::new();
-        let mut results = Vec::with_capacity(chroms.len());
-        let mut first_error = None;
+        let mut results = Vec::with_capacity(jobs.len());
+        // The failing job with the smallest index so far, and its error.
+        let mut first_error: Option<(usize, IoError)> = None;
 
-        while next_to_drain < chroms.len() {
-            while next_to_launch < chroms.len()
-                && (next_to_launch - next_to_drain) < threads.get()
-                && first_error.is_none()
+        loop {
+            // Done when every job before the first failing one has reported:
+            // only those can hold an earlier error.
+            let need = first_error.as_ref().map_or(jobs.len(), |(i, _)| *i);
+            if next_to_drain >= need {
+                break;
+            }
+            while first_error.is_none()
+                && next_to_launch < jobs.len()
+                && next_to_launch - next_to_drain < in_flight
             {
-                let _ = job_tx.send((next_to_launch, chroms[next_to_launch].clone()));
+                // At most `in_flight` chunks are launched and not yet
+                // drained, so a buffer is always free here.
+                let buf = buffers.pop().unwrap_or_default();
+                if job_tx
+                    .send((next_to_launch, jobs[next_to_launch].clone(), buf))
+                    .is_err()
+                {
+                    break;
+                }
                 next_to_launch += 1;
             }
-
             let Ok((idx, res)) = result_rx.recv() else {
                 break;
             };
-
             match res {
-                Ok((r, sink)) => {
-                    if first_error.is_none() {
-                        pending.insert(idx, (r, sink));
-                        while let Some((r, mut sink)) = pending.remove(&next_to_drain) {
-                            if let Err(e) = sink.drain_to(out) {
-                                first_error = Some(e);
-                                cancelled.store(true, Ordering::Relaxed);
-                                break;
-                            }
-                            results.push(r);
-                            next_to_drain += 1;
-                        }
-                    }
+                None => {}
+                Some(Ok(done)) => {
+                    pending.insert(idx, done);
                 }
-                Err(e) => {
-                    if first_error.is_none() {
-                        first_error = Some(e);
-                        cancelled.store(true, Ordering::Relaxed);
+                Some(Err(e)) => {
+                    if first_error.as_ref().is_none_or(|(i, _)| idx < *i) {
+                        first_error = Some((idx, e));
                     }
                 }
             }
-
-            if first_error.is_some() {
-                break;
+            while let Some((r, mut sink)) = pending.remove(&next_to_drain) {
+                if first_error.is_none()
+                    && let Err(e) = sink.drain_to(out)
+                {
+                    fail_at.fetch_min(next_to_drain, Ordering::Relaxed);
+                    first_error = Some((next_to_drain, e));
+                }
+                buffers.push(sink.into_buffer());
+                results.push(r);
+                next_to_drain += 1;
             }
         }
-
-        if let Some(e) = first_error {
-            cancelled.store(true, Ordering::Relaxed);
-            drop(job_tx);
-            drop(pending);
-            return Err(e);
-        }
-
         drop(job_tx);
-        Ok(results)
+        drop(pending);
+        match first_error {
+            Some((_, e)) => Err(e),
+            None => Ok(results),
+        }
     })
 }

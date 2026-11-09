@@ -18,9 +18,11 @@ mod rewrite;
 pub use criteria::Acceptor;
 pub use files::{InputPaths, RelationFiles, RunOptions, runs_per_chromosome};
 pub(crate) use files::{b_width, relation_chroms, run_files};
+
 pub use out::{ReportOutput, open_report};
 pub use rewrite::{b_placeholder, rewrite_coords};
 
+use crate::skipped::{Skipped, log_skipped};
 use crate::sort::{SortSettings, sort_readers};
 use gloci_core::{ChromOrder, ChromTable, OverlapCriteria, StrandRule, Window};
 use gloci_engine::{
@@ -168,7 +170,15 @@ pub fn run_relation(
     nearest: Option<NearestConfig>,
     v: &mut dyn Visitor,
 ) -> Result<SweepSummary, IoError> {
-    run_relation_in(inputs, None, o, nearest, v)
+    let summary = run_relation_in(inputs, None, o, nearest, v)?;
+    report_skipped(&summary);
+    Ok(summary)
+}
+
+/// Warn about the records each input skipped under `--skip-invalid`
+/// (`summary.skipped`): the count and the first 10 examples.
+pub(crate) fn report_skipped(summary: &SweepSummary) {
+    log_skipped(&summary.skipped);
 }
 
 /// [`run_relation`] with the chromosome table given when something was
@@ -221,9 +231,13 @@ pub(crate) fn run_relation_in(
         .map(|_| Arc::new(Mutex::new(Vec::new())))
         .collect();
     let mut orig_names = names.into_iter();
+    // A `--sort`ed stream has nothing to report: `sort_readers` reported
+    // the inputs it read.
+    let mut skipped = Skipped::default();
     let mut wrap =
         |r: Box<dyn RecordReader>, seen: Arc<Mutex<Vec<Vec<u8>>>>| -> Box<dyn RecordReader> {
             let name = orig_names.next().unwrap_or_default();
+            let r = skipped.watch_as(&name, r);
             let r: Box<dyn RecordReader> = Box::new(ChromWatch {
                 inner: r,
                 last_chrom: None,
@@ -251,11 +265,13 @@ pub(crate) fn run_relation_in(
         inclusive_points: o.criteria.inclusive_points,
         nearest,
     };
-    let summary = if o.unsorted {
+    let mut summary = if o.unsorted {
         sweep_unsorted(inputs, &mut chroms, &cfg, v)?
     } else {
         sweep_sorted(inputs, &mut chroms, &cfg, v).map_err(sorted_loc)?
     };
+    // The sweep has dropped the readers.
+    summary.skipped = skipped.take();
     for (name, flag) in &watched {
         if flag.load(Ordering::Relaxed) {
             log::warn!("{name} has records with unknown strand; they never match under -s or -S");

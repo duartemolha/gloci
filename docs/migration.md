@@ -246,6 +246,9 @@ Every row below was checked against `gloci <cmd> --help`.
 - **VCF header validation on BCF conversion:** Converting between VCF and BCF
   refuses malformed headers that `noodles` rejects (such as duplicate INFO IDs).
   [differences.md#vcf-header-conversion](differences.md#vcf-header-conversion)
+- **BCF output of mixed ploidy:** A record with a missing haploid genotype
+  (`.`) next to diploid ones cannot be written as BCF yet; write VCF instead.
+  [differences.md#bcf-mixed-ploidy-missing](differences.md#bcf-mixed-ploidy-missing)
 - **Undeclared VCF contigs:** Records on a contig missing from the VCF header
   are accepted with a warning by `view` and `index`, as htslib does, but `sort`
   and BCF output refuse them (add `##contig` or pass `-g`).

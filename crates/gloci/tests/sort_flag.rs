@@ -276,17 +276,22 @@ fn bcf_sort_equals_sort_pipe() {
     sort_flag_vs_pipe_vcf("bcf", true);
 }
 
+/// `--max-mem` means something only with `--sort`; `--tmp-dir` is accepted
+/// everywhere and ignored when nothing spills.
 #[test]
-fn max_mem_and_tmp_dir_need_sort() {
+fn max_mem_needs_sort_tmp_dir_does_not() {
     let dir = tempdir();
-    let f = s(&plain_file(dir.path(), "a.bed", "chr1\t1\t5\n"));
+    let f = s(&plain_file(dir.path(), "a.bed", "chr1\t1\t5\nchr1\t3\t9\n"));
     for cmd in ["merge", "complement"] {
         gloci().args([cmd, &f, "--max-mem", "32M"]).assert().code(2);
+        let want = gloci().args([cmd, &f]).assert().success();
+        let want = want.get_output().stdout.clone();
         gloci()
             .args([cmd, &f, "--tmp-dir"])
             .arg(dir.path())
             .assert()
-            .code(2);
+            .success()
+            .stdout(want);
     }
 }
 

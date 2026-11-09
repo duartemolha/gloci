@@ -830,13 +830,23 @@ pub struct VcfFilterArgs {
     pub file: String,
 
     /// Keep only these sample names (repeatable or comma-separated).
-    #[arg(long, value_delimiter = ',', value_name = "SAMPLES")]
+    #[arg(
+        long,
+        value_delimiter = ',',
+        value_name = "SAMPLES",
+        conflicts_with = "samples_file"
+    )]
     pub samples: Option<Vec<String>>,
     /// File containing sample names to keep, one per line.
     #[arg(long, value_name = "FILE")]
     pub samples_file: Option<PathBuf>,
     /// Remove these sample names (repeatable or comma-separated).
-    #[arg(long, value_delimiter = ',', value_name = "SAMPLES")]
+    #[arg(
+        long,
+        value_delimiter = ',',
+        value_name = "SAMPLES",
+        conflicts_with = "exclude_samples_file"
+    )]
     pub exclude_samples: Option<Vec<String>>,
     /// File containing sample names to remove, one per line.
     #[arg(long, value_name = "FILE")]
@@ -894,7 +904,7 @@ pub struct VcfFilterArgs {
     #[arg(long, value_name = "N")]
     pub max_alleles: Option<usize>,
     /// Restrict to biallelic sites (equivalent to --min-alleles 2 --max-alleles 2).
-    #[arg(long)]
+    #[arg(long, conflicts_with_all = ["min_alleles", "max_alleles"])]
     pub biallelic: bool,
 
     /// Minimum QUAL score.
@@ -1490,9 +1500,10 @@ pub struct SortArg {
     /// Memory budget for --sort, in binary units (K, M, G, T); at least 16M.
     #[arg(long, value_name = "SIZE", default_value = "2G", value_parser = parse_size, requires = "sort")]
     pub max_mem: u64,
-    /// Directory for --sort's temporary files; it must exist and be writable
-    /// (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir).
-    #[arg(long, value_name = "DIR", requires = "sort")]
+    /// Directory for --sort's temporary files, ignored without --sort; it
+    /// must exist and be writable (default: $GLOCI_TMPDIR if set and
+    /// non-empty, else the system temp dir).
+    #[arg(long, value_name = "DIR")]
     pub tmp_dir: Option<PathBuf>,
 }
 
@@ -1510,8 +1521,10 @@ pub struct RelationSortArg {
     /// Memory budget for --sort, in binary units (K, M, G, T); at least 16M.
     #[arg(long, value_name = "SIZE", default_value = "2G", value_parser = parse_size, requires = "sort")]
     pub max_mem: u64,
-    /// Directory for temporary files; it must exist and be writable
-    /// (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir).
+    /// Directory for temporary files: --sort's, and the spills of
+    /// per-chromosome runs on indexed inputs; ignored when nothing spills. It
+    /// must exist and be writable (default: $GLOCI_TMPDIR if set and
+    /// non-empty, else the system temp dir).
     #[arg(long, value_name = "DIR")]
     pub tmp_dir: Option<PathBuf>,
 }

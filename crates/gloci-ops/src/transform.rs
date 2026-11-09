@@ -188,6 +188,7 @@ check that -g matches the genome build of the input",
         }
         max = next_batch_size(&batch, max);
         if !more {
+            crate::skipped::log_reader(input.as_ref());
             return Ok(());
         }
     }

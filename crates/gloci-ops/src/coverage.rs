@@ -17,7 +17,8 @@
 
 use crate::intersect::Text;
 use crate::relate::{
-    Acceptor, RelateInputs, RelateOptions, RelationFiles, RunOptions, run_files, run_relation_in,
+    Acceptor, RelateInputs, RelateOptions, RelationFiles, RunOptions, report_skipped, run_files,
+    run_relation_in,
 };
 use gloci_core::ChromTable;
 use gloci_core::Interval;
@@ -313,6 +314,7 @@ pub fn coverage(
 ) -> Result<(SweepSummary, CoverageTotals), IoError> {
     validate(o, inputs.b.len())?;
     let (summary, totals) = coverage_in(inputs, None, o, w)?;
+    report_skipped(&summary);
     if o.report == CoverageReport::Hist {
         write_hist_totals(&totals, w)?;
     }

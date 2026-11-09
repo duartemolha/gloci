@@ -73,6 +73,7 @@ pub fn sweep_unsorted(
         a_records: 0,
         b_records,
         shared_chroms: false,
+        skipped: Vec::new(),
         stats,
     };
     let mut order = AOrder::default();

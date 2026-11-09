@@ -11,6 +11,7 @@ pub mod intersect;
 pub mod map;
 pub mod merge;
 pub mod relate;
+mod skipped;
 pub mod sort;
 pub mod subtract;
 pub mod transform;
@@ -30,5 +31,8 @@ pub use sort::{
     check_definitions_pair, check_samples, check_samples_pair, merge_fan_in, merge_sorted,
     merge_sorted_batches, sort_input_options, sort_readers, sort_together,
 };
-pub use vcf_filter::{FilterSummary, VcfFilterOptions, vcf_filter};
+pub use vcf_filter::{
+    FilterSummary, VcfFilterInput, VcfFilterOptions, open_vcf_filter, vcf_filter, vcf_filter_file,
+    vcf_filter_output,
+};
 pub use view::{ViewOptions, open_view, read_regions_file, run_view};

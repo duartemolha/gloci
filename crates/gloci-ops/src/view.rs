@@ -84,6 +84,21 @@ pub fn open_view(
     Ok((Box::new(selection), chroms))
 }
 
+/// The records of the stream `reader` that overlap `opts`' regions, each
+/// once, in input order, as [`open_view`] selects them from a file without
+/// an index; `reader` itself when there are no regions.
+pub(crate) fn select_stream(
+    reader: Box<dyn RecordReader>,
+    opts: &ViewOptions,
+    ro: &ReaderOptions,
+    chroms: &ChromTable,
+) -> Result<Box<dyn RecordReader>, IoError> {
+    if !opts.has_regions() {
+        return Ok(reader);
+    }
+    Ok(Box::new(select("-", reader, opts, ro, None, chroms)?))
+}
+
 /// `chromosome "1" not found in x.vcf.gz (did you mean "chr1"?)`
 fn not_found(chrom: &[u8], place: &str, has: impl Fn(&[u8]) -> bool) -> String {
     let alt = match chrom.strip_prefix(b"chr") {

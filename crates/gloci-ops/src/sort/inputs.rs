@@ -180,30 +180,8 @@ pub fn sort_readers(
             }
         }
     }
-    if inputs.len() >= 2 {
-        let non_empty: Vec<usize> = (0..inputs.len())
-            .filter(|&i| !chroms_per_input[i].is_empty())
-            .collect();
-        if non_empty.len() >= 2 {
-            for (idx, &i) in non_empty.iter().enumerate() {
-                for &j in &non_empty[idx + 1..] {
-                    let shares = chroms_per_input[i]
-                        .iter()
-                        .any(|c| chroms_per_input[j].contains(c));
-                    if !shares {
-                        log::warn!(
-                            "{}",
-                            gloci_io::naming::format_disjoint_chroms_warning(
-                                &orig_names[i],
-                                &chroms_per_input[i],
-                                &orig_names[j],
-                                &chroms_per_input[j],
-                            )
-                        );
-                    }
-                }
-            }
-        }
+    if let Some(w) = gloci_io::naming::nary_naming_warning(&orig_names, &chroms_per_input) {
+        log::warn!("{w}");
     }
     for r in &inputs {
         if let Some(s) = r.diagnostics().summary(r.name()) {

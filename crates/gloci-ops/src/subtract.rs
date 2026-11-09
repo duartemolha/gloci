@@ -19,8 +19,8 @@
 //! - **`--split`.** B is its BED12 blocks, not its span (D60).
 
 use crate::relate::{
-    Acceptor, RelateInputs, RelateOptions, RelationFiles, RunOptions, rewrite_coords, run_files,
-    run_relation_in,
+    Acceptor, RelateInputs, RelateOptions, RelationFiles, RunOptions, report_skipped,
+    rewrite_coords, run_files, run_relation_in,
 };
 use gloci_core::ChromTable;
 use gloci_core::{Fraction, Interval, OverlapCriteria, Window, overlap_len};
@@ -208,7 +208,9 @@ pub fn subtract(
     w: &mut dyn RecordWriter,
 ) -> Result<SweepSummary, IoError> {
     validate(o)?;
-    subtract_in(inputs, None, o, w)
+    let summary = subtract_in(inputs, None, o, w)?;
+    report_skipped(&summary);
+    Ok(summary)
 }
 
 /// Run `subtract` over the files a command opened: per chromosome when

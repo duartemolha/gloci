@@ -1,9 +1,10 @@
 //! `gloci vcf filter`: the selection pipeline (spec §7.8, decision D50).
 
-use gloci_core::{ChromTable, Interval, Region, RegionSet, VcfSpan};
+use crate::view::{ViewOptions, open_view, select_stream};
+use gloci_core::{ChromOrder, ChromTable, VcfSpan};
 use gloci_io::{
-    BcfDicts, BcfText, Format, Header, IoError, Loc, OrderGuard, ReaderOptions, RecordBatch,
-    RecordReader, RecordWriter, TextToBcf, UsageError, VcfHeader, next_batch_size,
+    BcfDicts, BcfText, Format, Header, IoError, Loc, OrderGuard, OutFormat, ReaderOptions,
+    RecordBatch, RecordReader, RecordWriter, TextToBcf, UsageError, VcfHeader, next_batch_size,
 };
 use gloci_vcf::{
     BcfSite, MaskRules, RewritePlan, SiteFilters, SiteView, Thinner, bcf_genotypes, rewrite_header,
@@ -29,43 +30,177 @@ pub struct FilterSummary {
     pub records_out: u64,
 }
 
-/// Filter VCF/BCF `input` and write passing records to `w`.
+fn usage(msg: impl Into<String>) -> IoError {
+    UsageError(msg.into()).into()
+}
+
+impl VcfFilterOptions {
+    /// The checks that need no input: thresholds within range.
+    pub fn validate(&self) -> Result<(), IoError> {
+        let unit = [
+            ("--min-maf", self.sites.min_maf),
+            ("--max-maf", self.sites.max_maf),
+            ("--max-missing", self.sites.max_missing),
+        ];
+        for (flag, v) in unit {
+            if let Some(v) = v
+                && !(0.0..=1.0).contains(&v)
+            {
+                return Err(usage(format!(
+                    "{flag} {v} is not in [0, 1]; give a fraction between 0 and 1"
+                )));
+            }
+        }
+        if let (Some(lo), Some(hi)) = (self.sites.min_alleles, self.sites.max_alleles)
+            && lo > hi
+        {
+            return Err(usage(format!(
+                "--min-alleles {lo} is more than --max-alleles {hi}; no site could pass"
+            )));
+        }
+        Ok(())
+    }
+
+    /// The region selection, as `view` does it.
+    fn view_options(&self) -> ViewOptions {
+        ViewOptions {
+            header_only: false,
+            no_header: false,
+            regions: self.regions.clone(),
+            regions_file: self.regions_file.clone(),
+            inclusive_points: self.sites.inclusive_points,
+            genome: None,
+            chrom_order: ChromOrder::Karyotype,
+            assume_sorted: false,
+        }
+    }
+}
+
+/// `input`'s VCF header, or an error when it is not VCF/BCF.
+fn vcf_header(input: &dyn RecordReader) -> Result<VcfHeader, IoError> {
+    let format = input.format();
+    if format != Format::Vcf && format != Format::Bcf {
+        return Err(usage(format!(
+            "vcf filter works on VCF and BCF input, but {} is {}; give it a VCF or BCF file",
+            input.name(),
+            format.name()
+        )));
+    }
+    match input.header() {
+        Header::Vcf(h) => Ok(h.clone()),
+        _ => Err(IoError::Detect {
+            path: input.name().to_string(),
+            msg: "a VCF/BCF input has no VCF header".into(),
+        }),
+    }
+}
+
+/// The rewrite of each record: the sample selection (from the include and
+/// exclude lists, else `o.plan`'s) and the masking rules.
+fn rewrite_plan(h: &VcfHeader, o: &VcfFilterOptions) -> Result<RewritePlan, IoError> {
+    let mut plan = o.plan.clone();
+    if o.include_samples.is_some() || !o.exclude_samples.is_empty() {
+        plan.selection = Some(select_samples(
+            &h.samples,
+            o.include_samples.as_deref(),
+            &o.exclude_samples,
+        )?);
+    }
+    plan.mask = o.mask;
+    Ok(plan)
+}
+
+/// What `vcf filter` writes for `input`: the output format (`requested`,
+/// else the input's) and the header (samples, INFO lines and so on as the
+/// rewrite leaves them).
+pub fn vcf_filter_output(
+    input: &dyn RecordReader,
+    requested: Option<OutFormat>,
+    o: &VcfFilterOptions,
+) -> Result<(OutFormat, Header), IoError> {
+    let h = vcf_header(input)?;
+    let to = requested.unwrap_or(OutFormat::family(input.format()));
+    if to != OutFormat::Vcf && to != OutFormat::Bcf {
+        return Err(usage(format!(
+            "vcf filter writes VCF or BCF, not {}; name the output .vcf, .vcf.gz or .bcf, \
+or pass -O vcf or -O bcf",
+            to.name()
+        )));
+    }
+    let plan = rewrite_plan(&h, o)?;
+    let header = VcfHeader::parse(rewrite_header(&h, &plan)).map_err(|e| IoError::Detect {
+        path: input.name().to_string(),
+        msg: e,
+    })?;
+    Ok((to, Header::Vcf(header)))
+}
+
+/// An input opened by [`open_vcf_filter`], its regions already selected.
+pub struct VcfFilterInput {
+    reader: Box<dyn RecordReader>,
+    chroms: ChromTable,
+}
+
+impl VcfFilterInput {
+    pub fn reader(&self) -> &dyn RecordReader {
+        self.reader.as_ref()
+    }
+}
+
+/// Open `path` for `vcf filter`. With `--region`/`--regions-file`, only the
+/// records that overlap a region are read: through the index when the file
+/// has one, else by scanning it (as `view` does).
+pub fn open_vcf_filter(
+    path: &str,
+    ro: &ReaderOptions,
+    o: &VcfFilterOptions,
+) -> Result<VcfFilterInput, IoError> {
+    let (reader, chroms) = open_view(path, &o.view_options(), ro)?;
+    Ok(VcfFilterInput { reader, chroms })
+}
+
+/// Filter an input opened by [`open_vcf_filter`] and write the passing
+/// records to `w` (opened with [`vcf_filter_output`]'s format and header).
+pub fn vcf_filter_file(
+    input: VcfFilterInput,
+    o: &VcfFilterOptions,
+    w: &mut dyn RecordWriter,
+) -> Result<FilterSummary, IoError> {
+    let VcfFilterInput { reader, mut chroms } = input;
+    filter(reader, &mut chroms, o, w)
+}
+
+/// Filter the VCF/BCF stream `input` and write passing records to `w`. The
+/// regions of `o` are selected from the stream as it is read.
 pub fn vcf_filter(
+    input: Box<dyn RecordReader>,
+    chroms: &mut ChromTable,
+    o: &VcfFilterOptions,
+    w: &mut dyn RecordWriter,
+) -> Result<FilterSummary, IoError> {
+    o.validate()?;
+    vcf_header(input.as_ref())?;
+    let region_ro = ReaderOptions {
+        format: Some(Format::Bed),
+        vcf_span: VcfSpan::Ref,
+        invalid: gloci_io::InvalidPolicy::Fail,
+        threads: std::num::NonZero::new(1).unwrap(),
+    };
+    let input = select_stream(input, &o.view_options(), &region_ro, chroms)?;
+    filter(input, chroms, o, w)
+}
+
+/// The pipeline: site filters, masking, thinning, rewriting.
+fn filter(
     mut input: Box<dyn RecordReader>,
     chroms: &mut ChromTable,
     o: &VcfFilterOptions,
     w: &mut dyn RecordWriter,
 ) -> Result<FilterSummary, IoError> {
+    o.validate()?;
+    let vcf_header = vcf_header(input.as_ref())?;
     let in_format = input.format();
-    if in_format != Format::Vcf && in_format != Format::Bcf {
-        return Err(UsageError(format!(
-            "vcf filter works on VCF and BCF input, but {} is {:?}",
-            input.name(),
-            in_format
-        ))
-        .into());
-    }
-
-    let Header::Vcf(vcf_header) = input.header().clone() else {
-        return Err(IoError::Detect {
-            path: input.name().to_string(),
-            msg: "a VCF/BCF input has no VCF header".into(),
-        });
-    };
-
-    let selection = if o.include_samples.is_some() || !o.exclude_samples.is_empty() {
-        Some(select_samples(
-            &vcf_header.samples,
-            o.include_samples.as_deref(),
-            &o.exclude_samples,
-        )?)
-    } else {
-        o.plan.selection.clone()
-    };
-
-    let mut plan = o.plan.clone();
-    plan.selection = selection;
-    plan.mask = o.mask;
+    let plan = rewrite_plan(&vcf_header, o)?;
 
     let input_is_bcf = in_format == Format::Bcf;
     let output_is_bcf = w.is_bcf();
@@ -108,47 +243,6 @@ pub fn vcf_filter(
     };
     let mut thinner: Option<Thinner> = o.sites.thinner();
 
-    let include_regions: Option<std::collections::HashMap<Vec<u8>, RegionSet>> =
-        if !o.regions.is_empty() || o.regions_file.is_some() {
-            let mut known = std::collections::HashSet::new();
-            if let Some(d) = &vcf_header.bcf {
-                known.extend(d.contigs.iter().filter(|c| !c.is_empty()).cloned());
-            } else {
-                known.extend(vcf_header.contigs.iter().map(|(c, _)| c.clone()));
-            }
-            let mut wanted: Vec<(Vec<u8>, Interval)> = Vec::new();
-            for s in &o.regions {
-                let r = Region::parse(s, |n| {
-                    known.contains(n) || (known.is_empty() && !n.contains(&b':'))
-                })
-                .map_err(|e| IoError::Usage(UsageError(e.to_string())))?;
-                let iv = r.interval(None);
-                wanted.push((r.chrom, iv));
-            }
-            if let Some(f) = &o.regions_file {
-                let ro = ReaderOptions {
-                    format: Some(Format::Bed),
-                    vcf_span: VcfSpan::Ref,
-                    invalid: gloci_io::InvalidPolicy::Fail,
-                    threads: std::num::NonZero::new(1).unwrap(),
-                };
-                wanted.extend(crate::view::read_regions_file(f, &ro)?);
-            }
-            let mut by_chrom: std::collections::HashMap<Vec<u8>, Vec<Interval>> =
-                std::collections::HashMap::new();
-            for (c, iv) in wanted {
-                by_chrom.entry(c).or_default().push(iv);
-            }
-            Some(
-                by_chrom
-                    .into_iter()
-                    .map(|(c, ivs)| (c, RegionSet::new(ivs)))
-                    .collect(),
-            )
-        } else {
-            None
-        };
-
     let need_stats = o.sites.needs_genotypes() || !plan.mask.is_empty() || plan.recalc_ac;
     let mut masked_buf = Vec::new();
     let mut rewritten_buf = Vec::new();
@@ -180,17 +274,6 @@ pub fn vcf_filter(
                 loc: Loc::Record(records_in),
                 msg,
             })?;
-
-            if let Some(regions) = &include_regions {
-                match regions.get(view.chrom) {
-                    Some(r) => {
-                        if !r.matches(view.span, o.sites.inclusive_points) {
-                            continue;
-                        }
-                    }
-                    None => continue,
-                }
-            }
 
             // 1. Static site filters
             if !o.sites.static_pass(&view) {
@@ -357,7 +440,8 @@ chr2\t300\trs3\tT\tA\t50\tPASS\t.\n";
         };
         let mut writer = VecWriter(Vec::new());
         let summary = vcf_filter(reader, &mut chroms, &opts, &mut writer).unwrap();
-        assert_eq!(summary.records_in, 3);
+        // The region is selected before the filters, which see one record.
+        assert_eq!(summary.records_in, 1);
         assert_eq!(summary.records_out, 1);
         let out_str = String::from_utf8(writer.0).unwrap();
         assert!(out_str.contains("rs2"));

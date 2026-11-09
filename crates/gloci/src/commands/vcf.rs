@@ -4,51 +4,19 @@ use crate::Ctx;
 use crate::cli::{VcfFilterArgs, VcfSpan};
 use gloci_core::{Interval, RegionSet};
 use gloci_io::{
-    Format, Header, InvalidPolicy, IoError, OutFormat, OutputOptions, ReaderOptions, UsageError,
-    WriterOptions, open_output, open_record_writer, parse_output_spec, refuse_binary_to_tty,
+    Format, InvalidPolicy, OutFormat, OutputOptions, ReaderOptions, UsageError, WriterOptions,
+    open_output, open_record_writer, parse_output_spec, refuse_binary_to_tty,
 };
-use gloci_ops::{VcfFilterOptions, ViewOptions, open_view, read_regions_file, vcf_filter};
+use gloci_ops::{
+    VcfFilterOptions, open_vcf_filter, read_regions_file, vcf_filter_file, vcf_filter_output,
+};
 use gloci_vcf::{
     MaskRules, RewritePlan, SiteFilters, VcfType, read_ids, read_positions, read_samples,
-    rewrite_header, select_samples,
 };
 use std::collections::{HashMap, HashSet};
 use std::io::IsTerminal;
 
-fn usage(msg: impl Into<String>) -> IoError {
-    UsageError(msg.into()).into()
-}
-
 pub fn run_filter(ctx: &Ctx, a: &VcfFilterArgs) -> anyhow::Result<()> {
-    if a.biallelic && (a.min_alleles.is_some() || a.max_alleles.is_some()) {
-        return Err(
-            usage("--biallelic cannot be combined with --min-alleles or --max-alleles").into(),
-        );
-    }
-    if let Some(m) = a.min_maf
-        && !(0.0..=1.0).contains(&m)
-    {
-        return Err(usage(format!("--min-maf {m} is not in [0, 1]")).into());
-    }
-    if let Some(m) = a.max_maf
-        && !(0.0..=1.0).contains(&m)
-    {
-        return Err(usage(format!("--max-maf {m} is not in [0, 1]")).into());
-    }
-    if let Some(m) = a.max_missing
-        && !(0.0..=1.0).contains(&m)
-    {
-        return Err(usage(format!("--max-missing {m} is not in [0, 1]")).into());
-    }
-    if a.samples.is_some() && a.samples_file.is_some() {
-        return Err(usage("--samples and --samples-file cannot be combined").into());
-    }
-    if a.exclude_samples.is_some() && a.exclude_samples_file.is_some() {
-        return Err(
-            usage("--exclude-samples and --exclude-samples-file cannot be combined").into(),
-        );
-    }
-
     let include_samples = match (&a.samples, &a.samples_file) {
         (Some(list), None) => Some(list.clone()),
         (None, Some(path)) => Some(read_samples(&path.to_string_lossy())?),
@@ -176,113 +144,12 @@ pub fn run_filter(ctx: &Ctx, a: &VcfFilterArgs) -> anyhow::Result<()> {
         None => None,
     };
 
-    let vo = ViewOptions {
-        header_only: false,
-        no_header: false,
-        regions: a.region.region.clone(),
-        regions_file: a
-            .region
-            .regions_file
-            .as_ref()
-            .map(|p| p.to_string_lossy().into_owned()),
-        inclusive_points: a.inclusive_points,
-        genome: None,
-        chrom_order: gloci_core::ChromOrder::Karyotype,
-        assume_sorted: false,
-    };
-
-    let (input, mut chrom_table) = open_view(&a.file, &vo, &ro)?;
-    let in_format = input.format();
-    if in_format != Format::Vcf && in_format != Format::Bcf {
-        return Err(usage(format!(
-            "vcf filter works on VCF and BCF input, but {} is {:?}",
-            input.name(),
-            in_format
-        ))
-        .into());
-    }
-
-    let Header::Vcf(h) = input.header().clone() else {
-        return Err(IoError::Detect {
-            path: input.name().to_string(),
-            msg: "a VCF/BCF input has no VCF header".into(),
-        }
-        .into());
-    };
-
-    let selection = if include_samples.is_some() || !exclude_samples.is_empty() {
-        Some(select_samples(
-            &h.samples,
-            include_samples.as_deref(),
-            &exclude_samples,
-        )?)
-    } else {
-        None
-    };
-
     let mask_rules = MaskRules {
         min_gq: a.min_gq,
         min_dp: a.min_dp,
         max_dp: a.max_dp,
         mask_filtered: a.mask_filtered_genotypes,
     };
-
-    let plan = RewritePlan {
-        selection,
-        mask: mask_rules,
-        keep_info,
-        drop_info,
-        recalc_ac: a.recalc_ac,
-    };
-
-    let rewritten_header_raw = rewrite_header(&h, &plan);
-    let out_header =
-        gloci_io::VcfHeader::parse(rewritten_header_raw).map_err(|e| IoError::Detect {
-            path: input.name().to_string(),
-            msg: e,
-        })?;
-
-    let spec = parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref())?;
-    let family = OutFormat::family(in_format);
-    let to = spec.format.unwrap_or(family);
-    if to != OutFormat::Vcf && to != OutFormat::Bcf {
-        return Err(usage(format!(
-            "output format for vcf filter must be VCF or BCF, not {:?}",
-            to
-        ))
-        .into());
-    }
-
-    refuse_binary_to_tty(
-        spec.path.is_none() && std::io::stdout().is_terminal(),
-        to,
-        spec.bgzf,
-    )?;
-
-    let oo = OutputOptions {
-        threads: ctx.threads,
-        level: a.out.compression_level,
-        write_index: a.out.write_index,
-    };
-    let wo = WriterOptions {
-        write_header: true,
-        command_line: Some(ctx.command_line.clone()),
-        version: ctx.version,
-    };
-
-    let out = open_output(&spec, to, &oo)?;
-    let mut writer = open_record_writer(
-        out,
-        if to == OutFormat::Bcf {
-            Format::Bcf
-        } else {
-            Format::Vcf
-        },
-        to,
-        &Header::Vcf(out_header),
-        &wo,
-    )?;
-
     let options = VcfFilterOptions {
         include_samples,
         exclude_samples,
@@ -318,14 +185,53 @@ pub fn run_filter(ctx: &Ctx, a: &VcfFilterArgs) -> anyhow::Result<()> {
             exclude_regions,
             inclusive_points: a.inclusive_points,
         },
-        plan,
-        // open_view wraps the reader with in-stream or indexed region selection.
-        regions: Vec::new(),
-        regions_file: None,
+        plan: RewritePlan {
+            selection: None,
+            mask: mask_rules,
+            keep_info,
+            drop_info,
+            recalc_ac: a.recalc_ac,
+        },
+        regions: a.region.region.clone(),
+        regions_file: a
+            .region
+            .regions_file
+            .as_ref()
+            .map(|p| p.to_string_lossy().into_owned()),
     };
+    options.validate()?;
 
-    vcf_filter(input, &mut chrom_table, &options, writer.as_mut())?;
-    writer.finish()?;
-
+    let spec = parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref())?;
+    let input = open_vcf_filter(&a.file, &ro, &options)?;
+    let (to, header) = vcf_filter_output(input.reader(), spec.format, &options)?;
+    refuse_binary_to_tty(
+        spec.path.is_none() && std::io::stdout().is_terminal(),
+        to,
+        spec.bgzf,
+    )?;
+    let oo = OutputOptions {
+        threads: ctx.threads,
+        level: a.out.compression_level,
+        write_index: a.out.write_index,
+    };
+    let wo = WriterOptions {
+        write_header: true,
+        command_line: Some(ctx.command_line.clone()),
+        version: ctx.version,
+    };
+    let dest = spec
+        .path
+        .as_ref()
+        .map_or_else(|| "stdout".to_string(), |p| p.display().to_string());
+    let out = open_output(&spec, to, &oo)?;
+    let record_format = if to == OutFormat::Bcf {
+        Format::Bcf
+    } else {
+        Format::Vcf
+    };
+    let mut writer = open_record_writer(out, record_format, to, &header, &wo)
+        .map_err(|e| e.with_output_name(&dest))?;
+    vcf_filter_file(input, &options, writer.as_mut()).map_err(|e| e.with_output_name(&dest))?;
+    writer.finish().map_err(|e| e.with_output_name(&dest))?;
     Ok(())
 }

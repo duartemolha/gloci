@@ -177,6 +177,7 @@ pub fn windows_intervals(
         max = next_batch_size(&batch, max);
         if !more {
             c.finish();
+            crate::skipped::log_reader(input.as_ref());
             return Ok(());
         }
     }

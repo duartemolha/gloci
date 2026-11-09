@@ -25,7 +25,7 @@
 use crate::intersect::Text;
 use crate::relate::{
     Acceptor, RelateInputs, RelateOptions, RelationFiles, ReportOutput, RunOptions, b_placeholder,
-    b_width, relation_chroms, run_files, run_relation_in,
+    b_width, relation_chroms, report_skipped, run_files, run_relation_in,
 };
 use gloci_core::{ChromTable, SignFrame, signed_distance};
 use gloci_engine::{ARec, Hit, NearestConfig, Neighbours, SweepSummary, Visitor};
@@ -325,7 +325,9 @@ pub fn closest(
     check(inputs.b.len(), o)?;
     let mut chroms = relation_chroms(&inputs, &o.relate)?;
     let width = b_width(&mut inputs, &mut chroms)?;
-    closest_in(inputs, Some(chroms), width, o, w)
+    let summary = closest_in(inputs, Some(chroms), width, o, w)?;
+    report_skipped(&summary);
+    Ok(summary)
 }
 
 /// Run `closest` over the files a command opened: per chromosome when

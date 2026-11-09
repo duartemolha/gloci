@@ -14,7 +14,8 @@
 use crate::agg::{Accumulators, AggSpec, Op, resolve};
 use crate::intersect::Text;
 use crate::relate::{
-    Acceptor, RelateInputs, RelateOptions, RelationFiles, RunOptions, run_files, run_relation_in,
+    Acceptor, RelateInputs, RelateOptions, RelationFiles, RunOptions, report_skipped, run_files,
+    run_relation_in,
 };
 use gloci_core::ChromTable;
 use gloci_engine::{ARec, Hit, Neighbours, SweepSummary, Visitor};
@@ -135,7 +136,9 @@ pub fn map(
     o: &MapOptions,
     w: &mut dyn RecordWriter,
 ) -> Result<SweepSummary, IoError> {
-    map_in(inputs, None, o, w)
+    let summary = map_in(inputs, None, o, w)?;
+    report_skipped(&summary);
+    Ok(summary)
 }
 
 /// Run `map` over the files a command opened: per chromosome when every

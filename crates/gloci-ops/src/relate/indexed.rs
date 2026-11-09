@@ -68,7 +68,19 @@ pub(super) fn run_indexed<R: Send>(
         let (x, y) = (chroms.get(x), chroms.get(y));
         chroms.cmp(x.expect("interned"), y.expect("interned"))
     });
-    let chunks: Vec<Vec<Vec<u8>>> = ordered.into_iter().map(|c| vec![c]).collect();
+    // Runs of consecutive chromosomes, balanced by the index's estimate of
+    // their size in every input.
+    let weights: Vec<u64> = ordered
+        .iter()
+        .map(|c| {
+            std::iter::once(&file_a)
+                .chain(&files_b)
+                .map(|f| f.weight(c))
+                .sum::<u64>()
+                + 1
+        })
+        .collect();
+    let chunks = group_chromosomes(ordered, &weights, CHUNKS_PER_THREAD * run.threads.get());
 
     let watching = relate.criteria.strand != StrandRule::Any;
     let flags: Vec<Arc<AtomicBool>> = (0..=files_b.len())
@@ -138,6 +150,35 @@ pub(super) fn run_indexed<R: Send>(
     Ok((summary, rs))
 }
 
+/// Chunks per thread: enough to balance uneven chromosomes across threads,
+/// few enough that per-chunk costs stay small on genomes with many contigs.
+const CHUNKS_PER_THREAD: usize = 4;
+
+/// Split `chroms` (in table order) into at most `target` runs of consecutive
+/// chromosomes of about equal total weight: a run ends once the weight so
+/// far reaches the next multiple of `total / target`.
+fn group_chromosomes(chroms: Vec<Vec<u8>>, weights: &[u64], target: usize) -> Vec<Vec<Vec<u8>>> {
+    let target = target.max(1) as u128;
+    let total: u128 = weights.iter().map(|&w| u128::from(w)).sum::<u128>().max(1);
+    let mut groups = Vec::new();
+    let mut current = Vec::new();
+    let (mut acc, mut k) = (0u128, 1u128);
+    for (c, &w) in chroms.into_iter().zip(weights) {
+        current.push(c);
+        acc += u128::from(w);
+        if acc * target >= k * total {
+            groups.push(std::mem::take(&mut current));
+            while k <= target && acc * target >= k * total {
+                k += 1;
+            }
+        }
+    }
+    if !current.is_empty() {
+        groups.push(current);
+    }
+    groups
+}
+
 /// Intern the chromosomes `f`'s index lists; one missing from a closed
 /// table is an error naming the index file and the chromosome.
 fn intern_index_names(
@@ -157,4 +198,32 @@ fn intern_index_names(
         })?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::group_chromosomes;
+
+    fn names(n: usize) -> Vec<Vec<u8>> {
+        (0..n).map(|i| format!("c{i}").into_bytes()).collect()
+    }
+
+    #[test]
+    fn groups_are_bounded_ordered_and_complete() {
+        for (n, target) in [(5000, 16), (3, 16), (16, 16), (100, 1), (1, 4)] {
+            let chroms = names(n);
+            let weights: Vec<u64> = (0..n as u64).map(|i| 1 + (i * 7919) % 1000).collect();
+            let groups = group_chromosomes(chroms.clone(), &weights, target);
+            assert!(
+                groups.len() <= target.max(1),
+                "{n} {target}: {}",
+                groups.len()
+            );
+            assert!(groups.iter().all(|g| !g.is_empty()));
+            assert_eq!(groups.concat(), chroms);
+        }
+        // A heavy chromosome ends its run; the light ones after it share one.
+        let g = group_chromosomes(names(4), &[1, 1000, 1, 1], 4);
+        assert_eq!(g, vec![names(2), vec![b"c2".to_vec(), b"c3".to_vec()]]);
+    }
 }

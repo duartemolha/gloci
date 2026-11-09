@@ -169,7 +169,7 @@ fn chunk_spill_path() {
 
     let got = out_env(
         &["intersect", "-a", &a_idx, "-b", &b_idx, "-t", "2"],
-        "GLOCI_CHUNK_MEM_LIMIT",
+        "GLOCI_TEST_CHUNK_MEM_LIMIT",
         "1024",
     );
     assert_eq!(got, baseline, "chunk spill output does not match baseline");
@@ -269,7 +269,7 @@ fn cli_tmp_dir_on_indexed_relations() {
             "-t",
             "2",
         ])
-        .env("GLOCI_CHUNK_MEM_LIMIT", "1024")
+        .env("GLOCI_TEST_CHUNK_MEM_LIMIT", "1024")
         .assert()
         .success();
 }
@@ -576,5 +576,47 @@ chr3\t755\tv3\tA\tG\t.\tPASS\t.\n";
     let width = header.split('\t').count();
     for line in got.lines() {
         assert_eq!(line.split('\t').count(), width, "ragged row: {line}");
+    }
+}
+
+/// Equally near B are reported in B's input order (D38) in indexed mode
+/// too: region readers number records in file order.
+#[test]
+fn ties_keep_b_input_order_indexed() {
+    let dir = tempdir();
+    let (mut a_text, mut b_text) = (String::new(), String::new());
+    for c in 1..=40 {
+        let chrom = format!("chr{c}");
+        a_text.push_str(&format!(
+            "{chrom}\t2051\t2052\ta{c}\n{chrom}\t5000\t5100\tx{c}\n"
+        ));
+        // Two B ending at the same base: the same distance from A.
+        b_text.push_str(&format!(
+            "{chrom}\t1803\t2016\tfirst{c}\n{chrom}\t1857\t2016\tsecond{c}\n\
+{chrom}\t5050\t5060\tp{c}\n{chrom}\t5050\t5060\tq{c}\n"
+        ));
+    }
+    let a = indexed_pair(dir.path(), "a", &a_text);
+    let b = indexed_pair(dir.path(), "b", &b_text);
+    let cases: &[(&str, &[&str])] = &[
+        (
+            "closest",
+            &["closest", "-a", "{A}", "-b", "{B}", "--distance"],
+        ),
+        (
+            "closest -k 3",
+            &["closest", "-a", "{A}", "-b", "{B}", "-k", "3"],
+        ),
+        (
+            "pairs",
+            &["intersect", "-a", "{A}", "-b", "{B}", "--mode", "pairs"],
+        ),
+        (
+            "map",
+            &["map", "-a", "{A}", "-b", "{B}", "-c", "4:collapse"],
+        ),
+    ];
+    for (name, template) in cases {
+        assert_indexed_equals_streaming(name, template, &a, &b);
     }
 }

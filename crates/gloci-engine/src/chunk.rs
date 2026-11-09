@@ -7,8 +7,6 @@ use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
-const DEFAULT_MEM_LIMIT: usize = 64 * 1024 * 1024; // 64 MiB
-
 struct SpillState {
     _dir: TempDir,
     _guard: TempGuard,
@@ -25,25 +23,29 @@ pub struct ChunkSink {
 }
 
 impl ChunkSink {
-    /// Creates a sink buffering up to 64 MiB (or env `GLOCI_CHUNK_MEM_LIMIT`)
-    /// in memory before spilling to LZ4 in `tmp_dir`.
-    pub fn new(tmp_dir: &Path) -> Self {
-        let limit = std::env::var("GLOCI_CHUNK_MEM_LIMIT")
-            .ok()
-            .and_then(|s| s.parse::<usize>().ok())
-            .unwrap_or(DEFAULT_MEM_LIMIT);
-        Self::with_mem_limit(tmp_dir, limit)
+    /// Creates a sink that buffers up to `mem_limit` bytes in memory before
+    /// spilling to LZ4 in `tmp_dir` ([`crate::parallel::chunk_mem_limit`]
+    /// gives the limit for a run).
+    pub fn with_mem_limit(tmp_dir: &Path, mem_limit: usize) -> Self {
+        Self::with_buffer(tmp_dir, mem_limit, Vec::new())
     }
 
-    /// Creates a sink with a custom in-memory limit, for testing.
-    pub fn with_mem_limit(tmp_dir: &Path, mem_limit: usize) -> Self {
+    /// Like [`ChunkSink::with_mem_limit`], buffering in `buf` (cleared), so
+    /// a buffer can serve one chunk after another.
+    pub fn with_buffer(tmp_dir: &Path, mem_limit: usize, mut buf: Vec<u8>) -> Self {
+        buf.clear();
         Self {
             mem_limit,
             tmp_dir: tmp_dir.to_path_buf(),
-            mem_buf: Vec::new(),
+            mem_buf: buf,
             spill: None,
             is_bcf: false,
         }
+    }
+
+    /// The in-memory buffer, for the next chunk (see [`ChunkSink::with_buffer`]).
+    pub fn into_buffer(mut self) -> Vec<u8> {
+        std::mem::take(&mut self.mem_buf)
     }
 
     /// Drain all buffered records to `out` in order, then remove any spill files.
@@ -139,6 +141,13 @@ impl RecordWriter for ChunkSink {
 
         if self.spill.is_none() {
             if self.mem_buf.len() + 4 + raw.len() <= self.mem_limit {
+                if self.mem_buf.capacity() == 0 {
+                    // One allocation of the whole limit: growing by doubling
+                    // leaves the outgrown buffers resident in the allocator,
+                    // several times the limit in all (pages are only
+                    // resident once written).
+                    self.mem_buf.reserve_exact(self.mem_limit);
+                }
                 self.mem_buf.extend_from_slice(&rec_len.to_le_bytes());
                 self.mem_buf.extend_from_slice(raw);
                 return Ok(());

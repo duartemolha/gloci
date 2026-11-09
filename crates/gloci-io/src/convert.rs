@@ -155,7 +155,24 @@ add ##contig=<ID={c}> to the header"
             });
         }
         let rec = noodles_vcf::Record::try_from(raw).map_err(fail)?;
-        w.write_variant_record(&self.header, &rec).map_err(fail)?;
+        if let Err(e) = w.write_variant_record(&self.header, &rec) {
+            w.get_mut().clear();
+            if mixes_missing_haploid(raw) {
+                let mut f = raw.split(|&b| b == b'\t');
+                let chrom = String::from_utf8_lossy(f.next().unwrap_or_default());
+                let pos = String::from_utf8_lossy(f.next().unwrap_or_default());
+                return Err(IoError::Parse {
+                    path: self.name.clone(),
+                    loc,
+                    msg: format!(
+                        "{chrom}:{pos}: BCF output of a record that mixes a missing haploid \
+genotype (GT \".\") with diploid ones is not supported yet; write VCF instead, for example \
+-o out.vcf.gz (see docs/differences.md#bcf-mixed-ploidy-missing)"
+                    ),
+                });
+            }
+            return Err(fail(e));
+        }
         out.write_all(w.get_ref())
             .map_err(|source| IoError::Write {
                 path: "output".to_string(),
@@ -262,6 +279,31 @@ impl BcfText {
     }
 }
 
+/// Whether the VCF line `raw` has a sample whose GT is a bare `.` (a
+/// missing haploid call) next to a sample with two or more alleles, which
+/// the BCF encoder cannot write yet.
+fn mixes_missing_haploid(raw: &[u8]) -> bool {
+    let mut fields = raw.split(|&b| b == b'\t');
+    let Some(format) = fields.nth(8) else {
+        return false;
+    };
+    let Some(gt) = format.split(|&b| b == b':').position(|k| k == b"GT") else {
+        return false;
+    };
+    let (mut haploid_missing, mut multi) = (false, false);
+    for sample in fields {
+        let Some(v) = sample.split(|&b| b == b':').nth(gt) else {
+            continue;
+        };
+        if v == b"." {
+            haploid_missing = true;
+        } else if v.iter().any(|&b| b == b'/' || b == b'|') {
+            multi = true;
+        }
+    }
+    haploid_missing && multi
+}
+
 /// Encodes VCF text records as BCF records against a header, for commands
 /// that rewrite records as text and write BCF.
 pub struct TextToBcf {
@@ -354,4 +396,19 @@ pub fn convert_variants(
     }
     out.finish()?;
     Ok(n)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mixes_missing_haploid;
+
+    #[test]
+    fn detects_missing_haploid_next_to_diploid() {
+        let line = |gts: &str| format!("chr1\t10\t.\tA\tG\t.\tPASS\t.\tGT:DP\t{gts}");
+        assert!(mixes_missing_haploid(line("0/1:3\t.:4").as_bytes()));
+        assert!(mixes_missing_haploid(line(".:1\t1|1:2").as_bytes()));
+        assert!(!mixes_missing_haploid(line("0/1:3\t./.:4").as_bytes()));
+        assert!(!mixes_missing_haploid(line("0:3\t.:4").as_bytes()));
+        assert!(!mixes_missing_haploid(b"chr1\t10\t.\tA\tG\t.\tPASS\t."));
+    }
 }

@@ -2,6 +2,7 @@
 //! per cluster (replaces `bedtools merge` and `bedops -m`).
 
 use crate::agg::{Accumulators, AggSpec, Op, ResolvedAgg, resolve};
+use crate::skipped::{Skipped, log_skipped};
 use gloci_core::{ChromId, ChromTable, Strand};
 use gloci_engine::kmerge_with;
 use gloci_io::{Format, IoError, OutFormat, RecordMeta, RecordReader, RecordWriter, UsageError};
@@ -315,6 +316,8 @@ fn merge_counting_impl(
     let accs = (0..slots)
         .map(|_| Accumulators::new(resolved.clone(), o.empty.clone(), o.delim.clone()))
         .collect();
+    let mut skipped = Skipped::default();
+    let inputs: Vec<Box<dyn RecordReader>> = inputs.into_iter().map(|r| skipped.watch(r)).collect();
     let mut unknown_strand = vec![false; inputs.len()];
     let mut chroms_seen: Vec<Vec<Vec<u8>>> = vec![Vec::new(); inputs.len()];
     let mut last_chrom: Vec<Option<ChromId>> = vec![None; inputs.len()];
@@ -347,26 +350,9 @@ fn merge_counting_impl(
         m.record(input, meta, raw, chroms)
     })?;
     m.finish_chrom()?;
-    let non_empty: Vec<usize> = (0..names.len())
-        .filter(|&i| !chroms_seen[i].is_empty())
-        .collect();
-    if non_empty.len() >= 2 {
-        for (idx, &i) in non_empty.iter().enumerate() {
-            for &j in &non_empty[idx + 1..] {
-                let shares = chroms_seen[i].iter().any(|c| chroms_seen[j].contains(c));
-                if !shares {
-                    log::warn!(
-                        "{}",
-                        gloci_io::naming::format_disjoint_chroms_warning(
-                            &names[i],
-                            &chroms_seen[i],
-                            &names[j],
-                            &chroms_seen[j],
-                        )
-                    );
-                }
-            }
-        }
+    log_skipped(&skipped.take());
+    if let Some(w) = gloci_io::naming::nary_naming_warning(&names, &chroms_seen) {
+        log::warn!("{w}");
     }
     if o.per_strand {
         for (name, _) in names.iter().zip(&unknown_strand).filter(|(_, u)| **u) {

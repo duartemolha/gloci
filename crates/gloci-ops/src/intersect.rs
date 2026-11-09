@@ -7,7 +7,7 @@
 
 use crate::relate::{
     Acceptor, RelateInputs, RelateOptions, RelationFiles, ReportOutput, RunOptions, b_placeholder,
-    b_width, relation_chroms, rewrite_coords, run_files, run_relation_in,
+    b_width, relation_chroms, report_skipped, rewrite_coords, run_files, run_relation_in,
 };
 use gloci_core::{ChromTable, Interval, StrandRule, Window, trimmed_alleles};
 use gloci_engine::{ARec, Hit, Neighbours, SweepSummary, Visitor};
@@ -336,7 +336,9 @@ pub fn intersect(
     } else {
         (None, 3)
     };
-    intersect_in(inputs, chroms, width, o, w)
+    let summary = intersect_in(inputs, chroms, width, o, w)?;
+    report_skipped(&summary);
+    Ok(summary)
 }
 
 /// Run `intersect` over the files a command opened: per chromosome when

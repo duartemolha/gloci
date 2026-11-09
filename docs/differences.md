@@ -196,6 +196,24 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Pinned by:** `vcf-to-bcf-bad-header-vs-bcftools` (a duplicated INFO ID:
   gloci exit status 1, `bcftools view -Ob` exit status 0).
 
+## BCF output of a missing haploid genotype next to diploid ones {#bcf-mixed-ploidy-missing}
+
+- **gloci:** writing BCF (`view -O bcf`, `vcf filter -o x.bcf`) stops at a
+  record in which one sample's GT is a bare `.` (a missing haploid call) and
+  another's has two or more alleles, with exit status 1: `calls.vcf line 5:
+  chr1:10: BCF output of a record that mixes a missing haploid genotype (GT
+  ".") with diploid ones is not supported yet; write VCF instead, for example
+  -o out.vcf.gz`. No partial output is left. VCF output of the same records
+  works, as does BCF output of records where every sample has the same ploidy
+  (`./.` next to `0/1` is fine).
+- **Old behaviour:** `bcftools view -Ob` 1.21 writes the record, padding the
+  haploid sample's GT vector with the vector-end value.
+- **Reason:** the BCF encoder gloci uses cannot encode GT vectors of mixed
+  length yet; native GT encoding for BCF output is planned. Until then gloci
+  refuses rather than write a wrong record.
+- **Pinned by:** `vcf-to-bcf-mixed-ploidy-vs-bcftools` (gloci exit status 1,
+  `bcftools view -Ob` exit status 0).
+
 ## Zero-length BED records {#zero-length-bed-records}
 
 - **gloci:** accepted, and treated as points.

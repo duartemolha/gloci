@@ -218,6 +218,9 @@ struct RegionReader {
     /// The end of the chunk being read.
     chunk_end: Option<VirtualPosition>,
     last_emitted: Option<VirtualPosition>,
+    /// Records emitted so far: each record's `loc` is its number in this
+    /// reader's output, which keeps file order for tie-breaking (D38).
+    emitted: u64,
 }
 
 impl RegionReader {
@@ -379,12 +382,13 @@ impl RegionReader {
                 && self.last_emitted.is_none_or(|l| start > l)
             {
                 let len = (batch.buf.len() - off) as u32;
+                self.emitted += 1;
                 batch.recs.push(RecordMeta {
                     chrom,
                     key,
                     span,
                     strand,
-                    loc: 0,
+                    loc: self.emitted,
                     off,
                     len,
                 });
@@ -437,8 +441,9 @@ impl RecordReader for RegionReader {
 /// chromosomes the index does not know yield nothing. The header is read
 /// from the start of the file.
 ///
-/// Records carry `loc` 0: their line numbers are unknown. Parse errors name
-/// the record's BGZF virtual offset instead.
+/// Line numbers are unknown, so each record's `loc` is its number among the
+/// records this reader yields (file order, which ties are broken by); parse
+/// errors name the record's BGZF virtual offset instead.
 pub fn open_region_reader(
     path: &Path,
     regions: &[(Vec<u8>, Interval)],
@@ -525,6 +530,7 @@ pub fn open_region_reader(
         loaded: false,
         chunk_end: None,
         last_emitted: None,
+        emitted: 0,
     }))
 }
 
@@ -766,6 +772,7 @@ impl IndexedFile {
             loaded: false,
             chunk_end: None,
             last_emitted: None,
+            emitted: 0,
         }))
     }
 }

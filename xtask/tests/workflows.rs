@@ -102,8 +102,16 @@ fn release_workflow_and_dockerfile_are_valid() {
         "ci.yml must include an actionlint step"
     );
 
-    // 4. Every third-party action in release.yml and ci.yml must be pinned to a 40-char commit SHA
-    for (name, content) in [("release.yml", &release_yml), ("ci.yml", &ci_yml)] {
+    // 4. Every action in release.yml, ci.yml and nightly.yml must be pinned
+    // to a 40-char commit SHA. NOTE: this checks the pins' format only, not
+    // that the commits exist or match the `# vX.Y.Z` labels (that needs the
+    // network; look a pin up with `gh api repos/OWNER/REPO/commits/TAG`).
+    let nightly_yml = fs::read_to_string(root.join(".github/workflows/nightly.yml")).unwrap();
+    for (name, content) in [
+        ("release.yml", &release_yml),
+        ("ci.yml", &ci_yml),
+        ("nightly.yml", &nightly_yml),
+    ] {
         for (lineno, line) in content.lines().enumerate() {
             let trimmed = line.trim_start();
             let rest = trimmed

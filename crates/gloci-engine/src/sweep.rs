@@ -72,6 +72,10 @@ pub struct SweepSummary {
     pub b_records: Vec<u64>,
     /// At least one chromosome had both A and B records.
     pub shared_chroms: bool,
+    /// Records skipped under `--skip-invalid`: each input's name and
+    /// diagnostics, A first. The engine leaves this empty; the relation
+    /// layer fills it once the readers are done.
+    pub skipped: Vec<(String, gloci_io::Diagnostics)>,
     #[doc(hidden)]
     pub stats: SweepStats,
 }
@@ -86,6 +90,13 @@ impl SweepSummary {
             *b += ob;
         }
         self.shared_chroms |= other.shared_chroms;
+        if self.skipped.is_empty() {
+            self.skipped = other.skipped.clone();
+        } else {
+            for ((_, d), (_, od)) in self.skipped.iter_mut().zip(&other.skipped) {
+                d.absorb(od.clone());
+            }
+        }
         self.stats.peak_active = self.stats.peak_active.max(other.stats.peak_active);
         self.stats.peak_pool = self.stats.peak_pool.max(other.stats.peak_pool);
         self.stats.peak_pool_bytes = self.stats.peak_pool_bytes.max(other.stats.peak_pool_bytes);
@@ -144,6 +155,7 @@ pub fn sweep_sorted(
         a_records: 0,
         b_records: Vec::new(),
         shared_chroms: false,
+        skipped: Vec::new(),
         stats: SweepStats::default(),
     };
     let mut spare: Vec<Hit<'static>> = Vec::new();

@@ -424,7 +424,8 @@ chr2\t300\trs3\tT\tA\t50\tPASS\tDP=30\tGT:DP\t0/1:10\t0/1:10\t0/1:10\n"
         };
         let mut w = TestWriter(Vec::new());
         let sum = vcf_filter(reader, &mut chroms, &opts, &mut w).unwrap();
-        assert_eq!(sum.records_in, 3);
+        // Regions are selected before the filters, which see one record.
+        assert_eq!(sum.records_in, 1);
         assert_eq!(sum.records_out, 1);
         let out = String::from_utf8(w.0).unwrap();
         assert!(out.contains("rs2"));
@@ -441,10 +442,52 @@ chr2\t300\trs3\tT\tA\t50\tPASS\tDP=30\tGT:DP\t0/1:10\t0/1:10\t0/1:10\n"
         };
         let mut w = TestWriter(Vec::new());
         let sum = vcf_filter(reader, &mut chroms, &opts, &mut w).unwrap();
-        assert_eq!(sum.records_in, 3);
+        // Regions are selected before the filters, which see one record.
+        assert_eq!(sum.records_in, 1);
         assert_eq!(sum.records_out, 1);
         let out = String::from_utf8(w.0).unwrap();
         assert!(out.contains("rs2"));
         assert!(!out.contains("rs1"));
     }
+}
+
+/// I9: BCF output of a missing haploid GT next to diploid ones is a clear
+/// error naming the file and record, with VCF output suggested.
+#[test]
+fn bcf_mixed_ploidy_missing_is_a_clear_error() {
+    let d = tempdir();
+    let input = "##fileformat=VCFv4.3\n##contig=<ID=chr1,length=1000>\n\
+##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\ts2\n\
+chr1\t10\t.\tA\tG\t.\tPASS\t.\tGT\t0/1\t.\n";
+    let p = plain_file(d.path(), "mixed.vcf", input);
+    let p = p.to_string_lossy().into_owned();
+    for args in [
+        vec!["view", p.as_str(), "-o"],
+        vec!["vcf", "filter", p.as_str(), "-o"],
+    ] {
+        let out = d.path().join("out.bcf");
+        let o = gloci()
+            .args(&args)
+            .arg(&out)
+            .assert()
+            .code(1)
+            .get_output()
+            .stderr
+            .clone();
+        let e = String::from_utf8(o).unwrap();
+        assert!(e.contains(&format!("{p} ")), "{e}");
+        assert!(
+            e.contains("chr1:10: BCF output of a record that mixes a missing haploid"),
+            "{e}"
+        );
+        assert!(e.contains("-o out.vcf.gz"), "{e}");
+        assert!(!out.exists(), "partial output left");
+    }
+    // VCF output of the same record works.
+    gloci()
+        .args(["vcf", "filter", &p, "-o"])
+        .arg(d.path().join("out.vcf.gz"))
+        .assert()
+        .success();
 }

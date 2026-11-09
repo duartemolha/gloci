@@ -6,6 +6,7 @@
 //! one full-length row. Without one, only the gaps between features of the
 //! same chromosome. Points cover no bases and are ignored (D48).
 
+use crate::skipped::{Skipped, log_skipped};
 use gloci_core::{ChromId, ChromTable, Genome};
 use gloci_engine::kmerge_with;
 use gloci_io::{Format, IoError, Loc, RecordMeta, RecordReader, RecordWriter, UsageError};
@@ -178,6 +179,8 @@ fn complement_impl(
         .iter()
         .map(|r| r.name().to_string())
         .collect::<Vec<_>>();
+    let mut skipped = Skipped::default();
+    let inputs: Vec<Box<dyn RecordReader>> = inputs.into_iter().map(|r| skipped.watch(r)).collect();
     let mut chroms_seen: Vec<Vec<Vec<u8>>> = vec![Vec::new(); inputs.len()];
     let mut last_chrom: Vec<Option<ChromId>> = vec![None; inputs.len()];
     let mut c = Comp {
@@ -204,26 +207,9 @@ fn complement_impl(
     if let Some(g) = genome {
         c.untouched_before(g.len())?;
     }
-    let non_empty: Vec<usize> = (0..names.len())
-        .filter(|&i| !chroms_seen[i].is_empty())
-        .collect();
-    if non_empty.len() >= 2 {
-        for (idx, &i) in non_empty.iter().enumerate() {
-            for &j in &non_empty[idx + 1..] {
-                let shares = chroms_seen[i].iter().any(|c| chroms_seen[j].contains(c));
-                if !shares {
-                    log::warn!(
-                        "{}",
-                        gloci_io::naming::format_disjoint_chroms_warning(
-                            &names[i],
-                            &chroms_seen[i],
-                            &names[j],
-                            &chroms_seen[j],
-                        )
-                    );
-                }
-            }
-        }
+    log_skipped(&skipped.take());
+    if let Some(w) = gloci_io::naming::nary_naming_warning(&names, &chroms_seen) {
+        log::warn!("{w}");
     }
     Ok(())
 }
