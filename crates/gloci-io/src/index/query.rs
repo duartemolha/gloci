@@ -520,7 +520,8 @@ pub fn open_region_reader(
 /// order: the names stored in a TBI/CSI header, or, for a BCF's CSI (which
 /// has none), the contig dictionary of the BCF header.
 pub fn index_reference_names(data: &Path, info: &IndexInfo) -> Result<Vec<Vec<u8>>, IoError> {
-    if let Some(names) = Loaded::read(info)?.names() {
+    let loaded = Loaded::read(info)?;
+    if let Some(names) = loaded.names() {
         return Ok(names.iter().map(|n| n.to_vec()).collect());
     }
     let name = data.display().to_string();
@@ -541,6 +542,8 @@ but the BCF header cannot be read: {msg}",
     Ok(dicts
         .contigs
         .into_iter()
-        .filter(|c| !c.is_empty())
+        .enumerate()
+        .filter(|(rid, c)| !c.is_empty() && loaded.first_offset(*rid).is_some())
+        .map(|(_, c)| c)
         .collect())
 }

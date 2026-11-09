@@ -1,5 +1,6 @@
 mod common;
 use common::*;
+use predicates::str::contains;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -224,4 +225,88 @@ fn missing_index_falls_back() {
     // a has index, b does not -> falls back to streaming silently
     let got = out(&["intersect", "-a", &a_idx, "-b", &b_un, "-t", "2"]);
     assert_eq!(got, baseline);
+}
+
+#[test]
+fn stale_index_warns_in_relation() {
+    let fx = Fixture::new();
+    let a_idx = s(&fx.a_indexed);
+    let b_idx = s(&fx.b_indexed);
+
+    let tbi = format!("{a_idx}.tbi");
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+    std::fs::File::options()
+        .write(true)
+        .open(&tbi)
+        .unwrap()
+        .set_modified(old)
+        .unwrap();
+
+    gloci()
+        .args(["intersect", "-a", &a_idx, "-b", &b_idx, "-t", "2"])
+        .assert()
+        .success()
+        .stderr(contains(format!("the index {tbi} is older than {a_idx}")));
+}
+
+#[test]
+fn cli_tmp_dir_on_indexed_relations() {
+    let fx = Fixture::new();
+    let a_idx = s(&fx.a_indexed);
+    let b_idx = s(&fx.b_indexed);
+    let tmp = fx.dir.path().join("cli_tmp");
+    fs::create_dir(&tmp).unwrap();
+
+    gloci()
+        .args([
+            "intersect",
+            "-a",
+            &a_idx,
+            "-b",
+            &b_idx,
+            "--tmp-dir",
+            &s(&tmp),
+            "-t",
+            "2",
+        ])
+        .env("GLOCI_CHUNK_MEM_LIMIT", "1024")
+        .assert()
+        .success();
+}
+
+#[test]
+fn closed_table_unknown_b_contig_fails() {
+    let dir = tempdir();
+    let a_text = "chr1\t10\t20\nchr2\t10\t20\n";
+    let b_text = "chr1\t10\t20\nchrUnknown\t10\t20\n";
+    let a_file = bgzf_file(dir.path(), "a.bed.gz", a_text);
+    let b_file = bgzf_file(dir.path(), "b.bed.gz", b_text);
+    gloci().args(["index", &s(&a_file)]).assert().success();
+    gloci().args(["index", &s(&b_file)]).assert().success();
+
+    let cmd = gloci()
+        .args([
+            "intersect",
+            "-a",
+            &s(&a_file),
+            "-b",
+            &s(&b_file),
+            "-g",
+            "hg38",
+            "-t",
+            "2",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!cmd.status.success());
+    let stderr = String::from_utf8_lossy(&cmd.stderr);
+    assert!(
+        stderr.contains("b.bed.gz"),
+        "stderr should name the B file: {stderr}"
+    );
+    assert!(
+        stderr.contains("chrUnknown"),
+        "stderr should name the unknown chromosome: {stderr}"
+    );
 }

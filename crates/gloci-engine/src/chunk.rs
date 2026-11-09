@@ -46,10 +46,6 @@ impl ChunkSink {
         }
     }
 
-    pub fn set_is_bcf(&mut self, is_bcf: bool) {
-        self.is_bcf = is_bcf;
-    }
-
     /// Drain all buffered records to `out` in order, then remove any spill files.
     pub fn drain_to(&mut self, out: &mut dyn RecordWriter) -> Result<(), IoError> {
         let mut offset = 0;

@@ -81,6 +81,10 @@ pub fn run(ctx: &Ctx, a: &SubtractArgs) -> anyhow::Result<()> {
         .collect();
     let use_indexed = all_indexed(&all_paths) && !a.u.unsorted && o.relate.sort.is_none();
 
+    if a.sort.tmp_dir.is_some() && !use_indexed && o.relate.sort.is_none() {
+        return Err(UsageError("--tmp-dir requires --sort or indexed inputs".into()).into());
+    }
+
     if use_indexed {
         run_indexed(
             &a.a.a,
@@ -92,7 +96,10 @@ pub fn run(ctx: &Ctx, a: &SubtractArgs) -> anyhow::Result<()> {
             ctx.threads,
             &ctx.tmp_dir,
             w.as_mut(),
-            &|chunk_inputs, chunk_sink| subtract(chunk_inputs, &o, chunk_sink),
+            &|chunk_inputs, chunk_sink| {
+                let summary = subtract(chunk_inputs, &o, chunk_sink)?;
+                Ok((summary, ()))
+            },
         )
         .map_err(|e| e.with_order_hint(relation_hint(&a.sort)))?;
     } else {

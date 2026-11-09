@@ -17,7 +17,7 @@ pub mod view;
 pub mod windows;
 
 use crate::Ctx;
-use crate::cli::{ChromOrderArg, SortArg, VcfSpan};
+use crate::cli::{ChromOrderArg, RelationSortArg, SortArg, VcfSpan};
 use gloci_io::{
     Format, InvalidPolicy, ReaderOptions, RecordReader, UsageError, chrom_table_for, open_reader,
 };
@@ -84,9 +84,41 @@ pub fn open_inputs(
 /// memory).
 pub const RELATION_FLAGS_HINT: &str = ", or pass --sort to sort the inputs first (output in sorted order), or --unsorted to keep A's order (every -b file is then held in memory)";
 
+pub trait SortArgLike {
+    fn is_sort(&self) -> bool;
+    fn max_mem(&self) -> u64;
+}
+
+impl SortArgLike for SortArg {
+    fn is_sort(&self) -> bool {
+        self.sort
+    }
+    fn max_mem(&self) -> u64 {
+        self.max_mem
+    }
+}
+
+impl SortArgLike for RelationSortArg {
+    fn is_sort(&self) -> bool {
+        self.sort
+    }
+    fn max_mem(&self) -> u64 {
+        self.max_mem
+    }
+}
+
+impl<T: SortArgLike> SortArgLike for &T {
+    fn is_sort(&self) -> bool {
+        (*self).is_sort()
+    }
+    fn max_mem(&self) -> u64 {
+        (*self).max_mem()
+    }
+}
+
 /// The hint extra for a relation command's order errors: none once `--sort`
 /// has sorted the inputs (the sorted stream cannot be out of order).
-pub fn relation_hint(sort: &SortArg) -> &'static str {
+pub fn relation_hint(sort: &RelationSortArg) -> &'static str {
     if sort.sort { "" } else { RELATION_FLAGS_HINT }
 }
 
@@ -99,8 +131,8 @@ pub fn user_span(span: VcfSpan) -> gloci_core::VcfSpan {
 
 /// Reader options for the inputs of a command with `--sort`: with the flag
 /// on they are opened the way the sorter needs (see [`sort_input_options`]).
-pub fn sort_aware(sort: &SortArg, ro: ReaderOptions) -> ReaderOptions {
-    if sort.sort {
+pub fn sort_aware(sort: impl SortArgLike, ro: ReaderOptions) -> ReaderOptions {
+    if sort.is_sort() {
         sort_input_options(&ro)
     } else {
         ro
@@ -108,9 +140,9 @@ pub fn sort_aware(sort: &SortArg, ro: ReaderOptions) -> ReaderOptions {
 }
 
 /// The settings of `--sort`, if given; `span` is the user's `--vcf-span`.
-pub fn sort_settings(ctx: &Ctx, sort: &SortArg, span: VcfSpan) -> Option<SortSettings> {
-    sort.sort.then(|| SortSettings {
-        max_mem: sort.max_mem,
+pub fn sort_settings(ctx: &Ctx, sort: impl SortArgLike, span: VcfSpan) -> Option<SortSettings> {
+    sort.is_sort().then(|| SortSettings {
+        max_mem: sort.max_mem(),
         tmp_dir: ctx.tmp_dir.clone(),
         threads: ctx.threads,
         vcf_span: user_span(span),

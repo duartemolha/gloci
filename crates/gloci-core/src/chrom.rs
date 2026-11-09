@@ -160,6 +160,10 @@ impl ChromTable {
         self.names.is_empty()
     }
 
+    pub fn is_closed(&self) -> bool {
+        self.closed
+    }
+
     pub fn cmp(&self, a: ChromId, b: ChromId) -> Ordering {
         match self.mode {
             Mode::Lexicographic => self.name(a).cmp(self.name(b)),

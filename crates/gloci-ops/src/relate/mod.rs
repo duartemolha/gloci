@@ -205,8 +205,8 @@ pub fn run_indexed<R: Send>(
     threads: NonZeroUsize,
     tmp_dir: &Path,
     out: &mut dyn RecordWriter,
-    work: &(dyn Fn(RelateInputs, &mut ChunkSink) -> Result<R, IoError> + Sync),
-) -> Result<Vec<R>, IoError> {
+    work: &(dyn Fn(RelateInputs, &mut ChunkSink) -> Result<(SweepSummary, R), IoError> + Sync),
+) -> Result<(SweepSummary, Vec<R>), IoError> {
     if relate.window.is_some() && has_threshold(&relate.criteria) {
         return Err(UsageError(
             "-w/--left/--right cannot be combined with -f, -F, -r, -e or --min-bases (D37)".into(),
@@ -233,6 +233,12 @@ pub fn run_indexed<R: Send>(
             "{path_a} has no index; create one with: gloci index {path_a}"
         ))
     })?;
+    if info_a.stale {
+        log::warn!(
+            "the index {} is older than {path_a}; it may be out of date (rebuild it with: gloci index {path_a})",
+            info_a.path.display()
+        );
+    }
     let raw_names = index_reference_names(path_a_obj, &info_a)?;
 
     for name in &raw_names {
@@ -262,6 +268,51 @@ pub fn run_indexed<R: Send>(
         })?;
     }
 
+    for p in paths_b {
+        let p_obj = Path::new(p);
+        if let Some(info_b) = find_index(p_obj) {
+            if info_b.stale {
+                log::warn!(
+                    "the index {} is older than {p}; it may be out of date (rebuild it with: gloci index {p})",
+                    info_b.path.display()
+                );
+            }
+            if chroms.is_closed() {
+                let b_ref_names = index_reference_names(p_obj, &info_b)?;
+                for name in &b_ref_names {
+                    chroms.intern(name).map_err(|e| {
+                        let place = match chroms.order_source() {
+                            gloci_core::OrderSource::GenomeFile(p) => {
+                                format!("the genome file {}", p.display())
+                            }
+                            gloci_core::OrderSource::BuiltinGenome(id) => {
+                                format!(
+                                    "the built-in genome {id} (gloci genomes show {id} lists its names)"
+                                )
+                            }
+                            gloci_core::OrderSource::VcfHeader(n) => {
+                                format!("the ##contig lines of {n}")
+                            }
+                            _ => "the genome".to_string(),
+                        };
+                        let hint = match chroms.order_source() {
+                            gloci_core::OrderSource::VcfHeader(_) => format!(
+                                "; add ##contig=<ID={}> to the header, or pass -g with a genome that lists it",
+                                e.0
+                            ),
+                            _ => String::new(),
+                        };
+                        IoError::Parse {
+                            path: p.to_string(),
+                            loc: gloci_io::Loc::Line(1),
+                            msg: format!("chromosome \"{}\" is not in {place}{hint}", e.0),
+                        }
+                    })?;
+                }
+            }
+        }
+    }
+
     let mut ordered_chroms = raw_names;
     ordered_chroms.sort_by(|x, y| {
         let id_x = chroms.get(x).unwrap();
@@ -277,7 +328,7 @@ pub fn run_indexed<R: Send>(
         .map(|_| Arc::new(AtomicBool::new(false)))
         .collect();
 
-    let chunk_work = |chrom: &[u8], sink: &mut ChunkSink| -> Result<R, IoError> {
+    let chunk_work = |chrom: &[u8], sink: &mut ChunkSink| -> Result<(SweepSummary, R), IoError> {
         let regions = [(
             chrom.to_vec(),
             gloci_core::Interval {
@@ -320,6 +371,13 @@ pub fn run_indexed<R: Send>(
 
     let results = run_per_chrom(ordered_chroms, threads, tmp_dir, &chunk_work, out)?;
 
+    let mut combined_summary = SweepSummary::default();
+    let mut chunk_rs = Vec::with_capacity(results.len());
+    for (s, r) in results {
+        combined_summary.merge(&s);
+        chunk_rs.push(r);
+    }
+
     if watching {
         for (name, flag) in names.iter().zip(&flags) {
             if flag.load(Ordering::Relaxed) {
@@ -330,5 +388,5 @@ pub fn run_indexed<R: Send>(
         }
     }
 
-    Ok(results)
+    Ok((combined_summary, chunk_rs))
 }

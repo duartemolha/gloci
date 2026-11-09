@@ -97,8 +97,12 @@ pub fn run(ctx: &Ctx, a: &CoverageArgs) -> anyhow::Result<()> {
         .collect();
     let use_indexed = all_indexed(&all_paths) && !a.u.unsorted && o.relate.sort.is_none();
 
+    if a.sort.tmp_dir.is_some() && !use_indexed && o.relate.sort.is_none() {
+        return Err(UsageError("--tmp-dir requires --sort or indexed inputs".into()).into());
+    }
+
     let totals = if use_indexed {
-        let chunk_results = run_indexed(
+        let (_, chunk_totals) = run_indexed(
             &a.a.a,
             &a.b.b,
             &ro_a,
@@ -115,7 +119,7 @@ pub fn run(ctx: &Ctx, a: &CoverageArgs) -> anyhow::Result<()> {
                 .with_order_hint(relation_hint(&a.sort))
         })?;
         let mut combined_totals = CoverageTotals::default();
-        for (_, t) in chunk_results {
+        for t in chunk_totals {
             combined_totals.merge(&t);
         }
         combined_totals
