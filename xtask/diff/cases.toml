@@ -232,13 +232,14 @@ reference = "bcftools view -Ob input.vcf"
 compare = "exit-status"
 expected_difference = "#vcf-header-conversion"
 
+# Mixed ploidy (a missing haploid `.` next to diploid calls): bcftools reads
+# gloci's BCF records as it reads its own conversion.
 [[case]]
 name = "vcf-to-bcf-mixed-ploidy-vs-bcftools"
 input = { file = "xtask/diff/inputs/mixed-ploidy-missing.vcf" }
-gloci = "gloci view -O bcf input.vcf"
-reference = "bcftools view -Ob input.vcf"
-compare = "exit-status"
-expected_difference = "#bcf-mixed-ploidy-missing"
+gloci = "set -e; gloci view -O bcf input.vcf -o g.bcf; bcftools view -H g.bcf"
+reference = "set -e; bcftools view -Ob -o t.bcf input.vcf; bcftools view -H t.bcf"
+compare = "exact"
 
 [[case]]
 name = "sort-bed-points-vs-sort-bed"

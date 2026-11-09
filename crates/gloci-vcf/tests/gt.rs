@@ -267,3 +267,45 @@ fn allele_buffer_survives_across_samples() {
     let a = &sf.gt.as_ref().unwrap().alleles;
     assert_eq!((a.as_ptr(), a.capacity()), (ptr, cap));
 }
+
+/// Encodes `l` through the native GT path and decodes it again.
+fn via_bcf(l: &[u8]) -> Vec<Row> {
+    let header =
+        gloci_io::VcfHeader::parse(vcf(&["s1", "s2", "s3", "s4", "s5"], &[]).into_bytes()).unwrap();
+    let dicts = gloci_io::BcfDicts::from_header(&header.raw).unwrap();
+    let mut enc = gloci_io::TextToBcf::new("t.vcf", &header).unwrap();
+    let mut rec = Vec::new();
+    enc.encode(l, 1, &mut rec).unwrap();
+    all(&bcf_genotypes(&rec, &dicts).unwrap())
+}
+
+#[test]
+fn encode_gt_roundtrip() {
+    let alts = (1..=70)
+        .map(|i| format!("T{i}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let cases: Vec<(&str, Vec<&str>)> = vec![
+        // A missing haploid next to diploid calls, then a triploid.
+        ("GT", vec!["0/1", ".", "1|0", "./.", "0/1/2"]),
+        ("GT", vec![".", ".", "1", "0|1", "."]),
+        // Alleles past int8 (63) and int16 widths, phased and unphased.
+        ("GT", vec!["63/64", "70|1", ".", "0", "65|65"]),
+        // A VCF 4.4 leading phase indicator.
+        ("GT", vec!["|0|1", "0|1", ".", "|1", "1|1|0"]),
+        // GT after another field, and with other fields following.
+        (
+            "DP:GT:GQ",
+            vec!["5:0/1:9", "5:.:9", "5:1|1:9", "5:./1:9", "5:0:9"],
+        ),
+    ];
+    for (fmt, gts) in cases {
+        let mut l = format!("1\t10\t.\tA\t{alts}\t50\tPASS\t.\t{fmt}").into_bytes();
+        for g in &gts {
+            l.push(b'\t');
+            l.extend_from_slice(g.as_bytes());
+        }
+        let want = all(&text_genotypes(&l).unwrap());
+        assert_eq!(via_bcf(&l), want, "{fmt} {gts:?}");
+    }
+}

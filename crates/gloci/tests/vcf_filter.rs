@@ -451,45 +451,52 @@ chr2\t300\trs3\tT\tA\t50\tPASS\tDP=30\tGT:DP\t0/1:10\t0/1:10\t0/1:10\n"
     }
 }
 
-/// I9: BCF output of a missing haploid GT next to diploid ones is a clear
-/// error naming the file and record, with VCF output suggested.
+/// D78: BCF output of a missing haploid GT next to diploid ones works (it
+/// was an error before native GT encoding), through `view` and `vcf filter`.
 #[test]
-fn bcf_mixed_ploidy_missing_is_a_clear_error() {
+fn bcf_mixed_ploidy_missing_converts() {
     let d = tempdir();
     let input = "##fileformat=VCFv4.3\n##contig=<ID=chr1,length=1000>\n\
 ##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n\
-#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\ts2\n\
-chr1\t10\t.\tA\tG\t.\tPASS\t.\tGT\t0/1\t.\n";
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description=\"Depth\">\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\ts2\ts3\n\
+chr1\t10\t.\tA\tG\t.\tPASS\t.\tGT:DP\t0/1:20\t.:20\t1|1:20\n";
     let p = plain_file(d.path(), "mixed.vcf", input);
     let p = p.to_string_lossy().into_owned();
-    for args in [
-        vec!["view", p.as_str(), "-o"],
-        vec!["vcf", "filter", p.as_str(), "-o"],
-    ] {
-        let out = d.path().join("out.bcf");
-        let o = gloci()
-            .args(&args)
-            .arg(&out)
-            .assert()
-            .code(1)
-            .get_output()
-            .stderr
-            .clone();
-        let e = String::from_utf8(o).unwrap();
-        assert!(e.contains(&format!("{p} ")), "{e}");
-        assert!(
-            e.contains("chr1:10: BCF output of a record that mixes a missing haploid"),
-            "{e}"
-        );
-        assert!(e.contains("-o out.vcf.gz"), "{e}");
-        assert!(!out.exists(), "partial output left");
-    }
-    // VCF output of the same record works.
+    let out = d.path().join("out.bcf");
     gloci()
-        .args(["vcf", "filter", &p, "-o"])
-        .arg(d.path().join("out.vcf.gz"))
+        .args(["view", p.as_str(), "-o"])
+        .arg(&out)
         .assert()
         .success();
+    let text = stdout_of(&["view", "-O", "vcf", &s(&out)]);
+    assert_eq!(
+        records_of(&text),
+        ["chr1\t10\t.\tA\tG\t.\tPASS\t.\tGT:DP\t0/1:20\t.:20\t1|1:20"]
+    );
+}
+
+/// D78: masking a haploid genotype next to diploid ones, written as BCF.
+#[test]
+fn vcf_filter_masked_haploid_to_bcf() {
+    let d = tempdir();
+    let input = "##fileformat=VCFv4.3\n##contig=<ID=chr1,length=1000>\n\
+##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n\
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description=\"Depth\">\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\ts2\ts3\n\
+chr1\t10\t.\tA\tG\t.\tPASS\t.\tGT:DP\t0/1:20\t1:2\t1|1:20\n";
+    let p = plain_file(d.path(), "mixed.vcf", input);
+    let out = d.path().join("out.bcf");
+    gloci()
+        .args(["vcf", "filter", &s(&p), "--min-dp", "10", "-o"])
+        .arg(&out)
+        .assert()
+        .success();
+    let text = stdout_of(&["view", "-O", "vcf", &s(&out)]);
+    assert_eq!(
+        records_of(&text),
+        ["chr1\t10\t.\tA\tG\t.\tPASS\t.\tGT:DP\t0/1:20\t.:2\t1|1:20"]
+    );
 }
 
 /// M5: format errors use the names users know, with a fix.

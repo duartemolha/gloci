@@ -8,7 +8,8 @@
 //! text whose dictionary positions are set from gloci's own dictionaries
 //! (`BcfDicts`), so the header text and the records always agree.
 
-use crate::bcf::{BcfDicts, write_bcf_header};
+use crate::bcf::{BcfDicts, typed, write_bcf_header};
+use crate::bcf_encode::encode_gt;
 use crate::detect::Format;
 use crate::error::{IoError, Loc};
 use crate::output::{OutFormat, Output};
@@ -99,6 +100,10 @@ struct Converter {
     from: Format,
     header: noodles_vcf::Header,
     enc: Encoder,
+    /// Dictionary index of the FORMAT key `GT`, when the header declares it.
+    gt_key: Option<usize>,
+    /// The record with its GT values blanked, reused between records.
+    scratch: Vec<u8>,
 }
 
 impl Converter {
@@ -116,11 +121,21 @@ impl Converter {
             }
             _ => Encoder::ToVcf(noodles_vcf::io::Writer::new(Vec::new())),
         };
+        let gt_key = match &h.bcf {
+            Some(d) => d.strings.iter().position(|n| n == b"GT"),
+            None => BcfDicts::from_header(&h.raw)
+                .map_err(|e| internal(name, format!("{name}: {e}")))?
+                .strings
+                .iter()
+                .position(|n| n == b"GT"),
+        };
         Ok(Converter {
             name: name.to_string(),
             from,
             header,
             enc,
+            gt_key,
+            scratch: Vec::new(),
         })
     }
 
@@ -154,31 +169,42 @@ add ##contig=<ID={c}> to the header"
                 ),
             });
         }
-        let rec = noodles_vcf::Record::try_from(raw).map_err(fail)?;
+        // noodles cannot encode GT vectors of different lengths, so it
+        // encodes the record with every GT blanked to `./.` and the real GT
+        // field is spliced in afterwards (see `splice_gt`).
+        let gt = match self.gt_key {
+            Some(_) => blank_gt(raw, &mut self.scratch),
+            None => None,
+        };
+        let src = if gt.is_some() { &self.scratch[..] } else { raw };
+        let rec = noodles_vcf::Record::try_from(src).map_err(fail)?;
         if let Err(e) = w.write_variant_record(&self.header, &rec) {
             w.get_mut().clear();
-            if mixes_missing_haploid(raw) {
-                let mut f = raw.split(|&b| b == b'\t');
-                let chrom = String::from_utf8_lossy(f.next().unwrap_or_default());
-                let pos = String::from_utf8_lossy(f.next().unwrap_or_default());
-                return Err(IoError::Parse {
-                    path: self.name.clone(),
-                    loc,
-                    msg: format!(
-                        "{chrom}:{pos}: BCF output of a record that mixes a missing haploid \
-genotype (GT \".\") with diploid ones is not supported yet; write VCF instead, for example \
--o out.vcf.gz (see docs/differences.md#bcf-mixed-ploidy-missing)"
-                    ),
-                });
-            }
             return Err(fail(e));
         }
-        out.write_all(w.get_ref())
-            .map_err(|source| IoError::Write {
-                path: "output".to_string(),
-                source,
-            })?;
-        w.get_mut().clear();
+        match (gt, self.gt_key) {
+            (Some(gt), Some(key)) => {
+                let spliced = splice_gt(w.get_ref(), key, raw, gt);
+                w.get_mut().clear();
+                let bytes = spliced.map_err(|msg| IoError::Parse {
+                    path: self.name.clone(),
+                    loc,
+                    msg,
+                })?;
+                out.write_all(&bytes).map_err(|source| IoError::Write {
+                    path: "output".to_string(),
+                    source,
+                })?;
+            }
+            _ => {
+                out.write_all(w.get_ref())
+                    .map_err(|source| IoError::Write {
+                        path: "output".to_string(),
+                        source,
+                    })?;
+                w.get_mut().clear();
+            }
+        }
         Ok(())
     }
 
@@ -279,29 +305,98 @@ impl BcfText {
     }
 }
 
-/// Whether the VCF line `raw` has a sample whose GT is a bare `.` (a
-/// missing haploid call) next to a sample with two or more alleles, which
-/// the BCF encoder cannot write yet.
-fn mixes_missing_haploid(raw: &[u8]) -> bool {
-    let mut fields = raw.split(|&b| b == b'\t');
-    let Some(format) = fields.nth(8) else {
-        return false;
+/// Where the GT values of a text record are: the index of `GT` among the
+/// FORMAT subfields.
+#[derive(Clone, Copy)]
+struct GtPos(usize);
+
+/// When `raw` has samples and a GT FORMAT subfield, writes a copy of it to
+/// `scratch` with every sample's GT replaced by `./.` and returns the GT
+/// position; otherwise `None`.
+fn blank_gt(raw: &[u8], scratch: &mut Vec<u8>) -> Option<GtPos> {
+    let mut cols = raw.split(|&b| b == b'\t');
+    let format = cols.nth(8)?;
+    let gt = format.split(|&b| b == b':').position(|k| k == b"GT")?;
+    // The samples start after the FORMAT column.
+    let samples_at = format.as_ptr() as usize - raw.as_ptr() as usize + format.len();
+    if samples_at >= raw.len() {
+        return None;
+    }
+    scratch.clear();
+    scratch.extend_from_slice(&raw[..samples_at]);
+    for sample in raw[samples_at + 1..].split(|&b| b == b'\t') {
+        scratch.push(b'\t');
+        for (k, f) in sample.split(|&b| b == b':').enumerate() {
+            if k > 0 {
+                scratch.push(b':');
+            }
+            if k == gt {
+                scratch.extend_from_slice(b"./.");
+            } else {
+                scratch.extend_from_slice(f);
+            }
+        }
+        // A sample with fewer subfields than the GT position has no GT.
+    }
+    Some(GtPos(gt))
+}
+
+/// The GT value text of every sample of `raw`.
+fn gt_values(raw: &[u8], gt: GtPos) -> Vec<&[u8]> {
+    raw.split(|&b| b == b'\t')
+        .skip(9)
+        .map(|s| s.split(|&b| b == b':').nth(gt.0).unwrap_or_default())
+        .collect()
+}
+
+/// Replaces the GT field of the framed BCF record `rec` (encoded with GT
+/// blanked) by the field encoded from the GT values of the text record
+/// `raw`, and returns the new framed record. `key` is the string
+/// dictionary index of `GT`.
+fn splice_gt(rec: &[u8], key: usize, raw: &[u8], gt: GtPos) -> Result<Vec<u8>, String> {
+    const BAD: &str = "internal error: noodles wrote a malformed BCF record";
+    let u32_at = |at: usize| -> Result<usize, String> {
+        rec.get(at..at + 4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize)
+            .ok_or_else(|| BAD.to_string())
     };
-    let Some(gt) = format.split(|&b| b == b':').position(|k| k == b"GT") else {
-        return false;
-    };
-    let (mut haploid_missing, mut multi) = (false, false);
-    for sample in fields {
-        let Some(v) = sample.split(|&b| b == b':').nth(gt) else {
-            continue;
-        };
-        if v == b"." {
-            haploid_missing = true;
-        } else if v.iter().any(|&b| b == b'/' || b == b'|') {
-            multi = true;
+    let (l_shared, l_indiv) = (u32_at(0)?, u32_at(4)?);
+    let indiv_at = 8 + l_shared;
+    let n_fmt = u32_at(8 + 20)? >> 24;
+    let n_samples = u32_at(8 + 20)? & 0x00ff_ffff;
+    let indiv = rec.get(indiv_at..indiv_at + l_indiv).ok_or(BAD)?;
+    let mut cur = indiv;
+    let mut span = None;
+    for _ in 0..n_fmt {
+        let start = indiv.len() - cur.len();
+        let k = typed::read(&mut cur).map_err(|_| BAD.to_string())?;
+        let body = indiv.len() - cur.len();
+        let is_gt = matches!(k.int(0), Some(typed::Int::Value(v)) if v as usize == key);
+        let (ty, n) = typed::read_descriptor(&mut cur).map_err(|_| BAD.to_string())?;
+        let len = n * ty.width() * n_samples;
+        if len > cur.len() {
+            return Err(BAD.into());
+        }
+        cur = &cur[len..];
+        if is_gt {
+            span = Some((start, body, indiv.len() - cur.len()));
+            break;
         }
     }
-    haploid_missing && multi
+    let Some((_, body, end)) = span else {
+        return Err(BAD.into());
+    };
+    let mut block = Vec::new();
+    encode_gt(&gt_values(raw, gt), &mut block)
+        .map_err(|e| format!("cannot write the GT field as BCF: {e}"))?;
+    let new_indiv_len = l_indiv - (end - body) + block.len();
+    let mut out = Vec::with_capacity(rec.len() + block.len());
+    out.extend_from_slice(&rec[..4]);
+    out.extend_from_slice(&(new_indiv_len as u32).to_le_bytes());
+    out.extend_from_slice(&rec[8..indiv_at + body]);
+    out.extend_from_slice(&block);
+    out.extend_from_slice(&rec[indiv_at + end..]);
+    Ok(out)
 }
 
 /// Encodes VCF text records as BCF records against a header, for commands
@@ -396,19 +491,4 @@ pub fn convert_variants(
     }
     out.finish()?;
     Ok(n)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::mixes_missing_haploid;
-
-    #[test]
-    fn detects_missing_haploid_next_to_diploid() {
-        let line = |gts: &str| format!("chr1\t10\t.\tA\tG\t.\tPASS\t.\tGT:DP\t{gts}");
-        assert!(mixes_missing_haploid(line("0/1:3\t.:4").as_bytes()));
-        assert!(mixes_missing_haploid(line(".:1\t1|1:2").as_bytes()));
-        assert!(!mixes_missing_haploid(line("0/1:3\t./.:4").as_bytes()));
-        assert!(!mixes_missing_haploid(line("0:3\t.:4").as_bytes()));
-        assert!(!mixes_missing_haploid(b"chr1\t10\t.\tA\tG\t.\tPASS\t."));
-    }
 }

@@ -2,6 +2,7 @@
 
 pub mod atomic;
 pub mod bcf;
+pub mod bcf_encode;
 pub mod bed;
 pub mod builtin;
 pub mod convert;
@@ -29,6 +30,7 @@ pub use atomic::{
     internal_error_line,
 };
 pub use bcf::{BcfDicts, read_bcf_header, write_bcf_header};
+pub use bcf_encode::encode_gt;
 pub use bed::{bed12_blocks, is_bed_record_line};
 pub use builtin::{
     BuiltinGenome, Naming, builtin, builtin_alias, builtin_genomes, resolve_genome, unknown_genome,

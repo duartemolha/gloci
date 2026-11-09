@@ -246,9 +246,6 @@ Every row below was checked against `gloci <cmd> --help`.
 - **VCF header validation on BCF conversion:** Converting between VCF and BCF
   refuses malformed headers that `noodles` rejects (such as duplicate INFO IDs).
   [differences.md#vcf-header-conversion](differences.md#vcf-header-conversion)
-- **BCF output of mixed ploidy:** A record with a missing haploid genotype
-  (`.`) next to diploid ones cannot be written as BCF yet; write VCF instead.
-  [differences.md#bcf-mixed-ploidy-missing](differences.md#bcf-mixed-ploidy-missing)
 - **Clipping GFF/GTF by a point:** `intersect --mode clip` skips the empty
   piece a point leaves in a GFF/GTF feature (with one warning) where bedtools
   writes one base around the point.
