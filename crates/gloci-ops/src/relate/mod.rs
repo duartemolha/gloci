@@ -251,17 +251,34 @@ pub fn run_relation(
     }
     let a_chroms = seen_a.lock().unwrap().clone();
     if !a_chroms.is_empty() {
-        for (b_name, b_seen_arc) in names_b.iter().zip(&seen_bs) {
-            let b_chroms = b_seen_arc.lock().unwrap().clone();
-            if !b_chroms.is_empty() {
-                let shares = a_chroms.iter().any(|a| b_chroms.contains(a));
-                if !shares {
+        if names_b.len() == 1 {
+            if !summary.shared_chroms {
+                let b_chroms = seen_bs[0].lock().unwrap().clone();
+                if !b_chroms.is_empty() {
                     log::warn!(
                         "{}",
                         gloci_io::naming::format_disjoint_chroms_warning(
-                            &name_a, &a_chroms, b_name, &b_chroms
+                            &name_a,
+                            &a_chroms,
+                            &names_b[0],
+                            &b_chroms
                         )
                     );
+                }
+            }
+        } else {
+            for (b_name, b_seen_arc) in names_b.iter().zip(&seen_bs) {
+                let b_chroms = b_seen_arc.lock().unwrap().clone();
+                if !b_chroms.is_empty() {
+                    let shares = a_chroms.iter().any(|a| b_chroms.contains(a));
+                    if !shares {
+                        log::warn!(
+                            "{}",
+                            gloci_io::naming::format_disjoint_chroms_warning(
+                                &name_a, &a_chroms, b_name, &b_chroms
+                            )
+                        );
+                    }
                 }
             }
         }

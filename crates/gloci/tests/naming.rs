@@ -178,3 +178,33 @@ fn relation_unsorted_warns() {
 the names differ by a \"chr\" prefix — rename one file's chromosomes so they match"
         )));
 }
+
+#[test]
+fn merge_sort_warns_on_disjoint_chroms() {
+    let fx = Fx::new();
+    let a = fx.file("a.bed", "chr1\t20\t30\nchr1\t10\t15\n");
+    let b = fx.file("b.bed", "1\t15\t25\n");
+    gloci()
+        .args(["merge", &a, &b, "--sort"])
+        .assert()
+        .success()
+        .stderr(contains(format!(
+            "warning: {a} and {b} share no chromosome names ({a}: chr1; {b}: 1); \
+the names differ by a \"chr\" prefix — rename one file's chromosomes so they match"
+        )));
+}
+
+#[test]
+fn complement_sort_warns_on_disjoint_chroms() {
+    let fx = Fx::new();
+    let a = fx.file("a.bed", "chr1\t20\t30\nchr1\t10\t15\n");
+    let b = fx.file("b.bed", "1\t15\t25\n");
+    gloci()
+        .args(["complement", &a, &b, "--sort"])
+        .assert()
+        .success()
+        .stderr(contains(format!(
+            "warning: {a} and {b} share no chromosome names ({a}: chr1; {b}: 1); \
+the names differ by a \"chr\" prefix — rename one file's chromosomes so they match"
+        )));
+}

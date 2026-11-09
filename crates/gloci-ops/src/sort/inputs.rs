@@ -148,6 +148,8 @@ pub fn sort_readers(
     check_samples(&inputs)?;
     check_definitions(&inputs)?;
 
+    let orig_names: Vec<String> = inputs.iter().map(|r| r.name().to_string()).collect();
+    let mut chroms_per_input: Vec<Vec<Vec<u8>>> = vec![Vec::new(); inputs.len()];
     let mut sorter = Sorter::new(SortConfig {
         max_mem: settings.max_mem,
         tmp_dir: settings.tmp_dir.clone(),
@@ -156,15 +158,50 @@ pub fn sort_readers(
         dedup: Dedup::All,
     })?;
     let mut batch = RecordBatch::default();
-    for r in &mut inputs {
+    for (i, r) in inputs.iter_mut().enumerate() {
+        let mut last_chrom: Option<gloci_core::ChromId> = None;
         let mut max = 1;
         loop {
             batch.clear();
             let more = r.read_batch(chroms, &mut batch, max)?;
+            for m in &batch.recs {
+                if last_chrom != Some(m.chrom) {
+                    last_chrom = Some(m.chrom);
+                    let c_name = chroms.name(m.chrom);
+                    if !chroms_per_input[i].iter().any(|s| s.as_slice() == c_name) {
+                        chroms_per_input[i].push(c_name.to_vec());
+                    }
+                }
+            }
             sorter.push(chroms, &batch)?;
             max = next_batch_size(&batch, max);
             if !more {
                 break;
+            }
+        }
+    }
+    if inputs.len() >= 2 {
+        let non_empty: Vec<usize> = (0..inputs.len())
+            .filter(|&i| !chroms_per_input[i].is_empty())
+            .collect();
+        if non_empty.len() >= 2 {
+            for (idx, &i) in non_empty.iter().enumerate() {
+                for &j in &non_empty[idx + 1..] {
+                    let shares = chroms_per_input[i]
+                        .iter()
+                        .any(|c| chroms_per_input[j].contains(c));
+                    if !shares {
+                        log::warn!(
+                            "{}",
+                            gloci_io::naming::format_disjoint_chroms_warning(
+                                &orig_names[i],
+                                &chroms_per_input[i],
+                                &orig_names[j],
+                                &chroms_per_input[j],
+                            )
+                        );
+                    }
+                }
             }
         }
     }
