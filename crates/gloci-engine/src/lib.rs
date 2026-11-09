@@ -7,7 +7,6 @@
 mod active;
 pub mod chunk;
 pub mod hit;
-mod itree64;
 pub mod kmerge;
 mod nearest;
 pub mod parallel;
@@ -16,7 +15,6 @@ mod unsorted;
 
 pub use chunk::ChunkSink;
 pub use hit::{ARec, Hit, Neighbours, Visitor};
-pub use itree64::ITree64;
 pub use kmerge::{kmerge, kmerge_with};
 pub use parallel::{all_indexed, run_chunks};
 #[doc(hidden)]

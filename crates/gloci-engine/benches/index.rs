@@ -1,17 +1,15 @@
-//! Index micro-benchmark (criterion): the unsorted-mode default `COITree`
-//! (D40) and gloci's `ITree64` against the real `superintervals` and
-//! `rust-lapper` crates, on two synthetic sets of 100,000 intervals over a
+//! Index micro-benchmark (criterion): `rust-lapper`, which unsorted mode
+//! uses (D61), against the real `coitrees` (its predecessor, D40) and
+//! `superintervals` crates, on two synthetic sets of 100,000 intervals over a
 //! 50 Mb chromosome: uniform positions (lengths 50–5,000), and clustered
 //! around 500 centres (lengths 50–20,000, deep overlaps). 10,000 queries
 //! each, in random order (unsorted mode queries A in input order).
 //!
 //! Run: `cargo bench -p gloci-engine --bench index`. D40's rule: a crate
-//! replaces coitrees only if it is at least 1.2x faster on both sets.
+//! replaces the incumbent only if it is at least 1.2x faster on both sets.
 
 use coitrees::{COITree, Interval as CoiInterval, IntervalTree};
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use gloci_core::Interval;
-use gloci_engine::ITree64;
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use rust_lapper::{Interval as LapInterval, Lapper};
@@ -78,12 +76,11 @@ fn clustered(seed: u64) -> Set {
     }
 }
 
-/// The four indexes over one set. coitrees and superintervals take closed
+/// The three indexes over one set. coitrees and superintervals take closed
 /// `i32` coordinates, so `[s, e)` is stored as `[s, e - 1]` and a query
 /// `[qs, qe)` asks `[qs, qe - 1]`: every index reports the same hits.
 struct Indexes {
     coitrees: COITree<u32, u32>,
-    itree64: ITree64,
     superintervals: IntervalMap<u32>,
     lapper: Lapper<u64, u32>,
 }
@@ -92,13 +89,6 @@ fn coi_nodes(set: &Set) -> Vec<CoiInterval<u32>> {
     set.ivs
         .iter()
         .map(|&(s, e, v)| CoiInterval::new(s as i32, e as i32 - 1, v))
-        .collect()
-}
-
-fn itree_items(set: &Set) -> Vec<(Interval, u32)> {
-    set.ivs
-        .iter()
-        .map(|&(s, e, v)| (Interval::new(s, e).unwrap(), v))
         .collect()
 }
 
@@ -123,20 +113,13 @@ fn lapper(set: &Set) -> Lapper<u64, u32> {
 fn build(set: &Set) -> Indexes {
     Indexes {
         coitrees: COITree::new(&coi_nodes(set)),
-        itree64: ITree64::new(itree_items(set)),
         superintervals: superintervals(set),
         lapper: lapper(set),
     }
 }
 
 /// Hits of every query, summed.
-fn run_queries(
-    name: &str,
-    ix: &Indexes,
-    ivs: &[(u64, u64, u32)],
-    queries: &[(u64, u64)],
-    buf: &mut Vec<u32>,
-) -> usize {
+fn run_queries(name: &str, ix: &Indexes, queries: &[(u64, u64)], buf: &mut Vec<u32>) -> usize {
     let mut total = 0;
     for &(s, e) in queries {
         buf.clear();
@@ -144,15 +127,6 @@ fn run_queries(
             "coitrees" => ix
                 .coitrees
                 .query(s as i32, e as i32 - 1, |n| buf.push(*n.metadata)),
-            // ITree64's candidates include intervals touching the query;
-            // the engine re-tests every candidate exactly, and so does this.
-            "ITree64" => {
-                ix.itree64.query(s, e, buf);
-                buf.retain(|&v| {
-                    let (is, ie, _) = ivs[v as usize];
-                    is < e && ie > s
-                });
-            }
             "superintervals" => ix.superintervals.search_values(s as i32, e as i32 - 1, buf),
             "rust-lapper" => buf.extend(ix.lapper.find(s, e).map(|iv| iv.val)),
             _ => unreachable!(),
@@ -162,7 +136,7 @@ fn run_queries(
     total
 }
 
-const NAMES: [&str; 4] = ["coitrees", "ITree64", "superintervals", "rust-lapper"];
+const NAMES: [&str; 3] = ["coitrees", "superintervals", "rust-lapper"];
 
 fn bench_build(c: &mut Criterion) {
     for set in [uniform(42), clustered(43)] {
@@ -171,9 +145,6 @@ fn bench_build(c: &mut Criterion) {
         let nodes = coi_nodes(&set);
         g.bench_function("coitrees", |b| {
             b.iter(|| COITree::<u32, u32>::new(black_box(&nodes)))
-        });
-        g.bench_function("ITree64", |b| {
-            b.iter_with_setup(|| itree_items(&set), |items| ITree64::new(black_box(items)))
         });
         g.bench_function("superintervals", |b| {
             b.iter(|| superintervals(black_box(&set)))
@@ -190,7 +161,7 @@ fn bench_query(c: &mut Criterion) {
         // Every index finds the same hits.
         let hits: Vec<usize> = NAMES
             .iter()
-            .map(|n| run_queries(n, &ix, &set.ivs, &set.queries, &mut buf))
+            .map(|n| run_queries(n, &ix, &set.queries, &mut buf))
             .collect();
         assert!(
             hits.iter().all(|&h| h == hits[0]),
@@ -201,7 +172,7 @@ fn bench_query(c: &mut Criterion) {
         g.throughput(Throughput::Elements(set.queries.len() as u64));
         for name in NAMES {
             g.bench_with_input(BenchmarkId::from_parameter(name), &name, |b, name| {
-                b.iter(|| run_queries(name, &ix, &set.ivs, black_box(&set.queries), &mut buf))
+                b.iter(|| run_queries(name, &ix, black_box(&set.queries), &mut buf))
             });
         }
         g.finish();

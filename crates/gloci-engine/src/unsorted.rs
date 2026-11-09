@@ -4,19 +4,21 @@
 //! The visitor sees exactly what the sorted sweep shows it for each A: the
 //! same hits in the same order (D38) and the same [`Neighbours`].
 //!
-//! - **Index.** One per B input and chromosome: a coitree when every B end
-//!   there, padded by the window, is below `i32::MAX - 2`; an [`ITree64`]
-//!   otherwise. Both hold B `[start, end)` as the closed range
-//!   `[start, end]`, so a point is never an empty interval.
-//! - **Candidates.** An A queries `[a.start - pad - 1, a.end + pad + 1]`
-//!   (saturating), which takes in every B whose padded span can overlap
-//!   it. Each candidate is re-tested with the sorted sweep's rule, and the
-//!   hits are sorted into B input order (D38).
-//! - **Sorted A.** While A arrives grouped by chromosome with keys
-//!   non-decreasing within each, coitrees are queried through a sorted
-//!   querent (one per tree), which reuses the previous query's results. A
-//!   querent's state is per tree, so only the order within a chromosome
-//!   matters to it. From the first A out of that order on, plain queries.
+//! - **Index.** One [`Lapper<u64, u32>`] per B input and chromosome,
+//!   holding positions in that chromosome's B table. Lapper's intervals
+//!   are half-open and an empty one never matches, so B `[start, end)` is
+//!   stored as `[start, end + 1)` (saturating): the closed range
+//!   `[start, end]`, which a point never empties. A B starting at
+//!   `u64::MAX` has no such range and is kept in a side list.
+//! - **Candidates.** An A queries the closed range
+//!   `[a.start - pad - 1, a.end + pad + 1]` (saturating), which takes in
+//!   every B whose padded span can overlap it. Each candidate is re-tested
+//!   with the sorted sweep's rule, and the hits are sorted into B input
+//!   order (D38).
+//! - **Sorted A.** While A arrives grouped by chromosome with query starts
+//!   non-decreasing within each, lapper is queried through `seek` with one
+//!   cursor per index, which resumes where the previous query began. From
+//!   the first A out of that order on, plain `find`.
 //! - **Neighbours** (`closest`). Each chromosome also keeps its B sorted by
 //!   end and by start, in the strand buckets of the left pools. The left
 //!   side walks back from the last B ending at or before A's start, the
@@ -26,22 +28,13 @@
 //! - **Memory** is proportional to the B inputs (D39).
 
 use crate::hit::{ARec, Hit, Neighbours, Visitor};
-use crate::itree64::ITree64;
 use crate::nearest::{Buckets, Target, keep_nearest};
 use crate::sweep::{Inputs, NearestConfig, SweepConfig, SweepStats, SweepSummary, check_b_count};
-use coitrees::{COITree, COITreeSortedQuerent, GenericInterval, IntervalTree, SortedQuerent};
 use gloci_core::{ChromId, ChromTable, Interval, Strand, overlaps, thousands};
 use gloci_io::{IoError, RecordBatch, RecordReader, UsageError, next_batch_size};
+use rust_lapper::{Interval as LapInterval, Lapper};
 
-/// Coitrees index a chromosome only while every padded B end there is
-/// below this, and queries are clamped to it. The SIMD (NEON, AVX2)
-/// coitrees store `first - 1` and `last + 1`, and their sorted querents
-/// return a chunk's empty padding lanes (id 0) for a query ending at
-/// `i32::MAX`.
-const COI_LIMIT: u64 = (i32::MAX - 2) as u64;
-
-type Coi = COITree<u32, u32>;
-type Querent<'t> = COITreeSortedQuerent<'t, u32, u32>;
+type Index = Lapper<u64, u32>;
 
 /// Run unsorted mode: load every B, then call `v` for every A record, in
 /// A's input order, with its candidate hits (D36, D38) and, when
@@ -63,11 +56,11 @@ pub fn sweep_unsorted(
     let mut b_records = Vec::with_capacity(b.len());
     let mut loaded = Vec::with_capacity(b.len());
     for r in b {
-        let (input, n) = BInput::load(r, chroms, pad, nearest.as_ref(), &mut stats)?;
+        let (input, n) = BInput::load(r, chroms, nearest.as_ref(), &mut stats)?;
         loaded.push(input);
         b_records.push(n);
     }
-    // B is fixed from here on; hits and querents borrow it.
+    // B is fixed from here on; hits borrow it.
     let loaded = &loaded[..];
     let mut summary = SweepSummary {
         a_records: 0,
@@ -77,7 +70,8 @@ pub fn sweep_unsorted(
         stats,
     };
     let mut order = AOrder::default();
-    let mut querents: Vec<Option<Querent<'_>>> = loaded.iter().map(|_| None).collect();
+    // Per B input: the seek cursor of the current chromosome.
+    let mut cursors = vec![0usize; loaded.len()];
     let mut hits: Vec<Hit<'_>> = Vec::new();
     let mut near: Neighbours<'_> = Neighbours::default();
     let mut cand: Vec<u32> = Vec::new();
@@ -88,18 +82,17 @@ pub fn sweep_unsorted(
         max = next_batch_size(&batch, max);
         summary.a_records += batch.len() as u64;
         for (i, a) in batch.recs.iter().enumerate() {
-            match order.next(a.chrom, a.key) {
-                Step::Same => {}
-                Step::Entered => {
-                    for (q, input) in querents.iter_mut().zip(loaded) {
-                        *q = input.chrom(a.chrom).and_then(ChromB::querent);
-                    }
-                }
-                Step::OutOfOrder => querents.iter_mut().for_each(|q| *q = None),
-                Step::Unsorted => {}
-            }
             let lo = a.span.start.saturating_sub(pad).saturating_sub(1);
             let hi = a.span.end.saturating_add(pad).saturating_add(1);
+            // The query start is what `seek` needs in order.
+            let seek = match order.next(a.chrom, lo) {
+                Step::Same => true,
+                Step::Entered => {
+                    cursors.fill(0);
+                    true
+                }
+                Step::OutOfOrder | Step::Unsorted => false,
+            };
             let target = nearest.map(|n| Target::new(&n, a.span, a.strand, cfg.inclusive_points));
             let ip = cfg.inclusive_points;
             let is_hit = |b: Interval| match cfg.window {
@@ -108,7 +101,7 @@ pub fn sweep_unsorted(
             };
             hits.clear();
             near = std::mem::take(&mut near).recycle();
-            for (f, (input, q)) in loaded.iter().zip(&mut querents).enumerate() {
+            for (f, (input, cursor)) in loaded.iter().zip(&mut cursors).enumerate() {
                 let f = f as u16;
                 let Some(c) = input.chrom(a.chrom) else {
                     if target.is_some() {
@@ -117,8 +110,8 @@ pub fn sweep_unsorted(
                     continue;
                 };
                 summary.shared_chroms = true;
-                let by_querent = c.candidates(lo, hi, q.as_mut(), &mut cand);
-                summary.stats.querent_queries += u64::from(by_querent);
+                c.candidates(lo, hi, seek.then_some(&mut *cursor), &mut cand);
+                summary.stats.seek_queries += u64::from(seek);
                 cand.retain(|&j| is_hit(c.recs[j as usize].span));
                 cand.sort_unstable();
                 hits.extend(
@@ -143,7 +136,7 @@ pub fn sweep_unsorted(
 }
 
 /// Whether A has arrived grouped by chromosome with non-decreasing keys
-/// within each chromosome, so far.
+/// (the query starts) within each chromosome, so far.
 struct AOrder {
     sorted: bool,
     last: Option<(ChromId, u64)>,
@@ -242,7 +235,6 @@ impl BInput {
     fn load(
         mut reader: Box<dyn RecordReader>,
         chroms: &mut ChromTable,
-        pad: u64,
         nearest: Option<&NearestConfig>,
         stats: &mut SweepStats,
     ) -> Result<(BInput, u64), IoError> {
@@ -293,7 +285,7 @@ impl BInput {
                 .into());
             }
             recs.shrink_to_fit();
-            per_chrom.push(Some(ChromB::new(recs, pad, nearest, stats)));
+            per_chrom.push(Some(ChromB::new(recs, nearest, stats)));
         }
         Ok((
             BInput {
@@ -314,46 +306,30 @@ impl BInput {
 struct ChromB {
     recs: Vec<BRec>,
     index: Index,
+    /// Positions of the B starting at `u64::MAX`, which `index` cannot hold.
+    at_max: Vec<u32>,
     /// With a nearest request: per bucket ([`Buckets`]), the positions of
     /// its B sorted by end, and sorted by start.
     by_end: [Vec<u32>; 2],
     by_start: [Vec<u32>; 2],
 }
 
-enum Index {
-    Coi(Coi),
-    Wide(ITree64),
-}
-
 impl ChromB {
-    fn new(
-        recs: Vec<BRec>,
-        pad: u64,
-        nearest: Option<&NearestConfig>,
-        stats: &mut SweepStats,
-    ) -> ChromB {
-        let index = if recs
-            .iter()
-            .all(|r| r.span.end.saturating_add(pad) < COI_LIMIT)
-        {
-            stats.coitrees_indexes += 1;
-            let nodes: Vec<coitrees::Interval<u32>> = recs
-                .iter()
-                .enumerate()
-                .map(|(i, r)| {
-                    coitrees::Interval::new(r.span.start as i32, r.span.end as i32, i as u32)
-                })
-                .collect();
-            Index::Coi(Coi::new(&nodes))
-        } else {
-            stats.itree64_indexes += 1;
-            let items = recs
-                .iter()
-                .enumerate()
-                .map(|(i, r)| (r.span, i as u32))
-                .collect();
-            Index::Wide(ITree64::new(items))
-        };
+    fn new(recs: Vec<BRec>, nearest: Option<&NearestConfig>, stats: &mut SweepStats) -> ChromB {
+        stats.lapper_indexes += 1;
+        let (mut items, mut at_max) = (Vec::with_capacity(recs.len()), Vec::new());
+        for (i, r) in recs.iter().enumerate() {
+            if r.span.start == u64::MAX {
+                at_max.push(i as u32);
+            } else {
+                items.push(LapInterval {
+                    start: r.span.start,
+                    stop: r.span.end.saturating_add(1),
+                    val: i as u32,
+                });
+            }
+        }
+        let index = Lapper::new(items);
         let (mut by_end, mut by_start): ([Vec<u32>; 2], [Vec<u32>; 2]) = Default::default();
         if let Some(n) = nearest {
             let buckets = Buckets::new(n);
@@ -371,46 +347,28 @@ impl ChromB {
         ChromB {
             recs,
             index,
+            at_max,
             by_end,
             by_start,
         }
     }
 
-    /// A sorted querent over this chromosome's coitree, if it has one.
-    fn querent(&self) -> Option<Querent<'_>> {
-        match &self.index {
-            Index::Coi(t) => Some(Querent::new(t)),
-            Index::Wide(_) => None,
-        }
-    }
-
     /// Replace `out` with the positions of the B whose closed range
-    /// `[start, end]` meets `[lo, hi]`. `querent`, when given, must be
-    /// this chromosome's. Returns whether it answered.
-    fn candidates(
-        &self,
-        lo: u64,
-        hi: u64,
-        querent: Option<&mut Querent<'_>>,
-        out: &mut Vec<u32>,
-    ) -> bool {
+    /// `[start, end]` meets `[lo, hi]`. With a `cursor`, which must be
+    /// this index's, queries through `seek`; the caller guarantees the
+    /// query starts do not decrease between calls on one cursor.
+    fn candidates(&self, lo: u64, hi: u64, cursor: Option<&mut usize>, out: &mut Vec<u32>) {
         out.clear();
-        match &self.index {
-            Index::Wide(t) => t.query(lo, hi, out),
-            Index::Coi(t) => {
-                // Every B coordinate here is below the limit, so clamping
-                // the query to it changes no answer.
-                let (lo, hi) = (lo.min(COI_LIMIT) as i32, hi.min(COI_LIMIT) as i32);
-                match querent {
-                    Some(q) => {
-                        querent_query(q, lo, hi, out);
-                        return true;
-                    }
-                    None => tree_query(t, lo, hi, out),
-                }
-            }
+        // Lapper takes `[lo, hi + 1)`; `hi + 1` saturates only for B
+        // starting at `u64::MAX`, which are the side list.
+        let stop = hi.saturating_add(1);
+        match cursor {
+            Some(c) => out.extend(self.index.seek(lo, stop, c).map(|iv| iv.val)),
+            None => out.extend(self.index.find(lo, stop).map(|iv| iv.val)),
         }
-        false
+        if hi == u64::MAX {
+            out.extend_from_slice(&self.at_max);
+        }
     }
 
     /// Push A's neighbours among this chromosome's B (as hits of `file`)
@@ -460,75 +418,6 @@ impl ChromB {
             if kept == t.k {
                 kth = Some(d);
             }
-        }
-    }
-}
-
-/// Push the ids of the intervals of `tree` meeting `[lo, hi]`. Generic so
-/// it works with every coitrees variant (`COITree` is the AVX2, NEON or
-/// basic tree, by target).
-fn tree_query<'t, T: IntervalTree<'t, Metadata = u32>>(
-    tree: &'t T,
-    lo: i32,
-    hi: i32,
-    out: &mut Vec<u32>,
-) {
-    tree.query(lo, hi, |n| out.push(*GenericInterval::<u32>::metadata(n)));
-}
-
-/// [`tree_query`] through a sorted querent.
-fn querent_query<'t, Q: SortedQuerent<'t, Metadata = u32>>(
-    q: &mut Q,
-    lo: i32,
-    hi: i32,
-    out: &mut Vec<u32>,
-) {
-    q.query(lo, hi, |n| out.push(*GenericInterval::<u32>::metadata(n)));
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use coitrees::{BasicCOITree, BasicSortedQuerent};
-
-    /// The basic coitree (x86-64 without AVX2) answers like this target's
-    /// `COITree` through the same generic helpers, so both build and agree.
-    #[test]
-    fn every_coitree_variant_gives_the_same_candidates() {
-        let nodes: Vec<coitrees::Interval<u32>> = (0..500u32)
-            .map(|i| {
-                let first = (i * 37 % 1000) as i32;
-                coitrees::Interval::new(first, first + (i % 50) as i32, i)
-            })
-            .collect();
-        let basic = BasicCOITree::<u32, u32>::new(&nodes);
-        let here = Coi::new(&nodes);
-        let mut bq = BasicSortedQuerent::new(&basic);
-        let mut hq = Querent::new(&here);
-        for (lo, hi) in [
-            (0, 0),
-            (5, 9),
-            (3, 400),
-            (390, 410),
-            (100, 120),
-            (999, 1100),
-        ] {
-            let mut want: Vec<u32> = nodes
-                .iter()
-                .filter(|n| n.first <= hi && n.last >= lo)
-                .map(|n| n.metadata)
-                .collect();
-            want.sort_unstable();
-            let run = |f: &mut dyn FnMut(&mut Vec<u32>)| {
-                let mut v = Vec::new();
-                f(&mut v);
-                v.sort_unstable();
-                v
-            };
-            assert_eq!(run(&mut |v| tree_query(&basic, lo, hi, v)), want);
-            assert_eq!(run(&mut |v| tree_query(&here, lo, hi, v)), want);
-            assert_eq!(run(&mut |v| querent_query(&mut bq, lo, hi, v)), want);
-            assert_eq!(run(&mut |v| querent_query(&mut hq, lo, hi, v)), want);
         }
     }
 }

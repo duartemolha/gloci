@@ -100,9 +100,8 @@ impl SweepSummary {
         self.stats.peak_active = self.stats.peak_active.max(other.stats.peak_active);
         self.stats.peak_pool = self.stats.peak_pool.max(other.stats.peak_pool);
         self.stats.peak_pool_bytes = self.stats.peak_pool_bytes.max(other.stats.peak_pool_bytes);
-        self.stats.coitrees_indexes += other.stats.coitrees_indexes;
-        self.stats.itree64_indexes += other.stats.itree64_indexes;
-        self.stats.querent_queries += other.stats.querent_queries;
+        self.stats.lapper_indexes += other.stats.lapper_indexes;
+        self.stats.seek_queries += other.stats.seek_queries;
     }
 }
 
@@ -119,13 +118,11 @@ pub struct SweepStats {
     /// The most raw bytes each B input's left pool held at any moment,
     /// summed over the inputs: a bound on what they held at once.
     pub peak_pool_bytes: usize,
-    /// Unsorted mode: the (B input, chromosome) indexes built with
-    /// coitrees, and with [`ITree64`](crate::ITree64) (D40).
-    pub coitrees_indexes: usize,
-    pub itree64_indexes: usize,
-    /// Unsorted mode: the coitree queries a sorted querent answered (made
+    /// Unsorted mode: the (B input, chromosome) indexes built (D61).
+    pub lapper_indexes: usize,
+    /// Unsorted mode: the queries answered through lapper's `seek` (made
     /// while A was still in order).
-    pub querent_queries: u64,
+    pub seek_queries: u64,
 }
 
 /// Run the sweep: call `v` for every A record, in A's input order, with

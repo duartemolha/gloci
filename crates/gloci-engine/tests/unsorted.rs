@@ -7,8 +7,8 @@
 
 use gloci_core::{ChromTable, Interval, Strand, StrandRule, VcfSpan, Window};
 use gloci_engine::{
-    ARec, Hit, ITree64, Inputs, NearestConfig, Neighbours, SweepConfig, SweepSummary, Visitor,
-    sweep_sorted, sweep_unsorted,
+    ARec, Hit, Inputs, NearestConfig, Neighbours, SweepConfig, SweepSummary, Visitor, sweep_sorted,
+    sweep_unsorted,
 };
 use gloci_io::{InvalidPolicy, IoError, ReaderOptions};
 use gloci_testkit::TestRec;
@@ -264,7 +264,7 @@ fn configs(window: Option<Window>, k: usize, max_distance: Option<u64>) -> Vec<S
 }
 
 /// Sort `input`, then for every config of [`configs`]:
-/// 1. A in sorted order through the unsorted path (sorted querents
+/// 1. A in sorted order through the unsorted path (seek cursors
 ///    throughout) gives exactly what `sweep_sorted` gives.
 /// 2. A in the order `a_order` is visited in that order, and each A gets
 ///    `sweep_sorted`'s hits and neighbours for that A (same line).
@@ -358,57 +358,6 @@ proptest! {
     }
 }
 
-fn coord() -> impl Strategy<Value = u64> {
-    prop_oneof![
-        4 => 0u64..64,
-        2 => 0u64..100_000,
-        1 => (1u64 << 31) - 8..(1u64 << 31) + 8,
-        1 => u64::MAX - 64..=u64::MAX,
-        1 => any::<u64>(),
-    ]
-}
-
-fn item() -> impl Strategy<Value = Interval> {
-    let len = prop_oneof![
-        2 => Just(0u64),
-        4 => 0u64..16,
-        2 => 0u64..100_000,
-        1 => any::<u64>(),
-    ];
-    (coord(), len).prop_map(|(start, l)| Interval {
-        start,
-        end: start.saturating_add(l),
-    })
-}
-
-proptest! {
-    #![proptest_config(ProptestConfig::with_cases(256))]
-
-    /// `ITree64::query(lo, hi)` returns exactly the items whose closed
-    /// range `[start, end]` meets `[lo, hi]`, each once.
-    #[test]
-    fn itree64_matches_brute_force(
-        items in prop::collection::vec(item(), 0..300),
-        queries in prop::collection::vec((coord(), 0u64..1000), 1..20),
-    ) {
-        let tree = ITree64::new(items.iter().enumerate().map(|(i, &iv)| (iv, i as u32)).collect());
-        for (lo, len) in queries {
-            let hi = lo.saturating_add(len);
-            let mut got = vec![u32::MAX];
-            tree.query(lo, hi, &mut got);
-            prop_assert_eq!(got.remove(0), u32::MAX, "query appends to out");
-            got.sort_unstable();
-            let want: Vec<u32> = items
-                .iter()
-                .enumerate()
-                .filter(|(_, iv)| iv.start <= hi && iv.end >= lo)
-                .map(|(i, _)| i as u32)
-                .collect();
-            prop_assert_eq!(got, want, "[{}, {}]", lo, hi);
-        }
-    }
-}
-
 fn rec(chrom: &str, start: u64, end: u64, strand: char, name: &str) -> TestRec {
     TestRec {
         chrom: chrom.to_string(),
@@ -478,9 +427,9 @@ fn check_fixed(a: &[TestRec], b: &[TestRec]) -> Vec<SweepSummary> {
 const BIG: u64 = 3_000_000_000;
 
 #[test]
-fn itree64_fallback() {
-    // chr1 is long: some of its B lie past 2^31, so its index is an
-    // ITree64. chr2's B fit coitrees' i32. Both files are unsorted.
+fn lapper_handles_u64_coordinates() {
+    // chr1's B lie past 2^31 and chr2's below it; the same index holds
+    // both (D61). B and A are unsorted.
     let b = [
         rec("chr1", BIG, BIG + 100, '-', "far"),
         rec("chr2", 100, 200, '+', "x"),
@@ -499,8 +448,8 @@ fn itree64_fallback() {
         rec("chr1", BIG, BIG, '+', "a3"),
         // Equal to pt, inside far.
         rec("chr1", BIG + 50, BIG + 50, '-', "a4"),
-        // Past i32 on chr2, whose index is a coitree: no hits, and every
-        // chr2 B is a left neighbour.
+        // Past every chr2 B: no hits, and every chr2 B is a left
+        // neighbour.
         rec("chr2", BIG, BIG + 1, '+', "a5"),
         rec("chr1", 0, 15, '+', "a6"),
         // Bookended on book's left.
@@ -508,12 +457,11 @@ fn itree64_fallback() {
         rec("chr1", BIG + 320, BIG + 330, '.', "a8"),
     ];
     for summary in check_fixed(&a, &b) {
-        assert_eq!(summary.stats.itree64_indexes, 1, "chr1 is an ITree64");
-        assert_eq!(summary.stats.coitrees_indexes, 1, "chr2 is a coitree");
+        assert_eq!(summary.stats.lapper_indexes, 2, "one per chromosome");
         assert_eq!(summary.b_records, [8]);
         assert!(summary.shared_chroms);
     }
-    // The fallback finds real hits: a1 overlaps after, a4 is inside far and
+    // Real hits past 2^31: a1 overlaps after, a4 is inside far and
     // equal to pt.
     let (seen, _) = run(
         Mode::Unsorted,
@@ -533,58 +481,68 @@ fn itree64_fallback() {
 }
 
 #[test]
-fn index_choice_at_the_i32_limit() {
-    // coitrees is used while every padded B end is below i32::MAX - 2.
-    let lim = (i32::MAX - 2) as u64;
+fn lapper_points_and_bookends() {
+    // Lapper's intervals are half-open and a zero-length one never
+    // matches, so B is stored closed and every candidate re-tested:
+    // points, bookends, and coordinates at the top of u64 must behave as
+    // in the sorted sweep (and the naive reference).
+    let top = u64::MAX;
     let b = [
-        rec("chr1", lim - 10, lim - 1, '+', "c1"),
-        rec("chr1", lim - 1, lim - 1, '-', "c2"),
-        rec("chr1", 5, 9, '+', "c3"),
-        rec("chr2", lim - 10, lim, '+', "w1"),
-        rec("chr2", lim, lim, '-', "w2"),
-        rec("chr2", 5, 9, '+', "w3"),
+        rec("chr1", 10, 20, '+', "iv"),
+        rec("chr1", 20, 20, '-', "pt20"),
+        rec("chr1", 5, 5, '+', "pt5"),
+        rec("chr1", 20, 30, '+', "book"),
+        rec("chr1", top - 10, top - 10, '+', "hp1"),
+        rec("chr1", top - 10, top, '-', "hspan"),
+        rec("chr1", top, top, '+', "hmax"),
+        rec("chr1", top - 1, top - 1, '.', "hp2"),
+        rec("chr2", 0, 0, '+', "zero"),
+        rec("chr2", top, top, '-', "max2"),
     ];
     let a: Vec<TestRec> = ["chr1", "chr2"]
         .iter()
         .flat_map(|c| {
             [
-                rec(c, lim - 1, lim - 1, '+', "p1"),
-                rec(c, lim, lim, '-', "p2"),
-                rec(c, lim - 5, lim + 5, '+', "span"),
-                rec(c, lim + 1, lim + 2, '-', "past"),
-                rec(c, u64::MAX - 1, u64::MAX, '+', "end"),
-                rec(c, 0, 7, '+', "low"),
+                rec(c, 0, 0, '+', "z"),
+                rec(c, 0, 5, '+', "left"),
+                rec(c, 5, 5, '-', "p5"),
+                rec(c, 20, 20, '+', "p20"),
+                rec(c, 15, 20, '+', "endsat"),
+                rec(c, 20, 25, '-', "bookend"),
+                rec(c, 30, 40, '+', "after"),
+                rec(c, top - 11, top - 10, '+', "h1"),
+                rec(c, top - 1, top, '-', "h2"),
+                rec(c, top, top, '+', "hp"),
+                rec(c, top - 5, top, '+', "hspan"),
             ]
         })
         .collect();
-    for (cfg, summary) in fixed_configs().iter().zip(check_fixed(&a, &b)) {
-        // chr1 is a coitree and chr2 an ITree64, unless the window (20
-        // bases) pads chr1's B past the limit too.
-        let want = if cfg.window.is_some() { (0, 2) } else { (1, 1) };
-        let got = (
-            summary.stats.coitrees_indexes,
-            summary.stats.itree64_indexes,
-        );
-        assert_eq!(got, want, "{cfg:?}");
+    for summary in check_fixed(&a, &b) {
+        assert_eq!(summary.stats.lapper_indexes, 2);
     }
-    let cfg = SweepConfig {
-        window: Some(Window {
-            left: 0,
-            right: 1,
-            strand_aware: false,
-        }),
-        ..SweepConfig::default()
+    let (seen, _) = run(
+        Mode::Unsorted,
+        &bed(&a),
+        &[&bed(&b)],
+        &SweepConfig::default(),
+    )
+    .unwrap();
+    let names = |s: &SeenA| -> Vec<String> {
+        s.hits
+            .iter()
+            .map(|h| h.3.split('\t').nth(3).unwrap().to_string())
+            .collect()
     };
-    let (seen, summary) = run(Mode::Unsorted, &bed(&a), &[&bed(&b)], &cfg).unwrap();
-    assert_eq!(
-        summary.stats.itree64_indexes, 2,
-        "a 1-base pad reaches the limit"
-    );
-    check_naive(&seen, &a, &[b.to_vec()], &[0], &cfg);
+    // chr1: "bookend" (20-25) overlaps book; the point at 20 is on its
+    // edge and bookended iv does not count (the naive check agrees).
+    assert_eq!(names(&seen[5]), ["book"]);
+    // The B point at u64::MAX, which lapper cannot hold, is still found.
+    assert_eq!(names(&seen[9]), ["hmax"]);
+    assert_eq!(names(&seen[10]), ["hspan", "hp2"]);
 }
 
 #[test]
-fn sorted_querent_switch() {
+fn sorted_seek_switch() {
     // Overlapping, nested and bookended B on chr1 and chr2, unsorted.
     let b: Vec<TestRec> = (0..60u64)
         .rev()
@@ -603,9 +561,9 @@ fn sorted_querent_switch() {
     a.push(at("chr1", 50, "back"));
     a.extend((0..4u64).map(|i| at("chr2", i * 40, "late")));
     for summary in check_fixed(&a, &b) {
-        // One B file, a coitree on each chromosome: one query per A.
-        assert_eq!(summary.stats.querent_queries, 16);
-        assert_eq!(summary.stats.coitrees_indexes, 2);
+        // One B file, an index on each chromosome: one query per A.
+        assert_eq!(summary.stats.seek_queries, 16);
+        assert_eq!(summary.stats.lapper_indexes, 2);
     }
 
     // A smaller key on the same chromosome switches at that record.
@@ -616,11 +574,15 @@ fn sorted_querent_switch() {
         at("chr1", 15, "x"),
         at("chr1", 30, "x"),
     ];
-    for summary in check_fixed(&a, &b) {
-        assert_eq!(summary.stats.querent_queries, 3);
+    // The order that matters is the query start, `start - pad - 1`
+    // saturating at 0: with a window wide enough to flatten the dip, A
+    // stays in order.
+    for (cfg, summary) in fixed_configs().iter().zip(check_fixed(&a, &b)) {
+        let want = if cfg.window.is_some() { 5 } else { 3 };
+        assert_eq!(summary.stats.seek_queries, want, "{cfg:?}");
     }
 
-    // The same A sorted keeps the querent to the end, with the same
+    // The same A sorted keeps seeking to the end, with the same
     // results for every A (keyed by line) as the sorted sweep.
     let mut sorted = a.to_vec();
     sorted.sort_by_key(|r| r.start);
@@ -632,7 +594,7 @@ fn sorted_querent_switch() {
         let (want, _) = run(Mode::Sorted, &a_text, &[&b_text], &cfg).unwrap();
         let (got, summary) = run(Mode::Unsorted, &a_text, &[&b_text], &cfg).unwrap();
         assert_eq!(got, want, "{cfg:?}");
-        assert_eq!(summary.stats.querent_queries, 5);
+        assert_eq!(summary.stats.seek_queries, 5);
     }
 }
 
