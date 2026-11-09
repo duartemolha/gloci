@@ -789,15 +789,14 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Reason:** a bare flag that matches nothing is never what the user means.
 - **Pinned by:** `expr-differs-from-bcftools-bare-flag` (must differ).
 
-## Filter expressions: `!`, the missing literal and flipped operands {#expr-grammar-extensions}
+## Filter expressions: `!` and the missing literal {#expr-grammar-extensions}
 
 - **gloci:** `!` negates a parenthesised group (`!(QUAL<20 || DP<5)`) or a bare
   comparison (`!POS=10 && POS<30`). `.` is the missing value for text and
   numeric fields (`QUAL=.`, `QUAL!=.`, `ID=.`, `FILTER=.`, `INFO/AF=.`).
-  Operands may be flipped (`30<QUAL`).
 - **Old behaviour:** bcftools 1.21 fails with "Could not parse the expression"
   on `!(QUAL<20)`, `!POS=10` and `!(POS=10)`, and with `the tag "." is not
-  defined` on `QUAL=.`, `INFO/AN=.` and `ID=.` (only `ID="."` works).
+  defined` on `QUAL=.`, `INFO/AF=.` and `ID=.` (only `ID="."` works).
 - **Reason:** these are the natural spellings; rejecting them gains nothing.
 - **Pinned by:** `expr-differs-from-bcftools-negated-group`,
   `expr-differs-from-bcftools-missing-literal` and
@@ -816,6 +815,11 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   regular expressions.
 - **Reason:** gloci implements the subset its users need, with bcftools
   semantics for everything it does accept.
+- **Masked genotypes:** with `--min-gq`, `--min-dp`, `--max-dp` or
+  `--mask-filtered-genotypes`, a masked sample reads as missing inside the
+  expression (no GT, DP or GQ), while the output record still prints its
+  original values. `--include 'FMT/GQ>=30'` after `--min-gq 30` therefore never
+  sees a masked sample's GQ.
 - **What matches bcftools 1.21 (not a difference):**
   - Sample subscripts: `FMT/GQ[1]`, `FMT/DP[1]` and `GT[1]` select sample 1
     (0-based), numbered over the whole header, so with `--samples` the
@@ -867,3 +871,20 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Pinned by:**
   `expr-differs-from-bcftools-min-maf-is-not-expression-maf` (must differ) and
   `difference_maf_is_first_alt_not_second_most_common`.
+
+## Filter expressions with `--samples` see the selected samples {#expr-samples-selection}
+
+- **gloci:** with `--samples` / `--exclude-samples` (and their `-file` forms),
+  `--include`/`--exclude` evaluate on the selected samples only, after masking
+  (pipeline step 4): `MAF`, `AC`, `AN`, `N_MISSING`, `F_MISSING`, `N_PASS`, any-sample
+  `FMT/` comparisons and `GT` keywords all use them. Sample subscripts still
+  number the whole header.
+- **Old behaviour:** `bcftools view -s s1,s2 -i 'MAF<0.3'` (1.21) evaluates the
+  expression on ALL samples and then drops the unselected ones from the output.
+  gloci's result equals the two-step pipeline
+  `bcftools view -s s1,s2 | bcftools view -i 'MAF<0.3'`.
+- **Reason:** the filters of one gloci command all describe the output cohort,
+  as `--min-maf` already does with `--samples`.
+- **Pinned by:** `expr-differs-from-bcftools-samples-selection` (must differ;
+  its reference is the single-command bcftools form) and `maf_sees_the_selected_samples`
+  in `crates/gloci/tests/vcf_filter_expr.rs`.

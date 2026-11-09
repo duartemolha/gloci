@@ -1,0 +1,1 @@
+vcf filter input.vcf --samples s1,s2 --include 'MAF<0.3'

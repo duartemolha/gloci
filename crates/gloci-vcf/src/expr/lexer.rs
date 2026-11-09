@@ -58,7 +58,7 @@ impl Tok {
             Tok::Not => "`!`".into(),
             Tok::And => "`&&`".into(),
             Tok::Or => "`||`".into(),
-            Tok::Cmp(_) => "a comparison operator".into(),
+            Tok::Cmp(_) => "comparison operator".into(),
             Tok::End => "the end of the expression".into(),
         }
     }

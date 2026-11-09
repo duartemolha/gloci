@@ -1,0 +1,1 @@
+vcf filter input.vcf --include 'N_PASS(GT="hom")=2 || N_PASS(GT="mis")=1 && N_PASS(GT="ref")=2 || N_PASS(GT="alt")=3'

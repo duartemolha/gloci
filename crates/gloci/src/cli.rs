@@ -1025,8 +1025,10 @@ pub struct VcfFilterArgs {
     pub recalc_ac: bool,
 
     /// Keep records for which the bcftools-style EXPR holds, e.g.
-    /// 'QUAL>30 && INFO/DP>10 && N_PASS(GT="het")>=2'. It sees masked genotypes
-    /// of the selected samples; FORMAT fields are limited to GT, DP and GQ.
+    /// 'QUAL>30 && INFO/DP>10 && N_PASS(GT="het")>=2'. FORMAT fields are limited
+    /// to GT, DP and GQ. With --samples it sees only the selected samples
+    /// (bcftools view -s -i sees all of them), and a sample masked by --min-gq
+    /// and friends reads as missing in it, though the output keeps its values.
     #[arg(long, value_name = "EXPR", conflicts_with = "exclude")]
     pub include: Option<String>,
     /// Remove records for which the bcftools-style EXPR holds (same grammar as

@@ -2194,6 +2194,13 @@ reference = "bcftools view -i '(GT=\"het\" && FMT/DP>5) || GT=\"hap\"' input.vcf
 compare = "vcf-records"
 
 [[case]]
+name = "expr-matches-bcftools-gt-keywords-hom-ref-alt-mis"
+input = { file = "xtask/diff/inputs/expr-main.vcf" }
+gloci = "gloci vcf filter input.vcf --include 'N_PASS(GT=\"hom\")=2 || N_PASS(GT=\"mis\")=1 && N_PASS(GT=\"ref\")=2 || N_PASS(GT=\"alt\")=3'"
+reference = "bcftools view -i 'N_PASS(GT=\"hom\")=2 || N_PASS(GT=\"mis\")=1 && N_PASS(GT=\"ref\")=2 || N_PASS(GT=\"alt\")=3' input.vcf"
+compare = "vcf-records"
+
+[[case]]
 name = "expr-matches-bcftools-type"
 input = { file = "xtask/diff/inputs/expr-main.vcf" }
 gloci = "gloci vcf filter input.vcf --include 'TYPE=\"indel\" || TYPE=\"other\"'"
@@ -2301,3 +2308,11 @@ reference = "bcftools view -i 'MAF>=0.3' input.vcf"
 compare = "vcf-records"
 expected_difference = "#expr-maf-first-alt"
 
+
+[[case]]
+name = "expr-differs-from-bcftools-samples-selection"
+input = { file = "xtask/diff/inputs/expr-main.vcf" }
+gloci = "gloci vcf filter input.vcf --samples s1,s2 --include 'MAF<0.3'"
+reference = "bcftools view -s s1,s2 -i 'MAF<0.3' input.vcf"
+compare = "vcf-records"
+expected_difference = "#expr-samples-selection"

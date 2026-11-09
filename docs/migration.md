@@ -377,3 +377,8 @@ Every row below was checked against `gloci <cmd> --help`.
   [differences.md#expr-grammar-extensions](differences.md#expr-grammar-extensions)
   [differences.md#expr-index-past-end](differences.md#expr-index-past-end)
   [differences.md#expr-maf-first-alt](differences.md#expr-maf-first-alt)
+- **`--samples` with `--include/--exclude`:** `bcftools view -s S -i E` filters on
+  all samples; gloci filters on the selected samples. The bcftools equivalent
+  of gloci's behaviour is the two-step pipeline
+  `bcftools view -s S | bcftools view -i E`.
+  [differences.md#expr-samples-selection](differences.md#expr-samples-selection)
