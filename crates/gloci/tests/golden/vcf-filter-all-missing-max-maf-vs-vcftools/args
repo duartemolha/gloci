@@ -1,0 +1,1 @@
+vcf filter input.vcf --max-maf 0.4

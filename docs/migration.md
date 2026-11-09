@@ -249,6 +249,13 @@ Every row below was checked against `gloci <cmd> --help`.
 - **BCF output of mixed ploidy:** A record with a missing haploid genotype
   (`.`) next to diploid ones cannot be written as BCF yet; write VCF instead.
   [differences.md#bcf-mixed-ploidy-missing](differences.md#bcf-mixed-ploidy-missing)
+- **Clipping GFF/GTF by a point:** `intersect --mode clip` skips the empty
+  piece a point leaves in a GFF/GTF feature (with one warning) where bedtools
+  writes one base around the point.
+  [differences.md#clip-gff-points](differences.md#clip-gff-points)
+- **All-missing sites:** `vcf filter --min-maf` drops a site with no called
+  genotype (vcftools `--maf` keeps it; bcftools drops it).
+  [differences.md#all-missing-site-stats](differences.md#all-missing-site-stats)
 - **Undeclared VCF contigs:** Records on a contig missing from the VCF header
   are accepted with a warning by `view` and `index`, as htslib does, but `sort`
   and BCF output refuse them (add `##contig` or pass `-g`).

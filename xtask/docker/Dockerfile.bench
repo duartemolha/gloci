@@ -13,7 +13,7 @@ USER micromamba
 
 # Baselines and conda-available yardsticks (pinned)
 RUN micromamba install -y -n base -c conda-forge -c bioconda \
-        rust \
+        rust=1.99.1 \
         bedtools=2.31.1 \
         bedops=2.4.41 \
         vcftools=0.1.16 \
@@ -22,7 +22,7 @@ RUN micromamba install -y -n base -c conda-forge -c bioconda \
         hyperfine=2.0.0 \
         bedtk=0.1 \
         vcfkit=0.2.9 \
-        coreutils \
+        coreutils=9.12 \
     && micromamba clean --all --yes
 
 USER root

@@ -309,6 +309,9 @@ fn closed_table_unknown_b_contig_fails() {
         stderr.contains("chrUnknown"),
         "stderr should name the unknown chromosome: {stderr}"
     );
+    // M4: it names the index, with no made-up line number.
+    assert!(stderr.contains("b.bed.gz.tbi"), "{stderr}");
+    assert!(!stderr.contains("line 1"), "{stderr}");
 }
 
 /// Indexed and plain copies of `text` in `dir` (`NAME.bed.gz` with a
@@ -618,5 +621,25 @@ fn ties_keep_b_input_order_indexed() {
     ];
     for (name, template) in cases {
         assert_indexed_equals_streaming(name, template, &a, &b);
+    }
+}
+
+/// M5: a write error names the real destination, in indexed (chunked) and
+/// streaming mode alike, not the placeholder "output".
+#[cfg(target_os = "linux")]
+#[test]
+fn write_errors_name_the_destination() {
+    let fx = Fixture::new();
+    let (a, b) = (s(&fx.a_indexed), s(&fx.b_indexed));
+    for cmd in ["intersect", "subtract", "closest", "map", "coverage"] {
+        for t in ["1", "2"] {
+            let mut args = vec![cmd, "-a", &a, "-b", &b, "-t", t, "-o", "/dev/full"];
+            if cmd == "map" {
+                args.extend(["-c", "4:collapse"]);
+            }
+            let o = gloci().args(&args).assert().code(1);
+            let e = String::from_utf8(o.get_output().stderr.clone()).unwrap();
+            assert!(e.contains("error writing /dev/full"), "{cmd} -t {t}: {e}");
+        }
     }
 }

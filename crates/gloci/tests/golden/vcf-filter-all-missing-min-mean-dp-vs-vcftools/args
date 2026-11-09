@@ -1,0 +1,1 @@
+vcf filter input.vcf --min-mean-dp 10

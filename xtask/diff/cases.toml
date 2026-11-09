@@ -470,6 +470,15 @@ reference = "bedtools intersect -sorted -a input.bed -b rel-b.bed"
 compare = "exact"
 
 [[case]]
+name = "intersect-clip-gff-points-vs-bedtools"
+input = { file = "xtask/diff/inputs/clip-a.gff3" }
+aux = ["xtask/diff/inputs/clip-points-b.bed"]
+gloci = "gloci intersect --chrom-order lex -a input.gff3 -b clip-points-b.bed --mode clip"
+reference = "bedtools intersect -sorted -a input.gff3 -b clip-points-b.bed"
+compare = "exact"
+expected_difference = "#clip-gff-points"
+
+[[case]]
 name = "intersect-f-vs-bedtools"
 input = { file = "xtask/diff/inputs/rel-a.bed" }
 aux = ["xtask/diff/inputs/rel-b.bed"]
@@ -1838,6 +1847,59 @@ gloci = "gloci vcf filter input.vcf --hwe 0.01"
 reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --hwe 0.01"
 compare = "vcf-records"
 expected_difference = "#hwe-multiallelic"
+
+# All-missing sites (no called allele; one with FORMAT/DP) against vcftools:
+# the provisional Task 21 rules, refined. --min-maf differs from vcftools
+# (pinned; bcftools agrees with gloci); the rest match.
+[[case]]
+name = "vcf-filter-all-missing-maf-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-all-missing.vcf" }
+gloci = "gloci vcf filter input.vcf --min-maf 0.1"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --maf 0.1"
+compare = "vcf-records"
+expected_difference = "#all-missing-site-stats"
+
+[[case]]
+name = "vcf-filter-all-missing-maf-vs-bcftools"
+input = { file = "xtask/diff/inputs/filter-all-missing.vcf" }
+gloci = "gloci vcf filter input.vcf --min-maf 0.1"
+reference = "bcftools view -I -q 0.1:minor input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-filter-all-missing-max-maf-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-all-missing.vcf" }
+gloci = "gloci vcf filter input.vcf --max-maf 0.4"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --max-maf 0.4"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-filter-all-missing-mac-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-all-missing.vcf" }
+gloci = "gloci vcf filter input.vcf --min-mac 1"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --mac 1"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-filter-all-missing-min-mean-dp-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-all-missing.vcf" }
+gloci = "gloci vcf filter input.vcf --min-mean-dp 10"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --min-meanDP 10"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-filter-all-missing-hwe-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-all-missing.vcf" }
+gloci = "gloci vcf filter input.vcf --hwe 0.01"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --hwe 0.01"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-filter-all-missing-phased-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-all-missing.vcf" }
+gloci = "gloci vcf filter input.vcf --phased-only"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --phased"
+compare = "vcf-records"
 
 [[case]]
 name = "vcf-filter-thin-vs-vcftools"

@@ -465,14 +465,37 @@ fn maf_mac_missing_meandp_hwe_phased() {
     });
     assert!(!hwe.contains(&30), "{hwe:?}");
     assert!(hwe.contains(&10) && hwe.contains(&40));
-    // phased-only: a site with no called genotype has no unphased one
+    // phased-only: a genotype is phased by its separators, called or not
+    // (vcftools --phased), so the all-missing `./.` site 40 is unphased
     assert_eq!(
         one(SiteFilters {
             phased_only: true,
             ..Default::default()
         }),
-        vec![30, 40]
+        vec![30]
     );
+}
+
+/// M14: `--phased-only` judges every genotype by its separators, as
+/// vcftools --phased does: a no-call written `.|.` is phased, `./.` is not;
+/// haploid calls have no phase and never fail it.
+#[test]
+fn phased_only_judges_no_calls_by_separator() {
+    let lines = vec![
+        gt_line(10, &[".|.:.:.:."; 3]),
+        gt_line(20, &["./.:.:.:."; 3]),
+        gt_line(30, &["0|1:30:50:PASS", ".|.:.:.:.", "1:30:50:PASS"]),
+        gt_line(40, &["0|1:30:50:PASS", "./.:.:.:.", "1|1:30:50:PASS"]),
+        gt_line(50, &["0|1:30:50:PASS", "0|.:.:.:.", "1|1:30:50:PASS"]),
+    ];
+    let kept = stats_kept(
+        &SiteFilters {
+            phased_only: true,
+            ..Default::default()
+        },
+        &lines,
+    );
+    assert_eq!(kept, vec![10, 30, 50]);
 }
 
 #[test]

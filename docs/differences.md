@@ -318,6 +318,22 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   and `convert-vcf-split-deletions-vs-vcf2bed` (must differ);
   `convert-vcf-ref-vs-vcf2bed` (`--vcf-span ref`: must match).
 
+## `intersect --mode clip` of a GFF/GTF feature by a point {#clip-gff-points}
+
+- **gloci:** a clip piece is the shared span of A and B. When B is a point
+  (zero-length) inside a GFF/GTF feature, that span is empty, and GFF/GTF
+  cannot hold an empty feature (its end would be less than its start), so the
+  piece is not written; one warning gives the count of such pieces and
+  suggests `--mode any` or `--mode pairs`. A BED A keeps its zero-length
+  piece (`chr1 15 15`), since BED can hold it.
+- **Old behaviour:** `bedtools intersect` 2.31.1 treats the point as one base
+  and writes a two-base feature (`chr1 src gene 15 16 ...`) for a point at
+  BED position 15.
+- **Reason:** gloci's points have no bases (spec §4.3), so a feature clipped
+  to one has no extent; writing a base the point does not cover would be a
+  wrong answer, and writing `16 15` would be invalid GFF.
+- **Pinned by:** `intersect-clip-gff-points-vs-bedtools`.
+
 ## Overlap fractions are measured per B record {#per-record-overlap-fraction}
 
 - **gloci:** `-f`, `-F`, `-r`, `-e` and `--min-bases` are measured for each B
@@ -696,6 +712,26 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   in the second-most-common sense.
 - **Pinned by:** `vcf-filter-maf-multiallelic-vs-vcftools` and
   `vcf-filter-min-mac-vs-vcftools` (must differ).
+
+## `--min-maf` on a site with no called genotype {#all-missing-site-stats}
+
+- **gloci:** a site where every genotype is missing has no called allele, so
+  its MAF and MAC are undefined, and an undefined statistic fails every
+  threshold on it: `--min-maf` and `--max-maf` both drop the site, as do
+  `--min-mac`/`--max-mac`, and `--min-mean-dp`/`--max-mean-dp` drop a site with
+  no FORMAT/DP. `--hwe` keeps a site it cannot test. `--phased-only` reads each
+  genotype's separators, called or not, as vcftools does: a site of `./.`
+  no-calls is unphased and dropped, one of `.|.` is kept.
+- **Old behaviour:** `vcftools --maf 0.1` 0.1.16 keeps such a site, while its
+  `--max-maf` drops it. `bcftools view -q 0.1:minor` 1.21 drops it, as gloci
+  does.
+- **Reason:** one rule for every threshold on a statistic the site does not
+  have; a site with no data is not a common variant. vcftools' two MAF flags
+  disagree with each other on it.
+- **Pinned by:** `vcf-filter-all-missing-maf-vs-vcftools` (must differ) and
+  `vcf-filter-all-missing-maf-vs-bcftools` (matches); the `--max-maf`,
+  `--mac`, `--min-meanDP`, `--hwe` and `--phased` cases on the same input
+  match vcftools.
 
 ## HWE filtering on multiallelic sites {#hwe-multiallelic}
 

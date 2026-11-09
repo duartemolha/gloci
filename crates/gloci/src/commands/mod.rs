@@ -173,3 +173,12 @@ pub fn run_options(ctx: &Ctx) -> RunOptions {
         tmp_dir: ctx.tmp_dir.clone(),
     }
 }
+
+/// The output's name for messages: the path, or `stdout`. Write errors from
+/// the ops name the placeholder `output`; `IoError::with_output_name` puts
+/// this in its place.
+pub fn dest_name(spec: &gloci_io::OutputSpec) -> String {
+    spec.path
+        .as_ref()
+        .map_or_else(|| "stdout".to_string(), |p| p.display().to_string())
+}

@@ -1,0 +1,1 @@
+vcf filter input.vcf --hwe 0.01

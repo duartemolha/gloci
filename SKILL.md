@@ -112,6 +112,8 @@ A and every B must be sorted in one chromosome order, which is checked as they a
 
 Two ways to deal with inputs that are not sorted. Use --sort when the inputs are too big for memory or you want sorted output: A and every -b file are sorted first with an external sort bounded by --max-mem (spilling to --tmp-dir), then the normal sweep runs, so the result equals gloci sort on each input followed by this command. It needs disk, about twice the input size in --tmp-dir, and removes it afterwards. Use --unsorted when you want A's order kept and every -b file fits in memory. The two cannot be combined.
 
+When A and every -b file are BGZF files with a .tbi or .csi index and more than one thread is used, the work runs on runs of chromosomes in parallel, which are read and written in the chromosome-table order (karyotype by default; -g, a VCF header or --chrom-order set it), whatever order the files hold them in. Chunks waiting to be written share 128 MiB of memory and spill the rest to --tmp-dir. The output is the same as with one thread.
+
 ```sh
 gloci intersect -a peaks.bed -b genes.bed
 gloci intersect -a calls.vcf.gz -b exons.bed --mode none -o off_target.vcf.gz
@@ -212,6 +214,8 @@ A and every B must be sorted in one chromosome order, which is checked as they a
 
 Two ways to deal with inputs that are not sorted. Use --sort when the inputs are too big for memory or you want sorted output: A and every -b file are sorted first with an external sort bounded by --max-mem (spilling to --tmp-dir), then the normal sweep runs, so the result equals gloci sort on each input followed by this command. It needs disk, about twice the input size in --tmp-dir, and removes it afterwards. Use --unsorted when you want A's order kept and every -b file fits in memory. The two cannot be combined.
 
+When A and every -b file are BGZF files with a .tbi or .csi index and more than one thread is used, the work runs on runs of chromosomes in parallel, which are read and written in the chromosome-table order (karyotype by default; -g, a VCF header or --chrom-order set it), whatever order the files hold them in. Chunks waiting to be written share 128 MiB of memory and spill the rest to --tmp-dir. The output is the same as with one thread.
+
 ```sh
 gloci subtract -a peaks.bed -b blacklist.bed
 gloci subtract -a genes.bed -b repeats.bed -f 50% --whole -o clean.bed
@@ -233,6 +237,8 @@ Memory and a pathology: the sorted sweep looks ahead in B for the nearest B to t
 
 Two ways to deal with inputs that are not sorted. Use --sort when the inputs are too big for memory or you want sorted output: A and every -b file are sorted first with an external sort bounded by --max-mem (spilling to --tmp-dir), then the normal sweep runs, so the result equals gloci sort on each input followed by this command. It needs disk, about twice the input size in --tmp-dir, and removes it afterwards. Use --unsorted when you want A's order kept and every -b file fits in memory. The two cannot be combined.
 
+When A and every -b file are BGZF files with a .tbi or .csi index and more than one thread is used, the work runs on runs of chromosomes in parallel, which are read and written in the chromosome-table order (karyotype by default; -g, a VCF header or --chrom-order set it), whatever order the files hold them in. Chunks waiting to be written share 128 MiB of memory and spill the rest to --tmp-dir. The output is the same as with one thread.
+
 ```sh
 gloci closest -a genes.bed -b peaks.bed --distance
 gloci closest -a genes.bed -b peaks.bed -k 3 --signed a -s
@@ -252,6 +258,8 @@ A and every B must be sorted in one chromosome order, which is checked as they a
 
 Two ways to deal with inputs that are not sorted. Use --sort when the inputs are too big for memory or you want sorted output: A and every -b file are sorted first with an external sort bounded by --max-mem (spilling to --tmp-dir), then the normal sweep runs, so the result equals gloci sort on each input followed by this command. It needs disk, about twice the input size in --tmp-dir, and removes it afterwards. Use --unsorted when you want A's order kept and every -b file fits in memory. The two cannot be combined.
 
+When A and every -b file are BGZF files with a .tbi or .csi index and more than one thread is used, the work runs on runs of chromosomes in parallel, which are read and written in the chromosome-table order (karyotype by default; -g, a VCF header or --chrom-order set it), whatever order the files hold them in. Chunks waiting to be written share 128 MiB of memory and spill the rest to --tmp-dir. The output is the same as with one thread.
+
 ```sh
 gloci map -a genes.bed -b scores.bedgraph -c 4:mean
 gloci map -a windows.bed -b peaks.bed -c 0:count -c 5:max --skip-unmatched
@@ -270,6 +278,8 @@ With --split, A and B are their BED12 blocks: depth counts the bases shared by a
 A and every B must be sorted in one chromosome order, which is checked as they are read. With --unsorted, any order works, A is still streamed in its own order, and every -b file is loaded into memory, so memory grows with the size of B. The output is TSV with A's columns first.
 
 Two ways to deal with inputs that are not sorted. Use --sort when the inputs are too big for memory or you want sorted output: A and every -b file are sorted first with an external sort bounded by --max-mem (spilling to --tmp-dir), then the normal sweep runs, so the result equals gloci sort on each input followed by this command. It needs disk, about twice the input size in --tmp-dir, and removes it afterwards. Use --unsorted when you want A's order kept and every -b file fits in memory. The two cannot be combined.
+
+When A and every -b file are BGZF files with a .tbi or .csi index and more than one thread is used, the work runs on runs of chromosomes in parallel, which are read and written in the chromosome-table order (karyotype by default; -g, a VCF header or --chrom-order set it), whatever order the files hold them in. Chunks waiting to be written share 128 MiB of memory and spill the rest to --tmp-dir. The output is the same as with one thread.
 
 ```sh
 gloci coverage -a genes.bed -b reads.bed

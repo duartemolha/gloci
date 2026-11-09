@@ -92,7 +92,8 @@ sort the inputs without -m to remove or find duplicates",
             let r = sources.peek(i)?;
             if OutFormat::family(r.format()) != OutFormat::family(format) {
                 return Err(usage(format!(
-                    "{} is {} but {} is {}; sort needs inputs of one format",
+                    "{} is {} but {} is {}; sort needs inputs of one format: sort each format \
+separately",
                     files[0],
                     format.name(),
                     r.name(),

@@ -2,7 +2,7 @@
 use crate::Ctx;
 use crate::cli::MapArgs;
 use crate::commands::{
-    relation_files, relation_hint, run_options, sort_aware, sort_settings, user_span,
+    dest_name, relation_files, relation_hint, run_options, sort_aware, sort_settings, user_span,
 };
 use gloci_io::{
     Format, InvalidPolicy, OutputOptions, ReaderOptions, UsageError, WriterOptions,
@@ -79,8 +79,11 @@ pub fn run(ctx: &Ctx, a: &MapArgs) -> anyhow::Result<()> {
         &wo,
         a.header.header,
     )?;
-    map_files(files, &o, w.as_mut(), &run_options(ctx))
-        .map_err(|e| e.with_order_hint(relation_hint(&a.sort)))?;
-    w.finish()?;
+    let dest = dest_name(&spec);
+    map_files(files, &o, w.as_mut(), &run_options(ctx)).map_err(|e| {
+        e.with_output_name(&dest)
+            .with_order_hint(relation_hint(&a.sort))
+    })?;
+    w.finish().map_err(|e| e.with_output_name(&dest))?;
     Ok(())
 }

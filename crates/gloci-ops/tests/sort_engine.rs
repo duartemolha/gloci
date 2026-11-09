@@ -211,6 +211,7 @@ fn merge_with(texts: &[&str], tie: Tie) -> Result<Vec<String>, IoError> {
         &mut readers,
         &mut chroms,
         tie,
+        &std::env::temp_dir(),
         &mut |raw: &[u8]| -> io::Result<()> {
             out.extend_from_slice(raw);
             out.push(b'\n');
@@ -455,6 +456,7 @@ fn output_errors_keep_their_kind() {
         &mut readers,
         &mut chroms,
         Tie::InputOrder,
+        &std::env::temp_dir(),
         &mut |_: &[u8]| -> io::Result<()> { Err(io::ErrorKind::BrokenPipe.into()) },
     )
     .unwrap_err();
@@ -510,4 +512,48 @@ fn merge_sorted_rejects_unsorted_input() {
         merge(&[sorted_a, "chr1\t3\t4\nchr2\t0\t1\n"]).unwrap(),
         ["chr1\t1\t2", "chr1\t3\t4", "chr1\t5\t6", "chr2\t0\t1"]
     );
+}
+
+/// M2: more than 128 inputs spill to the caller's tmp dir, not the system
+/// temp dir, and leave nothing there.
+#[test]
+fn merge_sorted_rounds_use_the_given_tmp_dir() {
+    let make = || -> Vec<Box<dyn RecordReader>> {
+        (0..130)
+            .map(|i| {
+                reader(
+                    &format!("in{i}.bed"),
+                    format!("chr1\t{i}\t{}\n", i + 1).as_bytes(),
+                )
+            })
+            .collect()
+    };
+    let missing = std::path::Path::new("/nonexistent-gloci-tmp/dir");
+    let err = merge_sorted(
+        &mut make(),
+        &mut ChromTable::lexicographic(),
+        Tie::InputOrder,
+        missing,
+        &mut |_: &[u8]| -> io::Result<()> { Ok(()) },
+    )
+    .unwrap_err();
+    assert!(
+        err.to_string().contains("/nonexistent-gloci-tmp/dir"),
+        "{err}"
+    );
+    let tmp = tempfile::tempdir().unwrap();
+    let mut n = 0;
+    merge_sorted(
+        &mut make(),
+        &mut ChromTable::lexicographic(),
+        Tie::InputOrder,
+        tmp.path(),
+        &mut |_: &[u8]| -> io::Result<()> {
+            n += 1;
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(n, 130);
+    assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
 }

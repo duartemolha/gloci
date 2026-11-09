@@ -507,22 +507,38 @@ fn run_native_bench(commands: &[(&str, String)], json_path: &Path) -> Result<Vec
     Ok(results)
 }
 
-pub fn resolve_gloci(explicit: Option<&Path>) -> Result<PathBuf> {
+/// Cargo's target directory: `$CARGO_TARGET_DIR` (relative to the
+/// workspace root when relative), else `target` in the workspace root.
+pub fn target_dir() -> PathBuf {
     let root = workspace_root();
+    match std::env::var_os("CARGO_TARGET_DIR") {
+        Some(d) if !d.is_empty() => root.join(d),
+        _ => root.join("target"),
+    }
+}
+
+/// The gloci binary of `profile` (`release` or `debug`), built first with
+/// cargo when missing.
+fn built_gloci(profile: &str) -> Result<PathBuf> {
+    let bin = target_dir().join(profile).join("gloci");
+    if !bin.exists() {
+        let mut cmd = Command::new("cargo");
+        cmd.args(["build", "-p", "gloci"])
+            .current_dir(workspace_root());
+        if profile == "release" {
+            cmd.arg("--release");
+        }
+        run_ok(&mut cmd)?;
+    }
+    ensure!(bin.exists(), "cargo built no gloci at {}", bin.display());
+    Ok(bin)
+}
+
+pub fn resolve_gloci(explicit: Option<&Path>) -> Result<PathBuf> {
     match explicit {
         Some(p) => std::fs::canonicalize(p)
             .with_context(|| format!("gloci binary {} not found", p.display())),
-        None => {
-            let rel = root.join("target/release/gloci");
-            if !rel.exists() {
-                run_ok(
-                    Command::new("cargo")
-                        .args(["build", "--release", "-p", "gloci"])
-                        .current_dir(&root),
-                )?;
-            }
-            Ok(rel)
-        }
+        None => built_gloci("release"),
     }
 }
 
@@ -895,7 +911,11 @@ mod tests {
 
     #[test]
     fn prepare_input_indexes_bgzf() {
-        let gloci = resolve_gloci(None).unwrap();
+        // A debug build (or $GLOCI_BIN): fast, and under any CARGO_TARGET_DIR.
+        let gloci = match std::env::var_os("GLOCI_BIN") {
+            Some(b) => PathBuf::from(b),
+            None => built_gloci("debug").unwrap(),
+        };
         let td = tempfile::tempdir().unwrap();
         let c = Case {
             name: "test-bgzf".into(),

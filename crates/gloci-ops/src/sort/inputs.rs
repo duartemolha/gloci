@@ -136,11 +136,12 @@ pub fn sort_readers(
     for r in &inputs[1..] {
         if OutFormat::family(r.format()) != OutFormat::family(format) {
             return Err(UsageError(format!(
-                "{} is {:?} but {} is {:?}; --sort needs inputs of one format",
+                "{} is {} but {} is {}; --sort needs inputs of one format: convert one of them, \
+or run the command on each format separately",
                 inputs[0].name(),
-                format,
+                format.name(),
                 r.name(),
-                r.format()
+                r.format().name()
             ))
             .into());
         }

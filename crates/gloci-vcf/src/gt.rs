@@ -95,12 +95,21 @@ fn bad(what: &str, v: &[u8]) -> String {
     )
 }
 
-/// Parse a text GT value into `g` (already cleared).
+/// Parse a text GT value into `g` (already cleared). A VCF 4.4 leading
+/// phase indicator (`|0|1`, `/0|1`) states the first allele's phasing and
+/// counts as a separator for `phased`.
 fn parse_gt(v: &[u8], g: &mut Genotype) -> Result<(), String> {
     let mut seps = 0usize;
     let mut phased_seps = 0usize;
     let mut start = 0;
-    let mut i = 0;
+    if let Some(&p @ (b'|' | b'/')) = v.first()
+        && v.len() > 1
+    {
+        seps += 1;
+        phased_seps += usize::from(p == b'|');
+        start = 1;
+    }
+    let mut i = start;
     loop {
         let at_end = i == v.len();
         if at_end || v[i] == b'/' || v[i] == b'|' {
@@ -114,7 +123,7 @@ fn parse_gt(v: &[u8], g: &mut Genotype) -> Result<(), String> {
         }
         i += 1;
     }
-    g.phased = seps > 0 && seps == phased_seps;
+    g.phased = g.alleles.len() > 1 && seps == phased_seps;
     Ok(())
 }
 

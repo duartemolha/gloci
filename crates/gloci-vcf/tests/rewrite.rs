@@ -461,3 +461,61 @@ fn bcf_passthrough_bytes() {
     // Rewritten BCF is modified because sample s2 was dropped
     assert_ne!(non_pt_bcf_out, bcf_rec);
 }
+
+/// M6: masking looks at the GT field itself, so an empty GT in a later
+/// sample is still masked, and a VCF 4.4 leading phase indicator keeps its
+/// place with one `.` per allele.
+#[test]
+fn mask_gt_field_not_record_buffer() {
+    let plan = RewritePlan {
+        selection: None,
+        mask: MaskRules {
+            min_gq: Some(35),
+            ..MaskRules::default()
+        },
+        keep_info: None,
+        drop_info: Vec::new(),
+        recalc_ac: false,
+    };
+    let line = b"1\t100\t.\tA\tC\t30\tPASS\t.\tGT:GQ\t0/1:10\t:10\t|0|1:10\t/1:10\t1|0|1:10";
+    let masked = vec![true; 5];
+    let mut out = Vec::new();
+    rewrite_text(line, &plan, &masked, None, &mut out).unwrap();
+    assert_eq!(
+        std::str::from_utf8(&out).unwrap(),
+        "1\t100\t.\tA\tC\t30\tPASS\t.\tGT:GQ\t./.:10\t.:10\t|.|.:10\t/.:10\t.|.|.:10"
+    );
+}
+
+/// M7: with no called allele (AN=0), AF is `.` for each ALT, not 0.
+#[test]
+fn recalc_af_is_missing_without_called_alleles() {
+    let line = b"1\t100\t.\tA\tC,G\t30\tPASS\t.\tGT\t./.\t.";
+    let gt = text_genotypes(line).unwrap();
+    let mut masked = Vec::new();
+    let stats = site_stats(&gt, None, &MaskRules::default(), 3, &mut masked).unwrap();
+    let plan = RewritePlan {
+        selection: None,
+        mask: MaskRules::default(),
+        keep_info: None,
+        drop_info: Vec::new(),
+        recalc_ac: true,
+    };
+    let mut out = Vec::new();
+    rewrite_text(line, &plan, &masked, Some(&stats), &mut out).unwrap();
+    assert_eq!(
+        std::str::from_utf8(&out).unwrap(),
+        "1\t100\t.\tA\tC,G\t30\tPASS\tAC=0,0;AN=0;AF=.,.\tGT\t./.\t."
+    );
+}
+
+/// M6: a VCF 4.4 leading phase indicator parses as a normal genotype.
+#[test]
+fn leading_phase_indicator_parses() {
+    let line = b"1\t100\t.\tA\tC\t30\tPASS\t.\tGT\t|0|1\t/1|1";
+    let gt = text_genotypes(line).unwrap();
+    let mut masked = Vec::new();
+    let stats = site_stats(&gt, None, &MaskRules::default(), 2, &mut masked).unwrap();
+    assert_eq!(stats.called_alleles, 4);
+    assert_eq!(stats.allele_counts[1], 3);
+}

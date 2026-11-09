@@ -706,3 +706,39 @@ fn piped_b_with_vcf_a_matches_regular_file() {
     assert!(text.lines().next().unwrap().ends_with("\tb_6"), "{text}");
     assert_eq!(text.lines().count(), 5_001);
 }
+
+/// M9: clipping a GFF/GTF A to a point would write start > end (invalid
+/// GFF); such pieces are skipped with one summary warning. A BED A keeps
+/// its zero-length line.
+#[test]
+fn clip_gff_by_point_skips_with_one_warning() {
+    let d = tempdir();
+    let gff = s(&plain_file(
+        d.path(),
+        "a.gff3",
+        "##gff-version 3\nchr1\tsrc\tgene\t11\t30\t.\t+\t.\tID=g1\nchr1\tsrc\tgene\t41\t60\t.\t+\t.\tID=g2\n",
+    ));
+    let bed = s(&plain_file(d.path(), "a.bed", "chr1\t10\t30\tg1\n"));
+    let b = s(&plain_file(
+        d.path(),
+        "b.bed",
+        "chr1\t15\t15\tp1\nchr1\t20\t25\tr1\nchr1\t50\t50\tp2\n",
+    ));
+    let o = gloci()
+        .args(["intersect", "--mode", "clip", "-a", &gff, "-b", &b])
+        .assert()
+        .success();
+    let out = String::from_utf8(o.get_output().stdout.clone()).unwrap();
+    let err = String::from_utf8(o.get_output().stderr.clone()).unwrap();
+    assert_eq!(out, "chr1\tsrc\tgene\t21\t25\t.\t+\t.\tID=g1\n", "{out}");
+    assert_eq!(err.matches("zero-length").count(), 1, "{err}");
+    assert!(err.contains("2 clip pieces"), "{err}");
+    // BED keeps the zero-length piece.
+    let o = gloci()
+        .args(["intersect", "--mode", "clip", "-a", &bed, "-b", &b])
+        .assert()
+        .success()
+        .stderr("");
+    let out = String::from_utf8(o.get_output().stdout.clone()).unwrap();
+    assert_eq!(out, "chr1\t15\t15\tg1\nchr1\t20\t25\tg1\n");
+}

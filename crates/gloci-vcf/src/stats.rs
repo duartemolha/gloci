@@ -44,7 +44,8 @@ pub struct SiteStats {
     /// Fully called diploid genotypes as (0/0, 0/1, 1/1); `None` unless the
     /// site is biallelic, in which case `--hwe` passes it.
     pub hwe_counts: Option<(u64, u64, u64)>,
-    /// False if any called genotype of ploidy 2 or more is unphased.
+    /// False if any genotype of ploidy 2 or more, called or not, is written
+    /// unphased (a `/` separator).
     pub all_phased: bool,
 }
 
@@ -133,6 +134,14 @@ pub fn site_stats(
         }
         s.samples += 1;
         src.sample(i, &mut f)?;
+        // Phasing is read from the separators, called or not (vcftools
+        // --phased): `.|.` is phased, `./.` is not. Masking keeps them.
+        if let Some(g) = &f.gt
+            && g.alleles.len() >= 2
+            && !g.phased
+        {
+            s.all_phased = false;
+        }
         if mask.masks(&f) {
             masked[i] = true;
             s.missing += 1;
@@ -162,9 +171,6 @@ pub fn site_stats(
         if !fully_called {
             s.missing += 1;
             continue;
-        }
-        if g.alleles.len() >= 2 && !g.phased {
-            s.all_phased = false;
         }
         if let (Some(c), [Some(a), Some(b)]) = (&mut s.hwe_counts, &g.alleles[..]) {
             match a + b {

@@ -44,7 +44,7 @@ pub fn check_family(records: Format, to: OutFormat) -> Result<(), UsageError> {
 }
 
 /// The one message for output that does not match the records' format,
-/// used by `sort` and `view`.
+/// for every command that writes records in their own format.
 pub fn family_mismatch(records: Format, to: OutFormat) -> UsageError {
     let from = OutFormat::family(records);
     let fits = match from {
@@ -55,9 +55,9 @@ pub fn family_mismatch(records: Format, to: OutFormat) -> UsageError {
         OutFormat::Tsv => ".tsv or .tsv.gz",
     };
     UsageError(format!(
-        "the input is {} but the output format is {}; sort and view keep the format, so pick an \
-output extension that matches ({fits}) or pass -O with a matching format (other conversions are \
-not available yet)",
+        "the input is {} but the output format is {}; this command writes records in their own \
+format, so pick an output extension that matches ({fits}) or pass -O with a matching format \
+(other conversions are not available yet)",
         family_name(from),
         family_name(to)
     ))

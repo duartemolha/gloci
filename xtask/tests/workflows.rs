@@ -94,6 +94,19 @@ fn release_workflow_and_dockerfile_are_valid() {
         "release.yml must not publish to crates.io or bioconda"
     );
 
+    // The tag must equal the workspace version, and the release is created
+    // only after the image push (the last step of the publish job).
+    assert!(
+        release_yml.contains("does not match the workspace version"),
+        "release.yml must check the tag against the workspace version"
+    );
+    let push = release_yml.find("name: Build and push GHCR image").unwrap();
+    let release = release_yml.find("name: Create GitHub Release").unwrap();
+    assert!(
+        push < release,
+        "release.yml must create the GitHub release after the image push"
+    );
+
     // 3. ci.yml must include actionlint
     let ci_path = root.join(".github/workflows/ci.yml");
     let ci_yml = fs::read_to_string(&ci_path).unwrap();

@@ -144,3 +144,50 @@ fn test_all_indexed() {
     assert!(!all_indexed(&["-"]));
     assert!(!all_indexed(&["nonexistent_file"]));
 }
+
+/// M3: when several chunks fail, the error of the first in job order is
+/// returned, whatever finishes first; a panicking worker is an error, not a
+/// hang.
+#[test]
+fn run_chunks_reports_the_first_error_in_order_and_panics() {
+    let dir = tempdir().unwrap();
+    let jobs: Vec<u32> = (0..8).collect();
+    for threads in [2, 4, 8] {
+        let mut out = VecWriter::new();
+        let err = run_chunks(
+            jobs.clone(),
+            NonZeroUsize::new(threads).unwrap(),
+            dir.path(),
+            &|&j: &u32, _sink: &mut ChunkSink| {
+                // Job 1 fails late, job 5 fails at once.
+                match j {
+                    1 => {
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        Err(IoError::Internal("job 1".into()))
+                    }
+                    5 => Err(IoError::Internal("job 5".into())),
+                    _ => Ok(()),
+                }
+            },
+            &mut out,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("job 1"), "-t {threads}: {err}");
+    }
+    let mut out = VecWriter::new();
+    let err = run_chunks(
+        jobs,
+        NonZeroUsize::new(4).unwrap(),
+        dir.path(),
+        &|&j: &u32, _sink: &mut ChunkSink| {
+            if j == 3 {
+                panic!("boom in job 3");
+            }
+            Ok(())
+        },
+        &mut out,
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("boom in job 3"), "{err}");
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+}

@@ -212,24 +212,24 @@ pub fn rewrite_header(h: &VcfHeader, plan: &RewritePlan) -> Vec<u8> {
     out
 }
 
+/// Append GT `gt` with every allele missing (D50): one `.` per allele, the
+/// separators kept, and a VCF 4.4 leading phase indicator (`|0|1`) kept in
+/// front. An empty GT becomes `.`.
 fn mask_gt(gt: &[u8], out: &mut Vec<u8>) {
-    let mut in_allele = false;
-    for &b in gt {
+    let body = match gt.first() {
+        Some(&p @ (b'|' | b'/')) => {
+            out.push(p);
+            &gt[1..]
+        }
+        _ => gt,
+    };
+    for &b in body {
         if b == b'/' || b == b'|' {
-            if in_allele {
-                out.push(b'.');
-                in_allele = false;
-            } else {
-                out.push(b'.');
-            }
+            out.push(b'.');
             out.push(b);
-        } else {
-            in_allele = true;
         }
     }
-    if in_allele || out.is_empty() {
-        out.push(b'.');
-    }
+    out.push(b'.');
 }
 
 fn mask_sample(sample: &[u8], gt_idx: usize, out: &mut Vec<u8>) {
@@ -276,7 +276,8 @@ fn write_af(out: &mut Vec<u8>, s: &SiteStats, n_alts: usize) {
             out.push(b',');
         }
         if s.called_alleles == 0 {
-            out.push(b'0');
+            // No called allele: the frequency is unknown, not 0.
+            out.push(b'.');
         } else {
             let c = s.allele_counts.get(k).copied().unwrap_or(0);
             let freq = c as f64 / s.called_alleles as f64;

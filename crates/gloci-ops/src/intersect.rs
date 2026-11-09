@@ -172,6 +172,8 @@ struct Reporter<'o, 'w> {
     row: Vec<u8>,
     /// A's VCF line, kept for the allele comparison.
     a_line: Vec<u8>,
+    /// Clip pieces of a GFF/GTF A that were points, not written.
+    point_pieces: u64,
 }
 
 impl Reporter<'_, '_> {
@@ -246,6 +248,12 @@ impl Visitor for Reporter<'_, '_> {
                         start: a.meta.span.start.max(h.span.start),
                         end: a.meta.span.end.min(h.span.end),
                     };
+                    // GFF/GTF cannot hold an empty feature (start would
+                    // exceed end); BED can.
+                    if shared.is_point() && matches!(self.a.format, Format::Gff3 | Format::Gtf) {
+                        self.point_pieces += 1;
+                        continue;
+                    }
                     self.row.clear();
                     rewrite_coords(self.a.format, a.raw, shared, &mut self.row);
                     self.put()?;
@@ -336,9 +344,22 @@ pub fn intersect(
     } else {
         (None, 3)
     };
-    let summary = intersect_in(inputs, chroms, width, o, w)?;
+    let (summary, points) = intersect_in(inputs, chroms, width, o, w)?;
     report_skipped(&summary);
+    warn_point_pieces(points);
     Ok(summary)
+}
+
+/// One warning for the clip pieces of a GFF/GTF A that were points.
+fn warn_point_pieces(n: u64) {
+    if n > 0 {
+        log::warn!(
+            "{} clip pieces were zero-length (a GFF/GTF feature overlapping a point) and were \
+not written: GFF/GTF cannot hold an empty feature; use --mode any or pairs to keep these \
+features",
+            gloci_core::thousands(n)
+        );
+    }
 }
 
 /// Run `intersect` over the files a command opened: per chromosome when
@@ -355,9 +376,10 @@ pub fn intersect_files(
     } else {
         3
     };
-    let (summary, _) = run_files(files, &o.relate, run, w, &|inputs, chroms, w| {
-        Ok((intersect_in(inputs, chroms, width, o, w)?, ()))
+    let (summary, points) = run_files(files, &o.relate, run, w, &|inputs, chroms, w| {
+        intersect_in(inputs, chroms, width, o, w)
     })?;
+    warn_point_pieces(points.iter().sum());
     Ok(summary)
 }
 
@@ -390,14 +412,15 @@ pub fn intersect_output(
 }
 
 /// [`intersect`] once the options are checked, with B file 1's width and,
-/// when something was read with it, the chromosome table.
+/// when something was read with it, the chromosome table. Also returns the
+/// number of clip pieces not written because they were points of a GFF/GTF A.
 fn intersect_in(
     inputs: RelateInputs,
     chroms: Option<ChromTable>,
     b_width: usize,
     o: &IntersectOptions,
     w: &mut dyn RecordWriter,
-) -> Result<SweepSummary, IoError> {
+) -> Result<(SweepSummary, u64), IoError> {
     let multi = inputs.b.len() > 1;
     let a = Text::new(inputs.a.as_ref())?;
     let b = inputs
@@ -435,6 +458,8 @@ fn intersect_in(
         b_width,
         row: Vec::new(),
         a_line: Vec::new(),
+        point_pieces: 0,
     };
-    run_relation_in(inputs, chroms, relate, None, &mut reporter)
+    let summary = run_relation_in(inputs, chroms, relate, None, &mut reporter)?;
+    Ok((summary, reporter.point_pieces))
 }

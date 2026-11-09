@@ -491,3 +491,27 @@ chr1\t10\t.\tA\tG\t.\tPASS\t.\tGT\t0/1\t.\n";
         .assert()
         .success();
 }
+
+/// M5: format errors use the names users know, with a fix.
+#[test]
+fn format_errors_use_user_facing_names() {
+    let d = tempdir();
+    let bed = s(&plain_file(d.path(), "a.bed", "chr1\t1\t5\n"));
+    gloci()
+        .args(["vcf", "filter", &bed])
+        .assert()
+        .code(2)
+        .stderr(contains(format!(
+            "vcf filter works on VCF and BCF input, but {bed} is BED; give it a VCF or BCF file"
+        )));
+    let vcf = s(&plain_file(
+        d.path(),
+        "a.vcf",
+        "##fileformat=VCFv4.3\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nchr1\t5\t.\tA\tC\t.\t.\t.\n",
+    ));
+    gloci()
+        .args(["vcf", "filter", &vcf, "-O", "tsv"])
+        .assert()
+        .code(2)
+        .stderr(contains("vcf filter writes VCF or BCF, not TSV"));
+}

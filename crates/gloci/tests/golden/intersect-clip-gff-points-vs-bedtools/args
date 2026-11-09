@@ -1,0 +1,1 @@
+intersect --chrom-order lex -a input.gff3 -b clip-points-b.bed --mode clip

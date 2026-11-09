@@ -242,7 +242,7 @@ where
     let fan = merge_fan_in(max_mem);
     if num_inputs <= fan {
         let mut readers = open_batch(0, num_inputs)?;
-        let res = merge_sorted(&mut readers, chroms, tie, out);
+        let res = merge_sorted(&mut readers, chroms, tie, tmp_dir, out);
         for r in &readers {
             if let Some(s) = r.diagnostics().summary(r.name()) {
                 log::warn!("{s}");
@@ -287,12 +287,14 @@ where
 /// k-way merge of already sorted inputs (`sort -m`), in `(chromosome order,
 /// key, end, tiebreak)` order; ties go to the earlier input, or with
 /// [`Tie::FullLine`] to the smaller line first. Every input is checked by its
-/// own [`OrderGuard`] as it is read, batch by batch. Returns the number of
-/// records written.
+/// own [`OrderGuard`] as it is read, batch by batch. More than 128 inputs
+/// are merged in rounds through spill files in `tmp_dir` (`--tmp-dir`).
+/// Returns the number of records written.
 pub fn merge_sorted(
     readers: &mut [Box<dyn RecordReader>],
     chroms: &mut ChromTable,
     tie: Tie,
+    tmp_dir: &Path,
     out: &mut dyn FnMut(&[u8]) -> io::Result<()>,
 ) -> Result<u64, IoError> {
     if readers.len() <= MAX_FAN_IN {
@@ -302,7 +304,7 @@ pub fn merge_sorted(
         };
     }
     let fan = MAX_FAN_IN;
-    let mut spill = SpillDir::create(&std::env::temp_dir())?;
+    let mut spill = SpillDir::create(tmp_dir)?;
     let mut runs = Vec::new();
     let mut start = 0;
     while start < readers.len() {

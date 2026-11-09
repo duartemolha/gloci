@@ -206,6 +206,14 @@ Examples:
     /// disk, about twice the input size in --tmp-dir, and removes it
     /// afterwards. Use --unsorted when you want A's order kept and every
     /// -b file fits in memory. The two cannot be combined.
+    ///
+    /// When A and every -b file are BGZF files with a .tbi or .csi index and
+    /// more than one thread is used, the work runs on runs of chromosomes in
+    /// parallel, which are read and written in the chromosome-table order
+    /// (karyotype by default; -g, a VCF header or --chrom-order set it),
+    /// whatever order the files hold them in. Chunks waiting to be written
+    /// share 128 MiB of memory and spill the rest to --tmp-dir. The output is
+    /// the same as with one thread.
     #[command(after_long_help = "\
 Examples:
   gloci intersect -a peaks.bed -b genes.bed
@@ -387,6 +395,14 @@ Examples:
     /// disk, about twice the input size in --tmp-dir, and removes it
     /// afterwards. Use --unsorted when you want A's order kept and every
     /// -b file fits in memory. The two cannot be combined.
+    ///
+    /// When A and every -b file are BGZF files with a .tbi or .csi index and
+    /// more than one thread is used, the work runs on runs of chromosomes in
+    /// parallel, which are read and written in the chromosome-table order
+    /// (karyotype by default; -g, a VCF header or --chrom-order set it),
+    /// whatever order the files hold them in. Chunks waiting to be written
+    /// share 128 MiB of memory and spill the rest to --tmp-dir. The output is
+    /// the same as with one thread.
     #[command(after_long_help = "\
 Examples:
   gloci subtract -a peaks.bed -b blacklist.bed
@@ -444,6 +460,14 @@ Examples:
     /// disk, about twice the input size in --tmp-dir, and removes it
     /// afterwards. Use --unsorted when you want A's order kept and every
     /// -b file fits in memory. The two cannot be combined.
+    ///
+    /// When A and every -b file are BGZF files with a .tbi or .csi index and
+    /// more than one thread is used, the work runs on runs of chromosomes in
+    /// parallel, which are read and written in the chromosome-table order
+    /// (karyotype by default; -g, a VCF header or --chrom-order set it),
+    /// whatever order the files hold them in. Chunks waiting to be written
+    /// share 128 MiB of memory and spill the rest to --tmp-dir. The output is
+    /// the same as with one thread.
     #[command(after_long_help = "\
 Examples:
   gloci closest -a genes.bed -b peaks.bed --distance
@@ -488,6 +512,14 @@ Examples:
     /// disk, about twice the input size in --tmp-dir, and removes it
     /// afterwards. Use --unsorted when you want A's order kept and every
     /// -b file fits in memory. The two cannot be combined.
+    ///
+    /// When A and every -b file are BGZF files with a .tbi or .csi index and
+    /// more than one thread is used, the work runs on runs of chromosomes in
+    /// parallel, which are read and written in the chromosome-table order
+    /// (karyotype by default; -g, a VCF header or --chrom-order set it),
+    /// whatever order the files hold them in. Chunks waiting to be written
+    /// share 128 MiB of memory and spill the rest to --tmp-dir. The output is
+    /// the same as with one thread.
     #[command(after_long_help = "\
 Examples:
   gloci map -a genes.bed -b scores.bedgraph -c 4:mean
@@ -529,6 +561,14 @@ Examples:
     /// disk, about twice the input size in --tmp-dir, and removes it
     /// afterwards. Use --unsorted when you want A's order kept and every
     /// -b file fits in memory. The two cannot be combined.
+    ///
+    /// When A and every -b file are BGZF files with a .tbi or .csi index and
+    /// more than one thread is used, the work runs on runs of chromosomes in
+    /// parallel, which are read and written in the chromosome-table order
+    /// (karyotype by default; -g, a VCF header or --chrom-order set it),
+    /// whatever order the files hold them in. Chunks waiting to be written
+    /// share 128 MiB of memory and spill the rest to --tmp-dir. The output is
+    /// the same as with one thread.
     #[command(after_long_help = "\
 Examples:
   gloci coverage -a genes.bed -b reads.bed
@@ -829,7 +869,9 @@ pub struct VcfFilterArgs {
     #[arg(value_name = "FILE")]
     pub file: String,
 
-    /// Keep only these sample names (repeatable or comma-separated).
+    /// Keep only these sample names (repeatable or comma-separated). They are
+    /// written in the input header's order, not the order given here
+    /// (bcftools view -s writes them in the order given).
     #[arg(
         long,
         value_delimiter = ',',
@@ -837,7 +879,8 @@ pub struct VcfFilterArgs {
         conflicts_with = "samples_file"
     )]
     pub samples: Option<Vec<String>>,
-    /// File containing sample names to keep, one per line.
+    /// File containing sample names to keep, one per line (written in the
+    /// input header's order, as with --samples).
     #[arg(long, value_name = "FILE")]
     pub samples_file: Option<PathBuf>,
     /// Remove these sample names (repeatable or comma-separated).
@@ -969,7 +1012,9 @@ pub struct VcfFilterArgs {
     /// Minimum distance between kept sites in bp (first wins; requires sorted input).
     #[arg(long, value_name = "N")]
     pub thin: Option<u64>,
-    /// Keep only sites where all called genotypes are phased.
+    /// Keep only sites where every genotype of ploidy 2 or more is written
+    /// phased (`|`), called or not: `.|.` counts as phased, `./.` does not
+    /// (as vcftools --phased).
     #[arg(long)]
     pub phased_only: bool,
 
@@ -1726,8 +1771,7 @@ impl WindowArgs {
 #[derive(Args, Debug, Clone)]
 pub struct UnsortedArg {
     /// Accept inputs in any order and keep A's order in the output; every -b
-    /// file is held in memory (8.2: unsorted mode). Cannot be combined with
-    /// --sort.
+    /// file is held in memory. Cannot be combined with --sort.
     #[arg(long, conflicts_with = "sort")]
     pub unsorted: bool,
 }
