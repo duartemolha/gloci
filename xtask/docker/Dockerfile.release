@@ -1,0 +1,4 @@
+FROM scratch
+ARG BIN=target/x86_64-unknown-linux-musl/release/gloci
+COPY ${BIN} /gloci
+ENTRYPOINT ["/gloci"]
