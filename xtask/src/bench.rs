@@ -243,6 +243,17 @@ struct PreparedInputs {
     in_b: Option<PathBuf>,
 }
 
+fn link_or_copy(src: &Path, dst: &Path) -> Result<()> {
+    if dst.exists() {
+        return Ok(());
+    }
+    if std::fs::hard_link(src, dst).is_ok() {
+        return Ok(());
+    }
+    std::fs::copy(src, dst)?;
+    Ok(())
+}
+
 /// Generate (or reuse) the input for a case; returns its paths.
 fn prepare_input(
     case: &Case,
@@ -265,30 +276,43 @@ fn prepare_input(
         if ds.unpack {
             let in_a = path.join("a.bed");
             let in_b = path.join("b.bed");
-            let in_a = if in_a.exists() {
-                in_a
-            } else {
-                dir.join(format!("{}-a.bed", case.name))
-            };
-            let in_b = if in_b.exists() {
-                in_b
-            } else {
-                dir.join(format!("{}-b.bed", case.name))
-            };
+            ensure!(
+                in_a.exists() && in_b.exists(),
+                "dataset `{ds_name}` unpacked at {} is missing a.bed or b.bed",
+                path.display()
+            );
+            let target_a = dir.join(format!("{}-a.bed", case.name));
+            let target_b = dir.join(format!("{}-b.bed", case.name));
+            link_or_copy(&in_a, &target_a)?;
+            link_or_copy(&in_b, &target_b)?;
             return Ok(PreparedInputs {
-                in_a,
-                in_b: Some(in_b),
+                in_a: target_a,
+                in_b: Some(target_b),
             });
         } else {
-            if path.to_string_lossy().ends_with(".gz") {
-                let csi = path.with_extension("csi");
-                let tbi = path.with_extension("tbi");
+            let file_name = path
+                .file_name()
+                .ok_or_else(|| anyhow!("invalid dataset path {}", path.display()))?;
+            let target = dir.join(file_name);
+            link_or_copy(&path, &target)?;
+
+            if target.to_string_lossy().ends_with(".gz") {
+                let csi = PathBuf::from(format!("{}.csi", target.display()));
+                let tbi = PathBuf::from(format!("{}.tbi", target.display()));
                 if !csi.exists() && !tbi.exists() {
-                    let _ = Command::new(gloci).arg("index").arg(&path).status();
+                    let cached_csi = PathBuf::from(format!("{}.csi", path.display()));
+                    let cached_tbi = PathBuf::from(format!("{}.tbi", path.display()));
+                    if cached_csi.exists() {
+                        let _ = link_or_copy(&cached_csi, &csi);
+                    } else if cached_tbi.exists() {
+                        let _ = link_or_copy(&cached_tbi, &tbi);
+                    } else {
+                        run_ok(Command::new(gloci).arg("index").arg(&target))?;
+                    }
                 }
             }
             return Ok(PreparedInputs {
-                in_a: path,
+                in_a: target,
                 in_b: None,
             });
         }
@@ -348,10 +372,10 @@ fn prepare_input(
                         .arg("-o")
                         .arg(&tmp_b),
                 )?;
-                run_ok(Command::new(gloci).arg("index").arg(&tmp_a))?;
-                run_ok(Command::new(gloci).arg("index").arg(&tmp_b))?;
                 std::fs::rename(&tmp_a, &want_a)?;
                 std::fs::rename(&tmp_b, &want_b)?;
+                run_ok(Command::new(gloci).arg("index").arg(&want_a))?;
+                run_ok(Command::new(gloci).arg("index").arg(&want_b))?;
                 let _ = std::fs::remove_file(&plain_a);
                 let _ = std::fs::remove_file(&plain_b);
             }
@@ -382,8 +406,8 @@ fn prepare_input(
                         .arg("-o")
                         .arg(&tmp),
                 )?;
-                let _ = Command::new(gloci).arg("index").arg(&tmp).status();
                 std::fs::rename(&tmp, &want)?;
+                run_ok(Command::new(gloci).arg("index").arg(&want))?;
                 let _ = std::fs::remove_file(&plain);
             }
         }
@@ -453,20 +477,27 @@ fn run_native_bench(commands: &[(&str, String)], json_path: &Path) -> Result<Vec
     Ok(results)
 }
 
-pub fn run(a: &Args) -> Result<bool> {
+pub fn resolve_gloci(explicit: Option<&Path>) -> Result<PathBuf> {
     let root = workspace_root();
-    let gloci = match &a.gloci {
+    match explicit {
         Some(p) => std::fs::canonicalize(p)
-            .with_context(|| format!("gloci binary {} not found", p.display()))?,
+            .with_context(|| format!("gloci binary {} not found", p.display())),
         None => {
-            run_ok(
-                Command::new("cargo")
-                    .args(["build", "--release", "-p", "gloci"])
-                    .current_dir(&root),
-            )?;
-            root.join("target/release/gloci")
+            let rel = root.join("target/release/gloci");
+            if !rel.exists() {
+                run_ok(
+                    Command::new("cargo")
+                        .args(["build", "--release", "-p", "gloci"])
+                        .current_dir(&root),
+                )?;
+            }
+            Ok(rel)
         }
-    };
+    }
+}
+
+pub fn run(a: &Args) -> Result<bool> {
+    let gloci = resolve_gloci(a.gloci.as_deref())?;
     let cases = parse_cases(&std::fs::read_to_string(&a.cases)?)?;
     let version = env!("CARGO_PKG_VERSION");
     let results = a.out.join(version);
@@ -782,6 +813,29 @@ mod tests {
         assert_eq!(
             override_records("bed --records 10000000 --seed 1", 5),
             "bed --records 5 --seed 1"
+        );
+    }
+
+    #[test]
+    fn prepare_input_indexes_bgzf() {
+        let gloci = resolve_gloci(None).unwrap();
+        let td = tempfile::tempdir().unwrap();
+        let c = Case {
+            name: "test-bgzf".into(),
+            setup: Some("bed --records 10 --chroms 1 --seed 1 --sorted".into()),
+            dataset: None,
+            input: "bed.gz".into(),
+            commands: BTreeMap::new(),
+            targets: Vec::new(),
+        };
+        let inputs = prepare_input(&c, c.setup.as_deref(), &gloci, td.path()).unwrap();
+        assert!(inputs.in_a.exists());
+        let tbi = PathBuf::from(format!("{}.tbi", inputs.in_a.display()));
+        let csi = PathBuf::from(format!("{}.csi", inputs.in_a.display()));
+        assert!(
+            tbi.exists() || csi.exists(),
+            "index file must exist for prepared bgzf input at {}",
+            inputs.in_a.display()
         );
     }
 }

@@ -74,14 +74,16 @@ impl SuperIntervals {
     }
 
     pub fn query(&self, start: u64, end: u64, out: &mut Vec<u32>) {
-        for (i, iv) in self.intervals.iter().enumerate() {
-            if iv.start > end {
-                break;
-            }
+        let idx = self.intervals.partition_point(|iv| iv.start <= end);
+        if idx == 0 {
+            return;
+        }
+        for i in (0..idx).rev() {
+            let iv = &self.intervals[i];
             if iv.end >= start {
                 out.push(iv.val);
             } else if self.max_ends[i] < start {
-                // prune
+                break;
             }
         }
     }

@@ -30,7 +30,7 @@ setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
 input = "bed"
 targets = ["gloci <= 0.5 * bedtools", "gloci <= bedops"]
 [case.commands]
-gloci = "{gloci} intersect --chrom-order lex --mode any -a {in_a} -b {in_b} > {out}"
+gloci = "{gloci} intersect --chrom-order lex -t 1 --mode any -a {in_a} -b {in_b} > {out}"
 bedtools = "bedtools intersect -sorted -a {in_a} -b {in_b} > {out}"
 bedops = "bedops -e 1 {in_a} {in_b} > {out}"
 gia = "gia intersect -a {in_a} -b {in_b} > {out}"
@@ -45,7 +45,7 @@ setup = "bed --records 10000000 --chroms 24 --seed 1 --profile uniform --sorted"
 input = "bed"
 targets = ["gloci <= 0.5 * bedtools", "gloci <= bedops"]
 [case.commands]
-gloci = "{gloci} merge --chrom-order lex -i {in} > {out}"
+gloci = "{gloci} merge --chrom-order lex -t 1 -i {in} > {out}"
 bedtools = "bedtools merge -i {in} > {out}"
 bedops = "bedops -m {in} > {out}"
 gia = "gia merge -i {in} > {out}"
@@ -60,9 +60,9 @@ setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
 input = "bed"
 targets = ["gloci <= 0.5 * bedtools", "gloci <= bedops"]
 [case.commands]
-gloci = "{gloci} subtract --chrom-order lex -a {in_a} -b {in_b} > {out}"
-bedtools = "bedtools subtract -a {in_a} -b {in_b} > {out}"
-bedops = "bedops -d {in_a} {in_b} > {out}"
+gloci = "{gloci} subtract --chrom-order lex -t 1 -a {in_a} -b {in_b} > {out}"
+bedtools = "bedtools subtract -sorted -a {in_a} -b {in_b} > {out}"
+bedops = "bedops -m {in_b} | bedops -d {in_a} - > {out}"
 gia = "gia subtract -a {in_a} -b {in_b} > {out}"
 bedder = "bedder subtract -a {in_a} -b {in_b} > {out}"
 granges = "granges filter --no-overlap {in_b} {in_a} > {out}"
@@ -75,7 +75,7 @@ setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
 input = "bed"
 targets = ["gloci <= 0.5 * bedtools", "gloci <= bedops"]
 [case.commands]
-gloci = "{gloci} closest --chrom-order lex -d -a {in_a} -b {in_b} > {out}"
+gloci = "{gloci} closest --chrom-order lex -t 1 -d -a {in_a} -b {in_b} > {out}"
 bedtools = "bedtools closest -d -a {in_a} -b {in_b} > {out}"
 bedops = "closest-features --dist {in_a} {in_b} > {out}"
 gia = "gia closest -a {in_a} -b {in_b} > {out}"
@@ -90,7 +90,7 @@ setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
 input = "bed"
 targets = ["gloci <= 0.5 * bedtools", "gloci <= bedops"]
 [case.commands]
-gloci = "{gloci} map --chrom-order lex -c 5:sum -a {in_a} -b {in_b} > {out}"
+gloci = "{gloci} map --chrom-order lex -t 1 -c 5:sum -a {in_a} -b {in_b} > {out}"
 bedtools = "bedtools map -c 5 -o sum -a {in_a} -b {in_b} > {out}"
 bedops = "bedmap --echo --sum {in_a} {in_b} > {out}"
 gia = "gia map -a {in_a} -b {in_b} > {out}"
@@ -105,7 +105,7 @@ setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
 input = "bed"
 targets = ["gloci <= 0.5 * bedtools"]
 [case.commands]
-gloci = "{gloci} coverage --chrom-order lex -a {in_a} -b {in_b} > {out}"
+gloci = "{gloci} coverage --chrom-order lex -t 1 -a {in_a} -b {in_b} > {out}"
 bedtools = "bedtools coverage -sorted -a {in_a} -b {in_b} > {out}"
 gia = "gia coverage -a {in_a} -b {in_b} > {out}"
 bedder = "bedder coverage -a {in_a} -b {in_b} > {out}"
@@ -119,7 +119,7 @@ setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
 input = "bed.gz"
 targets = ["gloci <= 0.2 * bedtools"]
 [case.commands]
-gloci = "{gloci} intersect --chrom-order lex -t 8 --mode any -a {in_a} -b {in_b} > {out}"
+gloci = "{gloci} intersect --chrom-order lex -t 8 --mode any -a {in_a} -b {in_b} -o {out}"
 bedtools = "bedtools intersect -sorted -a {in_a} -b {in_b} | bgzip -@ 8 > {out}"
 
 [[case]]
@@ -128,7 +128,7 @@ setup = "bed --records 10000000 --chroms 24 --seed 1 --profile uniform --sorted"
 input = "bed.gz"
 targets = ["gloci <= 0.2 * bedtools"]
 [case.commands]
-gloci = "{gloci} merge --chrom-order lex -t 8 -i {in} > {out}"
+gloci = "{gloci} merge --chrom-order lex -t 8 -i {in} -o {out}"
 bedtools = "bedtools merge -i {in} | bgzip -@ 8 > {out}"
 
 [[case]]
@@ -137,8 +137,8 @@ setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
 input = "bed.gz"
 targets = ["gloci <= 0.2 * bedtools"]
 [case.commands]
-gloci = "{gloci} subtract --chrom-order lex -t 8 -a {in_a} -b {in_b} > {out}"
-bedtools = "bedtools subtract -a {in_a} -b {in_b} | bgzip -@ 8 > {out}"
+gloci = "{gloci} subtract --chrom-order lex -t 8 -a {in_a} -b {in_b} -o {out}"
+bedtools = "bedtools subtract -sorted -a {in_a} -b {in_b} | bgzip -@ 8 > {out}"
 
 [[case]]
 name = "closest-bgzf-10M"
@@ -146,7 +146,7 @@ setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
 input = "bed.gz"
 targets = ["gloci <= 0.2 * bedtools"]
 [case.commands]
-gloci = "{gloci} closest --chrom-order lex -t 8 -d -a {in_a} -b {in_b} > {out}"
+gloci = "{gloci} closest --chrom-order lex -t 8 -d -a {in_a} -b {in_b} -o {out}"
 bedtools = "bedtools closest -d -a {in_a} -b {in_b} | bgzip -@ 8 > {out}"
 
 [[case]]
@@ -155,7 +155,7 @@ setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
 input = "bed.gz"
 targets = ["gloci <= 0.2 * bedtools"]
 [case.commands]
-gloci = "{gloci} map --chrom-order lex -t 8 -c 5:sum -a {in_a} -b {in_b} > {out}"
+gloci = "{gloci} map --chrom-order lex -t 8 -c 5:sum -a {in_a} -b {in_b} -o {out}"
 bedtools = "bedtools map -c 5 -o sum -a {in_a} -b {in_b} | bgzip -@ 8 > {out}"
 
 [[case]]
@@ -164,7 +164,7 @@ setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
 input = "bed.gz"
 targets = ["gloci <= 0.2 * bedtools"]
 [case.commands]
-gloci = "{gloci} coverage --chrom-order lex -t 8 -a {in_a} -b {in_b} > {out}"
+gloci = "{gloci} coverage --chrom-order lex -t 8 -a {in_a} -b {in_b} -o {out}"
 bedtools = "bedtools coverage -sorted -a {in_a} -b {in_b} | bgzip -@ 8 > {out}"
 
 [[case]]

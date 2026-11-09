@@ -196,58 +196,78 @@ pub fn pair(o: &PairOpts, out_a: &mut impl Write, out_b: &mut impl Write) -> Res
             continue;
         }
 
-        let slot_size = (CHROM_LEN / (n_records + 1)).max(o.len_max * 2 + 10);
         let mut recs_a = Vec::with_capacity(n_records as usize);
-        let mut recs_b = Vec::new();
+        let mut recs_b = Vec::with_capacity(n_records as usize);
 
-        for i in 0..n_records {
-            let slot_start = (i + 1) * slot_size;
-            let len_a = log_uniform(&mut rng, o.len_min, o.len_max).min(slot_size / 2);
-            let s_a = slot_start.saturating_sub(len_a / 2).min(CHROM_LEN - len_a);
-            let e_a = (s_a + len_a).min(CHROM_LEN);
-            let r_a = Rec {
-                start: s_a,
-                end: e_a,
-                score: rng.random_range(0..=1000),
-                strand: if rng.random_bool(0.5) { b'+' } else { b'-' },
-            };
-            recs_a.push(r_a);
+        if o.depth == 0.0 {
+            let stride = (CHROM_LEN as f64 - 100.0) / (n_records as f64);
+            for i in 0..n_records {
+                let slot_start = 50 + (i as f64 * stride).round() as u64;
+                let slot_end = 50 + ((i + 1) as f64 * stride).round() as u64;
+                let slot_end = slot_end.min(CHROM_LEN - 10);
+                let mid = (slot_start + slot_end) / 2;
 
-            if o.depth == 0.0 {
-                // Non-overlapping B interval in gap after A
-                let len_b = log_uniform(&mut rng, o.len_min, o.len_max).min(slot_size / 4);
-                let s_b = (e_a + 50).min(CHROM_LEN.saturating_sub(len_b));
+                let w_a = mid.saturating_sub(slot_start).max(2);
+                let max_la = (w_a / 2).min(o.len_max).max(1);
+                let min_la = o.len_min.min(max_la).max(1);
+                let len_a = log_uniform(&mut rng, min_la, max_la);
+                let s_a = slot_start + rng.random_range(0..=(w_a.saturating_sub(len_a)));
+                let e_a = s_a + len_a;
+                recs_a.push(Rec {
+                    start: s_a,
+                    end: e_a,
+                    score: rng.random_range(0..=1000),
+                    strand: if rng.random_bool(0.5) { b'+' } else { b'-' },
+                });
+
+                let w_b = slot_end.saturating_sub(mid).max(2);
+                let max_lb = (w_b / 2).min(o.len_max).max(1);
+                let min_lb = o.len_min.min(max_lb).max(1);
+                let len_b = log_uniform(&mut rng, min_lb, max_lb);
+                let s_b = mid + rng.random_range(0..=(w_b.saturating_sub(len_b)));
                 let e_b = s_b + len_b;
-                if s_b >= e_a && e_b <= (i + 2) * slot_size && e_b <= CHROM_LEN {
-                    recs_b.push(Rec {
-                        start: s_b,
-                        end: e_b,
-                        score: rng.random_range(0..=1000),
-                        strand: if rng.random_bool(0.5) { b'+' } else { b'-' },
-                    });
-                }
-            } else {
-                let int_depth = o.depth.floor() as u64;
-                let frac = o.depth - o.depth.floor();
-                let b_count = int_depth + u64::from(rng.random_bool(frac));
+                recs_b.push(Rec {
+                    start: s_b,
+                    end: e_b,
+                    score: rng.random_range(0..=1000),
+                    strand: if rng.random_bool(0.5) { b'+' } else { b'-' },
+                });
+            }
+        } else {
+            let margin = ((CHROM_LEN as f64 / (n_records as f64 + 1.0)) * (o.depth / 2.0)).round()
+                as u64
+                + 50;
+            let margin = margin.min(CHROM_LEN / 4);
+            let usable = CHROM_LEN.saturating_sub(margin * 2).max(1);
+            let stride = usable as f64 / (n_records as f64);
+            let l = (stride * (o.depth / 2.0)).max(1.0);
 
-                for _ in 0..b_count {
-                    let len_b = log_uniform(&mut rng, o.len_min, o.len_max).min(slot_size);
-                    let min_s = s_a.saturating_sub(len_b.saturating_sub(1));
-                    let max_s = (e_a.saturating_sub(1)).max(min_s);
-                    let s_b = if max_s > min_s {
-                        rng.random_range(min_s..=max_s)
-                    } else {
-                        min_s
-                    };
-                    let e_b = (s_b + len_b).min(CHROM_LEN);
-                    recs_b.push(Rec {
-                        start: s_b,
-                        end: e_b,
-                        score: rng.random_range(0..=1000),
-                        strand: if rng.random_bool(0.5) { b'+' } else { b'-' },
-                    });
-                }
+            for i in 0..n_records {
+                let len_a = ((l * rng.random_range(0.8..1.2)).round() as u64).max(1);
+                let c_a = margin as f64 + (i as f64 + rng.random_range(0.0..1.0)) * stride;
+                let s_a = ((c_a - len_a as f64 / 2.0).round() as u64)
+                    .max(1)
+                    .min(CHROM_LEN - len_a - 1);
+                let e_a = (s_a + len_a).min(CHROM_LEN);
+                recs_a.push(Rec {
+                    start: s_a,
+                    end: e_a,
+                    score: rng.random_range(0..=1000),
+                    strand: if rng.random_bool(0.5) { b'+' } else { b'-' },
+                });
+
+                let len_b = ((l * rng.random_range(0.8..1.2)).round() as u64).max(1);
+                let c_b = margin as f64 + (i as f64 + rng.random_range(0.0..1.0)) * stride;
+                let s_b = ((c_b - len_b as f64 / 2.0).round() as u64)
+                    .max(1)
+                    .min(CHROM_LEN - len_b - 1);
+                let e_b = (s_b + len_b).min(CHROM_LEN);
+                recs_b.push(Rec {
+                    start: s_b,
+                    end: e_b,
+                    score: rng.random_range(0..=1000),
+                    strand: if rng.random_bool(0.5) { b'+' } else { b'-' },
+                });
             }
         }
 

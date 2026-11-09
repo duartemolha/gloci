@@ -210,6 +210,7 @@ fn pair_generator_depth_and_determinism() {
     let recs_a = parse(&a1);
     let recs_b = parse(&b1);
     assert_eq!(recs_a.len(), 500);
+    assert_eq!(recs_b.len(), 500);
 
     // Verify sortedness
     assert!(
@@ -253,6 +254,8 @@ fn pair_generator_depth_and_determinism() {
     xtask::synth::pair(&o_zero, &mut a_z, &mut b_z).unwrap();
     let recs_az = parse(&a_z);
     let recs_bz = parse(&b_z);
+    assert_eq!(recs_az.len(), 100);
+    assert_eq!(recs_bz.len(), 100);
     let mut overlaps_zero = 0;
     for (ca, sa, ea) in &recs_az {
         for (cb, sb, eb) in &recs_bz {
@@ -262,4 +265,116 @@ fn pair_generator_depth_and_determinism() {
         }
     }
     assert_eq!(overlaps_zero, 0, "depth 0 must yield zero overlaps");
+}
+
+#[test]
+fn high_density_pair_generator_distribution_and_depth() {
+    let chrom_len = 250_000_000u64;
+    // 50,000 records on 1 chromosome with len_max 10,000 => 50,000 * 10,000 = 500,000,000 > CHROM_LEN
+    let o = PairOpts {
+        records: 50_000,
+        depth: 2.0,
+        chroms: 1,
+        seed: 99,
+        len_min: 50,
+        len_max: 10_000,
+        sorted: true,
+    };
+    let (mut a, mut b) = (Vec::new(), Vec::new());
+    xtask::synth::pair(&o, &mut a, &mut b).unwrap();
+    let recs_a = parse(&a);
+    let recs_b = parse(&b);
+
+    assert_eq!(recs_a.len(), 50_000);
+    assert_eq!(recs_b.len(), 50_000);
+
+    // Verify bounds strictly within 0..CHROM_LEN without piling up at the end
+    let min_sa = recs_a.iter().map(|r| r.1).min().unwrap();
+    let max_ea = recs_a.iter().map(|r| r.2).max().unwrap();
+    let min_sb = recs_b.iter().map(|r| r.1).min().unwrap();
+    let max_eb = recs_b.iter().map(|r| r.2).max().unwrap();
+
+    assert!(min_sa > 0, "min_sa must be > 0, got {min_sa}");
+    assert!(
+        max_ea < chrom_len,
+        "max_ea must be < chrom_len, got {max_ea}"
+    );
+    assert!(min_sb > 0, "min_sb must be > 0, got {min_sb}");
+    assert!(
+        max_eb < chrom_len,
+        "max_eb must be < chrom_len, got {max_eb}"
+    );
+
+    // Verify intervals span across the whole chromosome
+    assert!(
+        min_sa < 100_000,
+        "first intervals should start near start of chromosome, got {min_sa}"
+    );
+    assert!(
+        max_ea > 249_000_000,
+        "last intervals should reach end of chromosome, got {max_ea}"
+    );
+
+    // Verify no clamping pile-up: median distance between consecutive starts should be > 0
+    let last_100_starts: Vec<u64> = recs_a.iter().rev().take(100).map(|r| r.1).collect();
+    let distinct_last_100: std::collections::HashSet<u64> =
+        last_100_starts.iter().copied().collect();
+    assert!(
+        distinct_last_100.len() >= 90,
+        "intervals must not pile up at the end: {} distinct out of 100",
+        distinct_last_100.len()
+    );
+
+    // Measure overlap depth using two-pointer scan over sorted intervals
+    let mut total_overlaps = 0usize;
+    let mut b_start_idx = 0;
+    for (_ca, sa, ea) in &recs_a {
+        while b_start_idx < recs_b.len() && recs_b[b_start_idx].2 <= *sa {
+            b_start_idx += 1;
+        }
+        let mut j = b_start_idx;
+        while j < recs_b.len() && recs_b[j].1 < *ea {
+            total_overlaps += 1;
+            j += 1;
+        }
+    }
+    let avg_depth = total_overlaps as f64 / recs_a.len() as f64;
+    assert!(
+        (1.5..=2.5).contains(&avg_depth),
+        "expected avg depth ~2.0, got {avg_depth}"
+    );
+
+    // Test high density with depth = 0
+    let o_zero = PairOpts {
+        records: 10_000,
+        depth: 0.0,
+        chroms: 1,
+        seed: 99,
+        len_min: 50,
+        len_max: 10_000,
+        sorted: true,
+    };
+    let (mut a_z, mut b_z) = (Vec::new(), Vec::new());
+    xtask::synth::pair(&o_zero, &mut a_z, &mut b_z).unwrap();
+    let recs_az = parse(&a_z);
+    let recs_bz = parse(&b_z);
+    assert_eq!(recs_az.len(), 10_000);
+    assert_eq!(recs_bz.len(), 10_000);
+
+    let mut overlaps_zero = 0usize;
+    let mut bz_idx = 0;
+    for (_ca, sa, ea) in &recs_az {
+        while bz_idx < recs_bz.len() && recs_bz[bz_idx].2 <= *sa {
+            bz_idx += 1;
+        }
+        let mut j = bz_idx;
+        while j < recs_bz.len() && recs_bz[j].1 < *ea {
+            overlaps_zero += 1;
+            j += 1;
+        }
+    }
+    assert_eq!(
+        overlaps_zero, 0,
+        "high-density depth 0 must have zero overlaps"
+    );
 }
