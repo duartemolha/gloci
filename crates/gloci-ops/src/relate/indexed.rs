@@ -2,15 +2,21 @@
 //! seekable files (D76).
 
 use super::files::{RelationFiles, RelationStep, RunOptions, Source, relation_chroms};
-use super::regions::RegionFilter;
 use super::{ChunkScope, RelateInputs, RelateOptions, StrandWatch, has_threshold};
-use crate::view::not_found;
-use gloci_core::{ChromTable, Interval, StrandRule};
+use gloci_core::{ChromTable, StrandRule};
 use gloci_engine::{SweepSummary, run_chunks};
 use gloci_io::{IndexedFile, IoError, RecordReader, RecordWriter, SeekableFile, UsageError};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+
+/// A chunk of a per-chromosome run: A's chromosomes, and for each B the
+/// chromosomes its reader is given.
+#[derive(Clone)]
+struct Job {
+    a: Vec<Vec<u8>>,
+    b: Vec<Vec<Vec<u8>>>,
+}
 
 /// One input, ready to be read a chromosome at a time.
 enum Src {
@@ -61,23 +67,6 @@ impl Src {
             Src::Plain(f) => f.chromosomes_reader(chroms),
         }
     }
-
-    /// The records that overlap `wanted` (all on `chunk`'s chromosomes).
-    fn regions_reader(
-        &self,
-        chunk: &[Vec<u8>],
-        wanted: &[(Vec<u8>, Interval)],
-        inclusive_points: bool,
-    ) -> Result<Box<dyn RecordReader>, IoError> {
-        match self {
-            Src::Indexed(f) => f.regions_reader(wanted, inclusive_points),
-            Src::Plain(f) => Ok(Box::new(RegionFilter::new(
-                f.chromosomes_reader(chunk)?,
-                wanted,
-                inclusive_points,
-            ))),
-        }
-    }
 }
 
 /// Load each input's index once, or scan each plain input for where its
@@ -116,6 +105,14 @@ pub(super) fn run_per_chromosome<R: Send>(
         Some(c) => c,
         None => relation_chroms(&inputs, relate)?,
     };
+    // Streaming scans all of a plain A for its regions, and reads B only as
+    // far as the A records it selects take it: a run per chromosome would not
+    // read (or validate) the same lines, so it streams.
+    if a_regions.is_some() && sources.contains(&Source::Plain) {
+        log::debug!("--region with a plain input; streaming");
+        let (summary, r) = step(inputs, Some(chroms), out)?;
+        return Ok((summary, vec![r]));
+    }
     let open =
         |p: &str, r: &dyn RecordReader, ro, source: Source| -> Result<Option<Src>, IoError> {
             Ok(match source {
@@ -194,17 +191,6 @@ pub(super) fn run_per_chromosome<R: Send>(
             }
         }
     }
-    if let (Some(r), Src::Plain(_)) = (&a_regions, &file_a)
-        && r.warn_unseen
-    {
-        // Streaming A warns when it has read the file to its end.
-        let have: std::collections::HashSet<Vec<u8>> = names_a.iter().cloned().collect();
-        let wanted: std::collections::BTreeSet<&Vec<u8>> =
-            r.wanted.iter().map(|(c, _)| c).collect();
-        for c in wanted.into_iter().filter(|c| !have.contains(*c)) {
-            log::warn!("{}", not_found(c, file_a.name(), |n| have.contains(n)));
-        }
-    }
     let mut ordered = names_a;
     // With regions, A is empty off the chromosomes that have one, and so is
     // everything computed from it: skip them (B included).
@@ -217,6 +203,12 @@ pub(super) fn run_per_chromosome<R: Send>(
         let (x, y) = (chroms.get(x), chroms.get(y));
         chroms.cmp(x.expect("interned"), y.expect("interned"))
     });
+    // A chromosome with no A records is never entered by a sweep.
+    ordered.retain(|c| file_a.weight(c) > 0);
+    let by_rank = |x: &Vec<u8>, y: &Vec<u8>| {
+        let (x, y) = (chroms.get(x), chroms.get(y));
+        chroms.cmp(x.expect("interned"), y.expect("interned"))
+    };
     // Runs of consecutive chromosomes, balanced by the index's estimate of
     // their size in every input.
     let weights: Vec<u64> = ordered
@@ -229,7 +221,65 @@ pub(super) fn run_per_chromosome<R: Send>(
                 + 1
         })
         .collect();
-    let chunks = group_chromosomes(ordered, &weights, CHUNKS_PER_THREAD * run.threads.get());
+    // Streaming reads (and so validates) the records of a plain B on
+    // chromosomes A lacks, as A moves past them: those sorting before A's last
+    // chromosome. A chunk reads them as part of the chunk that holds the next
+    // A chromosome, where its sweep reads them the same way. (Past A's last
+    // chromosome streaming reads only a first batch, as far as a peek goes;
+    // nothing there is validated.)
+    let a_chroms: std::collections::HashSet<&Vec<u8>> = ordered.iter().collect();
+    let extras: Vec<Vec<Vec<u8>>> = files_b
+        .iter()
+        .map(|f| match f {
+            Src::Plain(_) => {
+                let mut v: Vec<Vec<u8>> = f
+                    .reference_names()
+                    .into_iter()
+                    .filter(|c| !a_chroms.contains(c))
+                    .collect();
+                v.sort_by(by_rank);
+                v
+            }
+            Src::Indexed(_) => Vec::new(),
+        })
+        .collect();
+    let groups = group_chromosomes(
+        ordered.clone(),
+        &weights,
+        CHUNKS_PER_THREAD * run.threads.get(),
+    );
+    let chunks: Vec<Job> = groups
+        .into_iter()
+        .map(|g| {
+            let last = g.last().expect("a group is not empty");
+            let b_lists = extras
+                .iter()
+                .zip(&files_b)
+                .map(|(ex, f)| {
+                    if matches!(f, Src::Indexed(_)) {
+                        return g.clone();
+                    }
+                    let mut v = g.clone();
+                    // Extras before this chunk's last chromosome that no
+                    // earlier chunk's last chromosome is after.
+                    v.extend(
+                        ex.iter()
+                            .filter(|x| {
+                                by_rank(x, last).is_lt()
+                                    && !ordered
+                                        .iter()
+                                        .take_while(|c| !g.contains(c))
+                                        .any(|c| by_rank(x, c).is_lt())
+                            })
+                            .cloned(),
+                    );
+                    v.sort_by(by_rank);
+                    v
+                })
+                .collect();
+            Job { a: g, b: b_lists }
+        })
+        .collect();
 
     let watching = relate.criteria.strand != StrandRule::Any;
     let flags: Vec<Arc<AtomicBool>> = (0..=files_b.len())
@@ -245,30 +295,31 @@ pub(super) fn run_per_chromosome<R: Send>(
             r
         }
     };
-    let chunk_step = |chunk: &Vec<Vec<u8>>,
-                      sink: &mut gloci_engine::ChunkSink|
-     -> Result<(SweepSummary, R), IoError> {
-        let a = match &a_regions {
-            None => file_a.chromosomes_reader(chunk)?,
-            Some(r) => {
-                let wanted: Vec<_> = r
-                    .wanted
-                    .iter()
-                    .filter(|(c, _)| chunk.contains(c))
-                    .cloned()
-                    .collect();
-                file_a.regions_reader(chunk, &wanted, r.inclusive_points)?
-            }
+    let chunk_step =
+        |job: &Job, sink: &mut gloci_engine::ChunkSink| -> Result<(SweepSummary, R), IoError> {
+            let chunk = &job.a;
+            let a = match (&a_regions, &file_a) {
+                (Some(r), Src::Indexed(f)) => {
+                    let wanted: Vec<_> = r
+                        .wanted
+                        .iter()
+                        .filter(|(c, _)| chunk.contains(c))
+                        .cloned()
+                        .collect();
+                    f.regions_reader(&wanted, r.inclusive_points)?
+                }
+                _ => file_a.chromosomes_reader(chunk)?,
+            };
+            let a = watch(a, &flags[0]);
+            let b = files_b
+                .iter()
+                .zip(&flags[1..])
+                .zip(&job.b)
+                .map(|((f, flag), list)| Ok(watch(f.chromosomes_reader(list)?, flag)))
+                .collect::<Result<Vec<_>, IoError>>()?;
+            let _scope = ChunkScope::enter();
+            step(RelateInputs { a, b }, None, sink)
         };
-        let a = watch(a, &flags[0]);
-        let b = files_b
-            .iter()
-            .zip(&flags[1..])
-            .map(|(f, flag)| Ok(watch(f.chromosomes_reader(chunk)?, flag)))
-            .collect::<Result<Vec<_>, IoError>>()?;
-        let _scope = ChunkScope::enter();
-        step(RelateInputs { a, b }, None, sink)
-    };
     log::debug!(
         "running per chromosome: {} chunk(s) of whole chromosomes, {} plain input(s) scanned",
         chunks.len(),

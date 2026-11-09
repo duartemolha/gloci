@@ -222,6 +222,11 @@ pub(crate) struct TextReader<K: TextKind> {
     pending: Option<Vec<u8>>,
     seen_record: bool,
     eof: bool,
+    /// An error found after records of the same batch were read: the batch
+    /// returns those records first, and the next call raises it, so the
+    /// earliest problem in the file is the one reported whatever the batch
+    /// boundaries.
+    deferred: Option<IoError>,
     kind: K,
     /// `--chrom-map`: rewrites each record's chromosome column as it is read.
     renamer: Option<Renamer>,
@@ -241,6 +246,7 @@ impl<K: TextKind> TextReader<K> {
             pending: None,
             seen_record: false,
             eof: false,
+            deferred: None,
             kind,
             renamer: None,
         };
@@ -303,6 +309,7 @@ impl<K: TextKind> TextReader<K> {
             pending: None,
             seen_record: true,
             eof: false,
+            deferred: None,
             kind,
             renamer: map.map(Renamer::new),
         }
@@ -319,6 +326,16 @@ impl<K: TextKind> TextReader<K> {
             loc: Loc::Line(self.line),
             msg,
         }
+    }
+
+    /// Report `e`, found after `n` records of this batch: at once when there
+    /// are none, else on the next call (see `deferred`).
+    fn fail(&mut self, n: usize, e: IoError) -> Result<bool, IoError> {
+        if n == 0 {
+            return Err(e);
+        }
+        self.deferred = Some(e);
+        Ok(true)
     }
 
     /// Append the next line (terminator stripped) to `out`; `start` is where
@@ -374,6 +391,9 @@ impl<K: TextKind> RecordReader for TextReader<K> {
         max: usize,
     ) -> Result<bool, IoError> {
         debug_assert!(max > 0, "read_batch max must be > 0");
+        if let Some(e) = self.deferred.take() {
+            return Err(e);
+        }
         let mut n = 0;
         while n < max {
             if self.eof {
@@ -393,7 +413,10 @@ impl<K: TextKind> RecordReader for TextReader<K> {
                     batch.buf.truncate(start);
                     continue;
                 }
-                Class::Fatal(msg) => return Err(self.parse_err(msg)),
+                Class::Fatal(msg) => {
+                    batch.buf.truncate(start);
+                    return self.fail(n, self.parse_err(msg));
+                }
                 Class::Record => {}
             }
             if let Some(r) = &mut self.renamer {
@@ -426,7 +449,7 @@ impl<K: TextKind> RecordReader for TextReader<K> {
                 Err(msg) => {
                     batch.buf.truncate(start);
                     match self.policy {
-                        InvalidPolicy::Fail => return Err(self.parse_err(msg)),
+                        InvalidPolicy::Fail => return self.fail(n, self.parse_err(msg)),
                         InvalidPolicy::Skip => self.diag.record(self.line, &msg),
                     }
                 }

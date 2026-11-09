@@ -618,6 +618,9 @@ pub struct IndexedFile {
     info: IndexInfo,
     index: Arc<Loaded>,
     opts: ReaderOptions,
+    /// Reference ids by name as the records have it after `--chrom-map`,
+    /// for text formats (built forward: the map is not reversed).
+    by_new_name: std::collections::HashMap<Vec<u8>, usize>,
 }
 
 impl IndexedFile {
@@ -644,7 +647,19 @@ impl IndexedFile {
         if let (Some(m), Some(names)) = (&o.chrom_map, index.names()) {
             m.check_file_names(&name, names.iter().map(|n| &n[..]))?;
         }
+        let map = o.chrom_map.as_deref();
+        let by_new_name = index
+            .names()
+            .map(|names| {
+                names
+                    .iter()
+                    .enumerate()
+                    .map(|(rid, n)| (map.map_or(&n[..], |m| m.rename(n)).to_vec(), rid))
+                    .collect()
+            })
+            .unwrap_or_default();
         Ok(IndexedFile {
+            by_new_name,
             path: path.to_path_buf(),
             name,
             format,
@@ -675,11 +690,20 @@ impl IndexedFile {
                 .contigs
                 .iter()
                 .position(|c| !c.is_empty() && c == chrom),
-            _ => {
-                let own = file_chrom_name(self.opts.chrom_map.as_deref(), chrom)?;
-                self.index.names().and_then(|n| n.get_index_of(own))
-            }
+            _ => self.by_new_name.get(chrom).copied(),
         }
+    }
+
+    /// The name the file itself gives reference `rid` (before `--chrom-map`);
+    /// BCF's dictionary is not renamed by the map.
+    fn own_name(&self, rid: usize, renamed: &[u8]) -> Vec<u8> {
+        if self.format == Format::Bcf {
+            return renamed.to_vec();
+        }
+        self.index
+            .names()
+            .and_then(|n| n.get_index(rid))
+            .map_or_else(|| renamed.to_vec(), |n| n.to_vec())
     }
 
     /// The reference names the index knows, in reference id order, as
@@ -774,21 +798,15 @@ impl IndexedFile {
             ) => Parser::bcf(self.opts.vcf_span, dicts.clone()),
             _ => Parser::text(self.format, self.opts.vcf_span),
         };
-        let map = self.opts.chrom_map.as_deref();
         let mut by_rid: BTreeMap<usize, (Vec<u8>, Vec<Interval>)> = BTreeMap::new();
         for (chrom, iv) in regions {
             let Some(rid) = self.rid_of(chrom) else {
                 continue;
             };
             // BCF's dictionary is already renamed; text uses the file's name.
-            let own = if self.format == Format::Bcf {
-                chrom.as_slice()
-            } else {
-                file_chrom_name(map, chrom).unwrap_or(chrom)
-            };
             by_rid
                 .entry(rid)
-                .or_insert_with(|| (own.to_vec(), Vec::new()))
+                .or_insert_with(|| (self.own_name(rid, chrom), Vec::new()))
                 .1
                 .push(*iv);
         }
@@ -845,14 +863,9 @@ impl IndexedFile {
             .iter()
             .filter_map(|c| {
                 self.rid_of(c).map(|rid| {
-                    let own = if self.format == Format::Bcf {
-                        c
-                    } else {
-                        file_chrom_name(self.opts.chrom_map.as_deref(), c).unwrap_or(c)
-                    };
                     Plan::new(
                         rid,
-                        own.to_vec(),
+                        self.own_name(rid, c),
                         vec![Interval {
                             start: 0,
                             end: max_pos,

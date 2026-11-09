@@ -48,9 +48,10 @@ pub fn all_indexed(paths: &[&str]) -> bool {
 /// in flight, at least [`MIN_CHUNK_MEM`].
 pub const CHUNK_MEM_BUDGET: usize = 64 << 20;
 /// The most chunks in flight, whatever the thread count: each one is a
-/// sweep with its own read buffers (about 12 MiB), so this and the budget
-/// bound indexed-mode memory near 64 MiB + 8 x 12 MiB. Threads beyond it
-/// still decompress and compress BGZF.
+/// sweep with its own read buffers. Measured, indexed and plain-file runs
+/// peak near 64 MiB plus about 20 MiB per chunk in flight (more with many
+/// `-b` files, each of which has its own reader per chunk). Threads beyond
+/// it still decompress and compress BGZF.
 pub const MAX_CHUNKS_IN_FLIGHT: usize = 8;
 /// The least a chunk keeps in memory.
 pub const MIN_CHUNK_MEM: usize = 1 << 20;

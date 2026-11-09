@@ -22,6 +22,9 @@ use std::sync::Arc;
 
 /// Bytes read per step of the scan.
 const SCAN_BUF: usize = 4 << 20;
+/// Lines after which a file with more chromosomes than half its lines so far
+/// is read whole.
+const PATHOLOGICAL_AFTER: u64 = 10_000;
 /// Read buffer of a range reader.
 const RANGE_BUF: usize = 256 << 10;
 
@@ -57,8 +60,9 @@ pub fn range_format(format: Format) -> bool {
 /// on. `None` when a chromosome's records are not contiguous: the caller
 /// reads the file whole, which reports that as the sortedness error with
 /// its line numbers. A record line's chromosome is the text before its
-/// first tab (the whole line without one, which no reader accepts, so such a
-/// line ends up in a range of its own and its reader reports it).
+/// first tab. `None` also for a record line with no tab (which no reader
+/// accepts) and for a file with more chromosomes than half its lines (after
+/// the first 10,000 lines): neither gains from being split.
 pub fn chrom_ranges(path: &Path, format: Format) -> Result<Option<Vec<ChromRange>>, IoError> {
     scan(path, format, SCAN_BUF)
 }
@@ -86,11 +90,22 @@ fn scan(path: &Path, format: Format, buf_size: usize) -> Result<Option<Vec<Chrom
         if !is_record(format, text) {
             return true;
         }
-        let chrom = &text[..memchr::memchr(b'\t', text).unwrap_or(text.len())];
+        // A record line with no tab is malformed: no reader accepts it, and
+        // as a chromosome of its own it could make the ranges as many as the
+        // lines. Read the file whole and let the reader report it.
+        let Some(tab) = memchr::memchr(b'\t', text) else {
+            return false;
+        };
+        let chrom = &text[..tab];
         if ranges.last().is_some_and(|r| r.name == chrom) {
             return true;
         }
         if !seen.insert(chrom.to_vec()) {
+            return false;
+        }
+        // Past the first lines, more chromosomes than half the lines means a
+        // file that is not a few long runs: nothing to gain from splitting it.
+        if no > PATHOLOGICAL_AFTER && ranges.len() as u64 * 2 > no {
             return false;
         }
         if let Some(prev) = ranges.last_mut() {
@@ -126,7 +141,10 @@ fn scan(path: &Path, format: Format, buf_size: usize) -> Result<Option<Vec<Chrom
             buf.resize(buf.len() * 2, 0);
         }
         loop {
-            match file.read(&mut buf[filled..]) {
+            match (&mut file)
+                .take(len - base - filled as u64)
+                .read(&mut buf[filled..])
+            {
                 Ok(0) => eof = true,
                 Ok(n) => filled += n,
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
@@ -425,7 +443,7 @@ mod tests {
         }
     }
 
-    const BED: &str = "track name=t\n# c\n\nchr1\t1\t5\nchr1\t2\t6\r\na\n\n#x\nchr2\t0\t3\nchr2\t4\t9\nchr3\t7\t8";
+    const BED: &str = "track name=t\n# c\n\nchr1\t1\t5\nchr1\t2\t6\r\na\tx\ty\n\n#x\nchr2\t0\t3\nchr2\t4\t9\nchr3\t7\t8";
     const VCF: &str = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nchr1\t5\t.\tA\tC\t.\t.\t.\n\nchr1\t6\t.\tA\tC\t.\t.\t.\n#mid\nchr2\t7\t.\tA\tC\t.\t.\t.\r\nchr2\t8\t.\tA\tC\t.\t.\t.\n";
 
     /// Ranges found with any buffer size, including one smaller than a
@@ -456,8 +474,8 @@ mod tests {
                     "{buf}"
                 );
             }
-            // (BED has a line with no tab, `a`, which no reader accepts: it
-            // is a range of its own, and `--skip-invalid` skips it there.)
+            // (BED has a line `a x y`, which no reader accepts: it is a range
+            // of its own, and `--skip-invalid` skips it there.)
             assert_eq!(reference.len(), if format == Format::Bed { 4 } else { 2 });
             // The ranges tile the records: each starts where the last ends.
             for w in reference.windows(2) {
@@ -497,6 +515,22 @@ mod tests {
         // Comments and blanks between the runs do not split a chromosome.
         std::fs::write(&path, "chr1\t1\t2\n\n# c\nchr1\t3\t4\n").unwrap();
         assert_eq!(scan(&path, Format::Bed, 4).unwrap().unwrap().len(), 1);
+        // A record line with no tab: not splittable.
+        std::fs::write(&path, "chr1\t1\t2\nchr1 3 4\n").unwrap();
+        assert_eq!(scan(&path, Format::Bed, 4).unwrap(), None);
+        // Many more chromosomes than lines/2 after 10,000 lines: not worth it.
+        let many: String = (0..20_000).map(|i| format!("c{i:06}\t1\t2\n")).collect();
+        std::fs::write(&path, &many).unwrap();
+        assert_eq!(scan(&path, Format::Bed, SCAN_BUF).unwrap(), None);
+        // Two lines a chromosome is fine.
+        let two: String = (0..20_000)
+            .map(|i| format!("c{:06}\t{}\t2\n", i / 2, i % 2))
+            .collect();
+        std::fs::write(&path, &two).unwrap();
+        assert_eq!(
+            scan(&path, Format::Bed, SCAN_BUF).unwrap().unwrap().len(),
+            10_000
+        );
         // No records, no ranges.
         std::fs::write(&path, "# only a comment\n\n").unwrap();
         assert_eq!(scan(&path, Format::Bed, 4).unwrap().unwrap(), vec![]);

@@ -116,38 +116,19 @@ pub fn select_a(
     reader: Box<dyn RecordReader>,
     opts: &ViewOptions,
     ro: &ReaderOptions,
-) -> Result<SelectedA, IoError> {
+) -> Result<(Box<dyn RecordReader>, WantedRegions), IoError> {
     if !opts.has_regions() {
-        return Ok(SelectedA {
-            reader,
-            wanted: Vec::new(),
-            warn_unseen: false,
-        });
+        return Ok((reader, Vec::new()));
     }
     // Only binary search reads the table, and a relation never asks for it.
     let chroms = ChromTable::first_appearance();
     let sel = select(path, reader, opts, ro, None, &chroms)?;
     let wanted = sel.wanted.clone();
-    let warn_unseen = sel.warn_unseen;
-    Ok(SelectedA {
-        reader: Box::new(sel),
-        wanted,
-        warn_unseen,
-    })
-}
-
-/// What [`select_a`] gives back.
-pub struct SelectedA {
-    pub reader: Box<dyn RecordReader>,
-    pub wanted: WantedRegions,
-    /// Reading the whole file should end with a warning about each region
-    /// chromosome it never showed (when its chromosomes were not known up
-    /// front); a run that does not read the file whole must give it.
-    pub warn_unseen: bool,
+    Ok((Box::new(sel), wanted))
 }
 
 /// `chromosome "1" not found in x.vcf.gz (did you mean "chr1"?)`
-pub(crate) fn not_found(chrom: &[u8], place: &str, has: impl Fn(&[u8]) -> bool) -> String {
+fn not_found(chrom: &[u8], place: &str, has: impl Fn(&[u8]) -> bool) -> String {
     let alt = match chrom.strip_prefix(b"chr") {
         Some(rest) if !rest.is_empty() => rest.to_vec(),
         _ => [b"chr", chrom].concat(),
@@ -418,14 +399,14 @@ enum Src {
 
 /// The regions by chromosome name, looked up once per run of records on
 /// one chromosome.
-pub(crate) struct Matcher {
+struct Matcher {
     sets: Vec<(Vec<u8>, RegionSet)>,
     by_name: HashMap<Vec<u8>, usize>,
     last: Option<(ChromId, Option<usize>)>,
 }
 
 impl Matcher {
-    pub(crate) fn new(sets: Vec<(Vec<u8>, RegionSet)>) -> Matcher {
+    fn new(sets: Vec<(Vec<u8>, RegionSet)>) -> Matcher {
         let by_name = sets
             .iter()
             .enumerate()
@@ -438,7 +419,7 @@ impl Matcher {
         }
     }
 
-    pub(crate) fn matches(&mut self, chroms: &ChromTable, m: &RecordMeta, inclusive: bool) -> bool {
+    fn matches(&mut self, chroms: &ChromTable, m: &RecordMeta, inclusive: bool) -> bool {
         let i = match self.last {
             Some((id, i)) if id == m.chrom => i,
             _ => {

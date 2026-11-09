@@ -3,7 +3,7 @@
 
 use super::peek::peek_first;
 use super::{RelateInputs, RelateOptions};
-use crate::view::{SelectedA, ViewOptions, select_a};
+use crate::view::{ViewOptions, select_a};
 use gloci_core::{ChromTable, Interval};
 use gloci_engine::{SweepSummary, all_indexed};
 use gloci_io::{Compression, is_regular_file, seekable::range_format};
@@ -49,8 +49,6 @@ pub(super) struct ARegions {
     /// In new-name space (after `--chrom-map`).
     pub(super) wanted: Vec<(Vec<u8>, Interval)>,
     pub(super) inclusive_points: bool,
-    /// See [`crate::SelectedA::warn_unseen`].
-    pub(super) warn_unseen: bool,
 }
 
 impl RelationFiles {
@@ -88,11 +86,7 @@ impl RelationFiles {
             b_width,
             ..
         } = self;
-        let SelectedA {
-            reader: a,
-            wanted,
-            warn_unseen,
-        } = select_a(&paths.a, a, &opts, &paths.ro_a)?;
+        let (a, wanted) = select_a(&paths.a, a, &opts, &paths.ro_a)?;
         Ok(RelationFiles {
             inputs: RelateInputs { a, b },
             paths,
@@ -101,7 +95,6 @@ impl RelationFiles {
             a_regions: (!unordered).then_some(ARegions {
                 wanted,
                 inclusive_points: opts.inclusive_points,
-                warn_unseen,
             }),
         })
     }

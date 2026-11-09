@@ -1175,7 +1175,9 @@ fn seekable_chrom_map() {
     );
 }
 
-/// `--region` on plain A, read per chromosome, selects what streaming does.
+/// `--region` on a plain A streams (streaming scans all of A and reads B as
+/// far as the selected records take it), and an indexed A with `--region`
+/// next to a plain B streams too; an indexed A and B stay per chromosome.
 #[test]
 fn seekable_with_regions() {
     let dir = tempdir();
@@ -1198,8 +1200,16 @@ fn seekable_with_regions() {
         let want = out(&[&args[..], &["-t", "1"]].concat());
         assert!(!want.is_empty());
         assert_eq!(out(&[&args[..], &["-t", "4"]].concat()), want, "{rel}");
-        assert!(ran_per_chromosome(&args, "4"), "{rel}");
+        assert!(!ran_per_chromosome(&args, "4"), "{rel}");
     }
+    let (a_idx, _) = indexed_pair(dir.path(), "ra", &plain_text(9, false));
+    let (b_idx, _) = indexed_pair(dir.path(), "rb", &plain_text(10, false));
+    let b_text = s(&plain_file(dir.path(), "rb.bed", &plain_text(10, false)));
+    let r = ["--region", "chr3:100-900"];
+    let idx = ["intersect", "-a", &a_idx, "-b", &b_idx];
+    assert!(ran_per_chromosome(&[&idx[..], &r[..]].concat(), "4"));
+    let mixed = ["intersect", "-a", &a_idx, "-b", &b_text];
+    assert!(!ran_per_chromosome(&[&mixed[..], &r[..]].concat(), "4"));
 }
 
 /// Records of unknown strand under `-s` are reported once per input, not
@@ -1228,4 +1238,334 @@ fn unknown_strand_warning_is_once_per_input() {
             );
         }
     }
+}
+
+/// Run `args` at each `-t` and give (stdout, stderr, exit code) of each.
+fn at_each_t(args: &[&str]) -> Vec<(Vec<u8>, String, Option<i32>)> {
+    ["1", "2", "4", "8"]
+        .iter()
+        .map(|t| {
+            let mut a = args.to_vec();
+            a.extend(["-t", t]);
+            let o = gloci().args(&a).output().unwrap();
+            (
+                o.stdout,
+                String::from_utf8_lossy(&o.stderr).into_owned(),
+                o.status.code(),
+            )
+        })
+        .collect()
+}
+
+/// Every `-t` gives the `-t 1` result; returns it. A success is compared
+/// whole. A failure is compared by exit code and error lines: the output
+/// written before the error, and warnings, may differ with `-t`.
+fn same_at_every_t(args: &[&str]) -> (Vec<u8>, String, Option<i32>) {
+    let runs = at_each_t(args);
+    let errors = |e: &str| -> Vec<String> {
+        e.lines()
+            .filter(|l| l.starts_with("error:") || l.starts_with("hint:"))
+            .map(str::to_string)
+            .collect()
+    };
+    for (i, r) in runs.iter().enumerate() {
+        if runs[0].2 == Some(0) {
+            assert_eq!(r, &runs[0], "{args:?}: -t index {i}");
+        } else {
+            assert_eq!(r.2, runs[0].2, "{args:?}: -t index {i}");
+            assert_eq!(errors(&r.1), errors(&runs[0].1), "{args:?}: -t index {i}");
+        }
+    }
+    runs[0].clone()
+}
+
+/// `--chrom-map` with plain and indexed inputs in every combination: the
+/// index's names are renamed forward, so a plain A named `1..` meets an
+/// indexed B named `chr1..` at every `-t`.
+#[test]
+fn seekable_chrom_map_with_indexed_inputs() {
+    let dir = tempdir();
+    let rows = |names: &[&str], step: u64| -> String {
+        names
+            .iter()
+            .flat_map(|c| {
+                (0..30u64).map(move |i| format!("{c}\t{}\t{}\tr{i}\n", i * step, i * step + 40))
+            })
+            .collect()
+    };
+    let raw = rows(&["1", "2", "10", "X"], 20);
+    let named = rows(&["chr1", "chr2", "chr10", "chrX"], 30);
+    let map = s(&plain_file(
+        dir.path(),
+        "m.tsv",
+        "1\tchr1\n2\tchr2\n10\tchr10\nX\tchrX\n",
+    ));
+    let a_plain = s(&plain_file(dir.path(), "a.bed", &raw));
+    let (a_idx, _) = indexed_pair(dir.path(), "a", &raw);
+    let b_plain = s(&plain_file(dir.path(), "b.bed", &named));
+    let (b_idx, _) = indexed_pair(dir.path(), "b", &named);
+    for rel in ["intersect", "coverage", "closest"] {
+        let want = out(&[
+            rel,
+            "-a",
+            &a_plain,
+            "-b",
+            &b_plain,
+            "--chrom-map",
+            &map,
+            "-t",
+            "1",
+        ]);
+        assert!(!want.is_empty(), "{rel}");
+        for (a, b) in [
+            (&a_plain, &b_idx),
+            (&a_idx, &b_plain),
+            (&a_idx, &b_idx),
+            (&a_plain, &b_plain),
+        ] {
+            let args = [rel, "-a", a, "-b", b, "--chrom-map", &map];
+            for t in ["1", "4"] {
+                let got = out(&[&args[..], &["-t", t]].concat());
+                assert_eq!(got, want, "{rel} a={a} b={b} -t {t}");
+            }
+            assert!(ran_per_chromosome(&args, "4"), "{rel} a={a} b={b}");
+        }
+    }
+}
+
+/// Malformed input never makes the ranges grow with the file: a line with no
+/// tab, or a file with a chromosome on nearly every line, is read whole.
+#[test]
+fn seekable_malformed_and_pathological_files_stream() {
+    let dir = tempdir();
+    let good = s(&plain_file(dir.path(), "g.bed", "chr1\t1\t9\nchr2\t1\t9\n"));
+    // space-separated: every line would be its own "chromosome"
+    let spaced: String = (0..30_000)
+        .map(|i| format!("chr1 {i} {}\n", i + 5))
+        .collect();
+    let sp = s(&plain_file(dir.path(), "sp.bed", &spaced));
+    assert!(!ran_per_chromosome_any(
+        &[
+            "intersect",
+            "-a",
+            &sp,
+            "-b",
+            &good,
+            "--a-format",
+            "bed",
+            "--skip-invalid"
+        ],
+        "4"
+    ));
+    let (out1, err1, code1) = same_at_every_t(&[
+        "intersect",
+        "-a",
+        &sp,
+        "-b",
+        &good,
+        "--a-format",
+        "bed",
+        "--skip-invalid",
+    ]);
+    assert_eq!(code1, Some(0));
+    assert!(out1.is_empty() && err1.contains("skipped 30,000"), "{err1}");
+    let (_, err, code) =
+        same_at_every_t(&["intersect", "-a", &sp, "-b", &good, "--a-format", "bed"]);
+    assert_eq!(code, Some(1));
+    assert!(err.contains("line 1: "), "{err}");
+    // a fresh chromosome on every line
+    let many: String = (0..20_000).map(|i| format!("c{i:06}\t1\t9\n")).collect();
+    let m = s(&plain_file(dir.path(), "many.bed", &many));
+    assert!(!ran_per_chromosome(&["intersect", "-a", &m, "-b", &m], "4"));
+    let want = out(&["intersect", "-a", &m, "-b", &m, "-t", "1"]);
+    assert_eq!(out(&["intersect", "-a", &m, "-b", &m, "-t", "4"]), want);
+    // two lines a chromosome is still split
+    let pairs: String = (0..20_000)
+        .map(|i| format!("c{:06}\t{}\t9999\n", i / 2, i % 2))
+        .collect();
+    let p = s(&plain_file(dir.path(), "pairs.bed", &pairs));
+    assert!(ran_per_chromosome(&["intersect", "-a", &p, "-b", &p], "4"));
+}
+
+/// Like `ran_per_chromosome`, for a run that may fail.
+fn ran_per_chromosome_any(args: &[&str], t: &str) -> bool {
+    let mut a: Vec<&str> = args.to_vec();
+    a.extend(["-t", t, "-vv"]);
+    let o = gloci().args(&a).output().unwrap();
+    String::from_utf8_lossy(&o.stderr).contains("running per chromosome")
+}
+
+/// Records on chromosomes A lacks are read, and checked, as streaming reads
+/// them; those past A's last chromosome are not.
+#[test]
+fn seekable_unread_chromosomes_are_validated_like_streaming() {
+    let dir = tempdir();
+    let row = |c: &str, i: u64| format!("{c}\t{}\t{}\n", i * 10, i * 10 + 5);
+    let chrom = |c: &str, n: u64| -> String { (0..n).map(|i| row(c, i)).collect() };
+    let a = s(&plain_file(
+        dir.path(),
+        "a.bed",
+        &[chrom("chr1", 20), chrom("chr3", 20), chrom("chr5", 20)].concat(),
+    ));
+    let check = |name: &str, b_text: String, fails: bool| {
+        let b = s(&plain_file(dir.path(), name, &b_text));
+        let (_, _, code) = same_at_every_t(&["intersect", "-a", &a, "-b", &b]);
+        assert_eq!(code, Some(if fails { 1 } else { 0 }), "{name}");
+        let (_, _, code) = same_at_every_t(&["closest", "-a", &a, "-b", &b]);
+        assert_eq!(code, Some(if fails { 1 } else { 0 }), "{name}");
+    };
+    // a parse error on a B-only chromosome between A's (read by streaming)
+    let bad = |c: &str| format!("{}{c}\tNOPE\t5\n{}", chrom(c, 3), chrom(c, 0));
+    check(
+        "b_parse_mid.bed",
+        [chrom("chr1", 5), bad("chr2"), chrom("chr3", 5)].concat(),
+        true,
+    );
+    // an order error inside a B-only chromosome before A's last
+    let unordered = format!("{}chr4\t5\t9\n", chrom("chr4", 6));
+    check(
+        "b_order_mid.bed",
+        [chrom("chr2", 5), unordered.clone(), chrom("chr5", 5)].concat(),
+        true,
+    );
+    // and before A's first chromosome
+    check(
+        "b_parse_first.bed",
+        [bad("chr0"), chrom("chr1", 5)].concat(),
+        true,
+    );
+    // past A's last chromosome nothing is read
+    check(
+        "b_parse_after.bed",
+        [chrom("chr5", 5), bad("chr6")].concat(),
+        false,
+    );
+    // --skip-invalid counts the same lines
+    let b = s(&plain_file(
+        dir.path(),
+        "b_skip.bed",
+        &[
+            chrom("chr1", 5),
+            bad("chr2"),
+            chrom("chr3", 5),
+            bad("chr4"),
+            chrom("chr5", 5),
+        ]
+        .concat(),
+    ));
+    let (_, err, code) = same_at_every_t(&["intersect", "-a", &a, "-b", &b, "--skip-invalid"]);
+    assert_eq!(code, Some(0));
+    assert!(err.contains("skipped 2 invalid"), "{err}");
+}
+
+/// A within-chromosome error is the same at every `-t` whatever the batch
+/// boundaries: the earliest problem in the file is reported, for an order
+/// error before a parse error in the same read batch, across chromosomes and
+/// within one, at several offsets.
+#[test]
+fn errors_are_the_earliest_in_the_file_at_every_thread_count() {
+    let dir = tempdir();
+    let mut checked = 0;
+    for (n_before, gap) in [(3107, 9009), (50, 80), (16380, 40), (1, 1)] {
+        for same_chrom in [false, true] {
+            // chr1 .. chr6, `n` records each, with an order error early on one
+            // chromosome and a parse error much later on another (or the same).
+            let mut text = String::new();
+            let per = n_before + gap + 5;
+            let mut line = 0;
+            for c in 1..=6 {
+                for i in 0..per {
+                    line += 1;
+                    let mut row = format!("chr{c}\t{}\t{}\n", i * 10 + 100, i * 10 + 105);
+                    if c == 2 && i == n_before {
+                        row = format!("chr{c}\t5\t8\n");
+                    }
+                    let parse_at = if same_chrom {
+                        (2, n_before + gap)
+                    } else {
+                        (5, gap)
+                    };
+                    if c == parse_at.0 && i == parse_at.1 {
+                        row = format!("chr{c}\tNOPE\t8\n");
+                    }
+                    text.push_str(&row);
+                }
+            }
+            let _ = line;
+            let a = s(&plain_file(dir.path(), "a.bed", &text));
+            let b = s(&plain_file(dir.path(), "b.bed", "chr1\t0\t9\n"));
+            for cmd in ["intersect", "coverage"] {
+                let (_, err, code) = same_at_every_t(&[cmd, "-a", &a, "-b", &b]);
+                assert_eq!(code, Some(1));
+                assert!(
+                    err.contains("is not sorted"),
+                    "{n_before} {gap} {same_chrom}: {err}"
+                );
+                checked += 1;
+            }
+            // as the parse error alone is the other file's earliest
+            let a2 = s(&plain_file(
+                dir.path(),
+                "a2.bed",
+                &text.replacen(
+                    "chr2\t5\t8\n",
+                    &format!("chr2\t{}\t{}\n", n_before * 10 + 100, n_before * 10 + 105),
+                    1,
+                ),
+            ));
+            let (_, err, code) = same_at_every_t(&["intersect", "-a", &a2, "-b", &b]);
+            assert_eq!(code, Some(1));
+            assert!(err.contains("NOPE") || err.contains("start"), "{err}");
+        }
+    }
+    assert!(checked > 0);
+}
+
+/// FIFOs, `/dev/fd/N`, WIG and BGZF without an index are never split.
+#[test]
+fn seekable_excludes_fifo_fd_wig_and_unindexed_bgzf() {
+    let dir = tempdir();
+    let text = plain_text(11, false);
+    let a = s(&plain_file(dir.path(), "a.bed", &text));
+    let want = out(&["intersect", "-a", &a, "-b", &a, "-t", "1"]);
+    // BGZF without an index
+    let bg = s(&bgzf_file(dir.path(), "a.bed.gz", &text));
+    assert!(!ran_per_chromosome(
+        &["intersect", "-a", &bg, "-b", &a],
+        "4"
+    ));
+    // WIG
+    let wig = s(&plain_file(
+        dir.path(),
+        "a.wig",
+        "fixedStep chrom=chr1 start=1 step=10 span=5\n1\n2\n3\nfixedStep chrom=chr2 start=1 step=10 span=5\n4\n5\n",
+    ));
+    assert!(!ran_per_chromosome(
+        &["intersect", "-a", &wig, "-b", &a],
+        "4"
+    ));
+    // /dev/fd/N and a FIFO (process substitution is a /dev/fd path)
+    let o = bash_gloci(&format!("intersect -a <(cat '{a}') -b '{a}' -t 4 -vv"), "");
+    assert!(o.status.success());
+    assert_eq!(o.stdout, want);
+    assert!(!String::from_utf8_lossy(&o.stderr).contains("running per chromosome"));
+    let fifo = dir.path().join("fifo");
+    let ok = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok);
+    let writer = {
+        let (fifo, text) = (fifo.clone(), text.clone());
+        std::thread::spawn(move || std::fs::write(fifo, text).unwrap())
+    };
+    let o = gloci()
+        .args(["intersect", "-a", &s(&fifo), "-b", &a, "-t", "4", "-vv"])
+        .output()
+        .unwrap();
+    writer.join().unwrap();
+    assert!(o.status.success());
+    assert_eq!(o.stdout, want);
+    assert!(!String::from_utf8_lossy(&o.stderr).contains("running per chromosome"));
 }

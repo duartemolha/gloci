@@ -14,7 +14,6 @@ mod files;
 mod indexed;
 mod out;
 mod peek;
-mod regions;
 mod rewrite;
 
 pub use criteria::Acceptor;
