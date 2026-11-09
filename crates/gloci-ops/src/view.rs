@@ -16,11 +16,11 @@ use gloci_core::{
     ChromId, ChromOrder, ChromTable, Genome, Interval, OrderSource, Region, RegionSet,
 };
 use gloci_io::{
-    Compression, Diagnostics, Format, Header, HeaderMode, InvalidPolicy, IoError, OrderGuard,
-    OutFormat, OutputOptions, OutputSpec, ReaderOptions, RecordBatch, RecordMeta, RecordReader,
-    UsageError, WriterOptions, check_family, chrom_table_lenient, convert_variants, find_index,
-    index_reference_names, next_batch_size, open_headerless_writer, open_output, open_reader,
-    open_record_writer, open_region_reader, refuse_binary_to_tty, resolve_genome,
+    Compression, Diagnostics, Format, Header, HeaderMode, IndexInfo, InvalidPolicy, IoError,
+    OrderGuard, OutFormat, OutputOptions, OutputSpec, ReaderOptions, RecordBatch, RecordMeta,
+    RecordReader, UsageError, WriterOptions, check_family, chrom_table_lenient, convert_variants,
+    find_index, index_reference_names, next_batch_size, open_headerless_writer, open_output,
+    open_reader, open_record_writer, open_region_reader, refuse_binary_to_tty, resolve_genome,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::IsTerminal;
@@ -46,10 +46,14 @@ pub struct ViewOptions {
     /// Binary-search an uncompressed BED file without an index instead of
     /// scanning it: trusts that the file is sorted (D11).
     pub assume_sorted: bool,
+    /// The input need not be in order (a relation with `--unsorted` or
+    /// `--sort`): never read it through an index and do not check its order,
+    /// so the records come out in input order.
+    pub unordered: bool,
 }
 
 impl ViewOptions {
-    fn has_regions(&self) -> bool {
+    pub fn has_regions(&self) -> bool {
         !self.regions.is_empty() || self.regions_file.is_some()
     }
 }
@@ -97,6 +101,30 @@ pub(crate) fn select_stream(
         return Ok(reader);
     }
     Ok(Box::new(select("-", reader, opts, ro, None, chroms)?))
+}
+
+/// Regions as `(chromosome, interval)` pairs.
+pub type WantedRegions = Vec<(Vec<u8>, Interval)>;
+
+/// Restrict a relation's A to the records that overlap `opts`' regions: as
+/// [`open_view`] selects them from the file at `path` (read through its
+/// index when it has one), `reader` being that file opened. Also returns
+/// the regions as `(chromosome, interval)` pairs in new-name space, minus
+/// those `view` warns are on a chromosome the file lacks.
+pub fn select_a(
+    path: &str,
+    reader: Box<dyn RecordReader>,
+    opts: &ViewOptions,
+    ro: &ReaderOptions,
+) -> Result<(Box<dyn RecordReader>, WantedRegions), IoError> {
+    if !opts.has_regions() {
+        return Ok((reader, Vec::new()));
+    }
+    // Only binary search reads the table, and a relation never asks for it.
+    let chroms = ChromTable::first_appearance();
+    let sel = select(path, reader, opts, ro, None, &chroms)?;
+    let wanted = sel.wanted.clone();
+    Ok((Box::new(sel), wanted))
 }
 
 /// `chromosome "1" not found in x.vcf.gz (did you mean "chr1"?)`
@@ -166,40 +194,27 @@ fn index_hint(name: &str, format: Format, compression: Compression) -> String {
     hint
 }
 
-/// Choose how to read the records of `head` (an open reader of `path`)
-/// that overlap the requested regions.
-fn select(
-    path: &str,
-    head: Box<dyn RecordReader>,
+/// The requested regions, resolved against what is known of the file.
+struct Wanted {
+    /// Regions on chromosomes the file can have, in new-name space.
+    wanted: Vec<(Vec<u8>, Interval)>,
+    /// `wanted` by chromosome.
+    sets: Vec<(Vec<u8>, RegionSet)>,
+    /// The file's chromosome list is complete (an index or genome gave it).
+    complete: bool,
+}
+
+/// Parse `opts`' regions and drop (with a warning) those on chromosomes the
+/// file does not have, when its chromosomes are known up front.
+fn resolve_regions(
+    name: &str,
+    header: &Header,
     opts: &ViewOptions,
     ro: &ReaderOptions,
     genome: Option<(&OrderSource, &Genome)>,
-    chroms: &ChromTable,
-) -> Result<Selection, IoError> {
-    let name = head.name().to_string();
-    let (format, compression) = (head.format(), head.compression());
-    let header = head.header().clone();
-    let file = Some(Path::new(path)).filter(|p| path != "-" && p.is_file());
-    let index = match file.and_then(find_index) {
-        Some(info) if compression == Compression::Bgzf => {
-            if info.stale {
-                log::warn!(
-                    "the index {} is older than {name}; it may be out of date (rebuild it with: gloci index {name})",
-                    info.path.display()
-                );
-            }
-            Some(info)
-        }
-        Some(info) => {
-            log::warn!(
-                "ignoring the index {}: {name} is not BGZF-compressed",
-                info.path.display()
-            );
-            None
-        }
-        None => None,
-    };
-
+    file: Option<&Path>,
+    index: Option<&IndexInfo>,
+) -> Result<Wanted, IoError> {
     // The chromosomes the file can have, when that is known before reading
     // it, and what to name in warnings about the others.
     let mut known: HashSet<Vec<u8>> = HashSet::new();
@@ -207,7 +222,7 @@ fn select(
     // The list is complete when an index or a genome gives it; a VCF header
     // may omit contigs that records use, which htslib accepts.
     let mut complete = genome.is_some();
-    if let (Some(p), Some(info)) = (file, &index) {
+    if let (Some(p), Some(info)) = (file, index) {
         // The index lists the file's own names; regions use the renamed ones.
         let map = ro.chrom_map.as_deref();
         known.extend(
@@ -215,7 +230,7 @@ fn select(
                 .into_iter()
                 .map(|n| map.map_or(n.clone(), |m| m.rename(&n).to_vec())),
         );
-        known_in = Some(name.clone());
+        known_in = Some(name.to_string());
         complete = true;
     }
     if let Header::Vcf(h) = &header {
@@ -225,7 +240,7 @@ fn select(
             None => known.extend(h.contigs.iter().map(|(c, _)| c.clone())),
         }
         if known.len() > before {
-            known_in = Some(name.clone());
+            known_in = Some(name.to_string());
         }
     }
     if let Some((source, g)) = genome {
@@ -268,11 +283,61 @@ fn select(
         .into_iter()
         .map(|(c, ivs)| (c, RegionSet::new(ivs)))
         .collect();
+    Ok(Wanted {
+        wanted,
+        sets,
+        complete,
+    })
+}
+
+/// Choose how to read the records of `head` (an open reader of `path`)
+/// that overlap the requested regions.
+fn select(
+    path: &str,
+    head: Box<dyn RecordReader>,
+    opts: &ViewOptions,
+    ro: &ReaderOptions,
+    genome: Option<(&OrderSource, &Genome)>,
+    chroms: &ChromTable,
+) -> Result<Selection, IoError> {
+    let name = head.name().to_string();
+    let (format, compression) = (head.format(), head.compression());
+    let header = head.header().clone();
+    let file = Some(Path::new(path)).filter(|p| path != "-" && p.is_file());
+    let index = match file.and_then(find_index).filter(|_| !opts.unordered) {
+        Some(info) if compression == Compression::Bgzf => {
+            if info.stale {
+                log::warn!(
+                    "the index {} is older than {name}; it may be out of date (rebuild it with: gloci index {name})",
+                    info.path.display()
+                );
+            }
+            Some(info)
+        }
+        Some(info) => {
+            log::warn!(
+                "ignoring the index {}: {name} is not BGZF-compressed",
+                info.path.display()
+            );
+            None
+        }
+        None => None,
+    };
+
+    let Wanted {
+        wanted,
+        sets,
+        complete,
+    } = resolve_regions(&name, &header, opts, ro, genome, file, index.as_ref())?;
 
     let mut warn_unseen = false;
     let src = if wanted.is_empty() {
         Src::Empty
     } else if let (Some(p), Some(_)) = (file, &index) {
+        log::debug!(
+            "reading {name} through its index for {} region(s)",
+            wanted.len()
+        );
         Src::Indexed(open_region_reader(p, &wanted, ro, opts.inclusive_points)?)
     } else if let Some(p) = file.filter(|_| {
         opts.assume_sorted
@@ -293,7 +358,7 @@ fn select(
             }
         }
     } else {
-        if path != "-" {
+        if path != "-" && !opts.unordered {
             log::warn!(
                 "no index for {name}; scanning the whole file ({})",
                 index_hint(&name, format, compression)
@@ -305,6 +370,8 @@ fn select(
 
     Ok(Selection {
         guard: OrderGuard::contiguous(&name, format),
+        check_order: !opts.unordered,
+        wanted: wanted.clone(),
         name,
         format,
         compression,
@@ -378,6 +445,10 @@ struct Selection {
     inclusive: bool,
     /// Index and scan paths: chromosomes contiguous, each sorted by key.
     guard: OrderGuard,
+    /// Whether to run `guard` (not for an input that may be unordered).
+    check_order: bool,
+    /// The regions, for [`select_a`].
+    wanted: Vec<(Vec<u8>, Interval)>,
     src: Src,
     matcher: Matcher,
     /// The source's records, read `read_max` at a time.
@@ -411,7 +482,9 @@ impl Selection {
             }
             Src::Scan(r) => {
                 let more = r.read_batch(chroms, scratch, max)?;
-                self.guard.check(chroms, scratch)?;
+                if self.check_order {
+                    self.guard.check(chroms, scratch)?;
+                }
                 let (matcher, inclusive) = (&mut self.matcher, self.inclusive);
                 append_matching(&mut self.pending, scratch, |m| {
                     matcher.matches(chroms, m, inclusive)

@@ -518,11 +518,6 @@ pub fn open_region_reader(
 ) -> Result<Box<dyn RecordReader>, IoError> {
     let name = path.display().to_string();
     check_bgzf(path, &name)?;
-    let info = find_index(path).ok_or_else(|| {
-        UsageError(format!(
-            "{name} has no index; create one with: gloci index {name}"
-        ))
-    })?;
     let open_err = |source| IoError::Open {
         path: name.clone(),
         source,
@@ -538,88 +533,7 @@ pub fn open_region_reader(
     )?;
     let (format, header) = (head.format(), head.header().clone());
     drop(head);
-    if format == Format::Wig {
-        return Err(wig_unindexed(&name));
-    }
-    let index = Loaded::read(&info)?;
-    if let (Some(m), Some(names)) = (&o.chrom_map, index.names()) {
-        m.check_file_names(&name, names.iter().map(|n| &n[..]))?;
-    }
-
-    // region chromosome -> index reference id
-    let parser = match (&header, format) {
-        (
-            Header::Vcf(VcfHeader {
-                bcf: Some(dicts), ..
-            }),
-            Format::Bcf,
-        ) => Parser::bcf(o.vcf_span, dicts.clone()),
-        _ => Parser::text(format, o.vcf_span),
-    };
-    // The regions name chromosomes as the records are named after
-    // `--chrom-map`; the index and the file's text use the file's own names.
-    let map = o.chrom_map.as_deref();
-    let rid_of = |chrom: &[u8]| -> Option<(usize, Vec<u8>)> {
-        match &parser {
-            // the header's dictionary is already renamed
-            Parser::Bcf(b) => {
-                b.1.contigs
-                    .iter()
-                    .position(|c| !c.is_empty() && c == chrom)
-                    .map(|rid| (rid, chrom.to_vec()))
-            }
-            _ => {
-                let own = file_chrom_name(map, chrom)?;
-                let rid = index.names().and_then(|n| n.get_index_of(own))?;
-                Some((rid, own.to_vec()))
-            }
-        }
-    };
-    let mut by_rid: BTreeMap<usize, (Vec<u8>, Vec<Interval>)> = BTreeMap::new();
-    for (chrom, iv) in regions {
-        if let Some((rid, own)) = rid_of(chrom) {
-            by_rid
-                .entry(rid)
-                .or_insert_with(|| (own, Vec::new()))
-                .1
-                .push(*iv);
-        }
-    }
-    let max_pos = index.max_position();
-    let mut plans: Vec<Plan> = by_rid
-        .into_iter()
-        .map(|(rid, (name, ivs))| Plan::new(rid, name, ivs, max_pos))
-        .collect();
-    // File order, so that `last_emitted` only ever drops a record already
-    // emitted. References without records yield nothing; their place is
-    // irrelevant.
-    plans.sort_by_key(|p| index.first_offset(p.rid).unwrap_or(VirtualPosition::MAX));
-
-    let file = File::open(path).map_err(open_err)?;
-    Ok(Box::new(RegionReader {
-        name,
-        format,
-        header,
-        diag: Diagnostics::default(),
-        policy: o.invalid,
-        inclusive: inclusive_points,
-        src: noodles_bgzf::io::Reader::new(BufReader::new(file)),
-        renamer: text_renamer(format, o),
-        parser,
-        index: Arc::new(index),
-        plans,
-        whole: false,
-        p: 0,
-        w: 0,
-        chunks: Vec::new(),
-        c: 0,
-        loaded: false,
-        chunk_end: None,
-        last_emitted: None,
-        emitted: 0,
-        seen: 0,
-        seen_last: None,
-    }))
+    IndexedFile::open(path, format, header, o)?.regions_reader(regions, inclusive_points)
 }
 
 /// The reference names the index `info` of `data` knows, in reference id
@@ -834,6 +748,91 @@ impl IndexedFile {
             Loaded::Csi(i) => i.reference_sequences().get(rid).and_then(span),
         };
         s.map_or(0, |(lo, hi)| hi.saturating_sub(lo) + 1)
+    }
+
+    /// The records that overlap `regions` (named as records are after
+    /// `--chrom-map`), each once, in file order, as [`open_region_reader`]
+    /// reads them. Regions on chromosomes the index does not know yield
+    /// nothing.
+    pub fn regions_reader(
+        &self,
+        regions: &[(Vec<u8>, Interval)],
+        inclusive_points: bool,
+    ) -> Result<Box<dyn RecordReader>, IoError> {
+        log::debug!(
+            "reading {} through its index {} for {} region(s)",
+            self.name,
+            self.info.path.display(),
+            regions.len()
+        );
+        let parser = match (&self.header, self.format) {
+            (
+                Header::Vcf(VcfHeader {
+                    bcf: Some(dicts), ..
+                }),
+                Format::Bcf,
+            ) => Parser::bcf(self.opts.vcf_span, dicts.clone()),
+            _ => Parser::text(self.format, self.opts.vcf_span),
+        };
+        let map = self.opts.chrom_map.as_deref();
+        let mut by_rid: BTreeMap<usize, (Vec<u8>, Vec<Interval>)> = BTreeMap::new();
+        for (chrom, iv) in regions {
+            let Some(rid) = self.rid_of(chrom) else {
+                continue;
+            };
+            // BCF's dictionary is already renamed; text uses the file's name.
+            let own = if self.format == Format::Bcf {
+                chrom.as_slice()
+            } else {
+                file_chrom_name(map, chrom).unwrap_or(chrom)
+            };
+            by_rid
+                .entry(rid)
+                .or_insert_with(|| (own.to_vec(), Vec::new()))
+                .1
+                .push(*iv);
+        }
+        let max_pos = self.index.max_position();
+        let mut plans: Vec<Plan> = by_rid
+            .into_iter()
+            .map(|(rid, (name, ivs))| Plan::new(rid, name, ivs, max_pos))
+            .collect();
+        // File order, so that `last_emitted` only ever drops a record already
+        // emitted. References without records yield nothing; their place is
+        // irrelevant.
+        plans.sort_by_key(|p| {
+            self.index
+                .first_offset(p.rid)
+                .unwrap_or(VirtualPosition::MAX)
+        });
+        let file = File::open(&self.path).map_err(|source| IoError::Open {
+            path: self.name.clone(),
+            source,
+        })?;
+        Ok(Box::new(RegionReader {
+            name: self.name.clone(),
+            format: self.format,
+            header: self.header.clone(),
+            diag: Diagnostics::default(),
+            policy: self.opts.invalid,
+            inclusive: inclusive_points,
+            src: noodles_bgzf::io::Reader::new(BufReader::new(file)),
+            renamer: text_renamer(self.format, &self.opts),
+            parser,
+            index: self.index.clone(),
+            plans,
+            whole: false,
+            p: 0,
+            w: 0,
+            chunks: Vec::new(),
+            c: 0,
+            loaded: false,
+            chunk_end: None,
+            last_emitted: None,
+            emitted: 0,
+            seen: 0,
+            seen_last: None,
+        }))
     }
 
     /// Every record on `chroms`, chromosome by chromosome in the order

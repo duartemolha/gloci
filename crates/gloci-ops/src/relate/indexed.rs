@@ -29,6 +29,7 @@ pub(super) fn run_indexed<R: Send>(
         inputs,
         paths,
         chroms,
+        a_regions,
         ..
     } = files;
     let mut chroms = match chroms {
@@ -76,6 +77,13 @@ pub(super) fn run_indexed<R: Send>(
         }
     }
     let mut ordered = names_a;
+    // With regions, A is empty off the chromosomes that have one, and so is
+    // everything computed from it: skip them (B included).
+    if let Some(r) = &a_regions {
+        let with_regions: std::collections::HashSet<&[u8]> =
+            r.wanted.iter().map(|(c, _)| c.as_slice()).collect();
+        ordered.retain(|c| with_regions.contains(c.as_slice()));
+    }
     ordered.sort_by(|x, y| {
         let (x, y) = (chroms.get(x), chroms.get(y));
         chroms.cmp(x.expect("interned"), y.expect("interned"))
@@ -111,7 +119,19 @@ pub(super) fn run_indexed<R: Send>(
     let chunk_step = |chunk: &Vec<Vec<u8>>,
                       sink: &mut gloci_engine::ChunkSink|
      -> Result<(SweepSummary, R), IoError> {
-        let a = watch(file_a.chromosomes_reader(chunk)?, &flags[0]);
+        let a = match &a_regions {
+            None => file_a.chromosomes_reader(chunk)?,
+            Some(r) => {
+                let wanted: Vec<_> = r
+                    .wanted
+                    .iter()
+                    .filter(|(c, _)| chunk.contains(c))
+                    .cloned()
+                    .collect();
+                file_a.regions_reader(&wanted, r.inclusive_points)?
+            }
+        };
+        let a = watch(a, &flags[0]);
         let b = files_b
             .iter()
             .zip(&flags[1..])

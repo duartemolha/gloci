@@ -650,6 +650,8 @@ pub struct IntersectArgs {
     #[command(flatten)]
     pub w: WindowArgs,
     #[command(flatten)]
+    pub region: RegionArgs,
+    #[command(flatten)]
     pub u: UnsortedArg,
     #[command(flatten)]
     pub sort: RelationSortArg,
@@ -688,6 +690,8 @@ pub struct SubtractArgs {
     pub o: OverlapArgs,
     #[command(flatten)]
     pub w: WindowArgs,
+    #[command(flatten)]
+    pub region: RegionArgs,
     #[command(flatten)]
     pub u: UnsortedArg,
     #[command(flatten)]
@@ -780,6 +784,8 @@ pub struct ClosestArgs {
     #[arg(long)]
     pub inclusive_points: bool,
     #[command(flatten)]
+    pub region: RegionArgs,
+    #[command(flatten)]
     pub u: UnsortedArg,
     #[command(flatten)]
     pub sort: RelationSortArg,
@@ -818,6 +824,8 @@ pub struct CoverageArgs {
     pub mean: bool,
     #[command(flatten)]
     pub o: OverlapArgs,
+    #[command(flatten)]
+    pub region: RegionArgs,
     #[command(flatten)]
     pub u: UnsortedArg,
     #[command(flatten)]
@@ -1081,6 +1089,8 @@ pub struct MapArgs {
     pub o: OverlapArgs,
     #[command(flatten)]
     pub w: WindowArgs,
+    #[command(flatten)]
+    pub region: RegionArgs,
     #[command(flatten)]
     pub u: UnsortedArg,
     #[command(flatten)]
@@ -1650,10 +1660,13 @@ pub struct TmpDirArg {
 
 #[derive(Args, Debug, Clone)]
 pub struct RegionArgs {
-    /// Restrict to a region such as chr1:1,000-2,000 (repeatable).
+    /// Restrict to a region such as chr1:1,000-2,000 (repeatable). In a
+    /// relation command only A is restricted, to the records that overlap a
+    /// region (a point on the edge with --inclusive-points); B is read in
+    /// full, so an A record reaching out of a region still meets B there.
     #[arg(long, value_name = "REGION")]
     pub region: Vec<String>,
-    /// Read regions from FILE (BED: 0-based, half-open).
+    /// Read regions from FILE (BED: 0-based, half-open); see --region.
     #[arg(long, value_name = "FILE")]
     pub regions_file: Option<PathBuf>,
 }

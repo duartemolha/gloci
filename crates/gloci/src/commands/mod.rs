@@ -17,12 +17,13 @@ pub mod view;
 pub mod windows;
 
 use crate::Ctx;
-use crate::cli::{ChromMapArg, ChromOrderArg, RelationSortArg, SortArg, VcfSpan};
+use crate::cli::{ChromMapArg, ChromOrderArg, RegionArgs, RelationSortArg, SortArg, VcfSpan};
 use gloci_io::{
     Format, InvalidPolicy, ReaderOptions, RecordReader, UsageError, chrom_table_for, open_reader,
 };
 use gloci_ops::{
-    InputPaths, RelationFiles, RunOptions, SortSettings, sort_input_options, sort_together,
+    InputPaths, RelationFiles, RunOptions, SortSettings, ViewOptions, sort_input_options,
+    sort_together,
 };
 
 /// Appended to the hint of an order error from a command with `--sort`.
@@ -166,6 +167,26 @@ pub fn relation_files(
         ro_a,
         ro_b,
     })?)
+}
+
+/// Restrict a relation's A to `--region`/`--regions-file` (D75); `unordered`
+/// when `--unsorted` or `--sort` lets A be out of order.
+pub fn restrict_a(
+    files: RelationFiles,
+    r: &RegionArgs,
+    inclusive_points: bool,
+    unordered: bool,
+) -> anyhow::Result<RelationFiles> {
+    let regions = ViewOptions {
+        regions: r.region.clone(),
+        regions_file: r
+            .regions_file
+            .as_ref()
+            .map(|p| p.to_string_lossy().into_owned()),
+        inclusive_points,
+        ..ViewOptions::default()
+    };
+    Ok(files.restrict_a(&regions, unordered)?)
 }
 
 /// How a relation over files runs: threads and the spill directory.

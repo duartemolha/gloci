@@ -109,14 +109,12 @@ cannot be renamed to the same name",
         file: &str,
         names: impl IntoIterator<Item = &'a [u8]> + Clone,
     ) -> Result<(), UsageError> {
-        for old in names.clone() {
+        let present: std::collections::HashSet<&[u8]> = names.clone().into_iter().collect();
+        for old in names {
             let Some(new) = self.forward.get(old) else {
                 continue;
             };
-            if new != old
-                && !self.forward.contains_key(new)
-                && names.clone().into_iter().any(|n| n == &new[..])
-            {
+            if new != old && !self.forward.contains_key(new) && present.contains(&new[..]) {
                 return Err(UsageError(format!(
                     "{file} has both \"{o}\" and \"{n}\"; --chrom-map renames \"{o}\" to \"{n}\", \
 which would merge them; drop that row of the map or rename \"{n}\" too",

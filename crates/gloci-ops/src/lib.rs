@@ -35,4 +35,4 @@ pub use vcf_filter::{
     FilterSummary, VcfFilterInput, VcfFilterOptions, open_vcf_filter, validate_thresholds,
     vcf_filter, vcf_filter_file, vcf_filter_output,
 };
-pub use view::{ViewOptions, open_view, read_regions_file, run_view};
+pub use view::{ViewOptions, open_view, read_regions_file, run_view, select_a};

@@ -2,7 +2,7 @@
 use crate::Ctx;
 use crate::cli::CoverageArgs;
 use crate::commands::{
-    relation_files, relation_hint, run_options, sort_aware, sort_settings, user_span,
+    relation_files, relation_hint, restrict_a, run_options, sort_aware, sort_settings, user_span,
 };
 use gloci_io::{
     Format, InvalidPolicy, OutputOptions, ReaderOptions, UsageError, WriterOptions,
@@ -64,6 +64,12 @@ pub fn run(ctx: &Ctx, a: &CoverageArgs) -> anyhow::Result<()> {
     let ro_a = reader_opts(parse_format(a.a.a_format.as_deref())?);
     let ro_b = reader_opts(parse_format(a.b.b_format.as_deref())?);
     let files = relation_files(&a.a.a, &a.b.b, ro_a, ro_b)?;
+    let files = restrict_a(
+        files,
+        &a.region,
+        a.o.inclusive_points,
+        a.u.unsorted || a.sort.sort,
+    )?;
 
     let oo = OutputOptions {
         threads: ctx.threads,

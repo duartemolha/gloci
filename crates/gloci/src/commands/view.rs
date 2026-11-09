@@ -50,6 +50,7 @@ pub fn run(ctx: &Ctx, a: &ViewArgs) -> anyhow::Result<()> {
         genome: a.genome.genome.clone(),
         chrom_order: a.chrom_order.chrom_order,
         assume_sorted: a.assume_sorted,
+        unordered: false,
     };
     run_view(&a.file, &vo, &ro, &spec, &oo, &wo)?;
     Ok(())

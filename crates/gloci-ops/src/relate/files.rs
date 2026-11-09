@@ -3,7 +3,8 @@
 
 use super::peek::peek_first;
 use super::{RelateInputs, RelateOptions};
-use gloci_core::ChromTable;
+use crate::view::{ViewOptions, select_a};
+use gloci_core::{ChromTable, Interval};
 use gloci_engine::{SweepSummary, all_indexed};
 use gloci_io::{
     Format, Header, IoError, ReaderOptions, RecordReader, RecordWriter, chrom_table_for,
@@ -38,6 +39,15 @@ pub struct RelationFiles {
     /// The relation's chromosome table, once something was read with it.
     pub(super) chroms: Option<ChromTable>,
     b_width: Option<usize>,
+    /// `--region`/`--regions-file`: the regions A is restricted to.
+    pub(super) a_regions: Option<ARegions>,
+}
+
+/// The regions A is restricted to (D75).
+pub(super) struct ARegions {
+    /// In new-name space (after `--chrom-map`).
+    pub(super) wanted: Vec<(Vec<u8>, Interval)>,
+    pub(super) inclusive_points: bool,
 }
 
 impl RelationFiles {
@@ -48,7 +58,44 @@ impl RelationFiles {
             paths,
             chroms: None,
             b_width: None,
+            a_regions: None,
         }
+    }
+
+    /// Restrict A to the records that overlap `regions` (D75), as `view`
+    /// selects them: through A's index when it has one, else by scanning.
+    /// B is not restricted: an A record that overlaps a region may reach
+    /// past it, and `closest` must find B anywhere. With `unordered` (A may
+    /// be out of order) A is scanned and keeps its order. No regions leaves
+    /// the files as they are.
+    pub fn restrict_a(self, regions: &ViewOptions, unordered: bool) -> Result<Self, IoError> {
+        if !regions.has_regions() {
+            return Ok(self);
+        }
+        let opts = ViewOptions {
+            unordered,
+            assume_sorted: false,
+            genome: None,
+            ..regions.clone()
+        };
+        let RelationFiles {
+            inputs: RelateInputs { a, b },
+            paths,
+            chroms,
+            b_width,
+            ..
+        } = self;
+        let (a, wanted) = select_a(&paths.a, a, &opts, &paths.ro_a)?;
+        Ok(RelationFiles {
+            inputs: RelateInputs { a, b },
+            paths,
+            chroms,
+            b_width,
+            a_regions: (!unordered).then_some(ARegions {
+                wanted,
+                inclusive_points: opts.inclusive_points,
+            }),
+        })
     }
 
     /// Open A and every B, each once.

@@ -90,6 +90,7 @@ impl VcfFilterOptions {
             genome: None,
             chrom_order: ChromOrder::Karyotype,
             assume_sorted: false,
+            unordered: false,
         }
     }
 }

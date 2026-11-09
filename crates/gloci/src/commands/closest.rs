@@ -2,7 +2,8 @@
 use crate::Ctx;
 use crate::cli::{ClosestArgs, ClosestTies, SignedFrame};
 use crate::commands::{
-    dest_name, relation_files, relation_hint, run_options, sort_aware, sort_settings, user_span,
+    dest_name, relation_files, relation_hint, restrict_a, run_options, sort_aware, sort_settings,
+    user_span,
 };
 use gloci_core::{OverlapCriteria, SignFrame, StrandRule};
 use gloci_io::{
@@ -86,6 +87,12 @@ pub fn run(ctx: &Ctx, a: &ClosestArgs) -> anyhow::Result<()> {
     let ro_a = reader_opts(parse_format(a.a.a_format.as_deref())?);
     let ro_b = reader_opts(parse_format(a.b.b_format.as_deref())?);
     let mut files = relation_files(&a.a.a, &a.b.b, ro_a, ro_b)?;
+    files = restrict_a(
+        files,
+        &a.region,
+        a.inclusive_points,
+        a.u.unsorted || a.sort.sort,
+    )?;
 
     let kind = closest_output(&mut files, &o)?;
     let oo = OutputOptions {
