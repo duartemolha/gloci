@@ -493,7 +493,8 @@ Examples:
     /// criteria of intersect: -f, -F, -r, -e, --min-bases, -s, -S, --split,
     /// or a window -w/--left/--right) and writes A's record followed by one
     /// column per -c COL:OP, in B file then B input order. COL is a 1-based
-    /// column of B, 0 for the whole record (count, bases, indicator only),
+    /// column of B, 0 for the whole record (count, bases, indicator, bases_uniq, frac_a,
+    /// frac_b and records only),
     /// or for a VCF B QUAL, ID, FILTER or INFO/KEY. Ops: count
     /// count_distinct sum mean median min max stdev var stdev_pop var_pop
     /// collapse distinct distinct_sorted first last bases indicator cv mad
@@ -502,11 +503,13 @@ Examples:
     /// frac_b and records; records ignores COL). cv is the sample
     /// stdev over the mean; mad the unscaled median absolute deviation;
     /// quantile is type 7 and tmean the mean of the values whose rank
-    /// fraction is within LO-HI; wmean weights by overlapping bases; ties of
-    /// mode and antimode go to the first seen; bases_uniq counts overlapped
+    /// fraction is within LO-HI (a lone value is kept); wmean weights by
+    /// overlapping bases; ties of mode and antimode go to the bytewise
+    /// smallest value, as in bedtools; bases_uniq counts overlapped
     /// bases once; frac_a is bases_uniq over A's length and frac_b the summed
     /// overlap over the summed B length (--empty when the length is 0);
-    /// records copies whole B records, tabs shown as |. count counts every
+    /// records copies whole B records, tabs shown as |, and does not escape --delim
+    /// where it occurs in the data. count counts every
     /// overlapping B; the other ops skip `.` and empty values, and a value
     /// that is not a number in a numeric op is an error. sum, min and max
     /// print integers when every value was one; stdev and var are sample

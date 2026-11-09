@@ -1,6 +1,6 @@
 //! Resolving specs against a file and accumulating values.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::io::Write;
 
 use gloci_core::Interval;
@@ -212,27 +212,34 @@ enum State {
     Best(Option<(f64, Vec<u8>)>),
 }
 
-/// Distinct values with counts, in first-seen order.
+/// Distinct values with counts, in bytewise order (bedtools' tie rule).
 #[derive(Debug, Default)]
-struct Tally {
-    index: HashMap<Vec<u8>, usize>,
-    items: Vec<(Vec<u8>, u64)>,
-}
+struct Tally(BTreeMap<Vec<u8>, u64>);
 
 impl Tally {
     fn add(&mut self, v: &[u8]) {
-        match self.index.get(v) {
-            Some(&i) => self.items[i].1 += 1,
+        match self.0.get_mut(v) {
+            Some(c) => *c += 1,
             None => {
-                self.index.insert(v.to_vec(), self.items.len());
-                self.items.push((v.to_vec(), 1));
+                self.0.insert(v.to_vec(), 1);
             }
         }
     }
 
     fn clear(&mut self) {
-        self.index.clear();
-        self.items.clear();
+        self.0.clear();
+    }
+
+    /// The most (or least) frequent value; among equals the bytewise smallest.
+    fn pick(&self, most: bool) -> Option<&[u8]> {
+        let mut best: Option<(&Vec<u8>, u64)> = None;
+        for (v, &c) in &self.0 {
+            let better = best.is_none_or(|(_, bc)| if most { c > bc } else { c < bc });
+            if better {
+                best = Some((v, c));
+            }
+        }
+        best.map(|(v, _)| v.as_slice())
     }
 }
 
@@ -528,24 +535,10 @@ impl Accumulators {
                     let _ = write!(out, "{}", s.len());
                 }
                 State::Numeric(n) => finish_numeric(agg, n, &self.empty, out),
-                State::Mode(t) => {
-                    let pick = if agg.op == Op::Mode {
-                        // the first of the most frequent
-                        t.items
-                            .iter()
-                            .enumerate()
-                            .max_by_key(|(i, (_, c))| (*c, std::cmp::Reverse(*i)))
-                    } else {
-                        t.items
-                            .iter()
-                            .enumerate()
-                            .min_by_key(|(i, (_, c))| (*c, *i))
-                    };
-                    match pick {
-                        Some((_, (v, _))) => out.extend_from_slice(v),
-                        None => out.extend_from_slice(self.empty.as_bytes()),
-                    }
-                }
+                State::Mode(t) => match t.pick(agg.op == Op::Mode) {
+                    Some(v) => out.extend_from_slice(v),
+                    None => out.extend_from_slice(self.empty.as_bytes()),
+                },
                 State::Uniq { ivs, hits, a_len } => {
                     let uniq = union_len(ivs);
                     if agg.op == Op::BasesUniq {
@@ -616,6 +609,10 @@ fn quantile_sorted(v: &[f64], q: f64) -> f64 {
     let h = (v.len() - 1) as f64 * q;
     let lo = h.floor() as usize;
     let hi = (lo + 1).min(v.len() - 1);
+    if h == lo as f64 || v[lo].to_bits() == v[hi].to_bits() {
+        // exact rank, or equal neighbours: no arithmetic, so -0 stays -0 as in `median`
+        return v[lo];
+    }
     v[lo] + (h - lo as f64) * (v[hi] - v[lo])
 }
 

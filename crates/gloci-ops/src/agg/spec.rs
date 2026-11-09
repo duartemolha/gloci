@@ -214,10 +214,16 @@ fn parse_arg(item: &str, op: Op, op_name: &str, arg: Option<&str>) -> Result<OpA
             "-c {item}: quantile needs a quantile, for example 5:quantile:0.9"
         ))),
         (Op::Tmean, Some(r)) => {
-            let Some((lo, hi)) = r.split_once('-') else {
-                return Err(UsageError(format!(
+            let hint = || {
+                UsageError(format!(
                     "-c {item}: tmean needs a range LO-HI, for example 5:tmean:0.1-0.9"
-                )));
+                ))
+            };
+            let Some((lo, hi)) = r
+                .split_once('-')
+                .filter(|(l, h)| !l.is_empty() && !h.is_empty())
+            else {
+                return Err(hint());
             };
             let (lo, hi) = (
                 unit(item, "tmean bound", lo)?,

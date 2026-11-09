@@ -94,6 +94,8 @@ struct Reporter<'o, 'w> {
     /// Scratch: the shared intervals of the current hit.
     shared: Vec<Interval>,
     split: bool,
+    /// A's blocks and their total length under `--split`, kept per A record.
+    a_blocks: Option<(u64, Vec<Interval>, u64)>,
 }
 
 impl Reporter<'_, '_> {
@@ -118,9 +120,19 @@ impl Reporter<'_, '_> {
                 shared: &[],
             });
         }
-        let ab = self.acceptor.a_blocks(a)?.to_vec();
+        let total = |v: &[Interval]| v.iter().map(Interval::len).sum::<u64>();
+        if self
+            .a_blocks
+            .as_ref()
+            .is_none_or(|(l, ..)| *l != a.meta.loc)
+        {
+            let ab = self.acceptor.a_blocks(a)?.to_vec();
+            let len = total(&ab);
+            self.a_blocks = Some((a.meta.loc, ab, len));
+        }
+        let (_, ab, a_len) = self.a_blocks.as_ref().expect("set above");
         let bb = self.acceptor.hit_blocks(h)?;
-        for x in &ab {
+        for x in ab {
             for y in &bb {
                 if overlap_len(*x, *y) > 0 {
                     self.shared.push(Interval {
@@ -130,10 +142,9 @@ impl Reporter<'_, '_> {
                 }
             }
         }
-        let total = |v: &[Interval]| v.iter().map(Interval::len).sum::<u64>();
         Ok(HitInfo {
             bases,
-            a_len: total(&ab),
+            a_len: *a_len,
             b_len: total(&bb),
             shared: &[],
         })
@@ -243,6 +254,7 @@ fn map_in(
         row: Vec::new(),
         shared: Vec::new(),
         split: o.relate.split,
+        a_blocks: None,
     };
     run_relation_in(inputs, chroms, &o.relate, None, &mut reporter)
 }

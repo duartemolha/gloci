@@ -173,7 +173,7 @@ Every row below was checked against `gloci <cmd> --help`.
 | `bedops --chop N` | `gloci merge A \| gloci windows -i - -w N` |
 | `--range N`, `--range L:R` | `-w/--window N` or `--left L --right R` (on `intersect`, `subtract`, `map`) or `gloci slop FILE -b N` / `--left L --right R` |
 | `bedmap --echo --count/--sum/--mean/--min/--max/--median/--stdev/--variance/...` | `gloci map -a A -b B -c COL:count/sum/mean/min/max/median/stdev_pop/var_pop/...` (`--delim`, `--skip-unmatched`) |
-| `bedmap --echo-map-id`, `--echo-map-id-uniq` | `gloci map -a A -b B -c 4:collapse`, `-c 4:distinct` (`--echo-map` whole-record list is `0:records`, tabs shown as `|`) |
+| `bedmap --echo-map-id`, `--echo-map-id-uniq` | `gloci map -a A -b B -c 4:collapse`, `-c 4:distinct` (`--echo-map` whole-record list is `0:records`, tabs shown as `\|`) |
 | `bedmap --bases`, `--fraction-ref/--fraction-map/--fraction-both/--fraction-either` | `gloci map -a A -b B -c 0:bases`, with `-f` / `-F` / `-r` / `-e` |
 | `closest-features` | `gloci closest -a A -b B --each-side [--distance]` (add `--ignore-overlaps` when an overlapping B should not count on both sides) |
 | `sort-bed [--max-mem --tmpdir --check-sort --unique --duplicates]` | `gloci sort [--max-mem --tmp-dir --check --unique --duplicates]`; add `--chrom-order lex` to reproduce `sort-bed`'s chromosome order (`--full-key` reproduces whole-line tie breaking) |
@@ -296,9 +296,10 @@ Every row below was checked against `gloci <cmd> --help`.
 - **First-seen order for `distinct`:** `map` and `merge` `distinct` preserves
   first-seen order; use `distinct_sorted` for `bedtools`' bytewise-sorted list.
   [differences.md#map-distinct-order](differences.md#map-distinct-order)
-- **First-seen ties for `mode` and `antimode`:** with equally frequent values
-  `map` prints the one seen first; `bedtools map` prints the smallest.
-  [differences.md#map-mode-ties](differences.md#map-mode-ties)
+- **Missing values in `mode` and `antimode`:** `map` skips `.` and empty
+  values; `bedtools map` counts `.` as a value, so it can print `.` while real
+  values exist.
+  [differences.md#map-mode-missing](differences.md#map-mode-missing)
 - **Empty placeholder in `map`:** An aggregation with no values prints `--empty`
   (default `.`), not `bedmap`'s `NAN`.
   [differences.md#map-empty-value](differences.md#map-empty-value)

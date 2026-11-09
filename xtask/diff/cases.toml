@@ -1136,7 +1136,7 @@ gloci = "gloci map --chrom-order lex -a input.bed -b map-modes-b.bed -c 5:antimo
 reference = "bedtools map -a input.bed -b map-modes-b.bed -c 5 -o antimode"
 compare = "numeric"
 
-# With a tie, bedtools `mode` and `antimode` take the smallest value; gloci takes the first seen.
+# With a tie both tools take the bytewise smallest value as text (`10` before `9`, `2` before `2.0`).
 [[case]]
 name = "map-mode-ties-vs-bedtools"
 input = { file = "xtask/diff/inputs/map-a.bed" }
@@ -1144,7 +1144,6 @@ aux = ["xtask/diff/inputs/map-ties-b.bed"]
 gloci = "gloci map --chrom-order lex -a input.bed -b map-ties-b.bed -c 5:mode"
 reference = "bedtools map -a input.bed -b map-ties-b.bed -c 5 -o mode"
 compare = "numeric"
-expected_difference = "#map-mode-ties"
 
 [[case]]
 name = "map-antimode-ties-vs-bedtools"
@@ -1153,7 +1152,25 @@ aux = ["xtask/diff/inputs/map-ties-b.bed"]
 gloci = "gloci map --chrom-order lex -a input.bed -b map-ties-b.bed -c 5:antimode"
 reference = "bedtools map -a input.bed -b map-ties-b.bed -c 5 -o antimode"
 compare = "numeric"
-expected_difference = "#map-mode-ties"
+
+# bedtools counts `.` as a value of `mode` and `antimode`; gloci skips missing values.
+[[case]]
+name = "map-mode-missing-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-missing-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-missing-b.bed -c 5:mode"
+reference = "bedtools map -a input.bed -b map-missing-b.bed -c 5 -o mode"
+compare = "numeric"
+expected_difference = "#map-mode-missing"
+
+[[case]]
+name = "map-antimode-missing-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-missing-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-missing-b.bed -c 5:antimode"
+reference = "bedtools map -a input.bed -b map-missing-b.bed -c 5 -o antimode"
+compare = "numeric"
+expected_difference = "#map-mode-missing"
 
 [[case]]
 name = "map-count-vs-bedops"

@@ -63,6 +63,8 @@ fn parse_errors() {
         ("5:tmean:0.5-0.5", "LO below HI"),
         ("5:tmean:0.1-1.5", "must be a number from 0 to 1"),
         ("5:tmean:0.1", "tmean needs a range LO-HI"),
+        ("5:tmean:-0.8", "for example 5:tmean:0.1-0.9"),
+        ("5:tmean:0.2-", "for example 5:tmean:0.1-0.9"),
         ("5:tmean", "tmean needs a range LO-HI"),
         ("5:mad:3", "mad takes no argument"),
         ("0:cv", "column 0"),
@@ -363,16 +365,41 @@ fn spread_edge_cases() {
 #[test]
 fn mode_and_antimode() {
     let v = ["b", "a", "b", "a", "c"];
-    // a and b tie at two: the first seen wins
-    assert_eq!(run("mode", &v), "b");
+    // a and b tie at two: the bytewise smallest wins (bedtools' rule)
+    assert_eq!(run("mode", &v), "a");
     // c is the only one seen once
     assert_eq!(run("antimode", &v), "c");
-    // all tie: first seen for both
-    assert_eq!(run("mode", &["z", "y"]), "z");
-    assert_eq!(run("antimode", &["z", "y"]), "z");
+    // all tie: the bytewise smallest for both
+    assert_eq!(run("mode", &["z", "y"]), "y");
+    assert_eq!(run("antimode", &["z", "y"]), "y");
+    // ties compare as text, not numbers, verified against bedtools 2.31.1
+    assert_eq!(run("mode", &["9", "10"]), "10");
+    assert_eq!(run("mode", &["-5", "-10"]), "-10");
+    assert_eq!(run("mode", &["2", "2.0"]), "2");
+    assert_eq!(run("mode", &["0.5", ".5"]), ".5");
+    assert_eq!(run("mode", &["B", "a"]), "B");
+    assert_eq!(run("mode", &["1e2", "100"]), "100");
+    let m = ["5", "5", "7", "7", "1", "1", "1", "9", "9", "9"];
+    assert_eq!(run("mode", &m), "1");
+    assert_eq!(run("antimode", &m), "5");
+    let n = ["9", "9", "10", "10", "10", "11", "11", "11"];
+    assert_eq!(run("mode", &n), "10");
+    // missing values are skipped (a difference from bedtools)
     assert_eq!(run("mode", &["3", "1", "1", ".", "3", "3"]), "3");
+    assert_eq!(run("mode", &[".", "3"]), "3");
+    assert_eq!(run("antimode", &[".", "3"]), "3");
     assert_eq!(run("mode", &[]), ".");
     assert_eq!(run("antimode", &[]), ".");
+}
+
+#[test]
+fn quantile_keeps_signed_zero_like_median() {
+    assert_eq!(
+        run("quantile:0.5", &["-0.0", "-0.0"]),
+        run("median", &["-0.0", "-0.0"])
+    );
+    assert_eq!(run("quantile:0.5", &["-0.0", "-0.0"]), "-0");
+    assert_eq!(run("quantile:0", &["-0.0", "5"]), "-0");
 }
 
 fn hit<'a>(bases: u64, a_len: u64, b_len: u64, shared: &'a [Interval]) -> HitInfo<'a> {
