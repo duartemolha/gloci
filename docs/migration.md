@@ -382,3 +382,8 @@ Every row below was checked against `gloci <cmd> --help`.
   of gloci's behaviour is the two-step pipeline
   `bcftools view -s S | bcftools view -i E`.
   [differences.md#expr-samples-selection](differences.md#expr-samples-selection)
+- **Symbolic ALT without END or SVLEN:** a record such as `<DEL>` with neither
+  INFO/END nor SVLEN is an error under the default `--vcf-span allele` (it has
+  no allele span); add the field, pass `--vcf-span ref` (the REF span, as in
+  bcftools and tabix) or `--skip-invalid`.
+  [differences.md#vcf-symbolic-no-end](differences.md#vcf-symbolic-no-end)

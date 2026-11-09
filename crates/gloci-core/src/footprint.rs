@@ -223,10 +223,15 @@ pub fn footprint(v: &Variant, span: VcfSpan) -> Result<Interval, FootprintError>
     let mut sv_max_end: Option<u64> = None;
     let mut hull: Option<Interval> = None;
     for (i, a) in alts.iter().enumerate() {
-        // Evaluate every SV ALT in both modes so a missing END/SVLEN is always reported.
+        // Evaluate every SV ALT so a malformed END/SVLEN is always reported. A
+        // missing END and SVLEN is an error only when the allele footprint needs
+        // them: under `Ref` the REF span stands, as in bcftools and tabix.
         if let Alt::Sv(s) = a {
-            let e = sv_end(v, s, i, n, &mut svlen)?;
-            sv_max_end = Some(sv_max_end.map_or(e, |m| m.max(e)));
+            match sv_end(v, s, i, n, &mut svlen) {
+                Ok(e) => sv_max_end = Some(sv_max_end.map_or(e, |m| m.max(e))),
+                Err(FootprintError::MissingSvEnd { .. }) if span == VcfSpan::Ref => {}
+                Err(e) => return Err(e),
+            }
         }
         if span == VcfSpan::Allele
             && let Some(f) = allele_footprint(v, a, i, n, &mut svlen)?

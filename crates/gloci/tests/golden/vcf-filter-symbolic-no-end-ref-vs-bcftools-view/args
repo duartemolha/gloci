@@ -1,0 +1,1 @@
+vcf filter --vcf-span ref input.vcf

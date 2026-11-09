@@ -398,7 +398,8 @@ fn invalid_records_follow_the_policy() {
     let e = err_bcf(fixtures::vcf_to_bcf(v.as_bytes()));
     assert_eq!(
         e,
-        "x.bcf record 1: symbolic ALT <DEL> needs INFO/END or INFO/SVLEN"
+        "x.bcf record 1: symbolic ALT <DEL> needs INFO/END or INFO/SVLEN to give it a span; \
+add INFO/END or INFO/SVLEN, or use --vcf-span ref, or --skip-invalid"
     );
 }
 

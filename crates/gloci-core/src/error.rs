@@ -72,7 +72,10 @@ pub enum FootprintError {
     EmptyRef,
     #[error("POS {pos} is too large: POS plus the REF length overflows a 64-bit coordinate")]
     PosOverflow { pos: u64 },
-    #[error("symbolic ALT {alt} needs INFO/END or INFO/SVLEN")]
+    #[error(
+        "symbolic ALT {alt} needs INFO/END or INFO/SVLEN to give it a span; add INFO/END or \
+INFO/SVLEN, or use --vcf-span ref, or --skip-invalid"
+    )]
     MissingSvEnd { alt: String },
     #[error("INFO/END {end} is before POS {pos}; fix the record or drop END")]
     EndBeforePos { pos: u64, end: u64 },

@@ -140,10 +140,24 @@ fn error_cases() {
         fp(100, "N", "<DEL>,<DEL>,<DUP>", None, Some("-1,-2"), Allele),
         Err(FootprintError::SvlenCount { .. })
     ));
+    // Under ref a missing END and SVLEN is not an error: the REF span stands.
+    assert_eq!(
+        fp(100, "N", "<DEL>", None, Some("."), Ref).unwrap(),
+        iv(99, 100)
+    );
+    assert_eq!(fp(100, "N", "<DEL>", None, None, Ref).unwrap(), iv(99, 100));
+    assert_eq!(
+        fp(100, "NN", "<DUP>,<CNV>", None, None, Ref).unwrap(),
+        iv(99, 101)
+    );
     assert!(matches!(
-        fp(100, "N", "<DEL>", None, Some("."), Ref),
+        fp(100, "N", "<DEL>", None, Some("."), Allele),
         Err(FootprintError::MissingSvEnd { .. })
     ));
+    // Other symbolic ALTs never need either.
+    for alt in ["<INS>", "<*>", "<NON_REF>"] {
+        assert!(fp(100, "N", alt, None, None, Allele).is_ok(), "{alt}");
+    }
     assert_eq!(
         fp(100, "N", "<DEL>", None, Some("-400"), Ref).unwrap(),
         iv(99, 500)
@@ -152,7 +166,8 @@ fn error_cases() {
         fp(100, "N", "<DEL>", None, None, Allele)
             .unwrap_err()
             .to_string(),
-        "symbolic ALT <DEL> needs INFO/END or INFO/SVLEN"
+        "symbolic ALT <DEL> needs INFO/END or INFO/SVLEN to give it a span; add INFO/END or \
+INFO/SVLEN, or use --vcf-span ref, or --skip-invalid"
     );
 }
 

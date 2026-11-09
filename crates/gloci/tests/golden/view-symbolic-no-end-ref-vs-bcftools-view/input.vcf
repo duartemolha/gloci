@@ -1,0 +1,8 @@
+##fileformat=VCFv4.2
+##contig=<ID=chr1,length=1000>
+##INFO=<ID=SVTYPE,Number=1,Type=String,Description="t">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+chr1	10	a	A	C	.	.	.
+chr1	20	del	N	<DEL>	.	.	SVTYPE=DEL
+chr1	30	ins	N	<INS>	.	.	.
+chr1	40	gvcf	N	<*>	.	.	.

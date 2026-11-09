@@ -1,0 +1,11 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##contig=<ID=chr1,length=1000>
+##INFO=<ID=SVTYPE,Number=1,Type=String,Description="t">
+##bcftools_viewVersion=1.21+htslib-1.21
+##bcftools_viewCommand=view input.vcf; Date=Mon Nov  9 23:14:10 2026
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+chr1	10	a	A	C	.	.	.
+chr1	20	del	N	<DEL>	.	.	SVTYPE=DEL
+chr1	30	ins	N	<INS>	.	.	.
+chr1	40	gvcf	N	<*>	.	.	.

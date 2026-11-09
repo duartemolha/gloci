@@ -162,6 +162,25 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Reason:** correct by default, fast on request. Index the file
   (`gloci sort FILE -o FILE.gz --write-index`) to get speed and checking.
 
+## Symbolic ALTs with neither `END` nor `SVLEN` {#vcf-symbolic-no-end}
+
+- **gloci:** under the default `--vcf-span allele`, a record whose ALT is a
+  symbolic SV allele (`<DEL>`, `<DUP>`, `<CNV>`, ...) with neither INFO/END nor
+  INFO/SVLEN has no span, so it is an invalid record: an error that says to
+  "add INFO/END or INFO/SVLEN, or use --vcf-span ref, or --skip-invalid"
+  (`--skip-invalid` skips it with a warning, like other invalid records). Under
+  `--vcf-span ref` (and in `sort`, which orders by the REF end) the span is the
+  REF span and the record is kept. `<INS>`, `<*>` and `<NON_REF>` never need
+  either field.
+- **Old behaviour:** bcftools, tabix and htslib use the REF span and accept
+  such records.
+- **Reason:** the allele span of a deletion or duplication of unknown length
+  cannot be guessed, and a silent guess would change what overlaps it.
+- **Pinned by:** `view-symbolic-no-end-default-vs-bcftools-view` (exit status
+  differs: gloci 1, bcftools 0); `view-symbolic-no-end-ref-vs-bcftools-view`
+  and `vcf-filter-symbolic-no-end-ref-vs-bcftools-view` (with
+  `--vcf-span ref` gloci matches bcftools).
+
 ## Indexes built by htslib and SVs with only `SVLEN` {#htslib-index-svlen}
 
 - **gloci:** the footprint of a symbolic SV without INFO/END is

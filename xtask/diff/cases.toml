@@ -2316,3 +2316,26 @@ gloci = "gloci vcf filter input.vcf --samples s1,s2 --include 'MAF<0.3'"
 reference = "bcftools view -s s1,s2 -i 'MAF<0.3' input.vcf"
 compare = "vcf-records"
 expected_difference = "#expr-samples-selection"
+
+# A symbolic ALT with neither INFO/END nor SVLEN (bcftools uses the REF span).
+[[case]]
+name = "view-symbolic-no-end-default-vs-bcftools-view"
+input = { file = "xtask/diff/inputs/symbolic-no-end.vcf" }
+gloci = "gloci view input.vcf"
+reference = "bcftools view input.vcf"
+compare = "exit-status"
+expected_difference = "#vcf-symbolic-no-end"
+
+[[case]]
+name = "view-symbolic-no-end-ref-vs-bcftools-view"
+input = { file = "xtask/diff/inputs/symbolic-no-end.vcf" }
+gloci = "gloci view --vcf-span ref input.vcf"
+reference = "bcftools view input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-filter-symbolic-no-end-ref-vs-bcftools-view"
+input = { file = "xtask/diff/inputs/symbolic-no-end.vcf" }
+gloci = "gloci vcf filter --vcf-span ref input.vcf"
+reference = "bcftools view input.vcf"
+compare = "vcf-records"
