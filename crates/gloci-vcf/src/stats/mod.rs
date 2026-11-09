@@ -1,5 +1,16 @@
 //! Per-site statistics over the selected, unmasked samples.
 
+mod engine;
+pub(crate) mod fmt;
+mod site;
+mod whole;
+
+pub use engine::{Out, Stat, StatSink, StatWrite, StatsEngine};
+pub use site::{
+    Freq, GenoDepth, Hardy, MissingSite, Singletons, SiteDepth, SiteMeanDepth, SiteQuality,
+};
+pub use whole::{FilterSummary, IndelHist, SnpDensity, TsTv};
+
 use crate::gt::{GenotypeSource, SampleFields};
 
 /// Genotype masking thresholds (D50). A masked sample counts as missing.
@@ -30,7 +41,7 @@ impl MaskRules {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SiteStats {
     /// Called alleles per allele index (a `./1` genotype still counts its 1).
     pub allele_counts: Vec<u64>,
@@ -41,6 +52,19 @@ pub struct SiteStats {
     pub missing: u64,
     pub dp_sum: u64,
     pub dp_n: u64,
+    /// Sum of squared depths over the same samples as `dp_sum`.
+    pub dp_sumsq: u64,
+    /// Selected samples the mask rules masked (`vcftools` N_GENOTYPE_FILTERED).
+    pub filtered: u64,
+    /// Alleles of the selected, unmasked samples: their ploidy summed, where
+    /// `.` is one allele and a sample without GT counts as two.
+    pub data_alleles: u64,
+    /// Missing alleles among `data_alleles`.
+    pub missing_alleles: u64,
+    /// An unmasked selected sample has a one-allele genotype (`.` too).
+    pub haploid: bool,
+    /// An unmasked selected sample has more than two alleles.
+    pub polyploid: bool,
     /// Fully called diploid genotypes as (0/0, 0/1, 1/1); `None` unless the
     /// site is biallelic, in which case `--hwe` passes it.
     pub hwe_counts: Option<(u64, u64, u64)>,
@@ -116,6 +140,17 @@ impl SiteStats {
     pub fn mean_dp(&self) -> Option<f64> {
         (self.dp_n > 0).then(|| self.dp_sum as f64 / self.dp_n as f64)
     }
+
+    /// Sample variance (n - 1) of the depths; `None` with fewer than two.
+    /// The numerator is exact in integers, so only the final division rounds.
+    pub fn var_dp(&self) -> Option<f64> {
+        if self.dp_n < 2 {
+            return None;
+        }
+        let n = u128::from(self.dp_n);
+        let num = n * u128::from(self.dp_sumsq) - u128::from(self.dp_sum) * u128::from(self.dp_sum);
+        Some(num as f64 / (n * (n - 1)) as f64)
+    }
 }
 
 /// Compute the statistics of one site. `keep` selects samples (`None` = all);
@@ -128,6 +163,24 @@ pub fn site_stats(
     n_alleles: usize,
     masked: &mut Vec<bool>,
 ) -> Result<SiteStats, String> {
+    let mut s = SiteStats::default();
+    let mut f = SampleFields::default();
+    site_stats_into(src, keep, mask, n_alleles, masked, &mut f, &mut s)?;
+    Ok(s)
+}
+
+/// [`site_stats`] into a reused `SiteStats` and sample buffer `f`:
+/// allocation-free once `out`, `masked` and `f` have grown to the largest
+/// site.
+pub fn site_stats_into(
+    src: &dyn GenotypeSource,
+    keep: Option<&[bool]>,
+    mask: &MaskRules,
+    n_alleles: usize,
+    masked: &mut Vec<bool>,
+    f: &mut SampleFields,
+    out: &mut SiteStats,
+) -> Result<(), String> {
     let n = src.n_samples();
     if let Some(k) = keep
         && k.len() != n
@@ -139,23 +192,22 @@ pub fn site_stats(
     }
     masked.clear();
     masked.resize(n, false);
-    let mut s = SiteStats {
-        allele_counts: vec![0; n_alleles],
-        called_alleles: 0,
-        samples: 0,
-        missing: 0,
-        dp_sum: 0,
-        dp_n: 0,
+    let mut counts = std::mem::take(&mut out.allele_counts);
+    counts.clear();
+    counts.resize(n_alleles, 0);
+    *out = SiteStats {
+        allele_counts: counts,
         hwe_counts: (n_alleles == 2).then_some((0, 0, 0)),
         all_phased: true,
+        ..SiteStats::default()
     };
-    let mut f = SampleFields::default();
+    let s = out;
     for i in 0..n {
         if keep.is_some_and(|k| !k[i]) {
             continue;
         }
         s.samples += 1;
-        src.sample(i, &mut f)?;
+        src.sample(i, f)?;
         // Phasing is read from the separators, called or not (vcftools
         // --phased): `.|.` is phased, `./.` is not. Masking keeps them.
         if let Some(g) = &f.gt
@@ -164,19 +216,26 @@ pub fn site_stats(
         {
             s.all_phased = false;
         }
-        if mask.masks(&f) {
+        if mask.masks(f) {
             masked[i] = true;
             s.missing += 1;
+            s.filtered += 1;
             continue;
         }
         if let Some(dp) = f.dp {
             s.dp_sum += u64::from(dp);
+            s.dp_sumsq += u64::from(dp) * u64::from(dp);
             s.dp_n += 1;
         }
         let Some(g) = &f.gt else {
             s.missing += 1;
+            s.data_alleles += 2;
+            s.missing_alleles += 2;
             continue;
         };
+        s.data_alleles += g.alleles.len() as u64;
+        s.haploid |= g.alleles.len() == 1;
+        s.polyploid |= g.alleles.len() > 2;
         let mut fully_called = true;
         for a in &g.alleles {
             match a {
@@ -187,7 +246,10 @@ pub fn site_stats(
                     *slot += 1;
                     s.called_alleles += 1;
                 }
-                None => fully_called = false,
+                None => {
+                    fully_called = false;
+                    s.missing_alleles += 1;
+                }
             }
         }
         if !fully_called {
@@ -202,5 +264,5 @@ pub fn site_stats(
             }
         }
     }
-    Ok(s)
+    Ok(())
 }

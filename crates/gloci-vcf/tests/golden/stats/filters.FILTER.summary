@@ -1,0 +1,10 @@
+FILTER	N_VARIANTS	N_Ts	N_Tv	Ts/Tv
+c	3	2	1	2
+PASS	3	1	1	1
+q10	2	1	1	1
+d	2	1	1	1
+b	2	2	0	inf
+.	2	1	1	1
+z	1	1	0	inf
+a	1	0	1	0
+PASS;q10	1	1	0	inf

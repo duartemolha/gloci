@@ -6,17 +6,39 @@ thread_local! {
     static SCRATCH: RefCell<Vec<f64>> = const { RefCell::new(Vec::new()) };
 }
 
+/// The exact test's three p-values for one genotype table.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HweTails {
+    /// Two-sided: the total probability of every heterozygote count that is
+    /// no more likely than the observed one, capped at 1.
+    pub two_sided: f64,
+    /// One-sided: the probability of at most the observed heterozygotes.
+    pub het_deficit: f64,
+    /// One-sided: the probability of at least the observed heterozygotes.
+    pub het_excess: f64,
+}
+
 /// Two-sided exact p-value: the total probability of every heterozygote
 /// count that is no more likely than the observed one, capped at 1.
 /// `hom1` and `hom2` may be given in either order.
 pub fn hwe_p(het: u64, hom1: u64, hom2: u64) -> f64 {
+    hwe_tails(het, hom1, hom2).two_sided
+}
+
+/// All three exact p-values (two-sided and both one-sided tails).
+/// `hom1` and `hom2` may be given in either order.
+pub fn hwe_tails(het: u64, hom1: u64, hom2: u64) -> HweTails {
     SCRATCH.with(|s| hwe_with(&mut s.borrow_mut(), het, hom1, hom2))
 }
 
-fn hwe_with(probs: &mut Vec<f64>, het: u64, hom1: u64, hom2: u64) -> f64 {
+fn hwe_with(probs: &mut Vec<f64>, het: u64, hom1: u64, hom2: u64) -> HweTails {
     let n = het + hom1 + hom2;
     if n == 0 {
-        return 1.0;
+        return HweTails {
+            two_sided: 1.0,
+            het_deficit: 1.0,
+            het_excess: 1.0,
+        };
     }
     let homr = hom1.min(hom2);
     let rare = 2 * homr + het; // copies of the rarer allele
@@ -55,5 +77,13 @@ fn hwe_with(probs: &mut Vec<f64>, het: u64, hom1: u64, hom2: u64) -> f64 {
     // last bits) on the same side, as plink2 does.
     let limit = obs * (1.0 + 1e-7);
     let tail: f64 = probs.iter().filter(|&&p| p <= limit).sum();
-    (tail / sum).min(1.0)
+    // Heterozygote counts only take the parity of `rare`, so entries of the
+    // other parity are zero and add nothing to either one-sided sum.
+    let deficit: f64 = probs[..=het as usize].iter().sum();
+    let excess: f64 = probs[het as usize..].iter().sum();
+    HweTails {
+        two_sided: (tail / sum).min(1.0),
+        het_deficit: (deficit / sum).min(1.0),
+        het_excess: (excess / sum).min(1.0),
+    }
 }

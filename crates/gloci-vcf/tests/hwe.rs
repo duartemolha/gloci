@@ -1,4 +1,4 @@
-use gloci_vcf::hwe_p;
+use gloci_vcf::{hwe_p, hwe_tails};
 
 fn lfact(n: u64) -> f64 {
     (2..=n).map(|k| (k as f64).ln()).sum()
@@ -70,5 +70,79 @@ fn hwe_large_n() {
     for (h, a, b) in [(1200, 600, 700), (2000, 250, 250), (10, 1200, 1289)] {
         let (x, y) = (hwe_p(h, a, b), brute(h, a, b));
         assert!((x - y).abs() < 1e-10, "({h},{a},{b}): {x} vs {y}");
+    }
+}
+
+/// Brute force one-sided tails: enumerate every het count with the observed
+/// allele counts; deficit sums those at most, excess those at least, the
+/// observed het count.
+fn brute_tails(het: u64, h1: u64, h2: u64) -> (f64, f64) {
+    let n = het + h1 + h2;
+    let rare = 2 * h1.min(h2) + het;
+    let logp = |h: u64| {
+        let r = (rare - h) / 2;
+        let c = n - h - r;
+        lfact(n) - lfact(r) - lfact(h) - lfact(c)
+            + (h as f64) * 2f64.ln()
+            + lfact(rare)
+            + lfact(2 * n - rare)
+            - lfact(2 * n)
+    };
+    let (mut total, mut def, mut exc) = (0.0, 0.0, 0.0);
+    for h in (rare % 2..=rare).step_by(2) {
+        if h > n || (rare - h) / 2 + h > n {
+            continue;
+        }
+        let v = logp(h).exp();
+        total += v;
+        if h <= het {
+            def += v;
+        }
+        if h >= het {
+            exc += v;
+        }
+    }
+    ((def / total).min(1.0), (exc / total).min(1.0))
+}
+
+#[test]
+fn one_sided_tails_match_brute_force_on_a_grid() {
+    for het in 0..14 {
+        for h1 in 0..9 {
+            for h2 in 0..9 {
+                if het + h1 + h2 == 0 {
+                    continue;
+                }
+                let t = hwe_tails(het, h1, h2);
+                let (d, e) = brute_tails(het, h1, h2);
+                assert!(
+                    (t.het_deficit - d).abs() < 1e-10,
+                    "({het},{h1},{h2}) deficit"
+                );
+                assert!((t.het_excess - e).abs() < 1e-10, "({het},{h1},{h2}) excess");
+                assert!((t.two_sided - hwe_p(het, h1, h2)).abs() == 0.0);
+                // The tails overlap only at the observed het count, so
+                // together they exceed 1 unless that count has no mass.
+                assert!(t.het_deficit + t.het_excess >= 1.0 - 1e-12);
+            }
+        }
+    }
+    let t = hwe_tails(0, 0, 0);
+    assert_eq!((t.two_sided, t.het_deficit, t.het_excess), (1.0, 1.0, 1.0));
+}
+
+#[test]
+fn one_sided_tails_large_n() {
+    for (h, a, b) in [(1200, 600, 700), (2000, 250, 250), (10, 1200, 1289)] {
+        let t = hwe_tails(h, a, b);
+        let (d, e) = brute_tails(h, a, b);
+        assert!(
+            (t.het_deficit - d).abs() < 1e-10,
+            "({h},{a},{b}): {t:?} vs {d}"
+        );
+        assert!(
+            (t.het_excess - e).abs() < 1e-10,
+            "({h},{a},{b}): {t:?} vs {e}"
+        );
     }
 }

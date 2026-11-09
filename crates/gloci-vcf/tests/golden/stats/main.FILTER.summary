@@ -1,0 +1,5 @@
+FILTER	N_VARIANTS	N_Ts	N_Tv	Ts/Tv
+PASS	10	6	4	1.5
+q10	1	0	0	nan
+PASS;q10	1	0	0	nan
+LowQual	1	1	0	inf

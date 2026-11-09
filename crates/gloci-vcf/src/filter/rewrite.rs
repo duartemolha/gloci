@@ -33,86 +33,9 @@ impl RewritePlan {
 /// trailing zeros trimmed, exponential notation with at least two
 /// exponent digits when exponent < -4 or >= 6.
 pub fn fmt_g6(x: f64) -> String {
-    if x.is_nan() {
-        return "nan".to_string();
-    }
-    if x.is_infinite() {
-        return if x.is_sign_negative() { "-inf" } else { "inf" }.to_string();
-    }
-    if x == 0.0 {
-        return if x.is_sign_negative() { "-0" } else { "0" }.to_string();
-    }
-
-    let s = format!("{:.5e}", x);
-    let (mantissa_str, exp_str) = s.split_once('e').expect("e in scientific format");
-    let exp: i32 = exp_str.parse().expect("valid exp");
-
-    let is_neg = mantissa_str.starts_with('-');
-    let mantissa_clean = if is_neg {
-        &mantissa_str[1..]
-    } else {
-        mantissa_str
-    };
-
-    let mut digits = String::with_capacity(6);
-    for ch in mantissa_clean.chars() {
-        if ch != '.' {
-            digits.push(ch);
-        }
-    }
-
-    let mut out = String::new();
-    if is_neg {
-        out.push('-');
-    }
-
-    if (-4..6).contains(&exp) {
-        if exp >= 0 {
-            let int_len = (exp as usize) + 1;
-            out.push_str(&digits[..int_len]);
-            let frac = &digits[int_len..];
-            let trimmed = frac.trim_end_matches('0');
-            if !trimmed.is_empty() {
-                out.push('.');
-                out.push_str(trimmed);
-            }
-        } else {
-            out.push('0');
-            let zeros = (-exp - 1) as usize;
-            let trimmed = digits.trim_end_matches('0');
-            if !trimmed.is_empty() {
-                out.push('.');
-                for _ in 0..zeros {
-                    out.push('0');
-                }
-                out.push_str(trimmed);
-            }
-        }
-    } else {
-        out.push(digits.chars().next().unwrap());
-        let frac = &digits[1..];
-        let trimmed = frac.trim_end_matches('0');
-        if !trimmed.is_empty() {
-            out.push('.');
-            out.push_str(trimmed);
-        }
-        out.push('e');
-        if exp >= 0 {
-            out.push('+');
-            if exp < 10 {
-                out.push('0');
-            }
-            out.push_str(&exp.to_string());
-        } else {
-            out.push('-');
-            let abs_exp = -exp;
-            if abs_exp < 10 {
-                out.push('0');
-            }
-            out.push_str(&abs_exp.to_string());
-        }
-    }
-    out
+    let mut v = Vec::with_capacity(16);
+    crate::stats::fmt::write_g6(&mut v, x);
+    String::from_utf8(v).expect("ascii")
 }
 
 fn should_drop_info(key: &[u8], plan: &RewritePlan) -> bool {

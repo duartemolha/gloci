@@ -46,9 +46,9 @@ fn stats_of(counts: Vec<u64>) -> SiteStats {
         samples: 1,
         missing: 0,
         dp_sum: 0,
-        dp_n: 0,
         hwe_counts: None,
         all_phased: true,
+        ..SiteStats::default()
     }
 }
 

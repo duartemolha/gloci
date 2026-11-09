@@ -15,5 +15,9 @@ pub use filter::{
     fmt_g6, read_ids, read_positions, read_samples, rewrite_header, rewrite_text, select_samples,
 };
 pub use gt::{Genotype, GenotypeSource, SampleFields, TextGenotypes, text_genotypes};
-pub use hwe::hwe_p;
-pub use stats::{MaskRules, SiteStats, site_stats};
+pub use hwe::{HweTails, hwe_p, hwe_tails};
+pub use stats::{
+    FilterSummary, Freq, GenoDepth, Hardy, IndelHist, MaskRules, MissingSite, Out, Singletons,
+    SiteDepth, SiteMeanDepth, SiteQuality, SiteStats, SnpDensity, Stat, StatSink, StatWrite,
+    StatsEngine, TsTv, site_stats, site_stats_into,
+};
