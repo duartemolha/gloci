@@ -312,9 +312,10 @@ Every row below was checked against `gloci <cmd> --help`.
   line and lets `-g` and `-c` use names, where `bedtools groupby -header` copies
   the input header unchanged.
   [differences.md#groupby-header](differences.md#groupby-header)
-- **A missing column in `groupby` and `map`:** a line without a `-g` or `-c` column
-  is an error naming the line (exit 1); `bedtools groupby` stops with partial
-  output and exits 0.
+- **A missing column in `groupby`, `map` and `merge`:** a line without a `-g` or `-c`
+  column is an error naming the line (exit 1), also for `N:count`; `bedtools groupby`,
+  `bedtools map` and `bedtools merge -c` stop with a message and exit 0 when every line
+  lacks the column (they fail on ragged input, as gloci does).
   [differences.md#groupby-missing-column](differences.md#groupby-missing-column)
 - **Non-numeric values in `map` and `groupby`:** a value that is not a number in
   a numeric op is an error naming the line; bedtools warns, skips it and exits 0.

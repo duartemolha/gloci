@@ -2,6 +2,7 @@
 //! VCF footprints, order errors and determinism.
 mod common;
 use common::*;
+use predicates::prelude::*;
 use predicates::str::contains;
 use std::path::Path;
 
@@ -246,4 +247,23 @@ fn vcf_and_bed_kmerged() {
         out(&["merge", &v, &b, "--count"]),
         "chr1\t101\t110\t2\nchr1\t299\t300\t2\nchr1\t500\t510\t1\n"
     );
+}
+
+#[test]
+fn c_column_past_the_end_of_a_line_is_an_error() {
+    let dir = tempdir();
+    let f = s(&plain_file(
+        dir.path(),
+        "short.bed",
+        "chr1\t0\t100\tx\t5\nchr1\t50\t150\ty\n",
+    ));
+    for op in ["5:sum", "5:count"] {
+        gloci()
+            .args(["merge", &f, "-c", op])
+            .assert()
+            .code(1)
+            .stderr(contains("line 2").and(contains("column 5")));
+    }
+    // column 0 is the whole record, an empty value is still just missing
+    assert_eq!(out(&["merge", &f, "-c", "0:count"]), "chr1\t0\t150\t2\n");
 }

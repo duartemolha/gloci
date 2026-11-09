@@ -2431,7 +2431,7 @@ reference = "bedtools groupby -i input.tsv -g 1 -c 2 -o sum"
 compare = "exit-status"
 expected_difference = "#groupby-missing-column"
 
-# bedtools map rejects a B file whose lines differ in width; gloci rejects the line that lacks the column. Both fail.
+# bedtools map rejects a B file whose lines differ in width (ragged B); gloci rejects the line that lacks the column. Both fail.
 [[case]]
 name = "map-absent-column-vs-bedtools"
 input = { file = "xtask/diff/inputs/map-ragged-a.bed" }
@@ -2439,6 +2439,25 @@ aux = ["xtask/diff/inputs/map-ragged-b.bed"]
 gloci = "gloci map --chrom-order lex -a input.bed -b map-ragged-b.bed -c 5:sum"
 reference = "bedtools map -a input.bed -b map-ragged-b.bed -c 5 -o sum"
 compare = "exit-status"
+
+# A uniform B that lacks the requested column: bedtools prints a warning and exits 0; gloci exits 1.
+[[case]]
+name = "map-uniform-absent-column-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-uniform-a.bed" }
+aux = ["xtask/diff/inputs/map-uniform-b.bed"]
+gloci = "gloci map -a input.bed -b map-uniform-b.bed -c 5:sum"
+reference = "bedtools map -a input.bed -b map-uniform-b.bed -c 5 -o sum"
+compare = "exit-status"
+expected_difference = "#groupby-missing-column"
+
+# merge -c on lines that all lack the column: bedtools prints a warning and exits 0; gloci exits 1.
+[[case]]
+name = "merge-uniform-absent-column-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-uniform-b.bed" }
+gloci = "gloci merge input.bed -c 5:sum"
+reference = "bedtools merge -i input.bed -c 5 -o sum"
+compare = "exit-status"
+expected_difference = "#groupby-missing-column"
 
 # A value that is not a number: bedtools warns, skips it and exits 0; gloci stops with the line.
 [[case]]

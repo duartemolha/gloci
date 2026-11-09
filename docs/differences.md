@@ -498,13 +498,20 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **gloci:** a line with fewer tab-separated columns than a `-g` key or a `-c`
   column needs is an error naming the file, the line, the column and the line's
   column count, with exit status 1. An empty value or `.` is still a missing
-  value and is skipped. `map -c` does the same for a B line.
+  value and is skipped. `map -c` and `merge -c` do the same for a B or input
+  line, and so does `N:count` with an explicit column (as `N:sum` does); column
+  0 is the whole record and cannot be missing.
 - **Old behaviour:** `bedtools groupby` prints a message that names the column
-  but not the line, stops with the output so far, and exits 0.
+  but not the line, stops with the output so far, and exits 0. `bedtools map`
+  (uniform B) and `bedtools merge -c` (uniform input) that lack the column on
+  every line print the same kind of message and exit 0, for `count` as well as
+  `sum`. A *ragged* file (lines of different widths) makes bedtools fail with
+  exit 1, which agrees with gloci.
 - **Reason:** a pipeline must not take truncated output for a result.
-- **Pinned by:** `groupby-missing-column-vs-bedtools` and
-  `groupby-absent-column-vs-bedtools` (must differ, by exit status).
-  `map-absent-column-vs-bedtools` matches: both tools fail.
+- **Pinned by:** `groupby-missing-column-vs-bedtools`,
+  `groupby-absent-column-vs-bedtools`, `map-uniform-absent-column-vs-bedtools`
+  and `merge-uniform-absent-column-vs-bedtools` (must differ, by exit status).
+  `map-absent-column-vs-bedtools` (ragged B) matches: both tools fail.
 
 ## A value that is not a number is an error in `map` and `groupby` {#agg-non-numeric}
 

@@ -404,6 +404,13 @@ impl Accumulators {
         for (agg, state) in self.aggs.iter().zip(self.states.iter_mut()) {
             match state {
                 State::Count(n) => {
+                    // `COL:count` with an explicit column still needs it (as
+                    // `sum` does); column 0 is the whole record.
+                    if let Src::Col(i) = &agg.src
+                        && field(raw, *i).is_none()
+                    {
+                        return Err(missing_column(agg, raw, file, line));
+                    }
                     *n += 1;
                     continue;
                 }
@@ -445,26 +452,7 @@ impl Accumulators {
                 Src::Whole => continue,
                 Src::Col(i) => match field(raw, *i) {
                     Some(v) => Some(v),
-                    None => {
-                        return Err(IoError::Parse {
-                            path: file.to_string(),
-                            loc: Loc::Line(line),
-                            msg: format!(
-                                "column {} ({}) is missing: the line has {} tab-separated \
-                                 column{}; check the column number and that the file is \
-                                 tab-separated (an empty value or `.` is skipped, a missing \
-                                 column is an error)",
-                                agg.col_text,
-                                agg.label,
-                                gloci_io::column_count(raw),
-                                if gloci_io::column_count(raw) == 1 {
-                                    ""
-                                } else {
-                                    "s"
-                                }
-                            ),
-                        });
-                    }
+                    None => return Err(missing_column(agg, raw, file, line)),
                 },
                 Src::Info(key) => field(raw, VCF_INFO_COL).and_then(|i| info_value(i, key)),
             };
@@ -748,5 +736,22 @@ fn finish_numeric(agg: &ResolvedAgg, n: &mut Numeric, empty: &str, out: &mut Vec
             fmt_f64(if op == Op::Var { var } else { var.sqrt() }, out);
         }
         _ => unreachable!("not a numeric op"),
+    }
+}
+
+/// The error for a `-c` column past the end of a line.
+fn missing_column(agg: &ResolvedAgg, raw: &[u8], file: &str, line: u64) -> IoError {
+    let n = gloci_io::column_count(raw);
+    IoError::Parse {
+        path: file.to_string(),
+        loc: Loc::Line(line),
+        msg: format!(
+            "column {} ({}) is missing: the line has {n} tab-separated column{}; check the \
+             column number and that the file is tab-separated (an empty value or `.` is \
+             skipped, a missing column is an error)",
+            agg.col_text,
+            agg.label,
+            if n == 1 { "" } else { "s" }
+        ),
     }
 }

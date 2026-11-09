@@ -466,3 +466,23 @@ fn a_c_column_past_the_end_of_a_b_line_is_an_error() {
         b"chr1\t0\t100\t5\n"
     );
 }
+
+#[test]
+fn count_with_an_explicit_column_needs_the_column_like_sum() {
+    let fx = Fx::new();
+    let a = fx.file("a.bed", "chr1\t0\t100\n");
+    let b = fx.file("b.bed", "chr1\t10\t20\tx\t5\nchr1\t30\t40\ty\n");
+    for op in ["5:sum", "5:count"] {
+        gloci()
+            .args(["map", "-a", &a, "-b", &b, "-c", op])
+            .assert()
+            .code(1)
+            .stderr(contains("line 2").and(contains("column 5")));
+    }
+    // column 0 is the whole record: nothing to be missing
+    let o = gloci()
+        .args(["map", "-a", &a, "-b", &b, "-c", "0:count"])
+        .assert()
+        .success();
+    assert_eq!(o.get_output().stdout, b"chr1\t0\t100\t2\n");
+}
