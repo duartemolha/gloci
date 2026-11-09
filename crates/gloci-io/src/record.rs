@@ -277,6 +277,37 @@ impl<K: TextKind> TextReader<K> {
         Ok(r)
     }
 
+    /// A reader of the lines at `src`, which holds whole records starting at
+    /// line `first_line` of the file called `name`, after `header`: the
+    /// reader a byte range of a plain file gets (see `seekable`).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn over_range(
+        name: &str,
+        format: Format,
+        header: Header,
+        policy: InvalidPolicy,
+        src: Box<dyn BufRead + Send>,
+        first_line: u64,
+        kind: K,
+        map: Option<Arc<ChromMap>>,
+    ) -> Self {
+        TextReader {
+            name: name.to_string(),
+            format,
+            compression: Compression::None,
+            header,
+            diag: Diagnostics::default(),
+            policy,
+            src,
+            line: first_line - 1,
+            pending: None,
+            seen_record: true,
+            eof: false,
+            kind,
+            renamer: map.map(Renamer::new),
+        }
+    }
+
     /// Rename chromosomes with `map` from now on (D62).
     pub(crate) fn set_chrom_map(&mut self, map: Option<Arc<ChromMap>>) {
         self.renamer = map.map(Renamer::new);

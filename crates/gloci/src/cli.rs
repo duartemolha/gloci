@@ -2310,7 +2310,7 @@ pub struct RelationSortArg {
     #[arg(long, value_name = "SIZE", default_value = "2G", value_parser = parse_size, requires = "sort")]
     pub max_mem: u64,
     /// Directory for temporary files: --sort's, and the spills of
-    /// per-chromosome runs on indexed inputs; ignored when nothing spills. It
+    /// per-chromosome runs on indexed and plain files; ignored when nothing spills. It
     /// must exist and be writable (default: $GLOCI_TMPDIR if set and
     /// non-empty, else the system temp dir).
     #[arg(long, value_name = "DIR")]

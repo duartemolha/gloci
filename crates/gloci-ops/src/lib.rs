@@ -54,4 +54,4 @@ pub use vcf_select::{
     select_regions, validate_thresholds, vcf_header,
 };
 pub use vcf_stats::{StatsOptions, StatsRequest, StatsSummary, check_request, vcf_stats};
-pub use view::{ViewOptions, open_view, read_regions_file, run_view, select_a};
+pub use view::{SelectedA, ViewOptions, open_view, read_regions_file, run_view, select_a};

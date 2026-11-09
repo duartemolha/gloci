@@ -5,14 +5,16 @@
 //!
 //! Operations take readers (spec §8.1). [`RelationFiles`] carries the
 //! readers a command opened together with their paths, so that the one
-//! entry point per command can run per chromosome on indexed inputs (D41,
-//! `indexed`) or stream, with identical output.
+//! entry point per command can run per chromosome on indexed inputs (D41)
+//! and plain seekable files (D76) (`indexed`), or stream, with identical
+//! output.
 
 mod criteria;
 mod files;
 mod indexed;
 mod out;
 mod peek;
+mod regions;
 mod rewrite;
 
 pub use criteria::Acceptor;
@@ -59,6 +61,30 @@ pub struct RelateOptions {
 pub struct RelateInputs {
     pub a: Box<dyn RecordReader>,
     pub b: Vec<Box<dyn RecordReader>>,
+}
+
+thread_local! {
+    /// Set while this thread runs one chunk of a per-chromosome run, whose
+    /// readers the driver already watches for unknown strands (once per
+    /// input, not once per chunk).
+    static IN_CHUNK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Marks the current thread as running a chunk of a per-chromosome run until
+/// dropped.
+struct ChunkScope;
+
+impl ChunkScope {
+    fn enter() -> ChunkScope {
+        IN_CHUNK.with(|c| c.set(true));
+        ChunkScope
+    }
+}
+
+impl Drop for ChunkScope {
+    fn drop(&mut self) {
+        IN_CHUNK.with(|c| c.set(false));
+    }
 }
 
 /// Passes records through and notes whether any had an unknown strand.
@@ -224,7 +250,7 @@ pub(crate) fn run_relation_in(
             (a, b)
         }
     };
-    let watching = o.criteria.strand != StrandRule::Any;
+    let watching = o.criteria.strand != StrandRule::Any && !IN_CHUNK.with(|c| c.get());
     let mut watched: Vec<(String, Arc<AtomicBool>)> = Vec::new();
     let seen_a = Arc::new(Mutex::new(Vec::new()));
     let seen_bs: Vec<Arc<Mutex<Vec<Vec<u8>>>>> = (0..b.len())

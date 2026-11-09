@@ -727,3 +727,505 @@ fn karyotype_sorted_indexed_file_is_accepted() {
     let got = out(&["intersect", "--a", &a.0, "--b", &b.0, "-t", "4"]);
     assert_eq!(String::from_utf8_lossy(&got), text);
 }
+
+// ---- plain seekable files (D76) ----
+
+/// Run `args` with `-vv` at `-t` and say whether it ran per chromosome.
+fn ran_per_chromosome(args: &[&str], t: &str) -> bool {
+    let mut a: Vec<&str> = args.to_vec();
+    a.extend(["-t", t, "-vv"]);
+    let o = gloci().args(&a).assert().success();
+    String::from_utf8_lossy(&o.get_output().stderr).contains("running per chromosome")
+}
+
+/// A plain BED with a track line, comments and blank lines (also between
+/// chromosomes and at the end), Windows line ends on some lines, and 8
+/// chromosomes in karyotype order.
+fn plain_text(seed: u64, with_noise: bool) -> String {
+    let mut t = String::new();
+    if with_noise {
+        t.push_str("track name=x\n# a comment\n\n");
+    }
+    let mut state = seed;
+    let mut next = |m: u64| {
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        (state >> 33) % m
+    };
+    for c in [
+        "chr1", "chr2", "chr3", "chr4", "chr5", "chr10", "chrX", "chrY",
+    ] {
+        let mut starts: Vec<u64> = (0..40).map(|_| next(5000)).collect();
+        starts.sort_unstable();
+        for (i, st) in starts.iter().enumerate() {
+            let len = 1 + next(120);
+            let strand = ['+', '-', '.'][next(3) as usize];
+            let eol = if with_noise && i % 7 == 3 {
+                "\r\n"
+            } else {
+                "\n"
+            };
+            t.push_str(&format!(
+                "{c}\t{st}\t{}\t{c}_{i}\t{}\t{strand}{eol}",
+                st + len,
+                next(900)
+            ));
+            if with_noise && i == 20 {
+                t.push_str("\n# mid-file comment\n");
+            }
+        }
+        if with_noise {
+            t.push_str("\n#between chromosomes\n");
+        }
+    }
+    t
+}
+
+const RELATIONS: &[&[&str]] = &[
+    &["intersect"],
+    &["intersect", "--mode", "pairs"],
+    &["intersect", "--mode", "count"],
+    &["subtract"],
+    &["closest"],
+    &["map", "-c", "4:collapse"],
+    &["coverage"],
+    &["coverage", "--hist"],
+    &["intersect", "-s"],
+    &["closest", "-k", "2"],
+];
+
+/// Plain BED A and B give, for every relation command, the bytes `-t 1`
+/// streaming gives, at `-t 2` and `-t 8`, and run per chromosome.
+#[test]
+fn seekable_equals_streaming() {
+    let dir = tempdir();
+    for noise in [false, true] {
+        let a = s(&plain_file(dir.path(), "a.bed", &plain_text(1, noise)));
+        let b = s(&plain_file(dir.path(), "b.bed", &plain_text(2, noise)));
+        for rel in RELATIONS {
+            let mut args: Vec<&str> = vec![rel[0], "-a", &a, "-b", &b];
+            args.extend(&rel[1..]);
+            let mut one = args.clone();
+            one.extend(["-t", "1"]);
+            let want = out(&one);
+            assert!(!want.is_empty(), "{rel:?}");
+            for t in ["2", "8"] {
+                let mut many = args.clone();
+                many.extend(["-t", t]);
+                assert_eq!(
+                    String::from_utf8_lossy(&out(&many)),
+                    String::from_utf8_lossy(&want),
+                    "{rel:?} -t {t} noise={noise}"
+                );
+            }
+            assert!(!ran_per_chromosome(&args, "1"), "{rel:?} streams at -t 1");
+            assert!(ran_per_chromosome(&args, "2"), "{rel:?} -t 2");
+        }
+    }
+}
+
+/// Several B files, a B with chromosomes A lacks and the reverse, and
+/// `--header` and `--names`-style labels behave as streaming does.
+#[test]
+fn seekable_several_b_and_missing_chromosomes() {
+    let dir = tempdir();
+    let a = s(&plain_file(dir.path(), "a.bed", &plain_text(3, true)));
+    let only = |keep: &[&str], seed| -> String {
+        plain_text(seed, false)
+            .lines()
+            .filter(|l| keep.iter().any(|k| l.split('\t').next() == Some(*k)))
+            .map(|l| format!("{l}\n"))
+            .collect()
+    };
+    let b1 = s(&plain_file(
+        dir.path(),
+        "b1.bed",
+        &only(&["chr2", "chr10", "chrY"], 4),
+    ));
+    let b2 = s(&plain_file(
+        dir.path(),
+        "b2.bed",
+        &only(&["chr1", "chr3", "chrX"], 5),
+    ));
+    for rel in [
+        &["intersect", "--mode", "pairs"][..],
+        &["coverage"],
+        &["closest"],
+        &["map", "-c", "4:count"],
+    ] {
+        let mut args: Vec<&str> = vec![rel[0], "-a", &a, "-b", &b1, "-b", &b2];
+        args.extend(&rel[1..]);
+        let mut one = args.clone();
+        one.extend(["-t", "1"]);
+        let want = out(&one);
+        let mut four = args.clone();
+        four.extend(["-t", "4"]);
+        assert_eq!(out(&four), want, "{rel:?}");
+        assert!(ran_per_chromosome(&args, "4"), "{rel:?}");
+    }
+}
+
+/// An indexed input and a plain one, either way round.
+#[test]
+fn seekable_mixed_with_indexed() {
+    let dir = tempdir();
+    let (a_text, b_text) = (plain_text(6, false), plain_text(7, false));
+    let (a_idx, a_plain) = indexed_pair(dir.path(), "ma", &a_text);
+    let b_plain = s(&plain_file(dir.path(), "mb.bed", &b_text));
+    let (b_idx, _) = indexed_pair(dir.path(), "mb", &b_text);
+    let a_plain_uncompressed = s(&plain_file(dir.path(), "ma.bed", &a_text));
+    let _ = a_plain;
+    for rel in RELATIONS {
+        for (a, b) in [(&a_idx, &b_plain), (&a_plain_uncompressed, &b_idx)] {
+            let mut args: Vec<&str> = vec![rel[0], "-a", a, "-b", b];
+            args.extend(&rel[1..]);
+            let mut one = args.clone();
+            one.extend(["-t", "1"]);
+            let want = out(&one);
+            let mut many = args.clone();
+            many.extend(["-t", "4"]);
+            assert_eq!(out(&many), want, "{rel:?} a={a}");
+            assert!(ran_per_chromosome(&args, "4"), "{rel:?} a={a}");
+        }
+    }
+}
+
+/// Plain VCF A and B.
+#[test]
+fn seekable_vcf() {
+    let dir = tempdir();
+    let vcf = |seed: u64| -> String {
+        let mut t = String::from(
+            "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=100000>\n##contig=<ID=chr2,length=100000>\n##contig=<ID=chr3,length=100000>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n",
+        );
+        let mut x = seed;
+        for c in ["chr1", "chr2", "chr3"] {
+            let mut ps: Vec<u64> = (0..30)
+                .map(|_| {
+                    x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+                    1 + (x >> 33) % 600
+                })
+                .collect();
+            ps.sort_unstable();
+            for p in ps {
+                t.push_str(&format!("{c}\t{p}\t.\tAC\tA\t.\t.\t.\n"));
+            }
+        }
+        t
+    };
+    let a = s(&plain_file(dir.path(), "a.vcf", &vcf(1)));
+    let b = s(&plain_file(dir.path(), "b.vcf", &vcf(2)));
+    for rel in [
+        &["intersect"][..],
+        &["intersect", "--mode", "pairs"],
+        &["coverage"],
+    ] {
+        let mut args: Vec<&str> = vec![rel[0], "-a", &a, "-b", &b];
+        args.extend(&rel[1..]);
+        let mut one = args.clone();
+        one.extend(["-t", "1"]);
+        let want = out(&one);
+        assert!(!want.is_empty(), "{rel:?}");
+        let mut many = args.clone();
+        many.extend(["-t", "4"]);
+        assert_eq!(out(&many), want, "{rel:?}");
+        assert!(ran_per_chromosome(&args, "4"), "{rel:?}");
+    }
+}
+
+/// stdin, `/dev/stdin`, fd paths, gzip and GFF are never split: they stream.
+#[test]
+fn seekable_excludes_streams_and_other_formats() {
+    let dir = tempdir();
+    let text = plain_text(8, false);
+    let a = s(&plain_file(dir.path(), "a.bed", &text));
+    let b = s(&plain_file(dir.path(), "b.bed", &text));
+    let want = out(&["intersect", "-a", &a, "-b", &b, "-t", "1"]);
+    for path in ["-", "/dev/stdin"] {
+        let o = gloci()
+            .args(["intersect", "-a", path, "-b", &b, "-t", "4", "-vv"])
+            .write_stdin(text.clone())
+            .assert()
+            .success();
+        assert_eq!(o.get_output().stdout, want, "{path}");
+        let err = String::from_utf8_lossy(&o.get_output().stderr);
+        assert!(!err.contains("running per chromosome"), "{path}: {err}");
+    }
+    // gzip (not BGZF): streams
+    let gz = s(&gloci_testkit::fixtures::write(
+        dir.path(),
+        "a.bed.gz",
+        &gloci_testkit::fixtures::gzip(text.as_bytes()),
+    ));
+    assert!(!ran_per_chromosome(
+        &["intersect", "-a", &gz, "-b", &b],
+        "4"
+    ));
+    // GFF stays streaming (a ##FASTA section can follow its records)
+    let gff = "##gff-version 3\nchr1\tsrc\tgene\t11\t20\t.\t+\t.\tID=g1\nchr2\tsrc\tgene\t11\t20\t.\t+\t.\tID=g2\n";
+    let g = s(&plain_file(dir.path(), "a.gff", gff));
+    assert!(!ran_per_chromosome(&["intersect", "-a", &g, "-b", &g], "4"));
+    // `--unsorted` and `--sort` stream
+    assert!(!ran_per_chromosome(
+        &["intersect", "-a", &a, "-b", &b, "--unsorted"],
+        "4"
+    ));
+}
+
+/// Non-contiguous chromosomes, or an order the table rejects, are refused
+/// as streaming refuses them, at every thread count.
+#[test]
+fn seekable_order_errors_are_streamings() {
+    let dir = tempdir();
+    let good = "chr1\t10\t20\nchr2\t10\t20\nchr3\t10\t20\n";
+    let g = s(&plain_file(dir.path(), "good.bed", good));
+    let cases: &[(&str, &str, &[&str])] = &[
+        (
+            "noncontig",
+            "chr1\t10\t20\nchr2\t10\t20\nchr1\t30\t40\n",
+            &["noncontig.bed is not sorted", "line 3"],
+        ),
+        (
+            "backwards",
+            "chr2\t10\t20\nchr1\t10\t20\n",
+            &["backwards.bed is not sorted", "line 2"],
+        ),
+        (
+            "lex",
+            "chr1\t10\t20\nchr10\t10\t20\nchr2\t10\t20\n",
+            &["lex.bed is not sorted", "chr10", "chr2"],
+        ),
+    ];
+    for (name, text, needles) in cases {
+        let bad = s(&plain_file(dir.path(), &format!("{name}.bed"), text));
+        let o = gloci()
+            .args(["intersect", "-a", &bad, "-b", &g, "-t", "4", "-vv"])
+            .assert()
+            .failure();
+        let err = String::from_utf8_lossy(&o.get_output().stderr).into_owned();
+        assert!(!err.contains("running per chromosome"), "{name}: {err}");
+        assert_refuse_alike(&["intersect", "-a", &bad, "-b", &g], needles);
+        assert_refuse_alike(&["intersect", "-a", &g, "-b", &bad], needles);
+        assert_refuse_alike(&["closest", "-a", &bad, "-b", &bad], needles);
+    }
+    // An order the table rejects only under -g: chr2 before chr1 in a genome
+    // that lists chr1 first; and a chromosome the closed table lacks.
+    let unknown = s(&plain_file(
+        dir.path(),
+        "unknown.bed",
+        "chr1\t10\t20\nchrNope\t10\t20\n",
+    ));
+    assert_refuse_alike(
+        &["intersect", "-a", &unknown, "-b", &g, "-g", "hg38"],
+        &["chrNope"],
+    );
+    assert_refuse_alike(
+        &["intersect", "-a", &g, "-b", &unknown, "-g", "hg38"],
+        &["chrNope"],
+    );
+}
+
+/// A within-chromosome error carries streaming's line number and text; when
+/// several chromosomes fail, the one earliest in the file is reported.
+#[test]
+fn seekable_errors_inside_a_chromosome_match_streaming() {
+    let dir = tempdir();
+    let mut rows: Vec<String> = Vec::new();
+    for c in ["chr1", "chr2", "chr3", "chr4", "chr5", "chr6"] {
+        for i in 0..50 {
+            rows.push(format!("{c}\t{}\t{}\n", i * 10, i * 10 + 5));
+        }
+    }
+    let b = s(&plain_file(dir.path(), "b.bed", &rows.concat()));
+    // A, with a blank and a comment line to move the line numbers.
+    let with = |edits: &[(usize, &str)]| -> String {
+        let mut r = rows.clone();
+        for (i, t) in edits {
+            r[*i] = t.to_string();
+        }
+        r.insert(10, "\n".to_string());
+        r.insert(30, "# note\n".to_string());
+        r.concat()
+    };
+    let cases: Vec<(&str, String, &[&str])> = vec![
+        (
+            "badnum",
+            with(&[(120, "chr3\tNOPE\t5\n")]),
+            &["badnum.bed", "start"],
+        ),
+        (
+            "order",
+            with(&[(210, "chr5\t3\t9\n")]),
+            &["order.bed is not sorted"],
+        ),
+        (
+            "two",
+            with(&[(70, "chr2\t1\n"), (250, "chr6\tx\t5\n")]),
+            &["two.bed", "expected at least 3"],
+        ),
+        ("cols", with(&[(160, "chr4 5 9\n")]), &["cols.bed"]),
+    ];
+    for (name, text, needles) in &cases {
+        let a = s(&plain_file(dir.path(), &format!("{name}.bed"), text));
+        for cmd in ["intersect", "coverage", "closest"] {
+            assert_refuse_alike(&[cmd, "-a", &a, "-b", &b], needles);
+            assert_refuse_alike(&[cmd, "-a", &b, "-b", &a], needles);
+        }
+        // The error came from a worker, not from a fallback to streaming.
+        let o = gloci()
+            .args(["intersect", "-a", &a, "-b", &b, "-t", "4", "-vv"])
+            .assert()
+            .failure();
+        let err = String::from_utf8_lossy(&o.get_output().stderr).into_owned();
+        // (A line with no tab is a chromosome of its own, in the middle of
+        // another: that is not contiguous, so streaming reports it.)
+        assert_eq!(
+            err.contains("running per chromosome"),
+            *name != "cols",
+            "{name}: {err}"
+        );
+    }
+    // --skip-invalid: the same warning, with the same line numbers.
+    let a = s(&plain_file(
+        dir.path(),
+        "skip.bed",
+        &with(&[
+            (70, "chr2\t1\n"),
+            (130, "chr3\tx\t5\n"),
+            (250, "chr6\tx\t5\n"),
+        ]),
+    ));
+    let run = |t: &str| {
+        let o = gloci()
+            .args(["intersect", "-a", &a, "-b", &b, "--skip-invalid", "-t", t])
+            .assert()
+            .success();
+        (
+            o.get_output().stdout.clone(),
+            String::from_utf8_lossy(&o.get_output().stderr).into_owned(),
+        )
+    };
+    let (one, four) = (run("1"), run("4"));
+    assert_eq!(one, four);
+    assert!(one.1.contains("skipped 3 invalid records"), "{}", one.1);
+}
+
+/// `--chrom-map` renames chromosomes on plain inputs read per chromosome:
+/// the output is streaming's, and the scan's contiguity check uses the
+/// file's own names.
+#[test]
+fn seekable_chrom_map() {
+    let dir = tempdir();
+    let text = |names: &[&str]| -> String {
+        names
+            .iter()
+            .flat_map(|c| (0..5).map(move |i| format!("{c}\t{}\t{}\tr{i}\n", i * 20, i * 20 + 30)))
+            .collect()
+    };
+    let a = s(&plain_file(
+        dir.path(),
+        "a.bed",
+        &text(&["1", "2", "3", "10", "X"]),
+    ));
+    let b = s(&plain_file(
+        dir.path(),
+        "b.bed",
+        &text(&["chr1", "chr2", "chr10", "chrX"]),
+    ));
+    let map = s(&plain_file(
+        dir.path(),
+        "map.tsv",
+        "1\tchr1\n2\tchr2\n3\tchr3\n10\tchr10\nX\tchrX\n",
+    ));
+    for rel in ["intersect", "coverage", "closest"] {
+        let args = [rel, "-a", &a, "-b", &b, "--chrom-map", &map];
+        let want = out(&[&args[..], &["-t", "1"]].concat());
+        assert!(!want.is_empty());
+        assert_eq!(out(&[&args[..], &["-t", "4"]].concat()), want, "{rel}");
+        assert!(ran_per_chromosome(&args, "4"), "{rel}");
+    }
+    // Two file names renamed to one (`1` to `chr2`, where the file also has
+    // `chr2`): not split, streamed as before.
+    let clash_in = s(&plain_file(
+        dir.path(),
+        "clash.bed",
+        "1\t0\t10\nchr2\t5\t15\nchr3\t0\t10\n",
+    ));
+    let clash = s(&plain_file(dir.path(), "clash.tsv", "1\tchr2\n"));
+    let args = [
+        "intersect",
+        "-a",
+        &clash_in,
+        "-b",
+        &clash_in,
+        "--chrom-map",
+        &clash,
+    ];
+    assert!(!ran_per_chromosome(&args, "4"));
+    assert_eq!(
+        out(&[&args[..], &["-t", "4"]].concat()),
+        out(&[&args[..], &["-t", "1"]].concat())
+    );
+    // Names that are in file order only after renaming: streaming's verdict.
+    let swap = s(&plain_file(dir.path(), "swap.tsv", "1\tchr9\n2\tchr1\n"));
+    assert_refuse_alike(
+        &["intersect", "-a", &a, "-b", &a, "--chrom-map", &swap],
+        &["is not sorted"],
+    );
+}
+
+/// `--region` on plain A, read per chromosome, selects what streaming does.
+#[test]
+fn seekable_with_regions() {
+    let dir = tempdir();
+    let a = s(&plain_file(dir.path(), "a.bed", &plain_text(9, true)));
+    let b = s(&plain_file(dir.path(), "b.bed", &plain_text(10, false)));
+    for rel in ["intersect", "closest", "coverage"] {
+        let args = [
+            rel,
+            "-a",
+            &a,
+            "-b",
+            &b,
+            "--region",
+            "chr3:100-900",
+            "--region",
+            "chrX:1-2000",
+            "--region",
+            "chr10:50-60",
+        ];
+        let want = out(&[&args[..], &["-t", "1"]].concat());
+        assert!(!want.is_empty());
+        assert_eq!(out(&[&args[..], &["-t", "4"]].concat()), want, "{rel}");
+        assert!(ran_per_chromosome(&args, "4"), "{rel}");
+    }
+}
+
+/// Records of unknown strand under `-s` are reported once per input, not
+/// once per chunk, plain or indexed, as at `-t 1`.
+#[test]
+fn unknown_strand_warning_is_once_per_input() {
+    let dir = tempdir();
+    let text: String = ["chr1", "chr2", "chr3", "chr4"]
+        .iter()
+        .map(|c| format!("{c}\t1\t10\ta\t0\t.\n{c}\t20\t30\tb\t0\t+\n"))
+        .collect();
+    let a = s(&plain_file(dir.path(), "a.bed", &text));
+    let (a_idx, _) = indexed_pair(dir.path(), "ia", &text);
+    for a in [&a, &a_idx] {
+        for t in ["1", "4"] {
+            let o = gloci()
+                .args(["intersect", "-a", a, "-b", a, "-s", "-t", t])
+                .assert()
+                .success();
+            let err = String::from_utf8_lossy(&o.get_output().stderr).into_owned();
+            // A and B are the same file: one warning for each.
+            assert_eq!(
+                err.matches("unknown strand").count(),
+                2,
+                "{a} -t {t}: {err}"
+            );
+        }
+    }
+}

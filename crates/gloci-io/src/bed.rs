@@ -8,7 +8,7 @@ use crate::record::{Class, Parsed, TextKind, TextReader, coord, intern_chrom};
 use gloci_core::{ChromTable, Interval, Strand};
 use std::sync::Arc;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct Bed;
 pub(crate) type BedReader = TextReader<Bed>;
 

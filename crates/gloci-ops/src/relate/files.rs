@@ -3,9 +3,10 @@
 
 use super::peek::peek_first;
 use super::{RelateInputs, RelateOptions};
-use crate::view::{ViewOptions, select_a};
+use crate::view::{SelectedA, ViewOptions, select_a};
 use gloci_core::{ChromTable, Interval};
 use gloci_engine::{SweepSummary, all_indexed};
+use gloci_io::{Compression, is_regular_file, seekable::range_format};
 use gloci_io::{
     Format, Header, IoError, ReaderOptions, RecordReader, RecordWriter, chrom_table_for,
 };
@@ -48,6 +49,8 @@ pub(super) struct ARegions {
     /// In new-name space (after `--chrom-map`).
     pub(super) wanted: Vec<(Vec<u8>, Interval)>,
     pub(super) inclusive_points: bool,
+    /// See [`crate::SelectedA::warn_unseen`].
+    pub(super) warn_unseen: bool,
 }
 
 impl RelationFiles {
@@ -85,7 +88,11 @@ impl RelationFiles {
             b_width,
             ..
         } = self;
-        let (a, wanted) = select_a(&paths.a, a, &opts, &paths.ro_a)?;
+        let SelectedA {
+            reader: a,
+            wanted,
+            warn_unseen,
+        } = select_a(&paths.a, a, &opts, &paths.ro_a)?;
         Ok(RelationFiles {
             inputs: RelateInputs { a, b },
             paths,
@@ -94,6 +101,7 @@ impl RelationFiles {
             a_regions: (!unordered).then_some(ARegions {
                 wanted,
                 inclusive_points: opts.inclusive_points,
+                warn_unseen,
             }),
         })
     }
@@ -215,22 +223,59 @@ fn b_column_names(b: &dyn RecordReader, width: usize) -> Vec<String> {
     }
 }
 
-/// Whether a relation over these inputs runs per chromosome (D41): more
-/// than one thread, every input a regular BGZF file with an index, and
-/// neither `--unsorted` nor `--sort`. With one thread it streams. The output
-/// is the same either way for inputs in table order; others are refused alike.
+/// How one input of a relation is read per chromosome.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Source {
+    /// A BGZF file with an index (D41).
+    Indexed,
+    /// An uncompressed BED, bedGraph or VCF regular file, split by a scan
+    /// for its chromosomes' byte ranges (D76).
+    Plain,
+}
+
+/// How each input (A, then each B) is read when the relation runs per
+/// chromosome (D41, D76), or `None` when it streams: one thread, `--unsorted`
+/// or `--sort`, or an input that is neither indexed nor a plain seekable file
+/// of a format the scan handles. Standard input, `/dev/fd/N` and other
+/// non-regular files, compressed files without an index, GFF and WIG stream.
+/// The output is the same either way for inputs in table order; others are
+/// refused alike.
+pub(super) fn input_sources(
+    files: &RelationFiles,
+    relate: &RelateOptions,
+    threads: NonZeroUsize,
+) -> Option<Vec<Source>> {
+    if threads.get() == 1 || relate.unsorted || relate.sort.is_some() {
+        return None;
+    }
+    let readers =
+        std::iter::once(files.inputs.a.as_ref()).chain(files.inputs.b.iter().map(|r| r.as_ref()));
+    let paths = std::iter::once(&files.paths.a).chain(&files.paths.b);
+    paths
+        .zip(readers)
+        .map(|(p, r)| {
+            if all_indexed(&[p.as_str()]) {
+                Some(Source::Indexed)
+            } else if is_regular_file(p)
+                && r.compression() == Compression::None
+                && range_format(r.format())
+            {
+                Some(Source::Plain)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Whether a relation over these inputs runs per chromosome: see
+/// [`input_sources`].
 pub fn runs_per_chromosome(
-    paths: &InputPaths,
+    files: &RelationFiles,
     relate: &RelateOptions,
     threads: NonZeroUsize,
 ) -> bool {
-    if threads.get() == 1 || relate.unsorted || relate.sort.is_some() {
-        return false;
-    }
-    let all: Vec<&str> = std::iter::once(paths.a.as_str())
-        .chain(paths.b.iter().map(String::as_str))
-        .collect();
-    all_indexed(&all)
+    input_sources(files, relate, threads).is_some()
 }
 
 /// The relation step of a command: runs on one stream, or on one chunk of
@@ -255,8 +300,8 @@ pub(crate) fn run_files<R: Send>(
     w: &mut dyn RecordWriter,
     step: &RelationStep<R>,
 ) -> Result<(SweepSummary, Vec<R>), IoError> {
-    let (summary, rs) = if runs_per_chromosome(&files.paths, relate, run.threads) {
-        super::indexed::run_indexed(files, relate, run, w, step)?
+    let (summary, rs) = if let Some(sources) = input_sources(&files, relate, run.threads) {
+        super::indexed::run_per_chromosome(files, &sources, relate, run, w, step)?
     } else {
         let RelationFiles { inputs, chroms, .. } = files;
         let (summary, r) = step(inputs, chroms, w)?;

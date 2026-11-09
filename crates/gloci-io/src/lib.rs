@@ -20,6 +20,7 @@ pub mod input;
 pub mod naming;
 pub mod output;
 pub mod record;
+pub mod seekable;
 pub mod sorted;
 pub mod tsv;
 pub mod vcf;
@@ -64,6 +65,7 @@ pub use record::{
     Header, ReaderOptions, RecordBatch, RecordMeta, RecordReader, next_batch_size, open_reader,
     open_reader_from,
 };
+pub use seekable::{ChromRange, SeekableFile, chrom_ranges, open_range_reader};
 pub use sorted::{LEX_SORTED_NOTE, OrderGuard, sort_hint};
 pub use tsv::{TsvHeader, open_tsv_writer, tsv_output_ok};
 pub use vcf::{VcfHeader, shell_quote_args};

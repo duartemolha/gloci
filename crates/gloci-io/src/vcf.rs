@@ -203,6 +203,7 @@ pub fn shell_quote_args(args: &[OsString]) -> String {
     quoted.join(" ")
 }
 
+#[derive(Clone)]
 pub(crate) struct Vcf {
     span: VcfSpan,
 }
