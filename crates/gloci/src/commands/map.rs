@@ -8,7 +8,7 @@ use gloci_io::{
 };
 use gloci_ops::agg::parse_aggs;
 use gloci_ops::map::{MapOptions, map, validate};
-use gloci_ops::{RelateInputs, RelateOptions, ReportOutput, open_report};
+use gloci_ops::{RelateInputs, RelateOptions, ReportOutput, all_indexed, open_report, run_indexed};
 
 fn parse_format(s: Option<&str>) -> anyhow::Result<Option<Format>> {
     match s {
@@ -83,11 +83,32 @@ pub fn run(ctx: &Ctx, a: &MapArgs) -> anyhow::Result<()> {
         &wo,
         a.header.header,
     )?;
-    let inputs = RelateInputs {
-        a: reader_a,
-        b: readers_b,
-    };
-    map(inputs, &o, w.as_mut()).map_err(|e| e.with_order_hint(relation_hint(&a.sort)))?;
+    let all_paths: Vec<&str> = std::iter::once(a.a.a.as_str())
+        .chain(a.b.b.iter().map(|s| s.as_str()))
+        .collect();
+    let use_indexed = all_indexed(&all_paths) && !a.u.unsorted && o.relate.sort.is_none();
+
+    if use_indexed {
+        run_indexed(
+            &a.a.a,
+            &a.b.b,
+            &ro_a,
+            &ro_b,
+            &o.relate,
+            a.o.criteria().inclusive_points,
+            ctx.threads,
+            &ctx.tmp_dir,
+            w.as_mut(),
+            &|chunk_inputs, chunk_sink| map(chunk_inputs, &o, chunk_sink),
+        )
+        .map_err(|e| e.with_order_hint(relation_hint(&a.sort)))?;
+    } else {
+        let inputs = RelateInputs {
+            a: reader_a,
+            b: readers_b,
+        };
+        map(inputs, &o, w.as_mut()).map_err(|e| e.with_order_hint(relation_hint(&a.sort)))?;
+    }
     w.finish()?;
     Ok(())
 }

@@ -537,10 +537,13 @@ name = "gloci-engine"
 version = "0.1.0"
 dependencies = [
  "coitrees",
+ "crossbeam-channel",
  "gloci-core",
  "gloci-io",
  "gloci-testkit",
+ "lz4_flex",
  "proptest",
+ "tempfile",
 ]
 
 [[package]]

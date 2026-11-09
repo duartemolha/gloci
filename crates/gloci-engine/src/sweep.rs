@@ -63,7 +63,7 @@ pub struct Inputs {
     pub b: Vec<Box<dyn RecordReader>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SweepSummary {
     pub a_records: u64,
     /// Records read from each B. The sorted sweep stops reading when A is
@@ -74,6 +74,25 @@ pub struct SweepSummary {
     pub shared_chroms: bool,
     #[doc(hidden)]
     pub stats: SweepStats,
+}
+
+impl SweepSummary {
+    pub fn merge(&mut self, other: &SweepSummary) {
+        self.a_records += other.a_records;
+        if self.b_records.len() < other.b_records.len() {
+            self.b_records.resize(other.b_records.len(), 0);
+        }
+        for (b, ob) in self.b_records.iter_mut().zip(&other.b_records) {
+            *b += ob;
+        }
+        self.shared_chroms |= other.shared_chroms;
+        self.stats.peak_active = self.stats.peak_active.max(other.stats.peak_active);
+        self.stats.peak_pool = self.stats.peak_pool.max(other.stats.peak_pool);
+        self.stats.peak_pool_bytes = self.stats.peak_pool_bytes.max(other.stats.peak_pool_bytes);
+        self.stats.coitrees_indexes += other.stats.coitrees_indexes;
+        self.stats.itree64_indexes += other.stats.itree64_indexes;
+        self.stats.querent_queries += other.stats.querent_queries;
+    }
 }
 
 /// What the sweep did, for tests. The sorted sweep fills the peak sizes

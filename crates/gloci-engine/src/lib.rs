@@ -5,16 +5,20 @@
 //! loads B into per-chromosome indexes and streams A in any order.
 
 mod active;
+pub mod chunk;
 pub mod hit;
 mod itree64;
 pub mod kmerge;
 mod nearest;
+pub mod parallel;
 pub mod sweep;
 mod unsorted;
 
+pub use chunk::ChunkSink;
 pub use hit::{ARec, Hit, Neighbours, Visitor};
 pub use itree64::ITree64;
 pub use kmerge::{kmerge, kmerge_with};
+pub use parallel::{all_indexed, run_per_chrom};
 #[doc(hidden)]
 pub use sweep::SweepStats;
 pub use sweep::{Inputs, NearestConfig, SweepConfig, SweepSummary, sweep_sorted};

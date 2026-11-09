@@ -20,9 +20,10 @@ pub mod windows;
 
 pub use bedsearch::{ChromBlock, find_chrom_block};
 pub use check::{CheckReport, Problems, check_file};
+pub use gloci_engine::all_indexed;
 pub use relate::{
     Acceptor, RelateInputs, RelateOptions, ReportOutput, b_placeholder, open_report,
-    rewrite_coords, run_relation,
+    rewrite_coords, run_indexed, run_relation,
 };
 pub use sort::{
     Dedup, MIN_MAX_MEM, SortConfig, SortSettings, SortStats, Sorter, Tie, check_definitions,

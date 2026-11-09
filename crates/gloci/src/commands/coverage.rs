@@ -7,9 +7,10 @@ use gloci_io::{
     parse_output_spec,
 };
 use gloci_ops::coverage::{
-    CoverageOptions, CoverageReport, column_names, coverage, validate, write_hist_totals,
+    CoverageOptions, CoverageReport, CoverageTotals, column_names, coverage, validate,
+    write_hist_totals,
 };
-use gloci_ops::{RelateInputs, RelateOptions, ReportOutput, open_report};
+use gloci_ops::{RelateInputs, RelateOptions, ReportOutput, all_indexed, open_report, run_indexed};
 
 fn parse_format(s: Option<&str>) -> anyhow::Result<Option<Format>> {
     match s {
@@ -86,18 +87,50 @@ pub fn run(ctx: &Ctx, a: &CoverageArgs) -> anyhow::Result<()> {
         &wo,
         a.header.header,
     )?;
-    let inputs = RelateInputs {
-        a: reader_a,
-        b: readers_b,
-    };
     let dest = spec
         .path
         .as_ref()
         .map_or_else(|| "stdout".to_string(), |p| p.display().to_string());
-    let (_, totals) = coverage(inputs, &o, w.as_mut()).map_err(|e| {
-        e.with_output_name(&dest)
-            .with_order_hint(relation_hint(&a.sort))
-    })?;
+
+    let all_paths: Vec<&str> = std::iter::once(a.a.a.as_str())
+        .chain(a.b.b.iter().map(|s| s.as_str()))
+        .collect();
+    let use_indexed = all_indexed(&all_paths) && !a.u.unsorted && o.relate.sort.is_none();
+
+    let totals = if use_indexed {
+        let chunk_results = run_indexed(
+            &a.a.a,
+            &a.b.b,
+            &ro_a,
+            &ro_b,
+            &o.relate,
+            a.o.criteria().inclusive_points,
+            ctx.threads,
+            &ctx.tmp_dir,
+            w.as_mut(),
+            &|chunk_inputs, chunk_sink| coverage(chunk_inputs, &o, chunk_sink),
+        )
+        .map_err(|e| {
+            e.with_output_name(&dest)
+                .with_order_hint(relation_hint(&a.sort))
+        })?;
+        let mut combined_totals = CoverageTotals::default();
+        for (_, t) in chunk_results {
+            combined_totals.merge(&t);
+        }
+        combined_totals
+    } else {
+        let inputs = RelateInputs {
+            a: reader_a,
+            b: readers_b,
+        };
+        let (_, totals) = coverage(inputs, &o, w.as_mut()).map_err(|e| {
+            e.with_output_name(&dest)
+                .with_order_hint(relation_hint(&a.sort))
+        })?;
+        totals
+    };
+
     if report == CoverageReport::Hist {
         write_hist_totals(&totals, w.as_mut()).map_err(|e| e.with_output_name(&dest))?;
     }
