@@ -728,8 +728,10 @@ dependencies = [
  "gloci-core",
  "gloci-io",
  "gloci-testkit",
+ "itoa",
  "memchr",
  "noodles-bgzf",
+ "regex",
 ]
 
 [[package]]

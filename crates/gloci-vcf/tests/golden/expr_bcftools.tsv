@@ -1,0 +1,106 @@
+main	QUAL>30	10
+main	QUAL!=30	10,20,30,40
+main	QUAL<20	30,40
+main	QUAL>=5.0	10,30,40
+main	INFO/DP>10	10
+main	INFO/DP!=20	20,30,40
+main	INFO/AF[1]>0.25	20
+main	INFO/AF[0]=0.2	20
+main	INFO/AF>0.25	20
+main	INFO/AF!=0.2	10,20,30,40
+main	FMT/DP>20	10
+main	FMT/DP!=25	10,20,30,40
+main	FMT/GQ>30 && FMT/DP>20	10
+main	GT="het"	10,20,40
+main	GT="hom"	10,30,40
+main	GT="mis"	20,30,40
+main	GT="ref"	10,30
+main	GT="alt"	10,20,40
+main	GT="hap"	20
+main	N_PASS(FMT/GQ>30)>=2	10,30
+main	N_PASS(GT="het")=1	10,20,40
+main	N_PASS(FMT/DP>5)=2	
+main	MAF<0.3	30,40
+main	MAF>0	10,20,40
+main	AC>1	10,20,40
+main	AC=1	
+main	AN=6	10
+main	AN=4	30
+main	F_MISSING>0	20,30,40
+main	N_MISSING>0	20,30,40
+main	TYPE="indel"	30
+main	TYPE="snp"	10,20
+main	TYPE="other"	40
+main	ID~"^rs"	10
+main	ID~"^x"	30
+main	FILTER="PASS"	10,40
+main	FILTER!="PASS"	20,30
+main	FILTER="."	20
+main	N_ALT=2	20
+main	N_ALT>=1	10,20,30,40
+main	INFO/S="abc"	10
+main	INFO/DB=1	10
+main	POS>=20 && POS<40	20,30
+main	POS=10 || POS=30	10,30
+main	CHROM="1"	10,20,30,40
+main	N_SAMPLES=3	10,20,30,40
+main	ALT="C"	10,20
+main	REF="AT"	30
+main	QUAL>30||QUAL<10	10,40
+main	N_PASS(GT="het")>0 && QUAL>1	10,40
+main	GT="1/1"	10,40
+main	GT="0|1"	20
+main	GT~"1"	10,20,40
+main	FMT/GT="het"	10,20,40
+main	FMT/DP[0]>20	10
+g	GT="het"	5,8,9,11
+g	GT="hom"	3,7
+g	GT="ref"	1,3
+g	GT="alt"	2,5,7,8,9,11
+g	GT="mis"	4,6,10
+g	GT="hap"	1,2
+g	GT="0/1"	8
+g	GT="0|1"	
+g	GT="1/0"	
+g	GT="1|0"	9
+g	GT="1/1"	
+g	GT="0"	1
+g	GT="."	6
+g	GT="./."	10
+g	GT="1/2"	11
+m	MAF=0.2	1
+m	MAF=0.4	2,3
+m	MAF=0.6	
+m	MAF<0.45	1,2,3
+m	MAF=0	
+m	MAF!=0	1,2,3,4
+m	AC>=4	2,3
+m	AC=2	1
+m	AN=0	4
+m	F_MISSING=1	4
+m	MAF>=0	1,2,3
+m2	MAF=0.2	1
+m2	MAF=0.4	2
+m2	MAF=0.3	
+m2	MAF<0.3	1
+f	FILTER="A"	2
+f	FILTER!="A"	1
+f	FILTER="A;B"	1
+f	ID="rs3"	1
+f	ID="rs3;rs4"	
+f	ID~"rs4"	1
+f	ID="."	2
+f	ID!="."	1
+ty	TYPE="snp"	2
+ty	TYPE!="snp"	1,3,4,5
+ty	TYPE="indel"	
+ty	TYPE="mnp"	3
+ty	TYPE="other"	
+ty	TYPE="ref"	5
+main	AC>0	10,20,40
+m	AC=6	2,3
+m	AC!=6	1,4
+m	AC<3	1
+m	AC[1]=2	1,2
+m	AC!=2	2,3,4
+main	INFO/AF=0.3	20

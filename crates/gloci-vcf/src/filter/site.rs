@@ -86,10 +86,24 @@ impl<'a> SiteView<'a> {
 /// (`l_shared`, `l_indiv`, shared, individual) into a [`SiteView`].
 #[derive(Default)]
 pub struct BcfSite {
+    /// Render INFO values (`DP=4;AF=0.1,0.2`) into the view's `info`, as a
+    /// text record has them, instead of the keys alone. Needed by filter
+    /// expressions that read INFO fields ([`crate::Expr::needs_info_values`]).
+    pub info_values: bool,
     alts: Vec<u8>,
     filter: Vec<u8>,
     info: Vec<u8>,
     qual: String,
+}
+
+impl BcfSite {
+    /// A decoder whose view carries INFO values (see [`BcfSite::info_values`]).
+    pub fn with_info_values() -> BcfSite {
+        BcfSite {
+            info_values: true,
+            ..Default::default()
+        }
+    }
 }
 
 const SHORT: &str = "the record is shorter than its header says";
@@ -186,11 +200,14 @@ impl BcfSite {
                 Some(Int::Value(key)) if k.n == 1 => key,
                 _ => return Err("an INFO key is not a single integer".into()),
             };
-            typed::read(&mut cur)?;
+            let v = typed::read(&mut cur)?;
             if !self.info.is_empty() {
                 self.info.push(b';');
             }
             self.info.extend_from_slice(name(key)?);
+            if self.info_values {
+                push_info_value(&mut self.info, &v);
+            }
         }
         if self.info.is_empty() {
             self.info.push(b'.');
@@ -206,6 +223,44 @@ impl BcfSite {
             info: &self.info,
             span,
         })
+    }
+}
+
+/// Append `=v1,v2` for an INFO value; a flag (no elements) appends nothing.
+fn push_info_value(out: &mut Vec<u8>, v: &typed::Value) {
+    use typed::{Float, Ty};
+    if matches!(v.ty, Ty::Missing) || v.n == 0 {
+        return;
+    }
+    out.push(b'=');
+    if v.ty == Ty::Char {
+        let end = v.data.iter().rposition(|&b| b != 0).map_or(0, |p| p + 1);
+        out.extend_from_slice(&v.data[..end]);
+        return;
+    }
+    use std::io::Write;
+    for i in 0..v.n {
+        if i > 0 {
+            out.push(b',');
+        }
+        // Writing to a Vec cannot fail.
+        if v.ty == Ty::Float {
+            match v.float(i) {
+                Some(Float::End) | None => break,
+                Some(Float::Missing) => out.push(b'.'),
+                Some(Float::Value(f)) => write!(out, "{f}").expect("write to Vec"),
+            }
+        } else {
+            match v.int(i) {
+                Some(Int::End) | None => break,
+                Some(Int::Missing) => out.push(b'.'),
+                Some(Int::Value(n)) => write!(out, "{n}").expect("write to Vec"),
+            }
+        }
+    }
+    // An end-of-vector element after a separator leaves it dangling.
+    if out.last() == Some(&b',') {
+        out.pop();
     }
 }
 

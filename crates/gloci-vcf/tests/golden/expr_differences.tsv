@@ -1,0 +1,5 @@
+main	ID!~"^rs"	10
+main	INFO/AF[5]>0	10
+main	INFO/DB	
+main	!(QUAL<20)	
+main	QUAL=.	

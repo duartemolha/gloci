@@ -9,6 +9,8 @@ publish.workspace = true
 gloci-core.workspace = true
 gloci-io.workspace = true
 memchr.workspace = true
+regex.workspace = true
+itoa.workspace = true
 
 [dev-dependencies]
 gloci-testkit.workspace = true

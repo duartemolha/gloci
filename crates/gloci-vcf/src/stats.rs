@@ -83,6 +83,28 @@ impl SiteStats {
         Some(crate::hwe::hwe_p(het, hom_ref, hom_alt))
     }
 
+    /// Called count per ALT allele (index 0 of the result is ALT 1); the
+    /// `AC` of filter expressions. Empty for a site with no ALT.
+    pub fn ac(&self) -> &[u64] {
+        self.allele_counts.get(1..).unwrap_or(&[])
+    }
+
+    /// Called alleles; the `AN` of filter expressions.
+    pub fn an(&self) -> u64 {
+        self.called_alleles
+    }
+
+    /// bcftools' `MAF`: `min(f, 1 - f)` for the frequency `f` of the first
+    /// ALT among called alleles. `None` with no called allele or no ALT.
+    /// This is not [`SiteStats::maf`] (the `--min-maf` definition).
+    pub fn expr_maf(&self) -> Option<f64> {
+        if self.called_alleles == 0 || self.allele_counts.len() < 2 {
+            return None;
+        }
+        let f = self.allele_counts[1] as f64 / self.called_alleles as f64;
+        Some(f.min(1.0 - f))
+    }
+
     pub fn missing_fraction(&self) -> f64 {
         if self.samples == 0 {
             0.0

@@ -2,12 +2,14 @@
 //! Hardy-Weinberg test, shared by the `vcf` commands.
 
 mod bcf_fmt;
+mod expr;
 mod filter;
 mod gt;
 mod hwe;
 mod stats;
 
 pub use bcf_fmt::{BcfGenotypes, bcf_genotypes};
+pub use expr::{EvalScratch, Expr, MaskedGenotypes, parse as parse_expr};
 pub use filter::{
     BcfSite, PositionSet, RewritePlan, SampleSelection, SiteFilters, SiteView, Thinner, VcfType,
     fmt_g6, read_ids, read_positions, read_samples, rewrite_header, rewrite_text, select_samples,
