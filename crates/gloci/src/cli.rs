@@ -349,6 +349,25 @@ Examples:
   gloci flank genes.bed --left 2000 -s -g hg38
   gloci flank peaks.bed --pct -b 0.25 -g genome.txt | gloci sort -g genome.txt -")]
     Flank(FlankArgs),
+    /// Move each feature along its chromosome (bedtools shift).
+    ///
+    /// --by N moves every record by N bases (negative moves toward 0);
+    /// --pct reads N as a fraction of the feature's own length (0.5, -25%;
+    /// the product is floored, as in bedtools). -s negates the shift on
+    /// minus-strand records (an unknown strand counts as +), so a positive N
+    /// moves every feature downstream. The result is clipped like slop: at 0
+    /// and, with -g, at the chromosome end, so a feature pushed over an edge
+    /// shrinks; one pushed wholly over an edge is dropped with a warning
+    /// (bedtools writes a bogus interval). BED and GFF/GTF only. The output
+    /// is in input order and may not be sorted; a warning is printed once
+    /// when the shift itself breaks the order.
+    #[command(after_long_help = "\
+Examples:
+  gloci shift genes.bed --by 100 -g hg38
+  gloci shift genes.bed --by -50 -g hg38
+  gloci shift peaks.bed --by 1000 -s -g hg38 | gloci sort -g hg38 -
+  gloci shift peaks.bed --pct --by 0.5 -g genome.txt")]
+    Shift(ShiftArgs),
     /// Cut chromosomes or intervals into windows (bedtools makewindows,
     /// bedops --chop).
     ///
@@ -1389,6 +1408,38 @@ pub struct SlopArgs {
     pub file: String,
     #[command(flatten)]
     pub pad: PadArgs,
+    #[command(flatten)]
+    pub genome: GenomeArg,
+    #[command(flatten)]
+    pub format: FormatArg,
+    #[command(flatten)]
+    pub header: HeaderArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+#[derive(Args)]
+pub struct ShiftArgs {
+    /// Input file (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// Bases to move each feature by; negative moves toward the start of the
+    /// chromosome (with --pct, a signed fraction of the feature length).
+    #[arg(long, value_name = "N", required = true, allow_hyphen_values = true)]
+    pub by: String,
+    /// Negate the shift for minus-strand records (unknown strand counts as +).
+    #[arg(short = 's')]
+    pub strand: bool,
+    /// Read --by as a fraction of the feature length (0.5, -25%, floored)
+    /// instead of bases.
+    #[arg(long)]
+    pub pct: bool,
     #[command(flatten)]
     pub genome: GenomeArg,
     #[command(flatten)]

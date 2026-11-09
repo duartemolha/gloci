@@ -664,6 +664,22 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Pinned by:** `slop-past-end-vs-bedtools` and `flank-past-end-vs-bedtools`
   (must differ; exit status).
 
+## `shift` drops a feature pushed wholly past a chromosome edge {#shift-past-edge}
+
+- **gloci:** each shifted coordinate is clipped at 0 and (with `-g`) at the
+  chromosome end, as `slop` clips, so a feature pushed over an edge shrinks.
+  A feature with nothing left after clipping is not written; one warning
+  names how many records were dropped and the first one's line. A
+  zero-length input record stays zero-length.
+- **Old behaviour:** `bedtools shift` writes a bogus interval for such a
+  feature: a 1-base feature at the chromosome end (`[len - 1, len)`) when
+  pushed past the end, `[0, 1)` when pushed below 0, and an inverted
+  interval such as `1 0` for a zero-length feature shifted below 0. It exits 0.
+- **Reason:** the invented interval overlaps features the original never
+  touched, and an empty GFF record is not representable.
+- **Pinned by:** `shift-past-end-vs-bedtools` and
+  `shift-below-zero-vs-bedtools` (must differ).
+
 ## `flank -s` on a record of unknown strand {#flank-unknown-strand}
 
 - **gloci:** with `-s`, a record whose strand is `.` (or missing) counts as

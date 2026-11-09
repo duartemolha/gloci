@@ -11,7 +11,7 @@ use gloci_io::{
 use gloci_ops::transform::{Amount, Pad, check_format};
 use gloci_ops::{ReportOutput, open_report};
 
-/// `slop` and `flank` differ only in the operation.
+/// `slop`, `flank` and `shift` differ only in the operation.
 pub type Op = fn(
     Box<dyn RecordReader>,
     &mut ChromTable,
@@ -20,11 +20,10 @@ pub type Op = fn(
     &mut dyn RecordWriter,
 ) -> Result<(), IoError>;
 
-/// The arguments the two commands have in common.
+/// The arguments the commands have in common.
 pub struct Shared<'a> {
     pub name: &'static str,
     pub file: &'a str,
-    pub pad: &'a PadArgs,
     pub genome: Option<&'a str>,
     pub format: Option<&'a str>,
     pub header: bool,
@@ -63,8 +62,23 @@ pub fn pad(a: &PadArgs) -> Result<Pad, UsageError> {
     })
 }
 
-pub fn run_shared(ctx: &Ctx, s: &Shared, op: Op) -> anyhow::Result<()> {
-    let pad = pad(s.pad)?;
+pub fn run_pad(ctx: &Ctx, s: &Shared, pad: &PadArgs, op: Op) -> anyhow::Result<()> {
+    let pad = self::pad(pad)?;
+    run_shared(ctx, s, |reader, chroms, genome, w| {
+        op(reader, chroms, &pad, genome, w)
+    })
+}
+
+pub fn run_shared(
+    ctx: &Ctx,
+    s: &Shared,
+    op: impl FnOnce(
+        Box<dyn RecordReader>,
+        &mut ChromTable,
+        Option<&Genome>,
+        &mut dyn RecordWriter,
+    ) -> Result<(), IoError>,
+) -> anyhow::Result<()> {
     let spec = parse_output_spec(s.out.output.as_deref(), s.out.output_format.as_deref())?;
     let genome = match s.genome {
         Some(g) => Some(resolve_genome(g)?),
@@ -113,7 +127,6 @@ pub fn run_shared(ctx: &Ctx, s: &Shared, op: Op) -> anyhow::Result<()> {
     op(
         reader,
         &mut chroms,
-        &pad,
         genome.as_ref().map(|g| &g.0),
         w.as_mut(),
     )?;
@@ -122,12 +135,11 @@ pub fn run_shared(ctx: &Ctx, s: &Shared, op: Op) -> anyhow::Result<()> {
 }
 
 pub fn run(ctx: &Ctx, a: &SlopArgs) -> anyhow::Result<()> {
-    run_shared(
+    run_pad(
         ctx,
         &Shared {
             name: "slop",
             file: &a.file,
-            pad: &a.pad,
             genome: a.genome.genome.as_deref(),
             format: a.format.format.as_deref(),
             header: a.header.header,
@@ -135,6 +147,7 @@ pub fn run(ctx: &Ctx, a: &SlopArgs) -> anyhow::Result<()> {
             chrom_map: &a.chrom_map,
             out: &a.out,
         },
+        &a.pad,
         gloci_ops::transform::slop,
     )
 }

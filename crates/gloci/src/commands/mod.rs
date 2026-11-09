@@ -11,6 +11,7 @@ pub mod intersect;
 pub mod map;
 pub mod merge;
 pub mod partition;
+pub mod shift;
 pub mod slop;
 pub mod sort;
 pub mod subtract;

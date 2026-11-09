@@ -147,6 +147,7 @@ Every row below was checked against `gloci <cmd> --help`.
 | `coverage [-hist -d -mean]`, `annotate` | `gloci coverage -a A -b B [--hist \| --per-base \| --mean]`, `gloci coverage -a A -b B1 B2... [--names ...]` |
 | `slop -b -l -r -s -pct -g` | `gloci slop FILE -b/--both N` or `--left L --right R` with `-s`, `--pct`, `-g GENOME` |
 | `flank -b -l -r -s -pct -g` | `gloci flank FILE -b/--both N` or `--left L --right R` with `-s`, `--pct`, `-g GENOME` |
+| `shift -s N`, `shift -p X -m Y`, `-pct`, `-g` | `gloci shift FILE --by N [-g GENOME]` (signed; `--pct` reads N as a fraction of the feature length); `-p X -m -X` is `--by X -s`. bedtools' `-p`/`-m` with unrelated magnitudes has no gloci equivalent: run `shift` per strand after filtering |
 | `makewindows -g/-b -w -s -n -i` | `gloci windows -g GENOME \| -i/--intervals FILE` with `-w/--size SIZE [--step S]` or `-n/--count COUNT`, plus `--id-column`, `--reverse` |
 | `sort -i FILE [-g GENOME]` | `gloci sort FILE [-g GENOME]` (`--chrom-order lex` reproduces byte order) |
 | `bed12tobed6 -i FILE` | `gloci convert FILE --blocks` |
@@ -350,6 +351,9 @@ Every row below was checked against `gloci <cmd> --help`.
 - **`slop` and `flank` past chromosome end:** A feature starting at or beyond its
   chromosome length in `-g` exits 1.
   [differences.md#slop-flank-past-end](differences.md#slop-flank-past-end)
+- **`shift` past a chromosome edge:** A feature shifted wholly beyond 0 or the
+  chromosome end is dropped with a warning; bedtools writes a bogus interval.
+  [differences.md#shift-past-edge](differences.md#shift-past-edge)
 - **`flank -s` on unknown strand:** Treats `.` or missing strand as `+` (matching
   `slop -s`) instead of dropping the record.
   [differences.md#flank-unknown-strand](differences.md#flank-unknown-strand)

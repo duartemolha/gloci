@@ -67,6 +67,12 @@ impl Fraction {
         u64::try_from(v).unwrap_or(u64::MAX)
     }
 
+    /// `ceil(self * len)`, exact, saturating at `u64::MAX`.
+    pub fn ceil_mul(&self, len: u64) -> u64 {
+        let v = (u128::from(self.num) * u128::from(len)).div_ceil(self.scale);
+        u64::try_from(v).unwrap_or(u64::MAX)
+    }
+
     fn parse_inner(s: &str, unit: bool) -> Result<Fraction, FractionError> {
         let syntax = || FractionError::Syntax(s.to_string());
         // A trailing `%` divides by 100: "50%" is 0.5.

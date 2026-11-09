@@ -2561,3 +2561,77 @@ gloci = "gloci partition --chrom-order lex --bedgraph --empty 0 -g part.genome i
 reference = "bedtools unionbedg -empty -filler 0 -g part.genome -i input.bedgraph part-b.bedgraph"
 compare = "exact"
 expected_difference = "#partition-empty-chromosomes"
+
+# shift (Task 7, D70). shift-in.bed is transform-in.bed without the feature
+# that every positive shift pushes wholly past the chromosome end, plus an
+# unknown-strand feature in mid-chromosome. bedtools -s N is --by N; its
+# -p X -m -X pair is --by X -s; -pct is --pct.
+
+[[case]]
+name = "shift-by-vs-bedtools"
+input = { file = "xtask/diff/inputs/shift-in.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci shift --by 10 -g comp.genome input.bed"
+reference = "bedtools shift -i input.bed -g comp.genome -s 10"
+compare = "exact"
+
+[[case]]
+name = "shift-negative-vs-bedtools"
+input = { file = "xtask/diff/inputs/shift-in.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci shift --by -10 -g comp.genome input.bed"
+reference = "bedtools shift -i input.bed -g comp.genome -s -10"
+compare = "exact"
+
+[[case]]
+name = "shift-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/shift-in.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci shift --by 5 -s -g comp.genome input.bed"
+reference = "bedtools shift -i input.bed -g comp.genome -p 5 -m -5"
+compare = "exact"
+
+[[case]]
+name = "shift-pct-vs-bedtools"
+input = { file = "xtask/diff/inputs/shift-in.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci shift --pct --by 0.25 -g comp.genome input.bed"
+reference = "bedtools shift -i input.bed -g comp.genome -pct -s 0.25"
+compare = "exact"
+
+[[case]]
+name = "shift-pct-negative-vs-bedtools"
+input = { file = "xtask/diff/inputs/shift-in.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci shift --pct --by -0.25 -g comp.genome input.bed"
+reference = "bedtools shift -i input.bed -g comp.genome -pct -s -0.25"
+compare = "exact"
+
+[[case]]
+name = "shift-gff-vs-bedtools"
+input = { file = "xtask/diff/inputs/transform-in.gff3" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci shift --by 10 -g comp.genome input.gff3"
+reference = "bedtools shift -i input.gff3 -g comp.genome -s 10"
+compare = "exact"
+
+# A feature pushed wholly past an edge: bedtools writes a bogus interval,
+# gloci drops the record.
+
+[[case]]
+name = "shift-past-end-vs-bedtools"
+input = { file = "xtask/diff/inputs/transform-in.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci shift --by 10 -g comp.genome input.bed"
+reference = "bedtools shift -i input.bed -g comp.genome -s 10"
+compare = "exact"
+expected_difference = "#shift-past-edge"
+
+[[case]]
+name = "shift-below-zero-vs-bedtools"
+input = { file = "xtask/diff/inputs/transform-in.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci shift --by -100 -g comp.genome input.bed"
+reference = "bedtools shift -i input.bed -g comp.genome -s -100"
+compare = "exact"
+expected_difference = "#shift-past-edge"

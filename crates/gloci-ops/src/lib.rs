@@ -13,6 +13,7 @@ pub mod map;
 pub mod merge;
 pub mod partition;
 pub mod relate;
+pub mod shift;
 mod skipped;
 pub mod sort;
 pub mod subtract;

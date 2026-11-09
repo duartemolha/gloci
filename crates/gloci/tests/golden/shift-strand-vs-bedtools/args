@@ -1,0 +1,1 @@
+shift --by 5 -s -g comp.genome input.bed

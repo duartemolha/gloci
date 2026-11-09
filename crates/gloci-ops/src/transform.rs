@@ -55,9 +55,20 @@ footprint to pad (convert it first, e.g. with gloci view -O bed)"
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Mode {
-    Slop,
-    Flank,
+pub(crate) enum Mode<'a> {
+    Slop(&'a Pad),
+    Flank(&'a Pad),
+    Shift(&'a crate::shift::Shift),
+}
+
+impl Mode<'_> {
+    fn name(&self) -> &'static str {
+        match self {
+            Mode::Slop(_) => "slop",
+            Mode::Flank(_) => "flank",
+            Mode::Shift(_) => "shift",
+        }
+    }
 }
 
 struct Out<'a> {
@@ -68,6 +79,10 @@ struct Out<'a> {
     last: Option<(ChromId, u64, u64)>,
     lines: u64,
     warned: bool,
+    /// Shift only: records dropped because the shift left nothing of them,
+    /// and the first one's line.
+    dropped: u64,
+    first_dropped: Option<u64>,
 }
 
 impl Out<'_> {
@@ -105,17 +120,16 @@ impl Out<'_> {
     }
 }
 
-fn run(
+pub(crate) fn run(
     mode: Mode,
     mut input: Box<dyn RecordReader>,
     chroms: &mut ChromTable,
-    pad: &Pad,
     genome: Option<&Genome>,
     w: &mut dyn RecordWriter,
 ) -> Result<(), IoError> {
     let format = input.format();
     let name = input.name().to_string();
-    check_format(if mode == Mode::Slop { "slop" } else { "flank" }, format)?;
+    check_format(mode.name(), format)?;
     if let Some(g) = genome
         && let Some(i) = (0..g.len()).find(|&i| g.length(i).is_none())
     {
@@ -133,6 +147,8 @@ fn run(
         last: None,
         lines: 0,
         warned: false,
+        dropped: 0,
+        first_dropped: None,
     };
     let mut batch = RecordBatch::default();
     let mut max = 1;
@@ -142,8 +158,14 @@ fn run(
         for (i, m) in batch.recs.iter().enumerate() {
             let raw = batch.raw(i);
             let len = m.span.len();
-            let (mut l, mut r) = (pad.left.of(len), pad.right.of(len));
-            if pad.strand_aware && m.strand == Strand::Minus {
+            let (mut l, mut r) = match mode {
+                Mode::Slop(pad) | Mode::Flank(pad) => (pad.left.of(len), pad.right.of(len)),
+                Mode::Shift(_) => (0, 0),
+            };
+            if let Mode::Slop(pad) | Mode::Flank(pad) = mode
+                && pad.strand_aware
+                && m.strand == Strand::Minus
+            {
                 std::mem::swap(&mut l, &mut r);
             }
             // A closed table: the chromosome id is the genome index.
@@ -168,13 +190,24 @@ check that -g matches the genome build of the input",
                 end: b.min(limit),
             };
             match mode {
-                Mode::Slop => out.emit(
+                Mode::Shift(sh) => {
+                    let iv = sh.apply(m.span, m.strand, limit);
+                    // Nothing of the feature is left: drop it (a zero-length
+                    // GFF record is not representable). A point stays a point.
+                    if iv.is_point() && !m.span.is_point() {
+                        out.dropped += 1;
+                        out.first_dropped.get_or_insert(m.loc);
+                    } else {
+                        out.emit(m.chrom, s, raw, iv)?;
+                    }
+                }
+                Mode::Slop(_) => out.emit(
                     m.chrom,
                     s,
                     raw,
                     iv(s.saturating_sub(l), e.saturating_add(r)),
                 )?,
-                Mode::Flank => {
+                Mode::Flank(_) => {
                     let left = iv(s.saturating_sub(l), s);
                     if !left.is_point() {
                         out.emit(m.chrom, s, raw, left)?;
@@ -188,6 +221,14 @@ check that -g matches the genome build of the input",
         }
         max = next_batch_size(&batch, max);
         if !more {
+            if let Some(line) = out.first_dropped {
+                log::warn!(
+                    "{} record(s) were dropped because the shift moved them wholly past the \
+start or end of their chromosome (first: {name} line {line}); bedtools shift writes a bogus \
+interval for them. Shift by less, or drop those records first",
+                    out.dropped
+                );
+            }
             crate::skipped::log_reader(input.as_ref());
             return Ok(());
         }
@@ -203,7 +244,7 @@ pub fn slop(
     genome: Option<&Genome>,
     w: &mut dyn RecordWriter,
 ) -> Result<(), IoError> {
-    run(Mode::Slop, input, chroms, pad, genome, w)
+    run(Mode::Slop(pad), input, chroms, genome, w)
 }
 
 /// Write the strips beside each record, left `[start - L, start)` then right
@@ -216,5 +257,5 @@ pub fn flank(
     genome: Option<&Genome>,
     w: &mut dyn RecordWriter,
 ) -> Result<(), IoError> {
-    run(Mode::Flank, input, chroms, pad, genome, w)
+    run(Mode::Flank(pad), input, chroms, genome, w)
 }

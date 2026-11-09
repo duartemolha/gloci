@@ -1,0 +1,5 @@
+chr1	src	gene	11	60	.	+	.	ID=a
+chr1	src	exon	111	170	.	-	.	ID=b
+chr1	src	gene	971	1000	.	-	.	ID=c
+chr2	src	gene	21	120	.	+	.	ID=d
+chr2	src	gene	391	400	.	.	.	ID=e
