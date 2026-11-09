@@ -74,7 +74,7 @@ fn vcf_name(name: &str, label: &str) -> Result<Src, UsageError> {
     }
 }
 
-fn header_names(header: &Header) -> Vec<String> {
+pub(crate) fn header_names(header: &Header) -> Vec<String> {
     let Header::Lines(bytes) = header else {
         return Vec::new();
     };

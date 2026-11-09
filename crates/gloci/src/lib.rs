@@ -196,6 +196,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         Commands::Closest(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
         Commands::Map(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
         Commands::Coverage(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
+        Commands::Groupby(a) => (a.threads.threads, None),
         Commands::Vcf(a) => match &a.command {
             cli::VcfCommand::Filter(f) => (f.threads.threads, None),
         },
@@ -232,6 +233,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         Commands::Closest(a) => commands::closest::run(&ctx, a),
         Commands::Map(a) => commands::map::run(&ctx, a),
         Commands::Coverage(a) => commands::coverage::run(&ctx, a),
+        Commands::Groupby(a) => commands::groupby::run(&ctx, a),
         Commands::Vcf(a) => match &a.command {
             cli::VcfCommand::Filter(f) => commands::vcf::run_filter(&ctx, f),
         },

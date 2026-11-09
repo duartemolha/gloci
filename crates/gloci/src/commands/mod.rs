@@ -5,6 +5,7 @@ pub mod convert;
 pub mod coverage;
 pub mod flank;
 pub mod genomes;
+pub mod groupby;
 pub mod index;
 pub mod intersect;
 pub mod map;

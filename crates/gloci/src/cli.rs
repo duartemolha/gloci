@@ -605,6 +605,33 @@ Examples:
   gloci coverage -a exons.bed -b reads.bed --per-base -s
   gloci coverage -a peaks.bed -b rep1.bed rep2.bed --names r1,r2")]
     Coverage(CoverageArgs),
+    /// Aggregate columns over runs of lines with equal keys (bedtools groupby).
+    ///
+    /// Reads any tab-separated text, BED included, and groups consecutive
+    /// lines whose -g key columns are equal; the input does not have to be
+    /// sorted, and a key that comes back later starts a new group (as in
+    /// bedtools groupby; sort first to get one group per key). Each group
+    /// writes its key columns, exactly as in its first line, followed by one
+    /// column per -c COL:OP, with the ops of map (count, count_distinct, sum,
+    /// mean, median, min, max, stdev, var, stdev_pop, var_pop, collapse,
+    /// distinct, distinct_sorted, first, last, indicator, cv, mad, quantile:Q,
+    /// tmean:LO-HI, mode, antimode); the ops that need a second input
+    /// (wmean, records, min_record, max_record, frac_*, bases_uniq, bases)
+    /// are for map. Blank lines, `#` lines and track/browser lines are
+    /// skipped. A line with fewer columns than -g needs is an error naming
+    /// the line.
+    ///
+    /// With --header the first line names the columns: -g and -c may use the
+    /// names, and the output starts with a line holding the key names and
+    /// the -c labels (bedtools -header copies the input header unchanged).
+    /// VCF and BCF input is refused; extract the fields first with gloci vcf
+    /// extract.
+    #[command(after_long_help = "\
+Examples:
+  gloci groupby scores.bed -g 1,2 -c 5:sum -c 5:mean
+  gloci groupby calls.tsv -g 1 -c 4:collapse -c 5:count_distinct
+  gloci groupby table.tsv --header -g gene -c expr:median -o medians.tsv")]
+    Groupby(GroupbyArgs),
     /// VCF operations (spec §7.8).
     #[command(after_long_help = "\
 Examples:
@@ -1134,6 +1161,34 @@ pub struct MapArgs {
     pub header: HeaderArg,
     #[command(flatten)]
     pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+#[derive(Args)]
+pub struct GroupbyArgs {
+    /// Tab-separated input (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// Key columns: 1-based numbers (or names with --header), comma-separated.
+    #[arg(short = 'g', long = "group", value_name = "COLS", required = true)]
+    pub group: String,
+    /// Aggregate a column per group, such as 5:sum or 4:collapse (repeatable;
+    /// commas also separate).
+    #[arg(short = 'c', long = "column", value_name = "COL:OP", required = true)]
+    pub columns: Vec<String>,
+    /// The first line names the columns (allowing names in -g and -c) and
+    /// the output starts with a line naming its columns.
+    #[arg(long)]
+    pub header: bool,
+    /// Value for an aggregation with no values.
+    #[arg(long, value_name = "S", default_value = ".")]
+    pub empty: String,
+    /// Separator for collapse and distinct lists.
+    #[arg(long, value_name = "S", default_value = ",")]
+    pub delim: String,
     #[command(flatten)]
     pub threads: ThreadArgs,
     #[command(flatten)]

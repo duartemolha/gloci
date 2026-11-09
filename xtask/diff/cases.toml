@@ -2365,3 +2365,59 @@ input = { file = "xtask/diff/inputs/symbolic-no-end.vcf" }
 gloci = "gloci vcf filter --vcf-span ref input.vcf"
 reference = "bcftools view input.vcf"
 compare = "vcf-records"
+
+# groupby groups consecutive lines, so an unsorted input repeats a key, as in bedtools.
+[[case]]
+name = "groupby-sum-mean-vs-bedtools"
+input = { file = "xtask/diff/inputs/groupby.bed" }
+gloci = "gloci groupby input.bed -g 1,2 -c 5:sum,5:mean"
+reference = "bedtools groupby -i input.bed -g 1,2 -c 5 -o sum,mean"
+compare = "numeric"
+
+[[case]]
+name = "groupby-one-key-vs-bedtools"
+input = { file = "xtask/diff/inputs/groupby.bed" }
+gloci = "gloci groupby input.bed -g 1 -c 5:sum,5:mean,5:stdev_pop"
+reference = "bedtools groupby -i input.bed -g 1 -c 5,5,5 -o sum,mean,stdev"
+compare = "numeric"
+
+[[case]]
+name = "groupby-text-key-vs-bedtools"
+input = { file = "xtask/diff/inputs/groupby.bed" }
+gloci = "gloci groupby input.bed -g 6,1 -c 5:sum,5:count"
+reference = "bedtools groupby -i input.bed -g 6,1 -c 5,5 -o sum,count"
+compare = "numeric"
+
+[[case]]
+name = "groupby-multi-ops-vs-bedtools"
+input = { file = "xtask/diff/inputs/groupby.bed" }
+gloci = "gloci groupby input.bed -g 1 -c 4:collapse,4:distinct_sorted,4:count,4:count_distinct,5:median,5:mode,5:antimode,5:min,5:max,4:first,4:last"
+reference = "bedtools groupby -i input.bed -g 1 -c 4,4,4,4,5,5,5,5,5,4,4 -o collapse,distinct,count,count_distinct,median,mode,antimode,min,max,first,last"
+compare = "numeric"
+
+# bedtools sorts `distinct`; gloci keeps first-seen order (`distinct_sorted` is the bedtools list).
+[[case]]
+name = "groupby-distinct-vs-bedtools"
+input = { file = "xtask/diff/inputs/groupby.bed" }
+gloci = "gloci groupby input.bed -g 1 -c 4:distinct"
+reference = "bedtools groupby -i input.bed -g 1 -c 4 -o distinct"
+compare = "exact"
+expected_difference = "#map-distinct-order"
+
+# bedtools -header copies the input header; gloci writes the key names and the -c labels.
+[[case]]
+name = "groupby-header-vs-bedtools"
+input = { file = "xtask/diff/inputs/groupby-header.tsv" }
+gloci = "gloci groupby input.tsv --header -g 1 -c 4:sum"
+reference = "bedtools groupby -i input.tsv -header -g 1 -c 4 -o sum"
+compare = "exact"
+expected_difference = "#groupby-header"
+
+# bedtools reports a missing column and exits 0 after partial output; gloci exits 1.
+[[case]]
+name = "groupby-missing-column-vs-bedtools"
+input = { file = "xtask/diff/inputs/groupby-short.tsv" }
+gloci = "gloci groupby input.tsv -g 2 -c 1:count"
+reference = "bedtools groupby -i input.tsv -g 2 -c 1 -o count"
+compare = "exit-status"
+expected_difference = "#groupby-missing-column"

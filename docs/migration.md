@@ -152,7 +152,8 @@ Every row below was checked against `gloci <cmd> --help`.
 | `bed12tobed6 -i FILE` | `gloci convert FILE --blocks` |
 | `genomecov` | not yet available (`genomecov`, P2) |
 | `multiinter`, `unionbedg` | not yet available (`partition`, `partition --bedgraph`, P2) |
-| `cluster`, `groupby` | not yet available (`cluster`, `groupby`, P2) |
+| `groupby -g -c -o [-header]` | `gloci groupby FILE -g COLS -c/--column COL:OP` (`--header`, `--delim`, `--empty`; same ops as `map` except those that need a second input; VCF input is refused, use `gloci vcf extract`) |
+| `cluster` | not yet available (`cluster`, P2) |
 | `shift` | not yet available (`shift`, P3) |
 | `bamtobed` | not yet available (`convert`, P3) |
 | `getfasta`, `maskfasta`, `nuc` | not yet available (`getfasta`, `maskfasta`, `nuc`, P3) |
@@ -301,6 +302,13 @@ Every row below was checked against `gloci <cmd> --help`.
   values; `bedtools map` counts `.` as a value, so it can print `.` while real
   values exist.
   [differences.md#map-mode-missing](differences.md#map-mode-missing)
+- **`groupby --header`:** writes the key names and the `-c` labels as its first
+  line and lets `-g` and `-c` use names, where `bedtools groupby -header` copies
+  the input header unchanged.
+  [differences.md#groupby-header](differences.md#groupby-header)
+- **`groupby` on a short line:** a line without the key column is an error naming
+  the line (exit 1); `bedtools groupby` stops with partial output and exits 0.
+  [differences.md#groupby-missing-column](differences.md#groupby-missing-column)
 - **Empty placeholder in `map`:** An aggregation with no values prints `--empty`
   (default `.`), not `bedmap`'s `NAN`.
   [differences.md#map-empty-value](differences.md#map-empty-value)

@@ -8,5 +8,6 @@ mod ops;
 mod spec;
 
 pub use ops::HitInfo;
+pub(crate) use ops::header_names;
 pub use ops::{Accumulators, ResolvedAgg, resolve};
 pub use spec::{AggSpec, Col, Op, OpArg, parse_aggs, refuse_two_input_ops};

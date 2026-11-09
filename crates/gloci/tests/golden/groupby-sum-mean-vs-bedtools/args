@@ -1,0 +1,1 @@
+groupby input.bed -g 1,2 -c 5:sum,5:mean
