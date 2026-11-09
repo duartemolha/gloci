@@ -16,3 +16,9 @@ tempfile.workspace = true
 [dev-dependencies]
 gloci-testkit.workspace = true
 proptest.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true
+
+[[bench]]
+name = "index"
+harness = false

@@ -1,0 +1,50 @@
+# Benchmark container for gloci: baselines and yardsticks (pinned).
+FROM mambaorg/micromamba:1.5.10
+
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        curl \
+        git \
+        ca-certificates \
+        cargo \
+        rustc \
+    && rm -rf /var/lib/apt/lists/*
+
+USER micromamba
+
+# Baselines and conda-available yardsticks (pinned)
+RUN micromamba install -y -n base -c conda-forge -c bioconda \
+        bedtools=2.31.1 \
+        bedops=2.4.41 \
+        vcftools=0.1.16 \
+        htslib=1.21 \
+        bcftools=1.21 \
+        hyperfine=2.0.0 \
+        bedtk=0.1 \
+        vcfkit=0.2.9 \
+        coreutils \
+    && micromamba clean --all --yes
+
+USER root
+# Install yardsticks from cargo / git with pinned versions and commits
+ENV CARGO_HOME=/usr/local/cargo
+ENV PATH="/usr/local/cargo/bin:${PATH}"
+
+# gia (genomic interval arithmetic): pinned 0.2.0
+RUN cargo install --version 0.2.0 gia || true
+
+# granges: pinned 0.2.0
+RUN cargo install --version 0.2.0 granges || true
+
+# grit-genomics: pinned 0.1.0
+RUN cargo install --version 0.1.0 grit-genomics || true
+
+# bedder: pinned commit
+RUN cargo install --git https://github.com/brentp/bedder --rev 4cf2ef6 bedder || true
+
+# vcfexpress: pinned commit
+RUN cargo install --git https://github.com/vcfexpress/vcfexpress --rev 3a893cb vcfexpress || true
+
+USER micromamba
+WORKDIR /

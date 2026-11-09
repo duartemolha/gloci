@@ -1,4 +1,4 @@
-use xtask::synth::{BedOpts, Profile, VcfOpts};
+use xtask::synth::{BedOpts, PairOpts, Profile, VcfOpts};
 
 fn bed_bytes(o: &BedOpts) -> Vec<u8> {
     let mut v = Vec::new();
@@ -130,4 +130,136 @@ fn vcf_shape_and_determinism() {
             .any(|l| l.split('\t').nth(4).unwrap().contains(','))
     );
     assert!(text.lines().any(|l| l.starts_with("#CHROM")));
+
+    // Check VCF header lines for DP, GQ, FT and FILTERs
+    assert!(text.contains("##FORMAT=<ID=DP,"));
+    assert!(text.contains("##FORMAT=<ID=GQ,"));
+    assert!(text.contains("##FORMAT=<ID=FT,"));
+    assert!(text.contains("##FILTER=<ID=LowQual,"));
+
+    // Check sorted POS per chromosome
+    let mut last_chrom = "";
+    let mut last_pos = 0u64;
+    for l in &body {
+        let cols: Vec<&str> = l.split('\t').collect();
+        let chrom = cols[0];
+        let pos: u64 = cols[1].parse().unwrap();
+        if chrom != last_chrom {
+            last_chrom = chrom;
+            last_pos = pos;
+        } else {
+            assert!(pos > last_pos, "POS not sorted: {pos} <= {last_pos}");
+            last_pos = pos;
+        }
+    }
+
+    // Check FORMAT is GT:DP:GQ:FT
+    assert!(
+        body.iter()
+            .all(|l| l.split('\t').nth(8) == Some("GT:DP:GQ:FT"))
+    );
+
+    // Check presence of DP/GQ/FT in sample values and mix of QUAL/FILTER
+    let has_missing_gt = body
+        .iter()
+        .any(|l| l.split('\t').skip(9).any(|s| s.starts_with("./.")));
+    let has_called_gt = body
+        .iter()
+        .any(|l| l.split('\t').skip(9).any(|s| !s.starts_with("./.")));
+    assert!(has_missing_gt, "should have missing genotypes");
+    assert!(has_called_gt, "should have called genotypes");
+
+    let has_pass = body.iter().any(|l| l.split('\t').nth(6) == Some("PASS"));
+    let has_non_pass = body.iter().any(|l| {
+        let f = l.split('\t').nth(6).unwrap();
+        f != "PASS"
+    });
+    assert!(has_pass, "should have PASS filters");
+    assert!(
+        has_non_pass,
+        "should have non-PASS filters (LowQual, q10, etc.)"
+    );
+
+    let has_missing_qual = body.iter().any(|l| l.split('\t').nth(5) == Some("."));
+    let has_num_qual = body.iter().any(|l| {
+        let q = l.split('\t').nth(5).unwrap();
+        q != "." && q.parse::<f64>().is_ok()
+    });
+    assert!(has_missing_qual, "should have some missing QUAL");
+    assert!(has_num_qual, "should have numeric QUAL");
+}
+
+#[test]
+fn pair_generator_depth_and_determinism() {
+    let o = PairOpts {
+        records: 500,
+        depth: 2.0,
+        chroms: 2,
+        seed: 42,
+        len_min: 50,
+        len_max: 500,
+        sorted: true,
+    };
+    let (mut a1, mut b1) = (Vec::new(), Vec::new());
+    let (mut a2, mut b2) = (Vec::new(), Vec::new());
+    xtask::synth::pair(&o, &mut a1, &mut b1).unwrap();
+    xtask::synth::pair(&o, &mut a2, &mut b2).unwrap();
+    assert_eq!(a1, a2);
+    assert_eq!(b1, b2);
+
+    let recs_a = parse(&a1);
+    let recs_b = parse(&b1);
+    assert_eq!(recs_a.len(), 500);
+
+    // Verify sortedness
+    assert!(
+        recs_a
+            .windows(2)
+            .all(|w| (&w[0].0, w[0].1) <= (&w[1].0, w[1].1))
+    );
+    assert!(
+        recs_b
+            .windows(2)
+            .all(|w| (&w[0].0, w[0].1) <= (&w[1].0, w[1].1))
+    );
+
+    // Measure overlap depth: average number of B intervals overlapping an A interval
+    let mut total_overlaps = 0;
+    for (ca, sa, ea) in &recs_a {
+        for (cb, sb, eb) in &recs_b {
+            if ca == cb && *sa < *eb && *sb < *ea {
+                total_overlaps += 1;
+            }
+        }
+    }
+    let avg_depth = total_overlaps as f64 / recs_a.len() as f64;
+    // Expected around 2.0
+    assert!(
+        (1.2..=2.8).contains(&avg_depth),
+        "expected avg depth ~2.0, got {avg_depth}"
+    );
+
+    // Test depth = 0
+    let o_zero = PairOpts {
+        records: 100,
+        depth: 0.0,
+        chroms: 2,
+        seed: 42,
+        len_min: 50,
+        len_max: 500,
+        sorted: true,
+    };
+    let (mut a_z, mut b_z) = (Vec::new(), Vec::new());
+    xtask::synth::pair(&o_zero, &mut a_z, &mut b_z).unwrap();
+    let recs_az = parse(&a_z);
+    let recs_bz = parse(&b_z);
+    let mut overlaps_zero = 0;
+    for (ca, sa, ea) in &recs_az {
+        for (cb, sb, eb) in &recs_bz {
+            if ca == cb && *sa < *eb && *sb < *ea {
+                overlaps_zero += 1;
+            }
+        }
+    }
+    assert_eq!(overlaps_zero, 0, "depth 0 must yield zero overlaps");
 }

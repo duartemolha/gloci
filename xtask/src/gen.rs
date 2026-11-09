@@ -144,6 +144,134 @@ pub fn bed(o: &BedOpts, out: &mut impl Write) -> Result<()> {
 }
 
 #[derive(Clone, Debug)]
+pub struct PairOpts {
+    pub records: u64,
+    pub depth: f64,
+    pub chroms: u32,
+    pub seed: u64,
+    pub len_min: u64,
+    pub len_max: u64,
+    pub sorted: bool,
+}
+
+impl Default for PairOpts {
+    fn default() -> Self {
+        PairOpts {
+            records: 1000,
+            depth: 1.0,
+            chroms: 24,
+            seed: 1,
+            len_min: 50,
+            len_max: 10_000,
+            sorted: true,
+        }
+    }
+}
+
+/// Write A/B BED pairs with controlled overlap depth.
+pub fn pair(o: &PairOpts, out_a: &mut impl Write, out_b: &mut impl Write) -> Result<()> {
+    ensure!(o.chroms >= 1, "--chroms must be at least 1");
+    ensure!(
+        o.len_min <= o.len_max,
+        "--len-min must not exceed --len-max"
+    );
+    ensure!(o.depth >= 0.0, "--depth must be non-negative");
+
+    let mut rng = ChaCha8Rng::seed_from_u64(o.seed);
+    let mut wa = std::io::BufWriter::with_capacity(1 << 20, out_a);
+    let mut wb = std::io::BufWriter::with_capacity(1 << 20, out_b);
+
+    let k = u64::from(o.chroms);
+    let mut names: Vec<u32> = (1..=o.chroms).collect();
+    if o.sorted {
+        names.sort_by_key(|c| format!("chr{c}"));
+    }
+
+    let mut idx_a = 0u64;
+    let mut idx_b = 0u64;
+
+    for (n, c) in names.iter().enumerate() {
+        let n_records = o.records / k + u64::from((n as u64) < o.records % k);
+        if n_records == 0 {
+            continue;
+        }
+
+        let slot_size = (CHROM_LEN / (n_records + 1)).max(o.len_max * 2 + 10);
+        let mut recs_a = Vec::with_capacity(n_records as usize);
+        let mut recs_b = Vec::new();
+
+        for i in 0..n_records {
+            let slot_start = (i + 1) * slot_size;
+            let len_a = log_uniform(&mut rng, o.len_min, o.len_max).min(slot_size / 2);
+            let s_a = slot_start.saturating_sub(len_a / 2).min(CHROM_LEN - len_a);
+            let e_a = (s_a + len_a).min(CHROM_LEN);
+            let r_a = Rec {
+                start: s_a,
+                end: e_a,
+                score: rng.random_range(0..=1000),
+                strand: if rng.random_bool(0.5) { b'+' } else { b'-' },
+            };
+            recs_a.push(r_a);
+
+            if o.depth == 0.0 {
+                // Non-overlapping B interval in gap after A
+                let len_b = log_uniform(&mut rng, o.len_min, o.len_max).min(slot_size / 4);
+                let s_b = (e_a + 50).min(CHROM_LEN.saturating_sub(len_b));
+                let e_b = s_b + len_b;
+                if s_b >= e_a && e_b <= (i + 2) * slot_size && e_b <= CHROM_LEN {
+                    recs_b.push(Rec {
+                        start: s_b,
+                        end: e_b,
+                        score: rng.random_range(0..=1000),
+                        strand: if rng.random_bool(0.5) { b'+' } else { b'-' },
+                    });
+                }
+            } else {
+                let int_depth = o.depth.floor() as u64;
+                let frac = o.depth - o.depth.floor();
+                let b_count = int_depth + u64::from(rng.random_bool(frac));
+
+                for _ in 0..b_count {
+                    let len_b = log_uniform(&mut rng, o.len_min, o.len_max).min(slot_size);
+                    let min_s = s_a.saturating_sub(len_b.saturating_sub(1));
+                    let max_s = (e_a.saturating_sub(1)).max(min_s);
+                    let s_b = if max_s > min_s {
+                        rng.random_range(min_s..=max_s)
+                    } else {
+                        min_s
+                    };
+                    let e_b = (s_b + len_b).min(CHROM_LEN);
+                    recs_b.push(Rec {
+                        start: s_b,
+                        end: e_b,
+                        score: rng.random_range(0..=1000),
+                        strand: if rng.random_bool(0.5) { b'+' } else { b'-' },
+                    });
+                }
+            }
+        }
+
+        if o.sorted {
+            recs_a.sort_by_key(|r| (r.start, r.end));
+            recs_b.sort_by_key(|r| (r.start, r.end));
+        }
+
+        for r in &recs_a {
+            write_rec(&mut wa, *c, r, idx_a)?;
+            idx_a += 1;
+        }
+        for r in &recs_b {
+            write_rec(&mut wb, *c, r, idx_b)?;
+            idx_b += 1;
+        }
+    }
+
+    wa.flush()?;
+    wb.flush()?;
+    Ok(())
+}
+
+#[derive(Clone, Debug)]
 pub struct VcfOpts {
     pub records: u64,
     pub samples: u32,
@@ -193,9 +321,23 @@ pub fn vcf(o: &VcfOpts, out: &mut impl Write) -> Result<()> {
         w,
         "##INFO=<ID=DP,Number=1,Type=Integer,Description=\"Depth\">"
     )?;
+    writeln!(w, "##FILTER=<ID=LowQual,Description=\"Low quality\">")?;
+    writeln!(w, "##FILTER=<ID=q10,Description=\"Quality below 10\">")?;
     writeln!(
         w,
         "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">"
+    )?;
+    writeln!(
+        w,
+        "##FORMAT=<ID=DP,Number=1,Type=Integer,Description=\"Read Depth\">"
+    )?;
+    writeln!(
+        w,
+        "##FORMAT=<ID=GQ,Number=1,Type=Integer,Description=\"Genotype Quality\">"
+    )?;
+    writeln!(
+        w,
+        "##FORMAT=<ID=FT,Number=1,Type=String,Description=\"Genotype Filter\">"
     )?;
     write!(w, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT")?;
     for s in 1..=o.samples {
@@ -262,15 +404,30 @@ pub fn vcf(o: &VcfOpts, out: &mut impl Write) -> Result<()> {
             if info == "." {
                 info = format!("DP={}", rng.random_range(5..200));
             }
-            let qual = rng.random_range(10..60);
-            write!(w, "chr{c}\t{pos}\t.\t{r}\t{alt}\t{qual}\tPASS\t{info}\tGT")?;
+            let qual_str = match rng.random_range(0..100) {
+                0..5 => ".".to_string(),
+                _ => rng.random_range(10..60).to_string(),
+            };
+            let filter_str = match rng.random_range(0..100) {
+                0..75 => "PASS",
+                75..85 => "LowQual",
+                85..95 => "q10",
+                _ => ".",
+            };
+            write!(
+                w,
+                "chr{c}\t{pos}\t.\t{r}\t{alt}\t{qual_str}\t{filter_str}\t{info}\tGT:DP:GQ:FT"
+            )?;
             let max_gt = if multi { 2 } else { 1 };
             for _ in 0..o.samples {
-                if rng.random_range(0..50) == 0 {
-                    write!(w, "\t./.")?;
+                if rng.random_range(0..20) == 0 {
+                    write!(w, "\t./.:.:.:.")?;
                 } else {
                     let (a, b) = (rng.random_range(0..=max_gt), rng.random_range(0..=max_gt));
-                    write!(w, "\t{}/{}", a.min(b), a.max(b))?;
+                    let dp = rng.random_range(5..100);
+                    let gq = rng.random_range(10..99);
+                    let ft = if dp < 10 { "LowDP" } else { "PASS" };
+                    write!(w, "\t{}/{}:{dp}:{gq}:{ft}", a.min(b), a.max(b))?;
                 }
             }
             writeln!(w)?;
@@ -280,11 +437,11 @@ pub fn vcf(o: &VcfOpts, out: &mut impl Write) -> Result<()> {
 }
 
 /// Parse the generator arguments of a `cases.toml` `setup` string or the
-/// command line: `bed --records N ...` or `vcf --records N ...`.
+/// command line: `bed --records N ...`, `vcf --records N ...` or `pair --records N ...`.
 pub fn run_args(args: &[String], out: &mut impl Write) -> Result<()> {
     let (kind, rest) = match args.split_first() {
         Some((k, r)) => (k.as_str(), r),
-        None => bail!("gen needs a kind: bed or vcf"),
+        None => bail!("gen needs a kind: bed, vcf or pair"),
     };
     let mut bed_o = BedOpts::default();
     let mut vcf_o = VcfOpts {
@@ -293,6 +450,10 @@ pub fn run_args(args: &[String], out: &mut impl Write) -> Result<()> {
         seed: 1,
         chroms: 5,
     };
+    let mut pair_o = PairOpts::default();
+    let mut out_a_path: Option<String> = None;
+    let mut out_b_path: Option<String> = None;
+
     let mut it = rest.iter();
     while let Some(flag) = it.next() {
         let mut val = || -> Result<&String> {
@@ -314,12 +475,35 @@ pub fn run_args(args: &[String], out: &mut impl Write) -> Result<()> {
             ("vcf", "--samples") => vcf_o.samples = val()?.parse()?,
             ("vcf", "--seed") => vcf_o.seed = val()?.parse()?,
             ("vcf", "--chroms") => vcf_o.chroms = val()?.parse()?,
+            ("pair", "--records") => pair_o.records = val()?.parse()?,
+            ("pair", "--depth") => pair_o.depth = val()?.parse()?,
+            ("pair", "--chroms") => pair_o.chroms = val()?.parse()?,
+            ("pair", "--seed") => pair_o.seed = val()?.parse()?,
+            ("pair", "--len-min") => pair_o.len_min = val()?.parse()?,
+            ("pair", "--len-max") => pair_o.len_max = val()?.parse()?,
+            ("pair", "--sorted") => pair_o.sorted = true,
+            ("pair", "--out-a") => out_a_path = Some(val()?.clone()),
+            ("pair", "--out-b") => out_b_path = Some(val()?.clone()),
+            ("pair", "--prefix") => {
+                let p = val()?;
+                out_a_path = Some(format!("{p}_a.bed"));
+                out_b_path = Some(format!("{p}_b.bed"));
+            }
             _ => bail!("unknown gen argument {flag} for {kind}"),
         }
     }
     match kind {
         "bed" => bed(&bed_o, out),
         "vcf" => vcf(&vcf_o, out),
-        _ => bail!("unknown gen kind {kind} (bed or vcf)"),
+        "pair" => {
+            if let (Some(pa), Some(pb)) = (out_a_path, out_b_path) {
+                let mut fa = std::fs::File::create(pa)?;
+                let mut fb = std::fs::File::create(pb)?;
+                pair(&pair_o, &mut fa, &mut fb)
+            } else {
+                bail!("pair needs --out-a and --out-b (or --prefix)");
+            }
+        }
+        _ => bail!("unknown gen kind {kind} (bed, vcf or pair)"),
     }
 }

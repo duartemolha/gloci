@@ -43,6 +43,24 @@ pub fn eval(expr: &str, m: &Medians) -> Result<bool> {
     }
 }
 
+#[derive(Deserialize, Clone, Debug)]
+pub struct Dataset {
+    pub name: String,
+    pub url: String,
+    pub sha256: String,
+    #[serde(default)]
+    pub unpack: bool,
+}
+
+#[derive(Deserialize)]
+struct DatasetsFile {
+    dataset: Vec<Dataset>,
+}
+
+pub fn parse_datasets(text: &str) -> Result<Vec<Dataset>> {
+    Ok(toml::from_str::<DatasetsFile>(text)?.dataset)
+}
+
 #[derive(Deserialize)]
 struct CaseFile {
     case: Vec<Case>,
@@ -52,12 +70,15 @@ struct CaseFile {
 pub struct Case {
     pub name: String,
     /// Arguments of `cargo xtask gen`, e.g. `bed --records 10000000 --seed 1`.
-    pub setup: String,
-    /// `bed` (default) or `bed.gz`: the extension of the input, which is
-    /// BGZF-compressed with `gloci view` when it ends in `.gz`.
+    #[serde(default)]
+    pub setup: Option<String>,
+    /// Dataset from `datasets.toml`, e.g. `1kg-30x-chr20` or `coitrees`.
+    #[serde(default)]
+    pub dataset: Option<String>,
+    /// `bed` (default), `bed.gz`, `vcf.gz`, etc.
     #[serde(default = "default_ext")]
     pub input: String,
-    /// Tool name -> shell command with `{gloci}`, `{in}` and `{out}`.
+    /// Tool name -> shell command with `{gloci}`, `{in}`, `{in_a}`, `{in_b}` and `{out}`.
     pub commands: BTreeMap<String, String>,
     pub targets: Vec<String>,
 }
@@ -82,8 +103,16 @@ pub fn override_records(setup: &str, records: u64) -> String {
 }
 
 pub fn substitute(cmd: &str, gloci: &str, input: &str, output: &str) -> String {
+    substitute_pair(cmd, gloci, input, input, output)
+}
+
+pub fn substitute_pair(cmd: &str, gloci: &str, in_a: &str, in_b: &str, output: &str) -> String {
     cmd.replace("{gloci}", gloci)
-        .replace("{in}", input)
+        .replace("{in_a}", in_a)
+        .replace("{in_b}", in_b)
+        .replace("{a}", in_a)
+        .replace("{b}", in_b)
+        .replace("{in}", in_a)
         .replace("{out}", output)
 }
 
@@ -110,6 +139,69 @@ pub fn parse_hyperfine(json: &str) -> Result<Vec<(String, f64)>> {
             ))
         })
         .collect()
+}
+
+pub fn bench_cache_dir(data_dir: &Path) -> PathBuf {
+    match std::env::var("GLOCI_BENCH_CACHE") {
+        Ok(s) if !s.is_empty() => PathBuf::from(s),
+        _ => data_dir.join("cache"),
+    }
+}
+
+fn sha256_file(path: &Path) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    let mut f = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut f, &mut hasher)?;
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+pub fn ensure_dataset(ds: &Dataset, cache_dir: &Path) -> Result<PathBuf> {
+    std::fs::create_dir_all(cache_dir)?;
+    let filename = ds.url.split('/').next_back().unwrap_or(&ds.name);
+    let target_path = cache_dir.join(filename);
+    if !target_path.exists() {
+        eprintln!("fetching dataset {} from {}", ds.name, ds.url);
+        let tmp = cache_dir.join(format!("{filename}.tmp"));
+        let st = Command::new("curl")
+            .args(["-fsSL", "-o"])
+            .arg(&tmp)
+            .arg(&ds.url)
+            .status()
+            .with_context(|| format!("failed to run curl to download {}", ds.url))?;
+        ensure!(st.success(), "curl failed to download {}", ds.url);
+        std::fs::rename(&tmp, &target_path)?;
+    }
+    let hash = sha256_file(&target_path)?;
+    ensure!(
+        hash.eq_ignore_ascii_case(&ds.sha256),
+        "sha256 mismatch for {}: expected {}, got {}",
+        ds.name,
+        ds.sha256,
+        hash
+    );
+    if ds.unpack {
+        let unpacked_dir = cache_dir.join(&ds.name);
+        if !unpacked_dir.exists() {
+            eprintln!("unpacking {}", target_path.display());
+            std::fs::create_dir_all(&unpacked_dir)?;
+            let st = Command::new("tar")
+                .args(["-xf"])
+                .arg(&target_path)
+                .args(["-C"])
+                .arg(&unpacked_dir)
+                .status()
+                .with_context(|| format!("failed to unpack {}", target_path.display()))?;
+            ensure!(
+                st.success(),
+                "tar failed to unpack {}",
+                target_path.display()
+            );
+        }
+        Ok(unpacked_dir)
+    } else {
+        Ok(target_path)
+    }
 }
 
 pub struct Args {
@@ -146,42 +238,219 @@ fn id_of(flag: &str) -> Result<String> {
     Ok(String::from_utf8(o.stdout)?.trim().to_string())
 }
 
-/// Generate (or reuse) the input for a case; returns its path.
-fn prepare_input(case: &Case, setup: &str, gloci: &Path, dir: &Path) -> Result<PathBuf> {
+struct PreparedInputs {
+    in_a: PathBuf,
+    in_b: Option<PathBuf>,
+}
+
+/// Generate (or reuse) the input for a case; returns its paths.
+fn prepare_input(
+    case: &Case,
+    setup: Option<&str>,
+    gloci: &Path,
+    dir: &Path,
+) -> Result<PreparedInputs> {
+    std::fs::create_dir_all(dir)?;
+
+    if let Some(ref ds_name) = case.dataset {
+        let text = std::fs::read_to_string(workspace_root().join("xtask/bench/datasets.toml"))
+            .context("reading datasets.toml")?;
+        let datasets = parse_datasets(&text)?;
+        let ds = datasets
+            .iter()
+            .find(|d| d.name == *ds_name)
+            .ok_or_else(|| anyhow!("unknown dataset `{ds_name}`"))?;
+        let cache_dir = bench_cache_dir(dir);
+        let path = ensure_dataset(ds, &cache_dir)?;
+        if ds.unpack {
+            let in_a = path.join("a.bed");
+            let in_b = path.join("b.bed");
+            let in_a = if in_a.exists() {
+                in_a
+            } else {
+                dir.join(format!("{}-a.bed", case.name))
+            };
+            let in_b = if in_b.exists() {
+                in_b
+            } else {
+                dir.join(format!("{}-b.bed", case.name))
+            };
+            return Ok(PreparedInputs {
+                in_a,
+                in_b: Some(in_b),
+            });
+        } else {
+            if path.to_string_lossy().ends_with(".gz") {
+                let csi = path.with_extension("csi");
+                let tbi = path.with_extension("tbi");
+                if !csi.exists() && !tbi.exists() {
+                    let _ = Command::new(gloci).arg("index").arg(&path).status();
+                }
+            }
+            return Ok(PreparedInputs {
+                in_a: path,
+                in_b: None,
+            });
+        }
+    }
+
+    let setup_str =
+        setup.ok_or_else(|| anyhow!("case {} has neither setup nor dataset", case.name))?;
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    setup.hash(&mut h);
+    setup_str.hash(&mut h);
     let stem = format!("{}-{:08x}", case.name, h.finish() as u32);
-    let plain = dir.join(format!("{stem}.bed"));
-    let want = dir.join(format!("{stem}.{}", case.input));
-    if want.exists() {
-        return Ok(want);
+
+    let is_pair = setup_str.trim_start().starts_with("pair");
+    let is_vcf = setup_str.trim_start().starts_with("vcf");
+    let ext = if is_vcf { "vcf" } else { "bed" };
+
+    if is_pair {
+        let plain_a = dir.join(format!("{stem}_a.bed"));
+        let plain_b = dir.join(format!("{stem}_b.bed"));
+        let want_a = dir.join(format!("{stem}_a.{}", case.input));
+        let want_b = dir.join(format!("{stem}_b.{}", case.input));
+        if !want_a.exists() || !want_b.exists() {
+            if !plain_a.exists() || !plain_b.exists() {
+                eprintln!("generating {} and {}", plain_a.display(), plain_b.display());
+                let tmp_a = plain_a.with_extension("bed.partial");
+                let tmp_b = plain_b.with_extension("bed.partial");
+                let mut args: Vec<String> =
+                    setup_str.split_whitespace().map(String::from).collect();
+                args.push("--out-a".into());
+                args.push(tmp_a.to_string_lossy().into_owned());
+                args.push("--out-b".into());
+                args.push(tmp_b.to_string_lossy().into_owned());
+                let mut dummy = Vec::new();
+                crate::synth::run_args(&args, &mut dummy)?;
+                std::fs::rename(&tmp_a, &plain_a)?;
+                std::fs::rename(&tmp_b, &plain_b)?;
+            }
+            if case.input.ends_with(".gz") {
+                eprintln!(
+                    "compressing and indexing {} and {}",
+                    want_a.display(),
+                    want_b.display()
+                );
+                let tmp_a = dir.join(format!("{stem}_a.partial.{}", case.input));
+                let tmp_b = dir.join(format!("{stem}_b.partial.{}", case.input));
+                run_ok(
+                    Command::new(gloci)
+                        .arg("view")
+                        .arg(&plain_a)
+                        .arg("-o")
+                        .arg(&tmp_a),
+                )?;
+                run_ok(
+                    Command::new(gloci)
+                        .arg("view")
+                        .arg(&plain_b)
+                        .arg("-o")
+                        .arg(&tmp_b),
+                )?;
+                run_ok(Command::new(gloci).arg("index").arg(&tmp_a))?;
+                run_ok(Command::new(gloci).arg("index").arg(&tmp_b))?;
+                std::fs::rename(&tmp_a, &want_a)?;
+                std::fs::rename(&tmp_b, &want_b)?;
+                let _ = std::fs::remove_file(&plain_a);
+                let _ = std::fs::remove_file(&plain_b);
+            }
+        }
+        Ok(PreparedInputs {
+            in_a: want_a,
+            in_b: Some(want_b),
+        })
+    } else {
+        let plain = dir.join(format!("{stem}.{ext}"));
+        let want = dir.join(format!("{stem}.{}", case.input));
+        if !want.exists() {
+            if !plain.exists() {
+                eprintln!("generating {}", plain.display());
+                let tmp = plain.with_extension(format!("{ext}.partial"));
+                let args: Vec<String> = setup_str.split_whitespace().map(String::from).collect();
+                let mut f = std::fs::File::create(&tmp)?;
+                crate::synth::run_args(&args, &mut f)?;
+                std::fs::rename(&tmp, &plain)?;
+            }
+            if case.input.ends_with(".gz") {
+                eprintln!("compressing and indexing {}", want.display());
+                let tmp = dir.join(format!("{stem}.partial.{}", case.input));
+                run_ok(
+                    Command::new(gloci)
+                        .arg("view")
+                        .arg(&plain)
+                        .arg("-o")
+                        .arg(&tmp),
+                )?;
+                let _ = Command::new(gloci).arg("index").arg(&tmp).status();
+                std::fs::rename(&tmp, &want)?;
+                let _ = std::fs::remove_file(&plain);
+            }
+        }
+        Ok(PreparedInputs {
+            in_a: want,
+            in_b: None,
+        })
     }
-    std::fs::create_dir_all(dir)?;
-    if !plain.exists() {
-        eprintln!("generating {}", plain.display());
-        let tmp = plain.with_extension("bed.partial");
-        let args: Vec<String> = setup.split_whitespace().map(String::from).collect();
-        let mut f = std::fs::File::create(&tmp)?;
-        crate::synth::run_args(&args, &mut f)?;
-        std::fs::rename(&tmp, &plain)?;
+}
+
+fn tool_binary(tool: &str) -> &str {
+    match tool {
+        "gnu-sort" => "sort",
+        "grit-genomics" => "grit",
+        "vcfkit" => "vk",
+        _ => tool,
     }
-    if case.input.ends_with(".gz") {
-        eprintln!("compressing to {}", want.display());
-        // Write to a partial name first so an interrupted run never leaves a
-        // truncated cached input.
-        let tmp = dir.join(format!("{stem}.partial.{}", case.input));
-        run_ok(
-            Command::new(gloci)
-                .arg("view")
-                .arg(&plain)
-                .arg("-o")
-                .arg(&tmp),
-        )?;
-        std::fs::rename(&tmp, &want)?;
-        std::fs::remove_file(&plain)?;
+}
+
+fn check_tool_available(tool: &str, use_docker: bool, image: &str) -> bool {
+    let bin = tool_binary(tool);
+    if use_docker {
+        Command::new("docker")
+            .args(["run", "--rm", image, "which", bin])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    } else {
+        Command::new("which")
+            .arg(bin)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
     }
-    Ok(want)
+}
+
+fn run_native_bench(commands: &[(&str, String)], json_path: &Path) -> Result<Vec<(String, f64)>> {
+    let mut results = Vec::new();
+    for (tool, cmd) in commands {
+        // 1 warmup run
+        let _ = Command::new("sh").arg("-c").arg(cmd).status();
+        // 3 timed runs
+        let mut times = Vec::new();
+        for _ in 0..3 {
+            let t0 = std::time::Instant::now();
+            let st = Command::new("sh")
+                .arg("-c")
+                .arg(cmd)
+                .status()
+                .with_context(|| format!("failed to execute command: {cmd}"))?;
+            ensure!(st.success(), "command failed with status {st}: {cmd}");
+            times.push(t0.elapsed().as_secs_f64());
+        }
+        times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let median = times[times.len() / 2];
+        results.push((tool.to_string(), median));
+    }
+    let j = serde_json::json!({
+        "results": results.iter().map(|(tool, med)| {
+            serde_json::json!({
+                "command": tool,
+                "median": med,
+            })
+        }).collect::<Vec<_>>()
+    });
+    std::fs::write(json_path, serde_json::to_string_pretty(&j)?)?;
+    Ok(results)
 }
 
 pub fn run(a: &Args) -> Result<bool> {
@@ -205,18 +474,29 @@ pub fn run(a: &Args) -> Result<bool> {
     let results = std::fs::canonicalize(&results)?;
     std::fs::create_dir_all(&a.data_dir)?;
     let data = std::fs::canonicalize(&a.data_dir)?;
-    if !a.no_docker {
-        let ok = Command::new("docker")
+
+    let docker_available = if !a.no_docker {
+        Command::new("docker")
             .args(["image", "inspect", &a.image])
             .output()
             .map(|o| o.status.success())
-            .unwrap_or(false);
-        ensure!(
-            ok,
-            "image {0} not found: docker build -t {0} xtask/docker",
+            .unwrap_or(false)
+    } else {
+        false
+    };
+    let use_docker = !a.no_docker && docker_available;
+    if !a.no_docker && !docker_available && a.check_targets {
+        bail!(
+            "image {0} not found: docker build -t {0} -f xtask/docker/Dockerfile.bench xtask/docker",
+            a.image
+        );
+    } else if !a.no_docker && !docker_available {
+        eprintln!(
+            "Docker image {} not available; running with host tools",
             a.image
         );
     }
+
     let mut all_ok = true;
     let mut ran = 0;
     for case in cases
@@ -224,73 +504,150 @@ pub fn run(a: &Args) -> Result<bool> {
         .filter(|c| a.only.as_ref().is_none_or(|o| *o == c.name))
     {
         ran += 1;
-        let setup = match a.records {
-            Some(n) => override_records(&case.setup, n),
-            None => case.setup.clone(),
-        };
-        let input = prepare_input(case, &setup, &gloci, &data)?;
+        let setup = case.setup.as_ref().map(|s| match a.records {
+            Some(n) => override_records(s, n),
+            None => s.clone(),
+        });
+        let inputs = prepare_input(case, setup.as_deref(), &gloci, &data)?;
         let out_name = format!("{}.out.{}", case.name, case.input);
         let json = results.join(format!("{}.json", case.name));
-        let (gloci_cmd, in_arg, out_arg) = if a.no_docker {
-            (
-                gloci.to_string_lossy().into_owned(),
-                input.to_string_lossy().into_owned(),
-                data.join(&out_name).to_string_lossy().into_owned(),
-            )
-        } else {
+
+        let (gloci_cmd, in_a_arg, in_b_arg, out_arg) = if use_docker {
+            let in_a_file = inputs.in_a.file_name().unwrap().to_string_lossy();
+            let in_b_file = inputs
+                .in_b
+                .as_ref()
+                .map(|p| p.file_name().unwrap().to_string_lossy().into_owned());
             (
                 "gloci".to_string(),
-                format!("/data/{}", input.file_name().unwrap().to_string_lossy()),
+                format!("/data/{in_a_file}"),
+                in_b_file.map(|b| format!("/data/{b}")).unwrap_or_default(),
                 format!("/data/{out_name}"),
             )
+        } else {
+            (
+                gloci.to_string_lossy().into_owned(),
+                inputs.in_a.to_string_lossy().into_owned(),
+                inputs
+                    .in_b
+                    .as_ref()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                data.join(&out_name).to_string_lossy().into_owned(),
+            )
         };
-        let mut hf: Vec<String> = [
-            "hyperfine",
-            "--shell=default",
-            "--warmup",
-            "1",
-            "--runs",
-            "5",
-            "--export-json",
-        ]
-        .map(String::from)
-        .to_vec();
-        hf.push(if a.no_docker {
-            json.to_string_lossy().into_owned()
-        } else {
-            format!("/results/{}.json", case.name)
-        });
+
+        // Filter commands based on tool availability
+        let mut active_commands: Vec<(String, String)> = Vec::new();
         for (tool, cmd) in &case.commands {
-            hf.push("-n".into());
-            hf.push(tool.clone());
-            hf.push(substitute(cmd, &gloci_cmd, &in_arg, &out_arg));
+            if tool == "gloci" {
+                active_commands.push((tool.clone(), cmd.clone()));
+                continue;
+            }
+            let is_baseline = case
+                .targets
+                .iter()
+                .any(|t| t.split_whitespace().any(|word| word == tool));
+            if check_tool_available(tool, use_docker, &a.image) {
+                active_commands.push((tool.clone(), cmd.clone()));
+            } else if !is_baseline {
+                eprintln!("  skipping yardstick {tool}: executable not found");
+            } else if a.check_targets {
+                bail!(
+                    "binding baseline tool `{tool}` required by target in case `{}` is not available",
+                    case.name
+                );
+            } else {
+                eprintln!(
+                    "  warning: baseline tool `{tool}` not found (skipped for local run without --check-targets)"
+                );
+            }
         }
-        eprintln!("== {} ({} tools)", case.name, case.commands.len());
-        let mut c;
-        if a.no_docker {
-            c = Command::new(&hf[0]);
-            c.args(&hf[1..]);
+        ensure!(
+            !active_commands.is_empty(),
+            "no commands available for case {}",
+            case.name
+        );
+
+        let has_hyperfine = if use_docker {
+            true
         } else {
-            c = Command::new("docker");
-            c.args([
-                "run",
-                "--rm",
-                "--user",
-                &format!("{}:{}", id_of("-u")?, id_of("-g")?),
-            ])
-            .args(["-e", "HOME=/tmp"])
-            .arg("-v")
-            .arg(format!("{}:/data", data.display()))
-            .arg("-v")
-            .arg(format!("{}:/results", results.display()))
-            .arg("-v")
-            .arg(format!("{}:/usr/local/bin/gloci:ro", gloci.display()))
-            .arg(&a.image)
-            .args(&hf);
+            Command::new("which")
+                .arg("hyperfine")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        };
+
+        if has_hyperfine {
+            let mut hf: Vec<String> = [
+                "hyperfine",
+                "--shell=default",
+                "--warmup",
+                "1",
+                "--runs",
+                "5",
+                "--export-json",
+            ]
+            .map(String::from)
+            .to_vec();
+            hf.push(if use_docker {
+                format!("/results/{}.json", case.name)
+            } else {
+                json.to_string_lossy().into_owned()
+            });
+            for (tool, cmd) in &active_commands {
+                hf.push("-n".into());
+                hf.push(tool.clone());
+                hf.push(substitute_pair(
+                    cmd, &gloci_cmd, &in_a_arg, &in_b_arg, &out_arg,
+                ));
+            }
+            eprintln!("== {} ({} tools)", case.name, active_commands.len());
+            let mut c;
+            if use_docker {
+                c = Command::new("docker");
+                c.args([
+                    "run",
+                    "--rm",
+                    "--user",
+                    &format!("{}:{}", id_of("-u")?, id_of("-g")?),
+                ])
+                .args(["-e", "HOME=/tmp"])
+                .arg("-v")
+                .arg(format!("{}:/data", data.display()))
+                .arg("-v")
+                .arg(format!("{}:/results", results.display()))
+                .arg("-v")
+                .arg(format!("{}:/usr/local/bin/gloci:ro", gloci.display()))
+                .arg(&a.image)
+                .args(&hf);
+            } else {
+                c = Command::new(&hf[0]);
+                c.args(&hf[1..]);
+            }
+            let st = c.status().context("running hyperfine")?;
+            let _ = std::fs::remove_file(data.join(&out_name));
+            ensure!(st.success(), "hyperfine failed for case {}", case.name);
+        } else {
+            eprintln!(
+                "== {} ({} tools, native timing runner)",
+                case.name,
+                active_commands.len()
+            );
+            let substituted: Vec<(&str, String)> = active_commands
+                .iter()
+                .map(|(tool, cmd)| {
+                    (
+                        tool.as_str(),
+                        substitute_pair(cmd, &gloci_cmd, &in_a_arg, &in_b_arg, &out_arg),
+                    )
+                })
+                .collect();
+            run_native_bench(&substituted, &json)?;
+            let _ = std::fs::remove_file(data.join(&out_name));
         }
-        let st = c.status().context("running hyperfine")?;
-        let _ = std::fs::remove_file(data.join(&out_name));
-        ensure!(st.success(), "hyperfine failed for case {}", case.name);
+
         let med = parse_hyperfine(&std::fs::read_to_string(&json)?)?;
         let pairs: Vec<(&str, f64)> = med.iter().map(|(k, v)| (k.as_str(), *v)).collect();
         for (k, v) in &pairs {
@@ -298,9 +655,19 @@ pub fn run(a: &Args) -> Result<bool> {
         }
         let m = medians(&pairs);
         for t in &case.targets {
-            let pass = eval(t, &m)?;
-            eprintln!("  target `{t}`: {}", if pass { "ok" } else { "MISS" });
-            all_ok &= pass;
+            match eval(t, &m) {
+                Ok(pass) => {
+                    eprintln!("  target `{t}`: {}", if pass { "ok" } else { "MISS" });
+                    all_ok &= pass;
+                }
+                Err(e) => {
+                    if a.check_targets {
+                        return Err(e);
+                    } else {
+                        eprintln!("  target `{t}`: skipped (missing baseline in local run)");
+                    }
+                }
+            }
         }
     }
     ensure!(ran > 0, "no case matched");
@@ -336,7 +703,33 @@ mod tests {
             std::fs::read_to_string(workspace_root().join("xtask/bench/cases.toml")).unwrap();
         let cases = parse_cases(&text).unwrap();
         let names: Vec<_> = cases.iter().map(|c| c.name.as_str()).collect();
-        assert_eq!(names, ["sort-plain-10M", "sort-bgzf-10M"]);
+        // Preserves P0 sort cases
+        assert!(names.contains(&"sort-plain-10M"));
+        assert!(names.contains(&"sort-bgzf-10M"));
+
+        // Requires P1 cases
+        let expected = [
+            "intersect-plain-10M",
+            "merge-plain-10M",
+            "subtract-plain-10M",
+            "closest-plain-10M",
+            "map-plain-10M",
+            "coverage-plain-10M",
+            "intersect-bgzf-10M",
+            "merge-bgzf-10M",
+            "subtract-bgzf-10M",
+            "closest-bgzf-10M",
+            "map-bgzf-10M",
+            "coverage-bgzf-10M",
+            "vcf-filter-1kg-chr20",
+            "vcf-filter-synthetic-2500",
+            "coitrees-coverage",
+            "coitrees-intersect-count",
+        ];
+        for exp in expected {
+            assert!(names.contains(&exp), "missing expected case `{exp}`");
+        }
+
         for c in &cases {
             for t in &c.targets {
                 // every tool a target mentions has a command
@@ -348,6 +741,25 @@ mod tests {
                 );
                 eval(t, &m).unwrap_or_else(|e| panic!("{}: {e}", c.name));
             }
+        }
+    }
+
+    #[test]
+    fn datasets_file_parses() {
+        let text =
+            std::fs::read_to_string(workspace_root().join("xtask/bench/datasets.toml")).unwrap();
+        let datasets = parse_datasets(&text).unwrap();
+        assert!(datasets.iter().any(|d| d.name == "1kg-30x-chr20"));
+        assert!(datasets.iter().any(|d| d.name == "coitrees"));
+        for d in &datasets {
+            assert!(!d.name.is_empty());
+            assert!(d.url.starts_with("https://") || d.url.starts_with("http://"));
+            assert_eq!(d.sha256.len(), 64, "bad sha256 length for {}", d.name);
+            assert!(
+                d.sha256.chars().all(|c| c.is_ascii_hexdigit()),
+                "bad sha256 hex for {}",
+                d.name
+            );
         }
     }
 

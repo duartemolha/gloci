@@ -60,8 +60,8 @@ enum Task {
         #[arg(long, default_value = xtask::bench::DEFAULT_IMAGE)]
         image: String,
         /// Run only this case
-        #[arg(long)]
-        case: Option<String>,
+        #[arg(long, visible_alias = "case")]
+        only: Option<String>,
         /// Override --records of every case (reduced local runs)
         #[arg(long)]
         records: Option<u64>,
@@ -116,6 +116,28 @@ enum Gen {
         #[arg(short, long)]
         output: PathBuf,
     },
+    Pair {
+        #[arg(long)]
+        records: u64,
+        #[arg(long, default_value_t = 1.0)]
+        depth: f64,
+        #[arg(long, default_value_t = 24)]
+        chroms: u32,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        #[arg(long, default_value_t = 50)]
+        len_min: u64,
+        #[arg(long, default_value_t = 10_000)]
+        len_max: u64,
+        #[arg(long)]
+        sorted: bool,
+        #[arg(long)]
+        out_a: Option<PathBuf>,
+        #[arg(long)]
+        out_b: Option<PathBuf>,
+        #[arg(long)]
+        prefix: Option<PathBuf>,
+    },
 }
 
 fn run(cli: Cli) -> Result<bool> {
@@ -161,6 +183,44 @@ fn run(cli: Cli) -> Result<bool> {
                 };
                 xtask::synth::vcf(&o, &mut std::fs::File::create(output)?)?
             }
+            Gen::Pair {
+                records,
+                depth,
+                chroms,
+                seed,
+                len_min,
+                len_max,
+                sorted,
+                out_a,
+                out_b,
+                prefix,
+            } => {
+                let (pa, pb) = match (out_a, out_b, prefix) {
+                    (Some(a), Some(b), _) => (a, b),
+                    (_, _, Some(p)) => {
+                        let stem = p.to_string_lossy();
+                        (
+                            PathBuf::from(format!("{stem}_a.bed")),
+                            PathBuf::from(format!("{stem}_b.bed")),
+                        )
+                    }
+                    _ => anyhow::bail!("pair needs --out-a and --out-b (or --prefix)"),
+                };
+                let o = xtask::synth::PairOpts {
+                    records,
+                    depth,
+                    chroms,
+                    seed,
+                    len_min,
+                    len_max,
+                    sorted,
+                };
+                xtask::synth::pair(
+                    &o,
+                    &mut std::fs::File::create(pa)?,
+                    &mut std::fs::File::create(pb)?,
+                )?
+            }
         },
         Task::Genomes { action } => match action {
             GenomesAction::Refresh { only, dir } => {
@@ -189,7 +249,7 @@ fn run(cli: Cli) -> Result<bool> {
             gloci,
             no_docker,
             image,
-            case,
+            only,
             records,
             data_dir,
         } => {
@@ -200,7 +260,7 @@ fn run(cli: Cli) -> Result<bool> {
                 gloci,
                 no_docker,
                 image,
-                only: case,
+                only,
                 records,
                 data_dir,
             });

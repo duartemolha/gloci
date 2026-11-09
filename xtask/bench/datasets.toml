@@ -1,0 +1,15 @@
+# Benchmark external datasets.
+# Entries: name, url, sha256 (64 hex characters), unpack (boolean).
+# Datasets are fetched to $GLOCI_BENCH_CACHE and verified before use.
+
+[[dataset]]
+name = "1kg-30x-chr20"
+url = "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B0_GRCh38_fine-mapping_chr20.recalibrated_variants.vcf.gz"
+sha256 = "c08170c0c8efaeecfcfb1319aa53a25375e2fa245a4be465715ef5eb94191953"
+unpack = false
+
+[[dataset]]
+name = "coitrees"
+url = "https://github.com/dcjones/coitrees/releases/download/v0.4.0/coitrees-bench-data.tar.gz"
+sha256 = "65718a7c29ae885822be72bc7d85311029c0a1a0c8651c6c5ea3e9c5bb0e1818"
+unpack = true

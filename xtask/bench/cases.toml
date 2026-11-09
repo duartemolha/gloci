@@ -1,5 +1,5 @@
 # Benchmark cases. Every gloci command uses --chrom-order lex so that all tools
-# produce the same order. {gloci}, {in} and {out} are substituted by the runner.
+# produce the same order. {gloci}, {in}, {in_a}, {in_b} and {out} are substituted by the runner.
 # Targets: NAME (<|<=) [FACTOR *] NAME, over the medians of the named commands.
 
 [[case]]
@@ -23,3 +23,188 @@ gloci = "{gloci} sort --chrom-order lex -t 8 -o {out} {in}"
 sort-bed = "bgzip -dc {in} | sort-bed --max-mem 2G - | bgzip -@ 8 > {out}"
 gnu-sort = "bgzip -dc {in} | LC_ALL=C sort -k1,1 -k2,2n --parallel=8 -S 2G | bgzip -@ 8 > {out}"
 bedtools = "bedtools sort -i {in} | bgzip -@ 8 > {out}"
+
+[[case]]
+name = "intersect-plain-10M"
+setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
+input = "bed"
+targets = ["gloci <= 0.5 * bedtools", "gloci <= bedops"]
+[case.commands]
+gloci = "{gloci} intersect --chrom-order lex --mode any -a {in_a} -b {in_b} > {out}"
+bedtools = "bedtools intersect -sorted -a {in_a} -b {in_b} > {out}"
+bedops = "bedops -e 1 {in_a} {in_b} > {out}"
+gia = "gia intersect -a {in_a} -b {in_b} > {out}"
+bedder = "bedder intersect -a {in_a} -b {in_b} > {out}"
+granges = "granges filter --overlap {in_b} {in_a} > {out}"
+bedtk = "bedtk flt {in_a} {in_b} > {out}"
+grit-genomics = "grit intersect -a {in_a} -b {in_b} > {out}"
+
+[[case]]
+name = "merge-plain-10M"
+setup = "bed --records 10000000 --chroms 24 --seed 1 --profile uniform --sorted"
+input = "bed"
+targets = ["gloci <= 0.5 * bedtools", "gloci <= bedops"]
+[case.commands]
+gloci = "{gloci} merge --chrom-order lex -i {in} > {out}"
+bedtools = "bedtools merge -i {in} > {out}"
+bedops = "bedops -m {in} > {out}"
+gia = "gia merge -i {in} > {out}"
+bedder = "bedder merge -i {in} > {out}"
+granges = "granges merge {in} > {out}"
+bedtk = "bedtk cov {in} > {out}"
+grit-genomics = "grit merge -i {in} > {out}"
+
+[[case]]
+name = "subtract-plain-10M"
+setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
+input = "bed"
+targets = ["gloci <= 0.5 * bedtools", "gloci <= bedops"]
+[case.commands]
+gloci = "{gloci} subtract --chrom-order lex -a {in_a} -b {in_b} > {out}"
+bedtools = "bedtools subtract -a {in_a} -b {in_b} > {out}"
+bedops = "bedops -d {in_a} {in_b} > {out}"
+gia = "gia subtract -a {in_a} -b {in_b} > {out}"
+bedder = "bedder subtract -a {in_a} -b {in_b} > {out}"
+granges = "granges filter --no-overlap {in_b} {in_a} > {out}"
+bedtk = "bedtk sub {in_a} {in_b} > {out}"
+grit-genomics = "grit subtract -a {in_a} -b {in_b} > {out}"
+
+[[case]]
+name = "closest-plain-10M"
+setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
+input = "bed"
+targets = ["gloci <= 0.5 * bedtools", "gloci <= bedops"]
+[case.commands]
+gloci = "{gloci} closest --chrom-order lex -d -a {in_a} -b {in_b} > {out}"
+bedtools = "bedtools closest -d -a {in_a} -b {in_b} > {out}"
+bedops = "closest-features --dist {in_a} {in_b} > {out}"
+gia = "gia closest -a {in_a} -b {in_b} > {out}"
+bedder = "bedder closest -a {in_a} -b {in_b} > {out}"
+granges = "granges nearest -a {in_a} -b {in_b} > {out}"
+bedtk = "bedtk closest {in_a} {in_b} > {out}"
+grit-genomics = "grit closest -a {in_a} -b {in_b} > {out}"
+
+[[case]]
+name = "map-plain-10M"
+setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
+input = "bed"
+targets = ["gloci <= 0.5 * bedtools", "gloci <= bedops"]
+[case.commands]
+gloci = "{gloci} map --chrom-order lex -c 5:sum -a {in_a} -b {in_b} > {out}"
+bedtools = "bedtools map -c 5 -o sum -a {in_a} -b {in_b} > {out}"
+bedops = "bedmap --echo --sum {in_a} {in_b} > {out}"
+gia = "gia map -a {in_a} -b {in_b} > {out}"
+bedder = "bedder map -a {in_a} -b {in_b} > {out}"
+granges = "granges map -a {in_a} -b {in_b} > {out}"
+bedtk = "bedtk map {in_a} {in_b} > {out}"
+grit-genomics = "grit map -a {in_a} -b {in_b} > {out}"
+
+[[case]]
+name = "coverage-plain-10M"
+setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
+input = "bed"
+targets = ["gloci <= 0.5 * bedtools"]
+[case.commands]
+gloci = "{gloci} coverage --chrom-order lex -a {in_a} -b {in_b} > {out}"
+bedtools = "bedtools coverage -sorted -a {in_a} -b {in_b} > {out}"
+gia = "gia coverage -a {in_a} -b {in_b} > {out}"
+bedder = "bedder coverage -a {in_a} -b {in_b} > {out}"
+granges = "granges coverage -a {in_a} -b {in_b} > {out}"
+bedtk = "bedtk cov {in_a} {in_b} > {out}"
+grit-genomics = "grit coverage -a {in_a} -b {in_b} > {out}"
+
+[[case]]
+name = "intersect-bgzf-10M"
+setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
+input = "bed.gz"
+targets = ["gloci <= 0.2 * bedtools"]
+[case.commands]
+gloci = "{gloci} intersect --chrom-order lex -t 8 --mode any -a {in_a} -b {in_b} > {out}"
+bedtools = "bedtools intersect -sorted -a {in_a} -b {in_b} | bgzip -@ 8 > {out}"
+
+[[case]]
+name = "merge-bgzf-10M"
+setup = "bed --records 10000000 --chroms 24 --seed 1 --profile uniform --sorted"
+input = "bed.gz"
+targets = ["gloci <= 0.2 * bedtools"]
+[case.commands]
+gloci = "{gloci} merge --chrom-order lex -t 8 -i {in} > {out}"
+bedtools = "bedtools merge -i {in} | bgzip -@ 8 > {out}"
+
+[[case]]
+name = "subtract-bgzf-10M"
+setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
+input = "bed.gz"
+targets = ["gloci <= 0.2 * bedtools"]
+[case.commands]
+gloci = "{gloci} subtract --chrom-order lex -t 8 -a {in_a} -b {in_b} > {out}"
+bedtools = "bedtools subtract -a {in_a} -b {in_b} | bgzip -@ 8 > {out}"
+
+[[case]]
+name = "closest-bgzf-10M"
+setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
+input = "bed.gz"
+targets = ["gloci <= 0.2 * bedtools"]
+[case.commands]
+gloci = "{gloci} closest --chrom-order lex -t 8 -d -a {in_a} -b {in_b} > {out}"
+bedtools = "bedtools closest -d -a {in_a} -b {in_b} | bgzip -@ 8 > {out}"
+
+[[case]]
+name = "map-bgzf-10M"
+setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
+input = "bed.gz"
+targets = ["gloci <= 0.2 * bedtools"]
+[case.commands]
+gloci = "{gloci} map --chrom-order lex -t 8 -c 5:sum -a {in_a} -b {in_b} > {out}"
+bedtools = "bedtools map -c 5 -o sum -a {in_a} -b {in_b} | bgzip -@ 8 > {out}"
+
+[[case]]
+name = "coverage-bgzf-10M"
+setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
+input = "bed.gz"
+targets = ["gloci <= 0.2 * bedtools"]
+[case.commands]
+gloci = "{gloci} coverage --chrom-order lex -t 8 -a {in_a} -b {in_b} > {out}"
+bedtools = "bedtools coverage -sorted -a {in_a} -b {in_b} | bgzip -@ 8 > {out}"
+
+[[case]]
+name = "vcf-filter-1kg-chr20"
+dataset = "1kg-30x-chr20"
+input = "vcf.gz"
+targets = ["gloci <= 0.2 * vcftools"]
+[case.commands]
+gloci = "{gloci} vcf filter --chrom-order lex --min-maf 0.01 --max-missing 0.1 --min-qual 30 {in} -o {out}"
+vcftools = "vcftools --gzvcf {in} --maf 0.01 --max-missing 0.9 --minQ 30 --recode --recode-INFO-all --stdout | bgzip -@ 8 > {out}"
+bcftools = "bcftools view -i 'MAF>=0.01 && F_MISSING<=0.1 && QUAL>=30' {in} -Oz -o {out}"
+vcfkit = "vk filter --maf 0.01 --missing 0.1 --min-qual 30 {in} | bgzip -@ 8 > {out}"
+vcfexpress = "vcfexpress filter --expr 'maf >= 0.01 && missing <= 0.1 && qual >= 30' {in} -o {out}"
+
+[[case]]
+name = "vcf-filter-synthetic-2500"
+setup = "vcf --records 50000 --samples 2500 --seed 1 --chroms 1"
+input = "vcf.gz"
+targets = ["gloci <= 0.2 * vcftools"]
+[case.commands]
+gloci = "{gloci} vcf filter --chrom-order lex --min-maf 0.01 --max-missing 0.1 --min-qual 30 {in} -o {out}"
+vcftools = "vcftools --gzvcf {in} --maf 0.01 --max-missing 0.9 --minQ 30 --recode --recode-INFO-all --stdout | bgzip -@ 8 > {out}"
+bcftools = "bcftools view -i 'MAF>=0.01 && F_MISSING<=0.1 && QUAL>=30' {in} -Oz -o {out}"
+vcfkit = "vk filter --maf 0.01 --missing 0.1 --min-qual 30 {in} | bgzip -@ 8 > {out}"
+vcfexpress = "vcfexpress filter --expr 'maf >= 0.01 && missing <= 0.1 && qual >= 30' {in} -o {out}"
+
+[[case]]
+name = "coitrees-coverage"
+dataset = "coitrees"
+input = "bed"
+targets = []
+[case.commands]
+gloci = "{gloci} coverage --chrom-order lex -a {in_a} -b {in_b} > {out}"
+bedtools = "bedtools coverage -sorted -a {in_a} -b {in_b} > {out}"
+
+[[case]]
+name = "coitrees-intersect-count"
+dataset = "coitrees"
+input = "bed"
+targets = []
+[case.commands]
+gloci = "{gloci} intersect --chrom-order lex --mode count -a {in_a} -b {in_b} > {out}"
+bedtools = "bedtools intersect -sorted -c -a {in_a} -b {in_b} > {out}"

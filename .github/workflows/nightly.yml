@@ -46,13 +46,20 @@ jobs:
           targets: x86_64-unknown-linux-musl
       - uses: Swatinem/rust-cache@v2
       - run: sudo apt-get update && sudo apt-get install -y musl-tools
-      - name: Build the reference-tool image
-        run: docker build -t gloci-diff:p0 xtask/docker
+      - name: Build the benchmark container image
+        run: docker build -t gloci-bench:p1 -f xtask/docker/Dockerfile.bench xtask/docker
+      - name: Cache benchmark datasets
+        uses: actions/cache@v4
+        with:
+          path: target/bench-cache
+          key: bench-datasets-${{ hashFiles('xtask/bench/datasets.toml') }}
       # A static binary runs inside the container whatever its glibc.
       - run: cargo build --release --target x86_64-unknown-linux-musl -p gloci
       - name: Benchmarks
+        env:
+          GLOCI_BENCH_CACHE: target/bench-cache
         run: >
-          cargo xtask bench --check-targets
+          cargo xtask bench --check-targets --image gloci-bench:p1
           --gloci target/x86_64-unknown-linux-musl/release/gloci
       - uses: actions/upload-artifact@v4
         if: always()

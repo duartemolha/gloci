@@ -543,6 +543,8 @@ dependencies = [
  "gloci-testkit",
  "lz4_flex",
  "proptest",
+ "rand",
+ "rand_chacha",
  "tempfile",
 ]
 
