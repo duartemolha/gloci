@@ -1783,10 +1783,9 @@ compare = "vcf-records"
 [[case]]
 name = "vcf-filter-min-maf-vs-vcftools"
 input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
-gloci = "gloci vcf filter input.vcf --min-maf 0.2"
-reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --maf 0.2"
+gloci = "gloci vcf filter input.vcf --min-maf 0.1"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --maf 0.1"
 compare = "vcf-records"
-expected_difference = "#maf-multiallelic"
 
 [[case]]
 name = "vcf-filter-max-maf-vs-vcftools"
@@ -1813,8 +1812,8 @@ compare = "vcf-records"
 [[case]]
 name = "vcf-filter-max-missing-equiv-vs-vcftools"
 input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
-gloci = "gloci vcf filter input.vcf --max-missing 0.2"
-reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --max-missing 0.8"
+gloci = "gloci vcf filter input.vcf --max-missing 0.1"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --max-missing 0.9"
 compare = "vcf-records"
 
 [[case]]
@@ -1856,8 +1855,8 @@ compare = "vcf-records"
 [[case]]
 name = "vcf-filter-region-vs-vcftools"
 input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
-gloci = "gloci vcf filter input.vcf --region chr2:100-500"
-reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --chr chr2 --from-bp 100 --to-bp 500"
+gloci = "gloci vcf filter input.vcf --region chr2:100-5000"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --chr chr2 --from-bp 100 --to-bp 5000"
 compare = "vcf-records"
 
 [[case]]
@@ -1928,5 +1927,27 @@ name = "vcf-filter-min-dp-mask-vs-vcftools"
 input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
 gloci = "gloci vcf filter input.vcf --min-dp 10"
 reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --minDP 10"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-filter-info-default-vs-bcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf filter input.vcf --min-qual 30"
+reference = "bcftools view -i 'QUAL>=30' input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-filter-max-missing-vs-bcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf filter input.vcf --max-missing 0.1"
+reference = "bcftools view -i 'F_MISSING<=0.1' input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-filter-regions-file-vs-bcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+aux = ["xtask/diff/inputs/filter-regions.bed"]
+gloci = "gloci vcf filter input.vcf --regions-file filter-regions.bed --vcf-span ref --inclusive-points"
+reference = "bgzip -c input.vcf > in.vcf.gz && tabix -p vcf in.vcf.gz && bcftools view -R filter-regions.bed in.vcf.gz"
 compare = "vcf-records"
 

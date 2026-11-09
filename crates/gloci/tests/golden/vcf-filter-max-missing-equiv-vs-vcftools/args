@@ -1,1 +1,1 @@
-vcf filter input.vcf --max-missing 0.2
+vcf filter input.vcf --max-missing 0.1

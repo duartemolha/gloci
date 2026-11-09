@@ -319,12 +319,9 @@ pub fn run_filter(ctx: &Ctx, a: &VcfFilterArgs) -> anyhow::Result<()> {
             inclusive_points: a.inclusive_points,
         },
         plan,
-        regions: a.region.region.clone(),
-        regions_file: a
-            .region
-            .regions_file
-            .as_ref()
-            .map(|p| p.to_string_lossy().into_owned()),
+        // open_view wraps the reader with in-stream or indexed region selection.
+        regions: Vec::new(),
+        regions_file: None,
     };
 
     vcf_filter(input, &mut chrom_table, &options, writer.as_mut())?;

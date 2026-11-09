@@ -1,1 +1,1 @@
-vcf filter input.vcf --min-maf 0.2
+vcf filter input.vcf --min-maf 0.1

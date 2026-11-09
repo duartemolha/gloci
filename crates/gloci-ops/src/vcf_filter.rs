@@ -1,9 +1,9 @@
 //! `gloci vcf filter`: the selection pipeline (spec §7.8, decision D50).
 
-use gloci_core::ChromTable;
+use gloci_core::{ChromTable, Interval, Region, RegionSet, VcfSpan};
 use gloci_io::{
-    BcfDicts, BcfText, Format, Header, IoError, Loc, OrderGuard, RecordBatch, RecordReader,
-    RecordWriter, TextToBcf, UsageError, VcfHeader, next_batch_size,
+    BcfDicts, BcfText, Format, Header, IoError, Loc, OrderGuard, ReaderOptions, RecordBatch,
+    RecordReader, RecordWriter, TextToBcf, UsageError, VcfHeader, next_batch_size,
 };
 use gloci_vcf::{
     BcfSite, MaskRules, RewritePlan, SiteFilters, SiteView, Thinner, bcf_genotypes, rewrite_header,
@@ -108,6 +108,47 @@ pub fn vcf_filter(
     };
     let mut thinner: Option<Thinner> = o.sites.thinner();
 
+    let include_regions: Option<std::collections::HashMap<Vec<u8>, RegionSet>> =
+        if !o.regions.is_empty() || o.regions_file.is_some() {
+            let mut known = std::collections::HashSet::new();
+            if let Some(d) = &vcf_header.bcf {
+                known.extend(d.contigs.iter().filter(|c| !c.is_empty()).cloned());
+            } else {
+                known.extend(vcf_header.contigs.iter().map(|(c, _)| c.clone()));
+            }
+            let mut wanted: Vec<(Vec<u8>, Interval)> = Vec::new();
+            for s in &o.regions {
+                let r = Region::parse(s, |n| {
+                    known.contains(n) || (known.is_empty() && !n.contains(&b':'))
+                })
+                .map_err(|e| IoError::Usage(UsageError(e.to_string())))?;
+                let iv = r.interval(None);
+                wanted.push((r.chrom, iv));
+            }
+            if let Some(f) = &o.regions_file {
+                let ro = ReaderOptions {
+                    format: Some(Format::Bed),
+                    vcf_span: VcfSpan::Ref,
+                    invalid: gloci_io::InvalidPolicy::Fail,
+                    threads: std::num::NonZero::new(1).unwrap(),
+                };
+                wanted.extend(crate::view::read_regions_file(f, &ro)?);
+            }
+            let mut by_chrom: std::collections::HashMap<Vec<u8>, Vec<Interval>> =
+                std::collections::HashMap::new();
+            for (c, iv) in wanted {
+                by_chrom.entry(c).or_default().push(iv);
+            }
+            Some(
+                by_chrom
+                    .into_iter()
+                    .map(|(c, ivs)| (c, RegionSet::new(ivs)))
+                    .collect(),
+            )
+        } else {
+            None
+        };
+
     let need_stats = o.sites.needs_genotypes() || !plan.mask.is_empty() || plan.recalc_ac;
     let mut masked_buf = Vec::new();
     let mut rewritten_buf = Vec::new();
@@ -139,6 +180,17 @@ pub fn vcf_filter(
                 loc: Loc::Record(records_in),
                 msg,
             })?;
+
+            if let Some(regions) = &include_regions {
+                match regions.get(view.chrom) {
+                    Some(r) => {
+                        if !r.matches(view.span, o.sites.inclusive_points) {
+                            continue;
+                        }
+                    }
+                    None => continue,
+                }
+            }
 
             // 1. Static site filters
             if !o.sites.static_pass(&view) {
@@ -261,4 +313,55 @@ pub fn vcf_filter(
         records_in,
         records_out,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gloci_io::open_reader;
+
+    struct VecWriter(Vec<u8>);
+    impl RecordWriter for VecWriter {
+        fn write_record(&mut self, record: &[u8]) -> Result<(), std::io::Error> {
+            self.0.extend_from_slice(record);
+            self.0.push(b'\n');
+            Ok(())
+        }
+        fn finish(self: Box<Self>) -> Result<(), IoError> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn vcf_filter_library_caller_regions() {
+        let vcf_data = b"##fileformat=VCFv4.2\n\
+##contig=<ID=chr1,length=1000>\n\
+##contig=<ID=chr2,length=1000>\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+chr1\t100\trs1\tA\tC\t50\tPASS\t.\n\
+chr1\t200\trs2\tG\tT\t50\tPASS\t.\n\
+chr2\t300\trs3\tT\tA\t50\tPASS\t.\n";
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(temp.path(), vcf_data).unwrap();
+        let ro = ReaderOptions {
+            format: Some(Format::Vcf),
+            vcf_span: VcfSpan::Ref,
+            invalid: gloci_io::InvalidPolicy::Fail,
+            threads: std::num::NonZero::new(1).unwrap(),
+        };
+        let reader = open_reader(temp.path().to_str().unwrap(), &ro).unwrap();
+        let mut chroms = ChromTable::first_appearance();
+        let opts = VcfFilterOptions {
+            regions: vec!["chr1:150-250".to_string()],
+            ..Default::default()
+        };
+        let mut writer = VecWriter(Vec::new());
+        let summary = vcf_filter(reader, &mut chroms, &opts, &mut writer).unwrap();
+        assert_eq!(summary.records_in, 3);
+        assert_eq!(summary.records_out, 1);
+        let out_str = String::from_utf8(writer.0).unwrap();
+        assert!(out_str.contains("rs2"));
+        assert!(!out_str.contains("rs1"));
+        assert!(!out_str.contains("rs3"));
+    }
 }

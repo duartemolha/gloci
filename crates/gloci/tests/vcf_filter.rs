@@ -374,3 +374,77 @@ chr1\t100\trs1\tA\tC\t50\tPASS\tDP=30\tGT:DP:GQ:FT\t0/0:10:30:PASS\t0/1:10:30:PA
         .code(2)
         .stderr(contains("unknown sample"));
 }
+
+#[test]
+fn library_api_regions_and_regions_file() {
+    use gloci_core::ChromTable;
+    use gloci_io::{Format, ReaderOptions, RecordWriter, open_reader};
+    use gloci_ops::{VcfFilterOptions, vcf_filter};
+
+    struct TestWriter(Vec<u8>);
+    impl RecordWriter for TestWriter {
+        fn write_record(&mut self, record: &[u8]) -> Result<(), std::io::Error> {
+            self.0.extend_from_slice(record);
+            self.0.push(b'\n');
+            Ok(())
+        }
+        fn finish(self: Box<Self>) -> Result<(), gloci_io::IoError> {
+            Ok(())
+        }
+    }
+
+    let d = tempfile::tempdir().unwrap();
+    let vcf = plain_file(
+        d.path(),
+        "in.vcf",
+        format!(
+            "{SAMPLE_VCF_HEAD}\
+chr1\t100\trs1\tA\tC\t50\tPASS\tDP=30\tGT:DP\t0/1:10\t0/1:10\t0/1:10\n\
+chr1\t200\trs2\tG\tT\t50\tPASS\tDP=30\tGT:DP\t0/1:10\t0/1:10\t0/1:10\n\
+chr2\t300\trs3\tT\tA\t50\tPASS\tDP=30\tGT:DP\t0/1:10\t0/1:10\t0/1:10\n"
+        )
+        .as_str(),
+    );
+    let bed = plain_file(d.path(), "regions.bed", "chr1\t150\t250\n");
+
+    let ro = ReaderOptions {
+        format: Some(Format::Vcf),
+        vcf_span: gloci_core::VcfSpan::Ref,
+        invalid: gloci_io::InvalidPolicy::Fail,
+        threads: std::num::NonZero::new(1).unwrap(),
+    };
+
+    // Test with o.regions
+    {
+        let reader = open_reader(&s(&vcf), &ro).unwrap();
+        let mut chroms = ChromTable::first_appearance();
+        let opts = VcfFilterOptions {
+            regions: vec!["chr1:150-250".to_string()],
+            ..Default::default()
+        };
+        let mut w = TestWriter(Vec::new());
+        let sum = vcf_filter(reader, &mut chroms, &opts, &mut w).unwrap();
+        assert_eq!(sum.records_in, 3);
+        assert_eq!(sum.records_out, 1);
+        let out = String::from_utf8(w.0).unwrap();
+        assert!(out.contains("rs2"));
+        assert!(!out.contains("rs1"));
+    }
+
+    // Test with o.regions_file
+    {
+        let reader = open_reader(&s(&vcf), &ro).unwrap();
+        let mut chroms = ChromTable::first_appearance();
+        let opts = VcfFilterOptions {
+            regions_file: Some(s(&bed)),
+            ..Default::default()
+        };
+        let mut w = TestWriter(Vec::new());
+        let sum = vcf_filter(reader, &mut chroms, &opts, &mut w).unwrap();
+        assert_eq!(sum.records_in, 3);
+        assert_eq!(sum.records_out, 1);
+        let out = String::from_utf8(w.0).unwrap();
+        assert!(out.contains("rs2"));
+        assert!(!out.contains("rs1"));
+    }
+}

@@ -645,6 +645,8 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   INFO annotations should be preserved unless explicitly dropped.
 - **Pinned by:** `vcf-filter-info-default-vs-vcftools` (must differ). With
   `--recode-INFO-all` vcftools matches gloci: `vcf-filter-min-qual-vs-vcftools`.
+  `bcftools view` also keeps INFO by default, agreeing with gloci:
+  `vcf-filter-info-default-vs-bcftools` (must match).
 
 ## Inverted `--max-missing` parameter {#max-missing-inverted}
 
@@ -655,8 +657,10 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Reason:** In gloci, all `--max-*` flags specify upper bounds on what is
   being filtered; having `--max-missing` specify a minimum present rate was
   a historical vcftools naming inversion.
-- **Pinned by:** `vcf-filter-max-missing-equiv-vs-vcftools` (gloci `--max-missing 0.2`
-  matches vcftools `--max-missing 0.8`).
+- **Pinned by:** `vcf-filter-max-missing-inverted-vs-vcftools` (must differ),
+  `vcf-filter-max-missing-equiv-vs-vcftools` (gloci `--max-missing 0.1` matches
+  vcftools `--max-missing 0.9`), and `vcf-filter-max-missing-vs-bcftools`
+  (gloci `--max-missing 0.1` matches `bcftools view -i 'F_MISSING<=0.1'`).
 
 ## Minor allele frequency and count on multi-allelic sites {#maf-multiallelic}
 
@@ -667,8 +671,11 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   against the least frequent alternate allele.
 - **Reason:** The second most common allele is the standard mathematical
   definition of minor allele frequency for arbitrary ploidy and allele counts.
-- **Pinned by:** `vcf-filter-maf-multiallelic-vs-vcftools`,
-  `vcf-filter-min-mac-vs-vcftools`, and `vcf-filter-min-maf-vs-vcftools` (must differ).
+  Note that `bcftools view -q` filters on alternate allele frequency (frequency
+  of the alternate allele or alleles via `-m`/`-M`), not on minor allele frequency
+  in the second-most-common sense.
+- **Pinned by:** `vcf-filter-maf-multiallelic-vs-vcftools` and
+  `vcf-filter-min-mac-vs-vcftools` (must differ).
 
 ## HWE filtering on multiallelic sites {#hwe-multiallelic}
 
@@ -677,6 +684,9 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Old behaviour:** `vcftools --hwe` automatically removes all non-biallelic sites.
 - **Reason:** Filtering non-biallelic sites should be an explicit user choice
   (via `--biallelic`) rather than an implicit side-effect of testing for HWE.
+  Note that `bcftools view` has no standalone `--hwe` flag; `bcftools +fill-tags`
+  computes an HWE tag only on biallelic diploid sites and leaves multiallelic sites
+  unassigned.
 - **Pinned by:** `vcf-filter-hwe-vs-vcftools` (must differ).
 
 ## BED files without headers in region filtering {#bed-header-skipping}
@@ -688,7 +698,9 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   first interval is silently discarded.
 - **Reason:** Standard BED files created by bedtools or pipelines rarely contain
   header lines; unconditionally discarding the first data row drops variants.
-- **Pinned by:** `vcf-filter-regions-file-vs-vcftools` (must differ).
+- **Pinned by:** `vcf-filter-regions-file-vs-vcftools` (must differ) and
+  `vcf-filter-regions-file-vs-bcftools` (bcftools view -R does not skip line 1
+  of headerless BED files, matching gloci).
 
 
 
