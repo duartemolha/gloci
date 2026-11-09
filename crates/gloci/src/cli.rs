@@ -211,9 +211,10 @@ Examples:
     /// more than one thread is used, the work runs on runs of chromosomes in
     /// parallel, which are read and written in the chromosome-table order
     /// (karyotype by default; -g, a VCF header or --chrom-order set it),
-    /// whatever order the files hold them in. Chunks waiting to be written
-    /// share 128 MiB of memory and spill the rest to --tmp-dir. The output is
-    /// the same as with one thread.
+    /// whatever order the files hold them in. At most 8 runs are in flight
+    /// (more threads speed up BGZF); their output waiting to be written
+    /// shares 64 MiB of memory and the rest spills to --tmp-dir. The output
+    /// is the same as with one thread.
     #[command(after_long_help = "\
 Examples:
   gloci intersect -a peaks.bed -b genes.bed
@@ -400,9 +401,10 @@ Examples:
     /// more than one thread is used, the work runs on runs of chromosomes in
     /// parallel, which are read and written in the chromosome-table order
     /// (karyotype by default; -g, a VCF header or --chrom-order set it),
-    /// whatever order the files hold them in. Chunks waiting to be written
-    /// share 128 MiB of memory and spill the rest to --tmp-dir. The output is
-    /// the same as with one thread.
+    /// whatever order the files hold them in. At most 8 runs are in flight
+    /// (more threads speed up BGZF); their output waiting to be written
+    /// shares 64 MiB of memory and the rest spills to --tmp-dir. The output
+    /// is the same as with one thread.
     #[command(after_long_help = "\
 Examples:
   gloci subtract -a peaks.bed -b blacklist.bed
@@ -465,9 +467,10 @@ Examples:
     /// more than one thread is used, the work runs on runs of chromosomes in
     /// parallel, which are read and written in the chromosome-table order
     /// (karyotype by default; -g, a VCF header or --chrom-order set it),
-    /// whatever order the files hold them in. Chunks waiting to be written
-    /// share 128 MiB of memory and spill the rest to --tmp-dir. The output is
-    /// the same as with one thread.
+    /// whatever order the files hold them in. At most 8 runs are in flight
+    /// (more threads speed up BGZF); their output waiting to be written
+    /// shares 64 MiB of memory and the rest spills to --tmp-dir. The output
+    /// is the same as with one thread.
     #[command(after_long_help = "\
 Examples:
   gloci closest -a genes.bed -b peaks.bed --distance
@@ -517,9 +520,10 @@ Examples:
     /// more than one thread is used, the work runs on runs of chromosomes in
     /// parallel, which are read and written in the chromosome-table order
     /// (karyotype by default; -g, a VCF header or --chrom-order set it),
-    /// whatever order the files hold them in. Chunks waiting to be written
-    /// share 128 MiB of memory and spill the rest to --tmp-dir. The output is
-    /// the same as with one thread.
+    /// whatever order the files hold them in. At most 8 runs are in flight
+    /// (more threads speed up BGZF); their output waiting to be written
+    /// shares 64 MiB of memory and the rest spills to --tmp-dir. The output
+    /// is the same as with one thread.
     #[command(after_long_help = "\
 Examples:
   gloci map -a genes.bed -b scores.bedgraph -c 4:mean
@@ -566,9 +570,10 @@ Examples:
     /// more than one thread is used, the work runs on runs of chromosomes in
     /// parallel, which are read and written in the chromosome-table order
     /// (karyotype by default; -g, a VCF header or --chrom-order set it),
-    /// whatever order the files hold them in. Chunks waiting to be written
-    /// share 128 MiB of memory and spill the rest to --tmp-dir. The output is
-    /// the same as with one thread.
+    /// whatever order the files hold them in. At most 8 runs are in flight
+    /// (more threads speed up BGZF); their output waiting to be written
+    /// shares 64 MiB of memory and the rest spills to --tmp-dir. The output
+    /// is the same as with one thread.
     #[command(after_long_help = "\
 Examples:
   gloci coverage -a genes.bed -b reads.bed

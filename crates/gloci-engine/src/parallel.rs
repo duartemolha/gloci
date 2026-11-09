@@ -46,7 +46,12 @@ pub fn all_indexed(paths: &[&str]) -> bool {
 /// The memory every in-flight chunk together may hold before spilling to
 /// `--tmp-dir` (D41 as amended): each chunk gets this divided by the chunks
 /// in flight, at least [`MIN_CHUNK_MEM`].
-pub const CHUNK_MEM_BUDGET: usize = 128 << 20;
+pub const CHUNK_MEM_BUDGET: usize = 64 << 20;
+/// The most chunks in flight, whatever the thread count: each one is a
+/// sweep with its own read buffers (about 12 MiB), so this and the budget
+/// bound indexed-mode memory near 64 MiB + 8 x 12 MiB. Threads beyond it
+/// still decompress and compress BGZF.
+pub const MAX_CHUNKS_IN_FLIGHT: usize = 8;
 /// The least a chunk keeps in memory.
 pub const MIN_CHUNK_MEM: usize = 1 << 20;
 
@@ -76,8 +81,8 @@ fn panic_error(payload: Box<dyn std::any::Any + Send>) -> IoError {
 }
 
 /// Run `work` for each chunk job in `jobs` (a run of consecutive
-/// chromosomes, say) across up to `threads` workers, with at most `threads`
-/// chunks in flight, which share [`CHUNK_MEM_BUDGET`] of memory before they
+/// chromosomes, say) across `min(threads, MAX_CHUNKS_IN_FLIGHT)` workers,
+/// with that many chunks in flight, which share [`CHUNK_MEM_BUDGET`] of memory before they
 /// spill to `tmp_dir`. Finished chunks are drained to `out` in strict job
 /// order, and results come back in job order. When chunks fail, the error
 /// of the first failing job in job order is returned (whatever finished
@@ -94,7 +99,7 @@ pub fn run_chunks<J: Clone + Send + Sync, R: Send>(
     if jobs.is_empty() {
         return Ok(Vec::new());
     }
-    let in_flight = threads.get().min(jobs.len());
+    let in_flight = threads.get().min(MAX_CHUNKS_IN_FLIGHT).min(jobs.len());
     let mem_limit = chunk_mem_limit(in_flight);
     // One buffer per chunk in flight, reused from chunk to chunk: allocating
     // and freeing a buffer per chunk leaves freed buffers resident in the

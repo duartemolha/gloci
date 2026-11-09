@@ -561,9 +561,9 @@ fn index_2gib_bed_gz_rss() {
     );
 }
 
-/// I7: per-chromosome mode on indexed inputs keeps every in-flight chunk
-/// within one 128 MiB budget, so `-t 8` stays under the streaming ceiling
-/// even though `--mode pairs` writes more than it reads.
+/// I7: per-chromosome mode on indexed inputs runs at most 8 chunks at once,
+/// sharing one 64 MiB budget, so `-t 8` and `-t 16` stay under the 200 MB
+/// ceiling even though `--mode pairs` writes more than it reads.
 #[test]
 #[ignore = "nightly: generates large file"]
 fn intersect_indexed_2gib_rss() {
@@ -589,23 +589,28 @@ fn intersect_indexed_2gib_rss() {
         let st = Command::new(gloci_bin()).args(&args).status().unwrap();
         assert!(st.success(), "{what} failed");
     }
-    let t0 = std::time::Instant::now();
-    let child = Command::new(gloci_bin())
-        .args(["intersect", "--mode", "pairs", "-t", "8", "-a"])
-        .arg(&a)
-        .arg("-b")
-        .arg(&b)
-        .arg("--tmp-dir")
-        .arg(d.path())
-        .stdout(Stdio::null())
-        .spawn()
-        .unwrap();
-    let (ok, rss) = wait_rss(&child);
-    eprintln!(
-        "intersect indexed -t 8 large: {:.1}s, peak RSS {} MiB",
-        t0.elapsed().as_secs_f64(),
-        rss / MIB
-    );
-    assert!(ok, "gloci intersect (indexed) failed");
-    assert!(rss <= 200_000_000, "peak RSS {} bytes exceeds 200 MB", rss);
+    for threads in ["8", "16"] {
+        let t0 = std::time::Instant::now();
+        let child = Command::new(gloci_bin())
+            .args(["intersect", "--mode", "pairs", "-t", threads, "-a"])
+            .arg(&a)
+            .arg("-b")
+            .arg(&b)
+            .arg("--tmp-dir")
+            .arg(d.path())
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        let (ok, rss) = wait_rss(&child);
+        eprintln!(
+            "intersect indexed -t {threads} large: {:.1}s, peak RSS {} MiB",
+            t0.elapsed().as_secs_f64(),
+            rss / MIB
+        );
+        assert!(ok, "gloci intersect (indexed, -t {threads}) failed");
+        assert!(
+            rss <= 200_000_000,
+            "-t {threads}: peak RSS {rss} bytes exceeds 200 MB"
+        );
+    }
 }
