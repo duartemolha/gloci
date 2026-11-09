@@ -598,9 +598,8 @@ xtask/         benchmark runner, differential-test runner, synthetic data genera
   - Pathological depth, such as a whole-chromosome feature against everything, is documented, and the active set must stay correct when it happens.
 - **One core intersection primitive (P1) [you, 2026-11-07, after reviewing bedder-rs].** The engine emits, for each A record, every overlapping B record tagged by its source file. Optionally it also emits the n nearest B within a maximum distance. `intersect`, `subtract`, `closest`, `map` and `coverage` are reporting layers over this one sweep, not separate algorithms.
   - Internally, what to report is described by a "piece" model, after bedder's `--a-piece`/`--b-piece`: whole A, the overlapping piece, the inverse piece (which is `subtract`), or none. The user-facing `--mode` flags in Section 7 map onto it.
-- **Unsorted mode** loads one side into a cache-friendly interval index per chromosome. The preferred index is `coitrees`: pure Rust, with SIMD on AVX2 and on ARM NEON. The builder may swap it with benchmark evidence (a cgranges-style implicit tree, `rust-lapper`, superintervals). Because coitrees intervals are end-inclusive integers with no zero-length intervals, it is used only to generate candidates:
+- **Unsorted mode** loads one side into a cache-friendly interval index per chromosome. The index is `rust-lapper` (pure Rust, generic over 64-bit coordinates). It was chosen by benchmark in P2a over `coitrees`, superintervals and a cgranges-style tree. **[revised 2026-11-09, D61]** Intervals are stored end-inclusive (`[start, end+1)`), so the index is used only to generate candidates:
   - Queries are widened by one base on each side, and every candidate is re-tested with Section 4.3's exact rules. Points and bookended intervals therefore behave exactly as in sorted mode.
-  - Chromosomes with coordinates beyond the index's integer range fall back to a 64-bit implementation.
   - When the streamed side happens to be sorted, the index's sorted-query mode is used.
 
 ### 8.3 Parallelism
