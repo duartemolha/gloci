@@ -375,8 +375,8 @@ impl Accumulators {
 
     /// Fold one overlapping record (`raw` is its text line, `overlap_bases`
     /// its overlap with the current A record). Missing values (`.`, empty, an
-    /// absent column or INFO key) are skipped by every op except `count`,
-    /// which counts records.
+    /// absent INFO key) are skipped by every op except `count`, which counts
+    /// records. A column past the end of the line is a parse error.
     pub fn add(
         &mut self,
         raw: &[u8],
@@ -443,7 +443,29 @@ impl Accumulators {
             }
             let value = match &agg.src {
                 Src::Whole => continue,
-                Src::Col(i) => field(raw, *i),
+                Src::Col(i) => match field(raw, *i) {
+                    Some(v) => Some(v),
+                    None => {
+                        return Err(IoError::Parse {
+                            path: file.to_string(),
+                            loc: Loc::Line(line),
+                            msg: format!(
+                                "column {} ({}) is missing: the line has {} tab-separated \
+                                 column{}; check the column number and that the file is \
+                                 tab-separated (an empty value or `.` is skipped, a missing \
+                                 column is an error)",
+                                agg.col_text,
+                                agg.label,
+                                gloci_io::column_count(raw),
+                                if gloci_io::column_count(raw) == 1 {
+                                    ""
+                                } else {
+                                    "s"
+                                }
+                            ),
+                        });
+                    }
+                },
                 Src::Info(key) => field(raw, VCF_INFO_COL).and_then(|i| info_value(i, key)),
             };
             let Some(v) = value.filter(|v| !is_missing(v)) else {

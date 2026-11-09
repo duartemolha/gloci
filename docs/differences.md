@@ -485,21 +485,36 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **gloci:** with `--header` the first line names the columns, so `-g` and `-c`
   accept names, and the output starts with a line holding the key names (with the
   input's leading `#`, if it had one) and the `-c` labels as typed, such as
-  `#gene` and `expr:sum`.
-- **Old behaviour:** `bedtools groupby -header` copies the input header line
-  unchanged and does not accept names, so the header has the input's columns
-  over the output's.
+  `#gene` and `expr:sum`. Only line 1 is the header: later lines that start with
+  `#` are comments and are skipped.
+- **Old behaviour:** `bedtools groupby -header` copies the input header lines
+  unchanged (every leading `#` line) and does not accept names, so the header has
+  the input's columns over the output's.
 - **Reason:** the copied header names columns that are no longer there.
 - **Pinned by:** `groupby-header-vs-bedtools` (must differ).
 
-## `groupby` fails on a line without the key column {#groupby-missing-column}
+## A missing column is an error, not a message and exit 0 {#groupby-missing-column}
 
-- **gloci:** a line with fewer tab-separated columns than `-g` needs is an error
-  naming the line, with exit status 1.
+- **gloci:** a line with fewer tab-separated columns than a `-g` key or a `-c`
+  column needs is an error naming the file, the line, the column and the line's
+  column count, with exit status 1. An empty value or `.` is still a missing
+  value and is skipped. `map -c` does the same for a B line.
 - **Old behaviour:** `bedtools groupby` prints a message that names the column
   but not the line, stops with the output so far, and exits 0.
 - **Reason:** a pipeline must not take truncated output for a result.
-- **Pinned by:** `groupby-missing-column-vs-bedtools` (must differ, by exit status).
+- **Pinned by:** `groupby-missing-column-vs-bedtools` and
+  `groupby-absent-column-vs-bedtools` (must differ, by exit status).
+  `map-absent-column-vs-bedtools` matches: both tools fail.
+
+## A value that is not a number is an error in `map` and `groupby` {#agg-non-numeric}
+
+- **gloci:** a numeric op (`sum`, `mean`, `median`, ...) given a value that is
+  not a number stops with an error naming the file, line and value.
+- **Old behaviour:** `bedtools map` and `bedtools groupby` print a warning, skip
+  the value and exit 0.
+- **Reason:** skipping hides bad data, such as a header line read as data.
+- **Pinned by:** `groupby-non-numeric-vs-bedtools` and
+  `map-non-numeric-vs-bedtools` (must differ, by exit status).
 
 ## `map` prints the empty value, not `NAN`, for no values {#map-empty-value}
 

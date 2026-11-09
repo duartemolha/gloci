@@ -442,3 +442,27 @@ fn split_bases_uniq_and_frac_a_use_the_blocks_of_a() {
         .collect();
     assert_eq!(tails, ["10\t0.5", "90\t0.9", "90\t0.9"], "{got:?}");
 }
+
+#[test]
+fn a_c_column_past_the_end_of_a_b_line_is_an_error() {
+    let fx = Fx::new();
+    let (a, b) = (
+        fx.file("a.bed", "chr1\t0\t100\n"),
+        fx.file("b.bed", "chr1\t10\t20\tx\t5\nchr1\t30\t40\ty\n"),
+    );
+    gloci()
+        .args(["map", "-a", &a, "-b", &b, "-c", "5:sum"])
+        .assert()
+        .code(1)
+        .stderr(contains("line 2").and(contains("column 5")));
+    // an empty value is still missing
+    let b2 = fx.file("b2.bed", "chr1\t10\t20\tx\t5\nchr1\t30\t40\ty\t\n");
+    assert_eq!(
+        gloci()
+            .args(["map", "-a", &a, "-b", &b2, "-c", "5:sum"])
+            .output()
+            .unwrap()
+            .stdout,
+        b"chr1\t0\t100\t5\n"
+    );
+}

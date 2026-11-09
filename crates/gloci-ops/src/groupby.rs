@@ -54,10 +54,13 @@ pub struct GroupbyOptions {
     pub delim: String,
 }
 
-/// Lines `groupby` passes over: blank lines, `#` comments and UCSC
+/// Lines `groupby` passes over: blank or whitespace-only lines, `#` comments and UCSC
 /// `track`/`browser` lines (all skipped by bedtools too).
 fn is_skipped(line: &[u8]) -> bool {
-    line.is_empty() || line[0] == b'#' || line.starts_with(b"track") || line.starts_with(b"browser")
+    line.iter().all(u8::is_ascii_whitespace)
+        || line[0] == b'#'
+        || line.starts_with(b"track")
+        || line.starts_with(b"browser")
 }
 
 /// Read the next line without its `\n` or `\r\n`; false at end of input.
@@ -169,6 +172,7 @@ pub fn groupby(
     let mut key: Vec<u8> = Vec::new();
     let mut cur: Vec<u8> = Vec::new();
     let mut in_group = false;
+    let mut first_data_line = None;
     let mut row: Vec<u8> = Vec::new();
     while next_line(input, &mut buf, name, &mut line_no)? {
         if is_skipped(&buf) {
@@ -202,7 +206,19 @@ pub fn groupby(
             std::mem::swap(&mut cur, &mut key);
             in_group = true;
         }
-        acc.add(&buf, 0, name, line_no)?;
+        let first = *first_data_line.get_or_insert(line_no);
+        acc.add(&buf, 0, name, line_no).map_err(|e| match e {
+            IoError::Parse {
+                path,
+                loc: Loc::Line(n),
+                msg,
+            } if n == first && !o.header && msg.contains("is not a number") => IoError::Parse {
+                path,
+                loc: Loc::Line(n),
+                msg: format!("{msg}; if the first line is a header, pass --header"),
+            },
+            e => e,
+        })?;
     }
     if in_group {
         flush(&mut acc, &cur, &mut row, out, dest)?;

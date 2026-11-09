@@ -2421,3 +2421,47 @@ gloci = "gloci groupby input.tsv -g 2 -c 1:count"
 reference = "bedtools groupby -i input.tsv -g 2 -c 1 -o count"
 compare = "exit-status"
 expected_difference = "#groupby-missing-column"
+
+# A `-c` column past the end of a line is an error in gloci; bedtools groupby reports it and exits 0.
+[[case]]
+name = "groupby-absent-column-vs-bedtools"
+input = { file = "xtask/diff/inputs/groupby-absent.tsv" }
+gloci = "gloci groupby input.tsv -g 1 -c 2:sum"
+reference = "bedtools groupby -i input.tsv -g 1 -c 2 -o sum"
+compare = "exit-status"
+expected_difference = "#groupby-missing-column"
+
+# bedtools map rejects a B file whose lines differ in width; gloci rejects the line that lacks the column. Both fail.
+[[case]]
+name = "map-absent-column-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-ragged-a.bed" }
+aux = ["xtask/diff/inputs/map-ragged-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-ragged-b.bed -c 5:sum"
+reference = "bedtools map -a input.bed -b map-ragged-b.bed -c 5 -o sum"
+compare = "exit-status"
+
+# A value that is not a number: bedtools warns, skips it and exits 0; gloci stops with the line.
+[[case]]
+name = "groupby-non-numeric-vs-bedtools"
+input = { file = "xtask/diff/inputs/groupby-nonnum.tsv" }
+gloci = "gloci groupby input.tsv -g 1 -c 2:sum"
+reference = "bedtools groupby -i input.tsv -g 1 -c 2 -o sum"
+compare = "exit-status"
+expected_difference = "#agg-non-numeric"
+
+[[case]]
+name = "map-non-numeric-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-ragged-a.bed" }
+aux = ["xtask/diff/inputs/map-nonnum-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-nonnum-b.bed -c 5:sum"
+reference = "bedtools map -a input.bed -b map-nonnum-b.bed -c 5 -o sum"
+compare = "exit-status"
+expected_difference = "#agg-non-numeric"
+
+# An integer -0 keeps its sign in min, max and median, as in bedtools.
+[[case]]
+name = "groupby-negative-zero-vs-bedtools"
+input = { file = "xtask/diff/inputs/groupby-negzero.tsv" }
+gloci = "gloci groupby input.tsv -g 1 -c 2:min,2:max,2:median,2:sum"
+reference = "bedtools groupby -i input.tsv -g 1 -c 2,2,2,2 -o min,max,median,sum"
+compare = "exact"

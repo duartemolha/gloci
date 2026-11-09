@@ -294,7 +294,7 @@ Aggregate columns over runs of lines with equal keys (bedtools groupby).
 
 Reads any tab-separated text, BED included, and groups consecutive lines whose -g key columns are equal; the input does not have to be sorted, and a key that comes back later starts a new group (as in bedtools groupby; sort first to get one group per key). Each group writes its key columns, exactly as in its first line, followed by one column per -c COL:OP, with the ops of map (count, count_distinct, sum, mean, median, min, max, stdev, var, stdev_pop, var_pop, collapse, distinct, distinct_sorted, first, last, indicator, cv, mad, quantile:Q, tmean:LO-HI, mode, antimode); the ops that need a second input (wmean, records, min_record, max_record, frac_*, bases_uniq, bases) are for map. Blank lines, `#` lines and track/browser lines are skipped. A line with fewer columns than -g needs is an error naming the line.
 
-With --header the first line names the columns: -g and -c may use the names, and the output starts with a line holding the key names and the -c labels (bedtools -header copies the input header unchanged). VCF and BCF input is refused; extract the fields first with gloci vcf extract.
+With --header the first line names the columns: -g and -c may use the names, and the output starts with a line holding the key names and the -c labels (bedtools -header copies the input header unchanged). VCF and BCF input is refused; extract the fields first with gloci vcf extract. --threads is accepted for uniformity with the other commands; groupby runs on a single thread.
 
 ```sh
 gloci groupby scores.bed -g 1,2 -c 5:sum -c 5:mean
@@ -376,7 +376,7 @@ Every row below was checked against `gloci <cmd> --help`.
 | `bed12tobed6 -i FILE` | `gloci convert FILE --blocks` |
 | `genomecov` | not yet available (`genomecov`, P2) |
 | `multiinter`, `unionbedg` | not yet available (`partition`, `partition --bedgraph`, P2) |
-| `groupby -g -c -o [-header]` | `gloci groupby FILE -g COLS -c/--column COL:OP` (`--header`, `--delim`, `--empty`; same ops as `map` except those that need a second input; VCF input is refused, use `gloci vcf extract`) |
+| `groupby -g -c -o [-header]` | `gloci groupby FILE -g COLS -c/--column COL:OP` (bedtools `-o OP` becomes the `:OP` of `-c COL:OP`, and gloci's `-o` is the output file; `--header`, `--delim`, `--empty`; same ops as `map` except those that need a second input; VCF input is refused, use `gloci vcf extract`) |
 | `cluster` | not yet available (`cluster`, P2) |
 | `shift` | not yet available (`shift`, P3) |
 | `bamtobed` | not yet available (`convert`, P3) |

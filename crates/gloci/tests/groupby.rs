@@ -278,3 +278,67 @@ fn identical_for_every_thread_count() {
         assert_eq!(fx.run(&text, &args(t)), one, "--threads {t}");
     }
 }
+
+#[test]
+fn whitespace_only_lines_are_skipped() {
+    let fx = Fx::new();
+    assert_eq!(
+        fx.run("k\t1\n\t\n  \nk\t2\n", &["-g", "1", "-c", "2:sum"]),
+        "k\t3\n"
+    );
+}
+
+#[test]
+fn only_line_one_is_the_header() {
+    let fx = Fx::new();
+    assert_eq!(
+        fx.run(
+            "#gene\tn\n#a comment\ng1\t1\n#another\ng1\t2\n",
+            &["--header", "-g", "gene", "-c", "n:sum"]
+        ),
+        "#gene\tn:sum\ng1\t3\n"
+    );
+}
+
+#[test]
+fn an_absent_c_column_is_an_error_but_empty_and_dot_are_missing() {
+    let fx = Fx::new();
+    let f = fx.path("k\t1\nk\t2\nk\n");
+    gloci()
+        .args(["groupby", &f, "-g", "1", "-c", "2:sum"])
+        .assert()
+        .code(1)
+        .stderr(
+            contains("line 3")
+                .and(contains("column 2"))
+                .and(contains("line has 1 tab-separated column")),
+        );
+    let g = fx.path("k\t1\nk\t\nk\t.\n");
+    gloci()
+        .args(["groupby", &g, "-g", "1", "-c", "2:sum,2:count"])
+        .assert()
+        .success()
+        .stdout("k\t1\t3\n");
+}
+
+#[test]
+fn a_non_numeric_value_is_an_error_with_a_header_hint_on_the_first_line() {
+    let fx = Fx::new();
+    let f = fx.path("k\tn\nk\t2\n");
+    gloci()
+        .args(["groupby", &f, "-g", "1", "-c", "2:sum"])
+        .assert()
+        .code(1)
+        .stderr(contains("line 1").and(contains("if the first line is a header, pass --header")));
+    gloci()
+        .args(["groupby", &f, "--header", "-g", "k", "-c", "n:sum"])
+        .assert()
+        .success()
+        .stdout("k\tn:sum\nk\t2\n");
+    let g = fx.path("k\t1\nk\tx\n");
+    gloci()
+        .args(["groupby", &g, "-g", "1", "-c", "2:sum"])
+        .assert()
+        .code(1)
+        .stderr(contains("line 2").and(contains("--header").not()));
+}

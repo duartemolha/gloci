@@ -152,7 +152,7 @@ Every row below was checked against `gloci <cmd> --help`.
 | `bed12tobed6 -i FILE` | `gloci convert FILE --blocks` |
 | `genomecov` | not yet available (`genomecov`, P2) |
 | `multiinter`, `unionbedg` | not yet available (`partition`, `partition --bedgraph`, P2) |
-| `groupby -g -c -o [-header]` | `gloci groupby FILE -g COLS -c/--column COL:OP` (`--header`, `--delim`, `--empty`; same ops as `map` except those that need a second input; VCF input is refused, use `gloci vcf extract`) |
+| `groupby -g -c -o [-header]` | `gloci groupby FILE -g COLS -c/--column COL:OP` (bedtools `-o OP` becomes the `:OP` of `-c COL:OP`, and gloci's `-o` is the output file; `--header`, `--delim`, `--empty`; same ops as `map` except those that need a second input; VCF input is refused, use `gloci vcf extract`) |
 | `cluster` | not yet available (`cluster`, P2) |
 | `shift` | not yet available (`shift`, P3) |
 | `bamtobed` | not yet available (`convert`, P3) |
@@ -306,9 +306,13 @@ Every row below was checked against `gloci <cmd> --help`.
   line and lets `-g` and `-c` use names, where `bedtools groupby -header` copies
   the input header unchanged.
   [differences.md#groupby-header](differences.md#groupby-header)
-- **`groupby` on a short line:** a line without the key column is an error naming
-  the line (exit 1); `bedtools groupby` stops with partial output and exits 0.
+- **A missing column in `groupby` and `map`:** a line without a `-g` or `-c` column
+  is an error naming the line (exit 1); `bedtools groupby` stops with partial
+  output and exits 0.
   [differences.md#groupby-missing-column](differences.md#groupby-missing-column)
+- **Non-numeric values in `map` and `groupby`:** a value that is not a number in
+  a numeric op is an error naming the line; bedtools warns, skips it and exits 0.
+  [differences.md#agg-non-numeric](differences.md#agg-non-numeric)
 - **Empty placeholder in `map`:** An aggregation with no values prints `--empty`
   (default `.`), not `bedmap`'s `NAN`.
   [differences.md#map-empty-value](differences.md#map-empty-value)

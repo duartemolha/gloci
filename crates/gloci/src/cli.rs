@@ -625,7 +625,8 @@ Examples:
     /// names, and the output starts with a line holding the key names and
     /// the -c labels (bedtools -header copies the input header unchanged).
     /// VCF and BCF input is refused; extract the fields first with gloci vcf
-    /// extract.
+    /// extract. --threads is accepted for uniformity with the other commands;
+    /// groupby runs on a single thread.
     #[command(after_long_help = "\
 Examples:
   gloci groupby scores.bed -g 1,2 -c 5:sum -c 5:mean

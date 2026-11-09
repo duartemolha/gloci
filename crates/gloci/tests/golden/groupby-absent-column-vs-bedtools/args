@@ -1,0 +1,1 @@
+groupby input.tsv -g 1 -c 2:sum
