@@ -374,6 +374,67 @@ fn unsorted_and_sort_keep_working_with_regions() {
     }
 }
 
+/// Indexed A and indexed B under `--unsorted` and `--sort` at `-t 4`: A is
+/// restricted, B is read in full.
+#[test]
+fn indexed_a_and_b_under_unsorted_and_sort() {
+    let fx = Fx::new();
+    let regions = [("chr1", 0, 50), ("chr2", 99, 500)];
+    let rf = fx.regions_file(&regions);
+    let a_filtered = fx.filtered_a(&regions, false);
+    for name in COMMANDS {
+        for flag in ["--unsorted", "--sort"] {
+            let mut args = cmd(name, &fx.a_idx, &fx.b_idx, "4");
+            args.extend(strs(&["--regions-file", &rf, flag]));
+            let mut want = cmd(name, &a_filtered, &fx.b_plain, "1");
+            want.push(flag.into());
+            assert_eq!(
+                String::from_utf8_lossy(&run(&args)),
+                String::from_utf8_lossy(&run(&want)),
+                "{name} {flag}"
+            );
+        }
+    }
+}
+
+/// A regions file listing regions out of order, with repeats and overlaps,
+/// selects each A record once, in A's order.
+#[test]
+fn regions_file_out_of_order_and_repeated() {
+    let fx = Fx::new();
+    let ordered = [("chr1", 0, 50), ("chr2", 99, 500), ("chr3", 0, 60)];
+    let messy = [
+        ("chr3", 0, 60),
+        ("chr2", 99, 500),
+        ("chr1", 0, 50),
+        ("chr2", 99, 500),
+        ("chr3", 0, 60),
+        ("chr1", 10, 20),
+    ];
+    let (rf_ordered, rf_messy) = (fx.regions_file(&ordered), {
+        let t: String = messy
+            .iter()
+            .map(|(c, a, b)| format!("{c}\t{a}\t{b}\n"))
+            .collect();
+        s(&plain_file(fx.dir.path(), "messy.bed", &t))
+    });
+    for name in COMMANDS {
+        for (a, b) in [(&fx.a_plain, &fx.b_plain), (&fx.a_idx, &fx.b_idx)] {
+            for t in ["1", "4"] {
+                let mut want = cmd(name, a, b, "1");
+                want.extend(strs(&["--regions-file", &rf_ordered]));
+                let mut args = cmd(name, a, b, t);
+                args.extend(strs(&["--regions-file", &rf_messy]));
+                assert_eq!(
+                    String::from_utf8_lossy(&run(&args)),
+                    String::from_utf8_lossy(&run(&want)),
+                    "{name} a={a} t={t}"
+                );
+            }
+        }
+    }
+}
+
 fn map_file(fx: &Fx) -> String {
     s(&plain_file(fx.dir.path(), "map.tsv", "1\tchr1\n2\tchr2\n"))
 }

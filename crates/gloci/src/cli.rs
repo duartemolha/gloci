@@ -796,6 +796,7 @@ pub enum IntersectMatch {
 }
 
 #[derive(Args)]
+#[command(mut_arg("region", |a| a.help(RELATION_REGION_HELP)))]
 pub struct IntersectArgs {
     #[command(flatten)]
     pub a: AArg,
@@ -848,6 +849,7 @@ pub struct IntersectArgs {
 }
 
 #[derive(Args)]
+#[command(mut_arg("region", |a| a.help(RELATION_REGION_HELP)))]
 pub struct SubtractArgs {
     #[command(flatten)]
     pub a: AArg,
@@ -907,6 +909,7 @@ pub enum ClosestTies {
 }
 
 #[derive(Args)]
+#[command(mut_arg("region", |a| a.help(RELATION_REGION_HELP)))]
 pub struct ClosestArgs {
     #[command(flatten)]
     pub a: AArg,
@@ -982,6 +985,7 @@ pub struct ClosestArgs {
 }
 
 #[derive(Args)]
+#[command(mut_arg("region", |a| a.help(RELATION_REGION_HELP)))]
 pub struct CoverageArgs {
     #[command(flatten)]
     pub a: AArg,
@@ -1493,6 +1497,7 @@ pub struct VcfFilterArgs {
 }
 
 #[derive(Args)]
+#[command(mut_arg("region", |a| a.help(RELATION_REGION_HELP)))]
 pub struct MapArgs {
     #[command(flatten)]
     pub a: AArg,
@@ -2320,12 +2325,13 @@ pub struct TmpDirArg {
     pub tmp_dir: Option<PathBuf>,
 }
 
+/// `--region` help in a relation command, where only A is restricted
+/// (applied with `mut_arg` on each relation command's args).
+const RELATION_REGION_HELP: &str = "Restrict A to a region such as chr1:1,000-2,000 (repeatable). Only A is restricted, to the records that overlap a region (a point on the edge with --inclusive-points); B is read in full, so an A record reaching out of a region still meets B there.";
+
 #[derive(Args, Debug, Clone)]
 pub struct RegionArgs {
-    /// Restrict to a region such as chr1:1,000-2,000 (repeatable). In a
-    /// relation command only A is restricted, to the records that overlap a
-    /// region (a point on the edge with --inclusive-points); B is read in
-    /// full, so an A record reaching out of a region still meets B there.
+    /// Restrict to a region such as chr1:1,000-2,000 (repeatable).
     #[arg(long, value_name = "REGION")]
     pub region: Vec<String>,
     /// Read regions from FILE (BED: 0-based, half-open); see --region.

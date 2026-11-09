@@ -542,6 +542,48 @@ fn lapper_points_and_bookends() {
     assert_eq!(names(&seen[10]), ["hspan", "hp2"]);
 }
 
+/// A coordinate anywhere in u64: small, mid, around 2^32 and 2^63, and at
+/// the top.
+fn wide_coord() -> impl Strategy<Value = u64> {
+    prop_oneof![
+        3 => 0u64..200,
+        1 => (u32::MAX as u64 - 5)..(u32::MAX as u64 + 300),
+        1 => (1u64 << 63) - 5..(1u64 << 63) + 300,
+        1 => (u64::MAX - 300)..=u64::MAX,
+    ]
+}
+
+/// A record whose end is `start` plus a length that is sometimes huge
+/// (clamped to u64::MAX): the lapper `max_len` path.
+fn wide_rec(chrom: &'static str) -> impl Strategy<Value = TestRec> {
+    let len = prop_oneof![
+        4 => 0u64..60,
+        1 => Just(u64::MAX),
+        1 => (1u64 << 62)..(1u64 << 63),
+    ];
+    (wide_coord(), len, prop::sample::select(vec!['+', '-', '.'])).prop_map(
+        move |(start, len, strand)| rec(chrom, start, start.saturating_add(len), strand, "w"),
+    )
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(128))]
+
+    /// u64-range coordinates, B with spans as long as u64, and A both in
+    /// sorted order (seek cursors, including a seek to `hi == u64::MAX`)
+    /// and unsorted: the unsorted sweep equals the brute-force answer.
+    #[test]
+    fn unsorted_u64_range(
+        a in prop::collection::vec(prop_oneof![wide_rec("chr1"), wide_rec("chr2")], 0..16),
+        b in prop::collection::vec(prop_oneof![wide_rec("chr1"), wide_rec("chr2")], 0..16),
+    ) {
+        let mut sorted = a.clone();
+        sorted.sort_by(|x, y| (x.chrom.as_str(), x.start).cmp(&(y.chrom.as_str(), y.start)));
+        check_fixed(&sorted, &b);
+        check_fixed(&a, &b);
+    }
+}
+
 #[test]
 fn sorted_seek_switch() {
     // Overlapping, nested and bookended B on chr1 and chr2, unsorted.

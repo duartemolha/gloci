@@ -168,13 +168,13 @@ enum Step {
 }
 
 impl AOrder {
-    fn next(&mut self, chrom: ChromId, key: u64) -> Step {
+    fn next(&mut self, chrom: ChromId, lo: u64) -> Step {
         if !self.sorted {
             return Step::Unsorted;
         }
         let step = match self.last {
             Some((c, k)) if c == chrom => {
-                if key >= k {
+                if lo >= k {
                     Step::Same
                 } else {
                     Step::OutOfOrder
@@ -193,7 +193,7 @@ impl AOrder {
             }
         };
         self.sorted = step != Step::OutOfOrder;
-        self.last = Some((chrom, key));
+        self.last = Some((chrom, lo));
         step
     }
 }

@@ -334,10 +334,6 @@ fn select(
     let src = if wanted.is_empty() {
         Src::Empty
     } else if let (Some(p), Some(_)) = (file, &index) {
-        log::debug!(
-            "reading {name} through its index for {} region(s)",
-            wanted.len()
-        );
         Src::Indexed(open_region_reader(p, &wanted, ro, opts.inclusive_points)?)
     } else if let Some(p) = file.filter(|_| {
         opts.assume_sorted
