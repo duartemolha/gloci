@@ -241,6 +241,16 @@ gloci = "set -e; gloci view -O bcf input.vcf -o g.bcf; bcftools view -H g.bcf"
 reference = "set -e; bcftools view -Ob -o t.bcf input.vcf; bcftools view -H t.bcf"
 compare = "exact"
 
+# The risky GT encoder paths: alleles of 63 and more (int16), GT after another
+# FORMAT field, mixed ploidy, phase on missing alleles, samples cut short.
+# The same input is the byte-parity fixture in crates/gloci/tests/bcf-gt-parity.
+[[case]]
+name = "vcf-to-bcf-gt-encoding-vs-bcftools"
+input = { file = "xtask/diff/inputs/bcf-gt-encoding.vcf" }
+gloci = "set -e; gloci view -O bcf input.vcf -o g.bcf; bcftools view -H g.bcf"
+reference = "set -e; bcftools view -Ob -o t.bcf input.vcf; bcftools view -H t.bcf"
+compare = "exact"
+
 [[case]]
 name = "sort-bed-points-vs-sort-bed"
 input = { file = "xtask/diff/inputs/ties.bed" }

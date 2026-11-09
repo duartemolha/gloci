@@ -9,7 +9,7 @@
 //! (`BcfDicts`), so the header text and the records always agree.
 
 use crate::bcf::{BcfDicts, typed, write_bcf_header};
-use crate::bcf_encode::encode_gt;
+use crate::bcf_encode::GtEncoder;
 use crate::detect::Format;
 use crate::error::{IoError, Loc};
 use crate::output::{OutFormat, Output};
@@ -104,6 +104,10 @@ struct Converter {
     gt_key: Option<usize>,
     /// The record with its GT values blanked, reused between records.
     scratch: Vec<u8>,
+    /// The spliced record and the encoded GT block, reused between records.
+    spliced: Vec<u8>,
+    block: Vec<u8>,
+    gt_enc: GtEncoder,
 }
 
 impl Converter {
@@ -136,6 +140,9 @@ impl Converter {
             enc,
             gt_key,
             scratch: Vec::new(),
+            spliced: Vec::new(),
+            block: Vec::new(),
+            gt_enc: GtEncoder::default(),
         })
     }
 
@@ -184,17 +191,26 @@ add ##contig=<ID={c}> to the header"
         }
         match (gt, self.gt_key) {
             (Some(gt), Some(key)) => {
-                let spliced = splice_gt(w.get_ref(), key, raw, gt);
+                let spliced = splice_gt(
+                    w.get_ref(),
+                    key,
+                    raw,
+                    gt,
+                    &mut self.gt_enc,
+                    &mut self.block,
+                    &mut self.spliced,
+                );
                 w.get_mut().clear();
-                let bytes = spliced.map_err(|msg| IoError::Parse {
+                spliced.map_err(|msg| IoError::Parse {
                     path: self.name.clone(),
                     loc,
                     msg,
                 })?;
-                out.write_all(&bytes).map_err(|source| IoError::Write {
-                    path: "output".to_string(),
-                    source,
-                })?;
+                out.write_all(&self.spliced)
+                    .map_err(|source| IoError::Write {
+                        path: "output".to_string(),
+                        source,
+                    })?;
             }
             _ => {
                 out.write_all(w.get_ref())
@@ -326,6 +342,7 @@ fn blank_gt(raw: &[u8], scratch: &mut Vec<u8>) -> Option<GtPos> {
     scratch.extend_from_slice(&raw[..samples_at]);
     for sample in raw[samples_at + 1..].split(|&b| b == b'\t') {
         scratch.push(b'\t');
+        let mut seen = 0;
         for (k, f) in sample.split(|&b| b == b':').enumerate() {
             if k > 0 {
                 scratch.push(b':');
@@ -335,25 +352,39 @@ fn blank_gt(raw: &[u8], scratch: &mut Vec<u8>) -> Option<GtPos> {
             } else {
                 scratch.extend_from_slice(f);
             }
+            seen = k + 1;
         }
-        // A sample with fewer subfields than the GT position has no GT.
+        // A sample cut short before its GT (a whole-sample `.` included) is
+        // padded up to GT with missing values: noodles cannot encode it
+        // otherwise, and its GT is a missing allele either way.
+        for k in seen..=gt {
+            scratch.push(b':');
+            scratch.extend_from_slice(if k == gt { b"./." } else { b"." });
+        }
     }
     Some(GtPos(gt))
 }
 
 /// The GT value text of every sample of `raw`.
-fn gt_values(raw: &[u8], gt: GtPos) -> Vec<&[u8]> {
+fn gt_values(raw: &[u8], gt: GtPos) -> impl Iterator<Item = &[u8]> {
     raw.split(|&b| b == b'\t')
         .skip(9)
-        .map(|s| s.split(|&b| b == b':').nth(gt.0).unwrap_or_default())
-        .collect()
+        .map(move |s| s.split(|&b| b == b':').nth(gt.0).unwrap_or_default())
 }
 
 /// Replaces the GT field of the framed BCF record `rec` (encoded with GT
 /// blanked) by the field encoded from the GT values of the text record
-/// `raw`, and returns the new framed record. `key` is the string
+/// `raw`, and writes the new framed record to `out`. `key` is the string
 /// dictionary index of `GT`.
-fn splice_gt(rec: &[u8], key: usize, raw: &[u8], gt: GtPos) -> Result<Vec<u8>, String> {
+fn splice_gt(
+    rec: &[u8],
+    key: usize,
+    raw: &[u8],
+    gt: GtPos,
+    enc: &mut GtEncoder,
+    block: &mut Vec<u8>,
+    out: &mut Vec<u8>,
+) -> Result<(), String> {
     const BAD: &str = "internal error: noodles wrote a malformed BCF record";
     let u32_at = |at: usize| -> Result<usize, String> {
         rec.get(at..at + 4)
@@ -373,10 +404,11 @@ fn splice_gt(rec: &[u8], key: usize, raw: &[u8], gt: GtPos) -> Result<Vec<u8>, S
         let body = indiv.len() - cur.len();
         let is_gt = matches!(k.int(0), Some(typed::Int::Value(v)) if v as usize == key);
         let (ty, n) = typed::read_descriptor(&mut cur).map_err(|_| BAD.to_string())?;
-        let len = n * ty.width() * n_samples;
-        if len > cur.len() {
-            return Err(BAD.into());
-        }
+        let len = n
+            .checked_mul(ty.width())
+            .and_then(|l| l.checked_mul(n_samples))
+            .filter(|&l| l <= cur.len())
+            .ok_or(BAD)?;
         cur = &cur[len..];
         if is_gt {
             span = Some((start, body, indiv.len() - cur.len()));
@@ -386,17 +418,17 @@ fn splice_gt(rec: &[u8], key: usize, raw: &[u8], gt: GtPos) -> Result<Vec<u8>, S
     let Some((_, body, end)) = span else {
         return Err(BAD.into());
     };
-    let mut block = Vec::new();
-    encode_gt(&gt_values(raw, gt), &mut block)
+    block.clear();
+    enc.encode(gt_values(raw, gt), block)
         .map_err(|e| format!("cannot write the GT field as BCF: {e}"))?;
     let new_indiv_len = l_indiv - (end - body) + block.len();
-    let mut out = Vec::with_capacity(rec.len() + block.len());
+    out.clear();
     out.extend_from_slice(&rec[..4]);
     out.extend_from_slice(&(new_indiv_len as u32).to_le_bytes());
     out.extend_from_slice(&rec[8..indiv_at + body]);
-    out.extend_from_slice(&block);
+    out.extend_from_slice(block);
     out.extend_from_slice(&rec[indiv_at + end..]);
-    Ok(out)
+    Ok(())
 }
 
 /// Encodes VCF text records as BCF records against a header, for commands

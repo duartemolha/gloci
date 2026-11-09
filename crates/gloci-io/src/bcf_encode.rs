@@ -14,18 +14,45 @@
 /// are padded with the end-of-vector value. The element width is the
 /// smallest of int8, int16 and int32 that holds every value.
 ///
-/// A bare `.` or an empty value is one missing allele. A VCF 4.4 leading
-/// separator (`|0|1`) is accepted and carries no information of its own.
+/// A bare `.` or an empty value (no GT for the sample) is one missing allele. A VCF 4.4 leading
+/// separator (`|0|1`) is an error, as it is for bcftools 1.21.
 pub fn encode_gt(samples: &[&[u8]], out: &mut Vec<u8>) -> Result<(), String> {
-    let mut vals: Vec<i32> = Vec::with_capacity(samples.len() * 2);
-    let mut lens: Vec<usize> = Vec::with_capacity(samples.len());
-    let mut max_val = 0i32;
-    for (i, s) in samples.iter().enumerate() {
-        let before = vals.len();
-        parse_sample(s, &mut vals).map_err(|e| format!("sample {}: {e}", i + 1))?;
-        lens.push(vals.len() - before);
-        max_val = max_val.max(vals[before..].iter().copied().max().unwrap_or(0));
+    GtEncoder::default().encode(samples.iter().copied(), out)
+}
+
+/// [`encode_gt`] with its working buffers kept between calls, for encoding
+/// many records.
+#[derive(Default)]
+pub struct GtEncoder {
+    vals: Vec<i32>,
+    lens: Vec<usize>,
+}
+
+impl GtEncoder {
+    /// Appends the typed GT block of `samples` to `out`; see [`encode_gt`].
+    pub fn encode<'a>(
+        &mut self,
+        samples: impl Iterator<Item = &'a [u8]>,
+        out: &mut Vec<u8>,
+    ) -> Result<(), String> {
+        let (vals, lens) = (&mut self.vals, &mut self.lens);
+        vals.clear();
+        lens.clear();
+        let mut max_val = 0i32;
+        let mut n_samples = 0;
+        for (i, s) in samples.enumerate() {
+            let before = vals.len();
+            parse_sample(s, vals).map_err(|e| format!("sample {}: {e}", i + 1))?;
+            lens.push(vals.len() - before);
+            max_val = max_val.max(vals[before..].iter().copied().max().unwrap_or(0));
+            n_samples = i + 1;
+        }
+        write_block(vals, lens, max_val, n_samples, out);
+        Ok(())
     }
+}
+
+fn write_block(vals: &[i32], lens: &[usize], max_val: i32, n_samples: usize, out: &mut Vec<u8>) {
     let ploidy = lens.iter().copied().max().unwrap_or(0);
     let (code, width) = if max_val <= i8::MAX as i32 {
         (1u8, 1usize)
@@ -49,9 +76,9 @@ pub fn encode_gt(samples: &[&[u8]], out: &mut Vec<u8>) -> Result<(), String> {
             out.extend_from_slice(&(ploidy as i32).to_le_bytes());
         }
     }
-    out.reserve(samples.len() * ploidy * width);
+    out.reserve(n_samples * ploidy * width);
     let mut at = 0;
-    for &n in &lens {
+    for &n in lens {
         for j in 0..ploidy {
             if j < n {
                 put(out, code, vals[at + j]);
@@ -61,13 +88,21 @@ pub fn encode_gt(samples: &[&[u8]], out: &mut Vec<u8>) -> Result<(), String> {
         }
         at += n;
     }
-    Ok(())
 }
 
 /// End-of-vector values (int8, int16, int32).
 const END: [i32; 3] = [-127, -32767, i32::MIN + 1];
 
+/// Marks the integer-missing value in an encoded vector; `put` writes the
+/// minimum of the element width (-128, -32768 or `i32::MIN`).
+const INT_MISSING: i32 = i32::MIN;
+
 fn put(out: &mut Vec<u8>, code: u8, v: i32) {
+    let v = match (v, code) {
+        (INT_MISSING, 1) => i32::from(i8::MIN),
+        (INT_MISSING, 2) => i32::from(i16::MIN),
+        _ => v,
+    };
     match code {
         1 => out.push(v as i8 as u8),
         2 => out.extend_from_slice(&(v as i16).to_le_bytes()),
@@ -77,7 +112,14 @@ fn put(out: &mut Vec<u8>, code: u8, v: i32) {
 
 /// Append the encoded alleles of one sample's text GT to `vals`.
 fn parse_sample(v: &[u8], vals: &mut Vec<i32>) -> Result<(), String> {
-    if v.is_empty() || v == b"." {
+    // An empty value (a sample cut short before its GT) is written as htslib
+    // does: the first element is the integer-missing value, not the missing
+    // allele 0 that `.` gives, and readers see one missing allele either way.
+    if v.is_empty() {
+        vals.push(INT_MISSING);
+        return Ok(());
+    }
+    if v == b"." {
         vals.push(0);
         return Ok(());
     }
@@ -87,10 +129,15 @@ fn parse_sample(v: &[u8], vals: &mut Vec<i32>) -> Result<(), String> {
             String::from_utf8_lossy(v)
         )
     };
-    let mut rest = v;
-    if rest.len() > 1 && matches!(rest[0], b'|' | b'/') {
-        rest = &rest[1..];
+    // htslib (bcftools 1.21) rejects a VCF 4.4 leading separator, so the BCF
+    // writer refuses it too rather than guess at the first allele's phase.
+    if v.len() > 1 && matches!(v[0], b'|' | b'/') {
+        return Err(bad(
+            "starts with a phase separator, which BCF output (like bcftools 1.21) does not accept; \
+remove the leading separator, or write VCF output instead",
+        ));
     }
+    let mut rest = v;
     let mut phased = false;
     let mut first = true;
     loop {
@@ -153,10 +200,20 @@ mod tests {
     }
 
     #[test]
+    fn empty_gt_is_integer_missing_then_padding() {
+        // As htslib writes a sample cut short before its GT: 0x80, not 0.
+        assert_eq!(enc(&["0/1", ""]), [0x21, 2, 4, 0x80, 0x81]);
+    }
+
+    #[test]
     fn invalid_values_are_errors() {
         let mut o = Vec::new();
         assert!(encode_gt(&[b"0/x"], &mut o).is_err());
         assert!(encode_gt(&[b"0//1"], &mut o).is_err());
         assert!(encode_gt(&[b"0/"], &mut o).is_err());
+        for lead in [&b"|1"[..], b"|0|1", b"/0|1", b"/1", b"|."] {
+            let e = encode_gt(&[lead], &mut o).unwrap_err();
+            assert!(e.contains("phase separator") && e.contains("remove"), "{e}");
+        }
     }
 }

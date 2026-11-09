@@ -291,13 +291,15 @@ fn encode_gt_roundtrip() {
         ("GT", vec![".", ".", "1", "0|1", "."]),
         // Alleles past int8 (63) and int16 widths, phased and unphased.
         ("GT", vec!["63/64", "70|1", ".", "0", "65|65"]),
-        // A VCF 4.4 leading phase indicator.
-        ("GT", vec!["|0|1", "0|1", ".", "|1", "1|1|0"]),
         // GT after another field, and with other fields following.
         (
             "DP:GT:GQ",
             vec!["5:0/1:9", "5:.:9", "5:1|1:9", "5:./1:9", "5:0:9"],
         ),
+        // A whole-sample `.` and dropped trailing subfields, GT not first.
+        ("DP:GT", vec!["5:0/1", ".", "7:1|0", "8:.", "9:0/1|2"]),
+        ("GT:DP:GQ", vec!["0/1:1:2", "1", "0|1:3", ".:4:5", "./."]),
+        ("DP:GT:GQ", vec!["5:0/1:9", "6", "7:1", "8:.", "."]),
     ];
     for (fmt, gts) in cases {
         let mut l = format!("1\t10\t.\tA\t{alts}\t50\tPASS\t.\t{fmt}").into_bytes();
@@ -305,7 +307,38 @@ fn encode_gt_roundtrip() {
             l.push(b'\t');
             l.extend_from_slice(g.as_bytes());
         }
-        let want = all(&text_genotypes(&l).unwrap());
+        let mut want = all(&text_genotypes(&l).unwrap());
+        // BCF writes a sample with no GT as one missing allele (as htslib
+        // does), so it reads back as `.` where the text reader says absent.
+        for r in &mut want {
+            r.0.get_or_insert((vec![None], false));
+        }
         assert_eq!(via_bcf(&l), want, "{fmt} {gts:?}");
+    }
+}
+
+#[test]
+fn encode_gt_roundtrip_without_gt_in_format() {
+    let l = b"1\t10\t.\tA\tC\t50\tPASS\t.\tDP\t5\t6\t7\t8\t9".to_vec();
+    let want = all(&text_genotypes(&l).unwrap());
+    assert!(want.iter().all(|r| r.0.is_none()));
+    assert_eq!(via_bcf(&l), want);
+}
+
+#[test]
+fn bcf_output_refuses_a_leading_phase_separator() {
+    let header = gloci_io::VcfHeader::parse(vcf(&["s1"], &[]).into_bytes()).unwrap();
+    let mut enc = gloci_io::TextToBcf::new("t.vcf", &header).unwrap();
+    for gt in ["|0|1", "/0|1", "|1"] {
+        let l = format!("1\t10\t.\tA\tC\t50\tPASS\t.\tGT\t{gt}");
+        let e = enc
+            .encode(l.as_bytes(), 7, &mut Vec::new())
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("t.vcf") && e.contains("record 7"), "{e}");
+        assert!(
+            e.contains("phase separator") && e.contains("remove the leading"),
+            "{e}"
+        );
     }
 }
