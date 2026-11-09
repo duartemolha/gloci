@@ -1070,3 +1070,83 @@ pub fn naive_complement(
     }
     out
 }
+
+/// What `naive_partition` keeps and prints.
+#[derive(Debug, Clone)]
+pub struct NaivePartition {
+    pub labels: Vec<String>,
+    pub min_files: usize,
+    pub max_files: usize,
+    pub merge_adjacent: bool,
+    /// `count` and labels after the coordinates; off for coordinates only.
+    pub membership: bool,
+}
+
+/// `partition` by brute force: the cut points of a chromosome are every
+/// start and end of its non-point features; each elementary segment between
+/// two consecutive cuts is covered by a file when one of that file's features
+/// contains it whole. Chromosomes come in `chrom_rank` order. Shares nothing
+/// with a sweep over sorted starts.
+pub fn naive_partition(
+    inputs: &[Vec<TestRec>],
+    q: &NaivePartition,
+    chrom_rank: impl Fn(&str) -> u32,
+) -> Vec<String> {
+    let mut names: Vec<&str> = inputs
+        .iter()
+        .flatten()
+        .filter(|r| r.start < r.end)
+        .map(|r| r.chrom.as_str())
+        .collect();
+    names.sort_by_key(|n| chrom_rank(n));
+    names.dedup();
+    // (chrom, start, end, payload)
+    let mut kept: Vec<(String, u64, u64, String)> = Vec::new();
+    for name in names {
+        let mut cuts: Vec<u64> = inputs
+            .iter()
+            .flatten()
+            .filter(|r| r.chrom == name && r.start < r.end)
+            .flat_map(|r| [r.start, r.end])
+            .collect();
+        cuts.sort_unstable();
+        cuts.dedup();
+        for w in cuts.windows(2) {
+            let (s, e) = (w[0], w[1]);
+            let members: Vec<&String> = inputs
+                .iter()
+                .zip(&q.labels)
+                .filter(|(f, _)| {
+                    f.iter()
+                        .any(|r| r.chrom == name && r.start < r.end && r.start <= s && e <= r.end)
+                })
+                .map(|(_, l)| l)
+                .collect();
+            let n = members.len();
+            if n == 0 || n < q.min_files || n > q.max_files {
+                continue;
+            }
+            let payload = if q.membership {
+                let joined: Vec<&str> = members.iter().map(|l| l.as_str()).collect();
+                format!("\t{n}\t{}", joined.join(","))
+            } else {
+                String::new()
+            };
+            kept.push((name.to_string(), s, e, payload));
+        }
+    }
+    let mut out: Vec<(String, u64, u64, String)> = Vec::new();
+    for seg in kept {
+        match out.last_mut() {
+            Some(last)
+                if q.merge_adjacent && last.0 == seg.0 && last.2 == seg.1 && last.3 == seg.3 =>
+            {
+                last.2 = seg.2;
+            }
+            _ => out.push(seg),
+        }
+    }
+    out.into_iter()
+        .map(|(c, s, e, p)| format!("{c}\t{s}\t{e}{p}"))
+        .collect()
+}

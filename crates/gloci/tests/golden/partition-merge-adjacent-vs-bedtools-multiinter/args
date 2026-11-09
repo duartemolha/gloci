@@ -1,0 +1,1 @@
+partition --chrom-order lex --merge-adjacent --names 1,2,3 input.bed rel-b.bed part-c.bed

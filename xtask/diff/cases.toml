@@ -2465,3 +2465,99 @@ input = { file = "xtask/diff/inputs/groupby-negzero.tsv" }
 gloci = "gloci groupby input.tsv -g 1 -c 2:min,2:max,2:median,2:sum"
 reference = "bedtools groupby -i input.tsv -g 1 -c 2,2,2,2 -o min,max,median,sum"
 compare = "exact"
+
+# partition (Task 10). part-c.bed is a third BED with adjacent and enclosing
+# features; every input is lexicographically sorted (sort-bed order). The
+# multiinter cases reshape `bedtools multiinter` (chrom start end num list
+# <one 0/1 column per file>) to gloci's two membership columns with `cut -f1-5`;
+# the stored golden is that reshaped output. multiinter merges neighbouring
+# segments with equal membership, so it is compared with --merge-adjacent.
+[[case]]
+name = "partition-vs-bedops-partition"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed", "xtask/diff/inputs/part-c.bed"]
+gloci = "gloci partition --chrom-order lex --no-membership input.bed rel-b.bed part-c.bed"
+reference = "bedops --partition input.bed rel-b.bed part-c.bed"
+compare = "exact"
+
+[[case]]
+name = "partition-all-vs-bedops-intersect"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed", "xtask/diff/inputs/part-c.bed"]
+gloci = "gloci partition --chrom-order lex --all --merge-adjacent --no-membership input.bed rel-b.bed part-c.bed"
+reference = "bedops --intersect input.bed rel-b.bed part-c.bed"
+compare = "exact"
+
+[[case]]
+name = "partition-max-files-vs-bedops-symmdiff"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed", "xtask/diff/inputs/part-c.bed"]
+gloci = "gloci partition --chrom-order lex --max-files 1 --merge-adjacent --no-membership input.bed rel-b.bed part-c.bed"
+reference = "bedops --symmdiff input.bed rel-b.bed part-c.bed"
+compare = "exact"
+
+[[case]]
+name = "partition-merge-adjacent-vs-bedtools-multiinter"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed", "xtask/diff/inputs/part-c.bed"]
+gloci = "gloci partition --chrom-order lex --merge-adjacent --names 1,2,3 input.bed rel-b.bed part-c.bed"
+reference = "bedtools multiinter -i input.bed rel-b.bed part-c.bed | cut -f1-5"
+compare = "exact"
+
+[[case]]
+name = "partition-min-files-vs-bedtools-multiinter"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed", "xtask/diff/inputs/part-c.bed"]
+gloci = "gloci partition --chrom-order lex --merge-adjacent --min-files 2 --names 1,2,3 input.bed rel-b.bed part-c.bed"
+reference = "bedtools multiinter -i input.bed rel-b.bed part-c.bed | cut -f1-5 | awk '$4 >= 2'"
+compare = "exact"
+
+# Without --merge-adjacent partition cuts at every boundary, as bedops -p does
+# and multiinter does not.
+[[case]]
+name = "partition-boundaries-vs-bedtools-multiinter"
+input = { file = "xtask/diff/inputs/rel-a.bed" }
+aux = ["xtask/diff/inputs/rel-b.bed", "xtask/diff/inputs/part-c.bed"]
+gloci = "gloci partition --chrom-order lex --names 1,2,3 input.bed rel-b.bed part-c.bed"
+reference = "bedtools multiinter -i input.bed rel-b.bed part-c.bed | cut -f1-5"
+compare = "exact"
+expected_difference = "#partition-boundaries"
+
+# Points: multiinter widens a point to the bases around it, bedops -p writes
+# it as a zero-length segment; partition ignores it.
+[[case]]
+name = "partition-points-vs-bedtools-multiinter"
+input = { file = "xtask/diff/inputs/rel-points-a.bed" }
+aux = ["xtask/diff/inputs/rel-points-b.bed"]
+gloci = "gloci partition --chrom-order lex --merge-adjacent --names 1,2 input.bed rel-points-b.bed"
+reference = "bedtools multiinter -i input.bed rel-points-b.bed | cut -f1-5"
+compare = "exact"
+expected_difference = "#partition-points"
+
+[[case]]
+name = "partition-points-vs-bedops-partition"
+input = { file = "xtask/diff/inputs/rel-points-a.bed" }
+aux = ["xtask/diff/inputs/rel-points-b.bed"]
+gloci = "gloci partition --chrom-order lex --no-membership input.bed rel-points-b.bed"
+reference = "bedops --partition input.bed rel-points-b.bed"
+compare = "exact"
+expected_difference = "#partition-points"
+
+[[case]]
+name = "partition-bedgraph-vs-bedtools-unionbedg"
+input = { file = "xtask/diff/inputs/signal.bedgraph" }
+aux = ["xtask/diff/inputs/part-b.bedgraph"]
+gloci = "gloci partition --chrom-order lex --bedgraph input.bedgraph part-b.bedgraph"
+reference = "bedtools unionbedg -i input.bedgraph part-b.bedgraph"
+compare = "exact"
+
+# unionbedg -empty -g stops at the last chromosome that has a feature in some
+# input; partition also covers the chromosomes without any.
+[[case]]
+name = "partition-bedgraph-empty-genome-vs-bedtools-unionbedg"
+input = { file = "xtask/diff/inputs/signal.bedgraph" }
+aux = ["xtask/diff/inputs/part-b.bedgraph", "xtask/diff/inputs/part.genome"]
+gloci = "gloci partition --chrom-order lex --bedgraph --empty 0 -g part.genome input.bedgraph part-b.bedgraph"
+reference = "bedtools unionbedg -empty -filler 0 -g part.genome -i input.bedgraph part-b.bedgraph"
+compare = "exact"
+expected_difference = "#partition-empty-chromosomes"

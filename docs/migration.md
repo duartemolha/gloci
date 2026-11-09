@@ -151,7 +151,8 @@ Every row below was checked against `gloci <cmd> --help`.
 | `sort -i FILE [-g GENOME]` | `gloci sort FILE [-g GENOME]` (`--chrom-order lex` reproduces byte order) |
 | `bed12tobed6 -i FILE` | `gloci convert FILE --blocks` |
 | `genomecov` | not yet available (`genomecov`, P2) |
-| `multiinter`, `unionbedg` | not yet available (`partition`, `partition --bedgraph`, P2) |
+| `multiinter -i A B C [-names]` | `gloci partition A B C --merge-adjacent [--names X,Y,Z]` (the count and label columns; the per-file 0/1 columns are not written; `-cluster` and `-empty -g` have no counterpart (for the latter use `gloci complement -g`)) |
+| `unionbedg -i A B [-filler -empty -g]` | `gloci partition A B --bedgraph [--empty VALUE [-g GENOME]]` (`-filler X` is `--empty X`; `--empty` also writes the uncovered segments) |
 | `groupby -g -c -o [-header]` | `gloci groupby FILE -g COLS -c/--column COL:OP` (bedtools `-o OP` becomes the `:OP` of `-c COL:OP`, and gloci's `-o` is the output file; `--header`, `--delim`, `--empty`; same ops as `map` except those that need a second input; VCF input is refused, use `gloci vcf extract`) |
 | `cluster` | not yet available (`cluster`, P2) |
 | `shift` | not yet available (`shift`, P3) |
@@ -180,7 +181,9 @@ Every row below was checked against `gloci <cmd> --help`.
 | `sort-bed [--max-mem --tmpdir --check-sort --unique --duplicates]` | `gloci sort [--max-mem --tmp-dir --check --unique --duplicates]`; add `--chrom-order lex` to reproduce `sort-bed`'s chromosome order (`--full-key` reproduces whole-line tie breaking) |
 | `bedextract CHR FILE`, `bedextract FILE REGIONS.bed` | `gloci view FILE CHR`, `gloci view FILE --regions-file REGIONS.bed` (add `--assume-sorted` for binary search on an uncompressed BED file) |
 | `convert2bed`, `vcf2bed [--snvs/--insertions/--deletions]`, `gff2bed`, `gtf2bed` | `gloci convert FILE [--types snv/ins/del] [--split-alleles] [--feature TYPE] [--name-attr KEY]` |
-| `bedops -i` / `--intersect`, `-s` / `--symmdiff`, `-p` / `--partition` | not yet available (`partition`, P2) |
+| `bedops -p` / `--partition` | `gloci partition FILES --no-membership` |
+| `bedops -i` / `--intersect` | `gloci partition FILES --all --merge-adjacent --no-membership` |
+| `bedops -s` / `--symmdiff` | `gloci partition FILES --max-files 1 --merge-adjacent --no-membership` |
 | `starch`, `unstarch`, `starchcat` | not planned (use BGZF `.bed.gz` + `gloci index`) |
 
 ### vcftools
@@ -328,6 +331,16 @@ Every row below was checked against `gloci <cmd> --help`.
 - **`complement -g` rejects features past chromosome end:** A feature extending
   past its chromosome length in `-g` exits 1 instead of warning.
   [differences.md#complement-past-end](differences.md#complement-past-end)
+- **`partition` cuts at every boundary:** without `--merge-adjacent`,
+  neighbouring segments with equal membership stay apart (as `bedops -p`, unlike
+  `multiinter`).
+  [differences.md#partition-boundaries](differences.md#partition-boundaries)
+- **`partition` ignores points:** a zero-length record adds no segment and no
+  boundary (`multiinter` widens it, `bedops -p` writes a zero-length segment).
+  [differences.md#partition-points](differences.md#partition-points)
+- **`partition --bedgraph --empty -g` covers every chromosome:** also those
+  without features (`unionbedg -empty -g` omits them).
+  [differences.md#partition-empty-chromosomes](differences.md#partition-empty-chromosomes)
 - **One-sided `slop` and `flank`:** `--left N` or `--right N` may be given alone
   without requiring both.
   [differences.md#slop-flank-one-side](differences.md#slop-flank-one-side)

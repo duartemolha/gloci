@@ -278,6 +278,43 @@ Examples:
   gloci complement a.bed b.bed -g sacCer3
   gloci complement shuffled.bed -g genome.txt --sort --max-mem 512M")]
     Complement(ComplementArgs),
+    /// Split the inputs at every boundary into segments and say who covers
+    /// each (bedtools multiinter and unionbedg, bedops -p, -i and -s).
+    ///
+    /// The footprints of all files are cut at every start and end, giving
+    /// disjoint segments in sorted order. Each row is chrom, start, end, the
+    /// number of files covering the segment and their labels joined with
+    /// commas (--names, default the file names without directories). A file
+    /// counts once however many of its features overlap there, and points
+    /// cover no bases, so they add neither segments nor boundaries. Only
+    /// segments covered by at least one file are written. --min-files K and
+    /// --max-files K keep segments covered by at least or at most K files;
+    /// --all keeps those covered by every file. By default a boundary is
+    /// kept even where the membership does not change (as in bedops -p);
+    /// --merge-adjacent joins neighbouring segments with the same output
+    /// columns (as multiinter does). --no-membership writes coordinates
+    /// only, so with --merge-adjacent every run of touching kept segments is
+    /// joined.
+    ///
+    /// With --bedgraph the inputs are bedGraph files and each row has one
+    /// value per file instead of the membership; a file that does not cover
+    /// the segment shows --empty (default 0). Giving --empty also writes the
+    /// segments no file covers, with that value in every column; with -g
+    /// (needs lengths) it covers whole chromosomes, including those with no
+    /// features, otherwise only the gaps between features. The intervals of
+    /// one bedGraph must not overlap.
+    ///
+    /// Every input must be sorted in one chromosome order, which is checked
+    /// as it is read; an unsorted input is an error whose hint names --sort,
+    /// which sorts each file first with an external sort bounded by
+    /// --max-mem. Memory is bounded by the intervals open at one position.
+    #[command(after_long_help = "\
+Examples:
+  gloci partition a.bed b.bed c.bed --merge-adjacent
+  gloci partition a.bed b.bed --names tumour,normal --min-files 2
+  gloci partition a.bed b.bed --all --merge-adjacent --no-membership
+  gloci partition a.bg b.bg --bedgraph --empty 0 -g hg38")]
+    Partition(PartitionArgs),
     /// Grow each feature on its sides (bedtools slop, bedops --range).
     ///
     /// Every record is written with its coordinates changed to
@@ -1227,6 +1264,57 @@ pub struct MergeArgs {
     /// Separator for collapse and distinct lists.
     #[arg(long, value_name = "S", default_value = ",")]
     pub delim: String,
+    #[command(flatten)]
+    pub genome: GenomeArg,
+    #[command(flatten)]
+    pub chrom_order: ChromOrderArg,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub format: FormatArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub sort: SortArg,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+#[derive(Args)]
+pub struct PartitionArgs {
+    /// Input files (`-` for stdin).
+    #[arg(value_name = "FILES", required = true)]
+    pub files: Vec<String>,
+    /// Labels of the files, comma-separated, one per file (default: the
+    /// file names without directories).
+    #[arg(long, value_name = "A,B,...", value_delimiter = ',')]
+    pub names: Vec<String>,
+    /// Keep segments covered by at least K files (default 1).
+    #[arg(long, value_name = "K", conflicts_with = "all")]
+    pub min_files: Option<usize>,
+    /// Keep segments covered by at most K files.
+    #[arg(long, value_name = "K", conflicts_with = "all")]
+    pub max_files: Option<usize>,
+    /// Keep segments covered by every file.
+    #[arg(long)]
+    pub all: bool,
+    /// Join neighbouring segments whose output columns are equal.
+    #[arg(long)]
+    pub merge_adjacent: bool,
+    /// Write coordinates only (BED3).
+    #[arg(long, conflicts_with = "bedgraph")]
+    pub no_membership: bool,
+    /// Inputs are bedGraphs: write one value column per file.
+    #[arg(long)]
+    pub bedgraph: bool,
+    /// With --bedgraph: the value of a file that does not cover a segment
+    /// (default 0); also writes the segments no file covers.
+    #[arg(long, value_name = "VALUE", requires = "bedgraph")]
+    pub empty: Option<String>,
     #[command(flatten)]
     pub genome: GenomeArg,
     #[command(flatten)]

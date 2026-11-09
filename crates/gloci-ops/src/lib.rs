@@ -11,6 +11,7 @@ pub mod groupby;
 pub mod intersect;
 pub mod map;
 pub mod merge;
+pub mod partition;
 pub mod relate;
 mod skipped;
 pub mod sort;

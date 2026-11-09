@@ -151,6 +151,23 @@ gloci complement a.bed b.bed -g sacCer3
 gloci complement shuffled.bed -g genome.txt --sort --max-mem 512M
 ```
 
+### `gloci partition`
+
+Split the inputs at every boundary into segments and say who covers each (bedtools multiinter and unionbedg, bedops -p, -i and -s).
+
+The footprints of all files are cut at every start and end, giving disjoint segments in sorted order. Each row is chrom, start, end, the number of files covering the segment and their labels joined with commas (--names, default the file names without directories). A file counts once however many of its features overlap there, and points cover no bases, so they add neither segments nor boundaries. Only segments covered by at least one file are written. --min-files K and --max-files K keep segments covered by at least or at most K files; --all keeps those covered by every file. By default a boundary is kept even where the membership does not change (as in bedops -p); --merge-adjacent joins neighbouring segments with the same output columns (as multiinter does). --no-membership writes coordinates only, so with --merge-adjacent every run of touching kept segments is joined.
+
+With --bedgraph the inputs are bedGraph files and each row has one value per file instead of the membership; a file that does not cover the segment shows --empty (default 0). Giving --empty also writes the segments no file covers, with that value in every column; with -g (needs lengths) it covers whole chromosomes, including those with no features, otherwise only the gaps between features. The intervals of one bedGraph must not overlap.
+
+Every input must be sorted in one chromosome order, which is checked as it is read; an unsorted input is an error whose hint names --sort, which sorts each file first with an external sort bounded by --max-mem. Memory is bounded by the intervals open at one position.
+
+```sh
+gloci partition a.bed b.bed c.bed --merge-adjacent
+gloci partition a.bed b.bed --names tumour,normal --min-files 2
+gloci partition a.bed b.bed --all --merge-adjacent --no-membership
+gloci partition a.bg b.bg --bedgraph --empty 0 -g hg38
+```
+
 ### `gloci slop`
 
 Grow each feature on its sides (bedtools slop, bedops --range).
@@ -375,7 +392,8 @@ Every row below was checked against `gloci <cmd> --help`.
 | `sort -i FILE [-g GENOME]` | `gloci sort FILE [-g GENOME]` (`--chrom-order lex` reproduces byte order) |
 | `bed12tobed6 -i FILE` | `gloci convert FILE --blocks` |
 | `genomecov` | not yet available (`genomecov`, P2) |
-| `multiinter`, `unionbedg` | not yet available (`partition`, `partition --bedgraph`, P2) |
+| `multiinter -i A B C [-names]` | `gloci partition A B C --merge-adjacent [--names X,Y,Z]` (the count and label columns; the per-file 0/1 columns are not written; `-cluster` and `-empty -g` have no counterpart (for the latter use `gloci complement -g`)) |
+| `unionbedg -i A B [-filler -empty -g]` | `gloci partition A B --bedgraph [--empty VALUE [-g GENOME]]` (`-filler X` is `--empty X`; `--empty` also writes the uncovered segments) |
 | `groupby -g -c -o [-header]` | `gloci groupby FILE -g COLS -c/--column COL:OP` (bedtools `-o OP` becomes the `:OP` of `-c COL:OP`, and gloci's `-o` is the output file; `--header`, `--delim`, `--empty`; same ops as `map` except those that need a second input; VCF input is refused, use `gloci vcf extract`) |
 | `cluster` | not yet available (`cluster`, P2) |
 | `shift` | not yet available (`shift`, P3) |
@@ -404,7 +422,9 @@ Every row below was checked against `gloci <cmd> --help`.
 | `sort-bed [--max-mem --tmpdir --check-sort --unique --duplicates]` | `gloci sort [--max-mem --tmp-dir --check --unique --duplicates]`; add `--chrom-order lex` to reproduce `sort-bed`'s chromosome order (`--full-key` reproduces whole-line tie breaking) |
 | `bedextract CHR FILE`, `bedextract FILE REGIONS.bed` | `gloci view FILE CHR`, `gloci view FILE --regions-file REGIONS.bed` (add `--assume-sorted` for binary search on an uncompressed BED file) |
 | `convert2bed`, `vcf2bed [--snvs/--insertions/--deletions]`, `gff2bed`, `gtf2bed` | `gloci convert FILE [--types snv/ins/del] [--split-alleles] [--feature TYPE] [--name-attr KEY]` |
-| `bedops -i` / `--intersect`, `-s` / `--symmdiff`, `-p` / `--partition` | not yet available (`partition`, P2) |
+| `bedops -p` / `--partition` | `gloci partition FILES --no-membership` |
+| `bedops -i` / `--intersect` | `gloci partition FILES --all --merge-adjacent --no-membership` |
+| `bedops -s` / `--symmdiff` | `gloci partition FILES --max-files 1 --merge-adjacent --no-membership` |
 | `starch`, `unstarch`, `starchcat` | not planned (use BGZF `.bed.gz` + `gloci index`) |
 
 ### vcftools

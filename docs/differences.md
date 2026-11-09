@@ -586,6 +586,47 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   does not match the input, and the output would silently be wrong.
 - **Pinned by:** `complement-past-end-vs-bedtools` (must differ; exit status).
 
+## `partition` cuts at every boundary unless asked to merge {#partition-boundaries}
+
+- **gloci:** `partition` cuts the inputs at every start and end, like
+  `bedops --partition`, so neighbouring segments with the same membership stay
+  separate (`chr1 0 10` and `chr1 10 20`, both covered by the same files).
+  `--merge-adjacent` joins them.
+- **Old behaviour:** `bedtools multiinter` joins neighbouring segments whose
+  membership is equal, even where a feature ends and another begins;
+  `bedtools unionbedg` and `bedops --partition` do not.
+- **Reason:** one default for the whole family; the segment list of
+  `bedops -p` is the finest one and `--merge-adjacent` derives the coarser
+  ones (`-i` and `-s` need it, and so does `multiinter`).
+- **Pinned by:** `partition-boundaries-vs-bedtools-multiinter` (must differ);
+  `partition-merge-adjacent-vs-bedtools-multiinter` and
+  `partition-min-files-vs-bedtools-multiinter` match with `--merge-adjacent`.
+
+## `partition` ignores points {#partition-points}
+
+- **gloci:** a point (a zero-length feature) covers no bases, so it adds no
+  segment and no boundary (D68).
+- **Old behaviour:** `bedtools multiinter` widens a point at `p` to the bases
+  around it (`[p-1, p+1)`, with an extra row for a point at `p`), and
+  `bedops --partition` writes it as a zero-length segment (`chr1 150 150`) and
+  cuts the segments around it there.
+- **Reason:** a feature with no bases covers nothing; inventing bases changes
+  coverage counts.
+- **Pinned by:** `partition-points-vs-bedtools-multiinter` and
+  `partition-points-vs-bedops-partition` (must differ).
+
+## `partition --bedgraph --empty -g` covers chromosomes without features {#partition-empty-chromosomes}
+
+- **gloci:** with `--empty VALUE` and `-g GENOME` (a genome with lengths), every
+  chromosome of the genome is written over `[0, length)`, including those no
+  input has a feature on.
+- **Old behaviour:** `bedtools unionbedg -empty -g` fills the gaps of the
+  chromosomes that have a feature in some input and omits the others.
+- **Reason:** "the whole genome" should not depend on which chromosomes the
+  inputs happen to touch; the same rule as `complement -g`.
+- **Pinned by:** `partition-bedgraph-empty-genome-vs-bedtools-unionbedg` (must
+  differ).
+
 ## `slop` and `flank` accept one side alone {#slop-flank-one-side}
 
 - **gloci:** `--left N` or `--right N` alone pads only that side.

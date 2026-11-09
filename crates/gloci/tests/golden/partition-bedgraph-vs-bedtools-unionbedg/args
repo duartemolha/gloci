@@ -1,0 +1,1 @@
+partition --chrom-order lex --bedgraph input.bedgraph part-b.bedgraph

@@ -10,6 +10,7 @@ pub mod index;
 pub mod intersect;
 pub mod map;
 pub mod merge;
+pub mod partition;
 pub mod slop;
 pub mod sort;
 pub mod subtract;
@@ -24,7 +25,7 @@ use gloci_io::{
 };
 use gloci_ops::{
     InputPaths, RelationFiles, RunOptions, SortSettings, ViewOptions, sort_input_options,
-    sort_together,
+    sort_readers, sort_together,
 };
 
 /// Appended to the hint of an order error from a command with `--sort`.
@@ -46,6 +47,42 @@ pub struct InputArgs<'a> {
 /// With `--sort` the inputs are sorted first (ops: [`sort_together`]) and a single sorted reader comes back. `check` sees the
 /// inputs' formats before anything is sorted.
 pub fn open_inputs(
+    ctx: &Ctx,
+    a: &InputArgs,
+    check: &dyn Fn(&[Format]) -> Result<(), UsageError>,
+) -> anyhow::Result<(Vec<Box<dyn RecordReader>>, gloci_core::ChromTable)> {
+    let (readers, mut chroms) = open_readers(ctx, a, check)?;
+    match sort_settings(ctx, a.sort, a.vcf_span) {
+        None => Ok((readers, chroms)),
+        Some(settings) => {
+            let sorted = sort_together(readers, &mut chroms, &settings)?;
+            Ok((sorted, chroms))
+        }
+    }
+}
+
+/// [`open_inputs`] for commands that must tell their inputs apart: with
+/// `--sort` each input is sorted by itself and one reader per input comes
+/// back, in order.
+pub fn open_inputs_each(
+    ctx: &Ctx,
+    a: &InputArgs,
+    check: &dyn Fn(&[Format]) -> Result<(), UsageError>,
+) -> anyhow::Result<(Vec<Box<dyn RecordReader>>, gloci_core::ChromTable)> {
+    let (readers, mut chroms) = open_readers(ctx, a, check)?;
+    match sort_settings(ctx, a.sort, a.vcf_span) {
+        None => Ok((readers, chroms)),
+        Some(settings) => {
+            let sorted = readers
+                .into_iter()
+                .map(|r| sort_readers(vec![r], &mut chroms, &settings))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok((sorted, chroms))
+        }
+    }
+}
+
+fn open_readers(
     ctx: &Ctx,
     a: &InputArgs,
     check: &dyn Fn(&[Format]) -> Result<(), UsageError>,
@@ -75,14 +112,8 @@ pub fn open_inputs(
     let formats: Vec<Format> = readers.iter().map(|r| r.format()).collect();
     check(&formats)?;
     let refs: Vec<&dyn RecordReader> = readers.iter().map(|r| r.as_ref()).collect();
-    let mut chroms = chrom_table_for(a.genome, &refs, a.chrom_order.chrom_order)?;
-    match sort_settings(ctx, a.sort, a.vcf_span) {
-        None => Ok((readers, chroms)),
-        Some(settings) => {
-            let sorted = sort_together(readers, &mut chroms, &settings)?;
-            Ok((sorted, chroms))
-        }
-    }
+    let chroms = chrom_table_for(a.genome, &refs, a.chrom_order.chrom_order)?;
+    Ok((readers, chroms))
 }
 
 /// Appended to the hint of an order error from a relation command: both ways

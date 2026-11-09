@@ -1,0 +1,1 @@
+partition --chrom-order lex --no-membership input.bed rel-points-b.bed
