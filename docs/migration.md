@@ -143,7 +143,7 @@ Every row below was checked against `gloci <cmd> --help`.
 | `merge -d -s -c -o` | `gloci merge FILE... -d/--max-gap N -s --count -c/--column COL:OP` (`--delim`, `--empty`, `--sort`) |
 | `complement -g` | `gloci complement FILE... [-g GENOME]` (`-g` takes a built-in such as `hg38` or a `.genome`/`.fai`/`.dict` file; `--sort`) |
 | `closest -d -D -k -t -io -iu -id -mdb` | `gloci closest -a A -b B --distance --signed ref\|a\|b -k N --ties all\|first\|last --ignore-overlaps --ignore-upstream --ignore-downstream --per-file` (plus `--max-distance N`, `-s`/`--same-strand`, `-S`/`--opposite-strand`) |
-| `map -c -o` | `gloci map -a A -b B -c/--column COL:OP` (`--delim`, `--empty`, `--skip-unmatched`; ops: `count`, `count_distinct`, `sum`, `mean`, `median`, `min`, `max`, `stdev`, `var`, `stdev_pop`, `var_pop`, `collapse`, `distinct`, `distinct_sorted`, `first`, `last`, `bases`, `indicator`) |
+| `map -c -o` | `gloci map -a A -b B -c/--column COL:OP` (`--delim`, `--empty`, `--skip-unmatched`; ops: `count`, `count_distinct`, `sum`, `mean`, `median`, `min`, `max`, `stdev`, `var`, `stdev_pop`, `var_pop`, `collapse`, `distinct`, `distinct_sorted`, `first`, `last`, `bases`, `indicator`, `cv`, `mad`, `quantile:Q`, `tmean:LO-HI`, `wmean`, `mode`, `antimode`, `bases_uniq`, `frac_a`, `frac_b`, `min_record`, `max_record`, `records`) |
 | `coverage [-hist -d -mean]`, `annotate` | `gloci coverage -a A -b B [--hist \| --per-base \| --mean]`, `gloci coverage -a A -b B1 B2... [--names ...]` |
 | `slop -b -l -r -s -pct -g` | `gloci slop FILE -b/--both N` or `--left L --right R` with `-s`, `--pct`, `-g GENOME` |
 | `flank -b -l -r -s -pct -g` | `gloci flank FILE -b/--both N` or `--left L --right R` with `-s`, `--pct`, `-g GENOME` |
@@ -173,7 +173,7 @@ Every row below was checked against `gloci <cmd> --help`.
 | `bedops --chop N` | `gloci merge A \| gloci windows -i - -w N` |
 | `--range N`, `--range L:R` | `-w/--window N` or `--left L --right R` (on `intersect`, `subtract`, `map`) or `gloci slop FILE -b N` / `--left L --right R` |
 | `bedmap --echo --count/--sum/--mean/--min/--max/--median/--stdev/--variance/...` | `gloci map -a A -b B -c COL:count/sum/mean/min/max/median/stdev_pop/var_pop/...` (`--delim`, `--skip-unmatched`) |
-| `bedmap --echo-map-id`, `--echo-map-id-uniq` | `gloci map -a A -b B -c 4:collapse`, `-c 4:distinct` (`--echo-map` whole-record list `0:records` is not yet available, P2) |
+| `bedmap --echo-map-id`, `--echo-map-id-uniq` | `gloci map -a A -b B -c 4:collapse`, `-c 4:distinct` (`--echo-map` whole-record list is `0:records`, tabs shown as `|`) |
 | `bedmap --bases`, `--fraction-ref/--fraction-map/--fraction-both/--fraction-either` | `gloci map -a A -b B -c 0:bases`, with `-f` / `-F` / `-r` / `-e` |
 | `closest-features` | `gloci closest -a A -b B --each-side [--distance]` (add `--ignore-overlaps` when an overlapping B should not count on both sides) |
 | `sort-bed [--max-mem --tmpdir --check-sort --unique --duplicates]` | `gloci sort [--max-mem --tmp-dir --check --unique --duplicates]`; add `--chrom-order lex` to reproduce `sort-bed`'s chromosome order (`--full-key` reproduces whole-line tie breaking) |
@@ -296,6 +296,9 @@ Every row below was checked against `gloci <cmd> --help`.
 - **First-seen order for `distinct`:** `map` and `merge` `distinct` preserves
   first-seen order; use `distinct_sorted` for `bedtools`' bytewise-sorted list.
   [differences.md#map-distinct-order](differences.md#map-distinct-order)
+- **First-seen ties for `mode` and `antimode`:** with equally frequent values
+  `map` prints the one seen first; `bedtools map` prints the smallest.
+  [differences.md#map-mode-ties](differences.md#map-mode-ties)
 - **Empty placeholder in `map`:** An aggregation with no values prints `--empty`
   (default `.`), not `bedmap`'s `NAN`.
   [differences.md#map-empty-value](differences.md#map-empty-value)

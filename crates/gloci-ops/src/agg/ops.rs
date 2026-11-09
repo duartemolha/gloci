@@ -1,12 +1,13 @@
 //! Resolving specs against a file and accumulating values.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io::Write;
 
+use gloci_core::Interval;
 use gloci_io::{Format, Header, IoError, Loc, UsageError, field};
 
 use super::num::{Num, fmt_f64, parse_num};
-use super::spec::{AggSpec, Col, Op};
+use super::spec::{AggSpec, Col, Op, OpArg};
 
 /// Where an aggregation reads its value.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,6 +24,7 @@ enum Src {
 pub struct ResolvedAgg {
     src: Src,
     op: Op,
+    arg: OpArg,
     label: String,
     /// How the column is named in a data error.
     col_text: String,
@@ -49,6 +51,7 @@ pub fn resolve(
             Ok(ResolvedAgg {
                 src,
                 op: s.op,
+                arg: s.arg,
                 label: s.label.clone(),
                 col_text,
             })
@@ -130,6 +133,9 @@ struct Numeric {
     mean: f64,
     m2: f64,
     vals: Vec<f64>,
+    /// Sum of weights and of weight * value (`wmean`).
+    wsum: f64,
+    wxsum: f64,
 }
 
 impl Numeric {
@@ -145,9 +151,11 @@ impl Numeric {
         self.mean = 0.0;
         self.m2 = 0.0;
         self.vals.clear();
+        self.wsum = 0.0;
+        self.wxsum = 0.0;
     }
 
-    fn push(&mut self, v: Num, keep_vals: bool) {
+    fn push(&mut self, v: Num, keep_vals: bool, weight: u64) {
         self.n += 1;
         let f = v.as_f64();
         match v {
@@ -167,6 +175,8 @@ impl Numeric {
         let d = f - self.mean;
         self.mean += d / self.n as f64;
         self.m2 += d * (f - self.mean);
+        self.wsum += weight as f64;
+        self.wxsum += weight as f64 * f;
         if keep_vals {
             self.vals.push(f);
         }
@@ -185,6 +195,60 @@ enum State {
     Sorted(BTreeSet<Vec<u8>>),
     First(Option<Vec<u8>>),
     Last(Option<Vec<u8>>),
+    Mode(Tally),
+    /// `bases_uniq` and `frac_a`: the shared intervals, and A's length.
+    Uniq {
+        ivs: Vec<Interval>,
+        hits: u64,
+        a_len: u64,
+    },
+    FracB {
+        hits: u64,
+        shared: u64,
+        b_len: u64,
+    },
+    Records(Vec<Vec<u8>>),
+    /// `min_record` / `max_record`: the best value so far and its record.
+    Best(Option<(f64, Vec<u8>)>),
+}
+
+/// Distinct values with counts, in first-seen order.
+#[derive(Debug, Default)]
+struct Tally {
+    index: HashMap<Vec<u8>, usize>,
+    items: Vec<(Vec<u8>, u64)>,
+}
+
+impl Tally {
+    fn add(&mut self, v: &[u8]) {
+        match self.index.get(v) {
+            Some(&i) => self.items[i].1 += 1,
+            None => {
+                self.index.insert(v.to_vec(), self.items.len());
+                self.items.push((v.to_vec(), 1));
+            }
+        }
+    }
+
+    fn clear(&mut self) {
+        self.index.clear();
+        self.items.clear();
+    }
+}
+
+/// What the overlap of one accepted hit with the current A record looks
+/// like, for the ops that need more than the record's text.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct HitInfo<'a> {
+    /// Bases shared by A and the hit (0 for points).
+    pub bases: u64,
+    /// A's length (0 for a point).
+    pub a_len: u64,
+    /// The hit's length (0 for a point).
+    pub b_len: u64,
+    /// The shared intervals, sorted and without empty ones; their union is
+    /// what `bases_uniq` counts.
+    pub shared: &'a [Interval],
 }
 
 impl State {
@@ -193,8 +257,26 @@ impl State {
             Op::Count => State::Count(0),
             Op::Bases => State::Bases(0),
             Op::Indicator => State::Indicator(false),
+            Op::Mode | Op::AntiMode => State::Mode(Tally::default()),
+            Op::BasesUniq | Op::FracA => State::Uniq {
+                ivs: Vec::new(),
+                hits: 0,
+                a_len: 0,
+            },
+            Op::FracB => State::FracB {
+                hits: 0,
+                shared: 0,
+                b_len: 0,
+            },
+            Op::Records => State::Records(Vec::new()),
+            Op::MinRecord | Op::MaxRecord => State::Best(None),
             Op::Sum
             | Op::Mean
+            | Op::Cv
+            | Op::Mad
+            | Op::Quantile
+            | Op::Tmean
+            | Op::WMean
             | Op::Median
             | Op::Min
             | Op::Max
@@ -226,7 +308,37 @@ impl State {
             }
             State::Sorted(s) => s.clear(),
             State::First(o) | State::Last(o) => *o = None,
+            State::Mode(t) => t.clear(),
+            State::Uniq { ivs, hits, a_len } => {
+                ivs.clear();
+                *hits = 0;
+                *a_len = 0;
+            }
+            State::FracB {
+                hits,
+                shared,
+                b_len,
+            } => {
+                *hits = 0;
+                *shared = 0;
+                *b_len = 0;
+            }
+            State::Records(v) => v.clear(),
+            State::Best(o) => *o = None,
         }
+    }
+}
+
+fn not_a_number(agg: &ResolvedAgg, v: &[u8], file: &str, line: u64) -> IoError {
+    IoError::Parse {
+        path: file.to_string(),
+        loc: Loc::Line(line),
+        msg: format!(
+            "column {} value \"{}\" is not a number ({})",
+            agg.col_text,
+            String::from_utf8_lossy(v),
+            agg.label
+        ),
     }
 }
 
@@ -260,6 +372,23 @@ impl Accumulators {
         file: &str,
         line: u64,
     ) -> Result<(), IoError> {
+        let info = HitInfo {
+            bases: overlap_bases,
+            ..HitInfo::default()
+        };
+        self.add_hit(raw, &info, file, line)
+    }
+
+    /// As [`add`](Self::add), with the full overlap facts the two-input ops
+    /// (`wmean`, `bases_uniq`, `frac_*`) need.
+    pub fn add_hit(
+        &mut self,
+        raw: &[u8],
+        info: &HitInfo<'_>,
+        file: &str,
+        line: u64,
+    ) -> Result<(), IoError> {
+        let overlap_bases = info.bases;
         for (agg, state) in self.aggs.iter().zip(self.states.iter_mut()) {
             match state {
                 State::Count(n) => {
@@ -272,6 +401,30 @@ impl Accumulators {
                 }
                 State::Indicator(b) => {
                     *b = true;
+                    continue;
+                }
+                State::Uniq { ivs, hits, a_len } => {
+                    *hits += 1;
+                    *a_len = info.a_len;
+                    ivs.extend_from_slice(info.shared);
+                    continue;
+                }
+                State::FracB {
+                    hits,
+                    shared,
+                    b_len,
+                } => {
+                    *hits += 1;
+                    *shared += overlap_bases;
+                    *b_len += info.b_len;
+                    continue;
+                }
+                State::Records(v) => {
+                    v.push(
+                        raw.iter()
+                            .map(|&b| if b == b'\t' { b'|' } else { b })
+                            .collect(),
+                    );
                     continue;
                 }
                 _ => {}
@@ -287,18 +440,32 @@ impl Accumulators {
             match state {
                 State::Numeric(n) => {
                     let Some(x) = parse_num(v) else {
-                        return Err(IoError::Parse {
-                            path: file.to_string(),
-                            loc: Loc::Line(line),
-                            msg: format!(
-                                "column {} value \"{}\" is not a number ({})",
-                                agg.col_text,
-                                String::from_utf8_lossy(v),
-                                agg.label
-                            ),
-                        });
+                        return Err(not_a_number(agg, v, file, line));
                     };
-                    n.push(x, agg.op == Op::Median);
+                    let keep = matches!(agg.op, Op::Median | Op::Mad | Op::Quantile | Op::Tmean);
+                    n.push(x, keep, overlap_bases);
+                }
+                State::Mode(t) => t.add(v),
+                State::Best(o) => {
+                    let Some(x) = parse_num(v) else {
+                        return Err(not_a_number(agg, v, file, line));
+                    };
+                    let x = x.as_f64();
+                    let better = o.as_ref().is_none_or(|(b, _)| {
+                        if agg.op == Op::MinRecord {
+                            x < *b
+                        } else {
+                            x > *b
+                        }
+                    });
+                    if better {
+                        *o = Some((
+                            x,
+                            raw.iter()
+                                .map(|&b| if b == b'\t' { b'|' } else { b })
+                                .collect(),
+                        ));
+                    }
                 }
                 State::CountDistinct(s) => {
                     if !s.contains(v) {
@@ -323,7 +490,12 @@ impl Accumulators {
                     }
                 }
                 State::Last(o) => *o = Some(v.to_vec()),
-                State::Count(_) | State::Bases(_) | State::Indicator(_) => unreachable!(),
+                State::Count(_)
+                | State::Bases(_)
+                | State::Indicator(_)
+                | State::Uniq { .. }
+                | State::FracB { .. }
+                | State::Records(_) => unreachable!(),
             }
         }
         Ok(())
@@ -355,7 +527,51 @@ impl Accumulators {
                 State::CountDistinct(s) => {
                     let _ = write!(out, "{}", s.len());
                 }
-                State::Numeric(n) => finish_numeric(agg.op, n, &self.empty, out),
+                State::Numeric(n) => finish_numeric(agg, n, &self.empty, out),
+                State::Mode(t) => {
+                    let pick = if agg.op == Op::Mode {
+                        // the first of the most frequent
+                        t.items
+                            .iter()
+                            .enumerate()
+                            .max_by_key(|(i, (_, c))| (*c, std::cmp::Reverse(*i)))
+                    } else {
+                        t.items
+                            .iter()
+                            .enumerate()
+                            .min_by_key(|(i, (_, c))| (*c, *i))
+                    };
+                    match pick {
+                        Some((_, (v, _))) => out.extend_from_slice(v),
+                        None => out.extend_from_slice(self.empty.as_bytes()),
+                    }
+                }
+                State::Uniq { ivs, hits, a_len } => {
+                    let uniq = union_len(ivs);
+                    if agg.op == Op::BasesUniq {
+                        let _ = write!(out, "{uniq}");
+                    } else if *hits == 0 || *a_len == 0 {
+                        out.extend_from_slice(self.empty.as_bytes());
+                    } else {
+                        fmt_f64(uniq as f64 / *a_len as f64, out);
+                    }
+                }
+                State::FracB {
+                    hits,
+                    shared,
+                    b_len,
+                } => {
+                    if *hits == 0 || *b_len == 0 {
+                        out.extend_from_slice(self.empty.as_bytes());
+                    } else {
+                        fmt_f64(*shared as f64 / *b_len as f64, out);
+                    }
+                }
+                State::Records(l) => join(&mut l.iter().map(Vec::as_slice), out, &self.empty),
+                State::Best(o) => match o {
+                    Some((_, rec)) => out.extend_from_slice(rec),
+                    None => out.extend_from_slice(self.empty.as_bytes()),
+                },
                 State::List(l) => join(&mut l.iter().map(Vec::as_slice), out, &self.empty),
                 State::Distinct(_, l) => join(&mut l.iter().map(Vec::as_slice), out, &self.empty),
                 State::Sorted(s) => {
@@ -371,7 +587,40 @@ impl Accumulators {
     }
 }
 
-fn finish_numeric(op: Op, n: &mut Numeric, empty: &str, out: &mut Vec<u8>) {
+/// Total length of the union of `ivs` (sorted in place).
+fn union_len(ivs: &mut [Interval]) -> u64 {
+    ivs.sort_unstable();
+    let (mut total, mut end) = (0u64, 0u64);
+    for iv in ivs.iter() {
+        let start = iv.start.max(end);
+        if iv.end > start {
+            total += iv.end - start;
+        }
+        end = end.max(iv.end);
+    }
+    total
+}
+
+/// The median of sorted, non-empty `v`.
+fn median_sorted(v: &[f64]) -> f64 {
+    let k = v.len();
+    if k % 2 == 1 {
+        v[k / 2]
+    } else {
+        (v[k / 2 - 1] + v[k / 2]) / 2.0
+    }
+}
+
+/// Linear interpolation between order statistics (type 7) of sorted `v`.
+fn quantile_sorted(v: &[f64], q: f64) -> f64 {
+    let h = (v.len() - 1) as f64 * q;
+    let lo = h.floor() as usize;
+    let hi = (lo + 1).min(v.len() - 1);
+    v[lo] + (h - lo as f64) * (v[hi] - v[lo])
+}
+
+fn finish_numeric(agg: &ResolvedAgg, n: &mut Numeric, empty: &str, out: &mut Vec<u8>) {
+    let op = agg.op;
     let none = |out: &mut Vec<u8>| out.extend_from_slice(empty.as_bytes());
     if n.n == 0 {
         return none(out);
@@ -399,13 +648,63 @@ fn finish_numeric(op: Op, n: &mut Numeric, empty: &str, out: &mut Vec<u8>) {
         }
         Op::Median => {
             n.vals.sort_unstable_by(|a, b| a.total_cmp(b));
-            let k = n.vals.len();
-            let m = if k % 2 == 1 {
-                n.vals[k / 2]
-            } else {
-                (n.vals[k / 2 - 1] + n.vals[k / 2]) / 2.0
+            fmt_f64(median_sorted(&n.vals), out);
+        }
+        Op::Mad => {
+            n.vals.sort_unstable_by(|a, b| a.total_cmp(b));
+            let med = median_sorted(&n.vals);
+            let mut dev: Vec<f64> = n.vals.iter().map(|x| (x - med).abs()).collect();
+            dev.sort_unstable_by(|a, b| a.total_cmp(b));
+            fmt_f64(median_sorted(&dev), out);
+        }
+        Op::Quantile => {
+            let OpArg::Q(q) = agg.arg else { unreachable!() };
+            n.vals.sort_unstable_by(|a, b| a.total_cmp(b));
+            fmt_f64(quantile_sorted(&n.vals, q), out);
+        }
+        Op::Tmean => {
+            let OpArg::Range(lo, hi) = agg.arg else {
+                unreachable!()
             };
-            fmt_f64(m, out);
+            n.vals.sort_unstable_by(|a, b| a.total_cmp(b));
+            let last = n.vals.len() - 1;
+            // rank fraction of the i-th smallest is i / (n - 1); a lone value is kept
+            let kept: Vec<f64> = n
+                .vals
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| {
+                    last == 0 || {
+                        let f = *i as f64 / last as f64;
+                        lo <= f && f <= hi
+                    }
+                })
+                .map(|(_, x)| *x)
+                .collect();
+            if kept.is_empty() {
+                return none(out);
+            }
+            fmt_f64(kept.iter().sum::<f64>() / kept.len() as f64, out);
+        }
+        Op::WMean => {
+            if n.wsum == 0.0 {
+                return none(out);
+            }
+            fmt_f64(n.wxsum / n.wsum, out);
+        }
+        Op::Cv => {
+            if n.n < 2 {
+                return none(out);
+            }
+            let mean = if n.all_int {
+                n.isum as f64 / n.n as f64
+            } else {
+                n.fsum / n.n as f64
+            };
+            if mean == 0.0 {
+                return none(out);
+            }
+            fmt_f64((n.m2 / (n.n - 1) as f64).sqrt() / mean, out);
         }
         Op::VarPop | Op::StdevPop => {
             let var = n.m2 / n.n as f64;

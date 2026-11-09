@@ -234,7 +234,9 @@ Examples:
     /// --count adds the number of records per cluster and -c COL:OP adds
     /// one aggregation column per option (count, sum, mean, median, min,
     /// max, stdev, var, stdev_pop, var_pop, collapse, distinct, distinct_sorted, first, last,
-    /// count_distinct, indicator). -s clusters each strand separately
+    /// count_distinct, indicator, cv, mad, quantile:Q, tmean:LO-HI, mode,
+    /// antimode; the ops that need a second input, like wmean, are for
+    /// map). -s clusters each strand separately
     /// (unknown strand apart from + and -) without adding a strand column.
     ///
     /// Several files are merged together as one stream. Every input must be
@@ -494,7 +496,17 @@ Examples:
     /// column of B, 0 for the whole record (count, bases, indicator only),
     /// or for a VCF B QUAL, ID, FILTER or INFO/KEY. Ops: count
     /// count_distinct sum mean median min max stdev var stdev_pop var_pop
-    /// collapse distinct distinct_sorted first last bases indicator. count counts every
+    /// collapse distinct distinct_sorted first last bases indicator cv mad
+    /// quantile:Q tmean:LO-HI wmean mode antimode bases_uniq frac_a frac_b
+    /// min_record max_record records (COL 0 also works with bases_uniq, frac_a,
+    /// frac_b and records; records ignores COL). cv is the sample
+    /// stdev over the mean; mad the unscaled median absolute deviation;
+    /// quantile is type 7 and tmean the mean of the values whose rank
+    /// fraction is within LO-HI; wmean weights by overlapping bases; ties of
+    /// mode and antimode go to the first seen; bases_uniq counts overlapped
+    /// bases once; frac_a is bases_uniq over A's length and frac_b the summed
+    /// overlap over the summed B length (--empty when the length is 0);
+    /// records copies whole B records, tabs shown as |. count counts every
     /// overlapping B; the other ops skip `.` and empty values, and a value
     /// that is not a number in a numeric op is an error. sum, min and max
     /// print integers when every value was one; stdev and var are sample

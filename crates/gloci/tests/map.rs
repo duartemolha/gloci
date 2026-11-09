@@ -268,7 +268,7 @@ fn errors() {
     assert_eq!(code(&["map", "-a", &a, "-b", &b, "-c", "5"]), 2);
     assert_eq!(code(&["map", "-a", &a, "-b", &b, "-c", "5:quantile"]), 2);
     assert_eq!(code(&["map", "-a", &a, "-b", &b, "-c", "0:sum"]), 2);
-    assert_eq!(code(&["map", "-a", &a, "-b", &b, "-c", "5:mode"]), 2);
+    assert_eq!(code(&["map", "-a", &a, "-b", &b, "-c", "5:tmean:0.5"]), 2);
     assert_eq!(
         code(&[
             "map", "-a", &a, "-b", &b, "-c", "5:sum", "-w", "5", "-f", "0.5"
@@ -352,5 +352,77 @@ fn determinism() {
         assert!(!one.is_empty());
         assert_eq!(one, run("2"), "{extra:?}");
         assert_eq!(one, run("8"), "{extra:?}");
+    }
+}
+
+#[test]
+fn two_input_ops_end_to_end() {
+    let fx = Fx::new();
+    // a1 [100,200): b1 [150,160) shares 10, b2 [180,260) shares 20
+    // a3 [5,15): no B
+    let got = fx.run(
+        A,
+        B,
+        &[
+            "-c",
+            "5:wmean,5:bases_uniq,5:frac_a,5:frac_b,0:records,5:max_record",
+        ],
+    );
+    assert_eq!(
+        got,
+        [
+            "chr1\t100\t200\ta1\t0\t+\t3.5\t30\t0.3\t0.3333333333333333\t\
+chr1|150|160|b1|2.5|+,chr1|180|260|b2|4|-\tchr1|180|260|b2|4|-",
+            "chr1\t300\t400\ta2\t0\t-\t.\t5\t0.05\t0.047619047619047616\tchr1|395|500|b3|.|+\t.",
+            "chr2\t5\t15\ta3\t0\t+\t.\t0\t.\t.\t.\t.",
+        ]
+    );
+}
+
+#[test]
+fn spread_ops_end_to_end() {
+    let fx = Fx::new();
+    let got = fx.run(
+        A,
+        B,
+        &[
+            "-c",
+            "5:mode,5:antimode,5:mad,5:quantile:0.5,5:tmean:0-1,5:cv",
+        ],
+    );
+    assert_eq!(
+        got[0],
+        "chr1\t100\t200\ta1\t0\t+\t2.5\t2.5\t0.75\t3.25\t3.25\t0.32635697593225266"
+    );
+}
+
+#[test]
+fn new_ops_are_identical_for_every_thread_count() {
+    let fx = Fx::new();
+    let spec =
+        "5:cv,5:mad,5:quantile:0.3,5:tmean:0.1-0.9,5:wmean,5:mode,5:bases_uniq,5:frac_a,0:records";
+    let one = fx.run(A, B, &["--threads", "1", "-c", spec]);
+    for t in ["2", "4"] {
+        assert_eq!(
+            fx.run(A, B, &["--threads", t, "-c", spec]),
+            one,
+            "--threads {t}"
+        );
+    }
+}
+
+#[test]
+fn usage_errors_for_op_arguments() {
+    let fx = Fx::new();
+    let (a, b) = (fx.file("a.bed", A), fx.file("b.bed", B));
+    for (spec, want) in [
+        ("5:quantile:2", "must be a number from 0 to 1"),
+        ("5:tmean:0.9-0.1", "LO below HI"),
+    ] {
+        gloci()
+            .args(["map", "-a", &a, "-b", &b, "-c", spec])
+            .assert()
+            .code(2)
+            .stderr(contains(want));
     }
 }

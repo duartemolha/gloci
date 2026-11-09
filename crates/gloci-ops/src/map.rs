@@ -11,13 +11,13 @@
 //! `bases` is the overlap of A's span with the hit's own (unpadded) span,
 //! so with a window it is 0 for a hit that is within the window only.
 
-use crate::agg::{Accumulators, AggSpec, Op, resolve};
+use crate::agg::{Accumulators, AggSpec, HitInfo, resolve};
 use crate::intersect::Text;
 use crate::relate::{
     Acceptor, RelateInputs, RelateOptions, RelationFiles, RunOptions, report_skipped, run_files,
     run_relation_in,
 };
-use gloci_core::ChromTable;
+use gloci_core::{ChromTable, Interval, overlap_len};
 use gloci_engine::{ARec, Hit, Neighbours, SweepSummary, Visitor};
 use gloci_io::{Format, IoError, RecordWriter, UsageError};
 
@@ -83,7 +83,7 @@ but {} is {} and {} is {}; convert them or run map once per format",
 
 struct Reporter<'o, 'w> {
     skip_unmatched: bool,
-    wants_bases: bool,
+    wants_overlap: bool,
     acceptor: Acceptor<'o>,
     accs: Accumulators,
     w: &'w mut dyn RecordWriter,
@@ -91,6 +91,53 @@ struct Reporter<'o, 'w> {
     b: Vec<Text>,
     b_names: Vec<String>,
     row: Vec<u8>,
+    /// Scratch: the shared intervals of the current hit.
+    shared: Vec<Interval>,
+    split: bool,
+}
+
+impl Reporter<'_, '_> {
+    /// The overlap facts of `h` with `a` (`shared` is filled; the returned
+    /// slice is left empty for the caller to point at it). With `--split`
+    /// lengths and shared bases are those of the blocks.
+    fn overlap(&mut self, a: &ARec<'_>, h: &Hit<'_>) -> Result<HitInfo<'static>, IoError> {
+        self.shared.clear();
+        let bases = self.acceptor.overlap_len(a, h)?;
+        if !self.split {
+            let (x, y) = (a.meta.span, h.span);
+            if overlap_len(x, y) > 0 {
+                self.shared.push(Interval {
+                    start: x.start.max(y.start),
+                    end: x.end.min(y.end),
+                });
+            }
+            return Ok(HitInfo {
+                bases,
+                a_len: x.len(),
+                b_len: y.len(),
+                shared: &[],
+            });
+        }
+        let ab = self.acceptor.a_blocks(a)?.to_vec();
+        let bb = self.acceptor.hit_blocks(h)?;
+        for x in &ab {
+            for y in &bb {
+                if overlap_len(*x, *y) > 0 {
+                    self.shared.push(Interval {
+                        start: x.start.max(y.start),
+                        end: x.end.min(y.end),
+                    });
+                }
+            }
+        }
+        let total = |v: &[Interval]| v.iter().map(Interval::len).sum::<u64>();
+        Ok(HitInfo {
+            bases,
+            a_len: total(&ab),
+            b_len: total(&bb),
+            shared: &[],
+        })
+    }
 }
 
 impl Visitor for Reporter<'_, '_> {
@@ -101,14 +148,22 @@ impl Visitor for Reporter<'_, '_> {
                 continue;
             }
             any = true;
-            let bases = if self.wants_bases {
-                self.acceptor.overlap_len(a, h)?
-            } else {
-                0
-            };
             let f = usize::from(h.file);
+            let info = if self.wants_overlap {
+                Some(self.overlap(a, h)?)
+            } else {
+                None
+            };
             let line = self.b[f].of(h.raw, h.loc)?;
-            self.accs.add(line, bases, &self.b_names[f], h.loc)?;
+            if let Some(info) = info {
+                let hit = HitInfo {
+                    shared: &self.shared,
+                    ..info
+                };
+                self.accs.add_hit(line, &hit, &self.b_names[f], h.loc)?;
+            } else {
+                self.accs.add(line, 0, &self.b_names[f], h.loc)?;
+            }
         }
         if !any && self.skip_unmatched {
             // nothing was added; leave the accumulators clean
@@ -178,7 +233,7 @@ fn map_in(
     let acceptor = Acceptor::new(&o.relate, &inputs);
     let mut reporter = Reporter {
         skip_unmatched: o.skip_unmatched,
-        wants_bases: o.aggs.iter().any(|a| a.op == Op::Bases),
+        wants_overlap: o.aggs.iter().any(|a| a.op.needs_overlap()),
         acceptor,
         accs: Accumulators::new(resolved, o.empty.clone(), o.delim.clone()),
         w,
@@ -186,6 +241,8 @@ fn map_in(
         b,
         b_names,
         row: Vec::new(),
+        shared: Vec::new(),
+        split: o.relate.split,
     };
     run_relation_in(inputs, chroms, &o.relate, None, &mut reporter)
 }

@@ -1,0 +1,1 @@
+map --chrom-order lex -a input.bed -b map-modes-b.bed -c 5:mode

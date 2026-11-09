@@ -1121,6 +1121,41 @@ reference = "bedtools map -a input.bed -b map-b.bed -s -c 5 -o sum"
 compare = "numeric"
 
 [[case]]
+name = "map-mode-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-modes-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-modes-b.bed -c 5:mode"
+reference = "bedtools map -a input.bed -b map-modes-b.bed -c 5 -o mode"
+compare = "numeric"
+
+[[case]]
+name = "map-antimode-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-modes-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-modes-b.bed -c 5:antimode"
+reference = "bedtools map -a input.bed -b map-modes-b.bed -c 5 -o antimode"
+compare = "numeric"
+
+# With a tie, bedtools `mode` and `antimode` take the smallest value; gloci takes the first seen.
+[[case]]
+name = "map-mode-ties-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-ties-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-ties-b.bed -c 5:mode"
+reference = "bedtools map -a input.bed -b map-ties-b.bed -c 5 -o mode"
+compare = "numeric"
+expected_difference = "#map-mode-ties"
+
+[[case]]
+name = "map-antimode-ties-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-ties-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-ties-b.bed -c 5:antimode"
+reference = "bedtools map -a input.bed -b map-ties-b.bed -c 5 -o antimode"
+compare = "numeric"
+expected_difference = "#map-mode-ties"
+
+[[case]]
 name = "map-count-vs-bedops"
 input = { file = "xtask/diff/inputs/map-a-hit.bed" }
 aux = ["xtask/diff/inputs/map-b.bed"]

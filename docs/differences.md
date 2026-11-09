@@ -447,6 +447,20 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Pinned by:** `map-distinct-vs-bedtools` (must differ).
   `map-distinct-sorted-vs-bedtools` matches.
 
+## `map` `mode` and `antimode` break ties by first seen {#map-mode-ties}
+
+- **gloci:** when several values are equally frequent, `mode` and `antimode`
+  print the one seen first (B file, then input order). Values are compared as
+  text, so `1` and `1.0` are different values.
+- **Old behaviour:** `bedtools map -o mode` and `-o antimode` print the smallest
+  of the tied values, compared as numbers (A with values `5 3 5 3` gives `3`
+  for both; gloci gives `5`).
+- **Reason:** first-seen order is the rule `first`, `distinct` and `min_record`
+  use, and it works for text columns, where "smallest" has no useful meaning.
+  Without a tie both tools agree.
+- **Pinned by:** `map-mode-ties-vs-bedtools` and `map-antimode-ties-vs-bedtools`
+  (must differ). `map-mode-vs-bedtools` and `map-antimode-vs-bedtools` match.
+
 ## `map` prints the empty value, not `NAN`, for no values {#map-empty-value}
 
 - **gloci:** an aggregation with no values prints `--empty` (default `.`);

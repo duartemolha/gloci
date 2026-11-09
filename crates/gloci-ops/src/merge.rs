@@ -1,7 +1,7 @@
 //! `merge`: cluster the footprints of sorted inputs and write one BED row
 //! per cluster (replaces `bedtools merge` and `bedops -m`).
 
-use crate::agg::{Accumulators, AggSpec, Op, ResolvedAgg, resolve};
+use crate::agg::{Accumulators, AggSpec, ResolvedAgg, refuse_two_input_ops, resolve};
 use crate::skipped::{Skipped, log_skipped};
 use gloci_core::{ChromId, ChromTable, Strand};
 use gloci_engine::kmerge_with;
@@ -29,13 +29,7 @@ pub struct MergeOptions {
 /// Reject option and input combinations that cannot work, before any input
 /// is read.
 pub fn validate(formats: &[Format], o: &MergeOptions) -> Result<(), UsageError> {
-    if let Some(a) = o.aggs.iter().find(|a| a.op == Op::Bases) {
-        return Err(UsageError(format!(
-            "-c {}: bases measures overlap with another input, and merge has none; \
-use count for the number of records",
-            a.label
-        )));
-    }
+    refuse_two_input_ops(&o.aggs, "merge")?;
     if !o.aggs.is_empty() {
         if formats.contains(&Format::Bcf) {
             return Err(UsageError(

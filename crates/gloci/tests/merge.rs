@@ -96,6 +96,43 @@ fn count_and_aggs() {
 }
 
 #[test]
+fn two_input_ops_are_refused() {
+    let dir = tempdir();
+    let f = s(&plain_file(dir.path(), "a.bed", "chr1\t1\t5\t3\n"));
+    for op in [
+        "wmean",
+        "records",
+        "min_record",
+        "max_record",
+        "frac_a",
+        "frac_b",
+        "bases_uniq",
+    ] {
+        gloci()
+            .args(["merge", &f, "-c", &format!("4:{op}")])
+            .assert()
+            .code(2)
+            .stderr(contains(format!("-c 4:{op}")))
+            .stderr(contains("merge has none"));
+    }
+}
+
+#[test]
+fn single_input_ops_work_in_merge() {
+    let dir = tempdir();
+    let f = s(&plain_file(
+        dir.path(),
+        "a.bed",
+        "chr1\t1\t5\t1\nchr1\t3\t9\t2\nchr1\t4\t6\t2\nchr1\t5\t7\t10\n",
+    ));
+    gloci()
+        .args(["merge", &f, "-c", "4:mode,4:mad,4:quantile:0.5,4:cv"])
+        .assert()
+        .success()
+        .stdout("chr1\t1\t9\t2\t0.5\t2\t1.1181996111474777\n");
+}
+
+#[test]
 fn multiple_inputs_kmerged() {
     let dir = tempdir();
     let a = s(&plain_file(
