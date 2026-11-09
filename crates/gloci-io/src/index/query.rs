@@ -488,6 +488,15 @@ fn text_renamer(format: Format, o: &ReaderOptions) -> Option<Renamer> {
     }
 }
 
+/// WIG lines are not BED, so an index next to a WIG file cannot be used.
+fn wig_unindexed(name: &str) -> IoError {
+    UsageError(format!(
+        "{name} is WIG, which cannot be read through an index; convert it with \
+`gloci convert {name}`, which writes bedGraph, and index that"
+    ))
+    .into()
+}
+
 /// Read the records of the indexed BGZF file `path` whose span (per
 /// `o.vcf_span`) overlaps one of `regions` under §4.3 (D9). Each record is
 /// yielded once, in file order: the regions are merged per reference (D10)
@@ -529,6 +538,9 @@ pub fn open_region_reader(
     )?;
     let (format, header) = (head.format(), head.header().clone());
     drop(head);
+    if format == Format::Wig {
+        return Err(wig_unindexed(&name));
+    }
     let index = Loaded::read(&info)?;
     if let (Some(m), Some(names)) = (&o.chrom_map, index.names()) {
         m.check_file_names(&name, names.iter().map(|n| &n[..]))?;
@@ -711,6 +723,9 @@ impl IndexedFile {
                 "{name} has no index; create one with: gloci index {name}"
             ))
         })?;
+        if format == Format::Wig {
+            return Err(wig_unindexed(&name));
+        }
         let index = Loaded::read(&info)?;
         if let (Some(m), Some(names)) = (&o.chrom_map, index.names()) {
             m.check_file_names(&name, names.iter().map(|n| &n[..]))?;

@@ -181,7 +181,7 @@ write for example `{kind} chrom=chr1 {}`",
             if start == 0 {
                 return Err("start is 0 but WIG positions are 1-based; use start=1".into());
             }
-            let step = step.unwrap_or(1);
+            let step = step.ok_or("fixedStep line has no step=N; add step=1")?;
             if step == 0 {
                 return Err("step must be at least 1".into());
             }
@@ -241,10 +241,11 @@ write for example `{kind} chrom=chr1 {}`",
         if std::str::from_utf8(value)
             .ok()
             .and_then(|v| v.parse::<f64>().ok())
-            .is_none()
+            .is_none_or(|v| !v.is_finite())
         {
             return Err(format!(
-                "value '{}' is not a number",
+                "value '{}' is not a finite number; WIG values must be finite, \
+so remove or replace nan/inf",
                 String::from_utf8_lossy(value)
             ));
         }

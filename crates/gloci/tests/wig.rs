@@ -103,7 +103,7 @@ fn wig_format_flag_and_crlf() {
     let wig = s(&plain_file(
         d.path(),
         "x.txt",
-        "fixedStep chrom=c start=5\r\n9\r\n",
+        "fixedStep chrom=c start=5 step=1\r\n9\r\n",
     ));
     assert_eq!(out(&["convert", &wig, "--format", "wig"]), "c\t4\t5\t9\n");
 }
@@ -126,13 +126,18 @@ fn wig_errors() {
     fail("1.5\n", "before any fixedStep or variableStep line");
     fail("fixedStep start=1 step=1\n1\n", "no chrom=NAME");
     fail("fixedStep chrom=c step=1\n1\n", "no start=POSITION");
+    fail("fixedStep chrom=c start=1\n1\n", "no step=N; add step=1");
+    for v in ["nan", "inf", "-inf", "infinity", "NaN"] {
+        fail(&format!("variableStep chrom=c\n5 {v}\n"), "line 2");
+        fail(&format!("variableStep chrom=c\n5 {v}\n"), "finite number");
+    }
     fail("fixedStep chrom=c start=0 step=1\n1\n", "1-based");
     fail(
         "variableStep chrom=c span=0\n1 1\n",
         "span must be at least 1",
     );
     fail("variableStep chrom=c\n0 1\n", "1-based");
-    fail("variableStep chrom=c\n5 abc\n", "not a number");
+    fail("variableStep chrom=c\n5 abc\n", "finite number");
     fail("variableStep chrom=c\n5\n", "POSITION VALUE");
     fail("fixedStep chrom=c start=1 step=1\n1 2\n", "one value");
 }
@@ -159,4 +164,15 @@ fn wig_cannot_be_indexed() {
         .assert()
         .failure()
         .stderr(contains("WIG"));
+}
+
+#[test]
+fn wig_span_larger_than_step_overlaps() {
+    let d = tempdir();
+    let f = s(&plain_file(
+        d.path(),
+        "x.wig",
+        "fixedStep chrom=c start=1 step=2 span=5\n1\n2\n",
+    ));
+    assert_eq!(out(&["convert", &f]), "c\t0\t5\t1\nc\t2\t7\t2\n");
 }

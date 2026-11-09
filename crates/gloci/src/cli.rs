@@ -347,7 +347,8 @@ Examples:
     /// for GTF; `.` when absent). --feature keeps the listed column-3 types.
     /// WIG (fixedStep or variableStep, with optional span) gives one bedGraph
     /// row per data line: chrom, start, end, value; equal values are not
-    /// merged.
+    /// merged. fixedStep needs start= and step=; values must be finite. A
+    /// span larger than the step gives overlapping rows.
     /// BED12 with --blocks gives one BED6 row per block; a line that is not
     /// valid BED12 (fewer than 12 columns, block counts that disagree, blocks
     /// out of order, a last block not ending at chromEnd) is an error, also
