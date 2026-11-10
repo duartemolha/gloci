@@ -78,7 +78,7 @@ macro_rules! genome {
             species: $species,
             assembly: $assembly,
             naming: Naming::$naming,
-            data: include_str!(concat!("../../../data/genomes/", $id, ".genome")),
+            data: include_str!(concat!("../data/genomes/", $id, ".genome")),
         }
     };
 }

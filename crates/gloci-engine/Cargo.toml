@@ -3,6 +3,9 @@ name = "gloci-engine"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+description = "Interval index, sweep and external-sort engines for gloci (internal crate, no stable API)."
+license.workspace = true
+repository.workspace = true
 publish.workspace = true
 
 [dependencies]

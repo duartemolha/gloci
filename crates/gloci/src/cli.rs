@@ -74,7 +74,8 @@ pub enum Commands {
     /// columns id, species, assembly, naming (ucsc or ensembl), sequences
     /// and total_bp, separated by tabs. The lengths come from UCSC
     /// chrom.sizes files and from the Ensembl core databases; the sources
-    /// are recorded in data/genomes/SOURCES.toml in the source tree.
+    /// are recorded in crates/gloci-io/data/genomes/SOURCES.toml in the
+    /// source tree.
     #[command(after_long_help = "\
 Examples:
   gloci genomes

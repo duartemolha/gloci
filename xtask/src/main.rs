@@ -43,7 +43,7 @@ enum Task {
         #[arg(long)]
         gloci: Option<PathBuf>,
     },
-    /// Maintain the built-in genomes in data/genomes
+    /// Maintain the built-in genomes in crates/gloci-io/data/genomes
     Genomes {
         #[command(subcommand)]
         action: GenomesAction,

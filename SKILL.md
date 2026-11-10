@@ -25,7 +25,7 @@ description: Use gloci for genomic interval and variant operations (sorting, ind
 
 List the built-in genomes that -g accepts, or print one.
 
-Without a subcommand, prints one line per built-in genome with the columns id, species, assembly, naming (ucsc or ensembl), sequences and total_bp, separated by tabs. The lengths come from UCSC chrom.sizes files and from the Ensembl core databases; the sources are recorded in data/genomes/SOURCES.toml in the source tree.
+Without a subcommand, prints one line per built-in genome with the columns id, species, assembly, naming (ucsc or ensembl), sequences and total_bp, separated by tabs. The lengths come from UCSC chrom.sizes files and from the Ensembl core databases; the sources are recorded in crates/gloci-io/data/genomes/SOURCES.toml in the source tree.
 
 ```sh
 gloci genomes

@@ -3,6 +3,10 @@ name = "gloci"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+description = "Fast genomic interval and VCF toolkit: a single binary that replaces bedtools, bedops and vcftools."
+license.workspace = true
+repository.workspace = true
+readme = "../../README.md"
 publish.workspace = true
 
 [lib]

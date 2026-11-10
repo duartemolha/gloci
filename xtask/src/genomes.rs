@@ -1,5 +1,5 @@
-//! `cargo xtask genomes refresh`: rebuild `data/genomes/*.genome` from the
-//! sources listed in `data/genomes/SOURCES.toml`.
+//! `cargo xtask genomes refresh`: rebuild `crates/gloci-io/data/genomes/*.genome` from the
+//! sources listed in `crates/gloci-io/data/genomes/SOURCES.toml`.
 
 use anyhow::{Context, Result, bail};
 use gloci_core::karyotype_cmp;
@@ -10,7 +10,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub const DEFAULT_DIR: &str = "data/genomes";
+pub const DEFAULT_DIR: &str = "crates/gloci-io/data/genomes";
 
 /// The Ensembl core-database tables that define the top-level sequences, in
 /// the order they are hashed.

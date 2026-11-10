@@ -51,3 +51,14 @@ jobs:
             echo "binary is dynamically linked"
             exit 1
           fi
+
+  # Dry run only: this job never publishes anything.
+  publish-dry-run:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master (2026-07-16)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+      - run: cargo publish --dry-run --locked -p gloci-core -p gloci-io -p gloci-engine -p gloci-vcf -p gloci-ops -p gloci

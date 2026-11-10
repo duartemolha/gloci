@@ -59,7 +59,7 @@ fn every_id_present_and_case_insensitive() {
 fn reference_ordered() -> Vec<String> {
     let manifest = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../data/genomes/SOURCES.toml"
+        "/data/genomes/SOURCES.toml"
     ))
     .unwrap();
     let t: toml::Table = manifest.parse().unwrap();
@@ -190,7 +190,7 @@ fn totals_and_counts() {
 fn sources_manifest_matches_data() {
     let manifest = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../data/genomes/SOURCES.toml"
+        "/data/genomes/SOURCES.toml"
     ))
     .unwrap();
     let t: toml::Table = manifest.parse().unwrap();
@@ -225,7 +225,7 @@ fn sources_manifest_matches_data() {
             "{id}"
         );
         let file = std::fs::read_to_string(format!(
-            "{}/../../data/genomes/{id}.genome",
+            "{}/data/genomes/{id}.genome",
             env!("CARGO_MANIFEST_DIR")
         ))
         .unwrap();

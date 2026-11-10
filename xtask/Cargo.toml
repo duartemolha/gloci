@@ -3,13 +3,16 @@ name = "xtask"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-publish.workspace = true
+description = "Build and maintenance tasks for gloci (not published)."
+license.workspace = true
+repository.workspace = true
+publish = false
 
 [lib]
 path = "src/lib.rs"
 
 [dependencies]
-gloci = { path = "../crates/gloci" }
+gloci = { path = "../crates/gloci", version = "0.1.0" }
 gloci-core.workspace = true
 gloci-testkit.workspace = true
 clap.workspace = true

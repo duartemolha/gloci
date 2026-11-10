@@ -3,6 +3,9 @@ name = "gloci-io"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+description = "Readers and writers for gloci: BED, GFF, VCF, BCF, BGZF, tabix and the built-in genome tables (internal crate, no stable API)."
+license.workspace = true
+repository.workspace = true
 publish.workspace = true
 
 [dependencies]

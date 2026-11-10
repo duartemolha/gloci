@@ -7,15 +7,17 @@ exclude = ["fuzz"]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.91"
-publish = false
+license = "MIT"
+repository = "https://github.com/duartemolha/gloci"
+publish = true
 
 [workspace.dependencies]
-gloci-core = { path = "crates/gloci-core" }
-gloci-io = { path = "crates/gloci-io" }
-gloci-engine = { path = "crates/gloci-engine" }
-gloci-vcf = { path = "crates/gloci-vcf" }
-gloci-ops = { path = "crates/gloci-ops" }
-gloci-testkit = { path = "crates/gloci-testkit" }
+gloci-core = { path = "crates/gloci-core", version = "0.1.0" }
+gloci-io = { path = "crates/gloci-io", version = "0.1.0" }
+gloci-engine = { path = "crates/gloci-engine", version = "0.1.0" }
+gloci-vcf = { path = "crates/gloci-vcf", version = "0.1.0" }
+gloci-ops = { path = "crates/gloci-ops", version = "0.1.0" }
+gloci-testkit = { path = "crates/gloci-testkit", version = "0.1.0" }
 noodles-bgzf = { version = "0.52", features = ["libdeflate"] }
 noodles-vcf = "0.96"
 noodles-bcf = "0.94"
