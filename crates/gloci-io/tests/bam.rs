@@ -208,14 +208,13 @@ fn raw_record(
 }
 
 fn header(refs: &[(&str, u64)], so: &str) -> AlnHeader {
-    AlnHeader {
-        text: sam_header(refs, so).into_bytes(),
-        refs: refs
-            .iter()
+    AlnHeader::new(
+        sam_header(refs, so).into_bytes(),
+        refs.iter()
             .map(|(n, l)| (n.as_bytes().to_vec(), *l))
             .collect(),
-        sort_order: SortOrder::Coordinate,
-    }
+        SortOrder::Coordinate,
+    )
 }
 
 /// A BGZF BAM of `h` with `records`, each framed with its `block_size`.

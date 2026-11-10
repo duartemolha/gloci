@@ -2,8 +2,9 @@
 //! reference list that BAM records name their contig by (D103).
 
 use crate::chrom_map::ChromMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, Read, Write};
+use std::sync::OnceLock;
 
 /// What `@HD SO:` says about the order of the records.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,14 +39,25 @@ impl SortOrder {
 }
 
 /// An alignment header.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct AlnHeader {
     /// The SAM header text (`@HD`, `@SQ`, `@RG`, `@PG`, `@CO` lines), each line ended by `\n`.
     pub text: Vec<u8>,
     /// The references in `@SQ` order, as `(name, length)`. Record `refID`s index this list.
     pub refs: Vec<(Vec<u8>, u64)>,
     pub sort_order: SortOrder,
+    /// Reference id by the name that records carry, built on first use. For a header renamed by
+    /// `--chrom-map` these are the original names.
+    names: OnceLock<HashMap<Vec<u8>, usize>>,
 }
+
+impl PartialEq for AlnHeader {
+    fn eq(&self, other: &AlnHeader) -> bool {
+        self.text == other.text && self.refs == other.refs && self.sort_order == other.sort_order
+    }
+}
+
+impl Eq for AlnHeader {}
 
 /// Longest reference name accepted in a binary header.
 const MAX_NAME: usize = 1 << 20;
@@ -82,6 +94,33 @@ fn field<'a>(line: &'a [u8], key: &[u8]) -> Option<&'a [u8]> {
 }
 
 impl AlnHeader {
+    /// A header from its parts: the SAM text, the references in `@SQ` order (the ids that
+    /// records use), and the sort order.
+    pub fn new(text: Vec<u8>, refs: Vec<(Vec<u8>, u64)>, sort_order: SortOrder) -> AlnHeader {
+        AlnHeader {
+            text,
+            refs,
+            sort_order,
+            names: OnceLock::new(),
+        }
+    }
+
+    fn names(&self) -> &HashMap<Vec<u8>, usize> {
+        self.names.get_or_init(|| {
+            let mut m = HashMap::with_capacity(self.refs.len());
+            for (i, (n, _)) in self.refs.iter().enumerate() {
+                m.entry(n.clone()).or_insert(i);
+            }
+            m
+        })
+    }
+
+    /// The id of the reference that records name `name`, in O(1). After `--chrom-map` renamed
+    /// the header, `name` is the name in the file, not the new one.
+    pub fn ref_id(&self, name: &[u8]) -> Option<usize> {
+        self.names().get(name).copied()
+    }
+
     /// Read the BAM magic, header text and reference list. Errors do not name the
     /// file; the caller adds it.
     pub fn read_bam(r: &mut dyn Read) -> Result<AlnHeader, String> {
@@ -137,11 +176,7 @@ impl AlnHeader {
             refs.push((name, l_ref));
         }
         let sort_order = SortOrder::from_text(&text);
-        Ok(AlnHeader {
-            text,
-            refs,
-            sort_order,
-        })
+        Ok(AlnHeader::new(text, refs, sort_order))
     }
 
     /// Parse SAM header text: the `@SQ` lines give the references.
@@ -177,11 +212,7 @@ impl AlnHeader {
             refs.push((name.to_vec(), u64::from(len)));
         }
         let sort_order = SortOrder::from_text(&text);
-        Ok(AlnHeader {
-            text,
-            refs,
-            sort_order,
-        })
+        Ok(AlnHeader::new(text, refs, sort_order))
     }
 
     /// Write the BAM magic, the header text and the reference list.
@@ -253,6 +284,7 @@ impl AlnHeader {
             text,
             refs: self.refs.clone(),
             sort_order: self.sort_order,
+            names: self.names.clone(),
         }
     }
 
@@ -281,10 +313,24 @@ impl AlnHeader {
                 None => text.extend_from_slice(line),
             }
         }
+        // Records still carry the names of the file.
+        let names = OnceLock::new();
+        let _ = names.set(
+            self.names
+                .get_or_init(|| {
+                    let mut m = HashMap::with_capacity(self.refs.len());
+                    for (i, (n, _)) in self.refs.iter().enumerate() {
+                        m.entry(n.clone()).or_insert(i);
+                    }
+                    m
+                })
+                .clone(),
+        );
         AlnHeader {
             text,
             refs,
             sort_order: self.sort_order,
+            names,
         }
     }
 }

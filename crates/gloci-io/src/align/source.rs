@@ -8,7 +8,7 @@ use super::sam::SamLines;
 use super::{AlignOptions, Aln, AlnHeader};
 use crate::detect::Format;
 use crate::diag::{Diagnostics, InvalidPolicy};
-use crate::error::IoError;
+use crate::error::{IoError, UsageError};
 use crate::input::{Input, InputOptions, open_input, open_input_from};
 use crate::record::ReaderOptions;
 use std::io::Read;
@@ -146,6 +146,12 @@ pub(crate) fn source_from_input(
             policy: o.invalid,
             opts,
         })),
+        Format::Sam if map.is_some() => Err(UsageError(format!(
+            "{} is SAM, and --chrom-map cannot rename the reference names in SAM text that is \
+written as it is; convert it to BAM first (gloci view {0} -O bam -o x.bam) and read that",
+            input.name
+        ))
+        .into()),
         Format::Sam => Ok(Box::new(SamSource {
             lines: SamLines::open(input, map)?,
             diag: Diagnostics::default(),

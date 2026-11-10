@@ -130,9 +130,25 @@ fn sam_reader_equals_bam_reader() {
         },
     ] {
         for set in ["flags", "cigars", "order", "tags"] {
-            let (b, bd) = metas(&format!("{set}.bam"), ao.clone());
-            let (s, sd) = metas(&format!("{set}.sam"), ao.clone());
+            let (mut b, bd) = metas(&format!("{set}.bam"), ao.clone());
+            let (mut s, sd) = metas(&format!("{set}.sam"), ao.clone());
             assert!(!b.is_empty(), "{set}");
+            // A BAM record is placed by its record number, a SAM record by its file line
+            // (D101); everything else is equal.
+            let text = std::fs::read_to_string(fixture(&format!("{set}.sam"))).unwrap();
+            let lines: Vec<u64> = text
+                .lines()
+                .enumerate()
+                .filter(|(_, l)| !l.starts_with('@'))
+                .map(|(i, _)| i as u64 + 1)
+                .collect();
+            for m in &mut s {
+                assert!(lines.contains(&m.5), "{set}: {} is a record line", m.5);
+                m.5 = 0;
+            }
+            for m in &mut b {
+                m.5 = 0;
+            }
             assert_eq!(b, s, "{set}: metas");
             assert_eq!(
                 (bd.unmapped, bd.filtered, bd.skipped),
@@ -575,4 +591,160 @@ fn bam_as_sam_resolves_a_long_cigar_like_samtools() {
     assert_eq!(f[5].len(), 35_000 * 4, "the resolved CIGAR 1M1I x 35,000");
     assert!(f[5].starts_with("1M1I1M1I"));
     assert_eq!(&f[11..], ["NM:i:7"], "the CG tag is not repeated");
+}
+
+#[test]
+fn sam_checks_every_field_where_it_reads_them() {
+    // The encoder's checks run at read, for SAM output as for BAM output, naming the line and
+    // honouring --skip-invalid.
+    let refs = "@SQ\tSN:chr1\tLN:1000\n";
+    let good = "ok\t0\tchr1\t10\t60\t4M\t*\t0\t0\tACGT\tIIII";
+    let cases: [(&str, &str, &str); 6] = [
+        (
+            "bad tag",
+            "r\t0\tchr1\t10\t60\t4M\t*\t0\t0\tACGT\tIIII\tNM:Q:1",
+            "type 'Q'",
+        ),
+        (
+            "short QUAL",
+            "r\t0\tchr1\t10\t60\t4M\t*\t0\t0\tACGT\tII",
+            "quality string has 2",
+        ),
+        (
+            "unknown RNEXT",
+            "r\t0\tchr1\t10\t60\t4M\tchrZ\t5\t0\tACGT\tIIII",
+            "RNEXT 'chrZ'",
+        ),
+        (
+            "TLEN not a number",
+            "r\t0\tchr1\t10\t60\t4M\t*\t0\tx\tACGT\tIIII",
+            "TLEN 'x'",
+        ),
+        (
+            "bad B array",
+            "r\t0\tchr1\t10\t60\t4M\t*\t0\t0\tACGT\tIIII\tXB:B:x,1",
+            "B field",
+        ),
+        (
+            "empty optional field",
+            "r\t0\tchr1\t10\t60\t4M\t*\t0\t0\tACGT\tIIII\tNM:i",
+            "TAG:TYPE:VALUE",
+        ),
+    ];
+    for (shape, bad, text) in cases {
+        let bytes = sam_bytes(refs, &[good, bad]);
+        let mut s = src_of(bytes.clone(), InvalidPolicy::Fail).unwrap();
+        let mut buf = Vec::new();
+        s.next_record(&mut buf).unwrap();
+        let e = s.next_record(&mut buf).unwrap_err().to_string();
+        assert!(
+            e.contains("t.sam line 4:") && e.contains(text),
+            "{shape}: {e}"
+        );
+        assert!(!e.contains("disk"), "{shape}: {e}");
+        let o = ropts(AlignOptions::default(), InvalidPolicy::Fail);
+        let mut r = open_reader_from("t.sam", Box::new(Cursor::new(bytes.clone())), &o).unwrap();
+        let e = r
+            .read_batch(
+                &mut ChromTable::first_appearance(),
+                &mut RecordBatch::default(),
+                9,
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.contains("t.sam line 4:") && e.contains(text),
+            "{shape}: {e}"
+        );
+        let mut s = src_of(bytes, InvalidPolicy::Skip).unwrap();
+        assert_eq!(all(s.as_mut()).len(), 1, "{shape}");
+        assert_eq!(s.diagnostics().skipped, 1, "{shape}");
+    }
+}
+
+#[test]
+fn sam_crlf_is_read_as_lf() {
+    let lf = sam_bytes(
+        "@SQ\tSN:chr1\tLN:1000\n",
+        &[
+            "a\t0\tchr1\t10\t60\t4M\t*\t0\t0\tACGT\tIIII\tXZ:Z:x",
+            "b\t4\t*\t0\t0\t*\t*\t0\t0\t*\t*",
+        ],
+    );
+    let crlf: Vec<u8> = String::from_utf8(lf.clone())
+        .unwrap()
+        .replace('\n', "\r\n")
+        .into_bytes();
+    let mut a = src_of(lf, InvalidPolicy::Fail).unwrap();
+    let mut b = src_of(crlf, InvalidPolicy::Fail).unwrap();
+    assert_eq!(all(a.as_mut()), all(b.as_mut()));
+    assert_eq!(a.header().text, b.header().text);
+    assert!(!b.header().text.contains(&b'\r'));
+}
+
+#[test]
+fn chrom_map_renames_sam_for_interval_readers_and_is_refused_for_raw_records() {
+    let map = std::sync::Arc::new(ChromMap::parse("m.tsv", b"chr1\t1\n").unwrap());
+    let bytes = sam_bytes(
+        "@SQ\tSN:chr1\tLN:1000\n",
+        &["a\t0\tchr1\t10\t60\t4M\t*\t0\t0\tACGT\tIIII"],
+    );
+    let mut o = ropts(AlignOptions::default(), InvalidPolicy::Fail);
+    o.chrom_map = Some(map);
+    let mut r = open_reader_from("t.sam", Box::new(Cursor::new(bytes.clone())), &o).unwrap();
+    let mut table = ChromTable::first_appearance();
+    let mut batch = RecordBatch::default();
+    r.read_batch(&mut table, &mut batch, 9).unwrap();
+    assert_eq!(table.name(batch.recs[0].chrom), b"1");
+    // The record still names chr1; the renamed header finds it through the file's name.
+    let Header::Alignment(h) = r.header().clone() else {
+        panic!()
+    };
+    assert_eq!(h.refs[0].0, b"1");
+    assert_eq!(h.ref_id(b"chr1"), Some(0));
+    assert!(aln_ref(Format::Sam, batch.raw(0), &h).is_ok());
+    // Raw records are written as they are, so the rename cannot apply.
+    let e = open_aln_source_from("t.sam", Box::new(Cursor::new(bytes)), &o)
+        .err()
+        .unwrap();
+    assert!(matches!(e, IoError::Usage(_)), "{e:?}");
+    assert!(e.to_string().contains("convert it to BAM"), "{e}");
+}
+
+#[test]
+fn ref_id_is_a_map_lookup() {
+    let n = 200_000usize;
+    let refs: Vec<(Vec<u8>, u64)> = (0..n)
+        .map(|i| (format!("scaffold_{i}").into_bytes(), 1000))
+        .collect();
+    let h = AlnHeader::new(Vec::new(), refs, SortOrder::Unknown);
+    let t = std::time::Instant::now();
+    for i in (0..n).rev().take(50_000) {
+        assert_eq!(h.ref_id(format!("scaffold_{i}").as_bytes()), Some(i));
+    }
+    assert_eq!(h.ref_id(b"nope"), None);
+    // 50,000 lookups of the last names would take minutes as a scan of 200,000.
+    assert!(t.elapsed().as_secs() < 10, "{:?}", t.elapsed());
+    // A header made equal by text, refs and order is equal, whatever was looked up.
+    let same = AlnHeader::new(h.text.clone(), h.refs.clone(), SortOrder::Unknown);
+    assert_eq!(h, same);
+}
+
+#[test]
+fn sam_with_many_contigs_is_not_quadratic() {
+    let n = 100_000usize;
+    let mut sam = String::from("@HD\tVN:1.6\n");
+    for i in 0..n {
+        sam.push_str(&format!("@SQ\tSN:scaffold_{i}\tLN:1000\n"));
+    }
+    for i in (0..n).rev() {
+        sam.push_str(&format!(
+            "r{i}\t0\tscaffold_{i}\t5\t60\t4M\t*\t0\t0\tACGT\tIIII\n"
+        ));
+    }
+    let t = std::time::Instant::now();
+    let mut s = src_of(sam.into_bytes(), InvalidPolicy::Fail).unwrap();
+    assert_eq!(all(s.as_mut()).len(), n);
+    // A scan per record is 10^10 name comparisons; the map makes it a second or two.
+    assert!(t.elapsed().as_secs() < 20, "{:?}", t.elapsed());
 }

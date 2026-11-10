@@ -11,42 +11,30 @@ use crate::detect::Format;
 use crate::error::{IoError, UsageError};
 use crate::output::{OutFormat, Output};
 use crate::writer::{RecordWriter, WriterOptions};
-use std::collections::HashMap;
 use std::io::{self, Write};
 
-/// Encodes SAM record lines as BAM records against one header. Building it costs a pass over
-/// the reference list, so keep one for many records.
+/// Encodes SAM record lines as BAM records against one header (kept by value; the name
+/// lookup is the header's own).
 pub struct SamToBam {
-    by_name: HashMap<Vec<u8>, usize>,
+    header: AlnHeader,
 }
 
 impl SamToBam {
     pub fn new(h: &AlnHeader) -> SamToBam {
-        SamToBam {
-            by_name: h
-                .refs
-                .iter()
-                .enumerate()
-                .map(|(i, (n, _))| (n.clone(), i))
-                .collect(),
-        }
+        SamToBam { header: h.clone() }
     }
 
     /// Append the BAM record (without `block_size`) for the SAM line `line` to `out`, as
     /// `samtools view -b` writes it. On an error `out` is as it was.
     pub fn encode(&self, line: &[u8], out: &mut Vec<u8>) -> Result<(), String> {
-        sam_to_bam(line, &|n| self.by_name.get(n).copied(), out)
+        sam_line_to_bam(line, &self.header, out)
     }
 }
 
 /// Append the BAM record (without `block_size`) for the SAM line `line` to `out`, with the
-/// reference ids of `h`. For many records use [`SamToBam`], which builds its tables once.
+/// reference ids of `h`. On an error `out` is as it was.
 pub fn sam_line_to_bam(line: &[u8], h: &AlnHeader, out: &mut Vec<u8>) -> Result<(), String> {
-    sam_to_bam(
-        line,
-        &|n| h.refs.iter().position(|(name, _)| name == n),
-        out,
-    )
+    sam_to_bam(line, &|n| h.ref_id(n), out)
 }
 
 /// Renders BAM records as SAM lines.

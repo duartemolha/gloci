@@ -7,6 +7,7 @@
 use super::header::AlnHeader;
 use super::place::{IntervalRules, Verdict};
 use super::record::footprint;
+use super::writer::sam_line_to_bam;
 use super::{AlignOptions, AlnRef};
 use crate::chrom_map::ChromMap;
 use crate::detect::{Compression, Format};
@@ -16,7 +17,6 @@ use crate::input::Input;
 use crate::record::{Header, RecordBatch, RecordMeta, RecordReader, warn_undeclared};
 use gloci_core::{ChromTable, Interval, Strand};
 use memchr::memchr;
-use std::collections::HashMap;
 use std::io::BufRead;
 use std::sync::Arc;
 
@@ -76,9 +76,9 @@ fn cigar_ops(text: &[u8]) -> impl Iterator<Item = Option<(u8, u32)>> + '_ {
 
 impl<'a> SamAln<'a> {
     /// Check and view the line `line` (no newline), finding its `RNAME` in `h` by a scan of the
-    /// reference list. Readers that see every line use [`SamAln::parse_with`] and a map.
+    /// reference list.
     pub fn parse(line: &'a [u8], h: &AlnHeader) -> Result<SamAln<'a>, String> {
-        SamAln::parse_with(line, &|name| h.refs.iter().position(|(n, _)| n == name))
+        SamAln::parse_with(line, &|name| h.ref_id(name))
     }
 
     /// As [`SamAln::parse`], with `rid` finding a reference by name.
@@ -139,7 +139,7 @@ impl<'a> SamAln<'a> {
                 None => {
                     return Err(format!(
                         "RNAME '{}' is not among the @SQ lines of the header; add an \
-@SQ line for it, or fix the name",
+@SQ line for it, fix the name, or pass --skip-invalid to skip such reads",
                         String::from_utf8_lossy(rname)
                     ));
                 }
@@ -258,7 +258,8 @@ pub(crate) struct SamLines {
     pub(crate) line: u64,
     /// Records returned so far.
     pub(crate) rec: u64,
-    by_name: HashMap<Vec<u8>, usize>,
+    /// Where records are encoded to check them.
+    scratch: Vec<u8>,
 }
 
 impl SamLines {
@@ -273,15 +274,6 @@ impl SamLines {
             path: name.clone(),
             source,
         };
-        if map.is_some() {
-            return Err(IoError::Detect {
-                path: name.clone(),
-                msg: format!(
-                    "{name} is SAM, and --chrom-map cannot rename the reference names in SAM \
-text; convert it to BAM first (gloci view {name} -O bam -o x.bam) and read that"
-                ),
-            });
-        }
         let mut text = Vec::new();
         let mut line = 0u64;
         loop {
@@ -294,6 +286,11 @@ text; convert it to BAM first (gloci view {name} -O bam -o x.bam) and read that"
             if text.last() != Some(&b'\n') {
                 text.push(b'\n');
             }
+            // CRLF line ends become LF, as htslib reads them.
+            if text.ends_with(b"\r\n") {
+                let n = text.len();
+                text.remove(n - 2);
+            }
             line += 1;
             if text[before..].contains(&0) {
                 return Err(IoError::Detect {
@@ -302,16 +299,14 @@ text; convert it to BAM first (gloci view {name} -O bam -o x.bam) and read that"
                 });
             }
         }
-        let h = AlnHeader::parse_sam(text).map_err(|msg| IoError::Detect {
+        let mut h = AlnHeader::parse_sam(text).map_err(|msg| IoError::Detect {
             path: name.clone(),
             msg: format!("{name}: {msg}"),
         })?;
-        let by_name = h
-            .refs
-            .iter()
-            .enumerate()
-            .map(|(i, (n, _))| (n.clone(), i))
-            .collect();
+        if let Some(m) = map {
+            m.check_file_names(&name, h.refs.iter().map(|r| &r.0[..]))?;
+            h = h.renamed(m);
+        }
         Ok(SamLines {
             aln: Arc::new(h),
             name,
@@ -319,7 +314,7 @@ text; convert it to BAM first (gloci view {name} -O bam -o x.bam) and read that"
             src: reader,
             line,
             rec: 0,
-            by_name,
+            scratch: Vec::new(),
         })
     }
 
@@ -346,9 +341,14 @@ text; convert it to BAM first (gloci view {name} -O bam -o x.bam) and read that"
         }
     }
 
-    /// The record line `line` (from [`SamLines::next`]), checked.
-    pub(crate) fn parse<'a>(&self, line: &'a [u8]) -> Result<SamAln<'a>, String> {
-        SamAln::parse_with(line, &|n| self.by_name.get(n).copied())
+    /// The record line `line` (from [`SamLines::next`]), checked as far as writing it as BAM
+    /// would check it: every field and optional field, so a bad line is an error where it is
+    /// read, whatever the output.
+    pub(crate) fn parse<'a>(&mut self, line: &'a [u8]) -> Result<SamAln<'a>, String> {
+        let a = SamAln::parse(line, &self.aln)?;
+        self.scratch.clear();
+        sam_line_to_bam(line, &self.aln, &mut self.scratch)?;
+        Ok(a)
     }
 
     /// Append the next record line, without its newline, to `buf`. `Ok(false)` at the end of
@@ -372,6 +372,10 @@ text; convert it to BAM first (gloci view {name} -O bam -o x.bam) and read that"
             }
             self.line += 1;
             if buf.last() == Some(&b'\n') {
+                buf.pop();
+            }
+            // CRLF line ends become LF.
+            if buf.len() > start && buf.last() == Some(&b'\r') {
                 buf.pop();
             }
             match buf.get(start) {
@@ -489,14 +493,14 @@ impl RecordReader for SamReader {
                 }
             };
             if chroms.has_undeclared() {
-                warn_undeclared(chroms, &self.lines.name, Some(Loc::Record(self.lines.rec)));
+                warn_undeclared(chroms, &self.lines.name, Some(Loc::Line(self.lines.line)));
             }
             batch.recs.push(RecordMeta {
                 chrom: p.chrom,
                 key: p.pos,
                 span: p.span,
                 strand: p.strand,
-                loc: self.lines.rec,
+                loc: self.lines.line,
                 off: start,
                 len: (batch.buf.len() - start) as u32,
             });

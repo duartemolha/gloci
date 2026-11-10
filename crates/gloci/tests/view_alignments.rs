@@ -355,3 +355,67 @@ fn view_reports_bad_records_where_they_are() {
 }
 
 use predicates::prelude::*;
+
+#[test]
+fn view_sam_rejects_bad_lines_at_read_whatever_the_output() {
+    let dir = tempdir();
+    let bad = plain_file(
+        dir.path(),
+        "bad.sam",
+        "@SQ\tSN:chr1\tLN:100\nok\t0\tchr1\t5\t60\t4M\t*\t0\t0\tACGT\tIIII\nbad\t0\tchr1\t6\t60\t4M\t*\t0\t0\tACGT\tII\nok2\t0\tchr1\t7\t60\t4M\t*\t0\t0\tACGT\tIIII\tNM:Q:1\n",
+    );
+    for out in ["sam", "bam"] {
+        gloci()
+            .args(["view", &s(&bad), "-O", out])
+            .assert()
+            .code(1)
+            .stderr(contains("bad.sam line 3:").and(contains("quality string")))
+            .stderr(contains("disk").not());
+        let o = gloci()
+            .args(["view", &s(&bad), "-O", out, "--skip-invalid"])
+            .assert()
+            .success()
+            .stderr(contains("skipped 2 invalid records").and(contains("line 4:")))
+            .get_output()
+            .stdout
+            .clone();
+        assert!(!o.is_empty());
+    }
+}
+
+#[test]
+fn view_sam_with_crlf_matches_lf_and_chrom_map_is_a_usage_error() {
+    let dir = tempdir();
+    let lf = std::fs::read_to_string(aln("cigars.sam")).unwrap();
+    let crlf = plain_file(dir.path(), "crlf.sam", &lf.replace('\n', "\r\n"));
+    let from_crlf = run(&["view", &s(&crlf)]);
+    let from_lf = run(&["view", &s(&aln("cigars.sam"))]);
+    let strip = |b: &[u8]| -> String {
+        text(b)
+            .lines()
+            .filter(|l| !l.starts_with("@PG"))
+            .map(|l| format!("{l}\n"))
+            .collect()
+    };
+    assert_eq!(strip(&from_crlf), strip(&from_lf));
+    assert!(!from_crlf.contains(&b'\r'));
+    let map = plain_file(dir.path(), "m.tsv", "chr1\t1\n");
+    gloci()
+        .args(["view", &s(&aln("cigars.sam")), "--chrom-map", &s(&map)])
+        .assert()
+        .code(2)
+        .stderr(contains("convert it to BAM"));
+    // BAM honours the map.
+    let o = text(&run(&[
+        "view",
+        &s(&aln("cigars.bam")),
+        "-O",
+        "sam",
+        "--chrom-map",
+        &s(&map),
+    ]));
+    assert!(
+        o.contains("@SQ\tSN:1\tLN:100000") && o.contains("\t1\t101\t"),
+        "{o}"
+    );
+}
