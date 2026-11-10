@@ -416,10 +416,11 @@ Examples:
   gloci partition a.bed b.bed --all --merge-adjacent --no-membership
   gloci partition a.bg b.bg --bedgraph --empty 0 -g hg38")]
     Partition(PartitionArgs),
-    /// Depth of coverage of a genome by the features of a BED file
-    /// (bedtools genomecov -i).
+    /// Depth of coverage of a genome by the features of a BED file or the
+    /// reads of a BAM (bedtools genomecov -i and -ibam).
     ///
-    /// Every feature adds one to the depth over its bases. -g is required:
+    /// Every feature adds one to the depth over its bases. -g is required
+    /// (unless the input is BAM or SAM):
     /// the output covers every chromosome of the genome from base 0 to its
     /// length, in genome order, chromosomes without features included
     /// (a built-in genome, .genome, .fai or .dict file with lengths). The
@@ -436,8 +437,17 @@ Examples:
     /// counts the BED12 blocks of each feature. --5p and --3p count one
     /// base per feature, its 5' or 3' end by strand (unknown counts as
     /// plus). A zero-length feature covers no bases and is ignored. A
-    /// feature past the end of its chromosome is an error. BAM input is
-    /// not supported yet.
+    /// feature past the end of its chromosome is an error.
+    ///
+    /// BAM and SAM input: the chromosomes and sizes come from the header
+    /// (header order, empty chromosomes included) unless -g is given. A read
+    /// counts its whole reference span, deletions included; --split counts
+    /// the blocks between N operations, and --split-deletions also cuts at
+    /// D (bedtools genomecov -ibam without -ignoreD, so use it for parity).
+    /// Unmapped reads are left out, and --min-mapq, --require-flags and
+    /// --exclude-flags filter reads first. --strand follows the read's
+    /// direction. An indexed BAM at -t above 1 runs per chromosome, with the
+    /// same output as -t 1.
     ///
     /// The input must be sorted in the genome order, which is checked as it
     /// is read; an unsorted input is an error whose hint names --sort.
@@ -447,8 +457,8 @@ Examples:
 Examples:
   gloci genomecov peaks.bed -g hg38
   gloci genomecov reads.bed -g hg38 --bedgraph --scale 0.000001 -o cov.bedgraph
-  gloci genomecov genes.bed -g genome.txt --bga --strand +
-  gloci genomecov exons12.bed -g hg38 --split --per-base")]
+  gloci genomecov exons12.bed -g hg38 --split --per-base
+  gloci genomecov reads.bam --bga --split")]
     Genomecov(GenomecovArgs),
     /// Grow each feature on its sides (bedtools slop, bedops --range).
     ///
@@ -2058,10 +2068,11 @@ pub struct GenomecovArgs {
     /// Input file (`-` for stdin).
     #[arg(value_name = "FILE")]
     pub file: String,
-    /// Chromosome order and sizes (required): a built-in genome such as
-    /// hg38 (see gloci genomes), or a .fai, .genome or .dict file.
-    #[arg(short, long, value_name = "NAME|FILE", required = true)]
-    pub genome: String,
+    /// Chromosome order and sizes (required unless the input is BAM or SAM,
+    /// which gives its header's): a built-in genome such as hg38 (see gloci
+    /// genomes), or a .fai, .genome or .dict file.
+    #[arg(short, long, value_name = "NAME|FILE")]
+    pub genome: Option<String>,
     /// Write the histogram of depths (the default).
     #[arg(long, conflicts_with_all = ["bedgraph", "bga", "per_base"])]
     pub hist: bool,
@@ -2081,9 +2092,14 @@ pub struct GenomecovArgs {
     #[arg(long, value_name = "+|-", allow_hyphen_values = true,
           value_parser = clap::builder::PossibleValuesParser::new(["+", "-"]))]
     pub strand: Option<String>,
-    /// Count the BED12 blocks of each feature instead of the whole feature.
+    /// Count the BED12 blocks of each feature, or the blocks of each read
+    /// between N operations (BAM and SAM), instead of the whole feature.
     #[arg(long, conflicts_with_all = ["five_prime", "three_prime"])]
     pub split: bool,
+    /// BAM and SAM: also cut the blocks of a read at deletions (D), with or
+    /// without --split; this is bedtools genomecov -ibam without -ignoreD.
+    #[arg(long, conflicts_with_all = ["five_prime", "three_prime"])]
+    pub split_deletions: bool,
     /// Count only the 5' base of each feature (strand-aware).
     #[arg(long = "5p", conflicts_with = "three_prime")]
     pub five_prime: bool,
@@ -2093,6 +2109,8 @@ pub struct GenomecovArgs {
     /// With --hist: put every depth of N or more into the bin N.
     #[arg(long, value_name = "N")]
     pub max_depth: Option<u64>,
+    #[command(flatten)]
+    pub align: AlignArgs,
     #[command(flatten)]
     pub chrom_order: ChromOrderArg,
     #[command(flatten)]

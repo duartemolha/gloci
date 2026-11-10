@@ -13,6 +13,7 @@ pub(crate) mod alleles;
 mod criteria;
 mod files;
 mod indexed;
+pub(crate) use indexed::group_chromosomes;
 mod out;
 mod peek;
 mod rewrite;

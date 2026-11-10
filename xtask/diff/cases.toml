@@ -4765,3 +4765,124 @@ gloci = "gloci intersect -a splitfrac.bed -b input.bam --split -f 0.7 --mode pai
 reference = "bedtools intersect -a splitfrac.bed -b input.bam -split -f 0.7 -wa -wb"
 compare = "exact"
 expected_difference = "#split-fraction"
+
+# genomecov on alignments (D105, D117) against bedtools 2.31.1 `genomecov -ibam`. gloci counts the
+# reference span of a read, deletions included (bedtools -ignoreD, gloci's default); `-split`
+# cuts at N and D, which is `--split-deletions`; `-split -ignoreD` cuts at N only, which is
+# `--split`. Plain `-ibam` cuts at D but not at N, which no gloci option reproduces. The
+# chromosomes and sizes come from the header, with no -g.
+
+[[case]]
+name = "genomecov-ibam-default-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
+gloci = "gloci genomecov input.bam --bga"
+reference = "bedtools genomecov -ibam input.bam -bga"
+compare = "exact"
+expected_difference = "#bam-genomecov-deletions"
+
+[[case]]
+name = "genomecov-ibam-ignored-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
+gloci = "gloci genomecov input.bam --bga"
+reference = "bedtools genomecov -ibam input.bam -bga -ignoreD"
+compare = "exact"
+
+[[case]]
+name = "genomecov-ibam-hist-ignored-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
+gloci = "gloci genomecov input.bam"
+reference = "bedtools genomecov -ibam input.bam -ignoreD"
+compare = "exact"
+
+[[case]]
+name = "genomecov-ibam-bg-split-deletions-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
+gloci = "gloci genomecov input.bam --bedgraph --split-deletions"
+reference = "bedtools genomecov -ibam input.bam -bg -split"
+compare = "exact"
+
+[[case]]
+name = "genomecov-ibam-bga-split-deletions-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
+gloci = "gloci genomecov input.bam --bga --split-deletions"
+reference = "bedtools genomecov -ibam input.bam -bga -split"
+compare = "exact"
+
+[[case]]
+name = "genomecov-ibam-d-split-deletions-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-small.bam" }
+gloci = "gloci genomecov input.bam --per-base --split-deletions"
+reference = "bedtools genomecov -ibam input.bam -d -split"
+compare = "exact"
+
+[[case]]
+name = "genomecov-ibam-hist-split-deletions-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
+gloci = "gloci genomecov input.bam --split-deletions"
+reference = "bedtools genomecov -ibam input.bam -split"
+compare = "exact"
+
+[[case]]
+name = "genomecov-ibam-split-ignored-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
+gloci = "gloci genomecov input.bam --bga --split"
+reference = "bedtools genomecov -ibam input.bam -bga -split -ignoreD"
+compare = "exact"
+
+[[case]]
+name = "genomecov-ibam-strand-minus-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
+gloci = "gloci genomecov input.bam --bedgraph --strand -"
+reference = "bedtools genomecov -ibam input.bam -bg -strand - -ignoreD"
+compare = "exact"
+
+[[case]]
+name = "genomecov-ibam-5p-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/flags.bam" }
+gloci = "gloci genomecov input.bam --bedgraph --5p"
+reference = "bedtools genomecov -ibam input.bam -bg -5"
+compare = "exact"
+
+[[case]]
+name = "genomecov-ibam-3p-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/flags.bam" }
+gloci = "gloci genomecov input.bam --bedgraph --3p"
+reference = "bedtools genomecov -ibam input.bam -bg -3"
+compare = "exact"
+
+[[case]]
+name = "genomecov-ibam-max-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/flags.bam" }
+gloci = "gloci genomecov input.bam --max-depth 1"
+reference = "bedtools genomecov -ibam input.bam -max 1"
+compare = "exact"
+
+[[case]]
+name = "genomecov-ibam-scale-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
+gloci = "gloci genomecov input.bam --bedgraph --scale 0.5"
+reference = "bedtools genomecov -ibam input.bam -bg -scale 0.5 -ignoreD"
+compare = "exact"
+
+# pastend.bam has a read cut at the end of its reference and one that starts past it (D101).
+[[case]]
+name = "genomecov-ibam-overhang-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/pastend.bam" }
+gloci = "gloci genomecov input.bam --bga"
+reference = "bedtools genomecov -ibam input.bam -bga -ignoreD"
+compare = "exact"
+
+# order.bam lists its references as chrM, chr1, chr2, chr10, chrX; tags.bam has chrX empty and an unmapped read.
+[[case]]
+name = "genomecov-ibam-header-order-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/order.bam" }
+gloci = "gloci genomecov input.bam --bga"
+reference = "bedtools genomecov -ibam input.bam -bga -ignoreD"
+compare = "exact"
+
+[[case]]
+name = "genomecov-ibam-empty-chrom-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/tags.bam" }
+gloci = "gloci genomecov input.bam --bga"
+reference = "bedtools genomecov -ibam input.bam -bga -ignoreD"
+compare = "exact"

@@ -428,7 +428,11 @@ const CHUNKS_PER_THREAD: usize = 4;
 /// Split `chroms` (in table order) into at most `target` runs of consecutive
 /// chromosomes of about equal total weight: a run ends once the weight so
 /// far reaches the next multiple of `total / target`.
-fn group_chromosomes(chroms: Vec<Vec<u8>>, weights: &[u64], target: usize) -> Vec<Vec<Vec<u8>>> {
+pub(crate) fn group_chromosomes(
+    chroms: Vec<Vec<u8>>,
+    weights: &[u64],
+    target: usize,
+) -> Vec<Vec<Vec<u8>>> {
     let target = target.max(1) as u128;
     let total: u128 = weights.iter().map(|&w| u128::from(w)).sum::<u128>().max(1);
     let mut groups = Vec::new();

@@ -1060,6 +1060,22 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   match.
 
 
+## `genomecov` of alignments counts deleted bases {#bam-genomecov-deletions}
+
+- **gloci:** a read counts its whole reference span, so the bases under a `D` operation are
+  covered (D105, the same rule as every command). `--split` counts the blocks between `N`
+  operations, and `--split-deletions` counts the blocks cut at `N` and at `D`.
+- **Old behaviour:** `bedtools genomecov -ibam` cuts every read at `D` (and not at `N`)
+  unless `-ignoreD` is given, so deleted bases are not covered.
+- **Reason:** one block rule for `intersect`, `coverage`, `convert` and `genomecov`, so the
+  commands agree with each other. For parity use `--split-deletions`, which is bedtools
+  `-split` (cuts at `N` and `D`). Plain bedtools `-ibam` (cut at `D`, not at `N`) has no gloci
+  counterpart; `-ignoreD` is gloci's default, and `-split -ignoreD` is `--split`.
+- **Pinned by:** `genomecov-ibam-default-vs-bedtools` (must differ; `cigars-bases.bam` has a
+  read with `2D`). `genomecov-ibam-ignored-vs-bedtools`,
+  `genomecov-ibam-bga-split-deletions-vs-bedtools` and
+  `genomecov-ibam-split-ignored-vs-bedtools` match.
+
 ## Filter expressions: `!~` negates the match {#expr-not-match}
 
 - **gloci:** in `vcf filter --include/--exclude`, `FIELD !~ "re"` is true when

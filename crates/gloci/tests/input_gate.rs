@@ -66,6 +66,18 @@ fn convert_reads_alignments() {
 }
 
 #[test]
+fn genomecov_reads_alignments() {
+    // `genomecov` reads alignments: a SAM with no reads covers its header's chromosomes with zero.
+    let dir = tempdir();
+    let sam = plain_file(dir.path(), "x.sam", "@HD\tVN:1.6\n@SQ\tSN:chr1\tLN:5\n");
+    gloci()
+        .args(["genomecov", sam.to_str().unwrap(), "--bga"])
+        .assert()
+        .success()
+        .stdout("chr1\t0\t5\t0\n");
+}
+
+#[test]
 fn planned_commands_say_not_yet_and_others_say_never() {
     let dir = tempdir();
     let bam = fixtures::write(
