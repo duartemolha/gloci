@@ -643,6 +643,16 @@ impl IndexedFile {
         if format == Format::Wig {
             return Err(wig_unindexed(&name));
         }
+        // A tabix/CSI index describes interval text; the alignment, sequence and
+        // convert-only formats have no text parser here (`Parser::text`).
+        if format.is_alignment() || format.is_convert_only() || format == Format::Fasta {
+            return Err(UsageError(format!(
+                "{name} is {}, which cannot be read through a tabix or CSI index as intervals; \
+convert it to BED first: gloci convert {name} -o x.bed.gz",
+                format.name()
+            ))
+            .into());
+        }
         let index = Loaded::read(&info)?;
         if let (Some(m), Some(names)) = (&o.chrom_map, index.names()) {
             m.check_file_names(&name, names.iter().map(|n| &n[..]))?;

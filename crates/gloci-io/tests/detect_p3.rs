@@ -20,9 +20,19 @@ fn detect_p3_formats() {
     std::io::Read::read_to_end(&mut noodles_bgzf::io::Reader::new(&bam[..]), &mut dec).unwrap();
     assert_eq!(detect(&dec), Ok(Format::Bam));
 
-    assert_eq!(detect(b"CRAM\x03\x00"), Ok(Format::Cram));
-    assert_eq!(detect(b"CRAM\x02\x01"), Ok(Format::Cram));
-    assert!(detect(b"CRAM\x04\x00").unwrap_err().contains("CRAM 4"));
+    let cram = |major: u8, minor: u8| {
+        let mut v = b"CRAM".to_vec();
+        v.extend([major, minor]);
+        v.extend([b'f'; 20]);
+        v
+    };
+    assert_eq!(detect(&cram(3, 0)), Ok(Format::Cram));
+    assert_eq!(detect(&cram(2, 1)), Ok(Format::Cram));
+    assert!(detect(&cram(4, 0)).unwrap_err().contains("CRAM 4"));
+    // A BED line on a chromosome that starts with CRAM is BED; a short prefix is not CRAM.
+    assert_eq!(detect(b"CRAM\t1\t2\n"), Ok(Format::Bed));
+    assert_eq!(detect(b"CRAMx\t1\t2\n"), Ok(Format::Bed));
+    assert!(detect(b"CRAM\x03\x00").is_err());
 
     assert_eq!(detect(b"@HD\tVN:1.6\n"), Ok(Format::Sam));
     assert_eq!(detect(b"@SQ\tSN:chr1\tLN:5\n"), Ok(Format::Sam));
@@ -83,4 +93,55 @@ fn parse_flags_table() {
     assert!(parse_flags("").is_err());
     assert!(parse_flags("70000").is_err());
     assert!(parse_flags("bogus").unwrap_err().contains("PAIRED"));
+}
+
+#[test]
+fn numeric_name_bed12_and_bed13_are_not_sam() {
+    // Cols 2, 4, 5, 8 and 9 are integers here, as in a SAM record, but col 6 is a strand.
+    assert_eq!(
+        detect(b"chr1\t100\t200\t77\t5\t+\t100\t200\t0\t1\t100,\t0,\n"),
+        Ok(Format::Bed)
+    );
+    assert_eq!(
+        detect(b"chr1\t100\t200\t77\t5\t.\t100\t200\t0\t1\t100,\t0,\t3\n"),
+        Ok(Format::Bed)
+    );
+    assert_eq!(
+        detect(b"chr1\t100\t200\t77\t5\t-\t100\t200\t12\t2\t50,50,\t0,100,\n"),
+        Ok(Format::Bed)
+    );
+}
+
+#[test]
+fn sam_field_checks() {
+    let sam = |f: &[&str]| detect(format!("{}\n", f.join("\t")).as_bytes());
+    let ok = [
+        "r1",
+        "0",
+        "chr1",
+        "100",
+        "60",
+        "10M",
+        "*",
+        "0",
+        "0",
+        "ACGTACGTAC",
+        "*",
+    ];
+    assert_eq!(sam(&ok), Ok(Format::Sam));
+    let with = |i: usize, v: &'static str| {
+        let mut f = ok;
+        f[i] = v;
+        f
+    };
+    assert_eq!(sam(&with(5, "5S10M2I")), Ok(Format::Sam));
+    assert_eq!(sam(&with(6, "=")), Ok(Format::Sam));
+    assert_eq!(sam(&with(6, "chr2")), Ok(Format::Sam));
+    assert_eq!(sam(&with(10, "IIIIIIIIII")), Ok(Format::Sam));
+    assert_ne!(sam(&with(1, "70000")), Ok(Format::Sam));
+    assert_ne!(sam(&with(4, "300")), Ok(Format::Sam));
+    assert_ne!(sam(&with(5, "10")), Ok(Format::Sam));
+    assert_ne!(sam(&with(5, "M10")), Ok(Format::Sam));
+    assert_ne!(sam(&with(7, "-1")), Ok(Format::Sam));
+    assert_ne!(sam(&with(9, "AC1T")), Ok(Format::Sam));
 }

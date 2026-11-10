@@ -30,7 +30,7 @@ pub fn run(ctx: &Ctx, a: &CheckArgs) -> anyhow::Result<bool> {
         let report = match check_file(f, genome.as_ref(), a.chrom_order.chrom_order, &ro) {
             Ok(r) => r,
             // A usage problem applies to the whole command.
-            Err(e @ IoError::Usage(_)) => return Err(e.into()),
+            Err(e @ (IoError::Usage(_) | IoError::Gate { .. })) => return Err(e.into()),
             Err(e) => CheckReport::unreadable(f, e.to_string()),
         };
         if i > 0 {

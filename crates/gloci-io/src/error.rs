@@ -11,8 +11,24 @@ pub enum Loc {
 /// Start of the name of the reader over `--sort`ed inputs.
 pub const SORTED_INPUTS: &str = "the sorted inputs (";
 
+/// Why the input gate refused a file (D100).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GateKind {
+    /// The command never reads alignments.
+    NoAlignments,
+    /// The command will read this format, but its reader is not in this build yet.
+    NotYet,
+    /// FASTA is not an interval input.
+    Sequence,
+    /// PSL and RepeatMasker are read by `convert` only.
+    ConvertOnly,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum IoError {
+    /// A format the command does not read (exit 2).
+    #[error("{msg}")]
+    Gate { kind: GateKind, msg: String },
     #[error("cannot open {path}: {source}; check that the path exists and is readable")]
     Open {
         path: String,

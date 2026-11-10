@@ -30,7 +30,7 @@ fn input_gate() {
         .stderr(contains(format!("gloci convert {x} -o x.bed")))
         .stderr(contains("gloci sort -m"));
     gloci()
-        .args(["sort", sam.to_str().unwrap()])
+        .args(["merge", sam.to_str().unwrap()])
         .assert()
         .code(2)
         .stderr(contains("does not read alignments"));
@@ -63,4 +63,35 @@ fn convert_accepts_alignments_past_the_gate() {
         .assert()
         .failure()
         .stderr(contains("not available in this build yet"));
+}
+
+#[test]
+fn planned_commands_say_not_yet_and_others_say_never() {
+    let dir = tempdir();
+    let bam = fixtures::write(
+        dir.path(),
+        "x.bam",
+        &fixtures::bgzip(b"BAM\x01\0\0\0\0\0\0\0\0"),
+    );
+    let bed = plain_file(dir.path(), "a.bed", "chr1\t1\t2\n");
+    let x = bam.to_str().unwrap();
+    let b = bed.to_str().unwrap();
+    let not_yet = |args: &[&str]| {
+        let o = gloci()
+            .args(args)
+            .assert()
+            .code(2)
+            .stderr(contains("not available in this build yet"));
+        let err = String::from_utf8_lossy(&o.get_output().stderr).into_owned();
+        assert!(!err.contains("does not read alignments"), "{args:?}: {err}");
+    };
+    not_yet(&["sort", x]);
+    not_yet(&["intersect", "-a", x, "-b", b]);
+    not_yet(&["coverage", "-a", b, "-b", x]);
+    not_yet(&["index", x]);
+    gloci()
+        .args(["subtract", "-a", b, "-b", x])
+        .assert()
+        .code(2)
+        .stderr(contains("does not read alignments"));
 }

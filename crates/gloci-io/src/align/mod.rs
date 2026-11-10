@@ -2,7 +2,7 @@
 //! The readers themselves arrive in later P3a tasks.
 
 use crate::detect::Format;
-use crate::error::{IoError, UsageError};
+use crate::error::{GateKind, IoError};
 use std::path::PathBuf;
 
 /// How alignments are read: the filters of the `AlignArgs` flags (D101).
@@ -25,6 +25,20 @@ pub struct Accept {
     pub alignments: Option<AlignOptions>,
     /// The command is `convert`, which also reads PSL and RepeatMasker.
     pub convert_only: bool,
+    /// The command will read alignments once their reader lands (intersect, coverage,
+    /// genomecov, view, sort, index): until then the gate says so instead of claiming
+    /// that the command never reads them.
+    pub alignments_planned: bool,
+}
+
+impl Accept {
+    /// For a command that will read alignments but whose reader is not built yet.
+    pub fn planned() -> Accept {
+        Accept {
+            alignments_planned: true,
+            ..Accept::default()
+        }
+    }
 }
 
 const FLAG_NAMES: [(&str, u16); 12] = [
@@ -89,49 +103,65 @@ pub fn parse_flags(s: &str) -> Result<u16, String> {
     Ok(out)
 }
 
+fn gate_error(kind: GateKind, msg: String) -> IoError {
+    IoError::Gate { kind, msg }
+}
+
 /// Refuse a format the command does not read (D100), or say that its reader is not built yet.
 pub fn gate(name: &str, format: Format, accept: &Accept) -> Result<(), IoError> {
+    let not_yet = || {
+        gate_error(
+            GateKind::NotYet,
+            format!(
+                "{name} is {}, and reading it is not available in this build yet",
+                format.name()
+            ),
+        )
+    };
     if format.is_alignment() {
         if accept.alignments.is_some() {
             return Err(IoError::Detect {
                 path: name.to_string(),
-                msg: format!(
-                    "{name} is {}, and reading it is not available in this build yet",
-                    format.name()
-                ),
+                msg: not_yet().to_string(),
             });
         }
-        return Err(UsageError(format!(
-            "{name} is {}; this command does not read alignments (intersect, coverage, \
+        if accept.alignments_planned {
+            return Err(not_yet());
+        }
+        return Err(gate_error(
+            GateKind::NoAlignments,
+            format!(
+                "{name} is {}; this command does not read alignments (intersect, coverage, \
 genomecov, convert, view, index, sort and cat do); convert it to BED first: \
 gloci convert {name} -o x.bed",
-            format.name()
-        ))
-        .into());
+                format.name()
+            ),
+        ));
     }
     if format == Format::Fasta {
-        return Err(UsageError(format!(
-            "{name} is FASTA, which is sequence, not intervals; only getfasta, maskfasta or nuc \
-read it, as the reference for the intervals in a BED, GFF or VCF file"
-        ))
-        .into());
+        return Err(gate_error(
+            GateKind::Sequence,
+            format!(
+                "{name} is FASTA, which is sequence, not intervals; only getfasta, maskfasta or \
+nuc read it, as the reference for the intervals in a BED, GFF or VCF file"
+            ),
+        ));
     }
     if format.is_convert_only() {
         if accept.convert_only {
             return Err(IoError::Detect {
                 path: name.to_string(),
-                msg: format!(
-                    "{name} is {}, and reading it is not available in this build yet",
-                    format.name()
-                ),
+                msg: not_yet().to_string(),
             });
         }
-        return Err(UsageError(format!(
-            "{name} is {}; only gloci convert reads it; convert it to BED first: \
+        return Err(gate_error(
+            GateKind::ConvertOnly,
+            format!(
+                "{name} is {}; only gloci convert reads it; convert it to BED first: \
 gloci convert {name} -o x.bed",
-            format.name()
-        ))
-        .into());
+                format.name()
+            ),
+        ));
     }
     Ok(())
 }

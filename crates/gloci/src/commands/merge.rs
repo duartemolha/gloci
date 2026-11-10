@@ -32,17 +32,24 @@ pub fn run(ctx: &Ctx, a: &MergeArgs) -> anyhow::Result<()> {
             chrom_order: &a.chrom_order,
             sort: &a.sort,
             chrom_map: &a.chrom_map,
+            alignments_planned: false,
         },
         &|formats| validate(formats, &o),
     )
     .map_err(|e| {
         // Merging alignment files is `sort -m` (D122).
-        if e.to_string().contains("does not read alignments") {
-            anyhow::Error::new(gloci_io::UsageError(format!(
-                "{e}; to merge sorted alignment files as samtools merge does, use: gloci sort -m"
-            )))
-        } else {
-            e
+        match e.downcast_ref::<gloci_io::IoError>() {
+            Some(gloci_io::IoError::Gate {
+                kind: gloci_io::GateKind::NoAlignments,
+                msg,
+            }) => anyhow::Error::new(gloci_io::IoError::Gate {
+                kind: gloci_io::GateKind::NoAlignments,
+                msg: format!(
+                    "{msg}; to merge sorted alignment files as samtools merge does, use: \
+gloci sort -m"
+                ),
+            }),
+            _ => e,
         }
     })?;
 

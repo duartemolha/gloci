@@ -125,14 +125,55 @@ fn is_sam_header(line: &str) -> bool {
         && matches!(&b[1..3], b"HD" | b"SQ" | b"RG" | b"PG" | b"CO")
 }
 
-/// A SAM record: at least 11 TAB fields, with integer FLAG, POS, MAPQ, PNEXT and TLEN.
+/// `*` or a CIGAR string: one or more `<count><op>` pairs.
+fn is_cigar(s: &str) -> bool {
+    if s == "*" {
+        return true;
+    }
+    let mut digits = 0;
+    for b in s.bytes() {
+        if b.is_ascii_digit() {
+            digits += 1;
+        } else if b"MIDNSHP=X".contains(&b) && digits > 0 {
+            digits = 0;
+        } else {
+            return false;
+        }
+    }
+    !s.is_empty() && digits == 0
+}
+
+/// `*`, `=` or a reference name (SAM spec: `[0-9A-Za-z!#$%&+./:;?@^_|~-][0-9A-Za-z!-~]*`).
+fn is_rnext(s: &str) -> bool {
+    let b = s.as_bytes();
+    s == "*"
+        || s == "="
+        || (!b.is_empty()
+            && (b[0].is_ascii_alphanumeric() || b"!#$%&+./:;?@^_|~-".contains(&b[0]))
+            && b.iter().all(|c| (b'!'..=b'~').contains(c)))
+}
+
+/// A SAM record: at least 11 TAB fields with a numeric FLAG (<= 65535), POS and MAPQ (<= 255),
+/// a CIGAR, a valid RNEXT, a non-negative PNEXT, a signed TLEN, and a SEQ and QUAL of the
+/// right alphabets. A BED12 line with a numeric name fails on its CIGAR (`+`/`-`/`.`).
 fn is_sam_record(cols: &[&str]) -> bool {
     cols.len() >= 11
         && is_int(cols[1])
+        && cols[1].parse::<u32>().is_ok_and(|v| v <= 65535)
         && is_int(cols[3])
         && is_int(cols[4])
+        && cols[4].parse::<u32>().is_ok_and(|v| v <= 255)
+        && is_cigar(cols[5])
+        && is_rnext(cols[6])
         && is_int(cols[7])
         && is_signed_int(cols[8])
+        && (cols[9] == "*"
+            || cols[9]
+                .bytes()
+                .all(|b| b.is_ascii_alphabetic() || b == b'=' || b == b'.'))
+        && !cols[9].is_empty()
+        && !cols[10].is_empty()
+        && cols[10].bytes().all(|b| (b'!'..=b'~').contains(&b))
 }
 
 /// A PSL row: 21 columns, integer counts, a strand, integer sizes and coordinates.
@@ -166,7 +207,9 @@ fn is_rmsk_record(line: &str) -> bool {
 /// Detect the format from decompressed leading bytes.
 pub fn detect_format(head: &[u8]) -> Result<Format, String> {
     // CRAM is checked on the raw bytes: it is not compressed as a whole.
-    if head.starts_with(b"CRAM") && head.len() >= 5 {
+    // A CRAM file definition is `CRAM`, major, minor and a 20-byte file id (26 bytes); the
+    // major version is a small byte, so a BED line on a chromosome named `CRAM...` is not CRAM.
+    if head.len() >= 26 && head.starts_with(b"CRAM") && (2..=4).contains(&head[4]) {
         return match head[4] {
             2 | 3 => Ok(Format::Cram),
             v => Err(format!(

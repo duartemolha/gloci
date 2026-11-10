@@ -54,6 +54,7 @@ pub fn run(ctx: &Ctx, a: &GenomecovArgs) -> anyhow::Result<()> {
             chrom_order: &a.chrom_order,
             sort: &a.sort,
             chrom_map: &a.chrom_map,
+            alignments_planned: true,
         },
         &|_| Ok(()),
     )?;

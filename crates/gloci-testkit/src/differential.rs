@@ -13,6 +13,7 @@
 /// - `numeric`: line counts match; tab fields are compared pairwise. Two
 ///   numbers are equal within a relative tolerance of 1e-5 (absolute when
 ///   both are below 1e-9); any other field must match exactly.
+/// - `sam`: SAM text; the `@PG` header lines are ignored.
 /// - `bam` (D118): both are BAM files. They are decompressed, and then the
 ///   header text without its `@PG` lines, the reference list and the record
 ///   bytes must be identical; the BGZF block layout and level do not matter.
@@ -23,6 +24,15 @@ pub fn compare(mode: &str, a: &[u8], b: &[u8]) -> bool {
         "vcf-records" => vcf_records_equal(a, b),
         "exit-status" => a == b,
         "numeric" => numeric_equal(a, b),
+        "sam" => {
+            let keep = |x: &[u8]| -> Vec<Vec<u8>> {
+                x.split(|&c| c == b'\n')
+                    .filter(|l| !l.starts_with(b"@PG\t"))
+                    .map(<[u8]>::to_vec)
+                    .collect()
+            };
+            keep(a) == keep(b)
+        }
         "bam" => match (bam_parts(a), bam_parts(b)) {
             (Some(x), Some(y)) => x == y,
             _ => false,
@@ -74,7 +84,7 @@ pub fn observe(mode: &str, code: Option<i32>, stdout: &[u8]) -> Vec<u8> {
     }
     let mut out = Vec::with_capacity(stdout.len());
     for line in stdout.split_inclusive(|&c| c == b'\n') {
-        if line.starts_with(b"@PG\tID:gloci") {
+        if matches!(mode, "bam" | "sam") && line.starts_with(b"@PG\tID:gloci") {
             // gloci's own @PG line names the machine's command line (D118).
             continue;
         }
@@ -124,7 +134,18 @@ fn bam_parts(bgzf: &[u8]) -> Option<BamParts> {
         let l_ref = u32_of(take(4)?);
         refs.push((name, l_ref));
     }
-    Some((header, refs, raw[at..].to_vec()))
+    // The records must be framed: each is `block_size` and that many bytes (at least the
+    // 32 fixed bytes), with nothing left over, so a truncated file does not compare equal.
+    let records = raw.get(at..)?.to_vec();
+    let mut i = 0usize;
+    while i < records.len() {
+        let size = u32::from_le_bytes(records.get(i..i + 4)?.try_into().ok()?) as usize;
+        if size < 32 || i.checked_add(4 + size)? > records.len() {
+            return None;
+        }
+        i += 4 + size;
+    }
+    Some((header, refs, records))
 }
 
 fn numeric_equal(a: &[u8], b: &[u8]) -> bool {
@@ -248,11 +269,11 @@ pub fn check_anchor(doc: &str, anchor: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{compare, split_args};
+    use super::{compare, observe, split_args};
 
-    /// A one-record BAM: `pg` is the `@PG` line, `level` the BGZF level and
-    /// `pos` a record byte.
-    fn bam(pg: &str, level: u8, pos: u8) -> Vec<u8> {
+    /// A one-record BAM (`@HD`, one `@SQ`, record `r1` 4M ACGT on chr1:1): `pg` is the `@PG`
+    /// lines, `level` the BGZF level and `qual` the first quality byte.
+    fn bam(pg: &str, level: u8, qual: u8) -> Vec<u8> {
         use noodles_bgzf::io::writer::{Builder, CompressionLevel};
         use std::io::Write;
         let text = format!("@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:1000\n{pg}");
@@ -263,10 +284,41 @@ mod tests {
         raw.extend_from_slice(&5u32.to_le_bytes());
         raw.extend_from_slice(b"chr1\0");
         raw.extend_from_slice(&1000u32.to_le_bytes());
-        raw.extend_from_slice(&[36, 0, 0, 0, 0, 0, 0, 0, pos, 0, 0, 0, 0, 0]);
+        // block: refID, pos, l_read_name, mapq, bin, n_cigar, flag, l_seq, next_refID,
+        // next_pos, tlen, read_name, cigar, seq, qual.
+        let mut rec = Vec::new();
+        rec.extend_from_slice(&0i32.to_le_bytes());
+        rec.extend_from_slice(&0i32.to_le_bytes());
+        rec.extend_from_slice(&[3, 60]);
+        rec.extend_from_slice(&4681u16.to_le_bytes());
+        rec.extend_from_slice(&1u16.to_le_bytes());
+        rec.extend_from_slice(&0u16.to_le_bytes());
+        rec.extend_from_slice(&4u32.to_le_bytes());
+        rec.extend_from_slice(&(-1i32).to_le_bytes());
+        rec.extend_from_slice(&(-1i32).to_le_bytes());
+        rec.extend_from_slice(&0i32.to_le_bytes());
+        rec.extend_from_slice(b"r1\0");
+        rec.extend_from_slice(&(4u32 << 4).to_le_bytes());
+        rec.extend_from_slice(&[0x12, 0x48]);
+        rec.extend_from_slice(&[qual, 30, 30, 30]);
+        raw.extend_from_slice(&(rec.len() as u32).to_le_bytes());
+        raw.extend_from_slice(&rec);
         let mut w = Builder::default()
             .set_compression_level(CompressionLevel::try_from(level).unwrap())
             .build_from_writer(Vec::new());
+        w.write_all(&raw).unwrap();
+        w.finish().unwrap()
+    }
+
+    /// `bam` cut short by `n` decompressed bytes, recompressed.
+    fn truncated(bgzf: &[u8], n: usize) -> Vec<u8> {
+        use std::io::{Read, Write};
+        let mut raw = Vec::new();
+        noodles_bgzf::io::Reader::new(bgzf)
+            .read_to_end(&mut raw)
+            .unwrap();
+        raw.truncate(raw.len() - n);
+        let mut w = noodles_bgzf::io::Writer::new(Vec::new());
         w.write_all(&raw).unwrap();
         w.finish().unwrap()
     }
@@ -277,8 +329,19 @@ mod tests {
         let b = bam("@PG\tID:samtools\tPN:samtools\tVN:1.21\n", 9, 7);
         assert_ne!(a, b);
         assert!(compare("bam", &a, &b));
+        assert!(compare("bam", &a, &a));
         assert!(!compare("bam", &a, &bam("@PG\tID:gloci\n", 1, 8)));
         assert!(!compare("bam", &a, b"not a bam"));
+        // A truncated record fails framing, even compared with itself.
+        let cut = truncated(&a, 3);
+        assert!(!compare("bam", &cut, &cut));
+    }
+
+    #[test]
+    fn at_pg_filter_is_scoped_to_bam_and_sam_modes() {
+        let text = b"@HD\tVN:1.6\n@PG\tID:gloci\tPN:gloci\nr1\t0\n";
+        assert_eq!(observe("sam", Some(0), text), b"@HD\tVN:1.6\nr1\t0\n");
+        assert_eq!(observe("exact", Some(0), text), text);
     }
 
     #[test]

@@ -33,6 +33,7 @@ pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
         accept: gloci_io::Accept {
             alignments: Some(gloci_io::AlignOptions::default()),
             convert_only: true,
+            alignments_planned: false,
         },
         chrom_map: a.chrom_map.load()?,
         threads: ctx.threads,

@@ -45,6 +45,8 @@ pub struct InputArgs<'a> {
     pub chrom_order: &'a ChromOrderArg,
     pub sort: &'a SortArg,
     pub chrom_map: &'a ChromMapArg,
+    /// The command will read alignments once their reader lands (for the gate's message).
+    pub alignments_planned: bool,
 }
 
 /// Open the inputs of a streaming command and build their chromosome table.
@@ -94,7 +96,11 @@ fn open_readers(
     let ro = sort_aware(
         a.sort,
         ReaderOptions {
-            accept: gloci_io::Accept::default(),
+            accept: if a.alignments_planned {
+                gloci_io::Accept::planned()
+            } else {
+                gloci_io::Accept::default()
+            },
             chrom_map: a.chrom_map.load()?,
             threads: ctx.threads,
             format: match a.format {

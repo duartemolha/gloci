@@ -49,7 +49,7 @@ pub fn run(ctx: &Ctx, a: &CoverageArgs) -> anyhow::Result<()> {
         sort_aware(
             &a.sort,
             ReaderOptions {
-                accept: gloci_io::Accept::default(),
+                accept: gloci_io::Accept::planned(),
                 chrom_map: chrom_map.clone(),
                 threads: ctx.threads,
                 format,

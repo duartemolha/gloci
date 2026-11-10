@@ -150,6 +150,9 @@ fn classify(err: &anyhow::Error) -> Outcome {
         if let Some(IoError::Usage(u)) = cause.downcast_ref::<IoError>() {
             return Outcome::Usage(u.0.clone());
         }
+        if let Some(e @ IoError::Gate { .. }) = cause.downcast_ref::<IoError>() {
+            return Outcome::Usage(e.to_string());
+        }
     }
     for cause in err.chain() {
         if let Some(e) = cause.downcast_ref::<std::io::Error>()

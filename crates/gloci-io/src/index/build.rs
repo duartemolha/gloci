@@ -550,11 +550,17 @@ pub(super) fn build_index_with(
         ))
         .into());
     }
-    if tsv.is_none()
-        && (format.is_alignment() || format.is_convert_only() || format == Format::Fasta)
-    {
+    if tsv.is_none() && (format.is_alignment() || format == Format::Fasta) {
+        // `gloci index` will index these (BAI/CSI/CRAI/FAI); that is not built yet.
         return Err(UsageError(format!(
-            "{name} is {}, which `gloci index` cannot index here; convert it to BED first with \
+            "{name} is {}, and indexing it is not available in this build yet",
+            format.name()
+        ))
+        .into());
+    }
+    if tsv.is_none() && format.is_convert_only() {
+        return Err(UsageError(format!(
+            "{name} is {}, which `gloci index` does not index; convert it to BED first with \
 `gloci convert {name} -o out.bed.gz` and index that",
             format.name()
         ))
