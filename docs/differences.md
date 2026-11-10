@@ -517,17 +517,18 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Pinned by:** `map-stdev-vs-bedtools` (must differ). `map-sstdev-vs-bedtools`,
   and `map-stdev-pop-vs-bedtools` match (bedtools map has no `var` op).
 
-## `map` `distinct` keeps first-seen order {#map-distinct-order}
+## `map` and `groupby` `distinct` keep first-seen order {#map-distinct-order}
 
-- **gloci:** `distinct` lists each value once in the order the B records were
-  seen (B file, then input order). `distinct_sorted` lists them in bytewise
-  order.
-- **Old behaviour:** `bedtools map -o distinct` lists them in bytewise order
-  (`10,3,5`).
+- **gloci:** `distinct` lists each value once in the order the records were
+  seen (in `map`: B file, then input order; in `groupby` and `merge`: input
+  order). `distinct_sorted` lists them in bytewise order.
+- **Old behaviour:** `bedtools map -o distinct` and `bedtools groupby -o
+  distinct` list them in bytewise order (`10,3,5`); `bedmap --echo-map-id-uniq`
+  does too.
 - **Reason:** first-seen order follows the records, which makes `distinct`
   line up with `collapse`; the sorted form is kept under its own name.
-- **Pinned by:** `map-distinct-vs-bedtools` (must differ).
-  `map-distinct-sorted-vs-bedtools` matches.
+- **Pinned by:** `map-distinct-vs-bedtools` and `groupby-distinct-vs-bedtools`
+  (must differ). `map-distinct-sorted-vs-bedtools` matches.
 
 ## `map` `mode` and `antimode` skip missing values {#map-mode-missing}
 
@@ -588,15 +589,31 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Pinned by:** `groupby-non-numeric-vs-bedtools` and
   `map-non-numeric-vs-bedtools` (must differ, by exit status).
 
+## `min_record` and `max_record` write the record with `|` {#map-record-format}
+
+- **gloci:** `-c COL:min_record` and `-c COL:max_record` (and `records`) write
+  the B record's fields joined with `|`, each field as it is in the file.
+- **Old behaviour:** `bedmap --min-element` and `--max-element` write the
+  record with tabs between the fields and print the score column with 6
+  decimals (`3.000000`).
+- **Reason:** one output column per operation, so the result can be split on
+  the column delimiter; the record's own text is not reformatted.
+- **Pinned by:** `map-min-record-vs-bedops` (must differ).
+
 ## `map` prints the empty value, not `NAN`, for no values {#map-empty-value}
 
 - **gloci:** an aggregation with no values prints `--empty` (default `.`);
-  `count` and `count_distinct` print 0.
+  `count`, `count_distinct`, `bases`, `bases_uniq` and `indicator` print 0,
+  because they always have a value. `frac_a` has none for an element with no
+  mapped records and prints `--empty`.
 - **Old behaviour:** `bedmap --sum` and `--mean` print `NAN` for an element
   with no mapped records. bedtools map prints `.` like gloci.
+  `bedmap --bases-uniq-f` prints `0.000000` where gloci's `frac_a` prints `.`
+  (while `bedmap --bases-uniq` and gloci's `bases_uniq` both print 0).
 - **Reason:** one placeholder for every operation, chosen by the user; the
   bedtools default is the same.
-- **Pinned by:** `map-empty-sum-vs-bedops` (must differ). With every A
+- **Pinned by:** `map-empty-sum-vs-bedops` and `map-frac-a-empty-vs-bedops`
+  (must differ). With every A
   overlapped, `map-sum-vs-bedops` and `map-mean-vs-bedops` match.
 
 ## `coverage` of a point A has no bases {#coverage-point}

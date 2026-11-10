@@ -1258,6 +1258,28 @@ reference = "bedmap --echo --sum input.bed map-b.bed | tr '|' '\\t'"
 compare = "numeric"
 expected_difference = "#map-empty-value"
 
+# bedmap --bases-uniq-f writes 0.000000 for an element with no mapped records;
+# gloci's frac_a writes the empty value.
+[[case]]
+name = "map-frac-a-empty-vs-bedops"
+input = { file = "xtask/diff/inputs/map-a.bed" }
+aux = ["xtask/diff/inputs/map-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-b.bed -c 0:frac_a"
+reference = "bedmap --echo --bases-uniq-f input.bed map-b.bed | tr '|' '\\t'"
+compare = "numeric"
+expected_difference = "#map-empty-value"
+
+# bedmap --min-element writes the record with tabs and a 6-decimal score;
+# gloci joins the fields with `|`.
+[[case]]
+name = "map-min-record-vs-bedops"
+input = { file = "xtask/diff/inputs/map-a-hit.bed" }
+aux = ["xtask/diff/inputs/map-b.bed"]
+gloci = "gloci map --chrom-order lex -a input.bed -b map-b.bed -c 5:min_record"
+reference = "bedmap --delim '\\t' --echo --min-element input.bed map-b.bed"
+compare = "exact"
+expected_difference = "#map-record-format"
+
 # `bases` adds up each record's overlap with A, as bedmap --bases does (both
 # count the shared bases of overlapping B twice), and with a window it is the
 # overlap of the real spans: b9 is within A's window only and adds 0.
