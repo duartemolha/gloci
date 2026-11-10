@@ -5105,4 +5105,55 @@ name = "view-cram-no-ref-mixed-vs-samtools"
 input = { file = "xtask/diff/inputs/aln/mixed.namesorted.noref.cram" }
 gloci = "gloci view -O bam input.namesorted.noref.cram"
 reference = "samtools view -b --no-PG --input-fmt-option decode_md=0 input.namesorted.noref.cram"
+# sort of alignments (D121) against samtools 1.21 sort --no-PG. sort.sam has ties at chr1:100 on both
+# strands, a placed unmapped read, unplaced reads with and without 0x10, chrM listed before chr1, names
+# that order differently naturally and as bytes, and one name with every flag rank; sort-nohd and
+# sort-hd differ in their @HD line only; flags.bam is the view fixture with unmapped reads.
+[[case]]
+name = "aln-sort-ties-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/sort.bam" }
+gloci = "gloci sort input.bam"
+reference = "samtools sort --no-PG input.bam"
+compare = "bam"
+
+[[case]]
+name = "aln-sort-name-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/sort.bam" }
+gloci = "gloci sort -n input.bam"
+reference = "samtools sort -n --no-PG input.bam"
+compare = "bam"
+
+[[case]]
+name = "aln-sort-name-bytes-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/sort.bam" }
+gloci = "gloci sort -N input.bam"
+reference = "samtools sort -N --no-PG input.bam"
+compare = "bam"
+
+[[case]]
+name = "aln-sort-sam-input-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/sort.sam" }
+gloci = "gloci sort -O bam input.sam"
+reference = "samtools sort --no-PG input.sam"
+compare = "bam"
+
+[[case]]
+name = "aln-sort-no-hd-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/sort-nohd.bam" }
+gloci = "gloci sort input.bam"
+reference = "samtools sort --no-PG input.bam"
+compare = "bam"
+
+[[case]]
+name = "aln-sort-hd-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/sort-hd.bam" }
+gloci = "gloci sort input.bam"
+reference = "samtools sort --no-PG input.bam"
+compare = "bam"
+
+[[case]]
+name = "aln-sort-flags-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.bam" }
+gloci = "gloci sort input.bam"
+reference = "samtools sort --no-PG input.bam"
 compare = "bam"

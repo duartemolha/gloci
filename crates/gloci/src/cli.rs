@@ -112,7 +112,8 @@ Examples:
   gloci index reads.cram
   gloci index scores.tsv.gz -s 1 -b 2 -e 3 --zero-based")]
     Index(IndexArgs),
-    /// Sort BED/bedGraph/GFF/VCF/BCF files with bounded memory.
+    /// Sort BED/bedGraph/GFF/VCF/BCF files, or BAM/SAM/CRAM alignments, with
+    /// bounded memory.
     ///
     /// Records are ordered by chromosome, then start, then end. The
     /// chromosome order comes from -g, else from the ##contig lines of a
@@ -128,10 +129,22 @@ Examples:
     /// Sorting spills to --tmp-dir when the input is larger than --max-mem.
     /// That directory must exist and be writable; it is checked before any
     /// input is read.
+    ///
+    /// Alignments (one BAM, SAM or CRAM file, or stdin) are sorted as
+    /// samtools sort does: by reference in header order (unplaced reads
+    /// last), position and strand, ties in input order; -n by read name in
+    /// natural order (r2 before r10) and -N by plain byte order, each with
+    /// READ1 before READ2 and primary before supplementary before secondary.
+    /// Every record is kept, unmapped reads included. The header's @HD line
+    /// gets SO (and SS for -n and -N) and gloci adds an @PG line. The output
+    /// is BAM (CRAM input too), or SAM with -o x.sam or -O sam. --write-index
+    /// works for coordinate-sorted BAM output only. -g, --full-key, --unique and
+    /// --duplicates do not apply: the order is the header's. To merge sorted
+    /// BAM files use sort -m (or cat for files already in order); -n reads.bam sorts by name.
     #[command(after_long_help = "\
 Examples:
+  gloci sort reads.bam -o reads.sorted.bam --write-index -t 8
   gloci sort peaks.bed > peaks.sorted.bed
-  gloci sort calls.vcf.gz -o calls.sorted.vcf.gz --write-index
   gloci sort huge.bed --max-mem 8G --tmp-dir /scratch -t 16 -o huge.sorted.bed.gz
   gloci sort --check peaks.sorted.bed")]
     Sort(SortArgs),
@@ -2574,6 +2587,12 @@ pub struct SortArgs {
     /// Only check that the inputs are sorted; write nothing, exit 1 if not.
     #[arg(long)]
     pub check: bool,
+    /// Alignments: sort by read name, in natural order (r2 before r10), as samtools sort -n.
+    #[arg(short = 'n', long, conflicts_with = "by_name_bytes")]
+    pub by_name: bool,
+    /// Alignments: sort by read name as bytes (r10 before r2), as samtools sort -N.
+    #[arg(short = 'N', long)]
+    pub by_name_bytes: bool,
     #[command(flatten)]
     pub header: HeaderArg,
     #[command(flatten)]

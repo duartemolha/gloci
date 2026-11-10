@@ -2,7 +2,7 @@
 //! already sorted inputs (`sort -m`).
 
 use super::Tie;
-use super::order::{M_COORD, M_FULL, M_INTERVAL, M_NAME, keeps_bytes, name_cmp};
+use super::order::{M_COORD, M_FULL, M_INTERVAL, M_NAME, keeps_bytes, name_cmp_raw};
 use super::spill::{RecHead, Run, RunReader, SpillDir};
 use gloci_core::ChromTable;
 use gloci_io::{IoError, OrderGuard, RecordBatch, RecordReader};
@@ -48,7 +48,7 @@ impl<const M: u8> Head<M> {
         let ord = match M {
             M_INTERVAL | M_COORD => pos(self, other),
             M_FULL => pos(self, other).then_with(|| self.bytes.cmp(&other.bytes)),
-            _ => name_cmp(&self.bytes, &other.bytes, M == M_NAME),
+            _ => name_cmp_raw(&self.bytes, &other.bytes, M == M_NAME),
         };
         ord.then(self.rec.seq.cmp(&other.rec.seq))
     }

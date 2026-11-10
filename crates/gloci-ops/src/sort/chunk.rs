@@ -1,7 +1,7 @@
 //! The in-memory chunk: record bytes in one arena plus a sort entry per
 //! record, both held within the memory budget.
 
-use super::order::{M_COORD, M_FULL, M_INTERVAL, M_NAME, M_NAME_BYTES, Order, name_cmp};
+use super::order::{M_COORD, M_FULL, M_INTERVAL, M_NAME, M_NAME_BYTES, Order, name_cmp_raw};
 use rayon::slice::ParallelSliceMut;
 use std::cmp::Ordering;
 
@@ -221,7 +221,7 @@ impl Chunk {
                 let natural = mode == M_NAME;
                 debug_assert!(natural || mode == M_NAME_BYTES);
                 sort_by(entries, parallel, |a, b| {
-                    name_cmp(raw(a), raw(b), natural).then(a.seq.cmp(&b.seq))
+                    name_cmp_raw(raw(a), raw(b), natural).then(a.seq.cmp(&b.seq))
                 })
             }
         }

@@ -78,7 +78,7 @@ fn genomecov_reads_alignments() {
 }
 
 #[test]
-fn planned_commands_say_not_yet_and_others_say_never() {
+fn commands_that_do_not_read_alignments_say_never() {
     let dir = tempdir();
     let bam = fixtures::write(
         dir.path(),
@@ -88,16 +88,6 @@ fn planned_commands_say_not_yet_and_others_say_never() {
     let bed = plain_file(dir.path(), "a.bed", "chr1\t1\t2\n");
     let x = bam.to_str().unwrap();
     let b = bed.to_str().unwrap();
-    let not_yet = |args: &[&str]| {
-        let o = gloci()
-            .args(args)
-            .assert()
-            .code(2)
-            .stderr(contains("not available in this build yet"));
-        let err = String::from_utf8_lossy(&o.get_output().stderr).into_owned();
-        assert!(!err.contains("does not read alignments"), "{args:?}: {err}");
-    };
-    not_yet(&["sort", x]);
     gloci()
         .args(["subtract", "-a", b, "-b", x])
         .assert()

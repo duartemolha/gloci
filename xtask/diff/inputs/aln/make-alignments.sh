@@ -35,3 +35,10 @@ samtools index -@ 0 pos-minus-one.bam
 head -c -28 cat-a.bam > cat-noeof.bam
 # cat-g.bam is not made here: it is `gloci view cat-b.sam -o cat-g.bam`, so its header ends in
 # the middle of a block (samtools puts the header in a block of its own).
+# sort.sam (D121): ties at chr1:100 on both strands, a read at chr1:99, chrM listed before chr1,
+# a placed unmapped read, unplaced reads with and without 0x10, names that order differently
+# naturally and as bytes, and one name with every flag rank. sort-nohd.sam has no @HD line;
+# sort-hd.sam's is `SO:unsorted GO:query SS:x`.
+samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o sort.bam sort.sam
+samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o sort-nohd.bam sort-nohd.sam
+samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o sort-hd.bam sort-hd.sam

@@ -35,7 +35,7 @@ pub use inputs::{
     sort_input_options, sort_readers, sort_together,
 };
 pub use merge::{MERGE_BUFFER_PER_INPUT, merge_fan_in, merge_sorted, merge_sorted_batches};
-pub use order::{Order, coordinate_key, name_flag_rank, strnum_cmp};
+pub use order::{Order, coordinate_key, name_cmp_raw, name_flag_rank, qname_of, strnum_cmp};
 
 use chunk::Chunk;
 use gloci_core::ChromTable;

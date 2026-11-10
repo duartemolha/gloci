@@ -3,14 +3,16 @@ use crate::Ctx;
 use crate::cli::SortArgs;
 use gloci_core::VcfSpan;
 use gloci_io::{
-    Format, Header, InputSpool, IoError, OrderGuard, OutFormat, OutputOptions, ReaderOptions,
-    RecordBatch, RecordReader, UsageError, WriterOptions, check_family, chrom_table_for,
-    is_regular_file, next_batch_size, open_output, open_reader, open_reader_from,
-    open_record_writer, parse_output_spec, refuse_binary_to_tty,
+    AlignOptions, AlnSortOrder, AlnSource, Format, Header, InputSpool, IoError, Opened, OrderGuard,
+    OutFormat, OutputOptions, ReaderOptions, RecordBatch, RecordReader, UsageError, WriterOptions,
+    check_family, chrom_table_for, is_regular_file, next_batch_size, open_output, open_reader,
+    open_reader_from, open_reader_or_alignments, open_record_writer, parse_output_spec,
+    refuse_binary_to_tty,
 };
 use gloci_ops::{
-    Dedup, MIN_MAX_MEM, Order, SortConfig, Sorter, Tie, check_definitions_pair, check_samples_pair,
-    merge_fan_in, merge_sorted_batches,
+    AlnSortOptions, Dedup, MIN_MAX_MEM, Order, SortConfig, Sorter, Tie, check_alignments,
+    check_definitions_pair, check_samples_pair, merge_fan_in, merge_sorted_batches,
+    sort_alignments,
 };
 use std::fs::File;
 use std::io::IsTerminal;
@@ -50,7 +52,7 @@ sort the inputs without -m to remove or find duplicates",
         Some(s) => Some(s.parse::<Format>().map_err(UsageError)?),
     };
     let opts = ReaderOptions {
-        accept: gloci_io::Accept::planned(),
+        accept: gloci_io::Accept::default(),
         chrom_map: a.chrom_map.load()?,
         threads: ctx.threads,
         format,
@@ -66,6 +68,17 @@ sort the inputs without -m to remove or find duplicates",
     // regular files are reopened per round and any input that cannot be
     // reopened (stdin, a pipe, a FIFO) is first spooled once to --tmp-dir.
     let mut sources = Sources::open(&files, &opts, merge_fan_in(a.max_mem), &ctx.tmp_dir)?;
+    if let Some(src) = sources.probe_alignments()? {
+        return run_alignments(ctx, a, &files, src, &spec);
+    }
+    if a.by_name || a.by_name_bytes {
+        return Err(usage(format!(
+            "{} is not an alignment file, and -n and -N sort alignments (BAM, SAM, CRAM) by read \
+name; drop {}, or give a BAM, SAM or CRAM file",
+            files[0],
+            if a.by_name { "-n" } else { "-N" }
+        )));
+    }
     let (format, header, mut chroms) = if files.len() == 1 {
         let r0 = sources.peek(0)?;
         let format = r0.format();
@@ -241,6 +254,110 @@ separately",
     Ok(())
 }
 
+/// Sort (or `--check`) one alignment input (D121).
+fn run_alignments(
+    ctx: &Ctx,
+    a: &SortArgs,
+    files: &[String],
+    src: Box<dyn AlnSource>,
+    spec: &gloci_io::OutputSpec,
+) -> anyhow::Result<()> {
+    let name = src.name().to_string();
+    if files.len() > 1 {
+        return Err(usage(format!(
+            "sort takes one alignment file, but {} were given; merge sorted BAM files with \
+gloci sort -m, or join files already in order with gloci cat",
+            files.len()
+        )));
+    }
+    for (given, flag) in [
+        (a.genome.genome.is_some(), "-g"),
+        (a.full_key, "--full-key"),
+        (a.unique, "--unique"),
+        (a.duplicates, "--duplicates"),
+    ] {
+        if given {
+            return Err(usage(format!(
+                "{flag} does not apply to alignments, which are ordered by the header's \
+references; drop {flag}"
+            )));
+        }
+    }
+    if a.merge_sorted {
+        return Err(usage(
+            "sort -m of alignments is not available yet; sort each file, or join files already \
+in order with gloci cat",
+        ));
+    }
+    let order = if a.by_name {
+        AlnSortOrder::Name
+    } else if a.by_name_bytes {
+        AlnSortOrder::NameBytes
+    } else {
+        AlnSortOrder::Coordinate
+    };
+    if a.check {
+        if !check_alignments(src, order)? {
+            return Err(anyhow::anyhow!(
+                "{name} is not sorted; the records are listed above"
+            ));
+        }
+        return Ok(());
+    }
+    if a.out.write_index && order != AlnSortOrder::Coordinate {
+        return Err(usage(
+            "--write-index needs coordinate order, as a BAM index finds reads by position; \
+drop --write-index, or drop -n/-N",
+        ));
+    }
+    // As samtools sort, BAM unless -o x.sam or -O sam says otherwise (also for SAM input).
+    let out_format = spec.format.unwrap_or(OutFormat::Bam);
+    if !matches!(out_format, OutFormat::Bam | OutFormat::Sam) {
+        return Err(usage(format!(
+            "{} output is not possible for sorted alignments; write BAM or SAM (-o x.bam, \
+-o x.sam); CRAM input is written as BAM",
+            out_format.name()
+        )));
+    }
+    refuse_binary_to_tty(
+        spec.path.is_none() && std::io::stdout().is_terminal(),
+        out_format,
+        spec.bgzf,
+    )?;
+    let dest = spec
+        .path
+        .as_ref()
+        .map_or_else(|| "<stdout>".to_string(), |p| p.display().to_string());
+    let output = open_output(
+        spec,
+        out_format,
+        &OutputOptions {
+            threads: ctx.threads,
+            level: a.out.compression_level,
+            write_index: a.out.write_index,
+        },
+    )?;
+    let wopts = WriterOptions {
+        write_header: true,
+        command_line: Some(ctx.command_line.clone()),
+        version: ctx.version,
+    };
+    let o = AlnSortOptions {
+        order,
+        max_mem: a.max_mem,
+        tmp_dir: ctx.tmp_dir.clone(),
+        threads: ctx.threads,
+    };
+    let stats = sort_alignments(src, &o, output, out_format, &wopts)
+        .map_err(|e| e.with_output_name(&dest))?;
+    log::info!(
+        "sorted {} records, {} chunks spilled to disk",
+        stats.records,
+        stats.spills
+    );
+    Ok(())
+}
+
 /// The inputs of one run. Each is read from its source exactly once: a
 /// regular file is reopened for each pass, so the number of open readers and
 /// their BGZF thread pools stays bounded however many files there are. An
@@ -310,6 +427,26 @@ impl Sources {
                     source,
                 })?;
                 open_reader_from(name, Box::new(f), &self.opts)
+            }
+        }
+    }
+
+    /// Open input 0 as every-record alignments when it is a BAM, SAM or CRAM file. Any other
+    /// format is kept as the reader of the header pass, so the input is not opened twice.
+    fn probe_alignments(&mut self) -> Result<Option<Box<dyn AlnSource>>, IoError> {
+        if self.spooled[0].is_some() {
+            return Ok(None);
+        }
+        let mut o = self.opts.clone();
+        o.accept.alignments = Some(AlignOptions {
+            full_records: true,
+            ..AlignOptions::default()
+        });
+        match open_reader_or_alignments(&self.paths[0], &o)? {
+            Opened::Alignments(src) => Ok(Some(src)),
+            Opened::Records(r) => {
+                self.readers[0] = Some(r);
+                Ok(None)
             }
         }
     }

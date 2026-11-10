@@ -103,7 +103,7 @@ pub fn name_flag_rank(flag: u16) -> u32 {
 }
 
 /// The read name of a BAM record (without its NUL), empty when the record is too short.
-pub(crate) fn qname(raw: &[u8]) -> &[u8] {
+pub fn qname_of(raw: &[u8]) -> &[u8] {
     let n = usize::from(raw.get(8).copied().unwrap_or(0));
     let name = raw.get(32..32 + n).unwrap_or(&[]);
     // htslib reads the name as a C string.
@@ -133,8 +133,8 @@ pub fn coordinate_key(raw: &[u8], n_ref: u32) -> (u32, u64) {
 }
 
 /// Compares two BAM records by read name and flag rank (`-n` with `natural`, `-N` without).
-pub(crate) fn name_cmp(a: &[u8], b: &[u8], natural: bool) -> Ordering {
-    let (qa, qb) = (qname(a), qname(b));
+pub fn name_cmp_raw(a: &[u8], b: &[u8], natural: bool) -> Ordering {
+    let (qa, qb) = (qname_of(a), qname_of(b));
     let by_name = if natural {
         strnum_cmp(qa, qb)
     } else {
