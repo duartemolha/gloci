@@ -211,3 +211,35 @@ fn rm_dup_rules() {
         [true, false, true, true]
     );
 }
+
+#[test]
+fn any_symbolic_alt_leaves_the_record_alone() {
+    for alt in ["T,<DEL>", "<DEL>", "<DEL:ME>,T"] {
+        let line = rec(6, "TT", alt, ".");
+        assert_eq!(norm(CheckRef::Exit, REF, &line).unwrap().1, line, "{alt}");
+    }
+}
+
+#[test]
+fn set_ref_on_a_non_acgtn_ref_does_not_swap() {
+    // The FASTA (cleaned) has CNT where the VCF has CRT.
+    let (_, l) = norm(CheckRef::Set, "GCNT", &rec(2, "CRT", "C", ".")).unwrap();
+    assert_eq!(l, rec(2, "CNT", "C", "."));
+}
+
+#[test]
+fn swap_recounts_ac_of_the_swapped_alt_only() {
+    let (_, l) = norm(CheckRef::Set, REF, &rec(8, "G", "C,A", "AC=9,4")).unwrap();
+    // GT 0/1 1/1 -> 1/0 0/0 with C now REF: ALT 1 (G) is counted in the new GT.
+    assert_eq!(l, "c\t8\t.\tC\tG,A\t.\t.\tAC=1,4\tGT\t1/0\t0/0");
+}
+
+#[test]
+fn rm_dup_other_length_changes_are_neither_snp_nor_indel() {
+    let mut d = Dedup::new(RmDup::Both);
+    for (r, a) in [("TAT", "CG"), ("CC", "ATGG"), ("T", "CGG"), ("G", "CC")] {
+        assert!(d.keep(rec(5, r, a, ".").as_bytes()), "{r}>{a}");
+    }
+    assert!(d.keep(rec(5, "TA", "T", ".").as_bytes()));
+    assert!(!d.keep(rec(5, "TA", "T", ".").as_bytes()));
+}

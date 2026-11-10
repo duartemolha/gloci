@@ -284,7 +284,7 @@ pub fn vcf_norm(
                 // Write what is far enough behind, then insert after any
                 // record at the same position.
                 while let Some(head) = buf.front() {
-                    if head.chrom != chrom || head.pos + o.window <= pos {
+                    if head.chrom != chrom || head.pos.saturating_add(o.window) <= pos {
                         let head = buf.pop_front().expect("front exists");
                         sink.emit(&head)?;
                     } else {

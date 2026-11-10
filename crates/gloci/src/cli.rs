@@ -1330,9 +1330,10 @@ Examples:
     /// order; INFO/END follows the new REF. REF is checked against the FASTA
     /// first (--check-ref). The FASTA needs a .fai (and a .gzi for BGZF):
     /// run `gloci index REF` once; gloci never builds one itself. Only
-    /// windows of the reference are read, never whole chromosomes. Symbolic
-    /// ALTs other than <DEL> stop a record from moving. `bcftools norm -a`,
-    /// `-m+`, `--old-rec-tag` and `-N` are not available.
+    /// windows of the reference are read, never whole chromosomes. A record
+    /// with any symbolic ALT (`<DEL>`, `<DUP>`, ...) is not trimmed or moved.
+    /// --skip-invalid also skips records that fail --check-ref e. `bcftools
+    /// norm -a`, `-m+`, `--old-rec-tag` and `-N` are not available.
     #[command(after_long_help = "\
 Examples:
   gloci vcf norm calls.vcf.gz -f ref.fa -o calls.norm.vcf.gz
@@ -3295,8 +3296,8 @@ pub struct VcfNormArgs {
     #[arg(short = 'd', long, value_enum, value_name = "TYPES")]
     pub rm_dup: Option<RmDupArg>,
     /// Records that move left are re-sorted within this many bases (bcftools
-    /// --site-win). A record that moves further than this is written out of
-    /// order, as bcftools does.
+    /// --site-win). A window smaller than the largest shift can order records
+    /// differently from bcftools; the default 1000 matches it.
     #[arg(short = 'w', long, default_value = "1000", value_name = "BASES", value_parser = clap::value_parser!(u64).range(1..))]
     pub window: u64,
     // bcftools norm options gloci does not offer: each is a usage error that

@@ -204,21 +204,49 @@ fn swap_gt(rest: &[u8], i: usize, out: &mut Vec<u8>) {
     }
 }
 
-/// `info` with the value of END replaced by `end` (unchanged without END).
-fn set_end(info: &[u8], end: u64, out: &mut Vec<u8>) {
+/// `info` with END replaced by `end` and the `ac.0`-th AC value (1-based ALT
+/// index) by `ac.1`, when given and present.
+fn rewrite_info(info: &[u8], end: Option<u64>, ac: Option<(usize, usize)>, out: &mut Vec<u8>) {
     let mut first = true;
     for kv in info.split(|&b| b == b';') {
         if !first {
             out.push(b';');
         }
         first = false;
-        if kv.starts_with(b"END=") {
+        if let (Some(end), true) = (end, kv.starts_with(b"END=")) {
             out.extend_from_slice(b"END=");
             out.extend_from_slice(end.to_string().as_bytes());
+        } else if let (Some((i, n)), Some(v)) = (ac, kv.strip_prefix(b"AC=")) {
+            out.extend_from_slice(b"AC=");
+            for (k, x) in v.split(|&b| b == b',').enumerate() {
+                if k > 0 {
+                    out.push(b',');
+                }
+                if k + 1 == i {
+                    out.extend_from_slice(n.to_string().as_bytes());
+                } else {
+                    out.extend_from_slice(x);
+                }
+            }
         } else {
             out.extend_from_slice(kv);
         }
     }
+}
+
+/// How many times allele `i` appears in the GT of every sample of `rest`.
+fn count_allele(rest: &[u8], i: usize) -> usize {
+    let mut lines = rest.split(|&b| b == b'\t');
+    let Some(format) = lines.next() else { return 0 };
+    let Some(gt) = format.split(|&b| b == b':').position(|k| k == b"GT") else {
+        return 0;
+    };
+    let want = i.to_string();
+    lines
+        .filter_map(|s| s.split(|&b| b == b':').nth(gt))
+        .flat_map(|f| f.split(|&b| b == b'/' || b == b'|'))
+        .filter(|t| *t == want.as_bytes())
+        .count()
 }
 
 impl Normalizer {
@@ -296,7 +324,7 @@ fix the VCF, or pass --check-ref w (warn), x (drop the record) or s (set REF fro
                         .max(reflen);
                     let mut long = Vec::new();
                     refs.get(c.chrom, pos0, maxlen, &mut long)?;
-                    let hit = (1..alleles.len()).find(|&i| {
+                    let hit = (1..alleles.len()).filter(|_| !bad_ref).find(|&i| {
                         let a = &alleles[i];
                         is_bases(a)
                             && a.len() <= long.len()
@@ -437,16 +465,21 @@ check that the VCF and the FASTA use the same assembly"
         out.push(b'\t');
         out.extend_from_slice(c.filter);
         out.push(b'\t');
-        if update_end {
-            set_end(c.info, pos + alleles[0].len() as u64 - 1, out);
-        } else {
-            out.extend_from_slice(c.info);
+        let end = update_end.then(|| pos + alleles[0].len() as u64 - 1);
+        let mut swapped = Vec::new();
+        let mut ac = None;
+        if let (Some(rest), Some(i)) = (c.rest, gt_swap) {
+            swap_gt(rest, i, &mut swapped);
+            // As bcftools: the swapped ALT's AC is recounted from the new GT.
+            ac = Some((i, count_allele(&swapped, i)));
         }
+        rewrite_info(c.info, end, ac, out);
         if let Some(rest) = c.rest {
             out.push(b'\t');
-            match gt_swap {
-                Some(i) => swap_gt(rest, i, out),
-                None => out.extend_from_slice(rest),
+            if gt_swap.is_some() {
+                out.extend_from_slice(&swapped);
+            } else {
+                out.extend_from_slice(rest);
             }
         }
     }
@@ -458,8 +491,8 @@ type Moved = (u64, Vec<Vec<u8>>);
 /// Left-align and trim the alleles of one record (`alleles[0]` is REF), as
 /// bcftools does: trim the base every allele ends with, extending all alleles
 /// to the left by one reference base whenever one would become empty, then
-/// trim the bases every allele starts with. `<DEL...>` ALTs are ignored; a
-/// record with another symbolic ALT, or without a base ALT, is left alone.
+/// trim the bases every allele starts with. A record with any symbolic ALT
+/// (`<...>`) is left alone.
 /// Returns the new 0-based position and alleles, or `None` when nothing
 /// changes. Rewritten alleles are upper case, except bases taken from the
 /// reference, which keep its case.
@@ -471,9 +504,6 @@ fn realign(
 ) -> Result<Option<Moved>, String> {
     let mut idx = vec![0usize];
     for (i, a) in alleles.iter().enumerate().skip(1) {
-        if is_del(a) {
-            continue;
-        }
         if is_symbolic(a) {
             return Ok(None);
         }
@@ -546,6 +576,20 @@ pub struct Dedup {
     kept: Vec<(u8, Vec<Vec<u8>>)>,
 }
 
+/// htslib's typing: an indel has one allele a prefix of the other after the
+/// shared first base; other length changes are "other".
+fn is_indel(r: &[u8], a: &[u8]) -> bool {
+    let (Some(&r0), Some(&a0)) = (r.first(), a.first()) else {
+        return false;
+    };
+    if !r0.eq_ignore_ascii_case(&a0) {
+        return false;
+    }
+    let (r, a) = (&r[1..], &a[1..]);
+    let (short, long) = if r.len() <= a.len() { (r, a) } else { (a, r) };
+    long.len() >= short.len() && long[..short.len()].eq_ignore_ascii_case(short)
+}
+
 const SNP: u8 = 1;
 const INDEL: u8 = 2;
 
@@ -577,7 +621,11 @@ impl Dedup {
             if is_del(a) {
                 ty |= INDEL;
             } else if is_bases(a) {
-                ty |= if a.len() == reflen { SNP } else { INDEL };
+                if a.len() == reflen {
+                    ty |= SNP;
+                } else if is_indel(c.reference, a) {
+                    ty |= INDEL;
+                }
             }
         }
         set[1..].sort();

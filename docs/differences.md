@@ -1794,30 +1794,36 @@ depends on the span.
 - **gloci:** `gloci vcf norm` left-aligns and trims as `bcftools norm -f` does (the same
   trimming, the same tie order, the same `--window` re-sorting, the same `--check-ref` and
   `--rm-dup` rules), with these differences:
-  - A record whose only ALT is `<DEL>` (or `<DEL:...>`) is written as it is. With other ALTs, a
-    `<DEL>` ALT is ignored when the record is trimmed, as in bcftools.
+  - A record with any symbolic ALT (`<DEL>`, `<DUP>`, `<INS>`, ...) is left untouched by
+    left-alignment and trimming, whatever its other ALTs are. (`*` and breakends are plain
+    alleles and stop a move, as in bcftools.)
   - `--check-ref x` drops the records that fail the check and writes the others.
   - `--check-ref s` on a record with an ALT equal to REF writes the record as it is, with a
     warning; it does not remove the ALT.
-  - `--check-ref s` leaves a base other than ACGTN in an ALT as written.
+  - `--check-ref s` leaves a base other than ACGTN in an ALT as written, and a `*` ALT as `*`.
+  - `--skip-invalid` also skips records that fail `--check-ref e`; bcftools has no such option.
   - `--check-ref s` on a record that starts past the end of its contig is an error (exit 1)
     that says so.
   - Values are kept as text: a record that is not rewritten is written byte for byte, and one
     that is rewritten keeps the text of its INFO, QUAL and sample values. The header is the
     input's, with no `##FILTER=<ID=PASS>` line added and no command line.
-- **Old behaviour:** `bcftools norm` 1.21 moves a record whose only ALT is `<DEL>` (with no
-  INFO/END) to POS 1 of its contig and replaces REF with the first reference base, which
+- **Old behaviour:** `bcftools norm` 1.21 treats `<DEL>` ALTs inconsistently. It ignores a
+  `<DEL>` ALT when trimming some records (`AA` to `A,<DEL>` is moved left as `GA` to `G,<DEL>`) and
+  not others (`TTTG` to `TG,<DEL>` stays; `TT` to `TTT,<DEL>` becomes `GT` to `GTT`). It trims the REF of
+  a record whose only ALT is `<DEL>` to one base and shifts it left, sometimes to POS 1, which
   corrupts it. `-c x` crashes with a segmentation fault (exit 139) as soon as it drops a
-  record, so the run produces no output. `-c s` on an ALT equal to REF removes that ALT
-  (GT is left as it was, so it can point at the wrong allele), rewrites a non-ACGTN ALT of
-  a record whose REF it sets as `N`, and writes `.` as REF and ALT for a record past the end
-  of its contig. It reads every record into binary form and prints it again: floats come out
-  with six significant digits (`AF=0.10` becomes `0.1`, `QUAL=1.50` becomes `1.5`), and
+  record, so the run produces no output. `-c s` on an ALT equal to REF removes that ALT and
+  renumbers GT (`G` to `G,A` with `1/2` and `0/2` becomes `G` to `A` with `0/1` and `0/1`), but leaves
+  AC, AN and AD as they were. `-c s` also rewrites a non-ACGTN ALT, and a `*` ALT, of a record whose
+  REF it sets as `N`, and writes `.` as REF and ALT for a record past the end of its contig. It
+  reads every record into binary form and prints it again: floats come out with six
+  significant digits (`AF=0.10` becomes `0.1`, `QUAL=1.50` becomes `1.5`), and
   `##FILTER=<ID=PASS>` is added to a header without it.
-- **Reason:** a symbolic deletion has no bases to trim, a crash is not a behaviour to copy, and
-  an ALT removed without recoding GT silently changes genotypes. Keeping values as written
+- **Reason:** a symbolic allele has no bases to trim, and a clear rule beats guessing bcftools'
+  quirks; a crash is not a behaviour to copy; a record kept as written never loses an ALT. Keeping values as written
   leaves the file you gave it diffable.
-- **Pinned by:** `vcf-norm-del-symbolic-vs-bcftools`, `vcf-norm-check-ref-x-vs-bcftools`,
+- **Pinned by:** `vcf-norm-del-symbolic-vs-bcftools`, `vcf-norm-del-mixed-vs-bcftools`,
+  `vcf-norm-check-ref-x-vs-bcftools`,
   `vcf-norm-check-ref-s-dup-vs-bcftools`, `vcf-norm-check-ref-s-iupac-alt-vs-bcftools`,
   `vcf-norm-check-ref-s-past-end-vs-bcftools` and `vcf-norm-float-text-vs-bcftools` (must
   differ). Every other `vcf norm` case matches.

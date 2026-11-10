@@ -5073,3 +5073,42 @@ reference = "bcftools norm --no-version -f ref.fa input.vcf"
 compare = "vcf-records"
 expected_difference = "#vcf-norm-edge-cases"
 
+
+# P3b Task 21 fix round 1
+# A swapped ALT: GT is recoded and that ALT's AC is recounted; AN, AF and the other AC values stay.
+[[case]]
+name = "vcf-norm-check-ref-s-ac-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/swap.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa --check-ref s"
+reference = "bcftools norm --no-version -f ref.fa -c s input.vcf"
+compare = "vcf-records"
+
+# Length changes that are not a prefix extension (TAT>CG, CC>ATGG) are neither SNP nor indel, so they are all kept.
+[[case]]
+name = "vcf-norm-rm-dup-class-indels-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/dupclass.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa --rm-dup indels"
+reference = "bcftools norm --no-version -f ref.fa -d indels input.vcf"
+compare = "vcf-records"
+
+# Length changes that are not a prefix extension (TAT>CG, CC>ATGG) are neither SNP nor indel, so they are all kept.
+[[case]]
+name = "vcf-norm-rm-dup-class-both-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/dupclass.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa --rm-dup both"
+reference = "bcftools norm --no-version -f ref.fa -d both input.vcf"
+compare = "vcf-records"
+
+# A record with any symbolic ALT is left alone; bcftools moves some of these (<DEL> next to a base ALT) and not others.
+[[case]]
+name = "vcf-norm-del-mixed-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/delmixed.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa"
+reference = "bcftools norm --no-version -f ref.fa input.vcf"
+compare = "vcf-records"
+expected_difference = "#vcf-norm-edge-cases"
+
