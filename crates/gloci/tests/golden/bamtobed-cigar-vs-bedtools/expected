@@ -5,5 +5,4 @@ chr1	400	410	c_ins	60	+	5M3I5M
 chr1	500	510	c_eqx	60	+	4=1X5=
 chr1	600	710	c_skip	60	+	5M100N5M
 chr1	700	712	c_del	60	+	5M2D5M
-chr1	800	800	c_allclip	60	+	10S5I
 chr1	900	910	c_rev	60	-	10M

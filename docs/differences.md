@@ -1635,3 +1635,21 @@ depends on the span.
   `bedToBigBed`, and the other gloci commands refuse it.
 - **Pinned by:** `bamtobed-past-end-vs-bedtools` and `bamtobed-edge-vs-bedtools` (must
   differ).
+
+## `convert` of a read with no reference bases is one base {#bamtobed-no-reference-ops}
+
+- **gloci:** a mapped read whose CIGAR has no `M D N = X` operation (`10S5I`) is the one
+  base at its position, `[pos, pos+1)`, in every layout: BED6, BED12 (one block of
+  size 1) and `--blocks`. That is the span htslib's `bam_endpos` gives and every gloci
+  interval command uses (D101), so `gloci convert x.bam | gloci intersect ...` and
+  `gloci intersect x.bam ...` agree.
+- **Old behaviour:** `bedtools bamtobed` writes a zero-length interval (`chr1 800 800`),
+  with `-bed12` a single block of size 0 (`1 0 0`), and `-split` the same zero-length row.
+- **Reason:** one span for a read in all commands. A zero-length row also overlaps
+  nothing under the rules of [Points overlap an interval only when inside
+  it](#zero-length-overlap), so the read would vanish from the next step of a pipeline.
+- **Pinned by:** `bamtobed-no-reference-ops-vs-bedtools`,
+  `bamtobed-no-reference-ops-bed12-vs-bedtools` and
+  `bamtobed-no-reference-ops-split-vs-bedtools` (must differ; they run on `cigars.bam`,
+  which has one such read, while the matching cases use `cigars-bases.bam`, the same
+  file without it).

@@ -153,16 +153,15 @@ an integer (i) tag such as NM or AS",
         };
         let (chrom, ref_len) = &hdr.refs[rid];
         let score = self.score(&a, loc)?;
-        // The reference bases the read covers, as bedtools counts them: a read with none
-        // (all clips and insertions) is the point at its position.
+        // The reference bases the read covers; a read with none (all clips and insertions)
+        // is one base, as `aln_ref` and every interval command see it (D101).
         let mut covered = 0u64;
-        let mut aligned = false;
         a.for_each_op(&mut |op, n| {
             if matches!(op, b'M' | b'D' | b'N' | b'=' | b'X') {
                 covered += u64::from(n);
-                aligned = true;
             }
         });
+        let covered = covered.max(1);
         // Reads are cut at the end of their reference (D101).
         let cut = |p: u64| p.min(*ref_len);
         let start = cut(pos);
@@ -213,13 +212,11 @@ an integer (i) tag such as NM or AS",
             return Ok(());
         }
         self.blocks.clear();
-        if aligned {
-            blocks(&a, self.o.split_deletions, &mut self.blocks);
-            for b in &mut self.blocks {
-                b.end = cut(b.end);
-            }
-            self.blocks.retain(|b| b.start < b.end);
+        blocks(&a, self.o.split_deletions, &mut self.blocks);
+        for b in &mut self.blocks {
+            b.end = cut(b.end);
         }
+        self.blocks.retain(|b| b.start < b.end);
         if self.blocks.is_empty() {
             self.blocks.push(Interval { start, end });
         }

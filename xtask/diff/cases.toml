@@ -4320,8 +4320,8 @@ compare = "exit-status"
 expected_difference = "#bgzf-eof-marker"
 
 # convert of alignments (D106) against bedtools 2.31.1 bamtobed. cigars.bam has one read per
-# CIGAR shape (clips, H, I, =/X, N, D, an all-clip read with no reference bases, a reverse
-# read); flags.bam has mates (/1, /2), MAPQ 0 and 10, unmapped reads and every filter flag;
+# CIGAR shape (clips, H, I, =/X, N, D, a reverse read; cigars-bases.bam is it without the
+# all-clip read, which bedtools writes zero-length: the pinned cases keep it); flags.bam has mates (/1, /2), MAPQ 0 and 10, unmapped reads and every filter flag;
 # order.bam has start ties on five contigs in the order chrM, chr1, chr2, chr10, chrX; tags.bam
 # has one read with AS:i:-5 and reads without NM. SAM input has no bedtools reader: the
 # reference converts it with samtools first.
@@ -4334,49 +4334,49 @@ compare = "exact"
 
 [[case]]
 name = "bamtobed-cigars-vs-bedtools"
-input = { file = "xtask/diff/inputs/aln/cigars.bam" }
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
 gloci = "gloci convert input.bam"
 reference = "bedtools bamtobed -i input.bam"
 compare = "exact"
 
 [[case]]
 name = "bamtobed-bed12-vs-bedtools"
-input = { file = "xtask/diff/inputs/aln/cigars.bam" }
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
 gloci = "gloci convert input.bam --bed12"
 reference = "bedtools bamtobed -i input.bam -bed12"
 compare = "exact"
 
 [[case]]
 name = "bamtobed-split-vs-bedtools"
-input = { file = "xtask/diff/inputs/aln/cigars.bam" }
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
 gloci = "gloci convert input.bam --blocks"
 reference = "bedtools bamtobed -i input.bam -split"
 compare = "exact"
 
 [[case]]
 name = "bamtobed-splitd-vs-bedtools"
-input = { file = "xtask/diff/inputs/aln/cigars.bam" }
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
 gloci = "gloci convert input.bam --blocks --split-deletions"
 reference = "bedtools bamtobed -i input.bam -splitD"
 compare = "exact"
 
 [[case]]
 name = "bamtobed-bed12-splitd-vs-bedtools"
-input = { file = "xtask/diff/inputs/aln/cigars.bam" }
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
 gloci = "gloci convert input.bam --bed12 --split-deletions"
 reference = "bedtools bamtobed -i input.bam -bed12 -splitD"
 compare = "exact"
 
 [[case]]
 name = "bamtobed-ed-vs-bedtools"
-input = { file = "xtask/diff/inputs/aln/cigars.bam" }
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
 gloci = "gloci convert input.bam --score-tag NM"
 reference = "bedtools bamtobed -i input.bam -ed"
 compare = "exact"
 
 [[case]]
 name = "bamtobed-split-ed-vs-bedtools"
-input = { file = "xtask/diff/inputs/aln/cigars.bam" }
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
 gloci = "gloci convert input.bam --score-tag NM --blocks --split-deletions"
 reference = "bedtools bamtobed -i input.bam -splitD -ed"
 compare = "exit-status"
@@ -4384,14 +4384,14 @@ expected_difference = "#bamtobed-split-tag"
 
 [[case]]
 name = "bamtobed-cigar-vs-bedtools"
-input = { file = "xtask/diff/inputs/aln/cigars.bam" }
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
 gloci = "gloci convert input.bam --cigar"
 reference = "bedtools bamtobed -i input.bam -cigar"
 compare = "exact"
 
 [[case]]
 name = "bamtobed-color-vs-bedtools"
-input = { file = "xtask/diff/inputs/aln/cigars.bam" }
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
 gloci = "gloci convert input.bam --bed12 --color 0,128,255"
 reference = "bedtools bamtobed -i input.bam -bed12 -color 0,128,255"
 compare = "exact"
@@ -4412,7 +4412,7 @@ compare = "exact"
 
 [[case]]
 name = "bamtobed-sam-bed12-vs-bedtools"
-input = { file = "xtask/diff/inputs/aln/cigars.sam" }
+input = { file = "xtask/diff/inputs/aln/cigars-bases.sam" }
 gloci = "gloci convert input.sam --bed12"
 reference = "samtools view -b --no-PG input.sam | bedtools bamtobed -i stdin -bed12"
 compare = "exact"
@@ -4428,7 +4428,7 @@ compare = "exact"
 # stdout). tags.bam has AS on its first read only, so both write one row first.
 [[case]]
 name = "bamtobed-tag-absent-vs-bedtools"
-input = { file = "xtask/diff/inputs/aln/cigars.bam" }
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
 gloci = "gloci convert input.bam --score-tag XY"
 reference = "bedtools bamtobed -i input.bam -tag XY"
 compare = "exit-status"
@@ -4443,7 +4443,7 @@ compare = "exit-status"
 # Pinned differences.
 [[case]]
 name = "bamtobed-split-tag-vs-bedtools"
-input = { file = "xtask/diff/inputs/aln/cigars.bam" }
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
 gloci = "gloci convert input.bam --blocks --score-tag NM"
 reference = "bedtools bamtobed -i input.bam -split -tag NM"
 compare = "exact"
@@ -4451,7 +4451,7 @@ expected_difference = "#bamtobed-split-tag"
 
 [[case]]
 name = "bamtobed-cigar-split-vs-bedtools"
-input = { file = "xtask/diff/inputs/aln/cigars.bam" }
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
 gloci = "gloci convert input.bam --cigar --blocks"
 reference = "bedtools bamtobed -i input.bam -cigar -split"
 compare = "exit-status"
@@ -4472,3 +4472,29 @@ gloci = "gloci convert input.bam"
 reference = "bedtools bamtobed -i input.bam"
 compare = "exact"
 expected_difference = "#bamtobed-past-reference-end"
+
+# A read with no reference ops (10S5I): bedtools writes a zero-length interval, gloci the one
+# base of D101 in every layout.
+[[case]]
+name = "bamtobed-no-reference-ops-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars.bam" }
+gloci = "gloci convert input.bam"
+reference = "bedtools bamtobed -i input.bam"
+compare = "exact"
+expected_difference = "#bamtobed-no-reference-ops"
+
+[[case]]
+name = "bamtobed-no-reference-ops-bed12-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars.bam" }
+gloci = "gloci convert input.bam --bed12"
+reference = "bedtools bamtobed -i input.bam -bed12"
+compare = "exact"
+expected_difference = "#bamtobed-no-reference-ops"
+
+[[case]]
+name = "bamtobed-no-reference-ops-split-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars.bam" }
+gloci = "gloci convert input.bam --blocks"
+reference = "bedtools bamtobed -i input.bam -split"
+compare = "exact"
+expected_difference = "#bamtobed-no-reference-ops"
