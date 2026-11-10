@@ -1653,11 +1653,10 @@ fn run_stdout(args: &[&str]) -> Vec<u8> {
 }
 
 /// Run `args` plus `-t T` for T in 1, 2, 8 (three spellings) and require
-/// byte-identical output. The parallel runs are repeated with
-/// `GLOCI_TEST_CHUNK_MEM_LIMIT` set to 1 KiB, which cuts every chromosome
-/// into many tiny chunks, so state carried from one chunk to the next
-/// (cluster ids, previous records, depth, breakpoints) is exercised even on
-/// small fixtures.
+/// byte-identical output. This does not exercise chunk boundaries:
+/// `GLOCI_TEST_CHUNK_MEM_LIMIT` only shrinks the chunks of the relation
+/// commands' chunk driver (intersect, subtract, closest, map, coverage),
+/// which the P2 commands do not use.
 fn same_at_every_thread_count(what: &str, args: &[&str]) -> Vec<u8> {
     let outs: Vec<Vec<u8>> = ["1", "2", "8"]
         .iter()
@@ -1665,16 +1664,6 @@ fn same_at_every_thread_count(what: &str, args: &[&str]) -> Vec<u8> {
         .collect();
     assert_eq!(outs[0], outs[1], "{what}: -t 1 vs -t 2");
     assert_eq!(outs[1], outs[2], "{what}: -t 2 vs -t 8");
-    for t in ["2", "8"] {
-        let o = gloci()
-            .args(args)
-            .args(["-t", t])
-            .env("GLOCI_TEST_CHUNK_MEM_LIMIT", "1024")
-            .output()
-            .unwrap();
-        assert_eq!(o.status.code(), Some(0), "{what}: tiny chunks -t {t}");
-        assert_eq!(o.stdout, outs[0], "{what}: tiny chunks -t {t} vs -t 1");
-    }
     outs[0].clone()
 }
 
@@ -2970,7 +2959,7 @@ fn p2_sort_spill_matches_in_memory() {
 /// Fixtures large enough to be split: 60k records is more than one 16384-record
 /// batch, the BGZF copies span dozens of blocks, and chr1's 40k records make a
 /// groupby run that crosses batch boundaries. Output at `-t 1` must equal
-/// `-t 8`, with and without tiny chunks.
+/// `-t 8`.
 #[test]
 fn p2_determinism_large_fixture() {
     let fx = P2::new();
@@ -3003,12 +2992,9 @@ fn p2_determinism_large_fixture() {
         std::fs::metadata(&a_gz).unwrap().len() > 3 * 65_536,
         "several BGZF blocks"
     );
-    let run = |args: &[&str], t: &str, chunks: bool| -> Vec<u8> {
+    let run = |args: &[&str], t: &str| -> Vec<u8> {
         let mut c = gloci();
         c.args(args).args(["-t", t]);
-        if chunks {
-            c.env("GLOCI_TEST_CHUNK_MEM_LIMIT", "4096");
-        }
         let o = c.output().unwrap();
         assert_eq!(
             o.status.code(),
@@ -3034,30 +3020,20 @@ fn p2_determinism_large_fixture() {
         };
         let plain_args = sub(&a_plain, &b_plain);
         let refs: Vec<&str> = plain_args.iter().map(String::as_str).collect();
-        let base = run(&refs, "1", false);
+        let base = run(&refs, "1");
         // the default genomecov is a short histogram; the others are long
         let want = if name == "genomecov" { 50 } else { 100_000 };
         assert!(base.len() > want, "{name}: small output");
-        assert_eq!(base, run(&refs, "8", false), "{name}: -t 8");
-        assert_eq!(base, run(&refs, "8", true), "{name}: -t 8, tiny chunks");
+        assert_eq!(base, run(&refs, "8"), "{name}: -t 8");
         for (ai, bi) in [(&a_gz, &b_gz), (&a_idx, &b_gz)] {
             let args = sub(ai, bi);
             let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-            assert_eq!(base, run(&refs, "8", false), "{name}: {ai} -t 8");
-            assert_eq!(
-                base,
-                run(&refs, "2", true),
-                "{name}: {ai} -t 2, tiny chunks"
-            );
+            assert_eq!(base, run(&refs, "8"), "{name}: {ai} -t 8");
         }
     }
     // the groupby run over chr1 crosses the batch boundary and is one line
-    let gb = String::from_utf8(run(
-        &["groupby", &a_plain, "-g", "1", "-c", "4:count"],
-        "8",
-        false,
-    ))
-    .unwrap();
+    let gb =
+        String::from_utf8(run(&["groupby", &a_plain, "-g", "1", "-c", "4:count"], "8")).unwrap();
     assert_eq!(gb, "chr1\t40000\nchr2\t20000\n");
 
     // the same for a VCF of 40k records
@@ -3089,15 +3065,40 @@ fn p2_determinism_large_fixture() {
         };
         let args = with(&v_plain);
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-        let base = run(&refs, "1", false);
+        let base = run(&refs, "1");
         assert!(base.len() > 100_000);
-        assert_eq!(base, run(&refs, "8", false), "{tpl:?}");
-        assert_eq!(base, run(&refs, "8", true), "{tpl:?} tiny chunks");
+        assert_eq!(base, run(&refs, "8"), "{tpl:?}");
         for f in [&v_gz, &v_idx] {
             let args = with(f);
             let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-            assert_eq!(base, run(&refs, "8", false), "{tpl:?} {f}");
+            assert_eq!(base, run(&refs, "8"), "{tpl:?} {f}");
         }
+    }
+    // vcf concat: a second file that starts after the first ends, so the
+    // 40k-record first file spans several batches and BGZF blocks
+    let mut tail = String::from(P2_VCF_HEAD);
+    for i in 0..3_000usize {
+        writeln!(
+            tail,
+            "chr1\t{}\t.\tA\tC\t{}\tPASS\tDP={}\tGT:DP\t0/1:{}\t1/1:3\t./.:4",
+            1_000_000 + i * 7,
+            20 + i % 50,
+            i % 30,
+            i % 9
+        )
+        .unwrap();
+    }
+    let tail_plain = fx.plain("tail.vcf", &tail);
+    let tail_gz = fx.bgzf("tail.vcf.gz", &tail);
+    for (first, second) in [
+        (&v_plain, &tail_plain),
+        (&v_gz, &tail_gz),
+        (&v_idx, &tail_gz),
+    ] {
+        let args = ["vcf", "concat", first.as_str(), second.as_str()];
+        let base = run(&args, "1");
+        assert!(base.len() > 100_000, "concat output");
+        assert_eq!(base, run(&args, "8"), "concat {first}");
     }
     // vcf stats files
     let stats = |f: &str, t: &str| -> Vec<Vec<u8>> {
