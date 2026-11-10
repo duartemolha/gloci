@@ -6,8 +6,7 @@ use gloci_io::{
     Accept, IndexedFasta, InvalidPolicy, IoError, OutFormat, OutputOptions, ReaderOptions,
     UsageError, open_output, parse_output_spec, refuse_binary_to_tty,
 };
-use gloci_ops::faidx::{FaidxOptions, FaidxRegion, MarkStrand, faidx};
-use gloci_ops::read_regions_file;
+use gloci_ops::faidx::{FaidxOptions, FaidxRegion, FaidxWriter, MarkStrand, RegionsFile};
 use std::io::IsTerminal;
 
 /// The most unknown names a warning lists.
@@ -57,38 +56,20 @@ for standard output",
             },
         });
     }
-    if let Some(f) = &a.region.regions_file {
-        let ro = ReaderOptions {
-            accept: Accept::default(),
-            chrom_map: None,
-            threads: ctx.threads,
-            format: None,
-            vcf_span: gloci_core::VcfSpan::default(),
-            invalid: InvalidPolicy::Fail,
-        };
-        let mut points = 0u64;
-        for (chrom, iv) in read_regions_file(&f.display().to_string(), &ro)? {
-            if iv.start == iv.end {
-                points += 1;
-                continue;
-            }
-            let shown = String::from_utf8_lossy(&chrom);
-            regions.push(FaidxRegion {
-                label: format!("{shown}:{}-{}", iv.start + 1, iv.end),
-                chrom,
-                iv,
-            });
-        }
-        if points > 0 {
-            log::warn!(
-                "{points} zero-length region{} in {} {} no bases and {} skipped",
-                if points == 1 { "" } else { "s" },
-                f.display(),
-                if points == 1 { "has" } else { "have" },
-                if points == 1 { "was" } else { "were" },
-            );
-        }
-    }
+    // A regions file is scanned for unknown sequences and zero-length lines
+    // without keeping its regions, then streamed into the output below.
+    let ro = ReaderOptions {
+        accept: Accept::default(),
+        chrom_map: None,
+        threads: ctx.threads,
+        format: None,
+        vcf_span: gloci_core::VcfSpan::default(),
+        invalid: InvalidPolicy::Fail,
+    };
+    let bed = match &a.region.regions_file {
+        Some(f) => Some((f, RegionsFile::scan(&f.display().to_string(), &ro, &fasta)?)),
+        None => None,
+    };
     let missing: Vec<&FaidxRegion> = regions
         .iter()
         .filter(|r| fasta.len_of(&r.chrom).is_none())
@@ -128,6 +109,42 @@ sequence names",
         regions.retain(|r| fasta.len_of(&r.chrom).is_some());
     }
 
+    if let Some((f, rf)) = &bed {
+        if rf.zero_length > 0 {
+            let n = rf.zero_length;
+            log::warn!(
+                "{n} zero-length region{} in {} {} no bases and {} skipped",
+                if n == 1 { "" } else { "s" },
+                f.display(),
+                if n == 1 { "has" } else { "have" },
+                if n == 1 { "was" } else { "were" },
+            );
+        }
+        if let Some(first) = &rf.first_missing {
+            if !a.invalid.skip_invalid {
+                return Err(IoError::Detect {
+                    path: fasta_name.clone(),
+                    msg: format!(
+                        "{fasta_name}: region {first} in {} is on a sequence not in the index \
+{fasta_name}.fai ({} regions of the file); check the sequence names, or pass --skip-invalid to \
+skip regions on missing sequences",
+                        f.display(),
+                        rf.missing
+                    ),
+                }
+                .into());
+            }
+            log::warn!(
+                "skipped {} region{} of {} on sequences not in {fasta_name}.fai (first: {}); \
+check the sequence names",
+                rf.missing,
+                if rf.missing == 1 { "" } else { "s" },
+                f.display(),
+                rf.missing_names.join(", ")
+            );
+        }
+    }
+
     let o = FaidxOptions {
         line_width: a.line_width,
         reverse_complement: a.reverse_complement,
@@ -140,7 +157,17 @@ sequence names",
     };
     let dest = super::dest_name(&spec);
     let mut out = open_output(&spec, OutFormat::Fasta, &oo)?;
-    faidx(&mut fasta, &regions, &o, &mut out).map_err(|e| e.with_output_name(&dest))?;
+    let mut w = FaidxWriter::new(&o);
+    let mut write_all = || -> Result<(), IoError> {
+        for r in &regions {
+            w.write(&mut fasta, r, &mut out)?;
+        }
+        if let Some((_, rf)) = &bed {
+            rf.write(&mut fasta, &ro, a.invalid.skip_invalid, &mut w, &mut out)?;
+        }
+        Ok(())
+    };
+    write_all().map_err(|e| e.with_output_name(&dest))?;
     out.finish()?;
     Ok(())
 }

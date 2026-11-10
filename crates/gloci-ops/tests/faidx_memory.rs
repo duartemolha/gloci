@@ -3,10 +3,14 @@
 //! (a sparse file) is written, forwards and reverse-complemented.
 use gloci_core::Interval;
 use gloci_io::{FETCH_CHUNK, IndexedFasta};
-use gloci_ops::faidx::{FaidxOptions, FaidxRegion, faidx};
+use gloci_ops::faidx::{FaidxOptions, FaidxRegion, FaidxWriter, RegionsFile, faidx};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::io::Write;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+
+/// The tests measure one global counter, so they run one at a time.
+static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
 
 struct Counting;
 static LIVE: AtomicUsize = AtomicUsize::new(0);
@@ -61,6 +65,7 @@ impl Write for Sink {
 
 #[test]
 fn faidx_memory() {
+    let _g = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     const LEN: u64 = 300_000_000;
     let d = tempfile::tempdir().unwrap();
     let p = d.path().join("big.fa");
@@ -102,4 +107,55 @@ fn faidx_memory() {
             "rc={reverse_complement}: held {held} bytes for a {LEN}-base sequence"
         );
     }
+}
+
+#[test]
+fn faidx_regions_file_streams() {
+    let _g = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    const LINES: u64 = 1_000_000;
+    let d = tempfile::tempdir().unwrap();
+    let p = d.path().join("s.fa");
+    std::fs::write(&p, ">s\nACGTACGTAC\nGTACGTACGT\n").unwrap();
+    std::fs::write(d.path().join("s.fa.fai"), "s\t20\t3\t10\t11\n").unwrap();
+    let bed = d.path().join("r.bed");
+    {
+        let mut w = std::io::BufWriter::new(std::fs::File::create(&bed).unwrap());
+        for i in 0..LINES {
+            // a zero-length line every 1000, a missing sequence every 1001
+            match i {
+                _ if i % 1000 == 0 => writeln!(w, "s\t5\t5").unwrap(),
+                _ if i % 1001 == 0 => writeln!(w, "nope\t1\t2").unwrap(),
+                _ => writeln!(w, "s\t{}\t{}", i % 10, 11 + i % 9).unwrap(),
+            }
+        }
+    }
+    let ro = gloci_io::ReaderOptions {
+        accept: gloci_io::Accept::default(),
+        chrom_map: None,
+        threads: std::num::NonZeroUsize::MIN,
+        format: None,
+        vcf_span: gloci_core::VcfSpan::default(),
+        invalid: gloci_io::InvalidPolicy::Fail,
+    };
+    let mut fasta = IndexedFasta::open(&p).unwrap();
+    let o = FaidxOptions::default();
+    let base = LIVE.load(Relaxed);
+    PEAK.store(base, Relaxed);
+    let rf = RegionsFile::scan(bed.to_str().unwrap(), &ro, &fasta).unwrap();
+    let mut sink = Sink { bytes: 0, lines: 0 };
+    let mut w = FaidxWriter::new(&o);
+    rf.write(&mut fasta, &ro, true, &mut w, &mut sink).unwrap();
+    let held = PEAK.load(Relaxed) - base;
+    assert_eq!(rf.zero_length, 1000);
+    assert_eq!(rf.missing, 999);
+    assert!(
+        sink.lines > LINES,
+        "regions were written: {} lines",
+        sink.lines
+    );
+    // 1M regions held as (name, interval) and a label each would be >100 MB
+    assert!(
+        held < 8 * 1024 * 1024,
+        "held {held} bytes for {LINES} BED lines"
+    );
 }

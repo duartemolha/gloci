@@ -1985,17 +1985,33 @@ depends on the span.
 - **Pinned by:** `faidx-missing-sequence-continue-vs-samtools` (output must
   differ); `faidx-missing-sequence-exit-vs-samtools` pins the agreeing exit 1.
 
-## `faidx` rejects a region htslib cannot use before writing anything {#faidx-region-syntax}
+## `faidx` is strict about region syntax, where samtools guesses {#faidx-region-syntax}
 
-- **gloci:** a region that does not parse under gloci's region rules
-  (1-based start of at least 1, end not before start, well-formed commas) exits 2 before any output.
-  `chr:-END` is accepted as `chr:1-END`, as htslib does.
-- **Old behaviour:** `samtools faidx` writes the header of such a region and
-  no bases: exit 0 for `chr1:0-5` (with a "Zero length sequence" message), and
-  exit 1 for `chr1:5-1` or `chr1:abc`.
-- **Reason:** `chr1:0-5` and `chr1:5-1` are almost always an off-by-one or a
-  swapped pair; an empty record in the output hides it.
-- **Pinned by:** `faidx-region-syntax-vs-samtools` (exit status: must differ).
+- **gloci:** a region is parsed under gloci's region rules (D8): a 1-based
+  start of at least 1, well-formed comma groups, plain digits, and an
+  unambiguous name. One that does not parse exits 2 before any output.
+  `chr:-END` is accepted as `chr:1-END`, as htslib does, but `chr:-0` is not.
+  A region whose end is before its start (`chr1:5-4`) is a header with no
+  bases and exit 0, like a start past the end. A coordinate beyond 2^64 is an
+  error ("too large").
+- **Old behaviour:** `samtools faidx` guesses:
+  - `chr1:0`, `chr1:`, `chr1:+5`, `chr1: 5`, `chr1:,5`, `chr1:1e3` and `chr1:-0`
+    return real sequence and exit 0 (the whole sequence for `chr1:0`, `chr1:`
+    and `chr1:-0`; from 5 for `chr1:+5`, `chr1: 5` and `chr1:,5`; position 1000
+    for `chr1:1e3`), and `chr1:1,0` reads as 10;
+  - `chr1:0-5` writes the header with no bases and exits 0 (a "Zero length
+    sequence" message);
+  - `chr1:5-1`, `chr1:5-4` and `chr1:abc` write the header and exit 1;
+  - when a contig is literally named `ctgA:5` and another is `ctgA`, the region
+    `ctgA:5` (or `ctgA:5-9`) writes the header and exits 1, where gloci exits 2
+    and asks for `{ctgA}:5` or `{ctgA:5}`;
+  - `chr1:1-99999999999999999999` is clamped to the end of the sequence.
+- **Reason:** a typo such as `chr1:0-5`, `chr1:1,0` or `chr1:+5` quietly gives
+  the wrong bases or an empty record; an error that shows the region is
+  safer. The `{name}` form removes every ambiguity.
+- **Pinned by:** `faidx-region-syntax-vs-samtools` (`chr1:0-5`) and
+  `faidx-region-ambiguous-vs-samtools` (exit status: must differ);
+  `faidx-region-braces-vs-samtools` pins the `{name}` forms, which agree.
 
 ## `faidx --regions-file` reads BED {#faidx-regions-file}
 

@@ -160,6 +160,20 @@ pub fn read_regions_file(
     path: &str,
     ro: &ReaderOptions,
 ) -> Result<Vec<(Vec<u8>, Interval)>, IoError> {
+    let mut out = Vec::new();
+    for_each_region(path, ro, &mut |c, iv| {
+        out.push((c.to_vec(), iv));
+        Ok(())
+    })?;
+    Ok(out)
+}
+
+/// What [`for_each_region`] calls for each region: name and span.
+pub type RegionSink<'a> = dyn FnMut(&[u8], Interval) -> Result<(), IoError> + 'a;
+
+/// [`read_regions_file`] without keeping the regions: each is passed to `f`
+/// as it is read.
+pub fn for_each_region(path: &str, ro: &ReaderOptions, f: &mut RegionSink) -> Result<(), IoError> {
     // Regions are written with the chromosome names the records have after
     // `--chrom-map`, so the table is not applied to the regions file.
     let o = ReaderOptions {
@@ -171,19 +185,16 @@ pub fn read_regions_file(
     let mut r = open_reader(path, &o)?;
     let mut chroms = ChromTable::first_appearance();
     let mut batch = RecordBatch::default();
-    let (mut out, mut max) = (Vec::new(), 1);
+    let mut max = 1;
     loop {
         batch.clear();
         let more = r.read_batch(&mut chroms, &mut batch, max)?;
-        out.extend(
-            batch
-                .recs
-                .iter()
-                .map(|m| (chroms.name(m.chrom).to_vec(), m.span)),
-        );
+        for m in &batch.recs {
+            f(chroms.name(m.chrom), m.span)?;
+        }
         max = next_batch_size(&batch, max);
         if !more {
-            return Ok(out);
+            return Ok(());
         }
     }
 }

@@ -5569,3 +5569,23 @@ gloci = "gloci faidx input.fa chr1:1-5"
 reference = "mkdir r && cp input.fa r/ && samtools faidx r/input.fa chr1:1-5"
 compare = "exit-status"
 expected_difference = "#fasta-implicit-index"
+
+# ctgA:5 is both a contig and a region of ctgA: samtools writes the header and exits 1,
+# gloci exits 2 asking for {ctgA}:5.
+[[case]]
+name = "faidx-region-ambiguous-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/faidx-colon.fa", "xtask/diff/inputs/fa/faidx-colon.fa.fai"]
+gloci = "gloci faidx faidx-colon.fa ctgA:5"
+reference = "samtools faidx faidx-colon.fa ctgA:5"
+compare = "exit-status"
+expected_difference = "#faidx-region-syntax"
+
+# {ctgA}:5-9 names the contig explicitly: both tools write ACGTA.
+[[case]]
+name = "faidx-region-braces-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/faidx-colon.fa", "xtask/diff/inputs/fa/faidx-colon.fa.fai"]
+gloci = "gloci faidx faidx-colon.fa {ctgA}:5-9 {ctgA:5}:1-3"
+reference = "samtools faidx faidx-colon.fa {ctgA}:5-9 {ctgA:5}:1-3"
+compare = "exact"

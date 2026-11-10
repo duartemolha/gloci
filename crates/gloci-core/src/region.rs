@@ -159,7 +159,16 @@ fn parse_range(full: &str, chrom: &str, range: &str) -> Result<Region, RegionErr
     let (start, end) = match range.split_once('-') {
         None => (num(range)?, None),
         // htslib: `chr:-E` is `chr:1-E`.
-        Some(("", b)) if !b.is_empty() => (1, Some(num(b)?)),
+        // (`chr:-0` stays an error: it would be an empty region.)
+        Some(("", b)) if !b.is_empty() => {
+            let e = num(b)?;
+            if e == 0 {
+                return Err(wrap(
+                    one_based_closed(0, 0).expect_err("start 0 is invalid"),
+                ));
+            }
+            (1, Some(e))
+        }
         Some((a, "")) => (num(a)?, None),
         Some((a, b)) => (num(a)?, Some(num(b)?)),
     };

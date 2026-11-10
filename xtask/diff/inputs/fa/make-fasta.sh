@@ -74,7 +74,28 @@ sed 's/$/\r/' ref.fa > crlf.fa
 # irregular.fa: the second line of chr1 is shorter than the first.
 printf '>chr1\nACGTACGTAC\nACGTAC\nACGTACGTAC\n' > irregular.fa
 
-for f in ref.fa crlf.fa desc.fa empty-seq.fa; do samtools faidx "$f"; done
+# faidx-mixed.fa: two contigs with different line widths (chrA 60, chrB 70) and
+# IUPAC codes, U, N and both cases, for faidx's default width and reverse complement.
+perl -e '
+    my $s = 4242;
+    my @alpha = split //, "ACGTNacgtRYKMSWBDHVrykmu";
+    for my $c (["chrA", 130, 60], ["chrB", 150, 70]) {
+        my ($name, $len, $w) = @$c;
+        my $seq = "";
+        for (1 .. $len) {
+            $s = ($s * 1103515245 + 12345) % 2147483648;
+            $seq .= $alpha[($s >> 16) % @alpha];
+        }
+        print ">$name\n";
+        print substr($seq, $_, $w), "\n" for map { $_ * $w } 0 .. int(($len - 1) / $w);
+    }
+' > faidx-mixed.fa
+
+# faidx-colon.fa: ctgA and two contigs whose names look like regions of it
+# (ctgA:5, ctgA:5-9), so the region ctgA:5 is ambiguous.
+printf '>ctgA\nACGTACGTACGTACGTACGT\nACGTAC\n>ctgA:5\nTTTTGGGGCCCCAAAA\nTT\n>ctgA:5-9\nCCCCCCCCCCCC\n' > faidx-colon.fa
+
+for f in ref.fa crlf.fa desc.fa empty-seq.fa faidx-mixed.fa faidx-colon.fa; do samtools faidx "$f"; done
 samtools faidx ref.fa.gz
 
 # Inputs on which gloci is stricter than samtools (docs/differences.md#fasta-index-strictness):
