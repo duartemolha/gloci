@@ -4874,3 +4874,202 @@ gloci = "gloci vcf split input.vcf"
 reference = "bcftools norm -m- --no-version input.vcf"
 compare = "exit-status"
 expected_difference = "#vcf-split-values"
+
+# P3b Task 21: gloci vcf norm against bcftools norm -f.
+# Left-alignment in homopolymers and tandem repeats, trimming, MNPs, a * allele, symbolic ALTs,
+# POS 1 and contig ends, END, three samples, and records that move past their neighbours.
+[[case]]
+name = "vcf-norm-align-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/align.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa"
+reference = "bcftools norm --no-version -f ref.fa input.vcf"
+compare = "vcf-records"
+
+# --split splits first, as bcftools norm -m- -f does.
+[[case]]
+name = "vcf-norm-split-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/split.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa --split"
+reference = "bcftools norm -m- --no-version -f ref.fa input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-norm-split-snps-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/split.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa --split=snps"
+reference = "bcftools norm -m-snps --no-version -f ref.fa input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-norm-split-indels-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/split.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa --split=indels"
+reference = "bcftools norm -m-indels --no-version -f ref.fa input.vcf"
+compare = "vcf-records"
+
+# --check-ref: a REF that disagrees with the FASTA is an error in both (bcftools exits 255, gloci 1:
+# the reference command maps it to 1); w writes the records as they are; s sets REF.
+[[case]]
+name = "vcf-norm-check-ref-e-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/mismatch.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa"
+reference = "bcftools norm --no-version -f ref.fa input.vcf >/dev/null 2>&1 || exit 1"
+compare = "exit-status"
+
+[[case]]
+name = "vcf-norm-check-ref-w-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/mismatch.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa --check-ref w"
+reference = "bcftools norm --no-version -f ref.fa -c w input.vcf"
+compare = "vcf-records"
+
+# s sets REF from the FASTA; an ALT that equals the FASTA is swapped into REF and GT is recoded.
+[[case]]
+name = "vcf-norm-check-ref-s-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/mismatch.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa --check-ref s"
+reference = "bcftools norm --no-version -f ref.fa -c s input.vcf"
+compare = "vcf-records"
+
+# A reference with lowercase bases, N runs and IUPAC letters (read as N).
+[[case]]
+name = "vcf-norm-case-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/case.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa"
+reference = "bcftools norm --no-version -f ref.fa input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-norm-case-set-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/case.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa --check-ref s"
+reference = "bcftools norm --no-version -f ref.fa -c s input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-norm-rm-dup-snps-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/dup.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa --rm-dup snps"
+reference = "bcftools norm --no-version -f ref.fa -d snps input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-norm-rm-dup-indels-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/dup.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa --rm-dup indels"
+reference = "bcftools norm --no-version -f ref.fa -d indels input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-norm-rm-dup-both-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/dup.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa --rm-dup both"
+reference = "bcftools norm --no-version -f ref.fa -d both input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-norm-rm-dup-all-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/dup.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa --rm-dup all"
+reference = "bcftools norm --no-version -f ref.fa -d all input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-norm-rm-dup-exact-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/dup.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa --rm-dup exact"
+reference = "bcftools norm --no-version -f ref.fa -d exact input.vcf"
+compare = "vcf-records"
+
+# A record that moves further left than --window is written out of order, as bcftools does.
+[[case]]
+name = "vcf-norm-window-1-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/window.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa --window 1"
+reference = "bcftools norm --no-version -f ref.fa -w 1 input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-norm-window-5-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/window.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa --window 5"
+reference = "bcftools norm --no-version -f ref.fa -w 5 input.vcf"
+compare = "vcf-records"
+
+# Intentional differences, anchored in docs/differences.md.
+# bcftools moves a lone <DEL> record to POS 1 and replaces its REF; gloci leaves it alone.
+[[case]]
+name = "vcf-norm-del-symbolic-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/del.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa"
+reference = "bcftools norm --no-version -f ref.fa input.vcf"
+compare = "vcf-records"
+expected_difference = "#vcf-norm-edge-cases"
+
+# bcftools 1.21 crashes (SIGSEGV) when -c x drops a record; gloci drops it and writes the rest.
+[[case]]
+name = "vcf-norm-check-ref-x-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/mismatch.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa --check-ref x"
+reference = "bcftools norm --no-version -f ref.fa -c x input.vcf >/dev/null 2>&1 || exit 1"
+compare = "exit-status"
+expected_difference = "#vcf-norm-edge-cases"
+
+# An ALT equal to REF: bcftools -c s removes it (and renumbers nothing in GT); gloci keeps the record as written, with a warning.
+[[case]]
+name = "vcf-norm-check-ref-s-dup-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/dupalt.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa --check-ref s"
+reference = "bcftools norm --no-version -f ref.fa -c s input.vcf"
+compare = "vcf-records"
+expected_difference = "#vcf-norm-edge-cases"
+
+# A base other than ACGTN in an ALT of a record whose REF is set: bcftools rewrites it as N; gloci keeps it.
+[[case]]
+name = "vcf-norm-check-ref-s-iupac-alt-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/iupacalt.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa --check-ref s"
+reference = "bcftools norm --no-version -f ref.fa -c s input.vcf"
+compare = "vcf-records"
+expected_difference = "#vcf-norm-edge-cases"
+
+# A record past the end of its contig under -c s: bcftools writes REF and ALT as `.`; gloci fails.
+[[case]]
+name = "vcf-norm-check-ref-s-past-end-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/pastend.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa --check-ref s"
+reference = "bcftools norm --no-version -f ref.fa -c s input.vcf >/dev/null 2>&1 || exit 1"
+compare = "exit-status"
+expected_difference = "#vcf-norm-edge-cases"
+
+# bcftools prints floats with six significant digits; gloci keeps the text.
+[[case]]
+name = "vcf-norm-float-text-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/norm/float.vcf" }
+aux = ["xtask/diff/inputs/vcf/norm/ref.fa", "xtask/diff/inputs/vcf/norm/ref.fa.fai"]
+gloci = "gloci vcf norm input.vcf -f ref.fa"
+reference = "bcftools norm --no-version -f ref.fa input.vcf"
+compare = "vcf-records"
+expected_difference = "#vcf-norm-edge-cases"
+

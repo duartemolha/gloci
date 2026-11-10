@@ -1318,6 +1318,28 @@ Examples:
   gloci vcf split calls.bcf --types snps -o snps-split.bcf
   gloci vcf split calls.vcf.gz | gloci subtract -a - -b known.vcf.gz --match alleles")]
     Split(VcfSplitArgs),
+    // P3b Task 21
+    /// Left-align and normalise records against a reference (bcftools norm -f).
+    ///
+    /// Every indel, and every record whose REF and ALT share a first or last
+    /// base, is trimmed and moved to its leftmost position, as `bcftools
+    /// norm -f REF` does without -a: the bases all alleles end with are
+    /// removed (the alleles grow to the left from the reference when one
+    /// would be empty), then the bases they all start with. Records that
+    /// move are re-sorted within --window bases and written in position
+    /// order; INFO/END follows the new REF. REF is checked against the FASTA
+    /// first (--check-ref). The FASTA needs a .fai (and a .gzi for BGZF):
+    /// run `gloci index REF` once; gloci never builds one itself. Only
+    /// windows of the reference are read, never whole chromosomes. Symbolic
+    /// ALTs other than <DEL> stop a record from moving. `bcftools norm -a`,
+    /// `-m+`, `--old-rec-tag` and `-N` are not available.
+    #[command(after_long_help = "\
+Examples:
+  gloci vcf norm calls.vcf.gz -f ref.fa -o calls.norm.vcf.gz
+  gloci vcf norm calls.bcf --fasta ref.fa --split -o calls.norm.bcf
+  gloci vcf norm calls.vcf.gz -f ref.fa --check-ref x --rm-dup exact | gloci vcf stats -
+  gloci vcf norm calls.vcf.gz -f ref.fa --check-ref s -o fixed.vcf.gz")]
+    Norm(VcfNormArgs),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -3195,6 +3217,104 @@ pub struct VcfSplitArgs {
     /// are.
     #[arg(long, value_enum, default_value = "any", value_name = "TYPES")]
     pub types: SplitTypesArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+// P3b Task 21
+
+/// `--check-ref` modes (bcftools `-c`).
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum CheckRefArg {
+    /// Fail on the first disagreement (the default).
+    #[value(name = "e")]
+    E,
+    /// Warn and write the record as it is.
+    #[value(name = "w")]
+    W,
+    /// Drop the record.
+    #[value(name = "x")]
+    X,
+    /// Set REF from the FASTA (an ALT that equals it is swapped into REF).
+    #[value(name = "s")]
+    S,
+}
+
+/// `--rm-dup` types (bcftools `-d`).
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum RmDupArg {
+    Snps,
+    Indels,
+    Both,
+    All,
+    Exact,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct VcfNormArgs {
+    /// Input VCF or BCF (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// Reference FASTA, with its .fai (and .gzi if BGZF-compressed); create
+    /// them with `gloci index REF`.
+    #[arg(short = 'f', long, visible_alias = "fasta-ref", value_name = "REF")]
+    pub fasta: PathBuf,
+    /// Split multi-allelic records first, as `bcftools norm -m-TYPES -f`:
+    /// snps, indels, both or any (the default; bcftools splits both and any
+    /// alike). The same split as `gloci vcf split`.
+    #[arg(
+        long,
+        value_enum,
+        num_args = 0..=1,
+        require_equals = true,
+        default_missing_value = "any",
+        value_name = "TYPES"
+    )]
+    pub split: Option<SplitTypesArg>,
+    /// What to do with a record whose REF is not the FASTA's (or has a base
+    /// other than ACGTN, or an ALT equal to REF): e (fail, the default), w
+    /// (warn, write the record as it is), x (drop it) or s (set REF from the
+    /// FASTA; an ALT that equals the FASTA is swapped into REF and GT is
+    /// recoded).
+    #[arg(
+        short = 'c',
+        long,
+        value_enum,
+        default_value = "e",
+        value_name = "MODE"
+    )]
+    pub check_ref: CheckRefArg,
+    /// Remove duplicate records after normalising, keeping the first: snps
+    /// (a SNP or MNP record at the position of a kept one), indels, both
+    /// (each type on its own), all (any record at a kept record's position)
+    /// or exact (the same REF and ALT alleles).
+    #[arg(short = 'd', long, value_enum, value_name = "TYPES")]
+    pub rm_dup: Option<RmDupArg>,
+    /// Records that move left are re-sorted within this many bases (bcftools
+    /// --site-win). A record that moves further than this is written out of
+    /// order, as bcftools does.
+    #[arg(short = 'w', long, default_value = "1000", value_name = "BASES", value_parser = clap::value_parser!(u64).range(1..))]
+    pub window: u64,
+    // bcftools norm options gloci does not offer: each is a usage error that
+    // names the option.
+    #[arg(short = 'a', long = "atomize", hide = true)]
+    pub atomize: bool,
+    #[arg(
+        short = 'm',
+        long = "multiallelics",
+        hide = true,
+        value_name = "TYPE",
+        allow_hyphen_values = true
+    )]
+    pub multiallelics: Option<String>,
+    #[arg(long = "old-rec-tag", hide = true, value_name = "STR")]
+    pub old_rec_tag: Option<String>,
+    #[arg(short = 'N', long = "do-not-normalize", hide = true)]
+    pub do_not_normalize: bool,
     #[command(flatten)]
     pub invalid: InvalidArg,
     #[command(flatten)]

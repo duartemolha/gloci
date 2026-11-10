@@ -32,11 +32,21 @@ pub fn vcf_split_output(
     input: &dyn RecordReader,
     requested: Option<OutFormat>,
 ) -> Result<(OutFormat, Header), IoError> {
-    let h = vcf_header(COMMAND, input)?;
+    vcf_rewrite_output(COMMAND, input, requested)
+}
+
+/// [`vcf_split_output`] for any command that rewrites VCF/BCF records and
+/// keeps the input's header (`command` names it in errors).
+pub fn vcf_rewrite_output(
+    command: &str,
+    input: &dyn RecordReader,
+    requested: Option<OutFormat>,
+) -> Result<(OutFormat, Header), IoError> {
+    let h = vcf_header(command, input)?;
     let to = requested.unwrap_or(OutFormat::family(input.format()));
     if to != OutFormat::Vcf && to != OutFormat::Bcf {
         return Err(UsageError(format!(
-            "vcf split writes VCF or BCF, not {}; name the output .vcf, .vcf.gz or .bcf, \
+            "{command} writes VCF or BCF, not {}; name the output .vcf, .vcf.gz or .bcf, \
 or pass -O vcf or -O bcf",
             to.name()
         ))

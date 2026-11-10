@@ -30,6 +30,7 @@ pub mod transform;
 pub mod vcf_concat;
 pub mod vcf_extract;
 pub mod vcf_filter;
+pub mod vcf_norm;
 pub mod vcf_select;
 pub mod vcf_split;
 pub mod vcf_stats;
@@ -59,6 +60,7 @@ pub use vcf_filter::{
     FilterSummary, VcfFilterInput, VcfFilterOptions, open_vcf_filter, vcf_filter, vcf_filter_file,
     vcf_filter_output,
 };
+pub use vcf_norm::{NormOptions, NormSummary, vcf_norm, vcf_norm_output};
 pub use vcf_select::{
     FilterExpr, Hit, SelectStage, SelectedInput, VcfSelect, open_selected, run_selection,
     select_regions, validate_thresholds, vcf_header,

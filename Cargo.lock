@@ -782,6 +782,7 @@ dependencies = [
  "gloci-io",
  "gloci-testkit",
  "itoa",
+ "log",
  "memchr",
  "noodles-bgzf",
  "regex",

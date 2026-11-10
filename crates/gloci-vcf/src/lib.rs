@@ -8,6 +8,7 @@ mod extract;
 mod filter;
 mod gt;
 mod hwe;
+mod norm;
 mod split;
 mod stats;
 
@@ -26,6 +27,7 @@ pub use gt::{
     TextGenotypes, text_genotypes, text_genotypes_with,
 };
 pub use hwe::{HweTails, hwe_p, hwe_tails};
+pub use norm::{CheckRef, Dedup, Normalizer, Reference, RmDup, Verdict, clean_reference_bases};
 pub use split::{Outcome as SplitOutcome, SplitTypes, Splitter};
 pub use stats::{
     FilterSummary, Freq, GenoDepth, Hardy, Heterozygosity, IndelHist, MaskRules, MissingSample,
