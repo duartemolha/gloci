@@ -1,6 +1,7 @@
 //! Genotype types and the VCF text decoder.
 
 use memchr::{memchr, memchr_iter};
+use std::cell::RefCell;
 
 /// One sample's genotype. The buffer is reused across samples.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -42,6 +43,22 @@ impl SampleFields {
         self.masked = false;
     }
 
+    /// Overwrite every field with `o`'s, reusing the allele buffer.
+    pub(crate) fn copy_from(&mut self, o: &SampleFields) {
+        self.dp = o.dp;
+        self.gq = o.gq;
+        self.ft_pass = o.ft_pass;
+        self.masked = o.masked;
+        match &o.gt {
+            Some(g) => {
+                let b = self.gt_buf();
+                b.alleles.extend_from_slice(&g.alleles);
+                b.phased = g.phased;
+            }
+            None => self.clear_gt(),
+        }
+    }
+
     /// Mark GT absent, parking the allele buffer.
     pub(crate) fn clear_gt(&mut self) {
         if let Some(g) = self.gt.take() {
@@ -70,6 +87,61 @@ pub trait GenotypeSource {
     /// Decode sample `i` into `out`, overwriting every field. Panics when
     /// `i >= n_samples()`; a malformed sample is an `Err`.
     fn sample(&self, i: usize, out: &mut SampleFields) -> Result<(), String>;
+}
+
+/// Decoded samples of the current record, shared between the stages that
+/// read them: the first stage to ask for a sample decodes it, the others copy
+/// the result. Buffers are reused from record to record.
+#[derive(Default)]
+pub struct SampleCache {
+    slots: RefCell<Vec<SampleFields>>,
+    valid: RefCell<Vec<bool>>,
+}
+
+impl SampleCache {
+    /// Forget the previous record's samples; `n` is the new record's sample count.
+    pub fn start_record(&self, n: usize) {
+        let mut valid = self.valid.borrow_mut();
+        valid.clear();
+        valid.resize(n, false);
+        let mut slots = self.slots.borrow_mut();
+        if slots.len() < n {
+            slots.resize_with(n, SampleFields::default);
+        }
+    }
+
+    /// `inner` read through the cache.
+    pub fn wrap<'a>(&'a self, inner: &'a dyn GenotypeSource) -> CachedGenotypes<'a> {
+        CachedGenotypes { inner, cache: self }
+    }
+}
+
+/// A [`GenotypeSource`] that decodes each sample at most once per record
+/// (since the last [`SampleCache::start_record`]).
+pub struct CachedGenotypes<'a> {
+    inner: &'a dyn GenotypeSource,
+    cache: &'a SampleCache,
+}
+
+impl GenotypeSource for CachedGenotypes<'_> {
+    fn n_samples(&self) -> usize {
+        self.inner.n_samples()
+    }
+
+    fn sample(&self, i: usize, out: &mut SampleFields) -> Result<(), String> {
+        let mut valid = self.cache.valid.borrow_mut();
+        if i >= valid.len() {
+            // The record was never started in the cache: decode directly.
+            return self.inner.sample(i, out);
+        }
+        let mut slots = self.cache.slots.borrow_mut();
+        if !valid[i] {
+            self.inner.sample(i, &mut slots[i])?;
+            valid[i] = true;
+        }
+        out.copy_from(&slots[i]);
+        Ok(())
+    }
 }
 
 pub(crate) fn ft_passes(v: &[u8]) -> bool {

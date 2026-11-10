@@ -392,6 +392,7 @@ pub fn vcf_stats(input: SelectedInput, o: &StatsOptions) -> Result<StatsSummary,
     // whenever a statistic needs them.
     let need_genotypes = o.request.needs_genotypes();
     let mut stage = SelectStage::new(COMMAND, reader.as_ref(), &o.select, &base, need_genotypes)?;
+    stage.share_decoded();
     let name = stage.name().to_string();
     let samples = selected_samples(&stage);
     let mut engine = StatsEngine::new(build_stats(&o.request, &samples));
@@ -445,8 +446,9 @@ pub fn vcf_stats(input: SelectedInput, o: &StatsOptions) -> Result<StatsSummary,
             text_gt = text_genotypes(hit.raw).map_err(parse_err)?;
             &text_gt
         };
+        let shared = hit.decoded.wrap(inner);
         let masked = MaskedGenotypes {
-            inner,
+            inner: &shared,
             masked: hit.masked,
         };
         engine

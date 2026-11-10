@@ -1,6 +1,6 @@
 mod common;
 use common::*;
-use gloci_vcf::{GenotypeSource, SampleFields, bcf_genotypes, text_genotypes};
+use gloci_vcf::{GenotypeSource, SampleCache, SampleFields, bcf_genotypes, text_genotypes};
 
 type Row = (
     Option<(Vec<Option<u32>>, bool)>,
@@ -341,4 +341,61 @@ fn bcf_output_refuses_a_leading_phase_separator() {
             "{e}"
         );
     }
+}
+
+/// Counts how often each sample is decoded.
+struct Counting<'a> {
+    inner: &'a dyn GenotypeSource,
+    calls: std::cell::RefCell<Vec<u32>>,
+}
+
+impl GenotypeSource for Counting<'_> {
+    fn n_samples(&self) -> usize {
+        self.inner.n_samples()
+    }
+    fn sample(&self, i: usize, out: &mut SampleFields) -> Result<(), String> {
+        self.calls.borrow_mut()[i] += 1;
+        self.inner.sample(i, out)
+    }
+}
+
+#[test]
+fn sample_cache_decodes_once_and_reads_alike() {
+    let l1 = line(
+        "GT:DP:GQ:FT",
+        &["0|1:5:20:PASS", "./.:.:.:LowQ", ".", "1/2:9:30:."],
+    );
+    let l2 = line("GT:DP", &["1/1:7", "0/0:3", "0/1:4", "1|1:8"]);
+    let cache = SampleCache::default();
+    for l in [&l1, &l2, &l1] {
+        let text = text_genotypes(l).unwrap();
+        let counting = Counting {
+            inner: &text,
+            calls: std::cell::RefCell::new(vec![0; text.n_samples()]),
+        };
+        cache.start_record(text.n_samples());
+        let cached = cache.wrap(&counting);
+        // Two consumers read every sample, in different orders.
+        let first = all(&cached);
+        let mut sf = SampleFields::default();
+        let mut second = Vec::new();
+        for i in (0..cached.n_samples()).rev() {
+            cached.sample(i, &mut sf).unwrap();
+            second.push(i);
+        }
+        assert_eq!(first, all(&text));
+        assert_eq!(*counting.calls.borrow(), vec![1; text.n_samples()]);
+        assert_eq!(second.len(), text.n_samples());
+        // A fresh view over the same cache (not started again) reads the same.
+        let again = cache.wrap(&text);
+        assert_eq!(all(&again), first);
+    }
+}
+
+#[test]
+fn sample_cache_without_start_record_decodes_directly() {
+    let l = line("GT:DP", &["0/1:5", "1/1:6"]);
+    let text = text_genotypes(&l).unwrap();
+    let cache = SampleCache::default();
+    assert_eq!(all(&cache.wrap(&text)), all(&text));
 }

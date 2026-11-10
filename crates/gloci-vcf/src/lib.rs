@@ -20,7 +20,10 @@ pub use filter::{
     BcfSite, PositionSet, RewritePlan, SampleSelection, SiteFilters, SiteView, Thinner, VcfType,
     fmt_g6, read_ids, read_positions, read_samples, rewrite_header, rewrite_text, select_samples,
 };
-pub use gt::{Genotype, GenotypeSource, SampleFields, TextGenotypes, text_genotypes};
+pub use gt::{
+    CachedGenotypes, Genotype, GenotypeSource, SampleCache, SampleFields, TextGenotypes,
+    text_genotypes,
+};
 pub use hwe::{HweTails, hwe_p, hwe_tails};
 pub use stats::{
     FilterSummary, Freq, GenoDepth, Hardy, Heterozygosity, IndelHist, MaskRules, MissingSample,

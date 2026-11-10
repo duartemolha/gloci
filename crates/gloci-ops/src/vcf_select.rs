@@ -14,8 +14,8 @@ use gloci_io::{
 };
 use gloci_vcf::{
     BcfSite, EvalScratch, Expr, GenotypeSource, MaskRules, MaskedGenotypes, RewritePlan,
-    SiteFilters, SiteStats, SiteView, Thinner, bcf_genotypes, parse_expr, select_samples,
-    site_stats, text_genotypes,
+    SampleCache, SiteFilters, SiteStats, SiteView, Thinner, bcf_genotypes, parse_expr,
+    select_samples, site_stats, text_genotypes,
 };
 
 /// A `--include` or `--exclude` expression (decision D71).
@@ -210,6 +210,9 @@ pub struct Hit<'a> {
     pub stats: Option<&'a SiteStats>,
     /// Per-genotype mask flags (empty when nothing is masked).
     pub masked: &'a [bool],
+    /// The samples the selection decoded, when [`SelectStage::share_decoded`]
+    /// is on: wrap the record's genotype source with it to avoid decoding twice.
+    pub decoded: &'a SampleCache,
 }
 
 /// The state of the selection over one input.
@@ -228,6 +231,8 @@ pub struct SelectStage<'a> {
     thinner: Option<Thinner>,
     need_stats: bool,
     masked_buf: Vec<bool>,
+    decoded: SampleCache,
+    share_decoded: bool,
 }
 
 impl<'a> SelectStage<'a> {
@@ -292,7 +297,15 @@ impl<'a> SelectStage<'a> {
             thinner: sel.sites.thinner(),
             need_stats,
             masked_buf: Vec::new(),
+            decoded: SampleCache::default(),
+            share_decoded: false,
         })
+    }
+
+    /// Keep each decoded sample for the record's consumers (see [`Hit::decoded`]),
+    /// so a later stage reads the sample from the cache instead of parsing it again.
+    pub fn share_decoded(&mut self) {
+        self.share_decoded = true;
     }
 
     pub fn name(&self) -> &str {
@@ -363,6 +376,14 @@ impl<'a> SelectStage<'a> {
             } else {
                 text_gt = text_genotypes(raw).map_err(parse_err)?;
                 &text_gt
+            };
+            let cached;
+            let gt: &dyn GenotypeSource = if self.share_decoded {
+                self.decoded.start_record(gt.n_samples());
+                cached = self.decoded.wrap(gt);
+                &cached
+            } else {
+                gt
             };
             let st = site_stats(gt, keep, &self.plan.mask, n_alleles, &mut self.masked_buf)
                 .map_err(parse_err)?;
@@ -454,6 +475,7 @@ where
                 meta: m,
                 stats: stats.as_ref(),
                 masked: &stage.masked_buf,
+                decoded: &stage.decoded,
             })?;
         }
         max = next_batch_size(&batch, max);
