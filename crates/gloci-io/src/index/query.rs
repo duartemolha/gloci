@@ -16,7 +16,10 @@ enum Loaded {
 }
 
 impl Loaded {
-    fn read(info: &IndexInfo) -> Result<Loaded, IoError> {
+    /// Load the index of the data file `data`, after checking its structure against the data
+    /// file's size and, when it is known, the number of references its header lists.
+    fn read(info: &IndexInfo, data: &Path, n_ref: Option<usize>) -> Result<Loaded, IoError> {
+        let data_len = fs::metadata(data).map_or(u64::MAX, |m| m.len());
         let err = |source| IoError::Read {
             path: info.path.display().to_string(),
             source,
@@ -30,7 +33,15 @@ impl Loaded {
             ),
         };
         Ok(match info.kind {
-            IndexKind::Tbi => Loaded::Tbi(noodles_tabix::fs::read(&info.path).map_err(err)?),
+            IndexKind::Tbi => {
+                let bytes = validate::read_bgzf_capped(
+                    File::open(&info.path).map_err(err)?,
+                    MAX_INDEX_BYTES,
+                )
+                .map_err(err)?;
+                validate::check_tbi(&bytes, data_len).map_err(corrupt)?;
+                Loaded::Tbi(noodles_tabix::fs::read(&info.path).map_err(err)?)
+            }
             IndexKind::Csi => {
                 // noodles sizes its tables from the file's counts: check them first.
                 let bytes = validate::read_bgzf_capped(
@@ -38,12 +49,12 @@ impl Loaded {
                     MAX_INDEX_BYTES,
                 )
                 .map_err(err)?;
-                validate::check_csi(&bytes).map_err(corrupt)?;
+                validate::check_csi(&bytes, data_len, n_ref).map_err(corrupt)?;
                 Loaded::Csi(noodles_csi::fs::read(&info.path).map_err(err)?)
             }
             IndexKind::Bai => {
                 let bytes = fs::read(&info.path).map_err(err)?;
-                validate::check_bai(&bytes).map_err(corrupt)?;
+                validate::check_bai(&bytes, data_len, n_ref).map_err(corrupt)?;
                 Loaded::Bai(
                     noodles_bam::bai::io::Reader::new(&bytes[..])
                         .read_index()
@@ -88,15 +99,6 @@ file with: gloci view FILE.cram -o x.bam --write-index",
             Loaded::Tbi(i) => i.reference_sequences().get(rid).and_then(first),
             Loaded::Csi(i) => i.reference_sequences().get(rid).and_then(first),
             Loaded::Bai(i) => i.reference_sequences().get(rid).and_then(first),
-        }
-    }
-
-    /// The number of references the index lists.
-    fn reference_count(&self) -> usize {
-        match self {
-            Loaded::Tbi(i) => i.reference_sequences().len(),
-            Loaded::Csi(i) => i.reference_sequences().len(),
-            Loaded::Bai(i) => i.reference_sequences().len(),
         }
     }
 
@@ -728,7 +730,7 @@ but the header cannot be read: {msg}",
 /// index (which has none), the contig dictionary of the BCF header or the
 /// reference list of the BAM header.
 pub fn index_reference_names(data: &Path, info: &IndexInfo) -> Result<Vec<Vec<u8>>, IoError> {
-    let loaded = Loaded::read(info)?;
+    let loaded = Loaded::read(info, data, None)?;
     if let Some(names) = loaded.names() {
         return Ok(names.iter().map(|n| n.to_vec()).collect());
     }
@@ -747,7 +749,7 @@ pub fn index_non_empty_reference_names(
     data: &Path,
     info: &IndexInfo,
 ) -> Result<Vec<Vec<u8>>, IoError> {
-    let loaded = Loaded::read(info)?;
+    let loaded = Loaded::read(info, data, None)?;
     if let Some(names) = loaded.names() {
         return Ok(names
             .iter()
@@ -814,25 +816,17 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
             ))
             .into());
         }
-        let index = Loaded::read(&info)?;
+        let n_ref = match (&header, format) {
+            (Header::Alignment(a), Format::Bam) => Some(a.refs.len()),
+            _ => None,
+        };
+        let index = Loaded::read(&info, path, n_ref)?;
         let by_new_name = if format == Format::Bam {
             let Header::Alignment(aln) = &header else {
                 return Err(IoError::Internal(
                     "IndexedFile::open of a BAM needs the alignment header".into(),
                 ));
             };
-            if index.reference_count() > aln.refs.len() {
-                return Err(IoError::Detect {
-                    path: name.clone(),
-                    msg: format!(
-                        "the index {} lists {} references but {name} has {}; it belongs to \
-another file; rebuild it with: gloci index {name}",
-                        info.path.display(),
-                        index.reference_count(),
-                        aln.refs.len()
-                    ),
-                });
-            }
             // A map renames the header's references, which `ref_id` does not know by
             // their new names; without one, `ref_id` answers.
             if o.chrom_map.is_some() {

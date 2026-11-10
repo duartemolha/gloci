@@ -716,3 +716,117 @@ fn reads_with_a_reference_and_no_position() {
     assert_eq!((m0.2, m0.3), (1, 2));
     assert_eq!(t.unplaced_unmapped_record_count(), Some(1));
 }
+
+fn recompress(b: &[u8]) -> Vec<u8> {
+    use std::io::Write as _;
+    let mut w = noodles_bgzf::io::Writer::new(Vec::new());
+    w.write_all(b).unwrap();
+    w.finish().unwrap()
+}
+
+fn decompress(b: &[u8]) -> Vec<u8> {
+    use std::io::Read as _;
+    let mut out = Vec::new();
+    noodles_bgzf::io::Reader::new(b)
+        .read_to_end(&mut out)
+        .unwrap();
+    out
+}
+
+/// A corrupt `.tbi` (a huge count, a bin or offset out of range, random bytes) is a prompt
+/// error, never a long run, a panic or an abort.
+#[test]
+fn corrupt_tbi_is_an_error_quickly() {
+    let dir = tempfile::tempdir().unwrap();
+    let bed = dir.path().join("a.bed.gz");
+    let text: String = (0..300)
+        .map(|i| {
+            format!(
+                "c{}\t{}\t{}\n",
+                i / 100 + 1,
+                (i % 100) * 50,
+                (i % 100) * 50 + 40
+            )
+        })
+        .collect();
+    std::fs::write(&bed, gloci_testkit::fixtures::bgzip(text.as_bytes())).unwrap();
+    write_index(&bed, &bed, Format::Bed, threads()).unwrap();
+    let tbi = dir.path().join("a.bed.gz.tbi");
+    let plain = decompress(&std::fs::read(&tbi).unwrap());
+    let o = ropts();
+    let started = std::time::Instant::now();
+    let mut rng = Rng(0x7b1);
+    let mut cases: Vec<Vec<u8>> = vec![
+        Vec::new(),
+        b"TBI\x01".to_vec(),
+        plain[..plain.len() / 2].to_vec(),
+    ];
+    // every 32-bit field set huge, one at a time, over the first 200 bytes
+    for at in (4..plain.len().min(200)).step_by(4) {
+        let mut m = plain.clone();
+        m[at..at + 4].copy_from_slice(&i32::MAX.to_le_bytes());
+        cases.push(m);
+    }
+    for _ in 0..150 {
+        let mut m = plain.clone();
+        for _ in 0..1 + rng.below(4) {
+            let at = rng.below(m.len() as u64) as usize;
+            m[at] = rng.next() as u8;
+        }
+        cases.push(m);
+    }
+    for bad in &cases {
+        std::fs::write(&tbi, recompress(bad)).unwrap();
+        let r = open_reader(bed.to_str().unwrap(), &o).unwrap();
+        let Ok(ix) = IndexedFile::open(&bed, Format::Bed, r.header().clone(), &o) else {
+            continue;
+        };
+        let regions: Regions = vec![(b"c1".to_vec(), Interval { start: 0, end: 100 })];
+        if let Ok(mut rd) = ix.regions_reader(&regions, false) {
+            let mut chroms = gloci_core::ChromTable::first_appearance();
+            let mut batch = RecordBatch::default();
+            while let Ok(true) = rd.read_batch(&mut chroms, &mut batch, 64) {
+                batch.clear();
+            }
+        }
+    }
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(60),
+        "{} corrupt indexes took {:?}",
+        cases.len(),
+        started.elapsed()
+    );
+}
+
+/// An index of another BAM (other reference count) or one whose offsets lie beyond the file is
+/// refused with a message that says to rebuild it.
+#[test]
+fn index_of_another_file_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    // flags.bam has two references; give it the index of a one-reference BAM
+    let p = dir.path().join("x.bam");
+    std::fs::copy(fixture("flags.bam"), &p).unwrap();
+    std::fs::copy(fixture("cigars.bam.bai"), dir.path().join("x.bam.bai")).unwrap();
+    let r = open_reader(p.to_str().unwrap(), &ropts()).unwrap();
+    let e = IndexedFile::open(&p, Format::Bam, r.header().clone(), &ropts())
+        .err()
+        .expect("an index of another BAM is refused");
+    assert!(e.to_string().contains("belongs to another file"), "{e}");
+    // the offsets of a long BAM's index point past the end of a shorter file
+    let big = tempfile::tempdir().unwrap();
+    let bq = big.path().join("y.bam");
+    std::fs::copy(fixture("cat-big.bam"), &bq).unwrap();
+    write_alignment_index(&bq, &bq, false, threads()).unwrap();
+    let short = dir.path().join("z.bam");
+    let bytes = std::fs::read(&bq).unwrap();
+    std::fs::copy(big.path().join("y.bam.bai"), dir.path().join("z.bam.bai")).unwrap();
+    // half of the file plus an EOF block: a complete BGZF file, shorter than the index says
+    let mut complete = bytes[..bytes.len() / 2].to_vec();
+    complete.extend_from_slice(&BGZF_EOF);
+    std::fs::write(&short, complete).unwrap();
+    let r = open_reader(short.to_str().unwrap(), &ropts()).unwrap();
+    let e = IndexedFile::open(&short, Format::Bam, r.header().clone(), &ropts())
+        .err()
+        .expect("offsets past the end are refused");
+    assert!(e.to_string().contains("beyond the end"), "{e}");
+}
