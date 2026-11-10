@@ -133,6 +133,9 @@ impl RecordReader for StrandWatch {
 struct ChromWatch {
     inner: Box<dyn RecordReader>,
     last_chrom: Option<gloci_core::ChromId>,
+    /// Ids already in `seen` (one table, so an id is one name): an A that
+    /// comes back to a chromosome, or a file with many contigs, costs O(1).
+    in_seen: gloci_io::naming::SeenChroms,
     seen: Arc<Mutex<Vec<Vec<u8>>>>,
 }
 
@@ -160,10 +163,11 @@ impl RecordReader for ChromWatch {
         for m in &batch.recs[before..] {
             if self.last_chrom != Some(m.chrom) {
                 self.last_chrom = Some(m.chrom);
-                let name = chroms.name(m.chrom);
-                let mut seen = self.seen.lock().unwrap();
-                if !seen.iter().any(|s| s.as_slice() == name) {
-                    seen.push(name.to_vec());
+                if self.in_seen.first_time(m.chrom) {
+                    self.seen
+                        .lock()
+                        .unwrap()
+                        .push(chroms.name(m.chrom).to_vec());
                 }
             }
         }
@@ -273,6 +277,7 @@ pub(crate) fn run_relation_in(
             let r: Box<dyn RecordReader> = Box::new(ChromWatch {
                 inner: r,
                 last_chrom: None,
+                in_seen: Default::default(),
                 seen,
             });
             if !watching {
@@ -332,7 +337,8 @@ pub(crate) fn run_relation_in(
             for (b_name, b_seen_arc) in names_b.iter().zip(&seen_bs) {
                 let b_chroms = b_seen_arc.lock().unwrap().clone();
                 if !b_chroms.is_empty() {
-                    let shares = a_chroms.iter().any(|a| b_chroms.contains(a));
+                    let b_set: std::collections::HashSet<&Vec<u8>> = b_chroms.iter().collect();
+                    let shares = a_chroms.iter().any(|a| b_set.contains(a));
                     if !shares {
                         log::warn!(
                             "{}",

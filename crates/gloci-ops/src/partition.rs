@@ -462,6 +462,7 @@ pub fn partition_counting(
     let inputs: Vec<Box<dyn RecordReader>> = inputs.into_iter().map(|r| skipped.watch(r)).collect();
     let mut chroms_seen: Vec<Vec<Vec<u8>>> = vec![Vec::new(); n];
     let mut last_chrom: Vec<Option<ChromId>> = vec![None; n];
+    let mut marks = vec![gloci_io::naming::SeenChroms::default(); n];
     let (lo, hi) = if o.all {
         (n, n)
     } else {
@@ -493,9 +494,8 @@ pub fn partition_counting(
     kmerge_with(inputs, chroms, &mut |input, meta, raw, chroms| {
         if last_chrom[input] != Some(meta.chrom) {
             last_chrom[input] = Some(meta.chrom);
-            let c_name = chroms.name(meta.chrom);
-            if !chroms_seen[input].iter().any(|x| x.as_slice() == c_name) {
-                chroms_seen[input].push(c_name.to_vec());
+            if marks[input].first_time(meta.chrom) {
+                chroms_seen[input].push(chroms.name(meta.chrom).to_vec());
             }
         }
         s.record(input, meta, raw, chroms, &info)

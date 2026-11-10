@@ -54,8 +54,8 @@ pub use input::{
     BGZF_EOF, Input, InputOptions, InputSpool, is_regular_file, open_input, open_input_from,
 };
 pub use naming::{
-    chr_prefix_hint, format_chrom_list, format_disjoint_chroms_warning, nary_naming_warning,
-    unknown_chrom_err,
+    SeenChroms, chr_prefix_hint, format_chrom_list, format_disjoint_chroms_warning,
+    nary_naming_warning, unknown_chrom_err,
 };
 pub use output::{
     OutFormat, Output, OutputOptions, OutputSpec, check_level, open_output, parse_output_spec,

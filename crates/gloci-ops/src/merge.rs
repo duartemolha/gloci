@@ -323,6 +323,7 @@ fn merge_counting_impl(
     let mut unknown_strand = vec![false; inputs.len()];
     let mut chroms_seen: Vec<Vec<Vec<u8>>> = vec![Vec::new(); inputs.len()];
     let mut last_chrom: Vec<Option<ChromId>> = vec![None; inputs.len()];
+    let mut marks = vec![gloci_io::naming::SeenChroms::default(); inputs.len()];
     let mut m = Merger {
         o,
         names: names.clone(),
@@ -344,9 +345,8 @@ fn merge_counting_impl(
         }
         if last_chrom[input] != Some(meta.chrom) {
             last_chrom[input] = Some(meta.chrom);
-            let c_name = chroms.name(meta.chrom);
-            if !chroms_seen[input].iter().any(|s| s.as_slice() == c_name) {
-                chroms_seen[input].push(c_name.to_vec());
+            if marks[input].first_time(meta.chrom) {
+                chroms_seen[input].push(chroms.name(meta.chrom).to_vec());
             }
         }
         m.record(input, meta, raw, chroms)

@@ -151,6 +151,7 @@ or run the command on each format separately",
 
     let orig_names: Vec<String> = inputs.iter().map(|r| r.name().to_string()).collect();
     let mut chroms_per_input: Vec<Vec<Vec<u8>>> = vec![Vec::new(); inputs.len()];
+    let mut marks = vec![gloci_io::naming::SeenChroms::default(); inputs.len()];
     let mut sorter = Sorter::new(SortConfig {
         max_mem: settings.max_mem,
         tmp_dir: settings.tmp_dir.clone(),
@@ -168,9 +169,8 @@ or run the command on each format separately",
             for m in &batch.recs {
                 if last_chrom != Some(m.chrom) {
                     last_chrom = Some(m.chrom);
-                    let c_name = chroms.name(m.chrom);
-                    if !chroms_per_input[i].iter().any(|s| s.as_slice() == c_name) {
-                        chroms_per_input[i].push(c_name.to_vec());
+                    if marks[i].first_time(m.chrom) {
+                        chroms_per_input[i].push(chroms.name(m.chrom).to_vec());
                     }
                 }
             }

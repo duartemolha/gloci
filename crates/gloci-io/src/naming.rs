@@ -1,25 +1,41 @@
 //! Chromosome naming checks, prefix difference hints and genome aliases (D58).
 
 pub use crate::builtin::builtin_alias;
+use gloci_core::ChromId;
+use std::collections::HashSet;
+
+/// Which chromosome ids a stream has already reported, so a list of the
+/// distinct names seen stays linear in the number of contigs. One table gives
+/// one id per name.
+#[derive(Clone, Debug, Default)]
+pub struct SeenChroms(Vec<bool>);
+
+impl SeenChroms {
+    /// True the first time `id` is passed.
+    pub fn first_time(&mut self, id: ChromId) -> bool {
+        let i = id.0 as usize;
+        if self.0.len() <= i {
+            self.0.resize(i + 1, false);
+        }
+        !std::mem::replace(&mut self.0[i], true)
+    }
+}
 
 /// When adding or stripping `"chr"` makes at least one chromosome name match
 /// between the two sets, returns the hint clause explaining the mismatch.
 pub fn chr_prefix_hint(a_names: &[&[u8]], b_names: &[&[u8]]) -> Option<String> {
-    let explains = a_names.iter().any(|&a| {
-        if let Some(rest) = a.strip_prefix(b"chr")
-            && !rest.is_empty()
-            && b_names.contains(&rest)
-        {
-            return true;
-        }
-        b_names.iter().any(|&b| {
-            if let Some(rest) = b.strip_prefix(b"chr") {
-                !rest.is_empty() && rest == a
-            } else {
-                false
-            }
-        })
-    });
+    // Hash sets: the sets can hold one name per contig of an assembly.
+    let a_set: HashSet<&[u8]> = a_names.iter().copied().collect();
+    let b_set: HashSet<&[u8]> = b_names.iter().copied().collect();
+    fn stripped(n: &[u8]) -> Option<&[u8]> {
+        n.strip_prefix(b"chr").filter(|r| !r.is_empty())
+    }
+    let explains = a_names
+        .iter()
+        .any(|&a| stripped(a).is_some_and(|r| b_set.contains(r)))
+        || b_names
+            .iter()
+            .any(|&b| stripped(b).is_some_and(|r| a_set.contains(r)));
     if explains {
         Some(
             "the names differ by a \"chr\" prefix — pass --chrom-map FILE (lines of old name, tab, new name) to rename one file's chromosomes so they match"
@@ -78,7 +94,8 @@ pub fn nary_naming_warning(names: &[String], seen: &[Vec<Vec<u8>>]) -> Option<St
         .collect();
     for (k, &i) in non_empty.iter().enumerate() {
         for &j in &non_empty[k + 1..] {
-            if seen[i].iter().any(|c| seen[j].contains(c)) {
+            let seen_j: HashSet<&Vec<u8>> = seen[j].iter().collect();
+            if seen[i].iter().any(|c| seen_j.contains(c)) {
                 continue;
             }
             let a: Vec<&[u8]> = seen[i].iter().map(Vec::as_slice).collect();
@@ -145,6 +162,23 @@ mod tests {
         assert_eq!(builtin_alias("R64"), Some("sacCer3"));
         assert_eq!(builtin_alias("hs1"), None);
         assert_eq!(builtin_alias("foo"), None);
+    }
+
+    #[test]
+    fn seen_chroms_reports_each_id_once() {
+        let mut m = SeenChroms::default();
+        assert!(m.first_time(ChromId(3)));
+        assert!(!m.first_time(ChromId(3)));
+        assert!(m.first_time(ChromId(0)));
+        assert!(m.first_time(ChromId(100_000)));
+        assert!(!m.first_time(ChromId(0)));
+    }
+
+    #[test]
+    fn chr_prefix_hint_covers_both_directions_and_bare_chr() {
+        assert!(chr_prefix_hint(&[b"chr1"], &[b"chr"]).is_none());
+        assert!(chr_prefix_hint(&[b"chr"], &[b"x"]).is_none());
+        assert!(chr_prefix_hint(&[b"7", b"8"], &[b"chr9", b"chr8"]).is_some());
     }
 
     #[test]
