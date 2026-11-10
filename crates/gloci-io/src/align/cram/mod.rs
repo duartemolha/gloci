@@ -485,6 +485,20 @@ mod tests {
     /// exactly one of each whatever the thread count.
     #[test]
     fn cram_placeholders_bounded() {
+        // mixed.namesorted.noref.cram: chr1 of 10 Mb and 300 contigs of 5 kb, every slice needing
+        // chr1 and other contigs. The small ones stay (they are few bytes); chr1's placeholder is
+        // made once: one generation, whatever the thread count.
+        let mixed = drain(&fixture("aln/mixed.namesorted.noref.cram"), 1);
+        assert_eq!(mixed.0.len(), 600);
+        for t in [1, 2, 8] {
+            let (recs, counts) = drain(&fixture("aln/mixed.namesorted.noref.cram"), t);
+            assert_eq!(recs, mixed.0, "-t {t}");
+            assert_eq!(counts.generations, 1, "mixed -t {t}: {counts:?}");
+            assert!(
+                counts.max_placeholder_bytes <= 10_000_000 + 300 * 5_000,
+                "mixed -t {t}: {counts:?}"
+            );
+        }
         let one = drain(&fixture("aln/contigs.noref.cram"), 1);
         let pairs = drain(&fixture("aln/pairs.namesorted.noref.cram"), 1);
         assert_eq!(pairs.0.len(), 300);

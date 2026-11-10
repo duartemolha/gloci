@@ -87,7 +87,23 @@ awk 'BEGIN { srand(17); OFS = "\t"; print "@HD", "VN:1.6", "SO:queryname"
 samtools view -C -@ 0 --no-PG --output-fmt-option version=3.0 --output-fmt-option no_ref=1 \
     --output-fmt-option seqs_per_slice=50 --output-fmt-option multi_seq_per_slice=1 \
     -o pairs.namesorted.noref.cram tmp-pairs.sam
-rm tmp-flags.sam tmp-flags-n.sam tmp-pairs.sam
+# mixed.namesorted.noref.cram: chr1 of 10 Mb and 300 contigs of 5 kb, 600 reads half on each,
+# in name order, without a reference: every slice needs chr1 and other small contigs, which must
+# not make the decoders drop and rebuild chr1's placeholder.
+awk 'BEGIN { srand(19); OFS = "\t"; print "@HD", "VN:1.6", "SO:queryname"
+    print "@SQ", "SN:chr1", "LN:10000000"
+    for (c = 0; c < 300; c++) print "@SQ", "SN:ctg" c, "LN:5000"
+    q = ""; for (j = 0; j < 100; j++) q = q "I"
+    for (i = 0; i < 600; i++) {
+        s = ""; for (j = 0; j < 100; j++) s = s substr("ACGT", int(rand() * 4) + 1, 1)
+        if (i % 2) { ref = "chr1"; pos = int(rand() * 9999000) + 1 }
+        else { ref = "ctg" int(rand() * 300); pos = int(rand() * 4800) + 1 }
+        printf "m%03d\t0\t%s\t%d\t60\t100M\t*\t0\t0\t%s\t%s\n", i, ref, pos, s, q } }' \
+    > tmp-mixed.sam
+samtools view -C -@ 0 --no-PG --output-fmt-option version=3.0 --output-fmt-option no_ref=1 \
+    --output-fmt-option seqs_per_slice=60 --output-fmt-option multi_seq_per_slice=1 \
+    -o mixed.namesorted.noref.cram tmp-mixed.sam
+rm tmp-flags.sam tmp-flags-n.sam tmp-pairs.sam tmp-mixed.sam
 for f in *.cram; do
     case "$f" in
         flags-noeof.cram|unsorted.cram|overhang.cram|*.namesorted.*) ;;

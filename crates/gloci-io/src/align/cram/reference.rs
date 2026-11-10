@@ -9,7 +9,7 @@ use crate::fasta::IndexedFasta;
 use gloci_core::{Interval, thousands};
 use noodles_fasta as fasta;
 use noodles_sam as sam;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::num::NonZeroUsize;
 use std::path::Path;
@@ -213,6 +213,8 @@ pub(crate) struct Counters {
     pub(crate) max_live: AtomicUsize,
     /// The most placeholder bytes held at once, by all decoders together.
     pub(crate) max_placeholder: AtomicUsize,
+    /// Generations started.
+    pub(crate) generations: AtomicUsize,
 }
 
 /// What the decoders of one CRAM read from the FASTA, and the most they held at once: the
@@ -226,6 +228,8 @@ pub struct ReferenceCounts {
     /// The most bytes of placeholders held at once, by all decoders together (CRAMs stored
     /// without the reference, in slices of several references).
     pub max_placeholder_bytes: usize,
+    /// Shared generations started (each one loads again what its slices need).
+    pub generations: usize,
 }
 
 impl Counters {
@@ -234,6 +238,7 @@ impl Counters {
             fetches: self.fetches.load(Ordering::Relaxed),
             max_live: self.max_live.load(Ordering::Relaxed),
             max_placeholder_bytes: self.max_placeholder.load(Ordering::Relaxed),
+            generations: self.generations.load(Ordering::Relaxed),
         }
     }
 }
@@ -433,6 +438,8 @@ pub(crate) struct Generation {
     pub(crate) state: Arc<RefState>,
     /// Active leases per reference name.
     leased: Mutex<HashMap<Vec<u8>, usize>>,
+    /// The names a decoder is loading now (changed under the cache's `generations` lock).
+    loading: Mutex<HashSet<Vec<u8>>>,
 }
 
 /// A decoder's use of some references of a generation (or of a slot), given back on drop.
@@ -482,10 +489,6 @@ impl Drop for Lease<'_> {
     }
 }
 
-/// How many loaded references a generation keeps that no slice needs or uses, before the next
-/// slice that needs one it lacks starts a new generation.
-const RESIDENT: usize = 2;
-
 /// The reference memory every decoder of one CRAM shares (D109).
 ///
 /// - **Slots**: up to [`SLOTS`] repositories, each holding one reference, for slices whose
@@ -495,11 +498,13 @@ const RESIDENT: usize = 2;
 /// - **Generations**: one repository of reference bases and one of placeholders, shared by all
 ///   decoders, for slices that need several references (unsorted or name-sorted input), reads
 ///   past a reference's end, or a CRAM stored without the reference. A slice leases every
-///   reference it needs at once; each is loaded once (under the cache's lock, as noodles'
-///   repository would let decoders that miss at once load it twice). When a slice needs a
-///   reference the current generation lacks (or needs it longer) and the generation holds more
-///   than [`RESIDENT`] references no slice needs or uses, a new generation starts; the old one
-///   is freed when its last lease ends.
+///   reference it needs at once; each is loaded once (marked under the cache's lock, loaded
+///   outside it; a decoder that needs one being loaded waits for it, as noodles' repository
+///   would let decoders that miss at once load it twice). When a slice needs a reference the
+///   current generation lacks (or needs it longer) and the generation holds more bytes that
+///   no slice needs or uses than the longest reference, a new generation starts; the old one is
+///   freed when its last lease ends. So small references touched by one slice and not the next
+///   stay, as in samtools, and the large ones are not read again.
 pub(crate) struct RefCache {
     info: Arc<CramInfo>,
     slots: Mutex<Vec<Slot>>,
@@ -508,11 +513,23 @@ pub(crate) struct RefCache {
     generations: Mutex<[Option<Arc<Generation>>; 2]>,
     /// Every generation still alive (for the counts).
     alive: Mutex<Vec<Weak<Generation>>>,
+    /// Signalled when a decoder has loaded what it marked as loading.
+    loaded_cv: Condvar,
+    /// The longest reference: the most bytes a generation keeps that no slice needs or uses
+    /// before a slice that needs a reference it lacks starts a new one.
+    longest: usize,
     pub(crate) counters: Arc<Counters>,
 }
 
 impl RefCache {
     pub(crate) fn new(info: Arc<CramInfo>, counters: Arc<Counters>) -> RefCache {
+        let longest = info
+            .aln
+            .refs
+            .iter()
+            .map(|(_, l)| usize::try_from(*l).unwrap_or(0))
+            .max()
+            .unwrap_or(0);
         let slots = (0..SLOTS)
             .map(|_| Slot {
                 rid: None,
@@ -528,6 +545,8 @@ impl RefCache {
             freed: Condvar::new(),
             generations: Mutex::new([None, None]),
             alive: Mutex::new(Vec::new()),
+            loaded_cv: Condvar::new(),
+            longest,
             counters,
         }
     }
@@ -620,12 +639,14 @@ impl RefCache {
     }
 
     fn new_generation(&self, required: bool) -> Result<Arc<Generation>, IoError> {
+        self.counters.generations.fetch_add(1, Ordering::Relaxed);
         let state = RefState::new(required);
         let adapter = RefAdapter::new(self.info.clone(), state.clone(), self.counters.clone())?;
         let g = Arc::new(Generation {
             repo: fasta::Repository::new(adapter),
             state,
             leased: Mutex::new(HashMap::new()),
+            loading: Mutex::new(HashSet::new()),
         });
         if let Ok(mut a) = self.alive.lock() {
             a.retain(|w| w.strong_count() > 0);
@@ -643,94 +664,128 @@ impl RefCache {
         required: bool,
         need: Option<&[(usize, usize)]>,
     ) -> Result<Lease<'_>, IoError> {
-        let mut gens = self.generations.lock().map_err(|_| Self::poisoned())?;
-        let which = usize::from(!required);
-        let current = match &gens[which] {
-            Some(g) => g.clone(),
-            None => {
-                let g = self.new_generation(required)?;
-                gens[which] = Some(g.clone());
-                g
-            }
-        };
         let name = |rid: usize| &self.info.aln.refs[rid].0;
         let ln = |rid: usize| usize::try_from(self.info.aln.refs[rid].1).unwrap_or(0);
         let need = need.unwrap_or(&[]);
-        // What the current generation lacks, holds too short, and holds that nobody needs.
-        let (missing, short, idle) = {
-            let loaded = current.state.loaded.lock().map_err(|_| Self::poisoned())?;
-            let leased = current.leased.lock().map_err(|_| Self::poisoned())?;
-            let missing = need.iter().any(|&(r, _)| !loaded.contains_key(name(r)));
-            let short = need
-                .iter()
-                .any(|&(r, len)| loaded.get(name(r)).is_some_and(|&have| have < len));
-            let idle = loaded
-                .keys()
-                .filter(|n| {
-                    !need.iter().any(|&(r, _)| name(r) == *n)
-                        && leased.get(*n).copied().unwrap_or(0) == 0
-                })
-                .count();
-            (missing, short, idle)
-        };
-        let generation = if short || (missing && idle > RESIDENT) {
-            // The old generation goes when its last lease ends (now, if none is left).
-            drop(current);
-            gens[which] = None;
-            let g = self.new_generation(required)?;
-            gens[which] = Some(g.clone());
-            g
-        } else {
-            current
-        };
-        // Load what it lacks, once, under the lock.
-        for &(r, len) in need {
-            let n = name(r);
+        let which = usize::from(!required);
+        let names: Vec<Vec<u8>> = need.iter().map(|&(r, _)| name(r).clone()).collect();
+        let mut gens = self.generations.lock().map_err(|_| Self::poisoned())?;
+        // Under the lock: choose the generation, mark what this slice loads, lease it all.
+        let (generation, to_load) = loop {
+            let current = match &gens[which] {
+                Some(g) => g.clone(),
+                None => {
+                    let g = self.new_generation(required)?;
+                    gens[which] = Some(g.clone());
+                    g
+                }
+            };
+            // What the current generation lacks (and no decoder is loading), holds too short,
+            // and the bytes it holds that no slice needs or uses.
+            let (missing, short, idle) = {
+                let loaded = current.state.loaded.lock().map_err(|_| Self::poisoned())?;
+                let leased = current.leased.lock().map_err(|_| Self::poisoned())?;
+                let loading = current.loading.lock().map_err(|_| Self::poisoned())?;
+                let missing = need
+                    .iter()
+                    .any(|&(r, _)| !loaded.contains_key(name(r)) && !loading.contains(name(r)));
+                let short = need
+                    .iter()
+                    .any(|&(r, len)| loaded.get(name(r)).is_some_and(|&have| have < len));
+                let idle: usize = loaded
+                    .iter()
+                    .filter(|(n, _)| {
+                        !names.contains(n) && leased.get(*n).copied().unwrap_or(0) == 0
+                    })
+                    .map(|(_, &len)| len)
+                    .sum();
+                (missing, short, idle)
+            };
+            let generation = if short || (missing && idle > self.longest) {
+                // The old generation goes when its last lease ends (now, if none is left).
+                drop(current);
+                gens[which] = None;
+                let g = self.new_generation(required)?;
+                gens[which] = Some(g.clone());
+                g
+            } else {
+                current
+            };
             let loaded = generation
                 .state
                 .loaded
                 .lock()
-                .map_err(|_| Self::poisoned())?
-                .contains_key(n);
-            if loaded {
+                .map_err(|_| Self::poisoned())?;
+            let mut loading = generation.loading.lock().map_err(|_| Self::poisoned())?;
+            if names.iter().any(|n| loading.contains(n)) {
+                // Another decoder is loading one: wait for it, then look again.
+                drop((loaded, loading));
+                gens = self.loaded_cv.wait(gens).map_err(|_| Self::poisoned())?;
                 continue;
             }
-            let extra = |m: &Mutex<HashMap<Vec<u8>, usize>>, v: usize| {
-                if let Ok(mut m) = m.lock() {
-                    m.insert(n.clone(), v);
+            let to_load: Vec<(usize, usize)> = need
+                .iter()
+                .copied()
+                .filter(|&(r, _)| !loaded.contains_key(name(r)))
+                .collect();
+            for &(r, _) in &to_load {
+                loading.insert(name(r).clone());
+            }
+            drop((loaded, loading));
+            if let Ok(mut l) = generation.leased.lock() {
+                for n in &names {
+                    *l.entry(n.clone()).or_default() += 1;
                 }
-            };
-            if required {
-                extra(&generation.state.pads, len.saturating_sub(ln(r)));
-                // An idle slot holding it gives its copy up (the generation has its own now).
-                if let Ok(mut slots) = self.slots.lock() {
-                    for slot in slots.iter_mut() {
-                        if slot.rid == Some(r) && slot.users == 0 {
-                            slot.rid = None;
-                            slot.repo = None;
+            }
+            break (generation, to_load);
+        };
+        drop(gens);
+        // Load outside the lock (other decoders go on); each reference once, as marked.
+        let loaded = (|| -> Result<(), IoError> {
+            for &(r, len) in &to_load {
+                let n = name(r);
+                let extra = |m: &Mutex<HashMap<Vec<u8>, usize>>, v: usize| {
+                    if let Ok(mut m) = m.lock() {
+                        m.insert(n.clone(), v);
+                    }
+                };
+                if required {
+                    extra(&generation.state.pads, len.saturating_sub(ln(r)));
+                    // An idle slot holding it gives its copy up (the generation has its own).
+                    if let Ok(mut slots) = self.slots.lock() {
+                        for slot in slots.iter_mut() {
+                            if slot.rid == Some(r) && slot.users == 0 {
+                                slot.rid = None;
+                                slot.repo = None;
+                            }
                         }
                     }
+                } else {
+                    extra(&generation.state.placeholders, len);
                 }
-            } else {
-                extra(&generation.state.placeholders, len);
+                preload(&generation.repo, &generation.state, n)?;
             }
-            preload(&generation.repo, &generation.state, n)?;
-        }
-        let names: Vec<Vec<u8>> = need.iter().map(|&(r, _)| name(r).clone()).collect();
-        if let Ok(mut l) = generation.leased.lock() {
-            for n in &names {
-                *l.entry(n.clone()).or_default() += 1;
+            Ok(())
+        })();
+        if let Ok(_gens) = self.generations.lock()
+            && let Ok(mut loading) = generation.loading.lock()
+        {
+            for &(r, _) in &to_load {
+                loading.remove(name(r));
             }
         }
-        drop(gens);
-        self.note_live();
-        Ok(Lease {
+        self.loaded_cv.notify_all();
+        let lease = Lease {
             cache: self,
             slot: None,
             repo: generation.repo.clone(),
             state: generation.state.clone(),
             generation: Some((generation, names)),
-        })
+        };
+        // On a failure the lease is given back as it drops.
+        loaded?;
+        self.note_live();
+        Ok(lease)
     }
 
     /// Count what the slots and every generation alive hold, and keep the most.
