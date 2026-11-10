@@ -269,7 +269,9 @@ fn output_is_identical_at_every_thread_count() {
     let dir = tempdir();
     let a = big_bam(dir.path(), "a", 1500, 3);
     let b = big_bam(dir.path(), "b", 1500, 4);
-    // To stdout, so the @PG line's command line (which never holds -t) is the same too.
+    // Cat does no threaded compression, so this cannot fail on thread count by itself. It guards
+    // that `-t` is stripped from the @PG CL line and that only one block is recompressed per
+    // input. It writes to stdout so the CL line is the same too.
     let run = |t: &str| {
         let o = gloci()
             .args(["cat", &s(&a), &s(&b), "-t", t])

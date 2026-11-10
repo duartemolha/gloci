@@ -4281,3 +4281,40 @@ gloci = "gloci cat input.bam cat-c.bam"
 reference = "samtools cat --no-PG input.bam cat-c.bam"
 compare = "exit-status"
 expected_difference = "#alignment-cat-sq"
+
+# cat-g.bam was made by `gloci view`, so its header ends in the middle of a block; cat-big.bam
+# has five data blocks; cat-d has cat-a's @SQ names in the same order but chr2 one base longer;
+# cat-noeof.bam is cat-a without its BGZF end-of-file block (samtools warns and exits 0).
+[[case]]
+name = "cat-header-mid-block-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/cat-a.bam" }
+aux = ["xtask/diff/inputs/aln/cat-g.bam"]
+gloci = "gloci cat cat-g.bam input.bam cat-g.bam"
+reference = "samtools cat --no-PG cat-g.bam input.bam cat-g.bam"
+compare = "bam"
+
+[[case]]
+name = "cat-multi-block-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/cat-a.bam" }
+aux = ["xtask/diff/inputs/aln/cat-big.bam", "xtask/diff/inputs/aln/cat-b.bam"]
+gloci = "gloci cat input.bam cat-big.bam cat-b.bam"
+reference = "samtools cat --no-PG input.bam cat-big.bam cat-b.bam"
+compare = "bam"
+
+[[case]]
+name = "cat-different-sq-length-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/cat-a.bam" }
+aux = ["xtask/diff/inputs/aln/cat-d.bam"]
+gloci = "gloci cat input.bam cat-d.bam"
+reference = "samtools cat --no-PG input.bam cat-d.bam"
+compare = "exit-status"
+expected_difference = "#alignment-cat-sq"
+
+[[case]]
+name = "cat-no-eof-marker-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/cat-a.bam" }
+aux = ["xtask/diff/inputs/aln/cat-noeof.bam"]
+gloci = "gloci cat input.bam cat-noeof.bam"
+reference = "samtools cat --no-PG input.bam cat-noeof.bam"
+compare = "exit-status"
+expected_difference = "#bgzf-eof-marker"

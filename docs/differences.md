@@ -143,6 +143,12 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   gloci exit status 1, `bgzip -dc` exit status 0).
 - **Reason:** a missing marker is the signature of a truncated download or an
   interrupted write, and gloci never gives a quiet partial answer.
+- **`cat`:** `gloci cat` refuses a BAM input without the marker (exit 1, naming
+  the file), where `samtools cat` warns (`EOF marker is absent`) and exits 0.
+  This is stricter than `vcf concat --naive`, which warns and copies the blocks
+  as they are: `cat` writes one new marker at the end of its output, and that
+  would make a truncated input look complete. Pinned by
+  `cat-no-eof-marker-vs-samtools` (exit status: must differ).
 
 ## `view --assume-sorted` {#view-assume-sorted}
 
@@ -1593,6 +1599,8 @@ depends on the span.
   `@RG` lines of later files whose ID it does not have (appended at the end;
   an ID already there is skipped without comparing the rest of the line);
   `@PG`, `@CO` and `@SQ` lines of later files are dropped. The order of the
-  records is not checked.
-- **Pinned by:** `cat-different-sq-vs-samtools` (exit status: must differ).
+  records is not checked. samtools also keeps empty interior (non-EOF) BGZF
+  blocks of the inputs; gloci drops them, and the records are identical.
+- **Pinned by:** `cat-different-sq-vs-samtools` (the lists differ in order) and
+  `cat-different-sq-length-vs-samtools` (in a length) (exit status: must differ).
 

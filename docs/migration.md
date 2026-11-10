@@ -508,6 +508,9 @@ Before relying on a new expression, run it once on a small file with
   `samtools cat` joins them and the records of the later files point at the
   wrong contigs. gloci's `cat` is BAM only (CRAM and SAM are refused with a hint).
   [differences.md#alignment-cat-sq](differences.md#alignment-cat-sq)
+  It also refuses an input without the BGZF end-of-file marker (exit 1; samtools
+  warns and exits 0), because the output gets a new marker and would hide the truncation:
+  [differences.md#bgzf-eof-marker](differences.md#bgzf-eof-marker)
 - **`vcf filter` keeps INFO by default:** All INFO fields are preserved unless
   pruned with `--keep-info` or `--drop-info` (`vcftools --recode` drops INFO
   unless `--recode-INFO-all` is given).
