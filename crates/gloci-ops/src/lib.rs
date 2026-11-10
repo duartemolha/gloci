@@ -1,6 +1,7 @@
 //! gloci-ops: commands as library functions.
 
 pub mod agg;
+pub mod aln_cat;
 pub mod bedsearch;
 pub mod check;
 pub mod closest;
@@ -33,6 +34,7 @@ pub mod vcf_stats;
 pub mod view;
 pub mod windows;
 
+pub use aln_cat::{cat_bams, cat_header};
 pub use bedsearch::{ChromBlock, find_chrom_block, find_chrom_block_mapped};
 pub use check::{CheckReport, Problems, check_file};
 pub use gloci_engine::all_indexed;

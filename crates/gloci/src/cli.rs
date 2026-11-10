@@ -167,6 +167,25 @@ Examples:
   gloci view reads.bam -O sam | head
   gloci view calls.vcf.gz -o calls.bcf --write-index")]
     View(ViewArgs),
+    /// Join BAM files by copying their compressed blocks, as samtools cat does.
+    ///
+    /// The output header is the first file's, plus the @RG lines of the later
+    /// files whose ID it does not have yet, plus a gloci @PG line. The @SQ
+    /// lists of all files must be the same, in the same order: unlike
+    /// samtools, cat refuses files with different lists, because their
+    /// records would point at the wrong references. Every record is copied
+    /// as it is: only the block holding a file's header end is compressed
+    /// again, and the order of the records is not checked, so give sorted
+    /// files in sorted order. The input files may be named - (stdin, once).
+    /// BAM only: CRAM and SAM are refused (gloci view x.sam -o x.bam makes
+    /// BAM; samtools cat joins CRAM). The output is BAM, to -o or stdout.
+    /// A BAM index for the output arrives with gloci index for BAM, so
+    /// --write-index is not available yet.
+    #[command(after_long_help = "\
+Examples:
+  gloci cat lane1.bam lane2.bam -o all.bam
+  gloci cat part-*.bam > all.bam")]
+    Cat(CatArgs),
     /// Validate files and print a one-screen summary of each.
     ///
     /// check reads every file to the end, keeps going past problems and
@@ -2389,6 +2408,21 @@ pub struct ViewArgs {
     pub align: AlignArgs,
     #[command(flatten)]
     pub out: OutputArgs,
+}
+
+#[derive(Args)]
+pub struct CatArgs {
+    /// BAM files to join, in output order (`-` for stdin).
+    #[arg(value_name = "FILES", required = true)]
+    pub files: Vec<String>,
+    /// Write the BAM to FILE instead of stdout.
+    #[arg(short, long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
+    /// Also write a .bai index next to the output (not available yet).
+    #[arg(long)]
+    pub write_index: bool,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
 }
 
 #[derive(Args)]

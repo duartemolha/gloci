@@ -504,6 +504,10 @@ Before relying on a new expression, run it once on a small file with
 - **`maskfasta --mask-char` refuses a space:** exit 2, where `bedtools
   maskfasta -mc ' '` writes spaces that make the FASTA unindexable.
   [differences.md#maskfasta-mask-char](differences.md#maskfasta-mask-char)
+- **`cat` refuses BAM files with different `@SQ` lists:** exit 1, where
+  `samtools cat` joins them and the records of the later files point at the
+  wrong contigs. gloci's `cat` is BAM only (CRAM and SAM are refused with a hint).
+  [differences.md#alignment-cat-sq](differences.md#alignment-cat-sq)
 - **`vcf filter` keeps INFO by default:** All INFO fields are preserved unless
   pruned with `--keep-info` or `--drop-info` (`vcftools --recode` drops INFO
   unless `--recode-INFO-all` is given).

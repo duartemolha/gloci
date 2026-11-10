@@ -1578,3 +1578,21 @@ depends on the span.
   `view-sam-strict-qual-del-vs-samtools` and
   `view-sam-strict-cigar-zeros-vs-samtools` and `view-sam-pg-without-id-vs-samtools` (exit
   status must differ).
+
+## `cat` refuses BAM files whose `@SQ` lists differ {#alignment-cat-sq}
+
+- **gloci:** `gloci cat` compares the reference lists (`@SQ` names and lengths, in
+  order) of all its inputs with the first one's. If they differ it exits 1,
+  names the file and the first difference, and writes nothing.
+- **Old behaviour:** `samtools cat` does not check. It writes the first file's
+  header and copies the records of every file as they are (exit 0).
+- **Reason:** a BAM record names its reference by number, so records copied from
+  a file with another reference list point at the wrong contigs, and the joined
+  file looks fine until a variant caller or a genome browser uses it.
+  The other merge rules are samtools': the header is the first file's, plus the
+  `@RG` lines of later files whose ID it does not have (appended at the end;
+  an ID already there is skipped without comparing the rest of the line);
+  `@PG`, `@CO` and `@SQ` lines of later files are dropped. The order of the
+  records is not checked.
+- **Pinned by:** `cat-different-sq-vs-samtools` (exit status: must differ).
+

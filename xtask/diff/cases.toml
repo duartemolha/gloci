@@ -4252,3 +4252,32 @@ gloci = "gloci view -O sam input.sam"
 reference = "samtools view -h input.sam"
 compare = "exit-status"
 expected_difference = "#sam-parse-strictness"
+
+# cat of BAM files (D123) against samtools cat 1.21. `--no-PG` on the samtools side and the
+# `bam` compare mode (which ignores @PG lines) cover gloci's own @PG line. cat-b adds an @RG
+# (g2) and repeats g1, which samtools skips by ID; cat-c has the @SQ lines in another order,
+# which samtools joins without a word and gloci refuses.
+[[case]]
+name = "cat-two-bams-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/cat-a.bam" }
+aux = ["xtask/diff/inputs/aln/cat-b.bam"]
+gloci = "gloci cat input.bam cat-b.bam"
+reference = "samtools cat --no-PG input.bam cat-b.bam"
+compare = "bam"
+
+[[case]]
+name = "cat-three-bams-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/cat-a.bam" }
+aux = ["xtask/diff/inputs/aln/cat-b.bam"]
+gloci = "gloci cat input.bam cat-b.bam input.bam"
+reference = "samtools cat --no-PG input.bam cat-b.bam input.bam"
+compare = "bam"
+
+[[case]]
+name = "cat-different-sq-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/cat-a.bam" }
+aux = ["xtask/diff/inputs/aln/cat-c.bam"]
+gloci = "gloci cat input.bam cat-c.bam"
+reference = "samtools cat --no-PG input.bam cat-c.bam"
+compare = "exit-status"
+expected_difference = "#alignment-cat-sq"

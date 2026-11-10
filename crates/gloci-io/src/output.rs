@@ -277,7 +277,28 @@ pub fn open_output(
     f: OutFormat,
     opts: &OutputOptions,
 ) -> Result<Output, IoError> {
-    let bgzf = spec.bgzf || matches!(f, OutFormat::Bcf | OutFormat::Bam);
+    open_output_as(spec, f, opts, false)
+}
+
+/// An output for `f` (BGZF, so a binary format) that does not compress what is written to
+/// it: the caller writes finished BGZF blocks (`gloci cat`, D123), and ends the stream
+/// with [`BGZF_EOF`](crate::BGZF_EOF) itself. `--write-index` is not available.
+pub fn open_raw_output(
+    spec: &OutputSpec,
+    f: OutFormat,
+    opts: &OutputOptions,
+) -> Result<Output, IoError> {
+    open_output_as(spec, f, opts, true)
+}
+
+fn open_output_as(
+    spec: &OutputSpec,
+    f: OutFormat,
+    opts: &OutputOptions,
+    raw: bool,
+) -> Result<Output, IoError> {
+    // A raw output holds BGZF blocks it did not make: it is binary, but not compressed here.
+    let bgzf = !raw && (spec.bgzf || matches!(f, OutFormat::Bcf | OutFormat::Bam));
     let level = CompressionLevel::try_from(check_level(opts.level)?)
         .map_err(|e| UsageError(e.to_string()))?;
     let mut index = IndexPlan::None;
@@ -330,7 +351,7 @@ write to a file such as -o out.bed.gz and index that",
                 .truncate(truncate)
                 .open(p)
                 .map_err(create)?;
-            refuse_binary_to_tty(file.is_terminal(), f, bgzf)?;
+            refuse_binary_to_tty(file.is_terminal(), f, bgzf || raw)?;
             let w = BufWriter::with_capacity(BUF, file);
             if bgzf {
                 Sink::DirectBgzf(builder().build_from_writer(w))

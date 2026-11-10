@@ -1,3 +1,4 @@
+pub mod cat;
 pub mod check;
 pub mod closest;
 pub mod cluster;
