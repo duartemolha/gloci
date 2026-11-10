@@ -37,8 +37,7 @@ pub mod writer;
 pub use align::{
     Accept, AlignOptions, Aln, AlnBed, AlnBedLayout, AlnBedOptions, AlnBlocks, AlnHeader, AlnRef,
     AlnSource, SamAln, SamToBam, SortOrder, alignment_query_span, aln_ref, blocks, blocks_within,
-    open_alignment_writer,
-    open_aln_source, open_aln_source_from, parse_flags, sam_line_to_bam,
+    open_alignment_writer, open_aln_source, open_aln_source_from, parse_flags, sam_line_to_bam,
 };
 pub use atomic::{
     __test_with_registry_locked, AtomicFile, TempGuard, cleanup_registered,
