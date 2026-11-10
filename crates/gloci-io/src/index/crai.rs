@@ -8,9 +8,10 @@
 //! `samtools index` does) and gives one line per run of reads on one reference, as htslib's
 //! `cram_index_build_multiref` writes them.
 
-use crate::align::cram::{ExtentDecoder, Ordered, RawContainer, open_for_index, slice_heads};
+use crate::align::cram::{ExtentDecoder, RawContainer, open_for_index, slice_heads};
 use crate::atomic::AtomicFile;
 use crate::error::IoError;
+use crate::pool::Ordered;
 use gloci_core::thousands;
 use std::ffi::OsString;
 use std::fs::File;
