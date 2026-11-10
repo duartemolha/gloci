@@ -1719,8 +1719,14 @@ depends on the span.
   writes: `chr1 100 110 read10 60 +`.
 - **Old behaviour:** `bedtools intersect -abam x.bam -b t.bed -bed -wa -wb` prints the
   reads as BED12 with `0,0,0` as the colour and trailing commas in the block lists
-  (`1 10, 0,`). A BAM `-b` (with `-a x.bed -wa -wb`) is BED6 in bedtools too, and matches.
+  (`1 10, 0,`). A BAM `-b` (with `-a x.bed -wa -wb`) is BED6 in bedtools too, and matches. For an A
+  with no hit, `-loj` and `-wao` with a BAM `-b` write a 12-column placeholder
+  (`. -1 -1 . -1 . . . . . . .`) although the rows with a hit have 6 columns, so
+  the file has rows of two widths.
 - **Reason:** one row layout for a read everywhere. `gloci convert x.bam --bed12` writes
   bedtools' BED12 for pipelines that need the blocks.
-- **Pinned by:** `intersect-abam-wa-wb-vs-bedtools` (must differ);
+- **Unmatched A:** gloci writes the BED6 placeholder `. -1 -1 . -1 .` (plus `0` with
+  `--overlap-bases`), the width of every row.
+- **Pinned by:** `intersect-abam-wa-wb-vs-bedtools`, `intersect-bed-bam-loj-vs-bedtools`
+  and `intersect-bed-bam-wao-vs-bedtools` (must differ);
   `intersect-bed-bam-wa-wb-vs-bedtools` (BAM as B) matches.
