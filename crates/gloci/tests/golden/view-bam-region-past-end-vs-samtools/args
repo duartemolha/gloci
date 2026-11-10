@@ -1,0 +1,1 @@
+view -O sam input.bam chr1:1001-1010

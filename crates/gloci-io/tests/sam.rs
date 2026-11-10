@@ -199,7 +199,7 @@ fn src_of(bytes: Vec<u8>, invalid: InvalidPolicy) -> Result<Box<dyn AlnSource>, 
 fn sam_errors_name_the_line() {
     let refs = "@SQ\tSN:chr1\tLN:1000\n";
     let good = "ok\t0\tchr1\t10\t60\t4M\t*\t0\t0\tACGT\tIIII";
-    let cases: [(&str, String, &str); 8] = [
+    let cases: [(&str, String, &str); 7] = [
         (
             "RNAME not in @SQ",
             "r\t0\tchrZ\t10\t60\t4M\t*\t0\t0\tACGT\tIIII".into(),
@@ -224,11 +224,6 @@ fn sam_errors_name_the_line() {
             "CIGAR and SEQ disagree",
             "r\t0\tchr1\t10\t60\t5M\t*\t0\t0\tACGT\tIIII".into(),
             "covers 5 bases",
-        ),
-        (
-            "mapped without a position",
-            "r\t0\tchr1\t0\t60\t4M\t*\t0\t0\tACGT\tIIII".into(),
-            "POS 0",
         ),
         (
             "header line after records",
@@ -747,4 +742,308 @@ fn sam_with_many_contigs_is_not_quadratic() {
     assert_eq!(all(s.as_mut()).len(), n);
     // A scan per record is 10^10 name comparisons; the map makes it a second or two.
     assert!(t.elapsed().as_secs() < 20, "{:?}", t.elapsed());
+}
+
+fn sam_to_bam_line(line: &str) -> Result<Vec<u8>, String> {
+    let h = header_of("@SQ\tSN:chr1\tLN:1000\n@SQ\tSN:chr2\tLN:50\n");
+    let mut out = Vec::new();
+    sam_line_to_bam(line.as_bytes(), &h, &mut out).map(|()| out)
+}
+
+/// `(ref_id, pos, flag, mate ref_id, mate pos)` of a BAM record.
+type Place = (i32, i32, u16, i32, i32);
+
+fn fields(rec: &[u8]) -> Place {
+    let i = |at: usize| i32::from_le_bytes(rec[at..at + 4].try_into().unwrap());
+    (
+        i(0),
+        i(4),
+        u16::from_le_bytes([rec[14], rec[15]]),
+        i(20),
+        i(24),
+    )
+}
+
+#[test]
+fn encoder_normalises_like_htslib() {
+    // (line, ref_id, pos, flag, mate ref, mate pos)
+    let cases: [(&str, Place); 7] = [
+        // A mapped read with CIGAR `*` is unmapped.
+        (
+            "a\t0\tchr1\t10\t60\t*\t*\t0\t0\tACGT\tIIII",
+            (0, 9, 4, -1, -1),
+        ),
+        // A reference with POS 0 is no reference; `=` follows the normalised reference.
+        (
+            "a\t0\tchr1\t0\t60\t4M\t=\t100\t0\tACGT\tIIII",
+            (-1, -1, 4, -1, 99),
+        ),
+        // PNEXT 0 unsets the mate.
+        (
+            "a\t0\tchr1\t5\t60\t4M\t=\t0\t0\tACGT\tIIII",
+            (0, 4, 0, -1, -1),
+        ),
+        (
+            "a\t0\tchr1\t5\t60\t4M\tchr2\t7\t0\tACGT\tIIII",
+            (0, 4, 0, 1, 6),
+        ),
+        // Mapped with no reference: unmapped.
+        (
+            "a\t0\t*\t5\t60\t4M\t*\t0\t0\tACGT\tIIII",
+            (-1, 4, 4, -1, -1),
+        ),
+        // Hex and octal FLAG, as strtol base 0.
+        (
+            "a\t0x10\tchr1\t5\t60\t4M\t*\t0\t0\tACGT\tIIII",
+            (0, 4, 16, -1, -1),
+        ),
+        (
+            "a\t020\tchr1\t5\t60\t4M\t*\t0\t0\tACGT\tIIII",
+            (0, 4, 16, -1, -1),
+        ),
+    ];
+    for (line, want) in cases {
+        let rec = sam_to_bam_line(line).unwrap();
+        assert_eq!(fields(&rec), want, "{line}");
+    }
+    // POS 2^31 is the last base BAM can hold.
+    assert_eq!(
+        fields(&sam_to_bam_line("a\t0\tchr1\t2147483648\t60\t4M\t*\t0\t0\tACGT\tIIII").unwrap()).1,
+        i32::MAX
+    );
+    // htslib's base table: IUPAC either case, digits 0 to 3 as A C G T, anything else N.
+    let rec = sam_to_bam_line("a\t4\t*\t0\t0\t*\t*\t0\t0\tUu0123=.mY\t*").unwrap();
+    let seq = &rec[34..];
+    assert_eq!(&seq[..5], [0xff, 0x12, 0x48, 0x0f, 0x3a]);
+}
+
+#[test]
+fn encoder_accepts_what_htslib_accepts_and_refuses_what_it_refuses() {
+    let ok = [
+        "a\t4\t*\t0\t0\t*\t*\t0\t0\t*\t*\tXI:I:5\tXC:c:5",
+        "a\t0\tchr1\t5\t60\t2M1B2M\t*\t0\t0\tACGT\tIIII",
+    ];
+    for l in ok {
+        assert!(sam_to_bam_line(l).is_ok(), "{l}");
+    }
+    let bad = [
+        (
+            "a\t4\t*\t0\t0\t*\t*\t0\t0\t*\t*\tXH:H:1AE",
+            "odd number of digits",
+        ),
+        ("a\t4\t*\t0\t0\t4M\t*\t0\t0\tACG\t*", "CIGAR covers 4"),
+        (
+            "a\t0\tchr1\t5\t60\t4M\t*\t3000000000\t0\tACGT\tIIII",
+            "PNEXT 3000000000",
+        ),
+        (
+            "a\t0\tchr1\t5\t60\t4M\t*\t0\t3000000000\tACGT\tIIII",
+            "TLEN",
+        ),
+        (
+            "a\t0\tchrZ\t5\t60\t4M\t*\t0\t0\tACGT\tIIII",
+            "--skip-invalid",
+        ),
+        (
+            "a\t0\tchr1\t5\t60\t4M\tchrZ\t5\t0\tACGT\tIIII",
+            "--skip-invalid",
+        ),
+    ];
+    for (l, text) in bad {
+        let e = sam_to_bam_line(l).unwrap_err();
+        assert!(e.contains(text), "{l}: {e}");
+    }
+    // 70,000 operations with a reference span of 2^28 or more cannot be written in BAM.
+    let cigar = "8000M1D".repeat(35_000);
+    let e = sam_to_bam_line(&format!("a\t0\tchr1\t5\t60\t{cigar}\t*\t0\t0\t*\t*")).unwrap_err();
+    assert!(e.contains("cannot be written in BAM"), "{e}");
+}
+
+/// A BAM record with the given reference, flag, CIGAR words, `l_seq` and aux bytes, written to
+/// SAM text.
+fn bam_to_sam_text(
+    ref_id: i32,
+    flag: u16,
+    cigar: &[u32],
+    l_seq: u32,
+    qual: u8,
+    tags: &[u8],
+) -> String {
+    let mut rec = Vec::new();
+    rec.extend_from_slice(&ref_id.to_le_bytes());
+    rec.extend_from_slice(&(if ref_id < 0 { -1i32 } else { 9 }).to_le_bytes());
+    rec.extend_from_slice(&[2, 60, 0, 0]);
+    rec.extend_from_slice(&(cigar.len() as u16).to_le_bytes());
+    rec.extend_from_slice(&flag.to_le_bytes());
+    rec.extend_from_slice(&l_seq.to_le_bytes());
+    rec.extend_from_slice(&(-1i32).to_le_bytes());
+    rec.extend_from_slice(&(-1i32).to_le_bytes());
+    rec.extend_from_slice(&0i32.to_le_bytes());
+    rec.extend_from_slice(b"r\0");
+    for c in cigar {
+        rec.extend_from_slice(&c.to_le_bytes());
+    }
+    rec.extend(std::iter::repeat_n(0x11u8, (l_seq as usize).div_ceil(2)));
+    rec.extend(std::iter::repeat_n(qual, l_seq as usize));
+    rec.extend_from_slice(tags);
+    let h = header_of("@SQ\tSN:chr1\tLN:1000\n");
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("o.sam");
+    let mut w = open_alignment_writer(
+        out_to(&path, OutFormat::Sam),
+        Format::Bam,
+        OutFormat::Sam,
+        &h,
+        &wopts(None, false),
+    )
+    .unwrap();
+    w.write_record(&rec).unwrap();
+    w.finish().unwrap();
+    std::fs::read_to_string(&path).unwrap()
+}
+
+#[test]
+fn bam_to_sam_text_matches_htslib_in_the_odd_places() {
+    // A negative NaN is `-nan`, a positive one `nan`.
+    let mut tags = b"XfBf".to_vec();
+    tags.extend_from_slice(&2u32.to_le_bytes());
+    tags.extend_from_slice(&f32::from_bits(0xffc0_0000).to_le_bytes());
+    tags.extend_from_slice(&f32::from_bits(0x7fc0_0000).to_le_bytes());
+    let t = bam_to_sam_text(0, 0, &[1 << 4], 1, 30, &tags);
+    assert!(
+        t.trim_end().ends_with("XF:B:f,-nan,nan") || t.contains("Xf:B:f,-nan,nan"),
+        "{t}"
+    );
+    // QUAL + 33 wraps as htslib's does.
+    let t = bam_to_sam_text(0, 0, &[1 << 4], 1, 0xfe, b"");
+    assert!(t.contains("\t\x1f\n") || t.contains("\t\u{1f}"), "{t:?}");
+    // CIGAR op B (9) is read and shown, and consumes nothing.
+    let t = bam_to_sam_text(0, 0, &[1 << 4, 3 << 4 | 9, 1 << 4], 2, 30, b"");
+    assert!(t.contains("\t1M3B1M\t"), "{t}");
+    // An unplaced read keeps its placeholder CIGAR and its CG tag.
+    let mut cg = b"CGBI".to_vec();
+    cg.extend_from_slice(&1u32.to_le_bytes());
+    cg.extend_from_slice(&(1u32 << 4).to_le_bytes());
+    let t = bam_to_sam_text(-1, 4, &[1 << 4 | 4, 5 << 4 | 3], 1, 30, &cg);
+    assert!(t.contains("\t1S5N\t") && t.contains("CG:B:I,16"), "{t}");
+    // A placed read has it resolved and the tag dropped.
+    let t = bam_to_sam_text(0, 0, &[1 << 4 | 4, 5 << 4 | 3], 1, 30, &cg);
+    assert!(t.contains("\t1M\t") && !t.contains("CG:"), "{t}");
+}
+
+#[test]
+fn bam_header_without_sq_text_shows_its_references_in_sam_only() {
+    let h = AlnHeader::new(
+        b"@HD\tVN:1.6\n".to_vec(),
+        vec![(b"c1".to_vec(), 100), (b"c2".to_vec(), 50)],
+        SortOrder::Unknown,
+    );
+    let shown = h.with_sq_lines();
+    assert_eq!(
+        String::from_utf8_lossy(&shown.text),
+        "@HD\tVN:1.6\n@SQ\tSN:c1\tLN:100\n@SQ\tSN:c2\tLN:50\n"
+    );
+    // Text that has @SQ lines is as it was.
+    assert_eq!(shown.with_sq_lines().text, shown.text);
+    let dir = tempfile::tempdir().unwrap();
+    for (f, has_sq) in [(OutFormat::Sam, true), (OutFormat::Bam, false)] {
+        let path = dir.path().join(format!("o.{f:?}"));
+        let w = open_alignment_writer(out_to(&path, f), Format::Bam, f, &h, &wopts(None, true))
+            .unwrap();
+        w.finish().unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let header = if f == OutFormat::Bam {
+            let mut s = open_aln_source_from(
+                "o.bam",
+                Box::new(Cursor::new(bytes)),
+                &ropts(AlignOptions::default(), InvalidPolicy::Fail),
+            )
+            .unwrap();
+            let h = (**s.header()).clone();
+            let _ = all(s.as_mut());
+            h
+        } else {
+            header_of(&String::from_utf8(bytes).unwrap())
+        };
+        assert_eq!(
+            String::from_utf8_lossy(&header.text).contains("@SQ\tSN:c1\tLN:100"),
+            has_sq,
+            "{f:?}"
+        );
+    }
+}
+
+#[test]
+fn pg_lines_follow_the_chain_ends_as_htslib_adds_them() {
+    let pgs = |text: &str| pg_lines(&header_of(text).with_program("c", "v"));
+    let new = |l: &String| {
+        l.split('\t')
+            .filter(|f| f.starts_with("ID:") || f.starts_with("PP:"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    // One line per chain end (a line with a PP that exists and that no line names).
+    let p = pgs("@PG\tID:a\n@PG\tID:b\tPP:a\n@PG\tID:c\n@PG\tID:d\tPP:c\n");
+    assert_eq!(
+        p[4..].iter().map(new).collect::<Vec<_>>(),
+        ["ID:gloci PP:b", "ID:gloci.1 PP:d"]
+    );
+    // A root and a chain: the chain end only.
+    let p = pgs("@PG\tID:bwa\n@PG\tID:aln\tPP:bwa\n@PG\tID:STAR\n");
+    assert_eq!(
+        p[3..].iter().map(new).collect::<Vec<_>>(),
+        ["ID:gloci PP:aln"]
+    );
+    // No chain end: the last line nobody names (a root, or a PP that is missing).
+    assert_eq!(
+        pgs("@PG\tID:x\n@PG\tID:y\n")[2..]
+            .iter()
+            .map(new)
+            .collect::<Vec<_>>(),
+        ["ID:gloci PP:y"]
+    );
+    assert_eq!(
+        pgs("@PG\tID:a\tPP:zz\n@PG\tID:b\n")[2..]
+            .iter()
+            .map(new)
+            .collect::<Vec<_>>(),
+        ["ID:gloci PP:b"]
+    );
+    assert_eq!(
+        pgs("@PG\tID:a\tPP:zz\n")[1..]
+            .iter()
+            .map(new)
+            .collect::<Vec<_>>(),
+        ["ID:gloci PP:a"]
+    );
+    assert_eq!(
+        pgs("@PG\tID:a\tPP:zz\n@PG\tID:x\tPP:y\n@PG\tID:y\tPP:x\n")[3..]
+            .iter()
+            .map(new)
+            .collect::<Vec<_>>(),
+        ["ID:gloci PP:a"]
+    );
+    // A cycle with nothing else: a line with no PP. A self-reference is a chain end.
+    assert_eq!(
+        pgs("@PG\tID:x\tPP:y\n@PG\tID:y\tPP:x\n")[2..]
+            .iter()
+            .map(new)
+            .collect::<Vec<_>>(),
+        ["ID:gloci"]
+    );
+    assert_eq!(
+        pgs("@PG\tID:a\tPP:a\n")[1..]
+            .iter()
+            .map(new)
+            .collect::<Vec<_>>(),
+        ["ID:gloci PP:a"]
+    );
+    // IDs skip every ID in use, among them the ones just added.
+    let p = pgs(
+        "@PG\tID:gloci\n@PG\tID:gloci.1\tPP:gloci\n@PG\tID:gloci.3\n@PG\tID:w\n@PG\tID:v\tPP:w\n",
+    );
+    assert_eq!(
+        p[5..].iter().map(new).collect::<Vec<_>>(),
+        ["ID:gloci.2 PP:gloci.1", "ID:gloci.4 PP:v"]
+    );
 }

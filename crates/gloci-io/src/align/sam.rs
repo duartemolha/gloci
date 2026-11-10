@@ -4,6 +4,7 @@
 //! The raw form of a SAM record is its line, without the newline, so output copies it
 //! unchanged. A record's `RNAME` must be one of the header's `@SQ` lines.
 
+use super::encode::{CIGAR_LETTERS, NO_CIGAR, ZERO_POS, normalise, parse_flag};
 use super::header::AlnHeader;
 use super::place::{IntervalRules, Verdict};
 use super::record::footprint;
@@ -20,7 +21,6 @@ use memchr::memchr;
 use std::io::BufRead;
 use std::sync::Arc;
 
-const FLAG_UNMAPPED: u16 = 0x4;
 const FLAG_REVERSE: u16 = 0x10;
 
 /// A view of one SAM record line, checked by [`SamAln::parse`]. It has the methods of
@@ -37,6 +37,9 @@ pub struct SamAln<'a> {
     cigar: &'a [u8],
     /// The optional fields, `TAG:TYPE:VALUE` separated by tabs; empty when there are none.
     tags: &'a [u8],
+    /// What [`normalise`] changed about the record: flag, reference and position are as
+    /// htslib reads them.
+    pub(crate) notes: u8,
 }
 
 fn number<T: std::str::FromStr>(field: &[u8], what: &str) -> Result<T, String> {
@@ -60,7 +63,7 @@ fn cigar_ops(text: &[u8]) -> impl Iterator<Item = Option<(u8, u32)>> + '_ {
         }
         let digits = rest.iter().take_while(|b| b.is_ascii_digit()).count();
         let op = match rest.get(digits) {
-            Some(&c) if b"MIDNSHP=X".contains(&c) && digits > 0 && digits <= 9 => c,
+            Some(&c) if CIGAR_LETTERS.contains(&c) && digits > 0 && digits <= 9 => c,
             _ => {
                 rest = &[];
                 return Some(None);
@@ -125,11 +128,13 @@ impl<'a> SamAln<'a> {
                 qname.len()
             ));
         }
-        let flag: u16 = number(flag, "FLAG")?;
+        let flag = parse_flag(flag)?;
         let mapq: u8 = number(mapq, "MAPQ")?;
         let pos1: u32 = number(pos, "POS")?;
-        if pos1 > i32::MAX as u32 {
-            return Err(format!("POS {pos1} is above 2147483647"));
+        if pos1 > i32::MAX as u32 + 1 {
+            return Err(format!(
+                "POS {pos1} is above 2147483648; BAM positions are 32-bit"
+            ));
         }
         let ref_id = if rname == b"*" {
             -1
@@ -158,30 +163,25 @@ impl<'a> SamAln<'a> {
                 query += u64::from(n);
             }
         }
-        if flag & FLAG_UNMAPPED == 0 {
-            if ref_id < 0 || pos1 == 0 {
-                return Err(format!(
-                    "a mapped read (flag {flag}) has RNAME '{}' and POS {pos1}; the flag \
-should include 4 (unmapped), or the record needs a reference and position",
-                    String::from_utf8_lossy(rname)
-                ));
-            }
-            if seq != b"*" && !cigar.is_empty() && query != seq.len() as u64 {
-                return Err(format!(
-                    "the CIGAR covers {query} bases of the read but the sequence has {}",
-                    seq.len()
-                ));
-            }
+        if seq != b"*" && !cigar.is_empty() && query != seq.len() as u64 {
+            return Err(format!(
+                "the CIGAR covers {query} bases of the read but the sequence has {}",
+                seq.len()
+            ));
         }
+        // As htslib reads it: no position means no reference, and no reference or CIGAR means
+        // unmapped. The line itself is kept as it is.
+        let (flag, ref_id, notes) = normalise(flag, ref_id, i64::from(pos1) - 1, !cigar.is_empty());
         Ok(SamAln {
             line,
             ref_id,
-            pos: pos1 as i32 - 1,
+            pos: (i64::from(pos1) - 1) as i32,
             flag,
             mapq,
             name: qname,
             cigar,
             tags: rest,
+            notes,
         })
     }
 
@@ -260,6 +260,8 @@ pub(crate) struct SamLines {
     pub(crate) rec: u64,
     /// Where records are encoded to check them.
     scratch: Vec<u8>,
+    /// The notes of `normalise` already warned about.
+    warned: u8,
 }
 
 impl SamLines {
@@ -315,6 +317,7 @@ impl SamLines {
             line,
             rec: 0,
             scratch: Vec::new(),
+            warned: 0,
         })
     }
 
@@ -348,6 +351,21 @@ impl SamLines {
         let a = SamAln::parse(line, &self.aln)?;
         self.scratch.clear();
         sam_line_to_bam(line, &self.aln, &mut self.scratch)?;
+        // htslib treats such reads as unmapped and says so; once per input here.
+        for (note, what) in [
+            (ZERO_POS, "has a reference but no position"),
+            (NO_CIGAR, "is mapped but has no CIGAR"),
+        ] {
+            if a.notes & note != 0 && self.warned & note == 0 {
+                self.warned |= note;
+                log::warn!(
+                    "{} line {}: read {} {what}; reads like it are treated as unmapped",
+                    self.name,
+                    self.line,
+                    String::from_utf8_lossy(a.name())
+                );
+            }
+        }
         Ok(a)
     }
 

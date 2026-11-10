@@ -466,10 +466,10 @@ fn bam_malformed_records() {
         "pos -1",
     ));
     cases.push((
-        "CIGAR op above 8",
-        frame(&raw_record(0, 10, b"r", 0, &[10 << 4 | 9], 10, b"")),
+        "CIGAR op above 9",
+        frame(&raw_record(0, 10, b"r", 0, &[10 << 4 | 10], 10, b"")),
         "record 2 of chr1",
-        "operation code 9",
+        "operation code 10",
     ));
     cases.push((
         "l_seq differs from the CIGAR",

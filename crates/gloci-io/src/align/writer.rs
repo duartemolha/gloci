@@ -152,13 +152,21 @@ write SAM with -O sam"
         path: "output".to_string(),
         source,
     };
+    // SAM text shows the references of a header that kept them only in its binary list.
+    let shown;
+    let base = if bam {
+        h
+    } else {
+        shown = h.with_sq_lines();
+        &shown
+    };
     let with_pg;
     let header = match &o.command_line {
         Some(cmd) => {
-            with_pg = h.with_program(cmd, o.version);
+            with_pg = base.with_program(cmd, o.version);
             &with_pg
         }
-        None => h,
+        None => base,
     };
     if o.write_header {
         if bam {

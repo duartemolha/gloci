@@ -4,7 +4,8 @@
 #   docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/work" -w /work gloci-diff:p0 sh make-alignments.sh
 # One thread, level 6, no @PG line, so the output is reproducible.
 set -eu
-for set in cigars flags order tags; do
+for set in cigars flags order tags edge pastend; do
     samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o "$set.bam" "$set.sam"
-    samtools index -@ 0 "$set.bam"
+    # edge.sam is not in coordinate order, so samtools cannot index it.
+    [ "$set" = edge ] || samtools index -@ 0 "$set.bam"
 done

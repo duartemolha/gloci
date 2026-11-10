@@ -179,6 +179,28 @@ impl AlnHeader {
         Ok(AlnHeader::new(text, refs, sort_order))
     }
 
+    /// The header as SAM text shows it: a BAM header whose text has no `@SQ` lines gets one
+    /// per reference of its binary list, at the end of the text, as htslib shows it. BAM output
+    /// keeps the text as stored (samtools does too), so only SAM output asks for this.
+    pub fn with_sq_lines(&self) -> AlnHeader {
+        let mut h = self.clone();
+        if h.text
+            .split(|&b| b == b'\n')
+            .any(|l| l.starts_with(b"@SQ\t"))
+        {
+            return h;
+        }
+        if !h.text.is_empty() && h.text.last() != Some(&b'\n') {
+            h.text.push(b'\n');
+        }
+        for (name, len) in &h.refs {
+            h.text.extend_from_slice(b"@SQ\tSN:");
+            h.text.extend_from_slice(name);
+            h.text.extend_from_slice(format!("\tLN:{len}\n").as_bytes());
+        }
+        h
+    }
+
     /// Parse SAM header text: the `@SQ` lines give the references.
     pub fn parse_sam(text: Vec<u8>) -> Result<AlnHeader, String> {
         let mut refs = Vec::new();
@@ -240,16 +262,20 @@ impl AlnHeader {
         Ok(())
     }
 
-    /// The header with gloci's `@PG` line added, as samtools adds its own (D104): the ID is
-    /// `gloci`, or `gloci.N` for the first N that no `@PG` line has; `PP` names the last
-    /// `@PG` line that no other one names as its predecessor (none when there is none); the
-    /// line goes after the last `@PG` line, or at the end of the header.
+    /// The header with gloci's `@PG` lines added, as htslib's `sam_hdr_add_pg` adds samtools'
+    /// (D104). One line goes in for each end of the `@PG` chains, that is each line that names an
+    /// existing line as its `PP` and that no other line names, with that line as its `PP`.
+    /// With none, one line follows the last line that no other line names (an isolated program,
+    /// or a line whose `PP` is missing), or comes without `PP` when there is none. The ID is
+    /// `gloci`, or `gloci.N` for the first N that no line (added ones included) has. Lines go
+    /// after the last `@PG` line, or at the end of the header.
     pub fn with_program(&self, command_line: &str, version: &str) -> AlnHeader {
         let mut text = self.text.clone();
         if !text.is_empty() && text.last() != Some(&b'\n') {
             text.push(b'\n');
         }
-        let (mut ids, mut preds): (Vec<&[u8]>, Vec<&[u8]>) = (Vec::new(), Vec::new());
+        // `(id, pp)` of each @PG line that has an ID, and where the last @PG line ends.
+        let mut pgs: Vec<(&[u8], Option<&[u8]>)> = Vec::new();
         let mut after = text.len();
         let mut at = 0;
         for line in self.text.split_inclusive(|&b| b == b'\n') {
@@ -258,28 +284,44 @@ impl AlnHeader {
                 let line = line.strip_suffix(b"\n").unwrap_or(line);
                 let line = line.strip_suffix(b"\r").unwrap_or(line);
                 if let Some(id) = field(line, b"ID:") {
-                    ids.push(id);
-                    if let Some(pp) = field(line, b"PP:") {
-                        preds.push(pp);
-                    }
+                    pgs.push((id, field(line, b"PP:")));
                 }
                 after = at;
             }
         }
-        let pp = ids.iter().rev().find(|id| !preds.contains(id)).copied();
-        let mut id = "gloci".to_string();
-        let mut n = 0u64;
-        while ids.contains(&id.as_bytes()) {
-            n += 1;
-            id = format!("gloci.{n}");
+        let find = |id: &[u8]| pgs.iter().position(|(i, _)| *i == id);
+        // A line is named when another line (not itself) has it as `PP`.
+        let mut named = vec![false; pgs.len()];
+        for (i, (_, pp)) in pgs.iter().enumerate() {
+            if let Some(k) = pp.and_then(find).filter(|&k| k != i) {
+                named[k] = true;
+            }
         }
-        let mut line = format!("@PG\tID:{id}\tPN:gloci").into_bytes();
-        if let Some(pp) = pp {
-            line.extend_from_slice(b"\tPP:");
-            line.extend_from_slice(pp);
+        let mut ends: Vec<Option<&[u8]>> = (0..pgs.len())
+            .filter(|&i| !named[i] && pgs[i].1.is_some_and(|pp| find(pp).is_some()))
+            .map(|i| Some(pgs[i].0))
+            .collect();
+        if ends.is_empty() {
+            ends.push((0..pgs.len()).rev().find(|&i| !named[i]).map(|i| pgs[i].0));
         }
-        line.extend_from_slice(format!("\tVN:{version}\tCL:{command_line}\n").as_bytes());
-        text.splice(after..after, line);
+        let mut used: Vec<Vec<u8>> = pgs.iter().map(|(i, _)| i.to_vec()).collect();
+        let mut added = Vec::new();
+        for pp in ends {
+            let mut id = "gloci".to_string();
+            let mut n = 0u64;
+            while used.iter().any(|u| u == id.as_bytes()) {
+                n += 1;
+                id = format!("gloci.{n}");
+            }
+            added.extend_from_slice(format!("@PG\tID:{id}\tPN:gloci").as_bytes());
+            if let Some(pp) = pp {
+                added.extend_from_slice(b"\tPP:");
+                added.extend_from_slice(pp);
+            }
+            added.extend_from_slice(format!("\tVN:{version}\tCL:{command_line}\n").as_bytes());
+            used.push(id.into_bytes());
+        }
+        text.splice(after..after, added);
         AlnHeader {
             text,
             refs: self.refs.clone(),

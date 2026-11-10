@@ -1,6 +1,7 @@
 //! One alignment record as an interval (D101): a borrowed view of a BAM record,
 //! and the blocks of its CIGAR (D105).
 
+use super::encode::CIGAR_LETTERS;
 use super::header::AlnHeader;
 use super::sam::SamAln;
 use crate::detect::Format;
@@ -8,7 +9,6 @@ use gloci_core::{Interval, Strand};
 
 /// Bytes before the read name in a BAM record, after `block_size`.
 const FIXED: usize = 32;
-const CIGAR_LETTERS: &[u8; 9] = b"MIDNSHP=X";
 const FLAG_UNMAPPED: u16 = 0x4;
 const FLAG_REVERSE: u16 = 0x10;
 
@@ -160,6 +160,7 @@ impl<'a> Aln<'a> {
         if n_cigar == 2
             && it.next().is_some_and(|(op, _)| op == 4)
             && it.next().is_some_and(|(op, _)| op == 3)
+            && ref_id >= 0
             && let Some(cg) = a.cg_array()?
         {
             a.check_ops(cg)?;
@@ -188,9 +189,9 @@ the flag should include 4 (unmapped), or the record needs a reference and positi
     }
 
     fn check_ops(&self, cigar: &[u8]) -> Result<(), String> {
-        match words(cigar).find(|(op, _)| *op > 8) {
+        match words(cigar).find(|(op, _)| *op > 9) {
             Some((op, _)) => Err(format!(
-                "the CIGAR has the operation code {op}; BAM defines 0 to 8"
+                "the CIGAR has the operation code {op}; BAM defines 0 to 9"
             )),
             None => Ok(()),
         }
@@ -338,7 +339,7 @@ the flag should include 4 (unmapped), or the record needs a reference and positi
             if qual[0] == 0xff {
                 out.push(b'*');
             } else {
-                out.extend(qual.iter().map(|q| q.saturating_add(33)));
+                out.extend(qual.iter().map(|q| q.wrapping_add(33)));
             }
         }
         let resolved_cg = self.cigar.as_ptr() != self.inline_cigar.as_ptr();
@@ -432,7 +433,11 @@ the flag should include 4 (unmapped), or the record needs a reference and positi
 /// htslib writes the float of an aux field.
 fn push_float(out: &mut Vec<u8>, f: f32) {
     if f.is_nan() {
-        out.extend_from_slice(b"nan");
+        out.extend_from_slice(if f.is_sign_negative() {
+            b"-nan"
+        } else {
+            b"nan"
+        });
         return;
     }
     if f.is_infinite() {

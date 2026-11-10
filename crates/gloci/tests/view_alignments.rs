@@ -83,6 +83,32 @@ fn view_bam_output_is_identical_at_every_thread_count() {
             "{name}: differs with the thread count"
         );
     }
+    // Every BGZF block after the first (which holds the @PG line, with `-t` in it) is the same
+    // bytes at every thread count.
+    let blocks = |b: &[u8]| -> Vec<Vec<u8>> {
+        let (mut v, mut at) = (Vec::new(), 0);
+        while at < b.len() {
+            let size = usize::from(u16::from_le_bytes([b[at + 16], b[at + 17]])) + 1;
+            v.push(b[at..at + size].to_vec());
+            at += size;
+        }
+        v
+    };
+    for name in ["bam", "sam"] {
+        let by_t: Vec<_> = outs
+            .iter()
+            .filter(|(n, _)| *n == name)
+            .map(|(_, o)| blocks(o))
+            .collect();
+        assert!(by_t[0].len() > 10, "{name}: a big output");
+        for t in &by_t[1..] {
+            assert_eq!(t.len(), by_t[0].len(), "{name}");
+            assert!(
+                t[1..] == by_t[0][1..],
+                "{name}: blocks differ with the thread count"
+            );
+        }
+    }
     // SAM and BAM input give the same records.
     assert!(compare("bam", &outs[0].1, &outs[1].1));
     // SAM text out is the same at every thread count too.

@@ -6,7 +6,72 @@
 use memchr::memchr;
 
 const FLAG_UNMAPPED: u16 = 0x4;
-const SEQ_CODES: &[u8; 16] = b"=ACMGRSVTWYHKDBN";
+/// CIGAR letters by BAM operation code (9 is `B`, which consumes neither query nor reference).
+pub(crate) const CIGAR_LETTERS: &[u8; 10] = b"MIDNSHP=XB";
+
+/// htslib's `seq_nt16_table`: the 4-bit code of a base letter. `=` is 0, the IUPAC letters
+/// (either case) are 1 to 14, the digits 0 to 3 are A, C, G and T, and everything else is N.
+const SEQ_CODE: [u8; 256] = {
+    let mut t = [15u8; 256];
+    let letters = b"=ACMGRSVTWYHKDBN";
+    let mut i = 0;
+    while i < 16 {
+        t[letters[i] as usize] = i as u8;
+        if letters[i].is_ascii_uppercase() {
+            t[letters[i].to_ascii_lowercase() as usize] = i as u8;
+        }
+        i += 1;
+    }
+    t[b'0' as usize] = 1;
+    t[b'1' as usize] = 2;
+    t[b'2' as usize] = 4;
+    t[b'3' as usize] = 8;
+    t
+};
+
+/// What htslib does when it reads a SAM record whose place or CIGAR make no sense as mapped.
+pub(crate) const ZERO_POS: u8 = 1;
+pub(crate) const NO_CIGAR: u8 = 2;
+
+/// htslib's reading rules for a record's flag and reference: a reference with no position is no
+/// reference (`ZERO_POS` when it was named), a read with no reference is unmapped, and so is a
+/// mapped read with no CIGAR (`NO_CIGAR`). Returns the flag, the reference id and the notes.
+pub(crate) fn normalise(flag: u16, ref_id: i32, pos: i64, has_cigar: bool) -> (u16, i32, u8) {
+    let (mut flag, mut ref_id, mut notes) = (flag, ref_id, 0u8);
+    if pos < 0 {
+        if ref_id >= 0 {
+            notes |= ZERO_POS;
+        }
+        ref_id = -1;
+    }
+    if ref_id < 0 {
+        flag |= FLAG_UNMAPPED;
+    }
+    if flag & FLAG_UNMAPPED == 0 && !has_cigar {
+        flag |= FLAG_UNMAPPED;
+        notes |= NO_CIGAR;
+    }
+    (flag, ref_id, notes)
+}
+
+/// A FLAG as `strtol` base 0 reads it: decimal, `0x` hexadecimal or leading-`0` octal.
+pub(crate) fn parse_flag(field: &[u8]) -> Result<u16, String> {
+    let bad = || {
+        format!(
+            "FLAG '{}' is not a number from 0 to 65535 (decimal, 0x hexadecimal or 0 octal)",
+            text(field)
+        )
+    };
+    let t = std::str::from_utf8(field).map_err(|_| bad())?;
+    let n = if let Some(h) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
+        u32::from_str_radix(h, 16)
+    } else if t.len() > 1 && t.starts_with('0') {
+        u32::from_str_radix(&t[1..], 8)
+    } else {
+        t.parse::<u32>()
+    };
+    n.ok().and_then(|n| u16::try_from(n).ok()).ok_or_else(bad)
+}
 
 /// htslib's `hts_reg2bin(beg, end, 14, 5)`.
 fn reg2bin(beg: i64, end: i64) -> u16 {
@@ -87,21 +152,28 @@ fn push_aux(out: &mut Vec<u8>, field: &[u8]) -> Result<(), String> {
     let (tag, ty, value) = (&field[..2], field[3], &field[5..]);
     out.extend_from_slice(tag);
     match ty {
-        b'A' => {
+        // htslib reads `c` as a character, like `A`, and `I` as an integer, like `i`.
+        b'A' | b'c' => {
             if value.len() != 1 {
                 return Err(format!(
-                    "the A field '{}' must hold one character",
+                    "the character field '{}' must hold one character",
                     text(field)
                 ));
             }
             out.extend_from_slice(&[b'A', value[0]]);
         }
-        b'i' => push_int(out, num::<i64>(value, "integer value")?, value)?,
+        b'i' | b'I' => push_int(out, num::<i64>(value, "integer value")?, value)?,
         b'f' => {
             out.push(b'f');
             out.extend_from_slice(&float(value, "float value")?.to_le_bytes());
         }
         b'Z' | b'H' => {
+            if ty == b'H' && value.len() % 2 != 0 {
+                return Err(format!(
+                    "the hex field '{}' has an odd number of digits; it needs whole bytes",
+                    text(field)
+                ));
+            }
             out.push(ty);
             out.extend_from_slice(value);
             out.push(0);
@@ -138,7 +210,7 @@ fn push_aux(out: &mut Vec<u8>, field: &[u8]) -> Result<(), String> {
         }
         other => {
             return Err(format!(
-                "the optional field '{}' has the type '{}'; SAM types are A, i, f, Z, H and B",
+                "the optional field '{}' has the type '{}'; SAM types are A, i, f, Z, H and B (c and I are read as A and i)",
                 text(field),
                 other as char
             ));
@@ -195,45 +267,33 @@ fn encode(
             name.len()
         ));
     }
-    let mut flag: u16 = num(f[1], "FLAG")?;
-    let mut ref_id = if f[2] == b"*" {
+    let flag = parse_flag(f[1])?;
+    let named_ref = if f[2] == b"*" {
         -1i32
     } else {
         rid(f[2]).ok_or_else(|| {
             format!(
-                "RNAME '{}' is not among the @SQ lines of the header",
+                "RNAME '{}' is not among the @SQ lines of the header; add an @SQ line for it, \
+fix the name, or pass --skip-invalid to skip such reads",
                 text(f[2])
             )
         })? as i32
     };
     let pos1: u32 = num(f[3], "POS")?;
-    if pos1 > i32::MAX as u32 {
-        return Err(format!("POS {pos1} is above 2147483647"));
+    if pos1 > i32::MAX as u32 + 1 {
+        return Err(format!(
+            "POS {pos1} is above 2147483648; BAM positions are 32-bit"
+        ));
     }
     let pos = i64::from(pos1) - 1;
     let mapq: u8 = num(f[4], "MAPQ")?;
-    let mut mate = match f[6] {
-        b"*" => -1i32,
-        b"=" => ref_id,
-        n => rid(n).ok_or_else(|| {
-            format!(
-                "RNEXT '{}' is not among the @SQ lines of the header",
-                text(n)
-            )
-        })? as i32,
-    };
-    let mate_pos = i64::from(num::<u32>(f[7], "PNEXT")?) - 1;
-    // As htslib reads SAM: a reference without a position is no reference (for the read and
-    // for its mate), and a read with no reference is unmapped.
-    if pos < 0 {
-        ref_id = -1;
+    let pnext: u32 = num(f[7], "PNEXT")?;
+    if pnext > i32::MAX as u32 + 1 {
+        return Err(format!(
+            "PNEXT {pnext} is above 2147483648; BAM positions are 32-bit"
+        ));
     }
-    if mate_pos < 0 {
-        mate = -1;
-    }
-    if ref_id < 0 {
-        flag |= FLAG_UNMAPPED;
-    }
+    let mate_pos = i64::from(pnext) - 1;
     let tlen: i32 = num(f[8], "TLEN")?;
 
     // The CIGAR, and what it covers.
@@ -245,7 +305,7 @@ fn encode(
             let digits = c.iter().take_while(|b| b.is_ascii_digit()).count();
             let op = c
                 .get(digits)
-                .and_then(|l| b"MIDNSHP=X".iter().position(|x| x == l));
+                .and_then(|l| CIGAR_LETTERS.iter().position(|x| x == l));
             let (Some(op), true) = (op, (1..=9).contains(&digits)) else {
                 return Err(format!(
                     "CIGAR '{}' is not a list of operations such as 10M2D5M",
@@ -268,10 +328,26 @@ fn encode(
     }
     let seq = f[9];
     let l_seq = if seq == b"*" { 0 } else { seq.len() };
-    if l_seq > 0 && !cigar.is_empty() && flag & FLAG_UNMAPPED == 0 && qlen != l_seq as u64 {
+    if l_seq > 0 && !cigar.is_empty() && qlen != l_seq as u64 {
         return Err(format!(
             "the CIGAR covers {qlen} bases of the read but the sequence has {l_seq}"
         ));
+    }
+    // As htslib reads SAM (see `normalise`); the mate's `=` is the read's reference as normalised.
+    let (flag, ref_id, _) = normalise(flag, named_ref, pos, !cigar.is_empty());
+    let mut mate = match f[6] {
+        b"*" => -1i32,
+        b"=" => ref_id,
+        n => rid(n).ok_or_else(|| {
+            format!(
+                "RNEXT '{}' is not among the @SQ lines of the header; add an @SQ line for it, \
+fix the name, or pass --skip-invalid to skip such reads",
+                text(n)
+            )
+        })? as i32,
+    };
+    if mate_pos < 0 {
+        mate = -1;
     }
     let end = if flag & FLAG_UNMAPPED != 0 {
         pos + 1
@@ -280,6 +356,18 @@ fn encode(
     };
     // More operations than the 16-bit count holds: a placeholder, and the array in `CG`.
     let long = cigar.len() > usize::from(u16::MAX);
+    if long && (rlen >= 1 << 28 || l_seq >= 1 << 28) {
+        return Err(format!(
+            "the CIGAR has {} operations, which BAM keeps in a CG tag, and the read's {} \
+is 2^28 or more, so the record cannot be written in BAM; write SAM instead",
+            cigar.len(),
+            if rlen >= 1 << 28 {
+                "reference span"
+            } else {
+                "sequence"
+            }
+        ));
+    }
     let inline: Vec<u32> = if long {
         vec![(l_seq as u32) << 4 | 4, (rlen as u32) << 4 | 3]
     } else {
@@ -303,13 +391,10 @@ fn encode(
         out.extend_from_slice(&w.to_le_bytes());
     }
     for pair in seq[..l_seq].chunks(2) {
-        let code = |b: u8| {
-            SEQ_CODES
-                .iter()
-                .position(|c| c.eq_ignore_ascii_case(&b))
-                .unwrap_or(15) as u8
-        };
-        out.push(code(pair[0]) << 4 | pair.get(1).map_or(0, |&b| code(b)));
+        out.push(
+            SEQ_CODE[usize::from(pair[0])] << 4
+                | pair.get(1).map_or(0, |&b| SEQ_CODE[usize::from(b)]),
+        );
     }
     let qual = f[10];
     if qual == b"*" {

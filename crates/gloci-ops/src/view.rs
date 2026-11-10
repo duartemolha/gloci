@@ -706,10 +706,10 @@ pub fn run_view(
     Ok(())
 }
 
-/// The span of a record for a region query (D116): its D101 footprint, or one base at its
-/// position for an unmapped read that has one (as samtools finds it). `None` for a record
-/// that covers nothing, so no region selects it.
-fn query_span(a: &gloci_io::AlnRef<'_>, refs: &[(Vec<u8>, u64)]) -> Option<(usize, Interval)> {
+/// The span of a record for a region query (D116): where the CIGAR puts it, not cut at the end
+/// of its reference (that cut is for interval commands), or one base at its position for an
+/// unmapped read that has one, as samtools finds it. `None` for a record with no place.
+fn query_span(a: &gloci_io::AlnRef<'_>) -> Option<(usize, Interval)> {
     let rid = a.ref_id()?;
     let pos = a.pos()?;
     let iv = if a.flag() & 0x4 != 0 {
@@ -718,7 +718,7 @@ fn query_span(a: &gloci_io::AlnRef<'_>, refs: &[(Vec<u8>, u64)]) -> Option<(usiz
             end: pos + 1,
         }
     } else {
-        a.span(refs.get(rid)?.1)?.0
+        a.span(u64::MAX)?.0
     };
     (iv.start < iv.end).then_some((rid, iv))
 }
@@ -788,7 +788,7 @@ output afterwards",
             let keep = !regions
                 || aln_ref(layout, &buf, &header)
                     .ok()
-                    .and_then(|a| query_span(&a, &header.refs))
+                    .and_then(|a| query_span(&a))
                     .is_some_and(|(rid, iv)| {
                         by_ref[rid]
                             .as_ref()

@@ -4051,3 +4051,63 @@ aux = ["xtask/diff/inputs/aln/flags.bam.bai"]
 gloci = "gloci view -O sam input.bam chr1:650-701 chr2:51-55"
 reference = "samtools view -h --no-PG -X input.bam flags.bam.bai chr1:650-701 chr2:51-55"
 compare = "sam"
+
+# Edge records (D104, D116, review of Task 3). edge.sam has the shapes samtools normalises or
+# encodes in its own way: a mapped read with CIGAR `*`, RNEXT on another contig, RNEXT `=` with
+# POS 0 or PNEXT 0, SEQ `*`, SEQ with QUAL `*`, lower-case, IUPAC, `=` and digit bases, empty
+# B arrays, H, `I` and `c` tags, hex and octal FLAG, a mapped read with RNAME `*`, POS 2^31,
+# and a CIGAR of 65,540 operations (a placeholder and a CG array in BAM).
+[[case]]
+name = "view-sam-edge-to-bam-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/edge.sam" }
+gloci = "gloci view -O bam input.sam"
+reference = "samtools view -b --no-PG input.sam"
+compare = "bam"
+
+[[case]]
+name = "view-bam-edge-to-sam-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/edge.bam" }
+gloci = "gloci view -O sam input.bam"
+reference = "samtools view -h --no-PG input.bam"
+compare = "sam"
+
+# CRLF line ends are read as LF, as htslib reads them.
+[[case]]
+name = "view-sam-crlf-to-bam-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/cigars-crlf.sam" }
+gloci = "gloci view -O bam input.sam"
+reference = "samtools view -b --no-PG input.sam"
+compare = "bam"
+
+# A BAM whose header text has no @SQ lines gets them from its reference list, in every output.
+[[case]]
+name = "view-bam-without-sq-text-to-sam-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/nosq.bam" }
+gloci = "gloci view -O sam input.bam"
+reference = "samtools view -h --no-PG input.bam"
+compare = "sam"
+
+[[case]]
+name = "view-bam-without-header-text-to-bam-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/notext.bam" }
+gloci = "gloci view -O bam input.bam"
+reference = "samtools view -b --no-PG input.bam"
+compare = "bam"
+
+# A region selects by where the CIGAR puts a read, not cut at the end of the reference: a read
+# that starts past `LN` is in a whole-chromosome query and in a query past the end.
+[[case]]
+name = "view-bam-region-whole-chromosome-past-end-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/pastend.bam" }
+aux = ["xtask/diff/inputs/aln/pastend.bam.bai"]
+gloci = "gloci view -O sam input.bam chr1"
+reference = "samtools view -h --no-PG -X input.bam pastend.bam.bai chr1"
+compare = "sam"
+
+[[case]]
+name = "view-bam-region-past-end-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/pastend.bam" }
+aux = ["xtask/diff/inputs/aln/pastend.bam.bai"]
+gloci = "gloci view -O sam input.bam chr1:1001-1010"
+reference = "samtools view -h --no-PG -X input.bam pastend.bam.bai chr1:1001-1010"
+compare = "sam"
