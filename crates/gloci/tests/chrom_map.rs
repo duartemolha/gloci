@@ -464,6 +464,57 @@ fn assume_sorted_bisection_with_a_map() {
         .stderr(contains("could not locate 1 by binary search"));
 }
 
+/// A map that renames onto a name already in the file leaves a file that is
+/// not sorted in new-name space. `--assume-sorted` trusts the claim that it
+/// is, and silently answers from the renamed block only; the scan checks the
+/// order and fails. Documented in docs/migration.md (a note, not a bug).
+#[test]
+fn assume_sorted_trusts_a_map_that_renames_onto_an_existing_name() {
+    let fx = Fx::new();
+    let bed = fx.plain("h.bed", "a\t10\t20\na\t30\t40\nb\t5\t8\nc\t50\t60\n");
+    let map = fx.plain("h.map", "a\tc\n");
+    let genome = fx.plain("h.genome", "c\t1000\nb\t1000\n");
+    let base = ["view", &bed, "c:1-1000", "--chrom-map", &map, "-g", &genome];
+    // the scan reports the unsorted file
+    gloci()
+        .args(base)
+        .assert()
+        .code(1)
+        .stderr(contains("is not sorted"));
+    // the bisection finds the renamed `a` block only; `c` (line 4) is missed
+    gloci()
+        .args(base)
+        .arg("--assume-sorted")
+        .assert()
+        .success()
+        .stdout("c\t10\t20\nc\t30\t40\n");
+}
+
+#[test]
+fn order_reversing_map_falls_back_to_a_scan_under_assume_sorted() {
+    let fx = Fx::new();
+    let bed = fx.plain("r.bed", "a\t10\t20\na\t30\t40\nb\t5\t8\n");
+    let map = fx.plain("r.map", "a\tz\nb\ty\n");
+    for (region, want) in [("y", "y\t5\t8\n"), ("z", "z\t10\t20\nz\t30\t40\n")] {
+        gloci()
+            .args([
+                "view",
+                &bed,
+                region,
+                "--chrom-map",
+                &map,
+                "--chrom-order",
+                "lex",
+                "--assume-sorted",
+            ])
+            .assert()
+            .success()
+            .stdout(want)
+            .stderr(contains("could not locate"))
+            .stderr(contains("scanning the whole file"));
+    }
+}
+
 #[test]
 fn unreadable_map_is_a_usage_error() {
     let fx = Fx::new();

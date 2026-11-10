@@ -227,6 +227,14 @@ impl Parser {
         let lcol = self.peek().col;
         let l = self.parse_term()?;
         let Tok::Cmp(op) = self.peek().tok else {
+            // `QUAL+1>10` lexes as QUAL followed by the number +1
+            if matches!(self.peek().tok, Tok::Num(_)) && matches!(l, Term::Field(_)) {
+                return err(
+                    self.peek().col,
+                    "arithmetic is not supported; compare a field with a number, \
+                     a string or `.`",
+                );
+            }
             return self.bare(l, lcol);
         };
         let opcol = self.bump().col;

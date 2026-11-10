@@ -241,6 +241,8 @@ fn unsupported_constructs_are_usage_errors_with_hints() {
         e.contains("ABS is not supported") && e.contains("N_PASS") && e.contains("column 1"),
         "{e}"
     );
+    let e = err("QUAL+1>10");
+    assert!(e.contains("arithmetic is not supported"), "{e}");
     let e = err("QUAL>POS");
     assert!(e.contains("two fields") && e.contains("column 5"), "{e}");
     let e = err("FMT/AD>1");
