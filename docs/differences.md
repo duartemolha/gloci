@@ -888,6 +888,25 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   `convert-bed12-invalid-vs-bedtools` (must differ; exit status).
   `convert-bed12-zero-blocks-vs-bedtools` must match (both exit 1).
 
+## `convert` reads PSL and RepeatMasker the way the files are written {#psl-rmsk-bedops-quirks}
+
+- **gloci:** `gloci convert x.psl` skips the BLAT header (the five lines from
+  `psLayout version 3` to the dashed line) and reads a final line that has no
+  newline. RepeatMasker `.out` loses its three header lines the same way. A
+  line that is not a PSL or RepeatMasker row (too few columns, a coordinate
+  that is not a number, a strand that is not `+`/`-` or `C`) is a data error
+  (exit 1) naming the file and the line; `--skip-invalid` skips it.
+- **Old behaviour:** `convert2bed --input=psl` (bedops 2.4.41) exits 22 with
+  "Invalid field count (19)" on a header line, so a headered BLAT file must be
+  stripped first, and it silently drops a last line that has no newline.
+- **Reason:** BLAT writes the header by default, and a file cut short or
+  written without a final newline should not lose its last hit unseen.
+- **Pinned by:** `convert-psl-header-unskipped-vs-convert2bed` (exit status;
+  must differ) and `convert-psl-no-final-newline-vs-convert2bed` (must
+  differ). Every column otherwise matches: `convert-psl-vs-convert2bed`,
+  `convert-psl-header-vs-convert2bed` (the header cut off for the reference)
+  and `convert-rmsk-vs-convert2bed`.
+
 ## INFO kept by default in `vcf filter` {#info-kept-by-default}
 
 - **gloci:** `gloci vcf filter` keeps all INFO fields by default. `--keep-info`

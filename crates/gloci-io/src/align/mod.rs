@@ -164,10 +164,8 @@ reads its .fai for the chromosome sizes (create it with: gloci index {name})"
     }
     if format.is_convert_only() {
         if accept.convert_only {
-            return Err(IoError::Detect {
-                path: name.to_string(),
-                msg: not_yet().to_string(),
-            });
+            // `convert` reads PSL and RepeatMasker (D114).
+            return Ok(());
         }
         return Err(gate_error(
             GateKind::ConvertOnly,

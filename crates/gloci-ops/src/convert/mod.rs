@@ -1,4 +1,4 @@
-//! `convert`: VCF/BCF, GFF3/GTF, WIG and BED12 to BED (replaces bedops
+//! `convert`: VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker and BED12 to BED (replaces bedops
 //! `convert2bed`, `vcf2bed`, `gff2bed`, `gtf2bed` and bedtools
 //! `bed12tobed6`).
 //!
@@ -9,10 +9,12 @@
 
 mod bed12;
 mod gff;
+mod psl;
+mod rmsk;
 mod vcf;
 mod wig;
 
-use gloci_core::{ChromId, ChromTable, VariantKind, VcfSpan};
+use gloci_core::{ChromId, ChromTable, Strand, VariantKind, VcfSpan};
 use gloci_io::{Format, IoError, RecordReader, RecordWriter, UsageError};
 
 #[derive(Debug, Clone, Default)]
@@ -73,6 +75,15 @@ impl Sink<'_> {
     }
 }
 
+/// The BED strand character of a record whose reader found `+` or `-`.
+pub(crate) fn strand_byte(s: Strand) -> u8 {
+    match s {
+        Strand::Plus => b'+',
+        Strand::Minus => b'-',
+        Strand::Unknown => b'.',
+    }
+}
+
 /// Append `n` as decimal digits.
 pub(crate) fn push_num(row: &mut Vec<u8>, n: u64) {
     row.extend_from_slice(n.to_string().as_bytes());
@@ -91,7 +102,7 @@ fn what(format: Format) -> &'static str {
 }
 
 /// What `convert` does for each input, for usage errors.
-const SUMMARY: &str = "convert turns VCF/BCF, GFF3/GTF, WIG or (with --blocks) BED12 into BED";
+const SUMMARY: &str = "convert turns VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out or (with --blocks) BED12 into BED";
 
 impl ConvertOptions {
     fn check(&self, format: Format) -> Result<(), UsageError> {
@@ -162,13 +173,13 @@ pub fn convert(
         warned: false,
     };
     match format {
-        Format::Bam | Format::Cram | Format::Sam | Format::Fasta | Format::Psl | Format::Rmsk => {
-            Err(UsageError(format!(
-                "convert does not read {} yet; {SUMMARY}",
-                format.name()
-            ))
-            .into())
-        }
+        Format::Bam | Format::Cram | Format::Sam | Format::Fasta => Err(UsageError(format!(
+            "convert does not read {} yet; {SUMMARY}",
+            format.name()
+        ))
+        .into()),
+        Format::Psl => psl::convert(input, chroms, &mut sink),
+        Format::Rmsk => rmsk::convert(input, chroms, &mut sink),
         Format::Vcf | Format::Bcf => vcf::convert(input, chroms, o, &mut sink),
         Format::Gff3 | Format::Gtf => gff::convert(input, chroms, o, &mut sink),
         Format::Bed => bed12::convert(input, chroms, &mut sink),

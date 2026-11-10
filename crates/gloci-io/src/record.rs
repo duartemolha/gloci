@@ -212,17 +212,25 @@ fn dispatch(input: Input, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, Io
                 o.accept.alignments.clone().unwrap_or_default(),
             )?))
         }
+        Format::Psl => Ok(Box::new(crate::psl::PslReader::open_psl(
+            input,
+            o.invalid,
+            o.chrom_map.clone(),
+        )?)),
+        Format::Rmsk => Ok(Box::new(crate::rmsk::RmskReader::open_rmsk(
+            input,
+            o.invalid,
+            o.chrom_map.clone(),
+        )?)),
         // `gate` has returned an error for each of these.
-        Format::Bam | Format::Cram | Format::Sam | Format::Fasta | Format::Psl | Format::Rmsk => {
-            Err(IoError::Detect {
-                path: input.name.clone(),
-                msg: format!(
-                    "{} is {}, which is not readable here",
-                    input.name,
-                    input.format.name()
-                ),
-            })
-        }
+        Format::Bam | Format::Cram | Format::Sam | Format::Fasta => Err(IoError::Detect {
+            path: input.name.clone(),
+            msg: format!(
+                "{} is {}, which is not readable here",
+                input.name,
+                input.format.name()
+            ),
+        }),
     }
 }
 

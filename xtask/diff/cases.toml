@@ -3368,3 +3368,46 @@ gloci = "gloci index input.fa"
 reference = "samtools faidx input.fa"
 compare = "exit-status"
 expected_difference = "#fasta-index-strictness"
+
+# PSL and RepeatMasker (Task 12, D114) vs bedops convert2bed 2.4.41
+# --do-not-sort. The fixtures hold minus-strand hits, a three-block hit, a
+# translated (two-character) strand, `C` repeats and parenthesised fields.
+# convert2bed does not skip the PSL header, so the headered file is compared
+# with the header cut off, and the difference is pinned on its own.
+
+[[case]]
+name = "convert-psl-vs-convert2bed"
+input = { file = "xtask/diff/inputs/convert-blat.psl" }
+gloci = "gloci convert input.psl"
+reference = "convert2bed --input=psl --do-not-sort < input.psl"
+compare = "exact"
+
+[[case]]
+name = "convert-psl-header-vs-convert2bed"
+input = { file = "xtask/diff/inputs/convert-blat-header.psl" }
+gloci = "gloci convert input.psl"
+reference = "tail -n +6 input.psl | convert2bed --input=psl --do-not-sort"
+compare = "exact"
+
+[[case]]
+name = "convert-psl-header-unskipped-vs-convert2bed"
+input = { file = "xtask/diff/inputs/convert-blat-header.psl" }
+gloci = "gloci convert input.psl"
+reference = "convert2bed --input=psl --do-not-sort < input.psl"
+compare = "exit-status"
+expected_difference = "#psl-rmsk-bedops-quirks"
+
+[[case]]
+name = "convert-psl-no-final-newline-vs-convert2bed"
+input = { file = "xtask/diff/inputs/convert-blat-no-eol.psl" }
+gloci = "gloci convert input.psl"
+reference = "convert2bed --input=psl --do-not-sort < input.psl"
+compare = "exact"
+expected_difference = "#psl-rmsk-bedops-quirks"
+
+[[case]]
+name = "convert-rmsk-vs-convert2bed"
+input = { file = "xtask/diff/inputs/convert-repeats-rmsk.out" }
+gloci = "gloci convert input.out"
+reference = "convert2bed --input=rmsk --do-not-sort < input.out"
+compare = "exact"

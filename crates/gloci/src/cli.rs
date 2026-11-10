@@ -479,8 +479,8 @@ Examples:
   gloci windows -i genes.bed -n 10 --id-column --reverse
   gloci merge peaks.bed | gloci windows -i - -w 100")]
     Windows(WindowsArgs),
-    /// Convert VCF/BCF, GFF3/GTF, WIG or BED12 to BED (bedops convert2bed,
-    /// vcf2bed, gff2bed, gtf2bed; bedtools bed12tobed6).
+    /// Convert VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out or BED12 to BED
+    /// (bedops convert2bed, vcf2bed, gff2bed, gtf2bed; bedtools bed12tobed6).
     ///
     /// VCF/BCF gives one row per record: chrom, start, end, ID, REF, ALT,
     /// QUAL, FILTER, with the footprint chosen by --vcf-span.
@@ -498,6 +498,12 @@ Examples:
     /// row per data line: chrom, start, end, value; equal values are not
     /// merged. fixedStep needs start= and step=; values must be finite. A
     /// span larger than the step gives overlapping rows.
+    /// PSL (BLAT; the header is skipped) gives bedops psl2bed's 21 columns:
+    /// tName, tStart, tEnd, qName, matches, strand, then the other PSL
+    /// columns in order. RepeatMasker .out gives bedops rmsk2bed's columns:
+    /// sequence, begin-1, end, repeat, score, strand (`C` is `-`), the
+    /// divergence, deletion and insertion percentages, the `(left)` of the
+    /// query, class/family, the repeat positions as written, ID and `*`.
     /// BED12 with --blocks gives one BED6 row per block; a line that is not
     /// valid BED12 (fewer than 12 columns, block counts that disagree, blocks
     /// out of order, a last block not ending at chromEnd) is an error, also
@@ -508,9 +514,9 @@ Examples:
     #[command(after_long_help = "\
 Examples:
   gloci convert calls.vcf.gz -o calls.bed
-  gloci convert calls.vcf.gz --split-alleles --types del,ins
   gloci convert genes.gtf --feature exon --name-attr gene_name
-  gloci convert transcripts.bed --blocks -o exons.bed")]
+  gloci convert transcripts.bed --blocks -o exons.bed
+  gloci convert hits.psl -o hits.bed")]
     Convert(ConvertArgs),
     /// Remove from A the bases covered by B (bedtools subtract, bedops -d).
     ///

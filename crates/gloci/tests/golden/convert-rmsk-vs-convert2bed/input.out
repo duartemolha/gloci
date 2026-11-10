@@ -1,0 +1,7 @@
+   SW  perc perc perc  query      position in query           matching       repeat              position in repeat
+score  div. del. ins.  sequence    begin     end    (left)    repeat         class/family         begin  end (left)   ID
+
+  463  13.2  0.0  1.5  chr1       10001   10468 (248471868) +  (CCCTAA)n      Simple_repeat            1    468    (0)    1
+  239  28.4  1.2  3.0  chr1        9000    9300 (248482036) C  AluSx          SINE/Alu              (12)    290      1    2 *
+  1200  5.0  0.0  0.0  chr10       500     900  (1000) C  L1PA2          LINE/L1             (5000)   1400   (3)    3
+   50  20.0  0.0  0.0  chrM        1       40   (16000) +  MIR            SINE/MIR               10     49  (120)    4

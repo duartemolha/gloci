@@ -474,6 +474,10 @@ Before relying on a new expression, run it once on a small file with
 - **`convert --blocks` validates BED12:** Records with fewer than 12 columns or
   invalid block coordinates exit 1 instead of passing through unchanged.
   [differences.md#bed12-short-line](differences.md#bed12-short-line)
+- **`convert` reads BLAT PSL headers and unterminated last lines:** `gloci
+  convert x.psl` skips the five-line header and keeps a last line without a
+  newline; `convert2bed --input=psl` fails on the header and drops that line.
+  [differences.md#psl-rmsk-bedops-quirks](differences.md#psl-rmsk-bedops-quirks)
 - **`vcf filter` keeps INFO by default:** All INFO fields are preserved unless
   pruned with `--keep-info` or `--drop-info` (`vcftools --recode` drops INFO
   unless `--recode-INFO-all` is given).
