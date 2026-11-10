@@ -449,10 +449,10 @@ Every row below was checked against `gloci <cmd> --help`.
   [differences.md#vcf-stats-singletons-masked](differences.md#vcf-stats-singletons-masked),
   [differences.md#vcf-stats-snp-density-unsorted](differences.md#vcf-stats-snp-density-unsorted),
   [differences.md#vcf-stats-mask-missing](differences.md#vcf-stats-mask-missing).
-  The layout of `--json` is in
-  [differences.md#vcf-stats-summary-json](differences.md#vcf-stats-summary-json);
-  `vcf filter ... | vcf stats` differs from masking inside `vcf stats`, see
-  [differences.md#vcf-stats-after-filter](differences.md#vcf-stats-after-filter).
+  The layout of `--json` and the note on `vcf filter ... | vcf stats` (which
+  keeps the original DP and GQ of masked genotypes) are in
+  [differences.md](differences.md), under "`vcf stats --json`: the summary.json
+  schema" and "`vcf filter ... | vcf stats` is `vcf stats` without masking".
 - **`vcf filter --include/--exclude` is a subset of `bcftools view -i/-e`:**
   fields against numbers, strings or `.`, `N_PASS`, and the FORMAT fields GT,
   DP and GQ only (other FORMAT keys such as AD and FT are rejected, exit 2).

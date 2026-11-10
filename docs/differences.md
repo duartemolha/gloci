@@ -225,8 +225,10 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   later key `x`, `.` as `x\0`, `.\0`.
 - **Reason:** the decoded values are identical; only the padding differs, and
   matching it would mean re-encoding every String field.
-- **Pinned by:** `bcf_missing_string_records_equal_bcftools` (the all-missing
-  cases, byte-identical to bcftools) in `crates/gloci/tests/bcf_missing_parity.rs`.
+- **Pinned by:** `vcf-to-bcf-string-width-vs-bcftools` (must differ), and
+  `bcf_missing_string_records_equal_bcftools` in
+  `crates/gloci/tests/bcf_missing_parity.rs` (the all-missing cases, byte-identical
+  to bcftools).
 
 ## Zero-length BED records {#zero-length-bed-records}
 
@@ -1268,7 +1270,7 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   `crates/gloci/tests/vcf_stats.rs` (both tools' counts, from the committed
   vcftools files `mq.*`).
 
-## `vcf stats --json`: the summary.json schema {#vcf-stats-summary-json}
+## `vcf stats --json`: the summary.json schema
 
 `--json` writes `PREFIX.summary.json`; `--summary` writes the same figures as
 text in `PREFIX.summary.txt`. These are not vcftools files: vcftools has no
@@ -1303,7 +1305,7 @@ variants (there is no `sv` count; a symbolic ALT such as `<DEL>` is `other`). A
 `<*>` ALT is ignored beside a real one, so `T,<*>` is `snp`; a record whose only
 ALT is `<*>` or `.` is `ref`.
 
-## `vcf filter ... | vcf stats` is `vcf stats` without masking {#vcf-stats-after-filter}
+## `vcf filter ... | vcf stats` is `vcf stats` without masking
 
 Running `vcf filter` with the selection flags (`--samples`, regions, site
 filters) and piping it to `vcf stats` gives the same files as `vcf stats` with
