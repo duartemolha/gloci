@@ -384,6 +384,22 @@ gloci groupby calls.tsv -g 1 -c 4:collapse -c 5:count_distinct
 gloci groupby table.tsv --header -g gene -c expr:median -o medians.tsv
 ```
 
+### `gloci maskfasta`
+
+Mask bases of a FASTA under intervals, streaming it (bedtools maskfasta).
+
+Copies --fasta (plain, gzip or BGZF; no index needed) to the output with every base under a -b interval replaced by --mask-char (default N) or, with --soft, lowercased (letters only; other characters are kept). Headers and line layout are kept exactly: line widths, CRLF line ends, blank lines and a missing final line break. (bedtools re-wraps lines to the first line's width, drops header descriptions and cannot match names in a CRLF file; it also adds a final line break that was missing and drops empty sequences, which gloci keeps.) The FASTA is read in pieces of at most 1 MiB, so a chromosome of any size needs no memory beyond the masks.
+
+Masks come from any number of files in any order, in any interval format (BED, bedGraph, GFF/GTF, VCF/BCF); overlapping masks are merged so a base is masked once. A mask names a sequence by the first word of its header; use --chrom-map when the names differ. Masks on a chromosome the FASTA lacks are skipped with one warning. A mask that reaches past the end of its sequence is an error, unless --skip-invalid is given: then it is clipped to the sequence end (one that starts at or past the end masks nothing) with one warning that counts them. --mask-char takes one printable character; a space is refused because it makes the FASTA unindexable.
+
+Output goes to stdout or -o FILE (.fa, .fasta, .fna; a .gz name is BGZF). --write-index also writes FILE.fai, and FILE.gzi for BGZF, the same files gloci index writes.
+
+```sh
+gloci maskfasta --fasta hg38.fa -b repeats.bed -o hg38.masked.fa
+gloci maskfasta --fasta hg38.fa.gz -b rmsk.bed segdups.bed --soft -o soft.fa.gz --write-index
+gloci maskfasta --fasta ref.fa -b low-mappability.bed --mask-char X | head
+```
+
 ### `gloci vcf`
 
 VCF operations (spec §7.8)
@@ -507,7 +523,8 @@ then the rest of P2b (Python library, packaging, mdBook, paper evidence suite).
 | `spacing` | `gloci spacing FILE` (`.` for the first record of a chromosome, `0` bookended, `-1` overlapping, only the previous record counts, as in bedtools; a zero-length record is a point, see [differences.md#spacing-zero-length](differences.md#spacing-zero-length); VCF input and chromosome order as for `cluster`) |
 | `bamtobed` | not yet available (`convert`, P3a) |
 | `getfasta -fi REF -bed FILE` (`-name`, `-nameOnly`, `-s`, `-split`, `-tab`, `-bedOut`, `-rna`) | `gloci getfasta FILE --fasta REF [--name \| --name-only] [-s] [--split] [--tab \| --bed-out] [--rna]` (output is byte-identical to bedtools 2.31.1 for BED, GFF and VCF input, including the IUPAC-aware reverse complement, except that `--split` refuses BED12 records whose blocks are out of order, overlap, or do not span the record where bedtools writes them unchecked, see [differences.md#getfasta-split-blocks](differences.md#getfasta-split-blocks); the FASTA needs a `.fai` (and `.gzi` for BGZF) made with `gloci index`, which gloci never builds itself; VCF is bedtools' REF span with `--vcf-span ref`; zero-length intervals are skipped with a counted warning, as bedtools does; an interval on a chromosome the FASTA lacks, or past its end, is an error where bedtools skips it, `--skip-invalid` gives bedtools' behaviour, see [differences.md#getfasta-outside-fasta](differences.md#getfasta-outside-fasta); there is no `-fullHeader`) |
-| `maskfasta`, `nuc` | not yet available (`maskfasta`, `nuc`, P3a) |
+| `maskfasta -fi F -bed B [-soft -mc C -fullHeader]` | `gloci maskfasta --fasta F -b B [--soft \| --mask-char C] [-o OUT.fa[.gz] --write-index]` (streamed, any compression, no index needed; headers are kept whole and line layout is kept, so `-fullHeader` is the default, see [differences.md#maskfasta-header](differences.md#maskfasta-header) and [differences.md#maskfasta-layout](differences.md#maskfasta-layout); a mask past its sequence's end is an error, see [differences.md#maskfasta-past-end](differences.md#maskfasta-past-end)) |
+| `nuc` | not yet available (`nuc`, P3a) |
 | `jaccard`, `fisher`, `reldist` | not yet available (`stats jaccard / fisher / reldist`, P3b) |
 | `shuffle`, `random`, `sample` | not yet available (`shuffle`, `random`, `sample`, P3b) |
 | `pairtobed`, `pairtopair` | not yet available (`pair-intersect`, `pair-pair`, P3b) |
