@@ -1,14 +1,15 @@
-# BCF missing String FORMAT / FILTER byte parity fixture
+# BCF String FORMAT / FILTER byte parity fixture
 
 `expected.bcf` is bcftools 1.21 (htslib 1.21) converting `input.vcf`; the test
 `bcf_missing_parity.rs` requires gloci's BCF records to be byte-identical to it.
 The records cover a String FORMAT field that is `.` in every sample (first or
 later key, with and without GT) and declared FILTER ids.
 
-htslib writes such a field with width 1 for the first FORMAT key and width 2
-(`.` and NUL) for any later key. For later keys it also pads non-missing
-String values by one byte; gloci does not (the decoded values are equal), so
-this fixture holds no such record.
+htslib writes a String FORMAT field with the width of its longest value for the
+first FORMAT key, and one byte more (a NUL after each value) for every later
+key; a field that is `.` everywhere is a lone `.` (first key) or `.` and NUL.
+Widths of 15 and up use the escaped length form (the input has values of 14,
+15, 16, 127 and 130 characters).
 
 bcftools 1.21 refuses a FILTER that the header does not declare
 (`Tag not defined in header`); gloci refuses it too, naming the line and the

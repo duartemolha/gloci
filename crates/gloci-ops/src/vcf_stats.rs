@@ -223,8 +223,11 @@ remove or rename it, or choose another --out-prefix"
         for (file, dest) in self.files {
             let step = (|| -> io::Result<()> {
                 if std::fs::symlink_metadata(&dest).is_ok() {
-                    let backup = reserve_backup_name(&dest)?;
-                    std::fs::rename(&dest, &backup)?;
+                    let backup = back_up(
+                        &dest,
+                        |a, b| std::fs::hard_link(a, b),
+                        |a, b| std::fs::rename(a, b),
+                    )?;
                     backups.push((dest.clone(), backup));
                 }
                 file.commit()
@@ -250,6 +253,29 @@ remove or rename it, or choose another --out-prefix"
         }
         Ok(done)
     }
+}
+
+/// Keep the previous content of `dest` under a registered name next to it.
+/// `dest` stays where it is, as a hard link, so the rename that publishes the
+/// new file replaces it atomically and a signal never finds it missing. When
+/// the link cannot be made (a file system without hard links) the file is
+/// moved aside instead; if that fails too, the reserved name is removed.
+fn back_up(
+    dest: &std::path::Path,
+    link: impl Fn(&std::path::Path, &std::path::Path) -> io::Result<()>,
+    rename: impl Fn(&std::path::Path, &std::path::Path) -> io::Result<()>,
+) -> io::Result<PathBuf> {
+    let backup = reserve_backup_name(dest)?;
+    // The name is registered, so it stays reserved for this run; a link needs
+    // it free.
+    std::fs::remove_file(&backup)?;
+    if link(dest, &backup).is_ok() {
+        return Ok(backup);
+    }
+    rename(dest, &backup).inspect_err(|_| {
+        let _ = std::fs::remove_file(&backup);
+    })?;
+    Ok(backup)
 }
 
 /// A new, registered, empty file next to `dest` to move its previous content
@@ -284,6 +310,10 @@ fn roll_back(done: &[PathBuf], backups: &[(PathBuf, PathBuf)]) -> String {
                 dest.display(),
                 backup.display()
             ));
+        } else {
+            // A hard-linked backup of a dest that was never replaced is the
+            // same file: the rename keeps both names.
+            let _ = std::fs::remove_file(backup);
         }
     }
     kept.join(", ")
@@ -482,6 +512,40 @@ mod tests {
             std::fs::read_to_string(d.path().join("o.hwe")).unwrap(),
             "previous hwe"
         );
+    }
+
+    #[test]
+    fn back_up_hard_links_and_leaves_the_destination_in_place() {
+        let d = tempfile::tempdir().unwrap();
+        let dest = d.path().join("o.frq");
+        std::fs::write(&dest, "previous").unwrap();
+        let backup = back_up(
+            &dest,
+            |a, b| std::fs::hard_link(a, b),
+            |a, b| std::fs::rename(a, b),
+        )
+        .unwrap();
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "previous");
+        assert_eq!(std::fs::read_to_string(&backup).unwrap(), "previous");
+    }
+
+    #[test]
+    fn back_up_falls_back_to_a_move_and_cleans_up_when_that_fails() {
+        let d = tempfile::tempdir().unwrap();
+        let dest = d.path().join("o.frq");
+        std::fs::write(&dest, "previous").unwrap();
+        let no_link = |_: &std::path::Path, _: &std::path::Path| -> io::Result<()> {
+            Err(io::Error::other("no links"))
+        };
+        let backup = back_up(&dest, no_link, |a, b| std::fs::rename(a, b)).unwrap();
+        assert!(!dest.exists());
+        assert_eq!(std::fs::read_to_string(&backup).unwrap(), "previous");
+        std::fs::rename(&backup, &dest).unwrap();
+        let no_move = |_: &std::path::Path, _: &std::path::Path| -> io::Result<()> {
+            Err(io::Error::other("no move"))
+        };
+        back_up(&dest, no_link, no_move).unwrap_err();
+        assert_eq!(names(d.path()), vec!["o.frq"]);
     }
 
     #[test]

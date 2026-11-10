@@ -233,14 +233,14 @@ compare = "exit-status"
 expected_difference = "#vcf-header-conversion"
 
 # A String FORMAT key after the first: htslib writes each value one byte wider
-# than the longest. The last bytes of the record (the AB field) are compared.
+# than the longest, and gloci does the same. The last bytes of the record (the
+# AB field) are compared.
 [[case]]
 name = "vcf-to-bcf-string-width-vs-bcftools"
 input = { file = "xtask/diff/inputs/bcf-string-width.vcf" }
 gloci = "set -e; gloci view -O bcf input.vcf -o g.bcf; gzip -dc g.bcf | tail -c 12 | od -An -tx1"
 reference = "set -e; bcftools view -Ob -o t.bcf input.vcf; gzip -dc t.bcf | tail -c 12 | od -An -tx1"
 compare = "exact"
-expected_difference = "#bcf-string-width"
 
 # Mixed ploidy (a missing haploid `.` next to diploid calls): bcftools reads
 # gloci's BCF records as it reads its own conversion.

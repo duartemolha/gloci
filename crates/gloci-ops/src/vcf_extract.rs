@@ -44,6 +44,10 @@ pub struct ExtractSummary {
     pub sites_out: u64,
     /// Multi-allelic sites the 012 matrix leaves out.
     pub multiallelic_skipped: u64,
+    /// The 012 matrix spilled its codes to the temp directory.
+    pub spilled: bool,
+    /// Passes over the codes that wrote the matrix rows (blocks of samples).
+    pub row_blocks: u64,
 }
 
 fn usage(msg: impl Into<String>) -> IoError {
@@ -288,6 +292,8 @@ pub fn extract_table(
         records_in,
         sites_out,
         multiallelic_skipped: 0,
+        spilled: false,
+        row_blocks: 0,
     })
 }
 
@@ -386,7 +392,9 @@ impl CodeStore {
         n_samples: usize,
         max_mem: u64,
         out: &mut dyn Write,
-    ) -> Result<(), IoError> {
+    ) -> Result<(bool, u64), IoError> {
+        let spilled = self.spill.is_some();
+        let mut blocks = 0u64;
         let sites = usize::try_from(self.sites).unwrap_or(usize::MAX);
         let budget = usize::try_from(max_mem / 2).unwrap_or(usize::MAX);
         let block = (budget / sites.max(1)).clamp(1, n_samples.max(1));
@@ -467,8 +475,9 @@ impl CodeStore {
                 out.write_all(&text).map_err(write_err)?;
             }
             first += k;
+            blocks += 1;
         }
-        Ok(())
+        Ok((spilled, blocks))
     }
 }
 
@@ -571,10 +580,12 @@ vcftools does; split them first (bcftools norm -m-) to include their alleles"
 and were written as -1 (--skip-invalid)"
         );
     }
-    store.write_rows(samples.len(), o.max_mem, matrix)?;
+    let (spilled, row_blocks) = store.write_rows(samples.len(), o.max_mem, matrix)?;
     Ok(ExtractSummary {
         records_in,
         sites_out,
         multiallelic_skipped,
+        spilled,
+        row_blocks,
     })
 }

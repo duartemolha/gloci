@@ -6,7 +6,11 @@ use gloci_ops::{ExtractMode, ExtractOptions, VcfSelect, extract_matrix, open_sel
 use std::io::Write;
 use std::num::NonZeroUsize;
 
-fn matrix(vcf: &std::path::Path, max_mem: u64, tmp: &std::path::Path) -> Vec<u8> {
+fn matrix(
+    vcf: &std::path::Path,
+    max_mem: u64,
+    tmp: &std::path::Path,
+) -> (Vec<u8>, gloci_ops::ExtractSummary) {
     let ro = ReaderOptions {
         threads: NonZeroUsize::MIN,
         format: None,
@@ -24,8 +28,8 @@ fn matrix(vcf: &std::path::Path, max_mem: u64, tmp: &std::path::Path) -> Vec<u8>
         tmp_dir: tmp.to_path_buf(),
     };
     let (mut m, mut i, mut p) = (Vec::new(), Vec::new(), Vec::new());
-    extract_matrix(input, &o, &mut m, &mut i, &mut p).unwrap();
-    m
+    let sum = extract_matrix(input, &o, &mut m, &mut i, &mut p).unwrap();
+    (m, sum)
 }
 
 #[test]
@@ -55,12 +59,19 @@ fn a_tiny_budget_spills_and_equals_the_in_memory_matrix() {
         .unwrap();
     let spill = dir.path().join("spill");
     std::fs::create_dir(&spill).unwrap();
-    let whole = matrix(&vcf, 1 << 30, &spill);
+    let (whole, sum) = matrix(&vcf, 1 << 30, &spill);
+    assert!(!sum.spilled && sum.row_blocks == 1, "{sum:?}");
     assert_eq!(std::fs::read_dir(&spill).unwrap().count(), 0);
     // 1 KiB: the codes exceed half of it, so they spill, and a block holds at
     // most one sample's row.
     for budget in [1 << 10, 6 << 10] {
-        assert_eq!(matrix(&vcf, budget, &spill), whole, "budget {budget}");
+        let (got, sum) = matrix(&vcf, budget, &spill);
+        assert_eq!(got, whole, "budget {budget}");
+        // it spilled, and the rows were written in several blocks
+        assert!(
+            sum.spilled && sum.row_blocks > 1,
+            "budget {budget}: {sum:?}"
+        );
         // the spill file is gone
         assert_eq!(std::fs::read_dir(&spill).unwrap().count(), 0);
     }

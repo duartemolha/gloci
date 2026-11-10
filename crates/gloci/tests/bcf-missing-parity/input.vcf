@@ -5,6 +5,7 @@
 ##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth">
 ##FORMAT=<ID=AB,Number=1,Type=String,Description="Allele balance note">
 ##FORMAT=<ID=AC,Number=.,Type=String,Description="Notes">
+##FORMAT=<ID=CD,Number=1,Type=String,Description="More notes">
 #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	s1	s2	s3
 chr1	1	.	A	G	.	.	.	AB	.	.	.
 chr1	2	.	A	G	.	PASS	.	AB:DP	.:1	.:2	.:3
@@ -17,3 +18,16 @@ chr1	8	.	A	G	.	.	.	AB:DP	.	.	.
 chr1	9	.	A	G	.	.	.	AB:DP	.:1	.	.
 chr1	10	.	A	G	.	.	.	GT:DP:AB:AC	0/1:5:.:.	1/1:6:.:.	./.:7:.:.
 chr1	11	.	A	G	.	.	.	AB	x	.	.
+chr1	21	.	A	G	.	.	.	AB:CD:DP	abc:x:1	d:yy:2	.:.:3
+chr1	22	.	A	G	.	.	.	DP:AB:CD	1:abc:x	2:d:yy	3:.:.
+chr1	23	.	A	G	.	.	.	GT:AB:CD	0/1:abc:x	1/1:d:yy	./.:zz:.
+chr1	24	.	A	G	.	.	.	AB:GT	abc:0/1	d:1/1	.:./.
+chr1	25	.	A	G	.	.	.	DP:AC	1:.,.	2:.,.	3:.,.
+chr1	26	.	A	G	.	.	.	DP:AC:AB	1:a,b:x	2:cc:y	3:.:.
+chr1	27	.	A	G	.	.	.	DP:AB	1:aaaaaaaaaaaaaa	2:b	3:.
+chr1	28	.	A	G	.	.	.	DP:AB	1:aaaaaaaaaaaaaaa	2:b	3:.
+chr1	29	.	A	G	.	.	.	DP:AB	1:aaaaaaaaaaaaaaaa	2:b	3:.
+chr1	30	.	A	G	.	.	.	DP:AB	1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa	2:b	3:.
+chr1	31	.	A	G	.	.	.	DP:AB	1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa	2:b	3:.
+chr1	32	.	A	G	.	.	.	AB:CD	aaaaaaaaaaaaaa:bbbbbbbbbbbbbb	c:d	.:.
+chr1	33	.	A	G	.	.	.	AB:CD	aaaaaaaaaaaaaaa:bbbbbbbbbbbbbbb	c:d	e:f
