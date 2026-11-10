@@ -40,9 +40,14 @@ pub(crate) struct BamRegionParse {
 }
 
 impl BamRegionParse {
-    pub(crate) fn new(hdr: Arc<AlnHeader>, opts: AlignOptions, all: bool) -> BamRegionParse {
+    pub(crate) fn new(
+        hdr: Arc<AlnHeader>,
+        opts: AlignOptions,
+        all: bool,
+        defer_warnings: bool,
+    ) -> BamRegionParse {
         BamRegionParse {
-            rules: IntervalRules::new(hdr.refs.len()),
+            rules: IntervalRules::new(hdr.refs.len()).deferring(defer_warnings),
             hdr,
             opts,
             all,

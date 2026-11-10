@@ -16,6 +16,23 @@ enum Loaded {
 }
 
 impl Loaded {
+    /// How many records precede reference `rid`'s in a coordinate-sorted BAM, from the
+    /// index's per-reference counts: the number the streaming reader gives as "record M of
+    /// the file". `None` when the index lacks the counts of an earlier reference.
+    fn records_before(&self, rid: usize) -> Option<u64> {
+        fn count<I: BinIndexKind>(refs: &[ReferenceSequence<I>], rid: usize) -> Option<u64> {
+            refs.get(..rid)?.iter().try_fold(0u64, |n, r| {
+                let m = r.metadata()?;
+                Some(n + m.mapped_record_count() + m.unmapped_record_count())
+            })
+        }
+        match self {
+            Loaded::Bai(i) => count(i.reference_sequences(), rid),
+            Loaded::Csi(i) => count(i.reference_sequences(), rid),
+            Loaded::Tbi(_) => None,
+        }
+    }
+
     /// Load the index of the data file `data`, after checking its structure against the data
     /// file's size and, when it is known, the number of references its header lists.
     fn read(info: &IndexInfo, data: &Path, n_ref: Option<usize>) -> Result<Loaded, IoError> {
@@ -408,7 +425,16 @@ impl RegionReader {
                     .renamer
                     .as_ref()
                     .map_or(&plan.name[..], |r| r.map().rename(&plan.name));
-                format!("record {} of {}", self.seen, String::from_utf8_lossy(shown))
+                let shown = String::from_utf8_lossy(shown);
+                // A BAM's streaming reader words it so, with the number in the whole file.
+                match (&self.parser, self.index.records_before(plan.rid)) {
+                    (Parser::Bam(_), Some(before)) => format!(
+                        "record {} of {shown} (record {} of the file)",
+                        gloci_core::thousands(self.seen),
+                        gloci_core::thousands(before + self.seen)
+                    ),
+                    _ => format!("record {} of {shown}", self.seen),
+                }
             }
             _ => {
                 let (c, u): (u64, u16) = at.into();
@@ -781,6 +807,8 @@ pub struct IndexedFile {
     /// Reference ids by name as the records have it after `--chrom-map`,
     /// for text formats (built forward: the map is not reversed).
     by_new_name: HashMap<Vec<u8>, usize>,
+    /// The readers made from this file keep their one-time warnings in their diagnostics.
+    defer_warnings: bool,
 }
 
 impl IndexedFile {
@@ -855,6 +883,7 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
                 .unwrap_or_default()
         };
         Ok(IndexedFile {
+            defer_warnings: false,
             by_new_name,
             path: path.to_path_buf(),
             name,
@@ -872,6 +901,26 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
 
     pub fn info(&self) -> &IndexInfo {
         &self.info
+    }
+
+    /// Have the readers made from here keep the one-time warnings of an alignment reader (a
+    /// read past its reference) in their diagnostics, for the caller to print once for all
+    /// chunks of a run (`Diagnostics::log_deferred_warnings`).
+    pub fn defer_warnings(&mut self) {
+        self.defer_warnings = true;
+    }
+
+    /// The reads with no place the index counts (BAM): the unmapped reads at the end of a
+    /// coordinate-sorted file, which no chromosome's reader reaches. 0 for other indexes.
+    pub fn unplaced_reads(&self) -> u64 {
+        if self.format != Format::Bam {
+            return 0;
+        }
+        match &*self.index {
+            Loaded::Bai(i) => i.unplaced_unmapped_record_count().unwrap_or(0),
+            Loaded::Csi(i) => i.unplaced_unmapped_record_count().unwrap_or(0),
+            Loaded::Tbi(_) => 0,
+        }
     }
 
     /// Reference ids of the chromosomes, by name (as renamed by
@@ -1007,6 +1056,7 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
                     aln.clone(),
                     self.opts.accept.alignments.clone().unwrap_or_default(),
                     all,
+                    self.defer_warnings,
                 )))
             }
             (_, Format::Bam) => {

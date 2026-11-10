@@ -256,8 +256,9 @@ pub(super) fn input_sources(
     paths
         .zip(readers)
         .map(|(p, r)| {
-            // Alignments stream: no per-chromosome reader reads them yet.
-            if r.format().is_alignment() {
+            // An indexed BAM reads per chromosome through its `.bai`/`.csi`
+            // (D107); a SAM or CRAM streams (CRAM: Task 14).
+            if r.format().is_alignment() && r.format() != Format::Bam {
                 None
             } else if all_indexed(&[p.as_str()]) {
                 Some(Source::Indexed)

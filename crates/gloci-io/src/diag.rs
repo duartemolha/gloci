@@ -30,6 +30,11 @@ pub struct Diagnostics {
     pub filtered: u64,
     /// Mapped reads that start at or past the end of their reference, so cover no base of it.
     pub off_reference: u64,
+    /// The one-time warnings of an interval reader that was told to defer them (a chunk of a
+    /// per-chromosome run): the first of each kind, for the run to print once.
+    pub deferred_off_reference: Option<String>,
+    /// As `deferred_off_reference`, for a read cut at the end of its reference.
+    pub deferred_clipped: Option<String>,
     /// `(example index, line, msg)` for the examples recorded by line, so
     /// `shift_lines` can renumber them.
     lines: Vec<(usize, u64, String)>,
@@ -71,6 +76,13 @@ impl Diagnostics {
         self.unmapped += other.unmapped;
         self.filtered += other.filtered;
         self.off_reference += other.off_reference;
+        // Chunks are absorbed in file order, so the first warning is the one streaming gives.
+        if self.deferred_off_reference.is_none() {
+            self.deferred_off_reference = other.deferred_off_reference;
+        }
+        if self.deferred_clipped.is_none() {
+            self.deferred_clipped = other.deferred_clipped;
+        }
         let room = MAX_EXAMPLES.saturating_sub(self.blank_examples.len());
         self.blank_examples
             .extend(other.blank_examples.into_iter().take(room));
@@ -117,6 +129,18 @@ impl Diagnostics {
             "reads left out for starting at or past the end of their reference",
         );
         line(self.blank_lines, "blank lines skipped");
+    }
+
+    /// Print the one-time warnings a deferring reader kept (see `deferred_off_reference`),
+    /// the cut read's first. (Streaming prints them as met; a run that met them in the other
+    /// order prints the same two lines, swapped.)
+    pub fn log_deferred_warnings(&self) {
+        for w in [&self.deferred_clipped, &self.deferred_off_reference]
+            .into_iter()
+            .flatten()
+        {
+            log::warn!("{w}");
+        }
     }
 
     /// A multi-line warning, or `None` when nothing was skipped.

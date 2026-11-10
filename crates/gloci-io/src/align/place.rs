@@ -30,6 +30,8 @@ pub(crate) struct IntervalRules {
     ids: Vec<Option<ChromId>>,
     clip_warned: bool,
     off_ref_warned: bool,
+    /// Keep the one-time warnings in the diagnostics instead of printing them.
+    defer: bool,
 }
 
 impl IntervalRules {
@@ -38,7 +40,15 @@ impl IntervalRules {
             ids: vec![None; refs],
             clip_warned: false,
             off_ref_warned: false,
+            defer: false,
         }
+    }
+
+    /// Keep the one-time warnings in the diagnostics (a chunk of a per-chromosome run, whose
+    /// run prints each once).
+    pub fn deferring(mut self, defer: bool) -> IntervalRules {
+        self.defer = defer;
+        self
     }
 
     /// Judge `a`, a record of the input `file`, against `hdr`.
@@ -73,24 +83,34 @@ impl IntervalRules {
             diag.off_reference += 1;
             if !self.off_ref_warned {
                 self.off_ref_warned = true;
-                log::warn!(
+                let msg = format!(
                     "{file}: read {} starts at {} on {}, which is {len} bases long; reads that \
 start past the end of their reference cover no base and are skipped",
                     String::from_utf8_lossy(a.name()),
                     pos + 1,
                     String::from_utf8_lossy(name),
                 );
+                if self.defer {
+                    diag.deferred_off_reference = Some(msg);
+                } else {
+                    log::warn!("{msg}");
+                }
             }
             return Verdict::Skip;
         }
         if clipped && !self.clip_warned {
             self.clip_warned = true;
-            log::warn!(
+            let msg = format!(
                 "{file}: read {} on {} extends past the end of the reference ({len} bases); \
 reads like it are cut at the reference length",
                 String::from_utf8_lossy(a.name()),
                 String::from_utf8_lossy(name),
             );
+            if self.defer {
+                diag.deferred_clipped = Some(msg);
+            } else {
+                log::warn!("{msg}");
+            }
         }
         let chrom = match self.ids[rid] {
             Some(c) => c,

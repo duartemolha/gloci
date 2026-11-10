@@ -320,7 +320,10 @@ pub(crate) fn run_relation_in(
     };
     // The sweep has dropped the readers.
     summary.skipped = skipped.take();
-    skipped.log_alignment_counts();
+    // (A chunk's counts are summed and reported once by the run.)
+    if !in_chunk {
+        skipped.log_alignment_counts();
+    }
     for (name, flag) in &watched {
         if flag.load(Ordering::Relaxed) {
             log::warn!("{name} has records with unknown strand; they never match under -s or -S");

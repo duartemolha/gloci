@@ -255,7 +255,7 @@ Examples:
     /// afterwards. Use --unsorted when you want A's order kept and every
     /// -b file fits in memory. The two cannot be combined.
     ///
-    /// When A and every -b file are BGZF files with a .tbi or .csi index, or
+    /// When A and every -b file are BGZF files with a .tbi or .csi index (a BAM with a .bai or .csi), or
     /// plain (uncompressed) BED, bedGraph or VCF files, which are scanned once
     /// for where each chromosome's records lie, and more than one thread is
     /// used, the work runs on runs of chromosomes in parallel, which are
@@ -663,7 +663,7 @@ Examples:
     /// afterwards. Use --unsorted when you want A's order kept and every
     /// -b file fits in memory. The two cannot be combined.
     ///
-    /// When A and every -b file are BGZF files with a .tbi or .csi index, or
+    /// When A and every -b file are BGZF files with a .tbi or .csi index (a BAM with a .bai or .csi), or
     /// plain (uncompressed) BED, bedGraph or VCF files, which are scanned once
     /// for where each chromosome's records lie, and more than one thread is
     /// used, the work runs on runs of chromosomes in parallel, which are
@@ -740,7 +740,7 @@ Examples:
     /// afterwards. Use --unsorted when you want A's order kept and every
     /// -b file fits in memory. The two cannot be combined.
     ///
-    /// When A and every -b file are BGZF files with a .tbi or .csi index, or
+    /// When A and every -b file are BGZF files with a .tbi or .csi index (a BAM with a .bai or .csi), or
     /// plain (uncompressed) BED, bedGraph or VCF files, which are scanned once
     /// for where each chromosome's records lie, and more than one thread is
     /// used, the work runs on runs of chromosomes in parallel, which are
@@ -817,7 +817,7 @@ Examples:
     /// afterwards. Use --unsorted when you want A's order kept and every
     /// -b file fits in memory. The two cannot be combined.
     ///
-    /// When A and every -b file are BGZF files with a .tbi or .csi index, or
+    /// When A and every -b file are BGZF files with a .tbi or .csi index (a BAM with a .bai or .csi), or
     /// plain (uncompressed) BED, bedGraph or VCF files, which are scanned once
     /// for where each chromosome's records lie, and more than one thread is
     /// used, the work runs on runs of chromosomes in parallel, which are
@@ -886,7 +886,7 @@ Examples:
     /// afterwards. Use --unsorted when you want A's order kept and every
     /// -b file fits in memory. The two cannot be combined.
     ///
-    /// When A and every -b file are BGZF files with a .tbi or .csi index, or
+    /// When A and every -b file are BGZF files with a .tbi or .csi index (a BAM with a .bai or .csi), or
     /// plain (uncompressed) BED, bedGraph or VCF files, which are scanned once
     /// for where each chromosome's records lie, and more than one thread is
     /// used, the work runs on runs of chromosomes in parallel, which are
