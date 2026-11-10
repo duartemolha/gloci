@@ -190,3 +190,98 @@ vcftools = "vcftools --gzvcf {in} --maf 0.01 --max-missing 0.9 --minQ 30 --recod
 bcftools = "bcftools view -i 'MAF>=0.01 && F_MISSING<=0.1 && QUAL>=30' {in} -Oz -o {out}"
 vcfkit = "vk filter --maf 0.01 --missing 0.1 --min-qual 30 {in} | bgzip -@ 8 > {out}"
 vcfexpress = "vcfexpress filter --expr 'maf >= 0.01 && missing <= 0.1 && qual >= 30' {in} -o {out}"
+
+# ---- P2 cases ----
+# genomecov and shift need a genome: the synthetic chromosomes are chr1..chr24
+# of 250,000,000 bases (gen.rs CHROM_LEN), written in lexical order beside the
+# output. The `{gloci}` word starts the gloci command line wherever it sits.
+
+[[case]]
+name = "partition-plain-10M"
+setup = "bed --records 10000000 --chroms 24 --seed 1 --profile uniform --sorted"
+input = "bed"
+targets = ["gloci <= bedops"]
+[case.commands]
+gloci = "{gloci} partition --chrom-order lex -t 1 {in} > {out}"
+bedops = "bedops --partition {in} > {out}"
+
+[[case]]
+name = "genomecov-plain-10M"
+setup = "bed --records 10000000 --chroms 24 --seed 1 --profile uniform --sorted"
+input = "bed"
+targets = ["gloci <= 0.5 * bedtools"]
+[case.commands]
+gloci = "printf 'chr%s\\t250000000\\n' $(seq 1 24 | LC_ALL=C sort) > {out}.genome && {gloci} genomecov --chrom-order lex -t 1 -g {out}.genome {in} > {out}"
+bedtools = "printf 'chr%s\\t250000000\\n' $(seq 1 24 | LC_ALL=C sort) > {out}.genome && bedtools genomecov -i {in} -g {out}.genome > {out}"
+
+[[case]]
+name = "cluster-plain-10M"
+setup = "bed --records 10000000 --chroms 24 --seed 1 --profile uniform --sorted"
+input = "bed"
+targets = ["gloci <= 0.5 * bedtools"]
+[case.commands]
+gloci = "{gloci} cluster --chrom-order lex -t 1 {in} > {out}"
+bedtools = "bedtools cluster -i {in} > {out}"
+
+[[case]]
+name = "groupby-plain-10M"
+setup = "bed --records 10000000 --chroms 24 --seed 1 --profile uniform --sorted"
+input = "bed"
+targets = ["gloci <= 0.5 * bedtools"]
+[case.commands]
+gloci = "{gloci} groupby -g 1 -c 5:sum {in} > {out}"
+bedtools = "bedtools groupby -i {in} -g 1 -c 5 -o sum > {out}"
+
+[[case]]
+name = "shift-plain-10M"
+setup = "bed --records 10000000 --chroms 24 --seed 1 --profile uniform --sorted"
+input = "bed"
+targets = ["gloci <= 0.5 * bedtools"]
+[case.commands]
+gloci = "printf 'chr%s\\t250000000\\n' $(seq 1 24 | LC_ALL=C sort) > {out}.genome && {gloci} shift --by 100 -g {out}.genome {in} > {out}"
+bedtools = "printf 'chr%s\\t250000000\\n' $(seq 1 24 | LC_ALL=C sort) > {out}.genome && bedtools shift -i {in} -g {out}.genome -s 100 > {out}"
+
+# vcf stats with five statistics. The baseline runs vcftools once per
+# statistic, in sequence. plink2 is skipped when it is not installed.
+[[case]]
+name = "vcf-stats-1kg-chr20"
+dataset = "1kg-30x-chr20"
+input = "vcf.gz"
+targets = ["gloci <= 0.1 * vcftools-5runs"]
+[case.commands]
+gloci = "{gloci} vcf stats {in} --out-prefix {out} --freq --missing-site --missing-indv --het --tstv-summary"
+vcftools-5runs = "vcftools --gzvcf {in} --freq --out {out}.v1 && vcftools --gzvcf {in} --missing-site --out {out}.v2 && vcftools --gzvcf {in} --missing-indv --out {out}.v3 && vcftools --gzvcf {in} --het --out {out}.v4 && vcftools --gzvcf {in} --TsTv-summary --out {out}.v5"
+bcftools-stats = "bcftools stats -s - {in} > {out}"
+plink2 = "plink2 --vcf {in} --freq --missing --het --out {out}.plink"
+
+[[case]]
+name = "vcf-stats-synthetic-2500"
+setup = "vcf --records 50000 --samples 2500 --seed 1 --chroms 1"
+input = "vcf.gz"
+targets = ["gloci <= 0.1 * vcftools-5runs"]
+[case.commands]
+gloci = "{gloci} vcf stats {in} --out-prefix {out} --freq --missing-site --missing-indv --het --tstv-summary"
+vcftools-5runs = "vcftools --gzvcf {in} --freq --out {out}.v1 && vcftools --gzvcf {in} --missing-site --out {out}.v2 && vcftools --gzvcf {in} --missing-indv --out {out}.v3 && vcftools --gzvcf {in} --het --out {out}.v4 && vcftools --gzvcf {in} --TsTv-summary --out {out}.v5"
+bcftools-stats = "bcftools stats -s - {in} > {out}"
+plink2 = "plink2 --vcf {in} --freq --missing --het --out {out}.plink"
+
+# Yardstick only (no target): an expression filter against bcftools.
+[[case]]
+name = "vcf-filter-include-synthetic-2500"
+setup = "vcf --records 50000 --samples 2500 --seed 1 --chroms 1"
+input = "vcf.gz"
+targets = []
+[case.commands]
+gloci = "{gloci} vcf filter --include 'QUAL>30 && INFO/DP>20' {in} -o {out}"
+bcftools = "bcftools view -i 'QUAL>30 && INFO/DP>20' {in} -Oz -o {out}"
+
+# Tracked since the native GT encoding of Task 3 (+9% user time against the
+# old path): VCF to BCF on a multi-sample VCF.
+[[case]]
+name = "convert-bcf-synthetic-100"
+setup = "vcf --records 100000 --samples 100 --seed 1 --chroms 1"
+input = "vcf"
+targets = []
+[case.commands]
+gloci = "{gloci} view {in} -O bcf > {out}"
+bcftools = "bcftools view {in} -Ob > {out}"

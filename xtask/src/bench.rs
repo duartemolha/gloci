@@ -448,11 +448,27 @@ fn prepare_input(
     }
 }
 
+/// Remove a case's output and the side files commands write beside it
+/// (`OUT.frq`, `OUT.genome`, ...).
+fn remove_outputs(data: &Path, out_name: &str) {
+    let _ = std::fs::remove_file(data.join(out_name));
+    let side = format!("{out_name}.");
+    if let Ok(rd) = std::fs::read_dir(data) {
+        for e in rd.flatten() {
+            if e.file_name().to_string_lossy().starts_with(&side) {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+}
+
 fn tool_binary(tool: &str) -> &str {
     match tool {
         "gnu-sort" => "sort",
         "grit-genomics" => "grit",
         "vcfkit" => "vk",
+        "vcftools-5runs" => "vcftools",
+        "bcftools-stats" => "bcftools",
         _ => tool,
     }
 }
@@ -704,7 +720,7 @@ pub fn run(a: &Args) -> Result<bool> {
                 c.args(&hf[1..]);
             }
             let st = c.status().context("running hyperfine")?;
-            let _ = std::fs::remove_file(data.join(&out_name));
+            remove_outputs(&data, &out_name);
             ensure!(st.success(), "hyperfine failed for case {}", case.name);
         } else {
             eprintln!(
@@ -722,7 +738,7 @@ pub fn run(a: &Args) -> Result<bool> {
                 })
                 .collect();
             run_native_bench(&substituted, &json)?;
-            let _ = std::fs::remove_file(data.join(&out_name));
+            remove_outputs(&data, &out_name);
         }
 
         let med = parse_hyperfine(&std::fs::read_to_string(&json)?)?;
@@ -773,6 +789,60 @@ mod tests {
     /// Every `gloci` command line in cases.toml parses with gloci's own clap
     /// parser, so a misspelled or removed flag fails `cargo test` instead of
     /// a nightly benchmark run.
+    /// The words of a case's gloci command: from `{gloci}` to the first
+    /// unquoted pipe, redirection or `&&`, with single quotes removed.
+    fn gloci_words(cmd: &str) -> Vec<String> {
+        let rest = &cmd[cmd.find("{gloci}").expect("a {gloci} word")..];
+        let mut words = Vec::new();
+        let (mut cur, mut have, mut quoted) = (String::new(), false, false);
+        for ch in rest.chars() {
+            match ch {
+                '\'' => {
+                    quoted = !quoted;
+                    have = true;
+                }
+                '|' | '>' | '&' if !quoted => break,
+                c if c.is_whitespace() && !quoted => {
+                    if have {
+                        words.push(std::mem::take(&mut cur));
+                        have = false;
+                    }
+                }
+                c => {
+                    cur.push(c);
+                    have = true;
+                }
+            }
+        }
+        if have {
+            words.push(cur);
+        }
+        words
+    }
+
+    #[test]
+    fn gloci_words_respect_quotes_and_prefixes() {
+        assert_eq!(
+            gloci_words(
+                "printf x > {out}.g && {gloci} vcf filter --include 'Q>30 && D>1' {in} -o {out}"
+            ),
+            [
+                "{gloci}",
+                "vcf",
+                "filter",
+                "--include",
+                "Q>30 && D>1",
+                "{in}",
+                "-o",
+                "{out}"
+            ]
+        );
+        assert_eq!(
+            gloci_words("{gloci} sort {in} | wc"),
+            ["{gloci}", "sort", "{in}"]
+        );
+    }
+
     #[test]
     fn every_gloci_bench_command_parses() {
         use clap::Parser;
@@ -784,23 +854,23 @@ mod tests {
             let Some(cmd) = c.commands.get("gloci") else {
                 continue;
             };
-            // The gloci invocation ends at the first pipe or redirection.
-            let line = cmd.split(['|', '>']).next().unwrap();
-            let args: Vec<String> = line
-                .replace("{gloci}", "gloci")
-                .replace("{in_a}", "a.bed")
-                .replace("{in_b}", "b.bed")
-                .replace("{in}", "in.bed")
-                .replace("{out}", "out.bed")
-                .split_whitespace()
-                .map(str::to_string)
+            let line = gloci_words(cmd).join(" ");
+            let args: Vec<String> = gloci_words(cmd)
+                .iter()
+                .map(|w| {
+                    w.replace("{gloci}", "gloci")
+                        .replace("{in_a}", "a.bed")
+                        .replace("{in_b}", "b.bed")
+                        .replace("{in}", "in.bed")
+                        .replace("{out}", "out.bed")
+                })
                 .collect();
             if let Err(e) = gloci::cli::Cli::try_parse_from(&args) {
                 panic!("case `{}`: `{}` does not parse:\n{e}", c.name, line.trim());
             }
             checked += 1;
         }
-        assert!(checked >= 14, "only {checked} gloci command lines found");
+        assert!(checked >= 25, "only {checked} gloci command lines found");
     }
 
     #[test]
@@ -848,6 +918,16 @@ mod tests {
             "coverage-bgzf-10M",
             "vcf-filter-1kg-chr20",
             "vcf-filter-synthetic-2500",
+            // P2 cases
+            "partition-plain-10M",
+            "genomecov-plain-10M",
+            "cluster-plain-10M",
+            "groupby-plain-10M",
+            "shift-plain-10M",
+            "vcf-stats-1kg-chr20",
+            "vcf-stats-synthetic-2500",
+            "vcf-filter-include-synthetic-2500",
+            "convert-bcf-synthetic-100",
         ];
         for exp in expected {
             assert!(names.contains(&exp), "missing expected case `{exp}`");
@@ -960,7 +1040,10 @@ mod tests {
             let Some(cmd) = c.commands.get("gloci") else {
                 continue;
             };
-            if !cmd.contains("vcf filter") {
+            if !(cmd.contains("vcf filter")
+                || cmd.contains("vcf stats")
+                || (cmd.contains(" view ") && c.input.starts_with("vcf")))
+            {
                 continue;
             }
             let mut w = std::io::BufWriter::new(std::fs::File::create(&input).unwrap());
@@ -1012,34 +1095,67 @@ mod tests {
             w.flush().unwrap();
             drop(w);
             let out = td.path().join("out.vcf");
-            let line = cmd.split(['|', '>']).next().unwrap();
-            let args: Vec<String> = line
-                .replace("{gloci}", gloci.to_str().unwrap())
-                .replace("{in}", input.to_str().unwrap())
-                .replace("{out}", out.to_str().unwrap())
-                .split_whitespace()
-                .map(str::to_string)
+            let words = gloci_words(cmd);
+            let line = words.join(" ");
+            let args: Vec<String> = words
+                .iter()
+                .map(|w| {
+                    w.replace("{gloci}", gloci.to_str().unwrap())
+                        .replace("{in}", input.to_str().unwrap())
+                        .replace("{out}", out.to_str().unwrap())
+                })
                 .collect();
-            let r = Command::new(&args[0]).args(&args[1..]).output().unwrap();
+            let mut command = Command::new(&args[0]);
+            command.args(&args[1..]);
+            // A command that writes to stdout ends in `> {out}`.
+            if cmd[cmd.find("{gloci}").unwrap()..].contains("> {out}") {
+                command.stdout(std::fs::File::create(&out).unwrap());
+            }
+            let r = command.output().unwrap();
             assert!(
                 r.status.success(),
                 "case `{}`: {}",
                 c.name,
                 String::from_utf8_lossy(&r.stderr)
             );
-            let kept = std::fs::read_to_string(&out)
-                .unwrap()
-                .lines()
-                .filter(|l| !l.starts_with('#'))
-                .count();
-            assert!(
-                kept > 0,
-                "case `{}`: `{}` keeps no record of its input, so it would time nothing",
-                c.name,
-                line.trim()
-            );
+            if cmd.contains("vcf stats") {
+                // Every requested statistic must have rows to time.
+                for ext in ["frq", "lmiss", "imiss", "het", "TsTv.summary"] {
+                    let f = format!("{}.{ext}", out.display());
+                    let lines = std::fs::read_to_string(&f)
+                        .unwrap_or_else(|e| panic!("case `{}`: no {f}: {e}", c.name))
+                        .lines()
+                        .count();
+                    assert!(
+                        lines >= 2,
+                        "case `{}`: `{}` wrote no rows to {f}",
+                        c.name,
+                        line.trim()
+                    );
+                }
+            } else if cmd.contains("vcf filter") {
+                let kept = std::fs::read_to_string(&out)
+                    .unwrap()
+                    .lines()
+                    .filter(|l| !l.starts_with('#'))
+                    .count();
+                assert!(
+                    kept > 0,
+                    "case `{}`: `{}` keeps no record of its input, so it would time nothing",
+                    c.name,
+                    line.trim()
+                );
+            } else {
+                let len = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
+                assert!(
+                    len > 0,
+                    "case `{}`: `{}` wrote nothing",
+                    c.name,
+                    line.trim()
+                );
+            }
             checked += 1;
         }
-        assert!(checked >= 2, "only {checked} vcf filter cases checked");
+        assert!(checked >= 6, "only {checked} vcf cases checked");
     }
 }

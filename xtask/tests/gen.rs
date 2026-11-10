@@ -378,3 +378,68 @@ fn high_density_pair_generator_distribution_and_depth() {
         "high-density depth 0 must have zero overlaps"
     );
 }
+
+/// The synthetic multi-sample VCF must exercise every `vcf stats` statistic
+/// of the benchmark: missing genotypes per site and per sample, hets, both
+/// transitions and transversions, and a depth spread around the usual
+/// `--min-dp` thresholds.
+#[test]
+fn vcf_has_the_mix_the_five_statistics_need() {
+    let o = VcfOpts {
+        records: 400,
+        samples: 200,
+        seed: 1,
+        chroms: 1,
+    };
+    let mut v = Vec::new();
+    xtask::synth::vcf(&o, &mut v).unwrap();
+    let text = String::from_utf8(v).unwrap();
+    let (mut missing, mut hets, mut homs, mut ts, mut tv) = (0, 0, 0, 0, 0);
+    let (mut low_dp, mut high_dp) = (0, 0);
+    let mut per_sample_missing = vec![0u32; 200];
+    for l in text.lines().filter(|l| !l.starts_with('#')) {
+        let f: Vec<&str> = l.split('\t').collect();
+        let (r, a) = (f[3], f[4]);
+        if r.len() == 1 && a.len() == 1 {
+            match (r, a) {
+                ("A", "G") | ("G", "A") | ("C", "T") | ("T", "C") => ts += 1,
+                _ => tv += 1,
+            }
+        }
+        for (i, g) in f[9..].iter().enumerate() {
+            let p: Vec<&str> = g.split(':').collect();
+            match p[0] {
+                "./." => {
+                    missing += 1;
+                    per_sample_missing[i] += 1;
+                }
+                gt => {
+                    let (x, y) = gt.split_once('/').unwrap();
+                    if x == y {
+                        homs += 1;
+                    } else {
+                        hets += 1;
+                    }
+                    let dp: u32 = p[1].parse().unwrap();
+                    low_dp += u32::from(dp < 10);
+                    high_dp += u32::from(dp >= 50);
+                }
+            }
+        }
+    }
+    let total = 400 * 200;
+    assert!(
+        missing > total / 40 && missing < total / 10,
+        "missing {missing}"
+    );
+    assert!(
+        hets > total / 10 && homs > total / 10,
+        "hets {hets} homs {homs}"
+    );
+    assert!(ts > 20 && tv > 20, "ts {ts} tv {tv}");
+    assert!(low_dp > 0 && high_dp > 0);
+    assert!(
+        per_sample_missing.iter().all(|&m| m > 0),
+        "a sample with no missing genotype"
+    );
+}

@@ -25,6 +25,14 @@ RUN micromamba install -y -n base -c conda-forge -c bioconda \
         coreutils=9.12 \
     && micromamba clean --all --yes
 
+# plink2 (yardstick for `vcf stats`): its own step, because the bioconda
+# package is not built for every architecture. A failure is reported here and
+# the bench runner then skips the yardstick. The version is unverified on
+# aarch64: check the build log for "skipped: plink2".
+RUN micromamba install -y -n base -c conda-forge -c bioconda plink2=2.0.0a.6.9 \
+    && micromamba clean --all --yes \
+    || echo "skipped: plink2 not installed (micromamba install plink2=2.0.0a.6.9 failed); its benchmark columns will be empty"
+
 USER root
 # Install yardsticks from cargo / git with pinned versions and commits
 ENV CARGO_HOME=/usr/local/cargo
