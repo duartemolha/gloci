@@ -1039,8 +1039,9 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 ## `genomecov` ignores points {#genomecov-points}
 
 - **gloci:** a zero-length feature covers no bases and is ignored (D68).
-- **Old behaviour:** `bedtools genomecov` counts a point at `p` as the base
-  before it (`chr1 5 5` gives `chr1 4 5 1`).
+- **Old behaviour:** `bedtools genomecov` widens a point at `p` to
+  `[p-1, p+1)`, as `multiinter` does (`chr1 5 5` gives `chr1 4 6 1`). A file
+  holding only `chr1 0 0` makes it abort with `corrupted size vs. prev_size`.
 - **Reason:** inventing bases changes depths.
 - **Pinned by:** `genomecov-points-vs-bedtools` (must differ).
 

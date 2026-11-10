@@ -270,7 +270,9 @@ fn bedgraph_errors_say_where() {
         .code(1)
         .stderr(contains("ov.bg"))
         .stderr(contains("overlaps an earlier interval"))
-        .stderr(contains("resolve the overlap"));
+        .stderr(contains(
+            "split the file so that no interval overlaps another",
+        ));
     // Under --sort the location is a record count, and the message says so.
     gloci()
         .args(["partition", &ov, &h, "--bedgraph", "--sort"])

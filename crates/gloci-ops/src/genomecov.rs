@@ -145,8 +145,8 @@ struct Cov<'a> {
     pieces: Vec<Interval>,
 }
 
-impl Cov<'_> {
-    fn name(&self) -> &[u8] {
+impl<'a> Cov<'a> {
+    fn name(&self) -> &'a [u8] {
         self.genome
             .name(self.chrom.expect("open chromosome").0 as usize)
     }
@@ -181,17 +181,17 @@ impl Cov<'_> {
                     return Ok(());
                 }
                 self.row.clear();
-                let name = self.name().to_vec();
-                self.row.extend_from_slice(&name);
+                let name = self.name();
+                self.row.extend_from_slice(name);
                 write!(self.row, "\t{s}\t{e}\t").expect("vec write");
                 self.depth_text(d);
                 self.emit()?;
             }
             GenomecovMode::PerBase => {
-                let name = self.name().to_vec();
+                let name = self.name();
                 for pos in s + 1..=e {
                     self.row.clear();
-                    self.row.extend_from_slice(&name);
+                    self.row.extend_from_slice(name);
                     write!(self.row, "\t{pos}\t").expect("vec write");
                     self.depth_text(d);
                     self.emit()?;
@@ -255,11 +255,11 @@ impl Cov<'_> {
         self.add_run(self.at, self.len, self.depth as u64)?;
         self.flush_run()?;
         if self.o.mode == GenomecovMode::Hist && self.len > 0 {
-            let name = self.name().to_vec();
+            let name = self.name();
             let bins = std::mem::take(&mut self.bins);
             for (&d, &b) in &bins {
                 self.row.clear();
-                self.row.extend_from_slice(&name);
+                self.row.extend_from_slice(name);
                 write!(
                     self.row,
                     "\t{d}\t{b}\t{}\t{}",

@@ -358,9 +358,8 @@ check that -g matches the genome build of the input",
             if self.cover[input] > 0 {
                 return Err(at(format!(
                     "{}:{start}-{end} overlaps an earlier interval of the same file; \
---bedgraph needs non-overlapping intervals in each file; resolve the overlap, \
-for example by summing with `gloci partition --bedgraph` on files split so that \
-none overlaps, or drop --bedgraph",
+--bedgraph needs non-overlapping intervals in each file; split the file so that \
+no interval overlaps another, or drop --bedgraph",
                     String::from_utf8_lossy(&self.chrom_name)
                 )));
             }
