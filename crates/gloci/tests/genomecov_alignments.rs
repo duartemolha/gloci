@@ -364,4 +364,29 @@ fn genomecov_sort_flag_bam() {
     assert_eq!(code, Some(1), "{err}");
     assert!(err.contains("--sort"), "{err}");
     assert!(err.contains("gloci sort"), "{err}");
+    assert_eq!(err.matches("--sort").count(), 1, "{err}");
+}
+
+/// A read cut at its reference's end warns once, at every thread count, also when a later read
+/// ends the run with an error against a shorter `-g`.
+#[test]
+fn genomecov_overhang_warning_prints_once_at_every_thread_count() {
+    let dir = tempdir();
+    let sam = sam_text(
+        &[("c1", 1000), ("c2", 1000)],
+        &[(0, 979, 0, "10M"), (0, 991, 0, "20M")],
+    );
+    let bam = bam_of(dir.path(), "a.bam", &sam);
+    gloci().args(["index", &s(&bam)]).assert().success();
+    let g = s(&plain_file(dir.path(), "g.genome", "c1\t990\nc2\t1000\n"));
+    for t in ["1", "2", "8"] {
+        let (code, _, err) = run(&["genomecov", &s(&bam), "-g", &g, "-t", t]);
+        assert_eq!(code, Some(1), "-t {t}: {err}");
+        assert_eq!(
+            err.matches("extends past the end of the reference").count(),
+            1,
+            "-t {t}: {err}"
+        );
+        assert!(err.contains("record 2 of c1"), "-t {t}: {err}");
+    }
 }

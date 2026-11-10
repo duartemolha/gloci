@@ -4886,3 +4886,48 @@ input = { file = "xtask/diff/inputs/aln/tags.bam" }
 gloci = "gloci genomecov input.bam --bga"
 reference = "bedtools genomecov -ibam input.bam -bga -ignoreD"
 compare = "exact"
+
+# midempty.bam has no reads on c2, which is in the middle of its header: gloci keeps header order,
+# bedtools writes c2 after the others.
+[[case]]
+name = "genomecov-ibam-empty-mid-hist-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/midempty.bam" }
+gloci = "gloci genomecov input.bam"
+reference = "bedtools genomecov -ibam input.bam"
+compare = "exact"
+expected_difference = "#genomecov-chrom-order"
+
+[[case]]
+name = "genomecov-ibam-empty-mid-bga-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/midempty.bam" }
+gloci = "gloci genomecov input.bam --bga"
+reference = "bedtools genomecov -ibam input.bam -bga"
+compare = "exact"
+expected_difference = "#genomecov-chrom-order"
+
+[[case]]
+name = "genomecov-ibam-empty-mid-d-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/midempty.bam" }
+gloci = "gloci genomecov input.bam --per-base"
+reference = "bedtools genomecov -ibam input.bam -d"
+compare = "exact"
+expected_difference = "#genomecov-chrom-order"
+
+# bedtools ignores -g with a BAM (it says so on stderr); gloci uses it.
+[[case]]
+name = "genomecov-ibam-genome-arg"
+input = { file = "xtask/diff/inputs/aln/cigars-small.bam" }
+aux = ["xtask/diff/inputs/aln/genomecov-g.genome"]
+gloci = "gloci genomecov input.bam --bga -g genomecov-g.genome"
+reference = "bedtools genomecov -ibam input.bam -bga -g genomecov-g.genome"
+compare = "exact"
+expected_difference = "#genomecov-bam-genome-arg"
+
+# cigars.bam has c_allclip (10S5I): a mapped read with no reference ops counts one base (D101).
+[[case]]
+name = "genomecov-ibam-no-reference-ops"
+input = { file = "xtask/diff/inputs/aln/cigars.bam" }
+gloci = "gloci genomecov input.bam --bga"
+reference = "bedtools genomecov -ibam input.bam -bga -ignoreD"
+compare = "exact"
+expected_difference = "#bamtobed-no-reference-ops"

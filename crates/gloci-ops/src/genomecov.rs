@@ -323,20 +323,6 @@ impl<'a> Cov<'a> {
         Ok(())
     }
 
-    /// The place of the record `m` for an error: the line of a text file; for an alignment its
-    /// number among the reads read on its chromosome (a record number of the file would differ
-    /// between a streamed and a per-chromosome run).
-    fn loc_of(&self, m: &RecordMeta) -> (Loc, String) {
-        if self.format.is_alignment() {
-            (
-                Loc::Record(self.seen),
-                format!(" (read {} of its chromosome that counts)", self.seen),
-            )
-        } else {
-            (Loc::Line(m.loc), String::new())
-        }
-    }
-
     fn pieces_of(&mut self, m: &RecordMeta, raw: &[u8], path: &str) -> Result<(), IoError> {
         self.pieces.clear();
         let Interval { start, end } = m.span;
@@ -411,15 +397,28 @@ than 6 columns; add the strand column or drop --strand"
         }
         if m.span.end > self.len {
             let name = String::from_utf8_lossy(self.name()).into_owned();
-            let (loc, which) = self.loc_of(m);
+            let msg = format!(
+                "{name}:{}-{} extends past the end of {name} (length {}); \
+check that -g matches the genome build of the input",
+                m.span.start, m.span.end, self.len
+            );
+            if self.format.is_alignment() {
+                // The reader's own record number differs between a streamed and a
+                // per-chromosome run, so the place is counted here, among the reads that
+                // reach the sweep (D101's place, minus the reads left out), the same at
+                // every thread count.
+                return Err(IoError::Detect {
+                    path: path.to_string(),
+                    msg: format!(
+                        "{path} record {} of {name} (counting only the reads genomecov counts): {msg}",
+                        self.seen
+                    ),
+                });
+            }
             return Err(IoError::Parse {
                 path: path.to_string(),
-                loc,
-                msg: format!(
-                    "{name}:{}-{}{which} extends past the end of {name} (length {}); \
-check that -g matches the genome build of the input",
-                    m.span.start, m.span.end, self.len
-                ),
+                loc: Loc::Line(m.loc),
+                msg,
             });
         }
         self.sweep_before(m.key)?;
@@ -485,7 +484,7 @@ fn sweep(
     o: &GenomecovOptions,
     range: Range<usize>,
     w: &mut dyn RecordWriter,
-) -> Result<Swept, IoError> {
+) -> Result<Swept, Box<(IoError, Diagnostics)>> {
     let path = input.name().to_string();
     let format = input.format();
     let bed = matches!(format, Format::Bed | Format::BedGraph | Format::Wig);
@@ -518,17 +517,26 @@ fn sweep(
         seen: 0,
         blocks,
     };
-    kmerge_with(vec![input], chroms, &mut |_, meta, raw, _| {
+    let done = kmerge_with(vec![input], chroms, &mut |_, meta, raw, _| {
         s.record(meta, raw, &path, bed)
-    })?;
-    s.finish_to(range.end)?;
-    let (total_bins, total_len, peak_events) = (s.total_bins, s.total_len, s.peak_events);
-    Ok(Swept {
-        total_bins,
-        total_len,
-        peak_events,
-        skipped: skipped.take(),
     })
+    .and_then(|_| s.finish_to(range.end));
+    let (total_bins, total_len, peak_events) = (s.total_bins, s.total_len, s.peak_events);
+    // The reader is gone: what it noted (even on the way to an error) is kept.
+    let diag = skipped.take().into_iter().next().map(|(_, d)| d);
+    match done {
+        Ok(()) => Ok(Swept {
+            total_bins,
+            total_len,
+            peak_events,
+            skipped: skipped_named(&path, diag),
+        }),
+        Err(e) => Err(Box::new((e, diag.unwrap_or_default()))),
+    }
+}
+
+fn skipped_named(path: &str, d: Option<Diagnostics>) -> Vec<(String, Diagnostics)> {
+    d.map(|d| (path.to_string(), d)).into_iter().collect()
 }
 
 fn check_genome(
@@ -583,7 +591,7 @@ pub fn genomecov_counting(
 ) -> Result<usize, IoError> {
     check_genome(genome, o, input.as_ref())?;
     let alignment = input.format().is_alignment();
-    let swept = sweep(input, chroms, genome, o, 0..genome.len(), w)?;
+    let swept = sweep(input, chroms, genome, o, 0..genome.len(), w).map_err(|f| f.0)?;
     if o.mode == GenomecovMode::Hist {
         write_genome_rows(w, &swept.total_bins, swept.total_len)?;
     }
@@ -706,14 +714,28 @@ pub fn genomecov_files(
     })
     .collect();
     let table = chroms.clone();
+    // What the chunks that failed had noted: a streamed run has printed the one-time warnings
+    // met before its error, so the run prints these.
+    let failed: std::sync::Mutex<Vec<Diagnostics>> = std::sync::Mutex::new(Vec::new());
     let step = |job: &Job, sink: &mut gloci_engine::ChunkSink| -> Result<Swept, IoError> {
         let reader = file.chromosomes_reader(&job.names)?;
         let mut chroms = table.clone();
-        sweep(reader, &mut chroms, genome, o, job.range.clone(), sink)
+        sweep(reader, &mut chroms, genome, o, job.range.clone(), sink).map_err(|f| {
+            let (e, d) = *f;
+            failed.lock().unwrap_or_else(|p| p.into_inner()).push(d);
+            e
+        })
     };
     log::debug!("genomecov running per chromosome: {} chunk(s)", jobs.len());
-    let swept = run_chunks(jobs, run.threads, &run.tmp_dir, &step, w)
-        .map_err(|e| e.with_sorted_input_loc())?;
+    let swept = match run_chunks(jobs, run.threads, &run.tmp_dir, &step, w) {
+        Ok(s) => s,
+        Err(e) => {
+            for d in failed.into_inner().unwrap_or_else(|p| p.into_inner()) {
+                d.log_deferred_warnings();
+            }
+            return Err(e.with_sorted_input_loc());
+        }
+    };
 
     let mut total_bins: BTreeMap<u64, u64> = BTreeMap::new();
     let mut total_len = 0;

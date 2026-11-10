@@ -57,16 +57,7 @@ pub fn run(ctx: &Ctx, a: &GenomecovArgs) -> anyhow::Result<()> {
         chrom_map: &a.chrom_map,
         alignments: Some(a.align.options(false)?),
     };
-    let (mut readers, mut chroms) = open_inputs(ctx, &input, &|formats| {
-        if a.split_deletions && !formats.iter().any(|f| f.is_alignment()) {
-            return Err(UsageError(
-                "--split-deletions cuts alignments at deletions, and the input is not BAM \
-or SAM; drop it, or use --split for BED12 blocks"
-                    .into(),
-            ));
-        }
-        Ok(())
-    })?;
+    let (mut readers, mut chroms) = open_inputs(ctx, &input, &|_| Ok(()))?;
     anyhow::ensure!(readers.len() == 1, "genomecov takes exactly one input");
     let reader = readers.remove(0);
     let genome = genome_of(a.genome.as_deref(), reader.as_ref())?;

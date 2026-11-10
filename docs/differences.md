@@ -1054,8 +1054,14 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   `gloci` tools that check order; the input is sorted, so streaming in genome
   order needs no buffering. When the featureless chromosomes are last in `-g`
   the outputs are identical.
+- **BAM input:** `bedtools genomecov -ibam` also writes a header contig with no reads after
+  the others; gloci keeps the header order.
 - **Pinned by:** `genomecov-empty-chrom-middle-hist-vs-bedtools` and
-  `genomecov-empty-chrom-middle-bga-vs-bedtools` (must differ); the other
+  `genomecov-empty-chrom-middle-bga-vs-bedtools` (must differ);
+  `genomecov-ibam-empty-mid-hist-vs-bedtools`, `genomecov-ibam-empty-mid-bga-vs-bedtools` and
+  `genomecov-ibam-empty-mid-d-vs-bedtools` (must differ; `midempty.bam` has no reads on the
+  middle contig of its header; `tags.bam` and `order.bam` have the empty contig last and
+  match); the other
   `genomecov-*` cases use a genome that lists the empty chromosome last and
   match.
 
@@ -1075,6 +1081,19 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   read with `2D`). `genomecov-ibam-ignored-vs-bedtools`,
   `genomecov-ibam-bga-split-deletions-vs-bedtools` and
   `genomecov-ibam-split-ignored-vs-bedtools` match.
+
+## `genomecov -g` with a BAM is used, not ignored {#genomecov-bam-genome-arg}
+
+- **gloci:** `-g` gives the chromosomes and lengths even for a BAM or SAM input, in place of
+  the header's. A read past the end of its `-g` chromosome is an error naming the read's
+  place, as for BED input.
+- **Old behaviour:** `bedtools genomecov -ibam x.bam -g G` ignores `-g` ("Genome (-g) files
+  are ignored when BAM input is provided") and uses the header.
+- **Reason:** a silently ignored option hides a mismatch between the genome and the reads;
+  a different genome is a real request (a subset of the chromosomes, or the same build
+  under other names).
+- **Pinned by:** `genomecov-ibam-genome-arg` (must differ; the `-g` file gives a longer
+  `chr1` than the header's). Without `-g` the header is used, as bedtools does.
 
 ## Filter expressions: `!~` negates the match {#expr-not-match}
 
@@ -1725,15 +1744,16 @@ depends on the span.
 - **Pinned by:** `bamtobed-past-end-vs-bedtools`, `bamtobed-edge-vs-bedtools` and
   `bamtobed-past-end-bed12-vs-bedtools` (must differ).
 
-## `convert` of a read with no reference bases is one base {#bamtobed-no-reference-ops}
+## `convert` and `genomecov` of a read with no reference bases: one base {#bamtobed-no-reference-ops}
 
 - **gloci:** a mapped read whose CIGAR has no `M D N = X` operation (`10S5I`) is the one
   base at its position, `[pos, pos+1)`, in every layout: BED6, BED12 (one block of
   size 1) and `--blocks`. That is the span htslib's `bam_endpos` gives and every gloci
   interval command uses (D101), so `gloci convert x.bam | gloci intersect ...` and
-  `gloci intersect x.bam ...` agree.
+  `gloci intersect x.bam ...` agree. `gloci genomecov` counts that base too.
 - **Old behaviour:** `bedtools bamtobed` writes a zero-length interval (`chr1 800 800`),
   with `-bed12` a single block of size 0 (`1 0 0`), and `-split` the same zero-length row.
+  `bedtools genomecov -ibam` counts no base for such a read.
 - **Reason:** one span for a read in all commands. A zero-length row also overlaps
   nothing under the rules of [Points overlap an interval only when inside
   it](#zero-length-overlap), so the read would vanish from the next step of a pipeline.
@@ -1741,7 +1761,7 @@ depends on the span.
   `bamtobed-no-reference-ops-bed12-vs-bedtools` and
   `bamtobed-no-reference-ops-split-vs-bedtools` (must differ; they run on `cigars.bam`,
   which has one such read, while the matching cases use `cigars-bases.bam`, the same
-  file without it).
+  file without it) and `genomecov-ibam-no-reference-ops` (must differ, on `cigars.bam`).
 
 ## `convert --score-tag` prints a negative score as a negative number {#bamtobed-negative-score}
 

@@ -154,6 +154,12 @@ impl IoError {
     pub fn with_order_hint(self, extra: &str) -> IoError {
         match self {
             IoError::Order(mut e) => {
+                // An alignment's own hint already says "or pass --sort": do not say it twice.
+                const SORT: &str = ", or pass --sort to sort the inputs first";
+                let extra = match extra.strip_prefix(SORT) {
+                    Some(rest) if e.hint.contains("--sort") => rest,
+                    _ => extra,
+                };
                 e.hint.push_str(extra);
                 IoError::Order(e)
             }
