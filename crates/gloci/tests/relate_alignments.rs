@@ -449,3 +449,49 @@ fn split_uses_the_cut_at_the_end_of_the_reference() {
     ]);
     assert_eq!(out, "chr1\t990\t1000\tchr1\t994\t1000\tover\t60\t+\n");
 }
+
+#[test]
+fn region_restricts_an_alignment_a() {
+    let dir = tempdir();
+    let bed = write(dir.path(), "t.bed", TARGETS);
+    let all = run(&[
+        "intersect",
+        "-a",
+        &aln("order.bam"),
+        "-b",
+        &bed,
+        "-O",
+        "sam",
+    ]);
+    for a in [aln("order.bam"), aln("order.sam")] {
+        let got = run(&[
+            "intersect",
+            "-a",
+            &a,
+            "-b",
+            &bed,
+            "--region",
+            "chr1",
+            "-O",
+            "sam",
+        ]);
+        let want: Vec<&str> = all
+            .lines()
+            .filter(|l| l.split('\t').nth(2) == Some("chr1"))
+            .collect();
+        let body: Vec<&str> = got.lines().filter(|l| !l.starts_with('@')).collect();
+        assert_eq!(body, want, "{a}");
+        assert_eq!(body.len(), 3);
+    }
+    // Coverage with an alignment B: A restricted to a region.
+    let out = run(&[
+        "coverage",
+        "-a",
+        &bed,
+        "-b",
+        &aln("order.bam"),
+        "--region",
+        "chr2",
+    ]);
+    assert!(out.lines().all(|l| l.starts_with("chr2\t")) && !out.is_empty());
+}

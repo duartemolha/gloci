@@ -51,12 +51,7 @@ pub fn rewrite_coords(format: Format, raw: &[u8], iv: Interval, out: &mut Vec<u8
 pub fn b_placeholder(b_format: Format, b_columns: usize, out: &mut Vec<u8>) {
     let mut fields: Vec<&str> = match b_format {
         // An alignment is printed as its BED6 row (D104).
-        Format::Bed
-        | Format::BedGraph
-        | Format::Wig
-        | Format::Bam
-        | Format::Cram
-        | Format::Sam => {
+        Format::Bed | Format::BedGraph | Format::Wig | Format::Bam | Format::Cram | Format::Sam => {
             let mut f = vec![".", "-1", "-1"];
             f.resize(b_columns.max(3), ".");
             if matches!(b_columns, 5 | 6) {

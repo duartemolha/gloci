@@ -2722,7 +2722,8 @@ pub struct SortArg {
     /// records are written to a temporary file in --tmp-dir and read back,
     /// so besides the spill runs (about the size of the input, compressed)
     /// the directory needs one uncompressed sorted copy: allow roughly twice
-    /// the input size. Everything is removed afterwards.
+    /// the input size (BAM and CRAM inputs are written as BAM; a SAM input as plain SAM,
+    /// several times larger). Everything is removed afterwards.
     #[arg(long)]
     pub sort: bool,
     /// Memory budget for --sort, in binary units (K, M, G, T); at least 16M.
