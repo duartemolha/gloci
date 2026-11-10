@@ -117,6 +117,7 @@ Every row below was checked against `gloci <cmd> --help`.
 | `bgzip -dc FILE.gz > FILE` | `gloci view FILE.gz -o FILE` (the name needs a known extension such as `x.bed`; otherwise add `-O bed`) |
 | `tabix -p bed\|vcf\|gff FILE.gz`, `tabix -C ...` | `gloci index FILE.gz` (the type comes from the content; TBI, or CSI when a record ends past 2^29) |
 | `tabix -s S -b B [-e E] [-0] [-S N] [-c C] FILE.gz` | `gloci index FILE.gz -s S -b B [-e E] [--zero-based] [--skip-lines N] [--comment C]` |
+| `bcftools concat A B`, `bcftools concat -n A.vcf.gz B.vcf.gz` | `gloci vcf concat A B` (the output format follows `-o`/`-O`; the header is the first file's, and gloci adds no command-line header line to it). `-n`/`--naive` is `gloci vcf concat --naive A.vcf.gz B.vcf.gz`: BGZF VCF only (BCF exits 2), byte-identical headers (exit 2 otherwise), BGZF blocks copied without recompression, and the order across files is still checked. `bcftools concat -a`, `-r`, `-d` and `-D` (overlapping files, regions, deduplication) are not available; use `gloci sort` and `gloci view` |
 | `bcftools index FILE.bcf`, `bcftools index -c\|-t FILE.vcf.gz` | `gloci index FILE.bcf` (a BCF always gets a CSI; `.vcf.gz` gets a TBI, or a CSI when needed) |
 | `bgzip FILE && tabix -p vcf FILE.gz` | `gloci sort FILE -o FILE.gz --write-index`, or `gloci view FILE -o FILE.gz --write-index` for a file that is already sorted |
 | `tabix FILE.gz REGION...`, `bcftools view -r REGION FILE`, `bcftools view -H -r ...` | `gloci view FILE.gz REGION...` (or `--region REGION`; add `--no-header` for `-H`) |
@@ -220,7 +221,7 @@ Every row below was checked against `gloci <cmd> --help`.
 | `--get-INFO KEY` | `gloci vcf extract FILE --info KEY` (adds an ID column; `.` for missing; [differences.md#vcf-extract-info](differences.md#vcf-extract-info)) |
 | `--extract-FORMAT-info KEY` | `gloci vcf extract FILE --format KEY --layout wide` (columns are `SAMPLE:KEY`; `--layout long` gives a row per sample; [differences.md#vcf-extract-format-wide](differences.md#vcf-extract-format-wide)) |
 | `--012` (writes `out.012`, `.012.indv`, `.012.pos`) | `gloci vcf extract FILE --genotype-matrix 012 --out-prefix out` (same files; haploid and half-missing reference calls count 0; [differences.md#vcf-extract-012](differences.md#vcf-extract-012)) |
-| `vcf-concat` | not yet available (`vcf concat`, P2) |
+| `vcf-concat A.vcf.gz B.vcf.gz` | `gloci vcf concat A.vcf.gz B.vcf.gz -o OUT.vcf.gz` (identical samples; compatible header definitions; each file must start at or after the end of the one before, or it exits 1 with a `gloci sort` hint; inputs may be VCF, VCF.gz or BCF) |
 | `--site-pi`, `--window-pi`, `--TajimaD`, `--weir-fst-pop`, `--*-r2`, `--relatedness*` | not yet available (`vcf popgen`, P3) |
 | `--diff*`, `vcf-compare` | not yet available (`vcf compare`, P3) |
 | `vcf-merge`, `--plink*`, `--IMPUTE`, `--BEAGLE-*`, `--ldhat*` | not planned |

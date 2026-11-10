@@ -2,6 +2,7 @@
 //! Hardy-Weinberg test, shared by the `vcf` commands.
 
 mod bcf_fmt;
+pub mod concat;
 mod expr;
 mod extract;
 mod filter;

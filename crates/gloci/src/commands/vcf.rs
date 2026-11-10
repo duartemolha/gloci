@@ -2,7 +2,7 @@
 
 use crate::Ctx;
 use crate::cli::{
-    ChromMapArg, ExtractLayout, InvalidArg, VcfExtractArgs, VcfFilterArgs, VcfSelectArgs, VcfSpan,
+    ChromMapArg, ExtractLayout, InvalidArg, VcfConcatArgs, VcfExtractArgs, VcfFilterArgs, VcfSelectArgs, VcfSpan,
     VcfSpanArg, VcfStatsArgs,
 };
 use gloci_core::{Interval, RegionSet};
@@ -433,5 +433,32 @@ pub fn run_stats(ctx: &Ctx, a: &VcfStatsArgs) -> anyhow::Result<()> {
         done.records_in,
         done.files.len()
     );
+    Ok(())
+}
+
+pub fn run_concat(ctx: &Ctx, a: &VcfConcatArgs) -> anyhow::Result<()> {
+    let spec = parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref())?;
+    let ro = ReaderOptions {
+        chrom_map: None,
+        threads: ctx.threads,
+        format: None,
+        vcf_span: gloci_core::VcfSpan::Allele,
+        invalid: InvalidPolicy::Fail,
+    };
+    let oo = OutputOptions {
+        threads: ctx.threads,
+        level: a.out.compression_level,
+        write_index: a.out.write_index,
+    };
+    let wo = WriterOptions {
+        write_header: true,
+        command_line: None,
+        version: ctx.version,
+    };
+    let opts = gloci_ops::ConcatOptions {
+        chrom_order: a.chrom_order.chrom_order,
+        naive: a.naive,
+    };
+    gloci_ops::vcf_concat(&a.files, &opts, &ro, &spec, &oo, &wo)?;
     Ok(())
 }

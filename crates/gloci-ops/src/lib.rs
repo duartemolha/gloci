@@ -22,6 +22,7 @@ pub mod spacing;
 pub mod subtract;
 pub mod transform;
 pub mod vcf_extract;
+pub mod vcf_concat;
 pub mod vcf_filter;
 pub mod vcf_select;
 pub mod vcf_stats;
@@ -40,6 +41,7 @@ pub use sort::{
     check_definitions_pair, check_samples, check_samples_pair, merge_fan_in, merge_sorted,
     merge_sorted_batches, sort_input_options, sort_readers, sort_together,
 };
+pub use vcf_concat::{ConcatOptions, vcf_concat};
 pub use vcf_extract::{
     ExtractMode, ExtractOptions, ExtractSummary, check_keys, extract_matrix, extract_table,
 };

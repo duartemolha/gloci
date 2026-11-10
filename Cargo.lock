@@ -725,6 +725,7 @@ dependencies = [
 name = "gloci-vcf"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "gloci-core",
  "gloci-io",
  "gloci-testkit",

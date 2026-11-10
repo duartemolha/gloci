@@ -1,0 +1,1 @@
+vcf concat input.vcf concat-b.vcf

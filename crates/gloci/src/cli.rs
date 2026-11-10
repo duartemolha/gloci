@@ -1036,7 +1036,7 @@ Examples:
   gloci vcf filter cohort.bcf --pass-only --min-qual 30 --min-maf 0.01 --max-missing 0.1 -o filtered.bcf
   gloci vcf filter input.vcf --samples s1,s2 --min-dp 10 --recalc-ac -o out.vcf
   gloci vcf filter variants.bcf --types indel --biallelic")]
-    Filter(VcfFilterArgs),
+    Filter(Box<VcfFilterArgs>),
     /// Extract INFO or FORMAT values as a table, or the 012 genotype matrix.
     #[command(after_long_help = "\
 Examples:
@@ -1052,6 +1052,39 @@ Examples:
   gloci vcf stats cohort.bcf --out-prefix qc --depth --site-mean-depth --min-dp 8 --samples s1,s2
   gloci vcf stats cohort.vcf.gz --out-prefix qc --tstv-summary --json --pass-only")]
     Stats(VcfStatsArgs),
+    /// Write VCF/BCF files one after another (bcftools concat, vcf-concat).
+    #[command(after_long_help = "\
+Examples:
+  gloci vcf concat chr1.vcf.gz chr2.vcf.gz -o all.vcf.gz
+  gloci vcf concat chr*.bcf -o all.bcf
+  gloci vcf concat --naive chr1.vcf.gz chr2.vcf.gz -o all.vcf.gz")]
+    Concat(VcfConcatArgs),
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct VcfConcatArgs {
+    /// Input VCF or BCF files, in output order (`-` for stdin). The samples
+    /// must be identical and in the same order, the INFO, FILTER, FORMAT,
+    /// ALT and contig definitions must match, and the last record of each
+    /// file must sort at or before the first record of the next (exit 1
+    /// otherwise; gloci sort fixes the order). The output has the first
+    /// file's header and no ##glociCommand line.
+    #[arg(value_name = "FILES", required = true, num_args = 1..)]
+    pub files: Vec<String>,
+    /// Copy the BGZF blocks of the inputs without recompressing them. Needs
+    /// BGZF-compressed VCF files with byte-identical headers (exit 2
+    /// otherwise; BCF inputs are not supported) and writes BGZF VCF. The
+    /// order is checked across files only, from each file's first and last
+    /// record. The output is the same as without --naive, after decompression
+    /// (bcftools concat -n).
+    #[arg(long)]
+    pub naive: bool,
+    #[command(flatten)]
+    pub chrom_order: ChromOrderArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
 }
 
 /// A record type for `vcf filter --types` / `--exclude-types` (spec 7.8).

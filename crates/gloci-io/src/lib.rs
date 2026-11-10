@@ -49,7 +49,9 @@ pub use index::{
     index_non_empty_reference_names, index_reference_names, open_region_reader, write_index,
     write_tsv_index,
 };
-pub use input::{Input, InputOptions, InputSpool, is_regular_file, open_input, open_input_from};
+pub use input::{
+    BGZF_EOF, Input, InputOptions, InputSpool, is_regular_file, open_input, open_input_from,
+};
 pub use naming::{
     chr_prefix_hint, format_chrom_list, format_disjoint_chroms_warning, nary_naming_warning,
     unknown_chrom_err,

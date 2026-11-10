@@ -1,0 +1,19 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##contig=<ID=chr1,length=100000>
+##contig=<ID=chr2,length=100000>
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Total depth">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read depth">
+##bcftools_concatVersion=1.21+htslib-1.21
+##bcftools_concatCommand=concat input.vcf concat-b.vcf; Date=Tue Nov 10 00:18:56 2026
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	s1	s2	s3
+chr1	100	rs100	A	C	50	PASS	DP=25	GT:DP	0/1:2	1/1:4	0|0:1
+chr1	250	rs250	A	C	50	PASS	DP=15	GT:DP	0/1:8	1/1:7	0|0:1
+chr1	250	rs250	A	C	50	PASS	DP=15	GT:DP	0/1:8	1/1:7	0|0:1
+chr1	9000	rs9000	A	C	50	PASS	DP=5	GT:DP	0/1:1	1/1:7	0|0:1
+chr1	9000	rs9000	A	C	50	PASS	DP=5	GT:DP	0/1:1	1/1:7	0|0:1
+chr1	9100	rs9100	A	C	50	PASS	DP=25	GT:DP	0/1:2	1/1:2	0|0:1
+chr2	5	rs5	A	C	50	PASS	DP=10	GT:DP	0/1:6	1/1:7	0|0:1
+chr2	77	rs77	A	C	50	PASS	DP=42	GT:DP	0/1:6	1/1:2	0|0:3
+chr2	5000	rs5000	A	C	50	PASS	DP=5	GT:DP	0/1:6	1/1:4	0|0:1

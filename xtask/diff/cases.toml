@@ -3223,3 +3223,40 @@ gloci = "gloci vcf stats input.vcf --out-prefix o --missing-indv --min-gq 10 && 
 reference = "vcftools --vcf input.vcf --missing-indv --minGQ 10 --out o >/dev/null 2>&1 && cat o.imiss"
 compare = "exact"
 expected_difference = "#vcf-stats-mask-missing"
+
+# vcf concat (D74): bcftools concat writes the files in the order given.
+# The headers are identical, so the header lines match too; records are
+# compared.
+[[case]]
+name = "vcf-concat-vs-bcftools-concat"
+input = { file = "xtask/diff/inputs/concat-a.vcf" }
+aux = ["xtask/diff/inputs/concat-b.vcf"]
+gloci = "gloci vcf concat input.vcf concat-b.vcf"
+reference = "bcftools concat input.vcf concat-b.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-concat-bgzf-vs-bcftools-concat"
+input = { file = "xtask/diff/inputs/concat-a.vcf" }
+aux = ["xtask/diff/inputs/concat-b.vcf"]
+gloci = "set -e; bgzip -c input.vcf > a.vcf.gz; bgzip -c concat-b.vcf > b.vcf.gz; gloci vcf concat a.vcf.gz b.vcf.gz"
+reference = "set -e; bgzip -c input.vcf > a.vcf.gz; bgzip -c concat-b.vcf > b.vcf.gz; tabix -p vcf a.vcf.gz; tabix -p vcf b.vcf.gz; bcftools concat a.vcf.gz b.vcf.gz"
+compare = "vcf-records"
+
+# --naive output read by bcftools, against bcftools concat -n (the same
+# block copy).
+[[case]]
+name = "vcf-concat-naive-vs-bcftools-concat-n"
+input = { file = "xtask/diff/inputs/concat-a.vcf" }
+aux = ["xtask/diff/inputs/concat-b.vcf"]
+gloci = "set -e; bgzip -c input.vcf > a.vcf.gz; bgzip -c concat-b.vcf > b.vcf.gz; gloci vcf concat --naive a.vcf.gz b.vcf.gz -o g.vcf.gz; bcftools view g.vcf.gz"
+reference = "set -e; bgzip -c input.vcf > a.vcf.gz; bgzip -c concat-b.vcf > b.vcf.gz; bcftools concat -n a.vcf.gz b.vcf.gz -o t.vcf.gz -Oz; bcftools view t.vcf.gz"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-concat-vs-vcftools-vcf-concat"
+input = { file = "xtask/diff/inputs/concat-a.vcf" }
+aux = ["xtask/diff/inputs/concat-b.vcf"]
+gloci = "set -e; bgzip -c input.vcf > a.vcf.gz; bgzip -c concat-b.vcf > b.vcf.gz; gloci vcf concat a.vcf.gz b.vcf.gz"
+reference = "set -e; bgzip -c input.vcf > a.vcf.gz; bgzip -c concat-b.vcf > b.vcf.gz; vcf-concat a.vcf.gz b.vcf.gz"
+compare = "vcf-records"

@@ -11,7 +11,8 @@ gloci-io.workspace = true
 memchr.workspace = true
 regex.workspace = true
 itoa.workspace = true
+flate2.workspace = true
+noodles-bgzf.workspace = true
 
 [dev-dependencies]
 gloci-testkit.workspace = true
-noodles-bgzf.workspace = true
