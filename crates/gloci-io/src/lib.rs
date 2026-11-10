@@ -12,6 +12,7 @@ pub mod convert;
 pub mod detect;
 pub mod diag;
 pub mod error;
+pub mod fasta;
 pub mod fields;
 #[doc(hidden)]
 pub mod fuzz_bodies;
@@ -49,6 +50,10 @@ pub use convert::{BcfText, HeaderMode, TextToBcf, convert_variants};
 pub use detect::{Compression, Format, detect_compression, detect_format};
 pub use diag::{Diagnostics, InvalidPolicy};
 pub use error::{GateKind, IoError, Loc, OrderError, SORTED_INPUTS, UsageError};
+pub use fasta::{
+    FETCH_CHUNK, FaiEntry, FastaLine, FastaStream, IndexedFasta, build_fai, fai_bytes, fai_path,
+    find_fai, gzi_path, parse_fai, write_fasta_index,
+};
 pub use fields::{column_count, field, split_fields};
 pub use genome::{chrom_table_for, chrom_table_lenient, load_genome};
 pub use index::{

@@ -1368,3 +1368,23 @@ it takes every `vcf filter` selection flag, runs any number of statistics in one
 pass (vcftools allows one output function per run), writes each file only when
 the whole run succeeds, and defaults `--vcf-span` to `ref` because no statistic
 depends on the span.
+
+## `index` on FASTA refuses what `samtools faidx` quietly mishandles {#fasta-index-strictness}
+
+- **gloci:** `gloci index ref.fa` exits 1, naming the line, for three inputs:
+  a sequence name used twice, a header with no name (`>` alone), and a sequence
+  line holding a space, a control character or a non-ASCII byte. No index is
+  written.
+- **Old behaviour:** `samtools faidx` exits 0. It keeps the first of two equal
+  names and warns, indexes an empty name, and does not count a space as a base
+  (so the index offsets no longer match the file).
+- **Reason:** each of these gives an index that returns the wrong bases or hides
+  a sequence; an error that names the line is safer. Every FASTA both tools
+  accept gets a byte-identical `.fai` (and `.gzi` for BGZF). Empty sequences
+  are left out of the index as samtools does, with a warning.
+- **Pinned by:** `index-fasta-duplicate-name-vs-samtools`,
+  `index-fasta-space-in-sequence-vs-samtools` and
+  `index-fasta-empty-name-vs-samtools` (exit status: must differ);
+  `index-fasta-irregular-lines-vs-samtools` pins the agreeing side (both exit
+  1), and `index-interop-faidx` and `index-interop-faidx-bgzf` pin identical
+  indexes.

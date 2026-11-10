@@ -335,6 +335,11 @@ Before relying on a new expression, run it once on a small file with
 - **BCF contig dictionary order in `index`:** `gloci index` refuses a BCF whose
   contigs are not in header dictionary order. Run `gloci sort` first.
   [differences.md#bcf-index-contig-order](differences.md#bcf-index-contig-order)
+- **FASTA indexing is stricter than `samtools faidx`:** `gloci index ref.fa` exits 1
+  for a duplicate sequence name, an empty name, or a space or non-ASCII byte in a
+  sequence line, where samtools indexes the file. Valid FASTA gets a
+  byte-identical `.fai`/`.gzi`.
+  [differences.md#fasta-index-strictness](differences.md#fasta-index-strictness)
 - **TSV indexing without `-e`:** `gloci index -s -b` without `-e` sets the end
   column equal to the begin column (1-base feature) instead of tabix's GFF
   default of column 5.

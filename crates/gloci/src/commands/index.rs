@@ -1,6 +1,9 @@
 use crate::Ctx;
 use crate::cli::IndexArgs;
-use gloci_io::{InputOptions, TsvColumns, UsageError, open_input, write_index, write_tsv_index};
+use gloci_io::{
+    Format, InputOptions, TsvColumns, UsageError, open_input, write_fasta_index, write_index,
+    write_tsv_index,
+};
 
 pub fn run(ctx: &Ctx, args: &IndexArgs) -> anyhow::Result<()> {
     if args.file.as_os_str() == "-" {
@@ -25,6 +28,10 @@ first (gloci view - -o x.bed.gz), then run: gloci index x.bed.gz"
     )?;
     let format = input.format;
     drop(input);
+    if format == Format::Fasta {
+        write_fasta_index(&args.file, ctx.threads)?;
+        return Ok(());
+    }
     // write_index rejects non-BGZF input with the "recompress with: gloci view" usage error.
     write_index(&args.file, &args.file, format, ctx.threads)?;
     Ok(())

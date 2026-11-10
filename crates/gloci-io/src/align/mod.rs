@@ -157,7 +157,8 @@ gloci convert {name} -o x.bed",
             GateKind::Sequence,
             format!(
                 "{name} is FASTA, which is sequence, not intervals; only getfasta, maskfasta or \
-nuc read it, as the reference for the intervals in a BED, GFF or VCF file"
+nuc read it, as the reference for the intervals in a BED, GFF or VCF file, and -g ref.fa \
+reads its .fai for the chromosome sizes (create it with: gloci index {name})"
             ),
         ));
     }

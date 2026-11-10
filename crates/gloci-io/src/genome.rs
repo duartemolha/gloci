@@ -54,6 +54,10 @@ pub fn load_genome(path: &Path) -> Result<Genome, IoError> {
     if magic == b"BAM\x01" {
         return bam_genome(&mut *src, &name);
     }
+    if magic.starts_with(b">") {
+        // A FASTA: its chromosome sizes are in its .fai, which must exist (D108).
+        return fasta_genome(path, &name);
+    }
     // Text: the first non-empty line decides.
     let mut first = Vec::new();
     while first.is_empty() || first == b"\n" || first == b"\r\n" {
@@ -86,6 +90,19 @@ pub fn load_genome(path: &Path) -> Result<Genome, IoError> {
         Genome::parse_sizes(&text)
     }
     .map_err(from_genome_err)
+}
+
+/// The chromosome list of a FASTA, from `PATH.fai`. gloci never builds the
+/// index implicitly; a missing one is a usage error naming `gloci index`.
+fn fasta_genome(fasta: &Path, name: &str) -> Result<Genome, IoError> {
+    let (fai, stale) = crate::fasta::find_fai(fasta)?;
+    if stale {
+        log::warn!(
+            "the index {} is older than {name}; it may be out of date (rebuild it with: gloci index {name})",
+            fai.display()
+        );
+    }
+    load_genome(&fai)
 }
 
 /// Read up to `n` bytes (fewer only at end of input).

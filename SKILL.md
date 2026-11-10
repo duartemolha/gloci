@@ -47,13 +47,13 @@ gloci genomes show mm39 | cut -f1
 
 ### `gloci index`
 
-Build a .tbi/.csi index for a sorted BGZF file.
+Build a .tbi/.csi index for a sorted BGZF file, or a .fai for a FASTA.
 
-BED, GFF/GTF, VCF and BCF files are recognised by content. Any other tab-separated file is indexed like tabix does when you name its columns with -s (sequence), -b (begin) and -e (end, optional). The columns are numbered from 1. Without --zero-based the begin column is 1-based and a feature covers [begin-1, end]; with it, [begin, end). Without -e a feature covers one base. Lines starting with --comment (default #) and the first --skip-lines lines are not indexed; both are recorded in the index. Chromosomes must be contiguous and sorted by begin. The index is a .tbi, or a .csi when an end passes 2^29.
+A FASTA file (plain or BGZF) gets PATH.fai, and PATH.gzi when it is BGZF, byte-identical to samtools faidx. Every line of a sequence but the last must have the same length. Reading a FASTA at random (getfasta, nuc, maskfasta, a CRAM reference) needs these files and never builds them itself. Plain gzip is refused: recompress with bgzip. Otherwise, BED, GFF/GTF, VCF and BCF files are recognised by content. Any other tab-separated file is indexed like tabix does when you name its columns with -s (sequence), -b (begin) and -e (end, optional). The columns are numbered from 1. Without --zero-based the begin column is 1-based and a feature covers [begin-1, end]; with it, [begin, end). Without -e a feature covers one base. Lines starting with --comment (default #) and the first --skip-lines lines are not indexed; both are recorded in the index. Chromosomes must be contiguous and sorted by begin. The index is a .tbi, or a .csi when an end passes 2^29.
 
 ```sh
 gloci index calls.vcf.gz
-gloci index peaks.bed.gz -t 8
+gloci index ref.fa.gz
 gloci index scores.tsv.gz -s 1 -b 2 -e 3 --zero-based
 gloci index sites.txt.gz -s 1 -b 2 --skip-lines 1 --comment %
 ```

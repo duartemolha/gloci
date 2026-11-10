@@ -82,9 +82,14 @@ Examples:
   gloci genomes show hg38
   gloci sort peaks.bed -g hg38 > peaks.sorted.bed")]
     Genomes(GenomesArgs),
-    /// Build a .tbi/.csi index for a sorted BGZF file.
+    /// Build a .tbi/.csi index for a sorted BGZF file, or a .fai for a FASTA.
     ///
-    /// BED, GFF/GTF, VCF and BCF files are recognised by content. Any other
+    /// A FASTA file (plain or BGZF) gets PATH.fai, and PATH.gzi when it is
+    /// BGZF, byte-identical to samtools faidx. Every line of a sequence but
+    /// the last must have the same length. Reading a FASTA at random
+    /// (getfasta, nuc, maskfasta, a CRAM reference) needs these files and
+    /// never builds them itself. Plain gzip is refused: recompress with
+    /// bgzip. Otherwise, BED, GFF/GTF, VCF and BCF files are recognised by content. Any other
     /// tab-separated file is indexed like tabix does when you name its
     /// columns with -s (sequence), -b (begin) and -e (end, optional). The
     /// columns are numbered from 1. Without --zero-based the begin column is
@@ -96,7 +101,7 @@ Examples:
     #[command(after_long_help = "\
 Examples:
   gloci index calls.vcf.gz
-  gloci index peaks.bed.gz -t 8
+  gloci index ref.fa.gz
   gloci index scores.tsv.gz -s 1 -b 2 -e 3 --zero-based
   gloci index sites.txt.gz -s 1 -b 2 --skip-lines 1 --comment %")]
     Index(IndexArgs),
@@ -2225,7 +2230,7 @@ Examples:
 
 #[derive(Args)]
 pub struct IndexArgs {
-    /// Sorted, BGZF-compressed BED/GFF/VCF/BCF file to index.
+    /// Sorted, BGZF-compressed BED/GFF/VCF/BCF file to index, or a FASTA file.
     pub file: PathBuf,
     /// Sequence (chromosome) column, numbered from 1. Selects TSV mode; needs -b.
     #[arg(short = 's', long, value_name = "N")]

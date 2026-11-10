@@ -3317,3 +3317,54 @@ aux = ["xtask/diff/inputs/concat-b.vcf"]
 gloci = "set -e; bgzip -c input.vcf > a.vcf.gz; bgzip -c concat-b.vcf > b.vcf.gz; gloci vcf concat a.vcf.gz b.vcf.gz"
 reference = "set -e; bgzip -c input.vcf > a.vcf.gz; bgzip -c concat-b.vcf > b.vcf.gz; vcf-concat a.vcf.gz b.vcf.gz"
 compare = "vcf-records"
+
+# FASTA indexes (D108). gloci's .fai/.gzi must be usable by samtools and equal
+# its own; the committed fixtures pin the same byte equality in plain cargo test
+# (crates/gloci-io/tests/fasta.rs `fai_matches_samtools`).
+
+[[case]]
+name = "index-interop-faidx"
+input = { file = "xtask/diff/inputs/fa/ref.fa" }
+gloci = '''set -e; gloci index input.fa; cat input.fa.fai; samtools faidx input.fa chr1:5-70 chr2:1000-1100 chr10:1-600 chrX:51-70 chrM:1-4'''
+reference = '''set -e; samtools faidx input.fa; cat input.fa.fai; samtools faidx input.fa chr1:5-70 chr2:1000-1100 chr10:1-600 chrX:51-70 chrM:1-4'''
+compare = "exact"
+
+# chr2 of this file spans five BGZF blocks; the second query straddles the
+# boundary of the first two (uncompressed byte 65239).
+[[case]]
+name = "index-interop-faidx-bgzf"
+input = { file = "xtask/diff/inputs/fa/ref.fa.gz" }
+gloci = '''set -e; gloci index input.fa.gz; cat input.fa.gz.fai; od -An -tx1 input.fa.gz.gzi; samtools faidx input.fa.gz chr1:5-70 chr2:60000-60100 chr2:62990-63020 chr2:299000-300000 chrX:1-777'''
+reference = '''set -e; samtools faidx input.fa.gz; cat input.fa.gz.fai; od -An -tx1 input.fa.gz.gzi; samtools faidx input.fa.gz chr1:5-70 chr2:60000-60100 chr2:62990-63020 chr2:299000-300000 chrX:1-777'''
+compare = "exact"
+
+[[case]]
+name = "index-fasta-irregular-lines-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/irregular.fa" }
+gloci = "gloci index input.fa"
+reference = "samtools faidx input.fa"
+compare = "exit-status"
+
+[[case]]
+name = "index-fasta-duplicate-name-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/dup-name.fa" }
+gloci = "gloci index input.fa"
+reference = "samtools faidx input.fa"
+compare = "exit-status"
+expected_difference = "#fasta-index-strictness"
+
+[[case]]
+name = "index-fasta-space-in-sequence-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/space.fa" }
+gloci = "gloci index input.fa"
+reference = "samtools faidx input.fa"
+compare = "exit-status"
+expected_difference = "#fasta-index-strictness"
+
+[[case]]
+name = "index-fasta-empty-name-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/noname.fa" }
+gloci = "gloci index input.fa"
+reference = "samtools faidx input.fa"
+compare = "exit-status"
+expected_difference = "#fasta-index-strictness"
