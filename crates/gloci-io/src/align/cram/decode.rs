@@ -51,6 +51,16 @@ pub(crate) enum Extent {
     Placeholder(Vec<(usize, usize)>),
 }
 
+/// While container `c` of `name` is decoded, a panic in noodles-cram means malformed data the
+/// checks before it let through (a crafted file): say so, and where (`#cram-limits`).
+fn decoder_note(name: &str, c: &RawContainer) -> crate::atomic::PanicNote {
+    crate::atomic::panic_note(format!(
+        "{name}: the CRAM decoder failed on malformed data in {}; the file is corrupt or was \
+crafted (see #cram-limits in docs/differences.md)",
+        c.place()
+    ))
+}
+
 /// The references of the mapped reads of `records`.
 fn mapped_refs(records: &[cram::Record<'_>], info: &CramInfo) -> Vec<usize> {
     let mut out = Vec::new();
@@ -302,6 +312,7 @@ impl Decoder {
 
     /// Append the BAM records (each with its `block_size`) of container `c` to `out`.
     pub fn decode(&mut self, c: &RawContainer, out: &mut Vec<u8>) -> Result<(), IoError> {
+        let _note = decoder_note(&self.info.name, c);
         let heads = slice_heads(c, &self.info.name, self.info.aln.refs.len())?;
         let comp = compression(c);
         if let Some(what) = &comp.unsupported {
@@ -657,6 +668,7 @@ impl ExtentDecoder {
         if heads.iter().all(|h| h.ref_id != -2) {
             return Ok(out);
         }
+        let _note = decoder_note(&self.info.name, c);
         let name = &self.info.name;
         let bad = |e: &dyn std::fmt::Display| {
             detect_err(

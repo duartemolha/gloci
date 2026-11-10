@@ -1863,18 +1863,21 @@ depends on the span.
 - **Remaining risk:** gloci checks every container, block and slice header (each has a
   CRC32 checksum, so random corruption is always an error), the values above where a data
   series has a block of its own or a constant code (as htslib writes them), and the decoded
-  size each block states, in its header and its codec's. A file crafted on purpose, with checksums
-  recomputed, can still reach what noodles-cram 0.102 trusts beyond these: its own `expect`s
-  and unchecked arithmetic (a record's reference, its mates' template length, its alignment
-  span, a base it reconstructs without a reference), and the sizes inside compressed streams
-  past their headers (rANS Nx16's RLE and PACK metadata, the tokeniser's token streams). A panic there ends gloci
-  with an internal error (exit status 1, also in release builds: gloci's panic hook exits
-  before the abort); a size that asks for more memory than the machine has aborts it (exit
-  status 134). Do not feed gloci CRAMs from untrusted sources you would not give to a library
-  that panics; samtools has its own share of such limits.
+  size each block states, in its header and its codec's. A file crafted on purpose, with
+  checksums recomputed, can still reach what noodles-cram 0.102 trusts beyond these: its own
+  `expect`s and unchecked arithmetic (a record's reference, its mates' template length, its
+  alignment span, a base it reconstructs without a reference), and the sizes inside
+  compressed streams past their headers (rANS Nx16's RLE and PACK metadata, the tokeniser's
+  token streams). A panic there ends gloci with `the CRAM decoder failed on malformed data in
+  FILE: container N (at byte B); the file is corrupt or was crafted (see #cram-limits …)`
+  (exit status 1, also in release builds: gloci's panic hook exits before the abort); a size
+  that asks for more memory than the machine has aborts it (exit status 134). Do not feed
+  gloci CRAMs from untrusted sources you would not give to a library that panics; samtools
+  has its own share of such limits.
 - **Reason:** a read a megabase past its chromosome's end is not real data, and decoding it
   costs that much memory; the rest keeps a corrupt count from asking for gigabytes.
 - **Pinned by:** `view-cram-overhang-limit-vs-samtools` (overhang.cram: a deletion ending 1.5 Mb
   past chr1; exit status must differ), and the tests `cram_overhang_limit`,
-  `prechecks_refuse_counts_the_slice_cannot_hold`, `tokeniser_header_is_checked` and
+  `prechecks_refuse_counts_the_slice_cannot_hold`, `tokeniser_header_is_checked`,
+  `block_sizes_are_checked`, `crafted_cram_panic_points_to_the_limits` and
   `cram_corrupt_bytes_are_errors_not_panics`.

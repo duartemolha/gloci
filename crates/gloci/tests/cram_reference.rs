@@ -382,6 +382,58 @@ fn cram_31_codecs_at_every_thread_count() {
     }
 }
 
+/// A crafted CRAM (a block of flags.noref.cram changed and its checksum recomputed) that
+/// reaches a panic inside noodles-cram is reported as malformed data, pointing at #cram-limits,
+/// not as a bug of gloci's (exit 1 still), on the main thread and on a worker.
+#[test]
+fn crafted_cram_panic_points_to_the_limits() {
+    let mut b = std::fs::read(aln("flags.noref.cram")).unwrap();
+    // The external block at byte 743: method, content type, then ITF8 id, size and raw size.
+    let start = 743;
+    let itf8 = |at: &mut usize, b: &[u8]| -> usize {
+        let v = b[*at] as usize;
+        assert!(v < 0x80, "a one-byte ITF8 in this block");
+        *at += 1;
+        v
+    };
+    let mut at = start + 2;
+    itf8(&mut at, &b);
+    let size = itf8(&mut at, &b);
+    itf8(&mut at, &b);
+    let end = at + size;
+    b[748] ^= 1;
+    // CRC32 (IEEE), bit by bit.
+    let mut crc = !0u32;
+    for &byte in &b[start..end] {
+        crc ^= u32::from(byte);
+        for _ in 0..8 {
+            crc = if crc & 1 != 0 {
+                (crc >> 1) ^ 0xedb8_8320
+            } else {
+                crc >> 1
+            };
+        }
+    }
+    b[end..end + 4].copy_from_slice(&(!crc).to_le_bytes());
+    let dir = tempdir();
+    let path = dir.path().join("crafted.cram");
+    std::fs::write(&path, b).unwrap();
+    for t in ["1", "4"] {
+        let out = gloci()
+            .args(["view", "-t", t, "-O", "sam", &s(&path)])
+            .output()
+            .unwrap();
+        let err = text(&out.stderr);
+        assert_eq!(out.status.code(), Some(1), "-t {t}: {err}");
+        assert!(
+            err.contains("crafted.cram: the CRAM decoder failed on malformed data in container 1")
+                && err.contains("see #cram-limits in docs/differences.md")
+                && !err.contains("this is a bug"),
+            "-t {t}: {err}"
+        );
+    }
+}
+
 #[test]
 fn genome_from_cram_needs_no_reference() {
     let dir = tempdir();
