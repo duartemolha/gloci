@@ -2,6 +2,7 @@
 //! order warning, dropped records and determinism.
 mod common;
 use common::*;
+use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 use std::path::Path;
 
@@ -74,7 +75,7 @@ fn shift_pct() {
     let dir = tempdir();
     let g = genome(dir.path());
     // Lengths 100 and 5 and 91 (odd): the product is floored, also when
-    // negative (bedtools 2.31.1: -0.25 * 5 shifts by -2).
+    // negative (-0.25 * 5 shifts by -2, as in bedtools for dyadic fractions).
     let f = s(&plain_file(
         dir.path(),
         "p.bed",
@@ -130,7 +131,8 @@ fn usage_errors() {
         .args(["shift", &v, "--by", "5"])
         .assert()
         .code(2)
-        .stderr(contains("BED and GFF/GTF"));
+        .stderr(contains("BED and GFF/GTF"))
+        .stderr(contains("footprint to move"));
     let f = s(&plain_file(dir.path(), "a.bed", "chr1\t1\t2\n"));
     gloci().args(["shift", &f]).assert().code(2);
     gloci()
@@ -271,4 +273,56 @@ fn determinism() {
     assert!(!base.is_empty());
     assert_eq!(run("2"), base);
     assert_eq!(run("8"), base);
+}
+
+#[test]
+fn pct_corners() {
+    let dir = tempdir();
+    let g = genome(dir.path());
+    let f = s(&plain_file(dir.path(), "t.bed", "chr1\t100\t110\n"));
+    assert_eq!(
+        out(&["shift", &f, "--pct", "--by", "-0.1", "-g", &g]),
+        "chr1\t99\t109\n",
+        "exact decimal: floor(-1)"
+    );
+    assert_eq!(
+        out(&["shift", &f, "--pct", "--by", "0.7", "-g", &g]),
+        "chr1\t107\t117\n"
+    );
+    let p = s(&plain_file(dir.path(), "p.bed", "chr1\t10\t10\n"));
+    assert_eq!(
+        out(&["shift", &p, "--pct", "--by", "-0.5", "-g", &g]),
+        "chr1\t10\t10\n",
+        "a point has length 0"
+    );
+    let e = s(&plain_file(dir.path(), "e.bed", "chr1\t0\t5\n"));
+    assert_eq!(
+        out(&["shift", &e, "--pct", "--by", "-0.9", "-g", &g]),
+        "chr1\t0\t1\n"
+    );
+    gloci()
+        .args(["shift", &f, "--pct", "--by", "99999999999999999999"])
+        .assert()
+        .code(2)
+        .stderr(contains("--by: fraction"))
+        .stderr(contains("too large"))
+        .stderr(contains("scale").not())
+        .stderr(contains("non-negative").not());
+}
+
+#[test]
+fn order_warning_from_edge_clipping() {
+    let dir = tempdir();
+    let g = s(&plain_file(dir.path(), "s.genome", "chr1\t15\n"));
+    let f = s(&plain_file(
+        dir.path(),
+        "o.bed",
+        "chr1\t10\t10\nchr1\t12\t14\n",
+    ));
+    gloci()
+        .args(["shift", &f, "--by", "10", "-g", &g])
+        .assert()
+        .success()
+        .stdout("chr1\t15\t15\nchr1\t14\t15\n")
+        .stderr(contains("output record 2 is out of order"));
 }

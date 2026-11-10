@@ -2641,3 +2641,43 @@ gloci = "gloci shift --by -10 -g comp.genome input.bed"
 reference = "bedtools shift -i input.bed -g comp.genome -s -10"
 compare = "exact"
 expected_difference = "#shift-past-edge"
+
+# --pct: bedtools computes the shift in float32, gloci in exact decimals;
+# bedtools also treats a zero-length feature as 2 bases long and adds the
+# fractional shift before truncating at an edge.
+
+[[case]]
+name = "shift-pct-decimal-neg-vs-bedtools"
+input = { file = "xtask/diff/inputs/shift-pct10.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci shift --pct --by -0.1 -g comp.genome input.bed"
+reference = "bedtools shift -i input.bed -g comp.genome -pct -s -0.1"
+compare = "exact"
+expected_difference = "#pct-exact-decimal"
+
+[[case]]
+name = "shift-pct-decimal-pos-vs-bedtools"
+input = { file = "xtask/diff/inputs/shift-pct10.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci shift --pct --by 0.7 -g comp.genome input.bed"
+reference = "bedtools shift -i input.bed -g comp.genome -pct -s 0.7"
+compare = "exact"
+expected_difference = "#pct-exact-decimal"
+
+[[case]]
+name = "shift-pct-point-vs-bedtools"
+input = { file = "xtask/diff/inputs/shift-points.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci shift --pct --by -0.5 -g comp.genome input.bed"
+reference = "bedtools shift -i input.bed -g comp.genome -pct -s -0.5"
+compare = "exact"
+expected_difference = "#pct-exact-decimal"
+
+[[case]]
+name = "shift-pct-edge-vs-bedtools"
+input = { file = "xtask/diff/inputs/shift-pct-edge.bed" }
+aux = ["xtask/diff/inputs/comp.genome"]
+gloci = "gloci shift --pct --by -0.9 -g comp.genome input.bed"
+reference = "bedtools shift -i input.bed -g comp.genome -pct -s -0.9"
+compare = "exact"
+expected_difference = "#pct-exact-decimal"

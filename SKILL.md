@@ -197,7 +197,7 @@ gloci flank peaks.bed --pct -b 0.25 -g genome.txt | gloci sort -g genome.txt -
 
 Move each feature along its chromosome (bedtools shift).
 
---by N moves every record by N bases (negative moves toward 0); --pct reads N as a fraction of the feature's own length (0.5, -25%; the product is floored, as in bedtools). -s negates the shift on minus-strand records (an unknown strand counts as +), so a positive N moves every feature downstream. The result is clipped like slop: at 0 and, with -g, at the chromosome end, so a feature pushed over an edge shrinks; one pushed wholly over an edge becomes the 1-base interval at that edge, as in bedtools (a zero-length feature stays zero-length there). BED and GFF/GTF only. The output is in input order and may not be sorted; a warning is printed once when the shift itself breaks the order.
+--by N moves every record by N bases (negative moves toward 0); --pct reads N as a fraction of the feature's own length (0.5, -25%; the product is floored using exact decimal arithmetic). -s negates the shift on minus-strand records (an unknown strand counts as +), so a positive N moves every feature downstream. The result is clipped like slop: at 0 and, with -g, at the chromosome end, so a feature pushed over an edge shrinks; one pushed wholly over an edge becomes the 1-base interval at that edge, as in bedtools (a zero-length feature stays zero-length there). BED and GFF/GTF only. The output is in input order and may not be sorted; a warning is printed once when the shift itself breaks the order.
 
 ```sh
 gloci shift genes.bed --by 100 -g hg38
@@ -401,7 +401,7 @@ Every row below was checked against `gloci <cmd> --help`.
 | `coverage [-hist -d -mean]`, `annotate` | `gloci coverage -a A -b B [--hist \| --per-base \| --mean]`, `gloci coverage -a A -b B1 B2... [--names ...]` |
 | `slop -b -l -r -s -pct -g` | `gloci slop FILE -b/--both N` or `--left L --right R` with `-s`, `--pct`, `-g GENOME` |
 | `flank -b -l -r -s -pct -g` | `gloci flank FILE -b/--both N` or `--left L --right R` with `-s`, `--pct`, `-g GENOME` |
-| `shift -s N`, `shift -p X -m Y`, `-pct`, `-g` | `gloci shift FILE --by N [-g GENOME]` (signed; `--pct` reads N as a fraction of the feature length); `-p X -m -X` is `--by X -s`. bedtools' `-p`/`-m` with unrelated magnitudes has no gloci equivalent: run `shift` per strand after filtering |
+| `shift -s N`, `shift -p X -m Y`, `-pct`, `-g` | `gloci shift FILE --by N [-g GENOME]` (signed; `--pct` reads N as an exact decimal fraction of the feature length); `-p X -m -X` is `--by X -s`. bedtools' `-p`/`-m` with unrelated magnitudes has no gloci equivalent: run `shift` per strand after filtering |
 | `makewindows -g/-b -w -s -n -i` | `gloci windows -g GENOME \| -i/--intervals FILE` with `-w/--size SIZE [--step S]` or `-n/--count COUNT`, plus `--id-column`, `--reverse` |
 | `sort -i FILE [-g GENOME]` | `gloci sort FILE [-g GENOME]` (`--chrom-order lex` reproduces byte order) |
 | `bed12tobed6 -i FILE` | `gloci convert FILE --blocks` |

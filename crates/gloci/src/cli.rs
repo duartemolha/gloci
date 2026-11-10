@@ -353,7 +353,7 @@ Examples:
     ///
     /// --by N moves every record by N bases (negative moves toward 0);
     /// --pct reads N as a fraction of the feature's own length (0.5, -25%;
-    /// the product is floored, as in bedtools). -s negates the shift on
+    /// the product is floored using exact decimal arithmetic). -s negates the shift on
     /// minus-strand records (an unknown strand counts as +), so a positive N
     /// moves every feature downstream. The result is clipped like slop: at 0
     /// and, with -g, at the chromosome end, so a feature pushed over an edge

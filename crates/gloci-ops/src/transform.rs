@@ -45,10 +45,11 @@ pub struct Pad {
 
 /// `slop`/`flank` take BED and GFF/GTF only.
 pub fn check_format(command: &str, format: Format) -> Result<(), UsageError> {
+    let what = if command == "shift" { "move" } else { "pad" };
     match format {
         Format::Vcf | Format::Bcf => Err(UsageError(format!(
             "{command} works on BED and GFF/GTF input; a VCF/BCF record has no \
-footprint to pad (convert it first, e.g. with gloci view -O bed)"
+footprint to {what} (convert it first, e.g. with gloci view -O bed)"
         ))),
         _ => Ok(()),
     }

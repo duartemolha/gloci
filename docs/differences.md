@@ -676,6 +676,27 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Reason:** an inverted interval is invalid and breaks every later tool.
 - **Pinned by:** `shift-point-edge-vs-bedtools` (must differ).
 
+## `shift --pct` uses exact decimals {#pct-exact-decimal}
+
+- **gloci:** `shift --pct --by F` moves a feature of length L by exactly
+  `floor(F * L)` bases (F read as an exact decimal, so `-0.1` on 10 bases is
+  -1 and `0.7` is 7). A zero-length feature does not move (0 * F = 0). A
+  non-empty feature whose shift leaves nothing of it inside the chromosome
+  is written as the 1-base edge interval (`[0, 1)` for `[0,5)` shifted by
+  `-0.9`: floor(-4.5) is -5).
+- **Old behaviour:** `bedtools shift -pct` computes in single-precision
+  float, so non-dyadic fractions can land one base away (10 bases: -0.1
+  gives -2, -0.3 gives -4, 0.7 gives 6, 0.9 gives 8). It treats a
+  zero-length feature as 2 bases long (`[10,10)` with -0.5 gives `9 9`),
+  and adds the fractional shift to each coordinate before truncating, so
+  `[0,5)` with -0.9 gives `0 0`.
+- **Reason:** results must not depend on float rounding; `slop` and `flank`
+  `--pct` already use exact decimals (and agree with bedtools on the
+  fractions tried, 0.1 to 1.1).
+- **Pinned by:** `shift-pct-decimal-neg-vs-bedtools`,
+  `shift-pct-decimal-pos-vs-bedtools`, `shift-pct-point-vs-bedtools` and
+  `shift-pct-edge-vs-bedtools` (must differ).
+
 ## `flank -s` on a record of unknown strand {#flank-unknown-strand}
 
 - **gloci:** with `-s`, a record whose strand is `.` (or missing) counts as

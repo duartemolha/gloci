@@ -147,7 +147,7 @@ Every row below was checked against `gloci <cmd> --help`.
 | `coverage [-hist -d -mean]`, `annotate` | `gloci coverage -a A -b B [--hist \| --per-base \| --mean]`, `gloci coverage -a A -b B1 B2... [--names ...]` |
 | `slop -b -l -r -s -pct -g` | `gloci slop FILE -b/--both N` or `--left L --right R` with `-s`, `--pct`, `-g GENOME` |
 | `flank -b -l -r -s -pct -g` | `gloci flank FILE -b/--both N` or `--left L --right R` with `-s`, `--pct`, `-g GENOME` |
-| `shift -s N`, `shift -p X -m Y`, `-pct`, `-g` | `gloci shift FILE --by N [-g GENOME]` (signed; `--pct` reads N as a fraction of the feature length); `-p X -m -X` is `--by X -s`. bedtools' `-p`/`-m` with unrelated magnitudes has no gloci equivalent: run `shift` per strand after filtering |
+| `shift -s N`, `shift -p X -m Y`, `-pct`, `-g` | `gloci shift FILE --by N [-g GENOME]` (signed; `--pct` reads N as an exact decimal fraction of the feature length); `-p X -m -X` is `--by X -s`. bedtools' `-p`/`-m` with unrelated magnitudes has no gloci equivalent: run `shift` per strand after filtering |
 | `makewindows -g/-b -w -s -n -i` | `gloci windows -g GENOME \| -i/--intervals FILE` with `-w/--size SIZE [--step S]` or `-n/--count COUNT`, plus `--id-column`, `--reverse` |
 | `sort -i FILE [-g GENOME]` | `gloci sort FILE [-g GENOME]` (`--chrom-order lex` reproduces byte order) |
 | `bed12tobed6 -i FILE` | `gloci convert FILE --blocks` |
@@ -355,6 +355,10 @@ Every row below was checked against `gloci <cmd> --help`.
   beyond 0 or the chromosome end stays zero-length at the edge; bedtools writes
   an inverted interval (such as `1 0`).
   [differences.md#shift-past-edge](differences.md#shift-past-edge)
+- **`shift --pct`:** Exact decimal arithmetic instead of single-precision float
+  (so `-0.1` of 10 bases is -1, not bedtools' -2); a zero-length feature does not
+  move.
+  [differences.md#pct-exact-decimal](differences.md#pct-exact-decimal)
 - **`flank -s` on unknown strand:** Treats `.` or missing strand as `+` (matching
   `slop -s`) instead of dropping the record.
   [differences.md#flank-unknown-strand](differences.md#flank-unknown-strand)

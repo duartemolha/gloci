@@ -2,7 +2,7 @@
 use super::slop::{Shared, run_shared};
 use crate::Ctx;
 use crate::cli::ShiftArgs;
-use gloci_core::Fraction;
+use gloci_core::{Fraction, FractionError};
 use gloci_io::UsageError;
 use gloci_ops::shift::{Shift, ShiftBy};
 
@@ -14,7 +14,12 @@ fn parse_by(v: &str, pct: bool) -> Result<ShiftBy, UsageError> {
         };
         Fraction::parse_ratio(body)
             .map(|fraction| ShiftBy::Fraction { negative, fraction })
-            .map_err(|e| UsageError(format!("--by: {e}")))
+            .map_err(|e| match e {
+                FractionError::RatioRange(_) => {
+                    UsageError(format!("--by: fraction \"{v}\" is too large"))
+                }
+                e => UsageError(format!("--by: {e}")),
+            })
     } else {
         v.strip_prefix('+')
             .unwrap_or(v)

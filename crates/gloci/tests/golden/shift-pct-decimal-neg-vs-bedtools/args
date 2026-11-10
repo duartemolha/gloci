@@ -1,0 +1,1 @@
+shift --pct --by -0.1 -g comp.genome input.bed
