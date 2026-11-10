@@ -118,8 +118,31 @@ pub struct ReaderOptions {
     pub accept: crate::align::Accept,
 }
 
+/// What [`open_reader_or_alignments`] found.
+pub enum Opened {
+    /// An interval format, read as records.
+    Records(Box<dyn RecordReader>),
+    /// BAM or SAM, read as every-record alignments (D120).
+    Alignments(Box<dyn crate::align::AlnSource>),
+}
+
+/// Open `path` as [`open_reader`] does, except that an alignment file is opened as an
+/// [`AlnSource`](crate::align::AlnSource) when `o.accept.alignments` is set: for a command
+/// (`view`) that handles alignments as whole records and other formats as intervals, and
+/// must not open a stream twice to find out which it has.
+pub fn open_reader_or_alignments(path: &str, o: &ReaderOptions) -> Result<Opened, IoError> {
+    let input = open_input(path, &input_options(o))?;
+    if input.format.is_alignment() && o.accept.alignments.is_some() {
+        return crate::align::source_from_input(input, o).map(Opened::Alignments);
+    }
+    finish_reader(path, dispatch(input, o)?).map(Opened::Records)
+}
+
 pub fn open_reader(path: &str, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, IoError> {
-    let r = dispatch(open_input(path, &input_options(o))?, o)?;
+    finish_reader(path, dispatch(open_input(path, &input_options(o))?, o)?)
+}
+
+fn finish_reader(path: &str, r: Box<dyn RecordReader>) -> Result<Box<dyn RecordReader>, IoError> {
     // A sweep reads a plain file to its end (see `RecordReader::consume_to_end`).
     if r.compression() == Compression::None
         && crate::seekable::range_format(r.format())
@@ -222,6 +245,14 @@ fn dispatch(input: Input, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, Io
             o.invalid,
             o.chrom_map.clone(),
         )?)),
+        Format::Sam if o.accept.alignments.is_some() => {
+            Ok(Box::new(crate::align::SamReader::open_sam(
+                input,
+                o.invalid,
+                o.chrom_map.as_deref(),
+                o.accept.alignments.clone().unwrap_or_default(),
+            )?))
+        }
         // `gate` has returned an error for each of these.
         Format::Bam | Format::Cram | Format::Sam | Format::Fasta => Err(IoError::Detect {
             path: input.name.clone(),

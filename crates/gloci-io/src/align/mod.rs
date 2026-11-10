@@ -1,13 +1,23 @@
 //! Alignment input (BAM, CRAM, SAM): options, flag parsing and the input gate (D100).
-//! The BAM reader is here; the SAM and CRAM readers arrive in later P3a tasks.
+//! The BAM and SAM readers and writers are here; the CRAM reader arrives in a later P3a task.
 
 mod bam;
+mod encode;
 mod header;
+mod place;
 mod record;
+mod sam;
+mod source;
+mod writer;
 
 pub(crate) use bam::BamReader;
 pub use header::{AlnHeader, SortOrder};
 pub use record::{Aln, AlnRef, aln_ref, blocks};
+pub use sam::SamAln;
+pub(crate) use sam::SamReader;
+pub(crate) use source::source_from_input;
+pub use source::{AlnSource, open_aln_source, open_aln_source_from};
+pub use writer::{SamToBam, open_alignment_writer, sam_line_to_bam};
 
 use crate::detect::Format;
 use crate::error::{GateKind, IoError};
@@ -25,6 +35,15 @@ pub struct AlignOptions {
     pub reference: Option<PathBuf>,
     /// An aux tag a slim record keeps (`--score-tag`, D115).
     pub score_tag: Option<[u8; 2]>,
+}
+
+impl AlignOptions {
+    /// Do the read filters (D102) drop a record with this flag and MAPQ?
+    pub fn drops(&self, flag: u16, mapq: u8) -> bool {
+        mapq < self.min_mapq
+            || flag & self.require_flags != self.require_flags
+            || flag & self.exclude_flags != 0
+    }
 }
 
 /// What a command accepts as input beyond interval formats. The default accepts
@@ -130,7 +149,10 @@ pub fn gate(name: &str, format: Format, accept: &Accept) -> Result<(), IoError> 
     };
     if format.is_alignment() {
         // `convert` reads BAM through its own path (a later task): until then it refuses it.
-        if format == Format::Bam && accept.alignments.is_some() && !accept.convert_only {
+        if matches!(format, Format::Bam | Format::Sam)
+            && accept.alignments.is_some()
+            && !accept.convert_only
+        {
             return Ok(());
         }
         if accept.alignments.is_some() {

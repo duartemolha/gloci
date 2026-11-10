@@ -1,0 +1,1 @@
+view -O sam --require-flags paired,proper_pair input.bam

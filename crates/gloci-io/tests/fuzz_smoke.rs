@@ -336,6 +336,72 @@ fn bam_mutations(base: Vec<u8>) -> impl Strategy<Value = Vec<u8>> {
         })
 }
 
+/// A SAM header and lines whose fields are mostly well-formed, with mutations.
+fn sam_text() -> impl Strategy<Value = Vec<u8>> {
+    let tag = prop_oneof![
+        Just("NM:i:3".to_string()),
+        Just("XF:f:1e-07".to_string()),
+        Just("XB:B:s,-1,300".to_string()),
+        Just("XB:B:f".to_string()),
+        Just("XZ:Z:text".to_string()),
+        Just("X:i:1".to_string()),
+        Just("XA:A:".to_string()),
+        Just("XI:i:99999999999".to_string()),
+        "[A-Za-z0-9:,.-]{0,12}",
+    ];
+    let cigar = prop_oneof![
+        Just("10M".to_string()),
+        Just("5S5M2D3M".to_string()),
+        Just("*".to_string()),
+        Just("0M".to_string()),
+        Just("4294967295M".to_string()),
+        "[0-9MIDNSHP=X*]{0,8}",
+    ];
+    let line = (
+        "[a-z0-9]{0,6}",
+        0u32..70000,
+        prop_oneof![
+            Just("chr1".to_string()),
+            Just("chr2".to_string()),
+            Just("*".to_string()),
+            Just("=".to_string())
+        ],
+        0u64..3_000_000_000,
+        0u32..300,
+        cigar,
+        prop::collection::vec(tag, 0..4),
+        prop_oneof![
+            Just("ACGTACGTAC".to_string()),
+            Just("*".to_string()),
+            "[ACGTN=.a-z]{0,12}"
+        ],
+    )
+        .prop_map(|(n, f, r, p, q, c, tags, seq)| {
+            let mut l = format!("{n}\t{f}\t{r}\t{p}\t{q}\t{c}\t=\t{p}\t-5\t{seq}\t*");
+            for t in tags {
+                l.push('\t');
+                l.push_str(&t);
+            }
+            l
+        });
+    (
+        prop::collection::vec(line, 0..6),
+        prop::option::of((any::<prop::sample::Index>(), any::<u8>())),
+    )
+        .prop_map(|(lines, flip)| {
+            let mut d = format!(
+                "@HD\tVN:1.6\n@SQ\tSN:chr1\tLN:1000\n@SQ\tSN:chr2\tLN:20\n{}\n",
+                lines.join("\n")
+            )
+            .into_bytes();
+            if let Some((i, b)) = flip {
+                let at = i.index(d.len());
+                d[at] = b;
+            }
+            d
+        })
+}
+
 fn bed_lines() -> impl Strategy<Value = Vec<u8>> {
     let field = prop_oneof![
         3 => num(),
@@ -446,6 +512,17 @@ proptest! {
     }
 
     #[test]
+    fn mutated_bam_through_the_source(d in bam_mutated(), c in cfg()) {
+        gloci_io::fuzz_bodies::read_aln_source(&with_cfg(c, d), Format::Bam);
+    }
+
+    #[test]
+    fn sam_lines_never_panic(d in sam_text(), c in cfg()) {
+        read_all_both(&with_cfg(c, d.clone()), Some(Format::Sam));
+        gloci_io::fuzz_bodies::read_aln_source(&with_cfg(c, d), Format::Sam);
+    }
+
+    #[test]
     fn arbitrary_bytes_as_bam(d in prop_oneof![bytes(), texty()], c in cfg()) {
         read_all_both(&with_cfg(c, bgzip(&d)), Some(Format::Bam));
     }
@@ -514,6 +591,11 @@ chr2\t9\t.\tC\tC]chr1:5]\t.\tPASS\tSVTYPE=BND\tGT\t0/1\n"
     // Bit 0 clear: the target does not wrap, so the seed is already BGZF.
     put("bcf_reader", "bcf", 0, &bcf_seed());
     put("bam_reader", "rich.bam", 0, &bgzip(&bam_rich_plain()));
+    let aln = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../xtask/diff/inputs/aln");
+    for set in ["flags", "tags"] {
+        let sam = std::fs::read(aln.join(format!("{set}.sam"))).unwrap();
+        put("sam_reader", &format!("{set}.sam"), 0, &sam);
+    }
     put("bgzf_input", "bgzf_vcf", 0, &bgzip(vcf.as_bytes()));
     put("bgzf_input", "plain_bed", 0, bed.as_bytes());
     for (n, r) in [

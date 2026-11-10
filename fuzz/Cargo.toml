@@ -61,4 +61,11 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "sam_reader"
+path = "fuzz_targets/sam_reader.rs"
+test = false
+doc = false
+bench = false
+
 [workspace]

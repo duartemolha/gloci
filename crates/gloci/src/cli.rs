@@ -140,6 +140,15 @@ Examples:
     /// header lines are kept by default. For conversions to BED from VCF/BCF,
     /// GFF3/GTF or BED12, use gloci convert.
     ///
+    /// BAM and SAM input is written as BAM or SAM, as -O or
+    /// the -o extension say (the same as the input by default), every
+    /// record, unmapped reads included, with an @PG line added to the
+    /// header. --header-only, --no-header (SAM output only), --min-mapq,
+    /// --require-flags and --exclude-flags apply. Regions select the reads
+    /// whose footprint overlaps them; an unmapped read placed at a position
+    /// counts as one base there. It is not samtools view: there is no -b,
+    /// -h, -c or -L.
+    ///
     /// With regions, view prints the records whose footprint (per
     /// --vcf-span) overlaps a region, each once, in file order. A point
     /// (a zero-length BED record, an insertion) overlaps a region only when
@@ -155,7 +164,7 @@ Examples:
 Examples:
   gloci view calls.vcf.gz chr1:1,000,000-2,000,000 chrX
   gloci view peaks.bed --regions-file targets.bed --inclusive-points
-  gloci view calls.bcf -O vcf | less
+  gloci view reads.bam -O sam | head
   gloci view calls.vcf.gz -o calls.bcf --write-index")]
     View(ViewArgs),
     /// Validate files and print a one-screen summary of each.
@@ -2376,6 +2385,8 @@ pub struct ViewArgs {
     pub threads: ThreadArgs,
     #[command(flatten)]
     pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub align: AlignArgs,
     #[command(flatten)]
     pub out: OutputArgs,
 }

@@ -35,6 +35,23 @@ pub struct WriterOptions {
 /// files have no track line, so detection calls them BED. Format conversion
 /// is not a writer's job (D18).
 pub fn check_family(records: Format, to: OutFormat) -> Result<(), UsageError> {
+    if records.is_alignment() {
+        // BAM, CRAM and SAM records are written as BAM or SAM, whichever is asked (D104).
+        return match to {
+            OutFormat::Bam | OutFormat::Sam => Ok(()),
+            _ => Err(UsageError(format!(
+                "the input is {} alignments but the output format is {}; alignments are \
+written as BAM or SAM (-o x.bam, -o x.sam){}",
+                records.name(),
+                family_name(to),
+                if matches!(to, OutFormat::Bed | OutFormat::BedGraph) {
+                    "; to get BED, run: gloci view in.bam -O bam | gloci convert - -o x.bed"
+                } else {
+                    ""
+                }
+            ))),
+        };
+    }
     let is_bed = |f: OutFormat| matches!(f, OutFormat::Bed | OutFormat::BedGraph);
     let from = OutFormat::family(records);
     if from == to || (is_bed(from) && is_bed(to)) {
@@ -135,6 +152,9 @@ pub fn open_record_writer(
     o: &WriterOptions,
 ) -> Result<Box<dyn RecordWriter>, IoError> {
     check_family(records, to)?;
+    if let (true, Header::Alignment(h)) = (records.is_alignment(), header) {
+        return crate::align::open_alignment_writer(out, records, to, h, o);
+    }
     check_text_family(to)?;
     let werr = |source| IoError::Write {
         path: "output".to_string(),
@@ -170,7 +190,7 @@ pub fn open_record_writer(
 
 /// A writer for text records with no header at all (`view --no-header`).
 /// `to` must be `records`' family, and a text one: BCF cannot do without its
-/// header.
+/// header. Alignments go through [`open_record_writer`] with `write_header` off.
 pub fn open_headerless_writer(
     out: Output,
     records: Format,

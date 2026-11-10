@@ -2,6 +2,7 @@
 //! and the blocks of its CIGAR (D105).
 
 use super::header::AlnHeader;
+use super::sam::SamAln;
 use crate::detect::Format;
 use gloci_core::{Interval, Strand};
 
@@ -269,19 +270,7 @@ the flag should include 4 (unmapped), or the record needs a reference and positi
     /// The footprint of a mapped read, cut at `ref_len` (the length of its reference),
     /// and whether it was cut. `None` for an unmapped read (D101).
     pub fn span(&self, ref_len: u64) -> Option<(Interval, bool)> {
-        if self.flag & FLAG_UNMAPPED != 0 {
-            return None;
-        }
-        let start = self.pos()?;
-        let end = start.saturating_add(self.ref_len());
-        if end > ref_len {
-            let cut = Interval {
-                start: start.min(ref_len),
-                end: ref_len,
-            };
-            return Some((cut, true));
-        }
-        Some((Interval { start, end }, false))
+        footprint(self.flag, self.pos(), self.ref_len(), ref_len)
     }
 
     pub fn strand(&self) -> Strand {
@@ -290,6 +279,132 @@ the flag should include 4 (unmapped), or the record needs a reference and positi
         } else {
             Strand::Plus
         }
+    }
+
+    /// Append the SAM text of this record (no newline) to `out`, as `samtools view` writes it:
+    /// the resolved CIGAR (a `CG` array that replaced a placeholder is not repeated as a tag),
+    /// `=` for a mate on the same reference, `*` for absent fields, and floats in `%g` form.
+    pub fn write_sam(&self, h: &AlnHeader, out: &mut Vec<u8>) -> Result<(), String> {
+        let raw = self.raw;
+        let ref_name = |id: i32| -> Option<&[u8]> {
+            usize::try_from(id)
+                .ok()
+                .and_then(|i| h.refs.get(i))
+                .map(|(n, _)| &n[..])
+        };
+        let num = |out: &mut Vec<u8>, n: i64| out.extend_from_slice(n.to_string().as_bytes());
+        out.extend_from_slice(self.name);
+        out.push(b'\t');
+        num(out, i64::from(self.flag));
+        out.push(b'\t');
+        out.extend_from_slice(ref_name(self.ref_id).unwrap_or(b"*"));
+        out.push(b'\t');
+        num(out, i64::from(self.pos) + 1);
+        out.push(b'\t');
+        num(out, i64::from(self.mapq));
+        out.push(b'\t');
+        if self.cigar.is_empty() {
+            out.push(b'*');
+        }
+        for (op, n) in words(self.cigar) {
+            num(out, i64::from(n));
+            out.push(CIGAR_LETTERS[usize::from(op)]);
+        }
+        out.push(b'\t');
+        let mate = i32_at(raw, 20);
+        match ref_name(mate) {
+            _ if mate < 0 => out.push(b'*'),
+            _ if mate == self.ref_id => out.push(b'='),
+            Some(n) => out.extend_from_slice(n),
+            None => out.push(b'*'),
+        }
+        out.push(b'\t');
+        num(out, i64::from(i32_at(raw, 24)) + 1);
+        out.push(b'\t');
+        num(out, i64::from(i32_at(raw, 28)));
+        out.push(b'\t');
+        let l_seq = u32_at(raw, 16) as usize;
+        let tags_at = raw.len() - self.tags.len();
+        let qual = &raw[tags_at - l_seq..tags_at];
+        let seq = &raw[tags_at - l_seq - l_seq.div_ceil(2)..tags_at - l_seq];
+        if l_seq == 0 {
+            out.extend_from_slice(b"*\t*");
+        } else {
+            for i in 0..l_seq {
+                let code = (seq[i / 2] >> if i % 2 == 0 { 4 } else { 0 }) & 0xf;
+                out.push(b"=ACMGRSVTWYHKDBN"[usize::from(code)]);
+            }
+            out.push(b'\t');
+            if qual[0] == 0xff {
+                out.push(b'*');
+            } else {
+                out.extend(qual.iter().map(|q| q.saturating_add(33)));
+            }
+        }
+        let resolved_cg = self.cigar.as_ptr() != self.inline_cigar.as_ptr();
+        for t in tags(self.tags) {
+            let (tag, ty, v) = t.map_err(|()| "the aux data is malformed".to_string())?;
+            if resolved_cg && tag == *b"CG" {
+                continue;
+            }
+            out.push(b'\t');
+            out.extend_from_slice(&tag);
+            out.push(b':');
+            let int = |v: &[u8]| -> i64 {
+                match ty {
+                    b'c' => i64::from(v[0] as i8),
+                    b'C' => i64::from(v[0]),
+                    b's' => i64::from(i16::from_le_bytes([v[0], v[1]])),
+                    b'S' => i64::from(u16::from_le_bytes([v[0], v[1]])),
+                    b'i' => i64::from(i32::from_le_bytes([v[0], v[1], v[2], v[3]])),
+                    _ => i64::from(u32::from_le_bytes([v[0], v[1], v[2], v[3]])),
+                }
+            };
+            match ty {
+                b'A' => {
+                    out.extend_from_slice(b"A:");
+                    out.push(v[0]);
+                }
+                b'c' | b'C' | b's' | b'S' | b'i' | b'I' => {
+                    out.extend_from_slice(b"i:");
+                    num(out, int(v));
+                }
+                b'f' => {
+                    out.extend_from_slice(b"f:");
+                    push_float(out, f32::from_le_bytes([v[0], v[1], v[2], v[3]]));
+                }
+                b'Z' | b'H' => {
+                    out.push(ty);
+                    out.push(b':');
+                    out.extend_from_slice(&v[..v.len() - 1]);
+                }
+                _ => {
+                    // `B`: the element type, the count, then the elements.
+                    let elem = v[0];
+                    out.extend_from_slice(b"B:");
+                    out.push(elem);
+                    for e in v[5..].chunks_exact(match elem {
+                        b'c' | b'C' => 1,
+                        b's' | b'S' => 2,
+                        _ => 4,
+                    }) {
+                        out.push(b',');
+                        match elem {
+                            b'f' => push_float(out, f32::from_le_bytes([e[0], e[1], e[2], e[3]])),
+                            b'c' => num(out, i64::from(e[0] as i8)),
+                            b'C' => num(out, i64::from(e[0])),
+                            b's' => num(out, i64::from(i16::from_le_bytes([e[0], e[1]]))),
+                            b'S' => num(out, i64::from(u16::from_le_bytes([e[0], e[1]]))),
+                            b'i' => {
+                                num(out, i64::from(i32::from_le_bytes([e[0], e[1], e[2], e[3]])))
+                            }
+                            _ => num(out, i64::from(u32::from_le_bytes([e[0], e[1], e[2], e[3]]))),
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Append the slim form of this record (D115) to `out`: the fixed fields (with no
@@ -313,10 +428,70 @@ the flag should include 4 (unmapped), or the record needs a reference and positi
     }
 }
 
+/// Append `f` as C's `%g` does (six significant digits, no trailing zeros), which is how
+/// htslib writes the float of an aux field.
+fn push_float(out: &mut Vec<u8>, f: f32) {
+    if f.is_nan() {
+        out.extend_from_slice(b"nan");
+        return;
+    }
+    if f.is_infinite() {
+        out.extend_from_slice(if f < 0.0 { b"-inf" } else { b"inf" });
+        return;
+    }
+    let d = f64::from(f);
+    if d == 0.0 {
+        out.extend_from_slice(if d.is_sign_negative() { b"-0" } else { b"0" });
+        return;
+    }
+    // `{:.5e}` is d.dddddE<exp>, rounded as printf rounds.
+    let sci = format!("{d:.5e}");
+    let (mant, exp) = sci.split_once('e').unwrap_or((&sci, "0"));
+    let exp: i32 = exp.parse().unwrap_or(0);
+    let strip = |s: &str| -> String {
+        if s.contains('.') {
+            s.trim_end_matches('0').trim_end_matches('.').to_string()
+        } else {
+            s.to_string()
+        }
+    };
+    if !(-4..6).contains(&exp) {
+        let sign = if exp < 0 { '-' } else { '+' };
+        out.extend_from_slice(format!("{}e{sign}{:02}", strip(mant), exp.abs()).as_bytes());
+    } else {
+        let decimals = usize::try_from(5 - exp).unwrap_or(0);
+        out.extend_from_slice(strip(&format!("{d:.decimals$}")).as_bytes());
+    }
+}
+
+/// The footprint of a read that covers `covered` reference bases from `pos`, cut at `ref_len`
+/// (the length of its reference), and whether it was cut. `None` for an unmapped read (D101).
+pub(super) fn footprint(
+    flag: u16,
+    pos: Option<u64>,
+    covered: u64,
+    ref_len: u64,
+) -> Option<(Interval, bool)> {
+    if flag & FLAG_UNMAPPED != 0 {
+        return None;
+    }
+    let start = pos?;
+    let end = start.saturating_add(covered);
+    if end > ref_len {
+        let cut = Interval {
+            start: start.min(ref_len),
+            end: ref_len,
+        };
+        return Some((cut, true));
+    }
+    Some((Interval { start, end }, false))
+}
+
 /// An alignment record of any format, viewed the same way.
 #[derive(Debug, Clone, Copy)]
 pub enum AlnRef<'a> {
     Bam(Aln<'a>),
+    Sam(SamAln<'a>),
 }
 
 macro_rules! delegate {
@@ -325,6 +500,7 @@ macro_rules! delegate {
         pub fn $name(&self $(, $arg: $t)*) -> $ret {
             match self {
                 AlnRef::Bam(a) => a.$name($($arg),*),
+                AlnRef::Sam(a) => a.$name($($arg),*),
             }
         }
     };
@@ -343,6 +519,7 @@ impl<'a> AlnRef<'a> {
     pub fn name(&self) -> &'a [u8] {
         match self {
             AlnRef::Bam(a) => a.name(),
+            AlnRef::Sam(a) => a.name(),
         }
     }
 }
@@ -351,6 +528,7 @@ impl<'a> AlnRef<'a> {
 pub fn aln_ref<'a>(f: Format, raw: &'a [u8], h: &AlnHeader) -> Result<AlnRef<'a>, String> {
     match f {
         Format::Bam => Aln::parse(raw, h).map(AlnRef::Bam),
+        Format::Sam => SamAln::parse(raw, h).map(AlnRef::Sam),
         other => Err(format!(
             "{} records cannot be read as alignments here",
             other.name()

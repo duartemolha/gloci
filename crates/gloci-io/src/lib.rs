@@ -34,7 +34,9 @@ pub mod wig;
 pub mod writer;
 
 pub use align::{
-    Accept, AlignOptions, Aln, AlnHeader, AlnRef, SortOrder, aln_ref, blocks, parse_flags,
+    Accept, AlignOptions, Aln, AlnHeader, AlnRef, AlnSource, SamAln, SamToBam, SortOrder, aln_ref,
+    blocks, open_alignment_writer, open_aln_source, open_aln_source_from, parse_flags,
+    sam_line_to_bam,
 };
 pub use atomic::{
     __test_with_registry_locked, AtomicFile, TempGuard, cleanup_registered,
@@ -75,8 +77,8 @@ pub use output::{
     refuse_binary_to_tty,
 };
 pub use record::{
-    Header, ReaderOptions, RecordBatch, RecordMeta, RecordReader, check_map_against_index,
-    next_batch_size, open_reader, open_reader_from,
+    Header, Opened, ReaderOptions, RecordBatch, RecordMeta, RecordReader, check_map_against_index,
+    next_batch_size, open_reader, open_reader_from, open_reader_or_alignments,
 };
 pub use rmsk::rmsk_fields;
 pub use seekable::{ChromRange, SeekableFile, chrom_ranges, open_range_reader};

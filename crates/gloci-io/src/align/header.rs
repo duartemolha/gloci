@@ -209,6 +209,53 @@ impl AlnHeader {
         Ok(())
     }
 
+    /// The header with gloci's `@PG` line added, as samtools adds its own (D104): the ID is
+    /// `gloci`, or `gloci.N` for the first N that no `@PG` line has; `PP` names the last
+    /// `@PG` line that no other one names as its predecessor (none when there is none); the
+    /// line goes after the last `@PG` line, or at the end of the header.
+    pub fn with_program(&self, command_line: &str, version: &str) -> AlnHeader {
+        let mut text = self.text.clone();
+        if !text.is_empty() && text.last() != Some(&b'\n') {
+            text.push(b'\n');
+        }
+        let (mut ids, mut preds): (Vec<&[u8]>, Vec<&[u8]>) = (Vec::new(), Vec::new());
+        let mut after = text.len();
+        let mut at = 0;
+        for line in self.text.split_inclusive(|&b| b == b'\n') {
+            at += line.len() + usize::from(!line.ends_with(b"\n"));
+            if line.starts_with(b"@PG\t") {
+                let line = line.strip_suffix(b"\n").unwrap_or(line);
+                let line = line.strip_suffix(b"\r").unwrap_or(line);
+                if let Some(id) = field(line, b"ID:") {
+                    ids.push(id);
+                    if let Some(pp) = field(line, b"PP:") {
+                        preds.push(pp);
+                    }
+                }
+                after = at;
+            }
+        }
+        let pp = ids.iter().rev().find(|id| !preds.contains(id)).copied();
+        let mut id = "gloci".to_string();
+        let mut n = 0u64;
+        while ids.contains(&id.as_bytes()) {
+            n += 1;
+            id = format!("gloci.{n}");
+        }
+        let mut line = format!("@PG\tID:{id}\tPN:gloci").into_bytes();
+        if let Some(pp) = pp {
+            line.extend_from_slice(b"\tPP:");
+            line.extend_from_slice(pp);
+        }
+        line.extend_from_slice(format!("\tVN:{version}\tCL:{command_line}\n").as_bytes());
+        text.splice(after..after, line);
+        AlnHeader {
+            text,
+            refs: self.refs.clone(),
+            sort_order: self.sort_order,
+        }
+    }
+
     /// The header with every reference renamed by `map` (`--chrom-map`, D103): the
     /// reference list and the `SN:` of each `@SQ` line.
     pub fn renamed(&self, map: &ChromMap) -> AlnHeader {

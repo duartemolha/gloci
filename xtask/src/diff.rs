@@ -69,7 +69,13 @@ pub fn load_cases(path: &Path) -> Result<Vec<Case>> {
         ensure!(
             matches!(
                 c.compare.as_str(),
-                "exact" | "lines-unordered" | "vcf-records" | "exit-status" | "numeric"
+                "exact"
+                    | "lines-unordered"
+                    | "vcf-records"
+                    | "exit-status"
+                    | "numeric"
+                    | "sam"
+                    | "bam"
             ),
             "{}: unknown compare mode `{}`",
             c.name,

@@ -5,55 +5,41 @@
 //! the command writes alignments); unmapped reads and reads the filters drop are
 //! counted and not returned.
 
-use super::{AlignOptions, Aln, AlnHeader};
+use super::place::{IntervalRules, Verdict};
+use super::{AlignOptions, Aln, AlnHeader, AlnRef};
 use crate::chrom_map::ChromMap;
 use crate::detect::{Compression, Format};
 use crate::diag::{Diagnostics, InvalidPolicy};
 use crate::error::{IoError, Loc};
 use crate::input::Input;
-use crate::record::{Header, RecordBatch, RecordMeta, RecordReader, intern_chrom, warn_undeclared};
-use gloci_core::{ChromId, ChromTable};
+use crate::record::{Header, RecordBatch, RecordMeta, RecordReader, warn_undeclared};
+use gloci_core::ChromTable;
 use std::io::{self, BufRead};
 use std::sync::Arc;
-
-const FLAG_UNMAPPED: u16 = 0x4;
-
-/// Reads BAM records for interval commands.
-pub struct BamReader {
-    name: String,
-    compression: Compression,
-    header: Header,
-    aln: Arc<AlnHeader>,
-    diag: Diagnostics,
-    policy: InvalidPolicy,
-    opts: AlignOptions,
-    src: Box<dyn BufRead + Send>,
-    /// Records started so far in the file (`RecordMeta::loc`).
-    rec: u64,
-    /// The `refID` of the current run of records and how many of the run were read:
-    /// the "record N of CHROM" errors name, so every thread count reports one place.
-    run_ref: i32,
-    run_seen: u64,
-    eof: bool,
-    /// Reference id to chromosome id, filled as references are first met.
-    ids: Vec<Option<ChromId>>,
-    scratch: Vec<u8>,
-    clip_warned: bool,
-    off_ref_warned: bool,
-}
 
 /// Read until `buf` is full or input ends; returns the bytes read.
 fn read_full(r: &mut dyn BufRead, out: &mut Vec<u8>, n: usize) -> io::Result<usize> {
     crate::bcf::append(r, out, n)
 }
 
-impl BamReader {
-    pub(crate) fn open_bam(
-        input: Input,
-        policy: InvalidPolicy,
-        map: Option<&ChromMap>,
-        opts: AlignOptions,
-    ) -> Result<BamReader, IoError> {
+/// The framing of a BAM file: the header, then records cut at their `block_size`. Shared by
+/// the interval reader and [`super::source::BamSource`], so both count and name records alike.
+pub(crate) struct BamFrames {
+    pub(crate) name: String,
+    pub(crate) compression: Compression,
+    pub(crate) aln: Arc<AlnHeader>,
+    src: Box<dyn BufRead + Send>,
+    /// Records started so far in the file (`RecordMeta::loc`).
+    pub(crate) rec: u64,
+    /// The `refID` of the current run of records and how many of the run were read:
+    /// the "record N of CHROM" errors name, so every thread count reports one place.
+    run_ref: i32,
+    run_seen: u64,
+    eof: bool,
+}
+
+impl BamFrames {
+    pub(crate) fn open(input: Input, map: Option<&ChromMap>) -> Result<BamFrames, IoError> {
         let Input {
             name,
             compression,
@@ -69,30 +55,21 @@ impl BamReader {
             m.check_file_names(&name, h.refs.iter().map(|r| &r.0[..]))?;
             h = h.renamed(m);
         }
-        let aln = Arc::new(h);
-        Ok(BamReader {
-            header: Header::Alignment(aln.clone()),
-            ids: vec![None; aln.refs.len()],
-            aln,
+        Ok(BamFrames {
+            aln: Arc::new(h),
             name,
             compression,
-            diag: Diagnostics::default(),
-            policy,
-            opts,
             src: reader,
             rec: 0,
             run_ref: i32::MIN,
             run_seen: 0,
             eof: false,
-            scratch: Vec::new(),
-            clip_warned: false,
-            off_ref_warned: false,
         })
     }
 
     /// "record N of CHROM (record M of the file)" for the record that is `seen` in its run,
     /// on `ref_id`. `self.rec` is the file-wide number, the same at every thread count.
-    fn place(&self, ref_id: i32, seen: u64) -> String {
+    fn place_of(&self, ref_id: i32, seen: u64) -> String {
         let chrom = match usize::try_from(ref_id) {
             Ok(i) => match self.aln.refs.get(i) {
                 Some((n, _)) => String::from_utf8_lossy(n).into_owned(),
@@ -108,47 +85,137 @@ impl BamReader {
         )
     }
 
-    fn data_err(&self, place: &str, msg: &str) -> IoError {
+    /// The place of the record last returned by [`BamFrames::next`] (or being read).
+    pub(crate) fn place(&self) -> String {
+        self.place_of(self.run_ref, self.run_seen)
+    }
+
+    pub(crate) fn data_err(&self, msg: &str) -> IoError {
         IoError::Detect {
             path: self.name.clone(),
-            msg: format!("{} {place}: {msg}", self.name),
+            msg: format!("{} {}: {msg}", self.name, self.place()),
         }
     }
 
-    fn read_err(&self, source: io::Error) -> IoError {
+    pub(crate) fn read_err(&self, source: io::Error) -> IoError {
         IoError::Read {
             path: self.name.clone(),
             source,
         }
     }
 
-    /// An invalid record: an error, or counted under `--skip-invalid`.
-    fn bad(&mut self, place: &str, msg: &str) -> Result<(), IoError> {
-        match self.policy {
-            InvalidPolicy::Fail => Err(self.data_err(place, msg)),
+    /// An invalid record: an error, or counted in `diag` under `--skip-invalid`.
+    pub(crate) fn invalid(
+        &self,
+        policy: InvalidPolicy,
+        diag: &mut Diagnostics,
+        msg: &str,
+    ) -> Result<(), IoError> {
+        match policy {
+            InvalidPolicy::Fail => Err(self.data_err(msg)),
             InvalidPolicy::Skip => {
-                self.diag.record_place(place, msg);
+                diag.record_place(&self.place(), msg);
                 Ok(())
             }
         }
     }
 
-    fn dropped_by_filters(&self, flag: u16, mapq: u8) -> bool {
-        mapq < self.opts.min_mapq
-            || flag & self.opts.require_flags != self.opts.require_flags
-            || flag & self.opts.exclude_flags != 0
+    /// Append the next record (without its `block_size`) to `buf`. `Ok(false)` at the end of
+    /// the file. The record is not checked beyond its frame.
+    pub(crate) fn next(&mut self, buf: &mut Vec<u8>) -> Result<bool, IoError> {
+        if self.eof {
+            return Ok(false);
+        }
+        let start = buf.len();
+        let got = read_full(&mut self.src, buf, 4).map_err(|e| self.read_err(e))?;
+        if got == 0 {
+            self.eof = true;
+            return Ok(false);
+        }
+        self.rec += 1;
+        // Until the record's reference is known, errors name it as the next of the last run.
+        let truncated = |this: &mut Self, buf: &mut Vec<u8>| {
+            buf.truncate(start);
+            this.run_seen += 1;
+            this.data_err(crate::bcf::RECORD_TRUNCATED)
+        };
+        if got < 4 {
+            return Err(truncated(self, buf));
+        }
+        let block =
+            i32::from_le_bytes([buf[start], buf[start + 1], buf[start + 2], buf[start + 3]]);
+        buf.truncate(start);
+        let Ok(size) = usize::try_from(block) else {
+            self.run_seen += 1;
+            return Err(self.data_err(&format!(
+                "block_size {block} is negative, so the next record cannot be found; \
+the file is corrupt"
+            )));
+        };
+        let body = read_full(&mut self.src, buf, size).map_err(|e| self.read_err(e))?;
+        if body < size {
+            return Err(truncated(self, buf));
+        }
+        // The record's place: its number among the records of its reference.
+        let ref_id = if size >= 4 {
+            i32::from_le_bytes([buf[start], buf[start + 1], buf[start + 2], buf[start + 3]])
+        } else {
+            self.run_ref
+        };
+        if ref_id != self.run_ref {
+            self.run_ref = ref_id;
+            self.run_seen = 0;
+        }
+        self.run_seen += 1;
+        Ok(true)
+    }
+}
+
+/// Reads BAM records for interval commands.
+pub struct BamReader {
+    frames: BamFrames,
+    header: Header,
+    diag: Diagnostics,
+    policy: InvalidPolicy,
+    opts: AlignOptions,
+    rules: IntervalRules,
+    scratch: Vec<u8>,
+}
+
+impl BamReader {
+    pub(crate) fn open_bam(
+        input: Input,
+        policy: InvalidPolicy,
+        map: Option<&ChromMap>,
+        opts: AlignOptions,
+    ) -> Result<BamReader, IoError> {
+        let frames = BamFrames::open(input, map)?;
+        Ok(BamReader {
+            header: Header::Alignment(frames.aln.clone()),
+            rules: IntervalRules::new(frames.aln.refs.len()),
+            frames,
+            diag: Diagnostics::default(),
+            policy,
+            opts,
+            scratch: Vec::new(),
+        })
+    }
+
+    /// An invalid record: an error, or counted under `--skip-invalid`.
+    fn bad(&mut self, msg: &str) -> Result<(), IoError> {
+        self.frames.invalid(self.policy, &mut self.diag, msg)
     }
 }
 
 impl RecordReader for BamReader {
     fn name(&self) -> &str {
-        &self.name
+        &self.frames.name
     }
     fn format(&self) -> Format {
         Format::Bam
     }
     fn compression(&self) -> Compression {
-        self.compression
+        self.frames.compression
     }
     fn header(&self) -> &Header {
         &self.header
@@ -164,157 +231,57 @@ impl RecordReader for BamReader {
         max: usize,
     ) -> Result<bool, IoError> {
         debug_assert!(max > 0, "read_batch max must be > 0");
-        let hdr = self.aln.clone();
+        let hdr = self.frames.aln.clone();
         let mut n = 0;
         while n < max {
-            if self.eof {
-                return Ok(false);
-            }
             let start = batch.buf.len();
-            let got = read_full(&mut self.src, &mut batch.buf, 4).map_err(|e| self.read_err(e))?;
-            if got == 0 {
-                self.eof = true;
+            if !self.frames.next(&mut batch.buf)? {
                 return Ok(false);
             }
-            self.rec += 1;
-            let truncated = |this: &Self, buf: &mut Vec<u8>| {
-                buf.truncate(start);
-                this.data_err(
-                    &this.place(this.run_ref, this.run_seen + 1),
-                    crate::bcf::RECORD_TRUNCATED,
-                )
-            };
-            if got < 4 {
-                return Err(truncated(self, &mut batch.buf));
-            }
-            let block = i32::from_le_bytes([
-                batch.buf[start],
-                batch.buf[start + 1],
-                batch.buf[start + 2],
-                batch.buf[start + 3],
-            ]);
-            batch.buf.truncate(start);
-            let size = match usize::try_from(block) {
-                Ok(s) => s,
-                Err(_) => {
-                    let place = self.place(self.run_ref, self.run_seen + 1);
-                    return Err(self.data_err(
-                        &place,
-                        &format!(
-                            "block_size {block} is negative, so the next record cannot be found; \
-the file is corrupt"
-                        ),
-                    ));
-                }
-            };
-            let body =
-                read_full(&mut self.src, &mut batch.buf, size).map_err(|e| self.read_err(e))?;
-            if body < size {
-                return Err(truncated(self, &mut batch.buf));
-            }
-            // The record's place: its number among the records of its reference.
-            let ref_id = if size >= 4 {
-                i32::from_le_bytes([
-                    batch.buf[start],
-                    batch.buf[start + 1],
-                    batch.buf[start + 2],
-                    batch.buf[start + 3],
-                ])
-            } else {
-                self.run_ref
-            };
-            if ref_id != self.run_ref {
-                self.run_ref = ref_id;
-                self.run_seen = 0;
-            }
-            self.run_seen += 1;
-            let place = self.place(ref_id, self.run_seen);
-            if size < 32 {
-                batch.buf.truncate(start);
+            if batch.buf.len() - start < 32 {
                 let msg = format!(
-                    "block_size {size} is below the 32 bytes of fixed fields of a BAM record; \
-the file is corrupt"
+                    "block_size {} is below the 32 bytes of fixed fields of a BAM record; \
+the file is corrupt",
+                    batch.buf.len() - start
                 );
-                self.bad(&place, &msg)?;
+                batch.buf.truncate(start);
+                self.bad(&msg)?;
                 continue;
             }
             let a = match Aln::parse(&batch.buf[start..], &hdr) {
                 Ok(a) => a,
                 Err(msg) => {
                     batch.buf.truncate(start);
-                    self.bad(&place, &msg)?;
+                    self.bad(&msg)?;
                     continue;
                 }
             };
-            let flag = a.flag();
-            if flag & FLAG_UNMAPPED != 0 {
-                self.diag.unmapped += 1;
-                batch.buf.truncate(start);
-                continue;
-            }
-            if self.dropped_by_filters(flag, a.mapq()) {
-                self.diag.filtered += 1;
-                batch.buf.truncate(start);
-                continue;
-            }
-            // `parse` guarantees a mapped read has a reference and a position.
-            let (Some(rid), Some(pos)) = (a.ref_id(), a.pos()) else {
-                batch.buf.truncate(start);
-                continue;
-            };
-            let (span, clipped) = match a.span(hdr.refs[rid].1) {
-                Some(s) => s,
-                None => {
+            let verdict = self.rules.judge(
+                &self.frames.name,
+                &AlnRef::Bam(a),
+                &hdr,
+                &self.opts,
+                chroms,
+                &mut self.diag,
+            );
+            let p = match verdict {
+                Verdict::Keep(p) => p,
+                Verdict::Skip => {
                     batch.buf.truncate(start);
                     continue;
                 }
-            };
-            if span.start >= span.end {
-                // The read starts at or past the end of its reference: it covers no base.
-                self.diag.off_reference += 1;
-                if !self.off_ref_warned {
-                    self.off_ref_warned = true;
-                    log::warn!(
-                        "{}: read {} starts at {} on {}, which is {} bases long; reads that \
-start past the end of their reference cover no base and are skipped",
-                        self.name,
-                        String::from_utf8_lossy(a.name()),
-                        pos + 1,
-                        String::from_utf8_lossy(&hdr.refs[rid].0),
-                        hdr.refs[rid].1
-                    );
+                Verdict::Bad(msg) => {
+                    batch.buf.truncate(start);
+                    self.bad(&msg)?;
+                    continue;
                 }
-                batch.buf.truncate(start);
-                continue;
-            }
-            if clipped && !self.clip_warned {
-                self.clip_warned = true;
-                log::warn!(
-                    "{}: read {} on {} extends past the end of the reference ({} bases); \
-reads like it are cut at the reference length",
-                    self.name,
-                    String::from_utf8_lossy(a.name()),
-                    String::from_utf8_lossy(&hdr.refs[rid].0),
-                    hdr.refs[rid].1
-                );
-            }
-            let strand = a.strand();
-            let chrom = match self.ids[rid] {
-                Some(c) => c,
-                None => match intern_chrom(chroms, &hdr.refs[rid].0) {
-                    Ok(c) => {
-                        self.ids[rid] = Some(c);
-                        c
-                    }
-                    Err(msg) => {
-                        batch.buf.truncate(start);
-                        self.bad(&place, &msg)?;
-                        continue;
-                    }
-                },
             };
             if chroms.has_undeclared() {
-                warn_undeclared(chroms, &self.name, Some(Loc::Record(self.rec)));
+                warn_undeclared(
+                    chroms,
+                    &self.frames.name,
+                    Some(Loc::Record(self.frames.rec)),
+                );
             }
             if !self.opts.full_records {
                 self.scratch.clear();
@@ -324,11 +291,11 @@ reads like it are cut at the reference length",
             }
             let len = batch.buf.len() - start;
             batch.recs.push(RecordMeta {
-                chrom,
-                key: pos,
-                span,
-                strand,
-                loc: self.rec,
+                chrom: p.chrom,
+                key: p.pos,
+                span: p.span,
+                strand: p.strand,
+                loc: self.frames.rec,
                 off: start,
                 len: len as u32,
             });

@@ -1,0 +1,578 @@
+//! SAM input, `AlnSource`, the alignment writers and the `@PG` line (D104, D116, D120).
+
+use gloci_core::{ChromTable, VcfSpan};
+use gloci_io::*;
+use std::io::Cursor;
+use std::num::NonZeroUsize;
+use std::path::PathBuf;
+
+fn fixture(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../xtask/diff/inputs/aln")
+        .join(name)
+}
+
+fn ropts(ao: AlignOptions, invalid: InvalidPolicy) -> ReaderOptions {
+    ReaderOptions {
+        accept: Accept {
+            alignments: Some(ao),
+            ..Accept::default()
+        },
+        chrom_map: None,
+        threads: NonZeroUsize::MIN,
+        format: None,
+        vcf_span: VcfSpan::Allele,
+        invalid,
+    }
+}
+
+fn source(name: &str, ao: AlignOptions) -> Box<dyn AlnSource> {
+    open_aln_source(
+        fixture(name).to_str().unwrap(),
+        &ropts(ao, InvalidPolicy::Fail),
+    )
+    .unwrap()
+}
+
+/// Every record of the source, as `(record number, raw bytes)`.
+fn all(src: &mut dyn AlnSource) -> Vec<(u64, Vec<u8>)> {
+    let mut v = Vec::new();
+    let mut buf = Vec::new();
+    while let Some(n) = src.next_record(&mut buf).unwrap() {
+        v.push((n, std::mem::take(&mut buf)));
+    }
+    v
+}
+
+fn names(src: &dyn AlnSource, recs: &[(u64, Vec<u8>)]) -> Vec<String> {
+    recs.iter()
+        .map(|(_, r)| {
+            let a = aln_ref(src.layout(), r, src.header()).unwrap();
+            String::from_utf8_lossy(a.name()).into_owned()
+        })
+        .collect()
+}
+
+#[test]
+fn aln_source_keeps_every_record() {
+    let mut expected: Option<Vec<String>> = None;
+    for (file, layout) in [("flags.bam", Format::Bam), ("flags.sam", Format::Sam)] {
+        let mut s = source(file, AlignOptions::default());
+        assert_eq!(s.layout(), layout);
+        let recs = all(s.as_mut());
+        let got = names(s.as_ref(), &recs);
+        assert_eq!(got.len(), 14, "{file}");
+        // File order, unmapped reads included, numbered from 1.
+        assert_eq!(got[10], "r_unmapped_placed");
+        assert_eq!(got[13], "r_unmapped_unplaced");
+        assert_eq!(
+            recs.iter().map(|r| r.0).collect::<Vec<_>>(),
+            (1..=14).collect::<Vec<_>>()
+        );
+        assert_eq!(s.diagnostics().unmapped, 0, "{file}");
+        match &expected {
+            None => expected = Some(got),
+            Some(e) => assert_eq!(&got, e, "BAM and SAM give the same records"),
+        }
+        // `--exclude-flags UNMAP` drops the unmapped ones, and counts them as filtered.
+        let ao = AlignOptions {
+            exclude_flags: 0x4,
+            ..AlignOptions::default()
+        };
+        let mut s = source(file, ao);
+        let recs = all(s.as_mut());
+        let kept = names(s.as_ref(), &recs);
+        assert_eq!(kept.len(), 12, "{file}");
+        assert!(kept.iter().all(|n| !n.starts_with("r_unmapped")));
+        assert_eq!(s.diagnostics().filtered, 2);
+        // The numbers are still the file's.
+        assert_eq!(recs.last().unwrap().0, 13);
+    }
+}
+
+/// `(chromosome, key, start, end, strand, record number)` of a kept record.
+type Meta = (String, u64, u64, u64, i8, u64);
+
+fn metas(name: &str, ao: AlignOptions) -> (Vec<Meta>, Diagnostics) {
+    let o = ropts(ao, InvalidPolicy::Fail);
+    let mut r = open_reader(fixture(name).to_str().unwrap(), &o).unwrap();
+    let mut table = chrom_table_for(None, &[&*r], gloci_core::ChromOrder::Karyotype).unwrap();
+    let mut batch = RecordBatch::default();
+    let mut out = Vec::new();
+    loop {
+        batch.clear();
+        let more = r.read_batch(&mut table, &mut batch, 4).unwrap();
+        for m in &batch.recs {
+            out.push((
+                String::from_utf8_lossy(table.name(m.chrom)).into_owned(),
+                m.key,
+                m.span.start,
+                m.span.end,
+                m.strand as i8,
+                m.loc,
+            ));
+        }
+        if !more {
+            break;
+        }
+    }
+    (out, r.diagnostics().clone())
+}
+
+#[test]
+fn sam_reader_equals_bam_reader() {
+    for ao in [
+        AlignOptions::default(),
+        AlignOptions {
+            min_mapq: 20,
+            exclude_flags: 0x100,
+            ..AlignOptions::default()
+        },
+    ] {
+        for set in ["flags", "cigars", "order", "tags"] {
+            let (b, bd) = metas(&format!("{set}.bam"), ao.clone());
+            let (s, sd) = metas(&format!("{set}.sam"), ao.clone());
+            assert!(!b.is_empty(), "{set}");
+            assert_eq!(b, s, "{set}: metas");
+            assert_eq!(
+                (bd.unmapped, bd.filtered, bd.skipped),
+                (sd.unmapped, sd.filtered, sd.skipped),
+                "{set}: skip counts"
+            );
+        }
+    }
+}
+
+/// The reader's raw SAM records are the file's lines, byte for byte.
+#[test]
+fn sam_reader_keeps_the_line() {
+    let o = ropts(AlignOptions::default(), InvalidPolicy::Fail);
+    let text = std::fs::read_to_string(fixture("tags.sam")).unwrap();
+    let mut r = open_reader(fixture("tags.sam").to_str().unwrap(), &o).unwrap();
+    let mut table = ChromTable::first_appearance();
+    let mut batch = RecordBatch::default();
+    r.read_batch(&mut table, &mut batch, 100).unwrap();
+    let want: Vec<&str> = text
+        .lines()
+        .filter(|l| !l.starts_with('@') && l.split('\t').nth(1) != Some("4"))
+        .collect();
+    assert_eq!(batch.len(), want.len());
+    for (i, w) in want.iter().enumerate() {
+        assert_eq!(batch.raw(i), w.as_bytes());
+    }
+}
+
+fn sam_bytes(refs: &str, records: &[&str]) -> Vec<u8> {
+    let mut s = format!("@HD\tVN:1.6\n{refs}");
+    for r in records {
+        s.push_str(r);
+        s.push('\n');
+    }
+    s.into_bytes()
+}
+
+fn src_of(bytes: Vec<u8>, invalid: InvalidPolicy) -> Result<Box<dyn AlnSource>, IoError> {
+    open_aln_source_from(
+        "t.sam",
+        Box::new(Cursor::new(bytes)),
+        &ropts(AlignOptions::default(), invalid),
+    )
+}
+
+#[test]
+fn sam_errors_name_the_line() {
+    let refs = "@SQ\tSN:chr1\tLN:1000\n";
+    let good = "ok\t0\tchr1\t10\t60\t4M\t*\t0\t0\tACGT\tIIII";
+    let cases: [(&str, String, &str); 8] = [
+        (
+            "RNAME not in @SQ",
+            "r\t0\tchrZ\t10\t60\t4M\t*\t0\t0\tACGT\tIIII".into(),
+            "RNAME 'chrZ' is not among the @SQ lines",
+        ),
+        (
+            "too few fields",
+            "r\t0\tchr1\t10".into(),
+            "4 tab-separated fields",
+        ),
+        (
+            "bad FLAG",
+            "r\tx\tchr1\t10\t60\t4M\t*\t0\t0\tACGT\tIIII".into(),
+            "FLAG 'x'",
+        ),
+        (
+            "bad CIGAR",
+            "r\t0\tchr1\t10\t60\t4Q\t*\t0\t0\tACGT\tIIII".into(),
+            "CIGAR '4Q'",
+        ),
+        (
+            "CIGAR and SEQ disagree",
+            "r\t0\tchr1\t10\t60\t5M\t*\t0\t0\tACGT\tIIII".into(),
+            "covers 5 bases",
+        ),
+        (
+            "mapped without a position",
+            "r\t0\tchr1\t0\t60\t4M\t*\t0\t0\tACGT\tIIII".into(),
+            "POS 0",
+        ),
+        (
+            "header line after records",
+            "@SQ\tSN:chr2\tLN:5".into(),
+            "header line after the first record",
+        ),
+        (
+            "long name",
+            format!(
+                "{}\t0\tchr1\t10\t60\t4M\t*\t0\t0\tACGT\tIIII",
+                "n".repeat(255)
+            ),
+            "255 characters",
+        ),
+    ];
+    for (shape, bad, text) in &cases {
+        let bytes = sam_bytes(refs, &[good, bad]);
+        let mut s = src_of(bytes.clone(), InvalidPolicy::Fail).unwrap();
+        let mut buf = Vec::new();
+        assert_eq!(s.next_record(&mut buf).unwrap(), Some(1), "{shape}");
+        let e = s.next_record(&mut buf).unwrap_err().to_string();
+        assert!(e.contains("t.sam line 4:"), "{shape}: {e}");
+        assert!(e.contains(text), "{shape}: {e}");
+        // The interval reader names the same line.
+        let o = ropts(AlignOptions::default(), InvalidPolicy::Fail);
+        let mut r = open_reader_from("t.sam", Box::new(Cursor::new(bytes)), &o).unwrap();
+        let mut table = ChromTable::first_appearance();
+        let e = r
+            .read_batch(&mut table, &mut RecordBatch::default(), 10)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.contains("t.sam line 4:") && e.contains(text),
+            "{shape}: {e}"
+        );
+    }
+    // Under --skip-invalid the bad record is counted with its line, and the rest is read.
+    let bytes = sam_bytes(refs, &[good, "r\t0\tchrZ\t10", good]);
+    let mut s = src_of(bytes, InvalidPolicy::Skip).unwrap();
+    let recs = all(s.as_mut());
+    assert_eq!(recs.iter().map(|r| r.0).collect::<Vec<_>>(), [1, 3]);
+    assert_eq!(s.diagnostics().skipped, 1);
+    assert!(s.diagnostics().examples[0].starts_with("line 4:"));
+}
+
+#[test]
+fn sam_blank_lines_are_skipped_and_headerless_sam_needs_no_refs() {
+    let refs = "@SQ\tSN:chr1\tLN:1000\n";
+    let good = "ok\t0\tchr1\t10\t60\t4M\t*\t0\t0\tACGT\tIIII";
+    let mut bytes = sam_bytes(refs, &[good]);
+    bytes.extend_from_slice(b"\n");
+    bytes.extend_from_slice(good.as_bytes());
+    let mut s = src_of(bytes, InvalidPolicy::Fail).unwrap();
+    assert_eq!(all(s.as_mut()).len(), 2);
+    assert_eq!(s.diagnostics().blank_lines, 1);
+    // Unplaced reads need no @SQ lines.
+    let mut s = src_of(
+        b"u\t4\t*\t0\t0\t*\t*\t0\t0\tACGT\tIIII\n".to_vec(),
+        InvalidPolicy::Fail,
+    )
+    .unwrap();
+    assert_eq!(all(s.as_mut()).len(), 1);
+}
+
+#[test]
+fn sam_chrom_map_is_refused_with_a_fix() {
+    let mut o = ropts(AlignOptions::default(), InvalidPolicy::Fail);
+    o.chrom_map = Some(std::sync::Arc::new(
+        ChromMap::parse("m.tsv", b"chr1\t1\n").unwrap(),
+    ));
+    let e = open_aln_source(fixture("flags.sam").to_str().unwrap(), &o)
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(
+        e.contains("--chrom-map") && e.contains("convert it to BAM"),
+        "{e}"
+    );
+}
+
+fn header_of(text: &str) -> AlnHeader {
+    AlnHeader::parse_sam(text.as_bytes().to_vec()).unwrap()
+}
+
+fn pg_lines(h: &AlnHeader) -> Vec<String> {
+    String::from_utf8_lossy(&h.text)
+        .lines()
+        .filter(|l| l.starts_with("@PG"))
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn pg_line_ids() {
+    // None yet: appended at the end, after @CO.
+    let h =
+        header_of("@HD\tVN:1.6\n@SQ\tSN:c\tLN:9\n@CO\tnote\n").with_program("gloci view x", "1.2");
+    let text = String::from_utf8_lossy(&h.text).into_owned();
+    assert!(
+        text.ends_with("@CO\tnote\n@PG\tID:gloci\tPN:gloci\tVN:1.2\tCL:gloci view x\n"),
+        "{text}"
+    );
+    // An existing gloci line: ID:gloci.1, PP:gloci, inserted after the last @PG, before @CO.
+    let h =
+        header_of("@SQ\tSN:c\tLN:9\n@PG\tID:gloci\tPN:gloci\n@CO\tnote\n").with_program("c", "v");
+    assert_eq!(
+        pg_lines(&h),
+        [
+            "@PG\tID:gloci\tPN:gloci",
+            "@PG\tID:gloci.1\tPN:gloci\tPP:gloci\tVN:v\tCL:c"
+        ]
+    );
+    assert!(String::from_utf8_lossy(&h.text).ends_with("@CO\tnote\n"));
+    // Again: .2 follows .1, and PP is the end of the chain.
+    let h2 = h.with_program("c2", "v");
+    let last = pg_lines(&h2).pop().unwrap();
+    assert!(
+        last.starts_with("@PG\tID:gloci.2\tPN:gloci\tPP:gloci.1\t"),
+        "{last}"
+    );
+    // Two chain ends: the last one in the file is the predecessor (as samtools does).
+    let h = header_of("@PG\tID:x\n@PG\tID:y\n@PG\tID:z\tPP:x\n").with_program("c", "v");
+    assert!(pg_lines(&h)[3].contains("\tPP:z\t"), "{:?}", pg_lines(&h));
+    // A cycle has no end.
+    let h = header_of("@PG\tID:x\tPP:y\n@PG\tID:y\tPP:x\n").with_program("c", "v");
+    assert!(!pg_lines(&h)[2].contains("PP:"), "{:?}", pg_lines(&h));
+    // The references and sort order are kept.
+    let base = header_of("@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:c\tLN:9\n");
+    let w = base.with_program("c", "v");
+    assert_eq!((w.refs.clone(), w.sort_order), (base.refs, base.sort_order));
+}
+
+fn out_to(path: &std::path::Path, f: OutFormat) -> Output {
+    let spec = OutputSpec {
+        path: Some(path.to_path_buf()),
+        format: Some(f),
+        bgzf: f == OutFormat::Bam,
+        direct: false,
+    };
+    open_output(
+        &spec,
+        f,
+        &OutputOptions {
+            threads: NonZeroUsize::MIN,
+            level: 6,
+            write_index: false,
+        },
+    )
+    .unwrap()
+}
+
+fn wopts(cmd: Option<&str>, write_header: bool) -> WriterOptions {
+    WriterOptions {
+        write_header,
+        command_line: cmd.map(str::to_string),
+        version: "9.9",
+    }
+}
+
+/// Write every record of `file` as `to`, returning the output file's bytes.
+fn write_as(file: &str, to: OutFormat, cmd: Option<&str>) -> Vec<u8> {
+    let mut s = source(file, AlignOptions::default());
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("out");
+    let h = s.header().clone();
+    let mut w =
+        open_alignment_writer(out_to(&path, to), s.layout(), to, &h, &wopts(cmd, true)).unwrap();
+    for (_, r) in all(s.as_mut()) {
+        w.write_record(&r).unwrap();
+    }
+    w.finish().unwrap();
+    std::fs::read(&path).unwrap()
+}
+
+fn sam_text_without_pg(b: &[u8]) -> String {
+    String::from_utf8(b.to_vec())
+        .unwrap()
+        .lines()
+        .filter(|l| !l.starts_with("@PG"))
+        .map(|l| format!("{l}\n"))
+        .collect()
+}
+
+#[test]
+fn sam_passthrough_bytes() {
+    // SAM to SAM copies each record line exactly; only the @PG line is added.
+    for set in ["flags", "cigars", "order", "tags"] {
+        let out = write_as(
+            &format!("{set}.sam"),
+            OutFormat::Sam,
+            Some("gloci view x.sam"),
+        );
+        let want = std::fs::read_to_string(fixture(&format!("{set}.sam"))).unwrap();
+        let got = String::from_utf8(out).unwrap();
+        assert_eq!(
+            got.lines()
+                .filter(|l| l.starts_with("@PG\tID:gloci"))
+                .count(),
+            1
+        );
+        assert_eq!(sam_text_without_pg(got.as_bytes()), want, "{set}");
+        // And BAM to SAM writes the SAM the BAM was made from (samtools' own text).
+        let out = String::from_utf8(write_as(&format!("{set}.bam"), OutFormat::Sam, None)).unwrap();
+        if set == "tags" {
+            // Floats come back in `%g` form, as samtools writes them.
+            assert!(out.contains("\tXF:f:0.1\tXG:f:1e-07\t"), "{out}");
+            assert!(
+                out.contains("\tXJ:f:0.123457\tXK:f:1e+10\tXL:f:1.23457e+08\t"),
+                "{out}"
+            );
+        } else {
+            assert_eq!(out, want, "{set} from BAM");
+        }
+    }
+}
+
+/// The BAM records of an output file.
+fn bam_records(bgzf: &[u8]) -> (AlnHeader, Vec<Vec<u8>>) {
+    let mut s = open_aln_source_from(
+        "o.bam",
+        Box::new(Cursor::new(bgzf.to_vec())),
+        &ropts(AlignOptions::default(), InvalidPolicy::Fail),
+    )
+    .unwrap();
+    let h = (**s.header()).clone();
+    (h, all(s.as_mut()).into_iter().map(|r| r.1).collect())
+}
+
+#[test]
+fn bam_output_is_the_input_records() {
+    for set in ["flags", "cigars", "order", "tags"] {
+        let from_bam = write_as(&format!("{set}.bam"), OutFormat::Bam, Some("c"));
+        let from_sam = write_as(&format!("{set}.sam"), OutFormat::Bam, Some("c"));
+        let (hb, rb) = bam_records(&from_bam);
+        let (hs, rs) = bam_records(&from_sam);
+        let (_, original) = {
+            let mut s = source(&format!("{set}.bam"), AlignOptions::default());
+            let h = (**s.header()).clone();
+            (
+                h,
+                all(s.as_mut()).into_iter().map(|r| r.1).collect::<Vec<_>>(),
+            )
+        };
+        assert_eq!(rb, original, "{set}: BAM to BAM copies the bytes");
+        // SAM to BAM encodes to the bytes samtools encodes.
+        assert_eq!(rs, original, "{set}: SAM to BAM");
+        assert_eq!((hb.refs.clone(), hb.text.clone()), (hs.refs, hs.text));
+        assert!(
+            String::from_utf8_lossy(&hb.text).contains("@PG\tID:gloci\tPN:gloci\tVN:9.9\tCL:c")
+        );
+    }
+}
+
+#[test]
+fn sam_line_to_bam_matches_the_bam_records() {
+    let mut s = source("tags.bam", AlignOptions::default());
+    let h = (**s.header()).clone();
+    let bam = all(s.as_mut());
+    let text = std::fs::read_to_string(fixture("tags.sam")).unwrap();
+    let enc = SamToBam::new(&h);
+    for (line, (_, raw)) in text.lines().filter(|l| !l.starts_with('@')).zip(&bam) {
+        let mut out = Vec::new();
+        sam_line_to_bam(line.as_bytes(), &h, &mut out).unwrap();
+        assert_eq!(&out, raw, "{line}");
+        let mut again = Vec::new();
+        enc.encode(line.as_bytes(), &mut again).unwrap();
+        assert_eq!(&again, raw);
+    }
+    // A line that is not a record is an error, not a panic.
+    assert!(sam_line_to_bam(b"junk", &h, &mut Vec::new()).is_err());
+}
+
+#[test]
+fn alignment_writers_refuse_what_cannot_be_written() {
+    let h = header_of("@SQ\tSN:c\tLN:9\n");
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("o.bam");
+    // BAM needs its header.
+    let e = open_alignment_writer(
+        out_to(&p, OutFormat::Bam),
+        Format::Bam,
+        OutFormat::Bam,
+        &h,
+        &wopts(None, false),
+    )
+    .err()
+    .unwrap()
+    .to_string();
+    assert!(e.contains("--no-header") && e.contains("BAM"), "{e}");
+    // BED output of alignments is a usage error that says how to get BED (D104).
+    let e = check_family(Format::Bam, OutFormat::Bed)
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("gloci convert"), "{e}");
+    assert!(check_family(Format::Cram, OutFormat::Sam).is_ok());
+    assert!(check_family(Format::Sam, OutFormat::Bam).is_ok());
+    // Text records are not alignments.
+    assert!(check_family(Format::Bed, OutFormat::Bam).is_err());
+    // SAM output with no header writes the records alone.
+    let q = dir.path().join("o.sam");
+    let mut s = source("flags.sam", AlignOptions::default());
+    let mut w = open_alignment_writer(
+        out_to(&q, OutFormat::Sam),
+        Format::Sam,
+        OutFormat::Sam,
+        s.header(),
+        &wopts(Some("c"), false),
+    )
+    .unwrap();
+    for (_, r) in all(s.as_mut()) {
+        w.write_record(&r).unwrap();
+    }
+    w.finish().unwrap();
+    let text = std::fs::read_to_string(&q).unwrap();
+    assert!(!text.contains('@') && text.lines().count() == 14);
+}
+
+#[test]
+fn bam_as_sam_resolves_a_long_cigar_like_samtools() {
+    // 70,000 operations live in the CG tag. SAM text shows them as the CIGAR, and not as a tag.
+    let mut tag = b"CGBI".to_vec();
+    tag.extend_from_slice(&70_000u32.to_le_bytes());
+    for _ in 0..35_000 {
+        tag.extend_from_slice(&(1u32 << 4).to_le_bytes());
+        tag.extend_from_slice(&((1u32 << 4) | 1).to_le_bytes());
+    }
+    tag.extend_from_slice(b"NMC\x07");
+    let mut rec = Vec::new();
+    rec.extend_from_slice(&0i32.to_le_bytes());
+    rec.extend_from_slice(&99i32.to_le_bytes());
+    rec.extend_from_slice(&[5, 60, 0, 0]);
+    rec.extend_from_slice(&2u16.to_le_bytes());
+    rec.extend_from_slice(&0u16.to_le_bytes());
+    rec.extend_from_slice(&70_000u32.to_le_bytes());
+    rec.extend_from_slice(&(-1i32).to_le_bytes());
+    rec.extend_from_slice(&(-1i32).to_le_bytes());
+    rec.extend_from_slice(&0i32.to_le_bytes());
+    rec.extend_from_slice(b"long\0");
+    rec.extend_from_slice(&(70_000u32 << 4 | 4).to_le_bytes());
+    rec.extend_from_slice(&(35_000u32 << 4 | 3).to_le_bytes());
+    rec.extend(std::iter::repeat_n(0x11u8, 35_000));
+    rec.extend(std::iter::repeat_n(30u8, 70_000));
+    rec.extend_from_slice(&tag);
+    let h = header_of("@SQ\tSN:chr1\tLN:1000000\n");
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("o.sam");
+    let mut w = open_alignment_writer(
+        out_to(&path, OutFormat::Sam),
+        Format::Bam,
+        OutFormat::Sam,
+        &h,
+        &wopts(None, true),
+    )
+    .unwrap();
+    w.write_record(&rec).unwrap();
+    w.finish().unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    let line = text.lines().last().unwrap();
+    let f: Vec<&str> = line.split('\t').collect();
+    assert_eq!(f[5].len(), 35_000 * 4, "the resolved CIGAR 1M1I x 35,000");
+    assert!(f[5].starts_with("1M1I1M1I"));
+    assert_eq!(&f[11..], ["NM:i:7"], "the CG tag is not repeated");
+}

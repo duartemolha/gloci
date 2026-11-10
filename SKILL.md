@@ -79,12 +79,14 @@ Print the records in regions, stream or recompress a file, convert VCF to BCF an
 
 With no regions the records are written as read (comment and track lines after the first record and blank lines are dropped, and CRLF line ends become LF), so view can recompress a file (-o FILE.gz is BGZF) or index it (--write-index). VCF and BCF convert to each other with -O or the -o extension; the header is kept as it is, plus a ##glociCommand line. BED and GFF header lines are kept by default. For conversions to BED from VCF/BCF, GFF3/GTF or BED12, use gloci convert.
 
+BAM and SAM input is written as BAM or SAM, as -O or the -o extension say (the same as the input by default), every record, unmapped reads included, with an @PG line added to the header. --header-only, --no-header (SAM output only), --min-mapq, --require-flags and --exclude-flags apply. Regions select the reads whose footprint overlaps them; an unmapped read placed at a position counts as one base there. It is not samtools view: there is no -b, -h, -c or -L.
+
 With regions, view prints the records whose footprint (per --vcf-span) overlaps a region, each once, in file order. A point (a zero-length BED record, an insertion) overlaps a region only when strictly inside it, unless --inclusive-points is given. Regions are read through a .tbi/.csi index when the file has one, and otherwise by scanning the whole file, with a warning. Either way the order of every record read is checked, so an unsorted file is an error, never a wrong answer. With --assume-sorted, an uncompressed BED file without an index is binary-searched instead (like bedextract); that trusts the file to be sorted. Index the file (gloci sort FILE -o FILE.gz --write-index) for speed and checking both.
 
 ```sh
 gloci view calls.vcf.gz chr1:1,000,000-2,000,000 chrX
 gloci view peaks.bed --regions-file targets.bed --inclusive-points
-gloci view calls.bcf -O vcf | less
+gloci view reads.bam -O sam | head
 gloci view calls.vcf.gz -o calls.bcf --write-index
 ```
 

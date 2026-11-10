@@ -1,0 +1,1 @@
+view -O sam --min-mapq 10 --exclude-flags 0x704 input.bam
