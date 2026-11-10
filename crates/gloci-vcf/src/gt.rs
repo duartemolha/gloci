@@ -110,9 +110,37 @@ impl SampleCache {
         }
     }
 
+    /// The cached samples alone, for a consumer that reads only samples the
+    /// record's first stage already decoded (a sample not decoded is an error).
+    pub fn reader(&self) -> CacheReader<'_> {
+        CacheReader { cache: self }
+    }
+
     /// `inner` read through the cache.
     pub fn wrap<'a>(&'a self, inner: &'a dyn GenotypeSource) -> CachedGenotypes<'a> {
         CachedGenotypes { inner, cache: self }
+    }
+}
+
+/// The samples [`SampleCache`] holds for the current record.
+pub struct CacheReader<'a> {
+    cache: &'a SampleCache,
+}
+
+impl GenotypeSource for CacheReader<'_> {
+    fn n_samples(&self) -> usize {
+        self.cache.valid.borrow().len()
+    }
+
+    fn sample(&self, i: usize, out: &mut SampleFields) -> Result<(), String> {
+        if !self.cache.valid.borrow().get(i).copied().unwrap_or(false) {
+            return Err(format!(
+                "internal error: sample {} was not decoded by the selection stage",
+                i + 1
+            ));
+        }
+        out.copy_from(&self.cache.slots.borrow()[i]);
+        Ok(())
     }
 }
 
@@ -214,6 +242,30 @@ fn parse_allele(a: &[u8], whole: &[u8]) -> Result<Option<u32>, String> {
     parse_uint(a, "GT allele")
 }
 
+/// Which of the optional FORMAT fields a decoder reads, besides GT (always
+/// read). A field left out stays `None` (FT: passing) in every [`SampleFields`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GtFields {
+    pub dp: bool,
+    pub gq: bool,
+    pub ft: bool,
+}
+
+impl GtFields {
+    /// DP, GQ and FT.
+    pub const ALL: GtFields = GtFields {
+        dp: true,
+        gq: true,
+        ft: true,
+    };
+    /// GT only.
+    pub const GT_ONLY: GtFields = GtFields {
+        dp: false,
+        gq: false,
+        ft: false,
+    };
+}
+
 /// A VCF data line with the FORMAT key positions located once.
 pub struct TextGenotypes<'a> {
     line: &'a [u8],
@@ -230,6 +282,11 @@ pub struct TextGenotypes<'a> {
 /// Index a VCF data line (no trailing newline needed). Columns 1-9 must be
 /// present; a line with no FORMAT column has zero samples.
 pub fn text_genotypes(line: &[u8]) -> Result<TextGenotypes<'_>, String> {
+    text_genotypes_with(line, GtFields::ALL)
+}
+
+/// [`text_genotypes`] reading only GT and the fields `fields` names.
+pub fn text_genotypes_with(line: &[u8], fields: GtFields) -> Result<TextGenotypes<'_>, String> {
     let line = line.strip_suffix(b"\n").unwrap_or(line);
     let line = line.strip_suffix(b"\r").unwrap_or(line);
     if u32::try_from(line.len()).is_err() {
@@ -263,9 +320,9 @@ pub fn text_genotypes(line: &[u8]) -> Result<TextGenotypes<'_>, String> {
     for (idx, key) in line[fmt_start..fmt_end].split(|&b| b == b':').enumerate() {
         let slot = match key {
             b"GT" => &mut out.gt,
-            b"DP" => &mut out.dp,
-            b"GQ" => &mut out.gq,
-            b"FT" => &mut out.ft,
+            b"DP" if fields.dp => &mut out.dp,
+            b"GQ" if fields.gq => &mut out.gq,
+            b"FT" if fields.ft => &mut out.ft,
             _ => continue,
         };
         slot.get_or_insert(idx);

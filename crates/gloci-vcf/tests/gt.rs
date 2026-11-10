@@ -1,6 +1,9 @@
 mod common;
 use common::*;
-use gloci_vcf::{GenotypeSource, SampleCache, SampleFields, bcf_genotypes, text_genotypes};
+use gloci_vcf::{
+    GenotypeSource, GtFields, SampleCache, SampleFields, bcf_genotypes, text_genotypes,
+    text_genotypes_with,
+};
 
 type Row = (
     Option<(Vec<Option<u32>>, bool)>,
@@ -398,4 +401,25 @@ fn sample_cache_without_start_record_decodes_directly() {
     let text = text_genotypes(&l).unwrap();
     let cache = SampleCache::default();
     assert_eq!(all(&cache.wrap(&text)), all(&text));
+}
+
+#[test]
+fn gt_only_decoding_skips_optional_fields_and_keeps_gt() {
+    let l = line("GT:DP:GQ:FT", &["0|1:5:20:LowQ", "1/1:9:30:PASS"]);
+    let full = text_genotypes(&l).unwrap();
+    let only = text_genotypes_with(&l, GtFields::GT_ONLY).unwrap();
+    let dp_only = text_genotypes_with(
+        &l,
+        GtFields {
+            dp: true,
+            ..GtFields::GT_ONLY
+        },
+    )
+    .unwrap();
+    for (a, b) in all(&full).into_iter().zip(all(&only)) {
+        assert_eq!(a.0, b.0);
+        assert_eq!((b.1, b.2, b.3), (None, None, true));
+    }
+    let rows = all(&dp_only);
+    assert_eq!((rows[0].1, rows[0].2, rows[0].3), (Some(5), None, true));
 }

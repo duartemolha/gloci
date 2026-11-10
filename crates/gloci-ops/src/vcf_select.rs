@@ -13,9 +13,9 @@ use gloci_io::{
     RecordReader, UsageError, VcfHeader, next_batch_size,
 };
 use gloci_vcf::{
-    BcfSite, EvalScratch, Expr, GenotypeSource, MaskRules, MaskedGenotypes, RewritePlan,
-    SampleCache, SiteFilters, SiteStats, SiteView, Thinner, bcf_genotypes, parse_expr,
-    select_samples, site_stats, text_genotypes,
+    BcfSite, EvalScratch, Expr, GenotypeSource, GtFields, MaskRules, MaskedGenotypes, RewritePlan,
+    SampleCache, SiteFilters, SiteStats, SiteView, Thinner, bcf_genotypes_with, parse_expr,
+    select_samples, site_stats, text_genotypes_with,
 };
 
 /// A `--include` or `--exclude` expression (decision D71).
@@ -233,6 +233,7 @@ pub struct SelectStage<'a> {
     masked_buf: Vec<bool>,
     decoded: SampleCache,
     share_decoded: bool,
+    fields: GtFields,
 }
 
 impl<'a> SelectStage<'a> {
@@ -299,13 +300,18 @@ impl<'a> SelectStage<'a> {
             masked_buf: Vec::new(),
             decoded: SampleCache::default(),
             share_decoded: false,
+            fields: GtFields::ALL,
         })
     }
 
     /// Keep each decoded sample for the record's consumers (see [`Hit::decoded`]),
     /// so a later stage reads the sample from the cache instead of parsing it again.
-    pub fn share_decoded(&mut self) {
+    /// `fields` names the optional FORMAT fields (besides GT) the selection
+    /// and its consumers read; the others are not decoded. The selection's own
+    /// reads (masking rules, site filters, an expression) must be in `fields`.
+    pub fn share_decoded(&mut self, fields: GtFields) {
         self.share_decoded = true;
+        self.fields = fields;
     }
 
     pub fn name(&self) -> &str {
@@ -368,13 +374,18 @@ impl<'a> SelectStage<'a> {
                 view.alts.split(|&b| b == b',').count()
             };
             let n_alleles = if n_alts == 0 { 1 } else { 1 + n_alts };
+            let fields = if self.share_decoded {
+                self.fields
+            } else {
+                GtFields::ALL
+            };
             let bcf_gt;
             let text_gt;
             let gt: &dyn GenotypeSource = if input_is_bcf {
-                bcf_gt = bcf_genotypes(raw, &self.dicts).map_err(parse_err)?;
+                bcf_gt = bcf_genotypes_with(raw, &self.dicts, fields).map_err(parse_err)?;
                 &bcf_gt
             } else {
-                text_gt = text_genotypes(raw).map_err(parse_err)?;
+                text_gt = text_genotypes_with(raw, fields).map_err(parse_err)?;
                 &text_gt
             };
             let cached;

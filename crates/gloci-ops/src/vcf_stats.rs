@@ -10,10 +10,10 @@
 use crate::vcf_select::{SelectStage, SelectedInput, VcfSelect, run_selection};
 use gloci_io::{AtomicFile, BcfDicts, IoError, Loc, UsageError};
 use gloci_vcf::{
-    BcfSite, FilterSummary, Freq, GenoDepth, Hardy, Heterozygosity, IndelHist, MaskedGenotypes,
-    MissingSample, MissingSite, RewritePlan, SampleDepth, Singletons, SiteDepth, SiteMeanDepth,
-    SiteQuality, SiteView, SnpDensity, Stat, StatSink, StatWrite, StatsEngine, Summary, TsTv,
-    bcf_genotypes, text_genotypes,
+    BcfSite, FilterSummary, Freq, GenoDepth, GtFields, Hardy, Heterozygosity, IndelHist,
+    MaskedGenotypes, MissingSample, MissingSite, RewritePlan, SampleDepth, Singletons, SiteDepth,
+    SiteMeanDepth, SiteQuality, SiteView, SnpDensity, Stat, StatSink, StatWrite, StatsEngine,
+    Summary, TsTv,
 };
 use std::cell::RefCell;
 use std::ffi::OsString;
@@ -371,6 +371,30 @@ impl StatSink for PrefixSink {
     }
 }
 
+/// The optional FORMAT fields the selection and the statistics read: DP for a
+/// depth statistic, a summary, a DP mask or a mean-depth site filter; GQ for a
+/// GQ mask; FT for an FT mask. An expression may read any, so it takes all.
+fn decode_fields(o: &StatsOptions) -> GtFields {
+    if o.select.expr.is_some() {
+        return GtFields::ALL;
+    }
+    let (r, m, s) = (&o.request, &o.select.mask, &o.select.sites);
+    GtFields {
+        dp: r.depth
+            || r.site_depth
+            || r.site_mean_depth
+            || r.geno_depth
+            || r.summary
+            || r.json
+            || m.min_dp.is_some()
+            || m.max_dp.is_some()
+            || s.min_mean_dp.is_some()
+            || s.max_mean_dp.is_some(),
+        gq: m.min_gq.is_some(),
+        ft: m.mask_filtered,
+    }
+}
+
 /// The selected samples as (index in the record, name).
 fn selected_samples(stage: &SelectStage<'_>) -> Vec<(usize, String)> {
     let all = &stage.header().samples;
@@ -392,7 +416,7 @@ pub fn vcf_stats(input: SelectedInput, o: &StatsOptions) -> Result<StatsSummary,
     // whenever a statistic needs them.
     let need_genotypes = o.request.needs_genotypes();
     let mut stage = SelectStage::new(COMMAND, reader.as_ref(), &o.select, &base, need_genotypes)?;
-    stage.share_decoded();
+    stage.share_decoded(decode_fields(o));
     let name = stage.name().to_string();
     let samples = selected_samples(&stage);
     let mut engine = StatsEngine::new(build_stats(&o.request, &samples));
@@ -437,16 +461,8 @@ pub fn vcf_stats(input: SelectedInput, o: &StatsOptions) -> Result<StatsSummary,
         if !need_genotypes {
             return engine.site(&view, None, None).map_err(parse_err);
         }
-        let bcf_gt;
-        let text_gt;
-        let inner: &dyn gloci_vcf::GenotypeSource = if is_bcf {
-            bcf_gt = bcf_genotypes(hit.raw, &dicts).map_err(parse_err)?;
-            &bcf_gt
-        } else {
-            text_gt = text_genotypes(hit.raw).map_err(parse_err)?;
-            &text_gt
-        };
-        let shared = hit.decoded.wrap(inner);
+        // Every selected sample was decoded by the selection stage.
+        let shared = hit.decoded.reader();
         let masked = MaskedGenotypes {
             inner: &shared,
             masked: hit.masked,

@@ -10,7 +10,7 @@ mod gt;
 mod hwe;
 mod stats;
 
-pub use bcf_fmt::{BcfGenotypes, bcf_genotypes};
+pub use bcf_fmt::{BcfGenotypes, bcf_genotypes, bcf_genotypes_with};
 pub use expr::{EvalScratch, Expr, MaskedGenotypes, parse as parse_expr};
 pub use extract::{
     GtError, InfoKey, InfoKind, declared_keys, format_cell, format_declared, format_index,
@@ -21,8 +21,8 @@ pub use filter::{
     fmt_g6, read_ids, read_positions, read_samples, rewrite_header, rewrite_text, select_samples,
 };
 pub use gt::{
-    CachedGenotypes, Genotype, GenotypeSource, SampleCache, SampleFields, TextGenotypes,
-    text_genotypes,
+    CacheReader, CachedGenotypes, Genotype, GenotypeSource, GtFields, SampleCache, SampleFields,
+    TextGenotypes, text_genotypes, text_genotypes_with,
 };
 pub use hwe::{HweTails, hwe_p, hwe_tails};
 pub use stats::{

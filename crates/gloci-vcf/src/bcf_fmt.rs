@@ -1,7 +1,7 @@
 //! BCF genotype decoder: walks the FORMAT (individual) section of a framed
 //! record (BCF2.2 §6.3.4).
 
-use crate::gt::{GenotypeSource, SampleFields, ft_passes};
+use crate::gt::{GenotypeSource, GtFields, SampleFields, ft_passes};
 use gloci_io::BcfDicts;
 use gloci_io::bcf::typed::{self, Int, Ty};
 
@@ -36,6 +36,15 @@ pub struct BcfGenotypes<'a> {
 /// Index the FORMAT fields of one framed BCF record (`l_shared`, `l_indiv`,
 /// shared, individual), as `RecordBatch::raw` returns it.
 pub fn bcf_genotypes<'a>(raw: &'a [u8], dicts: &'a BcfDicts) -> Result<BcfGenotypes<'a>, String> {
+    bcf_genotypes_with(raw, dicts, GtFields::ALL)
+}
+
+/// [`bcf_genotypes`] reading only GT and the fields `fields` names.
+pub fn bcf_genotypes_with<'a>(
+    raw: &'a [u8],
+    dicts: &'a BcfDicts,
+    fields: GtFields,
+) -> Result<BcfGenotypes<'a>, String> {
     const TRUNC: &str = "the record is shorter than its header says";
     if raw.len() < 8 {
         return Err(TRUNC.into());
@@ -75,9 +84,9 @@ pub fn bcf_genotypes<'a>(raw: &'a [u8], dicts: &'a BcfDicts) -> Result<BcfGenoty
         indiv = rest;
         let slot = match dicts.strings.get(key).map(Vec::as_slice) {
             Some(b"GT") => &mut out.gt,
-            Some(b"DP") => &mut out.dp,
-            Some(b"GQ") => &mut out.gq,
-            Some(b"FT") => &mut out.ft,
+            Some(b"DP") if fields.dp => &mut out.dp,
+            Some(b"GQ") if fields.gq => &mut out.gq,
+            Some(b"FT") if fields.ft => &mut out.ft,
             Some(_) => continue,
             None => return Err(format!("FORMAT key {key} is not in the header dictionary")),
         };
