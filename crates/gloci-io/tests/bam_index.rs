@@ -306,7 +306,8 @@ fn bai_metadata() {
         {
             assert_eq!(meta(a), meta(b), "{bam}: metadata of reference {i}");
         }
-        // The whole file is what samtools writes.
+        // The fixtures are small enough that even the bin order is samtools' (on larger files
+        // htslib's hash order of bins within a reference can differ from gloci's sorted one).
         assert_eq!(
             std::fs::read(dir.path().join("x.bam.bai")).unwrap(),
             std::fs::read(fixture(&format!("{bam}.bai"))).unwrap(),

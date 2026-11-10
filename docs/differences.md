@@ -1471,8 +1471,10 @@ depends on the span.
 - **Reason:** the format follows from the data, as `gloci index` of a BED, GFF or VCF
   switches from `.tbi` to `.csi` on its own, so one command line works for every genome.
   samtools reads the `.csi` gloci writes, and gloci reads samtools' `.bai` and `.csi`;
-  queries through either return the same reads. A `.bai` made by both tools for a file
-  that fits is byte-identical.
+  queries through either return the same reads. The two tools write the same content
+  (bins, chunks, linear index, metadata) for a file that fits a `.bai`; the order of the
+  bins within a reference may differ (htslib writes them in hash order, gloci sorted), so
+  the bytes can differ.
 - **Pinned by:** `index-bam-long-reference-vs-samtools` (exit status: must differ);
   `index-interop-bam-csi-samtools` pins the agreeing side (samtools reads gloci's
   `.csi`), and `index-interop-bam-samtools-view` the `.bai`.
