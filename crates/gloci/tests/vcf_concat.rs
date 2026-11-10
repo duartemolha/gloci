@@ -538,3 +538,88 @@ fn naive_handles_a_huge_last_record_in_a_middle_and_the_final_file() {
         .code(1)
         .stderr(contains("comes before the last record of"));
 }
+
+fn no_chr(t: &str) -> String {
+    t.replace("chr1", "1").replace("chr2", "2")
+}
+
+#[test]
+fn chrom_map_renames_headers_and_records_of_every_input() {
+    let d = tempdir();
+    let map = s(&plain_file(d.path(), "map.tsv", "1\tchr1\n2\tchr2\n"));
+    // a.vcf uses 1/2, b.vcf already uses chr1/chr2: after the map the
+    // contig definitions agree and the order is checked on the new names.
+    let a = s(&plain_file(
+        d.path(),
+        "a.vcf",
+        &no_chr(&vcf("", &[&rec("chr1", 5), &rec("chr1", 9)])),
+    ));
+    let b = s(&plain_file(
+        d.path(),
+        "b.vcf",
+        &vcf("", &[&rec("chr2", 3), &rec("chr2", 4)]),
+    ));
+    // Without the map the contig lines differ.
+    gloci().args(["vcf", "concat", &a, &b]).assert().code(1);
+    let want = vcf(
+        "",
+        &[
+            &rec("chr1", 5),
+            &rec("chr1", 9),
+            &rec("chr2", 3),
+            &rec("chr2", 4),
+        ],
+    );
+    let out = text(&["vcf", "concat", &a, &b, "--chrom-map", &map]);
+    assert_eq!(out, want);
+    // The same through BCF inputs, and at every thread count.
+    let ab = s(&fixtures::write(
+        d.path(),
+        "a.bcf",
+        &fixtures::vcf_to_bcf(no_chr(&vcf("", &[&rec("chr1", 5), &rec("chr1", 9)])).as_bytes()),
+    ));
+    for t in ["1", "4"] {
+        let out = text(&[
+            "vcf",
+            "concat",
+            &ab,
+            &b,
+            "--chrom-map",
+            &map,
+            "--threads",
+            t,
+            "-O",
+            "vcf",
+        ]);
+        assert_eq!(out, want, "threads {t}");
+    }
+    // The order is checked on the renamed names: swapping the files is an
+    // order error.
+    gloci()
+        .args(["vcf", "concat", &b, &a, "--chrom-map", &map])
+        .assert()
+        .code(1)
+        .stderr(contains("chr"));
+}
+
+#[test]
+fn chrom_map_with_naive_exits_2_with_a_hint() {
+    let d = tempdir();
+    let map = s(&plain_file(d.path(), "map.tsv", "1\tchr1\n"));
+    let a = s(&bgzf_file(
+        d.path(),
+        "a.vcf.gz",
+        &vcf("", &[&rec("chr1", 5)]),
+    ));
+    let b = s(&bgzf_file(
+        d.path(),
+        "b.vcf.gz",
+        &vcf("", &[&rec("chr2", 3)]),
+    ));
+    gloci()
+        .args(["vcf", "concat", "--naive", &a, &b, "--chrom-map", &map])
+        .assert()
+        .code(2)
+        .stderr(contains("--chrom-map cannot be combined with --naive"))
+        .stderr(contains("leave out --naive"));
+}

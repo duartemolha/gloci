@@ -1142,6 +1142,12 @@ pub struct VcfConcatArgs {
     pub naive: bool,
     #[command(flatten)]
     pub chrom_order: ChromOrderArg,
+    /// Applies to every input: contig names in each header and the records
+    /// are renamed before the headers are compared, the order is checked and
+    /// the output is written. Not allowed with --naive, which copies blocks
+    /// unchanged.
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
     #[command(flatten)]
     pub threads: ThreadArgs,
     #[command(flatten)]

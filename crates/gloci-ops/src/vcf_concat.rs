@@ -149,11 +149,12 @@ pub fn vcf_concat(
             ));
         }
     }
-    // No renaming: records are written as read.
-    let ro = ReaderOptions {
-        chrom_map: None,
-        ..ro.clone()
-    };
+    if opts.naive && ro.chrom_map.is_some() {
+        return Err(usage(
+            "--chrom-map cannot be combined with --naive, which copies BGZF blocks without changing them; leave out --naive (checked mode renames the contigs), or rename the files first with: gloci view FILE --chrom-map MAP -o OUT.vcf.gz",
+        ));
+    }
+    let ro = ro.clone();
     let mut readers: Vec<Box<dyn RecordReader>> = Vec::new();
     for f in files {
         let r = open(f, &ro, opts.naive)?;

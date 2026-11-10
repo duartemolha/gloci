@@ -454,7 +454,7 @@ pub fn run_stats(ctx: &Ctx, a: &VcfStatsArgs) -> anyhow::Result<()> {
 pub fn run_concat(ctx: &Ctx, a: &VcfConcatArgs) -> anyhow::Result<()> {
     let spec = parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref())?;
     let ro = ReaderOptions {
-        chrom_map: None,
+        chrom_map: a.chrom_map.load()?,
         threads: ctx.threads,
         format: None,
         vcf_span: gloci_core::VcfSpan::Allele,
