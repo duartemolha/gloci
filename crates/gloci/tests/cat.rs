@@ -1,6 +1,7 @@
 //! Tests for `gloci cat` (D123): BAM block copy, as samtools cat.
 mod common;
 use common::*;
+use predicates::prelude::*;
 use predicates::str::contains;
 use std::path::{Path, PathBuf};
 
@@ -153,20 +154,26 @@ fn damaged_input_is_an_error_not_a_panic() {
     }
 }
 
+/// `--write-index` on joined files that are not in coordinate order is an error naming what
+/// to sort, and nothing is published (`write_index_on_bam_output` has the working case).
 #[test]
-fn write_index_is_refused_for_now() {
+fn write_index_of_unsorted_cat_output_is_an_error() {
     let dir = tempdir();
+    let out = dir.path().join("o.bam");
     gloci()
         .args([
             "cat",
             &s(&fixture("cat-a.bam")),
+            &s(&fixture("cat-b.bam")),
             "-o",
-            &s(&dir.path().join("o.bam")),
+            &s(&out),
         ])
         .arg("--write-index")
         .assert()
-        .code(2)
-        .stderr(contains("gloci index"));
+        .code(1)
+        .stderr(contains("gloci sort").and(contains("panicked").not()));
+    assert!(!out.exists());
+    assert!(!dir.path().join("o.bam.bai").exists());
 }
 
 #[test]

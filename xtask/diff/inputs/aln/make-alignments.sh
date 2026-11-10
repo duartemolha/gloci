@@ -14,11 +14,17 @@ awk 'BEGIN { srand(7); print "@HD\tVN:1.6\tSO:coordinate"; print "@SQ\tSN:chr1\t
         printf "big%d\t0\tchr1\t%d\t60\t100M\t*\t0\t0\t%s\t%s\tRG:Z:g4\n", i, i + 1, seq, qual } }' > cat-big.sam
 # cigars-bases: cigars without the all-clip read, which bedtools writes zero-length (D101).
 grep -v '^c_allclip' cigars.sam > cigars-bases.sam
-for set in cat-a cat-b cat-c cat-d cat-big cigars cigars-bases flags order tags edge pastend negtag splice-end splitfrac; do
+for set in cat-a cat-b cat-c cat-d cat-big cigars cigars-bases flags order tags edge pastend negtag splice-end splitfrac longref; do
     samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o "$set.bam" "$set.sam"
-    # cat-* are not indexed; edge.sam is not in coordinate order, so samtools cannot index it.
-    case "$set" in cat-*|edge) ;; *) samtools index -@ 0 "$set.bam" ;; esac
+    # cat-* are not indexed; edge.sam is not in coordinate order, so samtools cannot index it;
+    # longref has a 600 Mb reference, which a .bai cannot hold (it needs `samtools index -c`).
+    case "$set" in cat-*|edge|longref) ;; *) samtools index -@ 0 "$set.bam" ;; esac
 done
+# longref.sam is written by hand: a 600,000,000-base reference, which needs a .csi.
+# index/input.bai: order.bam's index under the name gloci finds beside `input.bam` (x.bam -> x.bai),
+# for the golden case view-bam-region-vs-samtools, whose input is always called input.bam.
+mkdir -p index
+cp order.bam.bai index/input.bai
 # cat-noeof: cat-a without its BGZF end-of-file block (a truncated copy).
 head -c -28 cat-a.bam > cat-noeof.bam
 # cat-g.bam is not made here: it is `gloci view cat-b.sam -o cat-g.bam`, so its header ends in

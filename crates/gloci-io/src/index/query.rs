@@ -1,12 +1,18 @@
 //! The index-backed region reader (§4.3, D9, D10).
 
 use super::*;
+use crate::align::{AlnHeader, AlnSource};
 use crate::chrom_map::{ChromMap, Renamer};
+use std::collections::HashMap;
 use std::sync::Arc;
+
+/// The largest decompressed CSI read into memory to check it.
+const MAX_INDEX_BYTES: u64 = 4 << 30;
 
 enum Loaded {
     Tbi(noodles_tabix::Index),
     Csi(noodles_csi::Index),
+    Bai(noodles_bam::bai::Index),
 }
 
 impl Loaded {
@@ -15,9 +21,45 @@ impl Loaded {
             path: info.path.display().to_string(),
             source,
         };
+        let corrupt = |msg: String| IoError::Detect {
+            path: info.path.display().to_string(),
+            msg: format!(
+                "{}: {msg}; rebuild it with: gloci index {}",
+                info.path.display(),
+                info.path.with_extension("").display()
+            ),
+        };
         Ok(match info.kind {
             IndexKind::Tbi => Loaded::Tbi(noodles_tabix::fs::read(&info.path).map_err(err)?),
-            IndexKind::Csi => Loaded::Csi(noodles_csi::fs::read(&info.path).map_err(err)?),
+            IndexKind::Csi => {
+                // noodles sizes its tables from the file's counts: check them first.
+                let bytes = validate::read_bgzf_capped(
+                    File::open(&info.path).map_err(err)?,
+                    MAX_INDEX_BYTES,
+                )
+                .map_err(err)?;
+                validate::check_csi(&bytes).map_err(corrupt)?;
+                Loaded::Csi(noodles_csi::fs::read(&info.path).map_err(err)?)
+            }
+            IndexKind::Bai => {
+                let bytes = fs::read(&info.path).map_err(err)?;
+                validate::check_bai(&bytes).map_err(corrupt)?;
+                Loaded::Bai(
+                    noodles_bam::bai::io::Reader::new(&bytes[..])
+                        .read_index()
+                        .map_err(err)?,
+                )
+            }
+            IndexKind::Crai => {
+                return Err(IoError::Detect {
+                    path: info.path.display().to_string(),
+                    msg: format!(
+                        "{} is a CRAM index, which this build cannot read yet; convert the CRAM \
+file with: gloci view FILE.cram -o x.bam --write-index",
+                        info.path.display()
+                    ),
+                });
+            }
         })
     }
 
@@ -25,6 +67,7 @@ impl Loaded {
         let h = match self {
             Loaded::Tbi(i) => i.header(),
             Loaded::Csi(i) => i.header(),
+            Loaded::Bai(_) => None,
         };
         h.map(CsiHeader::reference_sequence_names)
     }
@@ -44,6 +87,16 @@ impl Loaded {
         match self {
             Loaded::Tbi(i) => i.reference_sequences().get(rid).and_then(first),
             Loaded::Csi(i) => i.reference_sequences().get(rid).and_then(first),
+            Loaded::Bai(i) => i.reference_sequences().get(rid).and_then(first),
+        }
+    }
+
+    /// The number of references the index lists.
+    fn reference_count(&self) -> usize {
+        match self {
+            Loaded::Tbi(i) => i.reference_sequences().len(),
+            Loaded::Csi(i) => i.reference_sequences().len(),
+            Loaded::Bai(i) => i.reference_sequences().len(),
         }
     }
 
@@ -52,6 +105,7 @@ impl Loaded {
         let (min_shift, depth) = match self {
             Loaded::Tbi(i) => (i.min_shift(), i.depth()),
             Loaded::Csi(i) => (i.min_shift(), i.depth()),
+            Loaded::Bai(i) => (i.min_shift(), i.depth()),
         };
         1u64.checked_shl(u32::from(min_shift) + 3 * u32::from(depth))
             .unwrap_or(u64::MAX)
@@ -61,6 +115,13 @@ impl Loaded {
     /// overlaps the 0-based window `[lo, hi)`.
     fn chunks(&self, rid: usize, lo: u64, hi: u64) -> Vec<Chunk> {
         match self {
+            Loaded::Bai(i) => {
+                let Some(rs) = i.reference_sequences().get(rid) else {
+                    return Vec::new();
+                };
+                let min_off = rs.min_offset(i.min_shift(), i.depth(), position(lo + 1));
+                bin_chunks(rs, i.min_shift(), i.depth(), lo, hi, min_off)
+            }
             Loaded::Tbi(i) => {
                 let Some(rs) = i.reference_sequences().get(rid) else {
                     return Vec::new();
@@ -245,6 +306,9 @@ impl RegionReader {
     /// BCF record) to `buf`; false at end of input.
     fn read_raw(&mut self, buf: &mut Vec<u8>) -> Result<bool, IoError> {
         let off = buf.len();
+        if let Parser::Bam(_) = self.parser {
+            return self.read_bam_raw(buf, off);
+        }
         if let Parser::Bcf(_) = self.parser {
             let got = bcf::append(&mut self.src, buf, 8).map_err(|e| self.read_err(e))?;
             if got == 0 {
@@ -273,6 +337,50 @@ impl RegionReader {
             strip_eol(buf, off);
         }
         Ok(true)
+    }
+
+    /// Append the next BAM record, without its `block_size`.
+    fn read_bam_raw(&mut self, buf: &mut Vec<u8>, off: usize) -> Result<bool, IoError> {
+        let got = bcf::append(&mut self.src, buf, 4).map_err(|e| self.read_err(e))?;
+        if got == 0 {
+            return Ok(false);
+        }
+        if got < 4 {
+            return self.bad_bam_frame(
+                buf,
+                off,
+                "record is truncated; the file was probably cut off",
+            );
+        }
+        let block = i32::from_le_bytes([buf[off], buf[off + 1], buf[off + 2], buf[off + 3]]);
+        buf.truncate(off);
+        let Ok(size) = usize::try_from(block) else {
+            return self.bad_bam_frame(
+                buf,
+                off,
+                &format!("block_size {block} is negative, so the next record cannot be found"),
+            );
+        };
+        let got = bcf::append(&mut self.src, buf, size).map_err(|e| self.read_err(e))?;
+        if got < size {
+            return self.bad_bam_frame(
+                buf,
+                off,
+                "record is truncated; the file was probably cut off",
+            );
+        }
+        Ok(true)
+    }
+
+    /// A BAM record whose frame cannot be read: its place is its BGZF offset, or (in a
+    /// whole-reference read) its number in the reference, as for other record errors.
+    fn bad_bam_frame(&mut self, buf: &mut Vec<u8>, off: usize, msg: &str) -> Result<bool, IoError> {
+        buf.truncate(off);
+        let at = self.src.virtual_position();
+        self.seen += 1;
+        self.bad(at, &format!("{msg}; the file is corrupt"))?;
+        // --skip-invalid cannot resynchronise a broken frame: stop reading this file.
+        Ok(false)
     }
 
     fn bad_frame(&self, buf: &mut Vec<u8>, off: usize) -> Result<bool, IoError> {
@@ -382,15 +490,27 @@ impl RegionReader {
             if let Some(r) = &mut self.renamer {
                 r.apply(&mut batch.buf, off);
             }
-            let raw = &batch.buf[off..];
             if self.seen_last.is_none_or(|l| start > l) {
                 self.seen += 1;
                 self.seen_last = Some(start);
             }
+            let raw_len = batch.buf.len() - off;
             let parsed = match class {
                 Class::Fatal(msg) => Err(msg),
-                _ if raw.len() > u32::MAX as usize => Err("line is longer than 4 GiB".into()),
-                _ => self.parser.parse(raw, chroms),
+                _ if raw_len > u32::MAX as usize => Err("line is longer than 4 GiB".into()),
+                _ => match &mut self.parser {
+                    Parser::Bam(b) => {
+                        match b.parse(&self.name, &mut batch.buf, off, chroms, &mut self.diag) {
+                            Ok(Some(p)) => Ok(p),
+                            Ok(None) => {
+                                batch.buf.truncate(off);
+                                continue;
+                            }
+                            Err(msg) => Err(msg),
+                        }
+                    }
+                    p => p.parse(&batch.buf[off..], chroms),
+                },
             };
             let (chrom, key, span, strand) = match parsed {
                 Ok(p) => p,
@@ -465,6 +585,38 @@ impl RecordReader for RegionReader {
     }
 }
 
+/// Index-backed [`AlnSource`]: the BAM records of some regions.
+struct IndexedAlnSource {
+    aln: Arc<AlnHeader>,
+    reader: RegionReader,
+    chroms: ChromTable,
+    batch: RecordBatch,
+}
+
+impl AlnSource for IndexedAlnSource {
+    fn name(&self) -> &str {
+        &self.reader.name
+    }
+    fn layout(&self) -> Format {
+        Format::Bam
+    }
+    fn header(&self) -> &Arc<AlnHeader> {
+        &self.aln
+    }
+    fn diagnostics(&self) -> &Diagnostics {
+        &self.reader.diag
+    }
+
+    fn next_record(&mut self, buf: &mut Vec<u8>) -> Result<Option<u64>, IoError> {
+        self.batch.clear();
+        if !self.reader.next(&mut self.chroms, &mut self.batch)? {
+            return Ok(None);
+        }
+        buf.extend_from_slice(self.batch.raw(0));
+        Ok(Some(self.reader.emitted))
+    }
+}
+
 /// The name the file itself gives the chromosome that `--chrom-map` (when
 /// given) calls `requested`, which is what an index lists and the file's
 /// text records say; `None` when no chromosome of the file is called
@@ -536,34 +688,55 @@ pub fn open_region_reader(
     IndexedFile::open(path, format, header, o)?.regions_reader(regions, inclusive_points)
 }
 
-/// The reference names the index `info` of `data` knows, in reference id
-/// order: the names stored in a TBI/CSI header, or, for a BCF's CSI (which
-/// has none), the contig dictionary of the BCF header.
-pub fn index_reference_names(data: &Path, info: &IndexInfo) -> Result<Vec<Vec<u8>>, IoError> {
-    let loaded = Loaded::read(info)?;
-    if let Some(names) = loaded.names() {
-        return Ok(names.iter().map(|n| n.to_vec()).collect());
-    }
+/// The reference names of a file whose index lists none, by reference id: a BCF's contig
+/// dictionary (unused ids are empty) or a BAM's reference list.
+fn dictionary_names(data: &Path, info: &IndexInfo) -> Result<(Vec<Vec<u8>>, bool), IoError> {
     let name = data.display().to_string();
     let file = File::open(data).map_err(|source| IoError::Open {
         path: name.clone(),
         source,
     })?;
     let mut src = noodles_bgzf::io::Reader::new(BufReader::new(file));
+    let is_bam = src
+        .fill_buf()
+        .map_err(|source| IoError::Read {
+            path: name.clone(),
+            source,
+        })?
+        .starts_with(b"BAM\x01");
+    if is_bam {
+        let h = AlnHeader::read_bam(&mut src).map_err(|msg| IoError::Detect {
+            msg: format!("{name}: {msg}"),
+            path: name.clone(),
+        })?;
+        return Ok((h.refs.into_iter().map(|(n, _)| n).collect(), true));
+    }
     let h = read_bcf_header(&mut src).map_err(|msg| IoError::Detect {
         msg: format!(
-            "{name}: the index {} lists no chromosome names, as only a BCF index may, \
-but the BCF header cannot be read: {msg}",
+            "{name}: the index {} lists no chromosome names, as only a BCF or BAM index may, \
+but the header cannot be read: {msg}",
             info.path.display()
         ),
         path: name.clone(),
     })?;
     let dicts = h.bcf.expect("read_bcf_header builds the dictionaries");
-    Ok(dicts
-        .contigs
+    Ok((dicts.contigs, false))
+}
+
+/// The reference names the index `info` of `data` knows, in reference id
+/// order: the names stored in a TBI/CSI header, or, for a BCF's or BAM's
+/// index (which has none), the contig dictionary of the BCF header or the
+/// reference list of the BAM header.
+pub fn index_reference_names(data: &Path, info: &IndexInfo) -> Result<Vec<Vec<u8>>, IoError> {
+    let loaded = Loaded::read(info)?;
+    if let Some(names) = loaded.names() {
+        return Ok(names.iter().map(|n| n.to_vec()).collect());
+    }
+    let (names, is_bam) = dictionary_names(data, info)?;
+    Ok(names
         .into_iter()
         .enumerate()
-        .filter(|(rid, c)| !c.is_empty() && loaded.first_offset(*rid).is_some())
+        .filter(|(rid, c)| !c.is_empty() && (is_bam || loaded.first_offset(*rid).is_some()))
         .map(|(_, c)| c)
         .collect())
 }
@@ -583,23 +756,8 @@ pub fn index_non_empty_reference_names(
             .map(|(_, n)| n.to_vec())
             .collect());
     }
-    let name = data.display().to_string();
-    let file = File::open(data).map_err(|source| IoError::Open {
-        path: name.clone(),
-        source,
-    })?;
-    let mut src = noodles_bgzf::io::Reader::new(BufReader::new(file));
-    let h = read_bcf_header(&mut src).map_err(|msg| IoError::Detect {
-        msg: format!(
-            "{name}: the index {} lists no chromosome names, as only a BCF index may, \
-but the BCF header cannot be read: {msg}",
-            info.path.display()
-        ),
-        path: name.clone(),
-    })?;
-    let dicts = h.bcf.expect("read_bcf_header builds the dictionaries");
-    Ok(dicts
-        .contigs
+    Ok(dictionary_names(data, info)?
+        .0
         .into_iter()
         .enumerate()
         .filter(|(rid, c)| !c.is_empty() && loaded.first_offset(*rid).is_some())
@@ -620,7 +778,7 @@ pub struct IndexedFile {
     opts: ReaderOptions,
     /// Reference ids by name as the records have it after `--chrom-map`,
     /// for text formats (built forward: the map is not reversed).
-    by_new_name: std::collections::HashMap<Vec<u8>, usize>,
+    by_new_name: HashMap<Vec<u8>, usize>,
 }
 
 impl IndexedFile {
@@ -643,9 +801,12 @@ impl IndexedFile {
         if format == Format::Wig {
             return Err(wig_unindexed(&name));
         }
-        // A tabix/CSI index describes interval text; the alignment, sequence and
-        // convert-only formats have no text parser here (`Parser::text`).
-        if format.is_alignment() || format.is_convert_only() || format == Format::Fasta {
+        // A tabix/CSI index describes interval text; the other alignment, sequence and
+        // convert-only formats have no text parser here (`Parser::text`). BAM has its own.
+        if (format.is_alignment() && format != Format::Bam)
+            || format.is_convert_only()
+            || format == Format::Fasta
+        {
             return Err(UsageError(format!(
                 "{name} is {}, which cannot be read through a tabix or CSI index as intervals; \
 convert it to BED first: gloci convert {name} -o x.bed.gz",
@@ -654,20 +815,51 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
             .into());
         }
         let index = Loaded::read(&info)?;
-        if let (Some(m), Some(names)) = (&o.chrom_map, index.names()) {
-            m.check_file_names(&name, names.iter().map(|n| &n[..]))?;
-        }
-        let map = o.chrom_map.as_deref();
-        let by_new_name = index
-            .names()
-            .map(|names| {
-                names
+        let by_new_name = if format == Format::Bam {
+            let Header::Alignment(aln) = &header else {
+                return Err(IoError::Internal(
+                    "IndexedFile::open of a BAM needs the alignment header".into(),
+                ));
+            };
+            if index.reference_count() > aln.refs.len() {
+                return Err(IoError::Detect {
+                    path: name.clone(),
+                    msg: format!(
+                        "the index {} lists {} references but {name} has {}; it belongs to \
+another file; rebuild it with: gloci index {name}",
+                        info.path.display(),
+                        index.reference_count(),
+                        aln.refs.len()
+                    ),
+                });
+            }
+            // A map renames the header's references, which `ref_id` does not know by
+            // their new names; without one, `ref_id` answers.
+            if o.chrom_map.is_some() {
+                aln.refs
                     .iter()
                     .enumerate()
-                    .map(|(rid, n)| (map.map_or(&n[..], |m| m.rename(n)).to_vec(), rid))
+                    .map(|(rid, (n, _))| (n.clone(), rid))
                     .collect()
-            })
-            .unwrap_or_default();
+            } else {
+                HashMap::new()
+            }
+        } else {
+            if let (Some(m), Some(names)) = (&o.chrom_map, index.names()) {
+                m.check_file_names(&name, names.iter().map(|n| &n[..]))?;
+            }
+            let map = o.chrom_map.as_deref();
+            index
+                .names()
+                .map(|names| {
+                    names
+                        .iter()
+                        .enumerate()
+                        .map(|(rid, n)| (map.map_or(&n[..], |m| m.rename(n)).to_vec(), rid))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
         Ok(IndexedFile {
             by_new_name,
             path: path.to_path_buf(),
@@ -700,6 +892,8 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
                 .contigs
                 .iter()
                 .position(|c| !c.is_empty() && c == chrom),
+            // Without `--chrom-map` the header's own O(1) name map answers.
+            Header::Alignment(aln) if self.opts.chrom_map.is_none() => aln.ref_id(chrom),
             _ => self.by_new_name.get(chrom).copied(),
         }
     }
@@ -707,7 +901,7 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
     /// The name the file itself gives reference `rid` (before `--chrom-map`);
     /// BCF's dictionary is not renamed by the map.
     fn own_name(&self, rid: usize, renamed: &[u8]) -> Vec<u8> {
-        if self.format == Format::Bcf {
+        if self.format == Format::Bcf || self.format == Format::Bam {
             return renamed.to_vec();
         }
         self.index
@@ -719,6 +913,9 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
     /// The reference names the index knows, in reference id order, as
     /// [`index_reference_names`] gives them.
     pub fn reference_names(&self) -> Vec<Vec<u8>> {
+        if let Header::Alignment(aln) = &self.header {
+            return aln.refs.iter().map(|(n, _)| n.clone()).collect();
+        }
         if let Some(names) = self.index.names() {
             let map = self.opts.chrom_map.as_deref();
             return names
@@ -780,6 +977,7 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
         let s = match &*self.index {
             Loaded::Tbi(i) => i.reference_sequences().get(rid).and_then(span),
             Loaded::Csi(i) => i.reference_sequences().get(rid).and_then(span),
+            Loaded::Bai(i) => i.reference_sequences().get(rid).and_then(span),
         };
         s.map_or(0, |(lo, hi)| hi.saturating_sub(lo) + 1)
     }
@@ -793,21 +991,73 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
         regions: &[(Vec<u8>, Interval)],
         inclusive_points: bool,
     ) -> Result<Box<dyn RecordReader>, IoError> {
-        log::debug!(
-            "reading {} through its index {} for {} region(s)",
-            self.name,
-            self.info.path.display(),
-            regions.len()
-        );
-        let parser = match (&self.header, self.format) {
+        Ok(Box::new(self.region_reader(
+            regions,
+            inclusive_points,
+            false,
+        )?))
+    }
+
+    /// The parser of this file's records. `all` is for BAM: keep every record, placed
+    /// unmapped reads too, tested by the span samtools finds them by (`view`, D116).
+    fn parser(&self, all: bool) -> Result<Parser, IoError> {
+        Ok(match (&self.header, self.format) {
             (
                 Header::Vcf(VcfHeader {
                     bcf: Some(dicts), ..
                 }),
                 Format::Bcf,
             ) => Parser::bcf(self.opts.vcf_span, dicts.clone()),
+            (Header::Alignment(aln), Format::Bam) => {
+                Parser::Bam(Box::new(crate::align::BamRegionParse::new(
+                    aln.clone(),
+                    self.opts.accept.alignments.clone().unwrap_or_default(),
+                    all,
+                )))
+            }
+            (_, Format::Bam) => {
+                return Err(IoError::Internal(
+                    "a BAM index reader needs the alignment header".into(),
+                ));
+            }
             _ => Parser::text(self.format, self.opts.vcf_span),
+        })
+    }
+
+    /// The records of the BAM file that overlap `regions`, each once, in file order, as
+    /// every-record [`AlnSource`] reads them: unmapped reads placed on a region included,
+    /// and the span a region is tested against is samtools' (D116). The read filters apply;
+    /// record numbers count the records yielded.
+    pub fn aln_regions_source(
+        &self,
+        regions: &[(Vec<u8>, Interval)],
+        inclusive_points: bool,
+    ) -> Result<Box<dyn AlnSource>, IoError> {
+        let Header::Alignment(aln) = &self.header else {
+            return Err(IoError::Internal(
+                "an alignment source needs a BAM file".into(),
+            ));
         };
+        Ok(Box::new(IndexedAlnSource {
+            aln: aln.clone(),
+            reader: self.region_reader(regions, inclusive_points, true)?,
+            chroms: ChromTable::first_appearance(),
+            batch: RecordBatch::default(),
+        }))
+    }
+
+    fn region_reader(
+        &self,
+        regions: &[(Vec<u8>, Interval)],
+        inclusive_points: bool,
+        all: bool,
+    ) -> Result<RegionReader, IoError> {
+        log::debug!(
+            "reading {} through its index {} for {} region(s)",
+            self.name,
+            self.info.path.display(),
+            regions.len()
+        );
         let mut by_rid: BTreeMap<usize, (Vec<u8>, Vec<Interval>)> = BTreeMap::new();
         for (chrom, iv) in regions {
             let Some(rid) = self.rid_of(chrom) else {
@@ -837,7 +1087,7 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
             path: self.name.clone(),
             source,
         })?;
-        Ok(Box::new(RegionReader {
+        Ok(RegionReader {
             name: self.name.clone(),
             format: self.format,
             header: self.header.clone(),
@@ -846,7 +1096,7 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
             inclusive: inclusive_points,
             src: noodles_bgzf::io::Reader::new(BufReader::new(file)),
             renamer: text_renamer(self.format, &self.opts),
-            parser,
+            parser: self.parser(all)?,
             index: self.index.clone(),
             plans,
             whole: false,
@@ -860,7 +1110,7 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
             emitted: 0,
             seen: 0,
             seen_last: None,
-        }))
+        })
     }
 
     /// Every record on `chroms`, chromosome by chromosome in the order
@@ -885,15 +1135,6 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
                 })
             })
             .collect();
-        let parser = match (&self.header, self.format) {
-            (
-                Header::Vcf(VcfHeader {
-                    bcf: Some(dicts), ..
-                }),
-                Format::Bcf,
-            ) => Parser::bcf(self.opts.vcf_span, dicts.clone()),
-            _ => Parser::text(self.format, self.opts.vcf_span),
-        };
         let file = File::open(&self.path).map_err(|source| IoError::Open {
             path: self.name.clone(),
             source,
@@ -907,7 +1148,7 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
             inclusive: true,
             src: noodles_bgzf::io::Reader::new(BufReader::new(file)),
             renamer: text_renamer(self.format, &self.opts),
-            parser,
+            parser: self.parser(false)?,
             index: self.index.clone(),
             plans,
             whole: true,

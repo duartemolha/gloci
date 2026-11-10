@@ -472,7 +472,10 @@ pub(super) fn bin_start(id: usize, min_shift: u8, depth: u8) -> u64 {
 /// that reaches the bin's first 16 kb window. noodles records the first
 /// record *in* the bin's subtree instead, which lets htslib prune a long
 /// record that sits in an ancestor bin.
-fn with_htslib_loffsets(index: noodles_csi::Index, linear: &[Linear]) -> noodles_csi::Index {
+pub(super) fn with_htslib_loffsets(
+    index: noodles_csi::Index,
+    linear: &[Linear],
+) -> noodles_csi::Index {
     let (min_shift, depth) = (index.min_shift(), index.depth());
     let refs = index
         .reference_sequences()
@@ -509,7 +512,7 @@ fn tbi_bytes(index: &noodles_tabix::Index) -> io::Result<Vec<u8>> {
     w.into_inner().finish()
 }
 
-fn csi_bytes(index: &noodles_csi::Index) -> io::Result<Vec<u8>> {
+pub(super) fn csi_bytes(index: &noodles_csi::Index) -> io::Result<Vec<u8>> {
     let mut w = noodles_csi::io::Writer::new(Vec::new());
     w.write_index(index)?;
     w.into_inner().finish()
@@ -550,8 +553,18 @@ pub(super) fn build_index_with(
         ))
         .into());
     }
+    if tsv.is_none() && format == Format::Bam {
+        return super::bam::build_bam_index(data, final_data_path, false, threads);
+    }
+    if tsv.is_none() && format == Format::Sam {
+        return Err(UsageError(format!(
+            "{name} is SAM text, which has no index; write BAM instead, with: \
+gloci view {name} -o x.bam --write-index"
+        ))
+        .into());
+    }
     if tsv.is_none() && (format.is_alignment() || format == Format::Fasta) {
-        // `gloci index` will index these (BAI/CSI/CRAI/FAI); that is not built yet.
+        // CRAM (CRAI) and FASTA (FAI) are indexed by their own commands.
         return Err(UsageError(format!(
             "{name} is {}, and indexing it is not available in this build yet",
             format.name()
@@ -618,10 +631,14 @@ pub(crate) fn stage_index(path: &Path, bytes: &[u8]) -> Result<AtomicFile, IoErr
     Ok(af)
 }
 
-/// Remove `DATA.tbi` and `DATA.csi` if they exist (D19).
+/// Remove the indexes `data` can have (`DATA.tbi`, `DATA.csi`, and for a `.bam` also
+/// `DATA.bai` and `x.bai`) if they exist (D19).
 pub(crate) fn remove_indexes(data: &Path) -> Result<(), IoError> {
-    for kind in [IndexKind::Tbi, IndexKind::Csi] {
-        let p = index_path(data, kind);
+    remove_paths(all_index_paths(data))
+}
+
+fn remove_paths(paths: Vec<PathBuf>) -> Result<(), IoError> {
+    for p in paths {
         match fs::remove_file(&p) {
             Ok(()) => {}
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
@@ -637,7 +654,7 @@ pub(crate) fn remove_indexes(data: &Path) -> Result<(), IoError> {
 }
 
 /// Build a TBI or CSI index for the BGZF file `data` (see `build_index`),
-/// write it atomically to `final_data_path` + `.tbi`/`.csi`, remove an index
+/// write it atomically to `final_data_path` + `.tbi`/`.csi`/`.bai`, remove an index
 /// of the other kind, and return the index path. Messages name
 /// `final_data_path`.
 pub fn write_index(
@@ -663,17 +680,13 @@ pub(super) fn publish_index(
         path: path.display().to_string(),
         source,
     })?;
-    let other = index_path(final_data_path, kind.other());
-    match fs::remove_file(&other) {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(source) => {
-            return Err(IoError::Write {
-                path: other.display().to_string(),
-                source,
-            });
-        }
-    }
+    // Any other index of this file describes data that no longer is there, or is shadowed.
+    remove_paths(
+        all_index_paths(final_data_path)
+            .into_iter()
+            .filter(|p| *p != path)
+            .collect(),
+    )?;
     Ok(path)
 }
 

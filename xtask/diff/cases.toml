@@ -4052,6 +4052,53 @@ gloci = "gloci view -O sam input.bam chr1:650-701 chr2:51-55"
 reference = "samtools view -h --no-PG -X input.bam flags.bam.bai chr1:650-701 chr2:51-55"
 compare = "sam"
 
+# Regions through the index (D107, D116). order.bam's samtools .bai is `input.bai` beside the
+# input, so gloci reads through it; one region per chromosome, so no read repeats. The reads past
+# the end of a reference and the placed unmapped read are covered by the cargo tests.
+[[case]]
+name = "view-bam-region-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/order.bam" }
+aux = ["xtask/diff/inputs/aln/index/input.bai"]
+gloci = "gloci view -O sam --no-header input.bam chr1:1-150 chr2:95-105"
+reference = "samtools index input.bam && samtools view input.bam chr1:1-150 chr2:95-105"
+compare = "exact"
+
+# Indexes both ways (D107): samtools reads the .bai and the .csi gloci builds, and returns what
+# it returns through its own. flags.bam has a placed unmapped read (chr1:701) and an unplaced one.
+[[case]]
+name = "index-interop-bam-samtools-view"
+input = { file = "xtask/diff/inputs/aln/flags.bam" }
+gloci = '''set -e; gloci index input.bam; test -f input.bam.bai; for q in chr1:101-101 chr1:100-110 chr1:650-701 chr1:701-701 chr1:702-9999 chr2 chr2:51-55; do samtools view input.bam $q; done; samtools idxstats input.bam'''
+reference = '''set -e; samtools index input.bam; for q in chr1:101-101 chr1:100-110 chr1:650-701 chr1:701-701 chr1:702-9999 chr2 chr2:51-55; do samtools view input.bam $q; done; samtools idxstats input.bam'''
+compare = "exact"
+
+# A reference longer than 2^29 gets a .csi (D107): longref.sam has one of 600,000,000 bases, reads
+# either side of 2^29 (536,870,912), a placed unmapped read and an unplaced one.
+[[case]]
+name = "index-interop-bam-csi-samtools"
+input = { file = "xtask/diff/inputs/aln/longref.sam" }
+gloci = '''set -e; gloci view input.sam -o g.bam; gloci index g.bam; test -f g.bam.csi; test ! -f g.bam.bai; for q in big:1-5 big:299999990-300000010 big:536870900-540000005 big:599999990-600000000 big small; do samtools view g.bam $q; done; samtools idxstats g.bam'''
+reference = '''set -e; samtools view -b -o t.bam input.sam; samtools index -c t.bam; for q in big:1-5 big:299999990-300000010 big:536870900-540000005 big:599999990-600000000 big small; do samtools view t.bam $q; done; samtools idxstats t.bam'''
+compare = "exact"
+
+# samtools view of a region needs an index; gloci scans and warns.
+[[case]]
+name = "view-bam-region-no-index-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.bam" }
+gloci = "gloci view -O sam --no-header input.bam chr1:101-110"
+reference = "samtools view input.bam chr1:101-110"
+compare = "exit-status"
+expected_difference = "#bam-region-without-index"
+
+# samtools index refuses a reference longer than 2^29 without -c; gloci writes a .csi (D107).
+[[case]]
+name = "index-bam-long-reference-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/longref.bam" }
+gloci = "gloci index input.bam && test -f input.bam.csi"
+reference = "samtools index input.bam"
+compare = "exit-status"
+expected_difference = "#bam-index-long-reference"
+
 # Edge records (D104, D116, review of Task 3). edge.sam has the shapes samtools normalises or
 # encodes in its own way: a mapped read with CIGAR `*`, RNEXT on another contig, RNEXT `=` with
 # POS 0 or PNEXT 0, SEQ `*`, SEQ with QUAL `*`, lower-case, IUPAC, `=` and digit bases, empty

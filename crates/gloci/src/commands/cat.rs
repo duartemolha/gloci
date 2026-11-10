@@ -25,14 +25,6 @@ fn bam_spec(a: &CatArgs) -> Result<OutputSpec, UsageError> {
 }
 
 pub fn run(ctx: &Ctx, a: &CatArgs) -> anyhow::Result<()> {
-    if a.write_index {
-        return Err(UsageError(
-            "--write-index is not available for cat yet: a BAM index for cat output arrives with \
-gloci index for BAM. Until then, index the output with samtools index"
-                .into(),
-        )
-        .into());
-    }
     let spec = bam_spec(a)?;
     refuse_binary_to_tty(
         spec.path.is_none() && std::io::stdout().is_terminal(),
@@ -42,7 +34,7 @@ gloci index for BAM. Until then, index the output with samtools index"
     let oo = OutputOptions {
         threads: ctx.threads,
         level: 6,
-        write_index: false,
+        write_index: a.write_index,
     };
     let wo = WriterOptions {
         write_header: true,

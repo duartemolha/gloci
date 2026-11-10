@@ -1459,6 +1459,37 @@ depends on the span.
   1), and `index-interop-faidx` and `index-interop-faidx-bgzf` pin identical
   indexes.
 
+## `index` of a BAM with a long reference writes a `.csi` {#bam-index-long-reference}
+
+- **gloci:** `gloci index x.bam` writes `x.bam.bai`, or `x.bam.csi` when a reference is
+  longer than 2^29 (536,870,912) bases or a read ends past that. `--csi` asks for a `.csi`
+  at any length. The `.csi` has min_shift 14 and the smallest depth (at least 5) that
+  holds the longest reference. A `.csi` or `.bai` left from before is removed, so one
+  index is left.
+- **Old behaviour:** `samtools index x.bam` exits 1 with `Region ... cannot be stored in a
+  bai index. Try using a csi index`, and `samtools index -c` is the way to a `.csi`.
+- **Reason:** the format follows from the data, as `gloci index` of a BED, GFF or VCF
+  switches from `.tbi` to `.csi` on its own, so one command line works for every genome.
+  samtools reads the `.csi` gloci writes, and gloci reads samtools' `.bai` and `.csi`;
+  queries through either return the same reads. A `.bai` made by both tools for a file
+  that fits is byte-identical.
+- **Pinned by:** `index-bam-long-reference-vs-samtools` (exit status: must differ);
+  `index-interop-bam-csi-samtools` pins the agreeing side (samtools reads gloci's
+  `.csi`), and `index-interop-bam-samtools-view` the `.bai`.
+
+## `view` of a BAM region without an index scans the file {#bam-region-without-index}
+
+- **gloci:** `gloci view x.bam chr1:100-200` reads through `x.bam.bai`, `x.bai` or
+  `x.bam.csi` when there is one. With none, or with SAM or a BAM on standard input, it
+  reads the whole file and keeps the reads that overlap a region, with a warning that
+  says to run `gloci index x.bam`. A scan and an index give the same reads.
+- **Old behaviour:** `samtools view x.bam chr1:100-200` exits 1 without an index
+  (`Random alignment retrieval only works for indexed SAM.gz, BAM or CRAM files`).
+- **Reason:** a slow answer with a warning serves a pipeline better than a failure; the
+  warning names the fix. An index that is older than its BAM is used with a warning too.
+- **Pinned by:** `view-bam-region-no-index-vs-samtools` (exit status: must differ);
+  `view-bam-region-vs-samtools` pins the indexed side.
+
 ## `getfasta` and `nuc` fail on an interval outside the FASTA {#getfasta-outside-fasta}
 
 - **gloci:** `gloci getfasta` and `gloci nuc` exit 1 at the first interval whose chromosome is

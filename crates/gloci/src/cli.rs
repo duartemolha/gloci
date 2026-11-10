@@ -82,7 +82,11 @@ Examples:
   gloci genomes show hg38
   gloci sort peaks.bed -g hg38 > peaks.sorted.bed")]
     Genomes(GenomesArgs),
-    /// Build a .tbi/.csi index for a sorted BGZF file, or a .fai for a FASTA.
+    /// Build a .tbi/.csi index for a sorted BGZF file, a .bai/.csi for a BAM, or a .fai for a FASTA.
+    ///
+    /// A coordinate-sorted BAM gets PATH.bai, or PATH.csi with --csi or when a
+    /// reference is longer than 2^29; samtools and gloci read each other's
+    /// indexes. SAM text has no index: write BAM with gloci view x.sam -o x.bam.
     ///
     /// A FASTA file (plain or BGZF) gets PATH.fai, and PATH.gzi when it is
     /// BGZF, byte-identical to samtools faidx. Every line of a sequence but
@@ -102,8 +106,8 @@ Examples:
 Examples:
   gloci index calls.vcf.gz
   gloci index ref.fa.gz
-  gloci index scores.tsv.gz -s 1 -b 2 -e 3 --zero-based
-  gloci index sites.txt.gz -s 1 -b 2 --skip-lines 1 --comment %")]
+  gloci index sorted.bam
+  gloci index scores.tsv.gz -s 1 -b 2 -e 3 --zero-based")]
     Index(IndexArgs),
     /// Sort BED/bedGraph/GFF/VCF/BCF files with bounded memory.
     ///
@@ -2480,7 +2484,8 @@ pub struct CatArgs {
     /// Write the BAM to FILE instead of stdout.
     #[arg(short, long, value_name = "FILE")]
     pub output: Option<PathBuf>,
-    /// Also write a .bai index next to the output (not available yet).
+    /// Also write a .bai index next to the output (.csi when a reference is longer than 2^29).
+    /// The joined file must be coordinate-sorted.
     #[arg(long)]
     pub write_index: bool,
     #[command(flatten)]
@@ -2577,6 +2582,10 @@ pub struct IndexArgs {
     /// Lines starting with this character are comments (TSV mode, default #).
     #[arg(long, value_name = "CHAR", value_parser = parse_comment)]
     pub comment: Option<u8>,
+    /// Write a .csi instead of a .bai for a BAM file. A BAM with a reference longer than
+    /// 2^29 always gets one.
+    #[arg(long)]
+    pub csi: bool,
     #[command(flatten)]
     pub threads: ThreadArgs,
 }
@@ -2591,7 +2600,7 @@ pub struct OutputArgs {
     /// Output format when writing to stdout.
     #[arg(short = 'O', long, value_name = "FMT")]
     pub output_format: Option<String>,
-    /// Also write a .tbi/.csi index next to the output.
+    /// Also write a .tbi/.csi index next to the output (.bai or .csi for BAM output).
     #[arg(long)]
     pub write_index: bool,
     /// BGZF compression level, 0-12.

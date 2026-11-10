@@ -47,15 +47,17 @@ gloci genomes show mm39 | cut -f1
 
 ### `gloci index`
 
-Build a .tbi/.csi index for a sorted BGZF file, or a .fai for a FASTA.
+Build a .tbi/.csi index for a sorted BGZF file, a .bai/.csi for a BAM, or a .fai for a FASTA.
+
+A coordinate-sorted BAM gets PATH.bai, or PATH.csi with --csi or when a reference is longer than 2^29; samtools and gloci read each other's indexes. SAM text has no index: write BAM with gloci view x.sam -o x.bam.
 
 A FASTA file (plain or BGZF) gets PATH.fai, and PATH.gzi when it is BGZF, byte-identical to samtools faidx. Every line of a sequence but the last must have the same length. Reading a FASTA at random (getfasta, nuc, maskfasta, a CRAM reference) needs these files and never builds them itself. Plain gzip is refused: recompress with bgzip. Otherwise, BED, GFF/GTF, VCF and BCF files are recognised by content. Any other tab-separated file is indexed like tabix does when you name its columns with -s (sequence), -b (begin) and -e (end, optional). The columns are numbered from 1. Without --zero-based the begin column is 1-based and a feature covers [begin-1, end]; with it, [begin, end). Without -e a feature covers one base. Lines starting with --comment (default #) and the first --skip-lines lines are not indexed; both are recorded in the index. Chromosomes must be contiguous and sorted by begin. The index is a .tbi, or a .csi when an end passes 2^29.
 
 ```sh
 gloci index calls.vcf.gz
 gloci index ref.fa.gz
+gloci index sorted.bam
 gloci index scores.tsv.gz -s 1 -b 2 -e 3 --zero-based
-gloci index sites.txt.gz -s 1 -b 2 --skip-lines 1 --comment %
 ```
 
 ### `gloci sort`
@@ -516,6 +518,9 @@ then the rest of P2b (Python library, packaging, mdBook, paper evidence suite).
 | `tabix -h FILE.gz REGION`, `tabix -H FILE.gz` | `gloci view FILE.gz REGION` keeps the header; `gloci view --header-only FILE.gz` prints only it |
 | `tabix -R TARGETS FILE.gz`, `bcftools view -R TARGETS FILE` | `gloci view FILE.gz --regions-file TARGETS.bed` (0-based BED, like `bedextract`) |
 | `bedextract CHR FILE`, `bedextract FILE REGIONS.bed` | `gloci view FILE CHR`, or `gloci view FILE --regions-file REGIONS.bed`; add `--assume-sorted` for the binary search on an uncompressed BED file |
+| `samtools index FILE.bam`, `samtools index -c FILE.bam` | `gloci index FILE.bam` (a `.bai`, or a `.csi` when a reference is longer than 2^29); `gloci index FILE.bam --csi` always writes a `.csi`. The BAM must be coordinate-sorted. SAM text has no index: `gloci view FILE.sam -o FILE.bam --write-index`. samtools and gloci read each other's indexes. [differences.md#bam-index-long-reference](differences.md#bam-index-long-reference) |
+| `samtools view FILE.bam REGION...` | `gloci view -O sam FILE.bam REGION...` (through `FILE.bam.bai`, `FILE.bai` or `FILE.bam.csi`; without an index gloci scans the file and warns, where samtools exits 1; [differences.md#bam-region-without-index](differences.md#bam-region-without-index)). `gloci view -O sam` writes the header, as `samtools view -h` does; add `--no-header` for `samtools view` without `-h`. Regions are 1-based and closed, a read is selected by where its CIGAR puts it, and a placed unmapped read counts as one base, as samtools finds them |
+| `samtools view -b -o X.bam --write-index FILE`, `samtools cat -o X.bam A.bam B.bam`, then `samtools index X.bam` | `gloci view FILE -o X.bam --write-index`, `gloci cat A.bam B.bam -o X.bam --write-index` (writes `X.bam.bai`; the data must be coordinate-sorted). An old `X.bam.bai`, `X.bai` or `X.bam.csi` beside an output written without `--write-index` is removed |
 | `bcftools view -Ob FILE.vcf`, `bcftools view -Ov FILE.bcf` | `gloci view FILE.vcf -o FILE.bcf`, `gloci view FILE.bcf -O vcf` |
 
 ### bedtools

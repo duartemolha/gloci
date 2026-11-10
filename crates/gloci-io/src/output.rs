@@ -45,7 +45,7 @@ impl OutFormat {
         }
     }
 
-    /// The record format an index of this output describes (`None` for TSV).
+    /// The record format an index of this output describes (`None` for TSV, SAM and FASTA).
     pub fn index_format(self) -> Option<Format> {
         match self {
             OutFormat::Bed | OutFormat::BedGraph => Some(Format::Bed),
@@ -53,7 +53,8 @@ impl OutFormat {
             OutFormat::Bcf => Some(Format::Bcf),
             OutFormat::Gff3 => Some(Format::Gff3),
             OutFormat::Gtf => Some(Format::Gtf),
-            OutFormat::Tsv | OutFormat::Bam | OutFormat::Sam | OutFormat::Fasta => None,
+            OutFormat::Bam => Some(Format::Bam),
+            OutFormat::Tsv | OutFormat::Sam | OutFormat::Fasta => None,
         }
     }
 
@@ -282,7 +283,7 @@ pub fn open_output(
 
 /// An output for `f` (BGZF, so a binary format) that does not compress what is written to
 /// it: the caller writes finished BGZF blocks (`gloci cat`, D123), and ends the stream
-/// with [`BGZF_EOF`](crate::BGZF_EOF) itself. `--write-index` is not available.
+/// with [`BGZF_EOF`](crate::BGZF_EOF) itself. `--write-index` indexes the finished file.
 pub fn open_raw_output(
     spec: &OutputSpec,
     f: OutFormat,
@@ -317,9 +318,18 @@ write to a file such as -o out.bed.gz and index that",
             ))
             .into());
         }
-        if !bgzf && f != OutFormat::Fasta {
+        if f == OutFormat::Sam {
             return Err(UsageError(
-                "--write-index needs BGZF output; use a .gz output name (or .bcf)".into(),
+                "--write-index needs BAM output, as SAM text has no index; write BAM with: \
+gloci view FILE -o x.bam --write-index"
+                    .into(),
+            )
+            .into());
+        }
+        // A raw output holds finished BGZF blocks, which is what an index needs.
+        if !bgzf && !raw && f != OutFormat::Fasta {
+            return Err(UsageError(
+                "--write-index needs BGZF output; use a .gz output name (or .bcf, or .bam)".into(),
             )
             .into());
         }

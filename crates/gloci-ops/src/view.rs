@@ -16,12 +16,13 @@ use gloci_core::{
     ChromId, ChromOrder, ChromTable, Genome, Interval, OrderSource, Region, RegionSet,
 };
 use gloci_io::{
-    AlnSource, Compression, Diagnostics, Format, Header, HeaderMode, IndexInfo, InvalidPolicy,
-    IoError, Opened, OrderGuard, OutFormat, OutputOptions, OutputSpec, ReaderOptions, RecordBatch,
-    RecordMeta, RecordReader, UsageError, WriterOptions, aln_ref, check_family,
-    chrom_table_lenient, convert_variants, find_index, index_reference_names, next_batch_size,
-    open_headerless_writer, open_output, open_reader, open_reader_or_alignments,
-    open_record_writer, open_region_reader, refuse_binary_to_tty, resolve_genome,
+    AlnSource, Compression, Diagnostics, Format, Header, HeaderMode, IndexInfo, IndexedFile,
+    InvalidPolicy, IoError, Opened, OrderGuard, OutFormat, OutputOptions, OutputSpec,
+    ReaderOptions, RecordBatch, RecordMeta, RecordReader, UsageError, WriterOptions,
+    alignment_query_span, aln_ref, check_family, chrom_table_lenient, convert_variants, find_index,
+    index_reference_names, next_batch_size, open_headerless_writer, open_output, open_reader,
+    open_reader_or_alignments, open_record_writer, open_region_reader, refuse_binary_to_tty,
+    resolve_genome,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::IsTerminal;
@@ -706,25 +707,10 @@ pub fn run_view(
     Ok(())
 }
 
-/// The span of a record for a region query (D116): where the CIGAR puts it, not cut at the end
-/// of its reference (that cut is for interval commands), or one base at its position for an
-/// unmapped read that has one, as samtools finds it. `None` for a record with no place.
-fn query_span(a: &gloci_io::AlnRef<'_>) -> Option<(usize, Interval)> {
-    let rid = a.ref_id()?;
-    let pos = a.pos()?;
-    let iv = if a.flag() & 0x4 != 0 {
-        Interval {
-            start: pos,
-            end: pos + 1,
-        }
-    } else {
-        a.span(u64::MAX)?.0
-    };
-    (iv.start < iv.end).then_some((rid, iv))
-}
-
 /// `view` of BAM or SAM: every record is written, unmapped included (D116, D120), through
-/// the read filters; with regions, those that overlap one, found by scanning the file.
+/// the read filters; with regions, those that overlap one, found through the BAM's index
+/// when it has one and by scanning the file otherwise. Both select with samtools' span
+/// (`alignment_query_span`) and give the same records.
 fn view_alignments(
     mut src: Box<dyn AlnSource>,
     path: &str,
@@ -743,13 +729,6 @@ fn view_alignments(
 write SAM instead (-O sam)",
         ));
     }
-    if oo.write_index {
-        return Err(usage(if out_format == OutFormat::Sam {
-            "--write-index needs BAM output (-o x.bam); SAM text has no index".to_string()
-        } else {
-            "--write-index is not available for BAM output in this build yet".to_string()
-        }));
-    }
     refuse_binary_to_tty(
         out_spec.path.is_none() && std::io::stdout().is_terminal(),
         out_format,
@@ -759,21 +738,46 @@ write SAM instead (-O sam)",
         .path
         .as_ref()
         .map_or_else(|| "<stdout>".to_string(), |p| p.display().to_string());
-    let named = |e: IoError| e.with_output_name(&dest);
     let header = src.header().clone();
     let name = src.name().to_string();
+    // An order error found while indexing names the input, which is the file to sort.
+    let named = |e: IoError| e.with_output_name(&dest).with_index_input(&name, &dest);
 
     // Regions, as the chromosomes the header lists (a name it lacks is warned about and
     // dropped); `by_ref[rid]` is the region set of reference `rid`.
     let hdr = Header::Alignment(header.clone());
     let mut by_ref: Vec<Option<RegionSet>> = Vec::new();
     let regions = opts.has_regions() && !opts.header_only;
+    // The index reader already selects the records.
+    let mut indexed = false;
     if regions {
-        let Wanted { sets, .. } = resolve_regions(&name, &hdr, opts, ro, None, None, None)?;
-        let mut by_name: HashMap<Vec<u8>, RegionSet> = sets.into_iter().collect();
-        by_ref = header.refs.iter().map(|(n, _)| by_name.remove(n)).collect();
-        if path != "-" && by_ref.iter().any(Option::is_some) {
-            log::warn!("scanning the whole file {name} to find the regions");
+        let Wanted { wanted, sets, .. } = resolve_regions(&name, &hdr, opts, ro, None, None, None)?;
+        let file = Some(Path::new(path)).filter(|p| path != "-" && p.is_file());
+        let index = file
+            .filter(|_| layout == Format::Bam && !wanted.is_empty())
+            .and_then(|p| find_index(p).map(|i| (p, i)));
+        if let Some((p, info)) = index {
+            if info.stale {
+                log::warn!(
+                    "the index {} is older than {name}; it may be out of date (rebuild it with: gloci index {name})",
+                    info.path.display()
+                );
+            }
+            let ix = IndexedFile::open(p, layout, hdr.clone(), ro)?;
+            src = ix.aln_regions_source(&wanted, opts.inclusive_points)?;
+            indexed = true;
+        } else {
+            let mut by_name: HashMap<Vec<u8>, RegionSet> = sets.into_iter().collect();
+            by_ref = header.refs.iter().map(|(n, _)| by_name.remove(n)).collect();
+            if path != "-" && by_ref.iter().any(Option::is_some) {
+                let hint = match layout {
+                    Format::Bam if !wanted.is_empty() => {
+                        format!("; create an index with: gloci index {name}")
+                    }
+                    _ => String::new(),
+                };
+                log::warn!("scanning the whole file {name} to find the regions{hint}");
+            }
         }
     }
 
@@ -782,14 +786,15 @@ write SAM instead (-O sam)",
     let out = open_output(out_spec, out_format, oo)?;
     let mut w = open_record_writer(out, layout, out_format, &hdr, &wo).map_err(named)?;
     // No region on any chromosome of the file: nothing to read.
-    let nothing = regions && by_ref.iter().all(Option::is_none);
+    let filter = regions && !indexed;
+    let nothing = filter && by_ref.iter().all(Option::is_none);
     if !opts.header_only && !nothing {
         let mut buf = Vec::new();
         while src.next_record(&mut buf)?.is_some() {
-            let keep = !regions
+            let keep = !filter
                 || aln_ref(layout, &buf, &header)
                     .ok()
-                    .and_then(|a| query_span(&a))
+                    .and_then(|a| alignment_query_span(&a))
                     .is_some_and(|(rid, iv)| {
                         by_ref[rid]
                             .as_ref()

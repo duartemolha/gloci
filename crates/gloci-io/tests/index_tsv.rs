@@ -63,6 +63,7 @@ fn query(data: &Path, idx: &Path, chrom: &str, start: usize, end: usize) -> Vec<
             let h = i.header().unwrap().clone();
             (Box::new(i) as Box<dyn BinningIndex>, h)
         }
+        other => panic!("a TSV is never given a {other:?} index"),
     };
     let rid = header
         .reference_sequence_names()

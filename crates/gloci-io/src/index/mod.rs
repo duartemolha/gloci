@@ -66,6 +66,11 @@ const BATCH_BYTES: usize = 16 << 20;
 pub enum IndexKind {
     Tbi,
     Csi,
+    /// A BAM index (`.bai`, D107).
+    Bai,
+    /// A CRAM index (`.crai`): found next to a CRAM file; reading it arrives with the CRAM
+    /// reader.
+    Crai,
 }
 
 impl IndexKind {
@@ -73,13 +78,8 @@ impl IndexKind {
         match self {
             IndexKind::Tbi => "tbi",
             IndexKind::Csi => "csi",
-        }
-    }
-
-    fn other(self) -> IndexKind {
-        match self {
-            IndexKind::Tbi => IndexKind::Csi,
-            IndexKind::Csi => IndexKind::Tbi,
+            IndexKind::Bai => "bai",
+            IndexKind::Crai => "crai",
         }
     }
 }
@@ -93,7 +93,7 @@ pub struct IndexInfo {
     pub stale: bool,
 }
 
-/// `DATA.tbi` or `DATA.csi`.
+/// `DATA.tbi`, `DATA.csi`, `DATA.bai` or `DATA.crai`.
 pub(crate) fn index_path(data: &Path, kind: IndexKind) -> PathBuf {
     let mut s: OsString = data.as_os_str().to_owned();
     s.push(".");
@@ -101,13 +101,60 @@ pub(crate) fn index_path(data: &Path, kind: IndexKind) -> PathBuf {
     PathBuf::from(s)
 }
 
-/// Look for `DATA.tbi` and `DATA.csi`, preferring the newer one (the CSI
-/// when both are equally new, since it can describe any file).
+/// `DATA` with its extension replaced (`x.bam` to `x.bai`), as samtools' older tools named
+/// alignment indexes; `None` when `DATA` has no extension to replace.
+fn replaced_extension(data: &Path, kind: IndexKind) -> Option<PathBuf> {
+    data.extension()?;
+    Some(data.with_extension(kind.extension()))
+}
+
+/// The index names looked for next to `data`, each with its kind, the least preferred first
+/// (the last one found among the newest wins). A `.bam` is looked up as `x.bam.bai`, `x.bai`
+/// and `x.bam.csi`; a `.cram` as `x.cram.crai`, `x.crai` and `x.cram.csi`; everything else as
+/// `DATA.tbi` and `DATA.csi` (D26, D107).
+fn index_candidates(data: &Path) -> Vec<(IndexKind, PathBuf)> {
+    let ext = data
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase());
+    let own = |k| (k, index_path(data, k));
+    match ext.as_deref() {
+        Some("bam") => {
+            let mut v = Vec::new();
+            v.extend(replaced_extension(data, IndexKind::Bai).map(|p| (IndexKind::Bai, p)));
+            v.push(own(IndexKind::Bai));
+            v.push(own(IndexKind::Csi));
+            v
+        }
+        Some("cram") => {
+            let mut v = Vec::new();
+            v.extend(replaced_extension(data, IndexKind::Crai).map(|p| (IndexKind::Crai, p)));
+            v.push(own(IndexKind::Crai));
+            v.push(own(IndexKind::Csi));
+            v
+        }
+        _ => vec![own(IndexKind::Tbi), own(IndexKind::Csi)],
+    }
+}
+
+/// Every index name `data` can have, for removing the indexes of an overwritten file (D19)
+/// and the other kind after writing one.
+pub(crate) fn all_index_paths(data: &Path) -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = index_candidates(data).into_iter().map(|(_, p)| p).collect();
+    for k in [IndexKind::Tbi, IndexKind::Csi] {
+        let p = index_path(data, k);
+        if !v.contains(&p) {
+            v.push(p);
+        }
+    }
+    v
+}
+
+/// Look for the index of `data` (see `index_candidates` for the names), preferring the
+/// newer one (the CSI when they are equally new, since it can describe any file).
 pub fn find_index(data: &Path) -> Option<IndexInfo> {
     let data_mtime = fs::metadata(data).and_then(|m| m.modified()).ok();
     let mut best: Option<(Option<SystemTime>, IndexInfo)> = None;
-    for kind in [IndexKind::Tbi, IndexKind::Csi] {
-        let path = index_path(data, kind);
+    for (kind, path) in index_candidates(data) {
         let Ok(meta) = fs::metadata(&path) else {
             continue;
         };
@@ -162,6 +209,8 @@ fn le_u32(b: &[u8], at: usize) -> u32 {
 
 /// Record parsing shared by index building and region reading.
 enum Parser {
+    /// BAM records (index build and query; D107).
+    Bam(Box<crate::align::BamRegionParse>),
     Bed(Bed),
     Gff(Gff),
     Vcf(Vcf),
@@ -205,7 +254,7 @@ refuse it before a parser is chosen",
             Parser::Bed(_) => <Bed as TextKind>::classify(line, seen_record),
             Parser::Gff(_) => <Gff as TextKind>::classify(line, seen_record),
             Parser::Vcf(_) => <Vcf as TextKind>::classify(line, seen_record),
-            Parser::Bcf(_) => Class::Record,
+            Parser::Bcf(_) | Parser::Bam(_) => Class::Record,
             Parser::Tsv(k) => k.classify(line),
         }
     }
@@ -221,6 +270,9 @@ refuse it before a parser is chosen",
                 Ok((chrom, key, span, Strand::Unknown))
             }
             Parser::Tsv(k) => k.parse(raw, chroms),
+            Parser::Bam(_) => {
+                Err("internal error: a BAM record is parsed by its own reader".into())
+            }
         }
     }
 
@@ -231,8 +283,12 @@ refuse it before a parser is chosen",
         raw: &[u8],
         chroms: &mut ChromTable,
     ) -> Result<(ChromId, u64, u64), String> {
+        if let Parser::Bam(_) = self {
+            return Err("internal error: BAM spans are made by the BAM scan".into());
+        }
         let (chrom, key, span, _) = self.parse(raw, chroms)?;
         let end = match self {
+            Parser::Bam(_) => unreachable!("returned above"),
             Parser::Bed(_) | Parser::Gff(_) if span.is_point() => span.start.saturating_add(1),
             Parser::Bed(_) | Parser::Gff(_) => span.end,
             // parse() already widened an empty TSV interval to one base
@@ -253,6 +309,9 @@ refuse it before a parser is chosen",
     /// A record too short to tell is let through, so parsing reports it.
     fn on_reference(&self, raw: &[u8], rid: usize, name: &[u8]) -> bool {
         match self {
+            Parser::Bam(_) => {
+                raw.len() < 4 || usize::try_from(le_u32(raw, 0) as i32).ok() == Some(rid)
+            }
             Parser::Bcf(_) => {
                 raw.len() < 12
                     || le_u32(raw, 0) < 24
@@ -268,10 +327,13 @@ refuse it before a parser is chosen",
 
 // ---- index building ----
 
+mod bam;
 mod build;
 mod query;
 mod tsv;
+mod validate;
 
+pub use bam::write_alignment_index;
 use build::check_bgzf;
 pub use build::write_index;
 #[cfg(test)]
