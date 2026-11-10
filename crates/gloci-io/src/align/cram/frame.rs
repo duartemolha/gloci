@@ -248,10 +248,11 @@ pub(crate) fn read_container_header(
 
 /// One block of a container or slice, as stored.
 pub(crate) struct Block<'a> {
-    method: u8,
-    content_type: u8,
-    raw_size: usize,
-    data: &'a [u8],
+    pub(crate) method: u8,
+    pub(crate) content_type: u8,
+    pub(crate) content_id: i32,
+    pub(crate) raw_size: usize,
+    pub(crate) data: &'a [u8],
 }
 
 /// Read the block at the front of `src` (CRAM 3: with its CRC32).
@@ -260,7 +261,7 @@ pub(crate) fn read_block<'a>(src: &mut &'a [u8]) -> Result<Block<'a>, String> {
     let short = || "a block is cut short".to_string();
     let (&method, rest) = src.split_first().ok_or_else(short)?;
     let (&content_type, mut rest) = rest.split_first().ok_or_else(short)?;
-    let _content_id = itf8(&mut rest).ok_or_else(short)?;
+    let content_id = itf8(&mut rest).ok_or_else(short)?;
     let size = itf8(&mut rest).ok_or_else(short)?;
     let raw_size = itf8(&mut rest).ok_or_else(short)?;
     let size = usize::try_from(size).map_err(|_| format!("a block claims {size} bytes"))?;
@@ -277,6 +278,7 @@ pub(crate) fn read_block<'a>(src: &mut &'a [u8]) -> Result<Block<'a>, String> {
     Ok(Block {
         method,
         content_type,
+        content_id,
         raw_size,
         data,
     })
@@ -795,6 +797,57 @@ pub(crate) fn compression(c: &RawContainer) -> CompressionInfo {
     let tags = maps.get(2).and_then(|m| scan_map(m, true, &mut info));
     info.unsupported = series.or(tags);
     info
+}
+
+/// Check the clear-text header of every name-tokeniser block (method 8) of slice `head` of `c`
+/// before noodles decodes it: noodles reserves the decoded length the block states and a token
+/// table per name it states, so a corrupt one asks for gigabytes. The decoded length must be
+/// the block's own (checksummed) raw size, the names no more than its bytes, and, in the block
+/// of the read names (`rn`), no more than the slice's records.
+pub(crate) fn check_tokeniser(
+    c: &RawContainer,
+    head: &SliceHead,
+    rn: Option<i32>,
+) -> Result<(), String> {
+    let data = c.data();
+    let Some(mut src) = data.get(head.landmark..head.landmark + head.size) else {
+        return Ok(());
+    };
+    while !src.is_empty() {
+        let Ok(b) = read_block(&mut src) else {
+            // noodles reports a broken block itself.
+            return Ok(());
+        };
+        if b.method != 8 {
+            continue;
+        }
+        let (Some(ulen), Some(names)) = (
+            b.data
+                .get(..4)
+                .map(|v| u32::from_le_bytes([v[0], v[1], v[2], v[3]]) as usize),
+            b.data
+                .get(4..8)
+                .map(|v| u32::from_le_bytes([v[0], v[1], v[2], v[3]]) as usize),
+        ) else {
+            return Err("a name-tokeniser block is cut short".to_string());
+        };
+        if ulen != b.raw_size {
+            return Err(format!(
+                "a name-tokeniser block says it decodes to {} bytes, and its header {}",
+                thousands(ulen as u64),
+                thousands(b.raw_size as u64)
+            ));
+        }
+        if names > ulen || (rn == Some(b.content_id) && names > head.records) {
+            return Err(format!(
+                "a name-tokeniser block claims {} names in {} bytes, for a slice of {} records",
+                thousands(names as u64),
+                thousands(ulen as u64),
+                thousands(head.records as u64)
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// The ITF8 values of `block`, all of it; `None` if one is cut short.

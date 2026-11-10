@@ -498,6 +498,66 @@ mod tests {
         }
     }
 
+    /// A name-tokeniser block whose clear-text header claims a decoded length other than its
+    /// block's, or more names than the slice has records, is refused before noodles reserves by
+    /// them (the reviewer's 4 GB and 10.7 M-name reproducers, rebuilt from cat-big.v31.cram with
+    /// the block checksum recomputed).
+    #[test]
+    fn tokeniser_header_is_checked() {
+        let path = fixture("aln/cat-big.v31.cram");
+        let bytes = std::fs::read(&path).unwrap();
+        let mut f = std::io::BufReader::new(std::fs::File::open(&path).unwrap());
+        let head = read_head(&mut f, "x").unwrap();
+        let c = CramFrames::new("x", Box::new(f), &head)
+            .next()
+            .unwrap()
+            .unwrap();
+        // (start of the block, start of its data, end of its data) of the tokeniser block.
+        let base = c.offset as usize + c.header.header_len;
+        let mut rest = c.data();
+        let mut found = None;
+        while !rest.is_empty() {
+            let start = base + (c.data().len() - rest.len());
+            let b = frame::read_block(&mut rest).unwrap();
+            let data = b.data.as_ptr() as usize - c.bytes.as_ptr() as usize + c.offset as usize;
+            if b.method == 8 {
+                found = Some((start, data, data + b.data.len()));
+            }
+        }
+        let (start, data, end) = found.expect("a tokeniser block");
+        for (at, value, want) in [
+            (
+                data,
+                4_009_763_914u32,
+                "says it decodes to 4,009,763,914 bytes",
+            ),
+            (
+                data + 4,
+                10_683_668,
+                "claims 10,683,668 names in 9,290 bytes",
+            ),
+        ] {
+            let mut b = bytes.clone();
+            b[at..at + 4].copy_from_slice(&value.to_le_bytes());
+            let mut crc = flate2::Crc::new();
+            crc.update(&b[start..end]);
+            b[end..end + 4].copy_from_slice(&crc.sum().to_le_bytes());
+            let o = options(None, 2);
+            let e =
+                crate::align::open_aln_source_from("x.cram", Box::new(std::io::Cursor::new(b)), &o)
+                    .and_then(|mut s| {
+                        let mut buf = Vec::new();
+                        while s.next_record(&mut buf)?.is_some() {
+                            buf.clear();
+                        }
+                        Ok(())
+                    })
+                    .unwrap_err()
+                    .to_string();
+            assert!(e.contains(want) && e.contains("x.cram"), "{e}");
+        }
+    }
+
     /// A counting adapter: the decoders share the references, read each from the FASTA once
     /// (sorted input) and hold at most two at a time, whatever the thread count (D109).
     #[test]
