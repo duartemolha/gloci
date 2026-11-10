@@ -685,9 +685,9 @@ Examples:
     #[command(after_long_help = "\
 Examples:
   gloci subtract -a peaks.bed -b blacklist.bed
-  gloci subtract -a genes.bed -b repeats.bed -f 50% --whole -o clean.bed
   gloci subtract -a reads.bed -b exons.bed --sum-overlaps -f 0.8 -s
-  gloci subtract -a calls.vcf.gz -b blacklist.bed -o filtered.vcf.gz")]
+  gloci subtract -a calls.vcf.gz -b blacklist.bed -o filtered.vcf.gz
+  gloci subtract -a calls.vcf.gz -b known.vcf.gz --match alleles -o novel.vcf.gz")]
     Subtract(SubtractArgs),
     /// Find the nearest B to each A (bedtools closest, bedops closest-features).
     ///
@@ -1077,6 +1077,17 @@ pub struct SubtractArgs {
     /// -f of A; takes only -f.
     #[arg(long)]
     pub sum_overlaps: bool,
+    /// What makes a hit count: overlap, or overlap plus a shared ALT allele
+    /// (alleles; VCF/BCF inputs only). With alleles, an A is dropped only
+    /// for a B with the same position, REF and ALT; one shared ALT drops a
+    /// multi-allelic A whole.
+    #[arg(
+        long = "match",
+        value_enum,
+        default_value = "overlap",
+        value_name = "HOW"
+    )]
+    pub matching: IntersectMatch,
     #[command(flatten)]
     pub o: OverlapArgs,
     #[command(flatten)]

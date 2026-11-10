@@ -150,6 +150,7 @@ proptest! {
             let o = SubtractOptions {
                 whole,
                 sum_overlaps,
+                matching: gloci_ops::intersect::Match::Overlap,
                 relate: RelateOptions {
                     criteria: c,
                     window: win,
