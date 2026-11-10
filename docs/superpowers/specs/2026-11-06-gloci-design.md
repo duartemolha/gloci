@@ -718,11 +718,13 @@ Reference machine: 8-core x86_64, NVMe, 32 GB RAM. Baselines: bedtools 2.31.x, b
 | **P0 Foundations** | workspace; Section 4 core types and rules; BED/VCF/BCF/GFF I/O; parallel BGZF; sort validation; atomic writer; built-in genomes (`-g hg38`); `sort`, `index`, `view`, `check`, `genomes`; benchmark + differential + property-test harnesses | `sort` beats `sort-bed`; harnesses run in CI |
 | **P1 Core replacement** | `intersect`, `subtract`, `closest`, `map` (core ops), `coverage`, `merge`, `complement`, `slop`, `flank`, `windows`, `convert` (VCF/GFF/BED12), `vcf filter` (no expressions); unsorted mode; per-chromosome parallelism for indexed inputs; every op callable on in-memory record streams (Section 8.1); tabix-style indexing of any bgzipped TSV | the team's most common bedtools/bedops/vcftools pipeline steps can be rewritten on gloci; P1 performance targets met |
 | **P2 Breadth** | `partition`, `cluster`, `spacing`, `shift`, `groupby`, `genomecov` (BED), full `map` ops, `vcf stats`, `vcf extract`, `vcf concat`, filter expressions, `--chrom-map`, WIG input; bioconda package; **Python library** (`pip install gloci`, Section 8.5) | vcftools no longer needed for QC/filtering |
-| **P3 Extended** | BAM/CRAM input (intersect, coverage, genomecov, convert) and indexing (`.bai`/`.csi`, `.crai`); FASTA indexing (`.fai`/`.gzi`); `getfasta`, `maskfasta`, `nuc`; `stats jaccard/fisher/reldist`; `sample`/`random`/`shuffle`; BEDPE pair ops; `vcf popgen`; `vcf compare` | all three tools can be uninstalled |
+| **P3 Extended** | BAM/CRAM input (intersect, coverage, genomecov, convert) and indexing (`.bai`/`.csi`, `.crai`); FASTA indexing (`.fai`/`.gzi`); `getfasta`, `maskfasta`, `nuc` alignment `sort` (coordinate, `-n`, `-N`), `merge` and `cat` **[owner, 2026-11-10]**; `stats jaccard/fisher/reldist`; `sample`/`random`/`shuffle`; BEDPE pair ops; `vcf popgen`; `vcf compare` | all three tools can be uninstalled |
+| **P3c samtools essentials [owner, 2026-11-10]** | on top of P3a's BAM/CRAM/FASTA support: `idxstats`, `flagstat`, `quickcheck`, `reheader`, `faidx` region extraction, `dict`, `view -c`/`-L`, `head`, `samples`, `flags`, `depth`, `bedcov`. Out of scope: `markdup`, `fixmate`, `calmd`, `mpileup`, `consensus`, `stats`, `ampliconclip` | samtools is needed only for what gloci does not cover |
 
 **Order [revised 2026-11-10, owner]:** after P2a (the P2 command breadth), the build order is:
 P2b Task 1 only (MIT licence; genome tables moved inside `gloci-io` so `cargo install` and source packages work),
-then **P3a** (BAM/CRAM, FASTA, `getfasta`/`maskfasta`/`nuc`, BAM in `coverage`/`genomecov`/`intersect`/`convert`),
+then **P3a** (BAM/CRAM, FASTA, `getfasta`/`maskfasta`/`nuc`, BAM in `coverage`/`genomecov`/`intersect`/`convert`, alignment `sort`/`merge`/`cat`),
+then **P3c** (samtools essentials, which build directly on P3a),
 then **P3b** (`stats`, `sample`/`random`/`shuffle`, BEDPE, `vcf popgen`, `vcf compare`),
 then the rest of P2b (Python library, packaging, mdBook, paper evidence suite) over the complete command set.
 Nothing is published to PyPI, crates.io, GHCR or bioconda until the owner enables it.
