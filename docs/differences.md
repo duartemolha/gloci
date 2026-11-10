@@ -398,7 +398,8 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   [merge-unknown-strand](#merge-unknown-strand)). Without `-s`, and with `-s` on
   a file whose records all share one strand, gloci and bedtools agree. Sort by
   the id column to regroup (`sort -k7,7n`).
-- **Pinned by:** `cluster-strand-vs-bedtools` (must differ);
+- **Pinned by:** `cluster-strand-vs-bedtools` and `cluster-strand-bed3-vs-bedtools`
+  (a BED3 input, where bedtools writes nothing and exits 0) (must differ);
   `cluster-strand-single-strand-vs-bedtools` (must match). `cluster` without
   `-s`, with `-d 10`, with a negative `-d` and across chromosomes matches
   bedtools: `cluster-default-vs-bedtools`, `cluster-gap-vs-bedtools`,
@@ -417,7 +418,9 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   value sits in should be named.
 - **Pinned by:** `cluster-vcf-vs-bedtools` and `spacing-vcf-vs-bedtools` (must
   differ by the header line only; the records are identical with
-  `--vcf-span ref`).
+  `--vcf-span ref`). The goldens use `--vcf-span ref`: the default allele
+  footprint can differ from bedtools, which uses `POS` to `POS + len(REF)`, so
+  clusters and distances on indels may differ unless `--vcf-span ref` is given.
 
 ## `spacing` treats a zero-length record as a point {#spacing-zero-length}
 
@@ -565,7 +568,9 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Reason:** a pipeline must not take truncated output for a result.
 - **Pinned by:** `groupby-missing-column-vs-bedtools`,
   `groupby-absent-column-vs-bedtools`, `map-uniform-absent-column-vs-bedtools`
-  and `merge-uniform-absent-column-vs-bedtools` (must differ, by exit status).
+  and `merge-uniform-absent-column-vs-bedtools`, and their `-o count` twins
+  `map-uniform-absent-column-count-vs-bedtools` and
+  `merge-uniform-absent-column-count-vs-bedtools` (must differ, by exit status).
   `map-absent-column-vs-bedtools` (ragged B) matches: both tools fail.
 
 ## A value that is not a number is an error in `map` and `groupby` {#agg-non-numeric}

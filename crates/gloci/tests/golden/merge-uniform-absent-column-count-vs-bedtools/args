@@ -1,0 +1,1 @@
+merge input.bed -c 5:count

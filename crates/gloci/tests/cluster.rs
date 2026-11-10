@@ -398,3 +398,117 @@ fn help_has_examples() {
             .stdout(contains("Examples:"));
     }
 }
+
+/// Groups of record names: `cluster`'s (records sharing an id) and `merge`'s
+/// (`-c COL:collapse` over the names), each as sorted lists of sorted names.
+fn groups_from_cluster(text: &str, name_col: usize) -> Vec<Vec<String>> {
+    let mut by_id: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+    for l in text.lines().filter(|l| !l.starts_with('#')) {
+        let f: Vec<&str> = l.split('\t').collect();
+        by_id
+            .entry(f[f.len() - 1].to_string())
+            .or_default()
+            .push(f[name_col].to_string());
+    }
+    let mut g: Vec<Vec<String>> = by_id.into_values().collect();
+    g.iter_mut().for_each(|v| v.sort());
+    g.sort();
+    g
+}
+
+fn groups_from_merge(text: &str, collapse_col: usize) -> Vec<Vec<String>> {
+    let mut g: Vec<Vec<String>> = text
+        .lines()
+        .map(|l| {
+            let mut v: Vec<String> = l
+                .split('\t')
+                .nth(collapse_col)
+                .unwrap()
+                .split(',')
+                .map(String::from)
+                .collect();
+            v.sort();
+            v
+        })
+        .collect();
+    g.sort();
+    g
+}
+
+fn random_vcf(seed: u64) -> String {
+    let mut g = Lcg(seed);
+    let mut recs: Vec<(u64, usize)> = (0..40)
+        .map(|_| (90 + g.next(40), 1 + g.next(6) as usize))
+        .collect();
+    recs.sort();
+    let mut t =
+        String::from("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n");
+    for (i, (pos, len)) in recs.iter().enumerate() {
+        let refa = &"ACGTAC"[..*len];
+        let alt = if *len > 1 || g.next(2) == 0 { "A" } else { "T" };
+        t.push_str(&format!("chr1\t{pos}\tR{i}\t{refa}\t{alt}\t.\t.\t.\n"));
+    }
+    t
+}
+
+#[test]
+fn groups_equal_merge_groups_on_random_bed_and_vcf() {
+    let dir = tempdir();
+    let mut inputs: Vec<(String, usize, Vec<&str>)> = Vec::new();
+    for seed in 0..20 {
+        let (_, text) = random_bed(seed + 500);
+        // unique names in column 4
+        let named: String = text
+            .lines()
+            .enumerate()
+            .map(|(i, l)| {
+                let mut f: Vec<&str> = l.split('\t').collect();
+                let n = format!("n{i}");
+                f[3] = &n;
+                f.join("\t") + "\n"
+            })
+            .collect();
+        inputs.push((format!("b{seed}.bed"), 3, vec![]));
+        plain_file(dir.path(), &format!("b{seed}.bed"), &named);
+        plain_file(dir.path(), &format!("v{seed}.vcf"), &random_vcf(seed + 900));
+        inputs.push((format!("v{seed}.vcf"), 2, vec![]));
+        inputs.push((format!("v{seed}.vcf"), 2, vec!["--vcf-span", "ref"]));
+    }
+    // the reviewer's repro
+    plain_file(
+        dir.path(),
+        "repro.vcf",
+        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+         chr1\t95\tR0\tACGTAC\tA\t.\t.\t.\nchr1\t100\tR1\tAC\tA\t.\t.\t.\nchr1\t100\tR2\tA\tT\t.\t.\t.\n",
+    );
+    inputs.push(("repro.vcf".into(), 2, vec![]));
+    for (name, col, extra) in &inputs {
+        let f = s(&dir.path().join(name));
+        let is_vcf = name.ends_with(".vcf");
+        for d in ["-7", "-2", "-1", "0", "1", "5"] {
+            for strand in [false, true] {
+                if strand && is_vcf {
+                    continue;
+                }
+                let mut c = vec!["cluster", &f, "-d", d];
+                let mut m = vec!["merge".to_string(), f.clone(), "-d".into(), d.into()];
+                let cc = format!("{}:collapse", col + 1);
+                m.extend(["-c".into(), cc]);
+                if strand {
+                    c.push("-s");
+                    m.push("-s".into());
+                }
+                c.extend(extra);
+                m.extend(extra.iter().map(|s| s.to_string()));
+                let m: Vec<&str> = m.iter().map(String::as_str).collect();
+                let got = groups_from_cluster(&out(&c), *col);
+                let want = groups_from_merge(&out(&m), 3);
+                assert_eq!(got, want, "{name} d {d} strand {strand} {extra:?}");
+            }
+        }
+    }
+    // the repro explicitly: R0 and R2 together, R1 apart (as merge says)
+    let f = s(&dir.path().join("repro.vcf"));
+    let o = out(&["cluster", &f, "-d", "-1"]);
+    assert_eq!(ids(&o)[1..], ["1", "2", "1"]);
+}

@@ -2450,12 +2450,29 @@ reference = "bedtools map -a input.bed -b map-uniform-b.bed -c 5 -o sum"
 compare = "exit-status"
 expected_difference = "#groupby-missing-column"
 
+[[case]]
+name = "map-uniform-absent-column-count-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-uniform-a.bed" }
+aux = ["xtask/diff/inputs/map-uniform-b.bed"]
+gloci = "gloci map -a input.bed -b map-uniform-b.bed -c 5:count"
+reference = "bedtools map -a input.bed -b map-uniform-b.bed -c 5 -o count"
+compare = "exit-status"
+expected_difference = "#groupby-missing-column"
+
 # merge -c on lines that all lack the column: bedtools prints a warning and exits 0; gloci exits 1.
 [[case]]
 name = "merge-uniform-absent-column-vs-bedtools"
 input = { file = "xtask/diff/inputs/map-uniform-b.bed" }
 gloci = "gloci merge input.bed -c 5:sum"
 reference = "bedtools merge -i input.bed -c 5 -o sum"
+compare = "exit-status"
+expected_difference = "#groupby-missing-column"
+
+[[case]]
+name = "merge-uniform-absent-column-count-vs-bedtools"
+input = { file = "xtask/diff/inputs/map-uniform-b.bed" }
+gloci = "gloci merge input.bed -c 5:count"
+reference = "bedtools merge -i input.bed -c 5 -o count"
 compare = "exit-status"
 expected_difference = "#groupby-missing-column"
 
@@ -3005,3 +3022,12 @@ gloci = "gloci spacing --vcf-span ref input.vcf"
 reference = "bedtools spacing -i input.vcf"
 compare = "exact"
 expected_difference = "#append-vcf-header"
+
+# cluster -s on BED3 (no strand column): bedtools writes nothing and exits 0; gloci clusters everything (one unknown-strand group) and warns.
+[[case]]
+name = "cluster-strand-bed3-vs-bedtools"
+input = { file = "xtask/diff/inputs/cluster-bed3.bed" }
+gloci = "gloci cluster --chrom-order lex -s input.bed"
+reference = "bedtools cluster -s -i input.bed"
+compare = "exact"
+expected_difference = "#cluster-strand"

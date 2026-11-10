@@ -1,0 +1,1 @@
+map -a input.bed -b map-uniform-b.bed -c 5:count
