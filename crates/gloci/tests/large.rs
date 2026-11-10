@@ -647,7 +647,11 @@ fn big_genome() -> PathBuf {
     p
 }
 
-const RSS_CEILING: u64 = 200_000_000;
+/// Peak RSS ceiling of the streaming P2 commands: about three times the
+/// largest value measured (22 MiB). It is meaningful only at the default
+/// 2 GiB payload: with `GLOCI_LARGE_BYTES` set small, a command that buffered
+/// its whole input would still fit under it.
+const RSS_CEILING: u64 = 64 << 20;
 
 #[test]
 #[ignore = "nightly: generates large file"]
@@ -663,7 +667,7 @@ fn partition_2gib_bed_streams() {
             "A,B".as_ref(),
         ],
     );
-    assert!(rss <= RSS_CEILING, "peak RSS {rss} bytes exceeds 200 MB");
+    assert!(rss <= RSS_CEILING, "peak RSS {rss} bytes exceeds 64 MiB");
 }
 
 #[test]
@@ -684,7 +688,7 @@ fn genomecov_2gib_bed_streams() {
         );
         assert!(
             rss <= RSS_CEILING,
-            "genomecov {mode}: peak RSS {rss} bytes exceeds 200 MB"
+            "genomecov {mode}: peak RSS {rss} bytes exceeds 64 MiB"
         );
     }
 }
@@ -694,27 +698,100 @@ fn genomecov_2gib_bed_streams() {
 fn cluster_2gib_bed_streams() {
     let a = big_bed_a();
     let rss = rss_of("cluster large", &["cluster".as_ref(), a.as_os_str()]);
-    assert!(rss <= RSS_CEILING, "peak RSS {rss} bytes exceeds 200 MB");
+    assert!(rss <= RSS_CEILING, "peak RSS {rss} bytes exceeds 64 MiB");
     let rss = rss_of("spacing large", &["spacing".as_ref(), a.as_os_str()]);
     assert!(
         rss <= RSS_CEILING,
-        "spacing: peak RSS {rss} bytes exceeds 200 MB"
+        "spacing: peak RSS {rss} bytes exceeds 64 MiB"
     );
+}
+
+const STATS_SAMPLES: usize = 50;
+
+/// Sorted VCF with `STATS_SAMPLES` genotype columns until `bytes` have been
+/// written; returns the number of records.
+fn gen_sample_vcf(w: &mut impl Write, bytes: u64, seed: u64) -> u64 {
+    let mut rng = Rng(seed);
+    let mut buf = Vec::with_capacity(1 << 20);
+    let mut head = String::from(
+        "##fileformat=VCFv4.2\n\
+##FILTER=<ID=PASS,Description=\"All filters passed\">\n\
+##INFO=<ID=DP,Number=1,Type=Integer,Description=\"Total Depth\">\n\
+##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n\
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description=\"Depth\">\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT",
+    );
+    for i in 1..=STATS_SAMPLES {
+        head.push_str(&format!("\ts{i}"));
+    }
+    head.push('\n');
+    buf.extend_from_slice(head.as_bytes());
+    let mut written = buf.len() as u64;
+    let bytes_per_chrom = (bytes / 22).max(1024);
+    let (mut chrom, mut chrom_written, mut pos, mut n) = (1, 0u64, 100u64, 0u64);
+    let mut line = String::new();
+    while written < bytes {
+        if chrom_written >= bytes_per_chrom && chrom < 22 {
+            chrom += 1;
+            chrom_written = 0;
+            pos = 100;
+        }
+        pos += 10 + rng.next() % 200;
+        line.clear();
+        let (r, a) = [("A", "C"), ("C", "T"), ("G", "A"), ("AT", "A")][(rng.next() % 4) as usize];
+        line.push_str(&format!(
+            "chr{chrom}\t{pos}\trs{n}\t{r}\t{a}\t{}\tPASS\tDP=30\tGT:DP",
+            10 + rng.next() % 80
+        ));
+        for _ in 0..STATS_SAMPLES {
+            let x = rng.next();
+            let gt = ["0/0", "0/1", "1/1", "./.", "0|1"][(x % 5) as usize];
+            line.push_str(&format!("\t{gt}:{}", (x >> 8) % 60));
+        }
+        line.push('\n');
+        buf.extend_from_slice(line.as_bytes());
+        written += line.len() as u64;
+        chrom_written += line.len() as u64;
+        n += 1;
+        if buf.len() >= 1 << 20 {
+            w.write_all(&buf).unwrap();
+            buf.clear();
+        }
+    }
+    w.write_all(&buf).unwrap();
+    n
+}
+
+fn lines_of(path: &Path) -> u64 {
+    use std::io::BufRead;
+    std::io::BufReader::new(std::fs::File::open(path).unwrap())
+        .split(b'\n')
+        .count() as u64
 }
 
 #[test]
 #[ignore = "nightly: generates large file"]
 fn vcf_stats_2gib_vcf_streams() {
-    let vcf = big_vcf();
+    let vcf = shared_dir().join("stats_in.vcf");
+    let sites = {
+        let mut f = std::io::BufWriter::new(std::fs::File::create(&vcf).unwrap());
+        let n = gen_sample_vcf(&mut f, payload_bytes(), 321);
+        f.flush().unwrap();
+        n
+    };
     let prefix = shared_dir().join("stats_out");
     let t0 = std::time::Instant::now();
     let child = Command::new(gloci_bin())
         .args(["vcf", "stats"])
-        .arg(vcf)
+        .arg(&vcf)
         .arg("--out-prefix")
         .arg(&prefix)
         .args([
             "--site-quality",
+            "--freq",
+            "--missing-indv",
+            "--het",
+            "--hardy",
             "--filter-summary",
             "--indel-hist",
             "--tstv-summary",
@@ -727,14 +804,21 @@ fn vcf_stats_2gib_vcf_streams() {
         .unwrap();
     let (ok, rss) = wait_rss(&child);
     eprintln!(
-        "vcf stats large: {:.1}s, peak RSS {} MiB",
+        "vcf stats large ({sites} sites, {STATS_SAMPLES} samples): {:.1}s, peak RSS {} MiB",
         t0.elapsed().as_secs_f64(),
         rss / MIB
     );
-    // the per-site table is as long as the input has records
-    let written = std::fs::metadata(shared_dir().join("stats_out.lqual"))
-        .map(|m| m.len())
-        .unwrap_or(0);
+    // one line per site (plus the header) in the per-site tables, and one
+    // per sample in the per-sample ones
+    let ext = |e: &str| shared_dir().join(format!("stats_out.{e}"));
+    let counts = (
+        lines_of(&ext("lqual")),
+        lines_of(&ext("frq")),
+        lines_of(&ext("hwe")),
+        lines_of(&ext("het")),
+        lines_of(&ext("imiss")),
+    );
+    let _ = std::fs::remove_file(&vcf);
     for e in std::fs::read_dir(shared_dir()).unwrap() {
         let p = e.unwrap().path();
         if p.file_name()
@@ -744,6 +828,10 @@ fn vcf_stats_2gib_vcf_streams() {
         }
     }
     assert!(ok, "gloci vcf stats failed");
-    assert!(written > 0, "no per-site output written");
-    assert!(rss <= RSS_CEILING, "peak RSS {rss} bytes exceeds 200 MB");
+    assert_eq!(counts.0, sites + 1, ".lqual lines");
+    assert_eq!(counts.1, sites + 1, ".frq lines");
+    assert_eq!(counts.2, sites + 1, ".hwe lines");
+    assert_eq!(counts.3, STATS_SAMPLES as u64 + 1, ".het lines");
+    assert_eq!(counts.4, STATS_SAMPLES as u64 + 1, ".imiss lines");
+    assert!(rss <= RSS_CEILING, "peak RSS {rss} bytes exceeds 64 MiB");
 }

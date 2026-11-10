@@ -1653,7 +1653,11 @@ fn run_stdout(args: &[&str]) -> Vec<u8> {
 }
 
 /// Run `args` plus `-t T` for T in 1, 2, 8 (three spellings) and require
-/// byte-identical output.
+/// byte-identical output. The parallel runs are repeated with
+/// `GLOCI_TEST_CHUNK_MEM_LIMIT` set to 1 KiB, which cuts every chromosome
+/// into many tiny chunks, so state carried from one chunk to the next
+/// (cluster ids, previous records, depth, breakpoints) is exercised even on
+/// small fixtures.
 fn same_at_every_thread_count(what: &str, args: &[&str]) -> Vec<u8> {
     let outs: Vec<Vec<u8>> = ["1", "2", "8"]
         .iter()
@@ -1661,46 +1665,23 @@ fn same_at_every_thread_count(what: &str, args: &[&str]) -> Vec<u8> {
         .collect();
     assert_eq!(outs[0], outs[1], "{what}: -t 1 vs -t 2");
     assert_eq!(outs[1], outs[2], "{what}: -t 2 vs -t 8");
+    for t in ["2", "8"] {
+        let o = gloci()
+            .args(args)
+            .args(["-t", t])
+            .env("GLOCI_TEST_CHUNK_MEM_LIMIT", "1024")
+            .output()
+            .unwrap();
+        assert_eq!(o.status.code(), Some(0), "{what}: tiny chunks -t {t}");
+        assert_eq!(o.stdout, outs[0], "{what}: tiny chunks -t {t} vs -t 1");
+    }
     outs[0].clone()
 }
 
-#[test]
-fn p2_determinism_matrix_streams() {
-    let fx = P2::new();
-    let genome = fx.plain(
-        "g.genome",
-        "chr1\t10000\nchr2\t10000\nchr3\t10000\nchr4\t10000\n",
-    );
-    let (a, b) = (bed_a(4), bed_b(4));
-    let a_plain = fx.plain("a.bed", &a);
-    let a_gz = fx.bgzf("a.bed.gz", &a);
-    let a_idx = fx.indexed("a_idx.bed.gz", &a);
-    let b_plain = fx.plain("b.bed", &b);
-    let b_gz = fx.bgzf("b.bed.gz", &b);
-    // unsorted, for --sort
-    let mut rev: Vec<&str> = a.lines().collect();
-    rev.reverse();
-    let a_unsorted = fx.plain("ua.bed", &(rev.join("\n") + "\n"));
-    let bg = {
-        let mut t = String::new();
-        for c in 1..=4 {
-            for i in 0..30 {
-                writeln!(t, "chr{c}\t{}\t{}\t{}", i * 100, i * 100 + 60, 1 + i % 5).unwrap();
-            }
-        }
-        t
-    };
-    let bg1 = fx.plain("one.bedgraph", &bg);
-    let bg2 = fx.plain("two.bedgraph", &bg.replace("\t60\t", "\t80\t"));
-    let vcf = p2_vcf(1..=4, 80);
-    let vcf_plain = fx.plain("v.vcf", &vcf);
-    let vcf_gz = fx.bgzf("v.vcf.gz", &vcf);
-    let vcf_idx = fx.indexed("v_idx.vcf.gz", &vcf);
-    let vcf_bcf = fx.bcf("v.bcf", &vcf);
-    let g = genome.as_str();
-
-    // BED-shaped input: one command per row, every format spelling identical.
-    let bed_cmds: Vec<(&str, Vec<&str>)> = vec![
+/// The BED-shaped commands of the determinism matrices; `{a}` and `{b}` are
+/// the inputs.
+fn p2_bed_cmds(g: &str) -> Vec<(&str, Vec<&str>)> {
+    vec![
         ("shift", vec!["shift", "{a}", "--by", "7", "-g", g]),
         (
             "shift -s --pct",
@@ -1746,7 +1727,46 @@ fn p2_determinism_matrix_streams() {
             "genomecov --split",
             vec!["genomecov", "{a}", "-g", g, "--bedgraph", "--split"],
         ),
-    ];
+    ]
+}
+
+#[test]
+fn p2_determinism_matrix_streams() {
+    let fx = P2::new();
+    let genome = fx.plain(
+        "g.genome",
+        "chr1\t10000\nchr2\t10000\nchr3\t10000\nchr4\t10000\n",
+    );
+    let (a, b) = (bed_a(4), bed_b(4));
+    let a_plain = fx.plain("a.bed", &a);
+    let a_gz = fx.bgzf("a.bed.gz", &a);
+    let a_idx = fx.indexed("a_idx.bed.gz", &a);
+    let b_plain = fx.plain("b.bed", &b);
+    let b_gz = fx.bgzf("b.bed.gz", &b);
+    // unsorted, for --sort
+    let mut rev: Vec<&str> = a.lines().collect();
+    rev.reverse();
+    let a_unsorted = fx.plain("ua.bed", &(rev.join("\n") + "\n"));
+    let bg = {
+        let mut t = String::new();
+        for c in 1..=4 {
+            for i in 0..30 {
+                writeln!(t, "chr{c}\t{}\t{}\t{}", i * 100, i * 100 + 60, 1 + i % 5).unwrap();
+            }
+        }
+        t
+    };
+    let bg1 = fx.plain("one.bedgraph", &bg);
+    let bg2 = fx.plain("two.bedgraph", &bg.replace("\t60\t", "\t80\t"));
+    let vcf = p2_vcf(1..=4, 80);
+    let vcf_plain = fx.plain("v.vcf", &vcf);
+    let vcf_gz = fx.bgzf("v.vcf.gz", &vcf);
+    let vcf_idx = fx.indexed("v_idx.vcf.gz", &vcf);
+    let vcf_bcf = fx.bcf("v.bcf", &vcf);
+    let g = genome.as_str();
+
+    // BED-shaped input: one command per row, every format spelling identical.
+    let bed_cmds = p2_bed_cmds(g);
     for (name, tpl) in &bed_cmds {
         let mut per_format = Vec::new();
         for (ai, bi) in [(&a_plain, &b_plain), (&a_gz, &b_gz), (&a_idx, &b_gz)] {
@@ -1791,33 +1811,6 @@ fn p2_determinism_matrix_streams() {
         let out = same_at_every_thread_count(name, &tpl);
         assert!(!out.is_empty(), "{name}");
     }
-    // --sort over a budget smaller than the input spills to disk and gives
-    // the bytes of the in-memory sort.
-    let big = fx.plain("big.bed", &bed_text(1_600_000));
-    assert!(std::fs::metadata(&big).unwrap().len() > 2 * (16 << 20));
-    let tmp = tempdir();
-    let spill = [
-        "cluster",
-        &big,
-        "--sort",
-        "--max-mem",
-        "16M",
-        "--tmp-dir",
-        tmp.path().to_str().unwrap(),
-    ];
-    let spilled: Vec<_> = ["1", "8"].iter().map(|t| stdout_with(&spill, t)).collect();
-    assert_eq!(spilled[0], spilled[1], "cluster --sort spilled");
-    assert_eq!(
-        spilled[0],
-        stdout_with(&["cluster", &big, "--sort"], "2"),
-        "spilled vs in-memory"
-    );
-    assert_eq!(
-        std::fs::read_dir(tmp.path()).unwrap().count(),
-        0,
-        "spill files left"
-    );
-
     // bedGraph partition
     let out = same_at_every_thread_count(
         "partition --bedgraph",
@@ -1870,6 +1863,11 @@ fn p2_determinism_matrix_streams() {
             .code(2)
             .stderr(contains("convert first"));
     }
+    // concat needs the second file to start where the first ends
+    let second = fx.plain(
+        "v_tail.vcf",
+        &p2_vcf(4..=4, 1).replace("chr4\t100", "chr4\t99999"),
+    );
     for (name, tpl) in &vcf_cmds {
         let mut outs = Vec::new();
         // cluster and spacing append a column, which a BCF record has no place for
@@ -1878,11 +1876,6 @@ fn p2_determinism_matrix_streams() {
             if !takes_bcf && *v == vcf_bcf {
                 continue;
             }
-            // concat needs the second file to start where the first ends
-            let second = fx.plain(
-                "v_tail.vcf",
-                &p2_vcf(4..=4, 1).replace("chr4\t100", "chr4\t99999"),
-            );
             let args: Vec<&str> = tpl
                 .iter()
                 .map(|x| match *x {
@@ -1896,8 +1889,9 @@ fn p2_determinism_matrix_streams() {
             outs.push(without_command(&same_at_every_thread_count(name, &args)));
         }
         assert!(!outs[0].is_empty(), "{name}");
-        // concat writes in the format of its first input, so only its
-        // thread determinism is compared (above)
+        // concat's default output format follows its first input (see
+        // p2_concat_output_format), so only its thread determinism is
+        // compared here
         if *name != "concat" {
             for w in outs.windows(2) {
                 assert_eq!(w[0], w[1], "{name}: input format changed the output");
@@ -2099,7 +2093,7 @@ fn p2_broken_pipe_matrix() {
     let a = s_of(&plain_file(d.path(), "a.bed", &a));
     let b = s_of(&plain_file(d.path(), "b.bed", &b));
     let v = s_of(&plain_file(d.path(), "v.vcf", &v));
-    let tail = v_gz_tail(d.path());
+    let tail = tail_after_big_vcf(d.path());
     let g = s_of(&genome);
 
     let cmds: Vec<Vec<&str>> = vec![
@@ -2147,9 +2141,9 @@ fn p2_broken_pipe_matrix() {
     }
 }
 
-/// A one-record VCF that follows the 20 000-record one at the same
+/// (Writes a plain `.vcf`.) A one-record VCF that follows the 20 000-record one at the same
 /// chromosome end (for `vcf concat`).
-fn v_gz_tail(dir: &Path) -> String {
+fn tail_after_big_vcf(dir: &Path) -> String {
     let mut t = String::from(P2_VCF_HEAD);
     t.push_str("chr1\t900000\t.\tA\tC\t50\tPASS\tDP=30\tGT:DP\t0/1:5\t1/1:6\t0/0:7\n");
     s_of(&plain_file(dir, "tail.vcf", &t))
@@ -2239,10 +2233,28 @@ fn p2_empty_inputs_matrix() {
             1
         );
     }
-    gloci()
-        .args(["vcf", "extract", &hdr_only_bcf, "--info", "DP"])
-        .assert()
-        .success();
+    assert_eq!(
+        String::from_utf8(run_stdout(&[
+            "vcf",
+            "extract",
+            &hdr_only_bcf,
+            "--info",
+            "DP"
+        ]))
+        .unwrap(),
+        "CHROM\tPOS\tID\tREF\tALT\tDP\n"
+    );
+    assert_eq!(
+        String::from_utf8(run_stdout(&[
+            "vcf",
+            "extract",
+            &hdr_only_bcf,
+            "--format",
+            "GT"
+        ]))
+        .unwrap(),
+        "CHROM\tPOS\tID\tREF\tALT\ts1:GT\ts2:GT\ts3:GT\n"
+    );
 
     // vcf stats on a header-only VCF: every file is written, with its header
     let d = tempdir();
@@ -2501,6 +2513,12 @@ fn p2_failure_matrix() {
             body[1].replacen("\t137\t", "\tXX\t", 1)
         ),
     );
+    let good_bcf = vcf_to_bcf(good_vcf_text.as_bytes());
+    let trunc_bcf = s_of(&write(
+        fx.dir.path(),
+        "t.bcf",
+        &good_bcf[..good_bcf.len() / 2],
+    ));
     let vgz = bgzip(good_vcf_text.as_bytes());
     let trunc_vcf = s_of(&write(fx.dir.path(), "t.vcf.gz", &vgz[..vgz.len() / 2]));
     let nofooter_vcf = s_of(&write(fx.dir.path(), "nf.vcf.gz", &vgz[..vgz.len() - 28]));
@@ -2554,7 +2572,9 @@ fn p2_failure_matrix() {
     for (name, tpl, sink) in &cases {
         for (kind, bad, msg) in &bed_bad {
             // shift and groupby never check the order
+            // shift and groupby never check the order, and must keep working
             if *kind == "unsorted" && matches!(*name, "shift" | "groupby") {
+                assert_succeeds(name, tpl, bad, sink);
                 continue;
             }
             // groupby sums column 2, so the malformed row is a bad number there
@@ -2627,8 +2647,9 @@ fn p2_failure_matrix() {
             Sink::File("vcf.gz"),
         ),
     ];
-    // extract and stats read an unsorted VCF without complaint (their output
-    // does not depend on the order), so only the sorted-input commands fail
+    // extract and stats read an unsorted VCF without complaint (extract
+    // writes in input order; stats accumulates), so they must succeed on it:
+    // adding an order check to either would be a visible decision here
     let vcf_bad: [(&str, &String, &str); 4] = [
         ("unsorted", &swapped, unsorted_msg),
         ("malformed", &malformed_vcf, "XX"),
@@ -2639,12 +2660,20 @@ fn p2_failure_matrix() {
         for (kind, bad, msg) in &vcf_bad {
             let order_free = name.starts_with("extract") || name.starts_with("stats");
             if *kind == "unsorted" && order_free {
+                assert_succeeds(name, tpl, bad, sink);
                 continue;
             }
             assert_fails_clean(name, kind, tpl, bad, sink, msg);
             ran += 1;
         }
         assert_missing_dir(name, tpl, gv, sink);
+    }
+    // truncated BCF, for the commands that take BCF
+    for (name, tpl, sink) in vcf_cases.iter().filter(|(n, ..)| {
+        n.starts_with("extract") || n.starts_with("stats") || n.starts_with("concat")
+    }) {
+        assert_fails_clean(name, "truncated BCF", tpl, &trunc_bcf, sink, eof);
+        ran += 1;
     }
     // a BED where a VCF is required says so
     gloci()
@@ -2901,4 +2930,280 @@ fn p2_chrom_map_round_trip() {
         .assert()
         .code(2)
         .stderr(contains("bad.map:2:"));
+}
+
+/// `--sort` over a budget smaller than the input spills to disk and gives the
+/// bytes of the in-memory sort. (The input is asserted to be more than twice
+/// the budget, so the spill is not optional; the spill directory is empty
+/// again afterwards.)
+#[test]
+fn p2_sort_spill_matches_in_memory() {
+    // --sort over a budget smaller than the input spills to disk and gives
+    // the bytes of the in-memory sort.
+    let fx = P2::new();
+    let big = fx.plain("big.bed", &bed_text(1_600_000));
+    assert!(std::fs::metadata(&big).unwrap().len() > 2 * (16 << 20));
+    let tmp = tempdir();
+    let spill = [
+        "cluster",
+        &big,
+        "--sort",
+        "--max-mem",
+        "16M",
+        "--tmp-dir",
+        tmp.path().to_str().unwrap(),
+    ];
+    let spilled: Vec<_> = ["1", "8"].iter().map(|t| stdout_with(&spill, t)).collect();
+    assert_eq!(spilled[0], spilled[1], "cluster --sort spilled");
+    assert_eq!(
+        spilled[0],
+        stdout_with(&["cluster", &big, "--sort"], "2"),
+        "spilled vs in-memory"
+    );
+    assert_eq!(
+        std::fs::read_dir(tmp.path()).unwrap().count(),
+        0,
+        "spill files left"
+    );
+}
+
+/// Fixtures large enough to be split: 60k records is more than one 16384-record
+/// batch, the BGZF copies span dozens of blocks, and chr1's 40k records make a
+/// groupby run that crosses batch boundaries. Output at `-t 1` must equal
+/// `-t 8`, with and without tiny chunks.
+#[test]
+fn p2_determinism_large_fixture() {
+    let fx = P2::new();
+    let genome = fx.plain("g.genome", "chr1\t1000000\nchr2\t1000000\n");
+    let mut a = String::new();
+    let mut b = String::new();
+    for (chrom, n) in [("chr1", 40_000usize), ("chr2", 20_000)] {
+        for i in 0..n {
+            let st = 100 + i * 23 + (i % 5) * 3;
+            writeln!(
+                a,
+                "{chrom}\t{st}\t{}\ta{i}\t{}\t{}",
+                st + 10 + (i % 7) * 9,
+                i % 100,
+                if i % 3 == 0 { '-' } else { '+' }
+            )
+            .unwrap();
+            if i % 2 == 0 {
+                let bs = 105 + i * 31;
+                writeln!(b, "{chrom}\t{bs}\t{}\tb{i}\t1\t+", bs + 40).unwrap();
+            }
+        }
+    }
+    let a_plain = fx.plain("a.bed", &a);
+    let a_gz = fx.bgzf("a.bed.gz", &a);
+    let a_idx = fx.indexed("a_idx.bed.gz", &a);
+    let b_plain = fx.plain("b.bed", &b);
+    let b_gz = fx.bgzf("b.bed.gz", &b);
+    assert!(
+        std::fs::metadata(&a_gz).unwrap().len() > 3 * 65_536,
+        "several BGZF blocks"
+    );
+    let run = |args: &[&str], t: &str, chunks: bool| -> Vec<u8> {
+        let mut c = gloci();
+        c.args(args).args(["-t", t]);
+        if chunks {
+            c.env("GLOCI_TEST_CHUNK_MEM_LIMIT", "4096");
+        }
+        let o = c.output().unwrap();
+        assert_eq!(
+            o.status.code(),
+            Some(0),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&o.stderr)
+        );
+        o.stdout
+    };
+    for (name, tpl) in p2_bed_cmds(&genome) {
+        // per-base output is one line per genome base: too long to repeat
+        if name == "genomecov --per-base" {
+            continue;
+        }
+        let sub = |ai: &str, bi: &str| -> Vec<String> {
+            tpl.iter()
+                .map(|x| match *x {
+                    "{a}" => ai.to_string(),
+                    "{b}" => bi.to_string(),
+                    o => o.to_string(),
+                })
+                .collect()
+        };
+        let plain_args = sub(&a_plain, &b_plain);
+        let refs: Vec<&str> = plain_args.iter().map(String::as_str).collect();
+        let base = run(&refs, "1", false);
+        // the default genomecov is a short histogram; the others are long
+        let want = if name == "genomecov" { 50 } else { 100_000 };
+        assert!(base.len() > want, "{name}: small output");
+        assert_eq!(base, run(&refs, "8", false), "{name}: -t 8");
+        assert_eq!(base, run(&refs, "8", true), "{name}: -t 8, tiny chunks");
+        for (ai, bi) in [(&a_gz, &b_gz), (&a_idx, &b_gz)] {
+            let args = sub(ai, bi);
+            let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+            assert_eq!(base, run(&refs, "8", false), "{name}: {ai} -t 8");
+            assert_eq!(
+                base,
+                run(&refs, "2", true),
+                "{name}: {ai} -t 2, tiny chunks"
+            );
+        }
+    }
+    // the groupby run over chr1 crosses the batch boundary and is one line
+    let gb = String::from_utf8(run(
+        &["groupby", &a_plain, "-g", "1", "-c", "4:count"],
+        "8",
+        false,
+    ))
+    .unwrap();
+    assert_eq!(gb, "chr1\t40000\nchr2\t20000\n");
+
+    // the same for a VCF of 40k records
+    let mut v = String::from(P2_VCF_HEAD);
+    for i in 0..40_000usize {
+        writeln!(
+            v,
+            "chr1\t{}\t.\tA\tC\t{}\tPASS\tDP={}\tGT:DP\t0/1:{}\t1/1:3\t./.:4",
+            100 + i * 7,
+            20 + i % 50,
+            i % 30,
+            i % 9
+        )
+        .unwrap();
+    }
+    let v_plain = fx.plain("v.vcf", &v);
+    let v_gz = fx.bgzf("v.vcf.gz", &v);
+    let v_idx = fx.indexed("v_idx.vcf.gz", &v);
+    for tpl in [
+        vec!["cluster", "-d", "3"],
+        vec!["spacing"],
+        vec!["vcf", "extract", "--info", "DP"],
+        vec!["vcf", "extract", "--format", "GT,DP"],
+    ] {
+        let with = |f: &str| -> Vec<String> {
+            let mut a: Vec<String> = tpl.iter().map(|s| s.to_string()).collect();
+            a.insert(if tpl[0] == "vcf" { 2 } else { 1 }, f.to_string());
+            a
+        };
+        let args = with(&v_plain);
+        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        let base = run(&refs, "1", false);
+        assert!(base.len() > 100_000);
+        assert_eq!(base, run(&refs, "8", false), "{tpl:?}");
+        assert_eq!(base, run(&refs, "8", true), "{tpl:?} tiny chunks");
+        for f in [&v_gz, &v_idx] {
+            let args = with(f);
+            let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+            assert_eq!(base, run(&refs, "8", false), "{tpl:?} {f}");
+        }
+    }
+    // vcf stats files
+    let stats = |f: &str, t: &str| -> Vec<Vec<u8>> {
+        let d = tempdir();
+        let prefix = s_of(&d.path().join("o"));
+        gloci()
+            .args([
+                "vcf",
+                "stats",
+                f,
+                "--out-prefix",
+                &prefix,
+                "--freq",
+                "--het",
+                "--site-quality",
+                "-t",
+                t,
+            ])
+            .assert()
+            .success();
+        ["frq", "het", "lqual"]
+            .iter()
+            .map(|e| std::fs::read(format!("{prefix}.{e}")).unwrap())
+            .collect()
+    };
+    let base = stats(&v_plain, "1");
+    assert_eq!(base[0].iter().filter(|&&c| c == b'\n').count(), 40_001);
+    assert_eq!(base, stats(&v_plain, "8"));
+    assert_eq!(base, stats(&v_gz, "8"));
+    assert_eq!(base, stats(&v_idx, "8"));
+}
+
+/// `tpl` with `{IN}` replaced by `input` exits 0 and writes its output.
+fn assert_succeeds(name: &str, tpl: &[&str], input: &str, sink: &Sink) {
+    let d = tempdir();
+    let mut args: Vec<String> = tpl.iter().map(|a| a.replace("{IN}", input)).collect();
+    match sink {
+        Sink::File(ext) => args.extend(["-o".into(), s_of(&d.path().join(format!("out.{ext}")))]),
+        Sink::Prefix => args.extend(["--out-prefix".into(), s_of(&d.path().join("out"))]),
+    }
+    let o = gloci().args(&args).output().unwrap();
+    assert_eq!(
+        o.status.code(),
+        Some(0),
+        "{name}: {}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    assert!(
+        std::fs::read_dir(d.path()).unwrap().count() > 0,
+        "{name}: no output"
+    );
+}
+
+/// The BCF magic after BGZF decompression.
+fn is_bcf(bytes: &[u8]) -> bool {
+    let mut all = Vec::new();
+    noodles_bgzf::io::Reader::new(bytes)
+        .read_to_end(&mut all)
+        .is_ok()
+        && all.starts_with(b"BCF\x02\x02")
+}
+
+/// `vcf concat` writes the format `-O` or the `-o` extension names; the first
+/// input's format is only the default.
+#[test]
+fn p2_concat_output_format() {
+    let fx = P2::new();
+    let (t1, t2) = (p2_vcf(1..=1, 5), p2_vcf(2..=2, 5));
+    let (v1, v2) = (fx.plain("1.vcf", &t1), fx.plain("2.vcf", &t2));
+    let (b1, b2) = (fx.bcf("1.bcf", &t1), fx.bcf("2.bcf", &t2));
+    let (z1, z2) = (fx.bgzf("1.vcf.gz", &t1), fx.bgzf("2.vcf.gz", &t2));
+    let d = tempdir();
+    let to = |name: &str, inputs: [&str; 2], extra: &[&str]| -> Vec<u8> {
+        let out = s_of(&d.path().join(name));
+        let mut full = vec!["vcf", "concat", inputs[0], inputs[1]];
+        full.extend_from_slice(extra);
+        full.extend(["-o", &out]);
+        gloci().args(&full).assert().success();
+        std::fs::read(&out).unwrap()
+    };
+    // -o extension decides, whatever the inputs are
+    for inputs in [[&v1, &v2], [&z1, &z2], [&b1, &b2]] {
+        let inputs = [inputs[0].as_str(), inputs[1].as_str()];
+        assert!(is_bcf(&to("x.bcf", inputs, &[])), "{inputs:?} -o x.bcf");
+        assert!(
+            is_bcf(&to("y.out", inputs, &["-O", "bcf"])),
+            "{inputs:?} -O bcf"
+        );
+        let gz = to("x.vcf.gz", inputs, &[]);
+        assert!(!is_bcf(&gz), "{inputs:?} -o x.vcf.gz is VCF");
+        let mut text = Vec::new();
+        noodles_bgzf::io::Reader::new(&gz[..])
+            .read_to_end(&mut text)
+            .unwrap();
+        assert!(
+            text.starts_with(b"##fileformat=VCF"),
+            "{inputs:?}: BGZF VCF text"
+        );
+        // -O vcf is plain text even for BCF input
+        let plain = to("z.out", inputs, &["-O", "vcf"]);
+        assert!(plain.starts_with(b"##fileformat=VCF"), "{inputs:?} -O vcf");
+    }
+    // the default (stdout) follows the first input
+    let o = gloci().args(["vcf", "concat", &b1, &b2]).output().unwrap();
+    assert!(o.status.success());
+    assert!(is_bcf(&o.stdout), "BCF in, BCF out by default");
+    let o = gloci().args(["vcf", "concat", &v1, &v2]).output().unwrap();
+    assert!(o.stdout.starts_with(b"##fileformat=VCF"));
 }
