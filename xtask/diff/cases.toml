@@ -2740,6 +2740,19 @@ gloci = "gloci genomecov input.bed -g gc.genome"
 reference = "bedtools genomecov -i input.bed -g gc.genome"
 compare = "exact"
 
+# bedtools divides in single precision: bases and length are rounded to
+# float, divided as float and printed with six significant digits. The two
+# fractions here (162111521 / 207915645 and 143954154 / 166830933) print
+# differently when the division is done in double (0.779699 and 0.862874 in
+# double, 0.779698 and 0.862875 in float).
+[[case]]
+name = "genomecov-hist-float-fraction-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-f32.bed" }
+aux = ["xtask/diff/inputs/gc-f32.genome"]
+gloci = "gloci genomecov input.bed -g gc-f32.genome"
+reference = "bedtools genomecov -i input.bed -g gc-f32.genome"
+compare = "exact"
+
 [[case]]
 name = "genomecov-bedgraph-vs-bedtools"
 input = { file = "xtask/diff/inputs/gc-a.bed" }

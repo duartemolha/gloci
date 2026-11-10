@@ -88,6 +88,15 @@ drop it, or drop --bedgraph/--bga/--per-base",
     Ok(())
 }
 
+/// The `--hist` fraction as bedtools computes it: both counts are rounded to
+/// `float`, divided as `float`, and the result is printed with six
+/// significant digits. (A division in double differs in the last digit for
+/// some values: 162111521 / 207915645 is 0.779698 as float, 0.779699 as
+/// double.)
+fn format_fraction(bases: u64, len: u64) -> String {
+    format_g6(f64::from(bases as f32 / len as f32))
+}
+
 /// A number as C++ `ostream` prints a `double` by default (`%g`, six
 /// significant digits), which is how bedtools writes scaled depths and
 /// fractions: `0.6`, `1`, `0.0704225`, `1e-07`, `1e+08`.
@@ -264,7 +273,7 @@ impl<'a> Cov<'a> {
                     self.row,
                     "\t{d}\t{b}\t{}\t{}",
                     self.len,
-                    format_g6(b as f64 / self.len as f64)
+                    format_fraction(b, self.len)
                 )
                 .expect("vec write");
                 self.emit()?;
@@ -382,7 +391,7 @@ check that -g matches the genome build of the input",
                     self.row,
                     "genome\t{d}\t{b}\t{}\t{}",
                     self.total_len,
-                    format_g6(b as f64 / self.total_len as f64)
+                    format_fraction(b, self.total_len)
                 )
                 .expect("vec write");
                 self.emit()?;
@@ -458,7 +467,18 @@ pub fn genomecov_counting(
 
 #[cfg(test)]
 mod tests {
-    use super::format_g6;
+    use super::{format_fraction, format_g6};
+
+    #[test]
+    fn fractions_divide_in_single_precision_like_bedtools() {
+        // Printed by bedtools genomecov 2.31.1 (golden genomecov-hist-float-fraction-vs-bedtools).
+        assert_eq!(format_fraction(162_111_521, 207_915_645), "0.779698");
+        assert_eq!(format_fraction(143_954_154, 166_830_933), "0.862875");
+        assert_eq!(format_fraction(234_958_625, 250_000_000), "0.939834");
+        assert_eq!(format_fraction(3, 5), "0.6");
+        assert_eq!(format_fraction(7, 7), "1");
+        assert_eq!(format_fraction(0, 9), "0");
+    }
 
     #[test]
     fn g6_matches_cpp_default_stream() {
