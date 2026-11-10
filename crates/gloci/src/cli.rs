@@ -1300,6 +1300,24 @@ Examples:
   gloci vcf concat chr*.bcf -o all.bcf
   gloci vcf concat --naive chr1.vcf.gz chr2.vcf.gz -o all.vcf.gz")]
     Concat(VcfConcatArgs),
+    /// Split multi-allelic records into biallelic ones (bcftools norm -m-).
+    ///
+    /// A record with N ALT alleles becomes N records, one per ALT, in ALT
+    /// order; ID, QUAL and FILTER are copied. In each, the kept ALT is
+    /// allele 1 in GT and every other allele is 0 (missing stays missing;
+    /// phase and ploidy are kept). INFO and FORMAT fields follow their
+    /// declared Number: A keeps that ALT's value, R keeps REF's and that
+    /// ALT's, G keeps that ALT's genotype values (haploid and diploid);
+    /// other fields are copied. INFO and FORMAT keys the header does not
+    /// declare are dropped from split records. Alleles are not trimmed or
+    /// left-aligned. A record with one ALT is written as it is. A field
+    /// with the wrong number of values for its Number is an error (exit 1).
+    #[command(after_long_help = "\
+Examples:
+  gloci vcf split calls.vcf.gz -o calls.split.vcf.gz
+  gloci vcf split calls.bcf --types snps -o snps-split.bcf
+  gloci vcf split calls.vcf.gz | gloci subtract -a - -b known.vcf.gz --match alleles")]
+    Split(VcfSplitArgs),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -3152,4 +3170,35 @@ mod tests {
         assert!(parse(&["-s", "-S"]).is_err());
         assert!(parse(&["-S"]).is_ok());
     }
+}
+
+// P3b Task 20
+
+/// Which multi-allelic records `vcf split` splits.
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum SplitTypesArg {
+    Snps,
+    Indels,
+    Both,
+    Any,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct VcfSplitArgs {
+    /// Input VCF or BCF (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// Split only records with an ALT of this type: snps (a record with a
+    /// SNP ALT), indels (an insertion or deletion ALT), both or any (every
+    /// multi-allelic record; bcftools splits both and any alike). A split
+    /// record is split into all its ALTs; other records are written as they
+    /// are.
+    #[arg(long, value_enum, default_value = "any", value_name = "TYPES")]
+    pub types: SplitTypesArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
 }

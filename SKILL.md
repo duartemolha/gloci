@@ -483,6 +483,18 @@ gloci vcf concat chr*.bcf -o all.bcf
 gloci vcf concat --naive chr1.vcf.gz chr2.vcf.gz -o all.vcf.gz
 ```
 
+#### `gloci vcf split`
+
+Split multi-allelic records into biallelic ones (bcftools norm -m-).
+
+A record with N ALT alleles becomes N records, one per ALT, in ALT order; ID, QUAL and FILTER are copied. In each, the kept ALT is allele 1 in GT and every other allele is 0 (missing stays missing; phase and ploidy are kept). INFO and FORMAT fields follow their declared Number: A keeps that ALT's value, R keeps REF's and that ALT's, G keeps that ALT's genotype values (haploid and diploid); other fields are copied. INFO and FORMAT keys the header does not declare are dropped from split records. Alleles are not trimmed or left-aligned. A record with one ALT is written as it is. A field with the wrong number of values for its Number is an error (exit 1).
+
+```sh
+gloci vcf split calls.vcf.gz -o calls.split.vcf.gz
+gloci vcf split calls.bcf --types snps -o snps-split.bcf
+gloci vcf split calls.vcf.gz | gloci subtract -a - -b known.vcf.gz --match alleles
+```
+
 ## Migration tables
 
 Every row below was checked against `gloci <cmd> --help`.
@@ -512,6 +524,7 @@ then the rest of P2b (Python library, packaging, mdBook, paper evidence suite).
 | `tabix -p bed\|vcf\|gff FILE.gz`, `tabix -C ...` | `gloci index FILE.gz` (the type comes from the content; TBI, or CSI when a record ends past 2^29) |
 | `tabix -s S -b B [-e E] [-0] [-S N] [-c C] FILE.gz` | `gloci index FILE.gz -s S -b B [-e E] [--zero-based] [--skip-lines N] [--comment C]` |
 | `bcftools concat A B`, `bcftools concat -n A.vcf.gz B.vcf.gz` | `gloci vcf concat A B` (the output format follows `-o`/`-O`; the header is the first file's, and gloci adds no command-line header line to it). `-n`/`--naive` is `gloci vcf concat --naive A.vcf.gz B.vcf.gz`: BGZF VCF only (BCF exits 2), byte-identical headers (exit 2 otherwise), BGZF blocks copied without recompression, and the order across files is still checked. `bcftools concat -a`, `-r`, `-d` and `-D` (overlapping files, regions, deduplication) are not available; use `gloci sort` and `gloci view` |
+| `bcftools norm -m- --no-version FILE`, `bcftools norm -m-snps\|-indels\|-both\|-any FILE` (no `-f`) | `gloci vcf split FILE [--types snps\|indels\|both\|any]`: one record per ALT; GT keeps the ALT as 1 and recodes the others to 0; Number=A/R/G INFO and FORMAT fields are subset (haploid G too). Alleles are not trimmed. Values keep their text, and a record that is not split is written as it is: [differences.md#vcf-split-values](differences.md#vcf-split-values). A wrong number of values for a field is an error (bcftools: `--force`). `norm -m+` (merging), `-f`, `-d` and `-c` are not available |
 | `bcftools index FILE.bcf`, `bcftools index -c\|-t FILE.vcf.gz` | `gloci index FILE.bcf` (a BCF always gets a CSI; `.vcf.gz` gets a TBI, or a CSI when needed) |
 | `bgzip FILE && tabix -p vcf FILE.gz` | `gloci sort FILE -o FILE.gz --write-index`, or `gloci view FILE -o FILE.gz --write-index` for a file that is already sorted |
 | `tabix FILE.gz REGION...`, `bcftools view -r REGION FILE`, `bcftools view -H -r ...` | `gloci view FILE.gz REGION...` (or `--region REGION`; add `--no-header` for `-H`) |

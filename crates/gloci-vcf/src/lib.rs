@@ -8,6 +8,7 @@ mod extract;
 mod filter;
 mod gt;
 mod hwe;
+mod split;
 mod stats;
 
 pub use bcf_fmt::{BcfGenotypes, bcf_genotypes, bcf_genotypes_with};
@@ -25,6 +26,7 @@ pub use gt::{
     TextGenotypes, text_genotypes, text_genotypes_with,
 };
 pub use hwe::{HweTails, hwe_p, hwe_tails};
+pub use split::{Outcome as SplitOutcome, SplitTypes, Splitter};
 pub use stats::{
     FilterSummary, Freq, GenoDepth, Hardy, Heterozygosity, IndelHist, MaskRules, MissingSample,
     MissingSite, Out, SUMMARY_SCHEMA_VERSION, SampleDepth, Singletons, SiteDepth, SiteMeanDepth,

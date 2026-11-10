@@ -4765,3 +4765,83 @@ gloci = "gloci intersect -a splitfrac.bed -b input.bam --split -f 0.7 --mode pai
 reference = "bedtools intersect -a splitfrac.bed -b input.bam -split -f 0.7 -wa -wb"
 compare = "exact"
 expected_difference = "#split-fraction"
+
+# P3b Task 20: vcf split vs bcftools norm -m- --no-version (no -f)
+# multi.vcf: six samples with GT/AD/PL/GL/AQ/DP; diploid, haploid, phased and missing GT;
+# Number=A/R/G INFO and FORMAT; a haploid sample whose G holds the biallelic count;
+# SNPs, indels, MNPs and symbolic ALTs; rows of one value left alone.
+[[case]]
+name = "vcf-split-multisample-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/split/multi.vcf" }
+gloci = "gloci vcf split input.vcf"
+reference = "bcftools norm -m- --no-version input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-split-star-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/split/star.vcf" }
+gloci = "gloci vcf split input.vcf"
+reference = "bcftools norm -m- --no-version input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-split-undeclared-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/split/undeclared.vcf" }
+gloci = "gloci vcf split input.vcf"
+reference = "bcftools norm -m- --no-version input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-split-types-snps-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/split/types.vcf" }
+gloci = "gloci vcf split --types snps input.vcf"
+reference = "bcftools norm -m-snps --no-version input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-split-types-indels-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/split/types.vcf" }
+gloci = "gloci vcf split --types indels input.vcf"
+reference = "bcftools norm -m-indels --no-version input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-split-types-both-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/split/types.vcf" }
+gloci = "gloci vcf split --types both input.vcf"
+reference = "bcftools norm -m-both --no-version input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-split-types-any-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/split/types.vcf" }
+gloci = "gloci vcf split --types any input.vcf"
+reference = "bcftools norm -m-any --no-version input.vcf"
+compare = "vcf-records"
+
+# A Number=R field with the wrong number of values is an error in both (bcftools exits 255,
+# gloci 1: the reference command maps it to 1).
+[[case]]
+name = "vcf-split-bad-count-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/split/bad-count.vcf" }
+gloci = "gloci vcf split input.vcf"
+reference = "bcftools norm -m- --no-version input.vcf >/dev/null 2>&1 || exit 1"
+compare = "exit-status"
+
+# bcftools prints floats with six significant digits; gloci keeps the text.
+[[case]]
+name = "vcf-split-float-text-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/split/float-text.vcf" }
+gloci = "gloci vcf split input.vcf"
+reference = "bcftools norm -m- --no-version input.vcf"
+compare = "vcf-records"
+expected_difference = "#vcf-split-values"
+
+# bcftools aborts on an undeclared INFO key in a record it does not split.
+[[case]]
+name = "vcf-split-undeclared-unsplit-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/split/undeclared-unsplit.vcf" }
+gloci = "gloci vcf split input.vcf"
+reference = "bcftools norm -m- --no-version input.vcf"
+compare = "exit-status"
+expected_difference = "#vcf-split-values"

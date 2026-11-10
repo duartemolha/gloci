@@ -1,0 +1,19 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##FILTER=<ID=q10,Description="Low quality">
+##contig=<ID=chr1,length=10000>
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Depth">
+##INFO=<ID=DB,Number=0,Type=Flag,Description="dbSNP">
+##INFO=<ID=AC,Number=A,Type=Integer,Description="Allele count">
+##INFO=<ID=AF,Number=A,Type=Float,Description="Allele frequency">
+##INFO=<ID=RC,Number=R,Type=Integer,Description="Ref and alt counts">
+##INFO=<ID=GC,Number=G,Type=Integer,Description="Genotype counts">
+##INFO=<ID=XS,Number=.,Type=String,Description="Free text">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=AD,Number=R,Type=Integer,Description="Allele depth">
+##FORMAT=<ID=PL,Number=G,Type=Integer,Description="Phred likelihoods">
+##FORMAT=<ID=GL,Number=G,Type=Float,Description="Log10 likelihoods">
+##FORMAT=<ID=AQ,Number=A,Type=Integer,Description="Allele quality">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	s1	s2
+chr1	10	.	A	C,G	.	.	RC=1,2	GT	0/1	1/2

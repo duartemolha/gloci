@@ -1767,3 +1767,19 @@ depends on the span.
 - **Pinned by:** `intersect-abam-wa-wb-vs-bedtools`, `intersect-bed-bam-loj-vs-bedtools`
   and `intersect-bed-bam-wao-vs-bedtools` (must differ);
   `intersect-bed-bam-wa-wb-vs-bedtools` (BAM as B) matches.
+
+## `vcf split` keeps values as written {#vcf-split-values}
+
+- **gloci:** `gloci vcf split` copies each value as its text and writes a record with one
+  ALT as it is, byte for byte. INFO and FORMAT keys the header does not declare are dropped
+  from the records it splits (as bcftools does) and kept in a record it does not split.
+- **Old behaviour:** `bcftools norm -m-` reads every record into binary form and prints it
+  again. Floats come out with six significant digits (`AF=0.10` becomes `0.1`, `QUAL=1.50`
+  becomes `1.5`, `1.0` becomes `1`), a sample cut short is padded with missing values, and
+  `##FILTER=<ID=PASS>` is added to a header without it. A record with an undeclared INFO
+  or FORMAT key that bcftools does not split aborts with `Invalid BCF, the INFO tag id=N is
+  too large` (exit 255).
+- **Reason:** a splitter that rewrites nothing it did not have to keeps the file you gave it
+  diffable, and a missing header line is not a reason to lose the run.
+- **Pinned by:** `vcf-split-float-text-vs-bcftools` and `vcf-split-undeclared-unsplit-vs-bcftools`
+  (must differ). Every other split case matches.
