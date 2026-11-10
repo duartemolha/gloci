@@ -69,10 +69,16 @@ fn internal_dep_versions_match_workspace() {
         .map(|p| p["name"].as_str().unwrap())
         .collect();
     for p in meta["packages"].as_array().unwrap() {
+        if !PUBLISHED.contains(&p["name"].as_str().unwrap()) {
+            continue;
+        }
         for d in p["dependencies"].as_array().unwrap() {
             let dn = d["name"].as_str().unwrap();
             if !internal.contains(&dn) {
                 continue;
+            }
+            if !PUBLISHED.contains(&dn) {
+                continue; // unpublished crates are path-only (next test)
             }
             let req = d["req"].as_str().unwrap();
             assert_eq!(
@@ -82,6 +88,34 @@ fn internal_dep_versions_match_workspace() {
                 p["name"]
             );
         }
+    }
+}
+
+#[test]
+fn published_crates_do_not_version_unpublished_crates() {
+    let meta = metadata();
+    for name in PUBLISHED {
+        for d in package(&meta, name)["dependencies"].as_array().unwrap() {
+            let dn = d["name"].as_str().unwrap();
+            if matches!(dn, "gloci-testkit" | "xtask") {
+                assert_eq!(
+                    d["req"], "*",
+                    "{name} -> {dn} ({}): an unpublished crate must be a path-only dependency",
+                    d["kind"]
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn every_published_crate_ships_the_licence() {
+    let root = xtask::diff::workspace_root();
+    let want = std::fs::read(root.join("LICENSE")).unwrap();
+    for name in PUBLISHED {
+        let got = std::fs::read(root.join("crates").join(name).join("LICENSE"))
+            .unwrap_or_else(|_| panic!("{name}: missing LICENSE"));
+        assert!(got == want, "{name}: LICENSE differs from the root copy");
     }
 }
 
@@ -125,6 +159,10 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+/// A lexical guard: it reads the first path literal of every include macro
+/// and checks it stays inside the crate. It is backed by the real check, the
+/// verified `cargo publish --dry-run` in CI, which builds each crate from its
+/// tarball. Paths it cannot read as literals fail with the file and line.
 #[test]
 fn no_include_escapes_its_crate() {
     let meta = metadata();
@@ -136,22 +174,38 @@ fn no_include_escapes_its_crate() {
         rust_files(crate_dir, &mut files);
         for f in files {
             let text = std::fs::read_to_string(&f).unwrap();
-            for mac in ["include_str!(", "include_bytes!("] {
-                for (at, _) in text.match_indices(mac) {
-                    let args = &text[at + mac.len()..];
-                    // The first string literal is the path, or the start of a
-                    // `concat!` of the path; either way its prefix decides
-                    // which directory the include reaches into.
-                    let q1 = args.find('"').expect("string literal in include");
-                    let rest = &args[q1 + 1..];
-                    let lit = &rest[..rest.find('"').unwrap()];
-                    let target = normalise(&f.parent().unwrap().join(lit));
-                    assert!(
-                        target.starts_with(crate_dir),
-                        "{}: {mac}{lit}) escapes crate {name}",
-                        f.display()
-                    );
-                    checked += 1;
+            for (i, line) in text.lines().enumerate() {
+                if line.trim_start().starts_with("//") {
+                    continue;
+                }
+                for mac in ["include_str!(", "include_bytes!("] {
+                    for (at, _) in line.match_indices(mac) {
+                        let mut args = line[at + mac.len()..].trim_start();
+                        if let Some(r) = args.strip_prefix("concat!(") {
+                            args = r.trim_start();
+                        }
+                        let mut base = f.parent().unwrap().to_path_buf();
+                        if let Some(r) = args.strip_prefix("env!(\"CARGO_MANIFEST_DIR\")") {
+                            base = crate_dir.to_path_buf();
+                            args = r.trim_start().trim_start_matches(',').trim_start();
+                        }
+                        let lit = args.strip_prefix('"').and_then(|r| r.split_once('"'));
+                        let Some((lit, _)) = lit else {
+                            panic!(
+                                "{}:{}: include path is not a string literal; check by hand",
+                                f.display(),
+                                i + 1
+                            );
+                        };
+                        let target = normalise(&base.join(lit.trim_start_matches('/')));
+                        assert!(
+                            target.starts_with(crate_dir),
+                            "{}:{}: {mac}{lit}) escapes crate {name}",
+                            f.display(),
+                            i + 1
+                        );
+                        checked += 1;
+                    }
                 }
             }
         }

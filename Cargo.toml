@@ -17,7 +17,7 @@ gloci-io = { path = "crates/gloci-io", version = "0.1.0" }
 gloci-engine = { path = "crates/gloci-engine", version = "0.1.0" }
 gloci-vcf = { path = "crates/gloci-vcf", version = "0.1.0" }
 gloci-ops = { path = "crates/gloci-ops", version = "0.1.0" }
-gloci-testkit = { path = "crates/gloci-testkit", version = "0.1.0" }
+gloci-testkit = { path = "crates/gloci-testkit" }
 noodles-bgzf = { version = "0.52", features = ["libdeflate"] }
 noodles-vcf = "0.96"
 noodles-bcf = "0.94"
