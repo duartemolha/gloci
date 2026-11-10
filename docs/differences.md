@@ -151,8 +151,10 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   error. `--assume-sorted` binary-searches instead (like `bedextract`) and trusts
   the file to be sorted in the order given by `-g` or `--chrom-order`; it checks
   only the block it reads, and on an unsorted file the answer can be incomplete.
-  With `--chrom-map` the trusted order is that of the *new* names (see the
-  note in [migration.md](migration.md#other-behaviour-changes)).
+  With `--chrom-map` the trusted order is that of the *new* names: a map that
+  renames onto a name already in the file can give a partial answer under
+  `--assume-sorted` where the scan reports an error (see the note in
+  [migration.md](migration.md#other-behaviour-changes)).
 - **Old behaviour:** `bedextract` always trusts the order, and it silently
   misses a long feature that starts before the region and any fully nested
   feature; gloci's search finds them. bedtools and tabix read an index or the
@@ -507,7 +509,8 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   `stdev_pop` and `var_pop` divide by n and print 0 for one value.
 - **Old behaviour:** `bedtools map -o stdev` is the population
   form, dividing by n, and gives 0 for one value. `sstdev` is the
-  sample form. bedmap's `--stdev` is the population form as well.
+  sample form. bedmap's `--stdev` and `--variance` are sample statistics
+  (n - 1) too, and print `NAN` for one value.
 - **Reason:** the sample form is what a user summarising a handful of
   overlapping records expects, and it agrees with bedtools' `sstdev`. Use
   `stdev_pop` / `var_pop` to reproduce bedtools' `stdev` / `var`.

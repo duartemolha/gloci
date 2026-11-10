@@ -104,9 +104,11 @@ Every row below was checked against `gloci <cmd> --help`.
 
 Rows marked "not yet available" name the command that will replace the tool
 and the phase that builds it. After the P2 command set (this page), the build
-order is P3a (BAM/CRAM, FASTA, `getfasta`, `maskfasta`, `nuc`, and BAM input to
-`coverage`, `genomecov`, `intersect` and `convert`), then P3b (`stats`,
-`sample`, `random`, `shuffle`, BEDPE, `vcf popgen`, `vcf compare`).
+order is: the packaging prerequisites of P2b (licence, genome tables inside
+the crate), then P3a (BAM/CRAM, FASTA, `getfasta`, `maskfasta`, `nuc`, and BAM
+input to `coverage`, `genomecov`, `intersect` and `convert`), then P3b
+(`stats`, `sample`, `random`, `shuffle`, BEDPE, `vcf popgen`, `vcf compare`),
+then the rest of P2b (Python library, packaging, mdBook).
 
 ### Sorting, indexing and viewing (htslib, bcftools, bedops, bedtools)
 
@@ -160,7 +162,7 @@ order is P3a (BAM/CRAM, FASTA, `getfasta`, `maskfasta`, `nuc`, and BAM input to
 | `sort -i FILE [-g GENOME]` | `gloci sort FILE [-g GENOME]` (`--chrom-order lex` reproduces byte order) |
 | `bed12tobed6 -i FILE` | `gloci convert FILE --blocks` |
 | `genomecov -i x.bed -g G` (`-bg`, `-bga`, `-d`, `-scale`, `-strand`, `-split`, `-5`, `-3`, `-max`) | `gloci genomecov x.bed -g G [--bedgraph \| --bga \| --per-base] [--scale X] [--strand +\|-] [--split] [--5p \| --3p] [--max-depth N]` (`-g` is required, as in bedtools; the input must be sorted, `--sort` sorts it; `-dz` and `-trackline` have no counterpart; the `--hist` fractions divide in single precision and print six significant digits, as bedtools does; a `genome` row that counts more than 2^32 bases at one depth is correct in gloci, see the `genomecov` note under Other behaviour changes; BAM input (`-ibam`) is not available until P3a) |
-| `multiinter -i A B C [-names]` | `gloci partition A B C --merge-adjacent [--names X,Y,Z]` (the count and label columns; the per-file 0/1 columns are not written; `-cluster` and `-empty -g` have no counterpart (for the latter use `gloci complement -g`)) |
+| `multiinter -i A B C [-names]` | `gloci partition A B C --merge-adjacent [--names X,Y,Z]` (the count and label columns; the per-file 0/1 columns are not written; without `-names` bedtools labels the files `1,2,3` and gloci uses the file names (pass `--names 1,2,3` to match); `-cluster` and `-empty -g` have no counterpart (for the latter use `gloci complement -g`)) |
 | `unionbedg -i A B [-filler -empty -g]` | `gloci partition A B --bedgraph [--empty VALUE [-g GENOME]]` (`-filler X` is `--empty X`; `--empty` also writes the uncovered segments, as it implies `--min-files 0`; an explicit `--min-files` overrides that) |
 | `groupby -g -c -o [-header]` | `gloci groupby FILE -g COLS -c/--column COL:OP` (bedtools `-o OP` becomes the `:OP` of `-c COL:OP`, and gloci's `-o` is the output file; `--header`, `--delim`, `--empty`; same ops as `map` except those that need a second input; VCF input is refused, use `gloci vcf extract`) |
 | `cluster -d -s` | `gloci cluster FILE -d/--max-gap N -s` (`--sort`; the same gap and strand rules as `gloci merge`; ids are global, and `-s` keeps input order, see [differences.md#cluster-strand](differences.md#cluster-strand); a VCF input is clustered by its footprints and the output is TSV with a `#CHROM ... cluster` line, see [differences.md#append-vcf-header](differences.md#append-vcf-header); BCF is refused, use `gloci view -O vcf`; bedtools accepts chromosomes in any grouped order, gloci needs a sorted chromosome order, see [Chromosome order](#chromosome-order-behaviour-change)) |
@@ -183,8 +185,10 @@ order is P3a (BAM/CRAM, FASTA, `getfasta`, `maskfasta`, `nuc`, and BAM input to
 | `bedops -e [N%]` / `--element-of`, `-n` / `--not-element-of` | `gloci intersect -a A -b B... [-f 0.N]` / `gloci intersect -a A -b B... --mode none` |
 | `bedops --chop N` | `gloci merge A \| gloci windows -i - -w N` |
 | `--range N`, `--range L:R` | `-w/--window N` or `--left L --right R` (on `intersect`, `subtract`, `map`) or `gloci slop FILE -b N` / `--left L --right R` |
-| `bedmap --echo --count/--sum/--mean/--min/--max/--median/--stdev/--variance/...` | `gloci map -a A -b B -c COL:count/sum/mean/min/max/median/stdev_pop/var_pop/...` (`--delim`, `--skip-unmatched` for `--skip-unmapped`; `gloci map` always writes A's record first, which is `--echo`; `--stdev` and `--variance` are the population forms, `stdev_pop` and `var_pop`) |
-| `bedmap --mad`, `--cv`, `--tmean F1 F2`, `--wmean`, `--kth F` | `-c COL:mad`, `-c COL:cv`, `-c COL:tmean:LO-HI`, `-c COL:wmean`, `-c COL:quantile:Q` (`mad` is the unscaled median absolute deviation; `quantile` is type 7, an interpolated quantile, so compare the results before relying on `--kth`) |
+| `bedmap --echo --count/--sum/--mean/--min/--max/--median/--stdev/--variance/...` | `gloci map -a A -b B -c COL:count/sum/mean/min/max/median/stdev_pop/var_pop/...` (`--delim`, `--skip-unmatched` for `--skip-unmapped`; `gloci map` always writes A's record first, which is `--echo`; `--stdev` and `--variance` are sample statistics (n - 1): use `stdev` and `var`, not `stdev_pop` and `var_pop`; for one value bedmap prints `NAN` and gloci prints `--empty`, default `.`) |
+| `bedmap --mad`, `--cv`, `--wmean` | `-c COL:mad`, `-c COL:cv`, `-c COL:wmean` (`mad` is the unscaled median absolute deviation) |
+| `bedmap --tmean F1 F2` | `-c COL:tmean:F1-(1-F2)`, with the arithmetic done by you: `--tmean 0.1 0.3` trims the bottom 10% and the top 30%, so it is `tmean:0.1-0.7`. With very few values the two differ: for the values 4 and 8, bedmap `--tmean 0.2 0.2` gives 6 and `tmean:0.2-0.8` gives `.` |
+| `bedmap --kth F` | no exact equivalent. bedmap takes the value with fraction F of the scores below it, without interpolation; `-c COL:quantile:Q` interpolates (type 7). The two agree only at some F: for 1, 3, 5, 7, 10 at F = 0.1 bedmap gives 2 and `quantile:0.1` gives 1.8; for 4 and 8 at F = 0.25 bedmap gives 6 and gloci gives 5 |
 | `bedmap --min-element`, `--max-element` | `-c COL:min_record`, `-c COL:max_record` (the whole B record with the smallest or largest value) |
 | `bedmap --indicator`, `--bases-uniq`, `--bases-uniq-f` | `-c 0:indicator`, `-c 0:bases_uniq`, `-c 0:frac_a` |
 | `bedmap --echo-map-score` | `-c 5:collapse` (column 5 of B) |
@@ -249,11 +253,11 @@ names the token and its column. Quote the expression in the shell.
 | bcftools expression | gloci expression (same text unless shown) |
 |---|---|
 | `QUAL>30`, `POS>=1000`, `CHROM="1"`, `REF="A"`, `ALT="C"` | unchanged |
-| `FILTER="PASS"`, `FILTER!="PASS"`, `FILTER~"Low"` | unchanged (a tag must be declared in the header; one tag per comparison, `FILTER="A,B"` is an error, use `FILTER="A" \|\| FILTER="B"`) |
+| `FILTER="PASS"`, `FILTER!="PASS"`, `FILTER~"Low"` | unchanged (an `=` or `!=` tag must be declared in the header, and one tag per comparison: `FILTER="A,B"` is an error, use `FILTER="A" \|\| FILTER="B"`. For `~`, bcftools also errors on a pattern that is not a declared tag (`The filter "Low" not present in the VCF header`); gloci accepts any regular expression) |
 | `ID~"^rs"`, `ID="."`, `ID!="."` | unchanged (regular expressions are Rust `regex` syntax, not POSIX) |
 | `TYPE="snp"`, `TYPE="indel"` | unchanged (`snp`, `mnp`, `indel`, `other`, `ref`) |
 | `INFO/DP>10 && INFO/AF<0.3`, `INFO/DP>=10 \|\| QUAL<20` | unchanged (`&&`, `\|\|`, parentheses, and `!` before a group or comparison, which bcftools rejects) |
-| `INFO/AF[0]>0.2`, `INFO/CSQ~"missense"` | unchanged (`[i]` is a 0-based element index; an index past the end is missing, so the comparison is false) |
+| `INFO/AF[0]>0.2`, `INFO/CSQ~"missense"` | `[i]` is a 0-based element index, as in bcftools. An index past the end is missing in gloci, so the comparison is false, where bcftools 1.21 can select the record: [differences.md#expr-index-past-end](differences.md#expr-index-past-end) |
 | `INFO/DB` (a flag), `INFO/DB=1` | unchanged (a bare flag is its presence; bcftools selects nothing for the bare form) |
 | `QUAL=.`, `INFO/AF=.`, `ID=.` | unchanged (`.` is the missing value; in bcftools only `ID="."` works) |
 | `FMT/DP>6`, `FMT/GQ>=40`, `GT="het"`, `GT="alt"`, `GT="mis"` | unchanged: a bare or `FMT/` comparison holds when any sample satisfies it (the keywords are `ref`, `alt`, `het`, `hom`, `mis`, and the literal genotypes such as `"1/1"`) |
@@ -261,7 +265,8 @@ names the token and its column. Quote the expression in the shell.
 | `N_PASS(GT="het")>=2`, `N_PASS(FMT/DP>5 && FMT/GQ>30)>=1` | unchanged (`N_PASS` is the only function; its test must be a sample-wise comparison joined with `&&` or `\|\|`) |
 | `F_MISSING<0.1`, `N_MISSING=0`, `MAF>0.05`, `AC>1`, `AN=6`, `N_ALT>=1`, `N_SAMPLES>2` | unchanged (`MAF` is bcftools' first-ALT MAF, not `--min-maf`; with `--samples` these see only the selected samples) |
 | `DP>10` when `DP` is both INFO and FORMAT | `INFO/DP>10` or `FMT/DP>10` (bcftools refuses the bare form too) |
-| `bcftools view -f PASS`, `-v snps`, `-m2 -M2`, `-s S`, `-r R`, `-R BED` | `--pass-only`, `--types snv`, `--biallelic`, `--samples S`, `--region R`, `--regions-file BED` |
+| `bcftools view -f PASS` | `--keep-filter PASS`. Not `--pass-only`: that keeps FILTER `PASS` and `.` (vcftools `--remove-filtered-all`), where `bcftools view -f PASS` drops `.` |
+| `-v snps`, `-m2 -M2`, `-s S`, `-r R`, `-R BED` | `--types snv`, `--biallelic`, `--samples S`, `--region R`, `--regions-file BED` |
 | `bcftools filter -i EXPR -s TAG` (soft filter), `-g`, `-G` (SnpGap, IndelGap), `-S .` | not available: gloci removes records, it never sets FILTER; `--pass-only`, `--keep-filter` and `--remove-filter` select on an existing FILTER |
 
 Not supported, each a usage error (exit 2) naming the construct:
@@ -270,7 +275,7 @@ Not supported, each a usage error (exit 2) naming the construct:
 - FORMAT fields other than `GT`, `DP` and `GQ`: `FMT/AD`, `FMT/FT`, `FMT/PL` and so on. `vcf filter` has `--mask-filtered-genotypes` for FT.
 - Comparing two fields (`QUAL>POS`, `INFO/DP>FMT/DP`) or arithmetic (`QUAL*2>10`): a field is compared with a number, a string or `.`.
 - The sample-wise `&` and `|`: write `&&` and `||`, which combine whole-record conditions; use `N_PASS` for several conditions on one sample.
-- Index ranges and wildcards (`INFO/AF[0-1]`, `AF[*]`), `@file` lists, `GT` subscripts past the sample count, and POSIX-only regular expression syntax.
+- Index ranges and wildcards (`INFO/AF[0-1]`, `AF[*]`), `@file` lists, `GT` subscripts past the sample count, and regular expression features Rust's `regex` lacks (back-references, look-around), which are usage errors; POSIX classes such as `[[:alpha:]]` work.
 - Words for the operators (`and`, `or`) and tags the header does not define (`MAC`, `ILEN`, any undeclared INFO key).
 
 Before relying on a new expression, run it once on a small file with
@@ -360,7 +365,8 @@ Before relying on a new expression, run it once on a small file with
 - **Sample `stdev` and `var` in `map` and `merge`:** `stdev` and `var` divide by
   `n - 1` (returning `--empty` for one value, matching `bedtools sstdev`); use
   `stdev_pop` and `var_pop` for population statistics dividing by `n` (matching
-  `bedtools stdev` and `bedmap --stdev`).
+  `bedtools map -o stdev`). `bedmap --stdev` and `--variance` are sample
+  statistics too, so they are `stdev` and `var`.
   [differences.md#map-stdev-sample](differences.md#map-stdev-sample)
 - **First-seen order for `distinct`:** `map` and `merge` `distinct` preserves
   first-seen order; use `distinct_sorted` for `bedtools`' bytewise-sorted list.
@@ -526,15 +532,23 @@ Before relying on a new expression, run it once on a small file with
   [differences.md#vcf-symbolic-no-end](differences.md#vcf-symbolic-no-end)
 
 - **`--chrom-map` with `--assume-sorted` means "sorted by the new names":**
-  `view --assume-sorted` binary-searches a plain BED file and trusts it. With
-  `--chrom-map` the order it trusts is the order of the renamed chromosomes, not
-  of the names in the file. A map that reverses the order (`a`, `b` renamed to
-  `z`, `y`) leaves a file that is not sorted by the new names; the search can
-  miss records where a full scan reports the file as unsorted. Rename and re-sort first:
+  `view --assume-sorted` binary-searches a plain BED file and trusts the claim
+  that it is sorted. With `--chrom-map` the order it trusts is that of the
+  renamed chromosomes. Two cases:
+  - A map that reverses the order (`a`, `b` renamed to `z`, `y`) is safe: the
+    search does not find the chromosome, warns "could not locate ... scanning
+    the whole file" and falls back to a scan, so no record is lost.
+  - A map that renames onto a name already in the file is not. With the lines
+    `a`, `a`, `b`, `c`, the map `a` to `c` and `-g c,b`, `view --assume-sorted
+    c:1-1000` silently returns only the renamed `a` records, while the plain
+    scan fails with "not sorted: line 4 (c ...) comes after ...". The claim
+    that the file is sorted in new-name space is false there, and gloci does
+    not check it.
+  To query such a file, rename and re-sort first:
   `gloci view FILE --chrom-map MAP | gloci sort - -o renamed.bed.gz --write-index`,
   and query that. (A note, not a pinned difference: the old tools have no
-  rename table to compare with; the case where the order is kept is tested in
-  `assume_sorted_bisection_with_a_map`, `crates/gloci/tests/chrom_map.rs`.)
+  rename table to compare with. Both cases are tested in
+  `crates/gloci/tests/chrom_map.rs`.)
 - **`genomecov` counts past 32 bits:** a `genome` row counts bases in 64 bits.
   `bedtools genomecov` wraps that count at 32 bits when one depth covers more
   than about 4.29 Gb in total across the genome (for instance a 6 Gb genome
