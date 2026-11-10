@@ -101,6 +101,21 @@ pub struct MaskSummary {
     /// Chromosomes that have masks but are not in the FASTA, in the order
     /// the masks named them.
     pub missing_chroms: Vec<Vec<u8>>,
+    /// With [`PastEnd::Clip`]: merged mask intervals that reached past the end
+    /// of their sequence (and were clipped to it).
+    pub past_end: u64,
+    /// The first of them, described for a warning.
+    pub first_past_end: Option<String>,
+}
+
+/// What a mask that reaches past the end of its sequence does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PastEnd {
+    /// A data error, reported once the sequence is done.
+    Error,
+    /// The mask is clipped to the sequence (one that starts at or past the
+    /// end masks nothing) and counted in the summary.
+    Clip,
 }
 
 /// The first word of a header: the name masks refer to.
@@ -145,26 +160,50 @@ struct Current<'a> {
 }
 
 impl Current<'_> {
-    /// The sequence is complete: a mask must not reach past its end.
-    fn finish(&self, fasta: &str) -> Result<(), IoError> {
-        let Some(&(s, e)) = self.masks.and_then(|m| m.last()) else {
+    /// The merged masks that reach past the end of the sequence, now that
+    /// its length is known: how many, and the first.
+    fn past_end(&self) -> (u64, Option<(u64, u64)>) {
+        let Some(m) = self.masks else {
+            return (0, None);
+        };
+        // Merged masks are disjoint and sorted, so their ends increase.
+        let i = m.partition_point(|&(_, e)| e <= self.len);
+        ((m.len() - i) as u64, m.get(i).copied())
+    }
+
+    /// The sequence is complete: settle masks that reach past its end.
+    fn finish(
+        &self,
+        fasta: &str,
+        policy: PastEnd,
+        summary: &mut MaskSummary,
+    ) -> Result<(), IoError> {
+        let (n, first) = self.past_end();
+        let Some((s, e)) = first else {
             return Ok(());
         };
-        if e <= self.len {
-            return Ok(());
-        }
         let name = String::from_utf8_lossy(&self.name);
-        Err(IoError::Detect {
-            path: fasta.to_string(),
-            msg: format!(
-                "a mask on {name} covers {}-{} (0-based, half-open) but {name} in {fasta} has \
-{} bases; check that the masks belong to this FASTA (same assembly and chromosome names, or \
-rename with --chrom-map)",
-                thousands(s),
-                thousands(e),
-                thousands(self.len),
-            ),
-        })
+        let what = format!(
+            "a mask on {name} covers {}-{} (0-based, half-open) but {name} in {fasta} has {} bases",
+            thousands(s),
+            thousands(e),
+            thousands(self.len),
+        );
+        match policy {
+            PastEnd::Error => Err(IoError::Detect {
+                path: fasta.to_string(),
+                msg: format!(
+                    "{what}; check that the masks belong to this FASTA (same assembly and \
+chromosome names, or rename with --chrom-map), or pass --skip-invalid to clip such masks to the \
+sequence end"
+                ),
+            }),
+            PastEnd::Clip => {
+                summary.past_end += n;
+                summary.first_past_end.get_or_insert(what);
+                Ok(())
+            }
+        }
     }
 }
 
@@ -180,9 +219,20 @@ fn write_err(source: std::io::Error) -> IoError {
 /// kept; a piece of at most 1 MiB is held at a time. A mask that reaches past
 /// the end of its sequence is an error, reported once that sequence is done.
 pub fn maskfasta(
+    fasta: FastaStream,
+    masks: &MaskSet,
+    mask: Mask,
+    out: &mut dyn Write,
+) -> Result<MaskSummary, IoError> {
+    maskfasta_with(fasta, masks, mask, PastEnd::Error, out)
+}
+
+/// [`maskfasta`] with a choice of what a mask past its sequence's end does.
+pub fn maskfasta_with(
     mut fasta: FastaStream,
     masks: &MaskSet,
     mask: Mask,
+    past_end: PastEnd,
     out: &mut dyn Write,
 ) -> Result<MaskSummary, IoError> {
     let name = fasta.name().to_string();
@@ -207,7 +257,7 @@ pub fn maskfasta(
         let (crlf, ended) = (fasta.crlf(), fasta.line_ended());
         if is_header {
             if let Some(c) = &cur {
-                c.finish(&name)?;
+                c.finish(&name, past_end, &mut summary)?;
             }
             let key = first_word(&piece);
             present.insert(key.to_vec());
@@ -233,7 +283,7 @@ pub fn maskfasta(
         }
     }
     if let Some(c) = &cur {
-        c.finish(&name)?;
+        c.finish(&name, past_end, &mut summary)?;
     }
     summary.missing_chroms = masks
         .order

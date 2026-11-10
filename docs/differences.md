@@ -1476,8 +1476,13 @@ depends on the span.
 - **Reason:** the output is the input with fewer bases, so `diff` shows only the
   masked bases, and the `.fai` of the output matches the `.fai` of the input.
   Silently doing nothing on CRLF input is a wrong answer.
-- **Pinned by:** `maskfasta-irregular-lines-vs-bedtools` and
-  `maskfasta-crlf-vs-bedtools` (outputs must differ).
+- **Also:** bedtools ends the output with a line break even when the input's
+  last line had none, and drops sequences that have no bases (for
+  `>e`, `>chr1` with bases, `>f` it prints only `>chr1`). gloci keeps the last
+  line as it was and keeps `>e` and `>f`.
+- **Pinned by:** `maskfasta-irregular-lines-vs-bedtools`,
+  `maskfasta-crlf-vs-bedtools`, `maskfasta-no-final-newline-vs-bedtools` and
+  `maskfasta-empty-sequences-vs-bedtools` (outputs must differ).
 
 ## `maskfasta` keeps the whole header; bedtools drops the description {#maskfasta-header}
 
@@ -1494,10 +1499,28 @@ depends on the span.
 
 - **gloci:** a mask whose end is beyond the length of its sequence is an error
   (exit 1) that names the sequence, the mask and the length. With `-o`, nothing
-  is published.
+  is published. With `--skip-invalid` the mask is clipped to the end of the
+  sequence instead (one that starts at or past the end masks nothing), and one
+  warning gives the number of such masks and the first.
 - **Old behaviour:** `bedtools maskfasta` accepts a mask that starts inside the
-  sequence and ends past it (it masks to the end, exit 0), and aborts with a C++
-  exception (exit 134) when the mask starts past the end.
+  sequence and ends past it (exit 0) and writes the whole mask length, so the
+  sequence grows by the overhang (a mask 990-1010 on a 1,000 base chr1 leaves
+  chr1 with 1,010 bases); it aborts with a C++ exception (exit 134) when the
+  mask starts past the end.
 - **Reason:** such a mask nearly always means the intervals belong to another
   assembly. Masking a different sequence silently gives a wrong reference.
-- **Pinned by:** `maskfasta-past-end-vs-bedtools` (exit status: must differ).
+- **Pinned by:** `maskfasta-past-end-vs-bedtools` (exit status: must differ);
+  `maskfasta-past-end-skip-invalid-vs-bedtools` pins gloci's clipped output
+  against bedtools' lengthened sequence (output must differ).
+
+## `maskfasta --mask-char` refuses a space {#maskfasta-mask-char}
+
+- **gloci:** `--mask-char` takes one printable, non-space ASCII character; a
+  space exits 2 with the reason.
+- **Old behaviour:** `bedtools maskfasta -mc ' '` writes spaces into the
+  sequence, exit 0.
+- **Reason:** a space inside a sequence line makes the FASTA impossible to
+  index (`gloci index` and `samtools faidx` reject it), so the output would
+  be unusable for most tools.
+- **Pinned by:** `maskfasta-mask-char-space-vs-bedtools` (exit status: must
+  differ).

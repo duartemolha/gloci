@@ -80,7 +80,7 @@ fn mask_char_validation() {
     let d = tempdir();
     let f = gloci_testkit::fixtures::write(d.path(), "in.fa", b">s\nACGT\n");
     let b = plain_file(d.path(), "m.bed", "s\t0\t2\n");
-    for bad in ["NN", "", " ", "\u{7}", "é"] {
+    for bad in ["NN", "", "\u{7}", "é"] {
         gloci()
             .args(["maskfasta", "--fasta"])
             .arg(&f)
@@ -91,6 +91,15 @@ fn mask_char_validation() {
             .code(2)
             .stderr(contains("mask character"));
     }
+    gloci()
+        .args(["maskfasta", "--fasta"])
+        .arg(&f)
+        .arg("-b")
+        .arg(&b)
+        .arg("--mask-char= ")
+        .assert()
+        .code(2)
+        .stderr(contains("space").and(contains("index")));
     gloci()
         .args(["maskfasta", "--fasta"])
         .arg(&f)
@@ -419,4 +428,96 @@ fn maskfasta_streams() {
     assert_eq!(seq[10], b"ACGT"[10 % 4]);
     assert_eq!(seq[MIB + 5], b"ACGT"[(MIB + 5) % 4]);
     assert_eq!(seq.iter().filter(|&&b| b == b'N').count(), 30);
+}
+
+#[test]
+fn a_replaced_fasta_output_loses_its_stale_index() {
+    let d = tempdir();
+    let masks = plain_file(d.path(), "m.bed", "a\t0\t2\n");
+    for (name, gz) in [("o.fa", false), ("o.fa.gz", true)] {
+        let out = d.path().join(name);
+        let fai = d.path().join(format!("{name}.fai"));
+        let gzi = d.path().join(format!("{name}.gzi"));
+        let run = |fasta: &Path, extra: &[&str]| {
+            gloci()
+                .args(["maskfasta", "--fasta"])
+                .arg(fasta)
+                .arg("-b")
+                .arg(&masks)
+                .arg("-o")
+                .arg(&out)
+                .args(extra)
+                .assert()
+                .success();
+        };
+        let first = gloci_testkit::fixtures::write(d.path(), "w10.fa", b">a\nACGTACGTAC\nACGT\n");
+        run(&first, &["--write-index"]);
+        assert!(fai.exists(), "{name}");
+        assert_eq!(gzi.exists(), gz, "{name}");
+        // Rewritten with other line widths and no --write-index: the old index describes other data.
+        let second = gloci_testkit::fixtures::write(d.path(), "w4.fa", b">a\nACGT\nACGT\nAC\n");
+        run(&second, &[]);
+        assert!(!fai.exists(), "{name}: stale .fai kept");
+        assert!(!gzi.exists(), "{name}: stale .gzi kept");
+        assert!(out.exists());
+    }
+}
+
+#[test]
+fn skip_invalid_clips_masks_past_the_end() {
+    let d = tempdir();
+    let input = b">a\nACGTAC\nGT\n>b\nACGT\n";
+    // a is 8 bases: 6-12 is clipped to 6-8, 8-9 and 20-30 start at or past the end and mask
+    // nothing; b is 4 bases and 3-5 is clipped.
+    let bed = "a\t6\t12\na\t8\t9\na\t20\t30\nb\t3\t5\n";
+    let f = gloci_testkit::fixtures::write(d.path(), "in.fa", input);
+    let b = plain_file(d.path(), "m.bed", bed);
+    let args = [
+        "maskfasta",
+        "--fasta",
+        f.to_str().unwrap(),
+        "-b",
+        b.to_str().unwrap(),
+    ];
+    gloci()
+        .args(args)
+        .assert()
+        .code(1)
+        .stderr(contains("--skip-invalid"));
+    let out = gloci().args(args).arg("--skip-invalid").output().unwrap();
+    assert!(out.status.success());
+    assert_eq!(
+        String::from_utf8(out.stdout).unwrap(),
+        ">a\nACGTAC\nNN\n>b\nACGN\n"
+    );
+    let err = String::from_utf8(out.stderr).unwrap();
+    assert_eq!(
+        err.lines().filter(|l| l.contains("past the end")).count(),
+        1,
+        "{err}"
+    );
+    assert!(
+        err.contains("3 masks") && err.contains("first: a mask on a covers 6-12"),
+        "{err}"
+    );
+}
+
+#[test]
+fn an_empty_fasta_is_named_as_empty() {
+    let d = tempdir();
+    let empty = plain_file(d.path(), "empty.fa", "");
+    let b = plain_file(d.path(), "m.bed", "a\t0\t2\n");
+    gloci()
+        .args(["maskfasta", "--fasta"])
+        .arg(&empty)
+        .arg("-b")
+        .arg(&b)
+        .assert()
+        .code(1)
+        .stderr(contains("empty.fa is empty").and(contains("no FASTA records")));
+    // An empty mask file stays valid and masks nothing.
+    let f = gloci_testkit::fixtures::write(d.path(), "in.fa", b">a\nACGT\n");
+    let eb = plain_file(d.path(), "e.bed", "");
+    let out = run_ok(&["--fasta", f.to_str().unwrap(), "-b", eb.to_str().unwrap()]);
+    assert_eq!(out, b">a\nACGT\n");
 }

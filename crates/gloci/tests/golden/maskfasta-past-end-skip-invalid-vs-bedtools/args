@@ -1,0 +1,1 @@
+maskfasta --fasta input.fa -b masks-past-end.bed --skip-invalid

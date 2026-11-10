@@ -862,7 +862,8 @@ Examples:
     /// kept). Headers and line layout are kept exactly: line widths, CRLF
     /// line ends, blank lines and a missing final line break. (bedtools
     /// re-wraps lines to the first line's width, drops header descriptions
-    /// and cannot match names in a CRLF file.) The FASTA is read in pieces
+    /// and cannot match names in a CRLF file; it also adds a final line break
+    /// that was missing and drops empty sequences, which gloci keeps.) The FASTA is read in pieces
     /// of at most 1 MiB, so a chromosome of any size needs no memory beyond
     /// the masks.
     ///
@@ -871,7 +872,11 @@ Examples:
     /// merged so a base is masked once. A mask names a sequence by the
     /// first word of its header; use --chrom-map when the names differ.
     /// Masks on a chromosome the FASTA lacks are skipped with one warning.
-    /// A mask that reaches past the end of its sequence is an error.
+    /// A mask that reaches past the end of its sequence is an error, unless
+    /// --skip-invalid is given: then it is clipped to the sequence end (one
+    /// that starts at or past the end masks nothing) with one warning that
+    /// counts them. --mask-char takes one printable character; a space is
+    /// refused because it makes the FASTA unindexable.
     ///
     /// Output goes to stdout or -o FILE (.fa, .fasta, .fna; a .gz name is
     /// BGZF). --write-index also writes FILE.fai, and FILE.gzi for BGZF,
@@ -1682,6 +1687,12 @@ pub struct MapArgs {
 fn parse_mask_char(s: &str) -> Result<u8, String> {
     match s.as_bytes() {
         [b] if b.is_ascii_graphic() => Ok(*b),
+        [b' '] => Err(
+            "a space is refused as the mask character: a space inside a sequence line makes the \
+FASTA impossible to index (gloci index and samtools faidx reject it); use a printable character \
+such as N or X"
+                .into(),
+        ),
         _ => Err(format!(
             "invalid mask character {s:?}: use exactly one printable ASCII character such as N or X (or --soft to lowercase instead)"
         )),

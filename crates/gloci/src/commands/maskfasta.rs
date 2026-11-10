@@ -6,7 +6,7 @@ use gloci_io::{
     FastaStream, InvalidPolicy, OutFormat, OutputOptions, ReaderOptions, UsageError, open_output,
     open_reader, parse_output_spec, refuse_binary_to_tty,
 };
-use gloci_ops::{Mask, MaskSet, maskfasta};
+use gloci_ops::{Mask, MaskSet, PastEnd, maskfasta_with};
 use std::io::IsTerminal;
 
 /// The most chromosome names a warning lists.
@@ -61,8 +61,13 @@ or -O fa for standard output",
     };
     let dest = super::dest_name(&spec);
     let mut out = open_output(&spec, OutFormat::Fasta, &oo)?;
-    let summary =
-        maskfasta(fasta, &masks, mask, &mut out).map_err(|e| e.with_output_name(&dest))?;
+    let past_end = if a.invalid.skip_invalid {
+        PastEnd::Clip
+    } else {
+        PastEnd::Error
+    };
+    let summary = maskfasta_with(fasta, &masks, mask, past_end, &mut out)
+        .map_err(|e| e.with_output_name(&dest))?;
     out.finish()?;
     if !summary.missing_chroms.is_empty() {
         let n = summary.missing_chroms.len();
@@ -81,6 +86,20 @@ chromosome names, or rename them with --chrom-map)",
             if n == 1 { "" } else { "s" },
             a.fasta,
             names.join(", ")
+        );
+    }
+    if let Some(first) = &summary.first_past_end {
+        let n = summary.past_end;
+        log::warn!(
+            "{n} mask{} reached past the end of {} and {} clipped to it (a mask that starts at or \
+past the end masks nothing); first: {first}",
+            if n == 1 { "" } else { "s" },
+            if n == 1 {
+                "its sequence"
+            } else {
+                "their sequences"
+            },
+            if n == 1 { "was" } else { "were" },
         );
     }
     log::info!("masked {} bases", summary.masked_bases);

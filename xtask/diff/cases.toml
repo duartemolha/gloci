@@ -3747,7 +3747,7 @@ reference = "bedtools maskfasta -fi input.fa -bed masks-crlf.bed -fo /dev/stdout
 compare = "exact"
 expected_difference = "#maskfasta-layout"
 
-# bedtools masks to the end and exits 0; gloci exits 1.
+# bedtools lengthens the sequence and exits 0; gloci exits 1.
 [[case]]
 name = "maskfasta-past-end-vs-bedtools"
 input = { file = "xtask/diff/inputs/fa/ref.fa" }
@@ -3755,4 +3755,55 @@ aux = ["xtask/diff/inputs/fa/masks-past-end.bed"]
 gloci = "gloci maskfasta --fasta input.fa -b masks-past-end.bed"
 reference = "bedtools maskfasta -fi input.fa -bed masks-past-end.bed -fo /dev/stdout"
 compare = "exit-status"
+expected_difference = "#maskfasta-past-end"
+
+# Non-letters under --soft: bedtools lowercases letters only, as gloci does.
+[[case]]
+name = "maskfasta-soft-symbols-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/symbols.fa" }
+aux = ["xtask/diff/inputs/fa/masks-symbols.bed"]
+gloci = "gloci maskfasta --fasta input.fa -b masks-symbols.bed --soft"
+reference = "bedtools maskfasta -soft -fi input.fa -bed masks-symbols.bed -fo /dev/stdout"
+compare = "exact"
+
+# bedtools ends the file with a line break even if the input had none.
+[[case]]
+name = "maskfasta-no-final-newline-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/no-eol.fa" }
+aux = ["xtask/diff/inputs/fa/masks-no-eol.bed"]
+gloci = "gloci maskfasta --fasta input.fa -b masks-no-eol.bed"
+reference = "bedtools maskfasta -fi input.fa -bed masks-no-eol.bed -fo /dev/stdout"
+compare = "exact"
+expected_difference = "#maskfasta-layout"
+
+# bedtools drops sequences that have no bases (empty1, empty2).
+[[case]]
+name = "maskfasta-empty-sequences-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/empty-seq.fa" }
+aux = ["xtask/diff/inputs/fa/masks-empty-seq.bed"]
+gloci = "gloci maskfasta --fasta input.fa -b masks-empty-seq.bed"
+reference = "bedtools maskfasta -fi input.fa -bed masks-empty-seq.bed -fo /dev/stdout"
+compare = "exact"
+expected_difference = "#maskfasta-layout"
+
+# bedtools accepts a space as the mask character; gloci exits 2.
+[[case]]
+name = "maskfasta-mask-char-space-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/ref.fa" }
+aux = ["xtask/diff/inputs/fa/masks.bed"]
+gloci = "gloci maskfasta --fasta input.fa -b masks.bed --mask-char ' '"
+reference = "bedtools maskfasta -mc ' ' -fi input.fa -bed masks.bed -fo /dev/stdout"
+compare = "exit-status"
+expected_difference = "#maskfasta-mask-char"
+
+# With --skip-invalid a mask that starts inside the sequence and ends past it is
+# clipped to the sequence end. bedtools writes the whole mask length, so the
+# last line grows by the overhang (10 extra N).
+[[case]]
+name = "maskfasta-past-end-skip-invalid-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/ref.fa" }
+aux = ["xtask/diff/inputs/fa/masks-past-end.bed"]
+gloci = "gloci maskfasta --fasta input.fa -b masks-past-end.bed --skip-invalid"
+reference = "bedtools maskfasta -fi input.fa -bed masks-past-end.bed -fo /dev/stdout"
+compare = "exact"
 expected_difference = "#maskfasta-past-end"

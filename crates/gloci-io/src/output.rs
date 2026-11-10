@@ -252,6 +252,9 @@ pub struct Output {
     sink: Sink,
     dest: Option<PathBuf>,
     index: IndexPlan,
+    /// FASTA output without `--write-index`: an old `.fai`/`.gzi` beside the
+    /// destination describes other data and is removed when the file is replaced.
+    drop_fasta_index: bool,
 }
 
 /// What `--write-index` builds at `finish`.
@@ -351,6 +354,7 @@ write to a file such as -o out.bed.gz and index that",
     Ok(Output {
         sink,
         dest: spec.path.clone(),
+        drop_fasta_index: f == OutFormat::Fasta && !opts.write_index,
         index,
     })
 }
@@ -454,6 +458,20 @@ impl Output {
                 }
             }
             crate::index::remove_indexes(dest)?;
+            if self.drop_fasta_index {
+                for stale in [crate::fasta::fai_path(dest), crate::fasta::gzi_path(dest)] {
+                    match std::fs::remove_file(&stale) {
+                        Ok(()) => {}
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                        Err(source) => {
+                            return Err(IoError::Write {
+                                path: stale.display().to_string(),
+                                source,
+                            });
+                        }
+                    }
+                }
+            }
             af.commit().map_err(werr)?;
             for (idx, path) in staged {
                 idx.commit().map_err(|source| IoError::Write {

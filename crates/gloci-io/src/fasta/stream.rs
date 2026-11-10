@@ -44,7 +44,7 @@ pub struct FastaStream {
 impl FastaStream {
     /// Open `path` (`-` is standard input). The format must be FASTA.
     pub fn open(path: &str, threads: NonZeroUsize) -> Result<Self, IoError> {
-        let input = open_input(
+        let mut input = open_input(
             path,
             &InputOptions {
                 threads,
@@ -52,6 +52,25 @@ impl FastaStream {
             },
         )?;
         if input.format != Format::Fasta {
+            // An empty file is detected as BED (an empty interval file is
+            // valid), but an empty FASTA is a mistake worth naming.
+            let mut first = [0u8; 1];
+            let empty = loop {
+                match input.reader.read(&mut first) {
+                    Ok(n) => break n == 0,
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                    Err(_) => break false,
+                }
+            };
+            if empty {
+                return Err(IoError::Detect {
+                    path: input.name.clone(),
+                    msg: format!(
+                        "{} is empty: it has no FASTA records; pass a FASTA file that starts with a '>' header line",
+                        input.name
+                    ),
+                });
+            }
             return Err(IoError::Detect {
                 path: input.name.clone(),
                 msg: format!(

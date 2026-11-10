@@ -492,13 +492,18 @@ Before relying on a new expression, run it once on a small file with
 - **`maskfasta` keeps the FASTA as it is:** `gloci maskfasta` keeps header
   descriptions, line widths, CRLF and a missing final newline; `bedtools
   maskfasta` drops descriptions (unless `-fullHeader`), re-wraps to the first
-  line's width, and masks nothing in a CRLF file.
+  line's width, and masks nothing in a CRLF file; it also adds a final line
+  break that was missing and drops sequences with no bases.
   [differences.md#maskfasta-header](differences.md#maskfasta-header)
   [differences.md#maskfasta-layout](differences.md#maskfasta-layout)
 - **`maskfasta` refuses a mask past the sequence end:** exit 1, where `bedtools
-  maskfasta` masks to the end (or aborts with exit 134 when the mask starts past
-  it).
+  maskfasta` writes extra bases past the end (or aborts with exit 134 when the
+  mask starts past it). With `--skip-invalid` gloci clips such masks to the
+  sequence end, so the sequence keeps its length.
   [differences.md#maskfasta-past-end](differences.md#maskfasta-past-end)
+- **`maskfasta --mask-char` refuses a space:** exit 2, where `bedtools
+  maskfasta -mc ' '` writes spaces that make the FASTA unindexable.
+  [differences.md#maskfasta-mask-char](differences.md#maskfasta-mask-char)
 - **`vcf filter` keeps INFO by default:** All INFO fields are preserved unless
   pruned with `--keep-info` or `--drop-info` (`vcftools --recode` drops INFO
   unless `--recode-INFO-all` is given).
