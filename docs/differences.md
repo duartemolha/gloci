@@ -361,7 +361,9 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 
 ## `--match alleles` compares trimmed alleles {#trimmed-allele-match}
 
-- **gloci:** `intersect --match alleles` keeps a record when some ALT of it
+- **gloci:** `intersect --match alleles` (and `subtract --match alleles`, which
+  drops an A record exactly when `intersect --mode none --match alleles` does,
+  one shared ALT of a multi-allelic A dropping it whole) keeps a record when some ALT of it
   equals some ALT of a B record after trimming the shared prefix and suffix
   of REF and ALT, at the same trimmed position. `A>AG` at 100 matches `C>GC`
   at 101 (an insertion of G), and records match when they share any one ALT of
@@ -372,8 +374,10 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   multi-allelic record shares a variant with another that lists more or fewer
   ALTs. Run `bcftools norm` on both inputs and the results then agree for
   records with identical ALT lists.
-- **Pinned by:** `intersect-alleles-unnormalised-vs-bcftools` (must differ);
-  `intersect-alleles-vs-bcftools` and `intersect-alleles-multiallelic-vs-bcftools`
+- **Pinned by:** `intersect-alleles-unnormalised-vs-bcftools` and
+  `subtract-alleles-unnormalised-vs-bcftools` (`bcftools isec -C`) (must differ);
+  `intersect-alleles-vs-bcftools`, `intersect-alleles-multiallelic-vs-bcftools`,
+  `subtract-alleles-vs-bcftools` and `subtract-alleles-multiallelic-vs-bcftools`
   (must match).
 
 ## `merge -s` keeps records of unknown strand {#merge-unknown-strand}

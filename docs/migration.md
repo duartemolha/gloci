@@ -153,7 +153,7 @@ then the rest of P2b (Python library, packaging, mdBook, paper evidence suite).
 | `-f -F -r -e -s -S -split` | `-f` (`--min-frac-a`), `-F` (`--min-frac-b`), `-r` (`--reciprocal`), `-e` (`--either`), `-s` (`--same-strand`), `-S` (`--opposite-strand`), `--split` (plus `--min-bases N`, `--inclusive-points`) |
 | `-sorted` | default (sortedness is checked); unsorted input needs `--unsorted` (loads `-b` into memory, keeps A's order) or `--sort` (external sort first) |
 | `window -w/-l/-r/-sw` | `gloci intersect -a A -b B -w/--window N` or `--left L --right R` with `--strand-window` (also on `subtract` and `map`) |
-| `subtract`, `-A`, `-N` | `gloci subtract -a A -b B`, `--whole`, `--sum-overlaps [-f FRAC]` (plus `--split` to cut by B's BED12 blocks) |
+| `subtract`, `-A`, `-N` | `gloci subtract -a A -b B`, `--whole`, `--sum-overlaps [-f FRAC]` (plus `--split` to cut by B's BED12 blocks); `--match alleles` on VCF/BCF drops an A only for a B with the same allele (`bcftools isec -C -c none`, trimmed: [differences.md#trimmed-allele-match](differences.md#trimmed-allele-match)) |
 | `merge -d -s -c -o` | `gloci merge FILE... -d/--max-gap N -s --count -c/--column COL:OP` (`--delim`, `--empty`, `--sort`) |
 | `complement -g` | `gloci complement FILE... [-g GENOME]` (`-g` takes a built-in such as `hg38` or a `.genome`/`.fai`/`.dict` file; `--sort`) |
 | `closest -d -D -k -t -io -iu -id -mdb` | `gloci closest -a A -b B --distance --signed ref\|a\|b -k N --ties all\|first\|last --ignore-overlaps --ignore-upstream --ignore-downstream --per-file` (plus `--max-distance N`, `-s`/`--same-strand`, `-S`/`--opposite-strand`) |
@@ -364,8 +364,8 @@ Before relying on a new expression, run it once on a small file with
   evaluated per B record (like bedtools), not summed across B records (like
   `bedops --element-of`; run `gloci merge` on B first to sum).
   [differences.md#per-record-overlap-fraction](differences.md#per-record-overlap-fraction)
-- **Trimmed allele matching (`--match alleles`):** `intersect --match alleles`
-  compares ALT alleles after trimming shared REF/ALT prefix and suffix and
+- **Trimmed allele matching (`--match alleles`):** `intersect --match alleles` and `subtract --match alleles`
+  compare ALT alleles after trimming shared REF/ALT prefix and suffix and
   matches when any ALT is shared.
   [differences.md#trimmed-allele-match](differences.md#trimmed-allele-match)
 - **`merge -s` keeps unknown-strand records:** Records with `.` or no strand are

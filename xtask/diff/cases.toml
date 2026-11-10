@@ -660,6 +660,33 @@ reference = "bgzip -c input.vcf > a.vcf.gz && bgzip -c rel-trim-b.vcf > b.vcf.gz
 compare = "vcf-records"
 expected_difference = "#trimmed-allele-match"
 
+# `subtract --match alleles` keeps the A records no B shares an allele with:
+# `bcftools isec -C -c none` (the records private to A under exact REF/ALT).
+[[case]]
+name = "subtract-alleles-vs-bcftools"
+input = { file = "xtask/diff/inputs/rel-a.vcf" }
+aux = ["xtask/diff/inputs/rel-b.vcf"]
+gloci = "gloci subtract --chrom-order lex --match alleles -a input.vcf -b rel-b.vcf"
+reference = "bgzip -c input.vcf > a.vcf.gz && bgzip -c rel-b.vcf > b.vcf.gz && tabix a.vcf.gz && tabix b.vcf.gz && bcftools isec -C -w1 -c none a.vcf.gz b.vcf.gz"
+compare = "vcf-records"
+
+[[case]]
+name = "subtract-alleles-multiallelic-vs-bcftools"
+input = { file = "xtask/diff/inputs/rel-multi-a.vcf" }
+aux = ["xtask/diff/inputs/rel-multi-b.vcf"]
+gloci = "gloci subtract --chrom-order lex --match alleles -a input.vcf -b rel-multi-b.vcf"
+reference = "bgzip -c input.vcf > a.vcf.gz && bgzip -c rel-multi-b.vcf > b.vcf.gz && tabix a.vcf.gz && tabix b.vcf.gz && bcftools isec -C -w1 -c none a.vcf.gz b.vcf.gz"
+compare = "vcf-records"
+
+[[case]]
+name = "subtract-alleles-unnormalised-vs-bcftools"
+input = { file = "xtask/diff/inputs/rel-trim-a.vcf" }
+aux = ["xtask/diff/inputs/rel-trim-b.vcf"]
+gloci = "gloci subtract --chrom-order lex --match alleles -a input.vcf -b rel-trim-b.vcf"
+reference = "bgzip -c input.vcf > a.vcf.gz && bgzip -c rel-trim-b.vcf > b.vcf.gz && tabix a.vcf.gz && tabix b.vcf.gz && bcftools isec -C -w1 -c none a.vcf.gz b.vcf.gz"
+compare = "vcf-records"
+expected_difference = "#trimmed-allele-match"
+
 # merge (Task 11): merge-in.bed is BED6, lex-sorted, with bookended, nested,
 # overlapping and nearby records on both strands and an unknown strand.
 [[case]]
