@@ -226,3 +226,52 @@ fn points_are_counted_and_skipped_and_the_header_stays() {
     let (text, _) = run(&mut fa, "", &opts());
     assert_eq!(text, "");
 }
+
+#[test]
+fn minus_strand_pattern_across_chunks() {
+    // fetch_rev delivers the chunks last first, each reverse-complemented
+    // before it is counted; AATC is the reverse complement of GATT.
+    let chunk = FETCH_CHUNK as usize;
+    let len = 3 * chunk + 1234;
+    let mut seq = vec![b'A'; len];
+    for k in 1..=3 {
+        seq[k * chunk - 2..k * chunk + 2].copy_from_slice(b"AATC");
+    }
+    seq[100..110].copy_from_slice(b"ccccccaatc");
+    let rc: Vec<u8> = seq
+        .iter()
+        .rev()
+        .map(|&b| gloci_ops::seq::complement(b, false))
+        .collect();
+    let d = tempfile::tempdir().unwrap();
+    let mut fa = make_fasta(d.path(), &seq);
+    for (pat, ic) in [
+        ("GATT", false),
+        ("gatt", true),
+        ("gatt", false),
+        ("TTA", false),
+        ("TT", false),
+        ("C", false),
+    ] {
+        let o = NucOptions {
+            strand: true,
+            pattern: Some(pat.as_bytes().to_vec()),
+            ignore_case: ic,
+            ..opts()
+        };
+        let (text, _) = run(&mut fa, &format!("big\t0\t{len}\tm\t0\t-\n"), &o);
+        let last = text.lines().nth(1).unwrap().rsplit('\t').next().unwrap();
+        assert_eq!(
+            last.parse::<u64>().unwrap(),
+            naive_overlapping(&rc, pat.as_bytes(), ic),
+            "{pat} ic={ic}"
+        );
+    }
+    let o = NucOptions {
+        strand: true,
+        pattern: Some(b"GATT".to_vec()),
+        ..opts()
+    };
+    let (text, _) = run(&mut fa, &format!("big\t0\t{len}\tm\t0\t-\n"), &o);
+    assert!(text.trim_end().ends_with("\t3"), "{text}");
+}
