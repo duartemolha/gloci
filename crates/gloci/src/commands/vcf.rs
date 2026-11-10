@@ -2,8 +2,8 @@
 
 use crate::Ctx;
 use crate::cli::{
-    ChromMapArg, ExtractLayout, InvalidArg, VcfConcatArgs, VcfExtractArgs, VcfFilterArgs, VcfSelectArgs, VcfSpan,
-    VcfSpanArg, VcfStatsArgs,
+    ChromMapArg, ExtractLayout, InvalidArg, VcfConcatArgs, VcfExtractArgs, VcfFilterArgs,
+    VcfSelectArgs, VcfSpan, VcfSpanArg, VcfStatsArgs,
 };
 use gloci_core::{Interval, RegionSet};
 use gloci_io::{
