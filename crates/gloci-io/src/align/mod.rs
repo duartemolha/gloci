@@ -152,6 +152,15 @@ pub fn gate(name: &str, format: Format, accept: &Accept) -> Result<(), IoError> 
             ),
         )
     };
+    if format == Format::Bedpe {
+        return Err(gate_error(
+            GateKind::PairedOnly,
+            format!(
+                "{name} is read as BEDPE, which only pair-intersect, pair-pair and \
+shuffle --format bedpe read; to treat its first end as a BED interval, pass --format bed"
+            ),
+        ));
+    }
     if format.is_alignment() {
         if matches!(format, Format::Bam | Format::Sam) && accept.alignments.is_some() {
             return Ok(());

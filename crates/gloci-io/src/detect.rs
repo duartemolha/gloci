@@ -27,6 +27,9 @@ pub enum Format {
     Psl,
     /// RepeatMasker `.out` (D114): read by `convert` only.
     Rmsk,
+    /// BEDPE (D146): paired ends; never detected, chosen with `--format bedpe`
+    /// and read by `pair-intersect`, `pair-pair` and `shuffle --format bedpe`.
+    Bedpe,
 }
 
 impl Format {
@@ -56,6 +59,7 @@ impl Format {
             Format::Fasta => "FASTA",
             Format::Psl => "PSL",
             Format::Rmsk => "RepeatMasker",
+            Format::Bedpe => "BEDPE",
         }
     }
 }
@@ -76,9 +80,10 @@ impl FromStr for Format {
             "sam" => Ok(Format::Sam),
             "psl" => Ok(Format::Psl),
             "rmsk" => Ok(Format::Rmsk),
+            "bedpe" => Ok(Format::Bedpe),
             _ => Err(format!(
                 "unknown format '{s}'; expected bed, bedgraph, wig, vcf, bcf, gff, gff3, gtf, \
-bam, cram, sam, psl or rmsk"
+bam, cram, sam, psl, rmsk or bedpe"
             )),
         }
     }

@@ -260,14 +260,16 @@ fn dispatch(input: Input, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, Io
             )?))
         }
         // `gate` has returned an error for each of these.
-        Format::Bam | Format::Cram | Format::Sam | Format::Fasta => Err(IoError::Detect {
-            path: input.name.clone(),
-            msg: format!(
-                "{} is {}, which is not readable here",
-                input.name,
-                input.format.name()
-            ),
-        }),
+        Format::Bam | Format::Cram | Format::Sam | Format::Fasta | Format::Bedpe => {
+            Err(IoError::Detect {
+                path: input.name.clone(),
+                msg: format!(
+                    "{} is {}, which is not readable here",
+                    input.name,
+                    input.format.name()
+                ),
+            })
+        }
     }
 }
 
@@ -426,6 +428,11 @@ impl<K: TextKind> TextReader<K> {
             kind,
             renamer: map.map(Renamer::new),
         }
+    }
+
+    /// The line parser, for a reader that keeps state in it.
+    pub(crate) fn kind(&self) -> &K {
+        &self.kind
     }
 
     /// Rename chromosomes with `map` from now on (D62).

@@ -1,11 +1,11 @@
 //! The per-site statistics: one row per record, in input order.
 
 use super::engine::{Out, Stat, StatSink};
-use super::fmt::{write_e6, write_f2, write_g6, write_u64};
 use crate::filter::SiteView;
 use crate::gt::{GenotypeSource, SampleFields};
 use crate::hwe::hwe_tails;
 use crate::stats::SiteStats;
+use gloci_core::cfmt::{write_e6, write_fixed, write_g6, write_u64};
 use std::io;
 
 fn stats_of(st: Option<&SiteStats>) -> Result<&SiteStats, String> {
@@ -437,7 +437,7 @@ impl Stat for Hardy {
             if i > 0 {
                 b.push(b'/');
             }
-            write_f2(b, *v);
+            write_fixed(b, *v, 2);
         }
         for v in [chisq, t.two_sided, t.het_deficit, t.het_excess] {
             tab(b);

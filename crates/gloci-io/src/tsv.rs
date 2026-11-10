@@ -31,7 +31,7 @@ fn is_bed(f: Format) -> bool {
 /// a BED-family A also takes the BED extensions, as the result is BED-like.
 pub fn tsv_output_ok(a_format: Format, to: OutFormat) -> Result<(), UsageError> {
     let bed_like = is_bed(a_format) && matches!(to, OutFormat::Bed | OutFormat::BedGraph);
-    if to == OutFormat::Tsv || bed_like {
+    if matches!(to, OutFormat::Tsv | OutFormat::Bedpe) || bed_like {
         return Ok(());
     }
     let works = if is_bed(a_format) {
@@ -52,9 +52,13 @@ fn index_hint(a: Format) -> &'static str {
         Format::Gff3 | Format::Gtf => "-s 1 -b 4 -e 5",
         Format::Bed | Format::BedGraph | Format::Wig => "-s 1 -b 2 -e 3",
         // Alignments and sequence files are never TSV inputs; BED columns are the safe hint.
-        Format::Bam | Format::Cram | Format::Sam | Format::Fasta | Format::Psl | Format::Rmsk => {
-            "-s 1 -b 2 -e 3"
-        }
+        Format::Bam
+        | Format::Cram
+        | Format::Sam
+        | Format::Fasta
+        | Format::Psl
+        | Format::Rmsk
+        | Format::Bedpe => "-s 1 -b 2 -e 3",
     }
 }
 

@@ -78,6 +78,7 @@ pub fn family_mismatch(records: Format, to: OutFormat) -> UsageError {
         OutFormat::Bam => ".bam",
         OutFormat::Sam => ".sam",
         OutFormat::Fasta => ".fa, .fasta or .fna (with .gz for BGZF)",
+        OutFormat::Bedpe => ".bedpe or .bedpe.gz",
     };
     UsageError(format!(
         "the input is {} but the output format is {}; this command writes records in their own \
@@ -100,6 +101,7 @@ fn family_name(f: OutFormat) -> &'static str {
         OutFormat::Bam => "BAM",
         OutFormat::Sam => "SAM",
         OutFormat::Fasta => "FASTA",
+        OutFormat::Bedpe => "BEDPE",
     }
 }
 

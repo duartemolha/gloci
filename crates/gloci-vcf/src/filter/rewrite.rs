@@ -34,7 +34,7 @@ impl RewritePlan {
 /// exponent digits when exponent < -4 or >= 6.
 pub fn fmt_g6(x: f64) -> String {
     let mut v = Vec::with_capacity(16);
-    crate::stats::fmt::write_g6(&mut v, x);
+    gloci_core::cfmt::write_g6(&mut v, x);
     String::from_utf8(v).expect("ascii")
 }
 

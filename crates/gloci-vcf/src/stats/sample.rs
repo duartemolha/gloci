@@ -3,10 +3,10 @@
 //! the number of samples, never by the number of records.
 
 use super::engine::{Out, Stat, StatSink};
-use super::fmt::{write_f1, write_f5, write_g6, write_u64};
 use crate::filter::SiteView;
 use crate::gt::{GenotypeSource, SampleFields};
 use crate::stats::SiteStats;
+use gloci_core::cfmt::{write_fixed, write_g6, write_u64};
 use std::io;
 
 fn stats_of(st: Option<&SiteStats>) -> Result<&SiteStats, String> {
@@ -257,11 +257,11 @@ impl Stat for Heterozygosity {
             b.push(b'\t');
             write_u64(b, self.o_hom[k]);
             b.push(b'\t');
-            write_f1(b, e);
+            write_fixed(b, e, 1);
             b.push(b'\t');
             write_u64(b, self.n_sites[k]);
             b.push(b'\t');
-            write_f5(b, (o - e) / (n - e));
+            write_fixed(b, (o - e) / (n - e), 5);
             b.push(b'\n');
         }
         self.out.row().map_err(io::Error::other)?;

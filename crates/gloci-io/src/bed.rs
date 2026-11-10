@@ -28,7 +28,7 @@ fn is_word(line: &[u8], w: &[u8]) -> bool {
     line.starts_with(w) && line.get(w.len()).is_none_or(|b| *b == b' ' || *b == b'\t')
 }
 
-fn is_header_line(line: &[u8]) -> bool {
+pub(crate) fn is_header_line(line: &[u8]) -> bool {
     line.first() == Some(&b'#') || is_word(line, b"track") || is_word(line, b"browser")
 }
 

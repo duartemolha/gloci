@@ -6,6 +6,7 @@ pub mod bcf;
 pub mod bcf_encode;
 mod bcf_fields;
 pub mod bed;
+pub mod bedpe;
 pub mod bgzf_copy;
 pub mod builtin;
 pub mod chrom_map;
@@ -48,6 +49,7 @@ pub use atomic::{
 pub use bcf::{BcfDicts, check_record as check_bcf_record, read_bcf_header, write_bcf_header};
 pub use bcf_encode::encode_gt;
 pub use bed::{bed12_blocks, is_bed_record_line};
+pub use bedpe::{BedpeBatch, BedpeEnd, BedpeMeta, BedpeReader, bedpe_name};
 pub use builtin::{
     BuiltinGenome, Naming, builtin, builtin_alias, builtin_genomes, resolve_genome, unknown_genome,
 };

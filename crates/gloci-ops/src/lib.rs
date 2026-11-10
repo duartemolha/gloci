@@ -19,6 +19,7 @@ pub mod merge;
 pub mod nuc;
 pub mod partition;
 pub mod relate;
+pub mod rng;
 pub mod seq;
 pub mod shift;
 mod skipped;

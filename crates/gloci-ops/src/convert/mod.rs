@@ -106,9 +106,13 @@ fn what(format: Format) -> &'static str {
         Format::Gff3 | Format::Gtf => "GFF3/GTF",
         Format::Bed | Format::BedGraph => "BED",
         Format::Wig => "WIG",
-        Format::Bam | Format::Cram | Format::Sam | Format::Fasta | Format::Psl | Format::Rmsk => {
-            format.name()
-        }
+        Format::Bam
+        | Format::Cram
+        | Format::Sam
+        | Format::Fasta
+        | Format::Psl
+        | Format::Rmsk
+        | Format::Bedpe => format.name(),
     }
 }
 
@@ -220,6 +224,10 @@ pub fn convert(
         Format::Fasta => Err(UsageError(format!(
             "convert does not read {}, which is sequence and not intervals; {SUMMARY}",
             format.name()
+        ))
+        .into()),
+        Format::Bedpe => Err(UsageError(format!(
+            "convert does not read BEDPE; it writes BEDPE from alignments with --bedpe; {SUMMARY}"
         ))
         .into()),
         Format::Psl => psl::convert(input, chroms, &mut sink),

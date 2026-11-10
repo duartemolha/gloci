@@ -61,6 +61,7 @@ fn format_name(f: Format) -> &'static str {
         Format::Fasta => "FASTA",
         Format::Psl => "PSL",
         Format::Rmsk => "RMSK",
+        Format::Bedpe => "BEDPE",
     }
 }
 

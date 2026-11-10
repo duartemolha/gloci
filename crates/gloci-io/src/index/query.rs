@@ -805,6 +805,9 @@ impl IndexedFile {
         }
         // A tabix/CSI index describes interval text; the other alignment, sequence and
         // convert-only formats have no text parser here (`Parser::text`). BAM has its own.
+        if format == Format::Bedpe {
+            return Err(super::build::bedpe_unindexed(&name).into());
+        }
         if (format.is_alignment() && format != Format::Bam)
             || format.is_convert_only()
             || format == Format::Fasta

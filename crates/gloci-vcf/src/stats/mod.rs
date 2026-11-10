@@ -1,7 +1,6 @@
 //! Per-site statistics over the selected, unmasked samples.
 
 mod engine;
-pub(crate) mod fmt;
 mod report;
 mod sample;
 mod site;

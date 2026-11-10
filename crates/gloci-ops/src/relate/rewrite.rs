@@ -18,7 +18,8 @@ pub fn rewrite_coords(format: Format, raw: &[u8], iv: Interval, out: &mut Vec<u8
         | Format::Sam
         | Format::Fasta
         | Format::Psl
-        | Format::Rmsk => {
+        | Format::Rmsk
+        | Format::Bedpe => {
             out.extend_from_slice(raw);
             return;
         }
@@ -64,7 +65,7 @@ pub fn b_placeholder(b_format: Format, b_columns: usize, out: &mut Vec<u8>) {
             f.resize(b_columns.max(5), ".");
             f
         }
-        Format::Vcf | Format::Bcf | Format::Fasta | Format::Psl | Format::Rmsk => {
+        Format::Vcf | Format::Bcf | Format::Fasta | Format::Psl | Format::Rmsk | Format::Bedpe => {
             let mut f = vec![".", "-1"];
             f.resize(b_columns.max(2), ".");
             f

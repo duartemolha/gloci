@@ -1,10 +1,10 @@
 //! `--summary` / `--json`: a short overview of the selected records.
 
 use super::engine::{Out, Stat, StatSink};
-use super::fmt::{write_g6, write_u64};
 use crate::filter::SiteView;
 use crate::gt::GenotypeSource;
 use crate::stats::SiteStats;
+use gloci_core::cfmt::{write_g6, write_u64};
 use gloci_core::{VariantKind, alt_kind};
 use std::io;
 

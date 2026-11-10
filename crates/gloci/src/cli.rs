@@ -2985,6 +2985,16 @@ pub struct UnsortedArg {
     pub unsorted: bool,
 }
 
+// P3b Task 1
+/// `--seed` for the commands that draw random numbers (D143).
+#[derive(Args, Debug, Clone, Copy)]
+pub struct SeedArg {
+    /// Seed for the random stream, so a run can be reproduced (default: a fresh seed, which is
+    /// printed as a warning).
+    #[arg(long, value_name = "N")]
+    pub seed: Option<u64>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

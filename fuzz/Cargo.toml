@@ -20,6 +20,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "bedpe_reader"
+path = "fuzz_targets/bedpe_reader.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "vcf_reader"
 path = "fuzz_targets/vcf_reader.rs"
 test = false
