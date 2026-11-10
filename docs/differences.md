@@ -382,6 +382,61 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   `.`-strand records `chr1 600 700` and `chr1 690 720`). The other `merge`
   cases match bedtools and bedops.
 
+## `cluster -s` keeps input order and unknown-strand records {#cluster-strand}
+
+- **gloci:** `gloci cluster -s` writes the records in input order, each with
+  the id of its strand's cluster. Ids still start at 1 and increase through the
+  file, and a cluster takes the next id when its first record is read, so a
+  `+` and a `-` cluster that interleave get ids in file order. Records of
+  unknown strand (`.`, no strand column, VCF records) form a third group, as in
+  `merge -s`, and a warning says so.
+- **Old behaviour:** `bedtools cluster -s` regroups the records by strand
+  within each chromosome (all `+` records, then all `-` ones), numbers the
+  clusters in that order, and writes nothing for records whose column 6 is `.`.
+- **Reason:** a cluster id column should not reorder the file, and dropping
+  records is a data-loss trap (as for `merge -s`, see
+  [merge-unknown-strand](#merge-unknown-strand)). Without `-s`, and with `-s` on
+  a file whose records all share one strand, gloci and bedtools agree. Sort by
+  the id column to regroup (`sort -k7,7n`).
+- **Pinned by:** `cluster-strand-vs-bedtools` (must differ);
+  `cluster-strand-single-strand-vs-bedtools` (must match). `cluster` without
+  `-s`, with `-d 10`, with a negative `-d` and across chromosomes matches
+  bedtools: `cluster-default-vs-bedtools`, `cluster-gap-vs-bedtools`,
+  `cluster-negative-gap-vs-bedtools`, `cluster-global-ids-vs-bedtools`.
+
+## `cluster` and `spacing` on VCF write a column-name line {#append-vcf-header}
+
+- **gloci:** a VCF input is clustered (or measured) by its footprints, `--vcf-span
+  allele` by default and `--vcf-span ref` as bedtools does. The output is TSV,
+  as for every command that appends a column: a `#CHROM ... INFO cluster` (or
+  `spacing`) line, then each VCF line with the value appended. The `##` meta
+  lines are not copied, because the result is no longer a VCF.
+- **Old behaviour:** `bedtools cluster` and `bedtools spacing` print the VCF
+  records with the value appended and no header line at all.
+- **Reason:** the same as `map` and `coverage` on VCF: the column the
+  value sits in should be named.
+- **Pinned by:** `cluster-vcf-vs-bedtools` and `spacing-vcf-vs-bedtools` (must
+  differ by the header line only; the records are identical with
+  `--vcf-span ref`).
+
+## `spacing` treats a zero-length record as a point {#spacing-zero-length}
+
+- **gloci:** the distance to the previous record is the record's start minus the
+  previous record's end (`0` when bookended), and `-1` when the record starts
+  before the previous one ends. A zero-length record is a point on one boundary,
+  not a base wide: a point at `5 5` after `0 5` is bookended (`0`), and a record
+  starting at `5` after a point `5 5` is also `0`.
+- **Old behaviour:** `bedtools spacing` widens a zero-length record by one base on
+  each side. A point `10 10` after `0 5` is at distance 4 (gloci 5), a point
+  `5 5` after `0 5` overlaps (`-1`, gloci `0`), and the distance between two points
+  is two less than the gap.
+- **Reason:** the footprint of a record is the same in every gloci command
+  (a point does not cover neighbouring bases).
+- **Pinned by:** `spacing-points-vs-bedtools` (must differ). `spacing` on
+  records with a positive length (overlaps, nested records, bookended records,
+  chromosome changes) matches: `spacing-vs-bedtools`. Both tools compare a record
+  only with the one before it in the file, not with the one reaching furthest.
+
 ## `subtract --sum-overlaps` removes A when the sum reaches `-f` {#sum-overlaps-threshold}
 
 - **gloci:** `--sum-overlaps -f F` removes an A record when the bases shared

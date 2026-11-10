@@ -1,5 +1,6 @@
 pub mod check;
 pub mod closest;
+pub mod cluster;
 pub mod complement;
 pub mod convert;
 pub mod coverage;
@@ -15,6 +16,7 @@ pub mod partition;
 pub mod shift;
 pub mod slop;
 pub mod sort;
+pub mod spacing;
 pub mod subtract;
 pub mod vcf;
 pub mod view;

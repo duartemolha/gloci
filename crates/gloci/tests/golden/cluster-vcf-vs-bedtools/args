@@ -1,0 +1,1 @@
+cluster --vcf-span ref input.vcf

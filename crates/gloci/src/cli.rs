@@ -253,6 +253,44 @@ Examples:
   gloci merge genes.bed -s -c 5:max -c 4:distinct
   gloci merge calls.vcf.gz -d -1 -o regions.bed.gz --write-index")]
     Merge(MergeArgs),
+    /// Give every record the id of its cluster (bedtools cluster).
+    ///
+    /// Writes each input line unchanged followed by a tab and a cluster id.
+    /// Clusters are those of gloci merge, with the same -d/--max-gap
+    /// (default 0: overlapping and bookended records share a cluster; a
+    /// negative gap needs that many shared bases) and -s (each strand
+    /// clustered separately, unknown strand apart from + and -). Ids start
+    /// at 1 and increase through the file, across chromosomes. With -s, a
+    /// cluster takes the next id when its first record is read, and the
+    /// records stay in input order (bedtools cluster -s regroups them by
+    /// strand within each chromosome).
+    ///
+    /// The output is TSV, not a copy of the input format: a VCF input
+    /// (clustered by its footprints, see --vcf-span) gets a #CHROM column
+    /// line ending in "cluster" and then its records with the id appended.
+    /// --header keeps the header lines of a BED or GFF input. The input
+    /// must be sorted in one chromosome order, checked as it is read; pass
+    /// --sort to sort it first.
+    #[command(after_long_help = "Examples:
+  gloci cluster peaks.bed
+  gloci cluster peaks.bed -d 100 -s
+  gloci cluster calls.vcf.gz --vcf-span ref -d 50")]
+    Cluster(ClusterArgs),
+    /// Give every record its distance to the previous record (bedtools spacing).
+    ///
+    /// Writes each input line unchanged followed by a tab and the number of
+    /// bases between the record and the one before it in the file on the
+    /// same chromosome: . for the first record of a chromosome, 0 when
+    /// they are bookended, -1 when their footprints overlap (including a
+    /// record inside the previous one; only the previous record counts).
+    /// Unlike bedtools, a zero-length record is a point on its base
+    /// rather than a base wide on each side. The output is TSV, not a copy
+    /// of the input format; for VCF input see gloci cluster. The input
+    /// must be sorted in one chromosome order; pass --sort to sort it first.
+    #[command(after_long_help = "Examples:
+  gloci spacing peaks.bed
+  gloci spacing calls.vcf.gz --vcf-span ref")]
+    Spacing(SpacingArgs),
     /// Write the bases no feature covers (bedtools complement, bedops -c).
     ///
     /// Features of all files are united, and the gaps between them are
@@ -1425,6 +1463,73 @@ pub struct MergeArgs {
     pub chrom_map: ChromMapArg,
     #[command(flatten)]
     pub format: FormatArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub sort: SortArg,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+#[derive(Args)]
+pub struct ClusterArgs {
+    /// Input file (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// Join records up to N bases apart; negative values require that much
+    /// overlap.
+    #[arg(
+        short = 'd',
+        long = "max-gap",
+        value_name = "N",
+        default_value_t = 0,
+        allow_negative_numbers = true
+    )]
+    pub max_gap: i64,
+    /// Cluster each strand separately.
+    #[arg(short = 's', long)]
+    pub strand: bool,
+    #[command(flatten)]
+    pub genome: GenomeArg,
+    #[command(flatten)]
+    pub chrom_order: ChromOrderArg,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub format: FormatArg,
+    #[command(flatten)]
+    pub header: HeaderArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub sort: SortArg,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+#[derive(Args)]
+pub struct SpacingArgs {
+    /// Input file (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    #[command(flatten)]
+    pub genome: GenomeArg,
+    #[command(flatten)]
+    pub chrom_order: ChromOrderArg,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub format: FormatArg,
+    #[command(flatten)]
+    pub header: HeaderArg,
     #[command(flatten)]
     pub invalid: InvalidArg,
     #[command(flatten)]

@@ -110,7 +110,15 @@ impl Ord for Closed {
     }
 }
 
-fn slot_of(per_strand: bool, s: Strand) -> usize {
+/// Whether a record starting at `start` joins a cluster ending at `cluster_end`:
+/// `start <= cluster_end + max_gap`, signed. Shared with `cluster`, so that
+/// both commands agree on what "within distance" means.
+pub(crate) fn joins(start: u64, cluster_end: u64, max_gap: i64) -> bool {
+    i128::from(start) <= i128::from(cluster_end) + i128::from(max_gap)
+}
+
+/// The cluster slot of a strand: one slot, or `+`, `-` and unknown apart.
+pub(crate) fn slot_of(per_strand: bool, s: Strand) -> usize {
     if !per_strand {
         return 0;
     }
@@ -198,7 +206,7 @@ impl Merger<'_> {
         let slot = p.slot;
         let joins = self.open[slot]
             .as_ref()
-            .is_some_and(|c| i128::from(p.start) <= i128::from(c.end) + i128::from(self.o.max_gap));
+            .is_some_and(|c| joins(p.start, c.end, self.o.max_gap));
         if !joins {
             self.close(slot);
             self.open[slot] = Some(Open {

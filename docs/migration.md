@@ -155,6 +155,8 @@ Every row below was checked against `gloci <cmd> --help`.
 | `multiinter -i A B C [-names]` | `gloci partition A B C --merge-adjacent [--names X,Y,Z]` (the count and label columns; the per-file 0/1 columns are not written; `-cluster` and `-empty -g` have no counterpart (for the latter use `gloci complement -g`)) |
 | `unionbedg -i A B [-filler -empty -g]` | `gloci partition A B --bedgraph [--empty VALUE [-g GENOME]]` (`-filler X` is `--empty X`; `--empty` also writes the uncovered segments, as it implies `--min-files 0`; an explicit `--min-files` overrides that) |
 | `groupby -g -c -o [-header]` | `gloci groupby FILE -g COLS -c/--column COL:OP` (bedtools `-o OP` becomes the `:OP` of `-c COL:OP`, and gloci's `-o` is the output file; `--header`, `--delim`, `--empty`; same ops as `map` except those that need a second input; VCF input is refused, use `gloci vcf extract`) |
+| `cluster -d -s` | `gloci cluster FILE -d/--max-gap N -s` (`--sort`; the same gap and strand rules as `gloci merge`; ids are global, and `-s` keeps input order, see [differences.md#cluster-strand](differences.md#cluster-strand); a VCF input is clustered by its footprints and the output is TSV with a `#CHROM ... cluster` line, see [differences.md#append-vcf-header](differences.md#append-vcf-header); BCF is refused, use `gloci view -O vcf`) |
+| `spacing` | `gloci spacing FILE` (`.` for the first record of a chromosome, `0` bookended, `-1` overlapping, only the previous record counts, as in bedtools; a zero-length record is a point, see [differences.md#spacing-zero-length](differences.md#spacing-zero-length); VCF input as for `cluster`) |
 | `cluster` | not yet available (`cluster`, P2) |
 | `shift` | not yet available (`shift`, P3) |
 | `bamtobed` | not yet available (`convert`, P3) |
@@ -312,6 +314,13 @@ Every row below was checked against `gloci <cmd> --help`.
   line and lets `-g` and `-c` use names, where `bedtools groupby -header` copies
   the input header unchanged.
   [differences.md#groupby-header](differences.md#groupby-header)
+- **`cluster -s` order and ids:** `gloci cluster -s` keeps the input order and numbers
+  clusters as their first record is read; `bedtools cluster -s` regroups by strand and
+  drops `.`-strand records.
+  [differences.md#cluster-strand](differences.md#cluster-strand)
+- **`spacing` on points:** a zero-length record is a point, where `bedtools spacing`
+  widens it by one base on each side.
+  [differences.md#spacing-zero-length](differences.md#spacing-zero-length)
 - **A missing column in `groupby`, `map` and `merge`:** a line without a `-g` or `-c`
   column is an error naming the line (exit 1), also for `N:count`; `bedtools groupby`,
   `bedtools map` and `bedtools merge -c` stop with a message and exit 0 when every line

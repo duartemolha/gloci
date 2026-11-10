@@ -136,6 +136,31 @@ gloci merge genes.bed -s -c 5:max -c 4:distinct
 gloci merge calls.vcf.gz -d -1 -o regions.bed.gz --write-index
 ```
 
+### `gloci cluster`
+
+Give every record the id of its cluster (bedtools cluster).
+
+Writes each input line unchanged followed by a tab and a cluster id. Clusters are those of gloci merge, with the same -d/--max-gap (default 0: overlapping and bookended records share a cluster; a negative gap needs that many shared bases) and -s (each strand clustered separately, unknown strand apart from + and -). Ids start at 1 and increase through the file, across chromosomes. With -s, a cluster takes the next id when its first record is read, and the records stay in input order (bedtools cluster -s regroups them by strand within each chromosome).
+
+The output is TSV, not a copy of the input format: a VCF input (clustered by its footprints, see --vcf-span) gets a #CHROM column line ending in "cluster" and then its records with the id appended. --header keeps the header lines of a BED or GFF input. The input must be sorted in one chromosome order, checked as it is read; pass --sort to sort it first.
+
+```sh
+gloci cluster peaks.bed
+gloci cluster peaks.bed -d 100 -s
+gloci cluster calls.vcf.gz --vcf-span ref -d 50
+```
+
+### `gloci spacing`
+
+Give every record its distance to the previous record (bedtools spacing).
+
+Writes each input line unchanged followed by a tab and the number of bases between the record and the one before it in the file on the same chromosome: . for the first record of a chromosome, 0 when they are bookended, -1 when their footprints overlap (including a record inside the previous one; only the previous record counts). Unlike bedtools, a zero-length record is a point on its base rather than a base wide on each side. The output is TSV, not a copy of the input format; for VCF input see gloci cluster. The input must be sorted in one chromosome order; pass --sort to sort it first.
+
+```sh
+gloci spacing peaks.bed
+gloci spacing calls.vcf.gz --vcf-span ref
+```
+
 ### `gloci complement`
 
 Write the bases no feature covers (bedtools complement, bedops -c).
@@ -434,6 +459,8 @@ Every row below was checked against `gloci <cmd> --help`.
 | `multiinter -i A B C [-names]` | `gloci partition A B C --merge-adjacent [--names X,Y,Z]` (the count and label columns; the per-file 0/1 columns are not written; `-cluster` and `-empty -g` have no counterpart (for the latter use `gloci complement -g`)) |
 | `unionbedg -i A B [-filler -empty -g]` | `gloci partition A B --bedgraph [--empty VALUE [-g GENOME]]` (`-filler X` is `--empty X`; `--empty` also writes the uncovered segments, as it implies `--min-files 0`; an explicit `--min-files` overrides that) |
 | `groupby -g -c -o [-header]` | `gloci groupby FILE -g COLS -c/--column COL:OP` (bedtools `-o OP` becomes the `:OP` of `-c COL:OP`, and gloci's `-o` is the output file; `--header`, `--delim`, `--empty`; same ops as `map` except those that need a second input; VCF input is refused, use `gloci vcf extract`) |
+| `cluster -d -s` | `gloci cluster FILE -d/--max-gap N -s` (`--sort`; the same gap and strand rules as `gloci merge`; ids are global, and `-s` keeps input order, see [differences.md#cluster-strand](differences.md#cluster-strand); a VCF input is clustered by its footprints and the output is TSV with a `#CHROM ... cluster` line, see [differences.md#append-vcf-header](differences.md#append-vcf-header); BCF is refused, use `gloci view -O vcf`) |
+| `spacing` | `gloci spacing FILE` (`.` for the first record of a chromosome, `0` bookended, `-1` overlapping, only the previous record counts, as in bedtools; a zero-length record is a point, see [differences.md#spacing-zero-length](differences.md#spacing-zero-length); VCF input as for `cluster`) |
 | `cluster` | not yet available (`cluster`, P2) |
 | `shift` | not yet available (`shift`, P3) |
 | `bamtobed` | not yet available (`convert`, P3) |

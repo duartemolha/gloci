@@ -1,0 +1,6 @@
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	spacing
+chr1	5	.	A	T	.	.	.	.
+chr1	6	.	A	T	.	.	.	0
+chr1	100	.	ACG	A	.	.	.	93
+chr1	102	.	G	C	.	.	.	-1
+chr1	200	.	A	T	.	.	.	97

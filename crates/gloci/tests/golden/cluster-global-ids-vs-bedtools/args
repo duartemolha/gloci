@@ -1,0 +1,1 @@
+cluster --chrom-order lex -d 50 input.bed

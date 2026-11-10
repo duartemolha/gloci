@@ -2930,3 +2930,78 @@ gloci = "gloci vcf extract input.vcf --genotype-matrix 012 --out-prefix g && cat
 reference = "vcftools --vcf input.vcf --012 --out g >/dev/null 2>&1 && cat g.012 g.012.indv g.012.pos"
 compare = "exact"
 expected_difference = "#vcf-extract-012"
+
+# cluster and spacing (Task 8): the ids and distances of bedtools cluster / spacing.
+[[case]]
+name = "cluster-default-vs-bedtools"
+input = { file = "xtask/diff/inputs/cluster-points.bed" }
+gloci = "gloci cluster --chrom-order lex input.bed"
+reference = "bedtools cluster -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "cluster-gap-vs-bedtools"
+input = { file = "xtask/diff/inputs/cluster-points.bed" }
+gloci = "gloci cluster --chrom-order lex -d 10 input.bed"
+reference = "bedtools cluster -d 10 -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "cluster-negative-gap-vs-bedtools"
+input = { file = "xtask/diff/inputs/cluster-points.bed" }
+gloci = "gloci cluster --chrom-order lex -d -5 input.bed"
+reference = "bedtools cluster -d -5 -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "cluster-global-ids-vs-bedtools"
+input = { file = "xtask/diff/inputs/merge-in.bed" }
+gloci = "gloci cluster --chrom-order lex -d 50 input.bed"
+reference = "bedtools cluster -d 50 -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "cluster-strand-single-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/cluster-plus.bed" }
+gloci = "gloci cluster --chrom-order lex -s input.bed"
+reference = "bedtools cluster -s -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "cluster-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/merge-in.bed" }
+gloci = "gloci cluster --chrom-order lex -s input.bed"
+reference = "bedtools cluster -s -i input.bed"
+compare = "exact"
+expected_difference = "#cluster-strand"
+
+[[case]]
+name = "cluster-vcf-vs-bedtools"
+input = { file = "xtask/diff/inputs/cluster-in.vcf" }
+gloci = "gloci cluster --vcf-span ref input.vcf"
+reference = "bedtools cluster -i input.vcf"
+compare = "exact"
+expected_difference = "#append-vcf-header"
+
+[[case]]
+name = "spacing-vs-bedtools"
+input = { file = "xtask/diff/inputs/spacing-in.bed" }
+gloci = "gloci spacing --chrom-order lex input.bed"
+reference = "bedtools spacing -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "spacing-points-vs-bedtools"
+input = { file = "xtask/diff/inputs/cluster-points.bed" }
+gloci = "gloci spacing --chrom-order lex input.bed"
+reference = "bedtools spacing -i input.bed"
+compare = "exact"
+expected_difference = "#spacing-zero-length"
+
+[[case]]
+name = "spacing-vcf-vs-bedtools"
+input = { file = "xtask/diff/inputs/cluster-in.vcf" }
+gloci = "gloci spacing --vcf-span ref input.vcf"
+reference = "bedtools spacing -i input.vcf"
+compare = "exact"
+expected_difference = "#append-vcf-header"
