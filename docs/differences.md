@@ -1862,7 +1862,8 @@ depends on the span.
   crafted on purpose, with checksums recomputed, can still reach noodles-cram 0.102's own
   `expect`s and unchecked arithmetic (a record's reference, its mates' template length, its
   alignment span, a base it reconstructs without a reference), which end gloci with an
-  internal error. Do not feed gloci CRAMs from untrusted sources you would not give to a
+  internal error, and the sizes inside CRAM 3.1's compressed blocks (rANS Nx16, the name
+  tokeniser), which can make it ask for more memory than the machine has. Do not feed gloci CRAMs from untrusted sources you would not give to a
   library that panics; samtools has its own share of such limits.
 - **Reason:** a read a megabase past its chromosome's end is not real data, and decoding it
   costs that much memory; the rest keeps a corrupt count from asking for gigabytes.
