@@ -209,8 +209,9 @@ Examples:
     ///
     /// When A and every -b file are BGZF files with a .tbi or .csi index, or
     /// plain (uncompressed) BED, bedGraph or VCF files, which are scanned once
-    /// for where each chromosome's records lie, and more than one thread is used, the work runs on runs of chromosomes in
-    /// parallel, which are read and written in the chromosome-table order
+    /// for where each chromosome's records lie, and more than one thread is
+    /// used, the work runs on runs of chromosomes in parallel, which are
+    /// read and written in the chromosome-table order
     /// (karyotype by default; -g, a VCF header or --chrom-order set it).
     /// At most 8 runs are in flight (more threads speed up BGZF). Memory is
     /// about 64 MiB plus 20 MiB per run in flight (more with many -b files):
@@ -219,7 +220,10 @@ Examples:
     /// for inputs in chromosome-table order; an input that is not in table
     /// order is refused with the same error whatever the thread count. After
     /// an error, how much output was already written to standard output
-    /// varies with the thread count (-o FILE is written atomically).
+    /// varies with the thread count (-o FILE is written atomically). Plain
+    /// inputs are validated to their end at every thread count; for indexed
+    /// inputs, records outside the queried chromosomes are validated only at
+    /// -t 1.
     #[command(after_long_help = "\
 Examples:
   gloci intersect -a peaks.bed -b genes.bed
@@ -541,8 +545,9 @@ Examples:
     ///
     /// When A and every -b file are BGZF files with a .tbi or .csi index, or
     /// plain (uncompressed) BED, bedGraph or VCF files, which are scanned once
-    /// for where each chromosome's records lie, and more than one thread is used, the work runs on runs of chromosomes in
-    /// parallel, which are read and written in the chromosome-table order
+    /// for where each chromosome's records lie, and more than one thread is
+    /// used, the work runs on runs of chromosomes in parallel, which are
+    /// read and written in the chromosome-table order
     /// (karyotype by default; -g, a VCF header or --chrom-order set it).
     /// At most 8 runs are in flight (more threads speed up BGZF). Memory is
     /// about 64 MiB plus 20 MiB per run in flight (more with many -b files):
@@ -551,7 +556,10 @@ Examples:
     /// for inputs in chromosome-table order; an input that is not in table
     /// order is refused with the same error whatever the thread count. After
     /// an error, how much output was already written to standard output
-    /// varies with the thread count (-o FILE is written atomically).
+    /// varies with the thread count (-o FILE is written atomically). Plain
+    /// inputs are validated to their end at every thread count; for indexed
+    /// inputs, records outside the queried chromosomes are validated only at
+    /// -t 1.
     #[command(after_long_help = "\
 Examples:
   gloci subtract -a peaks.bed -b blacklist.bed
@@ -612,8 +620,9 @@ Examples:
     ///
     /// When A and every -b file are BGZF files with a .tbi or .csi index, or
     /// plain (uncompressed) BED, bedGraph or VCF files, which are scanned once
-    /// for where each chromosome's records lie, and more than one thread is used, the work runs on runs of chromosomes in
-    /// parallel, which are read and written in the chromosome-table order
+    /// for where each chromosome's records lie, and more than one thread is
+    /// used, the work runs on runs of chromosomes in parallel, which are
+    /// read and written in the chromosome-table order
     /// (karyotype by default; -g, a VCF header or --chrom-order set it).
     /// At most 8 runs are in flight (more threads speed up BGZF). Memory is
     /// about 64 MiB plus 20 MiB per run in flight (more with many -b files):
@@ -622,7 +631,10 @@ Examples:
     /// for inputs in chromosome-table order; an input that is not in table
     /// order is refused with the same error whatever the thread count. After
     /// an error, how much output was already written to standard output
-    /// varies with the thread count (-o FILE is written atomically).
+    /// varies with the thread count (-o FILE is written atomically). Plain
+    /// inputs are validated to their end at every thread count; for indexed
+    /// inputs, records outside the queried chromosomes are validated only at
+    /// -t 1.
     #[command(after_long_help = "\
 Examples:
   gloci closest -a genes.bed -b peaks.bed --distance
@@ -683,8 +695,9 @@ Examples:
     ///
     /// When A and every -b file are BGZF files with a .tbi or .csi index, or
     /// plain (uncompressed) BED, bedGraph or VCF files, which are scanned once
-    /// for where each chromosome's records lie, and more than one thread is used, the work runs on runs of chromosomes in
-    /// parallel, which are read and written in the chromosome-table order
+    /// for where each chromosome's records lie, and more than one thread is
+    /// used, the work runs on runs of chromosomes in parallel, which are
+    /// read and written in the chromosome-table order
     /// (karyotype by default; -g, a VCF header or --chrom-order set it).
     /// At most 8 runs are in flight (more threads speed up BGZF). Memory is
     /// about 64 MiB plus 20 MiB per run in flight (more with many -b files):
@@ -693,7 +706,10 @@ Examples:
     /// for inputs in chromosome-table order; an input that is not in table
     /// order is refused with the same error whatever the thread count. After
     /// an error, how much output was already written to standard output
-    /// varies with the thread count (-o FILE is written atomically).
+    /// varies with the thread count (-o FILE is written atomically). Plain
+    /// inputs are validated to their end at every thread count; for indexed
+    /// inputs, records outside the queried chromosomes are validated only at
+    /// -t 1.
     #[command(after_long_help = "\
 Examples:
   gloci map -a genes.bed -b scores.bedgraph -c 4:mean
@@ -738,8 +754,9 @@ Examples:
     ///
     /// When A and every -b file are BGZF files with a .tbi or .csi index, or
     /// plain (uncompressed) BED, bedGraph or VCF files, which are scanned once
-    /// for where each chromosome's records lie, and more than one thread is used, the work runs on runs of chromosomes in
-    /// parallel, which are read and written in the chromosome-table order
+    /// for where each chromosome's records lie, and more than one thread is
+    /// used, the work runs on runs of chromosomes in parallel, which are
+    /// read and written in the chromosome-table order
     /// (karyotype by default; -g, a VCF header or --chrom-order set it).
     /// At most 8 runs are in flight (more threads speed up BGZF). Memory is
     /// about 64 MiB plus 20 MiB per run in flight (more with many -b files):
@@ -748,7 +765,10 @@ Examples:
     /// for inputs in chromosome-table order; an input that is not in table
     /// order is refused with the same error whatever the thread count. After
     /// an error, how much output was already written to standard output
-    /// varies with the thread count (-o FILE is written atomically).
+    /// varies with the thread count (-o FILE is written atomically). Plain
+    /// inputs are validated to their end at every thread count; for indexed
+    /// inputs, records outside the queried chromosomes are validated only at
+    /// -t 1.
     #[command(after_long_help = "\
 Examples:
   gloci coverage -a genes.bed -b reads.bed

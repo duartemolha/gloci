@@ -153,12 +153,25 @@ pub(super) fn run_per_chromosome<R: Send>(
     // (interning on a declared table is reported on the next read).
     let mut probe = chroms.clone();
     let mut refused = false;
-    for f in all().filter(|f| matches!(f, Src::Plain(_))) {
-        for name in f.reference_names() {
-            refused |= probe.intern(&name).is_err();
+    // (An indexed B's names are interned only against a closed table, where
+    // an unknown one is refused; an open table does not need them.)
+    for (n, f) in all().enumerate() {
+        if matches!(f, Src::Plain(_)) || n == 0 || probe.is_closed() {
+            for name in f.reference_names() {
+                refused |= probe.intern(&name).is_err();
+            }
         }
     }
-    if refused || all().any(|f| out_of_table_order(&probe, f)) {
+    // With no A records no chunk would read B, which streaming reads and
+    // validates to its end.
+    let a_empty = file_a
+        .reference_names()
+        .iter()
+        .all(|c| file_a.weight(c) == 0);
+    if refused
+        || (a_empty && files_b.iter().any(|f| matches!(f, Src::Plain(_))))
+        || all().any(|f| out_of_table_order(&probe, f))
+    {
         log::debug!(
             "an input is out of table order or has a chromosome the table lacks; streaming"
         );
@@ -181,16 +194,6 @@ pub(super) fn run_per_chromosome<R: Send>(
         }
     }
     let names_a = file_a.reference_names();
-    if let Src::Indexed(f) = &file_a {
-        intern_index_names(&mut chroms, f, &names_a)?;
-    }
-    if chroms.is_closed() {
-        for f in &files_b {
-            if let Src::Indexed(f) = f {
-                intern_index_names(&mut chroms, f, &f.reference_names())?;
-            }
-        }
-    }
     let mut ordered = names_a;
     // With regions, A is empty off the chromosomes that have one, and so is
     // everything computed from it: skip them (B included).
@@ -221,65 +224,48 @@ pub(super) fn run_per_chromosome<R: Send>(
                 + 1
         })
         .collect();
-    // Streaming reads (and so validates) the records of a plain B on
-    // chromosomes A lacks, as A moves past them: those sorting before A's last
-    // chromosome. A chunk reads them as part of the chunk that holds the next
-    // A chromosome, where its sweep reads them the same way. (Past A's last
-    // chromosome streaming reads only a first batch, as far as a peek goes;
-    // nothing there is validated.)
+    // A plain input is read to its end whatever A does (streaming drains it
+    // after A ends), so every chromosome of a plain B is read by exactly one
+    // chunk. Those A lacks go to the chunk holding the next A chromosome,
+    // whose sweep skips past them as A moves on, and those after A's last
+    // chromosome to the last chunk, which drains them.
     let a_chroms: std::collections::HashSet<&Vec<u8>> = ordered.iter().collect();
-    let extras: Vec<Vec<Vec<u8>>> = files_b
-        .iter()
-        .map(|f| match f {
-            Src::Plain(_) => {
-                let mut v: Vec<Vec<u8>> = f
-                    .reference_names()
-                    .into_iter()
-                    .filter(|c| !a_chroms.contains(c))
-                    .collect();
-                v.sort_by(by_rank);
-                v
-            }
-            Src::Indexed(_) => Vec::new(),
-        })
-        .collect();
     let groups = group_chromosomes(
         ordered.clone(),
         &weights,
         CHUNKS_PER_THREAD * run.threads.get(),
     );
-    let chunks: Vec<Job> = groups
+    let mut chunks: Vec<Job> = groups
         .into_iter()
-        .map(|g| {
-            let last = g.last().expect("a group is not empty");
-            let b_lists = extras
-                .iter()
-                .zip(&files_b)
-                .map(|(ex, f)| {
-                    if matches!(f, Src::Indexed(_)) {
-                        return g.clone();
-                    }
-                    let mut v = g.clone();
-                    // Extras before this chunk's last chromosome that no
-                    // earlier chunk's last chromosome is after.
-                    v.extend(
-                        ex.iter()
-                            .filter(|x| {
-                                by_rank(x, last).is_lt()
-                                    && !ordered
-                                        .iter()
-                                        .take_while(|c| !g.contains(c))
-                                        .any(|c| by_rank(x, c).is_lt())
-                            })
-                            .cloned(),
-                    );
-                    v.sort_by(by_rank);
-                    v
-                })
-                .collect();
-            Job { a: g, b: b_lists }
+        .map(|g| Job {
+            b: files_b.iter().map(|_| g.clone()).collect(),
+            a: g,
         })
         .collect();
+    for (f, src) in files_b.iter().enumerate() {
+        if !matches!(src, Src::Plain(_)) {
+            continue;
+        }
+        let mut extras: Vec<Vec<u8>> = src
+            .reference_names()
+            .into_iter()
+            .filter(|c| !a_chroms.contains(c))
+            .collect();
+        extras.sort_by(by_rank);
+        // One walk over the extras and the chunks, both in table order.
+        let mut at = 0;
+        for x in extras {
+            while at + 1 < chunks.len()
+                && by_rank(&x, chunks[at].a.last().expect("chunks hold chromosomes")).is_gt()
+            {
+                at += 1;
+            }
+            chunks[at].b[f].push(x);
+        }
+        for c in &mut chunks {
+            c.b[f].sort_by(by_rank);
+        }
+    }
 
     let watching = relate.criteria.strand != StrandRule::Any;
     let flags: Vec<Arc<AtomicBool>> = (0..=files_b.len())
@@ -346,10 +332,7 @@ pub(super) fn run_per_chromosome<R: Send>(
     if summary.a_records > 0 {
         let a_refs = file_a.non_empty_reference_names();
         if !a_refs.is_empty() {
-            for (i, f) in files_b.iter().enumerate() {
-                if summary.b_records.get(i).copied().unwrap_or(0) > 0 {
-                    continue;
-                }
+            for f in &files_b {
                 let b_refs = f.non_empty_reference_names();
                 if !b_refs.is_empty() && !a_refs.iter().any(|a| b_refs.contains(a)) {
                     log::warn!(
@@ -411,27 +394,6 @@ fn out_of_table_order(chroms: &ChromTable, f: &Src) -> bool {
     known
         .windows(2)
         .any(|w| chroms.cmp_names(&w[0], &w[1]) == Some(std::cmp::Ordering::Greater))
-}
-
-/// Intern the chromosomes `f`'s index lists; one missing from a closed
-/// table is an error naming the index file and the chromosome.
-fn intern_index_names(
-    chroms: &mut ChromTable,
-    f: &IndexedFile,
-    names: &[Vec<u8>],
-) -> Result<(), IoError> {
-    for name in names {
-        chroms.intern(name).map_err(|e| IoError::Detect {
-            path: f.name().to_string(),
-            msg: format!(
-                "{} (index {}): {}",
-                f.name(),
-                f.info().path.display(),
-                gloci_io::naming::unknown_chrom_err(chroms.order_source(), &e.0)
-            ),
-        })?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

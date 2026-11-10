@@ -87,7 +87,24 @@ impl OrderGuard {
 
     /// Check every record of `batch`, continuing from the previous batch.
     pub fn check(&mut self, chroms: &ChromTable, batch: &RecordBatch) -> Result<(), IoError> {
-        for (i, m) in batch.recs.iter().enumerate() {
+        self.check_range(chroms, batch, 0..batch.recs.len())?;
+        self.settle(chroms, batch, batch.recs.len());
+        Ok(())
+    }
+
+    /// Check `batch.recs[range]` only, in order after whatever was checked
+    /// before: for a consumer that validates each record as it takes it, not
+    /// a whole read-ahead batch at once. Records of a batch must be checked
+    /// in order, and [`OrderGuard::settle`] called before the batch is
+    /// replaced.
+    pub fn check_range(
+        &mut self,
+        chroms: &ChromTable,
+        batch: &RecordBatch,
+        range: std::ops::Range<usize>,
+    ) -> Result<(), IoError> {
+        for i in range {
+            let m = &batch.recs[i];
             let chrom = match self.seen.as_mut() {
                 Some(s) => s.local(chroms, m.chrom),
                 None => m.chrom,
@@ -132,14 +149,20 @@ impl OrderGuard {
                 .into());
             }
         }
-        if let Some(last) = batch.recs.len().checked_sub(1) {
+        Ok(())
+    }
+
+    /// Note the last of the first `checked` records of `batch`, which is
+    /// about to be replaced, as the one the next batch's first record
+    /// follows in an error.
+    pub fn settle(&mut self, chroms: &ChromTable, batch: &RecordBatch, checked: usize) {
+        if let Some(last) = checked.checked_sub(1) {
             let mut prev = std::mem::take(&mut self.prev);
             prev.clear();
             self.render(chroms, batch, last, &mut prev);
             self.prev = prev;
             self.prev_loc = batch.recs[last].loc;
         }
-        Ok(())
     }
 
     /// Append record `i` as shown in an error: the (cut) raw line for text

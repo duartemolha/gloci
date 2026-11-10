@@ -201,6 +201,9 @@ struct RangeReader<K: TextKind + Clone> {
     /// one's added.
     done: Diagnostics,
     diag: Diagnostics,
+    /// An error met after records of earlier ranges were put in the batch:
+    /// they go out first, and the next call raises it.
+    deferred: Option<IoError>,
 }
 
 impl<K: TextKind + Clone> RangeReader<K> {
@@ -228,6 +231,7 @@ impl<K: TextKind + Clone> RangeReader<K> {
             cur: None,
             done: Diagnostics::default(),
             diag: Diagnostics::default(),
+            deferred: None,
         }
     }
 
@@ -287,6 +291,9 @@ impl<K: TextKind + Clone> RecordReader for RangeReader<K> {
     fn diagnostics(&self) -> &Diagnostics {
         &self.diag
     }
+    fn consume_to_end(&self) -> bool {
+        true
+    }
 
     fn read_batch(
         &mut self,
@@ -294,6 +301,9 @@ impl<K: TextKind + Clone> RecordReader for RangeReader<K> {
         batch: &mut RecordBatch,
         max: usize,
     ) -> Result<bool, IoError> {
+        if let Some(e) = self.deferred.take() {
+            return Err(e);
+        }
         let before = batch.recs.len();
         let result = loop {
             if self.cur.is_none() && !self.open_next()? {
@@ -302,6 +312,10 @@ impl<K: TextKind + Clone> RecordReader for RangeReader<K> {
             let want = max - (batch.recs.len() - before);
             let cur = self.cur.as_mut().expect("opened above");
             match cur.read_batch(chroms, batch, want) {
+                Err(e) if batch.recs.len() > before => {
+                    self.deferred = Some(e);
+                    break Ok(true);
+                }
                 Err(e) => break Err(e),
                 Ok(true) => break Ok(true),
                 Ok(false) => {

@@ -162,15 +162,19 @@ pub fn sweep_sorted(
     loop {
         batch.clear();
         let more = reader.read_batch(chroms, &mut batch, max)?;
-        guard.check(chroms, &batch)?;
         max = next_batch_size(&batch, max);
         summary.a_records += batch.len() as u64;
         for (i, a) in batch.recs.iter().enumerate() {
+            // Each record is checked as it is taken, not the batch it was
+            // read in with: what is reported then does not depend on where
+            // batches happen to start.
+            guard.check_range(chroms, &batch, i..i + 1)?;
             if chrom != Some(a.chrom) {
                 chrom = Some(a.chrom);
                 for (s, set) in streams.iter_mut().zip(&mut active) {
                     set.clear();
                     summary.shared_chroms |= s.enter(chroms, a.chrom)?;
+                    s.validate(chroms)?;
                 }
                 pools.iter_mut().for_each(LeftPool::clear);
             }
@@ -190,6 +194,7 @@ pub fn sweep_sorted(
                     }
                     _ => lim,
                 };
+                s.validate(chroms)?;
             }
             let mut hits = recycle(std::mem::take(&mut spare));
             let mut near = std::mem::take(&mut spare_near).recycle();
@@ -235,8 +240,19 @@ pub fn sweep_sorted(
             spare = recycle(hits);
             spare_near = near.recycle();
         }
+        guard.settle(chroms, &batch, batch.len());
         if !more {
             break;
+        }
+    }
+    // A text input is validated to its end whether or not A reaches the
+    // end of it: the same lines are read at any thread count.
+    for s in &mut streams {
+        if s.reader.consume_to_end() {
+            while s.peek(chroms)?.is_some() {
+                s.pos = s.batch.recs.len();
+                s.validate(chroms)?;
+            }
         }
     }
     summary.b_records = streams.iter().map(|s| s.read).collect();
@@ -302,6 +318,9 @@ struct BStream {
     batch: RecordBatch,
     /// The next record of `batch` to consume.
     pos: usize,
+    /// The records of `batch` before this one have passed the order guard:
+    /// a record is checked once it is consumed, not when it is read ahead.
+    checked: usize,
     max: usize,
     more: bool,
     place: Place,
@@ -315,6 +334,7 @@ impl BStream {
             reader,
             batch: RecordBatch::default(),
             pos: 0,
+            checked: 0,
             max: 1,
             more: true,
             place: Place::Past,
@@ -331,17 +351,38 @@ impl BStream {
         self.refill(chroms)
     }
 
-    /// Read (and order-check) batches until one has a record.
+    /// Take the record `peek` returned: it is checked now, not when it was
+    /// read.
+    #[inline]
+    fn consume(&mut self, chroms: &ChromTable) -> Result<(), IoError> {
+        self.pos += 1;
+        self.validate(chroms)
+    }
+
+    /// Order-check the records consumed since the last check.
+    #[inline]
+    fn validate(&mut self, chroms: &ChromTable) -> Result<(), IoError> {
+        if self.checked < self.pos {
+            self.guard
+                .check_range(chroms, &self.batch, self.checked..self.pos)?;
+            self.checked = self.pos;
+        }
+        Ok(())
+    }
+
+    /// Read batches until one has a record.
     #[cold]
     fn refill(&mut self, chroms: &mut ChromTable) -> Result<Option<usize>, IoError> {
         while self.pos == self.batch.recs.len() {
             if !self.more {
                 return Ok(None);
             }
+            self.validate(chroms)?;
+            self.guard.settle(chroms, &self.batch, self.checked);
             self.batch.clear();
             self.pos = 0;
+            self.checked = 0;
             self.more = self.reader.read_batch(chroms, &mut self.batch, self.max)?;
-            self.guard.check(chroms, &self.batch)?;
             self.max = next_batch_size(&self.batch, self.max);
             self.read += self.batch.len() as u64;
         }
@@ -393,7 +434,7 @@ impl BStream {
             return Ok(());
         }
         while let Some(i) = self.peek(chroms)? {
-            let m = &self.batch.recs[i];
+            let m = self.batch.recs[i];
             if m.chrom != a.chrom {
                 self.place = Place::Past;
                 return Ok(());
@@ -401,12 +442,12 @@ impl BStream {
             if m.key > lim {
                 return Ok(());
             }
+            self.consume(chroms)?;
             if m.span.end.saturating_add(pad) >= a.key {
-                set.push(m, self.batch.raw(i));
+                set.push(&m, self.batch.raw(i));
             } else if let Some(p) = pool.as_deref_mut() {
                 p.offer(m.span, m.strand, m.loc, self.batch.raw(i), a.key);
             }
-            self.pos += 1;
         }
         self.place = Place::Past;
         Ok(())
@@ -434,7 +475,7 @@ impl BStream {
             return Ok(ahead.bound());
         }
         while let Some(i) = self.peek(chroms)? {
-            let m = &self.batch.recs[i];
+            let m = self.batch.recs[i];
             if m.chrom != a.chrom {
                 self.place = Place::Past;
                 return Ok(ahead.bound());
@@ -442,12 +483,14 @@ impl BStream {
             if m.key > ahead.bound() {
                 return Ok(ahead.bound());
             }
+            // The record is checked as it is taken, so one out of order is
+            // reported before it can be used.
+            self.consume(chroms)?;
             // `load` took every record up to the limit, so this one starts
             // after A's end and cannot be evicted for this A.
             debug_assert!(m.key > lim);
-            set.push(m, self.batch.raw(i));
+            set.push(&m, self.batch.raw(i));
             ahead.add(m.span.start, m.strand);
-            self.pos += 1;
         }
         self.place = Place::Past;
         Ok(ahead.bound())

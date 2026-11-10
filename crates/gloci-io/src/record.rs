@@ -95,6 +95,13 @@ pub trait RecordReader: Send {
         max: usize,
     ) -> Result<bool, IoError>;
     fn diagnostics(&self) -> &Diagnostics;
+    /// Whether a sweep must read this input to its end, so that every record
+    /// of it is validated whether or not the other inputs reach it: true of
+    /// text read from the start of a file or stream, false of a reader that
+    /// already limits itself to chosen chromosomes through an index.
+    fn consume_to_end(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -108,7 +115,37 @@ pub struct ReaderOptions {
 }
 
 pub fn open_reader(path: &str, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, IoError> {
-    dispatch(open_input(path, &input_options(o))?, o)
+    let r = dispatch(open_input(path, &input_options(o))?, o)?;
+    check_map_against_index(path, r.as_ref(), o)?;
+    Ok(r)
+}
+
+/// With `--chrom-map`, a BGZF text file that has an index is refused when
+/// two of its chromosomes would get one name, as a run through the index
+/// refuses it, so the answer does not depend on how many threads are used.
+/// An index that cannot be read is not this check's business.
+fn check_map_against_index(
+    path: &str,
+    r: &dyn RecordReader,
+    o: &ReaderOptions,
+) -> Result<(), IoError> {
+    let Some(map) = &o.chrom_map else {
+        return Ok(());
+    };
+    if r.compression() != Compression::Bgzf
+        || r.format() == Format::Bcf
+        || !crate::is_regular_file(path)
+    {
+        return Ok(());
+    }
+    let data = std::path::Path::new(path);
+    let Some(info) = crate::index::find_index(data) else {
+        return Ok(());
+    };
+    if let Ok(names) = crate::index::index_reference_names(data, &info) {
+        map.check_file_names(path, names.iter().map(|n| &n[..]))?;
+    }
+    Ok(())
 }
 
 pub fn open_reader_from(
@@ -382,6 +419,9 @@ impl<K: TextKind> RecordReader for TextReader<K> {
     }
     fn diagnostics(&self) -> &Diagnostics {
         &self.diag
+    }
+    fn consume_to_end(&self) -> bool {
+        true
     }
 
     fn read_batch(

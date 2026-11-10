@@ -51,6 +51,9 @@ impl RecordReader for PeekReader {
     fn diagnostics(&self) -> &Diagnostics {
         self.inner.diagnostics()
     }
+    fn consume_to_end(&self) -> bool {
+        self.inner.consume_to_end()
+    }
 }
 
 /// Read `r` up to its first record with `chroms` (the table the run will

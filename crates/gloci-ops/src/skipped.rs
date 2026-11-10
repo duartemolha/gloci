@@ -43,6 +43,9 @@ impl RecordReader for Captured {
     fn diagnostics(&self) -> &Diagnostics {
         self.inner.diagnostics()
     }
+    fn consume_to_end(&self) -> bool {
+        self.inner.consume_to_end()
+    }
 }
 
 /// The diagnostics of a set of inputs, collected after the readers are gone.

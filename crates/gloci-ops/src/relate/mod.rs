@@ -124,6 +124,9 @@ impl RecordReader for StrandWatch {
     fn diagnostics(&self) -> &Diagnostics {
         self.inner.diagnostics()
     }
+    fn consume_to_end(&self) -> bool {
+        self.inner.consume_to_end()
+    }
 }
 
 /// Passes records through and records distinct chromosome names seen in first-seen order.
@@ -168,6 +171,9 @@ impl RecordReader for ChromWatch {
     }
     fn diagnostics(&self) -> &Diagnostics {
         self.inner.diagnostics()
+    }
+    fn consume_to_end(&self) -> bool {
+        self.inner.consume_to_end()
     }
 }
 
@@ -249,7 +255,8 @@ pub(crate) fn run_relation_in(
             (a, b)
         }
     };
-    let watching = o.criteria.strand != StrandRule::Any && !IN_CHUNK.with(|c| c.get());
+    let in_chunk = IN_CHUNK.with(|c| c.get());
+    let watching = o.criteria.strand != StrandRule::Any && !in_chunk;
     let mut watched: Vec<(String, Arc<AtomicBool>)> = Vec::new();
     let seen_a = Arc::new(Mutex::new(Vec::new()));
     let seen_bs: Vec<Arc<Mutex<Vec<Vec<u8>>>>> = (0..b.len())
@@ -303,7 +310,9 @@ pub(crate) fn run_relation_in(
         }
     }
     let a_chroms = seen_a.lock().unwrap().clone();
-    if !a_chroms.is_empty() {
+    // (A chunk of a per-chromosome run sees only its own chromosomes: the
+    // run checks the whole input once.)
+    if !a_chroms.is_empty() && !in_chunk {
         if names_b.len() == 1 {
             if !summary.shared_chroms {
                 let b_chroms = seen_bs[0].lock().unwrap().clone();
