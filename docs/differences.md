@@ -215,6 +215,19 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Pinned by:** `vcf-to-bcf-bad-header-vs-bcftools` (a duplicated INFO ID:
   gloci exit status 1, `bcftools view -Ob` exit status 0).
 
+## BCF String FORMAT fields are one byte narrower than htslib's {#bcf-string-width}
+
+- **gloci:** `view -O bcf` writes a String FORMAT field with the width of its
+  longest value. A field that is `.` in every sample is written as bcftools
+  writes it (width 1 for the first FORMAT key, width 2 for a later one).
+- **Old behaviour:** htslib reserves one byte more than the longest value for
+  every String FORMAT key but the first, so `bcftools view -Ob` 1.21 writes a
+  later key `x`, `.` as `x\0`, `.\0`.
+- **Reason:** the decoded values are identical; only the padding differs, and
+  matching it would mean re-encoding every String field.
+- **Pinned by:** `bcf_missing_string_records_equal_bcftools` (the all-missing
+  cases, byte-identical to bcftools) in `crates/gloci/tests/bcf_missing_parity.rs`.
+
 ## Zero-length BED records {#zero-length-bed-records}
 
 - **gloci:** accepted, and treated as points.

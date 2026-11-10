@@ -1,0 +1,19 @@
+##fileformat=VCFv4.3
+##contig=<ID=chr1,length=100000>
+##FILTER=<ID=q10,Description="low quality">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth">
+##FORMAT=<ID=AB,Number=1,Type=String,Description="Allele balance note">
+##FORMAT=<ID=AC,Number=.,Type=String,Description="Notes">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	s1	s2	s3
+chr1	1	.	A	G	.	.	.	AB	.	.	.
+chr1	2	.	A	G	.	PASS	.	AB:DP	.:1	.:2	.:3
+chr1	3	.	A	G	.	q10	.	DP:AB	1:.	2:.	3:.
+chr1	4	.	A	G	.	q10;PASS	.	GT:AB	0/1:.	0/1:.	1|1:.
+chr1	5	.	A	G	.	.	.	AB:GT	.:0/1	.:./.	.:1
+chr1	6	.	A	G	.	.	.	AB:AC	.:.	.:.	.:.
+chr1	7	.	A	G	.	.	.	AC	.	.	.
+chr1	8	.	A	G	.	.	.	AB:DP	.	.	.
+chr1	9	.	A	G	.	.	.	AB:DP	.:1	.	.
+chr1	10	.	A	G	.	.	.	GT:DP:AB:AC	0/1:5:.:.	1/1:6:.:.	./.:7:.:.
+chr1	11	.	A	G	.	.	.	AB	x	.	.

@@ -20,7 +20,7 @@ use crate::writer::WriterOptions;
 use gloci_core::ChromTable;
 use noodles_vcf::header::StringMaps;
 use noodles_vcf::variant::io::Write as _;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 
 /// Which parts of the output `convert_variants` writes.
@@ -102,6 +102,15 @@ struct Converter {
     enc: Encoder,
     /// Dictionary index of the FORMAT key `GT`, when the header declares it.
     gt_key: Option<usize>,
+    /// FORMAT keys declared `Type=String` (GT excluded): noodles cannot
+    /// encode one that is missing in every sample (see `missing_strings`).
+    string_keys: HashSet<Vec<u8>>,
+    /// The FORMAT subfield indices that are missing in every sample, the
+    /// record with a placeholder in those cells, and the record patched
+    /// afterwards, reused between records.
+    missing: Vec<usize>,
+    placeholder: Vec<u8>,
+    patched: Vec<u8>,
     /// The record with its GT values blanked, reused between records.
     scratch: Vec<u8>,
     /// The spliced record and the encoded GT block, reused between records.
@@ -133,12 +142,25 @@ impl Converter {
                 .iter()
                 .position(|n| n == b"GT"),
         };
+        let string_keys = header
+            .formats()
+            .iter()
+            .filter(|(id, f)| {
+                id.as_str() != "GT"
+                    && f.ty() == noodles_vcf::header::record::value::map::format::Type::String
+            })
+            .map(|(id, _)| id.as_bytes().to_vec())
+            .collect();
         Ok(Converter {
             name: name.to_string(),
             from,
             header,
             enc,
             gt_key,
+            string_keys,
+            missing: Vec::new(),
+            placeholder: Vec::new(),
+            patched: Vec::new(),
             scratch: Vec::new(),
             spliced: Vec::new(),
             block: Vec::new(),
@@ -176,23 +198,62 @@ add ##contig=<ID={c}> to the header"
                 ),
             });
         }
+        // bcftools refuses a FILTER missing from the header (BCF has no
+        // place for it); so does gloci, and says what to add.
+        if let Some(id) = undeclared_filter(raw, &self.header) {
+            return Err(IoError::Parse {
+                path: self.name.clone(),
+                loc,
+                msg: format!(
+                    "FILTER \"{id}\" is not declared in the header, and BCF needs every FILTER in its header; \
+add ##FILTER=<ID={id},Description=\"...\"> to the header"
+                ),
+            });
+        }
+        // noodles cannot encode a String field that is missing in every
+        // sample: it encodes a placeholder, patched afterwards.
+        missing_strings(raw, &self.string_keys, &mut self.missing);
+        let base = if self.missing.is_empty() {
+            raw
+        } else {
+            placeholder_cells(raw, &self.missing, &mut self.placeholder);
+            &self.placeholder[..]
+        };
         // noodles cannot encode GT vectors of different lengths, so it
         // encodes the record with every GT blanked to `./.` and the real GT
         // field is spliced in afterwards (see `splice_gt`).
         let gt = match self.gt_key {
-            Some(_) => blank_gt(raw, &mut self.scratch),
+            Some(_) => blank_gt(base, &mut self.scratch),
             None => None,
         };
-        let src = if gt.is_some() { &self.scratch[..] } else { raw };
+        let src = if gt.is_some() {
+            &self.scratch[..]
+        } else {
+            base
+        };
         let rec = noodles_vcf::Record::try_from(src).map_err(fail)?;
         if let Err(e) = w.write_variant_record(&self.header, &rec) {
             w.get_mut().clear();
             return Err(fail(e));
         }
+        let encoded: &[u8] = if self.missing.is_empty() {
+            w.get_ref()
+        } else {
+            let patched = patch_missing(w.get_ref(), &self.missing, &mut self.patched);
+            if let Err(msg) = patched {
+                w.get_mut().clear();
+                return Err(IoError::Parse {
+                    path: self.name.clone(),
+                    loc,
+                    msg,
+                });
+            }
+            &self.patched
+        };
         match (gt, self.gt_key) {
             (Some(gt), Some(key)) => {
                 let spliced = splice_gt(
-                    w.get_ref(),
+                    encoded,
                     key,
                     raw,
                     gt,
@@ -213,11 +274,10 @@ add ##contig=<ID={c}> to the header"
                     })?;
             }
             _ => {
-                out.write_all(w.get_ref())
-                    .map_err(|source| IoError::Write {
-                        path: "output".to_string(),
-                        source,
-                    })?;
+                out.write_all(encoded).map_err(|source| IoError::Write {
+                    path: "output".to_string(),
+                    source,
+                })?;
                 w.get_mut().clear();
             }
         }
@@ -370,6 +430,128 @@ fn gt_values(raw: &[u8], gt: GtPos) -> impl Iterator<Item = &[u8]> {
     raw.split(|&b| b == b'\t')
         .skip(9)
         .map(move |s| s.split(|&b| b == b':').nth(gt.0).unwrap_or_default())
+}
+
+/// The first FILTER of the text record `raw` that the header does not
+/// declare (`PASS` and `.` never need a declaration).
+fn undeclared_filter(raw: &[u8], header: &noodles_vcf::Header) -> Option<String> {
+    let col = raw.split(|&b| b == b'\t').nth(6)?;
+    if col == b"." {
+        return None;
+    }
+    col.split(|&b| b == b';')
+        .filter(|id| !id.is_empty() && *id != b"PASS")
+        .filter_map(|id| std::str::from_utf8(id).ok())
+        .find(|id| !header.filters().contains_key(*id))
+        .map(str::to_string)
+}
+
+/// Fills `out` with the FORMAT subfield indices of `raw` that are declared
+/// `Type=String` and missing (`.` or cut short) in every sample.
+fn missing_strings(raw: &[u8], string_keys: &HashSet<Vec<u8>>, out: &mut Vec<usize>) {
+    out.clear();
+    if string_keys.is_empty() {
+        return;
+    }
+    let mut cols = raw.split(|&b| b == b'\t').skip(8);
+    let Some(format) = cols.next() else { return };
+    let samples: Vec<&[u8]> = cols.collect();
+    if samples.is_empty() {
+        return;
+    }
+    for (k, key) in format.split(|&b| b == b':').enumerate() {
+        if string_keys.contains(key)
+            && samples
+                .iter()
+                .all(|s| s.split(|&b| b == b':').nth(k).is_none_or(|c| c == b"."))
+        {
+            out.push(k);
+        }
+    }
+}
+
+/// Copies `raw` to `out` with a one-character placeholder in the cells of
+/// the FORMAT subfields `missing`, which noodles can encode where it cannot
+/// encode a missing value (see `patch_missing`).
+fn placeholder_cells(raw: &[u8], missing: &[usize], out: &mut Vec<u8>) {
+    out.clear();
+    let mut cols = raw.split(|&b| b == b'\t');
+    for (i, col) in cols.by_ref().take(9).enumerate() {
+        if i > 0 {
+            out.push(b'\t');
+        }
+        out.extend_from_slice(col);
+    }
+    let last = missing.iter().copied().max().unwrap_or(0);
+    for sample in cols {
+        out.push(b'\t');
+        let mut seen = 0;
+        for (k, cell) in sample.split(|&b| b == b':').enumerate() {
+            if k > 0 {
+                out.push(b':');
+            }
+            out.extend_from_slice(if missing.contains(&k) { b"x" } else { cell });
+            seen = k + 1;
+        }
+        for k in seen..=last {
+            out.push(b':');
+            out.push(if missing.contains(&k) { b'x' } else { b'.' });
+        }
+    }
+}
+
+/// Rewrites the FORMAT fields `missing` (by position) of the framed BCF
+/// record `rec` the way bcftools 1.21 (htslib) writes a String field that is
+/// missing in every sample: a lone `.` per sample for the first FORMAT key,
+/// and `.` plus a NUL (width 2) for any other key, where htslib always
+/// reserves one byte more than the longest value.
+fn patch_missing(rec: &[u8], missing: &[usize], out: &mut Vec<u8>) -> Result<(), String> {
+    const BAD: &str = "internal error: noodles wrote a malformed BCF record";
+    let u32_at = |at: usize| -> Result<usize, String> {
+        rec.get(at..at + 4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize)
+            .ok_or_else(|| BAD.to_string())
+    };
+    let (l_shared, l_indiv) = (u32_at(0)?, u32_at(4)?);
+    let indiv_at = 8 + l_shared;
+    let n_fmt = u32_at(8 + 20)? >> 24;
+    let n_samples = u32_at(8 + 20)? & 0x00ff_ffff;
+    let indiv = rec.get(indiv_at..indiv_at + l_indiv).ok_or(BAD)?;
+    let mut cur = indiv;
+    let mut body = Vec::with_capacity(indiv.len());
+    for f in 0..n_fmt {
+        let start = indiv.len() - cur.len();
+        typed::read(&mut cur).map_err(|_| BAD.to_string())?;
+        let desc = indiv.len() - cur.len();
+        let (ty, n) = typed::read_descriptor(&mut cur).map_err(|_| BAD.to_string())?;
+        let len = n
+            .checked_mul(ty.width())
+            .and_then(|l| l.checked_mul(n_samples))
+            .filter(|&l| l <= cur.len())
+            .ok_or(BAD)?;
+        cur = &cur[len..];
+        let end = indiv.len() - cur.len();
+        if missing.contains(&f) {
+            body.extend_from_slice(&indiv[start..desc]);
+            if f == 0 {
+                body.push(0x17);
+                body.extend(std::iter::repeat_n(b'.', n_samples));
+            } else {
+                body.push(0x27);
+                for _ in 0..n_samples {
+                    body.extend_from_slice(b".\0");
+                }
+            }
+        } else {
+            body.extend_from_slice(&indiv[start..end]);
+        }
+    }
+    out.clear();
+    out.extend_from_slice(&rec[..4]);
+    out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+    out.extend_from_slice(&rec[8..indiv_at]);
+    out.extend_from_slice(&body);
+    Ok(())
 }
 
 /// Replaces the GT field of the framed BCF record `rec` (encoded with GT

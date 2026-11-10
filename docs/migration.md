@@ -264,6 +264,9 @@ Every row below was checked against `gloci <cmd> --help`.
 - **VCF header validation on BCF conversion:** Converting between VCF and BCF
   refuses malformed headers that `noodles` rejects (such as duplicate INFO IDs).
   [differences.md#vcf-header-conversion](differences.md#vcf-header-conversion)
+- **BCF String FORMAT width:** `view -O bcf` pads String FORMAT values one byte
+  less than bcftools for every key but the first (same decoded values).
+  [differences.md#bcf-string-width](differences.md#bcf-string-width)
 - **Clipping GFF/GTF by a point:** `intersect --mode clip` skips the empty
   piece a point leaves in a GFF/GTF feature (with one warning) where bedtools
   writes one base around the point.
