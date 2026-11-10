@@ -772,6 +772,92 @@ impl RecordReader for BcfReader {
     }
 }
 
+/// Checks that the sections of the framed BCF record `raw` (`l_shared`,
+/// `l_indiv`, shared, individual) are made of exactly the values they say:
+/// the shared section of its fixed fields, ID, alleles, FILTER and INFO
+/// entries, the individual section of its FORMAT fields (key, descriptor,
+/// count times width times samples bytes), each ending where the length says
+/// (as htslib's `bcf_record_check` does). Without it a record whose fields
+/// are shorter or longer than its lengths is read as garbage.
+pub fn check_record(raw: &[u8]) -> Result<(), String> {
+    let u32_at = |at: usize| {
+        raw.get(at..at + 4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize)
+            .ok_or_else(|| "the record is shorter than its length fields".to_string())
+    };
+    let (l_shared, l_indiv) = (u32_at(0)?, u32_at(4)?);
+    if raw.len() != 8 + l_shared + l_indiv {
+        return Err(format!(
+            "the record is {} bytes but its lengths add up to {} (l_shared {l_shared}, l_indiv {l_indiv})",
+            raw.len(),
+            8 + l_shared + l_indiv
+        ));
+    }
+    let shared = &raw[8..8 + l_shared];
+    let indiv = &raw[8 + l_shared..];
+    if shared.len() < 24 {
+        return Err(format!(
+            "the shared section is {} bytes; a BCF record needs at least 24",
+            shared.len()
+        ));
+    }
+    let word = |at: usize| {
+        u32::from_le_bytes([shared[at], shared[at + 1], shared[at + 2], shared[at + 3]])
+    };
+    let (n_allele, n_info) = ((word(16) >> 16) as usize, (word(16) & 0xffff) as usize);
+    let (n_fmt, n_samples) = ((word(20) >> 24) as usize, (word(20) & 0x00ff_ffff) as usize);
+    let at = |s: &[u8], whole: &[u8]| whole.len() - s.len();
+    let mut cur = &shared[24..];
+    let bad = |what: &str, e: String, cur: &[u8], whole: &[u8], section: &str| {
+        format!(
+            "{what} is malformed at byte {} of the {section} section: {e}",
+            at(cur, whole)
+        )
+    };
+    // ID, the alleles, FILTER.
+    for (what, n) in [("the ID", 1), ("the alleles", n_allele), ("FILTER", 1)] {
+        for _ in 0..n {
+            typed::read(&mut cur).map_err(|e| bad(what, e, cur, shared, "shared"))?;
+        }
+    }
+    for _ in 0..n_info {
+        typed::read(&mut cur).map_err(|e| bad("an INFO key", e, cur, shared, "shared"))?;
+        typed::read(&mut cur).map_err(|e| bad("an INFO value", e, cur, shared, "shared"))?;
+    }
+    if !cur.is_empty() {
+        return Err(format!(
+            "the shared section has {} byte(s) left after its {n_info} INFO field(s) (l_shared {l_shared}); the record is corrupt",
+            cur.len()
+        ));
+    }
+    let mut cur = indiv;
+    for k in 0..n_fmt {
+        typed::read(&mut cur).map_err(|e| bad("a FORMAT key", e, cur, indiv, "individual"))?;
+        let (ty, n) = typed::read_descriptor(&mut cur)
+            .map_err(|e| bad("a FORMAT descriptor", e, cur, indiv, "individual"))?;
+        let len = n
+            .checked_mul(ty.width())
+            .and_then(|l| l.checked_mul(n_samples))
+            .filter(|&l| l <= cur.len())
+            .ok_or_else(|| {
+                format!(
+                    "FORMAT field {} of {n_fmt} runs past the end of the individual section (l_indiv {l_indiv}): \
+{n} value(s) of {} byte(s) for {n_samples} sample(s) do not fit",
+                    k + 1,
+                    ty.width()
+                )
+            })?;
+        cur = &cur[len..];
+    }
+    if !cur.is_empty() {
+        return Err(format!(
+            "the individual section has {} byte(s) left after its {n_fmt} FORMAT field(s) (l_indiv {l_indiv}); the record is corrupt",
+            cur.len()
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::typed::{Float, Int, Ty, read};

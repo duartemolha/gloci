@@ -12,7 +12,7 @@ use gloci_core::{
 };
 use gloci_io::{
     Compression, Format, Header, IoError, LEX_SORTED_NOTE, Loc, ReaderOptions, RecordBatch,
-    bed12_blocks, chrom_table_for, next_batch_size, open_reader, sort_hint,
+    bed12_blocks, check_bcf_record, chrom_table_for, next_batch_size, open_reader, sort_hint,
 };
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -363,6 +363,11 @@ pub fn check_file(
                             other_errs
                                 .add(m.loc, at(format!("expected {want} columns, found {found}")));
                         }
+                    }
+                }
+                Format::Bcf => {
+                    if let Err(msg) = check_bcf_record(raw) {
+                        other_errs.add(m.loc, at(msg));
                     }
                 }
                 _ => {}

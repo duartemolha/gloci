@@ -229,3 +229,56 @@ chr1\t1\t.\tA\tG\t.\t.\t.\n"
                 .and(predicates::str::contains("no FORMAT and sample columns")),
         );
 }
+
+/// The count-0 integer field noodles used to write (descriptor `01` followed
+/// by one data byte per sample) makes the individual section longer than its
+/// fields: `gloci check` must report the record instead of passing it.
+#[test]
+fn check_reports_a_bcf_record_whose_fields_do_not_fill_its_sections() {
+    let d = tempdir();
+    let vcf = format!(
+        "{HEAD}#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n\
+chr1\t1\t.\tA\tG\t.\t.\t.\tGT:AD:DP\t./.:.:5\n"
+    );
+    let input = plain_file(d.path(), "t.vcf", &vcf);
+    let good = d.path().join("good.bcf");
+    gloci()
+        .args(["view", "-O", "bcf"])
+        .arg(&input)
+        .arg("-o")
+        .arg(&good)
+        .assert()
+        .success();
+    let mut all = Vec::new();
+    noodles_bgzf::io::Reader::new(&std::fs::read(&good).unwrap()[..])
+        .read_to_end(&mut all)
+        .unwrap();
+    let l_text = u32::from_le_bytes(all[5..9].try_into().unwrap()) as usize;
+    let rec = 9 + l_text;
+    let l_shared = u32::from_le_bytes(all[rec..rec + 4].try_into().unwrap()) as usize;
+    let indiv = rec + 8 + l_shared;
+    // AD is `11 80` (one int8 missing): make it count 0 with its byte left over.
+    let at = indiv
+        + all[indiv..]
+            .windows(2)
+            .position(|w| w == [0x11, 0x80])
+            .unwrap();
+    all[at] = 0x01;
+    let mut bad = Vec::new();
+    {
+        use std::io::Write;
+        let mut w = noodles_bgzf::io::Writer::new(&mut bad);
+        w.write_all(&all).unwrap();
+        w.finish().unwrap();
+    }
+    let path = d.path().join("bad.bcf");
+    std::fs::write(&path, bad).unwrap();
+    let out = gloci().arg("check").arg(&path).assert().code(1);
+    let shown = String::from_utf8_lossy(&out.get_output().stdout).into_owned()
+        + &String::from_utf8_lossy(&out.get_output().stderr);
+    assert!(
+        shown.contains("record 1") && shown.contains("corrupt"),
+        "{shown}"
+    );
+    gloci().arg("check").arg(&good).assert().success();
+}
