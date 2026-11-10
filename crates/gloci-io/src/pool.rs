@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread::JoinHandle;
 
 /// The stack of a pool worker.
-const WORKER_STACK: usize = 16 << 20;
+pub(crate) const WORKER_STACK: usize = 16 << 20;
 
 type Job<J> = (u64, J);
 
@@ -185,6 +185,25 @@ mod tests {
             }
         }
         assert!(p.next().is_none());
+    }
+
+    /// The workers' stacks hold what noodles' codecs put there (order-1 rANS and the name
+    /// tokeniser need more than a spawned thread's default 2 MiB, in release builds with fat
+    /// LTO); this bites in debug builds too: a job with 6 MiB on its stack must run.
+    #[test]
+    fn workers_have_large_stacks() {
+        const { assert!(WORKER_STACK >= 8 << 20) };
+        fn deep(_: &mut (), j: u64) -> Result<u64, IoError> {
+            let buf = std::hint::black_box([j as u8; 6 << 20]);
+            Ok(buf[(j as usize) % buf.len()] as u64 + buf[buf.len() - 1] as u64)
+        }
+        let mut p = Ordered::new(vec![(), ()], deep).unwrap();
+        for j in 0..4 {
+            p.submit(j);
+        }
+        for j in 0..4 {
+            assert_eq!(p.next().unwrap().unwrap(), 2 * j);
+        }
     }
 
     /// Dropping the pool skips the jobs not started (a reader stopped by `| head`).
