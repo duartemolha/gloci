@@ -446,9 +446,17 @@ fn reference_for(set: &str) -> Option<PathBuf> {
 fn cram_pool_deterministic() {
     // cat-big.v31 reaches order-1 rANS and the name tokeniser, whose tables noodles keeps on
     // the stack (the workers' 16 MiB stacks); contigs.noref needs placeholders.
-    for set in ["cigars", "flags", "tags", "pastend", "cat-big", "contigs"] {
+    let name_sorted = [
+        ("flags", "flags.namesorted.cram".to_string()),
+        ("contigs", "pairs.namesorted.noref.cram".to_string()),
+    ];
+    let sets = ["cigars", "flags", "tags", "pastend", "cat-big", "contigs"]
+        .iter()
+        .flat_map(|&set| variants(set).into_iter().map(move |v| (set, v)))
+        .chain(name_sorted);
+    for (set, v) in sets {
         let r = reference_for(set);
-        for v in variants(set) {
+        {
             let path = aln(&v);
             let one = every(&path, &ropts(r.clone(), full(), 1)).unwrap();
             let ione = intervals(&path, &ropts(r.clone(), AlignOptions::default(), 1)).unwrap();

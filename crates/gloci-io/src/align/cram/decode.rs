@@ -17,7 +17,6 @@ use noodles_sam::alignment::io::Write as _;
 use std::borrow::Cow;
 use std::io;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 
 /// Records a slice may claim beyond one per byte of its blocks: noodles allocates a record for
 /// each before reading any, so a corrupt count must not ask for gigabytes.
@@ -44,12 +43,27 @@ pub(crate) enum Bases {
 /// What the reads of a decoded slice need beyond what they were decoded with.
 pub(crate) enum Extent {
     Fits,
-    /// The repository's sequences need this many `N` after their end.
-    Pad(usize),
+    /// These references need sequences this long (`N` after their end).
+    Pad(Vec<(usize, usize)>),
     /// The embedded bases need to run to this reference position (1-based).
     EmbeddedTo(i64),
-    /// The placeholder of each of these references needs this length.
+    /// The placeholders of these references need this length.
     Placeholder(Vec<(usize, usize)>),
+}
+
+/// The references of the mapped reads of `records`.
+fn mapped_refs(records: &[cram::Record<'_>], info: &CramInfo) -> Vec<usize> {
+    let mut out = Vec::new();
+    for r in records {
+        if r.flags().is_ok_and(|f| !f.is_unmapped())
+            && let Some(Ok(id)) = r.reference_sequence_id(&info.sam)
+            && id < info.aln.refs.len()
+            && !out.contains(&id)
+        {
+            out.push(id);
+        }
+    }
+    out
 }
 
 /// The block with content id `id` among a slice's external blocks.
@@ -162,36 +176,46 @@ fn precheck(
     Ok(Some(needed))
 }
 
-/// Decodes containers to BAM records. Each worker of the pool has one.
+/// Decodes containers to BAM records. Each worker of the pool has one; the reference memory is
+/// the cache they share.
 pub(crate) struct Decoder {
     pub(crate) info: Arc<CramInfo>,
-    /// The references shared by every decoder (slices that need one reference).
+    /// The reference memory every decoder shares (slots and generations).
     pub(crate) cache: Arc<RefCache>,
-    /// This decoder's own repository: slices that need several references, are stored without
-    /// the reference, or have reads past a reference's end.
-    pub(crate) repo: fasta::Repository,
-    pub(crate) state: Arc<RefState>,
-    /// What `repo` held when the shared count last heard of it.
-    pub(crate) private_len: usize,
-    /// The reference id of the last slice decoded on `repo`.
-    pub(crate) last_ref: Option<i32>,
-    /// The `RR` of the last container decoded.
-    pub(crate) last_required: Option<bool>,
+    /// A repository of empty placeholders: for slices that read none (noodles still takes
+    /// one), and to find, by decoding the records once without their bases, which references
+    /// a slice's reads need when its RI series cannot tell.
+    pub(crate) probe: fasta::Repository,
+    pub(crate) probe_state: Arc<RefState>,
     pub(crate) bam: noodles_bam::io::Writer<Vec<u8>>,
+}
+
+/// Where a slice's reads find the repository they need.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Route {
+    /// A slot of the shared cache: one reference.
+    Slot(usize),
+    /// A shared generation of reference bases (`true`) or placeholders.
+    Generation(bool),
+    /// None: the slice reads no repository.
+    Idle,
 }
 
 impl Decoder {
     pub(crate) fn new(info: Arc<CramInfo>, cache: Arc<RefCache>) -> Result<Decoder, IoError> {
-        let state = Arc::new(RefState::default());
-        let adapter = RefAdapter::new(info.clone(), state.clone(), cache.counters.clone())?;
+        // Placeholders of no length (`RefState::default()`): the probe never builds bases.
+        let probe_state = Arc::new(RefState::default());
+        let adapter = RefAdapter {
+            info: info.clone(),
+            fasta: None,
+            state: probe_state.clone(),
+            counters: cache.counters.clone(),
+        };
         Ok(Decoder {
             info,
             cache,
-            repo: fasta::Repository::new(adapter),
-            state,
-            private_len: 0,
-            last_ref: None,
-            last_required: None,
+            probe: fasta::Repository::new(adapter),
+            probe_state,
             bam: noodles_bam::io::Writer::from(Vec::new()),
         })
     }
@@ -231,51 +255,13 @@ impl Decoder {
         self.corrupt(c, &e)
     }
 
-    /// Tell the shared counts what this decoder's own repository holds now.
-    fn sync_private(&mut self) {
-        let now = self.repo.len();
-        self.cache.note_live(self.private_len, now);
-        self.private_len = now;
-    }
-
-    /// Empty this decoder's repository (and with `reset`, forget its padding and placeholders).
-    pub(crate) fn clear(&mut self, reset: bool) {
-        self.repo.clear();
-        if let Ok(mut c) = self.state.cached.lock() {
-            c.clear();
-        }
-        self.state.placeholder_bytes.store(0, Ordering::Relaxed);
-        if reset {
-            self.state.pad.store(0, Ordering::Relaxed);
-            if let Ok(mut p) = self.state.placeholders.lock() {
-                p.clear();
-            }
-        }
-        self.sync_private();
-    }
-
     /// Where the reads of `head` find their bases, after checking that they can (D109).
     pub(crate) fn bases(
-        &mut self,
+        &self,
         c: &RawContainer,
         head: &SliceHead,
         required: bool,
     ) -> Result<Bases, IoError> {
-        // This decoder's repository starts afresh on another reference; a slice of several
-        // references keeps what it holds, and the adapter asks for a clear if the slice needs
-        // anything else.
-        if head.ref_id >= 0 && self.last_ref != Some(head.ref_id) {
-            let name = &self.info.aln.refs[head.ref_id as usize].0;
-            let keep = self
-                .state
-                .cached
-                .lock()
-                .is_ok_and(|c| c.iter().all(|n| n == name));
-            if !keep {
-                self.clear(true);
-            }
-        }
-        self.last_ref = Some(head.ref_id);
         let bases = match head.ref_id {
             -1 => Bases::Stored,
             _ if required => Bases::Repository,
@@ -312,13 +298,6 @@ impl Decoder {
             return Err(unsupported_codec(&self.info.name, c, what));
         }
         let required = comp.required;
-        self.state.required.store(required, Ordering::Relaxed);
-        if self.last_required != Some(required) {
-            // Placeholders never serve a container that reads the reference, nor the reverse.
-            self.clear(true);
-            self.last_ref = None;
-            self.last_required = Some(required);
-        }
         let mut container = cram::io::reader::Container::default();
         cram::io::Reader::new(&c.bytes[..])
             .read_container(&mut container)
@@ -345,67 +324,90 @@ impl Decoder {
             }
             let needed = precheck(head, info.aln.refs.len(), &comp, &core, &ext)
                 .map_err(|m| self.corrupt(c, &m))?;
-            // A slice whose reads need one reference reads it from the shared cache.
-            let one = match (bases, head.ref_id, &needed) {
-                (Bases::Repository, r, _) if r >= 0 => Some(r as usize),
-                (Bases::Repository, _, Some(v)) if v.len() == 1 => Some(v[0]),
-                _ => None,
+            // The references the slice's reads need, when known before decoding.
+            let mut refs: Option<Vec<usize>> = match head.ref_id {
+                r if r >= 0 => Some(vec![r as usize]),
+                -2 => needed,
+                _ => Some(Vec::new()),
             };
-            let lease = match one {
-                Some(rid) => Some(cache.acquire(rid, c.number)?),
-                None => None,
+            if refs.is_none() && bases != Bases::Stored && bases != Bases::Embedded {
+                // Which references the reads need, from the records decoded without bases.
+                self.probe.clear();
+                if let Ok(mut l) = self.probe_state.loaded.lock() {
+                    l.clear();
+                }
+                let records = slice
+                    .records(self.probe.clone(), &info.sam, &ch, &core, &ext)
+                    .map_err(|e| self.decode_error(c, head, &self.probe_state, e))?;
+                refs = Some(mapped_refs(&records, &info));
+            }
+            // The length each needs (beyond its own, for padding or a placeholder's reach).
+            let mut lengths: Vec<(usize, usize)> = Vec::new();
+            let mut route = match (bases, &refs) {
+                (Bases::Repository, Some(r)) if r.len() == 1 => Route::Slot(r[0]),
+                (Bases::Repository, _) => Route::Generation(true),
+                (Bases::Placeholder, _) => Route::Generation(false),
+                _ => Route::Idle,
             };
-            let mut private = lease.is_none();
-            // A slice that needs a sequence this decoder's repository lacks, while it holds
-            // another, is decoded again after a clear; reads past the end of their reference
-            // bases are decoded again against `N`, on this decoder's repository.
+            // Reads past the end of their reference bases are decoded again against `N`.
             let mut padded: Option<Vec<(i32, Cow<'_, [u8]>)>> = None;
             let mut done = false;
-            self.state.grow.store(false, Ordering::Relaxed);
-            self.state.evict.store(false, Ordering::Relaxed);
             for _ in 0..6 {
+                let need: Option<Vec<(usize, usize)>> = refs.as_ref().map(|rs| {
+                    rs.iter()
+                        .map(|&r| {
+                            let own = usize::try_from(info.aln.refs[r].1).unwrap_or(0);
+                            let len = lengths
+                                .iter()
+                                .find(|(x, _)| *x == r)
+                                .map_or(own, |&(_, l)| l.max(own));
+                            (r, len)
+                        })
+                        .collect()
+                });
+                let lease = match route {
+                    Route::Slot(rid) => Some(cache.acquire(rid, c.number)?),
+                    Route::Generation(rr) => Some(cache.lease(rr, need.as_deref())?),
+                    Route::Idle => None,
+                };
+                let (repo, state) = match &lease {
+                    Some(l) => (l.repo.clone(), l.state.clone()),
+                    None => (self.probe.clone(), self.probe_state.clone()),
+                };
                 let srcs = padded.as_deref().unwrap_or(&ext);
-                let (repo, state) = match (&lease, private) {
-                    (Some(l), false) => (l.repo.clone(), l.state.clone()),
-                    _ => (self.repo.clone(), self.state.clone()),
+                let records = slice
+                    .records(repo, &info.sam, &ch, &core, srcs)
+                    .map_err(|e| self.decode_error(c, head, &state, e))?;
+                cache.note_live();
+                if refs.is_none() {
+                    refs = Some(mapped_refs(&records, &info));
+                }
+                let available = |rid: usize| {
+                    let (n, len) = &info.aln.refs[rid];
+                    state.length_of(n, usize::try_from(*len).unwrap_or(0)) as i64
                 };
-                let records = match slice.records(repo, &info.sam, &ch, &core, srcs) {
-                    Ok(r) => r,
-                    Err(_) if private && self.state.evict.swap(false, Ordering::Relaxed) => {
-                        self.clear(false);
-                        self.state.grow.store(true, Ordering::Relaxed);
-                        continue;
-                    }
-                    Err(e) => return Err(self.decode_error(c, head, &state, e)),
-                };
-                self.sync_private();
-                let pad = if private {
-                    self.state.pad.load(Ordering::Relaxed)
-                } else {
-                    0
-                };
-                match self.extent(c, head, bases, pad, &records, srcs)? {
+                match self.extent(c, head, bases, &available, &records, srcs)? {
                     Extent::Fits => {
                         self.transcode(c, &records, out)?;
                         done = true;
                         break;
                     }
-                    Extent::Pad(pad) => {
+                    Extent::Pad(more) | Extent::Placeholder(more) => {
                         drop(records);
-                        private = true;
-                        self.clear(false);
-                        self.state.grow.store(true, Ordering::Relaxed);
-                        self.state.pad.store(pad, Ordering::Relaxed);
-                    }
-                    Extent::Placeholder(lens) => {
-                        drop(records);
-                        self.clear(false);
-                        self.state.grow.store(true, Ordering::Relaxed);
-                        if let Ok(mut p) = self.state.placeholders.lock() {
-                            for (rid, len) in lens {
-                                let e = p.entry(info.aln.refs[rid].0.clone()).or_default();
-                                *e = (*e).max(len);
+                        drop(lease);
+                        for (r, len) in more {
+                            match lengths.iter_mut().find(|(x, _)| *x == r) {
+                                Some((_, l)) => *l = (*l).max(len),
+                                None => lengths.push((r, len)),
                             }
+                            if let Some(rs) = refs.as_mut()
+                                && !rs.contains(&r)
+                            {
+                                rs.push(r);
+                            }
+                        }
+                        if let Route::Slot(_) = route {
+                            route = Route::Generation(true);
                         }
                     }
                     Extent::EmbeddedTo(end) => {
@@ -423,7 +425,6 @@ impl Decoder {
                     }
                 }
             }
-            drop(lease);
             if !done {
                 return Err(IoError::Internal(format!(
                     "{}: the reads of {} still run past their reference bases after padding",
@@ -436,36 +437,31 @@ impl Decoder {
     }
 
     /// Whether every mapped read of `records` lies within the reference bases it decodes with
-    /// (sequences `pad` bases longer than their reference). A read may run past its
-    /// reference's end, and is decoded against `N` there, by at most 1 Mb or four times the
-    /// slice's longest read; further is an error.
+    /// (`available(rid)` long for reference `rid`). A read may run past its reference's end, and
+    /// is decoded against `N` there, by at most 1 Mb or four times the slice's longest read;
+    /// further is gloci's limit, an error.
     pub(crate) fn extent(
         &self,
         c: &RawContainer,
         head: &SliceHead,
         bases: Bases,
-        pad: usize,
+        available: &dyn Fn(usize) -> i64,
         records: &[cram::Record<'_>],
         srcs: &[(i32, Cow<'_, [u8]>)],
     ) -> Result<Extent, IoError> {
         if bases == Bases::Stored {
             return Ok(Extent::Fits);
         }
-        let pad = pad as i64;
         let embedded_len = block(srcs, head.embedded).map_or(0, |b| b.len() as i64);
-        let placeholders = self.state.placeholders.lock().ok();
-        let placeholder = |rid: usize| {
-            placeholders
-                .as_ref()
-                .and_then(|p| p.get(&self.info.aln.refs[rid].0).copied())
-                .unwrap_or(0) as i64
-        };
         // (reference, how far past its end) of the read that runs furthest past one.
         let mut over: Option<(usize, i64)> = None;
         let mut longest = 0i64;
-        let mut need_pad = 0i64;
         let mut need_end = 0i64;
-        let mut need_len: Vec<(usize, usize)> = Vec::new();
+        let mut need: Vec<(usize, usize)> = Vec::new();
+        let mut want = |rid: usize, len: i64| match need.iter_mut().find(|(r, _)| *r == rid) {
+            Some((_, l)) => *l = (*l).max(len as usize),
+            None => need.push((rid, len as usize)),
+        };
         for r in records {
             let flags = r.flags().map_err(|e| self.corrupt(c, &e))?;
             if flags.is_unmapped() {
@@ -488,9 +484,10 @@ impl Decoder {
                 over = Some((rid, end - len));
             }
             match bases {
-                Bases::Repository => {
-                    if end > len + pad {
-                        need_pad = need_pad.max(end - len);
+                Bases::Repository | Bases::Placeholder => {
+                    let reach = start.max(end);
+                    if reach > available(rid) {
+                        want(rid, reach);
                     }
                 }
                 Bases::Embedded => {
@@ -503,15 +500,6 @@ impl Decoder {
                     }
                     if end > first + embedded_len - 1 {
                         need_end = need_end.max(end);
-                    }
-                }
-                Bases::Placeholder => {
-                    let want = start.max(end);
-                    if want > placeholder(rid) {
-                        match need_len.iter_mut().find(|(r, _)| *r == rid) {
-                            Some((_, l)) => *l = (*l).max(want as usize),
-                            None => need_len.push((rid, want as usize)),
-                        }
                     }
                 }
                 Bases::Stored => {}
@@ -553,14 +541,14 @@ the slice's longest read; see #cram-limits in docs/differences.md)",
                 )));
             }
         }
-        Ok(if need_pad > 0 {
-            Extent::Pad(need_pad as usize)
-        } else if need_end > 0 {
+        Ok(if need_end > 0 {
             Extent::EmbeddedTo(need_end)
-        } else if !need_len.is_empty() {
-            Extent::Placeholder(need_len)
-        } else {
+        } else if need.is_empty() {
             Extent::Fits
+        } else if bases == Bases::Placeholder {
+            Extent::Placeholder(need)
+        } else {
+            Extent::Pad(need)
         })
     }
 
@@ -627,9 +615,8 @@ pub(crate) struct ExtentDecoder {
 
 impl ExtentDecoder {
     pub fn new(info: Arc<CramInfo>) -> ExtentDecoder {
+        // Placeholders of no length: the reads' bases are never put together.
         let state = Arc::new(RefState::default());
-        state.required.store(false, Ordering::Relaxed);
-        state.grow.store(true, Ordering::Relaxed);
         let adapter = RefAdapter {
             info: info.clone(),
             fasta: None,
@@ -687,8 +674,8 @@ impl ExtentDecoder {
             let (core, ext) = slice.decode_blocks().map_err(|e| bad(&e))?;
             precheck(head, self.info.aln.refs.len(), &comp, &core, &ext).map_err(|m| bad(&m))?;
             self.repo.clear();
-            if let Ok(mut c) = self.state.cached.lock() {
-                c.clear();
+            if let Ok(mut l) = self.state.loaded.lock() {
+                l.clear();
             }
             let records = slice
                 .records(self.repo.clone(), &self.info.sam, &ch, &core, &ext)

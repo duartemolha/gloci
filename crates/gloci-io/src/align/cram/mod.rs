@@ -12,11 +12,13 @@
 //!   [`IndexedFasta`](crate::fasta::IndexedFasta), uppercased as
 //!   htslib reads them, and never answers `None`: a missing name is `Some(Err)` with the D109
 //!   message.
-//! - **The reference cache** is shared by every decoder ([`reference::RefCache`]): two slots,
-//!   each one reference, reused least recently used first and only when idle, so sorted input
-//!   reads each reference once and holds at most two whatever the thread count. A slice whose
-//!   reads need several references (or none from the FASTA, or reads past a reference's end)
-//!   uses the decoder's own repository, which holds only what one slice needs.
+//! - **The reference memory** is shared by every decoder ([`reference::RefCache`]): two slots,
+//!   each one reference, for slices whose reads need one (sorted input reads each reference
+//!   once and holds at most two whatever the thread count), and shared generations of
+//!   reference bases and of placeholders for slices that need several (unsorted or
+//!   name-sorted input), reads past a reference's end, or a CRAM stored without the reference.
+//!   A slice leases every reference it needs at once, each loaded once; there are no
+//!   per-thread copies.
 //! - **The pool** (D110, [`crate::pool`]): containers are read in order, decoded on up to
 //!   `threads` workers (with 16 MiB stacks for noodles' codecs) with at most `2 × threads` in
 //!   flight, and released in order, so the output does not depend on the thread count;
@@ -475,26 +477,33 @@ mod tests {
         (recs, r.reference_counts())
     }
 
-    /// Without the reference, a slice of several references gets an `N` placeholder per
-    /// reference, as long as that reference's furthest read: contigs.noref.cram (chr1 of 10 Mb
-    /// with reads near its end, then 200 contigs of 50 kb) holds about one chr1 at a time, not
-    /// one per contig (D109).
+    /// Without the reference, a slice of several references gets a placeholder per reference,
+    /// as long as the reference, shared by every decoder: the counts are totals across the
+    /// decoders (D109). contigs.noref.cram (chr1 of 10 Mb with reads near its end, then 200
+    /// contigs of 50 kb) holds at most one placeholder of each, 20 MB in all;
+    /// pairs.namesorted.noref.cram (two references of 10 Mb, every slice needing both) holds
+    /// exactly one of each whatever the thread count.
     #[test]
     fn cram_placeholders_bounded() {
         let one = drain(&fixture("aln/contigs.noref.cram"), 1);
+        let pairs = drain(&fixture("aln/pairs.namesorted.noref.cram"), 1);
+        assert_eq!(pairs.0.len(), 300);
         for t in [1, 2, 8] {
             let (recs, counts) = drain(&fixture("aln/contigs.noref.cram"), t);
             assert_eq!(recs, one.0, "-t {t}");
             assert_eq!(recs.len(), 430);
             assert_eq!(counts.fetches, 0);
             assert!(
-                counts.max_placeholder_bytes <= 12_000_000,
-                "-t {t}: {counts:?}"
+                (10_000_000..=20_000_000).contains(&counts.max_placeholder_bytes),
+                "contigs -t {t}: {counts:?}"
             );
-            assert!(
-                counts.max_placeholder_bytes >= 9_990_000,
-                "-t {t}: {counts:?}"
+            let (recs, counts) = drain(&fixture("aln/pairs.namesorted.noref.cram"), t);
+            assert_eq!(recs, pairs.0, "-t {t}");
+            assert_eq!(
+                counts.max_placeholder_bytes, 20_000_000,
+                "pairs -t {t}: {counts:?}"
             );
+            assert_eq!(counts.max_live, 2, "pairs -t {t}: {counts:?}");
         }
     }
 
@@ -558,8 +567,8 @@ mod tests {
         }
     }
 
-    /// A counting adapter: the decoders share the references, read each from the FASTA once
-    /// (sorted input) and hold at most two at a time, whatever the thread count (D109).
+    /// A counting adapter: the decoders share the references, read each from the FASTA once and
+    /// hold at most two at a time in all, whatever the thread count (D109).
     #[test]
     fn cram_reference_cache_bounded() {
         // flags.multi.cram: slices of several references (as multi_seq_per_slice=1 writes every
@@ -567,7 +576,13 @@ mod tests {
         // their reads' references are known from their RI and BF series, so each slice that
         // needs one reference takes it from the shared cache. tags.cram: chrM, chr1, then
         // chr2 + chr10 (an unmapped read).
-        for (file, fetches) in [("aln/flags.multi.cram", 2), ("aln/tags.cram", 3)] {
+        // flags.namesorted.cram: name-sorted, so every slice needs chr1 and chr2; the decoders
+        // share one copy of each, read once.
+        for (file, fetches) in [
+            ("aln/flags.multi.cram", 2),
+            ("aln/tags.cram", 3),
+            ("aln/flags.namesorted.cram", 2),
+        ] {
             let (recs, counts) = drain(&fixture(file), 1);
             assert!(!recs.is_empty());
             assert_eq!(counts.fetches, fetches, "{file}: sequences read");

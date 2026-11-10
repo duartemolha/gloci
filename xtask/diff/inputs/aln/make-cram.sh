@@ -66,8 +66,33 @@ samtools view -C -@ 0 --no-PG --output-fmt-option version=3.0 --output-fmt-optio
     --output-fmt-option seqs_per_slice=100 --output-fmt-option multi_seq_per_slice=1 \
     -o contigs.noref.cram tmp-contigs.sam
 rm tmp-contigs.sam
+# Name-sorted CRAMs, in slices that hold several references, so every slice needs the same
+# references: flags.namesorted.cram (with ref.fa) and pairs.namesorted.noref.cram (chr1 and chr2
+# of 10 Mb, 150 reads each, without a reference). The decoders must share one copy of each.
+awk -F'\t' -v OFS='\t' 'NR == FNR { len[$1] = $2; next }
+    /^@SQ/ { for (i = 2; i <= NF; i++) if ($i ~ /^SN:/) n = substr($i, 4)
+             for (i = 2; i <= NF; i++) if ($i ~ /^LN:/) $i = "LN:" len[n] }
+    { print }' "$REF.fai" flags.sam > tmp-flags.sam
+samtools sort -n -@ 0 --no-PG -O sam -o tmp-flags-n.sam tmp-flags.sam
+samtools view -C -@ 0 --no-PG -T "$REF" --output-fmt-option version=3.0 \
+    --output-fmt-option seqs_per_slice=4 --output-fmt-option multi_seq_per_slice=1 \
+    -o flags.namesorted.cram tmp-flags-n.sam
+awk 'BEGIN { srand(17); OFS = "\t"; print "@HD", "VN:1.6", "SO:queryname"
+    print "@SQ", "SN:chr1", "LN:10000000"; print "@SQ", "SN:chr2", "LN:10000000"
+    q = ""; for (j = 0; j < 100; j++) q = q "I"
+    for (i = 0; i < 300; i++) {
+        s = ""; for (j = 0; j < 100; j++) s = s substr("ACGT", int(rand() * 4) + 1, 1)
+        printf "q%03d\t0\tchr%d\t%d\t60\t100M\t*\t0\t0\t%s\t%s\n", i, i % 2 + 1, int(rand() * 9999000) + 1, s, q } }' \
+    > tmp-pairs.sam
+samtools view -C -@ 0 --no-PG --output-fmt-option version=3.0 --output-fmt-option no_ref=1 \
+    --output-fmt-option seqs_per_slice=50 --output-fmt-option multi_seq_per_slice=1 \
+    -o pairs.namesorted.noref.cram tmp-pairs.sam
+rm tmp-flags.sam tmp-flags-n.sam tmp-pairs.sam
 for f in *.cram; do
-    case "$f" in flags-noeof.cram|unsorted.cram|overhang.cram) ;; *) samtools index "$f" ;; esac
+    case "$f" in
+        flags-noeof.cram|unsorted.cram|overhang.cram|*.namesorted.*) ;;
+        *) samtools index "$f" ;;
+    esac
 done
 # unsorted.cram: chr1 reads at 501 and 502, then at 101 and 102, in slices of two: samtools index
 # refuses it (not sorted by position), and so must gloci index.
