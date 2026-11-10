@@ -9,6 +9,7 @@
 //! and plain seekable files (D76) (`indexed`), or stream, with identical
 //! output.
 
+pub(crate) mod alleles;
 mod criteria;
 mod files;
 mod indexed;
