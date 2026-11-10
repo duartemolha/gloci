@@ -19,7 +19,9 @@ mod skipped;
 pub mod sort;
 pub mod subtract;
 pub mod transform;
+pub mod vcf_extract;
 pub mod vcf_filter;
+pub mod vcf_select;
 pub mod view;
 pub mod windows;
 
@@ -35,8 +37,15 @@ pub use sort::{
     check_definitions_pair, check_samples, check_samples_pair, merge_fan_in, merge_sorted,
     merge_sorted_batches, sort_input_options, sort_readers, sort_together,
 };
+pub use vcf_extract::{
+    ExtractMode, ExtractOptions, ExtractSummary, check_keys, extract_matrix, extract_table,
+};
 pub use vcf_filter::{
-    FilterExpr, FilterSummary, VcfFilterInput, VcfFilterOptions, open_vcf_filter,
-    validate_thresholds, vcf_filter, vcf_filter_file, vcf_filter_output,
+    FilterSummary, VcfFilterInput, VcfFilterOptions, open_vcf_filter, vcf_filter, vcf_filter_file,
+    vcf_filter_output,
+};
+pub use vcf_select::{
+    FilterExpr, Hit, SelectStage, SelectedInput, VcfSelect, open_selected, run_selection,
+    select_regions, validate_thresholds, vcf_header,
 };
 pub use view::{ViewOptions, open_view, read_regions_file, run_view, select_a};

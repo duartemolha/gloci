@@ -367,6 +367,16 @@ gloci vcf filter input.vcf --samples s1,s2 --min-dp 10 --recalc-ac -o out.vcf
 gloci vcf filter variants.bcf --types indel --biallelic
 ```
 
+#### `gloci vcf extract`
+
+Extract INFO or FORMAT values as a table, or the 012 genotype matrix
+
+```sh
+gloci vcf extract cohort.vcf.gz --info DP,AF -o info.tsv
+gloci vcf extract cohort.bcf --format GT,DP --layout long --samples s1,s2
+gloci vcf extract cohort.vcf.gz --genotype-matrix 012 --out-prefix cohort --biallelic
+```
+
 ## Migration tables
 
 Every row below was checked against `gloci <cmd> --help`.
@@ -477,7 +487,9 @@ Every row below was checked against `gloci <cmd> --help`.
 | `bcftools view -i EXPR` / `-e EXPR` (subset: FORMAT fields GT, DP, GQ only; see [differences.md#expr-format-fields](differences.md#expr-format-fields)) | `gloci vcf filter FILE --include EXPR` / `--exclude EXPR` |
 | `vcf-sort`, `vcf-isec`, `vcf-subset` | `gloci sort`, `gloci intersect --match alleles`, `gloci vcf filter --samples ... --recalc-ac` |
 | `--freq`, `--depth`, `--missing-*`, `--het`, `--hardy`, `--TsTv*`, `--FILTER-summary`, `--SNPdensity`, `--singletons`, `--hist-indel-len`, `vcf-stats` | not yet available (`vcf stats`, P2) |
-| `--get-INFO`, `--extract-FORMAT-info`, `--012` | not yet available (`vcf extract`, P2) |
+| `--get-INFO KEY` | `gloci vcf extract FILE --info KEY` (adds an ID column; `.` for missing; [differences.md#vcf-extract-info](differences.md#vcf-extract-info)) |
+| `--extract-FORMAT-info KEY` | `gloci vcf extract FILE --format KEY --layout wide` (columns are `SAMPLE:KEY`; `--layout long` gives a row per sample; [differences.md#vcf-extract-format-wide](differences.md#vcf-extract-format-wide)) |
+| `--012` (writes `out.012`, `.012.indv`, `.012.pos`) | `gloci vcf extract FILE --genotype-matrix 012 --out-prefix out` (same files; haploid and half-missing reference calls count 0; [differences.md#vcf-extract-012](differences.md#vcf-extract-012)) |
 | `vcf-concat` | not yet available (`vcf concat`, P2) |
 | `--site-pi`, `--window-pi`, `--TajimaD`, `--weir-fst-pop`, `--*-r2`, `--relatedness*` | not yet available (`vcf popgen`, P3) |
 | `--diff*`, `vcf-compare` | not yet available (`vcf compare`, P3) |

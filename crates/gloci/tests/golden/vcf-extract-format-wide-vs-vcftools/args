@@ -1,0 +1,1 @@
+vcf extract input.vcf --format DP --layout wide

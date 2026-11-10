@@ -1077,3 +1077,49 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Reason:** a silently ignored cap suggests the depths were capped.
 - **Pinned by:** `genomecov-max-depth-bedgraph-vs-bedtools` (exit status must
   differ).
+
+## `vcf extract --info`: an ID column, `.` for missing and `0` for an unset flag {#vcf-extract-info}
+
+- **gloci:** `gloci vcf extract --info KEYS` writes `CHROM POS ID REF ALT KEY...`.
+  A key a record lacks is `.`; an INFO flag (header `Type=Flag`) is `1` when
+  set and `0` when not.
+- **Old behaviour:** `vcftools --get-INFO KEY` writes `CHROM POS REF ALT KEY...`
+  (no ID column), writes `?` for a key a record lacks, and `?` for an unset flag.
+- **Reason:** decision D73 keeps ID so a row can be joined on it; `.` is the
+  VCF missing value and `?` is not.
+- **Pinned by:** `vcf-extract-info-vs-vcftools` (must differ) and the
+  `info_table_*` tests in `crates/gloci/tests/vcf_extract.rs`.
+
+## `vcf extract --format --layout wide`: `SAMPLE:KEY` columns, every site {#vcf-extract-format-wide}
+
+- **gloci:** `--format KEYS --layout wide` writes `CHROM POS ID REF ALT` and one
+  `<sample>:<KEY>` column per sample and key, for every site that passes the
+  selection. A sample without the key (or a site whose FORMAT lacks it) reads
+  `.`. Any FORMAT key works, as text.
+- **Old behaviour:** `vcftools --extract-FORMAT-info KEY` writes `CHROM POS`
+  and a column named by the sample alone, and leaves out a site whose FORMAT
+  has no such key. It takes one key.
+- **Reason:** decision D73 names columns `<sample>:<KEY>` so several keys can
+  share a row, and writes one row per site so rows line up across runs.
+- **Pinned by:** `vcf-extract-format-wide-vs-vcftools` (must differ) and the
+  `format_*` tests in `crates/gloci/tests/vcf_extract.rs`.
+
+## `vcf extract --genotype-matrix 012`: counts non-reference alleles {#vcf-extract-012}
+
+- **gloci:** each cell is the number of non-reference alleles among the alleles
+  that are called: `0/0` and a haploid `0` are 0, `0/1` and a haploid `1` are 1,
+  `1/1` is 2, `0/.` is 0, `./1` is 1, and a genotype with no called allele is
+  `-1`. The files, their layout (`.012` has a row per sample led by its 0-based
+  index; `.012.indv`; `.012.pos`) and the omission of multi-allelic sites
+  (more than one ALT) match vcftools. A genotype of ploidy above 2, or one that
+  names an allele the ALT column lacks, is an error with the record's position.
+- **Old behaviour:** `vcftools --012` writes 1 for a haploid reference call
+  (`0`) and for `0/.` or `./0`, writes 1 for `2/2` on a one-ALT site, and stops
+  at a ploidy above 2.
+- **Reason:** decision D73 defines the cell as the count of non-reference
+  alleles; vcftools counts a haploid or half-missing reference call as 1, which
+  misreports male X and mitochondrial calls.
+- **Pinned by:** `vcf-extract-012-haploid-vs-vcftools` (must differ) and
+  `vcf-extract-012-vs-vcftools` (must match, diploid input with a multi-allelic
+  site), plus `genotype_matrix_matches_vcftools_files` in
+  `crates/gloci/tests/vcf_extract.rs`.

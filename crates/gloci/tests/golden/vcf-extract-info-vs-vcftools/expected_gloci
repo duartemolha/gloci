@@ -1,0 +1,9 @@
+CHROM	POS	ID	REF	ALT	DP	FLAG
+chr1	100	rs1	A	C	40	1
+chr1	200	rs2	G	T	16	0
+chr1	300	rs3	C	CAA	40	0
+chr1	1500	rs4	AT	A	80	0
+chr1	2000	rs5	A	C,G	40	0
+chr2	100	rs6	T	C	20	0
+chr2	500	rs7	G	A	100	0
+chr2	1000	rs8	C	T	60	0

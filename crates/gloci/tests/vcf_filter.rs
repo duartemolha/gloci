@@ -379,7 +379,7 @@ chr1\t100\trs1\tA\tC\t50\tPASS\tDP=30\tGT:DP:GQ:FT\t0/0:10:30:PASS\t0/1:10:30:PA
 fn library_api_regions_and_regions_file() {
     use gloci_core::ChromTable;
     use gloci_io::{Format, ReaderOptions, RecordWriter, open_reader};
-    use gloci_ops::{VcfFilterOptions, vcf_filter};
+    use gloci_ops::{VcfFilterOptions, VcfSelect, vcf_filter};
 
     struct TestWriter(Vec<u8>);
     impl RecordWriter for TestWriter {
@@ -420,7 +420,10 @@ chr2\t300\trs3\tT\tA\t50\tPASS\tDP=30\tGT:DP\t0/1:10\t0/1:10\t0/1:10\n"
         let reader = open_reader(&s(&vcf), &ro).unwrap();
         let mut chroms = ChromTable::first_appearance();
         let opts = VcfFilterOptions {
-            regions: vec!["chr1:150-250".to_string()],
+            select: VcfSelect {
+                regions: vec!["chr1:150-250".to_string()],
+                ..Default::default()
+            },
             ..Default::default()
         };
         let mut w = TestWriter(Vec::new());
@@ -438,7 +441,10 @@ chr2\t300\trs3\tT\tA\t50\tPASS\tDP=30\tGT:DP\t0/1:10\t0/1:10\t0/1:10\n"
         let reader = open_reader(&s(&vcf), &ro).unwrap();
         let mut chroms = ChromTable::first_appearance();
         let opts = VcfFilterOptions {
-            regions_file: Some(s(&bed)),
+            select: VcfSelect {
+                regions_file: Some(s(&bed)),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let mut w = TestWriter(Vec::new());

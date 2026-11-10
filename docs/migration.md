@@ -208,7 +208,9 @@ Every row below was checked against `gloci <cmd> --help`.
 | `bcftools view -i EXPR` / `-e EXPR` (subset: FORMAT fields GT, DP, GQ only; see [differences.md#expr-format-fields](differences.md#expr-format-fields)) | `gloci vcf filter FILE --include EXPR` / `--exclude EXPR` |
 | `vcf-sort`, `vcf-isec`, `vcf-subset` | `gloci sort`, `gloci intersect --match alleles`, `gloci vcf filter --samples ... --recalc-ac` |
 | `--freq`, `--depth`, `--missing-*`, `--het`, `--hardy`, `--TsTv*`, `--FILTER-summary`, `--SNPdensity`, `--singletons`, `--hist-indel-len`, `vcf-stats` | not yet available (`vcf stats`, P2) |
-| `--get-INFO`, `--extract-FORMAT-info`, `--012` | not yet available (`vcf extract`, P2) |
+| `--get-INFO KEY` | `gloci vcf extract FILE --info KEY` (adds an ID column; `.` for missing; [differences.md#vcf-extract-info](differences.md#vcf-extract-info)) |
+| `--extract-FORMAT-info KEY` | `gloci vcf extract FILE --format KEY --layout wide` (columns are `SAMPLE:KEY`; `--layout long` gives a row per sample; [differences.md#vcf-extract-format-wide](differences.md#vcf-extract-format-wide)) |
+| `--012` (writes `out.012`, `.012.indv`, `.012.pos`) | `gloci vcf extract FILE --genotype-matrix 012 --out-prefix out` (same files; haploid and half-missing reference calls count 0; [differences.md#vcf-extract-012](differences.md#vcf-extract-012)) |
 | `vcf-concat` | not yet available (`vcf concat`, P2) |
 | `--site-pi`, `--window-pi`, `--TajimaD`, `--weir-fst-pop`, `--*-r2`, `--relatedness*` | not yet available (`vcf popgen`, P3) |
 | `--diff*`, `vcf-compare` | not yet available (`vcf compare`, P3) |
@@ -409,6 +411,14 @@ Every row below was checked against `gloci <cmd> --help`.
 - **`vcf filter --regions-file` on headerless BED:** Every non-header line of a
   BED file is used (`vcftools --bed` unconditionally skips line 1).
   [differences.md#bed-header-skipping](differences.md#bed-header-skipping)
+- **`vcf extract` differs from `--get-INFO`, `--extract-FORMAT-info` and `--012`:**
+  `--info` adds an ID column and writes `.` (not `?`) for missing values,
+  `--format --layout wide` names columns `SAMPLE:KEY` and keeps every site, and
+  `--genotype-matrix 012` counts a haploid or half-missing reference call as 0
+  (vcftools counts 1).
+  [differences.md#vcf-extract-info](differences.md#vcf-extract-info),
+  [differences.md#vcf-extract-format-wide](differences.md#vcf-extract-format-wide),
+  [differences.md#vcf-extract-012](differences.md#vcf-extract-012)
 - **`vcf filter --include/--exclude` is a subset of `bcftools view -i/-e`:**
   fields against numbers, strings or `.`, `N_PASS`, and the FORMAT fields GT,
   DP and GQ only (other FORMAT keys such as AD and FT are rejected, exit 2).

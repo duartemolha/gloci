@@ -2876,3 +2876,38 @@ gloci = "gloci genomecov input.bed -g gc.genome --bedgraph --max-depth 2"
 reference = "bedtools genomecov -i input.bed -g gc.genome -bg -max 2"
 compare = "exit-status"
 expected_difference = "#genomecov-max-depth"
+
+# vcf extract (Task 17, D73) vs vcftools 0.1.16. --get-INFO has no ID column
+# and writes `?` for a missing value; --extract-FORMAT-info names its columns by
+# sample alone and skips sites without the key; --012 counts a haploid
+# reference call and a half-missing reference call as 1.
+[[case]]
+name = "vcf-extract-info-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf extract input.vcf --info DP,FLAG"
+reference = "vcftools --vcf input.vcf --get-INFO DP --get-INFO FLAG --stdout 2>/dev/null"
+compare = "exact"
+expected_difference = "#vcf-extract-info"
+
+[[case]]
+name = "vcf-extract-format-wide-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf extract input.vcf --format DP --layout wide"
+reference = "vcftools --vcf input.vcf --extract-FORMAT-info DP --stdout 2>/dev/null"
+compare = "exact"
+expected_difference = "#vcf-extract-format-wide"
+
+[[case]]
+name = "vcf-extract-012-vs-vcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf extract input.vcf --genotype-matrix 012 --out-prefix g && cat g.012 g.012.indv g.012.pos"
+reference = "vcftools --vcf input.vcf --012 --out g >/dev/null 2>&1 && cat g.012 g.012.indv g.012.pos"
+compare = "exact"
+
+[[case]]
+name = "vcf-extract-012-haploid-vs-vcftools"
+input = { file = "xtask/diff/inputs/extract-haploid.vcf" }
+gloci = "gloci vcf extract input.vcf --genotype-matrix 012 --out-prefix g && cat g.012 g.012.indv g.012.pos"
+reference = "vcftools --vcf input.vcf --012 --out g >/dev/null 2>&1 && cat g.012 g.012.indv g.012.pos"
+compare = "exact"
+expected_difference = "#vcf-extract-012"

@@ -1,15 +1,19 @@
 //! `gloci vcf`: selection pipeline and other VCF commands (spec §7.8).
 
 use crate::Ctx;
-use crate::cli::{VcfFilterArgs, VcfSpan};
+use crate::cli::{
+    ChromMapArg, ExtractLayout, InvalidArg, VcfExtractArgs, VcfFilterArgs, VcfSelectArgs, VcfSpan,
+    VcfSpanArg,
+};
 use gloci_core::{Interval, RegionSet};
 use gloci_io::{
-    Format, InvalidPolicy, OutFormat, OutputOptions, ReaderOptions, UsageError, WriterOptions,
-    open_output, open_record_writer, parse_output_spec, refuse_binary_to_tty,
+    Format, InvalidPolicy, OutFormat, OutputOptions, OutputSpec, ReaderOptions, UsageError,
+    WriterOptions, open_output, open_record_writer, parse_output_spec, refuse_binary_to_tty,
 };
 use gloci_ops::{
-    FilterExpr, VcfFilterOptions, open_vcf_filter, read_regions_file, validate_thresholds,
-    vcf_filter_file, vcf_filter_output,
+    ExtractMode, ExtractOptions, FilterExpr, VcfFilterOptions, VcfSelect, check_keys,
+    extract_matrix, extract_table, open_selected, open_vcf_filter, read_regions_file,
+    validate_thresholds, vcf_filter_file, vcf_filter_output, vcf_header,
 };
 use gloci_vcf::{
     MaskRules, RewritePlan, SiteFilters, VcfType, read_ids, read_positions, read_samples,
@@ -17,7 +21,15 @@ use gloci_vcf::{
 use std::collections::{HashMap, HashSet};
 use std::io::IsTerminal;
 
-pub fn run_filter(ctx: &Ctx, a: &VcfFilterArgs) -> anyhow::Result<()> {
+/// Build the selection of a `vcf` command from its flags, reading the list
+/// files the flags name. `make_ro` builds the reader options and is called
+/// after the lists are read (so a list-file error is reported first); it is
+/// also what `--exclude-regions-file` is read with. The pipeline stage that
+/// applies the result is `gloci_ops::SelectStage`.
+pub fn select_from_args(
+    a: &VcfSelectArgs,
+    make_ro: impl FnOnce() -> anyhow::Result<ReaderOptions>,
+) -> anyhow::Result<(VcfSelect, ReaderOptions)> {
     let (min_alleles, max_alleles) = if a.biallelic {
         (Some(2), Some(2))
     } else {
@@ -101,12 +113,6 @@ pub fn run_filter(ctx: &Ctx, a: &VcfFilterArgs) -> anyhow::Result<()> {
         .iter()
         .map(|s| s.as_bytes().to_vec())
         .collect();
-    let keep_info: Option<Vec<Vec<u8>>> = a
-        .keep_info
-        .as_ref()
-        .map(|v| v.iter().map(|s| s.as_bytes().to_vec()).collect());
-    let drop_info: Vec<Vec<u8>> = a.drop_info.iter().map(|s| s.as_bytes().to_vec()).collect();
-
     let chroms = if a.chrom.is_empty() {
         None
     } else {
@@ -118,23 +124,7 @@ pub fn run_filter(ctx: &Ctx, a: &VcfFilterArgs) -> anyhow::Result<()> {
         .map(|s| s.as_bytes().to_vec())
         .collect();
 
-    let ro = ReaderOptions {
-        chrom_map: a.chrom_map.load()?,
-        threads: ctx.threads,
-        format: match a.format.format.as_deref() {
-            None => None,
-            Some(s) => Some(s.parse::<Format>().map_err(UsageError)?),
-        },
-        vcf_span: match a.vcf_span.vcf_span {
-            VcfSpan::Allele => gloci_core::VcfSpan::Allele,
-            VcfSpan::Ref => gloci_core::VcfSpan::Ref,
-        },
-        invalid: if a.invalid.skip_invalid {
-            InvalidPolicy::Skip
-        } else {
-            InvalidPolicy::Fail
-        },
-    };
+    let ro = make_ro()?;
 
     let exclude_regions = match &a.exclude_regions_file {
         Some(p) => {
@@ -159,7 +149,7 @@ pub fn run_filter(ctx: &Ctx, a: &VcfFilterArgs) -> anyhow::Result<()> {
         max_dp: a.max_dp,
         mask_filtered: a.mask_filtered_genotypes,
     };
-    let options = VcfFilterOptions {
+    let select = VcfSelect {
         include_samples,
         exclude_samples,
         mask: mask_rules,
@@ -194,13 +184,6 @@ pub fn run_filter(ctx: &Ctx, a: &VcfFilterArgs) -> anyhow::Result<()> {
             exclude_regions,
             inclusive_points: a.inclusive_points,
         },
-        plan: RewritePlan {
-            selection: None,
-            mask: mask_rules,
-            keep_info,
-            drop_info,
-            recalc_ac: a.recalc_ac,
-        },
         expr: match (&a.include, &a.exclude) {
             (Some(src), _) => Some(FilterExpr {
                 src: src.clone(),
@@ -219,7 +202,59 @@ pub fn run_filter(ctx: &Ctx, a: &VcfFilterArgs) -> anyhow::Result<()> {
             .as_ref()
             .map(|p| p.to_string_lossy().into_owned()),
     };
-    options.validate()?;
+    select.validate()?;
+    Ok((select, ro))
+}
+
+fn reader_options(
+    ctx: &Ctx,
+    chrom_map: &ChromMapArg,
+    format: Option<&str>,
+    span: &VcfSpanArg,
+    invalid: &InvalidArg,
+) -> anyhow::Result<ReaderOptions> {
+    Ok(ReaderOptions {
+        chrom_map: chrom_map.load()?,
+        threads: ctx.threads,
+        format: match format {
+            None => None,
+            Some(s) => Some(s.parse::<Format>().map_err(UsageError)?),
+        },
+        vcf_span: match span.vcf_span {
+            VcfSpan::Allele => gloci_core::VcfSpan::Allele,
+            VcfSpan::Ref => gloci_core::VcfSpan::Ref,
+        },
+        invalid: if invalid.skip_invalid {
+            InvalidPolicy::Skip
+        } else {
+            InvalidPolicy::Fail
+        },
+    })
+}
+
+pub fn run_filter(ctx: &Ctx, a: &VcfFilterArgs) -> anyhow::Result<()> {
+    let (select, ro) = select_from_args(&a.select, || {
+        reader_options(
+            ctx,
+            &a.chrom_map,
+            a.format.format.as_deref(),
+            &a.vcf_span,
+            &a.invalid,
+        )
+    })?;
+    let options = VcfFilterOptions {
+        select,
+        plan: RewritePlan {
+            selection: None,
+            mask: MaskRules::default(),
+            keep_info: a
+                .keep_info
+                .as_ref()
+                .map(|v| v.iter().map(|s| s.as_bytes().to_vec()).collect()),
+            drop_info: a.drop_info.iter().map(|s| s.as_bytes().to_vec()).collect(),
+            recalc_ac: a.recalc_ac,
+        },
+    };
 
     let spec = parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref())?;
     let input = open_vcf_filter(&a.file, &ro, &options)?;
@@ -253,5 +288,94 @@ pub fn run_filter(ctx: &Ctx, a: &VcfFilterArgs) -> anyhow::Result<()> {
         .map_err(|e| e.with_output_name(&dest))?;
     vcf_filter_file(input, &options, writer.as_mut()).map_err(|e| e.with_output_name(&dest))?;
     writer.finish().map_err(|e| e.with_output_name(&dest))?;
+    Ok(())
+}
+
+pub fn run_extract(ctx: &Ctx, a: &VcfExtractArgs) -> anyhow::Result<()> {
+    if a.layout.is_some() && a.format.is_none() {
+        return Err(UsageError(
+            "--layout applies to --format only; add --format KEYS or drop --layout".into(),
+        )
+        .into());
+    }
+    if a.out_prefix.is_some() && a.genotype_matrix.is_none() {
+        return Err(UsageError(
+            "--out-prefix names the --genotype-matrix files; add --genotype-matrix 012 \
+or use -o FILE for a table"
+                .into(),
+        )
+        .into());
+    }
+    let mode = match (&a.info, &a.format) {
+        (Some(keys), _) => {
+            check_keys("--info", keys)?;
+            ExtractMode::Info(keys.clone())
+        }
+        (_, Some(keys)) => {
+            check_keys("--format", keys)?;
+            ExtractMode::Format {
+                keys: keys.clone(),
+                long: a.layout == Some(ExtractLayout::Long),
+            }
+        }
+        _ => ExtractMode::Matrix012,
+    };
+    let (select, ro) = select_from_args(&a.select, || {
+        reader_options(ctx, &a.chrom_map, None, &a.vcf_span, &a.invalid)
+    })?;
+    let options = ExtractOptions { select, mode };
+    let input = open_selected(&a.file, &ro, &options.select)?;
+    vcf_header("vcf extract", input.reader())?;
+    let oo = OutputOptions {
+        threads: ctx.threads,
+        level: a.compression_level,
+        write_index: false,
+    };
+
+    if options.mode == ExtractMode::Matrix012 {
+        let prefix = a
+            .out_prefix
+            .as_ref()
+            .ok_or_else(|| UsageError("--genotype-matrix needs --out-prefix PREFIX".into()))?;
+        let open = |suffix: &str| {
+            let mut path = prefix.clone().into_os_string();
+            path.push(suffix);
+            let spec = OutputSpec {
+                path: Some(path.into()),
+                format: None,
+                bgzf: false,
+                direct: false,
+            };
+            open_output(&spec, OutFormat::Tsv, &oo)
+        };
+        let mut matrix = open(".012")?;
+        let mut indv = open(".012.indv")?;
+        let mut pos = open(".012.pos")?;
+        let dest = prefix.display().to_string();
+        extract_matrix(input, &options, &mut matrix, &mut indv, &mut pos)
+            .map_err(|e| e.with_output_name(&dest))?;
+        indv.finish()?;
+        pos.finish()?;
+        matrix.finish()?;
+        return Ok(());
+    }
+
+    let spec = parse_output_spec(a.output.as_deref(), None)?;
+    if let Some(f) = spec.format
+        && f != OutFormat::Tsv
+    {
+        return Err(UsageError(format!(
+            "vcf extract writes a TSV, not {}; name the output .tsv or .tsv.gz",
+            f.name()
+        ))
+        .into());
+    }
+    let dest = spec
+        .path
+        .as_ref()
+        .map_or_else(|| "stdout".to_string(), |p| p.display().to_string());
+    let mut out = open_output(&spec, OutFormat::Tsv, &oo)?;
+    extract_table(input, &options, &mut out).map_err(|e| e.with_output_name(&dest))?;
+    out.finish()?;
     Ok(())
 }

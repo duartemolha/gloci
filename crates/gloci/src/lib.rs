@@ -202,6 +202,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         Commands::Groupby(a) => (a.threads.threads, None),
         Commands::Vcf(a) => match &a.command {
             cli::VcfCommand::Filter(f) => (f.threads.threads, None),
+            cli::VcfCommand::Extract(e) => (e.threads.threads, None),
         },
     };
     let threads = requested
@@ -242,6 +243,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         Commands::Groupby(a) => commands::groupby::run(&ctx, a),
         Commands::Vcf(a) => match &a.command {
             cli::VcfCommand::Filter(f) => commands::vcf::run_filter(&ctx, f),
+            cli::VcfCommand::Extract(e) => commands::vcf::run_extract(&ctx, e),
         },
     };
     match result {

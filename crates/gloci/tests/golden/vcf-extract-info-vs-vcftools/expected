@@ -1,0 +1,9 @@
+CHROM	POS	REF	ALT	DP	FLAG
+chr1	100	A	C	40	1
+chr1	200	G	T	16	?
+chr1	300	C	CAA	40	?
+chr1	1500	AT	A	80	?
+chr1	2000	A	C,G	40	?
+chr2	100	T	C	20	?
+chr2	500	G	A	100	?
+chr2	1000	C	T	60	?

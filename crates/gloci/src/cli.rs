@@ -999,6 +999,13 @@ Examples:
   gloci vcf filter input.vcf --samples s1,s2 --min-dp 10 --recalc-ac -o out.vcf
   gloci vcf filter variants.bcf --types indel --biallelic")]
     Filter(VcfFilterArgs),
+    /// Extract INFO or FORMAT values as a table, or the 012 genotype matrix.
+    #[command(after_long_help = "\
+Examples:
+  gloci vcf extract cohort.vcf.gz --info DP,AF -o info.tsv
+  gloci vcf extract cohort.bcf --format GT,DP --layout long --samples s1,s2
+  gloci vcf extract cohort.vcf.gz --genotype-matrix 012 --out-prefix cohort --biallelic")]
+    Extract(VcfExtractArgs),
 }
 
 /// A record type for `vcf filter --types` / `--exclude-types` (spec 7.8).
@@ -1029,12 +1036,11 @@ impl From<VcfTypeArg> for gloci_vcf::VcfType {
     }
 }
 
+/// The selection options shared by the `vcf` commands: samples, genotype
+/// masks, site filters, regions and thinning. `vcf filter` and `vcf extract`
+/// apply them through one pipeline stage.
 #[derive(Args, Debug, Clone)]
-pub struct VcfFilterArgs {
-    /// Input VCF or BCF file (`-` for stdin).
-    #[arg(value_name = "FILE")]
-    pub file: String,
-
+pub struct VcfSelectArgs {
     /// Keep only these sample names (repeatable or comma-separated). They are
     /// written in the input header's order, not the order given here
     /// (bcftools view -s writes them in the order given).
@@ -1135,15 +1141,6 @@ pub struct VcfFilterArgs {
     /// Remove records that define this INFO tag.
     #[arg(long, value_name = "FLAG")]
     pub exclude_info: Vec<String>,
-    /// Keep only these INFO keys in output records and header.
-    #[arg(long, value_delimiter = ',', value_name = "KEYS")]
-    pub keep_info: Option<Vec<String>>,
-    /// Remove these INFO keys from output records and header.
-    #[arg(long, value_delimiter = ',', value_name = "KEYS")]
-    pub drop_info: Vec<String>,
-    /// Recalculate INFO/AC, AN and AF after sample selection and masking.
-    #[arg(long)]
-    pub recalc_ac: bool,
 
     /// Keep records for which the bcftools-style EXPR holds, e.g.
     /// 'QUAL>30 && INFO/DP>10 && N_PASS(GT="het")>=2'. FORMAT fields are limited
@@ -1199,6 +1196,98 @@ pub struct VcfFilterArgs {
     /// A point on a region's edge overlaps it.
     #[arg(long)]
     pub inclusive_points: bool,
+}
+
+/// The matrix `vcf extract --genotype-matrix` writes.
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum GenotypeMatrix {
+    /// Non-reference allele counts, vcftools' --012 files.
+    #[value(name = "012")]
+    Zero12,
+}
+
+/// How `vcf extract --format` lays out the values.
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum ExtractLayout {
+    /// One row per site, `SAMPLE:KEY` columns.
+    Wide,
+    /// One row per site and sample.
+    Long,
+}
+
+#[derive(Args, Debug, Clone)]
+#[command(group(
+    clap::ArgGroup::new("what").required(true).args(["info", "format", "genotype_matrix"])
+))]
+pub struct VcfExtractArgs {
+    /// Input VCF or BCF file (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+
+    #[command(flatten)]
+    pub select: VcfSelectArgs,
+
+    /// Write these INFO keys as a TSV, one row per site: CHROM POS ID REF ALT
+    /// then a column per key (comma-separated). A missing value is `.`, a
+    /// flag is 1 when set and 0 when not.
+    #[arg(long, value_delimiter = ',', value_name = "KEYS")]
+    pub info: Option<Vec<String>>,
+    /// Write these FORMAT keys (any key, as text) as a TSV; see --layout.
+    /// Keys are comma-separated; a missing value is `.`.
+    #[arg(long, value_delimiter = ',', value_name = "KEYS")]
+    pub format: Option<Vec<String>>,
+    /// Layout of --format: wide is one row per site (CHROM POS ID REF ALT,
+    /// then SAMPLE:KEY columns); long is one row per site and sample (CHROM
+    /// POS ID REF ALT SAMPLE, then a column per key). Default: wide.
+    #[arg(long, value_enum, value_name = "LAYOUT")]
+    pub layout: Option<ExtractLayout>,
+    /// Write the genotype matrix to --out-prefix.012 (a row per sample: its
+    /// index, then the count of non-reference alleles at each site, -1 when
+    /// missing), --out-prefix.012.indv (sample names) and --out-prefix.012.pos
+    /// (CHROM and POS of each site). Multi-allelic sites are left out, as in
+    /// vcftools --012. The matrix is held in memory: one byte per sample and
+    /// site.
+    #[arg(long, value_enum, value_name = "KIND")]
+    pub genotype_matrix: Option<GenotypeMatrix>,
+    /// Prefix of the --genotype-matrix files.
+    #[arg(long, value_name = "PREFIX")]
+    pub out_prefix: Option<PathBuf>,
+
+    /// Write the table to FILE (.tsv or .tsv.gz) instead of stdout.
+    #[arg(short, long, value_name = "FILE", conflicts_with = "genotype_matrix")]
+    pub output: Option<PathBuf>,
+    /// BGZF compression level for a .gz output, 0-12.
+    #[arg(long, value_name = "N", default_value = "6", value_parser = parse_level)]
+    pub compression_level: u8,
+
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct VcfFilterArgs {
+    /// Input VCF or BCF file (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+
+    #[command(flatten)]
+    pub select: VcfSelectArgs,
+
+    /// Keep only these INFO keys in output records and header.
+    #[arg(long, value_delimiter = ',', value_name = "KEYS")]
+    pub keep_info: Option<Vec<String>>,
+    /// Remove these INFO keys from output records and header.
+    #[arg(long, value_delimiter = ',', value_name = "KEYS")]
+    pub drop_info: Vec<String>,
+    /// Recalculate INFO/AC, AN and AF after sample selection and masking.
+    #[arg(long)]
+    pub recalc_ac: bool,
 
     #[command(flatten)]
     pub format: FormatArg,
