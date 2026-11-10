@@ -2753,6 +2753,18 @@ gloci = "gloci genomecov input.bed -g gc-f32.genome"
 reference = "bedtools genomecov -i input.bed -g gc-f32.genome"
 compare = "exact"
 
+# The `genome` rows divide the whole-genome counts by the genome length, in
+# single precision as well. Here 0.638132 and 0.361868 (double) become
+# 0.638131 and 0.361869 (float); the fractions of the one-feature-per-
+# chromosome rows above this one do not discriminate.
+[[case]]
+name = "genomecov-hist-genome-row-float-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-f32-genome.bed" }
+aux = ["xtask/diff/inputs/gc-f32-genome.genome"]
+gloci = "gloci genomecov input.bed -g gc-f32-genome.genome"
+reference = "bedtools genomecov -i input.bed -g gc-f32-genome.genome"
+compare = "exact"
+
 [[case]]
 name = "genomecov-bedgraph-vs-bedtools"
 input = { file = "xtask/diff/inputs/gc-a.bed" }
