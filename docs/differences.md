@@ -1462,3 +1462,42 @@ depends on the span.
 - **Pinned by:** `getfasta-split-bad-blocks-vs-bedtools` (exit status: must
   differ) and `getfasta-split-bad-blocks-skip-vs-bedtools`, which pins the
   matching output for the consistent records under `--skip-invalid`.
+
+## `maskfasta` keeps the FASTA layout; bedtools re-wraps and cannot match CRLF names {#maskfasta-layout}
+
+- **gloci:** `gloci maskfasta` writes every line break where the input had it:
+  uneven line widths, blank lines, CRLF line ends and a missing final line break
+  are all kept, and only the masked bases change. A CRLF FASTA is masked like
+  any other.
+- **Old behaviour:** `bedtools maskfasta` re-wraps each sequence to the width of
+  the first line, so an irregular FASTA comes out with different line breaks.
+  On a CRLF FASTA it keeps the CR in the header name (`chrM\r`), so no mask
+  finds its sequence and nothing is masked, with exit 0.
+- **Reason:** the output is the input with fewer bases, so `diff` shows only the
+  masked bases, and the `.fai` of the output matches the `.fai` of the input.
+  Silently doing nothing on CRLF input is a wrong answer.
+- **Pinned by:** `maskfasta-irregular-lines-vs-bedtools` and
+  `maskfasta-crlf-vs-bedtools` (outputs must differ).
+
+## `maskfasta` keeps the whole header; bedtools drops the description {#maskfasta-header}
+
+- **gloci:** the header line is copied as it is (`>chr1 Homo sapiens chromosome 1`).
+  A mask names a sequence by the first word of its header.
+- **Old behaviour:** `bedtools maskfasta` writes only the first word (`>chr1`)
+  unless `-fullHeader` is given.
+- **Reason:** dropping the description loses information the user did not ask to
+  remove. `-fullHeader` output is identical in both tools
+  (`maskfasta-full-header-vs-bedtools`).
+- **Pinned by:** `maskfasta-description-vs-bedtools` (output must differ).
+
+## `maskfasta` refuses a mask past the end of its sequence {#maskfasta-past-end}
+
+- **gloci:** a mask whose end is beyond the length of its sequence is an error
+  (exit 1) that names the sequence, the mask and the length. With `-o`, nothing
+  is published.
+- **Old behaviour:** `bedtools maskfasta` accepts a mask that starts inside the
+  sequence and ends past it (it masks to the end, exit 0), and aborts with a C++
+  exception (exit 134) when the mask starts past the end.
+- **Reason:** such a mask nearly always means the intervals belong to another
+  assembly. Masking a different sequence silently gives a wrong reference.
+- **Pinned by:** `maskfasta-past-end-vs-bedtools` (exit status: must differ).

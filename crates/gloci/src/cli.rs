@@ -854,6 +854,34 @@ Examples:
   gloci groupby calls.tsv -g 1 -c 4:collapse -c 5:count_distinct
   gloci groupby table.tsv --header -g gene -c expr:median -o medians.tsv")]
     Groupby(GroupbyArgs),
+    /// Mask bases of a FASTA under intervals, streaming it (bedtools maskfasta).
+    ///
+    /// Copies --fasta (plain, gzip or BGZF; no index needed) to the output
+    /// with every base under a -b interval replaced by --mask-char (default
+    /// N) or, with --soft, lowercased (letters only; other characters are
+    /// kept). Headers and line layout are kept exactly: line widths, CRLF
+    /// line ends, blank lines and a missing final line break. (bedtools
+    /// re-wraps lines to the first line's width, drops header descriptions
+    /// and cannot match names in a CRLF file.) The FASTA is read in pieces
+    /// of at most 1 MiB, so a chromosome of any size needs no memory beyond
+    /// the masks.
+    ///
+    /// Masks come from any number of files in any order, in any interval
+    /// format (BED, bedGraph, GFF/GTF, VCF/BCF); overlapping masks are
+    /// merged so a base is masked once. A mask names a sequence by the
+    /// first word of its header; use --chrom-map when the names differ.
+    /// Masks on a chromosome the FASTA lacks are skipped with one warning.
+    /// A mask that reaches past the end of its sequence is an error.
+    ///
+    /// Output goes to stdout or -o FILE (.fa, .fasta, .fna; a .gz name is
+    /// BGZF). --write-index also writes FILE.fai, and FILE.gzi for BGZF,
+    /// the same files gloci index writes.
+    #[command(after_long_help = "\
+Examples:
+  gloci maskfasta --fasta hg38.fa -b repeats.bed -o hg38.masked.fa
+  gloci maskfasta --fasta hg38.fa.gz -b rmsk.bed segdups.bed --soft -o soft.fa.gz --write-index
+  gloci maskfasta --fasta ref.fa -b low-mappability.bed --mask-char X | head")]
+    Maskfasta(MaskfastaArgs),
     /// VCF operations (spec §7.8).
     #[command(after_long_help = "\
 Examples:
@@ -1642,6 +1670,49 @@ pub struct MapArgs {
     pub chrom_map: ChromMapArg,
     #[command(flatten)]
     pub header: HeaderArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+/// The mask character of `maskfasta`: one printable ASCII character.
+fn parse_mask_char(s: &str) -> Result<u8, String> {
+    match s.as_bytes() {
+        [b] if b.is_ascii_graphic() => Ok(*b),
+        _ => Err(format!(
+            "invalid mask character {s:?}: use exactly one printable ASCII character such as N or X (or --soft to lowercase instead)"
+        )),
+    }
+}
+
+#[derive(Args)]
+pub struct MaskfastaArgs {
+    /// FASTA to mask (plain, gzip or BGZF; `-` for stdin).
+    #[arg(long, value_name = "FILE", required = true)]
+    pub fasta: String,
+    /// Interval files whose bases are masked (-b x y or -b x -b y).
+    #[arg(
+        short = 'b',
+        long = "b",
+        value_name = "FILE",
+        required = true,
+        num_args = 1..,
+        action = clap::ArgAction::Append
+    )]
+    pub masks: Vec<String>,
+    /// Lowercase masked letters instead of replacing them.
+    #[arg(long, conflicts_with = "mask_char")]
+    pub soft: bool,
+    /// Character that replaces masked bases.
+    #[arg(long, value_name = "C", default_value = "N", value_parser = parse_mask_char)]
+    pub mask_char: u8,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
     #[command(flatten)]
     pub invalid: InvalidArg,
     #[command(flatten)]

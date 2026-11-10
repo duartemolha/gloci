@@ -38,6 +38,7 @@ pub struct FastaStream {
     mid_line: bool,
     line: u64,
     crlf: bool,
+    terminated: bool,
 }
 
 impl FastaStream {
@@ -71,6 +72,7 @@ impl FastaStream {
             mid_line: false,
             line: 0,
             crlf: false,
+            terminated: false,
         })
     }
 
@@ -82,6 +84,14 @@ impl FastaStream {
     /// Whether the line of the item last returned ended in CRLF.
     pub fn crlf(&self) -> bool {
         self.crlf
+    }
+
+    /// Whether the item last returned ended its line with a line feed. False
+    /// for a piece of a long line and for a last line that has no line break.
+    /// A line break that falls just after a 1 MiB piece comes as an empty
+    /// `Seq` for which this is true.
+    pub fn line_ended(&self) -> bool {
+        self.terminated
     }
 
     pub fn name(&self) -> &str {
@@ -167,6 +177,7 @@ impl FastaStream {
         }
         let whole = ended || self.eof;
         self.crlf = whole && content_end < to;
+        self.terminated = ended;
         self.consumed_to = if ended { to + 1 } else { to };
         self.mid_line = !whole;
         let data = &self.buf[from..content_end];

@@ -263,6 +263,8 @@ enum IndexPlan {
     /// (D43, from A's format); finishing without them is a bug.
     TsvPending(NonZeroUsize),
     Tsv(TsvColumns, NonZeroUsize),
+    /// FASTA output: `.fai`, and `.gzi` when the output is BGZF (D108).
+    Fasta(NonZeroUsize),
 }
 
 const BUF: usize = 1 << 20;
@@ -291,13 +293,14 @@ write to a file such as -o out.bed.gz and index that",
             ))
             .into());
         }
-        if !bgzf {
+        if !bgzf && f != OutFormat::Fasta {
             return Err(UsageError(
                 "--write-index needs BGZF output; use a .gz output name (or .bcf)".into(),
             )
             .into());
         }
         index = match f.index_format() {
+            _ if f == OutFormat::Fasta => IndexPlan::Fasta(opts.threads),
             Some(format) => IndexPlan::Format(format, opts.threads),
             // The columns depend on A's format (D43); `open_tsv_writer` decides.
             None => IndexPlan::TsvPending(opts.threads),
@@ -426,6 +429,7 @@ impl Output {
                     cols,
                     *threads,
                 )?),
+                IndexPlan::Fasta(_) => None,
                 IndexPlan::TsvPending(_) => {
                     return Err(IoError::Detect {
                         path: name.clone(),
@@ -435,16 +439,23 @@ impl Output {
                     });
                 }
             };
-            let staged = match built {
-                Some((kind, bytes)) => {
-                    let path = crate::index::index_path(dest, kind);
-                    Some((crate::index::stage_index(&path, &bytes)?, path))
+            let mut staged = Vec::new();
+            if let Some((kind, bytes)) = built {
+                let path = crate::index::index_path(dest, kind);
+                staged.push((crate::index::stage_index(&path, &bytes)?, path));
+            }
+            if let IndexPlan::Fasta(threads) = &self.index {
+                let (fai, gzi) = crate::fasta::fasta_index_bytes(af.temp_path(), *threads)?;
+                let fai_dest = crate::fasta::fai_path(dest);
+                staged.push((crate::index::stage_index(&fai_dest, &fai)?, fai_dest));
+                if let Some(gzi) = gzi {
+                    let gzi_dest = crate::fasta::gzi_path(dest);
+                    staged.push((crate::index::stage_index(&gzi_dest, &gzi)?, gzi_dest));
                 }
-                None => None,
-            };
+            }
             crate::index::remove_indexes(dest)?;
             af.commit().map_err(werr)?;
-            if let Some((idx, path)) = staged {
+            for (idx, path) in staged {
                 idx.commit().map_err(|source| IoError::Write {
                     path: path.display().to_string(),
                     source,

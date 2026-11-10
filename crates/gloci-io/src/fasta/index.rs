@@ -532,9 +532,12 @@ fn publish(dest: &Path, bytes: &[u8]) -> Result<(), IoError> {
     af.commit().map_err(werr)
 }
 
-/// Write `PATH.fai` (and `PATH.gzi` when `path` is BGZF) atomically; returns
-/// the paths written. A plain-gzip FASTA is a usage error with a `bgzip` recipe.
-pub fn write_fasta_index(path: &Path, threads: NonZeroUsize) -> Result<Vec<PathBuf>, IoError> {
+/// The `.fai` and, for a BGZF `path`, the `.gzi` of the FASTA at `path`, as
+/// bytes. A plain-gzip FASTA is a usage error with a `bgzip` recipe.
+pub fn fasta_index_bytes(
+    path: &Path,
+    threads: NonZeroUsize,
+) -> Result<(Vec<u8>, Option<Vec<u8>>), IoError> {
     let name = path.display().to_string();
     let mut input = open_input(
         &name,
@@ -552,7 +555,13 @@ pub fn write_fasta_index(path: &Path, threads: NonZeroUsize) -> Result<Vec<PathB
     } else {
         None
     };
-    drop(input);
+    Ok((fai_bytes(&entries), gzi))
+}
+
+/// Write `PATH.fai` (and `PATH.gzi` when `path` is BGZF) atomically; returns
+/// the paths written. A plain-gzip FASTA is a usage error with a `bgzip` recipe.
+pub fn write_fasta_index(path: &Path, threads: NonZeroUsize) -> Result<Vec<PathBuf>, IoError> {
+    let (fai, gzi) = fasta_index_bytes(path, threads)?;
     let mut written = Vec::new();
     if let Some(g) = gzi {
         let p = gzi_path(path);
@@ -560,7 +569,7 @@ pub fn write_fasta_index(path: &Path, threads: NonZeroUsize) -> Result<Vec<PathB
         written.push(p);
     }
     let p = fai_path(path);
-    publish(&p, &fai_bytes(&entries))?;
+    publish(&p, &fai)?;
     written.insert(0, p);
     Ok(written)
 }

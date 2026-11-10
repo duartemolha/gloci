@@ -12,6 +12,7 @@ pub mod groupby;
 pub mod index;
 pub mod intersect;
 pub mod map;
+pub mod maskfasta;
 pub mod merge;
 pub mod partition;
 pub mod shift;

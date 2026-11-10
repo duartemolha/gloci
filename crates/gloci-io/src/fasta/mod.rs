@@ -10,7 +10,7 @@ mod index;
 mod stream;
 
 pub use fetch::{FETCH_CHUNK, IndexedFasta};
-pub use index::{FaiEntry, build_fai, fai_bytes, parse_fai, write_fasta_index};
+pub use index::{FaiEntry, build_fai, fai_bytes, fasta_index_bytes, parse_fai, write_fasta_index};
 pub use stream::{FastaLine, FastaStream};
 
 use crate::error::{IoError, UsageError};

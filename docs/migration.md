@@ -169,7 +169,8 @@ then the rest of P2b (Python library, packaging, mdBook, paper evidence suite).
 | `spacing` | `gloci spacing FILE` (`.` for the first record of a chromosome, `0` bookended, `-1` overlapping, only the previous record counts, as in bedtools; a zero-length record is a point, see [differences.md#spacing-zero-length](differences.md#spacing-zero-length); VCF input and chromosome order as for `cluster`) |
 | `bamtobed` | not yet available (`convert`, P3a) |
 | `getfasta -fi REF -bed FILE` (`-name`, `-nameOnly`, `-s`, `-split`, `-tab`, `-bedOut`, `-rna`) | `gloci getfasta FILE --fasta REF [--name \| --name-only] [-s] [--split] [--tab \| --bed-out] [--rna]` (output is byte-identical to bedtools 2.31.1 for BED, GFF and VCF input, including the IUPAC-aware reverse complement, except that `--split` refuses BED12 records whose blocks are out of order, overlap, or do not span the record where bedtools writes them unchecked, see [differences.md#getfasta-split-blocks](differences.md#getfasta-split-blocks); the FASTA needs a `.fai` (and `.gzi` for BGZF) made with `gloci index`, which gloci never builds itself; VCF is bedtools' REF span with `--vcf-span ref`; zero-length intervals are skipped with a counted warning, as bedtools does; an interval on a chromosome the FASTA lacks, or past its end, is an error where bedtools skips it, `--skip-invalid` gives bedtools' behaviour, see [differences.md#getfasta-outside-fasta](differences.md#getfasta-outside-fasta); there is no `-fullHeader`) |
-| `maskfasta`, `nuc` | not yet available (`maskfasta`, `nuc`, P3a) |
+| `maskfasta -fi F -bed B [-soft -mc C -fullHeader]` | `gloci maskfasta --fasta F -b B [--soft \| --mask-char C] [-o OUT.fa[.gz] --write-index]` (streamed, any compression, no index needed; headers are kept whole and line layout is kept, so `-fullHeader` is the default, see [differences.md#maskfasta-header](differences.md#maskfasta-header) and [differences.md#maskfasta-layout](differences.md#maskfasta-layout); a mask past its sequence's end is an error, see [differences.md#maskfasta-past-end](differences.md#maskfasta-past-end)) |
+| `nuc` | not yet available (`nuc`, P3a) |
 | `jaccard`, `fisher`, `reldist` | not yet available (`stats jaccard / fisher / reldist`, P3b) |
 | `shuffle`, `random`, `sample` | not yet available (`shuffle`, `random`, `sample`, P3b) |
 | `pairtobed`, `pairtopair` | not yet available (`pair-intersect`, `pair-pair`, P3b) |
@@ -488,6 +489,16 @@ Before relying on a new expression, run it once on a small file with
   convert x.psl` skips the five-line header and keeps a last line without a
   newline; `convert2bed --input=psl` fails on the header and drops that line.
   [differences.md#psl-rmsk-bedops-quirks](differences.md#psl-rmsk-bedops-quirks)
+- **`maskfasta` keeps the FASTA as it is:** `gloci maskfasta` keeps header
+  descriptions, line widths, CRLF and a missing final newline; `bedtools
+  maskfasta` drops descriptions (unless `-fullHeader`), re-wraps to the first
+  line's width, and masks nothing in a CRLF file.
+  [differences.md#maskfasta-header](differences.md#maskfasta-header)
+  [differences.md#maskfasta-layout](differences.md#maskfasta-layout)
+- **`maskfasta` refuses a mask past the sequence end:** exit 1, where `bedtools
+  maskfasta` masks to the end (or aborts with exit 134 when the mask starts past
+  it).
+  [differences.md#maskfasta-past-end](differences.md#maskfasta-past-end)
 - **`vcf filter` keeps INFO by default:** All INFO fields are preserved unless
   pruned with `--keep-info` or `--drop-info` (`vcftools --recode` drops INFO
   unless `--recode-INFO-all` is given).

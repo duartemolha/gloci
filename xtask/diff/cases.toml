@@ -3672,3 +3672,87 @@ aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
 gloci = "gloci getfasta --fasta ref.fa --split --name --skip-invalid input.bed"
 reference = "grep -v -e ooo -e short input.bed > good.bed; bedtools getfasta -fi ref.fa -split -name -bed good.bed"
 compare = "exact"
+
+# maskfasta (D113). masks.bed has overlapping masks (chr1 10-30 and 20-40), one
+# across two line breaks (chr1 55-125), masks at both ends of chrM and chr10,
+# masks on a chromosome ref.fa lacks (chrZ), and no sorting. gloci keeps headers
+# and line layout whole where bedtools drops descriptions and re-wraps, so the
+# fixtures that show that (desc.fa, irregular.fa, crlf.fa) are pinned.
+
+[[case]]
+name = "maskfasta-default-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/ref.fa" }
+aux = ["xtask/diff/inputs/fa/masks.bed"]
+gloci = "gloci maskfasta --fasta input.fa -b masks.bed"
+reference = "bedtools maskfasta -fi input.fa -bed masks.bed -fo /dev/stdout"
+compare = "exact"
+
+[[case]]
+name = "maskfasta-soft-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/ref.fa" }
+aux = ["xtask/diff/inputs/fa/masks.bed"]
+gloci = "gloci maskfasta --fasta input.fa -b masks.bed --soft"
+reference = "bedtools maskfasta -soft -fi input.fa -bed masks.bed -fo /dev/stdout"
+compare = "exact"
+
+[[case]]
+name = "maskfasta-mask-char-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/ref.fa" }
+aux = ["xtask/diff/inputs/fa/masks.bed"]
+gloci = "gloci maskfasta --fasta input.fa -b masks.bed --mask-char X"
+reference = "bedtools maskfasta -mc X -fi input.fa -bed masks.bed -fo /dev/stdout"
+compare = "exact"
+
+# Masks on chromosomes the FASTA lacks (chrZ, chrQ) are ignored by both.
+[[case]]
+name = "maskfasta-absent-chromosome-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/ref.fa" }
+aux = ["xtask/diff/inputs/fa/masks-absent.bed"]
+gloci = "gloci maskfasta --fasta input.fa -b masks-absent.bed"
+reference = "bedtools maskfasta -fi input.fa -bed masks-absent.bed -fo /dev/stdout"
+compare = "exact"
+
+[[case]]
+name = "maskfasta-description-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/desc.fa" }
+aux = ["xtask/diff/inputs/fa/masks.bed"]
+gloci = "gloci maskfasta --fasta input.fa -b masks.bed"
+reference = "bedtools maskfasta -fi input.fa -bed masks.bed -fo /dev/stdout"
+compare = "exact"
+expected_difference = "#maskfasta-header"
+
+[[case]]
+name = "maskfasta-full-header-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/desc.fa" }
+aux = ["xtask/diff/inputs/fa/masks.bed"]
+gloci = "gloci maskfasta --fasta input.fa -b masks.bed"
+reference = "bedtools maskfasta -fullHeader -fi input.fa -bed masks.bed -fo /dev/stdout"
+compare = "exact"
+
+[[case]]
+name = "maskfasta-irregular-lines-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/irregular.fa" }
+aux = ["xtask/diff/inputs/fa/masks-irregular.bed"]
+gloci = "gloci maskfasta --fasta input.fa -b masks-irregular.bed"
+reference = "bedtools maskfasta -fi input.fa -bed masks-irregular.bed -fo /dev/stdout"
+compare = "exact"
+expected_difference = "#maskfasta-layout"
+
+[[case]]
+name = "maskfasta-crlf-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/crlf.fa" }
+aux = ["xtask/diff/inputs/fa/masks-crlf.bed"]
+gloci = "gloci maskfasta --fasta input.fa -b masks-crlf.bed"
+reference = "bedtools maskfasta -fi input.fa -bed masks-crlf.bed -fo /dev/stdout"
+compare = "exact"
+expected_difference = "#maskfasta-layout"
+
+# bedtools masks to the end and exits 0; gloci exits 1.
+[[case]]
+name = "maskfasta-past-end-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/ref.fa" }
+aux = ["xtask/diff/inputs/fa/masks-past-end.bed"]
+gloci = "gloci maskfasta --fasta input.fa -b masks-past-end.bed"
+reference = "bedtools maskfasta -fi input.fa -bed masks-past-end.bed -fo /dev/stdout"
+compare = "exit-status"
+expected_difference = "#maskfasta-past-end"

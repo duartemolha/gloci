@@ -13,6 +13,7 @@ pub mod getfasta;
 pub mod groupby;
 pub mod intersect;
 pub mod map;
+pub mod maskfasta;
 pub mod merge;
 pub mod partition;
 pub mod relate;
@@ -34,6 +35,7 @@ pub mod windows;
 pub use bedsearch::{ChromBlock, find_chrom_block, find_chrom_block_mapped};
 pub use check::{CheckReport, Problems, check_file};
 pub use gloci_engine::all_indexed;
+pub use maskfasta::{Mask, MaskSet, MaskSummary, maskfasta};
 pub use relate::{
     Acceptor, InputPaths, RelateInputs, RelateOptions, RelationFiles, ReportOutput, RunOptions,
     b_placeholder, open_report, rewrite_coords, run_relation, runs_per_chromosome,
