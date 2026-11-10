@@ -720,6 +720,13 @@ Reference machine: 8-core x86_64, NVMe, 32 GB RAM. Baselines: bedtools 2.31.x, b
 | **P2 Breadth** | `partition`, `cluster`, `spacing`, `shift`, `groupby`, `genomecov` (BED), full `map` ops, `vcf stats`, `vcf extract`, `vcf concat`, filter expressions, `--chrom-map`, WIG input; bioconda package; **Python library** (`pip install gloci`, Section 8.5) | vcftools no longer needed for QC/filtering |
 | **P3 Extended** | BAM/CRAM input (intersect, coverage, genomecov, convert) and indexing (`.bai`/`.csi`, `.crai`); FASTA indexing (`.fai`/`.gzi`); `getfasta`, `maskfasta`, `nuc`; `stats jaccard/fisher/reldist`; `sample`/`random`/`shuffle`; BEDPE pair ops; `vcf popgen`; `vcf compare` | all three tools can be uninstalled |
 
+**Order [revised 2026-11-10, owner]:** after P2a (the P2 command breadth), the build order is:
+P2b Task 1 only (MIT licence; genome tables moved inside `gloci-io` so `cargo install` and source packages work),
+then **P3a** (BAM/CRAM, FASTA, `getfasta`/`maskfasta`/`nuc`, BAM in `coverage`/`genomecov`/`intersect`/`convert`),
+then **P3b** (`stats`, `sample`/`random`/`shuffle`, BEDPE, `vcf popgen`, `vcf compare`),
+then the rest of P2b (Python library, packaging, mdBook, paper evidence suite) over the complete command set.
+Nothing is published to PyPI, crates.io, GHCR or bioconda until the owner enables it.
+
 **Distribution:**
 
 - Static Linux binaries (x86_64 and aarch64 musl) and macOS binaries on releases from P1.
