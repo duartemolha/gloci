@@ -614,3 +614,136 @@ fn intersect_indexed_2gib_rss() {
         );
     }
 }
+
+/// Run `args`, discard stdout, and return the peak RSS in bytes; asserts success.
+fn rss_of(what: &str, args: &[&std::ffi::OsStr]) -> u64 {
+    let t0 = std::time::Instant::now();
+    let child = Command::new(gloci_bin())
+        .args(args)
+        .stdout(Stdio::null())
+        .spawn()
+        .unwrap();
+    let (ok, rss) = wait_rss(&child);
+    eprintln!(
+        "{what}: {:.1}s, peak RSS {} MiB",
+        t0.elapsed().as_secs_f64(),
+        rss / MIB
+    );
+    assert!(ok, "gloci {what} failed");
+    rss
+}
+
+/// A genome file for the generated BED: chr1..chr22 at 2 Gbp each, so no
+/// generated position falls off the end at any payload size.
+fn big_genome() -> PathBuf {
+    let p = shared_dir().join("big.genome");
+    if !p.exists() {
+        let mut t = String::new();
+        for c in 1..=22 {
+            t.push_str(&format!("chr{c}\t2000000000\n"));
+        }
+        std::fs::write(&p, t).unwrap();
+    }
+    p
+}
+
+const RSS_CEILING: u64 = 200_000_000;
+
+#[test]
+#[ignore = "nightly: generates large file"]
+fn partition_2gib_bed_streams() {
+    let (a, b) = (big_bed_a(), big_bed_b());
+    let rss = rss_of(
+        "partition large",
+        &[
+            "partition".as_ref(),
+            a.as_os_str(),
+            b.as_os_str(),
+            "--names".as_ref(),
+            "A,B".as_ref(),
+        ],
+    );
+    assert!(rss <= RSS_CEILING, "peak RSS {rss} bytes exceeds 200 MB");
+}
+
+#[test]
+#[ignore = "nightly: generates large file"]
+fn genomecov_2gib_bed_streams() {
+    let a = big_bed_a();
+    let g = big_genome();
+    for mode in ["--bedgraph", "--bga", "--hist"] {
+        let rss = rss_of(
+            &format!("genomecov {mode} large"),
+            &[
+                "genomecov".as_ref(),
+                a.as_os_str(),
+                "-g".as_ref(),
+                g.as_os_str(),
+                mode.as_ref(),
+            ],
+        );
+        assert!(
+            rss <= RSS_CEILING,
+            "genomecov {mode}: peak RSS {rss} bytes exceeds 200 MB"
+        );
+    }
+}
+
+#[test]
+#[ignore = "nightly: generates large file"]
+fn cluster_2gib_bed_streams() {
+    let a = big_bed_a();
+    let rss = rss_of("cluster large", &["cluster".as_ref(), a.as_os_str()]);
+    assert!(rss <= RSS_CEILING, "peak RSS {rss} bytes exceeds 200 MB");
+    let rss = rss_of("spacing large", &["spacing".as_ref(), a.as_os_str()]);
+    assert!(
+        rss <= RSS_CEILING,
+        "spacing: peak RSS {rss} bytes exceeds 200 MB"
+    );
+}
+
+#[test]
+#[ignore = "nightly: generates large file"]
+fn vcf_stats_2gib_vcf_streams() {
+    let vcf = big_vcf();
+    let prefix = shared_dir().join("stats_out");
+    let t0 = std::time::Instant::now();
+    let child = Command::new(gloci_bin())
+        .args(["vcf", "stats"])
+        .arg(vcf)
+        .arg("--out-prefix")
+        .arg(&prefix)
+        .args([
+            "--site-quality",
+            "--filter-summary",
+            "--indel-hist",
+            "--tstv-summary",
+            "--summary",
+            "--snp-density",
+            "100000",
+        ])
+        .stdout(Stdio::null())
+        .spawn()
+        .unwrap();
+    let (ok, rss) = wait_rss(&child);
+    eprintln!(
+        "vcf stats large: {:.1}s, peak RSS {} MiB",
+        t0.elapsed().as_secs_f64(),
+        rss / MIB
+    );
+    // the per-site table is as long as the input has records
+    let written = std::fs::metadata(shared_dir().join("stats_out.lqual"))
+        .map(|m| m.len())
+        .unwrap_or(0);
+    for e in std::fs::read_dir(shared_dir()).unwrap() {
+        let p = e.unwrap().path();
+        if p.file_name()
+            .is_some_and(|n| n.to_string_lossy().starts_with("stats_out."))
+        {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+    assert!(ok, "gloci vcf stats failed");
+    assert!(written > 0, "no per-site output written");
+    assert!(rss <= RSS_CEILING, "peak RSS {rss} bytes exceeds 200 MB");
+}
