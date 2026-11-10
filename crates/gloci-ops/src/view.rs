@@ -796,7 +796,7 @@ write SAM instead (-O sam)",
                             .is_some_and(|set| set.matches(iv, opts.inclusive_points))
                     });
             if keep {
-                w.write_record(&buf).map_err(|source| {
+                w.write_alignment(&buf, src.last_bam()).map_err(|source| {
                     if source.kind() == std::io::ErrorKind::InvalidData {
                         // The record cannot be written in this format; not a write failure.
                         IoError::Detect {

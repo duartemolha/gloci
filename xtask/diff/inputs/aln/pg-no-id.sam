@@ -1,0 +1,6 @@
+@HD	VN:1.6
+@SQ	SN:chr1	LN:1000
+@SQ	SN:chr2	LN:1000
+@PG	ID:a	PN:a
+@PG	PN:noid	PP:a
+r	4	*	0	0	*	*	0	0	ACGT	IIII

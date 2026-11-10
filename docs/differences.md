@@ -1561,14 +1561,20 @@ depends on the span.
 - **Old behaviour:** `samtools view` reads each of these, storing the bytes it
   parsed (`ab` as `a`, the out-of-range element wrapped, the trailing comma as a
   zero element, the number by `strtod`, QUAL 0x7f as 94).
-- **Also:** SAM to SAM output copies each line as it is (D120), so a read that
-  samtools normalises while reading (a mapped read with CIGAR `*`, no position or no
-  reference, which it writes with flag 4) is copied as written. SAM to BAM encodes
-  what samtools encodes, so the BAM is the same.
+- **Also:** a SAM line that gloci does not normalise is copied as written (D120), spelling
+  included: lowercase bases, `0x10` for a FLAG, `I` and `c` tag types, `0.10` and `+7`.
+  samtools rewrites all of these, because it parses every line into a BAM record and prints
+  that. A line that htslib reads as a different record (a mapped read with CIGAR `*`, with no
+  position or no reference, or whose RNEXT has PNEXT 0) is written as the record samtools
+  writes, flag 4 and `*` included, so the output agrees with BAM output and with the filters.
+  SAM to BAM encodes what samtools encodes.
+- **A `@PG` line with no ID:** samtools cannot chain its own `@PG` line to it and fails the
+  run; gloci adds its line and goes on.
 - **Reason:** each of these is more likely a broken file than a meant value.
 - **Pinned by:** `view-sam-strict-char-two-vs-samtools`,
   `view-sam-strict-b-range-vs-samtools`, `view-sam-strict-b-comma-vs-samtools`,
   `view-sam-strict-float-space-vs-samtools`,
   `view-sam-strict-float-trailing-vs-samtools`,
   `view-sam-strict-qual-del-vs-samtools` and
-  `view-sam-strict-cigar-zeros-vs-samtools` (exit status must differ).
+  `view-sam-strict-cigar-zeros-vs-samtools` and `view-sam-pg-without-id-vs-samtools` (exit
+  status must differ).

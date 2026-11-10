@@ -75,6 +75,16 @@ fn invalid(msg: String) -> io::Error {
 }
 
 impl RecordWriter for AlignmentWriter {
+    fn write_alignment(&mut self, raw: &[u8], bam: Option<&[u8]>) -> io::Result<()> {
+        match (&self.convert, bam) {
+            (Convert::ToBam(..), Some(b)) => {
+                self.out.write_all(&(b.len() as u32).to_le_bytes())?;
+                self.out.write_all(b)
+            }
+            _ => self.write_record(raw),
+        }
+    }
+
     fn write_record(&mut self, raw: &[u8]) -> io::Result<()> {
         match &mut self.convert {
             Convert::Same if self.bam => {
@@ -152,9 +162,11 @@ write SAM with -O sam"
         path: "output".to_string(),
         source,
     };
-    // SAM text shows the references of a header that kept them only in its binary list.
+    // SAM text shows the references of a header that kept them only in its binary list, and
+    // so does BAM output that gets a @PG line: samtools rebuilds the text then. Without a
+    // @PG line BAM output keeps the text as stored.
     let shown;
-    let base = if bam {
+    let base = if bam && o.command_line.is_none() {
         h
     } else {
         shown = h.with_sq_lines();

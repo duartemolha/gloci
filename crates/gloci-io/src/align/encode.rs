@@ -63,6 +63,10 @@ pub(crate) fn parse_flag(field: &[u8]) -> Result<u16, String> {
         )
     };
     let t = std::str::from_utf8(field).map_err(|_| bad())?;
+    // `strtol` takes a sign, samtools does not take a FLAG with one.
+    if !t.bytes().all(|b| b.is_ascii_alphanumeric()) {
+        return Err(bad());
+    }
     let n = if let Some(h) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
         u32::from_str_radix(h, 16)
     } else if t.len() > 1 && t.starts_with('0') {
@@ -219,45 +223,106 @@ fn push_aux(out: &mut Vec<u8>, field: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-/// Append the BAM record (without `block_size`) for the SAM line `line` to `out`. `rid` finds
-/// a reference by name. On an error `out` is as it was.
+/// What encoding a SAM line found out about it, besides its bytes.
+#[derive(Debug, Default)]
+pub(crate) struct Encoded {
+    /// `ZERO_POS` and `NO_CIGAR`: what htslib would warn about.
+    pub notes: u8,
+    /// htslib reads the record as a different one: its flag, reference or mate changed, so the
+    /// text of the line is not the record's.
+    pub normalised: bool,
+    /// Why the record cannot be written as BAM (a 32-bit field overflows), when it cannot. Only
+    /// set by a lenient encoding, whose bytes are then not a valid BAM record.
+    pub not_bam: Option<String>,
+}
+
+fn not_bam(reason: &str) -> String {
+    format!("this record cannot be written as BAM ({reason}); write SAM with -O sam to keep it")
+}
+
+/// A 32-bit field overflows: an error for BAM, a note for SAM.
+fn too_big(found: &mut Encoded, strict: bool, reason: String) -> Result<(), String> {
+    if strict {
+        Err(not_bam(&reason))
+    } else {
+        found.not_bam.get_or_insert(reason);
+        Ok(())
+    }
+}
+
+/// Append the BAM record (without `block_size`) for the SAM line `line` to `out`, or say why it
+/// cannot be written as BAM. `rid` finds a reference by name. On an error `out` is as it was.
 pub(crate) fn sam_to_bam(
     line: &[u8],
     rid: &dyn Fn(&[u8]) -> Option<usize>,
     out: &mut Vec<u8>,
 ) -> Result<(), String> {
+    encode_sam(line, rid, out, true).map(|_| ())
+}
+
+/// As [`sam_to_bam`], with the findings. With `strict` off a record that BAM cannot hold (see
+/// [`Encoded::not_bam`]) is not an error, because SAM can hold it.
+pub(crate) fn encode_sam(
+    line: &[u8],
+    rid: &dyn Fn(&[u8]) -> Option<usize>,
+    out: &mut Vec<u8>,
+    strict: bool,
+) -> Result<Encoded, String> {
     let start = out.len();
-    let r = encode(line, rid, out);
+    let r = encode(line, rid, out, strict);
     if r.is_err() {
         out.truncate(start);
     }
     r
 }
 
+thread_local! {
+    /// The CIGAR words of the record being encoded, kept between records.
+    static CIGAR: std::cell::RefCell<Vec<u32>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
 fn encode(
     line: &[u8],
     rid: &dyn Fn(&[u8]) -> Option<usize>,
     out: &mut Vec<u8>,
-) -> Result<(), String> {
-    let mut f: Vec<&[u8]> = Vec::with_capacity(16);
+    strict: bool,
+) -> Result<Encoded, String> {
+    let mut cigar = CIGAR.with(|c| std::mem::take(&mut *c.borrow_mut()));
+    cigar.clear();
+    let r = encode_with(line, rid, out, strict, &mut cigar);
+    CIGAR.with(|c| *c.borrow_mut() = cigar);
+    r
+}
+
+fn encode_with(
+    line: &[u8],
+    rid: &dyn Fn(&[u8]) -> Option<usize>,
+    out: &mut Vec<u8>,
+    strict: bool,
+    cigar: &mut Vec<u32>,
+) -> Result<Encoded, String> {
+    let mut found = Encoded::default();
+    let mut f: [&[u8]; 11] = [&[]; 11];
+    let mut n = 0;
     let mut rest = line;
-    while f.len() < 11 {
+    while n < 11 {
         match memchr(b'\t', rest) {
             Some(i) => {
-                f.push(&rest[..i]);
+                f[n] = &rest[..i];
                 rest = &rest[i + 1..];
+                n += 1;
             }
             None => {
-                f.push(rest);
+                f[n] = rest;
                 rest = &[];
+                n += 1;
                 break;
             }
         }
     }
-    if f.len() < 11 {
+    if n < 11 {
         return Err(format!(
-            "the line has {} tab-separated fields; a SAM record has at least 11",
-            f.len()
+            "the line has {n} tab-separated fields; a SAM record has at least 11"
         ));
     }
     let name = f[0];
@@ -267,7 +332,7 @@ fn encode(
             name.len()
         ));
     }
-    let flag = parse_flag(f[1])?;
+    let flag0 = parse_flag(f[1])?;
     let named_ref = if f[2] == b"*" {
         -1i32
     } else {
@@ -289,15 +354,23 @@ fix the name, or pass --skip-invalid to skip such reads",
     let mapq: u8 = num(f[4], "MAPQ")?;
     let pnext: u32 = num(f[7], "PNEXT")?;
     if pnext > i32::MAX as u32 + 1 {
-        return Err(format!(
-            "PNEXT {pnext} is above 2147483648; BAM positions are 32-bit"
-        ));
+        too_big(
+            &mut found,
+            strict,
+            format!("PNEXT {pnext} is above 2147483648"),
+        )?;
     }
     let mate_pos = i64::from(pnext) - 1;
-    let tlen: i32 = num(f[8], "TLEN")?;
+    let tlen: i64 = num(f[8], "TLEN")?;
+    if i32::try_from(tlen).is_err() {
+        too_big(
+            &mut found,
+            strict,
+            format!("TLEN {tlen} does not fit in 32 bits"),
+        )?;
+    }
 
     // The CIGAR, and what it covers.
-    let mut cigar: Vec<u32> = Vec::new();
     let (mut rlen, mut qlen) = (0u64, 0u64);
     if f[5] != b"*" {
         let mut c = f[5];
@@ -334,7 +407,8 @@ fix the name, or pass --skip-invalid to skip such reads",
         ));
     }
     // As htslib reads SAM (see `normalise`); the mate's `=` is the read's reference as normalised.
-    let (flag, ref_id, _) = normalise(flag, named_ref, pos, !cigar.is_empty());
+    let (flag, ref_id, notes) = normalise(flag0, named_ref, pos, !cigar.is_empty());
+    found.notes = notes;
     let mut mate = match f[6] {
         b"*" => -1i32,
         b"=" => ref_id,
@@ -349,6 +423,13 @@ fix the name, or pass --skip-invalid to skip such reads",
     if mate_pos < 0 {
         mate = -1;
     }
+    // What the mate would be without htslib's rules: the line's own reading of RNEXT.
+    let written_mate = match f[6] {
+        b"*" => -1,
+        b"=" => named_ref,
+        n => rid(n).map_or(-1, |i| i as i32),
+    };
+    found.normalised = flag != flag0 || ref_id != named_ref || mate != written_mate;
     let end = if flag & FLAG_UNMAPPED != 0 {
         pos + 1
     } else {
@@ -357,22 +438,23 @@ fix the name, or pass --skip-invalid to skip such reads",
     // More operations than the 16-bit count holds: a placeholder, and the array in `CG`.
     let long = cigar.len() > usize::from(u16::MAX);
     if long && (rlen >= 1 << 28 || l_seq >= 1 << 28) {
-        return Err(format!(
-            "the CIGAR has {} operations, which BAM keeps in a CG tag, and the read's {} \
-is 2^28 or more, so the record cannot be written in BAM; write SAM instead",
-            cigar.len(),
-            if rlen >= 1 << 28 {
-                "reference span"
-            } else {
-                "sequence"
-            }
-        ));
+        let what = if rlen >= 1 << 28 {
+            "reference span"
+        } else {
+            "sequence"
+        };
+        too_big(
+            &mut found,
+            strict,
+            format!(
+                "the CIGAR has {} operations, which BAM keeps in a CG tag, and the read's {what} \
+is 2^28 or more",
+                cigar.len()
+            ),
+        )?;
     }
-    let inline: Vec<u32> = if long {
-        vec![(l_seq as u32) << 4 | 4, (rlen as u32) << 4 | 3]
-    } else {
-        cigar.clone()
-    };
+    let placeholder = [(l_seq as u32) << 4 | 4, (rlen as u32) << 4 | 3];
+    let inline: &[u32] = if long { &placeholder } else { cigar };
 
     out.extend_from_slice(&ref_id.to_le_bytes());
     out.extend_from_slice(&(pos as i32).to_le_bytes());
@@ -384,10 +466,10 @@ is 2^28 or more, so the record cannot be written in BAM; write SAM instead",
     out.extend_from_slice(&(l_seq as u32).to_le_bytes());
     out.extend_from_slice(&mate.to_le_bytes());
     out.extend_from_slice(&(mate_pos as i32).to_le_bytes());
-    out.extend_from_slice(&tlen.to_le_bytes());
+    out.extend_from_slice(&(tlen as i32).to_le_bytes());
     out.extend_from_slice(name);
     out.push(0);
-    for w in &inline {
+    for w in inline {
         out.extend_from_slice(&w.to_le_bytes());
     }
     for pair in seq[..l_seq].chunks(2) {
@@ -425,9 +507,9 @@ is 2^28 or more, so the record cannot be written in BAM; write SAM instead",
     if long {
         out.extend_from_slice(b"CGBI");
         out.extend_from_slice(&(cigar.len() as u32).to_le_bytes());
-        for w in &cigar {
+        for w in cigar.iter() {
             out.extend_from_slice(&w.to_le_bytes());
         }
     }
-    Ok(())
+    Ok(found)
 }

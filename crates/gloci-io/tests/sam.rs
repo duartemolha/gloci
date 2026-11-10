@@ -856,7 +856,7 @@ fn encoder_accepts_what_htslib_accepts_and_refuses_what_it_refuses() {
     // 70,000 operations with a reference span of 2^28 or more cannot be written in BAM.
     let cigar = "8000M1D".repeat(35_000);
     let e = sam_to_bam_line(&format!("a\t0\tchr1\t5\t60\t{cigar}\t*\t0\t0\t*\t*")).unwrap_err();
-    assert!(e.contains("cannot be written in BAM"), "{e}");
+    assert!(e.contains("cannot be written as BAM"), "{e}");
 }
 
 /// A BAM record with the given reference, flag, CIGAR words, `l_seq` and aux bytes, written to
@@ -1023,6 +1023,22 @@ fn pg_lines_follow_the_chain_ends_as_htslib_adds_them() {
             .collect::<Vec<_>>(),
         ["ID:gloci PP:a"]
     );
+    // A line that names itself is a root: the chain end wins over it, and the last root is
+    // the predecessor when there is no chain.
+    assert_eq!(
+        pgs("@PG\tID:r\n@PG\tID:c\tPP:r\n@PG\tID:s\tPP:s\n")[3..]
+            .iter()
+            .map(new)
+            .collect::<Vec<_>>(),
+        ["ID:gloci PP:c"]
+    );
+    assert_eq!(
+        pgs("@PG\tID:a\tPP:a\n@PG\tID:b\n")[2..]
+            .iter()
+            .map(new)
+            .collect::<Vec<_>>(),
+        ["ID:gloci PP:b"]
+    );
     // A cycle with nothing else: a line with no PP. A self-reference is a chain end.
     assert_eq!(
         pgs("@PG\tID:x\tPP:y\n@PG\tID:y\tPP:x\n")[2..]
@@ -1046,4 +1062,132 @@ fn pg_lines_follow_the_chain_ends_as_htslib_adds_them() {
         p[5..].iter().map(new).collect::<Vec<_>>(),
         ["ID:gloci.2 PP:gloci.1", "ID:gloci.4 PP:v"]
     );
+}
+
+#[test]
+fn bam_output_with_a_pg_line_shows_sq_lines_and_without_it_keeps_the_text() {
+    let h = AlnHeader::new(
+        b"@HD\tVN:1.6\n".to_vec(),
+        vec![(b"c1".to_vec(), 100)],
+        SortOrder::Unknown,
+    );
+    let dir = tempfile::tempdir().unwrap();
+    for (cmd, want_sq) in [(Some("c"), true), (None, false)] {
+        let path = dir.path().join(format!("o{}.bam", cmd.is_some()));
+        let w = open_alignment_writer(
+            out_to(&path, OutFormat::Bam),
+            Format::Bam,
+            OutFormat::Bam,
+            &h,
+            &wopts(cmd, true),
+        )
+        .unwrap();
+        w.finish().unwrap();
+        let (hdr, _) = bam_records(&std::fs::read(&path).unwrap());
+        let text = String::from_utf8_lossy(&hdr.text).into_owned();
+        assert_eq!(text.contains("@SQ\tSN:c1\tLN:100"), want_sq, "{text}");
+        assert_eq!(text.contains("@PG\tID:gloci"), cmd.is_some(), "{text}");
+    }
+}
+
+#[test]
+fn sam_source_hands_over_the_bam_bytes_it_checked() {
+    let mut s = source("tags.sam", AlignOptions::default());
+    let bam: Vec<Vec<u8>> = {
+        let mut b = source("tags.bam", AlignOptions::default());
+        all(b.as_mut()).into_iter().map(|r| r.1).collect()
+    };
+    let mut buf = Vec::new();
+    let mut i = 0;
+    while s.next_record(&mut buf).unwrap().is_some() {
+        assert_eq!(s.last_bam(), Some(&bam[i][..]), "record {i}");
+        buf.clear();
+        i += 1;
+    }
+    assert_eq!(i, bam.len());
+    // A BAM source has nothing to hand over: its raw record is the BAM record.
+    assert!(
+        source("tags.bam", AlignOptions::default())
+            .last_bam()
+            .is_none()
+    );
+}
+
+#[test]
+fn normalised_lines_are_written_as_samtools_writes_them() {
+    let refs = "@SQ\tSN:chr1\tLN:1000\n@SQ\tSN:chr2\tLN:1000\n";
+    let lines = [
+        // Kept as written: spelling samtools would normalise.
+        "lower\t0\tchr1\t100\t60\t4M\t*\t0\t0\tacgt\tIIII\tXF:f:0.10\tXP:i:+7",
+        // Normalised.
+        "nocigar\t0\tchr1\t100\t60\t*\t*\t0\t0\tACGT\tIIII",
+        "pos0\t0\tchr1\t0\t60\t4M\t=\t50\t0\tACGT\tIIII",
+        "norname\t0\t*\t100\t60\t4M\t*\t0\t0\tACGT\tIIII",
+        "rnext0\t1\tchr1\t100\t60\t4M\tchr1\t0\t0\tACGT\tIIII",
+    ];
+    let mut s = src_of(sam_bytes(refs, &lines), InvalidPolicy::Fail).unwrap();
+    let got: Vec<String> = all(s.as_mut())
+        .into_iter()
+        .map(|r| String::from_utf8(r.1).unwrap())
+        .collect();
+    assert_eq!(got[0], lines[0]);
+    assert_eq!(got[1], "nocigar\t4\tchr1\t100\t60\t*\t*\t0\t0\tACGT\tIIII");
+    assert_eq!(got[2], "pos0\t4\t*\t0\t60\t4M\t*\t50\t0\tACGT\tIIII");
+    assert_eq!(got[3], "norname\t4\t*\t100\t60\t4M\t*\t0\t0\tACGT\tIIII");
+    assert_eq!(got[4], "rnext0\t1\tchr1\t100\t60\t4M\t*\t0\t0\tACGT\tIIII");
+    // The filters judge the flag htslib reads.
+    let ao = AlignOptions {
+        require_flags: 0x4,
+        ..AlignOptions::default()
+    };
+    let mut s = open_aln_source_from(
+        "t.sam",
+        Box::new(Cursor::new(sam_bytes(refs, &lines))),
+        &ropts(ao, InvalidPolicy::Fail),
+    )
+    .unwrap();
+    assert_eq!(all(s.as_mut()).len(), 3);
+}
+
+#[test]
+fn records_bam_cannot_hold_are_fine_in_sam_and_an_error_for_bam() {
+    let refs = "@SQ\tSN:chr1\tLN:1000\n@SQ\tSN:chr2\tLN:1000\n";
+    let pnext = "p\t1\tchr1\t100\t60\t4M\tchr2\t3000000000\t0\tACGT\tIIII";
+    let tlen = "t\t1\tchr1\t100\t60\t4M\tchr2\t100\t3000000000\tACGT\tIIII";
+    let mut s = src_of(sam_bytes(refs, &[pnext, tlen]), InvalidPolicy::Fail).unwrap();
+    let recs = all(s.as_mut());
+    assert_eq!(recs.len(), 2);
+    // Nothing for a BAM writer to reuse; encoding it for BAM says why not.
+    assert!(s.last_bam().is_none());
+    let h = (**s.header()).clone();
+    for (l, why) in [(pnext, "PNEXT 3000000000"), (tlen, "TLEN 3000000000")] {
+        let e = sam_line_to_bam(l.as_bytes(), &h, &mut Vec::new()).unwrap_err();
+        assert!(
+            e.contains("cannot be written as BAM") && e.contains(why),
+            "{e}"
+        );
+        assert!(e.contains("-O sam"), "{e}");
+    }
+    // And a BAM writer reports it as a data error, naming the fix.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("o.bam");
+    let mut w = open_alignment_writer(
+        out_to(&path, OutFormat::Bam),
+        Format::Sam,
+        OutFormat::Bam,
+        &h,
+        &wopts(None, true),
+    )
+    .unwrap();
+    let e = w.write_record(pnext.as_bytes()).unwrap_err();
+    assert_eq!(e.kind(), std::io::ErrorKind::InvalidData);
+}
+
+#[test]
+fn flag_with_a_sign_is_refused() {
+    for f in ["+16", "-1", "0x+10", "+0x10"] {
+        let line = format!("a\t{f}\tchr1\t5\t60\t4M\t*\t0\t0\tACGT\tIIII");
+        let e = sam_to_bam_line(&line).unwrap_err();
+        assert!(e.contains("FLAG"), "{f}: {e}");
+    }
 }

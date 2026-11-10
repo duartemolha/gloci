@@ -4,12 +4,12 @@
 //! The raw form of a SAM record is its line, without the newline, so output copies it
 //! unchanged. A record's `RNAME` must be one of the header's `@SQ` lines.
 
-use super::encode::{CIGAR_LETTERS, NO_CIGAR, ZERO_POS, normalise, parse_flag};
+use super::encode::{CIGAR_LETTERS, NO_CIGAR, ZERO_POS, encode_sam, normalise, parse_flag};
 use super::header::AlnHeader;
 use super::place::{IntervalRules, Verdict};
 use super::record::footprint;
-use super::writer::sam_line_to_bam;
-use super::{AlignOptions, AlnRef};
+
+use super::{AlignOptions, Aln, AlnRef};
 use crate::chrom_map::ChromMap;
 use crate::detect::{Compression, Format};
 use crate::diag::{Diagnostics, InvalidPolicy};
@@ -37,9 +37,6 @@ pub struct SamAln<'a> {
     cigar: &'a [u8],
     /// The optional fields, `TAG:TYPE:VALUE` separated by tabs; empty when there are none.
     tags: &'a [u8],
-    /// What [`normalise`] changed about the record: flag, reference and position are as
-    /// htslib reads them.
-    pub(crate) notes: u8,
 }
 
 fn number<T: std::str::FromStr>(field: &[u8], what: &str) -> Result<T, String> {
@@ -171,7 +168,7 @@ impl<'a> SamAln<'a> {
         }
         // As htslib reads it: no position means no reference, and no reference or CIGAR means
         // unmapped. The line itself is kept as it is.
-        let (flag, ref_id, notes) = normalise(flag, ref_id, i64::from(pos1) - 1, !cigar.is_empty());
+        let (flag, ref_id, _) = normalise(flag, ref_id, i64::from(pos1) - 1, !cigar.is_empty());
         Ok(SamAln {
             line,
             ref_id,
@@ -181,7 +178,6 @@ impl<'a> SamAln<'a> {
             name: qname,
             cigar,
             tags: rest,
-            notes,
         })
     }
 
@@ -262,6 +258,16 @@ pub(crate) struct SamLines {
     scratch: Vec<u8>,
     /// The notes of `normalise` already warned about.
     warned: u8,
+    /// BAM can hold the record in `scratch`.
+    fits: bool,
+}
+
+/// What [`SamLines::check`] found out about a record line: the flag and MAPQ as htslib reads
+/// them (what the filters judge), and whether the line says something else.
+pub(crate) struct Checked {
+    pub(crate) flag: u16,
+    pub(crate) mapq: u8,
+    normalised: bool,
 }
 
 impl SamLines {
@@ -318,6 +324,7 @@ impl SamLines {
             rec: 0,
             scratch: Vec::new(),
             warned: 0,
+            fits: false,
         })
     }
 
@@ -344,29 +351,64 @@ impl SamLines {
         }
     }
 
-    /// The record line `line` (from [`SamLines::next`]), checked as far as writing it as BAM
-    /// would check it: every field and optional field, so a bad line is an error where it is
-    /// read, whatever the output.
-    pub(crate) fn parse<'a>(&mut self, line: &'a [u8]) -> Result<SamAln<'a>, String> {
-        let a = SamAln::parse(line, &self.aln)?;
+    /// Check the record line `line` (from [`SamLines::next`]) as far as writing it as BAM
+    /// would: every field and optional field, so a bad line is an error where it is read,
+    /// whatever the output. The record is encoded into `self.scratch` on the way, and
+    /// [`SamLines::bam`] gives the bytes. A 32-bit overflow is no error here, because SAM can
+    /// hold what BAM cannot.
+    pub(crate) fn check(&mut self, line: &[u8]) -> Result<Checked, String> {
         self.scratch.clear();
-        sam_line_to_bam(line, &self.aln, &mut self.scratch)?;
+        let enc = encode_sam(line, &|n| self.aln.ref_id(n), &mut self.scratch, false)?;
+        self.fits = enc.not_bam.is_none();
         // htslib treats such reads as unmapped and says so; once per input here.
         for (note, what) in [
             (ZERO_POS, "has a reference but no position"),
             (NO_CIGAR, "is mapped but has no CIGAR"),
         ] {
-            if a.notes & note != 0 && self.warned & note == 0 {
+            if enc.notes & note != 0 && self.warned & note == 0 {
                 self.warned |= note;
+                let name = line.split(|&b| b == b'\t').next().unwrap_or(&[]);
                 log::warn!(
                     "{} line {}: read {} {what}; reads like it are treated as unmapped",
                     self.name,
                     self.line,
-                    String::from_utf8_lossy(a.name())
+                    String::from_utf8_lossy(name)
                 );
             }
         }
-        Ok(a)
+        Ok(Checked {
+            flag: u16::from_le_bytes([self.scratch[14], self.scratch[15]]),
+            mapq: self.scratch[9],
+            normalised: enc.normalised && self.fits,
+        })
+    }
+
+    /// The BAM record (without `block_size`) of the line last checked, when BAM can hold it.
+    pub(crate) fn bam(&self) -> Option<&[u8]> {
+        self.fits.then_some(&self.scratch[..])
+    }
+
+    /// Where htslib reads the record differently from how the line is written (its flag,
+    /// reference or mate changed), replace the line in `buf[start..]` by the SAM text of the
+    /// record it reads, as samtools writes it. Other lines stay as written (D120).
+    pub(crate) fn rewrite_normalised(&self, buf: &mut Vec<u8>, start: usize, c: &Checked) {
+        if !c.normalised {
+            return;
+        }
+        let mut text = Vec::new();
+        if Aln::parse(&self.scratch, &self.aln)
+            .is_ok_and(|a| a.write_sam(&self.aln, &mut text).is_ok())
+        {
+            buf.truncate(start);
+            buf.extend_from_slice(&text);
+        }
+    }
+
+    /// As [`SamLines::check`], and the view of the line for the interval readers.
+    pub(crate) fn parse<'a>(&mut self, line: &'a [u8]) -> Result<(SamAln<'a>, Checked), String> {
+        let a = SamAln::parse(line, &self.aln)?;
+        let c = self.check(line)?;
+        Ok((a, c))
     }
 
     /// Append the next record line, without its newline, to `buf`. `Ok(false)` at the end of
@@ -482,8 +524,8 @@ impl RecordReader for SamReader {
             if !self.lines.next(&mut batch.buf, &mut self.diag)? {
                 return Ok(false);
             }
-            let a = match self.lines.parse(&batch.buf[start..]) {
-                Ok(a) => a,
+            let (a, checked) = match self.lines.parse(&batch.buf[start..]) {
+                Ok(r) => r,
                 Err(msg) => {
                     batch.buf.truncate(start);
                     self.bad(&msg)?;
@@ -513,6 +555,8 @@ impl RecordReader for SamReader {
             if chroms.has_undeclared() {
                 warn_undeclared(chroms, &self.lines.name, Some(Loc::Line(self.lines.line)));
             }
+            self.lines
+                .rewrite_normalised(&mut batch.buf, start, &checked);
             batch.recs.push(RecordMeta {
                 chrom: p.chrom,
                 key: p.pos,

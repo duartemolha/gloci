@@ -1,0 +1,10 @@
+@HD	VN:1.6
+@SQ	SN:chr1	LN:1000
+@SQ	SN:chr2	LN:1000
+nocigar	0	chr1	100	60	*	*	0	0	ACGT	IIII
+pos0	0	chr1	0	60	4M	=	50	0	ACGT	IIII
+norname	0	*	100	60	4M	*	0	0	ACGT	IIII
+rnext0	1	chr1	100	60	4M	chr1	0	0	ACGT	IIII
+rnext_eq0	1	chr1	100	60	4M	=	0	0	ACGT	IIII
+rnext_other	1	chr1	100	60	4M	chr2	0	0	ACGT	IIII
+unmapped_pos0	4	chr2	0	0	*	*	0	0	ACGT	IIII

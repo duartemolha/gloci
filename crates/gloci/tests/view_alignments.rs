@@ -508,3 +508,50 @@ fn view_write_index_is_refused_by_output_format() {
         .code(2)
         .stderr(contains("not available for BAM output").and(contains("afterwards").not()));
 }
+
+#[test]
+fn view_sam_to_sam_agrees_with_the_filters_on_normalised_reads() {
+    let dir = tempdir();
+    let sam = plain_file(
+        dir.path(),
+        "n.sam",
+        "@SQ\tSN:chr1\tLN:1000\nlower\t0\tchr1\t5\t60\t4M\t*\t0\t0\tacgt\tIIII\tXP:i:+7\npos0\t0\tchr1\t0\t60\t4M\t=\t50\t0\tACGT\tIIII\n",
+    );
+    let out = text(&run(&[
+        "view",
+        &s(&sam),
+        "--require-flags",
+        "unmap",
+        "--no-header",
+    ]));
+    assert_eq!(out, "pos0\t4\t*\t0\t60\t4M\t*\t50\t0\tACGT\tIIII\n");
+    // A line that is not normalised is copied as written.
+    let out = text(&run(&[
+        "view",
+        &s(&sam),
+        "--exclude-flags",
+        "unmap",
+        "--no-header",
+    ]));
+    assert_eq!(
+        out,
+        "lower\t0\tchr1\t5\t60\t4M\t*\t0\t0\tacgt\tIIII\tXP:i:+7\n"
+    );
+}
+
+#[test]
+fn view_sam_holds_what_bam_cannot() {
+    let dir = tempdir();
+    let sam = plain_file(
+        dir.path(),
+        "t.sam",
+        "@SQ\tSN:chr1\tLN:1000\nt\t1\tchr1\t5\t60\t4M\tchr1\t100\t3000000000\tACGT\tIIII\n",
+    );
+    let out = text(&run(&["view", &s(&sam), "--no-header"]));
+    assert!(out.contains("\t3000000000\t"), "{out}");
+    gloci()
+        .args(["view", &s(&sam), "-O", "bam"])
+        .assert()
+        .code(1)
+        .stderr(contains("this record cannot be written as BAM").and(contains("-O sam")));
+}

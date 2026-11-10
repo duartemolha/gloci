@@ -4079,7 +4079,9 @@ gloci = "gloci view -O bam input.sam"
 reference = "samtools view -b --no-PG input.sam"
 compare = "bam"
 
-# A BAM whose header text has no @SQ lines gets them from its reference list, in every output.
+# A BAM whose header text has no @SQ lines: SAM output shows them from its reference list, and
+# so does BAM output that gets a @PG line (samtools rebuilds the text then, so these cases run
+# it without --no-PG; the bam compare ignores @PG lines). BAM output without @PG keeps the text.
 [[case]]
 name = "view-bam-without-sq-text-to-sam-vs-samtools"
 input = { file = "xtask/diff/inputs/aln/nosq.bam" }
@@ -4091,7 +4093,14 @@ compare = "sam"
 name = "view-bam-without-header-text-to-bam-vs-samtools"
 input = { file = "xtask/diff/inputs/aln/notext.bam" }
 gloci = "gloci view -O bam input.bam"
-reference = "samtools view -b --no-PG input.bam"
+reference = "samtools view -b input.bam"
+compare = "bam"
+
+[[case]]
+name = "view-bam-without-sq-text-to-bam-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/nosq.bam" }
+gloci = "gloci view -O bam input.bam"
+reference = "samtools view -b input.bam"
 compare = "bam"
 
 # A region selects by where the CIGAR puts a read, not cut at the end of the reference: a read
@@ -4192,3 +4201,54 @@ gloci = "gloci view -O bam input.sam"
 reference = "samtools view -b --no-PG input.sam"
 compare = "exit-status"
 expected_difference = "#sam-unknown-rname"
+
+# Normalised records: samtools reads these as unmapped (flag 4, no reference, no mate), and
+# writes them so in SAM too; gloci writes the normalised text for a record it normalises and
+# keeps every other line as written.
+[[case]]
+name = "view-sam-normalised-unmapped-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/normalised.sam" }
+gloci = "gloci view -O sam --require-flags unmap input.sam"
+reference = "samtools view -h --no-PG -f 4 input.sam"
+compare = "sam"
+
+[[case]]
+name = "view-sam-normalised-mate-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/normalised.sam" }
+gloci = "gloci view -O sam --exclude-flags unmap input.sam"
+reference = "samtools view -h --no-PG -F 4 input.sam"
+compare = "sam"
+
+# Records that BAM cannot hold are fine in SAM: a CIGAR of 70,000 operations over 2^28
+# reference bases, PNEXT and TLEN of 3,000,000,000.
+[[case]]
+name = "view-sam-not-bam-representable-to-sam-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/not-bam.sam" }
+gloci = "gloci view -O sam input.sam"
+reference = "samtools view -h --no-PG input.sam"
+compare = "sam"
+
+[[case]]
+name = "view-sam-not-bam-representable-to-bam-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/not-bam.sam" }
+gloci = "gloci view -O bam input.sam"
+reference = "samtools view -b --no-PG input.sam"
+compare = "exit-status"
+
+# A FLAG with a sign: both refuse it.
+[[case]]
+name = "view-sam-flag-plus-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flag-plus.sam" }
+gloci = "gloci view -O bam input.sam"
+reference = "samtools view -b --no-PG input.sam"
+compare = "exit-status"
+
+# A @PG line with no ID: samtools cannot add its own @PG line, so it fails the run; gloci
+# adds its line and goes on.
+[[case]]
+name = "view-sam-pg-without-id-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/pg-no-id.sam" }
+gloci = "gloci view -O sam input.sam"
+reference = "samtools view -h input.sam"
+compare = "exit-status"
+expected_difference = "#sam-parse-strictness"

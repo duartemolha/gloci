@@ -39,6 +39,11 @@ impl SortOrder {
 }
 
 /// An alignment header.
+///
+/// `refs` must not be changed after the first [`AlnHeader::ref_id`] call: the name map behind
+/// it is built then, and not rebuilt. Equality compares `text`, `refs` and `sort_order` and
+/// ignores that map, so a header renamed by `--chrom-map` (whose map is keyed by the names in
+/// the file) can compare equal to a freshly parsed one whose map is keyed by the new names.
 #[derive(Debug, Clone)]
 pub struct AlnHeader {
     /// The SAM header text (`@HD`, `@SQ`, `@RG`, `@PG`, `@CO` lines), each line ended by `\n`.
@@ -181,7 +186,8 @@ impl AlnHeader {
 
     /// The header as SAM text shows it: a BAM header whose text has no `@SQ` lines gets one
     /// per reference of its binary list, at the end of the text, as htslib shows it. BAM output
-    /// keeps the text as stored (samtools does too), so only SAM output asks for this.
+    /// that gets no `@PG` line keeps the text as stored (as samtools does), so it does not ask
+    /// for this; SAM output and BAM output with a `@PG` line do.
     pub fn with_sq_lines(&self) -> AlnHeader {
         let mut h = self.clone();
         if h.text
@@ -298,7 +304,10 @@ impl AlnHeader {
             }
         }
         let mut ends: Vec<Option<&[u8]>> = (0..pgs.len())
-            .filter(|&i| !named[i] && pgs[i].1.is_some_and(|pp| find(pp).is_some()))
+            .filter(|&i| {
+                // A line that names itself is a root, not a chain end.
+                !named[i] && pgs[i].1.is_some_and(|pp| find(pp).is_some_and(|k| k != i))
+            })
             .map(|i| Some(pgs[i].0))
             .collect();
         if ends.is_empty() {

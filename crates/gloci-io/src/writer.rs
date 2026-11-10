@@ -12,6 +12,11 @@ pub trait RecordWriter {
     /// Write one record: text formats get `raw` plus a newline, BCF gets the
     /// framed bytes as they are.
     fn write_record(&mut self, raw: &[u8]) -> io::Result<()>;
+    /// Write one alignment record whose BAM form (without `block_size`) the reader already
+    /// has, when it has it: a BAM writer uses those bytes, any other writer ignores them.
+    fn write_alignment(&mut self, raw: &[u8], _bam: Option<&[u8]>) -> io::Result<()> {
+        self.write_record(raw)
+    }
     /// Flush and publish the output (BGZF EOF block, index, atomic rename).
     fn finish(self: Box<Self>) -> Result<(), IoError>;
     /// True when the writer accepts framed BCF records.

@@ -26,6 +26,12 @@ pub trait AlnSource: Send {
     /// counted in the diagnostics and not returned.
     fn next_record(&mut self, buf: &mut Vec<u8>) -> Result<Option<u64>, IoError>;
     fn diagnostics(&self) -> &Diagnostics;
+    /// The BAM record (without `block_size`) of the record last returned, when the source has
+    /// it already (SAM encodes each record to check it) and BAM can hold it. A writer that
+    /// writes BAM can use it instead of encoding the line again.
+    fn last_bam(&self) -> Option<&[u8]> {
+        None
+    }
 }
 
 struct BamSource {
@@ -99,19 +105,26 @@ impl AlnSource for SamSource {
         &self.diag
     }
 
+    fn last_bam(&self) -> Option<&[u8]> {
+        self.lines.bam()
+    }
+
     fn next_record(&mut self, buf: &mut Vec<u8>) -> Result<Option<u64>, IoError> {
         loop {
             let start = buf.len();
             if !self.lines.next(buf, &mut self.diag)? {
                 return Ok(None);
             }
-            let problem = match self.lines.parse(&buf[start..]) {
-                Ok(a) if self.opts.drops(a.flag(), a.mapq()) => {
+            let problem = match self.lines.check(&buf[start..]) {
+                Ok(c) if self.opts.drops(c.flag, c.mapq) => {
                     self.diag.filtered += 1;
                     buf.truncate(start);
                     continue;
                 }
-                Ok(_) => return Ok(Some(self.lines.rec)),
+                Ok(c) => {
+                    self.lines.rewrite_normalised(buf, start, &c);
+                    return Ok(Some(self.lines.rec));
+                }
                 Err(msg) => msg,
             };
             buf.truncate(start);
