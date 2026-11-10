@@ -364,7 +364,10 @@ fn unsorted_and_overhang_are_errors() {
             &reference(),
         ],
         1,
-        &["past the end of chr1", "at most 1,048,576 bases"],
+        &[
+            "past the end of chr1",
+            "more than gloci's limit of 1,048,576",
+        ],
     );
 }
 

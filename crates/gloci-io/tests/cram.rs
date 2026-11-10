@@ -506,7 +506,8 @@ fn cram_overhang_limit() {
         .to_string();
     assert!(
         e.contains("a read runs 1,500,004 bases past the end of chr1 (1,000 bases)")
-            && e.contains("at most 1,048,576 bases"),
+            && e.contains("more than gloci's limit of 1,048,576")
+            && !e.contains("corrupt"),
         "{e}"
     );
 }

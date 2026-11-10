@@ -479,7 +479,6 @@ impl Decoder {
                 Some(Ok(e)) => usize::from(e) as i64,
                 _ => start - 1,
             };
-            longest = longest.max(r.quality_scores().len() as i64);
             let rid = match r.reference_sequence_id(&self.info.sam) {
                 Some(Ok(id)) if id < self.info.aln.refs.len() => id,
                 _ => return Err(self.corrupt(c, &"a mapped read has no reference")),
@@ -517,33 +516,41 @@ impl Decoder {
                 }
                 Bases::Stored => {}
             }
+            // The read's length (its bases, stored or not); the checks above make `sequence()`
+            // safe to ask for it.
+            longest = longest.max(r.sequence().len() as i64);
         }
         let cap = MIN_OVERHANG.max(4 * longest);
+        // gloci's limit, not a fault of the file: samtools decodes such reads.
+        let limit = |what: String| {
+            let name = &self.info.name;
+            detect_err(
+                name,
+                format!(
+                    "{name}: in {}, {what}, more than gloci's limit of {} (1 Mb, or four times \
+the slice's longest read; see #cram-limits in docs/differences.md)",
+                    c.place(),
+                    thousands(cap as u64)
+                ),
+            )
+        };
         if let Some((rid, o)) = over
             && o > cap
         {
-            return Err(self.corrupt(
-                c,
-                &format!(
-                    "a read runs {} bases past the end of {} ({} bases); gloci decodes reads at most {} bases past the end of their reference",
-                    thousands(o as u64),
-                    self.info.chrom(rid),
-                    thousands(self.info.aln.refs[rid].1),
-                    thousands(cap as u64)
-                ),
-            ));
+            return Err(limit(format!(
+                "a read runs {} bases past the end of {} ({} bases)",
+                thousands(o as u64),
+                self.info.chrom(rid),
+                thousands(self.info.aln.refs[rid].1)
+            )));
         }
         if bases == Bases::Embedded && need_end > 0 {
             let past = need_end - (i64::from(head.start) + embedded_len - 1);
             if past > cap {
-                return Err(self.corrupt(
-                    c,
-                    &format!(
-                        "a read runs {} bases past the reference bases embedded in its slice; gloci decodes reads at most {} bases past them",
-                        thousands(past as u64),
-                        thousands(cap as u64)
-                    ),
-                ));
+                return Err(limit(format!(
+                    "a read runs {} bases past the reference bases embedded in its slice",
+                    thousands(past as u64)
+                )));
             }
         }
         Ok(if need_pad > 0 {
