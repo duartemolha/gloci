@@ -9,7 +9,7 @@
 //! (`BcfDicts`), so the header text and the records always agree.
 
 use crate::bcf::{BcfDicts, typed, write_bcf_header};
-use crate::bcf_encode::GtEncoder;
+use crate::bcf_fields::{Def, Defs, FieldEncoder, Kind};
 use crate::detect::Format;
 use crate::error::{IoError, Loc};
 use crate::output::{OutFormat, Output};
@@ -20,7 +20,7 @@ use crate::writer::WriterOptions;
 use gloci_core::ChromTable;
 use noodles_vcf::header::StringMaps;
 use noodles_vcf::variant::io::Write as _;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io::Write;
 
 /// Which parts of the output `convert_variants` writes.
@@ -100,23 +100,20 @@ struct Converter {
     from: Format,
     header: noodles_vcf::Header,
     enc: Encoder,
-    /// Dictionary index of the FORMAT key `GT`, when the header declares it.
+    /// The INFO and FORMAT fields of the header, for the native encoding
+    /// of the record's INFO and sample columns.
+    defs: Defs,
+    n_samples: usize,
+    /// String-dictionary index of FORMAT/GT, when declared.
     gt_key: Option<usize>,
-    /// FORMAT keys declared `Type=String` (GT excluded): noodles cannot
-    /// encode one that is missing in every sample (see `missing_strings`).
-    string_keys: HashSet<Vec<u8>>,
-    /// The FORMAT subfield indices that are missing in every sample, the
-    /// record with a placeholder in those cells, and the record patched
-    /// afterwards, reused between records.
-    missing: Vec<usize>,
-    placeholder: Vec<u8>,
-    patched: Vec<u8>,
-    /// The record with its GT values blanked, reused between records.
-    scratch: Vec<u8>,
-    /// The spliced record and the encoded GT block, reused between records.
-    spliced: Vec<u8>,
-    block: Vec<u8>,
-    gt_enc: GtEncoder,
+    fields: FieldEncoder,
+    /// The record's shared part (without INFO) and its INFO and sample
+    /// parts, reused between records.
+    shared: Vec<u8>,
+    info: Vec<u8>,
+    indiv: Vec<u8>,
+    framed: Vec<u8>,
+    widened: Vec<u8>,
 }
 
 impl Converter {
@@ -134,37 +131,63 @@ impl Converter {
             }
             _ => Encoder::ToVcf(noodles_vcf::io::Writer::new(Vec::new())),
         };
-        let gt_key = match &h.bcf {
-            Some(d) => d.strings.iter().position(|n| n == b"GT"),
-            None => BcfDicts::from_header(&h.raw)
-                .map_err(|e| internal(name, format!("{name}: {e}")))?
-                .strings
-                .iter()
-                .position(|n| n == b"GT"),
+        let dicts = match &h.bcf {
+            Some(d) => d.clone(),
+            None => {
+                BcfDicts::from_header(&h.raw).map_err(|e| internal(name, format!("{name}: {e}")))?
+            }
         };
-        let string_keys = header
-            .formats()
+        let idx: HashMap<&[u8], usize> = dicts
+            .strings
             .iter()
-            .filter(|(id, f)| {
-                use noodles_vcf::header::record::value::map::format::Type;
-                id.as_str() != "GT" && matches!(f.ty(), Type::String | Type::Character)
-            })
-            .map(|(id, _)| id.as_bytes().to_vec())
+            .enumerate()
+            .filter(|(_, n)| !n.is_empty())
+            .map(|(i, n)| (n.as_slice(), i))
             .collect();
+        let mut defs = Defs::default();
+        {
+            use noodles_vcf::header::record::value::map::{format, info};
+            for (id, f) in header.formats() {
+                let kind = match (id.as_str(), f.ty()) {
+                    ("GT", _) => Kind::Gt,
+                    (_, format::Type::Integer) => Kind::Int,
+                    (_, format::Type::Float) => Kind::Float,
+                    _ => Kind::Str,
+                };
+                if let Some(&i) = idx.get(id.as_bytes()) {
+                    defs.format
+                        .insert(id.as_bytes().to_vec(), Def { idx: i, kind });
+                }
+            }
+            for (id, f) in header.infos() {
+                let kind = match f.ty() {
+                    info::Type::Flag => Kind::Flag,
+                    info::Type::Integer => Kind::Int,
+                    info::Type::Float => Kind::Float,
+                    _ => Kind::Str,
+                };
+                if let Some(&i) = idx.get(id.as_bytes()) {
+                    defs.info
+                        .insert(id.as_bytes().to_vec(), Def { idx: i, kind });
+                }
+            }
+        }
+        let n_samples = header.sample_names().len();
+        let defs_gt = defs.format.get(&b"GT"[..]).map(|d| d.idx);
         Ok(Converter {
             name: name.to_string(),
             from,
             header,
             enc,
-            gt_key,
-            string_keys,
-            missing: Vec::new(),
-            placeholder: Vec::new(),
-            patched: Vec::new(),
-            scratch: Vec::new(),
-            spliced: Vec::new(),
-            block: Vec::new(),
-            gt_enc: GtEncoder::default(),
+            defs,
+            n_samples,
+            gt_key: defs_gt,
+            fields: FieldEncoder::default(),
+            shared: Vec::new(),
+            info: Vec::new(),
+            indiv: Vec::new(),
+            framed: Vec::new(),
+            widened: Vec::new(),
         })
     }
 
@@ -210,78 +233,80 @@ add ##FILTER=<ID={id},Description=\"...\"> to the header"
                 ),
             });
         }
-        // noodles cannot encode a String field that is missing in every
-        // sample: it encodes a placeholder, patched afterwards.
-        let has_strings = missing_strings(raw, &self.string_keys, &mut self.missing);
-        let base = if self.missing.is_empty() {
-            raw
-        } else {
-            placeholder_cells(raw, &self.missing, &mut self.placeholder);
-            &self.placeholder[..]
-        };
-        // noodles cannot encode GT vectors of different lengths, so it
-        // encodes the record with every GT blanked to `./.` and the real GT
-        // field is spliced in afterwards (see `splice_gt`).
-        let gt = match self.gt_key {
-            Some(_) => blank_gt(base, &mut self.scratch),
-            None => None,
-        };
-        let src = if gt.is_some() {
-            &self.scratch[..]
-        } else {
-            base
-        };
-        let rec = noodles_vcf::Record::try_from(src).map_err(fail)?;
+        // noodles encodes the fixed part of the record (CHROM to FILTER); the
+        // INFO and sample columns are encoded here (see `bcf_fields`).
+        let mut cols = raw.split(|&b| b == b'\t');
+        let fixed_len: usize = cols.by_ref().take(7).map(|c| c.len() + 1).sum();
+        let info_col = cols.next().unwrap_or(b".");
+        let mut fixed = Vec::with_capacity(fixed_len + 2);
+        fixed.extend_from_slice(&raw[..fixed_len.min(raw.len())]);
+        fixed.extend_from_slice(b".");
+        let rec = noodles_vcf::Record::try_from(&fixed[..]).map_err(fail)?;
         if let Err(e) = w.write_variant_record(&self.header, &rec) {
             w.get_mut().clear();
             return Err(fail(e));
         }
-        let encoded: &[u8] = if !has_strings {
-            w.get_ref()
-        } else {
-            let patched = patch_strings(w.get_ref(), &self.missing, &mut self.patched);
-            if let Err(msg) = patched {
-                w.get_mut().clear();
-                return Err(IoError::Parse {
-                    path: self.name.clone(),
-                    loc,
-                    msg,
-                });
-            }
-            &self.patched
+        let parse = |msg: String| IoError::Parse {
+            path: self.name.clone(),
+            loc,
+            msg,
         };
-        match (gt, self.gt_key) {
-            (Some(gt), Some(key)) => {
-                let spliced = splice_gt(
-                    encoded,
-                    key,
-                    raw,
-                    gt,
-                    &mut self.gt_enc,
-                    &mut self.block,
-                    &mut self.spliced,
-                );
-                w.get_mut().clear();
-                spliced.map_err(|msg| IoError::Parse {
-                    path: self.name.clone(),
-                    loc,
-                    msg,
-                })?;
-                out.write_all(&self.spliced)
-                    .map_err(|source| IoError::Write {
-                        path: "output".to_string(),
-                        source,
-                    })?;
-            }
-            _ => {
-                out.write_all(encoded).map_err(|source| IoError::Write {
-                    path: "output".to_string(),
-                    source,
-                })?;
-                w.get_mut().clear();
-            }
+        let framed = w.get_ref();
+        let l_shared = framed
+            .get(..4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize);
+        let (Some(l_shared), true) = (l_shared, framed.len() >= 8 + 24) else {
+            w.get_mut().clear();
+            return Err(internal(
+                &self.name,
+                "internal error: noodles wrote a malformed BCF record".into(),
+            ));
+        };
+        self.shared.clear();
+        self.shared.extend_from_slice(&framed[8..8 + l_shared]);
+        w.get_mut().clear();
+        self.info.clear();
+        self.indiv.clear();
+        let n_info = self
+            .fields
+            .info(&self.defs, info_col, &mut self.info)
+            .map_err(parse)?;
+        let n_fmt = self
+            .fields
+            .samples(&self.defs, raw, self.n_samples, &mut self.indiv)
+            .map_err(|msg| IoError::Parse {
+                path: self.name.clone(),
+                loc,
+                msg,
+            })?;
+        if n_info > 0xffff || n_fmt > 0xff {
+            return Err(IoError::Parse {
+                path: self.name.clone(),
+                loc,
+                msg:
+                    "the record has too many INFO or FORMAT fields for BCF (65535 and 255 at most)"
+                        .into(),
+            });
         }
-        Ok(())
+        let allele_info = u32::from_le_bytes(self.shared[16..20].try_into().unwrap());
+        self.shared[16..20]
+            .copy_from_slice(&((allele_info & 0xffff_0000) | n_info as u32).to_le_bytes());
+        let fmt_sample = ((n_fmt as u32) << 24) | self.n_samples as u32;
+        self.shared[20..24].copy_from_slice(&fmt_sample.to_le_bytes());
+        self.framed.clear();
+        let l_shared = self.shared.len() + self.info.len();
+        self.framed
+            .extend_from_slice(&(l_shared as u32).to_le_bytes());
+        self.framed
+            .extend_from_slice(&(self.indiv.len() as u32).to_le_bytes());
+        self.framed.extend_from_slice(&self.shared);
+        self.framed.extend_from_slice(&self.info);
+        self.framed.extend_from_slice(&self.indiv);
+        out.write_all(&self.framed)
+            .map_err(|source| IoError::Write {
+                path: "output".to_string(),
+                source,
+            })
     }
 
     fn convert(&mut self, batch: &RecordBatch, out: &mut dyn Write) -> Result<(), IoError> {
@@ -307,10 +332,23 @@ add ##FILTER=<ID={id},Description=\"...\"> to the header"
                 Encoder::ToBcf(_) => self.encode_text(raw, loc, out)?,
                 Encoder::ToVcf(w) => {
                     let mut rec = noodles_bcf::Record::default();
+                    let raw =
+                        fill_empty_fields(raw, self.gt_key, &mut self.widened).map_err(fail)?;
                     noodles_bcf::io::Reader::from(raw)
                         .read_record(&mut rec)
                         .map_err(fail)?;
                     w.write_variant_record(&self.header, &rec).map_err(fail)?;
+                    let line = w.get_mut();
+                    if line.contains(&b'%') {
+                        let had_eol = line.last() == Some(&b'\n');
+                        if had_eol {
+                            line.pop();
+                        }
+                        tidy_line(line);
+                        if had_eol {
+                            line.push(b'\n');
+                        }
+                    }
                     out.write_all(w.get_ref()).map_err(werr)?;
                     w.get_mut().clear();
                 }
@@ -366,6 +404,7 @@ impl BcfText {
             ));
         };
         let mut rec = noodles_bcf::Record::default();
+        let raw = fill_empty_fields(raw, self.conv.gt_key, &mut self.conv.widened).map_err(fail)?;
         noodles_bcf::io::Reader::from(raw)
             .read_record(&mut rec)
             .map_err(fail)?;
@@ -377,59 +416,166 @@ impl BcfText {
         while self.line.last() == Some(&b'\n') {
             self.line.pop();
         }
+        tidy_line(&mut self.line);
         Ok(&self.line)
     }
 }
 
-/// Where the GT values of a text record are: the index of `GT` among the
-/// FORMAT subfields.
-#[derive(Clone, Copy)]
-struct GtPos(usize);
+/// Stands for an empty String value while noodles decodes the record.
+const EMPTY_CELL: u8 = 0x01;
 
-/// When `raw` has samples and a GT FORMAT subfield, writes a copy of it to
-/// `scratch` with every sample's GT replaced by `./.` and returns the GT
-/// position; otherwise `None`.
-fn blank_gt(raw: &[u8], scratch: &mut Vec<u8>) -> Option<GtPos> {
-    let mut cols = raw.split(|&b| b == b'\t');
-    let format = cols.nth(8)?;
-    let gt = format.split(|&b| b == b':').position(|k| k == b"GT")?;
-    // The samples start after the FORMAT column.
-    let samples_at = format.as_ptr() as usize - raw.as_ptr() as usize + format.len();
-    if samples_at >= raw.len() {
-        return None;
+/// Undoes what noodles' VCF writer does to two values: the INFO string `.`
+/// (written `%2E`, though it is the missing value) and the empty-value
+/// placeholder of `fill_empty_fields` (written `%01`), a whole sample cell
+/// that bcftools prints as nothing.
+fn tidy_line(line: &mut Vec<u8>) {
+    if !line.contains(&b'%') {
+        return;
     }
-    scratch.clear();
-    scratch.extend_from_slice(&raw[..samples_at]);
-    for sample in raw[samples_at + 1..].split(|&b| b == b'\t') {
-        scratch.push(b'\t');
-        let mut seen = 0;
-        for (k, f) in sample.split(|&b| b == b':').enumerate() {
-            if k > 0 {
-                scratch.push(b':');
-            }
-            if k == gt {
-                scratch.extend_from_slice(b"./.");
-            } else {
-                scratch.extend_from_slice(f);
-            }
-            seen = k + 1;
+    let mut out = Vec::with_capacity(line.len());
+    for (i, col) in line.split(|&b| b == b'\t').enumerate() {
+        if i > 0 {
+            out.push(b'\t');
         }
-        // A sample cut short before its GT (a whole-sample `.` included) is
-        // padded up to GT with missing values: noodles cannot encode it
-        // otherwise, and its GT is a missing allele either way.
-        for k in seen..=gt {
-            scratch.push(b':');
-            scratch.extend_from_slice(if k == gt { b"./." } else { b"." });
+        if i == 7 {
+            for (j, item) in col.split(|&b| b == b';').enumerate() {
+                if j > 0 {
+                    out.push(b';');
+                }
+                match item.strip_suffix(b"=%2E") {
+                    Some(key) => {
+                        out.extend_from_slice(key);
+                        out.extend_from_slice(b"=.");
+                    }
+                    None => out.extend_from_slice(item),
+                }
+            }
+        } else if i >= 9 {
+            for (j, cell) in col.split(|&b| b == b':').enumerate() {
+                if j > 0 {
+                    out.push(b':');
+                }
+                if cell != b"%01" {
+                    out.extend_from_slice(cell);
+                }
+            }
+        } else {
+            out.extend_from_slice(col);
         }
     }
-    Some(GtPos(gt))
+    *line = out;
 }
 
-/// The GT value text of every sample of `raw`.
-fn gt_values(raw: &[u8], gt: GtPos) -> impl Iterator<Item = &[u8]> {
-    raw.split(|&b| b == b'\t')
-        .skip(9)
-        .map(move |s| s.split(|&b| b == b':').nth(gt.0).unwrap_or_default())
+/// htslib writes a FORMAT key that no sample has a value for (every sample
+/// cut short before it) as a zero-width field, which noodles cannot decode, and an empty String value
+/// as NULs, which it refuses. Returns `raw` with each zero-width field
+/// replaced by one missing value per sample and each empty value by `.`
+/// (written to `buf`), or `raw` itself when there is none.
+fn fill_empty_fields<'a>(
+    raw: &'a [u8],
+    gt_key: Option<usize>,
+    buf: &'a mut Vec<u8>,
+) -> std::io::Result<&'a [u8]> {
+    let bad = || std::io::Error::new(std::io::ErrorKind::InvalidData, "malformed BCF record");
+    let u32_at = |at: usize| -> std::io::Result<usize> {
+        raw.get(at..at + 4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize)
+            .ok_or_else(bad)
+    };
+    let (l_shared, l_indiv) = (u32_at(0)?, u32_at(4)?);
+    let indiv_at = 8 + l_shared;
+    let n_fmt = u32_at(8 + 20)? >> 24;
+    let n_samples = u32_at(8 + 20)? & 0x00ff_ffff;
+    let indiv = raw.get(indiv_at..indiv_at + l_indiv).ok_or_else(bad)?;
+    let mut cur = indiv;
+    let mut body: Option<Vec<u8>> = None;
+    for _ in 0..n_fmt {
+        let start = indiv.len() - cur.len();
+        let key = typed::read(&mut cur).map_err(|_| bad())?;
+        let is_gt = matches!(key.int(0), Some(typed::Int::Value(v)) if Some(v as usize) == gt_key);
+        let desc = indiv.len() - cur.len();
+        let (ty, n) = typed::read_descriptor(&mut cur).map_err(|_| bad())?;
+        let len = n
+            .checked_mul(ty.width())
+            .and_then(|l| l.checked_mul(n_samples))
+            .filter(|&l| l <= cur.len())
+            .ok_or_else(bad)?;
+        cur = &cur[len..];
+        let end = indiv.len() - cur.len();
+        if n == 0 && n_samples > 0 {
+            let b = body.get_or_insert_with(|| indiv[..start].to_vec());
+            b.extend_from_slice(&indiv[start..desc]);
+            // One missing value per sample, of the type the field has (GT and
+            // the others are decoded by their declared type).
+            match ty {
+                typed::Ty::Char => {
+                    b.push(0x17);
+                    b.extend(std::iter::repeat_n(b'.', n_samples));
+                }
+                typed::Ty::Float => {
+                    b.push(0x15);
+                    for _ in 0..n_samples {
+                        b.extend_from_slice(&0x7F80_0001u32.to_le_bytes());
+                    }
+                }
+                // GT: the missing allele (a GT field is never zero-width
+                // for any other type).
+                typed::Ty::Missing => {
+                    b.push(0x11);
+                    b.extend(std::iter::repeat_n(0, n_samples));
+                }
+                _ => {
+                    b.push(0x11);
+                    b.extend(std::iter::repeat_n(0x80, n_samples));
+                }
+            }
+        } else if is_gt
+            && ty == typed::Ty::Int8
+            && n > 0
+            && indiv[end - n * n_samples..end]
+                .chunks(n)
+                .any(|c| c[0] == 0x80)
+        {
+            // A sample cut short before its GT has the integer-missing value
+            // there; noodles reads it as an allele, so it is made the
+            // missing allele.
+            let b = body.get_or_insert_with(|| indiv[..start].to_vec());
+            b.extend_from_slice(&indiv[start..end]);
+            let at = b.len() - n * n_samples;
+            for cell in b[at..].chunks_mut(n) {
+                if cell[0] == 0x80 {
+                    cell[0] = 0;
+                }
+            }
+        } else if ty == typed::Ty::Char
+            && n > 0
+            && indiv[end - n * n_samples..end]
+                .chunks(n)
+                .any(|c| c.iter().all(|&b| b == 0))
+        {
+            // An empty string is all NULs, which noodles refuses; it decodes
+            // a placeholder that `tidy_line` turns back into an empty value.
+            let b = body.get_or_insert_with(|| indiv[..start].to_vec());
+            b.extend_from_slice(&indiv[start..end]);
+            let at = b.len() - n * n_samples;
+            for cell in b[at..].chunks_mut(n) {
+                if cell.iter().all(|&x| x == 0) {
+                    cell[0] = EMPTY_CELL;
+                }
+            }
+        } else if let Some(b) = body.as_mut() {
+            b.extend_from_slice(&indiv[start..end]);
+        }
+    }
+    let Some(body) = body else {
+        return Ok(raw);
+    };
+    buf.clear();
+    buf.extend_from_slice(&raw[..4]);
+    buf.extend_from_slice(&(body.len() as u32).to_le_bytes());
+    buf.extend_from_slice(&raw[8..indiv_at]);
+    buf.extend_from_slice(&body);
+    Ok(buf)
 }
 
 /// The first FILTER of the text record `raw` that the header does not
@@ -444,212 +590,6 @@ fn undeclared_filter(raw: &[u8], header: &noodles_vcf::Header) -> Option<String>
         .filter_map(|id| std::str::from_utf8(id).ok())
         .find(|id| !header.filters().contains_key(*id))
         .map(str::to_string)
-}
-
-/// Fills `out` with the FORMAT subfield indices of `raw` that are declared
-/// `Type=String` (or Character) and missing (`.` or cut short) in every
-/// sample. Returns whether the record has any such key, missing or not.
-fn missing_strings(raw: &[u8], string_keys: &HashSet<Vec<u8>>, out: &mut Vec<usize>) -> bool {
-    out.clear();
-    if string_keys.is_empty() {
-        return false;
-    }
-    let mut cols = raw.split(|&b| b == b'\t').skip(8);
-    let Some(format) = cols.next() else {
-        return false;
-    };
-    let samples: Vec<&[u8]> = cols.collect();
-    if samples.is_empty() {
-        return false;
-    }
-    let mut any = false;
-    for (k, key) in format.split(|&b| b == b':').enumerate() {
-        if string_keys.contains(key) {
-            any = true;
-            if samples
-                .iter()
-                .all(|s| s.split(|&b| b == b':').nth(k).is_none_or(|c| c == b"."))
-            {
-                out.push(k);
-            }
-        }
-    }
-    any
-}
-
-/// Copies `raw` to `out` with a one-character placeholder in the cells of
-/// the FORMAT subfields `missing`, which noodles can encode where it cannot
-/// encode a missing value (see `patch_strings`).
-fn placeholder_cells(raw: &[u8], missing: &[usize], out: &mut Vec<u8>) {
-    out.clear();
-    let mut cols = raw.split(|&b| b == b'\t');
-    for (i, col) in cols.by_ref().take(9).enumerate() {
-        if i > 0 {
-            out.push(b'\t');
-        }
-        out.extend_from_slice(col);
-    }
-    let last = missing.iter().copied().max().unwrap_or(0);
-    for sample in cols {
-        out.push(b'\t');
-        let mut seen = 0;
-        for (k, cell) in sample.split(|&b| b == b':').enumerate() {
-            if k > 0 {
-                out.push(b':');
-            }
-            out.extend_from_slice(if missing.contains(&k) { b"x" } else { cell });
-            seen = k + 1;
-        }
-        for k in seen..=last {
-            out.push(b':');
-            out.push(if missing.contains(&k) { b'x' } else { b'.' });
-        }
-    }
-}
-
-/// Rewrites the String FORMAT fields of the framed BCF record `rec` the way
-/// bcftools 1.21 (htslib) writes them. noodles gives a String field the width
-/// of its longest value; htslib gives every String field after the first
-/// FORMAT key one more byte (a NUL after each value). A field in `missing`
-/// (missing in every sample, encoded by noodles from a placeholder) becomes
-/// a lone `.` per sample for the first key and `.` plus NUL for a later one.
-/// Widths of 15 and up use the escaped length form.
-fn patch_strings(rec: &[u8], missing: &[usize], out: &mut Vec<u8>) -> Result<(), String> {
-    const BAD: &str = "internal error: noodles wrote a malformed BCF record";
-    let u32_at = |at: usize| -> Result<usize, String> {
-        rec.get(at..at + 4)
-            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize)
-            .ok_or_else(|| BAD.to_string())
-    };
-    let (l_shared, l_indiv) = (u32_at(0)?, u32_at(4)?);
-    let indiv_at = 8 + l_shared;
-    let n_fmt = u32_at(8 + 20)? >> 24;
-    let n_samples = u32_at(8 + 20)? & 0x00ff_ffff;
-    let indiv = rec.get(indiv_at..indiv_at + l_indiv).ok_or(BAD)?;
-    let mut cur = indiv;
-    let mut body = Vec::with_capacity(indiv.len() + n_samples);
-    for f in 0..n_fmt {
-        let start = indiv.len() - cur.len();
-        typed::read(&mut cur).map_err(|_| BAD.to_string())?;
-        let desc = indiv.len() - cur.len();
-        let (ty, n) = typed::read_descriptor(&mut cur).map_err(|_| BAD.to_string())?;
-        let data_at = indiv.len() - cur.len();
-        let len = n
-            .checked_mul(ty.width())
-            .and_then(|l| l.checked_mul(n_samples))
-            .filter(|&l| l <= cur.len())
-            .ok_or(BAD)?;
-        cur = &cur[len..];
-        let end = indiv.len() - cur.len();
-        let is_string = ty == typed::Ty::Char;
-        if !is_string {
-            body.extend_from_slice(&indiv[start..end]);
-        } else if missing.contains(&f) {
-            body.extend_from_slice(&indiv[start..desc]);
-            if f == 0 {
-                write_string_desc(&mut body, 1);
-                body.extend(std::iter::repeat_n(b'.', n_samples));
-            } else {
-                write_string_desc(&mut body, 2);
-                for _ in 0..n_samples {
-                    body.extend_from_slice(b".\0");
-                }
-            }
-        } else if f == 0 {
-            body.extend_from_slice(&indiv[start..end]);
-        } else {
-            body.extend_from_slice(&indiv[start..desc]);
-            write_string_desc(&mut body, n + 1);
-            for cell in indiv[data_at..end].chunks(n.max(1)).take(n_samples) {
-                body.extend_from_slice(cell);
-                body.push(0);
-            }
-        }
-    }
-    out.clear();
-    out.extend_from_slice(&rec[..4]);
-    out.extend_from_slice(&(body.len() as u32).to_le_bytes());
-    out.extend_from_slice(&rec[8..indiv_at]);
-    out.extend_from_slice(&body);
-    Ok(())
-}
-
-/// The typed descriptor of a String value of `n` bytes: the count in the high
-/// nibble, or 15 followed by the count as a typed integer from 15 up.
-fn write_string_desc(out: &mut Vec<u8>, n: usize) {
-    if n < 15 {
-        out.push((n as u8) << 4 | 7);
-    } else {
-        out.push(0xf7);
-        if n <= i8::MAX as usize {
-            out.extend_from_slice(&[0x11, n as u8]);
-        } else if n <= i16::MAX as usize {
-            out.push(0x12);
-            out.extend_from_slice(&(n as i16).to_le_bytes());
-        } else {
-            out.push(0x13);
-            out.extend_from_slice(&(n as i32).to_le_bytes());
-        }
-    }
-}
-
-/// Replaces the GT field of the framed BCF record `rec` (encoded with GT
-/// blanked) by the field encoded from the GT values of the text record
-/// `raw`, and writes the new framed record to `out`. `key` is the string
-/// dictionary index of `GT`.
-fn splice_gt(
-    rec: &[u8],
-    key: usize,
-    raw: &[u8],
-    gt: GtPos,
-    enc: &mut GtEncoder,
-    block: &mut Vec<u8>,
-    out: &mut Vec<u8>,
-) -> Result<(), String> {
-    const BAD: &str = "internal error: noodles wrote a malformed BCF record";
-    let u32_at = |at: usize| -> Result<usize, String> {
-        rec.get(at..at + 4)
-            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize)
-            .ok_or_else(|| BAD.to_string())
-    };
-    let (l_shared, l_indiv) = (u32_at(0)?, u32_at(4)?);
-    let indiv_at = 8 + l_shared;
-    let n_fmt = u32_at(8 + 20)? >> 24;
-    let n_samples = u32_at(8 + 20)? & 0x00ff_ffff;
-    let indiv = rec.get(indiv_at..indiv_at + l_indiv).ok_or(BAD)?;
-    let mut cur = indiv;
-    let mut span = None;
-    for _ in 0..n_fmt {
-        let start = indiv.len() - cur.len();
-        let k = typed::read(&mut cur).map_err(|_| BAD.to_string())?;
-        let body = indiv.len() - cur.len();
-        let is_gt = matches!(k.int(0), Some(typed::Int::Value(v)) if v as usize == key);
-        let (ty, n) = typed::read_descriptor(&mut cur).map_err(|_| BAD.to_string())?;
-        let len = n
-            .checked_mul(ty.width())
-            .and_then(|l| l.checked_mul(n_samples))
-            .filter(|&l| l <= cur.len())
-            .ok_or(BAD)?;
-        cur = &cur[len..];
-        if is_gt {
-            span = Some((start, body, indiv.len() - cur.len()));
-            break;
-        }
-    }
-    let Some((_, body, end)) = span else {
-        return Err(BAD.into());
-    };
-    block.clear();
-    enc.encode(gt_values(raw, gt), block)
-        .map_err(|e| format!("cannot write the GT field as BCF: {e}"))?;
-    let new_indiv_len = l_indiv - (end - body) + block.len();
-    out.clear();
-    out.extend_from_slice(&rec[..4]);
-    out.extend_from_slice(&(new_indiv_len as u32).to_le_bytes());
-    out.extend_from_slice(&rec[8..indiv_at + body]);
-    out.extend_from_slice(block);
-    out.extend_from_slice(&rec[indiv_at + end..]);
-    Ok(())
 }
 
 /// Encodes VCF text records as BCF records against a header, for commands

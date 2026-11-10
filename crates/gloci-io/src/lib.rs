@@ -3,6 +3,7 @@
 pub mod atomic;
 pub mod bcf;
 pub mod bcf_encode;
+mod bcf_fields;
 pub mod bed;
 pub mod builtin;
 pub mod chrom_map;
