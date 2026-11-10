@@ -320,11 +320,13 @@ fn seq(rng: &mut ChaCha8Rng, n: usize) -> String {
 
 /// Write a sorted VCF (chromosomes in header order, increasing POS) mixing
 /// SNVs, MNVs, insertions, deletions, multi-allelic sites and `<DEL>` with END.
+/// The header says VCFv4.2, the newest version vcftools 0.1.16 reads (nothing
+/// here needs 4.3).
 pub fn vcf(o: &VcfOpts, out: &mut impl Write) -> Result<()> {
     ensure!(o.chroms >= 1, "--chroms must be at least 1");
     let mut rng = ChaCha8Rng::seed_from_u64(o.seed);
     let mut w = std::io::BufWriter::with_capacity(1 << 20, out);
-    writeln!(w, "##fileformat=VCFv4.3")?;
+    writeln!(w, "##fileformat=VCFv4.2")?;
     for c in 1..=o.chroms {
         writeln!(w, "##contig=<ID=chr{c},length={CHROM_LEN}>")?;
     }
