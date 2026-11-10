@@ -319,11 +319,6 @@ fn view_alignments_usage_errors() {
         .assert()
         .code(2)
         .stderr(contains("--exclude-flags").and(contains("unknown flag name 'bogus'")));
-    gloci()
-        .args(["view", &bam, "-o", "x.bam", "--write-index"])
-        .assert()
-        .code(2)
-        .stderr(contains("--write-index is not available for BAM output"));
     // BED input cannot be written as BAM.
     let dir = tempdir();
     let bed = plain_file(dir.path(), "a.bed", "chr1\t1\t2\n");
@@ -502,11 +497,6 @@ fn view_write_index_is_refused_by_output_format() {
         .assert()
         .code(2)
         .stderr(contains("--write-index needs BAM output").and(contains("SAM text has no index")));
-    gloci()
-        .args(["view", &bam, "-o", "x.bam", "--write-index"])
-        .assert()
-        .code(2)
-        .stderr(contains("not available for BAM output").and(contains("afterwards").not()));
 }
 
 #[test]

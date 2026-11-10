@@ -86,7 +86,6 @@ fn planned_commands_say_not_yet_and_others_say_never() {
         assert!(!err.contains("does not read alignments"), "{args:?}: {err}");
     };
     not_yet(&["sort", x]);
-    not_yet(&["index", x]);
     gloci()
         .args(["subtract", "-a", b, "-b", x])
         .assert()

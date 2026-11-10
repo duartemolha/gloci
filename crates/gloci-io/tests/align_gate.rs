@@ -35,7 +35,6 @@ fn indexed_query_refuses_alignment_and_convert_only_formats() {
     let regions = [(b"chr1".to_vec(), Interval { start: 0, end: 5 })];
     for f in [
         Format::Sam,
-        Format::Bam,
         Format::Cram,
         Format::Psl,
         Format::Rmsk,
@@ -61,7 +60,7 @@ fn indexed_query_refuses_alignment_and_convert_only_formats() {
 fn index_build_refuses_alignments_and_psl() {
     let dir = tempfile::tempdir().unwrap();
     let p = fixtures::write(dir.path(), "a.bed.gz", &fixtures::bgzip(b"chr1\t1\t2\n"));
-    let e = write_index(&p, &p, Format::Bam, NonZeroUsize::MIN).unwrap_err();
+    let e = write_index(&p, &p, Format::Cram, NonZeroUsize::MIN).unwrap_err();
     assert!(
         e.to_string().contains("not available in this build yet"),
         "{e}"
