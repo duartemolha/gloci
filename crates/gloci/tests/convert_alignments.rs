@@ -2,6 +2,7 @@
 //! determinism. Byte parity with bedtools is in the golden cases `bamtobed-*`.
 mod common;
 use common::*;
+use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 use std::path::PathBuf;
 
@@ -186,4 +187,32 @@ fn output_is_the_same_at_every_thread_count() {
             }
         }
     }
+}
+
+#[test]
+fn split_rows_of_a_sorted_bam_do_not_warn_about_order() {
+    // c_skip's second block (705) comes after the next read's start (700): not an input problem.
+    gloci()
+        .args(["convert", &aln("cigars.bam"), "--blocks"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("out of order").not());
+}
+
+#[test]
+fn bed12_closes_at_the_last_kept_block() {
+    let out = run(&["convert", &aln("splice-end.bam"), "--bed12"]);
+    assert!(
+        out.contains("chr1\t990\t995\tspliced\t60\t+\t990\t995\t255,0,0\t1\t5\t0\n"),
+        "{out}"
+    );
+}
+
+#[test]
+fn negative_scores_stay_signed() {
+    let out = run(&["convert", &aln("negtag.bam"), "--score-tag", "AS"]);
+    assert_eq!(
+        out,
+        "chr1\t10\t20\tneg_one\t-1\t+\nchr1\t30\t40\tneg_five\t-5\t+\n"
+    );
 }

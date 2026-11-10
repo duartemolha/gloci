@@ -4498,3 +4498,21 @@ gloci = "gloci convert input.bam --blocks"
 reference = "bedtools bamtobed -i input.bam -split"
 compare = "exact"
 expected_difference = "#bamtobed-no-reference-ops"
+
+# A negative integer tag as the score: bedtools prints it as an unsigned 32-bit number.
+[[case]]
+name = "bamtobed-negative-score-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/negtag.bam" }
+gloci = "gloci convert input.bam --score-tag AS"
+reference = "bedtools bamtobed -i input.bam -tag AS"
+compare = "exact"
+expected_difference = "#bamtobed-negative-score"
+
+# A spliced read cut at the end of its reference: BED12 closes at the last block kept.
+[[case]]
+name = "bamtobed-past-end-bed12-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/splice-end.bam" }
+gloci = "gloci convert input.bam --bed12"
+reference = "bedtools bamtobed -i input.bam -bed12"
+compare = "exact"
+expected_difference = "#bamtobed-past-reference-end"

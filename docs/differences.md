@@ -1613,7 +1613,8 @@ depends on the span.
   drop one of them.
 - **Old behaviour:** `bedtools bamtobed -split -tag NM` (also `-splitD`) writes an extra
   column, the block start again, after the start: `chr1 600 600 605 c_skip 0 +`.
-  `-split -ed` is refused (exit 1, "Edit distances cannot be computed for each
+  `-splitD` also writes an empty trailing block for a CIGAR that ends in `D`, which
+  gloci drops (D105: empty blocks are dropped). `-split -ed` is refused (exit 1, "Edit distances cannot be computed for each
   'chunk'"). `-cigar -split` drops the CIGAR without a word (exit 0).
 - **Reason:** the extra column makes the file no longer BED, and a flag that is quietly
   ignored hides a mistake.
@@ -1630,11 +1631,15 @@ depends on the span.
 - **Old behaviour:** `bedtools bamtobed` writes the interval as the CIGAR gives it,
   past the end of the reference (`chr1 994 1004` on a 1,000 base chr1), and writes a
   read that starts past the end as well. With `-bed12` a start beyond 2^31 gives a
-  negative end.
+  negative end. In BED12, gloci closes the row (chromEnd and thickEnd) at the end of
+  the last block it keeps, so that the last block ends at chromEnd as BED12 requires: a
+  spliced read `5M20N5M` at 991 on a 1,000 base chr1 is `990 995 ... 1 5 0`, and the
+  same read ending in `N`, or in `D` under `--split-deletions`, closes before the cut.
+  BED6 keeps the cut span (`990 1000`).
 - **Reason:** an interval past its chromosome fails in a genome browser and in
   `bedToBigBed`, and the other gloci commands refuse it.
-- **Pinned by:** `bamtobed-past-end-vs-bedtools` and `bamtobed-edge-vs-bedtools` (must
-  differ).
+- **Pinned by:** `bamtobed-past-end-vs-bedtools`, `bamtobed-edge-vs-bedtools` and
+  `bamtobed-past-end-bed12-vs-bedtools` (must differ).
 
 ## `convert` of a read with no reference bases is one base {#bamtobed-no-reference-ops}
 
@@ -1653,3 +1658,12 @@ depends on the span.
   `bamtobed-no-reference-ops-split-vs-bedtools` (must differ; they run on `cigars.bam`,
   which has one such read, while the matching cases use `cigars-bases.bam`, the same
   file without it).
+
+## `convert --score-tag` prints a negative score as a negative number {#bamtobed-negative-score}
+
+- **gloci:** the score of `--score-tag AS` is the tag's integer, signed: `-5` is `-5`.
+- **Old behaviour:** `bedtools bamtobed -tag AS` (and `-ed`) prints a negative integer as an
+  unsigned 32-bit number: `-1` is `4294967295` and `-5` is `4294967291`.
+- **Reason:** the unsigned form is a wraparound of the tag's own value, not a score
+  anyone can sort or filter on. Non-negative tags are identical.
+- **Pinned by:** `bamtobed-negative-score-vs-bedtools` (must differ).

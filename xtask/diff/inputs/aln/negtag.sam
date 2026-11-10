@@ -1,0 +1,4 @@
+@HD	VN:1.6	SO:coordinate
+@SQ	SN:chr1	LN:1000
+neg_one	0	chr1	11	60	10M	*	0	0	ACGTACGTAC	IIIIIIIIII	AS:i:-1	XX:i:7
+neg_five	0	chr1	31	60	10M	*	0	0	ACGTACGTAC	IIIIIIIIII	AS:i:-5	XX:i:-300

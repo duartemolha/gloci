@@ -145,7 +145,7 @@ an integer (i) tag such as NM or AS",
     ) -> Result<(), IoError> {
         let hdr = self.hdr.clone();
         let a = aln_ref(self.format, raw, &hdr).map_err(|m| self.fail(loc, m))?;
-        let (Some(rid), Some(pos)) = (a.ref_id(), a.pos()) else {
+        let (Some(rid), Some(_)) = (a.ref_id(), a.pos()) else {
             return Err(self.fail(
                 loc,
                 "the read has no reference or position, so it is not a mapped alignment".into(),
@@ -153,19 +153,13 @@ an integer (i) tag such as NM or AS",
         };
         let (chrom, ref_len) = &hdr.refs[rid];
         let score = self.score(&a, loc)?;
-        // The reference bases the read covers; a read with none (all clips and insertions)
-        // is one base, as `aln_ref` and every interval command see it (D101).
-        let mut covered = 0u64;
-        a.for_each_op(&mut |op, n| {
-            if matches!(op, b'M' | b'D' | b'N' | b'=' | b'X') {
-                covered += u64::from(n);
-            }
-        });
-        let covered = covered.max(1);
-        // Reads are cut at the end of their reference (D101).
+        // The span every interval command uses (D101): the reference bases the CIGAR covers
+        // (at least one), cut at the end of the reference.
+        let Some((span, _)) = a.span(*ref_len) else {
+            return Err(self.fail(loc, "the read is unmapped".into()));
+        };
+        let (start, end) = (span.start, span.end);
         let cut = |p: u64| p.min(*ref_len);
-        let start = cut(pos);
-        let end = cut(pos.saturating_add(covered));
         let mut name = a.name().to_vec();
         let flag = a.flag();
         if flag & 0x40 != 0 {
@@ -228,6 +222,10 @@ an integer (i) tag such as NM or AS",
             }
             return Ok(());
         }
+        // The thick span and the end close at the last block that is kept, so the last block
+        // ends at chromEnd as BED12 requires (a read cut at the reference end, or ending in
+        // N or, with --split-deletions, D).
+        let end = self.blocks.last().map_or(end, |b| b.end);
         head(out, start, end);
         tail(out);
         out.push(b'\t');

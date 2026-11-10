@@ -36,6 +36,11 @@ pub(super) fn convert(
             "{name} is not an alignment reader"
         )));
     };
+    if o.blocks || o.split_deletions {
+        // A read's blocks can start after the next read does: the rows of a split sorted BAM
+        // are out of order by nature, which the order warning would blame on the input.
+        sink.warned = true;
+    }
     let mut batch = RecordBatch::default();
     let mut rows = Vec::new();
     let mut max = 1;
