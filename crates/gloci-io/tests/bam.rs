@@ -735,3 +735,61 @@ fn fuzz_bam() {
         gloci_io::fuzz_bodies::read_bam(&input);
     }
 }
+
+#[test]
+fn bam_read_past_the_reference_end_is_skipped_and_counted() {
+    // A mapped read at or past LN covers no reference base: skipped and counted, with one
+    // warning per input; a read that only overhangs is still cut (D101).
+    let h = header(&[("chr1", 100)], "coordinate");
+    let rec = |pos: i32, name: &[u8]| raw_record(0, pos, name, 0, &[10 << 4 | M], 10, b"");
+    let bam = bam_file(
+        &h,
+        &[
+            rec(50, b"in"),
+            rec(95, b"over"),
+            rec(100, b"at"),
+            rec(150, b"past"),
+        ],
+    );
+    let r = run(&bam, AlignOptions::default());
+    let names: Vec<_> = r.recs.iter().map(|g| name_of(g, &r.hdr)).collect();
+    assert_eq!(names, ["in", "over"]);
+    assert_eq!(
+        r.recs[1].span,
+        Interval {
+            start: 95,
+            end: 100
+        }
+    );
+    assert_eq!(r.diag.off_reference, 2);
+    assert!(r.recs.iter().all(|g| g.span.start < g.span.end));
+}
+
+#[test]
+fn bam_error_place_names_the_file_record() {
+    let h = header(&[("chr1", 100_000), ("chr2", 1000)], "coordinate");
+    let good = |ref_id: i32| raw_record(ref_id, 10, b"ok", 0, &[10 << 4 | M], 10, b"");
+    let bad = raw_record(1, -2, b"r", 0, &[10 << 4 | M], 10, b"");
+    let bam = bam_file(&h, &[good(0), good(0), good(1), bad]);
+    let e = run_with(
+        &bam,
+        &ropts(AlignOptions::default(), InvalidPolicy::Fail, None),
+    )
+    .err()
+    .unwrap()
+    .to_string();
+    assert!(e.contains("record 2 of chr2 (record 4 of the file)"), "{e}");
+    // Only refID -1 is "unplaced reads"; another negative id is printed as it is.
+    let neg = bam_file(&h, &[raw_record(-5, 10, b"r", 4, &[], 0, b"")]);
+    let e = run_with(
+        &neg,
+        &ropts(AlignOptions::default(), InvalidPolicy::Fail, None),
+    )
+    .err()
+    .unwrap()
+    .to_string();
+    assert!(
+        e.contains("record 1 of refID -5 (record 1 of the file)"),
+        "{e}"
+    );
+}

@@ -28,6 +28,8 @@ pub struct Diagnostics {
     pub unmapped: u64,
     /// Alignments the read filters dropped (D102).
     pub filtered: u64,
+    /// Mapped reads that start at or past the end of their reference, so cover no base of it.
+    pub off_reference: u64,
     /// `(example index, line, msg)` for the examples recorded by line, so
     /// `shift_lines` can renumber them.
     lines: Vec<(usize, u64, String)>,
@@ -68,6 +70,7 @@ impl Diagnostics {
         self.blank_lines += other.blank_lines;
         self.unmapped += other.unmapped;
         self.filtered += other.filtered;
+        self.off_reference += other.off_reference;
         let room = MAX_EXAMPLES.saturating_sub(self.blank_examples.len());
         self.blank_examples
             .extend(other.blank_examples.into_iter().take(room));

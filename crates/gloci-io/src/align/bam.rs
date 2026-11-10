@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 const FLAG_UNMAPPED: u16 = 0x4;
 
-/// Where the records of one reference are counted from: "record N of CHROM".
+/// Reads BAM records for interval commands.
 pub struct BamReader {
     name: String,
     compression: Compression,
@@ -31,7 +31,7 @@ pub struct BamReader {
     /// Records started so far in the file (`RecordMeta::loc`).
     rec: u64,
     /// The `refID` of the current run of records and how many of the run were read:
-    /// the number errors name, so every thread count reports one place.
+    /// the "record N of CHROM" errors name, so every thread count reports one place.
     run_ref: i32,
     run_seen: u64,
     eof: bool,
@@ -39,6 +39,7 @@ pub struct BamReader {
     ids: Vec<Option<ChromId>>,
     scratch: Vec<u8>,
     clip_warned: bool,
+    off_ref_warned: bool,
 }
 
 /// Read until `buf` is full or input ends; returns the bytes read.
@@ -85,19 +86,26 @@ impl BamReader {
             eof: false,
             scratch: Vec::new(),
             clip_warned: false,
+            off_ref_warned: false,
         })
     }
 
-    /// "record N of CHROM" for the record that is `seen` in its run, on `ref_id`.
+    /// "record N of CHROM (record M of the file)" for the record that is `seen` in its run,
+    /// on `ref_id`. `self.rec` is the file-wide number, the same at every thread count.
     fn place(&self, ref_id: i32, seen: u64) -> String {
         let chrom = match usize::try_from(ref_id) {
             Ok(i) => match self.aln.refs.get(i) {
                 Some((n, _)) => String::from_utf8_lossy(n).into_owned(),
                 None => format!("refID {ref_id}"),
             },
-            Err(_) => "unplaced reads".to_string(),
+            Err(_) if ref_id == -1 => "unplaced reads".to_string(),
+            Err(_) => format!("refID {ref_id}"),
         };
-        format!("record {} of {chrom}", gloci_core::thousands(seen))
+        format!(
+            "record {} of {chrom} (record {} of the file)",
+            gloci_core::thousands(seen),
+            gloci_core::thousands(self.rec)
+        )
     }
 
     fn data_err(&self, place: &str, msg: &str) -> IoError {
@@ -261,6 +269,24 @@ the file is corrupt"
                     continue;
                 }
             };
+            if span.start >= span.end {
+                // The read starts at or past the end of its reference: it covers no base.
+                self.diag.off_reference += 1;
+                if !self.off_ref_warned {
+                    self.off_ref_warned = true;
+                    log::warn!(
+                        "{}: read {} starts at {} on {}, which is {} bases long; reads that \
+start past the end of their reference cover no base and are skipped",
+                        self.name,
+                        String::from_utf8_lossy(a.name()),
+                        pos + 1,
+                        String::from_utf8_lossy(&hdr.refs[rid].0),
+                        hdr.refs[rid].1
+                    );
+                }
+                batch.buf.truncate(start);
+                continue;
+            }
             if clipped && !self.clip_warned {
                 self.clip_warned = true;
                 log::warn!(

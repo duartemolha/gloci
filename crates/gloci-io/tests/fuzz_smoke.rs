@@ -232,9 +232,89 @@ fn bam_plain() -> Vec<u8> {
     out
 }
 
+/// One raw BAM record (without `block_size`) with `l_seq` bases and the aux bytes `tags`.
+fn raw_bam_record(pos: i32, name: &[u8], cigar: &[u32], l_seq: u32, tags: &[u8]) -> Vec<u8> {
+    let mut v = Vec::new();
+    v.extend_from_slice(&0i32.to_le_bytes());
+    v.extend_from_slice(&pos.to_le_bytes());
+    v.push(name.len() as u8 + 1);
+    v.push(60);
+    v.extend_from_slice(&0u16.to_le_bytes());
+    v.extend_from_slice(&(cigar.len() as u16).to_le_bytes());
+    v.extend_from_slice(&0u16.to_le_bytes());
+    v.extend_from_slice(&l_seq.to_le_bytes());
+    v.extend_from_slice(&(-1i32).to_le_bytes());
+    v.extend_from_slice(&(-1i32).to_le_bytes());
+    v.extend_from_slice(&0i32.to_le_bytes());
+    v.extend_from_slice(name);
+    v.push(0);
+    for c in cigar {
+        v.extend_from_slice(&c.to_le_bytes());
+    }
+    v.extend(std::iter::repeat_n(0x11u8, (l_seq as usize).div_ceil(2)));
+    v.extend(std::iter::repeat_n(30u8, l_seq as usize));
+    v.extend_from_slice(tags);
+    v
+}
+
+/// A decoded BAM with a `CG` placeholder record (more than 65,535 operations) and records
+/// with `B` arrays and `s`/`I` aux tags: the shapes the seed above does not reach.
+pub fn bam_rich_plain() -> Vec<u8> {
+    let header = gloci_io::AlnHeader::parse_sam(
+        b"@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:1000000\n".to_vec(),
+    )
+    .expect("seed header");
+    let mut v = Vec::new();
+    header.write_bam(&mut v).expect("seed header bytes");
+    let mut cg = b"CGBI".to_vec();
+    let pairs = 32_800u32; // 65,600 operations
+    cg.extend_from_slice(&(pairs * 2).to_le_bytes());
+    for _ in 0..pairs {
+        cg.extend_from_slice(&(1u32 << 4).to_le_bytes());
+        cg.extend_from_slice(&((1u32 << 4) | 1).to_le_bytes());
+    }
+    let mut tags = b"XsBs".to_vec();
+    tags.extend_from_slice(&3u32.to_le_bytes());
+    for x in [-1i16, 0, 300] {
+        tags.extend_from_slice(&x.to_le_bytes());
+    }
+    tags.extend_from_slice(b"XfBf");
+    tags.extend_from_slice(&2u32.to_le_bytes());
+    tags.extend_from_slice(&0.1f32.to_le_bytes());
+    tags.extend_from_slice(&1e-7f32.to_le_bytes());
+    tags.extend_from_slice(b"XIBI");
+    tags.extend_from_slice(&1u32.to_le_bytes());
+    tags.extend_from_slice(&4_000_000_000u32.to_le_bytes());
+    tags.extend_from_slice(b"Yss");
+    tags.extend_from_slice(&(-300i16).to_le_bytes());
+    tags.extend_from_slice(b"ZII");
+    tags.extend_from_slice(&4_000_000_000u32.to_le_bytes());
+    let records = [
+        raw_bam_record(
+            10,
+            b"long",
+            &[65_600 << 4 | 4, 32_800 << 4 | 3],
+            65_600,
+            &cg,
+        ),
+        raw_bam_record(20, b"tags", &[10 << 4], 10, &tags),
+    ];
+    for r in &records {
+        v.extend_from_slice(&(r.len() as u32).to_le_bytes());
+        v.extend_from_slice(r);
+    }
+    v
+}
+
 /// Byte-level mutations of a valid BAM (flip, truncate, insert), re-wrapped.
 fn bam_mutated() -> impl Strategy<Value = Vec<u8>> {
-    let base = bam_plain();
+    prop_oneof![
+        3 => bam_mutations(bam_plain()),
+        1 => bam_mutations(bam_rich_plain()),
+    ]
+}
+
+fn bam_mutations(base: Vec<u8>) -> impl Strategy<Value = Vec<u8>> {
     let len = base.len();
     (
         prop::collection::vec((0..len, any::<u8>()), 0..6),
@@ -433,6 +513,7 @@ chr2\t9\t.\tC\tC]chr1:5]\t.\tPASS\tSVTYPE=BND\tGT\t0/1\n"
     put("gff_reader", "gtf", 0, gtf.as_bytes());
     // Bit 0 clear: the target does not wrap, so the seed is already BGZF.
     put("bcf_reader", "bcf", 0, &bcf_seed());
+    put("bam_reader", "rich.bam", 0, &bgzip(&bam_rich_plain()));
     put("bgzf_input", "bgzf_vcf", 0, &bgzip(vcf.as_bytes()));
     put("bgzf_input", "plain_bed", 0, bed.as_bytes());
     for (n, r) in [
@@ -449,4 +530,12 @@ chr2\t9\t.\tC\tC]chr1:5]\t.\tPASS\tSVTYPE=BND\tGT\t0/1\n"
         create_dir_all(&dir).unwrap();
         write(dir.join(format!("r{n}")), r).unwrap();
     }
+}
+
+/// The rich BAM, unmutated, reads without a panic.
+#[test]
+fn rich_bam_seed() {
+    let mut seed = vec![0u8];
+    seed.extend(bgzip(&bam_rich_plain()));
+    read_all_both(&seed, Some(Format::Bam));
 }
