@@ -34,7 +34,17 @@ pub fn run(ctx: &Ctx, a: &MergeArgs) -> anyhow::Result<()> {
             chrom_map: &a.chrom_map,
         },
         &|formats| validate(formats, &o),
-    )?;
+    )
+    .map_err(|e| {
+        // Merging alignment files is `sort -m` (D122).
+        if e.to_string().contains("does not read alignments") {
+            anyhow::Error::new(gloci_io::UsageError(format!(
+                "{e}; to merge sorted alignment files as samtools merge does, use: gloci sort -m"
+            )))
+        } else {
+            e
+        }
+    })?;
 
     // The rows are new BED lines whatever the input format.
     let to = spec.format.unwrap_or(OutFormat::Bed);

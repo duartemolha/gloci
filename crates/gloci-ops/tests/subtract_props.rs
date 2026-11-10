@@ -29,6 +29,7 @@ impl RecordWriter for Sink {
 
 fn reader_opts() -> ReaderOptions {
     ReaderOptions {
+        accept: gloci_io::Accept::default(),
         chrom_map: None,
         threads: NonZeroUsize::MIN,
         format: Some(Format::Bed),

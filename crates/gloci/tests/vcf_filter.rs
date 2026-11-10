@@ -408,6 +408,7 @@ chr2\t300\trs3\tT\tA\t50\tPASS\tDP=30\tGT:DP\t0/1:10\t0/1:10\t0/1:10\n"
     let bed = plain_file(d.path(), "regions.bed", "chr1\t150\t250\n");
 
     let ro = ReaderOptions {
+        accept: gloci_io::Accept::default(),
         chrom_map: None,
         format: Some(Format::Vcf),
         vcf_span: gloci_core::VcfSpan::Ref,

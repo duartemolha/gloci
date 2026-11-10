@@ -8,6 +8,7 @@ type Rec = (String, u64, Interval, u64, Vec<u8>);
 
 fn opts(format: Option<Format>, invalid: InvalidPolicy) -> ReaderOptions {
     ReaderOptions {
+        accept: gloci_io::Accept::default(),
         chrom_map: None,
         threads: NonZeroUsize::new(1).unwrap(),
         format,

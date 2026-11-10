@@ -42,7 +42,7 @@ proptest! {
         let rank = naive::karyotype_rank(CHROMS);
         let mut files = vec![naive::sort(input.a.clone(), &rank)];
         files.extend(input.b.iter().map(|f| naive::sort(f.clone(), &rank)));
-        let ro = ReaderOptions { chrom_map: None,
+        let ro = ReaderOptions { accept: gloci_io::Accept::default(), chrom_map: None,
             threads: NonZeroUsize::MIN,
             format: Some(Format::Bed),
             vcf_span: VcfSpan::Allele,
@@ -79,6 +79,7 @@ fn per_strand_buffer_drains() {
         s += &format!("chr1\t{}\t{}\tp{i}\t0\t+\n", 100 + i * 20, 110 + i * 20);
     }
     let ro = ReaderOptions {
+        accept: gloci_io::Accept::default(),
         chrom_map: None,
         threads: NonZeroUsize::MIN,
         format: Some(Format::Bed),

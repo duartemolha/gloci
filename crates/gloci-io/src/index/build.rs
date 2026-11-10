@@ -380,6 +380,9 @@ fn text_header(format: Format, tsv: Option<&TsvColumns>, s: &Scanned) -> Option<
         (Format::Gff3 | Format::Gtf, _) => HeaderBuilder::gff(),
         (Format::Vcf, _) => HeaderBuilder::vcf(),
         (Format::Bcf, _) => return None,
+        // Refused before indexing (`build_index_with`).
+        (Format::Bam | Format::Cram | Format::Sam | Format::Fasta, _) => return None,
+        (Format::Psl | Format::Rmsk, _) => return None,
     };
     let mut names = ReferenceSequenceNames::default();
     for n in &s.names {
@@ -544,6 +547,16 @@ pub(super) fn build_index_with(
         return Err(UsageError(format!(
             "{name} is WIG, which cannot be indexed; convert it first with \
 `gloci convert {name}`, which writes bedGraph, and index that"
+        ))
+        .into());
+    }
+    if tsv.is_none()
+        && (format.is_alignment() || format.is_convert_only() || format == Format::Fasta)
+    {
+        return Err(UsageError(format!(
+            "{name} is {}, which `gloci index` cannot index here; convert it to BED first with \
+`gloci convert {name} -o out.bed.gz` and index that",
+            format.name()
         ))
         .into());
     }

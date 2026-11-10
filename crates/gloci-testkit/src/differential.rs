@@ -13,6 +13,9 @@
 /// - `numeric`: line counts match; tab fields are compared pairwise. Two
 ///   numbers are equal within a relative tolerance of 1e-5 (absolute when
 ///   both are below 1e-9); any other field must match exactly.
+/// - `bam` (D118): both are BAM files. They are decompressed, and then the
+///   header text without its `@PG` lines, the reference list and the record
+///   bytes must be identical; the BGZF block layout and level do not matter.
 pub fn compare(mode: &str, a: &[u8], b: &[u8]) -> bool {
     match mode {
         "exact" => a == b,
@@ -20,6 +23,10 @@ pub fn compare(mode: &str, a: &[u8], b: &[u8]) -> bool {
         "vcf-records" => vcf_records_equal(a, b),
         "exit-status" => a == b,
         "numeric" => numeric_equal(a, b),
+        "bam" => match (bam_parts(a), bam_parts(b)) {
+            (Some(x), Some(y)) => x == y,
+            _ => false,
+        },
         other => panic!("unknown compare mode `{other}`"),
     }
 }
@@ -67,6 +74,10 @@ pub fn observe(mode: &str, code: Option<i32>, stdout: &[u8]) -> Vec<u8> {
     }
     let mut out = Vec::with_capacity(stdout.len());
     for line in stdout.split_inclusive(|&c| c == b'\n') {
+        if line.starts_with(b"@PG\tID:gloci") {
+            // gloci's own @PG line names the machine's command line (D118).
+            continue;
+        }
         if line.starts_with(b"##glociCommand=") {
             out.extend_from_slice(b"##glociCommand=<normalised>\n");
         } else {
@@ -74,6 +85,46 @@ pub fn observe(mode: &str, code: Option<i32>, stdout: &[u8]) -> Vec<u8> {
         }
     }
     out
+}
+
+/// A BAM file with the `@PG` lines and the compression taken out:
+/// (header text, references as name and length, record bytes).
+type BamParts = (Vec<u8>, Vec<(Vec<u8>, u32)>, Vec<u8>);
+
+fn bam_parts(bgzf: &[u8]) -> Option<BamParts> {
+    use std::io::Read;
+    let mut raw = Vec::new();
+    noodles_bgzf::io::Reader::new(bgzf)
+        .read_to_end(&mut raw)
+        .ok()?;
+    let mut at = 0usize;
+    let mut take = |n: usize| -> Option<&[u8]> {
+        let s = raw.get(at..at.checked_add(n)?)?;
+        at += n;
+        Some(s)
+    };
+    let u32_of = |s: &[u8]| u32::from_le_bytes([s[0], s[1], s[2], s[3]]);
+    if take(4)? != b"BAM\x01" {
+        return None;
+    }
+    let l_text = u32_of(take(4)?) as usize;
+    let text = take(l_text)?;
+    let text = text.split(|&c| c == 0).next().unwrap_or(&[]);
+    let mut header = Vec::new();
+    for line in text.split_inclusive(|&c| c == b'\n') {
+        if !line.starts_with(b"@PG\t") {
+            header.extend_from_slice(line);
+        }
+    }
+    let n_ref = u32_of(take(4)?);
+    let mut refs = Vec::new();
+    for _ in 0..n_ref {
+        let l_name = u32_of(take(4)?) as usize;
+        let name = take(l_name)?.to_vec();
+        let l_ref = u32_of(take(4)?);
+        refs.push((name, l_ref));
+    }
+    Some((header, refs, raw[at..].to_vec()))
 }
 
 fn numeric_equal(a: &[u8], b: &[u8]) -> bool {
@@ -198,6 +249,37 @@ pub fn check_anchor(doc: &str, anchor: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{compare, split_args};
+
+    /// A one-record BAM: `pg` is the `@PG` line, `level` the BGZF level and
+    /// `pos` a record byte.
+    fn bam(pg: &str, level: u8, pos: u8) -> Vec<u8> {
+        use noodles_bgzf::io::writer::{Builder, CompressionLevel};
+        use std::io::Write;
+        let text = format!("@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:1000\n{pg}");
+        let mut raw = b"BAM\x01".to_vec();
+        raw.extend_from_slice(&(text.len() as u32).to_le_bytes());
+        raw.extend_from_slice(text.as_bytes());
+        raw.extend_from_slice(&1u32.to_le_bytes());
+        raw.extend_from_slice(&5u32.to_le_bytes());
+        raw.extend_from_slice(b"chr1\0");
+        raw.extend_from_slice(&1000u32.to_le_bytes());
+        raw.extend_from_slice(&[36, 0, 0, 0, 0, 0, 0, 0, pos, 0, 0, 0, 0, 0]);
+        let mut w = Builder::default()
+            .set_compression_level(CompressionLevel::try_from(level).unwrap())
+            .build_from_writer(Vec::new());
+        w.write_all(&raw).unwrap();
+        w.finish().unwrap()
+    }
+
+    #[test]
+    fn compare_bam_ignores_pg_and_compression() {
+        let a = bam("@PG\tID:gloci\tPN:gloci\n", 1, 7);
+        let b = bam("@PG\tID:samtools\tPN:samtools\tVN:1.21\n", 9, 7);
+        assert_ne!(a, b);
+        assert!(compare("bam", &a, &b));
+        assert!(!compare("bam", &a, &bam("@PG\tID:gloci\n", 1, 8)));
+        assert!(!compare("bam", &a, b"not a bam"));
+    }
 
     #[test]
     fn split_args_keeps_single_quoted_runs() {

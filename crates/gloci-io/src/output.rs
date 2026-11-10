@@ -21,6 +21,11 @@ pub enum OutFormat {
     Gff3,
     Gtf,
     Tsv,
+    /// BAM output (D100): BGZF always.
+    Bam,
+    Sam,
+    /// FASTA output (`.fa`, `.fasta`, `.fna`; `.gz` is BGZF).
+    Fasta,
 }
 
 impl OutFormat {
@@ -34,6 +39,9 @@ impl OutFormat {
             OutFormat::Gff3 => "GFF3",
             OutFormat::Gtf => "GTF",
             OutFormat::Tsv => "TSV",
+            OutFormat::Bam => "BAM",
+            OutFormat::Sam => "SAM",
+            OutFormat::Fasta => "FASTA",
         }
     }
 
@@ -45,7 +53,7 @@ impl OutFormat {
             OutFormat::Bcf => Some(Format::Bcf),
             OutFormat::Gff3 => Some(Format::Gff3),
             OutFormat::Gtf => Some(Format::Gtf),
-            OutFormat::Tsv => None,
+            OutFormat::Tsv | OutFormat::Bam | OutFormat::Sam | OutFormat::Fasta => None,
         }
     }
 
@@ -59,6 +67,11 @@ impl OutFormat {
             Format::Bcf => OutFormat::Bcf,
             Format::Gff3 => OutFormat::Gff3,
             Format::Gtf => OutFormat::Gtf,
+            Format::Bam | Format::Cram => OutFormat::Bam,
+            Format::Sam => OutFormat::Sam,
+            Format::Fasta => OutFormat::Fasta,
+            // PSL and RepeatMasker are read by `convert` only, which writes BED.
+            Format::Psl | Format::Rmsk => OutFormat::Bed,
         }
     }
 }
@@ -84,7 +97,8 @@ pub struct OutputOptions {
 }
 
 const ACCEPTED: &str = ".bed, .bed.gz, .bedgraph, .bedgraph.gz, .vcf, .vcf.gz, .bcf, \
-.tsv, .tsv.gz, .gff, .gff.gz, .gff3, .gff3.gz, .gtf, .gtf.gz";
+.tsv, .tsv.gz, .gff, .gff.gz, .gff3, .gff3.gz, .gtf, .gtf.gz, .bam, .sam, .fa, .fa.gz, \
+.fasta, .fasta.gz, .fna, .fna.gz";
 
 /// `(suffix without dot, format, bgzf)`, matched case-insensitively.
 fn lookup(s: &str) -> Option<(OutFormat, bool)> {
@@ -103,6 +117,10 @@ fn lookup(s: &str) -> Option<(OutFormat, bool)> {
         "gff.gz" | "gff3.gz" => (Gff3, true),
         "gtf" => (Gtf, false),
         "gtf.gz" => (Gtf, true),
+        "bam" => (Bam, true),
+        "sam" => (Sam, false),
+        "fa" | "fasta" | "fna" => (Fasta, false),
+        "fa.gz" | "fasta.gz" | "fna.gz" => (Fasta, true),
         _ => return None,
     })
 }
@@ -138,6 +156,20 @@ pub fn parse_output_spec(
             || p == Path::new("/dev/stderr")
             || std::fs::metadata(p).is_ok_and(|m| !m.is_file() && !m.is_dir())
     });
+    let cram_error = || {
+        UsageError(
+            "gloci does not write CRAM; write BAM with -o FILE.bam and convert it with \
+`samtools view -C -T ref.fa`"
+                .into(),
+        )
+    };
+    if path
+        .and_then(|p| p.extension())
+        .is_some_and(|e| e.eq_ignore_ascii_case("cram"))
+        || output_format.is_some_and(|s| s.trim_start_matches('.').eq_ignore_ascii_case("cram"))
+    {
+        return Err(cram_error());
+    }
     let from_o = match output_format {
         None => None,
         Some(s) => {
@@ -193,7 +225,7 @@ pub fn check_level(n: u8) -> Result<u8, UsageError> {
 }
 
 pub fn refuse_binary_to_tty(is_tty: bool, f: OutFormat, bgzf: bool) -> Result<(), UsageError> {
-    if is_tty && (f == OutFormat::Bcf || bgzf) {
+    if is_tty && (matches!(f, OutFormat::Bcf | OutFormat::Bam) || bgzf) {
         Err(UsageError(
             "refusing to write binary (BCF or BGZF) output to a terminal; \
 use -o FILE, or choose a text format with -O (e.g. -O vcf or -O bed)"
@@ -240,7 +272,7 @@ pub fn open_output(
     f: OutFormat,
     opts: &OutputOptions,
 ) -> Result<Output, IoError> {
-    let bgzf = spec.bgzf || f == OutFormat::Bcf;
+    let bgzf = spec.bgzf || matches!(f, OutFormat::Bcf | OutFormat::Bam);
     let level = CompressionLevel::try_from(check_level(opts.level)?)
         .map_err(|e| UsageError(e.to_string()))?;
     let mut index = IndexPlan::None;

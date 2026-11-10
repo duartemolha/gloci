@@ -11,6 +11,7 @@ pub fn run(ctx: &Ctx, a: &CheckArgs) -> anyhow::Result<bool> {
         Some(s) => Some(s.parse::<Format>().map_err(UsageError)?),
     };
     let ro = ReaderOptions {
+        accept: gloci_io::Accept::default(),
         chrom_map: a.chrom_map.load()?,
         threads: ctx.threads,
         format,

@@ -29,6 +29,11 @@ pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
         spec.bgzf,
     )?;
     let ro = ReaderOptions {
+        // `convert` reads alignments, PSL and RepeatMasker too (D100).
+        accept: gloci_io::Accept {
+            alignments: Some(gloci_io::AlignOptions::default()),
+            convert_only: true,
+        },
         chrom_map: a.chrom_map.load()?,
         threads: ctx.threads,
         format: match a.format.format.as_deref() {

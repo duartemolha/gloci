@@ -20,6 +20,7 @@ use crate::{
 pub fn read_all(data: &[u8], format: Option<Format>, invalid: InvalidPolicy) {
     let (cfg, data) = split_config(data);
     let o = ReaderOptions {
+        accept: crate::align::Accept::default(),
         chrom_map: None,
         threads: threads(cfg),
         format,

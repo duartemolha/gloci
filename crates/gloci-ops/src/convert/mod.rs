@@ -84,6 +84,9 @@ fn what(format: Format) -> &'static str {
         Format::Gff3 | Format::Gtf => "GFF3/GTF",
         Format::Bed | Format::BedGraph => "BED",
         Format::Wig => "WIG",
+        Format::Bam | Format::Cram | Format::Sam | Format::Fasta | Format::Psl | Format::Rmsk => {
+            format.name()
+        }
     }
 }
 
@@ -159,6 +162,13 @@ pub fn convert(
         warned: false,
     };
     match format {
+        Format::Bam | Format::Cram | Format::Sam | Format::Fasta | Format::Psl | Format::Rmsk => {
+            Err(UsageError(format!(
+                "convert does not read {} yet; {SUMMARY}",
+                format.name()
+            ))
+            .into())
+        }
         Format::Vcf | Format::Bcf => vcf::convert(input, chroms, o, &mut sink),
         Format::Gff3 | Format::Gtf => gff::convert(input, chroms, o, &mut sink),
         Format::Bed => bed12::convert(input, chroms, &mut sink),

@@ -94,6 +94,7 @@ fn open_readers(
     let ro = sort_aware(
         a.sort,
         ReaderOptions {
+            accept: gloci_io::Accept::default(),
             chrom_map: a.chrom_map.load()?,
             threads: ctx.threads,
             format: match a.format {

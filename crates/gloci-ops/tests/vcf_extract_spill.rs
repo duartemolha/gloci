@@ -12,6 +12,7 @@ fn matrix(
     tmp: &std::path::Path,
 ) -> (Vec<u8>, gloci_ops::ExtractSummary) {
     let ro = ReaderOptions {
+        accept: gloci_io::Accept::default(),
         threads: NonZeroUsize::MIN,
         format: None,
         vcf_span: gloci_core::VcfSpan::Ref,

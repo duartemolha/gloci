@@ -226,6 +226,7 @@ chr2\t300\trs3\tT\tA\t50\tPASS\t.\n";
         let temp = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(temp.path(), vcf_data).unwrap();
         let ro = ReaderOptions {
+            accept: gloci_io::Accept::default(),
             chrom_map: None,
             format: Some(Format::Vcf),
             vcf_span: VcfSpan::Ref,

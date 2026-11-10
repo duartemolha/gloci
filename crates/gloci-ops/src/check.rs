@@ -55,6 +55,12 @@ fn format_name(f: Format) -> &'static str {
         Format::Bcf => "BCF",
         Format::Gff3 => "GFF3",
         Format::Gtf => "GTF",
+        Format::Bam => "BAM",
+        Format::Cram => "CRAM",
+        Format::Sam => "SAM",
+        Format::Fasta => "FASTA",
+        Format::Psl => "PSL",
+        Format::Rmsk => "RMSK",
     }
 }
 

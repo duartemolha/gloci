@@ -43,6 +43,7 @@ pub fn run(ctx: &Ctx, a: &SubtractArgs) -> anyhow::Result<()> {
         sort_aware(
             &a.sort,
             ReaderOptions {
+                accept: gloci_io::Accept::default(),
                 chrom_map: chrom_map.clone(),
                 threads: ctx.threads,
                 format,

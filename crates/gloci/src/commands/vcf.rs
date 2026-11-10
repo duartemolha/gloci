@@ -215,6 +215,7 @@ fn reader_options(
     invalid: &InvalidArg,
 ) -> anyhow::Result<ReaderOptions> {
     Ok(ReaderOptions {
+        accept: gloci_io::Accept::default(),
         chrom_map: chrom_map.load()?,
         threads: ctx.threads,
         format: match format {
@@ -454,6 +455,7 @@ pub fn run_stats(ctx: &Ctx, a: &VcfStatsArgs) -> anyhow::Result<()> {
 pub fn run_concat(ctx: &Ctx, a: &VcfConcatArgs) -> anyhow::Result<()> {
     let spec = parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref())?;
     let ro = ReaderOptions {
+        accept: gloci_io::Accept::default(),
         chrom_map: a.chrom_map.load()?,
         threads: ctx.threads,
         format: None,

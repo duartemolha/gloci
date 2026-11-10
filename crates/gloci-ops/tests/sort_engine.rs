@@ -88,6 +88,7 @@ fn threads(n: usize) -> SortConfig {
 
 fn reader(name: &str, text: impl Into<Vec<u8>>) -> Box<dyn RecordReader> {
     let opts = ReaderOptions {
+        accept: gloci_io::Accept::default(),
         chrom_map: None,
         threads: NonZeroUsize::MIN,
         format: Some(Format::Bed),

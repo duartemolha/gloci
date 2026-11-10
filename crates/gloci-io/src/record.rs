@@ -112,6 +112,8 @@ pub struct ReaderOptions {
     pub invalid: InvalidPolicy,
     /// `--chrom-map` (D62): renames chromosomes as the records are read.
     pub chrom_map: Option<Arc<ChromMap>>,
+    /// What the command reads beyond interval formats (D100): the input gate.
+    pub accept: crate::align::Accept,
 }
 
 pub fn open_reader(path: &str, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, IoError> {
@@ -171,6 +173,7 @@ fn input_options(o: &ReaderOptions) -> InputOptions {
 }
 
 fn dispatch(input: Input, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, IoError> {
+    crate::align::gate(&input.name, input.format, &o.accept)?;
     match input.format {
         Format::Bed | Format::BedGraph => Ok(Box::new(crate::bed::BedReader::open_bed(
             input,
@@ -199,6 +202,17 @@ fn dispatch(input: Input, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, Io
             o.vcf_span,
             o.chrom_map.as_deref(),
         )?)),
+        // `gate` has returned an error for each of these.
+        Format::Bam | Format::Cram | Format::Sam | Format::Fasta | Format::Psl | Format::Rmsk => {
+            Err(IoError::Detect {
+                path: input.name.clone(),
+                msg: format!(
+                    "{} is {}, which is not readable here",
+                    input.name,
+                    input.format.name()
+                ),
+            })
+        }
     }
 }
 

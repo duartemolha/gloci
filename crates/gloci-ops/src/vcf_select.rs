@@ -190,6 +190,7 @@ pub fn select_regions(
     sel.validate()?;
     vcf_header(command, input.as_ref())?;
     let region_ro = ReaderOptions {
+        accept: gloci_io::Accept::default(),
         chrom_map: None,
         format: Some(Format::Bed),
         vcf_span: VcfSpan::Ref,

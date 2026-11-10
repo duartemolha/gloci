@@ -181,6 +181,18 @@ and its lines are not BED"
             Format::Gff3 | Format::Gtf => Parser::Gff(Gff),
             Format::Vcf => Parser::Vcf(Vcf::new(span)),
             Format::Bcf => unreachable!("BCF is not a text format"),
+            Format::Bam
+            | Format::Cram
+            | Format::Sam
+            | Format::Fasta
+            | Format::Psl
+            | Format::Rmsk => {
+                unreachable!(
+                    "{} is never a text-indexed format: the input gate and `build_index_with` \
+refuse it before a parser is chosen",
+                    format.name()
+                )
+            }
         }
     }
 
@@ -323,6 +335,7 @@ mod tests {
 
         write_index(&p, &p, Format::Vcf, threads).unwrap();
         let o = ReaderOptions {
+            accept: crate::align::Accept::default(),
             chrom_map: None,
             threads,
             format: None,

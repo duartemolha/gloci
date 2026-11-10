@@ -242,6 +242,7 @@ or run the command on each format separately",
     drop(inputs);
 
     let ro = ReaderOptions {
+        accept: gloci_io::Accept::default(),
         chrom_map: None,
         threads: settings.threads,
         format: None,

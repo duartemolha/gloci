@@ -53,6 +53,9 @@ pub fn family_mismatch(records: Format, to: OutFormat) -> UsageError {
         OutFormat::Gff3 => ".gff, .gff.gz, .gff3 or .gff3.gz",
         OutFormat::Gtf => ".gtf or .gtf.gz",
         OutFormat::Tsv => ".tsv or .tsv.gz",
+        OutFormat::Bam => ".bam",
+        OutFormat::Sam => ".sam",
+        OutFormat::Fasta => ".fa, .fasta or .fna (with .gz for BGZF)",
     };
     UsageError(format!(
         "the input is {} but the output format is {}; this command writes records in their own \
@@ -72,7 +75,23 @@ fn family_name(f: OutFormat) -> &'static str {
         OutFormat::Gff3 => "GFF3",
         OutFormat::Gtf => "GTF",
         OutFormat::Tsv => "TSV",
+        OutFormat::Bam => "BAM",
+        OutFormat::Sam => "SAM",
+        OutFormat::Fasta => "FASTA",
     }
+}
+
+/// The record writers here write text and BCF; alignment and FASTA output
+/// has its own writers.
+fn check_text_family(to: OutFormat) -> Result<(), UsageError> {
+    if matches!(to, OutFormat::Bam | OutFormat::Sam | OutFormat::Fasta) {
+        return Err(UsageError(format!(
+            "{} output is written by the commands that produce it (sort, view, getfasta, ...), \
+not by this one; use a text output name such as .bed",
+            family_name(to)
+        )));
+    }
+    Ok(())
 }
 
 pub(crate) struct TextWriter {
@@ -116,6 +135,7 @@ pub fn open_record_writer(
     o: &WriterOptions,
 ) -> Result<Box<dyn RecordWriter>, IoError> {
     check_family(records, to)?;
+    check_text_family(to)?;
     let werr = |source| IoError::Write {
         path: "output".to_string(),
         source,
@@ -157,6 +177,7 @@ pub fn open_headerless_writer(
     to: OutFormat,
 ) -> Result<Box<dyn RecordWriter>, IoError> {
     check_family(records, to)?;
+    check_text_family(to)?;
     if records == Format::Bcf {
         return Err(UsageError(
             "--no-header cannot be used with BCF output; BCF records need their header".into(),

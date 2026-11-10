@@ -2334,6 +2334,47 @@ impl ChromMapArg {
     }
 }
 
+/// The alignment filters (D101), flattened into each command that reads alignments.
+#[derive(Args, Debug, Clone, Default)]
+pub struct AlignArgs {
+    /// Skip alignments with a mapping quality below N (BAM, CRAM and SAM input).
+    #[arg(long, value_name = "N", default_value_t = 0)]
+    pub min_mapq: u8,
+    /// Keep only alignments that have all of these flags: a number (0x2 or 2)
+    /// or names such as paired,proper_pair (as samtools view -f).
+    #[arg(long, value_name = "FLAGS")]
+    pub require_flags: Option<String>,
+    /// Drop alignments that have any of these flags: a number or names such as
+    /// unmap,secondary,dup (as samtools view -F).
+    #[arg(long, value_name = "FLAGS")]
+    pub exclude_flags: Option<String>,
+    /// The FASTA reference that CRAM input needs.
+    #[arg(long, value_name = "FILE")]
+    pub reference: Option<PathBuf>,
+}
+
+impl AlignArgs {
+    /// The reader options; `full_records` keeps whole records (for `view` and `sort`).
+    pub fn options(
+        &self,
+        full_records: bool,
+    ) -> Result<gloci_io::AlignOptions, gloci_io::UsageError> {
+        let flags = |name: &str, v: &Option<String>| match v {
+            None => Ok(0),
+            Some(s) => {
+                gloci_io::parse_flags(s).map_err(|e| gloci_io::UsageError(format!("{name}: {e}")))
+            }
+        };
+        Ok(gloci_io::AlignOptions {
+            min_mapq: self.min_mapq,
+            require_flags: flags("--require-flags", &self.require_flags)?,
+            exclude_flags: flags("--exclude-flags", &self.exclude_flags)?,
+            full_records,
+            reference: self.reference.clone(),
+        })
+    }
+}
+
 #[derive(Args, Debug, Clone)]
 pub struct InvalidArg {
     /// Skip invalid records with a warning instead of failing.
@@ -2599,6 +2640,32 @@ mod tests {
     struct T {
         #[command(flatten)]
         o: ChromOrderArg,
+    }
+
+    #[test]
+    fn align_args_options() {
+        let a = AlignArgs {
+            min_mapq: 20,
+            require_flags: Some("paired".into()),
+            exclude_flags: Some("0x904".into()),
+            reference: None,
+        };
+        let o = a.options(true).unwrap();
+        assert_eq!(
+            (o.min_mapq, o.require_flags, o.exclude_flags),
+            (20, 1, 0x904)
+        );
+        assert!(o.full_records);
+        let bad = AlignArgs {
+            exclude_flags: Some("bogus".into()),
+            ..AlignArgs::default()
+        };
+        assert!(
+            bad.options(false)
+                .unwrap_err()
+                .0
+                .contains("--exclude-flags")
+        );
     }
 
     #[test]
