@@ -585,7 +585,9 @@ fn many_contigs() {
     let p = w(d.path(), "many.bed", &text);
     let t = Instant::now();
     let out = stdout_of(&["sort", &p]);
-    assert!(t.elapsed().as_secs() < 10, "took {:?}", t.elapsed());
+    // 3 s alone, 12 s on a loaded 4-core box. A scan of the contig table per record would be
+    // 3e10 comparisons, minutes; the bound only has to tell the two apart.
+    assert!(t.elapsed().as_secs() < 60, "took {:?}", t.elapsed());
     let names: Vec<u64> = out
         .lines()
         .map(|l| l[4..l.find('\t').unwrap()].parse().unwrap())
