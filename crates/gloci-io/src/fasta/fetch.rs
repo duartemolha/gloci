@@ -37,7 +37,11 @@ enum Source {
 ///   callback in chunks of at most [`FETCH_CHUNK`], in order, free of line
 ///   breaks, with the case as stored. [`IndexedFasta::fetch_rev`] passes the
 ///   same chunks, last first. Every line break met is checked against the
-///   index: an edited FASTA is an error saying `does not match`.
+///   index: an edited FASTA is an error saying `does not match`. Stale-index
+///   detection covers only the bytes a fetch reads: a same-length edit, or a
+///   sequence appended after the last entry, is not detected (the trust level
+///   of samtools/htslib). The "index older than FASTA" mtime warning covers
+///   most real edits.
 /// - For BGZF, the `.gzi` maps an uncompressed offset to the block holding
 ///   it; that block is decoded and the reader then reads on from there.
 pub struct IndexedFasta {

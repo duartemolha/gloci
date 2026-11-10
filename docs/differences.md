@@ -1408,6 +1408,13 @@ depends on the span.
   a sequence; an error that names the line is safer. Every FASTA both tools
   accept gets a byte-identical `.fai` (and `.gzi` for BGZF). Empty sequences
   are left out of the index as samtools does, with a warning.
+- **Also:** `*` and `-` are accepted, because the check is "ASCII graphic". A
+  trailing space or tab on a sequence line is the rejection users will most
+  often meet: samtools indexes it wrongly and returns truncated sequence.
+- **Stale indexes:** detection at fetch time checks only the bytes a fetch
+  reads. A same-length edit, or a sequence appended after the last entry, is
+  not detected; this is the same trust level as samtools/htslib. The "index
+  older than FASTA" mtime warning covers most real edits.
 - **Pinned by:** `index-fasta-duplicate-name-vs-samtools`,
   `index-fasta-space-in-sequence-vs-samtools` and
   `index-fasta-empty-name-vs-samtools` (exit status: must differ);

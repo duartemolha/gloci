@@ -21,6 +21,10 @@ pub enum FastaLine<'a> {
 }
 
 /// Lines of a FASTA, one at a time, in bounded memory (about 1 MiB).
+///
+/// A line longer than 1 MiB comes in pieces, and the stream may emit an empty
+/// `Seq` piece when a line break falls exactly on the 1 MiB boundary.
+/// Consumers must tolerate an empty `Seq`.
 pub struct FastaStream {
     name: String,
     src: Box<dyn Read + Send>,
