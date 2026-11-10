@@ -448,7 +448,11 @@ Every row below was checked against `gloci <cmd> --help`.
   input, and a `.` DP or GQ is never masked.
   [differences.md#vcf-stats-singletons-masked](differences.md#vcf-stats-singletons-masked),
   [differences.md#vcf-stats-snp-density-unsorted](differences.md#vcf-stats-snp-density-unsorted),
-  [differences.md#vcf-stats-mask-missing](differences.md#vcf-stats-mask-missing)
+  [differences.md#vcf-stats-mask-missing](differences.md#vcf-stats-mask-missing).
+  The layout of `--json` is in
+  [differences.md#vcf-stats-summary-json](differences.md#vcf-stats-summary-json);
+  `vcf filter ... | vcf stats` differs from masking inside `vcf stats`, see
+  [differences.md#vcf-stats-after-filter](differences.md#vcf-stats-after-filter).
 - **`vcf filter --include/--exclude` is a subset of `bcftools view -i/-e`:**
   fields against numbers, strings or `.`, `N_PASS`, and the FORMAT fields GT,
   DP and GQ only (other FORMAT keys such as AD and FT are rejected, exit 2).

@@ -1256,12 +1256,64 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   `N_GENOTYPES_FILTERED` of `--missing-indv` and drops out of every statistic).
   When the FORMAT does not list the field, vcftools keeps the genotype, as
   gloci does. `--maxDP` does not filter a `.` in either tool.
+  The same holds for a sample cell cut short before DP or GQ (`0/1:9` under
+  `GT:DP:GQ`, or a bare `0/0`): vcftools masks it, gloci keeps it, because the
+  value is missing just as a `.` is.
 - **Reason:** a missing value is not evidence the genotype is bad. D50 keeps a
   call whose quality or depth was never recorded.
-- **Pinned by:** `vcf-stats-mask-missing-vs-vcftools` (must differ) and
+- **Pinned by:** `vcf-stats-mask-missing-vs-vcftools` (must differ),
+  `truncated_sample_cells_are_not_masked_unlike_vcftools` (the cut-short cells,
+  from the committed vcftools files `mqt.*`) and
   `missing_dp_gq_is_not_masked_unlike_vcftools` in
   `crates/gloci/tests/vcf_stats.rs` (both tools' counts, from the committed
   vcftools files `mq.*`).
+
+## `vcf stats --json`: the summary.json schema {#vcf-stats-summary-json}
+
+`--json` writes `PREFIX.summary.json`; `--summary` writes the same figures as
+text in `PREFIX.summary.txt`. These are not vcftools files: vcftools has no
+overview, and gloci's layout is its own. Keys are sorted at every level, the
+file ends with a newline, and `schema_version` is bumped when a key is renamed
+or removed (adding a key does not bump it).
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `counts_by_type` | object | `indel`, `mnp`, `other`, `ref`, `snp`: records of each type (integers) |
+| `depth.mean` | number or null | mean FORMAT DP over the unmasked genotypes that have a DP; null when there are none |
+| `depth.values` | integer | how many genotypes that mean is over |
+| `genotypes.total` | integer | genotypes of the selected records and samples |
+| `genotypes.missing` | integer | missing genotypes; masked ones count here too |
+| `genotypes.filtered` | integer | the masked ones among them (`--min-dp`, `--max-dp`, `--min-gq`, `--remove-filtered-geno-all`) |
+| `genotypes.missing_fraction` | number or null | `missing / total`; null when `total` is 0 |
+| `multiallelic_sites` | integer | records whose ALT column lists more than one allele |
+| `records` | integer | selected records |
+| `samples` | integer | selected samples |
+| `schema_version` | integer | 1 |
+| `ts_tv.transitions`, `ts_tv.transversions` | integer | biallelic single-base SNPs of each kind |
+| `ts_tv.ratio` | number or null | `transitions / transversions`; null when there are no transversions |
+
+Numbers that are not integers are written with six significant digits, as
+vcftools writes them (`%g`).
+
+The record type is that of the ALT alleles when they agree: `snp`, `mnp` or
+`indel` (insertions and deletions are both `indel`), so a multi-allelic record
+whose ALTs are all SNPs is `snp`. Alleles of different types, such as a SNP
+with an indel, make the record `other`, and `other` also takes structural
+variants (there is no `sv` count; a symbolic ALT such as `<DEL>` is `other`). A
+`<*>` ALT is ignored beside a real one, so `T,<*>` is `snp`; a record whose only
+ALT is `<*>` or `.` is `ref`.
+
+## `vcf filter ... | vcf stats` is `vcf stats` without masking {#vcf-stats-after-filter}
+
+Running `vcf filter` with the selection flags (`--samples`, regions, site
+filters) and piping it to `vcf stats` gives the same files as `vcf stats` with
+those flags. The masking flags (`--min-dp`, `--max-dp`, `--min-gq`,
+`--remove-filtered-geno-all`) are the exception: `vcf filter` writes a masked
+genotype as `./.` but keeps the record's original DP and GQ, so a later
+`vcf stats` sees a missing genotype with a depth. Allele and genotype counts
+agree, but depth statistics still include the masked genotype's DP and
+missingness counts it as missing rather than as filtered. To get the masked
+statistics, give the masking flags to `vcf stats` itself.
 
 ## `vcf stats` and the vcftools behaviour it reproduces
 

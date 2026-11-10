@@ -53,6 +53,11 @@ run_tags nan "gq10:--minGQ 10" "indv:--indv s2 --indv s1"
 run_tags persample "indv:--indv s2 --indv s1"
 run_tags persmall "indv:--indv s2 --indv s1"
 run_tags mq "gq10:--minGQ 10" "dp4:--minDP 4"
+# mqt.vcf has sample cells cut short before DP and GQ, which vcftools masks
+# and gloci does not (only --missing-indv is pinned, with and without masking)
+vcftools --vcf mqt.vcf --missing-indv --out mqt >/dev/null 2>&1
+vcftools --vcf mqt.vcf --minGQ 10 --missing-indv --out mqt.gq10 >/dev/null 2>&1
+vcftools --vcf mqt.vcf --minDP 4 --missing-indv --out mqt.dp4 >/dev/null 2>&1
 # vcftools stops at the polyploid genotype of ploidy.vcf for these
 rm -f ploidy.frq ploidy.frq.count ploidy.hwe ploidy.lmiss ploidy.singletons ploidy.imiss ploidy.het
 rm -f *.log

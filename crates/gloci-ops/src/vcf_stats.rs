@@ -3,7 +3,9 @@
 //!
 //! Each statistic writes its own temporary file next to its destination.
 //! Only when the whole input has been read and every statistic has finished
-//! are the files renamed into place, so an error publishes nothing.
+//! are the files renamed into place, so an error publishes nothing; the
+//! outputs of a previous run that are replaced are put back if publishing
+//! fails part-way.
 
 use crate::vcf_select::{SelectStage, SelectedInput, VcfSelect, run_selection};
 use gloci_io::{AtomicFile, BcfDicts, IoError, Loc, UsageError};
@@ -194,23 +196,97 @@ struct Staged {
 }
 
 impl Staged {
-    /// Rename every staged file onto its destination. If one rename fails,
-    /// the files already published are removed again (best effort: a file
-    /// that existed before the run was replaced and cannot come back), so a
-    /// failed run does not leave a partial set of outputs behind.
+    /// Rename every staged file onto its destination. A destination that
+    /// already exists (the previous run's output) is first moved aside to a
+    /// registered temp name in the same directory. When every file is in
+    /// place the backups are deleted; if a step fails, the files published in
+    /// this run are removed and the backups put back, so a failed run leaves
+    /// the previous outputs as they were and no partial set of new ones.
     fn publish(self) -> Result<Vec<PathBuf>, IoError> {
+        // A directory on a destination cannot be replaced; say so before
+        // anything is moved.
+        for (_, dest) in &self.files {
+            if std::fs::symlink_metadata(dest).is_ok_and(|m| m.is_dir()) {
+                let d = dest.display().to_string();
+                return Err(IoError::Detect {
+                    path: d.clone(),
+                    msg: format!(
+                        "cannot write {d}: a directory with that name exists; \
+remove or rename it, or choose another --out-prefix"
+                    ),
+                });
+            }
+        }
         let mut done: Vec<PathBuf> = Vec::new();
+        // (destination, where its previous content waits)
+        let mut backups: Vec<(PathBuf, PathBuf)> = Vec::new();
         for (file, dest) in self.files {
-            if let Err(e) = file.commit() {
-                for p in &done {
-                    let _ = std::fs::remove_file(p);
+            let step = (|| -> io::Result<()> {
+                if std::fs::symlink_metadata(&dest).is_ok() {
+                    let backup = reserve_backup_name(&dest)?;
+                    std::fs::rename(&dest, &backup)?;
+                    backups.push((dest.clone(), backup));
                 }
-                return Err(write_err(&dest.display().to_string(), e));
+                file.commit()
+            })();
+            if let Err(e) = step {
+                let kept = roll_back(&done, &backups);
+                let err = write_err(&dest.display().to_string(), e);
+                return Err(if kept.is_empty() {
+                    err
+                } else {
+                    IoError::Detect {
+                        path: dest.display().to_string(),
+                        msg: format!(
+                            "{err}; the previous outputs could not all be put back: {kept}"
+                        ),
+                    }
+                });
             }
             done.push(dest);
         }
+        for (_, backup) in &backups {
+            let _ = std::fs::remove_file(backup);
+        }
         Ok(done)
     }
+}
+
+/// A new, registered, empty file next to `dest` to move its previous content
+/// onto (the move replaces it).
+fn reserve_backup_name(dest: &std::path::Path) -> io::Result<PathBuf> {
+    let name = dest.file_name().unwrap_or_default();
+    for n in 0..1000u32 {
+        let mut b: OsString = name.to_owned();
+        b.push(format!(".bak-{}-{n}", std::process::id()));
+        let path = dest.with_file_name(b);
+        match gloci_io::create_temp_file(&path) {
+            Ok(_) => return Ok(path),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Err(io::Error::other("cannot create a backup file name"))
+}
+
+/// Remove the files published in this run and move the backups back. Returns
+/// a description of the previous outputs that could not be restored (empty
+/// when all were).
+fn roll_back(done: &[PathBuf], backups: &[(PathBuf, PathBuf)]) -> String {
+    for p in done {
+        let _ = std::fs::remove_file(p);
+    }
+    let mut kept = Vec::new();
+    for (dest, backup) in backups {
+        if std::fs::rename(backup, dest).is_err() {
+            kept.push(format!(
+                "{} is kept as {}",
+                dest.display(),
+                backup.display()
+            ));
+        }
+    }
+    kept.join(", ")
 }
 
 struct PrefixSink {
@@ -359,4 +435,66 @@ pub fn vcf_stats(input: SelectedInput, o: &StatsOptions) -> Result<StatsSummary,
         records_selected: selected,
         files,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn staged(dir: &std::path::Path, name: &str, body: &str) -> (AtomicFile, PathBuf) {
+        let dest = dir.join(name);
+        let mut f = AtomicFile::create(&dest).unwrap();
+        f.write_all(body.as_bytes()).unwrap();
+        (f, dest)
+    }
+
+    fn names(dir: &std::path::Path) -> Vec<String> {
+        let mut v: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn publish_puts_the_previous_outputs_back_when_a_later_rename_fails() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("o.frq"), "previous frq").unwrap();
+        std::fs::write(d.path().join("o.hwe"), "previous hwe").unwrap();
+        let first = staged(d.path(), "o.frq", "new frq");
+        let second = staged(d.path(), "o.hwe", "new hwe");
+        // The second temp file vanishes, so its rename fails after the first
+        // file was published.
+        std::fs::remove_file(second.0.temp_path()).unwrap();
+        let err = Staged {
+            files: vec![first, second],
+        }
+        .publish()
+        .unwrap_err();
+        assert!(err.to_string().contains("o.hwe"), "{err}");
+        assert_eq!(names(d.path()), vec!["o.frq", "o.hwe"]);
+        assert_eq!(
+            std::fs::read_to_string(d.path().join("o.frq")).unwrap(),
+            "previous frq"
+        );
+        assert_eq!(
+            std::fs::read_to_string(d.path().join("o.hwe")).unwrap(),
+            "previous hwe"
+        );
+    }
+
+    #[test]
+    fn publish_removes_what_it_published_when_there_was_no_previous_output() {
+        let d = tempfile::tempdir().unwrap();
+        let first = staged(d.path(), "o.frq", "new frq");
+        let second = staged(d.path(), "o.hwe", "new hwe");
+        std::fs::remove_file(second.0.temp_path()).unwrap();
+        Staged {
+            files: vec![first, second],
+        }
+        .publish()
+        .unwrap_err();
+        assert!(names(d.path()).is_empty(), "{:?}", names(d.path()));
+    }
 }

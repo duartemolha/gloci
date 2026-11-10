@@ -4,6 +4,7 @@
 //! nothing.
 mod common;
 use common::*;
+use predicates::prelude::*;
 use predicates::str::contains;
 use std::path::{Path, PathBuf};
 
@@ -315,6 +316,69 @@ fn missing_dp_gq_is_not_masked_unlike_vcftools() {
         assert_eq!(col(&vcftools), vcftools_filtered, "{tag} vcftools");
         assert_eq!(col(&got), gloci_filtered, "{tag} gloci");
     }
+}
+
+/// A sample cell cut short before DP or GQ (`0/1:9` under GT:DP:GQ, or a bare
+/// `0/0`) is masked by vcftools and kept by gloci, like a `.` (D50).
+#[test]
+fn truncated_sample_cells_are_not_masked_unlike_vcftools() {
+    let file = fixture("mqt");
+    for (tag, mask, vcftools_filtered) in [
+        ("gq10", ["--min-gq", "10"], [1, 1, 1, 1]),
+        ("dp4", ["--min-dp", "4"], [0, 0, 1, 1]),
+    ] {
+        let d = tempdir();
+        let p = s(&d.path().join("o"));
+        let mut rest = vec!["--missing-indv"];
+        rest.extend(mask);
+        gloci()
+            .args(stats_args(&file, &p, &rest))
+            .assert()
+            .success();
+        let got = std::fs::read_to_string(format!("{p}.imiss")).unwrap();
+        let col = |text: &str| -> Vec<u64> {
+            text.lines()
+                .skip(1)
+                .map(|l| l.split('\t').nth(2).unwrap().parse().unwrap())
+                .collect()
+        };
+        let vcftools = golden(&format!("mqt.{tag}"), "imiss").unwrap();
+        assert_eq!(col(&vcftools), vcftools_filtered, "{tag} vcftools");
+        assert_eq!(col(&got), [0, 0, 0, 0], "{tag} gloci");
+    }
+}
+
+/// The type rules of the summary, as the `--summary` help and the docs state
+/// them: mixed SNP and indel ALTs are other, other takes sv, an all-SNP
+/// multi-allelic record is snp, and `<*>` is ignored beside a real ALT.
+#[test]
+fn summary_record_type_rules() {
+    let d = tempdir();
+    let rows = [
+        "1\t10\t.\tA\tG\t.\t.\t.\tGT\t0/1",     // snp
+        "1\t20\t.\tA\tG,C\t.\t.\t.\tGT\t1/2",   // multi-allelic, all SNPs: snp
+        "1\t30\t.\tA\tG,AT\t.\t.\t.\tGT\t1/2",  // SNP and indel: other
+        "1\t40\t.\tA\t<DEL>\t.\t.\t.\tGT\t0/1", // sv: other
+        "1\t50\t.\tA\tG,<*>\t.\t.\t.\tGT\t0/1", // <*> ignored: snp
+        "1\t60\t.\tA\t<*>\t.\t.\t.\tGT\t0/0",   // only <*>: ref
+        "1\t70\t.\tA\tAT\t.\t.\t.\tGT\t0/1",    // indel
+        "1\t80\t.\tAC\tGT\t.\t.\t.\tGT\t0/1",   // mnp
+    ];
+    let text = format!(
+        "##fileformat=VCFv4.2\n##contig=<ID=1,length=1000>\n\
+##FORMAT=<ID=GT,Number=1,Type=String,Description=\"g\">\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n{}\n",
+        rows.join("\n")
+    );
+    let file = s(&plain_file(d.path(), "types.vcf", &text));
+    let p = s(&d.path().join("o"));
+    gloci()
+        .args(stats_args(&file, &p, &["--json"]))
+        .assert()
+        .success();
+    let json = std::fs::read_to_string(format!("{p}.summary.json")).unwrap();
+    let want = "\"counts_by_type\": {\n    \"indel\": 1,\n    \"mnp\": 1,\n    \"other\": 2,\n    \"ref\": 1,\n    \"snp\": 3\n  }";
+    assert!(json.contains(want), "{json}");
 }
 
 fn read(p: &str) -> Vec<u8> {
@@ -631,7 +695,11 @@ fn usage_errors_exit_2() {
         .args(["vcf", "stats", &file, "--out-prefix", &p])
         .assert()
         .code(2)
-        .stderr(contains("--freq"));
+        .stderr(
+            contains("no statistic requested; add at least one of --freq")
+                .and(contains("--summary or --json"))
+                .and(contains("required arguments").not()),
+        );
     // No prefix.
     gloci()
         .args(["vcf", "stats", &file, "--freq"])
@@ -704,23 +772,48 @@ fn an_error_in_the_middle_publishes_nothing_and_keeps_old_files() {
 }
 
 #[test]
-fn a_failed_publish_removes_the_files_already_published() {
+fn a_failed_publish_keeps_the_previous_outputs_and_names_the_squatter() {
     let d = tempdir();
     let p = s(&d.path().join("o"));
-    // The destination of --hardy is a directory, so its rename fails after
-    // --freq's file has been renamed into place.
+    // A previous run's file, and a directory on the destination of --hardy:
+    // the publish stops before moving anything, and says what is there.
+    std::fs::write(format!("{p}.frq"), "previous run").unwrap();
     std::fs::create_dir(format!("{p}.hwe")).unwrap();
-    gloci()
+    let a = gloci()
         .args(stats_args(&fixture("main"), &p, &["--freq", "--hardy"]))
         .assert()
         .code(1)
-        .stderr(contains("o.hwe"));
+        .stderr(contains("o.hwe").and(contains("a directory with that name exists")));
+    let err = String::from_utf8_lossy(&a.get_output().stderr).into_owned();
+    assert!(!err.contains("free disk space"), "{err}");
     let mut left: Vec<_> = std::fs::read_dir(d.path())
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
     left.sort();
-    assert_eq!(left, vec!["o.hwe"], "{left:?}");
+    assert_eq!(left, vec!["o.frq", "o.hwe"], "{left:?}");
+    assert_eq!(
+        std::fs::read(format!("{p}.frq")).unwrap(),
+        b"previous run".to_vec()
+    );
+}
+
+#[test]
+fn a_successful_run_replaces_the_previous_outputs_and_leaves_no_backup() {
+    let d = tempdir();
+    let p = s(&d.path().join("o"));
+    std::fs::write(format!("{p}.frq"), "previous run").unwrap();
+    gloci()
+        .args(stats_args(&fixture("main"), &p, &["--freq", "--hardy"]))
+        .assert()
+        .success();
+    let mut left: Vec<_> = std::fs::read_dir(d.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    left.sort();
+    assert_eq!(left, vec!["o.frq", "o.hwe"], "{left:?}");
+    assert_ne!(std::fs::read(format!("{p}.frq")).unwrap(), b"previous run");
 }
 
 #[test]

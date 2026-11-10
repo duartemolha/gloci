@@ -1,0 +1,8 @@
+##fileformat=VCFv4.2
+##contig=<ID=1,length=100000>
+##FORMAT=<ID=GT,Number=1,Type=String,Description="g">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="d">
+##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="q">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	s1	s2	s3	s4
+1	10	.	A	G	5	PASS	.	GT:DP:GQ	0/1:9	0/0:9:30	0/0	0/1:7:20
+1	20	.	A	G	5	PASS	.	GT:DP:GQ	0/1:9:30	0/0:9	0/0:9:30	0/1

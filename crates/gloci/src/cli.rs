@@ -1415,14 +1415,9 @@ pub struct VcfExtractArgs {
     pub invalid: InvalidArg,
 }
 
+// The "at least one statistic" rule is `check_request`'s, not a clap group:
+// its message lists every flag.
 #[derive(Args, Debug, Clone)]
-#[command(group(
-    clap::ArgGroup::new("stat").required(true).multiple(true).args([
-        "freq", "counts", "depth", "site_depth", "site_mean_depth", "geno_depth",
-        "site_quality", "missing_site", "missing_indv", "het", "hardy", "singletons",
-        "filter_summary", "tstv_summary", "indel_hist", "snp_density", "summary", "json",
-    ])
-))]
 pub struct VcfStatsArgs {
     /// Input VCF or BCF file (`-` for stdin).
     #[arg(value_name = "FILE")]
@@ -1492,7 +1487,13 @@ pub struct VcfStatsArgs {
     #[arg(long, value_name = "BIN", visible_alias = "SNPdensity")]
     pub snp_density: Option<u64>,
     /// A short overview in PREFIX.summary.txt: records by type, Ts/Tv,
-    /// samples, mean depth and missingness.
+    /// samples, mean depth and missingness. A record's type is that of its
+    /// ALT alleles when they agree: snp, mnp or indel (a multi-allelic record
+    /// of SNPs only is snp). Mixed ALTs, such as a SNP with an indel, are
+    /// other, and other also takes structural variants (sv is not a type of
+    /// its own). A `<*>` ALT is ignored beside a real one; a record whose
+    /// only ALT is `<*>` or `.` is ref. Ts/Tv counts biallelic single-base
+    /// SNPs only.
     #[arg(long)]
     pub summary: bool,
     /// The same overview as JSON in PREFIX.summary.json. Keys are sorted;
