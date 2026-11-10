@@ -422,6 +422,12 @@ Before relying on a new expression, run it once on a small file with
 - **`coverage --split` measures A by its blocks:** With `--split`, A's length and
   `--per-base` offsets run over A's BED12 blocks, excluding introns.
   [differences.md#coverage-split-length](differences.md#coverage-split-length)
+- **`coverage --split` counts a spliced B once:** A BED12 or BAM/SAM B that meets A through
+  several blocks is one hit, not one per block.
+  [differences.md#coverage-split-count](differences.md#coverage-split-count)
+- **`-f`/`-F` under `--split` judge each hit alone:** bedtools decides them for all hits of
+  an A together when B is a BAM or BED12 file; gloci uses each B record's own blocks.
+  [differences.md#split-fraction](differences.md#split-fraction)
 - **`complement` ignores points:** Zero-length records cover no bases and do not
   split gaps in `complement`.
   [differences.md#complement-points](differences.md#complement-points)

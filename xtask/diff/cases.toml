@@ -4653,3 +4653,41 @@ aux = ["xtask/diff/inputs/aln/relate-cigars-cov.bed"]
 gloci = "gloci coverage -a relate-cigars-cov.bed -b input.bam --per-base"
 reference = "bedtools coverage -a relate-cigars-cov.bed -b input.bam -d"
 compare = "numeric"
+
+[[case]]
+name = "intersect-bed-bam-loj-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
+aux = ["xtask/diff/inputs/aln/relate-cigars.bed"]
+gloci = "gloci intersect -a relate-cigars.bed -b input.bam --mode pairs --keep-unmatched"
+reference = "bedtools intersect -a relate-cigars.bed -b input.bam -loj"
+compare = "exact"
+expected_difference = "#bam-as-bed-columns"
+
+[[case]]
+name = "intersect-bed-bam-wao-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
+aux = ["xtask/diff/inputs/aln/relate-cigars.bed"]
+gloci = "gloci intersect -a relate-cigars.bed -b input.bam --mode pairs --keep-unmatched --overlap-bases"
+reference = "bedtools intersect -a relate-cigars.bed -b input.bam -wao"
+compare = "exact"
+expected_difference = "#bam-as-bed-columns"
+
+[[case]]
+name = "coverage-bed-bam-split-count-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
+aux = ["xtask/diff/inputs/aln/split-count.bed"]
+gloci = "gloci coverage -a split-count.bed -b input.bam --split"
+reference = "bedtools coverage -a split-count.bed -b input.bam -split"
+compare = "numeric"
+expected_difference = "#coverage-split-count"
+
+# bedtools decides `-f` under `-split` for all the hits of an A together, not hit by hit:
+# splitfrac.bam has three reads over one 100-base target, covering 90, 60 and 50 of its bases.
+[[case]]
+name = "intersect-bed-bam-split-fraction-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/splitfrac.bam" }
+aux = ["xtask/diff/inputs/aln/splitfrac.bed"]
+gloci = "gloci intersect -a splitfrac.bed -b input.bam --split -f 0.7 --mode pairs"
+reference = "bedtools intersect -a splitfrac.bed -b input.bam -split -f 0.7 -wa -wb"
+compare = "exact"
+expected_difference = "#split-fraction"

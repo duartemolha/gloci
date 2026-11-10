@@ -656,6 +656,37 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   `coverage-split-hist-vs-bedtools` and `coverage-split-per-base-vs-bedtools`
   (must differ).
 
+## `coverage --split` counts a spliced B once {#coverage-split-count}
+
+- **gloci:** the hit count (column 7 of the default report) is the number of B
+  features that overlap A. A spliced read, or a BED12 feature, that meets A through
+  two of its blocks is one feature and counts once.
+- **Old behaviour:** `bedtools coverage -split` counts the read once for each block that
+  overlaps A, so a target spanning an intron reports 2. The covered bases and the
+  fraction are the same as gloci's.
+- **Reason:** the column is "number of B features overlapping A"; a count that grows
+  with the number of blocks says nothing about how many reads there are. It applies
+  to a BED12 B as much as to a BAM or SAM B.
+- **Pinned by:** `coverage-bed-bam-split-count-vs-bedtools` (must differ).
+
+## `-f`, `-F`, `-r` and `-e` under `--split` judge each hit on its own {#split-fraction}
+
+- **gloci:** with `--split`, a hit counts when the bases A and B's blocks share, over the
+  summed length of A's blocks (`-f`) or of B's blocks (`-F`), meet the thresholds. Each B
+  record is judged alone, and a BED record without blocks is one block (D105).
+  This holds for BED12 and for BAM/SAM reads (blocks cut at `N`).
+- **Old behaviour:** `bedtools intersect -split -f` with a BAM or BED12 B does not decide
+  hit by hit. The outcome for one A depends on how many other B records overlap it:
+  three reads covering 90, 60 and 50 bases of a 100-base target give no hit at
+  `-f 0.7`, although the first read alone covers 90%, while two of the same reads give
+  both, though one covers only 60%. On a random set of spliced reads, `-f 0.5 -split`
+  gave far fewer rows in bedtools than the per-hit rule (1,756 against 3,678 in one
+  comparison). Without `-split`, bedtools judges each hit alone, as gloci does.
+- **Reason:** a threshold that changes with the other reads cannot be reasoned about,
+  and a single read gives the same answer in both tools (checked on reads and targets
+  covering all of block, intron and bookended overlaps).
+- **Pinned by:** `intersect-bed-bam-split-fraction-vs-bedtools` (must differ).
+
 ## `complement` ignores points {#complement-points}
 
 - **gloci:** a point (a zero-length feature) covers no bases, so it is ignored:
