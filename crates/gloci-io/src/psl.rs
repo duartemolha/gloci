@@ -53,7 +53,7 @@ impl TextKind for Psl {
 
     fn parse(&self, line: &[u8], chroms: &mut ChromTable) -> Result<Parsed, String> {
         let f: Vec<&[u8]> = split_fields(line).collect();
-        if f.len() < COLUMNS {
+        if f.len() != COLUMNS {
             return Err(format!(
                 "expected {COLUMNS} tab-separated PSL columns, found {}; \
 is this a PSL file (fields must be separated by tabs)?",
@@ -76,6 +76,7 @@ is this a PSL file (fields must be separated by tabs)?",
         let start = coord("tStart", f[T_START])?;
         let end = coord("tEnd", f[T_END])?;
         let span = Interval::new(start, end).map_err(|e| format!("tStart/tEnd: {e}"))?;
+        check_blocks(&f)?;
         let name = match &self.map {
             Some(m) => m.rename(f[T_NAME]),
             None => f[T_NAME],
@@ -83,4 +84,24 @@ is this a PSL file (fields must be separated by tabs)?",
         let chrom = intern_chrom(chroms, name)?;
         Ok((chrom, start, span, strand))
     }
+}
+
+/// blockCount must equal the number of entries in blockSizes, qStarts and
+/// tStarts (each a comma-terminated list).
+fn check_blocks(f: &[&[u8]]) -> Result<(), String> {
+    let n = coord("blockCount", f[17])?;
+    for (i, what) in [(18, "blockSizes"), (19, "qStarts"), (20, "tStarts")] {
+        let list = f[i]
+            .strip_suffix(b",")
+            .ok_or_else(|| format!("{what} must be a comma-terminated list of {n} numbers"))?;
+        let mut count = 0u64;
+        for item in list.split(|&b| b == b',') {
+            coord(what, item)?;
+            count += 1;
+        }
+        if count != n {
+            return Err(format!("blockCount is {n} but {what} lists {count} blocks"));
+        }
+    }
+    Ok(())
 }

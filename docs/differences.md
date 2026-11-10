@@ -895,15 +895,22 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   newline. RepeatMasker `.out` loses its three header lines the same way. A
   line that is not a PSL or RepeatMasker row (too few columns, a coordinate
   that is not a number, a strand that is not `+`/`-` or `C`) is a data error
-  (exit 1) naming the file and the line; `--skip-invalid` skips it.
+  (exit 1) naming the file and the line; `--skip-invalid` skips it. That
+  includes a PSL row whose blockCount differs from the number of entries in
+  blockSizes, qStarts or tStarts, and (as `convert2bed` does) a row with more
+  than 21 columns (exit 1; `convert2bed` exits 22).
 - **Old behaviour:** `convert2bed --input=psl` (bedops 2.4.41) exits 22 with
   "Invalid field count (19)" on a header line, so a headered BLAT file must be
-  stripped first, and it silently drops a last line that has no newline.
+  stripped first, it silently drops a last line that has no newline, and it
+  copies a blockCount that disagrees with the block lists unchecked.
 - **Reason:** BLAT writes the header by default, and a file cut short or
   written without a final newline should not lose its last hit unseen.
 - **Pinned by:** `convert-psl-header-unskipped-vs-convert2bed` (exit status;
   must differ) and `convert-psl-no-final-newline-vs-convert2bed` (must
-  differ). Every column otherwise matches: `convert-psl-vs-convert2bed`,
+  differ), and `convert-psl-block-count-vs-convert2bed` (exit status; must
+  differ; both tools refuse a 22nd column, with exit 1 and 22:
+  `convert-psl-22-columns-vs-convert2bed`, must differ).
+  Every column otherwise matches: `convert-psl-vs-convert2bed`,
   `convert-psl-header-vs-convert2bed` (the header cut off for the reference)
   and `convert-rmsk-vs-convert2bed`.
 

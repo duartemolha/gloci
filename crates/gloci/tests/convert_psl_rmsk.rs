@@ -207,3 +207,90 @@ fn compressed_psl_is_read() {
     let f = bgzf_file(dir.path(), "x.psl.gz", &format!("{HEADER}{ROWS}"));
     convert(&f).success().stdout(PSL_BED);
 }
+
+#[test]
+fn psl_with_a_22nd_column_is_refused_and_skippable() {
+    let dir = tempdir();
+    let row = ROWS.lines().next().unwrap();
+    let f = plain_file(dir.path(), "w.psl", &format!("{ROWS}{row}\textra\n"));
+    convert(&f)
+        .failure()
+        .code(1)
+        .stderr(contains("line 3"))
+        .stderr(contains("found 22"));
+    gloci()
+        .arg("convert")
+        .arg(&f)
+        .arg("--skip-invalid")
+        .assert()
+        .success()
+        .stdout(PSL_BED);
+}
+
+#[test]
+fn psl_block_count_must_match_the_block_lists() {
+    let dir = tempdir();
+    let row = ROWS
+        .lines()
+        .nth(1)
+        .unwrap()
+        .replace("\t3\t30,20,40,", "\t2\t30,20,40,");
+    let f = plain_file(dir.path(), "b.psl", &format!("{row}\n"));
+    convert(&f)
+        .failure()
+        .code(1)
+        .stderr(contains("line 1"))
+        .stderr(contains("blockCount is 2 but blockSizes lists 3"));
+    let short = ROWS
+        .lines()
+        .nth(1)
+        .unwrap()
+        .replace("\t5,40,70,\t", "\t5,40,\t");
+    let f = plain_file(dir.path(), "s.psl", &format!("{short}\n"));
+    convert(&f)
+        .failure()
+        .code(1)
+        .stderr(contains("qStarts lists 2"));
+}
+
+#[test]
+fn rmsk_error_names_the_file_fields() {
+    let dir = tempdir();
+    let bad = RMSK_ROWS.replace("10001   10468", "10   5");
+    let f = plain_file(dir.path(), "r.out", &bad);
+    convert(&f)
+        .failure()
+        .code(1)
+        .stderr(contains("begin 10 is greater than end 5"));
+}
+
+#[test]
+fn bed_lookalikes_are_not_psl() {
+    let dir = tempdir();
+    // 21 columns on an integer chromosome, with a strand and a name.
+    let look1 = "1\t100\t200\t3\t4\t5\t6\t7\t+\tname\t9\t10\t11\tx\t13\t14\t15\t16\t17\t18\t19\n";
+    // The same, with PSL-looking sizes but no comma-terminated block lists.
+    let look2 = "1\t2\t3\t4\t5\t6\t7\t8\t+\tq\t10\t1\t5\tt\t100\t1\t5\t1\t5\t1\t1\n";
+    // A chromosome called psLayoutX.
+    let look4 = "psLayoutX\t1\t2\n";
+    for (name, text) in [
+        ("look1.bed", look1),
+        ("look2.tsv", look2),
+        ("look4.bed", look4),
+    ] {
+        let f = plain_file(dir.path(), name, text);
+        gloci().arg("merge").arg(&f).assert().success();
+    }
+}
+
+#[test]
+fn gate_message_mentions_format_override() {
+    let dir = tempdir();
+    let f = plain_file(dir.path(), "x.psl", ROWS);
+    gloci()
+        .arg("merge")
+        .arg(&f)
+        .assert()
+        .code(2)
+        .stderr(contains("--format bed"));
+}

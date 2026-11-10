@@ -70,7 +70,11 @@ found {}",
         };
         let begin = coord("begin", f[5])?;
         let end = coord("end", f[6])?;
-        let span = one_based_closed(begin, end).map_err(|e| e.to_string())?;
+        if begin < 1 {
+            return Err("begin must be >= 1 (RepeatMasker positions are 1-based)".into());
+        }
+        let span = one_based_closed(begin, end)
+            .map_err(|_| format!("begin {begin} is greater than end {end}"))?;
         let name = match &self.map {
             Some(m) => m.rename(f[4]),
             None => f[4],

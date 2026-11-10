@@ -171,7 +171,9 @@ reads its .fai for the chromosome sizes (create it with: gloci index {name})"
             GateKind::ConvertOnly,
             format!(
                 "{name} is {}; only gloci convert reads it; convert it to BED first: \
-gloci convert {name} -o x.bed",
+gloci convert {name} -o x.bed (if {name} is not {} at all, \
+pass --format bed or the format it is)",
+                format.name(),
                 format.name()
             ),
         ));

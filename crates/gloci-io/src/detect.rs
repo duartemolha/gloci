@@ -176,13 +176,32 @@ fn is_sam_record(cols: &[&str]) -> bool {
         && cols[10].bytes().all(|b| (b'!'..=b'~').contains(&b))
 }
 
-/// A PSL row: 21 columns, integer counts, a strand, integer sizes and coordinates.
+/// A comma-separated list of integers that ends in a comma (`51,30,`).
+fn is_block_list(s: &str) -> bool {
+    s.strip_suffix(',')
+        .is_some_and(|l| l.split(',').all(is_int))
+}
+
+/// A PSL row: 21 or more columns, integer counts, a strand, names, sizes that
+/// hold the coordinates, and block lists that end in a comma. This is tight
+/// on purpose: a BED with 21 columns and an integer chromosome must not pass.
 fn is_psl_record(cols: &[&str]) -> bool {
     cols.len() >= 21
         && [0, 1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 14, 15, 16, 17]
             .iter()
             .all(|&i| is_int(cols[i]))
         && matches!(cols[8], "+" | "-" | "++" | "+-" | "-+" | "--")
+        && !cols[9].is_empty()
+        && !cols[13].is_empty()
+        && cols[10].parse::<u64>().ok() >= cols[12].parse::<u64>().ok()
+        && cols[14].parse::<u64>().ok() >= cols[16].parse::<u64>().ok()
+        && cols[18..21].iter().all(|c| is_block_list(c))
+}
+
+/// `psLayout` as a whole word (a chromosome called `psLayoutX` is not a header).
+fn is_psl_header(line: &str) -> bool {
+    line.strip_prefix("psLayout")
+        .is_some_and(|r| r.is_empty() || r.starts_with(|c: char| c.is_whitespace()))
 }
 
 /// A RepeatMasker `.out` header line (space separated).
@@ -245,7 +264,7 @@ pub fn detect_format(head: &[u8]) -> Result<Format, String> {
         if is_sam_header(line) {
             return Ok(Format::Sam);
         }
-        if line.starts_with("psLayout") {
+        if is_psl_header(line) {
             return Ok(Format::Psl);
         }
         if is_rmsk_header(line) || is_rmsk_record(line) {

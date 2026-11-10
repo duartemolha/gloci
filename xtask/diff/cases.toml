@@ -3411,3 +3411,22 @@ input = { file = "xtask/diff/inputs/convert-repeats-rmsk.out" }
 gloci = "gloci convert input.out"
 reference = "convert2bed --input=rmsk --do-not-sort < input.out"
 compare = "exact"
+
+# A 22nd column is rejected by both tools, with exit 1 (gloci) and 22
+# (convert2bed).
+[[case]]
+name = "convert-psl-22-columns-vs-convert2bed"
+input = { file = "xtask/diff/inputs/convert-blat-22col.psl" }
+gloci = "gloci convert input.psl"
+reference = "convert2bed --input=psl --do-not-sort < input.psl"
+compare = "exit-status"
+expected_difference = "#psl-rmsk-bedops-quirks"
+
+# convert2bed does not check blockCount against the block lists.
+[[case]]
+name = "convert-psl-block-count-vs-convert2bed"
+input = { file = "xtask/diff/inputs/convert-blat-block-count.psl" }
+gloci = "gloci convert input.psl"
+reference = "convert2bed --input=psl --do-not-sort < input.psl"
+compare = "exit-status"
+expected_difference = "#psl-rmsk-bedops-quirks"
