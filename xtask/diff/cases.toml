@@ -3652,3 +3652,23 @@ gloci = "gloci getfasta --fasta ref.fa input.bed"
 reference = "bedtools getfasta -fi ref.fa -bed input.bed"
 compare = "exit-status"
 expected_difference = "#getfasta-outside-fasta"
+
+# gf12-bad.bed: "ooo" has blocks out of order (its first block is not at offset 0)
+# and "short" ends before chromEnd; bedtools writes both unchecked, gloci refuses.
+[[case]]
+name = "getfasta-split-bad-blocks-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf12-bad.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa --split --name input.bed"
+reference = "bedtools getfasta -fi ref.fa -split -name -bed input.bed"
+compare = "exit-status"
+expected_difference = "#getfasta-split-blocks"
+
+# With --skip-invalid the consistent records match bedtools run on those alone.
+[[case]]
+name = "getfasta-split-bad-blocks-skip-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf12-bad.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa --split --name --skip-invalid input.bed"
+reference = "grep -v -e ooo -e short input.bed > good.bed; bedtools getfasta -fi ref.fa -split -name -bed good.bed"
+compare = "exact"

@@ -1,0 +1,1 @@
+getfasta --fasta ref.fa --split --name --skip-invalid input.bed

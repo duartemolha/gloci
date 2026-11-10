@@ -205,3 +205,64 @@ fn bed12_without_twelve_columns_is_read_whole_and_bad_blocks_fail() {
         .code(1)
         .stderr(contains("invalid BED12"));
 }
+
+#[test]
+fn inconsistent_blocks_fail_or_are_skipped_with_one_warning() {
+    let (_d, r) = setup();
+    let bad = fa("gf12-bad.bed");
+    gloci()
+        .args(["getfasta", "--split", "--fasta"])
+        .arg(&r)
+        .arg(&bad)
+        .assert()
+        .code(1)
+        .stderr(contains("gf12-bad.bed line 2").and(contains("--skip-invalid")));
+    gloci()
+        .args([
+            "getfasta",
+            "--split",
+            "--skip-invalid",
+            "--name-only",
+            "--fasta",
+        ])
+        .arg(&r)
+        .arg(&bad)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(">geneA\n").and(predicate::str::contains(">ok2\n")))
+        .stderr(contains(
+            "skipped 2 BED12 records with inconsistent blocks (first: ",
+        ));
+    // Both kinds of skipped record: one combined warning.
+    let d = tempdir();
+    let mix = d.path().join("mix.bed");
+    std::fs::write(
+        &mix,
+        "chrZ\t1\t5\tmiss\t0\t+\nchr1\t100\t140\tooo\t0\t+\t100\t140\t0\t2\t10,10\t30,0\n",
+    )
+    .unwrap();
+    gloci()
+        .args(["getfasta", "--split", "--skip-invalid", "--fasta"])
+        .arg(&r)
+        .arg(&mix)
+        .assert()
+        .success()
+        .stdout("")
+        .stderr(
+            contains("skipped 2 records: 1 interval outside the FASTA")
+                .and(contains("1 BED12 record with inconsistent blocks")),
+        );
+}
+
+#[test]
+fn unknown_output_extension_lists_only_what_getfasta_writes() {
+    let (_d, r) = setup();
+    gloci()
+        .args(["getfasta", "--fasta"])
+        .arg(&r)
+        .arg(fa("gf3.bed"))
+        .args(["-o", "x.out"])
+        .assert()
+        .code(2)
+        .stderr(contains(".fa, .fasta, .fna, .tsv or .bed").and(contains(".bam").not()));
+}

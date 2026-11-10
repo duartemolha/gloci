@@ -124,6 +124,8 @@ pub fn getfasta(
     let binary = bcf.is_some();
     let mut sum = SeqSummary::default();
     let mut first_outside: Option<String> = None;
+    let (mut n_outside, mut bad_blocks) = (0u64, 0u64);
+    let mut first_bad: Option<String> = None;
     let mut batch = RecordBatch::default();
     let mut head: Vec<u8> = Vec::new();
     let mut label: Vec<u8> = Vec::new();
@@ -148,9 +150,7 @@ pub fn getfasta(
             }
             let chrom = chroms.name(m.chrom);
             if let Some(why) = outside(fasta, chrom, m.span) {
-                if first_outside.is_none() {
-                    first_outside = Some(why.clone());
-                }
+                first_outside.get_or_insert_with(|| why.clone());
                 if !o.skip_outside {
                     // Default: a data error (exit 1); --skip-invalid skips.
                     return Err(at(format!(
@@ -158,6 +158,7 @@ pub fn getfasta(
 intervals outside the FASTA"
                     )));
                 }
+                n_outside += 1;
                 sum.skipped += 1;
                 continue;
             }
@@ -166,9 +167,22 @@ intervals outside the FASTA"
                 None => batch.raw(i),
             };
             let blocks = if o.split && format == Format::Bed && column_count(line) >= 12 {
-                bed12_blocks(line)
-                    .map_err(|e| at(format!("invalid BED12: {e}")))?
-                    .unwrap_or_else(|| vec![m.span])
+                match bed12_blocks(line) {
+                    Ok(b) => b.unwrap_or_else(|| vec![m.span]),
+                    Err(e) => {
+                        if !o.skip_outside {
+                            // bedtools writes such a record's blocks unchecked.
+                            return Err(at(format!(
+                                "invalid BED12: {e}; fix the blocks, or pass --skip-invalid to \
+skip records whose blocks are inconsistent"
+                            )));
+                        }
+                        bad_blocks += 1;
+                        first_bad.get_or_insert_with(|| format!("{name} line {}: {e}", m.loc));
+                        sum.skipped += 1;
+                        continue;
+                    }
+                }
             } else {
                 vec![m.span]
             };
@@ -246,12 +260,23 @@ intervals outside the FASTA"
             plural(sum.points)
         );
     }
+    let mut parts = Vec::new();
     if let Some(first) = first_outside {
-        log::warn!(
-            "skipped {} interval{} outside the FASTA (first: {first})",
-            sum.skipped,
-            plural(sum.skipped)
-        );
+        parts.push(format!(
+            "{n_outside} interval{} outside the FASTA (first: {first})",
+            plural(n_outside)
+        ));
+    }
+    if let Some(first) = first_bad {
+        parts.push(format!(
+            "{bad_blocks} BED12 record{} with inconsistent blocks (first: {first})",
+            plural(bad_blocks)
+        ));
+    }
+    match parts.len() {
+        0 => {}
+        1 => log::warn!("skipped {}", parts[0]),
+        _ => log::warn!("skipped {} records: {}", sum.skipped, parts.join("; ")),
     }
     Ok(sum)
 }

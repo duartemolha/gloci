@@ -1444,3 +1444,21 @@ depends on the span.
   `getfasta-missing-chrom-vs-bedtools` (exit status: must differ);
   `getfasta-outside-skip-vs-bedtools` and `getfasta-missing-chrom-skip-vs-bedtools`
   pin the matching output under `--skip-invalid`.
+
+## `getfasta --split` refuses BED12 records with inconsistent blocks {#getfasta-split-blocks}
+
+- **gloci:** with `--split`, a BED12 record whose blocks are not self-consistent
+  exits 1, naming the input line and the problem (`invalid BED12: ...`). A record
+  is inconsistent when its blocks are out of order or overlap, its first block is
+  not at offset 0, or its last block does not end at chromEnd. With
+  `--skip-invalid` the record is skipped and one warning gives the count and the
+  first cause (together with any intervals outside the FASTA).
+- **Old behaviour:** `bedtools getfasta -split` does not check the blocks. It
+  concatenates them in the order listed and writes the sequence, exit 0.
+- **Reason:** gloci applies the same BED12 validation as `convert --blocks`; a
+  record whose blocks disagree with its span has no well-defined exons, and the
+  sequence bedtools writes for it is not the transcript the record describes.
+- **Workaround:** fix the BED12 record, or pass `--skip-invalid` to skip it.
+- **Pinned by:** `getfasta-split-bad-blocks-vs-bedtools` (exit status: must
+  differ) and `getfasta-split-bad-blocks-skip-vs-bedtools`, which pins the
+  matching output for the consistent records under `--skip-invalid`.

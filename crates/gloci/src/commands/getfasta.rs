@@ -11,7 +11,19 @@ use gloci_ops::getfasta::{FastaName, GetfastaOptions, SeqLayout, getfasta};
 use std::io::IsTerminal;
 
 pub fn run(ctx: &Ctx, a: &GetfastaArgs) -> anyhow::Result<()> {
-    let spec = parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref())?;
+    let spec = parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref()).map_err(
+        |e| match (
+            e.0.starts_with("cannot tell the output format"),
+            &a.out.output,
+        ) {
+            (true, Some(p)) => UsageError(format!(
+                "cannot tell the output format from '{}'; getfasta writes .fa, .fasta, .fna, \
+.tsv or .bed (each optionally with .gz for BGZF), or pass -O",
+                p.display()
+            )),
+            _ => e,
+        },
+    )?;
     // The layout flags choose what is written; a name only chooses BGZF.
     if let Some(f) = spec.format
         && !matches!(f, OutFormat::Fasta | OutFormat::Tsv | OutFormat::Bed)
