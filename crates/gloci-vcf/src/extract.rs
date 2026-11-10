@@ -8,8 +8,9 @@ pub enum InfoKind {
     Flag,
     /// Any other declared type: the value, or `.` when absent.
     Value,
-    /// Not declared in the header: the value, `1` for a bare key, `.` when absent.
-    Undeclared,
+    /// `Number=0` with a type other than Flag: `1` when present, `.` when absent
+    /// (no `0`: the header does not call it a flag).
+    Presence,
 }
 
 /// An INFO key to tabulate.
@@ -46,34 +47,50 @@ fn structured_pairs(line: &[u8]) -> Vec<(&[u8], &[u8])> {
     pairs
 }
 
-/// The header lines `##<kind>=<...>` with their `ID` and `Type` values.
-fn declarations<'a>(
-    header: &'a [u8],
-    kind: &'static [u8],
-) -> impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)> {
+/// A header declaration: `ID`, `Type` and `Number`.
+struct Decl<'a> {
+    id: &'a [u8],
+    ty: Option<&'a [u8]>,
+    number: Option<&'a [u8]>,
+}
+
+/// The header lines `##<kind>=<...>` with their `ID`, `Type` and `Number`.
+fn declarations<'a>(header: &'a [u8], kind: &'static [u8]) -> impl Iterator<Item = Decl<'a>> {
     header.split(|&b| b == b'\n').filter_map(move |line| {
         let line = line.strip_suffix(b"\r").unwrap_or(line);
         let rest = line.strip_prefix(b"##")?.strip_prefix(kind)?;
         rest.strip_prefix(b"=<")?;
         let pairs = structured_pairs(rest);
-        let id = pairs.iter().find(|(k, _)| *k == b"ID")?.1;
-        let ty = pairs.iter().find(|(k, _)| *k == b"Type").map(|p| p.1);
-        Some((id, ty))
+        let get = |k: &[u8]| pairs.iter().find(|(n, _)| *n == k).map(|p| p.1);
+        Some(Decl {
+            id: get(b"ID")?,
+            ty: get(b"Type"),
+            number: get(b"Number"),
+        })
     })
 }
 
-/// How the header `header` (raw VCF header text) declares INFO key `name`.
-pub fn info_kind(header: &[u8], name: &[u8]) -> InfoKind {
-    match declarations(header, b"INFO").find(|(id, _)| *id == name) {
-        None => InfoKind::Undeclared,
-        Some((_, Some(b"Flag"))) => InfoKind::Flag,
-        Some(_) => InfoKind::Value,
-    }
+/// How the header `header` (raw VCF header text) declares INFO key `name`;
+/// `None` when it does not.
+pub fn info_kind(header: &[u8], name: &[u8]) -> Option<InfoKind> {
+    let d = declarations(header, b"INFO").find(|d| d.id == name)?;
+    Some(match (d.ty, d.number) {
+        (Some(b"Flag"), _) => InfoKind::Flag,
+        (_, Some(b"0")) => InfoKind::Presence,
+        _ => InfoKind::Value,
+    })
 }
 
 /// Whether the header declares FORMAT key `name`.
 pub fn format_declared(header: &[u8], name: &[u8]) -> bool {
-    declarations(header, b"FORMAT").any(|(id, _)| id == name)
+    declarations(header, b"FORMAT").any(|d| d.id == name)
+}
+
+/// The IDs the header declares for `kind` (`INFO` or `FORMAT`), in order.
+pub fn declared_keys(header: &[u8], kind: &'static [u8]) -> Vec<String> {
+    declarations(header, kind)
+        .map(|d| String::from_utf8_lossy(d.id).into_owned())
+        .collect()
 }
 
 /// The tab-separated columns of `line` into `out` (cleared first). A VCF
@@ -136,21 +153,33 @@ pub fn format_cell(sample: &[u8], idx: Option<usize>) -> &[u8] {
     }
 }
 
+/// Why a genotype has no 012 code.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GtError {
+    pub msg: String,
+    /// The genotype names an allele the ALT column lacks (the one error
+    /// `--skip-invalid` turns into `-1`).
+    pub allele_out_of_range: bool,
+}
+
 /// The 012 code of a genotype on a site with `n_alt` ALT alleles: the number
 /// of non-reference alleles among the called ones, `-1` when no allele is
 /// called. Ploidy above 2 and an allele the ALT column lacks are errors.
-pub fn genotype_012(gt: &[u8], n_alt: usize) -> Result<i8, String> {
+pub fn genotype_012(gt: &[u8], n_alt: usize) -> Result<i8, GtError> {
     let mut called = 0u8;
     let mut non_ref = 0i8;
     let mut ploidy = 0usize;
     for allele in gt.split(|&b| b == b'/' || b == b'|') {
         ploidy += 1;
         if ploidy > 2 {
-            return Err(format!(
-                "genotype {} has ploidy above 2, which the 012 matrix does not support; \
+            return Err(GtError {
+                msg: format!(
+                    "genotype {} has ploidy above 2, which the 012 matrix does not support; \
 drop the site (--exclude-positions or --chrom) or the sample",
-                String::from_utf8_lossy(gt)
-            ));
+                    String::from_utf8_lossy(gt)
+                ),
+                allele_out_of_range: false,
+            });
         }
         if allele == b"." || allele.is_empty() {
             continue;
@@ -158,13 +187,19 @@ drop the site (--exclude-positions or --chrom) or the sample",
         let n: usize = std::str::from_utf8(allele)
             .ok()
             .and_then(|s| s.parse().ok())
-            .ok_or_else(|| format!("genotype {} is not a valid GT", String::from_utf8_lossy(gt)))?;
+            .ok_or_else(|| GtError {
+                msg: format!("genotype {} is not a valid GT", String::from_utf8_lossy(gt)),
+                allele_out_of_range: false,
+            })?;
         if n > n_alt {
-            return Err(format!(
-                "genotype {} names allele {n}, but the site has {n_alt} ALT allele(s); \
-fix the record",
-                String::from_utf8_lossy(gt)
-            ));
+            return Err(GtError {
+                msg: format!(
+                    "genotype {} names allele {n}, but the site has {n_alt} ALT allele(s); \
+fix the record or use --skip-invalid to write -1",
+                    String::from_utf8_lossy(gt)
+                ),
+                allele_out_of_range: true,
+            });
         }
         called += 1;
         non_ref += i8::from(n != 0);
@@ -191,8 +226,8 @@ mod tests {
         assert_eq!(info_cell(info, &key("FLAG", InfoKind::Flag)), b"1");
         assert_eq!(info_cell(info, &key("NOPE", InfoKind::Flag)), b"0");
         assert_eq!(info_cell(info, &key("NOPE", InfoKind::Value)), b".");
-        assert_eq!(info_cell(info, &key("NOPE", InfoKind::Undeclared)), b".");
-        assert_eq!(info_cell(info, &key("FLAG", InfoKind::Undeclared)), b"1");
+        assert_eq!(info_cell(info, &key("NOPE", InfoKind::Presence)), b".");
+        assert_eq!(info_cell(info, &key("FLAG", InfoKind::Presence)), b"1");
         assert_eq!(info_cell(info, &key("FLAG", InfoKind::Value)), b".");
         assert_eq!(info_cell(info, &key("EMPTY", InfoKind::Value)), b".");
         assert_eq!(info_cell(b".", &key("DP", InfoKind::Value)), b".");
@@ -217,9 +252,10 @@ mod tests {
     fn header_declarations() {
         let h = b"##fileformat=VCFv4.2\n##INFO=<ID=A,Number=0,Type=Flag,Description=\"x,Type=Integer\">\n\
 ##INFO=<ID=DP,Number=1,Type=Integer,Description=\"d\">\n##FORMAT=<ID=GT,Number=1,Type=String,Description=\"g\">\n";
-        assert_eq!(info_kind(h, b"A"), InfoKind::Flag);
-        assert_eq!(info_kind(h, b"DP"), InfoKind::Value);
-        assert_eq!(info_kind(h, b"Z"), InfoKind::Undeclared);
+        assert_eq!(info_kind(h, b"A"), Some(InfoKind::Flag));
+        assert_eq!(info_kind(h, b"DP"), Some(InfoKind::Value));
+        assert_eq!(info_kind(h, b"Z"), None);
+        assert_eq!(declared_keys(h, b"INFO"), ["A", "DP"]);
         assert!(format_declared(h, b"GT"));
         assert!(!format_declared(h, b"DP"));
     }
@@ -237,9 +273,11 @@ mod tests {
         assert_eq!(g("0", 1), Ok(0));
         assert_eq!(g("1", 1), Ok(1));
         assert_eq!(g("0/0", 0), Ok(0));
-        assert!(g("0/1/1", 1).unwrap_err().contains("ploidy"));
-        assert!(g("2/2", 1).unwrap_err().contains("allele 2"));
-        assert!(g("a/b", 1).unwrap_err().contains("not a valid GT"));
+        assert!(g("0/1/1", 1).unwrap_err().msg.contains("ploidy"));
+        let e = g("2/2", 1).unwrap_err();
+        assert!(e.msg.contains("allele 2") && e.allele_out_of_range);
+        let e = g("a/b", 1).unwrap_err();
+        assert!(e.msg.contains("not a valid GT") && !e.allele_out_of_range);
     }
 
     #[test]

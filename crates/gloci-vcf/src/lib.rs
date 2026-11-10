@@ -12,8 +12,8 @@ mod stats;
 pub use bcf_fmt::{BcfGenotypes, bcf_genotypes};
 pub use expr::{EvalScratch, Expr, MaskedGenotypes, parse as parse_expr};
 pub use extract::{
-    InfoKey, InfoKind, format_cell, format_declared, format_index, genotype_012, info_cell,
-    info_kind, split_columns,
+    GtError, InfoKey, InfoKind, declared_keys, format_cell, format_declared, format_index,
+    genotype_012, info_cell, info_kind, split_columns,
 };
 pub use filter::{
     BcfSite, PositionSet, RewritePlan, SampleSelection, SiteFilters, SiteView, Thinner, VcfType,

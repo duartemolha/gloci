@@ -63,14 +63,38 @@ chr2\t500\trs4\tAT\tA\t5\t.\t0\n"
 }
 
 #[test]
-fn info_table_warns_about_an_undeclared_key() {
+fn undeclared_keys_are_usage_errors_listing_the_declared_ones() {
     let d = tempdir();
     let (vcf, _) = inputs(d.path());
     gloci()
         .args(["vcf", "extract", &vcf, "--info", "NOPE"])
         .assert()
-        .success()
-        .stderr(contains("does not declare INFO/NOPE"));
+        .code(2)
+        .stderr(contains("does not declare INFO/NOPE"))
+        .stderr(contains("declared INFO keys: DP, AF, FLAG"));
+    gloci()
+        .args(["vcf", "extract", &vcf, "--format", "GT,PL"])
+        .assert()
+        .code(2)
+        .stderr(contains("does not declare FORMAT/PL"))
+        .stderr(contains("declared FORMAT keys: GT, DP, AD, FT"));
+}
+
+#[test]
+fn number_zero_key_with_a_non_flag_type_is_a_presence_marker() {
+    // Declared Number=0 but Type=Integer: `1` when present, `.` when absent
+    // (not `0`, since the header does not call it a flag).
+    let d = tempdir();
+    let text = "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=1000>\n\
+##INFO=<ID=Z,Number=0,Type=Integer,Description=\"zero\">\n\
+##INFO=<ID=F,Number=0,Type=Flag,Description=\"flag\">\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+chr1\t10\t.\tA\tC\t.\t.\tZ;F\nchr1\t20\t.\tA\tC\t.\t.\t.\n";
+    let vcf = s(&plain_file(d.path(), "z.vcf", text));
+    assert_eq!(
+        stdout_of(&["vcf", "extract", &vcf, "--info", "Z,F"]),
+        "CHROM\tPOS\tID\tREF\tALT\tZ\tF\nchr1\t10\t.\tA\tC\t1\t1\nchr1\t20\t.\tA\tC\t.\t0\n"
+    );
 }
 
 #[test]
@@ -490,4 +514,108 @@ fn table_goes_to_a_file_atomically() {
     )
     .unwrap();
     assert_eq!(text, read(&out));
+}
+
+#[test]
+fn genotype_matrix_blocks_under_a_tiny_budget_equal_the_in_memory_result() {
+    let d = tempdir();
+    let n = 37; // not a multiple of 4, so packed rows have a partial byte
+    let names: Vec<String> = (0..n).map(|i| format!("p{i}")).collect();
+    let mut text = HEAD.replace("s1\ts2\ts3", &names.join("\t"));
+    let gts = ["0/0", "0/1", "1/1", "./.", "1", "0|1", "./1", "."];
+    for site in 0..400usize {
+        text.push_str(&format!("chr1\t{}\t.\tA\tC\t.\t.\t.\tGT", 100 + site));
+        for i in 0..n {
+            text.push('\t');
+            text.push_str(gts[(i * 3 + site * 5 + i * site) % gts.len()]);
+        }
+        text.push('\n');
+    }
+    let vcf = s(&plain_file(d.path(), "wide.vcf", &text));
+    let big = s(&d.path().join("big"));
+    gloci()
+        .args([
+            "vcf",
+            "extract",
+            &vcf,
+            "--genotype-matrix",
+            "012",
+            "--out-prefix",
+            &big,
+        ])
+        .assert()
+        .success();
+    let rows = read(&d.path().join("big.012"));
+    assert_eq!(rows.lines().count(), n);
+    let spill = d.path().join("spill");
+    std::fs::create_dir(&spill).unwrap();
+    // 1 KiB: the codes (37 samples x 400 sites, 2 bits) exceed half of it, so
+    // they spill, and a block holds at most one sample's row.
+    for (name, budget) in [("tiny", "1K"), ("mid", "6K")] {
+        let prefix = s(&d.path().join(name));
+        gloci()
+            .args([
+                "vcf",
+                "extract",
+                &vcf,
+                "--genotype-matrix",
+                "012",
+                "--out-prefix",
+                &prefix,
+            ])
+            .args(["--max-mem", budget, "--tmp-dir", &s(&spill)])
+            .assert()
+            .success();
+        for ext in ["012", "012.indv", "012.pos"] {
+            assert_eq!(
+                std::fs::read(d.path().join(format!("big.{ext}"))).unwrap(),
+                std::fs::read(d.path().join(format!("{name}.{ext}"))).unwrap(),
+                "{name} {ext}"
+            );
+        }
+    }
+    // The spill file is gone.
+    assert_eq!(std::fs::read_dir(&spill).unwrap().count(), 0);
+}
+
+#[test]
+fn allele_beyond_alt_errors_or_is_skipped_and_vcftools_writes_1() {
+    // vcftools-oneal.012 is `vcftools --012` on oneal.vcf (0/1, 2/2, 0/2 on a
+    // one-ALT site): it writes 1 for all three.
+    assert_eq!(
+        read(&fixture_dir().join("vcftools-oneal.012")),
+        "0\t1\n1\t1\n2\t1\n"
+    );
+    let d = tempdir();
+    let input = s(&fixture_dir().join("oneal.vcf"));
+    let prefix = s(&d.path().join("o"));
+    gloci()
+        .args([
+            "vcf",
+            "extract",
+            &input,
+            "--genotype-matrix",
+            "012",
+            "--out-prefix",
+            &prefix,
+        ])
+        .assert()
+        .code(1)
+        .stderr(contains("names allele 2"))
+        .stderr(contains("--skip-invalid"));
+    gloci()
+        .args([
+            "vcf",
+            "extract",
+            &input,
+            "--genotype-matrix",
+            "012",
+            "--out-prefix",
+            &prefix,
+        ])
+        .arg("--skip-invalid")
+        .assert()
+        .success()
+        .stderr(contains("2 genotype(s) named an allele"));
+    assert_eq!(read(&d.path().join("o.012")), "0\t1\n1\t-1\n2\t-1\n");
 }

@@ -1112,7 +1112,8 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   `-1`. The files, their layout (`.012` has a row per sample led by its 0-based
   index; `.012.indv`; `.012.pos`) and the omission of multi-allelic sites
   (more than one ALT) match vcftools. A genotype of ploidy above 2, or one that
-  names an allele the ALT column lacks, is an error with the record's position.
+  names an allele the ALT column lacks, is an error with the record's position
+  (with `--skip-invalid` the latter is written as `-1` and counted in a warning).
 - **Old behaviour:** `vcftools --012` writes 1 for a haploid reference call
   (`0`) and for `0/.` or `./0`, writes 1 for `2/2` on a one-ALT site, and stops
   at a ploidy above 2.
@@ -1121,5 +1122,5 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   misreports male X and mitochondrial calls.
 - **Pinned by:** `vcf-extract-012-haploid-vs-vcftools` (must differ) and
   `vcf-extract-012-vs-vcftools` (must match, diploid input with a multi-allelic
-  site), plus `genotype_matrix_matches_vcftools_files` in
+  site), plus `allele_beyond_alt_errors_or_is_skipped_and_vcftools_writes_1` and `genotype_matrix_matches_vcftools_files` in
   `crates/gloci/tests/vcf_extract.rs`.

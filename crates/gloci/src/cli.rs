@@ -1245,8 +1245,9 @@ pub struct VcfExtractArgs {
     /// index, then the count of non-reference alleles at each site, -1 when
     /// missing), --out-prefix.012.indv (sample names) and --out-prefix.012.pos
     /// (CHROM and POS of each site). Multi-allelic sites are left out, as in
-    /// vcftools --012. The matrix is held in memory: one byte per sample and
-    /// site.
+    /// vcftools --012. Memory stays within --max-mem: the codes spill to a
+    /// temporary file in --tmp-dir beyond it and the rows are written in
+    /// blocks of samples.
     #[arg(long, value_enum, value_name = "KIND")]
     pub genotype_matrix: Option<GenotypeMatrix>,
     /// Prefix of the --genotype-matrix files.
@@ -1259,6 +1260,11 @@ pub struct VcfExtractArgs {
     /// BGZF compression level for a .gz output, 0-12.
     #[arg(long, value_name = "N", default_value = "6", value_parser = parse_level)]
     pub compression_level: u8,
+    /// Memory budget of --genotype-matrix, in binary units (K, M, G, T).
+    #[arg(long, value_name = "SIZE", default_value = "1G", value_parser = parse_size)]
+    pub max_mem: u64,
+    #[command(flatten)]
+    pub tmp_dir: TmpDirArg,
 
     #[command(flatten)]
     pub vcf_span: VcfSpanArg,

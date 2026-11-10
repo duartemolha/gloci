@@ -2,12 +2,13 @@
 //! (decision D73). The records pass the shared selection stage first.
 
 use crate::vcf_select::{SelectStage, SelectedInput, VcfSelect, run_selection};
-use gloci_io::{BcfText, IoError, Loc, UsageError};
+use gloci_io::{BcfText, IoError, Loc, UsageError, create_file_in_temp_dir, create_temp_dir_in};
 use gloci_vcf::{
-    InfoKey, InfoKind, RewritePlan, format_cell, format_declared, format_index, genotype_012,
+    InfoKey, RewritePlan, declared_keys, format_cell, format_declared, format_index, genotype_012,
     info_cell, info_kind, rewrite_text, split_columns,
 };
-use std::io::Write;
+use std::io::{BufReader, BufWriter, Read, Write};
+use std::path::PathBuf;
 
 const COMMAND: &str = "vcf extract";
 
@@ -27,6 +28,13 @@ pub enum ExtractMode {
 pub struct ExtractOptions {
     pub select: VcfSelect,
     pub mode: ExtractMode,
+    /// `--skip-invalid`: a genotype naming an allele the ALT column lacks is
+    /// written as -1 (counted in a warning) instead of failing.
+    pub skip_invalid: bool,
+    /// Memory budget of the 012 matrix, in bytes.
+    pub max_mem: u64,
+    /// Where the matrix spills when it exceeds the budget.
+    pub tmp_dir: PathBuf,
 }
 
 /// Counts from an extract run.
@@ -64,16 +72,28 @@ pub fn check_keys(flag: &str, keys: &[String]) -> Result<(), IoError> {
     Ok(())
 }
 
-/// The record `hit` as VCF text with the selection's sample choice and
+/// The records of a stage as VCF text with the selection's sample choice and
 /// masking applied: a BCF record is rendered by the converter `view -O vcf`
 /// uses, so VCF and BCF input give identical lines.
-struct Lines<'a> {
+struct Lines {
     bcf: Option<BcfText>,
-    plan: &'a RewritePlan,
+    plan: RewritePlan,
     rewritten: Vec<u8>,
 }
 
-impl<'a> Lines<'a> {
+impl Lines {
+    fn for_stage(stage: &SelectStage<'_>) -> Result<Lines, IoError> {
+        Ok(Lines {
+            bcf: if stage.input_is_bcf() {
+                Some(BcfText::for_header(stage.name(), stage.header())?)
+            } else {
+                None
+            },
+            plan: stage.plan().clone(),
+            rewritten: Vec::new(),
+        })
+    }
+
     fn line<'b>(
         &'b mut self,
         name: &str,
@@ -87,7 +107,7 @@ impl<'a> Lines<'a> {
             return Ok(text);
         }
         self.rewritten.clear();
-        rewrite_text(text, self.plan, hit.masked, hit.stats, &mut self.rewritten).map_err(
+        rewrite_text(text, &self.plan, hit.masked, hit.stats, &mut self.rewritten).map_err(
             |msg| IoError::Parse {
                 path: name.to_string(),
                 loc: Loc::Record(hit.rec_no),
@@ -111,15 +131,29 @@ fn kept_samples(stage: &SelectStage<'_>) -> Vec<Vec<u8>> {
     }
 }
 
-fn warn_undeclared(flag: &str, section: &str, keys: &[String], declared: impl Fn(&str) -> bool) {
+/// Every key must be declared in the header, else the column would be
+/// silently empty.
+fn require_declared(
+    flag: &str,
+    section: &'static str,
+    keys: &[String],
+    header: &[u8],
+    declared: impl Fn(&str) -> bool,
+) -> Result<(), IoError> {
     for k in keys {
         if !declared(k) {
-            log::warn!(
-                "{flag} {k}: the header does not declare {section}/{k}, so every value is \
-missing unless the records carry it; check the key's spelling"
-            );
+            let list = declared_keys(header, section.as_bytes());
+            return Err(usage(format!(
+                "{flag} {k}: the header does not declare {section}/{k}; declared {section} keys: {}",
+                if list.is_empty() {
+                    "none".to_string()
+                } else {
+                    list.join(", ")
+                }
+            )));
         }
     }
+    Ok(())
 }
 
 /// Write the first five columns of a site: `CHROM POS ID REF ALT`.
@@ -155,19 +189,19 @@ pub fn extract_table(
     let name = stage.name().to_string();
     let header_raw = stage.header().raw.clone();
     let samples = kept_samples(&stage);
+    require_declared("--info", "INFO", info_keys, &header_raw, |k| {
+        info_kind(&header_raw, k.as_bytes()).is_some()
+    })?;
+    require_declared("--format", "FORMAT", format_keys, &header_raw, |k| {
+        format_declared(&header_raw, k.as_bytes())
+    })?;
     let infos: Vec<InfoKey> = info_keys
         .iter()
         .map(|k| InfoKey {
             name: k.as_bytes().to_vec(),
-            kind: info_kind(&header_raw, k.as_bytes()),
+            kind: info_kind(&header_raw, k.as_bytes()).expect("declared"),
         })
         .collect();
-    warn_undeclared("--info", "INFO", info_keys, |k| {
-        info_kind(&header_raw, k.as_bytes()) != InfoKind::Undeclared
-    });
-    warn_undeclared("--format", "FORMAT", format_keys, |k| {
-        format_declared(&header_raw, k.as_bytes())
-    });
 
     let mut head = b"CHROM\tPOS\tID\tREF\tALT".to_vec();
     if !infos.is_empty() {
@@ -194,15 +228,7 @@ pub fn extract_table(
     head.push(b'\n');
     w.write_all(&head).map_err(write_err)?;
 
-    let mut lines = Lines {
-        bcf: if stage.input_is_bcf() {
-            Some(BcfText::for_header(&name, stage.header())?)
-        } else {
-            None
-        },
-        plan: &stage.plan().clone(),
-        rewritten: Vec::new(),
-    };
+    let mut lines = Lines::for_stage(&stage)?;
     let mut row = Vec::new();
     let mut sites_out = 0u64;
     let records_in = run_selection(reader, &mut chroms, &mut stage, |hit| {
@@ -265,10 +291,189 @@ pub fn extract_table(
     })
 }
 
+/// The codes of the 012 matrix, site-major, two bits each (0, 1, 2 and 3 for
+/// -1). They stay in memory while they fit half the budget, then spill to a
+/// registered temp file, so the matrix never needs more than the budget.
+struct CodeStore {
+    row_bytes: usize,
+    sites: u64,
+    mem: Vec<u8>,
+    mem_limit: usize,
+    tmp_dir: PathBuf,
+    spill: Option<Spill>,
+}
+
+struct Spill {
+    // Dropped (and unregistered) with the store; removes the directory.
+    _dir: tempfile::TempDir,
+    _guard: gloci_io::TempGuard,
+    path: PathBuf,
+    w: BufWriter<std::fs::File>,
+}
+
+impl CodeStore {
+    fn new(n_samples: usize, max_mem: u64, tmp_dir: PathBuf) -> CodeStore {
+        CodeStore {
+            row_bytes: n_samples.div_ceil(4),
+            sites: 0,
+            mem: Vec::new(),
+            mem_limit: usize::try_from(max_mem / 2).unwrap_or(usize::MAX),
+            tmp_dir,
+            spill: None,
+        }
+    }
+
+    /// Append one site: `codes` has one entry per sample.
+    fn push_site(&mut self, codes: &[i8]) -> Result<(), IoError> {
+        let start = self.mem.len();
+        self.mem.resize(start + self.row_bytes, 0);
+        for (i, &c) in codes.iter().enumerate() {
+            let v = if c < 0 { 3 } else { c as u8 };
+            self.mem[start + i / 4] |= v << (2 * (i % 4));
+        }
+        self.sites += 1;
+        if self.spill.is_some() || self.mem.len() > self.mem_limit {
+            self.flush()?;
+        }
+        Ok(())
+    }
+
+    fn flush(&mut self) -> Result<(), IoError> {
+        if self.spill.is_none() {
+            let tmp_err = |source| IoError::Create {
+                path: self.tmp_dir.display().to_string(),
+                source,
+            };
+            let (dir, guard) =
+                create_temp_dir_in(&self.tmp_dir, "gloci-extract-").map_err(tmp_err)?;
+            let path = dir.path().join("codes");
+            let f = create_file_in_temp_dir(&path).map_err(|source| IoError::Create {
+                path: path.display().to_string(),
+                source,
+            })?;
+            self.spill = Some(Spill {
+                _dir: dir,
+                _guard: guard,
+                path,
+                w: BufWriter::new(f),
+            });
+        }
+        let sp = self.spill.as_mut().expect("just created");
+        sp.w.write_all(&self.mem).map_err(|source| IoError::Write {
+            path: sp.path.display().to_string(),
+            source,
+        })?;
+        self.mem.clear();
+        Ok(())
+    }
+
+    /// Write the rows of the matrix: `block` samples at a time, each pass
+    /// reading every site once and gathering the block's codes.
+    fn write_rows(
+        mut self,
+        n_samples: usize,
+        max_mem: u64,
+        out: &mut dyn Write,
+    ) -> Result<(), IoError> {
+        let sites = usize::try_from(self.sites).unwrap_or(usize::MAX);
+        let budget = usize::try_from(max_mem / 2).unwrap_or(usize::MAX);
+        let block = (budget / sites.max(1)).clamp(1, n_samples.max(1));
+        enum Src {
+            Mem(Vec<u8>),
+            File(PathBuf, BufReader<std::fs::File>),
+        }
+        let mut src = match self.spill.take() {
+            None => Src::Mem(std::mem::take(&mut self.mem)),
+            Some(mut sp) => {
+                // Hand the rest of the codes to the file.
+                sp.w.write_all(&self.mem).map_err(|source| IoError::Write {
+                    path: sp.path.display().to_string(),
+                    source,
+                })?;
+                sp.w.flush().map_err(|source| IoError::Write {
+                    path: sp.path.display().to_string(),
+                    source,
+                })?;
+                let f = std::fs::File::open(&sp.path).map_err(|source| IoError::Create {
+                    path: sp.path.display().to_string(),
+                    source,
+                })?;
+                self.spill = Some(sp);
+                Src::File(
+                    self.spill.as_ref().unwrap().path.clone(),
+                    BufReader::with_capacity(1 << 20, f),
+                )
+            }
+        };
+        let mut cells = vec![0u8; block * sites];
+        let mut row_buf = vec![0u8; self.row_bytes];
+        let mut text = Vec::new();
+        let mut first = 0;
+        while first < n_samples {
+            let k = block.min(n_samples - first);
+            match &mut src {
+                Src::Mem(v) => {
+                    for site in 0..sites {
+                        gather(
+                            &v[site * self.row_bytes..(site + 1) * self.row_bytes],
+                            first,
+                            k,
+                            site,
+                            sites,
+                            &mut cells,
+                        );
+                    }
+                }
+                Src::File(path, r) => {
+                    use std::io::Seek;
+                    r.rewind().map_err(|source| IoError::Write {
+                        path: path.display().to_string(),
+                        source,
+                    })?;
+                    for site in 0..sites {
+                        r.read_exact(&mut row_buf)
+                            .map_err(|source| IoError::Write {
+                                path: path.display().to_string(),
+                                source,
+                            })?;
+                        gather(&row_buf, first, k, site, sites, &mut cells);
+                    }
+                }
+            }
+            for j in 0..k {
+                text.clear();
+                text.extend_from_slice((first + j).to_string().as_bytes());
+                for &v in &cells[j * sites..(j + 1) * sites] {
+                    text.extend_from_slice(match v {
+                        0 => b"\t0",
+                        1 => b"\t1",
+                        2 => b"\t2",
+                        _ => b"\t-1",
+                    });
+                }
+                text.push(b'\n');
+                out.write_all(&text).map_err(write_err)?;
+            }
+            first += k;
+        }
+        Ok(())
+    }
+}
+
+/// Copy the codes of samples `first..first + k` from one site's packed row
+/// into column `site` of each of the block's rows.
+fn gather(row: &[u8], first: usize, k: usize, site: usize, sites: usize, cells: &mut [u8]) {
+    for j in 0..k {
+        let i = first + j;
+        cells[j * sites + site] = (row[i / 4] >> (2 * (i % 4))) & 3;
+    }
+}
+
 /// Write vcftools' `--012` files for the records of `input`: `matrix` (one
 /// row per kept sample: its 0-based index, then one code per site), `indv`
 /// (the kept sample names) and `pos` (`CHROM POS` of each site written).
-/// Sites with more than one ALT allele are left out, as vcftools does.
+/// Sites with more than one ALT allele are left out, as vcftools does. The
+/// codes are held within `o.max_mem` (spilling to `o.tmp_dir` beyond it).
 pub fn extract_matrix(
     input: SelectedInput,
     o: &ExtractOptions,
@@ -286,19 +491,12 @@ pub fn extract_matrix(
         indv.write_all(s).map_err(write_err)?;
         indv.write_all(b"\n").map_err(write_err)?;
     }
-    // One column of codes per sample, filled site by site.
-    let mut codes: Vec<Vec<i8>> = vec![Vec::new(); samples.len()];
-    let mut lines = Lines {
-        bcf: if stage.input_is_bcf() {
-            Some(BcfText::for_header(&name, stage.header())?)
-        } else {
-            None
-        },
-        plan: &stage.plan().clone(),
-        rewritten: Vec::new(),
-    };
+    let mut store = CodeStore::new(samples.len(), o.max_mem, o.tmp_dir.clone());
+    let mut lines = Lines::for_stage(&stage)?;
     let mut sites_out = 0u64;
     let mut multiallelic_skipped = 0u64;
+    let mut invalid_alleles = 0u64;
+    let mut site_codes = vec![0i8; samples.len()];
     let records_in = run_selection(reader, &mut chroms, &mut stage, |hit| {
         let line = lines.line(&name, &hit)?;
         let parse_err = |msg| IoError::Parse {
@@ -318,20 +516,30 @@ pub fn extract_matrix(
             return Ok(());
         }
         let gt_idx = format_index(cols.get(8).copied().unwrap_or(b"."), b"GT");
-        for (i, column) in codes.iter_mut().enumerate() {
+        for (i, slot) in site_codes.iter_mut().enumerate() {
             let gt = format_cell(cols.get(9 + i).copied().unwrap_or(b"."), gt_idx);
-            let code = genotype_012(gt, n_alt).map_err(|msg| IoError::Parse {
-                path: name.clone(),
-                loc: Loc::Record(hit.rec_no),
-                msg: format!(
-                    "sample {} at {}:{}: {msg}",
-                    String::from_utf8_lossy(&samples[i]),
-                    String::from_utf8_lossy(cols[0]),
-                    String::from_utf8_lossy(cols[1])
-                ),
-            })?;
-            column.push(code);
+            *slot = match genotype_012(gt, n_alt) {
+                Ok(c) => c,
+                Err(e) if e.allele_out_of_range && o.skip_invalid => {
+                    invalid_alleles += 1;
+                    -1
+                }
+                Err(e) => {
+                    return Err(IoError::Parse {
+                        path: name.clone(),
+                        loc: Loc::Record(hit.rec_no),
+                        msg: format!(
+                            "sample {} at {}:{}: {}",
+                            String::from_utf8_lossy(&samples[i]),
+                            String::from_utf8_lossy(cols[0]),
+                            String::from_utf8_lossy(cols[1]),
+                            e.msg
+                        ),
+                    });
+                }
+            };
         }
+        store.push_site(&site_codes)?;
         pos.write_all(cols[0]).map_err(write_err)?;
         pos.write_all(b"\t").map_err(write_err)?;
         pos.write_all(cols[1]).map_err(write_err)?;
@@ -345,17 +553,13 @@ pub fn extract_matrix(
 vcftools does; split them first (bcftools norm -m-) to include their alleles"
         );
     }
-    let mut row = Vec::new();
-    for (i, column) in codes.iter().enumerate() {
-        row.clear();
-        row.extend_from_slice(i.to_string().as_bytes());
-        for c in column {
-            row.push(b'\t');
-            row.extend_from_slice(c.to_string().as_bytes());
-        }
-        row.push(b'\n');
-        matrix.write_all(&row).map_err(write_err)?;
+    if invalid_alleles > 0 {
+        log::warn!(
+            "{name}: {invalid_alleles} genotype(s) named an allele the site's ALT column lacks \
+and were written as -1 (--skip-invalid)"
+        );
     }
+    store.write_rows(samples.len(), o.max_mem, matrix)?;
     Ok(ExtractSummary {
         records_in,
         sites_out,

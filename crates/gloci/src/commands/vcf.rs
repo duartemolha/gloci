@@ -323,7 +323,13 @@ or use -o FILE for a table"
     let (select, ro) = select_from_args(&a.select, || {
         reader_options(ctx, &a.chrom_map, None, &a.vcf_span, &a.invalid)
     })?;
-    let options = ExtractOptions { select, mode };
+    let options = ExtractOptions {
+        select,
+        mode,
+        skip_invalid: a.invalid.skip_invalid,
+        max_mem: a.max_mem,
+        tmp_dir: ctx.tmp_dir.clone(),
+    };
     let input = open_selected(&a.file, &ro, &options.select)?;
     vcf_header("vcf extract", input.reader())?;
     let oo = OutputOptions {
