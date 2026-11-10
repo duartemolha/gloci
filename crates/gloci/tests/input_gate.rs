@@ -54,15 +54,15 @@ fn input_gate() {
 }
 
 #[test]
-fn convert_accepts_alignments_past_the_gate() {
-    // Until the readers land, `convert` is past the gate and says so (exit 1, not 2).
+fn convert_reads_alignments() {
+    // `convert` opts in to alignments: a header-only SAM has no reads and writes nothing.
     let dir = tempdir();
     let sam = plain_file(dir.path(), "x.sam", "@HD\tVN:1.6\n");
     gloci()
         .args(["convert", sam.to_str().unwrap()])
         .assert()
-        .failure()
-        .stderr(contains("not available in this build yet"));
+        .success()
+        .stdout("");
 }
 
 #[test]

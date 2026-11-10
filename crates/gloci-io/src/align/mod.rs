@@ -2,6 +2,7 @@
 //! The BAM and SAM readers and writers are here; the CRAM reader arrives in a later P3a task.
 
 mod bam;
+mod bed;
 mod encode;
 mod header;
 mod place;
@@ -11,6 +12,7 @@ mod source;
 mod writer;
 
 pub(crate) use bam::BamReader;
+pub use bed::{AlnBed, AlnBedLayout, AlnBedOptions};
 pub use header::{AlnHeader, SortOrder};
 pub use record::{Aln, AlnRef, aln_ref, blocks};
 pub use sam::SamAln;
@@ -148,11 +150,7 @@ pub fn gate(name: &str, format: Format, accept: &Accept) -> Result<(), IoError> 
         )
     };
     if format.is_alignment() {
-        // `convert` reads BAM through its own path (a later task): until then it refuses it.
-        if matches!(format, Format::Bam | Format::Sam)
-            && accept.alignments.is_some()
-            && !accept.convert_only
-        {
+        if matches!(format, Format::Bam | Format::Sam) && accept.alignments.is_some() {
             return Ok(());
         }
         if accept.alignments.is_some() {

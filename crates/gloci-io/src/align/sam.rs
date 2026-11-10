@@ -224,6 +224,14 @@ impl<'a> SamAln<'a> {
         None
     }
 
+    /// The type character of an optional field (`i`, `f`, `A`, `Z`, `H` or `B`).
+    pub fn tag_type(&self, tag: [u8; 2]) -> Option<u8> {
+        self.tags
+            .split(|&b| b == b'\t')
+            .find(|f| f.len() > 4 && f[..2] == tag && f[2] == b':' && f[4] == b':')
+            .map(|f| f[3])
+    }
+
     /// The footprint of a mapped read, cut at `ref_len`, and whether it was cut (D101).
     pub fn span(&self, ref_len: u64) -> Option<(Interval, bool)> {
         let covered: u64 = cigar_ops(self.cigar)

@@ -1604,3 +1604,34 @@ depends on the span.
 - **Pinned by:** `cat-different-sq-vs-samtools` (the lists differ in order) and
   `cat-different-sq-length-vs-samtools` (in a length) (exit status: must differ).
 
+
+## `convert` of alignments: `--blocks` with a score tag or `--cigar` {#bamtobed-split-tag}
+
+- **gloci:** `convert --blocks --score-tag NM` writes the BED6 rows of `--blocks` with
+  the tag as the score, the six columns of every other `convert` row. `--cigar` with
+  `--blocks`, `--bed12` or `--split-deletions` is a usage error (exit 2) that says to
+  drop one of them.
+- **Old behaviour:** `bedtools bamtobed -split -tag NM` (also `-splitD`) writes an extra
+  column, the block start again, after the start: `chr1 600 600 605 c_skip 0 +`.
+  `-split -ed` is refused (exit 1, "Edit distances cannot be computed for each
+  'chunk'"). `-cigar -split` drops the CIGAR without a word (exit 0).
+- **Reason:** the extra column makes the file no longer BED, and a flag that is quietly
+  ignored hides a mistake.
+- **Pinned by:** `bamtobed-split-tag-vs-bedtools` (must differ),
+  `bamtobed-cigar-split-vs-bedtools` (exit status: gloci 2, bedtools 0) and
+  `bamtobed-split-ed-vs-bedtools` (exit status: gloci 0, bedtools 1).
+
+## `convert` of alignments cuts reads at the end of their reference {#bamtobed-past-reference-end}
+
+- **gloci:** a read that runs past the `LN` of its reference (a chrM read wrapping
+  round) is written up to `LN`, with one warning per input. A read that starts at or
+  past `LN` covers no base and is skipped and counted at `-v`. Every interval command
+  does the same (D101).
+- **Old behaviour:** `bedtools bamtobed` writes the interval as the CIGAR gives it,
+  past the end of the reference (`chr1 994 1004` on a 1,000 base chr1), and writes a
+  read that starts past the end as well. With `-bed12` a start beyond 2^31 gives a
+  negative end.
+- **Reason:** an interval past its chromosome fails in a genome browser and in
+  `bedToBigBed`, and the other gloci commands refuse it.
+- **Pinned by:** `bamtobed-past-end-vs-bedtools` and `bamtobed-edge-vs-bedtools` (must
+  differ).

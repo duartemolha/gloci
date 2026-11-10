@@ -1,0 +1,12 @@
+chr1	100	110	r_plain	60	+
+chr1	100	110	r_rev	60	-
+chr1	200	210	r_mapq0	0	+
+chr1	250	260	r_mapq10	10	+
+chr1	300	310	r_pair/1	60	+
+chr1	400	410	r_pair/2	60	-
+chr1	500	510	r_sec	60	+
+chr1	550	555	r_supp	60	+
+chr1	600	610	r_dup	60	+
+chr1	650	660	r_qcfail	60	+
+chr2	50	60	read9	60	+
+chr2	50	60	read10	60	+

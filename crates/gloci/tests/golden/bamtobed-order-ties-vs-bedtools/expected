@@ -1,0 +1,15 @@
+chrM	100	110	read10	60	+
+chrM	100	110	read9	60	-
+chrM	500	520	read2	60	+
+chr1	100	110	read10	60	+
+chr1	100	110	read9	60	-
+chr1	500	520	read2	60	+
+chr2	100	110	read10	60	+
+chr2	100	110	read9	60	-
+chr2	500	520	read2	60	+
+chr10	100	110	read10	60	+
+chr10	100	110	read9	60	-
+chr10	500	520	read2	60	+
+chrX	100	110	read10	60	+
+chrX	100	110	read9	60	-
+chrX	500	520	read2	60	+

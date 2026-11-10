@@ -13,6 +13,18 @@ use std::io::IsTerminal;
 
 pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
     let spec = parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref())?;
+    let score_tag = match a.score_tag.as_deref() {
+        None => None,
+        Some(t) => match t.as_bytes() {
+            &[x, y] if x.is_ascii_alphabetic() && y.is_ascii_alphanumeric() => Some([x, y]),
+            _ => {
+                return Err(UsageError(format!(
+                    "--score-tag {t} is not a tag name; use two characters such as NM or AS"
+                ))
+                .into());
+            }
+        },
+    };
     let o = ConvertOptions {
         vcf_span: user_span(a.vcf_span.vcf_span),
         split_alleles: a.split_alleles,
@@ -21,6 +33,11 @@ pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
         features: a.feature.clone(),
         name_attr: a.name_attr.clone(),
         blocks: a.blocks,
+        bed12: a.bed12,
+        color: a.color.clone(),
+        score_tag,
+        cigar: a.cigar,
+        split_deletions: a.split_deletions,
     };
     let to = spec.format.unwrap_or(OutFormat::Bed);
     refuse_binary_to_tty(
@@ -31,7 +48,10 @@ pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
     let ro = ReaderOptions {
         // `convert` reads alignments, PSL and RepeatMasker too (D100).
         accept: gloci_io::Accept {
-            alignments: Some(gloci_io::AlignOptions::default()),
+            alignments: Some(gloci_io::AlignOptions {
+                score_tag,
+                ..a.align.options(false)?
+            }),
             convert_only: true,
             alignments_planned: false,
         },

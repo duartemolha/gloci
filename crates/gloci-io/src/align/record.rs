@@ -258,6 +258,16 @@ the flag should include 4 (unmapped), or the record needs a reference and positi
         })
     }
 
+    /// The type of an aux field, with the BAM integer types folded into `i`
+    /// (`i`, `f`, `A`, `Z`, `H` or `B`); `None` when the record has no such tag.
+    pub fn tag_type(&self, tag: [u8; 2]) -> Option<u8> {
+        let (_, ty, _) = tags(self.tags).map_while(Result::ok).find(|t| t.0 == tag)?;
+        Some(match ty {
+            b'c' | b'C' | b's' | b'S' | b'I' => b'i',
+            t => t,
+        })
+    }
+
     /// The reference length the CIGAR covers (`M D N = X`), at least 1 for a read with none
     /// (htslib's `bam_endpos`).
     fn ref_len(&self) -> u64 {
@@ -518,6 +528,7 @@ impl<'a> AlnRef<'a> {
     delegate!(mapq() -> u8);
     delegate!(strand() -> Strand);
     delegate!(int_tag(tag: [u8; 2]) -> Option<i64>);
+    delegate!(tag_type(tag: [u8; 2]) -> Option<u8>);
     delegate!(span(ref_len: u64) -> Option<(Interval, bool)>);
     delegate!(for_each_op(f: &mut dyn FnMut(u8, u32)) -> ());
 

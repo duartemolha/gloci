@@ -507,8 +507,9 @@ Examples:
   gloci windows -i genes.bed -n 10 --id-column --reverse
   gloci merge peaks.bed | gloci windows -i - -w 100")]
     Windows(WindowsArgs),
-    /// Convert VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out or BED12 to BED
-    /// (bedops convert2bed, vcf2bed, gff2bed, gtf2bed; bedtools bed12tobed6).
+    /// Convert VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out, BED12 or
+    /// BAM/CRAM/SAM to BED (bedops convert2bed, vcf2bed, gff2bed, gtf2bed;
+    /// bedtools bed12tobed6, bamtobed).
     ///
     /// VCF/BCF gives one row per record: chrom, start, end, ID, REF, ALT,
     /// QUAL, FILTER, with the footprint chosen by --vcf-span.
@@ -532,6 +533,16 @@ Examples:
     /// sequence, begin-1, end, repeat, score, strand (`C` is `-`), the
     /// divergence, deletion and insertion percentages, the `(left)` of the
     /// query, class/family, the repeat positions as written, ID and `*`.
+    /// BAM, CRAM and SAM give one BED6 row per mapped read, in input order:
+    /// chrom, start, end, name (with /1 or /2 for the first or second mate),
+    /// MAPQ, strand; unmapped reads are skipped and counted at -v, and
+    /// --min-mapq, --require-flags and --exclude-flags filter. The span is
+    /// the reference bases the CIGAR covers (M D N = X), cut at the end of
+    /// the reference. --bed12 writes one BED12 row per read with the thick
+    /// span equal to the read and --color as itemRgb; --blocks writes one
+    /// BED6 row per block, cut at N; --split-deletions cuts at D as well.
+    /// --score-tag NM takes the score from an integer tag (NM is bedtools
+    /// -ed), and --cigar appends the CIGAR to BED6 rows.
     /// BED12 with --blocks gives one BED6 row per block; a line that is not
     /// valid BED12 (fewer than 12 columns, block counts that disagree, blocks
     /// out of order, a last block not ending at chromEnd) is an error, also
@@ -542,9 +553,9 @@ Examples:
     #[command(after_long_help = "\
 Examples:
   gloci convert calls.vcf.gz -o calls.bed
-  gloci convert genes.gtf --feature exon --name-attr gene_name
   gloci convert transcripts.bed --blocks -o exons.bed
-  gloci convert hits.psl -o hits.bed")]
+  gloci convert reads.bam --bed12 -o reads.bed
+  gloci convert reads.bam --blocks --score-tag NM --min-mapq 30")]
     Convert(ConvertArgs),
     /// Write the sequence under each interval (bedtools getfasta).
     ///
@@ -2288,9 +2299,30 @@ pub struct ConvertArgs {
     /// gene_id for GTF).
     #[arg(long, value_name = "KEY", value_parser = clap::builder::NonEmptyStringValueParser::new())]
     pub name_attr: Option<String>,
-    /// BED12: write one BED6 row per block.
+    /// BED12, BAM, CRAM, SAM: write one BED6 row per block (for alignments the
+    /// segments between N operations, as bedtools bamtobed -split).
     #[arg(long)]
     pub blocks: bool,
+    /// BAM, CRAM, SAM: write one BED12 row per read, its blocks cut at N
+    /// (bedtools bamtobed -bed12).
+    #[arg(long)]
+    pub bed12: bool,
+    /// BAM, CRAM, SAM with --bed12: the itemRgb column, as R,G,B.
+    #[arg(long, value_name = "R,G,B")]
+    pub color: Option<String>,
+    /// BAM, CRAM, SAM: take the score column from this integer tag (NM, AS, ...)
+    /// instead of the MAPQ; every read needs it (bedtools bamtobed -tag, -ed is NM).
+    #[arg(long, value_name = "TAG")]
+    pub score_tag: Option<String>,
+    /// BAM, CRAM, SAM: append the CIGAR as a seventh column (BED6 only).
+    #[arg(long)]
+    pub cigar: bool,
+    /// BAM, CRAM, SAM: also cut blocks at deletions (bedtools bamtobed -splitD);
+    /// implies --blocks unless --bed12 is given.
+    #[arg(long)]
+    pub split_deletions: bool,
+    #[command(flatten)]
+    pub align: AlignArgs,
     #[command(flatten)]
     pub format: FormatArg,
     #[command(flatten)]
