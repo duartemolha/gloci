@@ -5,6 +5,7 @@ pub mod cluster;
 pub mod complement;
 pub mod convert;
 pub mod coverage;
+pub mod faidx;
 pub mod flank;
 pub mod genomecov;
 pub mod genomes;

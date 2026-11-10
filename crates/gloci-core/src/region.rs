@@ -13,7 +13,7 @@ pub struct Region {
 }
 
 impl Region {
-    /// Accepts `chr`, `chr:s`, `chr:s-`, `chr:s-e` and `{name}:s-e` (1-based closed,
+    /// Accepts `chr`, `chr:s`, `chr:s-`, `chr:-e` (= `chr:1-e`, as htslib), `chr:s-e` and `{name}:s-e` (1-based closed,
     /// commas allowed). A whole-string known chromosome name wins; if its prefix before
     /// the last `:` is also a known name the string is ambiguous.
     pub fn parse(s: &str, is_known: impl Fn(&[u8]) -> bool) -> Result<Region, RegionError> {
@@ -158,6 +158,8 @@ fn parse_range(full: &str, chrom: &str, range: &str) -> Result<Region, RegionErr
     };
     let (start, end) = match range.split_once('-') {
         None => (num(range)?, None),
+        // htslib: `chr:-E` is `chr:1-E`.
+        Some(("", b)) if !b.is_empty() => (1, Some(num(b)?)),
         Some((a, "")) => (num(a)?, None),
         Some((a, b)) => (num(a)?, Some(num(b)?)),
     };

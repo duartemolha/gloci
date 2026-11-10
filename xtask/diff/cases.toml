@@ -5383,3 +5383,189 @@ gloci = "gloci genomecov input.badtail.cram --reference ref.fa -t 4"
 reference = "gloci genomecov input.badtail.cram --reference ref.fa -t 1"
 compare = "exit-status"
 expected_difference = "#cram-unplaced-tail"
+
+# faidx (D131)
+# faidx (D131). ref.fa has lines of 60 and lower-case runs. chr2:1000-1300 ends past
+# chr2 (cut), chr2:60000-60100 starts past it (header only).
+[[case]]
+name = "faidx-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa chr1:5-70 chr2:1000-1300 chr2:60000-60100 chrM"
+reference = "samtools faidx ref.fa chr1:5-70 chr2:1000-1300 chr2:60000-60100 chrM"
+compare = "exact"
+
+[[case]]
+name = "faidx-line-width-7-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa --line-width 7 chr1:5-70 chrM:1-20"
+reference = "samtools faidx -n 7 ref.fa chr1:5-70 chrM:1-20"
+compare = "exact"
+
+[[case]]
+name = "faidx-line-width-0-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa --line-width 0 chr1:5-70 chr1"
+reference = "samtools faidx -n 0 ref.fa chr1:5-70 chr1"
+compare = "exact"
+
+# The default width is each sequence's own .fai width: 60 for chrA, 70 for chrB.
+[[case]]
+name = "faidx-default-width-per-sequence-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/faidx-mixed.fa", "xtask/diff/inputs/fa/faidx-mixed.fa.fai"]
+gloci = "gloci faidx faidx-mixed.fa chrA chrB chrB:3-100"
+reference = "samtools faidx faidx-mixed.fa chrA chrB chrB:3-100"
+compare = "exact"
+
+[[case]]
+name = "faidx-reverse-complement-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa --reverse-complement chr1:5-70 chrM:1-40"
+reference = "samtools faidx -i ref.fa chr1:5-70 chrM:1-40"
+compare = "exact"
+
+# IUPAC codes (R Y K M S W B D H V), U, N and both cases under --reverse-complement.
+[[case]]
+name = "faidx-reverse-complement-iupac-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/faidx-mixed.fa", "xtask/diff/inputs/fa/faidx-mixed.fa.fai"]
+gloci = "gloci faidx faidx-mixed.fa --reverse-complement chrA:3-125 chrB:5-148"
+reference = "samtools faidx -i faidx-mixed.fa chrA:3-125 chrB:5-148"
+compare = "exact"
+
+[[case]]
+name = "faidx-mark-strand-sign-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa --reverse-complement --mark-strand sign chr1:5-20 chrM:1-9"
+reference = "samtools faidx -i --mark-strand sign ref.fa chr1:5-20 chrM:1-9"
+compare = "exact"
+
+[[case]]
+name = "faidx-mark-strand-no-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa --reverse-complement --mark-strand no chr1:5-20 chrM:1-9"
+reference = "samtools faidx -i --mark-strand no ref.fa chr1:5-20 chrM:1-9"
+compare = "exact"
+
+[[case]]
+name = "faidx-mark-strand-custom-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa --reverse-complement --mark-strand custom,+,- chr1:5-20 chrM:1-9"
+reference = "samtools faidx -i --mark-strand custom,+,- ref.fa chr1:5-20 chrM:1-9"
+compare = "exact"
+
+[[case]]
+name = "faidx-mark-strand-forward-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa --mark-strand sign chr1:5-20"
+reference = "samtools faidx --mark-strand sign ref.fa chr1:5-20"
+compare = "exact"
+
+# Headers keep the region as typed (commas, braces); chr1:-100 is chr1:1-100.
+[[case]]
+name = "faidx-region-forms-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa chr1:1,000-1,050 {chr1}:1-10 chr1:-100 chr1:995 chr1:995-"
+reference = "samtools faidx ref.fa chr1:1,000-1,050 {chr1}:1-10 chr1:-100 chr1:995 chr1:995-"
+compare = "exact"
+
+[[case]]
+name = "faidx-end-past-sequence-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa chr1:990-1100 chrX:700-900 chrM:140-150"
+reference = "samtools faidx ref.fa chr1:990-1100 chrX:700-900 chrM:140-150"
+compare = "exact"
+
+[[case]]
+name = "faidx-start-past-sequence-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa chr1:1001-1010 chr1:5000- chrM:1-3"
+reference = "samtools faidx ref.fa chr1:1001-1010 chr1:5000- chrM:1-3"
+compare = "exact"
+
+[[case]]
+name = "faidx-bgzf-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa.gz", "xtask/diff/inputs/fa/ref.fa.gz.fai", "xtask/diff/inputs/fa/ref.fa.gz.gzi"]
+gloci = "gloci faidx ref.fa.gz chr1:5-70 chr2:100-130 chrM"
+reference = "samtools faidx ref.fa.gz chr1:5-70 chr2:100-130 chrM"
+compare = "exact"
+
+[[case]]
+name = "faidx-bgzf-reverse-complement-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa.gz", "xtask/diff/inputs/fa/ref.fa.gz.fai", "xtask/diff/inputs/fa/ref.fa.gz.gzi"]
+gloci = "gloci faidx ref.fa.gz --reverse-complement chr1:900-1000 chrX:1-30"
+reference = "samtools faidx -i ref.fa.gz chr1:900-1000 chrX:1-30"
+compare = "exact"
+
+# BED lines (0-based) give the headers samtools -r gets from chr:START-END text. The zero-length
+# BED line (chr2 10 10) is skipped by both; chr2 1200-1300 is cut, chr1 2000-2005 is header only.
+[[case]]
+name = "faidx-regions-file-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa --regions-file input.bed"
+reference = "awk -F'\\t' '$3>$2{print $1\":\"$2+1\"-\"$3}' input.bed > r.txt && samtools faidx -r r.txt ref.fa"
+compare = "exact"
+
+# Without --skip-invalid / -c an unknown sequence is exit 1 in both.
+[[case]]
+name = "faidx-missing-sequence-exit-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa nope:1-5 chr1:1-5"
+reference = "samtools faidx ref.fa nope:1-5 chr1:1-5"
+compare = "exit-status"
+
+# samtools -c still writes the header of the region it could not read.
+[[case]]
+name = "faidx-missing-sequence-continue-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa --skip-invalid nope:1-5 chr1:1-5"
+reference = "samtools faidx -c ref.fa nope:1-5 chr1:1-5"
+compare = "exact"
+expected_difference = "#faidx-missing-sequence"
+
+# samtools writes the header of a region it cannot use, exits 0 (chr1:0-5) or 1 (chr1:5-1);
+# gloci rejects the region before any output, exit 2.
+[[case]]
+name = "faidx-region-syntax-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa chr1:0-5"
+reference = "samtools faidx ref.fa chr1:0-5"
+compare = "exit-status"
+expected_difference = "#faidx-region-syntax"
+
+# samtools -r reads chr:START-END text; gloci --regions-file reads BED.
+[[case]]
+name = "faidx-regions-file-text-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx-regions.txt" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa --regions-file input.txt"
+reference = "samtools faidx -r input.txt ref.fa"
+compare = "exit-status"
+expected_difference = "#faidx-regions-file"
+
+# No input.fa.fai: samtools builds one and answers (exit 0); gloci exits 2 naming gloci index.
+[[case]]
+name = "faidx-no-index-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/ref.fa" }
+aux = []
+gloci = "gloci faidx input.fa chr1:1-5"
+reference = "mkdir r && cp input.fa r/ && samtools faidx r/input.fa chr1:1-5"
+compare = "exit-status"
+expected_difference = "#fasta-implicit-index"

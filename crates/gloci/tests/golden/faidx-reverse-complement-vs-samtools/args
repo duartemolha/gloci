@@ -1,0 +1,1 @@
+faidx ref.fa --reverse-complement chr1:5-70 chrM:1-40

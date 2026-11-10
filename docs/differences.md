@@ -1957,3 +1957,57 @@ depends on the span.
   `prechecks_refuse_counts_the_slice_cannot_hold`, `tokeniser_header_is_checked`,
   `block_sizes_are_checked`, `crafted_cram_panic_points_to_the_limits` and
   `cram_corrupt_bytes_are_errors_not_panics`.
+## A FASTA without an index is an error, never built on the fly {#fasta-implicit-index}
+
+- **gloci:** every command that reads a FASTA at random (`faidx`, `getfasta`,
+  `nuc`, a CRAM `--reference`) exits 2 when the `.fai` (or, for BGZF, the
+  `.gzi`) is missing, and the message names the fix: `gloci index REF`.
+  `gloci faidx REF` with no region exits 2 the same way.
+- **Old behaviour:** `samtools faidx REF` builds a missing `.fai` itself, with
+  or without a region, and so does any samtools command given a FASTA
+  reference.
+- **Reason:** an index written as a side effect of a read can be stale for the
+  next run, can land in a read-only directory (and fail there), and is a
+  file the user never asked for. Building it is one explicit step.
+- **Pinned by:** `faidx-no-index-vs-samtools` (exit status: must differ).
+
+## `faidx` skips a missing sequence without writing its header {#faidx-missing-sequence}
+
+- **gloci:** an unknown sequence name is a data error (exit 1) before any
+  output, naming the region, as `samtools faidx` also exits 1. With
+  `--skip-invalid`, regions on unknown sequences are skipped entirely, with
+  one warning that counts them, and the rest are written.
+- **Old behaviour:** `samtools faidx -c` writes the `>` line of the region it
+  could not read, with no bases, then goes on. Without `-c` it exits 1 after
+  writing that header.
+- **Reason:** a header with no sequence reads as an empty sequence in the
+  output; skipping the region leaves a FASTA that holds only what exists.
+- **Pinned by:** `faidx-missing-sequence-continue-vs-samtools` (output must
+  differ); `faidx-missing-sequence-exit-vs-samtools` pins the agreeing exit 1.
+
+## `faidx` rejects a region htslib cannot use before writing anything {#faidx-region-syntax}
+
+- **gloci:** a region that does not parse under gloci's region rules
+  (1-based start of at least 1, end not before start, well-formed commas) exits 2 before any output.
+  `chr:-END` is accepted as `chr:1-END`, as htslib does.
+- **Old behaviour:** `samtools faidx` writes the header of such a region and
+  no bases: exit 0 for `chr1:0-5` (with a "Zero length sequence" message), and
+  exit 1 for `chr1:5-1` or `chr1:abc`.
+- **Reason:** `chr1:0-5` and `chr1:5-1` are almost always an off-by-one or a
+  swapped pair; an empty record in the output hides it.
+- **Pinned by:** `faidx-region-syntax-vs-samtools` (exit status: must differ).
+
+## `faidx --regions-file` reads BED {#faidx-regions-file}
+
+- **gloci:** `--regions-file FILE` reads BED lines (0-based, half-open), as in
+  every gloci command that takes regions. A region prints as
+  `chrom:START-END` with a 1-based start; a zero-length line is skipped with
+  one warning that counts them.
+- **Old behaviour:** `samtools faidx -r FILE` reads one `chr:START-END` text
+  region per line. Given a BED file it treats each whole line as a sequence
+  name and exits 1.
+- **Reason:** one regions-file format across commands. Text regions are
+  positional arguments, or `--region`.
+- **Pinned by:** `faidx-regions-file-text-vs-samtools` (exit status: must
+  differ); `faidx-regions-file-vs-samtools` pins identical output for the same
+  regions written as BED and as text.

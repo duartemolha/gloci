@@ -1030,6 +1030,38 @@ Examples:
   gloci vcf filter input.vcf --samples s1,s2 --min-dp 10 --recalc-ac -o out.vcf
   gloci vcf filter variants.bcf --types indel --biallelic")]
     Vcf(Box<VcfArgs>),
+    /// Write regions of an indexed FASTA (samtools faidx).
+    ///
+    /// REF.fa is read at random through REF.fa.fai (and REF.fa.gz.gzi for
+    /// BGZF); build them with gloci index. gloci never builds them itself
+    /// (samtools faidx does): without them, or with no region, this exits 2
+    /// naming gloci index REF. Each REGION is chr, chr:START, chr:START-,
+    /// chr:START-END, chr:-END (1-based, closed, commas allowed) or
+    /// {name}:START-END for a name containing a colon, read as htslib reads
+    /// it; --region adds more, and --regions-file reads BED lines (0-based,
+    /// half-open; samtools -r reads chr:START-END text instead). Each region
+    /// prints ">" and its text as typed, then its bases wrapped at
+    /// --line-width (default: that sequence's line width in the .fai; 0 is
+    /// one line), the case of the FASTA kept. A BED region is named
+    /// chrom:START-END with a 1-based start, and a zero-length one is
+    /// skipped with one warning that counts them. An end past the sequence
+    /// is cut there with a warning; a start past it writes the header alone.
+    /// A sequence the index lacks is an error before anything is written,
+    /// unless --skip-invalid skips that region entirely (samtools -c still
+    /// writes its header). --reverse-complement writes the reverse
+    /// complement, with samtools' table (IUPAC-aware, case kept), and
+    /// --mark-strand chooses the header suffix: rc (/rc on reverse-complemented
+    /// regions, the default), no, sign ((+) or (-)) or custom,POS,NEG.
+    /// Memory does not grow with the region length. -o FILE.fa.gz writes
+    /// BGZF, and --write-index also writes FILE.fai (and FILE.gzi).
+    #[command(after_long_help = "\
+Examples:
+  gloci faidx ref.fa chr1:1,000-2,000 chrM
+  gloci faidx ref.fa chr2:500-900 --reverse-complement --mark-strand sign -o rc.fa
+  gloci faidx ref.fa.gz --regions-file genes.bed --line-width 0 -o genes.fa.gz --write-index")]
+    #[command(mut_arg("region", |a| a.help(FAIDX_REGION_HELP)))]
+    #[command(mut_arg("regions_file", |a| a.help(FAIDX_REGIONS_FILE_HELP)))]
+    Faidx(FaidxArgs),
 }
 
 /// What `intersect` reports.
@@ -3223,4 +3255,38 @@ mod tests {
         assert!(parse(&["-s", "-S"]).is_err());
         assert!(parse(&["-S"]).is_ok());
     }
+}
+
+// P3c Task 9
+const FAIDX_REGION_HELP: &str = "Another region, as the positional REGION (repeatable).";
+const FAIDX_REGIONS_FILE_HELP: &str = "Read regions from a BED FILE (0-based, half-open); each prints as chrom:START-END with a 1-based start.";
+
+#[derive(Args)]
+pub struct FaidxArgs {
+    /// The FASTA to read (plain or BGZF), with its .fai (and .gzi) beside it.
+    #[arg(value_name = "REF")]
+    pub fasta: PathBuf,
+    /// Regions to write: chr, chr:START, chr:START-END, chr:-END or
+    /// {name}:START-END (1-based, closed, commas allowed).
+    #[arg(value_name = "REGION")]
+    pub regions: Vec<String>,
+    #[command(flatten)]
+    pub region: RegionArgs,
+    /// Bases per output line; 0 writes each sequence on one line (default:
+    /// the line width of that sequence in the .fai).
+    #[arg(long, value_name = "N")]
+    pub line_width: Option<u64>,
+    /// Write the reverse complement of each region.
+    #[arg(long)]
+    pub reverse_complement: bool,
+    /// Strand suffix of the header: rc (/rc on reverse-complemented regions),
+    /// no, sign ((+)/(-)) or custom,POS,NEG.
+    #[arg(long, value_name = "TYPE", default_value = "rc")]
+    pub mark_strand: String,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
 }

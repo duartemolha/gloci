@@ -1,0 +1,1 @@
+faidx ref.fa --mark-strand sign chr1:5-20
