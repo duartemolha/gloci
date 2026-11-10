@@ -2,6 +2,7 @@
 //! already sorted inputs (`sort -m`).
 
 use super::Tie;
+use super::order::{M_COORD, M_FULL, M_INTERVAL, M_NAME, keeps_bytes, name_cmp};
 use super::spill::{RecHead, Run, RunReader, SpillDir};
 use gloci_core::ChromTable;
 use gloci_io::{IoError, OrderGuard, RecordBatch, RecordReader};
@@ -32,50 +33,52 @@ pub(crate) fn fan_in(budget: usize, max_rec: usize) -> usize {
 
 /// The current record of one source in a merge. `BinaryHeap` is a max-heap,
 /// so the order is reversed: the smallest record is on top.
-struct Head<const FULL: bool> {
+struct Head<const M: u8> {
     rank: u32,
     rec: RecHead,
     src: usize,
     bytes: Vec<u8>,
 }
 
-impl<const FULL: bool> Head<FULL> {
+impl<const M: u8> Head<M> {
     fn cmp_key(&self, other: &Self) -> Ordering {
-        let ord = (self.rank, self.rec.key, self.rec.end).cmp(&(
-            other.rank,
-            other.rec.key,
-            other.rec.end,
-        ));
-        let ord = if FULL {
-            ord.then_with(|| self.bytes.cmp(&other.bytes))
-        } else {
-            ord
+        let pos = |a: &Self, b: &Self| {
+            (a.rank, a.rec.key, a.rec.end).cmp(&(b.rank, b.rec.key, b.rec.end))
+        };
+        let ord = match M {
+            M_INTERVAL | M_COORD => pos(self, other),
+            M_FULL => pos(self, other).then_with(|| self.bytes.cmp(&other.bytes)),
+            _ => name_cmp(&self.bytes, &other.bytes, M == M_NAME),
         };
         ord.then(self.rec.seq.cmp(&other.rec.seq))
     }
 }
 
-impl<const FULL: bool> Ord for Head<FULL> {
+impl<const M: u8> Ord for Head<M> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.cmp_key(other).reverse()
     }
 }
 
-impl<const FULL: bool> PartialOrd for Head<FULL> {
+impl<const M: u8> PartialOrd for Head<M> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<const FULL: bool> PartialEq for Head<FULL> {
+impl<const M: u8> PartialEq for Head<M> {
     fn eq(&self, other: &Self) -> bool {
         self.cmp(other) == Ordering::Equal
     }
 }
 
-impl<const FULL: bool> Eq for Head<FULL> {}
+impl<const M: u8> Eq for Head<M> {}
 
-fn rank_of(ranks: &[u32], chrom: u32) -> Result<u32, IoError> {
+fn rank_of<const M: u8>(ranks: &[u32], chrom: u32) -> Result<u32, IoError> {
+    if M >= M_COORD {
+        // Alignment orders compare reference ids as they are.
+        return Ok(chrom);
+    }
     ranks
         .get(chrom as usize)
         .copied()
@@ -92,7 +95,7 @@ fn rank_of(ranks: &[u32], chrom: u32) -> Result<u32, IoError> {
 pub(crate) type Sink<'a> = dyn FnMut(&RecHead, &[u8]) -> Result<(), IoError> + 'a;
 
 /// Merge `runs` in `(rank, key, end, tiebreak)` order into `sink`.
-pub(crate) fn merge_runs<const FULL: bool>(
+pub(crate) fn merge_runs<const M: u8>(
     runs: &[Run],
     ranks: &[u32],
     sink: &mut Sink,
@@ -106,8 +109,8 @@ pub(crate) fn merge_runs<const FULL: bool>(
         let mut rec = RecHead::default();
         let mut bytes = Vec::new();
         if r.next(&mut rec, &mut bytes)? {
-            let rank = rank_of(ranks, rec.chrom)?;
-            heap.push(Head::<FULL> {
+            let rank = rank_of::<M>(ranks, rec.chrom)?;
+            heap.push(Head::<M> {
                 rank,
                 rec,
                 src,
@@ -123,7 +126,7 @@ pub(crate) fn merge_runs<const FULL: bool>(
         let h = &mut *top;
         if readers[h.src].next(&mut h.rec, &mut h.bytes)? {
             // Replaced in place; dropping the PeekMut sifts it down.
-            h.rank = rank_of(ranks, h.rec.chrom)?;
+            h.rank = rank_of::<M>(ranks, h.rec.chrom)?;
         } else {
             PeekMut::pop(top);
         }
@@ -165,7 +168,7 @@ impl Input<'_> {
         }
     }
 
-    fn head<const FULL: bool>(&self, src: usize, base_seq: u64, ranks: &[u32]) -> Head<FULL> {
+    fn head<const M: u8>(&self, src: usize, base_seq: u64, ranks: &[u32]) -> Head<M> {
         let m = &self.batch.recs[self.pos];
         Head {
             rank: ranks[m.chrom.0 as usize],
@@ -177,7 +180,7 @@ impl Input<'_> {
                 seq: base_seq + src as u64,
             },
             src,
-            bytes: if FULL {
+            bytes: if keeps_bytes(M) {
                 self.batch.raw(self.pos).to_vec()
             } else {
                 Vec::new()
@@ -186,13 +189,13 @@ impl Input<'_> {
     }
 
     /// Refresh `h` from the current record (`h.src` is unchanged).
-    fn update<const FULL: bool>(&self, h: &mut Head<FULL>, ranks: &[u32]) {
+    fn update<const M: u8>(&self, h: &mut Head<M>, ranks: &[u32]) {
         let m = &self.batch.recs[self.pos];
         h.rank = ranks[m.chrom.0 as usize];
         h.rec.chrom = m.chrom.0;
         h.rec.key = m.key;
         h.rec.end = m.span.end;
-        if FULL {
+        if keeps_bytes(M) {
             h.bytes.clear();
             h.bytes.extend_from_slice(self.batch.raw(self.pos));
         }
@@ -200,7 +203,7 @@ impl Input<'_> {
 }
 
 /// Cascade-merge `runs` down to `out`, merging up to `fan` runs at once.
-pub(crate) fn cascade_merge_runs<const FULL: bool>(
+pub(crate) fn cascade_merge_runs<const M: u8>(
     runs: Vec<Run>,
     spill: &mut SpillDir,
     ranks: &[u32],
@@ -213,11 +216,11 @@ pub(crate) fn cascade_merge_runs<const FULL: bool>(
         let k = fan.min(runs.len() - fan + 1);
         let group: Vec<Run> = runs.drain(..k).collect();
         let mut w = spill.create_run()?;
-        merge_runs::<FULL>(&group, ranks, &mut |h, raw| w.write(h, raw))?;
+        merge_runs::<M>(&group, ranks, &mut |h, raw| w.write(h, raw))?;
         runs.push_back(w.finish()?);
         group.into_iter().for_each(Run::remove);
     }
-    merge_runs::<FULL>(runs.make_contiguous(), ranks, &mut |_, raw| {
+    merge_runs::<M>(runs.make_contiguous(), ranks, &mut |_, raw| {
         sink(raw).map_err(super::out_err)?;
         count += 1;
         Ok(())
@@ -260,10 +263,10 @@ where
         let mut sink = |h: &RecHead, raw: &[u8]| w.write(h, raw).map_err(io::Error::other);
         match tie {
             Tie::InputOrder => {
-                merge_inputs::<false>(&mut readers, chroms, start as u64, &mut sink)?;
+                merge_inputs::<M_INTERVAL>(&mut readers, chroms, start as u64, &mut sink)?;
             }
             Tie::FullLine => {
-                merge_inputs::<true>(&mut readers, chroms, start as u64, &mut sink)?;
+                merge_inputs::<M_FULL>(&mut readers, chroms, start as u64, &mut sink)?;
             }
         }
         runs.push(w.finish()?);
@@ -277,8 +280,8 @@ where
     }
     let ranks = chroms.ranks();
     let total = match tie {
-        Tie::InputOrder => cascade_merge_runs::<false>(runs, &mut spill, &ranks, fan, out)?,
-        Tie::FullLine => cascade_merge_runs::<true>(runs, &mut spill, &ranks, fan, out)?,
+        Tie::InputOrder => cascade_merge_runs::<M_INTERVAL>(runs, &mut spill, &ranks, fan, out)?,
+        Tie::FullLine => cascade_merge_runs::<M_FULL>(runs, &mut spill, &ranks, fan, out)?,
     };
     spill.close();
     Ok(total)
@@ -299,8 +302,10 @@ pub fn merge_sorted(
 ) -> Result<u64, IoError> {
     if readers.len() <= MAX_FAN_IN {
         return match tie {
-            Tie::InputOrder => merge_inputs::<false>(readers, chroms, 0, &mut |_, raw| out(raw)),
-            Tie::FullLine => merge_inputs::<true>(readers, chroms, 0, &mut |_, raw| out(raw)),
+            Tie::InputOrder => {
+                merge_inputs::<M_INTERVAL>(readers, chroms, 0, &mut |_, raw| out(raw))
+            }
+            Tie::FullLine => merge_inputs::<M_FULL>(readers, chroms, 0, &mut |_, raw| out(raw)),
         };
     }
     let fan = MAX_FAN_IN;
@@ -314,10 +319,10 @@ pub fn merge_sorted(
         let chunk = &mut readers[start..start + count];
         match tie {
             Tie::InputOrder => {
-                merge_inputs::<false>(chunk, chroms, start as u64, &mut sink)?;
+                merge_inputs::<M_INTERVAL>(chunk, chroms, start as u64, &mut sink)?;
             }
             Tie::FullLine => {
-                merge_inputs::<true>(chunk, chroms, start as u64, &mut sink)?;
+                merge_inputs::<M_FULL>(chunk, chroms, start as u64, &mut sink)?;
             }
         }
         runs.push(w.finish()?);
@@ -325,14 +330,14 @@ pub fn merge_sorted(
     }
     let ranks = chroms.ranks();
     let total = match tie {
-        Tie::InputOrder => cascade_merge_runs::<false>(runs, &mut spill, &ranks, fan, out)?,
-        Tie::FullLine => cascade_merge_runs::<true>(runs, &mut spill, &ranks, fan, out)?,
+        Tie::InputOrder => cascade_merge_runs::<M_INTERVAL>(runs, &mut spill, &ranks, fan, out)?,
+        Tie::FullLine => cascade_merge_runs::<M_FULL>(runs, &mut spill, &ranks, fan, out)?,
     };
     spill.close();
     Ok(total)
 }
 
-fn merge_inputs<const FULL: bool>(
+fn merge_inputs<const M: u8>(
     readers: &mut [Box<dyn RecordReader>],
     chroms: &mut ChromTable,
     base_seq: u64,
@@ -359,7 +364,7 @@ fn merge_inputs<const FULL: bool>(
     // Ranks are computed after reading, and again whenever reading interns a
     // new chromosome (which can shift the ranks of others).
     let mut ranks = chroms.ranks();
-    let mut heap: BinaryHeap<Head<FULL>> = live
+    let mut heap: BinaryHeap<Head<M>> = live
         .into_iter()
         .map(|src| inputs[src].head(src, base_seq, &ranks))
         .collect();

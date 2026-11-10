@@ -1,7 +1,7 @@
 //! The in-memory chunk: record bytes in one arena plus a sort entry per
 //! record, both held within the memory budget.
 
-use super::Tie;
+use super::order::{M_COORD, M_FULL, M_INTERVAL, M_NAME, M_NAME_BYTES, Order, name_cmp};
 use rayon::slice::ParallelSliceMut;
 use std::cmp::Ordering;
 
@@ -198,25 +198,32 @@ impl Chunk {
         self.entries = Vec::new();
     }
 
-    /// Sort by `(rank[chrom], key, end, tiebreak)`. The order is total
-    /// (sequence numbers are unique), so an unstable or parallel sort gives
-    /// the same result for any thread count.
-    pub fn sort(&mut self, ranks: &[u32], tie: Tie, parallel: bool) {
+    /// Sort by `(rank[chrom], key, end, tiebreak)` for intervals, by `(tid, key)` for
+    /// coordinate order, or by name and flag rank. The order is total (sequence numbers are
+    /// unique), so an unstable or parallel sort gives the same result for any thread count.
+    pub fn sort(&mut self, ranks: &[u32], order: Order, parallel: bool) {
         let arena = &self.arena;
         let entries = &mut self.entries;
-        match tie {
-            Tie::InputOrder => sort_by(entries, parallel, |a, b| {
+        let raw = |e: &Entry| &arena[e.off..e.off + e.len as usize];
+        match order.mode() {
+            M_INTERVAL => sort_by(entries, parallel, |a, b| {
                 cmp_pos(ranks, a, b).then(a.seq.cmp(&b.seq))
             }),
-            Tie::FullLine => sort_by(entries, parallel, |a, b| {
+            M_FULL => sort_by(entries, parallel, |a, b| {
                 cmp_pos(ranks, a, b)
-                    .then_with(|| {
-                        let ra = &arena[a.off..a.off + a.len as usize];
-                        let rb = &arena[b.off..b.off + b.len as usize];
-                        ra.cmp(rb)
-                    })
+                    .then_with(|| raw(a).cmp(raw(b)))
                     .then(a.seq.cmp(&b.seq))
             }),
+            M_COORD => sort_by(entries, parallel, |a, b| {
+                (a.chrom, a.key, a.seq).cmp(&(b.chrom, b.key, b.seq))
+            }),
+            mode => {
+                let natural = mode == M_NAME;
+                debug_assert!(natural || mode == M_NAME_BYTES);
+                sort_by(entries, parallel, |a, b| {
+                    name_cmp(raw(a), raw(b), natural).then(a.seq.cmp(&b.seq))
+                })
+            }
         }
     }
 }

@@ -8,7 +8,7 @@
 //! [`RecordReader`]. Memory stays within `max_mem`; the temp directory is
 //! removed when the returned reader is dropped, and on SIGINT/SIGTERM.
 
-use super::{SortConfig, Sorter, Tie};
+use super::{Order, SortConfig, Sorter, Tie};
 use crate::sort::Dedup;
 use gloci_core::{ChromTable, VcfSpan};
 use gloci_io::{
@@ -156,7 +156,7 @@ or run the command on each format separately",
         max_mem: settings.max_mem,
         tmp_dir: settings.tmp_dir.clone(),
         threads: settings.threads,
-        tie: Tie::InputOrder,
+        order: Order::Interval(Tie::InputOrder),
         dedup: Dedup::All,
     })?;
     let mut batch = RecordBatch::default();

@@ -9,7 +9,7 @@ use gloci_io::{
     open_record_writer, parse_output_spec, refuse_binary_to_tty,
 };
 use gloci_ops::{
-    Dedup, MIN_MAX_MEM, SortConfig, Sorter, Tie, check_definitions_pair, check_samples_pair,
+    Dedup, MIN_MAX_MEM, Order, SortConfig, Sorter, Tie, check_definitions_pair, check_samples_pair,
     merge_fan_in, merge_sorted_batches,
 };
 use std::fs::File;
@@ -176,7 +176,7 @@ separately",
             max_mem: a.max_mem,
             tmp_dir: ctx.tmp_dir.clone(),
             threads: ctx.threads,
-            tie,
+            order: Order::Interval(tie),
             dedup,
         })?)
     };

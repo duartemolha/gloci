@@ -16,7 +16,7 @@ mod writer;
 pub(crate) use bam::BamReader;
 pub use bed::{AlnBed, AlnBedLayout, AlnBedOptions, AlnBlocks};
 pub use cram::{CramReader, ReferenceCounts, read_cram_header, warn_unused_reference};
-pub use header::{AlnHeader, SortOrder};
+pub use header::{AlnHeader, AlnSortOrder, SortOrder};
 pub use record::{Aln, AlnRef, aln_ref, blocks, blocks_within};
 pub use region::alignment_query_span;
 pub(crate) use region::{BamRegionParse, index_span};
