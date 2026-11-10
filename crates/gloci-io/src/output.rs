@@ -4,6 +4,7 @@ use crate::atomic::AtomicFile;
 use crate::detect::Format;
 use crate::error::{IoError, UsageError};
 use crate::index::TsvColumns;
+use crate::staged::StagedSet;
 use noodles_bgzf::io::multithreaded_writer::Builder as BgzfBuilder;
 use noodles_bgzf::io::writer::CompressionLevel;
 use std::fs::{File, OpenOptions};
@@ -417,6 +418,35 @@ impl Output {
                     source,
                 })?;
             }
+        }
+        Ok(())
+    }
+}
+
+impl Output {
+    /// Finish the stream like [`Output::finish`], but hand a regular file to
+    /// `set` instead of renaming it into place, so that several outputs can be
+    /// published together by [`StagedSet::publish`]. Outputs that are not
+    /// regular files, and outputs with an index, are finished as usual.
+    pub fn finish_staged(self, set: &mut StagedSet) -> Result<(), IoError> {
+        if self.wants_index() || !matches!(self.sink, Sink::FilePlain(_) | Sink::FileBgzf(_)) {
+            return self.finish();
+        }
+        let name = self.dest_name();
+        let werr = |source| IoError::Write {
+            path: name.clone(),
+            source,
+        };
+        let af = match self.sink {
+            Sink::FilePlain(w) => w.into_inner().map_err(|e| werr(e.into_error()))?,
+            Sink::FileBgzf(mut w) => {
+                let inner = w.finish().map_err(werr)?;
+                inner.into_inner().map_err(|e| werr(e.into_error()))?
+            }
+            _ => return Err(IoError::Internal("finish_staged on a stream".into())),
+        };
+        if let Some(dest) = self.dest {
+            set.push(af, dest);
         }
         Ok(())
     }

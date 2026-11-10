@@ -372,9 +372,13 @@ or use -o FILE for a table"
         let dest = prefix.display().to_string();
         extract_matrix(input, &options, &mut matrix, &mut indv, &mut pos)
             .map_err(|e| e.with_output_name(&dest))?;
-        indv.finish()?;
-        pos.finish()?;
-        matrix.finish()?;
+        // The three files are published together: a failure leaves the
+        // previous matrix, .indv and .pos as they were.
+        let mut staged = gloci_io::StagedSet::default();
+        indv.finish_staged(&mut staged)?;
+        pos.finish_staged(&mut staged)?;
+        matrix.finish_staged(&mut staged)?;
+        staged.publish()?;
         return Ok(());
     }
 

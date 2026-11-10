@@ -661,3 +661,40 @@ fn tmp_dir_and_max_mem_are_validated_up_front_like_sort() {
             ));
     }
 }
+
+#[test]
+fn genotype_matrix_publishes_all_three_files_or_none() {
+    // A directory named like the .pos file makes the publish fail. The
+    // previous matrix and .indv must stay as they were, not be replaced by
+    // new files beside it.
+    let d = tempdir();
+    let prefix = s(&d.path().join("o"));
+    let old012 = "old matrix\n";
+    let oldindv = "old indv\n";
+    std::fs::write(d.path().join("o.012"), old012).unwrap();
+    std::fs::write(d.path().join("o.012.indv"), oldindv).unwrap();
+    std::fs::create_dir(d.path().join("o.012.pos")).unwrap();
+    gloci()
+        .args([
+            "vcf",
+            "extract",
+            &s(&fixture_dir().join("input.vcf")),
+            "--genotype-matrix",
+            "012",
+            "--out-prefix",
+            &prefix,
+        ])
+        .assert()
+        .failure()
+        .stderr(contains("o.012.pos"))
+        .stderr(contains("a directory"));
+    assert_eq!(read(&d.path().join("o.012")), old012);
+    assert_eq!(read(&d.path().join("o.012.indv")), oldindv);
+    assert!(d.path().join("o.012.pos").is_dir());
+    let mut names: Vec<String> = std::fs::read_dir(d.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["o.012", "o.012.indv", "o.012.pos"]);
+}
