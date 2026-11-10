@@ -29,8 +29,9 @@ mod merge;
 mod spill;
 
 pub use inputs::{
-    MIN_MAX_MEM, SortSettings, check_definitions, check_definitions_pair, check_samples,
-    check_samples_pair, sort_input_options, sort_readers, sort_together,
+    HeaderRuleCmd, MIN_MAX_MEM, SortSettings, check_definitions, check_definitions_for,
+    check_definitions_pair, check_samples, check_samples_for, check_samples_pair,
+    sort_input_options, sort_readers, sort_together,
 };
 pub use merge::{MERGE_BUFFER_PER_INPUT, merge_fan_in, merge_sorted, merge_sorted_batches};
 

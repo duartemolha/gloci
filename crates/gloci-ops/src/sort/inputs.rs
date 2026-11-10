@@ -258,8 +258,43 @@ or run the command on each format separately",
     }))
 }
 
+/// The command whose multi-file header rule is being checked, for messages.
+#[derive(Debug, Clone, Copy)]
+pub struct HeaderRuleCmd {
+    /// `sort needs identical sample columns`
+    pub verb: &'static str,
+    /// `... cannot be sorted together as they are`
+    pub together: &'static str,
+    /// `give the files the same header definitions, or ...`
+    pub fix: &'static str,
+}
+
+impl HeaderRuleCmd {
+    pub const SORT: HeaderRuleCmd = HeaderRuleCmd {
+        verb: "sort",
+        together: "sorted together",
+        fix: "sort them separately",
+    };
+    pub const CONCAT: HeaderRuleCmd = HeaderRuleCmd {
+        verb: "concat",
+        together: "concatenated",
+        fix: "concat only files that share them",
+    };
+}
+
 /// Inputs that are VCF/BCF need identical sample columns (D29).
 pub fn check_samples_pair(
+    first_name: &str,
+    first: &gloci_io::VcfHeader,
+    other_name: &str,
+    other: &gloci_io::VcfHeader,
+) -> Result<(), IoError> {
+    check_samples_pair_for(HeaderRuleCmd::SORT, first_name, first, other_name, other)
+}
+
+/// [`check_samples_pair`] with the messages of `cmd`.
+pub fn check_samples_pair_for(
+    cmd: HeaderRuleCmd,
     first_name: &str,
     first: &gloci_io::VcfHeader,
     other_name: &str,
@@ -272,8 +307,9 @@ pub fn check_samples_pair(
             path: other_name.to_string(),
             msg: format!(
                 "the BCF headers of {first_name} and {other_name} differ (contig or INFO/FILTER/FORMAT dictionaries); \
-BCF records refer to them by index, so they cannot be sorted together as they are. \
-Convert them to VCF first (gloci view FILE -O vcf.gz) or use inputs with identical headers"
+BCF records refer to them by index, so they cannot be {} as they are. \
+Convert them to VCF first (gloci view FILE -O vcf.gz) or use inputs with identical headers",
+                cmd.together
             ),
         });
     }
@@ -287,9 +323,10 @@ Convert them to VCF first (gloci view FILE -O vcf.gz) or use inputs with identic
         return Err(IoError::Detect {
             path: other_name.to_string(),
             msg: format!(
-                "{other_name} has samples [{}] but {first_name} has [{}]; sort needs identical sample columns in every input",
+                "{other_name} has samples [{}] but {first_name} has [{}]; {} needs identical sample columns in every input",
                 list(&other.samples),
-                list(&first.samples)
+                list(&first.samples),
+                cmd.verb
             ),
         });
     }
@@ -298,12 +335,20 @@ Convert them to VCF first (gloci view FILE -O vcf.gz) or use inputs with identic
 
 /// Inputs that are VCF/BCF need identical sample columns (D29).
 pub fn check_samples(readers: &[Box<dyn RecordReader>]) -> Result<(), IoError> {
+    check_samples_for(HeaderRuleCmd::SORT, readers)
+}
+
+/// [`check_samples`] with the messages of `cmd`.
+pub fn check_samples_for(
+    cmd: HeaderRuleCmd,
+    readers: &[Box<dyn RecordReader>],
+) -> Result<(), IoError> {
     let Header::Vcf(first) = readers[0].header() else {
         return Ok(());
     };
     for r in &readers[1..] {
         if let Header::Vcf(h) = r.header() {
-            check_samples_pair(readers[0].name(), first, r.name(), h)?;
+            check_samples_pair_for(cmd, readers[0].name(), first, r.name(), h)?;
         }
     }
     Ok(())
@@ -320,6 +365,17 @@ pub fn check_definitions_pair(
     other_name: &str,
     other: &gloci_io::VcfHeader,
 ) -> Result<(), IoError> {
+    check_definitions_pair_for(HeaderRuleCmd::SORT, first_name, first, other_name, other)
+}
+
+/// [`check_definitions_pair`] with the messages of `cmd`.
+pub fn check_definitions_pair_for(
+    cmd: HeaderRuleCmd,
+    first_name: &str,
+    first: &gloci_io::VcfHeader,
+    other_name: &str,
+    other: &gloci_io::VcfHeader,
+) -> Result<(), IoError> {
     let base = first.definitions();
     let implicit = |kind: &str, id: &[u8]| kind == "FILTER" && id == b"PASS";
     let show = |kind: &str, id: &[u8]| format!("##{kind}=<ID={}>", String::from_utf8_lossy(id));
@@ -327,7 +383,7 @@ pub fn check_definitions_pair(
         path: path.to_string(),
         msg,
     };
-    let fix = "give the files the same header definitions, or sort them separately";
+    let fix = format!("give the files the same header definitions, or {}", cmd.fix);
     let theirs = other.definitions();
     for ((kind, id), line) in &theirs {
         match base.get(&(*kind, id.clone())) {
@@ -375,12 +431,20 @@ pub fn check_definitions_pair(
 /// undeclared key. Other meta lines may differ. `##FILTER=<ID=PASS>` is
 /// implicitly present in every header.
 pub fn check_definitions(readers: &[Box<dyn RecordReader>]) -> Result<(), IoError> {
+    check_definitions_for(HeaderRuleCmd::SORT, readers)
+}
+
+/// [`check_definitions`] with the messages of `cmd`.
+pub fn check_definitions_for(
+    cmd: HeaderRuleCmd,
+    readers: &[Box<dyn RecordReader>],
+) -> Result<(), IoError> {
     let Header::Vcf(first) = readers[0].header() else {
         return Ok(());
     };
     for r in &readers[1..] {
         if let Header::Vcf(h) = r.header() {
-            check_definitions_pair(readers[0].name(), first, r.name(), h)?;
+            check_definitions_pair_for(cmd, readers[0].name(), first, r.name(), h)?;
         }
     }
     Ok(())

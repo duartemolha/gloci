@@ -13,16 +13,15 @@
 //!
 //! The copy never parses records. To let the caller check the order across
 //! files it keeps the first record of each file, and the last one, which it
-//! finds by inflating only the last [`TAIL_BLOCKS`] blocks.
+//! finds by inflating blocks backwards from the end of the file until the
+//! record's first byte is reached, so the memory used is about the record's
+//! size. The last record is only looked for when the caller asks (every file
+//! but the final one).
 
-use std::collections::VecDeque;
 use std::fmt;
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 
 pub use gloci_io::BGZF_EOF;
-
-/// How many of a file's last blocks are kept to find its last record.
-pub const TAIL_BLOCKS: usize = 16;
 
 /// Why a block copy failed.
 #[derive(Debug)]
@@ -37,8 +36,6 @@ pub enum NaiveError {
     NoHeader,
     /// The header differs from the first file's; holds this file's header.
     HeaderDiffers(Vec<u8>),
-    /// The last record starts before the blocks kept to find it.
-    TailTooLong,
 }
 
 impl fmt::Display for NaiveError {
@@ -48,10 +45,6 @@ impl fmt::Display for NaiveError {
             NaiveError::Malformed(m) => f.write_str(m),
             NaiveError::NoHeader => f.write_str("the header has no #CHROM line"),
             NaiveError::HeaderDiffers(_) => f.write_str("the header differs from the first file's"),
-            NaiveError::TailTooLong => write!(
-                f,
-                "the last record is longer than the last {TAIL_BLOCKS} BGZF blocks"
-            ),
         }
     }
 }
@@ -194,13 +187,15 @@ fn strip_eol(line: &[u8]) -> &[u8] {
 }
 
 /// Copy the blocks of the BGZF VCF `src` to `out`, as the module comment
-/// describes. With `expected_header` (every file but the first) the
+/// describes. `want_last` asks for [`NaiveFile::last_record`] (and
+/// `ends_with_newline`), which needs reading blocks again. With `expected_header` (every file but the first) the
 /// header must equal it and none of the header's blocks is written; without
 /// it (the first file) every block is copied.
 pub fn copy_blocks(
-    src: &mut dyn Read,
+    src: &mut (impl Read + Seek),
     out: &mut dyn Write,
     expected_header: Option<&[u8]>,
+    want_last: bool,
 ) -> Result<NaiveFile, NaiveError> {
     let copy_all = expected_header.is_none();
     let werr = NaiveError::Write;
@@ -213,15 +208,15 @@ pub fn copy_blocks(
     let mut acc: Vec<u8> = Vec::new();
     let mut header_done = false;
     let mut first_done = false;
-    let mut tail: VecDeque<Block> = VecDeque::new();
-    // Decompressed bytes in the blocks dropped from the front of `tail`,
-    // and in all blocks before the current one.
-    let mut tail_start = 0usize;
+    // `(offset in the file, stored size, size inflated)` of each non-empty block.
+    let mut blocks: Vec<(u64, usize, usize)> = Vec::new();
+    let mut pos = 0u64;
     let mut total = 0usize;
-    let mut dropped = false;
     let mut last_was_eof = false;
     while let Some(block) = read_block(src)? {
         last_was_eof = block.raw == BGZF_EOF;
+        let at = pos;
+        pos += block.raw.len() as u64;
         if block.isize == 0 {
             continue;
         }
@@ -266,11 +261,8 @@ pub fn copy_blocks(
             out.write_all(&block.raw).map_err(NaiveError::Write)?;
         }
         total += block.isize;
-        tail.push_back(block);
-        if tail.len() > TAIL_BLOCKS {
-            let gone = tail.pop_front().expect("tail is not empty");
-            tail_start += gone.isize;
-            dropped = true;
+        if want_last {
+            blocks.push((at, block.raw.len(), block.isize));
         }
     }
     if !header_done {
@@ -281,24 +273,30 @@ pub fn copy_blocks(
         // A last record without a newline.
         info.first_record = Some(strip_eol(&acc).to_vec());
     }
-    if info.first_record.is_none() {
+    if info.first_record.is_none() || !want_last {
         return Ok(info);
     }
 
-    // The last record: inflate the kept blocks.
-    let mut text = Vec::new();
-    for b in &tail {
-        text.extend_from_slice(&inflate(b)?);
+    // The last record: inflate blocks from the end, prepending, until a
+    // newline before the record (or the end of the header) is in the text.
+    let mut text: Vec<u8> = Vec::new();
+    let mut tail_start = total;
+    for &(at, len, isize) in blocks.iter().rev() {
+        src.seek(SeekFrom::Start(at)).map_err(NaiveError::Read)?;
+        let mut raw = vec![0u8; len];
+        src.read_exact(&mut raw).map_err(NaiveError::Read)?;
+        let data = inflate(&Block { raw, isize })?;
+        tail_start -= data.len();
+        text.splice(0..0, data);
+        if tail_start <= info.header.len() || strip_eol(&text).contains(&b'\n') {
+            break;
+        }
     }
-    debug_assert_eq!(tail_start + text.len(), total);
     info.ends_with_newline = text.ends_with(b"\n");
     let body = strip_eol(&text);
     let header_in_tail = info.header.len().saturating_sub(tail_start);
     let start = match body.iter().rposition(|&b| b == b'\n') {
         Some(p) => (p + 1).max(header_in_tail),
-        None if dropped && tail_start > info.header.len() => {
-            return Err(NaiveError::TailTooLong);
-        }
         None => header_in_tail,
     };
     info.last_record = Some(strip_eol(&body[start.min(body.len())..]).to_vec());
@@ -334,8 +332,20 @@ mod tests {
         let b = [H, b"1\t7\t.\tA\tC\t.\t.\t.\n"].concat();
         let (fa, fb) = (bgzf(&[&a]), bgzf(&[&b, b"1\t8\t.\tA\tC\t.\t.\t.\n"]));
         let mut out = Vec::new();
-        let i = copy_blocks(&mut fa.as_slice(), &mut out, None).unwrap();
-        let j = copy_blocks(&mut fb.as_slice(), &mut out, Some(&i.header)).unwrap();
+        let i = copy_blocks(
+            &mut std::io::Cursor::new(fa.as_slice()),
+            &mut out,
+            None,
+            true,
+        )
+        .unwrap();
+        let j = copy_blocks(
+            &mut std::io::Cursor::new(fb.as_slice()),
+            &mut out,
+            Some(&i.header),
+            true,
+        )
+        .unwrap();
         assert_eq!(j.first_record.unwrap(), b"1\t7\t.\tA\tC\t.\t.\t.");
         assert_eq!(j.last_record.unwrap(), b"1\t8\t.\tA\tC\t.\t.\t.");
         assert!(i.eof_marker && j.eof_marker);
@@ -358,9 +368,21 @@ mod tests {
         let (r2, r3) = (rec(2), rec(3));
         let fb = bgzf(&[H, &r2, &r3]);
         let mut out = Vec::new();
-        let i = copy_blocks(&mut fa.as_slice(), &mut out, None).unwrap();
+        let i = copy_blocks(
+            &mut std::io::Cursor::new(fa.as_slice()),
+            &mut out,
+            None,
+            true,
+        )
+        .unwrap();
         let before = out.len();
-        let j = copy_blocks(&mut fb.as_slice(), &mut out, Some(&i.header)).unwrap();
+        let j = copy_blocks(
+            &mut std::io::Cursor::new(fb.as_slice()),
+            &mut out,
+            Some(&i.header),
+            true,
+        )
+        .unwrap();
         assert_eq!(j.first_record.unwrap(), b"1\t2\t.\tA\tC\t.\t.\t.");
         // nothing was recompressed: the output is file b's blocks after the header block
         let hb = deflate(H).unwrap().len();
@@ -372,7 +394,12 @@ mod tests {
         let a = bgzf(&[H, b"1\t5\t.\tA\tC\t.\t.\t.\n"]);
         let other = [H, b"##x=1\n"].concat();
         let mut out = Vec::new();
-        let r = copy_blocks(&mut a.as_slice(), &mut out, Some(&other));
+        let r = copy_blocks(
+            &mut std::io::Cursor::new(a.as_slice()),
+            &mut out,
+            Some(&other),
+            true,
+        );
         assert!(matches!(r, Err(NaiveError::HeaderDiffers(_))));
     }
 
@@ -381,9 +408,41 @@ mod tests {
         let mut a = bgzf(&[H, b"1\t5\t.\tA\tC\t.\t.\t.\n"]);
         a.truncate(a.len() - BGZF_EOF.len());
         let mut out = Vec::new();
-        let i = copy_blocks(&mut a.as_slice(), &mut out, None).unwrap();
+        let i = copy_blocks(
+            &mut std::io::Cursor::new(a.as_slice()),
+            &mut out,
+            None,
+            true,
+        )
+        .unwrap();
         assert!(!i.eof_marker);
         assert_eq!(i.last_record.unwrap(), b"1\t5\t.\tA\tC\t.\t.\t.");
+    }
+
+    #[test]
+    fn a_huge_last_record_is_found_and_the_final_file_skips_the_scan() {
+        let long = format!("1\t9\t.\tA\tC\t.\t.\t{}\n", "x".repeat(2_500_000));
+        let f = bgzf(&[H, b"1\t5\t.\tA\tC\t.\t.\t.\n", long.as_bytes()]);
+        let mut out = Vec::new();
+        let i = copy_blocks(
+            &mut std::io::Cursor::new(f.as_slice()),
+            &mut out,
+            None,
+            true,
+        )
+        .unwrap();
+        assert_eq!(i.last_record.unwrap(), long.trim_end().as_bytes());
+        assert!(i.ends_with_newline);
+        let mut out = Vec::new();
+        let j = copy_blocks(
+            &mut std::io::Cursor::new(f.as_slice()),
+            &mut out,
+            None,
+            false,
+        )
+        .unwrap();
+        assert!(j.last_record.is_none());
+        assert_eq!(j.first_record.unwrap(), b"1\t5\t.\tA\tC\t.\t.\t.");
     }
 
     #[test]
@@ -396,7 +455,13 @@ mod tests {
             &long.as_bytes()[100..],
         ]);
         let mut out = Vec::new();
-        let i = copy_blocks(&mut f.as_slice(), &mut out, None).unwrap();
+        let i = copy_blocks(
+            &mut std::io::Cursor::new(f.as_slice()),
+            &mut out,
+            None,
+            true,
+        )
+        .unwrap();
         assert_eq!(i.last_record.unwrap(), long.trim_end().as_bytes());
     }
 }

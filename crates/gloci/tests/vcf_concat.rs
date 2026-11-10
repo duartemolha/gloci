@@ -126,7 +126,7 @@ fn sample_mismatch_exits_1_naming_the_difference() {
         .assert()
         .code(1)
         .stderr(contains(format!(
-            "{b} has samples [s1,s3] but {a} has [s1,s2]"
+            "{b} has samples [s1,s3] but {a} has [s1,s2]; concat needs identical sample columns in every input"
         )));
 }
 
@@ -145,7 +145,7 @@ fn header_definition_mismatch_exits_1_with_the_multi_vcf_message() {
         .assert()
         .code(1)
         .stderr(contains(format!(
-            "{b} defines ##INFO=<ID=AF> but {a} does not; give the files the same header definitions"
+            "{b} defines ##INFO=<ID=AF> but {a} does not; give the files the same header definitions, or concat only files that share them"
         )));
     let (ga, gb) = (
         s(&bgzf_file(
@@ -287,7 +287,7 @@ fn naive_refuses_bcf_plain_and_stdin_with_exit_2() {
         .args(["vcf", "concat", "--naive", &b])
         .assert()
         .code(2)
-        .stderr(contains("BCF").and(contains("leave out --naive")));
+        .stderr(contains("BCF").and(contains("leave out --naive (checked mode handles BCF)")));
     gloci()
         .args(["vcf", "concat", "--naive", &p])
         .assert()
@@ -460,4 +460,43 @@ fn naive_output_to_stdout_and_a_missing_final_newline() {
         .stderr(contains("no final newline"));
     // checked mode handles it
     gloci().args(["vcf", "concat", &c, &b]).assert().success();
+}
+
+/// A file whose last record is about 2.5 MB: longer than any fixed tail window.
+fn huge_last(chrom: &str, pos: u32) -> String {
+    format!(
+        "{chrom}\t{pos}\t.\tA\tC\t50\tPASS\tDP={pos};BIG={}\tGT\t0/1\t1/1",
+        "z".repeat(2_500_000)
+    )
+}
+
+#[test]
+fn naive_handles_a_huge_last_record_in_a_middle_and_the_final_file() {
+    let d = tempdir();
+    let big = "##INFO=<ID=BIG,Number=1,Type=String,Description=\"Big\">\n";
+    let mk = |name: &str, recs: &[String]| {
+        let r: Vec<&str> = recs.iter().map(String::as_str).collect();
+        s(&bgzf_file(d.path(), name, &vcf(big, &r)))
+    };
+    let a = mk("a.vcf.gz", &[rec("chr1", 5), huge_last("chr1", 9)]);
+    let b = mk("b.vcf.gz", &[rec("chr1", 20), huge_last("chr2", 4)]);
+    let c = mk("c.vcf.gz", &[rec("chr2", 10), huge_last("chr2", 11)]);
+    let n = s(&d.path().join("n.vcf.gz"));
+    let k = s(&d.path().join("k.vcf.gz"));
+    gloci()
+        .args(["vcf", "concat", "--naive", &a, &b, &c, "-o", &n])
+        .assert()
+        .success();
+    gloci()
+        .args(["vcf", "concat", &a, &b, &c, "-o", &k])
+        .assert()
+        .success();
+    assert_eq!(gunzip(Path::new(&n)), gunzip(Path::new(&k)));
+    // the seam check still sees the huge last record of a middle file
+    let bad = mk("bad.vcf.gz", &[rec("chr1", 3)]);
+    gloci()
+        .args(["vcf", "concat", "--naive", &a, &bad])
+        .assert()
+        .code(1)
+        .stderr(contains("comes before the last record of"));
 }

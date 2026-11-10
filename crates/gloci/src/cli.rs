@@ -1068,7 +1068,9 @@ pub struct VcfConcatArgs {
     /// ALT and contig definitions must match, and the last record of each
     /// file must sort at or before the first record of the next (exit 1
     /// otherwise; gloci sort fixes the order). The output has the first
-    /// file's header and no ##glociCommand line.
+    /// file's header. No ##glociCommand line is added, because keeping the
+    /// first file's header unchanged lets --naive and checked output stay
+    /// identical.
     #[arg(value_name = "FILES", required = true, num_args = 1..)]
     pub files: Vec<String>,
     /// Copy the BGZF blocks of the inputs without recompressing them. Needs

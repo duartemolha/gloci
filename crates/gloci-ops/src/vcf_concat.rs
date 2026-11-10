@@ -16,7 +16,7 @@
 //! Neither mode adds a `##glociCommand` line: the output header is the
 //! first file's, so both modes write the same bytes (before compression).
 
-use crate::sort::{check_definitions, check_samples};
+use crate::sort::{HeaderRuleCmd, check_definitions_for, check_samples_for};
 use gloci_core::{ChromId, ChromOrder, ChromTable};
 use gloci_io::{
     AtomicFile, BGZF_EOF, BcfDicts, BcfText, Compression, Format, Header, IoError, OrderGuard,
@@ -169,7 +169,7 @@ pub fn vcf_concat(
             let (name, what) = (r.name(), "--naive copies BGZF blocks, so");
             if r.format() == Format::Bcf {
                 return Err(usage(format!(
-                    "{what} it cannot join the BCF file {name}: the order across BCF files cannot be checked without reading their records; leave out --naive"
+                    "{what} it cannot join the BCF file {name}: the order across BCF files cannot be checked without reading their records; leave out --naive (checked mode handles BCF)"
                 )));
             }
             if r.compression() != Compression::Bgzf {
@@ -179,8 +179,8 @@ pub fn vcf_concat(
             }
         }
     }
-    check_samples(&readers)?;
-    check_definitions(&readers)?;
+    check_samples_for(HeaderRuleCmd::CONCAT, &readers)?;
+    check_definitions_for(HeaderRuleCmd::CONCAT, &readers)?;
     let refs: Vec<&dyn RecordReader> = readers.iter().map(|r| r.as_ref()).collect();
     let chroms = chrom_table_lenient(None, &refs, opts.chrom_order)?;
     if opts.naive {
@@ -467,7 +467,12 @@ fn naive(
             path: path.clone(),
             source,
         })?;
-        let info = copy_blocks(&mut src, &mut sink, header.as_deref()).map_err(|e| match e {
+        let info = copy_blocks(
+            &mut src,
+            &mut sink,
+            header.as_deref(),
+            idx + 1 < files.len(),
+        ).map_err(|e| match e {
             NaiveError::Write(source) => IoError::Write {
                 path: dest.clone(),
                 source,
@@ -515,7 +520,7 @@ fn order_check(
     path: &str,
     info: &NaiveFile,
 ) -> Result<(), IoError> {
-    let (Some(first), Some(last)) = (&info.first_record, &info.last_record) else {
+    let Some(first) = &info.first_record else {
         return Ok(());
     };
     let bad = |what: &str, line: &[u8]| IoError::Detect {
@@ -534,10 +539,15 @@ fn order_check(
         Ok((id, key))
     };
     let (fc, fk) = resolve("first", first)?;
-    let (lc, lk) = resolve("last", last)?;
+    let last = match &info.last_record {
+        Some(l) => Some((resolve("last", l)?, l)),
+        None => None,
+    };
     // The first record is on the line after the header.
     let line = info.header.iter().filter(|&&b| b == b'\n').count() + 1;
     boundary.check_first(chroms, path, fc, fk, &format!("line {line}"), &show(first))?;
-    boundary.set_last(path, lc, lk, show(last));
+    if let Some(((lc, lk), l)) = last {
+        boundary.set_last(path, lc, lk, show(l));
+    }
     Ok(())
 }
