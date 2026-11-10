@@ -369,14 +369,24 @@ pub(super) fn run_per_chromosome<R: Send>(
     {
         d.unmapped += fa.unplaced_reads();
     }
-    for ((name, d), _) in summary
+    for (i, ((name, d), _)) in summary
         .skipped
         .iter()
         .zip(&is_alignment)
-        .filter(|(_, aln)| **aln)
+        .enumerate()
+        .filter(|(_, (_, aln))| **aln)
     {
         d.log_deferred_warnings();
-        d.log_alignment_counts(name);
+        // An indexed -b is read only where A needs it, and with regions only the regions
+        // are: those counts are of the reads read, not of the whole file.
+        if i > 0 || a_regions.is_some() {
+            d.log_alignment_counts_among(
+                name,
+                " (among the reads read: an indexed -b, or --region, reads only where needed)",
+            );
+        } else {
+            d.log_alignment_counts(name);
+        }
     }
     if watching {
         for (f, flag) in std::iter::once(&file_a).chain(&files_b).zip(&flags) {

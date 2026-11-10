@@ -114,9 +114,15 @@ impl Diagnostics {
     /// reads the filters dropped, reads off the end of their reference and blank lines. Every
     /// command that reads alignments calls this when it is done with an input.
     pub fn log_alignment_counts(&self, name: &str) {
+        self.log_alignment_counts_among(name, "");
+    }
+
+    /// As [`Diagnostics::log_alignment_counts`], with `note` after each line (for an input
+    /// read only where it was needed: the counts are of the reads read).
+    pub fn log_alignment_counts_among(&self, name: &str, note: &str) {
         let line = |n: u64, what: &str| {
             if n > 0 {
-                log::info!("{name}: {} {what}", thousands(n));
+                log::info!("{name}: {} {what}{note}", thousands(n));
             }
         };
         line(self.unmapped, "unmapped reads left out");

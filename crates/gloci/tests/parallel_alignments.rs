@@ -288,6 +288,10 @@ fn bam_error_same_at_every_t() {
     let dir = tempdir();
     let mut reads = Vec::new();
     for c in 0..5usize {
+        // chr10 (index 3) has no reads: its index entry has no bins and no counts.
+        if c == 3 {
+            continue;
+        }
         for k in 0..10u32 {
             reads.push((c, 1 + k * 100, 0u16, "30M"));
         }
@@ -300,7 +304,7 @@ fn bam_error_same_at_every_t() {
     let good = dir.path().join("good.bam");
     std::fs::write(&good, stored_bgzf(&payload)).unwrap();
     index(&good);
-    // Walk to the fourth record of chr2 (reference id 1) and give its CIGAR an operation
+    // Walk to the fourth record of chrX (reference id 4) and give its CIGAR an operation
     // code BAM does not define.
     let u32_at =
         |b: &[u8], at: usize| u32::from_le_bytes(b[at..at + 4].try_into().unwrap()) as usize;
@@ -311,12 +315,12 @@ fn bam_error_same_at_every_t() {
     for _ in 0..n_ref {
         at += 4 + u32_at(&payload, at) + 4;
     }
-    let (mut on_chr2, mut hit) = (0, 0);
+    let (mut on_chrx, mut hit) = (0, 0);
     while at < payload.len() {
         let size = u32_at(&payload, at);
-        if u32_at(&payload, at + 4) == 1 {
-            on_chr2 += 1;
-            if on_chr2 == 4 {
+        if u32_at(&payload, at + 4) == 4 {
+            on_chrx += 1;
+            if on_chrx == 4 {
                 let l_name = usize::from(payload[at + 4 + 8]);
                 payload[at + 4 + 32 + l_name] |= 0xF;
                 hit = at;
@@ -340,7 +344,7 @@ fn bam_error_same_at_every_t() {
     let a = s(&plain_file(
         dir.path(),
         "a.bed",
-        "chr1\t0\t900\nchr2\t0\t900\nchr3\t0\t300\n",
+        "chr1\t0\t900\nchr2\t0\t900\nchr3\t0\t300\nchrX\t0\t900\n",
     ));
     let at = |t: &str| {
         let (code, _, err) =
@@ -356,7 +360,7 @@ fn bam_error_same_at_every_t() {
     assert_eq!(one.0, Some(1), "{one:?}");
     let msg = one.1.join("\n");
     assert!(
-        msg.contains("record 4 of chr2") && msg.contains("record 14 of the file"),
+        msg.contains("record 4 of chrX") && msg.contains("record 34 of the file"),
         "{msg}"
     );
     for t in ["2", "8"] {
@@ -404,7 +408,7 @@ fn huge_header_per_chromosome() {
     let (eight, took) = run("8");
     assert_eq!(one, eight);
     assert!(
-        took.as_secs() < 60,
+        took.as_secs() < 20,
         "-t 8 took {took:?}: per-chromosome work must not be quadratic in contigs"
     );
     let _ = (one, eight);

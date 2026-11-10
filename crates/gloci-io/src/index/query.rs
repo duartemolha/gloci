@@ -21,10 +21,15 @@ impl Loaded {
     /// the file". `None` when the index lacks the counts of an earlier reference.
     fn records_before(&self, rid: usize) -> Option<u64> {
         fn count<I: BinIndexKind>(refs: &[ReferenceSequence<I>], rid: usize) -> Option<u64> {
-            refs.get(..rid)?.iter().try_fold(0u64, |n, r| {
-                let m = r.metadata()?;
-                Some(n + m.mapped_record_count() + m.unmapped_record_count())
-            })
+            refs.get(..rid)?
+                .iter()
+                .try_fold(0u64, |n, r| match r.metadata() {
+                    Some(m) => Some(n + m.mapped_record_count() + m.unmapped_record_count()),
+                    // A reference with no reads has no bins and no counts (samtools and gloci
+                    // alike): it adds none. One with bins but no counts cannot be counted.
+                    None if r.bins().is_empty() => Some(n),
+                    None => None,
+                })
         }
         match self {
             Loaded::Bai(i) => count(i.reference_sequences(), rid),

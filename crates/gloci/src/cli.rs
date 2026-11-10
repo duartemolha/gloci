@@ -255,8 +255,9 @@ Examples:
     /// afterwards. Use --unsorted when you want A's order kept and every
     /// -b file fits in memory. The two cannot be combined.
     ///
-    /// When A and every -b file are BGZF files with a .tbi or .csi index (a BAM with a .bai or .csi), or
-    /// plain (uncompressed) BED, bedGraph or VCF files, which are scanned once
+    /// When A and every -b file are BGZF files with a .tbi or .csi index (a
+    /// BAM with a .bai or .csi), or plain (uncompressed) BED, bedGraph or VCF
+    /// files, which are scanned once
     /// for where each chromosome's records lie, and more than one thread is
     /// used, the work runs on runs of chromosomes in parallel, which are
     /// read and written in the chromosome-table order
@@ -271,7 +272,9 @@ Examples:
     /// varies with the thread count (-o FILE is written atomically). Plain
     /// inputs are validated to their end at every thread count; for indexed
     /// inputs, records outside the queried chromosomes are validated only at
-    /// -t 1. When more than one input is malformed, the error reported may
+    /// -t 1. With -v, the counts of reads left out of an indexed -b (or of
+    /// anything under --region) are of the reads read, which depend on the
+    /// thread count. When more than one input is malformed, the error reported may
     /// name a different input at different thread counts; the exit code is
     /// the same.
     #[command(after_long_help = "\
@@ -663,8 +666,9 @@ Examples:
     /// afterwards. Use --unsorted when you want A's order kept and every
     /// -b file fits in memory. The two cannot be combined.
     ///
-    /// When A and every -b file are BGZF files with a .tbi or .csi index (a BAM with a .bai or .csi), or
-    /// plain (uncompressed) BED, bedGraph or VCF files, which are scanned once
+    /// When A and every -b file are BGZF files with a .tbi or .csi index (a
+    /// BAM with a .bai or .csi), or plain (uncompressed) BED, bedGraph or VCF
+    /// files, which are scanned once
     /// for where each chromosome's records lie, and more than one thread is
     /// used, the work runs on runs of chromosomes in parallel, which are
     /// read and written in the chromosome-table order
@@ -679,7 +683,9 @@ Examples:
     /// varies with the thread count (-o FILE is written atomically). Plain
     /// inputs are validated to their end at every thread count; for indexed
     /// inputs, records outside the queried chromosomes are validated only at
-    /// -t 1. When more than one input is malformed, the error reported may
+    /// -t 1. With -v, the counts of reads left out of an indexed -b (or of
+    /// anything under --region) are of the reads read, which depend on the
+    /// thread count. When more than one input is malformed, the error reported may
     /// name a different input at different thread counts; the exit code is
     /// the same.
     #[command(after_long_help = "\
@@ -740,8 +746,9 @@ Examples:
     /// afterwards. Use --unsorted when you want A's order kept and every
     /// -b file fits in memory. The two cannot be combined.
     ///
-    /// When A and every -b file are BGZF files with a .tbi or .csi index (a BAM with a .bai or .csi), or
-    /// plain (uncompressed) BED, bedGraph or VCF files, which are scanned once
+    /// When A and every -b file are BGZF files with a .tbi or .csi index (a
+    /// BAM with a .bai or .csi), or plain (uncompressed) BED, bedGraph or VCF
+    /// files, which are scanned once
     /// for where each chromosome's records lie, and more than one thread is
     /// used, the work runs on runs of chromosomes in parallel, which are
     /// read and written in the chromosome-table order
@@ -756,7 +763,9 @@ Examples:
     /// varies with the thread count (-o FILE is written atomically). Plain
     /// inputs are validated to their end at every thread count; for indexed
     /// inputs, records outside the queried chromosomes are validated only at
-    /// -t 1. When more than one input is malformed, the error reported may
+    /// -t 1. With -v, the counts of reads left out of an indexed -b (or of
+    /// anything under --region) are of the reads read, which depend on the
+    /// thread count. When more than one input is malformed, the error reported may
     /// name a different input at different thread counts; the exit code is
     /// the same.
     #[command(after_long_help = "\
@@ -817,8 +826,9 @@ Examples:
     /// afterwards. Use --unsorted when you want A's order kept and every
     /// -b file fits in memory. The two cannot be combined.
     ///
-    /// When A and every -b file are BGZF files with a .tbi or .csi index (a BAM with a .bai or .csi), or
-    /// plain (uncompressed) BED, bedGraph or VCF files, which are scanned once
+    /// When A and every -b file are BGZF files with a .tbi or .csi index (a
+    /// BAM with a .bai or .csi), or plain (uncompressed) BED, bedGraph or VCF
+    /// files, which are scanned once
     /// for where each chromosome's records lie, and more than one thread is
     /// used, the work runs on runs of chromosomes in parallel, which are
     /// read and written in the chromosome-table order
@@ -833,7 +843,9 @@ Examples:
     /// varies with the thread count (-o FILE is written atomically). Plain
     /// inputs are validated to their end at every thread count; for indexed
     /// inputs, records outside the queried chromosomes are validated only at
-    /// -t 1. When more than one input is malformed, the error reported may
+    /// -t 1. With -v, the counts of reads left out of an indexed -b (or of
+    /// anything under --region) are of the reads read, which depend on the
+    /// thread count. When more than one input is malformed, the error reported may
     /// name a different input at different thread counts; the exit code is
     /// the same.
     #[command(after_long_help = "\
@@ -886,8 +898,9 @@ Examples:
     /// afterwards. Use --unsorted when you want A's order kept and every
     /// -b file fits in memory. The two cannot be combined.
     ///
-    /// When A and every -b file are BGZF files with a .tbi or .csi index (a BAM with a .bai or .csi), or
-    /// plain (uncompressed) BED, bedGraph or VCF files, which are scanned once
+    /// When A and every -b file are BGZF files with a .tbi or .csi index (a
+    /// BAM with a .bai or .csi), or plain (uncompressed) BED, bedGraph or VCF
+    /// files, which are scanned once
     /// for where each chromosome's records lie, and more than one thread is
     /// used, the work runs on runs of chromosomes in parallel, which are
     /// read and written in the chromosome-table order
@@ -902,7 +915,9 @@ Examples:
     /// varies with the thread count (-o FILE is written atomically). Plain
     /// inputs are validated to their end at every thread count; for indexed
     /// inputs, records outside the queried chromosomes are validated only at
-    /// -t 1. When more than one input is malformed, the error reported may
+    /// -t 1. With -v, the counts of reads left out of an indexed -b (or of
+    /// anything under --region) are of the reads read, which depend on the
+    /// thread count. When more than one input is malformed, the error reported may
     /// name a different input at different thread counts; the exit code is
     /// the same.
     #[command(after_long_help = "\
