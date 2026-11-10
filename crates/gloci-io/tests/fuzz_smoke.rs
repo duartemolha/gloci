@@ -5,7 +5,7 @@
 
 use gloci_io::Format;
 use gloci_io::fuzz_bodies::{drain_input, read_all_both, region_parse};
-use gloci_testkit::fixtures::{bgzip, vcf_to_bcf};
+use gloci_testkit::fixtures::{bgzip, sam_to_bam, vcf_to_bcf};
 use proptest::prelude::*;
 
 pub const VCF_HEADER: &str = "##fileformat=VCFv4.3\n\
@@ -217,6 +217,45 @@ fn bcf_header_then_junk() -> impl Strategy<Value = Vec<u8>> {
     })
 }
 
+const BAM_SEED_SAM: &str = "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:1000\n@SQ\tSN:chr2\tLN:500\n\
+a\t0\tchr1\t11\t60\t5S10M2D5M\t*\t0\t0\tACGTACGTACGTACGTACGT\tIIIIIIIIIIIIIIIIIIII\tNM:i:2\n\
+b\t16\tchr1\t21\t30\t8M100N8M\t*\t0\t0\tACGTACGTACGTACGT\tIIIIIIIIIIIIIIII\tNM:i:0\tXX:Z:hi\n\
+c\t4\t*\t0\t0\t*\t*\t0\t0\tACGT\tIIII\n\
+d\t0\tchr2\t5\t60\t10M\t*\t0\t0\tACGTACGTAC\tIIIIIIIIII\n";
+
+fn bam_plain() -> Vec<u8> {
+    use std::io::Read;
+    let mut out = Vec::new();
+    noodles_bgzf::io::Reader::new(&sam_to_bam(BAM_SEED_SAM)[..])
+        .read_to_end(&mut out)
+        .unwrap();
+    out
+}
+
+/// Byte-level mutations of a valid BAM (flip, truncate, insert), re-wrapped.
+fn bam_mutated() -> impl Strategy<Value = Vec<u8>> {
+    let base = bam_plain();
+    let len = base.len();
+    (
+        prop::collection::vec((0..len, any::<u8>()), 0..6),
+        prop::option::of(0..len),
+        prop::option::of((0..len, bytes())),
+    )
+        .prop_map(move |(flips, trunc, ins)| {
+            let mut d = base.clone();
+            for (i, b) in flips {
+                d[i] = b;
+            }
+            if let Some((at, extra)) = ins {
+                d.splice(at..at, extra);
+            }
+            if let Some(t) = trunc {
+                d.truncate(t.min(d.len()));
+            }
+            bgzip(&d)
+        })
+}
+
 fn bed_lines() -> impl Strategy<Value = Vec<u8>> {
     let field = prop_oneof![
         3 => num(),
@@ -319,6 +358,16 @@ proptest! {
     #[test]
     fn mutated_bcf(d in bcf_mutated(), c in cfg()) {
         read_all_both(&with_cfg(c, d), Some(Format::Bcf));
+    }
+
+    #[test]
+    fn mutated_bam(d in bam_mutated(), c in cfg()) {
+        read_all_both(&with_cfg(c, d), Some(Format::Bam));
+    }
+
+    #[test]
+    fn arbitrary_bytes_as_bam(d in prop_oneof![bytes(), texty()], c in cfg()) {
+        read_all_both(&with_cfg(c, bgzip(&d)), Some(Format::Bam));
     }
 
     #[test]

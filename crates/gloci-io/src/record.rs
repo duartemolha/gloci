@@ -61,6 +61,8 @@ pub enum Header {
     /// Header lines, each terminated by `\n`.
     Lines(Vec<u8>),
     Vcf(crate::vcf::VcfHeader),
+    /// The header of a BAM, SAM or CRAM input.
+    Alignment(Arc<crate::align::AlnHeader>),
 }
 
 /// Bytes of records to read per batch, and the bound on the record count.
@@ -202,6 +204,14 @@ fn dispatch(input: Input, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, Io
             o.vcf_span,
             o.chrom_map.as_deref(),
         )?)),
+        Format::Bam if o.accept.alignments.is_some() => {
+            Ok(Box::new(crate::align::BamReader::open_bam(
+                input,
+                o.invalid,
+                o.chrom_map.as_deref(),
+                o.accept.alignments.clone().unwrap_or_default(),
+            )?))
+        }
         // `gate` has returned an error for each of these.
         Format::Bam | Format::Cram | Format::Sam | Format::Fasta | Format::Psl | Format::Rmsk => {
             Err(IoError::Detect {

@@ -30,7 +30,9 @@ pub mod vcf;
 pub mod wig;
 pub mod writer;
 
-pub use align::{Accept, AlignOptions, parse_flags};
+pub use align::{
+    Accept, AlignOptions, Aln, AlnHeader, AlnRef, SortOrder, aln_ref, blocks, parse_flags,
+};
 pub use atomic::{
     __test_with_registry_locked, AtomicFile, TempGuard, cleanup_registered,
     create_file_in_temp_dir, create_temp_dir_in, create_temp_file, install_cleanup_handlers,

@@ -20,7 +20,10 @@ use crate::{
 pub fn read_all(data: &[u8], format: Option<Format>, invalid: InvalidPolicy) {
     let (cfg, data) = split_config(data);
     let o = ReaderOptions {
-        accept: crate::align::Accept::default(),
+        accept: crate::align::Accept {
+            alignments: Some(crate::align::AlignOptions::default()),
+            ..crate::align::Accept::default()
+        },
         chrom_map: None,
         threads: threads(cfg),
         format,
@@ -40,6 +43,12 @@ pub fn read_all(data: &[u8], format: Option<Format>, invalid: InvalidPolicy) {
             Ok(false) | Err(_) => return,
         }
     }
+}
+
+/// Read `data` as a BAM under both invalid-record policies (the BAM header, framing
+/// and every record check are in this path).
+pub fn read_bam(data: &[u8]) {
+    read_all_both(data, Some(Format::Bam));
 }
 
 fn split_config(data: &[u8]) -> (u8, &[u8]) {

@@ -24,6 +24,10 @@ pub struct Diagnostics {
     /// Blank lines a text reader dropped, and the first 10 line numbers.
     pub blank_lines: u64,
     pub blank_examples: Vec<u64>,
+    /// Unmapped alignments an interval reader left out (D101).
+    pub unmapped: u64,
+    /// Alignments the read filters dropped (D102).
+    pub filtered: u64,
     /// `(example index, line, msg)` for the examples recorded by line, so
     /// `shift_lines` can renumber them.
     lines: Vec<(usize, u64, String)>,
@@ -62,6 +66,8 @@ impl Diagnostics {
     pub fn absorb(&mut self, other: Diagnostics) {
         self.skipped += other.skipped;
         self.blank_lines += other.blank_lines;
+        self.unmapped += other.unmapped;
+        self.filtered += other.filtered;
         let room = MAX_EXAMPLES.saturating_sub(self.blank_examples.len());
         self.blank_examples
             .extend(other.blank_examples.into_iter().take(room));

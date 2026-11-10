@@ -93,7 +93,7 @@ jobs:
       - name: Fuzz each target for 60 s
         run: |
           rc=0
-          for t in bed_reader vcf_reader bcf_reader gff_reader bgzf_input region_parse; do
+          for t in bed_reader vcf_reader bcf_reader bam_reader gff_reader bgzf_input region_parse; do
             # Seed inputs (valid files past the headers); generated inputs stay untracked.
             mkdir -p "fuzz/corpus/$t"
             cp -n fuzz/seeds/"$t"/* "fuzz/corpus/$t"/ || true

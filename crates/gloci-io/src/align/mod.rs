@@ -1,5 +1,13 @@
 //! Alignment input (BAM, CRAM, SAM): options, flag parsing and the input gate (D100).
-//! The readers themselves arrive in later P3a tasks.
+//! The BAM reader is here; the SAM and CRAM readers arrive in later P3a tasks.
+
+mod bam;
+mod header;
+mod record;
+
+pub(crate) use bam::BamReader;
+pub use header::{AlnHeader, SortOrder};
+pub use record::{Aln, AlnRef, aln_ref, blocks};
 
 use crate::detect::Format;
 use crate::error::{GateKind, IoError};
@@ -15,6 +23,8 @@ pub struct AlignOptions {
     pub full_records: bool,
     /// The FASTA reference CRAM input needs.
     pub reference: Option<PathBuf>,
+    /// An aux tag a slim record keeps (`--score-tag`, D115).
+    pub score_tag: Option<[u8; 2]>,
 }
 
 /// What a command accepts as input beyond interval formats. The default accepts
@@ -119,6 +129,10 @@ pub fn gate(name: &str, format: Format, accept: &Accept) -> Result<(), IoError> 
         )
     };
     if format.is_alignment() {
+        // `convert` reads BAM through its own path (a later task): until then it refuses it.
+        if format == Format::Bam && accept.alignments.is_some() && !accept.convert_only {
+            return Ok(());
+        }
         if accept.alignments.is_some() {
             return Err(IoError::Detect {
                 path: name.to_string(),

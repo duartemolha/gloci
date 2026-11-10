@@ -1,5 +1,6 @@
 //! On-the-fly sortedness check shared by every streaming command (spec §4.5).
 
+use crate::align::SortOrder;
 use crate::detect::Format;
 use crate::error::{IoError, Loc, OrderError};
 use crate::record::RecordBatch;
@@ -15,9 +16,30 @@ pub fn sort_hint(name: &str, source: &OrderSource) -> String {
     match source {
         OrderSource::GenomeFile(p) => format!("run: gloci sort {name} -g {}", p.display()),
         OrderSource::BuiltinGenome(id) => format!("run: gloci sort {name} -g {id}"),
+        OrderSource::AlignmentHeader(p) => format!("run: gloci sort {name} -g {p}"),
         OrderSource::Lexicographic => format!("run: gloci sort {name} --chrom-order lex"),
         _ => format!("run: gloci sort {name}"),
     }
+}
+
+/// The `hint:` line for an alignment input that is out of order: sort it, or let
+/// the command sort it (D103). `so` is what its header declares.
+pub fn alignment_sort_hint(name: &str, source: &OrderSource, so: SortOrder) -> String {
+    let out = match name.strip_suffix(".bam") {
+        Some(stem) => format!("{stem}.sorted.bam"),
+        None => "sorted.bam".to_string(),
+    };
+    let genome = match source {
+        OrderSource::GenomeFile(p) => format!(" -g {}", p.display()),
+        OrderSource::BuiltinGenome(id) => format!(" -g {id}"),
+        _ => String::new(),
+    };
+    let declared = if so == SortOrder::Queryname {
+        "; the header says SO:queryname, so it is not coordinate-sorted"
+    } else {
+        ""
+    };
+    format!("run: gloci sort {name} -o {out}{genome}, or pass --sort{declared}")
 }
 
 /// Added to the hint when a karyotype-order check fails on a pair of
@@ -30,6 +52,8 @@ pub struct OrderGuard {
     name: String,
     binary: bool,
     checker: OrderChecker,
+    /// For an alignment input, what its header declares (it picks the hint).
+    alignment: Option<SortOrder>,
     /// The last record seen: `(loc, shown bytes)`; the bytes live in `prev`.
     prev_loc: u64,
     prev: Vec<u8>,
@@ -65,12 +89,21 @@ impl OrderGuard {
     pub fn new(name: &str, format: Format) -> OrderGuard {
         OrderGuard {
             name: name.to_string(),
-            binary: format == Format::Bcf,
+            binary: matches!(format, Format::Bcf | Format::Bam),
+            alignment: format.is_alignment().then_some(SortOrder::Unknown),
             checker: OrderChecker::new(),
             prev_loc: 0,
             prev: Vec::new(),
             seen: None,
         }
+    }
+
+    /// Note what the alignment header of this input declares, for the hint.
+    pub fn with_sort_order(mut self, so: SortOrder) -> OrderGuard {
+        if self.alignment.is_some() {
+            self.alignment = Some(so);
+        }
+        self
     }
 
     /// Records of a chromosome must be contiguous and sorted by key, in any
@@ -135,7 +168,10 @@ impl OrderGuard {
                     loc: loc(m.loc),
                     rec: show(&cur),
                     hint: {
-                        let mut hint = sort_hint(&self.name, chroms.order_source());
+                        let mut hint = match self.alignment {
+                            Some(so) => alignment_sort_hint(&self.name, chroms.order_source(), so),
+                            None => sort_hint(&self.name, chroms.order_source()),
+                        };
                         if let OrderViolation::ChromBackwards { prev, next } = v
                             && self.seen.is_none()
                             && *chroms.order_source() == OrderSource::Karyotype

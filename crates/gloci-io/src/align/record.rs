@@ -1,0 +1,393 @@
+//! One alignment record as an interval (D101): a borrowed view of a BAM record,
+//! and the blocks of its CIGAR (D105).
+
+use super::header::AlnHeader;
+use crate::detect::Format;
+use gloci_core::{Interval, Strand};
+
+/// Bytes before the read name in a BAM record, after `block_size`.
+const FIXED: usize = 32;
+const CIGAR_LETTERS: &[u8; 9] = b"MIDNSHP=X";
+const FLAG_UNMAPPED: u16 = 0x4;
+const FLAG_REVERSE: u16 = 0x10;
+
+/// A view of one BAM record (the bytes after `block_size`), checked by [`Aln::parse`].
+#[derive(Debug, Clone, Copy)]
+pub struct Aln<'a> {
+    raw: &'a [u8],
+    ref_id: i32,
+    pos: i32,
+    flag: u16,
+    mapq: u8,
+    name: &'a [u8],
+    /// The CIGAR words as stored in the record.
+    inline_cigar: &'a [u8],
+    /// The CIGAR words in use: `inline_cigar`, or the `CG:B:I` array that replaces
+    /// a placeholder (htslib's convention for more than 65,535 operations).
+    cigar: &'a [u8],
+    /// The aux data after the sequence and qualities.
+    tags: &'a [u8],
+}
+
+fn u32_at(b: &[u8], at: usize) -> u32 {
+    u32::from_le_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]])
+}
+
+fn i32_at(b: &[u8], at: usize) -> i32 {
+    u32_at(b, at) as i32
+}
+
+fn words(c: &[u8]) -> impl Iterator<Item = (u8, u32)> + '_ {
+    c.chunks_exact(4).map(|w| {
+        let v = u32::from_le_bytes([w[0], w[1], w[2], w[3]]);
+        ((v & 0xf) as u8, v >> 4)
+    })
+}
+
+/// One aux field: `(tag, type, value bytes)`. For `B` arrays the value starts with
+/// the element type and the count.
+type Tag<'a> = ([u8; 2], u8, &'a [u8]);
+
+/// The aux field at the front of `data` and its encoded length, or `None` if malformed.
+fn one_tag(data: &[u8]) -> Option<(usize, Tag<'_>)> {
+    let head = data.get(..3)?;
+    let (tag, ty) = ([head[0], head[1]], head[2]);
+    let body = &data[3..];
+    let size = match ty {
+        b'A' | b'c' | b'C' => 1,
+        b's' | b'S' => 2,
+        b'i' | b'I' | b'f' => 4,
+        b'Z' | b'H' => memchr::memchr(0, body)? + 1,
+        b'B' => {
+            let w = match *body.first()? {
+                b'c' | b'C' => 1usize,
+                b's' | b'S' => 2,
+                b'i' | b'I' | b'f' => 4,
+                _ => return None,
+            };
+            let n = u32::from_le_bytes(body.get(1..5)?.try_into().ok()?) as usize;
+            5usize.checked_add(n.checked_mul(w)?)?
+        }
+        _ => return None,
+    };
+    let value = body.get(..size)?;
+    Some((3 + size, (tag, ty, value)))
+}
+
+/// The aux fields of `data`, stopping (with `Err`) at one that is malformed.
+fn tags(mut data: &[u8]) -> impl Iterator<Item = Result<Tag<'_>, ()>> {
+    std::iter::from_fn(move || {
+        if data.is_empty() {
+            return None;
+        }
+        match one_tag(data) {
+            Some((used, t)) => {
+                data = &data[used..];
+                Some(Ok(t))
+            }
+            None => {
+                data = &[];
+                Some(Err(()))
+            }
+        }
+    })
+}
+
+impl<'a> Aln<'a> {
+    /// Check and view the record `raw` (without its `block_size`).
+    pub fn parse(raw: &'a [u8], h: &AlnHeader) -> Result<Aln<'a>, String> {
+        if raw.len() < FIXED {
+            return Err(format!(
+                "the record is {} bytes, shorter than the {FIXED} fixed bytes of a BAM record",
+                raw.len()
+            ));
+        }
+        let ref_id = i32_at(raw, 0);
+        let pos = i32_at(raw, 4);
+        if ref_id < -1 || ref_id as i64 >= h.refs.len() as i64 {
+            return Err(format!(
+                "refID {ref_id} is outside the {} references of the header",
+                h.refs.len()
+            ));
+        }
+        if pos < -1 {
+            return Err(format!("pos {pos} is below -1"));
+        }
+        let l_name = usize::from(raw[8]);
+        let mapq = raw[9];
+        let n_cigar = usize::from(u16::from_le_bytes([raw[12], raw[13]]));
+        let flag = u16::from_le_bytes([raw[14], raw[15]]);
+        let l_seq = u32_at(raw, 16) as usize;
+        let name_end = FIXED + l_name;
+        if l_name < 2 {
+            return Err("the read name is empty; a BAM read name has 1 to 254 characters".into());
+        }
+        if name_end > raw.len() || raw[name_end - 1] != 0 {
+            return Err("the read name is not terminated by a NUL byte".into());
+        }
+        let name = &raw[FIXED..name_end - 1];
+        let cigar_end = name_end + 4 * n_cigar;
+        if cigar_end > raw.len() {
+            return Err(format!(
+                "the CIGAR of {n_cigar} operations runs past the end of the record"
+            ));
+        }
+        let seq_bytes = l_seq / 2 + (l_seq & 1);
+        let tags_at = l_seq
+            .checked_add(seq_bytes)
+            .and_then(|s| cigar_end.checked_add(s))
+            .filter(|&t| t <= raw.len())
+            .ok_or_else(|| {
+                format!("the sequence of {l_seq} bases runs past the end of the record")
+            })?;
+        let inline_cigar = &raw[name_end..cigar_end];
+        let tags = &raw[tags_at..];
+        let mut a = Aln {
+            raw,
+            ref_id,
+            pos,
+            flag,
+            mapq,
+            name,
+            inline_cigar,
+            cigar: inline_cigar,
+            tags,
+        };
+        a.check_ops(inline_cigar)?;
+        // A placeholder CIGAR (`kS nN`) plus a CG tag holds the real one.
+        let mut it = words(inline_cigar);
+        if n_cigar == 2
+            && it.next().is_some_and(|(op, _)| op == 4)
+            && it.next().is_some_and(|(op, _)| op == 3)
+            && let Some(cg) = a.cg_array()?
+        {
+            a.check_ops(cg)?;
+            a.cigar = cg;
+        }
+        if flag & FLAG_UNMAPPED == 0 {
+            if ref_id < 0 || pos < 0 {
+                return Err(format!(
+                    "a mapped read (flag {flag}) has refID {ref_id} and pos {pos}; \
+the flag should include 4 (unmapped), or the record needs a reference and position"
+                ));
+            }
+            if l_seq > 0 && !a.cigar.is_empty() {
+                let q: u64 = words(a.cigar)
+                    .filter(|(op, _)| matches!(op, 0 | 1 | 4 | 7 | 8))
+                    .map(|(_, n)| u64::from(n))
+                    .sum();
+                if q != l_seq as u64 {
+                    return Err(format!(
+                        "the CIGAR covers {q} bases of the read but the sequence has {l_seq}"
+                    ));
+                }
+            }
+        }
+        Ok(a)
+    }
+
+    fn check_ops(&self, cigar: &[u8]) -> Result<(), String> {
+        match words(cigar).find(|(op, _)| *op > 8) {
+            Some((op, _)) => Err(format!(
+                "the CIGAR has the operation code {op}; BAM defines 0 to 8"
+            )),
+            None => Ok(()),
+        }
+    }
+
+    /// The words of a `CG:B:I` tag.
+    fn cg_array(&self) -> Result<Option<&'a [u8]>, String> {
+        for t in tags(self.tags) {
+            let (tag, ty, v) =
+                t.map_err(|()| "the aux data is malformed where the CG tag should be".to_string())?;
+            if tag == *b"CG" {
+                if ty != b'B' || v[0] != b'I' {
+                    return Err("the CG tag is not a B:I array".into());
+                }
+                return Ok(Some(&v[5..]));
+            }
+        }
+        Ok(None)
+    }
+
+    pub fn ref_id(&self) -> Option<usize> {
+        usize::try_from(self.ref_id).ok()
+    }
+
+    /// The 0-based position, or `None` when the record has none.
+    pub fn pos(&self) -> Option<u64> {
+        u64::try_from(self.pos).ok()
+    }
+
+    pub fn flag(&self) -> u16 {
+        self.flag
+    }
+
+    pub fn mapq(&self) -> u8 {
+        self.mapq
+    }
+
+    pub fn name(&self) -> &'a [u8] {
+        self.name
+    }
+
+    pub fn raw(&self) -> &'a [u8] {
+        self.raw
+    }
+
+    /// Call `f(letter, length)` for each CIGAR operation, `CG`-resolved, with SAM letters.
+    pub fn for_each_op(&self, f: &mut dyn FnMut(u8, u32)) {
+        for (op, n) in words(self.cigar) {
+            f(CIGAR_LETTERS[usize::from(op)], n);
+        }
+    }
+
+    /// An integer aux field of any integer type.
+    pub fn int_tag(&self, tag: [u8; 2]) -> Option<i64> {
+        let (_, ty, v) = tags(self.tags).map_while(Result::ok).find(|t| t.0 == tag)?;
+        Some(match ty {
+            b'c' => i64::from(v[0] as i8),
+            b'C' => i64::from(v[0]),
+            b's' => i64::from(i16::from_le_bytes([v[0], v[1]])),
+            b'S' => i64::from(u16::from_le_bytes([v[0], v[1]])),
+            b'i' => i64::from(i32::from_le_bytes([v[0], v[1], v[2], v[3]])),
+            b'I' => i64::from(u32::from_le_bytes([v[0], v[1], v[2], v[3]])),
+            _ => return None,
+        })
+    }
+
+    /// The reference length the CIGAR covers (`M D N = X`), at least 1 for a read with none
+    /// (htslib's `bam_endpos`).
+    fn ref_len(&self) -> u64 {
+        let n: u64 = words(self.cigar)
+            .filter(|(op, _)| matches!(op, 0 | 2 | 3 | 7 | 8))
+            .map(|(_, n)| u64::from(n))
+            .sum();
+        n.max(1)
+    }
+
+    /// The footprint of a mapped read, cut at `ref_len` (the length of its reference),
+    /// and whether it was cut. `None` for an unmapped read (D101).
+    pub fn span(&self, ref_len: u64) -> Option<(Interval, bool)> {
+        if self.flag & FLAG_UNMAPPED != 0 {
+            return None;
+        }
+        let start = self.pos()?;
+        let end = start.saturating_add(self.ref_len());
+        if end > ref_len {
+            let cut = Interval {
+                start: start.min(ref_len),
+                end: ref_len,
+            };
+            return Some((cut, true));
+        }
+        Some((Interval { start, end }, false))
+    }
+
+    pub fn strand(&self) -> Strand {
+        if self.flag & FLAG_REVERSE != 0 {
+            Strand::Minus
+        } else {
+            Strand::Plus
+        }
+    }
+
+    /// Append the slim form of this record (D115) to `out`: the fixed fields (with no
+    /// sequence), the name, the CIGAR words as stored, and the `CG` tag and `keep` tag.
+    /// It parses with [`Aln::parse`] and gives the same name, flag, MAPQ, operations and span.
+    pub fn write_slim(&self, keep: Option<[u8; 2]>, out: &mut Vec<u8>) {
+        let at = out.len();
+        out.extend_from_slice(&self.raw[..FIXED]);
+        out[at + 16..at + 20].fill(0); // l_seq = 0
+        out.extend_from_slice(&self.raw[FIXED..FIXED + usize::from(self.raw[8])]);
+        out.extend_from_slice(self.inline_cigar);
+        let mut rest = self.tags;
+        for t in tags(self.tags) {
+            let Ok((tag, _, v)) = t else { break };
+            let total = 3 + v.len();
+            if tag == *b"CG" || Some(tag) == keep {
+                out.extend_from_slice(&rest[..total]);
+            }
+            rest = &rest[total..];
+        }
+    }
+}
+
+/// An alignment record of any format, viewed the same way.
+#[derive(Debug, Clone, Copy)]
+pub enum AlnRef<'a> {
+    Bam(Aln<'a>),
+}
+
+macro_rules! delegate {
+    ($(#[$m:meta])* $name:ident($($arg:ident: $t:ty),*) -> $ret:ty) => {
+        $(#[$m])*
+        pub fn $name(&self $(, $arg: $t)*) -> $ret {
+            match self {
+                AlnRef::Bam(a) => a.$name($($arg),*),
+            }
+        }
+    };
+}
+
+impl<'a> AlnRef<'a> {
+    delegate!(ref_id() -> Option<usize>);
+    delegate!(pos() -> Option<u64>);
+    delegate!(flag() -> u16);
+    delegate!(mapq() -> u8);
+    delegate!(strand() -> Strand);
+    delegate!(int_tag(tag: [u8; 2]) -> Option<i64>);
+    delegate!(span(ref_len: u64) -> Option<(Interval, bool)>);
+    delegate!(for_each_op(f: &mut dyn FnMut(u8, u32)) -> ());
+
+    pub fn name(&self) -> &'a [u8] {
+        match self {
+            AlnRef::Bam(a) => a.name(),
+        }
+    }
+}
+
+/// View the record `raw` of a file in `f`'s layout.
+pub fn aln_ref<'a>(f: Format, raw: &'a [u8], h: &AlnHeader) -> Result<AlnRef<'a>, String> {
+    match f {
+        Format::Bam => Aln::parse(raw, h).map(AlnRef::Bam),
+        other => Err(format!(
+            "{} records cannot be read as alignments here",
+            other.name()
+        )),
+    }
+}
+
+/// The reference blocks of a mapped read (D105), appended to `out`: the segments between
+/// `N` operations, also cut at `D` with `split_deletions`. Empty blocks are dropped; with
+/// none left, the span of the read is the block. Blocks are not cut at the reference length.
+pub fn blocks(r: &AlnRef<'_>, split_deletions: bool, out: &mut Vec<Interval>) {
+    let Some(pos) = r.pos() else { return };
+    let first = out.len();
+    let mut start = pos;
+    let mut cur = pos;
+    let flush = |start: u64, end: u64, out: &mut Vec<Interval>| {
+        if end > start {
+            out.push(Interval { start, end });
+        }
+    };
+    r.for_each_op(&mut |op, n| {
+        let n = u64::from(n);
+        match op {
+            b'M' | b'=' | b'X' => cur = cur.saturating_add(n),
+            b'D' if !split_deletions => cur = cur.saturating_add(n),
+            b'D' | b'N' => {
+                flush(start, cur, out);
+                cur = cur.saturating_add(n);
+                start = cur;
+            }
+            _ => {}
+        }
+    });
+    flush(start, cur, out);
+    if out.len() == first {
+        // The read has no aligned bases: its span is one base (D101).
+        let end = r.span(u64::MAX).map_or(pos + 1, |(iv, _)| iv.end);
+        out.push(Interval { start: pos, end });
+    }
+}

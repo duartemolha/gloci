@@ -2371,6 +2371,7 @@ impl AlignArgs {
             exclude_flags: flags("--exclude-flags", &self.exclude_flags)?,
             full_records,
             reference: self.reference.clone(),
+            score_tag: None,
         })
     }
 }

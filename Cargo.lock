@@ -762,9 +762,11 @@ dependencies = [
  "flate2",
  "gloci-core",
  "gloci-io",
+ "noodles-bam",
  "noodles-bcf",
  "noodles-bgzf",
  "noodles-csi",
+ "noodles-sam",
  "noodles-vcf",
  "proptest",
 ]

@@ -17,3 +17,5 @@ flate2.workspace = true
 noodles-vcf.workspace = true
 noodles-bcf.workspace = true
 noodles-csi.workspace = true
+noodles-sam.workspace = true
+noodles-bam.workspace = true

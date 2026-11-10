@@ -16,6 +16,8 @@ pub enum OrderSource {
     /// A genome built into gloci, by id (`-g hg38`).
     BuiltinGenome(String),
     VcfHeader(String),
+    /// The `@SQ` lines of a BAM, SAM or CRAM input (named by its path).
+    AlignmentHeader(String),
     Lexicographic,
     Karyotype,
     FirstAppearance,

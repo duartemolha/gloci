@@ -179,7 +179,7 @@ fn header_genome(name: &str, h: &VcfHeader) -> Result<Genome, IoError> {
 }
 
 /// Choose the chromosome table: `--genome` (the raw `-g` value: a built-in
-/// genome id or a file), else the first VCF/BCF header with contigs, else
+/// genome id or a file), else the first VCF/BCF/alignment header with contigs, else
 /// `fallback` (karyotype by default, spec §4.5).
 pub fn chrom_table_for(
     genome: Option<&str>,
@@ -211,6 +211,22 @@ fn chrom_table(
         return Ok(ChromTable::closed(&g, source));
     }
     for r in inputs {
+        if let Header::Alignment(h) = r.header() {
+            if !h.refs.is_empty() {
+                let g = Genome::new(h.refs.iter().map(|(n, l)| (n.clone(), Some(*l))).collect())
+                    .map_err(|e| IoError::Detect {
+                        path: r.name().to_string(),
+                        msg: format!("{}: {e}", r.name()),
+                    })?;
+                let source = OrderSource::AlignmentHeader(r.name().to_string());
+                return Ok(if lenient {
+                    ChromTable::declared(&g, source)
+                } else {
+                    ChromTable::closed(&g, source)
+                });
+            }
+            continue;
+        }
         if let Header::Vcf(h) = r.header() {
             let entries = header_entries(h);
             if !entries.is_empty() {

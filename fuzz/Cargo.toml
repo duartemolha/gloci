@@ -54,4 +54,11 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "bam_reader"
+path = "fuzz_targets/bam_reader.rs"
+test = false
+doc = false
+bench = false
+
 [workspace]
