@@ -271,3 +271,21 @@ fn determinism_across_threads() {
         }
     }
 }
+
+/// bedtools wraps the `genome` row's base count at 32 bits when one depth
+/// covers more than about 4.29 Gb in total (see the 32-bit note in
+/// docs/migration.md); gloci counts in u64. No live differential case can pin
+/// this, because bedtools needs about 24 GB to run it.
+#[test]
+fn genome_row_counts_past_32_bits() {
+    let dir = tempdir();
+    let g = s(&plain_file(dir.path(), "big.genome", "chr1\t6000000000\n"));
+    let a = s(&plain_file(dir.path(), "big.bed", "chr1\t0\t5000000000\n"));
+    assert_eq!(
+        out(&["genomecov", &a, "-g", &g]),
+        "chr1\t0\t1000000000\t6000000000\t0.166667\n\
+chr1\t1\t5000000000\t6000000000\t0.833333\n\
+genome\t0\t1000000000\t6000000000\t0.166667\n\
+genome\t1\t5000000000\t6000000000\t0.833333\n"
+    );
+}
