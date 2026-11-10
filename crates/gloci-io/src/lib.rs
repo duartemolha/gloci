@@ -62,8 +62,8 @@ pub use output::{
     refuse_binary_to_tty,
 };
 pub use record::{
-    Header, ReaderOptions, RecordBatch, RecordMeta, RecordReader, next_batch_size, open_reader,
-    open_reader_from,
+    Header, ReaderOptions, RecordBatch, RecordMeta, RecordReader, check_map_against_index,
+    next_batch_size, open_reader, open_reader_from,
 };
 pub use seekable::{ChromRange, SeekableFile, chrom_ranges, open_range_reader};
 pub use sorted::{LEX_SORTED_NOTE, OrderGuard, sort_hint};

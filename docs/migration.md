@@ -469,3 +469,13 @@ Every row below was checked against `gloci <cmd> --help`.
   no allele span); add the field, pass `--vcf-span ref` (the REF span, as in
   bcftools and tabix) or `--skip-invalid`.
   [differences.md#vcf-symbolic-no-end](differences.md#vcf-symbolic-no-end)
+
+
+### Threads and errors
+
+`-t N` never changes a successful result: output is byte-identical at every
+thread count. After an error the exit code is the same too, and so is the
+message for a single malformed input. When more than one input is malformed,
+the error reported may name a different input at different thread counts; the
+exit code is the same. How much output was written to standard output before an
+error also varies with `-t` (`-o FILE` is written atomically).

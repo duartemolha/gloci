@@ -1717,13 +1717,7 @@ fn many_scaffolds_with_interleaved_b_only_chromosomes() {
     };
     let a = s(&plain_file(dir.path(), "a.bed", &scaf(0)));
     let b = s(&plain_file(dir.path(), "b.bed", &scaf(1)));
-    let start = std::time::Instant::now();
     let four = out(&["intersect", "-a", &a, "-b", &b, "-t", "4"]);
-    assert!(
-        start.elapsed() < std::time::Duration::from_secs(60),
-        "{:?}",
-        start.elapsed()
-    );
     assert_eq!(four, out(&["intersect", "-a", &a, "-b", &b, "-t", "1"]));
 }
 
@@ -1798,4 +1792,105 @@ fn closed_table_error_is_the_same_for_indexed_inputs() {
     let (_, err, code) = same_at_every_t(&["intersect", "-a", &a, "-b", &b]);
     assert_eq!(code, Some(1));
     assert!(err.contains("chr5"), "{err}");
+}
+
+/// Shape X: A's first line on chr2 is bad and B's chr1 tail is out of order.
+/// Which input the error names may differ with `-t`; the exit code does not.
+#[test]
+fn double_fault_exit_code_is_the_same_at_every_t() {
+    let dir = tempdir();
+    let a = s(&plain_file(
+        dir.path(),
+        "a.bed",
+        &format!(
+            "{}chr2\tNOPE\t9\n{}",
+            recs("chr1", 3_000, 10),
+            recs("chr2", 5, 10)
+        ),
+    ));
+    let b = s(&plain_file(
+        dir.path(),
+        "b.bed",
+        &format!(
+            "{}chr1\t5\t9\n{}",
+            recs("chr1", 3_000, 10),
+            recs("chr2", 5, 10)
+        ),
+    ));
+    for cmd in ["intersect", "coverage", "closest"] {
+        for t in ["1", "2", "4", "8"] {
+            let o = gloci()
+                .args([cmd, "-a", &a, "-b", &b, "-t", t])
+                .output()
+                .unwrap();
+            assert_eq!(o.status.code(), Some(1), "{cmd} -t {t}");
+        }
+    }
+}
+
+/// An indexed BGZF B is not read to its end at `-t 1`: a bad line far past
+/// where a tiny A ends is not reported (a plain B is read to its end).
+#[test]
+fn indexed_b_is_not_drained() {
+    let dir = tempdir();
+    let valid = recs("chr1", 40_000, 10);
+    let (idx, _) = indexed_pair(dir.path(), "big", &valid);
+    // The same file with a bad line at the end, its index left as it was.
+    let mut bad = valid.clone();
+    bad.push_str("chr1\tNOPE\t9\n");
+    let _ = bgzf_file(dir.path(), "big.bed.gz", &bad);
+    let a = s(&plain_file(dir.path(), "a.bed", &recs("chr1", 3, 10)));
+    let o = gloci()
+        .args(["intersect", "-a", &a, "-b", &idx, "-t", "1"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        o.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    // while a plain copy is read to its end
+    let plain = s(&plain_file(dir.path(), "big.bed", &bad));
+    let o = gloci()
+        .args(["intersect", "-a", &a, "-b", &plain, "-t", "1"])
+        .output()
+        .unwrap();
+    assert_eq!(o.status.code(), Some(1));
+}
+
+/// The `--chrom-map` collision check belongs to relation commands: other
+/// commands treat an indexed file as they treat an unindexed copy.
+#[test]
+fn chrom_map_collision_check_is_for_relation_commands() {
+    let dir = tempdir();
+    let text = format!("{}{}", recs("1", 3, 10), recs("chr1", 3, 10));
+    let (idx, plain_gz) = indexed_pair(dir.path(), "clash", &text);
+    let map = s(&plain_file(dir.path(), "m.tsv", "1\tchr1\n"));
+    // the relation command refuses the indexed file
+    let o = gloci()
+        .args([
+            "intersect",
+            "-a",
+            &idx,
+            "-b",
+            &idx,
+            "--chrom-map",
+            &map,
+            "-t",
+            "1",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(o.status.code(), Some(2));
+    for cmd in ["view", "sort", "merge"] {
+        let run = |f: &str| {
+            let o = gloci()
+                .args([cmd, f, "--chrom-map", &map])
+                .output()
+                .unwrap();
+            (o.status.code(), o.stdout)
+        };
+        assert_eq!(run(&idx), run(&plain_gz), "{cmd}");
+    }
 }

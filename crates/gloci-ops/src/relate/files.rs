@@ -102,11 +102,16 @@ impl RelationFiles {
     /// Open A and every B, each once.
     pub fn open(paths: InputPaths) -> Result<RelationFiles, IoError> {
         let a = gloci_io::open_reader(&paths.a, &paths.ro_a)?;
+        gloci_io::check_map_against_index(&paths.a, a.as_ref(), &paths.ro_a)?;
         let b = paths
             .b
             .iter()
-            .map(|p| gloci_io::open_reader(p, &paths.ro_b))
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(|p| {
+                let r = gloci_io::open_reader(p, &paths.ro_b)?;
+                gloci_io::check_map_against_index(p, r.as_ref(), &paths.ro_b)?;
+                Ok(r)
+            })
+            .collect::<Result<Vec<_>, IoError>>()?;
         Ok(RelationFiles::new(RelateInputs { a, b }, paths))
     }
 

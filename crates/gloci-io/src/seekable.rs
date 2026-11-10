@@ -418,6 +418,38 @@ impl SeekableFile {
     }
 }
 
+/// A reader of a plain seekable file that a sweep reads to its end.
+pub(crate) struct DrainedToEnd(pub(crate) Box<dyn RecordReader>);
+
+impl RecordReader for DrainedToEnd {
+    fn name(&self) -> &str {
+        self.0.name()
+    }
+    fn format(&self) -> Format {
+        self.0.format()
+    }
+    fn compression(&self) -> Compression {
+        self.0.compression()
+    }
+    fn header(&self) -> &Header {
+        self.0.header()
+    }
+    fn read_batch(
+        &mut self,
+        chroms: &mut ChromTable,
+        batch: &mut RecordBatch,
+        max: usize,
+    ) -> Result<bool, IoError> {
+        self.0.read_batch(chroms, batch, max)
+    }
+    fn diagnostics(&self) -> &Diagnostics {
+        self.0.diagnostics()
+    }
+    fn consume_to_end(&self) -> bool {
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

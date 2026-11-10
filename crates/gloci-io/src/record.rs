@@ -4,7 +4,7 @@ use crate::chrom_map::{ChromMap, Renamer};
 use crate::detect::{Compression, Format};
 use crate::diag::{Diagnostics, InvalidPolicy};
 use crate::error::{IoError, Loc};
-use crate::input::{Input, InputOptions, open_input, open_input_from};
+use crate::input::{Input, InputOptions, is_regular_file, open_input, open_input_from};
 use gloci_core::{ChromId, ChromTable, CoordError, Interval, Strand, VcfSpan};
 use std::io::{BufRead, Read};
 use std::num::NonZeroUsize;
@@ -116,15 +116,22 @@ pub struct ReaderOptions {
 
 pub fn open_reader(path: &str, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, IoError> {
     let r = dispatch(open_input(path, &input_options(o))?, o)?;
-    check_map_against_index(path, r.as_ref(), o)?;
+    // A sweep reads a plain file to its end (see `RecordReader::consume_to_end`).
+    if r.compression() == Compression::None
+        && crate::seekable::range_format(r.format())
+        && is_regular_file(path)
+    {
+        return Ok(Box::new(crate::seekable::DrainedToEnd(r)));
+    }
     Ok(r)
 }
 
-/// With `--chrom-map`, a BGZF text file that has an index is refused when
-/// two of its chromosomes would get one name, as a run through the index
-/// refuses it, so the answer does not depend on how many threads are used.
-/// An index that cannot be read is not this check's business.
-fn check_map_against_index(
+/// With `--chrom-map`, refuse a BGZF text file that has an index when two of
+/// its chromosomes would get one name, as a run through the index refuses
+/// it: a relation command calls this on each input it opens, so that its
+/// answer does not depend on how many threads are used. An index that cannot
+/// be read is not this check's business.
+pub fn check_map_against_index(
     path: &str,
     r: &dyn RecordReader,
     o: &ReaderOptions,
@@ -419,9 +426,6 @@ impl<K: TextKind> RecordReader for TextReader<K> {
     }
     fn diagnostics(&self) -> &Diagnostics {
         &self.diag
-    }
-    fn consume_to_end(&self) -> bool {
-        true
     }
 
     fn read_batch(

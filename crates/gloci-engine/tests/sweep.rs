@@ -331,7 +331,9 @@ fn eviction_uses_a_key_not_span() {
 fn b_lex_sorted_is_an_error() {
     // A in karyotype order; the second B in lexicographic order (chr10
     // before chr2). The error names that B, with the lex note.
-    let a = "chr1\t10\t20\nchr2\t10\t20\nchr10\t10\t20\n";
+    // (A ends past chr2, so its sweep consumes B's out-of-order chr2: a
+    // record is checked when it is taken, not when it is read ahead.)
+    let a = "chr1\t10\t20\nchr2\t10\t20\nchr10\t10\t20\nchr11\t10\t20\n";
     let b1 = "chr1\t15\t25\nchr10\t0\t5\n";
     let b2 = "chr1\t15\t25\nchr10\t15\t25\nchr2\t15\t25\n";
     let err = sweep(

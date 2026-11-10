@@ -242,10 +242,15 @@ pub(super) fn run_per_chromosome<R: Send>(
             a: g,
         })
         .collect();
+    // (No chunks, with all inputs indexed, leaves nothing to add to.)
+    let last_a = chunks.last().and_then(|c| c.a.last()).cloned();
+    // Past A's last chromosome: chunks of their own with no A, which read
+    // (and validate) those chromosomes, spread over the workers by weight.
+    let mut trailing: Vec<Vec<u8>> = Vec::new();
     for (f, src) in files_b.iter().enumerate() {
-        if !matches!(src, Src::Plain(_)) {
+        let (Src::Plain(_), Some(last_a)) = (src, &last_a) else {
             continue;
-        }
+        };
         let mut extras: Vec<Vec<u8>> = src
             .reference_names()
             .into_iter()
@@ -255,6 +260,10 @@ pub(super) fn run_per_chromosome<R: Send>(
         // One walk over the extras and the chunks, both in table order.
         let mut at = 0;
         for x in extras {
+            if by_rank(&x, last_a).is_gt() {
+                trailing.push(x);
+                continue;
+            }
             while at + 1 < chunks.len()
                 && by_rank(&x, chunks[at].a.last().expect("chunks hold chromosomes")).is_gt()
             {
@@ -264,6 +273,27 @@ pub(super) fn run_per_chromosome<R: Send>(
         }
         for c in &mut chunks {
             c.b[f].sort_by(by_rank);
+        }
+    }
+    trailing.sort_by(by_rank);
+    trailing.dedup();
+    if !trailing.is_empty() {
+        let weights: Vec<u64> = trailing
+            .iter()
+            .map(|c| files_b.iter().map(|f| f.weight(c)).sum::<u64>() + 1)
+            .collect();
+        let groups = group_chromosomes(trailing, &weights, CHUNKS_PER_THREAD * run.threads.get());
+        for g in groups {
+            chunks.push(Job {
+                a: Vec::new(),
+                b: files_b
+                    .iter()
+                    .map(|f| match f {
+                        Src::Plain(_) => g.clone(),
+                        Src::Indexed(_) => Vec::new(),
+                    })
+                    .collect(),
+            });
         }
     }
 

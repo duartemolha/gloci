@@ -223,7 +223,9 @@ Examples:
     /// varies with the thread count (-o FILE is written atomically). Plain
     /// inputs are validated to their end at every thread count; for indexed
     /// inputs, records outside the queried chromosomes are validated only at
-    /// -t 1.
+    /// -t 1. When more than one input is malformed, the error reported may
+    /// name a different input at different thread counts; the exit code is
+    /// the same.
     #[command(after_long_help = "\
 Examples:
   gloci intersect -a peaks.bed -b genes.bed
@@ -559,7 +561,9 @@ Examples:
     /// varies with the thread count (-o FILE is written atomically). Plain
     /// inputs are validated to their end at every thread count; for indexed
     /// inputs, records outside the queried chromosomes are validated only at
-    /// -t 1.
+    /// -t 1. When more than one input is malformed, the error reported may
+    /// name a different input at different thread counts; the exit code is
+    /// the same.
     #[command(after_long_help = "\
 Examples:
   gloci subtract -a peaks.bed -b blacklist.bed
@@ -634,7 +638,9 @@ Examples:
     /// varies with the thread count (-o FILE is written atomically). Plain
     /// inputs are validated to their end at every thread count; for indexed
     /// inputs, records outside the queried chromosomes are validated only at
-    /// -t 1.
+    /// -t 1. When more than one input is malformed, the error reported may
+    /// name a different input at different thread counts; the exit code is
+    /// the same.
     #[command(after_long_help = "\
 Examples:
   gloci closest -a genes.bed -b peaks.bed --distance
@@ -709,7 +715,9 @@ Examples:
     /// varies with the thread count (-o FILE is written atomically). Plain
     /// inputs are validated to their end at every thread count; for indexed
     /// inputs, records outside the queried chromosomes are validated only at
-    /// -t 1.
+    /// -t 1. When more than one input is malformed, the error reported may
+    /// name a different input at different thread counts; the exit code is
+    /// the same.
     #[command(after_long_help = "\
 Examples:
   gloci map -a genes.bed -b scores.bedgraph -c 4:mean
@@ -768,7 +776,9 @@ Examples:
     /// varies with the thread count (-o FILE is written atomically). Plain
     /// inputs are validated to their end at every thread count; for indexed
     /// inputs, records outside the queried chromosomes are validated only at
-    /// -t 1.
+    /// -t 1. When more than one input is malformed, the error reported may
+    /// name a different input at different thread counts; the exit code is
+    /// the same.
     #[command(after_long_help = "\
 Examples:
   gloci coverage -a genes.bed -b reads.bed
