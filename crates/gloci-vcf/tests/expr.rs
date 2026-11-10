@@ -203,6 +203,29 @@ fn spec_examples() {
 }
 
 #[test]
+fn deep_nesting_is_an_error_not_a_stack_overflow() {
+    let parens = format!("{}QUAL>1{}", "(".repeat(5000), ")".repeat(5000));
+    let e = err(&parens);
+    assert!(e.contains("expression nested too deeply"), "{e}");
+    assert!(e.contains("column 129"), "{e}");
+    assert!(
+        e.len() < 600,
+        "the expression is cut in the message: {}",
+        e.len()
+    );
+    let nots = format!("{}QUAL>1", "!".repeat(20000));
+    let e = err(&nots);
+    assert!(e.contains("expression nested too deeply"), "{e}");
+    assert!(e.contains("column 128"), "{e}");
+    // Nesting within the limit still parses.
+    let ok = format!("{}QUAL>1{}", "(".repeat(100), ")".repeat(100));
+    let (_, h) = main_vcf();
+    assert!(parse_expr(&ok, &h).is_ok());
+    let ok = format!("{}QUAL>1", "!".repeat(100));
+    assert!(parse_expr(&ok, &h).is_ok());
+}
+
+#[test]
 fn parse_errors_name_the_column() {
     let e = err("QUAL>30 && ?");
     assert!(e.contains("column 12"), "{e}");

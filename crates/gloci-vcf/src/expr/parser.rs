@@ -5,6 +5,10 @@ use super::{Expr, Field, InfoTy, Node, Rhs, TypeKw};
 use gloci_io::{UsageError, VcfHeader};
 use std::collections::BTreeMap;
 
+/// How deeply parentheses, `!` and `N_PASS(...)` may nest. The parser recurses
+/// once per level, so an unbounded depth would overflow the stack.
+const MAX_DEPTH: usize = 128;
+
 const FUNCS: &str = "N_PASS";
 const TYPE_KEYWORDS: &str = "snp, mnp, indel, other, ref";
 const GT_KEYWORDS: [(&str, u8); 6] = [
@@ -84,9 +88,14 @@ impl Schema {
 }
 
 pub(crate) fn parse(src: &str, header: &VcfHeader) -> Result<Expr, UsageError> {
+    let shown: String = if src.chars().count() > 200 {
+        format!("{}...", src.chars().take(200).collect::<String>())
+    } else {
+        src.to_string()
+    };
     let fail = |e: SyntaxError| {
         UsageError(format!(
-            "invalid filter expression {src:?}: {} (column {})",
+            "invalid filter expression {shown:?}: {} (column {})",
             e.msg, e.col
         ))
     };
@@ -96,6 +105,7 @@ pub(crate) fn parse(src: &str, header: &VcfHeader) -> Result<Expr, UsageError> {
         pos: 0,
         schema: Schema::new(header),
         in_npass: false,
+        depth: 0,
         flags: Flags::default(),
     };
     let root = p.parse_or().map_err(fail)?;
@@ -130,6 +140,7 @@ struct Parser {
     pos: usize,
     schema: Schema,
     in_npass: bool,
+    depth: usize,
     flags: Flags,
 }
 
@@ -189,7 +200,29 @@ impl Parser {
         t
     }
 
+    /// Count one more level of nesting; error when it is too deep.
+    fn descend(&mut self) -> Result<(), SyntaxError> {
+        if self.depth >= MAX_DEPTH {
+            return err(
+                self.peek().col,
+                format!(
+                    "expression nested too deeply (more than {MAX_DEPTH} levels of parentheses or `!`); \
+simplify the expression"
+                ),
+            );
+        }
+        self.depth += 1;
+        Ok(())
+    }
+
     fn parse_or(&mut self) -> Result<Node, SyntaxError> {
+        self.descend()?;
+        let r = self.parse_or_list();
+        self.depth -= 1;
+        r
+    }
+
+    fn parse_or_list(&mut self) -> Result<Node, SyntaxError> {
         let first = self.parse_and()?;
         if self.peek().tok != Tok::Or {
             return Ok(first);
@@ -217,8 +250,11 @@ impl Parser {
 
     fn parse_unary(&mut self) -> Result<Node, SyntaxError> {
         if self.peek().tok == Tok::Not {
+            self.descend()?;
             self.bump();
-            return Ok(Node::Not(Box::new(self.parse_unary()?)));
+            let inner = self.parse_unary();
+            self.depth -= 1;
+            return Ok(Node::Not(Box::new(inner?)));
         }
         self.parse_cmp()
     }

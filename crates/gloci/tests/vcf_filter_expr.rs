@@ -244,3 +244,24 @@ fn deterministic_across_thread_counts() {
     assert_eq!(one, run("2"));
     assert_eq!(one, run("4"));
 }
+
+#[test]
+fn deeply_nested_expression_exits_2_instead_of_crashing() {
+    let d = tempdir();
+    let f = plain_file(d.path(), "in.vcf", &format!("{HEAD}{ROWS}"))
+        .to_string_lossy()
+        .into_owned();
+    let out = d.path().join("out.vcf");
+    let out = out.to_string_lossy().into_owned();
+    let parens = format!("{}QUAL>1{}", "(".repeat(5000), ")".repeat(5000));
+    let nots = format!("{}QUAL>1", "!".repeat(20000));
+    for expr in [parens, nots] {
+        gloci()
+            .args(["vcf", "filter", &f, "--include", &expr, "-o", &out])
+            .assert()
+            .code(2)
+            .stderr(contains("expression nested too deeply"))
+            .stderr(contains("column"));
+    }
+    assert!(!Path::new(&out).exists());
+}
