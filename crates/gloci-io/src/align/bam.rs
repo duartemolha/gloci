@@ -55,16 +55,27 @@ impl BamFrames {
             m.check_file_names(&name, h.refs.iter().map(|r| &r.0[..]))?;
             h = h.renamed(m);
         }
-        Ok(BamFrames {
-            aln: Arc::new(h),
+        Ok(BamFrames::from_parts(name, compression, h, reader))
+    }
+
+    /// Frames over `src`, a BAM body (records with their `block_size`) whose header is `aln`:
+    /// the records of a CRAM, transcoded, take the BAM path from here on.
+    pub(crate) fn from_parts(
+        name: String,
+        compression: Compression,
+        aln: AlnHeader,
+        src: Box<dyn BufRead + Send>,
+    ) -> BamFrames {
+        BamFrames {
+            aln: Arc::new(aln),
             name,
             compression,
-            src: reader,
+            src,
             rec: 0,
             run_ref: i32::MIN,
             run_seen: 0,
             eof: false,
-        })
+        }
     }
 
     /// "record N of CHROM (record M of the file)" for the record that is `seen` in its run,
@@ -189,8 +200,20 @@ impl BamReader {
         map: Option<&ChromMap>,
         opts: AlignOptions,
     ) -> Result<BamReader, IoError> {
-        let frames = BamFrames::open(input, map)?;
-        Ok(BamReader {
+        Ok(BamReader::from_frames(
+            BamFrames::open(input, map)?,
+            policy,
+            opts,
+        ))
+    }
+
+    /// The reader over `frames` (a BAM's, or a CRAM's transcoded records).
+    pub(crate) fn from_frames(
+        frames: BamFrames,
+        policy: InvalidPolicy,
+        opts: AlignOptions,
+    ) -> BamReader {
+        BamReader {
             header: Header::Alignment(frames.aln.clone()),
             rules: IntervalRules::new(frames.aln.refs.len()),
             frames,
@@ -198,7 +221,7 @@ impl BamReader {
             policy,
             opts,
             scratch: Vec::new(),
-        })
+        }
     }
 
     /// An invalid record: an error, or counted under `--skip-invalid`.

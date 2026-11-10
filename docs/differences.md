@@ -1803,3 +1803,39 @@ depends on the span.
 - **Pinned by:** `intersect-abam-wa-wb-vs-bedtools`, `intersect-bed-bam-loj-vs-bedtools`
   and `intersect-bed-bam-wao-vs-bedtools` (must differ);
   `intersect-bed-bam-wa-wb-vs-bedtools` (BAM as B) matches.
+
+  `view-sam-strict-cigar-zeros-vs-samtools` (exit status must differ).
+
+## CRAM: MD and NM come out as stored {#cram-md-nm}
+
+- **gloci:** a CRAM record keeps the optional fields the file stores, in their
+  order: `gloci view x.cram` writes what `samtools view --input-fmt-option
+  decode_md=0` writes.
+- **Old behaviour:** samtools (htslib's default `decode_md=1`) computes MD and NM
+  from the reference for every mapped read that lacks them and appends them after
+  its other fields. htslib's CRAM writer drops MD and NM when they match the
+  reference, so a BAM converted to CRAM and back reads with them under samtools
+  and without them under gloci; a read that never had them gets them from
+  samtools.
+- **Also:** CRAM keeps neither the MAPQ of an unmapped read (both read 0) nor `=`
+  and `X` in a CIGAR (both read `M`); gloci reads these as samtools does.
+- **Effect:** `convert --score-tag NM` (bamtobed `-ed`) finds no NM on reads whose
+  NM the writer dropped. Recompute the tags with `samtools calmd` first.
+- **Reason:** gloci writes what the file holds; computing tags is an edit, and
+  needs the reference even where the reads do not.
+- **Pinned by:** `view-cram-md-nm-vs-samtools` (md.cram: samtools adds MD and NM to
+  the reads that lack them; must differ) and
+  `view-cram-md-nm-decode-md-0-vs-samtools` (equal to `decode_md=0`).
+
+## A CRAM without its end-of-file container is an error {#cram-eof-container}
+
+- **gloci:** a CRAM that does not end with the 38-byte end-of-file container is
+  rejected: `the CRAM end-of-file container is missing (...); the file is probably
+  truncated` (exit status 1). A file is checked before any record is read; standard
+  input fails when it ends.
+- **Old behaviour:** samtools prints `EOF marker is absent. The input is probably
+  truncated` and decodes what is there, with exit status 0.
+- **Pinned by:** `view-cram-no-eof-vs-samtools` (flags-noeof.cram, flags.cram
+  without its end-of-file container: exit status must differ).
+- **Reason:** as for BGZF ([#bgzf-eof-marker](#bgzf-eof-marker)): a missing end is
+  the signature of a cut-off file, and gloci never gives a quiet partial answer.

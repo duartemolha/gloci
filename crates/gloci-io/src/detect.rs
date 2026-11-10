@@ -232,7 +232,7 @@ pub fn detect_format(head: &[u8]) -> Result<Format, String> {
         return match head[4] {
             2 | 3 => Ok(Format::Cram),
             v => Err(format!(
-                "{{path}} is CRAM {v}, which gloci does not read; it reads CRAM 2 and 3"
+                "{{path}} is CRAM {v}, which gloci does not read; it reads CRAM 3.0 and 3.1"
             )),
         };
     }

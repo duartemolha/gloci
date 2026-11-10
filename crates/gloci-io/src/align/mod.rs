@@ -1,8 +1,9 @@
-//! Alignment input (BAM, CRAM, SAM): options, flag parsing and the input gate (D100).
-//! The BAM and SAM readers and writers are here; the CRAM reader arrives in a later P3a task.
+//! Alignment input (BAM, CRAM, SAM): options, flag parsing and the input gate (D100), and the
+//! BAM, CRAM and SAM readers and the BAM and SAM writers.
 
 mod bam;
 mod bed;
+pub(crate) mod cram;
 mod encode;
 mod header;
 mod place;
@@ -14,6 +15,7 @@ mod writer;
 
 pub(crate) use bam::BamReader;
 pub use bed::{AlnBed, AlnBedLayout, AlnBedOptions, AlnBlocks};
+pub use cram::{CramReader, read_cram_header, warn_unused_reference};
 pub use header::{AlnHeader, SortOrder};
 pub use record::{Aln, AlnRef, aln_ref, blocks, blocks_within};
 pub use region::alignment_query_span;
@@ -63,6 +65,9 @@ pub struct Accept {
     /// genomecov, view, sort, index): until then the gate says so instead of claiming
     /// that the command never reads them.
     pub alignments_planned: bool,
+    /// The command reads CRAM as well (`view`); elsewhere a CRAM is "not available in this
+    /// build yet" until the command opts in.
+    pub cram: bool,
 }
 
 impl Accept {
@@ -155,6 +160,10 @@ pub fn gate(name: &str, format: Format, accept: &Accept) -> Result<(), IoError> 
     if format.is_alignment() {
         if matches!(format, Format::Bam | Format::Sam) && accept.alignments.is_some() {
             return Ok(());
+        }
+        if format == Format::Cram && accept.alignments.is_some() {
+            // CRAM is read by the commands that opt in (view); the interval commands follow.
+            return if accept.cram { Ok(()) } else { Err(not_yet()) };
         }
         if accept.alignments.is_some() {
             return Err(IoError::Detect {

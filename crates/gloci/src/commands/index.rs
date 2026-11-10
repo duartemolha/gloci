@@ -1,8 +1,8 @@
 use crate::Ctx;
 use crate::cli::IndexArgs;
 use gloci_io::{
-    Format, InputOptions, TsvColumns, UsageError, open_input, write_alignment_index,
-    write_fasta_index, write_index, write_tsv_index,
+    Format, InputOptions, TsvColumns, UsageError, open_input, warn_unused_reference,
+    write_alignment_index, write_crai, write_fasta_index, write_index, write_tsv_index,
 };
 
 pub fn run(ctx: &Ctx, args: &IndexArgs) -> anyhow::Result<()> {
@@ -24,6 +24,7 @@ first (gloci view - -o x.bed.gz), then run: gloci index x.bed.gz"
         if args.csi {
             return Err(csi_only("this is a TSV index").into());
         }
+        warn_unused_reference(args.reference.as_deref(), false);
         // write_tsv_index rejects non-BGZF input with the same recompress hint.
         write_tsv_index(&args.file, &args.file, &cols, ctx.threads)?;
         return Ok(());
@@ -37,6 +38,18 @@ first (gloci view - -o x.bed.gz), then run: gloci index x.bed.gz"
     )?;
     let format = input.format;
     drop(input);
+    if format == Format::Cram {
+        if args.csi {
+            return Err(UsageError(format!(
+                "--csi is for BAM files, but {} is CRAM, whose index is a .crai; drop --csi",
+                args.file.display()
+            ))
+            .into());
+        }
+        write_crai(&args.file, args.reference.as_deref(), ctx.threads)?;
+        return Ok(());
+    }
+    warn_unused_reference(args.reference.as_deref(), false);
     if format == Format::Bam {
         write_alignment_index(&args.file, &args.file, args.csi, ctx.threads)?;
         return Ok(());

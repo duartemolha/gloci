@@ -1,0 +1,1 @@
+view -O bam input.cram --reference ref.fa

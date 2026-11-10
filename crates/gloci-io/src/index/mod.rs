@@ -329,6 +329,7 @@ refuse it before a parser is chosen",
 
 mod bam;
 mod build;
+pub mod crai;
 mod query;
 mod tsv;
 mod validate;
@@ -339,6 +340,7 @@ pub use build::write_index;
 #[cfg(test)]
 use build::{Entry, Linear, bin_start, csi_depth, scan};
 pub(crate) use build::{build_index, remove_indexes, stage_index};
+pub use crai::{CraiEntry, CramIndex, crai_path, find_crai, write_crai};
 #[cfg(test)]
 use query::Plan;
 pub use query::{

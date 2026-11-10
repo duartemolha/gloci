@@ -631,6 +631,15 @@ Before relying on a new expression, run it once on a small file with
   the read unmapped), and a few values samtools wraps or truncates are refused.
   [unknown reference](differences.md#sam-unknown-rname),
   [parse strictness](differences.md#sam-parse-strictness)
+- **CRAM needs `--reference FASTA` (bedtools `--cram-ref`):** there is no
+  `REF_PATH`, cache or download; the FASTA needs its `.fai` (and `.gzi` when BGZF)
+  and must have the lengths of the CRAM's `@SQ` lines. A CRAM written without a
+  reference (`no_ref`, `embed_ref`) needs none, and neither does `gloci index
+  x.cram`. MD and NM come out as stored, where samtools recomputes them (compare
+  with `samtools view --input-fmt-option decode_md=0`):
+  [differences.md#cram-md-nm](differences.md#cram-md-nm). A CRAM without its
+  end-of-file container is refused (exit 1; samtools warns and exits 0):
+  [differences.md#cram-eof-container](differences.md#cram-eof-container)
 
 ### Threads and errors
 

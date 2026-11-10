@@ -36,8 +36,9 @@ pub mod writer;
 
 pub use align::{
     Accept, AlignOptions, Aln, AlnBed, AlnBedLayout, AlnBedOptions, AlnBlocks, AlnHeader, AlnRef,
-    AlnSource, SamAln, SamToBam, SortOrder, alignment_query_span, aln_ref, blocks, blocks_within,
-    open_alignment_writer, open_aln_source, open_aln_source_from, parse_flags, sam_line_to_bam,
+    AlnSource, CramReader, SamAln, SamToBam, SortOrder, alignment_query_span, aln_ref, blocks,
+    blocks_within, open_alignment_writer, open_aln_source, open_aln_source_from, parse_flags,
+    read_cram_header, sam_line_to_bam, warn_unused_reference,
 };
 pub use atomic::{
     __test_with_registry_locked, AtomicFile, TempGuard, cleanup_registered,
@@ -62,9 +63,9 @@ pub use fasta::{
 pub use fields::{column_count, field, split_fields};
 pub use genome::{chrom_table_for, chrom_table_lenient, load_genome};
 pub use index::{
-    IndexInfo, IndexKind, IndexedFile, TsvColumns, file_chrom_name, find_index,
-    index_non_empty_reference_names, index_reference_names, open_region_reader,
-    write_alignment_index, write_index, write_tsv_index,
+    CraiEntry, CramIndex, IndexInfo, IndexKind, IndexedFile, TsvColumns, crai_path,
+    file_chrom_name, find_crai, find_index, index_non_empty_reference_names, index_reference_names,
+    open_region_reader, write_alignment_index, write_crai, write_index, write_tsv_index,
 };
 pub use input::{
     BGZF_EOF, Input, InputOptions, InputSpool, is_regular_file, open_input, open_input_from,

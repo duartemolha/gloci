@@ -586,9 +586,18 @@ pub fn run_view(
     if opts.header_only && opts.no_header {
         return Err(usage("--header-only and --no-header cannot be combined"));
     }
+    let reference = ro
+        .accept
+        .alignments
+        .as_ref()
+        .and_then(|a| a.reference.as_deref());
     let reader = match open_reader_or_alignments(path, ro)? {
-        Opened::Records(r) => r,
+        Opened::Records(r) => {
+            gloci_io::warn_unused_reference(reference, false);
+            r
+        }
         Opened::Alignments(src) => {
+            gloci_io::warn_unused_reference(reference, src.format() == Format::Cram);
             return view_alignments(src, path, opts, ro, out_spec, oo, wo);
         }
     };
@@ -707,9 +716,9 @@ pub fn run_view(
     Ok(())
 }
 
-/// `view` of BAM or SAM: every record is written, unmapped included (D116, D120), through
+/// `view` of BAM, CRAM or SAM: every record is written, unmapped included (D116, D120), through
 /// the read filters; with regions, those that overlap one, found through the BAM's index
-/// when it has one and by scanning the file otherwise. Both select with samtools' span
+/// when it has one and by scanning the file otherwise (a CRAM is scanned). Both select with samtools' span
 /// (`alignment_query_span`) and give the same records.
 fn view_alignments(
     mut src: Box<dyn AlnSource>,
@@ -721,6 +730,9 @@ fn view_alignments(
     wo: &WriterOptions,
 ) -> Result<(), IoError> {
     let layout = src.layout();
+    // A CRAM's records are BAM bytes, but its index is a `.crai`: regions are found by
+    // scanning it (reading regions through a `.crai` comes with the CRAM region reader).
+    let input_format = src.format();
     let out_format = out_spec.format.unwrap_or_else(|| OutFormat::family(layout));
     check_family(layout, out_format)?;
     if opts.no_header && out_format == OutFormat::Bam {
@@ -754,7 +766,7 @@ write SAM instead (-O sam)",
         let Wanted { wanted, sets, .. } = resolve_regions(&name, &hdr, opts, ro, None, None, None)?;
         let file = Some(Path::new(path)).filter(|p| path != "-" && p.is_file());
         let index = file
-            .filter(|_| layout == Format::Bam && !wanted.is_empty())
+            .filter(|_| input_format == Format::Bam && !wanted.is_empty())
             .and_then(|p| find_index(p).map(|i| (p, i)));
         if let Some((p, info)) = index {
             if info.stale {
@@ -770,7 +782,7 @@ write SAM instead (-O sam)",
             let mut by_name: HashMap<Vec<u8>, RegionSet> = sets.into_iter().collect();
             by_ref = header.refs.iter().map(|(n, _)| by_name.remove(n)).collect();
             if path != "-" && by_ref.iter().any(Option::is_some) {
-                let hint = match layout {
+                let hint = match input_format {
                     Format::Bam if !wanted.is_empty() => {
                         format!("; create an index with: gloci index {name}")
                     }

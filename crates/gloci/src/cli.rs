@@ -82,12 +82,15 @@ Examples:
   gloci genomes show hg38
   gloci sort peaks.bed -g hg38 > peaks.sorted.bed")]
     Genomes(GenomesArgs),
-    /// Build a .tbi/.csi index for a sorted BGZF file, a .bai/.csi for a BAM, or a .fai for a FASTA.
+    /// Build a .tbi/.csi index for a sorted BGZF file, a .bai/.csi for a BAM, a .crai for a CRAM,
+    /// or a .fai for a FASTA.
     ///
     /// A coordinate-sorted BAM gets PATH.bai, or PATH.csi with --csi or when a
     /// reference is longer than 2^29; samtools and gloci read each other's
     /// indexes. SAM text has no index: write BAM with gloci view x.sam -o x.bam.
     ///
+    /// A CRAM file gets PATH.crai, with the entries samtools index writes;
+    /// it needs no reference, even for slices that hold several references.
     /// A FASTA file (plain or BGZF) gets PATH.fai, and PATH.gzi when it is
     /// BGZF, byte-identical to samtools faidx. Every line of a sequence but
     /// the last must have the same length. Reading a FASTA at random
@@ -105,8 +108,8 @@ Examples:
     #[command(after_long_help = "\
 Examples:
   gloci index calls.vcf.gz
-  gloci index ref.fa.gz
   gloci index sorted.bam
+  gloci index reads.cram
   gloci index scores.tsv.gz -s 1 -b 2 -e 3 --zero-based")]
     Index(IndexArgs),
     /// Sort BED/bedGraph/GFF/VCF/BCF files with bounded memory.
@@ -144,14 +147,16 @@ Examples:
     /// header lines are kept by default. For conversions to BED from VCF/BCF,
     /// GFF3/GTF or BED12, use gloci convert.
     ///
-    /// BAM and SAM input is written as BAM or SAM, as -O or
-    /// the -o extension say (the same as the input by default), every
-    /// record, unmapped reads included, with an @PG line added to the
-    /// header. --header-only, --no-header (SAM output only), --min-mapq,
-    /// --require-flags and --exclude-flags apply. Regions select the reads
-    /// whose footprint overlaps them; an unmapped read placed at a position
-    /// counts as one base there. It is not samtools view: there is no -b,
-    /// -h, -c or -L.
+    /// BAM, CRAM and SAM input is written as BAM or SAM, as -O or
+    /// the -o extension say (the same as the input by default; BAM for
+    /// CRAM), every record, unmapped reads included, with an @PG line added
+    /// to the header. --header-only, --no-header (SAM output only),
+    /// --min-mapq, --require-flags and --exclude-flags apply. Regions select
+    /// the reads whose footprint overlaps them; an unmapped read placed at a
+    /// position counts as one base there. It is not samtools view: there is
+    /// no -b, -h, -c or -L. CRAM needs the FASTA it was made with
+    /// (--reference, with its .fai), unless it was written without one; MD
+    /// and NM tags come out as stored, not regenerated as samtools does.
     ///
     /// With regions, view prints the records whose footprint (per
     /// --vcf-span) overlaps a region, each once, in file order. A point
@@ -169,7 +174,7 @@ Examples:
   gloci view calls.vcf.gz chr1:1,000,000-2,000,000 chrX
   gloci view peaks.bed --regions-file targets.bed --inclusive-points
   gloci view reads.bam -O sam | head
-  gloci view calls.vcf.gz -o calls.bcf --write-index")]
+  gloci view reads.cram --reference ref.fa -o reads.bam")]
     View(ViewArgs),
     /// Join BAM files by copying their compressed blocks, as samtools cat does.
     ///
@@ -2605,7 +2610,8 @@ Examples:
 
 #[derive(Args)]
 pub struct IndexArgs {
-    /// Sorted, BGZF-compressed BED/GFF/VCF/BCF file to index, or a FASTA file.
+    /// Sorted, BGZF-compressed BED/GFF/VCF/BCF file to index, a FASTA file (.fai, .gzi), or
+    /// a CRAM file (.crai).
     pub file: PathBuf,
     /// Sequence (chromosome) column, numbered from 1. Selects TSV mode; needs -b.
     #[arg(short = 's', long, value_name = "N")]
@@ -2632,6 +2638,10 @@ pub struct IndexArgs {
     pub csi: bool,
     #[command(flatten)]
     pub threads: ThreadArgs,
+    /// The FASTA a CRAM was made with. Indexing a CRAM reads no reference bases, so it is
+    /// optional; when given, its sequence lengths are checked against the CRAM's header.
+    #[arg(long, value_name = "FILE")]
+    pub reference: Option<PathBuf>,
 }
 
 /// Output destination and encoding.
@@ -2732,7 +2742,9 @@ pub struct AlignArgs {
     /// unmap,secondary,dup (as samtools view -F).
     #[arg(long, value_name = "FLAGS")]
     pub exclude_flags: Option<String>,
-    /// The FASTA reference that CRAM input needs.
+    /// The FASTA a CRAM input was made with (bedtools --cram-ref), with its
+    /// .fai (and .gzi when BGZF). Not needed for a CRAM written without a
+    /// reference.
     #[arg(long, value_name = "FILE")]
     pub reference: Option<PathBuf>,
 }

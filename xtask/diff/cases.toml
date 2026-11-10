@@ -4931,3 +4931,124 @@ gloci = "gloci genomecov input.bam --bga"
 reference = "bedtools genomecov -ibam input.bam -bga -ignoreD"
 compare = "exact"
 expected_difference = "#bamtobed-no-reference-ops"
+
+# P3a Task 13
+# view of CRAM (D109, D110) against samtools 1.21. The CRAM fixtures (aln/make-cram.sh) were
+# written by samtools from the SAM fixtures with fa/ref.fa (3.0, 3.1, slices of several
+# references, embedded reference, no reference); samtools reads them with `-T ref.fa` and
+# `decode_md=0`, since gloci writes MD and NM as stored (#cram-md-nm). The `bam` compare mode
+# compares the record bytes, bin and MAPQ of unmapped reads included. tags has every aux type;
+# flags.multi holds unmapped reads in slices of several references; pastend has reads that run
+# past the end of chr1 (decoded against N, as htslib does); cigars has `=` and `X`, which CRAM
+# returns as M.
+[[case]]
+name = "view-cram-to-sam-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/tags.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci view -O sam input.cram --reference ref.fa"
+reference = "samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa input.cram"
+compare = "sam"
+
+[[case]]
+name = "view-cram-31-to-sam-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/tags.v31.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci view -O sam input.v31.cram --reference ref.fa"
+reference = "samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa input.v31.cram"
+compare = "sam"
+
+[[case]]
+name = "view-cram-multi-ref-to-bam-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.multi.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci view -O bam input.multi.cram --reference ref.fa"
+reference = "samtools view -b --no-PG --input-fmt-option decode_md=0 -T ref.fa input.multi.cram"
+compare = "bam"
+
+[[case]]
+name = "view-cram-to-bam-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci view -O bam input.cram --reference ref.fa"
+reference = "samtools view -b --no-PG --input-fmt-option decode_md=0 -T ref.fa input.cram"
+compare = "bam"
+
+[[case]]
+name = "view-cram-cigars-to-bam-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/cigars.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci view -O bam input.cram --reference ref.fa"
+reference = "samtools view -b --no-PG --input-fmt-option decode_md=0 -T ref.fa input.cram"
+compare = "bam"
+
+[[case]]
+name = "view-cram-past-end-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/pastend.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci view -O sam input.cram --reference ref.fa"
+reference = "samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa input.cram"
+compare = "sam"
+
+[[case]]
+name = "view-cram-embedded-past-end-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/pastend.embed.cram" }
+gloci = "gloci view -O sam input.embed.cram"
+reference = "samtools view -h --no-PG --input-fmt-option decode_md=0 input.embed.cram"
+compare = "sam"
+
+[[case]]
+name = "view-cram-no-ref-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/tags.noref.cram" }
+gloci = "gloci view -O bam input.noref.cram"
+reference = "samtools view -b --no-PG --input-fmt-option decode_md=0 input.noref.cram"
+compare = "bam"
+
+# MD and NM (#cram-md-nm): md.cram has a read whose right MD and NM samtools dropped when it wrote
+# the CRAM, one whose right MD and NM it dropped among other tags, one with none, and one with
+# wrong ones (kept). samtools' default (decode_md=1) recomputes MD and NM for every mapped read
+# that lacks them; gloci writes the tags stored, as samtools does with decode_md=0.
+[[case]]
+name = "view-cram-md-nm-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/md.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci view -O sam input.cram --reference ref.fa"
+reference = "samtools view -h --no-PG -T ref.fa input.cram"
+compare = "sam"
+expected_difference = "#cram-md-nm"
+
+[[case]]
+name = "view-cram-md-nm-decode-md-0-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/md.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci view -O sam input.cram --reference ref.fa"
+reference = "samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa input.cram"
+compare = "sam"
+
+# A CRAM without its end-of-file container (#cram-eof-container): samtools warns and exits 0.
+[[case]]
+name = "view-cram-no-eof-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags-noeof.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci view -O sam input.cram --reference ref.fa"
+reference = "samtools view -h --no-PG -T ref.fa input.cram"
+compare = "exit-status"
+expected_difference = "#cram-eof-container"
+
+# Index interop (D107): samtools reads regions through gloci's .crai with the results its own
+# index gives. Live only; the committed-fixture test is `crai_matches_samtools` in
+# crates/gloci-io/tests/cram.rs (gloci's entries equal the samtools .crai of every fixture).
+[[case]]
+name = "index-interop-cram-samtools-view"
+input = { file = "xtask/diff/inputs/aln/tags.multi.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "set -e; gloci index input.multi.cram; samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa input.multi.cram chrM chr1:150-300 chr2 chr10:5-20 chrX"
+reference = "set -e; samtools index input.multi.cram; samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa input.multi.cram chrM chr1:150-300 chr2 chr10:5-20 chrX"
+compare = "sam"
+
+[[case]]
+name = "index-interop-cram-single-ref-samtools-view"
+input = { file = "xtask/diff/inputs/aln/flags.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "set -e; gloci index input.cram; samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa input.cram chr1:650-701 chr2:51-55 chr1:1-200"
+reference = "set -e; samtools index input.cram; samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa input.cram chr1:650-701 chr2:51-55 chr1:1-200"
+compare = "sam"

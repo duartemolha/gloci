@@ -44,6 +44,7 @@ fn indexed_query_refuses_alignment_and_convert_only_formats() {
             alignments: Some(AlignOptions::default()),
             convert_only: true,
             alignments_planned: false,
+            cram: false,
         });
         let e = IndexedFile::open(&sam, f, Header::None, &o).err().unwrap();
         assert!(e.to_string().contains("tabix or CSI index"), "{f:?}: {e}");

@@ -54,6 +54,7 @@ pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
             }),
             convert_only: true,
             alignments_planned: false,
+            cram: false,
         },
         chrom_map: a.chrom_map.load()?,
         threads: ctx.threads,

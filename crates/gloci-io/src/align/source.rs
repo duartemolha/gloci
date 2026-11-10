@@ -1,5 +1,5 @@
 //! The every-record alignment source (D120): `view`, `sort`, `cat` and P3c's per-record
-//! commands read BAM and SAM through it, so unmapped reads are kept, where the interval
+//! commands read BAM, CRAM and SAM through it, so unmapped reads are kept, where the interval
 //! readers skip them (D101). Records come in the reader's raw layout: BAM bytes (without
 //! `block_size`) for BAM and CRAM, the line (without the newline) for SAM.
 
@@ -21,6 +21,10 @@ pub trait AlnSource: Send {
     /// The layout of the raw records: `Format::Bam` for BAM and CRAM, `Format::Sam` for SAM.
     fn layout(&self) -> Format;
     fn header(&self) -> &Arc<AlnHeader>;
+    /// The input's format: `Format::Cram` for a CRAM, whose records come as BAM bytes.
+    fn format(&self) -> Format {
+        self.layout()
+    }
     /// Append the next record (no `block_size`) to `buf` and return its record number,
     /// counted from 1 over the file. `None` at the end. Records the read filters drop are
     /// counted in the diagnostics and not returned.
@@ -34,11 +38,23 @@ pub trait AlnSource: Send {
     }
 }
 
-struct BamSource {
+pub(crate) struct BamSource {
     frames: BamFrames,
     diag: Diagnostics,
     policy: InvalidPolicy,
     opts: AlignOptions,
+}
+
+impl BamSource {
+    /// The source over `frames` (a BAM's, or a CRAM's transcoded records).
+    pub(crate) fn new(frames: BamFrames, policy: InvalidPolicy, opts: AlignOptions) -> BamSource {
+        BamSource {
+            frames,
+            diag: Diagnostics::default(),
+            policy,
+            opts,
+        }
+    }
 }
 
 impl AlnSource for BamSource {
@@ -153,12 +169,12 @@ pub(crate) fn source_from_input(
     let opts = opts.unwrap_or_default();
     let map = o.chrom_map.as_deref();
     match input.format {
-        Format::Bam => Ok(Box::new(BamSource {
-            frames: BamFrames::open(input, map)?,
-            diag: Diagnostics::default(),
-            policy: o.invalid,
+        Format::Bam => Ok(Box::new(BamSource::new(
+            BamFrames::open(input, map)?,
+            o.invalid,
             opts,
-        })),
+        ))),
+        Format::Cram => Ok(Box::new(super::cram::CramSource::open(input, o)?)),
         Format::Sam if map.is_some() => Err(UsageError(format!(
             "{} is SAM, and --chrom-map cannot rename the reference names in SAM text that is \
 written as it is; convert it to BAM first (gloci view {0} -O bam -o x.bam) and read that",
@@ -182,9 +198,9 @@ written as it is; convert it to BAM first (gloci view {0} -O bam -o x.bam) and r
     }
 }
 
-/// Open the BAM or SAM file `path` (`-` is stdin) as every-record source. The reader options
-/// say which command asks (`accept.alignments` must be `Some`), the read filters, `--skip-invalid`
-/// and the threads. CRAM arrives with its reader.
+/// Open the BAM, CRAM or SAM file `path` (`-` is stdin) as every-record source. The reader
+/// options say which command asks (`accept.alignments` must be `Some`), the read filters,
+/// `--reference` (for CRAM), `--skip-invalid` and the threads.
 pub fn open_aln_source(path: &str, o: &ReaderOptions) -> Result<Box<dyn AlnSource>, IoError> {
     let input = open_input(
         path,

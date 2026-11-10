@@ -128,7 +128,7 @@ pub struct ReaderOptions {
 pub enum Opened {
     /// An interval format, read as records.
     Records(Box<dyn RecordReader>),
-    /// BAM or SAM, read as every-record alignments (D120).
+    /// BAM, CRAM or SAM, read as every-record alignments (D120).
     Alignments(Box<dyn crate::align::AlnSource>),
 }
 
@@ -251,6 +251,13 @@ fn dispatch(input: Input, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, Io
             o.invalid,
             o.chrom_map.clone(),
         )?)),
+        Format::Cram if o.accept.alignments.is_some() => {
+            Ok(Box::new(crate::align::CramReader::open_cram(
+                input,
+                o,
+                o.accept.alignments.clone().unwrap_or_default(),
+            )?))
+        }
         Format::Sam if o.accept.alignments.is_some() => {
             Ok(Box::new(crate::align::SamReader::open_sam(
                 input,
