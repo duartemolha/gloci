@@ -12,9 +12,9 @@ mod source;
 mod writer;
 
 pub(crate) use bam::BamReader;
-pub use bed::{AlnBed, AlnBedLayout, AlnBedOptions};
+pub use bed::{AlnBed, AlnBedLayout, AlnBedOptions, AlnBlocks};
 pub use header::{AlnHeader, SortOrder};
-pub use record::{Aln, AlnRef, aln_ref, blocks};
+pub use record::{Aln, AlnRef, aln_ref, blocks, blocks_within};
 pub use sam::SamAln;
 pub(crate) use sam::SamReader;
 pub(crate) use source::source_from_input;

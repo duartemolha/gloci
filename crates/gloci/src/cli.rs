@@ -232,6 +232,16 @@ Examples:
     /// with the size of B. Pairs and count write TSV (a VCF A gets a
     /// #CHROM line naming the columns); clip does not accept VCF/BCF.
     ///
+    /// BAM and SAM (A or B) work as intervals: a read is the reference span of its
+    /// M, D, N, = and X operations (clips never widen it), on the strand of its
+    /// flag. Unmapped reads are skipped; --min-mapq, --require-flags and
+    /// --exclude-flags filter reads first. --split uses the segments between
+    /// N operations, --split-deletions also cuts at D. With an alignment A,
+    /// --mode any and none write the reads themselves as BAM (SAM for a SAM A,
+    /// or as -o/-O say); pairs and count write A's reads as BED6 rows, as
+    /// gloci convert does. --mode clip of reads is refused. Alignments stream:
+    /// --sort sorts them into a temporary BAM first, bounded by --max-mem.
+    ///
     /// Two ways to deal with inputs that are not sorted. Use --sort when the
     /// inputs are too big for memory or you want sorted output: A and every
     /// -b file are sorted first with an external sort bounded by --max-mem
@@ -265,7 +275,7 @@ Examples:
   gloci intersect -a peaks.bed -b genes.bed
   gloci intersect -a calls.vcf.gz -b exons.bed --mode none -o off_target.vcf.gz
   gloci intersect -a a.bed -b x.bed y.bed --mode pairs --overlap-bases --names X,Y
-  gloci intersect -a reads.bed -b targets.bed -f 50% -s --mode count --unsorted")]
+  gloci intersect -a reads.bam -b targets.bed -o on_target.bam")]
     Intersect(IntersectArgs),
     /// Merge overlapping or nearby records into clusters (bedtools merge, bedops -m).
     ///
@@ -855,6 +865,14 @@ Examples:
     /// memory, so memory grows with the size of B. The output is TSV with
     /// A's columns first.
     ///
+    /// BAM and SAM (A or B) work as intervals: a read is the reference span of its
+    /// M, D, N, = and X operations (clips never widen it). Unmapped reads are
+    /// skipped; --min-mapq, --require-flags and --exclude-flags filter reads
+    /// first. With --split the blocks of a read are the segments between N
+    /// operations; --split-deletions also cuts at D. An alignment A is written
+    /// as its BED6 row (as gloci convert does). Alignments stream: --sort sorts
+    /// them into a temporary BAM first, bounded by --max-mem.
+    ///
     /// Two ways to deal with inputs that are not sorted. Use --sort when the
     /// inputs are too big for memory or you want sorted output: A and every
     /// -b file are sorted first with an external sort bounded by --max-mem
@@ -886,9 +904,9 @@ Examples:
     #[command(after_long_help = "\
 Examples:
   gloci coverage -a genes.bed -b reads.bed
-  gloci coverage -a genes.bed -b reads.bed --hist
   gloci coverage -a exons.bed -b reads.bed --per-base -s
-  gloci coverage -a peaks.bed -b rep1.bed rep2.bed --names r1,r2")]
+  gloci coverage -a peaks.bed -b rep1.bed rep2.bed --names r1,r2
+  gloci coverage -a targets.bed -b reads.bam --split")]
     Coverage(CoverageArgs),
     /// Aggregate columns over runs of lines with equal keys (bedtools groupby).
     ///
@@ -1011,6 +1029,12 @@ pub struct IntersectArgs {
     pub o: OverlapArgs,
     #[command(flatten)]
     pub w: WindowArgs,
+    /// BAM and SAM: also cut the blocks of a read at deletions (D), with or without
+    /// --split (bedtools bamtobed -splitD).
+    #[arg(long)]
+    pub split_deletions: bool,
+    #[command(flatten)]
+    pub align: AlignArgs,
     #[command(flatten)]
     pub region: RegionArgs,
     #[command(flatten)]
@@ -1189,6 +1213,12 @@ pub struct CoverageArgs {
     pub mean: bool,
     #[command(flatten)]
     pub o: OverlapArgs,
+    /// BAM and SAM: also cut the blocks of a read at deletions (D), with or without
+    /// --split (bedtools bamtobed -splitD).
+    #[arg(long)]
+    pub split_deletions: bool,
+    #[command(flatten)]
+    pub align: AlignArgs,
     #[command(flatten)]
     pub region: RegionArgs,
     #[command(flatten)]
@@ -2849,7 +2879,8 @@ pub struct OverlapArgs {
     /// Only overlaps on opposite strands; unknown strands never match (4.3: strand).
     #[arg(short = 'S', long = "opposite-strand")]
     pub opposite_strand: bool,
-    /// Compare BED12 blocks (exons) instead of whole spans (4.3: BED12 blocks).
+    /// Compare BED12 blocks (exons) and the aligned segments of BAM/SAM reads (cut at
+    /// CIGAR N) instead of whole spans (4.3: BED12 blocks).
     #[arg(long)]
     pub split: bool,
     /// A point on the edge of an interval overlaps it (4.3: points).

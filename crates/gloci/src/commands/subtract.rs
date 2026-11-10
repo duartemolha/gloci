@@ -28,6 +28,7 @@ pub fn run(ctx: &Ctx, a: &SubtractArgs) -> anyhow::Result<()> {
             criteria: a.o.criteria(),
             window: a.w.window(),
             split: a.o.split,
+            split_deletions: false,
             unsorted: a.u.unsorted,
             sort: sort_settings(ctx, &a.sort, a.vcf_span.vcf_span),
             labels,

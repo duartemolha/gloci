@@ -2,7 +2,7 @@
 //! block. The same BED6 line is what the commands that print an alignment's columns write
 //! (D104), so it lives here and not in `convert`.
 
-use super::{AlnHeader, AlnRef, aln_ref, blocks};
+use super::{AlnHeader, AlnRef, aln_ref, blocks, blocks_within};
 use crate::detect::Format;
 use crate::error::{IoError, Loc};
 use crate::record::{Header, RecordReader};
@@ -46,6 +46,63 @@ impl Default for AlnBedOptions {
     }
 }
 
+/// The record layout of an alignment reader's raw bytes, or `None` for a reader of anything else.
+fn raw_layout(r: &dyn RecordReader) -> Option<(Format, Arc<AlnHeader>)> {
+    let Header::Alignment(h) = r.header() else {
+        return None;
+    };
+    let format = match r.format() {
+        Format::Bam | Format::Cram => Format::Bam,
+        Format::Sam => Format::Sam,
+        _ => return None,
+    };
+    Some((format, h.clone()))
+}
+
+/// The reference blocks of the alignments of one input (D105), for the commands that compare
+/// blocks (`--split`, `--split-deletions`): the segments between `N` operations (and `D` too
+/// with `split_deletions`), cut at the end of the reference like the span, never empty.
+pub struct AlnBlocks {
+    format: Format,
+    name: String,
+    hdr: Arc<AlnHeader>,
+    split_deletions: bool,
+}
+
+impl AlnBlocks {
+    /// Blocks for the records of `r`, or `None` when `r` does not read alignments.
+    pub fn for_reader(r: &dyn RecordReader, split_deletions: bool) -> Option<AlnBlocks> {
+        let (format, hdr) = raw_layout(r)?;
+        Some(AlnBlocks {
+            format,
+            name: r.name().to_string(),
+            hdr,
+            split_deletions,
+        })
+    }
+
+    /// The blocks of the record `raw` (record or line number `loc`, for errors) whose span, as
+    /// the reader gave it, is `span`.
+    pub fn get(&self, raw: &[u8], loc: u64, span: Interval) -> Result<Vec<Interval>, IoError> {
+        let a = aln_ref(self.format, raw, &self.hdr).map_err(|msg| IoError::Parse {
+            path: self.name.clone(),
+            loc: if self.format == Format::Sam {
+                Loc::Line(loc)
+            } else {
+                Loc::Record(loc)
+            },
+            msg,
+        })?;
+        let ref_len = a.ref_id().map_or(u64::MAX, |i| self.hdr.refs[i].1);
+        let mut out = Vec::new();
+        blocks_within(&a, self.split_deletions, ref_len, &mut out);
+        if out.is_empty() {
+            out.push(span);
+        }
+        Ok(out)
+    }
+}
+
 /// Writes alignment records as BED rows.
 pub struct AlnBed {
     /// The layout of the records `raw` holds: BAM bytes (BAM and CRAM) or a SAM line.
@@ -64,18 +121,11 @@ fn push_num(out: &mut Vec<u8>, n: u64) {
 impl AlnBed {
     /// A converter for the records of `r`, or `None` when `r` does not read alignments.
     pub fn for_reader(r: &dyn RecordReader, o: AlnBedOptions) -> Option<AlnBed> {
-        let Header::Alignment(h) = r.header() else {
-            return None;
-        };
-        let format = match r.format() {
-            Format::Bam | Format::Cram => Format::Bam,
-            Format::Sam => Format::Sam,
-            _ => return None,
-        };
+        let (format, hdr) = raw_layout(r)?;
         Some(AlnBed {
             format,
             name: r.name().to_string(),
-            hdr: h.clone(),
+            hdr,
             o,
             blocks: Vec::new(),
             row: Vec::new(),

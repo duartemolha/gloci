@@ -154,6 +154,7 @@ proptest! {
                     criteria: c,
                     window: win,
                     split: false,
+                    split_deletions: false,
                     unsorted,
                     sort: None,
                     labels: Vec::new(),

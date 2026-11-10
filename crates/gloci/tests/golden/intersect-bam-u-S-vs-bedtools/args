@@ -1,0 +1,1 @@
+intersect -a input.bam -b targets6.bed -S -O bam

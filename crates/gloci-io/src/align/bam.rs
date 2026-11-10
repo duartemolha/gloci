@@ -223,6 +223,9 @@ impl RecordReader for BamReader {
     fn diagnostics(&self) -> &Diagnostics {
         &self.diag
     }
+    fn whole_records(&self) -> bool {
+        self.opts.full_records
+    }
 
     fn read_batch(
         &mut self,

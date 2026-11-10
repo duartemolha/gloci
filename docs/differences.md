@@ -1667,3 +1667,29 @@ depends on the span.
 - **Reason:** the unsigned form is a wraparound of the tag's own value, not a score
   anyone can sort or filter on. Non-negative tags are identical.
 - **Pinned by:** `bamtobed-negative-score-vs-bedtools` (must differ).
+## `intersect -v` leaves unmapped reads out {#unmapped-reads}
+
+- **gloci:** every interval command skips unmapped reads (flag `0x4`, placed or not) and
+  counts them at `-v` (D101). `gloci intersect -a x.bam -b t.bed --mode none` writes the
+  mapped reads that have no hit, and no unmapped read.
+- **Old behaviour:** `bedtools intersect -abam x.bam -b t.bed -v` writes the unmapped reads
+  too, because a read with no position has no hit. With `-u` it never writes them, so
+  `-u` and gloci agree.
+- **Reason:** an unmapped read is not an interval, so it cannot be "off target". To keep
+  every record, use `gloci view` (it writes every record) or `samtools view -f 4`.
+- **Pinned by:** `intersect-bam-flags-v-vs-bedtools` (must differ; `flags.bam` has two
+  unmapped reads). `intersect-bam-v-vs-bedtools` runs on `order.bam`, which has none, and
+  matches.
+
+## An alignment prints as BED6 where bedtools prints BED12 {#bam-as-bed-columns}
+
+- **gloci:** where a command prints the columns of an alignment (`intersect --mode pairs`
+  or `--mode count`, `coverage`, an alignment B), it prints the BED6 row `gloci convert`
+  writes: `chr1 100 110 read10 60 +`.
+- **Old behaviour:** `bedtools intersect -abam x.bam -b t.bed -bed -wa -wb` prints the
+  reads as BED12 with `0,0,0` as the colour and trailing commas in the block lists
+  (`1 10, 0,`). A BAM `-b` (with `-a x.bed -wa -wb`) is BED6 in bedtools too, and matches.
+- **Reason:** one row layout for a read everywhere. `gloci convert x.bam --bed12` writes
+  bedtools' BED12 for pipelines that need the blocks.
+- **Pinned by:** `intersect-abam-wa-wb-vs-bedtools` (must differ);
+  `intersect-bed-bam-wa-wb-vs-bedtools` (BAM as B) matches.

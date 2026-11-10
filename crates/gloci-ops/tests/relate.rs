@@ -14,6 +14,7 @@ fn opts() -> RelateOptions {
         criteria: OverlapCriteria::default(),
         window: None,
         split: false,
+        split_deletions: false,
         unsorted: false,
         sort: None,
         labels: vec![],

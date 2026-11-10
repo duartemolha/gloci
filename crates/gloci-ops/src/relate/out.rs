@@ -2,7 +2,7 @@
 
 use gloci_io::{
     Format, Header, IoError, OutFormat, OutputOptions, OutputSpec, RecordReader, RecordWriter,
-    TsvHeader, WriterOptions, open_output, open_record_writer, open_tsv_writer,
+    TsvHeader, UsageError, WriterOptions, open_output, open_record_writer, open_tsv_writer,
     refuse_binary_to_tty, tsv_output_ok,
 };
 use std::io::IsTerminal;
@@ -31,10 +31,21 @@ pub fn open_report(
     match kind {
         ReportOutput::SameAsA => {
             let to = spec.format.unwrap_or(OutFormat::family(a_format));
+            if a_format.is_alignment() && !matches!(to, OutFormat::Bam | OutFormat::Sam) {
+                return Err(UsageError(format!(
+                    "A is {} alignments, which are written as BAM or SAM, not {}; use -O bam \
+or -O sam (-o x.bam, -o x.sam), or for BED write BAM and convert: \
+gloci intersect -a reads.bam -b targets.bed -O bam | gloci convert - -o x.bed",
+                    a_format.name(),
+                    to.name()
+                ))
+                .into());
+            }
             refuse_binary_to_tty(to_tty, to, spec.bgzf)?;
             let out = open_output(spec, to, oo)?;
             let wo = WriterOptions {
-                write_header: header,
+                // Alignments always carry their header (BAM cannot do without it).
+                write_header: header || a_format.is_alignment(),
                 ..wo.clone()
             };
             open_record_writer(out, a_format, to, a.header(), &wo)

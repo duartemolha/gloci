@@ -585,3 +585,31 @@ pub fn blocks(r: &AlnRef<'_>, split_deletions: bool, out: &mut Vec<Interval>) {
         out.push(Interval { start: pos, end });
     }
 }
+
+/// [`blocks`] with D101's cut at the end of the reference (`ref_len`, its `LN`): blocks that
+/// start at or past it are dropped and the end of each other block is cut there, so the blocks
+/// agree with the span of the read ([`AlnRef::span`]). With no block left, the span is the one
+/// block (an empty `out` when the read has no span at all). Every command that compares or
+/// prints blocks uses this one rule.
+pub fn blocks_within(r: &AlnRef<'_>, split_deletions: bool, ref_len: u64, out: &mut Vec<Interval>) {
+    let first = out.len();
+    blocks(r, split_deletions, out);
+    let mut keep = first;
+    for i in first..out.len() {
+        let b = Interval {
+            start: out[i].start,
+            end: out[i].end.min(ref_len),
+        };
+        if b.start < b.end {
+            out[keep] = b;
+            keep += 1;
+        }
+    }
+    out.truncate(keep);
+    if out.len() == first
+        && let Some((span, _)) = r.span(ref_len)
+        && span.start < span.end
+    {
+        out.push(span);
+    }
+}

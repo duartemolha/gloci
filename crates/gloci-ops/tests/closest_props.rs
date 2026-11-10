@@ -159,6 +159,7 @@ proptest! {
                     },
                     window: None,
                     split: false,
+                    split_deletions: false,
                     unsorted,
                     sort: None,
                     labels: labels.clone(),

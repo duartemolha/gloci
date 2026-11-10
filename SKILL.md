@@ -123,6 +123,8 @@ Overlap follows spec section 4.3: records overlap when they share a base, a poin
 
 A and every B must be sorted in one chromosome order, which is checked as they are read; a violation is an error with a fix. With --unsorted, any order works, A is still streamed and reported in its own order, and every -b file is loaded into memory, so memory grows with the size of B. Pairs and count write TSV (a VCF A gets a #CHROM line naming the columns); clip does not accept VCF/BCF.
 
+BAM and SAM (A or B) work as intervals: a read is the reference span of its M, D, N, = and X operations (clips never widen it), on the strand of its flag. Unmapped reads are skipped; --min-mapq, --require-flags and --exclude-flags filter reads first. --split uses the segments between N operations, --split-deletions also cuts at D. With an alignment A, --mode any and none write the reads themselves as BAM (SAM for a SAM A, or as -o/-O say); pairs and count write A's reads as BED6 rows, as gloci convert does. --mode clip of reads is refused. Alignments stream: --sort sorts them into a temporary BAM first, bounded by --max-mem.
+
 Two ways to deal with inputs that are not sorted. Use --sort when the inputs are too big for memory or you want sorted output: A and every -b file are sorted first with an external sort bounded by --max-mem (spilling to --tmp-dir), then the normal sweep runs, so the result equals gloci sort on each input followed by this command. It needs disk, about twice the input size in --tmp-dir, and removes it afterwards. Use --unsorted when you want A's order kept and every -b file fits in memory. The two cannot be combined.
 
 When A and every -b file are BGZF files with a .tbi or .csi index, or plain (uncompressed) BED, bedGraph or VCF files, which are scanned once for where each chromosome's records lie, and more than one thread is used, the work runs on runs of chromosomes in parallel, which are read and written in the chromosome-table order (karyotype by default; -g, a VCF header or --chrom-order set it). At most 8 runs are in flight (more threads speed up BGZF). Memory is about 64 MiB plus 20 MiB per run in flight (more with many -b files): the output waiting to be written shares 64 MiB and the rest spills to --tmp-dir. Indexed and streaming runs give identical output for inputs in chromosome-table order; an input that is not in table order is refused with the same error whatever the thread count. After an error, how much output was already written to standard output varies with the thread count (-o FILE is written atomically). Plain inputs are validated to their end at every thread count; for indexed inputs, records outside the queried chromosomes are validated only at -t 1. When more than one input is malformed, the error reported may name a different input at different thread counts; the exit code is the same.
@@ -131,7 +133,7 @@ When A and every -b file are BGZF files with a .tbi or .csi index, or plain (unc
 gloci intersect -a peaks.bed -b genes.bed
 gloci intersect -a calls.vcf.gz -b exons.bed --mode none -o off_target.vcf.gz
 gloci intersect -a a.bed -b x.bed y.bed --mode pairs --overlap-bases --names X,Y
-gloci intersect -a reads.bed -b targets.bed -f 50% -s --mode count --unsorted
+gloci intersect -a reads.bam -b targets.bed -o on_target.bam
 ```
 
 ### `gloci merge`
@@ -384,15 +386,17 @@ With --split, A and B are their BED12 blocks: depth counts the bases shared by a
 
 A and every B must be sorted in one chromosome order, which is checked as they are read. With --unsorted, any order works, A is still streamed in its own order, and every -b file is loaded into memory, so memory grows with the size of B. The output is TSV with A's columns first.
 
+BAM and SAM (A or B) work as intervals: a read is the reference span of its M, D, N, = and X operations (clips never widen it). Unmapped reads are skipped; --min-mapq, --require-flags and --exclude-flags filter reads first. With --split the blocks of a read are the segments between N operations; --split-deletions also cuts at D. An alignment A is written as its BED6 row (as gloci convert does). Alignments stream: --sort sorts them into a temporary BAM first, bounded by --max-mem.
+
 Two ways to deal with inputs that are not sorted. Use --sort when the inputs are too big for memory or you want sorted output: A and every -b file are sorted first with an external sort bounded by --max-mem (spilling to --tmp-dir), then the normal sweep runs, so the result equals gloci sort on each input followed by this command. It needs disk, about twice the input size in --tmp-dir, and removes it afterwards. Use --unsorted when you want A's order kept and every -b file fits in memory. The two cannot be combined.
 
 When A and every -b file are BGZF files with a .tbi or .csi index, or plain (uncompressed) BED, bedGraph or VCF files, which are scanned once for where each chromosome's records lie, and more than one thread is used, the work runs on runs of chromosomes in parallel, which are read and written in the chromosome-table order (karyotype by default; -g, a VCF header or --chrom-order set it). At most 8 runs are in flight (more threads speed up BGZF). Memory is about 64 MiB plus 20 MiB per run in flight (more with many -b files): the output waiting to be written shares 64 MiB and the rest spills to --tmp-dir. Indexed and streaming runs give identical output for inputs in chromosome-table order; an input that is not in table order is refused with the same error whatever the thread count. After an error, how much output was already written to standard output varies with the thread count (-o FILE is written atomically). Plain inputs are validated to their end at every thread count; for indexed inputs, records outside the queried chromosomes are validated only at -t 1. When more than one input is malformed, the error reported may name a different input at different thread counts; the exit code is the same.
 
 ```sh
 gloci coverage -a genes.bed -b reads.bed
-gloci coverage -a genes.bed -b reads.bed --hist
 gloci coverage -a exons.bed -b reads.bed --per-base -s
 gloci coverage -a peaks.bed -b rep1.bed rep2.bed --names r1,r2
+gloci coverage -a targets.bed -b reads.bam --split
 ```
 
 ### `gloci groupby`
@@ -519,6 +523,7 @@ then the rest of P2b (Python library, packaging, mdBook, paper evidence suite).
 | bedtools | gloci |
 |---|---|
 | `intersect -u` | `gloci intersect -a A -b B` (default `--mode any`; note `--mode` has no `-m`) |
+| `intersect -abam A.bam -b B.bed -u` (`-v`, `-split`, `-s`, `-S`, `-f`, `-c`) | `gloci intersect -a A.bam -b B.bed [--mode none] [--split] [-s] [-S] [-f FRAC]` (BAM or SAM as A or B, which writes BAM, or SAM for a SAM A, and `-o x.bam` or `-O bam\|sam` set it; output is the same reads as bedtools 2.31.1; `--split` cuts at CIGAR `N`, and `--split-deletions` also at `D`; unmapped reads are never written, even by `--mode none`, see [differences.md#unmapped-reads](differences.md#unmapped-reads); `-abam -bed -wa -wb` and `--mode pairs` with an alignment A print BED6, not BED12, see [differences.md#bam-as-bed-columns](differences.md#bam-as-bed-columns); `--mode clip` of reads is an error; for BED write BAM and pipe to `gloci convert -`) |
 | `intersect -v` | `gloci intersect -a A -b B --mode none` |
 | `intersect` (no mode flag) | `gloci intersect -a A -b B --mode clip` |
 | `intersect -wa -wb` | `gloci intersect -a A -b B --mode pairs` |
@@ -534,6 +539,7 @@ then the rest of P2b (Python library, packaging, mdBook, paper evidence suite).
 | `closest -d -D -k -t -io -iu -id -mdb` | `gloci closest -a A -b B --distance --signed ref\|a\|b -k N --ties all\|first\|last --ignore-overlaps --ignore-upstream --ignore-downstream --per-file` (plus `--max-distance N`, `-s`/`--same-strand`, `-S`/`--opposite-strand`) |
 | `map -c -o` | `gloci map -a A -b B -c/--column COL:OP` (`--delim`, `--empty`, `--skip-unmatched`; ops: `count`, `count_distinct`, `sum`, `mean`, `median`, `min`, `max`, `stdev`, `var`, `stdev_pop`, `var_pop`, `collapse`, `distinct`, `distinct_sorted`, `first`, `last`, `bases`, `indicator`, `cv`, `mad`, `quantile:Q`, `tmean:LO-HI`, `wmean`, `mode`, `antimode`, `bases_uniq`, `frac_a`, `frac_b`, `min_record`, `max_record`, `records`) |
 | `coverage [-hist -d -mean]`, `annotate` | `gloci coverage -a A -b B [--hist \| --per-base \| --mean]`, `gloci coverage -a A -b B1 B2... [--names ...]` |
+| `coverage -a A.bed -b reads.bam [-split -hist -d -mean]` | `gloci coverage -a A.bed -b reads.bam [--split] [--hist \| --per-base \| --mean]` (BAM or SAM as B; `--split-deletions` also cuts reads at `D`; `--min-mapq`, `--require-flags` and `--exclude-flags` filter reads; an alignment A prints as BED6, see [differences.md#bam-as-bed-columns](differences.md#bam-as-bed-columns)) |
 | `slop -b -l -r -s -pct -g` | `gloci slop FILE -b/--both N` or `--left L --right R` with `-s`, `--pct`, `-g GENOME` |
 | `flank -b -l -r -s -pct -g` | `gloci flank FILE -b/--both N` or `--left L --right R` with `-s`, `--pct`, `-g GENOME` |
 | `shift -s N`, `shift -p X -m Y`, `-pct`, `-g` | `gloci shift FILE --by N [-g GENOME]` (signed; `--pct` reads N as an exact decimal fraction of the feature length); `-p X -m -X` is `--by X -s`. bedtools' `-p`/`-m` with unrelated magnitudes has no gloci equivalent: run `shift` per strand after filtering |

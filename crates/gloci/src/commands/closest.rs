@@ -57,6 +57,7 @@ pub fn run(ctx: &Ctx, a: &ClosestArgs) -> anyhow::Result<()> {
             },
             window: None,
             split: false,
+            split_deletions: false,
             unsorted: a.u.unsorted,
             sort: sort_settings(ctx, &a.sort, a.vcf_span.vcf_span),
             labels,

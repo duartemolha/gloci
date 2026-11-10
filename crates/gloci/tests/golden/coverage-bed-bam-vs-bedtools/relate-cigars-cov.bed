@@ -1,0 +1,6 @@
+chr1	0	100	book_start	0	+
+chr1	110	200	book_both	0	-
+chr1	300	320	overhang	0	+
+chr1	620	680	intron	0	+
+chr1	705	707	deletion	0	-
+chr1	900	910	plain_rev	0	+

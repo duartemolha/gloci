@@ -23,7 +23,7 @@ use crate::relate::{
 use gloci_core::ChromTable;
 use gloci_core::Interval;
 use gloci_engine::{ARec, Hit, Neighbours, SweepSummary, Visitor};
-use gloci_io::{IoError, RecordWriter, UsageError};
+use gloci_io::{Format, IoError, RecordWriter, UsageError};
 use std::collections::BTreeMap;
 use std::io::Write;
 
@@ -91,6 +91,18 @@ pub fn validate(o: &CoverageOptions, n_b: usize) -> Result<(), IoError> {
     }
     if o.relate.window.is_some() {
         return Err(usage("coverage has no window options"));
+    }
+    Ok(())
+}
+
+/// The option checks that need the inputs' formats, so a command can run them before it
+/// creates any output.
+pub fn validate_formats(a: Format, b: &[Format], o: &CoverageOptions) -> Result<(), IoError> {
+    if o.relate.split_deletions && !(a.is_alignment() || b.iter().any(|f| f.is_alignment())) {
+        return Err(usage(
+            "--split-deletions cuts alignments at deletions, and no input is BAM or SAM; \
+drop it, or use --split for BED12 blocks",
+        ));
     }
     Ok(())
 }
@@ -313,6 +325,8 @@ pub fn coverage(
     w: &mut dyn RecordWriter,
 ) -> Result<(SweepSummary, CoverageTotals), IoError> {
     validate(o, inputs.b.len())?;
+    let b_formats: Vec<Format> = inputs.b.iter().map(|r| r.format()).collect();
+    validate_formats(inputs.a.format(), &b_formats, o)?;
     let (summary, totals) = coverage_in(inputs, None, o, w)?;
     report_skipped(&summary);
     if o.report == CoverageReport::Hist {
@@ -331,6 +345,7 @@ pub fn coverage_files(
     run: &RunOptions,
 ) -> Result<(SweepSummary, CoverageTotals), IoError> {
     validate(o, files.b_count())?;
+    validate_formats(files.a().format(), &files.b_formats(), o)?;
     let (summary, parts) = run_files(files, &o.relate, run, w, &|inputs, chroms, w| {
         coverage_in(inputs, chroms, o, w)
     })?;
@@ -355,7 +370,7 @@ fn coverage_in(
     let acceptor = Acceptor::new(&o.relate, &inputs);
     let mut reporter = Reporter {
         report: o.report,
-        split: o.relate.split,
+        split: o.relate.splits(),
         n_b,
         acceptor,
         w,

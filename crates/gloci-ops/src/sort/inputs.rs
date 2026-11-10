@@ -188,12 +188,20 @@ or run the command on each format separately",
         if let Some(s) = r.diagnostics().summary(r.name()) {
             log::warn!("{s}");
         }
+        if r.format().is_alignment() {
+            r.diagnostics().log_alignment_counts(r.name());
+        }
     }
 
+    // Alignments: BAM (level 1) for BAM and CRAM, SAM for SAM, so the records come back in
+    // the layout the caller already prepared to print (D124).
     let out_format = OutFormat::family(format);
+    let whole = inputs[0].whole_records();
     let ext = match out_format {
         OutFormat::Vcf => "vcf",
         OutFormat::Bcf => "bcf",
+        OutFormat::Bam => "bam",
+        OutFormat::Sam => "sam",
         OutFormat::Gff3 | OutFormat::Gtf => "gff",
         _ => "bed",
     };
@@ -221,7 +229,7 @@ or run the command on each format separately",
         },
     )?;
     let wopts = WriterOptions {
-        write_header: matches!(format, Format::Gff3 | Format::Gtf),
+        write_header: format.is_alignment() || matches!(format, Format::Gff3 | Format::Gtf),
         command_line: None,
         version: env!("CARGO_PKG_VERSION"),
     };
@@ -242,7 +250,19 @@ or run the command on each format separately",
     drop(inputs);
 
     let ro = ReaderOptions {
-        accept: gloci_io::Accept::default(),
+        accept: if format.is_alignment() {
+            // The filters were applied when the records were first read. The records come
+            // back as whole or as slim as they went in.
+            gloci_io::Accept {
+                alignments: Some(gloci_io::AlignOptions {
+                    full_records: whole,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }
+        } else {
+            gloci_io::Accept::default()
+        },
         chrom_map: None,
         threads: settings.threads,
         format: None,

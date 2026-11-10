@@ -104,6 +104,12 @@ pub trait RecordReader: Send {
     fn consume_to_end(&self) -> bool {
         false
     }
+    /// Whether the records are whole, so that a writer may write them. False of an
+    /// alignment reader that keeps only the fields comparisons need (D115): `--sort` then
+    /// sorts slim records into its temporary file and reads them back slim.
+    fn whole_records(&self) -> bool {
+        true
+    }
 }
 
 #[derive(Debug, Clone)]

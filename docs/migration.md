@@ -140,6 +140,7 @@ then the rest of P2b (Python library, packaging, mdBook, paper evidence suite).
 | bedtools | gloci |
 |---|---|
 | `intersect -u` | `gloci intersect -a A -b B` (default `--mode any`; note `--mode` has no `-m`) |
+| `intersect -abam A.bam -b B.bed -u` (`-v`, `-split`, `-s`, `-S`, `-f`, `-c`) | `gloci intersect -a A.bam -b B.bed [--mode none] [--split] [-s] [-S] [-f FRAC]` (BAM or SAM as A or B, which writes BAM, or SAM for a SAM A, and `-o x.bam` or `-O bam\|sam` set it; output is the same reads as bedtools 2.31.1; `--split` cuts at CIGAR `N`, and `--split-deletions` also at `D`; unmapped reads are never written, even by `--mode none`, see [differences.md#unmapped-reads](differences.md#unmapped-reads); `-abam -bed -wa -wb` and `--mode pairs` with an alignment A print BED6, not BED12, see [differences.md#bam-as-bed-columns](differences.md#bam-as-bed-columns); `--mode clip` of reads is an error; for BED write BAM and pipe to `gloci convert -`) |
 | `intersect -v` | `gloci intersect -a A -b B --mode none` |
 | `intersect` (no mode flag) | `gloci intersect -a A -b B --mode clip` |
 | `intersect -wa -wb` | `gloci intersect -a A -b B --mode pairs` |
@@ -155,6 +156,7 @@ then the rest of P2b (Python library, packaging, mdBook, paper evidence suite).
 | `closest -d -D -k -t -io -iu -id -mdb` | `gloci closest -a A -b B --distance --signed ref\|a\|b -k N --ties all\|first\|last --ignore-overlaps --ignore-upstream --ignore-downstream --per-file` (plus `--max-distance N`, `-s`/`--same-strand`, `-S`/`--opposite-strand`) |
 | `map -c -o` | `gloci map -a A -b B -c/--column COL:OP` (`--delim`, `--empty`, `--skip-unmatched`; ops: `count`, `count_distinct`, `sum`, `mean`, `median`, `min`, `max`, `stdev`, `var`, `stdev_pop`, `var_pop`, `collapse`, `distinct`, `distinct_sorted`, `first`, `last`, `bases`, `indicator`, `cv`, `mad`, `quantile:Q`, `tmean:LO-HI`, `wmean`, `mode`, `antimode`, `bases_uniq`, `frac_a`, `frac_b`, `min_record`, `max_record`, `records`) |
 | `coverage [-hist -d -mean]`, `annotate` | `gloci coverage -a A -b B [--hist \| --per-base \| --mean]`, `gloci coverage -a A -b B1 B2... [--names ...]` |
+| `coverage -a A.bed -b reads.bam [-split -hist -d -mean]` | `gloci coverage -a A.bed -b reads.bam [--split] [--hist \| --per-base \| --mean]` (BAM or SAM as B; `--split-deletions` also cuts reads at `D`; `--min-mapq`, `--require-flags` and `--exclude-flags` filter reads; an alignment A prints as BED6, see [differences.md#bam-as-bed-columns](differences.md#bam-as-bed-columns)) |
 | `slop -b -l -r -s -pct -g` | `gloci slop FILE -b/--both N` or `--left L --right R` with `-s`, `--pct`, `-g GENOME` |
 | `flank -b -l -r -s -pct -g` | `gloci flank FILE -b/--both N` or `--left L --right R` with `-s`, `--pct`, `-g GENOME` |
 | `shift -s N`, `shift -p X -m Y`, `-pct`, `-g` | `gloci shift FILE --by N [-g GENOME]` (signed; `--pct` reads N as an exact decimal fraction of the feature length); `-p X -m -X` is `--by X -s`. bedtools' `-p`/`-m` with unrelated magnitudes has no gloci equivalent: run `shift` per strand after filtering |

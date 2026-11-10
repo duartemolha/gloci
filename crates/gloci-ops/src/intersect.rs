@@ -11,7 +11,9 @@ use crate::relate::{
 };
 use gloci_core::{ChromTable, Interval, StrandRule, Window, trimmed_alleles};
 use gloci_engine::{ARec, Hit, Neighbours, SweepSummary, Visitor};
-use gloci_io::{BcfText, Format, IoError, RecordReader, RecordWriter, UsageError, field};
+use gloci_io::{
+    AlnBed, AlnBedOptions, BcfText, Format, IoError, RecordReader, RecordWriter, UsageError, field,
+};
 
 /// What `intersect` writes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,7 +61,20 @@ fn is_variant(f: Format) -> bool {
 /// The option checks that need only the inputs' formats, so a command can
 /// run them before it creates any output.
 pub fn validate(a: Format, b: &[Format], o: &IntersectOptions) -> Result<(), IoError> {
+    let has_alignment = a.is_alignment() || b.iter().any(|f| f.is_alignment());
+    if o.relate.split_deletions && !has_alignment {
+        return Err(usage(
+            "--split-deletions cuts alignments at deletions, and no input is BAM or SAM; \
+drop it, or use --split for BED12 blocks",
+        ));
+    }
     if o.mode == Mode::Clip {
+        if a.is_alignment() {
+            return Err(usage(
+                "an alignment cannot be clipped; use --mode any to keep the whole read, or \
+convert it to BED first: gloci convert reads.bam -o reads.bed",
+            ));
+        }
         if is_variant(a) {
             return Err(usage(
                 "a variant cannot be clipped; use --mode any to keep the whole record",
@@ -106,6 +121,8 @@ alleles of two records, not how much they overlap; drop {flag} or use --match ov
 pub(crate) struct Text {
     pub(crate) format: Format,
     bcf: Option<BcfText>,
+    /// An alignment prints as its BED6 row (D104).
+    aln: Option<AlnBed>,
 }
 
 impl Text {
@@ -113,11 +130,15 @@ impl Text {
         Ok(Text {
             format: r.format(),
             bcf: BcfText::for_reader(r)?,
+            aln: AlnBed::for_reader(r, AlnBedOptions::default()),
         })
     }
 
-    /// The record as a text line (a BCF record is rendered as VCF).
+    /// The record as a text line (a BCF record is rendered as VCF, an alignment as BED6).
     pub(crate) fn of<'a>(&'a mut self, raw: &'a [u8], loc: u64) -> Result<&'a [u8], IoError> {
+        if let Some(a) = &mut self.aln {
+            return a.bed6(raw, loc);
+        }
         match &mut self.bcf {
             Some(b) => b.render(raw, loc),
             None => Ok(raw),

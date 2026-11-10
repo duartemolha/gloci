@@ -35,14 +35,24 @@ use gloci_io::{
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+impl RelateOptions {
+    /// Do the commands compare blocks rather than spans?
+    pub fn splits(&self) -> bool {
+        self.split || self.split_deletions
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct RelateOptions {
     pub criteria: OverlapCriteria,
     /// Padding of B (`-w`, `--left`, `--right`, `--strand-window`). Cannot
     /// be combined with thresholds (D37); the command layer enforces that.
     pub window: Option<Window>,
-    /// `--split`: compare BED12 blocks instead of spans.
+    /// `--split`: compare BED12 blocks and alignment CIGAR segments instead of spans.
     pub split: bool,
+    /// `--split-deletions`: alignments are also cut at `D` (D105), with or without `--split`;
+    /// BED12 blocks need `--split`.
+    pub split_deletions: bool,
     pub unsorted: bool,
     /// `--sort`: sort A and then each B on its own (so the B files stay
     /// distinct) with the external sorter before the sorted sweep. The
@@ -309,6 +319,7 @@ pub(crate) fn run_relation_in(
     };
     // The sweep has dropped the readers.
     summary.skipped = skipped.take();
+    skipped.log_alignment_counts();
     for (name, flag) in &watched {
         if flag.load(Ordering::Relaxed) {
             log::warn!("{name} has records with unknown strand; they never match under -s or -S");

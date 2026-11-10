@@ -62,6 +62,7 @@ fn options(sort: Option<SortSettings>) -> IntersectOptions {
             criteria: OverlapCriteria::default(),
             window: None,
             split: false,
+            split_deletions: false,
             unsorted: false,
             sort,
             labels: vec!["B1".into(), "B2".into()],
