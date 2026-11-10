@@ -128,8 +128,21 @@ fn precheck(
         }
     }
     let n = head.records;
-    let flags = series(comp, ext, b"BF", n).filter(|v| v.len() == n);
-    let cram_flags = series(comp, ext, b"CF", n).filter(|v| v.len() == n);
+    // A series read once per record, in a block of its own, holds one value per record: a
+    // count that disagrees is a corrupt slice (the checks below rely on it).
+    let per_record = |key: &[u8; 2]| -> Result<Option<Vec<i32>>, String> {
+        match series(comp, ext, key, n) {
+            Some(v) if v.len() != n => Err(format!(
+                "a slice claims {} records, and its {} series holds {} values",
+                thousands(n as u64),
+                String::from_utf8_lossy(key),
+                thousands(v.len() as u64)
+            )),
+            v => Ok(v),
+        }
+    };
+    let flags = per_record(b"BF")?;
+    let cram_flags = per_record(b"CF")?;
     // A mate given as a distance must be a later record of the slice.
     if let (Some(cf), Some(nf)) = (&cram_flags, series(comp, ext, b"NF", n)) {
         let constant = comp.constant.get(b"NF").copied();
@@ -152,12 +165,9 @@ fn precheck(
     if head.ref_id != -2 {
         return Ok(None);
     }
-    let (Some(bf), Some(ri)) = (flags, series(comp, ext, b"RI", n)) else {
+    let (Some(bf), Some(ri)) = (flags, per_record(b"RI")?) else {
         return Ok(None);
     };
-    if ri.len() != head.records {
-        return Ok(None);
-    }
     let mut needed = Vec::new();
     for (i, (&f, &r)) in bf.iter().zip(&ri).enumerate() {
         if f & 0x4 != 0 {
@@ -778,6 +788,13 @@ mod tests {
         );
         let (comp, ext) = blocks(&[(b"CF", 1, vec![0x4, 0, 0]), (b"NF", 2, vec![1])]);
         assert!(precheck(&head(0, 3), 1, &comp, &[], &ext).is_ok());
+        // A series of its own whose count disagrees with the slice's.
+        let (comp, ext) = blocks(&[(b"BF", 1, vec![0, 0, 0])]);
+        let e = precheck(&head(0, 4), 1, &comp, &[], &ext).unwrap_err();
+        assert!(
+            e.contains("a slice claims 4 records, and its BF series holds 3 values"),
+            "{e}"
+        );
         // A detached read's mate is not a distance.
         let (comp, ext) = blocks(&[(b"CF", 1, vec![0x6, 0, 0]), (b"NF", 2, vec![5])]);
         assert!(precheck(&head(0, 3), 1, &comp, &[], &ext).is_ok());
