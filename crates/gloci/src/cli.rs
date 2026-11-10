@@ -518,6 +518,34 @@ Examples:
   gloci convert transcripts.bed --blocks -o exons.bed
   gloci convert hits.psl -o hits.bed")]
     Convert(ConvertArgs),
+    /// Write the sequence under each interval (bedtools getfasta).
+    ///
+    /// --fasta REF.fa is read at random through REF.fa.fai (and REF.fa.gz.gzi
+    /// for BGZF); build them with gloci index. gloci never builds them itself.
+    /// The intervals (BED, GFF/GTF, VCF/BCF) are written in input order, one
+    /// sequence each, on a single line with the case of the FASTA kept and
+    /// memory that does not grow with the interval length. The header is
+    /// chrom:start-end with a 0-based start, as bedtools; --name gives
+    /// name::chrom:start-end and --name-only gives name (BED column 4, the
+    /// GFF feature type, or REF/ALT_ID for VCF). -s reverse-complements
+    /// minus-strand records with the IUPAC-aware, case-keeping table of
+    /// bedtools and adds (+), (-) or (.) to the header; --rna writes U for
+    /// the complement of A (as bedtools, it changes reverse-complemented
+    /// sequences only). --split joins the blocks of BED12 records; with -s a
+    /// minus-strand record is reverse-complemented as a whole. --tab writes
+    /// the header, TAB, the sequence; --bed-out writes the input record, TAB,
+    /// the sequence. VCF follows --vcf-span (--vcf-span ref is bedtools'
+    /// rule). A zero-length interval has no sequence: it is skipped with one
+    /// warning that counts them, as bedtools does. An interval on a
+    /// chromosome the FASTA lacks, or ending past its end, is an error; bedtools skips it
+    /// with a message and exits 0. --skip-invalid skips such intervals with one
+    /// warning carrying the count. -o FILE.fa.gz writes BGZF.
+    #[command(after_long_help = "\
+Examples:
+  gloci getfasta --fasta ref.fa genes.bed
+  gloci getfasta --fasta ref.fa genes.bed12 --split -s --name-only -o transcripts.fa
+  gloci getfasta --fasta ref.fa.gz calls.vcf.gz --vcf-span ref --tab")]
+    Getfasta(GetfastaArgs),
     /// Remove from A the bases covered by B (bedtools subtract, bedops -d).
     ///
     /// Each A record is cut by the union of the B records that overlap it,
@@ -1941,6 +1969,50 @@ pub struct SlopArgs {
     pub invalid: InvalidArg,
     #[command(flatten)]
     pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+#[derive(Args)]
+pub struct GetfastaArgs {
+    /// Intervals to read (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// The FASTA to read (plain or BGZF), with its .fai (and .gzi) beside it.
+    #[arg(short = 'f', long, value_name = "FILE", required = true)]
+    pub fasta: PathBuf,
+    /// Reverse-complement minus-strand records and add the strand to the
+    /// header.
+    #[arg(short = 's')]
+    pub strand: bool,
+    /// Header `name::chrom:start-end`.
+    #[arg(long, conflicts_with = "name_only")]
+    pub name: bool,
+    /// Header `name`.
+    #[arg(long)]
+    pub name_only: bool,
+    /// BED12: join the blocks (exons) of each record.
+    #[arg(long)]
+    pub split: bool,
+    /// Write `header TAB sequence` lines.
+    #[arg(long, conflicts_with = "bed_out")]
+    pub tab: bool,
+    /// Write each input record, TAB, the sequence.
+    #[arg(long)]
+    pub bed_out: bool,
+    /// Write U for the complement of A (reverse-complemented sequences only).
+    #[arg(long)]
+    pub rna: bool,
+    #[command(flatten)]
+    pub format: FormatArg,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
     #[command(flatten)]
     pub threads: ThreadArgs,
     #[command(flatten)]

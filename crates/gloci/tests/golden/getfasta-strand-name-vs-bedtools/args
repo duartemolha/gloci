@@ -1,0 +1,1 @@
+getfasta --fasta ref.fa -s --name input.bed

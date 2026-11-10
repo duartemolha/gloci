@@ -1,0 +1,1 @@
+getfasta --fasta ref.fa --bed-out -s input.bed

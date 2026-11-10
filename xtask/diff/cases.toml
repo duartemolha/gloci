@@ -3430,3 +3430,225 @@ gloci = "gloci convert input.psl"
 reference = "convert2bed --input=psl --do-not-sort < input.psl"
 compare = "exit-status"
 expected_difference = "#psl-rmsk-bedops-quirks"
+
+[[case]]
+name = "getfasta-default-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa input.bed"
+reference = "bedtools getfasta -fi ref.fa -bed input.bed"
+compare = "exact"
+
+[[case]]
+name = "getfasta-name-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa --name input.bed"
+reference = "bedtools getfasta -fi ref.fa -name -bed input.bed"
+compare = "exact"
+
+[[case]]
+name = "getfasta-name-only-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa --name-only input.bed"
+reference = "bedtools getfasta -fi ref.fa -nameOnly -bed input.bed"
+compare = "exact"
+
+# gf.bed has minus-strand records over IUPAC codes (chrX), soft-masked bases (chr1),
+# U and n (chr10), and a `.` strand; -s changes the output of eight of its ten records.
+[[case]]
+name = "getfasta-strand-iupac-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa -s input.bed"
+reference = "bedtools getfasta -fi ref.fa -s -bed input.bed"
+compare = "exact"
+
+[[case]]
+name = "getfasta-strand-name-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa -s --name input.bed"
+reference = "bedtools getfasta -fi ref.fa -s -name -bed input.bed"
+compare = "exact"
+
+[[case]]
+name = "getfasta-strand-name-only-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa -s --name-only input.bed"
+reference = "bedtools getfasta -fi ref.fa -s -nameOnly -bed input.bed"
+compare = "exact"
+
+# A BED record without a strand column has an empty strand: `()` in the header.
+[[case]]
+name = "getfasta-strand-bed3-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf3.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa -s --name input.bed"
+reference = "bedtools getfasta -fi ref.fa -s -name -bed input.bed"
+compare = "exact"
+
+[[case]]
+name = "getfasta-tab-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa --tab input.bed"
+reference = "bedtools getfasta -fi ref.fa -tab -bed input.bed"
+compare = "exact"
+
+[[case]]
+name = "getfasta-tab-strand-name-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa --tab -s --name input.bed"
+reference = "bedtools getfasta -fi ref.fa -tab -s -name -bed input.bed"
+compare = "exact"
+
+[[case]]
+name = "getfasta-bed-out-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa --bed-out input.bed"
+reference = "bedtools getfasta -fi ref.fa -bedOut -bed input.bed"
+compare = "exact"
+
+[[case]]
+name = "getfasta-bed-out-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa --bed-out -s input.bed"
+reference = "bedtools getfasta -fi ref.fa -bedOut -s -bed input.bed"
+compare = "exact"
+
+[[case]]
+name = "getfasta-split-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf12.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa --split input.bed"
+reference = "bedtools getfasta -fi ref.fa -split -bed input.bed"
+compare = "exact"
+
+# A minus-strand BED12 record is reverse-complemented as a whole after its
+# blocks are joined (geneB spans IUPAC codes, geneC soft-masked bases and Ns).
+[[case]]
+name = "getfasta-split-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf12.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa --split -s --name input.bed"
+reference = "bedtools getfasta -fi ref.fa -split -s -name -bed input.bed"
+compare = "exact"
+
+[[case]]
+name = "getfasta-split-bed-out-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf12.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa --split --bed-out input.bed"
+reference = "bedtools getfasta -fi ref.fa -split -bedOut -bed input.bed"
+compare = "exact"
+
+[[case]]
+name = "getfasta-rna-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa -s --rna input.bed"
+reference = "bedtools getfasta -fi ref.fa -s -rna -bed input.bed"
+compare = "exact"
+
+# --rna only changes what is reverse-complemented, so without -s it is a no-op, as in bedtools.
+[[case]]
+name = "getfasta-rna-forward-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa --rna input.bed"
+reference = "bedtools getfasta -fi ref.fa -rna -bed input.bed"
+compare = "exact"
+
+[[case]]
+name = "getfasta-gff3-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.gff3" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa --name input.gff3"
+reference = "bedtools getfasta -fi ref.fa -name -bed input.gff3"
+compare = "exact"
+
+[[case]]
+name = "getfasta-gff3-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.gff3" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa -s --bed-out input.gff3"
+reference = "bedtools getfasta -fi ref.fa -s -bedOut -bed input.gff3"
+compare = "exact"
+
+# bedtools reads a VCF record as its REF span, which is --vcf-span ref.
+[[case]]
+name = "getfasta-vcf-ref-span-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.vcf" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa --vcf-span ref --name input.vcf"
+reference = "bedtools getfasta -fi ref.fa -name -bed input.vcf"
+compare = "exact"
+
+[[case]]
+name = "getfasta-vcf-ref-span-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.vcf" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa --vcf-span ref -s --tab input.vcf"
+reference = "bedtools getfasta -fi ref.fa -s -tab -bed input.vcf"
+compare = "exact"
+
+# A BGZF FASTA with .fai and .gzi (bedtools reads it through its .fai alone).
+[[case]]
+name = "getfasta-bgzf-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa.gz", "xtask/diff/inputs/fa/ref.fa.gz.fai", "xtask/diff/inputs/fa/ref.fa.gz.gzi"]
+gloci = "gloci getfasta --fasta ref.fa.gz -s --name input.bed"
+reference = "bedtools getfasta -fi ref.fa.gz -s -name -bed input.bed"
+compare = "exact"
+
+# Zero-length intervals have no sequence: both tools skip them (gloci with one counted warning).
+[[case]]
+name = "getfasta-points-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf-points.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa input.bed"
+reference = "bedtools getfasta -fi ref.fa -bed input.bed"
+compare = "exact"
+
+# An interval ending past its chromosome is skipped by both when gloci is given --skip-invalid.
+[[case]]
+name = "getfasta-outside-skip-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf-outside.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa --skip-invalid input.bed"
+reference = "bedtools getfasta -fi ref.fa -bed input.bed"
+compare = "exact"
+
+# A chromosome absent from the FASTA, and an interval one base past chrM.
+[[case]]
+name = "getfasta-missing-chrom-skip-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf-missing.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa --skip-invalid --name input.bed"
+reference = "bedtools getfasta -fi ref.fa -name -bed input.bed"
+compare = "exact"
+
+# By default gloci fails (exit 1) where bedtools skips (exit 0).
+[[case]]
+name = "getfasta-outside-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf-outside.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa input.bed"
+reference = "bedtools getfasta -fi ref.fa -bed input.bed"
+compare = "exit-status"
+expected_difference = "#getfasta-outside-fasta"
+
+[[case]]
+name = "getfasta-missing-chrom-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf-missing.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci getfasta --fasta ref.fa input.bed"
+reference = "bedtools getfasta -fi ref.fa -bed input.bed"
+compare = "exit-status"
+expected_difference = "#getfasta-outside-fasta"

@@ -168,7 +168,8 @@ then the rest of P2b (Python library, packaging, mdBook, paper evidence suite).
 | `cluster -d -s` | `gloci cluster FILE -d/--max-gap N -s` (`--sort`; the same gap and strand rules as `gloci merge`; ids are global, and `-s` keeps input order, see [differences.md#cluster-strand](differences.md#cluster-strand); a VCF input is clustered by its footprints and the output is TSV with a `#CHROM ... cluster` line, see [differences.md#append-vcf-header](differences.md#append-vcf-header); BCF is refused, use `gloci view -O vcf`; bedtools accepts chromosomes in any grouped order, gloci needs a sorted chromosome order, see [Chromosome order](#chromosome-order-behaviour-change)) |
 | `spacing` | `gloci spacing FILE` (`.` for the first record of a chromosome, `0` bookended, `-1` overlapping, only the previous record counts, as in bedtools; a zero-length record is a point, see [differences.md#spacing-zero-length](differences.md#spacing-zero-length); VCF input and chromosome order as for `cluster`) |
 | `bamtobed` | not yet available (`convert`, P3a) |
-| `getfasta`, `maskfasta`, `nuc` | not yet available (`getfasta`, `maskfasta`, `nuc`, P3a) |
+| `getfasta -fi REF -bed FILE` (`-name`, `-nameOnly`, `-s`, `-split`, `-tab`, `-bedOut`, `-rna`) | `gloci getfasta FILE --fasta REF [--name \| --name-only] [-s] [--split] [--tab \| --bed-out] [--rna]` (output is byte-identical to bedtools 2.31.1 for BED, GFF and VCF input, including the IUPAC-aware reverse complement; the FASTA needs a `.fai` (and `.gzi` for BGZF) made with `gloci index`, which gloci never builds itself; VCF is bedtools' REF span with `--vcf-span ref`; zero-length intervals are skipped with a counted warning, as bedtools does; an interval on a chromosome the FASTA lacks, or past its end, is an error where bedtools skips it, `--skip-invalid` gives bedtools' behaviour, see [differences.md#getfasta-outside-fasta](differences.md#getfasta-outside-fasta); there is no `-fullHeader`) |
+| `maskfasta`, `nuc` | not yet available (`maskfasta`, `nuc`, P3a) |
 | `jaccard`, `fisher`, `reldist` | not yet available (`stats jaccard / fisher / reldist`, P3b) |
 | `shuffle`, `random`, `sample` | not yet available (`shuffle`, `random`, `sample`, P3b) |
 | `pairtobed`, `pairtopair` | not yet available (`pair-intersect`, `pair-pair`, P3b) |
@@ -340,6 +341,11 @@ Before relying on a new expression, run it once on a small file with
   sequence line, where samtools indexes the file. Valid FASTA gets a
   byte-identical `.fai`/`.gzi`.
   [differences.md#fasta-index-strictness](differences.md#fasta-index-strictness)
+- **`getfasta` outside the FASTA:** an interval on a chromosome the FASTA lacks,
+  or ending past its end, makes `gloci getfasta` exit 1 naming the interval,
+  where bedtools prints a message, skips it and exits 0. `--skip-invalid`
+  skips and counts them.
+  [differences.md#getfasta-outside-fasta](differences.md#getfasta-outside-fasta)
 - **TSV indexing without `-e`:** `gloci index -s -b` without `-e` sets the end
   column equal to the begin column (1-base feature) instead of tabix's GFF
   default of column 5.

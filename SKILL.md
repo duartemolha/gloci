@@ -272,6 +272,18 @@ gloci convert transcripts.bed --blocks -o exons.bed
 gloci convert hits.psl -o hits.bed
 ```
 
+### `gloci getfasta`
+
+Write the sequence under each interval (bedtools getfasta).
+
+--fasta REF.fa is read at random through REF.fa.fai (and REF.fa.gz.gzi for BGZF); build them with gloci index. gloci never builds them itself. The intervals (BED, GFF/GTF, VCF/BCF) are written in input order, one sequence each, on a single line with the case of the FASTA kept and memory that does not grow with the interval length. The header is chrom:start-end with a 0-based start, as bedtools; --name gives name::chrom:start-end and --name-only gives name (BED column 4, the GFF feature type, or REF/ALT_ID for VCF). -s reverse-complements minus-strand records with the IUPAC-aware, case-keeping table of bedtools and adds (+), (-) or (.) to the header; --rna writes U for the complement of A (as bedtools, it changes reverse-complemented sequences only). --split joins the blocks of BED12 records; with -s a minus-strand record is reverse-complemented as a whole. --tab writes the header, TAB, the sequence; --bed-out writes the input record, TAB, the sequence. VCF follows --vcf-span (--vcf-span ref is bedtools' rule). A zero-length interval has no sequence: it is skipped with one warning that counts them, as bedtools does. An interval on a chromosome the FASTA lacks, or ending past its end, is an error; bedtools skips it with a message and exits 0. --skip-invalid skips such intervals with one warning carrying the count. -o FILE.fa.gz writes BGZF.
+
+```sh
+gloci getfasta --fasta ref.fa genes.bed
+gloci getfasta --fasta ref.fa genes.bed12 --split -s --name-only -o transcripts.fa
+gloci getfasta --fasta ref.fa.gz calls.vcf.gz --vcf-span ref --tab
+```
+
 ### `gloci subtract`
 
 Remove from A the bases covered by B (bedtools subtract, bedops -d).
@@ -494,7 +506,8 @@ then the rest of P2b (Python library, packaging, mdBook, paper evidence suite).
 | `cluster -d -s` | `gloci cluster FILE -d/--max-gap N -s` (`--sort`; the same gap and strand rules as `gloci merge`; ids are global, and `-s` keeps input order, see [differences.md#cluster-strand](differences.md#cluster-strand); a VCF input is clustered by its footprints and the output is TSV with a `#CHROM ... cluster` line, see [differences.md#append-vcf-header](differences.md#append-vcf-header); BCF is refused, use `gloci view -O vcf`; bedtools accepts chromosomes in any grouped order, gloci needs a sorted chromosome order, see [Chromosome order](#chromosome-order-behaviour-change)) |
 | `spacing` | `gloci spacing FILE` (`.` for the first record of a chromosome, `0` bookended, `-1` overlapping, only the previous record counts, as in bedtools; a zero-length record is a point, see [differences.md#spacing-zero-length](differences.md#spacing-zero-length); VCF input and chromosome order as for `cluster`) |
 | `bamtobed` | not yet available (`convert`, P3a) |
-| `getfasta`, `maskfasta`, `nuc` | not yet available (`getfasta`, `maskfasta`, `nuc`, P3a) |
+| `getfasta -fi REF -bed FILE` (`-name`, `-nameOnly`, `-s`, `-split`, `-tab`, `-bedOut`, `-rna`) | `gloci getfasta FILE --fasta REF [--name \| --name-only] [-s] [--split] [--tab \| --bed-out] [--rna]` (output is byte-identical to bedtools 2.31.1 for BED, GFF and VCF input, including the IUPAC-aware reverse complement; the FASTA needs a `.fai` (and `.gzi` for BGZF) made with `gloci index`, which gloci never builds itself; VCF is bedtools' REF span with `--vcf-span ref`; zero-length intervals are skipped with a counted warning, as bedtools does; an interval on a chromosome the FASTA lacks, or past its end, is an error where bedtools skips it, `--skip-invalid` gives bedtools' behaviour, see [differences.md#getfasta-outside-fasta](differences.md#getfasta-outside-fasta); there is no `-fullHeader`) |
+| `maskfasta`, `nuc` | not yet available (`maskfasta`, `nuc`, P3a) |
 | `jaccard`, `fisher`, `reldist` | not yet available (`stats jaccard / fisher / reldist`, P3b) |
 | `shuffle`, `random`, `sample` | not yet available (`shuffle`, `random`, `sample`, P3b) |
 | `pairtobed`, `pairtopair` | not yet available (`pair-intersect`, `pair-pair`, P3b) |

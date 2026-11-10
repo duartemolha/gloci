@@ -1421,3 +1421,26 @@ depends on the span.
   `index-fasta-irregular-lines-vs-samtools` pins the agreeing side (both exit
   1), and `index-interop-faidx` and `index-interop-faidx-bgzf` pin identical
   indexes.
+
+## `getfasta` fails on an interval outside the FASTA {#getfasta-outside-fasta}
+
+- **gloci:** `gloci getfasta` exits 1 at the first interval whose chromosome is
+  not in the FASTA's `.fai`, or whose end is past the chromosome's length. The
+  message names the input line, the interval and the length, and points to
+  `--skip-invalid`. Nothing more is written; a file given with `-o` is not
+  created. With `--skip-invalid` the interval is skipped and one warning gives
+  the count and the first cause; the exit status is 0.
+- **Old behaviour:** `bedtools getfasta` prints `chromosome (X) was not found in
+  the FASTA file. Skipping.` or `Feature (...) beyond the length of ... size.
+  Skipping.` to stderr, skips the record and exits 0. A script that checks only
+  the exit status gets a short output and no failure.
+- **Reason:** a chromosome-naming mismatch (`chr1` against `1`) or a FASTA of
+  another assembly makes every interval fall outside; with the exit status 0 the
+  output is empty or partial and the mistake goes unnoticed. `--chrom-map`
+  fixes naming, and `--skip-invalid` gives bedtools' behaviour.
+- **Unchanged:** a zero-length interval is skipped with one warning that counts
+  them, as in bedtools (it has no sequence); it is not an error.
+- **Pinned by:** `getfasta-outside-vs-bedtools` and
+  `getfasta-missing-chrom-vs-bedtools` (exit status: must differ);
+  `getfasta-outside-skip-vs-bedtools` and `getfasta-missing-chrom-skip-vs-bedtools`
+  pin the matching output under `--skip-invalid`.

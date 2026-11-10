@@ -1,0 +1,1 @@
+getfasta --fasta ref.fa -s --rna input.bed
