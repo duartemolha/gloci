@@ -1,13 +1,14 @@
-//! The whole-file statistics. Each accumulates in a map bounded by the
-//! number of distinct keys (FILTER strings, indel lengths, occupied bins),
-//! never by the number of records, and writes in `finish`.
+//! The whole-file statistics. Each is bounded by the number of distinct keys,
+//! never by the number of records: `FilterSummary` and `IndelHist` keep a
+//! map keyed by FILTER string or indel length and write in `finish`;
+//! `SnpDensity` streams its rows and keeps only the current bin.
 
 use super::engine::{Out, Stat, StatSink};
 use super::fmt::{write_g6, write_i64, write_u64};
 use crate::filter::SiteView;
 use crate::gt::GenotypeSource;
 use crate::stats::SiteStats;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io;
 
 /// Substitution models in output order; the index is `pair_index`.
@@ -49,12 +50,47 @@ fn first_alt(alts: &[u8]) -> &[u8] {
     alts.split(|&c| c == b',').next().unwrap_or(b"")
 }
 
+/// The row key: the FILTER with its `;`-separated tags in ascending byte
+/// order (vcftools sorts them, so `b;a` and `a;b` are one row). BCF
+/// joins tags in dictionary order, which this also normalises.
+/// The row key of a FILTER: its `;`-separated tags in ascending byte order
+/// (vcftools sorts them, so `b;a` and `a;b` are one row; BCF joins tags in
+/// dictionary order, which this normalises too). Allocation-free once the
+/// scratch buffers have grown.
+fn normalise<'a>(ranges: &mut Vec<(u32, u32)>, key: &'a mut Vec<u8>, filter: &'a [u8]) -> &'a [u8] {
+    if !filter.contains(&b';') {
+        return filter;
+    }
+    ranges.clear();
+    let mut start = 0usize;
+    for (i, &c) in filter.iter().enumerate() {
+        if c == b';' {
+            ranges.push((start as u32, i as u32));
+            start = i + 1;
+        }
+    }
+    ranges.push((start as u32, filter.len() as u32));
+    let tag = |r: &(u32, u32)| &filter[r.0 as usize..r.1 as usize];
+    ranges.sort_unstable_by(|a, b| tag(a).cmp(tag(b)));
+    key.clear();
+    for (k, r) in ranges.iter().enumerate() {
+        if k > 0 {
+            key.push(b';');
+        }
+        key.extend_from_slice(tag(r));
+    }
+    &*key
+}
+
 /// `--FILTER-summary` (`.FILTER.summary`): per FILTER string, the records
 /// and the transitions/transversions among those whose first ALT is a
 /// single-base substitution. Rows run from most to fewest records, ties by
 /// name in descending order, as vcftools does.
 pub struct FilterSummary {
     by_filter: HashMap<Vec<u8>, [u64; 3]>,
+    /// Scratch for the sorted key of a multi-tag FILTER.
+    key: Vec<u8>,
+    ranges: Vec<(u32, u32)>,
     out: Out,
 }
 
@@ -62,6 +98,8 @@ impl FilterSummary {
     pub fn new() -> FilterSummary {
         FilterSummary {
             by_filter: HashMap::new(),
+            key: Vec::new(),
+            ranges: Vec::new(),
             out: Out::closed(),
         }
     }
@@ -84,9 +122,10 @@ impl Stat for FilterSummary {
         _st: Option<&SiteStats>,
     ) -> Result<(), String> {
         let sub = substitution(s.ref_, first_alt(s.alts));
-        let e = match self.by_filter.get_mut(s.filter) {
+        let key = normalise(&mut self.ranges, &mut self.key, s.filter);
+        let e = match self.by_filter.get_mut(key) {
             Some(e) => e,
-            None => self.by_filter.entry(s.filter.to_vec()).or_default(),
+            None => self.by_filter.entry(key.to_vec()).or_default(),
         };
         e[0] += 1;
         if let Some((_, ts)) = sub {
@@ -273,16 +312,24 @@ impl Stat for IndelHist {
 }
 
 /// `--snp-density BIN` (`.snpden`): positions per bin of `BIN` bases
-/// (records at one position count once, as in vcftools), bins
-/// starting at multiples of `BIN` on the 1-based POS (POS 1000 is in bin
-/// 1000). Each chromosome runs, in first-seen order, from the bin of its
-/// first record to the bin of its last, with empty bins written as zeros.
+/// (records at one position count once, as in vcftools), bins starting at
+/// multiples of `BIN` on the 1-based POS (POS 1000 is in bin 1000). Each
+/// chromosome, in file order, runs from the bin of its first record to the
+/// bin of its last, with empty bins written as zeros.
+///
+/// Rows stream: only the current bin and its count are held, plus the names
+/// of the chromosomes already finished, so memory is bounded by the number
+/// of chromosomes, not by records or bins (BIN = 1 included). Input must be
+/// sorted by chromosome and position: a chromosome that reappears, or a
+/// position in an earlier bin, is an error, because rows already written
+/// cannot be merged.
 pub struct SnpDensity {
     bin: u64,
-    index: HashMap<Vec<u8>, usize>,
-    chroms: Vec<(Vec<u8>, BTreeMap<u64, u64>)>,
     /// The previous record's place: vcftools counts one SNP per position.
     last: (Vec<u8>, u64),
+    /// The chromosome being counted, its current bin and that bin's count.
+    cur: Option<(Vec<u8>, u64, u64)>,
+    done: HashSet<Vec<u8>>,
     out: Out,
 }
 
@@ -292,17 +339,35 @@ impl SnpDensity {
         assert!(bin > 0, "the SNP density bin size must be positive");
         SnpDensity {
             bin,
-            index: HashMap::new(),
-            chroms: Vec::new(),
             last: (Vec::new(), u64::MAX),
+            cur: None,
+            done: HashSet::new(),
             out: Out::closed(),
         }
+    }
+
+    fn emit(&mut self, start: u64, n: u64) -> Result<(), String> {
+        let b = &mut self.out.buf;
+        let chrom = &self.cur.as_ref().expect("a current chromosome").0;
+        b.extend_from_slice(chrom);
+        b.push(b'\t');
+        write_u64(b, start);
+        b.push(b'\t');
+        write_u64(b, n);
+        b.push(b'\t');
+        write_g6(b, n as f64 / self.bin as f64 * 1000.0);
+        b.push(b'\n');
+        self.out.row()
     }
 }
 
 impl Stat for SnpDensity {
     fn start(&mut self, sink: &mut dyn StatSink) -> io::Result<()> {
-        self.out.open(sink, "snpden")
+        self.out.open(sink, "snpden")?;
+        self.out
+            .buf
+            .extend_from_slice(b"CHROM\tBIN_START\tSNP_COUNT\tVARIANTS/KB\n");
+        self.out.row().map_err(io::Error::other)
     }
     fn site(
         &mut self,
@@ -316,49 +381,46 @@ impl Stat for SnpDensity {
         self.last.0.clear();
         self.last.0.extend_from_slice(s.chrom);
         self.last.1 = s.pos;
-        let i = match self.index.get(s.chrom) {
-            Some(&i) => i,
-            None => {
-                self.chroms.push((s.chrom.to_vec(), BTreeMap::new()));
-                self.index.insert(s.chrom.to_vec(), self.chroms.len() - 1);
-                self.chroms.len() - 1
+        let bin = s.pos / self.bin * self.bin;
+        let same = self.cur.as_ref().is_some_and(|c| c.0 == s.chrom);
+        if same {
+            let (_, cur_bin, count) = self.cur.as_mut().expect("same chromosome");
+            if bin < *cur_bin {
+                return Err(sorted_msg(s, "a position goes backwards"));
             }
-        };
-        *self.chroms[i]
-            .1
-            .entry(s.pos / self.bin * self.bin)
-            .or_default() += 1;
+            if bin == *cur_bin {
+                *count += 1;
+                return Ok(());
+            }
+            let (cur_bin, count) = (*cur_bin, *count);
+            self.emit(cur_bin, count)?;
+            let mut gap = cur_bin + self.bin;
+            while gap < bin {
+                self.emit(gap, 0)?;
+                gap += self.bin;
+            }
+            let c = self.cur.as_mut().expect("same chromosome");
+            c.1 = bin;
+            c.2 = 1;
+            return Ok(());
+        }
+        if self.done.contains(s.chrom) {
+            return Err(sorted_msg(s, "the chromosome reappears"));
+        }
+        if let Some((_, cur_bin, count)) = self.cur.as_ref() {
+            let (cur_bin, count) = (*cur_bin, *count);
+            self.emit(cur_bin, count)?;
+            let name = self.cur.take().expect("current").0;
+            self.done.insert(name);
+        }
+        self.cur = Some((s.chrom.to_vec(), bin, 1));
         Ok(())
     }
     fn finish(&mut self) -> io::Result<()> {
-        self.out
-            .buf
-            .extend_from_slice(b"CHROM\tBIN_START\tSNP_COUNT\tVARIANTS/KB\n");
-        for (name, bins) in &self.chroms {
-            let (Some((&first, _)), Some((&last, _))) =
-                (bins.first_key_value(), bins.last_key_value())
-            else {
-                continue;
-            };
-            let mut start = first;
-            while start <= last {
-                let n = bins.get(&start).copied().unwrap_or(0);
-                let b = &mut self.out.buf;
-                b.extend_from_slice(name);
-                b.push(b'\t');
-                write_u64(b, start);
-                b.push(b'\t');
-                write_u64(b, n);
-                b.push(b'\t');
-                write_g6(b, n as f64 / self.bin as f64 * 1000.0);
-                b.push(b'\n');
-                if b.len() > 1 << 15 {
-                    self.out.row().map_err(io::Error::other)?;
-                }
-                start += self.bin;
-            }
+        if let Some((_, cur_bin, count)) = self.cur.as_ref() {
+            let (cur_bin, count) = (*cur_bin, *count);
+            self.emit(cur_bin, count).map_err(io::Error::other)?;
         }
-        self.out.row().map_err(io::Error::other)?;
         self.out.commit()
     }
     fn needs_genotypes(&self) -> bool {
@@ -367,4 +429,13 @@ impl Stat for SnpDensity {
     fn ext(&self) -> &'static str {
         "snpden"
     }
+}
+
+fn sorted_msg(s: &SiteView, why: &str) -> String {
+    format!(
+        "--snp-density needs input sorted by chromosome and position, but {why} at {}:{}; \
+         sort the file first (a streamed density cannot merge rows it already wrote)",
+        String::from_utf8_lossy(s.chrom),
+        s.pos
+    )
 }

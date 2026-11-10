@@ -41,7 +41,7 @@ impl MaskRules {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SiteStats {
     /// Called alleles per allele index (a `./1` genotype still counts its 1).
     pub allele_counts: Vec<u64>,
@@ -71,6 +71,29 @@ pub struct SiteStats {
     /// False if any genotype of ploidy 2 or more, called or not, is written
     /// unphased (a `/` separator).
     pub all_phased: bool,
+}
+
+/// An empty site: no samples, so `all_phased` is true, as `site_stats`
+/// leaves it for a site without unphased genotypes.
+impl Default for SiteStats {
+    fn default() -> SiteStats {
+        SiteStats {
+            allele_counts: Vec::new(),
+            called_alleles: 0,
+            samples: 0,
+            missing: 0,
+            dp_sum: 0,
+            dp_n: 0,
+            dp_sumsq: 0,
+            filtered: 0,
+            data_alleles: 0,
+            missing_alleles: 0,
+            haploid: false,
+            polyploid: false,
+            hwe_counts: None,
+            all_phased: true,
+        }
+    }
 }
 
 impl SiteStats {
@@ -198,7 +221,6 @@ pub fn site_stats_into(
     *out = SiteStats {
         allele_counts: counts,
         hwe_counts: (n_alleles == 2).then_some((0, 0, 0)),
-        all_phased: true,
         ..SiteStats::default()
     };
     let s = out;

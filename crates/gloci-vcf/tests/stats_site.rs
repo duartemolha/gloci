@@ -3,10 +3,10 @@
 
 use gloci_core::Interval;
 use gloci_vcf::{
-    FilterSummary, Freq, GenoDepth, Hardy, IndelHist, MaskRules, MaskedGenotypes, MissingSite,
-    SampleFields, Singletons, SiteDepth, SiteMeanDepth, SiteQuality, SiteStats, SiteView,
-    SnpDensity, Stat, StatSink, StatWrite, StatsEngine, TsTv, fmt_g6, site_stats_into,
-    text_genotypes,
+    BcfSite, FilterSummary, Freq, GenoDepth, Hardy, IndelHist, MaskRules, MaskedGenotypes,
+    MissingSite, SampleFields, Singletons, SiteDepth, SiteMeanDepth, SiteQuality, SiteStats,
+    SiteView, SnpDensity, Stat, StatSink, StatWrite, StatsEngine, TsTv, bcf_genotypes, fmt_g6,
+    site_stats_into, text_genotypes,
 };
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::{Cell, RefCell};
@@ -223,7 +223,16 @@ const SITE_EXTS: [&str; 12] = [
 #[test]
 fn every_statistic_matches_vcftools() {
     for name in [
-        "main", "mixed", "quality", "filters", "density", "hwegrid", "hwebig", "masked",
+        "main",
+        "mixed",
+        "quality",
+        "filters",
+        "filtersorted",
+        "density",
+        "hwegrid",
+        "hwebig",
+        "masked",
+        "ftmask",
     ] {
         let v = load(name);
         let (files, committed) = run(&v, all_stats(&v, 1000), &MaskRules::default()).unwrap();
@@ -448,4 +457,213 @@ fn g6_formatting_follows_printf() {
     ] {
         assert_eq!(fmt_g6(x), want, "{x}");
     }
+}
+
+const MASKED_EXTS: [&str; 8] = [
+    "frq",
+    "frq.count",
+    "ldepth",
+    "ldepth.mean",
+    "gdepth",
+    "lmiss",
+    "hwe",
+    "singletons",
+];
+
+fn masked_stats(v: &Vcf) -> Vec<Box<dyn Stat>> {
+    vec![
+        Box::new(Freq::frequencies()),
+        Box::new(Freq::counts()),
+        Box::new(SiteDepth::new()),
+        Box::new(SiteMeanDepth::new()),
+        Box::new(GenoDepth::new(selected(v))),
+        Box::new(MissingSite::new()),
+        Box::new(Hardy::new()),
+        Box::new(Singletons::new(selected(v))),
+    ]
+}
+
+/// Compare every masked-statistic file with its golden. vcftools names a
+/// masked sample as the carrier of a singleton/doubleton (see the draft's
+/// intended difference); `carrier_fixes` maps those golden lines to gloci's.
+fn assert_masked(mask: &MaskRules, prefix: &str, carrier_fixes: &[(&str, &str)]) {
+    let v = load("ftmask");
+    let (files, _) = run(&v, masked_stats(&v), mask).unwrap();
+    for ext in MASKED_EXTS {
+        if ext == "singletons" {
+            let got = String::from_utf8(files[ext].clone()).unwrap();
+            let mut want = golden(prefix, ext);
+            for (from, to) in carrier_fixes {
+                assert!(want.contains(from), "{prefix}: golden lacks {from:?}");
+                want = want.replace(from, to);
+            }
+            assert_eq!(got, want, "{prefix}.{ext}");
+        } else {
+            assert_same(&files, prefix, ext);
+        }
+    }
+}
+
+#[test]
+fn format_ft_mask_matches_vcftools() {
+    // FT `q1`, `q1;q2`, `.`, absent and PASS; `./1` masked and unmasked.
+    let ft = MaskRules {
+        mask_filtered: true,
+        ..MaskRules::default()
+    };
+    assert_masked(
+        &ft,
+        "ft",
+        &[
+            ("1\t50\tD\tG\ts1\n", "1\t50\tD\tG\ts2\n"),
+            // two A in unmasked hets: vcftools finds the masked hom s4
+            ("1\t60\tD\tA\ts4\n", ""),
+        ],
+    );
+}
+
+#[test]
+fn max_dp_mask_matches_vcftools() {
+    let max = MaskRules {
+        max_dp: Some(6),
+        ..MaskRules::default()
+    };
+    assert_masked(
+        &max,
+        "maxdp6",
+        &[("1\t60\tS\tG\ts1\n", "1\t60\tS\tG\ts2\n")],
+    );
+}
+
+#[test]
+fn combined_masks_match_vcftools() {
+    let all = MaskRules {
+        min_dp: Some(4),
+        max_dp: Some(7),
+        min_gq: Some(10),
+        mask_filtered: true,
+    };
+    assert_masked(&all, "combo", &[]);
+}
+
+#[test]
+fn filter_summary_normalises_tag_order_for_text_and_bcf() {
+    let v = load("filtersorted");
+    let stats = || -> Vec<Box<dyn Stat>> { vec![Box::new(FilterSummary::new())] };
+    let (files, _) = run(&v, stats(), &MaskRules::default()).unwrap();
+    assert_same(&files, "filtersorted", "FILTER.summary");
+
+    // The same records as BCF, whose views join the tags in dictionary order.
+    let text = std::fs::read_to_string(format!("{DIR}/filtersorted.vcf")).unwrap();
+    let bcf = gloci_testkit::fixtures::vcf_to_bcf(text.as_bytes());
+    let mut r = noodles_bgzf::io::Reader::new(&bcf[..]);
+    let h = gloci_io::read_bcf_header(&mut r).unwrap();
+    let dicts = h.bcf.unwrap();
+    let mut rest = Vec::new();
+    std::io::Read::read_to_end(&mut r, &mut rest).unwrap();
+    let sink = MemSink::default();
+    let mut engine = StatsEngine::new(stats());
+    engine.start(&mut sink.clone()).unwrap();
+    let mut site = BcfSite::default();
+    let mut cur = &rest[..];
+    let mut n = 0;
+    while !cur.is_empty() {
+        let ls = u32::from_le_bytes(cur[0..4].try_into().unwrap()) as usize;
+        let li = u32::from_le_bytes(cur[4..8].try_into().unwrap()) as usize;
+        let raw = &cur[..8 + ls + li];
+        let view = site
+            .view(raw, &dicts, Interval { start: 0, end: 1 })
+            .unwrap();
+        let _ = bcf_genotypes; // genotypes are not needed by this statistic
+        engine.site(&view, None, None).unwrap();
+        cur = &cur[8 + ls + li..];
+        n += 1;
+    }
+    assert_eq!(n, v.records.len());
+    engine.finish().unwrap();
+    assert_same(&sink.files.borrow(), "filtersorted", "FILTER.summary");
+}
+
+#[test]
+fn snp_density_streams_and_requires_sorted_input() {
+    let mk = |recs: &[&str]| Vcf {
+        samples: vec![],
+        records: recs
+            .iter()
+            .map(|r| format!("{}\t.\tA\tG\t5\tPASS\t.\tGT", r))
+            .collect(),
+    };
+    let run1 = |v: &Vcf, bin| {
+        run(
+            v,
+            vec![Box::new(SnpDensity::new(bin))],
+            &MaskRules::default(),
+        )
+    };
+    // BIN = 1: gaps are zero-filled; the second chromosome starts at its own bin.
+    let (f, _) = run1(&mk(&["1\t2", "1\t5", "2\t3"]), 1).unwrap();
+    assert_eq!(
+        String::from_utf8(f["snpden"].clone()).unwrap(),
+        "CHROM\tBIN_START\tSNP_COUNT\tVARIANTS/KB\n1\t2\t1\t1000\n1\t3\t0\t0\n1\t4\t0\t0\n\
+         1\t5\t1\t1000\n2\t3\t1\t1000\n"
+    );
+    let e = run1(&mk(&["1\t10", "2\t10", "1\t20"]), 5).unwrap_err();
+    assert!(e.contains("reappears") && e.contains("1:20"), "{e}");
+    let e = run1(&mk(&["1\t100", "1\t10"]), 5).unwrap_err();
+    assert!(e.contains("goes backwards"), "{e}");
+    // An empty input writes the header only.
+    let (f, _) = run1(&mk(&[]), 5).unwrap();
+    assert_eq!(
+        String::from_utf8(f["snpden"].clone()).unwrap(),
+        "CHROM\tBIN_START\tSNP_COUNT\tVARIANTS/KB\n"
+    );
+}
+
+#[test]
+fn polyploid_message_says_how_to_proceed() {
+    let v = load("ploidy");
+    let e = run(&v, vec![Box::new(Hardy::new())], &MaskRules::default()).unwrap_err();
+    assert!(
+        e.contains("--FILTER-summary") && e.contains("drop or fix"),
+        "{e}"
+    );
+}
+
+#[test]
+fn default_site_stats_is_an_empty_site() {
+    // `all_phased` starts true, as `site_stats` leaves it with no unphased genotype.
+    assert!(SiteStats::default().all_phased);
+    struct None0;
+    impl gloci_vcf::GenotypeSource for None0 {
+        fn n_samples(&self) -> usize {
+            0
+        }
+        fn sample(&self, _: usize, _: &mut SampleFields) -> Result<(), String> {
+            unreachable!()
+        }
+    }
+    let s = gloci_vcf::site_stats(&None0, None, &MaskRules::default(), 0, &mut Vec::new()).unwrap();
+    assert_eq!(s, SiteStats::default());
+}
+
+#[test]
+fn filter_summary_normalisation_does_not_allocate_after_warmup() {
+    let v = load("filtersorted");
+    let mut engine = StatsEngine::new(vec![Box::new(FilterSummary::new())]);
+    engine.start(&mut NullSink).unwrap();
+    let sites: Vec<SiteView> = v
+        .records
+        .iter()
+        .map(|l| SiteView::from_text(l.as_bytes(), span_of(l)).unwrap())
+        .collect();
+    for s in &sites {
+        engine.site(s, None, None).unwrap();
+    }
+    let before = ALLOCS.with(Cell::get);
+    for _ in 0..20 {
+        for s in &sites {
+            engine.site(s, None, None).unwrap();
+        }
+    }
+    assert_eq!(ALLOCS.with(Cell::get), before, "FILTER-summary allocated");
 }

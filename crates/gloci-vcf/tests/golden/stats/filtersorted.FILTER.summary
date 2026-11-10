@@ -1,0 +1,7 @@
+FILTER	N_VARIANTS	N_Ts	N_Tv	Ts/Tv
+a;b;c	2	1	1	1
+a;b	2	1	1	1
+PASS;a	2	2	0	inf
+B;b	2	1	1	1
+a;a	1	1	0	inf
+a	1	0	1	0

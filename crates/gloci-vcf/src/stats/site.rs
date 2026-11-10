@@ -19,7 +19,12 @@ fn genos(gt: Option<&dyn GenotypeSource>) -> Result<&dyn GenotypeSource, String>
 /// vcftools stops on genotypes of ploidy above two.
 fn diploid_only(st: &SiteStats) -> Result<(), String> {
     if st.polyploid {
-        return Err("polyploid genotypes are not supported (vcftools stops here too)".into());
+        return Err(
+            "polyploid genotypes are not supported (vcftools stops here too); drop or fix those \
+             records, or request only depth, quality, --FILTER-summary, --TsTv-summary or \
+             --indel-hist"
+                .into(),
+        );
     }
     Ok(())
 }

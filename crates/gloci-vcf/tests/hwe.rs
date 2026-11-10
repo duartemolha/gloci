@@ -73,22 +73,23 @@ fn hwe_large_n() {
     }
 }
 
-/// Brute force one-sided tails: enumerate every het count with the observed
-/// allele counts; deficit sums those at most, excess those at least, the
-/// observed het count.
-fn brute_tails(het: u64, h1: u64, h2: u64) -> (f64, f64) {
+/// Brute force over every het count with the observed allele counts, with
+/// log-factorials tabulated so n of 10^4 stays cheap. Returns
+/// (deficit, excess, probability of the observed het count).
+fn brute_tails(het: u64, h1: u64, h2: u64) -> (f64, f64, f64) {
     let n = het + h1 + h2;
+    let mut lf = vec![0.0f64; 2 * n as usize + 1];
+    for k in 1..lf.len() {
+        lf[k] = lf[k - 1] + (k as f64).ln();
+    }
+    let f = |k: u64| lf[k as usize];
     let rare = 2 * h1.min(h2) + het;
     let logp = |h: u64| {
         let r = (rare - h) / 2;
         let c = n - h - r;
-        lfact(n) - lfact(r) - lfact(h) - lfact(c)
-            + (h as f64) * 2f64.ln()
-            + lfact(rare)
-            + lfact(2 * n - rare)
-            - lfact(2 * n)
+        f(n) - f(r) - f(h) - f(c) + (h as f64) * 2f64.ln() + f(rare) + f(2 * n - rare) - f(2 * n)
     };
-    let (mut total, mut def, mut exc) = (0.0, 0.0, 0.0);
+    let (mut total, mut def, mut exc, mut obs) = (0.0, 0.0, 0.0, 0.0);
     for h in (rare % 2..=rare).step_by(2) {
         if h > n || (rare - h) / 2 + h > n {
             continue;
@@ -101,8 +102,28 @@ fn brute_tails(het: u64, h1: u64, h2: u64) -> (f64, f64) {
         if h >= het {
             exc += v;
         }
+        if h == het {
+            obs = v;
+        }
     }
-    ((def / total).min(1.0), (exc / total).min(1.0))
+    (def / total, exc / total, obs / total)
+}
+
+fn check_tails(het: u64, h1: u64, h2: u64, tol: f64) {
+    let t = hwe_tails(het, h1, h2);
+    let (d, e, obs) = brute_tails(het, h1, h2);
+    let ctx = format!("({het},{h1},{h2}): {t:?}");
+    assert!((t.het_deficit - d).abs() < tol, "{ctx} deficit {d}");
+    assert!((t.het_excess - e).abs() < tol, "{ctx} excess {e}");
+    // The tails share only the observed het count, so they sum to
+    // 1 + P(observed) exactly (before capping at 1, which cannot bind here
+    // beyond rounding).
+    assert!(
+        (t.het_deficit + t.het_excess - (1.0 + obs)).abs() < tol,
+        "{ctx} identity: {} vs {}",
+        t.het_deficit + t.het_excess,
+        1.0 + obs
+    );
 }
 
 #[test]
@@ -113,17 +134,8 @@ fn one_sided_tails_match_brute_force_on_a_grid() {
                 if het + h1 + h2 == 0 {
                     continue;
                 }
-                let t = hwe_tails(het, h1, h2);
-                let (d, e) = brute_tails(het, h1, h2);
-                assert!(
-                    (t.het_deficit - d).abs() < 1e-10,
-                    "({het},{h1},{h2}) deficit"
-                );
-                assert!((t.het_excess - e).abs() < 1e-10, "({het},{h1},{h2}) excess");
-                assert!((t.two_sided - hwe_p(het, h1, h2)).abs() == 0.0);
-                // The tails overlap only at the observed het count, so
-                // together they exceed 1 unless that count has no mass.
-                assert!(t.het_deficit + t.het_excess >= 1.0 - 1e-12);
+                check_tails(het, h1, h2, 1e-12);
+                assert_eq!(hwe_tails(het, h1, h2).two_sided, hwe_p(het, h1, h2));
             }
         }
     }
@@ -133,16 +145,15 @@ fn one_sided_tails_match_brute_force_on_a_grid() {
 
 #[test]
 fn one_sided_tails_large_n() {
-    for (h, a, b) in [(1200, 600, 700), (2000, 250, 250), (10, 1200, 1289)] {
-        let t = hwe_tails(h, a, b);
-        let (d, e) = brute_tails(h, a, b);
-        assert!(
-            (t.het_deficit - d).abs() < 1e-10,
-            "({h},{a},{b}): {t:?} vs {d}"
-        );
-        assert!(
-            (t.het_excess - e).abs() < 1e-10,
-            "({h},{a},{b}): {t:?} vs {e}"
-        );
+    for (h, a, b) in [
+        (1200, 600, 700),
+        (2000, 250, 250),
+        (10, 1200, 1289),
+        (5000, 2500, 2500),
+        (4000, 3000, 3000),
+        (9000, 500, 500),
+        (100, 4950, 4950),
+    ] {
+        check_tails(h, a, b, 1e-9);
     }
 }

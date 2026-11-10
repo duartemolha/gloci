@@ -1,0 +1,23 @@
+##fileformat=VCFv4.2
+##contig=<ID=1,length=100000>
+##contig=<ID=2,length=100000>
+##FILTER=<ID=LowQual,Description="l">
+##FILTER=<ID=q10,Description="l">
+##FILTER=<ID=b,Description="l">
+##FILTER=<ID=B,Description="l">
+##FILTER=<ID=c,Description="l">
+##FILTER=<ID=a,Description="l">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="g">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="d">
+##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="q">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	s1	s2	s3	s4
+1	10	.	A	C	5	a;b	.	GT	0/0	0/0	0/0	0/0
+1	20	.	A	G	5	b;a	.	GT	0/0	0/0	0/0	0/0
+1	30	.	A	G	5	c;a;b	.	GT	0/0	0/0	0/0	0/0
+1	40	.	A	C	5	a;c;b	.	GT	0/0	0/0	0/0	0/0
+1	50	.	A	G	5	a;a	.	GT	0/0	0/0	0/0	0/0
+1	60	.	A	G	5	B;b	.	GT	0/0	0/0	0/0	0/0
+1	70	.	A	C	5	b;B	.	GT	0/0	0/0	0/0	0/0
+1	80	.	A	G	5	PASS;a	.	GT	0/0	0/0	0/0	0/0
+1	90	.	A	G	5	a;PASS	.	GT	0/0	0/0	0/0	0/0
+1	100	.	A	C	5	a	.	GT	0/0	0/0	0/0	0/0
