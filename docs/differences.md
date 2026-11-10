@@ -1851,20 +1851,23 @@ depends on the span.
   - reads claiming more features than the slice stores feature codes;
   - in a slice of several references, a mapped read with no reference;
   - a mate given as a distance past the end of its slice;
-  - a name-tokeniser block whose clear-text header gives a decoded length other than its
-    block's, or more names than its bytes or than the slice's records;
+  - a block that says it decodes to more than 1 GiB, or whose codec's clear-text header
+    (rANS 4x8, rANS Nx16, the arithmetic coder, fqzcomp, the name tokeniser) gives a
+    decoded size other than its block header's;
+  - a name-tokeniser block that claims more names than its bytes or than the slice's
+    records;
   - the Golomb, Subexp and Golomb-Rice encodings, which htslib never writes (rewrite the
     file with `samtools view -C`).
 - **Old behaviour:** samtools decodes a read however far past the end it runs, and reads the
   other encodings.
 - **Remaining risk:** gloci checks every container, block and slice header (each has a
   CRC32 checksum, so random corruption is always an error), the values above where a data
-  series has a block of its own or a constant code (as htslib writes them), and the
-  clear-text headers of name-tokeniser blocks. A file crafted on purpose, with checksums
+  series has a block of its own or a constant code (as htslib writes them), and the decoded
+  size each block states, in its header and its codec's. A file crafted on purpose, with checksums
   recomputed, can still reach what noodles-cram 0.102 trusts beyond these: its own `expect`s
   and unchecked arithmetic (a record's reference, its mates' template length, its alignment
   span, a base it reconstructs without a reference), and the sizes inside compressed streams
-  (rANS Nx16's RLE and PACK metadata, the tokeniser's token streams). A panic there ends gloci
+  past their headers (rANS Nx16's RLE and PACK metadata, the tokeniser's token streams). A panic there ends gloci
   with an internal error (exit status 1, also in release builds: gloci's panic hook exits
   before the abort); a size that asks for more memory than the machine has aborts it (exit
   status 134). Do not feed gloci CRAMs from untrusted sources you would not give to a library

@@ -4,8 +4,8 @@
 
 use super::super::encode::reg2bin;
 use super::frame::{
-    CompressionInfo, RawContainer, SliceHead, check_tokeniser, compression, detect_err,
-    itf8_values, slice_heads, unsupported_codec,
+    CompressionInfo, RawContainer, SliceHead, check_compression_block, check_slice_blocks,
+    compression, detect_err, itf8_values, slice_heads, unsupported_codec,
 };
 use super::reference::{Counters, CramInfo, RefAdapter, RefCache, RefState};
 use crate::error::IoError;
@@ -298,6 +298,7 @@ impl Decoder {
             return Err(unsupported_codec(&self.info.name, c, what));
         }
         let required = comp.required;
+        check_compression_block(c).map_err(|m| self.corrupt(c, &m))?;
         let mut container = cram::io::reader::Container::default();
         cram::io::Reader::new(&c.bytes[..])
             .read_container(&mut container)
@@ -312,7 +313,7 @@ impl Decoder {
         for (head, slice) in heads.iter().zip(container.slices()) {
             let slice = slice.map_err(|e| self.corrupt(c, &e))?;
             let bases = self.bases(c, head, required)?;
-            check_tokeniser(c, head, comp.external.get(b"RN").copied())
+            check_slice_blocks(c, head, comp.external.get(b"RN").copied())
                 .map_err(|m| self.corrupt(c, &m))?;
             let (core, ext) = slice.decode_blocks().map_err(|e| self.corrupt(c, &e))?;
             if bases == Bases::Embedded && block(&ext, head.embedded).is_none() {
@@ -660,6 +661,7 @@ impl ExtentDecoder {
         if let Some(what) = &comp.unsupported {
             return Err(unsupported_codec(name, c, what));
         }
+        check_compression_block(c).map_err(|m| bad(&m))?;
         let mut container = cram::io::reader::Container::default();
         cram::io::Reader::new(&c.bytes[..])
             .read_container(&mut container)
@@ -670,7 +672,7 @@ impl ExtentDecoder {
                 continue;
             }
             let slice = slice.map_err(|e| bad(&e))?;
-            check_tokeniser(c, head, comp.external.get(b"RN").copied()).map_err(|m| bad(&m))?;
+            check_slice_blocks(c, head, comp.external.get(b"RN").copied()).map_err(|m| bad(&m))?;
             let (core, ext) = slice.decode_blocks().map_err(|e| bad(&e))?;
             precheck(head, self.info.aln.refs.len(), &comp, &core, &ext).map_err(|m| bad(&m))?;
             self.repo.clear();

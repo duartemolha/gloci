@@ -18,6 +18,8 @@ pub(crate) const CRAM_EOF: [u8; 38] = [
 
 /// Most bytes a header block (file header, compression header, slice header) may expand to.
 pub(crate) const MAX_HEADER_BLOCK: usize = 256 << 20;
+/// Most bytes any block may expand to (samtools' slices hold a few megabytes of each series).
+pub(crate) const MAX_BLOCK: usize = 1 << 30;
 /// Most slices a container may claim.
 pub(crate) const MAX_LANDMARKS: usize = 1 << 20;
 
@@ -799,12 +801,90 @@ pub(crate) fn compression(c: &RawContainer) -> CompressionInfo {
     info
 }
 
-/// Check the clear-text header of every name-tokeniser block (method 8) of slice `head` of `c`
-/// before noodles decodes it: noodles reserves the decoded length the block states and a token
-/// table per name it states, so a corrupt one asks for gigabytes. The decoded length must be
-/// the block's own (checksummed) raw size, the names no more than its bytes, and, in the block
-/// of the read names (`rn`), no more than the slice's records.
-pub(crate) fn check_tokeniser(
+/// A uint7 (7 bits a byte, most significant first, up to 5 bytes) at the front of `src`.
+fn uint7(src: &[u8]) -> Option<u64> {
+    let mut n = 0u64;
+    for (i, &b) in src.iter().take(5).enumerate() {
+        n = (n << 7) | u64::from(b & 0x7f);
+        if b & 0x80 == 0 {
+            return Some(n);
+        }
+        if i == 4 {
+            return None;
+        }
+    }
+    None
+}
+
+/// Check block `b` before noodles decodes it: noodles allocates the decoded size a block
+/// states, in the block header (gzip, bzip2, lzma) or in the codec's clear-text header (rANS
+/// 4x8, rANS Nx16, the arithmetic coder, fqzcomp, the name tokeniser), so a corrupt one asks
+/// for gigabytes. The block header's size (checksummed) must be at most [`MAX_BLOCK`], and the
+/// codec's must equal it. A name-tokeniser block must hold no more names than its bytes, and,
+/// as the block of the read names, no more than the slice's `records`.
+pub(crate) fn check_block(b: &Block<'_>, names_of: Option<usize>) -> Result<(), String> {
+    if b.raw_size == 0 || b.method == 0 {
+        // noodles reads an empty or raw block as it is.
+        return Ok(());
+    }
+    if b.raw_size > MAX_BLOCK {
+        return Err(format!(
+            "a block says it decodes to {} bytes; gloci decodes at most {} in one block",
+            thousands(b.raw_size as u64),
+            thousands(MAX_BLOCK as u64)
+        ));
+    }
+    let u32_at = |at: usize| {
+        b.data
+            .get(at..at + 4)
+            .map(|v| u64::from(u32::from_le_bytes([v[0], v[1], v[2], v[3]])))
+    };
+    let (codec, stated) = match b.method {
+        4 => ("rANS 4x8", u32_at(5)),
+        5 | 6 => {
+            let codec = if b.method == 5 {
+                "rANS Nx16"
+            } else {
+                "arithmetic coder"
+            };
+            match b.data.first() {
+                // NO_SIZE: noodles takes the block header's size.
+                Some(&flags) if flags & 0x10 != 0 => return Ok(()),
+                Some(_) => (codec, uint7(&b.data[1..])),
+                None => (codec, None),
+            }
+        }
+        7 => ("fqzcomp", uint7(b.data)),
+        8 => ("name-tokeniser", u32_at(0)),
+        _ => return Ok(()),
+    };
+    let Some(stated) = stated else {
+        return Err(format!("a {codec} block is cut short"));
+    };
+    if stated != b.raw_size as u64 {
+        return Err(format!(
+            "a {codec} block says it decodes to {} bytes, and its header {}",
+            thousands(stated),
+            thousands(b.raw_size as u64)
+        ));
+    }
+    if b.method == 8 {
+        let names = u32_at(4).ok_or_else(|| "a name-tokeniser block is cut short".to_string())?;
+        if names > stated || names_of.is_some_and(|n| names > n as u64) {
+            return Err(format!(
+                "a name-tokeniser block claims {} names in {} bytes, for a slice of {} records",
+                thousands(names),
+                thousands(stated),
+                names_of.map_or_else(|| "?".to_string(), |n| thousands(n as u64))
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Check every block of slice `head` of `c` ([`check_block`]); `rn` is the external block of
+/// the read names.
+pub(crate) fn check_slice_blocks(
     c: &RawContainer,
     head: &SliceHead,
     rn: Option<i32>,
@@ -818,36 +898,21 @@ pub(crate) fn check_tokeniser(
             // noodles reports a broken block itself.
             return Ok(());
         };
-        if b.method != 8 {
-            continue;
-        }
-        let (Some(ulen), Some(names)) = (
-            b.data
-                .get(..4)
-                .map(|v| u32::from_le_bytes([v[0], v[1], v[2], v[3]]) as usize),
-            b.data
-                .get(4..8)
-                .map(|v| u32::from_le_bytes([v[0], v[1], v[2], v[3]]) as usize),
-        ) else {
-            return Err("a name-tokeniser block is cut short".to_string());
-        };
-        if ulen != b.raw_size {
-            return Err(format!(
-                "a name-tokeniser block says it decodes to {} bytes, and its header {}",
-                thousands(ulen as u64),
-                thousands(b.raw_size as u64)
-            ));
-        }
-        if names > ulen || (rn == Some(b.content_id) && names > head.records) {
-            return Err(format!(
-                "a name-tokeniser block claims {} names in {} bytes, for a slice of {} records",
-                thousands(names as u64),
-                thousands(ulen as u64),
-                thousands(head.records as u64)
-            ));
-        }
+        let names_of = (rn == Some(b.content_id)).then_some(head.records);
+        check_block(&b, names_of)?;
     }
     Ok(())
+}
+
+/// Check the compression header block of `c` ([`check_block`]).
+pub(crate) fn check_compression_block(c: &RawContainer) -> Result<(), String> {
+    let data = c.data();
+    let end = c.header.landmarks.first().copied().unwrap_or(data.len());
+    let mut src = &data[..end];
+    match read_block(&mut src) {
+        Ok(b) => check_block(&b, None),
+        Err(_) => Ok(()),
+    }
 }
 
 /// The ITF8 values of `block`, all of it; `None` if one is cut short.
@@ -896,6 +961,47 @@ mod tests {
         let mut info = CompressionInfo::default();
         assert_eq!(scan_map(&map, false, &mut info), None);
         assert_eq!(info.own_block(b"BF"), None);
+    }
+
+    /// Each codec's clear-text decoded size must be the block header's, and no block may say
+    /// it decodes to more than 1 GiB: noodles allocates by them.
+    #[test]
+    fn block_sizes_are_checked() {
+        let block = |method: u8, raw_size: usize, data: &'static [u8]| Block {
+            method,
+            content_type: 4,
+            content_id: 1,
+            raw_size,
+            data,
+        };
+        // rANS 4x8: order, compressed size, then the decoded size (bytes 5-8).
+        let ok = block(4, 100, &[0, 9, 0, 0, 0, 100, 0, 0, 0, 1, 2]);
+        assert!(check_block(&ok, None).is_ok());
+        let bad = block(4, 100, &[0, 9, 0, 0, 0, 0x64, 0, 0, 0xfe, 1, 2]);
+        let e = check_block(&bad, None).unwrap_err();
+        assert!(
+            e.contains(
+                "a rANS 4x8 block says it decodes to 4,261,412,964 bytes, and its header 100"
+            ),
+            "{e}"
+        );
+        // rANS Nx16 and the arithmetic coder: flags, then a uint7 size unless NO_SIZE (0x10).
+        assert!(check_block(&block(5, 300, &[0x01, 0x82, 0x2c, 7]), None).is_ok());
+        assert!(check_block(&block(6, 300, &[0x00, 0x82, 0x2d, 7]), None).is_err());
+        assert!(check_block(&block(5, 300, &[0x10, 0xff, 0xff, 0x7f]), None).is_ok());
+        // fqzcomp: a uint7 size first.
+        assert!(check_block(&block(7, 5, &[5, 1, 2]), None).is_ok());
+        assert!(check_block(&block(7, 5, &[0x86, 0, 1]), None).is_err());
+        // gzip (and bzip2, lzma) take the block header's size: at most 1 GiB.
+        let e = check_block(&block(1, (1 << 30) + 1, &[0x1f, 0x8b]), None).unwrap_err();
+        assert!(
+            e.contains("gloci decodes at most 1,073,741,824 in one block"),
+            "{e}"
+        );
+        // The name tokeniser: decoded size, then names (no more than the slice's records).
+        let tok: &'static [u8] = &[10, 0, 0, 0, 3, 0, 0, 0, 0];
+        assert!(check_block(&block(8, 10, tok), Some(3)).is_ok());
+        assert!(check_block(&block(8, 10, tok), Some(2)).is_err());
     }
 
     /// cat-big.v31.cram reaches the codecs whose tables noodles keeps on the stack (the pool's
