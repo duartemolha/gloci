@@ -1,0 +1,1 @@
+dict --alias --alt alt.txt --uri x input.fa

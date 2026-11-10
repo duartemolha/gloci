@@ -1,0 +1,1 @@
+dict --alias --assembly GRCh38 --species human --uri x input.fa

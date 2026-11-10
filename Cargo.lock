@@ -753,6 +753,7 @@ dependencies = [
  "gloci-vcf",
  "log",
  "lz4_flex",
+ "md-5 0.10.6",
  "proptest",
  "rayon",
  "tempfile",

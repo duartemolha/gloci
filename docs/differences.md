@@ -2027,3 +2027,26 @@ depends on the span.
 - **Pinned by:** `faidx-regions-file-text-vs-samtools` (exit status: must
   differ); `faidx-regions-file-vs-samtools` pins identical output for the same
   regions written as BED and as text.
+
+## `dict` refuses a repeated sequence name {#dict-duplicate-names}
+
+- **gloci:** `gloci dict` exits 1 when two sequences share a name (the first
+  word of the header), naming both lines, and writes no dictionary to `-o FILE`.
+- **Old behaviour:** `samtools dict` writes an `@SQ` line for each and exits 0.
+- **Reason:** a dictionary with two `SN:a` lines is rejected or misread by the
+  tools that take it as `-g`, and the duplicate is nearly always a mistake worth
+  catching where the dictionary is made. Rename one of the sequences.
+- **Pinned by:** `dict-duplicate-names-vs-samtools` (exit status: must differ).
+
+## `dict` of an empty file, or of text that does not start with `>`, is an error {#dict-empty-input}
+
+- **gloci:** a zero-byte file exits 1 saying it has no FASTA records, and a file
+  whose first line is not a `>` header exits 1 saying the format is not
+  recognised, as every gloci command that reads a FASTA does.
+- **Old behaviour:** `samtools dict` writes the `@HD` line for an empty file and
+  exits 0; for a file with sequence lines before the first header it ignores
+  them and writes the dictionary of the records that follow.
+- **Reason:** both are nearly always a failed upstream step or the wrong file;
+  an empty or partial dictionary would hide it.
+- **Pinned by:** `dict-empty-file-vs-samtools` and
+  `dict-text-before-header-vs-samtools` (exit status: must differ).

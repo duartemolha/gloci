@@ -1062,6 +1062,26 @@ Examples:
     #[command(mut_arg("region", |a| a.help(FAIDX_REGION_HELP)))]
     #[command(mut_arg("regions_file", |a| a.help(FAIDX_REGIONS_FILE_HELP)))]
     Faidx(FaidxArgs),
+    /// Write a SAM sequence dictionary of a FASTA (samtools dict).
+    ///
+    /// Streams REF (plain, gzip or BGZF; standard input is -); no index is
+    /// needed. Writes "@HD VN:1.0 SO:unsorted" (unless --no-header), then one
+    /// "@SQ SN:<name> LN:<length> M5:<md5>" line per sequence, where the name
+    /// is the first word of the header. Length and MD5 count only the bytes
+    /// "!" to "~" with a-z uppercased, as samtools does: IUPAC codes, "*" and
+    /// "-" count; spaces, tabs and carriage returns do not. More tags follow in
+    /// samtools' order: AH:* (--alt), AN: (--alias), UR: and AS:, SP:. UR
+    /// defaults to file:// and the canonical path of REF (none for standard
+    /// input); --uri replaces it. --alias adds the name with "chr" removed or
+    /// added; M and MT also list chrMT,MT or chrM,M. --alt reads one name per
+    /// line (up to the first tab). A name used twice is an error naming both
+    /// lines (samtools writes both). The result works as -g for gloci
+    /// commands.
+    #[command(after_long_help = "\
+Examples:
+  gloci dict ref.fa -o ref.dict
+  gloci dict ref.fa.gz --alias --assembly GRCh38 --species human --alt ref.fa.alt -o ref.dict")]
+    Dict(DictArgs),
 }
 
 /// What `intersect` reports.
@@ -3289,4 +3309,36 @@ pub struct FaidxArgs {
     pub threads: ThreadArgs,
     #[command(flatten)]
     pub out: OutputArgs,
+}
+
+// P3c Task 10
+#[derive(Args)]
+pub struct DictArgs {
+    /// The FASTA to read (plain, gzip or BGZF; - is standard input).
+    #[arg(value_name = "REF")]
+    pub fasta: String,
+    /// Leave out the @HD line.
+    #[arg(short = 'H', long)]
+    pub no_header: bool,
+    /// Assembly name for the AS: tag.
+    #[arg(short = 'a', long, value_name = "STR")]
+    pub assembly: Option<String>,
+    /// Species for the SP: tag.
+    #[arg(short = 's', long, value_name = "STR")]
+    pub species: Option<String>,
+    /// URI for the UR: tag (default: file:// and the absolute path of REF).
+    #[arg(short = 'u', long, value_name = "STR")]
+    pub uri: Option<String>,
+    /// Add an AN: tag by adding or removing chr.
+    #[arg(short = 'A', long)]
+    pub alias: bool,
+    /// Add AH:* to the sequences named in FILE (one name per line, up to the
+    /// first tab).
+    #[arg(short = 'l', long, value_name = "FILE")]
+    pub alt: Option<PathBuf>,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    /// Write the dictionary to FILE instead of stdout.
+    #[arg(short, long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
 }

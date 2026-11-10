@@ -227,6 +227,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         Commands::Groupby(a) => (a.threads.threads, None),
         Commands::Maskfasta(a) => (a.threads.threads, None),
         Commands::Faidx(a) => (a.threads.threads, None),
+        Commands::Dict(a) => (a.threads.threads, None),
         Commands::Vcf(a) => match &a.command {
             cli::VcfCommand::Filter(f) => (f.threads.threads, None),
             cli::VcfCommand::Extract(e) => (e.threads.threads, e.tmp_dir.tmp_dir.clone()),
@@ -317,6 +318,7 @@ fn dispatch(cli: &Cli, ctx: &Ctx) -> (anyhow::Result<()>, bool) {
         Commands::Coverage(a) => commands::coverage::run(ctx, a),
         Commands::Groupby(a) => commands::groupby::run(ctx, a),
         Commands::Maskfasta(a) => commands::maskfasta::run(ctx, a),
+        Commands::Dict(a) => commands::dict::run(ctx, a),
         Commands::Faidx(a) => commands::faidx::run(ctx, a),
         Commands::Vcf(a) => match &a.command {
             cli::VcfCommand::Filter(f) => commands::vcf::run_filter(ctx, f),
