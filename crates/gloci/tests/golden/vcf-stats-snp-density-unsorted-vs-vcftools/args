@@ -1,0 +1,1 @@
+vcf stats input.vcf --out-prefix o --snp-density 1000

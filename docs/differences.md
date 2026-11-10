@@ -1191,3 +1191,106 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   `vcf-extract-012-vs-vcftools` (must match, diploid input with a multi-allelic
   site), plus `allele_beyond_alt_errors_or_is_skipped_and_vcftools_writes_1` and `genotype_matrix_matches_vcftools_files` in
   `crates/gloci/tests/vcf_extract.rs`.
+
+## `vcf stats --singletons` names a carrier that masking left {#vcf-stats-singletons-masked}
+
+- **gloci:** with genotype masking (`--min-gq`, `--min-dp`, `--max-dp`,
+  `--mask-filtered-genotypes`), a singleton (`S`) or doubleton (`D`) allele is
+  counted over the genotypes masking left, and its carrier is searched among
+  those genotypes only. A doubleton needs an unmasked homozygote.
+  `PREFIX.singletons` agrees with vcftools on every site where no masked
+  genotype carries the allele; every other statistic agrees everywhere.
+- **Old behaviour:** `vcftools --singletons --minGQ 20` counts the alleles of the
+  unmasked genotypes but names the first sample whose raw genotype holds the
+  allele, masked or not, and decides `D` from a raw homozygote. In
+  `masked.vcf` at `1:30` the surviving `G` is `s2`'s, and vcftools prints
+  `S G s1` (`s1`'s `1:4:10` is masked). In `ftmask.vcf` with
+  `--remove-filtered-geno-all`, `1:50` has `D G s1` in vcftools and
+  `D G s2` in gloci (`s1`'s `1/1` is filtered, `s2`'s `1/1` is not), and `1:60`
+  has the row `D A s4` in vcftools (two `A` in unmasked heterozygotes, and a
+  masked `0/0` of `s4` taken as the homozygote) where gloci writes none.
+- **Reason:** naming a sample whose genotype was removed contradicts the
+  counts on the same line; the masked genotype is missing data (D50).
+- **Pinned by:** `vcf-stats-singletons-masked-vs-vcftools` and
+  `vcf-stats-singletons-doubleton-masked-vs-vcftools` (must differ) and
+  `singletons_name_an_unmasked_carrier_unlike_vcftools` in
+  `crates/gloci/tests/vcf_stats.rs`, which holds the exact substitutions
+  against the committed vcftools files.
+
+## `vcf stats --snp-density` needs sorted input {#vcf-stats-snp-density-unsorted}
+
+- **gloci:** `--snp-density BIN` streams its rows, so it needs the input sorted
+  by chromosome and position. A chromosome that comes back after another, or a
+  position in an earlier bin, stops the run with the record's position and
+  `run: gloci sort FILE`; no file of the run is written.
+- **Old behaviour:** `vcftools --SNPdensity` accepts unsorted input and writes
+  the bins as it meets them, repeating a chromosome's rows when it returns.
+- **Reason:** rows already written cannot be merged, and holding every bin of a
+  multi-gigabyte file in memory to repair unsorted input is what the streaming
+  design avoids. A silent duplicate row would be a wrong density.
+- **Pinned by:** `vcf-stats-snp-density-unsorted-vs-vcftools` (must differ) and
+  `unsorted_input_stops_snp_density_with_a_hint_and_publishes_nothing` in
+  `crates/gloci/tests/vcf_stats.rs`.
+
+## Masking never applies to a missing DP or GQ {#vcf-stats-mask-missing}
+
+- **gloci:** `--min-gq`, `--min-dp` and `--max-dp` mask a genotype only when it
+  has a value below the minimum (or above the maximum). A genotype whose DP or
+  GQ is `.` is kept (D50). This holds in every command that masks, `vcf filter`
+  and `vcf extract` as well as `vcf stats`.
+- **Old behaviour:** vcftools reads a `.` as -1 when the FORMAT lists the field,
+  so `--minGQ` and `--minDP` filter it (`GQ` or `DP` `.` is counted in
+  `N_GENOTYPES_FILTERED` of `--missing-indv` and drops out of every statistic).
+  When the FORMAT does not list the field, vcftools keeps the genotype, as
+  gloci does. `--maxDP` does not filter a `.` in either tool.
+- **Reason:** a missing value is not evidence the genotype is bad. D50 keeps a
+  call whose quality or depth was never recorded.
+- **Pinned by:** `vcf-stats-mask-missing-vs-vcftools` (must differ) and
+  `missing_dp_gq_is_not_masked_unlike_vcftools` in
+  `crates/gloci/tests/vcf_stats.rs` (both tools' counts, from the committed
+  vcftools files `mq.*`).
+
+## `vcf stats` and the vcftools behaviour it reproduces
+
+These are not differences: gloci writes what vcftools writes. They are listed
+because a user may take them for bugs. Each is pinned by the byte-for-byte
+comparison of `crates/gloci/tests/vcf_stats.rs` with the committed vcftools
+0.1.16 files in `crates/gloci-vcf/tests/golden/stats`.
+
+- `--snp-density` counts one SNP per position (two records at one position count
+  once), counts every record (indels, multi-allelic) in its bin, starts bins at
+  multiples of BIN on the 1-based position, and writes zero rows from a
+  chromosome's first bin to its last.
+- `--hardy` writes no row for a site that is not biallelic or that has any
+  one-allele genotype (`1`, `.`). A half-missing `./1` is left out of the genotype
+  classes but its allele feeds the expected counts. An all-missing site still
+  gets a row.
+- `--het` uses only sites with exactly two alleles, both seen among the called
+  alleles, and no one-allele genotype among the unmasked samples; a sample adds a
+  site only with a fully called genotype. `E(HOM)` is the sum over those sites of
+  `1 - 2pq * n / (n - 1)` (p the REF frequency, n the called alleles) printed
+  with one decimal, and `F = (O - E) / (N - E)` with five. A sample with no such
+  site has no row. A multi-allelic site is skipped, not split.
+- `--missing-indv` counts a genotype as missing when its first allele is `.`
+  (`./1` and a lone `.` are, `1/.` is not) or the sample has no GT;
+  `N_DATA` counts the unmasked genotypes of every site and `F_MISS` is `nan`
+  when there are none. `--missing-site` counts alleles instead, as vcftools does,
+  so the two `F_MISS` columns do not describe the same thing.
+- `--depth` averages the DP of the genotypes that have one, `nan` for none.
+- `--FILTER-summary` sorts the tags inside a FILTER, orders rows by count
+  descending then name descending, and takes Ts/Tv from the first ALT;
+  `--TsTv-summary` uses biallelic single-base SNPs only.
+- `--indel-hist` has the header `LENGTH COUNT PRCT`; a SNP-only site counts once
+  at length 0.
+- A genotype of ploidy above 2 stops `--freq`, `--counts`, `--missing-site`,
+  `--missing-indv`, `--hardy`, `--het` and `--singletons` with the record's
+  position, as vcftools does; depth, quality, FILTER, Ts/Tv, indel and the
+  summary read through such records.
+- Numbers use C `%g` (6 digits), `%e` for the HWE columns, `%.2f`, `%.1f` and
+  `%.5f` where vcftools does, and `nan` in lower case.
+
+`vcf stats` also differs from vcftools in ways that are not about its output:
+it takes every `vcf filter` selection flag, runs any number of statistics in one
+pass (vcftools allows one output function per run), writes each file only when
+the whole run succeeds, and defaults `--vcf-span` to `ref` because no statistic
+depends on the span.

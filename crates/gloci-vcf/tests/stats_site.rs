@@ -609,6 +609,7 @@ fn snp_density_streams_and_requires_sorted_input() {
     );
     let e = run1(&mk(&["1\t10", "2\t10", "1\t20"]), 5).unwrap_err();
     assert!(e.contains("reappears") && e.contains("1:20"), "{e}");
+    assert!(e.contains("run: gloci sort FILE"), "{e}");
     let e = run1(&mk(&["1\t100", "1\t10"]), 5).unwrap_err();
     assert!(e.contains("goes backwards"), "{e}");
     // An empty input writes the header only.

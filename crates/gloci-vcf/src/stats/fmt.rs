@@ -156,6 +156,22 @@ pub fn write_f2(out: &mut Vec<u8>, x: f64) {
     write!(out, "{x:.2}").expect("vec write");
 }
 
+/// `printf("%.1f", x)`.
+pub fn write_f1(out: &mut Vec<u8>, x: f64) {
+    if special(out, x) {
+        return;
+    }
+    write!(out, "{x:.1}").expect("vec write");
+}
+
+/// `printf("%.5f", x)`.
+pub fn write_f5(out: &mut Vec<u8>, x: f64) {
+    if special(out, x) {
+        return;
+    }
+    write!(out, "{x:.5}").expect("vec write");
+}
+
 pub fn write_u64(out: &mut Vec<u8>, v: u64) {
     let mut ib = itoa::Buffer::new();
     out.extend_from_slice(ib.format(v).as_bytes());

@@ -26,6 +26,10 @@ pub struct SampleFields {
     pub gq: Option<u32>,
     /// FT is `PASS`, `.` or absent (D50).
     pub ft_pass: bool,
+    /// Set by [`crate::MaskedGenotypes`] when masking removed this sample's
+    /// genotype, so a statistic can tell a filtered genotype from a missing
+    /// one. Decoders leave it false.
+    pub masked: bool,
 }
 
 impl SampleFields {
@@ -35,6 +39,7 @@ impl SampleFields {
         self.dp = None;
         self.gq = None;
         self.ft_pass = true;
+        self.masked = false;
     }
 
     /// Mark GT absent, parking the allele buffer.

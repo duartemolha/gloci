@@ -24,6 +24,7 @@ pub mod transform;
 pub mod vcf_extract;
 pub mod vcf_filter;
 pub mod vcf_select;
+pub mod vcf_stats;
 pub mod view;
 pub mod windows;
 
@@ -50,4 +51,5 @@ pub use vcf_select::{
     FilterExpr, Hit, SelectStage, SelectedInput, VcfSelect, open_selected, run_selection,
     select_regions, validate_thresholds, vcf_header,
 };
+pub use vcf_stats::{StatsOptions, StatsRequest, StatsSummary, check_request, vcf_stats};
 pub use view::{ViewOptions, open_view, read_regions_file, run_view, select_a};

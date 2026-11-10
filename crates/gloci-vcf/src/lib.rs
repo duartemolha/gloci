@@ -22,7 +22,8 @@ pub use filter::{
 pub use gt::{Genotype, GenotypeSource, SampleFields, TextGenotypes, text_genotypes};
 pub use hwe::{HweTails, hwe_p, hwe_tails};
 pub use stats::{
-    FilterSummary, Freq, GenoDepth, Hardy, IndelHist, MaskRules, MissingSite, Out, Singletons,
-    SiteDepth, SiteMeanDepth, SiteQuality, SiteStats, SnpDensity, Stat, StatSink, StatWrite,
-    StatsEngine, TsTv, site_stats, site_stats_into,
+    FilterSummary, Freq, GenoDepth, Hardy, Heterozygosity, IndelHist, MaskRules, MissingSample,
+    MissingSite, Out, SUMMARY_SCHEMA_VERSION, SampleDepth, Singletons, SiteDepth, SiteMeanDepth,
+    SiteQuality, SiteStats, SnpDensity, Stat, StatSink, StatWrite, StatsEngine, Summary, TsTv,
+    site_stats, site_stats_into,
 };

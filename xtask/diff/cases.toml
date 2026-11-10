@@ -3031,3 +3031,195 @@ gloci = "gloci cluster --chrom-order lex -s input.bed"
 reference = "bedtools cluster -s -i input.bed"
 compare = "exact"
 expected_difference = "#cluster-strand"
+
+# vcf stats (Task 16, D72) vs vcftools 0.1.16. Every statistic is compared
+# through its output file (`&& cat`), so these run live only; plain `cargo
+# test` pins the same files through crates/gloci/tests/vcf_stats.rs against the
+# committed vcftools outputs in crates/gloci-vcf/tests/golden/stats.
+
+[[case]]
+name = "vcf-stats-freq-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/permask.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --freq && cat o.frq"
+reference = "vcftools --vcf input.vcf --freq --out o >/dev/null 2>&1 && cat o.frq"
+compare = "exact"
+
+[[case]]
+name = "vcf-stats-counts-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/permask.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --counts && cat o.frq.count"
+reference = "vcftools --vcf input.vcf --counts --out o >/dev/null 2>&1 && cat o.frq.count"
+compare = "exact"
+
+[[case]]
+name = "vcf-stats-depth-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/permask.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --depth && cat o.idepth"
+reference = "vcftools --vcf input.vcf --depth --out o >/dev/null 2>&1 && cat o.idepth"
+compare = "exact"
+
+[[case]]
+name = "vcf-stats-site-depth-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/permask.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --site-depth && cat o.ldepth"
+reference = "vcftools --vcf input.vcf --site-depth --out o >/dev/null 2>&1 && cat o.ldepth"
+compare = "exact"
+
+[[case]]
+name = "vcf-stats-site-mean-depth-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/permask.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --site-mean-depth && cat o.ldepth.mean"
+reference = "vcftools --vcf input.vcf --site-mean-depth --out o >/dev/null 2>&1 && cat o.ldepth.mean"
+compare = "exact"
+
+[[case]]
+name = "vcf-stats-geno-depth-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/permask.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --geno-depth && cat o.gdepth"
+reference = "vcftools --vcf input.vcf --geno-depth --out o >/dev/null 2>&1 && cat o.gdepth"
+compare = "exact"
+
+[[case]]
+name = "vcf-stats-site-quality-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/permask.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --site-quality && cat o.lqual"
+reference = "vcftools --vcf input.vcf --site-quality --out o >/dev/null 2>&1 && cat o.lqual"
+compare = "exact"
+
+[[case]]
+name = "vcf-stats-missing-site-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/permask.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --missing-site && cat o.lmiss"
+reference = "vcftools --vcf input.vcf --missing-site --out o >/dev/null 2>&1 && cat o.lmiss"
+compare = "exact"
+
+[[case]]
+name = "vcf-stats-missing-indv-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/permask.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --missing-indv && cat o.imiss"
+reference = "vcftools --vcf input.vcf --missing-indv --out o >/dev/null 2>&1 && cat o.imiss"
+compare = "exact"
+
+[[case]]
+name = "vcf-stats-het-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/permask.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --het && cat o.het"
+reference = "vcftools --vcf input.vcf --het --out o >/dev/null 2>&1 && cat o.het"
+compare = "exact"
+
+[[case]]
+name = "vcf-stats-hardy-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/permask.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --hardy && cat o.hwe"
+reference = "vcftools --vcf input.vcf --hardy --out o >/dev/null 2>&1 && cat o.hwe"
+compare = "exact"
+
+[[case]]
+name = "vcf-stats-singletons-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/permask.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --singletons && cat o.singletons"
+reference = "vcftools --vcf input.vcf --singletons --out o >/dev/null 2>&1 && cat o.singletons"
+compare = "exact"
+
+[[case]]
+name = "vcf-stats-filter-summary-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/permask.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --filter-summary && cat o.FILTER.summary"
+reference = "vcftools --vcf input.vcf --FILTER-summary --out o >/dev/null 2>&1 && cat o.FILTER.summary"
+compare = "exact"
+
+[[case]]
+name = "vcf-stats-tstv-summary-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/permask.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --tstv-summary && cat o.TsTv.summary"
+reference = "vcftools --vcf input.vcf --TsTv-summary --out o >/dev/null 2>&1 && cat o.TsTv.summary"
+compare = "exact"
+
+[[case]]
+name = "vcf-stats-indel-hist-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/permask.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --indel-hist && cat o.indel.hist"
+reference = "vcftools --vcf input.vcf --hist-indel-len --out o >/dev/null 2>&1 && cat o.indel.hist"
+compare = "exact"
+
+[[case]]
+name = "vcf-stats-snp-density-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/permask.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --snp-density 100 && cat o.snpden"
+reference = "vcftools --vcf input.vcf --SNPdensity 100 --out o >/dev/null 2>&1 && cat o.snpden"
+compare = "exact"
+
+[[case]]
+name = "vcf-stats-masked-depth-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/permask.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --depth --min-dp 4 --max-dp 20 --min-gq 10 --mask-filtered-genotypes && cat o.idepth"
+reference = "vcftools --vcf input.vcf --depth --minDP 4 --maxDP 20 --minGQ 10 --remove-filtered-geno-all --out o >/dev/null 2>&1 && cat o.idepth"
+compare = "exact"
+
+[[case]]
+name = "vcf-stats-masked-missing-indv-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/permask.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --missing-indv --min-dp 4 --max-dp 20 --min-gq 10 --mask-filtered-genotypes && cat o.imiss"
+reference = "vcftools --vcf input.vcf --missing-indv --minDP 4 --maxDP 20 --minGQ 10 --remove-filtered-geno-all --out o >/dev/null 2>&1 && cat o.imiss"
+compare = "exact"
+
+[[case]]
+name = "vcf-stats-masked-het-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/permask.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --het --min-dp 4 --max-dp 20 --min-gq 10 --mask-filtered-genotypes && cat o.het"
+reference = "vcftools --vcf input.vcf --het --minDP 4 --maxDP 20 --minGQ 10 --remove-filtered-geno-all --out o >/dev/null 2>&1 && cat o.het"
+compare = "exact"
+
+[[case]]
+name = "vcf-stats-masked-hardy-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/permask.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --hardy --min-dp 4 --max-dp 20 --min-gq 10 --mask-filtered-genotypes && cat o.hwe"
+reference = "vcftools --vcf input.vcf --hardy --minDP 4 --maxDP 20 --minGQ 10 --remove-filtered-geno-all --out o >/dev/null 2>&1 && cat o.hwe"
+compare = "exact"
+
+[[case]]
+name = "vcf-stats-masked-geno-depth-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/permask.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --geno-depth --min-dp 4 --max-dp 20 --min-gq 10 --mask-filtered-genotypes && cat o.gdepth"
+reference = "vcftools --vcf input.vcf --geno-depth --minDP 4 --maxDP 20 --minGQ 10 --remove-filtered-geno-all --out o >/dev/null 2>&1 && cat o.gdepth"
+compare = "exact"
+
+[[case]]
+name = "vcf-stats-samples-het-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/permask.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --het --missing-indv --samples s2,s1 && cat o.het o.imiss"
+reference = "vcftools --vcf input.vcf --indv s2 --indv s1 --het --out o >/dev/null 2>&1 && vcftools --vcf input.vcf --indv s2 --indv s1 --missing-indv --out o >/dev/null 2>&1 && cat o.het o.imiss"
+compare = "exact"
+
+# Documented differences.
+[[case]]
+name = "vcf-stats-singletons-masked-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/masked.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --singletons --min-gq 20 && cat o.singletons"
+reference = "vcftools --vcf input.vcf --singletons --minGQ 20 --out o >/dev/null 2>&1 && cat o.singletons"
+compare = "exact"
+expected_difference = "#vcf-stats-singletons-masked"
+
+[[case]]
+name = "vcf-stats-singletons-doubleton-masked-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/ftmask.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --singletons --mask-filtered-genotypes && cat o.singletons"
+reference = "vcftools --vcf input.vcf --singletons --remove-filtered-geno-all --out o >/dev/null 2>&1 && cat o.singletons"
+compare = "exact"
+expected_difference = "#vcf-stats-singletons-masked"
+
+[[case]]
+name = "vcf-stats-snp-density-unsorted-vs-vcftools"
+input = { file = "xtask/diff/inputs/stats-unsorted.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --snp-density 1000"
+reference = "vcftools --vcf input.vcf --SNPdensity 1000 --out o >/dev/null 2>&1"
+compare = "exit-status"
+expected_difference = "#vcf-stats-snp-density-unsorted"
+
+[[case]]
+name = "vcf-stats-mask-missing-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/mq.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --missing-indv --min-gq 10 && cat o.imiss"
+reference = "vcftools --vcf input.vcf --missing-indv --minGQ 10 --out o >/dev/null 2>&1 && cat o.imiss"
+compare = "exact"
+expected_difference = "#vcf-stats-mask-missing"

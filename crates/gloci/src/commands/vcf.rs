@@ -3,7 +3,7 @@
 use crate::Ctx;
 use crate::cli::{
     ChromMapArg, ExtractLayout, InvalidArg, VcfExtractArgs, VcfFilterArgs, VcfSelectArgs, VcfSpan,
-    VcfSpanArg,
+    VcfSpanArg, VcfStatsArgs,
 };
 use gloci_core::{Interval, RegionSet};
 use gloci_io::{
@@ -11,9 +11,10 @@ use gloci_io::{
     WriterOptions, open_output, open_record_writer, parse_output_spec, refuse_binary_to_tty,
 };
 use gloci_ops::{
-    ExtractMode, ExtractOptions, FilterExpr, VcfFilterOptions, VcfSelect, check_keys,
-    extract_matrix, extract_table, open_selected, open_vcf_filter, read_regions_file,
-    validate_thresholds, vcf_filter_file, vcf_filter_output, vcf_header,
+    ExtractMode, ExtractOptions, FilterExpr, StatsOptions, StatsRequest, VcfFilterOptions,
+    VcfSelect, check_keys, extract_matrix, extract_table, open_selected, open_vcf_filter,
+    read_regions_file, validate_thresholds, vcf_filter_file, vcf_filter_output, vcf_header,
+    vcf_stats,
 };
 use gloci_vcf::{
     MaskRules, RewritePlan, SiteFilters, VcfType, read_ids, read_positions, read_samples,
@@ -383,5 +384,54 @@ or use -o FILE for a table"
     let mut out = open_output(&spec, OutFormat::Tsv, &oo)?;
     extract_table(input, &options, &mut out).map_err(|e| e.with_output_name(&dest))?;
     out.finish()?;
+    Ok(())
+}
+
+pub fn run_stats(ctx: &Ctx, a: &VcfStatsArgs) -> anyhow::Result<()> {
+    let (select, ro) = select_from_args(&a.select, || {
+        reader_options(
+            ctx,
+            &a.chrom_map,
+            None,
+            &VcfSpanArg {
+                vcf_span: a.vcf_span,
+            },
+            &a.invalid,
+        )
+    })?;
+    let options = StatsOptions {
+        select,
+        request: StatsRequest {
+            freq: a.freq,
+            counts: a.counts,
+            depth: a.depth,
+            site_depth: a.site_depth,
+            site_mean_depth: a.site_mean_depth,
+            geno_depth: a.geno_depth,
+            site_quality: a.site_quality,
+            missing_site: a.missing_site,
+            missing_indv: a.missing_indv,
+            het: a.het,
+            hardy: a.hardy,
+            singletons: a.singletons,
+            filter_summary: a.filter_summary,
+            tstv_summary: a.tstv_summary,
+            indel_hist: a.indel_hist,
+            snp_density: a.snp_density,
+            summary: a.summary,
+            json: a.json,
+        },
+        out_prefix: a.out_prefix.clone(),
+    };
+    gloci_ops::check_request(&options)?;
+    let input = open_selected(&a.file, &ro, &options.select)?;
+    vcf_header("vcf stats", input.reader())?;
+    let done = vcf_stats(input, &options)?;
+    log::info!(
+        "vcf stats: {} of {} records selected; wrote {} file(s)",
+        done.records_selected,
+        done.records_in,
+        done.files.len()
+    );
     Ok(())
 }

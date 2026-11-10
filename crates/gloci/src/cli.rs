@@ -1044,6 +1044,14 @@ Examples:
   gloci vcf extract cohort.bcf --format GT,DP --layout long --samples s1,s2
   gloci vcf extract cohort.vcf.gz --genotype-matrix 012 --out-prefix cohort --biallelic")]
     Extract(VcfExtractArgs),
+    /// Compute statistics in one pass: per-site, per-sample and whole-file,
+    /// written as PREFIX.<ext> in vcftools' formats, plus a summary.
+    #[command(after_long_help = "\
+Examples:
+  gloci vcf stats cohort.vcf.gz --out-prefix qc --freq --missing-indv --het --summary
+  gloci vcf stats cohort.bcf --out-prefix qc --depth --site-mean-depth --min-dp 8 --samples s1,s2
+  gloci vcf stats cohort.vcf.gz --out-prefix qc --tstv-summary --json --pass-only")]
+    Stats(VcfStatsArgs),
 }
 
 /// A record type for `vcf filter --types` / `--exclude-types` (spec 7.8).
@@ -1306,6 +1314,108 @@ pub struct VcfExtractArgs {
 
     #[command(flatten)]
     pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+}
+
+#[derive(Args, Debug, Clone)]
+#[command(group(
+    clap::ArgGroup::new("stat").required(true).multiple(true).args([
+        "freq", "counts", "depth", "site_depth", "site_mean_depth", "geno_depth",
+        "site_quality", "missing_site", "missing_indv", "het", "hardy", "singletons",
+        "filter_summary", "tstv_summary", "indel_hist", "snp_density", "summary", "json",
+    ])
+))]
+pub struct VcfStatsArgs {
+    /// Input VCF or BCF file (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+
+    #[command(flatten)]
+    pub select: VcfSelectArgs,
+
+    /// Prefix of the output files: each statistic writes PREFIX.<extension>
+    /// (the extensions vcftools uses: .frq, .idepth, ...). Files are
+    /// written atomically and only when the whole run succeeds; an existing
+    /// file of the same name is replaced.
+    #[arg(long, value_name = "PREFIX", required = true)]
+    pub out_prefix: PathBuf,
+
+    /// Allele frequencies per site: PREFIX.frq (vcftools --freq).
+    #[arg(long)]
+    pub freq: bool,
+    /// Allele counts per site: PREFIX.frq.count (vcftools --counts).
+    #[arg(long)]
+    pub counts: bool,
+    /// Mean depth per sample: PREFIX.idepth (vcftools --depth).
+    #[arg(long)]
+    pub depth: bool,
+    /// Total depth per site: PREFIX.ldepth (vcftools --site-depth).
+    #[arg(long)]
+    pub site_depth: bool,
+    /// Mean depth per site: PREFIX.ldepth.mean (vcftools --site-mean-depth).
+    #[arg(long)]
+    pub site_mean_depth: bool,
+    /// Depth of every genotype: PREFIX.gdepth (vcftools --geno-depth).
+    #[arg(long)]
+    pub geno_depth: bool,
+    /// QUAL per site: PREFIX.lqual (vcftools --site-quality).
+    #[arg(long)]
+    pub site_quality: bool,
+    /// Missing data per site: PREFIX.lmiss (vcftools --missing-site).
+    #[arg(long)]
+    pub missing_site: bool,
+    /// Missing data per sample: PREFIX.imiss (vcftools --missing-indv).
+    #[arg(long)]
+    pub missing_indv: bool,
+    /// Inbreeding coefficient per sample: PREFIX.het (vcftools --het).
+    #[arg(long)]
+    pub het: bool,
+    /// Hardy-Weinberg test per site: PREFIX.hwe (vcftools --hardy).
+    #[arg(long)]
+    pub hardy: bool,
+    /// Singleton and doubleton alleles: PREFIX.singletons (vcftools
+    /// --singletons).
+    #[arg(long)]
+    pub singletons: bool,
+    /// Records per FILTER value: PREFIX.FILTER.summary (vcftools
+    /// --FILTER-summary).
+    #[arg(long, visible_alias = "FILTER-summary")]
+    pub filter_summary: bool,
+    /// Substitution types and Ts/Tv: PREFIX.TsTv.summary (vcftools
+    /// --TsTv-summary).
+    #[arg(long, visible_alias = "TsTv-summary")]
+    pub tstv_summary: bool,
+    /// Histogram of indel lengths: PREFIX.indel.hist (vcftools
+    /// --hist-indel-len).
+    #[arg(long, visible_alias = "hist-indel-len")]
+    pub indel_hist: bool,
+    /// SNPs per BIN bases: PREFIX.snpden (vcftools --SNPdensity). Needs
+    /// input sorted by chromosome and position.
+    #[arg(long, value_name = "BIN", visible_alias = "SNPdensity")]
+    pub snp_density: Option<u64>,
+    /// A short overview in PREFIX.summary.txt: records by type, Ts/Tv,
+    /// samples, mean depth and missingness.
+    #[arg(long)]
+    pub summary: bool,
+    /// The same overview as JSON in PREFIX.summary.json. Keys are sorted;
+    /// "schema_version" is 1. Layout: counts_by_type {indel, mnp, other, ref,
+    /// snp}, depth {mean, values}, genotypes {filtered, missing,
+    /// missing_fraction, total}, multiallelic_sites, records, samples,
+    /// schema_version, ts_tv {ratio, transitions, transversions}. A ratio
+    /// that has no denominator is null.
+    #[arg(long)]
+    pub json: bool,
+
+    /// Which footprint a VCF record covers: the allele span or the REF span.
+    /// The statistics do not depend on it, so the default is ref, which
+    /// accepts symbolic ALTs without INFO/END; it only matters for --region.
+    #[arg(long, value_enum, default_value = "ref", value_name = "MODE")]
+    pub vcf_span: VcfSpan,
     #[command(flatten)]
     pub chrom_map: ChromMapArg,
     #[command(flatten)]

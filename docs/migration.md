@@ -209,7 +209,14 @@ Every row below was checked against `gloci <cmd> --help`.
 | `--minGQ` / `--minDP` / `--maxDP`, `--remove-filtered-geno-all` | `--min-gq` / `--min-dp` / `--max-dp`, `--mask-filtered-genotypes` |
 | `bcftools view -i EXPR` / `-e EXPR` (subset: FORMAT fields GT, DP, GQ only; see [differences.md#expr-format-fields](differences.md#expr-format-fields)) | `gloci vcf filter FILE --include EXPR` / `--exclude EXPR` |
 | `vcf-sort`, `vcf-isec`, `vcf-subset` | `gloci sort`, `gloci intersect --match alleles`, `gloci vcf filter --samples ... --recalc-ac` |
-| `--freq`, `--depth`, `--missing-*`, `--het`, `--hardy`, `--TsTv*`, `--FILTER-summary`, `--SNPdensity`, `--singletons`, `--hist-indel-len`, `vcf-stats` | not yet available (`vcf stats`, P2) |
+| `--freq` / `--counts` | `gloci vcf stats FILE --out-prefix P --freq` / `--counts` (write `P.frq` / `P.frq.count`, same columns) |
+| `--depth` / `--site-depth` / `--site-mean-depth` / `--geno-depth` / `--site-quality` | `--depth` / `--site-depth` / `--site-mean-depth` / `--geno-depth` / `--site-quality` (`P.idepth`, `P.ldepth`, `P.ldepth.mean`, `P.gdepth`, `P.lqual`) |
+| `--missing-indv` / `--missing-site` | `--missing-indv` / `--missing-site` (`P.imiss`, `P.lmiss`) |
+| `--het` / `--hardy` / `--singletons` | `--het` / `--hardy` / `--singletons` (`P.het`, `P.hwe`, `P.singletons`; the singleton carrier after masking differs, [differences.md#vcf-stats-singletons-masked](differences.md#vcf-stats-singletons-masked)) |
+| `--FILTER-summary` / `--TsTv-summary` / `--hist-indel-len` | `--filter-summary` / `--tstv-summary` / `--indel-hist` (`P.FILTER.summary`, `P.TsTv.summary`, `P.indel.hist`; the vcftools spellings are accepted as aliases) |
+| `--SNPdensity BIN` | `--snp-density BIN` (`P.snpden`; needs sorted input, [differences.md#vcf-stats-snp-density-unsorted](differences.md#vcf-stats-snp-density-unsorted)) |
+| `--minGQ` / `--minDP` / `--maxDP` with a statistic | the same `vcf stats` run takes `--min-gq` / `--min-dp` / `--max-dp` (a `.` DP or GQ is not masked, [differences.md#vcf-stats-mask-missing](differences.md#vcf-stats-mask-missing)) |
+| several statistics (vcftools allows one per run), `vcf-stats` | one `gloci vcf stats` run with every flag, plus `--summary` / `--json` for an overview (`P.summary.txt`, `P.summary.json`) |
 | `--get-INFO KEY` | `gloci vcf extract FILE --info KEY` (adds an ID column; `.` for missing; [differences.md#vcf-extract-info](differences.md#vcf-extract-info)) |
 | `--extract-FORMAT-info KEY` | `gloci vcf extract FILE --format KEY --layout wide` (columns are `SAMPLE:KEY`; `--layout long` gives a row per sample; [differences.md#vcf-extract-format-wide](differences.md#vcf-extract-format-wide)) |
 | `--012` (writes `out.012`, `.012.indv`, `.012.pos`) | `gloci vcf extract FILE --genotype-matrix 012 --out-prefix out` (same files; haploid and half-missing reference calls count 0; [differences.md#vcf-extract-012](differences.md#vcf-extract-012)) |
@@ -429,6 +436,15 @@ Every row below was checked against `gloci <cmd> --help`.
   [differences.md#vcf-extract-info](differences.md#vcf-extract-info),
   [differences.md#vcf-extract-format-wide](differences.md#vcf-extract-format-wide),
   [differences.md#vcf-extract-012](differences.md#vcf-extract-012)
+- **`vcf stats` replaces the vcftools statistic flags:** every flag is one
+  `gloci vcf stats FILE --out-prefix P` run that writes `P.<ext>` in vcftools'
+  formats, after the same selection flags as `vcf filter`, and publishes files
+  only when the whole run succeeds. Differences: a singleton's carrier is
+  searched among the unmasked genotypes, `--snp-density` rejects unsorted
+  input, and a `.` DP or GQ is never masked.
+  [differences.md#vcf-stats-singletons-masked](differences.md#vcf-stats-singletons-masked),
+  [differences.md#vcf-stats-snp-density-unsorted](differences.md#vcf-stats-snp-density-unsorted),
+  [differences.md#vcf-stats-mask-missing](differences.md#vcf-stats-mask-missing)
 - **`vcf filter --include/--exclude` is a subset of `bcftools view -i/-e`:**
   fields against numbers, strings or `.`, `N_PASS`, and the FORMAT fields GT,
   DP and GQ only (other FORMAT keys such as AD and FT are rejected, exit 2).

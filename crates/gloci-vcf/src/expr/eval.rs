@@ -26,6 +26,7 @@ impl GenotypeSource for MaskedGenotypes<'_> {
             out.clear_gt();
             out.dp = None;
             out.gq = None;
+            out.masked = true;
         }
         Ok(())
     }

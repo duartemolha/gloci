@@ -50,9 +50,6 @@ fn first_alt(alts: &[u8]) -> &[u8] {
     alts.split(|&c| c == b',').next().unwrap_or(b"")
 }
 
-/// The row key: the FILTER with its `;`-separated tags in ascending byte
-/// order (vcftools sorts them, so `b;a` and `a;b` are one row). BCF
-/// joins tags in dictionary order, which this also normalises.
 /// The row key of a FILTER: its `;`-separated tags in ascending byte order
 /// (vcftools sorts them, so `b;a` and `a;b` are one row; BCF joins tags in
 /// dictionary order, which this normalises too). Allocation-free once the
@@ -434,7 +431,7 @@ impl Stat for SnpDensity {
 fn sorted_msg(s: &SiteView, why: &str) -> String {
     format!(
         "--snp-density needs input sorted by chromosome and position, but {why} at {}:{}; \
-         sort the file first (a streamed density cannot merge rows it already wrote)",
+         run: gloci sort FILE (a streamed density cannot merge rows it already wrote)",
         String::from_utf8_lossy(s.chrom),
         s.pos
     )
