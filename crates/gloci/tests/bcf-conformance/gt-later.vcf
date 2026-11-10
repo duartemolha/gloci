@@ -1,0 +1,45 @@
+##fileformat=VCFv4.3
+##contig=<ID=chr1,length=100000>
+##FILTER=<ID=q10,Description="low">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth">
+##FORMAT=<ID=I1,Number=1,Type=Integer,Description="Integer Number=1">
+##FORMAT=<ID=IA,Number=A,Type=Integer,Description="Integer Number=A">
+##FORMAT=<ID=IR,Number=R,Type=Integer,Description="Integer Number=R">
+##FORMAT=<ID=IG,Number=G,Type=Integer,Description="Integer Number=G">
+##FORMAT=<ID=ID,Number=.,Type=Integer,Description="Integer Number=.">
+##FORMAT=<ID=I2,Number=2,Type=Integer,Description="Integer Number=2">
+##FORMAT=<ID=F1,Number=1,Type=Float,Description="Float Number=1">
+##FORMAT=<ID=FA,Number=A,Type=Float,Description="Float Number=A">
+##FORMAT=<ID=FR,Number=R,Type=Float,Description="Float Number=R">
+##FORMAT=<ID=FG,Number=G,Type=Float,Description="Float Number=G">
+##FORMAT=<ID=FD,Number=.,Type=Float,Description="Float Number=.">
+##FORMAT=<ID=F2,Number=2,Type=Float,Description="Float Number=2">
+##FORMAT=<ID=S1,Number=1,Type=String,Description="String Number=1">
+##FORMAT=<ID=SA,Number=A,Type=String,Description="String Number=A">
+##FORMAT=<ID=SR,Number=R,Type=String,Description="String Number=R">
+##FORMAT=<ID=SG,Number=G,Type=String,Description="String Number=G">
+##FORMAT=<ID=SD,Number=.,Type=String,Description="String Number=.">
+##FORMAT=<ID=S2,Number=2,Type=String,Description="String Number=2">
+##FORMAT=<ID=C1,Number=1,Type=Character,Description="Character Number=1">
+##FORMAT=<ID=CA,Number=A,Type=Character,Description="Character Number=A">
+##FORMAT=<ID=CR,Number=R,Type=Character,Description="Character Number=R">
+##FORMAT=<ID=CG,Number=G,Type=Character,Description="Character Number=G">
+##FORMAT=<ID=CD,Number=.,Type=Character,Description="Character Number=.">
+##FORMAT=<ID=C2,Number=2,Type=Character,Description="Character Number=2">
+##INFO=<ID=NI1,Number=1,Type=Integer,Description="Integer Number=1">
+##INFO=<ID=NIA,Number=A,Type=Integer,Description="Integer Number=A">
+##INFO=<ID=NID,Number=.,Type=Integer,Description="Integer Number=.">
+##INFO=<ID=NF1,Number=1,Type=Float,Description="Float Number=1">
+##INFO=<ID=NFA,Number=A,Type=Float,Description="Float Number=A">
+##INFO=<ID=NFD,Number=.,Type=Float,Description="Float Number=.">
+##INFO=<ID=NS1,Number=1,Type=String,Description="String Number=1">
+##INFO=<ID=NSA,Number=A,Type=String,Description="String Number=A">
+##INFO=<ID=NSD,Number=.,Type=String,Description="String Number=.">
+##INFO=<ID=FL,Number=0,Type=Flag,Description="flag">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	s1	s2	s3
+chr1	1	.	A	G	.	.	.	DP:GT	5	6	7
+chr1	2	.	A	G	.	.	.	DP:GT:S1	5	6	7
+chr1	3	.	A	G	.	.	NI1=.	DP:GT	5	6	7
+chr1	4	.	A	G	.	.	.	DP:GT:ID	5	6	7
+chr1	5	.	A	G	.	.	.	DP:S1:GT	5:a:0/1	6:b:1/1	7:c
