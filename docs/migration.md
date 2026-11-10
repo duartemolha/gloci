@@ -599,6 +599,11 @@ Before relying on a new expression, run it once on a small file with
   statistic or a mask rule reads are decoded, so a malformed DP, GQ or FT value
   that nothing reads is not an error (`--freq` ignores a bad DP; `--depth` or
   `--min-dp` reports it, exit 1, naming the record and sample).
+- **SAM input is checked more strictly than `samtools view` checks it:** a
+  RNAME or RNEXT that is not in the header is an error (samtools warns and makes
+  the read unmapped), and a few values samtools wraps or truncates are refused.
+  [unknown reference](differences.md#sam-unknown-rname),
+  [parse strictness](differences.md#sam-parse-strictness)
 
 ### Threads and errors
 

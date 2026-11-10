@@ -98,6 +98,27 @@ impl Diagnostics {
         }
     }
 
+    /// Say at `-v` what an alignment reader left out of `name` (D101, D102): unmapped reads,
+    /// reads the filters dropped, reads off the end of their reference and blank lines. Every
+    /// command that reads alignments calls this when it is done with an input.
+    pub fn log_alignment_counts(&self, name: &str) {
+        let line = |n: u64, what: &str| {
+            if n > 0 {
+                log::info!("{name}: {} {what}", thousands(n));
+            }
+        };
+        line(self.unmapped, "unmapped reads left out");
+        line(
+            self.filtered,
+            "reads dropped by --min-mapq, --require-flags or --exclude-flags",
+        );
+        line(
+            self.off_reference,
+            "reads left out for starting at or past the end of their reference",
+        );
+        line(self.blank_lines, "blank lines skipped");
+    }
+
     /// A multi-line warning, or `None` when nothing was skipped.
     pub fn summary(&self, name: &str) -> Option<String> {
         if self.skipped == 0 {

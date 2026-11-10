@@ -744,10 +744,11 @@ write SAM instead (-O sam)",
         ));
     }
     if oo.write_index {
-        return Err(usage(
-            "--write-index is not available for BAM output in this build yet; index the \
-output afterwards",
-        ));
+        return Err(usage(if out_format == OutFormat::Sam {
+            "--write-index needs BAM output (-o x.bam); SAM text has no index".to_string()
+        } else {
+            "--write-index is not available for BAM output in this build yet".to_string()
+        }));
     }
     refuse_binary_to_tty(
         out_spec.path.is_none() && std::io::stdout().is_terminal(),
@@ -814,6 +815,7 @@ output afterwards",
         }
     }
     w.finish().map_err(named)?;
+    src.diagnostics().log_alignment_counts(&name);
     if let Some(s) = src.diagnostics().summary(&name) {
         log::warn!("{s}");
     }

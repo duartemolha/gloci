@@ -4111,3 +4111,84 @@ aux = ["xtask/diff/inputs/aln/pastend.bam.bai"]
 gloci = "gloci view -O sam input.bam chr1:1001-1010"
 reference = "samtools view -h --no-PG -X input.bam pastend.bam.bai chr1:1001-1010"
 compare = "sam"
+
+# a character field of two characters: samtools 1.21 accepts it, gloci refuses it.
+[[case]]
+name = "view-sam-strict-char-two-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/strict-char-two.sam" }
+gloci = "gloci view -O bam input.sam"
+reference = "samtools view -b --no-PG input.sam"
+compare = "exit-status"
+expected_difference = "#sam-parse-strictness"
+
+# a B:c element out of range: samtools 1.21 accepts it, gloci refuses it.
+[[case]]
+name = "view-sam-strict-b-range-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/strict-b-range.sam" }
+gloci = "gloci view -O bam input.sam"
+reference = "samtools view -b --no-PG input.sam"
+compare = "exit-status"
+expected_difference = "#sam-parse-strictness"
+
+# a B array with a trailing comma: samtools 1.21 accepts it, gloci refuses it.
+[[case]]
+name = "view-sam-strict-b-comma-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/strict-b-comma.sam" }
+gloci = "gloci view -O bam input.sam"
+reference = "samtools view -b --no-PG input.sam"
+compare = "exit-status"
+expected_difference = "#sam-parse-strictness"
+
+# a float with a leading space: samtools 1.21 accepts it, gloci refuses it.
+[[case]]
+name = "view-sam-strict-float-space-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/strict-float-space.sam" }
+gloci = "gloci view -O bam input.sam"
+reference = "samtools view -b --no-PG input.sam"
+compare = "exit-status"
+expected_difference = "#sam-parse-strictness"
+
+# a float with trailing text: samtools 1.21 accepts it, gloci refuses it.
+[[case]]
+name = "view-sam-strict-float-trailing-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/strict-float-trailing.sam" }
+gloci = "gloci view -O bam input.sam"
+reference = "samtools view -b --no-PG input.sam"
+compare = "exit-status"
+expected_difference = "#sam-parse-strictness"
+
+# a QUAL character 0x7f: samtools 1.21 accepts it, gloci refuses it.
+[[case]]
+name = "view-sam-strict-qual-del-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/strict-qual-del.sam" }
+gloci = "gloci view -O bam input.sam"
+reference = "samtools view -b --no-PG input.sam"
+compare = "exit-status"
+expected_difference = "#sam-parse-strictness"
+
+# a CIGAR length of more than 9 digits: samtools 1.21 accepts it, gloci refuses it.
+[[case]]
+name = "view-sam-strict-cigar-zeros-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/strict-cigar-zeros.sam" }
+gloci = "gloci view -O bam input.sam"
+reference = "samtools view -b --no-PG input.sam"
+compare = "exit-status"
+expected_difference = "#sam-parse-strictness"
+
+# a read whose RNAME is not in the @SQ lines: samtools 1.21 warns and treats it as unmapped, gloci refuses it.
+[[case]]
+name = "view-sam-unknown-rname-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/unknown-rname.sam" }
+gloci = "gloci view -O bam input.sam"
+reference = "samtools view -b --no-PG input.sam"
+compare = "exit-status"
+expected_difference = "#sam-unknown-rname"
+
+# a read whose RNEXT is not in the @SQ lines: samtools 1.21 warns and treats it as unmapped, gloci refuses it.
+[[case]]
+name = "view-sam-unknown-rnext-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/unknown-rnext.sam" }
+gloci = "gloci view -O bam input.sam"
+reference = "samtools view -b --no-PG input.sam"
+compare = "exit-status"
+expected_difference = "#sam-unknown-rname"

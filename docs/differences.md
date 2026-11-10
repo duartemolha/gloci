@@ -1530,3 +1530,45 @@ depends on the span.
   be unusable for most tools.
 - **Pinned by:** `maskfasta-mask-char-space-vs-bedtools` (exit status: must
   differ).
+
+## SAM input: a read whose reference is not in the header is an error {#sam-unknown-rname}
+
+- **gloci:** a record whose RNAME or RNEXT is not an `@SQ` name of the header
+  is a data error naming the file and line. The message says to add the `@SQ`
+  line, fix the name, or pass `--skip-invalid`, which skips such records and
+  counts them. A header with no `@SQ` lines refuses every placed read the same way.
+- **Old behaviour:** `samtools view` warns `unrecognized reference name` (or
+  `unrecognized mate reference name`), writes the read as unmapped with its
+  position kept (RNAME `*`, flag |= 4, or RNEXT `*`), and exits 0. With no `@SQ`
+  lines at all it fails.
+- **Reason:** turning reads into unmapped ones quietly loses their placement, for
+  a typo or a header from another build.
+- **Pinned by:** `view-sam-unknown-rname-vs-samtools` and
+  `view-sam-unknown-rnext-vs-samtools` (exit status must differ).
+
+## SAM input: junk that samtools lets through is refused {#sam-parse-strictness}
+
+- **gloci:** these are data errors naming the file and line, honoured by
+  `--skip-invalid`:
+  - a character (`A`) optional field of other than one character (`XA:A:ab`);
+  - a `B` array element out of range for its type (`B:c,200`) or empty (`B:c,1,`);
+  - a float that is not plain decimal text (`XF:f: 1.5`, `XF:f:1.5x`, hex floats
+    such as `0x1p3`);
+  - a QUAL character outside `!` to `~` (0x7f);
+  - a CIGAR length of more than 9 digits (so leading zeros as in `0000000004M`).
+
+  The checks run when the line is read, whatever the output format.
+- **Old behaviour:** `samtools view` reads each of these, storing the bytes it
+  parsed (`ab` as `a`, the out-of-range element wrapped, the trailing comma as a
+  zero element, the number by `strtod`, QUAL 0x7f as 94).
+- **Also:** SAM to SAM output copies each line as it is (D120), so a read that
+  samtools normalises while reading (a mapped read with CIGAR `*`, no position or no
+  reference, which it writes with flag 4) is copied as written. SAM to BAM encodes
+  what samtools encodes, so the BAM is the same.
+- **Reason:** each of these is more likely a broken file than a meant value.
+- **Pinned by:** `view-sam-strict-char-two-vs-samtools`,
+  `view-sam-strict-b-range-vs-samtools`, `view-sam-strict-b-comma-vs-samtools`,
+  `view-sam-strict-float-space-vs-samtools`,
+  `view-sam-strict-float-trailing-vs-samtools`,
+  `view-sam-strict-qual-del-vs-samtools` and
+  `view-sam-strict-cigar-zeros-vs-samtools` (exit status must differ).

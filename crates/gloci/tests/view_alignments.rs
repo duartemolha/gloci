@@ -445,3 +445,66 @@ fn view_sam_with_crlf_matches_lf_and_chrom_map_is_a_usage_error() {
         "{o}"
     );
 }
+
+#[test]
+fn view_reports_what_the_filters_dropped_at_v() {
+    let bam = s(&aln("flags.bam"));
+    let quiet = gloci()
+        .args([
+            "view",
+            &bam,
+            "-O",
+            "sam",
+            "--exclude-flags",
+            "unmap",
+            "--min-mapq",
+            "20",
+        ])
+        .assert()
+        .success();
+    assert!(!String::from_utf8_lossy(&quiet.get_output().stderr).contains("dropped by"));
+    gloci()
+        .args([
+            "-v",
+            "view",
+            &bam,
+            "-O",
+            "sam",
+            "--exclude-flags",
+            "unmap",
+            "--min-mapq",
+            "20",
+        ])
+        .assert()
+        .success()
+        .stderr(contains(
+            "flags.bam: 4 reads dropped by --min-mapq, --require-flags or --exclude-flags",
+        ));
+    // A SAM with a blank line says so too.
+    let dir = tempdir();
+    let sam = plain_file(
+        dir.path(),
+        "b.sam",
+        "@SQ\tSN:chr1\tLN:100\nok\t0\tchr1\t5\t60\t4M\t*\t0\t0\tACGT\tIIII\n\nok2\t0\tchr1\t6\t60\t4M\t*\t0\t0\tACGT\tIIII\n",
+    );
+    gloci()
+        .args(["-v", "view", &s(&sam)])
+        .assert()
+        .success()
+        .stderr(contains("b.sam: 1 blank lines skipped"));
+}
+
+#[test]
+fn view_write_index_is_refused_by_output_format() {
+    let bam = s(&aln("flags.bam"));
+    gloci()
+        .args(["view", &bam, "-o", "x.sam", "--write-index"])
+        .assert()
+        .code(2)
+        .stderr(contains("--write-index needs BAM output").and(contains("SAM text has no index")));
+    gloci()
+        .args(["view", &bam, "-o", "x.bam", "--write-index"])
+        .assert()
+        .code(2)
+        .stderr(contains("not available for BAM output").and(contains("afterwards").not()));
+}
