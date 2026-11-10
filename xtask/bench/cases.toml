@@ -202,7 +202,7 @@ setup = "bed --records 10000000 --chroms 24 --seed 1 --profile uniform --sorted"
 input = "bed"
 targets = ["gloci <= bedops"]
 [case.commands]
-gloci = "{gloci} partition --chrom-order lex -t 1 {in} > {out}"
+gloci = "{gloci} partition --chrom-order lex -t 1 --no-membership {in} > {out}"
 bedops = "bedops --partition {in} > {out}"
 
 [[case]]

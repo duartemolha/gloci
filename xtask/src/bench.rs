@@ -786,9 +786,6 @@ mod tests {
         );
     }
 
-    /// Every `gloci` command line in cases.toml parses with gloci's own clap
-    /// parser, so a misspelled or removed flag fails `cargo test` instead of
-    /// a nightly benchmark run.
     /// The words of a case's gloci command: from `{gloci}` to the first
     /// unquoted pipe, redirection or `&&`, with single quotes removed.
     fn gloci_words(cmd: &str) -> Vec<String> {
@@ -843,6 +840,9 @@ mod tests {
         );
     }
 
+    /// Every `gloci` command line in cases.toml parses with gloci's own clap
+    /// parser, so a misspelled or removed flag fails `cargo test` instead of
+    /// a nightly benchmark run.
     #[test]
     fn every_gloci_bench_command_parses() {
         use clap::Parser;
