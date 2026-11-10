@@ -43,7 +43,8 @@ pub use sort::{
 };
 pub use vcf_concat::{ConcatOptions, vcf_concat};
 pub use vcf_extract::{
-    ExtractMode, ExtractOptions, ExtractSummary, check_keys, extract_matrix, extract_table,
+    ExtractMode, ExtractOptions, ExtractSummary, check_keys, check_tmp_dir, extract_matrix,
+    extract_table,
 };
 pub use vcf_filter::{
     FilterSummary, VcfFilterInput, VcfFilterOptions, open_vcf_filter, vcf_filter, vcf_filter_file,

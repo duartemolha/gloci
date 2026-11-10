@@ -517,7 +517,7 @@ fn table_goes_to_a_file_atomically() {
 }
 
 #[test]
-fn genotype_matrix_blocks_under_a_tiny_budget_equal_the_in_memory_result() {
+fn genotype_matrix_with_the_minimum_budget_and_a_tmp_dir_equals_the_default_result() {
     let d = tempdir();
     let n = 37; // not a multiple of 4, so packed rows have a partial byte
     let names: Vec<String> = (0..n).map(|i| format!("p{i}")).collect();
@@ -549,9 +549,9 @@ fn genotype_matrix_blocks_under_a_tiny_budget_equal_the_in_memory_result() {
     assert_eq!(rows.lines().count(), n);
     let spill = d.path().join("spill");
     std::fs::create_dir(&spill).unwrap();
-    // 1 KiB: the codes (37 samples x 400 sites, 2 bits) exceed half of it, so
-    // they spill, and a block holds at most one sample's row.
-    for (name, budget) in [("tiny", "1K"), ("mid", "6K")] {
+    // 16M is the smallest budget (as for sort), so nothing spills here; the
+    // spill and the blocks are covered by gloci-ops' vcf_extract_spill test.
+    for (name, budget) in [("min", "16M"), ("mid", "24M")] {
         let prefix = s(&d.path().join(name));
         gloci()
             .args([
@@ -618,4 +618,46 @@ fn allele_beyond_alt_errors_or_is_skipped_and_vcftools_writes_1() {
         .success()
         .stderr(contains("2 genotype(s) named an allele"));
     assert_eq!(read(&d.path().join("o.012")), "0\t1\n1\t-1\n2\t-1\n");
+}
+
+#[test]
+fn tmp_dir_and_max_mem_are_validated_up_front_like_sort() {
+    let d = tempdir();
+    let vcf = s(&plain_file(
+        d.path(),
+        "in.vcf",
+        &format!("{HEAD}chr1\t10\t.\tA\tC\t.\t.\t.\tGT\t0/1\t1/1\t0/0\n"),
+    ));
+    let prefix = s(&d.path().join("o"));
+    // a missing --tmp-dir fails although the matrix would fit in memory
+    gloci()
+        .args([
+            "vcf",
+            "extract",
+            &vcf,
+            "--genotype-matrix",
+            "012",
+            "--out-prefix",
+            &prefix,
+            "--tmp-dir",
+        ])
+        .arg(d.path().join("missing/dir"))
+        .assert()
+        .code(1)
+        .stderr(contains("missing/dir"));
+    assert!(!d.path().join("o.012").exists());
+    // --max-mem has sort's minimum and message
+    for mode in [
+        vec!["--genotype-matrix", "012", "--out-prefix", &prefix],
+        vec!["--info", "DP"],
+    ] {
+        gloci()
+            .args(["vcf", "extract", &vcf, "--max-mem", "1M"])
+            .args(mode)
+            .assert()
+            .code(2)
+            .stderr(contains(
+                "--max-mem 1048576 bytes is too small; use at least 16M",
+            ));
+    }
 }

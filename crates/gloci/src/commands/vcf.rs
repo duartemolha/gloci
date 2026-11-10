@@ -11,10 +11,10 @@ use gloci_io::{
     WriterOptions, open_output, open_record_writer, parse_output_spec, refuse_binary_to_tty,
 };
 use gloci_ops::{
-    ExtractMode, ExtractOptions, FilterExpr, StatsOptions, StatsRequest, VcfFilterOptions,
-    VcfSelect, check_keys, extract_matrix, extract_table, open_selected, open_vcf_filter,
-    read_regions_file, validate_thresholds, vcf_filter_file, vcf_filter_output, vcf_header,
-    vcf_stats,
+    ExtractMode, ExtractOptions, FilterExpr, MIN_MAX_MEM, StatsOptions, StatsRequest,
+    VcfFilterOptions, VcfSelect, check_keys, check_tmp_dir, extract_matrix, extract_table,
+    open_selected, open_vcf_filter, read_regions_file, validate_thresholds, vcf_filter_file,
+    vcf_filter_output, vcf_header, vcf_stats,
 };
 use gloci_vcf::{
     MaskRules, RewritePlan, SiteFilters, VcfType, read_ids, read_positions, read_samples,
@@ -306,6 +306,17 @@ or use -o FILE for a table"
                 .into(),
         )
         .into());
+    }
+    if a.max_mem < MIN_MAX_MEM {
+        return Err(UsageError(format!(
+            "--max-mem {} bytes is too small; use at least 16M",
+            a.max_mem
+        ))
+        .into());
+    }
+    if a.genotype_matrix.is_some() {
+        // As `sort` does: a bad --tmp-dir fails before any input is read.
+        check_tmp_dir(&ctx.tmp_dir)?;
     }
     let mode = match (&a.info, &a.format) {
         (Some(keys), _) => {

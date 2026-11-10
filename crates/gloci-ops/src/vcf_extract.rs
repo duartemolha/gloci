@@ -8,7 +8,7 @@ use gloci_vcf::{
     info_cell, info_kind, rewrite_text, split_columns,
 };
 use std::io::{BufReader, BufWriter, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const COMMAND: &str = "vcf extract";
 
@@ -289,6 +289,18 @@ pub fn extract_table(
         sites_out,
         multiallelic_skipped: 0,
     })
+}
+
+/// Fail now, naming the directory, when `dir` cannot hold the spill of
+/// `extract_matrix` (it must exist and be writable), so a bad `--tmp-dir`
+/// is reported before any input is read even if the matrix fits in memory.
+pub fn check_tmp_dir(dir: &Path) -> Result<(), IoError> {
+    create_temp_dir_in(dir, "gloci-extract-")
+        .map(drop)
+        .map_err(|source| IoError::Create {
+            path: dir.display().to_string(),
+            source,
+        })
 }
 
 /// The codes of the 012 matrix, site-major, two bits each (0, 1, 2 and 3 for
