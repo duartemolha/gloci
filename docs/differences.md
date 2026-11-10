@@ -151,6 +151,8 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   error. `--assume-sorted` binary-searches instead (like `bedextract`) and trusts
   the file to be sorted in the order given by `-g` or `--chrom-order`; it checks
   only the block it reads, and on an unsorted file the answer can be incomplete.
+  With `--chrom-map` the trusted order is that of the *new* names (see the
+  note in [migration.md](migration.md#other-behaviour-changes)).
 - **Old behaviour:** `bedextract` always trusts the order, and it silently
   misses a long feature that starts before the region and any fully nested
   feature; gloci's search finds them. bedtools and tabix read an index or the

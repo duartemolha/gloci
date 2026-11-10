@@ -1100,6 +1100,11 @@ Examples:
     Extract(VcfExtractArgs),
     /// Compute statistics in one pass: per-site, per-sample and whole-file,
     /// written as PREFIX.<ext> in vcftools' formats, plus a summary.
+    ///
+    /// FORMAT fields are validated lazily: only the fields a requested
+    /// statistic or a mask rule reads (GT, and DP, GQ or FT when a flag uses
+    /// them) are decoded, so a malformed DP, GQ or FT value that nothing
+    /// reads is not an error.
     #[command(after_long_help = "\
 Examples:
   gloci vcf stats cohort.vcf.gz --out-prefix qc --freq --missing-indv --het --summary
