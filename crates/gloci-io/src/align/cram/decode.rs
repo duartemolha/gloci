@@ -729,10 +729,11 @@ mod tests {
         }
     }
 
+    /// A slice's external blocks.
+    type Blocks = Vec<(i32, Cow<'static, [u8]>)>;
+
     /// Data series in external blocks of their own: `(key, block id, bytes)`.
-    fn blocks(
-        series: &[(&[u8; 2], i32, Vec<u8>)],
-    ) -> (CompressionInfo, Vec<(i32, Cow<'static, [u8]>)>) {
+    fn blocks(series: &[(&[u8; 2], i32, Vec<u8>)]) -> (CompressionInfo, Blocks) {
         let mut comp = CompressionInfo {
             required: true,
             ..CompressionInfo::default()
