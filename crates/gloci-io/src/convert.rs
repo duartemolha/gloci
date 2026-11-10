@@ -182,7 +182,7 @@ impl Converter {
             defs,
             n_samples,
             gt_key: defs_gt,
-            fields: FieldEncoder::default(),
+            fields: FieldEncoder::new(name),
             shared: Vec::new(),
             info: Vec::new(),
             indiv: Vec::new(),
@@ -267,7 +267,8 @@ add ##FILTER=<ID={id},Description=\"...\"> to the header"
         w.get_mut().clear();
         self.info.clear();
         self.indiv.clear();
-        let n_info = self
+        self.fields.at(loc);
+        let (n_info, end) = self
             .fields
             .info(&self.defs, info_col, &mut self.info)
             .map_err(parse)?;
@@ -287,6 +288,22 @@ add ##FILTER=<ID={id},Description=\"...\"> to the header"
                     "the record has too many INFO or FORMAT fields for BCF (65535 and 255 at most)"
                         .into(),
             });
+        }
+        // rlen is END - POS + 1 when INFO has a single END of at least POS
+        // (bcftools 1.21 ignores SVLEN and any END below POS).
+        if let Some(end) = end {
+            let pos = raw
+                .split(|&b| b == b'\t')
+                .nth(1)
+                .and_then(|p| std::str::from_utf8(p).ok())
+                .and_then(|p| p.parse::<i64>().ok());
+            match pos {
+                Some(pos) if end >= pos => {
+                    let rlen = i32::try_from(end - pos + 1).unwrap_or(i32::MAX);
+                    self.shared[8..12].copy_from_slice(&rlen.to_le_bytes());
+                }
+                _ => self.fields.end_before_pos(end),
+            }
         }
         let allele_info = u32::from_le_bytes(self.shared[16..20].try_into().unwrap());
         self.shared[16..20]

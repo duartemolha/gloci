@@ -13,11 +13,15 @@
 //!   the first element, which is the missing value;
 //! * integers use the narrowest of int8, int16 and int32 that holds every
 //!   value (int8 is -120..=127, the codes above it being reserved);
-//! * a String or Character field is as wide as its longest value, plus one
-//!   byte (a NUL after every value) unless it is the first FORMAT key;
-//! * a FORMAT key that every sample is cut short before is a zero-width field.
+//! * a String or Character field is as wide as the longest text a sample has
+//!   for the key, plus one byte (a NUL after every value) unless it is the
+//!   first FORMAT key; a String or GT key that every sample is cut short
+//!   before is a zero-width field (an integer or float one is a missing value);
+//! * INFO/END (one value, at least POS) is the record length's end; INFO
+//!   numbers are read by their leading digits.
 
 use crate::bcf_encode::GtEncoder;
+use crate::error::Loc;
 use std::collections::HashMap;
 
 /// How the value of a field is encoded.
@@ -49,8 +53,52 @@ const MISSING: i64 = i64::MIN;
 const FLOAT_MISSING: u32 = 0x7F80_0001;
 const FLOAT_END: u32 = 0x7F80_0002;
 
+/// Values htslib sets to missing or ignores with a warning. They are counted
+/// and reported once, with the first place, when the encoder is dropped.
+#[derive(Default)]
+struct Notes {
+    counts: [u64; 4],
+    first: [Option<String>; 4],
+    name: String,
+    at: Option<Loc>,
+}
+
+const NOTE_TEXT: [&str; 4] = [
+    "an empty integer value is read as missing",
+    "an integer value out of the range BCF holds is read as missing",
+    "an INFO number that is not a whole or decimal number is read as missing, or by its leading digits",
+    "INFO/END smaller than POS is ignored for the record's length",
+];
+
+impl Notes {
+    fn note(&mut self, kind: usize, what: &str) {
+        self.counts[kind] += 1;
+        if self.first[kind].is_none() {
+            let place = match self.at {
+                Some(l) => format!("{} {l}", self.name),
+                None => self.name.clone(),
+            };
+            self.first[kind] = Some(format!("{place}: {what}"));
+        }
+    }
+}
+
+impl Drop for Notes {
+    fn drop(&mut self) {
+        for (k, text) in NOTE_TEXT.iter().enumerate() {
+            if let Some(first) = &self.first[k] {
+                log::warn!(
+                    "{first}; {} value(s) in all were affected ({text})",
+                    self.counts[k]
+                );
+            }
+        }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct FieldEncoder {
+    notes: Notes,
     vals: Vec<i64>,
     lens: Vec<usize>,
     /// Per sample: where its cells start in `cells`, and how many there are.
@@ -81,78 +129,132 @@ fn put_int(out: &mut Vec<u8>, v: i64) {
     }
 }
 
-fn parse_int(tok: &[u8], what: &str) -> Result<i64, String> {
+/// A FORMAT or INFO integer. `info`: htslib reads an INFO number by its
+/// leading digits (`12abc` is 12, `abc` missing) where a FORMAT one must be
+/// a whole number.
+fn parse_int(tok: &[u8], what: &str, info: bool, notes: &mut Notes) -> Result<i64, String> {
     if tok == b"." {
         return Ok(MISSING);
     }
-    let bad = || {
-        format!(
-            "{what} value {:?} is not an integer; write a whole number or . for missing",
-            String::from_utf8_lossy(tok)
-        )
-    };
-    let digits = tok.strip_prefix(b"-").or_else(|| tok.strip_prefix(b"+"));
-    let body = digits.unwrap_or(tok);
+    let sign = tok.first().is_some_and(|b| matches!(b, b'-' | b'+'));
+    let body = if sign { &tok[1..] } else { tok };
     if body.is_empty() {
         // htslib reads an empty value as an out-of-range integer and sets it
         // missing, with a warning.
-        log::warn!("{what}: an empty integer value is read as missing");
+        notes.note(0, what);
         return Ok(MISSING);
     }
-    if !body.iter().all(u8::is_ascii_digit) {
-        return Err(bad());
+    let digits = body.iter().take_while(|b| b.is_ascii_digit()).count();
+    if digits < body.len() {
+        if !info {
+            return Err(format!(
+                "{what} value {:?} is not an integer; write a whole number or . for missing",
+                String::from_utf8_lossy(tok)
+            ));
+        }
+        notes.note(
+            2,
+            &format!("{what} value {:?}", String::from_utf8_lossy(tok)),
+        );
+        if digits == 0 {
+            return Ok(MISSING);
+        }
     }
     let mut n: i64 = 0;
-    for &b in body {
+    for &b in &body[..digits] {
         n = n.saturating_mul(10).saturating_add(i64::from(b - b'0'));
     }
     if tok[0] == b'-' {
         n = -n;
     }
     if !(-2_147_483_640..=i64::from(i32::MAX)).contains(&n) {
-        log::warn!("{what}: the value {n} is out of range for BCF and is read as missing");
+        notes.note(1, &format!("{what} value {n}"));
         return Ok(MISSING);
     }
     Ok(n)
 }
 
-/// `at_end`: the token ends the record's line. htslib reads an empty float
-/// token as 0 (strtod finds no number), except at the very end of the line,
-/// where it is missing.
-fn parse_float(tok: &[u8], what: &str, at_end: bool) -> Result<i64, String> {
+/// A FORMAT or INFO float. `at_end`: the token ends the record's line. An
+/// empty FORMAT token is 0 for htslib (strtod finds no number), except at
+/// the very end of the line, where it is missing; an empty INFO token is
+/// missing, and an INFO number is read by its leading characters.
+fn parse_float(
+    tok: &[u8],
+    what: &str,
+    info: bool,
+    at_end: bool,
+    notes: &mut Notes,
+) -> Result<i64, String> {
     if tok == b"." {
         return Ok(MISSING);
     }
     if tok.is_empty() {
-        return Ok(if at_end {
+        return Ok(if info || at_end {
             MISSING
         } else {
             i64::from(0f32.to_bits())
         });
     }
-    let s = std::str::from_utf8(tok).ok();
     // htslib parses a double and narrows it to a float.
-    match s.and_then(|s| s.parse::<f64>().ok()) {
-        Some(v) => Ok(i64::from((v as f32).to_bits())),
-        None => Err(format!(
-            "{what} value {:?} is not a number; write a decimal number or . for missing",
-            String::from_utf8_lossy(tok)
-        )),
+    let parse = |t: &[u8]| {
+        std::str::from_utf8(t)
+            .ok()
+            .and_then(|s| s.parse::<f64>().ok())
+    };
+    if let Some(v) = parse(tok) {
+        return Ok(i64::from((v as f32).to_bits()));
     }
+    if info {
+        notes.note(
+            2,
+            &format!("{what} value {:?}", String::from_utf8_lossy(tok)),
+        );
+        let ok = |c: &u8| matches!(c, b'+' | b'-' | b'.' | b'0'..=b'9' | b'e' | b'E');
+        let mut n = tok.iter().take_while(|c| ok(c)).count();
+        while n > 0 {
+            if let Some(v) = parse(&tok[..n]) {
+                return Ok(i64::from((v as f32).to_bits()));
+            }
+            n -= 1;
+        }
+        return Ok(MISSING);
+    }
+    Err(format!(
+        "{what} value {:?} is not a number; write a decimal number or . for missing",
+        String::from_utf8_lossy(tok)
+    ))
 }
 
 impl FieldEncoder {
+    /// An encoder whose warnings name `name` (the input).
+    pub(crate) fn new(name: &str) -> FieldEncoder {
+        let mut e = FieldEncoder::default();
+        e.notes.name = name.to_string();
+        e
+    }
+
+    /// The record the next calls encode, for warnings.
+    pub(crate) fn at(&mut self, loc: Loc) {
+        self.notes.at = Some(loc);
+    }
+
+    /// Notes that `END` is below `POS`, which htslib ignores for the length.
+    pub(crate) fn end_before_pos(&mut self, end: i64) {
+        self.notes.note(3, &format!("INFO/END={end}"));
+    }
+
     /// Appends the encoded INFO entries of the INFO column `col` to `out` and
-    /// returns how many there are.
+    /// returns how many there are, and the value of `END` when it has one.
     pub(crate) fn info(
         &mut self,
         defs: &Defs,
         col: &[u8],
         out: &mut Vec<u8>,
-    ) -> Result<usize, String> {
+    ) -> Result<(usize, Option<i64>), String> {
         if col == b"." || col.is_empty() {
-            return Ok(0);
+            return Ok((0, None));
         }
+        let mut end = None;
         let mut n_info = 0;
         for item in col.split(|&b| b == b';') {
             if item.is_empty() {
@@ -173,31 +275,33 @@ add ##INFO=<ID={name},Number=1,Type=String,Description=\"...\"> to the header"
             let what = format!("INFO/{name}");
             self.vals.clear();
             self.lens.clear();
-            match def.kind {
-                Kind::Flag => out.push(0),
-                Kind::Int | Kind::Float | Kind::Gt => {
-                    let val = val.unwrap_or(b".");
+            match (def.kind, val) {
+                // A flag, or a key with no `=` of any type: no value.
+                (Kind::Flag, _) | (_, None) => out.push(0),
+                (Kind::Int | Kind::Float | Kind::Gt, Some(val)) => {
                     for tok in val.split(|&b| b == b',') {
                         let v = if def.kind == Kind::Float {
-                            parse_float(tok, &what, false)?
+                            parse_float(tok, &what, true, false, &mut self.notes)?
                         } else {
-                            parse_int(tok, &what)?
+                            parse_int(tok, &what, true, &mut self.notes)?
                         };
                         self.vals.push(v);
                     }
                     self.lens.push(self.vals.len());
                     let n = self.vals.len();
+                    if key == b"END" && def.kind == Kind::Int && n == 1 && self.vals[0] != MISSING {
+                        end = Some(self.vals[0]);
+                    }
                     self.write_numeric(def.kind == Kind::Float, n, out);
                 }
-                Kind::Str => {
-                    let val = val.unwrap_or(b".");
+                (Kind::Str, Some(val)) => {
                     put_desc(out, val.len(), 7);
                     out.extend_from_slice(val);
                 }
             }
             n_info += 1;
         }
-        Ok(n_info)
+        Ok((n_info, end))
     }
 
     /// Appends the FORMAT fields of the record `raw` to `out` (its columns
@@ -219,7 +323,8 @@ add ##INFO=<ID={name},Number=1,Type=String,Description=\"...\"> to the header"
 (bcftools refuses it too); add a FORMAT column and a column per sample"
             ));
         };
-        if n_samples == 0 {
+        // No FORMAT (`.`) means no sample data, whatever the columns hold.
+        if n_samples == 0 || format == b"." {
             return Ok(0);
         }
         // Where every sample's cells are, as offsets into `raw`.
@@ -227,7 +332,8 @@ add ##INFO=<ID={name},Number=1,Type=String,Description=\"...\"> to the header"
         self.cells.clear();
         let base = raw.as_ptr() as usize;
         let mut n_cols = 0;
-        for s in cols {
+        // A column beyond the header's samples is ignored, as htslib does.
+        for s in cols.take(n_samples) {
             let start = self.cells.len();
             let mut at = s.as_ptr() as usize - base;
             for cell in s.split(|&b| b == b':') {
@@ -237,7 +343,7 @@ add ##INFO=<ID={name},Number=1,Type=String,Description=\"...\"> to the header"
             self.rows.push((start, self.cells.len() - start));
             n_cols += 1;
         }
-        if n_cols != n_samples {
+        if n_cols < n_samples {
             return Err(format!(
                 "the record has {n_cols} sample column(s) but the header declares {n_samples}; \
 fix the line so every sample has a column"
@@ -285,9 +391,15 @@ add ##FORMAT=<ID={name},Number=1,Type=String,Description=\"...\"> to the header"
                                 Some(c) => {
                                     for tok in c.split(|&b| b == b',') {
                                         let v = if float {
-                                            parse_float(tok, &what, cell_end(tok) == raw.len())?
+                                            parse_float(
+                                                tok,
+                                                &what,
+                                                false,
+                                                cell_end(tok) == raw.len(),
+                                                &mut self.notes,
+                                            )?
                                         } else {
-                                            parse_int(tok, &what)?
+                                            parse_int(tok, &what, false, &mut self.notes)?
                                         };
                                         self.vals.push(v);
                                     }
@@ -310,11 +422,18 @@ add ##FORMAT=<ID={name},Number=1,Type=String,Description=\"...\"> to the header"
                             Some(c) if c.is_empty() && cell_end(c) == raw.len() => b".",
                             Some(c) => c,
                         };
-                        let longest = (0..n_samples).map(|s| value(s).len()).max().unwrap_or(1);
+                        // The width is that of the longest text a sample has for
+                        // the key (a `.` standing in for a missing or cut-short
+                        // value does not count), plus one unless first.
+                        let longest = (0..n_samples)
+                            .filter_map(|s| cell(s).map(<[u8]>::len))
+                            .max()
+                            .unwrap_or(0);
                         let width = longest + usize::from(k > 0);
                         put_desc(out, width, 7);
                         for s in 0..n_samples {
                             let v = value(s);
+                            let v = &v[..v.len().min(width)];
                             out.extend_from_slice(v);
                             out.resize(out.len() + (width - v.len()), 0);
                         }

@@ -53,7 +53,7 @@ fn convert(d: &Path, input: &str) -> PathBuf {
     out
 }
 
-/// `input` is `input` (the matrix) or `gt-later` (GT after another key).
+/// `input` is `input` (the matrix) or `bytes-only` (bytes only).
 fn compare_bytes(input: &str, expected: &str) {
     let d = tempdir();
     let mine = records(&std::fs::read(convert(d.path(), input)).unwrap());
@@ -83,8 +83,8 @@ fn bcf_records_equal_bcftools() {
 }
 
 #[test]
-fn bcf_records_with_gt_after_another_key_equal_bcftools() {
-    compare_bytes("gt-later", "gt-later.bcf");
+fn bytes_only_records_equal_bcftools() {
+    compare_bytes("bytes-only", "bytes-only.bcf");
 }
 
 #[test]
@@ -118,8 +118,8 @@ fn check_passes_on_both_bcf_files() {
     for f in [
         convert(d.path(), "input"),
         dir().join("expected.bcf"),
-        convert(d.path(), "gt-later"),
-        dir().join("gt-later.bcf"),
+        convert(d.path(), "bytes-only"),
+        dir().join("bytes-only.bcf"),
     ] {
         gloci().arg("check").arg(&f).assert().success();
     }
@@ -281,4 +281,40 @@ chr1\t1\t.\tA\tG\t.\t.\t.\tGT:AD:DP\t./.:.:5\n"
         "{shown}"
     );
     gloci().arg("check").arg(&good).assert().success();
+}
+
+/// The record length comes from INFO/END (END - POS + 1), so an index built
+/// over gloci's BCF finds a deletion from a region inside it.
+#[test]
+fn an_indexed_bcf_finds_a_long_deletion_from_a_region_inside_it() {
+    let d = tempdir();
+    let vcf = format!(
+        "{HEAD}##INFO=<ID=END,Number=1,Type=Integer,Description=\"end\">\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n\
+chr1\t100\t.\tA\t<DEL>\t.\t.\tEND=500\tGT\t0/1\n\
+chr1\t300\t.\tA\tG\t.\t.\t.\tGT\t0/1\n"
+    );
+    let input = plain_file(d.path(), "t.vcf", &vcf);
+    let bcf = d.path().join("t.bcf");
+    gloci()
+        .args(["view", "-O", "bcf"])
+        .arg(&input)
+        .arg("-o")
+        .arg(&bcf)
+        .assert()
+        .success();
+    // rlen of the first record is END - POS + 1
+    let recs = records(&std::fs::read(&bcf).unwrap());
+    assert_eq!(i32::from_le_bytes(recs[0][16..20].try_into().unwrap()), 401);
+    gloci().arg("index").arg(&bcf).assert().success();
+    let out = text(&[
+        "view".as_ref(),
+        "--no-header".as_ref(),
+        "-O".as_ref(),
+        "vcf".as_ref(),
+        bcf.as_os_str(),
+        "chr1:450-460".as_ref(),
+    ]);
+    assert!(out.contains("\t100\t") && out.contains("END=500"), "{out}");
+    assert!(!out.contains("\t300\t"), "{out}");
 }

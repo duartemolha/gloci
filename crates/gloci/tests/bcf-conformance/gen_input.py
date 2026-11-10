@@ -30,13 +30,16 @@ for t, n in itertools.product(types, numbers):
 for t, n in itertools.product(["Integer", "Float", "String"], numbers[:2] + numbers[4:5]):
     lines.append(f'##INFO=<ID=N{fid(t, n)},Number={n[0]},Type={t},Description="{t} Number={n[0]}">')
 lines.append('##INFO=<ID=FL,Number=0,Type=Flag,Description="flag">')
+lines.append('##INFO=<ID=END,Number=1,Type=Integer,Description="end">')
+lines.append('##INFO=<ID=SVLEN,Number=.,Type=Integer,Description="svlen">')
 lines.append("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\ts2\ts3")
 
+only = []
 pos = 0
-def rec(fmt, cells, info=".", alt="G"):
+def rec(fmt, cells, info=".", alt="G", ref="A"):
     global pos
     pos += 1
-    lines.append("\t".join(["chr1", str(pos), ".", "A", alt, ".", ".", info, fmt] + cells))
+    lines.append("\t".join(["chr1", str(pos), ".", ref, alt, ".", ".", info, fmt] + cells))
 
 gts = ["0/1", "1/1", "./."]
 layouts = [("F:DP", 0), ("DP:F", 1), ("GT:F:DP", 1), ("GT:DP:F", 2)]
@@ -103,17 +106,49 @@ for i in infos:
 rec("GT:DP", ["0/1:5", "1/1:6", "./.:7"], info="NI1=.;NF1=.;NS1=.;FL")
 rec("GT:DP", ["0/1:5", "1/1:6", "./.:7"], info="NI1=3;NFD=.,1.5;NSA=.;FL")
 rec("GT:DP", ["0/1:5", "1/1:6", "./.:7"], info="FL", alt="G")
+# INFO/END sets the record length (an END below POS or not a whole number is refused by the reader) (END - POS + 1); SVLEN does not
+gtdp = ["0/1:5", "1/1:6", "./.:7"]
+for info, alt, ref in [
+    ("END=5000", "<DEL>", "A"),
+    ("END=%d" % (pos + 40), "<NON_REF>", "A"),
+    ("END=%d" % (pos + 41), "<DEL>", "ACGT"),
+    ("END=%d" % (pos + 42), "<DEL>", "ACGTACGT"),
+    ("END=%d;SVLEN=-50" % (pos + 43), "<DEL>", "A"),
+    ("SVLEN=-50", "<DEL>", "A"),
+    ("SVLEN=-50;END=%d" % (pos + 45), "<DEL>", "A"),
+    ("END=3000000000", "G", "A"),
+]:
+    rec("GT:DP", gtdp, info=info, alt=alt, ref=ref)
+# INFO values htslib reads leniently or as missing
+# a key with no `=` is `00` for bcftools, which prints it like a flag; gloci
+# prints `NI1=.`, so these records are compared as bytes only
+for info in ["NI1", "NF1", "NS1", "NS1="]:
+    only.append(("GT:DP", gtdp, info, "G", "A"))
+for info in ["NF1=", "NFD=1,,2", "NFD=", "NI1=1.5", "NI1=12abc", "NI1=abc", "NF1=2x", "NF1=abc"]:
+    rec("GT:DP", gtdp, info=info)
+# FORMAT `.`, and a column beyond the samples
+rec(".", [".", ".", "."])
+rec("GT:DP", ["0/1:5", "1/1:6", "./.:7", "0/0:8"])
+# an empty String after the first key: the width counts only the key's own text
+only.append(("GT:DP:S1", ["0/1:5:", "1/1:6:", "./.:7:"], ".", "G", "A"))
+rec("GT:DP:S1", ["0/1:5", "1/1:6", "./.:7:"])
+only.append(("GT:S1:DP", ["0/1::5", "1/1", "./.::7"], ".", "G", "A"))
+rec("GT:DP:S1", ["0/1:5:", "1/1:6:x", "./.:7:"])
+only.append(("GT:DP:S1:C1", ["0/1:5::", "1/1:6::", "./.:7::"], ".", "G", "A"))
+rec("S1:DP", [":5", ":6", ":7"])
 open("input.vcf", "w").write("\n".join(lines) + "\n")
 print(pos, "records")
 
-# GT after another key: bytes only (noodles' VCF writer wants GT first, so
-# gloci cannot print these records back).
-n_main = len(lines)
+# Records compared as bytes only: bcftools prints them in ways gloci does not
+# (a key with no value like a flag, an empty String as a space) and noodles'
+# VCF writer wants GT first, so gloci cannot print the GT-later ones back.
 lines = lines[:lines.index("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\ts2\ts3") + 1]
 pos = 0
+for r in only:
+    rec(*r)
 rec("DP:GT", ["5", "6", "7"])
 rec("DP:GT:S1", ["5", "6", "7"])
 rec("DP:GT", ["5", "6", "7"], info="NI1=.")
 rec("DP:GT:ID", ["5", "6", "7"])
 rec("DP:S1:GT", ["5:a:0/1", "6:b:1/1", "7:c"])
-open("gt-later.vcf", "w").write("\n".join(lines) + "\n")
+open("bytes-only.vcf", "w").write("\n".join(lines) + "\n")

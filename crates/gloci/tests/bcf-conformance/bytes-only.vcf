@@ -37,9 +37,18 @@
 ##INFO=<ID=NSA,Number=A,Type=String,Description="String Number=A">
 ##INFO=<ID=NSD,Number=.,Type=String,Description="String Number=.">
 ##INFO=<ID=FL,Number=0,Type=Flag,Description="flag">
+##INFO=<ID=END,Number=1,Type=Integer,Description="end">
+##INFO=<ID=SVLEN,Number=.,Type=Integer,Description="svlen">
 #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	s1	s2	s3
-chr1	1	.	A	G	.	.	.	DP:GT	5	6	7
-chr1	2	.	A	G	.	.	.	DP:GT:S1	5	6	7
-chr1	3	.	A	G	.	.	NI1=.	DP:GT	5	6	7
-chr1	4	.	A	G	.	.	.	DP:GT:ID	5	6	7
-chr1	5	.	A	G	.	.	.	DP:S1:GT	5:a:0/1	6:b:1/1	7:c
+chr1	1	.	A	G	.	.	NI1	GT:DP	0/1:5	1/1:6	./.:7
+chr1	2	.	A	G	.	.	NF1	GT:DP	0/1:5	1/1:6	./.:7
+chr1	3	.	A	G	.	.	NS1	GT:DP	0/1:5	1/1:6	./.:7
+chr1	4	.	A	G	.	.	NS1=	GT:DP	0/1:5	1/1:6	./.:7
+chr1	5	.	A	G	.	.	.	GT:DP:S1	0/1:5:	1/1:6:	./.:7:
+chr1	6	.	A	G	.	.	.	GT:S1:DP	0/1::5	1/1	./.::7
+chr1	7	.	A	G	.	.	.	GT:DP:S1:C1	0/1:5::	1/1:6::	./.:7::
+chr1	8	.	A	G	.	.	.	DP:GT	5	6	7
+chr1	9	.	A	G	.	.	.	DP:GT:S1	5	6	7
+chr1	10	.	A	G	.	.	NI1=.	DP:GT	5	6	7
+chr1	11	.	A	G	.	.	.	DP:GT:ID	5	6	7
+chr1	12	.	A	G	.	.	.	DP:S1:GT	5:a:0/1	6:b:1/1	7:c

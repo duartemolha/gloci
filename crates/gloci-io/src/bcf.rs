@@ -189,7 +189,7 @@ pub fn write_bcf_header(w: &mut dyn Write, header_text: &[u8]) -> io::Result<()>
 pub mod typed {
     use std::io::Write;
 
-    const PAST_END: &str = "a typed value runs past the end of the record's shared section";
+    const PAST_END: &str = "a typed value runs past the end of its section";
     const BAD_LEN: &str = "a typed value has an invalid length";
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -507,7 +507,8 @@ impl Decoder {
                 };
                 let v = typed::read(&mut cur)?;
                 if Some(key) == self.end_key && !has_end {
-                    has_end = v.render(&mut self.end);
+                    // A missing END (`.`) is no END, as for bcftools.
+                    has_end = v.render(&mut self.end) && self.end != b".";
                 } else if Some(key) == self.svlen_key && !has_svlen {
                     has_svlen = v.render(&mut self.svlen);
                 }
