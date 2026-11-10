@@ -1,0 +1,4 @@
+#1_usercol	2_usercol	3_usercol	4_usercol	5_usercol	6_usercol	7_usercol	8_usercol	9_pct_at	10_pct_gc	11_num_A	12_num_C	13_num_G	14_num_T	15_num_N	16_num_oth	17_seq_len
+chr1	101	rs1	ATA	A	.	.	.	1.000000	0.000000	2	0	0	1	0	0	3
+chrX	51	rs2	R	G	.	.	.	0.000000	0.000000	0	0	0	0	0	1	1
+chr2	10	.	G	GTT	.	.	.	0.000000	1.000000	0	0	1	0	0	0	1

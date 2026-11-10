@@ -1,0 +1,10 @@
+chrX	50	70	iupac_minus	0	-
+chrX	50	70	iupac_plus	0	+
+chr1	195	265	lower_minus	5	-
+chr1	100	129	atrich	0	+
+chrM	0	10	mt_lc	0	-
+chr10	5	40	u_nn	.	-
+chr2	1000	1100	chr2_dot	3	.
+chr1	330	345	nrun	0	-
+chr2	0	20	start	0	+
+chrM	140	150	chrm_end	0	-

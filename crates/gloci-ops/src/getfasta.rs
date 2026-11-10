@@ -58,7 +58,7 @@ pub struct GetfastaOptions {
     pub skip_outside: bool,
 }
 
-fn write_err(source: std::io::Error) -> IoError {
+pub(crate) fn write_err(source: std::io::Error) -> IoError {
     IoError::Write {
         path: "output".into(),
         source,
@@ -95,7 +95,7 @@ fn strand_text(format: Format, strand: Strand, line: &[u8]) -> &'static [u8] {
 }
 
 /// Why an interval cannot be read from the FASTA, if it cannot.
-fn outside(fasta: &IndexedFasta, chrom: &[u8], span: Interval) -> Option<String> {
+pub(crate) fn outside(fasta: &IndexedFasta, chrom: &[u8], span: Interval) -> Option<String> {
     let shown = String::from_utf8_lossy(chrom);
     match fasta.len_of(chrom) {
         None => Some(format!(
@@ -281,6 +281,6 @@ skip records whose blocks are inconsistent"
     Ok(sum)
 }
 
-fn plural(n: u64) -> &'static str {
+pub(crate) fn plural(n: u64) -> &'static str {
     if n == 1 { "" } else { "s" }
 }

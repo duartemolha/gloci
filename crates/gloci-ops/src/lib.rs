@@ -15,6 +15,7 @@ pub mod intersect;
 pub mod map;
 pub mod maskfasta;
 pub mod merge;
+pub mod nuc;
 pub mod partition;
 pub mod relate;
 pub mod seq;

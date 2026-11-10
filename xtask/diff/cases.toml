@@ -3807,3 +3807,149 @@ gloci = "gloci maskfasta --fasta input.fa -b masks-past-end.bed --skip-invalid"
 reference = "bedtools maskfasta -fi input.fa -bed masks-past-end.bed -fo /dev/stdout"
 compare = "exact"
 expected_difference = "#maskfasta-past-end"
+
+# nuc (D112)
+
+[[case]]
+name = "nuc-bed6-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci nuc --fasta ref.fa input.bed"
+reference = "bedtools nuc -fi ref.fa -bed input.bed"
+compare = "exact"
+
+[[case]]
+name = "nuc-bed3-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf3.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci nuc --fasta ref.fa input.bed"
+reference = "bedtools nuc -fi ref.fa -bed input.bed"
+compare = "exact"
+
+[[case]]
+name = "nuc-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci nuc --fasta ref.fa -s input.bed"
+reference = "bedtools nuc -fi ref.fa -s -bed input.bed"
+compare = "exact"
+
+[[case]]
+name = "nuc-seq-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci nuc --fasta ref.fa --seq input.bed"
+reference = "bedtools nuc -fi ref.fa -seq -bed input.bed"
+compare = "exact"
+
+[[case]]
+name = "nuc-pattern-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci nuc --fasta ref.fa --pattern GC input.bed"
+reference = "bedtools nuc -fi ref.fa -pattern GC -bed input.bed"
+compare = "exact"
+
+# Overlapping matches count: ATA in ATATATAT is 3, not 2.
+[[case]]
+name = "nuc-pattern-overlap-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci nuc --fasta ref.fa --pattern ATA input.bed"
+reference = "bedtools nuc -fi ref.fa -pattern ATA -bed input.bed"
+compare = "exact"
+
+[[case]]
+name = "nuc-pattern-ignore-case-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci nuc --fasta ref.fa --pattern gc -C input.bed"
+reference = "bedtools nuc -fi ref.fa -pattern gc -C -bed input.bed"
+compare = "exact"
+
+[[case]]
+name = "nuc-pattern-case-sensitive-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci nuc --fasta ref.fa --pattern gc input.bed"
+reference = "bedtools nuc -fi ref.fa -pattern gc -bed input.bed"
+compare = "exact"
+
+[[case]]
+name = "nuc-strand-seq-pattern-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci nuc --fasta ref.fa -s --seq --pattern ACG input.bed"
+reference = "bedtools nuc -fi ref.fa -s -seq -pattern ACG -bed input.bed"
+compare = "exact"
+
+# Lower-case bases count, IUPAC codes are other, and under -s U has become A.
+[[case]]
+name = "nuc-lowercase-iupac-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/nuc.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci nuc --fasta ref.fa -s --seq input.bed"
+reference = "bedtools nuc -fi ref.fa -s -seq -bed input.bed"
+compare = "exact"
+
+# 27/29 and 16/51 round differently in f32 (0.931035, 0.313726) than in f64.
+[[case]]
+name = "nuc-f32-rounding-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/nuc3.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci nuc --fasta ref.fa input.bed"
+reference = "bedtools nuc -fi ref.fa -bed input.bed"
+compare = "exact"
+
+[[case]]
+name = "nuc-vcf-ref-span-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf.vcf" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci nuc --fasta ref.fa --vcf-span ref input.vcf"
+reference = "bedtools nuc -fi ref.fa -bed input.vcf"
+compare = "exact"
+
+# Zero-length intervals are skipped by both (gloci with one counted warning); the header comes first.
+[[case]]
+name = "nuc-points-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf-points.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci nuc --fasta ref.fa input.bed"
+reference = "bedtools nuc -fi ref.fa -bed input.bed"
+compare = "exact"
+
+[[case]]
+name = "nuc-outside-skip-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf-outside.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci nuc --fasta ref.fa --skip-invalid input.bed"
+reference = "bedtools nuc -fi ref.fa -bed input.bed"
+compare = "exact"
+
+[[case]]
+name = "nuc-missing-chrom-skip-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf-missing.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci nuc --fasta ref.fa --skip-invalid input.bed"
+reference = "bedtools nuc -fi ref.fa -bed input.bed"
+compare = "exact"
+
+# By default gloci fails (exit 1) where bedtools skips (exit 0).
+[[case]]
+name = "nuc-outside-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf-outside.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci nuc --fasta ref.fa input.bed"
+reference = "bedtools nuc -fi ref.fa -bed input.bed"
+compare = "exit-status"
+expected_difference = "#getfasta-outside-fasta"
+
+[[case]]
+name = "nuc-missing-chrom-vs-bedtools"
+input = { file = "xtask/diff/inputs/fa/gf-missing.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci nuc --fasta ref.fa input.bed"
+reference = "bedtools nuc -fi ref.fa -bed input.bed"
+compare = "exit-status"
+expected_difference = "#getfasta-outside-fasta"
+

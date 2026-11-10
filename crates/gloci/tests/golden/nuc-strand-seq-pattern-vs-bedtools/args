@@ -1,0 +1,1 @@
+nuc --fasta ref.fa -s --seq --pattern ACG input.bed

@@ -546,6 +546,31 @@ Examples:
   gloci getfasta --fasta ref.fa genes.bed12 --split -s --name-only -o transcripts.fa
   gloci getfasta --fasta ref.fa.gz calls.vcf.gz --vcf-span ref --tab")]
     Getfasta(GetfastaArgs),
+    /// Base composition of the sequence under each interval (bedtools nuc).
+    ///
+    /// --fasta REF.fa is read at random through REF.fa.fai (and REF.fa.gz.gzi
+    /// for BGZF); build them with gloci index. gloci never builds them itself.
+    /// Each interval (BED, GFF/GTF, VCF/BCF) is written as it was read, then
+    /// pct_at pct_gc num_A num_C num_G num_T num_N num_oth seq_len, preceded
+    /// by bedtools' header line (#1_usercol ...). The counts ignore case, U
+    /// counts as T and any other byte (IUPAC codes, -, *) is other; the
+    /// percentages divide by the interval length, are computed in f32 and
+    /// print with six decimals, as bedtools prints them. -s reverse-complements
+    /// minus-strand records first, so everything below describes the reverse
+    /// complement. --seq adds the sequence; --pattern P adds the number of
+    /// times P occurs (overlapping matches count, case-sensitive unless
+    /// --ignore-case). Memory does not grow with the interval length. A
+    /// zero-length interval is skipped with one warning that counts them, as
+    /// bedtools does. An interval on a chromosome the FASTA lacks, or ending
+    /// past its end, is an error; bedtools skips it with a message and exits
+    /// 0. --skip-invalid skips such intervals with one warning carrying the
+    /// count.
+    #[command(after_long_help = "\
+Examples:
+  gloci nuc --fasta ref.fa genes.bed
+  gloci nuc --fasta ref.fa genes.bed -s --seq -o genes.nuc.tsv
+  gloci nuc --fasta ref.fa.gz calls.vcf.gz --vcf-span ref --pattern CG")]
+    Nuc(NucArgs),
     /// Remove from A the bases covered by B (bedtools subtract, bedops -d).
     ///
     /// Each A record is cut by the union of the B records that overlap it,
@@ -2087,6 +2112,40 @@ pub struct GetfastaArgs {
     /// Write U for the complement of A (reverse-complemented sequences only).
     #[arg(long)]
     pub rna: bool,
+    #[command(flatten)]
+    pub format: FormatArg,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+#[derive(Args)]
+pub struct NucArgs {
+    /// Intervals to read (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// The FASTA to read (plain or BGZF), with its .fai (and .gzi) beside it.
+    #[arg(short = 'f', long, value_name = "FILE", required = true)]
+    pub fasta: PathBuf,
+    /// Reverse-complement minus-strand records before counting.
+    #[arg(short = 's')]
+    pub strand: bool,
+    /// Add the sequence as a column.
+    #[arg(long)]
+    pub seq: bool,
+    /// Add a column counting this pattern (overlapping matches).
+    #[arg(long, value_name = "P")]
+    pub pattern: Option<String>,
+    /// Match --pattern without regard to case.
+    #[arg(short = 'C', long, requires = "pattern")]
+    pub ignore_case: bool,
     #[command(flatten)]
     pub format: FormatArg,
     #[command(flatten)]
