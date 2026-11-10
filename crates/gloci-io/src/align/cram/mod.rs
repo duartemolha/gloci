@@ -18,7 +18,7 @@
 //!   reference bases and of placeholders for slices that need several (unsorted or
 //!   name-sorted input), reads past a reference's end, or a CRAM stored without the reference.
 //!   A slice leases every reference it needs at once, each loaded once; there are no
-//!   per-thread copies.
+//!   per-thread copies. A file not sorted by coordinate uses the generations for every slice.
 //! - **The pool** (D110, [`crate::pool`]): containers are read in order, decoded on up to
 //!   `threads` workers (with 16 MiB stacks for noodles' codecs) with at most `2 × threads` in
 //!   flight, and released in order, so the output does not depend on the thread count;

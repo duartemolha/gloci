@@ -2,7 +2,7 @@
 //! the `--reference` FASTA checked against it, the D109 messages), and the noodles repository
 //! adapter over the FASTA ([`RefAdapter`]), which never answers `None`.
 
-use super::super::header::AlnHeader;
+use super::super::header::{AlnHeader, SortOrder};
 use super::frame::detect_err;
 use crate::error::IoError;
 use crate::fasta::IndexedFasta;
@@ -448,8 +448,25 @@ pub(crate) struct Lease<'a> {
 impl Drop for Lease<'_> {
     fn drop(&mut self) {
         if let Some(i) = self.slot {
-            if let Ok(mut slots) = self.cache.slots.lock() {
+            let idle = self.cache.slots.lock().ok().and_then(|mut slots| {
                 slots[i].users -= 1;
+                (slots[i].users == 0).then_some(slots[i].rid).flatten()
+            });
+            // An idle slot whose reference the shared generation also holds gives its copy up.
+            if let Some(rid) = idle {
+                let name = &self.cache.info.aln.refs[rid].0;
+                let held = self.cache.generations.lock().ok().is_some_and(|g| {
+                    g[0].as_ref()
+                        .is_some_and(|g| g.state.loaded.lock().is_ok_and(|l| l.contains_key(name)))
+                });
+                if held
+                    && let Ok(mut slots) = self.cache.slots.lock()
+                    && slots[i].rid == Some(rid)
+                    && slots[i].users == 0
+                {
+                    slots[i].rid = None;
+                    slots[i].repo = None;
+                }
             }
             self.cache.freed.notify_all();
         }
@@ -519,8 +536,30 @@ impl RefCache {
         IoError::Internal("the reference cache lock is poisoned".into())
     }
 
-    /// The slot holding reference `rid`, for a slice of container `tick`.
+    /// The slot holding reference `rid`, for a slice of container `tick`; or the shared
+    /// generation of reference bases when it holds `rid` already (no second copy).
     pub(crate) fn acquire(&self, rid: usize, tick: u64) -> Result<Lease<'_>, IoError> {
+        let in_generation = self
+            .generations
+            .lock()
+            .map_err(|_| Self::poisoned())?
+            .first()
+            .and_then(Option::as_ref)
+            .and_then(|g| {
+                g.state
+                    .loaded
+                    .lock()
+                    .ok()
+                    .map(|l| l.contains_key(&self.info.aln.refs[rid].0))
+            })
+            .unwrap_or(false);
+        // A file not sorted by coordinate meets its references in any order: one shared
+        // generation serves all its slices, so no reference is held twice.
+        let sorted = self.info.aln.sort_order == SortOrder::Coordinate;
+        if in_generation || !sorted {
+            let len = usize::try_from(self.info.aln.refs[rid].1).unwrap_or(0);
+            return self.lease(true, Some(&[(rid, len)]));
+        }
         let mut slots = self.slots.lock().map_err(|_| Self::poisoned())?;
         loop {
             let found = slots.iter().position(|s| s.rid == Some(rid));
@@ -663,6 +702,15 @@ impl RefCache {
             };
             if required {
                 extra(&generation.state.pads, len.saturating_sub(ln(r)));
+                // An idle slot holding it gives its copy up (the generation has its own now).
+                if let Ok(mut slots) = self.slots.lock() {
+                    for slot in slots.iter_mut() {
+                        if slot.rid == Some(r) && slot.users == 0 {
+                            slot.rid = None;
+                            slot.repo = None;
+                        }
+                    }
+                }
             } else {
                 extra(&generation.state.placeholders, len);
             }
