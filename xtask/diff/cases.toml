@@ -5052,3 +5052,31 @@ aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
 gloci = "set -e; gloci index input.cram; samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa input.cram chr1:650-701 chr2:51-55 chr1:1-200"
 reference = "set -e; samtools index input.cram; samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa input.cram chr1:650-701 chr2:51-55 chr1:1-200"
 compare = "sam"
+
+# Task 13 fix round 1. cat-big.v31.cram reaches order-1 rANS Nx16 and the name tokeniser (whose
+# tables noodles keeps on the stack); contigs.noref.cram has slices of several references
+# stored without the reference (chr1 of 10 Mb, then 200 contigs), where noodles needs a
+# placeholder sequence per reference; overhang.cram has a read whose deletion ends 1.5 Mb past
+# the end of chr1, which samtools decodes and gloci refuses (#cram-limits).
+[[case]]
+name = "view-cram-31-codecs-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/cat-big.v31.cram" }
+gloci = "gloci view -O bam input.v31.cram"
+reference = "samtools view -b --no-PG --input-fmt-option decode_md=0 input.v31.cram"
+compare = "bam"
+
+[[case]]
+name = "view-cram-no-ref-contigs-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/contigs.noref.cram" }
+gloci = "gloci view -O bam input.noref.cram"
+reference = "samtools view -b --no-PG --input-fmt-option decode_md=0 input.noref.cram"
+compare = "bam"
+
+[[case]]
+name = "view-cram-overhang-limit-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/overhang.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci view -O sam input.cram --reference ref.fa"
+reference = "samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa input.cram"
+compare = "exit-status"
+expected_difference = "#cram-limits"

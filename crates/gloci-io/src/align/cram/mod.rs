@@ -12,11 +12,18 @@
 //!   [`IndexedFasta`](crate::fasta::IndexedFasta), uppercased as
 //!   htslib reads them, and never answers `None`: a missing name is `Some(Err)` with the D109
 //!   message.
-//! - **Each decoder** owns a noodles repository and clears it when the slice's reference id
-//!   changes, so it holds one sequence (a slice holding several references holds those).
-//! - **The pool** (D110): containers are read in order, decoded on up to `threads` workers with
-//!   at most `2 × threads` in flight, and released in order, so the output does not depend on
-//!   the thread count.
+//! - **The reference cache** is shared by every decoder ([`reference::RefCache`]): two slots,
+//!   each one reference, reused least recently used first and only when idle, so sorted input
+//!   reads each reference once and holds at most two whatever the thread count. A slice whose
+//!   reads need several references (or none from the FASTA, or reads past a reference's end)
+//!   uses the decoder's own repository, which holds only what one slice needs.
+//! - **The pool** (D110, [`crate::pool`]): containers are read in order, decoded on up to
+//!   `threads` workers (with 16 MiB stacks for noodles' codecs) with at most `2 × threads` in
+//!   flight, and released in order, so the output does not depend on the thread count;
+//!   dropping the reader cancels the containers not started.
+//! - **Before noodles decodes a slice**, the counts it allocates by are checked against the
+//!   slice's bytes, and reads may run at most 1 Mb (or four read lengths) past a reference's
+//!   end (`#cram-limits`).
 //! - **Transcoding**: each record is encoded as BAM bytes once, with htslib's `bin` and MAPQ 0
 //!   for unmapped reads (CRAM does not store their MAPQ), and the bytes go through the BAM
 //!   reader's framing ([`BamFrames`]), so interval commands and the every-record source treat a
@@ -28,6 +35,7 @@ mod reference;
 
 pub(crate) use decode::ExtentDecoder;
 pub(crate) use frame::{CramFrames, RawContainer, slice_heads};
+pub(crate) use reference::CramInfo;
 
 use super::AlignOptions;
 use super::bam::{BamFrames, BamReader};
@@ -43,12 +51,12 @@ use crate::record::{Header, ReaderOptions, RecordBatch, RecordReader};
 use decode::Decoder;
 use frame::{CRAM_EOF, CramHead, detect_err, read_head, take_into, truncated};
 use gloci_core::ChromTable;
-use reference::{CramInfo, RefState};
+pub use reference::ReferenceCounts;
+use reference::{Counters, RefCache};
 use std::io::{self, BufRead, Read};
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 
 fn decode_job(d: &mut Decoder, c: RawContainer) -> Result<Vec<u8>, IoError> {
     let mut out = Vec::new();
@@ -71,8 +79,8 @@ struct CramStream {
     at: usize,
     reading_done: bool,
     failed: bool,
-    /// Each decoder's reference counters (the bounded-cache test reads them).
-    states: Vec<Arc<RefState>>,
+    /// What the decoders read from the FASTA and held (the bounded-cache tests read it).
+    counters: Arc<Counters>,
 }
 
 impl CramStream {
@@ -82,19 +90,15 @@ impl CramStream {
         threads: NonZeroUsize,
     ) -> Result<Self, IoError> {
         let n = threads.get();
-        let (mode, states) = if n == 1 {
-            let d = Decoder::new(info)?;
-            let states = vec![d.state.clone()];
-            (Mode::Inline(Box::new(d)), states)
+        let counters = Arc::new(Counters::default());
+        let cache = Arc::new(RefCache::new(info.clone(), counters.clone()));
+        let mode = if n == 1 {
+            Mode::Inline(Box::new(Decoder::new(info, cache)?))
         } else {
             let decoders = (0..n)
-                .map(|_| Decoder::new(info.clone()))
+                .map(|_| Decoder::new(info.clone(), cache.clone()))
                 .collect::<Result<Vec<_>, _>>()?;
-            let states = decoders.iter().map(|d| d.state.clone()).collect();
-            (
-                Mode::Pool(Ordered::new(decoders, decode_job)?, 2 * n as u64),
-                states,
-            )
+            Mode::Pool(Ordered::new(decoders, decode_job)?, 2 * n as u64)
         };
         Ok(CramStream {
             frames,
@@ -103,7 +107,7 @@ impl CramStream {
             at: 0,
             reading_done: false,
             failed: false,
-            states,
+            counters,
         })
     }
 
@@ -231,7 +235,7 @@ fn check_eof_container(name: &str) -> Result<(), IoError> {
 /// A CRAM input's header, its decoded records as a BAM body, and the counters of its decoders.
 struct Opened {
     frames: BamFrames,
-    states: Vec<Arc<RefState>>,
+    counters: Arc<Counters>,
 }
 
 /// Open the CRAM `input` for the BAM reader's framing: the header (renamed by `map`), and the
@@ -253,7 +257,7 @@ fn open(
     let info = Arc::new(CramInfo::new(&name, h.clone(), reference)?);
     let frames = CramFrames::new(&name, reader, &head);
     let stream = CramStream::new(frames, info, threads)?;
-    let states = stream.states.clone();
+    let counters = stream.counters.clone();
     let mut aln = h;
     if let Some(m) = map {
         m.check_file_names(&name, aln.refs.iter().map(|r| &r.0[..]))?;
@@ -261,7 +265,7 @@ fn open(
     }
     Ok(Opened {
         frames: BamFrames::from_parts(name, Compression::None, aln, Box::new(stream)),
-        states,
+        counters,
     })
 }
 
@@ -276,7 +280,7 @@ fn reference_of(o: &ReaderOptions) -> Option<&Path> {
 /// spans, skips, filters and warnings are the BAM's (D101, D102).
 pub struct CramReader {
     inner: BamReader,
-    states: Vec<Arc<RefState>>,
+    counters: Arc<Counters>,
 }
 
 impl CramReader {
@@ -285,30 +289,18 @@ impl CramReader {
         o: &ReaderOptions,
         opts: AlignOptions,
     ) -> Result<CramReader, IoError> {
-        let Opened { frames, states } =
+        let Opened { frames, counters } =
             open(input, o.chrom_map.as_deref(), reference_of(o), o.threads)?;
         Ok(CramReader {
             inner: BamReader::from_frames(frames, o.invalid, opts),
-            states,
+            counters,
         })
     }
 
-    /// Sequences each decoder read from the FASTA, and the most it held at once.
-    pub fn reference_counts(&self) -> Vec<(usize, usize)> {
-        counts(&self.states)
+    /// What the decoders read from the FASTA so far, and the most they held at once.
+    pub fn reference_counts(&self) -> ReferenceCounts {
+        self.counters.snapshot()
     }
-}
-
-fn counts(states: &[Arc<RefState>]) -> Vec<(usize, usize)> {
-    states
-        .iter()
-        .map(|s| {
-            (
-                s.fetches.load(Ordering::Relaxed),
-                s.max_live.load(Ordering::Relaxed),
-            )
-        })
-        .collect()
 }
 
 impl RecordReader for CramReader {
@@ -450,8 +442,9 @@ mod tests {
         }
     }
 
-    fn drain(path: &Path, threads: usize) -> (Vec<Vec<u8>>, Vec<(usize, usize)>) {
-        let o = options(Some(fixture("fa/ref.fa")), threads);
+    fn drain(path: &Path, threads: usize) -> (Vec<Vec<u8>>, ReferenceCounts) {
+        let noref = path.to_string_lossy().contains("noref");
+        let o = options((!noref).then(|| fixture("fa/ref.fa")), threads);
         let input = open_input(
             &path.to_string_lossy(),
             &InputOptions {
@@ -482,29 +475,48 @@ mod tests {
         (recs, r.reference_counts())
     }
 
-    /// A counting adapter: each decoder holds at most one sequence of a single-reference run, and
-    /// reads it once per run (D109).
+    /// Without the reference, a slice of several references gets an `N` placeholder per
+    /// reference, as long as that reference's furthest read: contigs.noref.cram (chr1 of 10 Mb
+    /// with reads near its end, then 200 contigs of 50 kb) holds about one chr1 at a time, not
+    /// one per contig (D109).
+    #[test]
+    fn cram_placeholders_bounded() {
+        let one = drain(&fixture("aln/contigs.noref.cram"), 1);
+        for t in [1, 2, 8] {
+            let (recs, counts) = drain(&fixture("aln/contigs.noref.cram"), t);
+            assert_eq!(recs, one.0, "-t {t}");
+            assert_eq!(recs.len(), 430);
+            assert_eq!(counts.fetches, 0);
+            assert!(
+                counts.max_placeholder_bytes <= 12_000_000,
+                "-t {t}: {counts:?}"
+            );
+            assert!(
+                counts.max_placeholder_bytes >= 9_990_000,
+                "-t {t}: {counts:?}"
+            );
+        }
+    }
+
+    /// A counting adapter: the decoders share the references, read each from the FASTA once
+    /// (sorted input) and hold at most two at a time, whatever the thread count (D109).
     #[test]
     fn cram_reference_cache_bounded() {
         // flags.multi.cram: slices of several references (as multi_seq_per_slice=1 writes every
-        // slice), five on chr1, then chr1 (an unmapped read) + chr2, then chr2 + unplaced reads:
-        // chr1 and chr2 are each read once. tags.cram: chrM, chr1, then chr2 + chr10 (an
-        // unmapped read).
+        // slice), five on chr1, then chr1 (an unmapped read) + chr2, then chr2 + unplaced reads;
+        // their reads' references are known from their RI and BF series, so each slice that
+        // needs one reference takes it from the shared cache. tags.cram: chrM, chr1, then
+        // chr2 + chr10 (an unmapped read).
         for (file, fetches) in [("aln/flags.multi.cram", 2), ("aln/tags.cram", 3)] {
             let (recs, counts) = drain(&fixture(file), 1);
             assert!(!recs.is_empty());
-            assert_eq!(counts.len(), 1);
-            let (got, live) = counts[0];
-            assert_eq!(got, fetches, "{file}: sequences read");
-            assert!(live <= 1, "{file}: {live} sequences held at once");
-            // On every worker of a pool: one sequence each, at most.
+            assert_eq!(counts.fetches, fetches, "{file}: sequences read");
+            assert!(counts.max_live <= 2, "{file}: {counts:?}");
             for t in [2, 8] {
                 let (again, counts) = drain(&fixture(file), t);
                 assert_eq!(again, recs, "{file} at -t {t}");
-                assert_eq!(counts.len(), t);
-                for (_, live) in counts {
-                    assert!(live <= 1, "{file} at -t {t}: {live} sequences held at once");
-                }
+                assert_eq!(counts.fetches, fetches, "{file} at -t {t}: sequences read");
+                assert!(counts.max_live <= 2, "{file} at -t {t}: {counts:?}");
             }
         }
     }

@@ -9,11 +9,12 @@ use crate::fasta::IndexedFasta;
 use gloci_core::{Interval, thousands};
 use noodles_fasta as fasta;
 use noodles_sam as sam;
+use std::collections::HashMap;
 use std::io;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 
 // ---- the CRAM header and the reference ----
 
@@ -133,6 +134,14 @@ header and {} in {shown}; pass the FASTA it was made with{made}: --reference FAS
         })
     }
 
+    /// The name of reference `rid`, or "unplaced reads" for -1.
+    pub(crate) fn chrom_or_unplaced(&self, rid: i32) -> String {
+        usize::try_from(rid)
+            .ok()
+            .filter(|&r| r < self.aln.refs.len())
+            .map_or_else(|| "unplaced reads".to_string(), |r| self.chrom(r))
+    }
+
     pub(crate) fn chrom(&self, rid: usize) -> String {
         String::from_utf8_lossy(&self.aln.refs[rid].0).into_owned()
     }
@@ -195,7 +204,43 @@ it with --reference FASTA"
     }
 }
 
-/// What a decoder and its [`RefAdapter`] share.
+/// Counts shared by every repository of one CRAM, for the memory tests (D109).
+#[derive(Debug, Default)]
+pub(crate) struct Counters {
+    /// Sequences read from the FASTA.
+    pub(crate) fetches: AtomicUsize,
+    /// Sequences the private repositories of the decoders hold now.
+    pub(crate) private_live: AtomicUsize,
+    /// The most sequences held at once, shared and private.
+    pub(crate) max_live: AtomicUsize,
+    /// The most placeholder bytes one decoder held at once.
+    pub(crate) max_placeholder: AtomicUsize,
+}
+
+/// What the decoders of one CRAM read from the FASTA, and the most they held at once: the
+/// bound D109 sets on reference memory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReferenceCounts {
+    /// Sequences read from the FASTA.
+    pub fetches: usize,
+    /// The most sequences held at once, by all decoders together.
+    pub max_live: usize,
+    /// The most bytes of `N` placeholders one decoder held at once (CRAMs stored without the
+    /// reference, in slices of several references).
+    pub max_placeholder_bytes: usize,
+}
+
+impl Counters {
+    pub(crate) fn snapshot(&self) -> ReferenceCounts {
+        ReferenceCounts {
+            fetches: self.fetches.load(Ordering::Relaxed),
+            max_live: self.max_live.load(Ordering::Relaxed),
+            max_placeholder_bytes: self.max_placeholder.load(Ordering::Relaxed),
+        }
+    }
+}
+
+/// What a repository and its [`RefAdapter`] share.
 #[derive(Default)]
 pub(crate) struct RefState {
     /// `N` bases added after each sequence, for reads that run past the end of their reference
@@ -203,23 +248,23 @@ pub(crate) struct RefState {
     pub(crate) pad: AtomicUsize,
     /// The `RR` of the container being decoded: without it no bases are fetched.
     pub(crate) required: AtomicBool,
-    /// Without `RR`, the length of the `N` placeholder given for each name. noodles still asks
-    /// for the sequence of each mapped read of a slice of several references, and slices it at
-    /// the read's positions though it reads no base, so the placeholder must reach them.
-    pub(crate) placeholder: AtomicUsize,
+    /// Without `RR`, the length of the placeholder given for each name. noodles still asks for
+    /// the sequence of each mapped read of a slice of several references, and slices it at the
+    /// read's positions though it reads no base, so the placeholder must reach them: each is
+    /// as long as the furthest read on its reference (zero bytes, so only noodles' copy of it
+    /// takes memory).
+    pub(crate) placeholders: Mutex<HashMap<Vec<u8>, usize>>,
+    /// Bytes of placeholders the repository holds.
+    pub(crate) placeholder_bytes: AtomicUsize,
     /// The adapter's last failure, with gloci's message (noodles passes on only an `io::Error`).
     pub(crate) failure: Mutex<Option<IoError>>,
     /// The names fetched since the repository was last cleared.
     pub(crate) cached: Mutex<Vec<Vec<u8>>>,
     /// The slice being decoded may add sequences to the repository. Without it, a fetch while
     /// the repository holds another sequence fails with `evict` set, and the decoder clears the
-    /// repository and decodes the slice again: a decoder holds only what one slice needs.
+    /// repository and decodes the slice again: a repository holds only what one slice needs.
     pub(crate) grow: AtomicBool,
     pub(crate) evict: AtomicBool,
-    /// Sequences read from the FASTA.
-    pub(crate) fetches: AtomicUsize,
-    /// The most sequences the decoder's repository held at once.
-    pub(crate) max_live: AtomicUsize,
 }
 
 /// The repository adapter over the `--reference` FASTA (D109). It never answers `None`.
@@ -227,12 +272,51 @@ pub(crate) struct RefAdapter {
     pub(crate) info: Arc<CramInfo>,
     pub(crate) fasta: Option<Mutex<IndexedFasta>>,
     pub(crate) state: Arc<RefState>,
+    pub(crate) counters: Arc<Counters>,
 }
 
 pub(crate) const ADAPTER_FAILED: &str = "the reference adapter failed";
 pub(crate) const EVICT: &str = "the repository holds another sequence";
 
+/// Note `name` as fetched into the repository of `state`; refuse (setting `evict`) when it
+/// holds another and may not grow.
+fn admit(state: &RefState, name: &[u8]) -> Result<(), IoError> {
+    let mut cached = state
+        .cached
+        .lock()
+        .map_err(|_| IoError::Internal("the reference cache lock is poisoned".into()))?;
+    if !cached.is_empty() && !state.grow.load(Ordering::Relaxed) {
+        state.evict.store(true, Ordering::Relaxed);
+        return Err(IoError::Internal(EVICT.into()));
+    }
+    cached.push(name.to_vec());
+    Ok(())
+}
+
 impl RefAdapter {
+    /// An adapter with its own handle on the `--reference` FASTA.
+    pub(crate) fn new(
+        info: Arc<CramInfo>,
+        state: Arc<RefState>,
+        counters: Arc<Counters>,
+    ) -> Result<RefAdapter, IoError> {
+        let fasta = match &info.fasta {
+            None => None,
+            Some((f, _)) => {
+                let f = f
+                    .lock()
+                    .map_err(|_| IoError::Internal("the reference lock is poisoned".into()))?;
+                Some(Mutex::new(f.reopen()?))
+            }
+        };
+        Ok(RefAdapter {
+            info,
+            fasta,
+            state,
+            counters,
+        })
+    }
+
     pub(crate) fn fetch(&mut self, name: &[u8]) -> Result<fasta::Record, IoError> {
         let record = |seq: Vec<u8>| {
             fasta::Record::new(
@@ -242,13 +326,23 @@ impl RefAdapter {
         };
         if !self.state.required.load(Ordering::Relaxed) {
             // A container stored without the reference reads no base of it.
-            if let Ok(mut c) = self.state.cached.lock() {
-                c.push(name.to_vec());
-            }
-            return Ok(record(vec![
-                b'N';
-                self.state.placeholder.load(Ordering::Relaxed)
-            ]));
+            admit(&self.state, name)?;
+            let len = self
+                .state
+                .placeholders
+                .lock()
+                .ok()
+                .and_then(|p| p.get(name).copied())
+                .unwrap_or(0);
+            let held = self
+                .state
+                .placeholder_bytes
+                .fetch_add(len, Ordering::Relaxed)
+                + len;
+            self.counters
+                .max_placeholder
+                .fetch_max(held, Ordering::Relaxed);
+            return Ok(record(vec![0; len]));
         }
         let Some(f) = self.fasta.as_mut().and_then(|m| m.get_mut().ok()) else {
             return Err(self.info.needs_reference(name));
@@ -256,17 +350,7 @@ impl RefAdapter {
         let Some(len) = f.len_of(name) else {
             return Err(self.info.needs_reference(name));
         };
-        let mut cached = self
-            .state
-            .cached
-            .lock()
-            .map_err(|_| IoError::Internal("the reference cache lock is poisoned".into()))?;
-        if !cached.is_empty() && !self.state.grow.load(Ordering::Relaxed) {
-            self.state.evict.store(true, Ordering::Relaxed);
-            return Err(IoError::Internal(EVICT.into()));
-        }
-        cached.push(name.to_vec());
-        drop(cached);
+        admit(&self.state, name)?;
         let pad = self.state.pad.load(Ordering::Relaxed);
         let mut seq = Vec::with_capacity(usize::try_from(len).unwrap_or(0).saturating_add(pad));
         f.fetch(
@@ -278,7 +362,7 @@ impl RefAdapter {
             },
         )?;
         seq.resize(seq.len() + pad, b'N');
-        self.state.fetches.fetch_add(1, Ordering::Relaxed);
+        self.counters.fetches.fetch_add(1, Ordering::Relaxed);
         Ok(record(seq))
     }
 }
@@ -294,5 +378,165 @@ impl fasta::repository::Adapter for RefAdapter {
             }
             io::Error::other(ADAPTER_FAILED)
         }))
+    }
+}
+
+/// How many references the shared cache holds at most.
+const SLOTS: usize = 2;
+
+/// One shared repository holding one reference.
+struct Slot {
+    rid: Option<usize>,
+    repo: Option<fasta::Repository>,
+    state: Arc<RefState>,
+    /// Decoders using it now.
+    users: usize,
+    /// The container that used it last (least recently used goes first).
+    last_use: u64,
+}
+
+/// The reference cache every decoder of one CRAM shares (D109): up to [`SLOTS`] repositories,
+/// each holding one reference, for slices whose reads need one. A slot is reused only when no
+/// decoder is using it (the least recently used first); a decoder that finds none free waits.
+/// So sorted input reads each reference from the FASTA once and holds at most two at a time,
+/// whatever the thread count. Slices that need several references, and those stored without
+/// the reference, use each decoder's own repository instead.
+pub(crate) struct RefCache {
+    info: Arc<CramInfo>,
+    slots: Mutex<Vec<Slot>>,
+    freed: Condvar,
+    pub(crate) counters: Arc<Counters>,
+}
+
+/// A decoder's use of a slot, given back on drop.
+pub(crate) struct Lease<'a> {
+    cache: &'a RefCache,
+    index: usize,
+    pub(crate) repo: fasta::Repository,
+    pub(crate) state: Arc<RefState>,
+}
+
+impl Drop for Lease<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut slots) = self.cache.slots.lock() {
+            slots[self.index].users -= 1;
+        }
+        self.cache.freed.notify_all();
+    }
+}
+
+impl RefCache {
+    pub(crate) fn new(info: Arc<CramInfo>, counters: Arc<Counters>) -> RefCache {
+        let slots = (0..SLOTS)
+            .map(|_| Slot {
+                rid: None,
+                repo: None,
+                state: Arc::new(RefState::default()),
+                users: 0,
+                last_use: 0,
+            })
+            .collect();
+        RefCache {
+            info,
+            slots: Mutex::new(slots),
+            freed: Condvar::new(),
+            counters,
+        }
+    }
+
+    fn poisoned() -> IoError {
+        IoError::Internal("the reference cache lock is poisoned".into())
+    }
+
+    /// The repository holding reference `rid`, for a slice of container `tick`.
+    pub(crate) fn acquire(&self, rid: usize, tick: u64) -> Result<Lease<'_>, IoError> {
+        let mut slots = self.slots.lock().map_err(|_| Self::poisoned())?;
+        loop {
+            let found = slots.iter().position(|s| s.rid == Some(rid));
+            let index = match found {
+                Some(i) => Some(i),
+                None => {
+                    // An idle slot: an empty one first, then the least recently used.
+                    let idle = (0..slots.len())
+                        .filter(|&i| slots[i].users == 0)
+                        .min_by_key(|&i| (slots[i].rid.is_some(), slots[i].last_use));
+                    if let Some(i) = idle {
+                        let state = Arc::new(RefState::default());
+                        state.required.store(true, Ordering::Relaxed);
+                        state.grow.store(true, Ordering::Relaxed);
+                        let adapter = RefAdapter::new(
+                            self.info.clone(),
+                            state.clone(),
+                            self.counters.clone(),
+                        )?;
+                        let repo = fasta::Repository::new(adapter);
+                        // Loaded now, under the lock: noodles' repository would have every
+                        // decoder that misses at once load it again.
+                        let name = &self.info.aln.refs[rid].0;
+                        let loaded = repo.get(name).map(|r| r.map(drop));
+                        if let Some(Err(e)) = loaded {
+                            slots[i] = Slot {
+                                rid: None,
+                                repo: None,
+                                state: Arc::new(RefState::default()),
+                                users: 0,
+                                last_use: 0,
+                            };
+                            let gloci = state.failure.lock().ok().and_then(|mut f| f.take());
+                            return Err(gloci.unwrap_or_else(|| {
+                                IoError::Internal(format!("loading a reference failed: {e}"))
+                            }));
+                        }
+                        slots[i] = Slot {
+                            rid: Some(rid),
+                            repo: Some(repo),
+                            state,
+                            users: 0,
+                            last_use: tick,
+                        };
+                    }
+                    idle
+                }
+            };
+            if let Some(i) = index
+                && let Some(repo) = slots[i].repo.clone()
+            {
+                slots[i].users += 1;
+                slots[i].last_use = slots[i].last_use.max(tick);
+                return Ok(Lease {
+                    cache: self,
+                    index: i,
+                    repo,
+                    state: slots[i].state.clone(),
+                });
+            }
+            slots = self.freed.wait(slots).map_err(|_| Self::poisoned())?;
+        }
+    }
+
+    /// Note that one decoder's private repository now holds `private` sequences (it held
+    /// `before`), and count what is held in all.
+    pub(crate) fn note_live(&self, before: usize, private: usize) {
+        let c = &self.counters;
+        if private >= before {
+            c.private_live
+                .fetch_add(private - before, Ordering::Relaxed);
+        } else {
+            c.private_live
+                .fetch_sub(before - private, Ordering::Relaxed);
+        }
+        let shared: usize = self
+            .slots
+            .lock()
+            .map(|s| {
+                s.iter()
+                    .filter_map(|s| s.repo.as_ref().map(|r| r.len()))
+                    .sum()
+            })
+            .unwrap_or(0);
+        c.max_live.fetch_max(
+            shared + c.private_live.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
     }
 }

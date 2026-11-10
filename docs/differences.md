@@ -1839,3 +1839,34 @@ depends on the span.
   without its end-of-file container: exit status must differ).
 - **Reason:** as for BGZF ([#bgzf-eof-marker](#bgzf-eof-marker)): a missing end is
   the signature of a cut-off file, and gloci never gives a quiet partial answer.
+
+## CRAM: limits on what gloci decodes {#cram-limits}
+
+- **gloci:** a read may run past the end of its reference (htslib and gloci decode the bases
+  there against `N`) by at most 1 Mb, or four times the longest read of its slice when that
+  is more; a read further past the end is an error naming the file, container and
+  reference. A few other shapes are refused before noodles-cram decodes a record, because it
+  would crash on them:
+  - a header block that would expand past 256 MiB;
+  - a slice claiming more records than 4,096 plus its bytes;
+  - reads claiming more features than the slice stores feature codes;
+  - in a slice of several references, a mapped read with no reference;
+  - a mate given as a distance past the end of its slice;
+  - the Golomb, Subexp and Golomb-Rice encodings, which htslib never writes (rewrite the
+    file with `samtools view -C`).
+- **Old behaviour:** samtools decodes a read however far past the end it runs, and reads the
+  other encodings.
+- **Remaining risk:** gloci checks every container, block and slice header (each has a
+  CRC32 checksum, so random corruption is always an error), and the values above where a
+  data series has a block of its own or a constant code (as htslib writes them). A file
+  crafted on purpose, with checksums recomputed, can still reach noodles-cram 0.102's own
+  `expect`s and unchecked arithmetic (a record's reference, its mates' template length, its
+  alignment span, a base it reconstructs without a reference), which end gloci with an
+  internal error. Do not feed gloci CRAMs from untrusted sources you would not give to a
+  library that panics; samtools has its own share of such limits.
+- **Reason:** a read a megabase past its chromosome's end is not real data, and decoding it
+  costs that much memory; the rest keeps a corrupt count from asking for gigabytes.
+- **Pinned by:** `view-cram-overhang-limit-vs-samtools` (overhang.cram: a deletion ending 1.5 Mb
+  past chr1; exit status must differ), and the tests `cram_overhang_limit`,
+  `prechecks_refuse_counts_the_slice_cannot_hold` and
+  `cram_corrupt_bytes_are_errors_not_panics`.

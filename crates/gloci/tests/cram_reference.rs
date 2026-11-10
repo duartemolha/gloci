@@ -341,6 +341,44 @@ fn index_cram_cli() {
     assert!(!dir.path().join("cut.cram.crai").exists());
 }
 
+/// gloci index refuses a CRAM unsorted across slices (samtools index refuses it too), and a read
+/// far past its reference's end is an error, not a crash.
+#[test]
+fn unsorted_and_overhang_are_errors() {
+    let dir = tempdir();
+    let cram = dir.path().join("u.cram");
+    std::fs::copy(aln("unsorted.cram"), &cram).unwrap();
+    fails(
+        &["index", &s(&cram)],
+        1,
+        &["u.cram is not sorted by position", "gloci sort"],
+    );
+    assert!(!dir.path().join("u.cram.crai").exists());
+    fails(
+        &[
+            "view",
+            "-O",
+            "sam",
+            &aln("overhang.cram"),
+            "--reference",
+            &reference(),
+        ],
+        1,
+        &["past the end of chr1", "at most 1,048,576 bases"],
+    );
+}
+
+/// CRAM 3.1 with order-1 rANS and the name tokeniser decodes on every worker (16 MiB stacks).
+#[test]
+fn cram_31_codecs_at_every_thread_count() {
+    let one = stdout_of(&["view", "-O", "sam", &aln("cat-big.v31.cram")]);
+    assert_eq!(records(&one).len(), 1300);
+    for t in ["2", "8"] {
+        let got = stdout_of(&["view", "-t", t, "-O", "sam", &aln("cat-big.v31.cram")]);
+        assert_eq!(got, one, "-t {t}");
+    }
+}
+
 #[test]
 fn genome_from_cram_needs_no_reference() {
     let dir = tempdir();

@@ -6,6 +6,7 @@
 use crate::error::IoError;
 use gloci_core::thousands;
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::io::{self, BufRead, Read};
 
 /// The 38 bytes of a CRAM 3 end-of-file container.
@@ -15,9 +16,8 @@ pub(crate) const CRAM_EOF: [u8; 38] = [
     0x01, 0x00, 0xee, 0x63, 0x01, 0x4b,
 ];
 
-/// Most records a slice may claim. noodles allocates a record for each before decoding, so a
-/// corrupt count must not ask for gigabytes; samtools writes 10,000 per slice by default.
-pub(crate) const MAX_SLICE_RECORDS: usize = 1 << 22;
+/// Most bytes a header block (file header, compression header, slice header) may expand to.
+pub(crate) const MAX_HEADER_BLOCK: usize = 256 << 20;
 /// Most slices a container may claim.
 pub(crate) const MAX_LANDMARKS: usize = 1 << 20;
 
@@ -287,6 +287,13 @@ pub(crate) fn block_contents<'a>(b: &Block<'a>, what: &str) -> Result<Cow<'a, [u
     match b.method {
         0 => Ok(Cow::Borrowed(b.data)),
         1 => {
+            if b.raw_size > MAX_HEADER_BLOCK {
+                return Err(format!(
+                    "the {what} block claims {} bytes; gloci reads at most {} in one",
+                    thousands(b.raw_size as u64),
+                    thousands(MAX_HEADER_BLOCK as u64)
+                ));
+            }
             let mut out = Vec::new();
             flate2::read::MultiGzDecoder::new(b.data)
                 .take(b.raw_size as u64)
@@ -515,6 +522,8 @@ pub(crate) struct SliceHead {
     pub ref_id: i32,
     pub start: i32,
     pub span: i32,
+    /// The records the slice claims (checked against its bytes before decoding).
+    pub records: usize,
     /// The external block holding the slice's reference bases, or -1.
     pub embedded: i32,
     /// Where the slice starts in the container's data, and its bytes.
@@ -567,16 +576,8 @@ pub(crate) fn slice_heads(
         if s.len() < 16 {
             return Err(short());
         }
-        usize::try_from(records)
-            .ok()
-            .filter(|&n| n <= MAX_SLICE_RECORDS)
-            .ok_or_else(|| {
-                bad(format!(
-                    "slice {} claims {records} records; gloci reads at most {} in one slice",
-                    i + 1,
-                    thousands(MAX_SLICE_RECORDS as u64)
-                ))
-            })?;
+        let records = usize::try_from(records)
+            .map_err(|_| bad(format!("slice {} claims {records} records", i + 1)))?;
         if blocks < 1 {
             return Err(bad(format!("slice {} has no data blocks", i + 1)));
         }
@@ -597,6 +598,7 @@ pub(crate) fn slice_heads(
             ref_id,
             start,
             span,
+            records,
             embedded,
             landmark: at,
             size: end - at,
@@ -606,12 +608,28 @@ pub(crate) fn slice_heads(
 }
 
 /// What gloci reads of a container's compression header before noodles does.
+#[derive(Debug, Default)]
 pub(crate) struct CompressionInfo {
     /// The preservation map's `RR` (true unless the map says otherwise): the container needs
     /// reference bases. A header gloci cannot read is taken to need them.
     pub(crate) required: bool,
     /// An encoding noodles cannot decode (it would panic), named.
     pub(crate) unsupported: Option<String>,
+    /// The external block of each data series stored in one (`EXTERNAL`).
+    pub(crate) external: HashMap<[u8; 2], i32>,
+    /// How many encodings (data series, tags, nested ones) read each external block.
+    pub(crate) uses: HashMap<i32, usize>,
+    /// The value of each data series coded as a one-symbol Huffman table: every record has it.
+    pub(crate) constant: HashMap<[u8; 2], i32>,
+}
+
+impl CompressionInfo {
+    /// The external block of data series `key` when no other encoding reads it, so its
+    /// contents are that series' values alone.
+    pub(crate) fn own_block(&self, key: &[u8; 2]) -> Option<i32> {
+        let id = *self.external.get(key)?;
+        (self.uses.get(&id) == Some(&1)).then_some(id)
+    }
 }
 
 /// The preservation map's `RR`, from its contents `s`.
@@ -649,68 +667,112 @@ pub(crate) fn preservation_rr(mut s: &[u8]) -> bool {
     true
 }
 
-/// Check the encoding at the front of `s` (and those nested in it): noodles 0.102 panics on the
-/// Golomb, Subexp and Golomb-Rice codecs (`todo!`) and on an empty Huffman table. `None` when
-/// the encoding cannot be read (noodles reports that itself).
-pub(crate) fn encoding_problem(s: &mut &[u8], depth: u8) -> Option<Option<String>> {
+/// One encoding read by [`scan_encoding`].
+pub(crate) struct Scanned {
+    /// The external block an `EXTERNAL` encoding reads.
+    pub(crate) external: Option<i32>,
+    /// The one symbol of a one-symbol Huffman table.
+    pub(crate) constant: Option<i32>,
+    /// A codec noodles 0.102 would panic on: Golomb, Subexp and Golomb-Rice (`todo!`), and a
+    /// Huffman table that is empty or whose symbol and length counts differ.
+    pub(crate) problem: Option<String>,
+}
+
+/// Read the encoding at the front of `s` (and those nested in it), counting in `uses` the
+/// external blocks each reads. `None` when it cannot be read (noodles reports that itself).
+pub(crate) fn scan_encoding(
+    s: &mut &[u8],
+    depth: u8,
+    uses: &mut HashMap<i32, usize>,
+) -> Option<Scanned> {
     let id = itf8(s)?;
     let len = usize::try_from(itf8(s)?).ok()?;
     let mut params = s.get(..len)?;
     *s = &s[len..];
-    Some(match id {
-        2 => Some("Golomb".to_string()),
-        7 => Some("Subexp".to_string()),
-        8 => Some("Golomb-Rice".to_string()),
+    let mut out = Scanned {
+        external: None,
+        constant: None,
+        problem: None,
+    };
+    match id {
+        1 => {
+            let block = itf8(&mut params)?;
+            *uses.entry(block).or_default() += 1;
+            out.external = Some(block);
+        }
+        2 => out.problem = Some("Golomb".to_string()),
+        7 => out.problem = Some("Subexp".to_string()),
+        8 => out.problem = Some("Golomb-Rice".to_string()),
         3 => {
             let n = itf8(&mut params)?;
-            for _ in 0..n.max(0) {
-                itf8(&mut params)?;
+            for k in 0..n.max(0) {
+                let symbol = itf8(&mut params)?;
+                if n == 1 && k == 0 {
+                    out.constant = Some(symbol);
+                }
             }
             let m = itf8(&mut params)?;
-            (n < 1 || n != m).then(|| format!("Huffman with {n} symbols and {m} lengths"))
+            out.problem =
+                (n < 1 || n != m).then(|| format!("Huffman with {n} symbols and {m} lengths"));
         }
         4 if depth < 8 => {
-            let first = encoding_problem(&mut params, depth + 1)?;
-            match first {
-                Some(p) => Some(p),
-                None => encoding_problem(&mut params, depth + 1)?,
-            }
+            let first = scan_encoding(&mut params, depth + 1, uses)?;
+            let second = scan_encoding(&mut params, depth + 1, uses)?;
+            out.problem = first.problem.or(second.problem);
         }
-        _ => None,
-    })
+        5 => {
+            // BYTE_ARRAY_STOP: the stop byte, then the external block.
+            params = params.get(1..)?;
+            let block = itf8(&mut params)?;
+            *uses.entry(block).or_default() += 1;
+        }
+        _ => {}
+    }
+    Some(out)
 }
 
-/// The first unsupported encoding of a data series or tag encoding map (contents `s`); `wide`
-/// keys are ITF8 (tags), else two bytes (data series).
-pub(crate) fn map_problem(mut s: &[u8], wide: bool) -> Option<String> {
+/// Scan a data series (`wide` false: two-byte keys) or tag encoding map (ITF8 keys) into
+/// `info`; returns the first unsupported encoding.
+pub(crate) fn scan_map(mut s: &[u8], wide: bool, info: &mut CompressionInfo) -> Option<String> {
     let n = itf8(&mut s)?;
+    let mut problem = None;
     for _ in 0..n.max(0) {
-        if wide {
+        let key = if wide {
             itf8(&mut s)?;
+            None
         } else {
-            s = s.get(2..)?;
+            let (k, rest) = s.split_first_chunk::<2>()?;
+            s = rest;
+            Some(*k)
+        };
+        let e = scan_encoding(&mut s, 0, &mut info.uses)?;
+        if let Some(k) = key {
+            if let Some(b) = e.external {
+                info.external.insert(k, b);
+            }
+            if let Some(v) = e.constant {
+                info.constant.insert(k, v);
+            }
         }
-        if let Some(p) = encoding_problem(&mut s, 0)? {
-            return Some(p);
-        }
+        problem = problem.or(e.problem);
     }
-    None
+    problem
 }
 
 /// Read the compression header of container `c` (see [`CompressionInfo`]).
 pub(crate) fn compression(c: &RawContainer) -> CompressionInfo {
-    let unknown = CompressionInfo {
+    let mut info = CompressionInfo {
         required: true,
-        unsupported: None,
+        ..CompressionInfo::default()
     };
     let data = c.data();
     let end = c.header.landmarks.first().copied().unwrap_or(data.len());
     let mut src = &data[..end];
     let Ok(block) = read_block(&mut src) else {
-        return unknown;
+        return info;
     };
     let Ok(contents) = block_contents(&block, "compression header") else {
-        return unknown;
+        return info;
     };
     // Three maps, each its byte size, then its contents.
     let mut s = &contents[..];
@@ -726,15 +788,23 @@ pub(crate) fn compression(c: &RawContainer) -> CompressionInfo {
         s = &s[size..];
     }
     let Some(preservation) = maps.first() else {
-        return unknown;
+        return info;
     };
-    CompressionInfo {
-        required: preservation_rr(preservation),
-        unsupported: maps
-            .get(1)
-            .and_then(|m| map_problem(m, false))
-            .or_else(|| maps.get(2).and_then(|m| map_problem(m, true))),
+    info.required = preservation_rr(preservation);
+    let series = maps.get(1).and_then(|m| scan_map(m, false, &mut info));
+    let tags = maps.get(2).and_then(|m| scan_map(m, true, &mut info));
+    info.unsupported = series.or(tags);
+    info
+}
+
+/// The ITF8 values of `block`, all of it; `None` if one is cut short.
+pub(crate) fn itf8_values(block: &[u8]) -> Option<Vec<i32>> {
+    let mut s = block;
+    let mut out = Vec::new();
+    while !s.is_empty() {
+        out.push(itf8(&mut s)?);
     }
+    Some(out)
 }
 
 #[cfg(test)]
@@ -743,8 +813,12 @@ mod tests {
 
     /// Encodings noodles 0.102 would panic on are named before it sees them.
     #[test]
-    pub(crate) fn unsupported_encodings_are_found() {
-        let check = |b: &[u8]| encoding_problem(&mut &b[..], 0).unwrap();
+    fn unsupported_encodings_are_found() {
+        let check = |b: &[u8]| {
+            scan_encoding(&mut &b[..], 0, &mut HashMap::new())
+                .unwrap()
+                .problem
+        };
         // EXTERNAL(block 5), BETA(offset 0, 8 bits), a one-symbol HUFFMAN: fine.
         assert_eq!(check(&[1, 1, 5]), None);
         assert_eq!(check(&[6, 2, 0, 8]), None);
@@ -760,12 +834,42 @@ mod tests {
         );
         // A data series map of two entries, the second one GOLOMB.
         let map = [2, b'B', b'F', 1, 1, 5, b'R', b'L', 2, 2, 1, 3];
-        assert_eq!(map_problem(&map, false).as_deref(), Some("Golomb"));
-        assert_eq!(encoding_problem(&mut &[2, 9, 1][..], 0), None);
+        let mut info = CompressionInfo::default();
+        assert_eq!(scan_map(&map, false, &mut info).as_deref(), Some("Golomb"));
+        assert_eq!(info.own_block(b"BF"), Some(5));
+        assert!(scan_encoding(&mut &[2, 9, 1][..], 0, &mut HashMap::new()).is_none());
+        // A block two series read is no series' own.
+        let map = [2, b'B', b'F', 1, 1, 5, b'R', b'L', 1, 1, 5];
+        let mut info = CompressionInfo::default();
+        assert_eq!(scan_map(&map, false, &mut info), None);
+        assert_eq!(info.own_block(b"BF"), None);
+    }
+
+    /// cat-big.v31.cram reaches the codecs whose tables noodles keeps on the stack (the pool's
+    /// workers get 16 MiB stacks for them): order-1 rANS Nx16 and the name tokeniser.
+    #[test]
+    fn cat_big_31_reaches_order_1_rans_and_the_tokeniser() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../xtask/diff/inputs/aln/cat-big.v31.cram");
+        let mut f = std::io::BufReader::new(std::fs::File::open(&path).unwrap());
+        let head = read_head(&mut f, "x").unwrap();
+        let mut frames = CramFrames::new("x", Box::new(f), &head);
+        let (mut order_1, mut tokeniser) = (false, false);
+        while let Some(c) = frames.next().unwrap() {
+            let mut data = c.data();
+            while !data.is_empty() {
+                let b = read_block(&mut data).unwrap();
+                // rANS Nx16 (method 5): the first byte holds the flags, ORDER = 1.
+                order_1 |= b.method == 5 && b.data.first().is_some_and(|f| f & 1 != 0);
+                tokeniser |= b.method == 8;
+            }
+        }
+        assert!(order_1, "no order-1 rANS block");
+        assert!(tokeniser, "no tokeniser block");
     }
 
     #[test]
-    pub(crate) fn numbers_decode_as_htslib_writes_them() {
+    fn numbers_decode_as_htslib_writes_them() {
         let mut s: &[u8] = &[0xe0, 0x45, 0x4f, 0x46];
         assert_eq!(itf8(&mut s), Some(4_542_278));
         let mut s: &[u8] = &[0xff, 0xff, 0xff, 0xff, 0x0f];

@@ -8,7 +8,7 @@
 //! `samtools index` does) and gives one line per run of reads on one reference, as htslib's
 //! `cram_index_build_multiref` writes them.
 
-use crate::align::cram::{ExtentDecoder, RawContainer, open_for_index, slice_heads};
+use crate::align::cram::{CramInfo, ExtentDecoder, RawContainer, open_for_index, slice_heads};
 use crate::atomic::AtomicFile;
 use crate::error::IoError;
 use crate::pool::Ordered;
@@ -146,7 +146,7 @@ container offset, slice offset, slice size); rebuild the index: gloci index CRAM
         let mut entries = Vec::new();
         let n = threads.get();
         if n == 1 {
-            let mut dec = ExtentDecoder::new(info);
+            let mut dec = ExtentDecoder::new(Arc::clone(&info));
             while let Some(c) = frames.next()? {
                 entries.extend(index_container(&mut dec, c)?);
             }
@@ -174,16 +174,33 @@ container offset, slice offset, slice size); rebuild the index: gloci index CRAM
                 }
             }
         }
+        check_order(&name, &info, &entries)?;
         Ok(CramIndex { entries })
     }
 }
 
-/// The `.crai` lines of container `c`.
+/// The usage error for a CRAM that is not sorted (htslib's `cram_index_build` refuses it too).
+fn unsorted(name: &str, offset: u64, chrom: &str, at: i64, after: i64) -> IoError {
+    IoError::Detect {
+        path: name.to_string(),
+        msg: format!(
+            "{name} is not sorted by position: at byte {} a read at {chrom}:{} follows one at \
+{chrom}:{}; sort it first (gloci sort {name} -o sorted.bam, or samtools sort -O cram \
+--reference ref.fa -o sorted.cram {name}), then index it",
+            thousands(offset),
+            thousands(at.max(0) as u64),
+            thousands(after.max(0) as u64)
+        ),
+    }
+}
+
+/// The `.crai` lines of container `c`; the container is parsed once.
 fn index_container(dec: &mut ExtentDecoder, c: RawContainer) -> Result<Vec<CraiEntry>, IoError> {
     let name = dec.info().name().to_string();
     let heads = slice_heads(&c, &name, dec.info().ref_count())?;
+    let extents = dec.extents(&c, &heads)?;
     let mut out = Vec::new();
-    for (i, h) in heads.iter().enumerate() {
+    for (h, ext) in heads.iter().zip(extents) {
         let entry = |ref_id: i32, start: i64, span: i64| CraiEntry {
             ref_id,
             start,
@@ -192,28 +209,26 @@ fn index_container(dec: &mut ExtentDecoder, c: RawContainer) -> Result<Vec<CraiE
             slice_offset: h.landmark as u64,
             slice_size: h.size as u64,
         };
-        if h.ref_id != -2 {
+        let Some(ext) = ext else {
             out.push(entry(h.ref_id, i64::from(h.start), i64::from(h.span)));
             continue;
-        }
+        };
         // htslib's runs: a line per run of reads on one reference, from the first read's start
         // to the furthest end; a read before the previous one on its reference is an error.
         let mut run: Option<(i32, i64, i64)> = None;
         let mut last: Option<(i32, i64)> = None;
-        for (rid, start, end) in dec.extents(&c, i)? {
+        for (rid, start, end) in ext {
             if let Some((lr, lp)) = last
                 && lr == rid
                 && start < lp
             {
-                return Err(IoError::Detect {
-                    path: name.clone(),
-                    msg: format!(
-                        "{name} is not sorted by position: in the container at byte {}, a read at \
-{start} follows one at {lp} on the same reference; sort it first (for example \
-samtools sort -O cram --reference ref.fa -o sorted.cram {name}), then index it",
-                        thousands(c.offset)
-                    ),
-                });
+                return Err(unsorted(
+                    &name,
+                    c.offset,
+                    &dec.info().chrom_or_unplaced(rid),
+                    start,
+                    lp,
+                ));
             }
             last = Some((rid, start));
             match &mut run {
@@ -231,6 +246,24 @@ samtools sort -O cram --reference ref.fa -o sorted.cram {name}), then index it",
         }
     }
     Ok(out)
+}
+
+/// Refuse entries (in file order) whose start goes back on the reference of the one before:
+/// htslib's `cram_index_build` refuses such a file, and region reads trust the index.
+fn check_order(name: &str, info: &CramInfo, entries: &[CraiEntry]) -> Result<(), IoError> {
+    for w in entries.windows(2) {
+        let (a, b) = (&w[0], &w[1]);
+        if a.ref_id == b.ref_id && b.start < a.start {
+            return Err(unsorted(
+                name,
+                b.container_offset,
+                &info.chrom_or_unplaced(b.ref_id),
+                b.start,
+                a.start,
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Write `PATH.crai` for the CRAM at `path` atomically and return its path. `reference`, when

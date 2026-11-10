@@ -27,6 +27,8 @@ fn variants(set: &str) -> Vec<String> {
     let kinds: &[&str] = match set {
         "pastend" => &["", ".embed"],
         "md" => &[""],
+        "cat-big" => &[".v31"],
+        "contigs" => &[".noref"],
         _ => &["", ".v31", ".multi", ".embed", ".noref"],
     };
     kinds.iter().map(|k| format!("{set}{k}.cram")).collect()
@@ -435,19 +437,25 @@ fn cram_corrupt_bytes_are_errors_not_panics() {
     }
 }
 
+/// The reference a fixture set decodes with: none for those written without one.
+fn reference_for(set: &str) -> Option<PathBuf> {
+    (!matches!(set, "cat-big" | "contigs")).then(reference)
+}
+
 #[test]
 fn cram_pool_deterministic() {
-    for set in ["cigars", "flags", "tags", "pastend"] {
+    // cat-big.v31 reaches order-1 rANS and the name tokeniser, whose tables noodles keeps on
+    // the stack (the workers' 16 MiB stacks); contigs.noref needs placeholders.
+    for set in ["cigars", "flags", "tags", "pastend", "cat-big", "contigs"] {
+        let r = reference_for(set);
         for v in variants(set) {
             let path = aln(&v);
-            let one = every(&path, &ropts(Some(reference()), full(), 1)).unwrap();
-            let ione =
-                intervals(&path, &ropts(Some(reference()), AlignOptions::default(), 1)).unwrap();
+            let one = every(&path, &ropts(r.clone(), full(), 1)).unwrap();
+            let ione = intervals(&path, &ropts(r.clone(), AlignOptions::default(), 1)).unwrap();
             for t in [2, 8] {
-                let got = every(&path, &ropts(Some(reference()), full(), t)).unwrap();
+                let got = every(&path, &ropts(r.clone(), full(), t)).unwrap();
                 assert_eq!(got, one, "{v} -t {t}");
-                let igot = intervals(&path, &ropts(Some(reference()), AlignOptions::default(), t))
-                    .unwrap();
+                let igot = intervals(&path, &ropts(r.clone(), AlignOptions::default(), t)).unwrap();
                 assert_eq!(igot.recs, ione.recs, "{v} -t {t}");
                 assert_eq!(igot.counts, ione.counts, "{v} -t {t}");
             }
@@ -457,7 +465,9 @@ fn cram_pool_deterministic() {
 
 #[test]
 fn crai_matches_samtools() {
-    for set in ["cigars", "flags", "tags", "pastend", "md"] {
+    for set in [
+        "cigars", "flags", "tags", "pastend", "md", "cat-big", "contigs",
+    ] {
         for v in variants(set) {
             let path = aln(&v);
             let want = CramIndex::read(&crai_path(&path)).unwrap();
@@ -468,6 +478,37 @@ fn crai_matches_samtools() {
             }
         }
     }
+}
+
+/// A position that goes back on its reference across slices is refused, as samtools index
+/// refuses it: region reads trust the index.
+#[test]
+fn crai_refuses_unsorted() {
+    for t in [1, 4] {
+        let e = CramIndex::build(&aln("unsorted.cram"), None, NonZeroUsize::new(t).unwrap())
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.contains("unsorted.cram is not sorted by position")
+                && e.contains("a read at chr1:101 follows one at chr1:501")
+                && e.contains("gloci sort"),
+            "{e}"
+        );
+    }
+}
+
+/// A read whose deletion ends 1.5 Mb past chr1's end is refused (gloci decodes at most 1 Mb, or
+/// four read lengths, past a reference's end: #cram-limits); one 0.5 Mb past it decodes.
+#[test]
+fn cram_overhang_limit() {
+    let e = every(&aln("overhang.cram"), &ropts(Some(reference()), full(), 1))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        e.contains("a read runs 1,500,004 bases past the end of chr1 (1,000 bases)")
+            && e.contains("at most 1,048,576 bases"),
+        "{e}"
+    );
 }
 
 #[test]

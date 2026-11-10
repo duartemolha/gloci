@@ -639,7 +639,10 @@ Before relying on a new expression, run it once on a small file with
   with `samtools view --input-fmt-option decode_md=0`):
   [differences.md#cram-md-nm](differences.md#cram-md-nm). A CRAM without its
   end-of-file container is refused (exit 1; samtools warns and exits 0):
-  [differences.md#cram-eof-container](differences.md#cram-eof-container)
+  [differences.md#cram-eof-container](differences.md#cram-eof-container). A read
+  more than 1 Mb past its chromosome's end, and a few shapes only a corrupt or crafted
+  file has, are refused where samtools decodes them:
+  [differences.md#cram-limits](differences.md#cram-limits)
 
 ### Threads and errors
 
