@@ -4845,3 +4845,32 @@ gloci = "gloci vcf split input.vcf"
 reference = "bcftools norm -m- --no-version input.vcf"
 compare = "exit-status"
 expected_difference = "#vcf-split-values"
+
+# P3b Task 20 fix round 1
+# Type=String and Type=Character R/G fields: a lone `.` stays `.`; a G vector of nals values
+# is kept whole; a diploid vector is subset.
+[[case]]
+name = "vcf-split-string-rg-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/split/string-rg.vcf" }
+gloci = "gloci vcf split input.vcf"
+reference = "bcftools norm -m- --no-version input.vcf"
+compare = "vcf-records"
+
+# bcftools gives a sample that is a lone `.` in a Number=A Float field the previous sample's
+# value; gloci writes `.`.
+[[case]]
+name = "vcf-split-float-a-missing-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/split/float-a-missing.vcf" }
+gloci = "gloci vcf split input.vcf"
+reference = "bcftools norm -m- --no-version input.vcf"
+compare = "vcf-records"
+expected_difference = "#vcf-split-values"
+
+# A FILTER or contig the header does not declare: bcftools exits 255.
+[[case]]
+name = "vcf-split-header-missing-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/split/header-missing.vcf" }
+gloci = "gloci vcf split input.vcf"
+reference = "bcftools norm -m- --no-version input.vcf"
+compare = "exit-status"
+expected_difference = "#vcf-split-values"

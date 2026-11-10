@@ -119,3 +119,21 @@ fn split_types() {
         assert_eq!(got.to_vec(), want, "{r}>{a}");
     }
 }
+
+#[test]
+fn string_r_and_g_fields_follow_bcftools() {
+    let h = "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"g\">\n\
+##FORMAT=<ID=SR,Number=R,Type=String,Description=\"r\">\n\
+##FORMAT=<ID=SG,Number=G,Type=Character,Description=\"g\">\n";
+    let s = Splitter::new(h.as_bytes(), SplitTypes::Any, 3);
+    let (mut out, mut ends) = (Vec::new(), Vec::new());
+    let line =
+        "c\t5\t.\tA\tC,G\t.\t.\t.\tGT:SR:SG\t0/1:a,b,c:a,b,c,d,e,f\t1/2:.:.\t0/1:a,b,c:a,b,c";
+    s.split(line.as_bytes(), &mut out, &mut ends).unwrap();
+    let first = String::from_utf8(out[..ends[0]].to_vec()).unwrap();
+    // a lone `.` in an R field stays `.`; a vector of nals values is kept whole
+    assert!(
+        first.ends_with("0/1:a,b:a,b,c\t1/0:.:.\t0/1:a,b:a,b,c"),
+        "{first}"
+    );
+}

@@ -4,7 +4,7 @@
 
 use crate::extract::declarations;
 use gloci_core::{VariantKind, alt_kind};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Which records are split (`bcftools norm -m-snps|indels|both|any`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,6 +58,8 @@ pub struct Splitter {
     nsamples: usize,
     info: HashMap<Vec<u8>, Num>,
     format: HashMap<Vec<u8>, Num>,
+    /// FORMAT keys declared Type=String or Type=Character.
+    format_strings: HashSet<Vec<u8>>,
 }
 
 fn count_tokens(f: &[u8]) -> usize {
@@ -93,6 +95,10 @@ impl Splitter {
             nsamples,
             info: map(b"INFO"),
             format: map(b"FORMAT"),
+            format_strings: declarations(header, b"FORMAT")
+                .filter(|d| matches!(d.ty, Some(b"String" | b"Character")))
+                .map(|d| d.id.to_vec())
+                .collect(),
         }
     }
 
@@ -316,7 +322,7 @@ ALT alleles and its Number={} needs {}; correct the record, or declare the field
                         out.push(b'\t');
                         let mut fields = s.split(|&b| b == b':');
                         let mut first = true;
-                        for (ki, (_, kind)) in fkeys.iter().enumerate() {
+                        for (ki, (key, kind)) in fkeys.iter().enumerate() {
                             let f = fields.next();
                             if *kind == Kind::Drop {
                                 continue;
@@ -332,6 +338,43 @@ ALT alleles and its Number={} needs {}; correct the record, or declare the field
                                 Kind::Num(_) if w <= 1 => out.extend_from_slice(f),
                                 Kind::Num(Num::A) => {
                                     out.extend_from_slice(nth_token(f, i).unwrap_or(b"."))
+                                }
+                                Kind::Num(Num::R) if self.format_strings.contains(*key) => {
+                                    // bcftools keeps a String R value only when
+                                    // the sample has this ALT's value.
+                                    match (nth_token(f, 0), nth_token(f, a)) {
+                                        (Some(r), Some(v)) if a > 0 && count_tokens(f) > a => {
+                                            out.extend_from_slice(r);
+                                            out.push(b',');
+                                            out.extend_from_slice(v);
+                                        }
+                                        _ => out.push(b'.'),
+                                    }
+                                }
+                                Kind::Num(Num::G) if self.format_strings.contains(*key) => {
+                                    let k = count_tokens(f);
+                                    if w == dip && k == dip {
+                                        out.extend_from_slice(nth_token(f, 0).unwrap_or(b"."));
+                                        for x in [gt_index(0, a), gt_index(a, a)] {
+                                            out.push(b',');
+                                            out.extend_from_slice(nth_token(f, x).unwrap_or(b"."));
+                                        }
+                                    } else if w == dip {
+                                        // Not a diploid vector: copied, except that
+                                        // nals missing values are a haploid vector.
+                                        if k == nals && f.split(|&b| b == b',').all(|t| t == b".") {
+                                            out.extend_from_slice(b".,.");
+                                        } else {
+                                            out.extend_from_slice(f);
+                                        }
+                                    } else {
+                                        // Haploid row (width nals).
+                                        out.extend_from_slice(nth_token(f, 0).unwrap_or(b"."));
+                                        if a < k {
+                                            out.push(b',');
+                                            out.extend_from_slice(nth_token(f, a).unwrap_or(b"."));
+                                        }
+                                    }
                                 }
                                 Kind::Num(Num::R) => {
                                     out.extend_from_slice(nth_token(f, 0).unwrap_or(b"."));

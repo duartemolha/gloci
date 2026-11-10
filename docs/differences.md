@@ -1779,7 +1779,12 @@ depends on the span.
   `##FILTER=<ID=PASS>` is added to a header without it. A record with an undeclared INFO
   or FORMAT key that bcftools does not split aborts with `Invalid BCF, the INFO tag id=N is
   too large` (exit 255).
+  For a `Number=A` Float field, bcftools gives a sample that is a lone `.` the value of the
+  previous sample (a stale buffer: `1/0:0.25` where the input has `.`); gloci writes `.`. A
+  FILTER or contig the header does not declare makes bcftools exit 255; gloci passes the
+  record through, as it does an undeclared INFO key.
 - **Reason:** a splitter that rewrites nothing it did not have to keeps the file you gave it
   diffable, and a missing header line is not a reason to lose the run.
-- **Pinned by:** `vcf-split-float-text-vs-bcftools` and `vcf-split-undeclared-unsplit-vs-bcftools`
+- **Pinned by:** `vcf-split-float-text-vs-bcftools`, `vcf-split-undeclared-unsplit-vs-bcftools`,
+  `vcf-split-float-a-missing-vs-bcftools` and `vcf-split-header-missing-vs-bcftools`
   (must differ). Every other split case matches.
