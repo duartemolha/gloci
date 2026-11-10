@@ -638,3 +638,81 @@ fn chromosome_reader_equals_the_sequential_reader() {
         }
     }
 }
+
+/// A read with a reference and POS 0 (BAM pos -1) is an unmapped read of that reference
+/// (htslib counts it in the reference's unmapped total, not in `n_no_coor`), and the index is
+/// samtools' byte for byte. Where htslib refuses to index, gloci refuses too.
+#[test]
+fn reads_with_a_reference_and_no_position() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("x.bam");
+    std::fs::copy(fixture("pos-minus-one.bam"), &p).unwrap();
+    write_alignment_index(&p, &p, false, threads()).unwrap();
+    assert_eq!(
+        std::fs::read(dir.path().join("x.bam.bai")).unwrap(),
+        std::fs::read(fixture("pos-minus-one.bam.bai")).unwrap()
+    );
+    let t = bai(&dir.path().join("x.bam.bai"));
+    assert_eq!(t.unplaced_unmapped_record_count(), Some(1));
+    let m = meta(&t.reference_sequences()[0]).unwrap();
+    assert_eq!((m.2, m.3), (1, 2));
+
+    let head = "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:c1\tLN:1000\n@SQ\tSN:c2\tLN:1000\n";
+    let r = |n: &str, f: u16, c: &str, pos: u64| {
+        let cig = if f & 4 != 0 { "*" } else { "4M" };
+        format!("{n}\t{f}\t{c}\t{pos}\t0\t{cig}\t*\t0\t0\tACGT\tIIII\n")
+    };
+    let u4 = "u4\t4\t*\t0\t0\t*\t*\t0\t0\tACGT\tIIII\n".to_string();
+    // the three files htslib refuses: pos -1 after a read at a position (A, D), and a
+    // reference read after unplaced reads (B)
+    let a = [
+        r("r1", 0, "c1", 10),
+        r("r3", 0, "c2", 10),
+        r("u3", 4, "c2", 0),
+        u4.clone(),
+    ]
+    .concat();
+    let b = [
+        r("r1", 0, "c1", 10),
+        r("r3", 0, "c2", 10),
+        u4.clone(),
+        r("u3", 4, "c2", 0),
+    ]
+    .concat();
+    let d = [
+        r("r1", 0, "c1", 10),
+        r("r3", 0, "c2", 10),
+        r("u3", 4, "c2", 0),
+        r("u1", 4, "c2", 0),
+        u4.clone(),
+    ]
+    .concat();
+    for (name, body) in [("A", a), ("B", b), ("D", d)] {
+        let p = dir.path().join(format!("{name}.bam"));
+        std::fs::write(&p, sam_to_bam(&format!("{head}{body}"))).unwrap();
+        let e = write_alignment_index(&p, &p, false, threads()).unwrap_err();
+        let msg = e.to_string();
+        assert!(matches!(e, IoError::Order(_)), "{name}: {msg}");
+        assert!(
+            msg.contains("record") && msg.contains("gloci sort"),
+            "{name}: {msg}"
+        );
+        assert!(!dir.path().join(format!("{name}.bam.bai")).exists());
+    }
+    // pos -1 first in its reference, then reads at positions, in two references: fine
+    let ok = [
+        r("u0", 4, "c1", 0),
+        r("u1", 4, "c1", 0),
+        r("r1", 0, "c1", 10),
+        r("u2", 4, "c2", 0),
+        u4,
+    ]
+    .concat();
+    let p = dir.path().join("ok.bam");
+    std::fs::write(&p, sam_to_bam(&format!("{head}{ok}"))).unwrap();
+    write_alignment_index(&p, &p, false, threads()).unwrap();
+    let t = bai(&dir.path().join("ok.bam.bai"));
+    let m0 = meta(&t.reference_sequences()[0]).unwrap();
+    assert_eq!((m0.2, m0.3), (1, 2));
+    assert_eq!(t.unplaced_unmapped_record_count(), Some(1));
+}

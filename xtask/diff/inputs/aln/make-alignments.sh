@@ -25,6 +25,9 @@ done
 # for the golden case view-bam-region-vs-samtools, whose input is always called input.bam.
 mkdir -p index
 cp order.bam.bai index/input.bai
+# pos-minus-one.bam: reads with a reference and POS 0 (BAM pos -1), as the aligners write unmapped mates.
+samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o pos-minus-one.bam pos-minus-one.sam
+samtools index -@ 0 pos-minus-one.bam
 # cat-noeof: cat-a without its BGZF end-of-file block (a truncated copy).
 head -c -28 cat-a.bam > cat-noeof.bam
 # cat-g.bam is not made here: it is `gloci view cat-b.sam -o cat-g.bam`, so its header ends in

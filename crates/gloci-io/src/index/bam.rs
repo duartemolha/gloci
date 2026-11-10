@@ -57,8 +57,8 @@ fn bam_pass<I: BinIndexKind + Default>(
     let mut linear: Vec<Linear> = Vec::new();
     let mut full = false;
     let (mut max_end, mut n) = (0u64, 0u64);
-    let (mut last_rid, mut last_pos, mut last_n) = (0usize, 0u64, 0u64);
-    let place = |rid: usize, pos: u64| {
+    let (mut last_rid, mut last_pos, mut last_n) = (0usize, 0i64, 0u64);
+    let place = |rid: usize, pos: i64| {
         format!(
             "read at {}:{}",
             String::from_utf8_lossy(&hdr.refs[rid].0),
@@ -98,34 +98,43 @@ the file is corrupt"
         let end = r.virtual_position();
         let a = Aln::parse(&buf, &hdr).map_err(&err)?;
         let chunk = Chunk::new(start, end);
-        let Some((rid, iv, mapped)) = index_span(&a) else {
-            // No place: unplaced reads (refID -1) must come last, as htslib requires.
-            if a.ref_id().is_none() {
+        let (rid, iv, mapped, signed_pos) = match index_span(&a) {
+            Some((rid, iv, mapped)) => (rid, iv, mapped, iv.start as i64),
+            // A read on a reference with pos -1 is an unmapped read of that reference, sorted
+            // before the reads at positions and indexed as the base at 0, as htslib does.
+            None if a.ref_id().is_some() => (
+                a.ref_id().expect("checked"),
+                Interval { start: 0, end: 1 },
+                false,
+                -1,
+            ),
+            None => {
+                // No reference: these must come last, as htslib requires.
                 unplaced = true;
                 last_n = n;
+                if !full {
+                    indexer
+                        .add_record(None, chunk)
+                        .expect("an unplaced record is always accepted");
+                }
+                continue;
             }
-            if !full {
-                indexer
-                    .add_record(None, chunk)
-                    .expect("an unplaced record is always accepted");
-            }
-            continue;
         };
         if unplaced {
             return Err(order_error(
                 name,
                 (last_n, "a read with no reference".to_string()),
-                (n, place(rid, iv.start)),
+                (n, place(rid, signed_pos)),
             ));
         }
-        if seen_placed && (rid < last_rid || (rid == last_rid && iv.start < last_pos)) {
+        if seen_placed && (rid < last_rid || (rid == last_rid && signed_pos < last_pos)) {
             return Err(order_error(
                 name,
                 (last_n, place(last_rid, last_pos)),
-                (n, place(rid, iv.start)),
+                (n, place(rid, signed_pos)),
             ));
         }
-        (seen_placed, last_rid, last_pos, last_n) = (true, rid, iv.start, n);
+        (seen_placed, last_rid, last_pos, last_n) = (true, rid, signed_pos, n);
         if iv.end > MAX_INDEX_END {
             return Err(err(format!(
                 "the read ends at {}, beyond {}, the largest position an index can hold",
