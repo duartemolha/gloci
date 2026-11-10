@@ -4,6 +4,7 @@ pub mod complement;
 pub mod convert;
 pub mod coverage;
 pub mod flank;
+pub mod genomecov;
 pub mod genomes;
 pub mod groupby;
 pub mod index;

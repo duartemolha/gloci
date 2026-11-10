@@ -168,6 +168,21 @@ gloci partition a.bed b.bed --all --merge-adjacent --no-membership
 gloci partition a.bg b.bg --bedgraph --empty 0 -g hg38
 ```
 
+### `gloci genomecov`
+
+Depth of coverage of a genome by the features of a BED file (bedtools genomecov -i).
+
+Every feature adds one to the depth over its bases. -g is required: the output covers every chromosome of the genome from base 0 to its length, in genome order, chromosomes without features included (a built-in genome, .genome, .fai or .dict file with lengths). The default --hist writes, per chromosome and then for the whole genome (chrom `genome`), one row per depth present: chrom, depth, bases at that depth, chromosome length, fraction (six significant digits, as bedtools). --bedgraph writes runs of equal depth above zero, --bga also the zero-depth runs, --per-base one row per base: chrom, 1-based position, depth. --scale X multiplies the depths of the last three (six significant digits, as bedtools); --max-depth N puts every depth of N or more into the bin N of --hist. --strand + or - counts only features on that strand (BED needs column 6; a feature with unknown strand is not counted). --split counts the BED12 blocks of each feature. --5p and --3p count one base per feature, its 5' or 3' end by strand (unknown counts as plus). A zero-length feature covers no bases and is ignored. A feature past the end of its chromosome is an error. BAM input is not supported yet.
+
+The input must be sorted in the genome order, which is checked as it is read; an unsorted input is an error whose hint names --sort. Memory is bounded by the features open at one position, whatever the output mode.
+
+```sh
+gloci genomecov peaks.bed -g hg38
+gloci genomecov reads.bed -g hg38 --bedgraph --scale 0.000001 -o cov.bedgraph
+gloci genomecov genes.bed -g genome.txt --bga --strand +
+gloci genomecov exons12.bed -g hg38 --split --per-base
+```
+
 ### `gloci slop`
 
 Grow each feature on its sides (bedtools slop, bedops --range).
@@ -405,7 +420,7 @@ Every row below was checked against `gloci <cmd> --help`.
 | `makewindows -g/-b -w -s -n -i` | `gloci windows -g GENOME \| -i/--intervals FILE` with `-w/--size SIZE [--step S]` or `-n/--count COUNT`, plus `--id-column`, `--reverse` |
 | `sort -i FILE [-g GENOME]` | `gloci sort FILE [-g GENOME]` (`--chrom-order lex` reproduces byte order) |
 | `bed12tobed6 -i FILE` | `gloci convert FILE --blocks` |
-| `genomecov` | not yet available (`genomecov`, P2) |
+| `genomecov -i x.bed -g G` (`-bg`, `-bga`, `-d`, `-scale`, `-strand`, `-split`, `-5`, `-3`, `-max`) | `gloci genomecov x.bed -g G [--bedgraph \| --bga \| --per-base] [--scale X] [--strand +\|-] [--split] [--5p \| --3p] [--max-depth N]` (`-g` is required, as in bedtools; the input must be sorted, `--sort` sorts it; `-dz` and `-trackline` have no counterpart; BAM input (`-ibam`) is not available until P3) |
 | `multiinter -i A B C [-names]` | `gloci partition A B C --merge-adjacent [--names X,Y,Z]` (the count and label columns; the per-file 0/1 columns are not written; `-cluster` and `-empty -g` have no counterpart (for the latter use `gloci complement -g`)) |
 | `unionbedg -i A B [-filler -empty -g]` | `gloci partition A B --bedgraph [--empty VALUE [-g GENOME]]` (`-filler X` is `--empty X`; `--empty` also writes the uncovered segments) |
 | `groupby -g -c -o [-header]` | `gloci groupby FILE -g COLS -c/--column COL:OP` (bedtools `-o OP` becomes the `:OP` of `-c COL:OP`, and gloci's `-o` is the output file; `--header`, `--delim`, `--empty`; same ops as `map` except those that need a second input; VCF input is refused, use `gloci vcf extract`) |

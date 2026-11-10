@@ -2681,3 +2681,198 @@ gloci = "gloci shift --pct --by -0.9 -g comp.genome input.bed"
 reference = "bedtools shift -i input.bed -g comp.genome -pct -s -0.9"
 compare = "exact"
 expected_difference = "#pct-exact-decimal"
+
+# genomecov. gc.genome lists the featureless chromosome last, which is where
+# bedtools prints it; gc-mid.genome lists it in the middle, where gloci prints
+# it in genome order.
+
+[[case]]
+name = "genomecov-hist-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-a.bed" }
+aux = ["xtask/diff/inputs/gc.genome"]
+gloci = "gloci genomecov input.bed -g gc.genome"
+reference = "bedtools genomecov -i input.bed -g gc.genome"
+compare = "exact"
+
+[[case]]
+name = "genomecov-bedgraph-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-a.bed" }
+aux = ["xtask/diff/inputs/gc.genome"]
+gloci = "gloci genomecov input.bed -g gc.genome --bedgraph"
+reference = "bedtools genomecov -i input.bed -g gc.genome -bg"
+compare = "exact"
+
+[[case]]
+name = "genomecov-bga-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-a.bed" }
+aux = ["xtask/diff/inputs/gc.genome"]
+gloci = "gloci genomecov input.bed -g gc.genome --bga"
+reference = "bedtools genomecov -i input.bed -g gc.genome -bga"
+compare = "exact"
+
+[[case]]
+name = "genomecov-per-base-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-a.bed" }
+aux = ["xtask/diff/inputs/gc.genome"]
+gloci = "gloci genomecov input.bed -g gc.genome --per-base"
+reference = "bedtools genomecov -i input.bed -g gc.genome -d"
+compare = "exact"
+
+[[case]]
+name = "genomecov-strand-plus-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-strand.bed" }
+aux = ["xtask/diff/inputs/gc.genome"]
+gloci = "gloci genomecov input.bed -g gc.genome --bga --strand +"
+reference = "bedtools genomecov -i input.bed -g gc.genome -bga -strand +"
+compare = "exact"
+
+[[case]]
+name = "genomecov-strand-minus-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-strand.bed" }
+aux = ["xtask/diff/inputs/gc.genome"]
+gloci = "gloci genomecov input.bed -g gc.genome --bedgraph --strand -"
+reference = "bedtools genomecov -i input.bed -g gc.genome -bg -strand -"
+compare = "exact"
+
+[[case]]
+name = "genomecov-5p-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-strand.bed" }
+aux = ["xtask/diff/inputs/gc.genome"]
+gloci = "gloci genomecov input.bed -g gc.genome --bedgraph --5p"
+reference = "bedtools genomecov -i input.bed -g gc.genome -bg -5"
+compare = "exact"
+
+[[case]]
+name = "genomecov-3p-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-strand.bed" }
+aux = ["xtask/diff/inputs/gc.genome"]
+gloci = "gloci genomecov input.bed -g gc.genome --bedgraph --3p"
+reference = "bedtools genomecov -i input.bed -g gc.genome -bg -3"
+compare = "exact"
+
+[[case]]
+name = "genomecov-scale-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-a.bed" }
+aux = ["xtask/diff/inputs/gc.genome"]
+gloci = "gloci genomecov input.bed -g gc.genome --bedgraph --scale 2.5"
+reference = "bedtools genomecov -i input.bed -g gc.genome -bg -scale 2.5"
+compare = "exact"
+
+[[case]]
+name = "genomecov-scale-digits-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-a.bed" }
+aux = ["xtask/diff/inputs/gc.genome"]
+gloci = "gloci genomecov input.bed -g gc.genome --bga --scale 0.3333333333"
+reference = "bedtools genomecov -i input.bed -g gc.genome -bga -scale 0.3333333333"
+compare = "exact"
+
+[[case]]
+name = "genomecov-scale-exponent-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-a.bed" }
+aux = ["xtask/diff/inputs/gc.genome"]
+gloci = "gloci genomecov input.bed -g gc.genome --bedgraph --scale 1e-7"
+reference = "bedtools genomecov -i input.bed -g gc.genome -bg -scale 1e-7"
+compare = "exact"
+
+[[case]]
+name = "genomecov-scale-per-base-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-a.bed" }
+aux = ["xtask/diff/inputs/gc.genome"]
+gloci = "gloci genomecov input.bed -g gc.genome --per-base --scale 0.5"
+reference = "bedtools genomecov -i input.bed -g gc.genome -d -scale 0.5"
+compare = "exact"
+
+[[case]]
+name = "genomecov-split-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-b12.bed" }
+aux = ["xtask/diff/inputs/gc.genome"]
+gloci = "gloci genomecov input.bed -g gc.genome --bedgraph --split"
+reference = "bedtools genomecov -i input.bed -g gc.genome -bg -split"
+compare = "exact"
+
+[[case]]
+name = "genomecov-max-depth-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-a.bed" }
+aux = ["xtask/diff/inputs/gc.genome"]
+gloci = "gloci genomecov input.bed -g gc.genome --max-depth 2"
+reference = "bedtools genomecov -i input.bed -g gc.genome -max 2"
+compare = "exact"
+
+[[case]]
+name = "genomecov-max-depth-zero-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-a.bed" }
+aux = ["xtask/diff/inputs/gc.genome"]
+gloci = "gloci genomecov input.bed -g gc.genome --max-depth 0"
+reference = "bedtools genomecov -i input.bed -g gc.genome -max 0"
+compare = "exact"
+
+[[case]]
+name = "genomecov-empty-input-vs-bedtools"
+input = { file = "xtask/diff/inputs/empty.bed" }
+aux = ["xtask/diff/inputs/gc.genome"]
+gloci = "gloci genomecov input.bed -g gc.genome --bga"
+reference = "bedtools genomecov -i input.bed -g gc.genome -bga"
+compare = "exact"
+
+[[case]]
+name = "genomecov-empty-chrom-middle-hist-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-a.bed" }
+aux = ["xtask/diff/inputs/gc-mid.genome"]
+gloci = "gloci genomecov input.bed -g gc-mid.genome"
+reference = "bedtools genomecov -i input.bed -g gc-mid.genome"
+compare = "exact"
+expected_difference = "#genomecov-chrom-order"
+
+[[case]]
+name = "genomecov-empty-chrom-middle-bga-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-a.bed" }
+aux = ["xtask/diff/inputs/gc-mid.genome"]
+gloci = "gloci genomecov input.bed -g gc-mid.genome --bga"
+reference = "bedtools genomecov -i input.bed -g gc-mid.genome -bga"
+compare = "exact"
+expected_difference = "#genomecov-chrom-order"
+
+[[case]]
+name = "genomecov-points-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-points.bed" }
+aux = ["xtask/diff/inputs/gc.genome"]
+gloci = "gloci genomecov input.bed -g gc.genome --bedgraph"
+reference = "bedtools genomecov -i input.bed -g gc.genome -bg"
+compare = "exact"
+expected_difference = "#genomecov-points"
+
+[[case]]
+name = "genomecov-unknown-strand-5p-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-unknown-strand.bed" }
+aux = ["xtask/diff/inputs/gc.genome"]
+gloci = "gloci genomecov input.bed -g gc.genome --bedgraph --5p"
+reference = "bedtools genomecov -i input.bed -g gc.genome -bg -5"
+compare = "exact"
+expected_difference = "#genomecov-unknown-strand"
+
+[[case]]
+name = "genomecov-unknown-strand-filter-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-unknown-strand.bed" }
+aux = ["xtask/diff/inputs/gc.genome"]
+gloci = "gloci genomecov input.bed -g gc.genome --bedgraph --strand +"
+reference = "bedtools genomecov -i input.bed -g gc.genome -bg -strand +"
+compare = "exit-status"
+expected_difference = "#genomecov-unknown-strand"
+
+[[case]]
+name = "genomecov-past-end-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-past.bed" }
+aux = ["xtask/diff/inputs/gc.genome"]
+gloci = "gloci genomecov input.bed -g gc.genome --bedgraph"
+reference = "bedtools genomecov -i input.bed -g gc.genome -bg"
+compare = "exit-status"
+expected_difference = "#genomecov-past-end"
+
+[[case]]
+name = "genomecov-max-depth-bedgraph-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-a.bed" }
+aux = ["xtask/diff/inputs/gc.genome"]
+gloci = "gloci genomecov input.bed -g gc.genome --bedgraph --max-depth 2"
+reference = "bedtools genomecov -i input.bed -g gc.genome -bg -max 2"
+compare = "exit-status"
+expected_difference = "#genomecov-max-depth"

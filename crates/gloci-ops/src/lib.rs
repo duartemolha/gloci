@@ -7,6 +7,7 @@ pub mod closest;
 pub mod complement;
 pub mod convert;
 pub mod coverage;
+pub mod genomecov;
 pub mod groupby;
 pub mod intersect;
 pub mod map;

@@ -1,0 +1,1 @@
+genomecov input.bed -g gc.genome --bga --strand +

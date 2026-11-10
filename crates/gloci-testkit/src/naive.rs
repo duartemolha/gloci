@@ -1150,3 +1150,101 @@ pub fn naive_partition(
         .map(|(c, s, e, p)| format!("{c}\t{s}\t{e}{p}"))
         .collect()
 }
+
+/// What `naive_genomecov` reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NaiveCovMode {
+    Hist,
+    BedGraph,
+    BedGraphAll,
+    PerBase,
+}
+
+/// Options of `naive_genomecov`.
+#[derive(Debug, Clone, Copy)]
+pub struct NaiveGenomecov {
+    pub mode: NaiveCovMode,
+    /// Count only features on this strand (`+` or `-`).
+    pub strand: Option<char>,
+    /// 0: the whole feature; 5 or 3: that end's one base (an unknown strand
+    /// counts as plus).
+    pub end: u8,
+    pub max_depth: Option<u64>,
+}
+
+/// `genomecov` by brute force: a depth array with one cell per base of each
+/// chromosome of `genome` (in genome order), filled feature by feature, then
+/// read off cell by cell. Shares nothing with the event sweep. Depths are
+/// unscaled; `frac` formats the fraction columns of the histogram.
+pub fn naive_genomecov(
+    recs: &[TestRec],
+    genome: &[(&str, u64)],
+    q: &NaiveGenomecov,
+    frac: impl Fn(u64, u64) -> String,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut total: std::collections::BTreeMap<u64, u64> = Default::default();
+    let mut total_len = 0u64;
+    for &(name, len) in genome {
+        let mut depth = vec![0u64; len as usize];
+        for r in recs.iter().filter(|r| r.chrom == name && r.start < r.end) {
+            if q.strand.is_some_and(|s| r.strand != s) {
+                continue;
+            }
+            let (s, e) = match q.end {
+                0 => (r.start, r.end),
+                5 if r.strand == '-' => (r.end - 1, r.end),
+                3 if r.strand != '-' => (r.end - 1, r.end),
+                _ => (r.start, r.start + 1),
+            };
+            for d in &mut depth[s as usize..e as usize] {
+                *d += 1;
+            }
+        }
+        match q.mode {
+            NaiveCovMode::PerBase => {
+                for (i, d) in depth.iter().enumerate() {
+                    out.push(format!("{name}\t{}\t{d}", i + 1));
+                }
+            }
+            NaiveCovMode::BedGraph | NaiveCovMode::BedGraphAll => {
+                let mut i = 0usize;
+                while i < depth.len() {
+                    let mut j = i;
+                    while j < depth.len() && depth[j] == depth[i] {
+                        j += 1;
+                    }
+                    if depth[i] > 0 || q.mode == NaiveCovMode::BedGraphAll {
+                        out.push(format!("{name}\t{i}\t{j}\t{}", depth[i]));
+                    }
+                    i = j;
+                }
+            }
+            NaiveCovMode::Hist => {
+                if len == 0 {
+                    continue;
+                }
+                let mut bins: std::collections::BTreeMap<u64, u64> = Default::default();
+                for d in &depth {
+                    *bins
+                        .entry(q.max_depth.map_or(*d, |m| (*d).min(m)))
+                        .or_default() += 1;
+                }
+                for (d, b) in &bins {
+                    out.push(format!("{name}\t{d}\t{b}\t{len}\t{}", frac(*b, len)));
+                    *total.entry(*d).or_default() += b;
+                }
+                total_len += len;
+            }
+        }
+    }
+    if q.mode == NaiveCovMode::Hist {
+        for (d, b) in &total {
+            out.push(format!(
+                "genome\t{d}\t{b}\t{total_len}\t{}",
+                frac(*b, total_len)
+            ));
+        }
+    }
+    out
+}

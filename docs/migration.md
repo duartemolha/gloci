@@ -151,7 +151,7 @@ Every row below was checked against `gloci <cmd> --help`.
 | `makewindows -g/-b -w -s -n -i` | `gloci windows -g GENOME \| -i/--intervals FILE` with `-w/--size SIZE [--step S]` or `-n/--count COUNT`, plus `--id-column`, `--reverse` |
 | `sort -i FILE [-g GENOME]` | `gloci sort FILE [-g GENOME]` (`--chrom-order lex` reproduces byte order) |
 | `bed12tobed6 -i FILE` | `gloci convert FILE --blocks` |
-| `genomecov` | not yet available (`genomecov`, P2) |
+| `genomecov -i x.bed -g G` (`-bg`, `-bga`, `-d`, `-scale`, `-strand`, `-split`, `-5`, `-3`, `-max`) | `gloci genomecov x.bed -g G [--bedgraph \| --bga \| --per-base] [--scale X] [--strand +\|-] [--split] [--5p \| --3p] [--max-depth N]` (`-g` is required, as in bedtools; the input must be sorted, `--sort` sorts it; `-dz` and `-trackline` have no counterpart; BAM input (`-ibam`) is not available until P3) |
 | `multiinter -i A B C [-names]` | `gloci partition A B C --merge-adjacent [--names X,Y,Z]` (the count and label columns; the per-file 0/1 columns are not written; `-cluster` and `-empty -g` have no counterpart (for the latter use `gloci complement -g`)) |
 | `unionbedg -i A B [-filler -empty -g]` | `gloci partition A B --bedgraph [--empty VALUE [-g GENOME]]` (`-filler X` is `--empty X`; `--empty` also writes the uncovered segments, as it implies `--min-files 0`; an explicit `--min-files` overrides that) |
 | `groupby -g -c -o [-header]` | `gloci groupby FILE -g COLS -c/--column COL:OP` (bedtools `-o OP` becomes the `:OP` of `-c COL:OP`, and gloci's `-o` is the output file; `--header`, `--delim`, `--empty`; same ops as `map` except those that need a second input; VCF input is refused, use `gloci vcf extract`) |
@@ -342,6 +342,17 @@ Every row below was checked against `gloci <cmd> --help`.
 - **`partition --bedgraph --empty -g` covers every chromosome:** also those
   without features (`unionbedg -empty -g` omits them).
   [differences.md#partition-empty-chromosomes](differences.md#partition-empty-chromosomes)
+- **`genomecov` prints chromosomes in genome order:** a chromosome without
+  features comes in its place, not after the others.
+  [differences.md#genomecov-chrom-order](differences.md#genomecov-chrom-order)
+- **`genomecov` ignores points, treats an unknown strand as plus and refuses
+  features past the chromosome end:**
+  [points](differences.md#genomecov-points),
+  [strand](differences.md#genomecov-unknown-strand),
+  [past the end](differences.md#genomecov-past-end)
+- **`genomecov --max-depth` is for the histogram only:** `bedtools -max` is
+  silently ignored with `-bg`, `-bga` and `-d`; gloci refuses it.
+  [differences.md#genomecov-max-depth](differences.md#genomecov-max-depth)
 - **One-sided `slop` and `flank`:** `--left N` or `--right N` may be given alone
   without requiring both.
   [differences.md#slop-flank-one-side](differences.md#slop-flank-one-side)

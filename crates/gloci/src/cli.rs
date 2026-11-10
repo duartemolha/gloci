@@ -317,6 +317,40 @@ Examples:
   gloci partition a.bed b.bed --all --merge-adjacent --no-membership
   gloci partition a.bg b.bg --bedgraph --empty 0 -g hg38")]
     Partition(PartitionArgs),
+    /// Depth of coverage of a genome by the features of a BED file
+    /// (bedtools genomecov -i).
+    ///
+    /// Every feature adds one to the depth over its bases. -g is required:
+    /// the output covers every chromosome of the genome from base 0 to its
+    /// length, in genome order, chromosomes without features included
+    /// (a built-in genome, .genome, .fai or .dict file with lengths). The
+    /// default --hist writes, per chromosome and then for the whole genome
+    /// (chrom `genome`), one row per depth present: chrom, depth, bases at
+    /// that depth, chromosome length, fraction (six significant digits, as
+    /// bedtools). --bedgraph writes runs of equal depth above zero, --bga
+    /// also the zero-depth runs, --per-base one row per base: chrom,
+    /// 1-based position, depth. --scale X multiplies the depths of the
+    /// last three (six significant digits, as bedtools); --max-depth N
+    /// puts every depth of N or more into the bin N of --hist.
+    /// --strand + or - counts only features on that strand (BED needs
+    /// column 6; a feature with unknown strand is not counted). --split
+    /// counts the BED12 blocks of each feature. --5p and --3p count one
+    /// base per feature, its 5' or 3' end by strand (unknown counts as
+    /// plus). A zero-length feature covers no bases and is ignored. A
+    /// feature past the end of its chromosome is an error. BAM input is
+    /// not supported yet.
+    ///
+    /// The input must be sorted in the genome order, which is checked as it
+    /// is read; an unsorted input is an error whose hint names --sort.
+    /// Memory is bounded by the features open at one position, whatever
+    /// the output mode.
+    #[command(after_long_help = "\
+Examples:
+  gloci genomecov peaks.bed -g hg38
+  gloci genomecov reads.bed -g hg38 --bedgraph --scale 0.000001 -o cov.bedgraph
+  gloci genomecov genes.bed -g genome.txt --bga --strand +
+  gloci genomecov exons12.bed -g hg38 --split --per-base")]
+    Genomecov(GenomecovArgs),
     /// Grow each feature on its sides (bedtools slop, bedops --range).
     ///
     /// Every record is written with its coordinates changed to
@@ -1339,6 +1373,64 @@ pub struct PartitionArgs {
     pub empty: Option<String>,
     #[command(flatten)]
     pub genome: GenomeArg,
+    #[command(flatten)]
+    pub chrom_order: ChromOrderArg,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub format: FormatArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub sort: SortArg,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+#[derive(Args)]
+pub struct GenomecovArgs {
+    /// Input file (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// Chromosome order and sizes (required): a built-in genome such as
+    /// hg38 (see gloci genomes), or a .fai, .genome or .dict file.
+    #[arg(short, long, value_name = "NAME|FILE", required = true)]
+    pub genome: String,
+    /// Write the histogram of depths (the default).
+    #[arg(long, conflicts_with_all = ["bedgraph", "bga", "per_base"])]
+    pub hist: bool,
+    /// Write runs of equal depth above zero as bedGraph.
+    #[arg(long, conflicts_with_all = ["bga", "per_base"])]
+    pub bedgraph: bool,
+    /// Write runs of equal depth as bedGraph, zero-depth runs included.
+    #[arg(long, conflicts_with = "per_base")]
+    pub bga: bool,
+    /// Write the depth of every base (1-based positions).
+    #[arg(long)]
+    pub per_base: bool,
+    /// Multiply the reported depths by X (not with --hist).
+    #[arg(long, value_name = "X", allow_negative_numbers = true)]
+    pub scale: Option<f64>,
+    /// Count only features on this strand (+ or -).
+    #[arg(long, value_name = "+|-", allow_hyphen_values = true,
+          value_parser = clap::builder::PossibleValuesParser::new(["+", "-"]))]
+    pub strand: Option<String>,
+    /// Count the BED12 blocks of each feature instead of the whole feature.
+    #[arg(long, conflicts_with_all = ["five_prime", "three_prime"])]
+    pub split: bool,
+    /// Count only the 5' base of each feature (strand-aware).
+    #[arg(long = "5p", conflicts_with = "three_prime")]
+    pub five_prime: bool,
+    /// Count only the 3' base of each feature (strand-aware).
+    #[arg(long = "3p")]
+    pub three_prime: bool,
+    /// With --hist: put every depth of N or more into the bin N.
+    #[arg(long, value_name = "N")]
+    pub max_depth: Option<u64>,
     #[command(flatten)]
     pub chrom_order: ChromOrderArg,
     #[command(flatten)]

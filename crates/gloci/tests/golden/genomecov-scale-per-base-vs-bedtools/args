@@ -1,0 +1,1 @@
+genomecov input.bed -g gc.genome --per-base --scale 0.5

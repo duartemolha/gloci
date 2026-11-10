@@ -886,7 +886,22 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   `vcf-filter-regions-file-vs-bcftools` (bcftools view -R does not skip line 1
   of headerless BED files, matching gloci).
 
+## `genomecov` prints chromosomes in genome order {#genomecov-chrom-order}
 
+- **gloci:** every chromosome of `-g` is written in genome order (the order the
+  sorted input already has), a chromosome without features in its place with
+  one zero-depth row or run.
+- **Old behaviour:** `bedtools genomecov` writes the chromosomes that have
+  features first, in input order, and appends the featureless ones at the end.
+  The `-bga` and `-d` outputs are then not in genome order.
+- **Reason:** a `--bga` bedGraph must stay sorted for bedGraphToBigWig and
+  `gloci` tools that check order; the input is sorted, so streaming in genome
+  order needs no buffering. When the featureless chromosomes are last in `-g`
+  the outputs are identical.
+- **Pinned by:** `genomecov-empty-chrom-middle-hist-vs-bedtools` and
+  `genomecov-empty-chrom-middle-bga-vs-bedtools` (must differ); the other
+  `genomecov-*` cases use a genome that lists the empty chromosome last and
+  match.
 
 
 ## Filter expressions: `!~` negates the match {#expr-not-match}
@@ -1020,3 +1035,44 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Pinned by:** `expr-differs-from-bcftools-samples-selection` (must differ;
   its reference is the single-command bcftools form) and `maf_sees_the_selected_samples`
   in `crates/gloci/tests/vcf_filter_expr.rs`.
+
+## `genomecov` ignores points {#genomecov-points}
+
+- **gloci:** a zero-length feature covers no bases and is ignored (D68).
+- **Old behaviour:** `bedtools genomecov` counts a point at `p` as the base
+  before it (`chr1 5 5` gives `chr1 4 5 1`).
+- **Reason:** inventing bases changes depths.
+- **Pinned by:** `genomecov-points-vs-bedtools` (must differ).
+
+## `genomecov` strand handling {#genomecov-unknown-strand}
+
+- **gloci:** with `--5p`/`--3p` a feature whose strand is `.` or missing counts
+  as plus. With `--strand + | -` a feature with unknown strand is not counted,
+  and a BED record with fewer than 6 columns is an error naming the line.
+- **Old behaviour:** `bedtools genomecov -strand` stops with "Invalid strand
+  value (.)" on a `.` strand, and `-5`/`-3` use the end-1 base for an unknown
+  strand for both ends.
+- **Reason:** one rule for unknown strands across gloci (as `slop -s`); a
+  feature on an unknown strand is neither + nor -.
+- **Pinned by:** `genomecov-unknown-strand-5p-vs-bedtools` and
+  `genomecov-unknown-strand-filter-vs-bedtools` (must differ).
+
+## `genomecov` rejects features past the chromosome end {#genomecov-past-end}
+
+- **gloci:** a feature that extends past the end of its chromosome in `-g`
+  exits 1 naming the file, line and chromosome. A feature on a chromosome
+  missing from `-g` is also an error.
+- **Old behaviour:** `bedtools genomecov` silently clips the feature at the
+  chromosome end (a chromosome missing from `-g` is an error).
+- **Reason:** a mismatched genome build gives wrong depths without a sign.
+- **Pinned by:** `genomecov-past-end-vs-bedtools` (exit status must differ).
+
+## `genomecov --max-depth` is histogram-only {#genomecov-max-depth}
+
+- **gloci:** `--max-depth N` with `--bedgraph`, `--bga` or `--per-base` is a
+  usage error.
+- **Old behaviour:** `bedtools genomecov -max N` is documented as irrelevant
+  for `-d` and `-bg` and is silently ignored there.
+- **Reason:** a silently ignored cap suggests the depths were capped.
+- **Pinned by:** `genomecov-max-depth-bedgraph-vs-bedtools` (exit status must
+  differ).
