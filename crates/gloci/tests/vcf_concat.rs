@@ -388,6 +388,44 @@ fn naive_concat_block_edges() {
     assert!(raw.starts_with(&ra[..ra.len() - 28]));
 }
 
+/// The backward tail scan of `--naive` over a last record of some 20 MB (about
+/// 300 blocks) finds the whole record: the order check across files sees its
+/// position. A correctness check only; the scan used to be quadratic.
+#[test]
+fn naive_finds_a_very_long_last_record() {
+    let d = tempdir();
+    let big = format!(
+        "chr1\t100\t.\tA\tC\t50\tPASS\tDP=1;X={}\tGT\t0/1\t1/1",
+        "a".repeat(20_000_000)
+    );
+    let at = vcf("", &[&rec("chr1", 5), &big]);
+    let a = s(&bgzf_file(d.path(), "a.vcf.gz", &at));
+    let after = s(&bgzf_file(
+        d.path(),
+        "after.vcf.gz",
+        &vcf("", &[&rec("chr2", 3)]),
+    ));
+    let before = s(&bgzf_file(
+        d.path(),
+        "before.vcf.gz",
+        &vcf("", &[&rec("chr1", 50)]),
+    ));
+    let o = s(&d.path().join("o.vcf.gz"));
+    gloci()
+        .args(["vcf", "concat", "--naive", &a, &after, "-o", &o])
+        .assert()
+        .success();
+    let out = gunzip(Path::new(&o));
+    assert_eq!(out.len(), at.len() + rec("chr2", 3).len() + 1);
+    assert!(out.starts_with(at.as_bytes()));
+    // the last record's position (chr1:100) is known: chr1:50 is out of order
+    gloci()
+        .args(["vcf", "concat", "--naive", &a, &before, "-o", &o])
+        .assert()
+        .failure()
+        .stderr(contains("is not sorted after").and(contains("chr1\t100\t")));
+}
+
 fn gloci_io_eof() -> &'static [u8] {
     &[
         0x1f, 0x8b, 0x08, 0x04, 0, 0, 0, 0, 0, 0xff, 0x06, 0, 0x42, 0x43, 0x02, 0, 0x1b, 0, 0x03,

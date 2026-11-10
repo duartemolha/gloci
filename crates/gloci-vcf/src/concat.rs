@@ -188,9 +188,10 @@ fn strip_eol(line: &[u8]) -> &[u8] {
 
 /// Copy the blocks of the BGZF VCF `src` to `out`, as the module comment
 /// describes. `want_last` asks for [`NaiveFile::last_record`] (and
-/// `ends_with_newline`), which needs reading blocks again. With `expected_header` (every file but the first) the
-/// header must equal it and none of the header's blocks is written; without
-/// it (the first file) every block is copied.
+/// `ends_with_newline`), which needs reading blocks again. With
+/// `expected_header` (every file but the first) the header must equal it and
+/// none of the header's blocks is written; without it (the first file) every
+/// block is copied.
 pub fn copy_blocks(
     src: &mut (impl Read + Seek),
     out: &mut dyn Write,
@@ -277,9 +278,11 @@ pub fn copy_blocks(
         return Ok(info);
     }
 
-    // The last record: inflate blocks from the end, prepending, until a
-    // newline before the record (or the end of the header) is in the text.
-    let mut text: Vec<u8> = Vec::new();
+    // The last record: inflate blocks from the end until a newline before
+    // the record (or the end of the header) is in the text. Each block is
+    // tested once and the text is joined once, so a record of many blocks
+    // costs linear time; memory is bounded by the record.
+    let mut parts: Vec<Vec<u8>> = Vec::new();
     let mut tail_start = total;
     for &(at, len, isize) in blocks.iter().rev() {
         src.seek(SeekFrom::Start(at)).map_err(NaiveError::Read)?;
@@ -287,11 +290,22 @@ pub fn copy_blocks(
         src.read_exact(&mut raw).map_err(NaiveError::Read)?;
         let data = inflate(&Block { raw, isize })?;
         tail_start -= data.len();
-        text.splice(0..0, data);
-        if tail_start <= info.header.len() || strip_eol(&text).contains(&b'\n') {
+        // The last block's own line ending does not end an earlier line.
+        let has_newline = if parts.is_empty() {
+            strip_eol(&data).contains(&b'\n')
+        } else {
+            data.contains(&b'\n')
+        };
+        parts.push(data);
+        if tail_start <= info.header.len() || has_newline {
             break;
         }
     }
+    let mut text: Vec<u8> = Vec::with_capacity(parts.iter().map(Vec::len).sum());
+    for part in parts.iter().rev() {
+        text.extend_from_slice(part);
+    }
+    drop(parts);
     info.ends_with_newline = text.ends_with(b"\n");
     let body = strip_eol(&text);
     let header_in_tail = info.header.len().saturating_sub(tail_start);
