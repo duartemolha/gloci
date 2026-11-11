@@ -141,6 +141,33 @@ impl BamFrames {
         if self.eof {
             return Ok(false);
         }
+        // The common case: the whole record is in the reader's buffer, and is copied out in
+        // one piece. Anything else (a record across buffers, the end, an error) takes the
+        // general path below, which reads it from where it starts.
+        match self.src.fill_buf() {
+            Ok(avail) if avail.len() >= 8 => {
+                let block = i32::from_le_bytes([avail[0], avail[1], avail[2], avail[3]]);
+                if let Ok(size) = usize::try_from(block)
+                    && size >= 4
+                    && avail.len() - 4 >= size
+                {
+                    let body = &avail[4..4 + size];
+                    let ref_id = i32::from_le_bytes([body[0], body[1], body[2], body[3]]);
+                    buf.extend_from_slice(body);
+                    self.src.consume(4 + size);
+                    self.rec += 1;
+                    if ref_id != self.run_ref {
+                        self.run_ref = ref_id;
+                        self.run_seen = 0;
+                    }
+                    self.run_seen += 1;
+                    return Ok(true);
+                }
+            }
+            Ok(_) => {}
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(self.read_err(e)),
+        }
         let start = buf.len();
         let got = read_full(&mut self.src, buf, 4).map_err(|e| self.read_err(e))?;
         if got == 0 {

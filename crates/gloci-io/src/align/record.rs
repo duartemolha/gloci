@@ -46,6 +46,27 @@ fn words(c: &[u8]) -> impl Iterator<Item = (u8, u32)> + '_ {
     })
 }
 
+/// Check the operation codes of the CIGAR words `c` and return the bases of the read they
+/// cover (`M I S = X`), in one pass.
+fn scan_cigar(c: &[u8]) -> Result<u64, String> {
+    // Bit `op` is set for the operations that consume the read: 0 M, 1 I, 4 S, 7 =, 8 X.
+    const QUERY: u32 = 1 << 0 | 1 << 1 | 1 << 4 | 1 << 7 | 1 << 8;
+    let mut q = 0u64;
+    for w in c.chunks_exact(4) {
+        let v = u32::from_le_bytes([w[0], w[1], w[2], w[3]]);
+        let op = v & 0xf;
+        if op > 9 {
+            return Err(format!(
+                "the CIGAR has the operation code {op}; BAM defines 0 to 9"
+            ));
+        }
+        if QUERY >> op & 1 != 0 {
+            q += u64::from(v >> 4);
+        }
+    }
+    Ok(q)
+}
+
 /// One aux field: `(tag, type, value bytes)`. For `B` arrays the value starts with
 /// the element type and the count.
 type Tag<'a> = ([u8; 2], u8, &'a [u8]);
@@ -155,7 +176,7 @@ impl<'a> Aln<'a> {
             cigar: inline_cigar,
             tags,
         };
-        a.check_ops(inline_cigar)?;
+        let mut q = scan_cigar(inline_cigar)?;
         // A placeholder CIGAR (`kS nN`) plus a CG tag holds the real one.
         let mut it = words(inline_cigar);
         if n_cigar == 2
@@ -164,7 +185,7 @@ impl<'a> Aln<'a> {
             && ref_id >= 0
             && let Some(cg) = a.cg_array()?
         {
-            a.check_ops(cg)?;
+            q = scan_cigar(cg)?;
             a.cigar = cg;
         }
         if flag & FLAG_UNMAPPED == 0 {
@@ -174,28 +195,13 @@ impl<'a> Aln<'a> {
 the flag should include 4 (unmapped), or the record needs a reference and position"
                 ));
             }
-            if l_seq > 0 && !a.cigar.is_empty() {
-                let q: u64 = words(a.cigar)
-                    .filter(|(op, _)| matches!(op, 0 | 1 | 4 | 7 | 8))
-                    .map(|(_, n)| u64::from(n))
-                    .sum();
-                if q != l_seq as u64 {
-                    return Err(format!(
-                        "the CIGAR covers {q} bases of the read but the sequence has {l_seq}"
-                    ));
-                }
+            if l_seq > 0 && !a.cigar.is_empty() && q != l_seq as u64 {
+                return Err(format!(
+                    "the CIGAR covers {q} bases of the read but the sequence has {l_seq}"
+                ));
             }
         }
         Ok(a)
-    }
-
-    fn check_ops(&self, cigar: &[u8]) -> Result<(), String> {
-        match words(cigar).find(|(op, _)| *op > 9) {
-            Some((op, _)) => Err(format!(
-                "the CIGAR has the operation code {op}; BAM defines 0 to 9"
-            )),
-            None => Ok(()),
-        }
     }
 
     /// The words of a `CG:B:I` tag.
