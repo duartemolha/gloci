@@ -2120,5 +2120,6 @@ depends on the span.
   need, so it reads such a file with no reference at all.
 - **Reason:** gloci has one CRAM decoder, which checks every record it reads. The cost is
   one flag, and the check that the file decodes at all.
-- **Pinned by:** `idxstats-cram-no-reference-vs-samtools` (exit status: must differ), and the
-  test `idxstats_cram`.
+- **Pinned by:** `idxstats-cram-no-reference-vs-samtools` and
+  `flagstat-cram-no-reference-vs-samtools` (exit status: must differ), and the tests
+  `idxstats_cram` and `flagstat_cram_equals_bam`.

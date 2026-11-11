@@ -95,12 +95,26 @@ fn flagstat_loop_table() {
     // A primary duplicate.
     assert_eq!(
         moved(0x400, Some(0), None, 0),
-        pass(&["total", "primary", "duplicates", "primary_duplicates", "mapped", "primary_mapped"])
+        pass(&[
+            "total",
+            "primary",
+            "duplicates",
+            "primary_duplicates",
+            "mapped",
+            "primary_mapped"
+        ])
     );
     // Mapped, mate unmapped: a singleton, and not "both mapped".
     assert_eq!(
         moved(0x1 | 0x8, Some(0), Some(0), 60),
-        pass(&["total", "primary", "mapped", "primary_mapped", "paired", "singletons"])
+        pass(&[
+            "total",
+            "primary",
+            "mapped",
+            "primary_mapped",
+            "paired",
+            "singletons"
+        ])
     );
     // Unmapped with 0x2 set: paired, not properly paired, not a singleton.
     assert_eq!(
@@ -113,7 +127,14 @@ fn flagstat_loop_table() {
         pass(&["total", "primary", "paired", "read2"])
     );
     // Mate on another reference: MAPQ 4 is below the threshold, 5 is not.
-    let both = ["total", "primary", "mapped", "primary_mapped", "paired", "both_mapped"];
+    let both = [
+        "total",
+        "primary",
+        "mapped",
+        "primary_mapped",
+        "paired",
+        "both_mapped",
+    ];
     let mut q4 = both.to_vec();
     q4.push("mate_other_ref");
     assert_eq!(moved(0x1, Some(0), Some(1), 4), pass(&q4));
@@ -166,7 +187,5 @@ fn render_layouts() {
     assert!(json.contains("  \"mapped %\": 50.00, \n"));
     assert!(json.contains("  \"properly paired %\": null, \n"));
     assert!(json.contains(" },\n \"QC-failed reads\": { \n"));
-    assert!(json.ends_with(
-        "  \"with mate mapped to a different chr (mapQ >= 5)\": 0 \n }\n}\n"
-    ));
+    assert!(json.ends_with("  \"with mate mapped to a different chr (mapQ >= 5)\": 0 \n }\n}\n"));
 }

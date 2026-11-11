@@ -533,6 +533,18 @@ gloci idxstats reads.cram --reference ref.fa
 gloci idxstats reads.sam -t 1
 ```
 
+### `gloci flagstat`
+
+Count the reads of a BAM, CRAM or SAM by FLAGS category (samtools flagstat).
+
+Writes the counts of total, primary, secondary and supplementary reads, duplicates, mapped reads, paired reads, read 1 and read 2, properly paired reads, singletons and mates on another reference, as "QC-passed + QC-failed" (FLAGS bit 0x200), with percentages where samtools has them. -O picks the layout: text (the default), tsv or json; with no -O, a -o ending in .json or .tsv picks it. A percentage of nothing is N/A (null in JSON). Percentages are computed as samtools computes them, in 32-bit floating point, so 153 of 160 is 95.63% and not 95.62%. Every record counts, unmapped and unplaced ones too, and no read filters apply. A CRAM that needs a reference sequence needs --reference, though samtools reads such a file without one. The output is the same at any number of threads.
+
+```sh
+gloci flagstat reads.bam
+gloci flagstat reads.bam -O json -o stats.json
+gloci flagstat reads.cram --reference ref.fa -O tsv
+```
+
 ## Migration tables
 
 Every row below was checked against `gloci <cmd> --help`.

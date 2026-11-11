@@ -5779,3 +5779,60 @@ aux = ["xtask/diff/inputs/samtools/csi/flags.bam", "xtask/diff/inputs/samtools/c
 gloci = "gloci idxstats flags.bam"
 reference = "samtools idxstats flags.bam"
 compare = "exact"
+
+# P3c Task 3: `flagstat` (D128). flagstat.bam has 306 of 320 QC-passed reads mapped (95.63% in
+# samtools' f32 arithmetic, 95.62% in f64) and 7 singletons of 160 paired (4.37%, f64 4.38%),
+# secondary, supplementary and duplicate secondary reads, mates on another reference at MAPQ 4
+# and 5, a mapped read with RNEXT *, an unmapped read with 0x2, placed and unplaced unmapped
+# reads, and 12 QC-failed reads with none paired (N/A, null). empty.bam gives N/A everywhere.
+[[case]]
+name = "flagstat-categories-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/flagstat.bam" }
+gloci = "gloci flagstat input.bam"
+reference = "samtools flagstat input.bam"
+compare = "exact"
+
+[[case]]
+name = "flagstat-tsv-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/flagstat.bam" }
+gloci = "gloci flagstat input.bam -O tsv"
+reference = "samtools flagstat -O tsv input.bam"
+compare = "exact"
+
+[[case]]
+name = "flagstat-json-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/flagstat.bam" }
+gloci = "gloci flagstat input.bam -O json"
+reference = "samtools flagstat -O json input.bam"
+compare = "exact"
+
+[[case]]
+name = "flagstat-sam-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/flagstat.sam" }
+gloci = "gloci flagstat input.sam"
+reference = "samtools flagstat input.sam"
+compare = "exact"
+
+[[case]]
+name = "flagstat-empty-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/empty.bam" }
+gloci = "gloci flagstat input.bam -O json"
+reference = "samtools flagstat -O json input.bam"
+compare = "exact"
+
+[[case]]
+name = "flagstat-cram-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci flagstat input.cram --reference ref.fa"
+reference = "samtools view -b -T ref.fa input.cram -o t.bam && samtools flagstat t.bam"
+compare = "exact"
+
+# A CRAM whose containers need the reference: samtools counts without one, gloci exits 1 (D109).
+[[case]]
+name = "flagstat-cram-no-reference-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.cram" }
+gloci = "gloci flagstat input.cram"
+reference = "REF_PATH=/nonexistent samtools flagstat input.cram"
+compare = "exit-status"
+expected_difference = "#cram-counts-need-reference"

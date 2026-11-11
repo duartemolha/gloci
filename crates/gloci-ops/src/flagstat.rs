@@ -116,7 +116,11 @@ pub fn percent(n: u64, total: u64, json: bool) -> String {
 }
 
 /// One row of the report: its label, the counter, and the counter its percentage is of.
-type Row = (&'static str, fn(&FlagStats) -> &[u64; 2], Option<fn(&FlagStats) -> &[u64; 2]>);
+type Row = (
+    &'static str,
+    fn(&FlagStats) -> &[u64; 2],
+    Option<fn(&FlagStats) -> &[u64; 2]>,
+);
 
 const ROWS: [Row; 16] = [
     ("total", |s| &s.total, None),
@@ -126,15 +130,27 @@ const ROWS: [Row; 16] = [
     ("duplicates", |s| &s.duplicates, None),
     ("primary duplicates", |s| &s.primary_duplicates, None),
     ("mapped", |s| &s.mapped, Some(|s| &s.total)),
-    ("primary mapped", |s| &s.primary_mapped, Some(|s| &s.primary)),
+    (
+        "primary mapped",
+        |s| &s.primary_mapped,
+        Some(|s| &s.primary),
+    ),
     ("paired in sequencing", |s| &s.paired, None),
     ("read1", |s| &s.read1, None),
     ("read2", |s| &s.read2, None),
     ("properly paired", |s| &s.proper_pair, Some(|s| &s.paired)),
     ("with itself and mate mapped", |s| &s.both_mapped, None),
     ("singletons", |s| &s.singletons, Some(|s| &s.paired)),
-    ("with mate mapped to a different chr", |s| &s.mate_other_ref, None),
-    ("with mate mapped to a different chr (mapQ>=5)", |s| &s.mate_other_ref_q5, None),
+    (
+        "with mate mapped to a different chr",
+        |s| &s.mate_other_ref,
+        None,
+    ),
+    (
+        "with mate mapped to a different chr (mapQ>=5)",
+        |s| &s.mate_other_ref_q5,
+        None,
+    ),
 ];
 
 /// The report, byte for byte as `samtools flagstat -O text|tsv|json` writes it.
@@ -186,7 +202,11 @@ pub fn render_flagstat(s: &FlagStats, f: FlagstatFormat) -> String {
         FlagstatFormat::Json => {
             o.push_str("{\n");
             for w in 0..2 {
-                let head = if w == 0 { "QC-passed reads" } else { "QC-failed reads" };
+                let head = if w == 0 {
+                    "QC-passed reads"
+                } else {
+                    "QC-failed reads"
+                };
                 let _ = writeln!(o, " \"{head}\": {{ ");
                 for (i, (label, get, base)) in ROWS.iter().enumerate() {
                     let last = i == ROWS.len() - 1;
@@ -197,11 +217,7 @@ pub fn render_flagstat(s: &FlagStats, f: FlagstatFormat) -> String {
                     let _ = writeln!(o, "  \"{key}\": {}{sep} ", a[w]);
                     if let Some(base) = base {
                         let t = base(s);
-                        let _ = writeln!(
-                            o,
-                            "  \"{key} %\": {}, ",
-                            percent(a[w], t[w], true)
-                        );
+                        let _ = writeln!(o, "  \"{key} %\": {}, ", percent(a[w], t[w], true));
                     }
                 }
                 o.push_str(if w == 0 { " },\n" } else { " }\n" });
