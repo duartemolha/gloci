@@ -2752,7 +2752,7 @@ pub struct CheckArgs {
     #[arg(long)]
     pub quick: bool,
     /// With --quick, accept a BAM, CRAM or SAM header with no @SQ line (samtools quickcheck -u).
-    #[arg(short = 'u', long, requires = "quick")]
+    #[arg(long, requires = "quick")]
     pub unaligned: bool,
     /// Print only the paths of the files that fail, one per line, and what is wrong with each
     /// on stderr (samtools quickcheck -v).
@@ -3533,23 +3533,23 @@ pub struct DictArgs {
     #[arg(value_name = "REF")]
     pub fasta: String,
     /// Leave out the @HD line.
-    #[arg(short = 'H', long)]
+    #[arg(long)]
     pub no_header: bool,
     /// Assembly name for the AS: tag.
-    #[arg(short = 'a', long, value_name = "STR")]
+    #[arg(long, value_name = "STR")]
     pub assembly: Option<String>,
     /// Species for the SP: tag.
-    #[arg(short = 's', long, value_name = "STR")]
+    #[arg(long, value_name = "STR")]
     pub species: Option<String>,
     /// URI for the UR: tag (default: file:// and the absolute path of REF).
-    #[arg(short = 'u', long, value_name = "STR")]
+    #[arg(long, value_name = "STR")]
     pub uri: Option<String>,
     /// Add an AN: tag by adding or removing chr.
-    #[arg(short = 'A', long)]
+    #[arg(long)]
     pub alias: bool,
     /// Add AH:* to the sequences named in FILE (one name per line, up to the
     /// first tab).
-    #[arg(short = 'l', long, value_name = "FILE")]
+    #[arg(long, value_name = "FILE")]
     pub alt: Option<PathBuf>,
     #[command(flatten)]
     pub threads: ThreadArgs,

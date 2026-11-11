@@ -232,7 +232,10 @@ fn quick_check_matrix() {
             (0, String::new()),
             "{f}"
         );
-        assert_eq!(quick_status(&["-u", &f]), (0, String::new()), "{f}");
+        // samtools' -u is not copied (D125): only the long flag.
+        let (code, _, err) = run(&["check", "--quick", "-u", &f]);
+        assert_eq!(code, 2, "{err}");
+        assert!(err.contains("unexpected argument '-u'"), "{err}");
     }
     // A CRAM that needs a reference passes without one.
     let (code, out, err) = run(&["check", "--quick", &good_cram]);
@@ -330,9 +333,9 @@ fn list_failed_only_paths() {
     ]);
     assert_eq!(code, 1);
     assert_eq!(out, format!("{}\n", sam_fixture("coord-unsorted.sam")));
-    // -u only goes with --quick.
+    // --unaligned only goes with --quick.
     gloci()
-        .args(["check", "-u", &good])
+        .args(["check", "--unaligned", &good])
         .assert()
         .code(2)
         .stderr(contains("--quick"));

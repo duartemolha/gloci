@@ -128,3 +128,26 @@ fn dict_skips_leading_blank_lines_and_names_its_input() {
         )))
         .stderr(contains("intervals").not());
 }
+
+/// samtools dict's short flags are not copied (D125): each has only its long form.
+#[test]
+fn dict_has_no_samtools_short_flags() {
+    let fa = inputs("fa/ref.fa");
+    for short in [
+        vec!["-H"],
+        vec!["-A"],
+        vec!["-a", "GRCh38"],
+        vec!["-s", "human"],
+        vec!["-u", "x"],
+        vec!["-l", "alt.txt"],
+    ] {
+        gloci()
+            .arg("dict")
+            .arg(&fa)
+            .args(&short)
+            .assert()
+            .code(2)
+            .stdout("")
+            .stderr(contains(format!("unexpected argument '{}'", short[0])));
+    }
+}

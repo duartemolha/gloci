@@ -860,7 +860,7 @@ The user-facing version of this guide lives in `docs/migration.md` (later part o
 | `faidx REF.fa` | `index REF.fa` |
 | `faidx REF.fa REGION...`, `-r`, `-c`, `-i`, `-n`, `--mark-strand` | `faidx REF REGION... [--regions-file --skip-invalid --reverse-complement --line-width --mark-strand]` (needs the index first) |
 | `dict`, `flags`, `idxstats`, `flagstat`, `head`, `samples`, `reheader` | the same names |
-| `quickcheck [-u -v]` | `check --quick [-u --list-failed]` |
+| `quickcheck [-u -v]` | `check --quick [--unaligned --list-failed]` |
 | `view -c`, `view -L BED` | `view --count`, `view --regions-file BED` |
 | `depth [-a -aa -J -q -Q -l -g -G -s -r -b -H]`, `bedcov [-Q -g -G -j -d -c -H]` | `depth`, `bedcov` (long flags, see the migration guide); bedtools `multicov` is `bedcov --read-count` |
 
