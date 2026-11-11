@@ -16,7 +16,6 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
 use std::num::NonZeroUsize;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
 
@@ -59,19 +58,24 @@ pub fn region_totals(
     rules: &CountRules,
     at_depth: Option<u32>,
 ) -> Result<RegionTotals, IoError> {
-    region_totals_in(
+    let mut clipped = None;
+    let t = region_totals_in(
         &mut DepthRing::new(),
         src,
         ref_len,
         iv,
         rules,
         at_depth,
-        &AtomicBool::new(false),
-    )
+        &mut clipped,
+    )?;
+    if let Some(m) = clipped {
+        log::warn!("{m}");
+    }
+    Ok(t)
 }
 
 /// [`region_totals`] with the caller's ring (reset here, so its memory is reused) and the flag
-/// that makes the past-`LN` warning once per run.
+/// that is set to the warning for the first read cut at `LN` (the caller gives it, once).
 pub fn region_totals_in(
     ring: &mut DepthRing,
     src: &mut dyn AlnSource,
@@ -79,7 +83,7 @@ pub fn region_totals_in(
     iv: Interval,
     rules: &CountRules,
     at_depth: Option<u32>,
-    warned_past: &AtomicBool,
+    first_clipped: &mut Option<String>,
 ) -> Result<RegionTotals, IoError> {
     ring.reset();
     if iv.start >= iv.end {
@@ -120,12 +124,8 @@ pub fn region_totals_in(
         let Some(pos) = a.pos() else { continue };
         let span = match a.span(ref_len) {
             Some((span, clipped)) => {
-                if clipped && !warned_past.swap(true, Ordering::Relaxed) {
-                    log::warn!(
-                        "{name}: a read ends past the end of its reference (LN {ref_len}); \
-bedcov counts only the bases up to LN, where samtools counts those beyond it too (this warning \
-is given once)"
-                    );
+                if clipped && first_clipped.is_none() {
+                    *first_clipped = Some(clipped_message(&name, &iv_name(&hdr, &a), ref_len));
                 }
                 span
             }
@@ -157,6 +157,14 @@ is given once)"
     Ok(t)
 }
 
+fn clipped_message(file: &str, reference: &str, ref_len: u64) -> String {
+    format!(
+        "{file}: a read ends past the end of its reference ({reference} has LN {ref_len}); \
+bedcov counts only the bases up to LN, where samtools counts those beyond it too (this warning \
+is given once)"
+    )
+}
+
 fn iv_name(hdr: &AlnHeader, a: &gloci_io::AlnRef<'_>) -> String {
     a.ref_id()
         .and_then(|r| hdr.refs.get(r))
@@ -176,13 +184,14 @@ struct Done {
     out: Vec<u8>,
     lines: u64,
     diags: Vec<Diagnostics>,
+    /// The first read cut at `LN` in this batch.
+    clipped: Option<String>,
 }
 
 struct Shared<'a> {
     files: &'a [IndexedFile],
     refs: &'a [(Vec<u8>, u64)],
     o: &'a BedcovOptions,
-    warned_past: &'a AtomicBool,
 }
 
 fn push_u64(out: &mut Vec<u8>, v: u64) {
@@ -195,6 +204,7 @@ fn run_batch(sh: &Shared<'_>, job: &Job, ring: &mut DepthRing) -> Result<Done, I
     let mut diags = vec![Diagnostics::default(); n_files];
     let mut out = Vec::with_capacity(job.batch.buf.len() + job.batch.len() * 24 * n_files);
     let mut totals = vec![RegionTotals::default(); n_files];
+    let mut clipped: Option<String> = None;
     for (i, m) in job.batch.recs.iter().enumerate() {
         let rid = job.rids[i];
         let (name, ref_len) = (&sh.refs[rid].0, sh.refs[rid].1);
@@ -212,7 +222,7 @@ fn run_batch(sh: &Shared<'_>, job: &Job, ring: &mut DepthRing) -> Result<Done, I
                 m.span,
                 &sh.o.rules,
                 sh.o.bases_at_depth,
-                sh.warned_past,
+                &mut clipped,
             )?;
             diags[k].absorb(src.diagnostics().clone());
         }
@@ -239,6 +249,7 @@ fn run_batch(sh: &Shared<'_>, job: &Job, ring: &mut DepthRing) -> Result<Done, I
         out,
         lines: job.batch.len() as u64,
         diags,
+        clipped,
     })
 }
 
@@ -335,12 +346,10 @@ gloci index sorted.bam"
         out.write_all(&header_line(files, o)).map_err(write_err)?;
     }
 
-    let warned_past = AtomicBool::new(false);
     let sh = Shared {
         files: &indexed,
         refs,
         o,
-        warned_past: &warned_past,
     };
     let workers = threads.get();
     let bed_name = bed.name().to_string();
@@ -353,6 +362,8 @@ gloci index sorted.bam"
     let (mut skipped, mut first_skipped) = (0u64, None::<String>);
     let mut merged: Vec<Diagnostics> = vec![Diagnostics::default(); files.len()];
     let mut lines = 0u64;
+    // The first read cut at LN in batch order, so the warning does not depend on scheduling.
+    let first_clipped: std::cell::RefCell<Option<String>> = std::cell::RefCell::new(None);
 
     // Read the next batch of BED lines whose chromosomes the references list.
     let mut next_job = |bed: &mut Box<dyn RecordReader>,
@@ -416,6 +427,9 @@ the chromosome with --chrom-map, or pass --skip-invalid to skip lines on unknown
 
     let absorb = |d: Done, merged: &mut Vec<Diagnostics>, lines: &mut u64| {
         *lines += d.lines;
+        if first_clipped.borrow().is_none() {
+            *first_clipped.borrow_mut() = d.clipped;
+        }
         for (m, x) in merged.iter_mut().zip(d.diags) {
             m.absorb(x);
         }
@@ -478,6 +492,8 @@ the chromosome with --chrom-map, or pass --skip-invalid to skip lines on unknown
                 Ok(())
             };
             let mut fatal: Option<IoError> = None;
+            // A BED line that cannot be read: what was counted before it is still written.
+            let mut bed_err: Option<IoError> = None;
             loop {
                 if failure.is_some() || fatal.is_some() {
                     break;
@@ -501,7 +517,7 @@ the chromosome with --chrom-map, or pass --skip-invalid to skip lines on unknown
                     }
                     Ok(None) => break,
                     Err(e) => {
-                        fatal = Some(e);
+                        bed_err = Some(e);
                         break;
                     }
                 }
@@ -520,7 +536,7 @@ the chromosome with --chrom-map, or pass --skip-invalid to skip lines on unknown
             if let Some(e) = failure {
                 return Err(e);
             }
-            match fatal {
+            match fatal.or(bed_err) {
                 Some(e) => Err(e),
                 None => Ok(()),
             }
@@ -541,6 +557,9 @@ the chromosome with --chrom-map, or pass --skip-invalid to skip lines on unknown
             names[0],
             first_skipped.unwrap_or_default()
         );
+    }
+    if let Some(m) = first_clipped.into_inner() {
+        log::warn!("{m}");
     }
     for (n, d) in names.iter().zip(&merged) {
         log_diagnostics(n, d);

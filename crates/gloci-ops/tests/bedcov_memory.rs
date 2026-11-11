@@ -8,7 +8,7 @@ use gloci_ops::bedcov::region_totals_in;
 use gloci_ops::depth::{CountRules, DepthRing};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::Relaxed};
+use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 
 struct Counting;
 static LIVE: AtomicUsize = AtomicUsize::new(0);
@@ -120,7 +120,7 @@ fn bedcov_whole_chromosome_region() {
             min_baseq: 0,
         },
         Some(1),
-        &AtomicBool::new(false),
+        &mut None,
     )
     .unwrap();
     let held = PEAK.load(Relaxed) - base;

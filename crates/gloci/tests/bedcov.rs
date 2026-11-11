@@ -248,3 +248,77 @@ fn bedcov_errors_and_diagnostics_do_not_depend_on_threads() {
         assert_eq!((c, &o, &e), (c1, &o1, &e1), "-t {tt}");
     }
 }
+
+#[test]
+fn bedcov_unreadable_bed_line_leaves_the_same_stdout_at_every_thread_count() {
+    let t = copied(&["depth.bam"]);
+    let bam = t.path().join("depth.bam").display().to_string();
+    let mut text = String::new();
+    for i in 0..600 {
+        text.push_str(&format!("chr1\t{}\t{}\n", i % 50, 60 + i % 40));
+    }
+    text.push_str("chr1\tx\t5\n");
+    let bed = plain_file(t.path(), "r.bed", &text);
+    let bed = bed.to_str().unwrap();
+    let (o1, e1, c1) = bedcov_in(t.path(), &[bed, &bam, "-t", "1"]);
+    assert_eq!(c1, 1, "{e1}");
+    assert!(e1.contains("line 601"), "{e1}");
+    assert!(o1.lines().count() >= 256, "{}", o1.lines().count());
+    for tt in ["2", "4", "8"] {
+        let (o, e, c) = bedcov_in(t.path(), &[bed, &bam, "-t", tt]);
+        assert_eq!((c, &o, &e), (c1, &o1, &e1), "-t {tt}");
+    }
+}
+
+/// Two references of 100 bases, each with a read of 10 bases at 96 (past the end).
+fn clipped_bam(dir: &std::path::Path) -> PathBuf {
+    let mut raw = b"BAM\x01".to_vec();
+    raw.extend_from_slice(&0i32.to_le_bytes());
+    raw.extend_from_slice(&2i32.to_le_bytes());
+    for name in ["chr1", "chr2"] {
+        raw.extend_from_slice(&5i32.to_le_bytes());
+        raw.extend_from_slice(name.as_bytes());
+        raw.push(0);
+        raw.extend_from_slice(&100i32.to_le_bytes());
+    }
+    for rec in [
+        bam_record(0, 95, "a", 10, 10),
+        bam_record(1, 95, "b", 10, 10),
+    ] {
+        raw.extend_from_slice(&(rec.len() as i32).to_le_bytes());
+        raw.extend_from_slice(&rec);
+    }
+    let p =
+        gloci_testkit::fixtures::write(dir, "clipped.bam", &gloci_testkit::fixtures::bgzip(&raw));
+    gloci().arg("index").arg(&p).assert().success();
+    p
+}
+
+#[test]
+fn bedcov_past_the_end_warning_is_the_first_in_bed_order_at_every_thread_count() {
+    let t = tempdir();
+    let bam = clipped_bam(t.path());
+    let bam = bam.to_str().unwrap();
+    // The first lines are on chr2, so batch order makes chr2 the reference the warning names.
+    let mut text = String::new();
+    for i in 0..1200 {
+        let chrom = if i < 300 || i % 2 == 0 {
+            "chr2"
+        } else {
+            "chr1"
+        };
+        text.push_str(&format!("{chrom}\t90\t100\n"));
+    }
+    let bed = plain_file(t.path(), "r.bed", &text);
+    let bed = bed.to_str().unwrap();
+    let (o1, e1, c1) = bedcov_in(t.path(), &[bed, bam, "-t", "1"]);
+    assert_eq!(c1, 0, "{e1}");
+    assert_eq!(e1.matches("past the end").count(), 1, "{e1}");
+    assert!(e1.contains("chr2 has LN 100"), "{e1}");
+    for tt in ["2", "8"] {
+        for _ in 0..5 {
+            let (o, e, c) = bedcov_in(t.path(), &[bed, bam, "-t", tt]);
+            assert_eq!((c, &o, &e), (c1, &o1, &e1), "-t {tt}");
+        }
+    }
+}
