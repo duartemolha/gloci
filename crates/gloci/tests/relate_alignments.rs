@@ -415,7 +415,8 @@ fn slim_b_records() {
         ));
     }
     let bam = bam_of(dir.path(), "dense.bam", &sam);
-    let bytes = |full: bool| {
+    let sam_path = write(dir.path(), "dense.sam", &sam);
+    let bytes = |file: &str, full: bool| {
         let ro = ReaderOptions {
             accept: Accept {
                 alignments: Some(AlignOptions {
@@ -430,15 +431,45 @@ fn slim_b_records() {
             vcf_span: gloci_core::VcfSpan::Allele,
             invalid: InvalidPolicy::Fail,
         };
-        let mut r = open_reader(&bam, &ro).unwrap();
+        let mut r = open_reader(file, &ro).unwrap();
+        assert_eq!(r.whole_records(), full, "{file}");
         let mut chroms = gloci_core::ChromTable::first_appearance();
         let mut batch = RecordBatch::default();
         while r.read_batch(&mut chroms, &mut batch, 4096).unwrap() {}
         assert_eq!(batch.recs.len(), 10_000);
-        batch.buf.len()
+        (batch.buf.len(), batch.raw(0).to_vec())
     };
-    let (slim, full) = (bytes(false), bytes(true));
+    let ((slim, _), (full, _)) = (bytes(&bam, false), bytes(&bam, true));
     assert!(slim * 3 <= full, "slim {slim} bytes against full {full}");
+    // SAM lines are slimmed too (P9): SEQ and QUAL become *, and the other tags go.
+    let ((slim, line), (full, _)) = (bytes(&sam_path, false), bytes(&sam_path, true));
+    assert!(
+        slim * 3 <= full,
+        "SAM: slim {slim} bytes against full {full}"
+    );
+    assert_eq!(line, b"r0\t0\tchr1\t1001\t60\t150M\t*\t0\t0\t*\t*");
+    // and give the same results as the BAM
+    let bed = write(dir.path(), "t.bed", "chr1\t1000\t1200\nchr1\t1100\t1101\n");
+    for args in [
+        vec!["intersect", "-a", &bed, "-b", "@", "--mode", "pairs"],
+        vec![
+            "intersect",
+            "-a",
+            &bed,
+            "-b",
+            "@",
+            "--mode",
+            "count",
+            "--split",
+        ],
+        vec!["coverage", "-a", &bed, "-b", "@"],
+    ] {
+        let with = |f: &str| {
+            let v: Vec<&str> = args.iter().map(|a| if *a == "@" { f } else { a }).collect();
+            run(&v)
+        };
+        assert_eq!(with(&sam_path), with(&bam), "{args:?}");
+    }
 }
 
 #[test]
