@@ -15,7 +15,8 @@ use gloci_io::{
     AlnHeader, AlnSource, Diagnostics, Format, Header, IndexedFile, IoError, ReaderOptions,
     RecordWriter, UsageError, find_index, open_aln_source, open_aln_source_regions,
 };
-use rows::{Emitter, Input, Plan, log_diagnostics, run_group};
+pub(crate) use rows::log_diagnostics;
+use rows::{Emitter, Input, Plan, run_group};
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 use std::num::NonZeroUsize;
@@ -129,7 +130,7 @@ input; write the input to a file first"
 }
 
 /// Refuse inputs whose `@SQ` lists differ, naming the first difference (D126).
-fn check_same_references(names: &[String], headers: &[Arc<AlnHeader>]) -> Result<(), IoError> {
+pub(crate) fn check_same_references(names: &[String], headers: &[Arc<AlnHeader>]) -> Result<(), IoError> {
     let first = &headers[0];
     for (k, h) in headers.iter().enumerate().skip(1) {
         let n = first.refs.len().max(h.refs.len());

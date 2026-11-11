@@ -1132,6 +1132,30 @@ Examples:
   gloci depth sample.bam --region chr1:100,000-200,000 --all-positions
   gloci depth sample.bam --regions-file targets.bed --count-deletions")]
     Depth(DepthArgs),
+    /// Depth of coverage summed over each BED region (samtools bedcov).
+    ///
+    /// For each line of BED, in any order, writes the line as it is and then, for each FILE (BAM
+    /// or CRAM, each with a .bai, .csi or .crai; exit 2 without one), the sum of the depth over
+    /// the region's bases: one column per file, files in the order given. --bases-at-depth N
+    /// adds one column per file of the bases whose depth is at least N, and --read-count one of
+    /// the reads that overlap the region (a zero-length region counts the reads that strictly
+    /// contain it). Depth counts M, = and X bases always, D bases unless --split-deletions and
+    /// N (intron) bases unless --split, so samtools -j is --split --split-deletions. A read counts
+    /// when none of --exclude-flags is set (default UNMAP,SECONDARY,QCFAIL,DUP, as for depth;
+    /// --exclude-flags 0 counts everything but unmapped reads, which never count), all of
+    /// --require-flags are, and its MAPQ is at least --min-mapq. Comment, track, browser and blank
+    /// lines are skipped. A line on a chromosome the files lack is an error naming the line,
+    /// or skipped with one counted warning under --skip-invalid; samtools prints an error,
+    /// carries on and exits 2. Files must have identical @SQ lists. --column-names writes
+    /// "#chrom start end" and one column name per file and kind first. A read past the end of
+    /// its reference counts up to the end. Regions are read in batches of 256 lines on up to -t
+    /// threads, written in BED order. Memory per thread follows the longest read, not the region.
+    #[command(after_long_help = "\
+Examples:
+  gloci bedcov targets.bed sample.bam
+  gloci bedcov targets.bed a.bam b.bam --bases-at-depth 10 --read-count --column-names
+  gloci bedcov exons.bed sample.cram --reference ref.fa --split --split-deletions -t 8")]
+    Bedcov(BedcovArgs),
 }
 
 /// What `intersect` reports.
@@ -3474,6 +3498,62 @@ pub struct DepthArgs {
     #[command(flatten)]
     pub tmp_dir: TmpDirArg,
     /// Write the rows to FILE instead of stdout.
+    #[arg(short, long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
+}
+
+// P3c Task 8
+#[derive(Args)]
+pub struct BedcovArgs {
+    /// BED regions, in any order (- is standard input).
+    #[arg(value_name = "BED")]
+    pub bed: String,
+    /// BAM or CRAM files with an index (.bai, .csi or .crai) and identical @SQ lists; one
+    /// column each.
+    #[arg(value_name = "FILE", required = true)]
+    pub files: Vec<String>,
+    /// Do not count N (intron) bases (samtools -j, with --split-deletions).
+    #[arg(long)]
+    pub split: bool,
+    /// Do not count D (deleted) bases (samtools -j, with --split).
+    #[arg(long)]
+    pub split_deletions: bool,
+    /// Also write, per file, the number of bases of the region whose depth is at least N
+    /// (samtools -d; samtools then also leaves D and N bases out of both columns).
+    #[arg(long, value_name = "N")]
+    pub bases_at_depth: Option<u32>,
+    /// Also write, per file, the number of reads that overlap the region (samtools -c).
+    #[arg(long)]
+    pub read_count: bool,
+    /// Skip reads with mapping quality below N.
+    #[arg(long, value_name = "N", default_value_t = 0)]
+    pub min_mapq: u8,
+    /// Keep only reads that have all of these flags: a number (0x2) or names such as
+    /// paired,proper_pair.
+    #[arg(long, value_name = "FLAGS")]
+    pub require_flags: Option<String>,
+    /// Drop reads that have any of these flags: a number or names. As for the other commands,
+    /// but this command's default is UNMAP,SECONDARY,QCFAIL,DUP (samtools bedcov's), where
+    /// theirs is none; 0 counts every mapped read.
+    #[arg(
+        long,
+        value_name = "FLAGS",
+        default_value = "UNMAP,SECONDARY,QCFAIL,DUP"
+    )]
+    pub exclude_flags: String,
+    /// The FASTA a CRAM input was made with, with its .fai. Not needed for a CRAM written
+    /// without a reference.
+    #[arg(long, value_name = "FILE")]
+    pub reference: Option<PathBuf>,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub columns: ColumnNamesArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    /// Write the lines to FILE instead of stdout.
     #[arg(short, long, value_name = "FILE")]
     pub output: Option<PathBuf>,
 }

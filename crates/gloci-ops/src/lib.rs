@@ -5,6 +5,7 @@ pub mod aln_cat;
 pub mod aln_flags;
 pub mod aln_merge;
 pub mod aln_sort;
+pub mod bedcov;
 pub mod bedsearch;
 pub mod check;
 pub mod closest;
