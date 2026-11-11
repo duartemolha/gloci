@@ -184,7 +184,7 @@ fn rm_dup_rules() {
     ];
     assert_eq!(
         keep(RmDup::Snps, &set),
-        [true, false, true, true, false, true]
+        [true, false, true, true, true, true]
     );
     assert_eq!(
         keep(RmDup::Indels, &set),
@@ -192,7 +192,7 @@ fn rm_dup_rules() {
     );
     assert_eq!(
         keep(RmDup::Both, &set),
-        [true, false, true, false, false, true]
+        [true, false, true, false, true, true]
     );
     assert_eq!(
         keep(RmDup::All, &set),

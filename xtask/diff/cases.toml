@@ -5084,7 +5084,7 @@ gloci = "gloci vcf norm input.vcf -f ref.fa --check-ref s"
 reference = "bcftools norm --no-version -f ref.fa -c s input.vcf"
 compare = "vcf-records"
 
-# Length changes that are not a prefix extension (TAT>CG, CC>ATGG) are neither SNP nor indel, so they are all kept.
+# Typing as htslib does (shared prefix, then suffix): TAT>CG and CC>ATGG are neither SNP nor indel; multi-allelic records count as an indel when any ALT is one.
 [[case]]
 name = "vcf-norm-rm-dup-class-indels-vs-bcftools"
 input = { file = "xtask/diff/inputs/vcf/norm/dupclass.vcf" }
@@ -5093,7 +5093,7 @@ gloci = "gloci vcf norm input.vcf -f ref.fa --rm-dup indels"
 reference = "bcftools norm --no-version -f ref.fa -d indels input.vcf"
 compare = "vcf-records"
 
-# Length changes that are not a prefix extension (TAT>CG, CC>ATGG) are neither SNP nor indel, so they are all kept.
+# Typing as htslib does (shared prefix, then suffix): TAT>CG and CC>ATGG are neither SNP nor indel; multi-allelic records count as an indel when any ALT is one.
 [[case]]
 name = "vcf-norm-rm-dup-class-both-vs-bcftools"
 input = { file = "xtask/diff/inputs/vcf/norm/dupclass.vcf" }

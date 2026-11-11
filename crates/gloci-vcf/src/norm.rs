@@ -81,10 +81,6 @@ fn is_symbolic(a: &[u8]) -> bool {
     a.first() == Some(&b'<')
 }
 
-fn is_del(a: &[u8]) -> bool {
-    a.starts_with(b"<DEL")
-}
-
 fn is_breakend(a: &[u8]) -> bool {
     a.iter().any(|&b| b == b'[' || b == b']')
 }
@@ -576,18 +572,45 @@ pub struct Dedup {
     kept: Vec<(u8, Vec<Vec<u8>>)>,
 }
 
-/// htslib's typing: an indel has one allele a prefix of the other after the
-/// shared first base; other length changes are "other".
-fn is_indel(r: &[u8], a: &[u8]) -> bool {
-    let (Some(&r0), Some(&a0)) = (r.first(), a.first()) else {
-        return false;
-    };
-    if !r0.eq_ignore_ascii_case(&a0) {
-        return false;
+/// htslib's variant typing of one base ALT (`bcf_set_variant_type`): strip the
+/// shared prefix, then the shared suffix; a pure insertion or deletion whose
+/// first remaining base matches is an indel, equal remainders are SNP/MNP,
+/// anything else is "other" (type 0 here).
+fn htslib_type(r: &[u8], a: &[u8]) -> u8 {
+    let eq = |x: u8, y: u8| x.eq_ignore_ascii_case(&y);
+    if r.len() == 1 && a.len() == 1 {
+        return if eq(r[0], a[0]) { 0 } else { SNP };
     }
-    let (r, a) = (&r[1..], &a[1..]);
-    let (short, long) = if r.len() <= a.len() { (r, a) } else { (a, r) };
-    long.len() >= short.len() && long[..short.len()].eq_ignore_ascii_case(short)
+    let mut i = 0;
+    while i < r.len() && i < a.len() && eq(r[i], a[i]) {
+        i += 1;
+    }
+    if i == r.len() && i == a.len() {
+        return 0;
+    }
+    if i == r.len() || i == a.len() {
+        return INDEL;
+    }
+    let (mut re, mut ae) = (r.len() - 1, a.len() - 1);
+    while re > i && ae > i && eq(r[re], a[ae]) {
+        re -= 1;
+        ae -= 1;
+    }
+    if ae == i {
+        if re == i {
+            SNP
+        } else if eq(a[ae], r[re]) {
+            INDEL
+        } else {
+            0
+        }
+    } else if re == i {
+        if eq(a[ae], r[re]) { INDEL } else { 0 }
+    } else if re - i == ae - i {
+        SNP
+    } else {
+        0
+    }
 }
 
 const SNP: u8 = 1;
@@ -612,20 +635,13 @@ impl Dedup {
             self.pos = c.pos;
             self.kept.clear();
         }
-        let reflen = c.reference.len();
         let mut ty = 0u8;
         let mut set: Vec<Vec<u8>> = Vec::with_capacity(4);
         set.push(c.reference.to_ascii_uppercase());
         for a in c.alt.split(|&b| b == b',') {
             set.push(a.to_ascii_uppercase());
-            if is_del(a) {
-                ty |= INDEL;
-            } else if is_bases(a) {
-                if a.len() == reflen {
-                    ty |= SNP;
-                } else if is_indel(c.reference, a) {
-                    ty |= INDEL;
-                }
+            if is_bases(a) {
+                ty |= htslib_type(c.reference, a);
             }
         }
         set[1..].sort();
