@@ -358,18 +358,21 @@ fn wait_rss(child: &std::process::Child) -> (bool, u64) {
     )
 }
 
-/// A 50 MiB FASTA as one sequence line (the worst case for a line reader)
-/// is masked within a few MiB more than a bare process needs.
+/// A 100 MiB FASTA as one sequence line (the worst case for a line reader) is masked under an
+/// absolute ceiling of 80 MiB: a reader that held the line (or a copy of it) would need more than
+/// the file. The ceiling is absolute because a child's `ru_maxrss` inherits its parent's peak, so
+/// a comparison between two runs would not be sound.
 #[test]
 fn maskfasta_streams() {
     const MIB: usize = 1 << 20;
+    const SIZE_MIB: usize = 100;
     let d = tempdir();
     let fasta = d.path().join("big.fa");
     {
         let mut w = std::io::BufWriter::new(std::fs::File::create(&fasta).unwrap());
         w.write_all(b">big\n").unwrap();
         let block: Vec<u8> = (0..MIB).map(|i| b"ACGT"[i % 4]).collect();
-        for _ in 0..50 {
+        for _ in 0..SIZE_MIB {
             w.write_all(&block).unwrap();
         }
         w.write_all(b"\n").unwrap();
@@ -381,8 +384,8 @@ fn maskfasta_streams() {
             "big\t0\t10\nbig\t{}\t{}\nbig\t{}\t{}\n",
             MIB - 5,
             MIB + 5,
-            50 * MIB - 10,
-            50 * MIB
+            SIZE_MIB * MIB - 10,
+            SIZE_MIB * MIB
         ),
     );
     let out = d.path().join("out.fa");
@@ -397,34 +400,18 @@ fn maskfasta_streams() {
         .unwrap();
     let (ok, rss) = wait_rss(&child);
     assert!(ok, "gloci maskfasta failed");
-    // The same process reading a 1 MiB FASTA sets the baseline.
-    let baseline = {
-        let small = d.path().join("small.fa");
-        std::fs::write(&small, b">big\nACGTACGTAC\n").unwrap();
-        let sb = plain_file(d.path(), "s.bed", "big\t0\t1\n");
-        let child = std::process::Command::new(assert_cmd::cargo::cargo_bin("gloci"))
-            .args(["maskfasta", "-t", "1", "--fasta"])
-            .arg(&small)
-            .arg("-b")
-            .arg(&sb)
-            .stdout(std::process::Stdio::null())
-            .spawn()
-            .unwrap();
-        wait_rss(&child).1
-    };
     assert!(
-        rss <= baseline + 12 * MIB as u64,
-        "peak RSS {} MiB for a 50 MiB FASTA (baseline {} MiB)",
-        rss / MIB as u64,
-        baseline / MIB as u64
+        rss <= 80 * MIB as u64,
+        "peak RSS {} MiB for a {SIZE_MIB} MiB FASTA exceeds 80 MiB",
+        rss / MIB as u64
     );
     // And the result is right: only the masked bases differ.
     let got = std::fs::read(&out).unwrap();
-    assert_eq!(got.len(), 5 + 50 * MIB + 1);
-    let seq = &got[5..5 + 50 * MIB];
+    assert_eq!(got.len(), 5 + SIZE_MIB * MIB + 1);
+    let seq = &got[5..5 + SIZE_MIB * MIB];
     assert!(seq[..10].iter().all(|&b| b == b'N'));
     assert!(seq[MIB - 5..MIB + 5].iter().all(|&b| b == b'N'));
-    assert!(seq[50 * MIB - 10..].iter().all(|&b| b == b'N'));
+    assert!(seq[SIZE_MIB * MIB - 10..].iter().all(|&b| b == b'N'));
     assert_eq!(seq[10], b"ACGT"[10 % 4]);
     assert_eq!(seq[MIB + 5], b"ACGT"[(MIB + 5) % 4]);
     assert_eq!(seq.iter().filter(|&&b| b == b'N').count(), 30);
