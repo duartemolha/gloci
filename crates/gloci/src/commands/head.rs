@@ -26,7 +26,7 @@ pub fn run(ctx: &Ctx, a: &HeadArgs) -> anyhow::Result<()> {
     };
     let mut out = BufWriter::new(std::io::stdout().lock());
     // What was read before a failure stays written, as `head` does with a cut file.
-    let result = head(&a.file, &o, &ro, &mut out);
+    let result = head(&a.file, &o, &ro, &mut out).map_err(|e| e.with_output_name("stdout"));
     let flushed = out.flush().map_err(|e| IoError::Write {
         path: "stdout".into(),
         source: e,

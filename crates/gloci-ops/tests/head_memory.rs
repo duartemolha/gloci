@@ -71,8 +71,8 @@ fn bed(n: usize) -> String {
     s
 }
 
-/// Peak bytes above the baseline while printing the header and two records of `path`.
-fn measure(path: &std::path::Path, threads: usize) -> usize {
+/// Peak bytes above the baseline while printing the header and `records` records of `path`.
+fn measure(path: &std::path::Path, threads: usize, records: u64) -> usize {
     let o = ReaderOptions {
         accept: Accept {
             alignments: Some(AlignOptions::default()),
@@ -86,7 +86,7 @@ fn measure(path: &std::path::Path, threads: usize) -> usize {
     };
     let h = HeadOptions {
         headers: None,
-        records: 2,
+        records,
     };
     let base = LIVE.load(Relaxed);
     PEAK.store(base, Relaxed);
@@ -113,8 +113,8 @@ fn head_memory_is_bounded() {
             paths.push(p);
         }
         for threads in [1, 2] {
-            let small = measure(&paths[0], threads);
-            let big = measure(&paths[1], threads);
+            let small = measure(&paths[0], threads, 2);
+            let big = measure(&paths[1], threads, 2);
             assert!(
                 big <= small + 256 * 1024,
                 "{ext} -t {threads}: {small} B for {small_n} records, {big} B for {big_n}"
@@ -122,4 +122,26 @@ fn head_memory_is_bounded() {
             assert!(big < 8 * 1024 * 1024, "{ext} -t {threads}: {big} B");
         }
     }
+}
+
+/// The text formats read records in batches of at most `next_batch_size`'s cap (16384 records, a
+/// few MiB of bytes), so what `head` holds is the header plus one such batch, a constant: the
+/// batch, not one record, is the bound (D134; the memory table of the docs says so). With
+/// `--records` above the batch size the peak must still not grow with the input.
+#[test]
+fn head_large_records_is_bounded_by_the_batch() {
+    let d = tempfile::tempdir().unwrap();
+    let mut peaks = Vec::new();
+    for n in [200_000usize, 2_000_000] {
+        let p = d.path().join(format!("b{n}.bed"));
+        std::fs::write(&p, bed(n)).unwrap();
+        peaks.push(measure(&p, 1, 1_000_000));
+    }
+    assert!(
+        peaks[1] <= peaks[0] + 256 * 1024,
+        "{} B for 200000 records, {} B for 2000000",
+        peaks[0],
+        peaks[1]
+    );
+    assert!(peaks[1] < 16 * 1024 * 1024, "{} B", peaks[1]);
 }
