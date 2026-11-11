@@ -265,10 +265,11 @@ pub fn vcf_norm(
                 None => SplitOutcome::Unchanged,
             };
             let mut pieces: Vec<&[u8]> = Vec::new();
+            let mut split_record = false;
             match outcome {
                 SplitOutcome::Unchanged => pieces.push(text),
                 SplitOutcome::Split(_) => {
-                    sink.sum.records_split += 1;
+                    split_record = true;
                     let mut prev = 0;
                     for &e in &ends {
                         pieces.push(&sout[prev..e]);
@@ -276,6 +277,11 @@ pub fn vcf_norm(
                     }
                 }
             }
+            // Normalise every piece first: a record with a failing piece is
+            // skipped whole under --skip-invalid, never half written.
+            let mut kept: Vec<(u64, bool, Vec<u8>)> = Vec::new();
+            let mut excluded = 0u64;
+            let mut skipped = false;
             for piece in pieces {
                 let verdict = match norm.process(piece, &mut refs, &mut nout) {
                     Ok(v) => v,
@@ -286,18 +292,29 @@ pub fn vcf_norm(
                         if o.skip_invalid {
                             sink.sum.records_skipped += 1;
                             skips.note(from_bcf, loc, &msg);
-                            continue;
+                            skipped = true;
+                            break;
                         }
                         return Err(parse_err(&msg));
                     }
                 };
-                let Verdict::Keep { pos, changed } = verdict else {
-                    sink.sum.excluded += 1;
-                    continue;
-                };
+                match verdict {
+                    Verdict::Keep { pos, changed } => kept.push((pos, changed, nout.clone())),
+                    _ => excluded += 1,
+                }
+            }
+            if skipped {
+                continue;
+            }
+            if split_record {
+                sink.sum.records_split += 1;
+            }
+            sink.sum.excluded += excluded;
+            for (pos, changed, line) in kept {
                 if changed {
                     sink.sum.realigned += 1;
                 }
+                let nout = line;
                 let chrom = nout
                     .split(|&b| b == b'\t')
                     .next()
@@ -322,7 +339,7 @@ pub fn vcf_norm(
                     Pending {
                         chrom,
                         pos,
-                        line: nout.clone(),
+                        line: nout,
                         loc,
                     },
                 );

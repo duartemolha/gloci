@@ -1898,7 +1898,9 @@ depends on the span.
   - `--check-ref s` on a record with an ALT equal to REF writes the record as it is, with a
     warning; it does not remove the ALT.
   - `--check-ref s` leaves a base other than ACGTN in an ALT as written, and a `*` ALT as `*`.
-  - `--skip-invalid` also skips records that fail `--check-ref e`; bcftools has no such option.
+  - `--skip-invalid` also skips records that fail `--check-ref e`; bcftools has no such option. With `--split`, a record any of whose pieces fails is skipped whole
+    and counted once (none of its pieces is written), so the skip count and `-v`'s "records read"
+    are in input records.
   - `--check-ref s` on a record that starts past the end of its contig is an error (exit 1)
     that says so.
   - Values are kept as text: a record that is not rewritten is written byte for byte, and one

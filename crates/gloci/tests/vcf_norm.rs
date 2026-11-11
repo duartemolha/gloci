@@ -372,3 +372,38 @@ fn alternating_chromosomes_give_the_same_records_as_each_alone() {
     got.sort();
     assert_eq!(got, want);
 }
+
+/// Under `--split --skip-invalid` a multi-allelic record with failing pieces
+/// is skipped whole and counted once, and none of its pieces is written.
+#[test]
+fn a_record_whose_pieces_fail_is_skipped_whole_and_counted_once() {
+    let (d, r, _v) = work();
+    // chr1:1 is G in the reference: REF A is a mismatch for both pieces of
+    // the first record; the second record splits into two good pieces.
+    let t = "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=120>\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nchr1\t1\t.\tA\tC,T\t.\t.\t.\n\
+chr1\t2\t.\tA\tC,T\t.\t.\t.\nchr1\t3\t.\tT\tC\t.\t.\t.\n";
+    let m = s(&plain_file(d.path(), "w.vcf", t));
+    let o = gloci()
+        .args([
+            "vcf",
+            "norm",
+            &m,
+            "-f",
+            &r,
+            "--split",
+            "--skip-invalid",
+            "-v",
+        ])
+        .assert()
+        .success();
+    let err = String::from_utf8(o.get_output().stderr.clone()).unwrap();
+    let got = records(&String::from_utf8(o.get_output().stdout.clone()).unwrap());
+    assert!(err.contains("1 record skipped (first: line 4:"), "{err}");
+    assert!(
+        err.contains("3 records read") && err.contains(", 1 skipped;"),
+        "{err}"
+    );
+    assert_eq!(got.len(), 3, "{got:?}");
+    assert!(got.iter().all(|l| !l.starts_with("chr1\t1\t")), "{got:?}");
+}
