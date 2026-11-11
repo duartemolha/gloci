@@ -129,7 +129,7 @@ pub fn run(ctx: &Ctx, a: &VcfNormArgs) -> anyhow::Result<()> {
         .map_err(|e| e.with_output_name(&dest))?;
     writer.finish().map_err(|e| e.with_output_name(&dest))?;
     log::info!(
-        "vcf norm: {} records read, {} split, {} realigned, {} excluded, {} duplicates removed, {} written, {} skipped; peak reference window {} bases",
+        "vcf norm: {} records read, {} split, {} realigned, {} excluded, {} duplicates removed, {} written, {} skipped; peak reference windows {} bases",
         sum.records_in,
         sum.records_split,
         sum.realigned,

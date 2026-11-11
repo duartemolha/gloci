@@ -279,7 +279,7 @@ fn a_large_contig_is_read_in_bounded_windows() {
     );
     let err = String::from_utf8(o.get_output().stderr.clone()).unwrap();
     let peak: u64 = err
-        .split("peak reference window ")
+        .split("peak reference windows ")
         .nth(1)
         .and_then(|t| t.split(' ').next())
         .and_then(|t| t.parse().ok())
