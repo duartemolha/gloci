@@ -1248,3 +1248,85 @@ pub fn naive_genomecov(
     }
     out
 }
+
+// P3b Task 2
+/// The merged intervals of `recs` per chromosome (and per strand when
+/// `per_strand`): sorted by start, joined while `start <= end`, as `merge`.
+fn naive_merged(recs: &[TestRec], per_strand: bool) -> Vec<(String, Interval, Strand)> {
+    let strand_of = |r: &TestRec| match (per_strand, r.strand) {
+        (true, '+') => Strand::Plus,
+        (true, '-') => Strand::Minus,
+        _ => Strand::Unknown,
+    };
+    let mut keys: Vec<(String, u8)> = recs
+        .iter()
+        .map(|r| {
+            (
+                r.chrom.clone(),
+                match strand_of(r) {
+                    Strand::Plus => 0,
+                    Strand::Minus => 1,
+                    Strand::Unknown => 2,
+                },
+            )
+        })
+        .collect();
+    keys.sort();
+    keys.dedup();
+    let mut out = Vec::new();
+    for (chrom, slot) in keys {
+        let mut ivs: Vec<Interval> = recs
+            .iter()
+            .filter(|r| {
+                r.chrom == chrom
+                    && match strand_of(r) {
+                        Strand::Plus => 0,
+                        Strand::Minus => 1,
+                        Strand::Unknown => 2,
+                    } == slot
+            })
+            .map(|r| r.interval())
+            .collect();
+        ivs.sort_by_key(|i| (i.start, i.end));
+        let strand = match slot {
+            0 => Strand::Plus,
+            1 => Strand::Minus,
+            _ => Strand::Unknown,
+        };
+        let mut cur: Option<Interval> = None;
+        for iv in ivs {
+            match cur.as_mut() {
+                Some(c) if iv.start <= c.end => c.end = c.end.max(iv.end),
+                _ => {
+                    if let Some(c) = cur.take() {
+                        out.push((chrom.clone(), c, strand));
+                    }
+                    cur = Some(iv);
+                }
+            }
+        }
+        if let Some(c) = cur {
+            out.push((chrom.clone(), c, strand));
+        }
+    }
+    out
+}
+
+/// `stats jaccard` by brute force: merge each input, test every pair of merged
+/// intervals on one chromosome, and total the accepted overlaps. Returns
+/// `(intersection, union, n_intersections)`.
+pub fn naive_jaccard(a: &[TestRec], b: &[TestRec], c: &OverlapCriteria) -> (u64, u64, u64) {
+    let by_strand = c.strand != StrandRule::Any;
+    let (ma, mb) = (naive_merged(a, by_strand), naive_merged(b, by_strand));
+    let (mut inter, mut pairs) = (0, 0);
+    for (ca, ia, sa) in &ma {
+        for (cb, ib, sb) in &mb {
+            if ca == cb && c.accepts(*ia, *sa, *ib, *sb) {
+                inter += gloci_core::overlap_len(*ia, *ib);
+                pairs += 1;
+            }
+        }
+    }
+    let total: u64 = ma.iter().chain(&mb).map(|(_, i, _)| i.end - i.start).sum();
+    (inter, total - inter, pairs)
+}

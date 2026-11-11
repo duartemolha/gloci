@@ -21,6 +21,7 @@ pub mod shift;
 pub mod slop;
 pub mod sort;
 pub mod spacing;
+pub mod stats;
 pub mod subtract;
 pub mod vcf;
 pub mod vcf_annotate;

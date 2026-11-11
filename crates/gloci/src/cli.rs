@@ -980,6 +980,9 @@ Examples:
   gloci vcf filter input.vcf --samples s1,s2 --min-dp 10 --recalc-ac -o out.vcf
   gloci vcf filter variants.bcf --types indel --biallelic")]
     Vcf(Box<VcfArgs>),
+    // P3b Task 2
+    /// Statistics of interval sets (bedtools jaccard).
+    Stats(StatsArgs),
 }
 
 /// What `intersect` reports.
@@ -3093,6 +3096,115 @@ pub struct SeedArg {
     /// printed as a warning).
     #[arg(long, value_name = "N")]
     pub seed: Option<u64>,
+}
+
+// P3b Task 2
+#[derive(Args, Debug, Clone)]
+pub struct StatsArgs {
+    #[command(subcommand)]
+    pub command: StatsCommand,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum StatsCommand {
+    /// The Jaccard similarity of two interval sets (bedtools jaccard).
+    ///
+    /// Each input is first merged as `gloci merge` does (overlapping and
+    /// bookended intervals join; per strand with -s or -S). The intersection
+    /// is the sum of the overlap bases of every pair (merged A, merged B) that
+    /// passes -f, -F, -r, -e, --min-bases, -s, -S and --inclusive-points
+    /// (measured on the merged intervals), the union is the bases covered by
+    /// either input, and jaccard = intersection / union divided in single
+    /// precision and printed as %g (six significant digits; `nan` when both
+    /// are empty). n_intersections counts the accepted pairs. Output is a
+    /// header line and one row: intersection, union, jaccard,
+    /// n_intersections. A point (zero-length interval) covers no bases, so
+    /// it adds nothing to the intersection or the union, but a point inside a
+    /// merged interval of the other input counts as an intersection (bedtools
+    /// widens a point to two bases; see docs/differences.md). Inputs must be
+    /// sorted (--sort sorts them; --unsorted does not apply); a VCF is read
+    /// as its footprints (--vcf-span); BAM, CRAM and SAM reads are read as
+    /// their reference spans.
+    #[command(after_long_help = "\
+Examples:
+  gloci stats jaccard -a peaks.bed -b genes.bed
+  gloci stats jaccard -a rep1.bed -b rep2.bed -f 0.5 -r
+  gloci stats jaccard -a calls.vcf.gz -b regions.bed --vcf-span ref
+  gloci stats jaccard -a unsorted-a.bed -b unsorted-b.bed --sort")]
+    Jaccard(JaccardArgs),
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct JaccardArgs {
+    #[command(flatten)]
+    pub a: AArg,
+    /// B: the file to compare A with (`-` for stdin).
+    #[arg(short = 'b', long = "b", value_name = "FILE", required = true)]
+    pub b: String,
+    /// B's format, overriding detection (bed, bedgraph, gff, vcf, bcf).
+    #[arg(long, value_name = "FMT")]
+    pub b_format: Option<String>,
+    /// Minimum fraction of a merged A interval covered, e.g. 0.5 or 50% (4.3: fractions).
+    #[arg(short = 'f', long, value_name = "FRAC", value_parser = parse_fraction)]
+    pub min_frac_a: Option<gloci_core::Fraction>,
+    /// Minimum fraction of a merged B interval covered, e.g. 0.5 or 50% (4.3: fractions).
+    #[arg(short = 'F', long, value_name = "FRAC", value_parser = parse_fraction)]
+    pub min_frac_b: Option<gloci_core::Fraction>,
+    /// Require both fractions to be met (4.3: -r).
+    #[arg(short = 'r', long)]
+    pub reciprocal: bool,
+    /// Require either fraction to be met (4.3: -e).
+    #[arg(short = 'e', long)]
+    pub either: bool,
+    /// Minimum number of overlapping bases (4.3: --min-bases).
+    #[arg(long, value_name = "N")]
+    pub min_bases: Option<u64>,
+    /// Merge each strand apart and count only overlaps on the same strand; unknown strands
+    /// never match.
+    #[arg(short = 's', long = "same-strand", conflicts_with = "opposite_strand")]
+    pub same_strand: bool,
+    /// Merge each strand apart and count only overlaps on opposite strands; unknown strands
+    /// never match.
+    #[arg(short = 'S', long = "opposite-strand")]
+    pub opposite_strand: bool,
+    /// A point on the edge of an interval overlaps it (4.3: points).
+    #[arg(long)]
+    pub inclusive_points: bool,
+    #[command(flatten)]
+    pub sort: RelationSortArg,
+    #[command(flatten)]
+    pub genome: GenomeArg,
+    #[command(flatten)]
+    pub chrom_order: ChromOrderArg,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub align: AlignArgs,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+impl JaccardArgs {
+    pub fn criteria(&self) -> gloci_core::OverlapCriteria {
+        OverlapArgs {
+            min_frac_a: self.min_frac_a,
+            min_frac_b: self.min_frac_b,
+            reciprocal: self.reciprocal,
+            either: self.either,
+            min_bases: self.min_bases,
+            same_strand: self.same_strand,
+            opposite_strand: self.opposite_strand,
+            split: false,
+            inclusive_points: self.inclusive_points,
+        }
+        .criteria()
+    }
 }
 
 #[cfg(test)]

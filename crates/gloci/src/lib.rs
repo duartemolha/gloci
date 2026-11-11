@@ -209,6 +209,9 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         Commands::Coverage(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
         Commands::Groupby(a) => (a.threads.threads, None),
         Commands::Maskfasta(a) => (a.threads.threads, None),
+        Commands::Stats(a) => match &a.command {
+            cli::StatsCommand::Jaccard(j) => (j.threads.threads, j.sort.tmp_dir.clone()),
+        },
         Commands::Vcf(a) => match &a.command {
             cli::VcfCommand::Filter(f) => (f.threads.threads, None),
             cli::VcfCommand::Extract(e) => (e.threads.threads, e.tmp_dir.tmp_dir.clone()),
@@ -262,6 +265,9 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         Commands::Coverage(a) => commands::coverage::run(&ctx, a),
         Commands::Groupby(a) => commands::groupby::run(&ctx, a),
         Commands::Maskfasta(a) => commands::maskfasta::run(&ctx, a),
+        Commands::Stats(a) => match &a.command {
+            cli::StatsCommand::Jaccard(j) => commands::stats::run_jaccard(&ctx, j),
+        },
         Commands::Vcf(a) => match &a.command {
             cli::VcfCommand::Filter(f) => commands::vcf::run_filter(&ctx, f),
             cli::VcfCommand::Extract(e) => commands::vcf::run_extract(&ctx, e),
