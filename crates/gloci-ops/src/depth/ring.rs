@@ -97,8 +97,15 @@ impl DepthRing {
     }
 
     /// Count the read `r`, whose D101 span is `span` (cut at the reference length), by walking
-    /// its CIGAR from its position. The positions before `span.start` are released first.
-    /// Bases below `clip` are not counted (0 = none): the overlap with an earlier mate.
+    /// its CIGAR from its position.
+    ///
+    /// The contract callers (`depth`, `--skip-mate-overlap`, `bedcov`) rely on:
+    /// - Reads arrive in order, and the caller must have taken or printed every position below
+    ///   `span.start` before calling: `add` releases them (a later `take(p)` with `p` below the
+    ///   ring's base returns 0).
+    /// - `clip` is an absolute position: bases at positions below it are not counted (0 =
+    ///   none), as for the part of a read that overlaps its mate. It does not shrink the span:
+    ///   `covered_end` grows to `span.end` and the positions in `span` still print.
     pub fn add(&mut self, r: &AlnRef<'_>, span: Interval, rules: &CountRules, clip: u64) {
         self.cover(span);
         let mask = self.counts.len() - 1;
