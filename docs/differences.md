@@ -1888,7 +1888,9 @@ depends on the span.
   record in any input is an error (exit 1) that names the two records and the fix (`gloci
   sort`). The inputs are open together, so merging more files than `ulimit -n` allows stops with
   an error that says so and names the fix (raise `ulimit -n`); 200 files merge under the usual
-  limit of 1,024. `--no-index` is accepted and ignored.
+  limit of 1,024. `--no-index` is accepted and ignored. The output keeps the first input's format
+  (VCF in, VCF out; BCF in, BCF out; `-O vcf`/`-O bcf` or the `-o` name choose), where `bcftools merge` writes
+  VCF unless `-O` says otherwise.
 - **Old behaviour:** `bcftools merge` needs every input bgzipped and indexed (`Failed to open
   FILE: not compressed with bgzip`, then `could not load index`), or `--no-index` with sorted
   inputs and no `-r`/`-R`; it also reads FILEs in any chromosome order the index allows.
@@ -1896,3 +1898,34 @@ depends on the span.
   `bcftools index` step.
 - **Pinned by:** `vcf-merge-plain-files-vs-bcftools` (bcftools exits 1 on plain files, gloci
   0: must differ). Every other `vcf merge` case gives the reference bgzipped, indexed copies.
+
+## `vcf merge` writes contigs in the header's order {#vcf-merge-contig-order}
+
+- **gloci:** merged records are written in the order of the first input's `##contig` lines (else
+  `--chrom-order`), whatever file has the first record.
+- **Old behaviour:** `bcftools merge` starts with the contig of the first record any input offers, so
+  when file 1 has no records on its first contig the output starts with a later contig and goes
+  back to the earlier one afterwards, against the header.
+- **Reason:** a sorted output is what every later step (`index`, `intersect`, `bcftools`) needs.
+- **Pinned by:** `vcf-merge-contig-order-vs-bcftools` (must differ: the two contigs swap places).
+
+## `vcf merge` is stricter about conflicting types {#vcf-merge-conflicting-types}
+
+- **gloci:** when two inputs declare an INFO or FORMAT tag with different Types, the first
+  declaration is kept (with a warning, as bcftools) and a record of another input that uses the
+  tag stops the merge (exit 1) naming the file, the position and the fix (make the `##INFO` or
+  `##FORMAT` lines agree).
+- **Old behaviour:** `bcftools merge` warns `Trying to combine "XF" tag definitions of different
+  types` and writes a value as it is when the tag is not combined (only one record of the output
+  has it); combining it (a rule, Number=A/R/G, FORMAT) fails.
+- **Reason:** the written value would not match the declared type; stopping early is safer.
+- **Pinned by:** `vcf-merge-conflicting-types-vs-bcftools` (must differ: bcftools exits 0, gloci 1).
+
+## `vcf merge` accepts an undeclared INFO tag {#vcf-merge-undeclared-info}
+
+- **gloci:** an INFO tag no input's header declares is written as a String, as `vcf split` keeps
+  undeclared tags ([differences.md#vcf-split-values](differences.md#vcf-split-values)). FORMAT keys
+  the merged header does not declare are dropped, as bcftools drops them.
+- **Old behaviour:** `bcftools merge` stops with `Error: The INFO field is not defined in the header`.
+- **Reason:** a missing header line is not a reason to lose the run.
+- **Pinned by:** `vcf-merge-undeclared-info-vs-bcftools` (must differ: gloci exits 0, bcftools 1).

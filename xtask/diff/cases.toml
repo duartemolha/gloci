@@ -5862,3 +5862,33 @@ aux = ["xtask/diff/inputs/vcf/merge/join-b.vcf"]
 gloci = "gloci vcf merge input.vcf join-b.vcf -i AF:max,RR:sum,GG:min"
 reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c join-b.vcf > join-b.vcf.gz && bcftools index join-b.vcf.gz && bcftools merge --no-version input.vcf.gz join-b.vcf.gz -i AF:max,RR:sum,GG:min"
 compare = "vcf-records"
+
+# File 1 has records on contig 2 only: bcftools writes contig 2 first, gloci follows the header's 1, 2.
+[[case]]
+name = "vcf-merge-contig-order-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/chrom-a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/chrom-b.vcf"]
+gloci = "gloci vcf merge input.vcf chrom-b.vcf"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c chrom-b.vcf > chrom-b.vcf.gz && bcftools index chrom-b.vcf.gz && bcftools merge --no-version input.vcf.gz chrom-b.vcf.gz"
+compare = "vcf-records"
+expected_difference = "#vcf-merge-contig-order"
+
+# INFO/XF is Integer in file 1 and Float in file 2, whose record uses it: bcftools warns and writes the value, gloci stops.
+[[case]]
+name = "vcf-merge-conflicting-types-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/type-a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/type-b.vcf"]
+gloci = "gloci vcf merge input.vcf type-b.vcf"
+reference = "(bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c type-b.vcf > type-b.vcf.gz && bcftools index type-b.vcf.gz && bcftools merge --no-version input.vcf.gz type-b.vcf.gz) >/dev/null 2>&1 || exit 1"
+compare = "exit-status"
+expected_difference = "#vcf-merge-conflicting-types"
+
+# A record uses an INFO tag no header declares: bcftools stops (exit 255), gloci writes it.
+[[case]]
+name = "vcf-merge-undeclared-info-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/undecl-a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/undecl-b.vcf"]
+gloci = "gloci vcf merge input.vcf undecl-b.vcf"
+reference = "(bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c undecl-b.vcf > undecl-b.vcf.gz && bcftools index undecl-b.vcf.gz && bcftools merge --no-version input.vcf.gz undecl-b.vcf.gz) >/dev/null 2>&1 || exit 1"
+compare = "exit-status"
+expected_difference = "#vcf-merge-undeclared-info"
