@@ -211,6 +211,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         Commands::Maskfasta(a) => (a.threads.threads, None),
         Commands::Stats(a) => match &a.command {
             cli::StatsCommand::Jaccard(j) => (j.threads.threads, j.sort.tmp_dir.clone()),
+            cli::StatsCommand::Fisher(f) => (f.threads.threads, f.sort.tmp_dir.clone()),
         },
         Commands::Vcf(a) => match &a.command {
             cli::VcfCommand::Filter(f) => (f.threads.threads, None),
@@ -267,6 +268,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         Commands::Maskfasta(a) => commands::maskfasta::run(&ctx, a),
         Commands::Stats(a) => match &a.command {
             cli::StatsCommand::Jaccard(j) => commands::stats::run_jaccard(&ctx, j),
+            cli::StatsCommand::Fisher(f) => commands::stats::run_fisher(&ctx, f),
         },
         Commands::Vcf(a) => match &a.command {
             cli::VcfCommand::Filter(f) => commands::vcf::run_filter(&ctx, f),

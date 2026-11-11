@@ -3136,6 +3136,29 @@ Examples:
   gloci stats jaccard -a calls.vcf.gz -b regions.bed --vcf-span ref
   gloci stats jaccard -a unsorted-a.bed -b unsorted-b.bed --sort")]
     Jaccard(JaccardArgs),
+    // P3b Task 3
+    /// Fisher's exact test of the overlap of two interval sets (bedtools fisher).
+    ///
+    /// Counts the records of A and B (nA, nB), their total lengths (LA, LB)
+    /// and the pairs that overlap under -f, -F, -r, -e, --min-bases, -s, -S
+    /// and --inclusive-points (n11); with --merge-overlaps each input is
+    /// merged first. The genome size G is the sum of the -g lengths (so -g is
+    /// required and must have lengths) less the merged length of the --exclude
+    /// BED. As bedtools does, the table is n11, n12 = nA - n11, n21 = nB -
+    /// n11 and n22 = N - n11 - n12 - n21, where N, the number of possible
+    /// intervals, is estimated as G / (2 + LA/nA + LB/nB) (rounded down, and
+    /// never fewer than n11 + n12 + n21). The report is bedtools' text:
+    /// the table in `#` lines, then the left, right and two-tail p-values of
+    /// klib's exact test (%.5g) and the odds ratio (%.3f, `inf` or `-nan`).
+    /// Inputs must be sorted in -g's order (--sort sorts A, B and the exclude
+    /// file); a VCF is read as its footprints (--vcf-span).
+    #[command(after_long_help = "\
+Examples:
+  gloci stats fisher -a peaks.bed -b genes.bed -g hg38
+  gloci stats fisher -a peaks.bed -b genes.bed -g sizes.genome --merge-overlaps
+  gloci stats fisher -a peaks.bed -b genes.bed -g hg38 --exclude gaps.bed -f 0.5
+  gloci stats fisher -a unsorted-a.bed -b unsorted-b.bed -g hg38 --sort")]
+    Fisher(FisherArgs),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -3192,6 +3215,86 @@ pub struct JaccardArgs {
     pub threads: ThreadArgs,
     #[command(flatten)]
     pub out: OutputArgs,
+}
+
+// P3b Task 3
+#[derive(Args, Debug, Clone)]
+pub struct FisherArgs {
+    #[command(flatten)]
+    pub a: AArg,
+    /// B: the file to compare A with (`-` for stdin).
+    #[arg(short = 'b', long = "b", value_name = "FILE", required = true)]
+    pub b: String,
+    /// B's format, overriding detection (bed, bedgraph, gff, vcf, bcf).
+    #[arg(long, value_name = "FMT")]
+    pub b_format: Option<String>,
+    /// Genome with chromosome lengths: a built-in genome such as hg38 (see gloci genomes), or a
+    /// .genome, .fai, .dict, VCF/BCF or BAM header file. Its lengths add up to the genome size.
+    #[arg(short, long, value_name = "NAME|FILE", required = true)]
+    pub genome: String,
+    /// Merge overlapping and bookended intervals of each input before counting (bedtools -m).
+    #[arg(short = 'm', long)]
+    pub merge_overlaps: bool,
+    /// Leave the merged length of this sorted BED out of the genome size (bedtools -exclude).
+    #[arg(long, value_name = "BED")]
+    pub exclude: Option<String>,
+    /// Minimum fraction of an A interval covered, e.g. 0.5 or 50% (4.3: fractions).
+    #[arg(short = 'f', long, value_name = "FRAC", value_parser = parse_fraction)]
+    pub min_frac_a: Option<gloci_core::Fraction>,
+    /// Minimum fraction of a B interval covered, e.g. 0.5 or 50% (4.3: fractions).
+    #[arg(short = 'F', long, value_name = "FRAC", value_parser = parse_fraction)]
+    pub min_frac_b: Option<gloci_core::Fraction>,
+    /// Require both fractions to be met (4.3: -r).
+    #[arg(short = 'r', long)]
+    pub reciprocal: bool,
+    /// Require either fraction to be met (4.3: -e).
+    #[arg(short = 'e', long)]
+    pub either: bool,
+    /// Minimum number of overlapping bases (4.3: --min-bases).
+    #[arg(long, value_name = "N")]
+    pub min_bases: Option<u64>,
+    /// Count only overlaps on the same strand; with --merge-overlaps each strand merges apart
+    /// and unknown strands never match.
+    #[arg(short = 's', long = "same-strand", conflicts_with = "opposite_strand")]
+    pub same_strand: bool,
+    /// Count only overlaps on opposite strands (bedtools -S needs a + or - here; gloci's is a
+    /// flag, as in the other commands).
+    #[arg(short = 'S', long = "opposite-strand")]
+    pub opposite_strand: bool,
+    /// A point on the edge of an interval overlaps it (4.3: points).
+    #[arg(long)]
+    pub inclusive_points: bool,
+    #[command(flatten)]
+    pub sort: RelationSortArg,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub align: AlignArgs,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+impl FisherArgs {
+    pub fn criteria(&self) -> gloci_core::OverlapCriteria {
+        OverlapArgs {
+            min_frac_a: self.min_frac_a,
+            min_frac_b: self.min_frac_b,
+            reciprocal: self.reciprocal,
+            either: self.either,
+            min_bases: self.min_bases,
+            same_strand: self.same_strand,
+            opposite_strand: self.opposite_strand,
+            split: false,
+            inclusive_points: self.inclusive_points,
+        }
+        .criteria()
+    }
 }
 
 impl JaccardArgs {

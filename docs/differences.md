@@ -1947,3 +1947,20 @@ depends on the span.
   `coverage`. Inputs without points agree with bedtools.
 - **Pinned by:** `stats-jaccard-points-vs-bedtools` (must differ); the same files without points
   match (`stats-jaccard-table-vs-bedtools`).
+
+## `stats fisher` with an empty A or B prints the n22 that x86 bedtools prints {#fisher-empty-estimate}
+
+- **gloci:** when A or B has no records, the estimated number of possible intervals is
+  `n11 + n12 + n21` (the smallest the table allows), so `n22` is 0: `# Number of possible intervals
+  (estimated): 3` for an empty A and three B records. The p-values are `1 1 1` and the ratio `-nan`,
+  as in bedtools.
+- **Old behaviour:** `bedtools fisher` divides by zero for the estimate, which is NaN, and converts
+  it to a 64-bit integer. The result is whatever the CPU makes of a NaN: x86 gives the smallest
+  `long long`, which loses the `max` against `n11 + n12 + n21`, so the table is gloci's. Arm gives
+  the largest `long long` (the 2.31.1 image the goldens come from is aarch64), so the same inputs
+  print `9223372036854775807` as the estimate and `9223372036854775804` in the `n22` cell.
+- **Reason:** a number that depends on the CPU the tool was built for has no place in a table; the
+  x86 value is the one most bedtools builds print. Only the two lines that show the estimate and
+  the `n22` cell differ; the counts, p-values and ratio match.
+- **Pinned by:** `stats-fisher-empty-a-vs-bedtools` and `stats-fisher-empty-b-vs-bedtools` (must
+  differ, on an aarch64 reference; on x86 they would be equal and the expected difference stale).

@@ -6006,3 +6006,146 @@ aux = ["xtask/diff/inputs/p3b/stats/jaccard-bu.bed"]
 gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-bu.bed -s"
 reference = "bedtools jaccard -a input.bed -b jaccard-bu.bed -s"
 compare = "exact"
+
+# P3b Task 3: stats fisher vs bedtools fisher 2.31.1 (reference spells --exclude as -exclude).
+# fisher-a.bed has overlapping records (5 raw, 4 merged), so -m and the all-overlap case (n11 = 7 > nA = 5,
+# n12 clamps to 0) tell merged from raw counting; -f 0.5 drops two of the five pairs.
+
+[[case]]
+name = "stats-fisher-default-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-b.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt"
+reference = "bedtools fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-merge-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-b.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt --merge-overlaps"
+reference = "bedtools fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt -m"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-merge-short-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-b.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt -m"
+reference = "bedtools fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt -m"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-fraction-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-b.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt -f 0.5"
+reference = "bedtools fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt -f 0.5"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-fraction-b-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-b.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt -F 0.5"
+reference = "bedtools fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt -F 0.5"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-reciprocal-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-b.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt -f 0.4 -r"
+reference = "bedtools fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt -f 0.4 -r"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-exclude-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-b.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt", "xtask/diff/inputs/p3b/stats/fisher-gaps.bed"]
+gloci = "gloci stats fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt --exclude fisher-gaps.bed"
+reference = "bedtools fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt -exclude fisher-gaps.bed"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-exclude-merge-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-b.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt", "xtask/diff/inputs/p3b/stats/fisher-gaps.bed"]
+gloci = "gloci stats fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt -m --exclude fisher-gaps.bed"
+reference = "bedtools fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt -exclude fisher-gaps.bed -m"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-no-overlap-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-far.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-far.bed -g fisher-genome.txt"
+reference = "bedtools fisher -a input.bed -b fisher-far.bed -g fisher-genome.txt"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-all-overlap-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-a.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-a.bed -g fisher-genome.txt"
+reference = "bedtools fisher -a input.bed -b fisher-a.bed -g fisher-genome.txt"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-estimate-integer-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-thirds-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-thirds-b.bed", "xtask/diff/inputs/p3b/stats/fisher-genome-1000.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-thirds-b.bed -g fisher-genome-1000.txt"
+reference = "bedtools fisher -a input.bed -b fisher-thirds-b.bed -g fisher-genome-1000.txt"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-generated-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-gen-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-gen-b.bed", "xtask/diff/inputs/p3b/stats/fisher-genome-1m.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-gen-b.bed -g fisher-genome-1m.txt"
+reference = "bedtools fisher -a input.bed -b fisher-gen-b.bed -g fisher-genome-1m.txt"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-generated-merge-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-gen-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-gen-b.bed", "xtask/diff/inputs/p3b/stats/fisher-genome-1m.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-gen-b.bed -g fisher-genome-1m.txt -m"
+reference = "bedtools fisher -a input.bed -b fisher-gen-b.bed -g fisher-genome-1m.txt -m"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-same-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-au.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-bu.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-bu.bed -g fisher-genome.txt -s"
+reference = "bedtools fisher -a input.bed -b fisher-bu.bed -g fisher-genome.txt -s"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-same-strand-merge-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-au.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-bu.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-bu.bed -g fisher-genome.txt -s -m"
+reference = "bedtools fisher -a input.bed -b fisher-bu.bed -g fisher-genome.txt -s -m"
+compare = "exact"
+
+# bedtools estimates an empty side's n22_full as NaN; C turns that into a platform value.
+[[case]]
+name = "stats-fisher-empty-a-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-empty.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-b.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt"
+reference = "bedtools fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt"
+compare = "exact"
+expected_difference = "#fisher-empty-estimate"
+
+[[case]]
+name = "stats-fisher-empty-b-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-empty.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-empty.bed -g fisher-genome.txt"
+reference = "bedtools fisher -a input.bed -b fisher-empty.bed -g fisher-genome.txt"
+compare = "exact"
+expected_difference = "#fisher-empty-estimate"
