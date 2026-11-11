@@ -12,10 +12,10 @@ use gloci_core::{
 };
 use gloci_io::{
     AlignOptions, AlnSource, BGZF_EOF, Compression, Format, Header, InvalidPolicy, IoError,
-    LEX_SORTED_NOTE, Loc, Opened, ReaderOptions, RecordBatch, SortOrder, aln_ref, bed12_blocks,
-    check_bcf_record, chrom_table_for, cram_eof_present, cram_first_container, detect_compression,
-    next_batch_size, open_reader_or_alignments, open_reader_or_alignments_from, read_cram_prelude,
-    sort_hint,
+    LEX_SORTED_NOTE, Loc, Opened, ReaderOptions, RecordBatch, SortOrder, UsageError, aln_ref,
+    bed12_blocks, check_bcf_record, chrom_table_for, cram_eof_present, cram_first_container,
+    detect_compression, next_batch_size, open_reader_or_alignments, open_reader_or_alignments_from,
+    read_cram_prelude, sort_hint,
 };
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -25,6 +25,18 @@ use std::path::Path;
 
 /// Problems listed per category.
 const MAX_LISTED: usize = 10;
+
+const CHROM_MAP_NOT_FOR_ALIGNMENTS: &str = "check describes an alignment file as it is; \
+--chrom-map does not apply to BAM, CRAM or SAM";
+
+fn chrom_map_usage() -> IoError {
+    IoError::Usage(UsageError(CHROM_MAP_NOT_FOR_ALIGNMENTS.to_string()))
+}
+
+/// Is `e` the refusal of a SAM source to rename references (one message for all three formats)?
+fn is_sam_chrom_map_refusal(e: &IoError) -> bool {
+    matches!(e, IoError::Usage(u) if u.0.contains("--chrom-map cannot rename"))
+}
 
 /// What a full check of an alignment file adds to the summary (D129).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -63,6 +75,9 @@ pub struct CheckReport {
     pub warnings: Problems,
     /// Set for an alignment file read in full.
     pub aln: Option<AlnSummary>,
+    /// A usage error found while checking this file (an option that does not apply to its
+    /// format); the command stops with it, exit status 2.
+    pub usage: Option<String>,
     /// The report of `check --quick`: only the header, the first record and the end of the file
     /// were looked at.
     pub quick: bool,
@@ -124,7 +139,16 @@ impl CheckReport {
             },
             warnings: Problems::default(),
             aln: None,
+            usage: None,
             quick: false,
+        }
+    }
+
+    /// A file that cannot be checked because of an option that does not apply to it.
+    pub fn usage_error(name: &str, msg: String) -> CheckReport {
+        CheckReport {
+            usage: Some(msg.clone()),
+            ..CheckReport::quick_failed(name, msg)
         }
     }
 
@@ -310,8 +334,29 @@ pub fn check_file(
         ..AlignOptions::default()
     });
     alignments.full_records = true;
-    let mut reader = match open_reader_or_alignments(path, &ro)? {
-        Opened::Alignments(src) => return check_alignments(path, src),
+    let opened = open_reader_or_alignments(path, &ro).map_err(|e| {
+        if ro.chrom_map.is_some() && is_sam_chrom_map_refusal(&e) {
+            chrom_map_usage()
+        } else {
+            e
+        }
+    })?;
+    let mut reader = match opened {
+        Opened::Alignments(src) => {
+            if ro.chrom_map.is_some() {
+                return Err(chrom_map_usage());
+            }
+            if genome.is_some() {
+                static ONCE: std::sync::Once = std::sync::Once::new();
+                ONCE.call_once(|| {
+                    log::warn!(
+                        "-g and --chrom-order do not apply to BAM, CRAM or SAM: the header's \
+@SQ lines give the references and the sort order is the @HD SO"
+                    )
+                });
+            }
+            return check_alignments(path, src);
+        }
         Opened::Records(r) => r,
     };
     let mut chroms = match genome {
@@ -533,6 +578,7 @@ pub fn check_file(
         errors,
         warnings,
         aln: None,
+        usage: None,
         quick: false,
     })
 }
@@ -732,6 +778,7 @@ fn check_alignments(path: &str, mut src: Box<dyn AlnSource>) -> Result<CheckRepo
         errors,
         warnings,
         aln: Some(summary),
+        usage: None,
         quick: false,
     })
 }
@@ -747,8 +794,9 @@ pub struct QuickOptions {
 /// file lists a reference (unless `q.unaligned`), the first record parses (for a CRAM, the
 /// first container, so that no reference is needed), and a regular file ends with its BGZF or
 /// CRAM end-of-file marker. Standard input is not checked for the marker, as htslib. Only the
-/// header, the first record and the last 38 bytes are read. A problem is recorded in the
-/// report, which never fails to be made.
+/// header, the first record and the last 28 bytes are read of a BGZF file (the header, the first
+/// container and the last 38 bytes of a CRAM). A problem is recorded in the report, which never
+/// fails to be made; an option that does not apply to the format is a usage error in it.
 pub fn quick_check(path: &str, o: &ReaderOptions, q: &QuickOptions) -> CheckReport {
     let r = if path == "-" {
         quick_open(path, Box::new(std::io::stdin()), o, q)
@@ -763,6 +811,9 @@ pub fn quick_check(path: &str, o: &ReaderOptions, q: &QuickOptions) -> CheckRepo
                 f.seek(SeekFrom::Start(0))
                     .map_err(|e| format!("cannot read {path}: {e}"))?;
                 if &magic[..n] == b"CRAM" {
+                    if o.chrom_map.is_some() {
+                        return Err(CHROM_MAP_NOT_FOR_ALIGNMENTS.to_string());
+                    }
                     return quick_cram(path, q).map(|()| (Format::Cram, Compression::None));
                 }
                 let regular = f.metadata().is_ok_and(|m| m.is_file());
@@ -775,6 +826,7 @@ pub fn quick_check(path: &str, o: &ReaderOptions, q: &QuickOptions) -> CheckRepo
     };
     match r {
         Ok((format, compression)) => quick_ok(path, format, compression),
+        Err(msg) if msg == CHROM_MAP_NOT_FOR_ALIGNMENTS => CheckReport::usage_error(path, msg),
         Err(msg) => CheckReport::quick_failed(path, msg),
     }
 }
@@ -789,6 +841,7 @@ pub fn quick_check_reader<R: Read + Seek + Send + 'static>(
 ) -> CheckReport {
     match quick_regular(name, r, o, q) {
         Ok((format, compression)) => quick_ok(name, format, compression),
+        Err(msg) if msg == CHROM_MAP_NOT_FOR_ALIGNMENTS => CheckReport::usage_error(name, msg),
         Err(msg) => CheckReport::quick_failed(name, msg),
     }
 }
@@ -806,6 +859,7 @@ fn quick_ok(name: &str, format: Format, compression: Compression) -> CheckReport
         errors: Problems::default(),
         warnings: Problems::default(),
         aln: None,
+        usage: None,
         quick: true,
     }
 }
@@ -854,8 +908,18 @@ fn quick_open(
     o.accept
         .alignments
         .get_or_insert_with(AlignOptions::default);
-    match open_reader_or_alignments_from(name, src, &o).map_err(|e| e.to_string())? {
+    let opened = open_reader_or_alignments_from(name, src, &o).map_err(|e| {
+        if o.chrom_map.is_some() && is_sam_chrom_map_refusal(&e) {
+            CHROM_MAP_NOT_FOR_ALIGNMENTS.to_string()
+        } else {
+            e.to_string()
+        }
+    })?;
+    match opened {
         Opened::Alignments(mut s) => {
+            if o.chrom_map.is_some() {
+                return Err(CHROM_MAP_NOT_FOR_ALIGNMENTS.to_string());
+            }
             if s.header().refs.is_empty() && !q.unaligned {
                 return Err(format!(
                     "{name} has no @SQ line in its header; if it holds unaligned reads, pass \

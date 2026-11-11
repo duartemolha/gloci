@@ -354,3 +354,37 @@ fn quick_reads_little() {
         bytes.len()
     );
 }
+
+#[test]
+fn check_chrom_map_is_not_for_alignments() {
+    let d = tempdir();
+    let map = plain_file(d.path(), "m.tsv", "chr1\tone\n");
+    let sam = sam_fixture("coord-unsorted.sam");
+    let mapf = s(&map);
+    let files = [
+        sam_fixture("coord-unsorted.bam"),
+        sam,
+        s(&inputs().join("aln/flags.cram")),
+    ];
+    for f in &files {
+        for quick in [false, true] {
+            let mut args = vec!["check", "--chrom-map", &mapf];
+            if quick {
+                args.push("--quick");
+            }
+            args.push(f);
+            let (code, out, err) = run(&args);
+            assert_eq!(code, 2, "{f} quick={quick}: {out}{err}");
+            assert!(
+                err.contains("--chrom-map does not apply to BAM, CRAM or SAM"),
+                "{f}: {err}"
+            );
+        }
+    }
+    // Interval files keep it.
+    let bed = plain_file(d.path(), "a.bed", "chr1\t1\t5\n");
+    gloci()
+        .args(["check", "--chrom-map", &s(&map), &s(&bed)])
+        .assert()
+        .success();
+}

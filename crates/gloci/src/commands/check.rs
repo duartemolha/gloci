@@ -52,6 +52,9 @@ pub fn run(ctx: &Ctx, a: &CheckArgs) -> anyhow::Result<bool> {
                 Err(e) => CheckReport::unreadable(f, e.to_string()),
             }
         };
+        if let Some(msg) = &report.usage {
+            return Err(UsageError(msg.clone()).into());
+        }
         if a.list_failed {
             // Only the failing paths on stdout; what is wrong with each goes to stderr.
             if report.has_errors() {

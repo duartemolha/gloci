@@ -229,7 +229,11 @@ Examples:
     /// one, is an error; a read past the end of its reference and identical
     /// records at one position are warnings. A BAM without its BGZF
     /// end-of-file block (a CRAM without its end-of-file container) is an
-    /// error.
+    /// error. -g, --chrom-order and --chrom-map do not apply to them
+    /// (-g and --chrom-order give one warning, --chrom-map is a usage
+    /// error): the header says the references and the order. Duplicate
+    /// warnings assume coordinate-sorted input, as they compare only
+    /// records at the same position.
     ///
     /// --quick is samtools quickcheck, for any format: the header must
     /// parse (alignments: with an @SQ line, unless --unaligned), the first
