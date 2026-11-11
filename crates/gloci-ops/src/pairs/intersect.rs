@@ -6,6 +6,7 @@
 //! written in A's order, so the output does not depend on the thread count.
 //! At most `2 * threads` batches are in flight.
 
+use super::{Counts, PairSummary, PairWorker, run_a};
 use crate::intersect::Text;
 use crate::skipped::log_reader;
 use gloci_core::{ChromId, ChromTable, Interval, OverlapCriteria, Strand, StrandRule, thousands};
@@ -14,11 +15,8 @@ use gloci_io::{
     BedpeBatch, BedpeEnd, BedpeMeta, BedpeReader, Format, Header, IoError, RecordBatch,
     RecordReader, UsageError, column_count,
 };
-use std::collections::BTreeMap;
 use std::io::Write;
 use std::num::NonZeroUsize;
-use std::sync::mpsc::{channel, sync_channel};
-use std::sync::{Arc, Mutex};
 
 /// What `pair-intersect` reports (bedtools `-type`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,16 +81,6 @@ impl PairType {
 pub struct PairIntersectOptions {
     pub kind: PairType,
     pub criteria: OverlapCriteria,
-}
-
-/// What a run saw.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct PairSummary {
-    /// Pairs read from A.
-    pub a_pairs: u64,
-    /// Pairs a span type left out because an end is absent (one or both) or
-    /// the ends are on different chromosomes.
-    pub span_skipped: u64,
 }
 
 /// B's records after loading: the index, and each record's text and shape.
@@ -168,14 +156,6 @@ fn load_b(mut b: Box<dyn RecordReader>, chroms: &mut ChromTable) -> Result<BStor
     let w = width(b.format(), b.header(), first.as_deref());
     crate::relate::b_placeholder(b.format(), w, &mut store.placeholder);
     Ok(store)
-}
-
-#[derive(Default)]
-struct Counts {
-    pairs: u64,
-    span_skipped: u64,
-    /// An end of unknown strand met a strand rule.
-    a_unknown: bool,
 }
 
 #[derive(Default)]
@@ -318,7 +298,7 @@ impl Worker<'_> {
         }
     }
 
-    fn batch(&self, batch: &BedpeBatch, out: &mut Vec<u8>) -> Counts {
+    fn run_batch(&self, batch: &BedpeBatch, out: &mut Vec<u8>) -> Counts {
         let mut n = Counts::default();
         let mut s = Scratch::default();
         for (i, m) in batch.recs.iter().enumerate() {
@@ -329,23 +309,16 @@ impl Worker<'_> {
     }
 }
 
+impl PairWorker for Worker<'_> {
+    fn batch(&self, batch: &BedpeBatch, out: &mut Vec<u8>) -> Result<Counts, IoError> {
+        Ok(self.run_batch(batch, out))
+    }
+}
+
 #[derive(Clone, Copy)]
 enum Select {
     One,
     Two,
-}
-
-/// The result of one batch, by sequence number.
-struct Done {
-    out: Vec<u8>,
-    counts: Counts,
-}
-
-fn werr(source: std::io::Error) -> IoError {
-    IoError::Write {
-        path: "output".to_string(),
-        source,
-    }
 }
 
 /// The option checks that need no input, so a command can run them before it
@@ -378,52 +351,9 @@ pub fn pair_intersect(
         kind: o.kind,
         criteria: &o.criteria,
     };
-    let mut summary = PairSummary::default();
-    let mut a_unknown = false;
-    let mut take = |c: &Counts, summary: &mut PairSummary| {
-        summary.a_pairs += c.pairs;
-        summary.span_skipped += c.span_skipped;
-        a_unknown |= c.a_unknown;
-    };
-    let (mut batch, mut max) = (BedpeBatch::default(), 1usize);
-    let mut next = |a: &mut BedpeReader,
-                    chroms: &mut ChromTable,
-                    batch: &mut BedpeBatch|
-     -> Result<bool, IoError> {
-        batch.clear();
-        let more = a.read_batch(chroms, batch, max)?;
-        if !batch.is_empty() {
-            let per_rec = batch.buf.len() / batch.len() + 1;
-            max = ((4usize << 20) / per_rec).clamp(1, 16384);
-        }
-        Ok(more)
-    };
-    if threads.get() == 1 {
-        let mut buf = Vec::new();
-        loop {
-            let more = next(&mut a, chroms, &mut batch)?;
-            buf.clear();
-            let c = worker.batch(&batch, &mut buf);
-            take(&c, &mut summary);
-            out.write_all(&buf).map_err(werr)?;
-            if !more {
-                break;
-            }
-        }
-    } else {
-        parallel(&mut a, chroms, &worker, threads, out, &mut next, &mut |c| {
-            take(c, &mut summary)
-        })?;
-    }
-    log_reader_bedpe(&a);
+    let (summary, a_unknown) = run_a(&mut a, chroms, &worker, threads, out, "pair-intersect")?;
     warn(o, &store, a.name(), a_unknown, &summary);
     Ok(summary)
-}
-
-fn log_reader_bedpe(a: &BedpeReader) {
-    if let Some(s) = a.diagnostics().summary(a.name()) {
-        log::warn!("{s}");
-    }
 }
 
 fn warn(o: &PairIntersectOptions, store: &BStore, a_name: &str, a_unknown: bool, s: &PairSummary) {
@@ -443,100 +373,4 @@ are on different chromosomes",
             o.kind.name()
         );
     }
-}
-
-type NextBatch<'f> =
-    dyn FnMut(&mut BedpeReader, &mut ChromTable, &mut BedpeBatch) -> Result<bool, IoError> + 'f;
-
-/// Batches of A across workers, written in order; at most `2 * threads`
-/// batches in flight.
-fn parallel(
-    a: &mut BedpeReader,
-    chroms: &mut ChromTable,
-    worker: &Worker<'_>,
-    threads: NonZeroUsize,
-    out: &mut dyn Write,
-    next: &mut NextBatch<'_>,
-    take: &mut dyn FnMut(&Counts),
-) -> Result<(), IoError> {
-    let n = threads.get();
-    let limit = 2 * n;
-    std::thread::scope(|scope| {
-        let (job_tx, job_rx) = sync_channel::<(u64, BedpeBatch)>(limit);
-        let job_rx = Arc::new(Mutex::new(job_rx));
-        let (done_tx, done_rx) = channel::<(u64, Done)>();
-        for _ in 0..n {
-            let (job_rx, done_tx) = (job_rx.clone(), done_tx.clone());
-            scope.spawn(move || {
-                loop {
-                    let job = job_rx.lock().unwrap_or_else(|e| e.into_inner()).recv();
-                    let Ok((seq, batch)) = job else { break };
-                    let mut buf = Vec::new();
-                    let counts = worker.batch(&batch, &mut buf);
-                    if done_tx.send((seq, Done { out: buf, counts })).is_err() {
-                        break;
-                    }
-                }
-            });
-        }
-        drop(done_tx);
-        let mut pending: BTreeMap<u64, Done> = BTreeMap::new();
-        let (mut sent, mut written) = (0u64, 0u64);
-        let mut flush = |pending: &mut BTreeMap<u64, Done>, written: &mut u64| {
-            while let Some(d) = pending.remove(written) {
-                take(&d.counts);
-                out.write_all(&d.out).map_err(werr)?;
-                *written += 1;
-            }
-            Ok::<(), IoError>(())
-        };
-        let mut result = Ok(());
-        loop {
-            let mut batch = BedpeBatch::default();
-            let more = match next(a, chroms, &mut batch) {
-                Ok(m) => m,
-                Err(e) => {
-                    result = Err(e);
-                    break;
-                }
-            };
-            while sent - written >= limit as u64 && result.is_ok() {
-                match done_rx.recv() {
-                    Ok((seq, d)) => {
-                        pending.insert(seq, d);
-                        result = flush(&mut pending, &mut written);
-                    }
-                    Err(_) => {
-                        result = Err(IoError::Internal("a pair-intersect worker died".into()));
-                    }
-                }
-            }
-            if result.is_err() {
-                break;
-            }
-            if !batch.is_empty() {
-                if job_tx.send((sent, batch)).is_err() {
-                    result = Err(IoError::Internal("a pair-intersect worker died".into()));
-                    break;
-                }
-                sent += 1;
-            }
-            if !more {
-                break;
-            }
-        }
-        drop(job_tx);
-        while result.is_ok() && written < sent {
-            match done_rx.recv() {
-                Ok((seq, d)) => {
-                    pending.insert(seq, d);
-                    result = flush(&mut pending, &mut written);
-                }
-                Err(_) => {
-                    result = Err(IoError::Internal("a pair-intersect worker died".into()));
-                }
-            }
-        }
-        result
-    })
 }
