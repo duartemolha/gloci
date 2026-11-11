@@ -13,6 +13,15 @@ use gloci_ops::{ReportOutput, open_report};
 use std::io::{IsTerminal, Write};
 
 pub fn run(ctx: &Ctx, a: &ShuffleArgs) -> anyhow::Result<()> {
+    if a.out.write_index {
+        return Err(UsageError(
+            "--write-index: shuffle output is unsorted, so it cannot be indexed; write it, then \
+`gloci sort` it, then index it: gloci shuffle ... -o x.bed && gloci sort x.bed -g G \
+-o x.sorted.bed.gz --write-index"
+                .into(),
+        )
+        .into());
+    }
     let spec = parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref())?;
     let format = match a.format.format.as_deref() {
         None => None,

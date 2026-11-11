@@ -281,6 +281,31 @@ fn shuffle_header_and_gzip_output() {
 }
 
 #[test]
+fn shuffle_refuses_write_index_up_front() {
+    let d = tempdir();
+    let g = genome(d.path());
+    let f = plain_file(d.path(), "a.bed", "chr1\t0\t5\n");
+    let out = d.path().join("x.bed.gz");
+    gloci()
+        .args([
+            "shuffle",
+            f.to_str().unwrap(),
+            "-g",
+            &g,
+            "--seed",
+            "1",
+            "--write-index",
+            "-o",
+        ])
+        .arg(&out)
+        .assert()
+        .code(2)
+        .stderr(contains("shuffle output is unsorted"))
+        .stderr(contains("gloci sort"));
+    assert!(!out.exists());
+}
+
+#[test]
 fn shuffle_same_bytes_at_any_thread_count() {
     let d = tempdir();
     let g = genome(d.path());
