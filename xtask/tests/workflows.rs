@@ -113,6 +113,60 @@ fn release_workflow_and_dockerfile_are_valid() {
         "release.yml must create the GitHub release after the image push"
     );
 
+    // Every job that runs `cargo xtask` installs the pinned toolchain first.
+    let mut jobs: Vec<(String, String)> = Vec::new();
+    let mut in_jobs = false;
+    for line in release_yml.lines() {
+        if line == "jobs:" {
+            in_jobs = true;
+        } else if in_jobs
+            && line.starts_with("  ")
+            && !line.starts_with("   ")
+            && line.trim_end().ends_with(':')
+        {
+            jobs.push((line.trim().trim_end_matches(':').to_string(), String::new()));
+        } else if let Some(j) = jobs.last_mut() {
+            j.1.push_str(line);
+            j.1.push('\n');
+        }
+    }
+    assert!(!jobs.is_empty(), "release.yml has no jobs");
+    for (name, body) in &jobs {
+        if body.contains("cargo xtask") {
+            let tc = body.find("dtolnay/rust-toolchain@");
+            let x = body.find("cargo xtask").unwrap();
+            assert!(
+                tc.is_some_and(|t| t < x),
+                "release.yml job {name} runs cargo xtask without a pinned dtolnay/rust-toolchain step before it"
+            );
+            assert!(
+                body.contains("Swatinem/rust-cache@"),
+                "release.yml job {name} runs cargo xtask without the Swatinem/rust-cache step"
+            );
+        }
+    }
+
+    // The release notes are built before the release is created, and the
+    // GHCR login and push stay off unless GLOCI_PUBLISH_GHCR is true (D80).
+    let notes = release_yml.find("cargo xtask release-notes").unwrap();
+    assert!(
+        notes < release,
+        "release-notes must run before Create GitHub Release"
+    );
+    for step in [
+        "name: Log in to GitHub Container Registry",
+        "name: Build and push GHCR image",
+    ] {
+        let at = release_yml.find(step).unwrap();
+        let next = release_yml[at + 1..]
+            .find("      - ")
+            .map_or(release_yml.len(), |n| at + 1 + n);
+        assert!(
+            release_yml[at..next].contains("if: vars.GLOCI_PUBLISH_GHCR == 'true'"),
+            "{step} must carry `if: vars.GLOCI_PUBLISH_GHCR == 'true'`"
+        );
+    }
+
     // 3. ci.yml must include actionlint
     let ci_path = root.join(".github/workflows/ci.yml");
     let ci_yml = fs::read_to_string(&ci_path).unwrap();
