@@ -39,6 +39,9 @@ unsafe impl GlobalAlloc for Counting {
     }
 }
 
+/// The counters are global: one test at a time, building its files included.
+static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[global_allocator]
 static A: Counting = Counting;
 
@@ -96,6 +99,7 @@ fn measure(path: &std::path::Path, threads: usize, records: u64) -> usize {
 
 #[test]
 fn head_memory_is_bounded() {
+    let _one = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let d = tempfile::tempdir().unwrap();
     let (small_n, big_n) = (2_000, 200_000);
     type Maker = fn(usize) -> Vec<u8>;
@@ -130,6 +134,7 @@ fn head_memory_is_bounded() {
 /// `--records` above the batch size the peak must still not grow with the input.
 #[test]
 fn head_large_records_is_bounded_by_the_batch() {
+    let _one = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let d = tempfile::tempdir().unwrap();
     let mut peaks = Vec::new();
     for n in [200_000usize, 2_000_000] {
