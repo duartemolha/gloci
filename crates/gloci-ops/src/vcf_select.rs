@@ -503,14 +503,14 @@ impl<'a> SelectStage<'a> {
 }
 
 /// Test instrumentation: the most decoded genotypes the parallel stage held
-/// in flight since [`reset_inflight_peak`].
-static INFLIGHT: AtomicUsize = AtomicUsize::new(0);
+/// in flight since [`reset_inflight_peak`]. (The running count is local to
+/// each run, so an error cannot leave it off.)
 static INFLIGHT_PEAK: AtomicUsize = AtomicUsize::new(0);
 
 /// Reset the in-flight peak counter (see [`inflight_peak`]).
 #[doc(hidden)]
 pub fn reset_inflight_peak() {
-    INFLIGHT_PEAK.store(INFLIGHT.load(Ordering::SeqCst), Ordering::SeqCst);
+    INFLIGHT_PEAK.store(0, Ordering::SeqCst);
 }
 
 /// The most decoded genotypes held in flight by the parallel selection
@@ -572,10 +572,11 @@ struct Done {
     err: Option<IoError>,
 }
 
-fn work_batch(spec: &Spec<'_>, core: &mut Core, mut job: Job) -> Done {
+fn work_batch(spec: &Spec<'_>, core: &mut Core, mut job: Job, flight: &AtomicUsize) -> Done {
     let mut err = None;
     if job.seq == PANIC_AT_BATCH.load(Ordering::SeqCst) {
-        panic!("test hook: worker panic on batch {}", job.seq);
+        // `resume_unwind` panics without the panic hook's message.
+        std::panic::resume_unwind(Box::new("test hook: worker panic"));
     }
     for i in 0..job.batch.len() {
         let rec_no = job.base + i as u64 + 1;
@@ -622,7 +623,7 @@ fn work_batch(spec: &Spec<'_>, core: &mut Core, mut job: Job) -> Done {
         });
     }
     let held = job.hits.packed.n_samples_held();
-    let now = INFLIGHT.fetch_add(held, Ordering::SeqCst) + held;
+    let now = flight.fetch_add(held, Ordering::SeqCst) + held;
     INFLIGHT_PEAK.fetch_max(now, Ordering::SeqCst);
     Done { job, err }
 }
@@ -632,6 +633,7 @@ fn worker(
     jobs: &crossbeam_channel::Receiver<Job>,
     done: &crossbeam_channel::Sender<Done>,
     abort: &AtomicBool,
+    flight: &AtomicUsize,
 ) {
     // The expression parsed for the driver's core, so this cannot fail; a
     // worker that cannot start leaves its jobs to the others, and the driver
@@ -643,7 +645,34 @@ fn worker(
         if abort.load(Ordering::Relaxed) {
             break;
         }
-        if done.send(work_batch(spec, &mut core, job)).is_err() {
+        let (seq, base) = (job.seq, job.base);
+        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            work_batch(spec, &mut core, job, flight)
+        }));
+        // A panic must reach the driver, which waits for this batch.
+        let (d, panicked) = match ran {
+            Ok(d) => (d, false),
+            Err(_) => {
+                let err = IoError::Internal(format!(
+                    "a selection worker panicked on the batch starting at record {}; this is a bug in gloci, please report it",
+                    base + 1
+                ));
+                let job = Job {
+                    seq,
+                    base,
+                    batch: RecordBatch::default(),
+                    hits: Hits::default(),
+                };
+                (
+                    Done {
+                        job,
+                        err: Some(err),
+                    },
+                    true,
+                )
+            }
+        };
+        if done.send(d).is_err() || panicked {
             break;
         }
     }
@@ -673,6 +702,32 @@ where
     Ok(records_in)
 }
 
+/// What ended a batch early: an error in reading it or in the record order.
+/// The batch holds the records before it, which still run (an earlier
+/// record's own error then comes first).
+fn read_guarded(
+    input: &mut dyn RecordReader,
+    chroms: &mut ChromTable,
+    guard: &mut Option<OrderGuard>,
+    batch: &mut RecordBatch,
+    max: usize,
+) -> (bool, Option<IoError>) {
+    let (more, read_err) = match input.read_batch(chroms, batch, max) {
+        Ok(more) => (more, None),
+        Err(e) => (false, Some(e)),
+    };
+    if let Some(g) = guard.as_mut() {
+        for i in 0..batch.len() {
+            if let Err(e) = g.check_range(chroms, batch, i..i + 1) {
+                batch.recs.truncate(i);
+                return (false, Some(e));
+            }
+        }
+        g.settle(chroms, batch, batch.len());
+    }
+    (more, read_err)
+}
+
 fn run_sequential<F>(
     input: &mut dyn RecordReader,
     chroms: &mut ChromTable,
@@ -688,10 +743,8 @@ where
     let mut records_in = 0u64;
     loop {
         batch.clear();
-        let more = input.read_batch(chroms, &mut batch, max.min(limit))?;
-        if let Some(g) = stage.guard.as_mut() {
-            g.check(chroms, &batch)?;
-        }
+        let (more, ended) =
+            read_guarded(input, chroms, &mut stage.guard, &mut batch, max.min(limit));
         for i in 0..batch.len() {
             records_in += 1;
             let m = &batch.recs[i];
@@ -719,6 +772,9 @@ where
                 genotypes: (stage.spec.share_decoded && p.stats.is_some())
                     .then_some(&shared as &dyn GenotypeSource),
             })?;
+        }
+        if let Some(e) = ended {
+            return Err(e);
         }
         max = next_batch_size(&batch, max);
         if !more {
@@ -750,12 +806,14 @@ where
     } = stage;
     let spec: &Spec<'_> = spec;
     let abort = AtomicBool::new(false);
+    let flight = AtomicUsize::new(0);
+    let flight = &flight;
     std::thread::scope(|scope| {
         let (job_tx, job_rx) = crossbeam_channel::bounded::<Job>(cap);
         let (done_tx, done_rx) = crossbeam_channel::unbounded::<Done>();
         for _ in 0..workers {
             let (rx, tx, abort) = (job_rx.clone(), done_tx.clone(), &abort);
-            scope.spawn(move || worker(spec, &rx, &tx, abort));
+            scope.spawn(move || worker(spec, &rx, &tx, abort, flight));
         }
         drop(job_rx);
         drop(done_tx);
@@ -777,19 +835,9 @@ where
                     let (mut batch, mut hits) = spare.pop().unwrap_or_default();
                     batch.clear();
                     hits.clear();
-                    let more = match input.read_batch(chroms, &mut batch, max.min(limit)) {
-                        Ok(m) => m,
-                        Err(e) => {
-                            input_err = Some(e);
-                            break;
-                        }
-                    };
-                    if let Some(g) = guard.as_mut()
-                        && let Err(e) = g.check(chroms, &batch)
-                    {
-                        input_err = Some(e);
-                        break;
-                    }
+                    let (more, ended) =
+                        read_guarded(input, chroms, guard, &mut batch, max.min(limit));
+                    input_err = ended;
                     max = next_batch_size(&batch, max);
                     eof = !more;
                     if batch.is_empty() {
@@ -836,7 +884,7 @@ where
                         genotypes: packed.as_ref().map(|p| p as &dyn GenotypeSource),
                     })?;
                 }
-                INFLIGHT.fetch_sub(held, Ordering::SeqCst);
+                flight.fetch_sub(held, Ordering::SeqCst);
                 if let Some(e) = err {
                     return Err(e);
                 }
@@ -849,10 +897,6 @@ where
         })();
         abort.store(true, Ordering::Relaxed);
         drop(job_tx);
-        // Batches left in flight no longer count.
-        for d in pending.values() {
-            INFLIGHT.fetch_sub(d.job.hits.packed.n_samples_held(), Ordering::SeqCst);
-        }
         result
     })
 }

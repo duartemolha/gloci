@@ -409,7 +409,10 @@ fn parallel_selection_bounded() {
     let workers = 7;
     let batch = 26 * samples; // max(1, 524288 / 20000) records
     let bound = 2 * workers * 524_288;
-    assert!(peak > 5 * batch, "{peak} genotypes in flight: no read-ahead");
+    assert!(
+        peak > 5 * batch,
+        "{peak} genotypes in flight: no read-ahead"
+    );
     assert!(
         peak <= bound,
         "{peak} genotypes in flight; the bound is {bound}"
