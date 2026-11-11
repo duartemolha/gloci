@@ -248,6 +248,30 @@ fn regions_file_uses_index() {
     assert_eq!(err.matches("scanning the whole file").count(), 1, "{err}");
 }
 
+/// A FIFO (process substitution) cannot be indexed: the scan warning suggests no `gloci index`
+/// for it (O1), as for stdin, and still does for a regular file.
+#[test]
+fn view_count_region_of_a_fifo_suggests_no_index() {
+    let bam = p(&inputs().join("aln/flags.bam"));
+    let o = bash_gloci(&format!("view --count <(cat '{bam}') chr1"), "");
+    assert_eq!(o.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&o.stdout), "11\n");
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(err.contains("scanning the whole file /dev/fd/"), "{err}");
+    assert!(!err.contains("gloci index"), "{err}");
+    let dir = tempdir();
+    let plain = dir.path().join("plain.bam");
+    std::fs::copy(&bam, &plain).unwrap();
+    let o = gloci()
+        .args(["view", "--count", &p(&plain), "chr1"])
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(err.contains("create an index with: gloci index"), "{err}");
+}
+
 #[test]
 fn view_count_is_identical_at_every_thread_count() {
     let i = inputs();

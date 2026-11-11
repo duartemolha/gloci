@@ -837,8 +837,9 @@ write SAM instead (-O sam)",
             let mut by_name: HashMap<Vec<u8>, RegionSet> = sets.into_iter().collect();
             by_ref = header.refs.iter().map(|(n, _)| by_name.remove(n)).collect();
             if path != "-" && by_ref.iter().any(Option::is_some) {
+                // Only a regular file can be indexed (not a FIFO such as `<(cat x.bam)`).
                 let hint = match input_format {
-                    Format::Bam | Format::Cram if !wanted.is_empty() => {
+                    Format::Bam | Format::Cram if !wanted.is_empty() && file.is_some() => {
                         format!("; create an index with: gloci index {name}")
                     }
                     _ => String::new(),
