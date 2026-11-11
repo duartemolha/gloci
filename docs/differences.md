@@ -2343,8 +2343,9 @@ cases (must match).
   same sets. `random` also places every interval in one draw over all valid starts, where bedtools
   rejects and redraws an interval that does not fit; the distribution is the same, and an `-l`
   longer than every chromosome is an error naming the longest one (bedtools loops forever).
-- **Pinned by:** `random-vs-bedtools` (must differ; the same seed gives other intervals) and the
-  gloci-only tests `random_pinned` and `random_uniform`.
+- **Pinned by:** `random-vs-bedtools` and `shuffle-vs-bedtools` (must differ; the same seed gives
+  other places) and the gloci-only tests `random_pinned`, `random_uniform` and `shuffle_pinned`.
+  `shuffle` draws record *j* from stream *j*, retries included.
 
 ## `sample` writes records in input order {#sample-order}
 
@@ -2359,3 +2360,44 @@ cases (must match).
 - **Also:** `--strand +|-` replaces `-s forward|reverse`; a record of unknown strand never
   complies. With fewer records than N both commands fail (exit 1) and gloci writes nothing
   (`sample-too-few-vs-bedtools`). `sample` of BAM and `-ubam` are not planned (`samtools view -s`).
+
+## `shuffle` keeps the whole record inside the allowed regions {#shuffle-placement}
+
+- **gloci:** the allowed set is the `--include` regions (else the genome) minus the `--exclude`
+  regions, merged per chromosome. A record of length L goes to any `(chromosome, start)` that keeps
+  all of `[start, start + L)` inside one allowed interval, every such place equally likely
+  (`--same-chrom`: on its chromosome; `--chrom-first`: a chromosome with room first, then a place on
+  it). A record with no place is an error (exit 1) naming its file, line and length, with the fix
+  (shrink `--exclude`, widen `--include`, or `--skip-unplaceable`, which drops such records, warns
+  with a count and lists the first 10); nothing is written to a file.
+- **Old behaviour:** `bedtools shuffle -incl` only puts the record's *start* inside an include
+  region, so the record can run out of it (and into `-excl` regions it never checks past the start
+  region). A record that fits nowhere is dropped with a message on stderr and exit 0, and without
+  `-chrom` bedtools keeps drawing forever when it fits nowhere on any chromosome.
+- **Reason:** `--include` means the regions the records must lie in, and a silently shortened
+  output or a hang is worse than an error that says how to fix it.
+- **Pinned by:** `shuffle-include-containment` and `shuffle-unplaceable-vs-bedtools` (must differ:
+  exit 1 where bedtools exits 0); `shuffle-skip-unplaceable-vs-bedtools` and
+  `shuffle-forced-vs-bedtools` (must match: the records that have one place get it, columns and
+  strand kept).
+- **Also:** `-chrom`, `-chromFirst`, `-excl`, `-incl`, `-maxTries` and `-noOverlapping` are
+  `--same-chrom`, `--chrom-first`, `--exclude`, `--include`, `--max-tries` and `--no-overlapping`;
+  bedtools' `-f`, `-allowBeyondChromEnd` and `-incl` strand copying are not planned. VCF and
+  alignment input are refused (exit 2; `gloci convert` first). Output is in input order and not
+  sorted, so `--write-index` is refused (exit 2).
+
+## `shuffle --format bedpe` moves both ends {#shuffle-bedpe-ends}
+
+- **gloci:** a pair on one chromosome is placed as its outer span, so the ends keep their lengths
+  and the gap; a pair on two chromosomes places each end independently; an absent end (`. -1 -1`)
+  stays absent. With `--exclude` both ends avoid the excluded regions (the gap may cross them),
+  redrawn up to `--max-tries`. `--include`, `--same-chrom`, `--chrom-first` and `--no-overlapping`
+  are exit 2.
+- **Old behaviour:** `bedtools shuffle` on BEDPE moves end 1 and writes end 2 unchanged (it never
+  moves it, whether the ends share a chromosome or not), and it ignores `-excl`, `-incl`, `-chrom`
+  and `-noOverlapping` for BEDPE without a word.
+- **Reason:** a shuffled pair with one end where it started is not a null model for either end, and
+  an ignored option should be an error.
+- **Pinned by:** `shuffle-bedpe-ends-vs-bedtools` (must differ: end 2 sits inside `--exclude`, so
+  gloci's never lies where bedtools leaves it) and `shuffle-forced-bedpe-vs-bedtools` (must match:
+  pairs whose ends fill their chromosomes have one place).

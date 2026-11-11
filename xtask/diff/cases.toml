@@ -7511,3 +7511,82 @@ gloci = "gloci random -g input.genome -l 10 -n 5 --seed 1"
 reference = "bedtools random -g input.genome -l 10 -n 5 -seed 1"
 compare = "exact"
 expected_difference = "#rng-stream"
+
+# P3b Task 6
+# Every record spans its whole chromosome, so each has one possible place and the output must
+# match whatever the generator. Trap: the passthrough columns (name, score, strand, an extra
+# column, a `.` strand) and `-chrom` / `--same-chrom` keeping chrA's two records on chrA.
+[[case]]
+name = "shuffle-forced-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/random/shuffle-forced.bed" }
+aux = ["xtask/diff/inputs/p3b/random/shuffle-forced.genome"]
+gloci = "gloci shuffle input.bed -g shuffle-forced.genome --same-chrom --seed 1"
+reference = "bedtools shuffle -i input.bed -g shuffle-forced.genome -chrom -seed 1"
+compare = "exact"
+
+# BEDPE pairs whose ends fill the only chromosome, so every end has one place (a pair with
+# ends elsewhere is not forced for both tools: docs/differences.md#shuffle-bedpe-ends). Trap:
+# an absent end (`. -1 -1` stays) and the strand columns, `.` included.
+[[case]]
+name = "shuffle-forced-bedpe-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/random/shuffle-forced.bedpe" }
+aux = ["xtask/diff/inputs/p3b/random/shuffle-forced-bedpe.genome"]
+gloci = "gloci shuffle input.bedpe --format bedpe -g shuffle-forced-bedpe.genome --seed 1"
+reference = "bedtools shuffle -i input.bedpe -g shuffle-forced-bedpe.genome -seed 1"
+compare = "exact"
+
+# `--exclude` leaves chrA 5 bases: the 6-base record has no place and the 5-base one has one.
+# Both tools drop the first (bedtools prints "could not avoid excluded regions" and goes on,
+# but only under -chrom: without it, it loops forever on a record that fits nowhere; gloci needs
+# --skip-unplaceable) and place the second at 5.
+[[case]]
+name = "shuffle-skip-unplaceable-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/random/shuffle-skip.bed" }
+aux = ["xtask/diff/inputs/p3b/random/shuffle-skip.genome", "xtask/diff/inputs/p3b/random/shuffle-skip.exclude.bed"]
+gloci = "gloci shuffle input.bed -g shuffle-skip.genome --exclude shuffle-skip.exclude.bed --skip-unplaceable --same-chrom --seed 1"
+reference = "bedtools shuffle -i input.bed -g shuffle-skip.genome -excl shuffle-skip.exclude.bed -chrom -seed 1"
+compare = "exact"
+
+# The same input without --skip-unplaceable: gloci stops with exit 1, bedtools drops the record
+# and exits 0 (docs/differences.md#shuffle-placement).
+[[case]]
+name = "shuffle-unplaceable-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/random/shuffle-skip.bed" }
+aux = ["xtask/diff/inputs/p3b/random/shuffle-skip.genome", "xtask/diff/inputs/p3b/random/shuffle-skip.exclude.bed"]
+gloci = "gloci shuffle input.bed -g shuffle-skip.genome --exclude shuffle-skip.exclude.bed --same-chrom --seed 1"
+reference = "bedtools shuffle -i input.bed -g shuffle-skip.genome -excl shuffle-skip.exclude.bed -chrom -seed 1"
+compare = "exit-status"
+expected_difference = "#shuffle-placement"
+
+# A 10-base record and a 5-base include region: gloci needs the whole record inside it (no
+# place, exit 1); bedtools only puts the start inside and writes the record running out.
+[[case]]
+name = "shuffle-include-containment"
+input = { file = "xtask/diff/inputs/p3b/random/shuffle-incl.bed" }
+aux = ["xtask/diff/inputs/p3b/random/shuffle-incl.genome", "xtask/diff/inputs/p3b/random/shuffle-incl.include.bed"]
+gloci = "gloci shuffle input.bed -g shuffle-incl.genome --include shuffle-incl.include.bed --seed 1"
+reference = "bedtools shuffle -i input.bed -g shuffle-incl.genome -incl shuffle-incl.include.bed -seed 1"
+compare = "exit-status"
+expected_difference = "#shuffle-placement"
+
+# Free placement: the same seed gives different places (docs/differences.md#rng-stream).
+[[case]]
+name = "shuffle-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/random/shuffle-random.bed" }
+aux = ["xtask/diff/inputs/p3b/random/random.genome"]
+gloci = "gloci shuffle input.bed -g random.genome --seed 1"
+reference = "bedtools shuffle -i input.bed -g random.genome -seed 1"
+compare = "exact"
+expected_difference = "#rng-stream"
+
+# bedtools moves only end 1 of a pair on one chromosome and leaves end 2 where it was; gloci
+# moves the pair as a whole. End 2 sat inside --exclude, so gloci's can never be where
+# bedtools leaves it (docs/differences.md#shuffle-bedpe-ends).
+[[case]]
+name = "shuffle-bedpe-ends-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/random/shuffle-bedpe.bedpe" }
+aux = ["xtask/diff/inputs/p3b/random/shuffle-bedpe.genome", "xtask/diff/inputs/p3b/random/shuffle-bedpe.exclude.bed"]
+gloci = "gloci shuffle input.bedpe --format bedpe -g shuffle-bedpe.genome --exclude shuffle-bedpe.exclude.bed --seed 1"
+reference = "bedtools shuffle -i input.bedpe -g shuffle-bedpe.genome -excl shuffle-bedpe.exclude.bed -seed 1"
+compare = "exact"
+expected_difference = "#shuffle-bedpe-ends"

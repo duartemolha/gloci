@@ -1,0 +1,1 @@
+shuffle input.bedpe --format bedpe -g shuffle-bedpe.genome --exclude shuffle-bedpe.exclude.bed --seed 1
