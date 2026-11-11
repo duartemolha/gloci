@@ -202,7 +202,6 @@ impl<'a> FaidxWriter<'a> {
         } else {
             fasta.fetch(&r.chrom, iv, &mut |chunk| w.put(chunk))?;
         }
-        w.finish()?;
         w.finish()
     }
 }
