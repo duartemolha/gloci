@@ -11,8 +11,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 const FLAG_UNMAPPED: u16 = 0x4;
-/// Bytes of rows gathered before they are handed on.
-const FLUSH_AT: usize = 1 << 16;
+/// Bytes of rows gathered before they are handed on: as large as the output's own buffer, so
+/// a chunk passes through it without being copied again.
+const FLUSH_AT: usize = 1 << 20;
 
 /// What a run of rows is computed from: the options as `depth` normalises them, the
 /// references, and the regions merged per reference.
@@ -85,11 +86,13 @@ impl<'a> Plan<'a> {
     }
 }
 
-/// Formats rows into a buffer and hands it on every 64 KiB.
+/// Formats rows into a buffer and hands it on every [`FLUSH_AT`] bytes.
 pub(crate) struct Emitter<'a> {
     sink: &'a mut dyn FnMut(&[u8]) -> io::Result<()>,
     buf: Vec<u8>,
     pub rows: u64,
+    /// `CHROM\tPOS` of the row last started.
+    head: RowHead,
 }
 
 impl<'a> Emitter<'a> {
@@ -98,6 +101,7 @@ impl<'a> Emitter<'a> {
             sink,
             buf: Vec::with_capacity(FLUSH_AT + 4096),
             rows: 0,
+            head: RowHead::default(),
         }
     }
 
@@ -109,15 +113,25 @@ impl<'a> Emitter<'a> {
         Ok(())
     }
 
-    fn row_start(&mut self, name: &[u8], pos1: u64) {
-        self.buf.extend_from_slice(name);
-        self.buf.push(b'\t');
-        push_u64(&mut self.buf, pos1);
+    /// Start the row of the 1-based position `pos1` on the reference `rid`, called `name`.
+    fn row_start(&mut self, rid: usize, name: &[u8], pos1: u64) {
+        self.head.to(rid, name, pos1);
+        self.buf.extend_from_slice(&self.head.text);
     }
 
     fn column(&mut self, depth: u32) {
-        self.buf.push(b'\t');
-        push_u64(&mut self.buf, u64::from(depth));
+        if depth < 10 {
+            self.buf.extend_from_slice(&[b'\t', b'0' + depth as u8]);
+        } else if depth < 100 {
+            self.buf.extend_from_slice(&[
+                b'\t',
+                b'0' + (depth / 10) as u8,
+                b'0' + (depth % 10) as u8,
+            ]);
+        } else {
+            self.buf.push(b'\t');
+            push_u64(&mut self.buf, u64::from(depth));
+        }
     }
 
     fn row_end(&mut self) -> io::Result<()> {
@@ -127,6 +141,92 @@ impl<'a> Emitter<'a> {
             self.flush()?;
         }
         Ok(())
+    }
+
+    /// The rows of the positions `[a, b)` of the reference `rid`, called `name`, where every
+    /// one of `columns` depths is 0.
+    fn zero_rows(
+        &mut self,
+        rid: usize,
+        name: &[u8],
+        a: u64,
+        b: u64,
+        columns: usize,
+    ) -> io::Result<()> {
+        for p in a..b {
+            self.head.to(rid, name, p + 1);
+            self.buf.extend_from_slice(&self.head.text);
+            for _ in 0..columns {
+                self.buf.extend_from_slice(b"\t0");
+            }
+            self.buf.push(b'\n');
+            if self.buf.len() >= FLUSH_AT {
+                self.flush()?;
+            }
+        }
+        self.rows += b.saturating_sub(a);
+        Ok(())
+    }
+}
+
+/// The start of a row, `CHROM\tPOS`, kept from row to row: consecutive rows count the
+/// position up in place, without writing the name or dividing.
+struct RowHead {
+    text: Vec<u8>,
+    /// Where the digits of the position start in `text`.
+    digits_at: usize,
+    /// The reference of `text`; `usize::MAX` before the first row.
+    rid: usize,
+    value: u64,
+}
+
+impl Default for RowHead {
+    fn default() -> RowHead {
+        RowHead {
+            text: Vec::new(),
+            digits_at: 0,
+            rid: usize::MAX,
+            value: 0,
+        }
+    }
+}
+
+impl RowHead {
+    /// Hold the position `v` (1-based) of the reference `rid`, called `name`.
+    fn to(&mut self, rid: usize, name: &[u8], v: u64) {
+        if rid != self.rid {
+            self.text.clear();
+            self.text.extend_from_slice(name);
+            self.text.push(b'\t');
+            self.digits_at = self.text.len();
+            self.rid = rid;
+        } else if v == self.value {
+            return;
+        } else if v == self.value.wrapping_add(1) {
+            self.step();
+            return;
+        }
+        self.text.truncate(self.digits_at);
+        push_u64(&mut self.text, v);
+        self.value = v;
+    }
+
+    /// Hold the next position.
+    fn step(&mut self) {
+        self.value += 1;
+        let mut i = self.text.len() - 1;
+        loop {
+            if self.text[i] < b'9' {
+                self.text[i] += 1;
+                return;
+            }
+            self.text[i] = b'0';
+            if i == self.digits_at {
+                self.text.insert(i, b'1');
+                return;
+            }
+            i -= 1;
+        }
     }
 }
 
@@ -464,13 +564,46 @@ impl Printer<'_, '_, '_> {
 
     fn positions(&mut self, inputs: &mut [Input], rid: usize, a: u64, b: u64) -> io::Result<()> {
         let name = &self.plan.refs[rid].0;
-        for p in a..b {
-            self.em.row_start(name, p + 1);
+        // At and past every input's covered end, every depth is 0.
+        let covered = inputs
+            .iter()
+            .map(|i| i.ring.covered_end())
+            .max()
+            .unwrap_or(0)
+            .clamp(a, b);
+        for p in a..covered {
+            self.em.row_start(rid, name, p + 1);
             for i in inputs.iter_mut() {
                 self.em.column(i.ring.take(p));
             }
             self.em.row_end()?;
         }
-        Ok(())
+        self.em.zero_rows(rid, name, covered, b, inputs.len())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RowHead;
+
+    #[test]
+    fn row_head_counts_up_and_jumps() {
+        let mut h = RowHead::default();
+        let steps = (1..=12)
+            .chain(98..=101)
+            .chain([999, 1000, 7, 8, 8, 1_000_000_000_000]);
+        for v in steps {
+            h.to(0, b"chr1", v);
+            assert_eq!(h.text, format!("chr1\t{v}").as_bytes(), "after to({v})");
+        }
+        h.to(3, b"chrX", 8);
+        assert_eq!(h.text, b"chrX\t8");
+        h.to(3, b"chrX", 9);
+        assert_eq!(h.text, b"chrX\t9");
+        h.to(0, b"chr1", 10);
+        assert_eq!(h.text, b"chr1\t10");
+        h.to(0, b"chr1", u64::MAX - 1);
+        h.to(0, b"chr1", u64::MAX);
+        assert_eq!(h.text, format!("chr1\t{}", u64::MAX).as_bytes());
     }
 }
