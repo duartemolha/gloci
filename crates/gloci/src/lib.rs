@@ -247,6 +247,46 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         version: env!("CARGO_PKG_VERSION"),
     };
 
+    // The command runs on a thread with the pool workers' stack, so that every thread that can
+    // decode CRAM has it: the command's own at -t 1 and the per-chromosome readers too.
+    let Some((result, all_ok)) = on_worker_stack(|| dispatch(&cli, &ctx)) else {
+        eprintln!("error: cannot start the command's thread; check the system's thread limits");
+        return ExitCode::from(1);
+    };
+    match result {
+        Ok(()) if all_ok => ExitCode::SUCCESS,
+        Ok(()) => ExitCode::from(1),
+        Err(e) => match classify(&e) {
+            Outcome::Usage(msg) => {
+                eprintln!("error: {msg}");
+                ExitCode::from(2)
+            }
+            Outcome::BrokenPipe => ExitCode::SUCCESS,
+            Outcome::Reported => ExitCode::from(1),
+            Outcome::Failure(msg) => {
+                eprintln!("error: {msg}");
+                ExitCode::from(1)
+            }
+        },
+    }
+}
+
+/// Run `f` on a thread with the stack of the pool workers ([`gloci_io::WORKER_STACK`]):
+/// noodles-cram's order-1 rANS and name tokeniser need it. A panic in `f` goes on in the
+/// caller; `None` when the thread cannot be started.
+fn on_worker_stack<T: Send>(f: impl FnOnce() -> T + Send) -> Option<T> {
+    std::thread::scope(|s| {
+        let h = std::thread::Builder::new()
+            .name("gloci".into())
+            .stack_size(gloci_io::WORKER_STACK)
+            .spawn_scoped(s, f)
+            .ok()?;
+        Some(h.join().unwrap_or_else(|p| std::panic::resume_unwind(p)))
+    })
+}
+
+/// Run the parsed command: its result, and false when `check` found a problem.
+fn dispatch(cli: &Cli, ctx: &Ctx) -> (anyhow::Result<()>, bool) {
     let mut all_ok = true;
     let result = match &cli.command {
         Commands::Genomes(a) => commands::genomes::run(a),
@@ -282,22 +322,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
             cli::VcfCommand::Concat(c) => commands::vcf::run_concat(&ctx, c),
         },
     };
-    match result {
-        Ok(()) if all_ok => ExitCode::SUCCESS,
-        Ok(()) => ExitCode::from(1),
-        Err(e) => match classify(&e) {
-            Outcome::Usage(msg) => {
-                eprintln!("error: {msg}");
-                ExitCode::from(2)
-            }
-            Outcome::BrokenPipe => ExitCode::SUCCESS,
-            Outcome::Reported => ExitCode::from(1),
-            Outcome::Failure(msg) => {
-                eprintln!("error: {msg}");
-                ExitCode::from(1)
-            }
-        },
-    }
+    (result, all_ok)
 }
 
 #[cfg(test)]
@@ -426,5 +451,27 @@ mod tests {
         ));
         let other = anyhow::Error::new(Error::from(ErrorKind::NotFound));
         assert!(matches!(classify(&other), Outcome::Failure(_)));
+    }
+}
+
+#[cfg(test)]
+mod stack_tests {
+    use super::on_worker_stack;
+
+    /// About `n` x 256 KiB of stack.
+    fn deep(n: u32) -> u64 {
+        let buf = [n as u8; 256 << 10];
+        let x = u64::from(std::hint::black_box(&buf)[buf.len() - 1]);
+        if n == 0 { x } else { x + deep(n - 1) }
+    }
+
+    #[test]
+    fn the_command_runs_on_the_worker_stack() {
+        // 8 MiB of frames: more than a test thread's 2 MiB, well within the 16 MiB.
+        assert_eq!(on_worker_stack(|| deep(32)), Some((0..=32).sum()));
+        assert_eq!(
+            on_worker_stack(|| std::thread::current().name().map(String::from)),
+            Some(Some("gloci".into()))
+        );
     }
 }
