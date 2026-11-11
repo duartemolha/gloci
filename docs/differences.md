@@ -2370,10 +2370,11 @@ cases (must match).
   it). A record with no place is an error (exit 1) naming its file, line and length, with the fix
   (shrink `--exclude`, widen `--include`, or `--skip-unplaceable`, which drops such records, warns
   with a count and lists the first 10); nothing is written to a file.
-- **Old behaviour:** `bedtools shuffle -incl` only puts the record's *start* inside an include
-  region, so the record can run out of it (and into `-excl` regions it never checks past the start
-  region). A record that fits nowhere is dropped with a message on stderr and exit 0, and without
-  `-chrom` bedtools keeps drawing forever when it fits nowhere on any chromosome.
+- **Old behaviour:** `bedtools shuffle -incl` only requires the record's *start* to fall inside an
+  include region, so the record can run past the end of it. `-excl` is checked against the whole
+  record (a place overlapping an excluded region is redrawn). A record that fits nowhere is dropped
+  with a message on stderr and exit 0, and without `-chrom` bedtools keeps drawing forever when it
+  fits nowhere on any chromosome.
 - **Reason:** `--include` means the regions the records must lie in, and a silently shortened
   output or a hang is worse than an error that says how to fix it.
 - **Pinned by:** `shuffle-include-containment` and `shuffle-unplaceable-vs-bedtools` (must differ:

@@ -696,3 +696,23 @@ fn shuffle_bedpe_refuses_flags_before_creating_output() {
     left.sort();
     assert_eq!(left, ["a.bedpe", "g.genome"], "no output or temp file");
 }
+
+#[test]
+fn shuffle_reads_wig_as_intervals_and_writes_bedgraph() {
+    let d = tempdir();
+    let g = plain_file(d.path(), "g.genome", "chr1\t5\n");
+    let f = plain_file(
+        d.path(),
+        "a.wig",
+        "track type=wiggle_0\nfixedStep chrom=chr1 start=11 step=5 span=5\n1.5\n2.5\n",
+    );
+    // Every 5-base interval fills the 5-base chromosome: one place each.
+    let out = run(&[
+        f.to_str().unwrap(),
+        "-g",
+        g.to_str().unwrap(),
+        "--seed",
+        "1",
+    ]);
+    assert_eq!(out, "chr1\t0\t5\t1.5\nchr1\t0\t5\t2.5\n");
+}

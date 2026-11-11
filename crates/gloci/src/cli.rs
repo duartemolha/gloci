@@ -1147,8 +1147,9 @@ Examples:
     /// With --format bedpe each pair is moved: a pair on one chromosome keeps
     /// its end lengths and gap, a pair on two places its ends independently,
     /// and only --exclude, --seed, --max-tries and --skip-unplaceable apply.
-    /// Output is in input order and not sorted (pipe to gloci sort); VCF and
-    /// alignment input are refused (gloci convert). --include/--exclude read
+    /// Output is in input order and not sorted (pipe to gloci sort). WIG is read
+    /// as intervals and written as bedGraph; VCF and alignment input are refused
+    /// (gloci convert). --include/--exclude read
     /// the names of -g, after --chrom-map (which renames them like the input). The output depends
     /// on --seed only, never on --threads; without --seed a fresh seed is
     /// chosen and printed as a warning. It is not bedtools' output for the same
