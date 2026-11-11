@@ -284,7 +284,7 @@ pub fn fisher_table(c: &FisherCounts) -> FisherTable {
     }
 }
 
-// ---- klib's kt_fisher_exact, operation for operation ----
+// ---- klib's kt_fisher_exact as bedtools 2.31.1 bundles it (src/fisher/kfunc.cpp) ----
 
 fn lbinom(n: i64, k: i64) -> f64 {
     if k == 0 || n == k {
@@ -340,11 +340,6 @@ impl HgAcc {
     }
 }
 
-/// C's `abs(int)` applied to an `int64_t` difference, as klib does.
-fn c_abs(v: i64) -> i64 {
-    i64::from((v as i32).wrapping_abs())
-}
-
 /// klib's `kt_fisher_exact`: (left, right, two-tail) p-values of the table.
 pub fn kt_fisher_exact(n11: i64, n12: i64, n21: i64, n22: i64) -> (f64, f64, f64) {
     let n1_ = n11 + n12;
@@ -357,6 +352,18 @@ pub fn kt_fisher_exact(n11: i64, n12: i64, n21: i64, n22: i64) -> (f64, f64, f64
     }
     let mut aux = HgAcc::default();
     let q = aux.acc(n11, n1_, n_1, n);
+    if q == 0.0 {
+        // The table's probability underflows, so both tails and the two-tail are 0 to a good
+        // approximation; which of left and right gets the 1 depends on which side of the mode
+        // n11 sits (bedtools 2.31.1 src/fisher/kfunc.cpp, compared without a division).
+        return if n11.wrapping_mul(n.wrapping_add(2))
+            < n_1.wrapping_add(1).wrapping_mul(n1_.wrapping_add(1))
+        {
+            (0.0, 1.0, 0.0)
+        } else {
+            (1.0, 0.0, 0.0)
+        };
+    }
     // left tail
     let mut p = aux.acc(min, 0, 0, 0);
     let mut left = 0.0;
@@ -391,7 +398,7 @@ pub fn kt_fisher_exact(n11: i64, n12: i64, n21: i64, n22: i64) -> (f64, f64, f64
     if two > 1.0 {
         two = 1.0;
     }
-    if c_abs(i - n11) < c_abs(j - n11) {
+    if (i - n11).abs() < (j - n11).abs() {
         right = 1.0 - left + q;
     } else {
         left = 1.0 - right + q;

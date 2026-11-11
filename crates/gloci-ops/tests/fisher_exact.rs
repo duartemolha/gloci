@@ -96,6 +96,21 @@ fn kt_fisher_exact_published_table() {
     assert!(close(two, 34.0 / 70.0), "{two}");
 }
 
+/// klib's `q == 0` branch (the table's probability underflows): the 1 goes to the side the mode
+/// is on, as in bedtools 2.31.1's kfunc.cpp.
+#[test]
+fn kt_fisher_exact_underflow_branch() {
+    // Enriched: all 3000 of A's and B's intervals shared, in a small universe.
+    assert_eq!(kt_fisher_exact(3000, 0, 0, 100_000), (1.0, 0.0, 0.0));
+    // Depleted: none shared although 3000 each would share about 1475.
+    assert_eq!(kt_fisher_exact(0, 3000, 3000, 100), (0.0, 1.0, 0.0));
+    // The reviewer's table: 5000 x 5000 with 300 shared on 10^8 bases.
+    assert_eq!(
+        kt_fisher_exact(300, 4700, 4700, 99_990_300),
+        (1.0, 0.0, 0.0)
+    );
+}
+
 fn counts(n_a: u64, len_a: u64, n_b: u64, len_b: u64, overlaps: u64, g: u64) -> FisherCounts {
     FisherCounts {
         n_a,

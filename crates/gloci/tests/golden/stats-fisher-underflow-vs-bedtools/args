@@ -1,0 +1,1 @@
+stats fisher -a input.bed -b fisher-q0-b.bed -g fisher-q0-genome.txt

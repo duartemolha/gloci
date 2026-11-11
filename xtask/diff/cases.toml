@@ -6140,3 +6140,13 @@ gloci = "gloci stats fisher -a input.bed -b fisher-bu.bed -g fisher-genome.txt -
 reference = "bedtools fisher -a input.bed -b fisher-bu.bed -g fisher-genome.txt -S"
 compare = "exit-status"
 expected_difference = "#fisher-empty-estimate"
+
+# klib's q == 0 branch: the table's probability underflows (5000 A records, 300 of them shared with
+# B's 5000, on 10^8 bases). Without the branch the tails loop and give "0 1 0" for this enriched table.
+[[case]]
+name = "stats-fisher-underflow-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-q0-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-q0-b.bed", "xtask/diff/inputs/p3b/stats/fisher-q0-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-q0-b.bed -g fisher-q0-genome.txt"
+reference = "bedtools fisher -a input.bed -b fisher-q0-b.bed -g fisher-q0-genome.txt"
+compare = "exact"
