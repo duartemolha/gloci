@@ -85,10 +85,7 @@ sort the inputs without -m to remove or find duplicates",
     if let Some(src) = sources.probe_alignments(a.reference.as_deref(), probe_threads)? {
         // (With -m the other inputs may be CRAM: only a single input is known to be none.)
         if !a.merge_sorted || files.len() == 1 {
-            gloci_io::warn_unused_reference(
-                a.reference.as_deref(),
-                src.format() == Format::Cram,
-            );
+            gloci_io::warn_unused_reference(a.reference.as_deref(), src.format() == Format::Cram);
         }
         return run_alignments(ctx, a, &sources, &files, src, &spec);
     }

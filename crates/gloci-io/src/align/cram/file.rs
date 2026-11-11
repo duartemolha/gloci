@@ -466,7 +466,7 @@ fn read_container(s: &Shared, offset: u64) -> Result<RawContainer, IoError> {
     // fault (stale, or made for another file), not the CRAM.
     let mut probe = Vec::new();
     let mut reader = BufReader::new(f);
-    let ok = matches!(read_container_header(&mut reader, &mut probe), Ok(_));
+    let ok = read_container_header(&mut reader, &mut probe).is_ok();
     if !ok {
         return Err(IoError::Detect {
             path: s.index.display().to_string(),
