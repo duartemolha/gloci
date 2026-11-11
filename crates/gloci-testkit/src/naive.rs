@@ -1376,14 +1376,8 @@ pub fn naive_pair_intersect(
         let row = |i: usize| format!("{}\t{}", p.line, b[i].bed_line());
         if matches!(kind, "ispan" | "ospan" | "notispan" | "notospan") {
             let [Some((c1, s1, _)), Some((c2, s2, _))] = &p.ends else {
-                // Both ends absent: no span, nothing hits it. One absent: skipped.
-                if p.ends.iter().all(Option::is_none) {
-                    if kind.starts_with("not") {
-                        rows.push(p.line.clone());
-                    }
-                } else {
-                    skipped += 1;
-                }
+                // An absent end (one or both) leaves the pair out.
+                skipped += 1;
                 continue;
             };
             if c1 != c2 {

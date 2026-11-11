@@ -6466,6 +6466,7 @@ aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
 gloci = "gloci pair-intersect --type notispan -a input.bedpe -b pairs-b.bed"
 reference = "bedtools pairtobed -type notispan -a input.bedpe -b pairs-b.bed"
 compare = "exact"
+expected_difference = "#pair-span-absent-ends"
 
 [[case]]
 name = "pairtobed-absent-ends-notospan-vs-bedtools"
@@ -6474,6 +6475,7 @@ aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
 gloci = "gloci pair-intersect --type notospan -a input.bedpe -b pairs-b.bed"
 reference = "bedtools pairtobed -type notospan -a input.bedpe -b pairs-b.bed"
 compare = "exact"
+expected_difference = "#pair-span-absent-ends"
 
 [[case]]
 name = "pairtobed-vcf-b-vs-bedtools"

@@ -90,9 +90,8 @@ pub struct PairIntersectOptions {
 pub struct PairSummary {
     /// Pairs read from A.
     pub a_pairs: u64,
-    /// Pairs a span type left out because one end is absent or the ends are
-    /// on different chromosomes (a pair with both ends absent has no span and
-    /// is not left out: nothing hits it).
+    /// Pairs a span type left out because an end is absent (one or both) or
+    /// the ends are on different chromosomes.
     pub span_skipped: u64,
 }
 
@@ -290,16 +289,9 @@ impl Worker<'_> {
 
     fn span(&self, raw: &[u8], m: &BedpeMeta, s: &mut Scratch, out: &mut Vec<u8>, n: &mut Counts) {
         let [Some(e1), Some(e2)] = &m.ends else {
-            // Both ends absent: no span, so nothing hits it (bedtools reads the two `.` as
-            // one chromosome and does the same). With one end absent the ends are on
-            // different chromosomes.
-            if m.ends.iter().all(Option::is_none) {
-                if !matches!(self.kind, PairType::InnerSpan | PairType::OuterSpan) {
-                    Self::alone(raw, out);
-                }
-            } else {
-                n.span_skipped += 1;
-            }
+            // A span type needs both ends on one chromosome: an absent end (chromosome `.`)
+            // leaves the pair out, whether one end is absent or both.
+            n.span_skipped += 1;
             return;
         };
         if e1.chrom != e2.chrom {

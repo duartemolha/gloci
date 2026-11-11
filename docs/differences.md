@@ -2092,3 +2092,15 @@ even an A sitting on the only one. bedtools does the same and gloci ports it on 
   `pairtobed-start-after-end-vs-bedtools` and `pairtobed-negative-start-vs-bedtools` (must differ:
   gloci exits 1, bedtools 0). The 9-column and 5-column refusals match
   (`pairtobed-nine-columns-vs-bedtools`, `pairtobed-five-columns-vs-bedtools`).
+
+## `pair-intersect` span types leave out a pair with both ends absent {#pair-span-absent-ends}
+
+- **gloci:** a span type (`ispan`, `ospan`, `notispan`, `notospan`) needs both ends on one
+  chromosome, so a pair with an absent end (chromosome `.`) is left out, whether one end is absent or
+  both, and is counted in the one warning.
+- **Old behaviour:** `bedtools pairtobed` reads the two `.` of `. -1 -1 . -1 -1` as one chromosome,
+  finds nothing hitting its empty span, and so reports the pair under `-type notispan` and
+  `-type notospan`. (With one end absent it leaves the pair out, as gloci does.)
+- **Reason:** one rule for the span types, and a pair with no ends has no span to report.
+- **Pinned by:** `pairtobed-absent-ends-notispan-vs-bedtools` and
+  `pairtobed-absent-ends-notospan-vs-bedtools` (must differ).
