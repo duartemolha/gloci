@@ -1099,6 +1099,25 @@ Examples:
   gloci flags 0x704 1796 secondary,dup
   gloci flags")]
     Flags(FlagsArgs),
+    /// Count the reads of each reference of a BAM, CRAM or SAM (samtools idxstats).
+    ///
+    /// Writes one line per @SQ reference, in header order: name, length, mapped reads, unmapped
+    /// reads (tab separated), then "*", 0, 0 and the reads with no reference. A read that is
+    /// unmapped but placed on a reference counts as unmapped there. A BAM with a .bai or .csi
+    /// is answered from the index, without reading any record. Anything else (a BAM without
+    /// an index, a SAM, or a CRAM, whose .crai holds no counts) gets one warning and every
+    /// record is counted, in any order of the references; samtools stops at the first
+    /// reference that comes back. An index that lacks the counts of a reference also gets a
+    /// warning and a scan. A CRAM that needs a reference sequence needs --reference, even
+    /// though samtools reads such a file without one. Mapped and unmapped counts follow
+    /// FLAGS bit 0x4 only; no read filters apply. The output is the same through the index
+    /// and by a scan, at any number of threads.
+    #[command(after_long_help = "\
+Examples:
+  gloci idxstats reads.bam
+  gloci idxstats reads.cram --reference ref.fa
+  gloci idxstats reads.sam -t 1")]
+    Idxstats(IdxstatsArgs),
 }
 
 /// What `intersect` reports.
@@ -3376,4 +3395,18 @@ pub struct FlagsArgs {
     /// flags is printed.
     #[arg(value_name = "FLAGS")]
     pub flags: Vec<String>,
+}
+
+// P3c Task 2
+#[derive(Args)]
+pub struct IdxstatsArgs {
+    /// The BAM, CRAM or SAM file (- is standard input, which is always scanned).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// The FASTA a CRAM input was made with, with its .fai (and .gzi when BGZF). Not needed
+    /// for a CRAM written without a reference.
+    #[arg(long, value_name = "FILE")]
+    pub reference: Option<PathBuf>,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
 }

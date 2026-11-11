@@ -17,6 +17,7 @@ pub mod faidx;
 pub mod genomecov;
 pub mod getfasta;
 pub mod groupby;
+pub mod idxstats;
 pub mod intersect;
 pub mod map;
 pub mod maskfasta;
@@ -47,6 +48,7 @@ pub use aln_sort::{AlnSortOptions, check_alignments, sort_alignments};
 pub use bedsearch::{ChromBlock, find_chrom_block, find_chrom_block_mapped};
 pub use check::{CheckReport, Problems, check_file};
 pub use gloci_engine::all_indexed;
+pub use idxstats::{IdxstatsPath, idxstats};
 pub use maskfasta::{Mask, MaskSet, MaskSummary, PastEnd, maskfasta, maskfasta_with};
 pub use relate::{
     Acceptor, InputPaths, RelateInputs, RelateOptions, RelationFiles, ReportOutput, RunOptions,

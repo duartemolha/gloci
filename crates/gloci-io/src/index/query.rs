@@ -38,6 +38,45 @@ impl Loaded {
         }
     }
 
+    /// The per-reference record counts of a BAI or CSI, for `n_ref` references (P3c Task 2).
+    /// `None` for a TBI.
+    fn alignment_counts(&self, n_ref: usize) -> Option<AlnIndexCounts> {
+        fn counts<I: BinIndexKind>(
+            refs: &[ReferenceSequence<I>],
+            n_ref: usize,
+        ) -> Vec<Option<RefCounts>> {
+            (0..n_ref)
+                .map(|rid| match refs.get(rid) {
+                    Some(r) => match r.metadata() {
+                        Some(m) => Some(RefCounts {
+                            mapped: m.mapped_record_count(),
+                            unmapped: m.unmapped_record_count(),
+                        }),
+                        None if r.bins().is_empty() => Some(RefCounts::default()),
+                        None => None,
+                    },
+                    // A reference the index does not list has no reads.
+                    None => Some(RefCounts::default()),
+                })
+                .collect()
+        }
+        let (per_ref, unplaced) = match self {
+            Loaded::Bai(i) => (
+                counts(i.reference_sequences(), n_ref),
+                i.unplaced_unmapped_record_count(),
+            ),
+            Loaded::Csi(i) => (
+                counts(i.reference_sequences(), n_ref),
+                i.unplaced_unmapped_record_count(),
+            ),
+            Loaded::Tbi(_) => return None,
+        };
+        Some(AlnIndexCounts {
+            per_ref,
+            unplaced: unplaced.unwrap_or(0),
+        })
+    }
+
     /// Load the index of the data file `data`, after checking its structure against the data
     /// file's size and, when it is known, the number of references its header lists.
     fn read(info: &IndexInfo, data: &Path, n_ref: Option<usize>) -> Result<Loaded, IoError> {
@@ -825,6 +864,23 @@ pub fn index_non_empty_reference_names(
         .collect())
 }
 
+/// The reads an index counts for one reference.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RefCounts {
+    pub mapped: u64,
+    pub unmapped: u64,
+}
+
+/// What a BAI or CSI says about the records of a BAM (D127).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AlnIndexCounts {
+    /// One entry per header reference. `None` marks a reference with bins but no metadata
+    /// pseudo-bin; a reference with no bins is `Some(0, 0)`.
+    pub per_ref: Vec<Option<RefCounts>>,
+    /// The reads with no reference (`n_no_coor`).
+    pub unplaced: u64,
+}
+
 /// An indexed BGZF file whose header and index are loaded once, from which
 /// whole-chromosome readers are made cheaply (per-chromosome parallelism,
 /// D41). The readers share the index.
@@ -996,6 +1052,21 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
         if let Backend::Cram(c) = &mut self.backend {
             c.defer_warnings();
         }
+    }
+
+    /// The per-reference counts of the index, for a BAM through a BAI or CSI (D127). `None`
+    /// for anything else: a CRAM's `.crai` holds no counts, and a TBI is not a BAM's index.
+    pub fn alignment_counts(&self) -> Option<AlnIndexCounts> {
+        let Backend::Binned { index, .. } = &self.backend else {
+            return None;
+        };
+        let Header::Alignment(aln) = &self.header else {
+            return None;
+        };
+        if self.format != Format::Bam {
+            return None;
+        }
+        index.alignment_counts(aln.refs.len())
     }
 
     /// The reads with no place the index counts (BAM): the unmapped reads at the end of a

@@ -13,6 +13,7 @@ pub mod genomecov;
 pub mod genomes;
 pub mod getfasta;
 pub mod groupby;
+pub mod idxstats;
 pub mod index;
 pub mod intersect;
 pub mod map;
