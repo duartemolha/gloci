@@ -15,14 +15,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: Tag matches the workspace version
-        run: |
-          version="$(cargo metadata --no-deps --format-version 1 \
-            | jq -r '.packages[] | select(.name == "gloci") | .version')"
-          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
-            echo "tag ${GITHUB_REF_NAME} does not match the workspace version ${version}; tag v${version} or bump the version"
-            exit 1
-          fi
+      - name: Release metadata is consistent (tag, version, CHANGELOG, CITATION.cff, LICENSE)
+        run: cargo xtask release-check --tag "$GITHUB_REF_NAME"
 
   build:
     needs: version
@@ -120,6 +114,8 @@ jobs:
           cd release-assets || exit 1
           sha256sum gloci-*.tar.gz > SHA256SUMS
           cat SHA256SUMS
+      - name: Build release notes from CHANGELOG.md
+        run: cargo xtask release-notes --version "${GITHUB_REF_NAME#v}" --out release-notes.md
       - name: Compute lowercase image name
         id: meta
         run: |
@@ -149,4 +145,4 @@ jobs:
           files: |
             release-assets/gloci-*.tar.gz
             release-assets/SHA256SUMS
-          generate_release_notes: true
+          body_path: release-notes.md

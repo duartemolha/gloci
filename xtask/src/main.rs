@@ -48,6 +48,21 @@ enum Task {
         #[command(subcommand)]
         action: GenomesAction,
     },
+    /// Check the release metadata (version, CHANGELOG, CITATION.cff, LICENSE); exit 1 on a problem
+    ReleaseCheck {
+        /// The pushed tag, which must be v<workspace version>
+        #[arg(long)]
+        tag: Option<String>,
+    },
+    /// Print a version's CHANGELOG section (the release notes)
+    ReleaseNotes {
+        /// The version, without the leading v
+        #[arg(long)]
+        version: String,
+        /// Write to this file instead of stdout
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Run the benchmark suite
     Bench {
         #[arg(long, default_value = "xtask/bench/cases.toml")]
@@ -445,6 +460,23 @@ fn run(cli: Cli) -> Result<bool> {
                 return xtask::genomes::run(&xtask::genomes::Args { dir, only });
             }
         },
+        Task::ReleaseCheck { tag } => {
+            let root = xtask::diff::workspace_root();
+            let problems = xtask::release::release_check(&root, tag.as_deref())?;
+            for p in &problems {
+                eprintln!("release-check: {p}");
+            }
+            return Ok(problems.is_empty());
+        }
+        Task::ReleaseNotes { version, out } => {
+            let root = xtask::diff::workspace_root();
+            let text = std::fs::read_to_string(root.join("CHANGELOG.md"))?;
+            let notes = xtask::release::release_notes(&text, &version)?;
+            match out {
+                Some(p) => std::fs::write(p, format!("{notes}\n"))?,
+                None => println!("{notes}"),
+            }
+        }
         Task::Diff {
             image,
             cases,

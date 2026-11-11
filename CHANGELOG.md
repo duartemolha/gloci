@@ -1,0 +1,21 @@
+# Changelog
+
+All notable changes to gloci are recorded here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
+[Semantic Versioning](https://semver.org/) (before 1.0, a breaking change bumps
+the minor version).
+
+## [Unreleased]
+
+- P2a: the VCF commands `vcf filter`, `vcf extract`, `vcf stats` and `vcf concat`.
+- P3a: BAM, CRAM, SAM and FASTA input; the samtools-style commands `sort`, `merge`, `cat`, `index` and `faidx`; and `getfasta`, `nuc` and `maskfasta`.
+- P3b: `stats jaccard`, `fisher` and `reldist`; `random`, `sample` and `shuffle`; the BEDPE pair commands and `convert --bedpe`; parallel VCF selection; `vcf compare` (genotype concordance); and `vcf split`, `vcf norm`, `vcf annotate` and `vcf merge`.
+- P3c: (to be filled in as the phase lands.)
+
+## [0.1.0] - 2026-11-08
+
+- Interval engine: half-open u64 coordinates, sorted-stream sweeps and an index for random access, with output byte-identical at every `--threads`.
+- Interval commands with bedtools parity: intersect, merge, subtract, closest, coverage, genomecov, map, groupby, cluster, spacing, window, slop, flank and more, checked against pinned bedtools output through committed golden files.
+- BED, GFF, VCF and BCF reading and writing, with bgzip and tabix (TBI and CSI) indexes, and built-in genome files.
+- A single static binary (musl on Linux, plus macOS arm64) with man pages, shell completions and an agent usage guide (`SKILL.md`).
+- A differential test harness (`cargo xtask diff`), a benchmark suite (`cargo xtask bench`) and synthetic data generators (`cargo xtask gen`).

@@ -97,8 +97,14 @@ fn release_workflow_and_dockerfile_are_valid() {
     // The tag must equal the workspace version, and the release is created
     // only after the image push (the last step of the publish job).
     assert!(
-        release_yml.contains("does not match the workspace version"),
-        "release.yml must check the tag against the workspace version"
+        release_yml.contains("cargo xtask release-check --tag"),
+        "release.yml must check the tag and release metadata with xtask release-check"
+    );
+    assert!(
+        release_yml.contains("cargo xtask release-notes")
+            && release_yml.contains("body_path: release-notes.md")
+            && !release_yml.contains("generate_release_notes"),
+        "release.yml must take the release body from CHANGELOG.md via release-notes"
     );
     let push = release_yml.find("name: Build and push GHCR image").unwrap();
     let release = release_yml.find("name: Create GitHub Release").unwrap();
