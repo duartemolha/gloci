@@ -791,7 +791,7 @@ fn cram_worker_reference_memory() {
             "-t {threads}: each chromosome read once: {c:?}"
         );
         assert!(
-            c.max_live <= threads.max(2),
+            c.max_live <= threads,
             "-t {threads}: at most one sequence per worker: {c:?}"
         );
         assert_eq!(c.generations, 0, "-t {threads}: {c:?}");
