@@ -1138,8 +1138,8 @@ Examples:
     /// or CRAM, each with a .bai, .csi or .crai; exit 2 without one), the sum of the depth over
     /// the region's bases: one column per file, files in the order given. --bases-at-depth N
     /// adds one column per file of the bases whose depth is at least N, and --read-count one of
-    /// the reads that overlap the region (a zero-length region counts the reads that strictly
-    /// contain it). Depth counts M, = and X bases always, D bases unless --split-deletions and
+    /// the reads that overlap the region (a zero-length region has no bases and counts no reads,
+    /// as samtools 1.21 does). Depth counts M, = and X bases always, D bases unless --split-deletions and
     /// N (intron) bases unless --split, so samtools -j is --split --split-deletions. A read counts
     /// when none of --exclude-flags is set (default UNMAP,SECONDARY,QCFAIL,DUP, as for depth;
     /// --exclude-flags 0 counts everything but unmapped reads, which never count), all of
