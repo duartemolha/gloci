@@ -136,7 +136,9 @@ fn random_huge_contig_count() {
         .assert()
         .success();
     assert_eq!(o.get_output().stdout.split(|&b| b == b'\n').count(), 10_001);
-    assert!(t.elapsed().as_secs_f64() < 2.0, "took {:?}", t.elapsed());
+    // Generous: this guards against a quadratic contig lookup (minutes), not
+    // against a slow debug build or a busy machine.
+    assert!(t.elapsed().as_secs_f64() < 20.0, "took {:?}", t.elapsed());
 }
 
 #[test]
