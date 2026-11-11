@@ -120,6 +120,28 @@ fn samples_show_index() {
     );
 }
 
+/// A stale index warns once, however many samples the file has, and the column is still Y.
+#[test]
+fn samples_show_index_stale() {
+    let d = tempdir();
+    let f = d.path().join("rg.bam");
+    std::fs::copy(inputs().join("rg.bam"), &f).unwrap();
+    let i = d.path().join("rg.bam.bai");
+    std::fs::copy(inputs().join("rg.bam.bai"), &i).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&i)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(3600))
+        .unwrap();
+    let f = s(&f);
+    let (code, out, err) = run(&["samples", &f, "--show-index"]);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(out.lines().count(), 3);
+    assert!(out.lines().all(|l| l.ends_with("\tY")), "{out}");
+    assert_eq!(err.matches("is older than").count(), 1, "{err}");
+}
+
 #[test]
 fn samples_match_reference() {
     // A copy beside no index, so that the INDEX column is N and nothing depends on file times.
