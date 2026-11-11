@@ -2,7 +2,7 @@
 //! block. The same BED6 line is what the commands that print an alignment's columns write
 //! (D104), so it lives here and not in `convert`.
 
-use super::{AlnHeader, AlnRef, aln_ref, blocks, blocks_within};
+use super::{AlnHeader, AlnRef, aln_ref, blocks_within};
 use crate::detect::Format;
 use crate::error::{IoError, Loc};
 use crate::record::{Header, RecordReader};
@@ -209,7 +209,6 @@ an integer (i) tag such as NM or AS",
             return Err(self.fail(loc, "the read is unmapped".into()));
         };
         let (start, end) = (span.start, span.end);
-        let cut = |p: u64| p.min(*ref_len);
         let mut name = a.name().to_vec();
         let flag = a.flag();
         if flag & 0x40 != 0 {
@@ -256,13 +255,9 @@ an integer (i) tag such as NM or AS",
             return Ok(());
         }
         self.blocks.clear();
-        blocks(&a, self.o.split_deletions, &mut self.blocks);
-        for b in &mut self.blocks {
-            b.end = cut(b.end);
-        }
-        self.blocks.retain(|b| b.start < b.end);
+        blocks_within(&a, self.o.split_deletions, *ref_len, &mut self.blocks);
         if self.blocks.is_empty() {
-            self.blocks.push(Interval { start, end });
+            self.blocks.push(span);
         }
         if layout == AlnBedLayout::Blocks {
             for b in &self.blocks {
@@ -272,9 +267,11 @@ an integer (i) tag such as NM or AS",
             }
             return Ok(());
         }
-        // The thick span and the end close at the last block that is kept, so the last block
-        // ends at chromEnd as BED12 requires (a read cut at the reference end, or ending in
-        // N or, with --split-deletions, D).
+        // The row and its thick span open at the first block that is kept and close at the
+        // last, so the first block starts at offset 0 and the last ends at chromEnd as BED12
+        // requires (a read that starts or ends in N or, with --split-deletions, D, or is cut at
+        // the reference end).
+        let start = self.blocks.first().map_or(start, |b| b.start);
         let end = self.blocks.last().map_or(end, |b| b.end);
         head(out, start, end);
         tail(out);
@@ -298,7 +295,7 @@ an integer (i) tag such as NM or AS",
             if i > 0 {
                 out.push(b',');
             }
-            push_num(out, b.start.saturating_sub(start));
+            push_num(out, b.start - start);
         }
         out.push(b'\n');
         Ok(())

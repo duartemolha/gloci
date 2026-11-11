@@ -4590,6 +4590,37 @@ gloci = "gloci convert input.bam --bed12"
 reference = "bedtools bamtobed -i input.bam -bed12"
 compare = "exact"
 expected_difference = "#bamtobed-past-reference-end"
+
+[[case]]
+name = "bamtobed-ends-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-ends.bam" }
+gloci = "gloci convert input.bam"
+reference = "bedtools bamtobed -i input.bam"
+compare = "exact"
+
+[[case]]
+name = "bamtobed-ends-bed12-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-ends.bam" }
+gloci = "gloci convert input.bam --bed12"
+reference = "bedtools bamtobed -i input.bam -bed12"
+compare = "exact"
+expected_difference = "#bamtobed-past-reference-end"
+
+[[case]]
+name = "bamtobed-ends-bed12-splitd-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-ends.bam" }
+gloci = "gloci convert input.bam --bed12 --split-deletions"
+reference = "bedtools bamtobed -i input.bam -bed12 -splitD"
+compare = "exact"
+expected_difference = "#bamtobed-past-reference-end"
+
+[[case]]
+name = "bamtobed-ends-split-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-ends.bam" }
+gloci = "gloci convert input.bam --blocks"
+reference = "bedtools bamtobed -i input.bam -split"
+compare = "exact"
+expected_difference = "#bamtobed-past-reference-end"
 [[case]]
 name = "intersect-bam-u-vs-bedtools"
 input = { file = "xtask/diff/inputs/aln/order.bam" }

@@ -407,7 +407,7 @@ How the old commands map onto `partition`:
 **`genomecov` on alignments (BAM, CRAM, SAM)** **[D117]**
 
 - `-g` is optional: the default is the header's chromosomes and lengths, in header order, empty chromosomes included. `-g` overrides it, where bedtools ignores `-g` with `-ibam`.
-- A read counts its whole reference span, deleted bases included. `--split` cuts at `N` only; `--split-deletions` also cuts at `D` and is bedtools `-ibam` without `-ignoreD`.
+- A read counts its whole reference span, deleted bases included. `--split` cuts at `N` only; `--split-deletions` also cuts at `D` and is bedtools `-ibam -split`; plain `-ibam` (cuts at `D`, not `N`) has no gloci counterpart (docs/differences.md#bam-genomecov-deletions).
 - `--5p`/`--3p` take the first or last aligned base by strand, as bedtools. Unmapped reads are left out, and the read filters (Section 6.1) apply first.
 - An indexed BAM, or a CRAM with a `.crai`, at `-t` above 1 runs per chromosome, with `genome` rows summed and output identical to `-t 1`.
 - `-pc`, `-fs` and `-du` are not planned (no flag in this table, and a Section 2 non-goal).

@@ -14,10 +14,12 @@ awk 'BEGIN { srand(7); print "@HD\tVN:1.6\tSO:coordinate"; print "@SQ\tSN:chr1\t
         printf "big%d\t0\tchr1\t%d\t60\t100M\t*\t0\t0\t%s\t%s\tRG:Z:g4\n", i, i + 1, seq, qual } }' > cat-big.sam
 # cigars-bases: cigars without the all-clip read, which bedtools writes zero-length (D101).
 grep -v '^c_allclip' cigars.sam > cigars-bases.sam
+# cigars-ends.sam is written by hand: reads that start in N (5N10M, 2S5N8M) or D (3D10M) and
+# reads that end in N or D, so a BED12 row opens and closes at its first and last kept block.
 # midempty: reads on c1 and c3 only, so c2 (in the middle of the header) has none.
 # cigars-small: cigars-bases on a 1000-base reference, so a per-base (-d) golden stays small.
 sed 's/LN:100000/LN:1000/' cigars-bases.sam > cigars-small.sam
-for set in cat-a cat-b cat-c cat-d cat-big cigars cigars-bases cigars-small midempty flags order tags edge pastend negtag splice-end splitfrac longref; do
+for set in cat-a cat-b cat-c cat-d cat-big cigars cigars-bases cigars-small cigars-ends midempty flags order tags edge pastend negtag splice-end splitfrac longref; do
     samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o "$set.bam" "$set.sam"
     # cat-* are not indexed; edge.sam is not in coordinate order, so samtools cannot index it;
     # longref has a 600 Mb reference, which a .bai cannot hold (it needs `samtools index -c`).

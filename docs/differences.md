@@ -1752,24 +1752,34 @@ depends on the span.
   `bamtobed-cigar-split-vs-bedtools` (exit status: gloci 2, bedtools 0) and
   `bamtobed-split-ed-vs-bedtools` (exit status: gloci 0, bedtools 1).
 
-## `convert` of alignments cuts reads at the end of their reference {#bamtobed-past-reference-end}
+## `convert` of alignments cuts reads at the end of their reference, and blocks at their bases {#bamtobed-past-reference-end}
 
 - **gloci:** a read that runs past the `LN` of its reference (a chrM read wrapping
   round) is written up to `LN`, with one warning per input. A read that starts at or
   past `LN` covers no base and is skipped and counted at `-v`. Every interval command
-  does the same (D101).
+  does the same (D101). The blocks of `--bed12` and `--blocks` are the ones every
+  `--split` command compares (one shared rule): blocks with no base are left out. A
+  BED12 row opens at the first kept block (chromStart and thickStart) and closes at
+  the last (chromEnd and thickEnd), so its first block starts at offset 0 and its last
+  ends at chromEnd, as BED12 requires.
 - **Old behaviour:** `bedtools bamtobed` writes the interval as the CIGAR gives it,
   past the end of the reference (`chr1 994 1004` on a 1,000 base chr1), and writes a
   read that starts past the end as well. With `-bed12` a start beyond 2^31 gives a
-  negative end. In BED12, gloci closes the row (chromEnd and thickEnd) at the end of
-  the last block it keeps, so that the last block ends at chromEnd as BED12 requires: a
-  spliced read `5M20N5M` at 991 on a 1,000 base chr1 is `990 995 ... 1 5 0`, and the
-  same read ending in `N`, or in `D` under `--split-deletions`, closes before the cut.
-  BED6 keeps the cut span (`990 1000`).
+  negative end. A spliced read `5M20N5M` at 991 on a 1,000 base chr1 is
+  `990 995 ... 1 5 0` in gloci's BED12; BED6 keeps the cut span (`990 1000`). A read
+  that starts in `N` (`5N10M` at 101), or in `D` under `-splitD`, gets a size-0 first
+  block from bedtools (`100 115 ... 2 0,10 0,5`), and one that ends in `N` or `D` a
+  size-0 last block (`10,0 0,15`); `-split` writes those blocks as zero-length rows
+  (`100 100`). gloci writes `105 115 ... 1 10 0` and `400 410 ... 1 10 0`, and no
+  zero-length rows. BED6 is the same in both (`100 115`).
 - **Reason:** an interval past its chromosome fails in a genome browser and in
-  `bedToBigBed`, and the other gloci commands refuse it.
-- **Pinned by:** `bamtobed-past-end-vs-bedtools`, `bamtobed-edge-vs-bedtools` and
-  `bamtobed-past-end-bed12-vs-bedtools` (must differ).
+  `bedToBigBed`, and the other gloci commands refuse it. So would a BED12 row whose
+  first block does not start at chromStart: `gloci convert x.bam --bed12 | gloci
+  intersect -a - -b y.bed --split` must read what convert writes.
+- **Pinned by:** `bamtobed-past-end-vs-bedtools`, `bamtobed-edge-vs-bedtools`,
+  `bamtobed-past-end-bed12-vs-bedtools`, `bamtobed-ends-bed12-vs-bedtools`,
+  `bamtobed-ends-bed12-splitd-vs-bedtools` and `bamtobed-ends-split-vs-bedtools` (must
+  differ); `bamtobed-ends-vs-bedtools` (BED6, matches).
 
 ## `convert` and `genomecov` of a read with no reference bases: one base {#bamtobed-no-reference-ops}
 

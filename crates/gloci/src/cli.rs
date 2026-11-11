@@ -463,11 +463,15 @@ Examples:
     /// (header order, empty chromosomes included) unless -g is given. A read
     /// counts its whole reference span, deletions included; --split counts
     /// the blocks between N operations, and --split-deletions also cuts at
-    /// D (bedtools genomecov -ibam without -ignoreD, so use it for parity).
+    /// D. --split-deletions is bedtools -ibam -split, so use it for parity;
+    /// plain -ibam (cuts at D, not N) has no gloci counterpart, see
+    /// docs/differences.md#bam-genomecov-deletions.
     /// Unmapped reads are left out, and --min-mapq, --require-flags and
     /// --exclude-flags filter reads first. --strand follows the read's
-    /// direction. An indexed BAM at -t above 1 runs per chromosome, with the
-    /// same output as -t 1.
+    /// direction. An indexed BAM or CRAM at -t above 1 runs per chromosome,
+    /// with the same output as -t 1. At most 8 runs are in flight; memory is
+    /// then about 64 MiB plus 20 MiB per run in flight: the output waiting to
+    /// be written shares 64 MiB and the rest spills to --tmp-dir.
     ///
     /// The input must be sorted in the genome order, which is checked as it
     /// is read; an unsorted input is an error whose hint names --sort.
@@ -2118,7 +2122,9 @@ pub struct GenomecovArgs {
     #[arg(long, conflicts_with_all = ["five_prime", "three_prime"])]
     pub split: bool,
     /// BAM, CRAM and SAM: also cut the blocks of a read at deletions (D), with or
-    /// without --split; this is bedtools genomecov -ibam without -ignoreD.
+    /// without --split; this is bedtools genomecov -ibam -split. Plain -ibam
+    /// (cuts at D, not N) has no gloci counterpart, see
+    /// docs/differences.md#bam-genomecov-deletions.
     #[arg(long, conflicts_with_all = ["five_prime", "three_prime"])]
     pub split_deletions: bool,
     /// Count only the 5' base of each feature (strand-aware).
