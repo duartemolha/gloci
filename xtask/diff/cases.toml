@@ -687,6 +687,18 @@ reference = "bgzip -c input.vcf > a.vcf.gz && bgzip -c rel-trim-b.vcf > b.vcf.gz
 compare = "vcf-records"
 expected_difference = "#trimmed-allele-match"
 
+# A multi-allelic A (C>A,G) that shares one ALT with B (C>G): gloci drops it whole (owner
+# decision), bcftools -c none keeps it, as the allele lists differ. 200 is in both, 300 in
+# neither.
+[[case]]
+name = "subtract-alleles-shared-alt-vs-bcftools"
+input = { file = "xtask/diff/inputs/rel-shared-alt-a.vcf" }
+aux = ["xtask/diff/inputs/rel-shared-alt-b.vcf"]
+gloci = "gloci subtract --chrom-order lex --match alleles -a input.vcf -b rel-shared-alt-b.vcf"
+reference = "bgzip -c input.vcf > a.vcf.gz && bgzip -c rel-shared-alt-b.vcf > b.vcf.gz && tabix a.vcf.gz && tabix b.vcf.gz && bcftools isec -C -w1 -c none a.vcf.gz b.vcf.gz"
+compare = "vcf-records"
+expected_difference = "#trimmed-allele-match"
+
 # merge (Task 11): merge-in.bed is BED6, lex-sorted, with bookended, nested,
 # overlapping and nearby records on both strands and an unknown strand.
 [[case]]

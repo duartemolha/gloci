@@ -363,19 +363,23 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 
 - **gloci:** `intersect --match alleles` (and `subtract --match alleles`, which
   drops an A record exactly when `intersect --mode none --match alleles` does,
-  one shared ALT of a multi-allelic A dropping it whole) keeps a record when some ALT of it
-  equals some ALT of a B record after trimming the shared prefix and suffix
-  of REF and ALT, at the same trimmed position. `A>AG` at 100 matches `C>GC`
-  at 101 (an insertion of G), and records match when they share any one ALT of
-  several. The overlap options (`-f`, `-s`, `-w`, ...) are refused with it.
+  one shared ALT of a multi-allelic A dropping it whole) keeps a record when
+  some ALT of it equals some ALT of a B record after trimming the shared
+  prefix and suffix of REF and ALT, at the same trimmed position. `A>AG` at
+  100 matches `C>GC` at 101 (an insertion of G), and records match when they
+  share any one ALT of several. The overlap options (`-f`, `-s`, `-w`, ...) are
+  refused with it.
 - **Old behaviour:** `bcftools isec -c none` pairs records at the same
-  position with identical REF and ALT lists, and does not normalise.
+  position with identical REF and ALT lists, and does not normalise. So `isec
+  -C` keeps a multi-allelic `C>A,G` that shares only `G` with a B `C>G`, where
+  `subtract --match alleles` drops it.
 - **Reason:** the same variant is often written with different anchors, and a
   multi-allelic record shares a variant with another that lists more or fewer
   ALTs. Run `bcftools norm` on both inputs and the results then agree for
   records with identical ALT lists.
-- **Pinned by:** `intersect-alleles-unnormalised-vs-bcftools` and
-  `subtract-alleles-unnormalised-vs-bcftools` (`bcftools isec -C`) (must differ);
+- **Pinned by:** `intersect-alleles-unnormalised-vs-bcftools`,
+  `subtract-alleles-unnormalised-vs-bcftools` and
+  `subtract-alleles-shared-alt-vs-bcftools` (`bcftools isec -C`) (must differ);
   `intersect-alleles-vs-bcftools`, `intersect-alleles-multiallelic-vs-bcftools`,
   `subtract-alleles-vs-bcftools` and `subtract-alleles-multiallelic-vs-bcftools`
   (must match).
