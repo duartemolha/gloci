@@ -31,7 +31,8 @@ pub trait AlnSource: Send {
     }
     /// Append the next record (no `block_size`) to `buf` and return its record number,
     /// counted from 1 over the file. `None` at the end. Records the read filters drop are
-    /// counted in the diagnostics and not returned.
+    /// counted in the diagnostics and not returned. A record returned has been checked
+    /// ([`Aln::parse`] for BAM bytes), so a caller may read its fixed fields in place.
     fn next_record(&mut self, buf: &mut Vec<u8>) -> Result<Option<u64>, IoError>;
     fn diagnostics(&self) -> &Diagnostics;
     /// The BAM record (without `block_size`) of the record last returned, when the source has
