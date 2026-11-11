@@ -2746,7 +2746,8 @@ pub struct CheckArgs {
     #[command(flatten)]
     pub threads: ThreadArgs,
     /// Only check that each file is usable, reading just its header, its first record and
-    /// the last 38 bytes (samtools quickcheck).
+    /// its end-of-file marker: the last 28 bytes of a BGZF file, 38 of a CRAM (samtools
+    /// quickcheck).
     #[arg(long)]
     pub quick: bool,
     /// With --quick, accept a BAM, CRAM or SAM header with no @SQ line (samtools quickcheck -u).
