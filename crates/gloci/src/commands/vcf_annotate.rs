@@ -5,13 +5,11 @@ use crate::cli::VcfAnnotateArgs;
 use gloci_io::{
     Format, Header, InputOptions, InvalidPolicy, IoError, OutFormat, OutputOptions, ReaderOptions,
     UsageError, VcfHeader, WriterOptions, chrom_table_lenient, open_input, open_output,
-    open_reader, open_record_writer, parse_output_spec, refuse_binary_to_tty,
+    open_reader, open_reader_from, open_record_writer, parse_output_spec, refuse_binary_to_tty,
 };
-use gloci_ops::{
-    AnnotationSource, is_bed_name, open_tab, vcf_annotate, vcf_annotate_output, vcf_header,
-};
+use gloci_ops::{AnnotationSource, is_bed_name, vcf_annotate, vcf_annotate_output, vcf_header};
 use gloci_vcf::annotate::{AnnotateOptions, Annotator, SourceKind};
-use std::io::IsTerminal;
+use std::io::{BufRead, IsTerminal};
 
 /// The bcftools annotate options gloci does not offer, each a usage error.
 fn refuse_unsupported(a: &VcfAnnotateArgs) -> anyhow::Result<()> {
@@ -123,26 +121,36 @@ pub fn run(ctx: &Ctx, a: &VcfAnnotateArgs) -> anyhow::Result<()> {
             )
             .into());
         }
-        let detected = open_input(
+        // Open once and look at the first bytes without consuming them, so a
+        // pipe or process substitution keeps all its data.
+        let input = open_input(
             path,
             &InputOptions {
                 threads: ctx.threads,
-                format: None,
+                format: Some(Format::Bed),
             },
-        );
-        let is_vcf = match detected {
-            Ok(i) => matches!(i.format, Format::Vcf | Format::Bcf),
-            Err(IoError::Detect { .. }) => false,
-            Err(e) => return Err(e.into()),
-        };
-        if is_vcf {
-            src_reader = Some(open_reader(path, &ro)?);
+        )?;
+        let mut reader = input.reader;
+        let head = reader.fill_buf().map_err(|source| IoError::Read {
+            path: path.clone(),
+            source,
+        })?;
+        let kind = if head.starts_with(b"BCF\x02") {
+            Some(Format::Bcf)
+        } else if head.starts_with(b"##fileformat=VCF") || head.starts_with(b"#CHROM") {
+            Some(Format::Vcf)
         } else {
-            tab = Some((
-                open_tab(path, ctx.threads)?,
-                path.clone(),
-                is_bed_name(path),
-            ));
+            None
+        };
+        match kind {
+            Some(format) => {
+                let o = ReaderOptions {
+                    format: Some(format),
+                    ..ro.clone()
+                };
+                src_reader = Some(open_reader_from(path, Box::new(reader), &o)?);
+            }
+            None => tab = Some((reader, path.clone(), is_bed_name(path))),
         }
     }
     let src_header = match &src_reader {

@@ -7,9 +7,8 @@
 use crate::vcf_split::vcf_rewrite_output;
 use gloci_core::{ChromId, ChromTable, OrderChecker, OrderViolation};
 use gloci_io::{
-    BcfText, Format, Header, InputOptions, IoError, Loc, OrderError, OrderGuard, OutFormat,
-    RecordBatch, RecordReader, RecordWriter, TextToBcf, VcfHeader, next_batch_size, open_input,
-    sort_hint,
+    BcfText, Format, Header, IoError, Loc, OrderError, OrderGuard, OutFormat, RecordBatch,
+    RecordReader, RecordWriter, TextToBcf, VcfHeader, next_batch_size, sort_hint,
 };
 use gloci_vcf::annotate::{
     Annotator, PairRec, Rec, TabLayout, TabRow, info_get, pair_rec, pair_rows,
@@ -57,21 +56,6 @@ pub fn vcf_annotate_output(
 pub fn is_bed_name(path: &str) -> bool {
     let p = path.to_ascii_lowercase();
     p.ends_with(".bed") || p.ends_with(".bed.gz") || p.ends_with(".bed.bgz")
-}
-
-/// Open a tab or BED file for line reading (plain, gzip or BGZF).
-pub fn open_tab(
-    path: &str,
-    threads: std::num::NonZeroUsize,
-) -> Result<Box<dyn BufRead + Send>, IoError> {
-    let input = open_input(
-        path,
-        &InputOptions {
-            threads,
-            format: Some(Format::Bed),
-        },
-    )?;
-    Ok(input.reader)
 }
 
 /// FILE's or the source's records, a batch at a time.

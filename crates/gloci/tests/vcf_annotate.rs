@@ -532,3 +532,65 @@ fn the_pairing_order_at_one_position_matches_the_synced_reader() {
         ]
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn pipes_and_process_substitution_work_for_file_and_every_source_kind() {
+    let d = tempdir();
+    let (f, src, tab, reg, hdr) = (
+        fx("file.vcf"),
+        fx("src.vcf"),
+        fx("ann.tab"),
+        fx("regions.tab"),
+        fx("tags.hdr"),
+    );
+    let sb = s(&d.path().join("s.bcf"));
+    out(&["view", &src, "--vcf-span", "ref", "-o", &sb]);
+    let run = |args: &str, stdin: &str| {
+        let o = bash_gloci(args, stdin);
+        assert!(
+            o.status.success(),
+            "{args}: {}",
+            String::from_utf8_lossy(&o.stderr)
+        );
+        String::from_utf8(o.stdout).unwrap()
+    };
+    let file_text = std::fs::read_to_string(&f).unwrap();
+    // (columns, plain source, ways to pipe it)
+    for (cols, plain) in [
+        ("-c INFO,ID,FILTER", src.clone()),
+        ("-c INFO,ID,FILTER", sb.clone()),
+        (
+            "-c CHROM,POS,REF,ALT,ID,QUAL,-,-,-,INFO/TA --header-lines",
+            tab.clone(),
+        ),
+        (
+            "-c CHROM,FROM,TO,INFO/TS,INFO/TI --header-lines",
+            reg.clone(),
+        ),
+    ] {
+        let extra = if cols.ends_with("--header-lines") {
+            format!(" {hdr}")
+        } else {
+            String::new()
+        };
+        let want = run(&format!("vcf annotate {f} -a {plain} {cols}{extra}"), "");
+        assert!(want.lines().filter(|l| !l.starts_with('#')).count() > 5);
+        // A BCF source is already BGZF; compressing it again is not a BCF.
+        let mut pipes = vec![format!("<(cat {plain})")];
+        if !plain.ends_with(".bcf") {
+            pipes.push(format!("<(gzip -c {plain})"));
+            pipes.push(format!("<(cat {plain} | gzip -c)"));
+        }
+        for pipe in pipes {
+            for file in [format!("<(cat {f})"), "-".to_string()] {
+                let stdin = if file == "-" { file_text.as_str() } else { "" };
+                let got = run(
+                    &format!("vcf annotate {file} -a {pipe} {cols}{extra}"),
+                    stdin,
+                );
+                assert_eq!(got, want, "{file} {pipe} {cols}");
+            }
+        }
+    }
+}

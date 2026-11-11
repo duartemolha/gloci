@@ -53,7 +53,7 @@ pub use sort::{
     merge_sorted_batches, sort_input_options, sort_readers, sort_together,
 };
 pub use vcf_annotate::{
-    AnnotateSummary, AnnotationSource, is_bed_name, open_tab, vcf_annotate, vcf_annotate_output,
+    AnnotateSummary, AnnotationSource, is_bed_name, vcf_annotate, vcf_annotate_output,
 };
 pub use vcf_concat::{ConcatOptions, vcf_concat};
 pub use vcf_extract::{
