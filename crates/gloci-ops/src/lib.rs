@@ -2,6 +2,7 @@
 
 pub mod agg;
 pub mod aln_cat;
+pub mod aln_merge;
 pub mod aln_sort;
 pub mod bedsearch;
 pub mod check;
@@ -36,6 +37,7 @@ pub mod view;
 pub mod windows;
 
 pub use aln_cat::{cat_bams, cat_header};
+pub use aln_merge::{merge_alignment_headers, merge_alignments};
 pub use aln_sort::{AlnSortOptions, check_alignments, sort_alignments};
 pub use bedsearch::{ChromBlock, find_chrom_block, find_chrom_block_mapped};
 pub use check::{CheckReport, Problems, check_file};

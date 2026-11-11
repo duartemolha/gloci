@@ -2,10 +2,13 @@
 //! already sorted inputs (`sort -m`).
 
 use super::Tie;
-use super::order::{M_COORD, M_FULL, M_INTERVAL, M_NAME, keeps_bytes, name_cmp_raw};
+use super::order::{
+    M_COORD, M_FULL, M_INTERVAL, M_NAME, M_NAME_BYTES, coordinate_key, keeps_bytes, name_cmp_raw,
+};
 use super::spill::{RecHead, Run, RunReader, SpillDir};
+use crate::aln_sort::{BamRecords, cmp as aln_cmp, order_name};
 use gloci_core::ChromTable;
-use gloci_io::{IoError, OrderGuard, RecordBatch, RecordReader};
+use gloci_io::{AlnSortOrder, AlnSource, IoError, Loc, OrderGuard, RecordBatch, RecordReader};
 use std::cmp::Ordering;
 use std::collections::binary_heap::PeekMut;
 use std::collections::{BinaryHeap, VecDeque};
@@ -397,6 +400,159 @@ fn merge_inputs<const M: u8>(
         }
     }
     Ok(written)
+}
+
+/// The sort key of an alignment record in mode `M`: `(tid, key)` for coordinate order, and
+/// nothing for the name orders, which compare the bytes.
+fn aln_key<const M: u8>(raw: &[u8]) -> (u32, u64) {
+    if M == M_COORD {
+        coordinate_key(raw, u32::MAX)
+    } else {
+        (0, 0)
+    }
+}
+
+fn aln_head<const M: u8>(raw: &[u8], src: usize, seq: u64) -> Head<M> {
+    let (rank, key) = aln_key::<M>(raw);
+    Head {
+        rank,
+        rec: RecHead {
+            chrom: rank,
+            key,
+            end: 0,
+            seq,
+        },
+        src,
+        bytes: raw.to_vec(),
+    }
+}
+
+/// k-way merge of alignment inputs, each already in `order`, holding one record per input. Ties
+/// go to the earlier input (`base_seq + index`), then to record order, as samtools' `heap_lt`.
+/// Each input is checked as it is read; a record that comes before its predecessor is an error
+/// naming the file and the record.
+fn merge_alignment_inputs<const M: u8>(
+    inputs: &mut [BamRecords],
+    order: AlnSortOrder,
+    base_seq: u64,
+    sink: &mut dyn FnMut(&RecHead, &[u8]) -> io::Result<()>,
+) -> Result<u64, IoError> {
+    let mut heap: BinaryHeap<Head<M>> = BinaryHeap::with_capacity(inputs.len());
+    // The number of the record each input is at.
+    let mut at = vec![0u64; inputs.len()];
+    for (src, input) in inputs.iter_mut().enumerate() {
+        if let Some(n) = input.next()? {
+            at[src] = n;
+            heap.push(aln_head::<M>(input.bam(), src, base_seq + src as u64));
+        }
+    }
+    let mut written = 0u64;
+    loop {
+        let Some(mut top) = heap.peek_mut() else {
+            break;
+        };
+        sink(&top.rec, &top.bytes).map_err(super::out_err)?;
+        written += 1;
+        let src = top.src;
+        let input = &mut inputs[src];
+        let Some(n) = input.next()? else {
+            PeekMut::pop(top);
+            continue;
+        };
+        if aln_cmp(order, &top.bytes, input.bam()) == Ordering::Greater {
+            return Err(unsorted_input(
+                input.src.name(),
+                order,
+                (n, input.bam()),
+                (at[src], &top.bytes),
+            ));
+        }
+        at[src] = n;
+        let (rank, key) = aln_key::<M>(input.bam());
+        let h = &mut *top;
+        h.rank = rank;
+        h.rec.chrom = rank;
+        h.rec.key = key;
+        h.bytes.clear();
+        h.bytes.extend_from_slice(input.bam());
+        // Dropping the PeekMut sifts the head down.
+    }
+    Ok(written)
+}
+
+fn unsorted_input(
+    name: &str,
+    order: AlnSortOrder,
+    (n, cur): (u64, &[u8]),
+    (prev_n, prev): (u64, &[u8]),
+) -> IoError {
+    let label = |raw: &[u8]| String::from_utf8_lossy(super::qname_of(raw)).into_owned();
+    IoError::Parse {
+        path: name.to_string(),
+        loc: Loc::Record(n),
+        msg: format!(
+            "the file is not in {} order: this record ({}) comes after record {prev_n} ({}); \
+sort it first with: gloci sort {name} -o sorted.bam{}",
+            order_name(order),
+            label(cur),
+            label(prev),
+            match order {
+                AlnSortOrder::Coordinate => "",
+                AlnSortOrder::Name => " -n",
+                AlnSortOrder::NameBytes => " -N",
+            }
+        ),
+    }
+}
+
+/// Merge alignment sources, each in `order`, into `out` as BAM record bytes. More than 128
+/// inputs are merged in rounds through spill files in `tmp_dir`. Returns the records written.
+pub(crate) fn merge_alignment_sources(
+    srcs: Vec<Box<dyn AlnSource>>,
+    order: AlnSortOrder,
+    tmp_dir: &Path,
+    out: &mut dyn FnMut(&[u8]) -> io::Result<()>,
+) -> Result<u64, IoError> {
+    match order {
+        AlnSortOrder::Coordinate => merge_alignments_in::<M_COORD>(srcs, order, tmp_dir, out),
+        AlnSortOrder::Name => merge_alignments_in::<M_NAME>(srcs, order, tmp_dir, out),
+        AlnSortOrder::NameBytes => merge_alignments_in::<M_NAME_BYTES>(srcs, order, tmp_dir, out),
+    }
+}
+
+fn merge_alignments_in<const M: u8>(
+    srcs: Vec<Box<dyn AlnSource>>,
+    order: AlnSortOrder,
+    tmp_dir: &Path,
+    out: &mut dyn FnMut(&[u8]) -> io::Result<()>,
+) -> Result<u64, IoError> {
+    let mut inputs: Vec<BamRecords> = srcs.into_iter().map(BamRecords::new).collect();
+    let total = if inputs.len() <= MAX_FAN_IN {
+        merge_alignment_inputs::<M>(&mut inputs, order, 0, &mut |_, raw| out(raw))?
+    } else {
+        let mut spill = SpillDir::create(tmp_dir)?;
+        let mut runs = Vec::new();
+        let mut start = 0;
+        while start < inputs.len() {
+            let count = MAX_FAN_IN.min(inputs.len() - start);
+            let mut w = spill.create_run()?;
+            merge_alignment_inputs::<M>(
+                &mut inputs[start..start + count],
+                order,
+                start as u64,
+                &mut |h, raw| w.write(h, raw).map_err(io::Error::other),
+            )?;
+            runs.push(w.finish()?);
+            start += count;
+        }
+        let total = cascade_merge_runs::<M>(runs, &mut spill, &[], MAX_FAN_IN, out)?;
+        spill.close();
+        total
+    };
+    for input in inputs {
+        input.finish();
+    }
+    Ok(total)
 }
 
 #[cfg(test)]

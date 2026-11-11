@@ -1,0 +1,1 @@
+sort -m -N input.N.bam merge-b.N.bam

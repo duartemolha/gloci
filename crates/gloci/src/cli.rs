@@ -2594,6 +2594,10 @@ pub struct SortArgs {
     /// Alignments: sort by read name as bytes (r10 before r2), as samtools sort -N.
     #[arg(short = 'N', long)]
     pub by_name_bytes: bool,
+    /// The FASTA a CRAM input was made with, with its .fai (and .gzi when BGZF). Not needed
+    /// for a CRAM written without a reference.
+    #[arg(long, value_name = "FILE")]
+    pub reference: Option<PathBuf>,
     #[command(flatten)]
     pub header: HeaderArg,
     #[command(flatten)]

@@ -500,7 +500,6 @@ fn interval_commands_do_not_read_cram_yet() {
         vec!["coverage", "-a", &b, "-b", &c],
         vec!["genomecov", &c],
         vec!["convert", &c],
-        vec!["sort", &c],
     ] {
         gloci().args(&args).assert().failure().stderr(contains(
             "is CRAM, and reading it is not available in this build yet",

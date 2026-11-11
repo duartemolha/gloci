@@ -34,7 +34,7 @@ fn show(name: &[u8]) -> String {
 }
 
 /// The first way the reference list `other` (of `path`) differs from `first` (of `first_path`).
-fn sq_difference(
+pub(crate) fn sq_difference(
     first_path: &str,
     first: &AlnHeader,
     path: &str,

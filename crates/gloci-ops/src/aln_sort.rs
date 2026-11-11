@@ -23,8 +23,8 @@ pub struct AlnSortOptions {
 }
 
 /// The records of a source as BAM bytes, each SAM line encoded once.
-struct BamRecords {
-    src: Box<dyn AlnSource>,
+pub(crate) struct BamRecords {
+    pub(crate) src: Box<dyn AlnSource>,
     header: std::sync::Arc<AlnHeader>,
     buf: Vec<u8>,
     enc: Vec<u8>,
@@ -39,7 +39,7 @@ enum At {
 }
 
 impl BamRecords {
-    fn new(src: Box<dyn AlnSource>) -> BamRecords {
+    pub(crate) fn new(src: Box<dyn AlnSource>) -> BamRecords {
         BamRecords {
             header: src.header().clone(),
             src,
@@ -50,7 +50,7 @@ impl BamRecords {
     }
 
     /// Advance to the next record and return its number in the file.
-    fn next(&mut self) -> Result<Option<u64>, IoError> {
+    pub(crate) fn next(&mut self) -> Result<Option<u64>, IoError> {
         self.buf.clear();
         let Some(n) = self.src.next_record(&mut self.buf)? else {
             return Ok(None);
@@ -74,7 +74,7 @@ impl BamRecords {
     }
 
     /// The current record, BAM bytes without `block_size`.
-    fn bam(&self) -> &[u8] {
+    pub(crate) fn bam(&self) -> &[u8] {
         match self.at {
             At::Buf => &self.buf,
             At::Source => self.src.last_bam().unwrap_or(&self.buf),
@@ -82,7 +82,7 @@ impl BamRecords {
         }
     }
 
-    fn finish(self) {
+    pub(crate) fn finish(self) {
         let name = self.src.name();
         self.src.diagnostics().log_alignment_counts(name);
         if let Some(s) = self.src.diagnostics().summary(name) {
@@ -120,7 +120,7 @@ pub fn sort_alignments(
     Ok(stats)
 }
 
-fn order_name(order: AlnSortOrder) -> &'static str {
+pub(crate) fn order_name(order: AlnSortOrder) -> &'static str {
     match order {
         AlnSortOrder::Coordinate => "coordinate",
         AlnSortOrder::Name => "name (-n)",
@@ -128,7 +128,7 @@ fn order_name(order: AlnSortOrder) -> &'static str {
     }
 }
 
-fn cmp(order: AlnSortOrder, a: &[u8], b: &[u8]) -> Ordering {
+pub(crate) fn cmp(order: AlnSortOrder, a: &[u8], b: &[u8]) -> Ordering {
     match order {
         AlnSortOrder::Coordinate => coordinate_key(a, u32::MAX).cmp(&coordinate_key(b, u32::MAX)),
         AlnSortOrder::Name => name_cmp_raw(a, b, true),

@@ -1708,6 +1708,33 @@ depends on the span.
   `cat-different-sq-length-vs-samtools` (in a length) (exit status: must differ).
 
 
+## `sort -m` refuses alignment files whose `@SQ` lists differ {#alignment-merge-sq}
+
+- **gloci:** `gloci sort -m` compares the reference lists (`@SQ` names and lengths, in
+  order) of all its alignment inputs with the first one's. If they differ it exits 1, names
+  the file and the first difference, and writes nothing.
+- **Old behaviour:** `samtools merge` appends the `@SQ` lines it does not know and
+  only warns when that loses the coordinate order (exit 0); records of the later
+  files are renumbered to the merged list.
+- **Reason:** a merge of files aligned to different references, or to one
+  reference in another order, is almost always a mistake, and the merged file
+  looks fine until a variant caller or a genome browser uses it.
+- **Pinned by:** `aln-merge-different-sq-vs-samtools` (a length differs; exit status:
+  must differ).
+
+## `sort -m` refuses conflicting `@RG` lines {#alignment-merge-rg}
+
+- **gloci:** two inputs that have an `@RG` line with the same `ID` but different
+  other fields are an error (exit 1) naming both lines. An identical line is kept
+  once, and `@PG` lines with the same `ID` keep the first.
+- **Old behaviour:** `samtools merge -c` keeps the first `@RG` line and drops the
+  other without a word (exit 0); without `-c` it renames the colliding ID with a
+  random suffix (`g1-58152F2E`), which gloci cannot reproduce.
+- **Reason:** reads of the second file would be attributed to the first file's
+  sample or library.
+- **Pinned by:** `aln-merge-rg-conflict-vs-samtools` (exit status: must differ).
+
+
 ## `convert` of alignments: `--blocks` with a score tag or `--cigar` {#bamtobed-split-tag}
 
 - **gloci:** `convert --blocks --score-tag NM` writes the BED6 rows of `--blocks` with
