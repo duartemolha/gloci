@@ -5770,6 +5770,16 @@ reference = "REF_PATH=/nonexistent samtools idxstats input.cram"
 compare = "exit-status"
 expected_difference = "#cram-counts-need-reference"
 
+# `view --count` of the same file: samtools `view -c` decodes only what it needs and counts
+# without a reference; gloci exits 1.
+[[case]]
+name = "view-count-cram-no-reference-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.cram" }
+gloci = "gloci view --count input.cram"
+reference = "REF_PATH=/nonexistent samtools view -c input.cram"
+compare = "exit-status"
+expected_difference = "#cram-counts-need-reference"
+
 # The index is a CSI written by samtools (`samtools index -c`): the counts come from its
 # pseudo-bin, which sits at a different bin number than a BAI's only for a long reference.
 [[case]]
