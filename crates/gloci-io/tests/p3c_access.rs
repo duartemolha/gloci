@@ -310,7 +310,10 @@ fn sam_aln_refuses_a_qual_that_does_not_fit_its_seq() {
     let h = AlnHeader::parse_sam(b"@HD\tVN:1.6\n@SQ\tSN:c1\tLN:1000\n".to_vec()).unwrap();
     let line = |seq: &str, qual: &str| format!("a\t0\tc1\t10\t60\t*\t*\t0\t0\t{seq}\t{qual}");
     let e = SamAln::parse(line("ACGT", "II").as_bytes(), &h).unwrap_err();
-    assert!(e.contains("2 characters") && e.contains("sequence has 4"), "{e}");
+    assert!(
+        e.contains("2 characters") && e.contains("sequence has 4"),
+        "{e}"
+    );
     let e = SamAln::parse(line("*", "II").as_bytes(), &h).unwrap_err();
     assert!(e.contains("sequence has 0"), "{e}");
     let e = SamAln::parse(line("ACGT", "II I").as_bytes(), &h).unwrap_err();
@@ -321,4 +324,147 @@ fn sam_aln_refuses_a_qual_that_does_not_fit_its_seq() {
         let a = SamAln::parse(l.as_bytes(), &h).unwrap();
         assert_eq!(a.quals().len(), a.seq_len(), "{seq} {qual}");
     }
+}
+
+/// `(name, flag, span)` of each record of flags.sam, worked out from the text by hand: the span
+/// of a mapped read is its POS and the reference bases of its CIGAR (M, D, N, =, X; at least
+/// one), that of a placed unmapped read is the one base at POS (D101, D116); a read with no
+/// reference or position has none.
+fn hand_spans() -> Vec<(String, u16, Option<(String, u64, u64)>)> {
+    let text = std::fs::read_to_string(aln("flags.sam")).unwrap();
+    text.lines()
+        .filter(|l| !l.starts_with('@'))
+        .map(|l| {
+            let f: Vec<&str> = l.split('\t').collect();
+            let flag: u16 = f[1].parse().unwrap();
+            let pos: u64 = f[3].parse().unwrap();
+            let span = if f[2] == "*" || pos == 0 {
+                None
+            } else if flag & 4 != 0 {
+                Some((f[2].to_string(), pos - 1, pos))
+            } else {
+                let mut covered = 0u64;
+                let mut n = 0u64;
+                for c in f[5].chars() {
+                    match c {
+                        '0'..='9' => n = n * 10 + u64::from(c.to_digit(10).unwrap()),
+                        'M' | 'D' | 'N' | '=' | 'X' => {
+                            covered += n;
+                            n = 0;
+                        }
+                        _ => n = 0,
+                    }
+                }
+                Some((f[2].to_string(), pos - 1, pos - 1 + covered.max(1)))
+            };
+            (f[0].to_string(), flag, span)
+        })
+        .collect()
+}
+
+/// §4.3 by hand: a point region overlaps a span that holds it strictly inside; two intervals
+/// overlap when they share a base, so bookended ones do not.
+fn hand_overlap(span: (u64, u64), region: (u64, u64)) -> bool {
+    if region.0 == region.1 {
+        span.0 < region.0 && region.0 < span.1
+    } else {
+        span.0 < region.1 && region.0 < span.1
+    }
+}
+
+fn named(src: Box<dyn AlnSource>) -> Vec<(String, u16)> {
+    let (layout, h) = (src.layout(), src.header().clone());
+    collect(src)
+        .iter()
+        .map(|raw| {
+            let a = aln_ref(layout, raw, &h).unwrap();
+            (String::from_utf8(a.name().to_vec()).unwrap(), a.flag())
+        })
+        .collect()
+}
+
+#[test]
+fn regions_source_matches_hand_oracle_on_every_index() {
+    let dir = tempfile::tempdir().unwrap();
+    let copy = |from: &str, to: &str| {
+        std::fs::copy(aln(from), dir.path().join(to)).unwrap();
+    };
+    // BAM: .bai, .csi (made by gloci), none. CRAM: .crai, none. SAM: scanned.
+    copy("flags.bam", "bai.bam");
+    copy("flags.bam.bai", "bai.bam.bai");
+    copy("flags.bam", "csi.bam");
+    write_alignment_index(
+        &dir.path().join("csi.bam"),
+        &dir.path().join("csi.bam"),
+        true,
+        NonZeroUsize::MIN,
+    )
+    .unwrap();
+    assert!(dir.path().join("csi.bam.csi").exists());
+    copy("flags.bam", "none.bam");
+    copy("flags.cram", "crai.cram");
+    copy("flags.cram.crai", "crai.cram.crai");
+    copy("flags.cram", "none.cram");
+    copy("flags.sam", "none.sam");
+    let fa = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../xtask/diff/inputs/fa/ref.fa");
+    let o = || {
+        let mut o = ropts();
+        o.accept.alignments.as_mut().unwrap().reference = Some(fa.clone());
+        o
+    };
+    let regions: Vec<(&str, u64, u64)> = vec![
+        ("chr1", 105, 205), // overlaps three reads
+        ("chr1", 110, 200), // bookended by r_plain (ends 110) and r_mapq0 (starts 200)
+        ("chr1", 105, 105), // a point strictly inside two reads
+        ("chr1", 100, 100), // a point on the start edge of two reads
+        ("chr1", 110, 110), // a point on their end edge
+        ("chr1", 700, 701), // the placed unmapped read
+        ("chr1", 700, 700), // a point on its start
+        ("chr1", 549, 551), // the soft-clipped read r_supp starts at 550
+        ("chr2", 50, 51),   // two reads at once
+        ("chr2", 0, 50),    // bookended by them
+        ("chrZ", 0, 100),   // not in the header
+    ];
+    let spans = hand_spans();
+    let mut non_empty = 0;
+    for (chrom, s, e) in &regions {
+        let want: Vec<(String, u16)> = spans
+            .iter()
+            .filter(|(_, _, sp)| {
+                sp.as_ref()
+                    .is_some_and(|(c, a, b)| c == chrom && hand_overlap((*a, *b), (*s, *e)))
+            })
+            .map(|(n, f, _)| (n.clone(), *f))
+            .collect();
+        non_empty += usize::from(!want.is_empty());
+        let region = vec![(chrom.as_bytes().to_vec(), iv(*s, *e))];
+        for file in [
+            "bai.bam",
+            "csi.bam",
+            "none.bam",
+            "crai.cram",
+            "none.cram",
+            "none.sam",
+        ] {
+            let p = dir.path().join(file);
+            let got = named(open_aln_source_regions(p.to_str().unwrap(), &region, &o()).unwrap());
+            assert_eq!(got, want, "{file} {chrom}:{s}-{e}");
+        }
+    }
+    assert!(non_empty >= 5, "the regions must select something");
+    // Known answers, so the oracle itself is checked.
+    let one = |c: &str, s, e| -> Vec<String> {
+        spans
+            .iter()
+            .filter(|(_, _, sp)| {
+                sp.as_ref()
+                    .is_some_and(|(cc, a, b)| cc == c && hand_overlap((*a, *b), (s, e)))
+            })
+            .map(|(n, _, _)| n.clone())
+            .collect()
+    };
+    assert_eq!(one("chr1", 105, 205), ["r_plain", "r_rev", "r_mapq0"]);
+    assert!(one("chr1", 110, 200).is_empty());
+    assert_eq!(one("chr1", 700, 701), ["r_unmapped_placed"]);
+    assert!(one("chr1", 700, 700).is_empty());
 }
