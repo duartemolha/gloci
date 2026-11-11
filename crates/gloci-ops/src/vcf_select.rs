@@ -19,7 +19,7 @@ use gloci_vcf::{
 };
 use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 /// A `--include` or `--exclude` expression (decision D71).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -520,6 +520,16 @@ pub fn inflight_peak() -> usize {
     INFLIGHT_PEAK.load(Ordering::SeqCst)
 }
 
+/// Test hook: the batch number a worker panics on (`u64::MAX` = never).
+static PANIC_AT_BATCH: AtomicU64 = AtomicU64::new(u64::MAX);
+
+/// Make the worker that takes batch `seq` (0-based) panic, to test that the
+/// stage reports the panic instead of hanging. `None` turns it off.
+#[doc(hidden)]
+pub fn set_worker_panic_at(seq: Option<u64>) {
+    PANIC_AT_BATCH.store(seq.unwrap_or(u64::MAX), Ordering::SeqCst);
+}
+
 /// What a worker keeps of one passing record.
 struct HitRec {
     /// Index within the batch.
@@ -564,6 +574,9 @@ struct Done {
 
 fn work_batch(spec: &Spec<'_>, core: &mut Core, mut job: Job) -> Done {
     let mut err = None;
+    if job.seq == PANIC_AT_BATCH.load(Ordering::SeqCst) {
+        panic!("test hook: worker panic on batch {}", job.seq);
+    }
     for i in 0..job.batch.len() {
         let rec_no = job.base + i as u64 + 1;
         let m = &job.batch.recs[i];

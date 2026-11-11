@@ -341,17 +341,30 @@ fn parallel_selection_first_error() {
     assert_eq!(msgs[1], msgs[3], "stats");
 }
 
+fn in_process_ro() -> ReaderOptions {
+    ReaderOptions {
+        accept: Accept::default(),
+        chrom_map: None,
+        format: None,
+        vcf_span: gloci_core::VcfSpan::Ref,
+        invalid: InvalidPolicy::Fail,
+        threads: NonZero::new(8).unwrap(),
+    }
+}
+
 #[test]
 fn parallel_selection_bounded() {
+    let _g = IN_PROCESS.lock().unwrap_or_else(|e| e.into_inner());
     let d = tempdir();
     let samples = 20_000;
+    // 2,000 records x 20,000 samples = 40M genotypes, five times the bound.
+    let records = 2_000;
     let mut t = String::from(HEAD);
     t.push_str("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT");
     for i in 0..samples {
         write!(t, "\tS{i}").unwrap();
     }
     t.push('\n');
-    let records = 200;
     for r in 1..=records {
         write!(t, "chr1\t{r}\t.\tA\tC\t50\tPASS\t.\tGT").unwrap();
         for i in 0..samples {
@@ -360,16 +373,9 @@ fn parallel_selection_bounded() {
         t.push('\n');
     }
     let path = s(&plain_file(d.path(), "wide.vcf", &t));
-    let ro = ReaderOptions {
-        accept: Accept::default(),
-        chrom_map: None,
-        format: None,
-        vcf_span: gloci_core::VcfSpan::Ref,
-        invalid: InvalidPolicy::Fail,
-        threads: NonZero::new(8).unwrap(),
-    };
+    drop(t);
     let sel = VcfSelect::default();
-    let input = open_selected(&path, &ro, &sel).unwrap();
+    let input = open_selected(&path, &in_process_ro(), &sel).unwrap();
     let (reader, mut chroms) = input.into_parts();
     let mut stage =
         gloci_ops::SelectStage::new("test", reader.as_ref(), &sel, &RewritePlan::default(), true)
@@ -381,6 +387,16 @@ fn parallel_selection_bounded() {
     let mut genotypes = 0u64;
     let n = run_selection(reader, &mut chroms, &mut stage, |hit| {
         seen += 1;
+        // A stalled consumer lets the workers run ahead as far as the stage
+        // allows: wait until a full complement of batches is in flight (13
+        // of 26 x 20,000), then give a stage without a bound time to exceed it.
+        if seen == 1 {
+            let start = std::time::Instant::now();
+            while inflight_peak() < 13 * 26 * 20_000 && start.elapsed().as_secs() < 120 {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            std::thread::sleep(std::time::Duration::from_secs(3));
+        }
         assert_eq!(hit.rec_no, seen);
         genotypes += hit.genotypes().unwrap().n_samples() as u64;
         Ok(())
@@ -391,10 +407,106 @@ fn parallel_selection_bounded() {
     assert_eq!(genotypes, records as u64 * samples as u64);
     let peak = inflight_peak();
     let workers = 7;
-    assert!(peak > 0, "nothing was held in flight");
+    let batch = 26 * samples; // max(1, 524288 / 20000) records
+    let bound = 2 * workers * 524_288;
+    assert!(peak > 5 * batch, "{peak} genotypes in flight: no read-ahead");
     assert!(
-        peak <= 2 * workers * 524_288,
-        "{peak} genotypes in flight; the bound is {}",
-        2 * workers * 524_288
+        peak <= bound,
+        "{peak} genotypes in flight; the bound is {bound}"
     );
+    assert!(
+        records * samples > 3 * bound,
+        "the input must exceed the bound"
+    );
+}
+
+/// The in-process tests share the process-wide test hooks and counters.
+static IN_PROCESS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[test]
+fn parallel_selection_reports_a_worker_panic() {
+    let _g = IN_PROCESS.lock().unwrap_or_else(|e| e.into_inner());
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let d = tempdir();
+        let path = s(&plain_file(d.path(), "p.vcf", &cohort(50, 600, &[])));
+        let sel = VcfSelect::default();
+        let input = open_selected(&path, &in_process_ro(), &sel).unwrap();
+        let (reader, mut chroms) = input.into_parts();
+        let mut stage = gloci_ops::SelectStage::new(
+            "test",
+            reader.as_ref(),
+            &sel,
+            &RewritePlan::default(),
+            true,
+        )
+        .unwrap();
+        stage.set_threads(NonZero::new(4).unwrap());
+        gloci_ops::set_worker_panic_at(Some(1));
+        let r = run_selection(reader, &mut chroms, &mut stage, |_| Ok(()));
+        gloci_ops::set_worker_panic_at(None);
+        let _ = tx.send(r.map_err(|e| e.to_string()));
+    });
+    let r = rx
+        .recv_timeout(std::time::Duration::from_secs(60))
+        .expect("the selection hung after a worker panic");
+    let e = r.expect_err("a worker panic must be an error");
+    assert!(e.contains("worker") && e.contains("panic"), "{e}");
+}
+
+/// Both errors lie in one batch: the earlier record's wins at every -t.
+#[test]
+fn parallel_selection_earliest_record_error_in_a_batch() {
+    let d = tempdir();
+    let text = cohort(40, 1200, &[]);
+    // Record 400: sample 0 names allele 9 of a site with at most 2 ALTs.
+    // Record 450: out of order (position 1, after larger ones).
+    let mut out = String::new();
+    let mut n = 0;
+    for l in text.lines() {
+        n += if l.starts_with('#') { 0 } else { 1 };
+        let mut l = l.to_string();
+        if n == 400 {
+            let cols: Vec<&str> = l.split('\t').collect();
+            let mut c: Vec<String> = cols.iter().map(|x| x.to_string()).collect();
+            c[9] = "9/9:3:3:PASS".into();
+            l = c.join("\t");
+        }
+        if n == 450 {
+            let mut c: Vec<String> = l.split('\t').map(|x| x.to_string()).collect();
+            c[1] = "1".into();
+            l = c.join("\t");
+        }
+        out.push_str(&l);
+        out.push('\n');
+    }
+    let vcf = s(&plain_file(d.path(), "e.vcf", &out));
+    let bcf = s(&d.path().join("e.bcf"));
+    run(&["vcf", "filter", &vcf, "-o", &bcf]);
+    for input in [&vcf, &bcf] {
+        let mut msgs = Vec::new();
+        for t in ["1", "8"] {
+            let o = gloci()
+                .args([
+                    "vcf",
+                    "filter",
+                    input,
+                    "--min-dp",
+                    "1",
+                    "--thin",
+                    "50",
+                    "--threads",
+                    t,
+                ])
+                .assert()
+                .failure();
+            msgs.push(String::from_utf8(o.get_output().stderr.clone()).unwrap());
+        }
+        for m in &msgs {
+            assert!(
+                m.contains("record 400") && m.contains("allele 9"),
+                "{input}: {m}"
+            );
+        }
+    }
 }
