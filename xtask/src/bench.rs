@@ -111,6 +111,8 @@ pub struct Case {
     /// `windows`: `{in_b}` of an alignment setup is every 30th window of
     /// `gloci windows` over its reference, sized for about 10,000 targets
     /// (the `bedcov` cases), instead of the synthesised target intervals.
+    /// `exome`: 200,000 targets of 100 bp spread evenly over the reference
+    /// (fewer on a reference too short to keep them 200 bp apart).
     #[serde(default)]
     pub in_b: Option<String>,
 }
@@ -458,15 +460,22 @@ fn prepare_sam(
         run_ok(Command::new(gloci).arg("index").arg(&reference))?;
     }
     let mut in_b = targets;
-    if case.in_b.as_deref() == Some("windows") {
-        in_b = dir.join(format!("{stem}.windows.bed"));
-        if !in_b.exists() {
-            write_window_targets(
-                gloci,
-                &PathBuf::from(format!("{}.fai", reference.display())),
-                &in_b,
-            )?;
+    let fai = PathBuf::from(format!("{}.fai", reference.display()));
+    match case.in_b.as_deref() {
+        Some("windows") => {
+            in_b = dir.join(format!("{stem}.windows.bed"));
+            if !in_b.exists() {
+                write_window_targets(gloci, &fai, &in_b)?;
+            }
         }
+        Some("exome") => {
+            in_b = dir.join(format!("{stem}.exome.bed"));
+            if !in_b.exists() {
+                write_exome_targets(&fai, &in_b)?;
+            }
+        }
+        Some(other) => bail!("{}: unknown in_b `{other}`", case.name),
+        None => {}
     }
     let mut in_a = bams[0].clone();
     if case.input == "cram" {
@@ -534,6 +543,36 @@ fn write_window_targets(gloci: &Path, fai: &Path, bed: &Path) -> Result<()> {
         kept.push('\n');
     }
     ensure!(!kept.is_empty(), "no window targets for {}", fai.display());
+    let tmp = bed.with_extension("bed.partial");
+    std::fs::write(&tmp, kept)?;
+    std::fs::rename(&tmp, bed)?;
+    Ok(())
+}
+
+/// An exome-like BED: 200,000 targets of 100 bp, one every `total / 200,000` bases of the
+/// reference in `.fai` order (at least 200 bases apart, so a short reference gets fewer),
+/// each inside its chromosome.
+fn write_exome_targets(fai: &Path, bed: &Path) -> Result<()> {
+    let chroms: Vec<(String, u64)> = std::fs::read_to_string(fai)?
+        .lines()
+        .filter_map(|l| {
+            let mut f = l.split('\t');
+            Some((f.next()?.to_string(), f.next()?.parse::<u64>().ok()?))
+        })
+        .collect();
+    let total: u64 = chroms.iter().map(|(_, n)| n).sum();
+    let step = (total / 200_000).max(200);
+    let mut kept = String::new();
+    let mut n = 0u64;
+    for (name, len) in &chroms {
+        let mut pos = step / 2;
+        while pos + 100 <= *len && n < 200_000 {
+            kept.push_str(&format!("{name}\t{pos}\t{}\n", pos + 100));
+            n += 1;
+            pos += step;
+        }
+    }
+    ensure!(n > 0, "no exome targets for {}", fai.display());
     let tmp = bed.with_extension("bed.partial");
     std::fs::write(&tmp, kept)?;
     std::fs::rename(&tmp, bed)?;
@@ -1305,6 +1344,7 @@ mod tests {
             "depth-bam-50M",
             "depth-bam-50M-t8",
             "bedcov-bam-10k-targets",
+            "bedcov-bam-200k-exome",
             "faidx-10k-regions",
             "dict-3G",
             "reheader-bam-50M",
@@ -1637,6 +1677,6 @@ mod tests {
             );
             checked += 1;
         }
-        assert_eq!(checked, 22, "P3a and P3c cases run");
+        assert_eq!(checked, 23, "P3a and P3c cases run");
     }
 }

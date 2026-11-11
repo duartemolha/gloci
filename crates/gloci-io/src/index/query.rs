@@ -659,6 +659,62 @@ struct IndexedAlnSource {
     batch: RecordBatch,
 }
 
+/// Region queries of one indexed BAM or CRAM, one after another. A BAM keeps one open file for
+/// every query and seeks to each query's chunks, instead of opening the file again; a CRAM opens
+/// a source per query. Each query yields exactly what [`IndexedFile::aln_regions_source`] would:
+/// its own record numbers and its own diagnostics.
+pub struct AlnRegionCursor<'f> {
+    file: &'f IndexedFile,
+    bam: Option<IndexedAlnSource>,
+    other: Option<Box<dyn AlnSource>>,
+}
+
+impl AlnRegionCursor<'_> {
+    /// The records that overlap `regions`, as [`IndexedFile::aln_regions_source`] gives them.
+    /// The source is valid until the next query.
+    pub fn query(
+        &mut self,
+        regions: &[(Vec<u8>, Interval)],
+        inclusive_points: bool,
+    ) -> Result<&mut dyn AlnSource, IoError> {
+        let f = self.file;
+        let (index, by_new_name) = match &f.backend {
+            Backend::Binned { index, by_new_name } => (index, by_new_name),
+            Backend::Cram(_) => {
+                let src = self
+                    .other
+                    .insert(f.aln_regions_source(regions, inclusive_points)?);
+                return Ok(src.as_mut());
+            }
+        };
+        let s = match self.bam.take() {
+            Some(mut s) => {
+                // The open file moves to the new query's reader; the rest starts afresh.
+                let open = s.reader.src;
+                s.reader =
+                    f.region_reader_on(open, index, by_new_name, regions, inclusive_points, true)?;
+                s.chroms = ChromTable::first_appearance();
+                s.batch.clear();
+                s
+            }
+            None => {
+                let Header::Alignment(aln) = &f.header else {
+                    return Err(IoError::Internal(
+                        "an alignment source needs a BAM file".into(),
+                    ));
+                };
+                IndexedAlnSource {
+                    aln: aln.clone(),
+                    reader: f.region_reader(index, by_new_name, regions, inclusive_points, true)?,
+                    chroms: ChromTable::first_appearance(),
+                    batch: RecordBatch::default(),
+                }
+            }
+        };
+        Ok(self.bam.insert(s))
+    }
+}
+
 impl AlnSource for IndexedAlnSource {
     fn name(&self) -> &str {
         &self.reader.name
@@ -1283,6 +1339,25 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
         inclusive_points: bool,
         all: bool,
     ) -> Result<RegionReader, IoError> {
+        let file = File::open(&self.path).map_err(|source| IoError::Open {
+            path: self.name.clone(),
+            source,
+        })?;
+        let src = noodles_bgzf::io::Reader::new(BufReader::new(file));
+        self.region_reader_on(src, index, by_new_name, regions, inclusive_points, all)
+    }
+
+    /// [`IndexedFile::region_reader`] over `src`, this file already open, wherever it stands:
+    /// the reader seeks to each chunk it reads.
+    fn region_reader_on(
+        &self,
+        src: noodles_bgzf::io::Reader<BufReader<File>>,
+        index: &Arc<Loaded>,
+        by_new_name: &HashMap<Vec<u8>, usize>,
+        regions: &[(Vec<u8>, Interval)],
+        inclusive_points: bool,
+        all: bool,
+    ) -> Result<RegionReader, IoError> {
         log::debug!(
             "reading {} through its index {} for {} region(s)",
             self.name,
@@ -1310,10 +1385,6 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
         // emitted. References without records yield nothing; their place is
         // irrelevant.
         plans.sort_by_key(|p| index.first_offset(p.rid).unwrap_or(VirtualPosition::MAX));
-        let file = File::open(&self.path).map_err(|source| IoError::Open {
-            path: self.name.clone(),
-            source,
-        })?;
         Ok(RegionReader {
             name: self.name.clone(),
             format: self.format,
@@ -1321,7 +1392,7 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
             diag: Diagnostics::default(),
             policy: self.opts.invalid,
             inclusive: inclusive_points,
-            src: noodles_bgzf::io::Reader::new(BufReader::new(file)),
+            src,
             renamer: text_renamer(self.format, &self.opts),
             parser: self.parser(all)?,
             index: index.clone(),
@@ -1338,6 +1409,16 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
             seen: 0,
             seen_last: None,
         })
+    }
+
+    /// Region queries of this BAM or CRAM, one after another, through one cursor (bedcov asks
+    /// one per BED line): see [`AlnRegionCursor`].
+    pub fn aln_region_cursor(&self) -> AlnRegionCursor<'_> {
+        AlnRegionCursor {
+            file: self,
+            bam: None,
+            other: None,
+        }
     }
 
     /// Every record on `chroms`, chromosome by chromosome in the order

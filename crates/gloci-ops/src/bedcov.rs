@@ -8,9 +8,9 @@
 use crate::depth::{CountRules, DepthRing, check_same_references, log_diagnostics};
 use gloci_core::{ChromTable, Interval};
 use gloci_io::{
-    AlnHeader, AlnSource, Diagnostics, Format, Header, IndexedFile, InvalidPolicy, IoError, Loc,
-    OrderError, ReaderOptions, RecordBatch, RecordReader, UsageError, aln_ref, find_index,
-    next_batch_size, open_aln_source,
+    AlnHeader, AlnRegionCursor, AlnSource, Diagnostics, Format, Header, IndexedFile, InvalidPolicy,
+    IoError, Loc, OrderError, ReaderOptions, RecordBatch, RecordReader, UsageError, aln_ref,
+    find_index, next_batch_size, open_aln_source,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
@@ -198,8 +198,14 @@ fn push_u64(out: &mut Vec<u8>, v: u64) {
     out.extend_from_slice(v.to_string().as_bytes());
 }
 
-/// Count every line of one batch, writing the lines with their columns.
-fn run_batch(sh: &Shared<'_>, job: &Job, ring: &mut DepthRing) -> Result<Done, IoError> {
+/// Count every line of one batch, writing the lines with their columns. `cursors` holds the
+/// worker's one reader per input, which each region seeks (M16).
+fn run_batch(
+    sh: &Shared<'_>,
+    job: &Job,
+    ring: &mut DepthRing,
+    cursors: &mut [AlnRegionCursor<'_>],
+) -> Result<Done, IoError> {
     let n_files = sh.files.len();
     let mut diags = vec![Diagnostics::default(); n_files];
     let mut out = Vec::with_capacity(job.batch.buf.len() + job.batch.len() * 24 * n_files);
@@ -209,12 +215,12 @@ fn run_batch(sh: &Shared<'_>, job: &Job, ring: &mut DepthRing) -> Result<Done, I
         let rid = job.rids[i];
         let (name, ref_len) = (&sh.refs[rid].0, sh.refs[rid].1);
         let region = [(name.clone(), m.span)];
-        for (k, f) in sh.files.iter().enumerate() {
+        for (k, cursor) in cursors.iter_mut().enumerate() {
             if m.span.start >= m.span.end {
                 totals[k] = RegionTotals::default();
                 continue;
             }
-            let mut src = f.aln_regions_source(&region, false)?;
+            let src = cursor.query(&region, false)?;
             totals[k] = region_totals_in(
                 ring,
                 &mut *src,
@@ -437,11 +443,16 @@ the chromosome with --chrom-map, or pass --skip-invalid to skip lines on unknown
 
     let result: Result<(), IoError> = if workers == 1 {
         let mut ring = DepthRing::new();
+        let mut cursors: Vec<_> = sh
+            .files
+            .iter()
+            .map(IndexedFile::aln_region_cursor)
+            .collect();
         loop {
             let Some(job) = next_job(&mut bed, &mut read_err, &mut more)? else {
                 break;
             };
-            let done = run_batch(&sh, &job, &mut ring)?;
+            let done = run_batch(&sh, &job, &mut ring, &mut cursors)?;
             out.write_all(&done.out).map_err(write_err)?;
             absorb(done, &mut merged, &mut lines);
         }
@@ -456,12 +467,17 @@ the chromosome with --chrom-map, or pass --skip-invalid to skip lines on unknown
                 let (rx, tx, sh) = (job_rx.clone(), res_tx.clone(), &sh);
                 s.spawn(move || {
                     let mut ring = DepthRing::new();
+                    let mut cursors: Vec<_> = sh
+                        .files
+                        .iter()
+                        .map(IndexedFile::aln_region_cursor)
+                        .collect();
                     loop {
                         let job = match rx.lock().unwrap().recv() {
                             Ok(j) => j,
                             Err(_) => break,
                         };
-                        let r = run_batch(sh, &job, &mut ring);
+                        let r = run_batch(sh, &job, &mut ring, &mut cursors);
                         if tx.send((job.id, r)).is_err() {
                             break;
                         }

@@ -69,10 +69,10 @@ pub use fasta::{
 pub use fields::{column_count, field, split_fields};
 pub use genome::{chrom_table_for, chrom_table_lenient, load_genome};
 pub use index::{
-    AlnIndexCounts, CraiEntry, CramIndex, IndexInfo, IndexKind, IndexedFile, RefCounts, TsvColumns,
-    crai_path, file_chrom_name, find_crai, find_index, index_non_empty_reference_names,
-    index_reference_names, open_region_reader, write_alignment_index, write_crai, write_index,
-    write_tsv_index,
+    AlnIndexCounts, AlnRegionCursor, CraiEntry, CramIndex, IndexInfo, IndexKind, IndexedFile,
+    RefCounts, TsvColumns, crai_path, file_chrom_name, find_crai, find_index,
+    index_non_empty_reference_names, index_reference_names, open_region_reader,
+    write_alignment_index, write_crai, write_index, write_tsv_index,
 };
 pub use input::{
     BGZF_EOF, Input, InputOptions, InputSpool, is_regular_file, open_input, open_input_from,

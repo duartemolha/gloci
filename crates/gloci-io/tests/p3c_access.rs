@@ -527,3 +527,52 @@ fn cram_prelude_survives_damaged_files() {
     assert!(!cram_eof_present(&write("junk.cram", &junk)).unwrap());
     assert!(!cram_eof_present(&write("short.cram", b"CRAM")).unwrap());
 }
+
+/// One region cursor per file answers query after query, seeking within the one open file
+/// (bedcov asks one per BED line, M16), and gives each query exactly what a fresh source gives:
+/// back and forth over the file, on both references, empty and repeated.
+#[test]
+fn region_cursor_equals_fresh_sources() {
+    let c = |s: &str| s.as_bytes().to_vec();
+    let queries: Vec<Regions> = vec![
+        vec![(c("chr1"), iv(105, 205))],
+        vec![(c("chr2"), iv(40, 70))],
+        vec![(c("chr1"), iv(0, 100))],
+        vec![(c("chr1"), iv(700, 701))],
+        vec![],
+        vec![(c("chrZ"), iv(0, 10))],
+        vec![(c("chr1"), iv(0, 1_000_000)), (c("chr2"), iv(0, 1_000_000))],
+        vec![(c("chr1"), iv(105, 205))],
+        vec![(c("chr1"), iv(110, 110))],
+    ];
+    for (file, format) in [
+        ("flags.bam", Format::Bam),
+        ("order.bam", Format::Bam),
+        ("flags.embed.cram", Format::Cram),
+    ] {
+        let p = aln(file);
+        let h = open_aln_source(p.to_str().unwrap(), &ropts())
+            .unwrap()
+            .header()
+            .clone();
+        let ix = IndexedFile::open(&p, format, Header::Alignment(h), &ropts()).unwrap();
+        let mut cursor = ix.aln_region_cursor();
+        let mut nonempty = 0;
+        for q in &queries {
+            let want = collect(ix.aln_regions_source(q, false).unwrap());
+            let src = cursor.query(q, false).unwrap();
+            let mut got = Vec::new();
+            let mut buf = Vec::new();
+            let mut n = 0;
+            while let Some(rec) = src.next_record(&mut buf).unwrap() {
+                n += 1;
+                assert_eq!(rec, n, "{file} {q:?}: records numbered per query");
+                got.push(std::mem::take(&mut buf));
+            }
+            assert_eq!(got, want, "{file} {q:?}");
+            assert_eq!(src.diagnostics(), &Diagnostics::default(), "{file} {q:?}");
+            nonempty += usize::from(!got.is_empty());
+        }
+        assert!(nonempty >= 3, "{file}: {nonempty}");
+    }
+}
