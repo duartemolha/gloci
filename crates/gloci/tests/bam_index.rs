@@ -304,3 +304,70 @@ fn indexed_regions_equal_scan_at_every_thread_count() {
         args.clear();
     }
 }
+
+#[test]
+fn a_stale_index_gets_one_warning_wording_everywhere() {
+    // M7: view (interval and alignment regions), per-chromosome intersect and genomecov, and
+    // a FASTA's .fai (getfasta, -g FASTA) all say it the same way.
+    let dir = tempdir();
+    let old = |p: &Path| {
+        let f = std::fs::File::options().write(true).open(p).unwrap();
+        f.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(3600))
+            .unwrap();
+    };
+    let warning = |index: &Path, data: &str| {
+        format!(
+            "warning: the index {} is older than {data}; it may be out of date (rebuild it with: \
+gloci index {data})",
+            index.display()
+        )
+    };
+    let bam = copy(dir.path(), "flags.bam", "x.bam");
+    let bai = dir.path().join("x.bam.bai");
+    std::fs::copy(aln("flags.bam.bai"), &bai).unwrap();
+    old(&bai);
+    let b = s(&bam);
+    let bed = dir.path().join("t.bed");
+    std::fs::write(&bed, "chr1\t0\t1000\n").unwrap();
+    let t = s(&bed);
+    let gz = dir.path().join("t.bed.gz");
+    run(&["view", &t, "-o", &s(&gz), "--write-index"]);
+    let tbi = dir.path().join("t.bed.gz.tbi");
+    old(&tbi);
+    let g = s(&gz);
+    let fa = dir.path().join("r.fa");
+    std::fs::write(&fa, ">chr1\nACGTACGTAC\n").unwrap();
+    let f = s(&fa);
+    run(&["index", &f]);
+    let fai = dir.path().join("r.fa.fai");
+    old(&fai);
+    let fa_bed = dir.path().join("f.bed");
+    std::fs::write(&fa_bed, "chr1\t0\t4\n").unwrap();
+    let fb = s(&fa_bed);
+    let cases: [(Vec<&str>, String); 6] = [
+        (vec!["view", &b, "chr1:101-110"], warning(&bai, &b)),
+        (vec!["view", &g, "chr1:1-10"], warning(&tbi, &g)),
+        (
+            vec![
+                "intersect",
+                "-a",
+                &b,
+                "-b",
+                &g,
+                "--mode",
+                "count",
+                "-t",
+                "4",
+            ],
+            warning(&bai, &b),
+        ),
+        (vec!["genomecov", &b, "-t", "4"], warning(&bai, &b)),
+        (vec!["getfasta", &fb, "--fasta", &f], warning(&fai, &f)),
+        (vec!["genomecov", &fb, "-g", &f], warning(&fai, &f)),
+    ];
+    for (args, want) in cases {
+        let o = gloci().args(&args).assert().success();
+        let err = String::from_utf8_lossy(&o.get_output().stderr).into_owned();
+        assert_eq!(err.matches(&want).count(), 1, "{args:?}: {err}");
+    }
+}

@@ -77,10 +77,7 @@ impl IndexedFasta {
         }
         let (fai, stale) = find_fai(path)?;
         if stale {
-            log::warn!(
-                "the index {} is older than {name}; it may be out of date (rebuild it with: gloci index {name})",
-                fai.display()
-            );
+            crate::index::warn_stale_index(&fai, &name);
         }
         let text = std::fs::read(&fai).map_err(|source| IoError::Read {
             path: fai.display().to_string(),

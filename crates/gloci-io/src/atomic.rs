@@ -136,6 +136,47 @@ pub fn internal_error_line(message: &str) -> String {
     format!("error: internal error: {message}; this is a bug, please report it")
 }
 
+thread_local! {
+    /// What a panic on this thread means for the user, when it is not a bug of gloci's own
+    /// (a library failing on malformed input it was handed): see [`panic_note`].
+    static PANIC_NOTE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// While the returned guard lives, a panic on this thread is reported as `note` (followed by
+/// the panic's message) instead of an internal error; the exit status stays 1.
+pub(crate) fn panic_note(note: String) -> PanicNote {
+    let prev = PANIC_NOTE.with(|n| n.try_borrow_mut().ok().and_then(|mut n| n.replace(note)));
+    PanicNote { prev }
+}
+
+/// Restores the note before it on drop.
+pub(crate) struct PanicNote {
+    prev: Option<String>,
+}
+
+impl Drop for PanicNote {
+    fn drop(&mut self) {
+        let prev = self.prev.take();
+        PANIC_NOTE.with(|n| {
+            if let Ok(mut n) = n.try_borrow_mut() {
+                *n = prev;
+            }
+        });
+    }
+}
+
+/// The line the panic hook prints for `message`: the thread's note, or an internal error.
+fn panic_line(message: &str) -> String {
+    let note = PANIC_NOTE
+        .try_with(|n| n.try_borrow().ok().and_then(|n| n.clone()))
+        .ok()
+        .flatten();
+    match note {
+        Some(note) => format!("error: {note} ({message})"),
+        None => internal_error_line(message),
+    }
+}
+
 fn panic_message(info: &std::panic::PanicHookInfo<'_>) -> String {
     let payload = info.payload();
     payload
@@ -155,11 +196,7 @@ pub fn install_cleanup_handlers() {
             cleanup_and_exit(130);
         });
         std::panic::set_hook(Box::new(|info| {
-            let _ = writeln!(
-                io::stderr(),
-                "{}",
-                internal_error_line(&panic_message(info))
-            );
+            let _ = writeln!(io::stderr(), "{}", panic_line(&panic_message(info)));
             cleanup_and_exit(1);
         }));
     });

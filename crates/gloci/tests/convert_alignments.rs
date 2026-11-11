@@ -209,10 +209,99 @@ fn bed12_closes_at_the_last_kept_block() {
 }
 
 #[test]
+fn bed12_opens_at_the_first_kept_block() {
+    let out = run(&["convert", &aln("cigars-ends.bam"), "--bed12"]);
+    let want = [
+        "chr1\t105\t115\tlead\t60\t+\t105\t115\t255,0,0\t1\t10\t0",
+        "chr1\t200\t213\tleadD\t60\t+\t200\t213\t255,0,0\t1\t13\t0",
+        "chr1\t305\t313\tsc\t60\t+\t305\t313\t255,0,0\t1\t8\t0",
+        "chr1\t400\t410\ttailN\t60\t+\t400\t410\t255,0,0\t1\t10\t0",
+        "chr1\t500\t513\ttailD\t60\t-\t500\t513\t255,0,0\t1\t13\t0",
+    ];
+    assert_eq!(out.lines().collect::<Vec<_>>(), want);
+    let out = run(&[
+        "convert",
+        &aln("cigars-ends.bam"),
+        "--bed12",
+        "--split-deletions",
+    ]);
+    assert!(
+        out.contains("chr1\t203\t213\tleadD\t60\t+\t203\t213\t255,0,0\t1\t10\t0\n")
+            && out.contains("chr1\t500\t510\ttailD\t60\t-\t500\t510\t255,0,0\t1\t10\t0\n"),
+        "{out}"
+    );
+}
+
+#[test]
+fn bed12_round_trips_through_the_split_commands() {
+    // gloci reads what convert --bed12 writes: its blocks are convert --blocks' blocks, and
+    // intersect --split takes the BED12 row (it refused a first block past offset 0).
+    let dir = tempdir();
+    let targets = dir.path().join("t.bed");
+    std::fs::write(&targets, "chr1\t0\t100000\n").unwrap();
+    let targets = targets.to_string_lossy().into_owned();
+    let b12 = dir.path().join("x.bed");
+    let b12 = b12.to_string_lossy().into_owned();
+    for file in ["cigars-ends.bam", "cigars-bases.bam", "splice-end.bam"] {
+        let path = aln(file);
+        for extra in [&[][..], &["--split-deletions"][..]] {
+            let mut args = vec!["convert", path.as_str()];
+            args.extend(extra);
+            let mut bed12 = args.clone();
+            bed12.extend(["--bed12", "-o", &b12]);
+            run(&bed12);
+            let mut blocks = args.clone();
+            blocks.push("--blocks");
+            assert_eq!(
+                run(&blocks),
+                run(&["convert", &b12, "--blocks"]),
+                "{file} {extra:?}"
+            );
+            let counts = run(&[
+                "intersect",
+                "-a",
+                &b12,
+                "-b",
+                &targets,
+                "--split",
+                "--mode",
+                "count",
+            ]);
+            assert!(
+                counts.lines().all(|l| l.ends_with("\t1")),
+                "{file} {extra:?}: {counts}"
+            );
+        }
+    }
+}
+
+#[test]
 fn negative_scores_stay_signed() {
     let out = run(&["convert", &aln("negtag.bam"), "--score-tag", "AS"]);
     assert_eq!(
         out,
         "chr1\t10\t20\tneg_one\t-1\t+\nchr1\t30\t40\tneg_five\t-5\t+\n"
     );
+}
+
+#[test]
+fn alignment_output_names_view() {
+    // M9: convert writes BED; gloci view converts between alignment formats.
+    let dir = tempdir();
+    for out in ["x.bam", "x.sam"] {
+        let o = dir.path().join(out);
+        gloci()
+            .args(["convert", &aln("cigars.bam"), "-o", o.to_str().unwrap()])
+            .assert()
+            .code(2)
+            .stderr(contains("convert writes BED"))
+            .stderr(contains("gloci view"))
+            .stderr(contains("not available").not());
+        assert!(!o.exists());
+    }
+    gloci()
+        .args(["convert", &aln("cigars.bam"), "-O", "vcf"])
+        .assert()
+        .code(2)
+        .stderr(contains("convert writes BED, not VCF"));
 }

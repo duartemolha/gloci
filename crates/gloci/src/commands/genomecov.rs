@@ -1,13 +1,15 @@
 //! `gloci genomecov`: depth of coverage of a genome by BED features.
-use super::{InputArgs, SORT_FLAG_HINT, open_inputs};
+use super::{InputArgs, SORT_FLAG_HINT, open_inputs, reader_options};
 use crate::Ctx;
 use crate::cli::GenomecovArgs;
-use gloci_core::Strand;
+use gloci_core::{Genome, Strand};
 use gloci_io::{
-    Format, Header, OutFormat, OutputOptions, TsvHeader, WriterOptions, open_output,
+    Format, Header, OutFormat, OutputOptions, TsvHeader, UsageError, WriterOptions, open_output,
     open_record_writer, open_tsv_writer, parse_output_spec, refuse_binary_to_tty, resolve_genome,
 };
-use gloci_ops::genomecov::{GenomecovMode, GenomecovOptions, Piece, genomecov, validate};
+use gloci_ops::genomecov::{
+    ChunkRun, GenomecovMode, GenomecovOptions, Piece, genomecov_files, validate,
+};
 use std::io::IsTerminal;
 
 pub fn run(ctx: &Ctx, a: &GenomecovArgs) -> anyhow::Result<()> {
@@ -30,6 +32,7 @@ pub fn run(ctx: &Ctx, a: &GenomecovArgs) -> anyhow::Result<()> {
             }
         }),
         split: a.split,
+        split_deletions: a.split_deletions,
         piece: if a.five_prime {
             Piece::FivePrime
         } else if a.three_prime {
@@ -40,26 +43,42 @@ pub fn run(ctx: &Ctx, a: &GenomecovArgs) -> anyhow::Result<()> {
         max_depth: a.max_depth,
     };
     validate(&o)?;
-    let genome = resolve_genome(&a.genome)?.0;
     let spec = parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref())?;
     let files = [a.file.clone()];
-    let (mut readers, mut chroms) = open_inputs(
-        ctx,
-        &InputArgs {
-            files: &files,
-            format: a.format.format.as_deref(),
-            vcf_span: a.vcf_span.vcf_span,
-            invalid: a.invalid.skip_invalid,
-            genome: Some(&a.genome),
-            chrom_order: &a.chrom_order,
-            sort: &a.sort,
-            chrom_map: &a.chrom_map,
-            alignments_planned: true,
-        },
-        &|_| Ok(()),
-    )?;
+    // Reads are slim: genomecov never writes one (D115).
+    let input = InputArgs {
+        files: &files,
+        format: a.format.format.as_deref(),
+        vcf_span: a.vcf_span.vcf_span,
+        invalid: a.invalid.skip_invalid,
+        genome: a.genome.as_deref(),
+        chrom_order: &a.chrom_order,
+        sort: &a.sort,
+        chrom_map: &a.chrom_map,
+        alignments: Some(a.align.options(false)?),
+    };
+    // The input's format before --sort replaces it with the sorted (BAM) copy.
+    let format = std::cell::Cell::new(None);
+    let (mut readers, mut chroms) = open_inputs(ctx, &input, &|f| {
+        format.set(f.first().copied());
+        Ok(())
+    })?;
     anyhow::ensure!(readers.len() == 1, "genomecov takes exactly one input");
     let reader = readers.remove(0);
+    let format = format.get().unwrap_or(reader.format());
+    gloci_io::warn_unused_reference(a.align.reference.as_deref(), format == Format::Cram);
+    gloci_io::warn_unused_read_filters(input.alignments.as_ref(), format.is_alignment());
+    let genome = genome_of(a.genome.as_deref(), reader.as_ref())?;
+    // An indexed BAM runs per chromosome; `--sort` streams the sorted copy.
+    let chunked = (!a.sort.sort && a.file != "-").then(|| -> anyhow::Result<ChunkRun> {
+        Ok(ChunkRun {
+            path: a.file.clone().into(),
+            ro: reader_options(ctx, &input)?,
+            threads: ctx.threads,
+            tmp_dir: ctx.tmp_dir.clone(),
+        })
+    });
+    let chunked = chunked.transpose()?;
 
     // The rows are new TSV/BED lines whatever the input format.
     let to = spec.format.unwrap_or(OutFormat::Bed);
@@ -89,10 +108,48 @@ pub fn run(ctx: &Ctx, a: &GenomecovArgs) -> anyhow::Result<()> {
         open_record_writer(out, Format::Bed, to, &Header::None, &wo)
     }
     .map_err(|e| e.with_output_name(&dest))?;
-    genomecov(reader, &mut chroms, &genome, &o, w.as_mut()).map_err(|e| {
+    genomecov_files(
+        reader,
+        chunked.as_ref(),
+        &mut chroms,
+        &genome,
+        &o,
+        w.as_mut(),
+    )
+    .map_err(|e| {
         e.with_output_name(&dest)
             .with_order_hint(if a.sort.sort { "" } else { SORT_FLAG_HINT })
     })?;
     w.finish().map_err(|e| e.with_output_name(&dest))?;
     Ok(())
+}
+
+/// The genome to cover: `-g`, else the lengths in an alignment's header.
+fn genome_of(arg: Option<&str>, reader: &dyn gloci_io::RecordReader) -> anyhow::Result<Genome> {
+    if let Some(g) = arg {
+        return Ok(resolve_genome(g)?.0);
+    }
+    match reader.header() {
+        Header::Alignment(h) if !h.refs.is_empty() => {
+            Genome::new(h.refs.iter().map(|(n, l)| (n.clone(), Some(*l))).collect()).map_err(|e| {
+                UsageError(format!(
+                    "{}: the header's references do not make a genome: {e}",
+                    reader.name()
+                ))
+                .into()
+            })
+        }
+        Header::Alignment(_) => Err(UsageError(format!(
+            "{} has no @SQ lines, so there are no chromosome lengths; \
+pass -g with a built-in genome such as hg38 or a .fai file",
+            reader.name()
+        ))
+        .into()),
+        _ => Err(UsageError(
+            "-g is required unless the input is BAM, CRAM or SAM: give a built-in genome such as \
+hg38 (see gloci genomes), or a .fai, .genome or .dict file"
+                .into(),
+        )
+        .into()),
+    }
 }

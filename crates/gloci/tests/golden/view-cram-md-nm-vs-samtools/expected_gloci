@@ -1,0 +1,7 @@
+@HD	VN:1.6	SO:coordinate
+@SQ	SN:chr1	LN:1000	M5:712ec1c4d51a41496d99ca5ba3068643	UR:/work/aln/../fa/ref.fa
+@RG	ID:g1	SM:s1
+m_exact	0	chr1	1	60	10M	*	0	0	ACGCCGGTAG	IIIIIIIIII	XA:i:1	RG:Z:g1
+m_mismatch	0	chr1	1	60	10M	*	0	0	ACGTCGGTAG	IIIIIIIIII	XB:i:2
+m_no_md	0	chr1	1	60	10M	*	0	0	ACGTCGGTAG	IIIIIIIIII	XC:i:3
+m_wrong_md	0	chr1	1	60	10M	*	0	0	ACGTCGGTAG	IIIIIIIIII	NM:i:0	MD:Z:10

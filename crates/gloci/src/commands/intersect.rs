@@ -104,6 +104,7 @@ pub fn run(ctx: &Ctx, a: &IntersectArgs) -> anyhow::Result<()> {
         },
     };
     validate(files.a().format(), &files.b_formats(), &o)?;
+    files = files.with_sorted_a_header(&o.relate)?;
     // SAM lines are written as read; --chrom-map renames the header, so the two would
     // disagree. (BAM records name references by number, so BAM is fine.)
     if write_a && chrom_map.is_some() && files.a().format() == Format::Sam {

@@ -78,7 +78,7 @@ pub(crate) fn parse_flag(field: &[u8]) -> Result<u16, String> {
 }
 
 /// htslib's `hts_reg2bin(beg, end, 14, 5)`.
-fn reg2bin(beg: i64, end: i64) -> u16 {
+pub(crate) fn reg2bin(beg: i64, end: i64) -> u16 {
     let end = end - 1;
     let bin = if beg >> 14 == end >> 14 {
         4681 + (beg >> 14)

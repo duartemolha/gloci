@@ -1,8 +1,9 @@
-//! Alignment input (BAM, CRAM, SAM): options, flag parsing and the input gate (D100).
-//! The BAM and SAM readers and writers are here; the CRAM reader arrives in a later P3a task.
+//! Alignment input (BAM, CRAM, SAM): options, flag parsing and the input gate (D100), and the
+//! BAM, CRAM and SAM readers and the BAM and SAM writers.
 
 mod bam;
 mod bed;
+pub(crate) mod cram;
 mod encode;
 mod header;
 mod place;
@@ -12,9 +13,11 @@ mod sam;
 mod source;
 mod writer;
 
-pub(crate) use bam::BamReader;
+pub(crate) use bam::{BamReader, bam_record_place};
 pub use bed::{AlnBed, AlnBedLayout, AlnBedOptions, AlnBlocks};
-pub use header::{AlnHeader, SortOrder};
+pub(crate) use cram::CramFile;
+pub use cram::{CramReader, ReferenceCounts, read_cram_header, warn_unused_reference};
+pub use header::{AlnHeader, AlnSortOrder, SortOrder};
 pub use record::{Aln, AlnRef, aln_ref, blocks, blocks_within};
 pub use region::alignment_query_span;
 pub(crate) use region::{BamRegionParse, index_span};
@@ -51,6 +54,34 @@ impl AlignOptions {
     }
 }
 
+/// Warn, once per call, that the read filters given (`--min-mapq`, `--require-flags`,
+/// `--exclude-flags`) are not used because no input is BAM, CRAM or SAM, as
+/// [`warn_unused_reference`] does for `--reference`. `opts` is `None` for a command that
+/// reads no alignments.
+pub fn warn_unused_read_filters(opts: Option<&AlignOptions>, any_alignment: bool) {
+    let Some(o) = opts else { return };
+    if any_alignment {
+        return;
+    }
+    let given: Vec<&str> = [
+        (o.min_mapq > 0, "--min-mapq"),
+        (o.require_flags != 0, "--require-flags"),
+        (o.exclude_flags != 0, "--exclude-flags"),
+    ]
+    .into_iter()
+    .filter_map(|(set, name)| set.then_some(name))
+    .collect();
+    let (list, verb) = match given.as_slice() {
+        [] => return,
+        [one] => ((*one).to_string(), "is"),
+        [rest @ .., last] => (format!("{} and {last}", rest.join(", ")), "are"),
+    };
+    log::warn!(
+        "{list} {verb} not used: no input is BAM, CRAM or SAM (the read filters apply to \
+alignments only)"
+    );
+}
+
 /// What a command accepts as input beyond interval formats. The default accepts
 /// none of them, so a command that does not read alignments refuses them.
 #[derive(Debug, Clone, Default)]
@@ -59,20 +90,6 @@ pub struct Accept {
     pub alignments: Option<AlignOptions>,
     /// The command is `convert`, which also reads PSL and RepeatMasker.
     pub convert_only: bool,
-    /// The command will read alignments once their reader lands (intersect, coverage,
-    /// genomecov, view, sort, index): until then the gate says so instead of claiming
-    /// that the command never reads them.
-    pub alignments_planned: bool,
-}
-
-impl Accept {
-    /// For a command that will read alignments but whose reader is not built yet.
-    pub fn planned() -> Accept {
-        Accept {
-            alignments_planned: true,
-            ..Accept::default()
-        }
-    }
 }
 
 const FLAG_NAMES: [(&str, u16); 12] = [
@@ -141,17 +158,8 @@ fn gate_error(kind: GateKind, msg: String) -> IoError {
     IoError::Gate { kind, msg }
 }
 
-/// Refuse a format the command does not read (D100), or say that its reader is not built yet.
+/// Refuse a format the command does not read (D100).
 pub fn gate(name: &str, format: Format, accept: &Accept) -> Result<(), IoError> {
-    let not_yet = || {
-        gate_error(
-            GateKind::NotYet,
-            format!(
-                "{name} is {}, and reading it is not available in this build yet",
-                format.name()
-            ),
-        )
-    };
     if format == Format::Bedpe {
         return Err(gate_error(
             GateKind::PairedOnly,
@@ -162,17 +170,9 @@ shuffle --format bedpe read; to treat its first end as a BED interval, pass --fo
         ));
     }
     if format.is_alignment() {
-        if matches!(format, Format::Bam | Format::Sam) && accept.alignments.is_some() {
-            return Ok(());
-        }
+        // BAM, CRAM and SAM are read by every command that reads alignments (D100).
         if accept.alignments.is_some() {
-            return Err(IoError::Detect {
-                path: name.to_string(),
-                msg: not_yet().to_string(),
-            });
-        }
-        if accept.alignments_planned {
-            return Err(not_yet());
+            return Ok(());
         }
         return Err(gate_error(
             GateKind::NoAlignments,

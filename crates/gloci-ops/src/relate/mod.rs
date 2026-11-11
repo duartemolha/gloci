@@ -13,6 +13,7 @@ pub(crate) mod alleles;
 mod criteria;
 mod files;
 mod indexed;
+pub(crate) use indexed::group_chromosomes;
 mod out;
 mod peek;
 mod rewrite;
@@ -35,6 +36,24 @@ use gloci_io::{
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+
+/// `--split-deletions` cuts alignments at deletions, so a relation with no alignment input
+/// refuses it (`intersect`, `coverage`).
+pub(crate) fn check_split_deletions(
+    split_deletions: bool,
+    a: Format,
+    b: &[Format],
+) -> Result<(), IoError> {
+    if split_deletions && !(a.is_alignment() || b.iter().any(|f| f.is_alignment())) {
+        return Err(UsageError(
+            "--split-deletions cuts alignments at deletions, and no input is BAM, CRAM or SAM; \
+drop it, or use --split for BED12 blocks"
+                .into(),
+        )
+        .into());
+    }
+    Ok(())
+}
 
 impl RelateOptions {
     /// Do the commands compare blocks rather than spans?
@@ -320,7 +339,10 @@ pub(crate) fn run_relation_in(
     };
     // The sweep has dropped the readers.
     summary.skipped = skipped.take();
-    skipped.log_alignment_counts();
+    // (A chunk's counts are summed and reported once by the run.)
+    if !in_chunk {
+        skipped.log_alignment_counts();
+    }
     for (name, flag) in &watched {
         if flag.load(Ordering::Relaxed) {
             log::warn!("{name} has records with unknown strand; they never match under -s or -S");

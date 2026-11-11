@@ -1,0 +1,5 @@
+@HD	VN:1.6	SO:coordinate
+@SQ	SN:chr1	LN:1000	M5:712ec1c4d51a41496d99ca5ba3068643	UR:/work/aln/../fa/ref.fa
+over	0	chr1	995	60	10M	*	0	0	ACGTACGTAC	IIIIIIIIII
+past	0	chr1	1001	60	10M	*	0	0	ACGTACGTAC	IIIIIIIIII
+unp	4	chr1	1005	0	*	*	0	0	ACGT	IIII

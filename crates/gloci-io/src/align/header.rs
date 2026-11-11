@@ -38,6 +38,17 @@ impl SortOrder {
     }
 }
 
+/// The order `gloci sort` puts alignments in (D121).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlnSortOrder {
+    /// `@HD SO:coordinate`.
+    Coordinate,
+    /// `-n`: `SO:queryname SS:queryname:natural`.
+    Name,
+    /// `-N`: `SO:queryname SS:queryname:lexicographical`.
+    NameBytes,
+}
+
 /// An alignment header.
 ///
 /// `refs` must not be changed after the first [`AlnHeader::ref_id`] call: the name map behind
@@ -51,6 +62,8 @@ pub struct AlnHeader {
     /// The references in `@SQ` order, as `(name, length)`. Record `refID`s index this list.
     pub refs: Vec<(Vec<u8>, u64)>,
     pub sort_order: SortOrder,
+    /// The value of `@HD SS:`, as written (`queryname:natural`), when the line has one.
+    pub sub_sort: Option<Vec<u8>>,
     /// Reference id by the name that records carry, built on first use. For a header renamed by
     /// `--chrom-map` these are the original names.
     names: OnceLock<HashMap<Vec<u8>, usize>>,
@@ -91,6 +104,16 @@ fn i32_le(r: &mut dyn Read) -> Result<i32, String> {
     Ok(i32::from_le_bytes(b))
 }
 
+/// The value of the `@HD` line's field `key` (such as `SS:`), when there is one.
+fn hd_field(text: &[u8], key: &[u8]) -> Option<Vec<u8>> {
+    let line = text.split(|&b| b == b'\n').next()?;
+    if !line.starts_with(b"@HD") {
+        return None;
+    }
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    field(line, key).map(<[u8]>::to_vec)
+}
+
 /// The value of a `KEY:` field of a tab-separated header line.
 fn field<'a>(line: &'a [u8], key: &[u8]) -> Option<&'a [u8]> {
     line.split(|&b| b == b'\t')
@@ -102,11 +125,87 @@ impl AlnHeader {
     /// A header from its parts: the SAM text, the references in `@SQ` order (the ids that
     /// records use), and the sort order.
     pub fn new(text: Vec<u8>, refs: Vec<(Vec<u8>, u64)>, sort_order: SortOrder) -> AlnHeader {
+        let sub_sort = hd_field(&text, b"SS:");
         AlnHeader {
             text,
             refs,
             sort_order,
+            sub_sort,
             names: OnceLock::new(),
+        }
+    }
+
+    /// The header as `samtools sort` leaves it for `o` (D121, `sam_hdr_update_hd`): `@HD`'s `SO`
+    /// is replaced where it stands, or appended; `-n` and `-N` set `SS` the same way and
+    /// coordinate order removes it; `GO` is removed. With no `@HD` line, `@HD VN:1.6 SO:...
+    /// [SS:...]` comes first.
+    pub fn with_sort_order(&self, o: AlnSortOrder) -> AlnHeader {
+        let (so, ss): (&[u8], Option<&[u8]>) = match o {
+            AlnSortOrder::Coordinate => (b"coordinate", None),
+            AlnSortOrder::Name => (b"queryname", Some(b"queryname:natural")),
+            AlnSortOrder::NameBytes => (b"queryname", Some(b"queryname:lexicographical")),
+        };
+        let mut text = Vec::with_capacity(self.text.len() + 40);
+        let mut done = false;
+        for line in self.text.split_inclusive(|&b| b == b'\n') {
+            if done
+                || !line.starts_with(b"@HD")
+                || !matches!(line.get(3), Some(b'\t' | b'\n') | None)
+            {
+                text.extend_from_slice(line);
+                continue;
+            }
+            done = true;
+            let (body, end) = match line.strip_suffix(b"\n") {
+                Some(b) => (b, &b"\n"[..]),
+                None => (line, &b""[..]),
+            };
+            let mut fields: Vec<Vec<u8>> =
+                body.split(|&b| b == b'\t').map(<[u8]>::to_vec).collect();
+            let mut set = |key: &[u8], val: Option<&[u8]>| {
+                let at = fields
+                    .iter()
+                    .skip(1)
+                    .position(|f| f.starts_with(key))
+                    .map(|i| i + 1);
+                match (at, val) {
+                    (Some(i), Some(v)) => fields[i] = [key, v].concat(),
+                    (Some(i), None) => {
+                        fields.remove(i);
+                    }
+                    (None, Some(v)) => fields.push([key, v].concat()),
+                    (None, None) => {}
+                }
+            };
+            set(b"SO:", Some(so));
+            set(b"SS:", ss);
+            set(b"GO:", None);
+            text.extend_from_slice(&fields.join(&b'\t'));
+            text.extend_from_slice(end);
+            if end.is_empty() {
+                text.push(b'\n');
+            }
+        }
+        if !done {
+            let mut hd = b"@HD\tVN:1.6\tSO:".to_vec();
+            hd.extend_from_slice(so);
+            if let Some(ss) = ss {
+                hd.extend_from_slice(b"\tSS:");
+                hd.extend_from_slice(ss);
+            }
+            hd.push(b'\n');
+            text.splice(0..0, hd);
+        }
+        AlnHeader {
+            sort_order: if o == AlnSortOrder::Coordinate {
+                SortOrder::Coordinate
+            } else {
+                SortOrder::Queryname
+            },
+            sub_sort: ss.map(<[u8]>::to_vec),
+            refs: self.refs.clone(),
+            names: self.names.clone(),
+            text,
         }
     }
 
@@ -335,6 +434,7 @@ impl AlnHeader {
             text,
             refs: self.refs.clone(),
             sort_order: self.sort_order,
+            sub_sort: self.sub_sort.clone(),
             names: self.names.clone(),
         }
     }
@@ -381,6 +481,7 @@ impl AlnHeader {
             text,
             refs,
             sort_order: self.sort_order,
+            sub_sort: self.sub_sort.clone(),
             names,
         }
     }

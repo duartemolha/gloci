@@ -11,7 +11,7 @@ use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 
 /// Load a chromosome list, detecting the kind by content: SAM `.dict`,
-/// VCF header (plain, gzip or BGZF), BCF, BAM, else `.fai` / `.genome`.
+/// VCF header (plain, gzip or BGZF), BCF, BAM, CRAM, else `.fai` / `.genome`.
 pub fn load_genome(path: &Path) -> Result<Genome, IoError> {
     let name = path.display().to_string();
     let read_err = |source| IoError::Read {
@@ -53,6 +53,12 @@ pub fn load_genome(path: &Path) -> Result<Genome, IoError> {
     }
     if magic == b"BAM\x01" {
         return bam_genome(&mut *src, &name);
+    }
+    if magic == b"CRAM" {
+        // The @SQ lines of its header; no reference is needed (D103).
+        let h = crate::align::read_cram_header(&mut src, &name)?;
+        return Genome::new(h.refs.into_iter().map(|(n, l)| (n, Some(l))).collect())
+            .map_err(from_genome_err);
     }
     if magic.starts_with(b">") {
         // A FASTA: its chromosome sizes are in its .fai, which must exist (D108).
@@ -97,10 +103,7 @@ pub fn load_genome(path: &Path) -> Result<Genome, IoError> {
 fn fasta_genome(fasta: &Path, name: &str) -> Result<Genome, IoError> {
     let (fai, stale) = crate::fasta::find_fai(fasta)?;
     if stale {
-        log::warn!(
-            "the index {} is older than {name}; it may be out of date (rebuild it with: gloci index {name})",
-            fai.display()
-        );
+        crate::index::warn_stale_index(&fai, name);
     }
     load_genome(&fai)
 }

@@ -26,18 +26,23 @@
 mod chunk;
 mod inputs;
 mod merge;
+mod order;
 mod spill;
 
+pub(crate) use inputs::coordinate_header;
 pub use inputs::{
     HeaderRuleCmd, MIN_MAX_MEM, SortSettings, check_definitions, check_definitions_for,
     check_definitions_pair, check_samples, check_samples_for, check_samples_pair,
     sort_input_options, sort_readers, sort_together,
 };
+pub(crate) use merge::{MAX_FAN_IN, merge_alignment_sources};
 pub use merge::{MERGE_BUFFER_PER_INPUT, merge_fan_in, merge_sorted, merge_sorted_batches};
+pub use order::{Order, coordinate_key, name_cmp_raw, name_flag_rank, qname_of, strnum_cmp};
 
 use chunk::Chunk;
 use gloci_core::ChromTable;
-use gloci_io::{IoError, RecordBatch};
+use gloci_io::{IoError, RecordBatch, RecordMeta};
+use order::{M_COORD, M_FULL, M_INTERVAL, M_NAME, M_NAME_BYTES};
 use spill::{RecHead, Run, SpillDir};
 use std::collections::VecDeque;
 use std::io;
@@ -75,7 +80,9 @@ pub struct SortConfig {
     /// More than 1 sorts chunks in parallel on the global rayon pool. Never
     /// changes the output.
     pub threads: NonZeroUsize,
-    pub tie: Tie,
+    /// How records are ordered; `Order::Interval(Tie::InputOrder)` for intervals.
+    pub order: Order,
+    /// Only for intervals; alignment orders take [`Dedup::All`].
     pub dedup: Dedup,
 }
 
@@ -101,7 +108,7 @@ pub(crate) fn out_err(source: io::Error) -> IoError {
 
 /// Sorts records pushed batch by batch; see the module docs.
 pub struct Sorter {
-    tie: Tie,
+    order: Order,
     dedup: Dedup,
     parallel: bool,
     budget: usize,
@@ -118,12 +125,17 @@ impl Sorter {
     /// unusable temp directory fails before any input is read.
     pub fn new(cfg: SortConfig) -> Result<Sorter, IoError> {
         let budget = usize::try_from(cfg.max_mem).unwrap_or(usize::MAX);
-        let tie = match cfg.dedup {
-            Dedup::All => cfg.tie,
-            Dedup::Unique | Dedup::Duplicates => Tie::FullLine,
+        let order = match (cfg.dedup, cfg.order) {
+            (Dedup::All, o) => o,
+            (_, Order::Interval(_)) => Order::Interval(Tie::FullLine),
+            (_, Order::Aln(_)) => {
+                return Err(IoError::Internal(
+                    "--unique and --duplicates do not apply to alignment sorting".into(),
+                ));
+            }
         };
         Ok(Sorter {
-            tie,
+            order,
             dedup: cfg.dedup,
             parallel: cfg.threads.get() > 1,
             budget,
@@ -139,14 +151,27 @@ impl Sorter {
     /// Add a batch; `chroms` is the table its `ChromId`s come from (shared
     /// by all inputs). May sort and spill a full chunk.
     pub fn push(&mut self, chroms: &ChromTable, batch: &RecordBatch) -> Result<(), IoError> {
+        self.push_keyed(chroms, batch, |m| (m.key, m.span.end))
+    }
+
+    /// [`Sorter::push`] with each record's `(key, end)` given by `keys` instead of its own
+    /// `key` and `span.end`. `--sort` of alignments keys them by `(pos << 1) | reverse` with
+    /// end 0, so they come out in `gloci sort`'s coordinate order (D121).
+    pub fn push_keyed(
+        &mut self,
+        chroms: &ChromTable,
+        batch: &RecordBatch,
+        keys: impl Fn(&RecordMeta) -> (u64, u64),
+    ) -> Result<(), IoError> {
         for m in &batch.recs {
             let raw = &batch.buf[m.off..m.off + m.len as usize];
             self.max_rec = self.max_rec.max(raw.len());
-            let (chrom, end) = (m.chrom.0, m.span.end);
-            if !self.chunk.try_push(chrom, m.key, end, self.seq, raw) {
-                self.spill_chunk(chroms)?;
+            let chrom = m.chrom.0;
+            let (key, end) = keys(m);
+            if !self.chunk.try_push(chrom, key, end, self.seq, raw) {
+                self.spill_chunk(&chroms.ranks())?;
                 // Never drop a record silently.
-                if !self.chunk.try_push(chrom, m.key, end, self.seq, raw) {
+                if !self.chunk.try_push(chrom, key, end, self.seq, raw) {
                     return Err(IoError::Internal(format!(
                         "an empty sort chunk rejected a record of {} bytes",
                         raw.len()
@@ -158,9 +183,44 @@ impl Sorter {
         Ok(())
     }
 
+    /// Add one BAM record (no `block_size`) of an alignment sort ([`Order::Aln`]); the input
+    /// sequence number is the last tie. A record too short for its fixed fields is an error.
+    pub fn push_raw(&mut self, raw: &[u8]) -> Result<(), IoError> {
+        if !matches!(self.order, Order::Aln(_)) {
+            return Err(IoError::Internal(
+                "push_raw is for alignment sorting".into(),
+            ));
+        }
+        if raw.len() < 32 {
+            return Err(IoError::Internal(format!(
+                "an alignment record of {} bytes is shorter than its 32 fixed bytes",
+                raw.len()
+            )));
+        }
+        self.max_rec = self.max_rec.max(raw.len());
+        // Unplaced reads sort after every reference: u32::MAX is above every refID, as
+        // `sort --check` and `sort -m` key them (see `coordinate_key`).
+        let (chrom, key) = if self.order.mode() == M_COORD {
+            coordinate_key(raw, u32::MAX)
+        } else {
+            (0, 0)
+        };
+        if !self.chunk.try_push(chrom, key, 0, self.seq, raw) {
+            self.spill_chunk(&[])?;
+            if !self.chunk.try_push(chrom, key, 0, self.seq, raw) {
+                return Err(IoError::Internal(format!(
+                    "an empty sort chunk rejected a record of {} bytes",
+                    raw.len()
+                )));
+            }
+        }
+        self.seq += 1;
+        Ok(())
+    }
+
     /// Sort the chunk and write it as a run.
-    fn spill_chunk(&mut self, chroms: &ChromTable) -> Result<(), IoError> {
-        self.chunk.sort(&chroms.ranks(), self.tie, self.parallel);
+    fn spill_chunk(&mut self, ranks: &[u32]) -> Result<(), IoError> {
+        self.chunk.sort(ranks, self.order, self.parallel);
         let mut w = self.spill.create_run()?;
         for e in &self.chunk.entries {
             let h = RecHead {
@@ -179,26 +239,47 @@ impl Sorter {
 
     /// Write every record in order to `out` and remove the spill directory.
     pub fn finish(
-        mut self,
+        self,
         chroms: &ChromTable,
+        out: &mut dyn FnMut(&[u8]) -> io::Result<()>,
+    ) -> Result<SortStats, IoError> {
+        // Every chromosome of the runs is in `chroms` by now.
+        self.finish_ranked(&chroms.ranks(), out)
+    }
+
+    /// As [`Sorter::finish`] for an alignment sort, which has no chromosome table.
+    pub fn finish_raw(
+        self,
+        out: &mut dyn FnMut(&[u8]) -> io::Result<()>,
+    ) -> Result<SortStats, IoError> {
+        self.finish_ranked(&[], out)
+    }
+
+    fn finish_ranked(
+        mut self,
+        ranks: &[u32],
         out: &mut dyn FnMut(&[u8]) -> io::Result<()>,
     ) -> Result<SortStats, IoError> {
         let mut emit = Emitter::new(self.dedup, out);
         if self.runs.is_empty() {
-            self.chunk.sort(&chroms.ranks(), self.tie, self.parallel);
+            self.chunk.sort(ranks, self.order, self.parallel);
             for e in &self.chunk.entries {
                 emit.emit(self.chunk.raw(e))?;
             }
         } else {
             if !self.chunk.is_empty() {
-                self.spill_chunk(chroms)?;
+                self.spill_chunk(ranks)?;
             }
             self.chunk.release();
-            // Every chromosome of the runs is in `chroms` by now.
-            let ranks = chroms.ranks();
-            match self.tie {
-                Tie::InputOrder => self.merge_all::<false>(&ranks, &mut emit)?,
-                Tie::FullLine => self.merge_all::<true>(&ranks, &mut emit)?,
+            match self.order.mode() {
+                M_INTERVAL => self.merge_all::<M_INTERVAL>(ranks, &mut emit)?,
+                M_FULL => self.merge_all::<M_FULL>(ranks, &mut emit)?,
+                M_COORD => self.merge_all::<M_COORD>(ranks, &mut emit)?,
+                M_NAME => self.merge_all::<M_NAME>(ranks, &mut emit)?,
+                M_NAME_BYTES => self.merge_all::<M_NAME_BYTES>(ranks, &mut emit)?,
+                m => {
+                    return Err(IoError::Internal(format!("unknown sort mode {m}")));
+                }
             }
         }
         let stats = SortStats {
@@ -211,11 +292,7 @@ impl Sorter {
 
     /// Merge the runs into `emit`, first merging groups of runs into new
     /// runs while there are more than the fan-in.
-    fn merge_all<const FULL: bool>(
-        &mut self,
-        ranks: &[u32],
-        emit: &mut Emitter,
-    ) -> Result<(), IoError> {
+    fn merge_all<const M: u8>(&mut self, ranks: &[u32], emit: &mut Emitter) -> Result<(), IoError> {
         let fan = merge::fan_in(self.budget, self.max_rec);
         let mut runs: VecDeque<Run> = std::mem::take(&mut self.runs).into();
         while runs.len() > fan {
@@ -223,11 +300,11 @@ impl Sorter {
             let k = fan.min(runs.len() - fan + 1);
             let group: Vec<Run> = runs.drain(..k).collect();
             let mut w = self.spill.create_run()?;
-            merge::merge_runs::<FULL>(&group, ranks, &mut |h, raw| w.write(h, raw))?;
+            merge::merge_runs::<M>(&group, ranks, &mut |h, raw| w.write(h, raw))?;
             runs.push_back(w.finish()?);
             group.into_iter().for_each(Run::remove);
         }
-        merge::merge_runs::<FULL>(runs.make_contiguous(), ranks, &mut |_, raw| emit.emit(raw))
+        merge::merge_runs::<M>(runs.make_contiguous(), ranks, &mut |_, raw| emit.emit(raw))
     }
 }
 

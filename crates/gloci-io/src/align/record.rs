@@ -543,7 +543,7 @@ impl<'a> AlnRef<'a> {
 /// View the record `raw` of a file in `f`'s layout.
 pub fn aln_ref<'a>(f: Format, raw: &'a [u8], h: &AlnHeader) -> Result<AlnRef<'a>, String> {
     match f {
-        Format::Bam => Aln::parse(raw, h).map(AlnRef::Bam),
+        Format::Bam | Format::Cram => Aln::parse(raw, h).map(AlnRef::Bam),
         Format::Sam => SamAln::parse(raw, h).map(AlnRef::Sam),
         other => Err(format!(
             "{} records cannot be read as alignments here",

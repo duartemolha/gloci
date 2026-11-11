@@ -114,8 +114,44 @@ fn split_deletions_needs_alignment() {
             .args([cmd, "-a", &bed, "-b", &bed, "--split-deletions"])
             .assert()
             .code(2)
-            .stderr(contains("--split-deletions"));
+            .stderr(contains("--split-deletions"))
+            .stderr(contains("no input is BAM, CRAM or SAM"));
     }
+}
+
+#[test]
+fn read_filters_without_alignment_input_warn_once() {
+    let dir = tempdir();
+    let bed = write(dir.path(), "t.bed", "chr1\t0\t10\n");
+    let g = write(dir.path(), "g.genome", "chr1\t100\n");
+    let bam = aln("order.bam");
+    let runs: [Vec<&str>; 4] = [
+        vec!["intersect", "-a", &bed, "-b", &bed],
+        vec!["coverage", "-a", &bed, "-b", &bed],
+        vec!["genomecov", &bed, "-g", &g],
+        vec!["view", &bed],
+    ];
+    let one = "--min-mapq is not used: no input is BAM, CRAM or SAM";
+    let two = "--min-mapq and --exclude-flags are not used: no input is BAM, CRAM or SAM";
+    for args in &runs {
+        let stderr = |extra: &[&str]| {
+            let o = gloci().args(args).args(extra).assert().success();
+            String::from_utf8(o.get_output().stderr.clone()).unwrap()
+        };
+        let err = stderr(&["--min-mapq", "20"]);
+        assert_eq!(err.matches(one).count(), 1, "{args:?}: {err}");
+        let err = stderr(&["--min-mapq", "20", "--exclude-flags", "dup"]);
+        assert_eq!(err.matches(two).count(), 1, "{args:?}: {err}");
+        assert!(!stderr(&[]).contains("not used"), "{args:?}");
+    }
+    // An alignment input uses them: no warning.
+    let o = gloci()
+        .args(["intersect", "-a", &bam, "-b", &bed, "--mode", "count"])
+        .args(["--min-mapq", "20"])
+        .assert()
+        .success();
+    let err = String::from_utf8(o.get_output().stderr.clone()).unwrap();
+    assert!(!err.contains("not used"), "{err}");
 }
 
 #[test]
@@ -281,6 +317,90 @@ fn sort_flag_keeps_sam_a_as_sam() {
     assert!(got.starts_with("@HD"));
 }
 
+/// Reads whose interval order (start, end) is not `gloci sort`'s (reference, position, strand),
+/// in a header whose @SQ order is not lexicographic.
+const UNSORTED_TIES: &str = "@HD\tVN:1.6\tSO:unsorted\n@SQ\tSN:chr2\tLN:1000\n@SQ\tSN:chr1\tLN:1000\n\
+a1\t16\tchr1\t101\t60\t10M\t*\t0\t0\t*\t*\n\
+a2\t0\tchr1\t101\t60\t20M\t*\t0\t0\t*\t*\n\
+a3\t0\tchr1\t101\t60\t5M\t*\t0\t0\t*\t*\n\
+a4\t0\tchr2\t50\t60\t5M\t*\t0\t0\t*\t*\n\
+a5\t16\tchr1\t101\t60\t5M\t*\t0\t0\t*\t*\n";
+
+/// SAM text without its @PG lines.
+fn records_and_hd(s: &str) -> Vec<String> {
+    s.lines()
+        .filter(|l| !l.starts_with("@PG"))
+        .map(String::from)
+        .collect()
+}
+
+#[test]
+fn sort_flag_equals_gloci_sort_then_command() {
+    // The help's claim: --sort equals gloci sort on each input followed by the command, for
+    // the records and for @HD (SO:coordinate), with A or B an alignment, BAM or SAM.
+    let dir = tempdir();
+    let tmp = dir.path().to_string_lossy().into_owned();
+    let bed = write(dir.path(), "x.bed", "chr2\t0\t1000\nchr1\t0\t1000\n");
+    let sam = write(dir.path(), "u.sam", UNSORTED_TIES);
+    let bam = bam_of(dir.path(), "u.bam", UNSORTED_TIES);
+    for (input, out) in [(&sam, "s.sam"), (&bam, "s.bam")] {
+        let sorted = dir.path().join(out).to_string_lossy().into_owned();
+        gloci()
+            .args(["sort", input, "-o", &sorted])
+            .assert()
+            .success();
+        let a = |file: &str, extra: &[&str]| {
+            let mut v = vec!["intersect", "-a", file, "-b", &bed, "-O", "sam"];
+            v.extend(extra);
+            records_and_hd(&run(&v))
+        };
+        let got = a(input, &["--sort", "--tmp-dir", &tmp]);
+        assert_eq!(got, a(&sorted, &[]), "{input} as A");
+        assert!(got[0].contains("SO:coordinate"), "{got:?}");
+        let names: Vec<&str> = got
+            .iter()
+            .filter(|l| !l.starts_with('@'))
+            .map(|l| l.split('\t').next().unwrap())
+            .collect();
+        assert_eq!(names, ["a4", "a2", "a3", "a1", "a5"]);
+        let b = |file: &str, extra: &[&str]| {
+            let mut v = vec!["intersect", "-a", &bed, "-b", file, "--mode", "pairs"];
+            v.extend(extra);
+            run(&v)
+        };
+        assert_eq!(
+            b(input, &["--sort", "--tmp-dir", &tmp]),
+            b(&sorted, &[]),
+            "{input} as B"
+        );
+        // A -g table that orders the references unlike the header: the records follow it,
+        // which SO:coordinate would not describe.
+        let g = write(dir.path(), "g.genome", "chr1\t1000\nchr2\t1000\n");
+        let bed_g = write(dir.path(), "g.bed", "chr1\t0\t1000\nchr2\t0\t1000\n");
+        let got = records_and_hd(&run(&[
+            "intersect",
+            "-a",
+            input,
+            "-b",
+            &bed_g,
+            "-g",
+            &g,
+            "-O",
+            "sam",
+            "--sort",
+            "--tmp-dir",
+            &tmp,
+        ]));
+        assert!(got[0].contains("SO:unsorted"), "{got:?}");
+        let names: Vec<&str> = got
+            .iter()
+            .filter(|l| !l.starts_with('@'))
+            .map(|l| l.split('\t').next().unwrap())
+            .collect();
+        assert_eq!(names, ["a2", "a3", "a1", "a5", "a4"]);
+    }
+}
+
 #[test]
 fn slim_b_records() {
     use gloci_io::{Accept, AlignOptions, InvalidPolicy, ReaderOptions, RecordBatch, open_reader};
@@ -295,7 +415,8 @@ fn slim_b_records() {
         ));
     }
     let bam = bam_of(dir.path(), "dense.bam", &sam);
-    let bytes = |full: bool| {
+    let sam_path = write(dir.path(), "dense.sam", &sam);
+    let bytes = |file: &str, full: bool| {
         let ro = ReaderOptions {
             accept: Accept {
                 alignments: Some(AlignOptions {
@@ -310,15 +431,45 @@ fn slim_b_records() {
             vcf_span: gloci_core::VcfSpan::Allele,
             invalid: InvalidPolicy::Fail,
         };
-        let mut r = open_reader(&bam, &ro).unwrap();
+        let mut r = open_reader(file, &ro).unwrap();
+        assert_eq!(r.whole_records(), full, "{file}");
         let mut chroms = gloci_core::ChromTable::first_appearance();
         let mut batch = RecordBatch::default();
         while r.read_batch(&mut chroms, &mut batch, 4096).unwrap() {}
         assert_eq!(batch.recs.len(), 10_000);
-        batch.buf.len()
+        (batch.buf.len(), batch.raw(0).to_vec())
     };
-    let (slim, full) = (bytes(false), bytes(true));
+    let ((slim, _), (full, _)) = (bytes(&bam, false), bytes(&bam, true));
     assert!(slim * 3 <= full, "slim {slim} bytes against full {full}");
+    // SAM lines are slimmed too (P9): SEQ and QUAL become *, and the other tags go.
+    let ((slim, line), (full, _)) = (bytes(&sam_path, false), bytes(&sam_path, true));
+    assert!(
+        slim * 3 <= full,
+        "SAM: slim {slim} bytes against full {full}"
+    );
+    assert_eq!(line, b"r0\t0\tchr1\t1001\t60\t150M\t*\t0\t0\t*\t*");
+    // and give the same results as the BAM
+    let bed = write(dir.path(), "t.bed", "chr1\t1000\t1200\nchr1\t1100\t1101\n");
+    for args in [
+        vec!["intersect", "-a", &bed, "-b", "@", "--mode", "pairs"],
+        vec![
+            "intersect",
+            "-a",
+            &bed,
+            "-b",
+            "@",
+            "--mode",
+            "count",
+            "--split",
+        ],
+        vec!["coverage", "-a", &bed, "-b", "@"],
+    ] {
+        let with = |f: &str| {
+            let v: Vec<&str> = args.iter().map(|a| if *a == "@" { f } else { a }).collect();
+            run(&v)
+        };
+        assert_eq!(with(&sam_path), with(&bam), "{args:?}");
+    }
 }
 
 #[test]

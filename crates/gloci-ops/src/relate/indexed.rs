@@ -6,6 +6,7 @@ use super::{ChunkScope, RelateInputs, RelateOptions, StrandWatch, has_threshold}
 use gloci_core::{ChromTable, StrandRule};
 use gloci_engine::{SweepSummary, run_chunks};
 use gloci_io::{IndexedFile, IoError, RecordReader, RecordWriter, SeekableFile, UsageError};
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -143,6 +144,16 @@ pub(super) fn run_per_chromosome<R: Send>(
             }
         }
     }
+    let is_alignment: Vec<bool> = std::iter::once(&inputs.a)
+        .chain(&inputs.b)
+        .map(|r| r.format().is_alignment())
+        .collect();
+    // An alignment reader's one-time warnings are printed once, by this run.
+    for f in &mut opened {
+        if let Src::Indexed(f) = f {
+            f.defer_warnings();
+        }
+    }
     let mut opened = opened.into_iter();
     let file_a = opened.next().expect("A is always an input");
     let files_b: Vec<Src> = opened.collect();
@@ -183,14 +194,8 @@ pub(super) fn run_per_chromosome<R: Send>(
     drop(inputs);
 
     for f in all() {
-        if let Src::Indexed(f) = f
-            && f.info().stale
-        {
-            log::warn!(
-                "the index {} is older than {name}; it may be out of date (rebuild it with: gloci index {name})",
-                f.info().path.display(),
-                name = f.name()
-            );
+        if let Src::Indexed(f) = f {
+            f.info().warn_if_stale(f.name());
         }
     }
     let names_a = file_a.reference_names();
@@ -198,8 +203,7 @@ pub(super) fn run_per_chromosome<R: Send>(
     // With regions, A is empty off the chromosomes that have one, and so is
     // everything computed from it: skip them (B included).
     if let Some(r) = &a_regions {
-        let with_regions: std::collections::HashSet<&[u8]> =
-            r.wanted.iter().map(|(c, _)| c.as_slice()).collect();
+        let with_regions: HashSet<&[u8]> = r.wanted.iter().map(|(c, _)| c.as_slice()).collect();
         ordered.retain(|c| with_regions.contains(c.as_slice()));
     }
     ordered.sort_by(|x, y| {
@@ -229,7 +233,7 @@ pub(super) fn run_per_chromosome<R: Send>(
     // chunk. Those A lacks go to the chunk holding the next A chromosome,
     // whose sweep skips past them as A moves on, and those after A's last
     // chromosome to the last chunk, which drains them.
-    let a_chroms: std::collections::HashSet<&Vec<u8>> = ordered.iter().collect();
+    let a_chroms: HashSet<&Vec<u8>> = ordered.iter().collect();
     let groups = group_chromosomes(
         ordered.clone(),
         &weights,
@@ -316,10 +320,11 @@ pub(super) fn run_per_chromosome<R: Send>(
             let chunk = &job.a;
             let a = match (&a_regions, &file_a) {
                 (Some(r), Src::Indexed(f)) => {
+                    let in_chunk: HashSet<&[u8]> = chunk.iter().map(|c| c.as_slice()).collect();
                     let wanted: Vec<_> = r
                         .wanted
                         .iter()
-                        .filter(|(c, _)| chunk.contains(c))
+                        .filter(|(c, _)| in_chunk.contains(c.as_slice()))
                         .cloned()
                         .collect();
                     f.regions_reader(&wanted, r.inclusive_points)?
@@ -349,6 +354,34 @@ pub(super) fn run_per_chromosome<R: Send>(
         summary.merge(&s);
         rs.push(r);
     }
+    // What streaming reports once for a whole alignment input, from the chunks together:
+    // the counts of what it left out (D101, D102) and its one-time warnings. The reads with
+    // no place at the end of A are in no chromosome's chunk: the index counts them.
+    if let (Src::Indexed(fa), true) = (&file_a, is_alignment[0])
+        && a_regions.is_none()
+        && let Some((_, d)) = summary.skipped.first_mut()
+    {
+        d.unmapped += fa.unplaced_reads();
+    }
+    for (i, ((name, d), _)) in summary
+        .skipped
+        .iter()
+        .zip(&is_alignment)
+        .enumerate()
+        .filter(|(_, (_, aln))| **aln)
+    {
+        d.log_deferred_warnings();
+        // An indexed -b is read only where A needs it, and with regions only the regions
+        // are: those counts are of the reads read, not of the whole file.
+        if i > 0 || a_regions.is_some() {
+            d.log_alignment_counts_among(
+                name,
+                " (among the reads read: an indexed -b, or --region, reads only where needed)",
+            );
+        } else {
+            d.log_alignment_counts(name);
+        }
+    }
     if watching {
         for (f, flag) in std::iter::once(&file_a).chain(&files_b).zip(&flags) {
             if flag.load(Ordering::Relaxed) {
@@ -362,9 +395,10 @@ pub(super) fn run_per_chromosome<R: Send>(
     if summary.a_records > 0 {
         let a_refs = file_a.non_empty_reference_names();
         if !a_refs.is_empty() {
+            let a_set: HashSet<&Vec<u8>> = a_refs.iter().collect();
             for f in &files_b {
                 let b_refs = f.non_empty_reference_names();
-                if !b_refs.is_empty() && !a_refs.iter().any(|a| b_refs.contains(a)) {
+                if !b_refs.is_empty() && !b_refs.iter().any(|b| a_set.contains(b)) {
                     log::warn!(
                         "{}",
                         gloci_io::naming::format_disjoint_chroms_warning(
@@ -388,7 +422,11 @@ const CHUNKS_PER_THREAD: usize = 4;
 /// Split `chroms` (in table order) into at most `target` runs of consecutive
 /// chromosomes of about equal total weight: a run ends once the weight so
 /// far reaches the next multiple of `total / target`.
-fn group_chromosomes(chroms: Vec<Vec<u8>>, weights: &[u64], target: usize) -> Vec<Vec<Vec<u8>>> {
+pub(crate) fn group_chromosomes(
+    chroms: Vec<Vec<u8>>,
+    weights: &[u64],
+    target: usize,
+) -> Vec<Vec<Vec<u8>>> {
     let target = target.max(1) as u128;
     let total: u128 = weights.iter().map(|&w| u128::from(w)).sum::<u128>().max(1);
     let mut groups = Vec::new();

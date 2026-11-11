@@ -1,7 +1,7 @@
 //! Per-chromosome parallel driver for indexed inputs (D41).
 
 use crate::chunk::ChunkSink;
-use gloci_io::{Compression, IoError, RecordWriter, detect_compression, find_index};
+use gloci_io::{Compression, IndexKind, IoError, RecordWriter, detect_compression, find_index};
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::Read;
@@ -10,7 +10,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Returns true when every path in `paths` is a regular BGZF file with a `.tbi`
-/// or `.csi` index, and no path is `"-"`. Returns false if `paths` is empty.
+/// or `.csi` index (or a `.bai`, for a BAM), or a CRAM with a `.crai`, and no path is `"-"`. Returns false if `paths` is empty.
 pub fn all_indexed(paths: &[&str]) -> bool {
     if paths.is_empty() {
         return false;
@@ -33,6 +33,13 @@ pub fn all_indexed(paths: &[&str]) -> bool {
         let Ok(n) = file.read(&mut head) else {
             return false;
         };
+        // A CRAM is indexed by a `.crai`.
+        if head[..n].starts_with(b"CRAM") {
+            if find_index(p).is_none_or(|i| i.kind != IndexKind::Crai) {
+                return false;
+            }
+            continue;
+        }
         if detect_compression(&head[..n]) != Compression::Bgzf {
             return false;
         }
@@ -137,22 +144,31 @@ pub fn run_chunks<J: Clone + Send + Sync, R: Send>(
             let job_rx = job_rx.clone();
             let result_tx = result_tx.clone();
             let (run_one, fail_at) = (&run_one, &fail_at);
-            s.spawn(move || {
-                while let Ok((idx, job, buf)) = job_rx.recv() {
-                    let res = if idx > fail_at.load(Ordering::Relaxed) {
-                        None
-                    } else {
-                        let r = run_one(&job, buf);
-                        if r.is_err() {
-                            fail_at.fetch_min(idx, Ordering::Relaxed);
+            // CRAM 3.1's codecs (order-1 rANS, the name tokeniser) need more stack than a
+            // spawned thread's default 2 MiB, and chunk workers decode CRAM.
+            let spawned = std::thread::Builder::new()
+                .stack_size(gloci_io::WORKER_STACK)
+                .spawn_scoped(s, move || {
+                    while let Ok((idx, job, buf)) = job_rx.recv() {
+                        let res = if idx > fail_at.load(Ordering::Relaxed) {
+                            None
+                        } else {
+                            let r = run_one(&job, buf);
+                            if r.is_err() {
+                                fail_at.fetch_min(idx, Ordering::Relaxed);
+                            }
+                            Some(r)
+                        };
+                        if result_tx.send((idx, res)).is_err() {
+                            break;
                         }
-                        Some(r)
-                    };
-                    if result_tx.send((idx, res)).is_err() {
-                        break;
                     }
-                }
-            });
+                });
+            if let Err(e) = spawned {
+                return Err(IoError::Internal(format!(
+                    "cannot start a worker thread: {e}"
+                )));
+            }
         }
         drop(result_tx);
         drop(job_rx);

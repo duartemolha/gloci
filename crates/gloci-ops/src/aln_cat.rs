@@ -34,7 +34,7 @@ fn show(name: &[u8]) -> String {
 }
 
 /// The first way the reference list `other` (of `path`) differs from `first` (of `first_path`).
-fn sq_difference(
+pub(crate) fn sq_difference(
     first_path: &str,
     first: &AlnHeader,
     path: &str,
@@ -169,10 +169,7 @@ fn read_header(path: &str) -> Result<Entry, IoError> {
     }
     head.truncate(got);
     if head.is_empty() {
-        return Err(detect(
-            path,
-            format!("{name} is empty; give BAM files (made by gloci view -o x.bam, or an aligner)"),
-        ));
+        return Err(IoError::empty_input(name));
     }
     if head.starts_with(b"CRAM") {
         return Err(UsageError(format!(
@@ -218,16 +215,26 @@ Convert it first: gloci view {name} -o x.bam"
         ),
         None => read_err(e),
     };
-    blocks.read_exact(&mut magic).map_err(|e| {
-        if e.kind() == io::ErrorKind::UnexpectedEof {
-            detect(
+    let mut got = 0;
+    while got < magic.len() {
+        match blocks.read(&mut magic[got..]) {
+            Ok(0) => break,
+            Ok(n) => got += n,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(bad(e)),
+        }
+    }
+    match got {
+        // BGZF holding no bytes (only the end-of-file block).
+        0 => return Err(IoError::empty_input(name)),
+        1..=3 => {
+            return Err(detect(
                 path,
                 format!("{name} is not a BAM file; gloci cat joins BAM files"),
-            )
-        } else {
-            bad(e)
+            ));
         }
-    })?;
+        _ => {}
+    }
     if &magic != b"BAM\x01" {
         return Err(detect(
             path,

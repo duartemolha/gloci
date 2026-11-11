@@ -1,0 +1,1 @@
+genomecov input.badtail.cram --reference ref.fa -t 4

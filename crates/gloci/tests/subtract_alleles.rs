@@ -105,10 +105,12 @@ fn subtract_match_alleles_table() {
 fn subtract_alleles_equals_intersect_none() {
     let dir = tempdir();
     let sets: &[(&[&str], &[&[&str]])] = &[
-        // left-aligned vs not-trimmed representation of the same deletion
+        // The same insertion written with two anchors: A>AG at 100 and C>GC at 101 both trim
+        // to an insertion of G after 100. A deletion that trims elsewhere (GAA>GA trims to a
+        // deletion of A after 101, GA>G after 100) is not the same variant.
         (
-            &["100\t.\tGA\tG", "200\t.\tAT\tA", "300\t.\tC\tT"],
-            &[&["100\t.\tGAA\tGA", "300\t.\tC\tG"]],
+            &["100\t.\tA\tAG", "200\t.\tGA\tG", "300\t.\tC\tT"],
+            &[&["101\t.\tC\tGC", "200\t.\tGAA\tGA", "300\t.\tC\tG"]],
         ),
         // several B files, a multi-allelic A, lower case, symbolic
         (
@@ -130,6 +132,9 @@ fn subtract_alleles_equals_intersect_none() {
             &[&["1\t.\tN\tNA", "6\t.\tA\tC"]],
         ),
     ];
+    // The positions each set's subtract drops (the rest are kept): a symbolic ALT (30)
+    // never matches, and `*` (40) is not an allele.
+    let dropped: [&[&str]; 3] = [&["100"], &["10", "20", "50"], &["1"]];
     for (i, (a, bs)) in sets.iter().enumerate() {
         let af = s(&plain_file(dir.path(), &format!("a{i}.vcf"), &vcf(a)));
         let bfs: Vec<String> = bs
@@ -163,11 +168,20 @@ fn subtract_alleles_equals_intersect_none() {
                         out(&v);
                         text_of(&o)
                     };
+                    let kept = run("subtract");
                     assert_eq!(
-                        run("subtract"),
+                        kept,
                         run("intersect"),
                         "set {i} {aa} {bb:?} {extra:?} -t {t}"
                     );
+                    let pos = |l: &str| l.split('\t').nth(1).unwrap().to_string();
+                    let want: Vec<String> = a
+                        .iter()
+                        .map(|r| pos(&format!("chr1\t{r}")))
+                        .filter(|p| !dropped[i].contains(&p.as_str()))
+                        .collect();
+                    let got: Vec<String> = kept.lines().map(pos).collect();
+                    assert_eq!(got, want, "set {i}: kept positions");
                 }
             }
         }
@@ -198,6 +212,9 @@ fn subtract_alleles_usage_errors() {
         (&["--left", "5"], "-w/--left/--right"),
         (&["--right", "5"], "-w/--left/--right"),
         (&["--sum-overlaps"], "--sum-overlaps"),
+        (&["--sum-overlaps", "--whole"], "--sum-overlaps"),
+        (&["--split"], "--split"),
+        (&["--inclusive-points"], "--inclusive-points"),
     ];
     for (extra, flag) in refused {
         sub(&v, &v, extra).stderr(

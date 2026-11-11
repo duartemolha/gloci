@@ -37,4 +37,7 @@ noodles-bgzf.workspace = true
 noodles-bcf.workspace = true
 noodles-tabix.workspace = true
 noodles-vcf.workspace = true
+noodles-sam.workspace = true
+noodles-cram.workspace = true
+noodles-fasta.workspace = true
 libc.workspace = true

@@ -93,6 +93,31 @@ pub struct IndexInfo {
     pub stale: bool,
 }
 
+impl IndexInfo {
+    /// Warn that the index is older than the data file `name` (D26), when it is.
+    pub fn warn_if_stale(&self, name: &str) {
+        if self.stale {
+            warn_stale_index(&self.path, name);
+        }
+    }
+}
+
+/// The one warning for an index (`.tbi`, `.csi`, `.bai`, `.crai` or `.fai`) older than its data
+/// file `name` (D26), given once per index in a run however often the index is opened.
+pub(crate) fn warn_stale_index(index: &Path, name: &str) {
+    static WARNED: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+    let mut warned = WARNED.lock().unwrap_or_else(|e| e.into_inner());
+    if warned.iter().any(|p| p == index) {
+        return;
+    }
+    warned.push(index.to_path_buf());
+    log::warn!(
+        "the index {} is older than {name}; it may be out of date (rebuild it with: gloci index \
+{name})",
+        index.display()
+    );
+}
+
 /// `DATA.tbi`, `DATA.csi`, `DATA.bai` or `DATA.crai`.
 pub(crate) fn index_path(data: &Path, kind: IndexKind) -> PathBuf {
     let mut s: OsString = data.as_os_str().to_owned();
@@ -330,6 +355,7 @@ refuse it before a parser is chosen",
 
 mod bam;
 mod build;
+pub mod crai;
 mod query;
 mod tsv;
 mod validate;
@@ -340,6 +366,7 @@ pub use build::write_index;
 #[cfg(test)]
 use build::{Entry, Linear, bin_start, csi_depth, scan};
 pub(crate) use build::{build_index, remove_indexes, stage_index};
+pub use crai::{CraiEntry, CramIndex, crai_path, find_crai, write_crai};
 #[cfg(test)]
 use query::Plan;
 pub use query::{

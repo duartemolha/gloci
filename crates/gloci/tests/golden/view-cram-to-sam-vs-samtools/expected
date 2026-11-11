@@ -1,0 +1,14 @@
+@HD	VN:1.6	SO:coordinate
+@SQ	SN:chrM	LN:150	M5:6a5f14d2e970653764d932b738b95c55	UR:/work/aln/../fa/ref.fa
+@SQ	SN:chr1	LN:1000	M5:712ec1c4d51a41496d99ca5ba3068643	UR:/work/aln/../fa/ref.fa
+@SQ	SN:chr2	LN:1234	M5:b0a68713456b230be03d71247f95c26e	UR:/work/aln/../fa/ref.fa
+@SQ	SN:chr10	LN:600	M5:ea1b686d6980f92bdfda88fe6fecaeea	UR:/work/aln/../fa/ref.fa
+@SQ	SN:chrX	LN:777	M5:77dbca151574d9cf0e9e71ddabff6fcb	UR:/work/aln/../fa/ref.fa
+@RG	ID:g1	SM:s1
+t_ints	0	chrM	101	60	10M	*	0	0	ACGTACGTAC	IIIIIIIIII	NM:i:0	AS:i:-5	XS:i:300	XL:i:70000	XN:i:-70000
+t_floats	16	chr1	101	60	10M	*	0	0	ACGTACGTAC	IIIIIIIIII	XF:f:0.1	XG:f:1e-07	XH:f:-2.5	XI:f:100000
+t_floats_more	0	chr1	151	60	10M	*	0	0	ACGTACGTAC	IIIIIIIIII	XJ:f:0.123457	XK:f:1e+10	XL:f:1.23457e+08	XM:f:1.234e-05	XO:f:1e+06	XQ:f:3.4e+38	XR:f:-1e-05	XS:f:0	XT:f:0.0001
+t_strings	0	chr1	201	60	10M	*	0	0	ACGTACGTAC	IIIIIIIIII	XZ:Z:hello world	XA:A:q	XE:Z:
+t_arrays	0	chr2	51	60	10M	*	0	0	ACGTACGTAC	IIIIIIIIII	Bc:B:c,-1,2,3	Bs:B:s,-300,300	BI:B:I,4000000000	Bf:B:f,0.1,1e-07	BC:B:C,255
+t_unmapped_placed	4	chr10	11	0	*	*	0	0	ACGTACGTAC	IIIIIIIIII	XP:i:7
+t_unmapped_unplaced	4	*	0	0	*	*	0	0	ACGTACGTAC	IIIIIIIIII	XF:f:0.1

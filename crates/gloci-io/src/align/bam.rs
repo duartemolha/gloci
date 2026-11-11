@@ -36,6 +36,10 @@ pub(crate) struct BamFrames {
     run_ref: i32,
     run_seen: u64,
     eof: bool,
+    /// Name the record's number in the whole file too ("record N of CHROM (record M of the
+    /// file)"). A CRAM's index does not count records per reference, so a CRAM read through
+    /// it cannot say M: its errors never do, at any thread count.
+    file_numbers: bool,
 }
 
 impl BamFrames {
@@ -55,33 +59,44 @@ impl BamFrames {
             m.check_file_names(&name, h.refs.iter().map(|r| &r.0[..]))?;
             h = h.renamed(m);
         }
-        Ok(BamFrames {
-            aln: Arc::new(h),
+        Ok(BamFrames::from_parts(name, compression, h, reader))
+    }
+
+    /// Frames over `src`, a BAM body (records with their `block_size`) whose header is `aln`:
+    /// the records of a CRAM, transcoded, take the BAM path from here on.
+    pub(crate) fn from_parts(
+        name: String,
+        compression: Compression,
+        aln: AlnHeader,
+        src: Box<dyn BufRead + Send>,
+    ) -> BamFrames {
+        BamFrames {
+            aln: Arc::new(aln),
             name,
             compression,
-            src: reader,
+            src,
             rec: 0,
             run_ref: i32::MIN,
             run_seen: 0,
             eof: false,
-        })
+            file_numbers: true,
+        }
+    }
+
+    /// Errors name "record N of CHROM" only (see `file_numbers`).
+    pub(crate) fn without_file_numbers(mut self) -> BamFrames {
+        self.file_numbers = false;
+        self
     }
 
     /// "record N of CHROM (record M of the file)" for the record that is `seen` in its run,
     /// on `ref_id`. `self.rec` is the file-wide number, the same at every thread count.
     fn place_of(&self, ref_id: i32, seen: u64) -> String {
-        let chrom = match usize::try_from(ref_id) {
-            Ok(i) => match self.aln.refs.get(i) {
-                Some((n, _)) => String::from_utf8_lossy(n).into_owned(),
-                None => format!("refID {ref_id}"),
-            },
-            Err(_) if ref_id == -1 => "unplaced reads".to_string(),
-            Err(_) => format!("refID {ref_id}"),
-        };
-        format!(
-            "record {} of {chrom} (record {} of the file)",
-            gloci_core::thousands(seen),
-            gloci_core::thousands(self.rec)
+        bam_record_place(
+            &self.aln.refs,
+            ref_id,
+            seen,
+            self.file_numbers.then_some(self.rec),
         )
     }
 
@@ -171,6 +186,33 @@ the file is corrupt"
     }
 }
 
+/// The place of a BAM record as every command names it (D101): "record N of CHROM (record M
+/// of the file)", N counting the records of its reference `ref_id` (`seen`) and M those of the
+/// file (`file`; left out when `None`).
+pub(crate) fn bam_record_place(
+    refs: &[(Vec<u8>, u64)],
+    ref_id: i32,
+    seen: u64,
+    file: Option<u64>,
+) -> String {
+    let chrom = match usize::try_from(ref_id) {
+        Ok(i) => match refs.get(i) {
+            Some((n, _)) => String::from_utf8_lossy(n).into_owned(),
+            None => format!("refID {ref_id}"),
+        },
+        Err(_) if ref_id == -1 => "unplaced reads".to_string(),
+        Err(_) => format!("refID {ref_id}"),
+    };
+    match file {
+        None => format!("record {} of {chrom}", gloci_core::thousands(seen)),
+        Some(m) => format!(
+            "record {} of {chrom} (record {} of the file)",
+            gloci_core::thousands(seen),
+            gloci_core::thousands(m)
+        ),
+    }
+}
+
 /// Reads BAM records for interval commands.
 pub struct BamReader {
     frames: BamFrames,
@@ -189,8 +231,20 @@ impl BamReader {
         map: Option<&ChromMap>,
         opts: AlignOptions,
     ) -> Result<BamReader, IoError> {
-        let frames = BamFrames::open(input, map)?;
-        Ok(BamReader {
+        Ok(BamReader::from_frames(
+            BamFrames::open(input, map)?,
+            policy,
+            opts,
+        ))
+    }
+
+    /// The reader over `frames` (a BAM's, or a CRAM's transcoded records).
+    pub(crate) fn from_frames(
+        frames: BamFrames,
+        policy: InvalidPolicy,
+        opts: AlignOptions,
+    ) -> BamReader {
+        BamReader {
             header: Header::Alignment(frames.aln.clone()),
             rules: IntervalRules::new(frames.aln.refs.len()),
             frames,
@@ -198,7 +252,7 @@ impl BamReader {
             policy,
             opts,
             scratch: Vec::new(),
-        })
+        }
     }
 
     /// An invalid record: an error, or counted under `--skip-invalid`.
