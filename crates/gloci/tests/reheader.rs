@@ -437,7 +437,9 @@ fn reheader_inputs() {
         .args(["reheader", &s(&hdr), &s(&bed)])
         .assert()
         .code(2)
-        .stderr(contains("is BED, not BAM or CRAM; reheader takes BAM or CRAM"));
+        .stderr(contains(
+            "is BED, not BAM or CRAM; reheader takes BAM or CRAM",
+        ));
     let vcf = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../xtask/diff/inputs/samtools/calls.vcf.gz");
     gloci()
@@ -448,7 +450,9 @@ fn reheader_inputs() {
     let gz = dir.path().join("x.sam.gz");
     std::fs::write(
         &gz,
-        [0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [
+            0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ],
     )
     .unwrap();
     gloci()
