@@ -200,3 +200,57 @@ fn pair_intersect_reads_the_bedpe_it_writes() {
     assert!(out.contains("r5\t40\t-\t+\tchr10\t0\t1000\tgeneB"), "{out}");
     assert!(!out.contains("r3"), "{out}");
 }
+
+#[test]
+fn past_end_reads_follow_convert() {
+    for f in ["pairs-pastend.sam", "pairs-pastend.bam"] {
+        // e1's READ1 straddles the end of chr1 (1,000 bases) and is cut; e2's READ1 starts at
+        // the end, so it is an absent end: not in the score, no NM needed.
+        let o = gloci()
+            .args(["convert", &aln(f), "--bedpe"])
+            .assert()
+            .success()
+            .stderr(contains(
+                "read e1 on chr1 extends past the end of the reference (1000 bases)",
+            ))
+            .stderr(contains(
+                "read e2 starts at 1001 on chr1, which is 1000 bases long",
+            ))
+            .stderr(contains("1 reads left out for starting at or past the end"));
+        assert_eq!(
+            String::from_utf8(o.get_output().stdout.clone()).unwrap(),
+            "chr1\t100\t150\tchr1\t990\t1000\te1\t60\t-\t+\n.\t-1\t-1\tchr1\t300\t350\te2\t0\t.\t-\n",
+            "{f}"
+        );
+        let o = gloci()
+            .args(["convert", &aln(f), "--bedpe", "--score-tag", "NM"])
+            .assert()
+            .success();
+        let out = String::from_utf8(o.get_output().stdout.clone()).unwrap();
+        let scores: Vec<&str> = out.lines().map(|l| l.split('\t').nth(7).unwrap()).collect();
+        assert_eq!(scores, ["3", "3"], "{f}");
+    }
+}
+
+#[test]
+fn duplicate_primary_mates_warn_and_use_the_first() {
+    let dir = tempdir();
+    let sam = plain_file(
+        dir.path(),
+        "dup.sam",
+        "@HD\tVN:1.6\tSO:queryname\n@SQ\tSN:chr1\tLN:1000\n\
+a\t65\tchr1\t5\t60\t10M\t*\t0\t0\tACGTACGTAC\tIIIIIIIIII\n\
+a\t65\tchr1\t500\t60\t10M\t*\t0\t0\tACGTACGTAC\tIIIIIIIIII\n\
+a\t129\tchr1\t50\t60\t10M\t*\t0\t0\tACGTACGTAC\tIIIIIIIIII\n",
+    );
+    gloci()
+        .args(["convert"])
+        .arg(&sam)
+        .arg("--bedpe")
+        .assert()
+        .success()
+        .stdout("chr1\t4\t14\tchr1\t49\t59\ta\t60\t+\t+\n")
+        .stderr(contains(
+            "1 read name has more than one primary READ1 or READ2; the first is used",
+        ));
+}

@@ -23,6 +23,11 @@ pub struct BedpeSummary {
     pub missing_mate: u64,
     /// Reads that are neither READ1 nor READ2 (not written).
     pub unpaired: u64,
+    /// Mapped reads starting at or past the end of their reference: absent ends, as `convert`
+    /// skips them.
+    pub past_end: u64,
+    /// Read names with a second primary READ1 or READ2 (the first is used).
+    pub duplicate_mates: u64,
 }
 
 /// One end of a pair: the reference and span of a mapped read, or an absent end.
@@ -40,6 +45,8 @@ struct Group {
     name: Vec<u8>,
     mate1: Option<End>,
     mate2: Option<End>,
+    /// A second primary READ1 or READ2 was met (counted once per name).
+    duplicated: bool,
 }
 
 struct Pairing<'a> {
@@ -181,8 +188,10 @@ x.byname.bam"
         name: Vec::new(),
         mate1: None,
         mate2: None,
+        duplicated: false,
     };
     let mut buf = Vec::new();
+    let (mut clip_warned, mut off_warned) = (false, false);
     loop {
         buf.clear();
         if src.next_record(&mut buf)?.is_none() {
@@ -207,11 +216,42 @@ x.byname.bam"
             p.flush(&mut g)?;
             g.name.clear();
             g.name.extend_from_slice(a.name());
+            g.duplicated = false;
         }
         let at = match (a.ref_id(), flag & 0x4 == 0) {
-            (Some(rid), true) => a
-                .span(hdr.refs[rid].1)
-                .map(|(iv, _)| (rid, iv.start, iv.end)),
+            (Some(rid), true) => match a.span(hdr.refs[rid].1) {
+                // The span `convert` writes: cut at the end of the reference, with one warning.
+                Some((iv, cut)) if iv.start < iv.end => {
+                    if cut && !clip_warned {
+                        clip_warned = true;
+                        log::warn!(
+                            "{name}: read {} on {} extends past the end of the reference ({} \
+bases); reads like it are cut at the reference length",
+                            String::from_utf8_lossy(a.name()),
+                            String::from_utf8_lossy(&hdr.refs[rid].0),
+                            hdr.refs[rid].1
+                        );
+                    }
+                    Some((rid, iv.start, iv.end))
+                }
+                // Starts at or past the end: covers no base, so the end is absent.
+                Some(_) => {
+                    p.sum.past_end += 1;
+                    if !off_warned {
+                        off_warned = true;
+                        log::warn!(
+                            "{name}: read {} starts at {} on {}, which is {} bases long; reads \
+that start past the end of their reference cover no base and are written as absent ends",
+                            String::from_utf8_lossy(a.name()),
+                            a.pos().map_or(0, |x| x + 1),
+                            String::from_utf8_lossy(&hdr.refs[rid].0),
+                            hdr.refs[rid].1
+                        );
+                    }
+                    None
+                }
+                None => None,
+            },
             _ => None,
         };
         let tag = match (o.score_tag, at) {
@@ -225,7 +265,14 @@ x.byname.bam"
             tag,
         };
         let slot = if first { &mut g.mate1 } else { &mut g.mate2 };
-        slot.get_or_insert(end);
+        if slot.is_some() {
+            if !g.duplicated {
+                g.duplicated = true;
+                p.sum.duplicate_mates += 1;
+            }
+        } else {
+            *slot = Some(end);
+        }
     }
     p.flush(&mut g)?;
     let sum = p.sum;
@@ -235,6 +282,19 @@ x.byname.bam"
             "{name}: {} one mate and no pair was written for them; --bedpe needs the reads of \
 a name next to each other (gloci sort -n) and every mate present",
             plural(sum.missing_mate, "read name has", "read names have")
+        );
+    }
+    if sum.past_end > 0 {
+        log::info!(
+            "{name}: {} reads left out for starting at or past the end of their reference \
+(written as absent ends)",
+            gloci_core::thousands(sum.past_end)
+        );
+    }
+    if sum.duplicate_mates > 0 {
+        log::warn!(
+            "{name}: {} more than one primary READ1 or READ2; the first is used",
+            plural(sum.duplicate_mates, "read name has", "read names have")
         );
     }
     if sum.unpaired > 0 {

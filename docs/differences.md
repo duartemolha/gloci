@@ -1782,7 +1782,10 @@ depends on the span.
   `--split` command compares (one shared rule): blocks with no base are left out. A
   BED12 row opens at the first kept block (chromStart and thickStart) and closes at
   the last (chromEnd and thickEnd), so its first block starts at offset 0 and its last
-  ends at chromEnd, as BED12 requires.
+  ends at chromEnd, as BED12 requires. `convert --bedpe` does the same for its ends: a
+  read cut at `LN` keeps its cut span, and a read that starts at or past `LN` is an absent
+  end (`. -1 -1`, strand `.`) that takes no part in the score and needs no `--score-tag`
+  tag.
 - **Old behaviour:** `bedtools bamtobed` writes the interval as the CIGAR gives it,
   past the end of the reference (`chr1 994 1004` on a 1,000 base chr1), and writes a
   read that starts past the end as well. With `-bed12` a start beyond 2^31 gives a
@@ -1797,7 +1800,7 @@ depends on the span.
   `bedToBigBed`, and the other gloci commands refuse it. So would a BED12 row whose
   first block does not start at chromStart: `gloci convert x.bam --bed12 | gloci
   intersect -a - -b y.bed --split` must read what convert writes.
-- **Pinned by:** `bamtobed-past-end-vs-bedtools`, `bamtobed-edge-vs-bedtools`,
+- **Pinned by:** `bamtobed-past-end-vs-bedtools`, `bamtobed-bedpe-past-end-vs-bedtools`, `bamtobed-edge-vs-bedtools`,
   `bamtobed-past-end-bed12-vs-bedtools`, `bamtobed-ends-bed12-vs-bedtools`,
   `bamtobed-ends-bed12-splitd-vs-bedtools` and `bamtobed-ends-split-vs-bedtools` (must
   differ); `bamtobed-ends-vs-bedtools` (BED6, matches).

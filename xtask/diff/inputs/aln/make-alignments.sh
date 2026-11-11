@@ -53,3 +53,6 @@ for set in pairs supp; do
 done
 samtools view -C -@ 0 --no-PG --output-fmt-option version=3.0 --output-fmt-option no_ref=1 \
     -o pairs.noref.cram pairs.sam
+# pairs-pastend.sam (D156): on a 1000 base chr1, e1's READ1 straddles the end (990-1000 once cut)
+# and e2's READ1 (no NM tag) starts at the end, so it is an absent end.
+samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o pairs-pastend.bam pairs-pastend.sam

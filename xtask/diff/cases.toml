@@ -7713,3 +7713,13 @@ gloci = "gloci convert input.bam --bedpe"
 reference = "bedtools bamtobed -i input.bam -bedpe"
 compare = "exact"
 expected_difference = "#bamtobed-bedpe"
+
+# convert --bedpe on reads at the end of the reference: bedtools writes the cut-off read as it
+# is, and the read that starts at the end with coordinates past it.
+[[case]]
+name = "bamtobed-bedpe-past-end-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/pairs-pastend.bam" }
+gloci = "gloci convert input.bam --bedpe"
+reference = "bedtools bamtobed -i input.bam -bedpe"
+compare = "exact"
+expected_difference = "#bamtobed-past-reference-end"
