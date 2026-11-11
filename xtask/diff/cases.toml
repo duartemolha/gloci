@@ -5894,6 +5894,7 @@ expected_difference = "#quickcheck"
 # P3c Task 5: `head` (D134) and `samples` (D135). rg.bam has five @RG lines (samples NA12878,
 # NA12891, NA12878, HG002; LB on two; one line with no SM) whose samtools hash order differs from
 # the header order: the unordered cases compare as sets, `samples-order-vs-samtools` pins the order.
+# bcftools head adds ##FILTER=PASS to a header that lacks it, so head-vcf uses a header that has it.
 # nosm.sam has @RG lines but no SM. aln/notext.bam has binary references and no header text:
 # samtools head prints nothing for it, gloci writes the @SQ lines (#head-notext-header).
 
@@ -5935,9 +5936,9 @@ expected_difference = "#head-notext-header"
 
 [[case]]
 name = "head-vcf-vs-bcftools"
-input = { file = "xtask/diff/inputs/samtools/calls.vcf.gz" }
-gloci = "gloci head input.vcf.gz --records 2"
-reference = "bcftools head -n 2 input.vcf.gz"
+input = { file = "xtask/diff/inputs/hdr-distinct.vcf" }
+gloci = "gloci head input.vcf --records 2"
+reference = "bcftools head -n 2 input.vcf"
 compare = "exact"
 
 [[case]]
@@ -6021,6 +6022,6 @@ name = "samples-fasta-no-fai-vs-samtools"
 input = { file = "xtask/diff/inputs/samtools/rg.bam" }
 aux = ["xtask/diff/inputs/samtools/ref.fa"]
 gloci = "gloci samples input.bam --match-reference ref.fa"
-reference = "samtools samples -f ref.fa input.bam"
+reference = "mkdir r && cp ref.fa input.bam r/ && samtools samples -f r/ref.fa r/input.bam"
 compare = "exit-status"
 expected_difference = "#fasta-implicit-index"

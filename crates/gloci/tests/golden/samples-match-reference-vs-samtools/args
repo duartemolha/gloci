@@ -1,0 +1,1 @@
+samples input.bam --match-reference ref.fa --column-names --show-index

@@ -1,0 +1,21 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##contig=<ID=chr1,length=100000>
+##contig=<ID=chr2,length=100000>
+##ALT=<ID=DEL,Description="Deletion">
+##INFO=<ID=END,Number=1,Type=Integer,Description="End position">
+##INFO=<ID=SVTYPE,Number=1,Type=String,Description="SV type">
+##INFO=<ID=SVLEN,Number=1,Type=Integer,Description="SV length">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+chr1	100	snv100	C	T	50	PASS	.
+chr1	300	snv300	G	A	50	PASS	.
+chr2	100	snv100b	A	T	50	PASS	.
+chr1	101	ins101	G	GAA	50	PASS	.
+chr1	150	del150	ACGT	A	50	PASS	.
+chr1	200	snv200	T	C	50	PASS	.
+chr2	10	snv10	A	T	50	PASS	.
+chr1	190	mnv190	ACG	TTT	50	PASS	.
+chr1	401	snv401	G	A	50	PASS	.
+chr1	50	snv50	A	G	50	PASS	.
+chr1	250	sv250	N	<DEL>	50	PASS	SVTYPE=DEL;END=400
+chr2	500	del500	GATTACA	G	50	PASS	.

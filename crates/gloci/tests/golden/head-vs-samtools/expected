@@ -1,0 +1,8 @@
+@HD	VN:1.6	SO:coordinate
+@SQ	SN:chr1	LN:1000
+@SQ	SN:chr2	LN:2000
+@RG	ID:g1	SM:NA12878	LB:libA
+@RG	ID:g2	SM:NA12891
+@RG	ID:g3	SM:NA12878	LB:libB
+@RG	ID:g4	SM:HG002
+@RG	ID:g5	LB:libC

@@ -1,0 +1,4 @@
+#SM	PATH	INDEX	REFERENCE
+HG002	input.bam	N	ref.fa
+NA12878	input.bam	N	ref.fa
+NA12891	input.bam	N	ref.fa
