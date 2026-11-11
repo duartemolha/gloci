@@ -159,7 +159,12 @@ fn nometa_fixture_is_the_stripped_index() {
 
 #[test]
 fn idxstats_index_without_counts() {
-    let bam = inputs().join("samtools/nometa/flags.bam");
+    let d = tempdir();
+    let bam = copy_with_fresh_index(
+        d.path(),
+        &inputs().join("samtools/nometa/flags.bam"),
+        &inputs().join("samtools/nometa/flags.bam.bai"),
+    );
     let (path, text) = lib(&bam);
     assert_eq!(path, IdxstatsPath::Scan);
     assert_eq!(text, FLAGS);
@@ -295,7 +300,13 @@ fn idxstats_csi_matches_bai() {
 /// The CSI `samtools index -c` wrote (samtools/csi/flags.bam.csi) is read the same way.
 #[test]
 fn idxstats_samtools_csi() {
-    let (path, text) = lib(&inputs().join("samtools/csi/flags.bam"));
+    let d = tempdir();
+    let bam = copy_with_fresh_index(
+        d.path(),
+        &inputs().join("samtools/csi/flags.bam"),
+        &inputs().join("samtools/csi/flags.bam.csi"),
+    );
+    let (path, text) = lib(&bam);
     assert_eq!(path, IdxstatsPath::Index);
     assert_eq!(text, FLAGS);
 }
