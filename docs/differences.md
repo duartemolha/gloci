@@ -2141,6 +2141,8 @@ depends on the span.
   - A file whose first record does not parse fails: a BAM whose first `block_size` is 20, a
     CRAM whose first container is cut short or corrupt.
   - A VCF, a BCF or a BGZF BED that is whole passes.
+  - A file or stdin with no bytes at all fails ("is empty: it has no records"), whatever its
+    name. The full `check` of such a file says "an empty BED, OK", as content detection reads it.
   - The exit status is 1 for any failing file, and `--list-failed` prints the failing paths
     (samtools `-v`).
 - **Old behaviour:** `samtools quickcheck` never reads a record, so a BAM with a good header

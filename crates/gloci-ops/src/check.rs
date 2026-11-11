@@ -20,7 +20,7 @@ use gloci_io::{
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 
 /// Problems listed per category.
@@ -873,6 +873,9 @@ fn quick_regular<R: Read + Seek + Send + 'static>(
 ) -> Result<(Format, Compression), String> {
     let read_err = |e: std::io::Error| format!("cannot read {name}: {e}");
     let len = r.seek(SeekFrom::End(0)).map_err(read_err)?;
+    if len == 0 {
+        return Err(IoError::empty_input(name).to_string());
+    }
     r.seek(SeekFrom::Start(0)).map_err(read_err)?;
     let mut head = Vec::new();
     (&mut r).take(18).read_to_end(&mut head).map_err(read_err)?;
@@ -894,13 +897,27 @@ fn quick_regular<R: Read + Seek + Send + 'static>(
     Ok((format, detect_compression(&head)))
 }
 
-/// The header and the first record of `src`.
+/// The header and the first record of `src`. No bytes at all fails: there is no header, though
+/// content detection would call it an empty BED (which the full check accepts).
 fn quick_open(
     name: &str,
     src: Box<dyn Read + Send>,
     o: &ReaderOptions,
     q: &QuickOptions,
 ) -> Result<(Format, Compression), String> {
+    let mut src = BufReader::new(src);
+    let empty = loop {
+        match src.fill_buf() {
+            Ok(b) => break b.is_empty(),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(format!("cannot read {name}: {e}")),
+        }
+    };
+    if empty {
+        let shown = if name == "-" { "stdin" } else { name };
+        return Err(IoError::empty_input(shown).to_string());
+    }
+    let src: Box<dyn Read + Send> = Box::new(src);
     let mut o = o.clone();
     o.invalid = InvalidPolicy::Fail;
     // One thread reads one block at a time and no further.

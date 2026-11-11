@@ -251,6 +251,33 @@ fn quick_check_matrix() {
         .assert()
         .success();
     assert!(o.get_output().stdout.is_empty());
+    // A zero-byte file, whatever its name, and a zero-byte stdin fail: there is no header to
+    // check. (The full check calls such a file an empty BED, as content detection does.)
+    for name in ["z.bam", "z.sam", "z.bed", "z.vcf"] {
+        let z = d.path().join(name);
+        std::fs::write(&z, b"").unwrap();
+        let z = s(&z);
+        let (code, out, err) = run(&["check", "--quick", "--list-failed", &z]);
+        assert_eq!((code, out), (1, format!("{z}\n")), "{z}: {err}");
+        assert!(
+            err.contains(&format!("{z} is empty: it has no records")),
+            "{err}"
+        );
+        let (code, out, _) = run(&["check", "--quick", &z]);
+        assert_eq!(code, 1, "{out}");
+        assert!(out.contains("is empty: it has no records"), "{out}");
+        let (code, out, err) = run(&["check", &z]);
+        assert_eq!(code, 0, "{out}{err}");
+        assert!(out.ends_with("result: OK\n"), "{out}");
+    }
+    let o = gloci()
+        .args(["check", "--quick", "--list-failed", "-"])
+        .write_stdin(Vec::new())
+        .assert()
+        .code(1);
+    assert_eq!(o.get_output().stdout, b"-\n");
+    let err = String::from_utf8_lossy(&o.get_output().stderr);
+    assert!(err.contains("stdin is empty: it has no records"), "{err}");
     // The problem is on stderr, in words.
     let (_, _, err) = run(&[
         "check",
