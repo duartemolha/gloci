@@ -422,6 +422,27 @@ fn depth_ring_bound_holds_for_long_m_d_and_two_inputs() {
     assert_ring_bound("5M300000D5M", 300_010, 2, true);
 }
 
+#[test]
+fn depth_per_chromosome_keeps_placed_unmapped_reads() {
+    // With nothing excluded the placed unmapped read at chr1:175 prints a 0 row, and the same
+    // rows come out whichever way the references are read.
+    let f = fixture("depth.bam");
+    let paths = vec![f];
+    let run = |t: usize, o: &DepthOptions| {
+        let mut out = Vec::new();
+        depth(&paths, o, &ro(0), threads(t), &mut out).unwrap();
+        String::from_utf8(out).unwrap()
+    };
+    for mode in [AllPositions::Covered, AllPositions::AllRefs] {
+        let mut o = opts();
+        o.all = mode;
+        let one = run(1, &o);
+        assert!(one.contains("chr1\t175\t0\n"));
+        assert_eq!(run(2, &o), one);
+        assert_eq!(run(8, &o), one);
+    }
+}
+
 fn plans() -> Vec<DepthOptions> {
     let mut all = Vec::new();
     for mode in [

@@ -174,6 +174,8 @@ struct Job {
     first: usize,
     end: usize,
     regions: Vec<(Vec<u8>, Interval)>,
+    /// Without regions: the references of the chunk that hold reads, read whole.
+    chroms: Vec<Vec<u8>>,
 }
 
 /// `samtools depth` over `paths`, written to `out`. Rows come in `@SQ` order. With every input
@@ -289,6 +291,7 @@ fn chunked(
     .map(|g| {
         let end = first + g.len();
         let mut regions = Vec::new();
+        let mut chroms = Vec::new();
         for r in first..end {
             let name = &refs[r].0;
             if o.regions.is_some() {
@@ -296,19 +299,14 @@ fn chunked(
                     regions.push((name.clone(), *iv));
                 }
             } else if weights[r] > 1 {
-                regions.push((
-                    name.clone(),
-                    Interval {
-                        start: 0,
-                        end: refs[r].1,
-                    },
-                ));
+                chroms.push(name.clone());
             }
         }
         let job = Job {
             first,
             end,
             regions,
+            chroms,
         };
         first = end;
         job
@@ -319,10 +317,15 @@ fn chunked(
         |job: &Job, sink: &mut ChunkSink| -> Result<(DepthSummary, Vec<Diagnostics>), IoError> {
             let mut inputs = Vec::with_capacity(files.len());
             for (f, n) in files.iter().zip(names) {
-                let src = if job.regions.is_empty() {
-                    None
-                } else {
+                // Whole references are read as a stream reads them, so a bad record is named
+                // the same at every thread count; regions come through the same reader as
+                // at one thread.
+                let src = if o.regions.is_some() && !job.regions.is_empty() {
                     Some(f.aln_regions_source(&job.regions, false)?)
+                } else if o.regions.is_none() && !job.chroms.is_empty() {
+                    Some(f.aln_chromosomes_source(&job.chroms)?)
+                } else {
+                    None
                 };
                 inputs.push(Input::new(src, n, hdr.clone()));
             }

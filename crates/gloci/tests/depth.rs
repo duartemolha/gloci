@@ -343,30 +343,35 @@ fn bad_bam(dir: &std::path::Path) -> PathBuf {
 fn depth_diagnostics_do_not_depend_on_threads() {
     let t = tempdir();
     let bam = bad_bam(t.path());
-    let run = |t: &str, v: bool| {
+    let run = |t: &str, v: bool, region: bool| {
         let mut c = gloci();
         c.args(["depth", "--skip-invalid", "-t", t]).arg(&bam);
         if v {
             c.arg("-v");
         }
+        if region {
+            c.args(["--region", "chr1", "--region", "chr2"]);
+        }
         let o = c.assert().success().get_output().clone();
-        // The examples name where each bad record is: by record number in a stream, by file
-        // offset in an indexed per-chromosome run, so they are left out of the comparison.
         let err = String::from_utf8(o.stderr).unwrap();
-        let err: String = err
-            .lines()
-            .filter(|l| !l.starts_with("  record"))
-            .map(|l| format!("{l}\n"))
-            .collect();
         (String::from_utf8(o.stdout).unwrap(), err)
     };
-    for v in [false, true] {
-        let (o1, e1) = run("1", v);
+    for (v, region) in [(false, false), (true, false), (false, true), (true, true)] {
+        let (o1, e1) = run("1", v, region);
         assert!(e1.contains("skipped 2 invalid records"), "{e1}");
+        // Whole references name a bad record as a stream does; regions name it by offset.
+        assert!(
+            e1.contains(if region {
+                "BGZF offset"
+            } else {
+                "record 2 of chr1"
+            }),
+            "{e1}"
+        );
         for tt in ["2", "4"] {
-            let (o, e) = run(tt, v);
+            let (o, e) = run(tt, v, region);
             assert_eq!(o, o1);
-            assert_eq!(e, e1, "-t {tt} -v {v}");
+            assert_eq!(e, e1, "-t {tt} -v {v} region {region}");
         }
     }
 }
