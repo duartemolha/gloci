@@ -135,46 +135,58 @@ impl BamFrames {
         }
     }
 
-    /// Give `f` the next record (without its `block_size`), in place, with the header and the
-    /// number it has in the file, when it is wholly in the reader's buffer and holds at least
-    /// the 32 bytes of fixed fields. When `f` takes it (`Some`), it is consumed and counted as
-    /// [`BamFrames::next`] counts it; otherwise (`Ok(None)`) nothing is, and the caller reads it
-    /// with [`BamFrames::next`], which reports whatever is wrong with it.
-    pub(crate) fn take_whole<T>(
+    /// Give `f` the records (without their `block_size`) that are wholly in the reader's buffer
+    /// and hold at least the 32 bytes of fixed fields, in place, one after the other, with the
+    /// header and the number each has in the file. Each record `f` takes (`Ok(true)`, or its
+    /// error, which ends the run) is consumed and counted as [`BamFrames::next`] counts it; the
+    /// run stops before one it declines (`Ok(false)`), which the caller then reads with
+    /// [`BamFrames::next`], as it does when no record was taken. Returns the records taken.
+    pub(crate) fn take_run(
         &mut self,
-        f: impl FnOnce(&[u8], &AlnHeader, u64) -> Option<T>,
-    ) -> Result<Option<T>, IoError> {
+        mut f: impl FnMut(&[u8], &AlnHeader, u64) -> Result<bool, IoError>,
+    ) -> Result<usize, IoError> {
         if self.eof {
-            return Ok(None);
+            return Ok(0);
         }
         let avail = match self.src.fill_buf() {
             Ok(avail) => avail,
-            Err(e) if e.kind() == io::ErrorKind::Interrupted => return Ok(None),
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => return Ok(0),
             Err(e) => return Err(self.read_err(e)),
         };
-        if avail.len() < 4 + 32 {
-            return Ok(None);
+        let (mut at, mut taken, mut failed) = (0usize, 0usize, None);
+        while avail.len() - at >= 4 + 32 {
+            let head = &avail[at..at + 4];
+            let block = i32::from_le_bytes([head[0], head[1], head[2], head[3]]);
+            let Some(size) = usize::try_from(block)
+                .ok()
+                .filter(|&n| n >= 32 && avail.len() - at - 4 >= n)
+            else {
+                break;
+            };
+            let body = &avail[at + 4..at + 4 + size];
+            let ref_id = i32::from_le_bytes([body[0], body[1], body[2], body[3]]);
+            let verdict = f(body, &self.aln, self.rec + 1);
+            if let Ok(false) = verdict {
+                break;
+            }
+            at += 4 + size;
+            taken += 1;
+            self.rec += 1;
+            if ref_id != self.run_ref {
+                self.run_ref = ref_id;
+                self.run_seen = 0;
+            }
+            self.run_seen += 1;
+            if let Err(e) = verdict {
+                failed = Some(e);
+                break;
+            }
         }
-        let block = i32::from_le_bytes([avail[0], avail[1], avail[2], avail[3]]);
-        let Some(size) = usize::try_from(block)
-            .ok()
-            .filter(|&n| n >= 32 && avail.len() - 4 >= n)
-        else {
-            return Ok(None);
-        };
-        let body = &avail[4..4 + size];
-        let ref_id = i32::from_le_bytes([body[0], body[1], body[2], body[3]]);
-        let Some(out) = f(body, &self.aln, self.rec + 1) else {
-            return Ok(None);
-        };
-        self.src.consume(4 + size);
-        self.rec += 1;
-        if ref_id != self.run_ref {
-            self.run_ref = ref_id;
-            self.run_seen = 0;
+        self.src.consume(at);
+        match failed {
+            Some(e) => Err(e),
+            None => Ok(taken),
         }
-        self.run_seen += 1;
-        Ok(Some(out))
     }
 
     /// Append the next record (without its `block_size`) to `buf`. `Ok(false)` at the end of

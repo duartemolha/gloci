@@ -96,26 +96,26 @@ impl AlnSource for BamSource {
     ) -> Result<(), IoError> {
         let mut buf = Vec::new();
         loop {
-            // A record wholly in the buffer that checks is taken in place; any other goes
-            // through `next_record`, which reads, counts and reports it as always.
-            let opts = &self.opts;
+            // The records wholly in the buffer that check are taken in place, a run at a time;
+            // any other goes through `next_record`, which reads, counts and reports it as
+            // always.
+            let (opts, diag) = (&self.opts, &mut self.diag);
             let taken = self
                 .frames
-                .take_whole(|raw, aln, rec| match Aln::parse(raw, aln) {
-                    Ok(a) if opts.drops(a.flag(), a.mapq()) => Some(None),
-                    Ok(_) => Some(Some(f(raw, rec))),
-                    Err(_) => None,
+                .take_run(|raw, aln, rec| match Aln::parse(raw, aln) {
+                    Ok(a) if opts.drops(a.flag(), a.mapq()) => {
+                        diag.filtered += 1;
+                        Ok(true)
+                    }
+                    Ok(_) => f(raw, rec).map(|()| true),
+                    Err(_) => Ok(false),
                 })?;
-            match taken {
-                Some(None) => self.diag.filtered += 1,
-                Some(Some(done)) => done?,
-                None => {
-                    buf.clear();
-                    let Some(rec) = self.next_record(&mut buf)? else {
-                        return Ok(());
-                    };
-                    f(&buf, rec)?;
-                }
+            if taken == 0 {
+                buf.clear();
+                let Some(rec) = self.next_record(&mut buf)? else {
+                    return Ok(());
+                };
+                f(&buf, rec)?;
             }
         }
     }
