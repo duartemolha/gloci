@@ -2,6 +2,7 @@
 //! FASTA, as `bcftools norm -f` does.
 
 use crate::vcf_select::vcf_header;
+use crate::vcf_split::SkipLog;
 use gloci_core::{ChromTable, Interval};
 use gloci_io::{
     BcfText, Format, IndexedFasta, IoError, Loc, RecordBatch, RecordReader, RecordWriter,
@@ -200,6 +201,7 @@ pub fn vcf_norm(
         sum: NormSummary::default(),
     };
     let mut buf: VecDeque<Pending> = VecDeque::new();
+    let mut skips = SkipLog::default();
     let (mut sout, mut ends, mut nout) = (Vec::new(), Vec::new(), Vec::new());
     let mut batch = RecordBatch::default();
     let mut max = 1;
@@ -234,7 +236,7 @@ pub fn vcf_norm(
                     Err(msg) => {
                         if o.skip_invalid {
                             sink.sum.records_skipped += 1;
-                            log::warn!("{COMMAND}: {name}: record {loc} skipped: {msg}");
+                            skips.note(from_bcf, loc, &msg);
                             continue;
                         }
                         return Err(parse_err(&msg));
@@ -263,7 +265,7 @@ pub fn vcf_norm(
                         }
                         if o.skip_invalid {
                             sink.sum.records_skipped += 1;
-                            log::warn!("{COMMAND}: {name}: record {loc} skipped: {msg}");
+                            skips.note(from_bcf, loc, &msg);
                             continue;
                         }
                         return Err(parse_err(&msg));
@@ -314,6 +316,7 @@ pub fn vcf_norm(
     while let Some(head) = buf.pop_front() {
         sink.emit(&head)?;
     }
+    skips.report(COMMAND, &name);
     if let Some(s) = input.diagnostics().summary(&name) {
         log::warn!("{s}");
     }

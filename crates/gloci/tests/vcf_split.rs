@@ -131,3 +131,30 @@ fn split_round_trip_with_subtract() {
     let o = out(&["subtract", "-a", &s(&a), "-b", &s(&b), "--match", "alleles"]);
     assert!(records(&o).is_empty());
 }
+
+/// `bad-count.vcf` with a second bad record, so two records are skipped.
+fn two_bad() -> (tempfile::TempDir, String) {
+    let dir = tempdir();
+    let mut t = std::fs::read_to_string(fixture("bad-count.vcf")).unwrap();
+    t.push_str("chr1\t20\t.\tA\tC,G\t.\t.\tRC=1,2\tGT\t0/1\t1/2\n");
+    let p = plain_file(dir.path(), "m.vcf", &t);
+    (dir, s(&p))
+}
+
+fn stderr_of(args: &[&str]) -> String {
+    let o = gloci().args(args).assert().success();
+    String::from_utf8(o.get_output().stderr.clone()).unwrap()
+}
+
+#[test]
+fn skip_invalid_warns_once_with_a_count_and_the_first_line() {
+    let (_d, m) = two_bad();
+    let e1 = stderr_of(&["vcf", "split", &m, "--skip-invalid", "-t", "1"]);
+    let e4 = stderr_of(&["vcf", "split", &m, "--skip-invalid", "-t", "4"]);
+    assert_eq!(e1, e4);
+    assert_eq!(e1.matches("skipped").count(), 1, "{e1}");
+    assert!(
+        e1.contains("m.vcf: 2 records skipped (first: line 19:"),
+        "{e1}"
+    );
+}

@@ -18,6 +18,38 @@ pub struct SplitOptions {
     pub skip_invalid: bool,
 }
 
+/// `--skip-invalid` bookkeeping: count the skipped records and keep the
+/// first one's location and message, for one summary warning at the end.
+#[derive(Default)]
+pub(crate) struct SkipLog {
+    count: u64,
+    first: Option<String>,
+}
+
+impl SkipLog {
+    pub(crate) fn note(&mut self, from_bcf: bool, loc: u64, msg: &str) {
+        self.count += 1;
+        if self.first.is_none() {
+            let l = if from_bcf {
+                Loc::Record(loc)
+            } else {
+                Loc::Line(loc)
+            };
+            self.first = Some(format!("{l}: {msg}"));
+        }
+    }
+
+    pub(crate) fn report(&self, command: &str, name: &str) {
+        if let Some(first) = &self.first {
+            let s = if self.count == 1 { "" } else { "s" };
+            log::warn!(
+                "{command}: {name}: {} record{s} skipped (first: {first})",
+                self.count
+            );
+        }
+    }
+}
+
 /// Records read, split and written.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SplitSummary {
@@ -87,6 +119,7 @@ pub fn vcf_split(
         source,
     };
     let mut sum = SplitSummary::default();
+    let mut skips = SkipLog::default();
     let (mut out, mut ends, mut enc) = (Vec::new(), Vec::new(), Vec::new());
     let mut batch = RecordBatch::default();
     let mut max = 1;
@@ -107,7 +140,7 @@ pub fn vcf_split(
                 Err(msg) => {
                     if o.skip_invalid {
                         sum.records_skipped += 1;
-                        log::warn!("{COMMAND}: {name}: record {loc} skipped: {msg}");
+                        skips.note(from_bcf, loc, &msg);
                         continue;
                     }
                     let l = if from_bcf {
@@ -152,6 +185,7 @@ pub fn vcf_split(
             break;
         }
     }
+    skips.report(COMMAND, &name);
     if let Some(s) = input.diagnostics().summary(&name) {
         log::warn!("{s}");
     }

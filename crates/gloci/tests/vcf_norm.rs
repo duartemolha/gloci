@@ -301,3 +301,35 @@ fn the_largest_window_does_not_overflow() {
     ]);
     assert_eq!(records(&big).len(), 33);
 }
+
+#[test]
+fn skip_invalid_warns_once_with_a_count_and_the_first_line() {
+    let (d, r, _v) = work();
+    let mut t = std::fs::read_to_string(fixture("../split/bad-count.vcf")).unwrap();
+    t.push_str("chr1\t20\t.\tA\tC,G\t.\t.\tRC=1,2\tGT\t0/1\t1/2\n");
+    let m = s(&plain_file(d.path(), "m.vcf", &t));
+    let run = |threads: &str| {
+        let o = gloci()
+            .args([
+                "vcf",
+                "norm",
+                &m,
+                "-f",
+                &r,
+                "--split",
+                "--skip-invalid",
+                "-t",
+                threads,
+            ])
+            .assert()
+            .success();
+        String::from_utf8(o.get_output().stderr.clone()).unwrap()
+    };
+    let (e1, e4) = (run("1"), run("4"));
+    assert_eq!(e1, e4);
+    assert_eq!(e1.matches("skipped").count(), 1, "{e1}");
+    assert!(
+        e1.contains("m.vcf: 2 records skipped (first: line 19:"),
+        "{e1}"
+    );
+}
