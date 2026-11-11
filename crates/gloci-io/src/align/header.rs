@@ -145,6 +145,21 @@ impl AlnHeader {
             AlnSortOrder::Name => (b"queryname", Some(b"queryname:natural")),
             AlnSortOrder::NameBytes => (b"queryname", Some(b"queryname:lexicographical")),
         };
+        let order = if o == AlnSortOrder::Coordinate {
+            SortOrder::Coordinate
+        } else {
+            SortOrder::Queryname
+        };
+        self.with_hd_order(so, ss, order)
+    }
+
+    /// The header with `@HD SO:unsorted`, set as [`AlnHeader::with_sort_order`] sets `SO`
+    /// (`SS` and `GO` removed): for records in an order no `SO` value describes.
+    pub fn with_unsorted_order(&self) -> AlnHeader {
+        self.with_hd_order(b"unsorted", None, SortOrder::Unsorted)
+    }
+
+    fn with_hd_order(&self, so: &[u8], ss: Option<&[u8]>, order: SortOrder) -> AlnHeader {
         let mut text = Vec::with_capacity(self.text.len() + 40);
         let mut done = false;
         for line in self.text.split_inclusive(|&b| b == b'\n') {
@@ -197,11 +212,7 @@ impl AlnHeader {
             text.splice(0..0, hd);
         }
         AlnHeader {
-            sort_order: if o == AlnSortOrder::Coordinate {
-                SortOrder::Coordinate
-            } else {
-                SortOrder::Queryname
-            },
+            sort_order: order,
             sub_sort: ss.map(<[u8]>::to_vec),
             refs: self.refs.clone(),
             names: self.names.clone(),

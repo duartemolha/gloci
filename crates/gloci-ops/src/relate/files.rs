@@ -102,9 +102,9 @@ impl RelationFiles {
 
     /// Under `--sort`, an alignment A comes back from the sorter in `gloci sort`'s coordinate
     /// order (D121), so the header its records are written with says `SO:coordinate`, as the
-    /// header of `gloci sort` would. Call it before the output is opened; it changes nothing
-    /// without `--sort`, for an A that is not alignments, or when the relation's table (from
-    /// `-g`, say) orders the references unlike A's header.
+    /// header of `gloci sort` would; when the relation's table (from `-g`, say) orders the
+    /// references unlike A's header, it says `SO:unsorted`. Call it before the output is opened;
+    /// it changes nothing without `--sort` or for an A that is not alignments.
     pub fn with_sorted_a_header(self, relate: &RelateOptions) -> Result<Self, IoError> {
         if relate.sort.is_none() {
             return Ok(self);
@@ -113,9 +113,7 @@ impl RelationFiles {
             return Ok(self);
         };
         let chroms = relation_chroms(&self.inputs, relate)?;
-        let Some(sorted) = coordinate_header(h, &chroms) else {
-            return Ok(self);
-        };
+        let sorted = coordinate_header(h, &chroms);
         let RelationFiles {
             inputs: RelateInputs { a, b },
             paths,
