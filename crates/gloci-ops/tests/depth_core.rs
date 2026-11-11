@@ -374,6 +374,54 @@ fn depth_memory_bounded() {
     assert!(s.max_ring >= 500_000, "{}", s.max_ring);
 }
 
+/// `reads` (a long read first, then 20,000 short ones) in `inputs` files: no ring is larger
+/// than `next_pow2(longest span + 1)` counters (at least 64), whatever reaches it.
+fn assert_ring_bound(cigar: &str, span: u64, inputs: usize, deletions: bool) {
+    let dir = tempfile::tempdir().unwrap();
+    let l = query_len(cigar);
+    let mut text = String::from("@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:c\tLN:100000000\n");
+    text.push_str(&format!(
+        "big\t0\tc\t1\t60\t{cigar}\t*\t0\t0\t{}\t{}\n",
+        bases(l),
+        "I".repeat(l)
+    ));
+    for i in 0..20_000u64 {
+        text.push_str(&format!(
+            "r{i}\t0\tc\t{}\t60\t50M\t*\t0\t0\t{}\t{}\n",
+            2 + i * 7,
+            bases(50),
+            "I".repeat(50)
+        ));
+    }
+    let paths: Vec<String> = (0..inputs)
+        .map(|k| write(&dir, &format!("b{k}.sam"), &text))
+        .collect();
+    let mut o = opts();
+    o.rules.deletions = deletions;
+    let mut sink = std::io::sink();
+    let s = depth(&paths, &o, &ro(DEFAULT_EXCLUDE), threads(1), &mut sink).unwrap();
+    let bound = usize::try_from(span + 1)
+        .unwrap()
+        .next_power_of_two()
+        .max(64);
+    assert!(
+        s.max_ring <= bound,
+        "{cigar} x{inputs}: {} > {bound}",
+        s.max_ring
+    );
+    // And it really holds the span (the bound is not met by dropping counts).
+    assert!(s.max_ring >= span as usize, "{cigar}: {}", s.max_ring);
+}
+
+#[test]
+fn depth_ring_bound_holds_for_long_m_d_and_two_inputs() {
+    // A long M read, a long D read (counted with -J), and the same with two inputs.
+    assert_ring_bound("400000M", 400_000, 1, false);
+    assert_ring_bound("5M300000D5M", 300_010, 1, true);
+    assert_ring_bound("400000M", 400_000, 2, false);
+    assert_ring_bound("5M300000D5M", 300_010, 2, true);
+}
+
 fn plans() -> Vec<DepthOptions> {
     let mut all = Vec::new();
     for mode in [
