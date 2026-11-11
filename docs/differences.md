@@ -2293,3 +2293,40 @@ even an A sitting on the only one. bedtools does the same and gloci ports it on 
   `prechecks_refuse_counts_the_slice_cannot_hold`, `tokeniser_header_is_checked`,
   `block_sizes_are_checked`, `crafted_cram_panic_points_to_the_limits` and
   `cram_corrupt_bytes_are_errors_not_panics`.
+
+## `vcf compare` pairs sites by shared allele, vcftools by position {#compare-allele-matching}
+
+- **gloci:** `--match alleles`, the default, pairs a record of A with a record of B at the
+  same CHROM and POS that shares an ALT allele once both are trimmed of their common REF/ALT
+  prefix and suffix (`AT>A` and `ATG>AG` at one POS are the same deletion). Each record of A
+  takes the first unmatched such record of B; the leftovers at the position pair as
+  overlapping and are not compared, and the rest are in one file only. A REF of `N` is not
+  replaced by the other file's REF. Genotypes are compared by what the alleles are, so a
+  pair that differs only in how the ALT list is ordered still agrees. `--match position`
+  pairs as vcftools does (the same POS and REF, an `N` or `.` REF taking the other's).
+- **Old behaviour:** `--diff-site-discordance` pairs the next record of each file by
+  position: the same POS and REF is one site whatever the ALT (so `A>C` against `A>G` is
+  compared, as `AC` against `AG`), a different REF at one POS pairs and is dropped, and the
+  earlier POS is a site of one file only. `AT>A` against `ATG>AG` is dropped there.
+- **Reason:** two records that call different changes at one position are not the same
+  site, and the same change written two ways is; position pairing counts the first as
+  discordant and drops the second.
+- **Pinned by:** `vcf-compare-allele-matching-vs-vcftools` (must differ) and
+  `compare_allele_matching_differs_from_vcftools` in `crates/gloci/tests/vcf_compare.rs`
+  (gloci's rows, and the vcftools rows that are absent). `--match position` matches
+  vcftools in `vcf-compare-site-vs-vcftools` and its siblings, and in
+  `compare_matches_vcftools_by_position`.
+
+## `vcf compare` reads a genotype with a missing allele as missing {#compare-half-missing}
+
+- **gloci:** a genotype with any `.` allele (`./1`, `0/.`, `./.`) is not called: it is left
+  out of `N_COMMON_CALLED`, of `N_DISCORD` and of the matrix's called cells, and counts under
+  `./.` in the matrix.
+- **Old behaviour:** vcftools counts `./1` as called: it compares it as an allele string, so
+  `./1` against `./1` is concordant and against `0/1` discordant. In
+  `--diff-discordance-matrix` it stops with `Error: Unhandled case` and writes no file.
+- **Reason:** a genotype with an unknown allele is not evidence for or against the other
+  file's call, and a matrix that cannot be written is worse than a count that says so.
+- **Pinned by:** `vcf-compare-half-missing-vs-vcftools` (must differ) and
+  `compare_half_missing_genotypes_are_missing` in `crates/gloci/tests/vcf_compare.rs` (gloci's
+  three files, and vcftools' counts from the committed `half.diff.*`, which has no matrix).

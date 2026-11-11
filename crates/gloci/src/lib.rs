@@ -241,6 +241,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
             cli::VcfCommand::Norm(c) => (c.threads.threads, None),
             cli::VcfCommand::Annotate(c) => (c.threads.threads, None),
             cli::VcfCommand::Merge(c) => (c.threads.threads, None),
+            cli::VcfCommand::Compare(c) => (c.threads.threads, None),
         },
     };
     let threads = requested
@@ -341,6 +342,7 @@ fn dispatch(cli: &Cli, ctx: &Ctx) -> (anyhow::Result<()>, bool) {
             cli::VcfCommand::Norm(c) => commands::vcf_norm::run(ctx, c),
             cli::VcfCommand::Annotate(c) => commands::vcf_annotate::run(ctx, c),
             cli::VcfCommand::Merge(c) => commands::vcf_merge::run(ctx, c),
+            cli::VcfCommand::Compare(c) => commands::vcf::run_compare(ctx, c),
         },
     };
     (result, all_ok)

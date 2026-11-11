@@ -3,6 +3,7 @@
 
 pub mod annotate;
 mod bcf_fmt;
+pub mod compare;
 pub mod concat;
 mod expr;
 mod extract;

@@ -2,8 +2,8 @@
 
 use crate::Ctx;
 use crate::cli::{
-    ChromMapArg, ExtractLayout, InvalidArg, VcfConcatArgs, VcfExtractArgs, VcfFilterArgs,
-    VcfSelectArgs, VcfSpan, VcfSpanArg, VcfStatsArgs,
+    ChromMapArg, CompareMatchArg, ExtractLayout, InvalidArg, VcfCompareArgs, VcfConcatArgs,
+    VcfExtractArgs, VcfFilterArgs, VcfSelectArgs, VcfSpan, VcfSpanArg, VcfStatsArgs,
 };
 use gloci_core::{Interval, RegionSet};
 use gloci_io::{
@@ -480,5 +480,59 @@ pub fn run_concat(ctx: &Ctx, a: &VcfConcatArgs) -> anyhow::Result<()> {
         naive: a.naive,
     };
     gloci_ops::vcf_concat(&a.files, &opts, &ro, &spec, &oo, &wo)?;
+    Ok(())
+}
+
+pub fn run_compare(ctx: &Ctx, a: &VcfCompareArgs) -> anyhow::Result<()> {
+    let (select, ro) = select_from_args(&a.select, || {
+        reader_options(
+            ctx,
+            &a.chrom_map,
+            None,
+            &VcfSpanArg {
+                vcf_span: a.vcf_span,
+            },
+            &a.invalid,
+        )
+    })?;
+    if a.a == "-" && a.b == "-" {
+        return Err(UsageError(
+            "vcf compare reads standard input for at most one of its two files; give the other a path"
+                .to_string(),
+        )
+        .into());
+    }
+    let options = gloci_ops::CompareOptions {
+        select,
+        matching: match a.match_rule {
+            CompareMatchArg::Alleles => gloci_vcf::compare::MatchRule::Alleles,
+            CompareMatchArg::Position => gloci_vcf::compare::MatchRule::Position,
+        },
+        sample_map: a.sample_map.clone(),
+        request: gloci_ops::CompareRequest {
+            site_discordance: a.site_discordance,
+            sample_discordance: a.sample_discordance,
+            discordance_matrix: a.discordance_matrix,
+        },
+        out_prefix: a.out_prefix.clone(),
+        genome: a.genome.genome.clone(),
+        chrom_order: a.chrom_order.chrom_order,
+    };
+    gloci_ops::check_compare_options(&options)?;
+    let first = open_selected(&a.a, &ro, &options.select)?;
+    vcf_header("vcf compare", first.reader())?;
+    let second = open_selected(&a.b, &ro, &options.select)?;
+    vcf_header("vcf compare", second.reader())?;
+    let done = gloci_ops::vcf_compare(first, second, &options, ctx.threads)?;
+    log::info!(
+        "vcf compare: {} sites in both files, {} only in {}, {} only in {}, {} overlapping; wrote {} file(s)",
+        done.both,
+        done.first,
+        a.a,
+        done.second,
+        a.b,
+        done.overlap,
+        done.files.len()
+    );
     Ok(())
 }

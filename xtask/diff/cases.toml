@@ -3320,6 +3320,90 @@ reference = "vcftools --vcf input.vcf --missing-indv --minGQ 10 --out o >/dev/nu
 compare = "exact"
 expected_difference = "#vcf-stats-mask-missing"
 
+# vcf compare (Task 15/16, D163) vs vcftools 0.1.16 --diff-site-discordance,
+# --diff-indv-discordance and --diff-discordance-matrix. vcftools pairs sites
+# by position, so gloci runs --match position. Each statistic is compared
+# through its output file (`&& cat`), so these run live only; plain `cargo test`
+# pins the same files through crates/gloci/tests/vcf_compare.rs against the
+# committed vcftools outputs in crates/gloci-vcf/tests/golden/compare. vcftools
+# prints a 0/0 ratio as nan or -nan by CPU: the reference side maps -nan to nan.
+
+[[case]]
+name = "vcf-compare-site-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/compare/a.vcf" }
+aux = ["crates/gloci-vcf/tests/golden/compare/b.vcf"]
+gloci = "gloci vcf compare input.vcf b.vcf --match position --out-prefix o && cat o.diff.sites"
+reference = "vcftools --vcf input.vcf --diff b.vcf --diff-site-discordance --out o >/dev/null 2>&1 && cat o.diff.sites | sed 's/-nan/nan/'"
+compare = "exact"
+
+[[case]]
+name = "vcf-compare-indv-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/compare/a.vcf" }
+aux = ["crates/gloci-vcf/tests/golden/compare/b.vcf"]
+gloci = "gloci vcf compare input.vcf b.vcf --match position --out-prefix o && cat o.diff.indv"
+reference = "vcftools --vcf input.vcf --diff b.vcf --diff-indv-discordance --out o >/dev/null 2>&1 && cat o.diff.indv | sed 's/-nan/nan/'"
+compare = "exact"
+
+[[case]]
+name = "vcf-compare-matrix-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/compare/a.vcf" }
+aux = ["crates/gloci-vcf/tests/golden/compare/b.vcf"]
+gloci = "gloci vcf compare input.vcf b.vcf --match position --out-prefix o && cat o.diff.discordance_matrix"
+reference = "vcftools --vcf input.vcf --diff b.vcf --diff-discordance-matrix --out o >/dev/null 2>&1 && cat o.diff.discordance_matrix | sed 's/-nan/nan/'"
+compare = "exact"
+
+[[case]]
+name = "vcf-compare-site-sample-map-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/compare/diffsamples-a.vcf" }
+aux = ["crates/gloci-vcf/tests/golden/compare/diffsamples-b.vcf", "crates/gloci-vcf/tests/golden/compare/map.txt"]
+gloci = "gloci vcf compare input.vcf diffsamples-b.vcf --match position --sample-map map.txt --out-prefix o && cat o.diff.sites"
+reference = "vcftools --vcf input.vcf --diff diffsamples-b.vcf --diff-site-discordance --diff-indv-map map.txt --out o >/dev/null 2>&1 && cat o.diff.sites | sed 's/-nan/nan/'"
+compare = "exact"
+
+[[case]]
+name = "vcf-compare-indv-sample-map-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/compare/diffsamples-a.vcf" }
+aux = ["crates/gloci-vcf/tests/golden/compare/diffsamples-b.vcf", "crates/gloci-vcf/tests/golden/compare/map.txt"]
+gloci = "gloci vcf compare input.vcf diffsamples-b.vcf --match position --sample-map map.txt --out-prefix o && cat o.diff.indv"
+reference = "vcftools --vcf input.vcf --diff diffsamples-b.vcf --diff-indv-discordance --diff-indv-map map.txt --out o >/dev/null 2>&1 && cat o.diff.indv | sed 's/-nan/nan/'"
+compare = "exact"
+
+[[case]]
+name = "vcf-compare-matrix-sample-map-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/compare/diffsamples-a.vcf" }
+aux = ["crates/gloci-vcf/tests/golden/compare/diffsamples-b.vcf", "crates/gloci-vcf/tests/golden/compare/map.txt"]
+gloci = "gloci vcf compare input.vcf diffsamples-b.vcf --match position --sample-map map.txt --out-prefix o && cat o.diff.discordance_matrix"
+reference = "vcftools --vcf input.vcf --diff diffsamples-b.vcf --diff-discordance-matrix --diff-indv-map map.txt --out o >/dev/null 2>&1 && cat o.diff.discordance_matrix | sed 's/-nan/nan/'"
+compare = "exact"
+
+[[case]]
+name = "vcf-compare-different-samples-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/compare/diffsamples-a.vcf" }
+aux = ["crates/gloci-vcf/tests/golden/compare/diffsamples-b.vcf"]
+gloci = "gloci vcf compare input.vcf diffsamples-b.vcf --match position --out-prefix o && cat o.diff.indv"
+reference = "vcftools --vcf input.vcf --diff diffsamples-b.vcf --diff-indv-discordance --out o >/dev/null 2>&1 && cat o.diff.indv | sed 's/-nan/nan/'"
+compare = "exact"
+
+# --match alleles (gloci's default) pairs by shared allele, vcftools by position.
+[[case]]
+name = "vcf-compare-allele-matching-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/compare/a.vcf" }
+aux = ["crates/gloci-vcf/tests/golden/compare/b.vcf"]
+gloci = "gloci vcf compare input.vcf b.vcf --out-prefix o && cat o.diff.sites"
+reference = "vcftools --vcf input.vcf --diff b.vcf --diff-site-discordance --out o >/dev/null 2>&1 && cat o.diff.sites | sed 's/-nan/nan/'"
+compare = "exact"
+expected_difference = "#compare-allele-matching"
+
+# ./1 is missing in gloci, called in vcftools.
+[[case]]
+name = "vcf-compare-half-missing-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/compare/half-a.vcf" }
+aux = ["crates/gloci-vcf/tests/golden/compare/half-b.vcf"]
+gloci = "gloci vcf compare input.vcf half-b.vcf --match position --out-prefix o && cat o.diff.indv"
+reference = "vcftools --vcf input.vcf --diff half-b.vcf --diff-indv-discordance --out o >/dev/null 2>&1 && cat o.diff.indv | sed 's/-nan/nan/'"
+compare = "exact"
+expected_difference = "#compare-half-missing"
+
 # vcf concat (D74): bcftools concat writes the files in the order given.
 # The headers are identical, so the header lines match too; records are
 # compared.

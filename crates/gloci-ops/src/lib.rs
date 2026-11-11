@@ -32,6 +32,7 @@ pub mod stats;
 pub mod subtract;
 pub mod transform;
 pub mod vcf_annotate;
+pub mod vcf_compare;
 pub mod vcf_concat;
 pub mod vcf_extract;
 pub mod vcf_filter;
@@ -64,6 +65,10 @@ pub use sort::{
 };
 pub use vcf_annotate::{
     AnnotateSummary, AnnotationSource, is_bed_name, vcf_annotate, vcf_annotate_output,
+};
+pub use vcf_compare::{
+    CompareOptions, CompareRequest, CompareSummary, check_options as check_compare_options,
+    vcf_compare,
 };
 pub use vcf_concat::{ConcatOptions, vcf_concat};
 pub use vcf_extract::{
