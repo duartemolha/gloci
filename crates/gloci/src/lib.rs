@@ -135,8 +135,9 @@ fn strip_thread_options(args: &[OsString]) -> Vec<OsString> {
     out
 }
 
-/// What an error means for the exit status.
-/// A failure whose message was already printed (exit 1, nothing more to say).
+/// An error whose message was already printed: the exit status is 1 and nothing more is said.
+/// `run` maps the other errors to an exit status by what they are ([`classify`]): usage
+/// errors exit 2, a broken pipe exits 0, and the rest print their message and exit 1.
 #[derive(Debug)]
 pub struct Reported;
 
@@ -290,36 +291,36 @@ fn dispatch(cli: &Cli, ctx: &Ctx) -> (anyhow::Result<()>, bool) {
     let mut all_ok = true;
     let result = match &cli.command {
         Commands::Genomes(a) => commands::genomes::run(a),
-        Commands::Index(a) => commands::index::run(&ctx, a),
-        Commands::Sort(a) => commands::sort::run(&ctx, a),
-        Commands::View(a) => commands::view::run(&ctx, a),
-        Commands::Cat(a) => commands::cat::run(&ctx, a),
-        Commands::Check(a) => commands::check::run(&ctx, a).map(|ok| all_ok = ok),
-        Commands::Intersect(a) => commands::intersect::run(&ctx, a),
-        Commands::Merge(a) => commands::merge::run(&ctx, a),
-        Commands::Cluster(a) => commands::cluster::run(&ctx, a),
-        Commands::Spacing(a) => commands::spacing::run(&ctx, a),
-        Commands::Complement(a) => commands::complement::run(&ctx, a),
-        Commands::Partition(a) => commands::partition::run(&ctx, a),
-        Commands::Genomecov(a) => commands::genomecov::run(&ctx, a),
-        Commands::Slop(a) => commands::slop::run(&ctx, a),
-        Commands::Flank(a) => commands::flank::run(&ctx, a),
-        Commands::Shift(a) => commands::shift::run(&ctx, a),
-        Commands::Windows(a) => commands::windows::run(&ctx, a),
-        Commands::Convert(a) => commands::convert::run(&ctx, a),
-        Commands::Getfasta(a) => commands::getfasta::run(&ctx, a),
-        Commands::Nuc(a) => commands::nuc::run(&ctx, a),
-        Commands::Subtract(a) => commands::subtract::run(&ctx, a),
-        Commands::Closest(a) => commands::closest::run(&ctx, a),
-        Commands::Map(a) => commands::map::run(&ctx, a),
-        Commands::Coverage(a) => commands::coverage::run(&ctx, a),
-        Commands::Groupby(a) => commands::groupby::run(&ctx, a),
-        Commands::Maskfasta(a) => commands::maskfasta::run(&ctx, a),
+        Commands::Index(a) => commands::index::run(ctx, a),
+        Commands::Sort(a) => commands::sort::run(ctx, a),
+        Commands::View(a) => commands::view::run(ctx, a),
+        Commands::Cat(a) => commands::cat::run(ctx, a),
+        Commands::Check(a) => commands::check::run(ctx, a).map(|ok| all_ok = ok),
+        Commands::Intersect(a) => commands::intersect::run(ctx, a),
+        Commands::Merge(a) => commands::merge::run(ctx, a),
+        Commands::Cluster(a) => commands::cluster::run(ctx, a),
+        Commands::Spacing(a) => commands::spacing::run(ctx, a),
+        Commands::Complement(a) => commands::complement::run(ctx, a),
+        Commands::Partition(a) => commands::partition::run(ctx, a),
+        Commands::Genomecov(a) => commands::genomecov::run(ctx, a),
+        Commands::Slop(a) => commands::slop::run(ctx, a),
+        Commands::Flank(a) => commands::flank::run(ctx, a),
+        Commands::Shift(a) => commands::shift::run(ctx, a),
+        Commands::Windows(a) => commands::windows::run(ctx, a),
+        Commands::Convert(a) => commands::convert::run(ctx, a),
+        Commands::Getfasta(a) => commands::getfasta::run(ctx, a),
+        Commands::Nuc(a) => commands::nuc::run(ctx, a),
+        Commands::Subtract(a) => commands::subtract::run(ctx, a),
+        Commands::Closest(a) => commands::closest::run(ctx, a),
+        Commands::Map(a) => commands::map::run(ctx, a),
+        Commands::Coverage(a) => commands::coverage::run(ctx, a),
+        Commands::Groupby(a) => commands::groupby::run(ctx, a),
+        Commands::Maskfasta(a) => commands::maskfasta::run(ctx, a),
         Commands::Vcf(a) => match &a.command {
-            cli::VcfCommand::Filter(f) => commands::vcf::run_filter(&ctx, f),
-            cli::VcfCommand::Extract(e) => commands::vcf::run_extract(&ctx, e),
-            cli::VcfCommand::Stats(e) => commands::vcf::run_stats(&ctx, e),
-            cli::VcfCommand::Concat(c) => commands::vcf::run_concat(&ctx, c),
+            cli::VcfCommand::Filter(f) => commands::vcf::run_filter(ctx, f),
+            cli::VcfCommand::Extract(e) => commands::vcf::run_extract(ctx, e),
+            cli::VcfCommand::Stats(e) => commands::vcf::run_stats(ctx, e),
+            cli::VcfCommand::Concat(c) => commands::vcf::run_concat(ctx, c),
         },
     };
     (result, all_ok)
