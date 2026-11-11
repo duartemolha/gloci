@@ -119,6 +119,38 @@ enum Gen {
         seed: u64,
         #[arg(long, default_value_t = 5)]
         chroms: u32,
+        /// With --out-b: B's called genotypes are redrawn with this probability
+        #[arg(long, default_value_t = 0.02)]
+        discord: f64,
+        /// Also write a second VCF of the same sites whose genotypes differ (vcf compare)
+        #[arg(long)]
+        out_b: Option<PathBuf>,
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    /// BEDPE pairs, and optionally a second file to test them against
+    Bedpe {
+        #[arg(long)]
+        pairs: u64,
+        #[arg(long, default_value_t = 24)]
+        chroms: u32,
+        /// Fraction of the pairs with the ends on two chromosomes
+        #[arg(long, default_value_t = 0.1)]
+        inter_frac: f64,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        #[arg(long, default_value_t = 50)]
+        len_min: u64,
+        #[arg(long, default_value_t = 1000)]
+        len_max: u64,
+        /// Write to --out-b the first N pairs of A's stream, each end moved by up to 40 bases
+        #[arg(long, conflicts_with = "b_bed")]
+        b_pairs: Option<u64>,
+        /// Write this many random BED intervals to --out-b
+        #[arg(long)]
+        b_bed: Option<u64>,
+        #[arg(long)]
+        out_b: Option<PathBuf>,
         #[arg(short, long)]
         output: PathBuf,
     },
@@ -139,6 +171,12 @@ enum Gen {
         /// Records in random order instead of coordinate order
         #[arg(long)]
         shuffled: bool,
+        /// Records are read pairs (--records counts both reads); needs --by-name
+        #[arg(long)]
+        paired: bool,
+        /// Name-grouped order, the mates of a pair next to each other (SO:queryname)
+        #[arg(long)]
+        by_name: bool,
         #[arg(long, default_value_t = 1)]
         seed: u64,
         /// Salt of the reads' randomness: parts of one reference differ
@@ -242,6 +280,8 @@ fn run(cli: Cli) -> Result<bool> {
                 samples,
                 seed,
                 chroms,
+                discord,
+                out_b,
                 output,
             } => {
                 let o = xtask::synth::VcfOpts {
@@ -250,7 +290,50 @@ fn run(cli: Cli) -> Result<bool> {
                     seed,
                     chroms,
                 };
-                xtask::synth::vcf(&o, &mut std::fs::File::create(output)?)?
+                let mut a = std::fs::File::create(output)?;
+                match out_b {
+                    Some(b) => {
+                        xtask::synth::vcf_pair(&o, discord, &mut a, &mut std::fs::File::create(b)?)?
+                    }
+                    None => xtask::synth::vcf(&o, &mut a)?,
+                }
+            }
+            Gen::Bedpe {
+                pairs,
+                chroms,
+                inter_frac,
+                seed,
+                len_min,
+                len_max,
+                b_pairs,
+                b_bed,
+                out_b,
+                output,
+            } => {
+                let o = xtask::synth::BedpeOpts {
+                    pairs,
+                    chroms,
+                    inter_frac,
+                    seed,
+                    len_min,
+                    len_max,
+                };
+                xtask::synth::bedpe(&o, &mut std::fs::File::create(output)?)?;
+                match (out_b, b_pairs, b_bed) {
+                    (Some(p), Some(n), _) => {
+                        let ob = xtask::synth::BedpeOpts { pairs: n, ..o };
+                        xtask::synth::bedpe_jittered(
+                            &ob,
+                            xtask::synth::B_JITTER,
+                            &mut std::fs::File::create(p)?,
+                        )?
+                    }
+                    (Some(p), None, Some(n)) => {
+                        xtask::synth::bedpe_bed(&o, n, &mut std::fs::File::create(p)?)?
+                    }
+                    (None, None, None) => {}
+                    _ => anyhow::bail!("--out-b goes with exactly one of --b-pairs and --b-bed"),
+                }
             }
             Gen::Sam {
                 records,
@@ -259,6 +342,8 @@ fn run(cli: Cli) -> Result<bool> {
                 chroms,
                 spliced_frac,
                 shuffled,
+                paired,
+                by_name,
                 seed,
                 part,
                 ref_out,
@@ -273,6 +358,8 @@ fn run(cli: Cli) -> Result<bool> {
                     chroms,
                     spliced_frac,
                     shuffled,
+                    paired,
+                    by_name,
                     seed,
                     part,
                 };

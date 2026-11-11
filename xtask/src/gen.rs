@@ -323,9 +323,67 @@ fn seq(rng: &mut ChaCha8Rng, n: usize) -> String {
 /// The header says VCFv4.2, the newest version vcftools 0.1.16 reads (nothing
 /// here needs 4.3).
 pub fn vcf(o: &VcfOpts, out: &mut impl Write) -> Result<()> {
+    vcf_impl(o, out, None)
+}
+
+/// Writes every byte to `a`, and to `b` when there is one.
+struct Tee<'a, 'b> {
+    a: std::io::BufWriter<&'a mut dyn Write>,
+    b: Option<std::io::BufWriter<&'b mut dyn Write>>,
+}
+
+impl Write for Tee<'_, '_> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.write_all(buf)?;
+        Ok(buf.len())
+    }
+    fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
+        self.a.write_all(buf)?;
+        if let Some(b) = &mut self.b {
+            b.write_all(buf)?;
+        }
+        Ok(())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.a.flush()?;
+        if let Some(b) = &mut self.b {
+            b.flush()?;
+        }
+        Ok(())
+    }
+}
+
+/// Write two VCFs of the same sites and samples (for `vcf compare`): `out_a`
+/// is [`vcf`]'s output, and `out_b` has the same lines except that each called
+/// genotype is redrawn with probability `discord` (a redraw equals the
+/// original in 3/8 of the biallelic cases, so the discordance is about
+/// `5/8 * discord`). Deterministic in `o.seed`.
+pub fn vcf_pair(
+    o: &VcfOpts,
+    discord: f64,
+    out_a: &mut impl Write,
+    out_b: &mut impl Write,
+) -> Result<()> {
+    ensure!(
+        (0.0..=1.0).contains(&discord),
+        "--discord must be between 0 and 1"
+    );
+    vcf_impl(o, out_a, Some((discord, out_b)))
+}
+
+fn vcf_impl(o: &VcfOpts, out: &mut dyn Write, pair: Option<(f64, &mut dyn Write)>) -> Result<()> {
     ensure!(o.chroms >= 1, "--chroms must be at least 1");
     let mut rng = ChaCha8Rng::seed_from_u64(o.seed);
-    let mut w = std::io::BufWriter::with_capacity(1 << 20, out);
+    let (discord, out_b) = match pair {
+        Some((d, b)) => (d, Some(b)),
+        None => (0.0, None),
+    };
+    // Its own stream, so B's redraws never move A's.
+    let mut rng_b = ChaCha8Rng::seed_from_u64(o.seed ^ 0xB0B0_D15C);
+    let mut w = Tee {
+        a: std::io::BufWriter::with_capacity(1 << 20, out),
+        b: out_b.map(|b| std::io::BufWriter::with_capacity(1 << 20, b)),
+    };
     writeln!(w, "##fileformat=VCFv4.2")?;
     for c in 1..=o.chroms {
         writeln!(w, "##contig=<ID=chr{c},length={CHROM_LEN}>")?;
@@ -449,11 +507,155 @@ pub fn vcf(o: &VcfOpts, out: &mut impl Write) -> Result<()> {
                     let dp = rng.random_range(5..100);
                     let gq = rng.random_range(10..99);
                     let ft = if dp < 10 { "LowDP" } else { "PASS" };
-                    write!(w, "\t{}/{}:{dp}:{gq}:{ft}", a.min(b), a.max(b))?;
+                    write!(w.a, "\t{}/{}:{dp}:{gq}:{ft}", a.min(b), a.max(b))?;
+                    if let Some(wb) = &mut w.b {
+                        let (a, b) = if rng_b.random_bool(discord) {
+                            (
+                                rng_b.random_range(0..=max_gt),
+                                rng_b.random_range(0..=max_gt),
+                            )
+                        } else {
+                            (a, b)
+                        };
+                        write!(wb, "\t{}/{}:{dp}:{gq}:{ft}", a.min(b), a.max(b))?;
+                    }
                 }
             }
             writeln!(w)?;
         }
+    }
+    Ok(w.flush()?)
+}
+
+// ---- BEDPE ----
+
+#[derive(Clone, Debug)]
+pub struct BedpeOpts {
+    pub pairs: u64,
+    pub chroms: u32,
+    /// Fraction of the pairs whose ends are on two chromosomes.
+    pub inter_frac: f64,
+    pub seed: u64,
+    /// Length of each end (log-uniform between the two).
+    pub len_min: u64,
+    pub len_max: u64,
+}
+
+impl Default for BedpeOpts {
+    fn default() -> Self {
+        BedpeOpts {
+            pairs: 1000,
+            chroms: 24,
+            inter_frac: 0.1,
+            seed: 1,
+            len_min: 50,
+            len_max: 1000,
+        }
+    }
+}
+
+/// How far `gen bedpe --b-pairs` moves each end of a pair. Ends are at least
+/// 50 bases long, so every moved end still overlaps the original.
+pub const B_JITTER: u64 = 40;
+
+/// Longest gap between the ends of a pair on one chromosome.
+const MAX_PAIR_GAP: u64 = 1_000_000;
+
+/// Write BEDPE pairs (chrom1 start1 end1 chrom2 start2 end2 name score
+/// strand1 strand2) in random order: `inter_frac` of them with the ends on two
+/// chromosomes, the others on one, end 2 after end 1 by up to 1 Mb. Ends lie
+/// inside the synthetic chromosomes `chr1..chrN`. Names are `p0`, `p1`, ...
+pub fn bedpe(o: &BedpeOpts, out: &mut impl Write) -> Result<()> {
+    bedpe_impl(o, 0, out)
+}
+
+/// The first `o.pairs` pairs of [`bedpe`]'s stream for the same seed, each end
+/// moved by up to `jitter` bases (at most `len_min - 1`, so the moved end still
+/// overlaps the original): the B of a pair-against-pair test in which every pair
+/// of A has a partner.
+pub fn bedpe_jittered(o: &BedpeOpts, jitter: u64, out: &mut impl Write) -> Result<()> {
+    ensure!(
+        jitter < o.len_min,
+        "the jitter must be less than --len-min, or an end may stop overlapping"
+    );
+    bedpe_impl(o, jitter, out)
+}
+
+fn bedpe_impl(o: &BedpeOpts, jitter: u64, out: &mut impl Write) -> Result<()> {
+    ensure!(o.chroms >= 1, "--chroms must be at least 1");
+    ensure!(
+        (0.0..=1.0).contains(&o.inter_frac),
+        "--inter-frac must be between 0 and 1"
+    );
+    ensure!(
+        o.chroms >= 2 || o.inter_frac == 0.0,
+        "--inter-frac needs --chroms of at least 2"
+    );
+    ensure!(
+        1 <= o.len_min && o.len_min <= o.len_max && o.len_max <= 10_000_000,
+        "--len-min must be at least 1 and not exceed --len-max (at most 10 Mb)"
+    );
+    let mut rng = ChaCha8Rng::seed_from_u64(o.seed ^ 0x00BE_D9E0);
+    // Its own stream, so the jitter never moves the pairs themselves.
+    let mut rng_j = ChaCha8Rng::seed_from_u64(o.seed ^ 0x00BE_D9E2);
+    let mut w = std::io::BufWriter::with_capacity(1 << 20, out);
+    for i in 0..o.pairs {
+        let c1 = rng.random_range(1..=o.chroms);
+        let len1 = log_uniform(&mut rng, o.len_min, o.len_max);
+        let len2 = log_uniform(&mut rng, o.len_min, o.len_max);
+        let (c2, s1, s2);
+        if rng.random_bool(o.inter_frac) {
+            let mut c = rng.random_range(1..o.chroms);
+            if c >= c1 {
+                c += 1;
+            }
+            c2 = c;
+            s1 = rng.random_range(0..=CHROM_LEN - len1);
+            s2 = rng.random_range(0..=CHROM_LEN - len2);
+        } else {
+            c2 = c1;
+            let gap = log_uniform(&mut rng, 1, MAX_PAIR_GAP);
+            s1 = rng.random_range(0..=CHROM_LEN - len1 - gap - len2);
+            s2 = s1 + len1 + gap;
+        }
+        let (s1, s2) = if jitter == 0 {
+            (s1, s2)
+        } else {
+            let mv = |rng: &mut ChaCha8Rng, s: u64, len: u64| {
+                (s + rng.random_range(0..=2 * jitter))
+                    .saturating_sub(jitter)
+                    .min(CHROM_LEN - len)
+            };
+            (mv(&mut rng_j, s1, len1), mv(&mut rng_j, s2, len2))
+        };
+        let score = rng.random_range(0..=60);
+        let strand = |rng: &mut ChaCha8Rng| if rng.random_bool(0.5) { '+' } else { '-' };
+        let (st1, st2) = (strand(&mut rng), strand(&mut rng));
+        writeln!(
+            w,
+            "chr{c1}\t{s1}\t{}\tchr{c2}\t{s2}\t{}\tp{i}\t{score}\t{st1}\t{st2}",
+            s1 + len1,
+            s2 + len2
+        )?;
+    }
+    Ok(w.flush()?)
+}
+
+/// Write `count` random BED4 intervals on `chr1..chrN` (not sorted), of the
+/// lengths of [`BedpeOpts`] (`len_min`..`len_max`).
+pub fn bedpe_bed(o: &BedpeOpts, count: u64, out: &mut impl Write) -> Result<()> {
+    ensure!(o.chroms >= 1, "--chroms must be at least 1");
+    ensure!(
+        1 <= o.len_min && o.len_min <= o.len_max && o.len_max < CHROM_LEN,
+        "--len-min must be at least 1 and not exceed --len-max"
+    );
+    let mut rng = ChaCha8Rng::seed_from_u64(o.seed ^ 0x00BE_D9E1);
+    let mut w = std::io::BufWriter::with_capacity(1 << 20, out);
+    for i in 0..count {
+        let c = rng.random_range(1..=o.chroms);
+        let len = log_uniform(&mut rng, o.len_min, o.len_max);
+        let s = rng.random_range(0..=CHROM_LEN - len);
+        writeln!(w, "chr{c}\t{s}\t{}\tb{i}", s + len)?;
     }
     Ok(w.flush()?)
 }
@@ -481,6 +683,12 @@ pub struct SamOpts {
     pub spliced_frac: f64,
     /// Records in random order instead of coordinate order.
     pub shuffled: bool,
+    /// Records are read pairs (`records` counts both reads, so it is even).
+    /// Needs `by_name`.
+    pub paired: bool,
+    /// Name-grouped order (header `SO:queryname`): the mates of a pair are
+    /// next to each other, READ1 first, pairs in name order.
+    pub by_name: bool,
     pub seed: u64,
     /// Salt of the reads' random stream, so several parts of one reference
     /// hold different reads. The reference depends on `seed` alone.
@@ -496,6 +704,8 @@ impl Default for SamOpts {
             chroms: 24,
             spliced_frac: 0.1,
             shuffled: false,
+            paired: false,
+            by_name: false,
             seed: 1,
             part: 0,
         }
@@ -510,6 +720,18 @@ fn check_sam(o: &SamOpts) -> Result<()> {
     ensure!(
         (0.0..=1.0).contains(&o.spliced_frac),
         "--spliced-frac must be between 0 and 1"
+    );
+    ensure!(
+        o.paired == o.by_name,
+        "--paired and --by-name go together (pairs are written name-grouped only)"
+    );
+    ensure!(
+        !(o.paired && o.shuffled),
+        "--paired and --shuffled do not combine"
+    );
+    ensure!(
+        !o.paired || o.records.is_multiple_of(2),
+        "--paired needs an even --records"
     );
     Ok(())
 }
@@ -605,6 +827,14 @@ fn make_read(rng: &mut ChaCha8Rng, o: &SamOpts, chrom_len: u64) -> Read {
     }
 }
 
+/// What a paired record adds: flag, the mate's start (0-based) and TLEN.
+#[derive(Clone, Copy)]
+struct Mate {
+    flag: u16,
+    pos: u32,
+    tlen: i64,
+}
+
 fn write_read(
     w: &mut impl Write,
     line: &mut Vec<u8>,
@@ -613,6 +843,7 @@ fn write_read(
     r: &Read,
     idx: u64,
     seq: &[u8],
+    mate: Option<Mate>,
 ) -> Result<()> {
     line.clear();
     let s = r.start as usize;
@@ -627,13 +858,24 @@ fn write_read(
             o.read_len - r.first
         )
     };
-    write!(
-        line,
-        "r{idx}\t{}\tchr{chrom}\t{}\t{}\t{cigar}\t*\t0\t0\t",
-        if r.reverse { 16 } else { 0 },
-        s + 1,
-        r.mapq
-    )?;
+    match mate {
+        None => write!(
+            line,
+            "r{idx}\t{}\tchr{chrom}\t{}\t{}\t{cigar}\t*\t0\t0\t",
+            if r.reverse { 16 } else { 0 },
+            s + 1,
+            r.mapq
+        )?,
+        Some(m) => write!(
+            line,
+            "r{idx:010}\t{}\tchr{chrom}\t{}\t{}\t{cigar}\t=\t{}\t{}\t",
+            m.flag,
+            s + 1,
+            r.mapq,
+            m.pos + 1,
+            m.tlen
+        )?,
+    }
     line.extend_from_slice(&seq[s..s + r.first as usize]);
     if r.gap > 0 {
         let rest = s + (r.first + r.gap) as usize;
@@ -663,17 +905,62 @@ pub fn sam(o: &SamOpts, out: &mut impl Write) -> Result<()> {
     writeln!(
         w,
         "@HD\tVN:1.6\tSO:{}",
-        if o.shuffled { "unsorted" } else { "coordinate" }
+        if o.shuffled {
+            "unsorted"
+        } else if o.by_name {
+            "queryname"
+        } else {
+            "coordinate"
+        }
     )?;
     for c in 1..=o.chroms {
         writeln!(w, "@SQ\tSN:chr{c}\tLN:{len}")?;
     }
     let mut line = Vec::with_capacity(1024);
+    if o.paired {
+        for i in 0..o.records / 2 {
+            let c = rng.random_range(0..o.chroms);
+            let r1 = make_read(&mut rng, o, len);
+            // READ2 is a plain read on the other strand, 0 to 400 bases
+            // after READ1's start, inside the chromosome.
+            let max = len - u64::from(o.read_len);
+            let start2 = (u64::from(r1.start) + rng.random_range(0..=400)).min(max) as u32;
+            let r2 = Read {
+                start: start2,
+                first: o.read_len,
+                gap: 0,
+                intron: false,
+                reverse: !r1.reverse,
+                mapq: r1.mapq,
+            };
+            let end2 = u64::from(start2) + u64::from(o.read_len);
+            let tlen = (end2 - u64::from(r1.start.min(start2))) as i64;
+            let flag = |first: bool, r: &Read, other: &Read| {
+                0x1 | if first { 0x40 } else { 0x80 }
+                    | if r.reverse { 0x10 } else { 0 }
+                    | if other.reverse { 0x20 } else { 0 }
+            };
+            let seqs = &refs[c as usize];
+            let m1 = Mate {
+                flag: flag(true, &r1, &r2),
+                pos: r2.start,
+                tlen: if r1.start <= start2 { tlen } else { -tlen },
+            };
+            let m2 = Mate {
+                flag: flag(false, &r2, &r1),
+                pos: r1.start,
+                tlen: -m1.tlen,
+            };
+            write_read(&mut w, &mut line, o, c + 1, &r1, i, seqs, Some(m1))?;
+            write_read(&mut w, &mut line, o, c + 1, &r2, i, seqs, Some(m2))?;
+        }
+        return Ok(w.flush()?);
+    }
     if o.shuffled {
         for i in 0..o.records {
             let c = rng.random_range(0..o.chroms);
             let r = make_read(&mut rng, o, len);
-            write_read(&mut w, &mut line, o, c + 1, &r, i, &refs[c as usize])?;
+            write_read(&mut w, &mut line, o, c + 1, &r, i, &refs[c as usize], None)?;
         }
         return Ok(w.flush()?);
     }
@@ -685,7 +972,7 @@ pub fn sam(o: &SamOpts, out: &mut impl Write) -> Result<()> {
         // samtools order: by position, a forward read before a reverse one.
         reads.sort_by_key(|r| (r.start, r.reverse));
         for r in &reads {
-            write_read(&mut w, &mut line, o, c + 1, r, idx, &refs[c as usize])?;
+            write_read(&mut w, &mut line, o, c + 1, r, idx, &refs[c as usize], None)?;
             idx += 1;
         }
     }
@@ -839,11 +1126,13 @@ pub fn fasta_intervals(o: &FastaOpts, out: &mut impl Write) -> Result<()> {
 
 /// Parse the generator arguments of a `cases.toml` `setup` string or the
 /// command line: `bed --records N ...`, `vcf --records N ...`, `pair --records N ...`,
-/// `sam --records N ...` or `fasta --records N ...`.
+/// `sam --records N ...`, `fasta --records N ...`, `bedpe --pairs N ...` or
+/// `vcf-pair --records N ...` (the last two write two files, `--out-a` and
+/// `--out-b`; `bedpe` gives B with `--b-pairs M` or `--b-bed M`).
 pub fn run_args(args: &[String], out: &mut impl Write) -> Result<()> {
     let (kind, rest) = match args.split_first() {
         Some((k, r)) => (k.as_str(), r),
-        None => bail!("gen needs a kind: bed, vcf, pair, sam or fasta"),
+        None => bail!("gen needs a kind: bed, vcf, vcf-pair, pair, bedpe, sam or fasta"),
     };
     let mut bed_o = BedOpts::default();
     let mut vcf_o = VcfOpts {
@@ -853,6 +1142,10 @@ pub fn run_args(args: &[String], out: &mut impl Write) -> Result<()> {
         chroms: 5,
     };
     let mut pair_o = PairOpts::default();
+    let mut bedpe_o = BedpeOpts::default();
+    let mut b_pairs: Option<u64> = None;
+    let mut b_bed: Option<u64> = None;
+    let mut discord = 0.02;
     let mut sam_o = SamOpts::default();
     let mut fasta_o = FastaOpts::default();
     let mut ref_out: Option<String> = None;
@@ -879,10 +1172,19 @@ pub fn run_args(args: &[String], out: &mut impl Write) -> Result<()> {
                 let v = val()?;
                 bed_o.profile = Profile::from_str(v, true).map_err(|e| anyhow::anyhow!("{e}"))?
             }
-            ("vcf", "--records") => vcf_o.records = val()?.parse()?,
-            ("vcf", "--samples") => vcf_o.samples = val()?.parse()?,
-            ("vcf", "--seed") => vcf_o.seed = val()?.parse()?,
-            ("vcf", "--chroms") => vcf_o.chroms = val()?.parse()?,
+            ("vcf" | "vcf-pair", "--records") => vcf_o.records = val()?.parse()?,
+            ("vcf" | "vcf-pair", "--samples") => vcf_o.samples = val()?.parse()?,
+            ("vcf" | "vcf-pair", "--seed") => vcf_o.seed = val()?.parse()?,
+            ("vcf" | "vcf-pair", "--chroms") => vcf_o.chroms = val()?.parse()?,
+            ("vcf-pair", "--discord") => discord = val()?.parse()?,
+            ("bedpe", "--pairs") => bedpe_o.pairs = val()?.parse()?,
+            ("bedpe", "--chroms") => bedpe_o.chroms = val()?.parse()?,
+            ("bedpe", "--inter-frac") => bedpe_o.inter_frac = val()?.parse()?,
+            ("bedpe", "--seed") => bedpe_o.seed = val()?.parse()?,
+            ("bedpe", "--len-min") => bedpe_o.len_min = val()?.parse()?,
+            ("bedpe", "--len-max") => bedpe_o.len_max = val()?.parse()?,
+            ("bedpe", "--b-pairs") => b_pairs = Some(val()?.parse()?),
+            ("bedpe", "--b-bed") => b_bed = Some(val()?.parse()?),
             ("pair", "--records") => pair_o.records = val()?.parse()?,
             ("pair", "--depth") => pair_o.depth = val()?.parse()?,
             ("pair", "--chroms") => pair_o.chroms = val()?.parse()?,
@@ -890,8 +1192,8 @@ pub fn run_args(args: &[String], out: &mut impl Write) -> Result<()> {
             ("pair", "--len-min") => pair_o.len_min = val()?.parse()?,
             ("pair", "--len-max") => pair_o.len_max = val()?.parse()?,
             ("pair", "--sorted") => pair_o.sorted = true,
-            ("pair", "--out-a") => out_a_path = Some(val()?.clone()),
-            ("pair", "--out-b") => out_b_path = Some(val()?.clone()),
+            ("pair" | "vcf-pair" | "bedpe", "--out-a") => out_a_path = Some(val()?.clone()),
+            ("pair" | "vcf-pair" | "bedpe", "--out-b") => out_b_path = Some(val()?.clone()),
             ("pair", "--prefix") => {
                 let p = val()?;
                 out_a_path = Some(format!("{p}_a.bed"));
@@ -903,6 +1205,8 @@ pub fn run_args(args: &[String], out: &mut impl Write) -> Result<()> {
             ("sam", "--chroms") => sam_o.chroms = val()?.parse()?,
             ("sam", "--spliced-frac") => sam_o.spliced_frac = val()?.parse()?,
             ("sam", "--shuffled") => sam_o.shuffled = true,
+            ("sam", "--paired") => sam_o.paired = true,
+            ("sam", "--by-name") => sam_o.by_name = true,
             ("sam", "--seed") => sam_o.seed = val()?.parse()?,
             ("sam", "--part") => sam_o.part = val()?.parse()?,
             ("sam", "--ref-out") => ref_out = Some(val()?.clone()),
@@ -933,6 +1237,35 @@ pub fn run_args(args: &[String], out: &mut impl Write) -> Result<()> {
                 bail!("pair needs --out-a and --out-b (or --prefix)");
             }
         }
+        "vcf-pair" => match (out_a_path, out_b_path) {
+            (Some(pa), Some(pb)) => {
+                let mut fa = std::fs::File::create(pa)?;
+                let mut fb = std::fs::File::create(pb)?;
+                vcf_pair(&vcf_o, discord, &mut fa, &mut fb)
+            }
+            _ => bail!("vcf-pair needs --out-a and --out-b"),
+        },
+        "bedpe" => {
+            // A to stdout, or to --out-a; B (if asked) to --out-b.
+            match out_a_path {
+                Some(pa) => bedpe(&bedpe_o, &mut std::fs::File::create(pa)?)?,
+                None => bedpe(&bedpe_o, out)?,
+            }
+            match (out_b_path, b_pairs, b_bed) {
+                (Some(pb), Some(n), None) => {
+                    let ob = BedpeOpts {
+                        pairs: n,
+                        ..bedpe_o
+                    };
+                    bedpe_jittered(&ob, B_JITTER, &mut std::fs::File::create(pb)?)
+                }
+                (Some(pb), None, Some(n)) => {
+                    bedpe_bed(&bedpe_o, n, &mut std::fs::File::create(pb)?)
+                }
+                (None, None, None) => Ok(()),
+                _ => bail!("--out-b goes with exactly one of --b-pairs and --b-bed"),
+            }
+        }
         "sam" => {
             if let Some(p) = ref_out {
                 sam_reference(&sam_o, &mut std::fs::File::create(p)?)?;
@@ -949,6 +1282,6 @@ pub fn run_args(args: &[String], out: &mut impl Write) -> Result<()> {
             }
             fasta(&fasta_o, out)
         }
-        _ => bail!("unknown gen kind {kind} (bed, vcf, pair, sam or fasta)"),
+        _ => bail!("unknown gen kind {kind} (bed, vcf, vcf-pair, pair, bedpe, sam or fasta)"),
     }
 }

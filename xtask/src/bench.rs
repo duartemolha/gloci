@@ -129,13 +129,24 @@ pub fn parse_cases(text: &str) -> Result<Vec<Case>> {
     Ok(cases)
 }
 
-/// Replace the value after `--records` in a setup string.
+/// Replace the value after `--records` in a setup string. A `bedpe` setup has
+/// `--pairs` instead, and its B counts (`--b-pairs`, `--b-bed`) scale with it.
 pub fn override_records(setup: &str, records: u64) -> String {
     let mut t: Vec<String> = setup.split_whitespace().map(String::from).collect();
-    if let Some(i) = t.iter().position(|x| x == "--records")
-        && i + 1 < t.len()
-    {
-        t[i + 1] = records.to_string();
+    let value = |t: &[String], flag: &str| -> Option<(usize, u64)> {
+        let i = t.iter().position(|x| x == flag)?;
+        Some((i + 1, t.get(i + 1)?.parse().ok()?))
+    };
+    if let Some((i, _)) = value(&t, "--records") {
+        t[i] = records.to_string();
+    }
+    if let Some((i, was)) = value(&t, "--pairs") {
+        t[i] = records.to_string();
+        for flag in ["--b-pairs", "--b-bed"] {
+            if let Some((j, b)) = value(&t, flag) {
+                t[j] = (b as u128 * u128::from(records) / u128::from(was.max(1))).to_string();
+            }
+        }
     }
     t.join(" ")
 }
@@ -379,9 +390,10 @@ fn prepare_sam(
         words.drain(i..(i + 2).min(words.len()));
     }
     let shuffled = words.iter().any(|w| w == "--shuffled");
+    let by_name = words.iter().any(|w| w == "--by-name");
     ensure!(
-        parts == 1 || !shuffled,
-        "--parts and --shuffled do not combine"
+        parts == 1 || !(shuffled || by_name),
+        "--parts does not combine with --shuffled or --by-name"
     );
     let records: u64 = setup_value(&words, "--records").unwrap_or(1000);
     let depth: f64 = setup_value(&words, "--depth").unwrap_or(30.0);
@@ -444,7 +456,8 @@ fn prepare_sam(
                 std::fs::rename(&tmp_ref, &reference)?;
                 std::fs::rename(&tmp_targets, &targets)?;
             }
-            if !shuffled {
+            // Only coordinate-sorted BAMs have an index.
+            if !shuffled && !by_name {
                 run_ok(Command::new(gloci).arg("index").arg(bam))?;
             }
         }
@@ -608,20 +621,34 @@ fn prepare_input(
     setup_str.hash(&mut h);
     let stem = format!("{}-{:08x}", case.name, h.finish() as u32);
 
-    let is_pair = setup_str.trim_start().starts_with("pair");
-    let is_vcf = setup_str.trim_start().starts_with("vcf");
+    let kind = setup_str.split_whitespace().next().unwrap_or("");
+    // Two-file setups: `pair` (two BEDs), `vcf-pair` (two VCFs) and `bedpe`
+    // with --b-pairs (two BEDPEs) or --b-bed (a BEDPE and a BED).
+    let (ext_a, ext_b) = match kind {
+        "pair" => (Some("bed"), "bed"),
+        "vcf-pair" => (Some("vcf"), "vcf"),
+        "bedpe" if setup_str.contains("--b-pairs") => (Some("bedpe"), "bedpe"),
+        "bedpe" if setup_str.contains("--b-bed") => (Some("bedpe"), "bed"),
+        _ => (None, ""),
+    };
+    let is_vcf = kind == "vcf";
     let ext = if is_vcf { "vcf" } else { "bed" };
 
-    if is_pair {
-        let plain_a = dir.join(format!("{stem}_a.bed"));
-        let plain_b = dir.join(format!("{stem}_b.bed"));
-        let want_a = dir.join(format!("{stem}_a.{}", case.input));
-        let want_b = dir.join(format!("{stem}_b.{}", case.input));
+    if let Some(ext_a) = ext_a {
+        let gz = if case.input.ends_with(".gz") {
+            ".gz"
+        } else {
+            ""
+        };
+        let plain_a = dir.join(format!("{stem}_a.{ext_a}"));
+        let plain_b = dir.join(format!("{stem}_b.{ext_b}"));
+        let want_a = dir.join(format!("{stem}_a.{ext_a}{gz}"));
+        let want_b = dir.join(format!("{stem}_b.{ext_b}{gz}"));
         if !want_a.exists() || !want_b.exists() {
             if !plain_a.exists() || !plain_b.exists() {
                 eprintln!("generating {} and {}", plain_a.display(), plain_b.display());
-                let tmp_a = plain_a.with_extension("bed.partial");
-                let tmp_b = plain_b.with_extension("bed.partial");
+                let tmp_a = plain_a.with_extension(format!("{ext_a}.partial"));
+                let tmp_b = plain_b.with_extension(format!("{ext_b}.partial"));
                 let mut args: Vec<String> =
                     setup_str.split_whitespace().map(String::from).collect();
                 args.push("--out-a".into());
@@ -639,8 +666,8 @@ fn prepare_input(
                     want_a.display(),
                     want_b.display()
                 );
-                let tmp_a = dir.join(format!("{stem}_a.partial.{}", case.input));
-                let tmp_b = dir.join(format!("{stem}_b.partial.{}", case.input));
+                let tmp_a = dir.join(format!("{stem}_a.partial.{ext_a}{gz}"));
+                let tmp_b = dir.join(format!("{stem}_b.partial.{ext_b}{gz}"));
                 run_ok(
                     Command::new(gloci)
                         .arg("view")
@@ -714,7 +741,7 @@ fn tool_binary(tool: &str) -> &str {
         "gnu-sort" => "sort",
         "grit-genomics" => "grit",
         "vcfkit" => "vk",
-        "vcftools-5runs" => "vcftools",
+        "vcftools-5runs" | "vcftools-3runs" => "vcftools",
         "bcftools-stats" => "bcftools",
         _ => tool,
     }
@@ -1249,6 +1276,17 @@ mod tests {
             "sort-name-bam-50M",
             "merge-bam-8x",
             "cat-bam-8x",
+            // P3b cases
+            "jaccard-plain-10M",
+            "fisher-plain-10M",
+            "reldist-plain-10M",
+            "sample-plain-10M",
+            "shuffle-plain-10M",
+            "random-10M",
+            "pair-intersect-1M-vs-10M",
+            "pair-pair-1M",
+            "convert-bedpe-50M",
+            "vcf-compare-synthetic-2500",
         ];
         for exp in expected {
             assert!(names.contains(&exp), "missing expected case `{exp}`");
@@ -1570,6 +1608,101 @@ mod tests {
             );
             checked += 1;
         }
-        assert_eq!(checked, 13, "P3a cases run");
+        assert_eq!(checked, 14, "P3a cases and convert-bedpe run");
+    }
+    /// The P3b cases' gloci commands (shell lines, some writing a genome file
+    /// first) run on a small version of their own setup and write output.
+    /// `convert-bedpe-50M` is a `sam` setup, run by the P3a test above.
+    #[test]
+    fn p3b_gloci_bench_commands_run_on_small_data() {
+        let gloci = match std::env::var_os("GLOCI_BIN") {
+            Some(b) => PathBuf::from(b),
+            None => built_gloci("debug").unwrap(),
+        };
+        let text =
+            std::fs::read_to_string(workspace_root().join("xtask/bench/cases.toml")).unwrap();
+        let td = tempfile::tempdir().unwrap();
+        let mut checked = 0;
+        for c in parse_cases(&text).unwrap() {
+            let Some(setup) = c.setup.as_deref() else {
+                continue;
+            };
+            let kind = setup.split_whitespace().next().unwrap();
+            let p3b = [
+                "jaccard-",
+                "fisher-",
+                "reldist-",
+                "sample-",
+                "shuffle-",
+                "random-",
+                "pair-",
+                "vcf-compare-",
+            ];
+            if !p3b.iter().any(|p| c.name.starts_with(p)) {
+                continue;
+            }
+            let small = override_records(setup, 3000);
+            // random reads no input; keep its one record.
+            let small = if c.name.starts_with("random-") {
+                setup.to_string()
+            } else {
+                small
+            };
+            let small = if kind == "vcf-pair" {
+                // 2500 samples of 3000 records is a big file for a test.
+                let mut w: Vec<String> = small.split_whitespace().map(String::from).collect();
+                set_setup_value(&mut w, "--samples", "40".into());
+                w.join(" ")
+            } else {
+                small
+            };
+            let case = Case {
+                input: c.input.clone(),
+                ..c.clone()
+            };
+            let inputs = prepare_input(&case, Some(&small), &gloci, td.path(), None).unwrap();
+            let out = td.path().join(format!("{}.out.{}", c.name, c.input));
+            let cmd = c.commands.get("gloci").expect("a gloci command");
+            let path = |p: &Path| p.to_string_lossy().into_owned();
+            // -n of sample and random, scaled to the small data.
+            let cmd = cmd
+                .replace("-n 1000000 ", "-n 1000 ")
+                .replace("-n 10000000 ", "-n 1000 ");
+            let line = substitute_pair(
+                &cmd,
+                &path(&gloci),
+                &path(&inputs.in_a),
+                &inputs.in_b.as_deref().map(path).unwrap_or_default(),
+                &path(&out),
+            );
+            let r = Command::new("sh").arg("-c").arg(&line).output().unwrap();
+            assert!(
+                r.status.success(),
+                "case `{}`: `{line}`: {}",
+                c.name,
+                String::from_utf8_lossy(&r.stderr)
+            );
+            let file = if c.name.starts_with("vcf-compare-") {
+                format!("{}.diff.sites", out.display())
+            } else {
+                path(&out)
+            };
+            assert!(
+                std::fs::metadata(&file).map(|m| m.len()).unwrap_or(0) > 0,
+                "case `{}`: `{line}` wrote nothing to {file}",
+                c.name
+            );
+            if c.name.starts_with("vcf-compare-") {
+                for ext in ["diff.indv", "diff.discordance_matrix"] {
+                    assert!(
+                        std::fs::metadata(format!("{}.{ext}", out.display())).is_ok(),
+                        "case `{}`: no .{ext}",
+                        c.name
+                    );
+                }
+            }
+            checked += 1;
+        }
+        assert_eq!(checked, 9, "P3b cases run");
     }
 }
