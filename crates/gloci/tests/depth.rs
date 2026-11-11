@@ -420,7 +420,7 @@ fn pastend_stale_bam(dir: &std::path::Path) -> PathBuf {
         raw.extend_from_slice(&100i32.to_le_bytes());
     }
     let mut recs: Vec<Vec<u8>> = (0..20_000)
-        .map(|k| bam_record(0, (k / 250) as i32, &format!("r{k}"), 10, 10))
+        .map(|k: i32| bam_record(0, k / 250, &format!("r{k}"), 10, 10))
         .collect();
     recs.push(bam_record(0, 95, "past1", 10, 10));
     recs.push(bam_record(1, 95, "past2", 10, 10));
