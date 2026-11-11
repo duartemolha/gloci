@@ -5707,10 +5707,7 @@ fn p3c_empty_inputs_matrix() {
             assert_eq!(text(&run(&["depth", input, "--region", "chr2:1-3"], 0)), "");
             // head: the header, whole or cut, and no record
             let h = text(&run(&["head", input], 0));
-            assert!(
-                h.starts_with(hdr) || h.starts_with(&hdr.replace("SO:coordinate", "SO:coordinate")),
-                "{h}"
-            );
+            assert!(h.starts_with(hdr), "{h}");
             assert_eq!(h.lines().filter(|l| !l.starts_with('@')).count(), 0);
             assert_eq!(text(&run(&["head", input, "--records", "10"], 0)), h);
             assert_eq!(
