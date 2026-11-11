@@ -395,7 +395,7 @@ gloci index sorted.bam"
                         if ro.invalid == InvalidPolicy::Skip {
                             skipped += 1;
                             first_skipped.get_or_insert_with(|| {
-                                format!("{bed_name} line {}: {shown}", m.loc)
+                                format!("{bed_name} {}: {shown}", Loc::Line(m.loc))
                             });
                             continue;
                         }

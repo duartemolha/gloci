@@ -322,3 +322,21 @@ fn bedcov_past_the_end_warning_is_the_first_in_bed_order_at_every_thread_count()
         }
     }
 }
+
+/// The skipped-line warning names its first line as every other message does: `line 3,001`.
+#[test]
+fn bedcov_skipped_line_uses_the_line_display() {
+    let t = copied(&["depth.bam"]);
+    let bam = t.path().join("depth.bam").display().to_string();
+    let mut text = "chr1\t0\t10\n".repeat(3000);
+    text.push_str("chrZ\t0\t10\n");
+    let bed = plain_file(t.path(), "pm.bed", &text);
+    let bed = bed.to_str().unwrap();
+    let (out, err, code) = bedcov_in(t.path(), &[bed, &bam, "--skip-invalid"]);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(out.lines().count(), 3000);
+    assert!(
+        err.contains(&format!("(first: {bed} line 3,001: chrZ)")),
+        "{err}"
+    );
+}
