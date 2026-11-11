@@ -22,8 +22,6 @@ use std::sync::{Arc, Mutex};
 
 const FLAG_UNMAPPED: u16 = 0x4;
 /// BED lines in a batch, at most (and at most the 4 MiB `next_batch_size` allows).
-const BATCH_LINES: usize = 256;
-/// Bytes of BED lines in a batch, at most.
 
 /// What one input contributes to one region.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
