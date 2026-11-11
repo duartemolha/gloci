@@ -137,3 +137,36 @@ fn pair_pair_output_formats() {
         .code(2)
         .stderr(contains("gloci index -s 1 -b 2 -e 3 --zero-based"));
 }
+
+#[test]
+fn pair_pair_worker_error_is_the_same_at_any_thread_count() {
+    // A nameless pair deep in A sits in a later batch, so a worker finds it.
+    let dir = tempdir();
+    let mut a = String::new();
+    for i in 1..=60_000u64 {
+        if i == 50_000 {
+            a.push_str("chr1\t10\t20\tchr1\t100\t110\n");
+        } else {
+            a.push_str(&format!("chr1\t10\t20\tchr1\t100\t110\tp{i}\n"));
+        }
+    }
+    let a = plain_file(dir.path(), "a.bedpe", &a);
+    let b = plain_file(dir.path(), "b.bedpe", B);
+    let run = |t: &str| {
+        gloci()
+            .args(["pair-pair", "--require-different-names", "-t", t, "-a"])
+            .arg(&a)
+            .arg("-b")
+            .arg(&b)
+            .output()
+            .unwrap()
+    };
+    let one = run("1");
+    assert_eq!(one.status.code(), Some(1));
+    let err = String::from_utf8_lossy(&one.stderr).to_string();
+    assert!(err.contains("a.bedpe line 50,000"), "{err}");
+    let four = run("4");
+    assert_eq!(four.status.code(), Some(1));
+    assert_eq!(four.stderr, one.stderr);
+    assert_eq!(four.stdout, one.stdout);
+}
