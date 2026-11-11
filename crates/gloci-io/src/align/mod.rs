@@ -178,7 +178,7 @@ shuffle --format bedpe read; to treat its first end as a BED interval, pass --fo
             GateKind::NoAlignments,
             format!(
                 "{name} is {}; this command does not read alignments (intersect, coverage, \
-genomecov, convert, view, index, sort and cat do); convert it to BED first: \
+genomecov, convert, view, index, sort, cat and stats jaccard, fisher and reldist do); convert it to BED first: \
 gloci convert {name} -o x.bed",
                 format.name()
             ),
