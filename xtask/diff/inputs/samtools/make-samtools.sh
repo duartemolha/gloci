@@ -37,3 +37,9 @@ printf '@HD\tVN:1.6\n@SQ\tSN:chr1\tLN:1000\n@SQ\tSN:chr2\tLN:2000\n@SQ\tSN:chr3\
 samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o unsorted-chroms.bam unsorted-chroms.sam
 mkdir -p nometa
 cp ../aln/flags.bam nometa/flags.bam
+
+# Task 2: a CSI of flags.bam written by `samtools index -c`, in csi/ beside a copy of the BAM so
+# the case can name both as aux files.
+mkdir -p csi
+cp ../aln/flags.bam csi/flags.bam
+samtools index -c -@ 0 csi/flags.bam

@@ -5769,3 +5769,13 @@ gloci = "gloci idxstats input.cram"
 reference = "REF_PATH=/nonexistent samtools idxstats input.cram"
 compare = "exit-status"
 expected_difference = "#cram-counts-need-reference"
+
+# The index is a CSI written by samtools (`samtools index -c`): the counts come from its
+# pseudo-bin, which sits at a different bin number than a BAI's only for a long reference.
+[[case]]
+name = "idxstats-csi-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.bam" }
+aux = ["xtask/diff/inputs/samtools/csi/flags.bam", "xtask/diff/inputs/samtools/csi/flags.bam.csi"]
+gloci = "gloci idxstats flags.bam"
+reference = "samtools idxstats flags.bam"
+compare = "exact"
