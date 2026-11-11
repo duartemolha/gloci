@@ -76,7 +76,7 @@ impl SampleTally {
             (wants.het, 5),
             (wants.het, 6),
         ];
-        let mut cols = self.columns();
+        let cols = self.columns();
         for (want, i) in used {
             let c = &mut *cols[i];
             if want && c.len() != k {
