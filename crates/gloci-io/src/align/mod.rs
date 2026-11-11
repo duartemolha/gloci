@@ -13,7 +13,7 @@ mod sam;
 mod source;
 mod writer;
 
-pub(crate) use bam::BamReader;
+pub(crate) use bam::{BamReader, bam_record_place};
 pub use bed::{AlnBed, AlnBedLayout, AlnBedOptions, AlnBlocks};
 pub(crate) use cram::CramFile;
 pub use cram::{CramReader, ReferenceCounts, read_cram_header, warn_unused_reference};

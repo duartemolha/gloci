@@ -92,21 +92,11 @@ impl BamFrames {
     /// "record N of CHROM (record M of the file)" for the record that is `seen` in its run,
     /// on `ref_id`. `self.rec` is the file-wide number, the same at every thread count.
     fn place_of(&self, ref_id: i32, seen: u64) -> String {
-        let chrom = match usize::try_from(ref_id) {
-            Ok(i) => match self.aln.refs.get(i) {
-                Some((n, _)) => String::from_utf8_lossy(n).into_owned(),
-                None => format!("refID {ref_id}"),
-            },
-            Err(_) if ref_id == -1 => "unplaced reads".to_string(),
-            Err(_) => format!("refID {ref_id}"),
-        };
-        if !self.file_numbers {
-            return format!("record {} of {chrom}", gloci_core::thousands(seen));
-        }
-        format!(
-            "record {} of {chrom} (record {} of the file)",
-            gloci_core::thousands(seen),
-            gloci_core::thousands(self.rec)
+        bam_record_place(
+            &self.aln.refs,
+            ref_id,
+            seen,
+            self.file_numbers.then_some(self.rec),
         )
     }
 
@@ -193,6 +183,33 @@ the file is corrupt"
         }
         self.run_seen += 1;
         Ok(true)
+    }
+}
+
+/// The place of a BAM record as every command names it (D101): "record N of CHROM (record M
+/// of the file)", N counting the records of its reference `ref_id` (`seen`) and M those of the
+/// file (`file`; left out when `None`).
+pub(crate) fn bam_record_place(
+    refs: &[(Vec<u8>, u64)],
+    ref_id: i32,
+    seen: u64,
+    file: Option<u64>,
+) -> String {
+    let chrom = match usize::try_from(ref_id) {
+        Ok(i) => match refs.get(i) {
+            Some((n, _)) => String::from_utf8_lossy(n).into_owned(),
+            None => format!("refID {ref_id}"),
+        },
+        Err(_) if ref_id == -1 => "unplaced reads".to_string(),
+        Err(_) => format!("refID {ref_id}"),
+    };
+    match file {
+        None => format!("record {} of {chrom}", gloci_core::thousands(seen)),
+        Some(m) => format!(
+            "record {} of {chrom} (record {} of the file)",
+            gloci_core::thousands(seen),
+            gloci_core::thousands(m)
+        ),
     }
 }
 
