@@ -5316,3 +5316,27 @@ input = { file = "xtask/diff/inputs/aln/cf.noref.cram" }
 gloci = "gloci view -O sam input.noref.cram"
 reference = "samtools view -h --no-PG --input-fmt-option decode_md=0 input.noref.cram"
 compare = "sam"
+
+# A region that starts past the end of its reference (#region-past-reference-end): the BAM's
+# index finds the reads that run past the end (samtools too, see
+# view-bam-region-past-end-vs-samtools), the CRAM's does not (view-cram-region-past-end-vs-samtools).
+# The reference reads the BAM twin of the CRAM gloci reads.
+[[case]]
+name = "view-cram-region-past-end-vs-bam-samtools"
+input = { file = "xtask/diff/inputs/aln/pastend.bam" }
+aux = ["xtask/diff/inputs/aln/pastend.bam.bai", "xtask/diff/inputs/aln/pastend.cram", "xtask/diff/inputs/aln/pastend.cram.crai", "xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci view -O sam --no-header pastend.cram --reference ref.fa chr1:1001-1010"
+reference = "samtools view --no-PG -X input.bam pastend.bam.bai chr1:1001-1010"
+compare = "exact"
+expected_difference = "#region-past-reference-end"
+
+# A damaged container of the reads with no place (#cram-unplaced-tail): streamed (-t 1) gloci
+# fails on it, an indexed run at -t 4 never reads it. The reference is gloci itself at -t 1.
+[[case]]
+name = "genomecov-cram-unplaced-tail-t4-vs-t1"
+input = { file = "xtask/diff/inputs/aln/many.badtail.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai", "xtask/diff/inputs/aln/index/badtail/input.badtail.cram.crai"]
+gloci = "gloci genomecov input.badtail.cram --reference ref.fa -t 4"
+reference = "gloci genomecov input.badtail.cram --reference ref.fa -t 1"
+compare = "exit-status"
+expected_difference = "#cram-unplaced-tail"

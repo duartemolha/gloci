@@ -1870,6 +1870,38 @@ depends on the span.
 - **Reason:** as for BGZF ([#bgzf-eof-marker](#bgzf-eof-marker)): a missing end is
   the signature of a cut-off file, and gloci never gives a quiet partial answer.
 
+## An indexed CRAM run at `-t` above 1 does not read the unplaced reads {#cram-unplaced-tail}
+
+- **gloci:** a CRAM with a `.crai` is read chromosome by chromosome at `-t` above 1,
+  and the container of reads with no place (unmapped reads at the end of a
+  coordinate-sorted file) is in no chromosome's chunk: it is counted from its slice
+  headers (the `-v` unmapped count) but never decoded, so it is never verified. A
+  corrupt unplaced container is an error (exit 1) when the file is streamed (`-t 1`,
+  no `.crai`, standard input) and goes unnoticed (exit 0) in an indexed run at `-t 4`.
+  An indexed BAM behaves alike for the reads at the end of a BAM. The same holds for
+  a container no chunk reaches for any other reason: only the containers the chunks
+  read are checked.
+- **Old behaviour:** samtools decodes sequentially and reports the first damage it
+  finds (and tolerates some, as it does a checksum mismatch in a block it can read).
+- **Pinned by:** the cargo test `cram_unplaced_tail_is_read_only_when_streaming`
+  (it needs a damaged file, which a differential case cannot compare).
+- **Reason:** reading every container just to verify one that cannot change a result
+  would cost the parallel run its point; `gloci check` is the way to verify a file.
+
+## `view` of a region past the end of a reference: BAM and CRAM differ, as samtools' indexes do {#region-past-reference-end}
+
+- **gloci:** for a region that starts past the end of its reference (`chr1:1001-1010`
+  with `LN:1000`), `gloci view x.bam` finds the reads that run past the end and
+  overlap it (the BAM index bins them by their uncut span), and `gloci view x.cram`
+  finds none (the `.crai` clips a slice's span at the end of the reference, and gloci
+  selects slices by it exactly).
+- **Old behaviour:** samtools does the same: its `.bai` finds the reads and its `.crai`
+  does not.
+- **Pinned by:** `view-bam-region-past-end-vs-samtools` and
+  `view-cram-region-past-end-vs-samtools`, both equal to samtools.
+- **Reason:** both follow what the index of that format can find; a region inside the
+  reference finds the same reads in both.
+
 ## CRAM: limits on what gloci decodes {#cram-limits}
 
 - **gloci:** a read may run past the end of its reference (htslib and gloci decode the bases

@@ -647,7 +647,7 @@ Before relying on a new expression, run it once on a small file with
   x.cram`. With its `.crai` a CRAM is read by region, and per chromosome at `-t`
   above 1, like an indexed BAM (the reference is read once per chromosome, and
   at most one chromosome per worker is held); an error in a record names "record N
-  of CHROM" without the file-wide number a BAM adds. MD and NM come out as stored, where samtools recomputes them (compare
+  of CHROM" without the file-wide number a BAM adds. A region that starts past a chromosome's end finds the reads that run past it in a BAM but not in a CRAM, as in samtools ([differences.md#region-past-reference-end](differences.md#region-past-reference-end)). At `-t` above 1 the container of reads with no place is never decoded, so damage there is seen only when streaming ([differences.md#cram-unplaced-tail](differences.md#cram-unplaced-tail)). MD and NM come out as stored, where samtools recomputes them (compare
   with `samtools view --input-fmt-option decode_md=0`):
   [differences.md#cram-md-nm](differences.md#cram-md-nm). A CRAM without its
   end-of-file container is refused (exit 1; samtools warns and exits 0):

@@ -213,3 +213,10 @@ printf 'c\t16\tchr1\t30\t60\t10M\t*\t0\t0\tACGTACGTAC\tIIIIIIIIII\n' >> tmp-cf.s
 samtools view -C -@ 0 --no-PG --output-fmt-option version=3.0 --output-fmt-option no_ref=1 \
     -o cf.noref.cram tmp-cf.sam
 rm tmp-cf.sam
+# many.badtail.cram: many.cram with a byte of its last container (the reads with no place)
+# changed, so its checksum no longer matches. Indexed runs at -t above 1 never read it
+# (#cram-unplaced-tail); the index is many.cram's, copied to index/badtail/ named for the input.
+cp many.cram many.badtail.cram
+printf '\252' | dd of=many.badtail.cram bs=1 seek=21011 conv=notrunc 2>/dev/null
+mkdir -p index/badtail
+cp many.cram.crai index/badtail/input.badtail.cram.crai

@@ -474,3 +474,46 @@ fn cram_wrong_and_stale_index_blame_the_index() {
         assert_eq!(err.matches("a.cram.crai is older than").count(), 1, "{err}");
     }
 }
+
+/// The reads with no place (the unplaced container at the end) are in no chromosome's chunk, so
+/// an indexed run at `-t` above 1 never reads them: a corrupt one is an error only when
+/// streaming (docs/differences.md#cram-unplaced-tail).
+#[test]
+fn cram_unplaced_tail_is_read_only_when_streaming() {
+    let dir = tempdir();
+    let src = aln("many.cram");
+    let index = gloci_io::CramIndex::read(Path::new(&format!("{src}.crai"))).unwrap();
+    let tail = index
+        .entries
+        .iter()
+        .find(|e| e.ref_id == -1)
+        .unwrap()
+        .container_offset as usize;
+    let mut bytes = std::fs::read(&src).unwrap();
+    bytes[tail + 60] ^= 0x55;
+    let bad = dir.path().join("bad.cram");
+    std::fs::write(&bad, &bytes).unwrap();
+    let crai = dir.path().join("bad.cram.crai");
+    std::fs::copy(format!("{src}.crai"), &crai).unwrap();
+    std::fs::File::options()
+        .append(true)
+        .open(&crai)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now())
+        .unwrap();
+    let go = |t: &str| {
+        run(&mk(&[
+            "genomecov",
+            &s(&bad),
+            "--reference",
+            &reference(),
+            "-t",
+            t,
+        ]))
+    };
+    let (code, _, err) = go("1");
+    assert_eq!(code, Some(1), "{err}");
+    assert!(err.contains("container"), "{err}");
+    let (code, _, err) = go("4");
+    assert_eq!(code, Some(0), "{err}");
+}
