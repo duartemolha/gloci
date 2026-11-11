@@ -3301,7 +3301,8 @@ pub struct JaccardArgs {
     /// B: the file to compare A with (`-` for stdin).
     #[arg(short = 'b', long = "b", value_name = "FILE", required = true)]
     pub b: String,
-    /// B's format, overriding detection (bed, bedgraph, gff, vcf, bcf).
+    /// B's format, overriding detection: bed, bedgraph, gff, vcf or bcf; bam, cram or sam
+    /// (alignments are read as intervals, as `intersect` reads them).
     #[arg(long, value_name = "FMT")]
     pub b_format: Option<String>,
     /// Minimum fraction of a merged A interval covered, e.g. 0.5 or 50% (4.3: fractions).
@@ -3358,7 +3359,8 @@ pub struct FisherArgs {
     /// B: the file to compare A with (`-` for stdin).
     #[arg(short = 'b', long = "b", value_name = "FILE", required = true)]
     pub b: String,
-    /// B's format, overriding detection (bed, bedgraph, gff, vcf, bcf).
+    /// B's format, overriding detection: bed, bedgraph, gff, vcf or bcf; bam, cram or sam
+    /// (alignments are read as intervals, as `intersect` reads them).
     #[arg(long, value_name = "FMT")]
     pub b_format: Option<String>,
     /// Genome with chromosome lengths: a built-in genome such as hg38 (see gloci genomes), or a
@@ -3446,7 +3448,8 @@ pub struct PairIntersectArgs {
     /// B: the BED, GFF or VCF file the ends are tested against (`-` for stdin).
     #[arg(short = 'b', long = "b", value_name = "FILE", required = true)]
     pub b: String,
-    /// B's format, overriding detection (bed, bedgraph, gff, vcf, bcf).
+    /// B's format, overriding detection: bed, bedgraph, gff, vcf or bcf (B does not read
+    /// alignments; convert them to BED first).
     #[arg(long, value_name = "FMT")]
     pub b_format: Option<String>,
     /// What to report: either, neither, both, xor, notboth, ispan, ospan, notispan or notospan.
@@ -3479,7 +3482,8 @@ pub struct ReldistArgs {
     /// B: the file to compare A with (`-` for stdin).
     #[arg(short = 'b', long = "b", value_name = "FILE", required = true)]
     pub b: String,
-    /// B's format, overriding detection (bed, bedgraph, gff, vcf, bcf).
+    /// B's format, overriding detection: bed, bedgraph, gff, vcf or bcf; bam, cram or sam
+    /// (alignments are read as intervals, as `intersect` reads them).
     #[arg(long, value_name = "FMT")]
     pub b_format: Option<String>,
     /// Print each A record with its relative distance (%.3f) appended, instead of the summary.
