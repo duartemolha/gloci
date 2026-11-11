@@ -212,6 +212,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         Commands::Stats(a) => match &a.command {
             cli::StatsCommand::Jaccard(j) => (j.threads.threads, j.sort.tmp_dir.clone()),
             cli::StatsCommand::Fisher(f) => (f.threads.threads, f.sort.tmp_dir.clone()),
+            cli::StatsCommand::Reldist(r) => (r.threads.threads, r.sort.tmp_dir.clone()),
         },
         Commands::Vcf(a) => match &a.command {
             cli::VcfCommand::Filter(f) => (f.threads.threads, None),
@@ -269,6 +270,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         Commands::Stats(a) => match &a.command {
             cli::StatsCommand::Jaccard(j) => commands::stats::run_jaccard(&ctx, j),
             cli::StatsCommand::Fisher(f) => commands::stats::run_fisher(&ctx, f),
+            cli::StatsCommand::Reldist(r) => commands::stats::run_reldist(&ctx, r),
         },
         Commands::Vcf(a) => match &a.command {
             cli::VcfCommand::Filter(f) => commands::vcf::run_filter(&ctx, f),

@@ -1993,3 +1993,17 @@ depends on the span.
   and x86 glibc may differ in the last bits, which has not been checked).
 - **Also:** genome lengths near 2^64 saturate the genome size in gloci where bedtools prints `1`;
   no real genome is that large.
+
+## `stats reldist` B midpoints past 2^31 do not overflow {#reldist-midpoint-overflow}
+
+- **gloci:** the midpoint of a B interval is `floor((start + end) / 2)` computed in 64 bits, so
+  coordinates up to the chromosome limits give the right midpoint.
+- **Old behaviour:** `bedtools reldist` adds a B interval's two ends in a 32-bit `int` before halving.
+  When `start + end` passes 2^31 (both ends past about 1.07 billion) the sum wraps negative, the
+  midpoint lands before every other one, and A records near that B interval are skipped or binned
+  wrongly. A's midpoints do not overflow in bedtools (`start + (end - start) / 2`).
+- **Reason:** a silent wrong answer on large chromosomes (chr1 is 248 Mb, so human data stays far
+  below this; large plant and amphibian genomes do not).
+- **Pinned by:** `stats-reldist-midpoint-overflow-vs-bedtools` (must differ; the reference is glibc
+  on aarch64, where the signed `int` overflow wraps) and the gloci-only test
+  `reldist_midpoint_past_int_range`.

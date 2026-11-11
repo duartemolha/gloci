@@ -547,6 +547,19 @@ gloci stats fisher -a peaks.bed -b genes.bed -g hg38 --exclude gaps.bed -f 0.5
 gloci stats fisher -a unsorted-a.bed -b unsorted-b.bed -g hg38 --sort
 ```
 
+#### `gloci stats reldist`
+
+The relative distance of A midpoints to B midpoints (bedtools reldist).
+
+For each A interval, finds the two B midpoints that enclose A's midpoint (midpoint = floor of (start + end) / 2) and takes the distance to the nearer one over the distance between the two, from 0 (A sits on a B midpoint) to 0.5 (halfway). The summary bins the values by floor(rel * 100) (so 0.29 lands in bin 0.28, as in bedtools) and prints reldist, count, total and fraction. An A midpoint before the first or after the last B midpoint of its chromosome, or on a chromosome with fewer than two B midpoints, is left out, as bedtools does. With --detail each qualifying A record is printed with its value (%.3f) appended. A VCF is read as its footprints (--vcf-span). Inputs must be sorted (--sort sorts them; --unsorted loads every B midpoint instead).
+
+```sh
+gloci stats reldist -a peaks.bed -b genes.bed
+gloci stats reldist -a peaks.bed -b genes.bed --detail
+gloci stats reldist -a unsorted-a.bed -b unsorted-b.bed --sort
+gloci stats reldist -a peaks.bed -b genes.bed --unsorted
+```
+
 ## Migration tables
 
 Every row below was checked against `gloci <cmd> --help`.
@@ -629,7 +642,7 @@ then the rest of P2b (Python library, packaging, mdBook, paper evidence suite).
 | `getfasta -fi REF -bed FILE` (`-name`, `-nameOnly`, `-s`, `-split`, `-tab`, `-bedOut`, `-rna`) | `gloci getfasta FILE --fasta REF [--name \| --name-only] [-s] [--split] [--tab \| --bed-out] [--rna]` (output is byte-identical to bedtools 2.31.1 for BED, GFF and VCF input, including the IUPAC-aware reverse complement, except that `--split` refuses BED12 records whose blocks are out of order, overlap, or do not span the record where bedtools writes them unchecked, see [differences.md#getfasta-split-blocks](differences.md#getfasta-split-blocks); the FASTA needs a `.fai` (and `.gzi` for BGZF) made with `gloci index`, which gloci never builds itself; VCF is bedtools' REF span with `--vcf-span ref`; zero-length intervals are skipped with a counted warning, as bedtools does; an interval on a chromosome the FASTA lacks, or past its end, is an error where bedtools skips it, `--skip-invalid` gives bedtools' behaviour, see [differences.md#getfasta-outside-fasta](differences.md#getfasta-outside-fasta); there is no `-fullHeader`) |
 | `maskfasta -fi F -bed B [-soft -mc C -fullHeader]` | `gloci maskfasta --fasta F -b B [--soft \| --mask-char C] [-o OUT.fa[.gz] --write-index]` (streamed, any compression, no index needed; headers are kept whole and line layout is kept, so `-fullHeader` is the default, see [differences.md#maskfasta-header](differences.md#maskfasta-header) and [differences.md#maskfasta-layout](differences.md#maskfasta-layout); a mask past its sequence's end is an error, see [differences.md#maskfasta-past-end](differences.md#maskfasta-past-end)) |
 | `nuc -fi REF -bed FILE` (`-s`, `-seq`, `-pattern P`, `-C`) | `gloci nuc FILE --fasta REF [-s] [--seq] [--pattern P [-C]]` (output is byte-identical to bedtools 2.31.1, header line and f32 percentages included, for BED, GFF and VCF input; the counts and the pattern describe the reverse complement under `-s`; the FASTA needs a `.fai` made with `gloci index`; VCF is bedtools' REF span with `--vcf-span ref`; zero-length intervals are skipped with a counted warning, as bedtools does; an interval outside the FASTA is an error where bedtools skips it, `--skip-invalid` gives bedtools' behaviour, see [differences.md#getfasta-outside-fasta](differences.md#getfasta-outside-fasta)) |
-| `jaccard`, `fisher`, `reldist` | not yet available (`stats jaccard / fisher / reldist`, P3b; `stats jaccard` and `stats fisher` exist; the jaccard point rule is [differences.md#jaccard-points](differences.md#jaccard-points), fisher's empty-input estimate is [differences.md#fisher-empty-estimate](differences.md#fisher-empty-estimate); fisher's `--exclude` estimate is [differences.md#fisher-exclude-estimate](differences.md#fisher-exclude-estimate); its tiny tail p-values are [differences.md#fisher-lgamma](differences.md#fisher-lgamma); Task 19 rewrites this row) |
+| `jaccard`, `fisher`, `reldist` | not yet available (`stats jaccard / fisher / reldist`, P3b; `stats jaccard`, `stats fisher` and `stats reldist` exist; the jaccard point rule is [differences.md#jaccard-points](differences.md#jaccard-points), fisher's empty-input estimate is [differences.md#fisher-empty-estimate](differences.md#fisher-empty-estimate); fisher's `--exclude` estimate is [differences.md#fisher-exclude-estimate](differences.md#fisher-exclude-estimate); its tiny tail p-values are [differences.md#fisher-lgamma](differences.md#fisher-lgamma); `stats reldist` exists, and its midpoints past 2^31 are [differences.md#reldist-midpoint-overflow](differences.md#reldist-midpoint-overflow); Task 19 rewrites this row) |
 | `shuffle`, `random`, `sample` | not yet available (`shuffle`, `random`, `sample`, P3b) |
 | `pairtobed`, `pairtopair` | not yet available (`pair-intersect`, `pair-pair`, P3b) |
 | `multicov`, `tag`, `bamtofastq`, `bedtobam`, `bedpetobam`, `igv`, `links`, `expand`, `split`, `summary`, `overlap` | not planned (`overlap` → `gloci intersect --mode pairs --overlap-bases`) |

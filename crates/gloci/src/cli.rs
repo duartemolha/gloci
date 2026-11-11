@@ -3159,6 +3159,27 @@ Examples:
   gloci stats fisher -a peaks.bed -b genes.bed -g hg38 --exclude gaps.bed -f 0.5
   gloci stats fisher -a unsorted-a.bed -b unsorted-b.bed -g hg38 --sort")]
     Fisher(FisherArgs),
+    // P3b Task 4
+    /// The relative distance of A midpoints to B midpoints (bedtools reldist).
+    ///
+    /// For each A interval, finds the two B midpoints that enclose A's
+    /// midpoint (midpoint = floor of (start + end) / 2) and takes the distance
+    /// to the nearer one over the distance between the two, from 0 (A sits on
+    /// a B midpoint) to 0.5 (halfway). The summary bins the values by
+    /// floor(rel * 100) (so 0.29 lands in bin 0.28, as in bedtools) and prints
+    /// reldist, count, total and fraction. An A midpoint before the first or
+    /// after the last B midpoint of its chromosome, or on a chromosome with
+    /// fewer than two B midpoints, is left out, as bedtools does. With
+    /// --detail each qualifying A record is printed with its value (%.3f)
+    /// appended. A VCF is read as its footprints (--vcf-span). Inputs must be
+    /// sorted (--sort sorts them; --unsorted loads every B midpoint instead).
+    #[command(after_long_help = "\
+Examples:
+  gloci stats reldist -a peaks.bed -b genes.bed
+  gloci stats reldist -a peaks.bed -b genes.bed --detail
+  gloci stats reldist -a unsorted-a.bed -b unsorted-b.bed --sort
+  gloci stats reldist -a peaks.bed -b genes.bed --unsorted")]
+    Reldist(ReldistArgs),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -3266,6 +3287,42 @@ pub struct FisherArgs {
     pub inclusive_points: bool,
     #[command(flatten)]
     pub sort: RelationSortArg,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub align: AlignArgs,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+// P3b Task 4
+#[derive(Args, Debug, Clone)]
+pub struct ReldistArgs {
+    #[command(flatten)]
+    pub a: AArg,
+    /// B: the file to compare A with (`-` for stdin).
+    #[arg(short = 'b', long = "b", value_name = "FILE", required = true)]
+    pub b: String,
+    /// B's format, overriding detection (bed, bedgraph, gff, vcf, bcf).
+    #[arg(long, value_name = "FMT")]
+    pub b_format: Option<String>,
+    /// Print each A record with its relative distance (%.3f) appended, instead of the summary.
+    #[arg(long)]
+    pub detail: bool,
+    #[command(flatten)]
+    pub sort: RelationSortArg,
+    #[command(flatten)]
+    pub u: UnsortedArg,
+    #[command(flatten)]
+    pub genome: GenomeArg,
+    #[command(flatten)]
+    pub chrom_order: ChromOrderArg,
     #[command(flatten)]
     pub vcf_span: VcfSpanArg,
     #[command(flatten)]

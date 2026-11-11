@@ -6172,3 +6172,49 @@ gloci = "gloci stats fisher -a input.bed -b fisher-lg-b.bed -g fisher-lg-genome.
 reference = "bedtools fisher -a input.bed -b fisher-lg-b.bed -g fisher-lg-genome.txt"
 compare = "exact"
 expected_difference = "#fisher-lgamma"
+
+# P3b Task 4
+[[case]]
+name = "stats-reldist-table-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/reldist-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/reldist-b.bed"]
+gloci = "gloci stats reldist --unsorted -a input.bed -b reldist-b.bed"
+reference = "bedtools reldist -a input.bed -b reldist-b.bed"
+compare = "exact"
+
+[[case]]
+name = "stats-reldist-detail-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/reldist-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/reldist-b.bed"]
+gloci = "gloci stats reldist --unsorted --detail -a input.bed -b reldist-b.bed"
+reference = "bedtools reldist -detail -a input.bed -b reldist-b.bed"
+compare = "exact"
+
+[[case]]
+name = "stats-reldist-generated-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-gen-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-gen-b.bed"]
+gloci = "gloci stats reldist --chrom-order lex -a input.bed -b jaccard-gen-b.bed"
+reference = "bedtools reldist -a input.bed -b jaccard-gen-b.bed"
+compare = "exact"
+
+[[case]]
+name = "stats-reldist-generated-detail-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-gen-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-gen-b.bed"]
+gloci = "gloci stats reldist --chrom-order lex --detail -a input.bed -b jaccard-gen-b.bed"
+reference = "bedtools reldist -detail -a input.bed -b jaccard-gen-b.bed"
+compare = "exact"
+
+# bedtools adds B's two ends in a 32-bit int, so a B midpoint past 2^31 wraps negative; gloci
+# does not (docs/differences.md#reldist-midpoint-overflow). The reference output is from aarch64,
+# where the signed overflow wraps; the golden pins that it differs, and a gloci-only test pins
+# gloci's own numbers.
+[[case]]
+name = "stats-reldist-midpoint-overflow-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/reldist-ov-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/reldist-ov-b.bed"]
+gloci = "gloci stats reldist --detail -a input.bed -b reldist-ov-b.bed"
+reference = "bedtools reldist -detail -a input.bed -b reldist-ov-b.bed"
+compare = "exact"
+expected_difference = "#reldist-midpoint-overflow"
