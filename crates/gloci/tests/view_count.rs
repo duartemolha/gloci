@@ -114,6 +114,7 @@ fn view_count_conflicts() {
     let bam = p(&inputs().join("aln/flags.bam"));
     for extra in [
         vec!["--header-only"],
+        vec!["--no-header"],
         vec!["-O", "bam"],
         vec!["-O", "sam"],
         vec!["--write-index"],

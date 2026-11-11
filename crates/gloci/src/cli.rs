@@ -2630,7 +2630,7 @@ pub struct ViewArgs {
     pub no_header: bool,
     /// Write the number of records that would be written (regions and read filters
     /// applied), as one line, instead of the records; as samtools view -c.
-    #[arg(long, conflicts_with_all = ["header_only", "output_format", "write_index"])]
+    #[arg(long, conflicts_with_all = ["header_only", "no_header", "output_format", "write_index"])]
     pub count: bool,
     #[command(flatten)]
     pub vcf_span: VcfSpanArg,
