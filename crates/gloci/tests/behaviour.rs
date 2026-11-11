@@ -6207,3 +6207,194 @@ fn p3c_failure_matrix_missing_output_dir() {
         &Sink::File("txt"),
     );
 }
+
+/// `--chrom-map` on `depth` and `bedcov` renames as records are read: the output rows (and the
+/// BED names `bedcov` echoes) are the original run's with the names mapped, the inverse map takes
+/// them back, a BED already in the new names gives the same rows, and a SAM is refused.
+#[test]
+fn p3c_chrom_map_round_trip() {
+    let fx = P3a::new();
+    let d = fx.path("cm");
+    let d = Path::new(&d);
+    std::fs::create_dir(d).unwrap();
+    let fwd = s_of(&plain_file(
+        d,
+        "fwd.tsv",
+        "# to Ensembl\nchr1\t1\nchr2\t2\nchrM\tMT\n",
+    ));
+    let rev = s_of(&plain_file(d, "rev.tsv", "1\tchr1\n2\tchr2\nMT\tchrM\n"));
+    let rename = |text: &str| -> String {
+        // names are whole first fields
+        text.lines()
+            .map(|l| {
+                let (name, rest) = l.split_once('\t').unwrap_or((l, ""));
+                let new = match name {
+                    "chrM" => "MT",
+                    "chr1" => "1",
+                    "chr2" => "2",
+                    n => n,
+                };
+                if rest.is_empty() && !l.contains('\t') {
+                    format!("{new}\n")
+                } else {
+                    format!("{new}\t{rest}\n")
+                }
+            })
+            .collect()
+    };
+    let orig_bed = s_of(&plain_file(
+        d,
+        "orig.bed",
+        "chrM\t0\t100\nchr1\t0\t300\nchr1\t600\t900\nchr2\t100\t900\nchr10\t0\t500\nchrX\t100\t700\n",
+    ));
+    let ens_bed = s_of(&plain_file(
+        d,
+        "ens.bed",
+        &rename(&std::fs::read_to_string(&orig_bed).unwrap()),
+    ));
+    assert!(
+        std::fs::read_to_string(&ens_bed)
+            .unwrap()
+            .starts_with("MT\t0\t100\n1\t0\t300\n")
+    );
+    let ref_args = ["--reference", fx.fa.as_str()];
+    for (kind, input, _) in fx.kinds() {
+        let ex: Vec<&str> = if kind == "cram" {
+            ref_args.to_vec()
+        } else {
+            vec![]
+        };
+        if kind == "sam" {
+            // a SAM is not rewritten: refused for both commands' alignment inputs, not renamed
+            // by halves
+            gloci()
+                .args(["depth", &input, "--chrom-map", &fwd])
+                .assert()
+                .code(2)
+                .stderr(contains(
+                    "--chrom-map cannot rename the reference names in SAM text",
+                ));
+            continue;
+        }
+        let run = |args: Vec<&str>, t: &str| -> String {
+            let o = gloci().args(&args).args(["-t", t]).output().unwrap();
+            assert_eq!(
+                o.status.code(),
+                Some(0),
+                "{kind} {args:?} -t {t}: {}",
+                String::from_utf8_lossy(&o.stderr)
+            );
+            String::from_utf8(o.stdout).unwrap()
+        };
+        // depth: rows in the new names, and the new-name regions find them
+        let plain = run([vec!["depth", &input], ex.clone()].concat(), "1");
+        let want = rename(&plain);
+        assert!(want.starts_with("MT\t") && want.contains("\n1\t") && want.contains("\nchr10\t"));
+        for t in ["1", "4"] {
+            let got = run(
+                [vec!["depth", &input, "--chrom-map", &fwd], ex.clone()].concat(),
+                t,
+            );
+            assert_eq!(got, want, "{kind} depth -t {t}");
+        }
+        let region = run(
+            [
+                vec![
+                    "depth",
+                    &input,
+                    "--chrom-map",
+                    &fwd,
+                    "--region",
+                    "2:100-120",
+                ],
+                ex.clone(),
+            ]
+            .concat(),
+            "4",
+        );
+        assert!(
+            !region.is_empty() && region.lines().all(|l| l.starts_with("2\t")),
+            "{region}"
+        );
+        let orig_region = run(
+            [
+                vec!["depth", &input, "--region", "chr2:100-120"],
+                ex.clone(),
+            ]
+            .concat(),
+            "4",
+        );
+        assert_eq!(region, rename(&orig_region), "{kind}: region rows");
+        // the old name is no longer a region of the renamed file
+        let o = gloci()
+            .args([
+                "depth",
+                &input,
+                "--chrom-map",
+                &fwd,
+                "--region",
+                "chr2:100-120",
+            ])
+            .args(&ex)
+            .output()
+            .unwrap();
+        assert!(o.stdout.is_empty(), "{kind}");
+        assert!(
+            String::from_utf8_lossy(&o.stderr).contains("skipped"),
+            "{kind}"
+        );
+        // map a file already in the new names with the inverse map: the same rows as the original
+        let bam_ens = s_of(&d.join(format!("{kind}-ens.bam")));
+        gloci()
+            .args(["view", &input, "--chrom-map", &fwd, "-o", &bam_ens])
+            .args(&ex)
+            .assert()
+            .success();
+        gloci().args(["index", &bam_ens]).assert().success();
+        assert_eq!(
+            run(vec!["depth", &bam_ens, "--chrom-map", &rev], "4"),
+            plain,
+            "{kind}: depth through the inverse map"
+        );
+        assert_eq!(
+            run(vec!["depth", &bam_ens], "4"),
+            want,
+            "{kind}: depth of the renamed file"
+        );
+
+        // bedcov: the BED lines are renamed too, so either naming of the BED gives the new rows
+        let plain = run(
+            [vec!["bedcov", &orig_bed, &input], ex.clone()].concat(),
+            "1",
+        );
+        let want = rename(&plain);
+        assert!(want.starts_with("MT\t0\t100\t") && want.contains("\n1\t0\t300\t"));
+        for t in ["1", "4"] {
+            for bed in [&orig_bed, &ens_bed] {
+                let got = run(
+                    [vec!["bedcov", bed, &input, "--chrom-map", &fwd], ex.clone()].concat(),
+                    t,
+                );
+                assert_eq!(got, want, "{kind} bedcov {bed} -t {t}");
+            }
+            // the renamed BAM with the inverse map: the original rows
+            let got = run(vec!["bedcov", &orig_bed, &bam_ens, "--chrom-map", &rev], t);
+            assert_eq!(got, plain, "{kind} bedcov inverse map -t {t}");
+            // and without a map, the renamed file wants BED names in its own naming
+            let got = run(vec!["bedcov", &ens_bed, &bam_ens], t);
+            assert_eq!(got, want, "{kind} bedcov of the renamed file -t {t}");
+        }
+        // a map that gives two references one name is refused before any row is written
+        let clash = s_of(&plain_file(d, "clash.tsv", "chr1\tchr2\n"));
+        for cmd in [vec!["depth", &input], vec!["bedcov", &orig_bed, &input]] {
+            gloci()
+                .args(&cmd)
+                .args(["--chrom-map", &clash])
+                .args(&ex)
+                .assert()
+                .code(2)
+                .stderr(contains("which would merge them"))
+                .stdout("");
+        }
+    }
+}
