@@ -16,8 +16,6 @@ pub const SORTED_INPUTS: &str = "the sorted inputs (";
 pub enum GateKind {
     /// The command never reads alignments.
     NoAlignments,
-    /// The command will read this format, but its reader is not in this build yet.
-    NotYet,
     /// FASTA is not an interval input.
     Sequence,
     /// PSL and RepeatMasker are read by `convert` only.

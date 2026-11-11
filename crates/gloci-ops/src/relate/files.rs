@@ -346,7 +346,7 @@ pub(super) fn input_sources(
         .map(|(p, r)| {
             // An indexed BAM reads per chromosome through its `.bai`/`.csi`, and a CRAM
             // through its `.crai` (D107); a SAM streams.
-            if r.format().is_alignment() && r.format() == Format::Sam {
+            if r.format() == Format::Sam {
                 None
             } else if all_indexed(&[p.as_str()]) {
                 Some(Source::Indexed)

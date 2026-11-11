@@ -37,7 +37,6 @@ fn indexed_query_refuses_alignment_and_convert_only_formats() {
         let o = opts(Accept {
             alignments: Some(AlignOptions::default()),
             convert_only: true,
-            alignments_planned: false,
         });
         let e = IndexedFile::open(&sam, f, Header::None, &o).err().unwrap();
         assert!(e.to_string().contains("tabix or CSI index"), "{f:?}: {e}");
@@ -64,10 +63,7 @@ fn index_build_refuses_alignments_and_psl() {
     let dir = tempfile::tempdir().unwrap();
     let p = fixtures::write(dir.path(), "a.bed.gz", &fixtures::bgzip(b"chr1\t1\t2\n"));
     let e = write_index(&p, &p, Format::Cram, NonZeroUsize::MIN).unwrap_err();
-    assert!(
-        e.to_string().contains("not available in this build yet"),
-        "{e}"
-    );
+    assert!(e.to_string().contains("write_crai"), "{e}");
     let e = write_index(&p, &p, Format::Psl, NonZeroUsize::MIN).unwrap_err();
     assert!(e.to_string().contains("gloci convert"), "{e}");
 }

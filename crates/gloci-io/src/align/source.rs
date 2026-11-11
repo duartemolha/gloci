@@ -181,20 +181,13 @@ written as it is; convert it to BAM first (gloci view {0} -O bam -o x.bam) and r
             input.name
         ))
         .into()),
-        Format::Sam => Ok(Box::new(SamSource {
+        // SAM: only BAM, CRAM and SAM get past the check above.
+        _ => Ok(Box::new(SamSource {
             lines: SamLines::open(input, map)?,
             diag: Diagnostics::default(),
             policy: o.invalid,
             opts,
         })),
-        other => Err(IoError::Detect {
-            path: input.name.clone(),
-            msg: format!(
-                "{} is {}, and reading it is not available in this build yet",
-                input.name,
-                other.name()
-            ),
-        }),
     }
 }
 

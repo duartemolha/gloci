@@ -90,10 +90,6 @@ pub struct Accept {
     pub alignments: Option<AlignOptions>,
     /// The command is `convert`, which also reads PSL and RepeatMasker.
     pub convert_only: bool,
-    /// The command will read alignments once their reader lands (intersect, coverage,
-    /// genomecov, view, sort, index): until then the gate says so instead of claiming
-    /// that the command never reads them.
-    pub alignments_planned: bool,
 }
 
 const FLAG_NAMES: [(&str, u16); 12] = [
@@ -162,31 +158,12 @@ fn gate_error(kind: GateKind, msg: String) -> IoError {
     IoError::Gate { kind, msg }
 }
 
-/// Refuse a format the command does not read (D100), or say that its reader is not built yet.
+/// Refuse a format the command does not read (D100).
 pub fn gate(name: &str, format: Format, accept: &Accept) -> Result<(), IoError> {
-    let not_yet = || {
-        gate_error(
-            GateKind::NotYet,
-            format!(
-                "{name} is {}, and reading it is not available in this build yet",
-                format.name()
-            ),
-        )
-    };
     if format.is_alignment() {
         // BAM, CRAM and SAM are read by every command that reads alignments (D100).
-        let readable = matches!(format, Format::Bam | Format::Cram | Format::Sam);
-        if readable && accept.alignments.is_some() {
-            return Ok(());
-        }
         if accept.alignments.is_some() {
-            return Err(IoError::Detect {
-                path: name.to_string(),
-                msg: not_yet().to_string(),
-            });
-        }
-        if accept.alignments_planned {
-            return Err(not_yet());
+            return Ok(());
         }
         return Err(gate_error(
             GateKind::NoAlignments,

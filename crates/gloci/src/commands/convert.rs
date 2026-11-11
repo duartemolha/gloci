@@ -53,7 +53,6 @@ pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
                 ..a.align.options(false)?
             }),
             convert_only: true,
-            alignments_planned: false,
         },
         chrom_map: a.chrom_map.load()?,
         threads: ctx.threads,

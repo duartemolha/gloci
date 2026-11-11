@@ -564,12 +564,12 @@ gloci view {name} -o x.bam --write-index"
         .into());
     }
     if tsv.is_none() && (format.is_alignment() || format == Format::Fasta) {
-        // CRAM (CRAI) and FASTA (FAI) are indexed by their own commands.
-        return Err(UsageError(format!(
-            "{name} is {}, and indexing it is not available in this build yet",
+        // `gloci index` sends CRAM to write_crai and FASTA to write_fasta_index.
+        return Err(IoError::Internal(format!(
+            "write_index was given {name}, which is {}; its index is written by write_crai or \
+write_fasta_index",
             format.name()
-        ))
-        .into());
+        )));
     }
     if tsv.is_none() && format.is_convert_only() {
         return Err(UsageError(format!(
