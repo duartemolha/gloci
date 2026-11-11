@@ -20,7 +20,7 @@ use gloci_vcf::{
 };
 use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 /// A `--include` or `--exclude` expression (decision D71).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -624,11 +624,13 @@ pub fn inflight_peak() -> usize {
 }
 
 /// Test hook: the batch number a worker panics on (`u64::MAX` = never).
-static PANIC_AT_BATCH: AtomicU64 = AtomicU64::new(u64::MAX);
+#[cfg(feature = "test-hooks")]
+static PANIC_AT_BATCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
 
 /// Make the worker that takes batch `seq` (0-based) panic, to test that the
-/// stage reports the panic instead of hanging. `None` turns it off.
-#[doc(hidden)]
+/// stage reports the panic instead of hanging. `None` turns it off. Only with
+/// the `test-hooks` feature.
+#[cfg(feature = "test-hooks")]
 pub fn set_worker_panic_at(seq: Option<u64>) {
     PANIC_AT_BATCH.store(seq.unwrap_or(u64::MAX), Ordering::SeqCst);
 }
@@ -684,6 +686,7 @@ struct Done {
 
 fn work_batch(spec: &Spec<'_>, core: &mut Core, mut job: Job, flight: &AtomicUsize) -> Done {
     let mut err = None;
+    #[cfg(feature = "test-hooks")]
     if job.seq == PANIC_AT_BATCH.load(Ordering::SeqCst) {
         // `resume_unwind` panics without the panic hook's message.
         std::panic::resume_unwind(Box::new("test hook: worker panic"));

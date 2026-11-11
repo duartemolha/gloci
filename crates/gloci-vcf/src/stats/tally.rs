@@ -64,9 +64,22 @@ impl SampleTally {
         }
     }
 
-    fn ensure(&mut self, k: usize) {
-        for c in self.columns() {
-            if c.len() != k {
+    /// Size the columns of the requested counters for `k` samples; the
+    /// others stay empty.
+    fn ensure(&mut self, k: usize, wants: TallyWants) {
+        let used = [
+            (wants.depth, 0),
+            (wants.depth, 1),
+            (wants.missing, 2),
+            (wants.missing, 3),
+            (wants.missing, 4),
+            (wants.het, 5),
+            (wants.het, 6),
+        ];
+        let mut cols = self.columns();
+        for (want, i) in used {
+            let c = &mut *cols[i];
+            if want && c.len() != k {
                 c.clear();
                 c.resize(k, 0);
             }
@@ -115,7 +128,7 @@ impl SampleTally {
         called: &mut Vec<u64>,
     ) -> Result<bool, String> {
         let k = samples.len();
-        self.ensure(k);
+        self.ensure(k, wants);
         let diploid_ok = !st.polyploid;
         let het_site = wants.het
             && diploid_ok
@@ -160,5 +173,25 @@ impl SampleTally {
             }
         }
         Ok(het_site)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_requested_columns_are_sized() {
+        let mut t = SampleTally::default();
+        t.ensure(
+            5,
+            TallyWants {
+                het: true,
+                ..TallyWants::default()
+            },
+        );
+        assert_eq!((t.o_hom.len(), t.n_sites.len()), (5, 5));
+        assert!(t.dp_sum.is_empty() && t.dp_n.is_empty());
+        assert!(t.data.is_empty() && t.filtered.is_empty() && t.miss.is_empty());
     }
 }
