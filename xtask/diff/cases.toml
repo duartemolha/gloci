@@ -5307,3 +5307,12 @@ aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai", "xtask/
 gloci = "gloci view -O sam input.cram --reference ref.fa chr1:1001-1010"
 reference = "samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa input.cram chr1:1001-1010"
 compare = "sam"
+
+# htslib keeps CRAM's internal `cF` tag to itself, so samtools prints none (even one a read
+# carried in): gloci strips it.
+[[case]]
+name = "view-cram-cf-tag-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/cf.noref.cram" }
+gloci = "gloci view -O sam input.noref.cram"
+reference = "samtools view -h --no-PG --input-fmt-option decode_md=0 input.noref.cram"
+compare = "sam"

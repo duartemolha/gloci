@@ -203,3 +203,13 @@ samtools view -C -@ 0 --no-PG -T ../fa/manyref.fa --output-fmt-option version=3.
     --output-fmt-option seqs_per_slice=50 -o manyref.cram tmp-manyref.sam
 rm tmp-manyref.sam
 samtools index manyref.cram
+# cf.noref.cram: no reference, reads without tags (one with an insertion) and one that carries a
+# `cF` tag of its own. htslib keeps `cF` to itself when it decodes, whatever its value, so
+# samtools prints none (gloci strips it too).
+printf '@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:1000\n' > tmp-cf.sam
+printf 'a\t0\tchr1\t10\t60\t10M\t*\t0\t0\tACGTACGTAC\tIIIIIIIIII\tcF:i:7\tXX:i:1\n' >> tmp-cf.sam
+printf 'b\t0\tchr1\t20\t60\t4M2I4M\t*\t0\t0\tACGTACGTAC\tIIIIIIIIII\n' >> tmp-cf.sam
+printf 'c\t16\tchr1\t30\t60\t10M\t*\t0\t0\tACGTACGTAC\tIIIIIIIIII\n' >> tmp-cf.sam
+samtools view -C -@ 0 --no-PG --output-fmt-option version=3.0 --output-fmt-option no_ref=1 \
+    -o cf.noref.cram tmp-cf.sam
+rm tmp-cf.sam

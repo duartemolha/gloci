@@ -628,11 +628,75 @@ the slice's longest read; see #cram-limits in docs/differences.md)",
                 return Err(self.corrupt(c, &format!("a record cannot be written as BAM: {e}")));
             }
             let rec = self.bam.get_mut();
+            strip_cf(rec);
             htslib_fields(&mut rec[4..]);
             out.extend_from_slice(rec);
         }
         Ok(())
     }
+}
+
+/// Remove the `cF` aux tag from the BAM record `rec` (with its `block_size`): htslib keeps it
+/// to itself when it decodes a CRAM (samtools prints no `cF`, whatever its value), and
+/// samtools 1.21 stores one in CRAMs it writes without a reference. A record whose aux data
+/// does not parse is left as it is (the BAM reader reports it).
+pub(crate) fn strip_cf(rec: &mut Vec<u8>) {
+    let strip = |rec: &[u8]| -> Option<Vec<(usize, usize)>> {
+        let b = rec.get(4..)?;
+        let l_name = usize::from(*b.get(8)?);
+        let n_cigar = usize::from(u16::from_le_bytes([*b.get(12)?, *b.get(13)?]));
+        let l_seq =
+            u32::from_le_bytes([*b.get(16)?, *b.get(17)?, *b.get(18)?, *b.get(19)?]) as usize;
+        let mut at = 32usize
+            .checked_add(l_name)?
+            .checked_add(n_cigar.checked_mul(4)?)?
+            .checked_add(l_seq.div_ceil(2))?
+            .checked_add(l_seq)?;
+        let mut cuts = Vec::new();
+        while at < b.len() {
+            let start = at;
+            let tag = b.get(at..at + 2)?;
+            let ty = *b.get(at + 2)?;
+            at += 3;
+            let size = match ty {
+                b'A' | b'c' | b'C' => 1,
+                b's' | b'S' => 2,
+                b'i' | b'I' | b'f' => 4,
+                b'Z' | b'H' => b.get(at..)?.iter().position(|&c| c == 0)? + 1,
+                b'B' => {
+                    let sub = *b.get(at)?;
+                    let n = u32::from_le_bytes([
+                        *b.get(at + 1)?,
+                        *b.get(at + 2)?,
+                        *b.get(at + 3)?,
+                        *b.get(at + 4)?,
+                    ]) as usize;
+                    let w = match sub {
+                        b'c' | b'C' => 1,
+                        b's' | b'S' => 2,
+                        b'i' | b'I' | b'f' => 4,
+                        _ => return None,
+                    };
+                    5 + n.checked_mul(w)?
+                }
+                _ => return None,
+            };
+            at = at.checked_add(size)?;
+            if at > b.len() {
+                return None;
+            }
+            if tag == b"cF" {
+                cuts.push((4 + start, 4 + at));
+            }
+        }
+        Some(cuts)
+    };
+    let Some(cuts) = strip(rec) else { return };
+    for (from, to) in cuts.into_iter().rev() {
+        rec.drain(from..to);
+    }
+    let block = (rec.len() - 4) as u32;
+    rec[..4].copy_from_slice(&block.to_le_bytes());
 }
 
 /// Set the fields htslib derives when it decodes a CRAM record: MAPQ 0 for an unmapped read
@@ -779,6 +843,43 @@ impl ExtentDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A BAM record (with `block_size`) named `r` with no bases and this aux data.
+    fn record_with_aux(aux: &[u8]) -> Vec<u8> {
+        let mut body = vec![0u8; 32];
+        body[8] = 2; // l_read_name
+        body.extend_from_slice(b"r\0");
+        body.extend_from_slice(aux);
+        let mut rec = (body.len() as u32).to_le_bytes().to_vec();
+        rec.extend(body);
+        rec
+    }
+
+    /// `cF` goes, whatever its type and place; the other tags and the block size stay right.
+    #[test]
+    fn cf_tag_is_stripped() {
+        let keep = [b"XX".as_slice(), b"Z", b"hi\0"].concat();
+        let cf_int = [b"cF".as_slice(), b"i", &3i32.to_le_bytes()].concat();
+        let cf_arr = [b"cF".as_slice(), b"B", b"c", &2u32.to_le_bytes(), &[1, 2]].concat();
+        let want = record_with_aux(&keep);
+        for aux in [
+            [cf_int.clone(), keep.clone()].concat(),
+            [keep.clone(), cf_int.clone()].concat(),
+            [cf_arr.clone(), keep.clone(), cf_int.clone()].concat(),
+        ] {
+            let mut rec = record_with_aux(&aux);
+            strip_cf(&mut rec);
+            assert_eq!(rec, want);
+        }
+        let mut none = record_with_aux(&keep);
+        strip_cf(&mut none);
+        assert_eq!(none, want);
+        // Aux data that does not parse is left alone.
+        let mut bad = record_with_aux(b"cF?");
+        let before = bad.clone();
+        strip_cf(&mut bad);
+        assert_eq!(bad, before);
+    }
 
     fn head(ref_id: i32, records: usize) -> SliceHead {
         SliceHead {
