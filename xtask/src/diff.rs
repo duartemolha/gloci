@@ -76,6 +76,7 @@ pub fn load_cases(path: &Path) -> Result<Vec<Case>> {
                     | "numeric"
                     | "sam"
                     | "bam"
+                    | "cram"
             ),
             "{}: unknown compare mode `{}`",
             c.name,
