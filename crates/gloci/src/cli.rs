@@ -617,8 +617,8 @@ Examples:
     #[command(after_long_help = "\
 Examples:
   gloci convert calls.vcf.gz -o calls.bed
-  gloci convert reads.bam --bed12 -o reads.bed
-  gloci convert reads.bam --blocks --score-tag NM --min-mapq 30
+  gloci convert transcripts.bed --blocks -o exons.bed
+  gloci convert reads.bam --bed12 --score-tag NM --min-mapq 30
   gloci convert reads.byname.bam --bedpe -o pairs.bedpe")]
     Convert(ConvertArgs),
     /// Write the sequence under each interval (bedtools getfasta).
