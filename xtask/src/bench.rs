@@ -108,6 +108,11 @@ pub struct Case {
     /// cases (cat, maskfasta, sort output), whose wall clock is noisy on a slow disk.
     #[serde(default = "default_runs")]
     pub runs: u32,
+    /// `windows`: `{in_b}` of an alignment setup is every 30th window of
+    /// `gloci windows` over its reference, sized for about 10,000 targets
+    /// (the `bedcov` cases), instead of the synthesised target intervals.
+    #[serde(default)]
+    pub in_b: Option<String>,
 }
 
 /// Timed runs per tool unless a case sets `runs`.
@@ -452,6 +457,17 @@ fn prepare_sam(
     if !PathBuf::from(format!("{}.fai", reference.display())).exists() {
         run_ok(Command::new(gloci).arg("index").arg(&reference))?;
     }
+    let mut in_b = targets;
+    if case.in_b.as_deref() == Some("windows") {
+        in_b = dir.join(format!("{stem}.windows.bed"));
+        if !in_b.exists() {
+            write_window_targets(
+                gloci,
+                &PathBuf::from(format!("{}.fai", reference.display())),
+                &in_b,
+            )?;
+        }
+    }
     let mut in_a = bams[0].clone();
     if case.input == "cram" {
         let cram = dir.join(format!("{stem}.cram"));
@@ -486,10 +502,42 @@ fn prepare_sam(
     }
     Ok(PreparedInputs {
         in_a,
-        in_b: Some(targets),
+        in_b: Some(in_b),
         reference: Some(reference),
         ins: bams,
     })
+}
+
+/// A BED of about 10,000 windows: every 30th window of `gloci windows` over
+/// the `.fai`, in windows of `total length / 300,000` bases (at least 1 kb).
+fn write_window_targets(gloci: &Path, fai: &Path, bed: &Path) -> Result<()> {
+    let total: u64 = std::fs::read_to_string(fai)?
+        .lines()
+        .filter_map(|l| l.split('\t').nth(1)?.parse::<u64>().ok())
+        .sum();
+    let size = (total / 300_000).max(1000);
+    let out = Command::new(gloci)
+        .args(["windows", "-g"])
+        .arg(fai)
+        .args(["-w", &size.to_string()])
+        .output()
+        .context("running gloci windows")?;
+    ensure!(
+        out.status.success(),
+        "gloci windows failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = String::from_utf8(out.stdout)?;
+    let mut kept = String::new();
+    for l in text.lines().step_by(30) {
+        kept.push_str(l);
+        kept.push('\n');
+    }
+    ensure!(!kept.is_empty(), "no window targets for {}", fai.display());
+    let tmp = bed.with_extension("bed.partial");
+    std::fs::write(&tmp, kept)?;
+    std::fs::rename(&tmp, bed)?;
+    Ok(())
 }
 
 /// Generate (or reuse) the FASTA, its `.fai` and the BED of intervals of a
@@ -715,6 +763,7 @@ fn tool_binary(tool: &str) -> &str {
         "grit-genomics" => "grit",
         "vcfkit" => "vk",
         "vcftools-5runs" => "vcftools",
+        "samtools-t8" | "samtools-all" => "samtools",
         "bcftools-stats" => "bcftools",
         _ => tool,
     }
@@ -1249,6 +1298,15 @@ mod tests {
             "sort-name-bam-50M",
             "merge-bam-8x",
             "cat-bam-8x",
+            // P3c cases
+            "flagstat-bam-50M",
+            "idxstats-bam-200k-sq",
+            "view-count-bam-50M",
+            "depth-bam-50M",
+            "bedcov-bam-10k-targets",
+            "faidx-10k-regions",
+            "dict-3G",
+            "reheader-bam-50M",
         ];
         for exp in expected {
             assert!(names.contains(&exp), "missing expected case `{exp}`");
@@ -1326,6 +1384,7 @@ mod tests {
             commands: BTreeMap::new(),
             targets: Vec::new(),
             runs: DEFAULT_RUNS,
+            in_b: None,
         };
         let inputs = prepare_input(&c, c.setup.as_deref(), &gloci, td.path(), None).unwrap();
         assert!(inputs.in_a.exists());
@@ -1481,12 +1540,12 @@ mod tests {
         assert!(checked >= 6, "only {checked} vcf cases checked");
     }
 
-    /// Every P3a case's gloci command runs on a tiny generated version of its
+    /// Every P3a and P3c case's gloci command runs on a tiny generated version of its
     /// own setup (a SAM, or a FASTA with its BED), succeeds and writes
     /// output. A CRAM case reads the BAM here (samtools makes the CRAM only
     /// in the benchmark image); `{ref}` is still the generated reference.
     #[test]
-    fn p3a_gloci_bench_commands_run_on_small_data() {
+    fn gloci_bench_commands_run_on_small_data() {
         use std::process::Stdio;
         let gloci = match std::env::var_os("GLOCI_BIN") {
             Some(b) => PathBuf::from(b),
@@ -1508,6 +1567,13 @@ mod tests {
             set_setup_value(&mut words, "--records", "4000".into());
             if kind == Some("fasta") {
                 set_setup_value(&mut words, "--chrom-len", "60000".into());
+            }
+            if setup_value::<u64>(&words, "--chroms").unwrap_or(0) > 1000 {
+                // A 200k-contig reference is 10 Gbases: keep the shape, not the size.
+                set_setup_value(&mut words, "--chroms", "300".into());
+            }
+            if c.name.starts_with("faidx-") {
+                set_setup_value(&mut words, "--records", "300".into());
             }
             let small = Case {
                 input: if c.input == "cram" {
@@ -1570,6 +1636,6 @@ mod tests {
             );
             checked += 1;
         }
-        assert_eq!(checked, 13, "P3a cases run");
+        assert_eq!(checked, 21, "P3a and P3c cases run");
     }
 }
