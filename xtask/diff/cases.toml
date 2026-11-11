@@ -5498,3 +5498,20 @@ gloci = "gloci vcf annotate input.vcf -m +ALL"
 reference = "bcftools annotate --no-version -m +ALL input.vcf >/dev/null 2>&1 || exit 1"
 compare = "exit-status"
 expected_difference = "#vcf-annotate-lenient"
+
+# For a String Number=A or R tag bcftools fills only missing values, with or without +.
+[[case]]
+name = "vcf-annotate-vcf-string-ar-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file-str.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/src-str.vcf"]
+gloci = "gloci vcf annotate input.vcf -a src-str.vcf -c INFO/AS,INFO/RS"
+reference = "bgzip -c input.vcf > f.vcf.gz && tabix -p vcf f.vcf.gz && bgzip -c src-str.vcf > s.vcf.gz && tabix -p vcf s.vcf.gz && bcftools annotate --no-version -a s.vcf.gz -c INFO/AS,INFO/RS f.vcf.gz"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-vcf-string-ar-plus-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file-str.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/src-str.vcf"]
+gloci = "gloci vcf annotate input.vcf -a src-str.vcf -c +INFO/AS,+INFO/RS"
+reference = "bgzip -c input.vcf > f.vcf.gz && tabix -p vcf f.vcf.gz && bgzip -c src-str.vcf > s.vcf.gz && tabix -p vcf s.vcf.gz && bcftools annotate --no-version -a s.vcf.gz -c +INFO/AS,+INFO/RS f.vcf.gz"
+compare = "vcf-records"

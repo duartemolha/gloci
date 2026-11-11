@@ -335,7 +335,9 @@ fn ar_transfer(
         out = existing.clone();
         for (i, m) in map.iter().enumerate().take(ndst) {
             let Some(m) = m else { continue };
-            if col.plus && out.get(i).is_none_or(|t| t != b".") {
+            // bcftools fills only missing values of a String A/R tag, with or
+            // without +.
+            if out.get(i).is_none_or(|t| t != b".") {
                 continue;
             }
             let v = src_vals.get(*m).cloned().unwrap_or_else(|| b".".to_vec());

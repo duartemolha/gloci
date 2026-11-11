@@ -1,0 +1,10 @@
+##fileformat=VCFv4.2
+##contig=<ID=1,length=100000>
+##INFO=<ID=AS,Number=A,Type=String,Description="String per ALT">
+##INFO=<ID=RS,Number=R,Type=String,Description="String per allele">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+1	100	.	T	C	.	.	AS=a
+1	200	.	T	C,G	.	.	AS=.,x
+1	300	.	T	C	.	.	RS=a,b
+1	400	.	T	C	.	.	.
+1	500	.	T	C,G	.	.	AS=y,.;RS=.,.,z
