@@ -1216,3 +1216,35 @@ fn flag_with_a_sign_is_refused() {
         assert!(e.contains("FLAG"), "{f}: {e}");
     }
 }
+
+/// `Aln::view` of a checked record gives what `Aln::parse` gives: plain, soft-clipped,
+/// unmapped, SEQ `*`, two-operation and `CG`-placeholder records.
+#[test]
+fn aln_view_equals_aln_parse() {
+    let h = header_of("@SQ\tSN:chr1\tLN:1000\n@SQ\tSN:chr2\tLN:500\n");
+    let lines = [
+        "r1\t0\tchr1\t10\t60\t4M\t*\t0\t0\tACGT\tIIII",
+        "r2\t16\tchr1\t20\t3\t2S2M\t=\t40\t30\tACGT\tIIII\tNM:i:0",
+        "r3\t4\t*\t0\t0\t*\t*\t0\t0\tACGT\t*",
+        "r4\t0\tchr2\t5\t0\t3M2D1M\tchr1\t7\t0\t*\t*",
+        "r5\t0\tchr1\t100\t60\t4S10N\t*\t0\t0\tACGT\tIIII\tCG:B:I,64",
+        "r6\t1\tchr2\t1\t255\t1M1I2M\t*\t0\t0\tACGT\tIIII\tXS:Z:hello",
+    ];
+    for line in lines {
+        let mut raw = Vec::new();
+        sam_line_to_bam(line.as_bytes(), &h, &mut raw).unwrap();
+        let parsed = Aln::parse(&raw, &h).unwrap();
+        let viewed = Aln::view(&raw, &h).unwrap();
+        assert_eq!(format!("{viewed:?}"), format!("{parsed:?}"), "{line}");
+        let a = aln_view(Format::Bam, &raw, &h).unwrap();
+        assert_eq!(
+            format!("{a:?}"),
+            format!("{:?}", aln_ref(Format::Bam, &raw, &h).unwrap())
+        );
+    }
+    // A record that does not frame is parsed, with parse's error.
+    assert_eq!(
+        Aln::view(&[0u8; 10], &h).unwrap_err(),
+        Aln::parse(&[0u8; 10], &h).unwrap_err()
+    );
+}

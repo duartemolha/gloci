@@ -204,6 +204,43 @@ the flag should include 4 (unmapped), or the record needs a reference and positi
         Ok(a)
     }
 
+    /// View the record `raw` that an [`AlnSource`](super::AlnSource) returned, and so checked:
+    /// the fields [`Aln::parse`] gives, without checking the CIGAR again. A record that does
+    /// not frame (or holds a `CG` placeholder) is parsed in full.
+    pub fn view(raw: &'a [u8], h: &AlnHeader) -> Result<Aln<'a>, String> {
+        let Some(fixed) = raw.get(..FIXED) else {
+            return Aln::parse(raw, h);
+        };
+        let l_name = usize::from(fixed[8]);
+        let n_cigar = usize::from(u16::from_le_bytes([fixed[12], fixed[13]]));
+        let l_seq = u32_at(fixed, 16) as usize;
+        let name_end = FIXED + l_name;
+        let cigar_end = name_end + 4 * n_cigar;
+        let tags_at = l_seq
+            .checked_add(l_seq.div_ceil(2))
+            .and_then(|s| cigar_end.checked_add(s))
+            .filter(|&t| t <= raw.len());
+        let Some(tags_at) = tags_at.filter(|_| l_name >= 2) else {
+            return Aln::parse(raw, h);
+        };
+        let inline_cigar = &raw[name_end..cigar_end];
+        // The placeholder of a CIGAR held in a `CG` tag (`kS nN`).
+        if n_cigar == 2 && inline_cigar[0] & 0xf == 4 && inline_cigar[4] & 0xf == 3 {
+            return Aln::parse(raw, h);
+        }
+        Ok(Aln {
+            raw,
+            ref_id: i32_at(fixed, 0),
+            pos: i32_at(fixed, 4),
+            flag: u16::from_le_bytes([fixed[14], fixed[15]]),
+            mapq: fixed[9],
+            name: &raw[FIXED..name_end - 1],
+            inline_cigar,
+            cigar: inline_cigar,
+            tags: &raw[tags_at..],
+        })
+    }
+
     /// The words of a `CG:B:I` tag.
     fn cg_array(&self) -> Result<Option<&'a [u8]>, String> {
         for t in tags(self.tags) {
@@ -583,6 +620,15 @@ pub fn aln_ref<'a>(f: Format, raw: &'a [u8], h: &AlnHeader) -> Result<AlnRef<'a>
             "{} records cannot be read as alignments here",
             other.name()
         )),
+    }
+}
+
+/// [`aln_ref`] of a record that an [`AlnSource`](super::AlnSource) returned, and so checked:
+/// BAM bytes are viewed with [`Aln::view`], without checking them again.
+pub fn aln_view<'a>(f: Format, raw: &'a [u8], h: &AlnHeader) -> Result<AlnRef<'a>, String> {
+    match f {
+        Format::Bam | Format::Cram => Aln::view(raw, h).map(AlnRef::Bam),
+        _ => aln_ref(f, raw, h),
     }
 }
 

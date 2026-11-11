@@ -5,7 +5,7 @@ use super::mates::MateTable;
 use super::ring::{CountRules, DepthRing};
 use super::{AllPositions, DepthOptions};
 use gloci_core::Interval;
-use gloci_io::{AlnHeader, AlnRef, AlnSource, Diagnostics, IoError, Loc, OrderError, aln_ref};
+use gloci_io::{AlnHeader, AlnRef, AlnSource, Diagnostics, IoError, Loc, OrderError, aln_view};
 use std::io;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -311,7 +311,8 @@ impl Input {
             let Some(rec) = src.next_record(&mut self.buf)? else {
                 return Ok(());
             };
-            let a = aln_ref(self.layout, &self.buf, &self.hdr).map_err(|msg| IoError::Parse {
+            // The source checked the record.
+            let a = aln_view(self.layout, &self.buf, &self.hdr).map_err(|msg| IoError::Parse {
                 path: self.name.clone(),
                 loc: Loc::Record(rec),
                 msg,
@@ -374,7 +375,7 @@ depth counts only the bases up to LN, where samtools prints rows beyond it (this
     fn add_current(&mut self, plan: &Plan<'_>) -> Result<(), IoError> {
         let Some(c) = self.cur else { return Ok(()) };
         // `advance` parsed this record already; the buffer has not changed since.
-        let a = aln_ref(self.layout, &self.buf, &self.hdr).map_err(|msg| {
+        let a = aln_view(self.layout, &self.buf, &self.hdr).map_err(|msg| {
             IoError::Internal(format!(
                 "{}: a record that parsed once does not parse again: {msg}",
                 self.name

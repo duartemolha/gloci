@@ -25,7 +25,7 @@ pub use cram_prelude::{
 };
 pub use flags::{SAM_FLAGS, flag_names, parse_flags};
 pub use header::{AlnHeader, AlnSortOrder, SortOrder};
-pub use record::{Aln, AlnRef, aln_ref, blocks, blocks_within};
+pub use record::{Aln, AlnRef, aln_ref, aln_view, blocks, blocks_within};
 pub use region::alignment_query_span;
 pub(crate) use region::{BamRegionParse, index_span};
 pub use reheader::{
