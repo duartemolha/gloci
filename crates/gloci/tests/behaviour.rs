@@ -5820,3 +5820,390 @@ fn p3c_empty_inputs_matrix() {
     assert!(!dir.join("hx.fa.fai").exists());
     assert!(ran.get() > 80, "ran {}", ran.get());
 }
+
+/// Each damaged alignment file fails every P3c command that reads it: exit 1, one `error:` line
+/// that says what is wrong (`check --quick` reports it in its summary), nothing left behind, at
+/// `-t 1` and `-t 4`. A BAM without its BGZF end-of-file block and a CRAM cut short or without its
+/// end-of-file container are caught before any result is written.
+#[test]
+fn p3c_failure_matrix_bad_inputs() {
+    let fx = P3a::new();
+    let dir = fx.path("bad");
+    std::fs::create_dir(&dir).unwrap();
+    let dir = Path::new(&dir);
+    let cram_bytes = std::fs::read(&fx.cram).unwrap();
+    let half_cram = s_of(&write(
+        dir,
+        "half.cram",
+        &cram_bytes[..cram_bytes.len() / 2],
+    ));
+    let noeof_cram = s_of(&write(
+        dir,
+        "noeof.cram",
+        &cram_bytes[..cram_bytes.len() - 38],
+    ));
+    // a BAM with its index beside it, so that bedcov gets as far as the end-of-file check
+    let noeof_bam = dir.join("noeof.bam");
+    std::fs::copy(p3a_aln("cat-noeof.bam"), &noeof_bam).unwrap();
+    std::fs::copy(format!("{}.bai", fx.bam), dir.join("noeof.bam.bai")).unwrap();
+    let noeof_bam = s_of(&noeof_bam);
+    let noeof_bam_msg = "BGZF end-of-file marker missing";
+    let cram_msg = "the CRAM end-of-file container is missing";
+    let hdr = s_of(&plain_file(
+        dir,
+        "new.sam",
+        "@HD\tVN:1.6\n@SQ\tSN:chr1\tLN:1\n",
+    ));
+    let bed = fx.bed.as_str();
+    let ref_args = ["--reference", fx.fa.as_str()];
+    let cases: Vec<(&str, &String, &str)> = vec![
+        ("BAM without its EOF block", &noeof_bam, noeof_bam_msg),
+        ("truncated CRAM", &half_cram, cram_msg),
+        ("CRAM without its EOF container", &noeof_cram, cram_msg),
+    ];
+    let mut ran = 0;
+    for (what, bad, msg) in cases {
+        let is_cram = bad.ends_with(".cram");
+        // (name, template, whether `-o FILE` is accepted, whether the file is an alignment reader)
+        let cmds: Vec<(&str, Vec<&str>, bool)> = vec![
+            ("idxstats", vec!["idxstats", "{IN}"], false),
+            ("flagstat", vec!["flagstat", "{IN}"], true),
+            ("head", vec!["head", "{IN}", "--records", "1"], false),
+            ("samples", vec!["samples", "{IN}"], true),
+            ("view --count", vec!["view", "--count", "{IN}"], true),
+            ("depth", vec!["depth", "{IN}"], true),
+            ("bedcov", vec!["bedcov", bed, "{IN}"], true),
+            ("reheader", vec!["reheader", &hdr, "{IN}"], true),
+            ("check --quick", vec!["check", "--quick", "{IN}"], false),
+        ];
+        for (name, mut tpl, takes_o) in cmds {
+            if is_cram && !matches!(name, "samples" | "reheader" | "check --quick") {
+                tpl.extend(ref_args);
+            }
+            for t in ["1", "4"] {
+                let out = tempdir();
+                let mut args: Vec<String> = tpl.iter().map(|a| a.replace("{IN}", bad)).collect();
+                if takes_o {
+                    args.extend(["-o".into(), s_of(&out.path().join("out.txt"))]);
+                }
+                args.extend(["-t".into(), t.into()]);
+                if name == "samples" {
+                    args.truncate(args.len() - 2); // no -t
+                }
+                let o = gloci().args(&args).output().unwrap();
+                let (err, so) = (
+                    String::from_utf8_lossy(&o.stderr),
+                    String::from_utf8_lossy(&o.stdout),
+                );
+                assert_eq!(o.status.code(), Some(1), "{name} / {what} -t {t}: {err}");
+                if name == "check --quick" {
+                    assert!(
+                        so.contains("failed the quick check") && so.contains("FAILED"),
+                        "{name} / {what}: {so}"
+                    );
+                } else {
+                    assert!(
+                        err.starts_with("error: ") && err.contains(msg),
+                        "{name} / {what} -t {t}: wanted `{msg}` in: {err}"
+                    );
+                    assert!(so.is_empty(), "{name} / {what} -t {t}: stdout {so}");
+                }
+                assert_eq!(
+                    std::fs::read_dir(out.path()).unwrap().count(),
+                    0,
+                    "{name} / {what} -t {t}: left a file behind"
+                );
+                ran += 1;
+            }
+        }
+    }
+    // reheader's -o may name IN: the damaged file is left as it was
+    let before = std::fs::read(&noeof_bam).unwrap();
+    gloci()
+        .args(["reheader", &hdr, &noeof_bam, "-o", &noeof_bam])
+        .assert()
+        .code(1)
+        .stderr(contains(noeof_bam_msg));
+    assert_eq!(std::fs::read(&noeof_bam).unwrap(), before);
+    let keep = [
+        "half.cram",
+        "noeof.bam",
+        "noeof.bam.bai",
+        "new.sam",
+        "noeof.cram",
+    ];
+    assert_eq!(leftovers(dir, &keep), Vec::<String>::new());
+    assert_eq!(ran, 3 * 9 * 2);
+}
+
+/// An unsorted BAM or CRAM is refused by `depth` with the `gloci sort` hint, naming the records,
+/// at every thread count and for several inputs; nothing is written. A damaged FASTA is refused
+/// by `faidx` and `dict` the same way.
+#[test]
+fn p3c_failure_matrix_unsorted_and_fasta() {
+    let fx = P3a::new();
+    let d = fx.path("uns");
+    let d = Path::new(&d);
+    std::fs::create_dir(d).unwrap();
+    let ref_fa = p3a_fa("ref.fa");
+    for (kind, bad, extra) in [
+        ("bam", p3a_aln("sort.bam"), vec![]),
+        (
+            "cram",
+            p3a_aln("unsorted.cram"),
+            vec!["--reference", ref_fa.as_str()],
+        ),
+    ] {
+        for inputs in [vec![&bad], vec![&bad, &bad]] {
+            for t in ["1", "4"] {
+                let out = d.join(format!("{kind}-{}-{t}.out", inputs.len()));
+                let mut args: Vec<String> = vec!["depth".into()];
+                args.extend(inputs.iter().map(|s| s.to_string()));
+                args.extend(extra.iter().map(|s| s.to_string()));
+                args.extend(["-o".into(), s_of(&out), "-t".into(), t.into()]);
+                let o = gloci().args(&args).output().unwrap();
+                let err = String::from_utf8_lossy(&o.stderr);
+                assert_eq!(o.status.code(), Some(1), "{kind} {t}: {err}");
+                assert!(
+                    err.starts_with("error: ")
+                        && err.contains("is not sorted: record")
+                        && err.contains("comes after record")
+                        && err.contains("hint: run: gloci sort "),
+                    "{kind} {t}: {err}"
+                );
+                assert!(!out.exists(), "{kind} {t}: partial output");
+            }
+        }
+    }
+    assert_eq!(leftovers(d, &[]).len(), 0, "{:?}", leftovers(d, &[]));
+
+    // FASTA files faidx and dict cannot use
+    let nl = plain_file(d, "nolines.fa", "ACGT\n");
+    let dup = p3a_fa("dup-name.fa");
+    for t in ["1", "4"] {
+        gloci()
+            .args(["dict", &s_of(&nl), "-t", t])
+            .assert()
+            .code(1)
+            .stderr(starts_with_error())
+            .stdout("");
+        gloci()
+            .args(["dict", &dup, "-t", t])
+            .assert()
+            .code(1)
+            .stderr(starts_with_error().and(contains("was already used on line 1")));
+        // to a file, nothing is left behind
+        let out = d.join(format!("dup-{t}.dict"));
+        gloci()
+            .args(["dict", &dup, "-t", t, "-o", &s_of(&out)])
+            .assert()
+            .code(1);
+        assert!(!out.exists(), "partial dict");
+    }
+}
+
+/// A missing index: `bedcov` (BAM or CRAM) exits 2 naming `gloci index`, `faidx` without its
+/// `.fai` or `.gzi` exits 2, and `idxstats`, `depth --region` and `view --count` with a region
+/// scan with one warning and give the indexed answer, at every thread count.
+#[test]
+fn p3c_failure_matrix_missing_index() {
+    let fx = P3a::new();
+    let d = fx.path("noidx");
+    let d = Path::new(&d);
+    std::fs::create_dir(d).unwrap();
+    let bare_bam = s_of(&d.join("many.bam"));
+    std::fs::copy(&fx.bam, &bare_bam).unwrap();
+    let bare_cram = s_of(&d.join("many.cram"));
+    std::fs::copy(&fx.cram, &bare_cram).unwrap();
+    assert!(!Path::new(&format!("{bare_bam}.bai")).exists());
+    assert!(!Path::new(&format!("{bare_cram}.crai")).exists());
+    for t in ["1", "4"] {
+        for (kind, bare, ix) in [("bam", &bare_bam, "bai"), ("cram", &bare_cram, "crai")] {
+            let mut args = vec!["bedcov", fx.bed.as_str(), bare.as_str(), "-t", t];
+            if kind == "cram" {
+                args.extend(["--reference", fx.fa.as_str()]);
+            }
+            let o = gloci().args(&args).output().unwrap();
+            let err = String::from_utf8_lossy(&o.stderr);
+            assert_eq!(o.status.code(), Some(2), "bedcov {kind}: {err}");
+            assert!(
+                err.starts_with("error: ")
+                    && err.contains("reads each region through an index")
+                    && err.contains(&format!("gloci index {bare}")),
+                "bedcov {kind} ({ix}): {err}"
+            );
+            assert!(o.stdout.is_empty());
+            // a second file with an index does not rescue the first
+            let mut args = vec!["bedcov", fx.bed.as_str(), bare.as_str()];
+            args.push(if kind == "bam" { &fx.bam } else { &fx.cram });
+            args.extend(["-t", t]);
+            if kind == "cram" {
+                args.extend(["--reference", fx.fa.as_str()]);
+            }
+            gloci().args(&args).assert().code(2);
+        }
+        // the scan answers give what the index gives
+        let want_idx = gloci().args(["idxstats", &fx.bam]).output().unwrap().stdout;
+        let o = gloci()
+            .args(["idxstats", &bare_bam, "-t", t])
+            .output()
+            .unwrap();
+        assert_eq!(o.status.code(), Some(0));
+        assert_eq!(o.stdout, want_idx, "idxstats scan");
+        assert_eq!(
+            String::from_utf8_lossy(&o.stderr)
+                .matches("warning:")
+                .count(),
+            1,
+            "{}",
+            String::from_utf8_lossy(&o.stderr)
+        );
+        for tpl in [
+            vec![
+                "depth",
+                "{IN}",
+                "--region",
+                "chr1:1-500",
+                "--region",
+                "chr2:100-900",
+            ],
+            vec!["depth", "{IN}", "--regions-file", fx.bed.as_str()],
+            vec!["view", "--count", "{IN}", "chr1:1-500", "chr2:100-900"],
+        ] {
+            let run = |input: &String| {
+                let a: Vec<String> = tpl.iter().map(|x| x.replace("{IN}", input)).collect();
+                gloci().args(&a).args(["-t", t]).output().unwrap()
+            };
+            let (with, without) = (run(&fx.bam), run(&bare_bam));
+            assert_eq!(without.status.code(), Some(0), "{tpl:?}");
+            assert!(with.stdout == without.stdout, "{tpl:?} -t {t}");
+            assert!(!with.stdout.is_empty());
+            let err = String::from_utf8_lossy(&without.stderr);
+            assert_eq!(err.matches("scanning the whole file").count(), 1, "{err}");
+            assert!(err.contains(&format!("gloci index {bare_bam}")), "{err}");
+            assert!(
+                String::from_utf8_lossy(&with.stderr).is_empty(),
+                "{}",
+                String::from_utf8_lossy(&with.stderr)
+            );
+        }
+    }
+    // faidx without its .fai or .gzi
+    let fa = d.join("ref.fa");
+    std::fs::copy(&fx.fa, &fa).unwrap();
+    let fagz = d.join("ref.fa.gz");
+    std::fs::copy(&fx.fa_gz, &fagz).unwrap();
+    std::fs::copy(format!("{}.fai", fx.fa_gz), d.join("ref.fa.gz.fai")).unwrap();
+    for t in ["1", "4"] {
+        for (path, msg) in [(&fa, "ref.fa.fai"), (&fagz, "ref.fa.gz.gzi")] {
+            for extra in [vec!["chr1:1-10"], vec!["--regions-file", fx.masks.as_str()]] {
+                let o = gloci()
+                    .args(["faidx", &s_of(path)])
+                    .args(&extra)
+                    .args(["-t", t])
+                    .output()
+                    .unwrap();
+                let err = String::from_utf8_lossy(&o.stderr);
+                assert_eq!(o.status.code(), Some(2), "faidx {path:?}: {err}");
+                assert!(
+                    err.starts_with("error: ") && err.contains(msg) && err.contains("gloci index"),
+                    "{err}"
+                );
+                assert!(o.stdout.is_empty());
+            }
+        }
+    }
+    assert!(
+        !d.join("ref.fa.fai").exists() && !d.join("ref.fa.gz.gzi").exists(),
+        "faidx never builds an index implicitly"
+    );
+    // dict needs no index
+    gloci().args(["dict", &s_of(&fa)]).assert().success();
+}
+
+/// With the output directory missing every P3c command that writes a file exits 1, names the
+/// directory and how to fix it, and creates nothing.
+#[test]
+fn p3c_failure_matrix_missing_output_dir() {
+    let fx = P3a::new();
+    let bed = fx.bed.as_str();
+    let hdr = s_of(&plain_file(
+        Path::new(&fx.path("")),
+        "new.sam",
+        "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chrM\tLN:150\n@SQ\tSN:chr1\tLN:1000\n@SQ\tSN:chr2\tLN:1234\n@SQ\tSN:chr10\tLN:600\n@SQ\tSN:chrX\tLN:777\n",
+    ));
+    let cases: Vec<(&str, Vec<&str>, &str, Sink)> = vec![
+        (
+            "flagstat",
+            vec!["flagstat", "{IN}"],
+            &fx.bam,
+            Sink::File("txt"),
+        ),
+        (
+            "flagstat json",
+            vec!["flagstat", "{IN}"],
+            &fx.sam,
+            Sink::File("json"),
+        ),
+        (
+            "view --count",
+            vec!["view", "--count", "{IN}"],
+            &fx.bam,
+            Sink::File("txt"),
+        ),
+        ("depth", vec!["depth", "{IN}"], &fx.bam, Sink::File("txt")),
+        (
+            "depth -aa",
+            vec!["depth", "{IN}", "--all-references"],
+            &fx.sam,
+            Sink::File("txt"),
+        ),
+        (
+            "bedcov",
+            vec!["bedcov", bed, "{IN}"],
+            &fx.bam,
+            Sink::File("txt"),
+        ),
+        (
+            "reheader",
+            vec!["reheader", &hdr, "{IN}"],
+            &fx.bam,
+            Sink::File("bam"),
+        ),
+        (
+            "samples",
+            vec!["samples", "{IN}"],
+            &fx.bam,
+            Sink::File("txt"),
+        ),
+        ("dict", vec!["dict", "{IN}"], &fx.fa, Sink::File("dict")),
+        (
+            "faidx",
+            vec!["faidx", "{IN}", "chr1:1-100"],
+            &fx.fa,
+            Sink::File("fa"),
+        ),
+        (
+            "faidx bgzf",
+            vec!["faidx", "{IN}", "chr1:1-100"],
+            &fx.fa_gz,
+            Sink::File("fa.gz"),
+        ),
+    ];
+    for (name, tpl, good, sink) in &cases {
+        assert_missing_dir(name, tpl, good, sink);
+    }
+    // a CRAM input too
+    assert_missing_dir(
+        "reheader cram",
+        &["reheader", &hdr, "{IN}"],
+        &fx.cram,
+        &Sink::File("cram"),
+    );
+    assert_missing_dir(
+        "depth cram",
+        &["depth", "{IN}", "--reference", &fx.fa],
+        &fx.cram,
+        &Sink::File("txt"),
+    );
+}
