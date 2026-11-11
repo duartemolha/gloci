@@ -176,6 +176,23 @@ impl<'a> SamAln<'a> {
         // As htslib reads it: no position means no reference, and no reference or CIGAR means
         // unmapped. The line itself is kept as it is.
         let (flag, ref_id, _) = normalise(flag, ref_id, i64::from(pos1) - 1, !cigar.is_empty());
+        // The same checks of QUAL as `encode_sam` makes, with its messages, so that `quals()`
+        // always agrees with `seq_len()`.
+        if qual != b"*" {
+            let l_seq = if seq == b"*" { 0 } else { seq.len() };
+            if qual.len() != l_seq {
+                return Err(format!(
+                    "the quality string has {} characters but the sequence has {l_seq}",
+                    qual.len()
+                ));
+            }
+            if let Some(&q) = qual.iter().find(|q| !(33..=126).contains(*q)) {
+                return Err(format!(
+                    "the quality character {:?} is outside ! to ~",
+                    q as char
+                ));
+            }
+        }
         // As `encode_sam` reads the mate: a mate with no position has no reference. A PNEXT that
         // is not a number is the checker's to refuse, so it reads as no mate here.
         let mate_pos = number::<u32>(pnext, "PNEXT")
@@ -237,6 +254,9 @@ impl<'a> SamAln<'a> {
     }
 
     /// The raw Phred qualities: empty for SEQ `*`, and `0xFF` for every base when QUAL is `*`.
+    /// [`SamAln::parse`] refuses a QUAL whose length differs from SEQ's or that holds a
+    /// character outside `!` to `~` (as `encode_sam` does), so the result always has
+    /// `seq_len()` values.
     pub fn quals(&self) -> Cow<'a, [u8]> {
         if self.seq.is_empty() {
             return Cow::Borrowed(&[]);

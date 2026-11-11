@@ -304,3 +304,21 @@ fn cram_prelude_reads_header() {
     assert!(read_cram_prelude(&aln("flags.sam")).is_err());
     assert!(read_cram_prelude(&aln("nonexistent.cram")).is_err());
 }
+
+#[test]
+fn sam_aln_refuses_a_qual_that_does_not_fit_its_seq() {
+    let h = AlnHeader::parse_sam(b"@HD\tVN:1.6\n@SQ\tSN:c1\tLN:1000\n".to_vec()).unwrap();
+    let line = |seq: &str, qual: &str| format!("a\t0\tc1\t10\t60\t*\t*\t0\t0\t{seq}\t{qual}");
+    let e = SamAln::parse(line("ACGT", "II").as_bytes(), &h).unwrap_err();
+    assert!(e.contains("2 characters") && e.contains("sequence has 4"), "{e}");
+    let e = SamAln::parse(line("*", "II").as_bytes(), &h).unwrap_err();
+    assert!(e.contains("sequence has 0"), "{e}");
+    let e = SamAln::parse(line("ACGT", "II I").as_bytes(), &h).unwrap_err();
+    assert!(e.contains("outside ! to ~"), "{e}");
+    // The accessors of a line that parses always agree with each other.
+    for (seq, qual) in [("ACGT", "!#5~"), ("ACGT", "*"), ("*", "*")] {
+        let l = line(seq, qual);
+        let a = SamAln::parse(l.as_bytes(), &h).unwrap();
+        assert_eq!(a.quals().len(), a.seq_len(), "{seq} {qual}");
+    }
+}
