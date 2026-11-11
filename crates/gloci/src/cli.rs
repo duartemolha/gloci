@@ -1118,6 +1118,24 @@ Examples:
   gloci idxstats reads.cram --reference ref.fa
   gloci idxstats reads.sam -t 1")]
     Idxstats(IdxstatsArgs),
+    /// Count the reads of a BAM, CRAM or SAM by FLAGS category (samtools flagstat).
+    ///
+    /// Writes the counts of total, primary, secondary and supplementary reads, duplicates,
+    /// mapped reads, paired reads, read 1 and read 2, properly paired reads, singletons and
+    /// mates on another reference, as "QC-passed + QC-failed" (FLAGS bit 0x200), with
+    /// percentages where samtools has them. -O picks the layout: text (the default), tsv or
+    /// json; with no -O, a -o ending in .json or .tsv picks it. A percentage of nothing is
+    /// N/A (null in JSON). Percentages are computed as samtools computes them, in 32-bit
+    /// floating point, so 153 of 160 is 95.63% and not 95.62%. Every record counts, unmapped
+    /// and unplaced ones too, and no read filters apply. A CRAM that needs a reference
+    /// sequence needs --reference, though samtools reads such a file without one. The output
+    /// is the same at any number of threads.
+    #[command(after_long_help = "\
+Examples:
+  gloci flagstat reads.bam
+  gloci flagstat reads.bam -O json -o stats.json
+  gloci flagstat reads.cram --reference ref.fa -O tsv")]
+    Flagstat(FlagstatArgs),
 }
 
 /// What `intersect` reports.
@@ -3403,6 +3421,26 @@ pub struct IdxstatsArgs {
     /// The BAM, CRAM or SAM file (- is standard input, which is always scanned).
     #[arg(value_name = "FILE")]
     pub file: String,
+    /// The FASTA a CRAM input was made with, with its .fai (and .gzi when BGZF). Not needed
+    /// for a CRAM written without a reference.
+    #[arg(long, value_name = "FILE")]
+    pub reference: Option<PathBuf>,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+}
+
+// P3c Task 3
+#[derive(Args)]
+pub struct FlagstatArgs {
+    /// The BAM, CRAM or SAM file (- is standard input).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// Write the counts to FILE instead of stdout; .json and .tsv choose that layout.
+    #[arg(short, long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
+    /// Layout of the counts: text, tsv or json.
+    #[arg(short = 'O', long, value_name = "FMT")]
+    pub output_format: Option<String>,
     /// The FASTA a CRAM input was made with, with its .fai (and .gzi when BGZF). Not needed
     /// for a CRAM written without a reference.
     #[arg(long, value_name = "FILE")]

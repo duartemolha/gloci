@@ -8,6 +8,7 @@ pub mod coverage;
 pub mod dict;
 pub mod faidx;
 pub mod flags;
+pub mod flagstat;
 pub mod flank;
 pub mod genomecov;
 pub mod genomes;

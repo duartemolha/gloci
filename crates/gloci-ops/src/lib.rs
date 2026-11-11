@@ -14,6 +14,7 @@ pub mod convert;
 pub mod coverage;
 pub mod dict;
 pub mod faidx;
+pub mod flagstat;
 pub mod genomecov;
 pub mod getfasta;
 pub mod groupby;
@@ -48,6 +49,7 @@ pub use aln_sort::{AlnSortOptions, check_alignments, sort_alignments};
 pub use bedsearch::{ChromBlock, find_chrom_block, find_chrom_block_mapped};
 pub use check::{CheckReport, Problems, check_file};
 pub use gloci_engine::all_indexed;
+pub use flagstat::{FlagStats, FlagstatFormat, flagstat, percent, render_flagstat};
 pub use idxstats::{IdxstatsPath, idxstats};
 pub use maskfasta::{Mask, MaskSet, MaskSummary, PastEnd, maskfasta, maskfasta_with};
 pub use relate::{
