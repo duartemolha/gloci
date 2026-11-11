@@ -744,6 +744,7 @@ dependencies = [
 name = "gloci-ops"
 version = "0.1.0"
 dependencies = [
+ "crossbeam-channel",
  "gloci-core",
  "gloci-engine",
  "gloci-io",

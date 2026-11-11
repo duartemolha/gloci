@@ -202,6 +202,7 @@ pub fn select_from_args(
             .regions_file
             .as_ref()
             .map(|p| p.to_string_lossy().into_owned()),
+        threads: Some(ro.threads),
     };
     select.validate()?;
     Ok((select, ro))

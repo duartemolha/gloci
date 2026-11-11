@@ -68,8 +68,8 @@ pub use vcf_filter::{
 pub use vcf_merge::{FilterList, MergeSummary, vcf_merge, vcf_merge_output};
 pub use vcf_norm::{NormOptions, NormSummary, vcf_norm, vcf_norm_output};
 pub use vcf_select::{
-    FilterExpr, Hit, SelectStage, SelectedInput, VcfSelect, open_selected, run_selection,
-    select_regions, validate_thresholds, vcf_header,
+    FilterExpr, Hit, SelectStage, SelectedInput, VcfSelect, inflight_peak, open_selected,
+    reset_inflight_peak, run_selection, select_regions, validate_thresholds, vcf_header,
 };
 pub use vcf_split::{SplitOptions, SplitSummary, vcf_split, vcf_split_output};
 pub use vcf_stats::{StatsOptions, StatsRequest, StatsSummary, check_request, vcf_stats};

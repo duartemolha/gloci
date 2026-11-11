@@ -11,9 +11,8 @@ use crate::vcf_select::{SelectStage, SelectedInput, VcfSelect, run_selection};
 use gloci_io::{AtomicFile, BcfDicts, IoError, Loc, StagedSet, UsageError};
 use gloci_vcf::{
     BcfSite, FilterSummary, Freq, GenoDepth, GtFields, Hardy, Heterozygosity, IndelHist,
-    MaskedGenotypes, MissingSample, MissingSite, RewritePlan, SampleDepth, Singletons, SiteDepth,
-    SiteMeanDepth, SiteQuality, SiteView, SnpDensity, Stat, StatSink, StatWrite, StatsEngine,
-    Summary, TsTv,
+    MissingSample, MissingSite, RewritePlan, SampleDepth, Singletons, SiteDepth, SiteMeanDepth,
+    SiteQuality, SiteView, SnpDensity, Stat, StatSink, StatWrite, StatsEngine, Summary, TsTv,
 };
 use std::cell::RefCell;
 use std::ffi::OsString;
@@ -330,13 +329,8 @@ pub fn vcf_stats(input: SelectedInput, o: &StatsOptions) -> Result<StatsSummary,
             return engine.site(&view, None, None).map_err(parse_err);
         }
         // Every selected sample was decoded by the selection stage.
-        let shared = hit.decoded.reader();
-        let masked = MaskedGenotypes {
-            inner: &shared,
-            masked: hit.masked,
-        };
         engine
-            .site(&view, Some(&masked), hit.stats)
+            .site(&view, hit.genotypes(), hit.stats)
             .map_err(parse_err)
     })?;
     engine.finish().map_err(|e| write_err(&dest, e))?;

@@ -407,6 +407,8 @@ fn one_pass_equals_separate_runs() {
     let one = d.path().join("one").to_string_lossy().into_owned();
     let mut rest: Vec<&str> = five.to_vec();
     rest.extend(mask);
+    // The one pass runs on the parallel selection stage (D157).
+    rest.extend(["--threads", "8"]);
     gloci()
         .args(stats_args(&file, &one, &rest))
         .assert()
