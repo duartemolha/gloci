@@ -314,6 +314,8 @@ fn read_length(a: &AlnRef<'_>) -> u64 {
     if let Some((b'S', l)) = first {
         len = len.saturating_sub(u64::from(l));
     }
+    // samtools takes the last operation's soft clip off only when it is not also the first
+    // (a CIGAR of one `S` is clipped once).
     if n > 1
         && let Some((b'S', l)) = last
     {
