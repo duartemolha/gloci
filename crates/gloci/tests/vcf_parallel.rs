@@ -616,3 +616,76 @@ fn worker_tallies_equal_sequential() {
         );
     }
 }
+
+/// `-t 8` is a cap on BGZF decompression threads plus selection workers
+/// together, not on each (M9): polled from `/proc/PID/status`, the process has
+/// at most 8 such threads besides the fixed ones, and the output is the `-t 1` output.
+#[cfg(target_os = "linux")]
+#[test]
+fn threads_cap_decompression_plus_selection_workers() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    let d = tempdir();
+    let mut text = String::from(
+        "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=100000000>\n\
+##FORMAT=<ID=GT,Number=1,Type=String,Description=\"g\">\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\ts2\n",
+    );
+    for i in 0..300_000u64 {
+        let _ = writeln!(
+            text,
+            "chr1\t{}\t.\tA\tC\t50\tPASS\t.\tGT\t0/1\t1/1",
+            100 + i * 3
+        );
+    }
+    let f = bgzf_file(d.path(), "in.vcf.gz", &text)
+        .to_string_lossy()
+        .into_owned();
+    let one = d.path().join("one.vcf");
+    gloci()
+        .args(["vcf", "filter", &f, "-t", "1", "-O", "vcf", "-o"])
+        .arg(&one)
+        .assert()
+        .success();
+    let eight = d.path().join("eight.vcf");
+    let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin("gloci"))
+        .args(["vcf", "filter", &f, "-t", "8", "-O", "vcf", "-o"])
+        .arg(&eight)
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    let peak = Arc::new(AtomicU64::new(0));
+    let stop = Arc::new(AtomicBool::new(false));
+    let poller = {
+        let (peak, stop) = (peak.clone(), stop.clone());
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                if let Ok(s) = std::fs::read_to_string(format!("/proc/{pid}/status"))
+                    && let Some(l) = s.lines().find_map(|l| l.strip_prefix("Threads:"))
+                    && let Ok(t) = l.trim().parse::<u64>()
+                {
+                    peak.fetch_max(t, Ordering::Relaxed);
+                }
+                std::thread::sleep(std::time::Duration::from_micros(200));
+            }
+        })
+    };
+    assert!(child.wait().unwrap().success());
+    stop.store(true, Ordering::Relaxed);
+    poller.join().unwrap();
+    let peak = peak.load(Ordering::Relaxed);
+    // 3 fixed (main, signal handler, the command's thread), 8 for the idle
+    // global rayon pool, and at most 8 for decompression plus selection
+    // workers; one spare. Before the cap this was 27.
+    assert!(peak <= 3 + 8 + 8 + 1, "peak {peak} threads at -t 8");
+    // Records are the same (the ##glociCommand line differs by -t).
+    let body = |p: &Path| {
+        std::fs::read_to_string(p)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.starts_with("##glociCommand"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    assert_eq!(body(&one), body(&eight));
+}
