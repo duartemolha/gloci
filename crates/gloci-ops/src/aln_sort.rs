@@ -130,6 +130,7 @@ pub(crate) fn order_name(order: AlnSortOrder) -> &'static str {
 
 pub(crate) fn cmp(order: AlnSortOrder, a: &[u8], b: &[u8]) -> Ordering {
     match order {
+        // u32::MAX for unplaced reads, as the sorter keys them (see `coordinate_key`).
         AlnSortOrder::Coordinate => coordinate_key(a, u32::MAX).cmp(&coordinate_key(b, u32::MAX)),
         AlnSortOrder::Name => name_cmp_raw(a, b, true),
         AlnSortOrder::NameBytes => name_cmp_raw(a, b, false),
@@ -148,9 +149,15 @@ pub fn check_alignments(src: Box<dyn AlnSource>, order: AlnSortOrder) -> Result<
             let name = recs.src.name().to_string();
             let label =
                 |raw: &[u8]| String::from_utf8_lossy(crate::sort::qname_of(raw)).into_owned();
+            // The output follows the input: SAM for SAM, BAM for BAM and CRAM (D121).
+            let ext = if recs.src.format() == Format::Sam {
+                "sam"
+            } else {
+                "bam"
+            };
             log::error!(
                 "{name} is not in {} order: record {n} ({}) comes after record {prev_n} ({}); \
-sort it with: gloci sort {name} -o sorted.bam{}",
+sort it with: gloci sort {name} -o sorted.{ext}{}",
                 order_name(order),
                 label(recs.bam()),
                 label(&prev),

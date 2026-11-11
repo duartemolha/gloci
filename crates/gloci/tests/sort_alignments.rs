@@ -71,7 +71,14 @@ fn aln_sort_check() {
         .args(["sort", "--check", &s(&fixture("sort.bam"))])
         .assert()
         .code(1)
-        .stderr(contains("record 2 (read10)").and(contains("record 1 (read20)")));
+        .stderr(contains("record 2 (read10)").and(contains("record 1 (read20)")))
+        .stderr(contains("-o sorted.bam"));
+    // The hint's output follows the input's format (P8).
+    gloci()
+        .args(["sort", "--check", &s(&fixture("sort.sam"))])
+        .assert()
+        .code(1)
+        .stderr(contains("-o sorted.sam"));
     // -n: the coordinate-sorted file is not in name order, and sorted by name it is
     gloci()
         .args(["sort", "--check", "-n", &s(&out)])

@@ -198,7 +198,8 @@ impl Sorter {
             )));
         }
         self.max_rec = self.max_rec.max(raw.len());
-        // Unplaced reads sort after every reference.
+        // Unplaced reads sort after every reference: u32::MAX is above every refID, as
+        // `sort --check` and `sort -m` key them (see `coordinate_key`).
         let (chrom, key) = if self.order.mode() == M_COORD {
             coordinate_key(raw, u32::MAX)
         } else {

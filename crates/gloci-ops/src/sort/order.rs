@@ -117,14 +117,17 @@ pub(crate) fn flag_of(raw: &[u8]) -> u16 {
 }
 
 /// The coordinate sort key of a BAM record: `(tid, (pos + 1) << 1 | reverse)`, with an unplaced
-/// reference id (-1) as `n_ref`, so unplaced reads come last.
-pub fn coordinate_key(raw: &[u8], n_ref: u32) -> (u32, u64) {
+/// reference id (-1) as `unplaced`, so unplaced reads come last. samtools uses the header's
+/// reference count there; any value above every reference id gives the same order, and since
+/// a refID is an `i32`, `u32::MAX` is above all of them without the header. Every caller (the
+/// sorter, `sort -m` and `sort --check`) passes `u32::MAX`, so their keys agree.
+pub fn coordinate_key(raw: &[u8], unplaced: u32) -> (u32, u64) {
     let i32_at = |i: usize| {
         raw.get(i..i + 4)
             .map_or(-1, |b| i32::from_le_bytes([b[0], b[1], b[2], b[3]]))
     };
     let tid = match i32_at(0) {
-        t if t < 0 => n_ref,
+        t if t < 0 => unplaced,
         t => t as u32,
     };
     let pos = u64::from(i32_at(4).wrapping_add(1) as u32);
