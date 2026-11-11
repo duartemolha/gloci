@@ -2098,6 +2098,10 @@ depends on the span.
   LN:1000) does not match @SQ 3 of x.bam (SN:chr3 LN:198295559); reheader keeps
   each read's reference by its position in the @SQ list, so change only SN: to
   rename, or use gloci view --chrom-map`.
+- **Equal lengths:** only names may change, so a swap of references of equal `LN` (chr1 and
+  chr2 of the same length, say) passes the check: the reads keep their positions in the list
+  and so now carry the other name. The check cannot tell such a swap from a rename; use
+  `gloci view --chrom-map` when the new names must follow the reads.
 - **Old behaviour:** `samtools reheader` checks nothing. It writes the new text
   and reference list over the old records, so a changed `LN`, a swapped order
   or a dropped `@SQ` gives a file whose reads point at other contigs (or at
