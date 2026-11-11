@@ -82,7 +82,7 @@ pub use naming::{
 };
 pub use output::{
     OutFormat, Output, OutputOptions, OutputSpec, check_level, open_output, open_raw_output,
-    parse_output_spec, refuse_binary_to_tty,
+    parse_output_spec, plain_text_output_spec, refuse_binary_to_tty,
 };
 pub use record::{
     Header, Opened, ReaderOptions, RecordBatch, RecordMeta, RecordReader, check_map_against_index,

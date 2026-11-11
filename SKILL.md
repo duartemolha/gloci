@@ -89,9 +89,9 @@ With regions, view prints the records whose footprint (per --vcf-span) overlaps 
 
 ```sh
 gloci view calls.vcf.gz chr1:1,000,000-2,000,000 chrX
-gloci view peaks.bed --regions-file targets.bed --inclusive-points
-gloci view reads.bam -O sam | head
 gloci view reads.cram --reference ref.fa -o reads.bam
+gloci view --count reads.bam chr1
+gloci view reads.bam --regions-file targets.bed -o on_target.bam
 ```
 
 ### `gloci cat`
