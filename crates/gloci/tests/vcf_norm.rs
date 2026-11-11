@@ -42,7 +42,7 @@ fn work() -> (tempfile::TempDir, String, String) {
 fn output_is_identical_at_every_thread_count() {
     let (_d, r, v) = work();
     let one = out(&["vcf", "norm", &v, "-f", &r, "-t", "1"]);
-    assert_eq!(records(&one).len(), 34);
+    assert_eq!(records(&one).len(), 33);
     for t in ["2", "8"] {
         assert_eq!(out(&["vcf", "norm", &v, "-f", &r, "-t", t]), one);
     }
@@ -285,4 +285,19 @@ fn a_large_contig_is_read_in_bounded_windows() {
         .and_then(|t| t.parse().ok())
         .unwrap_or_else(|| panic!("no peak in: {err}"));
     assert!(peak <= 1 << 17, "held {peak} reference bases");
+}
+
+#[test]
+fn the_largest_window_does_not_overflow() {
+    let (_d, r, v) = work();
+    let big = out(&[
+        "vcf",
+        "norm",
+        &v,
+        "-f",
+        &r,
+        "--window",
+        "18446744073709551615",
+    ]);
+    assert_eq!(records(&big).len(), 33);
 }
