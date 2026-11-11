@@ -119,6 +119,16 @@ impl From<OrderError> for IoError {
 }
 
 impl IoError {
+    /// The one error for an input with no bytes (after decompression) given to a command that
+    /// needs records: `convert`, `index`, `cat` and `maskfasta`. Commands whose result may be
+    /// empty (`view`, `intersect`, `sort`, ...) read such an input as no records and exit 0.
+    pub fn empty_input(name: &str) -> IoError {
+        IoError::Detect {
+            path: name.to_string(),
+            msg: format!("{name} is empty: it has no records"),
+        }
+    }
+
     /// Libraries report output write errors under the placeholder path
     /// `output`; name the real destination, keeping the `io::ErrorKind` so a
     /// broken pipe is still recognised.

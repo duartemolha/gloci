@@ -5,8 +5,8 @@ use crate::cli::ConvertArgs;
 use gloci_core::{ChromTable, VariantKind};
 use gloci_io::{
     Format, Header, InvalidPolicy, IoError, OutFormat, OutputOptions, ReaderOptions, TsvHeader,
-    UsageError, WriterOptions, open_output, open_reader, open_record_writer, open_tsv_writer,
-    parse_output_spec, refuse_binary_to_tty,
+    UsageError, WriterOptions, open_output, open_reader_with_records, open_record_writer,
+    open_tsv_writer, parse_output_spec, refuse_binary_to_tty,
 };
 use gloci_ops::convert::{ConvertOptions, check_convert, convert};
 use std::io::IsTerminal;
@@ -69,7 +69,7 @@ pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
         },
     };
     // Open and check the input before the output is created.
-    let input = open_reader(&a.file, &ro)?;
+    let input = open_reader_with_records(&a.file, &ro)?;
     gloci_io::warn_unused_reference(a.align.reference.as_deref(), input.format() == Format::Cram);
     check_convert(input.format(), &o)?;
     let oo = OutputOptions {

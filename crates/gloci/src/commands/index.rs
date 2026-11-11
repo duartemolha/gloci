@@ -1,7 +1,7 @@
 use crate::Ctx;
 use crate::cli::IndexArgs;
 use gloci_io::{
-    Format, InputOptions, TsvColumns, UsageError, open_input, warn_unused_reference,
+    Format, InputOptions, IoError, TsvColumns, UsageError, open_input, warn_unused_reference,
     write_alignment_index, write_crai, write_fasta_index, write_index, write_tsv_index,
 };
 
@@ -25,17 +25,25 @@ first (gloci view - -o x.bed.gz), then run: gloci index x.bed.gz"
             return Err(csi_only("this is a TSV index").into());
         }
         warn_unused_reference(args.reference.as_deref(), false);
+        if std::fs::metadata(&args.file).is_ok_and(|m| m.len() == 0) {
+            return Err(IoError::empty_input(&args.file.to_string_lossy()).into());
+        }
         // write_tsv_index rejects non-BGZF input with the same recompress hint.
         write_tsv_index(&args.file, &args.file, &cols, ctx.threads)?;
         return Ok(());
     }
-    let input = open_input(
+    let mut input = open_input(
         &args.file.to_string_lossy(),
         &InputOptions {
             threads: ctx.threads,
             format: None,
         },
     )?;
+    // An empty file is detected as BED (an empty interval file is valid), which would then
+    // be refused as not BGZF-compressed.
+    if input.is_empty()? {
+        return Err(IoError::empty_input(&input.name).into());
+    }
     let format = input.format;
     drop(input);
     if format == Format::Cram {

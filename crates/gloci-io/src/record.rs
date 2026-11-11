@@ -161,6 +161,19 @@ pub fn open_reader(path: &str, o: &ReaderOptions) -> Result<Box<dyn RecordReader
     finish_reader(path, dispatch(open_input(path, &input_options(o))?, o)?)
 }
 
+/// [`open_reader`] for a command that needs records (`convert`): an input with no bytes after
+/// decompression is [`IoError::empty_input`], not an empty BED file.
+pub fn open_reader_with_records(
+    path: &str,
+    o: &ReaderOptions,
+) -> Result<Box<dyn RecordReader>, IoError> {
+    let mut input = open_input(path, &input_options(o))?;
+    if input.is_empty()? {
+        return Err(IoError::empty_input(&input.name));
+    }
+    finish_reader(path, dispatch(input, o)?)
+}
+
 fn finish_reader(path: &str, r: Box<dyn RecordReader>) -> Result<Box<dyn RecordReader>, IoError> {
     // A sweep reads a plain file to its end (see `RecordReader::consume_to_end`).
     if r.compression() == Compression::None

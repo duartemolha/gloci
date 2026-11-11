@@ -94,3 +94,55 @@ fn commands_that_do_not_read_alignments_say_never() {
         .code(2)
         .stderr(contains("does not read alignments"));
 }
+
+#[test]
+fn an_empty_input_is_empty_where_records_are_needed() {
+    // One message for an input with no bytes after decompression (M1).
+    let dir = tempdir();
+    let empty_bgzf = fixtures::bgzip(b"");
+    let paths: Vec<String> = [
+        ("x.sam", Vec::new()),
+        ("x.bam", Vec::new()),
+        ("e.bam", empty_bgzf.clone()),
+        ("x.fa", Vec::new()),
+        ("e.fa.gz", empty_bgzf),
+    ]
+    .into_iter()
+    .map(|(n, b)| {
+        fixtures::write(dir.path(), n, &b)
+            .to_string_lossy()
+            .into_owned()
+    })
+    .collect();
+    let bed = plain_file(dir.path(), "m.bed", "a\t0\t2\n");
+    let bed = bed.to_str().unwrap();
+    let out = dir.path().join("o.bam");
+    let out = out.to_str().unwrap();
+    let good = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../xtask/diff/inputs/aln/cat-a.bam");
+    let good = good.to_str().unwrap();
+    let mut runs: Vec<(String, Vec<&str>)> = Vec::new();
+    for p in &paths {
+        runs.push((p.clone(), vec!["convert", p]));
+        runs.push((p.clone(), vec!["index", p]));
+        runs.push((p.clone(), vec!["maskfasta", "--fasta", p, "-b", bed]));
+    }
+    for p in &paths[1..3] {
+        runs.push((p.clone(), vec!["cat", good, p, "-o", out]));
+    }
+    for (p, args) in &runs {
+        gloci()
+            .args(args)
+            .assert()
+            .code(1)
+            .stderr(contains(format!("{p} is empty: it has no records")));
+    }
+    // Commands whose result may be empty read it as no records.
+    for args in [
+        vec!["view", paths[0].as_str()],
+        vec!["sort", paths[0].as_str()],
+        vec!["intersect", "-a", paths[0].as_str(), "-b", bed],
+    ] {
+        gloci().args(&args).assert().success();
+    }
+}
