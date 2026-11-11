@@ -6161,3 +6161,14 @@ gloci = "gloci stats fisher -a input.bed -b fisher-exq-b.bed -g fisher-exq-genom
 reference = "bedtools fisher -a input.bed -b fisher-exq-b.bed -g fisher-exq-genome.txt -exclude fisher-exq-gap.bed"
 compare = "exact"
 expected_difference = "#fisher-exclude-estimate"
+
+# A table (1, 8, 3, 6741594) on a 1.36 Gb genome: the right tail is 1 - left + q, and the last bits of
+# lgamma decide how much of it cancels. The true value is about 5.3e-06; bedtools (glibc lgamma) prints 9.5051e-12.
+[[case]]
+name = "stats-fisher-lgamma-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-lg-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-lg-b.bed", "xtask/diff/inputs/p3b/stats/fisher-lg-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-lg-b.bed -g fisher-lg-genome.txt"
+reference = "bedtools fisher -a input.bed -b fisher-lg-b.bed -g fisher-lg-genome.txt"
+compare = "exact"
+expected_difference = "#fisher-lgamma"

@@ -1976,3 +1976,20 @@ depends on the span.
 - **Reason:** the estimate should shrink by the excluded bases, not collapse.
 - **Pinned by:** `stats-fisher-exclude-estimate-vs-bedtools` (must differ). A smaller exclude case
   that agrees: `stats-fisher-exclude-vs-bedtools`.
+
+## `stats fisher` tiny tail p-values come from `libm`, not the platform's `lgamma` {#fisher-lgamma}
+
+- **gloci:** the exact test uses the `libm` crate's `lgamma` and `exp`, so the output is the same on
+  every platform. With a large genome and few overlaps, the p-values are computed as
+  `1 - left + q`, where nearly everything cancels; the last bits of `lgamma` then decide the result.
+  For the table 1 / 8 / 3 / 6741594 gloci prints `5.34e-06` (the true tail, about 9 x 4 / 6.7e6).
+- **Old behaviour:** `bedtools fisher` calls the C library's `lgamma`, which differs from `libm` by a
+  few ulps. For the same table it prints `9.5051e-12`, and for 1 / 0 / 6 / 241379311 it prints `0`
+  where gloci prints `2.9e-08`. About 7% of large-genome, few-overlap tables differ this way; tables
+  whose p-values are not tiny agree to all printed digits.
+- **Reason:** portable, identical results (a reference built on another C library may differ from
+  this one too). Whether to port glibc's `lgamma` for byte identity is an open owner question.
+- **Pinned by:** `stats-fisher-lgamma-vs-bedtools` (must differ; the reference is glibc on aarch64,
+  and x86 glibc may differ in the last bits, which has not been checked).
+- **Also:** genome lengths near 2^64 saturate the genome size in gloci where bedtools prints `1`;
+  no real genome is that large.
