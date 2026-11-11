@@ -70,21 +70,17 @@ fn extent_of_a_real_bam_is_where_the_records_start() {
 }
 
 /// A CRAM file: definition, `container`, and then the end-of-file container of the version.
-fn cram_with(major: u8, text: &[u8]) -> Vec<u8> {
+fn cram_with(text: &[u8]) -> Vec<u8> {
     const EOF_V3: [u8; 38] = [
         0x0f, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0x0f, 0xe0, 0x45, 0x4f, 0x46, 0x00, 0x00,
         0x00, 0x00, 0x01, 0x00, 0x05, 0xbd, 0xd9, 0x4f, 0x00, 0x01, 0x00, 0x06, 0x06, 0x01, 0x00,
         0x01, 0x00, 0x01, 0x00, 0xee, 0x63, 0x01, 0x4b,
     ];
-    const EOF_V2: [u8; 30] = [
-        0x0b, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0x0f, 0xe0, 0x45, 0x4f, 0x46, 0x00, 0x00,
-        0x00, 0x00, 0x01, 0x00, 0x00, 0x01, 0x00, 0x06, 0x06, 0x01, 0x00, 0x01, 0x00, 0x01, 0x00,
-    ];
     let mut f = b"CRAM".to_vec();
-    f.extend_from_slice(&[major, if major == 2 { 1 } else { 0 }]);
+    f.extend_from_slice(&[3, 0]);
     f.extend_from_slice(&[b'x'; 20]);
-    write_cram_header_container(major, text, &mut f).unwrap();
-    f.extend_from_slice(if major == 2 { &EOF_V2[..] } else { &EOF_V3[..] });
+    write_cram_header_container(text, &mut f).unwrap();
+    f.extend_from_slice(&EOF_V3);
     f
 }
 
@@ -92,8 +88,7 @@ fn cram_with(major: u8, text: &[u8]) -> Vec<u8> {
 fn cram_v3_header_container_reads_back() {
     let dir = tempfile::tempdir().unwrap();
     // Texts around the ITF8 width changes: the block size is the text plus 4.
-    // (noodles reads every container as CRAM 3, with checksums, so 2.x is checked by its bytes.)
-    for major in [3u8] {
+    {
         for n in [
             0usize, 1, 100, 124, 125, 126, 16_000, 16_380, 16_381, 70_000, 3_000_000,
         ] {
@@ -106,14 +101,13 @@ fn cram_v3_header_container_reads_back() {
                 text.push(b'\n');
             }
             let p = dir.path().join("x.cram");
-            let bytes = cram_with(major, &text);
+            let bytes = cram_with(&text);
             std::fs::write(&p, &bytes).unwrap();
             let got = read_cram_prelude(&p)
-                .unwrap_or_else(|e| panic!("major {major}, text of {} bytes: {e}", text.len()));
-            assert_eq!(got.header_text, text, "major {major}");
-            assert_eq!(got.major, major);
-            let tail = if major == 2 { 30 } else { 38 };
-            assert_eq!(got.data_start as usize, bytes.len() - tail);
+                .unwrap_or_else(|e| panic!("text of {} bytes: {e}", text.len()));
+            assert_eq!(got.header_text, text);
+            assert_eq!(got.major, 3);
+            assert_eq!(got.data_start as usize, bytes.len() - 38);
             assert!(gloci_io::cram_eof_present(&p).unwrap());
         }
     }
@@ -122,7 +116,7 @@ fn cram_v3_header_container_reads_back() {
 #[test]
 fn cram_v3_container_checksums_are_right() {
     let mut f = Vec::new();
-    write_cram_header_container(3, b"@HD\tVN:1.6\n", &mut f).unwrap();
+    write_cram_header_container(b"@HD\tVN:1.6\n", &mut f).unwrap();
     // container header: 4 + 8 bytes then its CRC32; the block (method 0, type 0, id 0, sizes)
     // ends with its CRC32 as well.
     let crc = |b: &[u8]| {
@@ -188,7 +182,7 @@ fn new_header_sources() {
     }
     // A CRAM file: its header text.
     let p = dir.path().join("h.cram");
-    std::fs::write(&p, cram_with(3, text.as_bytes())).unwrap();
+    std::fs::write(&p, cram_with(text.as_bytes())).unwrap();
     let h = read_new_header(p.to_str().unwrap()).unwrap();
     assert_eq!(h.refs, [(b"a".to_vec(), 10)]);
     // Errors: no header lines, an @SQ without LN, a missing file.
@@ -205,20 +199,23 @@ fn new_header_sources() {
 }
 
 #[test]
-fn cram_v2_header_container_has_no_checksums() {
-    let mut v2 = Vec::new();
-    write_cram_header_container(2, b"ab\n", &mut v2).unwrap();
-    let want: Vec<u8> = [
-        // container: length 12, ref 0, start 0, span 0, records 0, counter 0, bases 0,
-        // one block, no landmarks
-        &[12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0][..],
-        // block: raw, FILE_HEADER, id 0, size 7, raw size 7, then the i32 length and the text
-        &[0, 0, 0, 7, 7, 3, 0, 0, 0, b'a', b'b', b'\n'][..],
-    ]
-    .concat();
-    assert_eq!(v2, want);
-    let mut v3 = Vec::new();
-    write_cram_header_container(3, b"ab\n", &mut v3).unwrap();
-    assert_eq!(v3.len(), v2.len() + 8);
-    assert_eq!(v3[4..12], v2[4..12]);
+fn cram_2x_is_refused_by_name_and_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("old.cram");
+    let mut f = b"CRAM\x02\x01".to_vec();
+    f.extend_from_slice(&[b'x'; 20]);
+    f.extend_from_slice(&[0u8; 60]);
+    std::fs::write(&p, &f).unwrap();
+    for e in [
+        read_cram_prelude(&p).unwrap_err(),
+        gloci_io::check_cram_version(&p).unwrap_err(),
+    ] {
+        let m = e.to_string();
+        assert!(matches!(e, IoError::Detect { .. }));
+        assert!(m.contains("old.cram is CRAM 2.1"), "{m}");
+        assert!(
+            m.contains("CRAM 3.0 and 3.1") && m.contains("samtools view -C"),
+            "{m}"
+        );
+    }
 }

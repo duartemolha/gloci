@@ -1933,9 +1933,12 @@ depends on the span.
   - a name-tokeniser block that claims more names than its bytes or than the slice's
     records;
   - the Golomb, Subexp and Golomb-Rice encodings, which htslib never writes (rewrite the
-    file with `samtools view -C`).
+    file with `samtools view -C`);
+  - CRAM 2.0 and 2.1 files, where the commands that read only the header (`reheader`) say
+    "x.cram is CRAM 2.1, which gloci does not read (it reads CRAM 3.0 and 3.1); convert it
+    with samtools view -C" (pinned by the test `cram_2x_is_refused_by_name_and_version`).
 - **Old behaviour:** samtools decodes a read however far past the end it runs, and reads the
-  other encodings.
+  other encodings and CRAM 2.x.
 - **Remaining risk:** gloci checks every container, block and slice header (each has a
   CRC32 checksum, so random corruption is always an error), the values above where a data
   series has a block of its own or a constant code (as htslib writes them), and the decoded

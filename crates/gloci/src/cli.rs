@@ -1118,8 +1118,8 @@ Examples:
     ///
     /// BAM: the new header is compressed, and the rest of IN is copied block
     /// by block: only the block that held the old header's end is compressed
-    /// again. CRAM: the file definition, a new header container, then every
-    /// byte of IN from its first data container. The old and new headers and
+    /// again. CRAM (3.0 and 3.1; 2.x is refused): the file definition, a new
+    /// header container, then every byte of IN from its first data container. The old and new headers and
     /// one BGZF block are all that is held in memory.
     #[command(after_long_help = "\
 Examples:

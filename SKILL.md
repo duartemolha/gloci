@@ -529,7 +529,7 @@ HEADER is SAM header text, or a SAM, BAM or CRAM file whose header is taken (as 
 
 Records point at their reference by its position in the @SQ list, so the new list must keep every old reference in the same place with the same LN. Names (SN:) may change, and @SQ lines may be added after the last one. For CRAM an M5: that both lists have must be equal. Anything else is an error naming both lines, and nothing is written (samtools checks nothing and would attach reads to the wrong contigs; use gloci view --chrom-map to rename references safely).
 
-BAM: the new header is compressed, and the rest of IN is copied block by block: only the block that held the old header's end is compressed again. CRAM: the file definition, a new header container, then every byte of IN from its first data container. The old and new headers and one BGZF block are all that is held in memory.
+BAM: the new header is compressed, and the rest of IN is copied block by block: only the block that held the old header's end is compressed again. CRAM (3.0 and 3.1; 2.x is refused): the file definition, a new header container, then every byte of IN from its first data container. The old and new headers and one BGZF block are all that is held in memory.
 
 ```sh
 gloci reheader new-header.sam x.bam -o y.bam

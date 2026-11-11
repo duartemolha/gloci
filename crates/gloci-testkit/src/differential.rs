@@ -404,7 +404,7 @@ mod tests {
         let p = gloci_io::read_cram_prelude(&path).unwrap();
         std::fs::remove_file(&path).unwrap();
         let mut out = cram[..26].to_vec();
-        gloci_io::write_cram_header_container(p.major, text, &mut out).unwrap();
+        gloci_io::write_cram_header_container(text, &mut out).unwrap();
         out.extend_from_slice(&cram[p.data_start as usize..]);
         out
     }

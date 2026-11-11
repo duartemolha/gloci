@@ -141,6 +141,9 @@ pub fn reheader(
         source,
     };
     let kind = input_kind(input)?;
+    if kind == Kind::Cram {
+        gloci_io::check_cram_version(input)?;
+    }
     let eof = match kind {
         Kind::Bam => bgzf_eof_present(input),
         Kind::Cram => cram_eof_present(input),
@@ -234,7 +237,7 @@ pub fn reheader(
             out.write_all(b"CRAM").map_err(werr)?;
             out.write_all(&[p.major, p.minor]).map_err(werr)?;
             out.write_all(&p.file_id).map_err(werr)?;
-            write_cram_header_container(p.major, &new.text, &mut out).map_err(werr)?;
+            write_cram_header_container(&new.text, &mut out).map_err(werr)?;
             drop(new);
             src.seek(SeekFrom::Start(resume)).map_err(read_err)?;
             let mut buf = vec![0u8; 1 << 16];

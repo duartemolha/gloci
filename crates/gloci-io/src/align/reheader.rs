@@ -244,10 +244,10 @@ fn itf8(v: u32, out: &mut Vec<u8>) {
     }
 }
 
-/// Write the CRAM header container of file format major version `major`: one raw `FILE_HEADER`
-/// block holding the 32-bit length of `text` and `text`. CRAM 3.x adds the CRC32 of the
-/// container header and of the block. The file definition is not written.
-pub fn write_cram_header_container(major: u8, text: &[u8], out: &mut dyn Write) -> io::Result<()> {
+/// Write the CRAM 3.x header container: one raw `FILE_HEADER`
+/// block holding the 32-bit length of `text` and `text`, with the CRC32 of the container header
+/// and of the block (CRAM 3.x; gloci does not read or write 2.x). The file definition is not written.
+pub fn write_cram_header_container(text: &[u8], out: &mut dyn Write) -> io::Result<()> {
     let too_big = || {
         io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -258,29 +258,24 @@ pub fn write_cram_header_container(major: u8, text: &[u8], out: &mut dyn Write) 
         .ok()
         .filter(|&n| n <= i32::MAX as u32)
         .ok_or_else(too_big)?;
-    let v3 = major >= 3;
     // The block: method 0 (raw), content type 0 (FILE_HEADER), content id 0, sizes, data.
     let mut block = vec![0u8, 0, 0];
     itf8(data_len, &mut block);
     itf8(data_len, &mut block);
     block.extend_from_slice(&(text.len() as u32).to_le_bytes());
     block.extend_from_slice(text);
-    if v3 {
-        let mut crc = flate2::Crc::new();
-        crc.update(&block);
-        block.extend_from_slice(&crc.sum().to_le_bytes());
-    }
+    let mut crc = flate2::Crc::new();
+    crc.update(&block);
+    block.extend_from_slice(&crc.sum().to_le_bytes());
     let block_len = u32::try_from(block.len()).map_err(|_| too_big())?;
     // The container header: length, reference id 0, start 0, span 0, no records, record
     // counter 0, bases 0 (a single byte in ITF8 and LTF8 alike), one block, no landmarks.
     let mut head = block_len.to_le_bytes().to_vec();
     head.extend_from_slice(&[0, 0, 0, 0, 0, 0, 1, 0]);
     out.write_all(&head)?;
-    if v3 {
-        let mut crc = flate2::Crc::new();
-        crc.update(&head);
-        out.write_all(&crc.sum().to_le_bytes())?;
-    }
+    let mut crc = flate2::Crc::new();
+    crc.update(&head);
+    out.write_all(&crc.sum().to_le_bytes())?;
     out.write_all(&block)
 }
 

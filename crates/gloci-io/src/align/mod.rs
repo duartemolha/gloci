@@ -20,7 +20,7 @@ pub(crate) use bam::{BamReader, bam_record_place};
 pub use bed::{AlnBed, AlnBedLayout, AlnBedOptions, AlnBlocks};
 pub(crate) use cram::CramFile;
 pub use cram::{CramReader, ReferenceCounts, read_cram_header, warn_unused_reference};
-pub use cram_prelude::{CramPrelude, cram_eof_present, read_cram_prelude};
+pub use cram_prelude::{CramPrelude, check_cram_version, cram_eof_present, read_cram_prelude};
 pub use flags::{SAM_FLAGS, flag_names, parse_flags};
 pub use header::{AlnHeader, AlnSortOrder, SortOrder};
 pub use record::{Aln, AlnRef, aln_ref, blocks, blocks_within};
