@@ -227,12 +227,10 @@ fn evicted_entry_clips_nobody() {
     // moves the table past it, so the supplementary alignment of o at 61 is not clipped by o's
     // end (100): without eviction it would lose its bases up to there.
     let dir = tempfile::tempdir().unwrap();
-    let text = format!(
-        "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:c\tLN:1000\n\
+    let text = "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:c\tLN:1000\n\
 o\t99\tc\t1\t60\t100M\t=\t51\t0\t*\t*\n\
 x\t0\tc\t56\t60\t100M\t*\t0\t0\t*\t*\n\
-o\t2145\tc\t61\t60\t100M\t=\t51\t0\t*\t*\n"
-    );
+o\t2145\tc\t61\t60\t100M\t=\t51\t0\t*\t*\n";
     let p = dir.path().join("e.sam");
     std::fs::write(&p, text).unwrap();
     let paths = vec![p.display().to_string()];
