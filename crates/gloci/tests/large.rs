@@ -1,7 +1,9 @@
 //! Large-file tests (nightly): `cargo test --release --test large -- --ignored`.
 //!
-//! Data is generated deterministically into a temp dir and removed afterwards.
-//! `GLOCI_LARGE_BYTES` overrides the size of the generated BED payload (default
+//! Data is generated deterministically. The inputs several tests share live in
+//! `$CARGO_TARGET_TMPDIR/large-<bytes>/` and are reused by later runs of the same size (so
+//! nothing is left in `$TMPDIR`); `cargo clean` removes them. Per-test outputs are in temp
+//! dirs removed afterwards. `GLOCI_LARGE_BYTES` overrides the size of the generated BED payload (default
 //! 2 GiB) for smaller local runs. Peak RSS of each child is read from
 //! `wait4` (the same `ru_maxrss` that `getrusage(RUSAGE_CHILDREN)` reports, but
 //! per child); it is KiB on Linux and bytes on macOS.
@@ -175,59 +177,84 @@ fn gen_plain(dir: &Path, bytes: u64) -> std::path::PathBuf {
     p
 }
 
-struct SharedDir {
-    dir: tempfile::TempDir,
-}
-static SHARED_DIR: std::sync::OnceLock<SharedDir> = std::sync::OnceLock::new();
+/// The directory of the inputs several tests share: `$CARGO_TARGET_TMPDIR/large-<bytes>`,
+/// kept between runs, as the inputs depend only on the size.
+static SHARED_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 fn shared_dir() -> &'static Path {
-    SHARED_DIR
-        .get_or_init(|| SharedDir { dir: tempdir() })
-        .dir
-        .path()
+    SHARED_DIR.get_or_init(|| {
+        let d =
+            PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("large-{}", payload_bytes()));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    })
+}
+
+/// The shared input `name`: reused when an earlier run made it, else made by `make` in a
+/// scratch directory and moved into place with what `make` wrote beside it (an index), the
+/// input itself last, so an interrupted run never leaves a partial input to be reused.
+fn shared_input(name: &str, make: impl FnOnce(&Path) -> PathBuf) -> PathBuf {
+    let dest = shared_dir().join(name);
+    if dest.exists() {
+        return dest;
+    }
+    let scratch = tempfile::tempdir_in(shared_dir()).unwrap();
+    let made = make(scratch.path());
+    assert_eq!(made.file_name(), dest.file_name(), "shared input {name}");
+    for e in std::fs::read_dir(scratch.path()).unwrap() {
+        let p = e.unwrap().path();
+        if p != made {
+            std::fs::rename(&p, shared_dir().join(p.file_name().unwrap())).unwrap();
+        }
+    }
+    std::fs::rename(&made, &dest).unwrap();
+    dest
+}
+
+/// A sorted BED of `bytes` with `seed`, as the shared input `name`.
+fn shared_sorted_bed(name: &str, bytes: u64, seed: u64) -> PathBuf {
+    shared_input(name, |dir| {
+        let p = dir.join(name);
+        let mut f = std::io::BufWriter::new(std::fs::File::create(&p).unwrap());
+        gen_sorted_bed(&mut f, bytes, seed);
+        f.flush().unwrap();
+        p
+    })
 }
 
 static BED_A: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 fn big_bed_a() -> &'static Path {
-    BED_A.get_or_init(|| {
-        let p = shared_dir().join("big_a.bed");
-        let mut f = std::io::BufWriter::new(std::fs::File::create(&p).unwrap());
-        gen_sorted_bed(&mut f, payload_bytes(), 42);
-        f.flush().unwrap();
-        p
-    })
+    BED_A.get_or_init(|| shared_sorted_bed("big_a.bed", payload_bytes(), 42))
 }
 
 static BED_B: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 fn big_bed_b() -> &'static Path {
-    BED_B.get_or_init(|| {
-        let p = shared_dir().join("big_b.bed");
-        let mut f = std::io::BufWriter::new(std::fs::File::create(&p).unwrap());
-        gen_sorted_bed(&mut f, payload_bytes() / 4, 99);
-        f.flush().unwrap();
-        p
-    })
+    BED_B.get_or_init(|| shared_sorted_bed("big_b.bed", payload_bytes() / 4, 99))
 }
 
 static VCF_FILE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 fn big_vcf() -> &'static Path {
     VCF_FILE.get_or_init(|| {
-        let p = shared_dir().join("big.vcf");
-        let mut f = std::io::BufWriter::new(std::fs::File::create(&p).unwrap());
-        gen_sorted_vcf(&mut f, payload_bytes(), 123);
-        f.flush().unwrap();
-        p
+        shared_input("big.vcf", |dir| {
+            let p = dir.join("big.vcf");
+            let mut f = std::io::BufWriter::new(std::fs::File::create(&p).unwrap());
+            gen_sorted_vcf(&mut f, payload_bytes(), 123);
+            f.flush().unwrap();
+            p
+        })
     })
 }
 
 static BED_GZ: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 fn big_bed_gz() -> &'static Path {
     BED_GZ.get_or_init(|| {
-        let p = shared_dir().join("big.bed.gz");
-        let f = std::fs::File::create(&p).unwrap();
-        let mut w = noodles_bgzf::io::Writer::new(std::io::BufWriter::new(f));
-        gen_sorted_bed(&mut w, payload_bytes(), 43);
-        w.finish().unwrap();
-        p
+        shared_input("big.bed.gz", |dir| {
+            let p = dir.join("big.bed.gz");
+            let f = std::fs::File::create(&p).unwrap();
+            let mut w = noodles_bgzf::io::Writer::new(std::io::BufWriter::new(f));
+            gen_sorted_bed(&mut w, payload_bytes(), 43);
+            w.finish().unwrap();
+            p
+        })
     })
 }
 
@@ -816,14 +843,16 @@ fn lines_of(path: &Path) -> u64 {
 #[test]
 #[ignore = "nightly: generates large file"]
 fn vcf_stats_2gib_vcf_streams() {
-    let vcf = shared_dir().join("stats_in.vcf");
+    // Used by this test only: in a temp dir removed afterwards, even when the test fails.
+    let d = tempdir();
+    let vcf = d.path().join("stats_in.vcf");
     let sites = {
         let mut f = std::io::BufWriter::new(std::fs::File::create(&vcf).unwrap());
         let n = gen_sample_vcf(&mut f, payload_bytes(), 321);
         f.flush().unwrap();
         n
     };
-    let prefix = shared_dir().join("stats_out");
+    let prefix = d.path().join("stats_out");
     let t0 = std::time::Instant::now();
     let child = Command::new(gloci_bin())
         .args(["vcf", "stats"])
@@ -854,7 +883,7 @@ fn vcf_stats_2gib_vcf_streams() {
     );
     // one line per site (plus the header) in the per-site tables, and one
     // per sample in the per-sample ones
-    let ext = |e: &str| shared_dir().join(format!("stats_out.{e}"));
+    let ext = |e: &str| d.path().join(format!("stats_out.{e}"));
     let counts = (
         lines_of(&ext("lqual")),
         lines_of(&ext("frq")),
@@ -862,15 +891,7 @@ fn vcf_stats_2gib_vcf_streams() {
         lines_of(&ext("het")),
         lines_of(&ext("imiss")),
     );
-    let _ = std::fs::remove_file(&vcf);
-    for e in std::fs::read_dir(shared_dir()).unwrap() {
-        let p = e.unwrap().path();
-        if p.file_name()
-            .is_some_and(|n| n.to_string_lossy().starts_with("stats_out."))
-        {
-            let _ = std::fs::remove_file(p);
-        }
-    }
+    drop(d);
     assert!(ok, "gloci vcf stats failed");
     assert_eq!(counts.0, sites + 1, ".lqual lines");
     assert_eq!(counts.1, sites + 1, ".frq lines");
@@ -1008,13 +1029,20 @@ fn make_bam(
 
 static SORTED_BAM: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 fn big_sorted_bam() -> &'static Path {
-    SORTED_BAM.get_or_init(|| make_bam(shared_dir(), "sorted", payload_bytes(), true, 5, true))
+    SORTED_BAM.get_or_init(|| {
+        shared_input("sorted.bam", |dir| {
+            make_bam(dir, "sorted", payload_bytes(), true, 5, true)
+        })
+    })
 }
 
 static SHUFFLED_BAM: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 fn big_shuffled_bam() -> &'static Path {
-    SHUFFLED_BAM
-        .get_or_init(|| make_bam(shared_dir(), "shuffled", payload_bytes(), false, 6, false))
+    SHUFFLED_BAM.get_or_init(|| {
+        shared_input("shuffled.bam", |dir| {
+            make_bam(dir, "shuffled", payload_bytes(), false, 6, false)
+        })
+    })
 }
 
 /// Ceiling of the streaming alignment commands.
@@ -1124,14 +1152,15 @@ fn coverage_with_2gb_bam_as_b_streams() {
 }
 
 /// A FASTA of `chroms` chromosomes of `len` random bases (60 per line, some lowercase), with its
-/// `.fai`; reused between tests.
+/// `.fai`; reused between tests and runs.
 fn make_fasta(name: &str, chroms: u64, len: u64, seed: u64, soft: bool) -> PathBuf {
-    let p = shared_dir().join(name);
-    if p.exists() {
-        return p;
-    }
-    let partial = shared_dir().join(format!("{name}.partial"));
-    let mut w = std::io::BufWriter::new(std::fs::File::create(&partial).unwrap());
+    shared_input(name, |dir| {
+        write_fasta(&dir.join(name), chroms, len, seed, soft)
+    })
+}
+
+fn write_fasta(p: &Path, chroms: u64, len: u64, seed: u64, soft: bool) -> PathBuf {
+    let mut w = std::io::BufWriter::new(std::fs::File::create(p).unwrap());
     let mut rng = Rng(seed);
     for c in 1..=chroms {
         writeln!(w, ">chr{c}").unwrap();
@@ -1160,14 +1189,13 @@ fn make_fasta(name: &str, chroms: u64, len: u64, seed: u64, soft: bool) -> PathB
     }
     w.flush().unwrap();
     drop(w);
-    std::fs::rename(&partial, &p).unwrap();
     let st = Command::new(gloci_bin())
         .arg("index")
-        .arg(&p)
+        .arg(p)
         .status()
         .unwrap();
     assert!(st.success(), "index FASTA failed");
-    p
+    p.to_path_buf()
 }
 
 /// 4 chromosomes of 300 Mb: 1.2 GB of FASTA, whatever `GLOCI_LARGE_BYTES` says (the ceiling is
@@ -1279,8 +1307,8 @@ fn sort_bam_obeys_max_mem(extra: &[&str]) {
     let budget = format!("{budget_mib}M");
     let input = big_shuffled_bam();
     let in_bytes = input.metadata().unwrap().len();
-    let tmp = shared_dir().join(format!("spill-{}", extra.join("")));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let spill = tempdir();
+    let tmp = spill.path().to_path_buf();
     let t0 = std::time::Instant::now();
     let mut sort = Command::new(gloci_bin());
     sort.arg("sort").args(extra);
@@ -1365,8 +1393,8 @@ const CRAM_CHROM: usize = 20_000_000;
 /// time it was forked, so doing that here would inflate every measurement made after it.
 fn make_cram(name: &str, reads: u64) -> (PathBuf, PathBuf) {
     let fa = make_fasta("cram-ref.fa", 3, CRAM_CHROM as u64, 31, false);
-    let cram = shared_dir().join(format!("{name}.cram"));
-    if !cram.exists() {
+    let cram = shared_input(&format!("{name}.cram"), |dir| {
+        let cram = dir.join(format!("{name}.cram"));
         let st = Command::new(std::env::current_exe().unwrap())
             .args([
                 "--ignored",
@@ -1388,7 +1416,8 @@ fn make_cram(name: &str, reads: u64) -> (PathBuf, PathBuf) {
             .status()
             .unwrap();
         assert!(st.success(), "index CRAM failed");
-    }
+        cram
+    });
     (cram, fa)
 }
 
