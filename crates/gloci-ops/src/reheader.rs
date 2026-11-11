@@ -168,17 +168,19 @@ pub fn reheader(
     } else {
         header_src
     };
-    // The old header, and where its data ends (BAM) or where the first data container starts (CRAM).
-    let (mut new, old_header, resume) = match kind {
+    // The old header, and where its data ends (BAM) or where the first data container starts
+    // (CRAM). A CRAM's file definition is kept from this one read of its prelude.
+    let (mut new, old_header, resume, cram_def) = match kind {
         Kind::Bam => {
             let (h, extent) = read_bam_file_header(input)?;
-            (read_new_header(header_src)?, h, extent)
+            (read_new_header(header_src)?, h, extent, None)
         }
         Kind::Cram => {
             let p = read_cram_prelude(input)?;
-            let h = AlnHeader::parse_sam(p.header_text.clone())
+            let h = AlnHeader::parse_sam(p.header_text)
                 .map_err(|e| detect_err(&name, format!("{name}: {e}")))?;
-            (read_new_header(header_src)?, h, p.data_start)
+            let def = (p.major, p.minor, p.file_id);
+            (read_new_header(header_src)?, h, p.data_start, Some(def))
         }
     };
     check_sq_compatible_named(&old_header, &name, &new, new_name, kind == Kind::Cram)
@@ -193,8 +195,8 @@ pub fn reheader(
         with.refs = refs;
         new = with;
     }
-    match kind {
-        Kind::Bam => {
+    match cram_def {
+        None => {
             let blocks = bam_header_blocks(&new, level).map_err(werr)?;
             drop(new);
             out.write_all(&blocks).map_err(werr)?;
@@ -224,8 +226,7 @@ pub fn reheader(
             }
             out.write_all(&BGZF_EOF).map_err(werr)?;
         }
-        Kind::Cram => {
-            let p = read_cram_prelude(input)?;
+        Some((major, minor, file_id)) => {
             let mut src = File::open(input).map_err(|source| IoError::Open {
                 path: name.clone(),
                 source,
@@ -235,8 +236,8 @@ pub fn reheader(
                 source,
             };
             out.write_all(b"CRAM").map_err(werr)?;
-            out.write_all(&[p.major, p.minor]).map_err(werr)?;
-            out.write_all(&p.file_id).map_err(werr)?;
+            out.write_all(&[major, minor]).map_err(werr)?;
+            out.write_all(&file_id).map_err(werr)?;
             write_cram_header_container(&new.text, &mut out).map_err(werr)?;
             drop(new);
             src.seek(SeekFrom::Start(resume)).map_err(read_err)?;
