@@ -2,7 +2,7 @@
 use crate::Ctx;
 use crate::cli::RandomArgs;
 use gloci_io::{
-    Format, Header, OutFormat, OutputOptions, TsvHeader, WriterOptions, open_output,
+    Format, Header, OutFormat, OutputOptions, TsvHeader, UsageError, WriterOptions, open_output,
     open_record_writer, open_tsv_writer, parse_output_spec, refuse_binary_to_tty, resolve_genome,
 };
 use gloci_ops::random::{RandomOptions, random_intervals};
@@ -10,6 +10,15 @@ use gloci_ops::rng::seed_or_entropy;
 use std::io::IsTerminal;
 
 pub fn run(ctx: &Ctx, a: &RandomArgs) -> anyhow::Result<()> {
+    if a.out.write_index {
+        return Err(UsageError(
+            "--write-index: random output is unsorted, so it cannot be indexed; write it, then \
+`gloci sort` it, then index it: gloci random ... -o x.bed && gloci sort x.bed -g G -o x.sorted.bed.gz \
+--write-index"
+                .into(),
+        )
+        .into());
+    }
     let spec = parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref())?;
     let to = spec.format.unwrap_or(OutFormat::Bed);
     refuse_binary_to_tty(

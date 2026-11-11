@@ -183,3 +183,28 @@ fn random_zero_count_and_zero_length() {
         .code(2)
         .stderr(contains("-l"));
 }
+
+#[test]
+fn random_refuses_write_index_up_front() {
+    let d = tempdir();
+    let g = genome(d.path());
+    let out = d.path().join("x.bed.gz");
+    gloci()
+        .args([
+            "random",
+            "-g",
+            &g,
+            "-n",
+            "5",
+            "--seed",
+            "1",
+            "--write-index",
+            "-o",
+        ])
+        .arg(&out)
+        .assert()
+        .code(2)
+        .stderr(contains("random output is unsorted"))
+        .stderr(contains("gloci sort"));
+    assert!(!out.exists(), "nothing is created");
+}
