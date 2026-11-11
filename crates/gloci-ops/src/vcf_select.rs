@@ -917,6 +917,7 @@ where
         let mut records_in = 0u64;
         let mut max = 1;
         let mut eof = false;
+        let mut workers_gone = false;
         // A read or order error ends the input: the batches before it are
         // still taken (so an earlier record's error comes first).
         let mut input_err: Option<IoError> = None;
@@ -941,7 +942,16 @@ where
                         batch,
                         hits,
                     };
-                    job_tx.send(job).map_err(|_| no_workers())?;
+                    if job_tx.send(job).is_err() {
+                        // Every worker has exited. One may have left an
+                        // error (a panic) for a batch already sent: stop
+                        // reading and take the batches in order, so that
+                        // error is the one reported. With none, the wait
+                        // below fails and says the workers stopped.
+                        eof = true;
+                        workers_gone = true;
+                        break;
+                    }
                     sent += 1;
                     records_in += n;
                 }
@@ -984,6 +994,9 @@ where
                     return Err(e);
                 }
                 spare.push((job.batch, job.hits));
+            }
+            if workers_gone {
+                return Err(no_workers());
             }
             match input_err.take() {
                 Some(e) => Err(e),

@@ -435,32 +435,40 @@ static IN_PROCESS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 #[test]
 fn parallel_selection_reports_a_worker_panic() {
     let _g = IN_PROCESS.lock().unwrap_or_else(|e| e.into_inner());
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let d = tempdir();
-        let path = s(&plain_file(d.path(), "p.vcf", &cohort(50, 600, &[])));
-        let sel = VcfSelect::default();
-        let input = open_selected(&path, &in_process_ro(), &sel).unwrap();
-        let (reader, mut chroms) = input.into_parts();
-        let mut stage = gloci_ops::SelectStage::new(
-            "test",
-            reader.as_ref(),
-            &sel,
-            &RewritePlan::default(),
-            true,
-        )
-        .unwrap();
-        stage.set_threads(NonZero::new(4).unwrap());
-        gloci_ops::set_worker_panic_at(Some(1));
-        let r = run_selection(reader, &mut chroms, &mut stage, |_| Ok(()));
-        gloci_ops::set_worker_panic_at(None);
-        let _ = tx.send(r.map_err(|e| e.to_string()));
-    });
-    let r = rx
-        .recv_timeout(std::time::Duration::from_secs(60))
-        .expect("the selection hung after a worker panic");
-    let e = r.expect_err("a worker panic must be an error");
-    assert!(e.contains("worker") && e.contains("panic"), "{e}");
+    let d = tempdir();
+    // Several batches (about 150 records each), so the driver is still
+    // dispatching when the worker dies; at -t 2 the only worker is gone.
+    let path = s(&plain_file(d.path(), "p.vcf", &cohort(2000, 800, &[])));
+    for (threads, seq) in [(2usize, 0u64), (2, 1), (4, 1)] {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let path = path.clone();
+        std::thread::spawn(move || {
+            let sel = VcfSelect::default();
+            let input = open_selected(&path, &in_process_ro(), &sel).unwrap();
+            let (reader, mut chroms) = input.into_parts();
+            let mut stage = gloci_ops::SelectStage::new(
+                "test",
+                reader.as_ref(),
+                &sel,
+                &RewritePlan::default(),
+                true,
+            )
+            .unwrap();
+            stage.set_threads(NonZero::new(threads).unwrap());
+            gloci_ops::set_worker_panic_at(Some(seq));
+            let r = run_selection(reader, &mut chroms, &mut stage, |_| Ok(()));
+            gloci_ops::set_worker_panic_at(None);
+            let _ = tx.send(r.map_err(|e| e.to_string()));
+        });
+        let r = rx
+            .recv_timeout(std::time::Duration::from_secs(120))
+            .expect("the selection hung after a worker panic");
+        let e = r.expect_err("a worker panic must be an error");
+        assert!(
+            e.contains("a selection worker panicked on the batch starting at record"),
+            "-t {threads}, batch {seq}: {e}"
+        );
+    }
 }
 
 /// Both errors lie in one batch: the earlier record's wins at every -t.
