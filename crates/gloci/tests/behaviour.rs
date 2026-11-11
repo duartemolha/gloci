@@ -5051,3 +5051,391 @@ fn p3a_chrom_map_round_trip() {
     );
     assert_eq!(got.stdout, want, "maskfasta through a map");
 }
+
+// ---------------------------------------------------------------------------
+// P3c: samtools essentials (idxstats, flagstat, check --quick, reheader, head, samples, flags,
+// faidx, dict, view --count, depth, bedcov)
+// ---------------------------------------------------------------------------
+
+/// One command of the P3c matrices: its name, its arguments, whether it takes `-t`, and whether
+/// its output is the same for BAM, SAM and CRAM copies of the same reads.
+struct P3cCmd {
+    name: String,
+    args: Vec<String>,
+    threads: bool,
+    format_free: bool,
+}
+
+fn p3c_run(c: &P3cCmd, t: &str) -> std::process::Output {
+    if c.threads {
+        p3a_run_t(&c.args, t)
+    } else {
+        gloci().args(&c.args).output().unwrap()
+    }
+}
+
+impl P3a {
+    /// The P3c commands over one alignment input.
+    fn p3c_cmds(&self, kind: &str, input: &str) -> Vec<P3cCmd> {
+        let s = |a: &[&str]| -> Vec<String> { a.iter().map(|s| s.to_string()).collect() };
+        let with_ref = |mut a: Vec<String>| -> Vec<String> {
+            if kind == "cram" {
+                a.extend(s(&["--reference", &self.fa]));
+            }
+            a
+        };
+        let bed = self.bed.as_str();
+        let mut c: Vec<P3cCmd> = Vec::new();
+        let mut add = |name: &str, args: Vec<String>, threads: bool, format_free: bool| {
+            c.push(P3cCmd {
+                name: format!("{kind} {name}"),
+                threads,
+                // a column name is the path
+                format_free: format_free && !args.iter().any(|a| a == "--column-names"),
+                args,
+            })
+        };
+        add("idxstats", with_ref(s(&["idxstats", input])), true, true);
+        for fmt in ["text", "tsv", "json"] {
+            add(
+                &format!("flagstat {fmt}"),
+                with_ref(s(&["flagstat", input, "-O", fmt])),
+                true,
+                true,
+            );
+        }
+        add(
+            "view --count",
+            with_ref(s(&["view", "--count", input])),
+            true,
+            true,
+        );
+        add(
+            "view --count filters",
+            with_ref(s(&[
+                "view",
+                "--count",
+                input,
+                "--min-mapq",
+                "30",
+                "--exclude-flags",
+                "0x400",
+            ])),
+            true,
+            true,
+        );
+        for (name, extra) in [
+            ("depth", vec![]),
+            ("depth -a", vec!["--all-positions"]),
+            ("depth -aa", vec!["--all-references", "--column-names"]),
+            ("depth -s", vec!["--skip-mate-overlap"]),
+            (
+                "depth filters",
+                vec!["--min-mapq", "10", "--min-baseq", "20", "--count-deletions"],
+            ),
+            (
+                "depth regions",
+                vec!["--region", "chr1:100-400", "--region", "chr2:1-50"],
+            ),
+            ("depth regions-file", vec!["--regions-file", bed]),
+        ] {
+            let mut a = s(&["depth", input]);
+            a.extend(extra.iter().map(|x| x.to_string()));
+            add(name, with_ref(a), true, true);
+        }
+        if kind != "sam" {
+            add("bedcov", with_ref(s(&["bedcov", bed, input])), true, true);
+            add(
+                "bedcov --read-count",
+                with_ref(s(&[
+                    "bedcov",
+                    bed,
+                    input,
+                    "--read-count",
+                    "--bases-at-depth",
+                    "2",
+                    "--split",
+                ])),
+                true,
+                true,
+            );
+            add(
+                "bedcov --min-mapq",
+                with_ref(s(&["bedcov", bed, input, "--min-mapq", "20"])),
+                true,
+                true,
+            );
+        }
+        add(
+            "head",
+            with_ref(s(&["head", input, "--records", "4"])),
+            true,
+            false,
+        );
+        add(
+            "head --headers",
+            with_ref(s(&["head", input, "--headers", "2"])),
+            true,
+            false,
+        );
+        add(
+            "check --quick",
+            s(&["check", "--quick", input]),
+            true,
+            false,
+        );
+        add("samples", s(&["samples", input]), false, false);
+        add(
+            "samples --show-index",
+            s(&["samples", input, "--show-index", "--column-names"]),
+            false,
+            false,
+        );
+        c
+    }
+
+    /// The P3c commands over the FASTA files, which have no format variants.
+    fn p3c_fasta_cmds(&self) -> Vec<P3cCmd> {
+        let s = |a: &[&str]| -> Vec<String> { a.iter().map(|s| s.to_string()).collect() };
+        let mk = |name: &str, args: Vec<String>, threads: bool| P3cCmd {
+            name: name.to_string(),
+            args,
+            threads,
+            format_free: false,
+        };
+        vec![
+            mk(
+                "faidx",
+                s(&[
+                    "faidx",
+                    &self.fa,
+                    "chr1:1-200",
+                    "chr2",
+                    "--reverse-complement",
+                ]),
+                true,
+            ),
+            mk(
+                "faidx --regions-file",
+                s(&["faidx", &self.fa, "--regions-file", &self.masks]),
+                true,
+            ),
+            mk(
+                "faidx bgzf",
+                s(&["faidx", &self.fa_gz, "chr1:50-300", "chrX:10-"]),
+                true,
+            ),
+            mk("dict", s(&["dict", &self.fa, "--alias"]), true),
+            mk("dict bgzf", s(&["dict", &self.fa_gz]), true),
+            mk(
+                "flags",
+                s(&["flags", "0x704", "1796", "secondary,dup"]),
+                false,
+            ),
+            mk("flags table", s(&["flags"]), false),
+        ]
+    }
+}
+
+/// SAM text of an alignment file with the `@PG` lines (which name `-t` and the paths) dropped.
+fn p3c_sam_of(path: &str, extra: &[&str]) -> Vec<u8> {
+    let o = gloci()
+        .args(["head", path, "--records", "1000000"])
+        .args(extra)
+        .output()
+        .unwrap();
+    assert_eq!(o.status.code(), Some(0), "head {path}");
+    p3a_norm(&o.stdout)
+}
+
+/// A BED of `n` regions of 3 kb over the two chromosomes of `p3a_big_alignments`.
+fn p3c_big_bed(dir: &Path, n: usize) -> String {
+    let mut bed = String::new();
+    for i in 0..n {
+        let start = (i / 2) * 4_900;
+        writeln!(bed, "chr{}\t{start}\t{}\tr{i}", 1 + i % 2, start + 3_000).unwrap();
+    }
+    s_of(&plain_file(dir, "p3c-big.bed", &bed))
+}
+
+/// Every P3c command gives the same bytes at `-t 1`, `-t2` and `--threads=8`, on BAM (indexed),
+/// SAM and CRAM (indexed); the three formats of the same reads agree for the commands whose
+/// output does not name the format.
+#[test]
+fn p3c_determinism_matrix() {
+    let fx = P3a::new();
+    let mut ran = 0;
+    let mut by_cmd: std::collections::BTreeMap<String, Vec<(String, Vec<u8>)>> = Default::default();
+    let mut all: Vec<(String, P3cCmd)> = Vec::new();
+    for (kind, input, _) in fx.kinds() {
+        for c in fx.p3c_cmds(kind, &input) {
+            all.push((kind.to_string(), c));
+        }
+    }
+    for c in fx.p3c_fasta_cmds() {
+        all.push(("fasta".into(), c));
+    }
+    for (kind, c) in &all {
+        let outs: Vec<Vec<u8>> = ["1", "2", "8"]
+            .iter()
+            .map(|t| {
+                let o = p3c_run(c, t);
+                assert_eq!(
+                    o.status.code(),
+                    Some(0),
+                    "{} -t {t}: {}",
+                    c.name,
+                    String::from_utf8_lossy(&o.stderr)
+                );
+                o.stdout
+            })
+            .collect();
+        assert!(
+            outs.windows(2).all(|w| w[0] == w[1]),
+            "{}: -t changes bytes",
+            c.name
+        );
+        assert!(!outs[0].is_empty(), "{}: wrote nothing", c.name);
+        ran += 1;
+        if c.format_free {
+            let key = c
+                .name
+                .strip_prefix(&format!("{kind} "))
+                .unwrap()
+                .to_string();
+            by_cmd
+                .entry(key)
+                .or_default()
+                .push((kind.clone(), outs[0].clone()));
+        }
+    }
+    for (name, outs) in &by_cmd {
+        for w in outs.windows(2) {
+            assert!(w[0].1 == w[1].1, "{name}: {} and {} differ", w[0].0, w[1].0);
+        }
+    }
+    assert!(
+        by_cmd.len() >= 14 && ran > 60,
+        "{} formats-free, {ran} runs",
+        by_cmd.len()
+    );
+
+    // reheader: the result of each thread count reads back the same, for BAM and CRAM.
+    let hdr = {
+        let mut h = p3c_sam_of(&fx.bam, &[])
+            .split(|&b| b == b'\n')
+            .filter(|l| !l.is_empty())
+            .take_while(|l| l.starts_with(b"@"))
+            .flat_map(|l| l.iter().chain(b"\n".iter()).copied())
+            .collect::<Vec<u8>>();
+        h.extend_from_slice(b"@CO\tp3c determinism\n");
+        s_of(&write(Path::new(&fx.path("")), "new-header.sam", &h))
+    };
+    for (kind, input, extra) in fx.kinds() {
+        if kind == "sam" {
+            continue;
+        }
+        let extra: Vec<&str> = extra.iter().map(|s| s.as_str()).collect();
+        let mut seen: Vec<Vec<u8>> = Vec::new();
+        for t in ["1", "2", "8"] {
+            let out = fx.path(&format!("reheader-{kind}-{t}.out"));
+            let o = p3a_run_t(
+                &[
+                    "reheader".into(),
+                    hdr.clone(),
+                    input.clone(),
+                    "-o".into(),
+                    out.clone(),
+                ],
+                t,
+            );
+            assert_eq!(
+                o.status.code(),
+                Some(0),
+                "reheader {kind} -t {t}: {}",
+                String::from_utf8_lossy(&o.stderr)
+            );
+            let text = p3c_sam_of(&out, &extra);
+            assert!(
+                String::from_utf8_lossy(&text).contains("@CO\tp3c determinism\n"),
+                "reheader {kind}"
+            );
+            seen.push(text);
+        }
+        assert!(seen.windows(2).all(|w| w[0] == w[1]), "reheader {kind}");
+        // and the reads are the input's
+        assert_eq!(
+            p3a_records(&seen[0]),
+            p3a_records(&p3c_sam_of(&input, &extra)),
+            "reheader {kind} changed the reads"
+        );
+    }
+}
+
+/// depth and bedcov split their work across references and batches of regions at `-t` above 1:
+/// on an indexed BAM with enough reads and regions for several batches, every thread count gives
+/// the bytes of `-t 1`, for each filter that changes the walk.
+#[test]
+fn p3c_determinism_large_fixture() {
+    let d = tempdir();
+    let (big_sam, big_bam) = p3a_big_alignments(d.path(), 12_000, false);
+    let bed = p3c_big_bed(d.path(), 2_000);
+    let v = |a: &[&str]| -> Vec<String> { a.iter().map(|s| s.to_string()).collect() };
+    let cmds = vec![
+        ("depth", v(&["depth", &big_bam])),
+        ("depth sam", v(&["depth", &big_sam])),
+        ("depth -s", v(&["depth", &big_bam, "--skip-mate-overlap"])),
+        (
+            "depth regions-file",
+            v(&["depth", &big_bam, "--regions-file", &bed, "--all-positions"]),
+        ),
+        (
+            "depth two inputs",
+            v(&["depth", &big_bam, &big_bam, "--min-mapq", "10"]),
+        ),
+        ("bedcov", v(&["bedcov", &bed, &big_bam])),
+        (
+            "bedcov all columns",
+            v(&[
+                "bedcov",
+                &bed,
+                &big_bam,
+                &big_bam,
+                "--read-count",
+                "--bases-at-depth",
+                "3",
+            ]),
+        ),
+        ("idxstats", v(&["idxstats", &big_bam])),
+        ("idxstats scan", v(&["idxstats", &big_sam])),
+        ("flagstat", v(&["flagstat", &big_bam])),
+        ("view --count", v(&["view", "--count", &big_bam])),
+    ];
+    let mut last: Option<Vec<u8>> = None;
+    for (name, args) in &cmds {
+        let outs: Vec<Vec<u8>> = ["1", "2", "8"]
+            .iter()
+            .map(|t| {
+                let o = p3a_run_t(args, t);
+                assert_eq!(
+                    o.status.code(),
+                    Some(0),
+                    "{name} -t {t}: {}",
+                    String::from_utf8_lossy(&o.stderr)
+                );
+                o.stdout
+            })
+            .collect();
+        assert!(outs[0].len() >= 5, "{name}: {} bytes", outs[0].len());
+        assert!(
+            outs.windows(2).all(|w| w[0] == w[1]),
+            "{name}: -t changes bytes"
+        );
+        if name.starts_with("depth") && name.len() == 5 {
+            last = Some(outs[0].clone());
+        }
+        if *name == "depth sam" {
+            assert!(Some(&outs[0]) == last.as_ref(), "SAM and BAM depth differ");
+        }
+    }
+}
