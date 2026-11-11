@@ -5546,3 +5546,12 @@ input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
 gloci = "gloci vcf annotate input.vcf -x INFO/DP,^INFO/FL"
 reference = "bcftools annotate --no-version -x INFO/DP,^INFO/FL input.vcf"
 compare = "vcf-records"
+
+# ALT without REF is accepted and ignored: the rows match by position alone.
+[[case]]
+name = "vcf-annotate-tab-alt-without-ref-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/ann.tab", "xtask/diff/inputs/vcf/annotate/tags.hdr"]
+gloci = "gloci vcf annotate input.vcf -a ann.tab --header-lines tags.hdr -c CHROM,POS,-,ALT,ID,INFO/TF"
+reference = "bgzip -c ann.tab > a.tab.gz && tabix -s1 -b2 -e2 a.tab.gz && bcftools annotate --no-version -a a.tab.gz -h tags.hdr -c CHROM,POS,-,ALT,ID,INFO/TF input.vcf"
+compare = "vcf-records"

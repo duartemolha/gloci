@@ -3437,6 +3437,12 @@ pub struct VcfAnnotateArgs {
     pub columns_file: Option<String>,
     #[arg(short = 'H', long = "header-line", hide = true, value_name = "STR")]
     pub header_line: Option<String>,
+    #[arg(short = 'k', long = "keep-sites", hide = true)]
+    pub keep_sites: bool,
+    #[arg(short = 'r', long = "regions", hide = true, value_name = "REGION")]
+    pub regions: Option<String>,
+    #[arg(short = 'R', long = "regions-file", hide = true, value_name = "FILE")]
+    pub regions_file: Option<String>,
     #[command(flatten)]
     pub invalid: InvalidArg,
     #[command(flatten)]

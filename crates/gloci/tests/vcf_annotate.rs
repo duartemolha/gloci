@@ -207,7 +207,7 @@ fn column_and_remove_mistakes_are_usage_errors_that_say_what_to_do() {
         ),
         (vec!["-a", &tab, "-c", "ID"], "CHROM"),
         (vec!["-a", &tab, "-c", "CHROM,ID"], "POS"),
-        (vec!["-a", &tab, "-c", "CHROM,POS,REF,ID"], "REF and ALT"),
+        (vec!["-a", &tab, "-c", "CHROM,POS,REF,ID"], "REF needs ALT"),
         (vec!["-x", "NOPE"], "no matching tag"),
         (vec!["-x", "DP"], "did you mean INFO/DP"),
         (vec!["-x", "FILTER/nope"], "not declared"),
@@ -303,19 +303,151 @@ fn an_unsorted_file_or_source_is_an_error_with_the_fix() {
 }
 
 #[test]
-fn a_source_chromosome_the_header_lacks_is_not_a_warning() {
-    let (f, src, pos) = (fx("file.vcf"), fx("src.vcf"), fx("pos.tab"));
-    for args in [
-        vec!["-a", &src, "-c", "ID"],
-        vec!["-a", &pos, "-c", "CHROM,POS,ID"],
+fn a_source_chromosome_the_header_lacks_is_an_error_not_an_order_error() {
+    let d = tempdir();
+    let hdr = "##fileformat=VCFv4.2\n##contig=<ID=1,length=1000>\n##INFO=<ID=Y,Number=1,Type=String,Description=\"y\">\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n";
+    let file = s(&plain_file(
+        d.path(),
+        "f.vcf",
+        &format!("{hdr}1\t10\ta\tA\tG\t.\t.\t.\n"),
+    ));
+    let svcf = s(&plain_file(
+        d.path(),
+        "s.vcf",
+        &format!("{hdr}1\t10\tb\tA\tG\t.\t.\t.\ncA\t5\tc\tA\tG\t.\t.\t.\n"),
+    ));
+    let t1 = s(&plain_file(d.path(), "s1.tab", "1\t10\tx\ncA\t5\ty\n"));
+    let t2 = s(&plain_file(
+        d.path(),
+        "s2.tab",
+        "1\t10\t20\tx\ncA\t5\t6\ty\n",
+    ));
+    let h = d.path().join("y.hdr");
+    std::fs::write(&h, "##INFO=<ID=Y,Number=1,Type=String,Description=\"y\">\n").unwrap();
+    for (src, cols) in [
+        (&svcf, "ID"),
+        (&t1, "CHROM,POS,INFO/Y"),
+        (&t2, "CHROM,FROM,TO,INFO/Y"),
     ] {
-        gloci()
+        let assert = gloci()
+            .args([
+                "vcf",
+                "annotate",
+                &file,
+                "-a",
+                src,
+                "-c",
+                cols,
+                "--header-lines",
+            ])
+            .arg(&h)
+            .assert()
+            .failure()
+            .stderr(contains(
+                "chromosome \"cA\" is not in the ##contig lines of",
+            ))
+            .stderr(contains("add ##contig=<ID=cA>"));
+        assert_eq!(assert.get_output().status.code(), Some(1), "{src}");
+        let err = String::from_utf8_lossy(&assert.get_output().stderr).into_owned();
+        assert!(!err.contains("not sorted"), "{err}");
+    }
+    // A source chromosome the header does declare is fine, even if FILE has no record on it.
+    let ok = s(&plain_file(d.path(), "ok.tab", "1\t10\tx\n"));
+    gloci()
+        .args(["vcf", "annotate", &file, "-a", &ok, "-c", "CHROM,POS,ID"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn keep_sites_and_regions_are_refused_with_the_alternative() {
+    let f = fx("file.vcf");
+    for (args, named, hint) in [
+        (vec!["-k"], "-k/--keep-sites", "gloci vcf filter"),
+        (vec!["-r", "1:1-5"], "-r/--regions", "gloci view"),
+        (vec!["-R", "r.bed"], "-R/--regions-file", "gloci view"),
+        (vec!["-H", "##x=1"], "-H/--header-line", "--header-lines"),
+        (vec!["-C", "cols.txt"], "-C/--columns-file", "--columns"),
+    ] {
+        let assert = gloci()
             .args(["vcf", "annotate", &f])
             .args(&args)
             .assert()
-            .success()
-            .stderr(predicates::str::is_empty());
+            .failure()
+            .stderr(contains(named))
+            .stderr(contains(hint));
+        assert_eq!(assert.get_output().status.code(), Some(2), "{args:?}");
     }
+}
+
+#[test]
+fn mark_sites_header_matches_bcftools_and_alt_without_ref_is_ignored() {
+    let (f, tab, hdr) = (fx("file.vcf"), fx("ann.tab"), fx("tags.hdr"));
+    let text = out(&["vcf", "annotate", &f, "-m", "+ALL"]);
+    assert!(header(&text).contains(
+        &"##INFO=<ID=ALL,Number=0,Type=Flag,Description=\"Sites marked with `bcftools annotate -m ALL`\">"
+            .to_string()
+    ));
+    let text = out(&[
+        "vcf",
+        "annotate",
+        &f,
+        "-a",
+        &tab,
+        "-c",
+        "CHROM,POS,ID",
+        "-m",
+        "-MISS",
+    ]);
+    assert!(
+        header(&text)
+            .iter()
+            .any(|l| l.contains("Description=\"Sites not listed in MISS\""))
+    );
+    // ALT without REF changes nothing: rows match by position.
+    let a = out(&[
+        "vcf",
+        "annotate",
+        &f,
+        "-a",
+        &tab,
+        "--header-lines",
+        &hdr,
+        "-c",
+        "CHROM,POS,-,ALT,ID",
+    ]);
+    let b = out(&[
+        "vcf",
+        "annotate",
+        &f,
+        "-a",
+        &tab,
+        "--header-lines",
+        &hdr,
+        "-c",
+        "CHROM,POS,-,-,ID",
+    ]);
+    assert_eq!(a, b);
+    gloci()
+        .args([
+            "vcf",
+            "annotate",
+            &f,
+            "-a",
+            &tab,
+            "--header-lines",
+            &hdr,
+            "-c",
+            "CHROM,POS,REF,ID",
+        ])
+        .assert()
+        .failure()
+        .stderr(contains("REF needs ALT"));
+    gloci()
+        .args(["vcf", "annotate", &f, "-I", "%ALT"])
+        .assert()
+        .failure()
+        .stderr(contains("%ALT"));
 }
 
 /// `n` records on two contigs, one per 10 bases.

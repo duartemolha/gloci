@@ -3,6 +3,7 @@
 ##contig=<ID=1,length=100000>
 ##contig=<ID=2,length=100000>
 ##contig=<ID=3,length=100000>
+##contig=<ID=4,length=100000>
 ##INFO=<ID=OLD,Number=1,Type=String,Description="An old tag">
 ##INFO=<ID=FL,Number=0,Type=Flag,Description="A flag">
 ##INFO=<ID=AFX,Number=A,Type=Float,Description="Existing allele frequency">

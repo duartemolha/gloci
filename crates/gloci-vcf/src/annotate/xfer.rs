@@ -214,8 +214,12 @@ pub fn resolve_tab(
                 .to_string(),
         );
     }
-    if ref_.is_some() != alt.is_some() {
-        return Err("--columns: REF and ALT must be given together".to_string());
+    // ALT without REF is accepted and ignored, as bcftools does.
+    if alt.is_some() && ref_.is_none() {
+        alt = None;
+    }
+    if ref_.is_some() && alt.is_none() {
+        return Err("--columns: REF needs ALT as well".to_string());
     }
     if end.is_some() && (chr, beg, end) != (0, 1, Some(2)) {
         return Err(

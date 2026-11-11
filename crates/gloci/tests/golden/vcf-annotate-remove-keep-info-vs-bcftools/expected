@@ -3,6 +3,7 @@
 ##contig=<ID=1,length=100000>
 ##contig=<ID=2,length=100000>
 ##contig=<ID=3,length=100000>
+##contig=<ID=4,length=100000>
 ##FILTER=<ID=q10,Description="Quality below 10">
 ##INFO=<ID=DP,Number=1,Type=Integer,Description="Depth">
 ##INFO=<ID=FL,Number=0,Type=Flag,Description="A flag">

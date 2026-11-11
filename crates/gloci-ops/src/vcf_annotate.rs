@@ -5,7 +5,7 @@
 //! that can still match.
 
 use crate::vcf_split::vcf_rewrite_output;
-use gloci_core::{ChromId, ChromTable, OrderChecker, OrderViolation};
+use gloci_core::{ChromId, ChromTable, OrderChecker, OrderSource, OrderViolation};
 use gloci_io::{
     BcfText, Format, Header, IoError, Loc, OrderError, OrderGuard, OutFormat, RecordBatch,
     RecordReader, RecordWriter, TextToBcf, VcfHeader, next_batch_size, sort_hint,
@@ -69,11 +69,52 @@ struct Stream {
     guard: OrderGuard,
     /// Whether the order is checked: it matters only when a source is merged.
     check: bool,
+    /// Source records must be on a contig of FILE's header: its ids below
+    /// this bound, and the header's file name.
+    strict: Option<Strict>,
     bcf: Option<BcfText>,
 }
 
+/// FILE's `##contig` lines as the order every source chromosome must be in.
+#[derive(Clone)]
+struct Strict {
+    declared: usize,
+    owner: String,
+}
+
+impl Strict {
+    fn of(chroms: &ChromTable) -> Option<Strict> {
+        match chroms.order_source() {
+            OrderSource::VcfHeader(owner) => Some(Strict {
+                declared: chroms.len(),
+                owner: owner.clone(),
+            }),
+            _ => None,
+        }
+    }
+
+    fn check(&self, chroms: &ChromTable, id: ChromId, src: &str, loc: Loc) -> Result<(), IoError> {
+        if (id.0 as usize) < self.declared {
+            return Ok(());
+        }
+        let c = String::from_utf8_lossy(chroms.name(id)).into_owned();
+        Err(IoError::Parse {
+            path: src.to_string(),
+            loc,
+            msg: format!(
+                "chromosome \"{c}\" is not in the ##contig lines of {}; add ##contig=<ID={c}> to that header (the order of the contigs there is the order both files must be sorted in), or leave the records on {c} out of {src}",
+                self.owner
+            ),
+        })
+    }
+}
+
 impl Stream {
-    fn new(reader: Box<dyn RecordReader>, check: bool) -> Result<Stream, IoError> {
+    fn new(
+        reader: Box<dyn RecordReader>,
+        check: bool,
+        strict: Option<Strict>,
+    ) -> Result<Stream, IoError> {
         let name = reader.name().to_string();
         let guard = OrderGuard::new(&name, reader.format());
         let bcf = BcfText::for_reader(reader.as_ref())?;
@@ -86,6 +127,7 @@ impl Stream {
             max: 1,
             guard,
             check,
+            strict,
             bcf,
         })
     }
@@ -99,6 +141,16 @@ impl Stream {
             self.batch.clear();
             self.i = 0;
             self.more = self.reader.read_batch(chroms, &mut self.batch, self.max)?;
+            if let Some(st) = &self.strict {
+                for m in &self.batch.recs {
+                    let loc = if self.reader.format() == Format::Bcf {
+                        Loc::Record(m.loc)
+                    } else {
+                        Loc::Line(m.loc)
+                    };
+                    st.check(chroms, m.chrom, &self.name, loc)?;
+                }
+            }
             if self.check {
                 self.guard.check(chroms, &self.batch)?;
             }
@@ -152,6 +204,7 @@ struct TabStream {
     prev_loc: u64,
     pending: Option<Row>,
     done: bool,
+    strict: Option<Strict>,
 }
 
 fn shown(b: &[u8]) -> String {
@@ -192,8 +245,11 @@ impl TabStream {
                 loc: Loc::Line(self.lineno),
                 msg: e.to_string(),
             })?;
-            // An annotation chromosome FILE's header lacks is not a problem, so no warning.
+            // The reader's warning for undeclared contigs does not apply here.
             let _ = chroms.take_undeclared();
+            if let Some(st) = &self.strict {
+                st.check(chroms, chrom, &self.name, Loc::Line(self.lineno))?;
+            }
             let key = row.start.max(0) as u64;
             if let Err(v) = self.checker.check(chroms, chrom, key) {
                 let hint = sort_hint(&self.name, chroms.order_source());
@@ -447,7 +503,7 @@ pub fn vcf_annotate(
         buf: Vec::new(),
         bin: Vec::new(),
     };
-    let mut file = Stream::new(input, !matches!(source, AnnotationSource::None))?;
+    let mut file = Stream::new(input, !matches!(source, AnnotationSource::None), None)?;
     let mut sum = AnnotateSummary::default();
     let editing = annotator.edits_records();
     let mut rec = Rec::default();
@@ -460,7 +516,7 @@ pub fn vcf_annotate(
     }
     let mut src = match source {
         AnnotationSource::None => Src::None,
-        AnnotationSource::Vcf(r) => Src::Vcf(Box::new(Stream::new(r, true)?)),
+        AnnotationSource::Vcf(r) => Src::Vcf(Box::new(Stream::new(r, true, Strict::of(chroms))?)),
         AnnotationSource::Tab(reader, sname) => {
             let layout = annotator
                 .layout()
@@ -478,6 +534,7 @@ pub fn vcf_annotate(
                 prev_loc: 0,
                 pending: None,
                 done: false,
+                strict: Strict::of(chroms),
             };
             if is_regions {
                 Src::Regions(Box::new(RegionReader {

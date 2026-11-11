@@ -1852,7 +1852,9 @@ depends on the span.
   header contigs, else `--chrom-order`), and each is read once as a stream: neither is indexed,
   held in memory or read twice. An out-of-order record in either, or a source chromosome order
   that disagrees with FILE's, is an error (exit 1) that names the two records and the fix
-  (`gloci sort`). A tab or BED source with intervals keeps only the rows that can still overlap
+  (`gloci sort`). A source chromosome that FILE's `##contig` lines lack is an error that
+  names it and the fix (add the `##contig` line, or leave those records out of the source), as
+  for `intersect`; bcftools accepts it. A tab or BED source with intervals keeps only the rows that can still overlap
   the current record.
 - **Old behaviour:** `bcftools annotate -a` seeks by index for a VCF or a tab file with POS
   (any chromosome order works), and reads a tab or BED file with FROM,TO columns whole into memory (any order

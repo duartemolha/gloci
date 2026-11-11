@@ -374,7 +374,7 @@ impl Annotator {
                     );
                 }
                 let desc = if matches!(source, SourceKind::None) {
-                    format!("Sites marked with `gloci vcf annotate --mark-sites {s}`")
+                    format!("Sites marked with `bcftools annotate -m {tag}`")
                 } else {
                     format!("Sites {}listed in {tag}", if listed { "" } else { "not " })
                 };

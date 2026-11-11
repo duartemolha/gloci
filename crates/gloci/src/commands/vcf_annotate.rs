@@ -70,6 +70,18 @@ fn refuse_unsupported(a: &VcfAnnotateArgs) -> anyhow::Result<()> {
             "put the header lines in a file and pass --header-lines FILE",
         );
     }
+    if a.keep_sites {
+        return no(
+            "-k/--keep-sites",
+            "it goes with -i/-e, which are not available either; pipe through gloci vcf filter",
+        );
+    }
+    if a.regions.is_some() || a.regions_file.is_some() {
+        return no(
+            "-r/--regions and -R/--regions-file",
+            "select regions first, e.g. gloci view FILE REGION | gloci vcf annotate - ... (or gloci view --regions-file BED)",
+        );
+    }
     Ok(())
 }
 
@@ -187,13 +199,6 @@ pub fn run(ctx: &Ctx, a: &VcfAnnotateArgs) -> anyhow::Result<()> {
         refs.push(r.as_ref());
     }
     let mut chroms = chrom_table_lenient(None, &refs, a.chrom_order.chrom_order)?;
-    // A source VCF's contigs that FILE's header lacks are known, not undeclared.
-    if let Some(h) = &src_header {
-        for (name, _) in &h.contigs {
-            let _ = chroms.intern(name);
-        }
-        let _ = chroms.take_undeclared();
-    }
     let oo = OutputOptions {
         threads: ctx.threads,
         level: a.out.compression_level,
