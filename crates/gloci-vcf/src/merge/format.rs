@@ -106,6 +106,15 @@ pub(crate) fn merge_format(m: &Merger, recs: &[P<'_>], al: &Alleles) -> Result<F
             let fi = idx[i]?;
             recs[k].samples[s].split(|&b| b == b':').nth(fi)
         };
+        // The ploidy of a sample, which tells Number=G values how many there are.
+        let ploidy = |k: usize, s: usize| -> usize {
+            let r = &recs[k];
+            r.fmt
+                .iter()
+                .position(|x| *x == b"GT")
+                .and_then(|gi| r.samples[s].split(|&b| b == b':').nth(gi))
+                .map_or(2, |f| gt_parts(f).0.len())
+        };
         let mut col: Vec<Vec<u8>> = Vec::with_capacity(total);
         if *key == b"GT" {
             let mut nsize = 1;
@@ -127,13 +136,14 @@ pub(crate) fn merge_format(m: &Merger, recs: &[P<'_>], al: &Alleles) -> Result<F
                             let map = &al.maps[k];
                             let (alleles, seps) = gt_parts(f);
                             for (j, a) in alleles.iter().enumerate() {
-                                if j > 0 {
-                                    cell.push(seps[j - 1]);
-                                }
-                                match std::str::from_utf8(a)
+                                let value = std::str::from_utf8(a)
                                     .ok()
-                                    .and_then(|x| x.parse::<usize>().ok())
-                                {
+                                    .and_then(|x| x.parse::<usize>().ok());
+                                if j > 0 {
+                                    // A missing allele is never phased.
+                                    cell.push(if value.is_some() { seps[j - 1] } else { b'/' });
+                                }
+                                match value {
                                     Some(v) => {
                                         let nv = *map.get(v).ok_or_else(|| {
                                             format!(
@@ -189,8 +199,10 @@ pub(crate) fn merge_format(m: &Merger, recs: &[P<'_>], al: &Alleles) -> Result<F
                         Some(f) => {
                             let k = member[i].unwrap_or(0);
                             let toks: Vec<&[u8]> = f.split(|&b| b == b',').collect();
+                            // A sample that is just `.` stays `.`.
                             let remap = al.differs[k]
-                                && matches!(def.number, Number::A | Number::R | Number::G);
+                                && matches!(def.number, Number::A | Number::R | Number::G)
+                                && toks != [&b"."[..]];
                             if !remap {
                                 put_list(&mut cell, def.ty, &toks);
                             } else {
@@ -213,7 +225,13 @@ pub(crate) fn merge_format(m: &Merger, recs: &[P<'_>], al: &Alleles) -> Result<F
                                     ),
                                     _ => {
                                         let nd = n_ori * (n_ori + 1) / 2;
-                                        if toks.len() == nd {
+                                        // The sample's ploidy decides, as long as the count fits.
+                                        let diploid = if ploidy(k, s) == 1 {
+                                            toks.len() != n_ori && toks.len() == nd
+                                        } else {
+                                            toks.len() == nd
+                                        };
+                                        if diploid {
                                             let mut v = Vec::new();
                                             for b in 0..n_ori {
                                                 for a in 0..=b {

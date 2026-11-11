@@ -141,7 +141,7 @@ pub(crate) fn build_rules(
             }
         }
     }
-    rules.sort_by_key(|r| defs.info.get(&r.tag).map_or(usize::MAX, |d| d.0));
+    rules.sort_by(|a, b| a.tag.cmp(&b.tag));
     let calc = !(user_named || opts.info_rules.is_none() && sites_only);
     Ok((rules, calc))
 }
@@ -227,10 +227,19 @@ pub(crate) fn merge_info(
         }
     }
     // Number=A and Number=R tags without a rule, in header order.
-    for key in &m.defs.info_order {
-        if !is_ar(key) || is_rule(key) || (calc && (key == b"AC" || key == b"AN")) {
-            continue;
+    let mut ar_keys: Vec<&[u8]> = Vec::new();
+    for its in &all {
+        for (k, _) in its {
+            if is_ar(k)
+                && !is_rule(k)
+                && !(calc && (*k == b"AC" || *k == b"AN"))
+                && !ar_keys.contains(k)
+            {
+                ar_keys.push(k);
+            }
         }
+    }
+    for key in ar_keys {
         let def = m.out_def(true, key);
         let len = if def.number == Number::A {
             al.alts.len()
@@ -240,7 +249,7 @@ pub(crate) fn merge_info(
         let mut v: Vec<Option<&[u8]>> = vec![None; len];
         let mut any = false;
         for (ri, its) in all.iter().enumerate() {
-            let Some((_, Some(val))) = its.iter().find(|(k, _)| *k == key.as_slice()) else {
+            let Some((_, Some(val))) = its.iter().find(|(k, _)| *k == key) else {
                 continue;
             };
             any = true;
@@ -253,7 +262,12 @@ pub(crate) fn merge_info(
                     map.get(j).copied()
                 };
                 match slot {
-                    Some(s) => v[s] = Some(t),
+                    // A missing value does not replace one already there.
+                    Some(s) => {
+                        if t != b"." || v[s].is_none() {
+                            v[s] = Some(t);
+                        }
+                    }
                     None => {
                         return Err(format!(
                             "{}: INFO/{} at {at} has more values than the record has alleles",
@@ -368,7 +382,13 @@ fn apply_rule(
         }
         let present: Vec<&[u8]> = s.iter().flatten().copied().collect();
         if present.is_empty() {
-            out.push(b'.');
+            // Nothing to add up is 0; nothing to compare is missing.
+            if matches!(rule.method, Method::Sum | Method::Avg) {
+                out.push(b'0');
+                any = true;
+            } else {
+                out.push(b'.');
+            }
             continue;
         }
         any = true;
@@ -388,8 +408,8 @@ fn apply_rule(
                 })
                 .collect::<Result<_, _>>()?;
             let r = match rule.method {
-                Method::Sum => v.iter().sum(),
-                Method::Avg => v.iter().sum::<i64>() / s.len() as i64,
+                Method::Sum => v.iter().fold(0i64, |a, b| a.saturating_add(*b)),
+                Method::Avg => v.iter().fold(0i64, |a, b| a.saturating_add(*b)) / vals.len() as i64,
                 Method::Min => *v.iter().min().unwrap_or(&0),
                 _ => *v.iter().max().unwrap_or(&0),
             };
@@ -408,12 +428,13 @@ fn apply_rule(
                 .collect::<Result<_, _>>()?;
             let r = match rule.method {
                 Method::Sum => v.iter().fold(0f32, |a, b| a + b),
-                Method::Avg => v.iter().fold(0f32, |a, b| a + b) / s.len() as f32,
+                Method::Avg => v.iter().fold(0f32, |a, b| a + b) / vals.len() as f32,
                 Method::Min => v.iter().copied().fold(f32::INFINITY, f32::min),
                 _ => v.iter().copied().fold(f32::NEG_INFINITY, f32::max),
             };
             put_f32(&mut out, r);
         }
     }
-    Ok(any.then_some(out))
+    let _ = any;
+    Ok(Some(out))
 }

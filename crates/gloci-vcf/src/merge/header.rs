@@ -234,3 +234,131 @@ pub fn merge_headers(inputs: &[HeaderIn<'_>], force_samples: bool) -> Result<Mer
 fn defs_of<'a>(d: &'a Defs, kind: &[u8]) -> &'a HashMap<Vec<u8>, (usize, InfoDef)> {
     if kind == b"INFO" { &d.info } else { &d.format }
 }
+
+/// Declare INFO/`tag` as `Number=.`: its header line moves to the end of the
+/// ## lines with Number replaced.
+pub(crate) fn make_variable(merged: &mut Merged, tag: &[u8]) {
+    let mut lines: Vec<Vec<u8>> = merged
+        .text
+        .split_inclusive(|&b| b == b'\n')
+        .map(<[u8]>::to_vec)
+        .collect();
+    let prefix = {
+        let mut p = b"##INFO=<ID=".to_vec();
+        p.extend_from_slice(tag);
+        p
+    };
+    let Some(pos) = lines
+        .iter()
+        .position(|l| l.starts_with(&prefix) && matches!(l.get(prefix.len()), Some(b',' | b'>')))
+    else {
+        return;
+    };
+    let old = lines.remove(pos);
+    let text = String::from_utf8_lossy(&old).into_owned();
+    let new = match text.find("Number=") {
+        Some(i) => {
+            let end = text[i..].find(',').map_or(text.len(), |e| i + e);
+            format!("{}Number=.{}", &text[..i], &text[end..])
+        }
+        None => text,
+    };
+    let chrom = lines
+        .iter()
+        .position(|l| l.starts_with(b"#CHROM"))
+        .unwrap_or(lines.len());
+    lines.insert(chrom, new.into_bytes());
+    merged.text = lines.concat();
+    if let Some((_, d)) = merged.defs.info.get_mut(tag) {
+        d.number = Number::Var;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const C: &str = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT";
+
+    fn h(lines: &[&str], samples: &[&str]) -> Vec<u8> {
+        let mut t = String::from("##fileformat=VCFv4.2\n");
+        for l in lines {
+            t.push_str(l);
+            t.push('\n');
+        }
+        t.push_str(C);
+        for s in samples {
+            t.push('\t');
+            t.push_str(s);
+        }
+        t.push('\n');
+        t.into_bytes()
+    }
+
+    #[test]
+    fn first_header_wins_and_new_lines_are_added() {
+        let a = h(
+            &[
+                "##source=a",
+                "##contig=<ID=1,length=10>",
+                "##INFO=<ID=DP,Number=1,Type=Integer,Description=\"a\">",
+            ],
+            &["A"],
+        );
+        let b = h(
+            &[
+                "##source=b",
+                "##x=1",
+                "##contig=<ID=1,length=20>",
+                "##contig=<ID=2>",
+                "##INFO=<ID=DP,Number=2,Type=Float,Description=\"b\">",
+                "##INFO=<ID=NEW,Number=.,Type=String,Description=\"n\">",
+            ],
+            &["B"],
+        );
+        let m = merge_headers(
+            &[
+                HeaderIn { name: "a", raw: &a },
+                HeaderIn { name: "b", raw: &b },
+            ],
+            false,
+        )
+        .unwrap();
+        let t = String::from_utf8(m.text).unwrap();
+        let want = "##fileformat=VCFv4.2\n##FILTER=<ID=PASS,Description=\"All filters passed\">\n\
+##source=a\n##contig=<ID=1,length=10>\n##INFO=<ID=DP,Number=1,Type=Integer,Description=\"a\">\n\
+##x=1\n##contig=<ID=2>\n##INFO=<ID=NEW,Number=.,Type=String,Description=\"n\">\n";
+        assert!(t.starts_with(want), "{t}");
+        assert!(t.ends_with("FORMAT\tA\tB\n"));
+        assert_eq!(m.counts, vec![1, 1]);
+        assert_eq!(m.defs.info[&b"DP"[..]].1.number, Number::Fixed(1));
+    }
+
+    #[test]
+    fn repeated_sample_is_an_error_or_renamed_with_its_file_number() {
+        let a = h(&[], &["S", "T"]);
+        let b = h(&[], &["T", "U"]);
+        let ins = [
+            HeaderIn {
+                name: "a.vcf",
+                raw: &a,
+            },
+            HeaderIn {
+                name: "b.vcf",
+                raw: &b,
+            },
+        ];
+        let e = merge_headers(&ins, false).err().unwrap();
+        assert!(
+            e.contains("T") && e.contains("a.vcf") && e.contains("b.vcf"),
+            "{e}"
+        );
+        let m = merge_headers(&ins, true).unwrap();
+        let names: Vec<String> = m
+            .samples
+            .iter()
+            .map(|s| String::from_utf8_lossy(s).into_owned())
+            .collect();
+        assert_eq!(names, ["S", "T", "2:T", "U"]);
+    }
+}

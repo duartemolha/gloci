@@ -1,0 +1,14 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##contig=<ID=1,length=1000>
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Depth">
+##INFO=<ID=DP4,Number=4,Type=Integer,Description="DP4">
+##INFO=<ID=AC,Number=A,Type=Integer,Description="AC">
+##INFO=<ID=AN,Number=1,Type=Integer,Description="AN">
+##INFO=<ID=AF,Number=A,Type=Float,Description="AF">
+##INFO=<ID=R,Number=R,Type=Integer,Description="R">
+##INFO=<ID=S,Number=.,Type=String,Description="S">
+##INFO=<ID=FL,Number=0,Type=Flag,Description="flag">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+1	10	.	A	C,G	20	.	DP4=1,2,3,4;FL;AC=5,2;AF=0.5,0.25;AN=4;DP=3;R=7,2,8;S=x,y,z
+1	20	.	A	C	10	.	AC=5;AN=2

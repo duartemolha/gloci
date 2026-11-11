@@ -1,0 +1,10 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##contig=<ID=1,length=1000>
+##FORMAT=<ID=GT,Number=1,Type=String,Description="g">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="g">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	S0	S1	S2
+1	110	.	A	C,G	.	.	.	GT:DP	./.:.	0/1:11	./.:.
+1	110	.	A	AT,C	.	.	.	GT:DP	./.:.	./.:.	0/1:21
+1	110	.	A	AC	.	.	.	GT:DP	0/1:1	./.:.	./.:.
+1	110	.	A	<DEL>	.	.	.	GT:DP	0/1:2	./.:.	0/1:22

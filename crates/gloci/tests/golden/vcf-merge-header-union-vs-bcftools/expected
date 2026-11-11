@@ -1,0 +1,20 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##source=first
+##reference=ref1
+##contig=<ID=1,length=1000>
+##contig=<ID=3>
+##INFO=<ID=DP,Number=1,Type=Integer,Description="first">
+##INFO=<ID=EQ,Number=1,Type=Integer,Description="first">
+##FILTER=<ID=lo,Description="first">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="g">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="g">
+##ALT=<ID=DEL,Description="del">
+##custom=a
+##contig=<ID=2>
+##INFO=<ID=NEW,Number=.,Type=String,Description="second">
+##FILTER=<ID=hi,Description="second">
+##ALT=<ID=DUP,Description="dup">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	K1	K2
+1	10	.	A	C	.	lo;hi	DP=2	GT:DP	0/1:3	0/1:4
+1	20	.	A	<DEL>	.	.	EQ=5;NEW=x	GT:DP	1/1:4	0/1:5

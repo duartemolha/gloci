@@ -49,6 +49,8 @@ struct Var {
     ty: u8,
     key: Vec<u8>,
     nal: Vec<Vec<u8>>,
+    /// The same alleles in the record's order.
+    ordered: Vec<Vec<u8>>,
     /// `(reader, record index)` of every record with this variant.
     recs: Vec<(usize, usize)>,
     mask: Mask,
@@ -59,6 +61,9 @@ struct VSet {
     mask: Mask,
     cnt: usize,
 }
+
+/// A record's pairing key and its normalised alleles, sorted and in order.
+type PairNorm = (PairRec, (Vec<Vec<u8>>, Vec<Vec<u8>>));
 
 /// What pairing needs of one record.
 pub struct PairIn {
@@ -75,7 +80,7 @@ fn symbolic(a: &[u8]) -> bool {
 
 /// The alleles of a record with REF extended to `longest` (`REF>ALT` each),
 /// so that `A>AT` and `AT>ATT` compare equal.
-fn normalised(r: &PairIn, longest: &[u8]) -> Vec<Vec<u8>> {
+fn normalised(r: &PairIn, longest: &[u8]) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
     let suffix = if longest.len() >= r.reference.len()
         && longest[..r.reference.len()].eq_ignore_ascii_case(&r.reference)
     {
@@ -87,7 +92,12 @@ fn normalised(r: &PairIn, longest: &[u8]) -> Vec<Vec<u8>> {
         .alts
         .iter()
         .map(|a| {
-            let mut x = longest.to_vec();
+            // A symbolic ALT keeps its own REF: `A><DEL>` and `AT><DEL>` differ.
+            let mut x = if symbolic(a) {
+                r.reference.clone()
+            } else {
+                longest.to_vec()
+            };
             x.push(b'>');
             x.extend_from_slice(a);
             if !symbolic(a) {
@@ -96,22 +106,28 @@ fn normalised(r: &PairIn, longest: &[u8]) -> Vec<Vec<u8>> {
             x
         })
         .collect();
+    let ordered = v.clone();
     v.sort();
-    v
+    (v, ordered)
 }
 
-/// `pairing_score` of two variants, 0 for no pairing: 4 the same record
-/// text, 3 the same alleles once REF is extended, 2 one shared allele (both
-/// of one type), 1 what `--merge` allows on top.
+/// `pairing_score` of two variants, 0 for no pairing: 5 the same record
+/// text, 4 the same alleles once REF is extended, 3 an allele in the same
+/// place of the lists, 2 any shared allele (all with one type), 1 what
+/// `--merge` allows on top.
 fn score(mode: MergeMode, a: &Var, b: &Var) -> u32 {
     if a.ty == b.ty && a.key == b.key {
-        return 4;
+        return 5;
     }
     if mode == MergeMode::Id {
         return 0;
     }
     if a.ty == b.ty {
         if a.nal == b.nal {
+            return 4;
+        }
+        // The same allele in the same place of the list pairs before any other shared allele.
+        if a.ordered.iter().zip(&b.ordered).any(|(x, y)| x == y) {
             return 3;
         }
         if a.nal.iter().any(|x| b.nal.contains(x)) {
@@ -146,7 +162,7 @@ pub fn rows(inputs: &[Vec<PairIn>], mode: MergeMode) -> Vec<Vec<Option<usize>>> 
             longest = &r.reference;
         }
     }
-    let recs: Vec<Vec<(PairRec, Vec<Vec<u8>>)>> = inputs
+    let recs: Vec<Vec<PairNorm>> = inputs
         .iter()
         .map(|rs| {
             rs.iter()
@@ -169,7 +185,7 @@ pub fn rows(inputs: &[Vec<PairIn>], mode: MergeMode) -> Vec<Vec<Option<usize>>> 
     for (ireader, rs) in recs.iter().enumerate() {
         let mut vs = Vec::new();
         let mut keys: Vec<Vec<u8>> = Vec::new();
-        for (irec, (r, nal)) in rs.iter().enumerate() {
+        for (irec, (r, (nal, ordered))) in rs.iter().enumerate() {
             let mut key = r.key.clone();
             let mut idx = 0;
             let ivar = loop {
@@ -192,6 +208,7 @@ pub fn rows(inputs: &[Vec<PairIn>], mode: MergeMode) -> Vec<Vec<Option<usize>>> 
                         ty: r.ty,
                         key: r.key.clone(),
                         nal: nal.clone(),
+                        ordered: ordered.clone(),
                         recs: Vec::new(),
                         mask: Mask::default(),
                     });
@@ -216,7 +233,7 @@ pub fn rows(inputs: &[Vec<PairIn>], mode: MergeMode) -> Vec<Vec<Option<usize>>> 
     }
     // Records without an ALT are paired last, each with a SNP set if there is
     // one, else the first set; they are not partners while the others pair.
-    let split_refs = mode != MergeMode::All;
+    let split_refs = !matches!(mode, MergeMode::All | MergeMode::Id);
     let mut vsets: Vec<VSet> = Vec::new();
     let mut refs: Vec<usize> = Vec::new();
     for (i, v) in vars.iter().enumerate() {
@@ -227,7 +244,7 @@ pub fn rows(inputs: &[Vec<PairIn>], mode: MergeMode) -> Vec<Vec<Option<usize>>> 
         vsets.push(VSet {
             vars: vec![i],
             mask: v.mask.clone(),
-            cnt: 1,
+            cnt: v.recs.len(),
         });
     }
     let mut done: Vec<VSet> = Vec::new();
@@ -267,7 +284,9 @@ pub fn rows(inputs: &[Vec<PairIn>], mode: MergeMode) -> Vec<Vec<Option<usize>>> 
         }
         done.push(vsets.remove(imax));
     }
-    done.sort_by_key(|s| s.vars.iter().copied().min().unwrap_or(0));
+    if split_refs {
+        done.sort_by_key(|s| s.vars.iter().copied().min().unwrap_or(0));
+    }
     for r in refs {
         let m = &vars[r].mask;
         let first = done.iter().position(|s| !s.mask.meets(m));
@@ -304,7 +323,9 @@ pub fn rows(inputs: &[Vec<PairIn>], mode: MergeMode) -> Vec<Vec<Option<usize>>> 
     }
     // Records with a SNP go first, in the order their variants were first
     // seen; with `-m indels` the order is just that.
-    if mode == MergeMode::Indels {
+    if mode == MergeMode::All {
+        // As the sets were formed.
+    } else if mode == MergeMode::Indels {
         rows.sort_by_key(|r| r.0);
     } else {
         rows.sort_by_key(|r| (!r.1, r.0));
@@ -317,5 +338,78 @@ pub fn id_pair_rec(id: &[u8]) -> PairRec {
     PairRec {
         key: id.to_vec(),
         ty: SR_REF,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rec(r: &str, alts: &[&str]) -> PairIn {
+        PairIn {
+            reference: r.as_bytes().to_vec(),
+            alts: alts.iter().map(|a| a.as_bytes().to_vec()).collect(),
+            id: b".".to_vec(),
+            end: None,
+        }
+    }
+
+    #[test]
+    fn modes_decide_what_pairs() {
+        let files = vec![vec![rec("A", &["C"])], vec![rec("A", &["G"])]];
+        assert_eq!(rows(&files, MergeMode::None).len(), 2);
+        assert_eq!(rows(&files, MergeMode::Indels).len(), 2);
+        for m in [MergeMode::Snps, MergeMode::Both, MergeMode::All] {
+            assert_eq!(rows(&files, m), vec![vec![Some(0), Some(0)]]);
+        }
+        let mixed = vec![vec![rec("A", &["G"])], vec![rec("AT", &["A"])]];
+        assert_eq!(rows(&mixed, MergeMode::Both).len(), 2);
+        assert_eq!(rows(&mixed, MergeMode::All).len(), 1);
+    }
+
+    #[test]
+    fn snp_rows_come_first_and_a_shared_allele_pairs() {
+        let files = vec![
+            vec![rec("A", &["<DEL>"])],
+            vec![rec("A", &["T", "G"])],
+            vec![rec("A", &["T", "C"])],
+            vec![rec("A", &["G"])],
+        ];
+        let r = rows(&files, MergeMode::None);
+        // T,G pairs with T,C (same first ALT); G stays alone; the SNP rows go before <DEL>
+        assert_eq!(
+            r,
+            vec![
+                vec![None, Some(0), Some(0), None],
+                vec![None, None, None, Some(0)],
+                vec![Some(0), None, None, None],
+            ]
+        );
+    }
+
+    #[test]
+    fn same_reference_extended_alleles_compare_equal() {
+        // A>AT and AT>ATT are one variant: the exact pair is taken first.
+        let files = vec![
+            vec![rec("A", &["AT"]), rec("AT", &["ATT"])],
+            vec![rec("AT", &["ATT"]), rec("A", &["AT"])],
+        ];
+        let r = rows(&files, MergeMode::None);
+        assert_eq!(r, vec![vec![Some(0), Some(1)], vec![Some(1), Some(0)]]);
+    }
+
+    #[test]
+    fn many_groups_do_not_overflow_the_masks() {
+        // 200 files with 200 different records at one position
+        let files: Vec<Vec<PairIn>> = (0..200)
+            .map(|i| {
+                let alt = ["C", "G", "T"][i % 3].to_string();
+                let mut r = rec("A", &[&alt]);
+                r.id = format!("id{i}").into_bytes();
+                vec![r]
+            })
+            .collect();
+        let r = rows(&files, MergeMode::Id);
+        assert_eq!(r.len(), 200);
     }
 }

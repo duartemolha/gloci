@@ -3553,8 +3553,11 @@ pub struct VcfMergeArgs {
     pub filter_logic: FilterLogicArg,
     /// Accepted and ignored: gloci merges sorted inputs as a stream and
     /// never needs an index (bcftools merge needs one unless --no-index).
-    #[arg(long, hide = true)]
+    #[arg(long, alias = "force-no-index", hide = true)]
     pub no_index: bool,
+    /// Accepted: merge a single input (bcftools merge --force-single).
+    #[arg(long, hide = true)]
+    pub force_single: bool,
     // bcftools merge options gloci does not offer: each is a usage error
     // that names the option.
     #[arg(short = 'g', long = "gvcf", hide = true, value_name = "REF")]
@@ -3573,6 +3576,10 @@ pub struct VcfMergeArgs {
     pub targets_file: Option<String>,
     #[arg(long = "merge-logic", hide = true, value_name = "LOGIC")]
     pub merge_logic: Option<String>,
+    #[arg(short = 'M', long = "missing-rules", hide = true, value_name = "RULES")]
+    pub missing_rules: Option<String>,
+    #[arg(long = "regions-overlap", hide = true, value_name = "0|1|2")]
+    pub regions_overlap: Option<String>,
     #[command(flatten)]
     pub chrom_order: ChromOrderArg,
     #[command(flatten)]

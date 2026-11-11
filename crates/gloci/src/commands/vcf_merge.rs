@@ -49,6 +49,18 @@ fn refuse_unsupported(a: &VcfMergeArgs) -> anyhow::Result<()> {
             "gloci reads the inputs as streams without an index; select regions after merging, e.g. gloci vcf merge ... | gloci view - REGION",
         );
     }
+    if a.missing_rules.is_some() {
+        return no(
+            "-M/--missing-rules",
+            "missing values of a re-indexed vector are always .",
+        );
+    }
+    if a.regions_overlap.is_some() {
+        return no(
+            "--regions-overlap",
+            "regions are not available either; select them after merging",
+        );
+    }
     if a.merge_logic.is_some() {
         return no(
             "--merge-logic",
@@ -79,7 +91,7 @@ fn input_files(a: &VcfMergeArgs) -> anyhow::Result<Vec<String>> {
             .map(|l| String::from_utf8_lossy(l).into_owned())
             .collect();
     }
-    if files.len() < 2 {
+    if files.len() < 2 && !(a.force_single && files.len() == 1) {
         return Err(UsageError(format!(
             "vcf merge needs at least two input files, got {}; pass them as arguments or with --file-list FILE",
             files.len()
@@ -141,7 +153,10 @@ pub fn run(ctx: &Ctx, a: &VcfMergeArgs) -> anyhow::Result<()> {
             raw: &h.raw,
         })
         .collect();
-    let merged = merge_headers(&inputs, a.force_samples).map_err(UsageError)?;
+    let mut merged = merge_headers(&inputs, a.force_samples).map_err(|msg| IoError::Detect {
+        path: "vcf merge".to_string(),
+        msg,
+    })?;
     let mode = match a.merge {
         MergeModeArg::None => MergeMode::None,
         MergeModeArg::Snps => MergeMode::Snps,
@@ -156,7 +171,7 @@ pub fn run(ctx: &Ctx, a: &VcfMergeArgs) -> anyhow::Result<()> {
         info_rules: a.info_rules.clone(),
         filter_x: a.filter_logic == FilterLogicArg::Pass,
     };
-    let mut merger = Merger::new(options, &merged, &files).map_err(UsageError)?;
+    let mut merger = Merger::new(options, &mut merged, &files).map_err(UsageError)?;
     let (to, header) = vcf_merge_output(readers[0].as_ref(), spec.format, &merged.text)?;
     let Header::Vcf(out_header) = &header else {
         unreachable!("vcf_merge_output returns a VCF header")

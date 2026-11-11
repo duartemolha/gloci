@@ -206,8 +206,21 @@ fn pos_label(r: &P<'_>) -> String {
 }
 
 impl Merger {
-    pub fn new(opts: MergeOptions, merged: &Merged, names: &[String]) -> Result<Merger, String> {
+    pub fn new(
+        opts: MergeOptions,
+        merged: &mut Merged,
+        names: &[String],
+    ) -> Result<Merger, String> {
         let (rules, calc_acan) = info::build_rules(&opts, merged)?;
+        // `join` of a tag whose length follows the alleles makes it Number=.,
+        // and bcftools moves its header line to the end.
+        for r in &rules {
+            if r.method == info::Method::Join
+                && matches!(r.def.number, Number::A | Number::R | Number::G)
+            {
+                header::make_variable(merged, &r.tag);
+            }
+        }
         Ok(Merger {
             opts,
             defs: merged.defs.clone(),
@@ -287,7 +300,7 @@ impl Merger {
         out.push(b'\t');
         merge_qual(&recs, out);
         out.push(b'\t');
-        merge_filter(&recs, out);
+        merge_filter(&recs, self.opts.filter_x, out);
         out.push(b'\t');
         let mut fmt = format::Formatted::default();
         if self.total_samples > 0 {
@@ -396,7 +409,16 @@ fn merge_qual(recs: &[P<'_>], out: &mut Vec<u8>) {
     }
 }
 
-fn merge_filter(recs: &[P<'_>], out: &mut Vec<u8>) {
+fn merge_filter(recs: &[P<'_>], filter_x: bool, out: &mut Vec<u8>) {
+    // `-F x`: an input without a filter (. or PASS) makes the result PASS.
+    if filter_x
+        && recs
+            .iter()
+            .any(|r| r.filter == b"." || r.filter.is_empty() || r.filter == b"PASS")
+    {
+        out.extend_from_slice(b"PASS");
+        return;
+    }
     let mut names: Vec<&[u8]> = Vec::new();
     let mut pass = false;
     for r in recs {
@@ -420,5 +442,104 @@ fn merge_filter(recs: &[P<'_>], out: &mut Vec<u8>) {
             out.push(b';');
         }
         out.extend_from_slice(f);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn v(items: &[&str]) -> Vec<Vec<u8>> {
+        items.iter().map(|s| s.as_bytes().to_vec()).collect()
+    }
+
+    #[test]
+    fn common_trailing_bases_are_trimmed_but_one_base_stays() {
+        let mut a = v(&["AT", "ATT"]);
+        trim_common_suffix(&mut a);
+        assert_eq!(a, v(&["A", "AT"]));
+        let mut a = v(&["AT"]);
+        trim_common_suffix(&mut a);
+        assert_eq!(a, v(&["A"]));
+        // a symbolic ALT or `*` stops the trim
+        let mut a = v(&["AT", "<DEL>"]);
+        trim_common_suffix(&mut a);
+        assert_eq!(a, v(&["AT", "<DEL>"]));
+        let mut a = v(&["AT", "*"]);
+        trim_common_suffix(&mut a);
+        assert_eq!(a, v(&["AT", "*"]));
+        // a one-base REF is never trimmed
+        let mut a = v(&["A", "AT"]);
+        trim_common_suffix(&mut a);
+        assert_eq!(a, v(&["A", "AT"]));
+    }
+
+    fn merged(lines: &[&str]) -> Result<Vec<u8>, String> {
+        let h = |sample: &str| {
+            format!(
+                "##fileformat=VCFv4.2\n##INFO=<ID=DP,Number=1,Type=Integer,Description=\"d\">\n\
+##FORMAT=<ID=GT,Number=1,Type=String,Description=\"g\">\n\
+##FORMAT=<ID=AD,Number=R,Type=Integer,Description=\"a\">\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}\n"
+            )
+        };
+        let hs: Vec<String> = (0..lines.len()).map(|i| h(&format!("S{i}"))).collect();
+        let names: Vec<String> = (0..lines.len()).map(|i| format!("f{i}")).collect();
+        let ins: Vec<header::HeaderIn<'_>> = hs
+            .iter()
+            .zip(&names)
+            .map(|(h, n)| header::HeaderIn {
+                name: n,
+                raw: h.as_bytes(),
+            })
+            .collect();
+        let mut m = header::merge_headers(&ins, false)?;
+        let mut mg = Merger::new(
+            MergeOptions {
+                mode: MergeMode::Both,
+                missing_to_ref: false,
+                info_rules: None,
+                filter_x: false,
+            },
+            &mut m,
+            &names,
+        )?;
+        let row: Vec<Option<&[u8]>> = lines.iter().map(|l| Some(l.as_bytes())).collect();
+        let mut out = Vec::new();
+        mg.merge_row(&row, &mut out)?;
+        Ok(out)
+    }
+
+    #[test]
+    fn reference_is_extended_and_alleles_united_in_input_order() {
+        let out = merged(&[
+            "1\t5\t.\tA\tG\t10\tPASS\tDP=1\tGT:AD\t0/1:3,4",
+            "1\t5\t.\tAT\tA\t20\tq1\tDP=2\tGT:AD\t1/1:0,9",
+        ])
+        .unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "1\t5\t.\tAT\tGT,A\t20\tq1\tDP=3\tGT:AD\t0/1:3,4,.\t2/2:0,.,9"
+        );
+    }
+
+    #[test]
+    fn reference_mismatch_is_an_error_naming_the_position() {
+        let e = merged(&[
+            "1\t5\t.\tA\tG\t.\t.\t.\tGT\t0/1",
+            "1\t5\t.\tC\tT\t.\t.\t.\tGT\t0/1",
+        ])
+        .unwrap_err();
+        assert!(e.contains("1:5") && e.contains("REF"), "{e}");
+    }
+
+    #[test]
+    fn genotype_with_an_allele_the_record_lacks_is_an_error() {
+        let e = merged(&[
+            "1\t5\t.\tA\tG\t.\t.\t.\tGT\t0/2",
+            "1\t5\t.\tA\tG\t.\t.\t.\tGT\t0/1",
+        ])
+        .unwrap_err();
+        assert!(e.contains("allele 2"), "{e}");
     }
 }

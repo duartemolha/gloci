@@ -1,0 +1,1 @@
+vcf merge input.vcf h2.vcf h3.vcf -0

@@ -521,6 +521,19 @@ gloci vcf annotate calls.vcf.gz -x INFO,FORMAT/PL --mark-sites +CLEAN
 gloci vcf annotate calls.vcf.gz -I '+%CHROM:%POS:%REF:%FIRST_ALT' -o ids.vcf.gz
 ```
 
+#### `gloci vcf merge`
+
+Combine the samples of several VCF/BCF files (bcftools merge).
+
+The inputs must be sorted in one chromosome order (the first input's ##contig lines, else --chrom-order); they are read as a stream, so no index is needed and only the records of one position are held. Records at the same CHROM and POS are merged as --merge says: ALT alleles are united in input order (a shorter REF is extended to the longest), and GT and Number=A, R and G FORMAT values are re-indexed to the merged alleles. A sample absent from a record is ./. (or 0/0 with -0) in the record's ploidy. QUAL is the largest, FILTER the union without PASS, ID the distinct IDs joined with ;. Sample names must be distinct (--force-samples renames a repeat to N:NAME). The header is the first input's with the other inputs' new lines added. The inputs are open together: merging more files than `ulimit -n` allows fails with the operating system's error; raise the limit (ulimit -n 4096). bcftools merge -g, -L, -r, -R, -T, --print-header and --use-header are not available.
+
+```sh
+gloci vcf merge a.vcf.gz b.vcf.gz c.vcf.gz -o cohort.vcf.gz
+gloci vcf merge --file-list shards.txt -m none --force-samples -o cohort.bcf
+gloci vcf merge a.bcf b.bcf -i DP:sum,AF:avg -0 | gloci vcf stats - --out-prefix qc
+gloci vcf merge a.vcf.gz b.vcf.gz -f PASS,. -m id -o by-id.vcf.gz
+```
+
 ## Migration tables
 
 Every row below was checked against `gloci <cmd> --help`.
@@ -584,6 +597,7 @@ then the rest of P2b (Python library, packaging, mdBook, paper evidence suite).
 | `complement -g` | `gloci complement FILE... [-g GENOME]` (`-g` takes a built-in such as `hg38` or a `.genome`/`.fai`/`.dict` file; `--sort`) |
 | `closest -d -D -k -t -io -iu -id -mdb` | `gloci closest -a A -b B --distance --signed ref\|a\|b -k N --ties all\|first\|last --ignore-overlaps --ignore-upstream --ignore-downstream --per-file` (plus `--max-distance N`, `-s`/`--same-strand`, `-S`/`--opposite-strand`) |
 | `map -c -o` | `gloci map -a A -b B -c/--column COL:OP` (`--delim`, `--empty`, `--skip-unmatched`; ops: `count`, `count_distinct`, `sum`, `mean`, `median`, `min`, `max`, `stdev`, `var`, `stdev_pop`, `var_pop`, `collapse`, `distinct`, `distinct_sorted`, `first`, `last`, `bases`, `indicator`, `cv`, `mad`, `quantile:Q`, `tmean:LO-HI`, `wmean`, `mode`, `antimode`, `bases_uniq`, `frac_a`, `frac_b`, `min_record`, `max_record`, `records`) |
+| `bcftools merge --no-version [-m MODE] [--force-samples] [-i RULES] [-0] [-f LIST] [-F x\|+] [-l FILE] A.vcf.gz B.vcf.gz ...` | `gloci vcf merge A B ... [--merge none\|snps\|indels\|both\|all\|id] [--force-samples] [--info-rules RULES] [--missing-to-ref] [--apply-filters LIST] [--filter-logic x\|+] [--file-list FILE]`: combines the samples of sorted VCF/BCF files; the records at one position are paired, their ALTs united, GT and Number=A/R/G values re-indexed and INFO, QUAL, FILTER and ID merged by bcftools' 1.21 rules (`-m both` default; AC and AN recomputed from the merged genotypes, `DP`/`DP4` summed). The inputs are sorted and streamed, no index is needed ([differences.md#vcf-merge-no-index](differences.md#vcf-merge-no-index)); the order of unpaired records when one file has several records at a position can differ ([differences.md#vcf-merge-same-position](differences.md#vcf-merge-same-position)). The output keeps the first input's format (`-O vcf` for text from BCF inputs). `-l` is `--file-list`. `-g`/`--gvcf`, `-L`/`--local-alleles`, `-M`/`--missing-rules`, `--print-header`, `--use-header`, `-r`/`-R`/`--regions-overlap` (select regions after merging: `gloci vcf merge ... \| gloci view - REGION`) and `-m snp-ins-del`, `*`, `**` are not available |
 | `coverage [-hist -d -mean]`, `annotate` | `gloci coverage -a A -b B [--hist \| --per-base \| --mean]`, `gloci coverage -a A -b B1 B2... [--names ...]` |
 | `coverage -a A.bed -b reads.bam [-split -hist -d -mean]` | `gloci coverage -a A.bed -b reads.bam [--split] [--hist \| --per-base \| --mean]` (BAM or SAM as B; `--split-deletions` also cuts reads at `D`; `--min-mapq`, `--require-flags` and `--exclude-flags` filter reads; an alignment A prints as BED6, see [differences.md#bam-as-bed-columns](differences.md#bam-as-bed-columns)) |
 | `slop -b -l -r -s -pct -g` | `gloci slop FILE -b/--both N` or `--left L --right R` with `-s`, `--pct`, `-g GENOME` |

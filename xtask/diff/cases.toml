@@ -5555,3 +5555,272 @@ aux = ["xtask/diff/inputs/vcf/annotate/ann.tab", "xtask/diff/inputs/vcf/annotate
 gloci = "gloci vcf annotate input.vcf -a ann.tab --header-lines tags.hdr -c CHROM,POS,-,ALT,ID,INFO/TF"
 reference = "bgzip -c ann.tab > a.tab.gz && tabix -s1 -b2 -e2 a.tab.gz && bcftools annotate --no-version -a a.tab.gz -h tags.hdr -c CHROM,POS,-,ALT,ID,INFO/TF input.vcf"
 compare = "vcf-records"
+
+# P3b Task 23: vcf merge vs bcftools merge --no-version (1.21)
+# a.vcf (A1, A2), b.vcf (B1) and c.vcf (C1, C2) share sites: identical records, the same POS with
+# different ALTs (1:100 A>C, A>G; 1:150 T,A against A against T,C), a SNP and an indel at 1:300, a
+# haploid sample at 1:350, a site only one file has, and a second contig. The reference needs
+# bgzipped, indexed inputs; gloci reads them plain.
+
+# Two files, bcftools' default -m both: 1:100 A>C and A>G become A C,G, 1:300 stays two records (SNP and
+# indel), and a record only one file has gets ./. for the others.
+[[case]]
+name = "vcf-merge-two-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/b.vcf"]
+gloci = "gloci vcf merge input.vcf b.vcf"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c b.vcf > b.vcf.gz && bcftools index b.vcf.gz && bcftools merge --no-version input.vcf.gz b.vcf.gz"
+compare = "vcf-records"
+
+# Three files at 1:150: a's T,A pairs with c's T,C (they share T), b's A stays alone; GT, AD, PL and GL
+# are re-indexed to the merged T,A,C.
+[[case]]
+name = "vcf-merge-three-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/b.vcf", "xtask/diff/inputs/vcf/merge/c.vcf"]
+gloci = "gloci vcf merge input.vcf b.vcf c.vcf"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c b.vcf > b.vcf.gz && bcftools index b.vcf.gz && bgzip -c c.vcf > c.vcf.gz && bcftools index c.vcf.gz && bcftools merge --no-version input.vcf.gz b.vcf.gz c.vcf.gz"
+compare = "vcf-records"
+
+# -m none: records pair only when they share an allele; 1:100 A>C and A>G stay two records.
+[[case]]
+name = "vcf-merge-mode-none-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/b.vcf", "xtask/diff/inputs/vcf/merge/c.vcf"]
+gloci = "gloci vcf merge input.vcf b.vcf c.vcf -m none"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c b.vcf > b.vcf.gz && bcftools index b.vcf.gz && bgzip -c c.vcf > c.vcf.gz && bcftools index c.vcf.gz && bcftools merge --no-version -m none input.vcf.gz b.vcf.gz c.vcf.gz"
+compare = "vcf-records"
+
+# -m snps: SNPs merge into one multi-allelic record, the SNP and the indel at 1:300 do not.
+[[case]]
+name = "vcf-merge-mode-snps-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/b.vcf", "xtask/diff/inputs/vcf/merge/c.vcf"]
+gloci = "gloci vcf merge input.vcf b.vcf c.vcf -m snps"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c b.vcf > b.vcf.gz && bcftools index b.vcf.gz && bgzip -c c.vcf > c.vcf.gz && bcftools index c.vcf.gz && bcftools merge --no-version -m snps input.vcf.gz b.vcf.gz c.vcf.gz"
+compare = "vcf-records"
+
+# -m indels: SNPs stay apart (A>C, A>G at 1:100), the indel row keeps the creation order of the records.
+[[case]]
+name = "vcf-merge-mode-indels-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/b.vcf", "xtask/diff/inputs/vcf/merge/c.vcf"]
+gloci = "gloci vcf merge input.vcf b.vcf c.vcf -m indels"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c b.vcf > b.vcf.gz && bcftools index b.vcf.gz && bgzip -c c.vcf > c.vcf.gz && bcftools index c.vcf.gz && bcftools merge --no-version -m indels input.vcf.gz b.vcf.gz c.vcf.gz"
+compare = "vcf-records"
+
+# -m both is the default.
+[[case]]
+name = "vcf-merge-mode-both-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/b.vcf", "xtask/diff/inputs/vcf/merge/c.vcf"]
+gloci = "gloci vcf merge input.vcf b.vcf c.vcf -m both"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c b.vcf > b.vcf.gz && bcftools index b.vcf.gz && bgzip -c c.vcf > c.vcf.gz && bcftools index c.vcf.gz && bcftools merge --no-version -m both input.vcf.gz b.vcf.gz c.vcf.gz"
+compare = "vcf-records"
+
+# -m all: a SNP and an indel at 1:300 merge into A>G,AT... with REF AT.
+[[case]]
+name = "vcf-merge-mode-all-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/b.vcf", "xtask/diff/inputs/vcf/merge/c.vcf"]
+gloci = "gloci vcf merge input.vcf b.vcf c.vcf -m all"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c b.vcf > b.vcf.gz && bcftools index b.vcf.gz && bgzip -c c.vcf > c.vcf.gz && bcftools index c.vcf.gz && bcftools merge --no-version -m all input.vcf.gz b.vcf.gz c.vcf.gz"
+compare = "vcf-records"
+
+# -m id: records pair on equal IDs (1:100 rs100 with rs100; rs101 stays apart).
+[[case]]
+name = "vcf-merge-mode-id-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/b.vcf", "xtask/diff/inputs/vcf/merge/c.vcf"]
+gloci = "gloci vcf merge input.vcf b.vcf c.vcf -m id"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c b.vcf > b.vcf.gz && bcftools index b.vcf.gz && bgzip -c c.vcf > c.vcf.gz && bcftools index c.vcf.gz && bcftools merge --no-version -m id input.vcf.gz b.vcf.gz c.vcf.gz"
+compare = "vcf-records"
+
+# -0 fills absent samples with 0/0 in the record's ploidy; AN counts those alleles.
+[[case]]
+name = "vcf-merge-missing-to-ref-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/b.vcf", "xtask/diff/inputs/vcf/merge/c.vcf"]
+gloci = "gloci vcf merge input.vcf b.vcf c.vcf -0"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c b.vcf > b.vcf.gz && bcftools index b.vcf.gz && bgzip -c c.vcf > c.vcf.gz && bcftools index c.vcf.gz && bcftools merge --no-version -0 input.vcf.gz b.vcf.gz c.vcf.gz"
+compare = "vcf-records"
+
+# dup.vcf repeats sample A1: it is renamed 2:A1 (the number of its file), D9 is new.
+[[case]]
+name = "vcf-merge-force-samples-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/dup.vcf", "xtask/diff/inputs/vcf/merge/b.vcf"]
+gloci = "gloci vcf merge input.vcf dup.vcf b.vcf --force-samples"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c dup.vcf > dup.vcf.gz && bcftools index dup.vcf.gz && bgzip -c b.vcf > b.vcf.gz && bcftools index b.vcf.gz && bcftools merge --no-version --force-samples input.vcf.gz dup.vcf.gz b.vcf.gz"
+compare = "vcf-records"
+
+# A repeated sample name stops both (exit 1); --force-samples is the way on.
+[[case]]
+name = "vcf-merge-duplicate-samples-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/dup.vcf"]
+gloci = "gloci vcf merge input.vcf dup.vcf"
+reference = "(bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c dup.vcf > dup.vcf.gz && bcftools index dup.vcf.gz && bcftools merge --no-version input.vcf.gz dup.vcf.gz) >/dev/null 2>&1 || exit 1"
+compare = "exit-status"
+
+# User rules: max, avg (integer division by the records that have the tag), sum of a Number=A
+# Float, join of a String; AC and AN are then not recalculated.
+[[case]]
+name = "vcf-merge-info-rules-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/b.vcf", "xtask/diff/inputs/vcf/merge/c.vcf"]
+gloci = "gloci vcf merge input.vcf b.vcf c.vcf -i DP:max,DP4:avg,AF:sum,NAME:join,AC:max"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c b.vcf > b.vcf.gz && bcftools index b.vcf.gz && bgzip -c c.vcf > c.vcf.gz && bcftools index c.vcf.gz && bcftools merge --no-version -i DP:max,DP4:avg,AF:sum,NAME:join,AC:max input.vcf.gz b.vcf.gz c.vcf.gz"
+compare = "vcf-records"
+
+# -i - drops the default DP:sum,DP4:sum: DP and DP4 keep the first record's value; AC and AN
+# are still recalculated from the merged genotypes.
+[[case]]
+name = "vcf-merge-info-rules-off-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/b.vcf", "xtask/diff/inputs/vcf/merge/c.vcf"]
+gloci = "gloci vcf merge input.vcf b.vcf c.vcf -i -"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c b.vcf > b.vcf.gz && bcftools index b.vcf.gz && bgzip -c c.vcf > c.vcf.gz && bcftools index c.vcf.gz && bcftools merge --no-version -i - input.vcf.gz b.vcf.gz c.vcf.gz"
+compare = "vcf-records"
+
+# -f PASS skips, before pairing, every record whose FILTER does not list PASS.
+[[case]]
+name = "vcf-merge-apply-filters-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/b.vcf", "xtask/diff/inputs/vcf/merge/c.vcf"]
+gloci = "gloci vcf merge input.vcf b.vcf c.vcf -f PASS"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c b.vcf > b.vcf.gz && bcftools index b.vcf.gz && bgzip -c c.vcf > c.vcf.gz && bcftools index c.vcf.gz && bcftools merge --no-version -f PASS input.vcf.gz b.vcf.gz c.vcf.gz"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-merge-apply-filters-missing-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/b.vcf", "xtask/diff/inputs/vcf/merge/c.vcf"]
+gloci = "gloci vcf merge input.vcf b.vcf c.vcf -f PASS,."
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c b.vcf > b.vcf.gz && bcftools index b.vcf.gz && bgzip -c c.vcf > c.vcf.gz && bcftools index c.vcf.gz && bcftools merge --no-version -f PASS,. input.vcf.gz b.vcf.gz c.vcf.gz"
+compare = "vcf-records"
+
+# -F x: an input with no filter (PASS or .) makes the result PASS; otherwise the filters are united.
+[[case]]
+name = "vcf-merge-filter-logic-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/b.vcf", "xtask/diff/inputs/vcf/merge/c.vcf"]
+gloci = "gloci vcf merge input.vcf b.vcf c.vcf -F x"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c b.vcf > b.vcf.gz && bcftools index b.vcf.gz && bgzip -c c.vcf > c.vcf.gz && bcftools index c.vcf.gz && bcftools merge --no-version -F x input.vcf.gz b.vcf.gz c.vcf.gz"
+compare = "vcf-records"
+
+# Header union: first file's lines, then the new contig, INFO, FILTER and ALT lines of the second; a
+# repeated ID keeps the first definition (a different Number or description is ignored); a
+# generic key already present is not added again.
+[[case]]
+name = "vcf-merge-header-union-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/k1.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/k2.vcf"]
+gloci = "gloci vcf merge input.vcf k2.vcf"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c k2.vcf > k2.vcf.gz && bcftools index k2.vcf.gz && bcftools merge --no-version input.vcf.gz k2.vcf.gz"
+compare = "vcf-records"
+
+# Absent samples take the ploidy of the widest GT in the record: . where every input is haploid,
+# ./. next to a diploid, ././. next to a triploid.
+[[case]]
+name = "vcf-merge-haploid-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/h1.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/h2.vcf", "xtask/diff/inputs/vcf/merge/h3.vcf"]
+gloci = "gloci vcf merge input.vcf h2.vcf h3.vcf"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c h2.vcf > h2.vcf.gz && bcftools index h2.vcf.gz && bgzip -c h3.vcf > h3.vcf.gz && bcftools index h3.vcf.gz && bcftools merge --no-version input.vcf.gz h2.vcf.gz h3.vcf.gz"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-merge-haploid-missing-to-ref-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/h1.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/h2.vcf", "xtask/diff/inputs/vcf/merge/h3.vcf"]
+gloci = "gloci vcf merge input.vcf h2.vcf h3.vcf -0"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c h2.vcf > h2.vcf.gz && bcftools index h2.vcf.gz && bgzip -c h3.vcf > h3.vcf.gz && bcftools index h3.vcf.gz && bcftools merge --no-version -0 input.vcf.gz h2.vcf.gz h3.vcf.gz"
+compare = "vcf-records"
+
+# Without samples AC and AN (and DP, DP4) are summed per allele; R and AF are re-indexed, a Flag and
+# a String come from the first record.
+[[case]]
+name = "vcf-merge-sites-only-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/s1.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/s2.vcf"]
+gloci = "gloci vcf merge input.vcf s2.vcf"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c s2.vcf > s2.vcf.gz && bcftools index s2.vcf.gz && bcftools merge --no-version input.vcf.gz s2.vcf.gz"
+compare = "vcf-records"
+
+# Without samples and without rules AC and AN are dropped.
+[[case]]
+name = "vcf-merge-sites-only-rules-off-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/s1.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/s2.vcf"]
+gloci = "gloci vcf merge input.vcf s2.vcf -i -"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c s2.vcf > s2.vcf.gz && bcftools index s2.vcf.gz && bcftools merge --no-version -i - input.vcf.gz s2.vcf.gz"
+compare = "vcf-records"
+
+# join of a Number=A or R tag would make it Number=.; here max and min work per allele.
+[[case]]
+name = "vcf-merge-sites-only-rules-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/s1.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/s2.vcf"]
+gloci = "gloci vcf merge input.vcf s2.vcf -i AC:max,AN:min,DP:avg,S:join,R:max,AF:min"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c s2.vcf > s2.vcf.gz && bcftools index s2.vcf.gz && bcftools merge --no-version -i AC:max,AN:min,DP:avg,S:join,R:max,AF:min input.vcf.gz s2.vcf.gz"
+compare = "vcf-records"
+
+# A PL with the wrong number of values (4 for two alleles) stops both: exit 1.
+[[case]]
+name = "vcf-merge-bad-pl-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/badpl-a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/badpl-b.vcf"]
+gloci = "gloci vcf merge input.vcf badpl-b.vcf"
+reference = "(bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c badpl-b.vcf > badpl-b.vcf.gz && bcftools index badpl-b.vcf.gz && bcftools merge --no-version input.vcf.gz badpl-b.vcf.gz) >/dev/null 2>&1 || exit 1"
+compare = "exit-status"
+
+# --file-list FILE (bcftools -l) reads the input names from a file.
+[[case]]
+name = "vcf-merge-file-list-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/b.vcf", "xtask/diff/inputs/vcf/merge/c.vcf", "xtask/diff/inputs/vcf/merge/list.txt"]
+gloci = "gloci vcf merge --file-list list.txt"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c b.vcf > b.vcf.gz && bcftools index b.vcf.gz && bgzip -c c.vcf > c.vcf.gz && bcftools index c.vcf.gz && printf 'input.vcf.gz\nb.vcf.gz\nc.vcf.gz\n' > l.txt && bcftools merge --no-version -l l.txt"
+compare = "vcf-records"
+
+# BCF inputs; gloci writes the text records with -O vcf (its output keeps the inputs' format).
+[[case]]
+name = "vcf-merge-bcf-inputs-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/b.vcf", "xtask/diff/inputs/vcf/merge/c.vcf"]
+gloci = "set -e; gloci view -O bcf input.vcf -o a.bcf; gloci view -O bcf b.vcf -o b.bcf; gloci view -O bcf c.vcf -o c.bcf; gloci vcf merge a.bcf b.bcf c.bcf -O vcf"
+reference = "set -e; bcftools view -Ob -o a.bcf input.vcf; bcftools view -Ob -o b.bcf b.vcf; bcftools view -Ob -o c.bcf c.vcf; bcftools index a.bcf; bcftools index b.bcf; bcftools index c.bcf; bcftools merge --no-version a.bcf b.bcf c.bcf"
+compare = "vcf-records"
+
+# BCF output read back as text.
+[[case]]
+name = "vcf-merge-bcf-output-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/b.vcf", "xtask/diff/inputs/vcf/merge/c.vcf"]
+gloci = "set -e; gloci vcf merge input.vcf b.vcf c.vcf -o m.bcf; gloci view m.bcf -O vcf"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c b.vcf > b.vcf.gz && bcftools index b.vcf.gz && bgzip -c c.vcf > c.vcf.gz && bcftools index c.vcf.gz && bcftools merge --no-version -Ob -o m.bcf input.vcf.gz b.vcf.gz c.vcf.gz && bcftools view m.bcf"
+compare = "vcf-records"
+
+# bcftools merge needs bgzipped, indexed files; gloci merges plain sorted ones as a stream.
+[[case]]
+name = "vcf-merge-plain-files-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/b.vcf"]
+gloci = "gloci vcf merge input.vcf b.vcf"
+reference = "bcftools merge --no-version input.vcf b.vcf >/dev/null 2>&1 || exit 1"
+compare = "exit-status"
+expected_difference = "#vcf-merge-no-index"
+
+# One file with several records at a position: all records pair as bcftools does, but the order
+# of the unpaired records at the position differs (bcftools: <DEL> merged from two files first,
+# then A>AC; gloci keeps the order the variants were first seen).
+[[case]]
+name = "vcf-merge-same-position-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/samepos-a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/samepos-b.vcf", "xtask/diff/inputs/vcf/merge/samepos-c.vcf"]
+gloci = "gloci vcf merge input.vcf samepos-b.vcf samepos-c.vcf -m none"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c samepos-b.vcf > samepos-b.vcf.gz && bcftools index samepos-b.vcf.gz && bgzip -c samepos-c.vcf > samepos-c.vcf.gz && bcftools index samepos-c.vcf.gz && bcftools merge --no-version -m none input.vcf.gz samepos-b.vcf.gz samepos-c.vcf.gz"
+compare = "vcf-records"
+expected_difference = "#vcf-merge-same-position"
+

@@ -1,0 +1,18 @@
+##fileformat=VCFv4.2
+##source=second
+##reference=ref1
+##contig=<ID=1,length=2000>
+##contig=<ID=2>
+##INFO=<ID=DP,Number=2,Type=Integer,Description="second">
+##INFO=<ID=NEW,Number=.,Type=String,Description="second">
+##INFO=<ID=EQ,Number=1,Type=Integer,Description="different description">
+##FILTER=<ID=lo,Description="second">
+##FILTER=<ID=hi,Description="second">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="g">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="g2">
+##ALT=<ID=DUP,Description="dup">
+##custom=a
+##custom=b
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	K2
+1	10	.	A	C	.	hi	DP=1	GT:DP	0/1:4
+1	20	.	A	<DEL>	.	.	NEW=x	GT:DP	0/1:5

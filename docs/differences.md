@@ -1879,3 +1879,45 @@ depends on the span.
 - **Pinned by:** `vcf-annotate-plain-files-vs-bcftools` and
   `vcf-annotate-undeclared-filter-vs-bcftools` (must differ: gloci exits 0, bcftools 1).
   Every other `vcf annotate` case gives the reference bgzipped, indexed copies and matches.
+
+## `vcf merge` needs sorted inputs, not indexes {#vcf-merge-no-index}
+
+- **gloci:** every input must be sorted in one chromosome order (the first input's `##contig`
+  lines, else `--chrom-order`) and is read once as a stream: no index is built or needed, plain,
+  gzip and BGZF files all work, and only the records of one position are held. An out-of-order
+  record in any input is an error (exit 1) that names the two records and the fix (`gloci
+  sort`). The inputs are open together, so merging more files than `ulimit -n` allows stops with
+  an error that says so and names the fix (raise `ulimit -n`); 200 files merge under the usual
+  limit of 1,024. `--no-index` is accepted and ignored.
+- **Old behaviour:** `bcftools merge` needs every input bgzipped and indexed (`Failed to open
+  FILE: not compressed with bgzip`, then `could not load index`), or `--no-index` with sorted
+  inputs and no `-r`/`-R`; it also reads FILEs in any chromosome order the index allows.
+- **Reason:** a sorted k-way merge reads gigabytes in constant memory and needs no `tabix` or
+  `bcftools index` step.
+- **Pinned by:** `vcf-merge-plain-files-vs-bcftools` (bcftools exits 1 on plain files, gloci
+  0: must differ). Every other `vcf merge` case gives the reference bgzipped, indexed copies.
+
+## `vcf merge` orders unpaired records at one position its own way {#vcf-merge-same-position}
+
+- **gloci:** records of different files at one position are paired and written as htslib's
+  synced reader does: the pairing score (the same record, the same alleles once REF is
+  extended, an allele in the same place of the lists, any shared allele, then what `--merge`
+  allows), which partner is taken first, a record without ALT joining a SNP, and records with a
+  SNP going first (not with `-m indels`, `-m all` or `-m id`). In every case where each file has
+  one record per position this matches bcftools exactly: 1,500 generated positions (300 in
+  each of the five modes) with SNPs, indels, symbolic and `*` ALTs, no-ALT records and
+  multi-allelic records of up to six files gave identical output. When a file has several
+  records at one position (a multi-allelic site written as one record per ALT, say) the same
+  rules mostly hold but the order of the unpaired records, and sometimes who pairs with whom,
+  can differ: of the same kind of generated positions with up to three records per file,
+  about 11% (`-m none`), 21% (`snps`, `both`), 26% (`indels`) and 43% (`all`) were written in
+  another order or with another pairing. The sample columns and every merged value follow the
+  records, so the content of a record never differs, only which records share a row.
+- **Old behaviour:** `bcftools merge` pairs by `bcf_sr_sort_next`'s heuristic over the records of
+  the position of all files, with tie-breaks that depend on the order its hash tables hold them.
+- **Reason:** the outputs of the two programs are the same sets of rows in the same order for
+  ordinary data; a byte-exact port of the tie-breaks for several same-position records of one
+  file is not worth the complexity. Split such files (`gloci vcf split`) or normalise
+  them first for a stable result.
+- **Pinned by:** `vcf-merge-same-position-vs-bcftools` (must differ: the unpaired `<DEL>` and
+  `A>AC` rows come in another order). Every other `vcf merge` case matches.
