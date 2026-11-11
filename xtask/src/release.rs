@@ -42,7 +42,7 @@ fn is_iso_date(s: &str) -> bool {
     }
     let (m, d): (u32, u32) = (s[5..7].parse().unwrap(), s[8..10].parse().unwrap());
     let y: u32 = s[0..4].parse().unwrap();
-    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let leap = (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400);
     let max = match m {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
         4 | 6 | 9 | 11 => 30,
