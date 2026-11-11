@@ -60,12 +60,14 @@ pub fn sample(
     let mut stream = Stream::new(o.seed, 0);
     let mut heap: BinaryHeap<Kept> = BinaryHeap::new();
     let mut seen = 0u64;
+    let mut read = 0u64;
     let mut batch = RecordBatch::default();
     let mut max = 1;
     loop {
         batch.clear();
         let more = reader.read_batch(chroms, &mut batch, max)?;
         for (i, m) in batch.recs.iter().enumerate() {
+            read += 1;
             if o.strand.is_some_and(|s| m.strand != s) {
                 continue;
             }
@@ -100,16 +102,11 @@ pub fn sample(
         }
     }
     crate::skipped::log_reader(reader.as_ref());
-    if seen == 0 && o.count > 0 {
+    if read == 0 && o.count > 0 {
         // An empty input is read as no records, as every other command does.
         log::warn!(
-            "{} is empty: it has no records{}; no record was sampled",
-            reader.name(),
-            match o.strand {
-                Some(Strand::Plus) => " on the + strand",
-                Some(Strand::Minus) => " on the - strand",
-                _ => "",
-            }
+            "{} is empty: it has no records; no record was sampled",
+            reader.name()
         );
         return Ok(0);
     }

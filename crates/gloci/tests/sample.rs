@@ -137,6 +137,23 @@ fn sample_of_empty_input_writes_nothing_and_warns_once() {
 }
 
 #[test]
+fn sample_strand_filter_emptying_a_non_empty_input_is_still_too_few() {
+    let d = tempdir();
+    let f = plain_file(
+        d.path(),
+        "minus.bed",
+        "chr1\t0\t5\ta\t0\t-\nchr1\t5\t9\tb\t0\t-\n",
+    );
+    gloci()
+        .args(["sample"])
+        .arg(&f)
+        .args(["-n", "1", "--strand", "+", "--seed", "1"])
+        .assert()
+        .code(1)
+        .stderr(contains("only 0 records on the + strand"));
+}
+
+#[test]
 fn sample_strand() {
     let d = tempdir();
     let text = "chr1\t0\t5\ta\t0\t+\nchr1\t5\t9\tb\t0\t-\nchr1\t9\t12\tc\t0\t.\n\
