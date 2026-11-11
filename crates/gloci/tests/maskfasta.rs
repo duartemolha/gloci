@@ -359,7 +359,7 @@ fn wait_rss(child: &std::process::Child) -> (bool, u64) {
 }
 
 /// A 50 MiB FASTA as one sequence line (the worst case for a line reader)
-/// is masked within a few MiB more than a bare process needs.
+/// is masked within an absolute 40 MiB ceiling.
 #[test]
 fn maskfasta_streams() {
     const MIB: usize = 1 << 20;
@@ -397,26 +397,13 @@ fn maskfasta_streams() {
         .unwrap();
     let (ok, rss) = wait_rss(&child);
     assert!(ok, "gloci maskfasta failed");
-    // The same process reading a 1 MiB FASTA sets the baseline.
-    let baseline = {
-        let small = d.path().join("small.fa");
-        std::fs::write(&small, b">big\nACGTACGTAC\n").unwrap();
-        let sb = plain_file(d.path(), "s.bed", "big\t0\t1\n");
-        let child = std::process::Command::new(assert_cmd::cargo::cargo_bin("gloci"))
-            .args(["maskfasta", "-t", "1", "--fasta"])
-            .arg(&small)
-            .arg("-b")
-            .arg(&sb)
-            .stdout(std::process::Stdio::null())
-            .spawn()
-            .unwrap();
-        wait_rss(&child).1
-    };
+    // An absolute ceiling below the FASTA's own size: it was streamed, not
+    // loaded. (Two `ru_maxrss` readings are not comparable: a spawned child
+    // inherits the parent's peak.)
     assert!(
-        rss <= baseline + 12 * MIB as u64,
-        "peak RSS {} MiB for a 50 MiB FASTA (baseline {} MiB)",
-        rss / MIB as u64,
-        baseline / MIB as u64
+        rss <= 40 * MIB as u64,
+        "peak RSS {} MiB for a 50 MiB FASTA",
+        rss / MIB as u64
     );
     // And the result is right: only the masked bases differ.
     let got = std::fs::read(&out).unwrap();
