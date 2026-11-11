@@ -3,7 +3,7 @@
 use super::*;
 use crate::align::{AlnHeader, AlnSource};
 use crate::chrom_map::{ChromMap, Renamer};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// The largest decompressed CSI read into memory to check it.
@@ -84,12 +84,15 @@ impl Loaded {
                 )
             }
             IndexKind::Crai => {
+                // The names a `.crai` gives come from `crai_names`; reading a CRAM chromosome
+                // by chromosome through it is not built yet (`IndexedFile::open` refuses CRAM).
                 return Err(IoError::Detect {
                     path: info.path.display().to_string(),
                     msg: format!(
-                        "{} is a CRAM index, which this build cannot read yet; convert the CRAM \
-file with: gloci view FILE.cram -o x.bam --write-index",
-                        info.path.display()
+                        "{} is a CRAM index, and reading {} through it chromosome by chromosome \
+is not available in this build yet; convert it with: gloci view {1} -o x.bam --write-index",
+                        info.path.display(),
+                        data.display()
                     ),
                 });
             }
@@ -756,11 +759,38 @@ but the header cannot be read: {msg}",
     Ok((dicts.contigs, false))
 }
 
+/// The reference names of the CRAM `data`, from its header, in reference id order; with
+/// `non_empty`, only those its `.crai` `info` gives a slice (D109).
+fn crai_names(data: &Path, info: &IndexInfo, non_empty: bool) -> Result<Vec<Vec<u8>>, IoError> {
+    let index = CramIndex::read(&info.path)?;
+    let name = data.display().to_string();
+    let file = File::open(data).map_err(|source| IoError::Open {
+        path: name.clone(),
+        source,
+    })?;
+    let header = crate::align::read_cram_header(&mut BufReader::new(file), &name)?;
+    let used: HashSet<usize> = index
+        .entries
+        .iter()
+        .filter_map(|e| usize::try_from(e.ref_id).ok())
+        .collect();
+    Ok(header
+        .refs
+        .into_iter()
+        .enumerate()
+        .filter(|(rid, (n, _))| !n.is_empty() && (!non_empty || used.contains(rid)))
+        .map(|(_, (n, _))| n)
+        .collect())
+}
+
 /// The reference names the index `info` of `data` knows, in reference id
-/// order: the names stored in a TBI/CSI header, or, for a BCF's or BAM's
-/// index (which has none), the contig dictionary of the BCF header or the
-/// reference list of the BAM header.
+/// order: the names stored in a TBI/CSI header, or, for a BCF's, BAM's or
+/// CRAM's index (which has none), the contig dictionary of the BCF header or
+/// the reference list of the BAM or CRAM header.
 pub fn index_reference_names(data: &Path, info: &IndexInfo) -> Result<Vec<Vec<u8>>, IoError> {
+    if info.kind == IndexKind::Crai {
+        return crai_names(data, info, false);
+    }
     let loaded = Loaded::read(info, data, None)?;
     if let Some(names) = loaded.names() {
         return Ok(names.iter().map(|n| n.to_vec()).collect());
@@ -780,6 +810,9 @@ pub fn index_non_empty_reference_names(
     data: &Path,
     info: &IndexInfo,
 ) -> Result<Vec<Vec<u8>>, IoError> {
+    if info.kind == IndexKind::Crai {
+        return crai_names(data, info, true);
+    }
     let loaded = Loaded::read(info, data, None)?;
     if let Some(names) = loaded.names() {
         return Ok(names

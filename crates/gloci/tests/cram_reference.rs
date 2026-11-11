@@ -114,10 +114,13 @@ fn view_cram_with_reference() {
         records(&back),
         records(&stdout_of(&["view", "-O", "sam", &aln("flags.bam")]))
     );
-    // Regions by scan, with the read filters, and the -v counts of a BAM.
+    // Regions by scan, with the read filters, and the -v counts of a BAM scanned likewise (a
+    // copy without its .bai: through the index, fewer reads are visited and counted).
     let region = ["chr1:650-701", "--exclude-flags", "0x704"];
+    let scanned = dir.path().join("flags.bam");
+    std::fs::copy(aln("flags.bam"), &scanned).unwrap();
     let bam = gloci()
-        .args(["-v", "view", "-O", "sam", &aln("flags.bam")])
+        .args(["-v", "view", "-O", "sam", &s(&scanned)])
         .args(region)
         .output()
         .unwrap();
@@ -483,4 +486,24 @@ fn reference_without_cram_warns() {
         .assert()
         .success()
         .stderr(contains("is not used").not());
+}
+
+#[test]
+fn interval_commands_do_not_read_cram_yet() {
+    // Only view reads CRAM so far; the interval commands keep the "not yet" answer.
+    let dir = tempdir();
+    let bed = plain_file(dir.path(), "a.bed", "chr1\t1\t100\n");
+    let (b, c) = (s(&bed), aln("flags.cram"));
+    for args in [
+        vec!["intersect", "-a", &c, "-b", &b],
+        vec!["intersect", "-a", &b, "-b", &c],
+        vec!["coverage", "-a", &b, "-b", &c],
+        vec!["genomecov", &c],
+        vec!["convert", &c],
+        vec!["sort", &c],
+    ] {
+        gloci().args(&args).assert().failure().stderr(contains(
+            "is CRAM, and reading it is not available in this build yet",
+        ));
+    }
 }

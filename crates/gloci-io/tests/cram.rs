@@ -38,6 +38,7 @@ fn ropts(reference: Option<PathBuf>, ao: AlignOptions, threads: usize) -> Reader
     ReaderOptions {
         accept: Accept {
             alignments: Some(AlignOptions { reference, ..ao }),
+            cram: true,
             ..Accept::default()
         },
         chrom_map: None,
@@ -542,6 +543,37 @@ fn crai_written_and_found() {
     let (_d, fa) = edited_reference(shorter_chr1);
     let e = write_crai(&cram, Some(&fa), NonZeroUsize::MIN).unwrap_err();
     assert!(e.to_string().contains("was not made with"), "{e}");
+}
+
+#[test]
+fn find_index_reads_a_crai() {
+    // samtools' .crai of each CRAM, read through `find_index`, names the references the BAM's
+    // .bai does; the header lists them all.
+    for v in ["flags.cram", "flags.multi.cram", "flags.noref.cram"] {
+        let cram = aln(v);
+        let info = find_index(&cram).unwrap();
+        assert_eq!(info.kind, IndexKind::Crai, "{v}");
+        let bam = aln("flags.bam");
+        let bai = find_index(&bam).unwrap();
+        assert_eq!(
+            index_non_empty_reference_names(&cram, &info).unwrap(),
+            index_non_empty_reference_names(&bam, &bai).unwrap(),
+            "{v}"
+        );
+        assert_eq!(
+            index_reference_names(&cram, &info).unwrap(),
+            index_reference_names(&bam, &bai).unwrap(),
+            "{v}"
+        );
+    }
+    // A damaged .crai is an error naming it.
+    let dir = tempfile::tempdir().unwrap();
+    let cram = dir.path().join("x.cram");
+    std::fs::copy(aln("flags.cram"), &cram).unwrap();
+    std::fs::write(crai_path(&cram), bgzip(b"0\t1\n")).unwrap();
+    let info = find_index(&cram).unwrap();
+    let e = index_reference_names(&cram, &info).unwrap_err().to_string();
+    assert!(e.contains("x.cram.crai line 1"), "{e}");
 }
 
 #[test]

@@ -321,6 +321,9 @@ impl RecordReader for CramReader {
     fn diagnostics(&self) -> &Diagnostics {
         self.inner.diagnostics()
     }
+    fn whole_records(&self) -> bool {
+        self.inner.whole_records()
+    }
     fn read_batch(
         &mut self,
         chroms: &mut ChromTable,
@@ -439,6 +442,7 @@ mod tests {
                     reference,
                     ..AlignOptions::default()
                 }),
+                cram: true,
                 ..crate::align::Accept::default()
             },
         }

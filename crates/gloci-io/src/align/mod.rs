@@ -158,12 +158,12 @@ pub fn gate(name: &str, format: Format, accept: &Accept) -> Result<(), IoError> 
         )
     };
     if format.is_alignment() {
-        if matches!(format, Format::Bam | Format::Sam) && accept.alignments.is_some() {
+        // CRAM is read by the commands that opt in (`view`); elsewhere it is "not available in
+        // this build yet", as it was before its reader landed.
+        let readable =
+            matches!(format, Format::Bam | Format::Sam) || (format == Format::Cram && accept.cram);
+        if readable && accept.alignments.is_some() {
             return Ok(());
-        }
-        if format == Format::Cram && accept.alignments.is_some() {
-            // CRAM is read by the commands that opt in (view); the interval commands follow.
-            return if accept.cram { Ok(()) } else { Err(not_yet()) };
         }
         if accept.alignments.is_some() {
             return Err(IoError::Detect {

@@ -47,16 +47,16 @@ gloci genomes show mm39 | cut -f1
 
 ### `gloci index`
 
-Build a .tbi/.csi index for a sorted BGZF file, a .bai/.csi for a BAM, or a .fai for a FASTA.
+Build a .tbi/.csi index for a sorted BGZF file, a .bai/.csi for a BAM, a .crai for a CRAM, or a .fai for a FASTA.
 
 A coordinate-sorted BAM gets PATH.bai, or PATH.csi with --csi or when a reference is longer than 2^29; samtools and gloci read each other's indexes. SAM text has no index: write BAM with gloci view x.sam -o x.bam.
 
-A FASTA file (plain or BGZF) gets PATH.fai, and PATH.gzi when it is BGZF, byte-identical to samtools faidx. Every line of a sequence but the last must have the same length. Reading a FASTA at random (getfasta, nuc, maskfasta, a CRAM reference) needs these files and never builds them itself. Plain gzip is refused: recompress with bgzip. Otherwise, BED, GFF/GTF, VCF and BCF files are recognised by content. Any other tab-separated file is indexed like tabix does when you name its columns with -s (sequence), -b (begin) and -e (end, optional). The columns are numbered from 1. Without --zero-based the begin column is 1-based and a feature covers [begin-1, end]; with it, [begin, end). Without -e a feature covers one base. Lines starting with --comment (default #) and the first --skip-lines lines are not indexed; both are recorded in the index. Chromosomes must be contiguous and sorted by begin. The index is a .tbi, or a .csi when an end passes 2^29.
+A CRAM file gets PATH.crai, with the entries samtools index writes; it needs no reference, even for slices that hold several references. A FASTA file (plain or BGZF) gets PATH.fai, and PATH.gzi when it is BGZF, byte-identical to samtools faidx. Every line of a sequence but the last must have the same length. Reading a FASTA at random (getfasta, nuc, maskfasta, a CRAM reference) needs these files and never builds them itself. Plain gzip is refused: recompress with bgzip. Otherwise, BED, GFF/GTF, VCF and BCF files are recognised by content. Any other tab-separated file is indexed like tabix does when you name its columns with -s (sequence), -b (begin) and -e (end, optional). The columns are numbered from 1. Without --zero-based the begin column is 1-based and a feature covers [begin-1, end]; with it, [begin, end). Without -e a feature covers one base. Lines starting with --comment (default #) and the first --skip-lines lines are not indexed; both are recorded in the index. Chromosomes must be contiguous and sorted by begin. The index is a .tbi, or a .csi when an end passes 2^29.
 
 ```sh
 gloci index calls.vcf.gz
-gloci index ref.fa.gz
 gloci index sorted.bam
+gloci index reads.cram
 gloci index scores.tsv.gz -s 1 -b 2 -e 3 --zero-based
 ```
 
@@ -81,7 +81,7 @@ Print the records in regions, stream or recompress a file, convert VCF to BCF an
 
 With no regions the records are written as read (comment and track lines after the first record and blank lines are dropped, and CRLF line ends become LF), so view can recompress a file (-o FILE.gz is BGZF) or index it (--write-index). VCF and BCF convert to each other with -O or the -o extension; the header is kept as it is, plus a ##glociCommand line. BED and GFF header lines are kept by default. For conversions to BED from VCF/BCF, GFF3/GTF or BED12, use gloci convert.
 
-BAM and SAM input is written as BAM or SAM, as -O or the -o extension say (the same as the input by default), every record, unmapped reads included, with an @PG line added to the header. --header-only, --no-header (SAM output only), --min-mapq, --require-flags and --exclude-flags apply. Regions select the reads whose footprint overlaps them; an unmapped read placed at a position counts as one base there. It is not samtools view: there is no -b, -h, -c or -L.
+BAM, CRAM and SAM input is written as BAM or SAM, as -O or the -o extension say (the same as the input by default; BAM for CRAM), every record, unmapped reads included, with an @PG line added to the header. --header-only, --no-header (SAM output only), --min-mapq, --require-flags and --exclude-flags apply. Regions select the reads whose footprint overlaps them; an unmapped read placed at a position counts as one base there. It is not samtools view: there is no -b, -h, -c or -L. CRAM needs the FASTA it was made with (--reference, with its .fai), unless it was written without one; MD and NM tags come out as stored, not regenerated as samtools does.
 
 With regions, view prints the records whose footprint (per --vcf-span) overlaps a region, each once, in file order. A point (a zero-length BED record, an insertion) overlaps a region only when strictly inside it, unless --inclusive-points is given. Regions are read through a .tbi/.csi index when the file has one, and otherwise by scanning the whole file, with a warning. Either way the order of every record read is checked, so an unsorted file is an error, never a wrong answer. With --assume-sorted, an uncompressed BED file without an index is binary-searched instead (like bedextract); that trusts the file to be sorted. Index the file (gloci sort FILE -o FILE.gz --write-index) for speed and checking both.
 
@@ -89,7 +89,7 @@ With regions, view prints the records whose footprint (per --vcf-span) overlaps 
 gloci view calls.vcf.gz chr1:1,000,000-2,000,000 chrX
 gloci view peaks.bed --regions-file targets.bed --inclusive-points
 gloci view reads.bam -O sam | head
-gloci view calls.vcf.gz -o calls.bcf --write-index
+gloci view reads.cram --reference ref.fa -o reads.bam
 ```
 
 ### `gloci cat`
@@ -687,4 +687,6 @@ Before relying on a new expression, run it once on a small file with
 - **`--chrom-map` renames on input, and `--assume-sorted` then means sorted by the new names:** `--chrom-map MAP` (two tab-separated columns, old and new; unlisted names are kept) makes order checks, `-g` and the output use the new names, and `-g` itself is never renamed. `gloci view --assume-sorted` trusts that the file is sorted by the new names. An order-reversing map is safe (it warns "could not locate ... scanning the whole file" and scans), but a map that renames onto a name already in the file (`a`→`c` in a file that also has `c`) can make it return a partial answer silently where the plain scan errors "not sorted". Rename and re-sort first: `gloci view FILE --chrom-map MAP | gloci sort - -o renamed.bed.gz --write-index`.
 - **`-v` counts of an indexed BAM `-b` are of the reads read:** with `-t` above 1, an indexed `-b` (and anything under `--region`) is read only where A needs it, so the unmapped-reads-left-out counts depend on the thread count; the line says so. The counts for A are whole-file at every `-t`.
 - **`vcf stats` checks FORMAT fields lazily:** a malformed DP, GQ or FT value that no requested statistic or mask rule reads is not an error.
+- **CRAM needs the FASTA it was made with, and only through `--reference`:** `gloci view x.cram --reference ref.fa` (bedtools `--cram-ref`). There is no `REF_PATH`, no reference cache and no download, so a CRAM samtools decodes through `REF_PATH` or the `UR:` path still needs `--reference` here. The FASTA needs its `.fai` (and `.gzi` when BGZF: `gloci index ref.fa.gz`), and its sequence lengths must equal the CRAM's `@SQ` lengths (else `was not made with`, before any record); a changed base in a slice's region is `does not match`, except in a slice holding several references, which carries no checksum (samtools does not notice either). A CRAM written with `no_ref` or `embed_ref` needs no reference, nor do `-g x.cram` and `gloci index x.cram`. MD and NM come out as stored: samtools recomputes them by default, so compare with `samtools view --input-fmt-option decode_md=0`. A CRAM cut short (no end-of-file container) is an error, not a warning. A read more than 1 Mb past its chromosome's end is refused (samtools decodes it), and a CRAM crafted with recomputed checksums can still end gloci with an internal error or exhaust its memory (docs/differences.md#cram-limits).
+- **CRAM memory:** the decoder threads share one copy of each reference sequence they need, whatever `-t`, and read each from the FASTA once: sorted input holds at most two chromosomes at a time (about twice one while it loads; chr1 is 250 MB); unsorted or name-sorted input keeps every chromosome its slices touch, as samtools does, and lets them go only when more than the longest chromosome's worth sits unused (small contigs stay). Up to 2 x `-t` containers are in flight. A CRAM written without a reference, in slices of several references, holds a zero-filled placeholder as long as each reference its slices touch, shared the same way.
 - **`--mode` has no `-m` short flag (and defaults to `any`):** `gloci intersect` defaults to `--mode any` (unique A records with a hit, like `bedtools intersect -u`), not coordinate clipping (`--mode clip`). Always spell `--mode` in full (`--mode any|none|pairs|clip|count`); `-m` is only `gloci sort -m` for merging pre-sorted files.
