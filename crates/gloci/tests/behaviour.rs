@@ -5762,6 +5762,45 @@ fn p3c_empty_inputs_matrix() {
         );
     }
 
+    // A zero-byte file named .bam or .sam, or a zero-byte stdin, given to a command that reads
+    // alignments: it is empty, not "BED" (content detection calls a file with no bytes an
+    // empty BED, which is not the problem here).
+    let zbam = s_of(&plain_file(dir, "z.bam", ""));
+    let zsam = s_of(&plain_file(dir, "z.sam", ""));
+    let stdin = "-".to_string();
+    for t in ["1", "4"] {
+        for (input, name) in [
+            (&zbam, zbam.as_str()),
+            (&zsam, zsam.as_str()),
+            (&stdin, "stdin"),
+        ] {
+            let cases: Vec<Vec<&str>> = vec![
+                vec!["idxstats", input],
+                vec!["flagstat", input],
+                vec!["samples", input],
+                vec!["depth", input],
+                vec!["bedcov", &bed, input],
+            ];
+            for args in cases {
+                let mut cmd = gloci();
+                cmd.args(&args).write_stdin(Vec::new());
+                if args[0] != "samples" {
+                    cmd.args(["-t", t]);
+                }
+                let o = cmd.output().unwrap();
+                let err = String::from_utf8_lossy(&o.stderr);
+                assert_eq!(o.status.code(), Some(1), "{args:?} -t {t}: {err}");
+                assert_eq!(
+                    err,
+                    format!("error: {name} is empty: it has no records\n"),
+                    "{args:?} -t {t}"
+                );
+                assert!(o.stdout.is_empty(), "{args:?} -t {t}");
+                ran.set(ran.get() + 1);
+            }
+        }
+    }
+
     // A FASTA with no sequences. An empty file is not a FASTA to gloci: dict says so (exit 1),
     // and faidx has nothing to look in. A header with no bases cannot be indexed, and dict
     // writes it as a sequence of length 0 with the MD5 of nothing.

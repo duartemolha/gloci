@@ -154,7 +154,7 @@ impl AlnSource for SamSource {
 }
 
 pub(crate) fn source_from_input(
-    input: Input,
+    mut input: Input,
     o: &ReaderOptions,
 ) -> Result<Box<dyn AlnSource>, IoError> {
     let opts = o.accept.alignments.clone();
@@ -167,6 +167,10 @@ pub(crate) fn source_from_input(
         ),
     };
     if !input.format.is_alignment() {
+        // No bytes at all is detected as an empty BED: say it is empty, not that it is BED.
+        if input.is_empty()? {
+            return Err(IoError::empty_input(&input.name));
+        }
         return Err(not_alignments(&input));
     }
     crate::align::gate(&input.name, input.format, &o.accept)?;
