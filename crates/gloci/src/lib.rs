@@ -233,6 +233,9 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         },
         Commands::PairIntersect(a) => (a.threads.threads, None),
         Commands::PairPair(a) => (a.threads.threads, None),
+        Commands::Random(a) => (a.threads.threads, None),
+        Commands::Sample(a) => (a.threads.threads, None),
+        Commands::Shuffle(a) => (a.threads.threads, None),
         Commands::Vcf(a) => match &a.command {
             cli::VcfCommand::Filter(f) => (f.threads.threads, None),
             cli::VcfCommand::Extract(e) => (e.threads.threads, e.tmp_dir.tmp_dir.clone()),

@@ -614,6 +614,42 @@ gloci pair-pair -a sv1.bedpe -b sv2.bedpe --type notboth -o unique.bedpe
 gloci pair-pair -a sv.bedpe -b sv.bedpe --require-different-names -s -t 4
 ```
 
+### `gloci random`
+
+Random intervals placed uniformly over a genome (bedtools random).
+
+Every valid start of every chromosome is equally likely: a chromosome of L bases has L - l + 1 starts for intervals of length l, and one shorter than l has none. Output is BED6 (chromosome, start, end, id, length, strand) in id order, not sorted (pipe to gloci sort to sort). -l longer than every chromosome is an error naming the longest one. The output depends on --seed only, never on --threads; without --seed a fresh seed is chosen and printed as a warning, so rerunning with it reproduces the output. It is not bedtools' output for the same seed (see docs/differences.md#rng-stream).
+
+```sh
+gloci random -g hg38 -l 500 -n 100000 --seed 42 -o random.bed
+gloci random -g genome.txt -l 1000 -n 1000 --seed 7 | gloci sort -g genome.txt - > sorted.bed
+gloci random -g hg38 -n 10000 --seed 1 -o a.bed && gloci shift a.bed --by 5 -g hg38
+```
+
+### `gloci sample`
+
+A random subset of the records of a file (bedtools sample; for alignments see samtools view -s, gloci samples is a different command).
+
+Keeps exactly N records, chosen uniformly at random, and writes them in input order (bedtools writes them in reservoir order; see docs/differences.md#sample-order). With --strand + or -, only records on that strand are sampled (a record of unknown strand never is). Fewer than N records is an error that gives the count and writes nothing. BED, bedGraph, GFF/GTF and VCF/BCF are read; --header keeps the header lines of text formats and a VCF always keeps its header. The kept records are held in memory. The output depends on --seed only, never on --threads; without --seed a fresh seed is chosen and printed as a warning. It is not bedtools' output for the same seed (see docs/differences.md#rng-stream).
+
+```sh
+gloci sample peaks.bed -n 1000 --seed 42 -o subset.bed
+gloci sample peaks.bed -n 500 --strand + --seed 1
+gloci sample calls.vcf.gz -n 10000 --seed 3 -O vcf.gz -o subset.vcf.gz
+```
+
+### `gloci shuffle`
+
+Move every record to a random place in the genome (bedtools shuffle).
+
+Each record keeps its length, its other columns and its strand and goes to a uniformly random place that keeps all of it inside the allowed regions: --include regions (default: the whole genome) less --exclude regions. (bedtools only puts the start inside an --include region; see docs/differences.md#shuffle-placement.) --same-chrom keeps records on their chromosome; --chrom-first picks a chromosome at random among those with room, then a place on it, instead of weighting chromosomes by their free length; --no-overlapping redraws a place that overlaps an earlier output record, up to --max-tries times. A record with no place is an error naming its line, length and the fix (nothing is written to a file); --skip-unplaceable drops such records and warns with a count. With --format bedpe each pair is moved: a pair on one chromosome keeps its end lengths and gap, a pair on two places its ends independently, and only --exclude, --seed, --max-tries and --skip-unplaceable apply. Output is in input order and not sorted (pipe to gloci sort). WIG is read as intervals and written as bedGraph; VCF and alignment input are refused (gloci convert). --include/--exclude read the names of -g, after --chrom-map (which renames them like the input). The output depends on --seed only, never on --threads; without --seed a fresh seed is chosen and printed as a warning. It is not bedtools' output for the same seed (see docs/differences.md#rng-stream).
+
+```sh
+gloci shuffle peaks.bed -g hg38 --exclude gaps.bed --seed 42 -o null.bed
+gloci shuffle peaks.bed -g genome.txt --include mappable.bed --same-chrom --seed 7 | gloci sort -g genome.txt -
+gloci shuffle loops.bedpe --format bedpe -g hg38 --exclude blacklist.bed --seed 1 -o null.bedpe
+```
+
 ## Migration tables
 
 Every row below was checked against `gloci <cmd> --help`.
@@ -707,9 +743,11 @@ and FASTA behaviour](#bam-cram-and-fasta-behaviour), after the tables.
 | `maskfasta -fi F -bed B [-soft -mc C -fullHeader]` | `gloci maskfasta --fasta F -b B [--soft \| --mask-char C] [-o OUT.fa[.gz] --write-index]` (streamed, any compression, no index needed; headers are kept whole and line layout is kept, so `-fullHeader` is the default, see [differences.md#maskfasta-header](differences.md#maskfasta-header) and [differences.md#maskfasta-layout](differences.md#maskfasta-layout); a mask past its sequence's end is an error, see [differences.md#maskfasta-past-end](differences.md#maskfasta-past-end)) |
 | `nuc -fi REF -bed FILE` (`-s`, `-seq`, `-pattern P`, `-C`) | `gloci nuc FILE --fasta REF [-s] [--seq] [--pattern P [-C]]` (output is byte-identical to bedtools 2.31.1, header line and f32 percentages included, for BED, GFF and VCF input; the counts and the pattern describe the reverse complement under `-s`; the FASTA needs a `.fai` made with `gloci index`; VCF is bedtools' REF span with `--vcf-span ref`; zero-length intervals are skipped with a counted warning, as bedtools does; an interval outside the FASTA is an error where bedtools skips it, `--skip-invalid` gives bedtools' behaviour, see [differences.md#getfasta-outside-fasta](differences.md#getfasta-outside-fasta)) |
 | `jaccard`, `fisher`, `reldist` | not yet available (`stats jaccard / fisher / reldist`, P3b; `stats jaccard`, `stats fisher` and `stats reldist` exist; the jaccard point rule is [differences.md#jaccard-points](differences.md#jaccard-points), fisher's empty-input estimate is [differences.md#fisher-empty-estimate](differences.md#fisher-empty-estimate); fisher's `--exclude` estimate is [differences.md#fisher-exclude-estimate](differences.md#fisher-exclude-estimate); its tiny tail p-values are [differences.md#fisher-lgamma](differences.md#fisher-lgamma); `stats reldist` exists, and its midpoints past 2^31 are [differences.md#reldist-midpoint-overflow](differences.md#reldist-midpoint-overflow); Task 19 rewrites this row) |
-| `shuffle`, `random`, `sample` | not yet available (`shuffle`, `random`, `sample`, P3b) |
 | `pairtobed -a PAIRS -b FILE [-type T] [-f F] [-s \| -S]` | `gloci pair-intersect -a PAIRS.bedpe -b FILE [--type T] [-f F] [-s \| -S]` (`-type` becomes `--type`, same nine values; the output matches bedtools 2.31.1, including `-f`, strands and the BEDPE column counts 6, 7, 8 and 10 or more, except for the pinned differences below; B is BED, GFF or VCF, held in memory, in any order; BEDPE is never detected, so A is read as BEDPE whatever it looks like, and a VCF, BCF, GFF or alignment A is an error, with `gloci convert x.bam --bedpe` for alignments; hits come in B's input order, not bedtools' bin order, see [differences.md#pair-hit-order](differences.md#pair-hit-order); an unknown strand never matches `-s`/`-S`, see [differences.md#pair-unknown-strand](differences.md#pair-unknown-strand); `notboth` pads a pair with no hit, see [differences.md#pair-notboth-padding](differences.md#pair-notboth-padding); points follow section 4.3, see [differences.md#pair-points](differences.md#pair-points); the spans of overlapping or nested ends, see [differences.md#pair-span-overlapping-ends](differences.md#pair-span-overlapping-ends); bedtools accepts some lines gloci refuses, see [differences.md#bedpe-strictness](differences.md#bedpe-strictness); span types leave out a pair with an absent end, see [differences.md#pair-span-absent-ends](differences.md#pair-span-absent-ends); also `-F`, `-r`, `-e`, `--min-bases`, `--inclusive-points`, `--vcf-span`, `--chrom-map`, `--skip-invalid` and `-t`, which bedtools lacks; no `-abam`, `-ubam`, `-bedpe` or `-ed`: convert alignments with `gloci convert x.bam --bedpe`) |
 | `pairtopair -a PAIRS -b PAIRS [-type T] [-slop N] [-ss] [-is] [-rdn] [-f F]` | `gloci pair-pair -a PAIRS.bedpe -b PAIRS.bedpe [--type T] [-w N \| --left N --right N [--strand-window]] [-s \| -S] [--require-different-names]` (`-type` becomes `--type`, values `both` (default), `either`, `neither`, `notboth`; bedtools enforces strand unless `-is`, gloci ignores it unless `-s`/`-S`, and an unknown strand never matches, see [differences.md#pair-unknown-strand](differences.md#pair-unknown-strand); `-slop N` pads A in bedtools and `-w N` pads B in gloci, which finds the same pairs, and `-ss -slop N` is `--left N --strand-window`; `-rdn` becomes `--require-different-names`; a B that hits in both orientations is written once, see [differences.md#pair-pair-once](differences.md#pair-pair-once); `either` writes B as it reads, see [differences.md#pair-pair-b-columns](differences.md#pair-pair-b-columns); hits in B's input order, see [differences.md#pair-hit-order](differences.md#pair-hit-order); bedtools accepts some lines gloci refuses, see [differences.md#bedpe-strictness](differences.md#bedpe-strictness); also `-F`, `-r`, `-e`, `--min-bases`, `--inclusive-points`, `--chrom-map`, `--skip-invalid` and `-t`; both files are BEDPE and B is held in memory) |
+| `shuffle -i FILE -g G [-seed S -chrom -chromFirst -excl BED -incl BED -noOverlapping -maxTries N]` | `gloci shuffle FILE -g G [--seed S] [--same-chrom] [--chrom-first] [--exclude BED] [--include BED] [--no-overlapping] [--max-tries N] [--skip-unplaceable] [--header]` (other places than bedtools picks for the same seed, [differences.md#rng-stream](differences.md#rng-stream); the whole record stays inside `--include`, and a record that fits nowhere is exit 1 where bedtools drops it, `--skip-unplaceable` drops it, see [differences.md#shuffle-placement](differences.md#shuffle-placement); BEDPE is opt-in with `--format bedpe` and gloci moves both ends where bedtools moves only end 1, see [differences.md#shuffle-bedpe-ends](differences.md#shuffle-bedpe-ends); output is in input order and unsorted; `-f`, `-allowBeyondChromEnd` and `-incl` strand copying are not planned; VCF and BAM input are refused, use `gloci convert`) |
+| `random -g G -l L -n N -seed S` | `gloci random -g G -l L -n N --seed S` (BED6 in id order; same seed gives other intervals than bedtools, [differences.md#rng-stream](differences.md#rng-stream); `-l` longer than every chromosome is exit 2) |
+| `sample -i FILE -n N -seed S [-s forward\|reverse] [-header]` | `gloci sample FILE -n N --seed S [--strand +\|-] [--header]` (output in input order, [differences.md#sample-order](differences.md#sample-order); other records than bedtools picks, [differences.md#rng-stream](differences.md#rng-stream); `-ubam`/BAM: `samtools view -s`) |
 | `multicov`, `tag`, `bamtofastq`, `bedtobam`, `bedpetobam`, `igv`, `links`, `expand`, `split`, `summary`, `overlap` | not planned (`overlap` → `gloci intersect --mode pairs --overlap-bases`) |
 
 ### bedops

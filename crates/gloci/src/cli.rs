@@ -4167,6 +4167,12 @@ pub struct VcfMergeArgs {
     pub regions_overlap: Option<String>,
     #[command(flatten)]
     pub chrom_order: ChromOrderArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
 // P3b Task 5
 #[derive(Args, Debug, Clone)]
 pub struct RandomArgs {
