@@ -5601,3 +5601,222 @@ fn p3c_broken_pipe_matrix() {
         }
     }
 }
+
+/// A header-only BAM and SAM, a BED with no lines, and FASTA files with no sequences: every P3c
+/// command exits 0 (or says clearly why not), writes the valid empty result and prints nothing on
+/// stderr, at `-t 1` and `-t 4`.
+#[test]
+fn p3c_empty_inputs_matrix() {
+    let d = tempdir();
+    let dir = d.path();
+    let hdr = "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:1000\n@SQ\tSN:chr2\tLN:500\n";
+    let sam = s_of(&plain_file(dir, "h.sam", hdr));
+    let bam = s_of(&dir.join("h.bam"));
+    gloci().args(["view", &sam, "-o", &bam]).assert().success();
+    gloci().args(["index", &bam]).assert().success();
+    let bed = s_of(&plain_file(dir, "t.bed", "chr1\t0\t100\nchr2\t10\t20\n"));
+    let empty_bed = s_of(&plain_file(dir, "e.bed", ""));
+    let zero_flagstat = [
+        "0 + 0 in total (QC-passed reads + QC-failed reads)",
+        "0 + 0 primary",
+        "0 + 0 secondary",
+        "0 + 0 supplementary",
+        "0 + 0 duplicates",
+        "0 + 0 primary duplicates",
+        "0 + 0 mapped (N/A : N/A)",
+        "0 + 0 primary mapped (N/A : N/A)",
+        "0 + 0 paired in sequencing",
+        "0 + 0 read1",
+        "0 + 0 read2",
+        "0 + 0 properly paired (N/A : N/A)",
+        "0 + 0 with itself and mate mapped",
+        "0 + 0 singletons (N/A : N/A)",
+        "0 + 0 with mate mapped to a different chr",
+        "0 + 0 with mate mapped to a different chr (mapQ>=5)",
+    ]
+    .join("\n")
+        + "\n";
+    let ran = std::cell::Cell::new(0);
+    for t in ["1", "4"] {
+        let run = |args: &[&str], code: i32| -> std::process::Output {
+            let mut cmd = gloci();
+            cmd.args(args).arg("-q");
+            if args[0] != "samples" {
+                cmd.args(["-t", t]);
+            }
+            let o = cmd.output().unwrap();
+            assert_eq!(
+                o.status.code(),
+                Some(code),
+                "{args:?} -t {t}: {}",
+                String::from_utf8_lossy(&o.stderr)
+            );
+            if code == 0 {
+                assert!(
+                    o.stderr.is_empty(),
+                    "{args:?} -t {t}: stderr {}",
+                    String::from_utf8_lossy(&o.stderr)
+                );
+            }
+            ran.set(ran.get() + 1);
+            o
+        };
+        let text = |o: &std::process::Output| String::from_utf8_lossy(&o.stdout).into_owned();
+        for input in [&bam, &sam] {
+            assert_eq!(
+                text(&run(&["flagstat", input], 0)),
+                zero_flagstat,
+                "{input}"
+            );
+            let j = text(&run(&["flagstat", input, "-O", "json"], 0));
+            assert!(j.contains("\"total\": 0") && j.contains("null"), "{j}");
+            let tsv = text(&run(&["flagstat", input, "-O", "tsv"], 0));
+            assert!(
+                tsv.starts_with("0\t0\ttotal (QC-passed reads + QC-failed reads)\n")
+                    && tsv.contains("N/A\tN/A\tmapped %\n"),
+                "{tsv}"
+            );
+            assert_eq!(
+                text(&run(&["idxstats", input], 0)),
+                "chr1\t1000\t0\t0\nchr2\t500\t0\t0\n*\t0\t0\t0\n",
+                "{input}"
+            );
+            assert_eq!(text(&run(&["view", "--count", input], 0)), "0\n");
+            assert_eq!(
+                text(&run(&["view", "--count", input, "--min-mapq", "20"], 0)),
+                "0\n"
+            );
+            // depth: no rows; every position of every reference as zeros with --all-references
+            assert_eq!(text(&run(&["depth", input], 0)), "");
+            assert_eq!(text(&run(&["depth", input, "--all-positions"], 0)), "");
+            let aa = text(&run(&["depth", input, "--all-references"], 0));
+            assert_eq!(aa.lines().count(), 1500, "{input}");
+            assert!(aa.starts_with("chr1\t1\t0\n") && aa.ends_with("chr2\t500\t0\n"));
+            assert!(aa.lines().all(|l| l.ends_with("\t0")));
+            assert_eq!(
+                text(&run(&["depth", input, "--column-names"], 0)),
+                format!("#CHROM\tPOS\t{input}\n")
+            );
+            assert_eq!(
+                text(&run(
+                    &["depth", input, "--region", "chr2:1-3", "--all-positions"],
+                    0
+                )),
+                "chr2\t1\t0\nchr2\t2\t0\nchr2\t3\t0\n"
+            );
+            assert_eq!(text(&run(&["depth", input, "--region", "chr2:1-3"], 0)), "");
+            // head: the header, whole or cut, and no record
+            let h = text(&run(&["head", input], 0));
+            assert!(
+                h.starts_with(hdr) || h.starts_with(&hdr.replace("SO:coordinate", "SO:coordinate")),
+                "{h}"
+            );
+            assert_eq!(h.lines().filter(|l| !l.starts_with('@')).count(), 0);
+            assert_eq!(text(&run(&["head", input, "--records", "10"], 0)), h);
+            assert_eq!(
+                text(&run(
+                    &["head", input, "--headers", "1", "--records", "10"],
+                    0
+                )),
+                "@HD\tVN:1.6\tSO:coordinate\n"
+            );
+        }
+        // samples: no read groups, so the sample is "."
+        assert_eq!(text(&run(&["samples", &bam], 0)), format!(".\t{bam}\n"));
+        assert_eq!(text(&run(&["samples", &sam], 0)), format!(".\t{sam}\n"));
+        // bedcov: the BED lines with zero columns; an empty BED gives no rows
+        assert_eq!(
+            text(&run(&["bedcov", &bed, &bam], 0)),
+            "chr1\t0\t100\t0\nchr2\t10\t20\t0\n"
+        );
+        assert_eq!(
+            text(&run(
+                &[
+                    "bedcov",
+                    &bed,
+                    &bam,
+                    "--read-count",
+                    "--bases-at-depth",
+                    "1"
+                ],
+                0
+            )),
+            "chr1\t0\t100\t0\t0\t0\nchr2\t10\t20\t0\t0\t0\n"
+        );
+        assert_eq!(text(&run(&["bedcov", &empty_bed, &bam], 0)), "");
+        assert_eq!(
+            text(&run(&["bedcov", &empty_bed, &bam, "--column-names"], 0)),
+            format!("#chrom\tstart\tend\t{bam}_cov\n")
+        );
+        // check --quick: a header-only file passes (it has an @SQ line and no record to read)
+        for input in [&bam, &sam] {
+            let o = run(&["check", "--quick", input], 0);
+            assert!(text(&o).contains("result: OK"), "{}", text(&o));
+        }
+        // reheader of a header-only BAM
+        let out = s_of(&dir.join(format!("re-{t}.bam")));
+        run(&["reheader", &sam, &bam, "-o", &out], 0);
+        let o = gloci().args(["head", &out]).output().unwrap();
+        assert!(String::from_utf8_lossy(&o.stdout).starts_with(hdr));
+        // view --count of a region of a header-only BAM is still zero
+        assert_eq!(
+            text(&run(&["view", "--count", &bam, "chr1:1-1000"], 0)),
+            "0\n"
+        );
+    }
+
+    // A FASTA with no sequences. An empty file is not a FASTA to gloci: dict says so (exit 1),
+    // and faidx has nothing to look in. A header with no bases cannot be indexed, and dict
+    // writes it as a sequence of length 0 with the MD5 of nothing.
+    let fa = s_of(&plain_file(dir, "empty.fa", ""));
+    plain_file(dir, "empty.fa.fai", "");
+    let hx = s_of(&plain_file(dir, "hx.fa", ">x\n"));
+    for t in ["1", "4"] {
+        gloci()
+            .args(["dict", &fa, "-t", t])
+            .assert()
+            .code(1)
+            .stderr(starts_with_error().and(contains("empty.fa is empty: it has no records")))
+            .stdout("");
+        let o = gloci().args(["dict", &hx, "-t", t]).output().unwrap();
+        assert_eq!(o.status.code(), Some(0));
+        let text = String::from_utf8_lossy(&o.stdout);
+        assert!(
+            text.starts_with("@HD\tVN:1.0\tSO:unsorted\n@SQ\tSN:x\tLN:0\tM5:d41d8cd98f00b204e9800998ecf8427e\tUR:file://"),
+            "{text}"
+        );
+        // faidx: no region is a usage error; a region names a sequence the index lacks
+        gloci()
+            .args(["faidx", &fa, "-t", t])
+            .assert()
+            .code(2)
+            .stderr(contains("no region given").and(contains("gloci index")))
+            .stdout("");
+        gloci()
+            .args(["faidx", &fa, "chr1", "-t", t])
+            .assert()
+            .code(1)
+            .stderr(contains("chr1").and(contains("is not in the index")))
+            .stdout("");
+        gloci()
+            .args(["faidx", &fa, "chr1", "--skip-invalid", "-t", t])
+            .assert()
+            .code(0)
+            .stdout("")
+            .stderr(contains("skipped 1 region on sequences not in"));
+        gloci()
+            .args(["faidx", &fa, "--regions-file", &empty_bed, "-t", t])
+            .assert()
+            .code(0)
+            .stdout("")
+            .stderr("");
+        ran.set(ran.get() + 5);
+    }
+    gloci()
+        .args(["index", &hx])
+        .assert()
+        .code(1)
+        .stderr(contains("has no bases"));
+    assert!(!dir.join("hx.fa.fai").exists());
+    assert!(ran.get() > 80, "ran {}", ran.get());
+}
