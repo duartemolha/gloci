@@ -10,10 +10,10 @@ pub use ring::{CountRules, DepthRing};
 use gloci_core::{Interval, Region};
 use gloci_engine::{ChunkSink, run_chunks};
 use gloci_io::{
-    AlnHeader, AlnSource, Format, Header, IndexedFile, IoError, ReaderOptions, RecordWriter,
-    UsageError, find_index, open_aln_source, open_aln_source_regions,
+    AlnHeader, AlnSource, Diagnostics, Format, Header, IndexedFile, IoError, ReaderOptions,
+    RecordWriter, UsageError, find_index, open_aln_source, open_aln_source_regions,
 };
-use rows::{Emitter, Input, Plan, run_group};
+use rows::{Emitter, Input, Plan, log_diagnostics, run_group};
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 use std::num::NonZeroUsize;
@@ -248,8 +248,8 @@ pub fn depth_in(
     let mut em = Emitter::new(&mut write);
     summary.max_ring = run_group(&mut inputs, 0, hdr.refs.len(), &plan, &mut em)?;
     summary.rows = em.rows;
-    for i in inputs {
-        i.log_diagnostics();
+    for i in &inputs {
+        log_diagnostics(&i.name, &i.diagnostics());
     }
     out.flush().map_err(write_err)?;
     Ok(summary)
@@ -315,37 +315,48 @@ fn chunked(
     })
     .collect();
     log::debug!("depth running per chromosome: {} chunk(s)", jobs.len());
-    let step = |job: &Job, sink: &mut ChunkSink| -> Result<DepthSummary, IoError> {
-        let mut inputs = Vec::with_capacity(files.len());
-        for (f, n) in files.iter().zip(names) {
-            let src = if job.regions.is_empty() {
-                None
-            } else {
-                Some(f.aln_regions_source(&job.regions, false)?)
-            };
-            inputs.push(Input::new(src, n, hdr.clone()));
-        }
-        // A chunk's rows are one record per batch, without the final newline `Lines` adds.
-        let mut write = |b: &[u8]| sink.write_record(&b[..b.len() - 1]);
-        let mut em = Emitter::new(&mut write);
-        let max_ring = run_group(&mut inputs, job.first, job.end, plan, &mut em)?;
-        let rows = em.rows;
-        for i in inputs {
-            i.log_diagnostics();
-        }
-        Ok(DepthSummary {
-            rows,
-            max_ring,
-            max_pending_mates: 0,
-        })
-    };
+    let step =
+        |job: &Job, sink: &mut ChunkSink| -> Result<(DepthSummary, Vec<Diagnostics>), IoError> {
+            let mut inputs = Vec::with_capacity(files.len());
+            for (f, n) in files.iter().zip(names) {
+                let src = if job.regions.is_empty() {
+                    None
+                } else {
+                    Some(f.aln_regions_source(&job.regions, false)?)
+                };
+                inputs.push(Input::new(src, n, hdr.clone()));
+            }
+            // A chunk's rows are one record per batch, without the final newline `Lines` adds.
+            let mut write = |b: &[u8]| sink.write_record(&b[..b.len() - 1]);
+            let mut em = Emitter::new(&mut write);
+            let max_ring = run_group(&mut inputs, job.first, job.end, plan, &mut em)?;
+            let rows = em.rows;
+            let diags = inputs.iter().map(Input::diagnostics).collect();
+            Ok((
+                DepthSummary {
+                    rows,
+                    max_ring,
+                    max_pending_mates: 0,
+                },
+                diags,
+            ))
+        };
     let mut lines = Lines(out);
     let done = run_chunks(jobs, threads, tmp_dir, &step, &mut lines)?;
     let mut total = DepthSummary::default();
-    for s in done {
+    // What the readers noted is merged per input across the chunks and logged once, in input
+    // order, so stderr does not depend on the number of threads.
+    let mut merged: Vec<Diagnostics> = vec![Diagnostics::default(); names.len()];
+    for (s, diags) in done {
+        for (m, d) in merged.iter_mut().zip(diags) {
+            m.absorb(d);
+        }
         total.rows += s.rows;
         total.max_ring = total.max_ring.max(s.max_ring);
         total.max_pending_mates = total.max_pending_mates.max(s.max_pending_mates);
+    }
+    for (n, d) in names.iter().zip(&merged) {
+        log_diagnostics(n, d);
     }
     out.flush().map_err(write_err)?;
     Ok(total)

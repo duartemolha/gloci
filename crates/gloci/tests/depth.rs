@@ -275,3 +275,94 @@ fn depth_noseq_reads_use_their_cigar_for_the_length() {
     // Every base of such a read passes -q.
     assert!(out(&[&f("depth-noseq.bam"), "--min-baseq", "40"]).contains("chr1\t400\t1\n"));
 }
+
+/// One BAM record (without `block_size`): `len` M bases at `pos` (0-based) on `rid`, with
+/// `l_seq` bases of sequence; `l_seq != len` makes the record invalid.
+fn bam_record(rid: i32, pos: i32, name: &str, len: u32, l_seq: u32) -> Vec<u8> {
+    let mut r = Vec::new();
+    r.extend_from_slice(&rid.to_le_bytes());
+    r.extend_from_slice(&pos.to_le_bytes());
+    r.push(name.len() as u8 + 1);
+    r.push(60);
+    r.extend_from_slice(&0u16.to_le_bytes()); // bin
+    r.extend_from_slice(&1u16.to_le_bytes()); // n_cigar
+    r.extend_from_slice(&0u16.to_le_bytes()); // flag
+    r.extend_from_slice(&l_seq.to_le_bytes());
+    r.extend_from_slice(&(-1i32).to_le_bytes());
+    r.extend_from_slice(&(-1i32).to_le_bytes());
+    r.extend_from_slice(&0i32.to_le_bytes());
+    r.extend_from_slice(name.as_bytes());
+    r.push(0);
+    r.extend_from_slice(&(len << 4).to_le_bytes());
+    r.extend(std::iter::repeat_n(0x11u8, l_seq.div_ceil(2) as usize));
+    r.extend(std::iter::repeat_n(30u8, l_seq as usize));
+    r
+}
+
+/// Two references; chr1 and chr2 each hold a read whose CIGAR covers 6 bases of a 5-base
+/// sequence when `bad` (invalid), among good ones. The two files have the same layout, so the
+/// index of the good one serves the bad one.
+fn write_bam(dir: &std::path::Path, name: &str, bad: bool) -> PathBuf {
+    let mut raw = b"BAM\x01".to_vec();
+    raw.extend_from_slice(&0i32.to_le_bytes());
+    raw.extend_from_slice(&2i32.to_le_bytes());
+    for name in ["chr1", "chr2"] {
+        raw.extend_from_slice(&5i32.to_le_bytes());
+        raw.extend_from_slice(name.as_bytes());
+        raw.push(0);
+        raw.extend_from_slice(&100i32.to_le_bytes());
+    }
+    let len = if bad { 6 } else { 5 };
+    for rec in [
+        bam_record(0, 4, "a", 5, 5),
+        bam_record(0, 9, "bad1", len, 5),
+        bam_record(0, 19, "c", 5, 5),
+        bam_record(1, 4, "d", 5, 5),
+        bam_record(1, 9, "bad2", len, 5),
+    ] {
+        raw.extend_from_slice(&(rec.len() as i32).to_le_bytes());
+        raw.extend_from_slice(&rec);
+    }
+    gloci_testkit::fixtures::write(dir, name, &gloci_testkit::fixtures::bgzip(&raw))
+}
+
+fn bad_bam(dir: &std::path::Path) -> PathBuf {
+    let good = write_bam(dir, "good.bam", false);
+    gloci().args(["index"]).arg(&good).assert().success();
+    let bad = write_bam(dir, "bad.bam", true);
+    let bai = |p: &PathBuf| PathBuf::from(format!("{}.bai", p.display()));
+    std::fs::copy(bai(&good), bai(&bad)).unwrap();
+    bad
+}
+
+#[test]
+fn depth_diagnostics_do_not_depend_on_threads() {
+    let t = tempdir();
+    let bam = bad_bam(t.path());
+    let run = |t: &str, v: bool| {
+        let mut c = gloci();
+        c.args(["depth", "--skip-invalid", "-t", t]).arg(&bam);
+        if v {
+            c.arg("-v");
+        }
+        let o = c.assert().success().get_output().clone();
+        // The examples name where each bad record is: by record number in a stream, by file
+        // offset in an indexed per-chromosome run, so they are left out of the comparison.
+        let err = String::from_utf8(o.stderr).unwrap();
+        let err: String = err
+            .lines()
+            .filter(|l| !l.starts_with("  record"))
+            .map(|l| format!("{l}\n"))
+            .collect();
+        (String::from_utf8(o.stdout).unwrap(), err)
+    };
+    for v in [false, true] {
+        let (o1, e1) = run("1", v);
+        assert!(e1.contains("skipped 2 invalid records"), "{e1}");
+        for tt in ["2", "4"] {
+            let (o, e) = run(tt, v);
+            assert_eq!(o, o1);
+            assert_eq!(e, e1, "-t {tt} -v {v}");
+        }
+    }
+}

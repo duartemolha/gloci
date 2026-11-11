@@ -4,7 +4,7 @@
 use super::ring::{CountRules, DepthRing};
 use super::{AllPositions, DepthOptions};
 use gloci_core::Interval;
-use gloci_io::{AlnHeader, AlnRef, AlnSource, IoError, Loc, OrderError, aln_ref};
+use gloci_io::{AlnHeader, AlnRef, AlnSource, Diagnostics, IoError, Loc, OrderError, aln_ref};
 use std::io;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -153,7 +153,7 @@ struct Cur {
 pub(crate) struct Input {
     /// `None`: no record of this input belongs to the run.
     src: Option<Box<dyn AlnSource>>,
-    name: String,
+    pub(crate) name: String,
     layout: gloci_io::Format,
     hdr: Arc<AlnHeader>,
     buf: Vec<u8>,
@@ -177,14 +177,12 @@ impl Input {
         }
     }
 
-    /// Say at `-v` what the reader left out, and warn of invalid records it skipped.
-    pub(crate) fn log_diagnostics(&self) {
-        if let Some(s) = &self.src {
-            s.diagnostics().log_alignment_counts(&self.name);
-            if let Some(m) = s.diagnostics().summary(&self.name) {
-                log::warn!("{m}");
-            }
-        }
+    /// What the reader noted about this input (counts of reads left out, invalid records).
+    pub(crate) fn diagnostics(&self) -> Diagnostics {
+        self.src
+            .as_ref()
+            .map(|s| s.diagnostics().clone())
+            .unwrap_or_default()
     }
 
     fn at(&self, rid: usize, pos: u64) -> String {
@@ -277,6 +275,14 @@ depth counts only the bases up to LN, where samtools prints rows beyond it (this
         } else {
             self.ring.add(&a, c.span, &plan.rules, 0);
         }
+    }
+}
+
+/// Say at `-v` what the reader left out of `name`, and warn of invalid records it skipped.
+pub(crate) fn log_diagnostics(name: &str, d: &Diagnostics) {
+    d.log_alignment_counts(name);
+    if let Some(m) = d.summary(name) {
+        log::warn!("{m}");
     }
 }
 
