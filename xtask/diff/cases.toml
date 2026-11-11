@@ -5105,6 +5105,8 @@ name = "view-cram-no-ref-mixed-vs-samtools"
 input = { file = "xtask/diff/inputs/aln/mixed.namesorted.noref.cram" }
 gloci = "gloci view -O bam input.namesorted.noref.cram"
 reference = "samtools view -b --no-PG --input-fmt-option decode_md=0 input.namesorted.noref.cram"
+compare = "bam"
+
 # sort of alignments (D121) against samtools 1.21 sort --no-PG. sort.sam has ties at chr1:100 on both
 # strands, a placed unmapped read, unplaced reads with and without 0x10, chrM listed before chr1, names
 # that order differently naturally and as bytes, and one name with every flag rank; sort-nohd and
