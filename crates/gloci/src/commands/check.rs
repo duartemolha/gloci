@@ -62,11 +62,7 @@ pub fn run(ctx: &Ctx, a: &CheckArgs) -> anyhow::Result<bool> {
                 writeln!(stdout, "{f}")?;
                 stdout.flush()?;
                 for line in &report.errors.first {
-                    if line.contains(f.as_str()) {
-                        eprintln!("{line}");
-                    } else {
-                        eprintln!("{f}: {line}");
-                    }
+                    eprintln!("{f}: {line}");
                 }
             }
             continue;
