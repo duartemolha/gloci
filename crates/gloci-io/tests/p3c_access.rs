@@ -7,7 +7,6 @@ use gloci_testkit::fixtures::sam_to_bam;
 use std::io::Write;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
 fn aln(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -29,7 +28,11 @@ fn ropts() -> ReaderOptions {
     }
 }
 
-static WARNINGS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+// Warnings are recorded per thread: the test harness runs tests concurrently in one process, and a
+// process-wide count would include warnings from other tests.
+thread_local! {
+    static WARNINGS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
 
 struct Capture;
 impl log::Log for Capture {
@@ -37,18 +40,19 @@ impl log::Log for Capture {
         true
     }
     fn log(&self, r: &log::Record) {
-        WARNINGS.lock().unwrap().push(r.args().to_string());
+        WARNINGS.with(|w| w.borrow_mut().push(r.args().to_string()));
     }
     fn flush(&self) {}
 }
 
+/// Warnings about a whole-file scan that the calling thread has logged so far.
 fn scan_warnings() -> usize {
-    WARNINGS
-        .lock()
-        .unwrap()
-        .iter()
-        .filter(|w| w.contains("scanning the whole file"))
-        .count()
+    WARNINGS.with(|w| {
+        w.borrow()
+            .iter()
+            .filter(|w| w.contains("scanning the whole file"))
+            .count()
+    })
 }
 
 #[test]
