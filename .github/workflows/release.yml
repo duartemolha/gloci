@@ -121,13 +121,16 @@ jobs:
         run: |
           owner="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
           echo "image=ghcr.io/${owner}/gloci" >> "$GITHUB_OUTPUT"
+      # GHCR stays off until the owner sets the repository variable GLOCI_PUBLISH_GHCR=true (D80).
       - name: Log in to GitHub Container Registry
+        if: vars.GLOCI_PUBLISH_GHCR == 'true'
         uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push GHCR image
+        if: vars.GLOCI_PUBLISH_GHCR == 'true'
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: .
