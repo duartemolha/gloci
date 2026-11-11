@@ -269,8 +269,11 @@ pub fn regions_source_from(
         return ix.aln_regions_source(regions, false);
     }
     if path != "-" {
+        // An index is suggested only where one could be used: a regular BAM or CRAM file.
         let hint = match format {
-            Format::Bam | Format::Cram => format!("; create an index with: gloci index {name}"),
+            Format::Bam | Format::Cram if file.is_some() => {
+                format!("; create an index with: gloci index {name}")
+            }
             _ => String::new(),
         };
         log::warn!("scanning the whole file {name} to find the regions{hint}");

@@ -62,10 +62,13 @@ pub fn idxstats(
                 return Ok(IdxstatsPath::Index);
             }
         }
-    } else if format == Format::Bam && path != "-" {
+    } else if format == Format::Bam && file.is_some() {
         log::warn!(
             "{name} has no index; counting every record (index it for speed: gloci index {name})"
         );
+    } else if format == Format::Bam {
+        // stdin, a FIFO, /dev/fd/N: an index beside it could not be used, so none is suggested.
+        log::warn!("{name} is not a regular file, so no index can be read; counting every record");
     } else {
         log::warn!(
             "{name}: a {} holds no per-reference counts; counting every record",

@@ -173,6 +173,9 @@ fn depth_regions_through_the_index_and_by_scanning() {
         );
         let err = String::from_utf8_lossy(&o.stderr);
         assert_eq!(o.status.code(), Some(0), "pipe -t {t}: {err}");
+        // The pipe is scanned; no index is suggested for it (M4).
+        assert!(err.contains("scanning the whole file /dev/fd/"), "{err}");
+        assert_eq!(err.matches("gloci index").count(), 0, "{err}");
         let two: String = want
             .lines()
             .map(|l| format!("{l}\t{}\n", l.rsplit('\t').next().unwrap()))

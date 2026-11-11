@@ -351,7 +351,20 @@ fn idxstats_bam_on_stdin_is_not_told_to_index() {
         .get_output()
         .clone();
     let err = String::from_utf8(o.stderr).unwrap();
-    assert!(err.contains("holds no per-reference counts"), "{err}");
+    assert_eq!(
+        err,
+        "warning: stdin is not a regular file, so no index can be read; counting every record\n"
+    );
+    // A FIFO (process substitution) is not a regular file either: no index is suggested.
+    let p = s(&inputs().join("aln/flags.bam"));
+    let o = bash_gloci(&format!("idxstats <(cat '{p}')"), "");
+    assert_eq!(o.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&o.stdout), FLAGS);
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(
+        err.contains("is not a regular file, so no index can be read; counting every record"),
+        "{err}"
+    );
     assert!(!err.contains("gloci index"), "{err}");
 }
 
