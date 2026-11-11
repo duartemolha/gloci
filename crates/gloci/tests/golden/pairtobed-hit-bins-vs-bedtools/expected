@@ -1,0 +1,5 @@
+chr1	0	50000	chr2	0	10	pO	chr1	100	110	x2
+chr1	0	50000	chr2	0	10	pO	chr1	120	130	x5
+chr1	0	50000	chr2	0	10	pO	chr1	20000	20010	x3
+chr1	0	50000	chr2	0	10	pO	chr1	40000	40010	x1
+chr1	0	50000	chr2	0	10	pO	chr1	0	50000	x4

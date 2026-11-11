@@ -1,0 +1,1 @@
+pair-intersect -S -f 0.5 -a input.bedpe -b pairs-b.bed

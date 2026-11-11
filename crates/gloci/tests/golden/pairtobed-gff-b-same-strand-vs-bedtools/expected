@@ -1,0 +1,5 @@
+chr1	100	200	chr1	1000	1100	p1	5	+	-	chr1	src	gene	151	160	.	+	.	ID=g1
+chr1	100	200	chr1	1000	1100	p1	5	+	-	chr1	src	gene	1051	1070	.	-	.	ID=g2
+chr1	100	200	chr2	500	600	p2	6	+	+	chr1	src	gene	151	160	.	+	.	ID=g1
+chr1	100	200	chr2	500	600	p2	6	+	+	chr2	src	exon	551	560	.	+	.	ID=g3
+chr1	150	170	chr3	30	40	p4	8	+	-	chr1	src	gene	151	160	.	+	.	ID=g1

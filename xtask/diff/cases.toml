@@ -6228,3 +6228,426 @@ aux = ["xtask/diff/inputs/p3b/stats/reldist-one-b.bed"]
 gloci = "gloci stats reldist --detail -a input.bed -b reldist-one-b.bed"
 reference = "bedtools reldist -detail -a input.bed -b reldist-one-b.bed"
 compare = "exact"
+
+# P3b Task 7: pair-intersect vs bedtools pairtobed. The fixtures keep every hit of one pair in
+# one 16 kb bin, so bedtools' bin order is B's input order and the output matches exactly;
+# hits in different bins are pinned apart (docs/differences.md#pair-hit-order).
+[[case]]
+name = "pairtobed-either-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type either -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type either -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-neither-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type neither -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type neither -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-both-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type both -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type both -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-xor-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type xor -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type xor -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-ispan-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type ispan -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type ispan -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-ospan-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type ospan -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type ospan -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-notispan-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type notispan -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type notispan -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-notospan-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type notospan -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type notospan -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+# Every pair here has a hit, so notboth reports only the one-end ones, as bedtools does.
+[[case]]
+name = "pairtobed-notboth-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a-hit.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type notboth -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type notboth -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+# A pair with no hit is written alone by bedtools and padded with a placeholder B by gloci.
+[[case]]
+name = "pairtobed-notboth-padding-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type notboth -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type notboth -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+expected_difference = "#pair-notboth-padding"
+
+[[case]]
+name = "pairtobed-fraction-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -f 0.5 -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -f 0.5 -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-fraction-both-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -f 0.2 --type both -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -f 0.2 -type both -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-fraction-ospan-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -f 0.05 --type ospan -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -f 0.05 -type ospan -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-same-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -s -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -s -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-opposite-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -S -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -S -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-same-strand-both-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -s --type both -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -s -type both -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-same-strand-neither-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -s --type neither -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -s -type neither -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-opposite-strand-xor-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -S --type xor -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -S -type xor -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-opposite-strand-fraction-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -S -f 0.5 -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -S -f 0.5 -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-6-columns-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a6.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-7-columns-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a7.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-8-columns-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a8.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-11-columns-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a11.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-6-columns-neither-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a6.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type neither -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type neither -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-absent-ends-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-absent-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type either -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type either -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-absent-ends-neither-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-absent-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type neither -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type neither -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-absent-ends-xor-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-absent-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type xor -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type xor -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-absent-ends-ospan-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-absent-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type ospan -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type ospan -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-absent-ends-notispan-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-absent-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type notispan -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type notispan -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-absent-ends-notospan-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-absent-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type notospan -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type notospan -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-vcf-b-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.vcf"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-b.vcf"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-b.vcf"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-vcf-b-ospan-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.vcf"]
+gloci = "gloci pair-intersect --type ospan -a input.bedpe -b pairs-b.vcf"
+reference = "bedtools pairtobed -type ospan -a input.bedpe -b pairs-b.vcf"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-gff-b-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.gff"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-b.gff"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-b.gff"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-gff-b-same-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.gff"]
+gloci = "gloci pair-intersect -s -a input.bedpe -b pairs-b.gff"
+reference = "bedtools pairtobed -s -a input.bedpe -b pairs-b.gff"
+compare = "exact"
+
+# B features in different 16 kb bins: the same rows, in bedtools' bin order.
+[[case]]
+name = "pairtobed-hit-bins-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-order-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-order-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-order-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-order-b.bed"
+compare = "lines-unordered"
+
+# The same input, compared in order: bedtools walks its bins, gloci keeps B's input order.
+[[case]]
+name = "pairtobed-hit-order-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-order-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-order-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-order-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-order-b.bed"
+compare = "exact"
+expected_difference = "#pair-hit-order"
+
+[[case]]
+name = "pairtobed-unknown-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-unknown-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-unknown-b.bed"]
+gloci = "gloci pair-intersect -s -a input.bedpe -b pairs-unknown-b.bed"
+reference = "bedtools pairtobed -s -a input.bedpe -b pairs-unknown-b.bed"
+compare = "exact"
+expected_difference = "#pair-unknown-strand"
+
+[[case]]
+name = "pairtobed-unknown-strand-opposite-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-unknown-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-unknown-b.bed"]
+gloci = "gloci pair-intersect -S -a input.bedpe -b pairs-unknown-b.bed"
+reference = "bedtools pairtobed -S -a input.bedpe -b pairs-unknown-b.bed"
+compare = "exact"
+expected_difference = "#pair-unknown-strand"
+
+[[case]]
+name = "pairtobed-points-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-points-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-points-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-points-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-points-b.bed"
+compare = "exact"
+expected_difference = "#pair-points"
+
+[[case]]
+name = "pairtobed-span-overlapping-ends-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-spans-overlap-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-spans-b.bed"]
+gloci = "gloci pair-intersect --type ispan -a input.bedpe -b pairs-spans-b.bed"
+reference = "bedtools pairtobed -type ispan -a input.bedpe -b pairs-spans-b.bed"
+compare = "exact"
+expected_difference = "#pair-span-overlapping-ends"
+
+[[case]]
+name = "pairtobed-span-nested-ends-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-spans-overlap-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-spans-b.bed"]
+gloci = "gloci pair-intersect --type ospan -a input.bedpe -b pairs-spans-b.bed"
+reference = "bedtools pairtobed -type ospan -a input.bedpe -b pairs-spans-b.bed"
+compare = "exact"
+expected_difference = "#pair-span-overlapping-ends"
+
+# Ends left of, right of and touching each other, probed base by base.
+[[case]]
+name = "pairtobed-span-ispan-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-spans-ok-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-spans-b.bed"]
+gloci = "gloci pair-intersect --type ispan -a input.bedpe -b pairs-spans-b.bed"
+reference = "bedtools pairtobed -type ispan -a input.bedpe -b pairs-spans-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-span-ospan-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-spans-ok-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-spans-b.bed"]
+gloci = "gloci pair-intersect --type ospan -a input.bedpe -b pairs-spans-b.bed"
+reference = "bedtools pairtobed -type ospan -a input.bedpe -b pairs-spans-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-span-notispan-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-spans-ok-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-spans-b.bed"]
+gloci = "gloci pair-intersect --type notispan -a input.bedpe -b pairs-spans-b.bed"
+reference = "bedtools pairtobed -type notispan -a input.bedpe -b pairs-spans-b.bed"
+compare = "exact"
+
+# bedtools treats a named chromosome with -1 -1 as an absent end; gloci wants chromosome . for that.
+
+[[case]]
+name = "pairtobed-named-chrom-minus-one-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-named-absent.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-b.bed"
+compare = "exit-status"
+expected_difference = "#bedpe-strictness"
+
+[[case]]
+name = "pairtobed-strand-xy-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-strand-xy.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-b.bed"
+compare = "exit-status"
+expected_difference = "#bedpe-strictness"
+
+[[case]]
+name = "pairtobed-start-after-end-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-start-after-end.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-b.bed"
+compare = "exit-status"
+expected_difference = "#bedpe-strictness"
+
+[[case]]
+name = "pairtobed-negative-start-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-negative.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-b.bed"
+compare = "exit-status"
+expected_difference = "#bedpe-strictness"
+
+# Both tools refuse a 9-column line.
+[[case]]
+name = "pairtobed-nine-columns-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-nine.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-b.bed"
+compare = "exit-status"
+
+# Both tools refuse a line with fewer than 6 columns.
+[[case]]
+name = "pairtobed-five-columns-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-five.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-b.bed"
+compare = "exit-status"

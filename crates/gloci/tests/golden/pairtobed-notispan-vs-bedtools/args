@@ -1,0 +1,1 @@
+pair-intersect --type notispan -a input.bedpe -b pairs-b.bed

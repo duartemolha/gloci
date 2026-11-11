@@ -2011,3 +2011,85 @@ depends on the span.
 Note (not a difference): `stats reldist` skips every A on a chromosome with fewer than two B midpoints,
 even an A sitting on the only one. bedtools does the same and gloci ports it on purpose; pinned by
 `stats-reldist-one-midpoint-vs-bedtools` (must match).
+
+## `pair-intersect` hits come in B's input order {#pair-hit-order}
+
+- **gloci:** the B records an end overlaps are written in B's input order, end 1's hits first and
+  then end 2's, so the output does not depend on how B is stored.
+- **Old behaviour:** `bedtools pairtobed` finds hits by walking its bins (16 kb bins, then larger
+  ones), so records in different bins come out in bin order: for an end covering `chr1 0-50000`, B
+  records at 40000, 100, 20000, 0-50000 and 120 come out as 100, 120, 20000, 40000, 0-50000. Hits that
+  share a bin keep B's order, which is why every other case here matches exactly.
+- **Reason:** B's order is a rule a user can state; bin order is an implementation detail.
+- **Pinned by:** `pairtobed-hit-order-vs-bedtools` (must differ); the same rows in any order match
+  in `pairtobed-hit-bins-vs-bedtools` (`lines-unordered`).
+
+## `pair-intersect -s`/`-S`: an unknown strand never matches {#pair-unknown-strand}
+
+- **gloci:** a pair end or B record whose strand is `.` (or missing: a BEDPE with fewer than 10
+  columns, a BED with fewer than 6, a VCF) matches nothing under `-s` or `-S`, and gloci warns once
+  per input that has such records (spec section 4.3).
+- **Old behaviour:** `bedtools pairtobed` treats `.` as a strand like another: under `-s` a `.` end
+  matches a `.` record, and under `-S` a `.` end matches every `+` or `-` record and the reverse.
+  (With no strand columns at all, `-s` finds nothing in both tools.)
+- **Reason:** a strand that is not known is not the same strand or the opposite strand.
+- **Pinned by:** `pairtobed-unknown-strand-vs-bedtools` and
+  `pairtobed-unknown-strand-opposite-vs-bedtools` (must differ). Strands of `+` and `-` match
+  (`pairtobed-same-strand-vs-bedtools`, `pairtobed-opposite-strand-vs-bedtools`).
+
+## `pair-intersect --type notboth` pads a pair that has no hit {#pair-notboth-padding}
+
+- **gloci:** `notboth` writes TSV rows: a pair with one end hit is A and B, and a pair with no hit
+  is A followed by a placeholder B of B's width (`.`, `-1`, `-1`, then `.` for further columns, as
+  `intersect --keep-unmatched` writes them), so every row has the same columns.
+- **Old behaviour:** `bedtools pairtobed -type notboth` writes a pair with no hit as A alone, so the
+  rows have two widths.
+- **Reason:** one table, one width. `--type neither` is the way to list the pairs with no hit as
+  plain BEDPE.
+- **Pinned by:** `pairtobed-notboth-padding-vs-bedtools` (must differ). With every pair having a hit
+  the output is bedtools' (`pairtobed-notboth-vs-bedtools`).
+
+## `pair-intersect` follows spec section 4.3 for points {#pair-points}
+
+- **gloci:** a zero-length pair end is a point: it overlaps an interval it lies strictly inside
+  (`chr1 1000 1000` in `chr1 900-1100`) and an equal point, and a B point on the edge of an end does
+  not overlap it unless `--inclusive-points` is given (the rule of every relation command, see
+  [differences.md#zero-length-overlap](differences.md#zero-length-overlap)).
+- **Old behaviour:** `bedtools pairtobed` never finds a hit for a zero-length end, but reports a B
+  point lying on the edge of an end.
+- **Reason:** the same as for `intersect`: an insertion site inside a feature is found.
+- **Pinned by:** `pairtobed-points-vs-bedtools` (must differ).
+
+## `pair-intersect` spans of overlapping or nested ends {#pair-span-overlapping-ends}
+
+- **gloci:** the inner span (`ispan`, `notispan`) is the gap between the ends, `[end1, start2)` or
+  `[end2, start1)` when end 1 is on the right; ends that touch or overlap have no gap, so nothing
+  hits it and `notispan` reports the pair. The outer span (`ospan`, `notospan`) is from the smaller
+  start to the larger end, so for nested ends it is the container.
+- **Old behaviour:** for ends that overlap or are nested, `bedtools pairtobed -type ispan` reports
+  every B record on the chromosome as hitting the gap, and `-type ospan` takes the first end's start
+  and the second end's end (or the reverse when end 1 starts later), which for an end nested in
+  the other is the span of the shorter one. Ends that merely touch behave as in gloci.
+- **Reason:** a gap that does not exist cannot be hit, and the outer span should contain both ends.
+- **Pinned by:** `pairtobed-span-overlapping-ends-vs-bedtools` and
+  `pairtobed-span-nested-ends-vs-bedtools` (must differ). Ends on either side of a gap, and touching
+  ends, match (`pairtobed-span-ispan-vs-bedtools` and its `ospan`, `notispan`, `notospan` siblings).
+
+## BEDPE lines bedtools reads that gloci refuses {#bedpe-strictness}
+
+- **gloci:** a BEDPE line is an error (exit 1, naming the file and line; `--skip-invalid` skips
+  it) when
+  - an end names a chromosome and has `-1` or other negative coordinates (an absent end is chromosome
+    `.`: `. -1 -1`);
+  - an end has `start > end`;
+  - a strand column is anything but `+`, `-` or `.`;
+  - the line has 9 columns, or fewer than 6 (bedtools refuses these too).
+- **Old behaviour:** `bedtools pairtobed` takes a named chromosome with `-1 -1` as an absent end
+  (the pair is then a one-end pair), accepts `start > end` (and finds hits for some such ends),
+  a negative start, and any text as a strand (`x`, `y`), exiting 0.
+- **Reason:** these are typing mistakes more often than data, and a quietly wrong overlap is worse
+  than a stopped run. A caller with `-1 -1` ends only needs to write `.` for the chromosome.
+- **Pinned by:** `pairtobed-named-chrom-minus-one-vs-bedtools`, `pairtobed-strand-xy-vs-bedtools`,
+  `pairtobed-start-after-end-vs-bedtools` and `pairtobed-negative-start-vs-bedtools` (must differ:
+  gloci exits 1, bedtools 0). The 9-column and 5-column refusals match
+  (`pairtobed-nine-columns-vs-bedtools`, `pairtobed-five-columns-vs-bedtools`).

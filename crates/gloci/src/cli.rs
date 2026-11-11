@@ -1006,8 +1006,8 @@ Examples:
     /// A with each B, when exactly one end hits, and A alone padded with a placeholder B (`.`,
     /// `-1`, `-1` ...) when none does. ispan and ospan: A with each B overlapping the gap between
     /// the ends, or the span from the first start to the last end; notispan and notospan: A alone
-    /// when none does. The span types need both ends on one chromosome (other pairs are left out,
-    /// counted in one warning), an empty gap (touching or overlapping ends) hits nothing, and
+    /// when none does. The span types need both ends on one chromosome (a pair with one end absent or the
+    /// ends on two chromosomes is left out, counted in one warning), an empty gap (touching or overlapping ends) hits nothing, and
     /// -s/-S with them is an error. Hits of one A come in B's input order; output follows A's
     /// order whatever the thread count. Output is TSV or BEDPE (-o x.bedpe, x.tsv, .gz for
     /// BGZF); header lines of A are not written.
@@ -1016,7 +1016,7 @@ Examples:
   gloci pair-intersect -a sv.bedpe -b genes.bed
   gloci pair-intersect -a sv.bedpe -b exons.bed --type both -f 0.5
   gloci pair-intersect -a sv.bedpe -b repeats.bed --type neither -o clean.bedpe
-  gloci pair-intersect -a sv.bedpe -b genes.bed --type ospan -s")]
+  gloci pair-intersect -a sv.bedpe -b genes.bed --type xor -s -t 4")]
     PairIntersect(PairIntersectArgs),
 }
 
