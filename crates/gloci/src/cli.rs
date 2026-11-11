@@ -94,8 +94,8 @@ Examples:
     /// A FASTA file (plain or BGZF) gets PATH.fai, and PATH.gzi when it is
     /// BGZF, byte-identical to samtools faidx. Every line of a sequence but
     /// the last must have the same length. Reading a FASTA at random
-    /// (getfasta, nuc, maskfasta, a CRAM reference) needs these files and
-    /// never builds them itself. Plain gzip is refused: recompress with
+    /// (getfasta, nuc, a CRAM reference) needs these files and never builds
+    /// them itself; maskfasta streams its FASTA and needs no index. Plain gzip is refused: recompress with
     /// bgzip. Otherwise, BED, GFF/GTF, VCF and BCF files are recognised by content. Any other
     /// tab-separated file is indexed like tabix does when you name its
     /// columns with -s (sequence), -b (begin) and -e (end, optional). The
@@ -2886,7 +2886,9 @@ pub struct HeaderArg {
 
 #[derive(Args, Debug, Clone)]
 pub struct FormatArg {
-    /// Input format, overriding detection (bed, bedgraph, gff, vcf, bcf).
+    /// Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf
+    /// or bcf; bam, cram or sam where the command reads alignments; psl or
+    /// rmsk for convert.
     #[arg(long, value_name = "FMT")]
     pub format: Option<String>,
 }
@@ -2902,7 +2904,8 @@ pub struct AArg {
     /// A: the file whose records are reported (`-` for stdin).
     #[arg(short = 'a', long = "a", value_name = "FILE", required = true)]
     pub a: String,
-    /// A's format, overriding detection (bed, bedgraph, gff, vcf, bcf).
+    /// A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or
+    /// bcf; bam, cram or sam where the command reads alignments.
     #[arg(long, value_name = "FMT")]
     pub a_format: Option<String>,
 }
@@ -2924,7 +2927,8 @@ pub struct BArgs {
     /// basenames, spec 5).
     #[arg(long, value_name = "A,B,...", value_delimiter = ',')]
     pub names: Option<Vec<String>>,
-    /// B's format, overriding detection (bed, bedgraph, gff, vcf, bcf).
+    /// B's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or
+    /// bcf; bam, cram or sam where the command reads alignments.
     #[arg(long, value_name = "FMT")]
     pub b_format: Option<String>,
 }
