@@ -5,17 +5,17 @@
 
 use super::bam::BamFrames;
 use super::sam::SamLines;
-use super::{AlignOptions, Aln, AlnHeader, aln_ref, alignment_query_span};
+use super::{AlignOptions, Aln, AlnHeader, alignment_query_span, aln_ref};
 use crate::detect::Format;
 use crate::diag::{Diagnostics, InvalidPolicy};
 use crate::error::{IoError, UsageError};
-use crate::input::{Input, InputOptions, open_input, open_input_from};
 use crate::index::{IndexedFile, find_index};
+use crate::input::{Input, InputOptions, open_input, open_input_from};
 use crate::record::{Header, ReaderOptions};
 use gloci_core::{Interval, RegionSet};
 use std::collections::HashMap;
-use std::path::Path;
 use std::io::Read;
+use std::path::Path;
 use std::sync::Arc;
 
 /// Every record of an alignment file, in file order.

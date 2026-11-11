@@ -4,16 +4,32 @@
 
 /// The twelve SAM flag bits: the bit, its name and samtools' description of it.
 pub const SAM_FLAGS: [(u16, &str, &str); 12] = [
-    (0x1, "PAIRED", "paired-end / multiple-segment sequencing technology"),
-    (0x2, "PROPER_PAIR", "each segment properly aligned according to aligner"),
+    (
+        0x1,
+        "PAIRED",
+        "paired-end / multiple-segment sequencing technology",
+    ),
+    (
+        0x2,
+        "PROPER_PAIR",
+        "each segment properly aligned according to aligner",
+    ),
     (0x4, "UNMAP", "segment unmapped"),
     (0x8, "MUNMAP", "next segment in the template unmapped"),
     (0x10, "REVERSE", "SEQ is reverse complemented"),
-    (0x20, "MREVERSE", "SEQ of next segment in template is rev.complemented"),
+    (
+        0x20,
+        "MREVERSE",
+        "SEQ of next segment in template is rev.complemented",
+    ),
     (0x40, "READ1", "the first segment in the template"),
     (0x80, "READ2", "the last segment in the template"),
     (0x100, "SECONDARY", "secondary alignment"),
-    (0x200, "QCFAIL", "not passing quality controls or other filters"),
+    (
+        0x200,
+        "QCFAIL",
+        "not passing quality controls or other filters",
+    ),
     (0x400, "DUP", "PCR or optical duplicate"),
     (0x800, "SUPPLEMENTARY", "supplementary alignment"),
 ];
@@ -52,11 +68,13 @@ pub fn parse_flags(s: &str) -> Result<u16, String> {
     }
     let hex = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X"));
     let number = if let Some(h) = hex {
-        Some(if h.bytes().all(|b| b.is_ascii_hexdigit()) && !h.is_empty() {
-            u32::from_str_radix(h, 16).ok()
-        } else {
-            None
-        })
+        Some(
+            if h.bytes().all(|b| b.is_ascii_hexdigit()) && !h.is_empty() {
+                u32::from_str_radix(h, 16).ok()
+            } else {
+                None
+            },
+        )
     } else if t.bytes().all(|b| b.is_ascii_digit()) {
         if t.len() > 1 && t.starts_with('0') {
             // samtools reads this as octal; the same digits would mean something else in gloci.

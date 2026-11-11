@@ -13,7 +13,15 @@ fn out(args: &[&str]) -> String {
 #[test]
 fn flags_prints_number_and_names() {
     assert_eq!(
-        out(&["flags", "0x704", "1796", "secondary,dup", "UNMAP,MUNMAP", "0", "4096"]),
+        out(&[
+            "flags",
+            "0x704",
+            "1796",
+            "secondary,dup",
+            "UNMAP,MUNMAP",
+            "0",
+            "4096"
+        ]),
         "0x704\t1796\tUNMAP,SECONDARY,QCFAIL,DUP\n\
          0x704\t1796\tUNMAP,SECONDARY,QCFAIL,DUP\n\
          0x500\t1280\tSECONDARY,DUP\n\
@@ -21,7 +29,10 @@ fn flags_prints_number_and_names() {
          0x0\t0\t\n\
          0x1000\t4096\t\n"
     );
-    assert_eq!(out(&["flags", "Supplementary"]), "0x800\t2048\tSUPPLEMENTARY\n");
+    assert_eq!(
+        out(&["flags", "Supplementary"]),
+        "0x800\t2048\tSUPPLEMENTARY\n"
+    );
 }
 
 #[test]

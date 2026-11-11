@@ -81,10 +81,16 @@ fn flag_names_table() {
     assert_eq!(SAM_FLAGS.len(), 12);
 }
 
+type Regions = Vec<(Vec<u8>, Interval)>;
 type Fields = (Option<usize>, Option<u64>, usize, Vec<u8>);
 
 fn fields(a: &AlnRef<'_>) -> Fields {
-    (a.mate_ref_id(), a.mate_pos(), a.seq_len(), a.quals().to_vec())
+    (
+        a.mate_ref_id(),
+        a.mate_pos(),
+        a.seq_len(),
+        a.quals().to_vec(),
+    )
 }
 
 fn all(path: &Path) -> Vec<Fields> {
@@ -186,17 +192,26 @@ fn regions_source_equals_filtered_scan() {
     log::set_max_level(log::LevelFilter::Warn);
     let dir = tempfile::tempdir().unwrap();
     let c = |s: &str| s.as_bytes().to_vec();
-    let cases: Vec<(&str, Vec<(Vec<u8>, Interval)>)> = vec![
+    let cases: Vec<(&str, Regions)> = vec![
         // overlapping, and regions that only share an edge with reads.
         ("flags", vec![(c("chr1"), iv(105, 205))]),
         ("flags", vec![(c("chr1"), iv(110, 200))]),
-        ("flags", vec![(c("chr1"), iv(0, 100)), (c("chr1"), iv(110, 111))]),
+        (
+            "flags",
+            vec![(c("chr1"), iv(0, 100)), (c("chr1"), iv(110, 111))],
+        ),
         // a point inside a read, and on its edge.
         ("flags", vec![(c("chr1"), iv(105, 105))]),
-        ("flags", vec![(c("chr1"), iv(100, 100)), (c("chr1"), iv(110, 110))]),
+        (
+            "flags",
+            vec![(c("chr1"), iv(100, 100)), (c("chr1"), iv(110, 110))],
+        ),
         // a placed unmapped read, which spans [700, 701).
         ("flags", vec![(c("chr1"), iv(700, 701))]),
-        ("flags", vec![(c("chr1"), iv(699, 700)), (c("chr1"), iv(701, 702))]),
+        (
+            "flags",
+            vec![(c("chr1"), iv(699, 700)), (c("chr1"), iv(701, 702))],
+        ),
         // regions on both references, repeated, and one the header lacks.
         (
             "flags",
@@ -207,7 +222,10 @@ fn regions_source_equals_filtered_scan() {
                 (c("chrZ"), iv(0, 10)),
             ],
         ),
-        ("order", vec![(c("chr1"), iv(0, 1_000_000)), (c("chr2"), iv(0, 1_000_000))]),
+        (
+            "order",
+            vec![(c("chr1"), iv(0, 1_000_000)), (c("chr2"), iv(0, 1_000_000))],
+        ),
         ("order", vec![(c("chr2"), iv(100, 200))]),
         ("order", vec![]),
     ];
@@ -215,25 +233,36 @@ fn regions_source_equals_filtered_scan() {
         let bam = aln(&format!("{set}.bam"));
         let indexed = dir.path().join(format!("{set}-ix.bam"));
         std::fs::copy(&bam, &indexed).unwrap();
-        std::fs::copy(aln(&format!("{set}.bam.bai")), dir.path().join(format!("{set}-ix.bam.bai")))
-            .unwrap();
+        std::fs::copy(
+            aln(&format!("{set}.bam.bai")),
+            dir.path().join(format!("{set}-ix.bam.bai")),
+        )
+        .unwrap();
         let plain = dir.path().join(format!("{set}-plain.bam"));
         std::fs::copy(&bam, &plain).unwrap();
         for (s, regions) in cases.iter().filter(|(s, _)| *s == set) {
             let want = filtered(bam.to_str().unwrap(), regions);
-            let via_index =
-                collect(open_aln_source_regions(indexed.to_str().unwrap(), regions, &ropts()).unwrap());
+            let via_index = collect(
+                open_aln_source_regions(indexed.to_str().unwrap(), regions, &ropts()).unwrap(),
+            );
             assert_eq!(via_index, want, "{s} {regions:?}: through the index");
             let before = scan_warnings();
-            let scanned =
-                collect(open_aln_source_regions(plain.to_str().unwrap(), regions, &ropts()).unwrap());
+            let scanned = collect(
+                open_aln_source_regions(plain.to_str().unwrap(), regions, &ropts()).unwrap(),
+            );
             assert_eq!(scanned, want, "{s} {regions:?}: scanned");
             assert_eq!(scan_warnings(), before + 1, "one warning for the scan");
         }
     }
     // The cases are not all empty: an overlap, and the placed unmapped read, give records.
-    assert_eq!(filtered(aln("flags.bam").to_str().unwrap(), &cases[0].1).len(), 3);
-    assert_eq!(filtered(aln("flags.bam").to_str().unwrap(), &cases[5].1).len(), 1);
+    assert_eq!(
+        filtered(aln("flags.bam").to_str().unwrap(), &cases[0].1).len(),
+        3
+    );
+    assert_eq!(
+        filtered(aln("flags.bam").to_str().unwrap(), &cases[5].1).len(),
+        1
+    );
     // SAM is scanned too.
     let sam = aln("flags.sam");
     let regions = &cases[0].1;

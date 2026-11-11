@@ -1,8 +1,8 @@
 //! gloci-ops: commands as library functions.
 
 pub mod agg;
-pub mod aln_flags;
 pub mod aln_cat;
+pub mod aln_flags;
 pub mod aln_merge;
 pub mod aln_sort;
 pub mod bedsearch;
