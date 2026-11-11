@@ -285,7 +285,6 @@ fn view_count_scan_memory_is_one_record_and_the_pool() {
         let pid = child.id() as libc::pid_t;
         let mut out = Vec::new();
         use std::io::Read;
-        child.stdout.as_ref().map(|_| ());
         let mut child = child;
         child.stdout.take().unwrap().read_to_end(&mut out).unwrap();
         let mut status = 0;
