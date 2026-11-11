@@ -8,7 +8,7 @@ use super::sam::SamLines;
 use super::{AlignOptions, Aln, AlnHeader, alignment_query_span, aln_ref};
 use crate::detect::Format;
 use crate::diag::{Diagnostics, InvalidPolicy};
-use crate::error::{IoError, UsageError};
+use crate::error::{IoError, Loc, UsageError};
 use crate::index::{IndexedFile, find_index};
 use crate::input::{Input, InputOptions, open_input, open_input_from};
 use crate::record::{Header, ReaderOptions};
@@ -307,19 +307,23 @@ impl AlnSource for ScanRegions {
     fn next_record(&mut self, buf: &mut Vec<u8>) -> Result<Option<u64>, IoError> {
         loop {
             let start = buf.len();
-            let Some(_) = self.inner.next_record(buf)? else {
+            let Some(rec) = self.inner.next_record(buf)? else {
                 return Ok(None);
             };
             let layout = self.inner.layout();
-            let hit = aln_ref(layout, &buf[start..], self.inner.header())
-                .ok()
-                .and_then(|a| alignment_query_span(&a))
-                .is_some_and(|(rid, iv)| {
-                    self.by_ref
-                        .get(rid)
-                        .and_then(Option::as_ref)
-                        .is_some_and(|set| set.matches(iv, false))
-                });
+            let a = aln_ref(layout, &buf[start..], self.inner.header()).map_err(|msg| {
+                IoError::Parse {
+                    path: self.inner.name().to_string(),
+                    loc: Loc::Record(rec),
+                    msg,
+                }
+            })?;
+            let hit = alignment_query_span(&a).is_some_and(|(rid, iv)| {
+                self.by_ref
+                    .get(rid)
+                    .and_then(Option::as_ref)
+                    .is_some_and(|set| set.matches(iv, false))
+            });
             if hit {
                 self.yielded += 1;
                 return Ok(Some(self.yielded));
