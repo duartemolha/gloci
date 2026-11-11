@@ -191,3 +191,26 @@ fn run_chunks_reports_the_first_error_in_order_and_panics() {
     assert!(err.to_string().contains("boom in job 3"), "{err}");
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
 }
+
+/// Chunk workers decode CRAM 3.1, whose codecs need more than a spawned thread's default
+/// 2 MiB of stack (in release builds with fat LTO): a job with 6 MiB on its stack must run.
+/// This bites in debug builds too.
+#[test]
+fn chunk_workers_have_large_stacks() {
+    fn deep(j: &u64, _sink: &mut ChunkSink) -> Result<u64, IoError> {
+        let buf = std::hint::black_box([*j as u8; 6 << 20]);
+        Ok(u64::from(buf[(*j as usize) % buf.len()]) + u64::from(buf[buf.len() - 1]))
+    }
+    let dir = tempdir().unwrap();
+    let mut out = VecWriter::new();
+    let jobs: Vec<u64> = (0..8).collect();
+    let got = run_chunks(
+        jobs,
+        NonZeroUsize::new(4).unwrap(),
+        dir.path(),
+        &deep,
+        &mut out,
+    )
+    .unwrap();
+    assert_eq!(got, (0..8).map(|j| 2 * j).collect::<Vec<u64>>());
+}

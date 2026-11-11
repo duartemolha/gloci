@@ -24,6 +24,7 @@ pub mod input;
 pub mod naming;
 pub mod output;
 pub(crate) mod pool;
+pub use pool::WORKER_STACK;
 mod psl;
 pub mod record;
 pub mod rmsk;

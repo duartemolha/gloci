@@ -381,3 +381,46 @@ fn cram_sort_flag_matches() {
     assert_eq!(want.0, Some(0));
     assert_eq!(base(&["--sort"]).1, want.1);
 }
+
+/// CRAM 3.1 (order-1 rANS qualities, tokenised names) decodes in the chunk workers of a
+/// per-chromosome run: they need the large stack the decode pool's threads have (a 2 MiB
+/// default overflowed it, in release builds). The result equals the streamed one and the CRAM
+/// 3.0 file of the same reads.
+#[test]
+fn cram_31_per_chromosome_at_every_t() {
+    let dir = tempdir();
+    let bed = s(&plain_file(dir.path(), "t.bed", BED));
+    let r = reference();
+    let v31 = aln("many.v31.cram");
+    let cases = [
+        vec!["genomecov", "@"],
+        vec!["genomecov", "@", "--bga", "--split-deletions"],
+        vec!["intersect", "-a", "@", "-b", &bed, "--mode", "count"],
+        vec!["intersect", "-a", &bed, "-b", "@", "--mode", "count"],
+        vec!["coverage", "-a", &bed, "-b", "@"],
+    ];
+    for base in cases {
+        let at = |file: &str, t: &str| {
+            let mut v: Vec<String> = base
+                .iter()
+                .map(|a| {
+                    if *a == "@" {
+                        file.to_string()
+                    } else {
+                        a.to_string()
+                    }
+                })
+                .collect();
+            v.extend(mk(&["--reference", &r, "-t", t]));
+            let (code, out, err) = run(&v);
+            assert_eq!(code, Some(0), "{base:?} -t {t}: {err}");
+            out
+        };
+        let want = at(&v31, "1");
+        assert!(!want.is_empty());
+        for t in ["2", "8"] {
+            assert_eq!(at(&v31, t), want, "{base:?} -t {t}");
+        }
+        assert_eq!(at(&aln("many.cram"), "8"), want, "{base:?} against 3.0");
+    }
+}

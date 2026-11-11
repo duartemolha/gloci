@@ -237,6 +237,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
     // An already-built global pool is fine.
     let _ = rayon::ThreadPoolBuilder::new()
         .num_threads(threads.get())
+        .stack_size(gloci_io::WORKER_STACK)
         .build_global();
 
     let ctx = Ctx {

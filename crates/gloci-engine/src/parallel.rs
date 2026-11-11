@@ -144,22 +144,31 @@ pub fn run_chunks<J: Clone + Send + Sync, R: Send>(
             let job_rx = job_rx.clone();
             let result_tx = result_tx.clone();
             let (run_one, fail_at) = (&run_one, &fail_at);
-            s.spawn(move || {
-                while let Ok((idx, job, buf)) = job_rx.recv() {
-                    let res = if idx > fail_at.load(Ordering::Relaxed) {
-                        None
-                    } else {
-                        let r = run_one(&job, buf);
-                        if r.is_err() {
-                            fail_at.fetch_min(idx, Ordering::Relaxed);
+            // CRAM 3.1's codecs (order-1 rANS, the name tokeniser) need more stack than a
+            // spawned thread's default 2 MiB, and chunk workers decode CRAM.
+            let spawned = std::thread::Builder::new()
+                .stack_size(gloci_io::WORKER_STACK)
+                .spawn_scoped(s, move || {
+                    while let Ok((idx, job, buf)) = job_rx.recv() {
+                        let res = if idx > fail_at.load(Ordering::Relaxed) {
+                            None
+                        } else {
+                            let r = run_one(&job, buf);
+                            if r.is_err() {
+                                fail_at.fetch_min(idx, Ordering::Relaxed);
+                            }
+                            Some(r)
+                        };
+                        if result_tx.send((idx, res)).is_err() {
+                            break;
                         }
-                        Some(r)
-                    };
-                    if result_tx.send((idx, res)).is_err() {
-                        break;
                     }
-                }
-            });
+                });
+            if let Err(e) = spawned {
+                return Err(IoError::Internal(format!(
+                    "cannot start a worker thread: {e}"
+                )));
+            }
         }
         drop(result_tx);
         drop(job_rx);

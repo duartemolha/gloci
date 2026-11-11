@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread::JoinHandle;
 
 /// The stack of a pool worker.
-pub(crate) const WORKER_STACK: usize = 16 << 20;
+pub const WORKER_STACK: usize = 16 << 20;
 
 type Job<J> = (u64, J);
 

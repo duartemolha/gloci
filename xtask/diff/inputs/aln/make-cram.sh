@@ -168,9 +168,22 @@ samtools view -C -@ 0 --no-PG -T "$REF" --output-fmt-option version=3.0 \
 samtools view -C -@ 0 --no-PG -T "$REF" --output-fmt-option version=3.0 \
     --output-fmt-option seqs_per_slice=100 --output-fmt-option multi_seq_per_slice=1 \
     -o many.multi.cram tmp-many.sam
-rm tmp-many.sam
+# many.v31.cram: the same reads as CRAM 3.1 with qualities that drift along each read (order-1
+# rANS) and names for the tokeniser, in five chromosomes: the codecs whose tables need a large
+# stack, run by per-chromosome workers.
+awk -F'\t' -v OFS='\t' 'BEGIN { srand(41) } /^@/ { print; next } {
+    if ($11 != "*") { q = ""; v = 38
+        for (j = 1; j <= length($10); j++) {
+            v += int(rand() * 3) - 1 - (rand() < 0.08); if (v < 2) v = 2; if (v > 40) v = 40
+            q = q sprintf("%c", 33 + v) }
+        $11 = q } print }' tmp-many.sam > tmp-many31.sam
+samtools view -C -@ 0 --no-PG -T "$REF" --output-fmt-option version=3.1 \
+    --output-fmt-option seqs_per_slice=100 --output-fmt-option slices_per_container=3 \
+    -o many.v31.cram tmp-many31.sam
+rm tmp-many.sam tmp-many31.sam
 samtools index many.cram
 samtools index many.multi.cram
+samtools index many.v31.cram
 # manyref.cram: 40 contigs of 3 kb (../fa/manyref.fa) with 60 reads each, in slices of 50 reads:
 # the reference-memory test runs it per chromosome with several workers.
 awk 'BEGIN { srand(31); b = "ACGT"
