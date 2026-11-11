@@ -987,6 +987,37 @@ Examples:
   gloci stats jaccard -a peaks.bed -b genes.bed
   gloci stats jaccard -a rep1.bed -b rep2.bed -f 0.5 -r")]
     Stats(StatsArgs),
+    // P3b Task 7
+    /// BEDPE pairs by how their ends overlap B (bedtools pairtobed).
+    ///
+    /// A is a BEDPE file (chrom1 start1 end1 chrom2 start2 end2, then optionally name, score,
+    /// strand1, strand2 and more; it is never detected, so a BED file of pairs is read
+    /// as BEDPE only here). B is BED, GFF or VCF (a VCF as its footprints, --vcf-span) and is
+    /// loaded into memory; A streams in any order. Each present end of a pair is tested against B
+    /// as an interval under -f, -F, -r, -e, --min-bases, -s, -S and --inclusive-points (section
+    /// 4.3: a point is inside only strictly, and unknown strands never match -s or -S); -s and -S
+    /// use strand1 for end 1 and strand2 for end 2. An end whose chromosome is `.` overlaps
+    /// nothing.
+    ///
+    /// --type chooses what is written. Rows with a B are A's line, a tab and B's line (TSV);
+    /// the A-alone types write A's BEDPE line. either (default): A with each B hitting end 1, then
+    /// each hitting end 2 (a B hitting both ends is written twice). both: the same, when both ends
+    /// hit. xor: the same, when exactly one end hits. neither: A alone, when no end hits. notboth:
+    /// A with each B, when exactly one end hits, and A alone padded with a placeholder B (`.`,
+    /// `-1`, `-1` ...) when none does. ispan and ospan: A with each B overlapping the gap between
+    /// the ends, or the span from the first start to the last end; notispan and notospan: A alone
+    /// when none does. The span types need both ends on one chromosome (other pairs are left out,
+    /// counted in one warning), an empty gap (touching or overlapping ends) hits nothing, and
+    /// -s/-S with them is an error. Hits of one A come in B's input order; output follows A's
+    /// order whatever the thread count. Output is TSV or BEDPE (-o x.bedpe, x.tsv, .gz for
+    /// BGZF); header lines of A are not written.
+    #[command(after_long_help = "\
+Examples:
+  gloci pair-intersect -a sv.bedpe -b genes.bed
+  gloci pair-intersect -a sv.bedpe -b exons.bed --type both -f 0.5
+  gloci pair-intersect -a sv.bedpe -b repeats.bed --type neither -o clean.bedpe
+  gloci pair-intersect -a sv.bedpe -b genes.bed --type ospan -s")]
+    PairIntersect(PairIntersectArgs),
 }
 
 /// What `intersect` reports.
@@ -3293,6 +3324,64 @@ pub struct FisherArgs {
     pub chrom_map: ChromMapArg,
     #[command(flatten)]
     pub align: AlignArgs,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+/// What `pair-intersect` reports (bedtools `-type`).
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum PairTypeArg {
+    /// A with each B hitting either end (default).
+    Either,
+    /// A alone when neither end hits.
+    Neither,
+    /// A with each B, when both ends hit.
+    Both,
+    /// A with each B, when exactly one end hits.
+    Xor,
+    /// A with each B when one end hits, A alone (padded) when none does.
+    Notboth,
+    /// A with each B hitting the gap between the ends.
+    Ispan,
+    /// A with each B hitting the span from the first start to the last end.
+    Ospan,
+    /// A alone when nothing hits the gap between the ends.
+    Notispan,
+    /// A alone when nothing hits the outer span.
+    Notospan,
+}
+
+// P3b Task 7
+#[derive(Args, Debug, Clone)]
+#[command(mut_arg("split", |a| a.hide(true)))]
+pub struct PairIntersectArgs {
+    /// A: the BEDPE file whose pairs are reported (`-` for stdin).
+    #[arg(short = 'a', long = "a", value_name = "FILE", required = true)]
+    pub a: String,
+    /// B: the BED, GFF or VCF file the ends are tested against (`-` for stdin).
+    #[arg(short = 'b', long = "b", value_name = "FILE", required = true)]
+    pub b: String,
+    /// B's format, overriding detection (bed, bedgraph, gff, vcf, bcf).
+    #[arg(long, value_name = "FMT")]
+    pub b_format: Option<String>,
+    /// What to report: either, neither, both, xor, notboth, ispan, ospan, notispan or notospan.
+    #[arg(
+        long = "type",
+        value_enum,
+        default_value = "either",
+        value_name = "TYPE"
+    )]
+    pub kind: PairTypeArg,
+    #[command(flatten)]
+    pub o: OverlapArgs,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
     #[command(flatten)]
     pub invalid: InvalidArg,
     #[command(flatten)]

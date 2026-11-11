@@ -16,6 +16,7 @@ pub mod map;
 pub mod maskfasta;
 pub mod merge;
 pub mod nuc;
+pub mod pairs;
 pub mod partition;
 pub mod shift;
 pub mod slop;
