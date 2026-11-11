@@ -140,8 +140,8 @@ struct Scratch {
     cand: Vec<u32>,
     /// `h[a_end][b_end]`: the B records whose `b_end` meets A's `a_end`.
     h: [[Vec<u32>; 2]; 2],
-    both: Vec<u32>,
-    any: Vec<u32>,
+    /// The B records written for the pair in hand.
+    ids: Vec<u32>,
 }
 
 struct Worker<'a> {
@@ -167,34 +167,23 @@ fn intersect_into(x: &[u32], y: &[u32], out: &mut Vec<u32>) {
 }
 
 impl Worker<'_> {
-    /// The B records whose end `b_end` meets `span` of `chrom`, ascending.
+    /// Replace `dst` with the B records whose end `b_end` meets `span` of
+    /// `chrom`, ascending; `cand` is scratch.
     fn hits(
         &self,
-        chrom: ChromId,
-        span: Interval,
-        strand: Strand,
+        (chrom, span, strand): (ChromId, Interval, Strand),
         b_end: usize,
-        s: &mut Scratch,
-    ) -> Vec<u32> {
+        cand: &mut Vec<u32>,
+        dst: &mut Vec<u32>,
+    ) {
         let c = &self.o.criteria;
-        self.b.index[b_end].query(
-            chrom,
-            span,
-            self.o.window,
-            strand,
-            c.inclusive_points,
-            &mut s.cand,
-        );
-        s.cand
-            .iter()
-            .copied()
-            .filter(|&id| {
-                let (bs, bstrand) =
-                    self.b.meta[id as usize][b_end].expect("indexed end is present");
-                let bs = self.o.window.map_or(bs, |w| w.apply(bs, strand));
-                c.accepts(span, strand, bs, bstrand)
-            })
-            .collect()
+        self.b.index[b_end].query(chrom, span, self.o.window, strand, c.inclusive_points, cand);
+        dst.clear();
+        dst.extend(cand.iter().copied().filter(|&id| {
+            let (bs, bstrand) = self.b.meta[id as usize][b_end].expect("indexed end is present");
+            let bs = self.o.window.map_or(bs, |w| w.apply(bs, strand));
+            c.accepts(span, strand, bs, bstrand)
+        }));
     }
 
     fn pair(
@@ -213,34 +202,38 @@ impl Worker<'_> {
         };
         for (k, end) in m.ends.iter().enumerate() {
             for j in 0..2 {
-                s.h[k][j] = match end {
+                let dst = &mut s.h[k][j];
+                match end {
                     Some(e) => {
                         n.a_unknown |= strand_rule && e.strand == Strand::Unknown;
-                        let mut ids = self.hits(e.chrom, e.span, e.strand, j, s);
+                        self.hits((e.chrom, e.span, e.strand), j, &mut s.cand, dst);
                         if let Some(name) = a_name {
-                            ids.retain(|&id| bedpe_name(self.b.line(id)) != Some(name));
+                            dst.retain(|&id| bedpe_name(self.b.line(id)) != Some(name));
                         }
-                        ids
                     }
-                    None => Vec::new(),
-                };
+                    None => dst.clear(),
+                }
             }
         }
-        s.both.clear();
-        intersect_into(&s.h[0][0], &s.h[1][1], &mut s.both);
-        intersect_into(&s.h[0][1], &s.h[1][0], &mut s.both);
-        s.both.sort_unstable();
-        s.both.dedup();
+        // `both` and `notboth` need the B pairs that meet in one orientation;
+        // `either` and `neither` the B pairs any end of which meets.
         let ids: &[u32] = match self.o.kind {
-            PairPairType::Both => &s.both,
-            _ => {
-                s.any.clear();
+            PairPairType::Both | PairPairType::NotBoth => {
+                s.ids.clear();
+                intersect_into(&s.h[0][0], &s.h[1][1], &mut s.ids);
+                intersect_into(&s.h[0][1], &s.h[1][0], &mut s.ids);
+                s.ids.sort_unstable();
+                s.ids.dedup();
+                &s.ids
+            }
+            PairPairType::Either | PairPairType::Neither => {
+                s.ids.clear();
                 for h in s.h.iter().flatten() {
-                    s.any.extend_from_slice(h);
+                    s.ids.extend_from_slice(h);
                 }
-                s.any.sort_unstable();
-                s.any.dedup();
-                &s.any
+                s.ids.sort_unstable();
+                s.ids.dedup();
+                &s.ids
             }
         };
         match self.o.kind {
@@ -252,11 +245,7 @@ impl Worker<'_> {
                     out.push(b'\n');
                 }
             }
-            PairPairType::Neither if ids.is_empty() => {
-                out.extend_from_slice(raw);
-                out.push(b'\n');
-            }
-            PairPairType::NotBoth if s.both.is_empty() => {
+            PairPairType::Neither | PairPairType::NotBoth if ids.is_empty() => {
                 out.extend_from_slice(raw);
                 out.push(b'\n');
             }
