@@ -147,6 +147,15 @@ fn compile_remove(
                 _ => keep_flt = true,
             }
         }
+        // Once a ^ item of a kind has been seen, the plain items after it
+        // of that kind are keep items too (bcftools).
+        let is_keep = is_keep
+            || match class {
+                Some("INFO") => keep_info,
+                Some("FORMAT") => keep_fmt,
+                Some("FILTER") => keep_flt,
+                _ => false,
+            };
         let id = s.as_bytes();
         match class {
             Some("FILTER") if !is_keep => {

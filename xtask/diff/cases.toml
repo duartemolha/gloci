@@ -5515,3 +5515,34 @@ aux = ["xtask/diff/inputs/vcf/annotate/src-str.vcf"]
 gloci = "gloci vcf annotate input.vcf -a src-str.vcf -c +INFO/AS,+INFO/RS"
 reference = "bgzip -c input.vcf > f.vcf.gz && tabix -p vcf f.vcf.gz && bgzip -c src-str.vcf > s.vcf.gz && tabix -p vcf s.vcf.gz && bcftools annotate --no-version -a s.vcf.gz -c +INFO/AS,+INFO/RS f.vcf.gz"
 compare = "vcf-records"
+
+
+# Plain items after a ^ item of the same kind are keep items too.
+[[case]]
+name = "vcf-annotate-remove-keep-info-later-plain-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+gloci = "gloci vcf annotate input.vcf -x ^INFO/DP,INFO/OLD"
+reference = "bcftools annotate --no-version -x ^INFO/DP,INFO/OLD input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-remove-keep-format-later-plain-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+gloci = "gloci vcf annotate input.vcf -x ^FORMAT/GT,FORMAT/DP"
+reference = "bcftools annotate --no-version -x ^FORMAT/GT,FORMAT/DP input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-remove-keep-filter-later-plain-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file-filters.vcf" }
+gloci = "gloci vcf annotate input.vcf -x ^FILTER/q10,FILTER/lowdp"
+reference = "bcftools annotate --no-version -x ^FILTER/q10,FILTER/lowdp input.vcf"
+compare = "vcf-records"
+
+# A plain item before the ^ item is still a removal.
+[[case]]
+name = "vcf-annotate-remove-keep-info-plain-first-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+gloci = "gloci vcf annotate input.vcf -x INFO/DP,^INFO/FL"
+reference = "bcftools annotate --no-version -x INFO/DP,^INFO/FL input.vcf"
+compare = "vcf-records"
