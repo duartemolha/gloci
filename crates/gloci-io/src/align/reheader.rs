@@ -133,16 +133,15 @@ pub fn read_bam_file_header(path: &Path) -> Result<(AlnHeader, u64), IoError> {
     })?;
     let mut r = noodles_bgzf::io::Reader::new(BufReader::new(file));
     read_bam_header_with_extent(&mut r).map_err(|e| {
-        let msg = if e.starts_with("not a BAM file") {
-            format!(
+        if e.starts_with("not a BAM file") {
+            // Another BGZF format (a VCF or BED .gz): the wrong input, not a damaged one.
+            return IoError::wrong_format(format!(
                 "{name} is BGZF-compressed but not BAM (it does not start with the BAM magic bytes)"
-            )
-        } else {
-            format!("{name}: {e}; check that the file is a complete BAM file")
-        };
+            ));
+        }
         IoError::Detect {
             path: name.clone(),
-            msg,
+            msg: format!("{name}: {e}; check that the file is a complete BAM file"),
         }
     })
 }

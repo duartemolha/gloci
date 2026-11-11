@@ -430,6 +430,32 @@ fn reheader_inputs() {
         .assert()
         .code(2)
         .stderr(contains("SAM"));
+    // So is any other format as IN (O2, as M3 for the alignment-only commands): a BED, and a
+    // BGZF file that is not BAM. A gzip that is not BGZF may be a damaged BAM: exit 1.
+    let bed = write(dir.path(), "x.bed", "chr1\t1\t2\n");
+    gloci()
+        .args(["reheader", &s(&hdr), &s(&bed)])
+        .assert()
+        .code(2)
+        .stderr(contains("is BED, not BAM or CRAM; reheader takes BAM or CRAM"));
+    let vcf = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../xtask/diff/inputs/samtools/calls.vcf.gz");
+    gloci()
+        .args(["reheader", &s(&hdr), &s(&vcf)])
+        .assert()
+        .code(2)
+        .stderr(contains("is BGZF-compressed but not BAM"));
+    let gz = dir.path().join("x.sam.gz");
+    std::fs::write(
+        &gz,
+        [0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    )
+    .unwrap();
+    gloci()
+        .args(["reheader", &s(&hdr), &s(&gz)])
+        .assert()
+        .code(1)
+        .stderr(contains("is gzip but not BGZF"));
     // HEADER may be a SAM file with records: only its header lines count.
     let with_reads = write(
         dir.path(),

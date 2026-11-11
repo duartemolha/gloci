@@ -106,12 +106,13 @@ fn cram_sam_and_other_input_are_refused() {
         .stderr(contains("SAM"))
         .stderr(contains("gloci view"))
         .stderr(contains("-o x.bam"));
+    // Another format is a usage error, as for every single-format command (O2, M3).
     let bed = plain_file(dir.path(), "x.bed", "chr1\t1\t2\n");
     gloci()
         .args(["cat", &s(&bed)])
         .assert()
-        .code(1)
-        .stderr(contains("not BAM"));
+        .code(2)
+        .stderr(contains("is BED, not BAM"));
     let vcf = bgzf_file(
         dir.path(),
         "x.vcf.gz",
@@ -120,8 +121,8 @@ fn cram_sam_and_other_input_are_refused() {
     gloci()
         .args(["cat", &s(&vcf)])
         .assert()
-        .code(1)
-        .stderr(contains("not BAM"));
+        .code(2)
+        .stderr(contains("BGZF-compressed but not BAM"));
 }
 
 #[test]

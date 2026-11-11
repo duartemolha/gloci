@@ -115,12 +115,13 @@ fn dict_skips_leading_blank_lines_and_names_its_input() {
         .assert()
         .success()
         .stdout("@SQ\tSN:a\tLN:4\tM5:f1f8f4bf413b16ad135722aa4591043e\tUR:x\n");
+    // Another format is a usage error, as for every single-format command (O2, M3).
     let bam = inputs("samtools/depth.bam");
     gloci()
         .arg("dict")
         .arg(&bam)
         .assert()
-        .code(1)
+        .code(2)
         .stdout("")
         .stderr(contains(format!(
             "{} is BAM, not FASTA; dict makes a sequence dictionary from a FASTA file",

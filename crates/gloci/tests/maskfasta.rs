@@ -502,6 +502,15 @@ fn an_empty_fasta_is_named_as_empty() {
         .assert()
         .code(1)
         .stderr(contains("empty.fa is empty: it has no records"));
+    // Another format as the FASTA is a usage error (O2): it reads FASTA only.
+    gloci()
+        .args(["maskfasta", "--fasta"])
+        .arg(&b)
+        .arg("-b")
+        .arg(&b)
+        .assert()
+        .code(2)
+        .stderr(contains("m.bed is BED, not FASTA"));
     // An empty mask file stays valid and masks nothing.
     let f = gloci_testkit::fixtures::write(d.path(), "in.fa", b">a\nACGT\n");
     let eb = plain_file(d.path(), "e.bed", "");

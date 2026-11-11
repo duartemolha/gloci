@@ -2065,7 +2065,10 @@ depends on the span.
 - **gloci:** every command exits 0 on success, 1 for a data or runtime error
   (and for a failed check), and 2 for a usage error: an unknown flag name, a
   bad option value, a missing argument, or a file of a format the command does
-  not read (a BED given to `idxstats`, as a BAM given to `merge`).
+  not read (a BED given to `idxstats`, `cat` or `reheader`, a BAM given to
+  `merge` or `dict`, a BGZF VCF given to `cat`). A file whose format cannot be
+  told (a gzip that is not BGZF, given to `cat` or `reheader`, may be a damaged
+  BAM) is a data error.
 - **Old behaviour:** samtools exits 1 for a usage error (it prints its usage
   text and exits 1, as `samtools flags bogus` does), 2 for an error in
   `bedcov`, and from `quickcheck` a bit mask (2 for a file that cannot be

@@ -36,7 +36,9 @@ fn detect_err(path: &str, msg: String) -> IoError {
     }
 }
 
-/// Is the regular file `path` a BAM or CRAM file? Stdin, pipes and SAM text are usage errors.
+/// Is the regular file `path` a BAM or CRAM file? Stdin, pipes, SAM text and any other format
+/// detected are usage errors (exit 2); a gzip that is not BGZF, or content no format is
+/// detected in, is a data error.
 fn input_kind(path: &Path) -> Result<Kind, IoError> {
     let name = path.display().to_string();
     if name == "-" || name.starts_with("/dev/fd/") || name == "/dev/stdin" {
@@ -83,6 +85,7 @@ input; write the stream to a file first: gloci view - -o x.bam"
     }
     match detect_compression(&head) {
         Compression::Bgzf => Ok(Kind::Bam),
+        // A gzip header that is not BGZF's may be a damaged BAM: a data error.
         Compression::Gzip => Err(detect_err(
             &name,
             format!(
@@ -95,13 +98,10 @@ input; write the stream to a file first: gloci view - -o x.bam"
 as text, or make BAM first: gloci view {name} -o x.bam"
             ))
             .into(),
-            Ok(f) => detect_err(
-                &name,
-                format!(
-                    "{name} is {}, not BAM or CRAM; reheader takes BAM or CRAM",
-                    f.name()
-                ),
-            ),
+            Ok(f) => IoError::wrong_format(format!(
+                "{name} is {}, not BAM or CRAM; reheader takes BAM or CRAM",
+                f.name()
+            )),
             Err(_) => detect_err(
                 &name,
                 format!("{name} is not a BAM or CRAM file; reheader takes BAM or CRAM"),

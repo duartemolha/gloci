@@ -49,7 +49,7 @@ impl FastaStream {
     }
 
     /// [`FastaStream::open`], where a file that is not FASTA is refused as `{path} is {format},
-    /// not FASTA; {hint}`.
+    /// not FASTA; {hint}` ([`IoError::wrong_format`], exit 2).
     pub fn open_as(path: &str, threads: NonZeroUsize, hint: &str) -> Result<Self, IoError> {
         let mut input = open_input(
             path,
@@ -72,14 +72,11 @@ impl FastaStream {
             if empty {
                 return Err(IoError::empty_input(&input.name));
             }
-            return Err(IoError::Detect {
-                path: input.name.clone(),
-                msg: format!(
-                    "{} is {}, not FASTA; {hint}",
-                    input.name,
-                    input.format.name()
-                ),
-            });
+            return Err(IoError::wrong_format(format!(
+                "{} is {}, not FASTA; {hint}",
+                input.name,
+                input.format.name()
+            )));
         }
         Ok(FastaStream {
             name: input.name,
