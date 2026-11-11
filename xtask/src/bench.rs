@@ -104,14 +104,29 @@ pub struct Case {
     /// their BED of target windows or intervals.
     pub commands: BTreeMap<String, String>,
     pub targets: Vec<String>,
+    /// Timed runs per tool (after one warm-up), judged on the median; more for I/O-heavy
+    /// cases (cat, maskfasta, sort output), whose wall clock is noisy on a slow disk.
+    #[serde(default = "default_runs")]
+    pub runs: u32,
 }
+
+/// Timed runs per tool unless a case sets `runs`.
+pub const DEFAULT_RUNS: u32 = 5;
 
 fn default_ext() -> String {
     "bed".into()
 }
 
+fn default_runs() -> u32 {
+    DEFAULT_RUNS
+}
+
 pub fn parse_cases(text: &str) -> Result<Vec<Case>> {
-    Ok(toml::from_str::<CaseFile>(text)?.case)
+    let cases = toml::from_str::<CaseFile>(text)?.case;
+    for c in &cases {
+        ensure!(c.runs >= 1, "{}: runs must be at least 1", c.name);
+    }
+    Ok(cases)
 }
 
 /// Replace the value after `--records` in a setup string.
@@ -722,14 +737,18 @@ fn check_tool_available(tool: &str, use_docker: bool, image: &str) -> bool {
     }
 }
 
-fn run_native_bench(commands: &[(&str, String)], json_path: &Path) -> Result<Vec<(String, f64)>> {
+fn run_native_bench(
+    commands: &[(&str, String)],
+    runs: u32,
+    json_path: &Path,
+) -> Result<Vec<(String, f64)>> {
     let mut results = Vec::new();
     for (tool, cmd) in commands {
         // 1 warmup run
         let _ = Command::new("sh").arg("-c").arg(cmd).status();
-        // 3 timed runs
+        // `runs` timed runs, judged on the median
         let mut times = Vec::new();
-        for _ in 0..3 {
+        for _ in 0..runs {
             let t0 = std::time::Instant::now();
             let st = Command::new("sh")
                 .arg("-c")
@@ -940,13 +959,14 @@ pub fn run(a: &Args) -> Result<bool> {
         };
 
         if has_hyperfine {
+            let runs = case.runs.to_string();
             let mut hf: Vec<String> = [
                 "hyperfine",
                 "--shell=default",
                 "--warmup",
                 "1",
                 "--runs",
-                "5",
+                &runs,
                 "--export-json",
             ]
             .map(String::from)
@@ -997,7 +1017,7 @@ pub fn run(a: &Args) -> Result<bool> {
                 .iter()
                 .map(|(tool, cmd)| (tool.as_str(), fill(cmd)))
                 .collect();
-            run_native_bench(&substituted, &json)?;
+            run_native_bench(&substituted, case.runs, &json)?;
             remove_outputs(&data, &out_name);
         }
 
@@ -1098,6 +1118,26 @@ mod tests {
             gloci_words("{gloci} sort {in} | wc"),
             ["{gloci}", "sort", "{in}"]
         );
+    }
+
+    #[test]
+    fn runs_default_and_per_case() {
+        let root = crate::diff::workspace_root();
+        let text = std::fs::read_to_string(root.join("xtask/bench/cases.toml")).unwrap();
+        let cases = parse_cases(&text).unwrap();
+        let runs = |n: &str| cases.iter().find(|c| c.name == n).unwrap().runs;
+        assert_eq!(runs("sort-plain-10M"), DEFAULT_RUNS);
+        for n in [
+            "cat-bam-8x",
+            "maskfasta-3G",
+            "sort-bam-50M",
+            "sort-name-bam-50M",
+            "merge-bam-8x",
+        ] {
+            assert_eq!(runs(n), 10, "{n}");
+        }
+        let zero = "[[case]]\nname = \"z\"\nruns = 0\ntargets = []\n[case.commands]\n";
+        assert!(parse_cases(zero).is_err());
     }
 
     /// Every `gloci` command line in cases.toml parses with gloci's own clap
@@ -1285,6 +1325,7 @@ mod tests {
             input: "bed.gz".into(),
             commands: BTreeMap::new(),
             targets: Vec::new(),
+            runs: DEFAULT_RUNS,
         };
         let inputs = prepare_input(&c, c.setup.as_deref(), &gloci, td.path(), None).unwrap();
         assert!(inputs.in_a.exists());

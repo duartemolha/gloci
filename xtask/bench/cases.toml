@@ -1,6 +1,8 @@
 # Benchmark cases. Every BED gloci command uses --chrom-order lex so that all
 # tools produce the same order (VCF commands follow the header's contigs). {gloci}, {in}, {in_a}, {in_b} and {out} are substituted by the runner.
 # Targets: NAME (<|<=) [FACTOR *] NAME, over the medians of the named commands.
+# runs = N (default 5): timed runs per tool after one warm-up. The I/O-heavy cases (cat,
+# maskfasta and the cases that write a sorted BAM) take 10, as their wall clock is noisy.
 
 [[case]]
 name = "sort-plain-10M"
@@ -373,6 +375,7 @@ name = "maskfasta-3G"
 setup = "fasta --records 1000000 --chroms 24 --chrom-len 125000000 --len-max 1000 --seed 1"
 input = "fa"
 targets = ["gloci <= 0.5 * bedtools"]
+runs = 10
 [case.commands]
 gloci = "{gloci} maskfasta -t 1 --fasta {in} -b {in_b} -o {out}"
 bedtools = "bedtools maskfasta -fi {in} -bed {in_b} -fo {out}"
@@ -393,6 +396,7 @@ name = "sort-bam-50M"
 setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --shuffled --seed 1"
 input = "bam"
 targets = ["gloci <= samtools"]
+runs = 10
 [case.commands]
 gloci = "{gloci} sort -t 8 --max-mem 4G -o {out} {in}"
 samtools = "samtools sort -@ 8 -m 512M -o {out} {in}"
@@ -402,6 +406,7 @@ name = "sort-name-bam-50M"
 setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
 input = "bam"
 targets = ["gloci <= samtools"]
+runs = 10
 [case.commands]
 gloci = "{gloci} sort -n -t 8 --max-mem 4G -o {out} {in}"
 samtools = "samtools sort -n -@ 8 -m 512M -o {out} {in}"
@@ -412,6 +417,7 @@ name = "merge-bam-8x"
 setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1 --parts 8"
 input = "bam"
 targets = ["gloci <= samtools"]
+runs = 10
 [case.commands]
 gloci = "{gloci} sort -m -t 8 -o {out} {ins}"
 samtools = "samtools merge -f -@ 8 {out} {ins}"
@@ -421,6 +427,7 @@ name = "cat-bam-8x"
 setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1 --parts 8"
 input = "bam"
 targets = ["gloci <= samtools"]
+runs = 10
 [case.commands]
 gloci = "{gloci} cat -o {out} {ins}"
 samtools = "samtools cat -o {out} {ins}"
