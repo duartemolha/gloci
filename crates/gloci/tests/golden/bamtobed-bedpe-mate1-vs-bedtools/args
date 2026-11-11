@@ -1,0 +1,1 @@
+convert input.bam --bedpe --mate1-first

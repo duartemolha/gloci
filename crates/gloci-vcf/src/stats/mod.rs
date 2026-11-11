@@ -1,10 +1,10 @@
 //! Per-site statistics over the selected, unmasked samples.
 
 mod engine;
-pub(crate) mod fmt;
 mod report;
 mod sample;
 mod site;
+mod tally;
 mod whole;
 
 pub use engine::{Out, Stat, StatSink, StatWrite, StatsEngine};
@@ -13,6 +13,7 @@ pub use sample::{Heterozygosity, MissingSample, SampleDepth};
 pub use site::{
     Freq, GenoDepth, Hardy, MissingSite, Singletons, SiteDepth, SiteMeanDepth, SiteQuality,
 };
+pub use tally::{SampleTally, TallyWants};
 pub use whole::{FilterSummary, IndelHist, SnpDensity, TsTv};
 
 use crate::gt::{GenotypeSource, SampleFields};

@@ -1,0 +1,1 @@
+shuffle input.bed -g shuffle-skip.genome --exclude shuffle-skip.exclude.bed --same-chrom --seed 1

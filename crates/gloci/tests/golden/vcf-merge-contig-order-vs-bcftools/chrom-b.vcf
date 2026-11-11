@@ -1,0 +1,8 @@
+##fileformat=VCFv4.2
+##contig=<ID=1,length=1000>
+##contig=<ID=2,length=1000>
+##INFO=<ID=XF,Number=1,Type=Integer,Description="x">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="g">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	B
+1	10	.	A	C	.	.	.	GT	0/1
+2	10	.	A	G	.	.	.	GT	1/1

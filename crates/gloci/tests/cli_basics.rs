@@ -67,7 +67,18 @@ fn format_flags_list_the_alignment_formats() {
                 continue;
             }
             let help = arg.get_help().map(|h| h.to_string()).unwrap_or_default();
-            for f in ["bed", "vcf", "bam", "cram", "sam"] {
+            // pair-intersect's B does not read alignments (the gate refuses them), so its help
+            // names the interval formats and says so instead.
+            let formats: &[&str] = if name == "pair-intersect" && long == "b-format" {
+                assert!(
+                    help.contains("does not read alignments"),
+                    "{name} --{long}: {help}"
+                );
+                &["bed", "vcf"]
+            } else {
+                &["bed", "vcf", "bam", "cram", "sam"]
+            };
+            for f in formats {
                 assert!(help.contains(f), "{name} --{long}: {help}");
             }
         }

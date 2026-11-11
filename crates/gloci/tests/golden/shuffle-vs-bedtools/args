@@ -1,0 +1,1 @@
+shuffle input.bed -g random.genome --seed 1

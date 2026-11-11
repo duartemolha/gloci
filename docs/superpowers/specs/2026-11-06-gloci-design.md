@@ -588,12 +588,12 @@ Definitions:
 - Checks that samples, headers and order are compatible.
 - `--naive` concatenates BGZF blocks without decompressing when headers are identical. This is much faster.
 
-**`gloci vcf popgen IN`** — P3. Replaces `--site-pi`, `--window-pi`, `--TajimaD`, `--weir-fst-pop`/`--fst-window-*`, `--geno-r2`, `--hap-r2`, `--interchrom-*`, `--ld-window*`, `--relatedness` and `--relatedness2`.
+**`gloci vcf popgen IN`** — deferred **[owner, 2026-11-11]**; not built in P3b. Would replace `--site-pi`, `--window-pi`, `--TajimaD`, `--weir-fst-pop`/`--fst-window-*`, `--geno-r2`, `--hap-r2`, `--interchrom-*`, `--ld-window*`, `--relatedness` and `--relatedness2`.
 
 - Multiple statistics are computed in one pass where possible.
 - Formulas are documented, and each is cross-checked against vcftools.
 
-**`gloci vcf compare A B`** — P3. Replaces vcftools `--diff*` and `vcf-compare`.
+**`gloci vcf compare A B`** — P3b. Genotype concordance only **[owner, 2026-11-11]**: replaces vcftools `--diff-site-discordance`, `--diff-indv-discordance`, `--diff-discordance-matrix` and `--diff-indv-map`. `--diff-site` and `--diff-indv` are `gloci intersect`/`subtract --match alleles` and the `#CHROM` line.
 
 - Reports site overlap (shared, A-only and B-only), matched by alleles.
 - Reports per-sample genotype concordance and a discordance matrix.
@@ -763,16 +763,24 @@ Reference machine: 8-core x86_64, NVMe, 32 GB RAM. Baselines: bedtools 2.31.x, b
 | **P0 Foundations** | workspace; Section 4 core types and rules; BED/VCF/BCF/GFF I/O; parallel BGZF; sort validation; atomic writer; built-in genomes (`-g hg38`); `sort`, `index`, `view`, `check`, `genomes`; benchmark + differential + property-test harnesses | `sort` beats `sort-bed`; harnesses run in CI |
 | **P1 Core replacement** | `intersect`, `subtract`, `closest`, `map` (core ops), `coverage`, `merge`, `complement`, `slop`, `flank`, `windows`, `convert` (VCF/GFF/BED12), `vcf filter` (no expressions); unsorted mode; per-chromosome parallelism for indexed inputs; every op callable on in-memory record streams (Section 8.1); tabix-style indexing of any bgzipped TSV | the team's most common bedtools/bedops/vcftools pipeline steps can be rewritten on gloci; P1 performance targets met |
 | **P2 Breadth** | `partition`, `cluster`, `spacing`, `shift`, `groupby`, `genomecov` (BED), full `map` ops, `vcf stats`, `vcf extract`, `vcf concat`, filter expressions, `--chrom-map`, WIG input; bioconda package; **Python library** (`pip install gloci`, Section 8.5) | vcftools no longer needed for QC/filtering |
-| **P3 Extended** | BAM/CRAM input (intersect, coverage, genomecov, convert) and indexing (`.bai`/`.csi`, `.crai`); FASTA indexing (`.fai`/`.gzi`); `getfasta`, `maskfasta`, `nuc` alignment `sort` (coordinate, `-n`, `-N`), `merge` and `cat` **[owner, 2026-11-10]**; `stats jaccard/fisher/reldist`; `sample`/`random`/`shuffle`; BEDPE pair ops; `vcf popgen`; `vcf compare` | all three tools can be uninstalled |
+| **P3 Extended** | BAM/CRAM input (intersect, coverage, genomecov, convert) and indexing (`.bai`/`.csi`, `.crai`); FASTA indexing (`.fai`/`.gzi`); `getfasta`, `maskfasta`, `nuc` alignment `sort` (coordinate, `-n`, `-N`), `merge` and `cat` **[owner, 2026-11-10]**; `stats jaccard/fisher/reldist`; `sample`/`random`/`shuffle`; BEDPE pair ops; `vcf compare` (genotype concordance only) **[owner, 2026-11-11]**; `vcf popgen` deferred **[owner, 2026-11-11]** | all three tools can be uninstalled |
 | **P3c samtools essentials [owner, 2026-11-10]** | on top of P3a's BAM/CRAM/FASTA support: `idxstats`, `flagstat`, `quickcheck`, `reheader`, `faidx` region extraction, `dict`, `view -c`/`-L`, `head`, `samples`, `flags`, `depth`, `bedcov`. Out of scope: `markdup`, `fixmate`, `calmd`, `mpileup`, `consensus`, `stats`, `ampliconclip` | samtools is needed only for what gloci does not cover |
 
 **Order [revised 2026-11-10, owner]:** after P2a (the P2 command breadth), the build order is:
 P2b Task 1 only (MIT licence; genome tables moved inside `gloci-io` so `cargo install` and source packages work),
 then **P3a** (BAM/CRAM, FASTA, `getfasta`/`maskfasta`/`nuc`, BAM in `coverage`/`genomecov`/`intersect`/`convert`, alignment `sort`/`merge`/`cat`),
 then **P3c** (samtools essentials, which build directly on P3a),
-then **P3b** (`stats`, `sample`/`random`/`shuffle`, BEDPE, `vcf popgen`, `vcf compare`),
+then **P3b** (`stats`, `sample`/`random`/`shuffle`, BEDPE, `vcf compare`; `vcf popgen` deferred),
 then the rest of P2b (Python library, packaging, mdBook, paper evidence suite) over the complete command set.
 Nothing is published to PyPI, crates.io, GHCR or bioconda until the owner enables it.
+
+**P3b scope and amendments [owner, 2026-11-11]:**
+
+- **Note.** `vcf popgen` is deferred out of P3b (its vcftools options map to "not yet available" in the migration guide). `vcf compare` is narrowed to genotype concordance: `--site-discordance`, `--sample-discordance`, `--discordance-matrix` and `--sample-map`; site and sample set differences are `intersect`/`subtract --match alleles` and the headers. P3b also covers the owner's VCF additions, `vcf split` (bcftools `norm -m-`), `vcf norm -f` (bcftools `norm -f`), `vcf annotate` and `vcf merge` (bcftools `annotate`, `merge`).
+- **D157 amendment (parallel selection).** The batch cap (at most max(1, 524,288 / samples) records) applies at `-t 1` too. The earliest failing record wins at every `-t`. At `-t` above 1 a read-ahead warning can precede an earlier record's error, because workers run ahead of the sink.
+- **D163 amendment (`vcf compare`).** The discordance walk follows vcftools. The matrix scope in `--match alleles` is the trimmed allele (`AT>A` and `ATG>AG` count together); in `--match position` it is the same REF and ALT text. `--thin` is refused (exit 2) unless both headers declare the same `##contig` lines and no `-g` is given. Threads are at most max(`-t`, 3): A and B are read on threads of their own beside the walking thread.
+- **Memory bounds.** `shuffle` holds about 52 bytes per allowed interval; `random` holds one batch of 262,144 rows; `pair-intersect` and `pair-pair` hold B at about 5 to 6 times its text size.
+- **Randomness.** `--seed` reproduces gloci's own output at any `-t`, never bedtools'; without it a fresh seed is printed as a warning.
 
 **Distribution:**
 
@@ -887,8 +895,8 @@ The user-facing version of this guide lives in `docs/migration.md` (later part o
 | `--minGQ/--minDP/--maxDP`, `--remove-filtered-geno-all` | `--min-gq/--min-dp/--max-dp`, `--mask-filtered-genotypes` |
 | `--freq`, `--depth`, `--missing-*`, `--het`, `--hardy`, `--TsTv*`, `--FILTER-summary`, `--SNPdensity`, `--singletons`, `--hist-indel-len` … | `vcf stats` flags, all in one run (P2) |
 | `--get-INFO`, `--extract-FORMAT-info`, `--012` | `vcf extract` (P2) |
-| `--site-pi`, `--window-pi`, `--TajimaD`, `--weir-fst-pop`, `--*-r2`, `--relatedness*` | `vcf popgen` (P3) |
-| `--diff*`, `vcf-compare` | `vcf compare` (P3) |
+| `--site-pi`, `--window-pi`, `--TajimaD`, `--weir-fst-pop`, `--*-r2`, `--relatedness*` | `vcf popgen` (deferred, not yet available) |
+| `--diff-site-discordance`, `--diff-indv-discordance`, `--diff-discordance-matrix`, `--diff-indv-map` | `vcf compare` (P3b); `--diff-site` and `--diff-indv` are `intersect`/`subtract --match alleles` and the `#CHROM` line |
 | `vcf-concat`, `vcf-sort`, `vcf-isec`, `vcf-subset`, `vcf-stats` | `vcf concat` (P2), `sort`, `intersect --match alleles`, `vcf filter --samples`, `vcf stats` |
 | `vcf-merge`, `--plink*`, `--IMPUTE`, `--BEAGLE-*`, `--ldhat*` | not planned |
 

@@ -1,0 +1,1 @@
+shuffle input.bed -g shuffle-forced.genome --same-chrom --seed 1

@@ -2,7 +2,7 @@
 
 use crate::filter::SiteView;
 use crate::gt::GenotypeSource;
-use crate::stats::SiteStats;
+use crate::stats::{SampleTally, SiteStats, TallyWants};
 use std::io::{self, BufWriter, Write};
 
 /// One statistic's output file. [`StatWrite::commit`] publishes it; dropping
@@ -74,6 +74,24 @@ pub trait Stat {
     /// Write what remains and commit the file.
     fn finish(&mut self) -> io::Result<()>;
     fn needs_genotypes(&self) -> bool;
+    /// True when `site` reads samples from `gt`. (A statistic that only needs
+    /// the [`SiteStats`] does not, and a tallied one does not.)
+    fn reads_genotypes(&self) -> bool {
+        false
+    }
+    /// The per-sample counters selection workers could keep for this
+    /// statistic instead (see [`SampleTally`]).
+    fn tally_wants(&self) -> TallyWants {
+        TallyWants::default()
+    }
+    /// Switch to workers' counters: `site` stops reading samples, and
+    /// [`Stat::absorb`] takes the totals.
+    fn use_tally(&mut self) {}
+    /// A tallied record's bitset of fully called samples, after `site`
+    /// (only for a site that contributes to `--het`).
+    fn called(&mut self, _called: &[u64]) {}
+    /// The workers' totals, before `finish`.
+    fn absorb(&mut self, _t: &SampleTally) {}
     /// vcftools' file extension, without the output prefix or leading dot.
     fn ext(&self) -> &'static str;
 }
@@ -91,6 +109,41 @@ impl StatsEngine {
     /// True when the caller must supply genotypes and [`SiteStats`].
     pub fn needs_genotypes(&self) -> bool {
         self.stats.iter().any(|s| s.needs_genotypes())
+    }
+
+    /// True when `site` must be given the samples.
+    pub fn reads_genotypes(&self) -> bool {
+        self.stats.iter().any(|s| s.reads_genotypes())
+    }
+
+    /// The counters workers could keep for this request.
+    pub fn tally_wants(&self) -> TallyWants {
+        self.stats
+            .iter()
+            .fold(TallyWants::default(), |w, s| w.or(s.tally_wants()))
+    }
+
+    /// Take the workers' counters (see [`StatsEngine::tally_wants`]); `site`
+    /// then needs no samples for those statistics.
+    pub fn use_tally(&mut self) {
+        for s in &mut self.stats {
+            s.use_tally();
+        }
+    }
+
+    /// Give each tallied statistic the bitset of fully called samples of the
+    /// record just fed to `site`.
+    pub fn called(&mut self, called: &[u64]) {
+        for s in &mut self.stats {
+            s.called(called);
+        }
+    }
+
+    /// Add the workers' totals.
+    pub fn absorb(&mut self, t: &SampleTally) {
+        for s in &mut self.stats {
+            s.absorb(t);
+        }
     }
 
     pub fn start(&mut self, sink: &mut dyn StatSink) -> io::Result<()> {

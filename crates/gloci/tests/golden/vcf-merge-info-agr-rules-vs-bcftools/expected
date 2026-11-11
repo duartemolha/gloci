@@ -1,0 +1,11 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##contig=<ID=1,length=1000>
+##INFO=<ID=RR,Number=R,Type=Integer,Description="r">
+##INFO=<ID=AF,Number=A,Type=Float,Description="a">
+##INFO=<ID=GG,Number=G,Type=Integer,Description="g">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	A	B
+1	100	.	A	C,G	.	.	AF=0.4,0.3;GG=1,2,3,2,5,3;RR=6,9,6	GT	0/1	2/1
+1	100	.	A	G	.	.	AF=0.2;GG=4,5,6;RR=3,4	GT	1/1	./.
+1	200	.	A	C,G	.	.	AF=0.1,0.5;RR=9,2,9	GT	0/1	2/2

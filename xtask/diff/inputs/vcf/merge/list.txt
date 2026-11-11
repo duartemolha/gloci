@@ -1,0 +1,3 @@
+input.vcf
+b.vcf
+c.vcf

@@ -22,7 +22,7 @@ pub struct InfoKey {
 
 /// The `KEY=value` pairs of a header line's `<...>` body, with quotes
 /// respected (a `Description` may hold commas and `=`).
-fn structured_pairs(line: &[u8]) -> Vec<(&[u8], &[u8])> {
+pub(crate) fn structured_pairs(line: &[u8]) -> Vec<(&[u8], &[u8])> {
     let Some(open) = line.iter().position(|&b| b == b'<') else {
         return Vec::new();
     };
@@ -48,14 +48,17 @@ fn structured_pairs(line: &[u8]) -> Vec<(&[u8], &[u8])> {
 }
 
 /// A header declaration: `ID`, `Type` and `Number`.
-struct Decl<'a> {
-    id: &'a [u8],
-    ty: Option<&'a [u8]>,
-    number: Option<&'a [u8]>,
+pub(crate) struct Decl<'a> {
+    pub(crate) id: &'a [u8],
+    pub(crate) ty: Option<&'a [u8]>,
+    pub(crate) number: Option<&'a [u8]>,
 }
 
 /// The header lines `##<kind>=<...>` with their `ID`, `Type` and `Number`.
-fn declarations<'a>(header: &'a [u8], kind: &'static [u8]) -> impl Iterator<Item = Decl<'a>> {
+pub(crate) fn declarations<'a>(
+    header: &'a [u8],
+    kind: &'static [u8],
+) -> impl Iterator<Item = Decl<'a>> {
     header.split(|&b| b == b'\n').filter_map(move |line| {
         let line = line.strip_suffix(b"\r").unwrap_or(line);
         let rest = line.strip_prefix(b"##")?.strip_prefix(kind)?;

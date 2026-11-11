@@ -382,7 +382,7 @@ fn text_header(format: Format, tsv: Option<&TsvColumns>, s: &Scanned) -> Option<
         (Format::Bcf, _) => return None,
         // Refused before indexing (`build_index_with`).
         (Format::Bam | Format::Cram | Format::Sam | Format::Fasta, _) => return None,
-        (Format::Psl | Format::Rmsk, _) => return None,
+        (Format::Psl | Format::Rmsk | Format::Bedpe, _) => return None,
     };
     let mut names = ReferenceSequenceNames::default();
     for n in &s.names {
@@ -571,6 +571,9 @@ write_fasta_index",
             format.name()
         )));
     }
+    if tsv.is_none() && format == Format::Bedpe {
+        return Err(bedpe_unindexed(&name).into());
+    }
     if tsv.is_none() && format.is_convert_only() {
         return Err(UsageError(format!(
             "{name} is {}, which `gloci index` does not index; convert it to BED first with \
@@ -712,4 +715,13 @@ grep -v '^'{comment} | LC_ALL=C sort -t $'\\t' -k{s},{s} -k{b},{b}n) | bgzip > {
         s = c.seq,
         b = c.begin,
     )
+}
+
+/// BEDPE is not a BED file: its first interval is columns 1-3, which the TSV
+/// index can describe once the user says so.
+pub(super) fn bedpe_unindexed(name: &str) -> UsageError {
+    UsageError(format!(
+        "{name} is BEDPE, which gloci does not index by format; index its first end with: \
+gloci index -s 1 -b 2 -e 3 --zero-based {name}"
+    ))
 }

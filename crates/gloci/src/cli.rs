@@ -594,6 +594,19 @@ Examples:
     /// BED6 row per block, cut at N; --split-deletions cuts at D as well.
     /// --score-tag NM takes the score from an integer tag (NM is bedtools
     /// -ed), and --cigar appends the CIGAR to BED6 rows.
+    /// --bedpe (bedtools bamtobed -bedpe) writes BEDPE instead, one row per
+    /// read name from alignments sorted by name (gloci sort -n; a coordinate
+    /// sorted file is exit 2): chrom1 start1 end1 chrom2 start2 end2 name
+    /// score strand1 strand2, from the primary READ1 and READ2 that are next
+    /// to each other (secondary and supplementary reads are ignored). An
+    /// unmapped mate is `. -1 -1` with strand `.`. The end that sorts first
+    /// by (chromosome as bytes, start) comes first; --mate1-first keeps READ1
+    /// first (bedtools -mate1). The score is the smaller MAPQ of two mapped
+    /// ends, else 0; with --score-tag it is the sum over the mapped ends
+    /// (--score-tag NM is bedtools -ed). A name with one mate is not written
+    /// and is counted in a warning. The output is .bedpe (or .bedpe.gz) and
+    /// feeds pair-intersect and pair-pair; --bedpe cannot be used with
+    /// --bed12, --blocks, --cigar, --color or --split-deletions.
     /// BED12 with --blocks gives one BED6 row per block; a line that is not
     /// valid BED12 (fewer than 12 columns, block counts that disagree, blocks
     /// out of order, a last block not ending at chromEnd) is an error, also
@@ -605,8 +618,8 @@ Examples:
 Examples:
   gloci convert calls.vcf.gz -o calls.bed
   gloci convert transcripts.bed --blocks -o exons.bed
-  gloci convert reads.bam --bed12 -o reads.bed
-  gloci convert reads.bam --blocks --score-tag NM --min-mapq 30")]
+  gloci convert reads.bam --bed12 --score-tag NM --min-mapq 30
+  gloci convert reads.byname.bam --bedpe -o pairs.bedpe")]
     Convert(ConvertArgs),
     /// Write the sequence under each interval (bedtools getfasta).
     ///
@@ -1030,6 +1043,136 @@ Examples:
   gloci vcf filter input.vcf --samples s1,s2 --min-dp 10 --recalc-ac -o out.vcf
   gloci vcf filter variants.bcf --types indel --biallelic")]
     Vcf(Box<VcfArgs>),
+    // P3b Task 2
+    /// Statistics of interval sets (bedtools jaccard).
+    #[command(after_long_help = "\
+Examples:
+  gloci stats jaccard -a peaks.bed -b genes.bed
+  gloci stats jaccard -a rep1.bed -b rep2.bed -f 0.5 -r")]
+    Stats(StatsArgs),
+    // P3b Task 7
+    /// BEDPE pairs by how their ends overlap B (bedtools pairtobed).
+    ///
+    /// A is a BEDPE file (chrom1 start1 end1 chrom2 start2 end2, then optionally name, score,
+    /// strand1, strand2 and more; it is never detected, so a BED file of pairs is read
+    /// as BEDPE only here). B is BED, GFF or VCF (a VCF as its footprints, --vcf-span) and is
+    /// loaded into memory; A streams in any order. Each present end of a pair is tested against B
+    /// as an interval under -f, -F, -r, -e, --min-bases, -s, -S and --inclusive-points (section
+    /// 4.3: a point is inside only strictly, and unknown strands never match -s or -S); -s and -S
+    /// use strand1 for end 1 and strand2 for end 2. An end whose chromosome is `.` overlaps
+    /// nothing.
+    ///
+    /// --type chooses what is written. Rows with a B are A's line, a tab and B's line (TSV);
+    /// the A-alone types write A's BEDPE line. either (default): A with each B hitting end 1, then
+    /// each hitting end 2 (a B hitting both ends is written twice). both: the same, when both ends
+    /// hit. xor: the same, when exactly one end hits. neither: A alone, when no end hits. notboth:
+    /// A with each B, when exactly one end hits, and A alone padded with a placeholder B (`.`,
+    /// `-1`, `-1` ...) when none does. ispan and ospan: A with each B overlapping the gap between
+    /// the ends, or the span from the first start to the last end; notispan and notospan: A alone
+    /// when none does. The span types need both ends on one chromosome (a pair with one end absent or the
+    /// ends on two chromosomes is left out, counted in one warning), an empty gap (touching or overlapping ends) hits nothing, and
+    /// -s/-S with them is an error. Hits of one A come in B's input order; output follows A's
+    /// order whatever the thread count. Output is TSV or BEDPE (-o x.bedpe, x.tsv, .gz for
+    /// BGZF); header lines of A are not written.
+    #[command(after_long_help = "\
+Examples:
+  gloci pair-intersect -a sv.bedpe -b genes.bed
+  gloci pair-intersect -a sv.bedpe -b exons.bed --type both -f 0.5
+  gloci pair-intersect -a sv.bedpe -b repeats.bed --type neither -o clean.bedpe
+  gloci pair-intersect -a sv.bedpe -b genes.bed --type xor -s -t 4")]
+    PairIntersect(PairIntersectArgs),
+    // P3b Task 8
+    /// BEDPE pairs by how their ends overlap the ends of the pairs of B (bedtools pairtopair).
+    ///
+    /// A and B are both BEDPE files (never detected). B is loaded into memory; A streams in any
+    /// order. Orientation 1 tests end 1 of A against end 1 of B and end 2 against end 2;
+    /// orientation 2 tests end 1 of A against end 2 of B and end 2 against end 1. --type both
+    /// (default): A with each B that overlaps on both ends in either orientation. either: A with
+    /// each B with any end overlapping an end of A. neither: A alone when no B end overlaps.
+    /// notboth: A alone when no B overlaps on both ends. A B is written once per A, as its line
+    /// reads (TSV: A's line, a tab, B's line), in B's input order; the A-alone types write A's
+    /// BEDPE line. Ends are tested under -f, -F, -r, -e, --min-bases and --inclusive-points
+    /// (section 4.3); strand is ignored unless -s or -S, which compare strand1 with strand1 and
+    /// strand2 with strand2 of the tested ends (unknown strands never match). -w, --left, --right
+    /// and --strand-window pad B's ends before testing (not with the thresholds). An end whose
+    /// chromosome is `.` overlaps nothing. --require-different-names drops a B named like A
+    /// (column 7); a pair without a name is then an error. Output follows A's order whatever the
+    /// thread count; -o x.bedpe, x.tsv, .gz for BGZF.
+    #[command(after_long_help = "\
+Examples:
+  gloci pair-pair -a sv1.bedpe -b sv2.bedpe
+  gloci pair-pair -a sv1.bedpe -b sv2.bedpe --type either -w 100
+  gloci pair-pair -a sv1.bedpe -b sv2.bedpe --type notboth -o unique.bedpe
+  gloci pair-pair -a sv.bedpe -b sv.bedpe --require-different-names -s -t 4")]
+    PairPair(PairPairArgs),
+    // P3b Task 5
+    /// Random intervals placed uniformly over a genome (bedtools random).
+    ///
+    /// Every valid start of every chromosome is equally likely: a chromosome
+    /// of L bases has L - l + 1 starts for intervals of length l, and one
+    /// shorter than l has none. Output is BED6 (chromosome, start, end, id,
+    /// length, strand) in id order, not sorted (pipe to gloci sort to sort).
+    /// -l longer than every chromosome is an error naming the longest one.
+    /// The output depends on --seed only, never on --threads; without --seed
+    /// a fresh seed is chosen and printed as a warning, so rerunning with it
+    /// reproduces the output. It is not bedtools' output for the same seed
+    /// (see docs/differences.md#rng-stream).
+    #[command(after_long_help = "\
+Examples:
+  gloci random -g hg38 -l 500 -n 100000 --seed 42 -o random.bed
+  gloci random -g genome.txt -l 1000 -n 1000 --seed 7 | gloci sort -g genome.txt - > sorted.bed
+  gloci random -g hg38 -n 10000 --seed 1 -o a.bed && gloci shift a.bed --by 5 -g hg38")]
+    Random(RandomArgs),
+    /// A random subset of the records of a file (bedtools sample; for
+    /// alignments see samtools view -s, gloci samples is a different command).
+    ///
+    /// Keeps exactly N records, chosen uniformly at random, and writes them
+    /// in input order (bedtools writes them in reservoir order; see
+    /// docs/differences.md#sample-order). With --strand + or -, only records
+    /// on that strand are sampled (a record of unknown strand never is).
+    /// Fewer than N records is an error that gives the count and writes
+    /// nothing. BED, bedGraph, GFF/GTF and VCF/BCF are read; --header keeps
+    /// the header lines of text formats and a VCF always keeps its header.
+    /// The kept records are held in memory. The output depends on --seed
+    /// only, never on --threads; without --seed a fresh seed is chosen and
+    /// printed as a warning. It is not bedtools' output for the same seed
+    /// (see docs/differences.md#rng-stream).
+    #[command(after_long_help = "\
+Examples:
+  gloci sample peaks.bed -n 1000 --seed 42 -o subset.bed
+  gloci sample peaks.bed -n 500 --strand + --seed 1
+  gloci sample calls.vcf.gz -n 10000 --seed 3 -O vcf.gz -o subset.vcf.gz")]
+    Sample(SampleArgs),
+    // P3b Task 6
+    /// Move every record to a random place in the genome (bedtools shuffle).
+    ///
+    /// Each record keeps its length, its other columns and its strand and goes
+    /// to a uniformly random place that keeps all of it inside the allowed
+    /// regions: --include regions (default: the whole genome) less --exclude
+    /// regions. (bedtools only puts the start inside an --include region; see
+    /// docs/differences.md#shuffle-placement.) --same-chrom keeps records on
+    /// their chromosome; --chrom-first picks a chromosome at random among those
+    /// with room, then a place on it, instead of weighting chromosomes by
+    /// their free length; --no-overlapping redraws a place that overlaps an
+    /// earlier output record, up to --max-tries times. A record with no place
+    /// is an error naming its line, length and the fix (nothing is written to a
+    /// file); --skip-unplaceable drops such records and warns with a count.
+    /// With --format bedpe each pair is moved: a pair on one chromosome keeps
+    /// its end lengths and gap, a pair on two places its ends independently,
+    /// and only --exclude, --seed, --max-tries and --skip-unplaceable apply.
+    /// Output is in input order and not sorted (pipe to gloci sort). WIG is read
+    /// as intervals and written as bedGraph; VCF and alignment input are refused
+    /// (gloci convert). --include/--exclude read
+    /// the names of -g, after --chrom-map (which renames them like the input). The output depends
+    /// on --seed only, never on --threads; without --seed a fresh seed is
+    /// chosen and printed as a warning. It is not bedtools' output for the same
+    /// seed (see docs/differences.md#rng-stream).
+    #[command(after_long_help = "\
+Examples:
+  gloci shuffle peaks.bed -g hg38 --exclude gaps.bed --seed 42 -o null.bed
+  gloci shuffle peaks.bed -g genome.txt --include mappable.bed --same-chrom --seed 7 | gloci sort -g genome.txt -
+  gloci shuffle loops.bedpe --format bedpe -g hg38 --exclude blacklist.bed --seed 1 -o null.bedpe")]
+    Shuffle(ShuffleArgs),
 }
 
 /// What `intersect` reports.
@@ -1350,6 +1493,221 @@ Examples:
   gloci vcf concat chr*.bcf -o all.bcf
   gloci vcf concat --naive chr1.vcf.gz chr2.vcf.gz -o all.vcf.gz")]
     Concat(VcfConcatArgs),
+    /// Split multi-allelic records into biallelic ones (bcftools norm -m-).
+    ///
+    /// A record with N ALT alleles becomes N records, one per ALT, in ALT
+    /// order; ID, QUAL and FILTER are copied. In each, the kept ALT is
+    /// allele 1 in GT and every other allele is 0 (missing stays missing;
+    /// phase and ploidy are kept). INFO and FORMAT fields follow their
+    /// declared Number: A keeps that ALT's value, R keeps REF's and that
+    /// ALT's, G keeps that ALT's genotype values (haploid and diploid);
+    /// other fields are copied. INFO and FORMAT keys the header does not
+    /// declare are dropped from split records. Alleles are not trimmed or
+    /// left-aligned. A record with one ALT is written as it is. A field
+    /// with the wrong number of values for its Number is an error (exit 1).
+    #[command(after_long_help = "\
+Examples:
+  gloci vcf split calls.vcf.gz -o calls.split.vcf.gz
+  gloci vcf split calls.bcf --types snps -o snps-split.bcf
+  gloci vcf split calls.vcf.gz | gloci subtract -a - -b known.vcf.gz --match alleles")]
+    Split(VcfSplitArgs),
+    // P3b Task 21
+    /// Left-align and normalise records against a reference (bcftools norm -f).
+    ///
+    /// Every indel, and every record whose REF and ALT share a first or last
+    /// base, is trimmed and moved to its leftmost position, as `bcftools
+    /// norm -f REF` does without -a: the bases all alleles end with are
+    /// removed (the alleles grow to the left from the reference when one
+    /// would be empty), then the bases they all start with. Records that
+    /// move are re-sorted within --window bases and written in position
+    /// order; INFO/END follows the new REF. REF is checked against the FASTA
+    /// first (--check-ref). The FASTA needs a .fai (and a .gzi for BGZF):
+    /// run `gloci index REF` once; gloci never builds one itself. Only
+    /// windows of the reference are read, never whole chromosomes. A record
+    /// with any symbolic ALT (`<DEL>`, `<DUP>`, ...) is not trimmed or moved.
+    /// --skip-invalid also skips records that fail --check-ref e. `bcftools
+    /// norm -a`, `-m+`, `--old-rec-tag` and `-N` are not available.
+    #[command(after_long_help = "\
+Examples:
+  gloci vcf norm calls.vcf.gz -f ref.fa -o calls.norm.vcf.gz
+  gloci vcf norm calls.bcf --fasta ref.fa --split -o calls.norm.bcf
+  gloci vcf norm calls.vcf.gz -f ref.fa --check-ref x --rm-dup exact | gloci vcf stats -
+  gloci vcf norm calls.vcf.gz -f ref.fa --check-ref s -o fixed.vcf.gz")]
+    Norm(VcfNormArgs),
+    // P3b Task 22
+    /// Transfer, remove and add fields of a VCF/BCF (bcftools annotate).
+    ///
+    /// --annotations SRC names a VCF/BCF, a tab-delimited file (plain or
+    /// BGZF) or a BED file; --columns says what to take from it. FILE and SRC
+    /// must both be sorted in one chromosome order (FILE's header contigs,
+    /// else --chrom-order); both are read as a stream, no index is needed
+    /// and neither is held in memory. A record of a VCF SRC annotates the
+    /// FILE record at the same CHROM and POS that shares an allele with it
+    /// (bcftools' default --pair-logic); a tab file with REF and ALT columns
+    /// matches the same way, one with CHROM,POS matches the records whose
+    /// REF span covers the position, and a BED file or CHROM,FROM,TO columns
+    /// match overlapping records (--min-overlap restricts them). --columns
+    /// takes ID, QUAL, FILTER, INFO/TAG (or TAG), NEW:=OLD, INFO (every tag
+    /// of a VCF SRC) and ^INFO/TAG lists; +TAG fills only missing values;
+    /// `.TAG` carries a tab file's missing values over; `-` skips a tab
+    /// column. A tag the FILE header lacks is declared from a VCF SRC, or
+    /// must come from --header-lines. --remove drops ID, QUAL, FILTER, INFO,
+    /// FORMAT (GT stays), INFO/TAG, FORMAT/TAG or FILTER/NAME, and their
+    /// header lines; ^ keeps only the listed tags of its kind. --set-id
+    /// writes IDs from %CHROM, %POS, %REF, %FIRST_ALT, %ID and %INFO/TAG
+    /// (a + prefix fills only missing IDs). --mark-sites +TAG flags the
+    /// records that have a match, -TAG those that do not. INFO values are
+    /// copied as written, not reformatted; Number=A and R values follow
+    /// their allele, not their position. Not available: -s/-S, -i/-e,
+    /// --rename-chrs, --merge-logic, --single-overlaps, --rename-annots,
+    /// FORMAT transfers.
+    #[command(after_long_help = "\
+Examples:
+  gloci vcf annotate calls.vcf.gz -a dbsnp.vcf.gz -c ID,INFO/RS -o calls.annot.vcf.gz
+  gloci vcf annotate calls.vcf.gz -a genes.bed.gz -c CHROM,FROM,TO,GENE --header-lines genes.hdr
+  gloci vcf annotate calls.vcf.gz -x INFO,FORMAT/PL --mark-sites +CLEAN
+  gloci vcf annotate calls.vcf.gz -I '+%CHROM:%POS:%REF:%FIRST_ALT' -o ids.vcf.gz")]
+    Annotate(VcfAnnotateArgs),
+    // P3b Task 23
+    /// Combine the samples of several VCF/BCF files (bcftools merge).
+    ///
+    /// The inputs must be sorted in one chromosome order (the first input's
+    /// ##contig lines, else --chrom-order); they are read as a stream, so no
+    /// index is needed and only the records of one position are held. Records
+    /// at the same CHROM and POS are merged as --merge says: ALT alleles are
+    /// united in input order (a shorter REF is extended to the longest), and
+    /// GT and Number=A, R and G FORMAT values are re-indexed to the merged
+    /// alleles. A sample absent from a record is ./. (or 0/0 with -0) in the
+    /// record's ploidy. QUAL is the largest, FILTER the union without PASS,
+    /// ID the distinct IDs joined with ;. Sample names must be distinct
+    /// (--force-samples renames a repeat to N:NAME). The header is the first
+    /// input's with the other inputs' new lines added. The inputs are open
+    /// together: merging more files than `ulimit -n` allows fails with the
+    /// operating system's error; raise the limit (ulimit -n 4096). bcftools
+    /// merge -g, -L, -r, -R, -T, --print-header and --use-header are not
+    /// available.
+    #[command(after_long_help = "\
+Examples:
+  gloci vcf merge a.vcf.gz b.vcf.gz c.vcf.gz -o cohort.vcf.gz
+  gloci vcf merge --file-list shards.txt -m none --force-samples -o cohort.bcf
+  gloci vcf merge a.bcf b.bcf -i DP:sum,AF:avg -0 | gloci vcf stats - --out-prefix qc
+  gloci vcf merge a.vcf.gz b.vcf.gz -f PASS,. -m id -o by-id.vcf.gz")]
+    Merge(VcfMergeArgs),
+    /// Compare the genotypes of two VCF/BCF files: per site, per sample and
+    /// as a matrix (vcftools --diff-site-discordance, --diff-indv-discordance,
+    /// --diff-discordance-matrix).
+    ///
+    /// Both files are read as sorted streams (the chromosome order of -g,
+    /// else A's ##contig lines, else --chrom-order; an out-of-order record is
+    /// exit 1 and names the file), so no index is needed. Sites are paired by
+    /// --match: alleles (the default) pairs records at one CHROM and POS that
+    /// share an ALT allele after trimming, position pairs as vcftools does (the
+    /// same POS with the same REF, where a REF of N or . takes the other's).
+    /// Discordance is counted over the sites in both files and the samples in
+    /// both files (the union by name, after --sample-map renames B's samples).
+    /// --thin needs both files to declare the same ##contig lines and no -g
+    /// (exit 2 otherwise). A and B are always read on threads of their own, plus the thread that
+    /// walks them, so -t 1 and -t 2 run three threads; more -t adds selection
+    /// workers up to -t in all.
+    /// A genotype is its unordered alleles, so 0/1 equals 1/0 and 0|1, and
+    /// 0/1 of A>C,G equals 0/2 of A>G,C; any missing allele makes it missing
+    /// (vcftools counts ./1 as called). --samples and --exclude-samples take
+    /// names present in either file and apply to each file that has them; a
+    /// name in neither is exit 2. With none of --site-discordance,
+    /// --sample-discordance and --discordance-matrix, all three files are
+    /// written, atomically and only when the whole run succeeds:
+    /// PREFIX.diff.sites (CHROM POS FILES MATCHING_ALLELES N_COMMON_CALLED
+    /// N_DISCORD DISCORDANCE, one row per site in both files, and per site in
+    /// one file with zeros and nan), PREFIX.diff.indv (every sample of the
+    /// union; one in a single file is 0, 0, nan) and
+    /// PREFIX.diff.discordance_matrix (biallelic pairs of the same site:
+    /// with --match alleles the same trimmed allele, so AT>A and ATG>AG
+    /// count; with --match position the same REF and ALT text; haploid
+    /// genotypes are not counted). Not available: vcftools
+    /// --diff-site and --diff-indv (use gloci intersect and subtract --match
+    /// alleles for sites, and the #CHROM lines for samples).
+    #[command(after_long_help = "\
+Examples:
+  gloci vcf compare truth.vcf.gz calls.vcf.gz --out-prefix cmp
+  gloci vcf compare a.bcf b.bcf --out-prefix cmp --sample-discordance --match position
+  gloci vcf compare a.vcf.gz b.vcf.gz --out-prefix cmp --sample-map b-to-a.txt --samples s1,s2 --min-dp 10")]
+    Compare(Box<VcfCompareArgs>),
+}
+
+/// `vcf compare --match`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum CompareMatchArg {
+    Alleles,
+    Position,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct VcfCompareArgs {
+    /// The first VCF or BCF file (`-` for stdin), sorted.
+    #[arg(value_name = "A")]
+    pub a: String,
+    /// The second VCF or BCF file, sorted in the same chromosome order (`-`
+    /// is allowed for one of the two).
+    #[arg(value_name = "B")]
+    pub b: String,
+
+    /// Applies to both files: samples, genotype masks, site filters,
+    /// expressions and regions.
+    #[command(flatten)]
+    pub select: VcfSelectArgs,
+
+    /// Prefix of the output files, PREFIX.diff.sites, PREFIX.diff.indv and
+    /// PREFIX.diff.discordance_matrix. An existing file of the same name is
+    /// replaced.
+    #[arg(long, value_name = "PREFIX", required = true)]
+    pub out_prefix: PathBuf,
+
+    /// How sites of the two files are paired: alleles (the same CHROM and
+    /// POS and a shared ALT allele; each record of A takes the first unmatched
+    /// match in B) or position (vcftools: the same POS and REF).
+    #[arg(
+        long = "match",
+        value_enum,
+        default_value = "alleles",
+        value_name = "RULE"
+    )]
+    pub match_rule: CompareMatchArg,
+
+    /// Rename samples of B to their names in A: two columns, the name in B
+    /// then the name in A, whitespace-separated, `#` comments allowed
+    /// (vcftools --diff-indv-map). A sample of B the file does not name keeps
+    /// its name.
+    #[arg(long, visible_alias = "diff-indv-map", value_name = "FILE")]
+    pub sample_map: Option<PathBuf>,
+
+    /// Write PREFIX.diff.sites: per site, the common called genotypes and
+    /// the discordant ones (vcftools --diff-site-discordance).
+    #[arg(long, visible_alias = "diff-site-discordance")]
+    pub site_discordance: bool,
+    /// Write PREFIX.diff.indv: per sample, the same over the shared sites
+    /// (vcftools --diff-indv-discordance).
+    #[arg(long, visible_alias = "diff-indv-discordance")]
+    pub sample_discordance: bool,
+    /// Write PREFIX.diff.discordance_matrix: genotype of B (rows) by genotype
+    /// of A (columns), 0/0, 0/1, 1/1 and ./. (vcftools
+    /// --diff-discordance-matrix).
+    #[arg(long, visible_alias = "diff-discordance-matrix")]
+    pub discordance_matrix: bool,
+
+    /// Which footprint a VCF record covers, which only matters for --region;
+    /// the default ref accepts symbolic ALTs without INFO/END.
+    #[arg(long, value_enum, default_value = "ref", value_name = "MODE")]
+    pub vcf_span: VcfSpan,
+    #[command(flatten)]
+    pub genome: GenomeArg,
+    #[command(flatten)]
+    pub chrom_order: ChromOrderArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -2426,6 +2784,14 @@ pub struct ConvertArgs {
     /// implies --blocks unless --bed12 is given.
     #[arg(long)]
     pub split_deletions: bool,
+    /// BAM, CRAM, SAM sorted by name: write BEDPE pairs of READ1 and READ2
+    /// instead of BED (bedtools bamtobed -bedpe).
+    #[arg(long, conflicts_with_all = ["bed12", "blocks", "cigar", "color", "split_deletions"])]
+    pub bedpe: bool,
+    /// With --bedpe: keep READ1 as the first end instead of putting the end
+    /// that sorts first there (bedtools bamtobed -mate1).
+    #[arg(long, requires = "bedpe")]
+    pub mate1_first: bool,
     #[command(flatten)]
     pub align: AlignArgs,
     #[command(flatten)]
@@ -3066,6 +3432,390 @@ pub struct UnsortedArg {
     pub unsorted: bool,
 }
 
+// P3b Task 1
+/// `--seed` for the commands that draw random numbers (D143).
+#[derive(Args, Debug, Clone, Copy)]
+pub struct SeedArg {
+    /// Seed for the random stream, so a run can be reproduced (default: a fresh seed, which is
+    /// printed as a warning).
+    #[arg(long, value_name = "N")]
+    pub seed: Option<u64>,
+}
+
+// P3b Task 2
+#[derive(Args, Debug, Clone)]
+pub struct StatsArgs {
+    #[command(subcommand)]
+    pub command: StatsCommand,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum StatsCommand {
+    /// The Jaccard similarity of two interval sets (bedtools jaccard).
+    ///
+    /// Each input is first merged as `gloci merge` does (overlapping and
+    /// bookended intervals join; per strand with -s or -S). The intersection
+    /// is the sum of the overlap bases of every pair (merged A, merged B) that
+    /// passes -f, -F, -r, -e, --min-bases, -s, -S and --inclusive-points
+    /// (measured on the merged intervals), the union is the bases covered by
+    /// either input, and jaccard = intersection / union divided in single
+    /// precision and printed as %g (six significant digits; `nan` when both
+    /// are empty). n_intersections counts the accepted pairs. Output is a
+    /// header line and one row: intersection, union, jaccard,
+    /// n_intersections. A point (zero-length interval) covers no bases, so
+    /// it adds nothing to the intersection or the union, but a point inside a
+    /// merged interval of the other input counts as an intersection (bedtools
+    /// widens a point to two bases; see docs/differences.md). Inputs must be
+    /// sorted (--sort sorts them; --unsorted does not apply); a VCF is read
+    /// as its footprints (--vcf-span); BAM, CRAM and SAM reads are read as
+    /// their reference spans.
+    #[command(after_long_help = "\
+Examples:
+  gloci stats jaccard -a peaks.bed -b genes.bed
+  gloci stats jaccard -a rep1.bed -b rep2.bed -f 0.5 -r
+  gloci stats jaccard -a calls.vcf.gz -b regions.bed --vcf-span ref
+  gloci stats jaccard -a unsorted-a.bed -b unsorted-b.bed --sort")]
+    Jaccard(JaccardArgs),
+    // P3b Task 3
+    /// Fisher's exact test of the overlap of two interval sets (bedtools fisher).
+    ///
+    /// Counts the records of A and B (nA, nB), their total lengths (LA, LB)
+    /// and the pairs that overlap under -f, -F, -r, -e, --min-bases, -s, -S
+    /// and --inclusive-points (n11); with --merge-overlaps each input is
+    /// merged first. The genome size G is the sum of the -g lengths (so -g is
+    /// required and must have lengths) less the merged length of the --exclude
+    /// BED. As bedtools does, the table is n11, n12 = nA - n11, n21 = nB -
+    /// n11 and n22 = N - n11 - n12 - n21, where N, the number of possible
+    /// intervals, is estimated as G / (2 + LA/nA + LB/nB) (rounded down, and
+    /// never fewer than n11 + n12 + n21). The report is bedtools' text:
+    /// the table in `#` lines, then the left, right and two-tail p-values of
+    /// klib's exact test (%.5g) and the odds ratio (%.3f, `inf` or `-nan`).
+    /// Inputs must be sorted in -g's order (--sort sorts A, B and the exclude
+    /// file); a VCF is read as its footprints (--vcf-span).
+    #[command(after_long_help = "\
+Examples:
+  gloci stats fisher -a peaks.bed -b genes.bed -g hg38
+  gloci stats fisher -a peaks.bed -b genes.bed -g sizes.genome --merge-overlaps
+  gloci stats fisher -a peaks.bed -b genes.bed -g hg38 --exclude gaps.bed -f 0.5
+  gloci stats fisher -a unsorted-a.bed -b unsorted-b.bed -g hg38 --sort")]
+    Fisher(FisherArgs),
+    // P3b Task 4
+    /// The relative distance of A midpoints to B midpoints (bedtools reldist).
+    ///
+    /// For each A interval, finds the two B midpoints that enclose A's
+    /// midpoint (midpoint = floor of (start + end) / 2) and takes the distance
+    /// to the nearer one over the distance between the two, from 0 (A sits on
+    /// a B midpoint) to 0.5 (halfway). The summary bins the values by
+    /// floor(rel * 100) (so 0.29 lands in bin 0.28, as in bedtools) and prints
+    /// reldist, count, total and fraction. An A midpoint before the first or
+    /// after the last B midpoint of its chromosome, or on a chromosome with
+    /// fewer than two B midpoints, is left out, as bedtools does. With
+    /// --detail each qualifying A record is printed with its value (%.3f)
+    /// appended. A VCF is read as its footprints (--vcf-span). Inputs must be
+    /// sorted (--sort sorts them; --unsorted loads every B midpoint instead).
+    #[command(after_long_help = "\
+Examples:
+  gloci stats reldist -a peaks.bed -b genes.bed
+  gloci stats reldist -a peaks.bed -b genes.bed --detail
+  gloci stats reldist -a unsorted-a.bed -b unsorted-b.bed --sort
+  gloci stats reldist -a peaks.bed -b genes.bed --unsorted")]
+    Reldist(ReldistArgs),
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct JaccardArgs {
+    #[command(flatten)]
+    pub a: AArg,
+    /// B: the file to compare A with (`-` for stdin).
+    #[arg(short = 'b', long = "b", value_name = "FILE", required = true)]
+    pub b: String,
+    /// B's format, overriding detection: bed, bedgraph, gff, vcf or bcf; bam, cram or sam
+    /// (alignments are read as intervals, as `intersect` reads them).
+    #[arg(long, value_name = "FMT")]
+    pub b_format: Option<String>,
+    /// Minimum fraction of a merged A interval covered, e.g. 0.5 or 50% (4.3: fractions).
+    #[arg(short = 'f', long, value_name = "FRAC", value_parser = parse_fraction)]
+    pub min_frac_a: Option<gloci_core::Fraction>,
+    /// Minimum fraction of a merged B interval covered, e.g. 0.5 or 50% (4.3: fractions).
+    #[arg(short = 'F', long, value_name = "FRAC", value_parser = parse_fraction)]
+    pub min_frac_b: Option<gloci_core::Fraction>,
+    /// Require both fractions to be met (4.3: -r).
+    #[arg(short = 'r', long)]
+    pub reciprocal: bool,
+    /// Require either fraction to be met (4.3: -e).
+    #[arg(short = 'e', long)]
+    pub either: bool,
+    /// Minimum number of overlapping bases (4.3: --min-bases).
+    #[arg(long, value_name = "N")]
+    pub min_bases: Option<u64>,
+    /// Merge each strand apart and count only overlaps on the same strand; unknown strands
+    /// never match.
+    #[arg(short = 's', long = "same-strand", conflicts_with = "opposite_strand")]
+    pub same_strand: bool,
+    /// Merge each strand apart and count only overlaps on opposite strands; unknown strands
+    /// never match.
+    #[arg(short = 'S', long = "opposite-strand")]
+    pub opposite_strand: bool,
+    /// A point on the edge of an interval overlaps it (4.3: points).
+    #[arg(long)]
+    pub inclusive_points: bool,
+    #[command(flatten)]
+    pub sort: RelationSortArg,
+    #[command(flatten)]
+    pub genome: GenomeArg,
+    #[command(flatten)]
+    pub chrom_order: ChromOrderArg,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub align: AlignArgs,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+// P3b Task 3
+#[derive(Args, Debug, Clone)]
+pub struct FisherArgs {
+    #[command(flatten)]
+    pub a: AArg,
+    /// B: the file to compare A with (`-` for stdin).
+    #[arg(short = 'b', long = "b", value_name = "FILE", required = true)]
+    pub b: String,
+    /// B's format, overriding detection: bed, bedgraph, gff, vcf or bcf; bam, cram or sam
+    /// (alignments are read as intervals, as `intersect` reads them).
+    #[arg(long, value_name = "FMT")]
+    pub b_format: Option<String>,
+    /// Genome with chromosome lengths: a built-in genome such as hg38 (see gloci genomes), or a
+    /// .genome, .fai, .dict, VCF/BCF or BAM header file. Its lengths add up to the genome size.
+    #[arg(short, long, value_name = "NAME|FILE", required = true)]
+    pub genome: String,
+    /// Merge overlapping and bookended intervals of each input before counting (bedtools -m).
+    #[arg(short = 'm', long)]
+    pub merge_overlaps: bool,
+    /// Leave the merged length of this sorted BED out of the genome size (bedtools -exclude).
+    #[arg(long, value_name = "BED")]
+    pub exclude: Option<String>,
+    /// Minimum fraction of an A interval covered, e.g. 0.5 or 50% (4.3: fractions).
+    #[arg(short = 'f', long, value_name = "FRAC", value_parser = parse_fraction)]
+    pub min_frac_a: Option<gloci_core::Fraction>,
+    /// Minimum fraction of a B interval covered, e.g. 0.5 or 50% (4.3: fractions).
+    #[arg(short = 'F', long, value_name = "FRAC", value_parser = parse_fraction)]
+    pub min_frac_b: Option<gloci_core::Fraction>,
+    /// Require both fractions to be met (4.3: -r).
+    #[arg(short = 'r', long)]
+    pub reciprocal: bool,
+    /// Require either fraction to be met (4.3: -e).
+    #[arg(short = 'e', long)]
+    pub either: bool,
+    /// Minimum number of overlapping bases (4.3: --min-bases).
+    #[arg(long, value_name = "N")]
+    pub min_bases: Option<u64>,
+    /// Count only overlaps on the same strand; with --merge-overlaps each strand merges apart
+    /// and unknown strands never match.
+    #[arg(short = 's', long = "same-strand", conflicts_with = "opposite_strand")]
+    pub same_strand: bool,
+    /// Count only overlaps on opposite strands (bedtools -S needs a + or - here; gloci's is a
+    /// flag, as in the other commands).
+    #[arg(short = 'S', long = "opposite-strand")]
+    pub opposite_strand: bool,
+    /// A point on the edge of an interval overlaps it (4.3: points).
+    #[arg(long)]
+    pub inclusive_points: bool,
+    #[command(flatten)]
+    pub sort: RelationSortArg,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub align: AlignArgs,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+/// What `pair-intersect` reports (bedtools `-type`).
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum PairTypeArg {
+    /// A with each B hitting either end (default).
+    Either,
+    /// A alone when neither end hits.
+    Neither,
+    /// A with each B, when both ends hit.
+    Both,
+    /// A with each B, when exactly one end hits.
+    Xor,
+    /// A with each B when one end hits, A alone (padded) when none does.
+    Notboth,
+    /// A with each B hitting the gap between the ends.
+    Ispan,
+    /// A with each B hitting the span from the first start to the last end.
+    Ospan,
+    /// A alone when nothing hits the gap between the ends.
+    Notispan,
+    /// A alone when nothing hits the outer span.
+    Notospan,
+}
+
+// P3b Task 7
+#[derive(Args, Debug, Clone)]
+#[command(mut_arg("split", |a| a.hide(true)))]
+pub struct PairIntersectArgs {
+    /// A: the BEDPE file whose pairs are reported (`-` for stdin).
+    #[arg(short = 'a', long = "a", value_name = "FILE", required = true)]
+    pub a: String,
+    /// B: the BED, GFF or VCF file the ends are tested against (`-` for stdin).
+    #[arg(short = 'b', long = "b", value_name = "FILE", required = true)]
+    pub b: String,
+    /// B's format, overriding detection: bed, bedgraph, gff, vcf or bcf (B does not read
+    /// alignments; convert them to BED first).
+    #[arg(long, value_name = "FMT")]
+    pub b_format: Option<String>,
+    /// What to report: either, neither, both, xor, notboth, ispan, ospan, notispan or notospan.
+    #[arg(
+        long = "type",
+        value_enum,
+        default_value = "either",
+        value_name = "TYPE"
+    )]
+    pub kind: PairTypeArg,
+    #[command(flatten)]
+    pub o: OverlapArgs,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+/// What `pair-pair` reports (bedtools `-type`).
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum PairPairTypeArg {
+    /// A alone when no end of A overlaps an end of B.
+    Neither,
+    /// A with each B having an end that overlaps an end of A.
+    Either,
+    /// A with each B overlapping on both ends, in either orientation (default).
+    Both,
+    /// A alone when no B overlaps on both ends.
+    Notboth,
+}
+
+// P3b Task 8
+#[derive(Args, Debug, Clone)]
+#[command(mut_arg("split", |a| a.hide(true)))]
+pub struct PairPairArgs {
+    /// A: the BEDPE file whose pairs are reported (`-` for stdin).
+    #[arg(short = 'a', long = "a", value_name = "FILE", required = true)]
+    pub a: String,
+    /// B: the BEDPE file the pairs of A are tested against (`-` for stdin).
+    #[arg(short = 'b', long = "b", value_name = "FILE", required = true)]
+    pub b: String,
+    /// What to report: neither, either, both or notboth.
+    #[arg(long = "type", value_enum, default_value = "both", value_name = "TYPE")]
+    pub kind: PairPairTypeArg,
+    #[command(flatten)]
+    pub o: OverlapArgs,
+    #[command(flatten)]
+    pub w: WindowArgs,
+    /// Drop a B named like A (column 7), as bedtools -rdn; every pair then needs a name.
+    #[arg(long)]
+    pub require_different_names: bool,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+// P3b Task 4
+#[derive(Args, Debug, Clone)]
+pub struct ReldistArgs {
+    #[command(flatten)]
+    pub a: AArg,
+    /// B: the file to compare A with (`-` for stdin).
+    #[arg(short = 'b', long = "b", value_name = "FILE", required = true)]
+    pub b: String,
+    /// B's format, overriding detection: bed, bedgraph, gff, vcf or bcf; bam, cram or sam
+    /// (alignments are read as intervals, as `intersect` reads them).
+    #[arg(long, value_name = "FMT")]
+    pub b_format: Option<String>,
+    /// Print each A record with its relative distance (%.3f) appended, instead of the summary.
+    #[arg(long)]
+    pub detail: bool,
+    #[command(flatten)]
+    pub sort: RelationSortArg,
+    #[command(flatten)]
+    pub u: UnsortedArg,
+    #[command(flatten)]
+    pub genome: GenomeArg,
+    #[command(flatten)]
+    pub chrom_order: ChromOrderArg,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub align: AlignArgs,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+impl FisherArgs {
+    pub fn criteria(&self) -> gloci_core::OverlapCriteria {
+        OverlapArgs {
+            min_frac_a: self.min_frac_a,
+            min_frac_b: self.min_frac_b,
+            reciprocal: self.reciprocal,
+            either: self.either,
+            min_bases: self.min_bases,
+            same_strand: self.same_strand,
+            opposite_strand: self.opposite_strand,
+            split: false,
+            inclusive_points: self.inclusive_points,
+        }
+        .criteria()
+    }
+}
+
+impl JaccardArgs {
+    pub fn criteria(&self) -> gloci_core::OverlapCriteria {
+        OverlapArgs {
+            min_frac_a: self.min_frac_a,
+            min_frac_b: self.min_frac_b,
+            reciprocal: self.reciprocal,
+            either: self.either,
+            min_bases: self.min_bases,
+            same_strand: self.same_strand,
+            opposite_strand: self.opposite_strand,
+            split: false,
+            inclusive_points: self.inclusive_points,
+        }
+        .criteria()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3223,4 +3973,438 @@ mod tests {
         assert!(parse(&["-s", "-S"]).is_err());
         assert!(parse(&["-S"]).is_ok());
     }
+}
+
+// P3b Task 20
+
+/// Which multi-allelic records `vcf split` splits.
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum SplitTypesArg {
+    Snps,
+    Indels,
+    Both,
+    Any,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct VcfSplitArgs {
+    /// Input VCF or BCF (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// Split only records with an ALT of this type: snps (a record with a
+    /// SNP ALT), indels (an insertion or deletion ALT), both or any (every
+    /// multi-allelic record; bcftools splits both and any alike). A split
+    /// record is split into all its ALTs; other records are written as they
+    /// are.
+    #[arg(long, value_enum, default_value = "any", value_name = "TYPES")]
+    pub types: SplitTypesArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+// P3b Task 21
+
+/// `--check-ref` modes (bcftools `-c`).
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum CheckRefArg {
+    /// Fail on the first disagreement (the default).
+    #[value(name = "e")]
+    E,
+    /// Warn and write the record as it is.
+    #[value(name = "w")]
+    W,
+    /// Drop the record.
+    #[value(name = "x")]
+    X,
+    /// Set REF from the FASTA (an ALT that equals it is swapped into REF).
+    #[value(name = "s")]
+    S,
+}
+
+/// `--rm-dup` types (bcftools `-d`).
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum RmDupArg {
+    Snps,
+    Indels,
+    Both,
+    All,
+    Exact,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct VcfNormArgs {
+    /// Input VCF or BCF (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// Reference FASTA, with its .fai (and .gzi if BGZF-compressed); create
+    /// them with `gloci index REF`.
+    #[arg(short = 'f', long, visible_alias = "fasta-ref", value_name = "REF")]
+    pub fasta: PathBuf,
+    /// Split multi-allelic records first, as `bcftools norm -m-TYPES -f`:
+    /// snps, indels, both or any (the default; bcftools splits both and any
+    /// alike). The same split as `gloci vcf split`.
+    #[arg(
+        long,
+        value_enum,
+        num_args = 0..=1,
+        require_equals = true,
+        default_missing_value = "any",
+        value_name = "TYPES"
+    )]
+    pub split: Option<SplitTypesArg>,
+    /// What to do with a record whose REF is not the FASTA's (or has a base
+    /// other than ACGTN, or an ALT equal to REF): e (fail, the default), w
+    /// (warn, write the record as it is), x (drop it) or s (set REF from the
+    /// FASTA; an ALT that equals the FASTA is swapped into REF and GT is
+    /// recoded).
+    #[arg(
+        short = 'c',
+        long,
+        value_enum,
+        default_value = "e",
+        value_name = "MODE"
+    )]
+    pub check_ref: CheckRefArg,
+    /// Remove duplicate records after normalising, keeping the first: snps
+    /// (a SNP or MNP record at the position of a kept one), indels, both
+    /// (each type on its own), all (any record at a kept record's position)
+    /// or exact (the same REF and ALT alleles).
+    #[arg(short = 'd', long, value_enum, value_name = "TYPES")]
+    pub rm_dup: Option<RmDupArg>,
+    /// Records that move left are re-sorted within this many bases (bcftools
+    /// --site-win). A window smaller than the largest shift can order records
+    /// differently from bcftools; the default 1000 matches it.
+    #[arg(short = 'w', long, default_value = "1000", value_name = "BASES", value_parser = clap::value_parser!(u64).range(1..))]
+    pub window: u64,
+    // bcftools norm options gloci does not offer: each is a usage error that
+    // names the option.
+    #[arg(short = 'a', long = "atomize", hide = true)]
+    pub atomize: bool,
+    #[arg(
+        short = 'm',
+        long = "multiallelics",
+        hide = true,
+        value_name = "TYPE",
+        allow_hyphen_values = true
+    )]
+    pub multiallelics: Option<String>,
+    #[arg(long = "old-rec-tag", hide = true, value_name = "STR")]
+    pub old_rec_tag: Option<String>,
+    #[arg(short = 'N', long = "do-not-normalize", hide = true)]
+    pub do_not_normalize: bool,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+// P3b Task 22
+
+#[derive(Args, Debug, Clone)]
+pub struct VcfAnnotateArgs {
+    /// Input VCF or BCF (`-` for stdin), sorted.
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// The annotation source: a VCF/BCF, a tab-delimited file (plain or
+    /// BGZF) or a BED file, sorted in FILE's chromosome order. A tab file
+    /// needs --columns; a BED file is a tab file named *.bed, *.bed.gz or
+    /// *.bed.bgz (0-based starts).
+    #[arg(short = 'a', long, value_name = "SRC")]
+    pub annotations: Option<String>,
+    /// What to take from --annotations, comma-separated: ID, QUAL, FILTER,
+    /// INFO/TAG or TAG, NEW:=OLD (a VCF source's OLD stored as NEW), INFO
+    /// (every tag of a VCF source), ^INFO/TAG (INFO without it), +TAG (only
+    /// fill missing values), .TAG (carry a tab file's missing values) and
+    /// `-` (skip a tab column). A tab file's list also names its columns:
+    /// CHROM, POS (or FROM and TO) and optionally REF and ALT, in file order,
+    /// e.g. CHROM,POS,REF,ALT,ID,INFO/AF.
+    #[arg(short = 'c', long, value_name = "LIST", allow_hyphen_values = true)]
+    pub columns: Option<String>,
+    /// Remove, comma-separated: ID, QUAL, FILTER, INFO, FORMAT (GT is kept),
+    /// INFO/TAG, FORMAT/TAG, FILTER/NAME, or ##key for a header line. A
+    /// leading ^ (^INFO/TAG, ^FORMAT/TAG, ^FILTER/NAME) keeps only the
+    /// listed tags of that kind and removes the rest. Their header lines go
+    /// too. Removals run before anything is transferred.
+    #[arg(short = 'x', long, value_name = "LIST")]
+    pub remove: Option<String>,
+    /// Append the header lines of FILE (## lines such as ##INFO=<...>) to the
+    /// header; they can declare a tag --columns then uses.
+    #[arg(long, value_name = "FILE")]
+    pub header_lines: Option<PathBuf>,
+    /// Write IDs from a format of %CHROM, %POS, %REF, %FIRST_ALT, %ID and
+    /// %INFO/TAG; a leading + sets only missing IDs, e.g.
+    /// '+%CHROM:%POS:%REF:%FIRST_ALT'. A tag name is letters, digits, _ and
+    /// . only: write %POS:%REF, not %POS_%REF.
+    #[arg(
+        short = 'I',
+        long,
+        value_name = "[+]FORMAT",
+        allow_hyphen_values = true
+    )]
+    pub set_id: Option<String>,
+    /// Add INFO/TAG as a flag to the records that have a match in
+    /// --annotations (+TAG, or TAG) or that have none (-TAG); without
+    /// --annotations every record gets it.
+    #[arg(short = 'm', long, value_name = "[+-]TAG", allow_hyphen_values = true)]
+    pub mark_sites: Option<String>,
+    /// For a BED or FROM,TO annotation file: the fraction of the annotation
+    /// (ANN), of the record (:VCF) or of both (ANN:VCF) that must overlap.
+    #[arg(long, value_name = "ANN[:VCF]")]
+    pub min_overlap: Option<String>,
+    #[command(flatten)]
+    pub chrom_order: ChromOrderArg,
+    // bcftools annotate options gloci does not offer: each is a usage error
+    // that names the option.
+    #[arg(long = "rename-chrs", hide = true, value_name = "FILE")]
+    pub rename_chrs: Option<String>,
+    #[arg(short = 's', long = "samples", hide = true, value_name = "LIST")]
+    pub samples: Option<String>,
+    #[arg(short = 'S', long = "samples-file", hide = true, value_name = "FILE")]
+    pub samples_file: Option<String>,
+    #[arg(short = 'i', long = "include", hide = true, value_name = "EXPR")]
+    pub include: Option<String>,
+    #[arg(short = 'e', long = "exclude", hide = true, value_name = "EXPR")]
+    pub exclude: Option<String>,
+    #[arg(short = 'l', long = "merge-logic", hide = true, value_name = "LOGIC")]
+    pub merge_logic: Option<String>,
+    #[arg(long = "single-overlaps", hide = true)]
+    pub single_overlaps: bool,
+    #[arg(long = "rename-annots", hide = true, value_name = "FILE")]
+    pub rename_annots: Option<String>,
+    #[arg(long = "pair-logic", hide = true, value_name = "LOGIC")]
+    pub pair_logic: Option<String>,
+    #[arg(short = 'C', long = "columns-file", hide = true, value_name = "FILE")]
+    pub columns_file: Option<String>,
+    #[arg(short = 'H', long = "header-line", hide = true, value_name = "STR")]
+    pub header_line: Option<String>,
+    #[arg(short = 'k', long = "keep-sites", hide = true)]
+    pub keep_sites: bool,
+    #[arg(short = 'r', long = "regions", hide = true, value_name = "REGION")]
+    pub regions: Option<String>,
+    #[arg(short = 'R', long = "regions-file", hide = true, value_name = "FILE")]
+    pub regions_file: Option<String>,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+// P3b Task 23
+
+/// `bcftools merge -m`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum MergeModeArg {
+    None,
+    Snps,
+    Indels,
+    Both,
+    All,
+    Id,
+}
+
+/// `bcftools merge -F`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum FilterLogicArg {
+    /// Records are merged with all their filters (`+`).
+    #[value(name = "+")]
+    All,
+    /// A PASS in any input removes the filters (`x`).
+    #[value(name = "x")]
+    Pass,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct VcfMergeArgs {
+    /// Input VCF or BCF files (two or more; `-` is not allowed), each
+    /// sorted in the same chromosome order. Or use --file-list.
+    #[arg(value_name = "FILE")]
+    pub files: Vec<String>,
+    /// Read the input file names from FILE, one per line (bcftools -l).
+    #[arg(short = 'l', long, value_name = "FILE")]
+    pub file_list: Option<PathBuf>,
+    /// Which records at one position are merged into one (bcftools -m):
+    /// none (only records with the same alleles), snps, indels, both (SNPs
+    /// together and indels together; the default), all (any records) or id
+    /// (records with the same ID).
+    #[arg(
+        short = 'm',
+        long,
+        value_enum,
+        default_value = "both",
+        value_name = "MODE"
+    )]
+    pub merge: MergeModeArg,
+    /// Rename a repeated sample name to N:NAME (N is the number of its
+    /// file) instead of failing.
+    #[arg(long)]
+    pub force_samples: bool,
+    /// How INFO tags are merged, TAG:METHOD with METHOD one of sum, avg,
+    /// min, max, join, comma-separated; `-` for none. The default is
+    /// DP:sum,DP4:sum (and AC:sum,AN:sum when there are no samples; with
+    /// samples AC and AN are recomputed from the merged genotypes). A
+    /// tag with no rule takes the first record's value; Number=A and R tags
+    /// are re-indexed to the merged alleles.
+    #[arg(short = 'i', long, value_name = "RULES", allow_hyphen_values = true)]
+    pub info_rules: Option<String>,
+    /// Fill a sample absent from a record with 0/0 instead of ./. (bcftools -0).
+    #[arg(short = '0', long)]
+    pub missing_to_ref: bool,
+    /// Skip, before merging, the records whose FILTER has none of these
+    /// names (comma-separated; `.` is a missing FILTER, PASS is PASS).
+    #[arg(short = 'f', long, value_name = "LIST")]
+    pub apply_filters: Option<String>,
+    /// What to do with the FILTER of merged records: + (all filters kept,
+    /// PASS dropped when another filter is set; the default) or x (PASS in
+    /// any input makes the result PASS).
+    #[arg(
+        short = 'F',
+        long,
+        value_enum,
+        default_value = "+",
+        value_name = "LOGIC"
+    )]
+    pub filter_logic: FilterLogicArg,
+    /// Accepted and ignored: gloci merges sorted inputs as a stream and
+    /// never needs an index (bcftools merge needs one unless --no-index).
+    #[arg(long, alias = "force-no-index", hide = true)]
+    pub no_index: bool,
+    /// Accepted: merge a single input (bcftools merge --force-single).
+    #[arg(long, hide = true)]
+    pub force_single: bool,
+    // bcftools merge options gloci does not offer: each is a usage error
+    // that names the option.
+    #[arg(short = 'g', long = "gvcf", hide = true, value_name = "REF")]
+    pub gvcf: Option<String>,
+    #[arg(short = 'L', long = "local-alleles", hide = true, value_name = "N")]
+    pub local_alleles: Option<String>,
+    #[arg(long = "print-header", hide = true)]
+    pub print_header: bool,
+    #[arg(long = "use-header", hide = true, value_name = "FILE")]
+    pub use_header: Option<String>,
+    #[arg(short = 'r', long = "regions", hide = true, value_name = "REGION")]
+    pub regions: Option<String>,
+    #[arg(short = 'R', long = "regions-file", hide = true, value_name = "FILE")]
+    pub regions_file: Option<String>,
+    #[arg(short = 'T', long = "targets-file", hide = true, value_name = "FILE")]
+    pub targets_file: Option<String>,
+    #[arg(long = "merge-logic", hide = true, value_name = "LOGIC")]
+    pub merge_logic: Option<String>,
+    #[arg(short = 'M', long = "missing-rules", hide = true, value_name = "RULES")]
+    pub missing_rules: Option<String>,
+    #[arg(long = "regions-overlap", hide = true, value_name = "0|1|2")]
+    pub regions_overlap: Option<String>,
+    #[command(flatten)]
+    pub chrom_order: ChromOrderArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+// P3b Task 5
+#[derive(Args, Debug, Clone)]
+pub struct RandomArgs {
+    /// Chromosomes and lengths: a built-in genome such as hg38 (see gloci genomes), or a
+    /// .genome, .fai or .dict file.
+    #[arg(short, long, value_name = "NAME|FILE", required = true)]
+    pub genome: String,
+    /// Length of each interval in bases.
+    #[arg(short = 'l', long, value_name = "BASES", default_value_t = 100)]
+    pub length: u64,
+    /// How many intervals to write.
+    #[arg(short = 'n', long, value_name = "COUNT", default_value_t = 1_000_000)]
+    pub count: u64,
+    #[command(flatten)]
+    pub seed: SeedArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+// P3b Task 6
+#[derive(Args, Debug, Clone)]
+pub struct ShuffleArgs {
+    /// Input file (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// Chromosomes and lengths: a built-in genome such as hg38 (see gloci genomes), or a
+    /// .genome, .fai or .dict file.
+    #[arg(short, long, value_name = "NAME|FILE", required = true)]
+    pub genome: String,
+    /// Keep records inside these regions (BED, GFF or VCF; default: the whole genome).
+    #[arg(long, value_name = "BED")]
+    pub include: Option<String>,
+    /// Keep records off these regions (BED, GFF or VCF).
+    #[arg(long, value_name = "BED")]
+    pub exclude: Option<String>,
+    /// Keep each record on its own chromosome (bedtools -chrom).
+    #[arg(long, conflicts_with = "chrom_first")]
+    pub same_chrom: bool,
+    /// Pick the chromosome uniformly among those with room, then a place on it
+    /// (bedtools -chromFirst).
+    #[arg(long)]
+    pub chrom_first: bool,
+    /// Place records so that no two output records overlap (bedtools
+    /// -noOverlapping).
+    #[arg(long)]
+    pub no_overlapping: bool,
+    /// Draws per record before it counts as unplaceable (--no-overlapping, and
+    /// BEDPE --exclude).
+    #[arg(long, value_name = "N", default_value_t = 1000,
+          value_parser = clap::value_parser!(u32).range(1..))]
+    pub max_tries: u32,
+    /// Drop records that have no place, with a warning, instead of failing.
+    #[arg(long)]
+    pub skip_unplaceable: bool,
+    #[command(flatten)]
+    pub seed: SeedArg,
+    #[command(flatten)]
+    pub format: FormatArg,
+    #[command(flatten)]
+    pub header: HeaderArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct SampleArgs {
+    /// Input file (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// How many records to keep.
+    #[arg(short = 'n', long, value_name = "COUNT", required = true)]
+    pub count: u64,
+    /// Sample only the records on this strand (+ or -).
+    #[arg(long, value_name = "+|-", allow_hyphen_values = true,
+          value_parser = clap::builder::PossibleValuesParser::new(["+", "-"]))]
+    pub strand: Option<String>,
+    #[command(flatten)]
+    pub seed: SeedArg,
+    #[command(flatten)]
+    pub format: FormatArg,
+    #[command(flatten)]
+    pub header: HeaderArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
 }

@@ -8,6 +8,10 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+# Test hooks (a worker panic on demand) for the integration tests in `gloci`.
+test-hooks = []
+
 [dependencies]
 gloci-core.workspace = true
 gloci-io.workspace = true
@@ -15,7 +19,10 @@ gloci-engine.workspace = true
 gloci-vcf.workspace = true
 lz4_flex.workspace = true
 log.workspace = true
+libm.workspace = true
+rand_chacha.workspace = true
 rayon.workspace = true
+crossbeam-channel.workspace = true
 tempfile.workspace = true
 
 [dev-dependencies]

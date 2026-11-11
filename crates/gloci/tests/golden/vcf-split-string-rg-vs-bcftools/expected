@@ -1,0 +1,15 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##contig=<ID=chr1,length=1000>
+##FORMAT=<ID=GT,Number=1,Type=String,Description="g">
+##FORMAT=<ID=SR,Number=R,Type=String,Description="r">
+##FORMAT=<ID=SG,Number=G,Type=String,Description="g">
+##FORMAT=<ID=CR,Number=R,Type=Character,Description="r">
+##FORMAT=<ID=CG,Number=G,Type=Character,Description="g">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	s1	s2	s3	s4	s5
+chr1	10	.	A	C	.	.	.	GT:SR:SG:CR:CG	0/1:a,b:a,b,c:a,b:a,b,c	1/0:.:.:.:.	0/1:a,b:a,b:a,b:a,b	1:x,y:x,y,z:x,y:x,y,z	./.:.:a,b,c:.:a,b,c
+chr1	10	.	A	G	.	.	.	GT:SR:SG:CR:CG	0/0:a,c:a,d,f:a,c:a,d,f	0/1:.:.:.:.	0/0:.:a,b:.:a,b	0:x,z:x,y,z:x,z:x,y,z	./.:.:a,b,c:.:a,b,c
+chr1	20	.	A	C	.	.	.	GT:SR:SG:CR:CG	0/1:a,b:a,b:a,b:a,b	1/0:.:.:.:.	0/1:.:.:.:.	0/1:x,y:.:x,y:.	./.:.:.:.:.
+chr1	20	.	A	G	.	.	.	GT:SR:SG:CR:CG	0/0:a,c:a,c:a,c:a,c	0/1:.:.:.:.	0/0:.:.:.:.	0/0:x,z:.:x,z:.	./.:.:.:.:.
+chr1	30	.	A	C	.	.	.	GT:SR:SG:CR:CG	0/1:.,b:a,b,c:.,b:a,b,c	0/1:a,.:.,.,c:a,.:.,.,c	0/1:.,.:.,.:.,.:.,.	1/1:.,.:a,b,c:.,.:a,b,c	./.:.:.:.:.
+chr1	30	.	A	G	.	.	.	GT:SR:SG:CR:CG	0/0:.,c:a,d,f:.,c:a,d,f	0/0:a,.:.,d,f:a,.:.,d,f	0/0:.,.:.,.:.,.:.,.	0/0:.,.:a,d,f:.,.:a,d,f	./.:.:.:.:.

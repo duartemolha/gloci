@@ -45,6 +45,47 @@ pub fn read_all(data: &[u8], format: Option<Format>, invalid: InvalidPolicy) {
     }
 }
 
+/// Read `data` as BEDPE under both invalid-record policies, with and without a
+/// `--chrom-map` (bit 0 of the config byte): the column rules, the absent-end
+/// form and the chromosome rewrite are in this path.
+pub fn read_bedpe(data: &[u8]) {
+    let (cfg, body) = split_config(data);
+    let map = (cfg & 1 == 1)
+        .then(|| crate::ChromMap::parse("fuzz-map", b"1\tchr1\nchr2\tc2\n").ok())
+        .flatten()
+        .map(std::sync::Arc::new);
+    for invalid in [InvalidPolicy::Skip, InvalidPolicy::Fail] {
+        let o = ReaderOptions {
+            accept: crate::align::Accept::default(),
+            chrom_map: map.clone(),
+            threads: threads(cfg),
+            format: None,
+            vcf_span: VcfSpan::Allele,
+            invalid,
+        };
+        let Ok(mut r) =
+            crate::BedpeReader::open_from("fuzz", Box::new(Cursor::new(body.to_vec())), &o)
+        else {
+            continue;
+        };
+        let _ = r.header().len();
+        let max = [1, 2, 7, 1024][usize::from(cfg >> 3 & 3)];
+        let mut chroms = ChromTable::karyotype();
+        let mut batch = crate::BedpeBatch::default();
+        loop {
+            batch.clear();
+            match r.read_batch(&mut chroms, &mut batch, max) {
+                Ok(true) => {}
+                Ok(false) | Err(_) => break,
+            }
+            for i in 0..batch.len() {
+                let _ = crate::bedpe_name(batch.raw(i));
+            }
+        }
+        let _ = r.diagnostics();
+    }
+}
+
 /// Read `data` as a BAM under both invalid-record policies (the BAM header, framing
 /// and every record check are in this path).
 pub fn read_bam(data: &[u8]) {

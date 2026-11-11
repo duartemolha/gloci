@@ -1,0 +1,1 @@
+pair-pair -s --type both -a input.bedpe -b pp-b.bedpe

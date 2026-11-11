@@ -1,0 +1,1 @@
+vcf annotate input.vcf -a regions.bed --header-lines tags.hdr -c CHROM,FROM,TO,INFO/TS --min-overlap 0.3:0.5

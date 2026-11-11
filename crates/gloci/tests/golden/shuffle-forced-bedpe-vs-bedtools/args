@@ -1,0 +1,1 @@
+shuffle input.bedpe --format bedpe -g shuffle-forced-bedpe.genome --seed 1

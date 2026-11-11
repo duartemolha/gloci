@@ -3,10 +3,10 @@
 //! the number of samples, never by the number of records.
 
 use super::engine::{Out, Stat, StatSink};
-use super::fmt::{write_f1, write_f5, write_g6, write_u64};
 use crate::filter::SiteView;
 use crate::gt::{GenotypeSource, SampleFields};
-use crate::stats::SiteStats;
+use crate::stats::{SampleTally, SiteStats, TallyWants};
+use gloci_core::cfmt::{write_fixed, write_g6, write_u64};
 use std::io;
 
 fn stats_of(st: Option<&SiteStats>) -> Result<&SiteStats, String> {
@@ -15,6 +15,13 @@ fn stats_of(st: Option<&SiteStats>) -> Result<&SiteStats, String> {
 
 fn genos(gt: Option<&dyn GenotypeSource>) -> Result<&dyn GenotypeSource, String> {
     gt.ok_or_else(|| "internal error: this statistic needs genotypes".to_string())
+}
+
+/// `dst += src`, elementwise (`src` may be empty: nothing was tallied).
+fn add_into(dst: &mut [u64], src: &[u64]) {
+    for (a, b) in dst.iter_mut().zip(src) {
+        *a += *b;
+    }
 }
 
 fn header_row(out: &mut Out, line: &str) {
@@ -28,6 +35,7 @@ pub struct SampleDepth {
     samples: Vec<(usize, String)>,
     sum: Vec<u64>,
     n: Vec<u64>,
+    tallied: bool,
     f: SampleFields,
     out: Out,
 }
@@ -40,6 +48,7 @@ impl SampleDepth {
             samples,
             sum: vec![0; k],
             n: vec![0; k],
+            tallied: false,
             f: SampleFields::default(),
             out: Out::closed(),
         }
@@ -56,6 +65,9 @@ impl Stat for SampleDepth {
         gt: Option<&dyn GenotypeSource>,
         _st: Option<&SiteStats>,
     ) -> Result<(), String> {
+        if self.tallied {
+            return Ok(());
+        }
         let gt = genos(gt)?;
         for (k, (i, _)) in self.samples.iter().enumerate() {
             gt.sample(*i, &mut self.f)?;
@@ -84,6 +96,22 @@ impl Stat for SampleDepth {
     fn needs_genotypes(&self) -> bool {
         true
     }
+    fn reads_genotypes(&self) -> bool {
+        !self.tallied
+    }
+    fn tally_wants(&self) -> TallyWants {
+        TallyWants {
+            depth: true,
+            ..TallyWants::default()
+        }
+    }
+    fn use_tally(&mut self) {
+        self.tallied = true;
+    }
+    fn absorb(&mut self, t: &SampleTally) {
+        add_into(&mut self.sum, &t.dp_sum);
+        add_into(&mut self.n, &t.dp_n);
+    }
     fn ext(&self) -> &'static str {
         "idepth"
     }
@@ -98,6 +126,7 @@ pub struct MissingSample {
     data: Vec<u64>,
     filtered: Vec<u64>,
     miss: Vec<u64>,
+    tallied: bool,
     f: SampleFields,
     out: Out,
 }
@@ -111,6 +140,7 @@ impl MissingSample {
             data: vec![0; k],
             filtered: vec![0; k],
             miss: vec![0; k],
+            tallied: false,
             f: SampleFields::default(),
             out: Out::closed(),
         }
@@ -128,6 +158,9 @@ impl Stat for MissingSample {
         st: Option<&SiteStats>,
     ) -> Result<(), String> {
         super::site::diploid_only(stats_of(st)?)?;
+        if self.tallied {
+            return Ok(());
+        }
         let gt = genos(gt)?;
         for (k, (i, _)) in self.samples.iter().enumerate() {
             gt.sample(*i, &mut self.f)?;
@@ -170,6 +203,23 @@ impl Stat for MissingSample {
     fn needs_genotypes(&self) -> bool {
         true
     }
+    fn reads_genotypes(&self) -> bool {
+        !self.tallied
+    }
+    fn tally_wants(&self) -> TallyWants {
+        TallyWants {
+            missing: true,
+            ..TallyWants::default()
+        }
+    }
+    fn use_tally(&mut self) {
+        self.tallied = true;
+    }
+    fn absorb(&mut self, t: &SampleTally) {
+        add_into(&mut self.data, &t.data);
+        add_into(&mut self.filtered, &t.filtered);
+        add_into(&mut self.miss, &t.miss);
+    }
     fn ext(&self) -> &'static str {
         "imiss"
     }
@@ -189,6 +239,10 @@ pub struct Heterozygosity {
     o_hom: Vec<u64>,
     e_hom: Vec<f64>,
     n_sites: Vec<u64>,
+    tallied: bool,
+    /// Tallied: the expected homozygosity of the record just seen, until
+    /// `called` adds it to the samples that were fully called.
+    pending_e: Option<f64>,
     f: SampleFields,
     out: Out,
 }
@@ -202,6 +256,8 @@ impl Heterozygosity {
             o_hom: vec![0; k],
             e_hom: vec![0.0; k],
             n_sites: vec![0; k],
+            tallied: false,
+            pending_e: None,
             f: SampleFields::default(),
             out: Out::closed(),
         }
@@ -220,7 +276,7 @@ impl Stat for Heterozygosity {
     ) -> Result<(), String> {
         let st = stats_of(st)?;
         super::site::diploid_only(st)?;
-        let gt = genos(gt)?;
+        self.pending_e = None;
         if st.allele_counts.len() != 2
             || st.haploid
             || st.allele_counts[0] == 0
@@ -231,6 +287,11 @@ impl Stat for Heterozygosity {
         let n = st.an() as f64;
         let p = st.allele_counts[0] as f64 / n;
         let e = 1.0 - 2.0 * p * (1.0 - p) * (n / (n - 1.0));
+        if self.tallied {
+            self.pending_e = Some(e);
+            return Ok(());
+        }
+        let gt = genos(gt)?;
         for (k, (i, _)) in self.samples.iter().enumerate() {
             gt.sample(*i, &mut self.f)?;
             let Some(g) = &self.f.gt else { continue };
@@ -257,11 +318,11 @@ impl Stat for Heterozygosity {
             b.push(b'\t');
             write_u64(b, self.o_hom[k]);
             b.push(b'\t');
-            write_f1(b, e);
+            write_fixed(b, e, 1);
             b.push(b'\t');
             write_u64(b, self.n_sites[k]);
             b.push(b'\t');
-            write_f5(b, (o - e) / (n - e));
+            write_fixed(b, (o - e) / (n - e), 5);
             b.push(b'\n');
         }
         self.out.row().map_err(io::Error::other)?;
@@ -269,6 +330,38 @@ impl Stat for Heterozygosity {
     }
     fn needs_genotypes(&self) -> bool {
         true
+    }
+    fn reads_genotypes(&self) -> bool {
+        !self.tallied
+    }
+    fn tally_wants(&self) -> TallyWants {
+        TallyWants {
+            het: true,
+            ..TallyWants::default()
+        }
+    }
+    fn use_tally(&mut self) {
+        self.tallied = true;
+    }
+    fn called(&mut self, called: &[u64]) {
+        // In record order, as the untallied statistic adds it.
+        let Some(e) = self.pending_e.take() else {
+            return;
+        };
+        for (w, &word) in called.iter().enumerate() {
+            let mut bits = word;
+            while bits != 0 {
+                let k = w * 64 + bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                if let Some(v) = self.e_hom.get_mut(k) {
+                    *v += e;
+                }
+            }
+        }
+    }
+    fn absorb(&mut self, t: &SampleTally) {
+        add_into(&mut self.o_hom, &t.o_hom);
+        add_into(&mut self.n_sites, &t.n_sites);
     }
     fn ext(&self) -> &'static str {
         "het"

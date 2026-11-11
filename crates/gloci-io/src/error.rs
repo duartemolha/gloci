@@ -20,6 +20,8 @@ pub enum GateKind {
     Sequence,
     /// PSL and RepeatMasker are read by `convert` only.
     ConvertOnly,
+    /// BEDPE is read by `pair-intersect`, `pair-pair` and `shuffle --format bedpe` only (D146).
+    PairedOnly,
 }
 
 #[derive(Debug, thiserror::Error)]

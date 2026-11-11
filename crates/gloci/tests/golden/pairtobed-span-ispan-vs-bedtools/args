@@ -1,0 +1,1 @@
+pair-intersect --type ispan -a input.bedpe -b pairs-spans-b.bed

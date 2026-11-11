@@ -160,6 +160,15 @@ fn gate_error(kind: GateKind, msg: String) -> IoError {
 
 /// Refuse a format the command does not read (D100).
 pub fn gate(name: &str, format: Format, accept: &Accept) -> Result<(), IoError> {
+    if format == Format::Bedpe {
+        return Err(gate_error(
+            GateKind::PairedOnly,
+            format!(
+                "{name} is read as BEDPE, which only pair-intersect, pair-pair and \
+shuffle --format bedpe read; to treat its first end as a BED interval, pass --format bed"
+            ),
+        ));
+    }
     if format.is_alignment() {
         // BAM, CRAM and SAM are read by every command that reads alignments (D100).
         if accept.alignments.is_some() {
@@ -169,7 +178,7 @@ pub fn gate(name: &str, format: Format, accept: &Accept) -> Result<(), IoError> 
             GateKind::NoAlignments,
             format!(
                 "{name} is {}; this command does not read alignments (intersect, coverage, \
-genomecov, convert, view, index, sort and cat do); convert it to BED first: \
+genomecov, convert, view, index, sort, cat and stats jaccard, fisher and reldist do); convert it to BED first: \
 gloci convert {name} -o x.bed",
                 format.name()
             ),

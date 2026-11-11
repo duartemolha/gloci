@@ -7,6 +7,7 @@
 mod active;
 pub mod chunk;
 pub mod hit;
+pub mod index;
 pub mod kmerge;
 mod nearest;
 pub mod parallel;
@@ -15,6 +16,7 @@ mod unsorted;
 
 pub use chunk::ChunkSink;
 pub use hit::{ARec, Hit, Neighbours, Visitor};
+pub use index::{IndexEntry, IntervalIndex};
 pub use kmerge::{kmerge, kmerge_with};
 pub use parallel::{all_indexed, run_chunks};
 #[doc(hidden)]

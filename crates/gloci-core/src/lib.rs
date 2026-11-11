@@ -1,5 +1,6 @@
 //! gloci-core: pure rules (coordinates, chromosomes, genome, regions).
 
+pub mod cfmt;
 pub mod chrom;
 pub mod distance;
 pub mod error;

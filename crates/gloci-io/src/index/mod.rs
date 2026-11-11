@@ -260,7 +260,8 @@ and its lines are not BED"
             | Format::Sam
             | Format::Fasta
             | Format::Psl
-            | Format::Rmsk => {
+            | Format::Rmsk
+            | Format::Bedpe => {
                 unreachable!(
                     "{} is never a text-indexed format: `IndexedFile::open` and `build_index_with` \
 refuse it before a parser is chosen",

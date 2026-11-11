@@ -26,6 +26,8 @@ pub enum OutFormat {
     Sam,
     /// FASTA output (`.fa`, `.fasta`, `.fna`; `.gz` is BGZF).
     Fasta,
+    /// BEDPE output (D146): written like TSV; `.gz` is BGZF.
+    Bedpe,
 }
 
 impl OutFormat {
@@ -42,6 +44,7 @@ impl OutFormat {
             OutFormat::Bam => "BAM",
             OutFormat::Sam => "SAM",
             OutFormat::Fasta => "FASTA",
+            OutFormat::Bedpe => "BEDPE",
         }
     }
 
@@ -54,7 +57,7 @@ impl OutFormat {
             OutFormat::Gff3 => Some(Format::Gff3),
             OutFormat::Gtf => Some(Format::Gtf),
             OutFormat::Bam => Some(Format::Bam),
-            OutFormat::Tsv | OutFormat::Sam | OutFormat::Fasta => None,
+            OutFormat::Tsv | OutFormat::Sam | OutFormat::Fasta | OutFormat::Bedpe => None,
         }
     }
 
@@ -73,6 +76,7 @@ impl OutFormat {
             Format::Fasta => OutFormat::Fasta,
             // PSL and RepeatMasker are read by `convert` only, which writes BED.
             Format::Psl | Format::Rmsk => OutFormat::Bed,
+            Format::Bedpe => OutFormat::Bedpe,
         }
     }
 }
@@ -99,7 +103,7 @@ pub struct OutputOptions {
 
 const ACCEPTED: &str = ".bed, .bed.gz, .bedgraph, .bedgraph.gz, .vcf, .vcf.gz, .bcf, \
 .tsv, .tsv.gz, .gff, .gff.gz, .gff3, .gff3.gz, .gtf, .gtf.gz, .bam, .sam, .fa, .fa.gz, \
-.fasta, .fasta.gz, .fna, .fna.gz";
+.fasta, .fasta.gz, .fna, .fna.gz, .bedpe, .bedpe.gz";
 
 /// `(suffix without dot, format, bgzf)`, matched case-insensitively.
 fn lookup(s: &str) -> Option<(OutFormat, bool)> {
@@ -122,6 +126,8 @@ fn lookup(s: &str) -> Option<(OutFormat, bool)> {
         "sam" => (Sam, false),
         "fa" | "fasta" | "fna" => (Fasta, false),
         "fa.gz" | "fasta.gz" | "fna.gz" => (Fasta, true),
+        "bedpe" => (Bedpe, false),
+        "bedpe.gz" => (Bedpe, true),
         _ => return None,
     })
 }
@@ -315,6 +321,18 @@ fn open_output_as(
                 "--write-index needs a regular output file, but {} is a device or pipe; \
 write to a file such as -o out.bed.gz and index that",
                 spec.path.as_deref().unwrap_or(Path::new("")).display()
+            ))
+            .into());
+        }
+        if f == OutFormat::Bedpe {
+            return Err(UsageError(format!(
+                "--write-index cannot index BEDPE output, because its columns are not the BED \
+ones; write -o FILE.bedpe.gz and then run: gloci index -s 1 -b 2 -e 3 --zero-based FILE.bedpe.gz{}",
+                if bgzf {
+                    ""
+                } else {
+                    " (BEDPE is indexed once it is BGZF, a .bedpe.gz name)"
+                }
             ))
             .into());
         }

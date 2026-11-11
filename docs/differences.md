@@ -1756,6 +1756,23 @@ depends on the span.
   `bamtobed-cigar-split-vs-bedtools` (exit status: gloci 2, bedtools 0) and
   `bamtobed-split-ed-vs-bedtools` (exit status: gloci 0, bedtools 1).
 
+## `convert --bedpe` pairs the primary READ1 and READ2, not whatever is adjacent {#bamtobed-bedpe}
+
+- **gloci:** reads that share a name make a group; its primary READ1 and READ2 (flags `0x40`
+  and `0x80`, neither `0x100` nor `0x800`) make one pair, and secondary and supplementary
+  alignments are ignored. `supp.bam` (R1, R1's supplementary alignment on chr2, R2) gives
+  one row, `chr1 100 150 chr1 300 350 s1 60 + -`. A name with only one primary mate writes
+  nothing and is counted in one warning.
+- **Old behaviour:** `bedtools bamtobed -bedpe` pairs each read with the record next to
+  it whatever its flags: on `supp.bam` it writes two rows, `chr1 100 150 chr2 900 950 s1 20 + +`
+  (R1 with its supplementary alignment) and `chr1 300 350 chr2 900 950 s1 20 - +`, with the
+  supplementary alignment's MAPQ and a mate that is not R2.
+- **Reason:** a supplementary alignment is another piece of its read, so pairing it
+  yields a pair that no fragment made, and the same read twice.
+- **Pinned by:** `bamtobed-bedpe-supp-vs-bedtools` (must differ). The other
+  `bamtobed-bedpe-*` cases match bedtools byte for byte, including the end order, an
+  unmapped mate as `. -1 -1`, `-mate1` and `-ed`.
+
 ## `convert` of alignments cuts reads at the end of their reference, and blocks at their bases {#bamtobed-past-reference-end}
 
 - **gloci:** a read that runs past the `LN` of its reference (a chrM read wrapping
@@ -1765,7 +1782,10 @@ depends on the span.
   `--split` command compares (one shared rule): blocks with no base are left out. A
   BED12 row opens at the first kept block (chromStart and thickStart) and closes at
   the last (chromEnd and thickEnd), so its first block starts at offset 0 and its last
-  ends at chromEnd, as BED12 requires.
+  ends at chromEnd, as BED12 requires. `convert --bedpe` does the same for its ends: a
+  read cut at `LN` keeps its cut span, and a read that starts at or past `LN` is an absent
+  end (`. -1 -1`, strand `.`) that takes no part in the score and needs no `--score-tag`
+  tag.
 - **Old behaviour:** `bedtools bamtobed` writes the interval as the CIGAR gives it,
   past the end of the reference (`chr1 994 1004` on a 1,000 base chr1), and writes a
   read that starts past the end as well. With `-bed12` a start beyond 2^31 gives a
@@ -1780,7 +1800,7 @@ depends on the span.
   `bedToBigBed`, and the other gloci commands refuse it. So would a BED12 row whose
   first block does not start at chromStart: `gloci convert x.bam --bed12 | gloci
   intersect -a - -b y.bed --split` must read what convert writes.
-- **Pinned by:** `bamtobed-past-end-vs-bedtools`, `bamtobed-edge-vs-bedtools`,
+- **Pinned by:** `bamtobed-past-end-vs-bedtools`, `bamtobed-bedpe-past-end-vs-bedtools`, `bamtobed-edge-vs-bedtools`,
   `bamtobed-past-end-bed12-vs-bedtools`, `bamtobed-ends-bed12-vs-bedtools`,
   `bamtobed-ends-bed12-splitd-vs-bedtools` and `bamtobed-ends-split-vs-bedtools` (must
   differ); `bamtobed-ends-vs-bedtools` (BED6, matches).
@@ -1845,7 +1865,381 @@ depends on the span.
   and `intersect-bed-bam-wao-vs-bedtools` (must differ);
   `intersect-bed-bam-wa-wb-vs-bedtools` (BAM as B) matches.
 
+## `vcf split` keeps values as written {#vcf-split-values}
+
+- **gloci:** `gloci vcf split` copies each value as its text and writes a record with one
+  ALT as it is, byte for byte. INFO and FORMAT keys the header does not declare are dropped
+  from the records it splits (as bcftools does) and kept in a record it does not split.
+- **Old behaviour:** `bcftools norm -m-` reads every record into binary form and prints it
+  again. Floats come out with six significant digits (`AF=0.10` becomes `0.1`, `QUAL=1.50`
+  becomes `1.5`, `1.0` becomes `1`), a sample cut short is padded with missing values, and
+  `##FILTER=<ID=PASS>` is added to a header without it. A record with an undeclared INFO
+  or FORMAT key that bcftools does not split aborts with `Invalid BCF, the INFO tag id=N is
+  too large` (exit 255).
+  For a `Number=A` Float field, bcftools gives a sample that is a lone `.` the value of the
+  previous sample (a stale buffer: `1/0:0.25` where the input has `.`); gloci writes `.`. A
+  FILTER or contig the header does not declare makes bcftools exit 255; gloci passes the
+  record through, as it does an undeclared INFO key.
+- **Reason:** a splitter that rewrites nothing it did not have to keeps the file you gave it
+  diffable, and a missing header line is not a reason to lose the run.
+- **Pinned by:** `vcf-split-float-text-vs-bcftools`, `vcf-split-undeclared-unsplit-vs-bcftools`,
+  `vcf-split-float-a-missing-vs-bcftools` and `vcf-split-header-missing-vs-bcftools`
+  (must differ). Every other split case matches.
+
+## `vcf norm` differs from `bcftools norm -f` on a few edge cases {#vcf-norm-edge-cases}
+
+- **gloci:** `gloci vcf norm` left-aligns and trims as `bcftools norm -f` does (the same
+  trimming, the same tie order, the same `--window` re-sorting, the same `--check-ref` and
+  `--rm-dup` rules), with these differences:
+  - A record with any symbolic ALT (`<DEL>`, `<DUP>`, `<INS>`, ...) is left untouched by
+    left-alignment and trimming, whatever its other ALTs are. (`*` and breakends are plain
+    alleles and stop a move, as in bcftools.)
+  - `--check-ref x` drops the records that fail the check and writes the others.
+  - `--check-ref s` on a record with an ALT equal to REF writes the record as it is, with a
+    warning; it does not remove the ALT.
+  - `--check-ref s` leaves a base other than ACGTN in an ALT as written, and a `*` ALT as `*`.
+  - `--skip-invalid` also skips records that fail `--check-ref e`; bcftools has no such option. With `--split`, a record any of whose pieces fails is skipped whole
+    and counted once (none of its pieces is written), so the skip count and `-v`'s "records read"
+    are in input records.
+  - `--check-ref s` on a record that starts past the end of its contig is an error (exit 1)
+    that says so.
+  - Values are kept as text: a record that is not rewritten is written byte for byte, and one
+    that is rewritten keeps the text of its INFO, QUAL and sample values. The header is the
+    input's, with no `##FILTER=<ID=PASS>` line added and no command line.
+- **Old behaviour:** `bcftools norm` 1.21 treats `<DEL>` ALTs inconsistently. It ignores a
+  `<DEL>` ALT when trimming some records (`AA` to `A,<DEL>` is moved left as `GA` to `G,<DEL>`) and
+  not others (`TTTG` to `TG,<DEL>` stays; `TT` to `TTT,<DEL>` becomes `GT` to `GTT`). It trims the REF of
+  a record whose only ALT is `<DEL>` to one base and shifts it left, sometimes to POS 1, which
+  corrupts it. `-c x` crashes with a segmentation fault (exit 139) as soon as it drops a
+  record, so the run produces no output. `-c s` on an ALT equal to REF removes that ALT and
+  renumbers GT (`G` to `G,A` with `1/2` and `0/2` becomes `G` to `A` with `0/1` and `0/1`), but leaves
+  AC, AN and AD as they were. `-c s` also rewrites a non-ACGTN ALT, and a `*` ALT, of a record whose
+  REF it sets as `N`, and writes `.` as REF and ALT for a record past the end of its contig. It
+  reads every record into binary form and prints it again: floats come out with six
+  significant digits (`AF=0.10` becomes `0.1`, `QUAL=1.50` becomes `1.5`), and
+  `##FILTER=<ID=PASS>` is added to a header without it.
+- **Reason:** a symbolic allele has no bases to trim, and a clear rule beats guessing bcftools'
+  quirks; a crash is not a behaviour to copy; a record kept as written never loses an ALT. Keeping values as written
+  leaves the file you gave it diffable.
+- **Pinned by:** `vcf-norm-del-symbolic-vs-bcftools`, `vcf-norm-del-mixed-vs-bcftools`,
+  `vcf-norm-check-ref-x-vs-bcftools`,
+  `vcf-norm-check-ref-s-dup-vs-bcftools`, `vcf-norm-check-ref-s-iupac-alt-vs-bcftools`,
+  `vcf-norm-check-ref-s-past-end-vs-bcftools` and `vcf-norm-float-text-vs-bcftools` (must
+  differ). Every other `vcf norm` case matches.
+
+## `vcf annotate` keeps values as written {#vcf-annotate-values}
+
+- **gloci:** `gloci vcf annotate` copies a transferred value as its text: an INFO value, QUAL
+  and the text of a tab or BED column go in as they were written (an Integer from a tab file is
+  normalised as a number: `+5` and `007` become `5` and `7`). A record that nothing changes is
+  written byte for byte, and one that is changed keeps the text of every column it did not
+  change. The header is FILE's with the declarations that were added, no `##FILTER=<ID=PASS>`
+  line added and no command line.
+- **Old behaviour:** `bcftools annotate` reads every record into binary form and prints it
+  again. Floats come out with six significant digits (`AF=0.50` becomes `0.5`, `SC=1e-3`
+  becomes `0.001`, `QUAL=99.50` becomes `99.5`, `1.0` becomes `1`), a sample cut short is
+  padded with missing values, and `##FILTER=<ID=PASS>` is added to a header without it.
+- **Reason:** an annotator that rewrites nothing it did not have to keeps the file you gave it
+  diffable. Which values a transfer touches, which alleles a Number=A or R value follows and
+  what `+TAG` keeps follow bcftools exactly; only the number formatting differs.
+- **Pinned by:** `vcf-annotate-vcf-float-text-vs-bcftools` (must differ). Every other
+  `vcf annotate` case uses values that print the same either way and matches.
+
+## `vcf annotate` needs sorted sources, not indexes {#vcf-annotate-sorted-source}
+
+- **gloci:** FILE and `--annotations` must both be sorted in one chromosome order (FILE's
+  header contigs, else `--chrom-order`), and each is read once as a stream: neither is indexed,
+  held in memory or read twice. An out-of-order record in either, or a source chromosome order
+  that disagrees with FILE's, is an error (exit 1) that names the two records and the fix
+  (`gloci sort`). A source chromosome that FILE's `##contig` lines lack is an error that
+  names it and the fix (add the `##contig` line, or leave those records out of the source), as
+  for `intersect`; bcftools accepts it. A tab or BED source with intervals keeps only the rows that can still overlap
+  the current record.
+- **Old behaviour:** `bcftools annotate -a` seeks by index for a VCF or a tab file with POS
+  (any chromosome order works), and reads a tab or BED file with FROM,TO columns whole into memory (any order
+  works, but a genome-sized interval file is held in RAM).
+- **Reason:** a sorted merge reads gigabytes in constant memory and needs no `tabix` step;
+  an order violation is reported, never silently skipped.
+- **Pinned by:** `vcf-annotate-from-to-unsorted-vs-bcftools` (bcftools exits 0, gloci exits 1:
+  must differ). Every sorted case matches.
+
+## `vcf annotate` reads what bcftools refuses {#vcf-annotate-lenient}
+
+- **gloci:** FILE and a VCF source can be plain, gzip or BGZF; no `.tbi` or `.csi` is needed,
+  and a tab source needs no `tabix` index. A FILTER, contig or INFO key the header does not
+  declare passes through a record gloci does not change (a transferred FILTER or tag is
+  declared from the source's header, or from `--header-lines`).
+- **Old behaviour:** `bcftools annotate -a VCF` needs both files bgzipped and indexed and stops
+  with `Failed to read from FILE: not compressed with bgzip`; a positional tab source must be
+  bgzipped and `tabix`-indexed; a record with an undeclared FILTER makes it stop with `Encountered
+  an error, cannot proceed` (exit 255, `--force` to go on).
+- **Reason:** the sort-and-stream design makes the index unnecessary, and a missing header line
+  is not a reason to lose the run.
+- **Pinned by:** `vcf-annotate-plain-files-vs-bcftools` and
+  `vcf-annotate-undeclared-filter-vs-bcftools` (must differ: gloci exits 0, bcftools 1).
+  Every other `vcf annotate` case gives the reference bgzipped, indexed copies and matches.
+
+## `vcf merge` needs sorted inputs, not indexes {#vcf-merge-no-index}
+
+- **gloci:** every input must be sorted in one chromosome order (the first input's `##contig`
+  lines, else `--chrom-order`) and is read once as a stream: no index is built or needed, plain,
+  gzip and BGZF files all work, and only the records of one position are held. An out-of-order
+  record in any input is an error (exit 1) that names the two records and the fix (`gloci
+  sort`). The inputs are open together, so merging more files than `ulimit -n` allows stops with
+  an error that says so and names the fix (raise `ulimit -n`); 200 files merge under the usual
+  limit of 1,024. `--no-index` is accepted and ignored. The output keeps the first input's format
+  (VCF in, VCF out; BCF in, BCF out; `-O vcf`/`-O bcf` or the `-o` name choose), where `bcftools merge` writes
+  VCF unless `-O` says otherwise.
+- **Old behaviour:** `bcftools merge` needs every input bgzipped and indexed (`Failed to open
+  FILE: not compressed with bgzip`, then `could not load index`), or `--no-index` with sorted
+  inputs and no `-r`/`-R`; it also reads FILEs in any chromosome order the index allows.
+- **Reason:** a sorted k-way merge reads gigabytes in constant memory and needs no `tabix` or
+  `bcftools index` step.
+- **Pinned by:** `vcf-merge-plain-files-vs-bcftools` (bcftools exits 1 on plain files, gloci
+  0: must differ). Every other `vcf merge` case gives the reference bgzipped, indexed copies.
+
+## `vcf merge` writes contigs in the header's order {#vcf-merge-contig-order}
+
+- **gloci:** merged records are written in the order of the first input's `##contig` lines (else
+  `--chrom-order`), whatever file has the first record.
+- **Old behaviour:** `bcftools merge` starts with the contig of the first record any input offers, so
+  when file 1 has no records on its first contig the output starts with a later contig and goes
+  back to the earlier one afterwards, against the header.
+- **Reason:** a sorted output is what every later step (`index`, `intersect`, `bcftools`) needs.
+- **Pinned by:** `vcf-merge-contig-order-vs-bcftools` (must differ: the two contigs swap places).
+
+## `vcf merge` is stricter about conflicting types {#vcf-merge-conflicting-types}
+
+- **gloci:** when two inputs declare an INFO or FORMAT tag with different Types, the first
+  declaration is kept (with a warning, as bcftools) and a record of another input that uses the
+  tag stops the merge (exit 1) naming the file, the position and the fix (make the `##INFO` or
+  `##FORMAT` lines agree).
+- **Old behaviour:** `bcftools merge` warns `Trying to combine "XF" tag definitions of different
+  types` and writes a value as it is when the tag is not combined (only one record of the output
+  has it); combining it (a rule, Number=A/R/G, FORMAT) fails.
+- **Reason:** the written value would not match the declared type; stopping early is safer.
+- **Pinned by:** `vcf-merge-conflicting-types-vs-bcftools` (must differ: bcftools exits 0, gloci 1).
+
+## `vcf merge` accepts an undeclared INFO tag {#vcf-merge-undeclared-info}
+
+- **gloci:** an INFO tag no input's header declares is written as a String, as `vcf split` keeps
+  undeclared tags ([differences.md#vcf-split-values](differences.md#vcf-split-values)). FORMAT keys
+  the merged header does not declare are dropped, as bcftools drops them.
+- **Old behaviour:** `bcftools merge` stops with `Error: The INFO field is not defined in the header`.
+- **Reason:** a missing header line is not a reason to lose the run.
+- **Pinned by:** `vcf-merge-undeclared-info-vs-bcftools` (must differ: gloci exits 0, bcftools 1).
+## `stats jaccard` counts no bases for a point {#jaccard-points}
+
+- **gloci:** a zero-length interval (a point) covers no bases, so it adds nothing to the
+  intersection or to the union. A point inside a merged interval of the other input (on an edge only
+  with `--inclusive-points`) still counts as one intersection in `n_intersections`.
+- **Old behaviour:** `bedtools jaccard` treats a point as two bases, from one before it to one
+  after it: two points at the same position intersect in 2 bases and make a union of 2, a point in
+  the middle of a 20-base interval adds 2 to the intersection, a point at an interval's end adds 1.
+  An edge point (at the end of an interval) is an intersection for bedtools (`n_intersections` 1);
+  gloci gives 0 without `--inclusive-points`.
+- **Related, shared with the other relation commands:** `-e` and `-r` without `-f` are usage errors
+  in bedtools; gloci accepts them and applies the thresholds given.
+- **Reason:** a point has no length, so the statistic of bases should not depend on an artefact
+  of how one tool widens it. The pinned case keeps `n_intersections` aligned with `intersect` and
+  `coverage`. Inputs without points agree with bedtools.
+- **Pinned by:** `stats-jaccard-points-vs-bedtools` (must differ); the same files without points
+  match (`stats-jaccard-table-vs-bedtools`).
+
+## `stats fisher` with an empty A or B, and `-S` {#fisher-empty-estimate}
+
+- **gloci:** when A or B has no records, the estimated number of possible intervals is
+  `n11 + n12 + n21` (the smallest the table allows), so `n22` is 0: `# Number of possible intervals
+  (estimated): 3` for an empty A and three B records. The p-values are `1 1 1` and the ratio `-nan`,
+  as in bedtools. `-S` is a flag (opposite strands), as in the other commands.
+- **Old behaviour:** `bedtools fisher` divides by zero for the estimate, which is NaN, and converts
+  it to a 64-bit integer: undefined behaviour in C, so the value depends on the CPU. x86 gives the
+  smallest `long long`, which loses the `max` against `n11 + n12 + n21` (gloci's value); aarch64
+  gives the largest, so the estimate prints `9223372036854775807`. bedtools `-S` takes a `+` or `-`
+  argument.
+- **Reason:** a number that depends on the CPU has no place in a table; gloci prints the x86 value.
+- **Pinned by:** `stats-fisher-opposite-strand-flag-vs-bedtools` (`-S`: gloci exits 0, bedtools 1); the empty-input estimate by gloci-only tests (`fisher_empty_a_and_b_estimate` in
+  `crates/gloci/tests/stats_fisher.rs`), not a bedtools case, because the reference output differs
+  by platform.
+
+## `stats fisher --exclude` subtracts the excluded bases and nothing else {#fisher-exclude-estimate}
+
+- **gloci:** the genome size is the `-g` lengths less the merged length of the exclude BED, and the
+  estimate of possible intervals is `G / (2 + LA/nA + LB/nB)` as without `--exclude`: for 3 A records
+  and 300 B records of 100 bp on 10^6 bases with one 100-base exclude record, 4950.
+- **Old behaviour:** `bedtools fisher -exclude` returns the floor `n11 + n12 + n21` as the estimate
+  (303 for that example) whenever any exclude file is given, even an empty one or one off the data's
+  chromosomes, once B has about 94 records or more (3 A and 93 B give 4950, 94 give 97, so it is not
+  monotone in the inputs). It looks like a bedtools bug; the p-values built on it are not meaningful.
+- **Reason:** the estimate should shrink by the excluded bases, not collapse.
+- **Pinned by:** `stats-fisher-exclude-estimate-vs-bedtools` (must differ). A smaller exclude case
+  that agrees: `stats-fisher-exclude-vs-bedtools`.
+
+## `stats fisher` tiny tail p-values come from `libm`, not the platform's `lgamma` {#fisher-lgamma}
+
+- **gloci:** the exact test uses the `libm` crate's `lgamma` and `exp`, so the output is the same on
+  every platform. With a large genome and few overlaps, the p-values are computed as
+  `1 - left + q`, where nearly everything cancels; the last bits of `lgamma` then decide the result.
+  For the table 1 / 8 / 3 / 6741594 gloci prints `5.34e-06` (the true tail, about 9 x 4 / 6.7e6).
+- **Old behaviour:** `bedtools fisher` calls the C library's `lgamma`, which differs from `libm` by a
+  few ulps. For the same table it prints `9.5051e-12`, and for 1 / 0 / 6 / 241379311 it prints `0`
+  where gloci prints `2.9e-08`. About 7% of large-genome, few-overlap tables differ this way; tables
+  whose p-values are not tiny agree to all printed digits.
+- **Reason:** portable, identical results (a reference built on another C library may differ from
+  this one too). Whether to port glibc's `lgamma` for byte identity is an open owner question.
+- **Pinned by:** `stats-fisher-lgamma-vs-bedtools` (must differ; the reference is glibc on aarch64,
+  and x86 glibc may differ in the last bits, which has not been checked).
+- **Also:** genome lengths near 2^64 saturate the genome size in gloci where bedtools prints `1`;
+  no real genome is that large.
+
+## `stats reldist` B midpoints past 2^31 do not overflow {#reldist-midpoint-overflow}
+
+- **gloci:** the midpoint of a B interval is `floor((start + end) / 2)` computed in 64 bits, so
+  coordinates up to the chromosome limits give the right midpoint.
+- **Old behaviour:** `bedtools reldist` adds a B interval's two ends in a 32-bit `int` before halving.
+  When `start + end` passes 2^31 (both ends past about 1.07 billion) the sum wraps negative, the
+  midpoint lands before every other one, and A records near that B interval are skipped or binned
+  wrongly. A's midpoints do not overflow in bedtools (`start + (end - start) / 2`).
+- **Reason:** a silent wrong answer on large chromosomes (chr1 is 248 Mb, so human data stays far
+  below this; large plant and amphibian genomes do not).
+- **Pinned by:** `stats-reldist-midpoint-overflow-vs-bedtools` (must differ; the reference is glibc
+  on aarch64, where the signed `int` overflow wraps) and the gloci-only test
+  `reldist_midpoint_past_int_range`.
+
+Note (not a difference): `stats reldist` skips every A on a chromosome with fewer than two B midpoints,
+even an A sitting on the only one. bedtools does the same and gloci ports it on purpose; pinned by
+`stats-reldist-one-midpoint-vs-bedtools` (must match).
+
+## `pair-intersect` and `pair-pair` hits come in B's input order {#pair-hit-order}
+
+- **gloci:** the B records an end overlaps are written in B's input order, end 1's hits first and
+  then end 2's, so the output does not depend on how B is stored.
+- **Old behaviour:** `bedtools pairtobed` finds hits by walking its bins (16 kb bins, then larger
+  ones), so records in different bins come out in bin order: for an end covering `chr1 0-50000`, B
+  records at 40000, 100, 20000, 0-50000 and 120 come out as 100, 120, 20000, 40000, 0-50000. Hits that
+  share a bin keep B's order, which is why every other case here matches exactly.
+- **Also `pair-pair`:** the B pairs that hit one A are written in B's input order. `bedtools
+  pairtopair` writes the pairs hit in orientation 1 first and those hit only in orientation 2 after
+  them, so a B listed earlier that hits only in orientation 2 comes out later.
+- **Reason:** B's order is a rule a user can state; bin order is an implementation detail.
+- **Pinned by:** `pairtobed-hit-order-vs-bedtools` (must differ); the same rows in any order match
+  in `pairtobed-hit-bins-vs-bedtools` (`lines-unordered`). For `pair-pair`,
+  `pairtopair-hit-order-vs-bedtools` (must differ) and `pairtopair-hit-order-unordered-vs-bedtools`
+  (`lines-unordered`).
+
+## `pair-intersect` and `pair-pair` `-s`/`-S`: an unknown strand never matches {#pair-unknown-strand}
+
+- **gloci:** a pair end or B record whose strand is `.` (or missing: a BEDPE with fewer than 10
+  columns, a BED with fewer than 6, a VCF) matches nothing under `-s` or `-S`, and gloci warns once
+  per input that has such records (spec section 4.3).
+- **Old behaviour:** `bedtools pairtobed` treats `.` as a strand like another: under `-s` a `.` end
+  matches a `.` record, and under `-S` a `.` end matches every `+` or `-` record and the reverse.
+  (With no strand columns at all, `-s` finds nothing in both tools.)
+- **Also `pair-pair`:** `bedtools pairtopair` enforces strand unless `-is`, so with ends of strand
+  `.` it matches `.` with `.`; gloci ignores strand unless `-s`/`-S`, which skip an end of unknown
+  strand in A or B (one warning per input). The comparison is `bedtools pairtopair` against
+  `gloci pair-pair -s`, and `bedtools pairtopair -is` against `gloci pair-pair`.
+- **Reason:** a strand that is not known is not the same strand or the opposite strand.
+- **Pinned by:** `pairtobed-unknown-strand-vs-bedtools` and
+  `pairtobed-unknown-strand-opposite-vs-bedtools` (must differ). Strands of `+` and `-` match
+  (`pairtobed-same-strand-vs-bedtools`, `pairtobed-opposite-strand-vs-bedtools`). For `pair-pair`,
+  `pairtopair-unknown-strand-vs-bedtools` (must differ); `+` and `-` strands match
+  (`pairtopair-same-strand-both-vs-bedtools`).
+
+## `pair-intersect --type notboth` pads a pair that has no hit {#pair-notboth-padding}
+
+- **gloci:** `notboth` writes TSV rows: a pair with one end hit is A and B, and a pair with no hit
+  is A followed by a placeholder B of B's width (`.`, `-1`, `-1`, then `.` for further columns, as
+  `intersect --keep-unmatched` writes them), so every row has the same columns.
+- **Old behaviour:** `bedtools pairtobed -type notboth` writes a pair with no hit as A alone, so the
+  rows have two widths.
+- **Reason:** one table, one width. `--type neither` is the way to list the pairs with no hit as
+  plain BEDPE.
+- **Pinned by:** `pairtobed-notboth-padding-vs-bedtools` (must differ). With every pair having a hit
+  the output is bedtools' (`pairtobed-notboth-vs-bedtools`).
+
+## `pair-intersect` follows spec section 4.3 for points {#pair-points}
+
+- **gloci:** a zero-length pair end is a point: it overlaps an interval it lies strictly inside
+  (`chr1 1000 1000` in `chr1 900-1100`) and an equal point, and a B point on the edge of an end does
+  not overlap it unless `--inclusive-points` is given (the rule of every relation command, see
+  [differences.md#zero-length-overlap](differences.md#zero-length-overlap)).
+- **Old behaviour:** `bedtools pairtobed` never finds a hit for a zero-length end, but reports a B
+  point lying on the edge of an end.
+- **Reason:** the same as for `intersect`: an insertion site inside a feature is found.
+- **Pinned by:** `pairtobed-points-vs-bedtools` (must differ).
+
+## `pair-intersect` spans of overlapping or nested ends {#pair-span-overlapping-ends}
+
+- **gloci:** the inner span (`ispan`, `notispan`) is the gap between the ends, `[end1, start2)` or
+  `[end2, start1)` when end 1 is on the right; ends that touch or overlap have no gap, so nothing
+  hits it and `notispan` reports the pair. The outer span (`ospan`, `notospan`) is from the smaller
+  start to the larger end, so for nested ends it is the container.
+- **Old behaviour:** for ends that overlap or are nested, `bedtools pairtobed -type ispan` reports
+  every B record on the chromosome as hitting the gap, and `-type ospan` takes the first end's start
+  and the second end's end (or the reverse when end 1 starts later), which for an end nested in
+  the other is the span of the shorter one. Ends that merely touch behave as in gloci.
+- **Reason:** a gap that does not exist cannot be hit, and the outer span should contain both ends.
+- **Pinned by:** `pairtobed-span-overlapping-ends-vs-bedtools` and
+  `pairtobed-span-nested-ends-vs-bedtools` (must differ). Ends on either side of a gap, and touching
+  ends, match (`pairtobed-span-ispan-vs-bedtools` and its `ospan`, `notispan`, `notospan` siblings).
+
+## BEDPE lines bedtools reads that gloci refuses {#bedpe-strictness}
+
+- **gloci:** a BEDPE line is an error (exit 1, naming the file and line; `--skip-invalid` skips
+  it) when
+  - an end names a chromosome and has `-1` or other negative coordinates (an absent end is chromosome
+    `.`: `. -1 -1`);
+  - an end has `start > end`;
+  - a strand column is anything but `+`, `-` or `.`;
+  - the line has 9 columns, or fewer than 6 (bedtools refuses these too).
+- **Old behaviour:** `bedtools pairtobed` takes a named chromosome with `-1 -1` as an absent end
+  (the pair is then a one-end pair), accepts `start > end` (and finds hits for some such ends),
+  a negative start, and any text as a strand (`x`, `y`), exiting 0.
+- **Reason:** these are typing mistakes more often than data, and a quietly wrong overlap is worse
+  than a stopped run. A caller with `-1 -1` ends only needs to write `.` for the chromosome.
+- **Pinned by:** `pairtobed-named-chrom-minus-one-vs-bedtools`, `pairtobed-strand-xy-vs-bedtools`,
+  `pairtobed-start-after-end-vs-bedtools` and `pairtobed-negative-start-vs-bedtools` (must differ:
+  gloci exits 1, bedtools 0). The 9-column and 5-column refusals match
+  (`pairtobed-nine-columns-vs-bedtools`, `pairtobed-five-columns-vs-bedtools`).
+
+## `pair-intersect` span types leave out a pair with both ends absent {#pair-span-absent-ends}
+
+- **gloci:** a span type (`ispan`, `ospan`, `notispan`, `notospan`) needs both ends on one
+  chromosome, so a pair with an absent end (chromosome `.`) is left out, whether one end is absent or
+  both, and is counted in the one warning.
+- **Old behaviour:** `bedtools pairtobed` reads the two `.` of `. -1 -1 . -1 -1` as one chromosome,
+  finds nothing hitting its empty span, and so reports the pair under `-type notispan` and
+  `-type notospan`. (With one end absent it leaves the pair out, as gloci does.)
+- **Reason:** one rule for the span types, and a pair with no ends has no span to report.
+- **Pinned by:** `pairtobed-absent-ends-notispan-vs-bedtools` and
+  `pairtobed-absent-ends-notospan-vs-bedtools` (must differ).
   `view-sam-strict-cigar-zeros-vs-samtools` (exit status must differ).
+
+## `pair-pair` writes a B that hits in both orientations once {#pair-pair-once}
+
+- **gloci:** each B pair that meets A is written once, however many of its orientations hit: A's line,
+  a tab and B's line. Orientation 1 tests end 1 of A against end 1 of B and end 2 against end 2;
+  orientation 2 tests A1 against B2 and A2 against B1.
+- **Old behaviour:** `bedtools pairtopair` writes one row per orientation, so a B that hits in both
+  (its two ends both lie inside the overlap of A's two ends) comes out twice.
+- **Reason:** an (A, B) pair is one finding; a repeated row inflates counts made with `wc -l`.
+- **Pinned by:** `pairtopair-both-orientations-once-vs-bedtools` (must differ). Pairs that hit in one
+  orientation only match (`pairtopair-both-vs-bedtools`, `pairtopair-orientation-2-both-vs-bedtools`).
+
+## `pair-pair --type either` writes B's columns as they read {#pair-pair-b-columns}
+
+- **gloci:** the B line in a row is B's line as written, whichever end of B hit.
+- **Old behaviour:** under `-type either`, `bedtools pairtopair` swaps the two ends of B (and their
+  strands) when only B's end 2 hit A's ends, and leaves the score column empty, so the row's B is
+  not the B in the file. `-type both` writes B as written.
+- **Reason:** B's line is the identity of the record, and a dropped score loses data.
+- **Pinned by:** `pairtopair-either-end-2-vs-bedtools` (must differ). A B that hits with end 1
+  matches (`pairtopair-either-vs-bedtools`).
+
+Note (not a difference): an end whose chromosome is `.` never overlaps anything in `pair-pair`, and
+`bedtools pairtopair` reports the same rows for them; pinned by the `pairtopair-absent-ends-*-vs-bedtools`
+cases (must match).
 
 ## CRAM: MD and NM come out as stored {#cram-md-nm}
 
@@ -1957,3 +2351,116 @@ depends on the span.
   `prechecks_refuse_counts_the_slice_cannot_hold`, `tokeniser_header_is_checked`,
   `block_sizes_are_checked`, `crafted_cram_panic_points_to_the_limits` and
   `cram_corrupt_bytes_are_errors_not_panics`.
+## `random` and `sample` use gloci's own random stream {#rng-stream}
+
+- **gloci:** `random` and `sample` draw from a ChaCha8 stream keyed by `--seed` (one stream per
+  `random` interval, one stream for `sample`), with exact bounded draws. The same seed, input and
+  options give the same bytes at any `--threads`, on every platform and in every release unless its
+  notes say the stream changed. Without `--seed` gloci picks one and prints it as a warning.
+- **Old behaviour:** `bedtools random -seed N` and `bedtools sample -seed N` use the C++ standard
+  library's generator and distributions, so the same seed gives different records, and a different
+  result with another standard library.
+- **Reason:** results that do not depend on the platform or the thread count. Sets from the same
+  seed are as uniform as bedtools' (checked by chi-squared tests at fixed seeds); they are not the
+  same sets. `random` also places every interval in one draw over all valid starts, where bedtools
+  rejects and redraws an interval that does not fit; the distribution is the same, and an `-l`
+  longer than every chromosome is an error naming the longest one (bedtools loops forever).
+- **Pinned by:** `random-vs-bedtools` and `shuffle-vs-bedtools` (must differ; the same seed gives
+  other places) and the gloci-only tests `random_pinned`, `random_uniform` and `shuffle_pinned`.
+  `shuffle` draws record *j* from stream *j*, retries included.
+
+## `sample` writes records in input order {#sample-order}
+
+- **gloci:** `sample -n N` keeps a uniform subset of N records and writes it in input order.
+- **Old behaviour:** `bedtools sample` writes the records in reservoir order, which is not the
+  input order.
+- **Reason:** a subset of a sorted file stays sorted, so it can go straight into the sweeps that need
+  sorted input. Pipe through `sort` if you need bedtools' arrangement (there is none to reproduce:
+  it depends on its generator).
+- **Pinned by:** `sample-subset-vs-bedtools` (must differ) and `sample-all-vs-bedtools`,
+  `sample-strand-vs-bedtools` (`lines-unordered`, must match).
+- **Also:** `--strand +|-` replaces `-s forward|reverse`; a record of unknown strand never
+  complies. With fewer records than N both commands fail (exit 1) and gloci writes nothing
+  (`sample-too-few-vs-bedtools`); an input with no records at all is the exception: gloci writes nothing, warns once ("X is empty: it has no records") and exits 0, like the other commands that accept empty input (gloci-only test `sample_of_empty_input_writes_nothing_and_warns_once`). `sample` of BAM and `-ubam` are not planned (`samtools view -s`).
+
+## `shuffle` keeps the whole record inside the allowed regions {#shuffle-placement}
+
+- **gloci:** the allowed set is the `--include` regions (else the genome) minus the `--exclude`
+  regions, merged per chromosome. A record of length L goes to any `(chromosome, start)` that keeps
+  all of `[start, start + L)` inside one allowed interval, every such place equally likely
+  (`--same-chrom`: on its chromosome; `--chrom-first`: a chromosome with room first, then a place on
+  it). A record with no place is an error (exit 1) naming its file, line and length, with the fix
+  (shrink `--exclude`, widen `--include`, or `--skip-unplaceable`, which drops such records, warns
+  with a count and lists the first 10); nothing is written to a file.
+- **Old behaviour:** `bedtools shuffle -incl` only requires the record's *start* to fall inside an
+  include region, so the record can run past the end of it. `-excl` is checked against the whole
+  record (a place overlapping an excluded region is redrawn). A record that fits nowhere is dropped
+  with a message on stderr and exit 0, and without `-chrom` bedtools keeps drawing forever when it
+  fits nowhere on any chromosome.
+- **Reason:** `--include` means the regions the records must lie in, and a silently shortened
+  output or a hang is worse than an error that says how to fix it.
+- **Pinned by:** `shuffle-include-containment` and `shuffle-unplaceable-vs-bedtools` (must differ:
+  exit 1 where bedtools exits 0); `shuffle-skip-unplaceable-vs-bedtools` and
+  `shuffle-forced-vs-bedtools` (must match: the records that have one place get it, columns and
+  strand kept).
+- **Also:** `-chrom`, `-chromFirst`, `-excl`, `-incl`, `-maxTries` and `-noOverlapping` are
+  `--same-chrom`, `--chrom-first`, `--exclude`, `--include`, `--max-tries` and `--no-overlapping`;
+  bedtools' `-f`, `-allowBeyondChromEnd` and `-incl` strand copying are not planned. VCF and
+  alignment input are refused (exit 2; `gloci convert` first). Output is in input order and not
+  sorted, so `--write-index` is refused (exit 2).
+
+## `shuffle --format bedpe` moves both ends {#shuffle-bedpe-ends}
+
+- **gloci:** a pair on one chromosome is placed as its outer span, so the ends keep their lengths
+  and the gap; a pair on two chromosomes places each end independently; an absent end (`. -1 -1`)
+  stays absent. With `--exclude` both ends avoid the excluded regions (the gap may cross them),
+  redrawn up to `--max-tries`. `--include`, `--same-chrom`, `--chrom-first` and `--no-overlapping`
+  are exit 2.
+- **Old behaviour:** `bedtools shuffle` on BEDPE moves end 1 and writes end 2 unchanged (it never
+  moves it, whether the ends share a chromosome or not), and it ignores `-excl`, `-incl`, `-chrom`
+  and `-noOverlapping` for BEDPE without a word.
+- **Reason:** a shuffled pair with one end where it started is not a null model for either end, and
+  an ignored option should be an error.
+- **Pinned by:** `shuffle-bedpe-ends-vs-bedtools` (must differ: end 2 sits inside `--exclude`, so
+  gloci's never lies where bedtools leaves it) and `shuffle-forced-bedpe-vs-bedtools` (must match:
+  pairs whose ends fill their chromosomes have one place).
+
+## `vcf compare` pairs sites by shared allele, vcftools by position {#compare-allele-matching}
+
+- **gloci:** `--match alleles`, the default, pairs a record of A with a record of B at the
+  same CHROM and POS that shares an ALT allele once both are trimmed of their common REF/ALT
+  prefix and suffix (`AT>A` and `ATG>AG` at one POS are the same deletion). Each record of A
+  takes the first unmatched such record of B; the leftovers at the position pair as
+  overlapping and are not compared, and the rest are in one file only. A REF of `N` is not
+  replaced by the other file's REF. Genotypes are compared by what the alleles are, so a
+  pair that differs only in how the ALT list is ordered still agrees. The matrix counts the
+  pairs that are one biallelic site in the same sense: in alleles mode a single ALT that is the
+  same trimmed allele (so `AT>A` against `ATG>AG` counts), in position mode a single ALT with
+  identical REF and ALT text, as vcftools. `--match position`
+  pairs as vcftools does (the same POS and REF, an `N` or `.` REF taking the other's).
+- **Old behaviour:** `--diff-site-discordance` pairs the next record of each file by
+  position: the same POS and REF is one site whatever the ALT (so `A>C` against `A>G` is
+  compared, as `AC` against `AG`), a different REF at one POS pairs and is dropped, and the
+  earlier POS is a site of one file only. `AT>A` against `ATG>AG` is dropped there.
+- **Reason:** two records that call different changes at one position are not the same
+  site, and the same change written two ways is; position pairing counts the first as
+  discordant and drops the second.
+- **Pinned by:** `vcf-compare-allele-matching-vs-vcftools` (must differ) and
+  `compare_allele_matching_differs_from_vcftools` in `crates/gloci/tests/vcf_compare.rs`
+  (gloci's rows, and the vcftools rows that are absent). `--match position` matches
+  vcftools in `vcf-compare-site-vs-vcftools` and its siblings, and in
+  `compare_matches_vcftools_by_position`.
+
+## `vcf compare` reads a genotype with a missing allele as missing {#compare-half-missing}
+
+- **gloci:** a genotype with any `.` allele (`./1`, `0/.`, `./.`) is not called: it is left
+  out of `N_COMMON_CALLED`, of `N_DISCORD` and of the matrix's called cells, and counts under
+  `./.` in the matrix.
+- **Old behaviour:** vcftools counts `./1` as called: it compares it as an allele string, so
+  `./1` against `./1` is concordant and against `0/1` discordant. In
+  `--diff-discordance-matrix` it stops with `Error: Unhandled case` and writes no file.
+- **Reason:** a genotype with an unknown allele is not evidence for or against the other
+  file's call, and a matrix that cannot be written is worse than a count that says so.
+- **Pinned by:** `vcf-compare-half-missing-vs-vcftools` (must differ) and
+  `compare_half_missing_genotypes_are_missing` in `crates/gloci/tests/vcf_compare.rs` (gloci's
+  three files, and vcftools' counts from the committed `half.diff.*`, which has no matrix).

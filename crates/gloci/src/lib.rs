@@ -226,11 +226,26 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         Commands::Coverage(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
         Commands::Groupby(a) => (a.threads.threads, None),
         Commands::Maskfasta(a) => (a.threads.threads, None),
+        Commands::Stats(a) => match &a.command {
+            cli::StatsCommand::Jaccard(j) => (j.threads.threads, j.sort.tmp_dir.clone()),
+            cli::StatsCommand::Fisher(f) => (f.threads.threads, f.sort.tmp_dir.clone()),
+            cli::StatsCommand::Reldist(r) => (r.threads.threads, r.sort.tmp_dir.clone()),
+        },
+        Commands::PairIntersect(a) => (a.threads.threads, None),
+        Commands::PairPair(a) => (a.threads.threads, None),
+        Commands::Random(a) => (a.threads.threads, None),
+        Commands::Sample(a) => (a.threads.threads, None),
+        Commands::Shuffle(a) => (a.threads.threads, None),
         Commands::Vcf(a) => match &a.command {
             cli::VcfCommand::Filter(f) => (f.threads.threads, None),
             cli::VcfCommand::Extract(e) => (e.threads.threads, e.tmp_dir.tmp_dir.clone()),
             cli::VcfCommand::Stats(e) => (e.threads.threads, None),
             cli::VcfCommand::Concat(c) => (c.threads.threads, None),
+            cli::VcfCommand::Split(c) => (c.threads.threads, None),
+            cli::VcfCommand::Norm(c) => (c.threads.threads, None),
+            cli::VcfCommand::Annotate(c) => (c.threads.threads, None),
+            cli::VcfCommand::Merge(c) => (c.threads.threads, None),
+            cli::VcfCommand::Compare(c) => (c.threads.threads, None),
         },
     };
     let threads = requested
@@ -316,11 +331,26 @@ fn dispatch(cli: &Cli, ctx: &Ctx) -> (anyhow::Result<()>, bool) {
         Commands::Coverage(a) => commands::coverage::run(ctx, a),
         Commands::Groupby(a) => commands::groupby::run(ctx, a),
         Commands::Maskfasta(a) => commands::maskfasta::run(ctx, a),
+        Commands::Shuffle(a) => commands::shuffle::run(ctx, a),
+        Commands::Sample(a) => commands::sample::run(ctx, a),
+        Commands::Random(a) => commands::random::run(ctx, a),
+        Commands::Stats(a) => match &a.command {
+            cli::StatsCommand::Jaccard(j) => commands::stats::run_jaccard(ctx, j),
+            cli::StatsCommand::Fisher(f) => commands::stats::run_fisher(ctx, f),
+            cli::StatsCommand::Reldist(r) => commands::stats::run_reldist(ctx, r),
+        },
+        Commands::PairIntersect(a) => commands::pairs::run_intersect(ctx, a),
+        Commands::PairPair(a) => commands::pairs::run_pair(ctx, a),
         Commands::Vcf(a) => match &a.command {
             cli::VcfCommand::Filter(f) => commands::vcf::run_filter(ctx, f),
             cli::VcfCommand::Extract(e) => commands::vcf::run_extract(ctx, e),
             cli::VcfCommand::Stats(e) => commands::vcf::run_stats(ctx, e),
             cli::VcfCommand::Concat(c) => commands::vcf::run_concat(ctx, c),
+            cli::VcfCommand::Split(c) => commands::vcf_split::run(ctx, c),
+            cli::VcfCommand::Norm(c) => commands::vcf_norm::run(ctx, c),
+            cli::VcfCommand::Annotate(c) => commands::vcf_annotate::run(ctx, c),
+            cli::VcfCommand::Merge(c) => commands::vcf_merge::run(ctx, c),
+            cli::VcfCommand::Compare(c) => commands::vcf::run_compare(ctx, c),
         },
     };
     (result, all_ok)

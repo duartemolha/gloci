@@ -28,7 +28,8 @@ fn input_gate() {
         .code(2)
         .stderr(contains("does not read alignments"))
         .stderr(contains(format!("gloci convert {x} -o x.bed")))
-        .stderr(contains("gloci sort -m"));
+        .stderr(contains("gloci sort -m"))
+        .stderr(contains("stats jaccard, fisher and reldist"));
     gloci()
         .args(["merge", sam.to_str().unwrap()])
         .assert()

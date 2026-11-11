@@ -1,0 +1,6 @@
+##INFO=<ID=TF,Number=1,Type=Float,Description="Tab float">
+##INFO=<ID=TS,Number=1,Type=String,Description="Tab string">
+##INFO=<ID=TA,Number=A,Type=Float,Description="Tab per-ALT float">
+##INFO=<ID=TFL,Number=0,Type=Flag,Description="Tab flag">
+##INFO=<ID=TI,Number=1,Type=Integer,Description="Tab integer">
+##INFO=<ID=TR,Number=R,Type=String,Description="Tab per-allele string">

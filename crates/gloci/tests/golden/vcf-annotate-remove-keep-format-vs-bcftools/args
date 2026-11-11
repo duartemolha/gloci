@@ -1,0 +1,1 @@
+vcf annotate input.vcf -x ^FORMAT/DP

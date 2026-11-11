@@ -1,0 +1,1 @@
+vcf split --types any input.vcf

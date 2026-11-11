@@ -1,0 +1,1 @@
+pair-pair -w 10 -a input.bedpe -b pp-b-win.bedpe

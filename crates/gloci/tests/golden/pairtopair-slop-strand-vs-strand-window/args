@@ -1,0 +1,1 @@
+pair-pair --left 10 --strand-window -a input.bedpe -b pp-b-ss.bedpe

@@ -4,10 +4,10 @@
 //! `SnpDensity` streams its rows and keeps only the current bin.
 
 use super::engine::{Out, Stat, StatSink};
-use super::fmt::{write_g6, write_i64, write_u64};
 use crate::filter::SiteView;
 use crate::gt::GenotypeSource;
 use crate::stats::SiteStats;
+use gloci_core::cfmt::{write_g6, write_i64, write_u64};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io;
 

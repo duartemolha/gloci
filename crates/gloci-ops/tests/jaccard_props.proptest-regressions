@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc e96d4f98745da3e62fe1c8dba1c7b66faddc4151b447290f58aa43fce8940272 # shrinks to input = RelationInputs { a: [], b: [[TestRec { chrom: "chr1", start: 0, end: 1, strand: '.', name: "r0" }]] }, strand = 1, frac_a = None, frac_b = None, reciprocal = false, either = false, min_bases = None, inclusive_points = false

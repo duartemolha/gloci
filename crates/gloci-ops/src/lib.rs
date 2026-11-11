@@ -19,19 +19,30 @@ pub mod map;
 pub mod maskfasta;
 pub mod merge;
 pub mod nuc;
+pub mod pairs;
 pub mod partition;
+pub mod random;
 pub mod relate;
+pub mod rng;
+pub mod sample;
 pub mod seq;
 pub mod shift;
+pub mod shuffle;
 mod skipped;
 pub mod sort;
 pub mod spacing;
+pub mod stats;
 pub mod subtract;
 pub mod transform;
+pub mod vcf_annotate;
+pub mod vcf_compare;
 pub mod vcf_concat;
 pub mod vcf_extract;
 pub mod vcf_filter;
+pub mod vcf_merge;
+pub mod vcf_norm;
 pub mod vcf_select;
+pub mod vcf_split;
 pub mod vcf_stats;
 pub mod view;
 pub mod windows;
@@ -55,6 +66,13 @@ pub use sort::{
     merge_sorted, merge_sorted_batches, name_flag_rank, sort_input_options, sort_readers,
     sort_together, strnum_cmp,
 };
+pub use vcf_annotate::{
+    AnnotateSummary, AnnotationSource, is_bed_name, vcf_annotate, vcf_annotate_output,
+};
+pub use vcf_compare::{
+    CompareOptions, CompareRequest, CompareSummary, check_options as check_compare_options,
+    vcf_compare,
+};
 pub use vcf_concat::{ConcatOptions, vcf_concat};
 pub use vcf_extract::{
     ExtractMode, ExtractOptions, ExtractSummary, check_keys, check_tmp_dir, extract_matrix,
@@ -64,9 +82,14 @@ pub use vcf_filter::{
     FilterSummary, VcfFilterInput, VcfFilterOptions, open_vcf_filter, vcf_filter, vcf_filter_file,
     vcf_filter_output,
 };
+pub use vcf_merge::{FilterList, MergeSummary, vcf_merge, vcf_merge_output};
+pub use vcf_norm::{NormOptions, NormSummary, vcf_norm, vcf_norm_output};
+#[cfg(feature = "test-hooks")]
+pub use vcf_select::set_worker_panic_at;
 pub use vcf_select::{
-    FilterExpr, Hit, SelectStage, SelectedInput, VcfSelect, open_selected, run_selection,
-    select_regions, validate_thresholds, vcf_header,
+    FilterExpr, Hit, SelectStage, SelectedInput, VcfSelect, inflight_peak, open_selected,
+    reset_inflight_peak, run_selection, select_regions, validate_thresholds, vcf_header,
 };
+pub use vcf_split::{SplitOptions, SplitSummary, vcf_split, vcf_split_output};
 pub use vcf_stats::{StatsOptions, StatsRequest, StatsSummary, check_request, vcf_stats};
 pub use view::{ViewOptions, open_view, read_regions_file, run_view, select_a};

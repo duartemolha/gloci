@@ -1,4 +1,4 @@
-use xtask::synth::{BedOpts, PairOpts, Profile, VcfOpts};
+use xtask::synth::{BedOpts, BedpeOpts, PairOpts, Profile, VcfOpts};
 
 fn bed_bytes(o: &BedOpts) -> Vec<u8> {
     let mut v = Vec::new();
@@ -642,4 +642,291 @@ fn gen_fasta_has_masks_and_matching_intervals() {
         .filter(|(a, b)| a.to_ascii_uppercase() == **b)
         .count();
     assert!(agree as f64 > 0.8 * len.min(400_000) as f64);
+}
+
+fn bedpe_text(o: &BedpeOpts) -> String {
+    let mut v = Vec::new();
+    xtask::synth::bedpe(o, &mut v).unwrap();
+    String::from_utf8(v).unwrap()
+}
+
+/// One BEDPE line as `BedpeReader` takes it: ten tab-separated fields, ends
+/// with start < end inside the chromosome, a score and two strands.
+fn check_bedpe_line(l: &str) -> (String, String) {
+    let f: Vec<&str> = l.split('\t').collect();
+    assert_eq!(f.len(), 10, "{l}");
+    for (c, s, e) in [(0, 1, 2), (3, 4, 5)] {
+        let (s, e): (u64, u64) = (f[s].parse().unwrap(), f[e].parse().unwrap());
+        assert!(f[c].starts_with("chr"), "{l}");
+        assert!(s < e && e <= xtask::synth::CHROM_LEN, "{l}");
+    }
+    let _: u32 = f[7].parse().unwrap();
+    assert!(f[8] == "+" || f[8] == "-", "{l}");
+    assert!(f[9] == "+" || f[9] == "-", "{l}");
+    (f[0].to_string(), f[3].to_string())
+}
+
+#[test]
+fn gen_bedpe_is_valid() {
+    let o = BedpeOpts {
+        pairs: 20_000,
+        chroms: 5,
+        inter_frac: 0.3,
+        seed: 4,
+        ..BedpeOpts::default()
+    };
+    let text = bedpe_text(&o);
+    assert_eq!(text, bedpe_text(&o), "same seed, same bytes");
+    assert_ne!(
+        text,
+        bedpe_text(&BedpeOpts {
+            seed: 5,
+            ..o.clone()
+        })
+    );
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 20_000);
+    let inter = lines
+        .iter()
+        .filter(|l| {
+            let (a, b) = check_bedpe_line(l);
+            a != b
+        })
+        .count();
+    let frac = inter as f64 / 20_000.0;
+    assert!(
+        (frac - 0.3).abs() < 0.02,
+        "inter-chromosomal fraction {frac}"
+    );
+    // On one chromosome end 2 comes after end 1.
+    for l in &lines {
+        let f: Vec<&str> = l.split('\t').collect();
+        if f[0] == f[3] {
+            assert!(
+                f[2].parse::<u64>().unwrap() < f[4].parse::<u64>().unwrap(),
+                "{l}"
+            );
+        }
+    }
+    let one = bedpe_text(&BedpeOpts {
+        inter_frac: 0.0,
+        ..o.clone()
+    });
+    assert!(one.lines().all(|l| {
+        let (a, b) = check_bedpe_line(l);
+        a == b
+    }));
+    assert!(
+        xtask::synth::bedpe(&BedpeOpts { chroms: 1, ..o }, &mut Vec::new()).is_err(),
+        "an inter-chromosomal fraction needs two chromosomes"
+    );
+}
+
+#[test]
+fn gen_bedpe_b_files() {
+    let o = BedpeOpts {
+        pairs: 500,
+        chroms: 3,
+        seed: 9,
+        ..BedpeOpts::default()
+    };
+    // B as pairs: A's stream, every end moved but still overlapping its original.
+    let mut b = Vec::new();
+    xtask::synth::bedpe_jittered(&o, xtask::synth::B_JITTER, &mut b).unwrap();
+    let (a, b) = (bedpe_text(&o), String::from_utf8(b).unwrap());
+    assert_ne!(a, b);
+    assert_eq!(a.lines().count(), b.lines().count());
+    for (la, lb) in a.lines().zip(b.lines()) {
+        let (fa, fb): (Vec<&str>, Vec<&str>) = (la.split('\t').collect(), lb.split('\t').collect());
+        assert_eq!((fa[0], fa[3], fa[6]), (fb[0], fb[3], fb[6]));
+        for (s, e) in [(1, 2), (4, 5)] {
+            let n = |f: &[&str], i: usize| f[i].parse::<u64>().unwrap();
+            assert!(
+                n(&fa, s) < n(&fb, e) && n(&fb, s) < n(&fa, e),
+                "{la} / {lb}"
+            );
+        }
+    }
+    assert!(xtask::synth::bedpe_jittered(&o, 50, &mut Vec::new()).is_err());
+    // B as BED.
+    let mut bed = Vec::new();
+    xtask::synth::bedpe_bed(&o, 300, &mut bed).unwrap();
+    let recs = parse(&bed);
+    assert_eq!(recs.len(), 300);
+    assert!(recs.iter().all(|(_, s, e)| s < e));
+}
+
+#[test]
+fn gen_vcf_pair_differs_only_in_genotypes() {
+    let o = VcfOpts {
+        records: 2000,
+        samples: 50,
+        seed: 3,
+        chroms: 2,
+    };
+    let (mut a, mut b) = (Vec::new(), Vec::new());
+    xtask::synth::vcf_pair(&o, 0.2, &mut a, &mut b).unwrap();
+    let mut plain = Vec::new();
+    xtask::synth::vcf(&o, &mut plain).unwrap();
+    assert_eq!(a, plain, "A is the single-file output");
+    let (a, b) = (String::from_utf8(a).unwrap(), String::from_utf8(b).unwrap());
+    assert_eq!(a.lines().count(), b.lines().count());
+    let (mut calls, mut differ) = (0u32, 0u32);
+    for (la, lb) in a.lines().zip(b.lines()) {
+        if la.starts_with('#') {
+            assert_eq!(la, lb);
+            continue;
+        }
+        let (fa, fb): (Vec<&str>, Vec<&str>) = (la.split('\t').collect(), lb.split('\t').collect());
+        assert_eq!(fa[..9], fb[..9], "sites and INFO are the same");
+        for (ca, cb) in fa[9..].iter().zip(&fb[9..]) {
+            let (ga, gb) = (
+                ca.split(':').collect::<Vec<_>>(),
+                cb.split(':').collect::<Vec<_>>(),
+            );
+            assert_eq!(ga[1..], gb[1..], "only the GT field changes");
+            if ga[0] != "./." {
+                calls += 1;
+                differ += u32::from(ga[0] != gb[0]);
+            } else {
+                assert_eq!(ga[0], gb[0], "missing stays missing");
+            }
+        }
+    }
+    // 0.2 redraws, 3/8 of them equal to the original at biallelic sites.
+    let frac = f64::from(differ) / f64::from(calls);
+    assert!((0.09..0.14).contains(&frac), "{frac}");
+    let (mut a2, mut b2) = (Vec::new(), Vec::new());
+    xtask::synth::vcf_pair(&o, 0.0, &mut a2, &mut b2).unwrap();
+    assert_eq!(a2, b2, "no discordance, same files");
+}
+
+#[test]
+fn gen_sam_paired_by_name_is_name_grouped() {
+    let o = SamOpts {
+        records: 4000,
+        depth: 5.0,
+        chroms: 3,
+        paired: true,
+        by_name: true,
+        seed: 5,
+        ..SamOpts::default()
+    };
+    let (a, ra) = sam_bytes(&o);
+    let (b, rb) = sam_bytes(&o);
+    assert_eq!((&a, &ra), (&b, &rb), "same seed, same bytes");
+    let text = std::str::from_utf8(&a).unwrap();
+    assert!(text.starts_with("@HD\tVN:1.6\tSO:queryname\n"));
+    let reads: Vec<Vec<&str>> = text
+        .lines()
+        .filter(|l| !l.starts_with('@'))
+        .map(|l| l.split('\t').collect())
+        .collect();
+    assert_eq!(reads.len(), 4000);
+    let refs = read_fasta(&ra);
+    let mut last = "";
+    for pair in reads.chunks(2) {
+        let (r1, r2) = (&pair[0], &pair[1]);
+        assert_eq!(r1[0], r2[0], "mates share a name");
+        assert!(r1[0] > last, "pairs come in name order (zero-padded)");
+        last = r1[0];
+        let (f1, f2): (u16, u16) = (r1[1].parse().unwrap(), r2[1].parse().unwrap());
+        assert_eq!((f1 & 0x1c0, f2 & 0x1c0), (0x41 & 0x1c0, 0x81 & 0x1c0));
+        assert_eq!(f1 & 0x1, 1);
+        // Each is on the strand the other's flag says, and they differ.
+        assert_eq!((f1 & 0x10) != 0, (f2 & 0x20) != 0);
+        assert_eq!((f2 & 0x10) != 0, (f1 & 0x20) != 0);
+        assert_ne!(f1 & 0x10, f2 & 0x10, "opposite strands");
+        assert_eq!((r1[2], r1[6]), (r2[2], "="));
+        assert_eq!(r1[7], r2[3], "PNEXT is the mate's POS");
+        assert_eq!(r2[7], r1[3]);
+        let (t1, t2): (i64, i64) = (r1[8].parse().unwrap(), r2[8].parse().unwrap());
+        assert_eq!(t1, -t2);
+        // The reads match the reference they are mapped to.
+        for r in [r1, r2] {
+            let pos: usize = r[3].parse().unwrap();
+            let chrom = &refs[r[2]];
+            let cig = cigar(r[5]);
+            let (mut rp, mut qp) = (pos - 1, 0);
+            for (n, op) in cig {
+                match op {
+                    'M' => {
+                        assert_eq!(&chrom[rp..rp + n], &r[9].as_bytes()[qp..qp + n]);
+                        rp += n;
+                        qp += n;
+                    }
+                    'N' | 'D' => rp += n,
+                    _ => panic!("{op}"),
+                }
+            }
+        }
+    }
+    // Only name-grouped pairs, and no odd count.
+    for bad in [
+        SamOpts {
+            by_name: false,
+            ..o.clone()
+        },
+        SamOpts {
+            paired: false,
+            ..o.clone()
+        },
+        SamOpts {
+            records: 4001,
+            ..o.clone()
+        },
+        SamOpts {
+            shuffled: true,
+            ..o
+        },
+    ] {
+        assert!(xtask::synth::sam(&bad, &mut Vec::new()).is_err());
+    }
+}
+
+#[test]
+fn run_args_writes_the_two_file_setups() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = |n: &str| dir.path().join(n).to_string_lossy().into_owned();
+    let run = |words: &str| {
+        let args: Vec<String> = words.split_whitespace().map(String::from).collect();
+        xtask::synth::run_args(&args, &mut Vec::new()).unwrap();
+    };
+    run(&format!(
+        "bedpe --pairs 100 --chroms 3 --b-bed 50 --out-a {} --out-b {}",
+        p("a.bedpe"),
+        p("b.bed")
+    ));
+    assert_eq!(
+        std::fs::read_to_string(p("a.bedpe"))
+            .unwrap()
+            .lines()
+            .count(),
+        100
+    );
+    assert_eq!(
+        std::fs::read_to_string(p("b.bed")).unwrap().lines().count(),
+        50
+    );
+    run(&format!(
+        "bedpe --pairs 100 --chroms 3 --b-pairs 100 --out-a {} --out-b {}",
+        p("a2.bedpe"),
+        p("b2.bedpe")
+    ));
+    assert_eq!(
+        std::fs::read_to_string(p("b2.bedpe"))
+            .unwrap()
+            .lines()
+            .count(),
+        100
+    );
+    run(&format!(
+        "vcf-pair --records 50 --samples 4 --discord 0.5 --out-a {} --out-b {}",
+        p("a.vcf"),
+        p("b.vcf")
+    ));
+    assert_ne!(
+        std::fs::read_to_string(p("a.vcf")).unwrap(),
+        std::fs::read_to_string(p("b.vcf")).unwrap()
+    );
 }

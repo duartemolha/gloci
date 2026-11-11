@@ -1,0 +1,1 @@
+vcf merge input.vcf b.vcf c.vcf -i DP:max,DP4:avg,AF:sum,NAME:join,AC:max

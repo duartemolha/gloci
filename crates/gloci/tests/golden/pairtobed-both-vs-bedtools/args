@@ -1,0 +1,1 @@
+pair-intersect --type both -a input.bedpe -b pairs-b.bed

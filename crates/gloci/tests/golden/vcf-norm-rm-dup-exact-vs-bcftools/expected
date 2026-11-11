@@ -1,0 +1,37 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##FILTER=<ID=q10,Description="Low quality">
+##contig=<ID=chr1,length=120>
+##contig=<ID=chr2,length=52>
+##contig=<ID=chr3,length=21>
+##contig=<ID=chr4,length=19>
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Depth">
+##INFO=<ID=END,Number=1,Type=Integer,Description="End">
+##INFO=<ID=AC,Number=A,Type=Integer,Description="Allele count">
+##INFO=<ID=AF,Number=A,Type=Float,Description="Allele frequency">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=AD,Number=R,Type=Integer,Description="Allele depth">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	s1	s2	s3
+chr1	13	.	CG	C	33	q10	DP=13	GT:AD:DP	0/1:3,4:23	1/1:3,4:24	0/0:3,4:25
+chr1	14	.	G	C	30	PASS	DP=10	GT:AD:DP	0/1:3,4:20	1/1:3,4:21	0/0:3,4:22
+chr1	14	.	G	T	32	PASS	DP=12	GT:AD:DP	1/1:3,4:22	0/1:3,4:23	0/1:3,4:24
+chr1	14	.	GGA	G	35	q10	DP=15	GT:AD:DP	1/1:3,4:25	0/1:3,4:26	0/1:3,4:27
+chr1	15	.	G	A	34	PASS	DP=14	GT:AD:DP	0|1:3,4:24	1|0:3,4:25	./.:3,4:26
+chr1	15	.	G	GA	36	PASS	DP=16	GT:AD:DP	0/1:3,4:26	1/1:3,4:27	0/0:3,4:28
+chr1	15	.	GA	G	37	q10	DP=17	GT:AD:DP	0|1:3,4:27	1|0:3,4:28	./.:3,4:29
+chr1	20	.	A	C	40	PASS	DP=20	GT:AD:DP	0|1:3,4:30	1|0:3,4:31	./.:3,4:32
+chr1	20	.	A	C,G	42	PASS	DP=22	GT:AD:DP	0/1:3,4,5:32	1/1:3,4,5:33	0/0:3,4,5:34
+chr1	22	.	C	T	43	q10	DP=23	GT:AD:DP	0|1:3,4:33	1|0:3,4:34	./.:3,4:35
+chr1	22	.	C	T,G	44	PASS	DP=24	GT:AD:DP	1/1:3,4,5:34	0/1:3,4,5:35	0/1:3,4,5:36
+chr1	22	.	C	G	46	PASS	DP=26	GT:AD:DP	0|1:3,4:36	1|0:3,4:37	./.:3,4:38
+chr1	50	.	G	A	47	q10	DP=27	GT:AD:DP	1/1:3,4:37	0/1:3,4:38	0/1:3,4:39
+chr1	50	.	G	GT	48	PASS	DP=28	GT:AD:DP	0/1:3,4:38	1/1:3,4:39	0/0:3,4:40
+chr1	50	.	GC	AT	49	q10	DP=29	GT:AD:DP	0|1:3,4:39	1|0:3,4:40	./.:3,4:41
+chr1	50	.	G	A,GT	51	q10	DP=31	GT:AD:DP	0/2:3,4,5:41	1/1:3,4,5:42	0/0:3,4,5:43
+chr1	50	.	G	<INS>	52	PASS	DP=32	GT:AD:DP	0|1:3,4:42	1|0:3,4:43	./.:3,4:44
+chr1	50	.	G	<DUP>	53	q10	DP=33	GT:AD:DP	1/1:3,4:43	0/1:3,4:44	0/1:3,4:45
+chr1	50	.	G	*	55	q10	DP=35	GT:AD:DP	0|1:3,4:45	1|0:3,4:46	./.:3,4:47
+chr1	50	.	G	C	56	PASS	DP=36	GT:AD:DP	1/1:3,4:46	0/1:3,4:47	0/1:3,4:48
+chr1	60	.	T	A,GT	57	q10	DP=37	GT:AD:DP	0/2:3,4,5:47	1/1:3,4,5:48	0/0:3,4,5:49
+chr1	60	.	T	c	58	PASS	DP=38	GT:AD:DP	0|1:3,4:48	1|0:3,4:49	./.:3,4:50

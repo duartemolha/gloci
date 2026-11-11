@@ -1,0 +1,1 @@
+vcf annotate input.vcf -a src.vcf -c INFO/AF,INFO/DB,INFO/NAME,INFO/DP

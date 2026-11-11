@@ -1,0 +1,22 @@
+##fileformat=VCFv4.2
+##contig=<ID=1,length=100000>
+##contig=<ID=2,length=100000>
+##contig=<ID=4,length=100000>
+##FILTER=<ID=LowQ,Description="Low quality in the source">
+##INFO=<ID=AF,Number=A,Type=Float,Description="Source allele frequency">
+##INFO=<ID=XR,Number=R,Type=Float,Description="Source per-allele values">
+##INFO=<ID=DB,Number=0,Type=Flag,Description="In the source database">
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Source depth">
+##INFO=<ID=NAME,Number=1,Type=String,Description="Source name">
+##INFO=<ID=CNT,Number=A,Type=Integer,Description="Source allele counts">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+1	100	rs1	A	G	99	PASS	AF=0.5;XR=0.1,0.2;DB;DP=50;NAME=n1;CNT=7
+1	200	rs2	C	G,T	50	LowQ	AF=0.1,0.2;XR=0.7,0.8,0.9;NAME=n2;CNT=1,2
+1	200	rs2b	C	G	60	.	AF=0.7;NAME=n2b;CNT=3
+1	300	rs3	A	T	.	.	AF=0.3
+1	400	rs4	G	A,C	.	.	AF=0.4,0.6;CNT=5,6
+1	450	rs4b	G	A,C	.	.	AF=0.1,0.3;XR=0.4,0.5,0.6;CNT=2,4
+1	500	rs5	CA	C	.	.	AF=0.2
+2	50	rs6	T	C	.	.	AF=0.9;DB
+2	55	rs7	A	G	.	.	AF=0.8
+4	10	rs8	A	G	.	.	DB

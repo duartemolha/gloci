@@ -44,3 +44,15 @@ head -c -28 cat-a.bam > cat-noeof.bam
 samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o sort.bam sort.sam
 samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o sort-nohd.bam sort-nohd.sam
 samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o sort-hd.bam sort-hd.sam
+# pairs.sam (D156, convert --bedpe): name-sorted pairs: a proper pair, a mate unmapped but placed,
+# both unmapped, MAPQ 30/50 with NM 0/3, a chr2/chr10 pair (chr10 first as bytes) and a READ1
+# right of its READ2. supp.sam: R1, R1's supplementary alignment (on chr2), then R2.
+# Neither is indexable (queryname order). pairs.noref.cram is the CRAM of pairs.sam.
+for set in pairs supp; do
+    samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o "$set.bam" "$set.sam"
+done
+samtools view -C -@ 0 --no-PG --output-fmt-option version=3.0 --output-fmt-option no_ref=1 \
+    -o pairs.noref.cram pairs.sam
+# pairs-pastend.sam (D156): on a 1000 base chr1, e1's READ1 straddles the end (990-1000 once cut)
+# and e2's READ1 (no NM tag) starts at the end, so it is an absent end.
+samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o pairs-pastend.bam pairs-pastend.sam

@@ -1,0 +1,10 @@
+##fileformat=VCFv4.2
+##contig=<ID=1,length=100000>
+##FILTER=<ID=q10,Description="q10">
+##FILTER=<ID=lowdp,Description="low depth">
+##FILTER=<ID=other,Description="other">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+1	100	.	A	G	.	q10;lowdp	.
+1	200	.	A	G	.	other;lowdp	.
+1	300	.	A	G	.	PASS	.
+1	400	.	A	G	.	q10	.

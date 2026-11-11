@@ -1,0 +1,14 @@
+#comment header
+track name=sample
+chr1	0	50	r0	0	+	x0	y0
+chr2	100	150	r1	1	-	x1	y1
+chr3	200	250	r2	2	.	x2	y2
+chr1	300	350	r3	3	+	x3	y3
+chr2	400	450	r4	4	-	x4	y4
+chr3	500	550	r5	5	.	x5	y5
+chr1	600	650	r6	6	+	x6	y6
+chr2	700	750	r7	7	-	x7	y7
+chr3	800	850	r8	8	.	x8	y8
+chr1	900	950	r9	9	+	x9	y9
+chr2	1000	1050	r10	10	+	x10	y10
+chr3	1100	1150	r11	11	+	x11	y11

@@ -4,7 +4,7 @@
 //! The first byte of every input is the config byte of `fuzz_bodies`.
 
 use gloci_io::Format;
-use gloci_io::fuzz_bodies::{drain_input, read_all_both, region_parse};
+use gloci_io::fuzz_bodies::{drain_input, read_all_both, read_bedpe, region_parse};
 use gloci_testkit::fixtures::{bgzip, sam_to_bam, vcf_to_bcf};
 use proptest::prelude::*;
 
@@ -554,6 +554,34 @@ proptest! {
     #[test]
     fn region_parse_never_panics(d in prop_oneof![bytes(), texty()]) {
         region_parse(&d);
+    }
+}
+
+/// 2,000 seeded byte flips and truncations of a valid BEDPE file (with and
+/// without a `--chrom-map`) never panic (§9.3).
+#[test]
+fn fuzz_bedpe() {
+    let seed: &[u8] = b"#header\ntrack name=x\nchr1\t10\t20\tchr2\t30\t40\n\
+1\t5\t5\tchr2\t7\t9\tr1\t0\t+\t-\n.\t-1\t-1\tchr1\t5\t5\tr2\t0\t.\t+\textra\n\
+chr1\t1\t2\tchr1\t3\t4\tn\n";
+    let mut x = 0x9e37_79b9_7f4a_7c15u64;
+    let mut next = move || {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        x
+    };
+    for i in 0..2000 {
+        let mut d = seed.to_vec();
+        for _ in 0..=(next() % 4) {
+            let at = (next() % d.len() as u64) as usize;
+            d[at] ^= 1 << (next() % 8);
+        }
+        if i % 3 == 0 {
+            d.truncate((next() % d.len() as u64) as usize);
+        }
+        read_bedpe(&with_cfg((next() & 0xff) as u8, d.clone()));
+        read_bedpe(&with_cfg((next() & 0xff) as u8, bgzip(&d)));
     }
 }
 

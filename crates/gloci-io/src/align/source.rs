@@ -30,6 +30,12 @@ pub trait AlnSource: Send {
     /// counted in the diagnostics and not returned.
     fn next_record(&mut self, buf: &mut Vec<u8>) -> Result<Option<u64>, IoError>;
     fn diagnostics(&self) -> &Diagnostics;
+    /// Where the record last returned is, as errors name it: "record N of CHROM (record M of
+    /// the file)" for BAM and CRAM, "line N" for SAM. The region sources, which `view` alone
+    /// reads, do not track it.
+    fn place(&self) -> String {
+        "the record last read".to_string()
+    }
     /// The BAM record (without `block_size`) of the record last returned, when the source has
     /// it already (SAM encodes each record to check it) and BAM can hold it. A writer that
     /// writes BAM can use it instead of encoding the line again.
@@ -69,6 +75,9 @@ impl AlnSource for BamSource {
     }
     fn diagnostics(&self) -> &Diagnostics {
         &self.diag
+    }
+    fn place(&self) -> String {
+        self.frames.place()
     }
 
     fn next_record(&mut self, buf: &mut Vec<u8>) -> Result<Option<u64>, IoError> {
@@ -119,6 +128,10 @@ impl AlnSource for SamSource {
     }
     fn diagnostics(&self) -> &Diagnostics {
         &self.diag
+    }
+
+    fn place(&self) -> String {
+        format!("line {}", self.lines.line)
     }
 
     fn last_bam(&self) -> Option<&[u8]> {

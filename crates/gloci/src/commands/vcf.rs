@@ -2,8 +2,8 @@
 
 use crate::Ctx;
 use crate::cli::{
-    ChromMapArg, ExtractLayout, InvalidArg, VcfConcatArgs, VcfExtractArgs, VcfFilterArgs,
-    VcfSelectArgs, VcfSpan, VcfSpanArg, VcfStatsArgs,
+    ChromMapArg, CompareMatchArg, ExtractLayout, InvalidArg, VcfCompareArgs, VcfConcatArgs,
+    VcfExtractArgs, VcfFilterArgs, VcfSelectArgs, VcfSpan, VcfSpanArg, VcfStatsArgs,
 };
 use gloci_core::{Interval, RegionSet};
 use gloci_io::{
@@ -21,6 +21,7 @@ use gloci_vcf::{
 };
 use std::collections::{HashMap, HashSet};
 use std::io::IsTerminal;
+use std::num::NonZeroUsize;
 
 /// Build the selection of a `vcf` command from its flags, reading the list
 /// files the flags name. `make_ro` builds the reader options and is called
@@ -207,6 +208,19 @@ pub fn select_from_args(
     Ok((select, ro))
 }
 
+/// Split `-t N` between BGZF decompression workers and selection workers, so
+/// the two together stay within `N` threads: `(decompression, selection)`.
+/// With one decompression worker the reader decodes inline and costs no thread.
+fn split_threads(n: NonZeroUsize) -> (NonZeroUsize, NonZeroUsize) {
+    let n = n.get();
+    let decode = (n / 2).max(1);
+    let select = if decode == 1 { n } else { n - decode };
+    (
+        NonZeroUsize::new(decode).expect("at least one"),
+        NonZeroUsize::new(select).expect("at least one"),
+    )
+}
+
 fn reader_options(
     ctx: &Ctx,
     chrom_map: &ChromMapArg,
@@ -217,7 +231,7 @@ fn reader_options(
     Ok(ReaderOptions {
         accept: gloci_io::Accept::default(),
         chrom_map: chrom_map.load()?,
-        threads: ctx.threads,
+        threads: split_threads(ctx.threads).0,
         format: match format {
             None => None,
             Some(s) => Some(s.parse::<Format>().map_err(UsageError)?),
@@ -246,6 +260,7 @@ pub fn run_filter(ctx: &Ctx, a: &VcfFilterArgs) -> anyhow::Result<()> {
     })?;
     let options = VcfFilterOptions {
         select,
+        threads: Some(split_threads(ctx.threads).1),
         plan: RewritePlan {
             selection: None,
             mask: MaskRules::default(),
@@ -338,6 +353,7 @@ or use -o FILE for a table"
     })?;
     let options = ExtractOptions {
         select,
+        threads: Some(split_threads(ctx.threads).1),
         mode,
         skip_invalid: a.invalid.skip_invalid,
         max_mem: a.max_mem,
@@ -417,6 +433,7 @@ pub fn run_stats(ctx: &Ctx, a: &VcfStatsArgs) -> anyhow::Result<()> {
     })?;
     let options = StatsOptions {
         select,
+        threads: Some(split_threads(ctx.threads).1),
         request: StatsRequest {
             freq: a.freq,
             counts: a.counts,
@@ -477,5 +494,59 @@ pub fn run_concat(ctx: &Ctx, a: &VcfConcatArgs) -> anyhow::Result<()> {
         naive: a.naive,
     };
     gloci_ops::vcf_concat(&a.files, &opts, &ro, &spec, &oo, &wo)?;
+    Ok(())
+}
+
+pub fn run_compare(ctx: &Ctx, a: &VcfCompareArgs) -> anyhow::Result<()> {
+    let (select, ro) = select_from_args(&a.select, || {
+        reader_options(
+            ctx,
+            &a.chrom_map,
+            None,
+            &VcfSpanArg {
+                vcf_span: a.vcf_span,
+            },
+            &a.invalid,
+        )
+    })?;
+    if a.a == "-" && a.b == "-" {
+        return Err(UsageError(
+            "vcf compare reads standard input for at most one of its two files; give the other a path"
+                .to_string(),
+        )
+        .into());
+    }
+    let options = gloci_ops::CompareOptions {
+        select,
+        matching: match a.match_rule {
+            CompareMatchArg::Alleles => gloci_vcf::compare::MatchRule::Alleles,
+            CompareMatchArg::Position => gloci_vcf::compare::MatchRule::Position,
+        },
+        sample_map: a.sample_map.clone(),
+        request: gloci_ops::CompareRequest {
+            site_discordance: a.site_discordance,
+            sample_discordance: a.sample_discordance,
+            discordance_matrix: a.discordance_matrix,
+        },
+        out_prefix: a.out_prefix.clone(),
+        genome: a.genome.genome.clone(),
+        chrom_order: a.chrom_order.chrom_order,
+    };
+    gloci_ops::check_compare_options(&options)?;
+    let first = open_selected(&a.a, &ro, &options.select)?;
+    vcf_header("vcf compare", first.reader())?;
+    let second = open_selected(&a.b, &ro, &options.select)?;
+    vcf_header("vcf compare", second.reader())?;
+    let done = gloci_ops::vcf_compare(first, second, &options, ctx.threads)?;
+    log::info!(
+        "vcf compare: {} sites in both files, {} only in {}, {} only in {}, {} overlapping; wrote {} file(s)",
+        done.both,
+        done.first,
+        a.a,
+        done.second,
+        a.b,
+        done.overlap,
+        done.files.len()
+    );
     Ok(())
 }

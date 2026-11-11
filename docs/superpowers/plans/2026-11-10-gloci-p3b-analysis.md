@@ -46,10 +46,10 @@ New in P3b, binding on every task:
   |---|---|
   | `stats jaccard`/`fisher` | the sweep's active set + one merged interval per input; no per-record vectors |
   | `stats reldist` | 8 B × the B records of one chromosome (`--unsorted`: of all chromosomes) |
-  | `random` | ≤ 2 × threads output batches |
+  | `random` | one 262,144-row batch |
   | `sample -n N` | N × (record bytes + 24 B) |
   | `shuffle` | 32 B × allowed intervals; `--no-overlapping` adds ≈ 48 B per placed record |
-  | `pair-intersect`/`pair-pair` | B's raw bytes + 32 B per indexed end; A in ≤ 2 × threads batches |
+  | `pair-intersect`/`pair-pair` | B held at about 5 to 6 times its text size (text, offsets, meta, index entries and the index copy); A in ≤ 2 × threads batches |
   | `convert --bedpe` | the records of one read name |
   | parallel selection (D157) | ≤ 2 × workers batches of ≤ 524,288 decoded genotypes (≈ 24 B each) |
   | windowed popgen statistics | ⌈size/step⌉ + 1 open windows |
@@ -461,7 +461,7 @@ Every task's CLI step adds the flags its D-row names, with 2–4 help examples, 
 
 **Files:** `crates/gloci/tests/behaviour.rs`, `crates/gloci/tests/large.rs`.
 
-Extend P2a's matrices to every P3b command: determinism at `-t 1/2/8` (seeded commands with `--seed`); broken pipe; empty inputs; the failure matrix (unsorted input, malformed lines, truncated BGZF, missing output directory, no partial file); the `--chrom-map` round trip; and `#[ignore]` RSS ceilings on generated multi-GB inputs for `jaccard`, `fisher`, sorted `reldist`, `sample -n 1000`, `pair-intersect` (≤ 2 × B's size + 200 MB), windowed `vcf popgen` and `vcf compare`.
+Extend P2a's matrices to every P3b command: determinism at `-t 1/2/8` (seeded commands with `--seed`); broken pipe; empty inputs; the failure matrix (unsorted input, malformed lines, truncated BGZF, missing output directory, no partial file); the `--chrom-map` round trip; and `#[ignore]` RSS ceilings on generated multi-GB inputs for `jaccard`, `fisher`, sorted `reldist`, `sample -n 1000`, `pair-intersect` (B at about 5 to 6 × its size + 200 MB), windowed `vcf popgen` and `vcf compare`.
 
 - [ ] **Step 1: Write the matrices.**
 - [ ] **Step 2: Run** `cargo test -p gloci --test behaviour`, and the large tests with `GLOCI_LARGE_BYTES=200000000`. Fix real failures in their owning module, with a regression test.

@@ -1,0 +1,1 @@
+vcf annotate input.vcf -a ann.tab --header-lines tags.hdr -c CHROM,POS,REF,ALT,-,-,-,.INFO/TF,.INFO/TS,.INFO/TA,-,.INFO/TI

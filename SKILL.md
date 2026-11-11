@@ -284,13 +284,13 @@ gloci merge peaks.bed | gloci windows -i - -w 100
 
 Convert VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out, BED12 or BAM/CRAM/SAM to BED (bedops convert2bed, vcf2bed, gff2bed, gtf2bed; bedtools bed12tobed6, bamtobed).
 
-VCF/BCF gives one row per record: chrom, start, end, ID, REF, ALT, QUAL, FILTER, with the footprint chosen by --vcf-span. --split-alleles writes one row per ALT instead, each with that ALT's own footprint (with --vcf-span ref, the record's REF footprint on every row; `*`, `<*>` and `<NON_REF>` rows are skipped when other ALTs exist). --types keeps the records (with --split-alleles, the ALTs) of the listed kinds: snv, mnv, ins, del, sv, ref, other; a record is kept when any of its ALTs is of a listed kind. GFF3/GTF gives 10 columns (bedops gff2bed): chrom, start, end, name, score, strand, source, type, phase, attributes. The name is the --name-attr attribute (default ID for GFF3, gene_id for GTF; `.` when absent). --feature keeps the listed column-3 types. WIG (fixedStep or variableStep, with optional span) gives one bedGraph row per data line: chrom, start, end, value; equal values are not merged. fixedStep needs start= and step=; values must be finite. A span larger than the step gives overlapping rows. PSL (BLAT; the header is skipped) gives bedops psl2bed's 21 columns: tName, tStart, tEnd, qName, matches, strand, then the other PSL columns in order. RepeatMasker .out gives bedops rmsk2bed's columns: sequence, begin-1, end, repeat, score, strand (`C` is `-`), the divergence, deletion and insertion percentages, the `(left)` of the query, class/family, the repeat positions as written, ID and `*`. BAM, CRAM and SAM give one BED6 row per mapped read, in input order: chrom, start, end, name (with /1 or /2 for the first or second mate), MAPQ, strand; unmapped reads are skipped and counted at -v, and --min-mapq, --require-flags and --exclude-flags filter. The span is the reference bases the CIGAR covers (M D N = X), cut at the end of the reference. --bed12 writes one BED12 row per read with the thick span equal to the read and --color as itemRgb; --blocks writes one BED6 row per block, cut at N; --split-deletions cuts at D as well. --score-tag NM takes the score from an integer tag (NM is bedtools -ed), and --cigar appends the CIGAR to BED6 rows. BED12 with --blocks gives one BED6 row per block; a line that is not valid BED12 (fewer than 12 columns, block counts that disagree, blocks out of order, a last block not ending at chromEnd) is an error, also with --skip-invalid. The input is converted in its own order and needs no sorting. A conversion whose output goes out of order (allele footprints can start after their record) prints one warning; --write-index then fails.
+VCF/BCF gives one row per record: chrom, start, end, ID, REF, ALT, QUAL, FILTER, with the footprint chosen by --vcf-span. --split-alleles writes one row per ALT instead, each with that ALT's own footprint (with --vcf-span ref, the record's REF footprint on every row; `*`, `<*>` and `<NON_REF>` rows are skipped when other ALTs exist). --types keeps the records (with --split-alleles, the ALTs) of the listed kinds: snv, mnv, ins, del, sv, ref, other; a record is kept when any of its ALTs is of a listed kind. GFF3/GTF gives 10 columns (bedops gff2bed): chrom, start, end, name, score, strand, source, type, phase, attributes. The name is the --name-attr attribute (default ID for GFF3, gene_id for GTF; `.` when absent). --feature keeps the listed column-3 types. WIG (fixedStep or variableStep, with optional span) gives one bedGraph row per data line: chrom, start, end, value; equal values are not merged. fixedStep needs start= and step=; values must be finite. A span larger than the step gives overlapping rows. PSL (BLAT; the header is skipped) gives bedops psl2bed's 21 columns: tName, tStart, tEnd, qName, matches, strand, then the other PSL columns in order. RepeatMasker .out gives bedops rmsk2bed's columns: sequence, begin-1, end, repeat, score, strand (`C` is `-`), the divergence, deletion and insertion percentages, the `(left)` of the query, class/family, the repeat positions as written, ID and `*`. BAM, CRAM and SAM give one BED6 row per mapped read, in input order: chrom, start, end, name (with /1 or /2 for the first or second mate), MAPQ, strand; unmapped reads are skipped and counted at -v, and --min-mapq, --require-flags and --exclude-flags filter. The span is the reference bases the CIGAR covers (M D N = X), cut at the end of the reference. --bed12 writes one BED12 row per read with the thick span equal to the read and --color as itemRgb; --blocks writes one BED6 row per block, cut at N; --split-deletions cuts at D as well. --score-tag NM takes the score from an integer tag (NM is bedtools -ed), and --cigar appends the CIGAR to BED6 rows. --bedpe (bedtools bamtobed -bedpe) writes BEDPE instead, one row per read name from alignments sorted by name (gloci sort -n; a coordinate sorted file is exit 2): chrom1 start1 end1 chrom2 start2 end2 name score strand1 strand2, from the primary READ1 and READ2 that are next to each other (secondary and supplementary reads are ignored). An unmapped mate is `. -1 -1` with strand `.`. The end that sorts first by (chromosome as bytes, start) comes first; --mate1-first keeps READ1 first (bedtools -mate1). The score is the smaller MAPQ of two mapped ends, else 0; with --score-tag it is the sum over the mapped ends (--score-tag NM is bedtools -ed). A name with one mate is not written and is counted in a warning. The output is .bedpe (or .bedpe.gz) and feeds pair-intersect and pair-pair; --bedpe cannot be used with --bed12, --blocks, --cigar, --color or --split-deletions. BED12 with --blocks gives one BED6 row per block; a line that is not valid BED12 (fewer than 12 columns, block counts that disagree, blocks out of order, a last block not ending at chromEnd) is an error, also with --skip-invalid. The input is converted in its own order and needs no sorting. A conversion whose output goes out of order (allele footprints can start after their record) prints one warning; --write-index then fails.
 
 ```sh
 gloci convert calls.vcf.gz -o calls.bed
 gloci convert transcripts.bed --blocks -o exons.bed
-gloci convert reads.bam --bed12 -o reads.bed
-gloci convert reads.bam --blocks --score-tag NM --min-mapq 30
+gloci convert reads.bam --bed12 --score-tag NM --min-mapq 30
+gloci convert reads.byname.bam --bedpe -o pairs.bedpe
 ```
 
 ### `gloci getfasta`
@@ -487,18 +487,189 @@ gloci vcf concat chr*.bcf -o all.bcf
 gloci vcf concat --naive chr1.vcf.gz chr2.vcf.gz -o all.vcf.gz
 ```
 
+#### `gloci vcf split`
+
+Split multi-allelic records into biallelic ones (bcftools norm -m-).
+
+A record with N ALT alleles becomes N records, one per ALT, in ALT order; ID, QUAL and FILTER are copied. In each, the kept ALT is allele 1 in GT and every other allele is 0 (missing stays missing; phase and ploidy are kept). INFO and FORMAT fields follow their declared Number: A keeps that ALT's value, R keeps REF's and that ALT's, G keeps that ALT's genotype values (haploid and diploid); other fields are copied. INFO and FORMAT keys the header does not declare are dropped from split records. Alleles are not trimmed or left-aligned. A record with one ALT is written as it is. A field with the wrong number of values for its Number is an error (exit 1).
+
+```sh
+gloci vcf split calls.vcf.gz -o calls.split.vcf.gz
+gloci vcf split calls.bcf --types snps -o snps-split.bcf
+gloci vcf split calls.vcf.gz | gloci subtract -a - -b known.vcf.gz --match alleles
+```
+
+#### `gloci vcf norm`
+
+Left-align and normalise records against a reference (bcftools norm -f).
+
+Every indel, and every record whose REF and ALT share a first or last base, is trimmed and moved to its leftmost position, as `bcftools norm -f REF` does without -a: the bases all alleles end with are removed (the alleles grow to the left from the reference when one would be empty), then the bases they all start with. Records that move are re-sorted within --window bases and written in position order; INFO/END follows the new REF. REF is checked against the FASTA first (--check-ref). The FASTA needs a .fai (and a .gzi for BGZF): run `gloci index REF` once; gloci never builds one itself. Only windows of the reference are read, never whole chromosomes. A record with any symbolic ALT (`<DEL>`, `<DUP>`, ...) is not trimmed or moved. --skip-invalid also skips records that fail --check-ref e. `bcftools norm -a`, `-m+`, `--old-rec-tag` and `-N` are not available.
+
+```sh
+gloci vcf norm calls.vcf.gz -f ref.fa -o calls.norm.vcf.gz
+gloci vcf norm calls.bcf --fasta ref.fa --split -o calls.norm.bcf
+gloci vcf norm calls.vcf.gz -f ref.fa --check-ref x --rm-dup exact | gloci vcf stats -
+gloci vcf norm calls.vcf.gz -f ref.fa --check-ref s -o fixed.vcf.gz
+```
+
+#### `gloci vcf annotate`
+
+Transfer, remove and add fields of a VCF/BCF (bcftools annotate).
+
+--annotations SRC names a VCF/BCF, a tab-delimited file (plain or BGZF) or a BED file; --columns says what to take from it. FILE and SRC must both be sorted in one chromosome order (FILE's header contigs, else --chrom-order); both are read as a stream, no index is needed and neither is held in memory. A record of a VCF SRC annotates the FILE record at the same CHROM and POS that shares an allele with it (bcftools' default --pair-logic); a tab file with REF and ALT columns matches the same way, one with CHROM,POS matches the records whose REF span covers the position, and a BED file or CHROM,FROM,TO columns match overlapping records (--min-overlap restricts them). --columns takes ID, QUAL, FILTER, INFO/TAG (or TAG), NEW:=OLD, INFO (every tag of a VCF SRC) and ^INFO/TAG lists; +TAG fills only missing values; `.TAG` carries a tab file's missing values over; `-` skips a tab column. A tag the FILE header lacks is declared from a VCF SRC, or must come from --header-lines. --remove drops ID, QUAL, FILTER, INFO, FORMAT (GT stays), INFO/TAG, FORMAT/TAG or FILTER/NAME, and their header lines; ^ keeps only the listed tags of its kind. --set-id writes IDs from %CHROM, %POS, %REF, %FIRST_ALT, %ID and %INFO/TAG (a + prefix fills only missing IDs). --mark-sites +TAG flags the records that have a match, -TAG those that do not. INFO values are copied as written, not reformatted; Number=A and R values follow their allele, not their position. Not available: -s/-S, -i/-e, --rename-chrs, --merge-logic, --single-overlaps, --rename-annots, FORMAT transfers.
+
+```sh
+gloci vcf annotate calls.vcf.gz -a dbsnp.vcf.gz -c ID,INFO/RS -o calls.annot.vcf.gz
+gloci vcf annotate calls.vcf.gz -a genes.bed.gz -c CHROM,FROM,TO,GENE --header-lines genes.hdr
+gloci vcf annotate calls.vcf.gz -x INFO,FORMAT/PL --mark-sites +CLEAN
+gloci vcf annotate calls.vcf.gz -I '+%CHROM:%POS:%REF:%FIRST_ALT' -o ids.vcf.gz
+```
+
+#### `gloci vcf merge`
+
+Combine the samples of several VCF/BCF files (bcftools merge).
+
+The inputs must be sorted in one chromosome order (the first input's ##contig lines, else --chrom-order); they are read as a stream, so no index is needed and only the records of one position are held. Records at the same CHROM and POS are merged as --merge says: ALT alleles are united in input order (a shorter REF is extended to the longest), and GT and Number=A, R and G FORMAT values are re-indexed to the merged alleles. A sample absent from a record is ./. (or 0/0 with -0) in the record's ploidy. QUAL is the largest, FILTER the union without PASS, ID the distinct IDs joined with ;. Sample names must be distinct (--force-samples renames a repeat to N:NAME). The header is the first input's with the other inputs' new lines added. The inputs are open together: merging more files than `ulimit -n` allows fails with the operating system's error; raise the limit (ulimit -n 4096). bcftools merge -g, -L, -r, -R, -T, --print-header and --use-header are not available.
+
+```sh
+gloci vcf merge a.vcf.gz b.vcf.gz c.vcf.gz -o cohort.vcf.gz
+gloci vcf merge --file-list shards.txt -m none --force-samples -o cohort.bcf
+gloci vcf merge a.bcf b.bcf -i DP:sum,AF:avg -0 | gloci vcf stats - --out-prefix qc
+gloci vcf merge a.vcf.gz b.vcf.gz -f PASS,. -m id -o by-id.vcf.gz
+```
+
+#### `gloci vcf compare`
+
+Compare the genotypes of two VCF/BCF files: per site, per sample and as a matrix (vcftools --diff-site-discordance, --diff-indv-discordance, --diff-discordance-matrix).
+
+Both files are read as sorted streams (the chromosome order of -g, else A's ##contig lines, else --chrom-order; an out-of-order record is exit 1 and names the file), so no index is needed. Sites are paired by --match: alleles (the default) pairs records at one CHROM and POS that share an ALT allele after trimming, position pairs as vcftools does (the same POS with the same REF, where a REF of N or . takes the other's). Discordance is counted over the sites in both files and the samples in both files (the union by name, after --sample-map renames B's samples). --thin needs both files to declare the same ##contig lines and no -g (exit 2 otherwise). A and B are always read on threads of their own, plus the thread that walks them, so -t 1 and -t 2 run three threads; more -t adds selection workers up to -t in all. A genotype is its unordered alleles, so 0/1 equals 1/0 and 0|1, and 0/1 of A>C,G equals 0/2 of A>G,C; any missing allele makes it missing (vcftools counts ./1 as called). --samples and --exclude-samples take names present in either file and apply to each file that has them; a name in neither is exit 2. With none of --site-discordance, --sample-discordance and --discordance-matrix, all three files are written, atomically and only when the whole run succeeds: PREFIX.diff.sites (CHROM POS FILES MATCHING_ALLELES N_COMMON_CALLED N_DISCORD DISCORDANCE, one row per site in both files, and per site in one file with zeros and nan), PREFIX.diff.indv (every sample of the union; one in a single file is 0, 0, nan) and PREFIX.diff.discordance_matrix (biallelic pairs of the same site: with --match alleles the same trimmed allele, so AT>A and ATG>AG count; with --match position the same REF and ALT text; haploid genotypes are not counted). Not available: vcftools --diff-site and --diff-indv (use gloci intersect and subtract --match alleles for sites, and the #CHROM lines for samples).
+
+```sh
+gloci vcf compare truth.vcf.gz calls.vcf.gz --out-prefix cmp
+gloci vcf compare a.bcf b.bcf --out-prefix cmp --sample-discordance --match position
+gloci vcf compare a.vcf.gz b.vcf.gz --out-prefix cmp --sample-map b-to-a.txt --samples s1,s2 --min-dp 10
+```
+
+### `gloci stats`
+
+Statistics of interval sets (bedtools jaccard)
+
+```sh
+gloci stats jaccard -a peaks.bed -b genes.bed
+gloci stats jaccard -a rep1.bed -b rep2.bed -f 0.5 -r
+```
+
+#### `gloci stats jaccard`
+
+The Jaccard similarity of two interval sets (bedtools jaccard).
+
+Each input is first merged as `gloci merge` does (overlapping and bookended intervals join; per strand with -s or -S). The intersection is the sum of the overlap bases of every pair (merged A, merged B) that passes -f, -F, -r, -e, --min-bases, -s, -S and --inclusive-points (measured on the merged intervals), the union is the bases covered by either input, and jaccard = intersection / union divided in single precision and printed as %g (six significant digits; `nan` when both are empty). n_intersections counts the accepted pairs. Output is a header line and one row: intersection, union, jaccard, n_intersections. A point (zero-length interval) covers no bases, so it adds nothing to the intersection or the union, but a point inside a merged interval of the other input counts as an intersection (bedtools widens a point to two bases; see docs/differences.md). Inputs must be sorted (--sort sorts them; --unsorted does not apply); a VCF is read as its footprints (--vcf-span); BAM, CRAM and SAM reads are read as their reference spans.
+
+```sh
+gloci stats jaccard -a peaks.bed -b genes.bed
+gloci stats jaccard -a rep1.bed -b rep2.bed -f 0.5 -r
+gloci stats jaccard -a calls.vcf.gz -b regions.bed --vcf-span ref
+gloci stats jaccard -a unsorted-a.bed -b unsorted-b.bed --sort
+```
+
+#### `gloci stats fisher`
+
+Fisher's exact test of the overlap of two interval sets (bedtools fisher).
+
+Counts the records of A and B (nA, nB), their total lengths (LA, LB) and the pairs that overlap under -f, -F, -r, -e, --min-bases, -s, -S and --inclusive-points (n11); with --merge-overlaps each input is merged first. The genome size G is the sum of the -g lengths (so -g is required and must have lengths) less the merged length of the --exclude BED. As bedtools does, the table is n11, n12 = nA - n11, n21 = nB - n11 and n22 = N - n11 - n12 - n21, where N, the number of possible intervals, is estimated as G / (2 + LA/nA + LB/nB) (rounded down, and never fewer than n11 + n12 + n21). The report is bedtools' text: the table in `#` lines, then the left, right and two-tail p-values of klib's exact test (%.5g) and the odds ratio (%.3f, `inf` or `-nan`). Inputs must be sorted in -g's order (--sort sorts A, B and the exclude file); a VCF is read as its footprints (--vcf-span).
+
+```sh
+gloci stats fisher -a peaks.bed -b genes.bed -g hg38
+gloci stats fisher -a peaks.bed -b genes.bed -g sizes.genome --merge-overlaps
+gloci stats fisher -a peaks.bed -b genes.bed -g hg38 --exclude gaps.bed -f 0.5
+gloci stats fisher -a unsorted-a.bed -b unsorted-b.bed -g hg38 --sort
+```
+
+#### `gloci stats reldist`
+
+The relative distance of A midpoints to B midpoints (bedtools reldist).
+
+For each A interval, finds the two B midpoints that enclose A's midpoint (midpoint = floor of (start + end) / 2) and takes the distance to the nearer one over the distance between the two, from 0 (A sits on a B midpoint) to 0.5 (halfway). The summary bins the values by floor(rel * 100) (so 0.29 lands in bin 0.28, as in bedtools) and prints reldist, count, total and fraction. An A midpoint before the first or after the last B midpoint of its chromosome, or on a chromosome with fewer than two B midpoints, is left out, as bedtools does. With --detail each qualifying A record is printed with its value (%.3f) appended. A VCF is read as its footprints (--vcf-span). Inputs must be sorted (--sort sorts them; --unsorted loads every B midpoint instead).
+
+```sh
+gloci stats reldist -a peaks.bed -b genes.bed
+gloci stats reldist -a peaks.bed -b genes.bed --detail
+gloci stats reldist -a unsorted-a.bed -b unsorted-b.bed --sort
+gloci stats reldist -a peaks.bed -b genes.bed --unsorted
+```
+
+### `gloci pair-intersect`
+
+BEDPE pairs by how their ends overlap B (bedtools pairtobed).
+
+A is a BEDPE file (chrom1 start1 end1 chrom2 start2 end2, then optionally name, score, strand1, strand2 and more; it is never detected, so a BED file of pairs is read as BEDPE only here). B is BED, GFF or VCF (a VCF as its footprints, --vcf-span) and is loaded into memory; A streams in any order. Each present end of a pair is tested against B as an interval under -f, -F, -r, -e, --min-bases, -s, -S and --inclusive-points (section 4.3: a point is inside only strictly, and unknown strands never match -s or -S); -s and -S use strand1 for end 1 and strand2 for end 2. An end whose chromosome is `.` overlaps nothing.
+
+--type chooses what is written. Rows with a B are A's line, a tab and B's line (TSV); the A-alone types write A's BEDPE line. either (default): A with each B hitting end 1, then each hitting end 2 (a B hitting both ends is written twice). both: the same, when both ends hit. xor: the same, when exactly one end hits. neither: A alone, when no end hits. notboth: A with each B, when exactly one end hits, and A alone padded with a placeholder B (`.`, `-1`, `-1` ...) when none does. ispan and ospan: A with each B overlapping the gap between the ends, or the span from the first start to the last end; notispan and notospan: A alone when none does. The span types need both ends on one chromosome (a pair with one end absent or the ends on two chromosomes is left out, counted in one warning), an empty gap (touching or overlapping ends) hits nothing, and -s/-S with them is an error. Hits of one A come in B's input order; output follows A's order whatever the thread count. Output is TSV or BEDPE (-o x.bedpe, x.tsv, .gz for BGZF); header lines of A are not written.
+
+```sh
+gloci pair-intersect -a sv.bedpe -b genes.bed
+gloci pair-intersect -a sv.bedpe -b exons.bed --type both -f 0.5
+gloci pair-intersect -a sv.bedpe -b repeats.bed --type neither -o clean.bedpe
+gloci pair-intersect -a sv.bedpe -b genes.bed --type xor -s -t 4
+```
+
+### `gloci pair-pair`
+
+BEDPE pairs by how their ends overlap the ends of the pairs of B (bedtools pairtopair).
+
+A and B are both BEDPE files (never detected). B is loaded into memory; A streams in any order. Orientation 1 tests end 1 of A against end 1 of B and end 2 against end 2; orientation 2 tests end 1 of A against end 2 of B and end 2 against end 1. --type both (default): A with each B that overlaps on both ends in either orientation. either: A with each B with any end overlapping an end of A. neither: A alone when no B end overlaps. notboth: A alone when no B overlaps on both ends. A B is written once per A, as its line reads (TSV: A's line, a tab, B's line), in B's input order; the A-alone types write A's BEDPE line. Ends are tested under -f, -F, -r, -e, --min-bases and --inclusive-points (section 4.3); strand is ignored unless -s or -S, which compare strand1 with strand1 and strand2 with strand2 of the tested ends (unknown strands never match). -w, --left, --right and --strand-window pad B's ends before testing (not with the thresholds). An end whose chromosome is `.` overlaps nothing. --require-different-names drops a B named like A (column 7); a pair without a name is then an error. Output follows A's order whatever the thread count; -o x.bedpe, x.tsv, .gz for BGZF.
+
+```sh
+gloci pair-pair -a sv1.bedpe -b sv2.bedpe
+gloci pair-pair -a sv1.bedpe -b sv2.bedpe --type either -w 100
+gloci pair-pair -a sv1.bedpe -b sv2.bedpe --type notboth -o unique.bedpe
+gloci pair-pair -a sv.bedpe -b sv.bedpe --require-different-names -s -t 4
+```
+
+### `gloci random`
+
+Random intervals placed uniformly over a genome (bedtools random).
+
+Every valid start of every chromosome is equally likely: a chromosome of L bases has L - l + 1 starts for intervals of length l, and one shorter than l has none. Output is BED6 (chromosome, start, end, id, length, strand) in id order, not sorted (pipe to gloci sort to sort). -l longer than every chromosome is an error naming the longest one. The output depends on --seed only, never on --threads; without --seed a fresh seed is chosen and printed as a warning, so rerunning with it reproduces the output. It is not bedtools' output for the same seed (see docs/differences.md#rng-stream).
+
+```sh
+gloci random -g hg38 -l 500 -n 100000 --seed 42 -o random.bed
+gloci random -g genome.txt -l 1000 -n 1000 --seed 7 | gloci sort -g genome.txt - > sorted.bed
+gloci random -g hg38 -n 10000 --seed 1 -o a.bed && gloci shift a.bed --by 5 -g hg38
+```
+
+### `gloci sample`
+
+A random subset of the records of a file (bedtools sample; for alignments see samtools view -s, gloci samples is a different command).
+
+Keeps exactly N records, chosen uniformly at random, and writes them in input order (bedtools writes them in reservoir order; see docs/differences.md#sample-order). With --strand + or -, only records on that strand are sampled (a record of unknown strand never is). Fewer than N records is an error that gives the count and writes nothing. BED, bedGraph, GFF/GTF and VCF/BCF are read; --header keeps the header lines of text formats and a VCF always keeps its header. The kept records are held in memory. The output depends on --seed only, never on --threads; without --seed a fresh seed is chosen and printed as a warning. It is not bedtools' output for the same seed (see docs/differences.md#rng-stream).
+
+```sh
+gloci sample peaks.bed -n 1000 --seed 42 -o subset.bed
+gloci sample peaks.bed -n 500 --strand + --seed 1
+gloci sample calls.vcf.gz -n 10000 --seed 3 -O vcf.gz -o subset.vcf.gz
+```
+
+### `gloci shuffle`
+
+Move every record to a random place in the genome (bedtools shuffle).
+
+Each record keeps its length, its other columns and its strand and goes to a uniformly random place that keeps all of it inside the allowed regions: --include regions (default: the whole genome) less --exclude regions. (bedtools only puts the start inside an --include region; see docs/differences.md#shuffle-placement.) --same-chrom keeps records on their chromosome; --chrom-first picks a chromosome at random among those with room, then a place on it, instead of weighting chromosomes by their free length; --no-overlapping redraws a place that overlaps an earlier output record, up to --max-tries times. A record with no place is an error naming its line, length and the fix (nothing is written to a file); --skip-unplaceable drops such records and warns with a count. With --format bedpe each pair is moved: a pair on one chromosome keeps its end lengths and gap, a pair on two places its ends independently, and only --exclude, --seed, --max-tries and --skip-unplaceable apply. Output is in input order and not sorted (pipe to gloci sort). WIG is read as intervals and written as bedGraph; VCF and alignment input are refused (gloci convert). --include/--exclude read the names of -g, after --chrom-map (which renames them like the input). The output depends on --seed only, never on --threads; without --seed a fresh seed is chosen and printed as a warning. It is not bedtools' output for the same seed (see docs/differences.md#rng-stream).
+
+```sh
+gloci shuffle peaks.bed -g hg38 --exclude gaps.bed --seed 42 -o null.bed
+gloci shuffle peaks.bed -g genome.txt --include mappable.bed --same-chrom --seed 7 | gloci sort -g genome.txt -
+gloci shuffle loops.bedpe --format bedpe -g hg38 --exclude blacklist.bed --seed 1 -o null.bedpe
+```
+
 ## Migration tables
 
 Every row below was checked against `gloci <cmd> --help`.
 
-Rows marked "not yet available" name the command that will replace the tool
-and the phase that builds it. The P2 command set, the packaging prerequisites,
-and P3a (BAM, CRAM and SAM input and output, FASTA, `getfasta`, `maskfasta`,
-`nuc`, `gloci cat`, and alignment `sort`, `sort -m`, `view`, `index`, `convert`,
-`intersect`, `coverage` and `genomecov`) are available, so the rows left are
-P3b (`stats`, `sample`, `random`, `shuffle`, BEDPE, `vcf popgen`,
-`vcf compare`), and then the rest of P2b (Python library, packaging, mdBook,
-paper evidence suite). BAM, CRAM and FASTA have their own section, [BAM, CRAM
+Rows marked "not yet available" name a tool option that gloci does not have
+yet. The P2 command set, P3a (BAM, CRAM and SAM, FASTA) and P3b (`stats`,
+`sample`, `random`, `shuffle`, BEDPE, `vcf compare`) are available; the
+population-genetics options of vcftools (`vcf popgen`) are deferred. BAM, CRAM and FASTA have their own section, [BAM, CRAM
 and FASTA behaviour](#bam-cram-and-fasta-behaviour), after the tables.
 
 ### Sorting, indexing and viewing (htslib, bcftools, bedops, bedtools)
@@ -518,6 +689,9 @@ and FASTA behaviour](#bam-cram-and-fasta-behaviour), after the tables.
 | `tabix -p bed\|vcf\|gff FILE.gz`, `tabix -C ...` | `gloci index FILE.gz` (the type comes from the content; TBI, or CSI when a record ends past 2^29) |
 | `tabix -s S -b B [-e E] [-0] [-S N] [-c C] FILE.gz` | `gloci index FILE.gz -s S -b B [-e E] [--zero-based] [--skip-lines N] [--comment C]` |
 | `bcftools concat A B`, `bcftools concat -n A.vcf.gz B.vcf.gz` | `gloci vcf concat A B` (the output format follows `-o`/`-O`; the header is the first file's, and gloci adds no command-line header line to it). `-n`/`--naive` is `gloci vcf concat --naive A.vcf.gz B.vcf.gz`: BGZF VCF only (BCF exits 2), byte-identical headers (exit 2 otherwise), BGZF blocks copied without recompression, and the order across files is still checked. `bcftools concat -a`, `-r`, `-d` and `-D` (overlapping files, regions, deduplication) are not available; use `gloci sort` and `gloci view` |
+| `bcftools norm -m- --no-version FILE`, `bcftools norm -m-snps\|-indels\|-both\|-any FILE` (no `-f`) | `gloci vcf split FILE [--types snps\|indels\|both\|any]`: one record per ALT; GT keeps the ALT as 1 and recodes the others to 0; Number=A/R/G INFO and FORMAT fields are subset (haploid G too). Alleles are not trimmed. Values keep their text, and a record that is not split is written as it is: [differences.md#vcf-split-values](differences.md#vcf-split-values). A wrong number of values for a field is an error (bcftools: `--force`). `norm -m+` (merging) is not available; with `-f`, `-d` or `-c` see `gloci vcf norm` below |
+| `bcftools norm -f REF.fa --no-version FILE`, `bcftools norm -m- -f REF.fa FILE`, `-c e\|w\|x\|s`, `-d snps\|indels\|both\|all\|exact`, `-w N` | `gloci vcf norm FILE -f REF.fa [--split[=snps\|indels\|both\|any]] [--check-ref e\|w\|x\|s] [--rm-dup snps\|indels\|both\|all\|exact] [--window N]`: left-aligns and trims every record, re-sorting within `--window` bases (default 1000), and checks REF against the FASTA. The FASTA needs a `.fai` (and a `.gzi` for BGZF): `gloci index REF.fa`; gloci never builds one. `--split` splits multi-allelic records first, as `-m-`. A few edge cases differ (symbolic ALTs such as `<DEL>`, `-c x`, `-c s` on an ALT equal to REF, float text): [differences.md#vcf-norm-edge-cases](differences.md#vcf-norm-edge-cases). `-a`/`--atomize`, `-m+`, `--old-rec-tag`, `-N`, `-i`/`-e`, `-r`/`-t` and `-g` are not available |
+| `bcftools annotate --no-version -a SRC -c LIST FILE`, `-x LIST`, `-h FILE`, `-I FORMAT`, `-m [+-]TAG`, `--min-overlap` | `gloci vcf annotate FILE [--annotations SRC --columns LIST] [--remove LIST] [--header-lines FILE] [--set-id FORMAT] [--mark-sites [+-]TAG] [--min-overlap ANN[:VCF]]`: transfers ID, QUAL, FILTER and INFO from a VCF/BCF, tab or BED source; removes fields and their header lines; sets IDs; marks sites. The rules (which records pair, `+TAG`, `NEW:=OLD`, Number=A/R by allele, the first matching row, `^` lists, `-x ^FORMAT/TAG`) are bcftools' 1.21. Both files must be sorted in one chromosome order and are streamed, no index needed ([differences.md#vcf-annotate-sorted-source](differences.md#vcf-annotate-sorted-source), [differences.md#vcf-annotate-lenient](differences.md#vcf-annotate-lenient)); values keep their text ([differences.md#vcf-annotate-values](differences.md#vcf-annotate-values)). `-h` is `--header-lines` (long form only; `-h` is help). `-c -TAG` and `-c =TAG` (bcftools: not implemented / `Number=.`), FORMAT transfers, `ALT`/`REF` replacement, `~ID`, `-s`/`-S`, `-i`/`-e` (pipe through `gloci vcf filter`), `--rename-chrs` (`gloci view FILE --chrom-map MAP`), `-l`/`--merge-logic`, `--single-overlaps`, `--rename-annots`, `--pair-logic`, `-C`, `-H`, `-k`, `-r`/`-R` (select regions first: `gloci view FILE REGION \| gloci vcf annotate - ...`) and `-I %ALT` are not available. `-c ...,ALT` without `REF` is accepted and ignored, as in bcftools; a source chromosome missing from FILE's `##contig` lines is an error. A piped or process-substituted FILE or source works |
 | `bcftools index FILE.bcf`, `bcftools index -c\|-t FILE.vcf.gz` | `gloci index FILE.bcf` (a BCF always gets a CSI; `.vcf.gz` gets a TBI, or a CSI when needed) |
 | `bgzip FILE && tabix -p vcf FILE.gz` | `gloci sort FILE -o FILE.gz --write-index`, or `gloci view FILE -o FILE.gz --write-index` for a file that is already sorted |
 | `tabix FILE.gz REGION...`, `bcftools view -r REGION FILE`, `bcftools view -H -r ...` | `gloci view FILE.gz REGION...` (or `--region REGION`; add `--no-header` for `-H`) |
@@ -556,6 +730,7 @@ and FASTA behaviour](#bam-cram-and-fasta-behaviour), after the tables.
 | `complement -g` | `gloci complement FILE... [-g GENOME]` (`-g` takes a built-in such as `hg38` or a `.genome`/`.fai`/`.dict` file; `--sort`) |
 | `closest -d -D -k -t -io -iu -id -mdb` | `gloci closest -a A -b B --distance --signed ref\|a\|b -k N --ties all\|first\|last --ignore-overlaps --ignore-upstream --ignore-downstream --per-file` (plus `--max-distance N`, `-s`/`--same-strand`, `-S`/`--opposite-strand`) |
 | `map -c -o` | `gloci map -a A -b B -c/--column COL:OP` (`--delim`, `--empty`, `--skip-unmatched`; ops: `count`, `count_distinct`, `sum`, `mean`, `median`, `min`, `max`, `stdev`, `var`, `stdev_pop`, `var_pop`, `collapse`, `distinct`, `distinct_sorted`, `first`, `last`, `bases`, `indicator`, `cv`, `mad`, `quantile:Q`, `tmean:LO-HI`, `wmean`, `mode`, `antimode`, `bases_uniq`, `frac_a`, `frac_b`, `min_record`, `max_record`, `records`) |
+| `bcftools merge --no-version [-m MODE] [--force-samples] [-i RULES] [-0] [-f LIST] [-F x\|+] [-l FILE] A.vcf.gz B.vcf.gz ...` | `gloci vcf merge A B ... [--merge none\|snps\|indels\|both\|all\|id] [--force-samples] [--info-rules RULES] [--missing-to-ref] [--apply-filters LIST] [--filter-logic x\|+] [--file-list FILE]`: combines the samples of sorted VCF/BCF files; the records at one position are paired, their ALTs united, GT and Number=A/R/G values re-indexed and INFO, QUAL, FILTER and ID merged by bcftools' 1.21 rules (`-m both` default; AC and AN recomputed from the merged genotypes, `DP`/`DP4` summed). The inputs are sorted and streamed, no index is needed ([differences.md#vcf-merge-no-index](differences.md#vcf-merge-no-index)); contigs are written in the header's order ([differences.md#vcf-merge-contig-order](differences.md#vcf-merge-contig-order)); conflicting tag types stop the merge ([differences.md#vcf-merge-conflicting-types](differences.md#vcf-merge-conflicting-types)) and an undeclared INFO tag is accepted ([differences.md#vcf-merge-undeclared-info](differences.md#vcf-merge-undeclared-info)); which records of one position share a row and in what order is bcftools' (`can_merge`/`stage_line`, ported). The output keeps the first input's format (`-O vcf` for text from BCF inputs). `-l` is `--file-list`. `-g`/`--gvcf`, `-L`/`--local-alleles`, `-M`/`--missing-rules`, `--print-header`, `--use-header`, `-r`/`-R`/`--regions-overlap` (select regions after merging: `gloci vcf merge ... \| gloci view - REGION`) and `-m snp-ins-del`, `*`, `**` are not available |
 | `coverage [-hist -d -mean]`, `annotate` | `gloci coverage -a A -b B [--hist \| --per-base \| --mean]`, `gloci coverage -a A -b B1 B2... [--names ...]` |
 | `coverage -a A.bed -b reads.bam [-split -hist -d -mean]` | `gloci coverage -a A.bed -b reads.bam [--split] [--hist \| --per-base \| --mean]` (BAM, CRAM or SAM as B, a CRAM with `--reference FASTA`; `--split-deletions` also cuts reads at `D`; `--min-mapq`, `--require-flags` and `--exclude-flags` filter reads; an alignment A prints as BED6, see [differences.md#bam-as-bed-columns](differences.md#bam-as-bed-columns)) |
 | `slop -b -l -r -s -pct -g` | `gloci slop FILE -b/--both N` or `--left L --right R` with `-s`, `--pct`, `-g GENOME` |
@@ -571,13 +746,18 @@ and FASTA behaviour](#bam-cram-and-fasta-behaviour), after the tables.
 | `groupby -g -c -o [-header]` | `gloci groupby FILE -g COLS -c/--column COL:OP` (bedtools `-o OP` becomes the `:OP` of `-c COL:OP`, and gloci's `-o` is the output file; `--header`, `--delim`, `--empty`; same ops as `map` except those that need a second input; `distinct` keeps first-seen order where bedtools sorts it, use `distinct_sorted`, see [differences.md#map-distinct-order](differences.md#map-distinct-order); VCF input is refused, use `gloci vcf extract`) |
 | `cluster -d -s` | `gloci cluster FILE -d/--max-gap N -s` (`--sort`; the same gap and strand rules as `gloci merge`; ids are global, and `-s` keeps input order, see [differences.md#cluster-strand](differences.md#cluster-strand); a VCF input is clustered by its footprints and the output is TSV with a `#CHROM ... cluster` line, see [differences.md#append-vcf-header](differences.md#append-vcf-header); BCF is refused, use `gloci view -O vcf`; bedtools accepts chromosomes in any grouped order, gloci needs a sorted chromosome order, see [Chromosome order](#chromosome-order-behaviour-change)) |
 | `spacing` | `gloci spacing FILE` (`.` for the first record of a chromosome, `0` bookended, `-1` overlapping, only the previous record counts, as in bedtools; a zero-length record is a point, see [differences.md#spacing-zero-length](differences.md#spacing-zero-length); VCF input and chromosome order as for `cluster`) |
-| `bamtobed -i FILE` (`-bed12`, `-split`, `-splitD`, `-ed`, `-tag TAG`, `-cigar`, `-color R,G,B`) | `gloci convert FILE [--bed12] [--blocks] [--blocks --split-deletions] [--score-tag NM\|TAG] [--cigar] [--color R,G,B]` (BAM, CRAM or SAM input, a CRAM with `--reference FASTA`, which bedtools reads as BAM only; output matches bedtools 2.31.1 in input order except for the pinned differences below, with `/1` and `/2` on mates, MAPQ as the score and unmapped reads skipped; `-ed` is `--score-tag NM`; `--min-mapq`, `--require-flags` and `--exclude-flags` filter; a read with no reference bases is one base, not zero-length, see [differences.md#bamtobed-no-reference-ops](differences.md#bamtobed-no-reference-ops); reads are cut at the end of their reference, and a BED12 row opens at its first kept block and closes at its last, with no size-0 blocks, see [differences.md#bamtobed-past-reference-end](differences.md#bamtobed-past-reference-end); a negative tag score is printed signed, where bedtools wraps it to unsigned 32-bit, see [differences.md#bamtobed-negative-score](differences.md#bamtobed-negative-score); `--blocks --score-tag` has no extra column and `--cigar` with `--blocks` is an error, see [differences.md#bamtobed-split-tag](differences.md#bamtobed-split-tag)) |
+| `bamtobed -i FILE` (`-bed12`, `-split`, `-splitD`, `-ed`, `-tag TAG`, `-cigar`, `-color R,G,B`, `-bedpe`, `-mate1`) | `gloci convert FILE [--bed12] [--blocks] [--blocks --split-deletions] [--score-tag NM\|TAG] [--cigar] [--color R,G,B] [--bedpe [--mate1-first]]` (BAM, CRAM or SAM input, a CRAM with `--reference FASTA`, which bedtools reads as BAM only; output matches bedtools 2.31.1 in input order except for the pinned differences below, with `/1` and `/2` on mates, MAPQ as the score and unmapped reads skipped; `-ed` is `--score-tag NM`; `--min-mapq`, `--require-flags` and `--exclude-flags` filter; a read with no reference bases is one base, not zero-length, see [differences.md#bamtobed-no-reference-ops](differences.md#bamtobed-no-reference-ops); reads are cut at the end of their reference, and a BED12 row opens at its first kept block and closes at its last, with no size-0 blocks, see [differences.md#bamtobed-past-reference-end](differences.md#bamtobed-past-reference-end); a negative tag score is printed signed, where bedtools wraps it to unsigned 32-bit, see [differences.md#bamtobed-negative-score](differences.md#bamtobed-negative-score); `--blocks --score-tag` has no extra column and `--cigar` with `--blocks` is an error, see [differences.md#bamtobed-split-tag](differences.md#bamtobed-split-tag); `-bedpe` is `gloci convert FILE --bedpe` on a name-sorted file (`gloci sort -n`; a coordinate-sorted one is exit 2), `-mate1` is `--mate1-first` and `-ed` is `--score-tag NM`; the output is BEDPE (`.bedpe`, `.bedpe.gz`) and feeds `pair-intersect` and `pair-pair`; it matches bedtools, except that secondary and supplementary alignments are not mates, see [differences.md#bamtobed-bedpe](differences.md#bamtobed-bedpe)) |
 | `getfasta -fi REF -bed FILE` (`-name`, `-nameOnly`, `-s`, `-split`, `-tab`, `-bedOut`, `-rna`) | `gloci getfasta FILE --fasta REF [--name \| --name-only] [-s] [--split] [--tab \| --bed-out] [--rna]` (output is byte-identical to bedtools 2.31.1 for BED, GFF and VCF input, including the IUPAC-aware reverse complement, except that `--split` refuses BED12 records whose blocks are out of order, overlap, or do not span the record where bedtools writes them unchecked, see [differences.md#getfasta-split-blocks](differences.md#getfasta-split-blocks); the FASTA needs a `.fai` (and `.gzi` for BGZF) made with `gloci index`, which gloci never builds itself; VCF is bedtools' REF span with `--vcf-span ref`; zero-length intervals are skipped with a counted warning, as bedtools does; an interval on a chromosome the FASTA lacks, or past its end, is an error where bedtools skips it, `--skip-invalid` gives bedtools' behaviour, see [differences.md#getfasta-outside-fasta](differences.md#getfasta-outside-fasta); there is no `-fullHeader`) |
 | `maskfasta -fi F -bed B [-soft -mc C -fullHeader]` | `gloci maskfasta --fasta F -b B [--soft \| --mask-char C] [-o OUT.fa[.gz] --write-index]` (streamed, any compression, no index needed; headers are kept whole and line layout is kept, so `-fullHeader` is the default, see [differences.md#maskfasta-header](differences.md#maskfasta-header) and [differences.md#maskfasta-layout](differences.md#maskfasta-layout); a mask past its sequence's end is an error, see [differences.md#maskfasta-past-end](differences.md#maskfasta-past-end)) |
 | `nuc -fi REF -bed FILE` (`-s`, `-seq`, `-pattern P`, `-C`) | `gloci nuc FILE --fasta REF [-s] [--seq] [--pattern P [-C]]` (output is byte-identical to bedtools 2.31.1, header line and f32 percentages included, for BED, GFF and VCF input; the counts and the pattern describe the reverse complement under `-s`; the FASTA needs a `.fai` made with `gloci index`; VCF is bedtools' REF span with `--vcf-span ref`; zero-length intervals are skipped with a counted warning, as bedtools does; an interval outside the FASTA is an error where bedtools skips it, `--skip-invalid` gives bedtools' behaviour, see [differences.md#getfasta-outside-fasta](differences.md#getfasta-outside-fasta)) |
-| `jaccard`, `fisher`, `reldist` | not yet available (`stats jaccard / fisher / reldist`, P3b) |
-| `shuffle`, `random`, `sample` | not yet available (`shuffle`, `random`, `sample`, P3b) |
-| `pairtobed`, `pairtopair` | not yet available (`pair-intersect`, `pair-pair`, P3b) |
+| `jaccard -a A -b B [-f -F -r -e -s -S]` | `gloci stats jaccard -a A -b B` (same filters, plus `--min-bases`, `--inclusive-points`, `--sort`; header line and one row, `%g` numbers; the point rule is [differences.md#jaccard-points](differences.md#jaccard-points)) |
+| `fisher -a A -b B -g G [-m -s -S -f -F -r -e]` | `gloci stats fisher -a A -b B -g G [-m/--merge-overlaps] [--exclude BED]` (`-g` is required and must have lengths; bedtools' text report; `-S` is a flag here; the empty-input estimate is [differences.md#fisher-empty-estimate](differences.md#fisher-empty-estimate), the `--exclude` estimate [differences.md#fisher-exclude-estimate](differences.md#fisher-exclude-estimate), tiny tail p-values [differences.md#fisher-lgamma](differences.md#fisher-lgamma)) |
+| `reldist -a A -b B [-detail]` | `gloci stats reldist -a A -b B [--detail]` (midpoints past 2^31: [differences.md#reldist-midpoint-overflow](differences.md#reldist-midpoint-overflow)) |
+| `pairtobed -a PAIRS -b FILE [-type T] [-f F] [-s \| -S]` | `gloci pair-intersect -a PAIRS.bedpe -b FILE [--type T] [-f F] [-s \| -S]` (`-type` becomes `--type`, same nine values; the output matches bedtools 2.31.1, including `-f`, strands and the BEDPE column counts 6, 7, 8 and 10 or more, except for the pinned differences below; B is BED, GFF or VCF, held in memory (about 5 to 6 times its size), in any order; BEDPE is never detected, so A is read as BEDPE whatever it looks like, and a VCF, BCF, GFF or alignment A is an error, with `gloci convert x.bam --bedpe` for alignments; hits come in B's input order, not bedtools' bin order, see [differences.md#pair-hit-order](differences.md#pair-hit-order); an unknown strand never matches `-s`/`-S`, see [differences.md#pair-unknown-strand](differences.md#pair-unknown-strand); `notboth` pads a pair with no hit, see [differences.md#pair-notboth-padding](differences.md#pair-notboth-padding); points follow section 4.3, see [differences.md#pair-points](differences.md#pair-points); the spans of overlapping or nested ends, see [differences.md#pair-span-overlapping-ends](differences.md#pair-span-overlapping-ends); bedtools accepts some lines gloci refuses, see [differences.md#bedpe-strictness](differences.md#bedpe-strictness); span types leave out a pair with an absent end, see [differences.md#pair-span-absent-ends](differences.md#pair-span-absent-ends); also `-F`, `-r`, `-e`, `--min-bases`, `--inclusive-points`, `--vcf-span`, `--chrom-map`, `--skip-invalid` and `-t`, which bedtools lacks; no `-abam`, `-ubam`, `-bedpe` or `-ed`: convert alignments with `gloci convert x.bam --bedpe`) |
+| `pairtopair -a PAIRS -b PAIRS [-type T] [-slop N] [-ss] [-is] [-rdn] [-f F]` | `gloci pair-pair -a PAIRS.bedpe -b PAIRS.bedpe [--type T] [-w N \| --left N --right N [--strand-window]] [-s \| -S] [--require-different-names]` (`-type` becomes `--type`, values `both` (default), `either`, `neither`, `notboth`; bedtools enforces strand unless `-is`, gloci ignores it unless `-s`/`-S`, and an unknown strand never matches, see [differences.md#pair-unknown-strand](differences.md#pair-unknown-strand); `-slop N` pads A in bedtools and `-w N` pads B in gloci, which finds the same pairs, and `-ss -slop N` is `--left N --strand-window`; `-rdn` becomes `--require-different-names`; a B that hits in both orientations is written once, see [differences.md#pair-pair-once](differences.md#pair-pair-once); `either` writes B as it reads, see [differences.md#pair-pair-b-columns](differences.md#pair-pair-b-columns); hits in B's input order, see [differences.md#pair-hit-order](differences.md#pair-hit-order); bedtools accepts some lines gloci refuses, see [differences.md#bedpe-strictness](differences.md#bedpe-strictness); also `-F`, `-r`, `-e`, `--min-bases`, `--inclusive-points`, `--chrom-map`, `--skip-invalid` and `-t`; both files are BEDPE and B is held in memory, about 5 to 6 times its size) |
+| `shuffle -i FILE -g G [-seed S -chrom -chromFirst -excl BED -incl BED -noOverlapping -maxTries N]` | `gloci shuffle FILE -g G [--seed S] [--same-chrom] [--chrom-first] [--exclude BED] [--include BED] [--no-overlapping] [--max-tries N] [--skip-unplaceable] [--header]` (other places than bedtools picks for the same seed, [differences.md#rng-stream](differences.md#rng-stream); the whole record stays inside `--include`, and a record that fits nowhere is exit 1 where bedtools drops it, `--skip-unplaceable` drops it, see [differences.md#shuffle-placement](differences.md#shuffle-placement); BEDPE is opt-in with `--format bedpe` and gloci moves both ends where bedtools moves only end 1, see [differences.md#shuffle-bedpe-ends](differences.md#shuffle-bedpe-ends); output is in input order and unsorted; `-f`, `-allowBeyondChromEnd` and `-incl` strand copying are not planned; VCF and BAM input are refused, use `gloci convert`) |
+| `random -g G -l L -n N -seed S` | `gloci random -g G -l L -n N --seed S` (BED6 in id order; same seed gives other intervals than bedtools, [differences.md#rng-stream](differences.md#rng-stream); `-l` longer than every chromosome is exit 2) |
+| `sample -i FILE -n N -seed S [-s forward\|reverse] [-header]` | `gloci sample FILE -n N --seed S [--strand +\|-] [--header]` (output in input order, [differences.md#sample-order](differences.md#sample-order); other records than bedtools picks, [differences.md#rng-stream](differences.md#rng-stream); `-ubam`/BAM: `samtools view -s`) |
 | `multicov`, `tag`, `bamtofastq`, `bedtobam`, `bedpetobam`, `igv`, `links`, `expand`, `split`, `summary`, `overlap` | not planned (`overlap` → `gloci intersect --mode pairs --overlap-bases`) |
 
 ### bedops
@@ -643,9 +823,13 @@ and FASTA behaviour](#bam-cram-and-fasta-behaviour), after the tables.
 | `--extract-FORMAT-info KEY` | `gloci vcf extract FILE --format KEY --layout wide` (columns are `SAMPLE:KEY`; `--layout long` gives a row per sample; [differences.md#vcf-extract-format-wide](differences.md#vcf-extract-format-wide)) |
 | `--012` (writes `out.012`, `.012.indv`, `.012.pos`) | `gloci vcf extract FILE --genotype-matrix 012 --out-prefix out` (same files; haploid and half-missing reference calls count 0; [differences.md#vcf-extract-012](differences.md#vcf-extract-012)) |
 | `vcf-concat A.vcf.gz B.vcf.gz` | `gloci vcf concat A.vcf.gz B.vcf.gz -o OUT.vcf.gz` (identical samples; compatible header definitions; each file must start at or after the end of the one before, or it exits 1 with a `gloci sort` hint; inputs may be VCF, VCF.gz or BCF) |
-| `--site-pi`, `--window-pi`, `--TajimaD`, `--weir-fst-pop`, `--*-r2`, `--relatedness*` | not yet available (`vcf popgen`, P3b) |
-| `--diff*`, `vcf-compare` | not yet available (`vcf compare`, P3b) |
-| `vcf-merge`, `--plink*`, `--IMPUTE`, `--BEAGLE-*`, `--ldhat*` | not planned |
+| `--site-pi`, `--window-pi`, `--window-pi-step`, `--TajimaD`, `--weir-fst-pop`, `--fst-window-size`, `--fst-window-step`, `--geno-r2`, `--hap-r2`, `--interchrom-geno-r2`, `--interchrom-hap-r2`, `--ld-window`, `--ld-window-bp`, `--min-r2`, `--relatedness`, `--relatedness2` | not yet available (deferred; `vcf popgen` is not in this release) |
+| `--diff B`, `--gzdiff B`, `--diff-bcf B` with `--diff-site-discordance` / `--diff-indv-discordance` / `--diff-discordance-matrix`, `--diff-indv-map FILE` | `gloci vcf compare A B --out-prefix P` with `--site-discordance` / `--sample-discordance` / `--discordance-matrix`, `--sample-map FILE` (B is the second positional file, any of VCF, VCF.gz or BCF, so `--gzdiff` and `--diff-bcf` need no flag; `P.diff.sites`, `P.diff.indv`, `P.diff.discordance_matrix`, same columns; genotype concordance only. Sites are paired by `--match alleles` by default (same CHROM and POS and a shared ALT after trimming); add `--match position` for vcftools' site pairing, [differences.md#compare-allele-matching](differences.md#compare-allele-matching). The matrix counts biallelic pairs of the same trimmed allele under `--match alleles` (so `AT>A` and `ATG>AG` count together) and of the same REF and ALT text under `--match position`. A half-missing `./1` is missing, [differences.md#compare-half-missing](differences.md#compare-half-missing). `--thin` is refused unless both headers declare the same contigs and no `-g` is given) |
+| `--diff B --diff-site` | sites in both files: `gloci intersect -a A -b B --match alleles`; in A only: `gloci subtract -a A -b B --match alleles` (swap A and B for B only). `--match alleles` is the default; `--match position` pairs by POS and REF like vcftools. `vcf compare` does not write these site sets |
+| `--diff B --diff-indv` | the samples of each file are the `#CHROM` line: `gloci view --header-only FILE \| tail -n1 \| cut -f10-`; `vcf compare` writes every sample of the union in `P.diff.indv` with a discordance row, not the in-one-file lists |
+| `vcf-compare` (text report) | `gloci vcf compare A B --out-prefix P` gives the discordance tables; the text report itself is not planned |
+| `vcf-merge` | `gloci vcf merge A B ...` (see the bcftools `merge` row above) |
+| `--plink*`, `--IMPUTE`, `--BEAGLE-*`, `--ldhat*` | not planned |
 
 ### Filter expressions (bcftools `-i` / `-e`)
 
@@ -794,4 +978,7 @@ there is one.
 - **Eight commands read alignments:** `intersect`, `coverage`, `genomecov`, `convert`, `view`, `index`, `sort` and `cat` (`cat` is BAM only). Every other command exits 2 on a BAM, CRAM or SAM and names the eight; convert to BED first with `gloci convert x.bam`. Interval commands never build an index: `gloci index x.bam` or `--write-index` first, else regions and `-t` runs scan the file. FASTA needs `gloci index ref.fa` before `getfasta`, `nuc` or a CRAM `--reference` (never built implicitly; `maskfasta` streams and needs none).
 - **`gloci merge` is not `samtools merge`:** `gloci merge` merges overlapping intervals and refuses alignment files, pointing at `gloci sort -m`, which merges already-sorted BAM, SAM or CRAM files as `samtools merge -c -p` does (`-n`/`-N` for name order; `@SQ` lists must be identical and a conflicting `@RG` is an error). Join BAMs without re-sorting with `gloci cat`.
 - **`sort -n` is by read name and `windows -n` is a window count:** `gloci sort -n x.bam` sorts alignments by natural read name (`-N` by byte order), as `samtools sort -n`/`-N`; `gloci windows -n 10` cuts each interval into 10 windows. `sort -m` is merge, not memory: the memory budget is `--max-mem` (a total, where `samtools sort -m` is per thread). `sort` writes the input's format (SAM for SAM, BAM for BAM and CRAM), where samtools always writes BAM; pass `-O bam`.
+- **BEDPE is never detected:** `pair-intersect` and `pair-pair` read A (and B for `pair-pair`) as BEDPE whatever it looks like, and `gloci shuffle` treats BEDPE as opt-in: pass `--format bedpe`, or the file is shuffled as BED. Make pairs from alignments with `gloci convert x.bam --bedpe` on a name-sorted BAM (`gloci sort -n`).
+- **`vcf compare` matches by alleles unless `--match position`:** the default pairs records at one CHROM and POS that share an ALT allele after trimming; `--match position` pairs by POS and REF as vcftools `--diff` does, so pass it when reproducing vcftools. It is genotype concordance only: vcftools `--diff-site` and `--diff-indv` are `gloci intersect` / `gloci subtract --match alleles` and the `#CHROM` line.
+- **`sample` is not `samples`:** `gloci sample FILE -n N --seed S` draws a random subset of records (bedtools `sample`); `gloci samples` (samtools `samples`, planned for P3c) is a different command. `--seed` reproduces gloci's own output at any `-t`, never bedtools' for the same seed.
 - **`--mode` has no `-m` short flag (and defaults to `any`):** `gloci intersect` defaults to `--mode any` (unique A records with a hit, like `bedtools intersect -u`), not coordinate clipping (`--mode clip`). Always spell `--mode` in full (`--mode any|none|pairs|clip|count`); `-m` is only `gloci sort -m` for merging pre-sorted files.

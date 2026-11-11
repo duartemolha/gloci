@@ -1,0 +1,1 @@
+pair-intersect -f 0.05 --type ospan -a input.bedpe -b pairs-b.bed
