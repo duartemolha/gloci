@@ -14,8 +14,8 @@ use gloci_io::{
     AlignOptions, AlnSource, BGZF_EOF, Compression, Format, Header, InvalidPolicy, IoError,
     LEX_SORTED_NOTE, Loc, Opened, ReaderOptions, RecordBatch, SortOrder, UsageError, aln_ref,
     bed12_blocks, check_bcf_record, chrom_table_for, cram_eof_present, cram_first_container,
-    detect_compression, next_batch_size, open_reader_or_alignments, open_reader_or_alignments_from,
-    read_cram_prelude, sort_hint,
+    detect_compression, next_batch_size, open_reader_or_alignments,
+    open_reader_or_alignments_from_nonempty, read_cram_prelude, sort_hint,
 };
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -897,8 +897,9 @@ fn quick_regular<R: Read + Seek + Send + 'static>(
     Ok((format, detect_compression(&head)))
 }
 
-/// The header and the first record of `src`. No bytes at all fails: there is no header, though
-/// content detection would call it an empty BED (which the full check accepts).
+/// The header and the first record of `src`. No bytes at all, before or after decompression,
+/// fails: there is no header, though content detection would call it an empty BED (which the
+/// full check accepts).
 fn quick_open(
     name: &str,
     src: Box<dyn Read + Send>,
@@ -913,8 +914,8 @@ fn quick_open(
             Err(e) => return Err(format!("cannot read {name}: {e}")),
         }
     };
+    let shown = if name == "-" { "stdin" } else { name };
     if empty {
-        let shown = if name == "-" { "stdin" } else { name };
         return Err(IoError::empty_input(shown).to_string());
     }
     let src: Box<dyn Read + Send> = Box::new(src);
@@ -925,13 +926,18 @@ fn quick_open(
     o.accept
         .alignments
         .get_or_insert_with(AlignOptions::default);
-    let opened = open_reader_or_alignments_from(name, src, &o).map_err(|e| {
+    let opened = open_reader_or_alignments_from_nonempty(name, src, &o).map_err(|e| {
         if o.chrom_map.is_some() && is_sam_chrom_map_refusal(&e) {
             CHROM_MAP_NOT_FOR_ALIGNMENTS.to_string()
         } else {
             e.to_string()
         }
     })?;
+    // Nothing once decompressed (a BGZF end-of-file block alone, a gzip of nothing) is as
+    // empty as no bytes at all.
+    let Some(opened) = opened else {
+        return Err(IoError::empty_input(shown).to_string());
+    };
     match opened {
         Opened::Alignments(mut s) => {
             if o.chrom_map.is_some() {

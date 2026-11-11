@@ -281,6 +281,37 @@ fn quick_check_matrix() {
     assert_eq!(o.get_output().stdout, b"-\n");
     let err = String::from_utf8_lossy(&o.get_output().stderr);
     assert!(err.contains("stdin is empty: it has no records"), "{err}");
+    // Emptiness is of the decompressed bytes (N3): a BGZF file of the 28-byte end-of-file
+    // block alone, and a gzip of nothing, are empty too, as files and on stdin.
+    // gzip of nothing: the header, an empty final stored block, CRC32 0 and size 0.
+    let empty_gzip = vec![
+        0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ];
+    for (name, bytes) in [
+        ("eof.bam", gloci_io::BGZF_EOF.to_vec()),
+        ("eof.bed.gz", gloci_io::BGZF_EOF.to_vec()),
+        ("e.sam.gz", empty_gzip),
+    ] {
+        let z = d.path().join(name);
+        std::fs::write(&z, &bytes).unwrap();
+        let z = s(&z);
+        let (code, out, err) = run(&["check", "--quick", "--list-failed", &z]);
+        assert_eq!((code, out), (1, format!("{z}\n")), "{z}: {err}");
+        assert!(
+            err.contains(&format!("{z} is empty: it has no records")),
+            "{err}"
+        );
+        let o = gloci()
+            .args(["check", "--quick", "--list-failed", "-"])
+            .write_stdin(bytes)
+            .assert()
+            .code(1);
+        let err = String::from_utf8_lossy(&o.get_output().stderr);
+        assert!(
+            err.contains("stdin is empty: it has no records"),
+            "{name}: {err}"
+        );
+    }
     // The problem is on stderr, in words, each line naming the path once (M6).
     let bad = sam_fixture("badfirst.bam");
     let (_, _, err) = run(&["check", "--quick", "--list-failed", &bad]);

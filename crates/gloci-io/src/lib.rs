@@ -89,6 +89,7 @@ pub use record::{
     Header, Opened, ReaderOptions, RecordBatch, RecordMeta, RecordReader, check_map_against_index,
     next_batch_size, open_reader, open_reader_from, open_reader_noting_empty,
     open_reader_or_alignments, open_reader_or_alignments_from,
+    open_reader_or_alignments_from_nonempty,
 };
 pub use rmsk::rmsk_fields;
 pub use seekable::{ChromRange, SeekableFile, chrom_ranges, open_range_reader};
