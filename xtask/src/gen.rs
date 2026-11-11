@@ -835,6 +835,7 @@ struct Mate {
     tlen: i64,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_read(
     w: &mut impl Write,
     line: &mut Vec<u8>,

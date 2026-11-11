@@ -851,7 +851,7 @@ fn gen_sam_paired_by_name_is_name_grouped() {
             for (n, op) in cig {
                 match op {
                     'M' => {
-                        assert_eq!(&chrom[rp..rp + n], r[9][qp..qp + n].as_bytes());
+                        assert_eq!(&chrom[rp..rp + n], &r[9].as_bytes()[qp..qp + n]);
                         rp += n;
                         qp += n;
                     }
