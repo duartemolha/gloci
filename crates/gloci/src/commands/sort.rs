@@ -262,7 +262,6 @@ fn run_alignments(
     src: Box<dyn AlnSource>,
     spec: &gloci_io::OutputSpec,
 ) -> anyhow::Result<()> {
-    let name = src.name().to_string();
     if files.len() > 1 {
         return Err(usage(format!(
             "sort takes one alignment file, but {} were given; merge sorted BAM files with \
@@ -298,9 +297,8 @@ in order with gloci cat",
     };
     if a.check {
         if !check_alignments(src, order)? {
-            return Err(anyhow::anyhow!(
-                "{name} is not sorted; the records are listed above"
-            ));
+            // check_alignments already logged the error naming both records.
+            return Err(crate::Reported.into());
         }
         return Ok(());
     }
@@ -310,8 +308,10 @@ in order with gloci cat",
 drop --write-index, or drop -n/-N",
         ));
     }
-    // As samtools sort, BAM unless -o x.sam or -O sam says otherwise (also for SAM input).
-    let out_format = spec.format.unwrap_or(OutFormat::Bam);
+    // The input's format (D104), CRAM as BAM; -o and -O override.
+    let out_format = spec
+        .format
+        .unwrap_or_else(|| OutFormat::family(src.layout()));
     if !matches!(out_format, OutFormat::Bam | OutFormat::Sam) {
         return Err(usage(format!(
             "{} output is not possible for sorted alignments; write BAM or SAM (-o x.bam, \

@@ -137,7 +137,8 @@ Examples:
     /// READ1 before READ2 and primary before supplementary before secondary.
     /// Every record is kept, unmapped reads included. The header's @HD line
     /// gets SO (and SS for -n and -N) and gloci adds an @PG line. The output
-    /// is BAM (CRAM input too), or SAM with -o x.sam or -O sam. --write-index
+    /// keeps the input's format (BAM for BAM and CRAM, SAM for SAM; -o and -O
+    /// override), where samtools sort always writes BAM. --write-index
     /// works for coordinate-sorted BAM output only. -g, --full-key, --unique and
     /// --duplicates do not apply: the order is the header's. To merge sorted
     /// BAM files use sort -m (or cat for files already in order); -n reads.bam sorts by name.

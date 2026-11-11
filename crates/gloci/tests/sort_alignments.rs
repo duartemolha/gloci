@@ -95,7 +95,7 @@ fn aln_sort_check() {
 #[test]
 fn aln_sort_output_formats_and_index() {
     let dir = tempdir();
-    // SAM input writes BAM, as samtools sort does; -o x.sam writes SAM
+    // the format follows the input (SAM stays SAM) unless -o or -O say otherwise
     let bam = dir.path().join("o.bam");
     gloci()
         .args([
@@ -123,6 +123,15 @@ fn aln_sort_output_formats_and_index() {
         .assert()
         .success()
         .stdout(contains("read30"));
+    let o = gloci()
+        .args(["sort", &s(&fixture("sort.sam"))])
+        .assert()
+        .success();
+    assert!(
+        o.get_output()
+            .stdout
+            .starts_with(b"@HD\tVN:1.6\tSO:coordinate\n")
+    );
     // SAM output cannot be indexed
     gloci()
         .args([

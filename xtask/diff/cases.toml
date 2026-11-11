@@ -5137,6 +5137,15 @@ gloci = "gloci sort -O bam input.sam"
 reference = "samtools sort --no-PG input.sam"
 compare = "bam"
 
+# gloci keeps the input's format (SAM in, SAM out); samtools sort writes BAM unless -O sam
+# says otherwise, which migration.md explains.
+[[case]]
+name = "aln-sort-sam-default-format-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/sort.sam" }
+gloci = "gloci sort input.sam"
+reference = "samtools sort -O sam --no-PG input.sam"
+compare = "sam"
+
 [[case]]
 name = "aln-sort-no-hd-vs-samtools"
 input = { file = "xtask/diff/inputs/aln/sort-nohd.bam" }

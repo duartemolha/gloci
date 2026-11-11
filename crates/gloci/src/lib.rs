@@ -136,13 +136,29 @@ fn strip_thread_options(args: &[OsString]) -> Vec<OsString> {
 }
 
 /// What an error means for the exit status.
+/// A failure whose message was already printed (exit 1, nothing more to say).
+#[derive(Debug)]
+pub struct Reported;
+
+impl std::fmt::Display for Reported {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("already reported")
+    }
+}
+
+impl std::error::Error for Reported {}
+
 enum Outcome {
+    Reported,
     Usage(String),
     BrokenPipe,
     Failure(String),
 }
 
 fn classify(err: &anyhow::Error) -> Outcome {
+    if err.chain().any(|c| c.downcast_ref::<Reported>().is_some()) {
+        return Outcome::Reported;
+    }
     for cause in err.chain() {
         if let Some(u) = cause.downcast_ref::<UsageError>() {
             return Outcome::Usage(u.0.clone());
@@ -274,6 +290,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
                 ExitCode::from(2)
             }
             Outcome::BrokenPipe => ExitCode::SUCCESS,
+            Outcome::Reported => ExitCode::from(1),
             Outcome::Failure(msg) => {
                 eprintln!("error: {msg}");
                 ExitCode::from(1)

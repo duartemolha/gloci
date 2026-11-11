@@ -70,16 +70,6 @@ pub struct Accept {
     pub cram: bool,
 }
 
-impl Accept {
-    /// For a command that will read alignments but whose reader is not built yet.
-    pub fn planned() -> Accept {
-        Accept {
-            alignments_planned: true,
-            ..Accept::default()
-        }
-    }
-}
-
 const FLAG_NAMES: [(&str, u16); 12] = [
     ("PAIRED", 0x1),
     ("PROPER_PAIR", 0x2),

@@ -78,6 +78,9 @@ fn sam_text(n: usize, len: usize) -> Vec<u8> {
     out
 }
 
+/// A budget that spills several times for 60,000 small records (about 9 MiB of records).
+const MEM: u64 = 2 << 20;
+
 fn sort_to(
     dir: &Path,
     text: &[u8],
@@ -130,7 +133,7 @@ fn sort_to(
 #[test]
 fn aln_sort_spills_equal_in_memory() {
     let dir = tempfile::tempdir().unwrap();
-    let text = sam_text(200_000, 200);
+    let text = sam_text(60_000, 40);
     for order in [
         AlnSortOrder::Coordinate,
         AlnSortOrder::Name,
@@ -139,7 +142,7 @@ fn aln_sort_spills_equal_in_memory() {
         let (want, spills) = sort_to(dir.path(), &text, order, 2 << 30, 1, "mem.bam");
         assert_eq!(spills, 0);
         for t in [1, 2, 8] {
-            let (got, spills) = sort_to(dir.path(), &text, order, 16 << 20, t, "spill.bam");
+            let (got, spills) = sort_to(dir.path(), &text, order, MEM, t, "spill.bam");
             assert!(spills >= 4, "{order:?} -t {t}: {spills} spills");
             assert!(
                 got == want,
