@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+message: "If you use gloci in your work, please cite it using these metadata."
+type: software
+title: gloci
+abstract: >-
+  A single, fast, correct Rust command-line tool that replaces bedtools,
+  bedops and vcftools for genomic interval and variant work on files of many
+  gigabytes.
+authors:
+  - family-names: Molha
+    given-names: Duarte
+version: 0.1.0
+date-released: 2026-11-08
+license: MIT
+repository-code: "https://github.com/duartemolha/gloci"
