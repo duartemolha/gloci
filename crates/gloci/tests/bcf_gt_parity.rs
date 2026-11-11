@@ -67,6 +67,7 @@ fn a_16_bit_gt_renders_as_a_clear_error_not_a_panic() {
         .success();
     for args in [
         vec!["view", "-O", "vcf"],
+        vec!["convert"],
         vec!["vcf", "filter", "-O", "vcf"],
         vec!["vcf", "extract", "--format", "GT"],
     ] {
@@ -74,7 +75,9 @@ fn a_16_bit_gt_renders_as_a_clear_error_not_a_panic() {
         let err = String::from_utf8_lossy(&o.stderr);
         assert_eq!(o.status.code(), Some(1), "{args:?}: {err}");
         assert!(
-            err.contains("allele index of 63 or more") && !err.contains("internal error"),
+            err.contains("allele index of 63 or more")
+                && !err.contains("internal error")
+                && !err.contains("declared in the header"),
             "{args:?}: {err}"
         );
     }

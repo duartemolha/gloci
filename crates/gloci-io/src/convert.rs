@@ -199,9 +199,7 @@ impl Converter {
         let fail = |e: std::io::Error| IoError::Parse {
             path: self.name.clone(),
             loc,
-            msg: format!(
-                "cannot convert the record: {e}; check that every contig, INFO, FILTER and FORMAT field it uses is declared in the header"
-            ),
+            msg: convert_failure(&e),
         };
         let Encoder::ToBcf(w) = &mut self.enc else {
             return Err(internal(
@@ -339,9 +337,7 @@ add ##FILTER=<ID={id},Description=\"...\"> to the header"
             let fail = |e: std::io::Error| IoError::Parse {
                 path: self.name.clone(),
                 loc,
-                msg: format!(
-                    "cannot convert the record: {e}; check that every contig, INFO, FILTER and FORMAT field it uses is declared in the header"
-                ),
+                msg: convert_failure(&e),
             };
             let raw = batch.raw(i);
             let werr = |source| IoError::Write {
@@ -455,6 +451,18 @@ impl BcfText {
     }
 }
 
+/// The message for a record that failed to convert: the declared-in-the-header
+/// hint fits every cause but an unsupported one (the 16-bit GT).
+fn convert_failure(e: &std::io::Error) -> String {
+    if e.kind() == std::io::ErrorKind::Unsupported {
+        format!("cannot convert the record: {e}")
+    } else {
+        format!(
+            "cannot convert the record: {e}; check that every contig, INFO, FILTER and FORMAT field it uses is declared in the header"
+        )
+    }
+}
+
 /// Stands for an empty String value while noodles decodes the record.
 const EMPTY_CELL: u8 = 0x01;
 
@@ -532,7 +540,7 @@ fn fill_empty_fields<'a>(
         if is_gt && matches!(ty, typed::Ty::Int16 | typed::Ty::Int32) {
             // noodles-bcf panics on a GT wider than 8 bits.
             return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
+                std::io::ErrorKind::Unsupported,
                 "the genotype uses an allele index of 63 or more (a 16-bit GT), which gloci \
 cannot render as VCF text; `gloci vcf stats` reads such a record",
             ));
