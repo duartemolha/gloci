@@ -828,3 +828,41 @@ fn a_missing_output_directory_is_reported_with_the_path() {
         .code(1)
         .stderr(contains("nope/o.frq"));
 }
+
+/// A header-only VCF, as vcftools 0.1.16 writes it (checked in `gloci-diff:p0`
+/// with `--het`, `--missing-indv`, `--depth`): `--het` is its header alone,
+/// `--missing-indv` and `--depth` write one zero row per sample.
+#[test]
+fn header_only_vcf_gives_the_rows_vcftools_gives() {
+    let d = tempdir();
+    let v = plain_file(
+        d.path(),
+        "h.vcf",
+        "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=100>\n\
+##FORMAT=<ID=GT,Number=1,Type=String,Description=\"g\">\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\ts2\n",
+    );
+    let prefix = d.path().join("g").to_string_lossy().into_owned();
+    gloci()
+        .args(["vcf", "stats"])
+        .arg(&v)
+        .args([
+            "--het",
+            "--missing-indv",
+            "--depth",
+            "--out-prefix",
+            &prefix,
+        ])
+        .assert()
+        .success();
+    let rd = |ext: &str| std::fs::read_to_string(format!("{prefix}.{ext}")).unwrap();
+    assert_eq!(rd("het"), "INDV\tO(HOM)\tE(HOM)\tN_SITES\tF\n");
+    assert_eq!(
+        rd("imiss"),
+        "INDV\tN_DATA\tN_GENOTYPES_FILTERED\tN_MISS\tF_MISS\ns1\t0\t0\t0\tnan\ns2\t0\t0\t0\tnan\n"
+    );
+    assert_eq!(
+        rd("idepth"),
+        "INDV\tN_SITES\tMEAN_DEPTH\ns1\t0\tnan\ns2\t0\tnan\n"
+    );
+}
