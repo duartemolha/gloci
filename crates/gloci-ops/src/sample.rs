@@ -103,7 +103,7 @@ pub fn sample(
     if seen == 0 && o.count > 0 {
         // An empty input is read as no records, as every other command does.
         log::warn!(
-            "{} is empty: it has no records{}; nothing was written",
+            "{} is empty: it has no records{}; no record was sampled",
             reader.name(),
             match o.strand {
                 Some(Strand::Plus) => " on the + strand",

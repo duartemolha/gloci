@@ -5895,7 +5895,7 @@ fn p3b_empty_inputs_matrix() {
         );
         assert_eq!(std::fs::metadata(&out).unwrap().len(), len, "{args:?}");
     }
-    // sampling more than there is: an error, with nothing written
+    // sampling from an input with no records: no records out, one warning, exit 0 (M1)
     for (name, input) in [("bed", &empty), ("bed.gz", &empty_gz), ("vcf", &hv)] {
         let d = tempdir();
         let out = s_of(&d.path().join(if name == "vcf" { "o.vcf" } else { "o.bed" }));
@@ -5907,16 +5907,15 @@ fn p3b_empty_inputs_matrix() {
                 .output()
                 .unwrap();
             let err = String::from_utf8_lossy(&o.stderr);
-            assert_eq!(o.status.code(), Some(1), "sample {name}: {err}");
+            assert_eq!(o.status.code(), Some(0), "sample {name}: {err}");
             assert!(
-                err.contains("fewer than the 1 requested with -n")
-                    && err.contains("nothing was written"),
+                err.contains("is empty: it has no records") && err.lines().count() == 1,
                 "sample {name}: {err}"
             );
-            assert_eq!(
-                std::fs::read_dir(d.path()).unwrap().count(),
-                0,
-                "sample {name}"
+            let text = std::fs::read_to_string(&out).unwrap();
+            assert!(
+                text.lines().all(|l| l.starts_with('#')),
+                "sample {name}: {text}"
             );
         }
     }
