@@ -2088,7 +2088,7 @@ Note (not a difference): `stats reldist` skips every A on a chromosome with fewe
 even an A sitting on the only one. bedtools does the same and gloci ports it on purpose; pinned by
 `stats-reldist-one-midpoint-vs-bedtools` (must match).
 
-## `pair-intersect` hits come in B's input order {#pair-hit-order}
+## `pair-intersect` and `pair-pair` hits come in B's input order {#pair-hit-order}
 
 - **gloci:** the B records an end overlaps are written in B's input order, end 1's hits first and
   then end 2's, so the output does not depend on how B is stored.
