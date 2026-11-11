@@ -594,6 +594,7 @@ pub fn run_view(
     let reader = match open_reader_or_alignments(path, ro)? {
         Opened::Records(r) => {
             gloci_io::warn_unused_reference(reference, false);
+            gloci_io::warn_unused_read_filters(ro.accept.alignments.as_ref(), false);
             r
         }
         Opened::Alignments(src) => {

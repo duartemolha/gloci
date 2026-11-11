@@ -17,8 +17,8 @@
 
 use crate::intersect::Text;
 use crate::relate::{
-    Acceptor, RelateInputs, RelateOptions, RelationFiles, RunOptions, report_skipped, run_files,
-    run_relation_in,
+    Acceptor, RelateInputs, RelateOptions, RelationFiles, RunOptions, check_split_deletions,
+    report_skipped, run_files, run_relation_in,
 };
 use gloci_core::ChromTable;
 use gloci_core::Interval;
@@ -98,13 +98,7 @@ pub fn validate(o: &CoverageOptions, n_b: usize) -> Result<(), IoError> {
 /// The option checks that need the inputs' formats, so a command can run them before it
 /// creates any output.
 pub fn validate_formats(a: Format, b: &[Format], o: &CoverageOptions) -> Result<(), IoError> {
-    if o.relate.split_deletions && !(a.is_alignment() || b.iter().any(|f| f.is_alignment())) {
-        return Err(usage(
-            "--split-deletions cuts alignments at deletions, and no input is BAM or SAM; \
-drop it, or use --split for BED12 blocks",
-        ));
-    }
-    Ok(())
+    check_split_deletions(o.relate.split_deletions, a, b)
 }
 
 /// The names of the appended columns, for a VCF A's column-name line.

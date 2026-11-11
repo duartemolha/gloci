@@ -10,7 +10,8 @@ use crate::relate::alleles::{
 };
 use crate::relate::{
     Acceptor, RelateInputs, RelateOptions, RelationFiles, ReportOutput, RunOptions, b_placeholder,
-    b_width, relation_chroms, report_skipped, rewrite_coords, run_files, run_relation_in,
+    b_width, check_split_deletions, relation_chroms, report_skipped, rewrite_coords, run_files,
+    run_relation_in,
 };
 use gloci_core::{ChromTable, Interval};
 use gloci_engine::{ARec, Hit, Neighbours, SweepSummary, Visitor};
@@ -64,13 +65,7 @@ fn is_variant(f: Format) -> bool {
 /// The option checks that need only the inputs' formats, so a command can
 /// run them before it creates any output.
 pub fn validate(a: Format, b: &[Format], o: &IntersectOptions) -> Result<(), IoError> {
-    let has_alignment = a.is_alignment() || b.iter().any(|f| f.is_alignment());
-    if o.relate.split_deletions && !has_alignment {
-        return Err(usage(
-            "--split-deletions cuts alignments at deletions, and no input is BAM or SAM; \
-drop it, or use --split for BED12 blocks",
-        ));
-    }
+    check_split_deletions(o.relate.split_deletions, a, b)?;
     if o.mode == Mode::Clip {
         if a.is_alignment() {
             return Err(usage(

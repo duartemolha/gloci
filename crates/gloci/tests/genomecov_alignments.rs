@@ -213,12 +213,15 @@ chr2\t0\t5\t1\nchr2\t5\t50\t0\nchr3\t0\t30\t0\n"
     let (code, _, err) = run(&["genomecov", &bed]);
     assert_eq!(code, Some(2), "{err}");
     assert!(
-        err.contains("-g is required unless the input is BAM or SAM"),
+        err.contains("-g is required unless the input is BAM, CRAM or SAM"),
         "{err}"
     );
     let (code, _, err) = run(&["genomecov", &bed, "-g", &g, "--split-deletions"]);
     assert_eq!(code, Some(2), "{err}");
-    assert!(err.contains("--split-deletions"), "{err}");
+    assert!(
+        err.contains("--split-deletions") && err.contains("not BAM, CRAM or SAM"),
+        "{err}"
+    );
 }
 
 #[test]
@@ -389,4 +392,31 @@ fn genomecov_overhang_warning_prints_once_at_every_thread_count() {
         );
         assert!(err.contains("record 2 of c1"), "-t {t}: {err}");
     }
+}
+
+#[test]
+fn sorted_cram_uses_its_reference() {
+    // --sort replaces the CRAM with a sorted BAM copy; the reference was still used, and the
+    // output is the streamed one.
+    let inputs = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../xtask/diff/inputs");
+    let cram = s(&inputs.join("aln/many.cram"));
+    let fa = s(&inputs.join("fa/ref.fa"));
+    let dir = tempdir();
+    let tmp = s(dir.path());
+    let (code, sorted, err) = run(&[
+        "genomecov",
+        &cram,
+        "--reference",
+        &fa,
+        "--bedgraph",
+        "--sort",
+        "--tmp-dir",
+        &tmp,
+    ]);
+    assert_eq!(code, Some(0), "{err}");
+    assert!(!err.contains("not used"), "{err}");
+    assert_eq!(
+        sorted,
+        ok(&["genomecov", &cram, "--reference", &fa, "--bedgraph"])
+    );
 }

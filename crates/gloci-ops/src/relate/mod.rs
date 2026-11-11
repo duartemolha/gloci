@@ -37,6 +37,24 @@ use gloci_io::{
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+/// `--split-deletions` cuts alignments at deletions, so a relation with no alignment input
+/// refuses it (`intersect`, `coverage`).
+pub(crate) fn check_split_deletions(
+    split_deletions: bool,
+    a: Format,
+    b: &[Format],
+) -> Result<(), IoError> {
+    if split_deletions && !(a.is_alignment() || b.iter().any(|f| f.is_alignment())) {
+        return Err(UsageError(
+            "--split-deletions cuts alignments at deletions, and no input is BAM, CRAM or SAM; \
+drop it, or use --split for BED12 blocks"
+                .into(),
+        )
+        .into());
+    }
+    Ok(())
+}
+
 impl RelateOptions {
     /// Do the commands compare blocks rather than spans?
     pub fn splits(&self) -> bool {

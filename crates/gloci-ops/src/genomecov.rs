@@ -547,8 +547,8 @@ fn check_genome(
     validate(o)?;
     if o.split_deletions && !input.format().is_alignment() {
         return Err(UsageError(
-            "--split-deletions cuts alignments at deletions, and the input is not BAM or SAM; \
-drop it, or use --split for BED12 blocks"
+            "--split-deletions cuts alignments at deletions, and the input is not BAM, CRAM or \
+SAM; drop it, or use --split for BED12 blocks"
                 .into(),
         )
         .into());

@@ -320,7 +320,8 @@ there is one.
   every alignment input of `intersect`, `coverage`, `genomecov`, `convert` and
   `view` before anything else. The defaults filter nothing, as in bedtools. For
   the semantics of `samtools depth` and mosdepth (no unmapped, secondary,
-  QC-fail or duplicate reads) pass `--exclude-flags 0x704`.
+  QC-fail or duplicate reads) pass `--exclude-flags 0x704`. Given to a run
+  with no BAM, CRAM or SAM input, they are not used, and gloci says so once.
 - **`--split` and `--split-deletions`.** `--split` cuts a read at CIGAR `N`
   only, and `D` stays inside a block (bedtools `-split`). `--split-deletions`
   also cuts at `D` (bedtools `bamtobed -splitD`). `genomecov` counts deleted

@@ -54,6 +54,34 @@ impl AlignOptions {
     }
 }
 
+/// Warn, once per call, that the read filters given (`--min-mapq`, `--require-flags`,
+/// `--exclude-flags`) are not used because no input is BAM, CRAM or SAM, as
+/// [`warn_unused_reference`] does for `--reference`. `opts` is `None` for a command that
+/// reads no alignments.
+pub fn warn_unused_read_filters(opts: Option<&AlignOptions>, any_alignment: bool) {
+    let Some(o) = opts else { return };
+    if any_alignment {
+        return;
+    }
+    let given: Vec<&str> = [
+        (o.min_mapq > 0, "--min-mapq"),
+        (o.require_flags != 0, "--require-flags"),
+        (o.exclude_flags != 0, "--exclude-flags"),
+    ]
+    .into_iter()
+    .filter_map(|(set, name)| set.then_some(name))
+    .collect();
+    let (list, verb) = match given.as_slice() {
+        [] => return,
+        [one] => ((*one).to_string(), "is"),
+        [rest @ .., last] => (format!("{} and {last}", rest.join(", ")), "are"),
+    };
+    log::warn!(
+        "{list} {verb} not used: no input is BAM, CRAM or SAM (the read filters apply to \
+alignments only)"
+    );
+}
+
 /// What a command accepts as input beyond interval formats. The default accepts
 /// none of them, so a command that does not read alignments refuses them.
 #[derive(Debug, Clone, Default)]

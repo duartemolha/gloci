@@ -57,13 +57,17 @@ pub fn run(ctx: &Ctx, a: &GenomecovArgs) -> anyhow::Result<()> {
         chrom_map: &a.chrom_map,
         alignments: Some(a.align.options(false)?),
     };
-    let (mut readers, mut chroms) = open_inputs(ctx, &input, &|_| Ok(()))?;
+    // The input's format before --sort replaces it with the sorted (BAM) copy.
+    let format = std::cell::Cell::new(None);
+    let (mut readers, mut chroms) = open_inputs(ctx, &input, &|f| {
+        format.set(f.first().copied());
+        Ok(())
+    })?;
     anyhow::ensure!(readers.len() == 1, "genomecov takes exactly one input");
     let reader = readers.remove(0);
-    gloci_io::warn_unused_reference(
-        a.align.reference.as_deref(),
-        reader.format() == Format::Cram,
-    );
+    let format = format.get().unwrap_or(reader.format());
+    gloci_io::warn_unused_reference(a.align.reference.as_deref(), format == Format::Cram);
+    gloci_io::warn_unused_read_filters(input.alignments.as_ref(), format.is_alignment());
     let genome = genome_of(a.genome.as_deref(), reader.as_ref())?;
     // An indexed BAM runs per chromosome; `--sort` streams the sorted copy.
     let chunked = (!a.sort.sort && a.file != "-").then(|| -> anyhow::Result<ChunkRun> {
@@ -142,8 +146,8 @@ pass -g with a built-in genome such as hg38 or a .fai file",
         ))
         .into()),
         _ => Err(UsageError(
-            "-g is required unless the input is BAM or SAM: give a built-in genome such as hg38 \
-(see gloci genomes), or a .fai, .genome or .dict file"
+            "-g is required unless the input is BAM, CRAM or SAM: give a built-in genome such as \
+hg38 (see gloci genomes), or a .fai, .genome or .dict file"
                 .into(),
         )
         .into()),

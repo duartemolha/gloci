@@ -114,8 +114,44 @@ fn split_deletions_needs_alignment() {
             .args([cmd, "-a", &bed, "-b", &bed, "--split-deletions"])
             .assert()
             .code(2)
-            .stderr(contains("--split-deletions"));
+            .stderr(contains("--split-deletions"))
+            .stderr(contains("no input is BAM, CRAM or SAM"));
     }
+}
+
+#[test]
+fn read_filters_without_alignment_input_warn_once() {
+    let dir = tempdir();
+    let bed = write(dir.path(), "t.bed", "chr1\t0\t10\n");
+    let g = write(dir.path(), "g.genome", "chr1\t100\n");
+    let bam = aln("order.bam");
+    let runs: [Vec<&str>; 4] = [
+        vec!["intersect", "-a", &bed, "-b", &bed],
+        vec!["coverage", "-a", &bed, "-b", &bed],
+        vec!["genomecov", &bed, "-g", &g],
+        vec!["view", &bed],
+    ];
+    let one = "--min-mapq is not used: no input is BAM, CRAM or SAM";
+    let two = "--min-mapq and --exclude-flags are not used: no input is BAM, CRAM or SAM";
+    for args in &runs {
+        let stderr = |extra: &[&str]| {
+            let o = gloci().args(args).args(extra).assert().success();
+            String::from_utf8(o.get_output().stderr.clone()).unwrap()
+        };
+        let err = stderr(&["--min-mapq", "20"]);
+        assert_eq!(err.matches(one).count(), 1, "{args:?}: {err}");
+        let err = stderr(&["--min-mapq", "20", "--exclude-flags", "dup"]);
+        assert_eq!(err.matches(two).count(), 1, "{args:?}: {err}");
+        assert!(!stderr(&[]).contains("not used"), "{args:?}");
+    }
+    // An alignment input uses them: no warning.
+    let o = gloci()
+        .args(["intersect", "-a", &bam, "-b", &bed, "--mode", "count"])
+        .args(["--min-mapq", "20"])
+        .assert()
+        .success();
+    let err = String::from_utf8(o.get_output().stderr.clone()).unwrap();
+    assert!(!err.contains("not used"), "{err}");
 }
 
 #[test]

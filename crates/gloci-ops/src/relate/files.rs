@@ -159,6 +159,9 @@ impl RelationFiles {
             .and_then(|o| o.reference.as_deref());
         let any_cram = a.format() == Format::Cram || b.iter().any(|r| r.format() == Format::Cram);
         gloci_io::warn_unused_reference(reference, any_cram);
+        let any_alignment =
+            a.format().is_alignment() || b.iter().any(|r| r.format().is_alignment());
+        gloci_io::warn_unused_read_filters(paths.ro_a.accept.alignments.as_ref(), any_alignment);
         Ok(RelationFiles::new(RelateInputs { a, b }, paths))
     }
 
