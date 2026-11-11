@@ -288,7 +288,6 @@ VCF/BCF gives one row per record: chrom, start, end, ID, REF, ALT, QUAL, FILTER,
 
 ```sh
 gloci convert calls.vcf.gz -o calls.bed
-gloci convert transcripts.bed --blocks -o exons.bed
 gloci convert reads.bam --bed12 -o reads.bed
 gloci convert reads.bam --blocks --score-tag NM --min-mapq 30
 gloci convert reads.byname.bam --bedpe -o pairs.bedpe
