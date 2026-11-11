@@ -10,7 +10,7 @@ use gloci_io::{
     BcfText, Header, IoError, OrderGuard, OutFormat, RecordBatch, RecordReader, RecordWriter,
     TextToBcf, VcfHeader, next_batch_size,
 };
-use gloci_vcf::merge::{Merger, PairIn, rows};
+use gloci_vcf::merge::{Merger, PairIn, stage_position};
 use std::cmp::Ordering;
 
 pub const COMMAND: &str = "vcf merge";
@@ -215,14 +215,24 @@ pub fn vcf_merge(
             }
             pairs.push(v);
         }
-        for row in rows(&pairs, merger.options().mode) {
+        let staged = stage_position(&pairs, merger.options().mode).map_err(|e| {
+            data_err(format!(
+                "{e} at {}:{}",
+                String::from_utf8_lossy(chroms.name(min.0)),
+                min.1 + 1
+            ))
+        })?;
+        for row in staged {
             let members: Vec<Option<&[u8]>> = row
+                .members
                 .iter()
                 .enumerate()
                 .map(|(i, r)| r.map(|k| lines[i][k].as_slice()))
                 .collect();
             line.clear();
-            merger.merge_row(&members, &mut line).map_err(data_err)?;
+            merger
+                .merge_row(&members, &row.alleles, &mut line)
+                .map_err(data_err)?;
             if members.iter().flatten().count() > 1 {
                 sum.records_merged += 1;
             }

@@ -11,7 +11,7 @@ pub(crate) mod pair;
 mod rec;
 mod spec;
 mod tab;
-mod vcmp;
+pub(crate) mod vcmp;
 mod xfer;
 
 pub use hdr::{HeaderEdit, InfoDef, Number, Ty};

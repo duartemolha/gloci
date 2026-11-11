@@ -10,7 +10,7 @@ pub mod pair;
 
 use crate::annotate::hdr::{InfoDef, Number, Ty};
 use header::{Defs, Merged};
-pub use pair::{MergeMode, PairIn, rows};
+pub use pair::{MergeMode, PairIn, StagedRow, stage_position};
 
 /// Options of one merge.
 #[derive(Clone, Debug)]
@@ -78,104 +78,13 @@ impl<'a> P<'a> {
 }
 
 /// The merged allele list and each input's map into it.
-pub(crate) struct Alleles {
+pub struct Alleles {
     pub reference: Vec<u8>,
     pub alts: Vec<Vec<u8>>,
     /// Per row member (same order as the records): input allele index to merged index.
     pub maps: Vec<Vec<usize>>,
     /// Per row member: its alleles are not the merged list as it is.
     pub differs: Vec<bool>,
-}
-
-fn symbolic(a: &[u8]) -> bool {
-    a.first() == Some(&b'<') || a == b"*" || a.contains(&b'[') || a.contains(&b']')
-}
-
-/// `normalize_alleles`: drop the last base while every allele ends with it
-/// and keeps at least one base (a symbolic ALT, `*` or a one-base REF stops it).
-fn trim_common_suffix(alleles: &mut [Vec<u8>]) {
-    while alleles[0].len() > 1 {
-        let last = alleles[0][alleles[0].len() - 1];
-        if alleles
-            .iter()
-            .any(|a| a.len() < 2 || a[a.len() - 1] != last)
-        {
-            return;
-        }
-        for a in alleles.iter_mut() {
-            a.pop();
-        }
-    }
-}
-
-/// The record's alleles, REF first.
-fn record_alleles(r: &P<'_>) -> Vec<Vec<u8>> {
-    let mut v = vec![r.reference.to_vec()];
-    v.extend(r.alts().iter().map(|a| a.to_vec()));
-    v
-}
-
-fn merge_alleles(recs: &[P<'_>]) -> Result<Alleles, String> {
-    let all: Vec<Vec<Vec<u8>>> = recs.iter().map(record_alleles).collect();
-    let mut reference: &[u8] = &all[0][0];
-    for al in &all {
-        if al[0].len() > reference.len() {
-            reference = &al[0];
-        }
-    }
-    let reference = reference.to_vec();
-    let mut alts: Vec<Vec<u8>> = Vec::new();
-    let mut maps = Vec::new();
-    let mut ori_counts = Vec::new();
-    for (r, al) in recs.iter().zip(&all) {
-        let rl = al[0].len();
-        if !reference[..rl].eq_ignore_ascii_case(&al[0]) {
-            return Err(format!(
-                "the REF alleles at {}:{} differ ({} and {}); records with different REF cannot be merged",
-                String::from_utf8_lossy(r.chrom),
-                String::from_utf8_lossy(r.pos),
-                String::from_utf8_lossy(&reference),
-                String::from_utf8_lossy(&al[0])
-            ));
-        }
-        let suffix = &reference[rl..];
-        let mut map = vec![0usize];
-        for a in &al[1..] {
-            let mut norm = a.clone();
-            if !suffix.is_empty() && !symbolic(a) {
-                norm.extend_from_slice(suffix);
-            }
-            let idx = match alts.iter().position(|x| *x == norm) {
-                Some(i) => i,
-                None => {
-                    alts.push(norm);
-                    alts.len() - 1
-                }
-            };
-            map.push(idx + 1);
-        }
-        ori_counts.push(al.len());
-        maps.push(map);
-    }
-    let mut reference = reference;
-    {
-        let mut v = vec![reference.clone()];
-        v.extend(alts.iter().cloned());
-        trim_common_suffix(&mut v);
-        reference = v.remove(0);
-        alts = v;
-    }
-    let differs = maps
-        .iter()
-        .zip(&ori_counts)
-        .map(|(m, &n)| n != alts.len() + 1 || m.iter().enumerate().any(|(i, &x)| i != x))
-        .collect();
-    Ok(Alleles {
-        reference,
-        alts,
-        maps,
-        differs,
-    })
 }
 
 /// What a merge needs of one input.
@@ -257,7 +166,12 @@ impl Merger {
 
     /// Merge the records of one row (`row[i]` is input i's record line, no
     /// terminator) and append the merged line to `out`.
-    pub fn merge_row(&mut self, row: &[Option<&[u8]>], out: &mut Vec<u8>) -> Result<(), String> {
+    pub fn merge_row(
+        &mut self,
+        row: &[Option<&[u8]>],
+        al: &Alleles,
+        out: &mut Vec<u8>,
+    ) -> Result<(), String> {
         let mut recs = Vec::new();
         for (i, l) in row.iter().enumerate() {
             if let Some(l) = l {
@@ -277,7 +191,6 @@ impl Merger {
         if recs.is_empty() {
             return Ok(());
         }
-        let al = merge_alleles(&recs)?;
         let first = &recs[0];
         out.extend_from_slice(first.chrom);
         out.push(b'\t');
@@ -304,11 +217,11 @@ impl Merger {
         out.push(b'\t');
         let mut fmt = format::Formatted::default();
         if self.total_samples > 0 {
-            fmt = format::merge_format(self, &recs, &al)?;
+            fmt = format::merge_format(self, &recs, al)?;
         }
         let mut info_out = std::mem::take(&mut self.scratch);
         info_out.clear();
-        info::merge_info(self, &recs, &al, &fmt.calls, &mut info_out)?;
+        info::merge_info(self, &recs, al, &fmt.calls, &mut info_out)?;
         if info_out.is_empty() {
             out.push(b'.');
         } else {
@@ -456,21 +369,21 @@ mod tests {
     #[test]
     fn common_trailing_bases_are_trimmed_but_one_base_stays() {
         let mut a = v(&["AT", "ATT"]);
-        trim_common_suffix(&mut a);
+        pair::trim_common_suffix(&mut a);
         assert_eq!(a, v(&["A", "AT"]));
         let mut a = v(&["AT"]);
-        trim_common_suffix(&mut a);
+        pair::trim_common_suffix(&mut a);
         assert_eq!(a, v(&["A"]));
         // a symbolic ALT or `*` stops the trim
         let mut a = v(&["AT", "<DEL>"]);
-        trim_common_suffix(&mut a);
+        pair::trim_common_suffix(&mut a);
         assert_eq!(a, v(&["AT", "<DEL>"]));
         let mut a = v(&["AT", "*"]);
-        trim_common_suffix(&mut a);
+        pair::trim_common_suffix(&mut a);
         assert_eq!(a, v(&["AT", "*"]));
         // a one-base REF is never trimmed
         let mut a = v(&["A", "AT"]);
-        trim_common_suffix(&mut a);
+        pair::trim_common_suffix(&mut a);
         assert_eq!(a, v(&["A", "AT"]));
     }
 
@@ -504,9 +417,21 @@ mod tests {
             &mut m,
             &names,
         )?;
-        let row: Vec<Option<&[u8]>> = lines.iter().map(|l| Some(l.as_bytes())).collect();
+        let ins: Vec<Vec<PairIn>> = lines
+            .iter()
+            .map(|l| vec![mg.pair_in(l.as_bytes()).unwrap()])
+            .collect();
+        let staged = stage_position(&ins, MergeMode::All)?;
         let mut out = Vec::new();
-        mg.merge_row(&row, &mut out)?;
+        for r in staged {
+            let row: Vec<Option<&[u8]>> = r
+                .members
+                .iter()
+                .enumerate()
+                .map(|(i, m)| m.map(|_| lines[i].as_bytes()))
+                .collect();
+            mg.merge_row(&row, &r.alleles, &mut out)?;
+        }
         Ok(out)
     }
 
@@ -524,13 +449,13 @@ mod tests {
     }
 
     #[test]
-    fn reference_mismatch_is_an_error_naming_the_position() {
+    fn reference_mismatch_is_an_error() {
         let e = merged(&[
             "1\t5\t.\tA\tG\t.\t.\t.\tGT\t0/1",
             "1\t5\t.\tC\tT\t.\t.\t.\tGT\t0/1",
         ])
         .unwrap_err();
-        assert!(e.contains("1:5") && e.contains("REF"), "{e}");
+        assert!(e.contains("REF prefixes differ"), "{e}");
     }
 
     #[test]

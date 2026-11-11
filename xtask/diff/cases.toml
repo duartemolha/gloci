@@ -5812,9 +5812,8 @@ reference = "bcftools merge --no-version input.vcf b.vcf >/dev/null 2>&1 || exit
 compare = "exit-status"
 expected_difference = "#vcf-merge-no-index"
 
-# One file with several records at a position: all records pair as bcftools does, but the order
-# of the unpaired records at the position differs (bcftools: <DEL> merged from two files first,
-# then A>AC; gloci keeps the order the variants were first seen).
+# One file with several records at a position (samepos-a: A>AC and A>DEL; samepos-c: A>AT,C and A>DEL):
+# bcftools merges the <DEL> of two files first, then A>AC; the order is its own can_merge/stage_line.
 [[case]]
 name = "vcf-merge-same-position-vs-bcftools"
 input = { file = "xtask/diff/inputs/vcf/merge/samepos-a.vcf" }
@@ -5822,5 +5821,4 @@ aux = ["xtask/diff/inputs/vcf/merge/samepos-b.vcf", "xtask/diff/inputs/vcf/merge
 gloci = "gloci vcf merge input.vcf samepos-b.vcf samepos-c.vcf -m none"
 reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c samepos-b.vcf > samepos-b.vcf.gz && bcftools index samepos-b.vcf.gz && bgzip -c samepos-c.vcf > samepos-c.vcf.gz && bcftools index samepos-c.vcf.gz && bcftools merge --no-version -m none input.vcf.gz samepos-b.vcf.gz samepos-c.vcf.gz"
 compare = "vcf-records"
-expected_difference = "#vcf-merge-same-position"
 

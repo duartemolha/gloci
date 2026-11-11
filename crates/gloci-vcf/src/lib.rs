@@ -12,6 +12,7 @@ mod hwe;
 pub mod merge;
 mod norm;
 mod split;
+pub mod srsort;
 mod stats;
 
 pub use bcf_fmt::{BcfGenotypes, bcf_genotypes, bcf_genotypes_with};
