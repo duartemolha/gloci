@@ -2143,6 +2143,7 @@ depends on the span.
 - **Reason:** `quickcheck` is used to screen files before a pipeline starts; a first record that
   cannot be read stops the pipeline just as well, and `check --quick` is one command for the
   alignment, variant and interval files a genomics team keeps side by side. The cost stays the
-  header, the first record and the last 38 bytes.
+  header, the first record and the last 28 bytes of a BGZF file; for a CRAM, the header, the first
+  container and the last 38 bytes.
 - **Pinned by:** `check-quick-badfirst-vs-samtools` and `check-quick-vcf-vs-samtools` (exit
   status: must differ), and the tests `quick_check_matrix` and `quick_reads_little`.
