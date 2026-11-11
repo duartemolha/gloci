@@ -356,12 +356,10 @@ drop --write-index, or drop -n/-N",
     }
     // The inputs' format (D104): SAM when every input is SAM, else BAM (a CRAM, or a mix of
     // formats, writes BAM); -o and -O override.
-    let out_format = spec.format.unwrap_or_else(|| {
-        if all_sam {
-            OutFormat::Sam
-        } else {
-            OutFormat::Bam
-        }
+    let out_format = spec.format.unwrap_or(if all_sam {
+        OutFormat::Sam
+    } else {
+        OutFormat::Bam
     });
     if !matches!(out_format, OutFormat::Bam | OutFormat::Sam) {
         return Err(usage(format!(
