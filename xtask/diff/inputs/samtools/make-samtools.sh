@@ -158,3 +158,8 @@ cp ref.fa ref2.fa
 cp ref.fa.fai ref2.fa.fai
 awk 'BEGIN{print ">chr1"; s=""; for(i=0;i<1000;i++)s=s "A"; print s; print ">chr2"; s=""; for(i=0;i<999;i++)s=s "A"; print s}' > other.fa
 samtools faidx other.fa
+
+# Task 5 fix round 1: BGZF and BCF copies of ../hdr-distinct.vcf (its header has ##FILTER=PASS,
+# which bcftools head would otherwise add), for the head cases on compressed input.
+bgzip -c ../hdr-distinct.vcf > hdr-pass.vcf.gz
+bcftools view -O b -o hdr-pass.bcf ../hdr-distinct.vcf

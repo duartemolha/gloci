@@ -6025,3 +6025,28 @@ gloci = "gloci samples input.bam --match-reference ref.fa"
 reference = "mkdir r && cp ref.fa input.bam r/ && samtools samples -f r/ref.fa r/input.bam"
 compare = "exit-status"
 expected_difference = "#fasta-implicit-index"
+
+# P3c Task 5 fix round 1: head on BGZF VCF and BCF (headers with ##FILTER=PASS), and the header
+# bcftools completes (cluster-in.vcf has no PASS line).
+
+[[case]]
+name = "head-vcf-gz-vs-bcftools"
+input = { file = "xtask/diff/inputs/samtools/hdr-pass.vcf.gz" }
+gloci = "gloci head input.vcf.gz --records 2"
+reference = "bcftools head -n 2 input.vcf.gz"
+compare = "exact"
+
+[[case]]
+name = "head-bcf-vs-bcftools"
+input = { file = "xtask/diff/inputs/samtools/hdr-pass.bcf" }
+gloci = "gloci head input.bcf --records 2"
+reference = "bcftools head -n 2 input.bcf"
+compare = "exact"
+
+[[case]]
+name = "head-vcf-nopass-vs-bcftools"
+input = { file = "xtask/diff/inputs/cluster-in.vcf" }
+gloci = "gloci head input.vcf --records 2"
+reference = "bcftools head -n 2 input.vcf"
+compare = "exact"
+expected_difference = "#head-vcf-pass-line"

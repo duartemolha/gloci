@@ -2175,3 +2175,17 @@ depends on the span.
 - **Reason:** the references are the part of such a header that matters, and the other
   commands show them; an empty answer reads as a file with no header.
 - **Pinned by:** `head-notext-vs-samtools` (output must differ).
+
+## `head` of a VCF prints the header as stored, without bcftools' PASS line {#head-vcf-pass-line}
+
+- **gloci:** `gloci head` prints the header lines of a VCF or BCF exactly as the file has
+  them, so a header with no `##FILTER=<ID=PASS,...>` line prints without one.
+- **Old behaviour:** `bcftools head` parses the header and writes it back, and htslib adds
+  `##FILTER=<ID=PASS,Description="All filters passed">` (as the second line, after
+  `##fileformat`) when the header lacks it.
+- **Reason:** `head` shows the file as stored, as it does for every format; a line the file
+  does not contain would be misleading when a header is being inspected for what is missing.
+- **Pinned by:** `head-vcf-nopass-vs-bcftools` (output must differ);
+  `head-vcf-vs-bcftools`, `head-vcf-gz-vs-bcftools` and `head-bcf-vs-bcftools` pin the agreeing
+  output for headers that have the line.
+

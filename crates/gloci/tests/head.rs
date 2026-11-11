@@ -128,6 +128,7 @@ chr1\t5\t.\tA\tT\t.\t.\t.\nchr1\t6\t.\tA\tT\t.\t.\t.\nchr1\t7\t.\tA\tT\t.\t.\t.\
     let (code, out, _) = run(&["head", &bcf, "--records", "2"]);
     assert_eq!(code, 0);
     assert!(!out.contains("glociCommand"), "{out}");
+    assert!(!out.contains("IDX="), "{out}");
     assert!(out.starts_with("##fileformat=VCFv4.2\n"), "{out}");
     assert!(
         out.ends_with("chr1\t5\t.\tA\tT\t.\t.\t.\nchr1\t6\t.\tA\tT\t.\t.\t.\n"),
