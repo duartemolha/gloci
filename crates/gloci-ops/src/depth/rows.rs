@@ -264,17 +264,22 @@ depth counts only the bases up to LN, where samtools prints rows beyond it (this
         }
     }
 
-    fn add_current(&mut self, plan: &Plan<'_>) {
-        let Some(c) = self.cur else { return };
-        let Ok(a) = aln_ref(self.layout, &self.buf, &self.hdr) else {
-            return;
-        };
+    fn add_current(&mut self, plan: &Plan<'_>) -> Result<(), IoError> {
+        let Some(c) = self.cur else { return Ok(()) };
+        // `advance` parsed this record already; the buffer has not changed since.
+        let a = aln_ref(self.layout, &self.buf, &self.hdr).map_err(|msg| {
+            IoError::Internal(format!(
+                "{}: a record that parsed once does not parse again: {msg}",
+                self.name
+            ))
+        })?;
         if a.flag() & FLAG_UNMAPPED != 0 {
             // A placed unmapped read covers its one position with nothing counted.
             self.ring.add_empty(c.span);
         } else {
             self.ring.add(&a, c.span, &plan.rules, 0);
         }
+        Ok(())
     }
 }
 
@@ -368,7 +373,7 @@ pub(crate) fn run_group(
         }
         printer.pending(inputs, c.rid, next, c.pos).map_err(write)?;
         next = next.max(c.pos);
-        inputs[k].add_current(plan);
+        inputs[k].add_current(plan)?;
         max_ring = max_ring.max(inputs[k].ring.capacity());
         inputs[k].advance(plan)?;
     }
