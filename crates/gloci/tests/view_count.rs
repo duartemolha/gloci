@@ -1,6 +1,7 @@
 //! `gloci view --count` and `--regions-file` on alignments (D133): the count equals the records
 //! `view` writes, for every format; the conflicts; the filters; the index is used for a regions
-//! file; the output does not depend on `-t`; the memory bound.
+//! file; the output does not depend on `-t`. The memory bound is in
+//! `gloci-ops/tests/view_count_memory.rs`.
 mod common;
 use common::*;
 use std::path::{Path, PathBuf};
@@ -199,7 +200,7 @@ fn regions_file_uses_index() {
         dir.path().join("broken.bam.bai"),
     )
     .unwrap();
-    // 5000 and 100 are in the first part of the file; region 5000-5100 is read 50, early.
+    // The regions touch reads 0-2 and 49-50, in the first part of the file.
     let again = out(&[
         "view",
         "-O",
@@ -269,65 +270,4 @@ fn view_count_is_identical_at_every_thread_count() {
             assert_eq!(*first.get_or_insert(n), n, "{l:?} at -t {t}");
         }
     }
-}
-
-#[cfg(target_os = "linux")]
-#[test]
-fn view_count_scan_memory_is_one_record_and_the_pool() {
-    use std::process::{Command, Stdio};
-    fn peak_rss(args: &[&str]) -> (u64, u64) {
-        let child = Command::new(assert_cmd::cargo::cargo_bin("gloci"))
-            .args(args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
-        let pid = child.id() as libc::pid_t;
-        let mut out = Vec::new();
-        use std::io::Read;
-        let mut child = child;
-        child.stdout.take().unwrap().read_to_end(&mut out).unwrap();
-        let mut status = 0;
-        let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
-        assert_eq!(unsafe { libc::wait4(pid, &mut status, 0, &mut ru) }, pid);
-        assert!(libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0);
-        let n = String::from_utf8(out).unwrap().trim().parse().unwrap();
-        (n, ru.ru_maxrss as u64 * 1024)
-    }
-    let dir = tempdir();
-    let small = big_bam(dir.path(), 1_000);
-    let big_dir = tempdir();
-    // 300,000 reads of 160 bases: about 130 MB of BAM records, far above the bound.
-    let big = big_bam(big_dir.path(), 300_000);
-    let (n_small, rss_small) = peak_rss(&["view", "--count", "-t", "1", &p(&small)]);
-    let (n_big, rss_big) = peak_rss(&["view", "--count", "-t", "1", &p(&big)]);
-    assert_eq!((n_small, n_big), (1_000, 300_000));
-    let mib = 1 << 20;
-    assert!(
-        rss_big <= rss_small + 24 * mib,
-        "counting 300k reads grew the peak RSS from {} to {} MiB",
-        rss_small / mib,
-        rss_big / mib
-    );
-    // The same through a regions file the scan has to filter (the index is ignored when absent).
-    let bed = plain_file(
-        big_dir.path(),
-        "t.bed",
-        "chr1\t0\t1000\nchr1\t29000000\t29000100\n",
-    );
-    let (n, rss) = peak_rss(&[
-        "view",
-        "--count",
-        "-t",
-        "1",
-        &p(&big),
-        "--regions-file",
-        &p(&bed),
-    ]);
-    assert!(n > 0);
-    assert!(
-        rss <= rss_small + 24 * mib,
-        "regions-file count peak RSS {} MiB",
-        rss / mib
-    );
 }
