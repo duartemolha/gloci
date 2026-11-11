@@ -551,24 +551,18 @@ fn reheader_is_deterministic_across_threads() {
     let h1 = samtools_fixture("new-header.sam");
     let h2 = write(dir.path(), "c.sam", &cram_header_text(["x", "y"], ""));
     for (hdr, input, name) in [(&h1, &bam, "o.bam"), (&h2, &cram, "o.cram")] {
-        // The @PG line records the command line, `-t` included, so the headers differ by it:
-        // compare the rest.
+        // `-t` is not part of the @PG command line, so with the same relative `-o` name (each
+        // run in its own directory) the whole files are equal, @PG included.
         let mut outs = Vec::new();
         for t in ["1", "2", "8"] {
-            let out = dir.path().join(format!("t{t}-{name}"));
+            let wd = dir.path().join(format!("t{t}-{name}"));
+            std::fs::create_dir(&wd).unwrap();
             gloci()
-                .args(["reheader", &s(hdr), &s(input), "-o", &s(&out), "-t", t])
+                .current_dir(&wd)
+                .args(["reheader", &s(hdr), &s(input), "-o", name, "-t", t])
                 .assert()
                 .success();
-            let bytes = std::fs::read(&out).unwrap();
-            let rest = if name.ends_with(".bam") {
-                let data = inflate_file(&bytes);
-                let at = extent(&bytes) as usize;
-                data[at..].to_vec()
-            } else {
-                bytes[read_cram_prelude(&out).unwrap().data_start as usize..].to_vec()
-            };
-            outs.push((header_lines(&out), rest));
+            outs.push(std::fs::read(wd.join(name)).unwrap());
         }
         assert_eq!(outs[0], outs[1]);
         assert_eq!(outs[0], outs[2]);
