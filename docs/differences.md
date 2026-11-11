@@ -1930,6 +1930,7 @@ depends on the span.
 - **Reason:** a missing header line is not a reason to lose the run.
 - **Pinned by:** `vcf-merge-undeclared-info-vs-bcftools` (must differ: gloci exits 0, bcftools 1).
 ## `stats jaccard` counts no bases for a point {#zero-length-overlap}
+## `stats jaccard` counts no bases for a point {#jaccard-points}
 
 - **gloci:** a zero-length interval (a point) covers no bases, so it adds nothing to the
   intersection or to the union. A point inside a merged interval of the other input (on an edge only
@@ -1937,6 +1938,10 @@ depends on the span.
 - **Old behaviour:** `bedtools jaccard` treats a point as two bases, from one before it to one
   after it: two points at the same position intersect in 2 bases and make a union of 2, a point in
   the middle of a 20-base interval adds 2 to the intersection, a point at an interval's end adds 1.
+  An edge point (at the end of an interval) is an intersection for bedtools (`n_intersections` 1);
+  gloci gives 0 without `--inclusive-points`.
+- **Related, shared with the other relation commands:** `-e` and `-r` without `-f` are usage errors
+  in bedtools; gloci accepts them and applies the thresholds given.
 - **Reason:** a point has no length, so the statistic of bases should not depend on an artefact
   of how one tool widens it. The pinned case keeps `n_intersections` aligned with `intersect` and
   `coverage`. Inputs without points agree with bedtools.

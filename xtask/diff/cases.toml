@@ -5996,4 +5996,13 @@ aux = ["xtask/diff/inputs/p3b/stats/jaccard-a.bed"]
 gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-a.bed"
 reference = "bedtools jaccard -a input.bed -b jaccard-a.bed"
 compare = "exact"
-expected_difference = "#zero-length-overlap"
+expected_difference = "#jaccard-points"
+
+# P3b Task 2 fix round 1: records of unknown strand (`.`) are left out under -s by both tools.
+[[case]]
+name = "stats-jaccard-unknown-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-au.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-bu.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-bu.bed -s"
+reference = "bedtools jaccard -a input.bed -b jaccard-bu.bed -s"
+compare = "exact"

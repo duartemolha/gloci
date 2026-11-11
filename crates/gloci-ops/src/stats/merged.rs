@@ -1,3 +1,7 @@
+//! Twin of `crate::merge`: [`MergedReader`] re-implements its clustering (no aggregation, pulled
+//! instead of pushed). Change one, change both: `tests/jaccard_props.rs`
+//! (`merged_reader_matches_merge`) fails when they diverge.
+//!
 //! Stream adapters for the interval statistics: [`MergedReader`] turns a
 //! sorted input into its merged clusters (as `gloci merge` writes them),
 //! and [`Tally`] counts what flows through.
@@ -389,5 +393,67 @@ impl RecordReader for Tally {
     }
     fn whole_records(&self) -> bool {
         self.inner.whole_records()
+    }
+}
+
+/// Drops the records of unknown strand (`-s`/`-S` can never match them) and
+/// notes that it did.
+pub struct DropUnknown {
+    inner: Box<dyn RecordReader>,
+    scratch: RecordBatch,
+    dropped: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl DropUnknown {
+    pub fn new(inner: Box<dyn RecordReader>) -> (DropUnknown, Arc<std::sync::atomic::AtomicBool>) {
+        let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        (
+            DropUnknown {
+                inner,
+                scratch: RecordBatch::default(),
+                dropped: dropped.clone(),
+            },
+            dropped,
+        )
+    }
+}
+
+impl RecordReader for DropUnknown {
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+    fn format(&self) -> Format {
+        self.inner.format()
+    }
+    fn compression(&self) -> Compression {
+        self.inner.compression()
+    }
+    fn header(&self) -> &Header {
+        self.inner.header()
+    }
+    fn read_batch(
+        &mut self,
+        chroms: &mut ChromTable,
+        batch: &mut RecordBatch,
+        max: usize,
+    ) -> Result<bool, IoError> {
+        self.scratch.clear();
+        let more = self.inner.read_batch(chroms, &mut self.scratch, max)?;
+        for (i, m) in self.scratch.recs.iter().enumerate() {
+            if m.strand == Strand::Unknown {
+                self.dropped.store(true, Ordering::Relaxed);
+                continue;
+            }
+            let off = batch.buf.len();
+            batch.buf.extend_from_slice(self.scratch.raw(i));
+            batch.recs.push(RecordMeta { off, ..*m });
+        }
+        Ok(more)
+    }
+    fn diagnostics(&self) -> &Diagnostics {
+        self.inner.diagnostics()
+    }
+    fn consume_to_end(&self) -> bool {
+        self.inner.consume_to_end()
     }
 }

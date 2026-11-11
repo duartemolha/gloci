@@ -1,7 +1,7 @@
 //! `stats jaccard`: the Jaccard similarity of two interval sets (replaces
 //! `bedtools jaccard`).
 
-use super::merged::{MergedReader, Tally};
+use super::merged::{DropUnknown, MergedReader, Tally};
 use crate::relate::{RelateInputs, RelateOptions, relation_chroms, run_relation_in};
 use crate::skipped::{Skipped, log_skipped};
 use crate::sort::{SortSettings, sort_readers};
@@ -109,8 +109,22 @@ run it once per B file",
         &mut chroms,
         &mut skipped,
     )?;
-    let (a, a_counts) = Tally::new(Box::new(MergedReader::new(a, by_strand)));
-    let (b, b_counts) = Tally::new(Box::new(MergedReader::new(b, by_strand)));
+    let (name_a, name_b) = (a.name().to_string(), b.name().to_string());
+    // Under -s/-S a cluster of unknown strand can never match, so it takes no
+    // part in the tally (bedtools leaves such records out too).
+    let wrap = |r: Box<dyn gloci_io::RecordReader>| -> (Box<dyn gloci_io::RecordReader>, _) {
+        let merged = Box::new(MergedReader::new(r, by_strand));
+        if by_strand {
+            let (d, flag) = DropUnknown::new(merged);
+            (Box::new(d), Some(flag))
+        } else {
+            (merged, None)
+        }
+    };
+    let (a, flag_a) = wrap(a);
+    let (b, flag_b) = wrap(b);
+    let (a, a_counts) = Tally::new(a);
+    let (b, b_counts) = Tally::new(b);
     let mut sum = Sum {
         criteria: &o.criteria,
         intersection: 0,
@@ -126,6 +140,14 @@ run it once per B file",
         None,
         &mut sum,
     )?;
+    for (name, flag) in [(name_a, flag_a), (name_b, flag_b)] {
+        if flag.is_some_and(|f| f.load(Ordering::Relaxed)) {
+            log::warn!(
+                "{name} has records with unknown strand; under -s and -S they are left out \
+of the statistic (they can never match)"
+            );
+        }
+    }
     log_skipped(&skipped.take());
     skipped.log_alignment_counts();
     let total = a_counts

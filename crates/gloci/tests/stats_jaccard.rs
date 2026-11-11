@@ -77,7 +77,7 @@ fn jaccard_unknown_strand_warns_once() {
         .args(["stats", "jaccard", "-s", "-a", &af, "-b", &bf])
         .assert()
         .success()
-        .stdout(row("0\t50\t0\t0"));
+        .stdout(row("0\t30\t0\t0"));
     let err = String::from_utf8(o.get_output().stderr.clone()).unwrap();
     assert_eq!(err.matches("unknown strand").count(), 1, "{err}");
 }
@@ -265,4 +265,13 @@ fn jaccard_writes_to_a_file() {
         .assert()
         .success();
     assert_eq!(std::fs::read_to_string(&out).unwrap(), row("10\t10\t1\t1"));
+}
+
+#[test]
+fn jaccard_unknown_strand_is_left_out_under_strand_rules() {
+    let fx = Fx::new();
+    let a = "chr1\t10\t20\t.\t0\t.\nchr1\t30\t40\t.\t0\t+\n";
+    let b = "chr1\t10\t20\t.\t0\t+\nchr1\t30\t40\t.\t0\t+\n";
+    assert_eq!(fx.run(a, b, &["-s"]), row("10\t20\t0.5\t1"));
+    assert_eq!(fx.run(a, b, &[]), row("20\t20\t1\t2"));
 }
