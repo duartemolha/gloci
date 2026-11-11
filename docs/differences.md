@@ -1969,7 +1969,9 @@ depends on the span.
 - **Reason:** an index written as a side effect of a read can be stale for the
   next run, can land in a read-only directory (and fail there), and is a
   file the user never asked for. Building it is one explicit step.
-- **Pinned by:** `faidx-no-index-vs-samtools` (exit status: must differ).
+- **Pinned by:** `faidx-no-index-vs-samtools` (exit status: must differ) and
+  `samples-fasta-no-fai-vs-samtools` (`gloci samples --match-reference ref.fa` with no
+  `ref.fa.fai` exits 2; samtools builds the index and exits 0).
 
 ## `faidx` skips a missing sequence without writing its header {#faidx-missing-sequence}
 
@@ -2147,3 +2149,29 @@ depends on the span.
   container and the last 38 bytes.
 - **Pinned by:** `check-quick-badfirst-vs-samtools` and `check-quick-vcf-vs-samtools` (exit
   status: must differ), and the tests `quick_check_matrix` and `quick_reads_little`.
+
+## `samples` lists samples in header order, where samtools uses hash order {#samples-order}
+
+- **gloci:** `gloci samples` prints the distinct values of the tag (`SM` by default) in the
+  order the `@RG` lines first name them, for every file, so the output is the same on every
+  platform and version.
+- **Old behaviour:** `samtools samples` keeps the values in a hash table and prints them in its
+  iteration order, which has nothing to do with the header and can change with the htslib
+  version. For `rg.bam` (header order NA12878, NA12891, HG002) it prints HG002, NA12878,
+  NA12891.
+- **Reason:** a list in the header's order reads like the header, and a script that takes the
+  first line gets the first read group's sample. The lines are the same set; sort them to
+  compare with samtools.
+- **Pinned by:** `samples-order-vs-samtools` (output must differ);
+  `samples-vs-samtools` pins the agreeing set.
+
+## `head` writes the `@SQ` lines of a BAM whose header text has none {#head-notext-header}
+
+- **gloci:** `gloci head` on a BAM whose header text is empty but whose binary header lists
+  references prints one `@SQ SN LN` line per reference, as `samtools view -h` and
+  `gloci view` do.
+- **Old behaviour:** `samtools head` prints the stored text, which is empty: nothing at all,
+  although `samtools view -H` of the same file prints the `@SQ` lines.
+- **Reason:** the references are the part of such a header that matters, and the other
+  commands show them; an empty answer reads as a file with no header.
+- **Pinned by:** `head-notext-vs-samtools` (output must differ).

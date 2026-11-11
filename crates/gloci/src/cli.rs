@@ -1157,6 +1157,40 @@ Examples:
   gloci flagstat reads.bam -O json -o stats.json
   gloci flagstat reads.cram --reference ref.fa -O tsv")]
     Flagstat(FlagstatArgs),
+    /// Print the header and the first records of any input as text (samtools and bcftools head).
+    ///
+    /// With no options it prints the whole header and no record. --headers N keeps the first N
+    /// header lines and --records N prints N records after them. BAM, CRAM and SAM print SAM
+    /// text; a BAM whose header text lacks the @SQ lines of its binary references gets them
+    /// written out (samtools prints nothing for such a file). VCF and BCF print VCF text, and
+    /// BED, GFF and the other text formats print their header and data lines as stored.
+    /// Nothing is added: no @PG line, no ##glociCommand line. Only the header and the records
+    /// asked for are read. A file that is damaged after the lines printed exits 1 with the
+    /// lines before the damage already written. A CRAM that needs a reference sequence needs
+    /// --reference. head describes the whole file, so it takes no read filters and no
+    /// --chrom-map.
+    #[command(after_long_help = "\
+Examples:
+  gloci head reads.bam
+  gloci head reads.bam --headers 0 --records 5
+  gloci head calls.vcf.gz --records 2")]
+    Head(HeadArgs),
+    /// List the samples of the read groups of BAM, CRAM or SAM files (samtools samples).
+    ///
+    /// Reads only the headers. For each file it prints one line per distinct value of the --tag
+    /// (default SM) over the @RG lines, in the order the header lists them, then the path; a
+    /// file with no such value gets "." as its sample. --show-index adds Y or N for whether the
+    /// file has an index. --match-reference FASTA (repeatable) adds the first FASTA whose .fai
+    /// has the same names and lengths in the same order as the @SQ lines, or ".", trying the
+    /// FASTA given last first; every FASTA needs its .fai (gloci index REF). --column-names
+    /// writes a line such as "#SM PATH INDEX REFERENCE" first. samtools prints the samples in
+    /// hash order, so a file with several samples lists them in a different order.
+    #[command(after_long_help = "\
+Examples:
+  gloci samples cohort.bam
+  gloci samples a.bam b.cram --show-index --column-names
+  gloci samples reads.bam --match-reference hg38.fa --match-reference hs37d5.fa --tag LB")]
+    Samples(SamplesArgs),
 }
 
 /// What `intersect` reports.
@@ -3483,4 +3517,48 @@ pub struct FlagstatArgs {
     pub reference: Option<PathBuf>,
     #[command(flatten)]
     pub threads: ThreadArgs,
+}
+
+// P3c Task 5
+#[derive(Args)]
+pub struct HeadArgs {
+    /// The input: BAM, CRAM, SAM, VCF, BCF, BED, GFF or another text format (- is standard
+    /// input).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// Print the first N header lines (default: all of them).
+    #[arg(long, value_name = "N")]
+    pub headers: Option<u64>,
+    /// Print N records after the header lines.
+    #[arg(long, value_name = "N", default_value_t = 0)]
+    pub records: u64,
+    /// The FASTA a CRAM input was made with, with its .fai (and .gzi when BGZF). Not needed
+    /// for a CRAM written without a reference.
+    #[arg(long, value_name = "FILE")]
+    pub reference: Option<PathBuf>,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+}
+
+// P3c Task 5
+#[derive(Args)]
+pub struct SamplesArgs {
+    /// BAM, CRAM or SAM files.
+    #[arg(value_name = "FILE", required = true)]
+    pub files: Vec<String>,
+    /// The @RG tag to list the values of: two characters.
+    #[arg(long, value_name = "TAG", default_value = "SM")]
+    pub tag: String,
+    /// Add a column: Y when the file has an index, N when it has none.
+    #[arg(long)]
+    pub show_index: bool,
+    /// A FASTA (with its .fai) whose sequences are to be compared with each file's @SQ lines;
+    /// adds a column with the matching FASTA. Repeatable.
+    #[arg(long, value_name = "FASTA")]
+    pub match_reference: Vec<PathBuf>,
+    #[command(flatten)]
+    pub column_names: ColumnNamesArg,
+    /// Write the lines to FILE instead of stdout.
+    #[arg(short, long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
 }

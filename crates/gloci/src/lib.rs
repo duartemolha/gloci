@@ -231,6 +231,8 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         Commands::Flags(_) => (None, None),
         Commands::Idxstats(a) => (a.threads.threads, None),
         Commands::Flagstat(a) => (a.threads.threads, None),
+        Commands::Head(a) => (a.threads.threads, None),
+        Commands::Samples(_) => (None, None),
         Commands::Vcf(a) => match &a.command {
             cli::VcfCommand::Filter(f) => (f.threads.threads, None),
             cli::VcfCommand::Extract(e) => (e.threads.threads, e.tmp_dir.tmp_dir.clone()),
@@ -326,6 +328,8 @@ fn dispatch(cli: &Cli, ctx: &Ctx) -> (anyhow::Result<()>, bool) {
         Commands::Idxstats(a) => commands::idxstats::run(ctx, a),
         Commands::Flagstat(a) => commands::flagstat::run(ctx, a),
         Commands::Faidx(a) => commands::faidx::run(ctx, a),
+        Commands::Head(a) => commands::head::run(ctx, a),
+        Commands::Samples(a) => commands::samples::run(ctx, a),
         Commands::Vcf(a) => match &a.command {
             cli::VcfCommand::Filter(f) => commands::vcf::run_filter(ctx, f),
             cli::VcfCommand::Extract(e) => commands::vcf::run_extract(ctx, e),

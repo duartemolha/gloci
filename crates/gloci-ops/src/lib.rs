@@ -18,6 +18,7 @@ pub mod flagstat;
 pub mod genomecov;
 pub mod getfasta;
 pub mod groupby;
+pub mod head;
 pub mod idxstats;
 pub mod intersect;
 pub mod map;
@@ -26,6 +27,7 @@ pub mod merge;
 pub mod nuc;
 pub mod partition;
 pub mod relate;
+pub mod samples;
 pub mod seq;
 pub mod shift;
 mod skipped;
@@ -52,7 +54,9 @@ pub use check::{
 };
 pub use flagstat::{FlagStats, FlagstatFormat, flagstat, percent, render_flagstat};
 pub use gloci_engine::all_indexed;
+pub use head::{HeadOptions, head};
 pub use idxstats::{IdxstatsPath, idxstats};
+pub use samples::{SamplesOptions, samples};
 pub use maskfasta::{Mask, MaskSet, MaskSummary, PastEnd, maskfasta, maskfasta_with};
 pub use relate::{
     Acceptor, InputPaths, RelateInputs, RelateOptions, RelationFiles, ReportOutput, RunOptions,

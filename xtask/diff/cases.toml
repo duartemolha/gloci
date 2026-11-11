@@ -5890,3 +5890,137 @@ gloci = "gloci check --quick --list-failed input.vcf.gz"
 reference = "samtools quickcheck -v input.vcf.gz"
 compare = "exit-status"
 expected_difference = "#quickcheck"
+
+# P3c Task 5: `head` (D134) and `samples` (D135). rg.bam has five @RG lines (samples NA12878,
+# NA12891, NA12878, HG002; LB on two; one line with no SM) whose samtools hash order differs from
+# the header order: the unordered cases compare as sets, `samples-order-vs-samtools` pins the order.
+# nosm.sam has @RG lines but no SM. aln/notext.bam has binary references and no header text:
+# samtools head prints nothing for it, gloci writes the @SQ lines (#head-notext-header).
+
+[[case]]
+name = "head-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+gloci = "gloci head input.bam"
+reference = "samtools head input.bam"
+compare = "exact"
+
+[[case]]
+name = "head-records-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+gloci = "gloci head input.bam --headers 2 --records 3"
+reference = "samtools head -h 2 -n 3 input.bam"
+compare = "exact"
+
+[[case]]
+name = "head-records-only-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+gloci = "gloci head input.bam --headers 0 --records 5"
+reference = "samtools head -h 0 -n 5 input.bam"
+compare = "exact"
+
+[[case]]
+name = "head-sam-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.sam" }
+gloci = "gloci head input.sam --headers 3 --records 2"
+reference = "samtools head -h 3 -n 2 input.sam"
+compare = "exact"
+
+[[case]]
+name = "head-notext-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/notext.bam" }
+gloci = "gloci head input.bam --records 1"
+reference = "samtools head -n 1 input.bam"
+compare = "exact"
+expected_difference = "#head-notext-header"
+
+[[case]]
+name = "head-vcf-vs-bcftools"
+input = { file = "xtask/diff/inputs/samtools/calls.vcf.gz" }
+gloci = "gloci head input.vcf.gz --records 2"
+reference = "bcftools head -n 2 input.vcf.gz"
+compare = "exact"
+
+[[case]]
+name = "samples-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+gloci = "gloci samples input.bam"
+reference = "samtools samples input.bam"
+compare = "lines-unordered"
+
+[[case]]
+name = "samples-order-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+gloci = "gloci samples input.bam"
+reference = "samtools samples input.bam"
+compare = "exact"
+expected_difference = "#samples-order"
+
+[[case]]
+name = "samples-tag-column-names-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+gloci = "gloci samples input.bam --column-names --tag LB"
+reference = "samtools samples -h -T LB input.bam"
+compare = "lines-unordered"
+
+[[case]]
+name = "samples-no-sample-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/nosm.sam" }
+gloci = "gloci samples input.sam"
+reference = "samtools samples input.sam"
+compare = "exact"
+
+[[case]]
+name = "samples-show-index-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+aux = ["xtask/diff/inputs/samtools/rg.bam", "xtask/diff/inputs/samtools/rg.bam.bai"]
+gloci = "gloci samples rg.bam --show-index"
+reference = "samtools samples -i rg.bam"
+compare = "lines-unordered"
+
+[[case]]
+name = "samples-no-index-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+gloci = "gloci samples input.bam --show-index"
+reference = "samtools samples -i input.bam"
+compare = "lines-unordered"
+
+[[case]]
+name = "samples-match-reference-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+aux = ["xtask/diff/inputs/samtools/ref.fa", "xtask/diff/inputs/samtools/ref.fa.fai"]
+gloci = "gloci samples input.bam --match-reference ref.fa --column-names --show-index"
+reference = "samtools samples -h -i -f ref.fa input.bam"
+compare = "lines-unordered"
+
+[[case]]
+name = "samples-match-last-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+aux = ["xtask/diff/inputs/samtools/ref.fa", "xtask/diff/inputs/samtools/ref.fa.fai", "xtask/diff/inputs/samtools/ref2.fa", "xtask/diff/inputs/samtools/ref2.fa.fai"]
+gloci = "gloci samples input.bam --match-reference ref.fa --match-reference ref2.fa"
+reference = "samtools samples -f ref.fa -f ref2.fa input.bam"
+compare = "lines-unordered"
+
+[[case]]
+name = "samples-no-match-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+aux = ["xtask/diff/inputs/samtools/other.fa", "xtask/diff/inputs/samtools/other.fa.fai"]
+gloci = "gloci samples input.bam --match-reference other.fa"
+reference = "samtools samples -f other.fa input.bam"
+compare = "lines-unordered"
+
+[[case]]
+name = "samples-two-files-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+aux = ["xtask/diff/inputs/samtools/nosm.sam"]
+gloci = "gloci samples input.bam nosm.sam"
+reference = "samtools samples input.bam nosm.sam"
+compare = "lines-unordered"
+
+[[case]]
+name = "samples-fasta-no-fai-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+aux = ["xtask/diff/inputs/samtools/ref.fa"]
+gloci = "gloci samples input.bam --match-reference ref.fa"
+reference = "samtools samples -f ref.fa input.bam"
+compare = "exit-status"
+expected_difference = "#fasta-implicit-index"

@@ -140,3 +140,21 @@ samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o coord-unsorted.bam 
 # calls.vcf.gz: a small BGZF VCF (bgzip's own output, with its EOF block), for the check case that
 # samtools quickcheck rejects as "not sequence data" and gloci accepts.
 bgzip -c ../cluster-in.vcf > calls.vcf.gz
+
+# Task 5: the inputs of the `head` and `samples` cases. rg.{sam,bam} have five @RG lines: samples
+# NA12878, NA12891, NA12878 (again) and HG002, a LB on two (libA, libB) and a fifth with a LB (libC)
+# and no SM, so samtools' hash order (HG002, NA12878, NA12891) is not the header order and the
+# tag cases tell the samples apart. nosm.sam has @RG lines with no SM at all. ref.fa matches the
+# @SQ lines of rg.sam; ref2.fa is a copy of it (two FASTAs that both match); other.fa has a
+# chr2 one base short (it matches nothing). The notext.bam of the head case is aln/notext.bam.
+printf '@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:1000\n@SQ\tSN:chr2\tLN:2000\n@RG\tID:g1\tSM:NA12878\tLB:libA\n@RG\tID:g2\tSM:NA12891\n@RG\tID:g3\tSM:NA12878\tLB:libB\n@RG\tID:g4\tSM:HG002\n@RG\tID:g5\tLB:libC\n' > rg.sam
+printf 'r1\t0\tchr1\t100\t60\t5M\t*\t0\t0\tACGTA\tIIIII\tRG:Z:g1\nr2\t0\tchr1\t200\t60\t5M\t*\t0\t0\tACGTA\tIIIII\tRG:Z:g2\nr3\t0\tchr2\t100\t60\t5M\t*\t0\t0\tACGTA\tIIIII\tRG:Z:g4\n' >> rg.sam
+samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o rg.bam rg.sam
+samtools index -@ 0 rg.bam
+printf '@HD\tVN:1.6\n@SQ\tSN:chr1\tLN:1000\n@RG\tID:g5\tLB:libC\n@RG\tID:g6\tPL:x\n' > nosm.sam
+awk 'BEGIN{srand(3);for(c=1;c<=2;c++){print ">chr" c; n=(c==1?1000:2000); s=""; for(i=0;i<n;i++){s=s substr("ACGT",int(rand()*4)+1,1)}; for(i=1;i<=n;i+=60) print substr(s,i,60)}}' > ref.fa
+samtools faidx ref.fa
+cp ref.fa ref2.fa
+cp ref.fa.fai ref2.fa.fai
+awk 'BEGIN{print ">chr1"; s=""; for(i=0;i<1000;i++)s=s "A"; print s; print ">chr2"; s=""; for(i=0;i<999;i++)s=s "A"; print s}' > other.fa
+samtools faidx other.fa
