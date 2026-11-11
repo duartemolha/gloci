@@ -1,6 +1,6 @@
 //! `gloci flagstat` (D128): samtools' flag counts, in its text, TSV and JSON layouts.
 
-use gloci_io::{AlnSource, IoError, aln_ref};
+use gloci_io::{AlnSource, IoError, Loc, aln_ref};
 
 /// The counters of samtools' `flagstat_loop`: index 0 holds the QC-passed reads, index 1 the
 /// QC-failed ones (FLAGS bit 0x200).
@@ -235,14 +235,17 @@ pub fn flagstat(mut src: Box<dyn AlnSource>) -> Result<FlagStats, IoError> {
     let layout = src.layout();
     let mut stats = FlagStats::default();
     let mut buf = Vec::new();
+    let mut n = 0u64;
     loop {
         buf.clear();
         if src.next_record(&mut buf)?.is_none() {
             break;
         }
-        let r = aln_ref(layout, &buf, &header).map_err(|msg| IoError::Detect {
+        n += 1;
+        let r = aln_ref(layout, &buf, &header).map_err(|msg| IoError::Parse {
             path: name.clone(),
-            msg: format!("{name}: {msg}"),
+            loc: Loc::Record(n),
+            msg,
         })?;
         stats.add(r.flag(), r.ref_id(), r.mate_ref_id(), r.mapq());
     }

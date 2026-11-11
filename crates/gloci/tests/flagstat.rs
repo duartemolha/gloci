@@ -2,6 +2,7 @@
 //! comparison with samtools is in the goldens (`flagstat-*-vs-samtools`).
 mod common;
 use common::*;
+use predicates::prelude::*;
 use predicates::str::contains;
 use std::path::{Path, PathBuf};
 
@@ -146,4 +147,15 @@ fn flagstat_stdin_and_missing_file() {
         .code(1)
         .stdout("")
         .stderr(contains("cannot open /nonexistent/x.bam"));
+}
+
+#[test]
+fn flagstat_other_format_extension_has_its_own_message() {
+    let d = tempfile::tempdir().unwrap();
+    gloci()
+        .args(["flagstat", &fixture(), "-o", &s(&d.path().join("x.bed"))])
+        .assert()
+        .failure()
+        .code(2)
+        .stderr(contains("flagstat writes text, tsv or json").and(contains("x.json")));
 }

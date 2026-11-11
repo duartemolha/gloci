@@ -33,6 +33,21 @@ fn format_of(a: &FlagstatArgs) -> Result<FlagstatFormat, UsageError> {
 
 pub fn run(ctx: &Ctx, a: &FlagstatArgs) -> anyhow::Result<()> {
     let format = format_of(a)?;
+    if let Some(ext) = a
+        .output
+        .as_ref()
+        .and_then(|p| p.extension())
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        && !matches!(ext.as_str(), "txt" | "tsv" | "json")
+        && ext.parse::<gloci_io::Format>().is_ok()
+    {
+        return Err(UsageError(format!(
+            "flagstat writes text, tsv or json; -o *.{ext} names another format \
+             (use -o x.txt, x.tsv or x.json, or -O)"
+        ))
+        .into());
+    }
     // Plain text whatever -o is called, so the output spec is fixed (as for `dict`).
     let spec = parse_output_spec(a.output.as_deref(), Some("tsv"))?;
     let ro = ReaderOptions {
