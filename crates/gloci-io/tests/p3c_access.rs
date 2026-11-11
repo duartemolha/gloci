@@ -326,11 +326,14 @@ fn sam_aln_refuses_a_qual_that_does_not_fit_its_seq() {
     }
 }
 
+/// A record's name, flag and reference span (chromosome, start, end), if it has one.
+type HandSpan = (String, u16, Option<(String, u64, u64)>);
+
 /// `(name, flag, span)` of each record of flags.sam, worked out from the text by hand: the span
 /// of a mapped read is its POS and the reference bases of its CIGAR (M, D, N, =, X; at least
 /// one), that of a placed unmapped read is the one base at POS (D101, D116); a read with no
 /// reference or position has none.
-fn hand_spans() -> Vec<(String, u16, Option<(String, u64, u64)>)> {
+fn hand_spans() -> Vec<HandSpan> {
     let text = std::fs::read_to_string(aln("flags.sam")).unwrap();
     text.lines()
         .filter(|l| !l.starts_with('@'))
