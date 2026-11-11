@@ -2040,7 +2040,9 @@ depends on the span.
 
 ## `dict` of an empty file, or of text that does not start with `>`, is an error {#dict-empty-input}
 
-- **gloci:** a zero-byte file exits 1 saying it has no FASTA records, and a file
+- **gloci:** a zero-byte file exits 1 saying it is empty and has no records
+  (`X is empty: it has no records`, the message every gloci command gives for
+  empty input), and a file
   whose first line is not a `>` header exits 1 saying the format is not
   recognised, as every gloci command that reads a FASTA does.
 - **Old behaviour:** `samtools dict` writes the `@HD` line for an empty file and
@@ -2050,3 +2052,35 @@ depends on the span.
   an empty or partial dictionary would hide it.
 - **Pinned by:** `dict-empty-file-vs-samtools` and
   `dict-text-before-header-vs-samtools` (exit status: must differ).
+
+## Exit codes follow gloci's, not samtools' {#samtools-exit-codes}
+
+- **gloci:** every command exits 0 on success, 1 for a data or runtime error
+  (and for a failed check), and 2 for a usage error: an unknown flag name, a
+  bad option value, a missing argument.
+- **Old behaviour:** samtools exits 1 for a usage error (it prints its usage
+  text and exits 1, as `samtools flags bogus` does), 2 for an error in
+  `bedcov`, and from `quickcheck` a bit mask (2 for a file that cannot be
+  opened and 16 for a missing end-of-file block, among others, summed when
+  several apply).
+- **Reason:** one meaning per code across every gloci command, so that a
+  pipeline can tell a mistake in the command line from a bad file without
+  reading the message. `check --quick` writes the problems it finds to stderr
+  and exits 1.
+- **Pinned by:** `flags-bad-name-vs-samtools` (exit status: must differ).
+
+## `flags` refuses a leading zero and trailing text {#flags-leading-zero}
+
+- **gloci:** a FLAGS argument written in decimal with a leading zero (`010`)
+  exits 2, and the message says samtools reads it as octal 8 and what to write
+  instead (`8` or `0x8`). Trailing text (`12abc`) exits 2 as well. This applies
+  to every option that takes FLAGS (`--require-flags`, `--exclude-flags`), as
+  well as to `gloci flags`.
+- **Old behaviour:** `samtools flags 010` prints `0x8 8 MUNMAP`, because C's
+  `strtol` with base 0 reads a leading zero as octal; `samtools flags 12abc`
+  prints the line for 12 and ignores `abc`.
+- **Reason:** `010` is written to mean ten far more often than eight, and a
+  flag set that silently means something else filters the wrong reads. Write
+  `0x8` or `8` for eight, and `10` for ten.
+- **Pinned by:** `flags-octal-vs-samtools` (exit status: must differ), and the
+  tests `parse_flags_samtools_rules` and `flags_usage_errors_exit_2_and_print_nothing`.

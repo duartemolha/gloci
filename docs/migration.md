@@ -188,6 +188,7 @@ and FASTA behaviour](#bam-cram-and-fasta-behaviour), after the tables.
 | `nuc -fi REF -bed FILE` (`-s`, `-seq`, `-pattern P`, `-C`) | `gloci nuc FILE --fasta REF [-s] [--seq] [--pattern P [-C]]` (output is byte-identical to bedtools 2.31.1, header line and f32 percentages included, for BED, GFF and VCF input; the counts and the pattern describe the reverse complement under `-s`; the FASTA needs a `.fai` made with `gloci index`; VCF is bedtools' REF span with `--vcf-span ref`; zero-length intervals are skipped with a counted warning, as bedtools does; an interval outside the FASTA is an error where bedtools skips it, `--skip-invalid` gives bedtools' behaviour, see [differences.md#getfasta-outside-fasta](differences.md#getfasta-outside-fasta)) |
 | `samtools faidx REF REGION...` (`-n N`, `-i`, `--mark-strand T`, `-c`, `-r FILE`, `-o OUT`) | `gloci faidx REF REGION... [--line-width N] [--reverse-complement] [--mark-strand rc\|no\|sign\|custom,POS,NEG] [--skip-invalid] [--regions-file BED] [-o OUT[.gz] [--write-index]]` (output is byte-identical to samtools 1.21, headers as typed, wrapping at each sequence's `.fai` width by default, `chr:-END` accepted; the FASTA needs a `.fai` (and `.gzi` for BGZF) made with `gloci index`, which gloci never builds, so `samtools faidx REF` with no region, and a missing index, exit 2 naming `gloci index REF`, see [differences.md#fasta-implicit-index](differences.md#fasta-implicit-index); `-c` is `--skip-invalid` and skips the region without writing its header, see [differences.md#faidx-missing-sequence](differences.md#faidx-missing-sequence); a region htslib guesses at (`chr1:0-5`, `chr1:0`, `chr1:+5`, an ambiguous `ctgA:5`) is a usage error, see [differences.md#faidx-region-syntax](differences.md#faidx-region-syntax); `-r` read `chr:START-END` text, `--regions-file` reads BED, see [differences.md#faidx-regions-file](differences.md#faidx-regions-file); `-X`/`--fai-idx`, `--gzi-idx` and `-f` (FASTQ) are not available) |
 | `samtools dict [-H] [-A] [-l FILE] [-a STR] [-s STR] [-u STR] [-o OUT] REF` | `gloci dict REF [--no-header] [--alias] [--alt FILE] [--assembly STR] [--species STR] [--uri STR] [-o OUT]` (output is byte-identical to samtools 1.21; a repeated sequence name, [differences.md#dict-duplicate-names](differences.md#dict-duplicate-names), and an empty file, [differences.md#dict-empty-input](differences.md#dict-empty-input), exit 1) |
+| `samtools flags FLAGS...` | `gloci flags [FLAGS...]` (output is byte-identical to samtools 1.21, and with no argument the table of the twelve flags, without the usage text; a decimal with a leading zero such as `010`, which samtools reads as octal 8, and trailing text such as `12abc` exit 2, see [differences.md#flags-leading-zero](differences.md#flags-leading-zero); an unknown name exits 2 where samtools exits 1, see [differences.md#samtools-exit-codes](differences.md#samtools-exit-codes)) |
 | `jaccard`, `fisher`, `reldist` | not yet available (`stats jaccard / fisher / reldist`, P3b) |
 | `shuffle`, `random`, `sample` | not yet available (`shuffle`, `random`, `sample`, P3b) |
 | `pairtobed`, `pairtopair` | not yet available (`pair-intersect`, `pair-pair`, P3b) |
@@ -475,6 +476,12 @@ there is one.
   exits 1 where samtools writes only `@HD`.
   [differences.md#dict-duplicate-names](differences.md#dict-duplicate-names)
   [differences.md#dict-empty-input](differences.md#dict-empty-input)
+- **`flags` (replaces `samtools flags`):** `gloci flags [FLAGS...]` prints the same
+  lines. A decimal with a leading zero (`010`) and trailing text (`12abc`) exit 2
+  where samtools reads octal 8 and 12, and a usage error exits 2 where samtools
+  exits 1.
+  [differences.md#flags-leading-zero](differences.md#flags-leading-zero)
+  [differences.md#samtools-exit-codes](differences.md#samtools-exit-codes)
 - **TSV indexing without `-e`:** `gloci index -s -b` without `-e` sets the end
   column equal to the begin column (1-base feature) instead of tabix's GFF
   default of column 5.

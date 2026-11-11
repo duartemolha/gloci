@@ -5668,3 +5668,40 @@ gloci = "gloci dict --uri x input.fa"
 reference = "samtools dict -u x input.fa"
 compare = "exit-status"
 expected_difference = "#dict-empty-input"
+
+# P3c Task 1: `flags` (D136). It reads no file, so the input is only there because every
+# case has one. The first case sets the traps: hex and decimal give the same line, a name list
+# is case-insensitive, a flag with no name (0x1000) and zero print an empty third field, and
+# the bits come out in bit order whatever the order of the names.
+
+[[case]]
+name = "flags-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/empty.sam" }
+gloci = "gloci flags 0x704 1796 secondary,dup UNMAP,MUNMAP 0 4096"
+reference = "samtools flags 0x704 1796 secondary,dup UNMAP,MUNMAP 0 4096"
+compare = "exact"
+
+[[case]]
+name = "flags-table-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/empty.sam" }
+gloci = "gloci flags"
+reference = "samtools flags | grep -E '^ +0x'"
+compare = "exact"
+
+# An unknown name: samtools prints its usage and exits 1; gloci exits 2 (usage error).
+[[case]]
+name = "flags-bad-name-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/empty.sam" }
+gloci = "gloci flags bogus"
+reference = "samtools flags bogus"
+compare = "exit-status"
+expected_difference = "#samtools-exit-codes"
+
+# 010: samtools reads octal 8 and prints it; gloci refuses (exit 2).
+[[case]]
+name = "flags-octal-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/empty.sam" }
+gloci = "gloci flags 010"
+reference = "samtools flags 010"
+compare = "exit-status"
+expected_difference = "#flags-leading-zero"

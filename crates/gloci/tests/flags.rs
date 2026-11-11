@@ -2,6 +2,7 @@
 mod common;
 use common::*;
 use gloci_testkit::fixtures;
+use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 
 fn out(args: &[&str]) -> String {
