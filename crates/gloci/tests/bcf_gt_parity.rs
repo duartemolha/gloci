@@ -39,3 +39,43 @@ fn bcf_gt_records_equal_bcftools() {
         "gloci's BCF records differ from bcftools 1.21's"
     );
 }
+
+/// A BCF whose GT is 16-bit (an allele index of 63 or more) cannot be
+/// rendered by noodles (it panics); gloci reports a clear error instead of an
+/// internal one (M8).
+#[test]
+fn a_16_bit_gt_renders_as_a_clear_error_not_a_panic() {
+    let dir = tempdir();
+    let alts: Vec<String> = (1..=70).map(|i| format!("A{}", "C".repeat(i))).collect();
+    let vcf = plain_file(
+        dir.path(),
+        "x.vcf",
+        &format!(
+            "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=1000>\n\
+##FORMAT=<ID=GT,Number=1,Type=String,Description=\"g\">\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\nchr1\t10\t.\tA\t{}\t.\t.\t.\tGT\t1/65\n",
+            alts.join(",")
+        ),
+    );
+    let bcf = dir.path().join("x.bcf");
+    gloci()
+        .args(["view"])
+        .arg(&vcf)
+        .args(["-O", "bcf", "-o"])
+        .arg(&bcf)
+        .assert()
+        .success();
+    for args in [
+        vec!["view", "-O", "vcf"],
+        vec!["vcf", "filter", "-O", "vcf"],
+        vec!["vcf", "extract", "--format", "GT"],
+    ] {
+        let o = gloci().args(&args).arg(&bcf).output().unwrap();
+        let err = String::from_utf8_lossy(&o.stderr);
+        assert_eq!(o.status.code(), Some(1), "{args:?}: {err}");
+        assert!(
+            err.contains("allele index of 63 or more") && !err.contains("internal error"),
+            "{args:?}: {err}"
+        );
+    }
+}

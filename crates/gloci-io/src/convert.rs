@@ -529,6 +529,14 @@ fn fill_empty_fields<'a>(
         let is_gt = matches!(key.int(0), Some(typed::Int::Value(v)) if Some(v as usize) == gt_key);
         let desc = indiv.len() - cur.len();
         let (ty, n) = typed::read_descriptor(&mut cur).map_err(|_| bad())?;
+        if is_gt && matches!(ty, typed::Ty::Int16 | typed::Ty::Int32) {
+            // noodles-bcf panics on a GT wider than 8 bits.
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "the genotype uses an allele index of 63 or more (a 16-bit GT), which gloci \
+cannot render as VCF text; `gloci vcf stats` reads such a record",
+            ));
+        }
         let len = n
             .checked_mul(ty.width())
             .and_then(|l| l.checked_mul(n_samples))
