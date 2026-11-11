@@ -5248,23 +5248,17 @@ impl P3b {
         add(
             "jaccard -f -r -s",
             sv(&[
-                "stats",
-                "jaccard",
-                "-a",
-                a,
-                "-b",
-                b,
-                "-f",
-                "0.4",
-                "-r",
-                "-s",
+                "stats", "jaccard", "-a", a, "-b", b, "-f", "0.4", "-r", "-s",
             ]),
         );
         add(
             "jaccard --sort",
             sv(&["stats", "jaccard", "-a", ua, "-b", b, "--sort"]),
         );
-        add("fisher", sv(&["stats", "fisher", "-a", a, "-b", b, "-g", g]));
+        add(
+            "fisher",
+            sv(&["stats", "fisher", "-a", a, "-b", b, "-g", g]),
+        );
         add(
             "fisher -m --sort",
             sv(&[
@@ -5273,9 +5267,7 @@ impl P3b {
         );
         add(
             "fisher --exclude",
-            sv(&[
-                "stats", "fisher", "-a", a, "-b", b, "-g", g, "--exclude", b,
-            ]),
+            sv(&["stats", "fisher", "-a", a, "-b", b, "-g", g, "--exclude", b]),
         );
         add("reldist", sv(&["stats", "reldist", "-a", a, "-b", b]));
         add(
@@ -5350,17 +5342,7 @@ impl P3b {
         }
         add(
             "pair-intersect -f -r -s",
-            sv(&[
-                "pair-intersect",
-                "-a",
-                pa,
-                "-b",
-                b,
-                "-f",
-                "0.3",
-                "-r",
-                "-s",
-            ]),
+            sv(&["pair-intersect", "-a", pa, "-b", b, "-f", "0.3", "-r", "-s"]),
         );
         add(
             "pair-intersect vcf B",
@@ -5577,14 +5559,7 @@ fn p3b_seed_matrix() {
         ("shuffle", sv(&["shuffle", "-g", &fx.genome, &fx.a])),
         (
             "shuffle bedpe",
-            sv(&[
-                "shuffle",
-                "-g",
-                &fx.genome,
-                "--format",
-                "bedpe",
-                &fx.pe_a,
-            ]),
+            sv(&["shuffle", "-g", &fx.genome, "--format", "bedpe", &fx.pe_a]),
         ),
     ];
     for (name, base) in &seeded {
@@ -5705,14 +5680,7 @@ fn p3b_broken_pipe_matrix() {
         (
             "shuffle bedpe",
             sv(&[
-                "shuffle",
-                "-g",
-                &fx.genome,
-                "--seed",
-                "1",
-                "--format",
-                "bedpe",
-                &fx.pe_a,
+                "shuffle", "-g", &fx.genome, "--seed", "1", "--format", "bedpe", &fx.pe_a,
             ]),
         ),
         (
@@ -5721,15 +5689,39 @@ fn p3b_broken_pipe_matrix() {
         ),
         (
             "pair-intersect neither",
-            sv(&["pair-intersect", "-a", &fx.pe_a, "-b", &fx.b, "--type", "neither"]),
+            sv(&[
+                "pair-intersect",
+                "-a",
+                &fx.pe_a,
+                "-b",
+                &fx.b,
+                "--type",
+                "neither",
+            ]),
         ),
         (
             "pair-pair notboth",
-            sv(&["pair-pair", "-a", &fx.pe_a, "-b", &fx.pe_b, "--type", "notboth"]),
+            sv(&[
+                "pair-pair",
+                "-a",
+                &fx.pe_a,
+                "-b",
+                &fx.pe_b,
+                "--type",
+                "notboth",
+            ]),
         ),
         (
             "pair-pair neither",
-            sv(&["pair-pair", "-a", &fx.pe_a, "-b", &fx.pe_b, "--type", "neither"]),
+            sv(&[
+                "pair-pair",
+                "-a",
+                &fx.pe_a,
+                "-b",
+                &fx.pe_b,
+                "--type",
+                "neither",
+            ]),
         ),
     ];
     for (name, args) in more {
@@ -5790,7 +5782,11 @@ fn p3b_empty_inputs_matrix() {
         for t in ["1", "8"] {
             let run = |args: &[&str]| stdout_with(args, t);
             // statistics
-            for (x, y, want) in [(e, e, jaccard_empty), (&a, e, jaccard_a_only), (e, &a, jaccard_a_only)] {
+            for (x, y, want) in [
+                (e, e, jaccard_empty),
+                (&a, e, jaccard_a_only),
+                (e, &a, jaccard_a_only),
+            ] {
                 assert_eq!(
                     String::from_utf8(run(&["stats", "jaccard", "-a", x, "-b", y])).unwrap(),
                     want,
@@ -5820,7 +5816,9 @@ fn p3b_empty_inputs_matrix() {
             assert!(run(&["shuffle", "-g", g, e, "--seed", "1"]).is_empty());
             assert!(run(&["shuffle", "-g", g, "--format", "bedpe", epe, "--seed", "1"]).is_empty());
             // pairs
-            for ty in ["either", "both", "xor", "neither", "notboth", "ispan", "notospan"] {
+            for ty in [
+                "either", "both", "xor", "neither", "notboth", "ispan", "notospan",
+            ] {
                 assert!(
                     run(&["pair-intersect", "-a", epe, "-b", &a, "--type", ty]).is_empty(),
                     "{kind} pair-intersect {ty}: empty A"
@@ -5839,7 +5837,13 @@ fn p3b_empty_inputs_matrix() {
     for e in [&empty, &empty_gz] {
         assert_eq!(
             String::from_utf8(run_stdout(&[
-                "pair-intersect", "-a", &pe, "-b", e, "--type", "neither"
+                "pair-intersect",
+                "-a",
+                &pe,
+                "-b",
+                e,
+                "--type",
+                "neither"
             ]))
             .unwrap(),
             pe_row
@@ -5850,7 +5854,13 @@ fn p3b_empty_inputs_matrix() {
     for e in [&empty_pe, &empty_pe_gz] {
         assert_eq!(
             String::from_utf8(run_stdout(&[
-                "pair-pair", "-a", &pe, "-b", e, "--type", "neither"
+                "pair-pair",
+                "-a",
+                &pe,
+                "-b",
+                e,
+                "--type",
+                "neither"
             ]))
             .unwrap(),
             pe_row
@@ -5859,7 +5869,11 @@ fn p3b_empty_inputs_matrix() {
     }
     // -o with empty input: the file exists and is empty (or holds only the table)
     for (args, ext, len) in [
-        (vec!["pair-intersect", "-a", &empty_pe, "-b", &a], "bedpe", 0),
+        (
+            vec!["pair-intersect", "-a", &empty_pe, "-b", &a],
+            "bedpe",
+            0,
+        ),
         (vec!["pair-pair", "-a", &empty_pe, "-b", &pe], "bedpe", 0),
         (vec!["sample", "-n", "0", &empty, "--seed", "1"], "bed", 0),
         (vec!["shuffle", "-g", g, &empty, "--seed", "1"], "bed", 0),
@@ -5887,16 +5901,23 @@ fn p3b_empty_inputs_matrix() {
         let out = s_of(&d.path().join(if name == "vcf" { "o.vcf" } else { "o.bed" }));
         for t in ["1", "4"] {
             let o = gloci()
-                .args(["sample", "-n", "1", input, "--seed", "1", "-t", t, "-o", &out])
+                .args([
+                    "sample", "-n", "1", input, "--seed", "1", "-t", t, "-o", &out,
+                ])
                 .output()
                 .unwrap();
             let err = String::from_utf8_lossy(&o.stderr);
             assert_eq!(o.status.code(), Some(1), "sample {name}: {err}");
             assert!(
-                err.contains("fewer than the 1 requested with -n") && err.contains("nothing was written"),
+                err.contains("fewer than the 1 requested with -n")
+                    && err.contains("nothing was written"),
                 "sample {name}: {err}"
             );
-            assert_eq!(std::fs::read_dir(d.path()).unwrap().count(), 0, "sample {name}");
+            assert_eq!(
+                std::fs::read_dir(d.path()).unwrap().count(),
+                0,
+                "sample {name}"
+            );
         }
     }
     // a record-less alignment file gives no pairs
@@ -5911,11 +5932,11 @@ fn p3b_empty_inputs_matrix() {
             let run = |args: &[&str]| stdout_with(args, t);
             let keeps: Vec<(&str, Vec<&str>)> = vec![
                 ("split", vec!["vcf", "split", v, "-O", "vcf"]),
-                ("split --types", vec!["vcf", "split", v, "--types", "snps", "-O", "vcf"]),
                 (
-                    "norm",
-                    vec!["vcf", "norm", v, "-f", &fasta, "-O", "vcf"],
+                    "split --types",
+                    vec!["vcf", "split", v, "--types", "snps", "-O", "vcf"],
                 ),
+                ("norm", vec!["vcf", "norm", v, "-f", &fasta, "-O", "vcf"]),
                 (
                     "norm --split",
                     vec!["vcf", "norm", v, "-f", &fasta, "--split", "-O", "vcf"],
@@ -5928,8 +5949,16 @@ fn p3b_empty_inputs_matrix() {
                     "annotate (empty source)",
                     vec!["vcf", "annotate", &one, "-a", v, "-c", "ID", "-O", "vcf"],
                 ),
-                ("filter", vec!["vcf", "filter", v, "--min-qual", "3", "-O", "vcf"]),
-                ("sample --header", vec!["sample", "-n", "0", "--header", v, "--seed", "1", "-O", "vcf"]),
+                (
+                    "filter",
+                    vec!["vcf", "filter", v, "--min-qual", "3", "-O", "vcf"],
+                ),
+                (
+                    "sample --header",
+                    vec![
+                        "sample", "-n", "0", "--header", v, "--seed", "1", "-O", "vcf",
+                    ],
+                ),
             ];
             for (name, args) in &keeps {
                 if name.starts_with("sample") && v.ends_with(".bcf") {
@@ -5937,10 +5966,20 @@ fn p3b_empty_inputs_matrix() {
                 }
                 let out = run(args);
                 let got = p3b_header_lines(&out);
-                let records = p3b_text(&out).lines().filter(|l| !l.starts_with('#')).count();
-                assert_eq!(records, if name.starts_with("annotate (") { 3 } else { 0 }, "{name} {v}");
+                let records = p3b_text(&out)
+                    .lines()
+                    .filter(|l| !l.starts_with('#'))
+                    .count();
+                assert_eq!(
+                    records,
+                    if name.starts_with("annotate (") { 3 } else { 0 },
+                    "{name} {v}"
+                );
                 let want: &[String] = if name.starts_with("annotate (") {
-                    &p2_vcf(1..=1, 0).lines().map(String::from).collect::<Vec<_>>()
+                    &p2_vcf(1..=1, 0)
+                        .lines()
+                        .map(String::from)
+                        .collect::<Vec<_>>()
                 } else {
                     &want_header
                 };
@@ -5953,11 +5992,16 @@ fn p3b_empty_inputs_matrix() {
             let out = run(&["vcf", "merge", v, &hv2, "-O", "vcf"]);
             let head = p3b_header_lines(&out);
             assert!(
-                head.last().unwrap().ends_with("FORMAT\ts1\ts2\ts3\tt1\tt2\tt3"),
+                head.last()
+                    .unwrap()
+                    .ends_with("FORMAT\ts1\ts2\ts3\tt1\tt2\tt3"),
                 "{head:?}"
             );
             assert_eq!(
-                p3b_text(&out).lines().filter(|l| !l.starts_with('#')).count(),
+                p3b_text(&out)
+                    .lines()
+                    .filter(|l| !l.starts_with('#'))
+                    .count(),
                 0
             );
         }
@@ -5970,7 +6014,17 @@ fn p3b_empty_inputs_matrix() {
         let d = tempdir();
         let p = s_of(&d.path().join("s"));
         gloci()
-            .args(["vcf", "stats", v, "--out-prefix", &p, "--freq", "--site-quality", "--het", "--missing-indv"])
+            .args([
+                "vcf",
+                "stats",
+                v,
+                "--out-prefix",
+                &p,
+                "--freq",
+                "--site-quality",
+                "--het",
+                "--missing-indv",
+            ])
             .assert()
             .success();
         for (ext, rows) in [("frq", 1), ("lqual", 1), ("het", 1), ("imiss", 4)] {
@@ -5989,11 +6043,17 @@ fn p3b_empty_inputs_matrix() {
                 assert!(sites.starts_with("CHROM\tPOS\tFILES\t"), "{sites}");
                 // records on one side only are not discordant: no site has two files
                 assert!(
-                    sites.lines().skip(1).all(|l| l.split('\t').nth(2) != Some("B") || x != y),
+                    sites
+                        .lines()
+                        .skip(1)
+                        .all(|l| l.split('\t').nth(2) != Some("B") || x != y),
                     "{sites}"
                 );
                 for ext in ["diff.indv", "diff.discordance_matrix"] {
-                    assert!(std::path::Path::new(&format!("{p}.{ext}")).exists(), "{ext}");
+                    assert!(
+                        std::path::Path::new(&format!("{p}.{ext}")).exists(),
+                        "{ext}"
+                    );
                 }
             }
         }
@@ -6001,7 +6061,738 @@ fn p3b_empty_inputs_matrix() {
     // an empty source annotates nothing and an empty VCF annotates to the header
     let out = run_stdout(&["vcf", "annotate", &one, "-a", &hv, "-c", "ID"]);
     assert_eq!(
-        p3b_text(&out).lines().filter(|l| !l.starts_with('#')).collect::<Vec<_>>(),
-        p2_vcf(1..=1, 3).lines().filter(|l| !l.starts_with('#')).collect::<Vec<_>>()
+        p3b_text(&out)
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .collect::<Vec<_>>(),
+        p2_vcf(1..=1, 3)
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .collect::<Vec<_>>()
     );
+}
+
+/// Bad VCF inputs of the P3b matrices: sorted rows with a swapped pair, a bad POS, and
+/// truncated BGZF / BCF files; `renamed` gives them the sample names `t1..t3` (for merge).
+struct P3bBadVcf {
+    good: String,
+    unsorted: String,
+    malformed: String,
+    trunc_gz: String,
+    nofooter_gz: String,
+    trunc_bcf: String,
+}
+
+fn p3b_bad_vcf(fx: &P2, renamed: bool) -> P3bBadVcf {
+    let tag = if renamed { "r" } else { "s" };
+    let adj = |t: String| if renamed { p3b_rename_samples(&t) } else { t };
+    let text = adj(p3b_vcf(1..=2, 40));
+    let rows: Vec<&str> = text.lines().collect();
+    let hdr = rows.iter().filter(|l| l.starts_with('#')).count();
+    let body: Vec<&str> = rows[hdr..].to_vec();
+    let head = rows[..hdr].join("\n");
+    let mut swapped = body.clone();
+    swapped.swap(5, 6);
+    let bad_pos = {
+        let mut f: Vec<&str> = body[6].split('\t').collect();
+        f[1] = "XX";
+        f.join("\t")
+    };
+    let mut malformed = body.clone();
+    malformed[6] = &bad_pos;
+    let gz = bgzip(text.as_bytes());
+    let bcf = vcf_to_bcf(text.as_bytes());
+    P3bBadVcf {
+        good: fx.plain(&format!("good_{tag}.vcf"), &text),
+        unsorted: fx.plain(
+            &format!("uns_{tag}.vcf"),
+            &format!("{head}\n{}\n", swapped.join("\n")),
+        ),
+        malformed: fx.plain(
+            &format!("mal_{tag}.vcf"),
+            &format!("{head}\n{}\n", malformed.join("\n")),
+        ),
+        trunc_gz: s_of(&write(
+            fx.dir.path(),
+            &format!("t_{tag}.vcf.gz"),
+            &gz[..gz.len() / 2],
+        )),
+        nofooter_gz: s_of(&write(
+            fx.dir.path(),
+            &format!("nf_{tag}.vcf.gz"),
+            &gz[..gz.len() - 28],
+        )),
+        trunc_bcf: s_of(&write(
+            fx.dir.path(),
+            &format!("t_{tag}.bcf"),
+            &bcf[..bcf.len() / 2],
+        )),
+    }
+}
+
+/// The failure matrix of the P3b commands: unsorted input where order matters, malformed
+/// lines, truncated BGZF/BCF, a missing output directory; every run exits 1 with the
+/// `error:` format and leaves nothing behind.
+#[test]
+fn p3b_failure_matrix() {
+    let fx = P2::new();
+    let genome = fx.plain(
+        "g.genome",
+        "chr1\t1000000\nchr2\t1000000\nchr3\t1000000\nchr4\t1000000\n",
+    );
+    let good_bed = fx.plain("good.bed", &p3b_bed(2, 40, 100, 50, 30));
+    let other_bed = fx.plain("other.bed", &p3b_bed(2, 30, 130, 80, 40));
+    let pe_text = p3b_bedpe(40, 0);
+    let good_pe = fx.plain("good.bedpe", &pe_text);
+    let other_pe = fx.plain("other.bedpe", &p3b_bedpe(20, 0));
+    let g = genome.as_str();
+
+    let bed_text = p3b_bed(2, 40, 100, 50, 30);
+    let bed_lines: Vec<&str> = bed_text.lines().collect();
+    let unsorted_bed = fx.plain(
+        "u.bed",
+        &format!("{}\n{}\n{}\n", bed_lines[3], bed_lines[2], bed_lines[4]),
+    );
+    let malformed_bed = {
+        let mut l: Vec<String> = bed_lines.iter().map(|s| s.to_string()).collect();
+        let f: Vec<&str> = bed_lines[5].split('\t').collect();
+        l[5] = format!("{}\tNOPE\t{}", f[0], f[2]);
+        fx.plain("m.bed", &(l.join("\n") + "\n"))
+    };
+    let bed_gz = bgzip(bed_text.as_bytes());
+    let trunc_bed = s_of(&write(
+        fx.dir.path(),
+        "t.bed.gz",
+        &bed_gz[..bed_gz.len() / 2],
+    ));
+    let nofooter_bed = s_of(&write(
+        fx.dir.path(),
+        "nf.bed.gz",
+        &bed_gz[..bed_gz.len() - 28],
+    ));
+
+    let pe_lines: Vec<&str> = pe_text.lines().collect();
+    let malformed_pe = {
+        let mut l: Vec<String> = pe_lines.iter().map(|s| s.to_string()).collect();
+        let mut f: Vec<&str> = pe_lines[5].split('\t').collect();
+        f[4] = "NOPE";
+        l[5] = f.join("\t");
+        fx.plain("m.bedpe", &(l.join("\n") + "\n"))
+    };
+    let pe_gz = bgzip(pe_text.as_bytes());
+    let trunc_pe = s_of(&write(
+        fx.dir.path(),
+        "t.bedpe.gz",
+        &pe_gz[..pe_gz.len() / 2],
+    ));
+    let nofooter_pe = s_of(&write(
+        fx.dir.path(),
+        "nf.bedpe.gz",
+        &pe_gz[..pe_gz.len() - 28],
+    ));
+
+    let vs = p3b_bad_vcf(&fx, false);
+    let vr = p3b_bad_vcf(&fx, true);
+    let fasta = p3b_fasta(fx.dir.path());
+    let eof = "BGZF end-of-file marker missing";
+    let unsorted_msg = "is not sorted";
+    let not_int = "is not an integer";
+
+    // BED-shaped inputs: (kind, path, needs sorted input, message)
+    let bed_bad: [(&str, &String, bool, &str); 4] = [
+        ("unsorted", &unsorted_bed, true, unsorted_msg),
+        ("malformed", &malformed_bed, false, not_int),
+        ("truncated", &trunc_bed, false, eof),
+        ("no BGZF footer", &nofooter_bed, false, eof),
+    ];
+    let pe_bad: [(&str, &String, &str); 3] = [
+        ("malformed", &malformed_pe, not_int),
+        ("truncated", &trunc_pe, eof),
+        ("no BGZF footer", &nofooter_pe, eof),
+    ];
+    let (gb, ob, gp, op) = (&good_bed, &other_bed, &good_pe, &other_pe);
+
+    // (name, template with {IN}, sink, needs sorted input)
+    type Case<'a> = (&'a str, Vec<&'a str>, Sink, bool);
+    let bed_cases: Vec<Case> = vec![
+        (
+            "jaccard A",
+            vec!["stats", "jaccard", "-a", "{IN}", "-b", ob],
+            Sink::File("tsv"),
+            true,
+        ),
+        (
+            "jaccard B",
+            vec!["stats", "jaccard", "-a", gb, "-b", "{IN}"],
+            Sink::File("tsv"),
+            true,
+        ),
+        (
+            "fisher A",
+            vec!["stats", "fisher", "-g", g, "-a", "{IN}", "-b", ob],
+            Sink::File("tsv"),
+            true,
+        ),
+        (
+            "fisher B",
+            vec!["stats", "fisher", "-g", g, "-a", gb, "-b", "{IN}"],
+            Sink::File("tsv"),
+            true,
+        ),
+        (
+            "fisher --exclude",
+            vec![
+                "stats",
+                "fisher",
+                "-g",
+                g,
+                "-a",
+                gb,
+                "-b",
+                ob,
+                "--exclude",
+                "{IN}",
+            ],
+            Sink::File("tsv"),
+            true,
+        ),
+        (
+            "reldist A",
+            vec!["stats", "reldist", "-a", "{IN}", "-b", ob],
+            Sink::File("tsv"),
+            true,
+        ),
+        (
+            "reldist B",
+            vec!["stats", "reldist", "-a", gb, "-b", "{IN}"],
+            Sink::File("tsv"),
+            true,
+        ),
+        (
+            "reldist --detail",
+            vec!["stats", "reldist", "--detail", "-a", "{IN}", "-b", ob],
+            Sink::File("tsv"),
+            true,
+        ),
+        (
+            "sample",
+            vec!["sample", "-n", "3", "--seed", "1", "{IN}"],
+            Sink::File("bed"),
+            false,
+        ),
+        (
+            "shuffle",
+            vec!["shuffle", "-g", g, "--seed", "1", "{IN}"],
+            Sink::File("bed"),
+            false,
+        ),
+        (
+            "shuffle --exclude",
+            vec!["shuffle", "-g", g, "--seed", "1", "--exclude", "{IN}", gb],
+            Sink::File("bed"),
+            false,
+        ),
+        (
+            "pair-intersect B",
+            vec!["pair-intersect", "-a", gp, "-b", "{IN}"],
+            Sink::File("bedpe"),
+            false,
+        ),
+    ];
+    let mut ran = 0;
+    for (name, tpl, sink, sorted) in &bed_cases {
+        for (kind, bad, needs_sorted, msg) in &bed_bad {
+            if *needs_sorted && !*sorted {
+                continue;
+            }
+            // shuffle/sample/pair B take unsorted input without complaint
+            if *kind == "unsorted" && !*sorted {
+                continue;
+            }
+            assert_fails_clean(name, kind, tpl, bad, sink, msg);
+            ran += 1;
+        }
+    }
+    let pe_cases: Vec<Case> = vec![
+        (
+            "pair-intersect A",
+            vec!["pair-intersect", "-a", "{IN}", "-b", ob],
+            Sink::File("bedpe"),
+            false,
+        ),
+        (
+            "pair-pair A",
+            vec!["pair-pair", "-a", "{IN}", "-b", op],
+            Sink::File("bedpe"),
+            false,
+        ),
+        (
+            "pair-pair B",
+            vec!["pair-pair", "-a", gp, "-b", "{IN}"],
+            Sink::File("bedpe"),
+            false,
+        ),
+        (
+            "shuffle bedpe",
+            vec![
+                "shuffle", "-g", g, "--seed", "1", "--format", "bedpe", "{IN}",
+            ],
+            Sink::File("bedpe"),
+            false,
+        ),
+    ];
+    for (name, tpl, sink, _) in &pe_cases {
+        for (kind, bad, msg) in &pe_bad {
+            assert_fails_clean(name, kind, tpl, bad, sink, msg);
+            ran += 1;
+        }
+    }
+
+    // VCF inputs: (kind, bad input, bad input with the other sample names, needs sorted, message)
+    let vcf_bad: [(&str, &String, &String, bool, &str); 5] = [
+        ("unsorted", &vs.unsorted, &vr.unsorted, true, unsorted_msg),
+        ("malformed", &vs.malformed, &vr.malformed, false, not_int),
+        ("truncated", &vs.trunc_gz, &vr.trunc_gz, false, eof),
+        (
+            "no BGZF footer",
+            &vs.nofooter_gz,
+            &vr.nofooter_gz,
+            false,
+            eof,
+        ),
+        ("truncated BCF", &vs.trunc_bcf, &vr.trunc_bcf, false, ""),
+    ];
+    let (sg, rg) = (&vs.good, &vr.good);
+    // (name, template, sink, takes the sample-renamed input, order matters)
+    type VCase<'a> = (&'a str, Vec<&'a str>, Sink, bool, bool);
+    let vcf_cases: Vec<VCase> = vec![
+        (
+            "vcf split",
+            vec!["vcf", "split", "{IN}"],
+            Sink::File("vcf"),
+            false,
+            false,
+        ),
+        (
+            "vcf norm",
+            vec!["vcf", "norm", "-f", &fasta, "-c", "s", "{IN}"],
+            Sink::File("vcf"),
+            false,
+            false,
+        ),
+        (
+            "vcf annotate",
+            vec!["vcf", "annotate", "-a", sg, "-c", "ID", "{IN}"],
+            Sink::File("vcf"),
+            false,
+            true,
+        ),
+        (
+            "vcf annotate source",
+            vec!["vcf", "annotate", "-a", "{IN}", "-c", "ID", sg],
+            Sink::File("vcf"),
+            false,
+            true,
+        ),
+        (
+            "vcf merge first",
+            vec!["vcf", "merge", "{IN}", rg],
+            Sink::File("vcf"),
+            false,
+            true,
+        ),
+        (
+            "vcf merge second",
+            vec!["vcf", "merge", sg, "{IN}"],
+            Sink::File("vcf"),
+            true,
+            true,
+        ),
+        (
+            "vcf compare A",
+            vec!["vcf", "compare", "{IN}", sg],
+            Sink::Prefix,
+            false,
+            true,
+        ),
+        (
+            "vcf compare B",
+            vec!["vcf", "compare", sg, "{IN}"],
+            Sink::Prefix,
+            false,
+            true,
+        ),
+        (
+            "vcf filter",
+            vec!["vcf", "filter", "--min-qual", "1", "{IN}"],
+            Sink::File("vcf"),
+            false,
+            false,
+        ),
+        (
+            "vcf extract",
+            vec!["vcf", "extract", "--info", "DP", "{IN}"],
+            Sink::File("tsv"),
+            false,
+            false,
+        ),
+        (
+            "vcf stats",
+            vec!["vcf", "stats", "--freq", "{IN}"],
+            Sink::Prefix,
+            false,
+            false,
+        ),
+        (
+            "sample vcf",
+            vec!["sample", "-n", "3", "--seed", "1", "{IN}"],
+            Sink::File("vcf"),
+            false,
+            false,
+        ),
+    ];
+    for (name, tpl, sink, renamed, ordered) in &vcf_cases {
+        for (kind, bad_s, bad_r, needs_sorted, msg) in &vcf_bad {
+            if *needs_sorted && !*ordered {
+                continue;
+            }
+            let bad = if *renamed { bad_r } else { bad_s };
+            let msg = if msg.is_empty() { "" } else { msg };
+            assert_fails_clean(name, kind, tpl, bad, sink, msg);
+            ran += 1;
+        }
+    }
+    // a VCF where the reference disagrees
+    assert_fails_clean(
+        "vcf norm",
+        "REF mismatch",
+        &["vcf", "norm", "-f", &fasta, "{IN}"],
+        &vs.good,
+        &Sink::File("vcf"),
+        "REF does not match the reference",
+    );
+    ran += 1;
+    // alignments to pairs: a bad SAM line, a truncated BAM
+    let bad_sam = fx.plain(
+        "bad.sam",
+        "@SQ\tSN:chr1\tLN:1000\nr1\t0\tchr1\t10\t60\t10M\t*\t0\t0\tACGTACGTAC\tIIIIIIIIII\nr2\tNOPE\tchr1\t10\t60\t10M\t*\t0\t0\tACGTACGTAC\tIIIIIIIIII\n",
+    );
+    assert_fails_clean(
+        "convert --bedpe",
+        "malformed",
+        &["convert", "--bedpe", "{IN}"],
+        &bad_sam,
+        &Sink::File("bedpe"),
+        "is not a number",
+    );
+    let sam_text = p3b_pairs_sam(200);
+    let big_sam = fx.plain("pairs.sam", &sam_text);
+    let big_bam = s_of(&fx.dir.path().join("pairs.bam"));
+    gloci()
+        .args(["view", &big_sam, "-o", &big_bam])
+        .assert()
+        .success();
+    let bam = std::fs::read(&big_bam).unwrap();
+    let trunc_bam = s_of(&write(fx.dir.path(), "t.bam", &bam[..bam.len() / 2]));
+    assert_fails_clean(
+        "convert --bedpe",
+        "truncated BAM",
+        &["convert", "--bedpe", "{IN}"],
+        &trunc_bam,
+        &Sink::File("bedpe"),
+        "",
+    );
+    ran += 2;
+
+    // a missing output directory: every P3b command that writes a file
+    let all: Vec<(&str, Vec<&str>, Sink)> = vec![
+        (
+            "jaccard",
+            vec!["stats", "jaccard", "-a", "{IN}", "-b", ob],
+            Sink::File("tsv"),
+        ),
+        (
+            "fisher",
+            vec!["stats", "fisher", "-g", g, "-a", "{IN}", "-b", ob],
+            Sink::File("tsv"),
+        ),
+        (
+            "reldist",
+            vec!["stats", "reldist", "-a", "{IN}", "-b", ob],
+            Sink::File("tsv"),
+        ),
+        (
+            "random",
+            vec!["random", "-g", g, "-n", "5", "--seed", "1"],
+            Sink::File("bed"),
+        ),
+        (
+            "sample",
+            vec!["sample", "-n", "3", "--seed", "1", "{IN}"],
+            Sink::File("bed"),
+        ),
+        (
+            "shuffle",
+            vec!["shuffle", "-g", g, "--seed", "1", "{IN}"],
+            Sink::File("bed"),
+        ),
+        (
+            "pair-intersect",
+            vec!["pair-intersect", "-a", gp, "-b", "{IN}"],
+            Sink::File("bedpe"),
+        ),
+        (
+            "pair-pair",
+            vec!["pair-pair", "-a", "{IN}", "-b", op],
+            Sink::File("bedpe"),
+        ),
+        (
+            "convert --bedpe",
+            vec!["convert", "--bedpe", &big_sam],
+            Sink::File("bedpe"),
+        ),
+        ("vcf split", vec!["vcf", "split", "{IN}"], Sink::File("vcf")),
+        (
+            "vcf norm",
+            vec!["vcf", "norm", "-f", &fasta, "-c", "s", "{IN}"],
+            Sink::File("vcf"),
+        ),
+        (
+            "vcf annotate",
+            vec!["vcf", "annotate", "-a", sg, "-c", "ID", "{IN}"],
+            Sink::File("vcf"),
+        ),
+        (
+            "vcf merge",
+            vec!["vcf", "merge", "{IN}", rg],
+            Sink::File("vcf"),
+        ),
+        (
+            "vcf compare",
+            vec!["vcf", "compare", "{IN}", sg],
+            Sink::Prefix,
+        ),
+        (
+            "vcf filter",
+            vec!["vcf", "filter", "--min-qual", "1", "{IN}"],
+            Sink::File("vcf"),
+        ),
+        (
+            "vcf extract",
+            vec!["vcf", "extract", "--info", "DP", "{IN}"],
+            Sink::File("tsv"),
+        ),
+        (
+            "vcf stats",
+            vec!["vcf", "stats", "--freq", "{IN}"],
+            Sink::Prefix,
+        ),
+    ];
+    for (name, tpl, sink) in &all {
+        let good = match name.split(' ').next().unwrap() {
+            "vcf" => sg.as_str(),
+            "pair-intersect" => ob.as_str(),
+            "pair-pair" => gp.as_str(),
+            "jaccard" | "fisher" | "reldist" | "sample" | "shuffle" => gb.as_str(),
+            _ => "",
+        };
+        assert_missing_dir(name, tpl, good, sink);
+        ran += 1;
+    }
+    assert!(ran > 120, "ran {ran} failure cases");
+}
+
+/// `--chrom-map` renames as records are read: a run with the map on files in the source names
+/// equals the run without it on files in the target names, and the inverse map takes the output
+/// of the commands that write records back to the source names. (Seeded runs use one seed.)
+#[test]
+fn p3b_chrom_map_round_trip() {
+    let fx = P2::new();
+    let fwd = fx.plain("fwd.map", "1\tchr1\n2\tchr2\n3\tchr3\n4\tchr4\n");
+    let inv = fx.plain("inv.map", "chr1\t1\nchr2\t2\nchr3\t3\nchr4\t4\n");
+    let genome = fx.plain(
+        "g.genome",
+        "chr1\t1000000\nchr2\t1000000\nchr3\t1000000\nchr4\t1000000\n",
+    );
+    let strip = |t: &str| t.replace("chr", "");
+    let a_txt = p3b_bed(4, 200, 300, 100, 60);
+    let b_txt = p3b_bed(4, 150, 410, 130, 90);
+    let pe_txt = p3b_bedpe(300, 0);
+    let (a_chr, a_num) = (
+        fx.plain("a_chr.bed", &a_txt),
+        fx.plain("a_num.bed", &strip(&a_txt)),
+    );
+    let (b_chr, b_num) = (
+        fx.plain("b_chr.bed", &b_txt),
+        fx.plain("b_num.bed", &strip(&b_txt)),
+    );
+    let (pe_chr, pe_num) = (
+        fx.plain("pe_chr.bedpe", &pe_txt),
+        fx.plain("pe_num.bedpe", &strip(&pe_txt)),
+    );
+    let pe2_txt = p3b_bedpe(100, 0);
+    let (pe2_chr, pe2_num) = (
+        fx.plain("pe2_chr.bedpe", &pe2_txt),
+        fx.plain("pe2_num.bedpe", &strip(&pe2_txt)),
+    );
+    let vcf_chr_txt = p3b_vcf(1..=4, 60);
+    let vcf2_chr_txt = p3b_vcf(2..=4, 60);
+    let v_chr = fx.plain("v_chr.vcf", &vcf_chr_txt);
+    let v_num = fx.plain("v_num.vcf", &strip(&vcf_chr_txt));
+    let v2_chr = fx.plain("v2_chr.vcf", &vcf2_chr_txt);
+    let v2_num = fx.plain("v2_num.vcf", &strip(&vcf2_chr_txt));
+    let v_num_gz = fx.bgzf("v_num.vcf.gz", &strip(&vcf_chr_txt));
+    let g = genome.as_str();
+
+    // (name, template with {A} {B} {PA} {PB}, inputs are chr or numeric)
+    let cmds: Vec<(&str, Vec<&str>)> = vec![
+        (
+            "jaccard",
+            vec!["stats", "jaccard", "-a", "{A}", "-b", "{B}"],
+        ),
+        (
+            "fisher",
+            vec!["stats", "fisher", "-g", g, "-a", "{A}", "-b", "{B}"],
+        ),
+        (
+            "reldist",
+            vec!["stats", "reldist", "-a", "{A}", "-b", "{B}", "--detail"],
+        ),
+        ("sample", vec!["sample", "-n", "40", "--seed", "3", "{A}"]),
+        (
+            "shuffle",
+            vec!["shuffle", "-g", g, "--seed", "3", "--exclude", "{B}", "{A}"],
+        ),
+        (
+            "shuffle same-chrom",
+            vec!["shuffle", "-g", g, "--seed", "3", "--same-chrom", "{A}"],
+        ),
+        (
+            "shuffle bedpe",
+            vec![
+                "shuffle", "-g", g, "--seed", "3", "--format", "bedpe", "{PA}",
+            ],
+        ),
+        (
+            "pair-intersect",
+            vec!["pair-intersect", "-a", "{PA}", "-b", "{B}"],
+        ),
+        (
+            "pair-intersect neither",
+            vec![
+                "pair-intersect",
+                "-a",
+                "{PA}",
+                "-b",
+                "{B}",
+                "--type",
+                "neither",
+            ],
+        ),
+        ("pair-pair", vec!["pair-pair", "-a", "{PA}", "-b", "{PB}"]),
+        (
+            "pair-pair neither",
+            vec!["pair-pair", "-a", "{PA}", "-b", "{PB}", "--type", "neither"],
+        ),
+    ];
+    let fill = |tpl: &[&str], num: bool| -> Vec<String> {
+        tpl.iter()
+            .map(|x| match *x {
+                "{A}" => (if num { &a_num } else { &a_chr }).clone(),
+                "{B}" => (if num { &b_num } else { &b_chr }).clone(),
+                "{PA}" => (if num { &pe_num } else { &pe_chr }).clone(),
+                "{PB}" => (if num { &pe2_num } else { &pe2_chr }).clone(),
+                x => x.to_string(),
+            })
+            .collect()
+    };
+    for (name, tpl) in &cmds {
+        for t in ["1", "8"] {
+            let run = |args: Vec<String>| -> Vec<u8> {
+                let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+                stdout_with(&refs, t)
+            };
+            let mut mapped = fill(tpl, true);
+            mapped.extend(["--chrom-map".into(), fwd.clone()]);
+            let with_map = run(mapped);
+            let renamed = run(fill(tpl, false));
+            assert!(!with_map.is_empty(), "{name}: nothing written");
+            assert_eq!(with_map, renamed, "{name} -t {t}: map vs renamed input");
+            // the output names the target chromosomes
+            if !matches!(*name, "jaccard" | "fisher") {
+                assert!(
+                    !String::from_utf8_lossy(&with_map)
+                        .lines()
+                        .any(|l| l.starts_with("1\t")),
+                    "{name}: a source name in the output"
+                );
+            }
+        }
+    }
+    // the inverse map takes the records the commands write back to the source names
+    for (name, tpl) in cmds.iter().filter(|(n, _)| {
+        matches!(
+            *n,
+            "sample" | "pair-intersect neither" | "pair-pair neither"
+        )
+    }) {
+        let mut back = fill(tpl, false);
+        back.extend(["--chrom-map".into(), inv.clone()]);
+        let refs: Vec<&str> = back.iter().map(String::as_str).collect();
+        let out = stdout_with(&refs, "2");
+        let plain = fill(tpl, true);
+        let refs: Vec<&str> = plain.iter().map(String::as_str).collect();
+        assert_eq!(
+            out,
+            stdout_with(&refs, "2"),
+            "{name}: the inverse map restores the names"
+        );
+    }
+
+    // vcf compare: the files carry the target names, whichever side the map is for
+    let files = |a: &str, b: &str, map: bool, t: &str| -> Vec<Vec<u8>> {
+        let mut args = sv(&[
+            "vcf",
+            "compare",
+            a,
+            b,
+            "--site-discordance",
+            "--sample-discordance",
+            "--discordance-matrix",
+        ]);
+        if map {
+            args.extend(["--chrom-map".into(), fwd.clone()]);
+        }
+        p3b_prefix_files(
+            &args,
+            &["diff.sites", "diff.indv", "diff.discordance_matrix"],
+            t,
+        )
+    };
+    let want = files(&v_chr, &v2_chr, false, "1");
+    assert!(want[0].windows(5).any(|w| w == b"\nchr2"));
+    for input in [&v_num, &v_num_gz] {
+        for t in ["1", "8"] {
+            assert_eq!(
+                files(input, &v2_num, true, t),
+                want,
+                "compare {input} -t {t}"
+            );
+        }
+    }
+    // a map file with a bad line says where
+    let bad = fx.plain("bad.map", "1\tchr1\nlonely\n");
+    for args in [
+        sv(&["stats", "jaccard", "-a", &a_num, "-b", &b_num]),
+        sv(&["sample", "-n", "3", "--seed", "1", &a_num]),
+        sv(&["pair-intersect", "-a", &pe_num, "-b", &b_num]),
+        sv(&["pair-pair", "-a", &pe_num, "-b", &pe2_num]),
+    ] {
+        gloci()
+            .args(&args)
+            .args(["--chrom-map", &bad])
+            .assert()
+            .code(2)
+            .stderr(contains("bad.map:2:"));
+    }
 }
