@@ -1252,7 +1252,11 @@ pub fn naive_genomecov(
 // P3b Task 2
 /// The merged intervals of `recs` per chromosome (and per strand when
 /// `per_strand`): sorted by start, joined while `start <= end`, as `merge`.
-fn naive_merged(recs: &[TestRec], per_strand: bool) -> Vec<(String, Interval, Strand)> {
+fn naive_merged(
+    recs: &[TestRec],
+    per_strand: bool,
+    drop_unknown: bool,
+) -> Vec<(String, Interval, Strand)> {
     let strand_of = |r: &TestRec| match (per_strand, r.strand) {
         (true, '+') => Strand::Plus,
         (true, '-') => Strand::Minus,
@@ -1275,6 +1279,10 @@ fn naive_merged(recs: &[TestRec], per_strand: bool) -> Vec<(String, Interval, St
     keys.dedup();
     let mut out = Vec::new();
     for (chrom, slot) in keys {
+        // `naive_jaccard` leaves unknown-strand clusters out under -s/-S.
+        if per_strand && slot == 2 && drop_unknown {
+            continue;
+        }
         let mut ivs: Vec<Interval> = recs
             .iter()
             .filter(|r| {
@@ -1317,7 +1325,10 @@ fn naive_merged(recs: &[TestRec], per_strand: bool) -> Vec<(String, Interval, St
 /// `(intersection, union, n_intersections)`.
 pub fn naive_jaccard(a: &[TestRec], b: &[TestRec], c: &OverlapCriteria) -> (u64, u64, u64) {
     let by_strand = c.strand != StrandRule::Any;
-    let (ma, mb) = (naive_merged(a, by_strand), naive_merged(b, by_strand));
+    let (ma, mb) = (
+        naive_merged(a, by_strand, true),
+        naive_merged(b, by_strand, true),
+    );
     let (mut inter, mut pairs) = (0, 0);
     for (ca, ia, sa) in &ma {
         for (cb, ib, sb) in &mb {

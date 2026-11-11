@@ -103,3 +103,64 @@ fn merged_reader_memory_is_flat() {
     assert_eq!(rows, 20_002);
     assert!(r.peak_held() < 16, "held {}", r.peak_held());
 }
+
+#[derive(Default)]
+struct Sink(Vec<String>);
+
+impl gloci_io::RecordWriter for Sink {
+    fn write_record(&mut self, raw: &[u8]) -> std::io::Result<()> {
+        self.0.push(String::from_utf8(raw.to_vec()).unwrap());
+        Ok(())
+    }
+    fn finish(self: Box<Self>) -> Result<(), gloci_io::IoError> {
+        Ok(())
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    /// `MergedReader` re-implements `merge`'s clustering: they must agree on
+    /// every cluster, with and without `-s`, including points, bookends,
+    /// nesting and unknown strands.
+    #[test]
+    fn merged_reader_matches_merge(input in relation_inputs(), by_strand in any::<bool>()) {
+        use gloci_core::ChromTable;
+        use gloci_io::{RecordBatch, RecordReader, chrom_table_for};
+        use gloci_ops::merge::{MergeOptions, merge};
+        use gloci_ops::stats::MergedReader;
+        let rank = naive::karyotype_rank(CHROMS);
+        for recs in [&input.a, &input.b[0]] {
+            let recs = naive::sort(recs.clone(), &rank);
+            let ro = reader_opts();
+            let r1 = mem_reader("x.bed", &text(&recs), &ro);
+            let mut chroms = chrom_table_for(None, &[r1.as_ref()], ChromOrder::Karyotype).unwrap();
+            let o = MergeOptions {
+                max_gap: 0,
+                per_strand: by_strand,
+                count: false,
+                aggs: Vec::new(),
+                empty: ".".into(),
+                delim: ",".into(),
+            };
+            let mut sink = Sink::default();
+            merge(vec![r1], &mut chroms, &o, &mut sink).unwrap();
+
+            let mut r = MergedReader::new(mem_reader("x.bed", &text(&recs), &ro), by_strand);
+            let mut chroms2: ChromTable = chroms.clone();
+            let mut got = Vec::new();
+            let mut batch = RecordBatch::default();
+            loop {
+                batch.clear();
+                let more = r.read_batch(&mut chroms2, &mut batch, 3).unwrap();
+                for i in 0..batch.len() {
+                    got.push(String::from_utf8(batch.raw(i).to_vec()).unwrap());
+                }
+                if !more {
+                    break;
+                }
+            }
+            prop_assert_eq!(got, sink.0);
+        }
+    }
+}
