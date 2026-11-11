@@ -521,6 +521,22 @@ gloci flags 0x704 1796 secondary,dup
 gloci flags
 ```
 
+### `gloci reheader`
+
+Replace the header of a BAM or CRAM file without decoding its records (samtools reheader).
+
+HEADER is SAM header text, or a SAM, BAM or CRAM file whose header is taken (as samtools does); - reads standard input. IN must be a regular BAM or CRAM file: standard input is refused (gloci view - -o x.bam makes a file) and so is SAM. The result goes to -o or stdout, in IN's format; -o may name IN, which is then replaced atomically, and a failure leaves it as it was. A gloci @PG line is added to the new header.
+
+Records point at their reference by its position in the @SQ list, so the new list must keep every old reference in the same place with the same LN. Names (SN:) may change, and @SQ lines may be added after the last one. For CRAM an M5: that both lists have must be equal. Anything else is an error naming both lines, and nothing is written (samtools checks nothing and would attach reads to the wrong contigs; use gloci view --chrom-map to rename references safely).
+
+BAM: the new header is compressed, and the rest of IN is copied block by block: only the block that held the old header's end is compressed again. CRAM: the file definition, a new header container, then every byte of IN from its first data container. The old and new headers and one BGZF block are all that is held in memory.
+
+```sh
+gloci reheader new-header.sam x.bam -o y.bam
+gloci reheader other.bam x.bam -o x.bam
+gloci view --header-only x.bam -O sam | sed 's/SN:chr/SN:/' | gloci reheader - x.bam -o y.bam
+```
+
 ## Migration tables
 
 Every row below was checked against `gloci <cmd> --help`.
@@ -612,6 +628,7 @@ and FASTA behaviour](#bam-cram-and-fasta-behaviour), after the tables.
 | `samtools faidx REF REGION...` (`-n N`, `-i`, `--mark-strand T`, `-c`, `-r FILE`, `-o OUT`) | `gloci faidx REF REGION... [--line-width N] [--reverse-complement] [--mark-strand rc\|no\|sign\|custom,POS,NEG] [--skip-invalid] [--regions-file BED] [-o OUT[.gz] [--write-index]]` (output is byte-identical to samtools 1.21, headers as typed, wrapping at each sequence's `.fai` width by default, `chr:-END` accepted; the FASTA needs a `.fai` (and `.gzi` for BGZF) made with `gloci index`, which gloci never builds, so `samtools faidx REF` with no region, and a missing index, exit 2 naming `gloci index REF`, see [differences.md#fasta-implicit-index](differences.md#fasta-implicit-index); `-c` is `--skip-invalid` and skips the region without writing its header, see [differences.md#faidx-missing-sequence](differences.md#faidx-missing-sequence); a region htslib guesses at (`chr1:0-5`, `chr1:0`, `chr1:+5`, an ambiguous `ctgA:5`) is a usage error, see [differences.md#faidx-region-syntax](differences.md#faidx-region-syntax); `-r` read `chr:START-END` text, `--regions-file` reads BED, see [differences.md#faidx-regions-file](differences.md#faidx-regions-file); `-X`/`--fai-idx`, `--gzi-idx` and `-f` (FASTQ) are not available) |
 | `samtools dict [-H] [-A] [-l FILE] [-a STR] [-s STR] [-u STR] [-o OUT] REF` | `gloci dict REF [--no-header] [--alias] [--alt FILE] [--assembly STR] [--species STR] [--uri STR] [-o OUT]` (output is byte-identical to samtools 1.21; a repeated sequence name, [differences.md#dict-duplicate-names](differences.md#dict-duplicate-names), and an empty file, [differences.md#dict-empty-input](differences.md#dict-empty-input), exit 1) |
 | `samtools flags FLAGS...` | `gloci flags [FLAGS...]` (output is byte-identical to samtools 1.21, and with no argument the table of the twelve flags, without the usage text; a decimal with a leading zero such as `010`, which samtools reads as octal 8, and trailing text such as `12abc` exit 2, see [differences.md#flags-leading-zero](differences.md#flags-leading-zero); an unknown name exits 2 where samtools exits 1, see [differences.md#samtools-exit-codes](differences.md#samtools-exit-codes)) |
+| `samtools reheader [-P] HEADER IN.bam`, `samtools reheader [-P] HEADER IN.cram` | `gloci reheader HEADER IN [-o OUT]` (HEADER is SAM header text, or a SAM, BAM or CRAM file whose header is taken, `-` is stdin; IN is a BAM or CRAM regular file, never stdin or SAM; the new `@SQ` list must keep every old reference in place with the same `LN` (names may change, new `@SQ` lines may follow), else exit 1, where samtools writes a file whose reads point at the wrong contigs, [differences.md#reheader-sq-check](differences.md#reheader-sq-check); a gloci `@PG` line is always added, so `-P` has no equivalent; `-i` is `-o IN`, which replaces the file atomically; `-c CMD` is not available) |
 | `jaccard`, `fisher`, `reldist` | not yet available (`stats jaccard / fisher / reldist`, P3b) |
 | `shuffle`, `random`, `sample` | not yet available (`shuffle`, `random`, `sample`, P3b) |
 | `pairtobed`, `pairtopair` | not yet available (`pair-intersect`, `pair-pair`, P3b) |

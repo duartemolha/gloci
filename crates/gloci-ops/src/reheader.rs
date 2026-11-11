@@ -182,7 +182,13 @@ pub fn reheader(
         .map_err(|msg| detect_err(new_name, msg))?;
     drop(old_header);
     if let Some(cmd) = &o.command_line {
-        new = new.with_program(cmd, o.version);
+        // `with_program` copies the whole header; take the reference list out of the copy
+        // (`@PG` lines are text), so that only the text exists twice.
+        let refs = std::mem::take(&mut new.refs);
+        let mut with = new.with_program(cmd, o.version);
+        drop(new);
+        with.refs = refs;
+        new = with;
     }
     match kind {
         Kind::Bam => {
