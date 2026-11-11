@@ -45,7 +45,13 @@ pub fn run(ctx: &Ctx, a: &DepthArgs) -> anyhow::Result<()> {
         inputs[0].header(),
         inputs[0].name(),
         &a.region.region,
-        a.region.regions_file.as_ref().and_then(|p| p.to_str()),
+        // Read as view reads it: a path that is not UTF-8 fails to open, by name, and is never
+        // dropped.
+        a.region
+            .regions_file
+            .as_ref()
+            .map(|p| p.to_string_lossy())
+            .as_deref(),
         &ro,
     )?;
     let o = DepthOptions {

@@ -481,3 +481,24 @@ fn depth_past_ln_and_stale_index_warnings_do_not_depend_on_threads() {
         }
     }
 }
+
+/// A `--regions-file` whose path is not UTF-8 is not dropped silently (M14): it is read as
+/// view reads one, and here fails to open, by name.
+#[cfg(unix)]
+#[test]
+fn depth_non_utf8_regions_file_is_not_ignored() {
+    use std::os::unix::ffi::OsStrExt;
+    let t = tempdir();
+    let name = std::ffi::OsStr::from_bytes(b"r\xff.bed");
+    let p = t.path().join(name);
+    std::fs::write(&p, "chr1\t99\t200\n").unwrap();
+    gloci()
+        .arg("depth")
+        .arg(f("depth.bam"))
+        .arg("--regions-file")
+        .arg(&p)
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr(contains("cannot open").and(contains("r\u{FFFD}.bed")));
+}
