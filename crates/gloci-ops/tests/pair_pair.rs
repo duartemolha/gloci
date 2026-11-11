@@ -272,6 +272,24 @@ fn pair_pair_threads_match() {
     }
 }
 
+#[test]
+fn pair_pair_huge_contig_count() {
+    // 200,000 contigs, one pair and one B pair on each.
+    let n = 200_000u64;
+    let (mut a, mut b) = (String::new(), String::new());
+    for i in 0..n {
+        a.push_str(&format!("c{i}\t10\t20\tc{i}\t100\t110\tp{i}\n"));
+        b.push_str(&format!("c{i}\t15\t16\tc{i}\t500\t510\tb{i}\n"));
+    }
+    // End 1 hits, end 2 does not: `both` finds nothing, `either` every pair.
+    let (got, s) = run_with(&a, &b, &options("both"), 1).unwrap();
+    assert_eq!(got, "");
+    assert_eq!(s.a_pairs, n);
+    let (got, _) = run_with(&a, &b, &options("either"), 2).unwrap();
+    assert_eq!(got.lines().count(), n as usize);
+    assert!(got.starts_with("c0\t10\t20\tc0\t100\t110\tp0\tc0\t15\t16\tc0\t500\t510\tb0\n"));
+}
+
 // --- property test against the brute-force reference -------------------
 
 fn chrom() -> impl Strategy<Value = &'static str> {
