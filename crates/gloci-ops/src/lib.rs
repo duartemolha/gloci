@@ -12,6 +12,7 @@ pub mod cluster;
 pub mod complement;
 pub mod convert;
 pub mod coverage;
+pub mod depth;
 pub mod dict;
 pub mod faidx;
 pub mod genomecov;

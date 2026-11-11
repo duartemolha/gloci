@@ -1099,6 +1099,38 @@ Examples:
   gloci flags 0x704 1796 secondary,dup
   gloci flags")]
     Flags(FlagsArgs),
+    /// Depth of coverage of alignments at each position (samtools depth).
+    ///
+    /// Reads BAM, CRAM or SAM files (CRAM needs --reference) in coordinate order and prints
+    /// "chrom, 1-based position, depth" for each position covered by a passing read in any
+    /// input, with one depth column per input in the order given, references in @SQ order.
+    /// Inputs must have identical @SQ lists (exit 1, naming the first difference; samtools
+    /// compares reference ids unchecked). A read counts when none of --exclude-flags is set
+    /// (default UNMAP,SECONDARY,QCFAIL,DUP: this command's default, where other commands
+    /// exclude nothing; --exclude-flags 0 counts everything), all of --require-flags are, its
+    /// MAPQ is at least --min-mapq and its length (SEQ length less the soft clips at its two
+    /// ends; with SEQ *, the bases of M, I, = and X) is at least --min-read-length. Each M, =
+    /// and X base counts when its quality is at least --min-baseq (a missing quality passes,
+    /// and so does every base of a read with SEQ *). D bases count only with --count-deletions,
+    /// each gated by the quality of the next base in the read; N never counts. Positions a
+    /// read spans but none of its bases count (deletions, introns, filtered bases) print 0.
+    /// --all-positions adds every position of each reference that has a passing read;
+    /// --all-references adds every position of every reference. --region (repeatable) and
+    /// --regions-file (BED) limit the rows to their union, each position once, read through the
+    /// index when there is one (else the input is scanned, with a warning); with regions, the
+    /// --all-* options print every position in them. --column-names writes "#CHROM POS" and
+    /// the paths first. A read past the end of its reference is cut there with one warning,
+    /// where samtools prints rows beyond it. An input that goes back in (reference, position)
+    /// is an error telling you to run gloci sort. With indexes and -t above 1, runs of
+    /// references are computed in parallel with the same output. Memory per input follows the
+    /// longest read, not the reference.
+    #[command(after_long_help = "\
+Examples:
+  gloci depth sample.bam -o depth.tsv
+  gloci depth a.bam b.bam --column-names --min-mapq 20 --min-baseq 20
+  gloci depth sample.bam --region chr1:100,000-200,000 --all-positions
+  gloci depth sample.bam --regions-file targets.bed --count-deletions")]
+    Depth(DepthArgs),
 }
 
 /// What `intersect` reports.
@@ -3376,4 +3408,63 @@ pub struct FlagsArgs {
     /// flags is printed.
     #[arg(value_name = "FLAGS")]
     pub flags: Vec<String>,
+}
+
+// P3c Task 6
+#[derive(Args)]
+pub struct DepthArgs {
+    /// BAM, CRAM or SAM files in coordinate order (- is standard input), with identical
+    /// @SQ lists; one depth column each.
+    #[arg(value_name = "FILE", required = true)]
+    pub files: Vec<String>,
+    /// Also print every position of each reference that has a passing read (samtools -a).
+    #[arg(long)]
+    pub all_positions: bool,
+    /// Also print every position of every reference, reads or not (samtools -aa).
+    #[arg(long)]
+    pub all_references: bool,
+    /// Count deleted bases (D), each gated by the quality of the next base in the read.
+    #[arg(long)]
+    pub count_deletions: bool,
+    /// Count a base only when its quality is at least N.
+    #[arg(long, value_name = "N", default_value_t = 0)]
+    pub min_baseq: u8,
+    /// Skip reads shorter than N bases (SEQ length less soft clips at the two ends).
+    #[arg(long, value_name = "N", default_value_t = 0)]
+    pub min_read_length: u64,
+    /// Skip reads with mapping quality below N.
+    #[arg(long, value_name = "N", default_value_t = 0)]
+    pub min_mapq: u8,
+    /// Keep only reads that have all of these flags: a number (0x2) or names such as
+    /// paired,proper_pair.
+    #[arg(long, value_name = "FLAGS")]
+    pub require_flags: Option<String>,
+    /// Drop reads that have any of these flags: a number or names. As for the other commands,
+    /// but this command's default is UNMAP,SECONDARY,QCFAIL,DUP (samtools depth's), where
+    /// theirs is none; 0 counts every read.
+    #[arg(
+        long,
+        value_name = "FLAGS",
+        default_value = "UNMAP,SECONDARY,QCFAIL,DUP"
+    )]
+    pub exclude_flags: String,
+    /// The FASTA a CRAM input was made with, with its .fai. Not needed for a CRAM written
+    /// without a reference.
+    #[arg(long, value_name = "FILE")]
+    pub reference: Option<PathBuf>,
+    #[command(flatten)]
+    pub region: RegionArgs,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub columns: ColumnNamesArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub tmp_dir: TmpDirArg,
+    /// Write the rows to FILE instead of stdout.
+    #[arg(short, long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
 }
