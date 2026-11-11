@@ -1933,9 +1933,12 @@ depends on the span.
   - a name-tokeniser block that claims more names than its bytes or than the slice's
     records;
   - the Golomb, Subexp and Golomb-Rice encodings, which htslib never writes (rewrite the
-    file with `samtools view -C`).
+    file with `samtools view -C`);
+  - CRAM 2.0 and 2.1 files, where the commands that read only the header (`reheader`) say
+    "x.cram is CRAM 2.1, which gloci does not read (it reads CRAM 3.0 and 3.1); convert it
+    with samtools view -C" (pinned by the test `cram_2x_is_refused_by_name_and_version`).
 - **Old behaviour:** samtools decodes a read however far past the end it runs, and reads the
-  other encodings.
+  other encodings and CRAM 2.x.
 - **Remaining risk:** gloci checks every container, block and slice header (each has a
   CRC32 checksum, so random corruption is always an error), the values above where a data
   series has a block of its own or a constant code (as htslib writes them), and the decoded
@@ -2316,3 +2319,51 @@ depends on the span.
 - **Pinned by:** `depth-s-stale-entry-vs-samtools` (must differ) and the cargo
   tests `stale_entry_template_is_not_clipped` and `mate_table_bounded`. The other
   `depth-s-*` cases leave out the supplementary alignments and are exact.
+## `reheader` refuses a new `@SQ` list that changes the references {#reheader-sq-check}
+
+- **gloci:** `gloci reheader HEADER IN` checks the new `@SQ` lines against
+  those of IN. Each old reference must keep its position in the list and its
+  `LN`; names (`SN:`) may change, and new `@SQ` lines may follow the last old
+  one. For CRAM, an `M5:` that is in both lists must be equal. Otherwise it
+  exits 1 and writes nothing, naming both lines: `@SQ 3 of new.sam (SN:chr3
+  LN:1000) does not match @SQ 3 of x.bam (SN:chr3 LN:198295559); reheader keeps
+  each read's reference by its position in the @SQ list, so change only SN: to
+  rename, or use gloci view --chrom-map`.
+- **Equal lengths:** only names may change, so a swap of references of equal `LN` (chr1 and
+  chr2 of the same length, say) passes the check: the reads keep their positions in the list
+  and so now carry the other name. The check cannot tell such a swap from a rename; use
+  `gloci view --chrom-map` when the new names must follow the reads.
+- **Old behaviour:** `samtools reheader` checks nothing. It writes the new text
+  and reference list over the old records, so a changed `LN`, a swapped order
+  or a dropped `@SQ` gives a file whose reads point at other contigs (or at
+  none), and exits 0.
+- **Reason:** a record names its reference by its position in the `@SQ` list,
+  not by name. Renaming is safe and is what reheader is for; anything else
+  silently moves reads to the wrong place. To rename safely from a table, use
+  `gloci view --chrom-map`.
+- **Pinned by:** `reheader-bad-ln-vs-samtools` and
+  `reheader-bad-order-vs-samtools` (exit status: must differ), and the test
+  `sq_compatibility_table`.
+
+## `view` writes or counts a read once, however many regions it overlaps {#view-overlapping-regions}
+
+- **gloci:** `gloci view x.bam chr1:1-150 chr1:100-200` (and `--count`) gives each read
+  that overlaps any of the regions once, in file order. This is the rule for every format
+  `view` reads.
+- **Old behaviour:** `samtools view x.bam chr1:1-150 chr1:100-200` queries the index once per
+  region and writes a read again for each region it overlaps (`-c` counts it each time).
+- **Reason:** a region list is a set of places to look, and a read that is in two of them is
+  one read. Repeating it makes a count larger than the file and a BAM with duplicate records.
+- **Pinned by:** `view-count-overlapping-regions-vs-samtools` (the counts must differ).
+
+## `view` takes positional regions and `--regions-file` as a union {#view-regions-union}
+
+- **gloci:** `gloci view x.bam chr1 --regions-file targets.bed` selects the reads that overlap
+  `chr1` or a region of `targets.bed`, as every other command does (`--region` and
+  `--regions-file` add).
+- **Old behaviour:** `samtools view -L targets.bed x.bam chr1` finds the reads of `chr1`
+  through the index and then keeps only those that overlap `targets.bed`: an intersection.
+- **Reason:** regions given in two ways mean the same thing in every gloci command. To
+  intersect, run `gloci view` twice (`gloci view x.bam chr1 | gloci view - --regions-file
+  targets.bed`).
+- **Pinned by:** `view-count-regions-union-vs-samtools` (the counts must differ).

@@ -11,6 +11,7 @@ mod header;
 mod place;
 mod record;
 mod region;
+mod reheader;
 mod sam;
 mod source;
 mod writer;
@@ -19,12 +20,18 @@ pub(crate) use bam::{BamReader, bam_record_place};
 pub use bed::{AlnBed, AlnBedLayout, AlnBedOptions, AlnBlocks};
 pub(crate) use cram::CramFile;
 pub use cram::{CramReader, ReferenceCounts, read_cram_header, warn_unused_reference};
-pub use cram_prelude::{CramPrelude, cram_eof_present, cram_first_container, read_cram_prelude};
+pub use cram_prelude::{
+    CramPrelude, check_cram_version, cram_eof_present, cram_first_container, read_cram_prelude,
+};
 pub use flags::{SAM_FLAGS, flag_names, parse_flags};
 pub use header::{AlnHeader, AlnSortOrder, SortOrder};
 pub use record::{Aln, AlnRef, aln_ref, blocks, blocks_within};
 pub use region::alignment_query_span;
 pub(crate) use region::{BamRegionParse, index_span};
+pub use reheader::{
+    bam_header_blocks, check_sq_compatible, check_sq_compatible_named, read_bam_file_header,
+    read_bam_header_with_extent, read_new_header, write_cram_header_container,
+};
 pub use sam::SamAln;
 pub(crate) use sam::SamReader;
 pub(crate) use source::source_from_input;

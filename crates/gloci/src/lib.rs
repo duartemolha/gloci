@@ -235,6 +235,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         Commands::Samples(_) => (None, None),
         Commands::Depth(a) => (a.threads.threads, a.tmp_dir.tmp_dir.clone()),
         Commands::Bedcov(a) => (a.threads.threads, None),
+        Commands::Reheader(a) => (a.threads.threads, None),
         Commands::Vcf(a) => match &a.command {
             cli::VcfCommand::Filter(f) => (f.threads.threads, None),
             cli::VcfCommand::Extract(e) => (e.threads.threads, e.tmp_dir.tmp_dir.clone()),
@@ -331,6 +332,7 @@ fn dispatch(cli: &Cli, ctx: &Ctx) -> (anyhow::Result<()>, bool) {
         Commands::Flagstat(a) => commands::flagstat::run(ctx, a),
         Commands::Depth(a) => commands::depth::run(ctx, a),
         Commands::Bedcov(a) => commands::bedcov::run(ctx, a),
+        Commands::Reheader(a) => commands::reheader::run(ctx, a),
         Commands::Faidx(a) => commands::faidx::run(ctx, a),
         Commands::Head(a) => commands::head::run(ctx, a),
         Commands::Samples(a) => commands::samples::run(ctx, a),

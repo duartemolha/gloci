@@ -25,6 +25,7 @@ pub mod maskfasta;
 pub mod merge;
 pub mod nuc;
 pub mod partition;
+pub mod reheader;
 pub mod samples;
 pub mod shift;
 pub mod slop;

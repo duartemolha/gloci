@@ -195,6 +195,7 @@ and FASTA behaviour](#bam-cram-and-fasta-behaviour), after the tables.
 | `samtools samples [-T TAG] [-i] [-h] [-f FA]... FILE...` | `gloci samples FILE... [--tag TAG] [--show-index] [--column-names] [--match-reference FA]...` (samples in header order, see [differences.md#samples-order](differences.md#samples-order); a FASTA with no `.fai` exits 2, see [differences.md#fasta-implicit-index](differences.md#fasta-implicit-index)) |
 | `samtools depth [-a\|-aa] [-J] [-q N] [-Q N] [-l N] [-g F] [-G F] [--require-flags F] [-r REG] [-b BED] [-H] [-o OUT] FILE...` | `gloci depth FILE... [--all-positions\|--all-references] [--count-deletions] [--min-baseq N] [--min-mapq N] [--min-read-length N] [--exclude-flags F] [--require-flags F] [--region REG] [--regions-file BED] [--column-names] [-o OUT]` (output is byte-identical to samtools 1.21 except where [differences.md#depth-past-reference-end](differences.md#depth-past-reference-end), [differences.md#depth-order-check](differences.md#depth-order-check), [differences.md#depth-regions](differences.md#depth-regions) and [differences.md#depth-bedcov-same-sq](differences.md#depth-bedcov-same-sq) say; `--exclude-flags` defaults to `UNMAP,SECONDARY,QCFAIL,DUP`, so `-g DUP` is `--exclude-flags UNMAP,SECONDARY,QCFAIL` and `-G X` adds X to that list) |
 | `samtools bedcov [-Q N] [-g F] [-G F] [-j] [-d N] [-c] [-H] BED FILE...` | `gloci bedcov BED FILE... [--min-mapq N] [--exclude-flags F] [--require-flags F] [--split --split-deletions] [--bases-at-depth N] [--read-count] [--column-names] [-o OUT]` (each file needs an index; `-j` is `--split --split-deletions`; `-d N` alone drops D and N bases from both columns in samtools, see [differences.md#bedcov-depth-threshold](differences.md#bedcov-depth-threshold); a BED line on a missing chromosome exits 1, see [differences.md#bedcov-bad-line](differences.md#bedcov-bad-line); reads past the end of their reference are cut, see [differences.md#depth-past-reference-end](differences.md#depth-past-reference-end)) |
+| `samtools reheader [-P] HEADER IN.bam`, `samtools reheader [-P] HEADER IN.cram` | `gloci reheader HEADER IN [-o OUT]` (HEADER is SAM header text, or a SAM, BAM or CRAM file whose header is taken, `-` is stdin; IN is a BAM or CRAM regular file, never stdin or SAM; the new `@SQ` list must keep every old reference in place with the same `LN` (names may change, new `@SQ` lines may follow), else exit 1, where samtools writes a file whose reads point at the wrong contigs, [differences.md#reheader-sq-check](differences.md#reheader-sq-check); a gloci `@PG` line is always added, so `-P` has no equivalent; `-i` is `-o IN`, which replaces the file atomically; `-c CMD` is not available) |
 | `jaccard`, `fisher`, `reldist` | not yet available (`stats jaccard / fisher / reldist`, P3b) |
 | `shuffle`, `random`, `sample` | not yet available (`shuffle`, `random`, `sample`, P3b) |
 | `pairtobed`, `pairtopair` | not yet available (`pair-intersect`, `pair-pair`, P3b) |
@@ -505,6 +506,15 @@ there is one.
   [differences.md#depth-seq-star-baseq](differences.md#depth-seq-star-baseq)
   `depth --skip-mate-overlap` (samtools `-s`) does not clip by a stale entry.
   [differences.md#depth-mate-overlap](differences.md#depth-mate-overlap)
+- **`reheader` (replaces `samtools reheader`):** `gloci reheader HEADER IN [-o OUT]`
+  writes the same BAM or CRAM as samtools, except that a new `@SQ` list that
+  moves, drops or resizes a reference exits 1 where samtools writes the file.
+  [differences.md#reheader-sq-check](differences.md#reheader-sq-check)
+- **`view --count` and `--regions-file` (replace `samtools view -c` and `-L`):** a read that
+  overlaps several regions counts and is written once, and positional regions and
+  `--regions-file` combine as a union.
+  [differences.md#view-overlapping-regions](differences.md#view-overlapping-regions)
+  [differences.md#view-regions-union](differences.md#view-regions-union)
 - **TSV indexing without `-e`:** `gloci index -s -b` without `-e` sets the end
   column equal to the begin column (1-base feature) instead of tabix's GFF
   default of column 5.

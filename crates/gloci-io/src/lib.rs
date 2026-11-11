@@ -39,10 +39,12 @@ pub mod writer;
 pub use align::{
     Accept, AlignOptions, Aln, AlnBed, AlnBedLayout, AlnBedOptions, AlnBlocks, AlnHeader, AlnRef,
     AlnSortOrder, AlnSource, CramPrelude, CramReader, SAM_FLAGS, SamAln, SamToBam, SortOrder,
-    alignment_query_span, aln_ref, blocks, blocks_within, cram_eof_present, cram_first_container,
+    alignment_query_span, aln_ref, bam_header_blocks, blocks, blocks_within, check_cram_version,
+    check_sq_compatible, check_sq_compatible_named, cram_eof_present, cram_first_container,
     flag_names, open_alignment_writer, open_aln_source, open_aln_source_from,
-    open_aln_source_regions, parse_flags, read_cram_header, read_cram_prelude, sam_line_to_bam,
-    warn_unused_read_filters, warn_unused_reference,
+    open_aln_source_regions, parse_flags, read_bam_file_header, read_bam_header_with_extent,
+    read_cram_header, read_cram_prelude, read_new_header, sam_line_to_bam,
+    warn_unused_read_filters, warn_unused_reference, write_cram_header_container,
 };
 pub use atomic::{
     __test_with_registry_locked, AtomicFile, TempGuard, cleanup_registered,
@@ -81,7 +83,7 @@ pub use naming::{
 };
 pub use output::{
     OutFormat, Output, OutputOptions, OutputSpec, check_level, open_output, open_raw_output,
-    parse_output_spec, refuse_binary_to_tty,
+    parse_output_spec, plain_text_output_spec, refuse_binary_to_tty,
 };
 pub use record::{
     Header, Opened, ReaderOptions, RecordBatch, RecordMeta, RecordReader, check_map_against_index,

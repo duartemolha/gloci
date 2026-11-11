@@ -201,3 +201,19 @@ samtools index -@ 0 mates.bam
 # Task 8: the `bedcov` fixtures bedcov.bed and bedcov-badchrom.bed are written by hand (see the
 # comment of the Task 8 cases). bedcov-badchrom.bed is bedcov.bed with a chrZ line inserted as
 # line 9. Nothing to rebuild: the BAMs are depth.bam, depth2.bam and depth-pastend.bam above.
+# Task 11: the inputs of the `gloci reheader` cases. reheader-in.sam is hand-written (three
+# references of different lengths, so a swapped order shows in the LNs, and one unplaced read);
+# new-header.sam renames its references to 1, 2, 3, appends a fourth @SQ and changes the @RG;
+# bad-ln.sam changes chr2's LN and bad-order.sam swaps chr2 and chr3 (both are hand-written).
+# new-header.bam is new-header.sam as a BAM header file. new-header-cram.sam is the header
+# for aln/flags.embed.cram (chr1 1000, chr2 1234, with its M5s), renamed, with a third @SQ added.
+samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o reheader-in.bam reheader-in.sam
+samtools index -@ 0 reheader-in.bam
+samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o new-header.bam new-header.sam
+
+# Task 12: targets.bed, the `view --regions-file` / `-L` regions, is hand-written; the reads are
+# aln/flags.bam's. chr1 100 100 and chr1 110 110 sit on the edges of the 10-base reads at
+# chr1:101 (so a zero-length region must match only reads that strictly contain it), chr1 105 105
+# is inside them, chr1 250 260 and chr1 255 258 overlap each other and r_mapq10 (a read must
+# count once), chr1 700 701 is the placed unmapped read, and chr2 55 56 is inside both chr2 reads.
+# Nothing here needs building.

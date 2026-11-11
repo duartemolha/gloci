@@ -34,8 +34,34 @@ pub struct CramPrelude {
     pub data_start: u64,
 }
 
+/// Refuse a CRAM file older than 3.0 (read from its file definition), with a message that says
+/// what to do. noodles reads every container as CRAM 3, so a 2.x header would only fail as a
+/// generic decode error.
+pub fn check_cram_version(path: &Path) -> Result<(), IoError> {
+    let name = path.display().to_string();
+    let mut start = [0u8; 6];
+    let n = File::open(path)
+        .and_then(|mut f| f.read(&mut start))
+        .map_err(|source| IoError::Open {
+            path: name.clone(),
+            source,
+        })?;
+    if n == 6 && &start[..4] == b"CRAM" && start[4] < 3 {
+        return Err(IoError::Detect {
+            path: name.clone(),
+            msg: format!(
+                "{name} is CRAM {}.{}, which gloci does not read (it reads CRAM 3.0 and 3.1); \
+convert it with samtools view -C -o x3.cram {name}",
+                start[4], start[5]
+            ),
+        });
+    }
+    Ok(())
+}
+
 /// Read the file definition and the header container of the CRAM file `path`.
 pub fn read_cram_prelude(path: &Path) -> Result<CramPrelude, IoError> {
+    check_cram_version(path)?;
     let name = path.display().to_string();
     let file = File::open(path).map_err(|source| IoError::Open {
         path: name.clone(),

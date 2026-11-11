@@ -3,12 +3,17 @@ use crate::Ctx;
 use crate::cli::{VcfSpan, ViewArgs};
 use gloci_io::{
     Format, InvalidPolicy, OutputOptions, ReaderOptions, UsageError, WriterOptions,
-    parse_output_spec,
+    parse_output_spec, plain_text_output_spec,
 };
 use gloci_ops::{ViewOptions, run_view};
 
 pub fn run(ctx: &Ctx, a: &ViewArgs) -> anyhow::Result<()> {
-    let spec = parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref())?;
+    // --count writes a number, so any file name will do: no format is read from it.
+    let spec = if a.count {
+        plain_text_output_spec(a.out.output.as_deref())
+    } else {
+        parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref())?
+    };
     let format = match a.format.format.as_deref() {
         None => None,
         Some(s) => Some(s.parse::<Format>().map_err(UsageError)?),
@@ -55,6 +60,7 @@ pub fn run(ctx: &Ctx, a: &ViewArgs) -> anyhow::Result<()> {
         chrom_order: a.chrom_order.chrom_order,
         assume_sorted: a.assume_sorted,
         unordered: false,
+        count: a.count,
     };
     run_view(&a.file, &vo, &ro, &spec, &oo, &wo)?;
     Ok(())

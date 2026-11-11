@@ -1,0 +1,6 @@
+@HD	VN:1.6	SO:coordinate
+@SQ	SN:1	LN:1000	M5:712ec1c4d51a41496d99ca5ba3068643
+@SQ	SN:2	LN:1234	M5:b0a68713456b230be03d71247f95c26e
+@SQ	SN:3	LN:500
+@RG	ID:g1	SM:renamed
+@CO	new cram header

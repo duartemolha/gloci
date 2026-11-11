@@ -28,6 +28,7 @@ pub mod maskfasta;
 pub mod merge;
 pub mod nuc;
 pub mod partition;
+pub mod reheader;
 pub mod relate;
 pub mod samples;
 pub mod seq;
@@ -59,6 +60,7 @@ pub use gloci_engine::all_indexed;
 pub use head::{HeadOptions, head};
 pub use idxstats::{IdxstatsPath, idxstats};
 pub use maskfasta::{Mask, MaskSet, MaskSummary, PastEnd, maskfasta, maskfasta_with};
+pub use reheader::reheader;
 pub use relate::{
     Acceptor, InputPaths, RelateInputs, RelateOptions, RelationFiles, ReportOutput, RunOptions,
     b_placeholder, open_report, rewrite_coords, run_relation, runs_per_chromosome,
