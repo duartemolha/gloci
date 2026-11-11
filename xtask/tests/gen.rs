@@ -443,3 +443,203 @@ fn vcf_has_the_mix_the_five_statistics_need() {
         "a sample with no missing genotype"
     );
 }
+
+// ---- SAM and FASTA ----
+
+use std::collections::HashMap;
+use xtask::synth::{FastaOpts, SamOpts};
+
+fn sam_opts() -> SamOpts {
+    SamOpts {
+        records: 12000,
+        read_len: 100,
+        depth: 5.0,
+        chroms: 3,
+        spliced_frac: 0.2,
+        seed: 7,
+        ..SamOpts::default()
+    }
+}
+
+fn sam_bytes(o: &SamOpts) -> (Vec<u8>, Vec<u8>) {
+    let (mut s, mut r) = (Vec::new(), Vec::new());
+    xtask::synth::sam(o, &mut s).unwrap();
+    xtask::synth::sam_reference(o, &mut r).unwrap();
+    (s, r)
+}
+
+fn read_fasta(bytes: &[u8]) -> HashMap<String, Vec<u8>> {
+    let mut m = HashMap::new();
+    let mut name = String::new();
+    for l in std::str::from_utf8(bytes).unwrap().lines() {
+        if let Some(n) = l.strip_prefix('>') {
+            name = n.to_string();
+            m.insert(name.clone(), Vec::new());
+        } else {
+            m.get_mut(&name).unwrap().extend_from_slice(l.as_bytes());
+        }
+    }
+    m
+}
+
+/// The CIGAR as (length, op) pairs.
+fn cigar(c: &str) -> Vec<(usize, char)> {
+    let mut out = Vec::new();
+    let mut n = 0usize;
+    for ch in c.chars() {
+        if let Some(d) = ch.to_digit(10) {
+            n = n * 10 + d as usize;
+        } else {
+            out.push((n, ch));
+            n = 0;
+        }
+    }
+    out
+}
+
+#[test]
+fn gen_sam_is_valid() {
+    let o = sam_opts();
+    let (sam, reference) = sam_bytes(&o);
+    let refs = read_fasta(&reference);
+    let text = std::str::from_utf8(&sam).unwrap();
+    assert!(text.starts_with("@HD\tVN:1.6\tSO:coordinate\n"));
+    let len = xtask::synth::sam_chrom_len(&o);
+    for c in 1..=3 {
+        assert!(text.contains(&format!("@SQ\tSN:chr{c}\tLN:{len}\n")));
+        assert_eq!(refs[&format!("chr{c}")].len() as u64, len);
+    }
+    let (mut n, mut spliced, mut matched) = (0u64, 0u64, 0u64);
+    let mut last = (0usize, 0u64, 0u32);
+    for l in text.lines().filter(|l| !l.starts_with('@')) {
+        let f: Vec<&str> = l.split('\t').collect();
+        assert_eq!(f.len(), 11, "{l}");
+        let chrom: usize = f[2].strip_prefix("chr").unwrap().parse().unwrap();
+        let pos: u64 = f[3].parse().unwrap();
+        // Coordinate order: by header chromosome, then position.
+        // (samtools order: at one position, a forward read before a reverse one)
+        let flag: u32 = f[1].parse().unwrap();
+        let key = (chrom, pos, flag & 16);
+        assert!(key >= last, "unsorted at {l}");
+        last = key;
+        // The read is the reference at its blocks (the gaps skipped).
+        let rf = &refs[f[2]];
+        let mut at = pos as usize - 1;
+        let mut want = Vec::new();
+        for (k, op) in cigar(f[5]) {
+            match op {
+                'M' => {
+                    want.extend_from_slice(&rf[at..at + k]);
+                    matched += k as u64;
+                    at += k;
+                }
+                'N' => {
+                    spliced += 1;
+                    at += k;
+                }
+                'D' => at += k,
+                other => panic!("unexpected CIGAR op {other}"),
+            }
+        }
+        assert_eq!(
+            f[9].as_bytes(),
+            &want[..],
+            "read {l} differs from the reference"
+        );
+        assert_eq!(f[9].len(), 100);
+        assert_eq!(f[10].len(), 100);
+        n += 1;
+    }
+    assert_eq!(n, 12000);
+    let frac = spliced as f64 / n as f64;
+    assert!((frac - 0.2).abs() < 0.03, "spliced fraction {frac}");
+    let depth = matched as f64 / (3.0 * len as f64);
+    assert!((depth - 5.0).abs() < 0.5, "depth {depth}");
+}
+
+#[test]
+fn gen_sam_shuffled_is_unsorted_and_deterministic() {
+    let o = SamOpts {
+        shuffled: true,
+        ..sam_opts()
+    };
+    let (a, ra) = sam_bytes(&o);
+    let (b, rb) = sam_bytes(&o);
+    assert_eq!((&a, &ra), (&b, &rb), "same seed, same bytes");
+    let text = std::str::from_utf8(&a).unwrap();
+    assert!(text.starts_with("@HD\tVN:1.6\tSO:unsorted\n"));
+    let keys: Vec<(usize, u64)> = text
+        .lines()
+        .filter(|l| !l.starts_with('@'))
+        .map(|l| {
+            let f: Vec<&str> = l.split('\t').collect();
+            (f[2][3..].parse().unwrap(), f[3].parse().unwrap())
+        })
+        .collect();
+    assert_eq!(keys.len(), 12000);
+    assert!(keys.windows(2).any(|w| w[0] > w[1]), "output is sorted");
+    // The reference does not depend on the order; other seeds differ.
+    assert_eq!(ra, sam_bytes(&sam_opts()).1);
+    assert_ne!(
+        ra,
+        sam_bytes(&SamOpts {
+            seed: 8,
+            ..o.clone()
+        })
+        .1
+    );
+    // A part of the same reference holds other reads.
+    let p1 = sam_bytes(&SamOpts { part: 1, ..o }).0;
+    assert_ne!(a, p1);
+}
+
+#[test]
+fn gen_fasta_has_masks_and_matching_intervals() {
+    let o = FastaOpts {
+        records: 500,
+        chroms: 3,
+        chrom_len: 400_000,
+        soft_frac: 0.1,
+        n_frac: 0.02,
+        seed: 3,
+        ..FastaOpts::default()
+    };
+    let (mut fa, mut bed) = (Vec::new(), Vec::new());
+    xtask::synth::fasta(&o, &mut fa).unwrap();
+    xtask::synth::fasta_intervals(&o, &mut bed).unwrap();
+    let refs = read_fasta(&fa);
+    assert_eq!(refs.len(), 3);
+    let total: usize = refs.values().map(Vec::len).sum();
+    assert_eq!(total, 1_200_000);
+    let all: Vec<u8> = refs.values().flatten().copied().collect();
+    let lower = all.iter().filter(|b| b.is_ascii_lowercase()).count() as f64 / total as f64;
+    let n = all.iter().filter(|b| **b == b'N').count() as f64 / total as f64;
+    assert!((lower - 0.1).abs() < 0.05, "soft-masked {lower}");
+    assert!(n > 0.002 && n < 0.06, "N {n}");
+    assert!(
+        all.iter().all(|b| b"ACGTNacgt".contains(b)),
+        "unexpected base"
+    );
+    let recs = parse(&bed);
+    assert_eq!(recs.len(), 500);
+    for (c, s, e) in &recs {
+        assert!(s < e && *e as usize <= refs[c].len());
+    }
+    // Same seed as a SAM's reference: the A/C/G/T agree where not masked.
+    let so = SamOpts {
+        records: 20_000,
+        read_len: 100,
+        depth: 10.0,
+        chroms: 3,
+        seed: 3,
+        ..SamOpts::default()
+    };
+    let len = xtask::synth::sam_chrom_len(&so) as usize;
+    let sref = read_fasta(&sam_bytes(&so).1);
+    let agree = refs["chr1"][..len.min(400_000)]
+        .iter()
+        .zip(&sref["chr1"])
+        .filter(|(a, b)| a.to_ascii_uppercase() == **b)
+        .count();
+    assert!(agree as f64 > 0.8 * len.min(400_000) as f64);
+}

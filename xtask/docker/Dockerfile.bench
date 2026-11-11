@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-USER micromamba
+USER mambauser
 
 # Baselines and conda-available yardsticks (pinned)
 RUN micromamba install -y -n base -c conda-forge -c bioconda \
@@ -19,6 +19,8 @@ RUN micromamba install -y -n base -c conda-forge -c bioconda \
         vcftools=0.1.16 \
         htslib=1.21 \
         bcftools=1.21 \
+        samtools=1.21 \
+        mosdepth=0.3.10 \
         hyperfine=2.0.0 \
         bedtk=0.1 \
         vcfkit=0.2.9 \
@@ -61,5 +63,5 @@ RUN cargo install --git https://github.com/brentp/bedder --rev 4cf2ef6 bedder \
 RUN cargo install --git https://github.com/vcfexpress/vcfexpress --rev 3a893cb vcfexpress \
     || echo "skipped: vcfexpress not installed (cargo install --git https://github.com/vcfexpress/vcfexpress --rev 3a893cb vcfexpress failed); its benchmark columns will be empty"
 
-USER micromamba
+USER mambauser
 WORKDIR /

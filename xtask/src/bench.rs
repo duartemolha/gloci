@@ -95,10 +95,13 @@ pub struct Case {
     /// Dataset from `datasets.toml`, e.g. `1kg-30x-chr20`.
     #[serde(default)]
     pub dataset: Option<String>,
-    /// `bed` (default), `bed.gz`, `vcf.gz`, etc.
+    /// `bed` (default), `bed.gz`, `vcf.gz`, `bam`, `cram`, `fa`, etc.
     #[serde(default = "default_ext")]
     pub input: String,
-    /// Tool name -> shell command with `{gloci}`, `{in}`, `{in_a}`, `{in_b}` and `{out}`.
+    /// Tool name -> shell command with `{gloci}`, `{in}`, `{in_a}`, `{in_b}`
+    /// and `{out}`; alignment and FASTA setups also give `{ref}` (the
+    /// reference FASTA) and `{ins}` (every BAM of `--parts`), and `{in_b}` is
+    /// their BED of target windows or intervals.
     pub commands: BTreeMap<String, String>,
     pub targets: Vec<String>,
 }
@@ -270,7 +273,242 @@ fn id_of(flag: &str) -> Result<String> {
 
 struct PreparedInputs {
     in_a: PathBuf,
+    /// The second input: B of a pair, or the BED of target windows or
+    /// intervals of an alignment or FASTA setup.
     in_b: Option<PathBuf>,
+    /// The reference FASTA of an alignment setup (`{ref}`).
+    reference: Option<PathBuf>,
+    /// Every file of a multi-part alignment setup (`{ins}`).
+    ins: Vec<PathBuf>,
+}
+
+impl PreparedInputs {
+    fn new(in_a: PathBuf, in_b: Option<PathBuf>) -> Self {
+        PreparedInputs {
+            in_a,
+            in_b,
+            reference: None,
+            ins: Vec::new(),
+        }
+    }
+}
+
+/// The value after `flag` in a setup's words, parsed.
+fn setup_value<T: std::str::FromStr>(words: &[String], flag: &str) -> Option<T> {
+    let i = words.iter().position(|w| w == flag)?;
+    words.get(i + 1)?.parse().ok()
+}
+
+/// Replace (or append) `flag value` in a setup's words.
+fn set_setup_value(words: &mut Vec<String>, flag: &str, value: String) {
+    match words.iter().position(|w| w == flag) {
+        Some(i) if i + 1 < words.len() => words[i + 1] = value,
+        _ => {
+            words.push(flag.to_string());
+            words.push(value);
+        }
+    }
+}
+
+/// Run `tool args` (paths under `dir`) on the host when the tool is installed,
+/// else in the benchmark image with `dir` mounted at `/data`.
+fn run_tool(tool: &str, args: &[String], dir: &Path, image: Option<&str>) -> Result<()> {
+    let host = Command::new("which")
+        .arg(tool)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if host {
+        return run_ok(Command::new(tool).args(args));
+    }
+    let image = image.ok_or_else(|| {
+        anyhow!("{tool} is neither installed nor is the benchmark image available")
+    })?;
+    let mut c = Command::new("docker");
+    c.args([
+        "run",
+        "--rm",
+        "--user",
+        &format!("{}:{}", id_of("-u")?, id_of("-g")?),
+    ])
+    .args(["-e", "HOME=/tmp", "-v"])
+    .arg(format!("{}:/data", dir.display()))
+    .arg(image)
+    .arg(tool)
+    .args(args.iter().map(|a| match Path::new(a).strip_prefix(dir) {
+        Ok(rest) => format!("/data/{}", rest.display()),
+        Err(_) => a.clone(),
+    }));
+    run_ok(&mut c)
+}
+
+/// Generate (or reuse) the inputs of a `sam ...` setup: the BAM (or CRAM) of
+/// the case's `input`, its index, the reference FASTA and a BED of target
+/// windows. `--parts N` makes N coordinate-sorted BAMs of one reference
+/// (`ins`). The files are named by the setup alone, so cases with one setup
+/// share them.
+fn prepare_sam(
+    case: &Case,
+    setup: &str,
+    gloci: &Path,
+    dir: &Path,
+    image: Option<&str>,
+) -> Result<PreparedInputs> {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    setup.hash(&mut h);
+    let stem = format!("sam-{:08x}", h.finish() as u32);
+    let mut words: Vec<String> = setup.split_whitespace().map(String::from).collect();
+    let parts: u64 = setup_value(&words, "--parts").unwrap_or(1).max(1);
+    if let Some(i) = words.iter().position(|w| w == "--parts") {
+        words.drain(i..(i + 2).min(words.len()));
+    }
+    let shuffled = words.iter().any(|w| w == "--shuffled");
+    ensure!(
+        parts == 1 || !shuffled,
+        "--parts and --shuffled do not combine"
+    );
+    let records: u64 = setup_value(&words, "--records").unwrap_or(1000);
+    let depth: f64 = setup_value(&words, "--depth").unwrap_or(30.0);
+    if parts > 1 {
+        // Every part has the chromosome length of the whole.
+        set_setup_value(&mut words, "--records", (records / parts).to_string());
+        set_setup_value(&mut words, "--depth", (depth / parts as f64).to_string());
+    }
+    let reference = dir.join(format!("{stem}.ref.fa"));
+    let targets = dir.join(format!("{stem}.targets.bed"));
+    let bam_of = |k: u64| {
+        if parts == 1 {
+            dir.join(format!("{stem}.bam"))
+        } else {
+            dir.join(format!("{stem}.part{k}.bam"))
+        }
+    };
+    let bams: Vec<PathBuf> = (0..parts).map(bam_of).collect();
+    if !bams.iter().all(|b| b.exists()) || !reference.exists() || !targets.exists() {
+        for (k, bam) in bams.iter().enumerate() {
+            if bam.exists() && k > 0 {
+                continue;
+            }
+            eprintln!("generating {}", bam.display());
+            let mut args = words.clone();
+            if parts > 1 {
+                args.push("--part".into());
+                args.push(k.to_string());
+            }
+            let (tmp_ref, tmp_targets) = (
+                dir.join(format!("{stem}.ref.fa.partial")),
+                dir.join(format!("{stem}.targets.bed.partial")),
+            );
+            if k == 0 {
+                args.extend([
+                    "--ref-out".into(),
+                    tmp_ref.to_string_lossy().into_owned(),
+                    "--targets-out".into(),
+                    tmp_targets.to_string_lossy().into_owned(),
+                ]);
+            }
+            let tmp_bam = dir.join(format!("{stem}.partial.bam"));
+            // The SAM text streams into gloci view: it is never on disk.
+            let mut child = Command::new(gloci)
+                .args(["view", "-", "-o"])
+                .arg(&tmp_bam)
+                .stdin(std::process::Stdio::piped())
+                .spawn()
+                .context("running gloci view")?;
+            let written = {
+                let stdin = child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?;
+                let mut w = std::io::BufWriter::with_capacity(1 << 20, stdin);
+                crate::synth::run_args(&args, &mut w)
+            };
+            let st = child.wait()?;
+            written?;
+            ensure!(st.success(), "gloci view of the generated SAM failed: {st}");
+            std::fs::rename(&tmp_bam, bam)?;
+            if k == 0 {
+                std::fs::rename(&tmp_ref, &reference)?;
+                std::fs::rename(&tmp_targets, &targets)?;
+            }
+            if !shuffled {
+                run_ok(Command::new(gloci).arg("index").arg(bam))?;
+            }
+        }
+    }
+    if !PathBuf::from(format!("{}.fai", reference.display())).exists() {
+        run_ok(Command::new(gloci).arg("index").arg(&reference))?;
+    }
+    let mut in_a = bams[0].clone();
+    if case.input == "cram" {
+        let cram = dir.join(format!("{stem}.cram"));
+        if !cram.exists() {
+            eprintln!("writing {} with samtools", cram.display());
+            let tmp = dir.join(format!("{stem}.partial.cram"));
+            run_tool(
+                "samtools",
+                &[
+                    "view".into(),
+                    "-C".into(),
+                    "-T".into(),
+                    reference.to_string_lossy().into_owned(),
+                    "-o".into(),
+                    tmp.to_string_lossy().into_owned(),
+                    in_a.to_string_lossy().into_owned(),
+                ],
+                dir,
+                image,
+            )?;
+            std::fs::rename(&tmp, &cram)?;
+        }
+        if !PathBuf::from(format!("{}.crai", cram.display())).exists() {
+            run_tool(
+                "samtools",
+                &["index".into(), cram.to_string_lossy().into_owned()],
+                dir,
+                image,
+            )?;
+        }
+        in_a = cram;
+    }
+    Ok(PreparedInputs {
+        in_a,
+        in_b: Some(targets),
+        reference: Some(reference),
+        ins: bams,
+    })
+}
+
+/// Generate (or reuse) the FASTA, its `.fai` and the BED of intervals of a
+/// `fasta ...` setup.
+fn prepare_fasta(setup: &str, gloci: &Path, dir: &Path) -> Result<PreparedInputs> {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    setup.hash(&mut h);
+    let stem = format!("fa-{:08x}", h.finish() as u32);
+    let (fa, bed) = (
+        dir.join(format!("{stem}.fa")),
+        dir.join(format!("{stem}.bed")),
+    );
+    if !fa.exists() || !bed.exists() {
+        eprintln!("generating {}", fa.display());
+        let (tmp_fa, tmp_bed) = (
+            dir.join(format!("{stem}.fa.partial")),
+            dir.join(format!("{stem}.bed.partial")),
+        );
+        let mut args: Vec<String> = setup.split_whitespace().map(String::from).collect();
+        args.push("--bed-out".into());
+        args.push(tmp_bed.to_string_lossy().into_owned());
+        let mut f = std::fs::File::create(&tmp_fa)?;
+        crate::synth::run_args(&args, &mut f)?;
+        std::fs::rename(&tmp_fa, &fa)?;
+        std::fs::rename(&tmp_bed, &bed)?;
+    }
+    if !PathBuf::from(format!("{}.fai", fa.display())).exists() {
+        run_ok(Command::new(gloci).arg("index").arg(&fa))?;
+    }
+    Ok(PreparedInputs {
+        reference: Some(fa.clone()),
+        ..PreparedInputs::new(fa, Some(bed))
+    })
 }
 
 fn link_or_copy(src: &Path, dst: &Path) -> Result<()> {
@@ -290,6 +528,7 @@ fn prepare_input(
     setup: Option<&str>,
     gloci: &Path,
     dir: &Path,
+    image: Option<&str>,
 ) -> Result<PreparedInputs> {
     std::fs::create_dir_all(dir)?;
 
@@ -315,10 +554,7 @@ fn prepare_input(
             let target_b = dir.join(format!("{}-b.bed", case.name));
             link_or_copy(&in_a, &target_a)?;
             link_or_copy(&in_b, &target_b)?;
-            return Ok(PreparedInputs {
-                in_a: target_a,
-                in_b: Some(target_b),
-            });
+            return Ok(PreparedInputs::new(target_a, Some(target_b)));
         } else {
             let file_name = path
                 .file_name()
@@ -341,15 +577,17 @@ fn prepare_input(
                     }
                 }
             }
-            return Ok(PreparedInputs {
-                in_a: target,
-                in_b: None,
-            });
+            return Ok(PreparedInputs::new(target, None));
         }
     }
 
     let setup_str =
         setup.ok_or_else(|| anyhow!("case {} has neither setup nor dataset", case.name))?;
+    match setup_str.split_whitespace().next() {
+        Some("sam") => return prepare_sam(case, setup_str, gloci, dir, image),
+        Some("fasta") => return prepare_fasta(setup_str, gloci, dir),
+        _ => {}
+    }
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     setup_str.hash(&mut h);
@@ -410,10 +648,7 @@ fn prepare_input(
                 let _ = std::fs::remove_file(&plain_b);
             }
         }
-        Ok(PreparedInputs {
-            in_a: want_a,
-            in_b: Some(want_b),
-        })
+        Ok(PreparedInputs::new(want_a, Some(want_b)))
     } else {
         let plain = dir.join(format!("{stem}.{ext}"));
         let want = dir.join(format!("{stem}.{}", case.input));
@@ -441,10 +676,7 @@ fn prepare_input(
                 let _ = std::fs::remove_file(&plain);
             }
         }
-        Ok(PreparedInputs {
-            in_a: want,
-            in_b: None,
-        })
+        Ok(PreparedInputs::new(want, None))
     }
 }
 
@@ -601,11 +833,18 @@ pub fn run(a: &Args) -> Result<bool> {
             Some(n) => override_records(s, n),
             None => s.clone(),
         });
-        let inputs = prepare_input(case, setup.as_deref(), &gloci, &data)?;
+        let inputs = prepare_input(
+            case,
+            setup.as_deref(),
+            &gloci,
+            &data,
+            use_docker.then_some(a.image.as_str()),
+        )?;
         let out_name = format!("{}.out.{}", case.name, case.input);
         let json = results.join(format!("{}.json", case.name));
 
-        let (gloci_cmd, in_a_arg, in_b_arg, out_arg) = if use_docker {
+        let (gloci_cmd, in_a_arg, in_b_arg, out_arg, ref_arg, ins_arg) = if use_docker {
+            let in_dir = |p: &Path| format!("/data/{}", p.file_name().unwrap().to_string_lossy());
             let in_a_file = inputs.in_a.file_name().unwrap().to_string_lossy();
             let in_b_file = inputs
                 .in_b
@@ -616,6 +855,13 @@ pub fn run(a: &Args) -> Result<bool> {
                 format!("/data/{in_a_file}"),
                 in_b_file.map(|b| format!("/data/{b}")).unwrap_or_default(),
                 format!("/data/{out_name}"),
+                inputs.reference.as_deref().map(in_dir).unwrap_or_default(),
+                inputs
+                    .ins
+                    .iter()
+                    .map(|p| in_dir(p))
+                    .collect::<Vec<_>>()
+                    .join(" "),
             )
         } else {
             (
@@ -627,13 +873,34 @@ pub fn run(a: &Args) -> Result<bool> {
                     .map(|p| p.to_string_lossy().into_owned())
                     .unwrap_or_default(),
                 data.join(&out_name).to_string_lossy().into_owned(),
+                inputs
+                    .reference
+                    .as_ref()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                inputs
+                    .ins
+                    .iter()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            )
+        };
+        let fill = |cmd: &str| {
+            substitute_pair(
+                &cmd.replace("{ref}", &ref_arg).replace("{ins}", &ins_arg),
+                &gloci_cmd,
+                &in_a_arg,
+                &in_b_arg,
+                &out_arg,
             )
         };
 
         // Filter commands based on tool availability
         let mut active_commands: Vec<(String, String)> = Vec::new();
         for (tool, cmd) in &case.commands {
-            if tool == "gloci" {
+            // `gloci` and its variants (`gloci-t8`) run the binary under test.
+            if tool == "gloci" || tool.starts_with("gloci-") {
                 active_commands.push((tool.clone(), cmd.clone()));
                 continue;
             }
@@ -692,9 +959,7 @@ pub fn run(a: &Args) -> Result<bool> {
             for (tool, cmd) in &active_commands {
                 hf.push("-n".into());
                 hf.push(tool.clone());
-                hf.push(substitute_pair(
-                    cmd, &gloci_cmd, &in_a_arg, &in_b_arg, &out_arg,
-                ));
+                hf.push(fill(cmd));
             }
             eprintln!("== {} ({} tools)", case.name, active_commands.len());
             let mut c;
@@ -730,12 +995,7 @@ pub fn run(a: &Args) -> Result<bool> {
             );
             let substituted: Vec<(&str, String)> = active_commands
                 .iter()
-                .map(|(tool, cmd)| {
-                    (
-                        tool.as_str(),
-                        substitute_pair(cmd, &gloci_cmd, &in_a_arg, &in_b_arg, &out_arg),
-                    )
-                })
+                .map(|(tool, cmd)| (tool.as_str(), fill(cmd)))
                 .collect();
             run_native_bench(&substituted, &json)?;
             remove_outputs(&data, &out_name);
@@ -851,24 +1111,31 @@ mod tests {
         let cases = parse_cases(&text).unwrap();
         let mut checked = 0;
         for c in &cases {
-            let Some(cmd) = c.commands.get("gloci") else {
-                continue;
-            };
-            let line = gloci_words(cmd).join(" ");
-            let args: Vec<String> = gloci_words(cmd)
-                .iter()
-                .map(|w| {
-                    w.replace("{gloci}", "gloci")
-                        .replace("{in_a}", "a.bed")
-                        .replace("{in_b}", "b.bed")
-                        .replace("{in}", "in.bed")
-                        .replace("{out}", "out.bed")
-                })
-                .collect();
-            if let Err(e) = gloci::cli::Cli::try_parse_from(&args) {
-                panic!("case `{}`: `{}` does not parse:\n{e}", c.name, line.trim());
+            // `gloci` and its variants (`gloci-t8`).
+            for (_, cmd) in c.commands.iter().filter(|(k, _)| k.starts_with("gloci")) {
+                let line = gloci_words(cmd).join(" ");
+                let args: Vec<String> = gloci_words(cmd)
+                    .iter()
+                    .flat_map(|w| {
+                        let w = w
+                            .replace("{gloci}", "gloci")
+                            .replace("{in_a}", "a.bed")
+                            .replace("{in_b}", "b.bed")
+                            .replace("{ref}", "ref.fa")
+                            .replace("{in}", "in.bed")
+                            .replace("{out}", "out.bed");
+                        if w == "{ins}" {
+                            vec!["x.bam".to_string(), "y.bam".to_string()]
+                        } else {
+                            vec![w]
+                        }
+                    })
+                    .collect();
+                if let Err(e) = gloci::cli::Cli::try_parse_from(&args) {
+                    panic!("case `{}`: `{}` does not parse:\n{e}", c.name, line.trim());
+                }
+                checked += 1;
             }
-            checked += 1;
         }
         assert!(checked >= 25, "only {checked} gloci command lines found");
     }
@@ -928,6 +1195,20 @@ mod tests {
             "vcf-stats-synthetic-2500",
             "vcf-filter-include-synthetic-2500",
             "convert-bcf-synthetic-100",
+            // P3a cases
+            "convert-bam-50M",
+            "genomecov-bam-50M",
+            "coverage-bam-targets",
+            "intersect-bam-any",
+            "coverage-cram-targets",
+            "getfasta-1M",
+            "nuc-1M",
+            "maskfasta-3G",
+            "index-bam-50M",
+            "sort-bam-50M",
+            "sort-name-bam-50M",
+            "merge-bam-8x",
+            "cat-bam-8x",
         ];
         for exp in expected {
             assert!(names.contains(&exp), "missing expected case `{exp}`");
@@ -1005,7 +1286,7 @@ mod tests {
             commands: BTreeMap::new(),
             targets: Vec::new(),
         };
-        let inputs = prepare_input(&c, c.setup.as_deref(), &gloci, td.path()).unwrap();
+        let inputs = prepare_input(&c, c.setup.as_deref(), &gloci, td.path(), None).unwrap();
         assert!(inputs.in_a.exists());
         let tbi = PathBuf::from(format!("{}.tbi", inputs.in_a.display()));
         let csi = PathBuf::from(format!("{}.csi", inputs.in_a.display()));
@@ -1157,5 +1438,97 @@ mod tests {
             checked += 1;
         }
         assert!(checked >= 6, "only {checked} vcf cases checked");
+    }
+
+    /// Every P3a case's gloci command runs on a tiny generated version of its
+    /// own setup (a SAM, or a FASTA with its BED), succeeds and writes
+    /// output. A CRAM case reads the BAM here (samtools makes the CRAM only
+    /// in the benchmark image); `{ref}` is still the generated reference.
+    #[test]
+    fn p3a_gloci_bench_commands_run_on_small_data() {
+        use std::process::Stdio;
+        let gloci = match std::env::var_os("GLOCI_BIN") {
+            Some(b) => PathBuf::from(b),
+            None => built_gloci("debug").unwrap(),
+        };
+        let text =
+            std::fs::read_to_string(workspace_root().join("xtask/bench/cases.toml")).unwrap();
+        let td = tempfile::tempdir().unwrap();
+        let mut checked = 0;
+        for c in parse_cases(&text).unwrap() {
+            let Some(setup) = c.setup.as_deref() else {
+                continue;
+            };
+            let kind = setup.split_whitespace().next();
+            if kind != Some("sam") && kind != Some("fasta") {
+                continue;
+            }
+            let mut words: Vec<String> = setup.split_whitespace().map(String::from).collect();
+            set_setup_value(&mut words, "--records", "4000".into());
+            if kind == Some("fasta") {
+                set_setup_value(&mut words, "--chrom-len", "60000".into());
+            }
+            let small = Case {
+                input: if c.input == "cram" {
+                    "bam".into()
+                } else {
+                    c.input.clone()
+                },
+                ..c.clone()
+            };
+            let inputs =
+                prepare_input(&small, Some(&words.join(" ")), &gloci, td.path(), None).unwrap();
+            let out = td.path().join(format!("{}.out.{}", c.name, c.input));
+            let cmd = c.commands.get("gloci").expect("a gloci command");
+            let path = |p: &Path| p.to_string_lossy().into_owned();
+            let args: Vec<String> = gloci_words(cmd)
+                .iter()
+                .flat_map(|w| {
+                    if w == "{ins}" {
+                        return inputs.ins.iter().map(|p| path(p)).collect();
+                    }
+                    vec![
+                        w.replace("{gloci}", &path(&gloci))
+                            .replace(
+                                "{in_b}",
+                                &inputs.in_b.as_deref().map(path).unwrap_or_default(),
+                            )
+                            .replace(
+                                "{ref}",
+                                &inputs.reference.as_deref().map(path).unwrap_or_default(),
+                            )
+                            .replace("{in}", &path(&inputs.in_a))
+                            .replace("{out}", &path(&out)),
+                    ]
+                })
+                .collect();
+            let mut command = Command::new(&args[0]);
+            command.args(&args[1..]).stderr(Stdio::piped());
+            if cmd[cmd.find("{gloci}").unwrap()..].contains("> {out}") {
+                command.stdout(std::fs::File::create(&out).unwrap());
+            }
+            let r = command.output().unwrap();
+            assert!(
+                r.status.success(),
+                "case `{}`: `{}`: {}",
+                c.name,
+                args.join(" "),
+                String::from_utf8_lossy(&r.stderr)
+            );
+            // The index case rewrites the input's index; the others write out.
+            let wrote = if c.name.starts_with("index-") {
+                std::fs::metadata(format!("{}.bai", inputs.in_a.display()))
+            } else {
+                std::fs::metadata(&out)
+            };
+            assert!(
+                wrote.map(|m| m.len()).unwrap_or(0) > 0,
+                "case `{}`: `{}` wrote nothing",
+                c.name,
+                args.join(" ")
+            );
+            checked += 1;
+        }
+        assert_eq!(checked, 13, "P3a cases run");
     }
 }

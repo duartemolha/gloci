@@ -285,3 +285,142 @@ targets = []
 [case.commands]
 gloci = "{gloci} view {in} -O bcf > {out}"
 bcftools = "bcftools view {in} -Ob > {out}"
+
+# ---- P3a cases: alignments (BAM, CRAM), FASTA and alignment sort ----
+# `sam` setups generate coordinate-sorted single-end reads (10% spliced, 3%
+# with a deletion) on a reference of 24 chromosomes at 30x, a BED of target
+# windows ({in_b}) and the reference FASTA ({ref}); the generated SAM streams
+# into `gloci view`, so no SAM text is stored. Cases with one setup share the
+# files. bedtools is binding for its commands; samtools is binding for sort,
+# merge and cat (gloci replaces them); mosdepth and `samtools index` are
+# yardsticks. samtools -m is per thread: `-@ 8 -m 512M` equals gloci's
+# `--max-mem 4G`. `fasta` setups give the FASTA ({in}) and a BED of
+# --records intervals of 50 to --len-max bases ({in_b}), with soft-masked and
+# N runs; --len-max 1000 keeps the output of getfasta and nuc small enough that
+# they time the tools, not the disk.
+
+[[case]]
+name = "convert-bam-50M"
+setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
+input = "bam"
+targets = ["gloci <= 0.5 * bedtools"]
+[case.commands]
+gloci = "{gloci} convert -t 1 {in} > {out}"
+bedtools = "bedtools bamtobed -i {in} > {out}"
+
+# bedtools genomecov -ibam cuts reads at deletions, gloci --split-deletions.
+# mosdepth (-t 8) and gloci -t 8 are yardsticks.
+[[case]]
+name = "genomecov-bam-50M"
+setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
+input = "bam"
+targets = ["gloci <= 0.5 * bedtools"]
+[case.commands]
+gloci = "{gloci} genomecov -t 1 --bga --split-deletions {in} > {out}"
+bedtools = "bedtools genomecov -ibam {in} -bga > {out}"
+gloci-t8 = "{gloci} genomecov -t 8 --bga --split-deletions {in} > {out}"
+mosdepth = "mosdepth -t 8 {out}.mos {in}"
+
+[[case]]
+name = "coverage-bam-targets"
+setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
+input = "bam"
+targets = ["gloci <= 0.5 * bedtools"]
+[case.commands]
+gloci = "{gloci} coverage -t 1 -a {in_b} -b {in} > {out}"
+bedtools = "bedtools coverage -sorted -a {in_b} -b {in} > {out}"
+
+[[case]]
+name = "intersect-bam-any"
+setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
+input = "bam"
+targets = ["gloci <= 0.5 * bedtools"]
+[case.commands]
+gloci = "{gloci} intersect -t 8 --mode any -a {in} -b {in_b} -o {out}"
+bedtools = "bedtools intersect -abam {in} -b {in_b} -u > {out}"
+
+# CRAM: gloci decodes with -t 8, bedtools reads it through htslib.
+[[case]]
+name = "coverage-cram-targets"
+setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
+input = "cram"
+targets = ["gloci <= bedtools"]
+[case.commands]
+gloci = "{gloci} coverage -t 8 --reference {ref} -a {in_b} -b {in} > {out}"
+bedtools = "bedtools coverage --cram-ref {ref} -a {in_b} -b {in} > {out}"
+
+[[case]]
+name = "getfasta-1M"
+setup = "fasta --records 1000000 --chroms 24 --chrom-len 10000000 --len-max 1000 --seed 1"
+input = "fa"
+targets = ["gloci <= 0.5 * bedtools"]
+[case.commands]
+gloci = "{gloci} getfasta -t 1 -f {in} {in_b} > {out}"
+bedtools = "bedtools getfasta -fi {in} -bed {in_b} > {out}"
+
+[[case]]
+name = "nuc-1M"
+setup = "fasta --records 1000000 --chroms 24 --chrom-len 10000000 --len-max 1000 --seed 1"
+input = "fa"
+targets = ["gloci <= 0.5 * bedtools"]
+[case.commands]
+gloci = "{gloci} nuc -t 1 -f {in} {in_b} > {out}"
+bedtools = "bedtools nuc -fi {in} -bed {in_b} > {out}"
+
+# 3 Gbases: 24 chromosomes of 125 Mbases.
+[[case]]
+name = "maskfasta-3G"
+setup = "fasta --records 1000000 --chroms 24 --chrom-len 125000000 --len-max 1000 --seed 1"
+input = "fa"
+targets = ["gloci <= 0.5 * bedtools"]
+[case.commands]
+gloci = "{gloci} maskfasta -t 1 --fasta {in} -b {in_b} -o {out}"
+bedtools = "bedtools maskfasta -fi {in} -bed {in_b} -fo {out}"
+
+# Yardstick only: gloci index against samtools index (both rewrite the index).
+[[case]]
+name = "index-bam-50M"
+setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
+input = "bam"
+targets = []
+[case.commands]
+gloci = "{gloci} index -t 8 {in}"
+samtools = "samtools index -@ 8 {in} {out}"
+
+# Shuffled input is unsorted, so it has no index.
+[[case]]
+name = "sort-bam-50M"
+setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --shuffled --seed 1"
+input = "bam"
+targets = ["gloci <= samtools"]
+[case.commands]
+gloci = "{gloci} sort -t 8 --max-mem 4G -o {out} {in}"
+samtools = "samtools sort -@ 8 -m 512M -o {out} {in}"
+
+[[case]]
+name = "sort-name-bam-50M"
+setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
+input = "bam"
+targets = ["gloci <= samtools"]
+[case.commands]
+gloci = "{gloci} sort -n -t 8 --max-mem 4G -o {out} {in}"
+samtools = "samtools sort -n -@ 8 -m 512M -o {out} {in}"
+
+# Eight coordinate-sorted BAMs of one reference ({ins}), 50M records in all.
+[[case]]
+name = "merge-bam-8x"
+setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1 --parts 8"
+input = "bam"
+targets = ["gloci <= samtools"]
+[case.commands]
+gloci = "{gloci} sort -m -t 8 -o {out} {ins}"
+samtools = "samtools merge -f -@ 8 {out} {ins}"
+
+[[case]]
+name = "cat-bam-8x"
+setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1 --parts 8"
+input = "bam"
+targets = ["gloci <= samtools"]
+[case.commands]
+gloci = "{gloci} cat -o {out} {ins}"
+samtools = "samtools cat -o {out} {ins}"
