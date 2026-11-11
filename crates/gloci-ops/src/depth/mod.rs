@@ -11,8 +11,7 @@ pub use ring::{CountRules, DepthRing};
 
 use gloci_core::{Interval, Region};
 use gloci_io::{
-    AlnHeader, AlnSource, IoError, ReaderOptions, UsageError, open_aln_source,
-    open_aln_source_regions,
+    AlnHeader, AlnSource, IoError, ReaderOptions, UsageError, open_aln_source, regions_source_from,
 };
 pub(crate) use rows::log_diagnostics;
 use rows::{Emitter, Input, Plan, run_group};
@@ -68,9 +67,11 @@ fn write_err(source: io::Error) -> IoError {
 }
 
 /// The regions of `--region` and `--regions-file` as `(reference, interval)` pairs, checked
-/// against the references of `first` (the first input, whose header every input shares). A
-/// region on a reference the file lacks is dropped with a warning. `None` when none is given.
+/// against `header`, the header of the first input (named `first`), which every input shares:
+/// the input is opened once, so a pipe or stdin works. A region on a reference the file lacks
+/// is dropped with a warning. `None` when none is given.
 pub fn depth_regions(
+    header: &AlnHeader,
     first: &str,
     regions: &[String],
     regions_file: Option<&str>,
@@ -79,15 +80,6 @@ pub fn depth_regions(
     if regions.is_empty() && regions_file.is_none() {
         return Ok(None);
     }
-    if first == "-" {
-        return Err(UsageError(
-            "--region and --regions-file need a file to read the references from, not standard \
-input; write the input to a file first"
-                .into(),
-        )
-        .into());
-    }
-    let header = open_aln_source(first, ro)?.header().clone();
     let known: HashSet<&[u8]> = header.refs.iter().map(|(n, _)| &n[..]).collect();
     let mut wanted: Vec<(Vec<u8>, Interval)> = Vec::new();
     for s in regions {
@@ -149,9 +141,22 @@ header, for example gloci reheader)",
     Ok(())
 }
 
-/// `samtools depth` over `paths`, written to `out`. Rows come in `@SQ` order. The inputs are
-/// read as one merged stream at every thread count (D138): `threads` go to BGZF and CRAM
-/// decoding, so the output and the diagnostics never depend on them.
+/// The inputs of `depth`, each opened once (`-` is stdin), with `threads` to decode them.
+pub fn open_depth_inputs(
+    paths: &[String],
+    ro: &ReaderOptions,
+    threads: NonZeroUsize,
+) -> Result<Vec<Box<dyn AlnSource>>, IoError> {
+    if paths.is_empty() {
+        return Err(UsageError("depth needs at least one input file".into()).into());
+    }
+    let mut ro = ro.clone();
+    ro.threads = threads;
+    paths.iter().map(|p| open_aln_source(p, &ro)).collect()
+}
+
+/// `samtools depth` over `paths`, written to `out`: [`depth_sources`] of
+/// [`open_depth_inputs`].
 pub fn depth(
     paths: &[String],
     o: &DepthOptions,
@@ -159,22 +164,41 @@ pub fn depth(
     threads: NonZeroUsize,
     out: &mut dyn Write,
 ) -> Result<DepthSummary, IoError> {
-    if paths.is_empty() {
-        return Err(UsageError("depth needs at least one input file".into()).into());
-    }
+    let opened = open_depth_inputs(paths, ro, threads)?;
     let mut ro = ro.clone();
     ro.threads = threads;
-    let ro = &ro;
-    let mut opened: Vec<Box<dyn AlnSource>> = paths
-        .iter()
-        .map(|p| open_aln_source(p, ro))
-        .collect::<Result<_, _>>()?;
+    depth_sources(opened, paths, o, &ro, out)
+}
+
+/// `samtools depth` over `opened`, the inputs [`open_depth_inputs`] opened from `paths`, written
+/// to `out`. Rows come in `@SQ` order. The inputs are read as one merged stream at every thread
+/// count (D138): threads go to BGZF and CRAM decoding, so the output and the diagnostics never
+/// depend on them. With regions, a regular file with an index is read through it; anything
+/// else is scanned from where it stands.
+pub fn depth_sources(
+    mut opened: Vec<Box<dyn AlnSource>>,
+    paths: &[String],
+    o: &DepthOptions,
+    ro: &ReaderOptions,
+    out: &mut dyn Write,
+) -> Result<DepthSummary, IoError> {
+    if opened.is_empty() || opened.len() != paths.len() {
+        return Err(UsageError("depth needs at least one input file".into()).into());
+    }
     let headers: Vec<Arc<AlnHeader>> = opened.iter().map(|s| s.header().clone()).collect();
     let names: Vec<String> = opened.iter().map(|s| s.name().to_string()).collect();
     check_same_references(&names, &headers)?;
     let hdr = headers[0].clone();
     let warned_past = AtomicBool::new(false);
     let plan = Plan::new(o, &hdr.refs, &warned_past);
+    // One stream. Regions come through the indexes where there are some, else by scanning.
+    if let Some(regions) = &o.regions {
+        opened = opened
+            .into_iter()
+            .zip(paths)
+            .map(|(s, p)| regions_source_from(s, p, regions, ro))
+            .collect::<Result<_, _>>()?;
+    }
 
     if o.column_names {
         let mut line = b"#CHROM\tPOS".to_vec();
@@ -186,12 +210,6 @@ pub fn depth(
         out.write_all(&line).map_err(write_err)?;
     }
 
-    // One stream. Regions come through the indexes where there are some, else by scanning.
-    if let Some(regions) = &o.regions {
-        for (k, p) in paths.iter().enumerate() {
-            opened[k] = open_aln_source_regions(p, regions, ro)?;
-        }
-    }
     let mut inputs: Vec<Input> = opened
         .into_iter()
         .zip(&names)

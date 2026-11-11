@@ -499,7 +499,10 @@ fn depth_per_chromosome_equals_streaming() {
 #[test]
 fn depth_regions_resolve_and_drop_unknown() {
     let f = fixture("depth.bam");
+    let src = gloci_io::open_aln_source(&f, &ro(0)).unwrap();
+    let h = src.header().clone();
     let r = depth_regions(
+        &h,
         &f,
         &["chr1:100-200".into(), "nope:1-5".into(), "chr2".into()],
         None,
@@ -526,8 +529,9 @@ fn depth_regions_resolve_and_drop_unknown() {
             ),
         ]
     );
-    assert!(depth_regions(&f, &[], None, &ro(0)).unwrap().is_none());
-    assert!(depth_regions("-", &["chr1".into()], None, &ro(0)).is_err());
+    assert!(depth_regions(&h, &f, &[], None, &ro(0)).unwrap().is_none());
+    // A region that does not parse is a usage error.
+    assert!(depth_regions(&h, &f, &["chr1:5-1".into()], None, &ro(0)).is_err());
 }
 
 #[test]

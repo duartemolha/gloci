@@ -155,13 +155,30 @@ fn depth_regions_through_the_index_and_by_scanning() {
         .success()
         .stderr(contains("chrZ"))
         .stdout("chr1\t10\t1\nchr1\t11\t1\nchr1\t12\t1\n");
-    // Regions need a file to read the references from.
-    gloci()
-        .args(["depth", "-", "--region", "chr1"])
-        .write_stdin("")
-        .assert()
-        .code(2)
-        .stderr(contains("standard input"));
+    // Each input is opened once, so regions work on stdin and on a pipe: scanned, as a file
+    // without an index is, with the same rows.
+    let bam_bytes = std::fs::read(&bam).unwrap();
+    for t in ["1", "4"] {
+        let o = gloci()
+            .args(["depth", "-", "--regions-file", &bed, "-t", t])
+            .write_stdin(bam_bytes.clone())
+            .assert()
+            .success()
+            .get_output()
+            .clone();
+        assert_eq!(String::from_utf8(o.stdout).unwrap(), a, "stdin -t {t}");
+        let o = bash_gloci(
+            &format!("depth <(cat '{bam}') '{bam}' --region chr1:100-200 -t {t}"),
+            "",
+        );
+        let err = String::from_utf8_lossy(&o.stderr);
+        assert_eq!(o.status.code(), Some(0), "pipe -t {t}: {err}");
+        let two: String = want
+            .lines()
+            .map(|l| format!("{l}\t{}\n", l.rsplit('\t').next().unwrap()))
+            .collect();
+        assert_eq!(String::from_utf8_lossy(&o.stdout), two, "pipe -t {t}");
+    }
 }
 
 #[test]

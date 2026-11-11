@@ -242,7 +242,18 @@ pub fn open_aln_source_regions(
     regions: &[(Vec<u8>, Interval)],
     o: &ReaderOptions,
 ) -> Result<Box<dyn AlnSource>, IoError> {
-    let src = open_aln_source(path, o)?;
+    regions_source_from(open_aln_source(path, o)?, path, regions, o)
+}
+
+/// As [`open_aln_source_regions`], for `src`, already open from `path`, whose bytes are read
+/// once: only a regular file is opened again, through its index. A pipe or stdin is scanned
+/// from where `src` stands.
+pub fn regions_source_from(
+    src: Box<dyn AlnSource>,
+    path: &str,
+    regions: &[(Vec<u8>, Interval)],
+    o: &ReaderOptions,
+) -> Result<Box<dyn AlnSource>, IoError> {
     let format = src.format();
     let name = src.name().to_string();
     let header = src.header().clone();

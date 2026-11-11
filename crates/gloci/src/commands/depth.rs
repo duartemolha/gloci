@@ -5,7 +5,9 @@ use gloci_io::{
     Accept, AlignOptions, InvalidPolicy, OutFormat, OutputOptions, ReaderOptions, UsageError,
     open_output, parse_flags, parse_output_spec,
 };
-use gloci_ops::depth::{AllPositions, CountRules, DepthOptions, depth, depth_regions};
+use gloci_ops::depth::{
+    AllPositions, CountRules, DepthOptions, depth_regions, depth_sources, open_depth_inputs,
+};
 
 pub fn run(ctx: &Ctx, a: &DepthArgs) -> anyhow::Result<()> {
     let flags =
@@ -37,8 +39,11 @@ pub fn run(ctx: &Ctx, a: &DepthArgs) -> anyhow::Result<()> {
             InvalidPolicy::Fail
         },
     };
+    // Each input is opened once: the regions are checked against the first one's header.
+    let inputs = open_depth_inputs(&a.files, &ro, ctx.threads)?;
     let regions = depth_regions(
-        &a.files[0],
+        inputs[0].header(),
+        inputs[0].name(),
         &a.region.region,
         a.region.regions_file.as_ref().and_then(|p| p.to_str()),
         &ro,
@@ -68,7 +73,7 @@ pub fn run(ctx: &Ctx, a: &DepthArgs) -> anyhow::Result<()> {
     };
     let dest = super::dest_name(&spec);
     let mut out = open_output(&spec, OutFormat::Tsv, &oo)?;
-    depth(&a.files, &o, &ro, ctx.threads, &mut out).map_err(|e| e.with_output_name(&dest))?;
+    depth_sources(inputs, &a.files, &o, &ro, &mut out).map_err(|e| e.with_output_name(&dest))?;
     out.finish()?;
     Ok(())
 }
