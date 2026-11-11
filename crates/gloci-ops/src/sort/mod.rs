@@ -29,6 +29,7 @@ mod merge;
 mod order;
 mod spill;
 
+pub(crate) use inputs::coordinate_header;
 pub use inputs::{
     HeaderRuleCmd, MIN_MAX_MEM, SortSettings, check_definitions, check_definitions_for,
     check_definitions_pair, check_samples, check_samples_for, check_samples_pair,
@@ -40,7 +41,7 @@ pub use order::{Order, coordinate_key, name_cmp_raw, name_flag_rank, qname_of, s
 
 use chunk::Chunk;
 use gloci_core::ChromTable;
-use gloci_io::{IoError, RecordBatch};
+use gloci_io::{IoError, RecordBatch, RecordMeta};
 use order::{M_COORD, M_FULL, M_INTERVAL, M_NAME, M_NAME_BYTES};
 use spill::{RecHead, Run, SpillDir};
 use std::collections::VecDeque;
@@ -150,14 +151,27 @@ impl Sorter {
     /// Add a batch; `chroms` is the table its `ChromId`s come from (shared
     /// by all inputs). May sort and spill a full chunk.
     pub fn push(&mut self, chroms: &ChromTable, batch: &RecordBatch) -> Result<(), IoError> {
+        self.push_keyed(chroms, batch, |m| (m.key, m.span.end))
+    }
+
+    /// [`Sorter::push`] with each record's `(key, end)` given by `keys` instead of its own
+    /// `key` and `span.end`. `--sort` of alignments keys them by `(pos << 1) | reverse` with
+    /// end 0, so they come out in `gloci sort`'s coordinate order (D121).
+    pub fn push_keyed(
+        &mut self,
+        chroms: &ChromTable,
+        batch: &RecordBatch,
+        keys: impl Fn(&RecordMeta) -> (u64, u64),
+    ) -> Result<(), IoError> {
         for m in &batch.recs {
             let raw = &batch.buf[m.off..m.off + m.len as usize];
             self.max_rec = self.max_rec.max(raw.len());
-            let (chrom, end) = (m.chrom.0, m.span.end);
-            if !self.chunk.try_push(chrom, m.key, end, self.seq, raw) {
+            let chrom = m.chrom.0;
+            let (key, end) = keys(m);
+            if !self.chunk.try_push(chrom, key, end, self.seq, raw) {
                 self.spill_chunk(&chroms.ranks())?;
                 // Never drop a record silently.
-                if !self.chunk.try_push(chrom, m.key, end, self.seq, raw) {
+                if !self.chunk.try_push(chrom, key, end, self.seq, raw) {
                     return Err(IoError::Internal(format!(
                         "an empty sort chunk rejected a record of {} bytes",
                         raw.len()

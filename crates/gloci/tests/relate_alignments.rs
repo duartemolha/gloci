@@ -281,6 +281,90 @@ fn sort_flag_keeps_sam_a_as_sam() {
     assert!(got.starts_with("@HD"));
 }
 
+/// Reads whose interval order (start, end) is not `gloci sort`'s (reference, position, strand),
+/// in a header whose @SQ order is not lexicographic.
+const UNSORTED_TIES: &str = "@HD\tVN:1.6\tSO:unsorted\n@SQ\tSN:chr2\tLN:1000\n@SQ\tSN:chr1\tLN:1000\n\
+a1\t16\tchr1\t101\t60\t10M\t*\t0\t0\t*\t*\n\
+a2\t0\tchr1\t101\t60\t20M\t*\t0\t0\t*\t*\n\
+a3\t0\tchr1\t101\t60\t5M\t*\t0\t0\t*\t*\n\
+a4\t0\tchr2\t50\t60\t5M\t*\t0\t0\t*\t*\n\
+a5\t16\tchr1\t101\t60\t5M\t*\t0\t0\t*\t*\n";
+
+/// SAM text without its @PG lines.
+fn records_and_hd(s: &str) -> Vec<String> {
+    s.lines()
+        .filter(|l| !l.starts_with("@PG"))
+        .map(String::from)
+        .collect()
+}
+
+#[test]
+fn sort_flag_equals_gloci_sort_then_command() {
+    // The help's claim: --sort equals gloci sort on each input followed by the command, for
+    // the records and for @HD (SO:coordinate), with A or B an alignment, BAM or SAM.
+    let dir = tempdir();
+    let tmp = dir.path().to_string_lossy().into_owned();
+    let bed = write(dir.path(), "x.bed", "chr2\t0\t1000\nchr1\t0\t1000\n");
+    let sam = write(dir.path(), "u.sam", UNSORTED_TIES);
+    let bam = bam_of(dir.path(), "u.bam", UNSORTED_TIES);
+    for (input, out) in [(&sam, "s.sam"), (&bam, "s.bam")] {
+        let sorted = dir.path().join(out).to_string_lossy().into_owned();
+        gloci()
+            .args(["sort", input, "-o", &sorted])
+            .assert()
+            .success();
+        let a = |file: &str, extra: &[&str]| {
+            let mut v = vec!["intersect", "-a", file, "-b", &bed, "-O", "sam"];
+            v.extend(extra);
+            records_and_hd(&run(&v))
+        };
+        let got = a(input, &["--sort", "--tmp-dir", &tmp]);
+        assert_eq!(got, a(&sorted, &[]), "{input} as A");
+        assert!(got[0].contains("SO:coordinate"), "{got:?}");
+        let names: Vec<&str> = got
+            .iter()
+            .filter(|l| !l.starts_with('@'))
+            .map(|l| l.split('\t').next().unwrap())
+            .collect();
+        assert_eq!(names, ["a4", "a2", "a3", "a1", "a5"]);
+        let b = |file: &str, extra: &[&str]| {
+            let mut v = vec!["intersect", "-a", &bed, "-b", file, "--mode", "pairs"];
+            v.extend(extra);
+            run(&v)
+        };
+        assert_eq!(
+            b(input, &["--sort", "--tmp-dir", &tmp]),
+            b(&sorted, &[]),
+            "{input} as B"
+        );
+        // A -g table that orders the references unlike the header: the records follow it,
+        // which SO:coordinate would not describe.
+        let g = write(dir.path(), "g.genome", "chr1\t1000\nchr2\t1000\n");
+        let bed_g = write(dir.path(), "g.bed", "chr1\t0\t1000\nchr2\t0\t1000\n");
+        let got = records_and_hd(&run(&[
+            "intersect",
+            "-a",
+            input,
+            "-b",
+            &bed_g,
+            "-g",
+            &g,
+            "-O",
+            "sam",
+            "--sort",
+            "--tmp-dir",
+            &tmp,
+        ]));
+        assert!(got[0].contains("SO:unsorted"), "{got:?}");
+        let names: Vec<&str> = got
+            .iter()
+            .filter(|l| !l.starts_with('@'))
+            .map(|l| l.split('\t').next().unwrap())
+            .collect();
+        assert_eq!(names, ["a2", "a3", "a1", "a5", "a4"]);
+    }
+}
+
 #[test]
 fn slim_b_records() {
     use gloci_io::{Accept, AlignOptions, InvalidPolicy, ReaderOptions, RecordBatch, open_reader};
