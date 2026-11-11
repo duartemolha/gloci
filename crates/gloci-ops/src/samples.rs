@@ -22,6 +22,9 @@ pub struct SamplesOptions {
     pub column_names: bool,
 }
 
+/// A reference list: `(name, length)` in order.
+type Refs = Vec<(Vec<u8>, u64)>;
+
 fn write_err(source: std::io::Error) -> IoError {
     IoError::Write {
         path: "output".into(),
@@ -53,7 +56,7 @@ fn rg_values(text: &[u8], tag: [u8; 2]) -> Vec<Vec<u8>> {
 }
 
 /// A FASTA's `(name, length)` list from its `.fai`, which must exist (D108).
-fn fai_refs(fasta: &Path) -> Result<Vec<(Vec<u8>, u64)>, IoError> {
+fn fai_refs(fasta: &Path) -> Result<Refs, IoError> {
     let (fai, stale) = find_fai(fasta)?;
     if stale {
         log::warn!(
@@ -81,7 +84,7 @@ fn fai_refs(fasta: &Path) -> Result<Vec<(Vec<u8>, u64)>, IoError> {
 pub fn samples(paths: &[String], o: &SamplesOptions, out: &mut dyn Write) -> Result<(), IoError> {
     // Every FASTA's references are read once, whatever the number of files, and the check
     // for a missing index comes before the first file is opened.
-    let fastas: Vec<(&PathBuf, Vec<(Vec<u8>, u64)>)> = o
+    let fastas: Vec<(&PathBuf, Refs)> = o
         .match_reference
         .iter()
         .map(|p| fai_refs(p).map(|r| (p, r)))
