@@ -565,8 +565,11 @@ pub fn vcf_compare(
         o.chrom_order,
     )?;
     chroms.take_undeclared();
-    let per_side =
-        NonZeroUsize::new(threads.get().div_ceil(2)).expect("a thread count is at least 1");
+    // The walk and the two readers are three threads whatever `threads` is;
+    // each reader's selection adds workers, so that the total is at most
+    // max(threads, 3): 3 + 2 * (per_side - 1).
+    let per_side = NonZeroUsize::new(1 + threads.get().max(3).saturating_sub(3) / 2)
+        .expect("a thread count is at least 1");
     let mut staged = StagedSet::default();
     let mut sites_out = if request.site_discordance {
         let mut w = Out::create(&o.out_prefix, "diff.sites")?;
