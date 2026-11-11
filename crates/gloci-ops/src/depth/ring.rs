@@ -16,6 +16,24 @@ pub struct CountRules {
     pub min_baseq: u8,
 }
 
+/// Add 1 to the counter of each position in `[lo, hi)`, which the ring holds (`hi - lo` is at
+/// most its length): the run is one or two slices of `counts`, counted without a mask.
+fn count_range(counts: &mut [u32], lo: u64, hi: u64) {
+    if lo >= hi {
+        return;
+    }
+    let len = counts.len();
+    let at = (lo as usize) & (len - 1);
+    let n = ((hi - lo) as usize).min(len);
+    let first = n.min(len - at);
+    for c in &mut counts[at..at + first] {
+        *c = c.saturating_add(1);
+    }
+    for c in &mut counts[..n - first] {
+        *c = c.saturating_add(1);
+    }
+}
+
 /// The counts of one input's reads, from `base` to `covered_end`. A position at or past
 /// `covered_end` has no read over it, and so depth 0.
 #[derive(Debug, Default)]
@@ -112,8 +130,10 @@ impl DepthRing {
 
         let quals = r.quals();
         let seq_len = r.seq_len();
+        // Every base counts: no quality gate, or none to apply (SEQ `*`).
+        let ungated = rules.min_baseq == 0 || seq_len == 0;
         let gate = |q: usize| -> bool {
-            rules.min_baseq == 0 || seq_len == 0 || {
+            ungated || {
                 let c = quals.get(q).copied().unwrap_or(0);
                 c == 0xFF || c >= rules.min_baseq
             }
@@ -127,10 +147,14 @@ impl DepthRing {
             let hi = rpos.saturating_add(n).min(span.end);
             match op {
                 b'M' | b'=' | b'X' => {
-                    for p in lo..hi {
-                        if gate(q + (p - rpos) as usize) {
-                            let s = &mut counts[(p as usize) & mask];
-                            *s = s.saturating_add(1);
+                    if ungated {
+                        count_range(counts, lo, hi);
+                    } else {
+                        for p in lo..hi {
+                            if gate(q + (p - rpos) as usize) {
+                                let s = &mut counts[(p as usize) & mask];
+                                *s = s.saturating_add(1);
+                            }
                         }
                     }
                     q += n as usize;
@@ -138,19 +162,13 @@ impl DepthRing {
                 }
                 b'D' => {
                     if rules.deletions && gate(q) {
-                        for p in lo..hi {
-                            let s = &mut counts[(p as usize) & mask];
-                            *s = s.saturating_add(1);
-                        }
+                        count_range(counts, lo, hi);
                     }
                     rpos = rpos.saturating_add(n);
                 }
                 b'N' => {
                     if rules.ref_skips {
-                        for p in lo..hi {
-                            let s = &mut counts[(p as usize) & mask];
-                            *s = s.saturating_add(1);
-                        }
+                        count_range(counts, lo, hi);
                     }
                     rpos = rpos.saturating_add(n);
                 }
@@ -170,5 +188,24 @@ impl DepthRing {
         }
         self.base = pos;
         self.counts[(pos as usize) & (self.counts.len() - 1)]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::count_range;
+
+    #[test]
+    fn count_range_wraps_the_ring() {
+        let mut counts = vec![0u32; 8];
+        count_range(&mut counts, 6, 11);
+        assert_eq!(counts, [1, 1, 1, 0, 0, 0, 1, 1]);
+        count_range(&mut counts, 16, 24);
+        assert_eq!(counts, [2, 2, 2, 1, 1, 1, 2, 2]);
+        count_range(&mut counts, 5, 5);
+        assert_eq!(counts, [2, 2, 2, 1, 1, 1, 2, 2]);
+        counts[1] = u32::MAX;
+        count_range(&mut counts, 9, 10);
+        assert_eq!(counts[1], u32::MAX);
     }
 }
