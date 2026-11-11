@@ -19,7 +19,7 @@ use gloci_io::{
 };
 use gloci_vcf::compare::genotypes::alt_count;
 use gloci_vcf::compare::{
-    AlleleMap, DiscordanceMatrix, Gt, GtCompare, MatchRule, MatrixCell, Side, Site, SiteClass,
+    AlleleMap, DiscordanceMatrix, GtCompare, MatchRule, MatrixCell, Side, Site, SiteClass,
     SiteSource, Walk,
 };
 use gloci_vcf::{BcfSite, GtFields, RewritePlan, SampleFields, SiteView};
@@ -240,6 +240,7 @@ fn produce(
     stage.set_threads(threads);
     if !shared.is_empty() {
         stage.share_decoded(decode_fields(sel));
+        stage.decode_only();
     }
     let name = stage.name().to_string();
     let header = stage.header().clone();
@@ -278,11 +279,7 @@ fn produce(
                 IoError::Internal("the selection kept no genotypes for a record".into())
             })?;
             for &i in shared {
-                src.sample(i, &mut fields).map_err(parse_err)?;
-                let gt = match &fields.gt {
-                    None => Gt::Missing,
-                    Some(g) => Gt::from_alleles(&g.alleles),
-                };
+                let gt = src.gt(i, &mut fields).map_err(parse_err)?;
                 if let Some(m) = gt.max_allele()
                     && m > n_alts
                 {

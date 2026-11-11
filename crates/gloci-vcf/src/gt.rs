@@ -87,6 +87,16 @@ pub trait GenotypeSource {
     /// Decode sample `i` into `out`, overwriting every field. Panics when
     /// `i >= n_samples()`; a malformed sample is an `Err`.
     fn sample(&self, i: usize, out: &mut SampleFields) -> Result<(), String>;
+    /// Sample `i`'s genotype as the comparison reads it (no GT = missing).
+    /// `scratch` is a reusable buffer; sources that hold decoded samples
+    /// override this to skip the copy into it.
+    fn gt(&self, i: usize, scratch: &mut SampleFields) -> Result<crate::compare::Gt, String> {
+        self.sample(i, scratch)?;
+        Ok(match &scratch.gt {
+            None => crate::compare::Gt::Missing,
+            Some(g) => crate::compare::Gt::from_alleles(&g.alleles),
+        })
+    }
 }
 
 /// Decoded samples of the current record, shared between the stages that
@@ -108,6 +118,31 @@ impl SampleCache {
         if slots.len() < n {
             slots.resize_with(n, SampleFields::default);
         }
+    }
+
+    /// Start a record and decode its `keep`-selected samples (`None` = all) from
+    /// `inner` into the cache, as the first reads of a statistics pass would,
+    /// calling `check(i, sample)` on each so the caller can reject a sample
+    /// the way that pass does.
+    pub fn decode_record(
+        &self,
+        inner: &dyn GenotypeSource,
+        keep: Option<&[bool]>,
+        mut check: impl FnMut(usize, &SampleFields) -> Result<(), String>,
+    ) -> Result<(), String> {
+        let n = inner.n_samples();
+        self.start_record(n);
+        let mut valid = self.valid.borrow_mut();
+        let mut slots = self.slots.borrow_mut();
+        for i in 0..n {
+            if keep.is_some_and(|k| !k[i]) {
+                continue;
+            }
+            inner.sample(i, &mut slots[i])?;
+            valid[i] = true;
+            check(i, &slots[i])?;
+        }
+        Ok(())
     }
 
     /// The cached samples alone, for a consumer that reads only samples the
@@ -141,6 +176,19 @@ impl GenotypeSource for CacheReader<'_> {
         }
         out.copy_from(&self.cache.slots.borrow()[i]);
         Ok(())
+    }
+
+    fn gt(&self, i: usize, _scratch: &mut SampleFields) -> Result<crate::compare::Gt, String> {
+        if !self.cache.valid.borrow().get(i).copied().unwrap_or(false) {
+            return Err(format!(
+                "internal error: sample {} was not decoded by the selection stage",
+                i + 1
+            ));
+        }
+        Ok(match &self.cache.slots.borrow()[i].gt {
+            None => crate::compare::Gt::Missing,
+            Some(g) => crate::compare::Gt::from_alleles(&g.alleles),
+        })
     }
 }
 
@@ -604,5 +652,37 @@ impl GenotypeSource for PackedRecord<'_> {
             g.phased = p.flags & F_PHASED != 0;
         }
         Ok(())
+    }
+
+    fn gt(&self, i: usize, scratch: &mut SampleFields) -> Result<crate::compare::Gt, String> {
+        let Some(p) = (i < self.slot.n)
+            .then(|| self.arena.samples.get(self.slot.start + i))
+            .flatten()
+        else {
+            return self
+                .sample(i, scratch)
+                .map(|()| crate::compare::Gt::Missing);
+        };
+        if p.flags & (F_UNDECODED | F_MASKED) != 0 || p.flags & F_GT == 0 {
+            if p.flags & F_UNDECODED != 0 {
+                return self
+                    .sample(i, scratch)
+                    .map(|()| crate::compare::Gt::Missing);
+            }
+            return Ok(crate::compare::Gt::Missing);
+        }
+        let off = p.off as usize;
+        let alleles = self
+            .arena
+            .alleles
+            .get(off..off + usize::from(p.len))
+            .ok_or_else(|| "internal error: a packed genotype is truncated".to_string())?;
+        Ok(match alleles {
+            [] => crate::compare::Gt::Missing,
+            [a] if *a != NO_ALLELE => crate::compare::Gt::Hap(*a),
+            [a, b] if *a != NO_ALLELE && *b != NO_ALLELE => crate::compare::Gt::Dip(*a, *b),
+            _ if alleles.contains(&NO_ALLELE) => crate::compare::Gt::Missing,
+            _ => crate::compare::Gt::Poly(alleles.into()),
+        })
     }
 }

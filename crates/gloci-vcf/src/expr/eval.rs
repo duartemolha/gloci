@@ -30,6 +30,15 @@ impl GenotypeSource for MaskedGenotypes<'_> {
         }
         Ok(())
     }
+
+    fn gt(&self, i: usize, scratch: &mut SampleFields) -> Result<crate::compare::Gt, String> {
+        if self.masked.get(i).copied().unwrap_or(false) {
+            // Masking removes the genotype, which reads as missing.
+            self.inner.sample(i, scratch)?;
+            return Ok(crate::compare::Gt::Missing);
+        }
+        self.inner.gt(i, scratch)
+    }
 }
 
 /// One value of a field.

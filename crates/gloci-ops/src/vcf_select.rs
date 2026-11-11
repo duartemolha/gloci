@@ -251,6 +251,12 @@ struct Spec<'a> {
     exclude: bool,
     dicts: BcfDicts,
     need_stats: bool,
+    /// Statistics are computed only to decode the samples: no filter, mask
+    /// rule or expression reads them.
+    stats_only_for_decode: bool,
+    /// Decode the samples for the consumers without computing statistics
+    /// (see [`SelectStage::decode_only`]).
+    decode_only: bool,
     share_decoded: bool,
     fields: GtFields,
     tally: Option<TallySpec>,
@@ -345,16 +351,45 @@ impl Core {
                 text_gt = text_genotypes_with(raw, fields).map_err(parse_err)?;
                 &text_gt
             };
+            let fast = spec.decode_only && spec.share_decoded && spec.tally.is_none();
             let cached;
-            let gt: &dyn GenotypeSource = if spec.share_decoded || spec.tally.is_some() {
+            let gt: &dyn GenotypeSource = if !fast && (spec.share_decoded || spec.tally.is_some()) {
                 self.decoded.start_record(gt.n_samples());
                 cached = self.decoded.wrap(gt);
                 &cached
             } else {
                 gt
             };
-            let st = site_stats(gt, keep, &spec.plan.mask, n_alleles, &mut self.masked_buf)
-                .map_err(parse_err)?;
+            let st = if fast {
+                // Decode only; the checks are those of `site_stats_into`.
+                let n = gt.n_samples();
+                if let Some(k) = keep
+                    && k.len() != n
+                {
+                    return Err(parse_err(format!(
+                        "the sample selection has {} entries; the record has {n} samples",
+                        k.len()
+                    )));
+                }
+                self.masked_buf.clear();
+                self.masked_buf.resize(n, false);
+                self.decoded
+                    .decode_record(gt, keep, |_, f| {
+                        for a in f.gt.iter().flat_map(|g| g.alleles.iter().flatten()) {
+                            if *a as usize >= n_alleles {
+                                return Err(format!(
+                                    "genotype allele {a} but the site lists {n_alleles} alleles"
+                                ));
+                            }
+                        }
+                        Ok(())
+                    })
+                    .map_err(parse_err)?;
+                SiteStats::default()
+            } else {
+                site_stats(gt, keep, &spec.plan.mask, n_alleles, &mut self.masked_buf)
+                    .map_err(parse_err)?
+            };
 
             if !sel.sites.stats_pass(&st) {
                 return Ok(None);
@@ -453,12 +488,12 @@ impl<'a> SelectStage<'a> {
             .thin
             .is_some()
             .then(|| OrderGuard::new(input.name(), in_format));
-        let need_stats = sel.sites.needs_genotypes()
+        let selection_needs_stats = sel.sites.needs_genotypes()
             || !plan.mask.is_empty()
-            || also_stats
             || expr
                 .as_ref()
                 .is_some_and(|e| e.needs_genotypes() || e.needs_stats());
+        let need_stats = selection_needs_stats || also_stats;
         let spec = Spec {
             sel,
             name: input.name().to_string(),
@@ -468,6 +503,8 @@ impl<'a> SelectStage<'a> {
             exclude,
             dicts,
             need_stats,
+            stats_only_for_decode: !selection_needs_stats,
+            decode_only: false,
             share_decoded: false,
             fields: GtFields::ALL,
             tally: None,
@@ -492,6 +529,14 @@ impl<'a> SelectStage<'a> {
     pub fn share_decoded(&mut self, fields: GtFields) {
         self.spec.share_decoded = true;
         self.spec.fields = fields;
+    }
+
+    /// For a consumer that reads the samples and nothing computed from them
+    /// ([`Hit::stats`] is then an empty placeholder): when no filter, mask
+    /// rule or expression needs the site statistics, skip computing them and
+    /// only decode the samples (after [`Self::share_decoded`]).
+    pub fn decode_only(&mut self) {
+        self.spec.decode_only = self.spec.stats_only_for_decode;
     }
 
     /// Decode only the optional FORMAT fields `fields` names, without
