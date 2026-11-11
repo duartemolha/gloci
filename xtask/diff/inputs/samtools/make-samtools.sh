@@ -43,3 +43,66 @@ cp ../aln/flags.bam nometa/flags.bam
 mkdir -p csi
 cp ../aln/flags.bam csi/flags.bam
 samtools index -c -@ 0 csi/flags.bam
+
+# Task 3: flagstat.{sam,bam}, built by the awk below and sorted by samtools. QC-passed: 320 records,
+# 306 mapped (95.63% in samtools' f32 arithmetic, 95.62% in f64), 160 paired primaries of which 7
+# are singletons (4.37% against 4.38%), 14 unmapped (7 mates of singletons, 7 single-end; placed
+# and unplaced, one mate carrying 0x2), 60+26+20+40 mapped pairs (proper; proper duplicates; not
+# proper; mate on another reference at MAPQ 4, MAPQ 5, and two with RNEXT *), 40 secondary (10
+# duplicates, 10 flagged paired), 40 supplementary (10 duplicates), 8 single-end duplicates. Then
+# 12 QC-failed (0x200) records, none paired, so the paired percentages there print N/A.
+{
+  printf '@HD\tVN:1.6\n@SQ\tSN:chr1\tLN:100000\n@SQ\tSN:chr2\tLN:100000\n'
+  awk 'function e(n, f, rn, p, mq, cg, rx, px) {
+         printf "%s\t%d\t%s\t%d\t%d\t%s\t%s\t%d\t0\tACGTA\tIIIII\n", n, f, rn, p, mq, cg, rx, px
+       }
+       function pair(n, f1, f2, r1, r2, q1, q2) {
+         p += 10
+         e(n, f1, r1, p, q1, "5M", (r1 == r2 ? "=" : r2), p + 100)
+         e(n, f2, r2, p + 100, q2, "5M", (r1 == r2 ? "=" : r1), p)
+       }
+       BEGIN {
+         p = 100
+         for (i = 1; i <= 30; i++) pair("pa" i, 99, 147, "chr1", "chr1", 60, 60)
+         for (i = 1; i <= 13; i++) pair("pf" i, 1123, 1171, "chr1", "chr1", 60, 60)
+         for (i = 1; i <= 10; i++) pair("pb" i, 65, 145, "chr2", "chr2", 60, 60)
+         for (i = 1; i <= 9; i++) pair("pq4" i, 65, 129, "chr1", "chr2", 4, 4)
+         for (i = 1; i <= 10; i++) pair("pq5" i, 65, 129, "chr1", "chr2", 5, 60)
+         for (i = 1; i <= 2; i++) { p += 10; e("pstar" i, 65, "chr2", p, 60, "5M", "*", 0) }
+         for (i = 1; i <= 7; i++) {
+           p += 10
+           e("s" i, 73, "chr1", p, 60, "5M", "=", p)
+           if (i <= 4) e("s" i, 133, "chr1", p, 0, "*", "=", p)
+           else if (i <= 6) e("s" i, 133, "*", 0, 0, "*", "chr1", p)
+           else e("s" i, 135, "chr1", p, 0, "*", "=", p)
+         }
+         for (i = 1; i <= 73; i++) {
+           p += 10
+           f = (i % 2) ? 0 : 16
+           if (i <= 8) f += 1024
+           e("e" i, f, "chr2", p, 30, "5M", "*", 0)
+         }
+         for (i = 1; i <= 4; i++) { p += 10; e("u" i, 4, "chr2", p, 0, "*", "*", 0) }
+         for (i = 5; i <= 7; i++) e("u" i, 4, "*", 0, 0, "*", "*", 0)
+         for (i = 1; i <= 40; i++) {
+           p += 10
+           f = (i <= 20) ? 256 : (i <= 30) ? 1280 : 257
+           e("sec" i, f, "chr1", p, 0, "5M", "*", 0)
+         }
+         for (i = 1; i <= 40; i++) {
+           p += 10
+           f = (i <= 20) ? 2048 : (i <= 30) ? 2064 : 3072
+           e("sup" i, f, "chr2", p, 60, "5M", "*", 0)
+         }
+         split("512 512 512 512 528 528 516 516 768 2560 1536 1536", qf, " ")
+         for (i = 1; i <= 12; i++) {
+           p += 10
+           if (i == 8) e("q" i, qf[i], "*", 0, 0, "*", "*", 0)
+           else e("q" i, qf[i], "chr1", p, (qf[i] == 516 ? 0 : 20), (qf[i] == 516 ? "*" : "5M"), "*", 0)
+         }
+       }'
+} > flagstat-unsorted.sam
+samtools sort -@ 0 --no-PG -O sam -o flagstat.sam flagstat-unsorted.sam
+rm flagstat-unsorted.sam
+samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o flagstat.bam flagstat.sam
+samtools index -@ 0 flagstat.bam
