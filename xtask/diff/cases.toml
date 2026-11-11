@@ -6105,3 +6105,13 @@ gloci = "gloci bedcov input.bed depth-pastend.bam"
 reference = "samtools bedcov input.bed depth-pastend.bam"
 compare = "exact"
 expected_difference = "#depth-past-reference-end"
+
+# --exclude-flags 0 is samtools -g 0x704: duplicate, secondary and QC-fail reads count, and the
+# placed unmapped read still does not.
+[[case]]
+name = "bedcov-exclude-flags-zero-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.bam", "xtask/diff/inputs/samtools/depth.bam.bai"]
+gloci = "gloci bedcov input.bed depth.bam --exclude-flags 0 --read-count"
+reference = "samtools bedcov -g 0x704 -c input.bed depth.bam"
+compare = "exact"
