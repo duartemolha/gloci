@@ -53,11 +53,21 @@ impl Read {
     }
     fn sam(&self, i: usize) -> String {
         let (rname, cigar, seq, qual) = if self.flag & 4 != 0 {
-            (["chr1", "chr2"][self.rid], "*".to_string(), "ACGT".to_string(), "IIII".to_string())
+            (
+                ["chr1", "chr2"][self.rid],
+                "*".to_string(),
+                "ACGT".to_string(),
+                "IIII".to_string(),
+            )
         } else {
             let cigar: String = self.ops.iter().map(|(o, n)| format!("{n}{o}")).collect();
             let q = self.query_len() as usize;
-            (["chr1", "chr2"][self.rid], cigar, "A".repeat(q), "I".repeat(q))
+            (
+                ["chr1", "chr2"][self.rid],
+                cigar,
+                "A".repeat(q),
+                "I".repeat(q),
+            )
         };
         format!(
             "r{i}\t{}\t{rname}\t{}\t60\t{cigar}\t*\t0\t0\t{seq}\t{qual}\n",
@@ -104,9 +114,8 @@ fn random_reads(seed: u64, n: usize) -> Vec<Read> {
 }
 
 fn write_bam(dir: &Path, name: &str, reads: &[Read]) -> PathBuf {
-    let mut sam = format!(
-        "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:{LN1}\n@SQ\tSN:chr2\tLN:{LN2}\n"
-    );
+    let mut sam =
+        format!("@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:{LN1}\n@SQ\tSN:chr2\tLN:{LN2}\n");
     for (i, r) in reads.iter().enumerate() {
         sam.push_str(&r.sam(i));
     }
@@ -144,13 +153,23 @@ fn run(
     t: usize,
 ) -> Result<String, gloci_io::IoError> {
     let r = ro(0x704, false);
-    let reader = open_reader(bed.to_str().unwrap(), &ReaderOptions {
-        accept: Accept::default(),
-        ..r.clone()
-    })?;
+    let reader = open_reader(
+        bed.to_str().unwrap(),
+        &ReaderOptions {
+            accept: Accept::default(),
+            ..r.clone()
+        },
+    )?;
     let files: Vec<String> = files.iter().map(|p| p.display().to_string()).collect();
     let mut out = Vec::new();
-    bedcov(reader, &files, o, &r, NonZeroUsize::new(t).unwrap(), &mut out)?;
+    bedcov(
+        reader,
+        &files,
+        o,
+        &r,
+        NonZeroUsize::new(t).unwrap(),
+        &mut out,
+    )?;
     Ok(String::from_utf8(out).unwrap())
 }
 
@@ -247,7 +266,10 @@ fn bedcov_equals_naive() {
                 "{}\t{s}\t{e}\tr{i}\t{sum}\t{at}\t{n}",
                 ["chr1", "chr2"][*rid]
             );
-            assert_eq!(*line, want, "split {split} split-deletions {split_deletions}");
+            assert_eq!(
+                *line, want,
+                "split {split} split-deletions {split_deletions}"
+            );
         }
     }
 }

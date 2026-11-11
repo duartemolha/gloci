@@ -130,7 +130,10 @@ input; write the input to a file first"
 }
 
 /// Refuse inputs whose `@SQ` lists differ, naming the first difference (D126).
-pub(crate) fn check_same_references(names: &[String], headers: &[Arc<AlnHeader>]) -> Result<(), IoError> {
+pub(crate) fn check_same_references(
+    names: &[String],
+    headers: &[Arc<AlnHeader>],
+) -> Result<(), IoError> {
     let first = &headers[0];
     for (k, h) in headers.iter().enumerate().skip(1) {
         let n = first.refs.len().max(h.refs.len());
