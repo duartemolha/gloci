@@ -1929,7 +1929,6 @@ depends on the span.
 - **Old behaviour:** `bcftools merge` stops with `Error: The INFO field is not defined in the header`.
 - **Reason:** a missing header line is not a reason to lose the run.
 - **Pinned by:** `vcf-merge-undeclared-info-vs-bcftools` (must differ: gloci exits 0, bcftools 1).
-## `stats jaccard` counts no bases for a point {#zero-length-overlap}
 ## `stats jaccard` counts no bases for a point {#jaccard-points}
 
 - **gloci:** a zero-length interval (a point) covers no bases, so it adds nothing to the
