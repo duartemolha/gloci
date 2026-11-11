@@ -1082,6 +1082,23 @@ Examples:
   gloci dict ref.fa -o ref.dict
   gloci dict ref.fa.gz --alias --assembly GRCh38 --species human --alt ref.fa.alt -o ref.dict")]
     Dict(DictArgs),
+    /// Convert SAM FLAGS between numbers and names (samtools flags).
+    ///
+    /// Each FLAGS argument is a decimal number, a 0x hexadecimal number, or
+    /// comma-separated names (case-insensitive), up to 0xFFFF. It prints
+    /// "0x<hex>", the decimal value and the names of the bits set, tab
+    /// separated, in bit order: PAIRED PROPER_PAIR UNMAP MUNMAP REVERSE
+    /// MREVERSE READ1 READ2 SECONDARY QCFAIL DUP SUPPLEMENTARY. A value with
+    /// none of them has an empty third field. With no argument it prints the
+    /// twelve flags with their descriptions. All arguments are checked before
+    /// anything is printed. A decimal with a leading zero (010) is an error,
+    /// because samtools reads it as octal 8, and so is trailing text (12abc),
+    /// which samtools reads as 12.
+    #[command(after_long_help = "\
+Examples:
+  gloci flags 0x704 1796 secondary,dup
+  gloci flags")]
+    Flags(FlagsArgs),
 }
 
 /// What `intersect` reports.
@@ -3341,4 +3358,22 @@ pub struct DictArgs {
     /// Write the dictionary to FILE instead of stdout.
     #[arg(short, long, value_name = "FILE")]
     pub output: Option<PathBuf>,
+}
+
+// P3c Task 1
+/// `--column-names`: a `#`-prefixed line naming the columns comes first (samtools `-H` of
+/// `depth` and `bedcov`, `-h` of `samples`).
+#[derive(Args, Debug, Clone)]
+pub struct ColumnNamesArg {
+    /// Write a line of column names, starting with #, before the first row.
+    #[arg(long)]
+    pub column_names: bool,
+}
+
+#[derive(Args)]
+pub struct FlagsArgs {
+    /// A number (decimal or 0x hex) or comma-separated flag names. With none, the table of
+    /// flags is printed.
+    #[arg(value_name = "FLAGS")]
+    pub flags: Vec<String>,
 }

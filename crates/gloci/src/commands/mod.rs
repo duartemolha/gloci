@@ -7,6 +7,7 @@ pub mod convert;
 pub mod coverage;
 pub mod dict;
 pub mod faidx;
+pub mod flags;
 pub mod flank;
 pub mod genomecov;
 pub mod genomes;

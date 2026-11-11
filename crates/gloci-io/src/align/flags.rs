@@ -60,22 +60,18 @@ pub fn parse_flags(s: &str) -> Result<u16, String> {
     } else if t.bytes().all(|b| b.is_ascii_digit()) {
         if t.len() > 1 && t.starts_with('0') {
             // samtools reads this as octal; the same digits would mean something else in gloci.
-            let octal = u32::from_str_radix(t, 8).ok();
-            let hint = match octal {
-                Some(o) => format!(
-                    "samtools reads {t} as octal {o}; write {o} (or 0x{o:x}) for that, or {} \
-for decimal {t}",
-                    t.trim_start_matches('0')
+            let plain = t.trim_start_matches('0');
+            let plain = if plain.is_empty() { "0" } else { plain };
+            return Err(match u32::from_str_radix(t, 8) {
+                Ok(o) => format!(
+                    "flag value '{t}' has a leading zero, which samtools reads as octal {o}; \
+write {o} or 0x{o:x} for that, or {plain} for decimal {plain}"
                 ),
-                None => format!(
-                    "write the number without leading zeros ({}) or as 0x hex",
-                    t.trim_start_matches('0')
+                Err(_) => format!(
+                    "flag value '{t}' has a leading zero, which samtools reads as octal (and \
+{t} is not valid octal); write {plain} for decimal or 0x for hex"
                 ),
-            };
-            return Err(format!(
-                "flag value '{t}' has a leading zero, which samtools reads as octal and gloci \
-does not guess at; {hint}"
-            ));
+            });
         }
         Some(t.parse::<u32>().ok())
     } else if t.starts_with(|c: char| c.is_ascii_digit() || c == '-') {
