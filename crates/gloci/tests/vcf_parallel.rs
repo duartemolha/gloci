@@ -555,30 +555,41 @@ fn worker_tallies_equal_sequential() {
             vec!["--thin", "40", "--region", "chr1:1-20000", "--min-dp", "5"],
         ),
     ];
-    for (tag, sel) in runs {
-        let mut outs = Vec::new();
-        for t in ["1", "2", "8"] {
-            let dir = d.path().join(format!("{tag}-t{t}"));
-            std::fs::create_dir_all(&dir).unwrap();
-            let mut a = vec![
-                "vcf",
-                "stats",
-                &vcf,
-                "--out-prefix",
-                "o",
+    // With --geno-depth the records carry their samples; without it nothing
+    // reads them and the workers pack none (the bench's path).
+    let sets: [(&str, &[&str], &[&str]); 2] = [
+        (
+            "gd",
+            &[
                 "--depth",
                 "--missing-indv",
                 "--het",
                 "--freq",
                 "--geno-depth",
-                "--threads",
-                t,
-            ];
-            a.extend(&sel);
+            ],
+            &["idepth", "imiss", "het", "frq", "gdepth"],
+        ),
+        (
+            "nogd",
+            &["--depth", "--missing-indv", "--het", "--freq"],
+            &["idepth", "imiss", "het", "frq"],
+        ),
+    ];
+    for ((tag, sel), (set, flags, exts)) in
+        runs.iter().flat_map(|r| sets.iter().map(move |x| (r, x)))
+    {
+        let tag = format!("{tag}-{set}");
+        let mut outs = Vec::new();
+        for t in ["1", "2", "8"] {
+            let dir = d.path().join(format!("{tag}-t{t}"));
+            std::fs::create_dir_all(&dir).unwrap();
+            let mut a = vec!["vcf", "stats", &vcf, "--out-prefix", "o", "--threads", t];
+            a.extend(flags.iter());
+            a.extend(sel);
             run_in(&dir, &a);
             outs.push(dir);
         }
-        for e in ["idepth", "imiss", "het", "frq", "gdepth"] {
+        for e in exts.iter() {
             let base = read(&s(&outs[0].join(format!("o.{e}"))));
             for o in &outs[1..] {
                 same(
