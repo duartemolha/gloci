@@ -455,27 +455,7 @@ pub(crate) struct Lease<'a> {
 impl Drop for Lease<'_> {
     fn drop(&mut self) {
         if let Some(i) = self.slot {
-            let idle = self.cache.slots.lock().ok().and_then(|mut slots| {
-                slots[i].users -= 1;
-                (slots[i].users == 0).then_some(slots[i].rid).flatten()
-            });
-            // An idle slot whose reference the shared generation also holds gives its copy up.
-            if let Some(rid) = idle {
-                let name = &self.cache.info.aln.refs[rid].0;
-                let held = self.cache.generations.lock().ok().is_some_and(|g| {
-                    g[0].as_ref()
-                        .is_some_and(|g| g.state.loaded.lock().is_ok_and(|l| l.contains_key(name)))
-                });
-                if held
-                    && let Ok(mut slots) = self.cache.slots.lock()
-                    && slots[i].rid == Some(rid)
-                    && slots[i].users == 0
-                {
-                    slots[i].rid = None;
-                    slots[i].repo = None;
-                }
-            }
-            self.cache.freed.notify_all();
+            self.cache.release_slot(i);
         }
         if let Some((g, names)) = &self.generation
             && let Ok(mut l) = g.leased.lock()
@@ -486,6 +466,46 @@ impl Drop for Lease<'_> {
                 }
             }
         }
+    }
+}
+
+impl Lease<'_> {
+    /// Keep this lease's slot in use after the lease ends, until the pin drops: a reader of
+    /// one chromosome keeps its reference between slices, so another worker needing a slot
+    /// cannot evict it. `None` for a lease on a shared generation.
+    pub(crate) fn pin(&self, cache: &Arc<RefCache>, rid: usize) -> Option<Pin> {
+        let i = self.slot?;
+        let mut slots = cache.slots.lock().ok()?;
+        slots[i].users += 1;
+        Some(Pin {
+            cache: cache.clone(),
+            slot: i,
+            rid,
+        })
+    }
+}
+
+/// A slot kept in use by a reader (see [`Lease::pin`]).
+pub(crate) struct Pin {
+    cache: Arc<RefCache>,
+    slot: usize,
+    pub(crate) rid: usize,
+}
+
+impl Drop for Pin {
+    fn drop(&mut self) {
+        self.cache.release_slot(self.slot);
+        // The reader is done with its chromosome, and no other reader of this file reads it
+        // (a per-chromosome run gives each chromosome to one): an idle slot frees it now,
+        // rather than holding it until another reference needs the slot.
+        if let Ok(mut slots) = self.cache.slots.lock()
+            && slots[self.slot].users == 0
+            && slots[self.slot].rid == Some(self.rid)
+        {
+            slots[self.slot].rid = None;
+            slots[self.slot].repo = None;
+        }
+        self.cache.freed.notify_all();
     }
 }
 
@@ -523,6 +543,16 @@ pub(crate) struct RefCache {
 
 impl RefCache {
     pub(crate) fn new(info: Arc<CramInfo>, counters: Arc<Counters>) -> RefCache {
+        RefCache::with_slots(info, counters, SLOTS)
+    }
+
+    /// A cache of `slots` references (at least [`SLOTS`]): a per-chromosome run keeps one per
+    /// worker, so workers on different chromosomes do not evict each other's.
+    pub(crate) fn with_slots(
+        info: Arc<CramInfo>,
+        counters: Arc<Counters>,
+        slots: usize,
+    ) -> RefCache {
         let longest = info
             .aln
             .refs
@@ -530,7 +560,7 @@ impl RefCache {
             .map(|(_, l)| usize::try_from(*l).unwrap_or(0))
             .max()
             .unwrap_or(0);
-        let slots = (0..SLOTS)
+        let slots = (0..slots.max(SLOTS))
             .map(|_| Slot {
                 rid: None,
                 repo: None,
@@ -549,6 +579,31 @@ impl RefCache {
             longest,
             counters,
         }
+    }
+
+    /// A decoder is done with slot `i`: when none uses it, an idle slot whose reference the
+    /// shared generation also holds gives its copy up.
+    fn release_slot(&self, i: usize) {
+        let idle = self.slots.lock().ok().and_then(|mut slots| {
+            slots[i].users -= 1;
+            (slots[i].users == 0).then_some(slots[i].rid).flatten()
+        });
+        if let Some(rid) = idle {
+            let name = &self.info.aln.refs[rid].0;
+            let held = self.generations.lock().ok().is_some_and(|g| {
+                g[0].as_ref()
+                    .is_some_and(|g| g.state.loaded.lock().is_ok_and(|l| l.contains_key(name)))
+            });
+            if held
+                && let Ok(mut slots) = self.slots.lock()
+                && slots[i].rid == Some(rid)
+                && slots[i].users == 0
+            {
+                slots[i].rid = None;
+                slots[i].repo = None;
+            }
+        }
+        self.freed.notify_all();
     }
 
     fn poisoned() -> IoError {

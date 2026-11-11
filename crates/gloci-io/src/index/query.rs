@@ -84,17 +84,11 @@ impl Loaded {
                 )
             }
             IndexKind::Crai => {
-                // The names a `.crai` gives come from `crai_names`; reading a CRAM chromosome
-                // by chromosome through it is not built yet (`IndexedFile::open` refuses CRAM).
-                return Err(IoError::Detect {
-                    path: info.path.display().to_string(),
-                    msg: format!(
-                        "{} is a CRAM index, and reading {} through it chromosome by chromosome \
-is not available in this build yet; convert it with: gloci view {1} -o x.bam --write-index",
-                        info.path.display(),
-                        data.display()
-                    ),
-                });
+                // A CRAM and its `.crai` are read by `CramFile`, never as a binning index.
+                return Err(IoError::Internal(format!(
+                    "{} is a CRAM index, which `CramFile` reads",
+                    info.path.display()
+                )));
             }
         })
     }
@@ -847,6 +841,8 @@ pub struct IndexedFile {
     by_new_name: HashMap<Vec<u8>, usize>,
     /// The readers made from this file keep their one-time warnings in their diagnostics.
     defer_warnings: bool,
+    /// A CRAM is read through its own reader, over the `.crai` (`index` is unused then).
+    cram: Option<crate::align::CramFile>,
 }
 
 impl IndexedFile {
@@ -860,6 +856,9 @@ impl IndexedFile {
         o: &ReaderOptions,
     ) -> Result<IndexedFile, IoError> {
         let name = path.display().to_string();
+        if format == Format::Cram {
+            return IndexedFile::open_cram(path, header, o);
+        }
         check_bgzf(path, &name)?;
         let info = find_index(path).ok_or_else(|| {
             UsageError(format!(
@@ -921,6 +920,7 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
                 .unwrap_or_default()
         };
         Ok(IndexedFile {
+            cram: None,
             defer_warnings: false,
             by_new_name,
             path: path.to_path_buf(),
@@ -933,8 +933,44 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
         })
     }
 
+    /// A CRAM and its `.crai`.
+    fn open_cram(path: &Path, header: Header, o: &ReaderOptions) -> Result<IndexedFile, IoError> {
+        let name = path.display().to_string();
+        let info = find_index(path)
+            .filter(|i| i.kind == IndexKind::Crai)
+            .ok_or_else(|| {
+                UsageError(format!(
+                    "{name} has no index; create one with: gloci index {name}"
+                ))
+            })?;
+        let Header::Alignment(aln) = &header else {
+            return Err(IoError::Internal(
+                "IndexedFile::open of a CRAM needs the alignment header".into(),
+            ));
+        };
+        let cram = crate::align::CramFile::open(path, aln.clone(), &info, o)?;
+        Ok(IndexedFile {
+            cram: Some(cram),
+            defer_warnings: false,
+            by_new_name: HashMap::new(),
+            path: path.to_path_buf(),
+            name,
+            format: Format::Cram,
+            header,
+            info,
+            index: Arc::new(Loaded::Tbi(Default::default())),
+            opts: o.clone(),
+        })
+    }
+
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// What the CRAM readers made from this file read from the FASTA, and the most they held
+    /// at once; `None` for a file that is not a CRAM.
+    pub fn reference_counts(&self) -> Option<crate::align::ReferenceCounts> {
+        self.cram.as_ref().map(|c| c.reference_counts())
     }
 
     pub fn info(&self) -> &IndexInfo {
@@ -946,11 +982,17 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
     /// chunks of a run (`Diagnostics::log_deferred_warnings`).
     pub fn defer_warnings(&mut self) {
         self.defer_warnings = true;
+        if let Some(c) = &mut self.cram {
+            c.defer_warnings();
+        }
     }
 
     /// The reads with no place the index counts (BAM): the unmapped reads at the end of a
     /// coordinate-sorted file, which no chromosome's reader reaches. 0 for other indexes.
     pub fn unplaced_reads(&self) -> u64 {
+        if let Some(c) = &self.cram {
+            return c.unplaced_reads();
+        }
         if self.format != Format::Bam {
             return 0;
         }
@@ -994,6 +1036,9 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
     /// The reference names the index knows, in reference id order, as
     /// [`index_reference_names`] gives them.
     pub fn reference_names(&self) -> Vec<Vec<u8>> {
+        if let Some(c) = &self.cram {
+            return c.reference_names();
+        }
         if let Header::Alignment(aln) = &self.header {
             return aln.refs.iter().map(|(n, _)| n.clone()).collect();
         }
@@ -1022,6 +1067,9 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
     /// appear in the file (by first chunk offset), which is the index's own
     /// order for a TBI but the file's order, not the dictionary's, for a BCF.
     pub fn file_order_reference_names(&self) -> Vec<Vec<u8>> {
+        if let Some(c) = &self.cram {
+            return c.file_order_reference_names();
+        }
         let mut named: Vec<(VirtualPosition, Vec<u8>)> = self
             .reference_names()
             .into_iter()
@@ -1036,6 +1084,9 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
 
     /// The reference names that hold records.
     pub fn non_empty_reference_names(&self) -> Vec<Vec<u8>> {
+        if let Some(c) = &self.cram {
+            return c.non_empty_reference_names();
+        }
         self.reference_names()
             .into_iter()
             .filter(|n| self.weight(n) > 0)
@@ -1046,6 +1097,9 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
     /// compressed bytes between its first and last chunk offsets, plus one;
     /// 0 when the index holds no records for it.
     pub fn weight(&self, chrom: &[u8]) -> u64 {
+        if let Some(c) = &self.cram {
+            return c.weight(chrom);
+        }
         let Some(rid) = self.rid_of(chrom) else {
             return 0;
         };
@@ -1072,6 +1126,9 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
         regions: &[(Vec<u8>, Interval)],
         inclusive_points: bool,
     ) -> Result<Box<dyn RecordReader>, IoError> {
+        if let Some(c) = &self.cram {
+            return Ok(Box::new(c.regions_reader(regions, inclusive_points, false)));
+        }
         Ok(Box::new(self.region_reader(
             regions,
             inclusive_points,
@@ -1115,6 +1172,9 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
         regions: &[(Vec<u8>, Interval)],
         inclusive_points: bool,
     ) -> Result<Box<dyn AlnSource>, IoError> {
+        if let Some(c) = &self.cram {
+            return Ok(c.aln_regions_source(regions, inclusive_points));
+        }
         let Header::Alignment(aln) = &self.header else {
             return Err(IoError::Internal(
                 "an alignment source needs a BAM file".into(),
@@ -1200,6 +1260,9 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
     /// test, so zero-length records at position 0 are read too. Chromosomes
     /// the index does not know yield nothing.
     pub fn chromosomes_reader(&self, chroms: &[Vec<u8>]) -> Result<Box<dyn RecordReader>, IoError> {
+        if let Some(c) = &self.cram {
+            return Ok(Box::new(c.chromosomes_reader(chroms)));
+        }
         let max_pos = self.index.max_position();
         let plans: Vec<Plan> = chroms
             .iter()

@@ -36,6 +36,10 @@ pub(crate) struct BamFrames {
     run_ref: i32,
     run_seen: u64,
     eof: bool,
+    /// Name the record's number in the whole file too ("record N of CHROM (record M of the
+    /// file)"). A CRAM's index does not count records per reference, so a CRAM read through
+    /// it cannot say M: its errors never do, at any thread count.
+    file_numbers: bool,
 }
 
 impl BamFrames {
@@ -75,7 +79,14 @@ impl BamFrames {
             run_ref: i32::MIN,
             run_seen: 0,
             eof: false,
+            file_numbers: true,
         }
+    }
+
+    /// Errors name "record N of CHROM" only (see `file_numbers`).
+    pub(crate) fn without_file_numbers(mut self) -> BamFrames {
+        self.file_numbers = false;
+        self
     }
 
     /// "record N of CHROM (record M of the file)" for the record that is `seen` in its run,
@@ -89,6 +100,9 @@ impl BamFrames {
             Err(_) if ref_id == -1 => "unplaced reads".to_string(),
             Err(_) => format!("refID {ref_id}"),
         };
+        if !self.file_numbers {
+            return format!("record {} of {chrom}", gloci_core::thousands(seen));
+        }
         format!(
             "record {} of {chrom} (record {} of the file)",
             gloci_core::thousands(seen),

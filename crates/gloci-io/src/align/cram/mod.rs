@@ -32,10 +32,12 @@
 //!   CRAM exactly as the BAM it encodes. MD and NM are not regenerated (`#cram-md-nm`).
 
 mod decode;
+mod file;
 mod frame;
 mod reference;
 
 pub(crate) use decode::ExtentDecoder;
+pub(crate) use file::CramFile;
 pub(crate) use frame::{CramFrames, RawContainer, slice_heads};
 pub(crate) use reference::CramInfo;
 
@@ -266,7 +268,8 @@ fn open(
         aln = aln.renamed(m);
     }
     Ok(Opened {
-        frames: BamFrames::from_parts(name, Compression::None, aln, Box::new(stream)),
+        frames: BamFrames::from_parts(name, Compression::None, aln, Box::new(stream))
+            .without_file_numbers(),
         counters,
     })
 }
@@ -442,7 +445,6 @@ mod tests {
                     reference,
                     ..AlignOptions::default()
                 }),
-                cram: true,
                 ..crate::align::Accept::default()
             },
         }

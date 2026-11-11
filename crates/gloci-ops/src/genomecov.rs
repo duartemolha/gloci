@@ -622,8 +622,8 @@ struct Job {
     names: Vec<Vec<u8>>,
 }
 
-/// The BAM `reader` reads, ready to be read a chromosome at a time, or `None` when it must
-/// stream: not an indexed BAM, or one streaming reports errors for (a chromosome the genome
+/// The BAM or CRAM `reader` reads, ready to be read a chromosome at a time, or `None` when it must
+/// stream: not an indexed BAM or CRAM, or one streaming reports errors for (a chromosome the genome
 /// lacks, or an order the genome rejects).
 fn open_chunked(
     reader: &dyn RecordReader,
@@ -633,10 +633,10 @@ fn open_chunked(
     let Some(path) = run.path.to_str() else {
         return Ok(None);
     };
-    if reader.format() != Format::Bam || !all_indexed(&[path]) {
+    if !matches!(reader.format(), Format::Bam | Format::Cram) || !all_indexed(&[path]) {
         return Ok(None);
     }
-    let mut file = IndexedFile::open(&run.path, Format::Bam, reader.header().clone(), &run.ro)?;
+    let mut file = IndexedFile::open(&run.path, reader.format(), reader.header().clone(), &run.ro)?;
     // An alignment reader's one-time warnings are printed once, by this run.
     file.defer_warnings();
     let mut probe = chroms.clone();
@@ -645,7 +645,7 @@ fn open_chunked(
         .iter()
         .any(|n| probe.intern(n).is_err())
     {
-        log::debug!("the BAM has a chromosome the genome lacks; streaming");
+        log::debug!("the input has a chromosome the genome lacks; streaming");
         return Ok(None);
     }
     let known: Vec<Vec<u8>> = file
@@ -657,7 +657,7 @@ fn open_chunked(
         .windows(2)
         .any(|w| chroms.cmp_names(&w[0], &w[1]) == Some(std::cmp::Ordering::Greater))
     {
-        log::debug!("the BAM is out of genome order; streaming");
+        log::debug!("the input is out of genome order; streaming");
         return Ok(None);
     }
     if file.info().stale {

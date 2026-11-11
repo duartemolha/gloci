@@ -64,10 +64,7 @@ sort the inputs without -m to remove or find duplicates",
         Some(s) => Some(s.parse::<Format>().map_err(UsageError)?),
     };
     let opts = ReaderOptions {
-        accept: gloci_io::Accept {
-            cram: true,
-            ..gloci_io::Accept::default()
-        },
+        accept: gloci_io::Accept::default(),
         chrom_map: a.chrom_map.load()?,
         threads: ctx.threads,
         format,
@@ -86,8 +83,16 @@ sort the inputs without -m to remove or find duplicates",
     let probe_threads = threads_per_reader(ctx.threads, files.len().min(merge_fan_in(a.max_mem)));
     let mut sources = Sources::open(&files, &opts, merge_fan_in(a.max_mem), &ctx.tmp_dir)?;
     if let Some(src) = sources.probe_alignments(a.reference.as_deref(), probe_threads)? {
+        // (With -m the other inputs may be CRAM: only a single input is known to be none.)
+        if !a.merge_sorted || files.len() == 1 {
+            gloci_io::warn_unused_reference(
+                a.reference.as_deref(),
+                src.format() == Format::Cram,
+            );
+        }
         return run_alignments(ctx, a, &sources, &files, src, &spec);
     }
+    gloci_io::warn_unused_reference(a.reference.as_deref(), false);
     if a.by_name || a.by_name_bytes {
         return Err(usage(format!(
             "{} is not an alignment file, and -n and -N sort alignments (BAM, SAM, CRAM) by read \

@@ -33,22 +33,24 @@ fn indexed_query_refuses_alignment_and_convert_only_formats() {
     let dir = tempfile::tempdir().unwrap();
     let sam = sam_gz_with_tbi(dir.path());
     let regions = [(b"chr1".to_vec(), Interval { start: 0, end: 5 })];
-    for f in [
-        Format::Sam,
-        Format::Cram,
-        Format::Psl,
-        Format::Rmsk,
-        Format::Fasta,
-    ] {
+    for f in [Format::Sam, Format::Psl, Format::Rmsk, Format::Fasta] {
         let o = opts(Accept {
             alignments: Some(AlignOptions::default()),
             convert_only: true,
             alignments_planned: false,
-            cram: false,
         });
         let e = IndexedFile::open(&sam, f, Header::None, &o).err().unwrap();
         assert!(e.to_string().contains("tabix or CSI index"), "{f:?}: {e}");
     }
+    // A CRAM is read through its `.crai`: a file with only a tabix index has none.
+    let o = opts(Accept {
+        alignments: Some(AlignOptions::default()),
+        ..Accept::default()
+    });
+    let e = IndexedFile::open(&sam, Format::Cram, Header::None, &o)
+        .err()
+        .unwrap();
+    assert!(e.to_string().contains("has no index"), "{e}");
     // Through the path commands use, with a command that accepts alignments.
     let accept = Accept {
         alignments: Some(AlignOptions::default()),

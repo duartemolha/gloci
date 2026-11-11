@@ -60,6 +60,10 @@ pub fn run(ctx: &Ctx, a: &GenomecovArgs) -> anyhow::Result<()> {
     let (mut readers, mut chroms) = open_inputs(ctx, &input, &|_| Ok(()))?;
     anyhow::ensure!(readers.len() == 1, "genomecov takes exactly one input");
     let reader = readers.remove(0);
+    gloci_io::warn_unused_reference(
+        a.align.reference.as_deref(),
+        reader.format() == Format::Cram,
+    );
     let genome = genome_of(a.genome.as_deref(), reader.as_ref())?;
     // An indexed BAM runs per chromosome; `--sort` streams the sorted copy.
     let chunked = (!a.sort.sort && a.file != "-").then(|| -> anyhow::Result<ChunkRun> {

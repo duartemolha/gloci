@@ -15,6 +15,7 @@ mod writer;
 
 pub(crate) use bam::BamReader;
 pub use bed::{AlnBed, AlnBedLayout, AlnBedOptions, AlnBlocks};
+pub(crate) use cram::CramFile;
 pub use cram::{CramReader, ReferenceCounts, read_cram_header, warn_unused_reference};
 pub use header::{AlnHeader, AlnSortOrder, SortOrder};
 pub use record::{Aln, AlnRef, aln_ref, blocks, blocks_within};
@@ -65,9 +66,6 @@ pub struct Accept {
     /// genomecov, view, sort, index): until then the gate says so instead of claiming
     /// that the command never reads them.
     pub alignments_planned: bool,
-    /// The command reads CRAM as well (`view`); elsewhere a CRAM is "not available in this
-    /// build yet" until the command opts in.
-    pub cram: bool,
 }
 
 const FLAG_NAMES: [(&str, u16); 12] = [
@@ -148,10 +146,8 @@ pub fn gate(name: &str, format: Format, accept: &Accept) -> Result<(), IoError> 
         )
     };
     if format.is_alignment() {
-        // CRAM is read by the commands that opt in (`view`); elsewhere it is "not available in
-        // this build yet", as it was before its reader landed.
-        let readable =
-            matches!(format, Format::Bam | Format::Sam) || (format == Format::Cram && accept.cram);
+        // BAM, CRAM and SAM are read by every command that reads alignments (D100).
+        let readable = matches!(format, Format::Bam | Format::Cram | Format::Sam);
         if readable && accept.alignments.is_some() {
             return Ok(());
         }

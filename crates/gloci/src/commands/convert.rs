@@ -54,7 +54,6 @@ pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
             }),
             convert_only: true,
             alignments_planned: false,
-            cram: false,
         },
         chrom_map: a.chrom_map.load()?,
         threads: ctx.threads,
@@ -71,6 +70,7 @@ pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
     };
     // Open and check the input before the output is created.
     let input = open_reader(&a.file, &ro)?;
+    gloci_io::warn_unused_reference(a.align.reference.as_deref(), input.format() == Format::Cram);
     check_convert(input.format(), &o)?;
     let oo = OutputOptions {
         threads: ctx.threads,

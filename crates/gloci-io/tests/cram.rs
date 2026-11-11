@@ -3,7 +3,7 @@
 //! mismatched, BGZF); truncated and corrupt files are errors, never panics; the pool gives the
 //! same output at every thread count; gloci's `.crai` equals samtools'.
 
-use gloci_core::{ChromOrder, ChromTable, Interval, Strand, VcfSpan};
+use gloci_core::{ChromOrder, ChromTable, Interval, RegionSet, Strand, VcfSpan};
 use gloci_io::*;
 use gloci_testkit::fixtures::bgzip;
 use std::io::Cursor;
@@ -38,7 +38,6 @@ fn ropts(reference: Option<PathBuf>, ao: AlignOptions, threads: usize) -> Reader
     ReaderOptions {
         accept: Accept {
             alignments: Some(AlignOptions { reference, ..ao }),
-            cram: true,
             ..Accept::default()
         },
         chrom_map: None,
@@ -599,4 +598,217 @@ fn genome_from_cram_header() {
     let flags = aln("flags.cram").display().to_string();
     let t = chrom_table_for(Some(&flags), &[], ChromOrder::Karyotype).unwrap();
     assert_eq!(t.name(t.get(b"chr2").unwrap()), b"chr2");
+}
+
+// ---- through the .crai (Task 14) ----
+
+/// Reader options for the `many` fixtures (reference ref.fa).
+fn many_opts(threads: usize) -> ReaderOptions {
+    ropts(Some(reference()), full(), threads)
+}
+
+/// An indexed file over the CRAM `path`, as a per-chromosome run opens it.
+fn indexed(path: &Path, o: &ReaderOptions) -> IndexedFile {
+    let r = open_reader(&path.to_string_lossy(), o).unwrap();
+    IndexedFile::open(path, Format::Cram, r.header().clone(), o).unwrap()
+}
+
+/// The records `r` yields, as the interval reader makes them, with its counts.
+fn drain_chunk(mut r: Box<dyn RecordReader>) -> (Vec<Got>, (u64, u64, u64)) {
+    let mut table = ChromTable::first_appearance();
+    let mut batch = RecordBatch::default();
+    let mut recs = Vec::new();
+    loop {
+        batch.clear();
+        let more = r.read_batch(&mut table, &mut batch, 7).unwrap();
+        for (i, m) in batch.recs.iter().enumerate() {
+            recs.push(Got {
+                chrom: String::from_utf8_lossy(table.name(m.chrom)).into_owned(),
+                key: m.key,
+                span: m.span,
+                strand: m.strand,
+                loc: 0,
+                raw: batch.raw(i).to_vec(),
+            });
+        }
+        if !more {
+            break;
+        }
+    }
+    let c = counts(r.diagnostics());
+    (recs, c)
+}
+
+/// Each chromosome read on its own gives the records of the whole read that lie on it, in
+/// order, and the counts add up to the whole read's once the reads with no place are added.
+#[test]
+fn cram_chromosomes_equal_streaming() {
+    for file in [
+        "many.cram",
+        "many.multi.cram",
+        "flags.cram",
+        "cigars.multi.cram",
+    ] {
+        let path = aln(file);
+        let o = many_opts(1);
+        let whole = intervals(&path, &o).unwrap();
+        let ix = indexed(&path, &o);
+        let names = ix.reference_names();
+        let mut chunked: Vec<Got> = Vec::new();
+        let mut counts = (0, 0, 0);
+        for n in &names {
+            let (recs, c) = drain_chunk(ix.chromosomes_reader(std::slice::from_ref(n)).unwrap());
+            chunked.extend(recs);
+            counts = (counts.0 + c.0, counts.1 + c.1, counts.2 + c.2);
+        }
+        counts.0 += ix.unplaced_reads();
+        // Records come in file order within a chromosome and chromosomes in header order,
+        // which is how a coordinate-sorted file lies.
+        let strip = |v: &[Got]| -> Vec<(String, u64, Interval, Vec<u8>)> {
+            v.iter()
+                .map(|g| (g.chrom.clone(), g.key, g.span, g.raw.clone()))
+                .collect()
+        };
+        assert_eq!(strip(&chunked), strip(&whole.recs), "{file}");
+        assert_eq!(counts, whole.counts, "{file}");
+        // One chunk of every chromosome reads the same.
+        let (all, _) = drain_chunk(ix.chromosomes_reader(&names).unwrap());
+        assert_eq!(strip(&all), strip(&whole.recs), "{file}");
+    }
+}
+
+/// Regions through the `.crai` give the reads a scan of the file finds (D116), at each
+/// inclusive-points setting.
+#[test]
+fn cram_regions_equal_scan() {
+    let iv = |start, end| Interval { start, end };
+    let regions: Vec<Vec<(&str, Interval)>> = vec![
+        vec![("chr1", iv(100, 400))],
+        vec![("chr1", iv(390, 391)), ("chr1", iv(800, 1000))],
+        vec![
+            ("chr2", iv(0, 50)),
+            ("chr2", iv(600, 700)),
+            ("chr10", iv(0, 600)),
+        ],
+        vec![("chrM", iv(0, 150)), ("chrX", iv(770, 777))],
+        vec![("chr1", iv(5000, 6000)), ("chrZ", iv(0, 10))],
+        vec![("chr2", iv(300, 300)), ("chr1", iv(0, 1))],
+        vec![
+            ("chrX", iv(0, 777)),
+            ("chr2", iv(0, 1234)),
+            ("chr1", iv(0, 1000)),
+        ],
+    ];
+    for file in [
+        "many.cram",
+        "many.multi.cram",
+        "flags.cram",
+        "cigars.multi.cram",
+    ] {
+        let path = aln(file);
+        let o = many_opts(1);
+        let mut src = open_aln_source(&path.to_string_lossy(), &o).unwrap();
+        let hdr = src.header().clone();
+        let mut all: Vec<Vec<u8>> = Vec::new();
+        let mut buf = Vec::new();
+        while src.next_record(&mut buf).unwrap().is_some() {
+            all.push(std::mem::take(&mut buf));
+        }
+        let ix =
+            IndexedFile::open(&path, Format::Cram, Header::Alignment(hdr.clone()), &o).unwrap();
+        for regs in &regions {
+            for inclusive in [false, true] {
+                let wanted: Vec<(Vec<u8>, Interval)> = regs
+                    .iter()
+                    .map(|(c, i)| (c.as_bytes().to_vec(), *i))
+                    .collect();
+                let mut by_name: std::collections::HashMap<&str, Vec<Interval>> =
+                    Default::default();
+                for (c, i) in regs {
+                    by_name.entry(c).or_default().push(*i);
+                }
+                let sets: std::collections::HashMap<&str, RegionSet> = by_name
+                    .into_iter()
+                    .map(|(c, v)| (c, RegionSet::new(v)))
+                    .collect();
+                let want: Vec<&Vec<u8>> = all
+                    .iter()
+                    .filter(|raw| {
+                        let a = Aln::parse(raw, &hdr).unwrap();
+                        alignment_query_span(&AlnRef::Bam(a)).is_some_and(|(rid, span)| {
+                            let name = String::from_utf8_lossy(&hdr.refs[rid].0).into_owned();
+                            sets.get(name.as_str())
+                                .is_some_and(|s| s.matches(span, inclusive))
+                        })
+                    })
+                    .collect();
+                let mut got_src = ix.aln_regions_source(&wanted, inclusive).unwrap();
+                let mut got: Vec<Vec<u8>> = Vec::new();
+                while got_src.next_record(&mut buf).unwrap().is_some() {
+                    got.push(std::mem::take(&mut buf));
+                }
+                assert_eq!(
+                    got.iter().collect::<Vec<_>>(),
+                    want,
+                    "{file} {regs:?} inclusive={inclusive}"
+                );
+            }
+        }
+    }
+}
+
+/// Workers reading different chromosomes of one CRAM share its reference memory: each
+/// chromosome is read from the FASTA once, and the sequences held at once never exceed the
+/// workers' (one pinned slot each), at any thread count (D109).
+#[test]
+fn cram_worker_reference_memory() {
+    let path = aln("manyref.cram");
+    let fa = inputs().join("fa/manyref.fa");
+    for threads in [1usize, 2, 4, 8] {
+        let o = ropts(Some(fa.clone()), full(), threads);
+        let ix = indexed(&path, &o);
+        let names = ix.non_empty_reference_names();
+        assert_eq!(names.len(), 40);
+        // The run's chunks: consecutive chromosomes, one chunk per worker at a time.
+        let per = names.len().div_ceil(threads);
+        let total: usize = std::thread::scope(|s| {
+            let ix = &ix;
+            let handles: Vec<_> = names
+                .chunks(per)
+                .map(|group| {
+                    s.spawn(move || {
+                        let (recs, _) = drain_chunk(ix.chromosomes_reader(group).unwrap());
+                        recs.len()
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).sum()
+        });
+        assert_eq!(total, 40 * 60, "-t {threads}");
+        let c = ix.reference_counts().unwrap();
+        assert_eq!(
+            c.fetches, 40,
+            "-t {threads}: each chromosome read once: {c:?}"
+        );
+        assert!(
+            c.max_live <= threads.max(2),
+            "-t {threads}: at most one sequence per worker: {c:?}"
+        );
+        assert_eq!(c.generations, 0, "-t {threads}: {c:?}");
+    }
+}
+
+/// A chunk that reads a chromosome after another keeps one sequence, not two: a worker's
+/// chunk of all 40 chromosomes holds one at a time.
+#[test]
+fn cram_one_worker_holds_one_sequence() {
+    let path = aln("manyref.cram");
+    let fa = inputs().join("fa/manyref.fa");
+    let o = ropts(Some(fa), full(), 8);
+    let ix = indexed(&path, &o);
+    let names = ix.non_empty_reference_names();
+    let (recs, _) = drain_chunk(ix.chromosomes_reader(&names).unwrap());
+    assert_eq!(recs.len(), 2400);
+    let c = ix.reference_counts().unwrap();
+    assert_eq!((c.fetches, c.max_live), (40, 1), "{c:?}");
 }

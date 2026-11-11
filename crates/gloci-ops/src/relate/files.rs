@@ -112,6 +112,14 @@ impl RelationFiles {
                 Ok(r)
             })
             .collect::<Result<Vec<_>, IoError>>()?;
+        let reference = paths
+            .ro_a
+            .accept
+            .alignments
+            .as_ref()
+            .and_then(|o| o.reference.as_deref());
+        let any_cram = a.format() == Format::Cram || b.iter().any(|r| r.format() == Format::Cram);
+        gloci_io::warn_unused_reference(reference, any_cram);
         Ok(RelationFiles::new(RelateInputs { a, b }, paths))
     }
 
@@ -256,9 +264,9 @@ pub(super) fn input_sources(
     paths
         .zip(readers)
         .map(|(p, r)| {
-            // An indexed BAM reads per chromosome through its `.bai`/`.csi`
-            // (D107); a SAM or CRAM streams (CRAM: Task 14).
-            if r.format().is_alignment() && r.format() != Format::Bam {
+            // An indexed BAM reads per chromosome through its `.bai`/`.csi`, and a CRAM
+            // through its `.crai` (D107); a SAM streams.
+            if r.format().is_alignment() && r.format() == Format::Sam {
                 None
             } else if all_indexed(&[p.as_str()]) {
                 Some(Source::Indexed)

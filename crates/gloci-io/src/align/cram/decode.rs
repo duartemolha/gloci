@@ -7,7 +7,7 @@ use super::frame::{
     CompressionInfo, RawContainer, SliceHead, check_compression_block, check_slice_blocks,
     compression, detect_err, itf8_values, slice_heads, unsupported_codec,
 };
-use super::reference::{Counters, CramInfo, RefAdapter, RefCache, RefState};
+use super::reference::{Counters, CramInfo, Pin, RefAdapter, RefCache, RefState};
 use crate::error::IoError;
 use gloci_core::thousands;
 use noodles_cram as cram;
@@ -208,6 +208,9 @@ pub(crate) struct Decoder {
     pub(crate) probe: fasta::Repository,
     pub(crate) probe_state: Arc<RefState>,
     pub(crate) bam: noodles_bam::io::Writer<Vec<u8>>,
+    /// Keep the slot of the reference being read between slices (a per-chromosome reader).
+    pin_slots: bool,
+    pinned: Option<Pin>,
 }
 
 /// Where a slice's reads find the repository they need.
@@ -237,7 +240,16 @@ impl Decoder {
             probe: fasta::Repository::new(adapter),
             probe_state,
             bam: noodles_bam::io::Writer::from(Vec::new()),
+            pin_slots: false,
+            pinned: None,
         })
+    }
+
+    /// Keep the reference of the slices being read in its slot between slices, so workers on
+    /// other chromosomes cannot evict it: for a reader of one chromosome at a time.
+    pub(crate) fn pinning(mut self) -> Decoder {
+        self.pin_slots = true;
+        self
     }
 
     pub(crate) fn corrupt(&self, c: &RawContainer, e: &dyn std::fmt::Display) -> IoError {
@@ -312,6 +324,17 @@ impl Decoder {
 
     /// Append the BAM records (each with its `block_size`) of container `c` to `out`.
     pub fn decode(&mut self, c: &RawContainer, out: &mut Vec<u8>) -> Result<(), IoError> {
+        self.decode_where(c, &|_| true, out).map(|_| ())
+    }
+
+    /// As [`Decoder::decode`], for the slices `keep` accepts only (a region read decodes the
+    /// slices its `.crai` lines name, not the whole container).
+    pub fn decode_where(
+        &mut self,
+        c: &RawContainer,
+        keep: &dyn Fn(&SliceHead) -> bool,
+        out: &mut Vec<u8>,
+    ) -> Result<usize, IoError> {
         let _note = decoder_note(&self.info.name, c);
         let heads = slice_heads(c, &self.info.name, self.info.aln.refs.len())?;
         let comp = compression(c);
@@ -331,7 +354,12 @@ impl Decoder {
         // to transcode them.
         let info = self.info.clone();
         let cache = self.cache.clone();
+        let mut decoded = 0;
         for (head, slice) in heads.iter().zip(container.slices()) {
+            if !keep(head) {
+                continue;
+            }
+            decoded += 1;
             let slice = slice.map_err(|e| self.corrupt(c, &e))?;
             let bases = self.bases(c, head, required)?;
             check_slice_blocks(c, head, comp.external.get(b"RN").copied())
@@ -387,11 +415,25 @@ impl Decoder {
                         })
                         .collect()
                 });
+                // A pin on another reference goes first: a worker holds one slot at a time, so
+                // workers can never all wait for a second.
+                if self.pinned.as_ref().is_some_and(|p| match route {
+                    Route::Slot(rid) => p.rid != rid,
+                    Route::Generation(_) => true,
+                    Route::Idle => false,
+                }) {
+                    self.pinned = None;
+                }
                 let lease = match route {
                     Route::Slot(rid) => Some(cache.acquire(rid, c.number)?),
                     Route::Generation(rr) => Some(cache.lease(rr, need.as_deref())?),
                     Route::Idle => None,
                 };
+                if let (true, Route::Slot(rid), Some(l)) = (self.pin_slots, route, &lease)
+                    && self.pinned.is_none()
+                {
+                    self.pinned = l.pin(&cache, rid);
+                }
                 let (repo, state) = match &lease {
                     Some(l) => (l.repo.clone(), l.state.clone()),
                     None => (self.probe.clone(), self.probe_state.clone()),
@@ -455,7 +497,7 @@ impl Decoder {
                 )));
             }
         }
-        Ok(())
+        Ok(decoded)
     }
 
     /// Whether every mapped read of `records` lies within the reference bases it decodes with

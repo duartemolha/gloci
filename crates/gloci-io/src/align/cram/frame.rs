@@ -442,6 +442,23 @@ impl CramFrames {
         }
     }
 
+    /// Frames of `src`, which stands at the data container at byte `offset` of the file (a
+    /// seek made through the `.crai`); containers are numbered from `first_number`.
+    pub fn at(
+        name: &str,
+        src: Box<dyn BufRead + Send>,
+        offset: u64,
+        first_number: u64,
+    ) -> CramFrames {
+        CramFrames {
+            name: name.to_string(),
+            src,
+            pos: offset,
+            containers: first_number.saturating_sub(1),
+            done: false,
+        }
+    }
+
     /// The next data container, or `None` after the end-of-file container. A stream that ends
     /// without one is an error.
     pub fn next(&mut self) -> Result<Option<RawContainer>, IoError> {

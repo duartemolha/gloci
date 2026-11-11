@@ -16,7 +16,6 @@ pub fn run(ctx: &Ctx, a: &ViewArgs) -> anyhow::Result<()> {
     let ro = ReaderOptions {
         accept: gloci_io::Accept {
             alignments: Some(a.align.options(true)?),
-            cram: true,
             ..gloci_io::Accept::default()
         },
         chrom_map: a.chrom_map.load()?,

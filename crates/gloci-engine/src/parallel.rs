@@ -1,7 +1,7 @@
 //! Per-chromosome parallel driver for indexed inputs (D41).
 
 use crate::chunk::ChunkSink;
-use gloci_io::{Compression, IoError, RecordWriter, detect_compression, find_index};
+use gloci_io::{Compression, IndexKind, IoError, RecordWriter, detect_compression, find_index};
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::Read;
@@ -10,7 +10,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Returns true when every path in `paths` is a regular BGZF file with a `.tbi`
-/// or `.csi` index, and no path is `"-"`. Returns false if `paths` is empty.
+/// or `.csi` index (or a `.bai`, for a BAM), or a CRAM with a `.crai`, and no path is `"-"`. Returns false if `paths` is empty.
 pub fn all_indexed(paths: &[&str]) -> bool {
     if paths.is_empty() {
         return false;
@@ -33,6 +33,13 @@ pub fn all_indexed(paths: &[&str]) -> bool {
         let Ok(n) = file.read(&mut head) else {
             return false;
         };
+        // A CRAM is indexed by a `.crai`.
+        if head[..n].starts_with(b"CRAM") {
+            if find_index(p).is_none_or(|i| i.kind != IndexKind::Crai) {
+                return false;
+            }
+            continue;
+        }
         if detect_compression(&head[..n]) != Compression::Bgzf {
             return false;
         }

@@ -130,3 +130,63 @@ samtools view -C -@ 0 --no-PG -T "$REF" --output-fmt-option version=3.0 -o overh
 rm tmp-overhang.sam
 # flags-noeof: flags.cram without its 38-byte end-of-file container (a truncated copy).
 head -c -38 flags.cram > flags-noeof.cram
+# many.cram (P3a Task 14): the five contigs of ref.fa with 240 reads each (flags, strands, CIGARs
+# with clips, insertions, deletions and skips, placed unmapped reads), then three reads with no
+# place; slices of 100 reads, three to a container, so a chromosome spans several slices and
+# containers. many.multi.cram: slices of 100 reads that may hold several references. Reads are
+# the reference's own bases with a mismatch now and then. They test the per-chromosome and region
+# readers, which choose slices through the .crai.
+awk 'BEGIN { srand(29); OFS = "\t" }
+    NR == FNR { name[NR] = $1; len[NR] = $2; nc = NR; next }
+    /^>/ { c++; next }
+    { seq[c] = seq[c] $0 }
+    END {
+        print "@HD", "VN:1.6", "SO:coordinate"
+        for (c = 1; c <= nc; c++) print "@SQ", "SN:" name[c], "LN:" len[c]
+        split("30M 10M2D20M 8M1I21M 5S25M 12M100N18M 6M3I21M", cig, " ")
+        split("0 16 0 0 16 1024 256 0 4 0", fl, " ")
+        for (c = 1; c <= nc; c++) {
+            # 240 start positions in order
+            lim = len[c] - 160; if (lim < 1) lim = 1
+            for (i = 0; i < 240; i++) pos[i] = 1 + int(rand() * lim)
+            for (i = 1; i < 240; i++) { v = pos[i]; j = i - 1
+                while (j >= 0 && pos[j] > v) { pos[j + 1] = pos[j]; j-- } pos[j + 1] = v }
+            for (i = 0; i < 240; i++) {
+                k = 1 + int(rand() * 6); if (len[c] < 400) k = (k % 2) ? 1 : 4; flag = fl[1 + int(rand() * 10)]
+                q = ""; s = substr(seq[c], pos[i], 30)
+                if (rand() < 0.3) s = substr(s, 1, 10) "A" substr(s, 12)
+                for (j = 0; j < 30; j++) q = q "I"
+                cg = flag == 4 ? "*" : cig[k]
+                printf "r%d_%d\t%d\t%s\t%d\t60\t%s\t*\t0\t0\t%s\t%s\n", c, i, flag, name[c], pos[i], cg, s, q
+            }
+        }
+        for (i = 0; i < 3; i++) printf "u%d\t4\t*\t0\t0\t*\t*\t0\t0\tACGTACGT\tIIIIIIII\n", i
+    }' "$REF.fai" "$REF" > tmp-many.sam
+samtools view -C -@ 0 --no-PG -T "$REF" --output-fmt-option version=3.0 \
+    --output-fmt-option seqs_per_slice=100 --output-fmt-option slices_per_container=3 \
+    -o many.cram tmp-many.sam
+samtools view -C -@ 0 --no-PG -T "$REF" --output-fmt-option version=3.0 \
+    --output-fmt-option seqs_per_slice=100 --output-fmt-option multi_seq_per_slice=1 \
+    -o many.multi.cram tmp-many.sam
+rm tmp-many.sam
+samtools index many.cram
+samtools index many.multi.cram
+# manyref.cram: 40 contigs of 3 kb (../fa/manyref.fa) with 60 reads each, in slices of 50 reads:
+# the reference-memory test runs it per chromosome with several workers.
+awk 'BEGIN { srand(31); b = "ACGT"
+    for (c = 0; c < 40; c++) { printf ">ctg%02d\n", c; line = ""
+        for (i = 0; i < 3000; i++) { line = line substr(b, 1 + int(rand() * 4), 1)
+            if (length(line) == 60) { print line; line = "" } } } }' > ../fa/manyref.fa
+samtools faidx ../fa/manyref.fa
+awk 'BEGIN { srand(37); OFS = "\t"; print "@HD", "VN:1.6", "SO:coordinate"
+    for (c = 0; c < 40; c++) printf "@SQ\tSN:ctg%02d\tLN:3000\n", c
+    q = ""; for (j = 0; j < 25; j++) q = q "I"
+    for (c = 0; c < 40; c++) {
+        for (i = 0; i < 60; i++) pos[i] = 1 + int(rand() * 2900)
+        for (i = 1; i < 60; i++) { v = pos[i]; j = i - 1
+            while (j >= 0 && pos[j] > v) { pos[j + 1] = pos[j]; j-- } pos[j + 1] = v }
+        for (i = 0; i < 60; i++) printf "m%d_%d\t0\tctg%02d\t%d\t60\t25M\t*\t0\t0\t%s\t%s\n", c, i, c, pos[i], "ACGTACGTACGTACGTACGTACGTA", q } }' > tmp-manyref.sam
+samtools view -C -@ 0 --no-PG -T ../fa/manyref.fa --output-fmt-option version=3.0 \
+    --output-fmt-option seqs_per_slice=50 -o manyref.cram tmp-manyref.sam
+rm tmp-manyref.sam
+samtools index manyref.cram

@@ -730,8 +730,7 @@ fn view_alignments(
     wo: &WriterOptions,
 ) -> Result<(), IoError> {
     let layout = src.layout();
-    // A CRAM's records are BAM bytes, but its index is a `.crai`: regions are found by
-    // scanning it (reading regions through a `.crai` comes with the CRAM region reader).
+    // A CRAM's records are BAM bytes, and its regions are found through its `.crai`.
     let input_format = src.format();
     let out_format = out_spec.format.unwrap_or_else(|| OutFormat::family(layout));
     check_family(layout, out_format)?;
@@ -766,7 +765,7 @@ write SAM instead (-O sam)",
         let Wanted { wanted, sets, .. } = resolve_regions(&name, &hdr, opts, ro, None, None, None)?;
         let file = Some(Path::new(path)).filter(|p| path != "-" && p.is_file());
         let index = file
-            .filter(|_| input_format == Format::Bam && !wanted.is_empty())
+            .filter(|_| matches!(input_format, Format::Bam | Format::Cram) && !wanted.is_empty())
             .and_then(|p| find_index(p).map(|i| (p, i)));
         if let Some((p, info)) = index {
             if info.stale {
@@ -775,7 +774,7 @@ write SAM instead (-O sam)",
                     info.path.display()
                 );
             }
-            let ix = IndexedFile::open(p, layout, hdr.clone(), ro)?;
+            let ix = IndexedFile::open(p, input_format, hdr.clone(), ro)?;
             src = ix.aln_regions_source(&wanted, opts.inclusive_points)?;
             indexed = true;
         } else {
@@ -783,7 +782,7 @@ write SAM instead (-O sam)",
             by_ref = header.refs.iter().map(|(n, _)| by_name.remove(n)).collect();
             if path != "-" && by_ref.iter().any(Option::is_some) {
                 let hint = match input_format {
-                    Format::Bam if !wanted.is_empty() => {
+                    Format::Bam | Format::Cram if !wanted.is_empty() => {
                         format!("; create an index with: gloci index {name}")
                     }
                     _ => String::new(),

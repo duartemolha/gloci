@@ -114,11 +114,12 @@ fn view_cram_with_reference() {
         records(&back),
         records(&stdout_of(&["view", "-O", "sam", &aln("flags.bam")]))
     );
-    // Regions by scan, with the read filters, and the -v counts of a BAM scanned likewise (a
-    // copy without its .bai: through the index, fewer reads are visited and counted).
+    // Regions through the .crai, with the read filters, and the -v counts of the BAM read
+    // through its .bai (the reads visited are the slices'/chunks', counted alike).
     let region = ["chr1:650-701", "--exclude-flags", "0x704"];
     let scanned = dir.path().join("flags.bam");
     std::fs::copy(aln("flags.bam"), &scanned).unwrap();
+    std::fs::copy(aln("flags.bam.bai"), dir.path().join("flags.bam.bai")).unwrap();
     let bam = gloci()
         .args(["-v", "view", "-O", "sam", &s(&scanned)])
         .args(region)
@@ -489,20 +490,98 @@ fn reference_without_cram_warns() {
 }
 
 #[test]
-fn interval_commands_do_not_read_cram_yet() {
-    // Only view reads CRAM so far; the interval commands keep the "not yet" answer.
+fn every_alignment_command_reads_cram() {
+    // intersect, coverage, genomecov, convert and sort read a CRAM with --reference, and give
+    // what they give for the same reads in a BAM.
     let dir = tempdir();
-    let bed = plain_file(dir.path(), "a.bed", "chr1\t1\t100\n");
-    let (b, c) = (s(&bed), aln("flags.cram"));
+    let (r, c) = (reference(), aln("flags.cram"));
+    let bam = dir.path().join("flags.bam");
+    gloci()
+        .args(["view", &c, "--reference", &r, "-o", &s(&bam)])
+        .assert()
+        .success();
+    let bed = plain_file(dir.path(), "a.bed", "chr1\t0\t800\nchr2\t0\t100\n");
+    let (b, bam) = (s(&bed), s(&bam));
+    let table = plain_file(dir.path(), "g.genome", "chr1\t1000\nchr2\t1234\n");
+    let g = s(&table);
     for args in [
-        vec!["intersect", "-a", &c, "-b", &b],
-        vec!["intersect", "-a", &b, "-b", &c],
-        vec!["coverage", "-a", &b, "-b", &c],
-        vec!["genomecov", &c],
-        vec!["convert", &c],
+        vec!["intersect", "-a", "@", "-b", &b, "--mode", "count"],
+        vec!["intersect", "-a", &b, "-b", "@", "--mode", "count"],
+        vec!["coverage", "-a", &b, "-b", "@"],
+        vec!["genomecov", "@", "-g", &g],
+        vec!["convert", "@"],
     ] {
-        gloci().args(&args).assert().failure().stderr(contains(
-            "is CRAM, and reading it is not available in this build yet",
+        let with = |input: &str, extra: &[&str]| {
+            let mut v: Vec<String> = args
+                .iter()
+                .map(|a| {
+                    if *a == "@" {
+                        input.to_string()
+                    } else {
+                        a.to_string()
+                    }
+                })
+                .collect();
+            v.extend(extra.iter().map(|e| e.to_string()));
+            stdout_of(&v.iter().map(String::as_str).collect::<Vec<_>>())
+        };
+        let want = with(&bam, &[]);
+        assert!(!want.is_empty(), "{args:?}");
+        assert_eq!(with(&c, &["--reference", &r]), want, "{args:?}");
+    }
+    // sort writes BAM for a CRAM.
+    let out = dir.path().join("sorted.bam");
+    gloci()
+        .args(["sort", &c, "--reference", &r, "-o", &s(&out)])
+        .assert()
+        .success();
+    assert!(std::fs::read(&out).unwrap().starts_with(&[0x1f, 0x8b]));
+    // Without --reference the reads cannot be decoded, and the message says what to pass.
+    gloci()
+        .args(["genomecov", &c])
+        .assert()
+        .failure()
+        .stderr(contains("--reference FASTA"));
+}
+
+#[test]
+fn reference_without_cram_input_warns_in_every_alignment_command() {
+    let dir = tempdir();
+    let r = reference();
+    let bam = aln("flags.bam");
+    let bed = plain_file(dir.path(), "a.bed", "chr1\t0\t800\n");
+    let b = s(&bed);
+    let out = s(&dir.path().join("o.bam"));
+    for args in [
+        vec!["intersect", "-a", &bam, "-b", &b, "--mode", "count"],
+        vec!["coverage", "-a", &b, "-b", &bam],
+        vec!["genomecov", &bam],
+        vec!["convert", &bam],
+        vec!["sort", &bam, "-o", &out],
+        vec!["view", &bam, "-o", &out],
+    ] {
+        let mut v = args.clone();
+        v.extend(["--reference", &r]);
+        gloci().args(&v).assert().success().stderr(contains(
+            "is not used: no input is CRAM (only CRAM input needs a reference)",
         ));
+        // A CRAM input uses it: no warning.
+        let cram = aln("flags.cram");
+        let v: Vec<&str> = args
+            .iter()
+            .map(|a| {
+                if *a == bam.as_str() {
+                    cram.as_str()
+                } else {
+                    *a
+                }
+            })
+            .chain(["--reference", &r])
+            .collect();
+        gloci()
+            .args(&v)
+            .assert()
+            .success()
+            .stderr(contains("is not used").not());
     }
 }
