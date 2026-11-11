@@ -202,8 +202,8 @@ Examples:
     /// files in sorted order. The input files may be named - (stdin, once).
     /// BAM only: CRAM and SAM are refused (gloci view x.sam -o x.bam makes
     /// BAM; samtools cat joins CRAM). The output is BAM, to -o or stdout.
-    /// A BAM index for the output arrives with gloci index for BAM, so
-    /// --write-index is not available yet.
+    /// --write-index also writes the .bai, for files that are already in
+    /// coordinate order.
     #[command(after_long_help = "\
 Examples:
   gloci cat lane1.bam lane2.bam -o all.bam
