@@ -75,6 +75,26 @@ corrupt"
         path: name.clone(),
         source,
     })?;
+    // The container reader stops quietly where the file does, so a cut inside the header
+    // container shows as a position at the end of the file: no data or end-of-file container
+    // follows.
+    let len = src
+        .get_ref()
+        .metadata()
+        .map_err(|source| IoError::Read {
+            path: name.clone(),
+            source,
+        })?
+        .len();
+    if data_start >= len {
+        return Err(IoError::Detect {
+            path: name.clone(),
+            msg: format!(
+                "{name} ends inside its CRAM header container (or has no end-of-file container \
+after it); the file is probably truncated"
+            ),
+        });
+    }
     Ok(CramPrelude {
         major: version.major(),
         minor: version.minor(),
@@ -85,12 +105,14 @@ corrupt"
 }
 
 /// Does the CRAM file `path` end with its end-of-file container: 38 bytes for CRAM 3.x, 30 for
-/// 2.1? Only the version bytes and the tail are read.
+/// 2.1? Only the version bytes and the tail are read. CRAM 2.0 is checked like 2.1: any major
+/// version 2 uses the 30-byte container (htslib reads 2.0 and 2.1 alike).
 pub fn cram_eof_present(path: &Path) -> io::Result<bool> {
     let mut f = File::open(path)?;
     let len = f.metadata()?.len();
     let mut start = [0u8; 6];
     let n = f.read(&mut start)?;
+    // Version 2.0 is treated like 2.1 here: both end with the 30-byte container.
     let tail: &[u8] = if n == 6 && start[4] == 2 {
         &EOF_V2
     } else {

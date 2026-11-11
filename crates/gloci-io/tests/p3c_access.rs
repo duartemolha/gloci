@@ -468,3 +468,51 @@ fn regions_source_matches_hand_oracle_on_every_index() {
     assert_eq!(one("chr1", 700, 701), ["r_unmapped_placed"]);
     assert!(one("chr1", 700, 700).is_empty());
 }
+
+#[test]
+fn cram_prelude_survives_damaged_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let good = std::fs::read(aln("flags.cram")).unwrap();
+    let start = read_cram_prelude(&aln("flags.cram")).unwrap().data_start as usize;
+    let write = |name: &str, bytes: &[u8]| {
+        let p = dir.path().join(name);
+        std::fs::write(&p, bytes).unwrap();
+        p
+    };
+    // Cut inside the file definition, and at several places inside the header container.
+    for cut in [0, 3, 10, 26, 27, 30, 40, start / 2, start - 1] {
+        let p = write("cut.cram", &good[..cut]);
+        assert!(read_cram_prelude(&p).is_err(), "cut at {cut}");
+    }
+    // A header container that claims 2 GiB - 1 (or more) of data, in the container's length field
+    // and in the header block's sizes: an error, quickly, without allocating that much.
+    for at in [26usize, 26 + 4 + 5, 40, 44, 48, 52] {
+        let mut bad = good[..start.min(good.len())].to_vec();
+        for (i, b) in [0xff, 0xff, 0xff, 0x7f].iter().enumerate() {
+            if at + i < bad.len() {
+                bad[at + i] = *b;
+            }
+        }
+        let p = write("huge.cram", &bad);
+        let t = std::time::Instant::now();
+        let r = read_cram_prelude(&p);
+        assert!(r.is_err(), "length bytes at {at}: {r:?}");
+        assert!(
+            t.elapsed().as_secs() < 5,
+            "length bytes at {at} took too long"
+        );
+    }
+    // Garbage, an empty file, and a directory.
+    let junk: Vec<u8> = (0..4096u32)
+        .map(|i| (i.wrapping_mul(2654435761) >> 13) as u8)
+        .collect();
+    assert!(read_cram_prelude(&write("junk.cram", &junk)).is_err());
+    let mut magic = b"CRAM\x03\x00".to_vec();
+    magic.extend_from_slice(&junk);
+    assert!(read_cram_prelude(&write("magic.cram", &magic)).is_err());
+    assert!(read_cram_prelude(&write("empty.cram", b"")).is_err());
+    assert!(read_cram_prelude(dir.path()).is_err());
+    // The EOF check needs only the tail: junk and short files have none.
+    assert!(!cram_eof_present(&write("junk.cram", &junk)).unwrap());
+    assert!(!cram_eof_present(&write("short.cram", b"CRAM")).unwrap());
+}
