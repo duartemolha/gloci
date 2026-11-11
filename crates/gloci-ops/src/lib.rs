@@ -23,6 +23,7 @@ pub mod maskfasta;
 pub mod merge;
 pub mod nuc;
 pub mod partition;
+pub mod reheader;
 pub mod relate;
 pub mod seq;
 pub mod shift;
@@ -48,6 +49,7 @@ pub use bedsearch::{ChromBlock, find_chrom_block, find_chrom_block_mapped};
 pub use check::{CheckReport, Problems, check_file};
 pub use gloci_engine::all_indexed;
 pub use maskfasta::{Mask, MaskSet, MaskSummary, PastEnd, maskfasta, maskfasta_with};
+pub use reheader::reheader;
 pub use relate::{
     Acceptor, InputPaths, RelateInputs, RelateOptions, RelationFiles, ReportOutput, RunOptions,
     b_placeholder, open_report, rewrite_coords, run_relation, runs_per_chromosome,

@@ -11,6 +11,7 @@ mod header;
 mod place;
 mod record;
 mod region;
+mod reheader;
 mod sam;
 mod source;
 mod writer;
@@ -25,6 +26,10 @@ pub use header::{AlnHeader, AlnSortOrder, SortOrder};
 pub use record::{Aln, AlnRef, aln_ref, blocks, blocks_within};
 pub use region::alignment_query_span;
 pub(crate) use region::{BamRegionParse, index_span};
+pub use reheader::{
+    bam_header_blocks, check_sq_compatible, check_sq_compatible_named, read_bam_file_header,
+    read_bam_header_with_extent, read_new_header, write_cram_header_container,
+};
 pub use sam::SamAln;
 pub(crate) use sam::SamReader;
 pub(crate) use source::source_from_input;

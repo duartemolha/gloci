@@ -1099,6 +1099,34 @@ Examples:
   gloci flags 0x704 1796 secondary,dup
   gloci flags")]
     Flags(FlagsArgs),
+    /// Replace the header of a BAM or CRAM file without decoding its records (samtools reheader).
+    ///
+    /// HEADER is SAM header text, or a SAM, BAM or CRAM file whose header is
+    /// taken (as samtools does); - reads standard input. IN must be a regular
+    /// BAM or CRAM file: standard input is refused (gloci view - -o x.bam makes
+    /// a file) and so is SAM. The result goes to -o or stdout, in IN's format;
+    /// -o may name IN, which is then replaced atomically, and a failure leaves
+    /// it as it was. A gloci @PG line is added to the new header.
+    ///
+    /// Records point at their reference by its position in the @SQ list, so the
+    /// new list must keep every old reference in the same place with the same
+    /// LN. Names (SN:) may change, and @SQ lines may be added after the last
+    /// one. For CRAM an M5: that both lists have must be equal. Anything else
+    /// is an error naming both lines, and nothing is written (samtools
+    /// checks nothing and would attach reads to the wrong contigs; use gloci
+    /// view --chrom-map to rename references safely).
+    ///
+    /// BAM: the new header is compressed, and the rest of IN is copied block
+    /// by block: only the block that held the old header's end is compressed
+    /// again. CRAM: the file definition, a new header container, then every
+    /// byte of IN from its first data container. The old and new headers and
+    /// one BGZF block are all that is held in memory.
+    #[command(after_long_help = "\
+Examples:
+  gloci reheader new-header.sam x.bam -o y.bam
+  gloci reheader other.bam x.bam -o x.bam
+  gloci view --header-only x.bam -O sam | sed 's/SN:chr/SN:/' | gloci reheader - x.bam -o y.bam")]
+    Reheader(ReheaderArgs),
 }
 
 /// What `intersect` reports.
@@ -3376,4 +3404,24 @@ pub struct FlagsArgs {
     /// flags is printed.
     #[arg(value_name = "FLAGS")]
     pub flags: Vec<String>,
+}
+
+// P3c Task 11
+#[derive(Args)]
+pub struct ReheaderArgs {
+    /// The new header: SAM header text, or a SAM, BAM or CRAM file whose header is taken (- is
+    /// standard input).
+    #[arg(value_name = "HEADER")]
+    pub header: String,
+    /// The BAM or CRAM file to give the header to (a regular file, not standard input).
+    #[arg(value_name = "IN")]
+    pub input: PathBuf,
+    /// Write the result to FILE instead of stdout (FILE may be IN).
+    #[arg(short, long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
+    /// BGZF compression level of a BAM's new header, 0-12.
+    #[arg(long, value_name = "N", default_value = "6", value_parser = parse_level)]
+    pub compression_level: u8,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
 }
