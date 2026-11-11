@@ -232,6 +232,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
             cli::StatsCommand::Reldist(r) => (r.threads.threads, r.sort.tmp_dir.clone()),
         },
         Commands::PairIntersect(a) => (a.threads.threads, None),
+        Commands::PairPair(a) => (a.threads.threads, None),
         Commands::Vcf(a) => match &a.command {
             cli::VcfCommand::Filter(f) => (f.threads.threads, None),
             cli::VcfCommand::Extract(e) => (e.threads.threads, e.tmp_dir.tmp_dir.clone()),
@@ -332,6 +333,7 @@ fn dispatch(cli: &Cli, ctx: &Ctx) -> (anyhow::Result<()>, bool) {
             cli::StatsCommand::Reldist(r) => commands::stats::run_reldist(ctx, r),
         },
         Commands::PairIntersect(a) => commands::pairs::run_intersect(ctx, a),
+        Commands::PairPair(a) => commands::pairs::run_pair(ctx, a),
         Commands::Vcf(a) => match &a.command {
             cli::VcfCommand::Filter(f) => commands::vcf::run_filter(ctx, f),
             cli::VcfCommand::Extract(e) => commands::vcf::run_extract(ctx, e),

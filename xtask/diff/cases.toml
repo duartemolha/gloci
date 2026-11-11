@@ -7270,3 +7270,183 @@ gloci = "gloci genomecov input.badtail.cram --reference ref.fa -t 4"
 reference = "gloci genomecov input.badtail.cram --reference ref.fa -t 1"
 compare = "exit-status"
 expected_difference = "#cram-unplaced-tail"
+
+# P3b Task 8: pair-pair vs bedtools pairtopair. bedtools enforces strand unless -is, so the
+# default-strand cases run bedtools without -is against gloci -s. Its hits come orientation 1
+# first, then orientation 2, which equals B's order in every fixture but pp-b-order.
+[[case]]
+name = "pairtopair-both-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pp-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pp-b.bedpe"]
+gloci = "gloci pair-pair --type both -a input.bedpe -b pp-b.bedpe"
+reference = "bedtools pairtopair -is -type both -a input.bedpe -b pp-b.bedpe"
+compare = "exact"
+
+[[case]]
+name = "pairtopair-either-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pp-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pp-b.bedpe"]
+gloci = "gloci pair-pair --type either -a input.bedpe -b pp-b.bedpe"
+reference = "bedtools pairtopair -is -type either -a input.bedpe -b pp-b.bedpe"
+compare = "exact"
+
+[[case]]
+name = "pairtopair-neither-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pp-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pp-b.bedpe"]
+gloci = "gloci pair-pair --type neither -a input.bedpe -b pp-b.bedpe"
+reference = "bedtools pairtopair -is -type neither -a input.bedpe -b pp-b.bedpe"
+compare = "exact"
+
+[[case]]
+name = "pairtopair-notboth-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pp-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pp-b.bedpe"]
+gloci = "gloci pair-pair --type notboth -a input.bedpe -b pp-b.bedpe"
+reference = "bedtools pairtopair -is -type notboth -a input.bedpe -b pp-b.bedpe"
+compare = "exact"
+
+[[case]]
+name = "pairtopair-default-type-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pp-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pp-b.bedpe"]
+gloci = "gloci pair-pair -a input.bedpe -b pp-b.bedpe"
+reference = "bedtools pairtopair -is -a input.bedpe -b pp-b.bedpe"
+compare = "exact"
+
+[[case]]
+name = "pairtopair-same-strand-both-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pp-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pp-b.bedpe"]
+gloci = "gloci pair-pair -s --type both -a input.bedpe -b pp-b.bedpe"
+reference = "bedtools pairtopair -type both -a input.bedpe -b pp-b.bedpe"
+compare = "exact"
+
+[[case]]
+name = "pairtopair-same-strand-either-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pp-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pp-b.bedpe"]
+gloci = "gloci pair-pair -s --type either -a input.bedpe -b pp-b.bedpe"
+reference = "bedtools pairtopair -type either -a input.bedpe -b pp-b.bedpe"
+compare = "exact"
+
+[[case]]
+name = "pairtopair-same-strand-neither-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pp-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pp-b.bedpe"]
+gloci = "gloci pair-pair -s --type neither -a input.bedpe -b pp-b.bedpe"
+reference = "bedtools pairtopair -type neither -a input.bedpe -b pp-b.bedpe"
+compare = "exact"
+
+[[case]]
+name = "pairtopair-orientation-2-both-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pp-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pp-b-o2.bedpe"]
+gloci = "gloci pair-pair --type both -a input.bedpe -b pp-b-o2.bedpe"
+reference = "bedtools pairtopair -is -type both -a input.bedpe -b pp-b-o2.bedpe"
+compare = "exact"
+
+[[case]]
+name = "pairtopair-slop-vs-window"
+input = { file = "xtask/diff/inputs/p3b/pairs/pp-a-win.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pp-b-win.bedpe"]
+gloci = "gloci pair-pair -w 10 -a input.bedpe -b pp-b-win.bedpe"
+reference = "bedtools pairtopair -is -slop 10 -a input.bedpe -b pp-b-win.bedpe"
+compare = "exact"
+
+[[case]]
+name = "pairtopair-slop-strand-vs-strand-window"
+input = { file = "xtask/diff/inputs/p3b/pairs/pp-a-ss.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pp-b-ss.bedpe"]
+gloci = "gloci pair-pair --left 10 --strand-window -a input.bedpe -b pp-b-ss.bedpe"
+reference = "bedtools pairtopair -is -ss -slop 10 -a input.bedpe -b pp-b-ss.bedpe"
+compare = "exact"
+
+[[case]]
+name = "pairtopair-different-names-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pp-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pp-b.bedpe"]
+gloci = "gloci pair-pair --type either --require-different-names -a input.bedpe -b pp-b.bedpe"
+reference = "bedtools pairtopair -is -type either -rdn -a input.bedpe -b pp-b.bedpe"
+compare = "exact"
+
+[[case]]
+name = "pairtopair-absent-ends-either-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pp-a-abs.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pp-b-abs.bedpe"]
+gloci = "gloci pair-pair --type either -a input.bedpe -b pp-b-abs.bedpe"
+reference = "bedtools pairtopair -is -type either -a input.bedpe -b pp-b-abs.bedpe"
+compare = "exact"
+
+[[case]]
+name = "pairtopair-absent-ends-neither-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pp-a-abs.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pp-b-abs.bedpe"]
+gloci = "gloci pair-pair --type neither -a input.bedpe -b pp-b-abs.bedpe"
+reference = "bedtools pairtopair -is -type neither -a input.bedpe -b pp-b-abs.bedpe"
+compare = "exact"
+
+[[case]]
+name = "pairtopair-absent-ends-notboth-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pp-a-abs.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pp-b-abs.bedpe"]
+gloci = "gloci pair-pair --type notboth -a input.bedpe -b pp-b-abs.bedpe"
+reference = "bedtools pairtopair -is -type notboth -a input.bedpe -b pp-b-abs.bedpe"
+compare = "exact"
+
+[[case]]
+name = "pairtopair-absent-ends-both-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pp-a-abs.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pp-b-abs.bedpe"]
+gloci = "gloci pair-pair --type both -a input.bedpe -b pp-b-abs.bedpe"
+reference = "bedtools pairtopair -is -type both -a input.bedpe -b pp-b-abs.bedpe"
+compare = "exact"
+
+# Strands of `.`: bedtools matches `.` with `.`, gloci's -s matches nothing.
+[[case]]
+name = "pairtopair-unknown-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pp-a-unk.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pp-b-unk.bedpe"]
+gloci = "gloci pair-pair -s -a input.bedpe -b pp-b-unk.bedpe"
+reference = "bedtools pairtopair -a input.bedpe -b pp-b-unk.bedpe"
+compare = "exact"
+expected_difference = "#pair-unknown-strand"
+
+# A B that hits in both orientations: bedtools writes one row per orientation, gloci one.
+[[case]]
+name = "pairtopair-both-orientations-once-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pp-a-twice.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pp-b-twice.bedpe"]
+gloci = "gloci pair-pair --type both -a input.bedpe -b pp-b-twice.bedpe"
+reference = "bedtools pairtopair -is -type both -a input.bedpe -b pp-b-twice.bedpe"
+compare = "exact"
+expected_difference = "#pair-pair-once"
+
+# A B that hits with its end 2 only: bedtools swaps B's ends (and drops its score), gloci writes B as it reads.
+[[case]]
+name = "pairtopair-either-end-2-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pp-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pp-b-o2.bedpe"]
+gloci = "gloci pair-pair --type either -a input.bedpe -b pp-b-o2.bedpe"
+reference = "bedtools pairtopair -is -type either -a input.bedpe -b pp-b-o2.bedpe"
+compare = "exact"
+expected_difference = "#pair-pair-b-columns"
+
+# Orientation 2 hit listed first in B: bedtools writes orientation 1's hits first.
+[[case]]
+name = "pairtopair-hit-order-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pp-a-order.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pp-b-order.bedpe"]
+gloci = "gloci pair-pair --type both -a input.bedpe -b pp-b-order.bedpe"
+reference = "bedtools pairtopair -is -type both -a input.bedpe -b pp-b-order.bedpe"
+compare = "exact"
+expected_difference = "#pair-hit-order"
+
+[[case]]
+name = "pairtopair-hit-order-unordered-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pp-a-order.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pp-b-order.bedpe"]
+gloci = "gloci pair-pair --type both -a input.bedpe -b pp-b-order.bedpe"
+reference = "bedtools pairtopair -is -type both -a input.bedpe -b pp-b-order.bedpe"
+compare = "lines-unordered"
+

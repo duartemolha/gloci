@@ -1068,6 +1068,30 @@ Examples:
   gloci pair-intersect -a sv.bedpe -b repeats.bed --type neither -o clean.bedpe
   gloci pair-intersect -a sv.bedpe -b genes.bed --type xor -s -t 4")]
     PairIntersect(PairIntersectArgs),
+    // P3b Task 8
+    /// BEDPE pairs by how their ends overlap the ends of the pairs of B (bedtools pairtopair).
+    ///
+    /// A and B are both BEDPE files (never detected). B is loaded into memory; A streams in any
+    /// order. Orientation 1 tests end 1 of A against end 1 of B and end 2 against end 2;
+    /// orientation 2 tests end 1 of A against end 2 of B and end 2 against end 1. --type both
+    /// (default): A with each B that overlaps on both ends in either orientation. either: A with
+    /// each B with any end overlapping an end of A. neither: A alone when no B end overlaps.
+    /// notboth: A alone when no B overlaps on both ends. A B is written once per A, as its line
+    /// reads (TSV: A's line, a tab, B's line), in B's input order; the A-alone types write A's
+    /// BEDPE line. Ends are tested under -f, -F, -r, -e, --min-bases and --inclusive-points
+    /// (section 4.3); strand is ignored unless -s or -S, which compare strand1 with strand1 and
+    /// strand2 with strand2 of the tested ends (unknown strands never match). -w, --left, --right
+    /// and --strand-window pad B's ends before testing (not with the thresholds). An end whose
+    /// chromosome is `.` overlaps nothing. --require-different-names drops a B named like A
+    /// (column 7); a pair without a name is then an error. Output follows A's order whatever the
+    /// thread count; -o x.bedpe, x.tsv, .gz for BGZF.
+    #[command(after_long_help = "\
+Examples:
+  gloci pair-pair -a sv1.bedpe -b sv2.bedpe
+  gloci pair-pair -a sv1.bedpe -b sv2.bedpe --type either -w 100
+  gloci pair-pair -a sv1.bedpe -b sv2.bedpe --type notboth -o unique.bedpe
+  gloci pair-pair -a sv.bedpe -b sv.bedpe --require-different-names -s -t 4")]
+    PairPair(PairPairArgs),
 }
 
 /// What `intersect` reports.
@@ -3464,6 +3488,49 @@ pub struct PairIntersectArgs {
     pub o: OverlapArgs,
     #[command(flatten)]
     pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+/// What `pair-pair` reports (bedtools `-type`).
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum PairPairTypeArg {
+    /// A alone when no end of A overlaps an end of B.
+    Neither,
+    /// A with each B having an end that overlaps an end of A.
+    Either,
+    /// A with each B overlapping on both ends, in either orientation (default).
+    Both,
+    /// A alone when no B overlaps on both ends.
+    Notboth,
+}
+
+// P3b Task 8
+#[derive(Args, Debug, Clone)]
+#[command(mut_arg("split", |a| a.hide(true)))]
+pub struct PairPairArgs {
+    /// A: the BEDPE file whose pairs are reported (`-` for stdin).
+    #[arg(short = 'a', long = "a", value_name = "FILE", required = true)]
+    pub a: String,
+    /// B: the BEDPE file the pairs of A are tested against (`-` for stdin).
+    #[arg(short = 'b', long = "b", value_name = "FILE", required = true)]
+    pub b: String,
+    /// What to report: neither, either, both or notboth.
+    #[arg(long = "type", value_enum, default_value = "both", value_name = "TYPE")]
+    pub kind: PairPairTypeArg,
+    #[command(flatten)]
+    pub o: OverlapArgs,
+    #[command(flatten)]
+    pub w: WindowArgs,
+    /// Drop a B named like A (column 7), as bedtools -rdn; every pair then needs a name.
+    #[arg(long)]
+    pub require_different_names: bool,
     #[command(flatten)]
     pub chrom_map: ChromMapArg,
     #[command(flatten)]

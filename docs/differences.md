@@ -2096,11 +2096,16 @@ even an A sitting on the only one. bedtools does the same and gloci ports it on 
   ones), so records in different bins come out in bin order: for an end covering `chr1 0-50000`, B
   records at 40000, 100, 20000, 0-50000 and 120 come out as 100, 120, 20000, 40000, 0-50000. Hits that
   share a bin keep B's order, which is why every other case here matches exactly.
+- **Also `pair-pair`:** the B pairs that hit one A are written in B's input order. `bedtools
+  pairtopair` writes the pairs hit in orientation 1 first and those hit only in orientation 2 after
+  them, so a B listed earlier that hits only in orientation 2 comes out later.
 - **Reason:** B's order is a rule a user can state; bin order is an implementation detail.
 - **Pinned by:** `pairtobed-hit-order-vs-bedtools` (must differ); the same rows in any order match
-  in `pairtobed-hit-bins-vs-bedtools` (`lines-unordered`).
+  in `pairtobed-hit-bins-vs-bedtools` (`lines-unordered`). For `pair-pair`,
+  `pairtopair-hit-order-vs-bedtools` (must differ) and `pairtopair-hit-order-unordered-vs-bedtools`
+  (`lines-unordered`).
 
-## `pair-intersect -s`/`-S`: an unknown strand never matches {#pair-unknown-strand}
+## `pair-intersect` and `pair-pair` `-s`/`-S`: an unknown strand never matches {#pair-unknown-strand}
 
 - **gloci:** a pair end or B record whose strand is `.` (or missing: a BEDPE with fewer than 10
   columns, a BED with fewer than 6, a VCF) matches nothing under `-s` or `-S`, and gloci warns once
@@ -2108,10 +2113,16 @@ even an A sitting on the only one. bedtools does the same and gloci ports it on 
 - **Old behaviour:** `bedtools pairtobed` treats `.` as a strand like another: under `-s` a `.` end
   matches a `.` record, and under `-S` a `.` end matches every `+` or `-` record and the reverse.
   (With no strand columns at all, `-s` finds nothing in both tools.)
+- **Also `pair-pair`:** `bedtools pairtopair` enforces strand unless `-is`, so with ends of strand
+  `.` it matches `.` with `.`; gloci ignores strand unless `-s`/`-S`, which skip an end of unknown
+  strand in A or B (one warning per input). The comparison is `bedtools pairtopair` against
+  `gloci pair-pair -s`, and `bedtools pairtopair -is` against `gloci pair-pair`.
 - **Reason:** a strand that is not known is not the same strand or the opposite strand.
 - **Pinned by:** `pairtobed-unknown-strand-vs-bedtools` and
   `pairtobed-unknown-strand-opposite-vs-bedtools` (must differ). Strands of `+` and `-` match
-  (`pairtobed-same-strand-vs-bedtools`, `pairtobed-opposite-strand-vs-bedtools`).
+  (`pairtobed-same-strand-vs-bedtools`, `pairtobed-opposite-strand-vs-bedtools`). For `pair-pair`,
+  `pairtopair-unknown-strand-vs-bedtools` (must differ); `+` and `-` strands match
+  (`pairtopair-same-strand-both-vs-bedtools`).
 
 ## `pair-intersect --type notboth` pads a pair that has no hit {#pair-notboth-padding}
 
@@ -2182,6 +2193,31 @@ even an A sitting on the only one. bedtools does the same and gloci ports it on 
 - **Pinned by:** `pairtobed-absent-ends-notispan-vs-bedtools` and
   `pairtobed-absent-ends-notospan-vs-bedtools` (must differ).
   `view-sam-strict-cigar-zeros-vs-samtools` (exit status must differ).
+
+## `pair-pair` writes a B that hits in both orientations once {#pair-pair-once}
+
+- **gloci:** each B pair that meets A is written once, however many of its orientations hit: A's line,
+  a tab and B's line. Orientation 1 tests end 1 of A against end 1 of B and end 2 against end 2;
+  orientation 2 tests A1 against B2 and A2 against B1.
+- **Old behaviour:** `bedtools pairtopair` writes one row per orientation, so a B that hits in both
+  (its two ends both lie inside the overlap of A's two ends) comes out twice.
+- **Reason:** an (A, B) pair is one finding; a repeated row inflates counts made with `wc -l`.
+- **Pinned by:** `pairtopair-both-orientations-once-vs-bedtools` (must differ). Pairs that hit in one
+  orientation only match (`pairtopair-both-vs-bedtools`, `pairtopair-orientation-2-both-vs-bedtools`).
+
+## `pair-pair --type either` writes B's columns as they read {#pair-pair-b-columns}
+
+- **gloci:** the B line in a row is B's line as written, whichever end of B hit.
+- **Old behaviour:** under `-type either`, `bedtools pairtopair` swaps the two ends of B (and their
+  strands) when only B's end 2 hit A's ends, and leaves the score column empty, so the row's B is
+  not the B in the file. `-type both` writes B as written.
+- **Reason:** B's line is the identity of the record, and a dropped score loses data.
+- **Pinned by:** `pairtopair-either-end-2-vs-bedtools` (must differ). A B that hits with end 1
+  matches (`pairtopair-either-vs-bedtools`).
+
+Note (not a difference): an end whose chromosome is `.` never overlaps anything in `pair-pair`, and
+`bedtools pairtopair` reports the same rows for them; pinned by the `pairtopair-absent-ends-*-vs-bedtools`
+cases (must match).
 
 ## CRAM: MD and NM come out as stored {#cram-md-nm}
 
