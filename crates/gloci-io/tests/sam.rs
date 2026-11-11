@@ -159,22 +159,47 @@ fn sam_reader_equals_bam_reader() {
     }
 }
 
-/// The reader's raw SAM records are the file's lines, byte for byte.
+/// With whole records, the reader's raw SAM records are the file's lines, byte for byte; slim
+/// ones (D115) keep the first nine fields, with `*` for SEQ and QUAL and only the score tag.
 #[test]
 fn sam_reader_keeps_the_line() {
-    let o = ropts(AlignOptions::default(), InvalidPolicy::Fail);
     let text = std::fs::read_to_string(fixture("tags.sam")).unwrap();
-    let mut r = open_reader(fixture("tags.sam").to_str().unwrap(), &o).unwrap();
-    let mut table = ChromTable::first_appearance();
-    let mut batch = RecordBatch::default();
-    r.read_batch(&mut table, &mut batch, 100).unwrap();
     let want: Vec<&str> = text
         .lines()
         .filter(|l| !l.starts_with('@') && l.split('\t').nth(1) != Some("4"))
         .collect();
-    assert_eq!(batch.len(), want.len());
-    for (i, w) in want.iter().enumerate() {
-        assert_eq!(batch.raw(i), w.as_bytes());
+    let read = |ao: AlignOptions| {
+        let o = ropts(ao, InvalidPolicy::Fail);
+        let mut r = open_reader(fixture("tags.sam").to_str().unwrap(), &o).unwrap();
+        let mut table = ChromTable::first_appearance();
+        let mut batch = RecordBatch::default();
+        r.read_batch(&mut table, &mut batch, 100).unwrap();
+        assert_eq!(batch.len(), want.len());
+        (0..batch.len())
+            .map(|i| String::from_utf8(batch.raw(i).to_vec()).unwrap())
+            .collect::<Vec<_>>()
+    };
+    let whole = read(AlignOptions {
+        full_records: true,
+        ..AlignOptions::default()
+    });
+    assert_eq!(whole, want);
+    for keep in [None, Some(*b"NM")] {
+        let slim = read(AlignOptions {
+            score_tag: keep,
+            ..AlignOptions::default()
+        });
+        for (got, line) in slim.iter().zip(&want) {
+            let f: Vec<&str> = line.split('\t').collect();
+            let mut w = format!("{}\t*\t*", f[..9].join("\t"));
+            if keep.is_some() {
+                for t in f[11..].iter().filter(|t| t.starts_with("NM:")) {
+                    w.push('\t');
+                    w.push_str(t);
+                }
+            }
+            assert_eq!(got, &w);
+        }
     }
 }
 

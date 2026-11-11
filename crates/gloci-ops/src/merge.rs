@@ -1,3 +1,7 @@
+//! Twin of `crate::stats::MergedReader`, which re-implements this clustering (no aggregation,
+//! pulled instead of pushed). Change one, change both: `tests/jaccard_props.rs`
+//! (`merged_reader_matches_merge`) fails when they diverge.
+//!
 //! `merge`: cluster the footprints of sorted inputs and write one BED row
 //! per cluster (replaces `bedtools merge` and `bedops -m`).
 

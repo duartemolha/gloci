@@ -206,6 +206,17 @@ fn stderr_of(o: &Output) -> String {
     String::from_utf8_lossy(&o.stderr).trim().to_string()
 }
 
+/// The bytes to store for a golden output: `old`, the file already there, when it compares
+/// equal to `new` under the case's compare mode, so that a regeneration does not churn files
+/// whose only change is in lines the mode ignores (bcftools' date-stamped
+/// `##bcftools_*Command` headers); else `new`.
+pub fn kept_golden<'a>(compare_mode: &str, old: Option<&'a [u8]>, new: &'a [u8]) -> &'a [u8] {
+    match old {
+        Some(o) if compare(compare_mode, o, new) => o,
+        _ => new,
+    }
+}
+
 fn write_golden(
     c: &Case,
     root: &Path,
@@ -214,6 +225,10 @@ fn write_golden(
     expected_gloci: Option<&[u8]>,
 ) -> Result<()> {
     let dir = root.join("crates/gloci/tests/golden").join(&c.name);
+    let old_expected = std::fs::read(dir.join("expected")).ok();
+    let old_gloci = std::fs::read(dir.join("expected_gloci")).ok();
+    let expected = kept_golden(&c.compare, old_expected.as_deref(), expected);
+    let expected_gloci = expected_gloci.map(|g| kept_golden(&c.compare, old_gloci.as_deref(), g));
     if dir.exists() {
         std::fs::remove_dir_all(&dir)?;
     }
@@ -384,6 +399,18 @@ mod tests {
     }
 
     #[test]
+    fn regenerating_keeps_a_golden_equal_under_its_compare_mode() {
+        let old = b"##bcftools_isecCommand=isec; Date=Mon Nov 10\n#CHROM\nr1\n".as_slice();
+        let new = b"##bcftools_isecCommand=isec; Date=Tue Nov 11\n#CHROM\nr1\n".as_slice();
+        assert_eq!(kept_golden("vcf-records", Some(old), new), old);
+        // a real change, or a mode that sees the header, rewrites it
+        let changed = b"##x\n#CHROM\nr2\n".as_slice();
+        assert_eq!(kept_golden("vcf-records", Some(old), changed), changed);
+        assert_eq!(kept_golden("exact", Some(old), new), new);
+        assert_eq!(kept_golden("exact", None, new), new);
+    }
+
+    #[test]
     fn expected_difference_rules() {
         let doc = "## View region footprints {#view-region-footprints}\n";
         assert!(validate(&case(Some("view-region-footprints")), doc).is_ok());
@@ -425,6 +452,18 @@ mod tests {
         for c in &cases {
             assert!(seen.insert(&c.name), "duplicate case {}", c.name);
             validate(c, &doc).unwrap_or_else(|e| panic!("{}: {e}", c.name));
+        }
+    }
+
+    #[test]
+    fn every_difference_anchor_is_unique() {
+        let doc = std::fs::read_to_string(workspace_root().join("docs/differences.md")).unwrap();
+        let mut seen = std::collections::HashSet::new();
+        for a in gloci_testkit::differential::anchors(&doc) {
+            assert!(
+                seen.insert(a),
+                "docs/differences.md defines the anchor {{#{a}}} more than once"
+            );
         }
     }
 

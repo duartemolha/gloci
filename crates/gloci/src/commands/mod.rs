@@ -16,11 +16,13 @@ pub mod map;
 pub mod maskfasta;
 pub mod merge;
 pub mod nuc;
+pub mod pairs;
 pub mod partition;
 pub mod shift;
 pub mod slop;
 pub mod sort;
 pub mod spacing;
+pub mod stats;
 pub mod subtract;
 pub mod vcf;
 pub mod vcf_annotate;
@@ -53,8 +55,8 @@ pub struct InputArgs<'a> {
     pub chrom_order: &'a ChromOrderArg,
     pub sort: &'a SortArg,
     pub chrom_map: &'a ChromMapArg,
-    /// The command will read alignments once their reader lands (for the gate's message).
-    pub alignments_planned: bool,
+    /// `Some` when the command reads alignments: how (the read filters).
+    pub alignments: Option<gloci_io::AlignOptions>,
 }
 
 /// Open the inputs of a streaming command and build their chromosome table.
@@ -96,18 +98,14 @@ pub fn open_inputs_each(
     }
 }
 
-fn open_readers(
-    ctx: &Ctx,
-    a: &InputArgs,
-    check: &dyn Fn(&[Format]) -> Result<(), UsageError>,
-) -> anyhow::Result<(Vec<Box<dyn RecordReader>>, gloci_core::ChromTable)> {
-    let ro = sort_aware(
+/// The options the inputs of [`open_inputs`] are read with.
+pub fn reader_options(ctx: &Ctx, a: &InputArgs) -> anyhow::Result<ReaderOptions> {
+    Ok(sort_aware(
         a.sort,
         ReaderOptions {
-            accept: if a.alignments_planned {
-                gloci_io::Accept::planned()
-            } else {
-                gloci_io::Accept::default()
+            accept: gloci_io::Accept {
+                alignments: a.alignments.clone(),
+                ..gloci_io::Accept::default()
             },
             chrom_map: a.chrom_map.load()?,
             threads: ctx.threads,
@@ -122,7 +120,15 @@ fn open_readers(
                 InvalidPolicy::Fail
             },
         },
-    );
+    ))
+}
+
+fn open_readers(
+    ctx: &Ctx,
+    a: &InputArgs,
+    check: &dyn Fn(&[Format]) -> Result<(), UsageError>,
+) -> anyhow::Result<(Vec<Box<dyn RecordReader>>, gloci_core::ChromTable)> {
+    let ro = reader_options(ctx, a)?;
     let readers = a
         .files
         .iter()

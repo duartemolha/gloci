@@ -128,7 +128,7 @@ pub struct ReaderOptions {
 pub enum Opened {
     /// An interval format, read as records.
     Records(Box<dyn RecordReader>),
-    /// BAM or SAM, read as every-record alignments (D120).
+    /// BAM, CRAM or SAM, read as every-record alignments (D120).
     Alignments(Box<dyn crate::align::AlnSource>),
 }
 
@@ -144,8 +144,33 @@ pub fn open_reader_or_alignments(path: &str, o: &ReaderOptions) -> Result<Opened
     finish_reader(path, dispatch(input, o)?).map(Opened::Records)
 }
 
+/// As [`open_reader_or_alignments`], for bytes already in hand (a spooled copy), named `name`.
+pub fn open_reader_or_alignments_from(
+    name: &str,
+    src: Box<dyn Read + Send>,
+    o: &ReaderOptions,
+) -> Result<Opened, IoError> {
+    let input = open_input_from(name, src, &input_options(o))?;
+    if input.format.is_alignment() && o.accept.alignments.is_some() {
+        return crate::align::source_from_input(input, o).map(Opened::Alignments);
+    }
+    dispatch(input, o).map(Opened::Records)
+}
+
 pub fn open_reader(path: &str, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, IoError> {
     finish_reader(path, dispatch(open_input(path, &input_options(o))?, o)?)
+}
+
+/// [`open_reader`], and whether the input has no bytes after decompression: such a file is
+/// detected as an empty BED, which a command that needs another format (`convert` of a BAM or
+/// SAM) reports as [`IoError::empty_input`] instead.
+pub fn open_reader_noting_empty(
+    path: &str,
+    o: &ReaderOptions,
+) -> Result<(Box<dyn RecordReader>, bool), IoError> {
+    let mut input = open_input(path, &input_options(o))?;
+    let empty = input.is_empty()?;
+    Ok((finish_reader(path, dispatch(input, o)?)?, empty))
 }
 
 fn finish_reader(path: &str, r: Box<dyn RecordReader>) -> Result<Box<dyn RecordReader>, IoError> {
@@ -251,6 +276,13 @@ fn dispatch(input: Input, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, Io
             o.invalid,
             o.chrom_map.clone(),
         )?)),
+        Format::Cram if o.accept.alignments.is_some() => {
+            Ok(Box::new(crate::align::CramReader::open_cram(
+                input,
+                o,
+                o.accept.alignments.clone().unwrap_or_default(),
+            )?))
+        }
         Format::Sam if o.accept.alignments.is_some() => {
             Ok(Box::new(crate::align::SamReader::open_sam(
                 input,

@@ -22,6 +22,49 @@ pub(crate) struct Rule {
     pub def: InfoDef,
 }
 
+/// Where each of `ntok` values of a Number=A, R or G tag goes in the merged
+/// vector (of `n_out` alleles), by the record's allele `map`; `None` when the
+/// record has more values than alleles. G is diploid unless the count is the
+/// allele count.
+fn agr_slots(
+    number: Number,
+    ntok: usize,
+    map: &[usize],
+    n_out: usize,
+) -> Option<(Vec<usize>, usize)> {
+    let n_ori = map.len();
+    match number {
+        Number::A => {
+            let v: Option<Vec<usize>> = (0..ntok).map(|j| map.get(j + 1).map(|m| m - 1)).collect();
+            v.map(|v| (v, n_out - 1))
+        }
+        Number::R => {
+            let v: Option<Vec<usize>> = (0..ntok).map(|j| map.get(j).copied()).collect();
+            v.map(|v| (v, n_out))
+        }
+        _ => {
+            if ntok == n_ori {
+                return Some((map.to_vec(), n_out));
+            }
+            if ntok > n_ori * (n_ori + 1) / 2 {
+                return None;
+            }
+            let mut v = Vec::with_capacity(ntok);
+            'o: for i in 0..n_ori {
+                for j in 0..=i {
+                    if v.len() == ntok {
+                        break 'o;
+                    }
+                    let (x, y) = (map[i], map[j]);
+                    let (lo, hi) = if x <= y { (x, y) } else { (y, x) };
+                    v.push(hi * (hi + 1) / 2 + lo);
+                }
+            }
+            Some((v, n_out * (n_out + 1) / 2))
+        }
+    }
+}
+
 /// INFO/END of a record, if any.
 pub(crate) fn end_value(info: &[u8]) -> Option<i64> {
     items(info)
@@ -97,7 +140,10 @@ pub(crate) fn build_rules(
                     ));
                 }
                 if method != Method::Join
-                    && !matches!(def.number, Number::Fixed(_) | Number::A | Number::R)
+                    && !matches!(
+                        def.number,
+                        Number::Fixed(_) | Number::A | Number::R | Number::G
+                    )
                 {
                     return Err(format!(
                         "--info-rules {}:{tag} needs a tag of fixed length (Number=1, a number, A or R); INFO/{tag} has a variable length",
@@ -129,7 +175,10 @@ pub(crate) fn build_rules(
             tags.extend([&b"DP"[..], b"DP4"]);
             for t in tags {
                 if let Some((_, def)) = defs.info.get(t)
-                    && matches!(def.number, Number::Fixed(_) | Number::A | Number::R)
+                    && matches!(
+                        def.number,
+                        Number::Fixed(_) | Number::A | Number::R | Number::G
+                    )
                     && matches!(def.ty, Ty::Int | Ty::Float)
                 {
                     rules.push(Rule {
@@ -178,8 +227,9 @@ pub(crate) fn merge_info(
     let calc = m.calc_acan;
     let declared = |k: &[u8]| m.defs.info.contains_key(k);
     let is_rule = |k: &[u8]| m.rules.iter().any(|r| r.tag == k);
-    let is_ar =
-        |k: &[u8]| declared(k) && matches!(m.out_def(true, k).number, Number::A | Number::R);
+    let is_ar = |k: &[u8]| {
+        declared(k) && matches!(m.out_def(true, k).number, Number::A | Number::R | Number::G)
+    };
     let removed = |k: &[u8]| is_rule(k) || is_ar(k) || (calc && (k == b"AC" || k == b"AN"));
     let at = super::pos_label(&recs[0]);
     let all: Vec<Vec<Item<'_>>> = recs.iter().map(|r| items(r.info)).collect();
@@ -241,10 +291,11 @@ pub(crate) fn merge_info(
     }
     for key in ar_keys {
         let def = m.out_def(true, key);
-        let len = if def.number == Number::A {
-            al.alts.len()
-        } else {
-            al.alts.len() + 1
+        let n_out = al.alts.len() + 1;
+        let len = match def.number {
+            Number::A => n_out - 1,
+            Number::R => n_out,
+            _ => n_out * (n_out + 1) / 2,
         };
         let mut v: Vec<Option<&[u8]>> = vec![None; len];
         let mut any = false;
@@ -254,27 +305,23 @@ pub(crate) fn merge_info(
             };
             any = true;
             m.check_type(true, recs[ri].reader, key, &at)?;
-            let map = &al.maps[ri];
-            for (j, t) in val.split(|&b| b == b',').enumerate() {
-                let slot = if def.number == Number::A {
-                    map.get(j + 1).map(|s| s - 1)
+            let toks: Vec<&[u8]> = val.split(|&b| b == b',').collect();
+            let Some((slots, _)) = agr_slots(def.number, toks.len(), &al.maps[ri], n_out) else {
+                return Err(format!(
+                    "{}: INFO/{} at {at} has more values than the record has alleles",
+                    m.inputs[recs[ri].reader].name,
+                    String::from_utf8_lossy(key)
+                ));
+            };
+            for (t, s) in toks.iter().zip(slots) {
+                // A missing value never replaces one already there; a String
+                // value is only written into an empty place.
+                if *t == b"." || (def.ty == Ty::Str && v[s].is_some_and(|x| x != b".")) {
+                    if v[s].is_none() {
+                        v[s] = Some(t);
+                    }
                 } else {
-                    map.get(j).copied()
-                };
-                match slot {
-                    // A missing value does not replace one already there.
-                    Some(s) => {
-                        if t != b"." || v[s].is_none() {
-                            v[s] = Some(t);
-                        }
-                    }
-                    None => {
-                        return Err(format!(
-                            "{}: INFO/{} at {at} has more values than the record has alleles",
-                            m.inputs[recs[ri].reader].name,
-                            String::from_utf8_lossy(key)
-                        ));
-                    }
+                    v[s] = Some(t);
                 }
             }
         }
@@ -329,7 +376,7 @@ fn apply_rule(
     let ty = rule.def.ty;
     let tag = String::from_utf8_lossy(&rule.tag).into_owned();
     if rule.method == Method::Join {
-        if ty != Ty::Str && matches!(rule.def.number, Number::Var | Number::G) {
+        if ty != Ty::Str && matches!(rule.def.number, Number::Var | Number::Fixed(_)) {
             let n = vals[0].1.len();
             if vals.iter().any(|(_, v)| v.len() != n) {
                 return Err(format!(
@@ -338,9 +385,27 @@ fn apply_rule(
             }
         }
         let mut out = Vec::new();
-        for (_, toks) in vals {
-            for t in toks {
-                if *t == b"." || t.is_empty() {
+        for (ri, toks) in vals {
+            // Number=A, R and G values are first re-indexed to the merged alleles
+            // (a block per record, missing where the record has no allele).
+            let n_out = al.alts.len() + 1;
+            let block: Vec<Option<&[u8]>> = match rule.def.number {
+                Number::A | Number::R | Number::G if ty != Ty::Str => {
+                    let Some((slots, size)) =
+                        agr_slots(rule.def.number, toks.len(), &al.maps[*ri], n_out)
+                    else {
+                        return Err(format!("Wrong number of {tag} fields at {at}"));
+                    };
+                    let mut v = vec![None; size];
+                    for (t, s) in toks.iter().zip(slots) {
+                        v[s] = Some(*t);
+                    }
+                    v
+                }
+                _ => toks.iter().map(|t| Some(*t)).collect(),
+            };
+            for t in block.into_iter().flatten() {
+                if t == b"." || t.is_empty() {
                     continue;
                 }
                 if !out.is_empty() {
@@ -351,26 +416,28 @@ fn apply_rule(
         }
         return Ok((!out.is_empty()).then_some(out));
     }
+    let n_out = al.alts.len() + 1;
     let nslots = match rule.def.number {
-        Number::A => al.alts.len(),
-        Number::R => al.alts.len() + 1,
+        Number::A => n_out - 1,
+        Number::R => n_out,
+        Number::G => n_out * (n_out + 1) / 2,
         Number::Fixed(n) => n,
-        _ => 1,
+        Number::Var => 1,
     };
     let mut slots: Vec<Vec<Option<&[u8]>>> = vec![Vec::new(); nslots];
     for (ri, toks) in vals {
-        let map = &al.maps[*ri];
-        for (j, t) in toks.iter().enumerate() {
-            let s = match rule.def.number {
-                Number::A => map.get(j + 1).map(|s| s - 1),
-                Number::R => map.get(j).copied(),
-                _ => (j < nslots).then_some(j),
-            };
-            let Some(s) = s else {
-                return Err(format!(
-                    "Mismatch in number of values for INFO/{tag} at {at}"
-                ));
-            };
+        let dest: Option<Vec<usize>> = match rule.def.number {
+            Number::A | Number::R | Number::G => {
+                agr_slots(rule.def.number, toks.len(), &al.maps[*ri], n_out).map(|x| x.0)
+            }
+            _ => (toks.len() <= nslots).then(|| (0..toks.len()).collect()),
+        };
+        let Some(dest) = dest else {
+            return Err(format!(
+                "Mismatch in number of values for INFO/{tag} at {at}"
+            ));
+        };
+        for (t, s) in toks.iter().zip(dest) {
             slots[s].push((*t != b"." && !t.is_empty()).then_some(*t));
         }
     }

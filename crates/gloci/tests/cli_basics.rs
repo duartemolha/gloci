@@ -54,3 +54,34 @@ fn parse_sizes() {
     assert!(gloci::cli::parse_size("10").is_err());
     assert!(gloci::cli::parse_size("1.5G").is_err());
 }
+
+#[test]
+fn format_flags_list_the_alignment_formats() {
+    // Every --format, --a-format and --b-format help names the formats the flag takes.
+    let mut cmd = gloci::command();
+    for sub in cmd.get_subcommands_mut() {
+        let name = sub.get_name().to_string();
+        for arg in sub.get_arguments() {
+            let long = arg.get_long().unwrap_or_default();
+            if !matches!(long, "format" | "a-format" | "b-format") {
+                continue;
+            }
+            let help = arg.get_help().map(|h| h.to_string()).unwrap_or_default();
+            for f in ["bed", "vcf", "bam", "cram", "sam"] {
+                assert!(help.contains(f), "{name} --{long}: {help}");
+            }
+        }
+    }
+}
+
+#[test]
+fn index_help_does_not_claim_maskfasta_needs_an_index() {
+    let help = gloci::command()
+        .find_subcommand_mut("index")
+        .unwrap()
+        .render_long_help()
+        .to_string()
+        .replace('\n', " ");
+    assert!(help.contains("maskfasta streams"), "{help}");
+    assert!(!help.contains("nuc, maskfasta"), "{help}");
+}

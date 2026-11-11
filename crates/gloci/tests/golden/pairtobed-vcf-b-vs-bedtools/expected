@@ -1,0 +1,8 @@
+chr1	100	200	chr1	1000	1100	p1	5	+	-	chr1	151	v2	C	T	50	PASS	.
+chr1	100	200	chr1	1000	1100	p1	5	+	-	chr1	1055	v3	AC	A	50	PASS	.
+chr1	100	200	chr2	500	600	p2	6	+	+	chr1	151	v2	C	T	50	PASS	.
+chr1	100	200	chr2	500	600	p2	6	+	+	chr2	552	v4	G	C	50	PASS	.
+chr1	150	170	chr3	30	40	p4	8	+	-	chr1	151	v2	C	T	50	PASS	.
+chr1	1050	1060	chr1	90	110	p5	9	+	+	chr1	1055	v3	AC	A	50	PASS	.
+chr1	1050	1060	chr1	90	110	p5	9	+	+	chr1	96	v1	A	G	50	PASS	.
+chr2	550	560	chr3	10	20	p7	2	-	+	chr2	552	v4	G	C	50	PASS	.

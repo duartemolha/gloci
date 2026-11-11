@@ -97,6 +97,7 @@ proptest! {
             scale: None,
             strand: strand.map(|c| if c == '+' { Strand::Plus } else { Strand::Minus }),
             split: false,
+            split_deletions: false,
             piece: match end { 5 => Piece::FivePrime, 3 => Piece::ThreePrime, _ => Piece::Whole },
             max_depth: max,
         };

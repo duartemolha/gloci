@@ -1,0 +1,1 @@
+stats reldist --unsorted -a input.bed -b reldist-b.bed

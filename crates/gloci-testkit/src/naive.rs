@@ -1248,3 +1248,190 @@ pub fn naive_genomecov(
     }
     out
 }
+
+// P3b Task 2
+/// The merged intervals of `recs` per chromosome (and per strand when
+/// `per_strand`): sorted by start, joined while `start <= end`, as `merge`.
+fn naive_merged(
+    recs: &[TestRec],
+    per_strand: bool,
+    drop_unknown: bool,
+) -> Vec<(String, Interval, Strand)> {
+    let strand_of = |r: &TestRec| match (per_strand, r.strand) {
+        (true, '+') => Strand::Plus,
+        (true, '-') => Strand::Minus,
+        _ => Strand::Unknown,
+    };
+    let mut keys: Vec<(String, u8)> = recs
+        .iter()
+        .map(|r| {
+            (
+                r.chrom.clone(),
+                match strand_of(r) {
+                    Strand::Plus => 0,
+                    Strand::Minus => 1,
+                    Strand::Unknown => 2,
+                },
+            )
+        })
+        .collect();
+    keys.sort();
+    keys.dedup();
+    let mut out = Vec::new();
+    for (chrom, slot) in keys {
+        // `naive_jaccard` leaves unknown-strand clusters out under -s/-S.
+        if per_strand && slot == 2 && drop_unknown {
+            continue;
+        }
+        let mut ivs: Vec<Interval> = recs
+            .iter()
+            .filter(|r| {
+                r.chrom == chrom
+                    && match strand_of(r) {
+                        Strand::Plus => 0,
+                        Strand::Minus => 1,
+                        Strand::Unknown => 2,
+                    } == slot
+            })
+            .map(|r| r.interval())
+            .collect();
+        ivs.sort_by_key(|i| (i.start, i.end));
+        let strand = match slot {
+            0 => Strand::Plus,
+            1 => Strand::Minus,
+            _ => Strand::Unknown,
+        };
+        let mut cur: Option<Interval> = None;
+        for iv in ivs {
+            match cur.as_mut() {
+                Some(c) if iv.start <= c.end => c.end = c.end.max(iv.end),
+                _ => {
+                    if let Some(c) = cur.take() {
+                        out.push((chrom.clone(), c, strand));
+                    }
+                    cur = Some(iv);
+                }
+            }
+        }
+        if let Some(c) = cur {
+            out.push((chrom.clone(), c, strand));
+        }
+    }
+    out
+}
+
+/// `stats jaccard` by brute force: merge each input, test every pair of merged
+/// intervals on one chromosome, and total the accepted overlaps. Returns
+/// `(intersection, union, n_intersections)`.
+pub fn naive_jaccard(a: &[TestRec], b: &[TestRec], c: &OverlapCriteria) -> (u64, u64, u64) {
+    let by_strand = c.strand != StrandRule::Any;
+    let (ma, mb) = (
+        naive_merged(a, by_strand, true),
+        naive_merged(b, by_strand, true),
+    );
+    let (mut inter, mut pairs) = (0, 0);
+    for (ca, ia, sa) in &ma {
+        for (cb, ib, sb) in &mb {
+            if ca == cb && c.accepts(*ia, *sa, *ib, *sb) {
+                inter += gloci_core::overlap_len(*ia, *ib);
+                pairs += 1;
+            }
+        }
+    }
+    let total: u64 = ma.iter().chain(&mb).map(|(_, i, _)| i.end - i.start).sum();
+    (inter, total - inter, pairs)
+}
+
+/// One BEDPE pair for [`naive_pair_intersect`]: each end's chromosome, span
+/// and strand (`None` for an absent end), and the line as written.
+#[derive(Debug, Clone)]
+pub struct NaivePair {
+    pub ends: [Option<(String, Interval, Strand)>; 2],
+    pub line: String,
+}
+
+/// `pair-intersect` by brute force (D154): the rows for `kind` (a `--type`
+/// value) over the pairs `a` and the BED6 records `b`, and the number of
+/// pairs a span type leaves out. B's rows are `pair<TAB>b.bed_line()`; a
+/// pair alone is its line, padded with the BED6 placeholder for `notboth`.
+pub fn naive_pair_intersect(
+    a: &[NaivePair],
+    b: &[TestRec],
+    kind: &str,
+    c: &OverlapCriteria,
+) -> (Vec<String>, u64) {
+    let mut rows = Vec::new();
+    let mut skipped = 0;
+    let hits = |end: &Option<(String, Interval, Strand)>| -> Vec<usize> {
+        let Some((chrom, span, strand)) = end else {
+            return Vec::new();
+        };
+        (0..b.len())
+            .filter(|&i| {
+                b[i].chrom == *chrom && c.accepts(*span, *strand, b[i].interval(), b[i].strand())
+            })
+            .collect()
+    };
+    for p in a {
+        let row = |i: usize| format!("{}\t{}", p.line, b[i].bed_line());
+        if matches!(kind, "ispan" | "ospan" | "notispan" | "notospan") {
+            let [Some((c1, s1, _)), Some((c2, s2, _))] = &p.ends else {
+                // An absent end (one or both) leaves the pair out.
+                skipped += 1;
+                continue;
+            };
+            if c1 != c2 {
+                skipped += 1;
+                continue;
+            }
+            let span = if kind.ends_with("ispan") {
+                let (lo, hi) = if s1.end <= s2.start {
+                    (s1.end, s2.start)
+                } else if s2.end <= s1.start {
+                    (s2.end, s1.start)
+                } else {
+                    (1, 0)
+                };
+                (lo < hi).then_some(Interval { start: lo, end: hi })
+            } else {
+                Some(Interval {
+                    start: s1.start.min(s2.start),
+                    end: s1.end.max(s2.end),
+                })
+            };
+            let ids: Vec<usize> = span.map_or_else(Vec::new, |sp| {
+                hits(&Some((c1.clone(), sp, Strand::Unknown)))
+            });
+            if kind.starts_with("not") {
+                if ids.is_empty() {
+                    rows.push(p.line.clone());
+                }
+            } else {
+                rows.extend(ids.into_iter().map(row));
+            }
+            continue;
+        }
+        let (h1, h2) = (hits(&p.ends[0]), hits(&p.ends[1]));
+        let both: Vec<usize> = h1.iter().chain(&h2).copied().collect();
+        match kind {
+            "either" => rows.extend(both.into_iter().map(row)),
+            "both" if !h1.is_empty() && !h2.is_empty() => rows.extend(both.into_iter().map(row)),
+            "xor" if h1.is_empty() != h2.is_empty() => rows.extend(both.into_iter().map(row)),
+            "neither" if both.is_empty() => rows.push(p.line.clone()),
+            "notboth" if both.is_empty() => {
+                // The padding follows B's width: BED6, or BED3 with no records.
+                let pad = if b.is_empty() {
+                    ".\t-1\t-1"
+                } else {
+                    ".\t-1\t-1\t.\t-1\t."
+                };
+                rows.push(format!("{}\t{pad}", p.line));
+            }
+            "notboth" if h1.is_empty() != h2.is_empty() => {
+                rows.extend(both.into_iter().map(row));
+            }
+            _ => {}
+        }
+    }
+    (rows, skipped)
+}

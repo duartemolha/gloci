@@ -135,14 +135,31 @@ fn strip_thread_options(args: &[OsString]) -> Vec<OsString> {
     out
 }
 
-/// What an error means for the exit status.
+/// An error whose message was already printed: the exit status is 1 and nothing more is said.
+/// `run` maps the other errors to an exit status by what they are ([`classify`]): usage
+/// errors exit 2, a broken pipe exits 0, and the rest print their message and exit 1.
+#[derive(Debug)]
+pub struct Reported;
+
+impl std::fmt::Display for Reported {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("already reported")
+    }
+}
+
+impl std::error::Error for Reported {}
+
 enum Outcome {
+    Reported,
     Usage(String),
     BrokenPipe,
     Failure(String),
 }
 
 fn classify(err: &anyhow::Error) -> Outcome {
+    if err.chain().any(|c| c.downcast_ref::<Reported>().is_some()) {
+        return Outcome::Reported;
+    }
     for cause in err.chain() {
         if let Some(u) = cause.downcast_ref::<UsageError>() {
             return Outcome::Usage(u.0.clone());
@@ -209,6 +226,12 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         Commands::Coverage(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
         Commands::Groupby(a) => (a.threads.threads, None),
         Commands::Maskfasta(a) => (a.threads.threads, None),
+        Commands::Stats(a) => match &a.command {
+            cli::StatsCommand::Jaccard(j) => (j.threads.threads, j.sort.tmp_dir.clone()),
+            cli::StatsCommand::Fisher(f) => (f.threads.threads, f.sort.tmp_dir.clone()),
+            cli::StatsCommand::Reldist(r) => (r.threads.threads, r.sort.tmp_dir.clone()),
+        },
+        Commands::PairIntersect(a) => (a.threads.threads, None),
         Commands::Vcf(a) => match &a.command {
             cli::VcfCommand::Filter(f) => (f.threads.threads, None),
             cli::VcfCommand::Extract(e) => (e.threads.threads, e.tmp_dir.tmp_dir.clone()),
@@ -225,6 +248,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
     // An already-built global pool is fine.
     let _ = rayon::ThreadPoolBuilder::new()
         .num_threads(threads.get())
+        .stack_size(gloci_io::WORKER_STACK)
         .build_global();
 
     let ctx = Ctx {
@@ -234,44 +258,11 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         version: env!("CARGO_PKG_VERSION"),
     };
 
-    let mut all_ok = true;
-    let result = match &cli.command {
-        Commands::Genomes(a) => commands::genomes::run(a),
-        Commands::Index(a) => commands::index::run(&ctx, a),
-        Commands::Sort(a) => commands::sort::run(&ctx, a),
-        Commands::View(a) => commands::view::run(&ctx, a),
-        Commands::Cat(a) => commands::cat::run(&ctx, a),
-        Commands::Check(a) => commands::check::run(&ctx, a).map(|ok| all_ok = ok),
-        Commands::Intersect(a) => commands::intersect::run(&ctx, a),
-        Commands::Merge(a) => commands::merge::run(&ctx, a),
-        Commands::Cluster(a) => commands::cluster::run(&ctx, a),
-        Commands::Spacing(a) => commands::spacing::run(&ctx, a),
-        Commands::Complement(a) => commands::complement::run(&ctx, a),
-        Commands::Partition(a) => commands::partition::run(&ctx, a),
-        Commands::Genomecov(a) => commands::genomecov::run(&ctx, a),
-        Commands::Slop(a) => commands::slop::run(&ctx, a),
-        Commands::Flank(a) => commands::flank::run(&ctx, a),
-        Commands::Shift(a) => commands::shift::run(&ctx, a),
-        Commands::Windows(a) => commands::windows::run(&ctx, a),
-        Commands::Convert(a) => commands::convert::run(&ctx, a),
-        Commands::Getfasta(a) => commands::getfasta::run(&ctx, a),
-        Commands::Nuc(a) => commands::nuc::run(&ctx, a),
-        Commands::Subtract(a) => commands::subtract::run(&ctx, a),
-        Commands::Closest(a) => commands::closest::run(&ctx, a),
-        Commands::Map(a) => commands::map::run(&ctx, a),
-        Commands::Coverage(a) => commands::coverage::run(&ctx, a),
-        Commands::Groupby(a) => commands::groupby::run(&ctx, a),
-        Commands::Maskfasta(a) => commands::maskfasta::run(&ctx, a),
-        Commands::Vcf(a) => match &a.command {
-            cli::VcfCommand::Filter(f) => commands::vcf::run_filter(&ctx, f),
-            cli::VcfCommand::Extract(e) => commands::vcf::run_extract(&ctx, e),
-            cli::VcfCommand::Stats(e) => commands::vcf::run_stats(&ctx, e),
-            cli::VcfCommand::Concat(c) => commands::vcf::run_concat(&ctx, c),
-            cli::VcfCommand::Split(c) => commands::vcf_split::run(&ctx, c),
-            cli::VcfCommand::Norm(c) => commands::vcf_norm::run(&ctx, c),
-            cli::VcfCommand::Annotate(c) => commands::vcf_annotate::run(&ctx, c),
-            cli::VcfCommand::Merge(c) => commands::vcf_merge::run(&ctx, c),
-        },
+    // The command runs on a thread with the pool workers' stack, so that every thread that can
+    // decode CRAM has it: the command's own at -t 1 and the per-chromosome readers too.
+    let Some((result, all_ok)) = on_worker_stack(|| dispatch(&cli, &ctx)) else {
+        eprintln!("error: cannot start the command's thread; check the system's thread limits");
+        return ExitCode::from(1);
     };
     match result {
         Ok(()) if all_ok => ExitCode::SUCCESS,
@@ -282,12 +273,77 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
                 ExitCode::from(2)
             }
             Outcome::BrokenPipe => ExitCode::SUCCESS,
+            Outcome::Reported => ExitCode::from(1),
             Outcome::Failure(msg) => {
                 eprintln!("error: {msg}");
                 ExitCode::from(1)
             }
         },
     }
+}
+
+/// Run `f` on a thread with the stack of the pool workers ([`gloci_io::WORKER_STACK`]):
+/// noodles-cram's order-1 rANS and name tokeniser need it. A panic in `f` goes on in the
+/// caller; `None` when the thread cannot be started.
+fn on_worker_stack<T: Send>(f: impl FnOnce() -> T + Send) -> Option<T> {
+    std::thread::scope(|s| {
+        let h = std::thread::Builder::new()
+            .name("gloci".into())
+            .stack_size(gloci_io::WORKER_STACK)
+            .spawn_scoped(s, f)
+            .ok()?;
+        Some(h.join().unwrap_or_else(|p| std::panic::resume_unwind(p)))
+    })
+}
+
+/// Run the parsed command: its result, and false when `check` found a problem.
+fn dispatch(cli: &Cli, ctx: &Ctx) -> (anyhow::Result<()>, bool) {
+    let mut all_ok = true;
+    let result = match &cli.command {
+        Commands::Genomes(a) => commands::genomes::run(a),
+        Commands::Index(a) => commands::index::run(ctx, a),
+        Commands::Sort(a) => commands::sort::run(ctx, a),
+        Commands::View(a) => commands::view::run(ctx, a),
+        Commands::Cat(a) => commands::cat::run(ctx, a),
+        Commands::Check(a) => commands::check::run(ctx, a).map(|ok| all_ok = ok),
+        Commands::Intersect(a) => commands::intersect::run(ctx, a),
+        Commands::Merge(a) => commands::merge::run(ctx, a),
+        Commands::Cluster(a) => commands::cluster::run(ctx, a),
+        Commands::Spacing(a) => commands::spacing::run(ctx, a),
+        Commands::Complement(a) => commands::complement::run(ctx, a),
+        Commands::Partition(a) => commands::partition::run(ctx, a),
+        Commands::Genomecov(a) => commands::genomecov::run(ctx, a),
+        Commands::Slop(a) => commands::slop::run(ctx, a),
+        Commands::Flank(a) => commands::flank::run(ctx, a),
+        Commands::Shift(a) => commands::shift::run(ctx, a),
+        Commands::Windows(a) => commands::windows::run(ctx, a),
+        Commands::Convert(a) => commands::convert::run(ctx, a),
+        Commands::Getfasta(a) => commands::getfasta::run(ctx, a),
+        Commands::Nuc(a) => commands::nuc::run(ctx, a),
+        Commands::Subtract(a) => commands::subtract::run(ctx, a),
+        Commands::Closest(a) => commands::closest::run(ctx, a),
+        Commands::Map(a) => commands::map::run(ctx, a),
+        Commands::Coverage(a) => commands::coverage::run(ctx, a),
+        Commands::Groupby(a) => commands::groupby::run(ctx, a),
+        Commands::Maskfasta(a) => commands::maskfasta::run(ctx, a),
+        Commands::Stats(a) => match &a.command {
+            cli::StatsCommand::Jaccard(j) => commands::stats::run_jaccard(ctx, j),
+            cli::StatsCommand::Fisher(f) => commands::stats::run_fisher(ctx, f),
+            cli::StatsCommand::Reldist(r) => commands::stats::run_reldist(ctx, r),
+        },
+        Commands::PairIntersect(a) => commands::pairs::run_intersect(ctx, a),
+        Commands::Vcf(a) => match &a.command {
+            cli::VcfCommand::Filter(f) => commands::vcf::run_filter(ctx, f),
+            cli::VcfCommand::Extract(e) => commands::vcf::run_extract(ctx, e),
+            cli::VcfCommand::Stats(e) => commands::vcf::run_stats(ctx, e),
+            cli::VcfCommand::Concat(c) => commands::vcf::run_concat(ctx, c),
+            cli::VcfCommand::Split(c) => commands::vcf_split::run(ctx, c),
+            cli::VcfCommand::Norm(c) => commands::vcf_norm::run(ctx, c),
+            cli::VcfCommand::Annotate(c) => commands::vcf_annotate::run(ctx, c),
+            cli::VcfCommand::Merge(c) => commands::vcf_merge::run(ctx, c),
+        },
+    };
+    (result, all_ok)
 }
 
 #[cfg(test)]
@@ -416,5 +472,27 @@ mod tests {
         ));
         let other = anyhow::Error::new(Error::from(ErrorKind::NotFound));
         assert!(matches!(classify(&other), Outcome::Failure(_)));
+    }
+}
+
+#[cfg(test)]
+mod stack_tests {
+    use super::on_worker_stack;
+
+    /// About `n` x 256 KiB of stack.
+    fn deep(n: u32) -> u64 {
+        let buf = [n as u8; 256 << 10];
+        let x = u64::from(std::hint::black_box(&buf)[buf.len() - 1]);
+        if n == 0 { x } else { x + deep(n - 1) }
+    }
+
+    #[test]
+    fn the_command_runs_on_the_worker_stack() {
+        // 8 MiB of frames: more than a test thread's 2 MiB, well within the 16 MiB.
+        assert_eq!(on_worker_stack(|| deep(32)), Some((0..=32).sum()));
+        assert_eq!(
+            on_worker_stack(|| std::thread::current().name().map(String::from)),
+            Some(Some("gloci".into()))
+        );
     }
 }

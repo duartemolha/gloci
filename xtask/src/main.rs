@@ -122,6 +122,68 @@ enum Gen {
         #[arg(short, long)]
         output: PathBuf,
     },
+    /// Single-end alignments (SAM) whose reads match a generated reference
+    Sam {
+        #[arg(long)]
+        records: u64,
+        #[arg(long, default_value_t = 100)]
+        read_len: u32,
+        /// Mean depth of the aligned bases (sets the chromosome length)
+        #[arg(long, default_value_t = 30.0)]
+        depth: f64,
+        #[arg(long, default_value_t = 24)]
+        chroms: u32,
+        /// Fraction of reads with an intron (CIGAR N)
+        #[arg(long, default_value_t = 0.1)]
+        spliced_frac: f64,
+        /// Records in random order instead of coordinate order
+        #[arg(long)]
+        shuffled: bool,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        /// Salt of the reads' randomness: parts of one reference differ
+        #[arg(long, default_value_t = 0)]
+        part: u64,
+        /// Also write the reference FASTA the reads match
+        #[arg(long)]
+        ref_out: Option<PathBuf>,
+        /// Also write a sorted BED of target windows
+        #[arg(long)]
+        targets_out: Option<PathBuf>,
+        /// Number of target windows (default records / 50)
+        #[arg(long)]
+        targets: Option<u64>,
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    /// A FASTA with soft-masked and N runs, and a BED of intervals inside it
+    Fasta {
+        /// Intervals of the BED (--bed-out)
+        #[arg(long)]
+        records: u64,
+        #[arg(long, default_value_t = 24)]
+        chroms: u32,
+        #[arg(long, default_value_t = 1_000_000)]
+        chrom_len: u64,
+        #[arg(long, default_value_t = 60)]
+        line_width: usize,
+        #[arg(long, default_value_t = 0.05)]
+        soft_frac: f64,
+        #[arg(long, default_value_t = 0.001)]
+        n_frac: f64,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        /// Shortest interval of the BED
+        #[arg(long, default_value_t = 50)]
+        len_min: u64,
+        /// Longest interval of the BED
+        #[arg(long, default_value_t = 10_000)]
+        len_max: u64,
+        #[arg(long)]
+        bed_out: Option<PathBuf>,
+        #[arg(short, long)]
+        output: PathBuf,
+    },
     Pair {
         #[arg(long)]
         records: u64,
@@ -189,6 +251,68 @@ fn run(cli: Cli) -> Result<bool> {
                     chroms,
                 };
                 xtask::synth::vcf(&o, &mut std::fs::File::create(output)?)?
+            }
+            Gen::Sam {
+                records,
+                read_len,
+                depth,
+                chroms,
+                spliced_frac,
+                shuffled,
+                seed,
+                part,
+                ref_out,
+                targets_out,
+                targets,
+                output,
+            } => {
+                let o = xtask::synth::SamOpts {
+                    records,
+                    read_len,
+                    depth,
+                    chroms,
+                    spliced_frac,
+                    shuffled,
+                    seed,
+                    part,
+                };
+                if let Some(p) = ref_out {
+                    xtask::synth::sam_reference(&o, &mut std::fs::File::create(p)?)?;
+                }
+                if let Some(p) = targets_out {
+                    let n = targets.unwrap_or((records / 50).max(1));
+                    xtask::synth::sam_targets(&o, n, &mut std::fs::File::create(p)?)?;
+                }
+                xtask::synth::sam(&o, &mut std::fs::File::create(output)?)?
+            }
+            Gen::Fasta {
+                records,
+                chroms,
+                chrom_len,
+                line_width,
+                soft_frac,
+                n_frac,
+                seed,
+                len_min,
+                len_max,
+                bed_out,
+                output,
+            } => {
+                let o = xtask::synth::FastaOpts {
+                    records,
+                    chroms,
+                    chrom_len,
+                    line_width,
+                    soft_frac,
+                    n_frac,
+                    seed,
+                    len_min,
+                    len_max,
+                };
+                if let Some(p) = bed_out {
+                    xtask::synth::fasta_intervals(&o, &mut std::fs::File::create(p)?)?;
+                }
+                xtask::synth::fasta(&o, &mut std::fs::File::create(output)?)?
             }
             Gen::Pair {
                 records,

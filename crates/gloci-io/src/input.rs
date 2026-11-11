@@ -114,6 +114,24 @@ pub fn open_input_from(
     })
 }
 
+impl Input {
+    /// Whether the input has no bytes after decompression ([`IoError::empty_input`]).
+    pub fn is_empty(&mut self) -> Result<bool, IoError> {
+        loop {
+            match self.reader.fill_buf() {
+                Ok(b) => return Ok(b.is_empty()),
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(source) => {
+                    return Err(IoError::Read {
+                        path: self.name.clone(),
+                        source,
+                    });
+                }
+            }
+        }
+    }
+}
+
 impl std::fmt::Debug for Input {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Input")

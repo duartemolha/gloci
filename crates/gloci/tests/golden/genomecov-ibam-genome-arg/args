@@ -1,0 +1,1 @@
+genomecov input.bam --bga -g genomecov-g.genome

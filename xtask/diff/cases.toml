@@ -687,6 +687,18 @@ reference = "bgzip -c input.vcf > a.vcf.gz && bgzip -c rel-trim-b.vcf > b.vcf.gz
 compare = "vcf-records"
 expected_difference = "#trimmed-allele-match"
 
+# A multi-allelic A (C>A,G) that shares one ALT with B (C>G): gloci drops it whole (owner
+# decision), bcftools -c none keeps it, as the allele lists differ. 200 is in both, 300 in
+# neither.
+[[case]]
+name = "subtract-alleles-shared-alt-vs-bcftools"
+input = { file = "xtask/diff/inputs/rel-shared-alt-a.vcf" }
+aux = ["xtask/diff/inputs/rel-shared-alt-b.vcf"]
+gloci = "gloci subtract --chrom-order lex --match alleles -a input.vcf -b rel-shared-alt-b.vcf"
+reference = "bgzip -c input.vcf > a.vcf.gz && bgzip -c rel-shared-alt-b.vcf > b.vcf.gz && tabix a.vcf.gz && tabix b.vcf.gz && bcftools isec -C -w1 -c none a.vcf.gz b.vcf.gz"
+compare = "vcf-records"
+expected_difference = "#trimmed-allele-match"
+
 # merge (Task 11): merge-in.bed is BED6, lex-sorted, with bookended, nested,
 # overlapping and nearby records on both strands and an unknown strand.
 [[case]]
@@ -4590,6 +4602,37 @@ gloci = "gloci convert input.bam --bed12"
 reference = "bedtools bamtobed -i input.bam -bed12"
 compare = "exact"
 expected_difference = "#bamtobed-past-reference-end"
+
+[[case]]
+name = "bamtobed-ends-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-ends.bam" }
+gloci = "gloci convert input.bam"
+reference = "bedtools bamtobed -i input.bam"
+compare = "exact"
+
+[[case]]
+name = "bamtobed-ends-bed12-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-ends.bam" }
+gloci = "gloci convert input.bam --bed12"
+reference = "bedtools bamtobed -i input.bam -bed12"
+compare = "exact"
+expected_difference = "#bamtobed-past-reference-end"
+
+[[case]]
+name = "bamtobed-ends-bed12-splitd-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-ends.bam" }
+gloci = "gloci convert input.bam --bed12 --split-deletions"
+reference = "bedtools bamtobed -i input.bam -bed12 -splitD"
+compare = "exact"
+expected_difference = "#bamtobed-past-reference-end"
+
+[[case]]
+name = "bamtobed-ends-split-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-ends.bam" }
+gloci = "gloci convert input.bam --blocks"
+reference = "bedtools bamtobed -i input.bam -split"
+compare = "exact"
+expected_difference = "#bamtobed-past-reference-end"
 [[case]]
 name = "intersect-bam-u-vs-bedtools"
 input = { file = "xtask/diff/inputs/aln/order.bam" }
@@ -5822,3 +5865,1408 @@ gloci = "gloci vcf merge input.vcf samepos-b.vcf samepos-c.vcf -m none"
 reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c samepos-b.vcf > samepos-b.vcf.gz && bcftools index samepos-b.vcf.gz && bgzip -c samepos-c.vcf > samepos-c.vcf.gz && bcftools index samepos-c.vcf.gz && bcftools merge --no-version -m none input.vcf.gz samepos-b.vcf.gz samepos-c.vcf.gz"
 compare = "vcf-records"
 
+
+# Fix round 1: <NON_REF> fill and join/Number=G INFO re-indexing.
+
+# A sample with a <NON_REF> ALT gives its AD (Number=R) and PL (Number=G) value for <NON_REF> to every
+# merged allele it lacks (1:10: B's AD 1,2,3 becomes 1,2,3,3; haploid and diploid), without -g.
+[[case]]
+name = "vcf-merge-nonref-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/nonref-a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/nonref-b.vcf", "xtask/diff/inputs/vcf/merge/nonref-c.vcf"]
+gloci = "gloci vcf merge input.vcf nonref-b.vcf nonref-c.vcf "
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c nonref-b.vcf > nonref-b.vcf.gz && bcftools index nonref-b.vcf.gz && bgzip -c nonref-c.vcf > nonref-c.vcf.gz && bcftools index nonref-c.vcf.gz && bcftools merge --no-version input.vcf.gz nonref-b.vcf.gz nonref-c.vcf.gz "
+compare = "vcf-records"
+
+# Same with -m none, where the records pair differently.
+[[case]]
+name = "vcf-merge-nonref-none-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/nonref-a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/nonref-b.vcf", "xtask/diff/inputs/vcf/merge/nonref-c.vcf"]
+gloci = "gloci vcf merge input.vcf nonref-b.vcf nonref-c.vcf -m none"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c nonref-b.vcf > nonref-b.vcf.gz && bcftools index nonref-b.vcf.gz && bgzip -c nonref-c.vcf > nonref-c.vcf.gz && bcftools index nonref-c.vcf.gz && bcftools merge --no-version input.vcf.gz nonref-b.vcf.gz nonref-c.vcf.gz -m none"
+compare = "vcf-records"
+
+# join of Number=R, A and G tags first re-indexes each record's values to the merged alleles (two records of
+# one file at 1:100); the tags become Number=. and move to the end of the header.
+[[case]]
+name = "vcf-merge-info-join-agr-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/join-a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/join-b.vcf"]
+gloci = "gloci vcf merge input.vcf join-b.vcf -i RR:join,AF:join,GG:join"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c join-b.vcf > join-b.vcf.gz && bcftools index join-b.vcf.gz && bcftools merge --no-version input.vcf.gz join-b.vcf.gz -i RR:join,AF:join,GG:join"
+compare = "vcf-records"
+
+# max, sum and min on Number=A, R and G tags, per merged allele or genotype.
+[[case]]
+name = "vcf-merge-info-agr-rules-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/join-a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/join-b.vcf"]
+gloci = "gloci vcf merge input.vcf join-b.vcf -i AF:max,RR:sum,GG:min"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c join-b.vcf > join-b.vcf.gz && bcftools index join-b.vcf.gz && bcftools merge --no-version input.vcf.gz join-b.vcf.gz -i AF:max,RR:sum,GG:min"
+compare = "vcf-records"
+
+# File 1 has records on contig 2 only: bcftools writes contig 2 first, gloci follows the header's 1, 2.
+[[case]]
+name = "vcf-merge-contig-order-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/chrom-a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/chrom-b.vcf"]
+gloci = "gloci vcf merge input.vcf chrom-b.vcf"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c chrom-b.vcf > chrom-b.vcf.gz && bcftools index chrom-b.vcf.gz && bcftools merge --no-version input.vcf.gz chrom-b.vcf.gz"
+compare = "vcf-records"
+expected_difference = "#vcf-merge-contig-order"
+
+# INFO/XF is Integer in file 1 and Float in file 2, whose record uses it: bcftools warns and writes the value, gloci stops.
+[[case]]
+name = "vcf-merge-conflicting-types-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/type-a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/type-b.vcf"]
+gloci = "gloci vcf merge input.vcf type-b.vcf"
+reference = "(bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c type-b.vcf > type-b.vcf.gz && bcftools index type-b.vcf.gz && bcftools merge --no-version input.vcf.gz type-b.vcf.gz) >/dev/null 2>&1 || exit 1"
+compare = "exit-status"
+expected_difference = "#vcf-merge-conflicting-types"
+
+# A record uses an INFO tag no header declares: bcftools stops (exit 255), gloci writes it.
+[[case]]
+name = "vcf-merge-undeclared-info-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/undecl-a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/undecl-b.vcf"]
+gloci = "gloci vcf merge input.vcf undecl-b.vcf"
+reference = "(bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c undecl-b.vcf > undecl-b.vcf.gz && bcftools index undecl-b.vcf.gz && bcftools merge --no-version input.vcf.gz undecl-b.vcf.gz) >/dev/null 2>&1 || exit 1"
+compare = "exit-status"
+expected_difference = "#vcf-merge-undeclared-info"
+# P3b Task 2: stats jaccard vs bedtools jaccard 2.31.1
+# jaccard-a.bed: 10-20 and 20-30 are bookended and must merge before counting (3 raw A records,
+# 2 merged: n_intersections 2, not 3). jaccard-a6/b6.bed: + and - A records overlap each other.
+# jaccard-fa/fb.bed: merged A is 0-20 (0-12 and 10-20), so -f 0.5 and -r give other answers than
+# the unmerged records would. -S is not compared: bedtools jaccard -S takes a + or - argument.
+
+[[case]]
+name = "stats-jaccard-table-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-b.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-b.bed"
+reference = "bedtools jaccard -a input.bed -b jaccard-b.bed"
+compare = "exact"
+
+[[case]]
+name = "stats-jaccard-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-a6.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-b6.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-b6.bed"
+reference = "bedtools jaccard -a input.bed -b jaccard-b6.bed"
+compare = "exact"
+
+[[case]]
+name = "stats-jaccard-same-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-a6.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-b6.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-b6.bed -s"
+reference = "bedtools jaccard -a input.bed -b jaccard-b6.bed -s"
+compare = "exact"
+
+[[case]]
+name = "stats-jaccard-fraction-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-fa.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-fb.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-fb.bed -f 0.5"
+reference = "bedtools jaccard -a input.bed -b jaccard-fb.bed -f 0.5"
+compare = "exact"
+
+[[case]]
+name = "stats-jaccard-fraction-reciprocal-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-fa.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-fb.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-fb.bed -f 0.5 -r"
+reference = "bedtools jaccard -a input.bed -b jaccard-fb.bed -f 0.5 -r"
+compare = "exact"
+
+[[case]]
+name = "stats-jaccard-fraction-b-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-fa.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-fb.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-fb.bed -F 0.5"
+reference = "bedtools jaccard -a input.bed -b jaccard-fb.bed -F 0.5"
+compare = "exact"
+
+[[case]]
+name = "stats-jaccard-generated-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-gen-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-gen-b.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-gen-b.bed"
+reference = "bedtools jaccard -a input.bed -b jaccard-gen-b.bed"
+compare = "exact"
+
+[[case]]
+name = "stats-jaccard-generated-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-gen-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-gen-b.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-gen-b.bed -s"
+reference = "bedtools jaccard -a input.bed -b jaccard-gen-b.bed -s"
+compare = "exact"
+
+[[case]]
+name = "stats-jaccard-generated-fraction-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-gen-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-gen-b.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-gen-b.bed -f 0.5 -r"
+reference = "bedtools jaccard -a input.bed -b jaccard-gen-b.bed -f 0.5 -r"
+compare = "exact"
+
+# VCF A: bedtools covers the REF span, so --vcf-span ref.
+[[case]]
+name = "stats-jaccard-vcf-ref-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-a.vcf" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-b.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.vcf -b jaccard-b.bed --vcf-span ref"
+reference = "bedtools jaccard -a input.vcf -b jaccard-b.bed"
+compare = "exact"
+
+# Both empty: 0 0 nan 0 in both (nan, not -nan).
+[[case]]
+name = "stats-jaccard-both-empty-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-empty.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-empty.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-empty.bed"
+reference = "bedtools jaccard -a input.bed -b jaccard-empty.bed"
+compare = "exact"
+
+# Points: bedtools widens each to two bases (start-1 to end+1) and counts overlap bases; gloci counts none.
+[[case]]
+name = "stats-jaccard-points-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-points.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-a.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-a.bed"
+reference = "bedtools jaccard -a input.bed -b jaccard-a.bed"
+compare = "exact"
+expected_difference = "#jaccard-points"
+
+# P3b Task 2 fix round 1: records of unknown strand (`.`) are left out under -s by both tools.
+[[case]]
+name = "stats-jaccard-unknown-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-au.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-bu.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-bu.bed -s"
+reference = "bedtools jaccard -a input.bed -b jaccard-bu.bed -s"
+compare = "exact"
+
+# P3b Task 3: stats fisher vs bedtools fisher 2.31.1 (reference spells --exclude as -exclude).
+# fisher-a.bed has overlapping records (5 raw, 4 merged), so -m and the all-overlap case (n11 = 7 > nA = 5,
+# n12 clamps to 0) tell merged from raw counting; -f 0.5 drops two of the five pairs.
+
+[[case]]
+name = "stats-fisher-default-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-b.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt"
+reference = "bedtools fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-merge-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-b.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt --merge-overlaps"
+reference = "bedtools fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt -m"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-merge-short-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-b.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt -m"
+reference = "bedtools fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt -m"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-fraction-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-b.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt -f 0.5"
+reference = "bedtools fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt -f 0.5"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-fraction-b-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-b.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt -F 0.5"
+reference = "bedtools fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt -F 0.5"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-reciprocal-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-b.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt -f 0.4 -r"
+reference = "bedtools fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt -f 0.4 -r"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-exclude-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-b.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt", "xtask/diff/inputs/p3b/stats/fisher-gaps.bed"]
+gloci = "gloci stats fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt --exclude fisher-gaps.bed"
+reference = "bedtools fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt -exclude fisher-gaps.bed"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-exclude-merge-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-b.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt", "xtask/diff/inputs/p3b/stats/fisher-gaps.bed"]
+gloci = "gloci stats fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt -m --exclude fisher-gaps.bed"
+reference = "bedtools fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt -exclude fisher-gaps.bed -m"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-no-overlap-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-far.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-far.bed -g fisher-genome.txt"
+reference = "bedtools fisher -a input.bed -b fisher-far.bed -g fisher-genome.txt"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-all-overlap-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-a.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-a.bed -g fisher-genome.txt"
+reference = "bedtools fisher -a input.bed -b fisher-a.bed -g fisher-genome.txt"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-estimate-integer-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-thirds-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-thirds-b.bed", "xtask/diff/inputs/p3b/stats/fisher-genome-1000.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-thirds-b.bed -g fisher-genome-1000.txt"
+reference = "bedtools fisher -a input.bed -b fisher-thirds-b.bed -g fisher-genome-1000.txt"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-generated-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-gen-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-gen-b.bed", "xtask/diff/inputs/p3b/stats/fisher-genome-1m.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-gen-b.bed -g fisher-genome-1m.txt"
+reference = "bedtools fisher -a input.bed -b fisher-gen-b.bed -g fisher-genome-1m.txt"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-generated-merge-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-gen-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-gen-b.bed", "xtask/diff/inputs/p3b/stats/fisher-genome-1m.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-gen-b.bed -g fisher-genome-1m.txt -m"
+reference = "bedtools fisher -a input.bed -b fisher-gen-b.bed -g fisher-genome-1m.txt -m"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-same-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-au.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-bu.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-bu.bed -g fisher-genome.txt -s"
+reference = "bedtools fisher -a input.bed -b fisher-bu.bed -g fisher-genome.txt -s"
+compare = "exact"
+
+[[case]]
+name = "stats-fisher-same-strand-merge-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-au.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-bu.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-bu.bed -g fisher-genome.txt -s -m"
+reference = "bedtools fisher -a input.bed -b fisher-bu.bed -g fisher-genome.txt -s -m"
+compare = "exact"
+
+# bedtools fisher -S wants a + or - argument and exits 1 without one; gloci's -S is a flag.
+[[case]]
+name = "stats-fisher-opposite-strand-flag-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-au.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-bu.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-bu.bed -g fisher-genome.txt -S"
+reference = "bedtools fisher -a input.bed -b fisher-bu.bed -g fisher-genome.txt -S"
+compare = "exit-status"
+expected_difference = "#fisher-empty-estimate"
+
+# klib's q == 0 branch: the table's probability underflows (5000 A records, 300 of them shared with
+# B's 5000, on 10^8 bases). Without the branch the tails loop and give "0 1 0" for this enriched table.
+[[case]]
+name = "stats-fisher-underflow-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-q0-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-q0-b.bed", "xtask/diff/inputs/p3b/stats/fisher-q0-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-q0-b.bed -g fisher-q0-genome.txt"
+reference = "bedtools fisher -a input.bed -b fisher-q0-b.bed -g fisher-q0-genome.txt"
+compare = "exact"
+
+# bedtools' estimate drops to the floor n11 + n12 + n21 whenever an exclude file is given, once B has
+# about 94 records (here 3 A x 300 B of 100 bp: 303, gloci 4950 - the exclude is one far-off interval).
+[[case]]
+name = "stats-fisher-exclude-estimate-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-exq-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-exq-b.bed", "xtask/diff/inputs/p3b/stats/fisher-exq-gap.bed", "xtask/diff/inputs/p3b/stats/fisher-exq-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-exq-b.bed -g fisher-exq-genome.txt --exclude fisher-exq-gap.bed"
+reference = "bedtools fisher -a input.bed -b fisher-exq-b.bed -g fisher-exq-genome.txt -exclude fisher-exq-gap.bed"
+compare = "exact"
+expected_difference = "#fisher-exclude-estimate"
+
+# A table (1, 8, 3, 6741594) on a 1.36 Gb genome: the right tail is 1 - left + q, and the last bits of
+# lgamma decide how much of it cancels. The true value is about 5.3e-06; bedtools (glibc lgamma) prints 9.5051e-12.
+[[case]]
+name = "stats-fisher-lgamma-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-lg-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-lg-b.bed", "xtask/diff/inputs/p3b/stats/fisher-lg-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-lg-b.bed -g fisher-lg-genome.txt"
+reference = "bedtools fisher -a input.bed -b fisher-lg-b.bed -g fisher-lg-genome.txt"
+compare = "exact"
+expected_difference = "#fisher-lgamma"
+
+# P3b Task 4
+[[case]]
+name = "stats-reldist-table-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/reldist-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/reldist-b.bed"]
+gloci = "gloci stats reldist --unsorted -a input.bed -b reldist-b.bed"
+reference = "bedtools reldist -a input.bed -b reldist-b.bed"
+compare = "exact"
+
+[[case]]
+name = "stats-reldist-detail-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/reldist-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/reldist-b.bed"]
+gloci = "gloci stats reldist --unsorted --detail -a input.bed -b reldist-b.bed"
+reference = "bedtools reldist -detail -a input.bed -b reldist-b.bed"
+compare = "exact"
+
+[[case]]
+name = "stats-reldist-generated-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-gen-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-gen-b.bed"]
+gloci = "gloci stats reldist --chrom-order lex -a input.bed -b jaccard-gen-b.bed"
+reference = "bedtools reldist -a input.bed -b jaccard-gen-b.bed"
+compare = "exact"
+
+[[case]]
+name = "stats-reldist-generated-detail-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-gen-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-gen-b.bed"]
+gloci = "gloci stats reldist --chrom-order lex --detail -a input.bed -b jaccard-gen-b.bed"
+reference = "bedtools reldist -detail -a input.bed -b jaccard-gen-b.bed"
+compare = "exact"
+
+# bedtools adds B's two ends in a 32-bit int, so a B midpoint past 2^31 wraps negative; gloci
+# does not (docs/differences.md#reldist-midpoint-overflow). The reference output is from aarch64,
+# where the signed overflow wraps; the golden pins that it differs, and a gloci-only test pins
+# gloci's own numbers.
+[[case]]
+name = "stats-reldist-midpoint-overflow-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/reldist-ov-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/reldist-ov-b.bed"]
+gloci = "gloci stats reldist --detail -a input.bed -b reldist-ov-b.bed"
+reference = "bedtools reldist -detail -a input.bed -b reldist-ov-b.bed"
+compare = "exact"
+expected_difference = "#reldist-midpoint-overflow"
+
+# bedtools skips every A on a chromosome with fewer than two B midpoints, even one sitting on
+# it; gloci does the same on purpose (docs/differences.md, reldist section), so no difference.
+[[case]]
+name = "stats-reldist-one-midpoint-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/reldist-one-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/reldist-one-b.bed"]
+gloci = "gloci stats reldist --detail -a input.bed -b reldist-one-b.bed"
+reference = "bedtools reldist -detail -a input.bed -b reldist-one-b.bed"
+compare = "exact"
+
+# P3b Task 7: pair-intersect vs bedtools pairtobed. The fixtures keep every hit of one pair in
+# one 16 kb bin, so bedtools' bin order is B's input order and the output matches exactly;
+# hits in different bins are pinned apart (docs/differences.md#pair-hit-order).
+[[case]]
+name = "pairtobed-either-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type either -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type either -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-neither-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type neither -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type neither -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-both-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type both -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type both -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-xor-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type xor -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type xor -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-ispan-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type ispan -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type ispan -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-ospan-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type ospan -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type ospan -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-notispan-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type notispan -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type notispan -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-notospan-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type notospan -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type notospan -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+# Every pair here has a hit, so notboth reports only the one-end ones, as bedtools does.
+[[case]]
+name = "pairtobed-notboth-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a-hit.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type notboth -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type notboth -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+# A pair with no hit is written alone by bedtools and padded with a placeholder B by gloci.
+[[case]]
+name = "pairtobed-notboth-padding-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type notboth -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type notboth -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+expected_difference = "#pair-notboth-padding"
+
+[[case]]
+name = "pairtobed-fraction-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -f 0.5 -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -f 0.5 -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-fraction-both-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -f 0.2 --type both -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -f 0.2 -type both -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-fraction-ospan-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -f 0.05 --type ospan -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -f 0.05 -type ospan -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-same-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -s -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -s -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-opposite-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -S -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -S -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-same-strand-both-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -s --type both -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -s -type both -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-same-strand-neither-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -s --type neither -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -s -type neither -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-opposite-strand-xor-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -S --type xor -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -S -type xor -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-opposite-strand-fraction-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -S -f 0.5 -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -S -f 0.5 -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-6-columns-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a6.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-7-columns-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a7.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-8-columns-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a8.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-11-columns-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a11.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-6-columns-neither-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a6.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type neither -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type neither -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-absent-ends-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-absent-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type either -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type either -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-absent-ends-neither-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-absent-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type neither -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type neither -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-absent-ends-xor-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-absent-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type xor -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type xor -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-absent-ends-ospan-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-absent-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type ospan -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type ospan -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-absent-ends-notispan-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-absent-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type notispan -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type notispan -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+expected_difference = "#pair-span-absent-ends"
+
+[[case]]
+name = "pairtobed-absent-ends-notospan-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-absent-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect --type notospan -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -type notospan -a input.bedpe -b pairs-b.bed"
+compare = "exact"
+expected_difference = "#pair-span-absent-ends"
+
+[[case]]
+name = "pairtobed-vcf-b-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.vcf"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-b.vcf"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-b.vcf"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-vcf-b-ospan-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.vcf"]
+gloci = "gloci pair-intersect --type ospan -a input.bedpe -b pairs-b.vcf"
+reference = "bedtools pairtobed -type ospan -a input.bedpe -b pairs-b.vcf"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-gff-b-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.gff"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-b.gff"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-b.gff"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-gff-b-same-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.gff"]
+gloci = "gloci pair-intersect -s -a input.bedpe -b pairs-b.gff"
+reference = "bedtools pairtobed -s -a input.bedpe -b pairs-b.gff"
+compare = "exact"
+
+# B features in different 16 kb bins: the same rows, in bedtools' bin order.
+[[case]]
+name = "pairtobed-hit-bins-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-order-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-order-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-order-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-order-b.bed"
+compare = "lines-unordered"
+
+# The same input, compared in order: bedtools walks its bins, gloci keeps B's input order.
+[[case]]
+name = "pairtobed-hit-order-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-order-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-order-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-order-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-order-b.bed"
+compare = "exact"
+expected_difference = "#pair-hit-order"
+
+[[case]]
+name = "pairtobed-unknown-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-unknown-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-unknown-b.bed"]
+gloci = "gloci pair-intersect -s -a input.bedpe -b pairs-unknown-b.bed"
+reference = "bedtools pairtobed -s -a input.bedpe -b pairs-unknown-b.bed"
+compare = "exact"
+expected_difference = "#pair-unknown-strand"
+
+[[case]]
+name = "pairtobed-unknown-strand-opposite-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-unknown-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-unknown-b.bed"]
+gloci = "gloci pair-intersect -S -a input.bedpe -b pairs-unknown-b.bed"
+reference = "bedtools pairtobed -S -a input.bedpe -b pairs-unknown-b.bed"
+compare = "exact"
+expected_difference = "#pair-unknown-strand"
+
+[[case]]
+name = "pairtobed-points-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-points-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-points-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-points-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-points-b.bed"
+compare = "exact"
+expected_difference = "#pair-points"
+
+[[case]]
+name = "pairtobed-span-overlapping-ends-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-spans-overlap-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-spans-b.bed"]
+gloci = "gloci pair-intersect --type ispan -a input.bedpe -b pairs-spans-b.bed"
+reference = "bedtools pairtobed -type ispan -a input.bedpe -b pairs-spans-b.bed"
+compare = "exact"
+expected_difference = "#pair-span-overlapping-ends"
+
+[[case]]
+name = "pairtobed-span-nested-ends-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-spans-overlap-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-spans-b.bed"]
+gloci = "gloci pair-intersect --type ospan -a input.bedpe -b pairs-spans-b.bed"
+reference = "bedtools pairtobed -type ospan -a input.bedpe -b pairs-spans-b.bed"
+compare = "exact"
+expected_difference = "#pair-span-overlapping-ends"
+
+# Ends left of, right of and touching each other, probed base by base.
+[[case]]
+name = "pairtobed-span-ispan-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-spans-ok-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-spans-b.bed"]
+gloci = "gloci pair-intersect --type ispan -a input.bedpe -b pairs-spans-b.bed"
+reference = "bedtools pairtobed -type ispan -a input.bedpe -b pairs-spans-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-span-ospan-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-spans-ok-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-spans-b.bed"]
+gloci = "gloci pair-intersect --type ospan -a input.bedpe -b pairs-spans-b.bed"
+reference = "bedtools pairtobed -type ospan -a input.bedpe -b pairs-spans-b.bed"
+compare = "exact"
+
+[[case]]
+name = "pairtobed-span-notispan-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-spans-ok-a.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-spans-b.bed"]
+gloci = "gloci pair-intersect --type notispan -a input.bedpe -b pairs-spans-b.bed"
+reference = "bedtools pairtobed -type notispan -a input.bedpe -b pairs-spans-b.bed"
+compare = "exact"
+
+# bedtools treats a named chromosome with -1 -1 as an absent end; gloci wants chromosome . for that.
+
+[[case]]
+name = "pairtobed-named-chrom-minus-one-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-named-absent.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-b.bed"
+compare = "exit-status"
+expected_difference = "#bedpe-strictness"
+
+[[case]]
+name = "pairtobed-strand-xy-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-strand-xy.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-b.bed"
+compare = "exit-status"
+expected_difference = "#bedpe-strictness"
+
+[[case]]
+name = "pairtobed-start-after-end-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-start-after-end.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-b.bed"
+compare = "exit-status"
+expected_difference = "#bedpe-strictness"
+
+[[case]]
+name = "pairtobed-negative-start-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-negative.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-b.bed"
+compare = "exit-status"
+expected_difference = "#bedpe-strictness"
+
+# Both tools refuse a 9-column line.
+[[case]]
+name = "pairtobed-nine-columns-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-nine.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-b.bed"
+compare = "exit-status"
+
+# Both tools refuse a line with fewer than 6 columns.
+[[case]]
+name = "pairtobed-five-columns-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pairs-five.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pairs-b.bed"]
+gloci = "gloci pair-intersect -a input.bedpe -b pairs-b.bed"
+reference = "bedtools pairtobed -a input.bedpe -b pairs-b.bed"
+compare = "exit-status"
+# genomecov on alignments (D105, D117) against bedtools 2.31.1 `genomecov -ibam`. gloci counts the
+# reference span of a read, deletions included (bedtools -ignoreD, gloci's default); `-split`
+# cuts at N and D, which is `--split-deletions`; `-split -ignoreD` cuts at N only, which is
+# `--split`. Plain `-ibam` cuts at D but not at N, which no gloci option reproduces. The
+# chromosomes and sizes come from the header, with no -g.
+
+[[case]]
+name = "genomecov-ibam-default-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
+gloci = "gloci genomecov input.bam --bga"
+reference = "bedtools genomecov -ibam input.bam -bga"
+compare = "exact"
+expected_difference = "#bam-genomecov-deletions"
+
+[[case]]
+name = "genomecov-ibam-ignored-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
+gloci = "gloci genomecov input.bam --bga"
+reference = "bedtools genomecov -ibam input.bam -bga -ignoreD"
+compare = "exact"
+
+[[case]]
+name = "genomecov-ibam-hist-ignored-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
+gloci = "gloci genomecov input.bam"
+reference = "bedtools genomecov -ibam input.bam -ignoreD"
+compare = "exact"
+
+[[case]]
+name = "genomecov-ibam-bg-split-deletions-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
+gloci = "gloci genomecov input.bam --bedgraph --split-deletions"
+reference = "bedtools genomecov -ibam input.bam -bg -split"
+compare = "exact"
+
+[[case]]
+name = "genomecov-ibam-bga-split-deletions-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
+gloci = "gloci genomecov input.bam --bga --split-deletions"
+reference = "bedtools genomecov -ibam input.bam -bga -split"
+compare = "exact"
+
+[[case]]
+name = "genomecov-ibam-d-split-deletions-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-small.bam" }
+gloci = "gloci genomecov input.bam --per-base --split-deletions"
+reference = "bedtools genomecov -ibam input.bam -d -split"
+compare = "exact"
+
+[[case]]
+name = "genomecov-ibam-hist-split-deletions-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
+gloci = "gloci genomecov input.bam --split-deletions"
+reference = "bedtools genomecov -ibam input.bam -split"
+compare = "exact"
+
+[[case]]
+name = "genomecov-ibam-split-ignored-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
+gloci = "gloci genomecov input.bam --bga --split"
+reference = "bedtools genomecov -ibam input.bam -bga -split -ignoreD"
+compare = "exact"
+
+[[case]]
+name = "genomecov-ibam-strand-minus-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
+gloci = "gloci genomecov input.bam --bedgraph --strand -"
+reference = "bedtools genomecov -ibam input.bam -bg -strand - -ignoreD"
+compare = "exact"
+
+[[case]]
+name = "genomecov-ibam-5p-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/flags.bam" }
+gloci = "gloci genomecov input.bam --bedgraph --5p"
+reference = "bedtools genomecov -ibam input.bam -bg -5"
+compare = "exact"
+
+[[case]]
+name = "genomecov-ibam-3p-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/flags.bam" }
+gloci = "gloci genomecov input.bam --bedgraph --3p"
+reference = "bedtools genomecov -ibam input.bam -bg -3"
+compare = "exact"
+
+[[case]]
+name = "genomecov-ibam-max-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/flags.bam" }
+gloci = "gloci genomecov input.bam --max-depth 1"
+reference = "bedtools genomecov -ibam input.bam -max 1"
+compare = "exact"
+
+[[case]]
+name = "genomecov-ibam-scale-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
+gloci = "gloci genomecov input.bam --bedgraph --scale 0.5"
+reference = "bedtools genomecov -ibam input.bam -bg -scale 0.5 -ignoreD"
+compare = "exact"
+
+# pastend.bam has a read cut at the end of its reference and one that starts past it (D101).
+[[case]]
+name = "genomecov-ibam-overhang-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/pastend.bam" }
+gloci = "gloci genomecov input.bam --bga"
+reference = "bedtools genomecov -ibam input.bam -bga -ignoreD"
+compare = "exact"
+
+# order.bam lists its references as chrM, chr1, chr2, chr10, chrX; tags.bam has chrX empty and an unmapped read.
+[[case]]
+name = "genomecov-ibam-header-order-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/order.bam" }
+gloci = "gloci genomecov input.bam --bga"
+reference = "bedtools genomecov -ibam input.bam -bga -ignoreD"
+compare = "exact"
+
+[[case]]
+name = "genomecov-ibam-empty-chrom-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/tags.bam" }
+gloci = "gloci genomecov input.bam --bga"
+reference = "bedtools genomecov -ibam input.bam -bga -ignoreD"
+compare = "exact"
+
+# midempty.bam has no reads on c2, which is in the middle of its header: gloci keeps header order,
+# bedtools writes c2 after the others.
+[[case]]
+name = "genomecov-ibam-empty-mid-hist-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/midempty.bam" }
+gloci = "gloci genomecov input.bam"
+reference = "bedtools genomecov -ibam input.bam"
+compare = "exact"
+expected_difference = "#genomecov-chrom-order"
+
+[[case]]
+name = "genomecov-ibam-empty-mid-bga-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/midempty.bam" }
+gloci = "gloci genomecov input.bam --bga"
+reference = "bedtools genomecov -ibam input.bam -bga"
+compare = "exact"
+expected_difference = "#genomecov-chrom-order"
+
+[[case]]
+name = "genomecov-ibam-empty-mid-d-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/midempty.bam" }
+gloci = "gloci genomecov input.bam --per-base"
+reference = "bedtools genomecov -ibam input.bam -d"
+compare = "exact"
+expected_difference = "#genomecov-chrom-order"
+
+# bedtools ignores -g with a BAM (it says so on stderr); gloci uses it.
+[[case]]
+name = "genomecov-ibam-genome-arg"
+input = { file = "xtask/diff/inputs/aln/cigars-small.bam" }
+aux = ["xtask/diff/inputs/aln/genomecov-g.genome"]
+gloci = "gloci genomecov input.bam --bga -g genomecov-g.genome"
+reference = "bedtools genomecov -ibam input.bam -bga -g genomecov-g.genome"
+compare = "exact"
+expected_difference = "#genomecov-bam-genome-arg"
+
+# cigars.bam has c_allclip (10S5I): a mapped read with no reference ops counts one base (D101).
+[[case]]
+name = "genomecov-ibam-no-reference-ops"
+input = { file = "xtask/diff/inputs/aln/cigars.bam" }
+gloci = "gloci genomecov input.bam --bga"
+reference = "bedtools genomecov -ibam input.bam -bga -ignoreD"
+compare = "exact"
+expected_difference = "#bamtobed-no-reference-ops"
+
+# P3a Task 13
+# view of CRAM (D109, D110) against samtools 1.21. The CRAM fixtures (aln/make-cram.sh) were
+# written by samtools from the SAM fixtures with fa/ref.fa (3.0, 3.1, slices of several
+# references, embedded reference, no reference); samtools reads them with `-T ref.fa` and
+# `decode_md=0`, since gloci writes MD and NM as stored (#cram-md-nm). The `bam` compare mode
+# compares the record bytes, bin and MAPQ of unmapped reads included. tags has every aux type;
+# flags.multi holds unmapped reads in slices of several references; pastend has reads that run
+# past the end of chr1 (decoded against N, as htslib does); cigars has `=` and `X`, which CRAM
+# returns as M.
+[[case]]
+name = "view-cram-to-sam-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/tags.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci view -O sam input.cram --reference ref.fa"
+reference = "samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa input.cram"
+compare = "sam"
+
+[[case]]
+name = "view-cram-31-to-sam-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/tags.v31.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci view -O sam input.v31.cram --reference ref.fa"
+reference = "samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa input.v31.cram"
+compare = "sam"
+
+[[case]]
+name = "view-cram-multi-ref-to-bam-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.multi.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci view -O bam input.multi.cram --reference ref.fa"
+reference = "samtools view -b --no-PG --input-fmt-option decode_md=0 -T ref.fa input.multi.cram"
+compare = "bam"
+
+[[case]]
+name = "view-cram-to-bam-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci view -O bam input.cram --reference ref.fa"
+reference = "samtools view -b --no-PG --input-fmt-option decode_md=0 -T ref.fa input.cram"
+compare = "bam"
+
+[[case]]
+name = "view-cram-cigars-to-bam-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/cigars.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci view -O bam input.cram --reference ref.fa"
+reference = "samtools view -b --no-PG --input-fmt-option decode_md=0 -T ref.fa input.cram"
+compare = "bam"
+
+[[case]]
+name = "view-cram-past-end-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/pastend.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci view -O sam input.cram --reference ref.fa"
+reference = "samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa input.cram"
+compare = "sam"
+
+[[case]]
+name = "view-cram-embedded-past-end-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/pastend.embed.cram" }
+gloci = "gloci view -O sam input.embed.cram"
+reference = "samtools view -h --no-PG --input-fmt-option decode_md=0 input.embed.cram"
+compare = "sam"
+
+[[case]]
+name = "view-cram-no-ref-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/tags.noref.cram" }
+gloci = "gloci view -O bam input.noref.cram"
+reference = "samtools view -b --no-PG --input-fmt-option decode_md=0 input.noref.cram"
+compare = "bam"
+
+# MD and NM (#cram-md-nm): md.cram has a read whose right MD and NM samtools dropped when it wrote
+# the CRAM, one whose right MD and NM it dropped among other tags, one with none, and one with
+# wrong ones (kept). samtools' default (decode_md=1) recomputes MD and NM for every mapped read
+# that lacks them; gloci writes the tags stored, as samtools does with decode_md=0.
+[[case]]
+name = "view-cram-md-nm-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/md.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci view -O sam input.cram --reference ref.fa"
+reference = "samtools view -h --no-PG -T ref.fa input.cram"
+compare = "sam"
+expected_difference = "#cram-md-nm"
+
+[[case]]
+name = "view-cram-md-nm-decode-md-0-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/md.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci view -O sam input.cram --reference ref.fa"
+reference = "samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa input.cram"
+compare = "sam"
+
+# A CRAM without its end-of-file container (#cram-eof-container): samtools warns and exits 0.
+[[case]]
+name = "view-cram-no-eof-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags-noeof.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci view -O sam input.cram --reference ref.fa"
+reference = "samtools view -h --no-PG -T ref.fa input.cram"
+compare = "exit-status"
+expected_difference = "#cram-eof-container"
+
+# Index interop (D107): samtools reads regions through gloci's .crai with the results its own
+# index gives. Live only; the committed-fixture test is `crai_matches_samtools` in
+# crates/gloci-io/tests/cram.rs (gloci's entries equal the samtools .crai of every fixture).
+[[case]]
+name = "index-interop-cram-samtools-view"
+input = { file = "xtask/diff/inputs/aln/tags.multi.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "set -e; gloci index input.multi.cram; samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa input.multi.cram chrM chr1:150-300 chr2 chr10:5-20 chrX"
+reference = "set -e; samtools index input.multi.cram; samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa input.multi.cram chrM chr1:150-300 chr2 chr10:5-20 chrX"
+compare = "sam"
+
+[[case]]
+name = "index-interop-cram-single-ref-samtools-view"
+input = { file = "xtask/diff/inputs/aln/flags.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "set -e; gloci index input.cram; samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa input.cram chr1:650-701 chr2:51-55 chr1:1-200"
+reference = "set -e; samtools index input.cram; samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa input.cram chr1:650-701 chr2:51-55 chr1:1-200"
+compare = "sam"
+
+# Task 13 fix round 1. cat-big.v31.cram reaches order-1 rANS Nx16 and the name tokeniser (whose
+# tables noodles keeps on the stack); contigs.noref.cram has slices of several references
+# stored without the reference (chr1 of 10 Mb, then 200 contigs), where noodles needs a
+# placeholder sequence per reference; overhang.cram has a read whose deletion ends 1.5 Mb past
+# the end of chr1, which samtools decodes and gloci refuses (#cram-limits).
+[[case]]
+name = "view-cram-31-codecs-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/cat-big.v31.cram" }
+gloci = "gloci view -O bam input.v31.cram"
+reference = "samtools view -b --no-PG --input-fmt-option decode_md=0 input.v31.cram"
+compare = "bam"
+
+[[case]]
+name = "view-cram-no-ref-contigs-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/contigs.noref.cram" }
+gloci = "gloci view -O bam input.noref.cram"
+reference = "samtools view -b --no-PG --input-fmt-option decode_md=0 input.noref.cram"
+compare = "bam"
+
+[[case]]
+name = "view-cram-overhang-limit-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/overhang.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci view -O sam input.cram --reference ref.fa"
+reference = "samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa input.cram"
+compare = "exit-status"
+expected_difference = "#cram-limits"
+
+# Task 13 fix round 2: name-sorted CRAMs in slices of several references, where every slice needs
+# the same references (the decoders share one copy of each): with the reference, and without.
+[[case]]
+name = "view-cram-name-sorted-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.namesorted.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci view -O bam input.namesorted.cram --reference ref.fa"
+reference = "samtools view -b --no-PG --input-fmt-option decode_md=0 -T ref.fa input.namesorted.cram"
+compare = "bam"
+
+[[case]]
+name = "view-cram-no-ref-name-sorted-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/pairs.namesorted.noref.cram" }
+gloci = "gloci view -O bam input.namesorted.noref.cram"
+reference = "samtools view -b --no-PG --input-fmt-option decode_md=0 input.namesorted.noref.cram"
+compare = "bam"
+
+# Task 13 fix round 3: chr1 of 10 Mb and 300 small contigs in name order, without a reference
+# (every slice needs chr1 and other contigs; the shared placeholders are made once).
+[[case]]
+name = "view-cram-no-ref-mixed-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/mixed.namesorted.noref.cram" }
+gloci = "gloci view -O bam input.namesorted.noref.cram"
+reference = "samtools view -b --no-PG --input-fmt-option decode_md=0 input.namesorted.noref.cram"
+compare = "bam"
+
+# sort of alignments (D121) against samtools 1.21 sort --no-PG. sort.sam has ties at chr1:100 on both
+# strands, a placed unmapped read, unplaced reads with and without 0x10, chrM listed before chr1, names
+# that order differently naturally and as bytes, and one name with every flag rank; sort-nohd and
+# sort-hd differ in their @HD line only; flags.bam is the view fixture with unmapped reads.
+[[case]]
+name = "aln-sort-ties-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/sort.bam" }
+gloci = "gloci sort input.bam"
+reference = "samtools sort --no-PG input.bam"
+compare = "bam"
+
+[[case]]
+name = "aln-sort-name-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/sort.bam" }
+gloci = "gloci sort -n input.bam"
+reference = "samtools sort -n --no-PG input.bam"
+compare = "bam"
+
+[[case]]
+name = "aln-sort-name-bytes-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/sort.bam" }
+gloci = "gloci sort -N input.bam"
+reference = "samtools sort -N --no-PG input.bam"
+compare = "bam"
+
+[[case]]
+name = "aln-sort-sam-input-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/sort.sam" }
+gloci = "gloci sort -O bam input.sam"
+reference = "samtools sort --no-PG input.sam"
+compare = "bam"
+
+# gloci keeps the input's format (SAM in, SAM out); samtools sort writes BAM unless -O sam
+# says otherwise, which migration.md explains.
+[[case]]
+name = "aln-sort-sam-default-format-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/sort.sam" }
+gloci = "gloci sort input.sam"
+reference = "samtools sort -O sam --no-PG input.sam"
+compare = "sam"
+
+[[case]]
+name = "aln-sort-no-hd-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/sort-nohd.bam" }
+gloci = "gloci sort input.bam"
+reference = "samtools sort --no-PG input.bam"
+compare = "bam"
+
+[[case]]
+name = "aln-sort-hd-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/sort-hd.bam" }
+gloci = "gloci sort input.bam"
+reference = "samtools sort --no-PG input.bam"
+compare = "bam"
+
+[[case]]
+name = "aln-sort-flags-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.bam" }
+gloci = "gloci sort input.bam"
+reference = "samtools sort --no-PG input.bam"
+compare = "bam"
+
+# sort -m of alignments (D122) against samtools merge -c -p 1.21 (--no-PG; the bam compare mode
+# ignores @PG). merge-a and merge-b tie at chr1:101 and chr2:51 on both strands, share one @RG
+# (g1) and have different @PG CLs for ID bwa; merge-e has only new IDs, so plain samtools merge
+# (no -c -p) matches; merge-rgclash reuses g1 with another SM; merge-c has a shorter chr2.
+[[case]]
+name = "aln-merge-coordinate-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/merge-a.bam" }
+aux = ["xtask/diff/inputs/aln/merge-b.bam", "xtask/diff/inputs/aln/merge-e.bam"]
+gloci = "gloci sort -m input.bam merge-b.bam merge-e.bam"
+reference = "samtools merge -c -p --no-PG -o - input.bam merge-b.bam merge-e.bam"
+compare = "bam"
+
+[[case]]
+name = "aln-merge-input-order-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/merge-b.bam" }
+aux = ["xtask/diff/inputs/aln/merge-a.bam"]
+gloci = "gloci sort -m input.bam merge-a.bam"
+reference = "samtools merge -c -p --no-PG -o - input.bam merge-a.bam"
+compare = "bam"
+
+[[case]]
+name = "aln-merge-name-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/merge-a.n.bam" }
+aux = ["xtask/diff/inputs/aln/merge-b.n.bam"]
+gloci = "gloci sort -m -n input.n.bam merge-b.n.bam"
+reference = "samtools merge -n -c -p --no-PG -o - input.n.bam merge-b.n.bam"
+compare = "bam"
+
+[[case]]
+name = "aln-merge-name-bytes-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/merge-a.N.bam" }
+aux = ["xtask/diff/inputs/aln/merge-b.N.bam"]
+gloci = "gloci sort -m -N input.N.bam merge-b.N.bam"
+reference = "samtools merge -N -c -p --no-PG -o - input.N.bam merge-b.N.bam"
+compare = "bam"
+
+[[case]]
+name = "aln-merge-plain-no-collisions-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/merge-a.bam" }
+aux = ["xtask/diff/inputs/aln/merge-e.bam"]
+gloci = "gloci sort -m input.bam merge-e.bam"
+reference = "samtools merge --no-PG -o - input.bam merge-e.bam"
+compare = "bam"
+
+[[case]]
+name = "aln-merge-rg-conflict-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/merge-a.bam" }
+aux = ["xtask/diff/inputs/aln/merge-rgclash.bam"]
+gloci = "gloci sort -m input.bam merge-rgclash.bam"
+reference = "samtools merge -c -p --no-PG -o - input.bam merge-rgclash.bam"
+compare = "exit-status"
+expected_difference = "#alignment-merge-rg"
+
+[[case]]
+name = "aln-merge-different-sq-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/merge-a.bam" }
+aux = ["xtask/diff/inputs/aln/merge-c.bam"]
+gloci = "gloci sort -m input.bam merge-c.bam"
+reference = "samtools merge -c -p --no-PG -o - input.bam merge-c.bam"
+compare = "exit-status"
+expected_difference = "#alignment-merge-sq"
+
+# RNEXT of an unmapped read placed on a contig (#cram-md-nm): rnext-eq.cram has one such read
+# (flag 4, RNAME chr1, RNEXT `=`). samtools decodes the CRAM with RNEXT `*`; gloci keeps `=`.
+[[case]]
+name = "view-cram-unmapped-rnext-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/rnext-eq.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci view -O sam input.cram --reference ref.fa"
+reference = "samtools view -h --no-PG -T ref.fa input.cram"
+compare = "sam"
+expected_difference = "#cram-md-nm"
+
+# P3a Task 14: CRAM in every alignment command. gloci reads the CRAM with --reference; the
+# reference command decodes it first (samtools view -b -T ref.fa, MD and NM as stored) and runs
+# bedtools or samtools on the BAM. many.cram has five chromosomes in slices of 100 reads, placed
+# and unplaced unmapped reads, and flags of every kind.
+[[case]]
+name = "convert-cram-vs-bamtobed"
+input = { file = "xtask/diff/inputs/aln/many.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci convert input.cram --reference ref.fa"
+reference = "samtools view -b -T ref.fa --input-fmt-option decode_md=0 -o d.bam input.cram && bedtools bamtobed -i d.bam"
+compare = "exact"
+
+[[case]]
+name = "intersect-bed-cram-count-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/many.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai", "xtask/diff/inputs/aln/many-targets.bed"]
+gloci = "gloci intersect -a many-targets.bed -b input.cram --reference ref.fa --mode count"
+reference = "samtools view -b -T ref.fa --input-fmt-option decode_md=0 -o d.bam input.cram && bedtools intersect -a many-targets.bed -b d.bam -c"
+compare = "exact"
+
+[[case]]
+name = "coverage-bed-cram-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/many.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai", "xtask/diff/inputs/aln/many-targets.bed"]
+gloci = "gloci coverage -a many-targets.bed -b input.cram --reference ref.fa"
+reference = "samtools view -b -T ref.fa --input-fmt-option decode_md=0 -o d.bam input.cram && bedtools coverage -a many-targets.bed -b d.bam"
+compare = "numeric"
+
+[[case]]
+name = "genomecov-cram-split-deletions-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/many.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci genomecov input.cram --reference ref.fa --bedgraph --split-deletions"
+reference = "samtools view -b -T ref.fa --input-fmt-option decode_md=0 -o d.bam input.cram && bedtools genomecov -ibam d.bam -bg -split"
+compare = "exact"
+
+# Regions through the .crai (D116): a read unmapped but placed at a position counts as one base
+# there, and a read that runs past the end of its reference is found by its uncut span, as
+# samtools finds them (a region that starts past the end of the reference finds nothing, as in
+# samtools: the .crai clips a slice's span there). Regions are given in file order: gloci writes
+# the references in the file's order, samtools in the order asked. The .crai is samtools' own,
+# named for the input.
+[[case]]
+name = "view-cram-region-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/many.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai", "xtask/diff/inputs/aln/index/many/input.cram.crai"]
+gloci = "gloci view -O sam input.cram --reference ref.fa chrM chr1:100-400 chr2:51-55 chrX:770-777"
+reference = "samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa input.cram chrM chr1:100-400 chr2:51-55 chrX:770-777"
+compare = "sam"
+
+[[case]]
+name = "view-cram-multi-region-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/many.multi.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai", "xtask/diff/inputs/aln/index/many-multi/input.multi.cram.crai"]
+gloci = "gloci view -O sam input.multi.cram --reference ref.fa chrM chr1:100-400 chr2:51-55 chrX:770-777"
+reference = "samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa input.multi.cram chrM chr1:100-400 chr2:51-55 chrX:770-777"
+compare = "sam"
+
+[[case]]
+name = "view-cram-region-past-end-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/pastend.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai", "xtask/diff/inputs/aln/index/pastend/input.cram.crai"]
+gloci = "gloci view -O sam input.cram --reference ref.fa chr1:1001-1010"
+reference = "samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa input.cram chr1:1001-1010"
+compare = "sam"
+
+# htslib keeps CRAM's internal `cF` tag to itself, so samtools prints none (even one a read
+# carried in): gloci strips it.
+[[case]]
+name = "view-cram-cf-tag-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/cf.noref.cram" }
+gloci = "gloci view -O sam input.noref.cram"
+reference = "samtools view -h --no-PG --input-fmt-option decode_md=0 input.noref.cram"
+compare = "sam"
+
+# A region that starts past the end of its reference (#region-past-reference-end): the BAM's
+# index finds the reads that run past the end (samtools too, see
+# view-bam-region-past-end-vs-samtools), the CRAM's does not (view-cram-region-past-end-vs-samtools).
+# The reference reads the BAM twin of the CRAM gloci reads.
+[[case]]
+name = "view-cram-region-past-end-vs-bam-samtools"
+input = { file = "xtask/diff/inputs/aln/pastend.bam" }
+aux = ["xtask/diff/inputs/aln/pastend.bam.bai", "xtask/diff/inputs/aln/pastend.cram", "xtask/diff/inputs/aln/pastend.cram.crai", "xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci view -O sam --no-header pastend.cram --reference ref.fa chr1:1001-1010"
+reference = "samtools view --no-PG -X input.bam pastend.bam.bai chr1:1001-1010"
+compare = "exact"
+expected_difference = "#region-past-reference-end"
+
+# A damaged container of the reads with no place (#cram-unplaced-tail): streamed (-t 1) gloci
+# fails on it, an indexed run at -t 4 never reads it. The reference is gloci itself at -t 1.
+[[case]]
+name = "genomecov-cram-unplaced-tail-t4-vs-t1"
+input = { file = "xtask/diff/inputs/aln/many.badtail.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai", "xtask/diff/inputs/aln/index/badtail/input.badtail.cram.crai"]
+gloci = "gloci genomecov input.badtail.cram --reference ref.fa -t 4"
+reference = "gloci genomecov input.badtail.cram --reference ref.fa -t 1"
+compare = "exit-status"
+expected_difference = "#cram-unplaced-tail"

@@ -1,0 +1,1 @@
+pair-intersect -a input.bedpe -b pairs-order-b.bed

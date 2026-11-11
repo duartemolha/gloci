@@ -475,6 +475,34 @@ pub struct SamReader {
     policy: InvalidPolicy,
     opts: AlignOptions,
     rules: IntervalRules,
+    /// The slim line being built (see [`slim_sam_line`]).
+    scratch: Vec<u8>,
+}
+
+/// Replace the SAM line `buf[start..]` with its slim form for the interval commands that only
+/// compare reads (D115), as BAM records are slimmed: the first nine fields, `*` for SEQ and
+/// QUAL, and of the optional fields only `keep` (`--score-tag`). What reads a slim line (the
+/// BED6 row, the blocks) uses QNAME, FLAG, RNAME, POS, MAPQ, CIGAR and that tag.
+fn slim_sam_line(buf: &mut Vec<u8>, start: usize, keep: Option<[u8; 2]>, out: &mut Vec<u8>) {
+    out.clear();
+    for (i, field) in buf[start..].split(|&b| b == b'\t').enumerate() {
+        match i {
+            0..=8 => {
+                if i > 0 {
+                    out.push(b'\t');
+                }
+                out.extend_from_slice(field);
+            }
+            9 | 10 => out.extend_from_slice(b"\t*"),
+            _ if keep.is_some_and(|t| field.starts_with(&t) && field.get(2) == Some(&b':')) => {
+                out.push(b'\t');
+                out.extend_from_slice(field);
+            }
+            _ => {}
+        }
+    }
+    buf.truncate(start);
+    buf.extend_from_slice(out);
 }
 
 impl SamReader {
@@ -492,6 +520,7 @@ impl SamReader {
             diag: Diagnostics::default(),
             policy,
             opts,
+            scratch: Vec::new(),
         })
     }
 
@@ -516,6 +545,9 @@ impl RecordReader for SamReader {
     }
     fn diagnostics(&self) -> &Diagnostics {
         &self.diag
+    }
+    fn whole_records(&self) -> bool {
+        self.opts.full_records
     }
 
     fn read_batch(
@@ -565,6 +597,14 @@ impl RecordReader for SamReader {
             }
             self.lines
                 .rewrite_normalised(&mut batch.buf, start, &checked);
+            if !self.opts.full_records {
+                slim_sam_line(
+                    &mut batch.buf,
+                    start,
+                    self.opts.score_tag,
+                    &mut self.scratch,
+                );
+            }
             batch.recs.push(RecordMeta {
                 chrom: p.chrom,
                 key: p.pos,

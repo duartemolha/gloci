@@ -158,8 +158,8 @@ Further rules:
 
 - Streaming operations need inputs sorted by **(chromosome, start)**. The sort order of `end` doesn't matter for correctness.
 - **Chromosome order is chosen in this order** **[my call]**:
-  1. `--genome NAME|FILE` order, if given. NAME is a built-in genome such as `hg38` (Section 5.3). FILE can be `.fai`, a 2-column `.genome`, `.dict`, or a VCF/BCF/BAM header.
-  2. Otherwise, the contig order declared in a VCF/BCF header among the inputs, if any.
+  1. `--genome NAME|FILE` order, if given. NAME is a built-in genome such as `hg38` (Section 5.3). FILE can be `.fai`, a 2-column `.genome`, `.dict`, or a VCF/BCF/BAM/SAM/CRAM header.
+  2. Otherwise, the contig order declared in the header of an input, if any: a VCF/BCF header's `##contig` lines, or an alignment header's `@SQ` lines (BAM, SAM, CRAM), taken from the first such header in input order, and closed (a name outside it is an error). **[D103, as amended by D124]** The order of an alignment header is a declared order like a VCF header's. An alignment out of that order is an error whose hint is `gloci sort x.bam -o x.sorted.bam` (naming `SO:queryname` when the header declares it) or `--sort`; a B BED must follow the same order (`gloci sort b.bed -g x.bam`), or be sorted by `--sort` too. `--unsorted` holds B alignments in memory. `--chrom-map` renames the binary reference list and the `@SQ SN:` values, so BAM and CRAM records, which name references by number, carry the new names in any output, SAM included. SAM text is written as it is read, so it keeps its `RNAME`/`RNEXT`: `--chrom-map` is refused whenever SAM input lines would be written as records (`view`, `sort` and `sort -m` of a SAM input, whatever the output format, and `intersect --mode any|none` of a SAM A; convert to BAM first). The commands that only compare SAM reads as intervals (`intersect --mode pairs|count`, `coverage`, `genomecov`, `convert`) rename their chromosomes.
   3. Otherwise, **karyotype order** **[you]**, which matches how people read chromosomes and how reference genomes (and therefore most VCFs) are laid out. Names are compared with any leading `chr` prefix ignored:
      1. names that are a number, optionally followed by letters (`1`, `2`, `22`, `2L`, `2A`), by number and then suffix;
      2. then `X`, `Y`, and `M`/`MT`, in that order;
@@ -173,7 +173,7 @@ Further rules:
   - This check is cheap and is never turned off.
 - **`--unsorted`** and **`--sort`** are two different choices for unsorted input, each with one meaning everywhere. **[you, 2026-11-08]**
   - `--unsorted` means "work with my input in the order it is". It exists in the relation commands, where it loads the B side into an interval index and streams A in any order. Results follow A's order, and memory is proportional to the loaded file; the help text says so.
-  - `--sort` means "sort my inputs first". It exists in `merge`, `complement` and the relation commands. The inputs go through the external sorter, so memory stays within `--max-mem`, and results come out in sorted order.
+  - `--sort` means "sort my inputs first". It exists in `merge`, `complement`, `genomecov` and the relation commands. The inputs go through the external sorter, so memory stays within `--max-mem`, and results come out in sorted order. **[D124]** With alignment inputs (BAM, SAM, CRAM) the relation commands and `genomecov` sort them with the interval sorter into a temporary file and then stream: a SAM input spills a plain SAM temp, which preserves its layout, and BAM and CRAM spill a level-1 BAM. Memory stays within `--max-mem`. The alignments are keyed by `gloci sort`'s coordinate order (D121: reference, position, strand, then input order; the table is the header's) and the temporary header says `SO:coordinate`, so `intersect --sort` writes what `gloci sort` followed by `intersect` writes, `@HD` included. A `-g` table that orders the references unlike the header is followed instead, and `SO` is left as it was.
 - **Indexed inputs** (bgzip with `.tbi`/`.csi`) can be read chromosome by chromosome through the index. Chromosome order differences between inputs therefore don't matter in that mode.
 - **Chromosome naming:**
   - Names must match exactly.
@@ -204,11 +204,11 @@ Further rules:
 | GFF3, GTF | for `convert` and as interval input | 1 |
 | WIG (fixed/variableStep) | convert to bedGraph | 2 |
 | BEDPE | for pair ops | 3 |
-| BAM, CRAM | as intervals (alignment spans or blocks) | 3 |
+| BAM, CRAM, SAM | as intervals (alignment spans or blocks) for `intersect`, `coverage`, `genomecov` and `convert`; every record for `view`, `index`, `sort` and `cat` (`cat`: BAM only) | 3 |
 | FASTA + `.fai` | for `getfasta`, `maskfasta`, `nuc` | 3 |
 | PSL, RepeatMasker `.out` | convert only | 3 |
 
-- **Format detection** uses content and magic bytes: the BGZF/gzip header, `BCF\2`, `##fileformat=VCF`, `##gff-version`, and BED column shape. File extensions are not used. `--format` / `--a-format` / `--b-format` override detection.
+- **Format detection** uses content and magic bytes: the BGZF/gzip header, `BCF\2`, `##fileformat=VCF`, `##gff-version`, and BED column shape. File extensions are not used. `--format` / `--a-format` / `--b-format` override detection. **[D100, D114]** The alignment and sequence formats are detected by content too: BAM is a BGZF stream that decompresses to `BAM\1`; CRAM is `CRAM` with major version 2 or 3 (4 is an error); SAM is an `@HD`/`@SQ`/`@RG`/`@PG`/`@CO` line followed by a TAB, or at least 11 tab fields whose fields 2, 4, 5, 8 and 9 are integers; FASTA starts with `>`; PSL and RepeatMasker are recognised by their header or their column shape. `--format` adds `bam`, `cram`, `sam`, `psl` and `rmsk`. Only `intersect`, `coverage`, `genomecov`, `convert`, `view`, `index`, `sort` and `cat` read alignments; any other command exits 2 naming them and suggesting `gloci convert x.bam -o x.bed` (and, in `merge`, `gloci sort -m`). PSL and RepeatMasker are read by `convert` only, and FASTA is never an interval input.
 - **Compression:** gzip and BGZF are read transparently. Plain gzip is read single-threaded, because it can't be split. The docs recommend bgzip.
 - **stdin:** `-` reads from stdin wherever a file is accepted.
 
@@ -253,7 +253,7 @@ gloci ships chromosome names and sizes for common assemblies, so `-g hg38` works
 | Option | Meaning |
 |---|---|
 | `-o, --output PATH` | output file (default stdout) |
-| `-O, --output-format FMT` | `bed`, `bed.gz`, `vcf`, `vcf.gz`, `bcf`, `tsv`, `tsv.gz`, `bedgraph`, `bedgraph.gz` |
+| `-O, --output-format FMT` | `bed`, `bed.gz`, `vcf`, `vcf.gz`, `bcf`, `tsv`, `tsv.gz`, `bedgraph`, `bedgraph.gz`; with alignments `bam`, `sam`; for FASTA `fasta`, `fasta.gz` (a `.cram` output is a usage error suggesting `samtools view -C`) |
 | `--write-index` | write `.tbi`/`.csi` next to the output |
 | `--compression-level N` | BGZF level (default 6) |
 | `-t, --threads N` | default: `available_parallelism()`, which honours cgroups and CPU affinity (so SLURM allocations); env `GLOCI_THREADS` |
@@ -265,6 +265,9 @@ gloci ships chromosome names and sizes for common assemblies, so `-g hg38` works
 | `--region chr:s-e` (repeatable), `--regions-file BED` | restrict work to regions; uses the index when present |
 | `--chrom-map FILE` | rename chromosomes on input (Phase 2) |
 | `--header` | carry BED/TSV header lines from A to the output |
+| `--min-mapq N`, `--require-flags FLAGS`, `--exclude-flags FLAGS` | read filters, applied first to every alignment input of `intersect`, `coverage`, `genomecov`, `convert` and `view`. FLAGS is a number or comma-separated samtools names. The defaults filter nothing, as in bedtools; `--exclude-flags 0x704` gives `samtools depth` and mosdepth semantics. Counts are reported at `-v`. **[D102]** |
+| `--reference FASTA` | the FASTA a CRAM was made with (bedtools `--cram-ref`), with its `.fai` (and `.gzi` when BGZF). There is no `REF_PATH`, cache directory or download; a CRAM written without a reference needs none, and neither does `gloci index x.cram`, where `--reference` only checks lengths. It warns when given with no CRAM input. **[D109]** |
+| `--split-deletions` | for alignments, also cut reads at CIGAR `D` (`--split` cuts at `N` only); a usage error with no alignment input. **[D105]** |
 | `--skip-invalid` | skip malformed records instead of failing; prints a count and the first 10 examples to stderr |
 | `--tmp-dir DIR` | temp dir for `sort` and atomic outputs; env `GLOCI_TMPDIR` |
 | `-q, --quiet` / `-v, --verbose` | logging to stderr |
@@ -327,6 +330,7 @@ Phase markers are explained in Section 10.
 - `--whole`: removes an A entirely if any overlap meets the criteria. This is bedtools `-A`.
 - `--sum-overlaps`: with `-f`, adds up coverage from all B instead of testing each B alone. This is bedtools `-N`.
 - If A is VCF, records are removed whole (Section 4.6).
+- `--match overlap|alleles` on VCF/BCF inputs, as `intersect`. With `alleles`, an A record is dropped only by an overlapping B that shares an allele (trimmed POS, REF and ALT, Section 4.2). A multi-allelic A is dropped whole when any ALT is shared, with no allele trimming of the record: an owner decision. The result equals `intersect --mode none --match alleles`. **[owner addition, Task 21]**
 - Supports the same overlap criteria as `intersect`.
 
 **`gloci closest`** — P1. Replaces bedtools `closest` and bedops `closest-features`.
@@ -397,8 +401,16 @@ How the old commands map onto `partition`:
 | `cluster` | bedtools cluster | P2 | `-d/--max-gap`, `-s`; appends a cluster id |
 | `spacing` | bedtools spacing | P2 | appends the distance to the previous feature |
 | `groupby` | bedtools groupby | P2 | `-g COLS -c COL:OP` over consecutive equal keys |
-| `genomecov` | bedtools genomecov | P2 (BED), P3 (BAM) | `--bedgraph`, `--bga`, `--hist` (default), `--per-base`, `--scale X`, `--strand +/-`, `--split`, `--5p/--3p`, `--max-depth N` |
+| `genomecov` | bedtools genomecov | P2 (BED), P3 (BAM, CRAM, SAM) | `--bedgraph`, `--bga`, `--hist` (default), `--per-base`, `--scale X`, `--strand +/-`, `--split`, `--split-deletions`, `--5p/--3p`, `--max-depth N`, `--sort` |
 | `sample`, `random`, `shuffle` | bedtools | P3 | `--seed` required for reproducibility; `shuffle --exclude/--include BED` |
+
+**`genomecov` on alignments (BAM, CRAM, SAM)** **[D117]**
+
+- `-g` is optional: the default is the header's chromosomes and lengths, in header order, empty chromosomes included. `-g` overrides it, where bedtools ignores `-g` with `-ibam`.
+- A read counts its whole reference span, deleted bases included. `--split` cuts at `N` only; `--split-deletions` also cuts at `D` and is bedtools `-ibam -split`; plain `-ibam` (cuts at `D`, not `N`) has no gloci counterpart (docs/differences.md#bam-genomecov-deletions).
+- `--5p`/`--3p` take the first or last aligned base by strand, as bedtools. Unmapped reads are left out, and the read filters (Section 6.1) apply first.
+- An indexed BAM, or a CRAM with a `.crai`, at `-t` above 1 runs per chromosome, with `genome` rows summed and output identical to `-t 1`.
+- `-pc`, `-fs` and `-du` are not planned (no flag in this table, and a Section 2 non-goal).
 
 **Sort order of transform output:**
 
@@ -413,7 +425,7 @@ How the old commands map onto `partition`:
 - **Order:** chromosome order (Section 4.5), then start, then end.
   - Ties keep input order (a stable sort).
   - `--full-key` breaks ties on the whole line instead.
-- **Input:** BED, VCF/BCF (keeping the header; chromosome order comes from `##contig` unless `-g` is given) and GFF.
+- **Input:** BED, VCF/BCF (keeping the header; chromosome order comes from `##contig` unless `-g` is given), GFF, and alignments (below).
 - **External merge sort:**
   - Memory is limited by `--max-mem` (default 2G), with chunks sorted in parallel and spill files in `--tmp-dir` (compressed with a fast codec).
   - Inputs larger than RAM must work.
@@ -421,6 +433,28 @@ How the old commands map onto `partition`:
 - `--check`: checks order without writing anything. Exits 1 and prints the first out-of-order pair if unsorted.
 - `--unique` / `--duplicates`: keep only unique lines, or only duplicated ones.
 - Output can be BGZF with `--write-index`.
+
+**`gloci sort` for alignments** (one BAM, SAM or CRAM, or stdin) follows samtools 1.21 `bam_sort.c`. **[D121]**
+
+- **Coordinate order** (the default): reference in header order with unplaced reads last, then position, then the reverse-strand bit, then input order.
+- **`-n`** sorts by read name in samtools' natural order (digit runs compare as numbers after leading zeros, so `r2` precedes `r10` and `r01` equals `r1`), and **`-N`** by plain byte order (`--by-name`, `--by-name-bytes`). In both, ties go READ1 before READ2 and primary before supplementary before secondary, then input order. `-n` and `-N` are the owner's flags, an exception to one flag, one meaning: `windows -n COUNT` keeps its own meaning, as `groupby -g` does. **[owner exception]**
+- **`@HD`:** `SO` is set (`coordinate`, or `queryname` with `SS:queryname:natural` for `-n` and `SS:queryname:lexicographical` for `-N`); a coordinate sort removes `SS`; `GO` is removed; with no `@HD`, `@HD VN:1.6 SO:…` is written first. gloci adds an `@PG` line (`ID:gloci`, with a suffix when taken).
+- **Output format** follows the input's: SAM for SAM, BAM for BAM and CRAM (CRAM is never written); `-o` and `-O` override. samtools always writes BAM. **[D121]**
+- Every record is kept, unmapped reads included. `--write-index` works on coordinate-ordered BAM output only (`.bai`, or `.csi` for long references). `--check` checks the chosen order. `-g`, `--full-key`, `--unique` and `--duplicates` are usage errors with alignments: the order is the header's.
+- Memory is bounded by `--max-mem`, a total for the whole sort (samtools' `-m` is per thread); spill runs hold raw records.
+
+**`gloci sort -m` for alignments is `samtools merge`.** **[D122]** `-m` already means "merge sorted inputs" in gloci, and `gloci merge` keeps its interval meaning (one name, one meaning); its alignment error points to `sort -m`.
+
+- The keys are the sort's (`-n`/`-N` select name order). Ties go to input file order, then record order (samtools' `heap_lt`). Each input is order-checked as it is read, and an input whose `@HD SO`/`SS` contradicts the mode is an error up front.
+- `@SQ` lists must be identical (names, lengths, order), else an error naming the first difference. samtools appends unknown `@SQ` lines instead. `@HD` comes from the first input with `SO`/`SS` set; `@CO` lines come from every input; `@RG` and `@PG` lines with the same ID are combined (an identical line is kept once, as `samtools merge -c -p`), and a same-ID `@RG` with different fields is an error. samtools' default random-suffix renaming is not reproduced; `-r` is not supported.
+- The output follows the inputs' format: SAM when every input is SAM, otherwise BAM; `-o`/`-O` choose.
+- Many inputs are merged in cascade rounds: inputs are opened per round, at most fan-in at a time (128, fewer under a small `--max-mem`), with the decode threads shared within `-t`, and the rounds' runs go through `--tmp-dir`. A pipe input is spooled once. Open files and memory stay bounded.
+
+**`gloci cat FILE...`** — P3a. Replaces `samtools cat` for BAM. Its meaning is `vcf concat --naive`'s (a byte-level join), not `vcf concat`'s checked join, so it takes samtools' name. **[D123]**
+
+- The header is the first input's plus the `@RG` lines of later inputs with new IDs, and an `@PG` line. Every input's `@SQ` list must equal the first's, else an error (samtools does not check, and the records silently point at the wrong reference).
+- The block holding each later file's header end is recompressed from there; every later block is copied verbatim; end-of-file markers are dropped and one is written at the end. The order of the records is not checked.
+- BAM only: CRAM is refused (suggesting `samtools cat`) and SAM is refused (suggesting `gloci view x.sam -o x.bam`). `-` reads one input from stdin. `--write-index` writes the `.bai` for coordinate-sorted output.
 
 **`gloci index FILE`** — P0, extended in P1 and P3. Replaces `tabix`, `bcftools index`, `samtools index` and `samtools faidx` for the formats gloci reads. **[you]**
 
@@ -432,8 +466,8 @@ How the old commands map onto `partition`:
 | bgzipped VCF, BED, bedGraph, GFF/GTF | `.tbi`, or `.csi` when an end exceeds 2^29 | `tabix -p vcf\|bed\|gff` | P0 |
 | BCF | `.csi` | `bcftools index` | P0 |
 | any bgzipped tab-separated file | `.tbi`/`.csi`, using `-s/--seq-col`, `-b/--begin-col`, `-e/--end-col`, `--zero-based`, `--skip-lines N`, `--comment CHAR` | `tabix -s -b -e` | P1, so TSV outputs of `map`, `coverage` and `intersect --mode pairs` can be indexed |
-| BAM | `.bai`, or `.csi` with `--csi` or for long references | `samtools index` | P3, with BAM input |
-| CRAM | `.crai` | `samtools index` | P3, with CRAM input and reference handling |
+| BAM | `.bai`, or `.csi` with `--csi` or when a reference exceeds 2^29 (`--csi` is for BAM) | `samtools index` | P3a |
+| CRAM | `.crai`, with samtools' entries; needs no reference, even for multi-reference slices (`--reference`, if given, only checks lengths) **[D107, D109]** | `samtools index` | P3a |
 | FASTA, bgzipped FASTA | `.fai`, plus `.gzi` for BGZF | `samtools faidx` | P3, with `getfasta`/`maskfasta`/`nuc` |
 
 - Each new index type ships with differential tests showing that the reference tool (htslib, samtools) reads gloci's index and returns identical query results (Section 9.3).
@@ -444,6 +478,7 @@ How the old commands map onto `partition`:
 - Region queries use the index if one exists.
 - On **uncompressed** BED without an index, gloci scans the file and checks its order, so an unsorted file is an error and never a wrong answer. With `--assume-sorted`, regions are found by binary search on the file instead, like bedextract. This is fast, but it checks only the chromosome block it reads, so it trusts the user that the file is sorted. Indexing (`gloci sort … -o x.bed.gz --write-index`) gives both speed and safety. **[you: correctness first; revised 2026-11-07]**
 - Also handles format conversion (`-O vcf.gz|bcf|...`), `--header-only` and `--no-header`.
+- **`view` on alignments (BAM, SAM, CRAM)** **[D116]** converts BAM↔SAM and CRAM→BAM/SAM (as `-O` or the `-o` extension say; the input's format by default, BAM for CRAM) and writes every record, unmapped reads included (D120), with an `@PG` line added. `--header-only`, `--no-header` (SAM output only) and the read filters apply. Regions are read through the index (`.bai`, `.csi`, `.crai`) or by scanning, with a warning, and select by Section 4.3 on the D101 span; a placed unmapped read spans `[pos, pos+1)`, as samtools finds it. The `.bai` and `.crai` answers for a region past a reference's `LN` differ as samtools' do. It is not `samtools view`: there is no `-b`, `-h`, `-c` or `-L`. **[D116]**
 
 **`gloci genomes [show NAME]`** — P0. Lists the built-in genomes, or prints one as a `.genome` file (Section 5.3).
 
@@ -461,11 +496,17 @@ How the old commands map onto `partition`:
   - `--types snv,mnv,ins,del,sv,ref,other` filters by type. This replaces vcf2bed `--snvs`/`--insertions`/`--deletions`.
 - GFF/GTF to BED: `--feature exon`, and `--name-attr gene_name` for the name column.
 - BED12 to BED6: `--blocks`.
-- WIG to bedGraph (P2). BAM/SAM to BED, PSL and RepeatMasker (P3).
+- WIG to bedGraph (P2). BAM/CRAM/SAM to BED (bedtools `bamtobed`: BED6 by default, `--bed12`, `--blocks`, `--split-deletions`, `--score-tag`, `--cigar`, `--color`; **[D106]**), PSL and RepeatMasker to BED (**[D114]**, columns of bedops 2.4.41 `psl2bed` and `rmsk2bed`) (P3).
+- **An alignment as an interval [D101]:** the span is `[pos, pos + reflen)`, reflen being the `M D N = X` lengths, with a read that has no reference operations counting one base everywhere (convert, intersect, genomecov); clips never widen it; the strand is `-` for flag `0x10`. A read at or past its reference's `LN` is skipped and counted, and one that runs past it is cut at `LN`, with one warning per input. Unmapped reads are skipped by every interval command. Errors name the place: SAM `line N`; BAM `record N of CHROM (record M of the file)`; CRAM `record N of CHROM`, without the file-wide number because a `.crai` has no counts. A read through an index for a region, which starts mid-file, is `record at BGZF offset X:Y` (its virtual offset). `genomecov -g` names a read past the end of its `-g` chromosome as `record N of CHROM (counting only the reads genomecov counts)`, so the place is the same streamed and per chromosome.
+- **Alignments in output [D104]:** `intersect --mode any|none` writes BAM for a BAM or CRAM A and SAM for a SAM A (`-o`/`-O` choose); asking for BED is a usage error suggesting `-O bam | gloci convert -`. Where a command prints an alignment's columns it prints BED6, and an unmatched B placeholder for an alignment is BED6 wide. `--mode clip` of reads is a usage error. `--chrom-map` is refused when `intersect` writes a SAM A as alignments (`--mode any|none`), because the reads keep their names.
 
 ### 7.5 Sequence (P3)
 
-`getfasta`, `maskfasta` and `nuc` work as in bedtools, with strand-aware reverse-complement, `--split` for BED12, and soft or hard masking. They need FASTA plus `.fai`; bgzipped FASTA plus `.gzi` is also supported.
+`getfasta`, `maskfasta` and `nuc` work as in bedtools, with strand-aware reverse-complement, `--split` for BED12, and soft or hard masking. `getfasta` and `nuc` need FASTA plus `.fai`; bgzipped FASTA plus `.gzi` is also supported. gloci never builds an index implicitly: a missing one is a usage error naming `gloci index FILE` **[D108]**. Their flag names are:
+
+- **`getfasta FILE --fasta REF`** **[D111]**: output in input order; the header is `chrom:start-end` (0-based start, as bedtools), `--name` gives `name::chrom:start-end` and `--name-only` gives `name`; `-s` appends `(+)`/`(-)`/`(.)` and reverse-complements `-` records with bedtools' IUPAC-aware, case-keeping table; `--rna` writes U; `--split` joins BED12 blocks; `--tab` writes `header TAB seq`; `--bed-out` writes the record, then the sequence. A record outside the FASTA is a data error (bedtools skips it), and `--skip-invalid` skips and counts. Zero-length records are skipped with one counted warning. `--chrom-map` renames the intervals only, and VCF follows `--vcf-span`. There is no `-fullHeader`.
+- **`nuc FILE --fasta REF`** **[D112]**: TSV of the record's columns, then `pct_at pct_gc num_A num_C num_G num_T num_N num_oth seq_len`, then the sequence (`--seq`) and the pattern count (`--pattern P`, overlapping matches, case-sensitive unless `--ignore-case`/`-C`), after bedtools' `#1_usercol …` header line. Counts are case-insensitive and `U` counts as T; percentages are computed in single precision and printed with 6 decimals, as bedtools. `-s` reverse-complements `-` records. Errors as `getfasta`.
+- **`maskfasta --fasta IN -b MASK... [-o OUT]`** **[D113]**: streams the FASTA (any compression, no index needed). Masked bases become `--mask-char C` (default `N`; a space is refused) or lowercase (`--soft`). Headers and line breaks are kept exactly, where bedtools re-wraps and drops descriptions. Masks may come in any order and are merged per chromosome; a chromosome the FASTA lacks gets one warning, and a mask past its sequence's end is a data error. `.fa.gz` output is BGZF, and `--write-index` writes `.fai`/`.gzi`.
 
 ### 7.6 Interval statistics (P3)
 
@@ -608,6 +649,10 @@ xtask/         benchmark runner, differential-test runner, synthetic data genera
 2. Parsing and formatting of batches across threads, with output reassembled in order.
 3. **Per-chromosome (or per-region-chunk) parallelism** when every input is indexed, or is a plain seekable file that can be split. Chunks run independently and output is concatenated in chromosome order. This is P1 for indexed inputs where cheap, and P2 at the latest.
 4. Streaming from stdin is limited to stages 1–2. The docs say so.
+
+5. **CRAM decode pool (P3a) [D110].** CRAM containers are read in order and decoded on at most `-t` workers, with at most 2 × `-t` in flight, and released in order: the CRAM analogue of stage 1. Workers have 16 MiB stacks (noodles-cram's order-1 rANS and name tokeniser need them). The workers share one lease-based cache of reference sequences, each read from the FASTA once; with a `.crai` and `-t` above 1 a CRAM is read per chromosome, one chromosome per worker. Other pools stay deferred unless a benchmark misses a target.
+
+**CRAM limits [D109].** A reference is `--reference` only. Every `@SQ` in the `.fai` must match its CRAM `LN`, else an error before any record. gloci builds the `.crai` itself and never reaches a noodles code path that panics on a missing reference (the repository adapter returns an error, not `None`, and slice reference ids are checked first). Decoding is bounded: every codec's clear-text decoded size is checked against the block size, a block is capped at 1 GiB, and a read may overhang the end of its reference (`LN`) by at most max(1 Mb, 4 × the read length). The residual risk on crafted files with valid checksums is documented in `docs/differences.md#cram-limits`.
 
 Output must be byte-identical for every thread count (Section 6.4).
 
@@ -756,6 +801,8 @@ The user-facing version of this guide lives in `docs/migration.md` (later part o
 - `-g genome.fai` and VCF/BCF header order still take precedence, so pipelines that already pass a genome file behave as before.
 - Re-sort stored intermediate files once with `gloci sort`, or keep `--chrom-order lex` on every gloci command in a pipeline that must stay byte-compatible with old outputs. Mixing the two orders within one pipeline is reported as an error, never as a silent wrong answer.
 
+**BAM, CRAM and FASTA.** Interval commands skip unmapped reads (bedtools `intersect -v` writes them); `view`, `sort`, `sort -m` and `cat` keep every record. The read filters default to nothing. CRAM needs `--reference FASTA` (bedtools `--cram-ref`), and gloci never writes a CRAM. `genomecov` of a BAM counts deleted bases, so bedtools' `-ibam -split` is `--split-deletions`. gloci never builds an index implicitly (bedtools builds a `.fai`). `gloci merge` is the interval merge; `samtools merge` is `gloci sort -m`. See `docs/migration.md`.
+
 ### bedtools
 
 | bedtools | gloci |
@@ -781,12 +828,23 @@ The user-facing version of this guide lives in `docs/migration.md` (later part o
 | `makewindows` | `windows` |
 | `multiinter`, `unionbedg` | `partition`, `partition --bedgraph` |
 | `cluster`, `spacing`, `groupby`, `sort` | same names |
-| `bed12tobed6`, `bamtobed` | `convert --blocks`, `convert` (P3) |
-| `getfasta`, `maskfasta`, `nuc` | same names (P3) |
+| `bed12tobed6`, `bamtobed [-bed12 -split -splitD -ed -tag -cigar -color]` | `convert --blocks`, `convert [--bed12 --blocks --split-deletions --score-tag --cigar --color]` (P3a) |
+| `getfasta -fi`, `maskfasta -fi`, `nuc -fi` | same names, with `--fasta` for `-fi` (P3a) |
+| `intersect -abam`, `coverage -b x.bam`, `genomecov -ibam`, `--cram-ref` | `intersect -a x.bam`, `coverage -b x.bam`, `genomecov x.bam`, `--reference` (P3a) |
 | `jaccard`, `fisher`, `reldist` | `stats jaccard / fisher / reldist` (P3) |
 | `shuffle`, `random`, `sample` | same names (P3) |
 | `pairtobed`, `pairtopair` | `pair-intersect`, `pair-pair` (P3) |
 | `multicov`, `tag`, `bamtofastq`, `bedtobam`, `bedpetobam`, `igv`, `links`, `expand`, `split`, `summary`, `overlap` | not planned (see non-goals; `overlap` → `--mode pairs --overlap-bases`) |
+
+### samtools **[P3a, owner addition]**
+
+| samtools | gloci |
+|---|---|
+| `sort [-n -N -m -@ -T -o --write-index]` | `sort [-n -N --max-mem -t --tmp-dir -o --write-index]` (`-m` is per thread in samtools and a total in gloci; the output follows the input's format, where samtools writes BAM; temporary disk is about the input size) |
+| `merge [-n -N -c -p]` | `sort -m [-n -N]` (IDs are combined by default; a conflicting `@RG` and differing `@SQ` lists are errors) |
+| `cat` | `cat` (BAM only; `@SQ` lists must match) |
+| `index` | `index` (`.bai`, `.csi` or `.crai`) |
+| `faidx REF.fa` | `index REF.fa` (region extraction is P3c) |
 
 ### bedops
 

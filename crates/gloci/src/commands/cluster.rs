@@ -52,7 +52,7 @@ pub fn run_appending(
             chrom_order: a.chrom_order,
             sort: a.sort,
             chrom_map: a.chrom_map,
-            alignments_planned: false,
+            alignments: None,
         },
         &|formats| validate(formats[0]),
     )?;

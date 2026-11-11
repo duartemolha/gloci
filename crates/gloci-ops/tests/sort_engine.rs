@@ -6,7 +6,7 @@ use gloci_core::{ChromTable, VcfSpan};
 use gloci_io::{
     Format, InvalidPolicy, IoError, ReaderOptions, RecordBatch, RecordReader, open_reader_from,
 };
-use gloci_ops::sort::{Dedup, SortConfig, SortStats, Sorter, Tie, merge_sorted};
+use gloci_ops::sort::{Dedup, Order, SortConfig, SortStats, Sorter, Tie, merge_sorted};
 use gloci_testkit::naive;
 use gloci_testkit::strategies::{self, TestRec};
 use proptest::prelude::*;
@@ -73,7 +73,7 @@ fn cfg(max_mem: u64, tie: Tie, dedup: Dedup) -> SortConfig {
         max_mem,
         tmp_dir: std::env::temp_dir(),
         threads: NonZeroUsize::new(4).unwrap(),
-        tie,
+        order: Order::Interval(tie),
         dedup,
     }
 }
@@ -327,7 +327,7 @@ fn thread_count_does_not_change_output() {
     assert_eq!(sort_bytes(&input, in_memory(1)), want);
     assert_eq!(sort_bytes(&input, in_memory(8)), want);
     let full = |n| SortConfig {
-        tie: Tie::FullLine,
+        order: Order::Interval(Tie::FullLine),
         ..threads(n)
     };
     assert_eq!(sort_bytes(&input, full(1)), sort_bytes(&input, full(8)));

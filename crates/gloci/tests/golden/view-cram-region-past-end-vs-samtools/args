@@ -1,0 +1,1 @@
+view -O sam input.cram --reference ref.fa chr1:1001-1010

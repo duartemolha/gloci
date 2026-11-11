@@ -1,0 +1,1 @@
+genomecov input.bam --bedgraph --scale 0.5

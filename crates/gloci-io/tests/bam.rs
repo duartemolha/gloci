@@ -778,6 +778,15 @@ fn bam_error_place_names_the_file_record() {
     .unwrap()
     .to_string();
     assert!(e.contains("record 2 of chr2 (record 4 of the file)"), "{e}");
+    // gloci index names the record the same way (M10).
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("bad.bam");
+    std::fs::write(&path, &bam).unwrap();
+    let e = write_alignment_index(&path, &path, false, NonZeroUsize::MIN)
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(e.contains("record 2 of chr2 (record 4 of the file)"), "{e}");
     // Only refID -1 is "unplaced reads"; another negative id is printed as it is.
     let neg = bam_file(&h, &[raw_record(-5, 10, b"r", 4, &[], 0, b"")]);
     let e = run_with(

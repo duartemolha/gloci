@@ -1,0 +1,1 @@
+view -O bam input.namesorted.cram --reference ref.fa

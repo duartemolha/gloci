@@ -63,13 +63,7 @@ impl FastaStream {
                 }
             };
             if empty {
-                return Err(IoError::Detect {
-                    path: input.name.clone(),
-                    msg: format!(
-                        "{} is empty: it has no FASTA records; pass a FASTA file that starts with a '>' header line",
-                        input.name
-                    ),
-                });
+                return Err(IoError::empty_input(&input.name));
             }
             return Err(IoError::Detect {
                 path: input.name.clone(),

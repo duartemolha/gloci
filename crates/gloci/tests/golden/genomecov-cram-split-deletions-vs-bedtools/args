@@ -1,0 +1,1 @@
+genomecov input.cram --reference ref.fa --bedgraph --split-deletions

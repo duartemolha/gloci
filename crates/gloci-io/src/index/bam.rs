@@ -5,7 +5,7 @@
 
 use super::build::{Linear, check_bgzf, csi_bytes, csi_depth, with_htslib_loffsets};
 use super::*;
-use crate::align::{Aln, AlnHeader, index_span};
+use crate::align::{Aln, AlnHeader, bam_record_place, index_span};
 use crate::error::OrderError;
 use noodles_csi::binning_index::index::reference_sequence::index::{BinnedIndex, LinearIndex};
 
@@ -67,6 +67,9 @@ fn bam_pass<I: BinIndexKind + Default>(
     };
     let mut seen_placed = false;
     let mut unplaced = false;
+    // The record's place, as every command names it: its number among the records of its
+    // reference (`run_seen` of `run_ref`) and in the file (`n`).
+    let (mut run_ref, mut run_seen) = (i32::MIN, 0u64);
     let mut buf = Vec::new();
     loop {
         let start = r.virtual_position();
@@ -76,25 +79,41 @@ fn bam_pass<I: BinIndexKind + Default>(
             break;
         }
         n += 1;
-        let err = |msg: String| IoError::Parse {
+        let fail = |(ref_id, seen): (i32, u64), msg: String| IoError::Detect {
             path: name.to_string(),
-            loc: Loc::Record(n),
-            msg,
+            msg: format!(
+                "{name} {}: {msg}",
+                bam_record_place(&hdr.refs, ref_id, seen, Some(n))
+            ),
         };
+        // Until the record's reference is known, it is named as the next of the last run.
+        let next = (run_ref, run_seen + 1);
         if got < 4 {
-            return Err(err(bcf::RECORD_TRUNCATED.into()));
+            return Err(fail(next, bcf::RECORD_TRUNCATED.into()));
         }
         let block = i32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
         buf.clear();
         let size = usize::try_from(block).map_err(|_| {
-            err(format!(
-                "block_size {block} is negative, so the next record cannot be found; \
+            fail(
+                next,
+                format!(
+                    "block_size {block} is negative, so the next record cannot be found; \
 the file is corrupt"
-            ))
+                ),
+            )
         })?;
         if bcf::append(&mut r, &mut buf, size).map_err(read_err)? < size {
-            return Err(err(bcf::RECORD_TRUNCATED.into()));
+            return Err(fail(next, bcf::RECORD_TRUNCATED.into()));
         }
+        if size >= 4 {
+            let ref_id = i32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
+            if ref_id != run_ref {
+                (run_ref, run_seen) = (ref_id, 0);
+            }
+        }
+        run_seen += 1;
+        let here = (run_ref, run_seen);
+        let err = |msg: String| fail(here, msg);
         let end = r.virtual_position();
         let a = Aln::parse(&buf, &hdr).map_err(&err)?;
         let chunk = Chunk::new(start, end);
