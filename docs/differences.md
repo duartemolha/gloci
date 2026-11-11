@@ -2085,17 +2085,19 @@ depends on the span.
 
 - **gloci:** a FLAGS argument written in decimal with a leading zero (`010`)
   exits 2, and the message says samtools reads it as octal 8 and what to write
-  instead (`8` or `0x8`). Trailing text (`12abc`) exits 2 as well. This applies
-  to every option that takes FLAGS (`--require-flags`, `--exclude-flags`), as
-  well as to `gloci flags`.
+  instead (`8` or `0x8`). `00` to `07`, which mean the same in octal and
+  decimal, are read as samtools reads them. Trailing text (`12abc`) exits 2 as
+  well. This applies to every option that takes FLAGS (`--require-flags`,
+  `--exclude-flags`), as well as to `gloci flags`.
 - **Old behaviour:** `samtools flags 010` prints `0x8 8 MUNMAP`, because C's
   `strtol` with base 0 reads a leading zero as octal; `samtools flags 12abc`
   prints the line for 12 and ignores `abc`.
 - **Reason:** `010` is written to mean ten far more often than eight, and a
   flag set that silently means something else filters the wrong reads. Write
   `0x8` or `8` for eight, and `10` for ten.
-- **Pinned by:** `flags-octal-vs-samtools` (exit status: must differ), and the
-  tests `parse_flags_samtools_rules` and `flags_usage_errors_exit_2_and_print_nothing`.
+- **Pinned by:** `flags-octal-vs-samtools` (exit status: must differ),
+  `flags-leading-zero-same-value-vs-samtools` (must match), and the tests
+  `parse_flags_samtools_rules` and `flags_usage_errors_exit_2_and_print_nothing`.
 
 ## `idxstats` counts a file whose references are not grouped {#idxstats-unsorted}
 

@@ -120,9 +120,8 @@ pub fn gate(name: &str, format: Format, accept: &Accept) -> Result<(), IoError> 
             GateKind::NoAlignments,
             format!(
                 "{name} is {}; this command does not read alignments (intersect, coverage, \
-genomecov, convert, view, index, sort, cat, idxstats, flagstat, check, reheader, head, samples, \
-depth and bedcov do); convert it to BED first: \
-gloci convert {name} -o x.bed",
+genomecov, convert, view, index, sort, cat, idxstats, flagstat, check, reheader, head, \
+samples, depth and bedcov do); convert it to BED first: gloci convert {name} -o x.bed",
                 format.name()
             ),
         ));
@@ -132,8 +131,8 @@ gloci convert {name} -o x.bed",
             GateKind::Sequence,
             format!(
                 "{name} is FASTA, which is sequence, not intervals; only getfasta, maskfasta, \
-nuc, faidx or dict read it, as the reference for the intervals in a BED, GFF or VCF file, and -g ref.fa \
-reads its .fai for the chromosome sizes (create it with: gloci index {name})"
+nuc, faidx or dict read it, as the reference for the intervals in a BED, GFF or VCF file, and \
+-g ref.fa reads its .fai for the chromosome sizes (create it with: gloci index {name})"
             ),
         ));
     }

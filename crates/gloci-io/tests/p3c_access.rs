@@ -65,10 +65,14 @@ fn parse_flags_samtools_rules() {
         ("0", 0),
         ("4096", 0x1000),
         ("65535", 0xFFFF),
+        // A leading zero whose octal and decimal readings agree (M8).
+        ("00", 0),
+        ("07", 7),
+        ("0004", 4),
     ] {
         assert_eq!(parse_flags(s), Ok(v), "{s}");
     }
-    for bad in ["65536", "12abc", "-1", "0x", ""] {
+    for bad in ["65536", "12abc", "-1", "0x", "", "010", "08", "09", "0012"] {
         assert!(parse_flags(bad).is_err(), "{bad:?}");
     }
     let e = parse_flags("010").unwrap_err();

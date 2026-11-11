@@ -5698,6 +5698,14 @@ compare = "exit-status"
 expected_difference = "#samtools-exit-codes"
 
 # 010: samtools reads octal 8 and prints it; gloci refuses (exit 2).
+# A leading zero whose octal and decimal readings agree (00 to 07) means the same to both.
+[[case]]
+name = "flags-leading-zero-same-value-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/empty.sam" }
+gloci = "gloci flags 00 01 02 03 04 05 06 07 0007"
+reference = "samtools flags 00 01 02 03 04 05 06 07 0007"
+compare = "exact"
+
 [[case]]
 name = "flags-octal-vs-samtools"
 input = { file = "xtask/diff/inputs/samtools/empty.sam" }

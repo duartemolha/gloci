@@ -48,8 +48,9 @@ pub fn flag_names(flag: u16) -> String {
 /// Parse a SAM flag set: a decimal or `0x` hexadecimal number up to 65535, or comma-separated
 /// names (`PAIRED`, `UNMAP`, `DUP`, ...), case-insensitive.
 ///
-/// Where samtools differs, gloci refuses (D136): a decimal with a leading zero (`010`, which
-/// samtools reads as octal 8) and trailing text (`12abc`, which samtools reads as 12).
+/// Where samtools differs, gloci refuses (D136): a decimal with a leading zero whose octal
+/// reading differs (`010`, which samtools reads as octal 8; `00` to `07` mean the same either
+/// way and pass) and trailing text (`12abc`, which samtools reads as 12).
 pub fn parse_flags(s: &str) -> Result<u16, String> {
     let t = s.trim();
     let names = || {
@@ -76,16 +77,18 @@ pub fn parse_flags(s: &str) -> Result<u16, String> {
             },
         )
     } else if t.bytes().all(|b| b.is_ascii_digit()) {
-        if t.len() > 1 && t.starts_with('0') {
+        let octal = u32::from_str_radix(t, 8).ok();
+        if t.len() > 1 && t.starts_with('0') && octal != t.parse::<u32>().ok() {
             // samtools reads this as octal; the same digits would mean something else in gloci.
+            // `00` to `07` (and more zeros) mean the same either way, so they pass.
             let plain = t.trim_start_matches('0');
             let plain = if plain.is_empty() { "0" } else { plain };
-            return Err(match u32::from_str_radix(t, 8) {
-                Ok(o) => format!(
+            return Err(match octal {
+                Some(o) => format!(
                     "flag value '{t}' has a leading zero, which samtools reads as octal {o}; \
 write {o} or 0x{o:x} for that, or {plain} for decimal {plain}"
                 ),
-                Err(_) => format!(
+                None => format!(
                     "flag value '{t}' has a leading zero, which samtools reads as octal (and \
 {t} is not valid octal); write {plain} for decimal or 0x for hex"
                 ),

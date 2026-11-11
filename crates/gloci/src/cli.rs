@@ -1113,8 +1113,9 @@ Examples:
     /// none of them has an empty third field. With no argument it prints the
     /// twelve flags with their descriptions. All arguments are checked before
     /// anything is printed. A decimal with a leading zero (010) is an error,
-    /// because samtools reads it as octal 8, and so is trailing text (12abc),
-    /// which samtools reads as 12.
+    /// because samtools reads it as octal 8 (00 to 07 mean the same either
+    /// way and are read), and so is trailing text (12abc), which samtools
+    /// reads as 12.
     #[command(after_long_help = "\
 Examples:
   gloci flags 0x704 1796 secondary,dup
