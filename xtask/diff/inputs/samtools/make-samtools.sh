@@ -50,6 +50,6 @@ samtools index -@ 0 depth.cram
 # the mate-unmapped flag clear and no mate position; g is a resolved pair followed by two
 # supplementary alignments of one name inside the second mate (samtools keeps a stale entry for
 # them, gloci does not: #depth-mate-overlap); h's second mate has quality 5 on the bases it shares;
-# j's mate is on chr2; k is a pair on chr2.
+# j's mate is on chr2; k is a pair on chr2; n's first mate has MAPQ 5, so under -Q 10 it neither waits nor clips.
 samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o mates.bam mates.sam
 samtools index -@ 0 mates.bam

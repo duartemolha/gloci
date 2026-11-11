@@ -5968,3 +5968,12 @@ gloci = "gloci depth input.bam --skip-mate-overlap"
 reference = "samtools depth -s input.bam"
 compare = "exact"
 expected_difference = "#depth-mate-overlap"
+
+# Template n: its first mate has MAPQ 5, so under -Q 10 it is filtered before the mate table; its
+# second mate is neither clipped by it nor held for it.
+[[case]]
+name = "depth-s-min-mapq-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/mates.bam" }
+gloci = "gloci depth input.bam --skip-mate-overlap --min-mapq 10 --exclude-flags UNMAP,SECONDARY,QCFAIL,DUP,SUPPLEMENTARY"
+reference = "samtools depth -s -Q 10 -G SUPPLEMENTARY input.bam"
+compare = "exact"
