@@ -48,6 +48,7 @@ fn words(c: &[u8]) -> impl Iterator<Item = (u8, u32)> + '_ {
 
 /// Check the operation codes of the CIGAR words `c` and return the bases of the read they
 /// cover (`M I S = X`), in one pass.
+#[inline]
 fn scan_cigar(c: &[u8]) -> Result<u64, String> {
     // Bit `op` is set for the operations that consume the read: 0 M, 1 I, 4 S, 7 =, 8 X.
     const QUERY: u32 = 1 << 0 | 1 << 1 | 1 << 4 | 1 << 7 | 1 << 8;
@@ -118,6 +119,7 @@ fn tags(mut data: &[u8]) -> impl Iterator<Item = Result<Tag<'_>, ()>> {
 
 impl<'a> Aln<'a> {
     /// Check and view the record `raw` (without its `block_size`).
+    #[inline]
     pub fn parse(raw: &'a [u8], h: &AlnHeader) -> Result<Aln<'a>, String> {
         if raw.len() < FIXED {
             return Err(format!(
