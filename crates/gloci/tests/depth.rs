@@ -253,6 +253,22 @@ fn depth_threads_give_identical_output() {
     assert_eq!(two("1"), two("4"));
 }
 
+/// depth streams at every -t (D138): it never spills, so it takes no --tmp-dir, and its help
+/// does not promise parallel runs of references (N2).
+#[test]
+fn depth_has_no_tmp_dir_and_its_help_says_it_streams() {
+    gloci()
+        .args(["depth", &f("depth.bam"), "--tmp-dir", "."])
+        .assert()
+        .code(2)
+        .stderr(contains("--tmp-dir"));
+    let help = gloci().args(["depth", "--help"]).assert().success();
+    let help = String::from_utf8(help.get_output().stdout.clone()).unwrap();
+    assert!(!help.contains("in parallel"), "{help}");
+    let flat = help.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(flat.contains("read as one stream at every -t"), "{help}");
+}
+
 #[test]
 fn depth_reads_sam_cram_and_stdin_alike() {
     let bam = out(&[&f("depth.bam")]);

@@ -1216,9 +1216,9 @@ Examples:
     /// the paths first. A read past the end of its reference is cut there with one warning,
     /// where samtools prints rows beyond it. --skip-mate-overlap counts the bases two mates of
     /// a pair share once. An input that goes back in (reference, position)
-    /// is an error telling you to run gloci sort. With indexes and -t above 1, runs of
-    /// references are computed in parallel with the same output. Memory per input follows the
-    /// longest read, not the reference.
+    /// is an error telling you to run gloci sort. The inputs are read as one stream at every
+    /// -t, with the same output; threads decode BGZF and CRAM, shared among the inputs. Memory
+    /// per input follows the longest read, not the reference.
     #[command(after_long_help = "\
 Examples:
   gloci depth sample.bam --skip-mate-overlap -o depth.tsv
@@ -3716,8 +3716,6 @@ pub struct DepthArgs {
     pub invalid: InvalidArg,
     #[command(flatten)]
     pub threads: ThreadArgs,
-    #[command(flatten)]
-    pub tmp_dir: TmpDirArg,
     /// Write the rows to FILE instead of stdout.
     #[arg(short, long, value_name = "FILE")]
     pub output: Option<PathBuf>,

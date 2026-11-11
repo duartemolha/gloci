@@ -233,7 +233,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         Commands::Flagstat(a) => (a.threads.threads, None),
         Commands::Head(a) => (a.threads.threads, None),
         Commands::Samples(_) => (None, None),
-        Commands::Depth(a) => (a.threads.threads, a.tmp_dir.tmp_dir.clone()),
+        Commands::Depth(a) => (a.threads.threads, None),
         Commands::Bedcov(a) => (a.threads.threads, None),
         Commands::Reheader(a) => (a.threads.threads, None),
         Commands::Vcf(a) => match &a.command {
