@@ -34,21 +34,16 @@ pub struct ReldistSummary {
     pub total: u64,
 }
 
-/// The midpoint of an A interval: `⌊(start + end) / 2⌋`.
-fn a_mid(s: Interval) -> i64 {
-    (s.start + (s.end - s.start) / 2) as i64
-}
-
-/// The midpoint of a B interval: `⌊(start + end) / 2⌋` without overflow. bedtools adds the
-/// two ends in a 32-bit `int`, which wraps past 2^31 (`#reldist-midpoint-overflow`).
-fn b_mid(s: Interval) -> i64 {
-    (s.start + (s.end - s.start) / 2) as i64
+/// The midpoint of an interval, `⌊(start + end) / 2⌋`, in u64 without overflow. (bedtools adds
+/// B's two ends in a 32-bit `int`, which wraps past 2^31: `#reldist-midpoint-overflow`.)
+fn mid(s: Interval) -> u64 {
+    s.start + (s.end - s.start) / 2
 }
 
 /// The relative distance of `m` to the B midpoints `mids` (sorted): `None`
 /// when bedtools skips it (a chromosome with fewer than two midpoints, `m`
 /// before the first or after the last midpoint).
-fn rel_dist(mids: &[i64], m: i64) -> Option<f64> {
+fn rel_dist(mids: &[u64], m: u64) -> Option<f64> {
     if mids.len() < 2 {
         return None;
     }
@@ -58,8 +53,8 @@ fn rel_dist(mids: &[i64], m: i64) -> Option<f64> {
         return Some(0.0);
     }
     let left = *mids.get(i.checked_sub(1)?)?;
-    let (dl, dr) = (m - left, right - m);
-    Some(dl.min(dr) as f64 / (right - left) as f64)
+    let (dl, dr) = (m.abs_diff(left), right.abs_diff(m));
+    Some(dl.min(dr) as f64 / right.abs_diff(left) as f64)
 }
 
 struct Stream {
@@ -111,14 +106,14 @@ fn load_chrom(
     b: &mut Stream,
     c: ChromId,
     chroms: &mut ChromTable,
-    mids: &mut Vec<i64>,
+    mids: &mut Vec<u64>,
 ) -> Result<(), IoError> {
     mids.clear();
     while b.fill(chroms)? {
         let m = b.meta();
         match chroms.cmp(m.chrom, c) {
             Ordering::Less => {}
-            Ordering::Equal => mids.push(b_mid(m.span)),
+            Ordering::Equal => mids.push(mid(m.span)),
             Ordering::Greater => break,
         }
         b.pos += 1;
@@ -178,12 +173,12 @@ run it once per B file",
     let mut b = Stream::new(b, ordered);
     let mut summary = ReldistSummary::default();
     let mut row = Vec::new();
-    let mut mids: Vec<i64> = Vec::new();
-    let mut by_chrom: HashMap<ChromId, Vec<i64>> = HashMap::new();
+    let mut mids: Vec<u64> = Vec::new();
+    let mut by_chrom: HashMap<ChromId, Vec<u64>> = HashMap::new();
     if o.unsorted {
         while b.fill(&mut chroms)? {
             let m = b.meta();
-            by_chrom.entry(m.chrom).or_default().push(b_mid(m.span));
+            by_chrom.entry(m.chrom).or_default().push(mid(m.span));
             b.pos += 1;
         }
         by_chrom.values_mut().for_each(|v| v.sort_unstable());
@@ -195,12 +190,12 @@ run it once per B file",
             cur = Some(m.chrom);
             load_chrom(&mut b, m.chrom, &mut chroms, &mut mids)?;
         }
-        let list: &[i64] = if o.unsorted {
+        let list: &[u64] = if o.unsorted {
             by_chrom.get(&m.chrom).map_or(&[], Vec::as_slice)
         } else {
             &mids
         };
-        let rel = rel_dist(list, a_mid(m.span));
+        let rel = rel_dist(list, mid(m.span));
         if let Some(rel) = rel {
             *summary
                 .bins

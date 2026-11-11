@@ -238,3 +238,15 @@ fn reldist_detail_of_a_vcf_keeps_its_header_columns() {
         "{out}"
     );
 }
+
+#[test]
+fn reldist_midpoints_above_2_pow_63_do_not_wrap() {
+    // B midpoints 1.0e19 and 1.8e19 (past i64::MAX); A at 1.2e19 is 0.25 of the way.
+    let b = "chr1\t9999999999999999990\t10000000000000000010\nchr1\t17999999999999999990\t18000000000000000010\n";
+    let a = "chr1\t11999999999999999990\t12000000000000000010\n";
+    let got = Fx::new().run(a, b, &["--detail"]);
+    assert_eq!(
+        got,
+        "chr1\t11999999999999999990\t12000000000000000010\t0.250\n"
+    );
+}

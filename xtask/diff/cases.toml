@@ -6218,3 +6218,13 @@ gloci = "gloci stats reldist --detail -a input.bed -b reldist-ov-b.bed"
 reference = "bedtools reldist -detail -a input.bed -b reldist-ov-b.bed"
 compare = "exact"
 expected_difference = "#reldist-midpoint-overflow"
+
+# bedtools skips every A on a chromosome with fewer than two B midpoints, even one sitting on
+# it; gloci does the same on purpose (docs/differences.md, reldist section), so no difference.
+[[case]]
+name = "stats-reldist-one-midpoint-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/reldist-one-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/reldist-one-b.bed"]
+gloci = "gloci stats reldist --detail -a input.bed -b reldist-one-b.bed"
+reference = "bedtools reldist -detail -a input.bed -b reldist-one-b.bed"
+compare = "exact"

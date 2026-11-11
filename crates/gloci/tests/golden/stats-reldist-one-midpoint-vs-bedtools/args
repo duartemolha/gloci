@@ -1,0 +1,1 @@
+stats reldist --detail -a input.bed -b reldist-one-b.bed

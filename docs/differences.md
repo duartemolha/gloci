@@ -2007,3 +2007,7 @@ depends on the span.
 - **Pinned by:** `stats-reldist-midpoint-overflow-vs-bedtools` (must differ; the reference is glibc
   on aarch64, where the signed `int` overflow wraps) and the gloci-only test
   `reldist_midpoint_past_int_range`.
+
+Note (not a difference): `stats reldist` skips every A on a chromosome with fewer than two B midpoints,
+even an A sitting on the only one. bedtools does the same and gloci ports it on purpose; pinned by
+`stats-reldist-one-midpoint-vs-bedtools` (must match).
