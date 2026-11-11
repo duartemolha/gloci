@@ -32,18 +32,19 @@ first (gloci view - -o x.bed.gz), then run: gloci index x.bed.gz"
         write_tsv_index(&args.file, &args.file, &cols, ctx.threads)?;
         return Ok(());
     }
-    let mut input = open_input(
+    // Only a file of zero bytes is empty here: a BGZF file holding just the EOF block is an
+    // empty interval file, which gets an empty index (as tabix does), so that `--write-index`
+    // on an empty result and `gloci index` on it agree.
+    if std::fs::metadata(&args.file).is_ok_and(|m| m.len() == 0) {
+        return Err(IoError::empty_input(&args.file.to_string_lossy()).into());
+    }
+    let input = open_input(
         &args.file.to_string_lossy(),
         &InputOptions {
             threads: ctx.threads,
             format: None,
         },
     )?;
-    // An empty file is detected as BED (an empty interval file is valid), which would then
-    // be refused as not BGZF-compressed.
-    if input.is_empty()? {
-        return Err(IoError::empty_input(&input.name).into());
-    }
     let format = input.format;
     drop(input);
     if format == Format::Cram {

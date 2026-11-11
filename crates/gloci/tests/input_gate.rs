@@ -122,9 +122,13 @@ fn an_empty_input_is_empty_where_records_are_needed() {
         .join("../../xtask/diff/inputs/aln/cat-a.bam");
     let good = good.to_str().unwrap();
     let mut runs: Vec<(String, Vec<&str>)> = Vec::new();
-    for p in &paths {
+    for (i, p) in paths.iter().enumerate() {
         runs.push((p.clone(), vec!["convert", p]));
-        runs.push((p.clone(), vec!["index", p]));
+        // index refuses only a file of zero bytes; an EOF-only BGZF file is an empty interval
+        // file and gets an empty index (see an_empty_bgzf_file_gets_an_empty_index).
+        if ![2, 4].contains(&i) {
+            runs.push((p.clone(), vec!["index", p]));
+        }
         runs.push((p.clone(), vec!["maskfasta", "--fasta", p, "-b", bed]));
     }
     for p in &paths[1..3] {
@@ -147,4 +151,20 @@ fn an_empty_input_is_empty_where_records_are_needed() {
     ] {
         gloci().args(&args).assert().success();
     }
+}
+
+#[test]
+fn an_empty_bgzf_file_gets_an_empty_index() {
+    // An empty result written as .bed.gz is the BGZF EOF block alone. gloci index treats it as an
+    // empty interval file, as tabix -p bed does and as --write-index on the same output does.
+    let dir = tempdir();
+    let gz = fixtures::write(dir.path(), "e.bed.gz", &fixtures::bgzip(b""));
+    let gz = gz.to_str().unwrap();
+    gloci().args(["index", gz]).assert().success();
+    assert!(dir.path().join("e.bed.gz.tbi").exists());
+    gloci()
+        .args(["view", gz, "chr1"])
+        .assert()
+        .success()
+        .stdout("");
 }

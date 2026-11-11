@@ -177,13 +177,16 @@ fn gen_plain(dir: &Path, bytes: u64) -> std::path::PathBuf {
     p
 }
 
-/// The directory of the inputs several tests share: `$CARGO_TARGET_TMPDIR/large-<bytes>`,
-/// kept between runs, as the inputs depend only on the size.
+/// Bump when a generator of a shared input changes, so that an old input is not reused.
+const GENERATORS_VERSION: u32 = 1;
+
+/// The directory of the inputs several tests share: `$CARGO_TARGET_TMPDIR/large-v<N>-<bytes>`,
+/// kept between runs, as the inputs depend only on the generators and the size.
 static SHARED_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 fn shared_dir() -> &'static Path {
     SHARED_DIR.get_or_init(|| {
-        let d =
-            PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("large-{}", payload_bytes()));
+        let d = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("large-v{GENERATORS_VERSION}-{}", payload_bytes()));
         std::fs::create_dir_all(&d).unwrap();
         d
     })
