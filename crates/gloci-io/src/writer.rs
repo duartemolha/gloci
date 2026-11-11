@@ -81,8 +81,7 @@ pub fn family_mismatch(records: Format, to: OutFormat) -> UsageError {
     };
     UsageError(format!(
         "the input is {} but the output format is {}; this command writes records in their own \
-format, so pick an output extension that matches ({fits}) or pass -O with a matching format \
-(other conversions are not available yet)",
+format, so pick an output extension that matches ({fits}) or pass -O with a matching format",
         family_name(from),
         family_name(to)
     ))

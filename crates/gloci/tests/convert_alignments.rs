@@ -283,3 +283,25 @@ fn negative_scores_stay_signed() {
         "chr1\t10\t20\tneg_one\t-1\t+\nchr1\t30\t40\tneg_five\t-5\t+\n"
     );
 }
+
+#[test]
+fn alignment_output_names_view() {
+    // M9: convert writes BED; gloci view converts between alignment formats.
+    let dir = tempdir();
+    for out in ["x.bam", "x.sam"] {
+        let o = dir.path().join(out);
+        gloci()
+            .args(["convert", &aln("cigars.bam"), "-o", o.to_str().unwrap()])
+            .assert()
+            .code(2)
+            .stderr(contains("convert writes BED"))
+            .stderr(contains("gloci view"))
+            .stderr(contains("not available").not());
+        assert!(!o.exists());
+    }
+    gloci()
+        .args(["convert", &aln("cigars.bam"), "-O", "vcf"])
+        .assert()
+        .code(2)
+        .stderr(contains("convert writes BED, not VCF"));
+}

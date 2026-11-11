@@ -40,6 +40,18 @@ pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
         split_deletions: a.split_deletions,
     };
     let to = spec.format.unwrap_or(OutFormat::Bed);
+    if !matches!(to, OutFormat::Bed | OutFormat::BedGraph | OutFormat::Tsv) {
+        let view = if matches!(to, OutFormat::Bam | OutFormat::Sam) {
+            "; gloci view converts between alignment formats (gloci view x.cram -o x.bam)"
+        } else {
+            ""
+        };
+        return Err(UsageError(format!(
+            "convert writes BED, not {}: pick an output ending in .bed or .bed.gz (or -O bed){view}",
+            to.name()
+        ))
+        .into());
+    }
     refuse_binary_to_tty(
         spec.path.is_none() && std::io::stdout().is_terminal(),
         to,
