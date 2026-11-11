@@ -23,6 +23,7 @@ fn matrix(
     let input = open_selected(&vcf.to_string_lossy(), &ro, &select).unwrap();
     let o = ExtractOptions {
         select,
+        threads: None,
         mode: ExtractMode::Matrix012,
         skip_invalid: false,
         max_mem,

@@ -8,6 +8,7 @@ use gloci_vcf::{
     info_cell, info_kind, rewrite_text, split_columns,
 };
 use std::io::{BufReader, BufWriter, Read, Write};
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
 const COMMAND: &str = "vcf extract";
@@ -27,6 +28,8 @@ pub enum ExtractMode {
 #[derive(Clone, Debug)]
 pub struct ExtractOptions {
     pub select: VcfSelect,
+    /// Threads the selection runs on (`None` = 1); see `SelectStage::set_threads`.
+    pub threads: Option<NonZeroUsize>,
     pub mode: ExtractMode,
     /// `--skip-invalid`: a genotype naming an allele the ALT column lacks is
     /// written as -1 (counted in a warning) instead of failing.
@@ -190,6 +193,7 @@ pub fn extract_table(
     let base = RewritePlan::default();
     let (reader, mut chroms) = input.into_parts();
     let mut stage = SelectStage::new(COMMAND, reader.as_ref(), &o.select, &base, false)?;
+    stage.set_threads(o.threads.unwrap_or(NonZeroUsize::MIN));
     let name = stage.name().to_string();
     let header_raw = stage.header().raw.clone();
     let samples = kept_samples(&stage);
@@ -506,6 +510,7 @@ pub fn extract_matrix(
     let base = RewritePlan::default();
     let (reader, mut chroms) = input.into_parts();
     let mut stage = SelectStage::new(COMMAND, reader.as_ref(), &o.select, &base, false)?;
+    stage.set_threads(o.threads.unwrap_or(NonZeroUsize::MIN));
     let name = stage.name().to_string();
     let samples = kept_samples(&stage);
     for s in &samples {

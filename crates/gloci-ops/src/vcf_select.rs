@@ -40,8 +40,6 @@ pub struct VcfSelect {
     pub expr: Option<FilterExpr>,
     pub regions: Vec<String>,
     pub regions_file: Option<String>,
-    /// Threads the selection runs on (`None` = 1); see [`SelectStage::set_threads`].
-    pub threads: Option<NonZeroUsize>,
 }
 
 fn usage(msg: impl Into<String>) -> IoError {
@@ -403,7 +401,8 @@ impl<'a> SelectStage<'a> {
     /// The stage for `input`. `command` names the command in messages, `base`
     /// carries the rewrite settings the selection does not own (INFO pruning,
     /// AC recalculation), and `also_stats` asks for site statistics even when
-    /// no filter needs them. The thread count is `sel.threads`.
+    /// no filter needs them. The stage runs on one thread until
+    /// [`Self::set_threads`].
     pub fn new(
         command: &str,
         input: &dyn RecordReader,
@@ -457,7 +456,7 @@ impl<'a> SelectStage<'a> {
             core,
             guard,
             thinner: sel.sites.thinner(),
-            threads: sel.threads.unwrap_or(NonZeroUsize::MIN),
+            threads: NonZeroUsize::MIN,
         })
     }
 

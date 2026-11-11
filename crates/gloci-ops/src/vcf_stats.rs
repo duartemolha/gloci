@@ -17,6 +17,7 @@ use gloci_vcf::{
 use std::cell::RefCell;
 use std::ffi::OsString;
 use std::io::{self, Write};
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -74,6 +75,8 @@ impl StatsRequest {
 #[derive(Clone, Debug)]
 pub struct StatsOptions {
     pub select: VcfSelect,
+    /// Threads the selection runs on (`None` = 1); see `SelectStage::set_threads`.
+    pub threads: Option<NonZeroUsize>,
     pub request: StatsRequest,
     /// Output files are `PREFIX.<extension>`.
     pub out_prefix: PathBuf,
@@ -283,6 +286,7 @@ pub fn vcf_stats(input: SelectedInput, o: &StatsOptions) -> Result<StatsSummary,
     // whenever a statistic needs them.
     let need_genotypes = o.request.needs_genotypes();
     let mut stage = SelectStage::new(COMMAND, reader.as_ref(), &o.select, &base, need_genotypes)?;
+    stage.set_threads(o.threads.unwrap_or(NonZeroUsize::MIN));
     stage.share_decoded(decode_fields(o));
     let name = stage.name().to_string();
     let samples = selected_samples(&stage);

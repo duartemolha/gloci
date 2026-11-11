@@ -202,7 +202,6 @@ pub fn select_from_args(
             .regions_file
             .as_ref()
             .map(|p| p.to_string_lossy().into_owned()),
-        threads: Some(ro.threads),
     };
     select.validate()?;
     Ok((select, ro))
@@ -247,6 +246,7 @@ pub fn run_filter(ctx: &Ctx, a: &VcfFilterArgs) -> anyhow::Result<()> {
     })?;
     let options = VcfFilterOptions {
         select,
+        threads: Some(ro.threads),
         plan: RewritePlan {
             selection: None,
             mask: MaskRules::default(),
@@ -339,6 +339,7 @@ or use -o FILE for a table"
     })?;
     let options = ExtractOptions {
         select,
+        threads: Some(ro.threads),
         mode,
         skip_invalid: a.invalid.skip_invalid,
         max_mem: a.max_mem,
@@ -418,6 +419,7 @@ pub fn run_stats(ctx: &Ctx, a: &VcfStatsArgs) -> anyhow::Result<()> {
     })?;
     let options = StatsOptions {
         select,
+        threads: Some(ro.threads),
         request: StatsRequest {
             freq: a.freq,
             counts: a.counts,
