@@ -5439,3 +5439,165 @@ fn p3c_determinism_large_fixture() {
         }
     }
 }
+
+/// A header-only SAM with `n` references, so that `idxstats` and `depth --all-references` write
+/// far more than a pipe holds.
+fn p3c_many_references(dir: &Path, n: usize) -> String {
+    let mut sam = String::from("@HD\tVN:1.6\tSO:coordinate\n");
+    for i in 0..n {
+        writeln!(sam, "@SQ\tSN:contig{i:06}\tLN:1000").unwrap();
+    }
+    s_of(&plain_file(dir, "many-refs.sam", &sam))
+}
+
+/// A FASTA of `n` sequences of 120 bp, indexed.
+fn p3c_many_sequences(dir: &Path, n: usize) -> String {
+    let mut fa = String::new();
+    for i in 0..n {
+        writeln!(fa, ">seq{i:05} sequence number {i}").unwrap();
+        let line: String = (0..60).map(|k| b"ACGT"[(i + k * k) & 3] as char).collect();
+        writeln!(fa, "{line}\n{line}").unwrap();
+    }
+    let f = plain_file(dir, "many-seqs.fa", &fa);
+    gloci().args(["index", &s_of(&f)]).assert().success();
+    s_of(&f)
+}
+
+/// Closing stdout after the first bytes is a quiet success (exit 0, nothing on stderr) for every
+/// P3c command whose output outgrows a pipe: `depth --all-references | head`, `faidx | head`
+/// and the rest. The commands that write a few lines (`flagstat`, `view --count`, `flags` with
+/// an argument, `check --quick`, `reheader` to a file) have nothing to cut short.
+#[test]
+fn p3c_broken_pipe_matrix() {
+    let d = tempdir();
+    let (big_fa, big_bed) = p3a_big_fasta(d.path());
+    let (big_sam, big_bam) = p3a_big_alignments(d.path(), 12_000, false);
+    let many_refs = p3c_many_references(d.path(), 120_000);
+    let many_seqs = p3c_many_sequences(d.path(), 4_000);
+    let cov_bed = p3c_big_bed(d.path(), 20_000);
+    let v = |a: &[&str]| -> Vec<String> { a.iter().map(|s| s.to_string()).collect() };
+    // Commands that write tens of millions of rows are not run to the end.
+    let huge = [
+        "depth --all-references",
+        "depth --all-positions",
+        "depth regions",
+        "depth many references",
+    ];
+    let cmds: Vec<(&str, Vec<String>)> = vec![
+        (
+            "depth --all-references",
+            v(&["depth", &big_bam, "--all-references"]),
+        ),
+        (
+            "depth --all-positions",
+            v(&["depth", &big_bam, "--all-positions"]),
+        ),
+        ("depth", v(&["depth", &big_bam])),
+        ("depth sam", v(&["depth", &big_sam])),
+        ("depth -s", v(&["depth", &big_bam, "--skip-mate-overlap"])),
+        (
+            "depth regions",
+            v(&[
+                "depth",
+                &big_bam,
+                "--region",
+                "chr1:1-9000000",
+                "--all-positions",
+            ]),
+        ),
+        (
+            "depth many references",
+            v(&["depth", &many_refs, "--all-references"]),
+        ),
+        ("bedcov", v(&["bedcov", &cov_bed, &big_bam])),
+        (
+            "bedcov all columns",
+            v(&[
+                "bedcov",
+                &cov_bed,
+                &big_bam,
+                "--read-count",
+                "--bases-at-depth",
+                "1",
+            ]),
+        ),
+        ("idxstats scan", v(&["idxstats", &many_refs])),
+        ("faidx whole", v(&["faidx", &big_fa, "big"])),
+        (
+            "faidx --reverse-complement",
+            v(&["faidx", &big_fa, "big", "--reverse-complement"]),
+        ),
+        (
+            "faidx --regions-file",
+            v(&["faidx", &big_fa, "--regions-file", &big_bed]),
+        ),
+        (
+            "faidx line width",
+            v(&["faidx", &big_fa, "big", "--line-width", "10"]),
+        ),
+        ("dict", v(&["dict", &many_seqs])),
+        ("head", v(&["head", &big_sam, "--records", "12000"])),
+        ("head bam", v(&["head", &big_bam, "--records", "12000"])),
+        ("head many references", v(&["head", &many_refs])),
+        ("flags table x many", {
+            // `flags` prints its twelve-line table or one line per argument
+            let mut a = v(&["flags"]);
+            a.extend((0..20_000).map(|i| (i % 4096).to_string()));
+            a
+        }),
+        ("samples", {
+            let mut a = v(&["samples"]);
+            a.extend((0..4_000).map(|_| big_sam.clone()));
+            a
+        }),
+    ];
+    for (name, args) in &cmds {
+        if !huge.contains(name) {
+            let full = gloci().args(args).arg("-q").output().unwrap();
+            assert_eq!(
+                full.status.code(),
+                Some(0),
+                "{name}: {}",
+                String::from_utf8_lossy(&full.stderr)
+            );
+            assert!(
+                full.stdout.len() > 100_000,
+                "{name}: only {} bytes of output",
+                full.stdout.len()
+            );
+        }
+        for t in ["1", "4"] {
+            let mut cmd = Command::new(bin());
+            cmd.args(args);
+            if !matches!(args[0].as_str(), "flags" | "samples") {
+                cmd.args(["-t", t]);
+            }
+            cmd.arg("-q");
+            let mut child = cmd
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let mut first = [0u8; 64];
+            child
+                .stdout
+                .as_mut()
+                .unwrap()
+                .read_exact(&mut first)
+                .unwrap();
+            drop(child.stdout.take());
+            let out = child.wait_with_output().unwrap();
+            assert_eq!(
+                out.status.code(),
+                Some(0),
+                "{name} -t {t}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            assert!(
+                out.stderr.is_empty(),
+                "{name} -t {t}: stderr: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+    }
+}
