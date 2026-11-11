@@ -1435,3 +1435,51 @@ pub fn naive_pair_intersect(
     }
     (rows, skipped)
 }
+
+/// `pair-pair` by brute force (D155): the rows for `kind` (a `--type` value)
+/// over the pairs `a` and `b`. A row with a B is `a.line<TAB>b.line`, each
+/// B once per A in B's order; a pair alone is its line. `different_names`
+/// drops a B whose column 7 equals A's. With a `window`, B's ends are padded
+/// for the strand of the A end they are tested against.
+pub fn naive_pair_pair(
+    a: &[NaivePair],
+    b: &[NaivePair],
+    kind: &str,
+    c: &OverlapCriteria,
+    window: Option<gloci_core::Window>,
+    different_names: bool,
+) -> Vec<String> {
+    let name = |p: &NaivePair| p.line.split('\t').nth(6).unwrap_or("").to_string();
+    let hit = |x: &Option<(String, Interval, Strand)>, y: &Option<(String, Interval, Strand)>| {
+        let (Some((cx, sx, stx)), Some((cy, sy, sty))) = (x, y) else {
+            return false;
+        };
+        let sy = window.map_or(*sy, |w| w.apply(*sy, *stx));
+        cx == cy && c.accepts(*sx, *stx, sy, *sty)
+    };
+    let mut rows = Vec::new();
+    for p in a {
+        let (mut both, mut any) = (Vec::new(), Vec::new());
+        for (i, q) in b.iter().enumerate() {
+            if different_names && name(p) == name(q) {
+                continue;
+            }
+            let t = |x: usize, y: usize| hit(&p.ends[x], &q.ends[y]);
+            if (t(0, 0) && t(1, 1)) || (t(0, 1) && t(1, 0)) {
+                both.push(i);
+            }
+            if t(0, 0) || t(0, 1) || t(1, 0) || t(1, 1) {
+                any.push(i);
+            }
+        }
+        let row = |i: usize| format!("{}\t{}", p.line, b[i].line);
+        match kind {
+            "both" => rows.extend(both.into_iter().map(row)),
+            "either" => rows.extend(any.into_iter().map(row)),
+            "neither" if any.is_empty() => rows.push(p.line.clone()),
+            "notboth" if both.is_empty() => rows.push(p.line.clone()),
+            _ => {}
+        }
+    }
+    rows
+}
