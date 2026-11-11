@@ -1,0 +1,1 @@
+intersect -a many-targets.bed -b input.cram --reference ref.fa --mode count

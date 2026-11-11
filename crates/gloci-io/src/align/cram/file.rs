@@ -310,12 +310,20 @@ impl CramFile {
     /// The slices of `rid` whose lines overlap a window of `set` (all of them without one),
     /// each once, in file order.
     fn picks(&self, rid: usize, set: Option<&RegionSet>) -> Vec<Pick> {
-        // Each region widened by one base on both sides (so a point on a region's edge and a
-        // read indexed as one base are found), merged: disjoint windows, 0-based half-open.
+        // The regions as windows, 0-based half-open, merged. The `.crai` gives a slice the
+        // span of its reads clipped at the reference's end, and every read covers a base, so a
+        // slice is wanted exactly when its span overlaps a region, as samtools finds them (a
+        // region that starts past the end of the reference finds nothing there, though reads
+        // run past it). An empty region (a point, with `inclusive_points`) takes the base
+        // before it too.
         let windows: Option<Vec<(u64, u64)>> = set.map(|s| {
             let mut w: Vec<(u64, u64)> = Vec::new();
             for r in s.regions() {
-                let (lo, hi) = (r.start.saturating_sub(1), r.end.saturating_add(1));
+                let (lo, hi) = if r.start >= r.end {
+                    (r.start.saturating_sub(1), r.start.saturating_add(1))
+                } else {
+                    (r.start, r.end)
+                };
                 match w.last_mut() {
                     Some(l) if lo <= l.1 => l.1 = l.1.max(hi),
                     _ => w.push((lo, hi)),
