@@ -2096,7 +2096,43 @@ depends on the span.
 - **Reason:** a position past the end of a reference does not exist; the same
   cut applies to the spans of every other gloci command that reads alignments
   (D101). A pipeline that wants those rows needs the reads, not a depth.
-- **Pinned by:** `depth-past-reference-end-vs-samtools` (must differ).
+- **`bedcov`:** the same cut applies. A read that runs past `LN` is counted
+  only up to `LN`, with one warning, and a region that starts at or past `LN`
+  counts nothing; `samtools bedcov` also counts the bases beyond `LN` that a
+  region reaches.
+- **Pinned by:** `depth-past-reference-end-vs-samtools` and
+  `bedcov-past-reference-end-vs-samtools` (each must differ).
+
+## `bedcov -d` leaves D and N bases out of both columns {#bedcov-depth-threshold}
+
+- **gloci:** `--bases-at-depth N` changes nothing about what counts. The sum
+  and the count of bases at depth N or more both use the depth that `--split`
+  and `--split-deletions` describe: D and N bases count unless the matching flag
+  is given. `samtools bedcov -j` is `--split --split-deletions`, and so is
+  `-d N -j` with `--bases-at-depth N --split --split-deletions` (those cases
+  match).
+- **Old behaviour:** `samtools bedcov -d N` without `-j` drops D and N bases
+  from the sum as well as from the count, so the sum column of a region over an
+  intron or a deletion is 0 and differs from the same command without `-d`.
+- **Reason:** a threshold should add a column, not change another one; and
+  asking for a count should not change the depth the sum reports.
+- **Pinned by:** `bedcov-depth-threshold-vs-samtools` (must differ).
+
+## `bedcov` stops at a BED line on a missing chromosome {#bedcov-bad-line}
+
+- **gloci:** a BED line whose chromosome is not in the `@SQ` list is a data
+  error: exit 1 naming the BED file and line; the lines before it are written, and none of
+  that line or after it. With `--skip-invalid` the line is skipped, every other line
+  is written, and one warning gives the count and the first line; the exit
+  status is 0.
+- **Old behaviour:** `samtools bedcov` prints an error for the line, carries on
+  with the rest and exits 2 at the end.
+- **Reason:** a region that cannot be counted is a mistake in the BED or the
+  reference (a `chr1` against `1` naming mismatch, `--chrom-map` fixes it), and
+  a table with a silently missing row misleads whoever reads it by position.
+  Exit 2 is gloci's code for usage errors, and this is a data error (§6.4).
+- **Pinned by:** `bedcov-bad-chrom-vs-samtools` (exit status: must differ), and
+  the test `bedcov_bad_chrom`.
 
 ## `depth` stops at a read out of order, wherever it ends {#depth-order-check}
 

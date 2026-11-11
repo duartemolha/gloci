@@ -5977,3 +5977,131 @@ input = { file = "xtask/diff/inputs/samtools/mates.bam" }
 gloci = "gloci depth input.bam --skip-mate-overlap --min-mapq 10 --exclude-flags UNMAP,SECONDARY,QCFAIL,DUP,SUPPLEMENTARY"
 reference = "samtools depth -s -Q 10 -G SUPPLEMENTARY input.bam"
 compare = "exact"
+
+# P3c Task 8
+# `bedcov` (D140) against samtools 1.21. bedcov.bed sets the traps: lines out of order with 3 to 6
+# columns (echoed as they are, so a column dropped or reordered shows), one CRLF line (samtools
+# strips the CR), `#`, `track` and blank lines, a zero-length region inside a read and two on its
+# edges (samtools counts no read for any zero-length region), regions only over an intron (chr1
+# 100-150) and only over a deletion (44-47), overlapping regions (ov1, ov2), a whole reference, an empty
+# chr3, the placed unmapped read at chr1:175, and one region that runs past chr2's LN (300). With
+# no -d, samtools counts D and N bases in the sum, as gloci does; with -d it drops both from both
+# columns, so `-d` alone is pinned and the matching cases use `-j`. `--split` alone and
+# `--split-deletions` alone have no samtools flag: the reference is `-j` over a copy of depth.bam
+# whose D (or N) operations are rewritten to M, with SEQ and QUAL `*` so the lengths need not
+# agree. The index is depth.bam.bai, beside depth.bam. depth-pastend.bam has reads that run past
+# chr2's LN. Zero-length regions never read the index.
+
+[[case]]
+name = "bedcov-default-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.bam", "xtask/diff/inputs/samtools/depth.bam.bai"]
+gloci = "gloci bedcov input.bed depth.bam"
+reference = "samtools bedcov input.bed depth.bam"
+compare = "exact"
+
+[[case]]
+name = "bedcov-read-count-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.bam", "xtask/diff/inputs/samtools/depth.bam.bai"]
+gloci = "gloci bedcov input.bed depth.bam --read-count"
+reference = "samtools bedcov -c input.bed depth.bam"
+compare = "exact"
+
+[[case]]
+name = "bedcov-split-both-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.bam", "xtask/diff/inputs/samtools/depth.bam.bai"]
+gloci = "gloci bedcov input.bed depth.bam --split --split-deletions"
+reference = "samtools bedcov -j input.bed depth.bam"
+compare = "exact"
+
+[[case]]
+name = "bedcov-split-alone-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.bam", "xtask/diff/inputs/samtools/depth.bam.bai"]
+gloci = "gloci bedcov input.bed depth.bam --split"
+reference = '''set -e; samtools view -h depth.bam | awk 'BEGIN{OFS="\t"} /^@/{print;next} {gsub(/D/,"M",$6); $10="*"; $11="*"; print}' | samtools view -b -o t.bam -; samtools index t.bam; samtools bedcov -j input.bed t.bam'''
+compare = "exact"
+
+[[case]]
+name = "bedcov-split-deletions-alone-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.bam", "xtask/diff/inputs/samtools/depth.bam.bai"]
+gloci = "gloci bedcov input.bed depth.bam --split-deletions"
+reference = '''set -e; samtools view -h depth.bam | awk 'BEGIN{OFS="\t"} /^@/{print;next} {gsub(/N/,"M",$6); $10="*"; $11="*"; print}' | samtools view -b -o t.bam -; samtools index t.bam; samtools bedcov -j input.bed t.bam'''
+compare = "exact"
+
+[[case]]
+name = "bedcov-bases-at-depth-split-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.bam", "xtask/diff/inputs/samtools/depth.bam.bai"]
+gloci = "gloci bedcov input.bed depth.bam --bases-at-depth 2 --split --split-deletions"
+reference = "samtools bedcov -d 2 -j input.bed depth.bam"
+compare = "exact"
+
+[[case]]
+name = "bedcov-min-mapq-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.bam", "xtask/diff/inputs/samtools/depth.bam.bai"]
+gloci = "gloci bedcov input.bed depth.bam --min-mapq 30 --read-count"
+reference = "samtools bedcov -Q 30 -c input.bed depth.bam"
+compare = "exact"
+
+[[case]]
+name = "bedcov-exclude-flags-dup-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.bam", "xtask/diff/inputs/samtools/depth.bam.bai"]
+gloci = "gloci bedcov input.bed depth.bam --exclude-flags UNMAP,SECONDARY,QCFAIL --read-count"
+reference = "samtools bedcov -g DUP -c input.bed depth.bam"
+compare = "exact"
+
+[[case]]
+name = "bedcov-two-files-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.bam", "xtask/diff/inputs/samtools/depth.bam.bai", "xtask/diff/inputs/samtools/depth2.bam", "xtask/diff/inputs/samtools/depth2.bam.bai"]
+gloci = "gloci bedcov input.bed depth.bam depth2.bam --column-names --read-count --bases-at-depth 1 --split --split-deletions"
+reference = "samtools bedcov -H -c -d 1 -j input.bed depth.bam depth2.bam"
+compare = "exact"
+
+[[case]]
+name = "bedcov-cram-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.cram", "xtask/diff/inputs/samtools/depth.cram.crai"]
+gloci = "gloci bedcov input.bed depth.cram --read-count"
+reference = "set -e; samtools view -b -o t.bam depth.cram; samtools index t.bam; samtools bedcov -c input.bed t.bam"
+compare = "exact"
+
+# `-d` alone: samtools leaves D and N bases out of both columns; gloci keeps what --split and
+# --split-deletions say.
+
+[[case]]
+name = "bedcov-depth-threshold-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.bam", "xtask/diff/inputs/samtools/depth.bam.bai"]
+gloci = "gloci bedcov input.bed depth.bam --bases-at-depth 2"
+reference = "samtools bedcov -d 2 input.bed depth.bam"
+compare = "exact"
+expected_difference = "#bedcov-depth-threshold"
+
+# A chromosome the files lack (line 9): samtools reports it and exits 2, gloci exits 1.
+
+[[case]]
+name = "bedcov-bad-chrom-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov-badchrom.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.bam", "xtask/diff/inputs/samtools/depth.bam.bai"]
+gloci = "gloci bedcov input.bed depth.bam"
+reference = "samtools bedcov input.bed depth.bam"
+compare = "exit-status"
+expected_difference = "#bedcov-bad-line"
+
+# Reads that run past chr2's LN: samtools counts the bases beyond it.
+
+[[case]]
+name = "bedcov-past-reference-end-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth-pastend.bam", "xtask/diff/inputs/samtools/depth-pastend.bam.bai"]
+gloci = "gloci bedcov input.bed depth-pastend.bam"
+reference = "samtools bedcov input.bed depth-pastend.bam"
+compare = "exact"
+expected_difference = "#depth-past-reference-end"

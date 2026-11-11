@@ -53,3 +53,7 @@ samtools index -@ 0 depth.cram
 # j's mate is on chr2; k is a pair on chr2; n's first mate has MAPQ 5, so under -Q 10 it neither waits nor clips.
 samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o mates.bam mates.sam
 samtools index -@ 0 mates.bam
+
+# Task 8: the `bedcov` fixtures bedcov.bed and bedcov-badchrom.bed are written by hand (see the
+# comment of the Task 8 cases). bedcov-badchrom.bed is bedcov.bed with a chrZ line inserted as
+# line 9. Nothing to rebuild: the BAMs are depth.bam, depth2.bam and depth-pastend.bam above.

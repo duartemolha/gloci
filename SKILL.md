@@ -534,6 +534,18 @@ gloci depth sample.bam --region chr1:100,000-200,000 --all-positions
 gloci depth sample.bam --regions-file targets.bed --count-deletions
 ```
 
+### `gloci bedcov`
+
+Depth of coverage summed over each BED region (samtools bedcov).
+
+For each line of BED, in any order, writes the line as it is and then, for each FILE (BAM or CRAM, each with a .bai, .csi or .crai; exit 2 without one), the sum of the depth over the region's bases: one column per file, files in the order given. --bases-at-depth N adds one column per file of the bases whose depth is at least N, and --read-count one of the reads that overlap the region (a zero-length region counts the reads that strictly contain it). Depth counts M, = and X bases always, D bases unless --split-deletions and N (intron) bases unless --split, so samtools -j is --split --split-deletions. A read counts when none of --exclude-flags is set (default UNMAP,SECONDARY,QCFAIL,DUP, as for depth; --exclude-flags 0 counts everything but unmapped reads, which never count), all of --require-flags are, and its MAPQ is at least --min-mapq. Comment, track, browser and blank lines are skipped. A line on a chromosome the files lack is an error naming the line, or skipped with one counted warning under --skip-invalid; samtools prints an error, carries on and exits 2. Files must have identical @SQ lists. --column-names writes "#chrom start end" and one column name per file and kind first. A read past the end of its reference counts up to the end. Regions are read in batches of 256 lines on up to -t threads, written in BED order. Memory per thread follows the longest read, not the region.
+
+```sh
+gloci bedcov targets.bed sample.bam
+gloci bedcov targets.bed a.bam b.bam --bases-at-depth 10 --read-count --column-names
+gloci bedcov exons.bed sample.cram --reference ref.fa --split --split-deletions -t 8
+```
+
 ## Migration tables
 
 Every row below was checked against `gloci <cmd> --help`.
@@ -626,6 +638,7 @@ and FASTA behaviour](#bam-cram-and-fasta-behaviour), after the tables.
 | `samtools dict [-H] [-A] [-l FILE] [-a STR] [-s STR] [-u STR] [-o OUT] REF` | `gloci dict REF [--no-header] [--alias] [--alt FILE] [--assembly STR] [--species STR] [--uri STR] [-o OUT]` (output is byte-identical to samtools 1.21; a repeated sequence name, [differences.md#dict-duplicate-names](differences.md#dict-duplicate-names), and an empty file, [differences.md#dict-empty-input](differences.md#dict-empty-input), exit 1) |
 | `samtools flags FLAGS...` | `gloci flags [FLAGS...]` (output is byte-identical to samtools 1.21, and with no argument the table of the twelve flags, without the usage text; a decimal with a leading zero such as `010`, which samtools reads as octal 8, and trailing text such as `12abc` exit 2, see [differences.md#flags-leading-zero](differences.md#flags-leading-zero); an unknown name exits 2 where samtools exits 1, see [differences.md#samtools-exit-codes](differences.md#samtools-exit-codes)) |
 | `samtools depth [-a\|-aa] [-J] [-q N] [-Q N] [-l N] [-g F] [-G F] [--require-flags F] [-r REG] [-b BED] [-H] [-o OUT] FILE...` | `gloci depth FILE... [--all-positions\|--all-references] [--count-deletions] [--min-baseq N] [--min-mapq N] [--min-read-length N] [--exclude-flags F] [--require-flags F] [--region REG] [--regions-file BED] [--column-names] [-o OUT]` (output is byte-identical to samtools 1.21 except where [differences.md#depth-past-reference-end](differences.md#depth-past-reference-end), [differences.md#depth-order-check](differences.md#depth-order-check), [differences.md#depth-regions](differences.md#depth-regions) and [differences.md#depth-bedcov-same-sq](differences.md#depth-bedcov-same-sq) say; `--exclude-flags` defaults to `UNMAP,SECONDARY,QCFAIL,DUP`, so `-g DUP` is `--exclude-flags UNMAP,SECONDARY,QCFAIL` and `-G X` adds X to that list) |
+| `samtools bedcov [-Q N] [-g F] [-G F] [-j] [-d N] [-c] [-H] BED FILE...` | `gloci bedcov BED FILE... [--min-mapq N] [--exclude-flags F] [--require-flags F] [--split --split-deletions] [--bases-at-depth N] [--read-count] [--column-names] [-o OUT]` (each file needs an index; `-j` is `--split --split-deletions`; `-d N` alone drops D and N bases from both columns in samtools, see [differences.md#bedcov-depth-threshold](differences.md#bedcov-depth-threshold); a BED line on a missing chromosome exits 1, see [differences.md#bedcov-bad-line](differences.md#bedcov-bad-line); reads past the end of their reference are cut, see [differences.md#depth-past-reference-end](differences.md#depth-past-reference-end)) |
 | `jaccard`, `fisher`, `reldist` | not yet available (`stats jaccard / fisher / reldist`, P3b) |
 | `shuffle`, `random`, `sample` | not yet available (`shuffle`, `random`, `sample`, P3b) |
 | `pairtobed`, `pairtopair` | not yet available (`pair-intersect`, `pair-pair`, P3b) |
