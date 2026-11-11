@@ -3,7 +3,7 @@ use crate::Ctx;
 use crate::cli::BedcovArgs;
 use gloci_io::{
     Accept, AlignOptions, InvalidPolicy, OutFormat, OutputOptions, ReaderOptions, UsageError,
-    open_output, open_reader, parse_flags, parse_output_spec,
+    open_output, open_reader, parse_flags,
 };
 use gloci_ops::bedcov::{BedcovOptions, bedcov};
 use gloci_ops::depth::CountRules;
@@ -22,7 +22,7 @@ pub fn run(ctx: &Ctx, a: &BedcovArgs) -> anyhow::Result<()> {
         reference: a.reference.clone(),
         score_tag: None,
     };
-    let spec = parse_output_spec(a.output.as_deref(), Some("tsv"))?;
+    let spec = super::own_tsv_output_spec(a.output.as_deref())?;
     let chrom_map = a.chrom_map.load()?;
     let invalid = if a.invalid.skip_invalid {
         InvalidPolicy::Skip

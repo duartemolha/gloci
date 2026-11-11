@@ -3,7 +3,7 @@ use crate::Ctx;
 use crate::cli::DepthArgs;
 use gloci_io::{
     Accept, AlignOptions, InvalidPolicy, OutFormat, OutputOptions, ReaderOptions, UsageError,
-    open_output, parse_flags, parse_output_spec,
+    open_output, parse_flags,
 };
 use gloci_ops::depth::{
     AllPositions, CountRules, DepthOptions, depth_regions, depth_sources, open_depth_inputs,
@@ -23,7 +23,7 @@ pub fn run(ctx: &Ctx, a: &DepthArgs) -> anyhow::Result<()> {
         reference: a.reference.clone(),
         score_tag: None,
     };
-    let spec = parse_output_spec(a.output.as_deref(), Some("tsv"))?;
+    let spec = super::own_tsv_output_spec(a.output.as_deref())?;
     let ro = ReaderOptions {
         accept: Accept {
             alignments: Some(align),

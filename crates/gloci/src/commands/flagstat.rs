@@ -3,12 +3,26 @@ use crate::Ctx;
 use crate::cli::FlagstatArgs;
 use gloci_io::{
     Accept, AlignOptions, InvalidPolicy, OutFormat, OutputOptions, ReaderOptions, UsageError,
-    open_aln_source, open_output, parse_output_spec,
+    open_aln_source, open_output,
 };
 use gloci_ops::{FlagstatFormat, flagstat, render_flagstat};
 use std::io::Write;
 
-/// `-O`, else the extension of `-o` (`.json`, `.tsv`), else text.
+/// The extension of `-o` that names the layout, lower-cased, after any compression suffix
+/// (`x.json.gz` is `json`).
+fn layout_ext(a: &FlagstatArgs) -> Option<String> {
+    let p = a.output.as_deref()?;
+    let name = p.file_name()?.to_string_lossy().to_ascii_lowercase();
+    let name = if super::compressed_name(p) {
+        name.rsplit_once('.')
+            .map_or(name.as_str(), |(stem, _)| stem)
+    } else {
+        name.as_str()
+    };
+    name.rsplit_once('.').map(|(_, ext)| ext.to_string())
+}
+
+/// `-O`, else the extension of `-o` (`.json`, `.tsv`, also compressed), else text.
 fn format_of(a: &FlagstatArgs) -> Result<FlagstatFormat, UsageError> {
     if let Some(s) = &a.output_format {
         return FlagstatFormat::from_name(s).ok_or_else(|| {
@@ -18,12 +32,7 @@ fn format_of(a: &FlagstatArgs) -> Result<FlagstatFormat, UsageError> {
             ))
         });
     }
-    let ext = a
-        .output
-        .as_ref()
-        .and_then(|p| p.extension())
-        .and_then(|e| e.to_str())
-        .map(str::to_ascii_lowercase);
+    let ext = layout_ext(a);
     Ok(match ext.as_deref() {
         Some("json") => FlagstatFormat::Json,
         Some("tsv") => FlagstatFormat::Tsv,
@@ -33,12 +42,7 @@ fn format_of(a: &FlagstatArgs) -> Result<FlagstatFormat, UsageError> {
 
 pub fn run(ctx: &Ctx, a: &FlagstatArgs) -> anyhow::Result<()> {
     let format = format_of(a)?;
-    if let Some(ext) = a
-        .output
-        .as_ref()
-        .and_then(|p| p.extension())
-        .and_then(|e| e.to_str())
-        .map(str::to_ascii_lowercase)
+    if let Some(ext) = layout_ext(a)
         && !matches!(ext.as_str(), "txt" | "tsv" | "json")
         && ext.parse::<gloci_io::Format>().is_ok()
     {
@@ -48,8 +52,8 @@ pub fn run(ctx: &Ctx, a: &FlagstatArgs) -> anyhow::Result<()> {
         ))
         .into());
     }
-    // Plain text whatever -o is called, so the output spec is fixed (as for `dict`).
-    let spec = parse_output_spec(a.output.as_deref(), Some("tsv"))?;
+    // Text of flagstat's own layout, BGZF-compressed when -o ends in .gz or .bgz.
+    let spec = super::own_tsv_output_spec(a.output.as_deref())?;
     let ro = ReaderOptions {
         accept: Accept {
             alignments: Some(AlignOptions {

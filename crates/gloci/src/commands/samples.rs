@@ -1,7 +1,7 @@
 //! `gloci samples`: the samples named by the read groups of alignment files (D135).
 use crate::Ctx;
 use crate::cli::SamplesArgs;
-use gloci_io::{IoError, OutFormat, OutputOptions, UsageError, open_output, parse_output_spec};
+use gloci_io::{IoError, OutFormat, OutputOptions, UsageError, open_output};
 use gloci_ops::{SamplesOptions, samples};
 
 pub fn run(ctx: &Ctx, a: &SamplesArgs) -> anyhow::Result<()> {
@@ -17,7 +17,7 @@ pub fn run(ctx: &Ctx, a: &SamplesArgs) -> anyhow::Result<()> {
         match_reference: a.match_reference.clone(),
         column_names: a.column_names.column_names,
     };
-    let spec = parse_output_spec(a.output.as_deref(), Some("tsv"))?;
+    let spec = super::own_tsv_output_spec(a.output.as_deref())?;
     let oo = OutputOptions {
         threads: ctx.threads,
         level: 6,

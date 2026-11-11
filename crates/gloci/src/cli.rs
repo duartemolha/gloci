@@ -1146,7 +1146,8 @@ Examples:
     /// mapped reads, paired reads, read 1 and read 2, properly paired reads, singletons and
     /// mates on another reference, as "QC-passed + QC-failed" (FLAGS bit 0x200), with
     /// percentages where samtools has them. -O picks the layout: text (the default), tsv or
-    /// json; with no -O, a -o ending in .json or .tsv picks it. A percentage of nothing is
+    /// json; with no -O, a -o ending in .json or .tsv picks it, and a -o ending in .gz is
+    /// BGZF-compressed (stats.json.gz is compressed JSON). A percentage of nothing is
     /// N/A (null in JSON). Percentages are computed as samtools computes them, in 32-bit
     /// floating point, so 153 of 160 is 95.63% and not 95.62%. Every record counts, unmapped
     /// and unplaced ones too, and no read filters apply. A CRAM that needs a reference
@@ -3596,7 +3597,8 @@ pub struct FlagstatArgs {
     /// The BAM, CRAM or SAM file (- is standard input).
     #[arg(value_name = "FILE")]
     pub file: String,
-    /// Write the counts to FILE instead of stdout; .json and .tsv choose that layout.
+    /// Write the counts to FILE instead of stdout; .json and .tsv choose that layout, and .gz
+    /// compresses it.
     #[arg(short, long, value_name = "FILE")]
     pub output: Option<PathBuf>,
     /// Layout of the counts: text, tsv or json.

@@ -159,3 +159,56 @@ fn flagstat_other_format_extension_has_its_own_message() {
         .code(2)
         .stderr(contains("flagstat writes text, tsv or json").and(contains("x.json")));
 }
+
+/// `-o x.json.gz` is JSON and `-o x.tsv.gz` TSV: the compression suffix is stripped before the
+/// layout is read from the name, and a `.gz` name is written BGZF-compressed, as every TSV output
+/// is (M17). depth, samples and bedcov compress a `.gz` name the same way.
+#[test]
+fn flagstat_gz_output_infers_the_layout_and_compresses() {
+    use std::io::Read;
+    let d = tempdir();
+    let unzip = |p: &Path| {
+        let bytes = std::fs::read(p).unwrap();
+        assert!(
+            bytes.starts_with(&[0x1f, 0x8b]),
+            "{} is not gzip",
+            p.display()
+        );
+        let mut text = String::new();
+        noodles_bgzf::io::Reader::new(&bytes[..])
+            .read_to_string(&mut text)
+            .unwrap();
+        text
+    };
+    let bam = fixture();
+    for (name, layout) in [
+        ("f.json.gz", "json"),
+        ("f.tsv.gz", "tsv"),
+        ("f.txt.gz", "text"),
+        ("F.JSON.BGZ", "json"),
+    ] {
+        let p = d.path().join(name);
+        gloci()
+            .args(["flagstat", &bam, "-o", &s(&p)])
+            .assert()
+            .success();
+        assert_eq!(unzip(&p), out(&["flagstat", &bam, "-O", layout]), "{name}");
+    }
+    // A compressed name of another format is still refused.
+    gloci()
+        .args(["flagstat", &bam, "-o", &s(&d.path().join("f.vcf.gz"))])
+        .assert()
+        .code(2)
+        .stderr(contains("flagstat writes text, tsv or json"));
+    let depth_bam = s(&inputs().join("samtools/depth.bam"));
+    let bed = s(&inputs().join("samtools/targets.bed"));
+    for (args, name) in [
+        (vec!["depth", depth_bam.as_str()], "d.tsv.gz"),
+        (vec!["samples", depth_bam.as_str()], "s.tsv.gz"),
+        (vec!["bedcov", bed.as_str(), depth_bam.as_str()], "b.tsv.gz"),
+    ] {
+        let p = d.path().join(name);
+        gloci().args(&args).arg("-o").arg(&p).assert().success();
+        assert_eq!(unzip(&p), out(&args), "{args:?}");
+    }
+}
