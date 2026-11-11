@@ -1,6 +1,7 @@
 //! The rows of `depth`: which positions print, in which order, for one run of references
 //! (D138). One run reads one record stream per input, merged by `(reference, position)`.
 
+use super::mates::MateTable;
 use super::ring::{CountRules, DepthRing};
 use super::{AllPositions, DepthOptions};
 use gloci_core::Interval;
@@ -19,6 +20,8 @@ pub(crate) struct Plan<'a> {
     pub rules: CountRules,
     pub min_read_length: u64,
     pub all: AllPositions,
+    /// Count each base of an overlapping mate pair once (D139).
+    pub skip_mates: bool,
     pub refs: &'a [(Vec<u8>, u64)],
     /// The union of the regions on each reference, sorted, disjoint and cut at `LN`.
     pub regions: Option<Vec<Vec<Interval>>>,
@@ -74,6 +77,7 @@ impl<'a> Plan<'a> {
             rules: o.rules,
             min_read_length: o.min_read_length,
             all,
+            skip_mates: o.skip_mate_overlap,
             refs,
             regions,
             warned_past,
@@ -158,6 +162,8 @@ pub(crate) struct Input {
     hdr: Arc<AlnHeader>,
     buf: Vec<u8>,
     pub(crate) ring: DepthRing,
+    /// Reads waiting for their mate (`--skip-mate-overlap`).
+    mates: MateTable,
     cur: Option<Cur>,
     /// Reference, position and record number of the last record read, for the order check.
     last: Option<(usize, u64, u64)>,
@@ -172,6 +178,7 @@ impl Input {
             hdr,
             buf: Vec::new(),
             ring: DepthRing::new(),
+            mates: MateTable::new(),
             cur: None,
             last: None,
         }
@@ -277,7 +284,16 @@ depth counts only the bases up to LN, where samtools prints rows beyond it (this
             // A placed unmapped read covers its one position with nothing counted.
             self.ring.add_empty(c.span);
         } else {
-            self.ring.add(&a, c.span, &plan.rules, 0);
+            // Consume or store first, then drop what no later read can claim, so a mate at
+            // exactly `mpos` finds its entry.
+            let clip = if plan.skip_mates {
+                let clip = self.mates.clip_for(&a, c.pos, c.span.end);
+                self.mates.advance(c.pos);
+                clip
+            } else {
+                0
+            };
+            self.ring.add(&a, c.span, &plan.rules, clip);
         }
         Ok(())
     }
@@ -325,19 +341,21 @@ fn read_length(a: &AlnRef<'_>) -> u64 {
 }
 
 /// The rows of the references `first..end`, from `inputs`' records (which belong to those
-/// references), written to `em`. Returns the largest ring any input held.
+/// references), written to `em`. Returns the largest ring any input held and the most reads
+/// any input's mate table held at once.
 pub(crate) fn run_group(
     inputs: &mut [Input],
     first: usize,
     end: usize,
     plan: &Plan<'_>,
     em: &mut Emitter<'_>,
-) -> Result<usize, IoError> {
+) -> Result<(usize, usize), IoError> {
     let write = |e: io::Error| IoError::Write {
         path: "output".into(),
         source: e,
     };
     let mut max_ring = 0usize;
+    let mut max_mates = 0usize;
     for i in inputs.iter_mut() {
         i.advance(plan)?;
     }
@@ -371,12 +389,14 @@ pub(crate) fn run_group(
             next = 0;
             for i in inputs.iter_mut() {
                 i.ring.reset();
+                i.mates.reset();
             }
         }
         printer.pending(inputs, c.rid, next, c.pos).map_err(write)?;
         next = next.max(c.pos);
         inputs[k].add_current(plan)?;
         max_ring = max_ring.max(inputs[k].ring.capacity());
+        max_mates = max_mates.max(inputs[k].mates.peak());
         inputs[k].advance(plan)?;
     }
     if let Some(r) = cur_ref {
@@ -390,7 +410,7 @@ pub(crate) fn run_group(
         }
     }
     printer.em.flush().map_err(write)?;
-    Ok(max_ring)
+    Ok((max_ring, max_mates))
 }
 
 struct Printer<'p, 'a, 'e> {

@@ -2,9 +2,11 @@
 //! (D137, D138). The counting rules live in [`DepthRing`], one per input; the rows in
 //! `rows.rs`. With indexes and several threads each run of references is its own chunk.
 
+mod mates;
 mod ring;
 mod rows;
 
+pub use mates::MateTable;
 pub use ring::{CountRules, DepthRing};
 
 use gloci_core::{Interval, Region};
@@ -55,6 +57,7 @@ pub struct DepthSummary {
     pub rows: u64,
     /// The most counters (not bytes) any input's ring held at once.
     pub max_ring: usize,
+    /// The most reads any input's mate table held at once (`--skip-mate-overlap`).
     pub max_pending_mates: usize,
 }
 
@@ -248,7 +251,8 @@ pub fn depth_in(
     let mut summary = DepthSummary::default();
     let mut write = |b: &[u8]| out.write_all(b);
     let mut em = Emitter::new(&mut write);
-    summary.max_ring = run_group(&mut inputs, 0, hdr.refs.len(), &plan, &mut em)?;
+    (summary.max_ring, summary.max_pending_mates) =
+        run_group(&mut inputs, 0, hdr.refs.len(), &plan, &mut em)?;
     summary.rows = em.rows;
     for i in &inputs {
         log_diagnostics(&i.name, &i.diagnostics());
@@ -332,14 +336,15 @@ fn chunked(
             // A chunk's rows are one record per batch, without the final newline `Lines` adds.
             let mut write = |b: &[u8]| sink.write_record(&b[..b.len() - 1]);
             let mut em = Emitter::new(&mut write);
-            let max_ring = run_group(&mut inputs, job.first, job.end, plan, &mut em)?;
+            let (max_ring, max_pending_mates) =
+                run_group(&mut inputs, job.first, job.end, plan, &mut em)?;
             let rows = em.rows;
             let diags = inputs.iter().map(Input::diagnostics).collect();
             Ok((
                 DepthSummary {
                     rows,
                     max_ring,
-                    max_pending_mates: 0,
+                    max_pending_mates,
                 },
                 diags,
             ))

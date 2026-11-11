@@ -58,7 +58,7 @@ pub fn run(ctx: &Ctx, a: &DepthArgs) -> anyhow::Result<()> {
             AllPositions::Covered
         },
         regions,
-        skip_mate_overlap: false,
+        skip_mate_overlap: a.skip_mate_overlap,
         column_names: a.columns.column_names,
     };
     let oo = OutputOptions {

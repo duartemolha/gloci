@@ -43,3 +43,13 @@ mkdir -p depth-idx
 samtools index -@ 0 depth.bam depth-idx/input.bai
 samtools view -C -@ 0 --no-PG --output-fmt-option version=3.0 --output-fmt-option no_ref=1 -o depth.cram depth.sam
 samtools index -@ 0 depth.cram
+
+# Task 7: the `depth --skip-mate-overlap` fixture, written by hand (mates.sam). Templates: a overlaps
+# its mate in part; b has both mates at one position, the longer second; c's second mate lies inside
+# the first; d does not overlap; e's second mate has a deletion before the first mate's end; f has
+# the mate-unmapped flag clear and no mate position; g is a resolved pair followed by two
+# supplementary alignments of one name inside the second mate (samtools keeps a stale entry for
+# them, gloci does not: #depth-mate-overlap); h's second mate has quality 5 on the bases it shares;
+# j's mate is on chr2; k is a pair on chr2.
+samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o mates.bam mates.sam
+samtools index -@ 0 mates.bam

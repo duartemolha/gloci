@@ -1120,13 +1120,14 @@ Examples:
     /// index when there is one (else the input is scanned, with a warning); with regions, the
     /// --all-* options print every position in them. --column-names writes "#CHROM POS" and
     /// the paths first. A read past the end of its reference is cut there with one warning,
-    /// where samtools prints rows beyond it. An input that goes back in (reference, position)
+    /// where samtools prints rows beyond it. --skip-mate-overlap counts the bases two mates of
+    /// a pair share once. An input that goes back in (reference, position)
     /// is an error telling you to run gloci sort. With indexes and -t above 1, runs of
     /// references are computed in parallel with the same output. Memory per input follows the
     /// longest read, not the reference.
     #[command(after_long_help = "\
 Examples:
-  gloci depth sample.bam -o depth.tsv
+  gloci depth sample.bam --skip-mate-overlap -o depth.tsv
   gloci depth a.bam b.bam --column-names --min-mapq 20 --min-baseq 20
   gloci depth sample.bam --region chr1:100,000-200,000 --all-positions
   gloci depth sample.bam --regions-file targets.bed --count-deletions")]
@@ -3454,6 +3455,12 @@ pub struct DepthArgs {
     /// without a reference.
     #[arg(long, value_name = "FILE")]
     pub reference: Option<PathBuf>,
+    /// Count each base of an overlapping mate pair once, per input: a read whose mate was
+    /// already seen starts counting where the mate ends (samtools -s). Reads with an unknown mate
+    /// position are never held, so unlike samtools a later alignment with the same name is not
+    /// clipped by a stale entry.
+    #[arg(long)]
+    pub skip_mate_overlap: bool,
     #[command(flatten)]
     pub region: RegionArgs,
     #[command(flatten)]
