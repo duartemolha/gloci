@@ -144,6 +144,19 @@ pub fn open_reader_or_alignments(path: &str, o: &ReaderOptions) -> Result<Opened
     finish_reader(path, dispatch(input, o)?).map(Opened::Records)
 }
 
+/// As [`open_reader_or_alignments`], for bytes already in hand (a spooled copy), named `name`.
+pub fn open_reader_or_alignments_from(
+    name: &str,
+    src: Box<dyn Read + Send>,
+    o: &ReaderOptions,
+) -> Result<Opened, IoError> {
+    let input = open_input_from(name, src, &input_options(o))?;
+    if input.format.is_alignment() && o.accept.alignments.is_some() {
+        return crate::align::source_from_input(input, o).map(Opened::Alignments);
+    }
+    dispatch(input, o).map(Opened::Records)
+}
+
 pub fn open_reader(path: &str, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, IoError> {
     finish_reader(path, dispatch(open_input(path, &input_options(o))?, o)?)
 }

@@ -505,53 +505,69 @@ sort it first with: gloci sort {name} -o sorted.bam{}",
     }
 }
 
-/// Merge alignment sources, each in `order`, into `out` as BAM record bytes. More than 128
-/// inputs are merged in rounds through spill files in `tmp_dir`. Returns the records written.
+/// Opens alignment input `i` (counted from 0).
+pub(crate) type OpenAln<'a> = dyn FnMut(usize) -> Result<Box<dyn AlnSource>, IoError> + 'a;
+
+/// Merge the `n` alignment inputs that `open` opens, each in `order`, into `out` as BAM record
+/// bytes. At most `fan` are open at a time: more are merged in rounds, each round's inputs
+/// opened when it starts and closed when it ends, into spill runs in `tmp_dir` that are then
+/// cascade-merged. Returns the records written.
 pub(crate) fn merge_alignment_sources(
-    srcs: Vec<Box<dyn AlnSource>>,
+    n: usize,
+    open: &mut OpenAln,
     order: AlnSortOrder,
+    fan: usize,
     tmp_dir: &Path,
     out: &mut dyn FnMut(&[u8]) -> io::Result<()>,
 ) -> Result<u64, IoError> {
     match order {
-        AlnSortOrder::Coordinate => merge_alignments_in::<M_COORD>(srcs, order, tmp_dir, out),
-        AlnSortOrder::Name => merge_alignments_in::<M_NAME>(srcs, order, tmp_dir, out),
-        AlnSortOrder::NameBytes => merge_alignments_in::<M_NAME_BYTES>(srcs, order, tmp_dir, out),
+        AlnSortOrder::Coordinate => {
+            merge_alignments_in::<M_COORD>(n, open, order, fan, tmp_dir, out)
+        }
+        AlnSortOrder::Name => merge_alignments_in::<M_NAME>(n, open, order, fan, tmp_dir, out),
+        AlnSortOrder::NameBytes => {
+            merge_alignments_in::<M_NAME_BYTES>(n, open, order, fan, tmp_dir, out)
+        }
     }
 }
 
+fn open_round(open: &mut OpenAln, start: usize, count: usize) -> Result<Vec<BamRecords>, IoError> {
+    (start..start + count)
+        .map(|i| open(i).map(BamRecords::new))
+        .collect()
+}
+
 fn merge_alignments_in<const M: u8>(
-    srcs: Vec<Box<dyn AlnSource>>,
+    n: usize,
+    open: &mut OpenAln,
     order: AlnSortOrder,
+    fan: usize,
     tmp_dir: &Path,
     out: &mut dyn FnMut(&[u8]) -> io::Result<()>,
 ) -> Result<u64, IoError> {
-    let mut inputs: Vec<BamRecords> = srcs.into_iter().map(BamRecords::new).collect();
-    let total = if inputs.len() <= MAX_FAN_IN {
-        merge_alignment_inputs::<M>(&mut inputs, order, 0, &mut |_, raw| out(raw))?
-    } else {
-        let mut spill = SpillDir::create(tmp_dir)?;
-        let mut runs = Vec::new();
-        let mut start = 0;
-        while start < inputs.len() {
-            let count = MAX_FAN_IN.min(inputs.len() - start);
-            let mut w = spill.create_run()?;
-            merge_alignment_inputs::<M>(
-                &mut inputs[start..start + count],
-                order,
-                start as u64,
-                &mut |h, raw| w.write(h, raw).map_err(io::Error::other),
-            )?;
-            runs.push(w.finish()?);
-            start += count;
-        }
-        let total = cascade_merge_runs::<M>(runs, &mut spill, &[], MAX_FAN_IN, out)?;
-        spill.close();
-        total
-    };
-    for input in inputs {
-        input.finish();
+    let fan = fan.clamp(2, MAX_FAN_IN);
+    if n <= fan {
+        let mut inputs = open_round(open, 0, n)?;
+        let total = merge_alignment_inputs::<M>(&mut inputs, order, 0, &mut |_, raw| out(raw))?;
+        inputs.into_iter().for_each(BamRecords::finish);
+        return Ok(total);
     }
+    let mut spill = SpillDir::create(tmp_dir)?;
+    let mut runs = Vec::new();
+    let mut start = 0;
+    while start < n {
+        let count = fan.min(n - start);
+        let mut inputs = open_round(open, start, count)?;
+        let mut w = spill.create_run()?;
+        merge_alignment_inputs::<M>(&mut inputs, order, start as u64, &mut |h, raw| {
+            w.write(h, raw).map_err(io::Error::other)
+        })?;
+        runs.push(w.finish()?);
+        inputs.into_iter().for_each(BamRecords::finish);
+        start += count;
+    }
+    let total = cascade_merge_runs::<M>(runs, &mut spill, &[], fan, out)?;
+    spill.close();
     Ok(total)
 }
 

@@ -344,3 +344,51 @@ fn merge_output_format_and_threads() {
         .assert()
         .code(0);
 }
+
+/// 200 small coordinate-sorted SAM files, named `f000.sam`..; returns their paths.
+fn many_sams(dir: &Path, count: u32) -> Vec<String> {
+    (0..count)
+        .map(|i| {
+            let mut t = String::from("@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:100000\n");
+            for k in 0..3u32 {
+                let pos = 1 + (i * 7 + k * 31) % 50 + k * 100;
+                t.push_str(&format!(
+                    "r{i}_{k}\t0\tchr1\t{pos}\t60\t10M\t*\t0\t0\tACGTACGTAC\tIIIIIIIIII\n"
+                ));
+            }
+            s(&plain_file(dir, &format!("f{i:03}.sam"), &t))
+        })
+        .collect()
+}
+
+#[test]
+fn merge_pipes_above_the_fan_in() {
+    let dir = tempdir();
+    let files = many_sams(dir.path(), 200);
+    let want = gloci().args(["sort", "-m"]).args(&files).assert().success();
+    let want = String::from_utf8(want.get_output().stdout.clone()).unwrap();
+    let first = std::fs::read_to_string(&files[0]).unwrap();
+    // stdin first, and a process substitution in the middle and at the end
+    let mut args = vec!["-m".to_string(), "-".to_string()];
+    args.extend(files[1..100].iter().cloned());
+    args.push(format!("<(cat {})", files[100]));
+    args.extend(files[101..199].iter().cloned());
+    args.push(format!("<(cat {})", files[199]));
+    let tmp = tempdir();
+    let o = bash_gloci(
+        &format!("sort {} --tmp-dir {}", args.join(" "), s(tmp.path())),
+        &first,
+    );
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let got = String::from_utf8(o.stdout).unwrap();
+    // the names of the pipes differ in @PG only
+    let recs = |t: &str| {
+        t.lines()
+            .filter(|l| !l.starts_with('@'))
+            .map(String::from)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(recs(&got).len(), 600);
+    assert_eq!(recs(&got), recs(&want));
+    assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
+}

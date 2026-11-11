@@ -6,11 +6,14 @@
 //! merge in `sort::merge`, which cascades above 128 inputs.
 
 use crate::aln_cat::sq_difference;
-use crate::sort::merge_alignment_sources;
+use crate::sort::{MAX_FAN_IN, merge_alignment_sources};
 use gloci_io::{
     AlnHeader, AlnSortOrder, AlnSource, Format, IoError, OutFormat, Output, SortOrder, UsageError,
     WriterOptions, open_alignment_writer,
 };
+use std::num::NonZeroUsize;
+use std::path::Path;
+use std::sync::Arc;
 
 fn field<'a>(line: &'a [u8], key: &[u8]) -> Option<&'a [u8]> {
     line.split(|&b| b == b'\t')
@@ -210,21 +213,56 @@ without telling you; see docs/differences.md#alignment-merge-rg)",
 pub fn merge_alignments(
     srcs: Vec<Box<dyn AlnSource>>,
     order: AlnSortOrder,
-    tmp_dir: &std::path::Path,
+    tmp_dir: &Path,
+    out: Output,
+    to: OutFormat,
+    w: &WriterOptions,
+) -> Result<u64, IoError> {
+    let headers: Vec<(String, Arc<AlnHeader>)> = srcs
+        .iter()
+        .map(|s| (s.name().to_string(), s.header().clone()))
+        .collect();
+    let mut srcs: Vec<Option<Box<dyn AlnSource>>> = srcs.into_iter().map(Some).collect();
+    let mut open = |i: usize| {
+        srcs[i]
+            .take()
+            .ok_or_else(|| IoError::Internal(format!("alignment input {i} was opened twice")))
+    };
+    merge_alignments_lazy(&headers, &mut open, order, MAX_FAN_IN, tmp_dir, out, to, w)
+}
+
+/// As [`merge_alignments`], for inputs opened as they are needed: `headers` are the inputs'
+/// names and headers, and `open(i)` opens input `i` for its merge round. At most `fan_in`
+/// inputs are open at once, so memory and open files stay bounded however many there are.
+#[allow(clippy::too_many_arguments)]
+pub fn merge_alignments_lazy(
+    headers: &[(String, Arc<AlnHeader>)],
+    open: &mut dyn FnMut(usize) -> Result<Box<dyn AlnSource>, IoError>,
+    order: AlnSortOrder,
+    fan_in: usize,
+    tmp_dir: &Path,
     out: Output,
     to: OutFormat,
     w: &WriterOptions,
 ) -> Result<u64, IoError> {
     let header = {
-        let headers: Vec<(&str, &AlnHeader)> = srcs
+        let hs: Vec<(&str, &AlnHeader)> = headers
             .iter()
-            .map(|s| (s.name(), s.header().as_ref()))
+            .map(|(n, h)| (n.as_str(), h.as_ref()))
             .collect();
-        merge_alignment_headers(&headers, order)?
+        merge_alignment_headers(&hs, order)?
     };
     // The records of every source reach the writer as BAM bytes.
     let mut writer = open_alignment_writer(out, Format::Bam, to, &header, w)?;
-    let n = merge_alignment_sources(srcs, order, tmp_dir, &mut |raw| writer.write_record(raw))?;
+    let n = merge_alignment_sources(headers.len(), open, order, fan_in, tmp_dir, &mut |raw| {
+        writer.write_record(raw)
+    })?;
     writer.finish()?;
     Ok(n)
+}
+
+/// How many threads each of `open` simultaneously open readers gets, so that together they
+/// stay within `threads`: at least 1 each.
+pub fn threads_per_reader(threads: NonZeroUsize, open: usize) -> NonZeroUsize {
+    NonZeroUsize::new(threads.get() / open.max(1)).unwrap_or(NonZeroUsize::MIN)
 }

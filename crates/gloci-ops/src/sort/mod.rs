@@ -34,7 +34,7 @@ pub use inputs::{
     check_definitions_pair, check_samples, check_samples_for, check_samples_pair,
     sort_input_options, sort_readers, sort_together,
 };
-pub(crate) use merge::merge_alignment_sources;
+pub(crate) use merge::{MAX_FAN_IN, merge_alignment_sources};
 pub use merge::{MERGE_BUFFER_PER_INPUT, merge_fan_in, merge_sorted, merge_sorted_batches};
 pub use order::{Order, coordinate_key, name_cmp_raw, name_flag_rank, qname_of, strnum_cmp};
 

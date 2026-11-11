@@ -9,13 +9,16 @@ use gloci_io::{
     open_reader, open_reader_from, open_reader_or_alignments, open_record_writer,
     parse_output_spec, refuse_binary_to_tty,
 };
+use gloci_io::{open_aln_source_from, open_reader_or_alignments_from};
+use gloci_ops::threads_per_reader;
 use gloci_ops::{
     AlnSortOptions, Dedup, MIN_MAX_MEM, Order, SortConfig, Sorter, Tie, check_alignments,
-    check_definitions_pair, check_samples_pair, merge_alignments, merge_fan_in,
+    check_definitions_pair, check_samples_pair, merge_alignments_lazy, merge_fan_in,
     merge_sorted_batches, sort_alignments,
 };
 use std::fs::File;
 use std::io::IsTerminal;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
 /// The reader options of alignment input: every record, and the CRAM reference.
@@ -79,9 +82,11 @@ sort the inputs without -m to remove or find duplicates",
     // round, the header-pass readers are kept for the record pass. Otherwise
     // regular files are reopened per round and any input that cannot be
     // reopened (stdin, a pipe, a FIFO) is first spooled once to --tmp-dir.
+    // Each input opened for a merge round gets its share of the threads (see run_alignments).
+    let probe_threads = threads_per_reader(ctx.threads, files.len().min(merge_fan_in(a.max_mem)));
     let mut sources = Sources::open(&files, &opts, merge_fan_in(a.max_mem), &ctx.tmp_dir)?;
-    if let Some(src) = sources.probe_alignments(a.reference.as_deref())? {
-        return run_alignments(ctx, a, &opts, &files, src, &spec);
+    if let Some(src) = sources.probe_alignments(a.reference.as_deref(), probe_threads)? {
+        return run_alignments(ctx, a, &sources, &files, src, &spec);
     }
     if a.by_name || a.by_name_bytes {
         return Err(usage(format!(
@@ -270,7 +275,7 @@ separately",
 fn run_alignments(
     ctx: &Ctx,
     a: &SortArgs,
-    opts: &ReaderOptions,
+    sources: &Sources,
     files: &[String],
     src: Box<dyn AlnSource>,
     spec: &gloci_io::OutputSpec,
@@ -302,18 +307,41 @@ references; drop {flag}"
     } else {
         AlnSortOrder::Coordinate
     };
-    // Input 0 is open already; the others are opened here, once each.
-    let mut srcs = vec![src];
-    if files.len() > 1 {
-        let mut o = opts.clone();
-        o.accept.alignments = Some(align_options(a.reference.as_deref()));
-        for f in &files[1..] {
-            srcs.push(open_aln_source(f, &o)?);
+    // Header pass: every input's header, for the merged header and the checks. Input 0 is open
+    // already. Inputs that fit in one merge round stay open for the record pass (a pipe cannot
+    // be read twice); with more, each is closed and reopened (a regular file by its path, any
+    // other input from its spool) when its round starts, so at most one round's inputs are
+    // open, each with its share of the threads.
+    let n = files.len();
+    let fan = merge_fan_in(a.max_mem);
+    let keep = n <= fan;
+    let mut ropts = sources.opts.clone();
+    ropts.accept.alignments = Some(align_options(a.reference.as_deref()));
+    ropts.threads = threads_per_reader(ctx.threads, n.min(fan));
+    let mut src0 = Some(src);
+    let mut held: Vec<Option<Box<dyn AlnSource>>> = (0..n).map(|_| None).collect();
+    let mut headers = Vec::with_capacity(n);
+    let mut all_sam = true;
+    for i in 0..n {
+        let s = match src0.take() {
+            Some(s) => s,
+            None => sources.open_aln(i, &ropts)?,
+        };
+        headers.push((s.name().to_string(), s.header().clone()));
+        all_sam &= s.layout() == Format::Sam;
+        if keep {
+            held[i] = Some(s);
         }
     }
+    let mut open = |i: usize| -> Result<Box<dyn AlnSource>, IoError> {
+        match held[i].take() {
+            Some(s) => Ok(s),
+            None => sources.open_aln(i, &ropts),
+        }
+    };
     if a.check {
-        for src in srcs {
-            if !check_alignments(src, order)? {
+        for i in 0..n {
+            if !check_alignments(open(i)?, order)? {
                 // check_alignments already logged the error naming both records.
                 return Err(crate::Reported.into());
             }
@@ -329,7 +357,7 @@ drop --write-index, or drop -n/-N",
     // The inputs' format (D104): SAM when every input is SAM, else BAM (a CRAM, or a mix of
     // formats, writes BAM); -o and -O override.
     let out_format = spec.format.unwrap_or_else(|| {
-        if srcs.iter().all(|s| s.layout() == Format::Sam) {
+        if all_sam {
             OutFormat::Sam
         } else {
             OutFormat::Bam
@@ -372,12 +400,21 @@ drop --write-index, or drop -n/-N",
         threads: ctx.threads,
     };
     if a.merge_sorted {
-        let n = merge_alignments(srcs, order, &ctx.tmp_dir, output, out_format, &wopts)
-            .map_err(|e| e.with_output_name(&dest))?;
+        let n = merge_alignments_lazy(
+            &headers,
+            &mut open,
+            order,
+            fan,
+            &ctx.tmp_dir,
+            output,
+            out_format,
+            &wopts,
+        )
+        .map_err(|e| e.with_output_name(&dest))?;
         log::info!("merged {n} records from {} files", files.len());
         return Ok(());
     }
-    let src = srcs.remove(0);
+    let src = open(0)?;
     let stats = sort_alignments(src, &o, output, out_format, &wopts)
         .map_err(|e| e.with_output_name(&dest))?;
     log::info!(
@@ -466,17 +503,51 @@ impl Sources {
     fn probe_alignments(
         &mut self,
         a_ref: Option<&Path>,
+        threads: NonZeroUsize,
     ) -> Result<Option<Box<dyn AlnSource>>, IoError> {
-        if self.spooled[0].is_some() {
-            return Ok(None);
-        }
         let mut o = self.opts.clone();
         o.accept.alignments = Some(align_options(a_ref));
-        match open_reader_or_alignments(&self.paths[0], &o)? {
+        o.threads = threads;
+        let opened = match &self.spooled[0] {
+            None => open_reader_or_alignments(&self.paths[0], &o)?,
+            Some(copy) => {
+                let name = if self.paths[0] == "-" {
+                    "stdin"
+                } else {
+                    &self.paths[0]
+                };
+                let f = File::open(copy).map_err(|source| IoError::Read {
+                    path: name.to_string(),
+                    source,
+                })?;
+                open_reader_or_alignments_from(name, Box::new(f), &o)?
+            }
+        };
+        match opened {
             Opened::Alignments(src) => Ok(Some(src)),
             Opened::Records(r) => {
                 self.readers[0] = Some(r);
                 Ok(None)
+            }
+        }
+    }
+
+    /// Open input `i` as every-record alignments: a regular file by its path, any other input
+    /// from its spooled copy (a pipe cannot be read twice).
+    fn open_aln(&self, i: usize, o: &ReaderOptions) -> Result<Box<dyn AlnSource>, IoError> {
+        match &self.spooled[i] {
+            None => open_aln_source(&self.paths[i], o),
+            Some(copy) => {
+                let name = if self.paths[i] == "-" {
+                    "stdin"
+                } else {
+                    &self.paths[i]
+                };
+                let f = File::open(copy).map_err(|source| IoError::Read {
+                    path: name.to_string(),
+                    source,
+                })?;
+                open_aln_source_from(name, Box::new(f), o)
             }
         }
     }
