@@ -2,10 +2,11 @@
 //! output must satisfy, whatever the include and exclude sets.
 use gloci_core::{ChromId, ChromTable, Genome, Interval, OrderSource, VcfSpan};
 use gloci_io::{
-    Format, InvalidPolicy, IoError, ReaderOptions, RecordWriter, UsageError, open_reader,
+    BedpeReader, Format, InvalidPolicy, IoError, ReaderOptions, RecordWriter, UsageError,
+    open_reader,
 };
 use gloci_ops::rng::Stream;
-use gloci_ops::shuffle::{Allowed, ShuffleOptions, shuffle};
+use gloci_ops::shuffle::{Allowed, ShuffleOptions, shuffle, shuffle_bedpe};
 use proptest::prelude::*;
 use std::num::NonZeroUsize;
 
@@ -123,6 +124,32 @@ fn shuffle_uniform() {
 }
 
 #[test]
+fn two_chromosomes_of_about_two_to_the_63rd() {
+    // 2 * 2^63 placements for a 1-base record do not fit in a u64.
+    let big = 1u64 << 63;
+    let g = genome(&[("a", big), ("b", big)]);
+    let t = table(&g);
+    let a = Allowed::build(&g, &t, None, &[]);
+    assert_eq!(a.placements(1, None), 2 * u128::from(big - 1 + 1));
+    let (mut per, mut high_half) = ([0u32; 2], 0u32);
+    for j in 0..400u64 {
+        let mut s = Stream::new(11, j);
+        let (c, p) = a.place(1, None, &mut s).expect("place");
+        assert!(p < big);
+        per[c.0 as usize] += 1;
+        high_half += u32::from(p >= big / 2);
+    }
+    assert!(per[0] > 120 && per[1] > 120, "{per:?}");
+    assert!(high_half > 120 && high_half < 280, "{high_half}");
+    let mut s = Stream::new(2, 0);
+    let (_, p) = a
+        .place(big, Some(ChromId(1)), &mut s)
+        .expect("whole chromosome");
+    assert_eq!(p, 0);
+    assert!(a.place_chrom_first(big + 1, &mut s).is_none());
+}
+
+#[test]
 fn placements_are_exact_and_cover_every_place() {
     // Every counted placement is drawable and none lies outside: enumerate by r.
     let g = genome(&[("a", 12), ("b", 7), ("c", 20)]);
@@ -212,6 +239,7 @@ proptest! {
         feats in prop::collection::vec((0usize..3, 0u64..40, 0u64..30), 1..30),
         same_chrom in any::<bool>(),
         no_overlapping in any::<bool>(),
+        chrom_first in any::<bool>(),
         seed in any::<u64>(),
     ) {
         let g = genome(&[("c0", LENS[0]), ("c1", LENS[1]), ("c2", LENS[2])]);
@@ -234,6 +262,7 @@ proptest! {
         };
         let mut o = opts(seed);
         o.same_chrom = same_chrom;
+        o.chrom_first = chrom_first && !same_chrom;
         o.no_overlapping = no_overlapping;
         o.max_tries = 50;
         let all: Vec<(usize, u64, u64)> = (0..3).map(|c| (c, 0, LENS[c])).collect();
@@ -318,4 +347,82 @@ fn missing_lengths_are_refused() {
     std::fs::write(&p, "c0\t0\t5\n").unwrap();
     let e = run(&g, &p, &opts(1)).expect_err("error");
     assert!(matches!(e, IoError::Usage(UsageError(_))), "{e}");
+}
+
+fn run_bedpe(g: &Genome, path: &std::path::Path, o: &ShuffleOptions) -> Vec<String> {
+    let ro = ReaderOptions {
+        accept: gloci_io::Accept::default(),
+        chrom_map: None,
+        threads: NonZeroUsize::MIN,
+        format: Some(Format::Bedpe),
+        vcf_span: VcfSpan::Allele,
+        invalid: InvalidPolicy::Fail,
+    };
+    let r = BedpeReader::open(path.to_str().unwrap(), &ro).unwrap();
+    let mut t = ChromTable::declared(g, OrderSource::Lexicographic);
+    let mut out = Vec::new();
+    shuffle_bedpe(r, &mut t, g, o, &mut out).unwrap();
+    String::from_utf8(out)
+        .unwrap()
+        .lines()
+        .map(String::from)
+        .collect()
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(96))]
+
+    #[test]
+    fn shuffle_bedpe_constraints(
+        exclude in regions(),
+        pairs in prop::collection::vec(
+            (0usize..3, 0u64..40, 0u64..20, 0usize..3, 0u64..40, 0u64..20, 0u8..3),
+            1..25,
+        ),
+        seed in any::<u64>(),
+    ) {
+        let g = genome(&[("c0", LENS[0]), ("c1", LENS[1]), ("c2", LENS[2])]);
+        let dir = tempfile::tempdir().unwrap();
+        let mut text = String::new();
+        // (same chromosome, length 1, length 2, gap start-to-start, outer length)
+        let mut shapes = Vec::new();
+        for (i, &(c1, s1, l1, c2, s2, l2, kind)) in pairs.iter().enumerate() {
+            let c2 = if kind == 0 { c1 } else { c2 };
+            let (e1, e2) = ((s1 + l1).min(LENS[c1]), (s2 + l2).min(LENS[c2]));
+            let (s1, s2) = (s1.min(e1), s2.min(e2));
+            text.push_str(&format!("c{c1}\t{s1}\t{e1}\tc{c2}\t{s2}\t{e2}\tp{i}\t0\t+\t-\n"));
+            shapes.push((c1 == c2, e1 - s1, e2 - s2, s2 as i64 - s1 as i64));
+        }
+        let path = dir.path().join("in.bedpe");
+        std::fs::write(&path, text).unwrap();
+        let mut o = opts(seed);
+        o.max_tries = 200;
+        if !exclude.is_empty() {
+            let p = dir.path().join("exc.bed");
+            let t: String = exclude.iter().map(|(c, s, e)| format!("c{c}\t{s}\t{e}\n")).collect();
+            std::fs::write(&p, t).unwrap();
+            o.exclude = Some(p.to_str().unwrap().to_string());
+        }
+        let out = run_bedpe(&g, &path, &o);
+        prop_assert!(out.len() <= pairs.len());
+        for line in &out {
+            let f: Vec<&str> = line.split('\t').collect();
+            let i: usize = f[6][1..].parse().unwrap();
+            let (same, l1, l2, gap) = shapes[i];
+            let n = |k: usize| f[k].parse::<u64>().unwrap();
+            prop_assert_eq!(n(2) - n(1), l1);
+            prop_assert_eq!(n(5) - n(4), l2);
+            if same {
+                prop_assert_eq!(f[0], f[3]);
+                prop_assert_eq!(n(4) as i64 - n(1) as i64, gap, "gap kept: {}", line);
+            }
+            for (c, s, e) in [(f[0], n(1), n(2)), (f[3], n(4), n(5))] {
+                let c: usize = c[1..].parse().unwrap();
+                prop_assert!(e <= LENS[c]);
+                for &(xc, xs, xe) in &exclude {
+                    prop_assert!(!(xc == c && s < xe && xs < e), "end overlaps exclude: {}", line);
+                }
+            }
+        }
+    }
 }

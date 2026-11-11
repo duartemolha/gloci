@@ -328,3 +328,29 @@ impl Regions {
         i > 0 && v[i - 1].1 > start
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn below_beyond_64_bits_is_in_range_and_uses_every_bit() {
+        let n = (1u128 << 64) + 12_345;
+        let mut rng = Stream::new(1, 0);
+        let mut high = false;
+        for _ in 0..2000 {
+            let x = below(&mut rng, n);
+            assert!(x < n);
+            high |= x >> 63 & 1 == 1;
+        }
+        assert!(high);
+        let n = 3u128 << 100;
+        let mut top = false;
+        for _ in 0..200 {
+            let x = below(&mut rng, n);
+            assert!(x < n);
+            top |= x >= 2u128 << 100;
+        }
+        assert!(top);
+    }
+}
