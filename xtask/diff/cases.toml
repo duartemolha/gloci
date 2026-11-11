@@ -5602,6 +5602,14 @@ gloci = "gloci dict --uri x input.fa"
 reference = "samtools dict -u x input.fa"
 compare = "exact"
 
+# Blank lines before the first header are skipped, by both.
+[[case]]
+name = "dict-leading-blank-lines-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/dict-blank-lead.fa" }
+gloci = "gloci dict --uri x input.fa"
+reference = "samtools dict -u x input.fa"
+compare = "exact"
+
 [[case]]
 name = "dict-edge-vs-samtools"
 input = { file = "xtask/diff/inputs/fa/dict-edge.fa" }

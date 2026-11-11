@@ -62,7 +62,8 @@ fn measure(path: &std::path::Path) -> (String, usize) {
 #[test]
 fn dict_streams() {
     let _g = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
-    const LEN: u64 = 1_000_000_000;
+    // 256 MiB of NUL bytes (a sparse file): far more than the 3 MiB bound, and quick to read.
+    const LEN: u64 = 256 << 20;
     let d = tempfile::tempdir().unwrap();
     let big = d.path().join("big.fa");
     let f = std::fs::File::create(&big).unwrap();
@@ -73,7 +74,7 @@ fn dict_streams() {
         got,
         "@SQ\tSN:big\tLN:0\tM5:d41d8cd98f00b204e9800998ecf8427e\tUR:x\n"
     );
-    assert!(held < 3 << 20, "held {held} bytes for a 1 GB line");
+    assert!(held < 3 << 20, "held {held} bytes for a 256 MiB line");
 
     // Real bases over several pieces: 3 MiB + 17 lower-case A on one line.
     let n = 3 * (1 << 20) + 17;

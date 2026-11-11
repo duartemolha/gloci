@@ -88,3 +88,43 @@ fn dict_missing_alt_file_names_it() {
         .code(1)
         .stderr(contains("/nonexistent/alt.txt"));
 }
+
+/// Blank lines before the first header are skipped, as samtools does (M9); a non-FASTA input
+/// is refused in dict's own words.
+#[test]
+fn dict_skips_leading_blank_lines_and_names_its_input() {
+    let d = tempdir();
+    let fa = plain_file(d.path(), "blank.fa", "\n\n>a\nACGT\n");
+    let o = gloci()
+        .args(["dict", "--no-header"])
+        .arg(&fa)
+        .args(["--uri", "x"])
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    assert_eq!(
+        String::from_utf8(o.stdout).unwrap(),
+        "@SQ\tSN:a\tLN:4\tM5:f1f8f4bf413b16ad135722aa4591043e\tUR:x\n"
+    );
+    let crlf = plain_file(d.path(), "crlf.fa", "\r\n>a\r\nACGT\r\n");
+    gloci()
+        .args(["dict", "--no-header"])
+        .arg(&crlf)
+        .args(["--uri", "x"])
+        .assert()
+        .success()
+        .stdout("@SQ\tSN:a\tLN:4\tM5:f1f8f4bf413b16ad135722aa4591043e\tUR:x\n");
+    let bam = inputs("samtools/depth.bam");
+    gloci()
+        .arg("dict")
+        .arg(&bam)
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr(contains(format!(
+            "{} is BAM, not FASTA; dict makes a sequence dictionary from a FASTA file",
+            bam.display()
+        )))
+        .stderr(contains("intervals").not());
+}

@@ -27,7 +27,11 @@ pub fn run(ctx: &Ctx, a: &DictArgs) -> anyhow::Result<()> {
         alias: a.alias,
         alt,
     };
-    let fasta = FastaStream::open(&a.fasta, ctx.threads)?;
+    let fasta = FastaStream::open_as(
+        &a.fasta,
+        ctx.threads,
+        "dict makes a sequence dictionary from a FASTA file (gloci dict ref.fa)",
+    )?;
     let oo = OutputOptions {
         threads: ctx.threads,
         level: 6,
