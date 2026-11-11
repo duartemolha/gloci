@@ -5705,3 +5705,210 @@ gloci = "gloci flags 010"
 reference = "samtools flags 010"
 compare = "exit-status"
 expected_difference = "#flags-leading-zero"
+
+# P3c Task 6
+# `depth` (D137, D138) against samtools 1.21. depth.bam sets the traps: a deletion whose next base
+# has quality 10 (-J -q 20 differs if the gate is the previous base), a 100 bp `N`, soft clips,
+# insertions, `=`/`X`, a mapped read with CIGAR `*` (samtools reads it as unmapped), QUAL `*`
+# (passes -q 50), MAPQ 29 and 30 (-Q 30 keeps 30), duplicate, secondary, QC-fail and
+# supplementary reads (only the supplementary one counts by default), a placed unmapped read
+# (prints a 0 row with --exclude-flags 0), proper-pair reads, reads of 30 (after clips), 49 and
+# 50 bases (-l 50 keeps 50), and an empty chr3 (only -aa prints it). `-g DUP` and `-G
+# SUPPLEMENTARY` are samtools' way to write this command's --exclude-flags. The index of the
+# region and per-chromosome cases is `input.bai`, the name samtools and gloci find beside
+# input.bam. depth-noseq.bam has reads with SEQ `*`: samtools reads past the record for their
+# base qualities, so only -l is compared on it. depth.cram has no reference inside it.
+
+[[case]]
+name = "depth-default-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam"
+reference = "samtools depth input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-all-positions-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --all-positions"
+reference = "samtools depth -a input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-all-references-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --all-references"
+reference = "samtools depth -aa input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-count-deletions-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --count-deletions"
+reference = "samtools depth -J input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-min-baseq-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --min-baseq 20"
+reference = "samtools depth -q 20 input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-min-mapq-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --min-mapq 30"
+reference = "samtools depth -Q 30 input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-deletions-baseq-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --count-deletions --min-baseq 20"
+reference = "samtools depth -J -q 20 input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-min-read-length-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --min-read-length 50"
+reference = "samtools depth -l 50 input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-noseq-min-read-length-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth-noseq.bam" }
+gloci = "gloci depth input.bam --min-read-length 50"
+reference = "samtools depth -l 50 input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-exclude-flags-dup-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --exclude-flags UNMAP,SECONDARY,QCFAIL"
+reference = "samtools depth -g DUP input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-exclude-flags-supplementary-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --exclude-flags UNMAP,SECONDARY,QCFAIL,DUP,SUPPLEMENTARY"
+reference = "samtools depth -G SUPPLEMENTARY input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-exclude-flags-zero-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --exclude-flags 0"
+reference = "samtools depth -g 0x704 input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-require-flags-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --require-flags PROPER_PAIR"
+reference = "samtools depth --require-flags PROPER_PAIR input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-column-names-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --column-names"
+reference = "samtools depth -H input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-region-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+aux = ["xtask/diff/inputs/samtools/depth-idx/input.bai"]
+gloci = "gloci depth input.bam --region chr1:100-200"
+reference = "samtools depth -r chr1:100-200 input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-region-all-positions-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+aux = ["xtask/diff/inputs/samtools/depth-idx/input.bai"]
+gloci = "gloci depth input.bam --region chr3:1-10 --all-positions"
+reference = "samtools depth -a -r chr3:1-10 input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-regions-file-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+aux = ["xtask/diff/inputs/samtools/targets.bed"]
+gloci = "gloci depth input.bam --regions-file targets.bed"
+reference = "samtools depth -b targets.bed input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-all-references-regions-file-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+aux = ["xtask/diff/inputs/samtools/targets.bed"]
+gloci = "gloci depth input.bam --all-references --regions-file targets.bed"
+reference = "samtools depth -aa -b targets.bed input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-two-files-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+aux = ["xtask/diff/inputs/samtools/depth2.bam"]
+gloci = "gloci depth input.bam depth2.bam --column-names"
+reference = "samtools depth -H input.bam depth2.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-sam-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.sam" }
+gloci = "gloci depth input.sam"
+reference = "samtools depth input.sam"
+compare = "exact"
+
+[[case]]
+name = "depth-cram-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.cram" }
+gloci = "gloci depth input.cram"
+reference = "samtools depth input.cram"
+compare = "exact"
+
+[[case]]
+name = "depth-per-chromosome-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+aux = ["xtask/diff/inputs/samtools/depth-idx/input.bai"]
+gloci = "gloci depth input.bam --all-references -t 4"
+reference = "samtools depth -aa input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-all-positions-regions-file-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+aux = ["xtask/diff/inputs/samtools/targets.bed"]
+gloci = "gloci depth input.bam --all-positions --regions-file targets.bed"
+reference = "samtools depth -a -b targets.bed input.bam"
+compare = "exact"
+expected_difference = "#depth-regions"
+
+[[case]]
+name = "depth-past-reference-end-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth-pastend.bam" }
+gloci = "gloci depth input.bam"
+reference = "samtools depth input.bam"
+compare = "exact"
+expected_difference = "#depth-past-reference-end"
+
+[[case]]
+name = "depth-reordered-references-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth-reordered.bam" }
+aux = ["xtask/diff/inputs/samtools/depth.bam"]
+gloci = "gloci depth input.bam depth.bam"
+reference = "samtools depth input.bam depth.bam"
+compare = "exit-status"
+expected_difference = "#depth-bedcov-same-sq"
+
+[[case]]
+name = "depth-unsorted-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth-unsorted.bam" }
+gloci = "gloci depth input.bam"
+reference = "samtools depth input.bam"
+compare = "exit-status"
+expected_difference = "#depth-order-check"

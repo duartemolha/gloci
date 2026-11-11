@@ -2084,3 +2084,57 @@ depends on the span.
   `0x8` or `8` for eight, and `10` for ten.
 - **Pinned by:** `flags-octal-vs-samtools` (exit status: must differ), and the
   tests `parse_flags_samtools_rules` and `flags_usage_errors_exit_2_and_print_nothing`.
+
+## `depth` cuts a read at the end of its reference {#depth-past-reference-end}
+
+- **gloci:** a read that runs past the end of its reference (`LN` in `@SQ`) is
+  counted only up to `LN`, and one warning says so. No row is written past `LN`,
+  and a read that starts at or past `LN` writes nothing.
+- **Old behaviour:** `samtools depth` writes rows for positions past `LN`, one
+  for each base the read covers there (`chr2 301 2` for a reference of length
+  300).
+- **Reason:** a position past the end of a reference does not exist; the same
+  cut applies to the spans of every other gloci command that reads alignments
+  (D101). A pipeline that wants those rows needs the reads, not a depth.
+- **Pinned by:** `depth-past-reference-end-vs-samtools` (must differ).
+
+## `depth` stops at a read out of order, wherever it ends {#depth-order-check}
+
+- **gloci:** every decrease of `(reference, position)` within an input is an
+  error (exit 1) that names both records and says to run `gloci sort`.
+- **Old behaviour:** `samtools depth` notices only a read that ends before its
+  last printed row, so a read a few bases before its predecessor that ends
+  further on is counted only from where the pileup has got to (its first bases
+  have no rows), and the status is 0.
+- **Reason:** an unsorted file gives depths that depend on how far out of order
+  it is, and a pipeline gets no sign. Sorting is one command.
+- **Pinned by:** `depth-unsorted-vs-samtools` (exit status: must differ).
+
+## `depth --all-positions` with regions prints regions on every reference {#depth-regions}
+
+- **gloci:** with `--region` or `--regions-file`, `--all-positions` prints every
+  position of the regions, as `--all-references` does, whether or not a read is
+  on that reference. That is what `samtools depth -a -r REGION` and
+  `samtools depth -aa -b FILE` print.
+- **Old behaviour:** `samtools depth -a -b FILE` skips the regions on a
+  reference that has no passing read, so a region on an empty reference writes
+  nothing, where one on a reference with reads writes its zero rows.
+- **Reason:** the rows should not depend on whether some other read of the
+  reference passed a filter, and `-r` and `-b` should agree.
+- **Pinned by:** `depth-all-positions-regions-file-vs-samtools` (must differ),
+  and the test `depth_all_modes`.
+
+## `depth` and `bedcov` refuse inputs with different `@SQ` lists {#depth-bedcov-same-sq}
+
+- **gloci:** every input must have the same `@SQ` lines (names, lengths and
+  order). If not, the command exits 1 before writing anything and names the first
+  line that differs (`@SQ 1 is chr2 (LN 300) in the first and chr1 (LN 500) in
+  the second`).
+- **Old behaviour:** `samtools depth` and `samtools bedcov` compare reference ids
+  across files without checking, so files that list the same references in
+  another order are read as if their ids meant the same references, and the rows
+  carry the first file's names for the other file's depths. The status is 0.
+- **Reason:** the depths of different references in one row are wrong, and
+  nothing in the output shows it.
+- **Pinned by:** `depth-reordered-references-vs-samtools` (exit status: must
+  differ).
