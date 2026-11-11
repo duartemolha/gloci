@@ -234,28 +234,24 @@ pub fn flagstat(mut src: Box<dyn AlnSource>) -> Result<FlagStats, IoError> {
     let name = src.name().to_string();
     let layout = src.layout();
     let mut stats = FlagStats::default();
-    let mut buf = Vec::new();
     let mut n = 0u64;
-    loop {
-        buf.clear();
-        if src.next_record(&mut buf)?.is_none() {
-            break;
-        }
+    src.for_each_record(&mut |raw, _| {
         n += 1;
         // A BAM-layout record was checked by the source: its fixed fields are read in place.
         if layout == Format::Bam
-            && let Some(f) = bam_fixed(&buf)
+            && let Some(f) = bam_fixed(raw)
         {
             stats.add(f.flag, f.ref_id, f.mate_ref_id, f.mapq);
-            continue;
+            return Ok(());
         }
-        let r = aln_ref(layout, &buf, &header).map_err(|msg| IoError::Parse {
+        let r = aln_ref(layout, raw, &header).map_err(|msg| IoError::Parse {
             path: name.clone(),
             loc: Loc::Record(n),
             msg,
         })?;
         stats.add(r.flag(), r.ref_id(), r.mate_ref_id(), r.mapq());
-    }
+        Ok(())
+    })?;
     Ok(stats)
 }
 

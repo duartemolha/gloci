@@ -34,6 +34,20 @@ pub trait AlnSource: Send {
     /// counted in the diagnostics and not returned. A record returned has been checked
     /// ([`Aln::parse`] for BAM bytes), so a caller may read its fixed fields in place.
     fn next_record(&mut self, buf: &mut Vec<u8>) -> Result<Option<u64>, IoError>;
+    /// Call `f` with each record left and its number, as [`AlnSource::next_record`] gives
+    /// them, stopping at the first error, `f`'s included. A BAM source passes most records in
+    /// place, without copying them.
+    fn for_each_record(
+        &mut self,
+        f: &mut dyn FnMut(&[u8], u64) -> Result<(), IoError>,
+    ) -> Result<(), IoError> {
+        let mut buf = Vec::new();
+        while let Some(rec) = self.next_record(&mut buf)? {
+            f(&buf, rec)?;
+            buf.clear();
+        }
+        Ok(())
+    }
     fn diagnostics(&self) -> &Diagnostics;
     /// The BAM record (without `block_size`) of the record last returned, when the source has
     /// it already (SAM encodes each record to check it) and BAM can hold it. A writer that
@@ -74,6 +88,36 @@ impl AlnSource for BamSource {
     }
     fn diagnostics(&self) -> &Diagnostics {
         &self.diag
+    }
+
+    fn for_each_record(
+        &mut self,
+        f: &mut dyn FnMut(&[u8], u64) -> Result<(), IoError>,
+    ) -> Result<(), IoError> {
+        let mut buf = Vec::new();
+        loop {
+            // A record wholly in the buffer that checks is taken in place; any other goes
+            // through `next_record`, which reads, counts and reports it as always.
+            let opts = &self.opts;
+            let taken = self
+                .frames
+                .take_whole(|raw, aln, rec| match Aln::parse(raw, aln) {
+                    Ok(a) if opts.drops(a.flag(), a.mapq()) => Some(None),
+                    Ok(_) => Some(Some(f(raw, rec))),
+                    Err(_) => None,
+                })?;
+            match taken {
+                Some(None) => self.diag.filtered += 1,
+                Some(Some(done)) => done?,
+                None => {
+                    buf.clear();
+                    let Some(rec) = self.next_record(&mut buf)? else {
+                        return Ok(());
+                    };
+                    f(&buf, rec)?;
+                }
+            }
+        }
     }
 
     fn next_record(&mut self, buf: &mut Vec<u8>) -> Result<Option<u64>, IoError> {

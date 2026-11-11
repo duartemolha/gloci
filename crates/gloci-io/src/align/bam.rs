@@ -135,6 +135,48 @@ impl BamFrames {
         }
     }
 
+    /// Give `f` the next record (without its `block_size`), in place, with the header and the
+    /// number it has in the file, when it is wholly in the reader's buffer and holds at least
+    /// the 32 bytes of fixed fields. When `f` takes it (`Some`), it is consumed and counted as
+    /// [`BamFrames::next`] counts it; otherwise (`Ok(None)`) nothing is, and the caller reads it
+    /// with [`BamFrames::next`], which reports whatever is wrong with it.
+    pub(crate) fn take_whole<T>(
+        &mut self,
+        f: impl FnOnce(&[u8], &AlnHeader, u64) -> Option<T>,
+    ) -> Result<Option<T>, IoError> {
+        if self.eof {
+            return Ok(None);
+        }
+        let avail = match self.src.fill_buf() {
+            Ok(avail) => avail,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => return Ok(None),
+            Err(e) => return Err(self.read_err(e)),
+        };
+        if avail.len() < 4 + 32 {
+            return Ok(None);
+        }
+        let block = i32::from_le_bytes([avail[0], avail[1], avail[2], avail[3]]);
+        let Some(size) = usize::try_from(block)
+            .ok()
+            .filter(|&n| n >= 32 && avail.len() - 4 >= n)
+        else {
+            return Ok(None);
+        };
+        let body = &avail[4..4 + size];
+        let ref_id = i32::from_le_bytes([body[0], body[1], body[2], body[3]]);
+        let Some(out) = f(body, &self.aln, self.rec + 1) else {
+            return Ok(None);
+        };
+        self.src.consume(4 + size);
+        self.rec += 1;
+        if ref_id != self.run_ref {
+            self.run_ref = ref_id;
+            self.run_seen = 0;
+        }
+        self.run_seen += 1;
+        Ok(Some(out))
+    }
+
     /// Append the next record (without its `block_size`) to `buf`. `Ok(false)` at the end of
     /// the file. The record is not checked beyond its frame.
     pub(crate) fn next(&mut self, buf: &mut Vec<u8>) -> Result<bool, IoError> {
