@@ -287,11 +287,22 @@ pub fn vcf_stats(input: SelectedInput, o: &StatsOptions) -> Result<StatsSummary,
     let need_genotypes = o.request.needs_genotypes();
     let mut stage = SelectStage::new(COMMAND, reader.as_ref(), &o.select, &base, need_genotypes)?;
     stage.set_threads(o.threads.unwrap_or(NonZeroUsize::MIN));
-    stage.share_decoded(decode_fields(o));
+    stage.decode_fields(decode_fields(o));
     let name = stage.name().to_string();
     let samples = selected_samples(&stage);
     let mut engine = StatsEngine::new(build_stats(&o.request, &samples));
     debug_assert_eq!(engine.needs_genotypes(), need_genotypes);
+    // On several threads the workers keep the per-sample counters of --depth,
+    // --missing-indv and --het; the records then carry no samples unless a
+    // statistic still reads them.
+    let indices: Vec<usize> = samples.iter().map(|(i, _)| *i).collect();
+    let tallied = stage.enable_tally(engine.tally_wants(), &indices);
+    if tallied {
+        engine.use_tally();
+    }
+    if engine.reads_genotypes() {
+        stage.share_decoded(decode_fields(o));
+    }
 
     let staged = Rc::new(RefCell::new(StagedSet::default()));
     let mut sink = PrefixSink {
@@ -335,8 +346,15 @@ pub fn vcf_stats(input: SelectedInput, o: &StatsOptions) -> Result<StatsSummary,
         // Every selected sample was decoded by the selection stage.
         engine
             .site(&view, hit.genotypes(), hit.stats)
-            .map_err(parse_err)
+            .map_err(parse_err)?;
+        if !hit.tally_called().is_empty() {
+            engine.called(hit.tally_called());
+        }
+        Ok(())
     })?;
+    if tallied {
+        engine.absorb(stage.tally());
+    }
     engine.finish().map_err(|e| write_err(&dest, e))?;
     drop(engine);
     drop(sink);

@@ -35,7 +35,7 @@ pub use norm::{CheckRef, Dedup, Normalizer, Reference, RmDup, Verdict, clean_ref
 pub use split::{Outcome as SplitOutcome, SplitTypes, Splitter};
 pub use stats::{
     FilterSummary, Freq, GenoDepth, Hardy, Heterozygosity, IndelHist, MaskRules, MissingSample,
-    MissingSite, Out, SUMMARY_SCHEMA_VERSION, SampleDepth, Singletons, SiteDepth, SiteMeanDepth,
-    SiteQuality, SiteStats, SnpDensity, Stat, StatSink, StatWrite, StatsEngine, Summary, TsTv,
-    site_stats, site_stats_into,
+    MissingSite, Out, SUMMARY_SCHEMA_VERSION, SampleDepth, SampleTally, Singletons, SiteDepth,
+    SiteMeanDepth, SiteQuality, SiteStats, SnpDensity, Stat, StatSink, StatWrite, StatsEngine,
+    Summary, TallyWants, TsTv, site_stats, site_stats_into,
 };

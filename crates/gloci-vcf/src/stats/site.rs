@@ -280,6 +280,9 @@ impl Stat for GenoDepth {
         self.out.row()
     }
     plumbing!("gdepth", true);
+    fn reads_genotypes(&self) -> bool {
+        true
+    }
 }
 
 /// `--site-quality` (`.lqual`): QUAL, -1 when missing.
@@ -523,4 +526,7 @@ impl Stat for Singletons {
         Ok(())
     }
     plumbing!("singletons", true);
+    fn reads_genotypes(&self) -> bool {
+        true
+    }
 }

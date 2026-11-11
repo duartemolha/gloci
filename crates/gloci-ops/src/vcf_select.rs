@@ -14,8 +14,9 @@ use gloci_io::{
 };
 use gloci_vcf::{
     BcfSite, EvalScratch, Expr, GenotypeSource, GtFields, MaskRules, MaskedGenotypes,
-    PackedGenotypes, RecordSlot, RewritePlan, SampleCache, SiteFilters, SiteStats, SiteView,
-    Thinner, bcf_genotypes_with, parse_expr, select_samples, site_stats, text_genotypes_with,
+    PackedGenotypes, RecordSlot, RewritePlan, SampleCache, SampleFields, SampleTally, SiteFilters,
+    SiteStats, SiteView, TallyWants, Thinner, bcf_genotypes_with, parse_expr, select_samples,
+    site_stats, text_genotypes_with,
 };
 use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
@@ -215,9 +216,17 @@ pub struct Hit<'a> {
     /// Per-genotype mask flags (empty when nothing is masked).
     pub masked: &'a [bool],
     genotypes: Option<&'a dyn GenotypeSource>,
+    called: &'a [u64],
 }
 
 impl Hit<'_> {
+    /// With [`SelectStage::enable_tally`]: the bitset of selected samples
+    /// that are fully called diploid at this site, when the site contributes
+    /// to `--het` (else empty).
+    pub fn tally_called(&self) -> &[u64] {
+        self.called
+    }
+
     /// The record's decoded samples, the masked ones reading as missing. `None`
     /// unless [`SelectStage::share_decoded`] was called and the selection
     /// computed site statistics for the record. Only the samples the
@@ -244,6 +253,14 @@ struct Spec<'a> {
     need_stats: bool,
     share_decoded: bool,
     fields: GtFields,
+    tally: Option<TallySpec>,
+}
+
+/// Per-sample counters the workers keep (see [`SelectStage::enable_tally`]).
+struct TallySpec {
+    wants: TallyWants,
+    /// The selected samples' indices in the record.
+    samples: Vec<usize>,
 }
 
 /// The per-thread working state of the selection.
@@ -253,6 +270,7 @@ struct Core {
     bcf_site: BcfSite,
     masked_buf: Vec<bool>,
     decoded: SampleCache,
+    fields_buf: SampleFields,
 }
 
 /// A record the selection kept, before thinning.
@@ -277,6 +295,7 @@ impl Core {
             bcf_site,
             masked_buf: Vec::new(),
             decoded: SampleCache::default(),
+            fields_buf: SampleFields::default(),
         })
     }
 
@@ -327,7 +346,7 @@ impl Core {
                 &text_gt
             };
             let cached;
-            let gt: &dyn GenotypeSource = if spec.share_decoded {
+            let gt: &dyn GenotypeSource = if spec.share_decoded || spec.tally.is_some() {
                 self.decoded.start_record(gt.n_samples());
                 cached = self.decoded.wrap(gt);
                 &cached
@@ -396,6 +415,7 @@ pub struct SelectStage<'a> {
     guard: Option<OrderGuard>,
     thinner: Option<Thinner>,
     threads: NonZeroUsize,
+    tally: SampleTally,
 }
 
 impl<'a> SelectStage<'a> {
@@ -450,6 +470,7 @@ impl<'a> SelectStage<'a> {
             need_stats,
             share_decoded: false,
             fields: GtFields::ALL,
+            tally: None,
         };
         let core = Core::new(&spec)?;
         Ok(SelectStage {
@@ -458,6 +479,7 @@ impl<'a> SelectStage<'a> {
             guard,
             thinner: sel.sites.thinner(),
             threads: NonZeroUsize::MIN,
+            tally: SampleTally::default(),
         })
     }
 
@@ -470,6 +492,41 @@ impl<'a> SelectStage<'a> {
     pub fn share_decoded(&mut self, fields: GtFields) {
         self.spec.share_decoded = true;
         self.spec.fields = fields;
+    }
+
+    /// Decode only the optional FORMAT fields `fields` names, without
+    /// keeping the samples for the consumers (see [`Self::share_decoded`],
+    /// which also sets this).
+    pub fn decode_fields(&mut self, fields: GtFields) {
+        self.spec.fields = fields;
+    }
+
+    /// Let the workers keep the per-sample counters `wants` names for the
+    /// `samples` (their indices in the record) and sum them per batch, so a
+    /// consumer needs no samples for them. Returns false, and does nothing,
+    /// when that cannot be: on one thread, with `--thin` (a thinned record
+    /// must not count, and thinning runs after the workers), or when the
+    /// selection computes no site statistics. [`Self::tally`] then holds the
+    /// totals once [`run_selection`] returns; [`Hit::tally_called`] carries
+    /// each record's bitset.
+    pub fn enable_tally(&mut self, wants: TallyWants, samples: &[usize]) -> bool {
+        if wants.is_empty()
+            || self.threads.get() < 2
+            || self.thinner.is_some()
+            || !self.spec.need_stats
+        {
+            return false;
+        }
+        self.spec.tally = Some(TallySpec {
+            wants,
+            samples: samples.to_vec(),
+        });
+        true
+    }
+
+    /// The counters workers summed over every selected record.
+    pub fn tally(&self) -> &SampleTally {
+        &self.tally
     }
 
     /// Run the selection on `n` threads: the calling thread reads, orders and
@@ -540,6 +597,8 @@ struct HitRec {
     /// The record's mask flags in `Hits::masks`.
     masks: std::ops::Range<usize>,
     slot: Option<RecordSlot>,
+    /// The record's `--het` bitset in `Hits::called`.
+    called: std::ops::Range<usize>,
 }
 
 /// The passing records of one batch.
@@ -548,6 +607,9 @@ struct Hits {
     recs: Vec<HitRec>,
     masks: Vec<bool>,
     packed: PackedGenotypes,
+    called: Vec<u64>,
+    /// This batch's per-sample counters.
+    tally: SampleTally,
 }
 
 impl Hits {
@@ -555,6 +617,8 @@ impl Hits {
         self.recs.clear();
         self.masks.clear();
         self.packed.clear();
+        self.called.clear();
+        self.tally.clear();
     }
 }
 
@@ -593,6 +657,29 @@ fn work_batch(spec: &Spec<'_>, core: &mut Core, mut job: Job, flight: &AtomicUsi
         let hits = &mut job.hits;
         let mask_start = hits.masks.len();
         let mut slot = None;
+        let called_start = hits.called.len();
+        if let (Some(t), Some(st)) = (&spec.tally, &passed.stats) {
+            let reader = core.decoded.reader();
+            let src = MaskedGenotypes {
+                inner: &reader,
+                masked: &core.masked_buf,
+            };
+            if let Err(msg) = hits.tally.add_record(
+                t.wants,
+                &t.samples,
+                &src,
+                &mut core.fields_buf,
+                st,
+                &mut hits.called,
+            ) {
+                err = Some(IoError::Parse {
+                    path: spec.name.clone(),
+                    loc: Loc::Record(rec_no),
+                    msg,
+                });
+                break;
+            }
+        }
         if passed.stats.is_some() {
             hits.masks.extend_from_slice(&core.masked_buf);
             if spec.share_decoded {
@@ -621,6 +708,7 @@ fn work_batch(spec: &Spec<'_>, core: &mut Core, mut job: Job, flight: &AtomicUsi
             stats: passed.stats,
             masks: mask_start..hits.masks.len(),
             slot,
+            called: called_start..hits.called.len(),
         });
     }
     let held = job.hits.packed.n_samples_held();
@@ -772,6 +860,7 @@ where
                 masked: &stage.core.masked_buf,
                 genotypes: (stage.spec.share_decoded && p.stats.is_some())
                     .then_some(&shared as &dyn GenotypeSource),
+                called: &[],
             })?;
         }
         if let Some(e) = ended {
@@ -803,6 +892,7 @@ where
         spec,
         guard,
         thinner,
+        tally,
         ..
     } = stage;
     let spec: &Spec<'_> = spec;
@@ -883,7 +973,11 @@ where
                         stats: h.stats.as_ref(),
                         masked: &job.hits.masks[h.masks.clone()],
                         genotypes: packed.as_ref().map(|p| p as &dyn GenotypeSource),
+                        called: &job.hits.called[h.called.clone()],
                     })?;
+                }
+                if spec.tally.is_some() {
+                    tally.add(&job.hits.tally);
                 }
                 flight.fetch_sub(held, Ordering::SeqCst);
                 if let Some(e) = err {

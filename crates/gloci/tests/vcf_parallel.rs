@@ -106,6 +106,12 @@ const HEAD: &str = "##fileformat=VCFv4.2
 /// A seeded cohort: `samples` samples, `records` records over two chromosomes.
 /// `bad` lists record numbers (1-based) whose first sample has a broken GT.
 fn cohort(samples: usize, records: usize, bad: &[usize]) -> String {
+    cohort_with(samples, records, bad, true)
+}
+
+/// [`cohort`], with `haploid` calls (a lone allele) or without: `--het`
+/// skips every site that has a haploid sample.
+fn cohort_with(samples: usize, records: usize, bad: &[usize], haploid: bool) -> String {
     let mut rng = Lcg(12345);
     let mut t = String::from(HEAD);
     t.push_str("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT");
@@ -146,7 +152,7 @@ fn cohort(samples: usize, records: usize, bad: &[usize]) -> String {
             let sep = if rng.next(3) == 0 { '|' } else { '/' };
             let gt = match rng.next(12) {
                 0 => "./.".to_string(),
-                1 => format!("{a}"),
+                1 if haploid => format!("{a}"),
                 _ => format!("{a}{sep}{b}"),
             };
             let ft = if rng.next(9) == 0 { "LowQ" } else { "PASS" };
@@ -511,5 +517,83 @@ fn parallel_selection_earliest_record_error_in_a_batch() {
                 "{input}: {m}"
             );
         }
+    }
+}
+
+#[test]
+fn worker_tallies_equal_sequential() {
+    // Diploid data with missing and masked genotypes, so --het has sites;
+    // --depth, --missing-indv and --het run on the workers' counters, apart
+    // from the --thin run, which keeps them on the driver.
+    let d = tempdir();
+    let (samples, records) = (300, 1500);
+    let vcf = s(&plain_file(
+        d.path(),
+        "t.vcf",
+        &cohort_with(samples, records, &[], false),
+    ));
+    let names: Vec<String> = (0..samples)
+        .filter(|i| i % 5 != 0)
+        .map(|i| format!("S{i}"))
+        .collect();
+    let names = names.join(",");
+    let runs: [(&str, Vec<&str>); 4] = [
+        ("plain", vec![]),
+        (
+            "masked",
+            vec![
+                "--min-dp",
+                "8",
+                "--min-gq",
+                "20",
+                "--mask-filtered-genotypes",
+            ],
+        ),
+        ("samples", vec!["--samples", &names, "--max-missing", "0.5"]),
+        (
+            "thin",
+            vec!["--thin", "40", "--region", "chr1:1-20000", "--min-dp", "5"],
+        ),
+    ];
+    for (tag, sel) in runs {
+        let mut outs = Vec::new();
+        for t in ["1", "2", "8"] {
+            let dir = d.path().join(format!("{tag}-t{t}"));
+            std::fs::create_dir_all(&dir).unwrap();
+            let mut a = vec![
+                "vcf",
+                "stats",
+                &vcf,
+                "--out-prefix",
+                "o",
+                "--depth",
+                "--missing-indv",
+                "--het",
+                "--freq",
+                "--geno-depth",
+                "--threads",
+                t,
+            ];
+            a.extend(&sel);
+            run_in(&dir, &a);
+            outs.push(dir);
+        }
+        for e in ["idepth", "imiss", "het", "frq", "gdepth"] {
+            let base = read(&s(&outs[0].join(format!("o.{e}"))));
+            for o in &outs[1..] {
+                same(
+                    &base,
+                    &read(&s(&o.join(format!("o.{e}")))),
+                    &format!("{tag} .{e}"),
+                );
+            }
+        }
+        let het = read(&s(&outs[0].join("o.het")));
+        assert!(lines_of(&het, "INDV") > 50, "{tag}: --het had no rows");
+        let imiss = read(&s(&outs[0].join("o.imiss")));
+        assert!(
+            lines_of(&imiss, "INDV") > 50,
+            "{tag}: --missing-indv had no rows"
+        );
     }
 }
