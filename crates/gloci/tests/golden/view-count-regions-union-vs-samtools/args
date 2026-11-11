@@ -1,0 +1,1 @@
+view --count input.bam chr1 --regions-file targets.bed

@@ -487,6 +487,11 @@ there is one.
   writes the same BAM or CRAM as samtools, except that a new `@SQ` list that
   moves, drops or resizes a reference exits 1 where samtools writes the file.
   [differences.md#reheader-sq-check](differences.md#reheader-sq-check)
+- **`view --count` and `--regions-file` (replace `samtools view -c` and `-L`):** a read that
+  overlaps several regions counts and is written once, and positional regions and
+  `--regions-file` combine as a union.
+  [differences.md#view-overlapping-regions](differences.md#view-overlapping-regions)
+  [differences.md#view-regions-union](differences.md#view-regions-union)
 - **TSV indexing without `-e`:** `gloci index -s -b` without `-e` sets the end
   column equal to the begin column (1-base feature) instead of tabix's GFF
   default of column 5.

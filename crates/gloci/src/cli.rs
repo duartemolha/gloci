@@ -186,9 +186,9 @@ Examples:
     #[command(after_long_help = "\
 Examples:
   gloci view calls.vcf.gz chr1:1,000,000-2,000,000 chrX
-  gloci view peaks.bed --regions-file targets.bed --inclusive-points
-  gloci view reads.bam -O sam | head
-  gloci view reads.cram --reference ref.fa -o reads.bam")]
+  gloci view reads.cram --reference ref.fa -o reads.bam
+  gloci view --count reads.bam chr1
+  gloci view reads.bam --regions-file targets.bed -o on_target.bam")]
     View(ViewArgs),
     /// Join BAM files by copying their compressed blocks, as samtools cat does.
     ///
@@ -2628,6 +2628,10 @@ pub struct ViewArgs {
     /// Write only the records, without the header.
     #[arg(long)]
     pub no_header: bool,
+    /// Write the number of records that would be written (regions and read filters
+    /// applied), as one line, instead of the records; as samtools view -c.
+    #[arg(long, conflicts_with_all = ["header_only", "output_format", "write_index"])]
+    pub count: bool,
     #[command(flatten)]
     pub vcf_span: VcfSpanArg,
     #[command(flatten)]

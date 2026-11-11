@@ -52,6 +52,8 @@ pub struct ViewOptions {
     /// `--sort`): never read it through an index and do not check its order,
     /// so the records come out in input order.
     pub unordered: bool,
+    /// Write the number of records `view` would write, as `N\n`, instead of the records (D133).
+    pub count: bool,
 }
 
 impl ViewOptions {
@@ -592,6 +594,20 @@ pub fn run_view(
     if opts.header_only && opts.no_header {
         return Err(usage("--header-only and --no-header cannot be combined"));
     }
+    if opts.count {
+        let clash = if opts.header_only {
+            Some("--header-only")
+        } else if oo.write_index {
+            Some("--write-index")
+        } else {
+            None
+        };
+        if let Some(flag) = clash {
+            return Err(usage(format!(
+                "--count cannot be combined with {flag}; it writes a number, not records"
+            )));
+        }
+    }
     let reference = ro
         .accept
         .alignments
@@ -614,6 +630,24 @@ pub fn run_view(
     } else {
         open_view_with(reader, path, opts, ro)?
     };
+    if opts.count {
+        let mut batch = RecordBatch::default();
+        let (mut n, mut max) = (0u64, 1);
+        loop {
+            batch.clear();
+            let more = reader.read_batch(&mut chroms, &mut batch, max)?;
+            n += batch.len() as u64;
+            max = next_batch_size(&batch, max);
+            if !more {
+                break;
+            }
+        }
+        write_count(n, out_spec, oo)?;
+        if let Some(s) = reader.diagnostics().summary(reader.name()) {
+            log::warn!("{s}");
+        }
+        return Ok(());
+    }
     let format = reader.format();
     let family = OutFormat::family(format);
     let out_format = out_spec.format.unwrap_or(family);
@@ -723,6 +757,21 @@ pub fn run_view(
     Ok(())
 }
 
+/// Write `n` and a newline to the output (`view --count`).
+fn write_count(n: u64, out_spec: &OutputSpec, oo: &OutputOptions) -> Result<(), IoError> {
+    use std::io::Write;
+    let dest = out_spec
+        .path
+        .as_ref()
+        .map_or_else(|| "<stdout>".to_string(), |p| p.display().to_string());
+    let mut out = open_output(out_spec, OutFormat::Tsv, oo)?;
+    writeln!(out, "{n}").map_err(|source| IoError::Write {
+        path: dest.clone(),
+        source,
+    })?;
+    out.finish().map_err(|e| e.with_output_name(&dest))
+}
+
 /// `view` of BAM, CRAM or SAM: every record is written, unmapped included (D116, D120), through
 /// the read filters; with regions, those that overlap one, found through the BAM's index
 /// when it has one and by scanning the file otherwise (a CRAM is scanned). Both select with samtools' span
@@ -736,22 +785,27 @@ fn view_alignments(
     oo: &OutputOptions,
     wo: &WriterOptions,
 ) -> Result<(), IoError> {
+    let count = opts.count;
     let layout = src.layout();
     // A CRAM's records are BAM bytes, and its regions are found through its `.crai`.
     let input_format = src.format();
     let out_format = out_spec.format.unwrap_or_else(|| OutFormat::family(layout));
-    check_family(layout, out_format)?;
-    if opts.no_header && out_format == OutFormat::Bam {
+    if !count {
+        check_family(layout, out_format)?;
+    }
+    if !count && opts.no_header && out_format == OutFormat::Bam {
         return Err(usage(
             "--no-header cannot be used with BAM output; BAM records need their header; \
 write SAM instead (-O sam)",
         ));
     }
-    refuse_binary_to_tty(
-        out_spec.path.is_none() && std::io::stdout().is_terminal(),
-        out_format,
-        out_spec.bgzf,
-    )?;
+    if !count {
+        refuse_binary_to_tty(
+            out_spec.path.is_none() && std::io::stdout().is_terminal(),
+            out_format,
+            out_spec.bgzf,
+        )?;
+    }
     let dest = out_spec
         .path
         .as_ref()
@@ -796,8 +850,13 @@ write SAM instead (-O sam)",
 
     let mut wo = wo.clone();
     wo.write_header = !opts.no_header;
-    let out = open_output(out_spec, out_format, oo)?;
-    let mut w = open_record_writer(out, layout, out_format, &hdr, &wo).map_err(named)?;
+    let mut w = if count {
+        None
+    } else {
+        let out = open_output(out_spec, out_format, oo)?;
+        Some(open_record_writer(out, layout, out_format, &hdr, &wo).map_err(named)?)
+    };
+    let mut counted = 0u64;
     // No region on any chromosome of the file: nothing to read.
     let filter = regions && !indexed;
     let nothing = filter && by_ref.iter().all(Option::is_none);
@@ -813,7 +872,7 @@ write SAM instead (-O sam)",
                             .as_ref()
                             .is_some_and(|set| set.matches(iv, opts.inclusive_points))
                     });
-            if keep {
+            if keep && let Some(w) = w.as_mut() {
                 w.write_alignment(&buf, src.last_bam()).map_err(|source| {
                     if source.kind() == std::io::ErrorKind::InvalidData {
                         // The record cannot be written in this format; not a write failure.
@@ -828,11 +887,16 @@ write SAM instead (-O sam)",
                         }
                     }
                 })?;
+            } else if keep {
+                counted += 1;
             }
             buf.clear();
         }
     }
-    w.finish().map_err(named)?;
+    match w {
+        Some(w) => w.finish().map_err(named)?,
+        None => write_count(counted, out_spec, oo)?,
+    }
     src.diagnostics().log_alignment_counts(&name);
     if let Some(s) = src.diagnostics().summary(&name) {
         log::warn!("{s}");

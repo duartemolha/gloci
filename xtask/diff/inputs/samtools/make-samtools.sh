@@ -28,3 +28,10 @@ samtools index -@ 0 empty.bam
 samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o reheader-in.bam reheader-in.sam
 samtools index -@ 0 reheader-in.bam
 samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o new-header.bam new-header.sam
+
+# Task 12: targets.bed, the `view --regions-file` / `-L` regions, is hand-written; the reads are
+# aln/flags.bam's. chr1 100 100 and chr1 110 110 sit on the edges of the 10-base reads at
+# chr1:101 (so a zero-length region must match only reads that strictly contain it), chr1 105 105
+# is inside them, chr1 250 260 and chr1 255 258 overlap each other and r_mapq10 (a read must
+# count once), chr1 700 701 is the placed unmapped read, and chr2 55 56 is inside both chr2 reads.
+# Nothing here needs building.

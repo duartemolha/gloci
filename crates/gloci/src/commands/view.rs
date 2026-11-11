@@ -55,6 +55,7 @@ pub fn run(ctx: &Ctx, a: &ViewArgs) -> anyhow::Result<()> {
         chrom_order: a.chrom_order.chrom_order,
         assume_sorted: a.assume_sorted,
         unordered: false,
+        count: a.count,
     };
     run_view(&a.file, &vo, &ro, &spec, &oo, &wo)?;
     Ok(())

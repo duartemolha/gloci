@@ -2113,3 +2113,26 @@ depends on the span.
 - **Pinned by:** `reheader-bad-ln-vs-samtools` and
   `reheader-bad-order-vs-samtools` (exit status: must differ), and the test
   `sq_compatibility_table`.
+
+## `view` writes or counts a read once, however many regions it overlaps {#view-overlapping-regions}
+
+- **gloci:** `gloci view x.bam chr1:1-150 chr1:100-200` (and `--count`) gives each read
+  that overlaps any of the regions once, in file order. This is the rule for every format
+  `view` reads.
+- **Old behaviour:** `samtools view x.bam chr1:1-150 chr1:100-200` queries the index once per
+  region and writes a read again for each region it overlaps (`-c` counts it each time).
+- **Reason:** a region list is a set of places to look, and a read that is in two of them is
+  one read. Repeating it makes a count larger than the file and a BAM with duplicate records.
+- **Pinned by:** `view-count-overlapping-regions-vs-samtools` (the counts must differ).
+
+## `view` takes positional regions and `--regions-file` as a union {#view-regions-union}
+
+- **gloci:** `gloci view x.bam chr1 --regions-file targets.bed` selects the reads that overlap
+  `chr1` or a region of `targets.bed`, as every other command does (`--region` and
+  `--regions-file` add).
+- **Old behaviour:** `samtools view -L targets.bed x.bam chr1` finds the reads of `chr1`
+  through the index and then keeps only those that overlap `targets.bed`: an intersection.
+- **Reason:** regions given in two ways mean the same thing in every gloci command. To
+  intersect, run `gloci view` twice (`gloci view x.bam chr1 | gloci view - --regions-file
+  targets.bed`).
+- **Pinned by:** `view-count-regions-union-vs-samtools` (the counts must differ).

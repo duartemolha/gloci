@@ -1,0 +1,1 @@
+view --count --regions-file targets.bed input.bam

@@ -1,0 +1,1 @@
+view --count input.bam chr1:1-150 chr1:100-200
