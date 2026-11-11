@@ -6150,3 +6150,14 @@ aux = ["xtask/diff/inputs/p3b/stats/fisher-q0-b.bed", "xtask/diff/inputs/p3b/sta
 gloci = "gloci stats fisher -a input.bed -b fisher-q0-b.bed -g fisher-q0-genome.txt"
 reference = "bedtools fisher -a input.bed -b fisher-q0-b.bed -g fisher-q0-genome.txt"
 compare = "exact"
+
+# bedtools' estimate drops to the floor n11 + n12 + n21 whenever an exclude file is given, once B has
+# about 94 records (here 3 A x 300 B of 100 bp: 303, gloci 4950 - the exclude is one far-off interval).
+[[case]]
+name = "stats-fisher-exclude-estimate-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-exq-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-exq-b.bed", "xtask/diff/inputs/p3b/stats/fisher-exq-gap.bed", "xtask/diff/inputs/p3b/stats/fisher-exq-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-exq-b.bed -g fisher-exq-genome.txt --exclude fisher-exq-gap.bed"
+reference = "bedtools fisher -a input.bed -b fisher-exq-b.bed -g fisher-exq-genome.txt -exclude fisher-exq-gap.bed"
+compare = "exact"
+expected_difference = "#fisher-exclude-estimate"

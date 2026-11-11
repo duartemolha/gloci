@@ -1963,3 +1963,16 @@ depends on the span.
 - **Pinned by:** `stats-fisher-opposite-strand-flag-vs-bedtools` (`-S`: gloci exits 0, bedtools 1); the empty-input estimate by gloci-only tests (`fisher_empty_a_and_b_estimate` in
   `crates/gloci/tests/stats_fisher.rs`), not a bedtools case, because the reference output differs
   by platform.
+
+## `stats fisher --exclude` subtracts the excluded bases and nothing else {#fisher-exclude-estimate}
+
+- **gloci:** the genome size is the `-g` lengths less the merged length of the exclude BED, and the
+  estimate of possible intervals is `G / (2 + LA/nA + LB/nB)` as without `--exclude`: for 3 A records
+  and 300 B records of 100 bp on 10^6 bases with one 100-base exclude record, 4950.
+- **Old behaviour:** `bedtools fisher -exclude` returns the floor `n11 + n12 + n21` as the estimate
+  (303 for that example) whenever any exclude file is given, even an empty one or one off the data's
+  chromosomes, once B has about 94 records or more (3 A and 93 B give 4950, 94 give 97, so it is not
+  monotone in the inputs). It looks like a bedtools bug; the p-values built on it are not meaningful.
+- **Reason:** the estimate should shrink by the excluded bases, not collapse.
+- **Pinned by:** `stats-fisher-exclude-estimate-vs-bedtools` (must differ). A smaller exclude case
+  that agrees: `stats-fisher-exclude-vs-bedtools`.
