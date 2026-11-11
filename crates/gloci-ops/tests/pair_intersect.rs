@@ -159,6 +159,17 @@ fn bedpe_absent_ends() {
     let none = ".\t-1\t-1\t.\t-1\t-1\n";
     assert_eq!(run(none, b, "neither").0, none);
     assert_eq!(run(none, b, "either").0, "");
+    // It has no span for anything to hit: notispan and notospan report it, and it is
+    // not counted as left out.
+    for (t, want) in [
+        ("ispan", ""),
+        ("ospan", ""),
+        ("notispan", none),
+        ("notospan", none),
+    ] {
+        let (got, s) = run(none, b, t);
+        assert_eq!((got.as_str(), s.span_skipped), (want, 0), "{t}");
+    }
 }
 
 fn strands(rule: StrandRule) -> OverlapCriteria {
