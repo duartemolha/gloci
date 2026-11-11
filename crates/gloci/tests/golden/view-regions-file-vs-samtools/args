@@ -1,1 +1,1 @@
-view -O sam --no-header --regions-file targets.bed input.bam
+view -O sam --no-header --regions-file view-targets.bed input.bam

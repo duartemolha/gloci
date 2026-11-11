@@ -60,7 +60,7 @@ fn view_count_formats() {
         .assert()
         .success();
     let bcf = p(&bcf);
-    let targets = p(&i.join("samtools/targets.bed"));
+    let targets = p(&i.join("samtools/view-targets.bed"));
     let regions = [
         vec![],
         vec!["chr1:1-150", "chr2:95-105"],
@@ -253,7 +253,7 @@ fn view_count_is_identical_at_every_thread_count() {
     let i = inputs();
     let bam = p(&i.join("aln/flags.bam"));
     let sam = p(&i.join("aln/flags.sam"));
-    let targets = p(&i.join("samtools/targets.bed"));
+    let targets = p(&i.join("samtools/view-targets.bed"));
     let cram = p(&i.join("aln/flags.cram"));
     let fa = p(&i.join("fa/ref.fa"));
     let lines: Vec<Vec<&str>> = vec![

@@ -6541,17 +6541,17 @@ compare = "exact"
 [[case]]
 name = "view-regions-file-vs-samtools"
 input = { file = "xtask/diff/inputs/aln/flags.bam" }
-aux = ["xtask/diff/inputs/samtools/targets.bed"]
-gloci = "gloci view -O sam --no-header --regions-file targets.bed input.bam"
-reference = "samtools view --no-PG -L targets.bed input.bam"
+aux = ["xtask/diff/inputs/samtools/view-targets.bed"]
+gloci = "gloci view -O sam --no-header --regions-file view-targets.bed input.bam"
+reference = "samtools view --no-PG -L view-targets.bed input.bam"
 compare = "sam"
 
 [[case]]
 name = "view-count-regions-file-vs-samtools"
 input = { file = "xtask/diff/inputs/aln/flags.bam" }
-aux = ["xtask/diff/inputs/samtools/targets.bed"]
-gloci = "gloci view --count --regions-file targets.bed input.bam"
-reference = "samtools view -c -L targets.bed input.bam"
+aux = ["xtask/diff/inputs/samtools/view-targets.bed"]
+gloci = "gloci view --count --regions-file view-targets.bed input.bam"
+reference = "samtools view -c -L view-targets.bed input.bam"
 compare = "exact"
 
 # Pinned (#view-overlapping-regions): chr1:101-110 matches both regions; samtools writes it twice.
@@ -6564,13 +6564,13 @@ reference = "samtools view -c -X input.bam flags.bam.bai chr1:1-150 chr1:100-200
 compare = "exact"
 expected_difference = "#view-overlapping-regions"
 
-# Pinned (#view-regions-union): targets.bed also covers chr2; samtools keeps only the chr1 reads
-# that are in targets.bed, gloci counts all of chr1 plus targets.bed's chr2 reads.
+# Pinned (#view-regions-union): view-targets.bed also covers chr2; samtools keeps only the chr1 reads
+# that are in view-targets.bed, gloci counts all of chr1 plus view-targets.bed's chr2 reads.
 [[case]]
 name = "view-count-regions-union-vs-samtools"
 input = { file = "xtask/diff/inputs/aln/flags.bam" }
-aux = ["xtask/diff/inputs/aln/flags.bam.bai", "xtask/diff/inputs/samtools/targets.bed"]
-gloci = "gloci view --count input.bam chr1 --regions-file targets.bed"
-reference = "samtools view -c -X -L targets.bed input.bam flags.bam.bai chr1"
+aux = ["xtask/diff/inputs/aln/flags.bam.bai", "xtask/diff/inputs/samtools/view-targets.bed"]
+gloci = "gloci view --count input.bam chr1 --regions-file view-targets.bed"
+reference = "samtools view -c -X -L view-targets.bed input.bam flags.bam.bai chr1"
 compare = "exact"
 expected_difference = "#view-regions-union"
