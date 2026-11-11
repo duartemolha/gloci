@@ -47,7 +47,9 @@ pub use aln_merge::{
 };
 pub use aln_sort::{AlnSortOptions, check_alignments, sort_alignments};
 pub use bedsearch::{ChromBlock, find_chrom_block, find_chrom_block_mapped};
-pub use check::{CheckReport, Problems, check_file};
+pub use check::{
+    AlnSummary, CheckReport, Problems, QuickOptions, check_file, quick_check, quick_check_reader,
+};
 pub use flagstat::{FlagStats, FlagstatFormat, flagstat, percent, render_flagstat};
 pub use gloci_engine::all_indexed;
 pub use idxstats::{IdxstatsPath, idxstats};

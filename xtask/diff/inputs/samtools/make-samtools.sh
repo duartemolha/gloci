@@ -106,3 +106,35 @@ samtools sort -@ 0 --no-PG -O sam -o flagstat.sam flagstat-unsorted.sam
 rm flagstat-unsorted.sam
 samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o flagstat.bam flagstat.sam
 samtools index -@ 0 flagstat.bam
+
+# Task 4: the inputs of the `check` cases. noeof.bam is flagstat.bam without its 28-byte BGZF
+# end-of-file block; truncated.bam is cut in the middle of a block. nosq.{sam,bam} are unaligned
+# reads with a read group and no @SQ line. coord-unsorted.{sam,bam} claim SO:coordinate and have
+# one read (record 7) before the one that precedes it; no case uses it (samtools has nothing to
+# say about order), the tests of `gloci check` do. badfirst.bam (a header and an end-of-file
+# block that are fine, a first record whose block_size is 20) is written by the `#[ignore]` test
+# `make_broken_bams` (crates/gloci/tests/check_alignments.rs), not here.
+head -c -28 flagstat.bam > noeof.bam
+head -c 1500 flagstat.bam > truncated.bam
+printf '@HD\tVN:1.6\n@RG\tID:g1\tSM:s1\n' > nosq.sam
+{
+  printf 'u1\t4\t*\t0\t0\t*\t*\t0\t0\tACGTA\tIIIII\tRG:Z:g1\n'
+  printf 'u2\t4\t*\t0\t0\t*\t*\t0\t0\tGGGTA\tIIIII\tRG:Z:g1\n'
+  printf 'u3\t4\t*\t0\t0\t*\t*\t0\t0\tTTTTA\tIIIII\tRG:Z:g1\n'
+} >> nosq.sam
+samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o nosq.bam nosq.sam
+printf '@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:1000\n@SQ\tSN:chr2\tLN:2000\n' > coord-unsorted.sam
+{
+  for p in 100 200 300 400 500 600; do
+    printf 'r%s\t0\tchr1\t%s\t60\t5M\t*\t0\t0\tACGTA\tIIIII\n' "$p" "$p"
+  done
+  printf 'rback\t0\tchr1\t150\t60\t5M\t*\t0\t0\tACGTA\tIIIII\n'
+  for p in 700 800; do
+    printf 'r%s\t0\tchr1\t%s\t60\t5M\t*\t0\t0\tACGTA\tIIIII\n' "$p" "$p"
+  done
+  printf 'q1\t0\tchr2\t100\t60\t5M\t*\t0\t0\tACGTA\tIIIII\n'
+} >> coord-unsorted.sam
+samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o coord-unsorted.bam coord-unsorted.sam
+# calls.vcf.gz: a small BGZF VCF (bgzip's own output, with its EOF block), for the check case that
+# samtools quickcheck rejects as "not sequence data" and gloci accepts.
+bgzip -c ../cluster-in.vcf > calls.vcf.gz

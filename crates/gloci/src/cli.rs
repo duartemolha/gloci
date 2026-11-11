@@ -221,11 +221,29 @@ Examples:
     /// position, and blank lines. Exit status 1 when any file has errors.
     /// The order is checked against -g, else the ##contig lines of a
     /// VCF/BCF, else --chrom-order (karyotype by default).
+    ///
+    /// A BAM, CRAM or SAM is read record by record (a CRAM needs
+    /// --reference): the summary adds the mapped, unmapped-but-placed and
+    /// unplaced counts and the @HD sort order. With SO:coordinate declared,
+    /// a read before the previous one, or a placed read after an unplaced
+    /// one, is an error; a read past the end of its reference and identical
+    /// records at one position are warnings. A BAM without its BGZF
+    /// end-of-file block (a CRAM without its end-of-file container) is an
+    /// error.
+    ///
+    /// --quick is samtools quickcheck, for any format: the header must
+    /// parse (alignments: with an @SQ line, unless --unaligned), the first
+    /// record must parse (a CRAM: its first container, so no reference is
+    /// needed) and a file (not stdin) must end with its end-of-file marker.
+    /// Only those parts are read. --list-failed prints just the failing
+    /// paths. Exit status 1 for any failing file, not samtools' bit mask.
     #[command(after_long_help = "\
 Examples:
   gloci check peaks.bed
   gloci check calls.vcf.gz -g hg38.fa.fai
-  gloci check a.bed b.bed --chrom-order lex")]
+  gloci check a.bed b.bed --chrom-order lex
+  gloci check reads.bam
+  gloci check --quick --list-failed *.bam > bad.txt")]
     Check(CheckArgs),
     /// Report the records of A that overlap, or do not overlap, records of B.
     ///
@@ -2605,6 +2623,21 @@ pub struct CheckArgs {
     pub format: FormatArg,
     #[command(flatten)]
     pub threads: ThreadArgs,
+    /// Only check that each file is usable, reading just its header, its first record and
+    /// the last 38 bytes (samtools quickcheck).
+    #[arg(long)]
+    pub quick: bool,
+    /// With --quick, accept a BAM, CRAM or SAM header with no @SQ line (samtools quickcheck -u).
+    #[arg(short = 'u', long, requires = "quick")]
+    pub unaligned: bool,
+    /// Print only the paths of the files that fail, one per line, and what is wrong with each
+    /// on stderr (samtools quickcheck -v).
+    #[arg(long)]
+    pub list_failed: bool,
+    /// The FASTA a CRAM input was made with, with its .fai (and .gzi when BGZF). Needed to
+    /// read the records of a CRAM; --quick never needs it.
+    #[arg(long, value_name = "FILE")]
+    pub reference: Option<PathBuf>,
 }
 
 #[derive(Args)]

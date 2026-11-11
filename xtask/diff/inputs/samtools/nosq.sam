@@ -1,0 +1,5 @@
+@HD	VN:1.6
+@RG	ID:g1	SM:s1
+u1	4	*	0	0	*	*	0	0	ACGTA	IIIII	RG:Z:g1
+u2	4	*	0	0	*	*	0	0	GGGTA	IIIII	RG:Z:g1
+u3	4	*	0	0	*	*	0	0	TTTTA	IIIII	RG:Z:g1

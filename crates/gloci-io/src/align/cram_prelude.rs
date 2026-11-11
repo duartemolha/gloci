@@ -126,3 +126,38 @@ pub fn cram_eof_present(path: &Path) -> io::Result<bool> {
     f.read_exact(&mut buf)?;
     Ok(buf == tail)
 }
+
+/// Read the container at `offset` (the first after the header: [`CramPrelude::data_start`]) as
+/// far as its header and blocks, decoding no slice, so that no reference is needed. A container
+/// that is cut short or corrupt is an error ([`IoError::Detect`]); the end-of-file container
+/// reads like any other.
+pub fn cram_first_container(path: &Path, offset: u64) -> Result<(), IoError> {
+    let name = path.display().to_string();
+    let file = File::open(path).map_err(|source| IoError::Open {
+        path: name.clone(),
+        source,
+    })?;
+    let mut src = BufReader::new(file);
+    let read_err = |source| IoError::Read {
+        path: name.clone(),
+        source,
+    };
+    src.seek(SeekFrom::Start(offset)).map_err(read_err)?;
+    let mut container = cram::io::reader::Container::default();
+    cram::io::Reader::new(src)
+        .read_container(&mut container)
+        .map(|_| ())
+        .map_err(|e| match e.kind() {
+            io::ErrorKind::InvalidData | io::ErrorKind::UnexpectedEof => IoError::Detect {
+                path: name.clone(),
+                msg: format!(
+                    "the first data container of {name} is cut short or corrupt ({e}); the file \
+is probably truncated"
+                ),
+            },
+            _ => IoError::Read {
+                path: name.clone(),
+                source: e,
+            },
+        })
+}
