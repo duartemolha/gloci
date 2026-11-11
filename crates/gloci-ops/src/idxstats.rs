@@ -1,7 +1,7 @@
 //! `gloci idxstats` (D127): per-reference read counts of a BAM, CRAM or SAM.
 
 use gloci_io::{
-    AlnIndexCounts, Format, Header, IndexKind, IndexedFile, IoError, ReaderOptions, RefCounts,
+    AlnIndexCounts, Format, Header, IndexKind, IndexedFile, IoError, Loc, ReaderOptions, RefCounts,
     aln_ref, find_index, open_aln_source,
 };
 use std::io::Write;
@@ -86,12 +86,15 @@ pub fn idxstats(
     let mut buf = Vec::new();
     loop {
         buf.clear();
-        if src.next_record(&mut buf)?.is_none() {
+        let Some(rec) = src.next_record(&mut buf)? else {
             break;
-        }
-        let r = aln_ref(layout, &buf, &header).map_err(|msg| IoError::Detect {
+        };
+        // The sources check each record as they read it, so this names a record as flagstat
+        // does, should one ever get through.
+        let r = aln_ref(layout, &buf, &header).map_err(|msg| IoError::Parse {
             path: name.clone(),
-            msg: format!("{name}: {msg}"),
+            loc: Loc::Record(rec),
+            msg,
         })?;
         match r.ref_id() {
             Some(rid) if rid < n => {
