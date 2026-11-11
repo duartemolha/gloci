@@ -64,6 +64,45 @@ impl Stream {
     }
 }
 
+/// The first four words of block 0 of stream `stream` (what `Stream::new`
+/// yields as its first two `next_u64` draws), from one scalar ChaCha8 block.
+/// `rand_chacha` fills four blocks per refill; a unit of work that draws two
+/// words per stream (`random`) does not need the other three.
+pub fn first_words(seed: u64, stream: u64) -> [u64; 2] {
+    let mut init = [0u32; 16];
+    init[..4].copy_from_slice(&[0x6170_7865, 0x3320_646e, 0x7962_2d32, 0x6b20_6574]);
+    init[4] = seed as u32;
+    init[5] = (seed >> 32) as u32;
+    // words 6..12 (the rest of the key) and the block counter 12, 13 are 0.
+    init[14] = stream as u32;
+    init[15] = (stream >> 32) as u32;
+    let mut x = init;
+    macro_rules! qr {
+        ($a:expr, $b:expr, $c:expr, $d:expr) => {
+            x[$a] = x[$a].wrapping_add(x[$b]);
+            x[$d] = (x[$d] ^ x[$a]).rotate_left(16);
+            x[$c] = x[$c].wrapping_add(x[$d]);
+            x[$b] = (x[$b] ^ x[$c]).rotate_left(12);
+            x[$a] = x[$a].wrapping_add(x[$b]);
+            x[$d] = (x[$d] ^ x[$a]).rotate_left(8);
+            x[$c] = x[$c].wrapping_add(x[$d]);
+            x[$b] = (x[$b] ^ x[$c]).rotate_left(7);
+        };
+    }
+    for _ in 0..4 {
+        qr!(0, 4, 8, 12);
+        qr!(1, 5, 9, 13);
+        qr!(2, 6, 10, 14);
+        qr!(3, 7, 11, 15);
+        qr!(0, 5, 10, 15);
+        qr!(1, 6, 11, 12);
+        qr!(2, 7, 8, 13);
+        qr!(3, 4, 9, 14);
+    }
+    let w = |i: usize| u64::from(x[i].wrapping_add(init[i]));
+    [w(0) | (w(1) << 32), w(2) | (w(3) << 32)]
+}
+
 /// `seed` itself, or, when none was given, a seed from the platform's
 /// `RandomState` with a warning that says how to reproduce the run.
 pub fn seed_or_entropy(seed: Option<u64>) -> u64 {
@@ -75,4 +114,20 @@ pub fn seed_or_entropy(seed: Option<u64>) -> u64 {
         .finish();
     log::warn!("no --seed given; using --seed {s} (pass it to reproduce this output)");
     s
+}
+
+#[cfg(test)]
+mod first_words_tests {
+    use super::*;
+
+    #[test]
+    fn first_words_match_the_stream() {
+        for seed in [0u64, 1, 42, u64::MAX, 0x1234_5678_9abc_def0] {
+            for stream in [0u64, 1, 2, 4095, 9_999_999, u64::MAX, 1 << 33] {
+                let mut s = Stream::new(seed, stream);
+                let want = [s.next_u64(), s.next_u64()];
+                assert_eq!(first_words(seed, stream), want, "{seed} {stream}");
+            }
+        }
+    }
 }

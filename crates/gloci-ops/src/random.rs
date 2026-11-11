@@ -7,7 +7,7 @@
 //! binary search, then a coin for the strand. Interval *i* uses stream *i*
 //! of the seed (D144), so the output is the same at any thread count.
 
-use crate::rng::Stream;
+use crate::rng::{Stream, first_words};
 use gloci_core::Genome;
 use gloci_io::{IoError, RecordWriter, UsageError};
 use rayon::prelude::*;
@@ -83,8 +83,19 @@ so use -l {len} or less",
     }
 }
 
-fn push_u64(buf: &mut Vec<u8>, v: u64) {
-    buf.extend_from_slice(v.to_string().as_bytes());
+/// Append the decimal digits of `v`.
+fn push_u64(buf: &mut Vec<u8>, mut v: u64) {
+    let mut tmp = [0u8; 20];
+    let mut i = tmp.len();
+    loop {
+        i -= 1;
+        tmp[i] = b'0' + (v % 10) as u8;
+        v /= 10;
+        if v == 0 {
+            break;
+        }
+    }
+    buf.extend_from_slice(&tmp[i..]);
 }
 
 /// Write `o.count` random intervals over `genome` as BED6 rows: chromosome,
@@ -115,34 +126,49 @@ pub fn random_intervals(
             .step_by(CHUNK as usize)
             .map(|s| (s, batch_end.min(s + CHUNK)))
             .collect();
-        let rows: Vec<Vec<Vec<u8>>> = pool.install(|| {
+        let names: Vec<&[u8]> = (0..genome.len()).map(|c| genome.name(c)).collect();
+        let rows: Vec<(Vec<u8>, Vec<usize>)> = pool.install(|| {
             chunks
                 .par_iter()
                 .map(|&(from, to)| {
-                    let mut out = Vec::with_capacity((to - from) as usize);
+                    // The rows of the chunk in one buffer, with where each ends.
+                    let mut buf = Vec::with_capacity((to - from) as usize * 48);
+                    let mut ends = Vec::with_capacity((to - from) as usize);
                     for i in from..to {
-                        let mut s = Stream::new(o.seed, i);
-                        let (c, start) = placement.locate(s.below(placement.total()));
-                        let plus = s.coin();
-                        let mut row = Vec::with_capacity(48);
-                        row.extend_from_slice(genome.name(c));
-                        row.push(b'\t');
-                        push_u64(&mut row, start);
-                        row.push(b'\t');
-                        push_u64(&mut row, start + o.length);
-                        row.push(b'\t');
-                        push_u64(&mut row, i + 1);
-                        row.push(b'\t');
-                        push_u64(&mut row, o.length);
-                        row.extend_from_slice(if plus { b"\t+" } else { b"\t-" });
-                        out.push(row);
+                        let total = placement.total();
+                        let [w0, w1] = first_words(o.seed, i);
+                        // Lemire's multiply-shift, as `Stream::below`; the
+                        // rare rejection redraws, so it takes the slow path.
+                        let m = u128::from(w0) * u128::from(total);
+                        let (r, plus) = if (m as u64) < total {
+                            let mut s = Stream::new(o.seed, i);
+                            (s.below(total), s.coin())
+                        } else {
+                            ((m >> 64) as u64, w1 >> 63 == 1)
+                        };
+                        let (c, start) = placement.locate(r);
+                        buf.extend_from_slice(names[c]);
+                        buf.push(b'\t');
+                        push_u64(&mut buf, start);
+                        buf.push(b'\t');
+                        push_u64(&mut buf, start + o.length);
+                        buf.push(b'\t');
+                        push_u64(&mut buf, i + 1);
+                        buf.push(b'\t');
+                        push_u64(&mut buf, o.length);
+                        buf.extend_from_slice(if plus { b"\t+" } else { b"\t-" });
+                        ends.push(buf.len());
                     }
-                    out
+                    (buf, ends)
                 })
                 .collect()
         });
-        for row in rows.iter().flatten() {
-            w.write_record(row).map_err(write_err)?;
+        for (buf, ends) in &rows {
+            let mut from = 0;
+            for &end in ends {
+                w.write_record(&buf[from..end]).map_err(write_err)?;
+                from = end;
+            }
         }
         done = batch_end;
     }
