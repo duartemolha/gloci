@@ -239,6 +239,17 @@ fn depth_reads_sam_cram_and_stdin_alike() {
     assert_eq!(out(&[&f("depth.sam")]), bam);
     // The CRAM was written without a reference.
     assert_eq!(out(&[&f("depth.cram")]), bam);
+    // The CRAM's index lets -t 4 run per chromosome: the same rows as the BAM, whatever -a.
+    for extra in [vec![], vec!["--all-positions"], vec!["--all-references"]] {
+        let run = |file: &str, t: &str| {
+            let mut args = vec![file, "-t", t];
+            args.extend(extra.iter().copied());
+            out(&args)
+        };
+        let want = run(&f("depth.bam"), "1");
+        assert_eq!(run(&f("depth.cram"), "1"), want, "{extra:?}");
+        assert_eq!(run(&f("depth.cram"), "4"), want, "{extra:?}");
+    }
     let o = gloci()
         .args(["depth", "-"])
         .write_stdin(std::fs::read(f("depth.sam")).unwrap())
