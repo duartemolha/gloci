@@ -22,7 +22,7 @@
 //!   records before a chromosome, so a CRAM never adds "(record M of the file)", streamed or not.
 
 use super::decode::Decoder;
-use super::frame::{CramFrames, RawContainer, slice_heads};
+use super::frame::{CramFrames, RawContainer, read_container_header, slice_heads};
 use super::reference::{Counters, RefCache};
 use super::{CramInfo, ExtentDecoder, check_eof_container, parse_header, reference_of};
 use crate::align::region::BamRegionParse;
@@ -45,6 +45,8 @@ use std::sync::Arc;
 struct Shared {
     name: String,
     path: PathBuf,
+    /// The `.crai` the file is read through.
+    index: PathBuf,
     /// The header as records are named after `--chrom-map`.
     aln: Arc<AlnHeader>,
     info: Arc<CramInfo>,
@@ -200,6 +202,7 @@ impl CramFile {
             shared: Arc::new(Shared {
                 name,
                 path: path.to_path_buf(),
+                index: index.path.clone(),
                 aln,
                 info,
                 by_ref,
@@ -459,7 +462,31 @@ fn read_container(s: &Shared, offset: u64) -> Result<RawContainer, IoError> {
         Ok(i) => i as u64 + 1,
         Err(i) => i as u64 + 1,
     };
-    let mut frames = CramFrames::at(&s.name, Box::new(BufReader::new(f)), offset, number);
+    // The index says a container starts here: if no container header does, the index is at
+    // fault (stale, or made for another file), not the CRAM.
+    let mut probe = Vec::new();
+    let mut reader = BufReader::new(f);
+    let ok = matches!(read_container_header(&mut reader, &mut probe), Ok(_));
+    if !ok {
+        return Err(IoError::Detect {
+            path: s.index.display().to_string(),
+            msg: format!(
+                "{}: the index names a container of {} at byte {}, where the file has none; \
+the index looks out of date or belongs to another file; rebuild it with: gloci index {}",
+                s.index.display(),
+                s.name,
+                thousands(offset),
+                s.name
+            ),
+        });
+    }
+    reader
+        .seek(SeekFrom::Start(offset))
+        .map_err(|source| IoError::Read {
+            path: s.name.clone(),
+            source,
+        })?;
+    let mut frames = CramFrames::at(&s.name, Box::new(reader), offset, number);
     match frames.next()? {
         Some(c) => Ok(c),
         None => Err(IoError::Detect {

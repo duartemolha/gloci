@@ -424,3 +424,53 @@ fn cram_31_per_chromosome_at_every_t() {
         assert_eq!(at(&aln("many.cram"), "8"), want, "{base:?} against 3.0");
     }
 }
+
+/// A `.crai` made for another file, or older than its CRAM, blames the index: the message names
+/// the index and says to rebuild it (D26), rather than calling the CRAM corrupt.
+#[test]
+fn cram_wrong_and_stale_index_blame_the_index() {
+    let dir = tempdir();
+    let r = reference();
+    let cram = dir.path().join("a.cram");
+    std::fs::copy(aln("many.cram"), &cram).unwrap();
+    // The index of another CRAM: its offsets land inside this one's containers.
+    std::fs::copy(aln("flags.cram.crai"), dir.path().join("a.cram.crai")).unwrap();
+    for args in [
+        mk(&["genomecov", &s(&cram), "--reference", &r, "-t", "4"]),
+        mk(&["view", &s(&cram), "--reference", &r, "-O", "sam", "chr1"]),
+    ] {
+        let (code, _, err) = run(&args);
+        assert_eq!(code, Some(1), "{args:?}: {err}");
+        assert!(
+            err.contains("a.cram.crai")
+                && err.contains("out of date or belongs to another file")
+                && err.contains("gloci index"),
+            "{args:?}: {err}"
+        );
+    }
+    // The right index, older than the CRAM: a warning, at -t 4 and for regions.
+    std::fs::copy(aln("many.cram.crai"), dir.path().join("a.cram.crai")).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    std::fs::File::options()
+        .append(true)
+        .open(&cram)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now())
+        .unwrap();
+    for args in [
+        mk(&["genomecov", &s(&cram), "--reference", &r, "-t", "4"]),
+        mk(&[
+            "view",
+            &s(&cram),
+            "--reference",
+            &r,
+            "-O",
+            "sam",
+            "chr1:1-10",
+        ]),
+    ] {
+        let (code, _, err) = run(&args);
+        assert_eq!(code, Some(0), "{args:?}: {err}");
+        assert_eq!(err.matches("a.cram.crai is older than").count(), 1, "{err}");
+    }
+}
