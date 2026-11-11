@@ -7466,3 +7466,48 @@ aux = ["xtask/diff/inputs/p3b/pairs/pp-b-frac.bedpe"]
 gloci = "gloci pair-pair --type either -f 0.05 -a input.bedpe -b pp-b-frac.bedpe"
 reference = "bedtools pairtopair -is -type either -f 0.05 -a input.bedpe -b pp-b-frac.bedpe"
 compare = "exact"
+# P3b Task 5
+# `-n` equal to the record count returns every record, so the (random) choice cannot show: the
+# comparison pins everything else. Trap: extra columns, and the `#` and `track` header lines,
+# which only `--header` / bedtools `-header` print.
+[[case]]
+name = "sample-all-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/random/sample-a.bed" }
+gloci = "gloci sample input.bed -n 12 --seed 1 --header"
+reference = "bedtools sample -i input.bed -n 12 -seed 1 -header"
+compare = "lines-unordered"
+
+# With `--strand +` (bedtools `-s forward`) exactly the four + records qualify; `.` never does.
+[[case]]
+name = "sample-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/random/sample-strand.bed" }
+gloci = "gloci sample input.bed -n 4 --strand + --seed 1"
+reference = "bedtools sample -i input.bed -n 4 -s forward -seed 1"
+compare = "lines-unordered"
+
+# Both commands fail when fewer records exist than asked for.
+[[case]]
+name = "sample-too-few-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/random/sample-strand.bed" }
+gloci = "gloci sample input.bed -n 100 --seed 1"
+reference = "bedtools sample -i input.bed -n 100 -seed 1"
+compare = "exit-status"
+
+# A subset of 6 of 40: gloci writes it in input order, bedtools in reservoir order, and which
+# records are kept differs too (docs/differences.md#sample-order, #rng-stream).
+[[case]]
+name = "sample-subset-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/random/sample-subset.bed" }
+gloci = "gloci sample input.bed -n 6 --seed 1"
+reference = "bedtools sample -i input.bed -n 6 -seed 1"
+compare = "exact"
+expected_difference = "#sample-order"
+
+# The same seed gives different intervals (docs/differences.md#rng-stream).
+[[case]]
+name = "random-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/random/random.genome" }
+gloci = "gloci random -g input.genome -l 10 -n 5 --seed 1"
+reference = "bedtools random -g input.genome -l 10 -n 5 -seed 1"
+compare = "exact"
+expected_difference = "#rng-stream"

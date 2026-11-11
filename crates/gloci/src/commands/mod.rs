@@ -18,6 +18,8 @@ pub mod merge;
 pub mod nuc;
 pub mod pairs;
 pub mod partition;
+pub mod random;
+pub mod sample;
 pub mod shift;
 pub mod slop;
 pub mod sort;

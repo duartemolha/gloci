@@ -2329,3 +2329,33 @@ cases (must match).
   `prechecks_refuse_counts_the_slice_cannot_hold`, `tokeniser_header_is_checked`,
   `block_sizes_are_checked`, `crafted_cram_panic_points_to_the_limits` and
   `cram_corrupt_bytes_are_errors_not_panics`.
+## `random` and `sample` use gloci's own random stream {#rng-stream}
+
+- **gloci:** `random` and `sample` draw from a ChaCha8 stream keyed by `--seed` (one stream per
+  `random` interval, one stream for `sample`), with exact bounded draws. The same seed, input and
+  options give the same bytes at any `--threads`, on every platform and in every release unless its
+  notes say the stream changed. Without `--seed` gloci picks one and prints it as a warning.
+- **Old behaviour:** `bedtools random -seed N` and `bedtools sample -seed N` use the C++ standard
+  library's generator and distributions, so the same seed gives different records, and a different
+  result with another standard library.
+- **Reason:** results that do not depend on the platform or the thread count. Sets from the same
+  seed are as uniform as bedtools' (checked by chi-squared tests at fixed seeds); they are not the
+  same sets. `random` also places every interval in one draw over all valid starts, where bedtools
+  rejects and redraws an interval that does not fit; the distribution is the same, and an `-l`
+  longer than every chromosome is an error naming the longest one (bedtools loops forever).
+- **Pinned by:** `random-vs-bedtools` (must differ; the same seed gives other intervals) and the
+  gloci-only tests `random_pinned` and `random_uniform`.
+
+## `sample` writes records in input order {#sample-order}
+
+- **gloci:** `sample -n N` keeps a uniform subset of N records and writes it in input order.
+- **Old behaviour:** `bedtools sample` writes the records in reservoir order, which is not the
+  input order.
+- **Reason:** a subset of a sorted file stays sorted, so it can go straight into the sweeps that need
+  sorted input. Pipe through `sort` if you need bedtools' arrangement (there is none to reproduce:
+  it depends on its generator).
+- **Pinned by:** `sample-subset-vs-bedtools` (must differ) and `sample-all-vs-bedtools`,
+  `sample-strand-vs-bedtools` (`lines-unordered`, must match).
+- **Also:** `--strand +|-` replaces `-s forward|reverse`; a record of unknown strand never
+  complies. With fewer records than N both commands fail (exit 1) and gloci writes nothing
+  (`sample-too-few-vs-bedtools`). `sample` of BAM and `-ubam` are not planned (`samtools view -s`).

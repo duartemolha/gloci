@@ -1092,6 +1092,44 @@ Examples:
   gloci pair-pair -a sv1.bedpe -b sv2.bedpe --type notboth -o unique.bedpe
   gloci pair-pair -a sv.bedpe -b sv.bedpe --require-different-names -s -t 4")]
     PairPair(PairPairArgs),
+    // P3b Task 5
+    /// Random intervals placed uniformly over a genome (bedtools random).
+    ///
+    /// Every valid start of every chromosome is equally likely: a chromosome
+    /// of L bases has L - l + 1 starts for intervals of length l, and one
+    /// shorter than l has none. Output is BED6 (chromosome, start, end, id,
+    /// length, strand) in id order, not sorted (pipe to gloci sort to sort).
+    /// -l longer than every chromosome is an error naming the longest one.
+    /// The output depends on --seed only, never on --threads; without --seed
+    /// a fresh seed is chosen and printed as a warning, so rerunning with it
+    /// reproduces the output. It is not bedtools' output for the same seed
+    /// (see docs/differences.md#rng-stream).
+    #[command(after_long_help = "\
+Examples:
+  gloci random -g hg38 -l 500 -n 100000 --seed 42 -o random.bed
+  gloci random -g genome.txt -l 1000 -n 1000 --seed 7 | gloci sort -g genome.txt - > sorted.bed
+  gloci random -g hg38 -n 10000 --seed 1 -o a.bed && gloci shift a.bed --by 5 -g hg38")]
+    Random(RandomArgs),
+    /// A random subset of the records of a file (bedtools sample; for
+    /// alignments see samtools view -s, gloci samples is a different command).
+    ///
+    /// Keeps exactly N records, chosen uniformly at random, and writes them
+    /// in input order (bedtools writes them in reservoir order; see
+    /// docs/differences.md#sample-order). With --strand + or -, only records
+    /// on that strand are sampled (a record of unknown strand never is).
+    /// Fewer than N records is an error that gives the count and writes
+    /// nothing. BED, bedGraph, GFF/GTF and VCF/BCF are read; --header keeps
+    /// the header lines of text formats and a VCF always keeps its header.
+    /// The kept records are held in memory. The output depends on --seed
+    /// only, never on --threads; without --seed a fresh seed is chosen and
+    /// printed as a warning. It is not bedtools' output for the same seed
+    /// (see docs/differences.md#rng-stream).
+    #[command(after_long_help = "\
+Examples:
+  gloci sample peaks.bed -n 1000 --seed 42 -o subset.bed
+  gloci sample peaks.bed -n 500 --strand + --seed 1
+  gloci sample calls.vcf.gz -n 10000 --seed 3 -O vcf.gz -o subset.vcf.gz")]
+    Sample(SampleArgs),
 }
 
 /// What `intersect` reports.
@@ -4099,6 +4137,49 @@ pub struct VcfMergeArgs {
     pub regions_overlap: Option<String>,
     #[command(flatten)]
     pub chrom_order: ChromOrderArg,
+// P3b Task 5
+#[derive(Args, Debug, Clone)]
+pub struct RandomArgs {
+    /// Chromosomes and lengths: a built-in genome such as hg38 (see gloci genomes), or a
+    /// .genome, .fai or .dict file.
+    #[arg(short, long, value_name = "NAME|FILE", required = true)]
+    pub genome: String,
+    /// Length of each interval in bases.
+    #[arg(short = 'l', long, value_name = "BASES", default_value_t = 100)]
+    pub length: u64,
+    /// How many intervals to write.
+    #[arg(short = 'n', long, value_name = "COUNT", default_value_t = 1_000_000)]
+    pub count: u64,
+    #[command(flatten)]
+    pub seed: SeedArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct SampleArgs {
+    /// Input file (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// How many records to keep.
+    #[arg(short = 'n', long, value_name = "COUNT", required = true)]
+    pub count: u64,
+    /// Sample only the records on this strand (+ or -).
+    #[arg(long, value_name = "+|-", allow_hyphen_values = true,
+          value_parser = clap::builder::PossibleValuesParser::new(["+", "-"]))]
+    pub strand: Option<String>,
+    #[command(flatten)]
+    pub seed: SeedArg,
+    #[command(flatten)]
+    pub format: FormatArg,
+    #[command(flatten)]
+    pub header: HeaderArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
     #[command(flatten)]
     pub threads: ThreadArgs,
     #[command(flatten)]
