@@ -22,19 +22,22 @@ samtools index -@ 0 empty.bam
 # Task 6: the `depth` fixtures, all written by hand. depth.sam sets the traps: a deletion whose
 # next base has quality 10, `N`, `S`, `I`, `=`/`X`, a CIGAR `*` (samtools reads a mapped read with
 # one as unmapped), QUAL `*`, MAPQ 29 and 30, duplicate, secondary, QC-fail and supplementary
-# reads, a placed unmapped read, a read past chr2's LN, reads of 30, 49 and 50 bases once soft
+# reads, a placed unmapped read, a read ending at chr2's LN, reads of 30, 49 and 50 bases once soft
 # clips are cut, and an empty chr3. depth2.sam has other reads on the same references;
 # depth-reordered.sam lists them in another order; depth-unsorted.sam has a read 3 bp before its
 # predecessor that ends after samtools' last row. depth-noseq.sam has reads with SEQ `*` (samtools
-# reads past the record for their base qualities, so only -l is compared on it). depth.cram is
+# reads past the record for their base qualities, so only -l is compared on it). depth-pastend.sam
+# has reads that run past chr2's LN (samtools prints rows beyond it, so no other fixture has one).
+# depth.cram is
 # written without a reference (every base stored), so reading it needs none. depth-idx/input.bai
 # is the index under the name samtools and gloci find beside a file called input.bam.
-for s in depth depth2 depth-reordered depth-unsorted depth-noseq; do
+for s in depth depth2 depth-reordered depth-unsorted depth-noseq depth-pastend; do
     samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o "$s.bam" "$s.sam"
 done
 samtools index -@ 0 depth.bam
 samtools index -@ 0 depth2.bam
 samtools index -@ 0 depth-noseq.bam
+samtools index -@ 0 depth-pastend.bam
 mkdir -p depth-idx
 samtools index -@ 0 depth.bam depth-idx/input.bai
 samtools view -C -@ 0 --no-PG --output-fmt-option version=3.0 --output-fmt-option no_ref=1 -o depth.cram depth.sam
