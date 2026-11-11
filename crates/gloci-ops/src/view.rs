@@ -16,11 +16,13 @@ use gloci_core::{
     ChromId, ChromOrder, ChromTable, Genome, Interval, OrderSource, Region, RegionSet,
 };
 use gloci_io::{
-    Compression, Diagnostics, Format, Header, HeaderMode, IndexInfo, InvalidPolicy, IoError,
-    OrderGuard, OutFormat, OutputOptions, OutputSpec, ReaderOptions, RecordBatch, RecordMeta,
-    RecordReader, UsageError, WriterOptions, check_family, chrom_table_lenient, convert_variants,
-    find_index, index_reference_names, next_batch_size, open_headerless_writer, open_output,
-    open_reader, open_record_writer, open_region_reader, refuse_binary_to_tty, resolve_genome,
+    AlnSource, Compression, Diagnostics, Format, Header, HeaderMode, IndexInfo, IndexedFile,
+    InvalidPolicy, IoError, Opened, OrderGuard, OutFormat, OutputOptions, OutputSpec,
+    ReaderOptions, RecordBatch, RecordMeta, RecordReader, UsageError, WriterOptions,
+    alignment_query_span, aln_ref, check_family, chrom_table_lenient, convert_variants, find_index,
+    index_reference_names, next_batch_size, open_headerless_writer, open_output, open_reader,
+    open_reader_or_alignments, open_record_writer, open_region_reader, refuse_binary_to_tty,
+    resolve_genome,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::IsTerminal;
@@ -71,7 +73,16 @@ pub fn open_view(
     opts: &ViewOptions,
     ro: &ReaderOptions,
 ) -> Result<(Box<dyn RecordReader>, ChromTable), IoError> {
-    let reader = open_reader(path, ro)?;
+    open_view_with(open_reader(path, ro)?, path, opts, ro)
+}
+
+/// [`open_view`] for a file already opened as `reader`.
+fn open_view_with(
+    reader: Box<dyn RecordReader>,
+    path: &str,
+    opts: &ViewOptions,
+    ro: &ReaderOptions,
+) -> Result<(Box<dyn RecordReader>, ChromTable), IoError> {
     let genome = match &opts.genome {
         Some(arg) => Some(resolve_genome(arg)?),
         None => None,
@@ -233,6 +244,12 @@ fn resolve_regions(
         known_in = Some(name.to_string());
         complete = true;
     }
+    if let Header::Alignment(h) = &header {
+        // The `@SQ` lines list every reference a record can name.
+        known.extend(h.refs.iter().map(|(n, _)| n.clone()));
+        known_in = Some(name.to_string());
+        complete = true;
+    }
     if let Header::Vcf(h) = &header {
         let before = known.len();
         match &h.bcf {
@@ -306,12 +323,7 @@ fn select(
     let file = Some(Path::new(path)).filter(|p| path != "-" && p.is_file());
     let index = match file.and_then(find_index).filter(|_| !opts.unordered) {
         Some(info) if compression == Compression::Bgzf => {
-            if info.stale {
-                log::warn!(
-                    "the index {} is older than {name}; it may be out of date (rebuild it with: gloci index {name})",
-                    info.path.display()
-                );
-            }
+            info.warn_if_stale(&name);
             Some(info)
         }
         Some(info) => {
@@ -569,11 +581,27 @@ pub fn run_view(
     if opts.header_only && opts.no_header {
         return Err(usage("--header-only and --no-header cannot be combined"));
     }
+    let reference = ro
+        .accept
+        .alignments
+        .as_ref()
+        .and_then(|a| a.reference.as_deref());
+    let reader = match open_reader_or_alignments(path, ro)? {
+        Opened::Records(r) => {
+            gloci_io::warn_unused_reference(reference, false);
+            gloci_io::warn_unused_read_filters(ro.accept.alignments.as_ref(), false);
+            r
+        }
+        Opened::Alignments(src) => {
+            gloci_io::warn_unused_reference(reference, src.format() == Format::Cram);
+            return view_alignments(src, path, opts, ro, out_spec, oo, wo);
+        }
+    };
     let (mut reader, mut chroms) = if opts.header_only {
         // No records are read, so regions do not matter.
-        (open_reader(path, ro)?, ChromTable::first_appearance())
+        (reader, ChromTable::first_appearance())
     } else {
-        open_view(path, opts, ro)?
+        open_view_with(reader, path, opts, ro)?
     };
     let format = reader.format();
     let family = OutFormat::family(format);
@@ -679,6 +707,123 @@ pub fn run_view(
         w.finish().map_err(named)?;
     }
     if let Some(s) = reader.diagnostics().summary(reader.name()) {
+        log::warn!("{s}");
+    }
+    Ok(())
+}
+
+/// `view` of BAM, CRAM or SAM: every record is written, unmapped included (D116, D120), through
+/// the read filters; with regions, those that overlap one, found through the BAM's index
+/// when it has one and by scanning the file otherwise (a CRAM is scanned). Both select with samtools' span
+/// (`alignment_query_span`) and give the same records.
+fn view_alignments(
+    mut src: Box<dyn AlnSource>,
+    path: &str,
+    opts: &ViewOptions,
+    ro: &ReaderOptions,
+    out_spec: &OutputSpec,
+    oo: &OutputOptions,
+    wo: &WriterOptions,
+) -> Result<(), IoError> {
+    let layout = src.layout();
+    // A CRAM's records are BAM bytes, and its regions are found through its `.crai`.
+    let input_format = src.format();
+    let out_format = out_spec.format.unwrap_or_else(|| OutFormat::family(layout));
+    check_family(layout, out_format)?;
+    if opts.no_header && out_format == OutFormat::Bam {
+        return Err(usage(
+            "--no-header cannot be used with BAM output; BAM records need their header; \
+write SAM instead (-O sam)",
+        ));
+    }
+    refuse_binary_to_tty(
+        out_spec.path.is_none() && std::io::stdout().is_terminal(),
+        out_format,
+        out_spec.bgzf,
+    )?;
+    let dest = out_spec
+        .path
+        .as_ref()
+        .map_or_else(|| "<stdout>".to_string(), |p| p.display().to_string());
+    let header = src.header().clone();
+    let name = src.name().to_string();
+    // An order error found while indexing names the input, which is the file to sort.
+    let named = |e: IoError| e.with_output_name(&dest).with_index_input(&name, &dest);
+
+    // Regions, as the chromosomes the header lists (a name it lacks is warned about and
+    // dropped); `by_ref[rid]` is the region set of reference `rid`.
+    let hdr = Header::Alignment(header.clone());
+    let mut by_ref: Vec<Option<RegionSet>> = Vec::new();
+    let regions = opts.has_regions() && !opts.header_only;
+    // The index reader already selects the records.
+    let mut indexed = false;
+    if regions {
+        let Wanted { wanted, sets, .. } = resolve_regions(&name, &hdr, opts, ro, None, None, None)?;
+        let file = Some(Path::new(path)).filter(|p| path != "-" && p.is_file());
+        let index = file
+            .filter(|_| matches!(input_format, Format::Bam | Format::Cram) && !wanted.is_empty())
+            .and_then(|p| find_index(p).map(|i| (p, i)));
+        if let Some((p, info)) = index {
+            info.warn_if_stale(&name);
+            let ix = IndexedFile::open(p, input_format, hdr.clone(), ro)?;
+            src = ix.aln_regions_source(&wanted, opts.inclusive_points)?;
+            indexed = true;
+        } else {
+            let mut by_name: HashMap<Vec<u8>, RegionSet> = sets.into_iter().collect();
+            by_ref = header.refs.iter().map(|(n, _)| by_name.remove(n)).collect();
+            if path != "-" && by_ref.iter().any(Option::is_some) {
+                let hint = match input_format {
+                    Format::Bam | Format::Cram if !wanted.is_empty() => {
+                        format!("; create an index with: gloci index {name}")
+                    }
+                    _ => String::new(),
+                };
+                log::warn!("scanning the whole file {name} to find the regions{hint}");
+            }
+        }
+    }
+
+    let mut wo = wo.clone();
+    wo.write_header = !opts.no_header;
+    let out = open_output(out_spec, out_format, oo)?;
+    let mut w = open_record_writer(out, layout, out_format, &hdr, &wo).map_err(named)?;
+    // No region on any chromosome of the file: nothing to read.
+    let filter = regions && !indexed;
+    let nothing = filter && by_ref.iter().all(Option::is_none);
+    if !opts.header_only && !nothing {
+        let mut buf = Vec::new();
+        while src.next_record(&mut buf)?.is_some() {
+            let keep = !filter
+                || aln_ref(layout, &buf, &header)
+                    .ok()
+                    .and_then(|a| alignment_query_span(&a))
+                    .is_some_and(|(rid, iv)| {
+                        by_ref[rid]
+                            .as_ref()
+                            .is_some_and(|set| set.matches(iv, opts.inclusive_points))
+                    });
+            if keep {
+                w.write_alignment(&buf, src.last_bam()).map_err(|source| {
+                    if source.kind() == std::io::ErrorKind::InvalidData {
+                        // The record cannot be written in this format; not a write failure.
+                        IoError::Detect {
+                            path: name.clone(),
+                            msg: format!("{name}: {source}"),
+                        }
+                    } else {
+                        IoError::Write {
+                            path: dest.clone(),
+                            source,
+                        }
+                    }
+                })?;
+            }
+            buf.clear();
+        }
+    }
+    w.finish().map_err(named)?;
+    src.diagnostics().log_alignment_counts(&name);
+    if let Some(s) = src.diagnostics().summary(&name) {
         log::warn!("{s}");
     }
     Ok(())

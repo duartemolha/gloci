@@ -85,6 +85,7 @@ pub fn run_shared(
         None => None,
     };
     let ro = ReaderOptions {
+        accept: gloci_io::Accept::default(),
         chrom_map: s.chrom_map.load()?,
         threads: ctx.threads,
         format: match s.format {

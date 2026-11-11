@@ -30,6 +30,7 @@ impl RecordWriter for Sink {
 
 fn reader_opts() -> ReaderOptions {
     ReaderOptions {
+        accept: gloci_io::Accept::default(),
         chrom_map: None,
         threads: NonZeroUsize::MIN,
         format: Some(Format::Bed),
@@ -197,6 +198,7 @@ proptest! {
                         criteria,
                         window: None,
                         split,
+                        split_deletions: false,
                         unsorted,
                         sort: None,
                         labels: Vec::new(),
@@ -284,6 +286,7 @@ fn totals_merge_sums_chunks() {
                 criteria: OverlapCriteria::default(),
                 window: None,
                 split: false,
+                split_deletions: false,
                 unsorted: false,
                 sort: None,
                 labels: Vec::new(),

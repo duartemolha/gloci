@@ -1,5 +1,6 @@
 //! `genomecov`: the depth of coverage of a genome by the features of one
-//! sorted BED-family input (replaces `bedtools genomecov -i`; BAM is P3).
+//! sorted BED-family or alignment input (replaces `bedtools genomecov -i` and
+//! `-ibam`).
 //!
 //! The input is swept once. Each feature adds one to the depth over its
 //! bases (over each BED12 block with `split`, or over its single 5' or 3'
@@ -11,16 +12,29 @@
 //! depth, or by `max_depth`).
 //!
 //! The runs cover whole chromosomes from base 0 to the chromosome length
-//! (`-g` is required), in genome order, chromosomes without features
-//! included. Points cover no bases (D68) and are ignored.
+//! (`-g`, or an alignment header's lengths), in genome order, chromosomes
+//! without features included. Points cover no bases (D68) and are ignored.
+//!
+//! An alignment counts its span (D101), or with `split`/`split_deletions` its
+//! blocks (D105, the shared `AlnBlocks`). An indexed BAM at more than one
+//! thread runs per chromosome (D117): chunks of whole genome chromosomes are
+//! swept in parallel and written in genome order, and the `genome` rows of
+//! the histogram are summed from the chunks, so the output is the same at
+//! every thread count.
 
 use crate::skipped::{Skipped, log_skipped};
 use gloci_core::{ChromId, ChromTable, Genome, Interval, Strand};
-use gloci_engine::kmerge_with;
+use gloci_engine::{all_indexed, kmerge_with, run_chunks};
 use gloci_io::bed::bed12_blocks;
-use gloci_io::{Format, IoError, Loc, RecordMeta, RecordReader, RecordWriter, UsageError};
+use gloci_io::{
+    AlnBlocks, Diagnostics, Format, IndexedFile, IoError, Loc, ReaderOptions, RecordMeta,
+    RecordReader, RecordWriter, UsageError,
+};
 use std::collections::BTreeMap;
 use std::io::Write;
+use std::num::NonZeroUsize;
+use std::ops::Range;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GenomecovMode {
@@ -53,8 +67,11 @@ pub struct GenomecovOptions {
     pub scale: Option<f64>,
     /// Count only features on this strand (`Plus` or `Minus`).
     pub strand: Option<Strand>,
-    /// Count each BED12 block instead of the whole feature.
+    /// Count each BED12 block, or each alignment block between `N` operations, instead of the
+    /// whole feature.
     pub split: bool,
+    /// Alignments only: also cut the blocks at deletions (D105).
+    pub split_deletions: bool,
     pub piece: Piece,
     /// `Hist` only: depths at or above this go into its bin.
     pub max_depth: Option<u64>,
@@ -79,8 +96,10 @@ which a scale factor would make meaningless; pick one of those modes",
 drop it, or drop --bedgraph/--bga/--per-base",
         );
     }
-    if o.split && o.piece != Piece::Whole {
-        return u("--split cannot be combined with --5p or --3p; use one of them");
+    if (o.split || o.split_deletions) && o.piece != Piece::Whole {
+        return u(
+            "--split and --split-deletions cannot be combined with --5p or --3p; use one of them",
+        );
     }
     if !matches!(o.strand, None | Some(Strand::Plus | Strand::Minus)) {
         return u("--strand must be + or -");
@@ -152,6 +171,14 @@ struct Cov<'a> {
     row: Vec<u8>,
     peak_events: usize,
     pieces: Vec<Interval>,
+    /// The input's format, for the place of an error.
+    format: Format,
+    /// The chromosome of the last record read, and how many records of it were read: an
+    /// alignment error names its place so (the same at every thread count).
+    seen_on: Option<ChromId>,
+    seen: u64,
+    /// Where an alignment's blocks come from, when it has any to count.
+    blocks: Option<AlnBlocks>,
 }
 
 impl<'a> Cov<'a> {
@@ -299,6 +326,12 @@ impl<'a> Cov<'a> {
     fn pieces_of(&mut self, m: &RecordMeta, raw: &[u8], path: &str) -> Result<(), IoError> {
         self.pieces.clear();
         let Interval { start, end } = m.span;
+        if let Some(b) = &self.blocks
+            && (self.o.split || self.o.split_deletions)
+        {
+            self.pieces.extend(b.get(raw, m.loc, m.span)?);
+            return Ok(());
+        }
         if self.o.split {
             match bed12_blocks(raw) {
                 Ok(Some(b)) => self
@@ -332,6 +365,11 @@ impl<'a> Cov<'a> {
     }
 
     fn record(&mut self, m: &RecordMeta, raw: &[u8], path: &str, bed: bool) -> Result<(), IoError> {
+        if self.seen_on != Some(m.chrom) {
+            self.seen_on = Some(m.chrom);
+            self.seen = 0;
+        }
+        self.seen += 1;
         if m.span.start == m.span.end {
             return Ok(());
         }
@@ -359,14 +397,28 @@ than 6 columns; add the strand column or drop --strand"
         }
         if m.span.end > self.len {
             let name = String::from_utf8_lossy(self.name()).into_owned();
+            let msg = format!(
+                "{name}:{}-{} extends past the end of {name} (length {}); \
+check that -g matches the genome build of the input",
+                m.span.start, m.span.end, self.len
+            );
+            if self.format.is_alignment() {
+                // The reader's own record number differs between a streamed and a
+                // per-chromosome run, so the place is counted here, among the reads that
+                // reach the sweep (D101's place, minus the reads left out), the same at
+                // every thread count.
+                return Err(IoError::Detect {
+                    path: path.to_string(),
+                    msg: format!(
+                        "{path} record {} of {name} (counting only the reads genomecov counts): {msg}",
+                        self.seen
+                    ),
+                });
+            }
             return Err(IoError::Parse {
                 path: path.to_string(),
                 loc: Loc::Line(m.loc),
-                msg: format!(
-                    "{name}:{}-{} extends past the end of {name} (length {}); \
-check that -g matches the genome build of the input",
-                    m.span.start, m.span.end, self.len
-                ),
+                msg,
             });
         }
         self.sweep_before(m.key)?;
@@ -380,25 +432,136 @@ check that -g matches the genome build of the input",
         Ok(())
     }
 
-    fn finish(&mut self) -> Result<(), IoError> {
+    /// Close the open chromosome and cover the genome chromosomes up to `end` that had no
+    /// features.
+    fn finish_to(&mut self, end: usize) -> Result<(), IoError> {
         self.finish_chrom()?;
-        self.untouched_before(self.genome.len())?;
-        if self.o.mode == GenomecovMode::Hist && self.total_len > 0 {
-            let bins = std::mem::take(&mut self.total_bins);
-            for (&d, &b) in &bins {
-                self.row.clear();
-                write!(
-                    self.row,
-                    "genome\t{d}\t{b}\t{}\t{}",
-                    self.total_len,
-                    format_fraction(b, self.total_len)
-                )
-                .expect("vec write");
-                self.emit()?;
-            }
-        }
-        Ok(())
+        self.untouched_before(end)
     }
+}
+
+/// The `genome` rows of the histogram, from the bases per depth over all chromosomes.
+fn write_genome_rows(
+    w: &mut dyn RecordWriter,
+    bins: &BTreeMap<u64, u64>,
+    total_len: u64,
+) -> Result<(), IoError> {
+    if total_len == 0 {
+        return Ok(());
+    }
+    let mut row = Vec::new();
+    for (&d, &b) in bins {
+        row.clear();
+        write!(
+            row,
+            "genome\t{d}\t{b}\t{total_len}\t{}",
+            format_fraction(b, total_len)
+        )
+        .expect("vec write");
+        w.write_record(&row).map_err(|source| IoError::Write {
+            path: "output".into(),
+            source,
+        })?;
+    }
+    Ok(())
+}
+
+/// What sweeping a run of genome chromosomes leaves for the caller to combine.
+struct Swept {
+    total_bins: BTreeMap<u64, u64>,
+    total_len: u64,
+    peak_events: usize,
+    skipped: Vec<(String, Diagnostics)>,
+}
+
+/// Sweep `input` (sorted in `chroms` order, a closed table built from `genome`, so chromosome
+/// ids are genome indexes) over the genome chromosomes `range`, writing their rows to `w`.
+/// The `genome` histogram rows are not written: the totals come back.
+fn sweep(
+    input: Box<dyn RecordReader>,
+    chroms: &mut ChromTable,
+    genome: &Genome,
+    o: &GenomecovOptions,
+    range: Range<usize>,
+    w: &mut dyn RecordWriter,
+) -> Result<Swept, Box<(IoError, Diagnostics)>> {
+    let path = input.name().to_string();
+    let format = input.format();
+    let bed = matches!(format, Format::Bed | Format::BedGraph | Format::Wig);
+    let blocks = if o.split || o.split_deletions {
+        AlnBlocks::for_reader(input.as_ref(), o.split_deletions)
+    } else {
+        None
+    };
+    let mut skipped = Skipped::default();
+    let input = skipped.watch(input);
+    let mut s = Cov {
+        o,
+        genome,
+        w,
+        chrom: None,
+        len: 0,
+        events: BTreeMap::new(),
+        depth: 0,
+        at: 0,
+        run: None,
+        bins: BTreeMap::new(),
+        total_bins: BTreeMap::new(),
+        total_len: 0,
+        next_genome: range.start,
+        row: Vec::new(),
+        peak_events: 0,
+        pieces: Vec::new(),
+        format,
+        seen_on: None,
+        seen: 0,
+        blocks,
+    };
+    let done = kmerge_with(vec![input], chroms, &mut |_, meta, raw, _| {
+        s.record(meta, raw, &path, bed)
+    })
+    .and_then(|_| s.finish_to(range.end));
+    let (total_bins, total_len, peak_events) = (s.total_bins, s.total_len, s.peak_events);
+    // The reader is gone: what it noted (even on the way to an error) is kept.
+    let diag = skipped.take().into_iter().next().map(|(_, d)| d);
+    match done {
+        Ok(()) => Ok(Swept {
+            total_bins,
+            total_len,
+            peak_events,
+            skipped: skipped_named(&path, diag),
+        }),
+        Err(e) => Err(Box::new((e, diag.unwrap_or_default()))),
+    }
+}
+
+fn skipped_named(path: &str, d: Option<Diagnostics>) -> Vec<(String, Diagnostics)> {
+    d.map(|d| (path.to_string(), d)).into_iter().collect()
+}
+
+fn check_genome(
+    genome: &Genome,
+    o: &GenomecovOptions,
+    input: &dyn RecordReader,
+) -> Result<(), IoError> {
+    validate(o)?;
+    if o.split_deletions && !input.format().is_alignment() {
+        return Err(UsageError(
+            "--split-deletions cuts alignments at deletions, and the input is not BAM, CRAM or \
+SAM; drop it, or use --split for BED12 blocks"
+                .into(),
+        )
+        .into());
+    }
+    if let Some(i) = (0..genome.len()).find(|&i| genome.length(i).is_none()) {
+        return Err(UsageError(format!(
+            "-g: the genome has no length for {}; genomecov needs chromosome lengths \
+(use a built-in genome, a .fai or .dict file, or a BAM file)",
+            String::from_utf8_lossy(genome.name(i))
+        ))
+        .into());
+    }
+    Ok(())
 }
 
 /// Write the coverage of `genome` by `input` (sorted in `chroms` order, a
@@ -426,43 +589,176 @@ pub fn genomecov_counting(
     o: &GenomecovOptions,
     w: &mut dyn RecordWriter,
 ) -> Result<usize, IoError> {
-    validate(o)?;
-    if let Some(i) = (0..genome.len()).find(|&i| genome.length(i).is_none()) {
-        return Err(UsageError(format!(
-            "-g: the genome has no length for {}; genomecov needs chromosome lengths \
-(use a built-in genome, a .genome or .fai file, or a .dict file)",
-            String::from_utf8_lossy(genome.name(i))
-        ))
-        .into());
+    check_genome(genome, o, input.as_ref())?;
+    let alignment = input.format().is_alignment();
+    let swept = sweep(input, chroms, genome, o, 0..genome.len(), w).map_err(|f| f.0)?;
+    if o.mode == GenomecovMode::Hist {
+        write_genome_rows(w, &swept.total_bins, swept.total_len)?;
     }
-    let path = input.name().to_string();
-    let bed = matches!(input.format(), Format::Bed | Format::BedGraph | Format::Wig);
-    let mut skipped = Skipped::default();
-    let input = skipped.watch(input);
-    let mut s = Cov {
-        o,
-        genome,
-        w,
-        chrom: None,
-        len: 0,
-        events: BTreeMap::new(),
-        depth: 0,
-        at: 0,
-        run: None,
-        bins: BTreeMap::new(),
-        total_bins: BTreeMap::new(),
-        total_len: 0,
-        next_genome: 0,
-        row: Vec::new(),
-        peak_events: 0,
-        pieces: Vec::new(),
+    if alignment && let Some((name, d)) = swept.skipped.first() {
+        d.log_alignment_counts(name);
+    }
+    log_skipped(&swept.skipped);
+    Ok(swept.peak_events)
+}
+
+/// How an indexed BAM is read per chromosome: its path and reader options, and the run's
+/// threads and spill directory.
+pub struct ChunkRun {
+    pub path: PathBuf,
+    pub ro: ReaderOptions,
+    pub threads: NonZeroUsize,
+    pub tmp_dir: PathBuf,
+}
+
+/// Chunks per thread, as the relations.
+const CHUNKS_PER_THREAD: usize = 4;
+
+/// One chunk of a per-chromosome run: the genome chromosomes `range`, of which `names` hold
+/// reads.
+#[derive(Clone)]
+struct Job {
+    range: Range<usize>,
+    names: Vec<Vec<u8>>,
+}
+
+/// The BAM or CRAM `reader` reads, ready to be read a chromosome at a time, or `None` when it must
+/// stream: not an indexed BAM or CRAM, or one streaming reports errors for (a chromosome the genome
+/// lacks, or an order the genome rejects).
+fn open_chunked(
+    reader: &dyn RecordReader,
+    chroms: &ChromTable,
+    run: &ChunkRun,
+) -> Result<Option<IndexedFile>, IoError> {
+    let Some(path) = run.path.to_str() else {
+        return Ok(None);
     };
-    kmerge_with(vec![input], chroms, &mut |_, meta, raw, _| {
-        s.record(meta, raw, &path, bed)
-    })?;
-    s.finish()?;
-    log_skipped(&skipped.take());
-    Ok(s.peak_events)
+    if !matches!(reader.format(), Format::Bam | Format::Cram) || !all_indexed(&[path]) {
+        return Ok(None);
+    }
+    let mut file = IndexedFile::open(&run.path, reader.format(), reader.header().clone(), &run.ro)?;
+    // An alignment reader's one-time warnings are printed once, by this run.
+    file.defer_warnings();
+    let mut probe = chroms.clone();
+    if file
+        .non_empty_reference_names()
+        .iter()
+        .any(|n| probe.intern(n).is_err())
+    {
+        log::debug!("the input has a chromosome the genome lacks; streaming");
+        return Ok(None);
+    }
+    let known: Vec<Vec<u8>> = file
+        .file_order_reference_names()
+        .into_iter()
+        .filter(|n| chroms.cmp_names(n, n).is_some())
+        .collect();
+    if known
+        .windows(2)
+        .any(|w| chroms.cmp_names(&w[0], &w[1]) == Some(std::cmp::Ordering::Greater))
+    {
+        log::debug!("the input is out of genome order; streaming");
+        return Ok(None);
+    }
+    file.info().warn_if_stale(file.name());
+    Ok(Some(file))
+}
+
+/// [`genomecov`] for an input that may be an indexed BAM: with `chunked` and a BAM that has an
+/// index, chunks of whole genome chromosomes are swept in parallel and written in genome order
+/// (D117), with the same output as streaming; anything else streams. `input` is the opened
+/// reader (its header and format are used).
+pub fn genomecov_files(
+    input: Box<dyn RecordReader>,
+    chunked: Option<&ChunkRun>,
+    chroms: &mut ChromTable,
+    genome: &Genome,
+    o: &GenomecovOptions,
+    w: &mut dyn RecordWriter,
+) -> Result<(), IoError> {
+    let file = match chunked {
+        Some(run) if run.threads.get() > 1 => {
+            check_genome(genome, o, input.as_ref())?;
+            open_chunked(input.as_ref(), chroms, run)?.map(|f| (f, run))
+        }
+        _ => None,
+    };
+    let Some((file, run)) = file else {
+        return genomecov(input, chroms, genome, o, w);
+    };
+    let names: Vec<Vec<u8>> = (0..genome.len()).map(|i| genome.name(i).to_vec()).collect();
+    let in_file: Vec<bool> = names.iter().map(|n| file.weight(n) > 0).collect();
+    let weights: Vec<u64> = names.iter().map(|n| file.weight(n) + 1).collect();
+    let mut start = 0;
+    let jobs: Vec<Job> = crate::relate::group_chromosomes(
+        names.clone(),
+        &weights,
+        CHUNKS_PER_THREAD * run.threads.get(),
+    )
+    .into_iter()
+    .map(|g| {
+        let range = start..start + g.len();
+        start = range.end;
+        let names = range
+            .clone()
+            .filter(|&i| in_file[i])
+            .map(|i| names[i].clone())
+            .collect();
+        Job { range, names }
+    })
+    .collect();
+    let table = chroms.clone();
+    // What the chunks that failed had noted: a streamed run has printed the one-time warnings
+    // met before its error, so the run prints these.
+    let failed: std::sync::Mutex<Vec<Diagnostics>> = std::sync::Mutex::new(Vec::new());
+    let step = |job: &Job, sink: &mut gloci_engine::ChunkSink| -> Result<Swept, IoError> {
+        let reader = file.chromosomes_reader(&job.names)?;
+        let mut chroms = table.clone();
+        sweep(reader, &mut chroms, genome, o, job.range.clone(), sink).map_err(|f| {
+            let (e, d) = *f;
+            failed.lock().unwrap_or_else(|p| p.into_inner()).push(d);
+            e
+        })
+    };
+    log::debug!("genomecov running per chromosome: {} chunk(s)", jobs.len());
+    let swept = match run_chunks(jobs, run.threads, &run.tmp_dir, &step, w) {
+        Ok(s) => s,
+        Err(e) => {
+            for d in failed.into_inner().unwrap_or_else(|p| p.into_inner()) {
+                d.log_deferred_warnings();
+            }
+            return Err(e.with_sorted_input_loc());
+        }
+    };
+
+    let mut total_bins: BTreeMap<u64, u64> = BTreeMap::new();
+    let mut total_len = 0;
+    let mut skipped: Vec<(String, Diagnostics)> = Vec::new();
+    for s in swept {
+        for (d, b) in s.total_bins {
+            *total_bins.entry(d).or_default() += b;
+        }
+        total_len += s.total_len;
+        if skipped.is_empty() {
+            skipped = s.skipped;
+        } else {
+            for ((_, d), (_, od)) in skipped.iter_mut().zip(s.skipped) {
+                d.absorb(od);
+            }
+        }
+    }
+    if o.mode == GenomecovMode::Hist {
+        write_genome_rows(w, &total_bins, total_len)?;
+    }
+    // What streaming reports once for the whole input, from the chunks together: the reads
+    // with no place at the end of the file are in no chromosome's chunk, the index counts them.
+    if let Some((name, d)) = skipped.first_mut() {
+        d.unmapped += file.unplaced_reads();
+        d.log_deferred_warnings();
+        d.log_alignment_counts(name);
+    }
+    log_skipped(&skipped);
+    Ok(())
 }
 
 #[cfg(test)]

@@ -29,6 +29,7 @@ impl RecordWriter for Sink {
 
 fn reader_opts() -> ReaderOptions {
     ReaderOptions {
+        accept: gloci_io::Accept::default(),
         chrom_map: None,
         threads: NonZeroUsize::MIN,
         format: Some(Format::Bed),
@@ -149,10 +150,12 @@ proptest! {
             let o = SubtractOptions {
                 whole,
                 sum_overlaps,
+                matching: gloci_ops::intersect::Match::Overlap,
                 relate: RelateOptions {
                     criteria: c,
                     window: win,
                     split: false,
+                    split_deletions: false,
                     unsorted,
                     sort: None,
                     labels: Vec::new(),

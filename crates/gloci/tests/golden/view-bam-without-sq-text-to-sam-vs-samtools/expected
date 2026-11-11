@@ -1,0 +1,5 @@
+@HD	VN:1.6
+@SQ	SN:c1	LN:100
+@SQ	SN:c2	LN:50
+r1	0	c1	11	60	4M	*	0	0	ACGT	????
+r2	0	c2	6	60	4M	*	0	0	ACGT	????

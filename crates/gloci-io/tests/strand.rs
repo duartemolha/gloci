@@ -6,6 +6,7 @@ use std::num::NonZeroUsize;
 
 fn strands(bytes: &[u8], format: Format) -> Vec<Strand> {
     let o = ReaderOptions {
+        accept: gloci_io::Accept::default(),
         chrom_map: None,
         threads: NonZeroUsize::new(1).unwrap(),
         format: Some(format),

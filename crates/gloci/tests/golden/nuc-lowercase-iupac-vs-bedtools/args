@@ -1,0 +1,1 @@
+nuc --fasta ref.fa -s --seq input.bed

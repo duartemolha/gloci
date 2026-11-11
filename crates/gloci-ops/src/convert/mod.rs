@@ -1,4 +1,4 @@
-//! `convert`: VCF/BCF, GFF3/GTF, WIG and BED12 to BED (replaces bedops
+//! `convert`: VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker and BED12 to BED (replaces bedops
 //! `convert2bed`, `vcf2bed`, `gff2bed`, `gtf2bed` and bedtools
 //! `bed12tobed6`).
 //!
@@ -7,12 +7,15 @@
 //! footprint can start after its record's key, and a BED12 block after the
 //! next record's start); that prints one warning (D49).
 
+mod align;
 mod bed12;
 mod gff;
+mod psl;
+mod rmsk;
 mod vcf;
 mod wig;
 
-use gloci_core::{ChromId, ChromTable, VariantKind, VcfSpan};
+use gloci_core::{ChromId, ChromTable, Strand, VariantKind, VcfSpan};
 use gloci_io::{Format, IoError, RecordReader, RecordWriter, UsageError};
 
 #[derive(Debug, Clone, Default)]
@@ -28,8 +31,18 @@ pub struct ConvertOptions {
     pub features: Vec<String>,
     /// GFF3/GTF: the attribute for the name column.
     pub name_attr: Option<String>,
-    /// BED12: one row per block.
+    /// BED12 and alignments: one row per block.
     pub blocks: bool,
+    /// Alignments: one BED12 row per read.
+    pub bed12: bool,
+    /// Alignments: the BED12 `itemRgb` (`R,G,B`, default `255,0,0`).
+    pub color: Option<String>,
+    /// Alignments: the integer tag the score column takes (default MAPQ).
+    pub score_tag: Option<[u8; 2]>,
+    /// Alignments: append the CIGAR (BED6 only).
+    pub cigar: bool,
+    /// Alignments: cut blocks at `D` as well as `N`.
+    pub split_deletions: bool,
 }
 
 /// The output rows, with the order warning.
@@ -73,6 +86,15 @@ impl Sink<'_> {
     }
 }
 
+/// The BED strand character of a record whose reader found `+` or `-`.
+pub(crate) fn strand_byte(s: Strand) -> u8 {
+    match s {
+        Strand::Plus => b'+',
+        Strand::Minus => b'-',
+        Strand::Unknown => b'.',
+    }
+}
+
 /// Append `n` as decimal digits.
 pub(crate) fn push_num(row: &mut Vec<u8>, n: u64) {
     row.extend_from_slice(n.to_string().as_bytes());
@@ -84,11 +106,14 @@ fn what(format: Format) -> &'static str {
         Format::Gff3 | Format::Gtf => "GFF3/GTF",
         Format::Bed | Format::BedGraph => "BED",
         Format::Wig => "WIG",
+        Format::Bam | Format::Cram | Format::Sam | Format::Fasta | Format::Psl | Format::Rmsk => {
+            format.name()
+        }
     }
 }
 
 /// What `convert` does for each input, for usage errors.
-const SUMMARY: &str = "convert turns VCF/BCF, GFF3/GTF, WIG or (with --blocks) BED12 into BED";
+const SUMMARY: &str = "convert turns VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out, BAM/CRAM/SAM or (with --blocks) BED12 into BED";
 
 impl ConvertOptions {
     fn check(&self, format: Format) -> Result<(), UsageError> {
@@ -116,10 +141,42 @@ impl ConvertOptions {
                 return usage("--name-attr", "GFF3/GTF");
             }
         }
-        if self.blocks && format != Format::Bed {
+        let aln = matches!(format, Format::Bam | Format::Cram | Format::Sam);
+        if !aln {
+            for (set, flag) in [
+                (self.bed12, "--bed12"),
+                (self.color.is_some(), "--color"),
+                (self.score_tag.is_some(), "--score-tag"),
+                (self.cigar, "--cigar"),
+                (self.split_deletions, "--split-deletions"),
+            ] {
+                if set {
+                    return usage(flag, "BAM/CRAM/SAM");
+                }
+            }
+        }
+        if self.blocks && format != Format::Bed && !aln {
             return Err(UsageError(format!(
-                "--blocks needs BED12 input, not {}; {SUMMARY}",
+                "--blocks needs BED12, BAM, CRAM or SAM input, not {}; {SUMMARY}",
                 what(format)
+            )));
+        }
+        if self.color.is_some() && !self.bed12 {
+            return Err(UsageError(format!(
+                "--color is the itemRgb of BED12 rows and needs --bed12; {SUMMARY}"
+            )));
+        }
+        if self.cigar && (self.bed12 || self.blocks || self.split_deletions) {
+            return Err(UsageError(
+                "--cigar adds a column to BED6 rows and cannot be used with --bed12, --blocks or --split-deletions; drop one of them (bedtools -cigar -split silently drops the CIGAR)"
+                    .into(),
+            ));
+        }
+        if let Some(c) = &self.color
+            && (c.split(',').count() != 3 || c.split(',').any(|v| v.parse::<u8>().is_err()))
+        {
+            return Err(UsageError(format!(
+                "--color {c} is not R,G,B with each value from 0 to 255 (for example 255,0,0)"
             )));
         }
         if format == Format::Bed && !self.blocks {
@@ -159,6 +216,14 @@ pub fn convert(
         warned: false,
     };
     match format {
+        Format::Bam | Format::Cram | Format::Sam => align::convert(input, chroms, o, &mut sink),
+        Format::Fasta => Err(UsageError(format!(
+            "convert does not read {}, which is sequence and not intervals; {SUMMARY}",
+            format.name()
+        ))
+        .into()),
+        Format::Psl => psl::convert(input, chroms, &mut sink),
+        Format::Rmsk => rmsk::convert(input, chroms, &mut sink),
         Format::Vcf | Format::Bcf => vcf::convert(input, chroms, o, &mut sink),
         Format::Gff3 | Format::Gtf => gff::convert(input, chroms, o, &mut sink),
         Format::Bed => bed12::convert(input, chroms, &mut sink),

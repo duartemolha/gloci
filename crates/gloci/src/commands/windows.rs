@@ -40,6 +40,7 @@ pub fn run(ctx: &Ctx, a: &WindowsArgs) -> anyhow::Result<()> {
     let input = match a.intervals.as_deref() {
         Some(f) => {
             let ro = ReaderOptions {
+                accept: gloci_io::Accept::default(),
                 chrom_map: a.chrom_map.load()?,
                 threads: ctx.threads,
                 format: match a.format.format.as_deref() {

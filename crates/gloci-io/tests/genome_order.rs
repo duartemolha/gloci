@@ -23,6 +23,7 @@ fn write(name: &str, bytes: &[u8]) -> PathBuf {
 
 fn opts(format: Format) -> ReaderOptions {
     ReaderOptions {
+        accept: gloci_io::Accept::default(),
         chrom_map: None,
         threads: NonZeroUsize::new(1).unwrap(),
         format: Some(format),

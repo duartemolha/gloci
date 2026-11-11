@@ -11,7 +11,14 @@ pub fn rewrite_coords(format: Format, raw: &[u8], iv: Interval, out: &mut Vec<u8
     let (first, start, end) = match format {
         Format::Bed | Format::BedGraph | Format::Wig => (1, iv.start, iv.end),
         Format::Gff3 | Format::Gtf => (3, iv.start + 1, iv.end),
-        Format::Vcf | Format::Bcf => {
+        Format::Vcf
+        | Format::Bcf
+        | Format::Bam
+        | Format::Cram
+        | Format::Sam
+        | Format::Fasta
+        | Format::Psl
+        | Format::Rmsk => {
             out.extend_from_slice(raw);
             return;
         }
@@ -43,7 +50,8 @@ pub fn rewrite_coords(format: Format, raw: &[u8], iv: Interval, out: &mut Vec<u8
 /// VCF/GFF B and for the score of a BED5/BED6 B.
 pub fn b_placeholder(b_format: Format, b_columns: usize, out: &mut Vec<u8>) {
     let mut fields: Vec<&str> = match b_format {
-        Format::Bed | Format::BedGraph | Format::Wig => {
+        // An alignment is printed as its BED6 row (D104).
+        Format::Bed | Format::BedGraph | Format::Wig | Format::Bam | Format::Cram | Format::Sam => {
             let mut f = vec![".", "-1", "-1"];
             f.resize(b_columns.max(3), ".");
             if matches!(b_columns, 5 | 6) {
@@ -56,7 +64,7 @@ pub fn b_placeholder(b_format: Format, b_columns: usize, out: &mut Vec<u8>) {
             f.resize(b_columns.max(5), ".");
             f
         }
-        Format::Vcf | Format::Bcf => {
+        Format::Vcf | Format::Bcf | Format::Fasta | Format::Psl | Format::Rmsk => {
             let mut f = vec![".", "-1"];
             f.resize(b_columns.max(2), ".");
             f

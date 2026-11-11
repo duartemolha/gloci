@@ -1,0 +1,11 @@
+#1_usercol	2_usercol	3_usercol	4_usercol	5_usercol	6_usercol	7_pct_at	8_pct_gc	9_num_A	10_num_C	11_num_G	12_num_T	13_num_N	14_num_oth	15_seq_len	16_user_patt_count
+chrX	50	70	iupac_minus	0	-	0.000000	0.000000	0	0	0	0	2	18	20	0
+chrX	50	70	iupac_plus	0	+	0.000000	0.000000	0	0	0	0	2	18	20	0
+chr1	195	265	lower_minus	5	-	0.485714	0.514286	20	22	14	14	0	0	70	6
+chr1	100	129	atrich	0	+	0.931035	0.068966	14	1	1	13	0	0	29	0
+chrM	0	10	mt_lc	0	-	0.400000	0.600000	2	2	4	2	0	0	10	0
+chr10	5	40	u_nn	.	-	0.428571	0.514286	8	10	8	7	2	0	35	1
+chr2	1000	1100	chr2_dot	3	.	0.470000	0.530000	28	28	25	19	0	0	100	6
+chr1	330	345	nrun	0	-	0.066667	0.266667	1	2	2	0	10	0	15	1
+chr2	0	20	start	0	+	0.300000	0.700000	3	4	10	3	0	0	20	1
+chrM	140	150	chrm_end	0	-	0.600000	0.400000	2	3	1	4	0	0	10	0

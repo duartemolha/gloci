@@ -143,6 +143,12 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   gloci exit status 1, `bgzip -dc` exit status 0).
 - **Reason:** a missing marker is the signature of a truncated download or an
   interrupted write, and gloci never gives a quiet partial answer.
+- **`cat`:** `gloci cat` refuses a BAM input without the marker (exit 1, naming
+  the file), where `samtools cat` warns (`EOF marker is absent`) and exits 0.
+  This is stricter than `vcf concat --naive`, which warns and copies the blocks
+  as they are: `cat` writes one new marker at the end of its output, and that
+  would make a truncated input look complete. Pinned by
+  `cat-no-eof-marker-vs-samtools` (exit status: must differ).
 
 ## `view --assume-sorted` {#view-assume-sorted}
 
@@ -355,19 +361,27 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 
 ## `--match alleles` compares trimmed alleles {#trimmed-allele-match}
 
-- **gloci:** `intersect --match alleles` keeps a record when some ALT of it
-  equals some ALT of a B record after trimming the shared prefix and suffix
-  of REF and ALT, at the same trimmed position. `A>AG` at 100 matches `C>GC`
-  at 101 (an insertion of G), and records match when they share any one ALT of
-  several. The overlap options (`-f`, `-s`, `-w`, ...) are refused with it.
+- **gloci:** `intersect --match alleles` (and `subtract --match alleles`, which
+  drops an A record exactly when `intersect --mode none --match alleles` does,
+  one shared ALT of a multi-allelic A dropping it whole) keeps a record when
+  some ALT of it equals some ALT of a B record after trimming the shared
+  prefix and suffix of REF and ALT, at the same trimmed position. `A>AG` at
+  100 matches `C>GC` at 101 (an insertion of G), and records match when they
+  share any one ALT of several. The overlap options (`-f`, `-s`, `-w`, ...) are
+  refused with it.
 - **Old behaviour:** `bcftools isec -c none` pairs records at the same
-  position with identical REF and ALT lists, and does not normalise.
+  position with identical REF and ALT lists, and does not normalise. So `isec
+  -C` keeps a multi-allelic `C>A,G` that shares only `G` with a B `C>G`, where
+  `subtract --match alleles` drops it.
 - **Reason:** the same variant is often written with different anchors, and a
   multi-allelic record shares a variant with another that lists more or fewer
   ALTs. Run `bcftools norm` on both inputs and the results then agree for
   records with identical ALT lists.
-- **Pinned by:** `intersect-alleles-unnormalised-vs-bcftools` (must differ);
-  `intersect-alleles-vs-bcftools` and `intersect-alleles-multiallelic-vs-bcftools`
+- **Pinned by:** `intersect-alleles-unnormalised-vs-bcftools`,
+  `subtract-alleles-unnormalised-vs-bcftools` and
+  `subtract-alleles-shared-alt-vs-bcftools` (`bcftools isec -C`) (must differ);
+  `intersect-alleles-vs-bcftools`, `intersect-alleles-multiallelic-vs-bcftools`,
+  `subtract-alleles-vs-bcftools` and `subtract-alleles-multiallelic-vs-bcftools`
   (must match).
 
 ## `merge -s` keeps records of unknown strand {#merge-unknown-strand}
@@ -650,6 +664,37 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   `coverage-split-hist-vs-bedtools` and `coverage-split-per-base-vs-bedtools`
   (must differ).
 
+## `coverage --split` counts a spliced B once {#coverage-split-count}
+
+- **gloci:** the hit count (column 7 of the default report) is the number of B
+  features that overlap A. A spliced read, or a BED12 feature, that meets A through
+  two of its blocks is one feature and counts once.
+- **Old behaviour:** `bedtools coverage -split` counts the read once for each block that
+  overlaps A, so a target spanning an intron reports 2. The covered bases and the
+  fraction are the same as gloci's.
+- **Reason:** the column is "number of B features overlapping A"; a count that grows
+  with the number of blocks says nothing about how many reads there are. It applies
+  to a BED12 B as much as to a BAM or SAM B.
+- **Pinned by:** `coverage-bed-bam-split-count-vs-bedtools` (must differ).
+
+## `-f`, `-F`, `-r` and `-e` under `--split` judge each hit on its own {#split-fraction}
+
+- **gloci:** with `--split`, a hit counts when the bases A and B's blocks share, over the
+  summed length of A's blocks (`-f`) or of B's blocks (`-F`), meet the thresholds. Each B
+  record is judged alone, and a BED record without blocks is one block (D105).
+  This holds for BED12 and for BAM/SAM reads (blocks cut at `N`).
+- **Old behaviour:** `bedtools intersect -split -f` with a BAM or BED12 B does not decide
+  hit by hit. The outcome for one A depends on how many other B records overlap it:
+  three reads covering 90, 60 and 50 bases of a 100-base target give no hit at
+  `-f 0.7`, although the first read alone covers 90%, while two of the same reads give
+  both, though one covers only 60%. On a random set of spliced reads, `-f 0.5 -split`
+  gave far fewer rows in bedtools than the per-hit rule (1,756 against 3,678 in one
+  comparison). Without `-split`, bedtools judges each hit alone, as gloci does.
+- **Reason:** a threshold that changes with the other reads cannot be reasoned about,
+  and a single read gives the same answer in both tools (checked on reads and targets
+  covering all of block, intron and bookended overlaps).
+- **Pinned by:** `intersect-bed-bam-split-fraction-vs-bedtools` (must differ).
+
 ## `complement` ignores points {#complement-points}
 
 - **gloci:** a point (a zero-length feature) covers no bases, so it is ignored:
@@ -888,6 +933,32 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   `convert-bed12-invalid-vs-bedtools` (must differ; exit status).
   `convert-bed12-zero-blocks-vs-bedtools` must match (both exit 1).
 
+## `convert` reads PSL and RepeatMasker the way the files are written {#psl-rmsk-bedops-quirks}
+
+- **gloci:** `gloci convert x.psl` skips the BLAT header (the five lines from
+  `psLayout version 3` to the dashed line) and reads a final line that has no
+  newline. RepeatMasker `.out` loses its three header lines the same way. A
+  line that is not a PSL or RepeatMasker row (too few columns, a coordinate
+  that is not a number, a strand that is not `+`/`-` or `C`) is a data error
+  (exit 1) naming the file and the line; `--skip-invalid` skips it. That
+  includes a PSL row whose blockCount differs from the number of entries in
+  blockSizes, qStarts or tStarts, and (as `convert2bed` does) a row with more
+  than 21 columns (exit 1; `convert2bed` exits 22).
+- **Old behaviour:** `convert2bed --input=psl` (bedops 2.4.41) exits 22 with
+  "Invalid field count (19)" on a header line, so a headered BLAT file must be
+  stripped first, it silently drops a last line that has no newline, and it
+  copies a blockCount that disagrees with the block lists unchecked.
+- **Reason:** BLAT writes the header by default, and a file cut short or
+  written without a final newline should not lose its last hit unseen.
+- **Pinned by:** `convert-psl-header-unskipped-vs-convert2bed` (exit status;
+  must differ) and `convert-psl-no-final-newline-vs-convert2bed` (must
+  differ), and `convert-psl-block-count-vs-convert2bed` (exit status; must
+  differ; both tools refuse a 22nd column, with exit 1 and 22:
+  `convert-psl-22-columns-vs-convert2bed`, must differ).
+  Every column otherwise matches: `convert-psl-vs-convert2bed`,
+  `convert-psl-header-vs-convert2bed` (the header cut off for the reference)
+  and `convert-rmsk-vs-convert2bed`.
+
 ## INFO kept by default in `vcf filter` {#info-kept-by-default}
 
 - **gloci:** `gloci vcf filter` keeps all INFO fields by default. `--keep-info`
@@ -987,11 +1058,46 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   `gloci` tools that check order; the input is sorted, so streaming in genome
   order needs no buffering. When the featureless chromosomes are last in `-g`
   the outputs are identical.
+- **BAM input:** `bedtools genomecov -ibam` also writes a header contig with no reads after
+  the others; gloci keeps the header order.
 - **Pinned by:** `genomecov-empty-chrom-middle-hist-vs-bedtools` and
-  `genomecov-empty-chrom-middle-bga-vs-bedtools` (must differ); the other
+  `genomecov-empty-chrom-middle-bga-vs-bedtools` (must differ);
+  `genomecov-ibam-empty-mid-hist-vs-bedtools`, `genomecov-ibam-empty-mid-bga-vs-bedtools` and
+  `genomecov-ibam-empty-mid-d-vs-bedtools` (must differ; `midempty.bam` has no reads on the
+  middle contig of its header; `tags.bam` and `order.bam` have the empty contig last and
+  match); the other
   `genomecov-*` cases use a genome that lists the empty chromosome last and
   match.
 
+
+## `genomecov` of alignments counts deleted bases {#bam-genomecov-deletions}
+
+- **gloci:** a read counts its whole reference span, so the bases under a `D` operation are
+  covered (D105, the same rule as every command). `--split` counts the blocks between `N`
+  operations, and `--split-deletions` counts the blocks cut at `N` and at `D`.
+- **Old behaviour:** `bedtools genomecov -ibam` cuts every read at `D` (and not at `N`)
+  unless `-ignoreD` is given, so deleted bases are not covered.
+- **Reason:** one block rule for `intersect`, `coverage`, `convert` and `genomecov`, so the
+  commands agree with each other. For parity use `--split-deletions`, which is bedtools
+  `-split` (cuts at `N` and `D`). Plain bedtools `-ibam` (cut at `D`, not at `N`) has no gloci
+  counterpart; `-ignoreD` is gloci's default, and `-split -ignoreD` is `--split`.
+- **Pinned by:** `genomecov-ibam-default-vs-bedtools` (must differ; `cigars-bases.bam` has a
+  read with `2D`). `genomecov-ibam-ignored-vs-bedtools`,
+  `genomecov-ibam-bga-split-deletions-vs-bedtools` and
+  `genomecov-ibam-split-ignored-vs-bedtools` match.
+
+## `genomecov -g` with a BAM is used, not ignored {#genomecov-bam-genome-arg}
+
+- **gloci:** `-g` gives the chromosomes and lengths even for a BAM or SAM input, in place of
+  the header's. A read past the end of its `-g` chromosome is an error naming the read's
+  place, as for BED input.
+- **Old behaviour:** `bedtools genomecov -ibam x.bam -g G` ignores `-g` ("Genome (-g) files
+  are ignored when BAM input is provided") and uses the header.
+- **Reason:** a silently ignored option hides a mismatch between the genome and the reads;
+  a different genome is a real request (a subset of the chromosomes, or the same build
+  under other names).
+- **Pinned by:** `genomecov-ibam-genome-arg` (must differ; the `-g` file gives a longer
+  `chr1` than the header's). Without `-g` the header is used, as bedtools does.
 
 ## Filter expressions: `!~` negates the match {#expr-not-match}
 
@@ -1368,3 +1474,486 @@ it takes every `vcf filter` selection flag, runs any number of statistics in one
 pass (vcftools allows one output function per run), writes each file only when
 the whole run succeeds, and defaults `--vcf-span` to `ref` because no statistic
 depends on the span.
+
+## `index` on FASTA refuses what `samtools faidx` quietly mishandles {#fasta-index-strictness}
+
+- **gloci:** `gloci index ref.fa` exits 1, naming the line, for three inputs:
+  a sequence name used twice, a header with no name (`>` alone), and a sequence
+  line holding a space, a control character or a non-ASCII byte. No index is
+  written.
+- **Old behaviour:** `samtools faidx` exits 0. It keeps the first of two equal
+  names and warns, indexes an empty name, and does not count a space as a base
+  (so the index offsets no longer match the file).
+- **Reason:** each of these gives an index that returns the wrong bases or hides
+  a sequence; an error that names the line is safer. Every FASTA both tools
+  accept gets a byte-identical `.fai` (and `.gzi` for BGZF). Empty sequences
+  are left out of the index as samtools does, with a warning.
+- **Also:** `*` and `-` are accepted, because the check is "ASCII graphic". A
+  trailing space or tab on a sequence line is the rejection users will most
+  often meet: samtools indexes it wrongly and returns truncated sequence.
+- **Stale indexes:** detection at fetch time checks only the bytes a fetch
+  reads. A same-length edit, or a sequence appended after the last entry, is
+  not detected; this is the same trust level as samtools/htslib. The "index
+  older than FASTA" mtime warning covers most real edits.
+- **Pinned by:** `index-fasta-duplicate-name-vs-samtools`,
+  `index-fasta-space-in-sequence-vs-samtools` and
+  `index-fasta-empty-name-vs-samtools` (exit status: must differ);
+  `index-fasta-irregular-lines-vs-samtools` pins the agreeing side (both exit
+  1), and `index-interop-faidx` and `index-interop-faidx-bgzf` pin identical
+  indexes.
+
+## `index` of a BAM with a long reference writes a `.csi` {#bam-index-long-reference}
+
+- **gloci:** `gloci index x.bam` writes `x.bam.bai`, or `x.bam.csi` when a reference is
+  longer than 2^29 (536,870,912) bases or a read ends past that. `--csi` asks for a `.csi`
+  at any length. The `.csi` has min_shift 14 and the smallest depth (at least 5) that
+  holds the longest reference. A `.csi` or `.bai` left from before is removed, so one
+  index is left.
+- **Old behaviour:** `samtools index x.bam` exits 1 with `Region ... cannot be stored in a
+  bai index. Try using a csi index`, and `samtools index -c` is the way to a `.csi`.
+- **Reason:** the format follows from the data, as `gloci index` of a BED, GFF or VCF
+  switches from `.tbi` to `.csi` on its own, so one command line works for every genome.
+  samtools reads the `.csi` gloci writes, and gloci reads samtools' `.bai` and `.csi`;
+  queries through either return the same reads. The two tools write the same content
+  (bins, chunks, linear index, metadata) for a file that fits a `.bai`; the order of the
+  bins within a reference may differ (htslib writes them in hash order, gloci sorted), so
+  the bytes can differ.
+- **Pinned by:** `index-bam-long-reference-vs-samtools` (exit status: must differ);
+  `index-interop-bam-csi-samtools` pins the agreeing side (samtools reads gloci's
+  `.csi`), and `index-interop-bam-samtools-view` the `.bai`.
+
+## `view` of a BAM region without an index scans the file {#bam-region-without-index}
+
+- **gloci:** `gloci view x.bam chr1:100-200` reads through `x.bam.bai`, `x.bai` or
+  `x.bam.csi` when there is one. With none, or with SAM or a BAM on standard input, it
+  reads the whole file and keeps the reads that overlap a region, with a warning that
+  says to run `gloci index x.bam`. A scan and an index give the same reads.
+- **Old behaviour:** `samtools view x.bam chr1:100-200` exits 1 without an index
+  (`Random alignment retrieval only works for indexed SAM.gz, BAM or CRAM files`).
+- **Reason:** a slow answer with a warning serves a pipeline better than a failure; the
+  warning names the fix. An index that is older than its BAM is used with a warning too.
+- **Pinned by:** `view-bam-region-no-index-vs-samtools` (exit status: must differ);
+  `view-bam-region-vs-samtools` pins the indexed side.
+
+## `getfasta` and `nuc` fail on an interval outside the FASTA {#getfasta-outside-fasta}
+
+- **gloci:** `gloci getfasta` and `gloci nuc` exit 1 at the first interval whose chromosome is
+  not in the FASTA's `.fai`, or whose end is past the chromosome's length. The
+  message names the input line, the interval and the length, and points to
+  `--skip-invalid`. Nothing more is written; a file given with `-o` is not
+  created. With `--skip-invalid` the interval is skipped and one warning gives
+  the count and the first cause; the exit status is 0.
+- **Old behaviour:** `bedtools getfasta` prints `chromosome (X) was not found in
+  the FASTA file. Skipping.` or `Feature (...) beyond the length of ... size.
+  Skipping.` to stderr, skips the record and exits 0; `bedtools nuc` prints
+  `Feature (...) beyond the length of ... size (N bp).  Skipping.` and does the
+  same (a chromosome the FASTA lacks is the same message with a size of 0). A script that checks only
+  the exit status gets a short output and no failure.
+- **Reason:** a chromosome-naming mismatch (`chr1` against `1`) or a FASTA of
+  another assembly makes every interval fall outside; with the exit status 0 the
+  output is empty or partial and the mistake goes unnoticed. `--chrom-map`
+  fixes naming, and `--skip-invalid` gives bedtools' behaviour.
+- **Unchanged:** a zero-length interval is skipped with one warning that counts
+  them, as in bedtools (it has no sequence); it is not an error. `nuc` writes
+  its header line for the first record even when that record is skipped, as
+  bedtools does.
+- **Pinned by:** `getfasta-outside-vs-bedtools` and
+  `getfasta-missing-chrom-vs-bedtools` (exit status: must differ);
+  `getfasta-outside-skip-vs-bedtools` and `getfasta-missing-chrom-skip-vs-bedtools`
+  pin the matching output under `--skip-invalid`. The same for `nuc`:
+  `nuc-outside-vs-bedtools`, `nuc-missing-chrom-vs-bedtools`,
+  `nuc-outside-skip-vs-bedtools` and `nuc-missing-chrom-skip-vs-bedtools`.
+
+## `getfasta --split` refuses BED12 records with inconsistent blocks {#getfasta-split-blocks}
+
+- **gloci:** with `--split`, a BED12 record whose blocks are not self-consistent
+  exits 1, naming the input line and the problem (`invalid BED12: ...`). A record
+  is inconsistent when its blocks are out of order or overlap, its first block is
+  not at offset 0, or its last block does not end at chromEnd. With
+  `--skip-invalid` the record is skipped and one warning gives the count and the
+  first cause (together with any intervals outside the FASTA).
+- **Old behaviour:** `bedtools getfasta -split` does not check the blocks. It
+  concatenates them in the order listed and writes the sequence, exit 0.
+- **Reason:** gloci applies the same BED12 validation as `convert --blocks`; a
+  record whose blocks disagree with its span has no well-defined exons, and the
+  sequence bedtools writes for it is not the transcript the record describes.
+- **Workaround:** fix the BED12 record, or pass `--skip-invalid` to skip it.
+- **Pinned by:** `getfasta-split-bad-blocks-vs-bedtools` (exit status: must
+  differ) and `getfasta-split-bad-blocks-skip-vs-bedtools`, which pins the
+  matching output for the consistent records under `--skip-invalid`.
+
+## `maskfasta` keeps the FASTA layout; bedtools re-wraps and cannot match CRLF names {#maskfasta-layout}
+
+- **gloci:** `gloci maskfasta` writes every line break where the input had it:
+  uneven line widths, blank lines, CRLF line ends and a missing final line break
+  are all kept, and only the masked bases change. A CRLF FASTA is masked like
+  any other.
+- **Old behaviour:** `bedtools maskfasta` re-wraps each sequence to the width of
+  the first line, so an irregular FASTA comes out with different line breaks.
+  On a CRLF FASTA it keeps the CR in the header name (`chrM\r`), so no mask
+  finds its sequence and nothing is masked, with exit 0.
+- **Reason:** the output is the input with fewer bases, so `diff` shows only the
+  masked bases, and the `.fai` of the output matches the `.fai` of the input.
+  Silently doing nothing on CRLF input is a wrong answer.
+- **Also:** bedtools ends the output with a line break even when the input's
+  last line had none, and drops sequences that have no bases (for
+  `>e`, `>chr1` with bases, `>f` it prints only `>chr1`). gloci keeps the last
+  line as it was and keeps `>e` and `>f`.
+- **Pinned by:** `maskfasta-irregular-lines-vs-bedtools`,
+  `maskfasta-crlf-vs-bedtools`, `maskfasta-no-final-newline-vs-bedtools` and
+  `maskfasta-empty-sequences-vs-bedtools` (outputs must differ).
+
+## `maskfasta` keeps the whole header; bedtools drops the description {#maskfasta-header}
+
+- **gloci:** the header line is copied as it is (`>chr1 Homo sapiens chromosome 1`).
+  A mask names a sequence by the first word of its header.
+- **Old behaviour:** `bedtools maskfasta` writes only the first word (`>chr1`)
+  unless `-fullHeader` is given.
+- **Reason:** dropping the description loses information the user did not ask to
+  remove. `-fullHeader` output is identical in both tools
+  (`maskfasta-full-header-vs-bedtools`).
+- **Pinned by:** `maskfasta-description-vs-bedtools` (output must differ).
+
+## `maskfasta` refuses a mask past the end of its sequence {#maskfasta-past-end}
+
+- **gloci:** a mask whose end is beyond the length of its sequence is an error
+  (exit 1) that names the sequence, the mask and the length. With `-o`, nothing
+  is published. With `--skip-invalid` the mask is clipped to the end of the
+  sequence instead (one that starts at or past the end masks nothing), and one
+  warning gives the number of such masks and the first.
+- **Old behaviour:** `bedtools maskfasta` accepts a mask that starts inside the
+  sequence and ends past it (exit 0) and writes the whole mask length, so the
+  sequence grows by the overhang (a mask 990-1010 on a 1,000 base chr1 leaves
+  chr1 with 1,010 bases); it aborts with a C++ exception (exit 134) when the
+  mask starts past the end.
+- **Reason:** such a mask nearly always means the intervals belong to another
+  assembly. Masking a different sequence silently gives a wrong reference.
+- **Pinned by:** `maskfasta-past-end-vs-bedtools` (exit status: must differ);
+  `maskfasta-past-end-skip-invalid-vs-bedtools` pins gloci's clipped output
+  against bedtools' lengthened sequence (output must differ).
+
+## `maskfasta --mask-char` refuses a space {#maskfasta-mask-char}
+
+- **gloci:** `--mask-char` takes one printable, non-space ASCII character; a
+  space exits 2 with the reason.
+- **Old behaviour:** `bedtools maskfasta -mc ' '` writes spaces into the
+  sequence, exit 0.
+- **Reason:** a space inside a sequence line makes the FASTA impossible to
+  index (`gloci index` and `samtools faidx` reject it), so the output would
+  be unusable for most tools.
+- **Pinned by:** `maskfasta-mask-char-space-vs-bedtools` (exit status: must
+  differ).
+
+## SAM input: a read whose reference is not in the header is an error {#sam-unknown-rname}
+
+- **gloci:** a record whose RNAME or RNEXT is not an `@SQ` name of the header
+  is a data error naming the file and line. The message says to add the `@SQ`
+  line, fix the name, or pass `--skip-invalid`, which skips such records and
+  counts them. A header with no `@SQ` lines refuses every placed read the same way.
+- **Old behaviour:** `samtools view` warns `unrecognized reference name` (or
+  `unrecognized mate reference name`), writes the read as unmapped with its
+  position kept (RNAME `*`, flag |= 4, or RNEXT `*`), and exits 0. With no `@SQ`
+  lines at all it fails.
+- **Reason:** turning reads into unmapped ones quietly loses their placement, for
+  a typo or a header from another build.
+- **Pinned by:** `view-sam-unknown-rname-vs-samtools` and
+  `view-sam-unknown-rnext-vs-samtools` (exit status must differ).
+
+## SAM input: junk that samtools lets through is refused {#sam-parse-strictness}
+
+- **gloci:** these are data errors naming the file and line, honoured by
+  `--skip-invalid`:
+  - a character (`A`) optional field of other than one character (`XA:A:ab`);
+  - a `B` array element out of range for its type (`B:c,200`) or empty (`B:c,1,`);
+  - a float that is not plain decimal text (`XF:f: 1.5`, `XF:f:1.5x`, hex floats
+    such as `0x1p3`);
+  - a QUAL character outside `!` to `~` (0x7f);
+  - a CIGAR length of more than 9 digits (so leading zeros as in `0000000004M`).
+
+  The checks run when the line is read, whatever the output format.
+- **Old behaviour:** `samtools view` reads each of these, storing the bytes it
+  parsed (`ab` as `a`, the out-of-range element wrapped, the trailing comma as a
+  zero element, the number by `strtod`, QUAL 0x7f as 94).
+- **Also:** a SAM line that gloci does not normalise is copied as written (D120), spelling
+  included: lowercase bases, `0x10` for a FLAG, `I` and `c` tag types, `0.10` and `+7`.
+  samtools rewrites all of these, because it parses every line into a BAM record and prints
+  that. A line that htslib reads as a different record (a mapped read with CIGAR `*`, with no
+  position or no reference, or whose RNEXT has PNEXT 0) is written as the record samtools
+  writes, flag 4 and `*` included, so the output agrees with BAM output and with the filters.
+  SAM to BAM encodes what samtools encodes.
+- **A `@PG` line with no ID:** samtools cannot chain its own `@PG` line to it and fails the
+  run; gloci adds its line and goes on.
+- **Reason:** each of these is more likely a broken file than a meant value.
+- **Pinned by:** `view-sam-strict-char-two-vs-samtools`,
+  `view-sam-strict-b-range-vs-samtools`, `view-sam-strict-b-comma-vs-samtools`,
+  `view-sam-strict-float-space-vs-samtools`,
+  `view-sam-strict-float-trailing-vs-samtools`,
+  `view-sam-strict-qual-del-vs-samtools` and
+  `view-sam-strict-cigar-zeros-vs-samtools` and `view-sam-pg-without-id-vs-samtools` (exit
+  status must differ).
+
+## `cat` refuses BAM files whose `@SQ` lists differ {#alignment-cat-sq}
+
+- **gloci:** `gloci cat` compares the reference lists (`@SQ` names and lengths, in
+  order) of all its inputs with the first one's. If they differ it exits 1,
+  names the file and the first difference, and writes nothing.
+- **Old behaviour:** `samtools cat` does not check. It writes the first file's
+  header and copies the records of every file as they are (exit 0).
+- **Reason:** a BAM record names its reference by number, so records copied from
+  a file with another reference list point at the wrong contigs, and the joined
+  file looks fine until a variant caller or a genome browser uses it.
+  The other merge rules are samtools': the header is the first file's, plus the
+  `@RG` lines of later files whose ID it does not have (appended at the end;
+  an ID already there is skipped without comparing the rest of the line);
+  `@PG`, `@CO` and `@SQ` lines of later files are dropped. The order of the
+  records is not checked. samtools also keeps empty interior (non-EOF) BGZF
+  blocks of the inputs; gloci drops them, and the records are identical.
+- **Pinned by:** `cat-different-sq-vs-samtools` (the lists differ in order) and
+  `cat-different-sq-length-vs-samtools` (in a length) (exit status: must differ).
+
+
+## `sort -m` refuses alignment files whose `@SQ` lists differ {#alignment-merge-sq}
+
+- **gloci:** `gloci sort -m` compares the reference lists (`@SQ` names and lengths, in
+  order) of all its alignment inputs with the first one's. If they differ it exits 1, names
+  the file and the first difference, and writes nothing.
+- **Old behaviour:** `samtools merge` appends the `@SQ` lines it does not know and
+  only warns when that loses the coordinate order (exit 0); records of the later
+  files are renumbered to the merged list.
+- **Reason:** a merge of files aligned to different references, or to one
+  reference in another order, is almost always a mistake, and the merged file
+  looks fine until a variant caller or a genome browser uses it.
+- **Pinned by:** `aln-merge-different-sq-vs-samtools` (a length differs; exit status:
+  must differ).
+
+## `sort -m` refuses conflicting `@RG` lines {#alignment-merge-rg}
+
+- **gloci:** two inputs that have an `@RG` line with the same `ID` but different
+  other fields are an error (exit 1) naming both lines. An identical line is kept
+  once, and `@PG` lines with the same `ID` keep the first.
+- **Old behaviour:** `samtools merge -c` keeps the first `@RG` line and drops the
+  other without a word (exit 0); without `-c` it renames the colliding ID with a
+  random suffix (`g1-58152F2E`), which gloci cannot reproduce.
+- **Reason:** reads of the second file would be attributed to the first file's
+  sample or library.
+- **Pinned by:** `aln-merge-rg-conflict-vs-samtools` (exit status: must differ).
+
+
+## `convert` of alignments: `--blocks` with a score tag or `--cigar` {#bamtobed-split-tag}
+
+- **gloci:** `convert --blocks --score-tag NM` writes the BED6 rows of `--blocks` with
+  the tag as the score, the six columns of every other `convert` row. `--cigar` with
+  `--blocks`, `--bed12` or `--split-deletions` is a usage error (exit 2) that says to
+  drop one of them.
+- **Old behaviour:** `bedtools bamtobed -split -tag NM` (also `-splitD`) writes an extra
+  column, the block start again, after the start: `chr1 600 600 605 c_skip 0 +`.
+  `-splitD` also writes an empty trailing block for a CIGAR that ends in `D`, which
+  gloci drops (D105: empty blocks are dropped). `-split -ed` is refused (exit 1, "Edit distances cannot be computed for each
+  'chunk'"). `-cigar -split` drops the CIGAR without a word (exit 0).
+- **Reason:** the extra column makes the file no longer BED, and a flag that is quietly
+  ignored hides a mistake.
+- **Pinned by:** `bamtobed-split-tag-vs-bedtools` (must differ),
+  `bamtobed-cigar-split-vs-bedtools` (exit status: gloci 2, bedtools 0) and
+  `bamtobed-split-ed-vs-bedtools` (exit status: gloci 0, bedtools 1).
+
+## `convert` of alignments cuts reads at the end of their reference, and blocks at their bases {#bamtobed-past-reference-end}
+
+- **gloci:** a read that runs past the `LN` of its reference (a chrM read wrapping
+  round) is written up to `LN`, with one warning per input. A read that starts at or
+  past `LN` covers no base and is skipped and counted at `-v`. Every interval command
+  does the same (D101). The blocks of `--bed12` and `--blocks` are the ones every
+  `--split` command compares (one shared rule): blocks with no base are left out. A
+  BED12 row opens at the first kept block (chromStart and thickStart) and closes at
+  the last (chromEnd and thickEnd), so its first block starts at offset 0 and its last
+  ends at chromEnd, as BED12 requires.
+- **Old behaviour:** `bedtools bamtobed` writes the interval as the CIGAR gives it,
+  past the end of the reference (`chr1 994 1004` on a 1,000 base chr1), and writes a
+  read that starts past the end as well. With `-bed12` a start beyond 2^31 gives a
+  negative end. A spliced read `5M20N5M` at 991 on a 1,000 base chr1 is
+  `990 995 ... 1 5 0` in gloci's BED12; BED6 keeps the cut span (`990 1000`). A read
+  that starts in `N` (`5N10M` at 101), or in `D` under `-splitD`, gets a size-0 first
+  block from bedtools (`100 115 ... 2 0,10 0,5`), and one that ends in `N` or `D` a
+  size-0 last block (`10,0 0,15`); `-split` writes those blocks as zero-length rows
+  (`100 100`). gloci writes `105 115 ... 1 10 0` and `400 410 ... 1 10 0`, and no
+  zero-length rows. BED6 is the same in both (`100 115`).
+- **Reason:** an interval past its chromosome fails in a genome browser and in
+  `bedToBigBed`, and the other gloci commands refuse it. So would a BED12 row whose
+  first block does not start at chromStart: `gloci convert x.bam --bed12 | gloci
+  intersect -a - -b y.bed --split` must read what convert writes.
+- **Pinned by:** `bamtobed-past-end-vs-bedtools`, `bamtobed-edge-vs-bedtools`,
+  `bamtobed-past-end-bed12-vs-bedtools`, `bamtobed-ends-bed12-vs-bedtools`,
+  `bamtobed-ends-bed12-splitd-vs-bedtools` and `bamtobed-ends-split-vs-bedtools` (must
+  differ); `bamtobed-ends-vs-bedtools` (BED6, matches).
+
+## `convert` and `genomecov` of a read with no reference bases: one base {#bamtobed-no-reference-ops}
+
+- **gloci:** a mapped read whose CIGAR has no `M D N = X` operation (`10S5I`) is the one
+  base at its position, `[pos, pos+1)`, in every layout: BED6, BED12 (one block of
+  size 1) and `--blocks`. That is the span htslib's `bam_endpos` gives and every gloci
+  interval command uses (D101), so `gloci convert x.bam | gloci intersect ...` and
+  `gloci intersect x.bam ...` agree. `gloci genomecov` counts that base too.
+- **Old behaviour:** `bedtools bamtobed` writes a zero-length interval (`chr1 800 800`),
+  with `-bed12` a single block of size 0 (`1 0 0`), and `-split` the same zero-length row.
+  `bedtools genomecov -ibam` counts no base for such a read.
+- **Reason:** one span for a read in all commands. A zero-length row also overlaps
+  nothing under the rules of [Points overlap an interval only when inside
+  it](#zero-length-overlap), so the read would vanish from the next step of a pipeline.
+- **Pinned by:** `bamtobed-no-reference-ops-vs-bedtools`,
+  `bamtobed-no-reference-ops-bed12-vs-bedtools` and
+  `bamtobed-no-reference-ops-split-vs-bedtools` (must differ; they run on `cigars.bam`,
+  which has one such read, while the matching cases use `cigars-bases.bam`, the same
+  file without it) and `genomecov-ibam-no-reference-ops` (must differ, on `cigars.bam`).
+
+## `convert --score-tag` prints a negative score as a negative number {#bamtobed-negative-score}
+
+- **gloci:** the score of `--score-tag AS` is the tag's integer, signed: `-5` is `-5`.
+- **Old behaviour:** `bedtools bamtobed -tag AS` (and `-ed`) prints a negative integer as an
+  unsigned 32-bit number: `-1` is `4294967295` and `-5` is `4294967291`.
+- **Reason:** the unsigned form is a wraparound of the tag's own value, not a score
+  anyone can sort or filter on. Non-negative tags are identical.
+- **Pinned by:** `bamtobed-negative-score-vs-bedtools` (must differ).
+## `intersect -v` leaves unmapped reads out {#unmapped-reads}
+
+- **gloci:** every interval command skips unmapped reads (flag `0x4`, placed or not) and
+  counts them at `-v` (D101). `gloci intersect -a x.bam -b t.bed --mode none` writes the
+  mapped reads that have no hit, and no unmapped read.
+- **Old behaviour:** `bedtools intersect -abam x.bam -b t.bed -v` writes the unmapped reads
+  too, because a read with no position has no hit. With `-u` it never writes them, so
+  `-u` and gloci agree.
+- **Reason:** an unmapped read is not an interval, so it cannot be "off target". To keep
+  every record, use `gloci view` (it writes every record) or `samtools view -f 4`.
+- **Pinned by:** `intersect-bam-flags-v-vs-bedtools` (must differ; `flags.bam` has two
+  unmapped reads). `intersect-bam-v-vs-bedtools` runs on `order.bam`, which has none, and
+  matches.
+
+## An alignment prints as BED6 where bedtools prints BED12 {#bam-as-bed-columns}
+
+- **gloci:** where a command prints the columns of an alignment (`intersect --mode pairs`
+  or `--mode count`, `coverage`, an alignment B), it prints the BED6 row `gloci convert`
+  writes: `chr1 100 110 read10 60 +`.
+- **Old behaviour:** `bedtools intersect -abam x.bam -b t.bed -bed -wa -wb` prints the
+  reads as BED12 with `0,0,0` as the colour and trailing commas in the block lists
+  (`1 10, 0,`). A BAM `-b` (with `-a x.bed -wa -wb`) is BED6 in bedtools too, and matches. For an A
+  with no hit, `-loj` and `-wao` with a BAM `-b` write a 12-column placeholder
+  (`. -1 -1 . -1 . . . . . . .`) although the rows with a hit have 6 columns, so
+  the file has rows of two widths.
+- **Reason:** one row layout for a read everywhere. `gloci convert x.bam --bed12` writes
+  bedtools' BED12 for pipelines that need the blocks.
+- **Unmatched A:** gloci writes the BED6 placeholder `. -1 -1 . -1 .` (plus `0` with
+  `--overlap-bases`), the width of every row.
+- **Pinned by:** `intersect-abam-wa-wb-vs-bedtools`, `intersect-bed-bam-loj-vs-bedtools`
+  and `intersect-bed-bam-wao-vs-bedtools` (must differ);
+  `intersect-bed-bam-wa-wb-vs-bedtools` (BAM as B) matches.
+
+  `view-sam-strict-cigar-zeros-vs-samtools` (exit status must differ).
+
+## CRAM: MD and NM come out as stored {#cram-md-nm}
+
+- **gloci:** a CRAM record keeps the optional fields the file stores, in their
+  order: `gloci view x.cram` writes what `samtools view --input-fmt-option
+  decode_md=0` writes.
+- **Old behaviour:** samtools (htslib's default `decode_md=1`) computes MD and NM
+  from the reference for every mapped read that lacks them and appends them after
+  its other fields. htslib's CRAM writer drops MD and NM when they match the
+  reference, so a BAM converted to CRAM and back reads with them under samtools
+  and without them under gloci; a read that never had them gets them from
+  samtools.
+- **Also:** CRAM keeps neither the MAPQ of an unmapped read (both read 0) nor `=`
+  and `X` in a CIGAR (both read `M`); gloci reads these as samtools does.
+- **Effect:** `convert --score-tag NM` (bamtobed `-ed`) finds no NM on reads whose
+  NM the writer dropped. Recompute the tags with `samtools calmd` first.
+- **Reason:** gloci writes what the file holds; computing tags is an edit, and
+  needs the reference even where the reads do not.
+- **RNEXT:** for an unmapped read placed on a contig whose mate reference was `=`, samtools
+  decodes a CRAM with RNEXT `*` where the BAM and gloci have `=`.
+- **Pinned by:** `view-cram-md-nm-vs-samtools` (md.cram: samtools adds MD and NM to
+  the reads that lack them; must differ),
+  `view-cram-md-nm-decode-md-0-vs-samtools` (equal to `decode_md=0`) and
+  `view-cram-unmapped-rnext-vs-samtools` (rnext-eq.cram; must differ).
+
+## A CRAM without its end-of-file container is an error {#cram-eof-container}
+
+- **gloci:** a CRAM that does not end with the 38-byte end-of-file container is
+  rejected: `the CRAM end-of-file container is missing (...); the file is probably
+  truncated` (exit status 1). A file is checked before any record is read; standard
+  input fails when it ends.
+- **Old behaviour:** samtools prints `EOF marker is absent. The input is probably
+  truncated` and decodes what is there, with exit status 0.
+- **Pinned by:** `view-cram-no-eof-vs-samtools` (flags-noeof.cram, flags.cram
+  without its end-of-file container: exit status must differ).
+- **Reason:** as for BGZF ([#bgzf-eof-marker](#bgzf-eof-marker)): a missing end is
+  the signature of a cut-off file, and gloci never gives a quiet partial answer.
+
+## An indexed CRAM run at `-t` above 1 does not read the unplaced reads {#cram-unplaced-tail}
+
+- **gloci:** a CRAM with a `.crai` is read chromosome by chromosome at `-t` above 1,
+  and the container of reads with no place (unmapped reads at the end of a
+  coordinate-sorted file) is in no chromosome's chunk: it is counted from its slice
+  headers (the `-v` unmapped count) but never decoded, so it is never verified. A
+  corrupt unplaced container is an error (exit 1) when the file is streamed (`-t 1`,
+  no `.crai`, standard input) and goes unnoticed (exit 0) in an indexed run at `-t 4`.
+  An indexed BAM behaves alike for the reads at the end of a BAM. The same holds for
+  a container no chunk reaches for any other reason: only the containers the chunks
+  read are checked.
+- **Old behaviour:** samtools decodes sequentially and reports the first damage it
+  finds (and tolerates some, as it does a checksum mismatch in a block it can read).
+- **Pinned by:** the cargo test `cram_unplaced_tail_is_read_only_when_streaming`
+  (it needs a damaged file, which a differential case cannot compare).
+- **Reason:** reading every container just to verify one that cannot change a result
+  would cost the parallel run its point; `gloci check` is the way to verify a file.
+
+## `view` of a region past the end of a reference: BAM and CRAM differ, as samtools' indexes do {#region-past-reference-end}
+
+- **gloci:** for a region that starts past the end of its reference (`chr1:1001-1010`
+  with `LN:1000`), `gloci view x.bam` finds the reads that run past the end and
+  overlap it (the BAM index bins them by their uncut span), and `gloci view x.cram`
+  finds none (the `.crai` clips a slice's span at the end of the reference, and gloci
+  selects slices by it exactly).
+- **Old behaviour:** samtools does the same: its `.bai` finds the reads and its `.crai`
+  does not.
+- **Pinned by:** `view-bam-region-past-end-vs-samtools` and
+  `view-cram-region-past-end-vs-samtools`, both equal to samtools.
+- **Reason:** both follow what the index of that format can find; a region inside the
+  reference finds the same reads in both.
+
+## CRAM: limits on what gloci decodes {#cram-limits}
+
+- **gloci:** a read may run past the end of its reference (htslib and gloci decode the bases
+  there against `N`) by at most 1 Mb, or four times the longest read of its slice when that
+  is more; a read further past the end is an error naming gloci's limit. A few other shapes
+  are refused before noodles-cram decodes a record, because it would crash on them:
+  - a header block that would expand past 256 MiB;
+  - a slice claiming more records than 4,096 plus its bytes;
+  - reads claiming more features than the slice stores feature codes;
+  - in a slice of several references, a mapped read with no reference;
+  - a mate given as a distance past the end of its slice;
+  - a block that says it decodes to more than 1 GiB, or whose codec's clear-text header
+    (rANS 4x8, rANS Nx16, the arithmetic coder, fqzcomp, the name tokeniser) gives a
+    decoded size other than its block header's;
+  - a name-tokeniser block that claims more names than its bytes or than the slice's
+    records;
+  - the Golomb, Subexp and Golomb-Rice encodings, which htslib never writes (rewrite the
+    file with `samtools view -C`).
+- **Old behaviour:** samtools decodes a read however far past the end it runs, and reads the
+  other encodings.
+- **Remaining risk:** gloci checks every container, block and slice header (each has a
+  CRC32 checksum, so random corruption is always an error), the values above where a data
+  series has a block of its own or a constant code (as htslib writes them), and the decoded
+  size each block states, in its header and its codec's. A file crafted on purpose, with
+  checksums recomputed, can still reach what noodles-cram 0.102 trusts beyond these: its own
+  `expect`s and unchecked arithmetic (a record's reference, its mates' template length, its
+  alignment span, a base it reconstructs without a reference), and the sizes inside
+  compressed streams past their headers (rANS Nx16's RLE and PACK metadata, the tokeniser's
+  token streams). A panic there ends gloci with `the CRAM decoder failed on malformed data in
+  FILE: container N (at byte B); the file is corrupt or was crafted (see #cram-limits …)`
+  (exit status 1, also in release builds: gloci's panic hook exits before the abort); a size
+  that asks for more memory than the machine has aborts it (exit status 134). Do not feed
+  gloci CRAMs from untrusted sources you would not give to a library that panics; samtools
+  has its own share of such limits.
+- **Reason:** a read a megabase past its chromosome's end is not real data, and decoding it
+  costs that much memory; the rest keeps a corrupt count from asking for gigabytes.
+- **Pinned by:** `view-cram-overhang-limit-vs-samtools` (overhang.cram: a deletion ending 1.5 Mb
+  past chr1; exit status must differ), and the tests `cram_overhang_limit`,
+  `prechecks_refuse_counts_the_slice_cannot_hold`, `tokeniser_header_is_checked`,
+  `block_sizes_are_checked`, `crafted_cram_panic_points_to_the_limits` and
+  `cram_corrupt_bytes_are_errors_not_panics`.

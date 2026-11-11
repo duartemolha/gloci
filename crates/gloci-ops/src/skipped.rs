@@ -52,6 +52,8 @@ impl RecordReader for Captured {
 #[derive(Default)]
 pub(crate) struct Skipped {
     slots: Vec<(String, Arc<Mutex<Diagnostics>>)>,
+    /// The slots (by index) that hold alignment inputs.
+    alignments: Vec<usize>,
 }
 
 impl Skipped {
@@ -62,6 +64,9 @@ impl Skipped {
         r: Box<dyn RecordReader>,
     ) -> Box<dyn RecordReader> {
         let slot = Arc::new(Mutex::new(Diagnostics::default()));
+        if r.format().is_alignment() {
+            self.alignments.push(self.slots.len());
+        }
         self.slots.push((name.to_string(), slot.clone()));
         Box::new(Captured { inner: r, slot })
     }
@@ -82,6 +87,17 @@ impl Skipped {
                 (n.clone(), d)
             })
             .collect()
+    }
+}
+
+impl Skipped {
+    /// Say at `-v` what each alignment input left out (D101, D102), once its reader is gone.
+    pub(crate) fn log_alignment_counts(&self) {
+        for &i in &self.alignments {
+            let (name, d) = &self.slots[i];
+            let d = d.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            d.log_alignment_counts(name);
+        }
     }
 }
 

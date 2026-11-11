@@ -11,7 +11,7 @@ use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 
 /// Load a chromosome list, detecting the kind by content: SAM `.dict`,
-/// VCF header (plain, gzip or BGZF), BCF, BAM, else `.fai` / `.genome`.
+/// VCF header (plain, gzip or BGZF), BCF, BAM, CRAM, else `.fai` / `.genome`.
 pub fn load_genome(path: &Path) -> Result<Genome, IoError> {
     let name = path.display().to_string();
     let read_err = |source| IoError::Read {
@@ -54,6 +54,16 @@ pub fn load_genome(path: &Path) -> Result<Genome, IoError> {
     if magic == b"BAM\x01" {
         return bam_genome(&mut *src, &name);
     }
+    if magic == b"CRAM" {
+        // The @SQ lines of its header; no reference is needed (D103).
+        let h = crate::align::read_cram_header(&mut src, &name)?;
+        return Genome::new(h.refs.into_iter().map(|(n, l)| (n, Some(l))).collect())
+            .map_err(from_genome_err);
+    }
+    if magic.starts_with(b">") {
+        // A FASTA: its chromosome sizes are in its .fai, which must exist (D108).
+        return fasta_genome(path, &name);
+    }
     // Text: the first non-empty line decides.
     let mut first = Vec::new();
     while first.is_empty() || first == b"\n" || first == b"\r\n" {
@@ -86,6 +96,16 @@ pub fn load_genome(path: &Path) -> Result<Genome, IoError> {
         Genome::parse_sizes(&text)
     }
     .map_err(from_genome_err)
+}
+
+/// The chromosome list of a FASTA, from `PATH.fai`. gloci never builds the
+/// index implicitly; a missing one is a usage error naming `gloci index`.
+fn fasta_genome(fasta: &Path, name: &str) -> Result<Genome, IoError> {
+    let (fai, stale) = crate::fasta::find_fai(fasta)?;
+    if stale {
+        crate::index::warn_stale_index(&fai, name);
+    }
+    load_genome(&fai)
 }
 
 /// Read up to `n` bytes (fewer only at end of input).
@@ -179,7 +199,7 @@ fn header_genome(name: &str, h: &VcfHeader) -> Result<Genome, IoError> {
 }
 
 /// Choose the chromosome table: `--genome` (the raw `-g` value: a built-in
-/// genome id or a file), else the first VCF/BCF header with contigs, else
+/// genome id or a file), else the first VCF/BCF/alignment header with contigs, else
 /// `fallback` (karyotype by default, spec §4.5).
 pub fn chrom_table_for(
     genome: Option<&str>,
@@ -211,6 +231,22 @@ fn chrom_table(
         return Ok(ChromTable::closed(&g, source));
     }
     for r in inputs {
+        if let Header::Alignment(h) = r.header() {
+            if !h.refs.is_empty() {
+                let g = Genome::new(h.refs.iter().map(|(n, l)| (n.clone(), Some(*l))).collect())
+                    .map_err(|e| IoError::Detect {
+                        path: r.name().to_string(),
+                        msg: format!("{}: {e}", r.name()),
+                    })?;
+                let source = OrderSource::AlignmentHeader(r.name().to_string());
+                return Ok(if lenient {
+                    ChromTable::declared(&g, source)
+                } else {
+                    ChromTable::closed(&g, source)
+                });
+            }
+            continue;
+        }
         if let Header::Vcf(h) = r.header() {
             let entries = header_entries(h);
             if !entries.is_empty() {

@@ -5,13 +5,19 @@
 //! this module writes them per `--mode`. Records are written in A's input
 //! order, hits by B file and then B input order (D38).
 
+use crate::relate::alleles::{
+    allele_candidates, check_alleles_flags, check_alleles_formats, share_allele,
+};
 use crate::relate::{
     Acceptor, RelateInputs, RelateOptions, RelationFiles, ReportOutput, RunOptions, b_placeholder,
-    b_width, relation_chroms, report_skipped, rewrite_coords, run_files, run_relation_in,
+    b_width, check_split_deletions, relation_chroms, report_skipped, rewrite_coords, run_files,
+    run_relation_in,
 };
-use gloci_core::{ChromTable, Interval, StrandRule, Window, trimmed_alleles};
+use gloci_core::{ChromTable, Interval};
 use gloci_engine::{ARec, Hit, Neighbours, SweepSummary, Visitor};
-use gloci_io::{BcfText, Format, IoError, RecordReader, RecordWriter, UsageError, field};
+use gloci_io::{
+    AlnBed, AlnBedOptions, BcfText, Format, IoError, RecordReader, RecordWriter, UsageError,
+};
 
 /// What `intersect` writes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,7 +65,14 @@ fn is_variant(f: Format) -> bool {
 /// The option checks that need only the inputs' formats, so a command can
 /// run them before it creates any output.
 pub fn validate(a: Format, b: &[Format], o: &IntersectOptions) -> Result<(), IoError> {
+    check_split_deletions(o.relate.split_deletions, a, b)?;
     if o.mode == Mode::Clip {
+        if a.is_alignment() {
+            return Err(usage(
+                "an alignment cannot be clipped; use --mode any to keep the whole read, or \
+convert it to BED first: gloci convert reads.bam -o reads.bed",
+            ));
+        }
         if is_variant(a) {
             return Err(usage(
                 "a variant cannot be clipped; use --mode any to keep the whole record",
@@ -73,31 +86,8 @@ so there is no shared span to clip to; use --mode pairs",
         }
     }
     if o.matching == Match::Alleles {
-        if !(is_variant(a) && b.iter().all(|f| is_variant(*f))) {
-            return Err(usage(
-                "--match alleles compares ALT alleles, so -a and every -b must be VCF or BCF files; \
-use --match overlap for other formats",
-            ));
-        }
-        let r = &o.relate;
-        let c = &r.criteria;
-        let given = [
-            (c.min_frac_a.is_some(), "-f"),
-            (c.min_frac_b.is_some(), "-F"),
-            (c.reciprocal, "-r"),
-            (c.either, "-e"),
-            (c.min_bases.is_some(), "--min-bases"),
-            (c.strand != StrandRule::Any, "-s/-S"),
-            (c.inclusive_points, "--inclusive-points"),
-            (r.split, "--split"),
-            (r.window.is_some(), "-w/--left/--right"),
-        ];
-        if let Some((_, flag)) = given.iter().find(|(on, _)| *on) {
-            return Err(usage(format!(
-                "{flag} cannot be combined with --match alleles: allele matching compares the \
-alleles of two records, not how much they overlap; drop {flag} or use --match overlap"
-            )));
-        }
+        check_alleles_formats(a, b)?;
+        check_alleles_flags(&o.relate)?;
     }
     Ok(())
 }
@@ -106,6 +96,8 @@ alleles of two records, not how much they overlap; drop {flag} or use --match ov
 pub(crate) struct Text {
     pub(crate) format: Format,
     bcf: Option<BcfText>,
+    /// An alignment prints as its BED6 row (D104).
+    aln: Option<AlnBed>,
 }
 
 impl Text {
@@ -113,49 +105,20 @@ impl Text {
         Ok(Text {
             format: r.format(),
             bcf: BcfText::for_reader(r)?,
+            aln: AlnBed::for_reader(r, AlnBedOptions::default()),
         })
     }
 
-    /// The record as a text line (a BCF record is rendered as VCF).
+    /// The record as a text line (a BCF record is rendered as VCF, an alignment as BED6).
     pub(crate) fn of<'a>(&'a mut self, raw: &'a [u8], loc: u64) -> Result<&'a [u8], IoError> {
+        if let Some(a) = &mut self.aln {
+            return a.bed6(raw, loc);
+        }
         match &mut self.bcf {
             Some(b) => b.render(raw, loc),
             None => Ok(raw),
         }
     }
-}
-
-/// Calls `f(pos, ref, alt)` with the trimmed (0-based position, REF, ALT)
-/// of each usable ALT of a VCF line until it returns true. Symbolic,
-/// breakend, `*` and missing ALTs have no sequence to compare and are
-/// skipped. Allocates nothing; compare the slices case-insensitively.
-fn any_allele(line: &[u8], mut f: impl FnMut(u64, &[u8], &[u8]) -> bool) -> bool {
-    let pos = field(line, 1)
-        .and_then(|p| std::str::from_utf8(p).ok())
-        .and_then(|p| p.parse::<u64>().ok());
-    let (Some(pos), Some(reference), Some(alt)) = (pos, field(line, 3), field(line, 4)) else {
-        return false;
-    };
-    alt.split(|&c| c == b',')
-        .filter(|a| {
-            !a.is_empty()
-                && !a
-                    .iter()
-                    .any(|c| matches!(c, b'<' | b'[' | b']' | b'*' | b'.'))
-        })
-        .any(|a| {
-            let (p, r, a) = trimmed_alleles(pos.saturating_sub(1), reference, a);
-            f(p, r, a)
-        })
-}
-
-/// Do two VCF lines share a trimmed (position, REF, ALT)?
-fn share_allele(a: &[u8], b: &[u8]) -> bool {
-    any_allele(b, |bp, br, ba| {
-        any_allele(a, |ap, ar, aa| {
-            ap == bp && ar.eq_ignore_ascii_case(br) && aa.eq_ignore_ascii_case(ba)
-        })
-    })
 }
 
 struct Reporter<'o, 'w> {
@@ -428,22 +391,9 @@ fn intersect_in(
         .iter()
         .map(|r| Text::new(r.as_ref()))
         .collect::<Result<Vec<_>, _>>()?;
-    // Candidates for allele matching: a shared trimmed allele lies at most
-    // one base from each record's footprint (an insertion is a point just
-    // past an anchor base, and a footprint can end where the other starts),
-    // so pad B by one base on each side. The candidates are then accepted
-    // by allele equality alone. Points count at the edge of the padded
-    // interval (`inclusive_points`): the padding saturates at position 0, so
-    // a point at 0 (an insertion at POS 1) would otherwise sit on the edge
-    // of its own padded copy and never be a candidate.
     let mut relate = o.relate.clone();
     if o.matching == Match::Alleles {
-        relate.criteria.inclusive_points = true;
-        relate.window = Some(Window {
-            left: 1,
-            right: 1,
-            strand_aware: false,
-        });
+        allele_candidates(&mut relate);
     }
     let relate = &relate;
     let acceptor = Acceptor::new(relate, &inputs);

@@ -459,6 +459,7 @@ mod tests {
 
     fn opts() -> ReaderOptions {
         ReaderOptions {
+            accept: crate::align::Accept::default(),
             threads: NonZeroUsize::new(1).unwrap(),
             format: None,
             vcf_span: VcfSpan::Allele,

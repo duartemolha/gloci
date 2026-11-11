@@ -1,0 +1,8 @@
+chr1	0	100	book_start	0	+	.	-1	-1	.	-1	.
+chr1	105	105	point	0	+	chr1	100	110	c_10M	60	+
+chr1	110	200	book_both	0	-	.	-1	-1	.	-1	.
+chr1	300	320	overhang	0	+	chr1	300	310	c_hard	60	+
+chr1	620	680	intron	0	+	chr1	600	710	c_skip	60	+
+chr1	705	707	deletion	0	-	chr1	600	710	c_skip	60	+
+chr1	705	707	deletion	0	-	chr1	700	712	c_del	60	+
+chr1	900	910	plain_rev	0	+	chr1	900	910	c_rev	60	-

@@ -1,0 +1,7 @@
+chrM	100	110	read10	60	+	chrM	95	105	t1	0	+
+chrM	100	110	read9	60	-	chrM	95	105	t1	0	+
+chrM	500	520	read2	60	+	chrM	500	510	t3	0	+
+chr1	100	110	read10	60	+	chr1	105	108	t4	0	-
+chr1	100	110	read9	60	-	chr1	105	108	t4	0	-
+chrX	100	110	read10	60	+	chrX	100	110	t7	0	-
+chrX	100	110	read9	60	-	chrX	100	110	t7	0	-

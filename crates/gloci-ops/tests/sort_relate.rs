@@ -25,6 +25,7 @@ impl RecordWriter for Sink {
 
 fn user_opts() -> ReaderOptions {
     ReaderOptions {
+        accept: gloci_io::Accept::default(),
         chrom_map: None,
         threads: NonZeroUsize::MIN,
         format: Some(Format::Bed),
@@ -61,6 +62,7 @@ fn options(sort: Option<SortSettings>) -> IntersectOptions {
             criteria: OverlapCriteria::default(),
             window: None,
             split: false,
+            split_deletions: false,
             unsorted: false,
             sort,
             labels: vec!["B1".into(), "B2".into()],

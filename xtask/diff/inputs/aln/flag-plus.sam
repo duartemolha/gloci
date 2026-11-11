@@ -1,0 +1,4 @@
+@HD	VN:1.6
+@SQ	SN:chr1	LN:1000
+@SQ	SN:chr2	LN:1000
+r	+16	chr1	100	60	4M	*	0	0	ACGT	IIII

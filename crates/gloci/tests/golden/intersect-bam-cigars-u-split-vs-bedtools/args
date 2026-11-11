@@ -1,0 +1,1 @@
+intersect -a input.bam -b relate-cigars.bed --split -O bam

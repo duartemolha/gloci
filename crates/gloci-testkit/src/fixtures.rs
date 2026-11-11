@@ -181,3 +181,21 @@ pub fn bcf_csi_any_order(bcf: &[u8]) -> Vec<u8> {
     w.write_index(&index).expect("write CSI");
     w.into_inner().finish().expect("finish CSI")
 }
+
+/// Convert SAM text to BGZF-compressed BAM with noodles, an implementation independent of
+/// gloci's BAM code. Panics on SAM noodles rejects, so a fixture cannot be silently wrong.
+pub fn sam_to_bam(sam: &str) -> Vec<u8> {
+    use noodles_sam::alignment::io::Write as _;
+
+    let mut reader = noodles_sam::io::Reader::new(sam.as_bytes());
+    let header = reader.read_header().expect("fixture SAM header");
+    let mut w = noodles_bam::io::Writer::new(Vec::new());
+    w.write_header(&header).expect("noodles BAM header");
+    for rec in reader.records() {
+        let rec = rec.expect("fixture SAM record");
+        w.write_alignment_record(&header, &rec)
+            .expect("noodles BAM record");
+    }
+    w.try_finish().expect("finish BAM");
+    w.into_inner().into_inner()
+}

@@ -116,6 +116,7 @@ fn lines(mut r: Box<dyn RecordReader>) -> Vec<String> {
 
 fn opts(span: VcfSpan) -> ReaderOptions {
     ReaderOptions {
+        accept: gloci_io::Accept::default(),
         chrom_map: None,
         threads: nz(1),
         format: None,

@@ -8,17 +8,18 @@
 //! [`RecordReader`]. Memory stays within `max_mem`; the temp directory is
 //! removed when the returned reader is dropped, and on SIGINT/SIGTERM.
 
-use super::{SortConfig, Sorter, Tie};
+use super::{Order, SortConfig, Sorter, Tie};
 use crate::sort::Dedup;
-use gloci_core::{ChromTable, VcfSpan};
+use gloci_core::{ChromTable, Strand, VcfSpan};
 use gloci_io::{
-    Compression, Diagnostics, Format, Header, InvalidPolicy, IoError, OutFormat, OutputOptions,
-    OutputSpec, ReaderOptions, RecordBatch, RecordReader, SORTED_INPUTS, TempGuard, UsageError,
-    WriterOptions, create_temp_dir_in, next_batch_size, open_output, open_reader,
-    open_record_writer,
+    AlnHeader, AlnSortOrder, Compression, Diagnostics, Format, Header, InvalidPolicy, IoError,
+    OutFormat, OutputOptions, OutputSpec, ReaderOptions, RecordBatch, RecordReader, SORTED_INPUTS,
+    TempGuard, UsageError, WriterOptions, create_temp_dir_in, next_batch_size, open_output,
+    open_reader, open_record_writer,
 };
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tempfile::TempDir;
 
 /// Settings of `--sort`: the memory budget, where spill files go, and how
@@ -156,10 +157,11 @@ or run the command on each format separately",
         max_mem: settings.max_mem,
         tmp_dir: settings.tmp_dir.clone(),
         threads: settings.threads,
-        tie: Tie::InputOrder,
+        order: Order::Interval(Tie::InputOrder),
         dedup: Dedup::All,
     })?;
     let mut batch = RecordBatch::default();
+    let aln = format.is_alignment();
     for (i, r) in inputs.iter_mut().enumerate() {
         let mut last_chrom: Option<gloci_core::ChromId> = None;
         let mut max = 1;
@@ -174,7 +176,19 @@ or run the command on each format separately",
                     }
                 }
             }
-            sorter.push(chroms, &batch)?;
+            if aln {
+                // D121's coordinate order, the one `gloci sort` writes: (reference, position,
+                // strand), then input order. The table is the header's (D124), so its rank is
+                // the reference's.
+                sorter.push_keyed(chroms, &batch, |m| {
+                    (
+                        (m.span.start << 1) | u64::from(m.strand == Strand::Minus),
+                        0,
+                    )
+                })?;
+            } else {
+                sorter.push(chroms, &batch)?;
+            }
             max = next_batch_size(&batch, max);
             if !more {
                 break;
@@ -188,12 +202,20 @@ or run the command on each format separately",
         if let Some(s) = r.diagnostics().summary(r.name()) {
             log::warn!("{s}");
         }
+        if r.format().is_alignment() {
+            r.diagnostics().log_alignment_counts(r.name());
+        }
     }
 
+    // Alignments: BAM (level 1) for BAM and CRAM, SAM for SAM, so the records come back in
+    // the layout the caller already prepared to print (D124).
     let out_format = OutFormat::family(format);
+    let whole = inputs[0].whole_records();
     let ext = match out_format {
         OutFormat::Vcf => "vcf",
         OutFormat::Bcf => "bcf",
+        OutFormat::Bam => "bam",
+        OutFormat::Sam => "sam",
         OutFormat::Gff3 | OutFormat::Gtf => "gff",
         _ => "bed",
     };
@@ -221,11 +243,16 @@ or run the command on each format separately",
         },
     )?;
     let wopts = WriterOptions {
-        write_header: matches!(format, Format::Gff3 | Format::Gtf),
+        write_header: format.is_alignment() || matches!(format, Format::Gff3 | Format::Gtf),
         command_line: None,
         version: env!("CARGO_PKG_VERSION"),
     };
-    let header = inputs[0].header().clone();
+    let header = match inputs[0].header() {
+        Header::Alignment(h) => {
+            coordinate_header(h, chroms).unwrap_or_else(|| inputs[0].header().clone())
+        }
+        h => h.clone(),
+    };
     let names: Vec<&str> = inputs.iter().map(|r| r.name()).collect();
     let name = format!("{SORTED_INPUTS}{})", names.join(", "));
     let mut w = open_record_writer(output, format, out_format, &header, &wopts)?;
@@ -242,6 +269,19 @@ or run the command on each format separately",
     drop(inputs);
 
     let ro = ReaderOptions {
+        accept: if format.is_alignment() {
+            // The filters were applied when the records were first read. The records come
+            // back as whole or as slim as they went in.
+            gloci_io::Accept {
+                alignments: Some(gloci_io::AlignOptions {
+                    full_records: whole,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }
+        } else {
+            gloci_io::Accept::default()
+        },
         chrom_map: None,
         threads: settings.threads,
         format: None,
@@ -256,6 +296,33 @@ or run the command on each format separately",
         _dir: dir,
         _guard: guard,
     }))
+}
+
+/// The header of alignments that `--sort` sorted with `chroms`: `h` with `SO:coordinate`, as
+/// `gloci sort` leaves it, since the records come out in its order (D121). `None` when the
+/// table (from `-g`, say) orders the references unlike the header, so the order is not one
+/// `SO:coordinate` describes.
+pub(crate) fn coordinate_header(h: &AlnHeader, chroms: &ChromTable) -> Option<Header> {
+    follows_header(h, chroms)
+        .then(|| Header::Alignment(Arc::new(h.with_sort_order(AlnSortOrder::Coordinate))))
+}
+
+/// Whether `chroms` ranks the references of `h` that it knows in the header's order.
+fn follows_header(h: &AlnHeader, chroms: &ChromTable) -> bool {
+    let ranks = chroms.ranks();
+    let mut seen = h
+        .refs
+        .iter()
+        .filter_map(|(name, _)| chroms.get(name))
+        .map(|id| ranks[id.0 as usize]);
+    let Some(mut prev) = seen.next() else {
+        return true;
+    };
+    seen.all(|r| {
+        let ok = prev < r;
+        prev = r;
+        ok
+    })
 }
 
 /// The command whose multi-file header rule is being checked, for messages.

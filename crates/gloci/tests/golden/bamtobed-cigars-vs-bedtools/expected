@@ -1,0 +1,8 @@
+chr1	100	110	c_10M	60	+
+chr1	200	210	c_clips	60	+
+chr1	300	310	c_hard	60	+
+chr1	400	410	c_ins	60	+
+chr1	500	510	c_eqx	60	+
+chr1	600	710	c_skip	60	+
+chr1	700	712	c_del	60	+
+chr1	900	910	c_rev	60	-

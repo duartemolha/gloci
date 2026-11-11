@@ -1,6 +1,9 @@
 use crate::Ctx;
 use crate::cli::IndexArgs;
-use gloci_io::{InputOptions, TsvColumns, UsageError, open_input, write_index, write_tsv_index};
+use gloci_io::{
+    Format, InputOptions, IoError, TsvColumns, UsageError, open_input, warn_unused_reference,
+    write_alignment_index, write_crai, write_fasta_index, write_index, write_tsv_index,
+};
 
 pub fn run(ctx: &Ctx, args: &IndexArgs) -> anyhow::Result<()> {
     if args.file.as_os_str() == "-" {
@@ -11,10 +14,29 @@ first (gloci view - -o x.bed.gz), then run: gloci index x.bed.gz"
         )
         .into());
     }
+    let csi_only = |what: &str| {
+        UsageError(format!(
+            "--csi is for BAM files, but {what}; {}",
+            "tabix files get a .csi on their own when a position is beyond 2^29"
+        ))
+    };
     if let Some(cols) = tsv_columns(args)? {
+        if args.csi {
+            return Err(csi_only("this is a TSV index").into());
+        }
+        warn_unused_reference(args.reference.as_deref(), false);
+        if std::fs::metadata(&args.file).is_ok_and(|m| m.len() == 0) {
+            return Err(IoError::empty_input(&args.file.to_string_lossy()).into());
+        }
         // write_tsv_index rejects non-BGZF input with the same recompress hint.
         write_tsv_index(&args.file, &args.file, &cols, ctx.threads)?;
         return Ok(());
+    }
+    // Only a file of zero bytes is empty here: a BGZF file holding just the EOF block is an
+    // empty interval file, which gets an empty index (as tabix does), so that `--write-index`
+    // on an empty result and `gloci index` on it agree.
+    if std::fs::metadata(&args.file).is_ok_and(|m| m.len() == 0) {
+        return Err(IoError::empty_input(&args.file.to_string_lossy()).into());
     }
     let input = open_input(
         &args.file.to_string_lossy(),
@@ -25,6 +47,29 @@ first (gloci view - -o x.bed.gz), then run: gloci index x.bed.gz"
     )?;
     let format = input.format;
     drop(input);
+    if format == Format::Cram {
+        if args.csi {
+            return Err(UsageError(format!(
+                "--csi is for BAM files, but {} is CRAM, whose index is a .crai; drop --csi",
+                args.file.display()
+            ))
+            .into());
+        }
+        write_crai(&args.file, args.reference.as_deref(), ctx.threads)?;
+        return Ok(());
+    }
+    warn_unused_reference(args.reference.as_deref(), false);
+    if format == Format::Bam {
+        write_alignment_index(&args.file, &args.file, args.csi, ctx.threads)?;
+        return Ok(());
+    }
+    if args.csi {
+        return Err(csi_only(&format!("{} is {}", args.file.display(), format.name())).into());
+    }
+    if format == Format::Fasta {
+        write_fasta_index(&args.file, ctx.threads)?;
+        return Ok(());
+    }
     // write_index rejects non-BGZF input with the "recompress with: gloci view" usage error.
     write_index(&args.file, &args.file, format, ctx.threads)?;
     Ok(())

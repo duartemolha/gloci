@@ -21,6 +21,11 @@ pub enum OutFormat {
     Gff3,
     Gtf,
     Tsv,
+    /// BAM output (D100): BGZF always.
+    Bam,
+    Sam,
+    /// FASTA output (`.fa`, `.fasta`, `.fna`; `.gz` is BGZF).
+    Fasta,
 }
 
 impl OutFormat {
@@ -34,10 +39,13 @@ impl OutFormat {
             OutFormat::Gff3 => "GFF3",
             OutFormat::Gtf => "GTF",
             OutFormat::Tsv => "TSV",
+            OutFormat::Bam => "BAM",
+            OutFormat::Sam => "SAM",
+            OutFormat::Fasta => "FASTA",
         }
     }
 
-    /// The record format an index of this output describes (`None` for TSV).
+    /// The record format an index of this output describes (`None` for TSV, SAM and FASTA).
     pub fn index_format(self) -> Option<Format> {
         match self {
             OutFormat::Bed | OutFormat::BedGraph => Some(Format::Bed),
@@ -45,7 +53,8 @@ impl OutFormat {
             OutFormat::Bcf => Some(Format::Bcf),
             OutFormat::Gff3 => Some(Format::Gff3),
             OutFormat::Gtf => Some(Format::Gtf),
-            OutFormat::Tsv => None,
+            OutFormat::Bam => Some(Format::Bam),
+            OutFormat::Tsv | OutFormat::Sam | OutFormat::Fasta => None,
         }
     }
 
@@ -59,6 +68,11 @@ impl OutFormat {
             Format::Bcf => OutFormat::Bcf,
             Format::Gff3 => OutFormat::Gff3,
             Format::Gtf => OutFormat::Gtf,
+            Format::Bam | Format::Cram => OutFormat::Bam,
+            Format::Sam => OutFormat::Sam,
+            Format::Fasta => OutFormat::Fasta,
+            // PSL and RepeatMasker are read by `convert` only, which writes BED.
+            Format::Psl | Format::Rmsk => OutFormat::Bed,
         }
     }
 }
@@ -84,7 +98,8 @@ pub struct OutputOptions {
 }
 
 const ACCEPTED: &str = ".bed, .bed.gz, .bedgraph, .bedgraph.gz, .vcf, .vcf.gz, .bcf, \
-.tsv, .tsv.gz, .gff, .gff.gz, .gff3, .gff3.gz, .gtf, .gtf.gz";
+.tsv, .tsv.gz, .gff, .gff.gz, .gff3, .gff3.gz, .gtf, .gtf.gz, .bam, .sam, .fa, .fa.gz, \
+.fasta, .fasta.gz, .fna, .fna.gz";
 
 /// `(suffix without dot, format, bgzf)`, matched case-insensitively.
 fn lookup(s: &str) -> Option<(OutFormat, bool)> {
@@ -103,6 +118,10 @@ fn lookup(s: &str) -> Option<(OutFormat, bool)> {
         "gff.gz" | "gff3.gz" => (Gff3, true),
         "gtf" => (Gtf, false),
         "gtf.gz" => (Gtf, true),
+        "bam" => (Bam, true),
+        "sam" => (Sam, false),
+        "fa" | "fasta" | "fna" => (Fasta, false),
+        "fa.gz" | "fasta.gz" | "fna.gz" => (Fasta, true),
         _ => return None,
     })
 }
@@ -138,6 +157,20 @@ pub fn parse_output_spec(
             || p == Path::new("/dev/stderr")
             || std::fs::metadata(p).is_ok_and(|m| !m.is_file() && !m.is_dir())
     });
+    let cram_error = || {
+        UsageError(
+            "gloci does not write CRAM; write BAM with -o FILE.bam and convert it with \
+`samtools view -C -T ref.fa`"
+                .into(),
+        )
+    };
+    if path
+        .and_then(|p| p.extension())
+        .is_some_and(|e| e.eq_ignore_ascii_case("cram"))
+        || output_format.is_some_and(|s| s.trim_start_matches('.').eq_ignore_ascii_case("cram"))
+    {
+        return Err(cram_error());
+    }
     let from_o = match output_format {
         None => None,
         Some(s) => {
@@ -193,7 +226,7 @@ pub fn check_level(n: u8) -> Result<u8, UsageError> {
 }
 
 pub fn refuse_binary_to_tty(is_tty: bool, f: OutFormat, bgzf: bool) -> Result<(), UsageError> {
-    if is_tty && (f == OutFormat::Bcf || bgzf) {
+    if is_tty && (matches!(f, OutFormat::Bcf | OutFormat::Bam) || bgzf) {
         Err(UsageError(
             "refusing to write binary (BCF or BGZF) output to a terminal; \
 use -o FILE, or choose a text format with -O (e.g. -O vcf or -O bed)"
@@ -220,6 +253,9 @@ pub struct Output {
     sink: Sink,
     dest: Option<PathBuf>,
     index: IndexPlan,
+    /// FASTA output without `--write-index`: an old `.fai`/`.gzi` beside the
+    /// destination describes other data and is removed when the file is replaced.
+    drop_fasta_index: bool,
 }
 
 /// What `--write-index` builds at `finish`.
@@ -231,6 +267,8 @@ enum IndexPlan {
     /// (D43, from A's format); finishing without them is a bug.
     TsvPending(NonZeroUsize),
     Tsv(TsvColumns, NonZeroUsize),
+    /// FASTA output: `.fai`, and `.gzi` when the output is BGZF (D108).
+    Fasta(NonZeroUsize),
 }
 
 const BUF: usize = 1 << 20;
@@ -240,7 +278,28 @@ pub fn open_output(
     f: OutFormat,
     opts: &OutputOptions,
 ) -> Result<Output, IoError> {
-    let bgzf = spec.bgzf || f == OutFormat::Bcf;
+    open_output_as(spec, f, opts, false)
+}
+
+/// An output for `f` (BGZF, so a binary format) that does not compress what is written to
+/// it: the caller writes finished BGZF blocks (`gloci cat`, D123), and ends the stream
+/// with [`BGZF_EOF`](crate::BGZF_EOF) itself. `--write-index` indexes the finished file.
+pub fn open_raw_output(
+    spec: &OutputSpec,
+    f: OutFormat,
+    opts: &OutputOptions,
+) -> Result<Output, IoError> {
+    open_output_as(spec, f, opts, true)
+}
+
+fn open_output_as(
+    spec: &OutputSpec,
+    f: OutFormat,
+    opts: &OutputOptions,
+    raw: bool,
+) -> Result<Output, IoError> {
+    // A raw output holds BGZF blocks it did not make: it is binary, but not compressed here.
+    let bgzf = !raw && (spec.bgzf || matches!(f, OutFormat::Bcf | OutFormat::Bam));
     let level = CompressionLevel::try_from(check_level(opts.level)?)
         .map_err(|e| UsageError(e.to_string()))?;
     let mut index = IndexPlan::None;
@@ -259,13 +318,23 @@ write to a file such as -o out.bed.gz and index that",
             ))
             .into());
         }
-        if !bgzf {
+        if f == OutFormat::Sam {
             return Err(UsageError(
-                "--write-index needs BGZF output; use a .gz output name (or .bcf)".into(),
+                "--write-index needs BAM output, as SAM text has no index; write BAM with: \
+gloci view FILE -o x.bam --write-index"
+                    .into(),
+            )
+            .into());
+        }
+        // A raw output holds finished BGZF blocks, which is what an index needs.
+        if !bgzf && !raw && f != OutFormat::Fasta {
+            return Err(UsageError(
+                "--write-index needs BGZF output; use a .gz output name (or .bcf, or .bam)".into(),
             )
             .into());
         }
         index = match f.index_format() {
+            _ if f == OutFormat::Fasta => IndexPlan::Fasta(opts.threads),
             Some(format) => IndexPlan::Format(format, opts.threads),
             // The columns depend on A's format (D43); `open_tsv_writer` decides.
             None => IndexPlan::TsvPending(opts.threads),
@@ -292,7 +361,7 @@ write to a file such as -o out.bed.gz and index that",
                 .truncate(truncate)
                 .open(p)
                 .map_err(create)?;
-            refuse_binary_to_tty(file.is_terminal(), f, bgzf)?;
+            refuse_binary_to_tty(file.is_terminal(), f, bgzf || raw)?;
             let w = BufWriter::with_capacity(BUF, file);
             if bgzf {
                 Sink::DirectBgzf(builder().build_from_writer(w))
@@ -316,6 +385,7 @@ write to a file such as -o out.bed.gz and index that",
     Ok(Output {
         sink,
         dest: spec.path.clone(),
+        drop_fasta_index: f == OutFormat::Fasta && !opts.write_index,
         index,
     })
 }
@@ -394,6 +464,7 @@ impl Output {
                     cols,
                     *threads,
                 )?),
+                IndexPlan::Fasta(_) => None,
                 IndexPlan::TsvPending(_) => {
                     return Err(IoError::Detect {
                         path: name.clone(),
@@ -403,16 +474,37 @@ impl Output {
                     });
                 }
             };
-            let staged = match built {
-                Some((kind, bytes)) => {
-                    let path = crate::index::index_path(dest, kind);
-                    Some((crate::index::stage_index(&path, &bytes)?, path))
+            let mut staged = Vec::new();
+            if let Some((kind, bytes)) = built {
+                let path = crate::index::index_path(dest, kind);
+                staged.push((crate::index::stage_index(&path, &bytes)?, path));
+            }
+            if let IndexPlan::Fasta(threads) = &self.index {
+                let (fai, gzi) = crate::fasta::fasta_index_bytes(af.temp_path(), *threads)?;
+                let fai_dest = crate::fasta::fai_path(dest);
+                staged.push((crate::index::stage_index(&fai_dest, &fai)?, fai_dest));
+                if let Some(gzi) = gzi {
+                    let gzi_dest = crate::fasta::gzi_path(dest);
+                    staged.push((crate::index::stage_index(&gzi_dest, &gzi)?, gzi_dest));
                 }
-                None => None,
-            };
+            }
             crate::index::remove_indexes(dest)?;
+            if self.drop_fasta_index {
+                for stale in [crate::fasta::fai_path(dest), crate::fasta::gzi_path(dest)] {
+                    match std::fs::remove_file(&stale) {
+                        Ok(()) => {}
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                        Err(source) => {
+                            return Err(IoError::Write {
+                                path: stale.display().to_string(),
+                                source,
+                            });
+                        }
+                    }
+                }
+            }
             af.commit().map_err(werr)?;
-            if let Some((idx, path)) = staged {
+            for (idx, path) in staged {
                 idx.commit().map_err(|source| IoError::Write {
                     path: path.display().to_string(),
                     source,

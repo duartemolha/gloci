@@ -1,0 +1,8 @@
+@HD	VN:1.6	SO:coordinate
+@SQ	SN:c1	LN:1000
+@SQ	SN:c2	LN:1000
+u1	4	c1	0	0	*	*	0	0	ACGT	IIII
+r1	0	c1	10	0	4M	*	0	0	ACGT	IIII
+r2	4	c1	20	0	*	*	0	0	ACGT	IIII
+r3	0	c2	10	0	4M	*	0	0	ACGT	IIII
+u4	4	*	0	0	*	*	0	0	ACGT	IIII

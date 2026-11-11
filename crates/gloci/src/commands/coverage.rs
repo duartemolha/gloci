@@ -9,7 +9,7 @@ use gloci_io::{
     parse_output_spec,
 };
 use gloci_ops::coverage::{
-    CoverageOptions, CoverageReport, column_names, coverage_files, validate,
+    CoverageOptions, CoverageReport, column_names, coverage_files, validate, validate_formats,
 };
 use gloci_ops::{RelateOptions, ReportOutput, open_report};
 
@@ -34,6 +34,7 @@ pub fn run(ctx: &Ctx, a: &CoverageArgs) -> anyhow::Result<()> {
             criteria: a.o.criteria(),
             window: None,
             split: a.o.split,
+            split_deletions: a.split_deletions,
             unsorted: a.u.unsorted,
             sort: sort_settings(ctx, &a.sort, a.vcf_span.vcf_span),
             labels,
@@ -45,10 +46,16 @@ pub fn run(ctx: &Ctx, a: &CoverageArgs) -> anyhow::Result<()> {
     validate(&o, a.b.b.len())?;
     let spec = parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref())?;
     let chrom_map = a.chrom_map.load()?;
+    // Coverage never writes a read, so every alignment is slim (D115).
+    let accept = gloci_io::Accept {
+        alignments: Some(a.align.options(false)?),
+        ..gloci_io::Accept::default()
+    };
     let reader_opts = |format| {
         sort_aware(
             &a.sort,
             ReaderOptions {
+                accept: accept.clone(),
                 chrom_map: chrom_map.clone(),
                 threads: ctx.threads,
                 format,
@@ -71,6 +78,7 @@ pub fn run(ctx: &Ctx, a: &CoverageArgs) -> anyhow::Result<()> {
         a.u.unsorted || a.sort.sort,
     )?;
 
+    validate_formats(files.a().format(), &files.b_formats(), &o)?;
     let oo = OutputOptions {
         threads: ctx.threads,
         level: a.out.compression_level,

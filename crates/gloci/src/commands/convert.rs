@@ -5,14 +5,26 @@ use crate::cli::ConvertArgs;
 use gloci_core::{ChromTable, VariantKind};
 use gloci_io::{
     Format, Header, InvalidPolicy, IoError, OutFormat, OutputOptions, ReaderOptions, TsvHeader,
-    UsageError, WriterOptions, open_output, open_reader, open_record_writer, open_tsv_writer,
-    parse_output_spec, refuse_binary_to_tty,
+    UsageError, WriterOptions, open_output, open_reader_noting_empty, open_record_writer,
+    open_tsv_writer, parse_output_spec, refuse_binary_to_tty,
 };
 use gloci_ops::convert::{ConvertOptions, check_convert, convert};
 use std::io::IsTerminal;
 
 pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
     let spec = parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref())?;
+    let score_tag = match a.score_tag.as_deref() {
+        None => None,
+        Some(t) => match t.as_bytes() {
+            &[x, y] if x.is_ascii_alphabetic() && y.is_ascii_alphanumeric() => Some([x, y]),
+            _ => {
+                return Err(UsageError(format!(
+                    "--score-tag {t} is not a tag name; use two characters such as NM or AS"
+                ))
+                .into());
+            }
+        },
+    };
     let o = ConvertOptions {
         vcf_span: user_span(a.vcf_span.vcf_span),
         split_alleles: a.split_alleles,
@@ -21,14 +33,39 @@ pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
         features: a.feature.clone(),
         name_attr: a.name_attr.clone(),
         blocks: a.blocks,
+        bed12: a.bed12,
+        color: a.color.clone(),
+        score_tag,
+        cigar: a.cigar,
+        split_deletions: a.split_deletions,
     };
     let to = spec.format.unwrap_or(OutFormat::Bed);
+    if !matches!(to, OutFormat::Bed | OutFormat::BedGraph | OutFormat::Tsv) {
+        let view = if matches!(to, OutFormat::Bam | OutFormat::Sam) {
+            "; gloci view converts between alignment formats (gloci view x.cram -o x.bam)"
+        } else {
+            ""
+        };
+        return Err(UsageError(format!(
+            "convert writes BED, not {}: pick an output ending in .bed or .bed.gz (or -O bed){view}",
+            to.name()
+        ))
+        .into());
+    }
     refuse_binary_to_tty(
         spec.path.is_none() && std::io::stdout().is_terminal(),
         to,
         spec.bgzf,
     )?;
     let ro = ReaderOptions {
+        // `convert` reads alignments, PSL and RepeatMasker too (D100).
+        accept: gloci_io::Accept {
+            alignments: Some(gloci_io::AlignOptions {
+                score_tag,
+                ..a.align.options(false)?
+            }),
+            convert_only: true,
+        },
         chrom_map: a.chrom_map.load()?,
         threads: ctx.threads,
         format: match a.format.format.as_deref() {
@@ -43,8 +80,17 @@ pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
         },
     };
     // Open and check the input before the output is created.
-    let input = open_reader(&a.file, &ro)?;
-    check_convert(input.format(), &o)?;
+    let (input, empty) = open_reader_noting_empty(&a.file, &ro)?;
+    gloci_io::warn_unused_reference(a.align.reference.as_deref(), input.format() == Format::Cram);
+    // An empty file is detected as an empty BED: fine for --blocks (no rows), but an empty BAM
+    // or SAM would be told "a BED input is already BED".
+    check_convert(input.format(), &o).map_err(|e| {
+        if empty {
+            IoError::empty_input(input.name())
+        } else {
+            e.into()
+        }
+    })?;
     let oo = OutputOptions {
         threads: ctx.threads,
         level: a.out.compression_level,

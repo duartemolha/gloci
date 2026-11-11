@@ -82,9 +82,21 @@ Examples:
   gloci genomes show hg38
   gloci sort peaks.bed -g hg38 > peaks.sorted.bed")]
     Genomes(GenomesArgs),
-    /// Build a .tbi/.csi index for a sorted BGZF file.
+    /// Build a .tbi/.csi index for a sorted BGZF file, a .bai/.csi for a BAM, a .crai for a CRAM,
+    /// or a .fai for a FASTA.
     ///
-    /// BED, GFF/GTF, VCF and BCF files are recognised by content. Any other
+    /// A coordinate-sorted BAM gets PATH.bai, or PATH.csi with --csi or when a
+    /// reference is longer than 2^29; samtools and gloci read each other's
+    /// indexes. SAM text has no index: write BAM with gloci view x.sam -o x.bam.
+    ///
+    /// A CRAM file gets PATH.crai, with the entries samtools index writes;
+    /// it needs no reference, even for slices that hold several references.
+    /// A FASTA file (plain or BGZF) gets PATH.fai, and PATH.gzi when it is
+    /// BGZF, byte-identical to samtools faidx. Every line of a sequence but
+    /// the last must have the same length. Reading a FASTA at random
+    /// (getfasta, nuc, a CRAM reference) needs these files and never builds
+    /// them itself; maskfasta streams its FASTA and needs no index. Plain gzip is refused: recompress with
+    /// bgzip. Otherwise, BED, GFF/GTF, VCF and BCF files are recognised by content. Any other
     /// tab-separated file is indexed like tabix does when you name its
     /// columns with -s (sequence), -b (begin) and -e (end, optional). The
     /// columns are numbered from 1. Without --zero-based the begin column is
@@ -96,11 +108,12 @@ Examples:
     #[command(after_long_help = "\
 Examples:
   gloci index calls.vcf.gz
-  gloci index peaks.bed.gz -t 8
-  gloci index scores.tsv.gz -s 1 -b 2 -e 3 --zero-based
-  gloci index sites.txt.gz -s 1 -b 2 --skip-lines 1 --comment %")]
+  gloci index sorted.bam
+  gloci index reads.cram
+  gloci index scores.tsv.gz -s 1 -b 2 -e 3 --zero-based")]
     Index(IndexArgs),
-    /// Sort BED/bedGraph/GFF/VCF/BCF files with bounded memory.
+    /// Sort BED/bedGraph/GFF/VCF/BCF files, or BAM/SAM/CRAM alignments, with
+    /// bounded memory.
     ///
     /// Records are ordered by chromosome, then start, then end. The
     /// chromosome order comes from -g, else from the ##contig lines of a
@@ -116,10 +129,23 @@ Examples:
     /// Sorting spills to --tmp-dir when the input is larger than --max-mem.
     /// That directory must exist and be writable; it is checked before any
     /// input is read.
+    ///
+    /// Alignments (one BAM, SAM or CRAM file, or stdin) are sorted as
+    /// samtools sort does: by reference in header order (unplaced reads
+    /// last), position and strand, ties in input order; -n by read name in
+    /// natural order (r2 before r10) and -N by plain byte order, each with
+    /// READ1 before READ2 and primary before supplementary before secondary.
+    /// Every record is kept, unmapped reads included. The header's @HD line
+    /// gets SO (and SS for -n and -N) and gloci adds an @PG line. The output
+    /// keeps the input's format (BAM for BAM and CRAM, SAM for SAM; -o and -O
+    /// override), where samtools sort always writes BAM. --write-index
+    /// works for coordinate-sorted BAM output only. -g, --full-key, --unique and
+    /// --duplicates do not apply: the order is the header's. To merge sorted
+    /// BAM files use sort -m (or cat for files already in order); -n reads.bam sorts by name.
     #[command(after_long_help = "\
 Examples:
+  gloci sort reads.bam -o reads.sorted.bam --write-index -t 8
   gloci sort peaks.bed > peaks.sorted.bed
-  gloci sort calls.vcf.gz -o calls.sorted.vcf.gz --write-index
   gloci sort huge.bed --max-mem 8G --tmp-dir /scratch -t 16 -o huge.sorted.bed.gz
   gloci sort --check peaks.sorted.bed")]
     Sort(SortArgs),
@@ -134,6 +160,17 @@ Examples:
     /// the header is kept as it is, plus a ##glociCommand line. BED and GFF
     /// header lines are kept by default. For conversions to BED from VCF/BCF,
     /// GFF3/GTF or BED12, use gloci convert.
+    ///
+    /// BAM, CRAM and SAM input is written as BAM or SAM, as -O or
+    /// the -o extension say (the same as the input by default; BAM for
+    /// CRAM), every record, unmapped reads included, with an @PG line added
+    /// to the header. --header-only, --no-header (SAM output only),
+    /// --min-mapq, --require-flags and --exclude-flags apply. Regions select
+    /// the reads whose footprint overlaps them; an unmapped read placed at a
+    /// position counts as one base there. It is not samtools view: there is
+    /// no -b, -h, -c or -L. CRAM needs the FASTA it was made with
+    /// (--reference, with its .fai), unless it was written without one; MD
+    /// and NM tags come out as stored, not regenerated as samtools does.
     ///
     /// With regions, view prints the records whose footprint (per
     /// --vcf-span) overlaps a region, each once, in file order. A point
@@ -150,9 +187,28 @@ Examples:
 Examples:
   gloci view calls.vcf.gz chr1:1,000,000-2,000,000 chrX
   gloci view peaks.bed --regions-file targets.bed --inclusive-points
-  gloci view calls.bcf -O vcf | less
-  gloci view calls.vcf.gz -o calls.bcf --write-index")]
+  gloci view reads.bam -O sam | head
+  gloci view reads.cram --reference ref.fa -o reads.bam")]
     View(ViewArgs),
+    /// Join BAM files by copying their compressed blocks, as samtools cat does.
+    ///
+    /// The output header is the first file's, plus the @RG lines of the later
+    /// files whose ID it does not have yet, plus a gloci @PG line. The @SQ
+    /// lists of all files must be the same, in the same order: unlike
+    /// samtools, cat refuses files with different lists, because their
+    /// records would point at the wrong references. Every record is copied
+    /// as it is: only the block holding a file's header end is compressed
+    /// again, and the order of the records is not checked, so give sorted
+    /// files in sorted order. The input files may be named - (stdin, once).
+    /// BAM only: CRAM and SAM are refused (gloci view x.sam -o x.bam makes
+    /// BAM; samtools cat joins CRAM). The output is BAM, to -o or stdout.
+    /// --write-index also writes the .bai, for files that are already in
+    /// coordinate order.
+    #[command(after_long_help = "\
+Examples:
+  gloci cat lane1.bam lane2.bam -o all.bam
+  gloci cat part-*.bam > all.bam")]
+    Cat(CatArgs),
     /// Validate files and print a one-screen summary of each.
     ///
     /// check reads every file to the end, keeps going past problems and
@@ -199,6 +255,17 @@ Examples:
     /// with the size of B. Pairs and count write TSV (a VCF A gets a
     /// #CHROM line naming the columns); clip does not accept VCF/BCF.
     ///
+    /// BAM, CRAM and SAM (A or B) work as intervals (a CRAM needs --reference, and an
+    /// indexed BAM or CRAM is read per chromosome at -t above 1): a read is the reference span of its
+    /// M, D, N, = and X operations (clips never widen it), on the strand of its
+    /// flag. Unmapped reads are skipped; --min-mapq, --require-flags and
+    /// --exclude-flags filter reads first. --split uses the segments between
+    /// N operations, --split-deletions also cuts at D. With an alignment A,
+    /// --mode any and none write the reads themselves as BAM (SAM for a SAM A,
+    /// or as -o/-O say); pairs and count write A's reads as BED6 rows, as
+    /// gloci convert does. --mode clip of reads is refused. Alignments stream:
+    /// --sort sorts them into a temporary BAM first, bounded by --max-mem.
+    ///
     /// Two ways to deal with inputs that are not sorted. Use --sort when the
     /// inputs are too big for memory or you want sorted output: A and every
     /// -b file are sorted first with an external sort bounded by --max-mem
@@ -208,8 +275,9 @@ Examples:
     /// afterwards. Use --unsorted when you want A's order kept and every
     /// -b file fits in memory. The two cannot be combined.
     ///
-    /// When A and every -b file are BGZF files with a .tbi or .csi index, or
-    /// plain (uncompressed) BED, bedGraph or VCF files, which are scanned once
+    /// When A and every -b file are BGZF files with a .tbi or .csi index (a
+    /// BAM with a .bai or .csi), or plain (uncompressed) BED, bedGraph or VCF
+    /// files, which are scanned once
     /// for where each chromosome's records lie, and more than one thread is
     /// used, the work runs on runs of chromosomes in parallel, which are
     /// read and written in the chromosome-table order
@@ -224,7 +292,9 @@ Examples:
     /// varies with the thread count (-o FILE is written atomically). Plain
     /// inputs are validated to their end at every thread count; for indexed
     /// inputs, records outside the queried chromosomes are validated only at
-    /// -t 1. When more than one input is malformed, the error reported may
+    /// -t 1. With -v, the counts of reads left out of an indexed -b (or of
+    /// anything under --region) are of the reads read, which depend on the
+    /// thread count. When more than one input is malformed, the error reported may
     /// name a different input at different thread counts; the exit code is
     /// the same.
     #[command(after_long_help = "\
@@ -232,7 +302,7 @@ Examples:
   gloci intersect -a peaks.bed -b genes.bed
   gloci intersect -a calls.vcf.gz -b exons.bed --mode none -o off_target.vcf.gz
   gloci intersect -a a.bed -b x.bed y.bed --mode pairs --overlap-bases --names X,Y
-  gloci intersect -a reads.bed -b targets.bed -f 50% -s --mode count --unsorted")]
+  gloci intersect -a reads.bam -b targets.bed -o on_target.bam")]
     Intersect(IntersectArgs),
     /// Merge overlapping or nearby records into clusters (bedtools merge, bedops -m).
     ///
@@ -366,10 +436,11 @@ Examples:
   gloci partition a.bed b.bed --all --merge-adjacent --no-membership
   gloci partition a.bg b.bg --bedgraph --empty 0 -g hg38")]
     Partition(PartitionArgs),
-    /// Depth of coverage of a genome by the features of a BED file
-    /// (bedtools genomecov -i).
+    /// Depth of coverage of a genome by the features of a BED file or the
+    /// reads of a BAM (bedtools genomecov -i and -ibam).
     ///
-    /// Every feature adds one to the depth over its bases. -g is required:
+    /// Every feature adds one to the depth over its bases. -g is required
+    /// (unless the input is BAM, CRAM or SAM):
     /// the output covers every chromosome of the genome from base 0 to its
     /// length, in genome order, chromosomes without features included
     /// (a built-in genome, .genome, .fai or .dict file with lengths). The
@@ -386,8 +457,21 @@ Examples:
     /// counts the BED12 blocks of each feature. --5p and --3p count one
     /// base per feature, its 5' or 3' end by strand (unknown counts as
     /// plus). A zero-length feature covers no bases and is ignored. A
-    /// feature past the end of its chromosome is an error. BAM input is
-    /// not supported yet.
+    /// feature past the end of its chromosome is an error.
+    ///
+    /// BAM, CRAM and SAM input (a CRAM needs --reference): the chromosomes and sizes come from the header
+    /// (header order, empty chromosomes included) unless -g is given. A read
+    /// counts its whole reference span, deletions included; --split counts
+    /// the blocks between N operations, and --split-deletions also cuts at
+    /// D. --split-deletions is bedtools -ibam -split, so use it for parity;
+    /// plain -ibam (cuts at D, not N) has no gloci counterpart, see
+    /// docs/differences.md#bam-genomecov-deletions.
+    /// Unmapped reads are left out, and --min-mapq, --require-flags and
+    /// --exclude-flags filter reads first. --strand follows the read's
+    /// direction. An indexed BAM or CRAM at -t above 1 runs per chromosome,
+    /// with the same output as -t 1. At most 8 runs are in flight; memory is
+    /// then about 64 MiB plus 20 MiB per run in flight: the output waiting to
+    /// be written shares 64 MiB and the rest spills to --tmp-dir.
     ///
     /// The input must be sorted in the genome order, which is checked as it
     /// is read; an unsorted input is an error whose hint names --sort.
@@ -397,8 +481,8 @@ Examples:
 Examples:
   gloci genomecov peaks.bed -g hg38
   gloci genomecov reads.bed -g hg38 --bedgraph --scale 0.000001 -o cov.bedgraph
-  gloci genomecov genes.bed -g genome.txt --bga --strand +
-  gloci genomecov exons12.bed -g hg38 --split --per-base")]
+  gloci genomecov exons12.bed -g hg38 --split --per-base
+  gloci genomecov reads.bam --bga --split")]
     Genomecov(GenomecovArgs),
     /// Grow each feature on its sides (bedtools slop, bedops --range).
     ///
@@ -474,8 +558,9 @@ Examples:
   gloci windows -i genes.bed -n 10 --id-column --reverse
   gloci merge peaks.bed | gloci windows -i - -w 100")]
     Windows(WindowsArgs),
-    /// Convert VCF/BCF, GFF3/GTF, WIG or BED12 to BED (bedops convert2bed,
-    /// vcf2bed, gff2bed, gtf2bed; bedtools bed12tobed6).
+    /// Convert VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out, BED12 or
+    /// BAM/CRAM/SAM to BED (bedops convert2bed, vcf2bed, gff2bed, gtf2bed;
+    /// bedtools bed12tobed6, bamtobed).
     ///
     /// VCF/BCF gives one row per record: chrom, start, end, ID, REF, ALT,
     /// QUAL, FILTER, with the footprint chosen by --vcf-span.
@@ -493,6 +578,22 @@ Examples:
     /// row per data line: chrom, start, end, value; equal values are not
     /// merged. fixedStep needs start= and step=; values must be finite. A
     /// span larger than the step gives overlapping rows.
+    /// PSL (BLAT; the header is skipped) gives bedops psl2bed's 21 columns:
+    /// tName, tStart, tEnd, qName, matches, strand, then the other PSL
+    /// columns in order. RepeatMasker .out gives bedops rmsk2bed's columns:
+    /// sequence, begin-1, end, repeat, score, strand (`C` is `-`), the
+    /// divergence, deletion and insertion percentages, the `(left)` of the
+    /// query, class/family, the repeat positions as written, ID and `*`.
+    /// BAM, CRAM and SAM give one BED6 row per mapped read, in input order:
+    /// chrom, start, end, name (with /1 or /2 for the first or second mate),
+    /// MAPQ, strand; unmapped reads are skipped and counted at -v, and
+    /// --min-mapq, --require-flags and --exclude-flags filter. The span is
+    /// the reference bases the CIGAR covers (M D N = X), cut at the end of
+    /// the reference. --bed12 writes one BED12 row per read with the thick
+    /// span equal to the read and --color as itemRgb; --blocks writes one
+    /// BED6 row per block, cut at N; --split-deletions cuts at D as well.
+    /// --score-tag NM takes the score from an integer tag (NM is bedtools
+    /// -ed), and --cigar appends the CIGAR to BED6 rows.
     /// BED12 with --blocks gives one BED6 row per block; a line that is not
     /// valid BED12 (fewer than 12 columns, block counts that disagree, blocks
     /// out of order, a last block not ending at chromEnd) is an error, also
@@ -503,10 +604,63 @@ Examples:
     #[command(after_long_help = "\
 Examples:
   gloci convert calls.vcf.gz -o calls.bed
-  gloci convert calls.vcf.gz --split-alleles --types del,ins
-  gloci convert genes.gtf --feature exon --name-attr gene_name
-  gloci convert transcripts.bed --blocks -o exons.bed")]
+  gloci convert transcripts.bed --blocks -o exons.bed
+  gloci convert reads.bam --bed12 -o reads.bed
+  gloci convert reads.bam --blocks --score-tag NM --min-mapq 30")]
     Convert(ConvertArgs),
+    /// Write the sequence under each interval (bedtools getfasta).
+    ///
+    /// --fasta REF.fa is read at random through REF.fa.fai (and REF.fa.gz.gzi
+    /// for BGZF); build them with gloci index. gloci never builds them itself.
+    /// The intervals (BED, GFF/GTF, VCF/BCF) are written in input order, one
+    /// sequence each, on a single line with the case of the FASTA kept and
+    /// memory that does not grow with the interval length. The header is
+    /// chrom:start-end with a 0-based start, as bedtools; --name gives
+    /// name::chrom:start-end and --name-only gives name (BED column 4, the
+    /// GFF feature type, or REF/ALT_ID for VCF). -s reverse-complements
+    /// minus-strand records with the IUPAC-aware, case-keeping table of
+    /// bedtools and adds (+), (-) or (.) to the header; --rna writes U for
+    /// the complement of A (as bedtools, it changes reverse-complemented
+    /// sequences only). --split joins the blocks of BED12 records; with -s a
+    /// minus-strand record is reverse-complemented as a whole. --tab writes
+    /// the header, TAB, the sequence; --bed-out writes the input record, TAB,
+    /// the sequence. VCF follows --vcf-span (--vcf-span ref is bedtools'
+    /// rule). A zero-length interval has no sequence: it is skipped with one
+    /// warning that counts them, as bedtools does. An interval on a
+    /// chromosome the FASTA lacks, or ending past its end, is an error; bedtools skips it
+    /// with a message and exits 0. --skip-invalid skips such intervals with one
+    /// warning carrying the count. -o FILE.fa.gz writes BGZF.
+    #[command(after_long_help = "\
+Examples:
+  gloci getfasta --fasta ref.fa genes.bed
+  gloci getfasta --fasta ref.fa genes.bed12 --split -s --name-only -o transcripts.fa
+  gloci getfasta --fasta ref.fa.gz calls.vcf.gz --vcf-span ref --tab")]
+    Getfasta(GetfastaArgs),
+    /// Base composition of the sequence under each interval (bedtools nuc).
+    ///
+    /// --fasta REF.fa is read at random through REF.fa.fai (and REF.fa.gz.gzi
+    /// for BGZF); build them with gloci index. gloci never builds them itself.
+    /// Each interval (BED, GFF/GTF, VCF/BCF) is written as it was read, then
+    /// pct_at pct_gc num_A num_C num_G num_T num_N num_oth seq_len, preceded
+    /// by bedtools' header line (#1_usercol ...). The counts ignore case, U
+    /// counts as T and any other byte (IUPAC codes, -, *) is other; the
+    /// percentages divide by the interval length, are computed in f32 and
+    /// print with six decimals, as bedtools prints them. -s reverse-complements
+    /// minus-strand records first, so everything below describes the reverse
+    /// complement. --seq adds the sequence; --pattern P adds the number of
+    /// times P occurs (overlapping matches count, case-sensitive unless
+    /// --ignore-case). Memory does not grow with the interval length. A
+    /// zero-length interval is skipped with one warning that counts them, as
+    /// bedtools does. An interval on a chromosome the FASTA lacks, or ending
+    /// past its end, is an error; bedtools skips it with a message and exits
+    /// 0. --skip-invalid skips such intervals with one warning carrying the
+    /// count.
+    #[command(after_long_help = "\
+Examples:
+  gloci nuc --fasta ref.fa genes.bed
+  gloci nuc --fasta ref.fa genes.bed -s --seq -o genes.nuc.tsv
+  gloci nuc --fasta ref.fa.gz calls.vcf.gz --vcf-span ref --pattern CG")]
+    Nuc(NucArgs),
     /// Remove from A the bases covered by B (bedtools subtract, bedops -d).
     ///
     /// Each A record is cut by the union of the B records that overlap it,
@@ -546,8 +700,9 @@ Examples:
     /// afterwards. Use --unsorted when you want A's order kept and every
     /// -b file fits in memory. The two cannot be combined.
     ///
-    /// When A and every -b file are BGZF files with a .tbi or .csi index, or
-    /// plain (uncompressed) BED, bedGraph or VCF files, which are scanned once
+    /// When A and every -b file are BGZF files with a .tbi or .csi index (a
+    /// BAM with a .bai or .csi), or plain (uncompressed) BED, bedGraph or VCF
+    /// files, which are scanned once
     /// for where each chromosome's records lie, and more than one thread is
     /// used, the work runs on runs of chromosomes in parallel, which are
     /// read and written in the chromosome-table order
@@ -562,15 +717,17 @@ Examples:
     /// varies with the thread count (-o FILE is written atomically). Plain
     /// inputs are validated to their end at every thread count; for indexed
     /// inputs, records outside the queried chromosomes are validated only at
-    /// -t 1. When more than one input is malformed, the error reported may
+    /// -t 1. With -v, the counts of reads left out of an indexed -b (or of
+    /// anything under --region) are of the reads read, which depend on the
+    /// thread count. When more than one input is malformed, the error reported may
     /// name a different input at different thread counts; the exit code is
     /// the same.
     #[command(after_long_help = "\
 Examples:
   gloci subtract -a peaks.bed -b blacklist.bed
-  gloci subtract -a genes.bed -b repeats.bed -f 50% --whole -o clean.bed
   gloci subtract -a reads.bed -b exons.bed --sum-overlaps -f 0.8 -s
-  gloci subtract -a calls.vcf.gz -b blacklist.bed -o filtered.vcf.gz")]
+  gloci subtract -a calls.vcf.gz -b blacklist.bed -o filtered.vcf.gz
+  gloci subtract -a calls.vcf.gz -b known.vcf.gz --match alleles -o novel.vcf.gz")]
     Subtract(SubtractArgs),
     /// Find the nearest B to each A (bedtools closest, bedops closest-features).
     ///
@@ -623,8 +780,9 @@ Examples:
     /// afterwards. Use --unsorted when you want A's order kept and every
     /// -b file fits in memory. The two cannot be combined.
     ///
-    /// When A and every -b file are BGZF files with a .tbi or .csi index, or
-    /// plain (uncompressed) BED, bedGraph or VCF files, which are scanned once
+    /// When A and every -b file are BGZF files with a .tbi or .csi index (a
+    /// BAM with a .bai or .csi), or plain (uncompressed) BED, bedGraph or VCF
+    /// files, which are scanned once
     /// for where each chromosome's records lie, and more than one thread is
     /// used, the work runs on runs of chromosomes in parallel, which are
     /// read and written in the chromosome-table order
@@ -639,7 +797,9 @@ Examples:
     /// varies with the thread count (-o FILE is written atomically). Plain
     /// inputs are validated to their end at every thread count; for indexed
     /// inputs, records outside the queried chromosomes are validated only at
-    /// -t 1. When more than one input is malformed, the error reported may
+    /// -t 1. With -v, the counts of reads left out of an indexed -b (or of
+    /// anything under --region) are of the reads read, which depend on the
+    /// thread count. When more than one input is malformed, the error reported may
     /// name a different input at different thread counts; the exit code is
     /// the same.
     #[command(after_long_help = "\
@@ -700,8 +860,9 @@ Examples:
     /// afterwards. Use --unsorted when you want A's order kept and every
     /// -b file fits in memory. The two cannot be combined.
     ///
-    /// When A and every -b file are BGZF files with a .tbi or .csi index, or
-    /// plain (uncompressed) BED, bedGraph or VCF files, which are scanned once
+    /// When A and every -b file are BGZF files with a .tbi or .csi index (a
+    /// BAM with a .bai or .csi), or plain (uncompressed) BED, bedGraph or VCF
+    /// files, which are scanned once
     /// for where each chromosome's records lie, and more than one thread is
     /// used, the work runs on runs of chromosomes in parallel, which are
     /// read and written in the chromosome-table order
@@ -716,7 +877,9 @@ Examples:
     /// varies with the thread count (-o FILE is written atomically). Plain
     /// inputs are validated to their end at every thread count; for indexed
     /// inputs, records outside the queried chromosomes are validated only at
-    /// -t 1. When more than one input is malformed, the error reported may
+    /// -t 1. With -v, the counts of reads left out of an indexed -b (or of
+    /// anything under --region) are of the reads read, which depend on the
+    /// thread count. When more than one input is malformed, the error reported may
     /// name a different input at different thread counts; the exit code is
     /// the same.
     #[command(after_long_help = "\
@@ -752,6 +915,15 @@ Examples:
     /// memory, so memory grows with the size of B. The output is TSV with
     /// A's columns first.
     ///
+    /// BAM, CRAM and SAM (A or B) work as intervals (a CRAM needs --reference, and an
+    /// indexed BAM or CRAM is read per chromosome at -t above 1): a read is the reference span of its
+    /// M, D, N, = and X operations (clips never widen it). Unmapped reads are
+    /// skipped; --min-mapq, --require-flags and --exclude-flags filter reads
+    /// first. With --split the blocks of a read are the segments between N
+    /// operations; --split-deletions also cuts at D. An alignment A is written
+    /// as its BED6 row (as gloci convert does). Alignments stream: --sort sorts
+    /// them into a temporary BAM first, bounded by --max-mem.
+    ///
     /// Two ways to deal with inputs that are not sorted. Use --sort when the
     /// inputs are too big for memory or you want sorted output: A and every
     /// -b file are sorted first with an external sort bounded by --max-mem
@@ -761,8 +933,9 @@ Examples:
     /// afterwards. Use --unsorted when you want A's order kept and every
     /// -b file fits in memory. The two cannot be combined.
     ///
-    /// When A and every -b file are BGZF files with a .tbi or .csi index, or
-    /// plain (uncompressed) BED, bedGraph or VCF files, which are scanned once
+    /// When A and every -b file are BGZF files with a .tbi or .csi index (a
+    /// BAM with a .bai or .csi), or plain (uncompressed) BED, bedGraph or VCF
+    /// files, which are scanned once
     /// for where each chromosome's records lie, and more than one thread is
     /// used, the work runs on runs of chromosomes in parallel, which are
     /// read and written in the chromosome-table order
@@ -777,15 +950,17 @@ Examples:
     /// varies with the thread count (-o FILE is written atomically). Plain
     /// inputs are validated to their end at every thread count; for indexed
     /// inputs, records outside the queried chromosomes are validated only at
-    /// -t 1. When more than one input is malformed, the error reported may
+    /// -t 1. With -v, the counts of reads left out of an indexed -b (or of
+    /// anything under --region) are of the reads read, which depend on the
+    /// thread count. When more than one input is malformed, the error reported may
     /// name a different input at different thread counts; the exit code is
     /// the same.
     #[command(after_long_help = "\
 Examples:
   gloci coverage -a genes.bed -b reads.bed
-  gloci coverage -a genes.bed -b reads.bed --hist
   gloci coverage -a exons.bed -b reads.bed --per-base -s
-  gloci coverage -a peaks.bed -b rep1.bed rep2.bed --names r1,r2")]
+  gloci coverage -a peaks.bed -b rep1.bed rep2.bed --names r1,r2
+  gloci coverage -a targets.bed -b reads.bam --split")]
     Coverage(CoverageArgs),
     /// Aggregate columns over runs of lines with equal keys (bedtools groupby).
     ///
@@ -815,6 +990,39 @@ Examples:
   gloci groupby calls.tsv -g 1 -c 4:collapse -c 5:count_distinct
   gloci groupby table.tsv --header -g gene -c expr:median -o medians.tsv")]
     Groupby(GroupbyArgs),
+    /// Mask bases of a FASTA under intervals, streaming it (bedtools maskfasta).
+    ///
+    /// Copies --fasta (plain, gzip or BGZF; no index needed) to the output
+    /// with every base under a -b interval replaced by --mask-char (default
+    /// N) or, with --soft, lowercased (letters only; other characters are
+    /// kept). Headers and line layout are kept exactly: line widths, CRLF
+    /// line ends, blank lines and a missing final line break. (bedtools
+    /// re-wraps lines to the first line's width, drops header descriptions
+    /// and cannot match names in a CRLF file; it also adds a final line break
+    /// that was missing and drops empty sequences, which gloci keeps.) The FASTA is read in pieces
+    /// of at most 1 MiB, so a chromosome of any size needs no memory beyond
+    /// the masks.
+    ///
+    /// Masks come from any number of files in any order, in any interval
+    /// format (BED, bedGraph, GFF/GTF, VCF/BCF); overlapping masks are
+    /// merged so a base is masked once. A mask names a sequence by the
+    /// first word of its header; use --chrom-map when the names differ.
+    /// Masks on a chromosome the FASTA lacks are skipped with one warning.
+    /// A mask that reaches past the end of its sequence is an error, unless
+    /// --skip-invalid is given: then it is clipped to the sequence end (one
+    /// that starts at or past the end masks nothing) with one warning that
+    /// counts them. --mask-char takes one printable character; a space is
+    /// refused because it makes the FASTA unindexable.
+    ///
+    /// Output goes to stdout or -o FILE (.fa, .fasta, .fna; a .gz name is
+    /// BGZF). --write-index also writes FILE.fai, and FILE.gzi for BGZF,
+    /// the same files gloci index writes.
+    #[command(after_long_help = "\
+Examples:
+  gloci maskfasta --fasta hg38.fa -b repeats.bed -o hg38.masked.fa
+  gloci maskfasta --fasta hg38.fa.gz -b rmsk.bed segdups.bed --soft -o soft.fa.gz --write-index
+  gloci maskfasta --fasta ref.fa -b low-mappability.bed --mask-char X | head")]
+    Maskfasta(MaskfastaArgs),
     /// VCF operations (spec §7.8).
     #[command(after_long_help = "\
 Examples:
@@ -875,6 +1083,12 @@ pub struct IntersectArgs {
     pub o: OverlapArgs,
     #[command(flatten)]
     pub w: WindowArgs,
+    /// BAM, CRAM and SAM: also cut the blocks of a read at deletions (D), with or without
+    /// --split (bedtools bamtobed -splitD).
+    #[arg(long)]
+    pub split_deletions: bool,
+    #[command(flatten)]
+    pub align: AlignArgs,
     #[command(flatten)]
     pub region: RegionArgs,
     #[command(flatten)]
@@ -913,6 +1127,17 @@ pub struct SubtractArgs {
     /// -f of A; takes only -f.
     #[arg(long)]
     pub sum_overlaps: bool,
+    /// What makes a hit count: overlap, or overlap plus a shared ALT allele
+    /// (alleles; VCF/BCF inputs only). With alleles, an A is dropped only
+    /// for a B with the same position, REF and ALT; one shared ALT drops a
+    /// multi-allelic A whole.
+    #[arg(
+        long = "match",
+        value_enum,
+        default_value = "overlap",
+        value_name = "HOW"
+    )]
+    pub matching: IntersectMatch,
     #[command(flatten)]
     pub o: OverlapArgs,
     #[command(flatten)]
@@ -1053,6 +1278,12 @@ pub struct CoverageArgs {
     pub mean: bool,
     #[command(flatten)]
     pub o: OverlapArgs,
+    /// BAM, CRAM and SAM: also cut the blocks of a read at deletions (D), with or without
+    /// --split (bedtools bamtobed -splitD).
+    #[arg(long)]
+    pub split_deletions: bool,
+    #[command(flatten)]
+    pub align: AlignArgs,
     #[command(flatten)]
     pub region: RegionArgs,
     #[command(flatten)]
@@ -1611,6 +1842,55 @@ pub struct MapArgs {
     pub out: OutputArgs,
 }
 
+/// The mask character of `maskfasta`: one printable ASCII character.
+fn parse_mask_char(s: &str) -> Result<u8, String> {
+    match s.as_bytes() {
+        [b] if b.is_ascii_graphic() => Ok(*b),
+        [b' '] => Err(
+            "a space is refused as the mask character: a space inside a sequence line makes the \
+FASTA impossible to index (gloci index and samtools faidx reject it); use a printable character \
+such as N or X"
+                .into(),
+        ),
+        _ => Err(format!(
+            "invalid mask character {s:?}: use exactly one printable ASCII character such as N or X (or --soft to lowercase instead)"
+        )),
+    }
+}
+
+#[derive(Args)]
+pub struct MaskfastaArgs {
+    /// FASTA to mask (plain, gzip or BGZF; `-` for stdin).
+    #[arg(long, value_name = "FILE", required = true)]
+    pub fasta: String,
+    /// Interval files whose bases are masked (-b x y or -b x -b y).
+    #[arg(
+        short = 'b',
+        long = "b",
+        value_name = "FILE",
+        required = true,
+        num_args = 1..,
+        action = clap::ArgAction::Append
+    )]
+    pub masks: Vec<String>,
+    /// Lowercase masked letters instead of replacing them.
+    #[arg(long, conflicts_with = "mask_char")]
+    pub soft: bool,
+    /// Character that replaces masked bases.
+    #[arg(long, value_name = "C", default_value = "N", value_parser = parse_mask_char)]
+    pub mask_char: u8,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
 #[derive(Args)]
 pub struct GroupbyArgs {
     /// Tab-separated input (`-` for stdin).
@@ -1813,10 +2093,11 @@ pub struct GenomecovArgs {
     /// Input file (`-` for stdin).
     #[arg(value_name = "FILE")]
     pub file: String,
-    /// Chromosome order and sizes (required): a built-in genome such as
-    /// hg38 (see gloci genomes), or a .fai, .genome or .dict file.
-    #[arg(short, long, value_name = "NAME|FILE", required = true)]
-    pub genome: String,
+    /// Chromosome order and sizes (required unless the input is BAM, CRAM or SAM,
+    /// which gives its header's): a built-in genome such as hg38 (see gloci
+    /// genomes), or a .fai, .genome or .dict file.
+    #[arg(short, long, value_name = "NAME|FILE")]
+    pub genome: Option<String>,
     /// Write the histogram of depths (the default).
     #[arg(long, conflicts_with_all = ["bedgraph", "bga", "per_base"])]
     pub hist: bool,
@@ -1836,9 +2117,16 @@ pub struct GenomecovArgs {
     #[arg(long, value_name = "+|-", allow_hyphen_values = true,
           value_parser = clap::builder::PossibleValuesParser::new(["+", "-"]))]
     pub strand: Option<String>,
-    /// Count the BED12 blocks of each feature instead of the whole feature.
+    /// Count the BED12 blocks of each feature, or the blocks of each read
+    /// between N operations (BAM, CRAM and SAM), instead of the whole feature.
     #[arg(long, conflicts_with_all = ["five_prime", "three_prime"])]
     pub split: bool,
+    /// BAM, CRAM and SAM: also cut the blocks of a read at deletions (D), with or
+    /// without --split; this is bedtools genomecov -ibam -split. Plain -ibam
+    /// (cuts at D, not N) has no gloci counterpart, see
+    /// docs/differences.md#bam-genomecov-deletions.
+    #[arg(long, conflicts_with_all = ["five_prime", "three_prime"])]
+    pub split_deletions: bool,
     /// Count only the 5' base of each feature (strand-aware).
     #[arg(long = "5p", conflicts_with = "three_prime")]
     pub five_prime: bool,
@@ -1848,6 +2136,8 @@ pub struct GenomecovArgs {
     /// With --hist: put every depth of N or more into the bin N.
     #[arg(long, value_name = "N")]
     pub max_depth: Option<u64>,
+    #[command(flatten)]
+    pub align: AlignArgs,
     #[command(flatten)]
     pub chrom_order: ChromOrderArg,
     #[command(flatten)]
@@ -1930,6 +2220,84 @@ pub struct SlopArgs {
     pub invalid: InvalidArg,
     #[command(flatten)]
     pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+#[derive(Args)]
+pub struct GetfastaArgs {
+    /// Intervals to read (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// The FASTA to read (plain or BGZF), with its .fai (and .gzi) beside it.
+    #[arg(short = 'f', long, value_name = "FILE", required = true)]
+    pub fasta: PathBuf,
+    /// Reverse-complement minus-strand records and add the strand to the
+    /// header.
+    #[arg(short = 's')]
+    pub strand: bool,
+    /// Header `name::chrom:start-end`.
+    #[arg(long, conflicts_with = "name_only")]
+    pub name: bool,
+    /// Header `name`.
+    #[arg(long)]
+    pub name_only: bool,
+    /// BED12: join the blocks (exons) of each record.
+    #[arg(long)]
+    pub split: bool,
+    /// Write `header TAB sequence` lines.
+    #[arg(long, conflicts_with = "bed_out")]
+    pub tab: bool,
+    /// Write each input record, TAB, the sequence.
+    #[arg(long)]
+    pub bed_out: bool,
+    /// Write U for the complement of A (reverse-complemented sequences only).
+    #[arg(long)]
+    pub rna: bool,
+    #[command(flatten)]
+    pub format: FormatArg,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+#[derive(Args)]
+pub struct NucArgs {
+    /// Intervals to read (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// The FASTA to read (plain or BGZF), with its .fai (and .gzi) beside it.
+    #[arg(short = 'f', long, value_name = "FILE", required = true)]
+    pub fasta: PathBuf,
+    /// Reverse-complement minus-strand records before counting.
+    #[arg(short = 's')]
+    pub strand: bool,
+    /// Add the sequence as a column.
+    #[arg(long)]
+    pub seq: bool,
+    /// Add a column counting this pattern (overlapping matches).
+    #[arg(long, value_name = "P")]
+    pub pattern: Option<String>,
+    /// Match --pattern without regard to case.
+    #[arg(short = 'C', long, requires = "pattern")]
+    pub ignore_case: bool,
+    #[command(flatten)]
+    pub format: FormatArg,
+    #[command(flatten)]
+    pub vcf_span: VcfSpanArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
     #[command(flatten)]
     pub threads: ThreadArgs,
     #[command(flatten)]
@@ -2036,9 +2404,30 @@ pub struct ConvertArgs {
     /// gene_id for GTF).
     #[arg(long, value_name = "KEY", value_parser = clap::builder::NonEmptyStringValueParser::new())]
     pub name_attr: Option<String>,
-    /// BED12: write one BED6 row per block.
+    /// BED12, BAM, CRAM, SAM: write one BED6 row per block (for alignments the
+    /// segments between N operations, as bedtools bamtobed -split).
     #[arg(long)]
     pub blocks: bool,
+    /// BAM, CRAM, SAM: write one BED12 row per read, its blocks cut at N
+    /// (bedtools bamtobed -bed12).
+    #[arg(long)]
+    pub bed12: bool,
+    /// BAM, CRAM, SAM with --bed12: the itemRgb column, as R,G,B.
+    #[arg(long, value_name = "R,G,B")]
+    pub color: Option<String>,
+    /// BAM, CRAM, SAM: take the score column from this integer tag (NM, AS, ...)
+    /// instead of the MAPQ; every read needs it (bedtools bamtobed -tag, -ed is NM).
+    #[arg(long, value_name = "TAG")]
+    pub score_tag: Option<String>,
+    /// BAM, CRAM, SAM: append the CIGAR as a seventh column (BED6 only).
+    #[arg(long)]
+    pub cigar: bool,
+    /// BAM, CRAM, SAM: also cut blocks at deletions (bedtools bamtobed -splitD);
+    /// implies --blocks unless --bed12 is given.
+    #[arg(long)]
+    pub split_deletions: bool,
+    #[command(flatten)]
+    pub align: AlignArgs,
     #[command(flatten)]
     pub format: FormatArg,
     #[command(flatten)]
@@ -2153,7 +2542,25 @@ pub struct ViewArgs {
     #[command(flatten)]
     pub invalid: InvalidArg,
     #[command(flatten)]
+    pub align: AlignArgs,
+    #[command(flatten)]
     pub out: OutputArgs,
+}
+
+#[derive(Args)]
+pub struct CatArgs {
+    /// BAM files to join, in output order (`-` for stdin).
+    #[arg(value_name = "FILES", required = true)]
+    pub files: Vec<String>,
+    /// Write the BAM to FILE instead of stdout.
+    #[arg(short, long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
+    /// Also write a .bai index next to the output (.csi when a reference is longer than 2^29).
+    /// The joined file must be coordinate-sorted.
+    #[arg(long)]
+    pub write_index: bool,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
 }
 
 #[derive(Args)]
@@ -2189,6 +2596,16 @@ pub struct SortArgs {
     /// Only check that the inputs are sorted; write nothing, exit 1 if not.
     #[arg(long)]
     pub check: bool,
+    /// Alignments: sort by read name, in natural order (r2 before r10), as samtools sort -n.
+    #[arg(short = 'n', long, conflicts_with = "by_name_bytes")]
+    pub by_name: bool,
+    /// Alignments: sort by read name as bytes (r10 before r2), as samtools sort -N.
+    #[arg(short = 'N', long)]
+    pub by_name_bytes: bool,
+    /// The FASTA a CRAM input was made with (bedtools --cram-ref), with its .fai (and .gzi
+    /// when BGZF). Not needed for a CRAM written without a reference.
+    #[arg(long, value_name = "FILE")]
+    pub reference: Option<PathBuf>,
     #[command(flatten)]
     pub header: HeaderArg,
     #[command(flatten)]
@@ -2225,7 +2642,8 @@ Examples:
 
 #[derive(Args)]
 pub struct IndexArgs {
-    /// Sorted, BGZF-compressed BED/GFF/VCF/BCF file to index.
+    /// Sorted, BGZF-compressed BED/GFF/VCF/BCF file to index, a FASTA file (.fai, .gzi), or
+    /// a CRAM file (.crai).
     pub file: PathBuf,
     /// Sequence (chromosome) column, numbered from 1. Selects TSV mode; needs -b.
     #[arg(short = 's', long, value_name = "N")]
@@ -2246,8 +2664,16 @@ pub struct IndexArgs {
     /// Lines starting with this character are comments (TSV mode, default #).
     #[arg(long, value_name = "CHAR", value_parser = parse_comment)]
     pub comment: Option<u8>,
+    /// Write a .csi instead of a .bai for a BAM file. A BAM with a reference longer than
+    /// 2^29 always gets one.
+    #[arg(long)]
+    pub csi: bool,
     #[command(flatten)]
     pub threads: ThreadArgs,
+    /// The FASTA a CRAM was made with. Indexing a CRAM reads no reference bases, so it is
+    /// optional; when given, its sequence lengths are checked against the CRAM's header.
+    #[arg(long, value_name = "FILE")]
+    pub reference: Option<PathBuf>,
 }
 
 /// Output destination and encoding.
@@ -2260,7 +2686,7 @@ pub struct OutputArgs {
     /// Output format when writing to stdout.
     #[arg(short = 'O', long, value_name = "FMT")]
     pub output_format: Option<String>,
-    /// Also write a .tbi/.csi index next to the output.
+    /// Also write a .tbi/.csi index next to the output (.bai or .csi for BAM output).
     #[arg(long)]
     pub write_index: bool,
     /// BGZF compression level, 0-12.
@@ -2334,6 +2760,50 @@ impl ChromMapArg {
     }
 }
 
+/// The alignment filters (D101), flattened into each command that reads alignments.
+#[derive(Args, Debug, Clone, Default)]
+pub struct AlignArgs {
+    /// Skip alignments with a mapping quality below N (BAM, CRAM and SAM input).
+    #[arg(long, value_name = "N", default_value_t = 0)]
+    pub min_mapq: u8,
+    /// Keep only alignments that have all of these flags: a number (0x2 or 2)
+    /// or names such as paired,proper_pair (as samtools view -f).
+    #[arg(long, value_name = "FLAGS")]
+    pub require_flags: Option<String>,
+    /// Drop alignments that have any of these flags: a number or names such as
+    /// unmap,secondary,dup (as samtools view -F).
+    #[arg(long, value_name = "FLAGS")]
+    pub exclude_flags: Option<String>,
+    /// The FASTA a CRAM input was made with (bedtools --cram-ref), with its
+    /// .fai (and .gzi when BGZF). Not needed for a CRAM written without a
+    /// reference.
+    #[arg(long, value_name = "FILE")]
+    pub reference: Option<PathBuf>,
+}
+
+impl AlignArgs {
+    /// The reader options; `full_records` keeps whole records (for `view` and `sort`).
+    pub fn options(
+        &self,
+        full_records: bool,
+    ) -> Result<gloci_io::AlignOptions, gloci_io::UsageError> {
+        let flags = |name: &str, v: &Option<String>| match v {
+            None => Ok(0),
+            Some(s) => {
+                gloci_io::parse_flags(s).map_err(|e| gloci_io::UsageError(format!("{name}: {e}")))
+            }
+        };
+        Ok(gloci_io::AlignOptions {
+            min_mapq: self.min_mapq,
+            require_flags: flags("--require-flags", &self.require_flags)?,
+            exclude_flags: flags("--exclude-flags", &self.exclude_flags)?,
+            full_records,
+            reference: self.reference.clone(),
+            score_tag: None,
+        })
+    }
+}
+
 #[derive(Args, Debug, Clone)]
 pub struct InvalidArg {
     /// Skip invalid records with a warning instead of failing.
@@ -2349,7 +2819,8 @@ pub struct SortArg {
     /// records are written to a temporary file in --tmp-dir and read back,
     /// so besides the spill runs (about the size of the input, compressed)
     /// the directory needs one uncompressed sorted copy: allow roughly twice
-    /// the input size. Everything is removed afterwards.
+    /// the input size (BAM and CRAM inputs are written as BAM; a SAM input as plain SAM,
+    /// several times larger). Everything is removed afterwards.
     #[arg(long)]
     pub sort: bool,
     /// Memory budget for --sort, in binary units (K, M, G, T); at least 16M.
@@ -2415,7 +2886,9 @@ pub struct HeaderArg {
 
 #[derive(Args, Debug, Clone)]
 pub struct FormatArg {
-    /// Input format, overriding detection (bed, bedgraph, gff, vcf, bcf).
+    /// Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf
+    /// or bcf; bam, cram or sam where the command reads alignments; psl or
+    /// rmsk for convert.
     #[arg(long, value_name = "FMT")]
     pub format: Option<String>,
 }
@@ -2431,7 +2904,8 @@ pub struct AArg {
     /// A: the file whose records are reported (`-` for stdin).
     #[arg(short = 'a', long = "a", value_name = "FILE", required = true)]
     pub a: String,
-    /// A's format, overriding detection (bed, bedgraph, gff, vcf, bcf).
+    /// A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or
+    /// bcf; bam, cram or sam where the command reads alignments.
     #[arg(long, value_name = "FMT")]
     pub a_format: Option<String>,
 }
@@ -2453,7 +2927,8 @@ pub struct BArgs {
     /// basenames, spec 5).
     #[arg(long, value_name = "A,B,...", value_delimiter = ',')]
     pub names: Option<Vec<String>>,
-    /// B's format, overriding detection (bed, bedgraph, gff, vcf, bcf).
+    /// B's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or
+    /// bcf; bam, cram or sam where the command reads alignments.
     #[arg(long, value_name = "FMT")]
     pub b_format: Option<String>,
 }
@@ -2506,7 +2981,8 @@ pub struct OverlapArgs {
     /// Only overlaps on opposite strands; unknown strands never match (4.3: strand).
     #[arg(short = 'S', long = "opposite-strand")]
     pub opposite_strand: bool,
-    /// Compare BED12 blocks (exons) instead of whole spans (4.3: BED12 blocks).
+    /// Compare BED12 blocks (exons) and the aligned segments of BAM/SAM reads (cut at
+    /// CIGAR N) instead of whole spans (4.3: BED12 blocks).
     #[arg(long)]
     pub split: bool,
     /// A point on the edge of an interval overlaps it (4.3: points).
@@ -2599,6 +3075,32 @@ mod tests {
     struct T {
         #[command(flatten)]
         o: ChromOrderArg,
+    }
+
+    #[test]
+    fn align_args_options() {
+        let a = AlignArgs {
+            min_mapq: 20,
+            require_flags: Some("paired".into()),
+            exclude_flags: Some("0x904".into()),
+            reference: None,
+        };
+        let o = a.options(true).unwrap();
+        assert_eq!(
+            (o.min_mapq, o.require_flags, o.exclude_flags),
+            (20, 1, 0x904)
+        );
+        assert!(o.full_records);
+        let bad = AlignArgs {
+            exclude_flags: Some("bogus".into()),
+            ..AlignArgs::default()
+        };
+        assert!(
+            bad.options(false)
+                .unwrap_err()
+                .0
+                .contains("--exclude-flags")
+        );
     }
 
     #[test]

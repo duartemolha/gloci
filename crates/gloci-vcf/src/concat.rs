@@ -18,10 +18,20 @@
 //! size. The last record is only looked for when the caller asks (every file
 //! but the final one).
 
+use gloci_io::bgzf_copy::{
+    Block, BlockInfo, TrackedWrite, copy_from_observed, inflate, malformed_reason, read_block,
+};
 use std::fmt;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 
 pub use gloci_io::BGZF_EOF;
+
+fn read_err(e: io::Error) -> NaiveError {
+    match malformed_reason(&e) {
+        Some(m) => NaiveError::Malformed(m.to_string()),
+        None => NaiveError::Read(e),
+    }
+}
 
 /// Why a block copy failed.
 #[derive(Debug)]
@@ -66,107 +76,6 @@ pub struct NaiveFile {
     pub ends_with_newline: bool,
 }
 
-/// One BGZF block as it is stored.
-struct Block {
-    raw: Vec<u8>,
-    /// Size of the data when decompressed.
-    isize: usize,
-}
-
-fn le32(b: &[u8]) -> u32 {
-    u32::from_le_bytes([b[0], b[1], b[2], b[3]])
-}
-
-/// The next block of `src`; `None` at a clean end of the stream.
-fn read_block(src: &mut dyn Read) -> Result<Option<Block>, NaiveError> {
-    let mut head = [0u8; 12];
-    let mut got = 0;
-    while got < head.len() {
-        match src.read(&mut head[got..]) {
-            Ok(0) => break,
-            Ok(n) => got += n,
-            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
-            Err(e) => return Err(NaiveError::Read(e)),
-        }
-    }
-    if got == 0 {
-        return Ok(None);
-    }
-    let truncated = || NaiveError::Malformed("the file ends inside a BGZF block".into());
-    if got < head.len() {
-        return Err(truncated());
-    }
-    if head[..4] != [0x1f, 0x8b, 8, 4] {
-        return Err(NaiveError::Malformed(
-            "a block does not start with a BGZF header".into(),
-        ));
-    }
-    let xlen = u16::from_le_bytes([head[10], head[11]]) as usize;
-    let mut raw = head.to_vec();
-    raw.resize(12 + xlen, 0);
-    src.read_exact(&mut raw[12..]).map_err(|e| {
-        if e.kind() == io::ErrorKind::UnexpectedEof {
-            truncated()
-        } else {
-            NaiveError::Read(e)
-        }
-    })?;
-    // The BC subfield holds the block size minus one.
-    let mut bsize = None;
-    let mut extra = &raw[12..];
-    while extra.len() >= 4 {
-        let len = u16::from_le_bytes([extra[2], extra[3]]) as usize;
-        if extra[..2] == *b"BC" && len == 2 && extra.len() >= 6 {
-            bsize = Some(u16::from_le_bytes([extra[4], extra[5]]) as usize + 1);
-        }
-        extra = &extra[(4 + len).min(extra.len())..];
-    }
-    let total = bsize.ok_or_else(|| {
-        NaiveError::Malformed(
-            "a gzip block has no BGZF size field (is the file plain gzip?)".into(),
-        )
-    })?;
-    if total < 12 + xlen + 8 {
-        return Err(NaiveError::Malformed("a BGZF block is too small".into()));
-    }
-    let start = raw.len();
-    raw.resize(total, 0);
-    src.read_exact(&mut raw[start..]).map_err(|e| {
-        if e.kind() == io::ErrorKind::UnexpectedEof {
-            truncated()
-        } else {
-            NaiveError::Read(e)
-        }
-    })?;
-    let isize = le32(&raw[total - 4..]) as usize;
-    Ok(Some(Block { raw, isize }))
-}
-
-fn inflate(block: &Block) -> Result<Vec<u8>, NaiveError> {
-    let xlen = u16::from_le_bytes([block.raw[10], block.raw[11]]) as usize;
-    let body = &block.raw[12 + xlen..block.raw.len() - 8];
-    let mut out = Vec::with_capacity(block.isize);
-    flate2::read::DeflateDecoder::new(body)
-        .read_to_end(&mut out)
-        .map_err(|e| NaiveError::Malformed(format!("a BGZF block does not inflate: {e}")))?;
-    if out.len() != block.isize {
-        return Err(NaiveError::Malformed(
-            "a BGZF block's size does not match its content".into(),
-        ));
-    }
-    Ok(out)
-}
-
-/// `data` as BGZF blocks, without an EOF marker.
-fn deflate(data: &[u8]) -> io::Result<Vec<u8>> {
-    let mut w = noodles_bgzf::io::Writer::new(Vec::new());
-    w.write_all(data)?;
-    let mut out = w.finish()?;
-    debug_assert!(out.ends_with(&BGZF_EOF));
-    out.truncate(out.len() - BGZF_EOF.len());
-    Ok(out)
-}
-
 /// The length of the header in `text`: up to and including the line that
 /// starts with `#CHROM`; `None` while that line is incomplete.
 fn header_len(text: &[u8]) -> Option<usize> {
@@ -187,93 +96,85 @@ fn strip_eol(line: &[u8]) -> &[u8] {
 }
 
 /// Copy the blocks of the BGZF VCF `src` to `out`, as the module comment
-/// describes. `want_last` asks for [`NaiveFile::last_record`] (and
-/// `ends_with_newline`), which needs reading blocks again. With
-/// `expected_header` (every file but the first) the header must equal it and
-/// none of the header's blocks is written; without it (the first file) every
-/// block is copied.
+/// describes (the copy itself is `gloci_io::bgzf_copy`). `want_last` asks for
+/// [`NaiveFile::last_record`] (and `ends_with_newline`), which needs reading
+/// blocks again. With `expected_header` (every file but the first) the header
+/// must equal it and none of the header's blocks is written; without it (the
+/// first file) every block is copied.
 pub fn copy_blocks(
     src: &mut (impl Read + Seek),
     out: &mut dyn Write,
     expected_header: Option<&[u8]>,
     want_last: bool,
 ) -> Result<NaiveFile, NaiveError> {
-    let copy_all = expected_header.is_none();
-    let werr = NaiveError::Write;
     let mut info = NaiveFile {
         ends_with_newline: true,
         ..NaiveFile::default()
     };
-    // Decompressed bytes until the header ends, then the record bytes seen
+    // First pass: the header, and the first record. Nothing is written yet.
+    // `acc` holds the data until the header ends, then the record bytes seen
     // before the first record's newline.
     let mut acc: Vec<u8> = Vec::new();
-    let mut header_done = false;
+    let mut header_len_found = None;
     let mut first_done = false;
-    // `(offset in the file, stored size, size inflated)` of each non-empty block.
-    let mut blocks: Vec<(u64, usize, usize)> = Vec::new();
-    let mut pos = 0u64;
-    let mut total = 0usize;
-    let mut last_was_eof = false;
-    while let Some(block) = read_block(src)? {
-        last_was_eof = block.raw == BGZF_EOF;
-        let at = pos;
-        pos += block.raw.len() as u64;
+    while let Some(block) = read_block(src).map_err(read_err)? {
         if block.isize == 0 {
             continue;
         }
-        if !header_done || !first_done {
-            let data = inflate(&block)?;
-            let before = acc.len();
-            acc.extend_from_slice(&data);
-            if !header_done {
-                if let Some(n) = header_len(&acc) {
-                    header_done = true;
-                    info.header = acc[..n].to_vec();
-                    if let Some(want) = expected_header
-                        && want != info.header.as_slice()
-                    {
-                        return Err(NaiveError::HeaderDiffers(info.header));
-                    }
-                    acc.drain(..n);
-                    if !copy_all {
-                        // This block holds the end of the header; only the
-                        // part after it is output, as a new block.
-                        let rest = &data[n - before..];
-                        if !rest.is_empty() {
-                            out.write_all(&deflate(rest).map_err(werr)?)
-                                .map_err(NaiveError::Write)?;
-                        }
-                    }
-                }
-            } else if !copy_all {
-                out.write_all(&block.raw).map_err(werr)?;
-            }
-            if header_done
-                && !first_done
-                && let Some(nl) = acc.iter().position(|&b| b == b'\n')
+        acc.extend_from_slice(&inflate(&block).map_err(read_err)?);
+        if header_len_found.is_none()
+            && let Some(n) = header_len(&acc)
+        {
+            header_len_found = Some(n);
+            info.header = acc[..n].to_vec();
+            if let Some(want) = expected_header
+                && want != info.header.as_slice()
             {
-                info.first_record = Some(strip_eol(&acc[..=nl]).to_vec());
-                first_done = true;
+                return Err(NaiveError::HeaderDiffers(info.header));
             }
-            if copy_all {
-                out.write_all(&block.raw).map_err(NaiveError::Write)?;
-            }
-        } else {
-            out.write_all(&block.raw).map_err(NaiveError::Write)?;
+            acc.drain(..n);
         }
-        total += block.isize;
-        if want_last {
-            blocks.push((at, block.raw.len(), block.isize));
+        if header_len_found.is_some()
+            && let Some(nl) = acc.iter().position(|&b| b == b'\n')
+        {
+            info.first_record = Some(strip_eol(&acc[..=nl]).to_vec());
+            first_done = true;
+            break;
         }
     }
-    if !header_done {
+    let Some(header_len) = header_len_found else {
         return Err(NaiveError::NoHeader);
-    }
-    info.eof_marker = last_was_eof;
+    };
     if !first_done && !acc.is_empty() {
         // A last record without a newline.
         info.first_record = Some(strip_eol(&acc).to_vec());
     }
+    drop(acc);
+
+    // Second pass: the copy. The first file is copied whole; of the others,
+    // everything after the header.
+    src.seek(SeekFrom::Start(0)).map_err(NaiveError::Read)?;
+    let mut blocks: Vec<(u64, usize, usize)> = Vec::new();
+    let mut sink = TrackedWrite::new(out);
+    let start = if expected_header.is_some() {
+        header_len as u64
+    } else {
+        0
+    };
+    let stats = copy_from_observed(src, &mut sink, start, &mut |b: BlockInfo| {
+        if want_last && b.isize > 0 {
+            blocks.push((b.offset, b.len, b.isize));
+        }
+    })
+    .map_err(|e| {
+        if sink.failed {
+            NaiveError::Write(e)
+        } else {
+            read_err(e)
+        }
+    })?;
+    let total = stats.uncompressed as usize;
+    info.eof_marker = stats.eof_marker;
     if info.first_record.is_none() || !want_last {
         return Ok(info);
     }
@@ -288,7 +189,7 @@ pub fn copy_blocks(
         src.seek(SeekFrom::Start(at)).map_err(NaiveError::Read)?;
         let mut raw = vec![0u8; len];
         src.read_exact(&mut raw).map_err(NaiveError::Read)?;
-        let data = inflate(&Block { raw, isize })?;
+        let data = inflate(&Block { raw, isize }).map_err(read_err)?;
         tail_start -= data.len();
         // The last block's own line ending does not end an earlier line.
         let has_newline = if parts.is_empty() {
@@ -320,6 +221,7 @@ pub fn copy_blocks(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gloci_io::bgzf_copy::deflate_blocks as deflate;
 
     fn bgzf(parts: &[&[u8]]) -> Vec<u8> {
         let mut v = Vec::new();

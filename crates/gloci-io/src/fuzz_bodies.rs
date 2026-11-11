@@ -20,6 +20,10 @@ use crate::{
 pub fn read_all(data: &[u8], format: Option<Format>, invalid: InvalidPolicy) {
     let (cfg, data) = split_config(data);
     let o = ReaderOptions {
+        accept: crate::align::Accept {
+            alignments: Some(crate::align::AlignOptions::default()),
+            ..crate::align::Accept::default()
+        },
         chrom_map: None,
         threads: threads(cfg),
         format,
@@ -37,6 +41,54 @@ pub fn read_all(data: &[u8], format: Option<Format>, invalid: InvalidPolicy) {
         match reader.read_batch(&mut chroms, &mut batch, max) {
             Ok(true) => {}
             Ok(false) | Err(_) => return,
+        }
+    }
+}
+
+/// Read `data` as a BAM under both invalid-record policies (the BAM header, framing
+/// and every record check are in this path).
+pub fn read_bam(data: &[u8]) {
+    read_all_both(data, Some(Format::Bam));
+}
+
+/// Read `data` as BAM or SAM through the every-record source and convert each record to the
+/// other layout, under both invalid-record policies: the SAM line checks, the SAM-to-BAM
+/// encoder and the BAM-to-SAM writer are in this path.
+pub fn read_aln_source(data: &[u8], format: Format) {
+    for invalid in [InvalidPolicy::Skip, InvalidPolicy::Fail] {
+        let (cfg, body) = split_config(data);
+        let o = ReaderOptions {
+            accept: crate::align::Accept {
+                alignments: Some(crate::align::AlignOptions::default()),
+                ..crate::align::Accept::default()
+            },
+            chrom_map: None,
+            threads: threads(cfg),
+            format: Some(format),
+            vcf_span: VcfSpan::Allele,
+            invalid,
+        };
+        let Ok(mut src) =
+            crate::open_aln_source_from("fuzz", Box::new(Cursor::new(body.to_vec())), &o)
+        else {
+            continue;
+        };
+        let header = src.header().clone();
+        let encoder = crate::SamToBam::new(&header);
+        let (mut raw, mut out) = (Vec::new(), Vec::new());
+        loop {
+            raw.clear();
+            out.clear();
+            match src.next_record(&mut raw) {
+                Ok(Some(_)) => {}
+                Ok(None) | Err(_) => break,
+            }
+            if src.layout() == Format::Sam {
+                let _ = encoder.encode(&raw, &mut out);
+                let _ = crate::sam_line_to_bam(&raw, &header, &mut out);
+            } else if let Ok(a) = crate::Aln::parse(&raw, &header) {
+                let _ = a.write_sam(&header, &mut out);
+            }
         }
     }
 }

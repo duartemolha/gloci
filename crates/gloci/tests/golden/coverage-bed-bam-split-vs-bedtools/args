@@ -1,0 +1,1 @@
+coverage -a relate-cigars-cov.bed -b input.bam --split

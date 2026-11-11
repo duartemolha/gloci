@@ -11,8 +11,22 @@ pub enum Loc {
 /// Start of the name of the reader over `--sort`ed inputs.
 pub const SORTED_INPUTS: &str = "the sorted inputs (";
 
+/// Why the input gate refused a file (D100).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GateKind {
+    /// The command never reads alignments.
+    NoAlignments,
+    /// FASTA is not an interval input.
+    Sequence,
+    /// PSL and RepeatMasker are read by `convert` only.
+    ConvertOnly,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum IoError {
+    /// A format the command does not read (exit 2).
+    #[error("{msg}")]
+    Gate { kind: GateKind, msg: String },
     #[error("cannot open {path}: {source}; check that the path exists and is readable")]
     Open {
         path: String,
@@ -103,6 +117,16 @@ impl From<OrderError> for IoError {
 }
 
 impl IoError {
+    /// The one error for an input with no bytes (after decompression) given to a command that
+    /// needs records: `convert`, `index`, `cat` and `maskfasta`. Commands whose result may be
+    /// empty (`view`, `intersect`, `sort`, ...) read such an input as no records and exit 0.
+    pub fn empty_input(name: &str) -> IoError {
+        IoError::Detect {
+            path: name.to_string(),
+            msg: format!("{name} is empty: it has no records"),
+        }
+    }
+
     /// Libraries report output write errors under the placeholder path
     /// `output`; name the real destination, keeping the `io::ErrorKind` so a
     /// broken pipe is still recognised.
@@ -138,6 +162,12 @@ impl IoError {
     pub fn with_order_hint(self, extra: &str) -> IoError {
         match self {
             IoError::Order(mut e) => {
+                // An alignment's own hint already says "or pass --sort": do not say it twice.
+                const SORT: &str = ", or pass --sort to sort the inputs first";
+                let extra = match extra.strip_prefix(SORT) {
+                    Some(rest) if e.hint.contains("--sort") => rest,
+                    _ => extra,
+                };
                 e.hint.push_str(extra);
                 IoError::Order(e)
             }

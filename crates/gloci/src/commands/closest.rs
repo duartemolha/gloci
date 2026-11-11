@@ -57,6 +57,7 @@ pub fn run(ctx: &Ctx, a: &ClosestArgs) -> anyhow::Result<()> {
             },
             window: None,
             split: false,
+            split_deletions: false,
             unsorted: a.u.unsorted,
             sort: sort_settings(ctx, &a.sort, a.vcf_span.vcf_span),
             labels,
@@ -72,6 +73,7 @@ pub fn run(ctx: &Ctx, a: &ClosestArgs) -> anyhow::Result<()> {
         sort_aware(
             &a.sort,
             ReaderOptions {
+                accept: gloci_io::Accept::default(),
                 chrom_map: chrom_map.clone(),
                 threads: ctx.threads,
                 format,

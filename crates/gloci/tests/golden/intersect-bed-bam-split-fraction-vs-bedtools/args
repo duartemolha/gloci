@@ -1,0 +1,1 @@
+intersect -a splitfrac.bed -b input.bam --split -f 0.7 --mode pairs

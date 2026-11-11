@@ -61,6 +61,8 @@ pub enum Header {
     /// Header lines, each terminated by `\n`.
     Lines(Vec<u8>),
     Vcf(crate::vcf::VcfHeader),
+    /// The header of a BAM, SAM or CRAM input.
+    Alignment(Arc<crate::align::AlnHeader>),
 }
 
 /// Bytes of records to read per batch, and the bound on the record count.
@@ -102,6 +104,12 @@ pub trait RecordReader: Send {
     fn consume_to_end(&self) -> bool {
         false
     }
+    /// Whether the records are whole, so that a writer may write them. False of an
+    /// alignment reader that keeps only the fields comparisons need (D115): `--sort` then
+    /// sorts slim records into its temporary file and reads them back slim.
+    fn whole_records(&self) -> bool {
+        true
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -112,10 +120,60 @@ pub struct ReaderOptions {
     pub invalid: InvalidPolicy,
     /// `--chrom-map` (D62): renames chromosomes as the records are read.
     pub chrom_map: Option<Arc<ChromMap>>,
+    /// What the command reads beyond interval formats (D100): the input gate.
+    pub accept: crate::align::Accept,
+}
+
+/// What [`open_reader_or_alignments`] found.
+pub enum Opened {
+    /// An interval format, read as records.
+    Records(Box<dyn RecordReader>),
+    /// BAM, CRAM or SAM, read as every-record alignments (D120).
+    Alignments(Box<dyn crate::align::AlnSource>),
+}
+
+/// Open `path` as [`open_reader`] does, except that an alignment file is opened as an
+/// [`AlnSource`](crate::align::AlnSource) when `o.accept.alignments` is set: for a command
+/// (`view`) that handles alignments as whole records and other formats as intervals, and
+/// must not open a stream twice to find out which it has.
+pub fn open_reader_or_alignments(path: &str, o: &ReaderOptions) -> Result<Opened, IoError> {
+    let input = open_input(path, &input_options(o))?;
+    if input.format.is_alignment() && o.accept.alignments.is_some() {
+        return crate::align::source_from_input(input, o).map(Opened::Alignments);
+    }
+    finish_reader(path, dispatch(input, o)?).map(Opened::Records)
+}
+
+/// As [`open_reader_or_alignments`], for bytes already in hand (a spooled copy), named `name`.
+pub fn open_reader_or_alignments_from(
+    name: &str,
+    src: Box<dyn Read + Send>,
+    o: &ReaderOptions,
+) -> Result<Opened, IoError> {
+    let input = open_input_from(name, src, &input_options(o))?;
+    if input.format.is_alignment() && o.accept.alignments.is_some() {
+        return crate::align::source_from_input(input, o).map(Opened::Alignments);
+    }
+    dispatch(input, o).map(Opened::Records)
 }
 
 pub fn open_reader(path: &str, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, IoError> {
-    let r = dispatch(open_input(path, &input_options(o))?, o)?;
+    finish_reader(path, dispatch(open_input(path, &input_options(o))?, o)?)
+}
+
+/// [`open_reader`], and whether the input has no bytes after decompression: such a file is
+/// detected as an empty BED, which a command that needs another format (`convert` of a BAM or
+/// SAM) reports as [`IoError::empty_input`] instead.
+pub fn open_reader_noting_empty(
+    path: &str,
+    o: &ReaderOptions,
+) -> Result<(Box<dyn RecordReader>, bool), IoError> {
+    let mut input = open_input(path, &input_options(o))?;
+    let empty = input.is_empty()?;
+    Ok((finish_reader(path, dispatch(input, o)?)?, empty))
+}
+
+fn finish_reader(path: &str, r: Box<dyn RecordReader>) -> Result<Box<dyn RecordReader>, IoError> {
     // A sweep reads a plain file to its end (see `RecordReader::consume_to_end`).
     if r.compression() == Compression::None
         && crate::seekable::range_format(r.format())
@@ -171,6 +229,7 @@ fn input_options(o: &ReaderOptions) -> InputOptions {
 }
 
 fn dispatch(input: Input, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, IoError> {
+    crate::align::gate(&input.name, input.format, &o.accept)?;
     match input.format {
         Format::Bed | Format::BedGraph => Ok(Box::new(crate::bed::BedReader::open_bed(
             input,
@@ -199,6 +258,48 @@ fn dispatch(input: Input, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, Io
             o.vcf_span,
             o.chrom_map.as_deref(),
         )?)),
+        Format::Bam if o.accept.alignments.is_some() => {
+            Ok(Box::new(crate::align::BamReader::open_bam(
+                input,
+                o.invalid,
+                o.chrom_map.as_deref(),
+                o.accept.alignments.clone().unwrap_or_default(),
+            )?))
+        }
+        Format::Psl => Ok(Box::new(crate::psl::PslReader::open_psl(
+            input,
+            o.invalid,
+            o.chrom_map.clone(),
+        )?)),
+        Format::Rmsk => Ok(Box::new(crate::rmsk::RmskReader::open_rmsk(
+            input,
+            o.invalid,
+            o.chrom_map.clone(),
+        )?)),
+        Format::Cram if o.accept.alignments.is_some() => {
+            Ok(Box::new(crate::align::CramReader::open_cram(
+                input,
+                o,
+                o.accept.alignments.clone().unwrap_or_default(),
+            )?))
+        }
+        Format::Sam if o.accept.alignments.is_some() => {
+            Ok(Box::new(crate::align::SamReader::open_sam(
+                input,
+                o.invalid,
+                o.chrom_map.as_deref(),
+                o.accept.alignments.clone().unwrap_or_default(),
+            )?))
+        }
+        // `gate` has returned an error for each of these.
+        Format::Bam | Format::Cram | Format::Sam | Format::Fasta => Err(IoError::Detect {
+            path: input.name.clone(),
+            msg: format!(
+                "{} is {}, which is not readable here",
+                input.name,
+                input.format.name()
+            ),
+        }),
     }
 }
 

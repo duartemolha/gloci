@@ -1,0 +1,1 @@
+view -O sam --exclude-flags unmap input.sam

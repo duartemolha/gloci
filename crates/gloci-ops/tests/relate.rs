@@ -14,6 +14,7 @@ fn opts() -> RelateOptions {
         criteria: OverlapCriteria::default(),
         window: None,
         split: false,
+        split_deletions: false,
         unsorted: false,
         sort: None,
         labels: vec![],
@@ -179,6 +180,7 @@ impl Visitor for Collect {
 
 fn ro() -> ReaderOptions {
     ReaderOptions {
+        accept: gloci_io::Accept::default(),
         chrom_map: None,
         threads: NonZeroUsize::MIN,
         format: Some(Format::Bed),

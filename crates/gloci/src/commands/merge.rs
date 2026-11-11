@@ -32,9 +32,26 @@ pub fn run(ctx: &Ctx, a: &MergeArgs) -> anyhow::Result<()> {
             chrom_order: &a.chrom_order,
             sort: &a.sort,
             chrom_map: &a.chrom_map,
+            alignments: None,
         },
         &|formats| validate(formats, &o),
-    )?;
+    )
+    .map_err(|e| {
+        // Merging alignment files is `sort -m` (D122).
+        match e.downcast_ref::<gloci_io::IoError>() {
+            Some(gloci_io::IoError::Gate {
+                kind: gloci_io::GateKind::NoAlignments,
+                msg,
+            }) => anyhow::Error::new(gloci_io::IoError::Gate {
+                kind: gloci_io::GateKind::NoAlignments,
+                msg: format!(
+                    "{msg}; to merge sorted alignment files as samtools merge does, use: \
+gloci sort -m"
+                ),
+            }),
+            _ => e,
+        }
+    })?;
 
     // The rows are new BED lines whatever the input format.
     let to = spec.format.unwrap_or(OutFormat::Bed);

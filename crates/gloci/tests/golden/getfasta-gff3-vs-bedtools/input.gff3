@@ -1,0 +1,4 @@
+##gff-version 3
+chr1	src	gene	101	130	.	+	.	ID=g1;Name=Alpha
+chrX	src	exon	51	70	.	-	.	ID=e1
+chrM	src	CDS	1	10	.	.	0	ID=c1

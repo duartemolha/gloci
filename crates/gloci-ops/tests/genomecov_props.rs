@@ -32,6 +32,7 @@ impl RecordWriter for Sink {
 
 fn ro() -> ReaderOptions {
     ReaderOptions {
+        accept: gloci_io::Accept::default(),
         chrom_map: None,
         threads: NonZeroUsize::MIN,
         format: Some(Format::Bed),
@@ -96,6 +97,7 @@ proptest! {
             scale: None,
             strand: strand.map(|c| if c == '+' { Strand::Plus } else { Strand::Minus }),
             split: false,
+            split_deletions: false,
             piece: match end { 5 => Piece::FivePrime, 3 => Piece::ThreePrime, _ => Piece::Whole },
             max_depth: max,
         };

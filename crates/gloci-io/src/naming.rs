@@ -119,6 +119,7 @@ pub fn unknown_chrom_err(source: &gloci_core::OrderSource, chrom: &str) -> Strin
             format!("the built-in genome {id} (gloci genomes show {id} lists its names)")
         }
         gloci_core::OrderSource::VcfHeader(n) => format!("the ##contig lines of {n}"),
+        gloci_core::OrderSource::AlignmentHeader(n) => format!("the @SQ lines of {n}"),
         gloci_core::OrderSource::Lexicographic
         | gloci_core::OrderSource::Karyotype
         | gloci_core::OrderSource::FirstAppearance => "the genome".to_string(),
@@ -126,6 +127,9 @@ pub fn unknown_chrom_err(source: &gloci_core::OrderSource, chrom: &str) -> Strin
     let hint = match source {
         gloci_core::OrderSource::VcfHeader(_) => format!(
             "; add ##contig=<ID={chrom}> to the header, or pass -g with a genome that lists it"
+        ),
+        gloci_core::OrderSource::AlignmentHeader(_) => format!(
+            "; add an @SQ line for {chrom} to the header, or pass -g with a genome that lists it"
         ),
         gloci_core::OrderSource::BuiltinGenome(id) => {
             if let Some(alias) = crate::builtin::builtin_alias(id) {

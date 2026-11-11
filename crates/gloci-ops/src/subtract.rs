@@ -16,8 +16,16 @@
 //!   dropped whole, exactly when `intersect --mode none` would drop it (or,
 //!   with `--sum-overlaps -f`, when the summed overlaps reach `-f` of its
 //!   footprint).
+//! - **`--match alleles`** (VCF/BCF A and B): a hit counts only when it
+//!   shares a trimmed (position, REF, ALT) with A, as in `intersect --mode
+//!   none --match alleles` (shared code in `relate::alleles`); one shared
+//!   ALT of a multi-allelic A drops the whole record.
 //! - **`--split`.** B is its BED12 blocks, not its span (D60).
 
+use crate::intersect::{Match, Text};
+use crate::relate::alleles::{
+    allele_candidates, check_alleles_flags, check_alleles_formats, share_allele,
+};
 use crate::relate::{
     Acceptor, RelateInputs, RelateOptions, RelationFiles, RunOptions, report_skipped,
     rewrite_coords, run_files, run_relation_in,
@@ -33,6 +41,9 @@ pub struct SubtractOptions {
     pub whole: bool,
     /// Drop A when the summed overlaps reach `-f` (D60).
     pub sum_overlaps: bool,
+    /// What makes a hit count besides the overlap criteria; `Alleles` needs
+    /// VCF/BCF A and B (see [`validate_inputs`]).
+    pub matching: Match,
     pub relate: RelateOptions,
 }
 
@@ -43,6 +54,16 @@ fn usage(msg: impl Into<String>) -> IoError {
 /// The option checks that need no input, so a command can run them before
 /// it creates any output.
 pub fn validate(o: &SubtractOptions) -> Result<(), IoError> {
+    if o.matching == Match::Alleles {
+        if o.sum_overlaps {
+            return Err(usage(
+                "--sum-overlaps cannot be combined with --match alleles: allele matching \
+compares the alleles of two records, not how much they overlap; drop --sum-overlaps or use \
+--match overlap",
+            ));
+        }
+        check_alleles_flags(&o.relate)?;
+    }
     if !o.sum_overlaps {
         return Ok(());
     }
@@ -73,6 +94,21 @@ has no clear meaning; drop -f to remove A when any padded B hits it",
     Ok(())
 }
 
+/// The option checks that need the inputs' formats (`--match alleles`).
+pub fn validate_inputs(a: Format, b: &[Format], o: &SubtractOptions) -> Result<(), IoError> {
+    if o.matching == Match::Alleles {
+        check_alleles_formats(a, b)?;
+    }
+    Ok(())
+}
+
+/// How `--match alleles` reads the two sides of a hit as VCF text.
+struct AlleleText {
+    a: Text,
+    b: Vec<Text>,
+    a_line: Vec<u8>,
+}
+
 struct Subtractor<'o, 'w> {
     whole: bool,
     sum_overlaps: bool,
@@ -86,9 +122,23 @@ struct Subtractor<'o, 'w> {
     sum_frac: Option<Fraction>,
     removed: Vec<Interval>,
     row: Vec<u8>,
+    /// Set with `--match alleles`.
+    alleles: Option<AlleleText>,
 }
 
 impl Subtractor<'_, '_> {
+    /// Does `h` count for `a`: accepted by the criteria, or (with
+    /// `--match alleles`) sharing an allele with A.
+    fn counts(&mut self, a: &ARec, h: &Hit) -> Result<bool, IoError> {
+        match &mut self.alleles {
+            None => self.acceptor.accepted(a, h),
+            Some(t) => {
+                let line = t.b[usize::from(h.file)].of(h.raw, h.loc)?;
+                Ok(share_allele(&t.a_line, line))
+            }
+        }
+    }
+
     fn put(&mut self) -> Result<(), IoError> {
         self.w
             .write_record(&self.row)
@@ -170,9 +220,14 @@ impl Visitor for Subtractor<'_, '_> {
             || (self.sum_overlaps && !summing)
             || (variant && !summing);
         self.removed.clear();
+        if let Some(t) = &mut self.alleles {
+            let line = t.a.of(a.raw, a.meta.loc)?;
+            t.a_line.clear();
+            t.a_line.extend_from_slice(line);
+        }
         let mut any = false;
         for h in hits {
-            if !self.acceptor.accepted(a, h)? {
+            if !self.counts(a, h)? {
                 continue;
             }
             any = true;
@@ -208,6 +263,11 @@ pub fn subtract(
     w: &mut dyn RecordWriter,
 ) -> Result<SweepSummary, IoError> {
     validate(o)?;
+    validate_inputs(
+        inputs.a.format(),
+        &inputs.b.iter().map(|r| r.format()).collect::<Vec<_>>(),
+        o,
+    )?;
     let summary = subtract_in(inputs, None, o, w)?;
     report_skipped(&summary);
     Ok(summary)
@@ -222,6 +282,7 @@ pub fn subtract_files(
     run: &RunOptions,
 ) -> Result<SweepSummary, IoError> {
     validate(o)?;
+    validate_inputs(files.a().format(), &files.b_formats(), o)?;
     let (summary, _) = run_files(files, &o.relate, run, w, &|inputs, chroms, w| {
         Ok((subtract_in(inputs, chroms, o, w)?, ()))
     })?;
@@ -237,6 +298,9 @@ fn subtract_in(
     // `--sum-overlaps` picks hits by strand alone; its `-f` is applied to
     // their total.
     let mut relate = o.relate.clone();
+    if o.matching == Match::Alleles {
+        allele_candidates(&mut relate);
+    }
     let mut sum_frac = None;
     if o.sum_overlaps {
         sum_frac = relate.criteria.min_frac_a.take();
@@ -248,6 +312,19 @@ fn subtract_in(
     let relate = &relate;
     let format = inputs.a.format();
     let acceptor = Acceptor::new(relate, &inputs);
+    let alleles = if o.matching == Match::Alleles {
+        Some(AlleleText {
+            a: Text::new(inputs.a.as_ref())?,
+            b: inputs
+                .b
+                .iter()
+                .map(|r| Text::new(r.as_ref()))
+                .collect::<Result<Vec<_>, _>>()?,
+            a_line: Vec::new(),
+        })
+    } else {
+        None
+    };
     let mut s = Subtractor {
         whole: o.whole,
         sum_overlaps: o.sum_overlaps,
@@ -259,6 +336,7 @@ fn subtract_in(
         sum_frac,
         removed: Vec::new(),
         row: Vec::new(),
+        alleles,
     };
     run_relation_in(inputs, chroms, relate, None, &mut s)
 }

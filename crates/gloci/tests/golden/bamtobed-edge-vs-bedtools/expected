@@ -1,0 +1,11 @@
+chr1	99	103	rnext_other	60	+
+chr1	99	103	rnext_eq_pnext0	60	+
+chr1	199	203	seq_star	60	+
+chr1	199	203	seq_qual_star	60	+
+chr1	299	325	bases	60	+
+chr1	399	403	empty_arrays	60	+
+chr1	399	403	tag_types	60	+
+chr1	499	503	hex_flag	60	-
+chr1	499	503	octal_flag	60	-
+chr1	2147483647	2147483651	last_base	60	+
+chr1	999	66539	long_cigar	60	+

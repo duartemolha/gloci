@@ -3,6 +3,7 @@
 
 use super::peek::peek_first;
 use super::{RelateInputs, RelateOptions};
+use crate::sort::coordinate_header;
 use crate::view::{ViewOptions, select_a};
 use gloci_core::{ChromTable, Interval};
 use gloci_engine::{SweepSummary, all_indexed};
@@ -99,6 +100,44 @@ impl RelationFiles {
         })
     }
 
+    /// Under `--sort`, an alignment A comes back from the sorter in `gloci sort`'s coordinate
+    /// order (D121), so the header its records are written with says `SO:coordinate`, as the
+    /// header of `gloci sort` would. Call it before the output is opened; it changes nothing
+    /// without `--sort`, for an A that is not alignments, or when the relation's table (from
+    /// `-g`, say) orders the references unlike A's header.
+    pub fn with_sorted_a_header(self, relate: &RelateOptions) -> Result<Self, IoError> {
+        if relate.sort.is_none() {
+            return Ok(self);
+        }
+        let Header::Alignment(h) = self.inputs.a.header() else {
+            return Ok(self);
+        };
+        let chroms = relation_chroms(&self.inputs, relate)?;
+        let Some(sorted) = coordinate_header(h, &chroms) else {
+            return Ok(self);
+        };
+        let RelationFiles {
+            inputs: RelateInputs { a, b },
+            paths,
+            chroms,
+            b_width,
+            a_regions,
+        } = self;
+        Ok(RelationFiles {
+            inputs: RelateInputs {
+                a: Box::new(WithHeader {
+                    inner: a,
+                    header: sorted,
+                }),
+                b,
+            },
+            paths,
+            chroms,
+            b_width,
+            a_regions,
+        })
+    }
+
     /// Open A and every B, each once.
     pub fn open(paths: InputPaths) -> Result<RelationFiles, IoError> {
         let a = gloci_io::open_reader(&paths.a, &paths.ro_a)?;
@@ -112,6 +151,17 @@ impl RelationFiles {
                 Ok(r)
             })
             .collect::<Result<Vec<_>, IoError>>()?;
+        let reference = paths
+            .ro_a
+            .accept
+            .alignments
+            .as_ref()
+            .and_then(|o| o.reference.as_deref());
+        let any_cram = a.format() == Format::Cram || b.iter().any(|r| r.format() == Format::Cram);
+        gloci_io::warn_unused_reference(reference, any_cram);
+        let any_alignment =
+            a.format().is_alignment() || b.iter().any(|r| r.format().is_alignment());
+        gloci_io::warn_unused_read_filters(paths.ro_a.accept.alignments.as_ref(), any_alignment);
         Ok(RelationFiles::new(RelateInputs { a, b }, paths))
     }
 
@@ -167,6 +217,44 @@ pub(crate) fn relation_chroms(
     chrom_table_for(o.genome.as_deref(), &all, o.chrom_order)
 }
 
+/// A reader with its header replaced.
+struct WithHeader {
+    inner: Box<dyn RecordReader>,
+    header: Header,
+}
+
+impl RecordReader for WithHeader {
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+    fn format(&self) -> Format {
+        self.inner.format()
+    }
+    fn compression(&self) -> Compression {
+        self.inner.compression()
+    }
+    fn header(&self) -> &Header {
+        &self.header
+    }
+    fn read_batch(
+        &mut self,
+        chroms: &mut ChromTable,
+        batch: &mut gloci_io::RecordBatch,
+        max: usize,
+    ) -> Result<bool, IoError> {
+        self.inner.read_batch(chroms, batch, max)
+    }
+    fn diagnostics(&self) -> &gloci_io::Diagnostics {
+        self.inner.diagnostics()
+    }
+    fn consume_to_end(&self) -> bool {
+        self.inner.consume_to_end()
+    }
+    fn whole_records(&self) -> bool {
+        self.inner.whole_records()
+    }
+}
+
 /// See [`RelationFiles::b_width`]. A BED-family B file 1 is replaced by a
 /// reader that hands back the record read ahead.
 pub(crate) fn b_width(
@@ -186,6 +274,10 @@ pub(crate) fn b_width(
             }
         }
         (Format::Vcf | Format::Bcf, _) => 8,
+        // An alignment prints as its BED6 row (D104).
+        (Format::Bam | Format::Cram | Format::Sam, _) => 6,
+        // Refused at input (the gate); a BED-width default keeps this total.
+        (Format::Fasta | Format::Psl | Format::Rmsk, _) => 3,
         (Format::Bed | Format::BedGraph | Format::Wig, _) => {
             let b0 = inputs.b.remove(0);
             let (b0, columns) = peek_first(b0, chroms)?;
@@ -252,7 +344,11 @@ pub(super) fn input_sources(
     paths
         .zip(readers)
         .map(|(p, r)| {
-            if all_indexed(&[p.as_str()]) {
+            // An indexed BAM reads per chromosome through its `.bai`/`.csi`, and a CRAM
+            // through its `.crai` (D107); a SAM streams.
+            if r.format() == Format::Sam {
+                None
+            } else if all_indexed(&[p.as_str()]) {
                 Some(Source::Indexed)
             } else if is_regular_file(p)
                 && r.compression() == Compression::None

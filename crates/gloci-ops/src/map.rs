@@ -46,6 +46,9 @@ fn format_name(f: Format) -> &'static str {
         Format::Bcf => "BCF",
         Format::Gff3 => "GFF3",
         Format::Gtf => "GTF",
+        Format::Bam | Format::Cram | Format::Sam | Format::Fasta | Format::Psl | Format::Rmsk => {
+            f.name()
+        }
     }
 }
 
@@ -54,6 +57,8 @@ fn family(f: Format) -> u8 {
         Format::Vcf | Format::Bcf => 0,
         Format::Bed | Format::BedGraph | Format::Wig => 1,
         Format::Gff3 | Format::Gtf => 2,
+        // Refused at input (the gate) before a map can compare families.
+        Format::Bam | Format::Cram | Format::Sam | Format::Fasta | Format::Psl | Format::Rmsk => 3,
     }
 }
 

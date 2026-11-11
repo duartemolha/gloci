@@ -55,6 +55,12 @@ fn format_name(f: Format) -> &'static str {
         Format::Bcf => "BCF",
         Format::Gff3 => "GFF3",
         Format::Gtf => "GTF",
+        Format::Bam => "BAM",
+        Format::Cram => "CRAM",
+        Format::Sam => "SAM",
+        Format::Fasta => "FASTA",
+        Format::Psl => "PSL",
+        Format::Rmsk => "RMSK",
     }
 }
 
@@ -71,6 +77,7 @@ fn order_source_name(s: &OrderSource) -> String {
         OrderSource::GenomeFile(p) => format!("genome file {}", p.display()),
         OrderSource::BuiltinGenome(id) => format!("built-in genome {id}"),
         OrderSource::VcfHeader(n) => format!("##contig order of {n}"),
+        OrderSource::AlignmentHeader(n) => format!("@SQ order of {n}"),
         OrderSource::Lexicographic => "lexicographic order".to_string(),
         OrderSource::Karyotype => "karyotype order".to_string(),
         OrderSource::FirstAppearance => "first appearance".to_string(),

@@ -1,6 +1,6 @@
 //! `gloci subtract`: remove from A the bases covered by B.
 use crate::Ctx;
-use crate::cli::SubtractArgs;
+use crate::cli::{IntersectMatch, SubtractArgs};
 use crate::commands::{
     dest_name, relation_files, relation_hint, restrict_a, run_options, sort_aware, sort_settings,
     user_span,
@@ -9,7 +9,8 @@ use gloci_io::{
     Format, InvalidPolicy, OutputOptions, ReaderOptions, UsageError, WriterOptions,
     parse_output_spec,
 };
-use gloci_ops::subtract::{SubtractOptions, subtract_files, validate};
+use gloci_ops::intersect::Match;
+use gloci_ops::subtract::{SubtractOptions, subtract_files, validate, validate_inputs};
 use gloci_ops::{RelateOptions, ReportOutput, open_report};
 
 fn parse_format(s: Option<&str>) -> anyhow::Result<Option<Format>> {
@@ -24,10 +25,15 @@ pub fn run(ctx: &Ctx, a: &SubtractArgs) -> anyhow::Result<()> {
     let o = SubtractOptions {
         whole: a.whole,
         sum_overlaps: a.sum_overlaps,
+        matching: match a.matching {
+            IntersectMatch::Overlap => Match::Overlap,
+            IntersectMatch::Alleles => Match::Alleles,
+        },
         relate: RelateOptions {
             criteria: a.o.criteria(),
             window: a.w.window(),
             split: a.o.split,
+            split_deletions: false,
             unsorted: a.u.unsorted,
             sort: sort_settings(ctx, &a.sort, a.vcf_span.vcf_span),
             labels,
@@ -43,6 +49,7 @@ pub fn run(ctx: &Ctx, a: &SubtractArgs) -> anyhow::Result<()> {
         sort_aware(
             &a.sort,
             ReaderOptions {
+                accept: gloci_io::Accept::default(),
                 chrom_map: chrom_map.clone(),
                 threads: ctx.threads,
                 format,
@@ -64,6 +71,7 @@ pub fn run(ctx: &Ctx, a: &SubtractArgs) -> anyhow::Result<()> {
         a.o.inclusive_points,
         a.u.unsorted || a.sort.sort,
     )?;
+    validate_inputs(files.a().format(), &files.b_formats(), &o)?;
     let oo = OutputOptions {
         threads: ctx.threads,
         level: a.out.compression_level,
