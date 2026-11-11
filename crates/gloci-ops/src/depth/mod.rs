@@ -32,6 +32,9 @@ pub enum AllPositions {
     AllRefs,
 }
 
+/// Regions as `(reference, interval)` pairs.
+pub type WantedRegions = Vec<(Vec<u8>, Interval)>;
+
 #[derive(Debug, Clone)]
 pub struct DepthOptions {
     pub rules: CountRules,
@@ -83,7 +86,7 @@ pub fn depth_regions(
     regions: &[String],
     regions_file: Option<&str>,
     ro: &ReaderOptions,
-) -> Result<Option<Vec<(Vec<u8>, Interval)>>, IoError> {
+) -> Result<Option<WantedRegions>, IoError> {
     if regions.is_empty() && regions_file.is_none() {
         return Ok(None);
     }
