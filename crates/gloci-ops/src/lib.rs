@@ -31,6 +31,7 @@ pub mod vcf_annotate;
 pub mod vcf_concat;
 pub mod vcf_extract;
 pub mod vcf_filter;
+pub mod vcf_merge;
 pub mod vcf_norm;
 pub mod vcf_select;
 pub mod vcf_split;
@@ -64,6 +65,7 @@ pub use vcf_filter::{
     FilterSummary, VcfFilterInput, VcfFilterOptions, open_vcf_filter, vcf_filter, vcf_filter_file,
     vcf_filter_output,
 };
+pub use vcf_merge::{FilterList, MergeSummary, vcf_merge, vcf_merge_output};
 pub use vcf_norm::{NormOptions, NormSummary, vcf_norm, vcf_norm_output};
 pub use vcf_select::{
     FilterExpr, Hit, SelectStage, SelectedInput, VcfSelect, open_selected, run_selection,

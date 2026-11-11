@@ -6,10 +6,10 @@
 
 use std::collections::HashMap;
 
-const SR_REF: u8 = 1;
-const SR_SNP: u8 = 2;
-const SR_INDEL: u8 = 4;
-const SR_OTHER: u8 = 8;
+pub(crate) const SR_REF: u8 = 1;
+pub(crate) const SR_SNP: u8 = 2;
+pub(crate) const SR_INDEL: u8 = 4;
+pub(crate) const SR_OTHER: u8 = 8;
 
 // htslib's variant type bits.
 const VCF_SNP: u32 = 1;
@@ -28,7 +28,7 @@ fn up(b: u8) -> u8 {
 }
 
 /// htslib's `bcf_set_variant_type` of one ALT against REF.
-fn alt_type(reference: &[u8], alt: &[u8]) -> u32 {
+pub(crate) fn alt_type(reference: &[u8], alt: &[u8]) -> u32 {
     if alt == b"*" {
         return VCF_OVERLAP;
     }

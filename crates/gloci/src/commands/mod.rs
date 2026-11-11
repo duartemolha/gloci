@@ -24,6 +24,7 @@ pub mod spacing;
 pub mod subtract;
 pub mod vcf;
 pub mod vcf_annotate;
+pub mod vcf_merge;
 pub mod vcf_norm;
 pub mod vcf_split;
 pub mod view;

@@ -9,6 +9,7 @@ mod extract;
 mod filter;
 mod gt;
 mod hwe;
+pub mod merge;
 mod norm;
 mod split;
 mod stats;

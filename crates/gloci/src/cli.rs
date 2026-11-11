@@ -1375,6 +1375,31 @@ Examples:
   gloci vcf annotate calls.vcf.gz -x INFO,FORMAT/PL --mark-sites +CLEAN
   gloci vcf annotate calls.vcf.gz -I '+%CHROM:%POS:%REF:%FIRST_ALT' -o ids.vcf.gz")]
     Annotate(VcfAnnotateArgs),
+    // P3b Task 23
+    /// Combine the samples of several VCF/BCF files (bcftools merge).
+    ///
+    /// The inputs must be sorted in one chromosome order (the first input's
+    /// ##contig lines, else --chrom-order); they are read as a stream, so no
+    /// index is needed and only the records of one position are held. Records
+    /// at the same CHROM and POS are merged as --merge says: ALT alleles are
+    /// united in input order (a shorter REF is extended to the longest), and
+    /// GT and Number=A, R and G FORMAT values are re-indexed to the merged
+    /// alleles. A sample absent from a record is ./. (or 0/0 with -0) in the
+    /// record's ploidy. QUAL is the largest, FILTER the union without PASS,
+    /// ID the distinct IDs joined with ;. Sample names must be distinct
+    /// (--force-samples renames a repeat to N:NAME). The header is the first
+    /// input's with the other inputs' new lines added. The inputs are open
+    /// together: merging more files than `ulimit -n` allows fails with the
+    /// operating system's error; raise the limit (ulimit -n 4096). bcftools
+    /// merge -g, -L, -r, -R, -T, --print-header and --use-header are not
+    /// available.
+    #[command(after_long_help = "\
+Examples:
+  gloci vcf merge a.vcf.gz b.vcf.gz c.vcf.gz -o cohort.vcf.gz
+  gloci vcf merge --file-list shards.txt -m none --force-samples -o cohort.bcf
+  gloci vcf merge a.bcf b.bcf -i DP:sum,AF:avg -0 | gloci vcf stats - --out-prefix qc
+  gloci vcf merge a.vcf.gz b.vcf.gz -f PASS,. -m id -o by-id.vcf.gz")]
+    Merge(VcfMergeArgs),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -3445,6 +3470,111 @@ pub struct VcfAnnotateArgs {
     pub regions_file: Option<String>,
     #[command(flatten)]
     pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+// P3b Task 23
+
+/// `bcftools merge -m`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum MergeModeArg {
+    None,
+    Snps,
+    Indels,
+    Both,
+    All,
+    Id,
+}
+
+/// `bcftools merge -F`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum FilterLogicArg {
+    /// Records are merged with all their filters (`+`).
+    #[value(name = "+")]
+    All,
+    /// A PASS in any input removes the filters (`x`).
+    #[value(name = "x")]
+    Pass,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct VcfMergeArgs {
+    /// Input VCF or BCF files (two or more; `-` is not allowed), each
+    /// sorted in the same chromosome order. Or use --file-list.
+    #[arg(value_name = "FILE")]
+    pub files: Vec<String>,
+    /// Read the input file names from FILE, one per line (bcftools -l).
+    #[arg(short = 'l', long, value_name = "FILE")]
+    pub file_list: Option<PathBuf>,
+    /// Which records at one position are merged into one (bcftools -m):
+    /// none (only records with the same alleles), snps, indels, both (SNPs
+    /// together and indels together; the default), all (any records) or id
+    /// (records with the same ID).
+    #[arg(
+        short = 'm',
+        long,
+        value_enum,
+        default_value = "both",
+        value_name = "MODE"
+    )]
+    pub merge: MergeModeArg,
+    /// Rename a repeated sample name to N:NAME (N is the number of its
+    /// file) instead of failing.
+    #[arg(long)]
+    pub force_samples: bool,
+    /// How INFO tags are merged, TAG:METHOD with METHOD one of sum, avg,
+    /// min, max, join, comma-separated; `-` for none. The default is
+    /// DP:sum,DP4:sum (and AC:sum,AN:sum when there are no samples; with
+    /// samples AC and AN are recomputed from the merged genotypes). A
+    /// tag with no rule takes the first record's value; Number=A and R tags
+    /// are re-indexed to the merged alleles.
+    #[arg(short = 'i', long, value_name = "RULES", allow_hyphen_values = true)]
+    pub info_rules: Option<String>,
+    /// Fill a sample absent from a record with 0/0 instead of ./. (bcftools -0).
+    #[arg(short = '0', long)]
+    pub missing_to_ref: bool,
+    /// Skip, before merging, the records whose FILTER has none of these
+    /// names (comma-separated; `.` is a missing FILTER, PASS is PASS).
+    #[arg(short = 'f', long, value_name = "LIST")]
+    pub apply_filters: Option<String>,
+    /// What to do with the FILTER of merged records: + (all filters kept,
+    /// PASS dropped when another filter is set; the default) or x (PASS in
+    /// any input makes the result PASS).
+    #[arg(
+        short = 'F',
+        long,
+        value_enum,
+        default_value = "+",
+        value_name = "LOGIC"
+    )]
+    pub filter_logic: FilterLogicArg,
+    /// Accepted and ignored: gloci merges sorted inputs as a stream and
+    /// never needs an index (bcftools merge needs one unless --no-index).
+    #[arg(long, hide = true)]
+    pub no_index: bool,
+    // bcftools merge options gloci does not offer: each is a usage error
+    // that names the option.
+    #[arg(short = 'g', long = "gvcf", hide = true, value_name = "REF")]
+    pub gvcf: Option<String>,
+    #[arg(short = 'L', long = "local-alleles", hide = true, value_name = "N")]
+    pub local_alleles: Option<String>,
+    #[arg(long = "print-header", hide = true)]
+    pub print_header: bool,
+    #[arg(long = "use-header", hide = true, value_name = "FILE")]
+    pub use_header: Option<String>,
+    #[arg(short = 'r', long = "regions", hide = true, value_name = "REGION")]
+    pub regions: Option<String>,
+    #[arg(short = 'R', long = "regions-file", hide = true, value_name = "FILE")]
+    pub regions_file: Option<String>,
+    #[arg(short = 'T', long = "targets-file", hide = true, value_name = "FILE")]
+    pub targets_file: Option<String>,
+    #[arg(long = "merge-logic", hide = true, value_name = "LOGIC")]
+    pub merge_logic: Option<String>,
+    #[command(flatten)]
+    pub chrom_order: ChromOrderArg,
     #[command(flatten)]
     pub threads: ThreadArgs,
     #[command(flatten)]

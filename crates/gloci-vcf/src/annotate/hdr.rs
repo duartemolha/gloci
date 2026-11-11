@@ -41,7 +41,7 @@ pub struct HeaderEdit {
 }
 
 /// `(kind, id)` of a structured line `##KIND=<ID=...>`.
-fn structured(line: &[u8]) -> Option<(&[u8], Vec<u8>)> {
+pub(crate) fn structured(line: &[u8]) -> Option<(&[u8], Vec<u8>)> {
     let rest = line.strip_prefix(b"##")?;
     let eq = rest.iter().position(|&b| b == b'=')?;
     if rest.get(eq + 1) != Some(&b'<') {
@@ -240,7 +240,7 @@ impl HeaderEdit {
     }
 }
 
-fn def_of(line: &[u8]) -> InfoDef {
+pub(crate) fn def_of(line: &[u8]) -> InfoDef {
     let pairs = structured_pairs(line);
     let get = |k: &[u8]| pairs.iter().find(|(n, _)| *n == k).map(|p| p.1);
     let ty = match get(b"Type") {

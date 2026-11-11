@@ -6,8 +6,8 @@
 //! streaming merge of the files is in gloci-ops. Each rule below is checked
 //! against bcftools 1.21 (vcfannotate.c, htslib's synced reader).
 
-mod hdr;
-mod pair;
+pub(crate) mod hdr;
+pub(crate) mod pair;
 mod rec;
 mod spec;
 mod tab;

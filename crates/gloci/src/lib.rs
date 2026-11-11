@@ -217,6 +217,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
             cli::VcfCommand::Split(c) => (c.threads.threads, None),
             cli::VcfCommand::Norm(c) => (c.threads.threads, None),
             cli::VcfCommand::Annotate(c) => (c.threads.threads, None),
+            cli::VcfCommand::Merge(c) => (c.threads.threads, None),
         },
     };
     let threads = requested
@@ -269,6 +270,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
             cli::VcfCommand::Split(c) => commands::vcf_split::run(&ctx, c),
             cli::VcfCommand::Norm(c) => commands::vcf_norm::run(&ctx, c),
             cli::VcfCommand::Annotate(c) => commands::vcf_annotate::run(&ctx, c),
+            cli::VcfCommand::Merge(c) => commands::vcf_merge::run(&ctx, c),
         },
     };
     match result {
