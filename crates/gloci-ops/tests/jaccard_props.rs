@@ -73,3 +73,33 @@ proptest! {
         prop_assert_eq!((got.intersection, got.union, got.n_intersections), want);
     }
 }
+
+/// The merged stream holds only open clusters, never the input: an early `-`
+/// and `.` record must not hold back the many finished `+` clusters after them.
+#[test]
+fn merged_reader_memory_is_flat() {
+    use gloci_core::ChromTable;
+    use gloci_io::{RecordBatch, RecordReader};
+    use gloci_ops::stats::MergedReader;
+    let mut s = String::from("chr1\t0\t10\tm\t0\t-\nchr1\t5\t12\tu\t0\t.\n");
+    for i in 0..20_000u64 {
+        s += &format!("chr1\t{}\t{}\tp{i}\t0\t+\n", 100 + i * 20, 110 + i * 20);
+    }
+    let mut ro = reader_opts();
+    ro.format = Some(Format::Bed);
+    let inner = mem_reader("a.bed", &s, &ro);
+    let mut r = MergedReader::new(inner, true);
+    let mut chroms = ChromTable::karyotype();
+    let mut batch = RecordBatch::default();
+    let mut rows = 0;
+    loop {
+        batch.clear();
+        let more = r.read_batch(&mut chroms, &mut batch, 64).unwrap();
+        rows += batch.len();
+        if !more {
+            break;
+        }
+    }
+    assert_eq!(rows, 20_002);
+    assert!(r.peak_held() < 16, "held {}", r.peak_held());
+}

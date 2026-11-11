@@ -1,0 +1,1 @@
+stats jaccard --chrom-order lex -a input.bed -b jaccard-empty.bed

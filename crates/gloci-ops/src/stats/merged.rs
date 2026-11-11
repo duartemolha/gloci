@@ -113,6 +113,7 @@ pub struct MergedReader {
     seq: u64,
     created: u64,
     emitted: u64,
+    peak_held: usize,
     done: bool,
     header: Header,
     diagnostics: Diagnostics,
@@ -137,10 +138,18 @@ impl MergedReader {
             seq: 0,
             created: 0,
             emitted: 0,
+            peak_held: 0,
             done: false,
             header: Header::None,
             diagnostics: Diagnostics::default(),
         }
+    }
+
+    /// The most footprints and clusters held at once (for the
+    /// memory-flatness test).
+    #[doc(hidden)]
+    pub fn peak_held(&self) -> usize {
+        self.peak_held
     }
 
     /// Process the next input record, or finish at the end of the input.
@@ -162,6 +171,8 @@ impl MergedReader {
         let m = self.batch.recs[self.pos];
         self.pos += 1;
         self.record(&m);
+        let held = self.heap.len() + self.closed.len() + self.ready.len();
+        self.peak_held = self.peak_held.max(held);
         Ok(())
     }
 

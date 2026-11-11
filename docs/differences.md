@@ -1929,3 +1929,16 @@ depends on the span.
 - **Old behaviour:** `bcftools merge` stops with `Error: The INFO field is not defined in the header`.
 - **Reason:** a missing header line is not a reason to lose the run.
 - **Pinned by:** `vcf-merge-undeclared-info-vs-bcftools` (must differ: gloci exits 0, bcftools 1).
+## `stats jaccard` counts no bases for a point {#zero-length-overlap}
+
+- **gloci:** a zero-length interval (a point) covers no bases, so it adds nothing to the
+  intersection or to the union. A point inside a merged interval of the other input (on an edge only
+  with `--inclusive-points`) still counts as one intersection in `n_intersections`.
+- **Old behaviour:** `bedtools jaccard` treats a point as two bases, from one before it to one
+  after it: two points at the same position intersect in 2 bases and make a union of 2, a point in
+  the middle of a 20-base interval adds 2 to the intersection, a point at an interval's end adds 1.
+- **Reason:** a point has no length, so the statistic of bases should not depend on an artefact
+  of how one tool widens it. The pinned case keeps `n_intersections` aligned with `intersect` and
+  `coverage`. Inputs without points agree with bedtools.
+- **Pinned by:** `stats-jaccard-points-vs-bedtools` (must differ); the same files without points
+  match (`stats-jaccard-table-vs-bedtools`).

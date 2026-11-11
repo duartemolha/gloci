@@ -5892,3 +5892,108 @@ gloci = "gloci vcf merge input.vcf undecl-b.vcf"
 reference = "(bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c undecl-b.vcf > undecl-b.vcf.gz && bcftools index undecl-b.vcf.gz && bcftools merge --no-version input.vcf.gz undecl-b.vcf.gz) >/dev/null 2>&1 || exit 1"
 compare = "exit-status"
 expected_difference = "#vcf-merge-undeclared-info"
+# P3b Task 2: stats jaccard vs bedtools jaccard 2.31.1
+# jaccard-a.bed: 10-20 and 20-30 are bookended and must merge before counting (3 raw A records,
+# 2 merged: n_intersections 2, not 3). jaccard-a6/b6.bed: + and - A records overlap each other.
+# jaccard-fa/fb.bed: merged A is 0-20 (0-12 and 10-20), so -f 0.5 and -r give other answers than
+# the unmerged records would. -S is not compared: bedtools jaccard -S takes a + or - argument.
+
+[[case]]
+name = "stats-jaccard-table-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-b.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-b.bed"
+reference = "bedtools jaccard -a input.bed -b jaccard-b.bed"
+compare = "exact"
+
+[[case]]
+name = "stats-jaccard-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-a6.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-b6.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-b6.bed"
+reference = "bedtools jaccard -a input.bed -b jaccard-b6.bed"
+compare = "exact"
+
+[[case]]
+name = "stats-jaccard-same-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-a6.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-b6.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-b6.bed -s"
+reference = "bedtools jaccard -a input.bed -b jaccard-b6.bed -s"
+compare = "exact"
+
+[[case]]
+name = "stats-jaccard-fraction-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-fa.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-fb.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-fb.bed -f 0.5"
+reference = "bedtools jaccard -a input.bed -b jaccard-fb.bed -f 0.5"
+compare = "exact"
+
+[[case]]
+name = "stats-jaccard-fraction-reciprocal-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-fa.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-fb.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-fb.bed -f 0.5 -r"
+reference = "bedtools jaccard -a input.bed -b jaccard-fb.bed -f 0.5 -r"
+compare = "exact"
+
+[[case]]
+name = "stats-jaccard-fraction-b-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-fa.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-fb.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-fb.bed -F 0.5"
+reference = "bedtools jaccard -a input.bed -b jaccard-fb.bed -F 0.5"
+compare = "exact"
+
+[[case]]
+name = "stats-jaccard-generated-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-gen-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-gen-b.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-gen-b.bed"
+reference = "bedtools jaccard -a input.bed -b jaccard-gen-b.bed"
+compare = "exact"
+
+[[case]]
+name = "stats-jaccard-generated-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-gen-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-gen-b.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-gen-b.bed -s"
+reference = "bedtools jaccard -a input.bed -b jaccard-gen-b.bed -s"
+compare = "exact"
+
+[[case]]
+name = "stats-jaccard-generated-fraction-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-gen-a.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-gen-b.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-gen-b.bed -f 0.5 -r"
+reference = "bedtools jaccard -a input.bed -b jaccard-gen-b.bed -f 0.5 -r"
+compare = "exact"
+
+# VCF A: bedtools covers the REF span, so --vcf-span ref.
+[[case]]
+name = "stats-jaccard-vcf-ref-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-a.vcf" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-b.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.vcf -b jaccard-b.bed --vcf-span ref"
+reference = "bedtools jaccard -a input.vcf -b jaccard-b.bed"
+compare = "exact"
+
+# Both empty: 0 0 nan 0 in both (nan, not -nan).
+[[case]]
+name = "stats-jaccard-both-empty-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-empty.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-empty.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-empty.bed"
+reference = "bedtools jaccard -a input.bed -b jaccard-empty.bed"
+compare = "exact"
+
+# Points: bedtools widens each to two bases (start-1 to end+1) and counts overlap bases; gloci counts none.
+[[case]]
+name = "stats-jaccard-points-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/jaccard-points.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/jaccard-a.bed"]
+gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-a.bed"
+reference = "bedtools jaccard -a input.bed -b jaccard-a.bed"
+compare = "exact"
+expected_difference = "#zero-length-overlap"

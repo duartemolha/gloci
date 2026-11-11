@@ -1,0 +1,1 @@
+stats jaccard --chrom-order lex -a input.vcf -b jaccard-b.bed --vcf-span ref
