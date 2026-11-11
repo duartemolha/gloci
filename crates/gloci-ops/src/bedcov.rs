@@ -21,7 +21,8 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
 
 const FLAG_UNMAPPED: u16 = 0x4;
-/// BED lines in a batch, at most (and at most the 4 MiB `next_batch_size` allows).
+/// BED lines in a batch, at most (and at most what `next_batch_size` allows).
+const BATCH_LINES: usize = 256;
 
 /// What one input contributes to one region.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
