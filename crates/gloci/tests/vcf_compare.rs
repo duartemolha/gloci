@@ -600,3 +600,41 @@ fn compare_usage_errors() {
         .code(2)
         .stderr(contains("vcf compare works on VCF and BCF"));
 }
+
+#[test]
+fn compare_matrix_scope_follows_the_match_rule() {
+    // AT>A against ATG>AG: one trimmed allele, so alleles mode counts it in
+    // the matrix; position mode sees different REFs and does not.
+    let d = tempdir();
+    let a = write(
+        d.path(),
+        "a.vcf",
+        &vcf(
+            &["s1", "s2"],
+            &[&rec("chr1", 60, "AT", "A", &["0/1", "1/1"])],
+        ),
+    );
+    let b = write(
+        d.path(),
+        "b.vcf",
+        &vcf(
+            &["s1", "s2"],
+            &[&rec("chr1", 60, "ATG", "AG", &["0/1", "1/1"])],
+        ),
+    );
+    let head = "-\tN_0/0_file1\tN_0/1_file1\tN_1/1_file1\tN_./._file1\n";
+    let (_o, p) = compare(&a, &b, &["--discordance-matrix"]);
+    assert_eq!(
+        read(&p, "diff.discordance_matrix"),
+        format!(
+            "{head}N_0/0_file2\t0\t0\t0\t0\nN_0/1_file2\t0\t1\t0\t0\nN_1/1_file2\t0\t0\t1\t0\nN_./._file2\t0\t0\t0\t0\n"
+        )
+    );
+    let (_o, p) = compare(&a, &b, &["--discordance-matrix", "--match", "position"]);
+    assert_eq!(
+        read(&p, "diff.discordance_matrix"),
+        format!(
+            "{head}N_0/0_file2\t0\t0\t0\t0\nN_0/1_file2\t0\t0\t0\t0\nN_1/1_file2\t0\t0\t0\t0\nN_./._file2\t0\t0\t0\t0\n"
+        )
+    );
+}

@@ -2302,7 +2302,10 @@ even an A sitting on the only one. bedtools does the same and gloci ports it on 
   takes the first unmatched such record of B; the leftovers at the position pair as
   overlapping and are not compared, and the rest are in one file only. A REF of `N` is not
   replaced by the other file's REF. Genotypes are compared by what the alleles are, so a
-  pair that differs only in how the ALT list is ordered still agrees. `--match position`
+  pair that differs only in how the ALT list is ordered still agrees. The matrix counts the
+  pairs that are one biallelic site in the same sense: in alleles mode a single ALT that is the
+  same trimmed allele (so `AT>A` against `ATG>AG` counts), in position mode a single ALT with
+  identical REF and ALT text, as vcftools. `--match position`
   pairs as vcftools does (the same POS and REF, an `N` or `.` REF taking the other's).
 - **Old behaviour:** `--diff-site-discordance` pairs the next record of each file by
   position: the same POS and REF is one site whatever the ALT (so `A>C` against `A>G` is

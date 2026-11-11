@@ -1500,6 +1500,9 @@ Examples:
     /// same POS with the same REF, where a REF of N or . takes the other's).
     /// Discordance is counted over the sites in both files and the samples in
     /// both files (the union by name, after --sample-map renames B's samples).
+    /// A and B are always read on threads of their own, plus the thread that
+    /// walks them, so -t 1 and -t 2 run three threads; more -t adds selection
+    /// workers up to -t in all.
     /// A genotype is its unordered alleles, so 0/1 equals 1/0 and 0|1, and
     /// 0/1 of A>C,G equals 0/2 of A>G,C; any missing allele makes it missing
     /// (vcftools counts ./1 as called). --samples and --exclude-samples take
@@ -1511,8 +1514,10 @@ Examples:
     /// N_DISCORD DISCORDANCE, one row per site in both files, and per site in
     /// one file with zeros and nan), PREFIX.diff.indv (every sample of the
     /// union; one in a single file is 0, 0, nan) and
-    /// PREFIX.diff.discordance_matrix (biallelic pairs with the same REF and
-    /// ALT; haploid genotypes are not counted). Not available: vcftools
+    /// PREFIX.diff.discordance_matrix (biallelic pairs of the same site:
+    /// with --match alleles the same trimmed allele, so AT>A and ATG>AG
+    /// count; with --match position the same REF and ALT text; haploid
+    /// genotypes are not counted). Not available: vcftools
     /// --diff-site and --diff-indv (use gloci intersect and subtract --match
     /// alleles for sites, and the #CHROM lines for samples).
     #[command(after_long_help = "\

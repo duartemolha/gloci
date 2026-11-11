@@ -107,8 +107,8 @@ and the phase that builds it. The P2 command set, the packaging prerequisites,
 and P3a (BAM, CRAM and SAM input and output, FASTA, `getfasta`, `maskfasta`,
 `nuc`, `gloci cat`, and alignment `sort`, `sort -m`, `view`, `index`, `convert`,
 `intersect`, `coverage` and `genomecov`) are available, so the rows left are
-P3b (`sample`, `random`, `shuffle`, BEDPE, `vcf popgen`), and then the rest of P2b (Python library, packaging, mdBook,
-paper evidence suite). BAM, CRAM and FASTA have their own section, [BAM, CRAM
+P3b (`sample`, `random`, `shuffle`, BEDPE, `vcf popgen`), and then the rest of
+P2b (Python library, packaging, mdBook, paper evidence suite). BAM, CRAM and FASTA have their own section, [BAM, CRAM
 and FASTA behaviour](#bam-cram-and-fasta-behaviour), after the tables.
 
 ### Sorting, indexing and viewing (htslib, bcftools, bedops, bedtools)
