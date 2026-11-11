@@ -5705,3 +5705,67 @@ gloci = "gloci flags 010"
 reference = "samtools flags 010"
 compare = "exit-status"
 expected_difference = "#flags-leading-zero"
+
+# P3c Task 2: `idxstats` (D127). flags.bam holds a placed unmapped read (chr1) and one with no
+# reference, so a rule that counts a placed unmapped read as unplaced, or leaves it out, differs.
+# order.bam lists chrM first and its references are not in name order: a count that sorts the
+# references differs. The CRAM is decoded by samtools first (view -b -T), as for P3a.
+[[case]]
+name = "idxstats-index-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.bam" }
+aux = ["xtask/diff/inputs/aln/flags.bam", "xtask/diff/inputs/aln/flags.bam.bai"]
+gloci = "gloci idxstats flags.bam"
+reference = "samtools idxstats flags.bam"
+compare = "exact"
+
+[[case]]
+name = "idxstats-scan-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/order.bam" }
+gloci = "gloci idxstats input.bam"
+reference = "samtools idxstats input.bam"
+compare = "exact"
+
+[[case]]
+name = "idxstats-sam-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.sam" }
+gloci = "gloci idxstats input.sam"
+reference = "samtools idxstats input.sam"
+compare = "exact"
+
+[[case]]
+name = "idxstats-cram-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci idxstats input.cram --reference ref.fa"
+reference = "samtools view -b -T ref.fa input.cram -o t.bam && samtools idxstats t.bam"
+compare = "exact"
+
+# Chromosomes interleaved (chr1, chr2, chr1) and an unmapped read with no place: gloci counts
+# by reference, samtools' scan stops at the second chr1 run.
+[[case]]
+name = "idxstats-unsorted-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/unsorted-chroms.bam" }
+gloci = "gloci idxstats input.bam"
+reference = "samtools idxstats input.bam"
+compare = "exit-status"
+expected_difference = "#idxstats-unsorted"
+
+# An index without metadata pseudo-bins: htslib prints 0 0 for every reference, gloci scans.
+[[case]]
+name = "idxstats-index-without-counts-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/nometa/flags.bam" }
+aux = ["xtask/diff/inputs/samtools/nometa/flags.bam", "xtask/diff/inputs/samtools/nometa/flags.bam.bai"]
+gloci = "gloci idxstats flags.bam"
+reference = "samtools idxstats flags.bam"
+compare = "exact"
+expected_difference = "#idxstats-index-without-counts"
+
+# A CRAM whose containers need the reference: samtools counts without one (it decodes only the
+# fields it needs), gloci exits 1 (D109).
+[[case]]
+name = "idxstats-cram-no-reference-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.cram" }
+gloci = "gloci idxstats input.cram"
+reference = "REF_PATH=/nonexistent samtools idxstats input.cram"
+compare = "exit-status"
+expected_difference = "#cram-counts-need-reference"

@@ -2084,3 +2084,40 @@ depends on the span.
   `0x8` or `8` for eight, and `10` for ten.
 - **Pinned by:** `flags-octal-vs-samtools` (exit status: must differ), and the
   tests `parse_flags_samtools_rules` and `flags_usage_errors_exit_2_and_print_nothing`.
+
+## `idxstats` counts a file whose references are not grouped {#idxstats-unsorted}
+
+- **gloci:** the scan behind `idxstats` (a BAM without an index, a SAM, a CRAM) counts every
+  record under its own reference, in whatever order the references come, and exits 0.
+- **Old behaviour:** `samtools idxstats` falls back to its scan when there is no index, and
+  stops with `file is not position sorted` (exit 1) at the first record whose reference id is
+  lower than the one before it, printing no counts.
+- **Reason:** the counts do not depend on the order, so refusing the file costs the user a
+  sort they do not need. A file with a `.bai` is always in order, and the counts come from
+  the index.
+- **Pinned by:** `idxstats-unsorted-vs-samtools` (exit status: must differ), and the test
+  `idxstats_unsorted_scan`.
+
+## `idxstats` scans when the index lacks a reference's counts {#idxstats-index-without-counts}
+
+- **gloci:** a BAI or CSI holds per-reference counts in a metadata pseudo-bin. When a
+  reference has bins but no pseudo-bin, `idxstats` warns once, counts every record and prints
+  the true counts.
+- **Old behaviour:** htslib reports `0` mapped and `0` unmapped for such a reference, so
+  `samtools idxstats` prints zeros for reads that are there.
+- **Reason:** a silently wrong count is worse than a slow one. Indexes written by `gloci
+  index` and `samtools index` always hold the pseudo-bins.
+- **Pinned by:** `idxstats-index-without-counts-vs-samtools` (output: must differ), and the
+  test `idxstats_index_without_counts`.
+
+## `idxstats` of a CRAM needs `--reference` when the file does {#cram-counts-need-reference}
+
+- **gloci:** `idxstats` (and `flagstat`, `head`, `view`, `depth` and `bedcov`) decode every
+  record of a CRAM, so a CRAM whose containers need reference bases needs `--reference`; with
+  none it exits 1 and says what to pass (D109).
+- **Old behaviour:** samtools decodes only the fields `idxstats`, `flagstat` and `view -c`
+  need, so it reads such a file with no reference at all.
+- **Reason:** gloci has one CRAM decoder, which checks every record it reads. The cost is
+  one flag, and the check that the file decodes at all.
+- **Pinned by:** `idxstats-cram-no-reference-vs-samtools` (exit status: must differ), and the
+  test `idxstats_cram`.
