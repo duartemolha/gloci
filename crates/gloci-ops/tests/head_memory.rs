@@ -54,7 +54,9 @@ fn sam(n: usize) -> String {
 }
 
 fn vcf(n: usize) -> String {
-    let mut s = String::from("##fileformat=VCFv4.2\n##contig=<ID=c1>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n");
+    let mut s = String::from(
+        "##fileformat=VCFv4.2\n##contig=<ID=c1>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n",
+    );
     for i in 0..n {
         s.push_str(&format!("c1\t{}\t.\tA\tT\t.\t.\t.\n", i + 1));
     }

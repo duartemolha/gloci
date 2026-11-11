@@ -56,12 +56,12 @@ pub use flagstat::{FlagStats, FlagstatFormat, flagstat, percent, render_flagstat
 pub use gloci_engine::all_indexed;
 pub use head::{HeadOptions, head};
 pub use idxstats::{IdxstatsPath, idxstats};
-pub use samples::{SamplesOptions, samples};
 pub use maskfasta::{Mask, MaskSet, MaskSummary, PastEnd, maskfasta, maskfasta_with};
 pub use relate::{
     Acceptor, InputPaths, RelateInputs, RelateOptions, RelationFiles, ReportOutput, RunOptions,
     b_placeholder, open_report, rewrite_coords, run_relation, runs_per_chromosome,
 };
+pub use samples::{SamplesOptions, samples};
 pub use sort::{
     Dedup, MIN_MAX_MEM, Order, SortConfig, SortSettings, SortStats, Sorter, Tie, check_definitions,
     check_definitions_pair, check_samples, check_samples_pair, coordinate_key, merge_fan_in,

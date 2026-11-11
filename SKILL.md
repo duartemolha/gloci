@@ -550,6 +550,30 @@ gloci flagstat reads.bam -O json -o stats.json
 gloci flagstat reads.cram --reference ref.fa -O tsv
 ```
 
+### `gloci head`
+
+Print the header and the first records of any input as text (samtools and bcftools head).
+
+With no options it prints the whole header and no record. --headers N keeps the first N header lines and --records N prints N records after them. BAM, CRAM and SAM print SAM text; a BAM whose header text lacks the @SQ lines of its binary references gets them written out (samtools prints nothing for such a file). VCF and BCF print VCF text, and BED, GFF and the other text formats print their header and data lines as stored. Nothing is added: no @PG line, no ##glociCommand line. Only the header and the records asked for are read. A file that is damaged after the lines printed exits 1 with the lines before the damage already written. A CRAM that needs a reference sequence needs --reference. head describes the whole file, so it takes no read filters and no --chrom-map.
+
+```sh
+gloci head reads.bam
+gloci head reads.bam --headers 0 --records 5
+gloci head calls.vcf.gz --records 2
+```
+
+### `gloci samples`
+
+List the samples of the read groups of BAM, CRAM or SAM files (samtools samples).
+
+Reads only the headers. For each file it prints one line per distinct value of the --tag (default SM) over the @RG lines, in the order the header lists them, then the path; a file with no such value gets "." as its sample. --show-index adds Y or N for whether the file has an index. --match-reference FASTA (repeatable) adds the first FASTA whose .fai has the same names and lengths in the same order as the @SQ lines, or ".", trying the FASTA given last first; every FASTA needs its .fai (gloci index REF). --column-names writes a line such as "#SM PATH INDEX REFERENCE" first. samtools prints the samples in hash order, so a file with several samples lists them in a different order.
+
+```sh
+gloci samples cohort.bam
+gloci samples a.bam b.cram --show-index --column-names
+gloci samples reads.bam --match-reference hg38.fa --match-reference hs37d5.fa --tag LB
+```
+
 ## Migration tables
 
 Every row below was checked against `gloci <cmd> --help`.
@@ -643,6 +667,8 @@ and FASTA behaviour](#bam-cram-and-fasta-behaviour), after the tables.
 | `samtools flags FLAGS...` | `gloci flags [FLAGS...]` (output is byte-identical to samtools 1.21, and with no argument the table of the twelve flags, without the usage text; a decimal with a leading zero such as `010`, which samtools reads as octal 8, and trailing text such as `12abc` exit 2, see [differences.md#flags-leading-zero](differences.md#flags-leading-zero); an unknown name exits 2 where samtools exits 1, see [differences.md#samtools-exit-codes](differences.md#samtools-exit-codes)) |
 | `samtools idxstats FILE` | `gloci idxstats FILE [--reference FA]` (output is byte-identical to samtools 1.21; a BAM with a `.bai`/`.csi` is answered from the index, anything else is counted record by record with one warning; a file whose references are not grouped is counted, where samtools stops, see [differences.md#idxstats-unsorted](differences.md#idxstats-unsorted); an index without a reference's counts is scanned, where samtools prints zeros, see [differences.md#idxstats-index-without-counts](differences.md#idxstats-index-without-counts); a CRAM that needs a reference needs `--reference`, see [differences.md#cram-counts-need-reference](differences.md#cram-counts-need-reference)) |
 | `samtools quickcheck [-u] [-v] FILE...` | `gloci check --quick [-u] [--list-failed] FILE...` (`--list-failed` prints the failing paths as `-v` does; exit status 1 for any failing file, where samtools exits with a bit mask, see [differences.md#samtools-exit-codes](differences.md#samtools-exit-codes); the first record must also parse, and a VCF, BCF or BGZF BED passes, see [differences.md#quickcheck](differences.md#quickcheck)) |
+| `samtools head [-h N] [-n N] FILE`, `bcftools head` | `gloci head FILE [--headers N] [--records N]` (any format; a BAM with no `@SQ` text gets them written, see [differences.md#head-notext-header](differences.md#head-notext-header)) |
+| `samtools samples [-T TAG] [-i] [-h] [-f FA]... FILE...` | `gloci samples FILE... [--tag TAG] [--show-index] [--column-names] [--match-reference FA]...` (samples in header order, see [differences.md#samples-order](differences.md#samples-order); a FASTA with no `.fai` exits 2, see [differences.md#fasta-implicit-index](differences.md#fasta-implicit-index)) |
 | `jaccard`, `fisher`, `reldist` | not yet available (`stats jaccard / fisher / reldist`, P3b) |
 | `shuffle`, `random`, `sample` | not yet available (`shuffle`, `random`, `sample`, P3b) |
 | `pairtobed`, `pairtopair` | not yet available (`pair-intersect`, `pair-pair`, P3b) |

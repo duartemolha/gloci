@@ -91,7 +91,11 @@ fn head_truncated_bam_prints_what_it_read_and_exits_1() {
         .unwrap();
     raw.truncate(raw.len() - 10);
     let d = tempdir();
-    let f = s(&fixtures::write(d.path(), "cut.bam", &fixtures::bgzip(&raw)));
+    let f = s(&fixtures::write(
+        d.path(),
+        "cut.bam",
+        &fixtures::bgzip(&raw),
+    ));
     let o = gloci()
         .args(["head", &f, "--records", "3"])
         .assert()
@@ -152,7 +156,10 @@ fn head_refuses_what_it_does_not_take() {
         .args(["head", &f, "--chrom-map", "x.tsv"])
         .assert()
         .code(2);
-    gloci().args(["head", &f, "--min-mapq", "5"]).assert().code(2);
+    gloci()
+        .args(["head", &f, "--min-mapq", "5"])
+        .assert()
+        .code(2);
     gloci()
         .args(["head", "/nonexistent/x.bam"])
         .assert()
@@ -161,5 +168,9 @@ fn head_refuses_what_it_does_not_take() {
     // A FASTA is not an input of head.
     let d = tempdir();
     let fa = s(&plain_file(d.path(), "a.fa", ">a\nACGT\n"));
-    gloci().args(["head", &fa]).assert().failure().stdout(predicate::str::is_empty());
+    gloci()
+        .args(["head", &fa])
+        .assert()
+        .failure()
+        .stdout(predicate::str::is_empty());
 }
