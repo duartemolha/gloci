@@ -38,9 +38,10 @@ pub mod writer;
 
 pub use align::{
     Accept, AlignOptions, Aln, AlnBed, AlnBedLayout, AlnBedOptions, AlnBlocks, AlnHeader, AlnRef,
-    AlnSortOrder, AlnSource, CramReader, SamAln, SamToBam, SortOrder, alignment_query_span,
-    aln_ref, blocks, blocks_within, open_alignment_writer, open_aln_source, open_aln_source_from,
-    parse_flags, read_cram_header, sam_line_to_bam, warn_unused_read_filters,
+    AlnSortOrder, AlnSource, CramPrelude, CramReader, SAM_FLAGS, SamAln, SamToBam, SortOrder,
+    alignment_query_span, aln_ref, blocks, blocks_within, cram_eof_present, flag_names,
+    open_alignment_writer, open_aln_source, open_aln_source_from, open_aln_source_regions,
+    parse_flags, read_cram_header, read_cram_prelude, sam_line_to_bam, warn_unused_read_filters,
     warn_unused_reference,
 };
 pub use atomic::{

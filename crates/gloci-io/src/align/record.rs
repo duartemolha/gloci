@@ -6,6 +6,7 @@ use super::header::AlnHeader;
 use super::sam::SamAln;
 use crate::detect::Format;
 use gloci_core::{Interval, Strand};
+use std::borrow::Cow;
 
 /// Bytes before the read name in a BAM record, after `block_size`.
 const FIXED: usize = 32;
@@ -227,6 +228,29 @@ the flag should include 4 (unmapped), or the record needs a reference and positi
 
     pub fn mapq(&self) -> u8 {
         self.mapq
+    }
+
+    /// The reference of the mate, or `None` when the record has none.
+    pub fn mate_ref_id(&self) -> Option<usize> {
+        usize::try_from(i32_at(self.raw, 20)).ok()
+    }
+
+    /// The 0-based position of the mate, or `None` when the record has none.
+    pub fn mate_pos(&self) -> Option<u64> {
+        u64::try_from(i32_at(self.raw, 24)).ok()
+    }
+
+    /// The number of bases in the read (0 for SEQ `*`).
+    pub fn seq_len(&self) -> usize {
+        u32_at(self.raw, 16) as usize
+    }
+
+    /// The raw Phred qualities: empty for SEQ `*`, and `0xFF` for every base of a record
+    /// whose QUAL is missing.
+    pub fn quals(&self) -> Cow<'a, [u8]> {
+        let l_seq = self.seq_len();
+        let tags_at = self.raw.len() - self.tags.len();
+        Cow::Borrowed(&self.raw[tags_at - l_seq..tags_at])
     }
 
     pub fn name(&self) -> &'a [u8] {
@@ -526,6 +550,10 @@ impl<'a> AlnRef<'a> {
     delegate!(pos() -> Option<u64>);
     delegate!(flag() -> u16);
     delegate!(mapq() -> u8);
+    delegate!(mate_ref_id() -> Option<usize>);
+    delegate!(mate_pos() -> Option<u64>);
+    delegate!(seq_len() -> usize);
+    delegate!(quals() -> Cow<'a, [u8]>);
     delegate!(strand() -> Strand);
     delegate!(int_tag(tag: [u8; 2]) -> Option<i64>);
     delegate!(tag_type(tag: [u8; 2]) -> Option<u8>);

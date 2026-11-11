@@ -5,12 +5,16 @@
 
 use super::bam::BamFrames;
 use super::sam::SamLines;
-use super::{AlignOptions, Aln, AlnHeader};
+use super::{AlignOptions, Aln, AlnHeader, aln_ref, alignment_query_span};
 use crate::detect::Format;
 use crate::diag::{Diagnostics, InvalidPolicy};
 use crate::error::{IoError, UsageError};
 use crate::input::{Input, InputOptions, open_input, open_input_from};
-use crate::record::ReaderOptions;
+use crate::index::{IndexedFile, find_index};
+use crate::record::{Header, ReaderOptions};
+use gloci_core::{Interval, RegionSet};
+use std::collections::HashMap;
+use std::path::Path;
 use std::io::Read;
 use std::sync::Arc;
 
@@ -220,4 +224,107 @@ pub fn open_aln_source_from(
         },
     )?;
     source_from_input(input, o)
+}
+
+/// The records of `path` (BAM, CRAM or SAM) whose D116 span overlaps one of `regions` under
+/// §4.3, each once, in file order. `regions` name references as the header lists them (after
+/// `--chrom-map`); a name the header lacks matches nothing. The read filters of `o` apply.
+///
+/// A BAM or CRAM with an index (`.bai`, `.csi`, `.crai`) is read through it. Anything else is
+/// scanned whole, with one warning, and filtered by the same span, so the two give the same
+/// records. The span of a placed unmapped read is `[pos, pos+1)`.
+pub fn open_aln_source_regions(
+    path: &str,
+    regions: &[(Vec<u8>, Interval)],
+    o: &ReaderOptions,
+) -> Result<Box<dyn AlnSource>, IoError> {
+    let src = open_aln_source(path, o)?;
+    let format = src.format();
+    let name = src.name().to_string();
+    let header = src.header().clone();
+    let file = Some(Path::new(path)).filter(|p| path != "-" && p.is_file());
+    let index = file
+        .filter(|_| matches!(format, Format::Bam | Format::Cram))
+        .and_then(|p| find_index(p).map(|i| (p, i)));
+    if let Some((p, info)) = index {
+        info.warn_if_stale(&name);
+        drop(src);
+        let ix = IndexedFile::open(p, format, Header::Alignment(header), o)?;
+        return ix.aln_regions_source(regions, false);
+    }
+    if path != "-" {
+        let hint = match format {
+            Format::Bam | Format::Cram => format!("; create an index with: gloci index {name}"),
+            _ => String::new(),
+        };
+        log::warn!("scanning the whole file {name} to find the regions{hint}");
+    }
+    let mut by_name: HashMap<&[u8], Vec<Interval>> = HashMap::new();
+    for (chrom, iv) in regions {
+        by_name.entry(&chrom[..]).or_default().push(*iv);
+    }
+    let by_ref = header
+        .refs
+        .iter()
+        .map(|(n, _)| by_name.remove(&n[..]).map(RegionSet::new))
+        .collect();
+    Ok(Box::new(ScanRegions {
+        inner: src,
+        by_ref,
+        yielded: 0,
+    }))
+}
+
+/// A whole-file scan that yields the records that overlap the regions.
+struct ScanRegions {
+    inner: Box<dyn AlnSource>,
+    /// The region set of each reference, by reference id.
+    by_ref: Vec<Option<RegionSet>>,
+    /// Records yielded, which numbers them as the index reader does.
+    yielded: u64,
+}
+
+impl AlnSource for ScanRegions {
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+    fn layout(&self) -> Format {
+        self.inner.layout()
+    }
+    fn format(&self) -> Format {
+        self.inner.format()
+    }
+    fn header(&self) -> &Arc<AlnHeader> {
+        self.inner.header()
+    }
+    fn diagnostics(&self) -> &Diagnostics {
+        self.inner.diagnostics()
+    }
+    fn last_bam(&self) -> Option<&[u8]> {
+        self.inner.last_bam()
+    }
+
+    fn next_record(&mut self, buf: &mut Vec<u8>) -> Result<Option<u64>, IoError> {
+        loop {
+            let start = buf.len();
+            let Some(_) = self.inner.next_record(buf)? else {
+                return Ok(None);
+            };
+            let layout = self.inner.layout();
+            let hit = aln_ref(layout, &buf[start..], self.inner.header())
+                .ok()
+                .and_then(|a| alignment_query_span(&a))
+                .is_some_and(|(rid, iv)| {
+                    self.by_ref
+                        .get(rid)
+                        .and_then(Option::as_ref)
+                        .is_some_and(|set| set.matches(iv, false))
+                });
+            if hit {
+                self.yielded += 1;
+                return Ok(Some(self.yielded));
+            }
+            buf.truncate(start);
+        }
+    }
 }

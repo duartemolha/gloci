@@ -38,7 +38,7 @@ fn input_gate() {
         .args(["sort", fa.to_str().unwrap()])
         .assert()
         .code(2)
-        .stderr(contains("getfasta, maskfasta or nuc"));
+        .stderr(contains("getfasta, maskfasta, nuc, faidx or dict"));
     let p = psl.to_str().unwrap();
     gloci()
         .args(["merge", p])

@@ -18,6 +18,7 @@ use crate::input::Input;
 use crate::record::{Header, RecordBatch, RecordMeta, RecordReader, warn_undeclared};
 use gloci_core::{ChromTable, Interval, Strand};
 use memchr::memchr;
+use std::borrow::Cow;
 use std::io::BufRead;
 use std::sync::Arc;
 
@@ -32,6 +33,12 @@ pub struct SamAln<'a> {
     pos: i32,
     flag: u16,
     mapq: u8,
+    /// The mate's reference as BAM would hold it (`=` resolved, -1 for none), and PNEXT - 1
+    /// (-1 when the mate has no position).
+    mate_ref: i32,
+    mate_pos: i32,
+    seq: &'a [u8],
+    qual: &'a [u8],
     name: &'a [u8],
     /// The CIGAR text, empty for `*`.
     cigar: &'a [u8],
@@ -113,11 +120,11 @@ impl<'a> SamAln<'a> {
             pos,
             mapq,
             cigar,
-            _rnext,
-            _pnext,
+            rnext,
+            pnext,
             _tlen,
             seq,
-            _qual,
+            qual,
         ] = f;
         if qname.is_empty() || qname.len() > 254 {
             return Err(format!(
@@ -169,12 +176,28 @@ impl<'a> SamAln<'a> {
         // As htslib reads it: no position means no reference, and no reference or CIGAR means
         // unmapped. The line itself is kept as it is.
         let (flag, ref_id, _) = normalise(flag, ref_id, i64::from(pos1) - 1, !cigar.is_empty());
+        // As `encode_sam` reads the mate: a mate with no position has no reference. A PNEXT that
+        // is not a number is the checker's to refuse, so it reads as no mate here.
+        let mate_pos = number::<u32>(pnext, "PNEXT")
+            .ok()
+            .filter(|&p| p <= i32::MAX as u32 + 1)
+            .map_or(-1, |p| (i64::from(p) - 1) as i32);
+        let mate_ref = match rnext {
+            _ if mate_pos < 0 => -1,
+            b"*" => -1,
+            b"=" => ref_id,
+            n => rid(n).map_or(-1, |i| i as i32),
+        };
         Ok(SamAln {
             line,
             ref_id,
             pos: (i64::from(pos1) - 1) as i32,
             flag,
             mapq,
+            mate_ref,
+            mate_pos,
+            seq: if seq == b"*" { &[] } else { seq },
+            qual,
             name: qname,
             cigar,
             tags: rest,
@@ -196,6 +219,32 @@ impl<'a> SamAln<'a> {
 
     pub fn mapq(&self) -> u8 {
         self.mapq
+    }
+
+    /// The reference of the mate, or `None` when the record has none.
+    pub fn mate_ref_id(&self) -> Option<usize> {
+        usize::try_from(self.mate_ref).ok()
+    }
+
+    /// The 0-based position of the mate, or `None` when the record has none.
+    pub fn mate_pos(&self) -> Option<u64> {
+        u64::try_from(self.mate_pos).ok()
+    }
+
+    /// The number of bases in the read (0 for SEQ `*`).
+    pub fn seq_len(&self) -> usize {
+        self.seq.len()
+    }
+
+    /// The raw Phred qualities: empty for SEQ `*`, and `0xFF` for every base when QUAL is `*`.
+    pub fn quals(&self) -> Cow<'a, [u8]> {
+        if self.seq.is_empty() {
+            return Cow::Borrowed(&[]);
+        }
+        if self.qual == b"*" {
+            return Cow::Owned(vec![0xFF; self.seq.len()]);
+        }
+        Cow::Owned(self.qual.iter().map(|q| q.wrapping_sub(33)).collect())
     }
 
     pub fn name(&self) -> &'a [u8] {
