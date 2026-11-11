@@ -534,6 +534,28 @@ gloci vcf merge a.bcf b.bcf -i DP:sum,AF:avg -0 | gloci vcf stats - --out-prefix
 gloci vcf merge a.vcf.gz b.vcf.gz -f PASS,. -m id -o by-id.vcf.gz
 ```
 
+### `gloci stats`
+
+Statistics of interval sets (bedtools jaccard)
+
+```sh
+gloci stats jaccard -a peaks.bed -b genes.bed
+gloci stats jaccard -a rep1.bed -b rep2.bed -f 0.5 -r
+```
+
+#### `gloci stats jaccard`
+
+The Jaccard similarity of two interval sets (bedtools jaccard).
+
+Each input is first merged as `gloci merge` does (overlapping and bookended intervals join; per strand with -s or -S). The intersection is the sum of the overlap bases of every pair (merged A, merged B) that passes -f, -F, -r, -e, --min-bases, -s, -S and --inclusive-points (measured on the merged intervals), the union is the bases covered by either input, and jaccard = intersection / union divided in single precision and printed as %g (six significant digits; `nan` when both are empty). n_intersections counts the accepted pairs. Output is a header line and one row: intersection, union, jaccard, n_intersections. A point (zero-length interval) covers no bases, so it adds nothing to the intersection or the union, but a point inside a merged interval of the other input counts as an intersection (bedtools widens a point to two bases; see docs/differences.md). Inputs must be sorted (--sort sorts them; --unsorted does not apply); a VCF is read as its footprints (--vcf-span); BAM, CRAM and SAM reads are read as their reference spans.
+
+```sh
+gloci stats jaccard -a peaks.bed -b genes.bed
+gloci stats jaccard -a rep1.bed -b rep2.bed -f 0.5 -r
+gloci stats jaccard -a calls.vcf.gz -b regions.bed --vcf-span ref
+gloci stats jaccard -a unsorted-a.bed -b unsorted-b.bed --sort
+```
+
 #### `gloci stats fisher`
 
 Fisher's exact test of the overlap of two interval sets (bedtools fisher).
