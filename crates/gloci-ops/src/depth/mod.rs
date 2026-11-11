@@ -9,6 +9,7 @@ mod rows;
 pub use mates::MateTable;
 pub use ring::{CountRules, DepthRing};
 
+use crate::aln_merge::threads_per_reader;
 use gloci_core::{Interval, Region};
 use gloci_io::{
     AlnHeader, AlnSource, IoError, ReaderOptions, UsageError, open_aln_source, regions_source_from,
@@ -141,7 +142,8 @@ header, for example gloci reheader)",
     Ok(())
 }
 
-/// The inputs of `depth`, each opened once (`-` is stdin), with `threads` to decode them.
+/// The inputs of `depth`, each opened once (`-` is stdin), sharing `threads` to decode them:
+/// each gets `threads / inputs`, at least 1, so the threads do not grow with the inputs.
 pub fn open_depth_inputs(
     paths: &[String],
     ro: &ReaderOptions,
@@ -151,7 +153,7 @@ pub fn open_depth_inputs(
         return Err(UsageError("depth needs at least one input file".into()).into());
     }
     let mut ro = ro.clone();
-    ro.threads = threads;
+    ro.threads = threads_per_reader(threads, paths.len());
     paths.iter().map(|p| open_aln_source(p, &ro)).collect()
 }
 
@@ -191,12 +193,15 @@ pub fn depth_sources(
     let hdr = headers[0].clone();
     let warned_past = AtomicBool::new(false);
     let plan = Plan::new(o, &hdr.refs, &warned_past);
-    // One stream. Regions come through the indexes where there are some, else by scanning.
+    // One stream. Regions come through the indexes where there are some, else by scanning;
+    // a reopened input gets its share of `ro.threads`, as `open_depth_inputs` gives.
     if let Some(regions) = &o.regions {
+        let mut ro = ro.clone();
+        ro.threads = threads_per_reader(ro.threads, paths.len());
         opened = opened
             .into_iter()
             .zip(paths)
-            .map(|(s, p)| regions_source_from(s, p, regions, ro))
+            .map(|(s, p)| regions_source_from(s, p, regions, &ro))
             .collect::<Result<_, _>>()?;
     }
 
