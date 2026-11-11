@@ -111,10 +111,16 @@ Validate files and print a one-screen summary of each.
 
 check reads every file to the end, keeps going past problems and reports the record count, the chromosomes, whether the records are sorted, and the first 10 errors and warnings with their line numbers. Errors: records that do not parse, records out of order, an end past the chromosome length or a chromosome missing from -g, bad BED12 blocks, a bedGraph value that is not a number, a VCF line with the wrong number of columns. Warnings: exact duplicate lines at the same position, and blank lines. Exit status 1 when any file has errors. The order is checked against -g, else the ##contig lines of a VCF/BCF, else --chrom-order (karyotype by default).
 
+A BAM, CRAM or SAM is read record by record (a CRAM needs --reference): the summary adds the mapped, unmapped-but-placed and unplaced counts and the @HD sort order. With SO:coordinate declared, a read before the previous one, or a placed read after an unplaced one, is an error; a read past the end of its reference and identical records at one position are warnings. A BAM without its BGZF end-of-file block (a CRAM without its end-of-file container) is an error.
+
+--quick is samtools quickcheck, for any format: the header must parse (alignments: with an @SQ line, unless --unaligned), the first record must parse (a CRAM: its first container, so no reference is needed) and a file (not stdin) must end with its end-of-file marker. Only those parts are read. --list-failed prints just the failing paths. Exit status 1 for any failing file, not samtools' bit mask.
+
 ```sh
 gloci check peaks.bed
 gloci check calls.vcf.gz -g hg38.fa.fai
 gloci check a.bed b.bed --chrom-order lex
+gloci check reads.bam
+gloci check --quick --list-failed *.bam > bad.txt
 ```
 
 ### `gloci intersect`
@@ -637,6 +643,7 @@ and FASTA behaviour](#bam-cram-and-fasta-behaviour), after the tables.
 | `samtools dict [-H] [-A] [-l FILE] [-a STR] [-s STR] [-u STR] [-o OUT] REF` | `gloci dict REF [--no-header] [--alias] [--alt FILE] [--assembly STR] [--species STR] [--uri STR] [-o OUT]` (output is byte-identical to samtools 1.21; a repeated sequence name, [differences.md#dict-duplicate-names](differences.md#dict-duplicate-names), and an empty file, [differences.md#dict-empty-input](differences.md#dict-empty-input), exit 1) |
 | `samtools flags FLAGS...` | `gloci flags [FLAGS...]` (output is byte-identical to samtools 1.21, and with no argument the table of the twelve flags, without the usage text; a decimal with a leading zero such as `010`, which samtools reads as octal 8, and trailing text such as `12abc` exit 2, see [differences.md#flags-leading-zero](differences.md#flags-leading-zero); an unknown name exits 2 where samtools exits 1, see [differences.md#samtools-exit-codes](differences.md#samtools-exit-codes)) |
 | `samtools idxstats FILE` | `gloci idxstats FILE [--reference FA]` (output is byte-identical to samtools 1.21; a BAM with a `.bai`/`.csi` is answered from the index, anything else is counted record by record with one warning; a file whose references are not grouped is counted, where samtools stops, see [differences.md#idxstats-unsorted](differences.md#idxstats-unsorted); an index without a reference's counts is scanned, where samtools prints zeros, see [differences.md#idxstats-index-without-counts](differences.md#idxstats-index-without-counts); a CRAM that needs a reference needs `--reference`, see [differences.md#cram-counts-need-reference](differences.md#cram-counts-need-reference)) |
+| `samtools quickcheck [-u] [-v] FILE...` | `gloci check --quick [-u] [--list-failed] FILE...` (`--list-failed` prints the failing paths as `-v` does; exit status 1 for any failing file, where samtools exits with a bit mask, see [differences.md#samtools-exit-codes](differences.md#samtools-exit-codes); the first record must also parse, and a VCF, BCF or BGZF BED passes, see [differences.md#quickcheck](differences.md#quickcheck)) |
 | `jaccard`, `fisher`, `reldist` | not yet available (`stats jaccard / fisher / reldist`, P3b) |
 | `shuffle`, `random`, `sample` | not yet available (`shuffle`, `random`, `sample`, P3b) |
 | `pairtobed`, `pairtopair` | not yet available (`pair-intersect`, `pair-pair`, P3b) |

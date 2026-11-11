@@ -5836,3 +5836,57 @@ gloci = "gloci flagstat input.cram"
 reference = "REF_PATH=/nonexistent samtools flagstat input.cram"
 compare = "exit-status"
 expected_difference = "#cram-counts-need-reference"
+
+# P3c Task 4: `check --quick` is samtools quickcheck (D129). samtools prints the failing paths
+# with -v; gloci prints them with --list-failed. flagstat.bam is good; noeof.bam lacks the BGZF
+# end-of-file block; nosq.bam has no @SQ line (-u accepts it); badfirst.bam has a good header and
+# end-of-file block and a first record whose block_size is 20, which samtools never reads;
+# calls.vcf.gz is a good BGZF VCF, which samtools rejects as not sequence data. The harness
+# stops at a command that fails unless the mode is exit-status, so every case where either side
+# fails compares exit statuses (so does a pass: its output is empty, which a golden refuses); the paths --list-failed prints are asserted in
+# crates/gloci/tests/check_alignments.rs.
+[[case]]
+name = "check-quick-good-bam-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/flagstat.bam" }
+gloci = "gloci check --quick --list-failed input.bam"
+reference = "samtools quickcheck -v input.bam"
+compare = "exit-status"
+
+[[case]]
+name = "check-quick-noeof-exit-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/noeof.bam" }
+gloci = "gloci check --quick --list-failed input.bam"
+reference = "samtools quickcheck -v input.bam"
+compare = "exit-status"
+expected_difference = "#samtools-exit-codes"
+
+[[case]]
+name = "check-quick-nosq-exit-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/nosq.bam" }
+gloci = "gloci check --quick --list-failed input.bam"
+reference = "samtools quickcheck -v input.bam"
+compare = "exit-status"
+expected_difference = "#samtools-exit-codes"
+
+[[case]]
+name = "check-quick-nosq-unaligned-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/nosq.bam" }
+gloci = "gloci check --quick --list-failed --unaligned input.bam"
+reference = "samtools quickcheck -v -u input.bam"
+compare = "exit-status"
+
+[[case]]
+name = "check-quick-badfirst-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/badfirst.bam" }
+gloci = "gloci check --quick --list-failed input.bam"
+reference = "samtools quickcheck -v input.bam"
+compare = "exit-status"
+expected_difference = "#quickcheck"
+
+[[case]]
+name = "check-quick-vcf-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/calls.vcf.gz" }
+gloci = "gloci check --quick --list-failed input.vcf.gz"
+reference = "samtools quickcheck -v input.vcf.gz"
+compare = "exit-status"
+expected_difference = "#quickcheck"

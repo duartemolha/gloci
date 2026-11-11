@@ -2061,13 +2061,17 @@ depends on the span.
 - **Old behaviour:** samtools exits 1 for a usage error (it prints its usage
   text and exits 1, as `samtools flags bogus` does), 2 for an error in
   `bedcov`, and from `quickcheck` a bit mask (2 for a file that cannot be
-  opened and 16 for a missing end-of-file block, among others, summed when
+  opened, 4 for a file that is not sequence data, 8 for a header with no
+  `@SQ` line and 16 for a missing end-of-file block, among others, summed when
   several apply).
 - **Reason:** one meaning per code across every gloci command, so that a
   pipeline can tell a mistake in the command line from a bad file without
-  reading the message. `check --quick` writes the problems it finds to stderr
-  and exits 1.
-- **Pinned by:** `flags-bad-name-vs-samtools` (exit status: must differ).
+  reading the message. `check --quick` exits 1 for any failing file, and with
+  `--list-failed` writes only the failing paths to stdout and the problems to
+  stderr.
+- **Pinned by:** `flags-bad-name-vs-samtools`,
+  `check-quick-noeof-exit-vs-samtools` and `check-quick-nosq-exit-vs-samtools` (exit
+  status: must differ).
 
 ## `flags` refuses a leading zero and trailing text {#flags-leading-zero}
 
@@ -2123,3 +2127,22 @@ depends on the span.
 - **Pinned by:** `idxstats-cram-no-reference-vs-samtools` and
   `flagstat-cram-no-reference-vs-samtools` (exit status: must differ), and the tests
   `idxstats_cram` and `flagstat_cram_equals_bam`.
+
+## `check --quick` is stricter and wider than `samtools quickcheck` {#quickcheck}
+
+- **gloci:** `gloci check --quick` checks the header, the first record and the end-of-file
+  marker of any format `check` reads.
+  - A file whose first record does not parse fails: a BAM whose first `block_size` is 20, a
+    CRAM whose first container is cut short or corrupt.
+  - A VCF, a BCF or a BGZF BED that is whole passes.
+  - The exit status is 1 for any failing file, and `--list-failed` prints the failing paths
+    (samtools `-v`).
+- **Old behaviour:** `samtools quickcheck` never reads a record, so a BAM with a good header
+  and end-of-file block and a corrupt first record passes. It rejects every file that is not
+  sequence data (a VCF, a BCF, a BED) as "not a sequence file".
+- **Reason:** `quickcheck` is used to screen files before a pipeline starts; a first record that
+  cannot be read stops the pipeline just as well, and `check --quick` is one command for the
+  alignment, variant and interval files a genomics team keeps side by side. The cost stays the
+  header, the first record and the last 38 bytes.
+- **Pinned by:** `check-quick-badfirst-vs-samtools` and `check-quick-vcf-vs-samtools` (exit
+  status: must differ), and the tests `quick_check_matrix` and `quick_reads_little`.
