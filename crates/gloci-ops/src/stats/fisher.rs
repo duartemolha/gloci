@@ -456,6 +456,8 @@ pub fn write_fisher(c: &FisherCounts, t: &FisherTable, out: &mut Vec<u8>) {
     }
     let ratio = (t.n11 as f64 / t.n12 as f64) / (t.n21 as f64 / t.n22 as f64);
     if ratio.is_nan() {
+        // Deliberately `-nan`, not `nan`: 0/0 has its sign bit set on x86, and
+        // bedtools' printf shows that. Do not "fix" this to `nan`.
         out.extend_from_slice(b"-nan");
     } else {
         write_fixed(out, ratio, 3);
