@@ -41,20 +41,6 @@ fn write_lines(text: &[u8], n: Option<u64>, out: &mut dyn Write) -> Result<(), I
     Ok(())
 }
 
-/// A BCF header line without the `IDX=n` field BCF adds to a dictionary line, which bcftools
-/// does not show in VCF text.
-fn without_idx(line: &[u8]) -> std::borrow::Cow<'_, [u8]> {
-    let body = line.strip_suffix(b">").unwrap_or(line);
-    let digits = body.iter().rev().take_while(|b| b.is_ascii_digit()).count();
-    let head = &body[..body.len() - digits];
-    if digits > 0 && line.len() > body.len() && head.ends_with(b",IDX=") {
-        let mut v = head[..head.len() - 5].to_vec();
-        v.push(b'>');
-        return v.into();
-    }
-    line.into()
-}
-
 /// Write the header lines and records of `path` as text. Whatever was read before a failure
 /// has been written to `out` when the error is returned. An alignment file prints SAM, a BCF
 /// prints VCF; BED, GFF and VCF print their lines as they are. `ro.accept.alignments` must
@@ -98,19 +84,7 @@ pub fn head(
         Opened::Records(mut reader) => {
             match reader.header() {
                 Header::Lines(l) => write_lines(l, o.headers, out)?,
-                Header::Vcf(h) if h.bcf.is_some() => {
-                    let mut text = Vec::with_capacity(h.raw.len());
-                    for line in h.raw.split_inclusive(|&b| b == b'\n') {
-                        let (body, nl) = match line.strip_suffix(b"\n") {
-                            Some(b) => (b, &b"\n"[..]),
-                            None => (line, &b""[..]),
-                        };
-                        text.extend_from_slice(&without_idx(body));
-                        text.extend_from_slice(nl);
-                    }
-                    write_lines(&text, o.headers, out)?;
-                }
-                Header::Vcf(h) => write_lines(&h.raw, o.headers, out)?,
+                Header::Vcf(h) => write_lines(&h.as_vcf_text(h.raw.clone()), o.headers, out)?,
                 Header::None | Header::Alignment(_) => {}
             }
             let mut bcf = BcfText::for_reader(reader.as_ref())?;

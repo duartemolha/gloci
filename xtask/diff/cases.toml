@@ -6053,6 +6053,15 @@ gloci = "gloci head input.bcf --records 2"
 reference = "bcftools head -n 2 input.bcf"
 compare = "exact"
 
+# view -O vcf of a BCF: the header shows no IDX= field, as bcftools view does
+# (`vcf` ignores each tool's command lines).
+[[case]]
+name = "view-bcf-to-vcf-header-vs-bcftools"
+input = { file = "xtask/diff/inputs/samtools/hdr-pass.bcf" }
+gloci = "gloci view -O vcf input.bcf"
+reference = "bcftools view -O v input.bcf"
+compare = "vcf"
+
 [[case]]
 name = "head-vcf-nopass-vs-bcftools"
 input = { file = "xtask/diff/inputs/cluster-in.vcf" }

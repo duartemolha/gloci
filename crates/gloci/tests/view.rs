@@ -453,3 +453,40 @@ fn interleaved_header_lines_without_idx() {
     let back = stdout_bytes(&["view", &s(&o), "-O", "vcf"]);
     assert_eq!(norm_vcf(&back), norm_vcf(text.as_bytes()));
 }
+
+/// A BCF written as VCF text shows no `IDX=` field in its header, as bcftools shows it, in
+/// every command that writes VCF from BCF (M1); BCF output keeps the fields.
+#[test]
+fn bcf_to_vcf_header_drops_idx() {
+    let bcf = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../xtask/diff/inputs/samtools/hdr-pass.bcf")
+        .to_string_lossy()
+        .into_owned();
+    let d = tempdir();
+    let sorted = d.path().join("s.bcf").to_string_lossy().into_owned();
+    gloci()
+        .args(["sort", &bcf, "-o", &sorted])
+        .assert()
+        .success();
+    for args in [
+        vec!["view", "-O", "vcf", bcf.as_str()],
+        vec!["vcf", "filter", "-O", "vcf", bcf.as_str()],
+        vec!["vcf", "concat", "-O", "vcf", sorted.as_str()],
+        vec!["head", bcf.as_str()],
+    ] {
+        let o = gloci().args(&args).assert().success();
+        let text = String::from_utf8_lossy(&o.get_output().stdout).into_owned();
+        assert!(
+            text.contains("##contig=<ID=chr1,length=100000>\n"),
+            "{args:?}: {text}"
+        );
+        assert!(!text.contains("IDX="), "{args:?}: {text}");
+    }
+    let out = d.path().join("f.bcf").to_string_lossy().into_owned();
+    gloci()
+        .args(["vcf", "filter", &bcf, "-o", &out])
+        .assert()
+        .success();
+    let o = gloci().args(["view", "-O", "vcf", &out]).assert().success();
+    assert!(!String::from_utf8_lossy(&o.get_output().stdout).contains("IDX="));
+}

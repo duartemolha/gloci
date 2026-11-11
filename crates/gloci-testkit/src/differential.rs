@@ -14,6 +14,8 @@
 ///   numbers are equal within a relative tolerance of 1e-5 (absolute when
 ///   both are below 1e-9); any other field must match exactly.
 /// - `sam`: SAM text; the `@PG` header lines are ignored.
+/// - `vcf`: VCF text, header included; only the lines each tool stamps with its command
+///   (`##glociCommand=`, `##bcftools_*Version=`, `##bcftools_*Command=`) are ignored.
 /// - `bam` (D118): both are BAM files. They are decompressed, and then the
 ///   header text without its `@PG` lines, the reference list and the record
 ///   bytes must be identical; the BGZF block layout and level do not matter.
@@ -31,6 +33,22 @@ pub fn compare(mode: &str, a: &[u8], b: &[u8]) -> bool {
             let keep = |x: &[u8]| -> Vec<Vec<u8>> {
                 x.split(|&c| c == b'\n')
                     .filter(|l| !l.starts_with(b"@PG\t"))
+                    .map(<[u8]>::to_vec)
+                    .collect()
+            };
+            keep(a) == keep(b)
+        }
+        "vcf" => {
+            let stamp = |l: &[u8]| {
+                l.starts_with(b"##glociCommand=")
+                    || (l.starts_with(b"##bcftools_")
+                        && l.splitn(2, |&c| c == b'=')
+                            .next()
+                            .is_some_and(|k| k.ends_with(b"Version") || k.ends_with(b"Command")))
+            };
+            let keep = |x: &[u8]| -> Vec<Vec<u8>> {
+                x.split(|&c| c == b'\n')
+                    .filter(|l| !stamp(l))
                     .map(<[u8]>::to_vec)
                     .collect()
             };

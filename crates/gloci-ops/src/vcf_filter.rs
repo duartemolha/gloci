@@ -61,7 +61,12 @@ or pass -O vcf or -O bcf",
     let plan = rewrite_plan(&h, &o.select, &o.plan)?;
     // A bad expression is a usage error before any record is read.
     parse_select_expr(&h, &o.select)?;
-    let header = VcfHeader::parse(rewrite_header(&h, &plan)).map_err(|e| IoError::Detect {
+    let mut text = rewrite_header(&h, &plan);
+    if to == OutFormat::Vcf {
+        // A BCF input's dictionary lines lose their IDX= fields in VCF text, as bcftools shows.
+        text = h.as_vcf_text(text);
+    }
+    let header = VcfHeader::parse(text).map_err(|e| IoError::Detect {
         path: input.name().to_string(),
         msg: e,
     })?;

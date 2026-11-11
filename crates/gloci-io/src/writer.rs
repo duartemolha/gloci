@@ -173,7 +173,7 @@ pub fn open_record_writer(
             if records == Format::Bcf {
                 write_bcf_header(&mut out, &text).map_err(werr)?;
             } else {
-                out.write_all(&text).map_err(werr)?;
+                out.write_all(&h.as_vcf_text(text)).map_err(werr)?;
             }
         }
         (Format::Vcf | Format::Bcf, _) => {
