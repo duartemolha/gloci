@@ -638,3 +638,100 @@ fn compare_matrix_scope_follows_the_match_rule() {
         )
     );
 }
+
+#[test]
+fn compare_error_in_both_files_is_the_same_at_every_thread_count() {
+    let d = tempdir();
+    let bad = |pos: u64| format!("chr1\t{pos}\t.\tA\tC\t50\tPASS\t.\tGT\tNOPE");
+    let ok = |pos: u64| rec("chr1", pos, "A", "C", &["0/1"]);
+    let mut ra: Vec<String> = (1..3000).map(|p| ok(p * 2)).collect();
+    ra.insert(2500, bad(7000));
+    let mut rb: Vec<String> = (1..3000).map(|p| ok(p * 2)).collect();
+    rb.insert(1200, bad(3000));
+    let text = |rows: &[String]| {
+        vcf(
+            &["s1"],
+            &rows.iter().map(String::as_str).collect::<Vec<_>>(),
+        )
+    };
+    let a = write(d.path(), "a.vcf", &text(&ra));
+    let b = write(d.path(), "b.vcf", &text(&rb));
+    let mut msgs = Vec::new();
+    for t in ["1", "2", "8"] {
+        let p = d
+            .path()
+            .join(format!("o{t}"))
+            .to_string_lossy()
+            .into_owned();
+        let out = gloci()
+            .args(["vcf", "compare", &a, &b, "--out-prefix", &p, "-t", t])
+            .assert()
+            .code(1)
+            .get_output()
+            .stderr
+            .clone();
+        msgs.push(String::from_utf8(out).unwrap());
+    }
+    assert_eq!(msgs[0], msgs[1]);
+    assert_eq!(msgs[0], msgs[2]);
+    // B's error is met first in the walk (position 3000 before 7000)
+    assert!(msgs[0].contains("b.vcf record 1,201"), "{}", msgs[0]);
+}
+
+#[test]
+fn compare_order_error_names_the_previous_selected_record() {
+    // record 2 is filtered out (not PASS); record 3 breaks the order after
+    // record 1, which is the record the error names
+    let d = tempdir();
+    let filtered = "chr1\t50\t.\tA\tC\t50\tq10\t.\tGT\t0/1";
+    let a = write(
+        d.path(),
+        "a.vcf",
+        &vcf(
+            &["s1"],
+            &[
+                &rec("chr1", 90, "A", "C", &["0/1"]),
+                filtered,
+                &rec("chr1", 5, "A", "C", &["0/1"]),
+            ],
+        ),
+    );
+    let b = write(
+        d.path(),
+        "b.vcf",
+        &vcf(&["s1"], &[&rec("chr1", 1, "A", "C", &["0/1"])]),
+    );
+    let p = d.path().join("o").to_string_lossy().into_owned();
+    gloci()
+        .args(["vcf", "compare", &a, &b, "--out-prefix", &p, "--pass-only"])
+        .assert()
+        .code(1)
+        .stderr(contains("record 3 (chr1:5) comes after record 1 (chr1:90)"));
+}
+
+#[test]
+fn compare_thin_needs_one_chromosome_order() {
+    let d = tempdir();
+    let a = write(
+        d.path(),
+        "a.vcf",
+        &vcf(&["s1"], &[&rec("chr1", 1, "A", "C", &["0/1"])]),
+    );
+    let b = write(
+        d.path(),
+        "b.vcf",
+        &vcf(&["s1"], &[&rec("chr1", 1, "A", "C", &["0/1"])])
+            .replace("##contig=<ID=chr2,length=1000>\n", ""),
+    );
+    let p = d.path().join("o").to_string_lossy().into_owned();
+    gloci()
+        .args(["vcf", "compare", &a, &b, "--out-prefix", &p, "--thin", "10"])
+        .assert()
+        .code(2)
+        .stderr(contains("--thin with vcf compare needs both files"));
+    // the same headers: fine
+    gloci()
+        .args(["vcf", "compare", &a, &a, "--out-prefix", &p, "--thin", "10"])
+        .assert()
+        .success();
+}

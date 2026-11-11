@@ -259,7 +259,7 @@ fn produce(
     let cap = (262_144 / (shared.len() + 16)).clamp(1, 1024);
     let mut batch: Vec<Site> = Vec::with_capacity(cap);
     let mut fields = SampleFields::default();
-    run_selection(reader, &mut chroms, &mut stage, |hit| {
+    let read = run_selection(reader, &mut chroms, &mut stage, |hit| {
         let parse_err = |msg: String| IoError::Parse {
             path: name.clone(),
             loc: Loc::Record(hit.rec_no),
@@ -308,11 +308,14 @@ fn produce(
                 .map_err(|_| IoError::Internal("the comparison stopped reading".into()))?;
         }
         Ok(())
-    })?;
+    });
+    // The records before an error are still sent, so the walk meets the
+    // error where it falls in the file.
     if !batch.is_empty() {
         tx.send(Msg::Batch(batch))
             .map_err(|_| IoError::Internal("the comparison stopped reading".into()))?;
     }
+    read?;
     Ok(())
 }
 
@@ -323,7 +326,8 @@ struct Stream {
     buf: VecDeque<Site>,
     done: bool,
     checker: OrderChecker,
-    prev: Option<(Box<[u8]>, u64)>,
+    /// Chromosome, POS and record number of the previous record.
+    prev: Option<(Box<[u8]>, u64, u64)>,
     last: Option<(Box<[u8]>, ChromId)>,
 }
 
@@ -385,11 +389,11 @@ impl Stream {
         };
         s.chrom = id;
         if self.checker.check(chroms, id, s.pos).is_err() {
-            let (pc, pp) = self.prev.clone().unwrap_or_default();
+            let (pc, pp, pn) = self.prev.clone().unwrap_or_default();
             let show = |c: &[u8], p: u64| format!("{}:{}", String::from_utf8_lossy(c), p);
             return Err(OrderError {
                 path: self.name.clone(),
-                prev_loc: Loc::Record(s.rec_no.saturating_sub(1)),
+                prev_loc: Loc::Record(pn),
                 prev: show(&pc, pp),
                 loc: Loc::Record(s.rec_no),
                 rec: show(&s.chrom_name, s.pos),
@@ -400,7 +404,7 @@ impl Stream {
             }
             .into());
         }
-        self.prev = Some((s.chrom_name.clone(), s.pos));
+        self.prev = Some((s.chrom_name.clone(), s.pos, s.rec_no));
         Ok(())
     }
 }
@@ -483,6 +487,19 @@ pub fn vcf_compare(
     let request = o.request.resolved();
     let ha = crate::vcf_select::vcf_header(COMMAND, a.reader())?;
     let hb = crate::vcf_select::vcf_header(COMMAND, b.reader())?;
+    // --thin checks each file's order inside its own selection, by that file's
+    // header (else karyotype order), which is the walk's order only when both
+    // headers declare the same contigs and nothing else sets the order.
+    if o.select.sites.thin.is_some() {
+        let own_order = o.genome.is_none()
+            && ha.contigs == hb.contigs
+            && (!ha.contigs.is_empty() || o.chrom_order == ChromOrder::Karyotype);
+        if !own_order {
+            return Err(usage(
+                "--thin with vcf compare needs both files to declare the same ##contig lines (or none, with the default karyotype order) and no -g; thin each file first with gloci vcf filter --thin, or drop --thin",
+            ));
+        }
+    }
     let (name_a, name_b) = (a.reader().name().to_string(), b.reader().name().to_string());
     let map = match &o.sample_map {
         Some(p) => read_sample_map(p)?,

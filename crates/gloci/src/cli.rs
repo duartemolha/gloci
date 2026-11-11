@@ -1500,7 +1500,8 @@ Examples:
     /// same POS with the same REF, where a REF of N or . takes the other's).
     /// Discordance is counted over the sites in both files and the samples in
     /// both files (the union by name, after --sample-map renames B's samples).
-    /// A and B are always read on threads of their own, plus the thread that
+    /// --thin needs both files to declare the same ##contig lines and no -g
+    /// (exit 2 otherwise). A and B are always read on threads of their own, plus the thread that
     /// walks them, so -t 1 and -t 2 run three threads; more -t adds selection
     /// workers up to -t in all.
     /// A genotype is its unordered alleles, so 0/1 equals 1/0 and 0|1, and
