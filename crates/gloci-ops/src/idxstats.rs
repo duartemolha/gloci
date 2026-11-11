@@ -46,7 +46,12 @@ pub fn idxstats(
         src = None;
         let ix = IndexedFile::open(p, format, Header::Alignment(header.clone()), o)?;
         if let Some(c) = ix.alignment_counts() {
-            if let Some(i) = c.per_ref.iter().position(Option::is_none) {
+            if c.unplaced.is_none() {
+                log::warn!(
+                    "the index {} has no count of unplaced reads; counting every record instead",
+                    info.path.display()
+                );
+            } else if let Some(i) = c.per_ref.iter().position(Option::is_none) {
                 log::warn!(
                     "the index {} has no read counts for {}; counting every record instead",
                     info.path.display(),
@@ -57,7 +62,7 @@ pub fn idxstats(
                 return Ok(IdxstatsPath::Index);
             }
         }
-    } else if format == Format::Bam {
+    } else if format == Format::Bam && path != "-" {
         log::warn!(
             "{name} has no index; counting every record (index it for speed: gloci index {name})"
         );
@@ -93,12 +98,18 @@ pub fn idxstats(
                     per_ref[rid].mapped += 1;
                 }
             }
-            _ => unplaced += 1,
+            // The record parsers check refID against the header, so this is a bug.
+            Some(rid) => {
+                return Err(IoError::Internal(format!(
+                    "{name}: record with refID {rid} passed the header's {n} references"
+                )));
+            }
+            None => unplaced += 1,
         }
     }
     let counts = AlnIndexCounts {
         per_ref: per_ref.into_iter().map(Some).collect(),
-        unplaced,
+        unplaced: Some(unplaced),
     };
     write_counts(&header.refs, &counts, out)?;
     Ok(IdxstatsPath::Scan)
@@ -117,6 +128,6 @@ fn write_counts(
         writeln!(line, "\t{len}\t{}\t{}", rc.mapped, rc.unmapped).map_err(write_err)?;
         out.write_all(&line).map_err(write_err)?;
     }
-    writeln!(out, "*\t0\t0\t{}", c.unplaced).map_err(write_err)?;
+    writeln!(out, "*\t0\t0\t{}", c.unplaced.unwrap_or(0)).map_err(write_err)?;
     out.flush().map_err(write_err)
 }

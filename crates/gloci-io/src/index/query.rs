@@ -71,10 +71,7 @@ impl Loaded {
             ),
             Loaded::Tbi(_) => return None,
         };
-        Some(AlnIndexCounts {
-            per_ref,
-            unplaced: unplaced.unwrap_or(0),
-        })
+        Some(AlnIndexCounts { per_ref, unplaced })
     }
 
     /// Load the index of the data file `data`, after checking its structure against the data
@@ -877,8 +874,9 @@ pub struct AlnIndexCounts {
     /// One entry per header reference. `None` marks a reference with bins but no metadata
     /// pseudo-bin; a reference with no bins is `Some(0, 0)`.
     pub per_ref: Vec<Option<RefCounts>>,
-    /// The reads with no reference (`n_no_coor`).
-    pub unplaced: u64,
+    /// The reads with no reference (`n_no_coor`); `None` when the index lacks the trailing
+    /// count, which makes its counts unusable (D127).
+    pub unplaced: Option<u64>,
 }
 
 /// An indexed BGZF file whose header and index are loaded once, from which

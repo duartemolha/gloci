@@ -2102,7 +2102,8 @@ depends on the span.
 
 - **gloci:** a BAI or CSI holds per-reference counts in a metadata pseudo-bin. When a
   reference has bins but no pseudo-bin, `idxstats` warns once, counts every record and prints
-  the true counts.
+  the true counts. An index that lacks the trailing count of unplaced reads (`n_no_coor`) is
+  treated the same way, so the `*` line is never a silent zero.
 - **Old behaviour:** htslib reports `0` mapped and `0` unmapped for such a reference, so
   `samtools idxstats` prints zeros for reads that are there.
 - **Reason:** a silently wrong count is worse than a slow one. Indexes written by `gloci

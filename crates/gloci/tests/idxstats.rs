@@ -70,6 +70,8 @@ fn idxstats_index_matches_samtools() {
         "flags.bam.bai",
     );
     let (path, text) = lib(&bam);
+    // The golden bytes are equal through the index and by a scan, so this assertion is what
+    // tells the two paths apart.
     assert_eq!(path, IdxstatsPath::Index);
     assert_eq!(text, FLAGS);
     let (out, err) = run_ok(&["idxstats", &s(&bam)]);
@@ -93,7 +95,7 @@ fn idxstats_scan_equals_index() {
     assert_eq!(err.matches("counting every record").count(), 1, "{err}");
 }
 
-/// The BAI of aln/flags.bam with every metadata pseudo-bin (bin 37450) and `n_no_coor` removed:
+/// The BAI of aln/flags.bam with every metadata pseudo-bin (bin 37450) removed:
 /// what an index written by an old or minimal tool holds.
 fn strip_pseudo_bins(bai: &[u8]) -> Vec<u8> {
     const META_BIN: u32 = 37450;
@@ -122,6 +124,8 @@ fn strip_pseudo_bins(bai: &[u8]) -> Vec<u8> {
         out.extend_from_slice(&bai[at..at + len]);
         at += len;
     }
+    // `n_no_coor` stays: only the pseudo-bins are missing.
+    out.extend_from_slice(&bai[at..]);
     out
 }
 
@@ -271,4 +275,112 @@ fn idxstats_huge_header() {
     let (path, scanned) = lib(&plain);
     assert_eq!(path, IdxstatsPath::Scan);
     assert_eq!(scanned, text);
+}
+
+#[test]
+fn idxstats_csi_matches_bai() {
+    let d = tempdir();
+    let bam = copy(d.path(), &inputs().join("aln/flags.bam"), "flags.bam");
+    gloci()
+        .args(["index", "--csi", &s(&bam)])
+        .assert()
+        .success();
+    assert!(d.path().join("flags.bam.csi").exists());
+    assert!(!d.path().join("flags.bam.bai").exists());
+    let (path, text) = lib(&bam);
+    assert_eq!(path, IdxstatsPath::Index);
+    assert_eq!(text, FLAGS);
+}
+
+/// The CSI `samtools index -c` wrote (samtools/csi/flags.bam.csi) is read the same way.
+#[test]
+fn idxstats_samtools_csi() {
+    let (path, text) = lib(&inputs().join("samtools/csi/flags.bam"));
+    assert_eq!(path, IdxstatsPath::Index);
+    assert_eq!(text, FLAGS);
+}
+
+/// A reference over 2^29 gets a CSI whose metadata pseudo-bin sits deeper than a BAI's.
+#[test]
+fn idxstats_long_reference_csi() {
+    let d = tempdir();
+    let mut sam = String::from(
+        "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:big\tLN:600000000\n@SQ\tSN:small\tLN:1000\n",
+    );
+    sam.push_str("r1\t0\tbig\t10\t60\t5M\t*\t0\t0\tACGTA\tIIIII\n");
+    sam.push_str("r2\t0\tbig\t590000000\t60\t5M\t*\t0\t0\tACGTA\tIIIII\n");
+    sam.push_str("r3\t4\tbig\t590000000\t0\t*\t*\t0\t0\tACGTA\tIIIII\n");
+    sam.push_str("r4\t0\tsmall\t10\t60\t5M\t*\t0\t0\tACGTA\tIIIII\n");
+    sam.push_str("r5\t4\t*\t0\t0\t*\t*\t0\t0\tACGTA\tIIIII\n");
+    let sam_path = plain_file(d.path(), "long.sam", &sam);
+    let bam = d.path().join("long.bam");
+    gloci()
+        .args(["view", "-O", "bam", &s(&sam_path), "-o", &s(&bam)])
+        .assert()
+        .success();
+    gloci().args(["index", &s(&bam)]).assert().success();
+    assert!(d.path().join("long.bam.csi").exists());
+    let (path, text) = lib(&bam);
+    assert_eq!(path, IdxstatsPath::Index);
+    assert_eq!(
+        text,
+        "big\t600000000\t2\t1\nsmall\t1000\t1\t0\n*\t0\t0\t1\n"
+    );
+}
+
+#[test]
+fn idxstats_bam_on_stdin_is_not_told_to_index() {
+    let bam = std::fs::read(inputs().join("aln/flags.bam")).unwrap();
+    let o = gloci()
+        .args(["idxstats", "-"])
+        .write_stdin(bam)
+        .assert()
+        .success()
+        .stdout(FLAGS)
+        .get_output()
+        .clone();
+    let err = String::from_utf8(o.stderr).unwrap();
+    assert!(err.contains("holds no per-reference counts"), "{err}");
+    assert!(!err.contains("gloci index"), "{err}");
+}
+
+/// An index without the trailing `n_no_coor` cannot give the unplaced count: no silent zero.
+#[test]
+fn idxstats_index_without_unplaced_count() {
+    let d = tempdir();
+    let bam = copy(d.path(), &inputs().join("aln/flags.bam"), "flags.bam");
+    let bai = std::fs::read(inputs().join("aln/flags.bam.bai")).unwrap();
+    std::fs::write(d.path().join("flags.bam.bai"), &bai[..bai.len() - 8]).unwrap();
+    let (path, text) = lib(&bam);
+    assert_eq!(path, IdxstatsPath::Scan);
+    assert_eq!(text, FLAGS);
+    let (out, err) = run_ok(&["idxstats", &s(&bam)]);
+    assert_eq!(out, FLAGS);
+    assert_eq!(err.matches("warning").count(), 1, "{err}");
+    assert!(err.contains("no count of unplaced reads"), "{err}");
+}
+
+#[test]
+fn idxstats_stale_index_warns_once_and_is_used() {
+    let d = tempdir();
+    let bam = copy(d.path(), &inputs().join("aln/flags.bam"), "flags.bam");
+    let bai = copy(
+        d.path(),
+        &inputs().join("aln/flags.bam.bai"),
+        "flags.bam.bai",
+    );
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+    std::fs::File::options()
+        .write(true)
+        .open(&bai)
+        .unwrap()
+        .set_modified(old)
+        .unwrap();
+    let (path, text) = lib(&bam);
+    assert_eq!(path, IdxstatsPath::Index);
+    assert_eq!(text, FLAGS);
+    let (out, err) = run_ok(&["idxstats", &s(&bam)]);
+    assert_eq!(out, FLAGS);
+    assert_eq!(err.matches("older than").count(), 1, "{err}");
+    assert_eq!(err.matches("warning").count(), 1, "{err}");
 }
