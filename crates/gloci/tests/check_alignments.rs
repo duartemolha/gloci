@@ -278,14 +278,37 @@ fn quick_check_matrix() {
     assert_eq!(o.get_output().stdout, b"-\n");
     let err = String::from_utf8_lossy(&o.get_output().stderr);
     assert!(err.contains("stdin is empty: it has no records"), "{err}");
-    // The problem is on stderr, in words.
-    let (_, _, err) = run(&[
-        "check",
-        "--quick",
-        "--list-failed",
-        &sam_fixture("badfirst.bam"),
-    ]);
-    assert!(err.contains("badfirst.bam"), "{err}");
+    // The problem is on stderr, in words, each line naming the path once (M6).
+    let bad = sam_fixture("badfirst.bam");
+    let (_, _, err) = run(&["check", "--quick", "--list-failed", &bad]);
+    assert_eq!(
+        err,
+        format!(
+            "{bad} record 1 of chr1 (record 1 of the file): block_size 20 is below the 32 bytes \
+of fixed fields of a BAM record; the file is corrupt\n"
+        )
+    );
+    let missing = s(&d.path().join("nope.bam"));
+    for (args, f) in [
+        (vec!["check", "--quick", "--list-failed"], &missing),
+        (vec!["check", "--list-failed"], &missing),
+        (
+            vec!["check", "--list-failed"],
+            &sam_fixture("coord-unsorted.sam"),
+        ),
+        (
+            vec!["check", "--quick", "--list-failed"],
+            &sam_fixture("noeof.bam"),
+        ),
+    ] {
+        let mut a = args.clone();
+        a.push(f);
+        let (code, _, err) = run(&a);
+        assert_eq!(code, 1);
+        for line in err.lines() {
+            assert_eq!(line.matches(f.as_str()).count(), 1, "{args:?}: {line}");
+        }
+    }
 }
 
 #[test]

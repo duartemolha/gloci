@@ -62,7 +62,18 @@ pub fn run(ctx: &Ctx, a: &CheckArgs) -> anyhow::Result<bool> {
                 writeln!(stdout, "{f}")?;
                 stdout.flush()?;
                 for line in &report.errors.first {
-                    eprintln!("{f}: {line}");
+                    // A problem that already names the path is not given it twice (stdin's
+                    // `-` only counts where it starts the line).
+                    let named = if f == "-" {
+                        line.starts_with("- ") || line.starts_with("-: ")
+                    } else {
+                        line.contains(f.as_str())
+                    };
+                    if named {
+                        eprintln!("{line}");
+                    } else {
+                        eprintln!("{f}: {line}");
+                    }
                 }
             }
             continue;
