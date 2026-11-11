@@ -208,7 +208,7 @@ Further rules:
 | FASTA + `.fai` | for `getfasta`, `maskfasta`, `nuc` | 3 |
 | PSL, RepeatMasker `.out` | convert only | 3 |
 
-- **Format detection** uses content and magic bytes: the BGZF/gzip header, `BCF\2`, `##fileformat=VCF`, `##gff-version`, and BED column shape. File extensions are not used. `--format` / `--a-format` / `--b-format` override detection. **[D100, D114]** The alignment and sequence formats are detected by content too: BAM is a BGZF stream that decompresses to `BAM\1`; CRAM is `CRAM` with major version 2 or 3 (4 is an error); SAM is an `@HD`/`@SQ`/`@RG`/`@PG`/`@CO` line followed by a TAB, or at least 11 tab fields whose fields 2, 4, 5, 8 and 9 are integers; FASTA starts with `>`; PSL and RepeatMasker are recognised by their header or their column shape. `--format` adds `bam`, `cram`, `sam`, `psl` and `rmsk`. Only `intersect`, `coverage`, `genomecov`, `convert`, `view`, `index`, `sort` and `cat` read alignments; any other command exits 2 naming them and suggesting `gloci convert x.bam -o x.bed` (and, in `merge`, `gloci sort -m`). PSL and RepeatMasker are read by `convert` only, and FASTA is never an interval input.
+- **Format detection** uses content and magic bytes: the BGZF/gzip header, `BCF\2`, `##fileformat=VCF`, `##gff-version`, and BED column shape. File extensions are not used. `--format` / `--a-format` / `--b-format` override detection. **[D100, D114]** The alignment and sequence formats are detected by content too: BAM is a BGZF stream that decompresses to `BAM\1`; CRAM is `CRAM` with major version 2 or 3 (4 is an error); SAM is an `@HD`/`@SQ`/`@RG`/`@PG`/`@CO` line followed by a TAB, or at least 11 tab fields whose fields 2, 4, 5, 8 and 9 are integers; FASTA starts with `>`; PSL and RepeatMasker are recognised by their header or their column shape. `--format` adds `bam`, `cram`, `sam`, `psl` and `rmsk`. Only `intersect`, `coverage`, `genomecov`, `convert`, `view`, `index`, `sort`, `cat` and, **[D125]**, `idxstats`, `flagstat`, `check`, `reheader`, `head`, `samples`, `depth` and `bedcov` read alignments; any other command exits 2 naming them and suggesting `gloci convert x.bam -o x.bed` (and, in `merge`, `gloci sort -m`). PSL and RepeatMasker are read by `convert` only, and FASTA is never an interval input.
 - **Compression:** gzip and BGZF are read transparently. Plain gzip is read single-threaded, because it can't be split. The docs recommend bgzip.
 - **stdin:** `-` reads from stdin wherever a file is accepted.
 
@@ -499,6 +499,19 @@ How the old commands map onto `partition`:
 - WIG to bedGraph (P2). BAM/CRAM/SAM to BED (bedtools `bamtobed`: BED6 by default, `--bed12`, `--blocks`, `--split-deletions`, `--score-tag`, `--cigar`, `--color`; **[D106]**), PSL and RepeatMasker to BED (**[D114]**, columns of bedops 2.4.41 `psl2bed` and `rmsk2bed`) (P3).
 - **An alignment as an interval [D101]:** the span is `[pos, pos + reflen)`, reflen being the `M D N = X` lengths, with a read that has no reference operations counting one base everywhere (convert, intersect, genomecov); clips never widen it; the strand is `-` for flag `0x10`. A read at or past its reference's `LN` is skipped and counted, and one that runs past it is cut at `LN`, with one warning per input. Unmapped reads are skipped by every interval command. Errors name the place: SAM `line N`; BAM `record N of CHROM (record M of the file)`; CRAM `record N of CHROM`, without the file-wide number because a `.crai` has no counts. A read through an index for a region, which starts mid-file, is `record at BGZF offset X:Y` (its virtual offset). `genomecov -g` names a read past the end of its `-g` chromosome as `record N of CHROM (counting only the reads genomecov counts)`, so the place is the same streamed and per chromosome.
 - **Alignments in output [D104]:** `intersect --mode any|none` writes BAM for a BAM or CRAM A and SAM for a SAM A (`-o`/`-O` choose); asking for BED is a usage error suggesting `-O bam | gloci convert -`. Where a command prints an alignment's columns it prints BED6, and an unmatched B placeholder for an alignment is BED6 wide. `--mode clip` of reads is a usage error. `--chrom-map` is refused when `intersect` writes a SAM A as alignments (`--mode any|none`), because the reads keep their names.
+
+**P3c samtools essentials** **[D125–D141, owner 2026-11-10]**: `idxstats`, `flagstat`, `reheader`, `faidx`, `dict`, `head`, `samples`, `flags`, `depth` and `bedcov` keep samtools' names (no gloci command has those meanings); `quickcheck` is `check --quick`, `view -c` is `view --count` (`-c` is `COL:OP`), `view -L` is `--regions-file`. samtools' short flags are not copied; each maps to a long flag in the migration table. Exit status is §6.4's, not samtools' (D126). CRAM record decoding needs `--reference` (D109); `samples`, `reheader` and `check --quick` never do. `depth` and `bedcov` inputs need identical `@SQ` lists.
+
+- **`idxstats`** **[D127]**: from the index's pseudo-bins when a BAM has one, else a scan with one warning. An index lacking `n_no_coor`, or a reference's pseudo-bin, counts as "no counts": warn and scan.
+- **`flagstat`** **[D128]**: samtools' counts and layouts (text, TSV, JSON) byte for byte; `-O` is the output format.
+- **`check`** **[D129]**: reads every alignment record; `--quick` is `quickcheck`: header parses, first record parses (CRAM: first container), EOF marker. `--list-failed` prints failing paths; any failure exits 1. `--chrom-map` is refused for BAM/CRAM/SAM (exit 2); `-g` and `--chrom-order` warn once. The `--quick` read is header + first record + 28 bytes (BGZF), or header + first container + 38 bytes (CRAM).
+- **`reheader`** **[D130]**: BAM or CRAM, records are copied; the new `@SQ` list must keep every old reference in place with the same `LN`, else exit 1. Memory: old + new headers + one 64 KiB block.
+- **`faidx`, `dict`** **[D131, D132]**: need `gloci index` first (`faidx`); `dict` streams.
+- **`view --count`, `--regions-file`** **[D133]**: a record is written or counted once however many regions it overlaps. `--regions-file` combined with positional regions is a union.
+- **`head`** **[D134]**: all header lines, no records by default. A BAM with no `@SQ` text gets synthesised `@SQ` lines (samtools 1.21 prints nothing). A VCF header is printed as stored, with no PASS line. Text formats are read in batches of up to 16384 records (a fixed record batch).
+- **`samples`, `flags`** **[D135, D136]**: FLAGS is a decimal, `0x` hex or comma-separated names; a leading-zero decimal and trailing text are usage errors. §6.1's `--column-names` is per command.
+- **`depth`, `bedcov`** **[D137–D140]**: exclude `UNMAP,SECONDARY,QCFAIL,DUP` by default (D102). `--skip-mate-overlap` is samtools `-s`. A `bedcov` region of zero length counts no reads, as samtools 1.21 does. `chr:-E` is `chr:1-E` (D131, §4.1).
+- **CRAM 2.x** is refused by name and version wherever the prelude is read (`#cram-limits`).
 
 ### 7.5 Sequence (P3)
 
@@ -844,7 +857,12 @@ The user-facing version of this guide lives in `docs/migration.md` (later part o
 | `merge [-n -N -c -p]` | `sort -m [-n -N]` (IDs are combined by default; a conflicting `@RG` and differing `@SQ` lists are errors) |
 | `cat` | `cat` (BAM only; `@SQ` lists must match) |
 | `index` | `index` (`.bai`, `.csi` or `.crai`) |
-| `faidx REF.fa` | `index REF.fa` (region extraction is P3c) |
+| `faidx REF.fa` | `index REF.fa` |
+| `faidx REF.fa REGION...`, `-r`, `-c`, `-i`, `-n`, `--mark-strand` | `faidx REF REGION... [--regions-file --skip-invalid --reverse-complement --line-width --mark-strand]` (needs the index first) |
+| `dict`, `flags`, `idxstats`, `flagstat`, `head`, `samples`, `reheader` | the same names |
+| `quickcheck [-u -v]` | `check --quick [-u --list-failed]` |
+| `view -c`, `view -L BED` | `view --count`, `view --regions-file BED` |
+| `depth [-a -aa -J -q -Q -l -g -G -s -r -b -H]`, `bedcov [-Q -g -G -j -d -c -H]` | `depth`, `bedcov` (long flags, see the migration guide); bedtools `multicov` is `bedcov --read-count` |
 
 ### bedops
 
