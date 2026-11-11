@@ -26,8 +26,9 @@ pub use filter::{
     fmt_g6, read_ids, read_positions, read_samples, rewrite_header, rewrite_text, select_samples,
 };
 pub use gt::{
-    CacheReader, CachedGenotypes, Genotype, GenotypeSource, GtFields, SampleCache, SampleFields,
-    TextGenotypes, text_genotypes, text_genotypes_with,
+    CacheReader, CachedGenotypes, Genotype, GenotypeSource, GtFields, PackedGenotypes,
+    PackedRecord, RecordSlot, SampleCache, SampleFields, TextGenotypes, text_genotypes,
+    text_genotypes_with,
 };
 pub use hwe::{HweTails, hwe_p, hwe_tails};
 pub use norm::{CheckRef, Dedup, Normalizer, Reference, RmDup, Verdict, clean_reference_bases};

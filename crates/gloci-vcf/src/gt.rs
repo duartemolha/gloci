@@ -384,3 +384,217 @@ impl GenotypeSource for TextGenotypes<'_> {
         Ok(())
     }
 }
+
+/// Where a record's samples sit in a [`PackedGenotypes`] arena.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RecordSlot {
+    start: usize,
+    n: usize,
+}
+
+const F_GT: u16 = 1;
+const F_PHASED: u16 = 2;
+const F_DP: u16 = 4;
+const F_GQ: u16 = 8;
+const F_FT_FAIL: u16 = 16;
+const F_MASKED: u16 = 32;
+
+/// The allele value that stands for a missing allele in the arena.
+const NO_ALLELE: u32 = u32::MAX;
+
+/// One packed sample: 16 bytes, plus 4 bytes per allele in the arena pool.
+#[derive(Debug, Clone, Copy)]
+struct Packed {
+    dp: u32,
+    gq: u32,
+    /// Offset of the sample's alleles in the pool.
+    off: u32,
+    /// Number of alleles.
+    len: u16,
+    flags: u16,
+}
+
+/// An arena holding the decoded samples of many records, so a worker thread
+/// can hand them to the thread that consumes the records. A diploid sample
+/// costs 24 bytes. Masked samples are stored as the masking leaves them (no
+/// GT, DP or GQ, `masked` set); samples a `keep` list leaves out are stored
+/// as missing.
+#[derive(Debug, Default)]
+pub struct PackedGenotypes {
+    samples: Vec<Packed>,
+    alleles: Vec<u32>,
+}
+
+impl PackedGenotypes {
+    /// Forget every record, keeping the buffers.
+    pub fn clear(&mut self) {
+        self.samples.clear();
+        self.alleles.clear();
+    }
+
+    /// Samples held (across all records).
+    pub fn n_samples_held(&self) -> usize {
+        self.samples.len()
+    }
+
+    /// Decode every sample of `src` into the arena as one record. `masked`
+    /// (empty, or one flag per sample) marks the samples the mask rules
+    /// removed; `fields` names the optional fields to keep.
+    pub fn push_record(
+        &mut self,
+        src: &dyn GenotypeSource,
+        fields: GtFields,
+        masked: &[bool],
+    ) -> Result<RecordSlot, String> {
+        self.push_record_selected(src, fields, masked, None)
+    }
+
+    /// [`Self::push_record`] decoding only the samples `keep` marks (`None` =
+    /// all); the others are stored as missing and never read from `src`.
+    pub fn push_record_selected(
+        &mut self,
+        src: &dyn GenotypeSource,
+        fields: GtFields,
+        masked: &[bool],
+        keep: Option<&[bool]>,
+    ) -> Result<RecordSlot, String> {
+        let n = src.n_samples();
+        let start = self.samples.len();
+        let mark = (start, self.alleles.len());
+        let mut f = SampleFields::default();
+        for i in 0..n {
+            let r = if keep.is_some_and(|k| !k.get(i).copied().unwrap_or(false)) {
+                self.samples.push(Packed {
+                    dp: 0,
+                    gq: 0,
+                    off: 0,
+                    len: 0,
+                    flags: 0,
+                });
+                Ok(())
+            } else {
+                src.sample(i, &mut f).and_then(|()| {
+                    self.push_sample(&f, fields, masked.get(i).copied().unwrap_or(false))
+                })
+            };
+            if let Err(e) = r {
+                self.samples.truncate(mark.0);
+                self.alleles.truncate(mark.1);
+                return Err(e);
+            }
+        }
+        Ok(RecordSlot { start, n })
+    }
+
+    fn push_sample(
+        &mut self,
+        f: &SampleFields,
+        fields: GtFields,
+        masked: bool,
+    ) -> Result<(), String> {
+        let off = u32::try_from(self.alleles.len())
+            .map_err(|_| "a batch of genotypes is too large to pack".to_string())?;
+        let mut p = Packed {
+            dp: 0,
+            gq: 0,
+            off,
+            len: 0,
+            flags: 0,
+        };
+        if masked {
+            p.flags |= F_MASKED;
+        } else {
+            if let Some(g) = &f.gt {
+                p.len = u16::try_from(g.alleles.len()).map_err(|_| {
+                    format!(
+                        "a genotype with {} alleles is not supported",
+                        g.alleles.len()
+                    )
+                })?;
+                p.flags |= F_GT;
+                if g.phased {
+                    p.flags |= F_PHASED;
+                }
+                for a in &g.alleles {
+                    self.alleles.push(match a {
+                        Some(NO_ALLELE) => {
+                            return Err(format!("genotype allele {NO_ALLELE} is too large"));
+                        }
+                        Some(a) => *a,
+                        None => NO_ALLELE,
+                    });
+                }
+            }
+            if fields.dp
+                && let Some(dp) = f.dp
+            {
+                p.dp = dp;
+                p.flags |= F_DP;
+            }
+            if fields.gq
+                && let Some(gq) = f.gq
+            {
+                p.gq = gq;
+                p.flags |= F_GQ;
+            }
+        }
+        if fields.ft && !f.ft_pass {
+            p.flags |= F_FT_FAIL;
+        }
+        self.samples.push(p);
+        Ok(())
+    }
+
+    /// The record at `slot`, which must come from this arena (and not predate
+    /// a [`Self::clear`]).
+    pub fn record(&self, slot: RecordSlot) -> PackedRecord<'_> {
+        PackedRecord { arena: self, slot }
+    }
+}
+
+/// One record of a [`PackedGenotypes`] arena.
+pub struct PackedRecord<'a> {
+    arena: &'a PackedGenotypes,
+    slot: RecordSlot,
+}
+
+impl GenotypeSource for PackedRecord<'_> {
+    fn n_samples(&self) -> usize {
+        self.slot.n
+    }
+
+    fn sample(&self, i: usize, out: &mut SampleFields) -> Result<(), String> {
+        let Some(p) = (i < self.slot.n)
+            .then(|| self.arena.samples.get(self.slot.start + i))
+            .flatten()
+        else {
+            return Err(format!(
+                "internal error: sample {} is outside the packed record",
+                i + 1
+            ));
+        };
+        out.reset();
+        out.clear_gt();
+        out.masked = p.flags & F_MASKED != 0;
+        out.ft_pass = p.flags & F_FT_FAIL == 0;
+        if p.flags & F_DP != 0 {
+            out.dp = Some(p.dp);
+        }
+        if p.flags & F_GQ != 0 {
+            out.gq = Some(p.gq);
+        }
+        if p.flags & F_GT != 0 {
+            let off = p.off as usize;
+            let alleles = self
+                .arena
+                .alleles
+                .get(off..off + usize::from(p.len))
+                .ok_or_else(|| "internal error: a packed genotype is truncated".to_string())?;
+            let g = out.gt_buf();
+            g.alleles
+                .extend(alleles.iter().map(|&a| (a != NO_ALLELE).then_some(a)));
+            g.phased = p.flags & F_PHASED != 0;
+        }
+        Ok(())
+    }
+}
