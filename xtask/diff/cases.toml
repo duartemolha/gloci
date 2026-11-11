@@ -5922,3 +5922,49 @@ gloci = "gloci depth input.bam --min-baseq 20"
 reference = "samtools depth -q 20 input.bam"
 compare = "exact"
 expected_difference = "#depth-seq-star-baseq"
+
+# P3c Task 7
+# `depth --skip-mate-overlap` (D139) against samtools -s on mates.bam. The first four leave out the
+# supplementary alignments (-G SUPPLEMENTARY), which are the stale-entry templates. The traps:
+# a partial overlap, mates at one position (the longer second), a contained second mate, a pair
+# that does not overlap, deletions before and across the clip (-J), a read with no mate position,
+# a mate on another reference, and second-mate bases of quality 5 (-q 10).
+
+[[case]]
+name = "depth-s-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/mates.bam" }
+gloci = "gloci depth input.bam --skip-mate-overlap --exclude-flags UNMAP,SECONDARY,QCFAIL,DUP,SUPPLEMENTARY"
+reference = "samtools depth -s -G SUPPLEMENTARY input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-s-count-deletions-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/mates.bam" }
+gloci = "gloci depth input.bam --skip-mate-overlap --count-deletions --exclude-flags UNMAP,SECONDARY,QCFAIL,DUP,SUPPLEMENTARY"
+reference = "samtools depth -s -J -G SUPPLEMENTARY input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-s-min-baseq-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/mates.bam" }
+gloci = "gloci depth input.bam --skip-mate-overlap --min-baseq 10 --exclude-flags UNMAP,SECONDARY,QCFAIL,DUP,SUPPLEMENTARY"
+reference = "samtools depth -s -q 10 -G SUPPLEMENTARY input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-s-all-positions-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/mates.bam" }
+gloci = "gloci depth input.bam --skip-mate-overlap --all-positions --exclude-flags UNMAP,SECONDARY,QCFAIL,DUP,SUPPLEMENTARY"
+reference = "samtools depth -s -a -G SUPPLEMENTARY input.bam"
+compare = "exact"
+
+# Template g (a resolved pair, then two supplementary alignments of one name inside the second
+# mate) and m (a read waiting for a mate at the end of chr1, then a supplementary of that name on
+# chr2): samtools clips them by a stale entry, gloci does not.
+[[case]]
+name = "depth-s-stale-entry-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/mates.bam" }
+gloci = "gloci depth input.bam --skip-mate-overlap"
+reference = "samtools depth -s input.bam"
+compare = "exact"
+expected_difference = "#depth-mate-overlap"

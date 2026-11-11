@@ -2155,3 +2155,24 @@ depends on the span.
   bytes samtools reads are the file's own and its output is the same on every
   run) and the cargo test
   `depth_noseq_reads_use_their_cigar_for_the_length`, which checks gloci's side.
+
+## `depth --skip-mate-overlap` does not clip by a stale entry {#depth-mate-overlap}
+
+- **gloci:** a read is held for its mate only when the mate is on the same
+  reference and starts inside the read (`pos <= mpos <= end`). An entry is dropped
+  once a read starts after its mate position, and at each reference change. A read
+  whose mate position is unknown or behind it is never held, so it clips no one.
+  The table holds only reads whose mates are still ahead, which is proportional to
+  the depth.
+- **Old behaviour:** `samtools depth -s` also stores reads whose mate position is
+  unknown or behind them, and never drops an entry. A later alignment with the
+  same name, anywhere in the file and on any reference, is then clipped by that
+  stale end: a second supplementary alignment inside the second mate loses its
+  bases up to the first one's end, and a supplementary alignment on the next
+  reference may lose all of them. The table grows with the number of pairs.
+- **Reason:** the clip is meant to count the bases two mates share once; a stale
+  entry removes bases that no mate covers, and an unbounded table cannot run on a
+  whole genome.
+- **Pinned by:** `depth-s-stale-entry-vs-samtools` (must differ) and the cargo
+  tests `stale_entry_template_is_not_clipped` and `mate_table_bounded`. The other
+  `depth-s-*` cases leave out the supplementary alignments and are exact.

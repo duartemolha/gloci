@@ -1,0 +1,1 @@
+depth input.bam --skip-mate-overlap --min-baseq 10 --exclude-flags UNMAP,SECONDARY,QCFAIL,DUP,SUPPLEMENTARY
