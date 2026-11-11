@@ -141,54 +141,116 @@ fn stale_entry_template_is_not_clipped() {
     expect(&t, "chr2", 301, 350, 1);
 }
 
-fn sam_text(pairs: u64, spacing: u64, len: u64, gap: u64) -> String {
+/// `orphans` first mates, one every 5 bases, each 100M with its mate 50 bases on; the second
+/// mates are DUP-flagged, so the default exclusion drops them and every first mate waits for a
+/// mate that never comes. A pair every 20 bases is complete, for company.
+fn orphan_sam(orphans: u64) -> String {
     let mut text = String::from("@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:c\tLN:100000000\n");
-    // Pair i: first mate at i * spacing, second `gap` bases later; sorted by merging the two.
-    let mut next_second = 0u64;
-    let mut line = |name: u64, flag: u16, pos: u64, mate: u64| {
-        text.push_str(&format!(
-            "p{name}\t{flag}\tc\t{}\t60\t{len}M\t=\t{}\t0\t*\t*\n",
-            pos + 1,
-            mate + 1
+    let mut lines: Vec<(u64, String)> = Vec::new();
+    for i in 0..orphans {
+        let pos = i * 5;
+        lines.push((
+            pos,
+            format!(
+                "o{i}\t99\tc\t{}\t60\t100M\t=\t{}\t0\t*\t*\n",
+                pos + 1,
+                pos + 51
+            ),
         ));
-    };
-    for i in 0..pairs {
-        let pos = i * spacing;
-        while next_second < i && next_second * spacing + gap <= pos {
-            let s = next_second * spacing;
-            line(next_second, 147, s + gap, s);
-            next_second += 1;
+        lines.push((
+            pos + 50,
+            format!(
+                "o{i}\t1171\tc\t{}\t60\t100M\t=\t{}\t0\t*\t*\n",
+                pos + 51,
+                pos + 1
+            ),
+        ));
+        if i % 4 == 0 {
+            lines.push((
+                pos,
+                format!(
+                    "p{i}\t99\tc\t{}\t60\t100M\t=\t{}\t0\t*\t*\n",
+                    pos + 1,
+                    pos + 51
+                ),
+            ));
+            lines.push((
+                pos + 50,
+                format!(
+                    "p{i}\t147\tc\t{}\t60\t100M\t=\t{}\t0\t*\t*\n",
+                    pos + 51,
+                    pos + 1
+                ),
+            ));
         }
-        line(i, 99, pos, pos + gap);
     }
-    while next_second < pairs {
-        let s = next_second * spacing;
-        line(next_second, 147, s + gap, s);
-        next_second += 1;
+    lines.sort_by_key(|l| l.0);
+    for (_, l) in lines {
+        text.push_str(&l);
     }
     text
 }
 
-#[test]
-fn mate_table_bounded() {
-    // 1,000,000 pairs of two 100-base reads 50 apart, a pair every 5 bases: depth 30 (the
-    // mates overlap), and at most 20 or so first mates wait for theirs at once.
+fn peak_of(text: &str) -> usize {
     let dir = tempfile::tempdir().unwrap();
-    let p = dir.path().join("pairs.sam");
-    std::fs::write(&p, sam_text(1_000_000, 5, 100, 50)).unwrap();
+    let p = dir.path().join("o.sam");
+    std::fs::write(&p, text).unwrap();
     let paths = vec![p.display().to_string()];
     let mut sink = std::io::sink();
-    let s = depth(
+    depth(
         &paths,
         &opts(true, false, 0),
         &ro(),
         NonZeroUsize::MIN,
         &mut sink,
     )
+    .unwrap()
+    .max_pending_mates
+}
+
+#[test]
+fn mate_table_bounded() {
+    // Orphans are never claimed, so only eviction (a read starting after their mate's
+    // position) keeps the table small: a mate waits for 50 bases, one read starts every ~2.5.
+    let small = peak_of(&orphan_sam(5_000));
+    let large = peak_of(&orphan_sam(50_000));
+    assert!(small > 0 && small <= 25, "{small}");
+    assert_eq!(
+        small, large,
+        "the peak does not grow with the number of pairs"
+    );
+}
+
+#[test]
+fn evicted_entry_clips_nobody() {
+    // o's first mate waits for a mate that is not there (position 51 on). A read starting at 56
+    // moves the table past it, so the supplementary alignment of o at 61 is not clipped by o's
+    // end (100): without eviction it would lose its bases up to there.
+    let dir = tempfile::tempdir().unwrap();
+    let text = format!(
+        "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:c\tLN:1000\n\
+o\t99\tc\t1\t60\t100M\t=\t51\t0\t*\t*\n\
+x\t0\tc\t56\t60\t100M\t*\t0\t0\t*\t*\n\
+o\t2145\tc\t61\t60\t100M\t=\t51\t0\t*\t*\n"
+    );
+    let p = dir.path().join("e.sam");
+    std::fs::write(&p, text).unwrap();
+    let paths = vec![p.display().to_string()];
+    let mut out = Vec::new();
+    depth(
+        &paths,
+        &opts(true, false, 0),
+        &ro(),
+        NonZeroUsize::MIN,
+        &mut out,
+    )
     .unwrap();
-    assert!(s.rows > 5_000_000, "{}", s.rows);
-    assert!(s.max_pending_mates > 0);
-    assert!(s.max_pending_mates <= 60, "{}", s.max_pending_mates);
+    let t = table(&String::from_utf8(out).unwrap());
+    expect(&t, "c", 1, 55, 1);
+    expect(&t, "c", 56, 60, 2);
+    expect(&t, "c", 61, 100, 3);
+    expect(&t, "c", 101, 155, 2);
+    expect(&t, "c", 156, 160, 1);
 }
 
 #[test]
