@@ -5,7 +5,7 @@ use gloci_io::{
     Accept, AlignOptions, InvalidPolicy, OutFormat, OutputOptions, ReaderOptions, UsageError,
     open_output, parse_flags, parse_output_spec,
 };
-use gloci_ops::depth::{AllPositions, CountRules, DepthOptions, depth_in, depth_regions};
+use gloci_ops::depth::{AllPositions, CountRules, DepthOptions, depth, depth_regions};
 
 pub fn run(ctx: &Ctx, a: &DepthArgs) -> anyhow::Result<()> {
     let flags =
@@ -68,8 +68,7 @@ pub fn run(ctx: &Ctx, a: &DepthArgs) -> anyhow::Result<()> {
     };
     let dest = super::dest_name(&spec);
     let mut out = open_output(&spec, OutFormat::Tsv, &oo)?;
-    depth_in(&a.files, &o, &ro, ctx.threads, &ctx.tmp_dir, &mut out)
-        .map_err(|e| e.with_output_name(&dest))?;
+    depth(&a.files, &o, &ro, ctx.threads, &mut out).map_err(|e| e.with_output_name(&dest))?;
     out.finish()?;
     Ok(())
 }

@@ -239,7 +239,7 @@ fn depth_reads_sam_cram_and_stdin_alike() {
     assert_eq!(out(&[&f("depth.sam")]), bam);
     // The CRAM was written without a reference.
     assert_eq!(out(&[&f("depth.cram")]), bam);
-    // The CRAM's index lets -t 4 run per chromosome: the same rows as the BAM, whatever -a.
+    // -t 4 decodes the CRAM with more threads: the same rows as the BAM, whatever -a.
     for extra in [vec![], vec!["--all-positions"], vec!["--all-references"]] {
         let run = |file: &str, t: &str| {
             let mut args = vec![file, "-t", t];
@@ -383,6 +383,81 @@ fn depth_diagnostics_do_not_depend_on_threads() {
             let (o, e) = run(tt, v, region);
             assert_eq!(o, o1);
             assert_eq!(e, e1, "-t {tt} -v {v} region {region}");
+        }
+    }
+}
+
+/// chr1 and chr2 (LN 100 each): many reads on chr1 and a last one that ends past its end, and a
+/// read on chr2 that ends past its end first thing; with an index older than the file.
+fn pastend_stale_bam(dir: &std::path::Path) -> PathBuf {
+    let mut raw = b"BAM\x01".to_vec();
+    raw.extend_from_slice(&0i32.to_le_bytes());
+    raw.extend_from_slice(&2i32.to_le_bytes());
+    for name in ["chr1", "chr2"] {
+        raw.extend_from_slice(&5i32.to_le_bytes());
+        raw.extend_from_slice(name.as_bytes());
+        raw.push(0);
+        raw.extend_from_slice(&100i32.to_le_bytes());
+    }
+    let mut recs: Vec<Vec<u8>> = (0..20_000)
+        .map(|k| bam_record(0, (k / 250) as i32, &format!("r{k}"), 10, 10))
+        .collect();
+    recs.push(bam_record(0, 95, "past1", 10, 10));
+    recs.push(bam_record(1, 95, "past2", 10, 10));
+    for rec in recs {
+        raw.extend_from_slice(&(rec.len() as i32).to_le_bytes());
+        raw.extend_from_slice(&rec);
+    }
+    let bam = gloci_testkit::fixtures::write(dir, "pe.bam", &gloci_testkit::fixtures::bgzip(&raw));
+    gloci().args(["index"]).arg(&bam).assert().success();
+    let bai = PathBuf::from(format!("{}.bai", bam.display()));
+    std::fs::File::options()
+        .write(true)
+        .open(&bai)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(3600))
+        .unwrap();
+    bam
+}
+
+/// depth streams at every `-t` (D138): the past-`LN` warning names the first reference in file
+/// order, once, and a stale index used for regions is warned about once, whatever the threads.
+#[test]
+fn depth_past_ln_and_stale_index_warnings_do_not_depend_on_threads() {
+    let t = tempdir();
+    let bam = pastend_stale_bam(t.path());
+    let bam = bam.display().to_string();
+    for region in [false, true] {
+        let run = |t: &str| {
+            let mut c = gloci();
+            c.args(["depth", &bam, "-t", t]);
+            if region {
+                c.args(["--region", "chr2", "--region", "chr1"]);
+            }
+            let o = c.assert().success().get_output().clone();
+            (
+                String::from_utf8(o.stdout).unwrap(),
+                String::from_utf8(o.stderr).unwrap(),
+            )
+        };
+        let (o1, e1) = run("1");
+        assert_eq!(
+            e1.matches("past the end of its reference").count(),
+            1,
+            "{e1}"
+        );
+        assert!(e1.contains("chr1 has LN 100"), "{e1}");
+        assert_eq!(
+            e1.matches("is older than").count(),
+            usize::from(region),
+            "{e1}"
+        );
+        for tt in ["2", "4", "8"] {
+            for _ in 0..3 {
+                let (o, e) = run(tt);
+                assert_eq!(o, o1, "-t {tt} region {region}");
+                assert_eq!(e, e1, "-t {tt} region {region}");
+            }
         }
     }
 }

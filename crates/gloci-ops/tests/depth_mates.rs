@@ -1,5 +1,5 @@
 //! `depth --skip-mate-overlap` (D139): what the mate table clips, how large it grows, and that
-//! per-chromosome runs equal one stream.
+//! every thread count gives the one stream's rows (D138).
 
 use gloci_core::{Interval, VcfSpan};
 use gloci_io::{Accept, AlignOptions, InvalidPolicy, ReaderOptions};

@@ -510,7 +510,7 @@ How the old commands map onto `partition`:
 - **`view --count`, `--regions-file`** **[D133]**: a record is written or counted once however many regions it overlaps. `--regions-file` combined with positional regions is a union.
 - **`head`** **[D134]**: all header lines, no records by default. A BAM with no `@SQ` text gets synthesised `@SQ` lines (samtools 1.21 prints nothing). A VCF header is printed as stored, with no PASS line. Text formats are read in batches of up to 16384 records (a fixed record batch).
 - **`samples`, `flags`** **[D135, D136]**: FLAGS is a decimal, `0x` hex or comma-separated names; a leading-zero decimal and trailing text are usage errors. §6.1's `--column-names` is per command.
-- **`depth`, `bedcov`** **[D137–D140]**: exclude `UNMAP,SECONDARY,QCFAIL,DUP` by default (D102). `--skip-mate-overlap` is samtools `-s`. A `bedcov` region of zero length counts no reads, as samtools 1.21 does. `chr:-E` is `chr:1-E` (D131, §4.1).
+- **`depth`, `bedcov`** **[D137–D140]**: exclude `UNMAP,SECONDARY,QCFAIL,DUP` by default (D102). `depth` reads its inputs as one merged stream at every `-t`; threads decode BGZF/CRAM (D138). `--skip-mate-overlap` is samtools `-s`. A `bedcov` region of zero length counts no reads, as samtools 1.21 does. `chr:-E` is `chr:1-E` (D131, §4.1).
 - **CRAM 2.x** is refused by name and version wherever the prelude is read (`#cram-limits`).
 
 ### 7.5 Sequence (P3)

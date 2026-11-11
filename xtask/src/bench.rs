@@ -1303,6 +1303,7 @@ mod tests {
             "idxstats-bam-200k-sq",
             "view-count-bam-50M",
             "depth-bam-50M",
+            "depth-bam-50M-t8",
             "bedcov-bam-10k-targets",
             "faidx-10k-regions",
             "dict-3G",
@@ -1636,6 +1637,6 @@ mod tests {
             );
             checked += 1;
         }
-        assert_eq!(checked, 21, "P3a and P3c cases run");
+        assert_eq!(checked, 22, "P3a and P3c cases run");
     }
 }

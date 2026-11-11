@@ -1,6 +1,6 @@
 //! `gloci depth`: the depth of coverage of alignments at each position, as `samtools depth`
 //! (D137, D138). The counting rules live in [`DepthRing`], one per input; the rows in
-//! `rows.rs`. With indexes and several threads each run of references is its own chunk.
+//! `rows.rs`. The inputs are one merged stream at every thread count; threads decode.
 
 mod mates;
 mod ring;
@@ -10,17 +10,15 @@ pub use mates::MateTable;
 pub use ring::{CountRules, DepthRing};
 
 use gloci_core::{Interval, Region};
-use gloci_engine::{ChunkSink, run_chunks};
 use gloci_io::{
-    AlnHeader, AlnSource, Diagnostics, Format, Header, IndexedFile, IoError, ReaderOptions,
-    RecordWriter, UsageError, find_index, open_aln_source, open_aln_source_regions,
+    AlnHeader, AlnSource, IoError, ReaderOptions, UsageError, open_aln_source,
+    open_aln_source_regions,
 };
 pub(crate) use rows::log_diagnostics;
 use rows::{Emitter, Input, Plan, run_group};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::io::{self, Write};
 use std::num::NonZeroUsize;
-use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
@@ -60,19 +58,6 @@ pub struct DepthSummary {
     pub max_ring: usize,
     /// The most reads any input's mate table held at once (`--skip-mate-overlap`).
     pub max_pending_mates: usize,
-}
-
-/// Writes each record as a line, for the chunks drained in order.
-struct Lines<'a>(&'a mut dyn Write);
-
-impl RecordWriter for Lines<'_> {
-    fn write_record(&mut self, raw: &[u8]) -> io::Result<()> {
-        self.0.write_all(raw)?;
-        self.0.write_all(b"\n")
-    }
-    fn finish(self: Box<Self>) -> Result<(), IoError> {
-        Ok(())
-    }
 }
 
 fn write_err(source: io::Error) -> IoError {
@@ -164,7 +149,9 @@ header, for example gloci reheader)",
     Ok(())
 }
 
-/// [`depth_in`] with spill files, if any, in the system temp directory.
+/// `samtools depth` over `paths`, written to `out`. Rows come in `@SQ` order. The inputs are
+/// read as one merged stream at every thread count (D138): `threads` go to BGZF and CRAM
+/// decoding, so the output and the diagnostics never depend on them.
 pub fn depth(
     paths: &[String],
     o: &DepthOptions,
@@ -172,33 +159,12 @@ pub fn depth(
     threads: NonZeroUsize,
     out: &mut dyn Write,
 ) -> Result<DepthSummary, IoError> {
-    depth_in(paths, o, ro, threads, &std::env::temp_dir(), out)
-}
-
-/// One chunk of a per-chromosome run: the references `first..end` and the regions to read.
-#[derive(Clone)]
-struct Job {
-    first: usize,
-    end: usize,
-    regions: Vec<(Vec<u8>, Interval)>,
-    /// Without regions: the references of the chunk that hold reads, read whole.
-    chroms: Vec<Vec<u8>>,
-}
-
-/// `samtools depth` over `paths`, written to `out`. Rows come in `@SQ` order. With every input
-/// indexed and `threads` above 1, runs of references are computed in parallel and written in
-/// order, with the same output as one stream; their spill files go to `tmp_dir`.
-pub fn depth_in(
-    paths: &[String],
-    o: &DepthOptions,
-    ro: &ReaderOptions,
-    threads: NonZeroUsize,
-    tmp_dir: &Path,
-    out: &mut dyn Write,
-) -> Result<DepthSummary, IoError> {
     if paths.is_empty() {
         return Err(UsageError("depth needs at least one input file".into()).into());
     }
+    let mut ro = ro.clone();
+    ro.threads = threads;
+    let ro = &ro;
     let mut opened: Vec<Box<dyn AlnSource>> = paths
         .iter()
         .map(|p| open_aln_source(p, ro))
@@ -218,27 +184,6 @@ pub fn depth_in(
         }
         line.push(b'\n');
         out.write_all(&line).map_err(write_err)?;
-    }
-
-    // The files that can be read per chromosome: every one has an index.
-    let indexed = threads.get() > 1
-        && hdr.refs.len() > 1
-        && opened.iter().zip(paths).all(|(s, p)| {
-            matches!(s.format(), Format::Bam | Format::Cram)
-                && p != "-"
-                && Path::new(p).is_file()
-                && find_index(Path::new(p)).is_some()
-        });
-    if indexed {
-        let files: Vec<IndexedFile> = opened
-            .iter()
-            .zip(paths)
-            .map(|(s, p)| {
-                IndexedFile::open(Path::new(p), s.format(), Header::Alignment(hdr.clone()), ro)
-            })
-            .collect::<Result<_, _>>()?;
-        drop(opened);
-        return chunked(paths, &names, &files, &hdr, o, &plan, threads, tmp_dir, out);
     }
 
     // One stream. Regions come through the indexes where there are some, else by scanning.
@@ -263,113 +208,4 @@ pub fn depth_in(
     }
     out.flush().map_err(write_err)?;
     Ok(summary)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn chunked(
-    paths: &[String],
-    names: &[String],
-    files: &[IndexedFile],
-    hdr: &Arc<AlnHeader>,
-    o: &DepthOptions,
-    plan: &Plan<'_>,
-    threads: NonZeroUsize,
-    tmp_dir: &Path,
-    out: &mut dyn Write,
-) -> Result<DepthSummary, IoError> {
-    let _ = paths;
-    let refs = &hdr.refs;
-    let weights: Vec<u64> = refs
-        .iter()
-        .map(|(n, _)| files.iter().map(|f| f.weight(n)).sum::<u64>() + 1)
-        .collect();
-    let mut by_name: HashMap<&[u8], Vec<Interval>> = HashMap::new();
-    if let Some(list) = &o.regions {
-        for (n, iv) in list {
-            by_name.entry(&n[..]).or_default().push(*iv);
-        }
-    }
-    let mut first = 0;
-    let jobs: Vec<Job> = crate::relate::group_chromosomes(
-        refs.iter().map(|(n, _)| n.clone()).collect(),
-        &weights,
-        4 * threads.get(),
-    )
-    .into_iter()
-    .map(|g| {
-        let end = first + g.len();
-        let mut regions = Vec::new();
-        let mut chroms = Vec::new();
-        for r in first..end {
-            let name = &refs[r].0;
-            if o.regions.is_some() {
-                for iv in by_name.get(&name[..]).into_iter().flatten() {
-                    regions.push((name.clone(), *iv));
-                }
-            } else if weights[r] > 1 {
-                chroms.push(name.clone());
-            }
-        }
-        let job = Job {
-            first,
-            end,
-            regions,
-            chroms,
-        };
-        first = end;
-        job
-    })
-    .collect();
-    log::debug!("depth running per chromosome: {} chunk(s)", jobs.len());
-    let step =
-        |job: &Job, sink: &mut ChunkSink| -> Result<(DepthSummary, Vec<Diagnostics>), IoError> {
-            let mut inputs = Vec::with_capacity(files.len());
-            for (f, n) in files.iter().zip(names) {
-                // Whole references are read as a stream reads them, so a bad record is named
-                // the same at every thread count; regions come through the same reader as
-                // at one thread.
-                let src = if o.regions.is_some() && !job.regions.is_empty() {
-                    Some(f.aln_regions_source(&job.regions, false)?)
-                } else if o.regions.is_none() && !job.chroms.is_empty() {
-                    Some(f.aln_chromosomes_source(&job.chroms)?)
-                } else {
-                    None
-                };
-                inputs.push(Input::new(src, n, hdr.clone()));
-            }
-            // A chunk's rows are one record per batch, without the final newline `Lines` adds.
-            let mut write = |b: &[u8]| sink.write_record(&b[..b.len() - 1]);
-            let mut em = Emitter::new(&mut write);
-            let (max_ring, max_pending_mates) =
-                run_group(&mut inputs, job.first, job.end, plan, &mut em)?;
-            let rows = em.rows;
-            let diags = inputs.iter().map(Input::diagnostics).collect();
-            Ok((
-                DepthSummary {
-                    rows,
-                    max_ring,
-                    max_pending_mates,
-                },
-                diags,
-            ))
-        };
-    let mut lines = Lines(out);
-    let done = run_chunks(jobs, threads, tmp_dir, &step, &mut lines)?;
-    let mut total = DepthSummary::default();
-    // What the readers noted is merged per input across the chunks and logged once, in input
-    // order, so stderr does not depend on the number of threads.
-    let mut merged: Vec<Diagnostics> = vec![Diagnostics::default(); names.len()];
-    for (s, diags) in done {
-        for (m, d) in merged.iter_mut().zip(diags) {
-            m.absorb(d);
-        }
-        total.rows += s.rows;
-        total.max_ring = total.max_ring.max(s.max_ring);
-        total.max_pending_mates = total.max_pending_mates.max(s.max_pending_mates);
-    }
-    for (n, d) in names.iter().zip(&merged) {
-        log_diagnostics(n, d);
-    }
-    out.flush().map_err(write_err)?;
-    Ok(total)
 }

@@ -1,6 +1,6 @@
 //! The depth core (D137, D138): what counts per position, which rows print, the modes of
-//! `--all-*`, several inputs, the order and reference checks, the memory bound, and per-chromosome
-//! runs equal to one stream.
+//! `--all-*`, several inputs, the order and reference checks, the memory bound, and that every
+//! thread count gives the one stream's rows (D138).
 
 use gloci_core::{Interval, VcfSpan};
 use gloci_io::{
