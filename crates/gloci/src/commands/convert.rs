@@ -5,10 +5,12 @@ use crate::cli::ConvertArgs;
 use gloci_core::{ChromTable, VariantKind};
 use gloci_io::{
     Format, Header, InvalidPolicy, IoError, OutFormat, OutputOptions, ReaderOptions, TsvHeader,
-    UsageError, WriterOptions, open_output, open_reader_noting_empty, open_record_writer,
-    open_tsv_writer, parse_output_spec, refuse_binary_to_tty,
+    UsageError, WriterOptions, open_aln_source, open_output, open_reader_noting_empty,
+    open_record_writer, open_tsv_writer, parse_output_spec, refuse_binary_to_tty,
 };
-use gloci_ops::convert::{ConvertOptions, check_convert, convert};
+use gloci_ops::convert::{
+    BedpeOptions, ConvertOptions, alignments_to_bedpe, check_convert, convert,
+};
 use std::io::IsTerminal;
 
 pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
@@ -38,7 +40,12 @@ pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
         score_tag,
         cigar: a.cigar,
         split_deletions: a.split_deletions,
+        bedpe: a.bedpe,
+        mate1_first: a.mate1_first,
     };
+    if a.bedpe {
+        return run_bedpe(ctx, a, &o, &spec, score_tag);
+    }
     let to = spec.format.unwrap_or(OutFormat::Bed);
     if !matches!(to, OutFormat::Bed | OutFormat::BedGraph | OutFormat::Tsv) {
         let view = if matches!(to, OutFormat::Bam | OutFormat::Sam) {
@@ -57,28 +64,7 @@ pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
         to,
         spec.bgzf,
     )?;
-    let ro = ReaderOptions {
-        // `convert` reads alignments, PSL and RepeatMasker too (D100).
-        accept: gloci_io::Accept {
-            alignments: Some(gloci_io::AlignOptions {
-                score_tag,
-                ..a.align.options(false)?
-            }),
-            convert_only: true,
-        },
-        chrom_map: a.chrom_map.load()?,
-        threads: ctx.threads,
-        format: match a.format.format.as_deref() {
-            None => None,
-            Some(s) => Some(s.parse::<Format>().map_err(UsageError)?),
-        },
-        vcf_span: user_span(a.vcf_span.vcf_span),
-        invalid: if a.invalid.skip_invalid {
-            InvalidPolicy::Skip
-        } else {
-            InvalidPolicy::Fail
-        },
-    };
+    let ro = reader_options(ctx, a, score_tag)?;
     // Open and check the input before the output is created.
     let (input, empty) = open_reader_noting_empty(&a.file, &ro)?;
     gloci_io::warn_unused_reference(a.align.reference.as_deref(), input.format() == Format::Cram);
@@ -117,6 +103,87 @@ pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
     let named = |e: IoError| unsortable(e.with_output_name(&dest), a.out.output.is_some());
     convert(input, &mut chroms, &o, w.as_mut()).map_err(named)?;
     w.finish().map_err(named)?;
+    Ok(())
+}
+
+/// The reader options of `convert`.
+fn reader_options(
+    ctx: &Ctx,
+    a: &ConvertArgs,
+    score_tag: Option<[u8; 2]>,
+) -> anyhow::Result<ReaderOptions> {
+    Ok(ReaderOptions {
+        // `convert` reads alignments, PSL and RepeatMasker too (D100).
+        accept: gloci_io::Accept {
+            alignments: Some(gloci_io::AlignOptions {
+                score_tag,
+                ..a.align.options(false)?
+            }),
+            convert_only: true,
+        },
+        chrom_map: a.chrom_map.load()?,
+        threads: ctx.threads,
+        format: match a.format.format.as_deref() {
+            None => None,
+            Some(s) => Some(s.parse::<Format>().map_err(UsageError)?),
+        },
+        vcf_span: user_span(a.vcf_span.vcf_span),
+        invalid: if a.invalid.skip_invalid {
+            InvalidPolicy::Skip
+        } else {
+            InvalidPolicy::Fail
+        },
+    })
+}
+
+/// `convert --bedpe` (D156): BEDPE pairs from alignments sorted by name.
+fn run_bedpe(
+    ctx: &Ctx,
+    a: &ConvertArgs,
+    o: &ConvertOptions,
+    spec: &gloci_io::OutputSpec,
+    score_tag: Option<[u8; 2]>,
+) -> anyhow::Result<()> {
+    let to = spec.format.unwrap_or(OutFormat::Bedpe);
+    if !matches!(to, OutFormat::Bedpe | OutFormat::Tsv) {
+        return Err(UsageError(format!(
+            "convert --bedpe writes BEDPE, not {}: pick an output ending in .bedpe or \
+.bedpe.gz (or -O bedpe)",
+            to.name()
+        ))
+        .into());
+    }
+    refuse_binary_to_tty(
+        spec.path.is_none() && std::io::stdout().is_terminal(),
+        to,
+        spec.bgzf,
+    )?;
+    let ro = reader_options(ctx, a, score_tag)?;
+    // Open and check the input before the output is created.
+    let src = open_aln_source(&a.file, &ro).map_err(|e| match e {
+        IoError::Detect { path, msg } if msg.ends_with("is empty: it has no records") => {
+            IoError::empty_input(&path)
+        }
+        e => e,
+    })?;
+    gloci_io::warn_unused_reference(a.align.reference.as_deref(), src.format() == Format::Cram);
+    check_convert(src.format(), o)?;
+    let oo = OutputOptions {
+        threads: ctx.threads,
+        level: a.out.compression_level,
+        write_index: a.out.write_index,
+    };
+    let dest = spec
+        .path
+        .as_ref()
+        .map_or_else(|| "<stdout>".to_string(), |p| p.display().to_string());
+    let mut out = open_output(spec, to, &oo).map_err(|e| e.with_output_name(&dest))?;
+    let bo = BedpeOptions {
+        mate1_first: a.mate1_first,
+        score_tag,
+    };
+    alignments_to_bedpe(src, &bo, &mut out).map_err(|e| e.with_output_name(&dest))?;
+    out.finish().map_err(|e| e.with_output_name(&dest))?;
     Ok(())
 }
 

@@ -374,6 +374,9 @@ impl AlnSource for CramSource {
     fn diagnostics(&self) -> &Diagnostics {
         self.inner.diagnostics()
     }
+    fn place(&self) -> String {
+        self.inner.place()
+    }
 }
 
 fn parse_header(name: &str, head: &CramHead) -> Result<AlnHeader, IoError> {

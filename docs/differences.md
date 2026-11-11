@@ -1756,6 +1756,23 @@ depends on the span.
   `bamtobed-cigar-split-vs-bedtools` (exit status: gloci 2, bedtools 0) and
   `bamtobed-split-ed-vs-bedtools` (exit status: gloci 0, bedtools 1).
 
+## `convert --bedpe` pairs the primary READ1 and READ2, not whatever is adjacent {#bamtobed-bedpe}
+
+- **gloci:** reads that share a name make a group; its primary READ1 and READ2 (flags `0x40`
+  and `0x80`, neither `0x100` nor `0x800`) make one pair, and secondary and supplementary
+  alignments are ignored. `supp.bam` (R1, R1's supplementary alignment on chr2, R2) gives
+  one row, `chr1 100 150 chr1 300 350 s1 60 + -`. A name with only one primary mate writes
+  nothing and is counted in one warning.
+- **Old behaviour:** `bedtools bamtobed -bedpe` pairs each read with the record next to
+  it whatever its flags: on `supp.bam` it writes two rows, `chr1 100 150 chr2 900 950 s1 20 + +`
+  (R1 with its supplementary alignment) and `chr1 300 350 chr2 900 950 s1 20 - +`, with the
+  supplementary alignment's MAPQ and a mate that is not R2.
+- **Reason:** a supplementary alignment is another piece of its read, so pairing it
+  yields a pair that no fragment made, and the same read twice.
+- **Pinned by:** `bamtobed-bedpe-supp-vs-bedtools` (must differ). The other
+  `bamtobed-bedpe-*` cases match bedtools byte for byte, including the end order, an
+  unmapped mate as `. -1 -1`, `-mate1` and `-ed`.
+
 ## `convert` of alignments cuts reads at the end of their reference, and blocks at their bases {#bamtobed-past-reference-end}
 
 - **gloci:** a read that runs past the `LN` of its reference (a chrM read wrapping

@@ -8,12 +8,15 @@
 //! next record's start); that prints one warning (D49).
 
 mod align;
+mod align_bedpe;
 mod bed12;
 mod gff;
 mod psl;
 mod rmsk;
 mod vcf;
 mod wig;
+
+pub use align_bedpe::{BedpeOptions, BedpeSummary, alignments_to_bedpe};
 
 use gloci_core::{ChromId, ChromTable, Strand, VariantKind, VcfSpan};
 use gloci_io::{Format, IoError, RecordReader, RecordWriter, UsageError};
@@ -43,6 +46,10 @@ pub struct ConvertOptions {
     pub cigar: bool,
     /// Alignments: cut blocks at `D` as well as `N`.
     pub split_deletions: bool,
+    /// Alignments: write BEDPE pairs (D156, `alignments_to_bedpe`) instead of BED.
+    pub bedpe: bool,
+    /// With `bedpe`: keep READ1 as the first end.
+    pub mate1_first: bool,
 }
 
 /// The output rows, with the order warning.
@@ -146,6 +153,30 @@ impl ConvertOptions {
             }
         }
         let aln = matches!(format, Format::Bam | Format::Cram | Format::Sam);
+        if self.mate1_first && !self.bedpe {
+            return Err(UsageError(format!(
+                "--mate1-first orders the ends of --bedpe rows and needs --bedpe; {SUMMARY}"
+            )));
+        }
+        if self.bedpe {
+            if !aln {
+                return usage("--bedpe", "BAM/CRAM/SAM");
+            }
+            for (set, flag) in [
+                (self.bed12, "--bed12"),
+                (self.blocks, "--blocks"),
+                (self.cigar, "--cigar"),
+                (self.color.is_some(), "--color"),
+                (self.split_deletions, "--split-deletions"),
+            ] {
+                if set {
+                    return Err(UsageError(format!(
+                        "--bedpe writes one row per pair of reads and cannot be used with {flag}; \
+drop one of them"
+                    )));
+                }
+            }
+        }
         if !aln {
             for (set, flag) in [
                 (self.bed12, "--bed12"),

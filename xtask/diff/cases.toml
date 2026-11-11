@@ -7674,3 +7674,42 @@ gloci = "gloci shuffle input.bedpe --format bedpe -g shuffle-bedpe.genome --excl
 reference = "bedtools shuffle -i input.bedpe -g shuffle-bedpe.genome -excl shuffle-bedpe.exclude.bed -seed 1"
 compare = "exact"
 expected_difference = "#shuffle-bedpe-ends"
+
+# convert --bedpe (D156) against bedtools 2.31.1 bamtobed -bedpe. pairs.bam is name-sorted: a
+# proper pair, a placed read with an unmapped mate, two unmapped mates, MAPQ 30/50 (NM 0/3), a
+# chr2/chr10 pair (chr10 first as bytes) and a READ1 to the right of its READ2 (swapped).
+[[case]]
+name = "bamtobed-bedpe-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/pairs.bam" }
+gloci = "gloci convert input.bam --bedpe"
+reference = "bedtools bamtobed -i input.bam -bedpe"
+compare = "exact"
+
+[[case]]
+name = "bamtobed-bedpe-mate1-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/pairs.bam" }
+gloci = "gloci convert input.bam --bedpe --mate1-first"
+reference = "bedtools bamtobed -i input.bam -bedpe -mate1"
+compare = "exact"
+
+[[case]]
+name = "bamtobed-bedpe-ed-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/pairs.bam" }
+gloci = "gloci convert input.bam --bedpe --score-tag NM"
+reference = "bedtools bamtobed -i input.bam -bedpe -ed"
+compare = "exact"
+
+[[case]]
+name = "bamtobed-bedpe-sam-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/pairs.sam" }
+gloci = "gloci convert input.sam --bedpe"
+reference = "samtools view -b --no-PG -o d.bam input.sam && bedtools bamtobed -i d.bam -bedpe"
+compare = "exact"
+
+[[case]]
+name = "bamtobed-bedpe-supp-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/supp.bam" }
+gloci = "gloci convert input.bam --bedpe"
+reference = "bedtools bamtobed -i input.bam -bedpe"
+compare = "exact"
+expected_difference = "#bamtobed-bedpe"

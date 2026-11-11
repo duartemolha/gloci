@@ -594,6 +594,19 @@ Examples:
     /// BED6 row per block, cut at N; --split-deletions cuts at D as well.
     /// --score-tag NM takes the score from an integer tag (NM is bedtools
     /// -ed), and --cigar appends the CIGAR to BED6 rows.
+    /// --bedpe (bedtools bamtobed -bedpe) writes BEDPE instead, one row per
+    /// read name from alignments sorted by name (gloci sort -n; a coordinate
+    /// sorted file is exit 2): chrom1 start1 end1 chrom2 start2 end2 name
+    /// score strand1 strand2, from the primary READ1 and READ2 that are next
+    /// to each other (secondary and supplementary reads are ignored). An
+    /// unmapped mate is `. -1 -1` with strand `.`. The end that sorts first
+    /// by (chromosome as bytes, start) comes first; --mate1-first keeps READ1
+    /// first (bedtools -mate1). The score is the smaller MAPQ of two mapped
+    /// ends, else 0; with --score-tag it is the sum over the mapped ends
+    /// (--score-tag NM is bedtools -ed). A name with one mate is not written
+    /// and is counted in a warning. The output is .bedpe (or .bedpe.gz) and
+    /// feeds pair-intersect and pair-pair; --bedpe cannot be used with
+    /// --bed12, --blocks, --cigar, --color or --split-deletions.
     /// BED12 with --blocks gives one BED6 row per block; a line that is not
     /// valid BED12 (fewer than 12 columns, block counts that disagree, blocks
     /// out of order, a last block not ending at chromEnd) is an error, also
@@ -606,7 +619,8 @@ Examples:
   gloci convert calls.vcf.gz -o calls.bed
   gloci convert transcripts.bed --blocks -o exons.bed
   gloci convert reads.bam --bed12 -o reads.bed
-  gloci convert reads.bam --blocks --score-tag NM --min-mapq 30")]
+  gloci convert reads.bam --blocks --score-tag NM --min-mapq 30
+  gloci convert reads.byname.bam --bedpe -o pairs.bedpe")]
     Convert(ConvertArgs),
     /// Write the sequence under each interval (bedtools getfasta).
     ///
@@ -2771,6 +2785,14 @@ pub struct ConvertArgs {
     /// implies --blocks unless --bed12 is given.
     #[arg(long)]
     pub split_deletions: bool,
+    /// BAM, CRAM, SAM sorted by name: write BEDPE pairs of READ1 and READ2
+    /// instead of BED (bedtools bamtobed -bedpe).
+    #[arg(long, conflicts_with_all = ["bed12", "blocks", "cigar", "color", "split_deletions"])]
+    pub bedpe: bool,
+    /// With --bedpe: keep READ1 as the first end instead of putting the end
+    /// that sorts first there (bedtools bamtobed -mate1).
+    #[arg(long, requires = "bedpe")]
+    pub mate1_first: bool,
     #[command(flatten)]
     pub align: AlignArgs,
     #[command(flatten)]
