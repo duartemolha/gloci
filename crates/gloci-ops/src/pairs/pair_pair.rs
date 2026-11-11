@@ -57,6 +57,7 @@ struct BStore {
     at: Vec<(usize, u32)>,
     text: Vec<u8>,
     unknown_strand: bool,
+    name: String,
 }
 
 impl BStore {
@@ -77,6 +78,7 @@ fn load_b(
         at: Vec::new(),
         text: Vec::new(),
         unknown_strand: false,
+        name: b.name().to_string(),
     };
     let mut entries: [Vec<IndexEntry>; 2] = [Vec::new(), Vec::new()];
     let (mut batch, mut max) = (BedpeBatch::default(), 1usize);
@@ -291,7 +293,10 @@ pub fn pair_pair(
             log::warn!("{a_name} has pair ends of unknown strand; they never match under -s or -S");
         }
         if store.unknown_strand {
-            log::warn!("B has pair ends of unknown strand; they never match under -s or -S");
+            log::warn!(
+                "{} has records with unknown strand; they never match under -s or -S",
+                store.name
+            );
         }
     }
     Ok(summary)

@@ -95,6 +95,7 @@ struct BStore {
     /// The row written for a missing B (`notboth`).
     placeholder: Vec<u8>,
     unknown_strand: bool,
+    name: String,
 }
 
 fn usage(msg: impl Into<String>) -> IoError {
@@ -122,6 +123,7 @@ fn load_b(mut b: Box<dyn RecordReader>, chroms: &mut ChromTable) -> Result<BStor
         text: Vec::new(),
         placeholder: Vec::new(),
         unknown_strand: false,
+        name: b.name().to_string(),
     };
     let mut entries = Vec::new();
     let mut first: Option<Vec<u8>> = None;
@@ -362,7 +364,10 @@ fn warn(o: &PairIntersectOptions, store: &BStore, a_name: &str, a_unknown: bool,
             log::warn!("{a_name} has pair ends of unknown strand; they never match under -s or -S");
         }
         if store.unknown_strand {
-            log::warn!("B has records with unknown strand; they never match under -s or -S");
+            log::warn!(
+                "{} has records with unknown strand; they never match under -s or -S",
+                store.name
+            );
         }
     }
     if s.span_skipped > 0 {

@@ -289,3 +289,22 @@ fn pair_threads_agree_on_the_command_line() {
         assert!(one == run("4"), "--type {t}");
     }
 }
+
+#[test]
+fn pair_intersect_b_unknown_strand_names_the_file_with_the_shared_sentence() {
+    let dir = tempdir();
+    let a = plain_file(dir.path(), "a.bedpe", A);
+    let b = plain_file(dir.path(), "b.bed", "chr1\t12\t14\tb1\t0\t.\n");
+    let out = gloci()
+        .args(["pair-intersect", "-s", "-a"])
+        .arg(&a)
+        .arg("-b")
+        .arg(&b)
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("b.bed has records with unknown strand; they never match under -s or -S"),
+        "{err}"
+    );
+}

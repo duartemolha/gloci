@@ -170,3 +170,26 @@ fn pair_pair_worker_error_is_the_same_at_any_thread_count() {
     assert_eq!(four.stderr, one.stderr);
     assert_eq!(four.stdout, one.stdout);
 }
+
+#[test]
+fn pair_pair_b_unknown_strand_names_the_file_with_the_shared_sentence() {
+    let dir = tempdir();
+    let a = plain_file(dir.path(), "a.bedpe", A);
+    let b = plain_file(
+        dir.path(),
+        "b.bedpe",
+        "chr1\t12\t14\tchr1\t102\t104\tb1\t0\t.\t.\n",
+    );
+    let out = gloci()
+        .args(["pair-pair", "-s", "-a"])
+        .arg(&a)
+        .arg("-b")
+        .arg(&b)
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("b.bedpe has records with unknown strand; they never match under -s or -S"),
+        "{err}"
+    );
+}
