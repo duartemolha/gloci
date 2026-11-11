@@ -241,7 +241,6 @@ Examples:
 Examples:
   gloci check peaks.bed
   gloci check calls.vcf.gz -g hg38.fa.fai
-  gloci check a.bed b.bed --chrom-order lex
   gloci check reads.bam
   gloci check --quick --list-failed *.bam > bad.txt")]
     Check(CheckArgs),
