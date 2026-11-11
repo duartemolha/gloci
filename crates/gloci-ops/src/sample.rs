@@ -100,6 +100,19 @@ pub fn sample(
         }
     }
     crate::skipped::log_reader(reader.as_ref());
+    if seen == 0 && o.count > 0 {
+        // An empty input is read as no records, as every other command does.
+        log::warn!(
+            "{} is empty: it has no records{}; nothing was written",
+            reader.name(),
+            match o.strand {
+                Some(Strand::Plus) => " on the + strand",
+                Some(Strand::Minus) => " on the - strand",
+                _ => "",
+            }
+        );
+        return Ok(0);
+    }
     if seen < o.count {
         let what = match o.strand {
             Some(Strand::Plus) => " on the + strand",

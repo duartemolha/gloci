@@ -2379,7 +2379,7 @@ cases (must match).
   `sample-strand-vs-bedtools` (`lines-unordered`, must match).
 - **Also:** `--strand +|-` replaces `-s forward|reverse`; a record of unknown strand never
   complies. With fewer records than N both commands fail (exit 1) and gloci writes nothing
-  (`sample-too-few-vs-bedtools`). `sample` of BAM and `-ubam` are not planned (`samtools view -s`).
+  (`sample-too-few-vs-bedtools`); an input with no records at all is the exception: gloci writes nothing, warns once ("X is empty: it has no records") and exits 0, like the other commands that accept empty input (gloci-only test `sample_of_empty_input_writes_nothing_and_warns_once`). `sample` of BAM and `-ubam` are not planned (`samtools view -s`).
 
 ## `shuffle` keeps the whole record inside the allowed regions {#shuffle-placement}
 

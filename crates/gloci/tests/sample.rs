@@ -120,6 +120,23 @@ fn sample_too_few() {
 }
 
 #[test]
+fn sample_of_empty_input_writes_nothing_and_warns_once() {
+    let d = tempdir();
+    let f = plain_file(d.path(), "e.bed", "");
+    let o = gloci()
+        .args(["sample"])
+        .arg(&f)
+        .args(["-n", "5", "--seed", "1"])
+        .assert()
+        .success();
+    assert!(o.get_output().stdout.is_empty());
+    let e = String::from_utf8(o.get_output().stderr.clone()).unwrap();
+    assert_eq!(e.lines().count(), 1, "{e}");
+    assert!(e.contains("e.bed is empty: it has no records"), "{e}");
+    assert!(!e.contains("only 0"), "{e}");
+}
+
+#[test]
 fn sample_strand() {
     let d = tempdir();
     let text = "chr1\t0\t5\ta\t0\t+\nchr1\t5\t9\tb\t0\t-\nchr1\t9\t12\tc\t0\t.\n\
