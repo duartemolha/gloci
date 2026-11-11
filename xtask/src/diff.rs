@@ -429,6 +429,18 @@ mod tests {
     }
 
     #[test]
+    fn every_difference_anchor_is_unique() {
+        let doc = std::fs::read_to_string(workspace_root().join("docs/differences.md")).unwrap();
+        let mut seen = std::collections::HashSet::new();
+        for a in gloci_testkit::differential::anchors(&doc) {
+            assert!(
+                seen.insert(a),
+                "docs/differences.md defines the anchor {{#{a}}} more than once"
+            );
+        }
+    }
+
+    #[test]
     fn every_documented_difference_is_pinned_by_a_case() {
         let root = workspace_root();
         let cases = load_cases(&root.join("xtask/diff/cases.toml")).unwrap();
