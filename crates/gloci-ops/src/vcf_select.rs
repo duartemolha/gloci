@@ -221,7 +221,8 @@ impl Hit<'_> {
     /// The record's decoded samples, the masked ones reading as missing. `None`
     /// unless [`SelectStage::share_decoded`] was called and the selection
     /// computed site statistics for the record. Only the samples the
-    /// selection keeps are decoded; the others read as missing.
+    /// selection keeps are decoded: reading another sample is an error (a
+    /// bug in the caller), the same on one thread and on many.
     pub fn genotypes(&self) -> Option<&dyn GenotypeSource> {
         self.genotypes
     }

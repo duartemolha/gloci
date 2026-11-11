@@ -490,8 +490,9 @@ fn packed_roundtrip() {
         .push_record_selected(&t, GtFields::ALL, &[], Some(&keep))
         .unwrap();
     let rec = arena.record(slot);
-    rec.sample(1, &mut sf).unwrap();
-    assert!(sf.gt.is_none());
+    // Reading a sample the selection did not decode is a bug, as in SampleCache.
+    let e = rec.sample(1, &mut sf).unwrap_err();
+    assert!(e.contains("sample 2") && e.contains("not decoded"), "{e}");
     rec.sample(0, &mut sf).unwrap();
     assert_eq!(sf.gt.as_ref().unwrap().alleles, vec![Some(0), Some(1)]);
     // A malformed sample fails the record and leaves the arena as it was.

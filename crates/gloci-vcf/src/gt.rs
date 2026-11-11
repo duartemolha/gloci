@@ -398,6 +398,8 @@ const F_DP: u16 = 4;
 const F_GQ: u16 = 8;
 const F_FT_FAIL: u16 = 16;
 const F_MASKED: u16 = 32;
+/// The sample was left out by `keep`: reading it is an error.
+const F_UNDECODED: u16 = 64;
 
 /// The allele value that stands for a missing allele in the arena.
 const NO_ALLELE: u32 = u32::MAX;
@@ -417,8 +419,8 @@ struct Packed {
 /// An arena holding the decoded samples of many records, so a worker thread
 /// can hand them to the thread that consumes the records. A diploid sample
 /// costs 24 bytes. Masked samples are stored as the masking leaves them (no
-/// GT, DP or GQ, `masked` set); samples a `keep` list leaves out are stored
-/// as missing.
+/// GT, DP or GQ, `masked` set); samples a `keep` list leaves out are not
+/// decoded, and reading one is an error.
 #[derive(Debug, Default)]
 pub struct PackedGenotypes {
     samples: Vec<Packed>,
@@ -450,7 +452,7 @@ impl PackedGenotypes {
     }
 
     /// [`Self::push_record`] decoding only the samples `keep` marks (`None` =
-    /// all); the others are stored as missing and never read from `src`.
+    /// all); the others are never read from `src` (reading one back is an error).
     pub fn push_record_selected(
         &mut self,
         src: &dyn GenotypeSource,
@@ -469,7 +471,7 @@ impl PackedGenotypes {
                     gq: 0,
                     off: 0,
                     len: 0,
-                    flags: 0,
+                    flags: F_UNDECODED,
                 });
                 Ok(())
             } else {
@@ -573,6 +575,12 @@ impl GenotypeSource for PackedRecord<'_> {
                 i + 1
             ));
         };
+        if p.flags & F_UNDECODED != 0 {
+            return Err(format!(
+                "internal error: sample {} was not decoded by the selection stage",
+                i + 1
+            ));
+        }
         out.reset();
         out.clear_gt();
         out.masked = p.flags & F_MASKED != 0;
