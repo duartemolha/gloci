@@ -5230,3 +5230,14 @@ gloci = "gloci sort -m input.bam merge-c.bam"
 reference = "samtools merge -c -p --no-PG -o - input.bam merge-c.bam"
 compare = "exit-status"
 expected_difference = "#alignment-merge-sq"
+
+# RNEXT of an unmapped read placed on a contig (#cram-md-nm): rnext-eq.cram has one such read
+# (flag 4, RNAME chr1, RNEXT `=`). samtools decodes the CRAM with RNEXT `*`; gloci keeps `=`.
+[[case]]
+name = "view-cram-unmapped-rnext-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/rnext-eq.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci view -O sam input.cram --reference ref.fa"
+reference = "samtools view -h --no-PG -T ref.fa input.cram"
+compare = "sam"
+expected_difference = "#cram-md-nm"

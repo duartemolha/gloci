@@ -1850,9 +1850,12 @@ depends on the span.
   NM the writer dropped. Recompute the tags with `samtools calmd` first.
 - **Reason:** gloci writes what the file holds; computing tags is an edit, and
   needs the reference even where the reads do not.
+- **RNEXT:** for an unmapped read placed on a contig whose mate reference was `=`, samtools
+  decodes a CRAM with RNEXT `*` where the BAM and gloci have `=`.
 - **Pinned by:** `view-cram-md-nm-vs-samtools` (md.cram: samtools adds MD and NM to
-  the reads that lack them; must differ) and
-  `view-cram-md-nm-decode-md-0-vs-samtools` (equal to `decode_md=0`).
+  the reads that lack them; must differ),
+  `view-cram-md-nm-decode-md-0-vs-samtools` (equal to `decode_md=0`) and
+  `view-cram-unmapped-rnext-vs-samtools` (rnext-eq.cram; must differ).
 
 ## A CRAM without its end-of-file container is an error {#cram-eof-container}
 
