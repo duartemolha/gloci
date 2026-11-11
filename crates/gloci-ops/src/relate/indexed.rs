@@ -194,14 +194,8 @@ pub(super) fn run_per_chromosome<R: Send>(
     drop(inputs);
 
     for f in all() {
-        if let Src::Indexed(f) = f
-            && f.info().stale
-        {
-            log::warn!(
-                "the index {} is older than {name}; it may be out of date (rebuild it with: gloci index {name})",
-                f.info().path.display(),
-                name = f.name()
-            );
+        if let Src::Indexed(f) = f {
+            f.info().warn_if_stale(f.name());
         }
     }
     let names_a = file_a.reference_names();

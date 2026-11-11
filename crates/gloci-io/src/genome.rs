@@ -103,10 +103,7 @@ pub fn load_genome(path: &Path) -> Result<Genome, IoError> {
 fn fasta_genome(fasta: &Path, name: &str) -> Result<Genome, IoError> {
     let (fai, stale) = crate::fasta::find_fai(fasta)?;
     if stale {
-        log::warn!(
-            "the index {} is older than {name}; it may be out of date (rebuild it with: gloci index {name})",
-            fai.display()
-        );
+        crate::index::warn_stale_index(&fai, name);
     }
     load_genome(&fai)
 }

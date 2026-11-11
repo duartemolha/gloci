@@ -660,13 +660,7 @@ fn open_chunked(
         log::debug!("the input is out of genome order; streaming");
         return Ok(None);
     }
-    if file.info().stale {
-        log::warn!(
-            "the index {} is older than {name}; it may be out of date (rebuild it with: gloci index {name})",
-            file.info().path.display(),
-            name = file.name()
-        );
-    }
+    file.info().warn_if_stale(file.name());
     Ok(Some(file))
 }
 

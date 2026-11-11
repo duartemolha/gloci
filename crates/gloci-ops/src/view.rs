@@ -323,12 +323,7 @@ fn select(
     let file = Some(Path::new(path)).filter(|p| path != "-" && p.is_file());
     let index = match file.and_then(find_index).filter(|_| !opts.unordered) {
         Some(info) if compression == Compression::Bgzf => {
-            if info.stale {
-                log::warn!(
-                    "the index {} is older than {name}; it may be out of date (rebuild it with: gloci index {name})",
-                    info.path.display()
-                );
-            }
+            info.warn_if_stale(&name);
             Some(info)
         }
         Some(info) => {
@@ -769,12 +764,7 @@ write SAM instead (-O sam)",
             .filter(|_| matches!(input_format, Format::Bam | Format::Cram) && !wanted.is_empty())
             .and_then(|p| find_index(p).map(|i| (p, i)));
         if let Some((p, info)) = index {
-            if info.stale {
-                log::warn!(
-                    "the index {} is older than {name}; it may be out of date (rebuild it with: gloci index {name})",
-                    info.path.display()
-                );
-            }
+            info.warn_if_stale(&name);
             let ix = IndexedFile::open(p, input_format, hdr.clone(), ro)?;
             src = ix.aln_regions_source(&wanted, opts.inclusive_points)?;
             indexed = true;
