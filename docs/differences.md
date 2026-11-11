@@ -2084,3 +2084,25 @@ depends on the span.
   `0x8` or `8` for eight, and `10` for ten.
 - **Pinned by:** `flags-octal-vs-samtools` (exit status: must differ), and the
   tests `parse_flags_samtools_rules` and `flags_usage_errors_exit_2_and_print_nothing`.
+
+## `reheader` refuses a new `@SQ` list that changes the references {#reheader-sq-check}
+
+- **gloci:** `gloci reheader HEADER IN` checks the new `@SQ` lines against
+  those of IN. Each old reference must keep its position in the list and its
+  `LN`; names (`SN:`) may change, and new `@SQ` lines may follow the last old
+  one. For CRAM, an `M5:` that is in both lists must be equal. Otherwise it
+  exits 1 and writes nothing, naming both lines: `@SQ 3 of new.sam (SN:chr3
+  LN:1000) does not match @SQ 3 of x.bam (SN:chr3 LN:198295559); reheader keeps
+  each read's reference by its position in the @SQ list, so change only SN: to
+  rename, or use gloci view --chrom-map`.
+- **Old behaviour:** `samtools reheader` checks nothing. It writes the new text
+  and reference list over the old records, so a changed `LN`, a swapped order
+  or a dropped `@SQ` gives a file whose reads point at other contigs (or at
+  none), and exits 0.
+- **Reason:** a record names its reference by its position in the `@SQ` list,
+  not by name. Renaming is safe and is what reheader is for; anything else
+  silently moves reads to the wrong place. To rename safely from a table, use
+  `gloci view --chrom-map`.
+- **Pinned by:** `reheader-bad-ln-vs-samtools` and
+  `reheader-bad-order-vs-samtools` (exit status: must differ), and the test
+  `sq_compatibility_table`.

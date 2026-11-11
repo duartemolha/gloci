@@ -5705,3 +5705,55 @@ gloci = "gloci flags 010"
 reference = "samtools flags 010"
 compare = "exit-status"
 expected_difference = "#flags-leading-zero"
+
+# P3c Task 11: `reheader` (D130). reheader-in.bam has three references of different lengths
+# (chr1 1000, chr2 2000, chr3 3000) and a read on each, so a swapped order shows in the LNs.
+# new-header.sam renames them to 1, 2, 3, appends a fourth @SQ and changes the @RG; the BAM
+# header file new-header.bam holds the same header. samtools runs with -P (no @PG); the `bam` and
+# `cram` modes ignore gloci's own @PG line.
+[[case]]
+name = "reheader-bam-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/reheader-in.bam" }
+aux = ["xtask/diff/inputs/samtools/new-header.sam"]
+gloci = "gloci reheader new-header.sam input.bam"
+reference = "samtools reheader -P new-header.sam input.bam"
+compare = "bam"
+
+[[case]]
+name = "reheader-bam-header-file-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/reheader-in.bam" }
+aux = ["xtask/diff/inputs/samtools/new-header.bam"]
+gloci = "gloci reheader new-header.bam input.bam"
+reference = "samtools reheader -P new-header.bam input.bam"
+compare = "bam"
+
+# P3a's embed_ref CRAM (chr1 1000, chr2 1234, with M5): the new header repeats the M5s, renames
+# the references, adds a third @SQ and changes the @RG. gloci writes a new header container and
+# copies the data containers; the compare mode decodes both.
+[[case]]
+name = "reheader-cram-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.embed.cram" }
+aux = ["xtask/diff/inputs/samtools/new-header-cram.sam"]
+gloci = "gloci reheader new-header-cram.sam input.embed.cram"
+reference = "samtools reheader -P new-header-cram.sam input.embed.cram"
+compare = "cram"
+
+# bad-ln.sam changes chr2's LN and bad-order.sam swaps chr2 and chr3: samtools writes the file,
+# gloci exits 1.
+[[case]]
+name = "reheader-bad-ln-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/reheader-in.bam" }
+aux = ["xtask/diff/inputs/samtools/bad-ln.sam"]
+gloci = "gloci reheader bad-ln.sam input.bam"
+reference = "samtools reheader -P bad-ln.sam input.bam"
+compare = "exit-status"
+expected_difference = "#reheader-sq-check"
+
+[[case]]
+name = "reheader-bad-order-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/reheader-in.bam" }
+aux = ["xtask/diff/inputs/samtools/bad-order.sam"]
+gloci = "gloci reheader bad-order.sam input.bam"
+reference = "samtools reheader -P bad-order.sam input.bam"
+compare = "exit-status"
+expected_difference = "#reheader-sq-check"
