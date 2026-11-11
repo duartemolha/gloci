@@ -165,6 +165,13 @@ fn run_in(dir: &Path, args: &[&str]) {
     gloci().current_dir(dir).args(args).assert().success();
 }
 
+fn lines_of(b: &[u8], prefix_skip: &str) -> usize {
+    String::from_utf8_lossy(b)
+        .lines()
+        .filter(|l| !l.starts_with(prefix_skip))
+        .count()
+}
+
 #[test]
 fn parallel_selection_equals_sequential() {
     let d = tempdir();
@@ -178,7 +185,7 @@ fn parallel_selection_equals_sequential() {
     run(&["vcf", "filter", &vcf, "-o", &bcf]);
     let names: Vec<String> = (0..samples).step_by(2).map(|i| format!("S{i}")).collect();
     let names = names.join(",");
-    let sel: Vec<&str> = vec![
+    let with_sel: Vec<&str> = vec![
         "--samples",
         &names,
         "--min-dp",
@@ -188,89 +195,96 @@ fn parallel_selection_equals_sequential() {
         "--thin",
         "50",
         "--region",
-        "chr1:1-9000,chr2:1-9000",
+        "chr1:1-9000",
+        "--region",
+        "chr2:1-9000",
     ];
-    for input in [&vcf, &bcf] {
-        let tag = if input == &vcf { "vcf" } else { "bcf" };
-        let ext = if input == &vcf { "vcf" } else { "bcf" };
-        let mut filtered = Vec::new();
-        let mut extracted = Vec::new();
-        let mut stats = Vec::new();
-        for t in ["1", "2", "8"] {
-            // The recorded command line names the output, so each thread
-            // count writes the same relative names in its own directory.
-            let dir = d.path().join(format!("{tag}-t{t}"));
-            std::fs::create_dir_all(&dir).unwrap();
-            // filter
-            let out = format!("out.{ext}");
-            let mut a = vec!["vcf", "filter", input, "-o", &out, "--threads", t];
-            a.extend(&sel);
-            run_in(&dir, &a);
-            filtered.push(read(&s(&dir.join(&out))));
-            // extract: a table and the 012 matrix
-            let tab = "out.tsv".to_string();
-            let mut a = vec![
-                "vcf",
-                "extract",
-                input,
-                "--format",
-                "GT,DP,GQ",
-                "--info",
-                "DP",
-                "-o",
-                &tab,
-                "--threads",
-                t,
-            ];
-            a.extend(&sel);
-            // --info and --format together are one table at a time
-            a.drain(5..7);
-            run_in(&dir, &a);
-            let m = "m".to_string();
-            let mut a = vec![
-                "vcf",
-                "extract",
-                input,
-                "--genotype-matrix",
-                "012",
-                "--out-prefix",
-                &m,
-                "--threads",
-                t,
-            ];
-            a.extend(&sel);
-            run_in(&dir, &a);
-            let rd = |f: &str| read(&s(&dir.join(f)));
-            extracted.push((
-                rd(&tab),
-                rd(&format!("{m}.012")),
-                rd(&format!("{m}.012.pos")),
-            ));
-            // stats: all 15, plus the summaries
-            let p = "st".to_string();
-            let mut a = vec!["vcf", "stats", input, "--out-prefix", &p, "--threads", t];
-            a.extend(STATS);
-            a.extend(["--summary", "--json", "--min-gq", "10"]);
-            a.extend(&sel);
-            run_in(&dir, &a);
-            stats.push(s(&dir.join(&p)));
-        }
-        assert!(
-            filtered[0].len() > 1000,
-            "{tag}: the selection kept nothing"
-        );
-        for i in 1..3 {
-            same(&filtered[0], &filtered[i], &format!("{tag} filter"));
-            assert_eq!(extracted[0], extracted[i], "{tag} extract");
-            for e in STAT_EXT.iter().chain(&["summary.txt", "summary.json"]) {
-                assert_eq!(
-                    read(&format!("{}.{e}", stats[0])),
-                    read(&format!("{}.{e}", stats[i])),
-                    "{tag} stats .{e}"
+    for (sel_name, sel) in [("sel", &with_sel), ("none", &Vec::new())] {
+        for input in [&vcf, &bcf] {
+            let tag = format!("{sel_name}-{}", if input == &vcf { "vcf" } else { "bcf" });
+            let ext = if input == &vcf { "vcf" } else { "bcf" };
+            let mut filtered = Vec::new();
+            let mut extracted = Vec::new();
+            let mut stats = Vec::new();
+            for t in ["1", "2", "8"] {
+                // The recorded command line names the output, so each thread
+                // count writes the same relative names in its own directory.
+                let dir = d.path().join(format!("{tag}-t{t}"));
+                std::fs::create_dir_all(&dir).unwrap();
+                let out = format!("out.{ext}");
+                let mut a = vec!["vcf", "filter", input, "-o", &out, "--threads", t];
+                a.extend(sel);
+                run_in(&dir, &a);
+                filtered.push(read(&s(&dir.join(&out))));
+                let tab = "out.tsv".to_string();
+                let mut a = vec![
+                    "vcf",
+                    "extract",
+                    input,
+                    "--format",
+                    "GT,DP,GQ",
+                    "-o",
+                    &tab,
+                    "--threads",
+                    t,
+                ];
+                a.extend(sel);
+                run_in(&dir, &a);
+                let m = "m".to_string();
+                let mut a = vec![
+                    "vcf",
+                    "extract",
+                    input,
+                    "--genotype-matrix",
+                    "012",
+                    "--out-prefix",
+                    &m,
+                    "--threads",
+                    t,
+                ];
+                a.extend(sel);
+                run_in(&dir, &a);
+                let rd = |f: &str| read(&s(&dir.join(f)));
+                extracted.push((
+                    rd(&tab),
+                    rd(&format!("{m}.012")),
+                    rd(&format!("{m}.012.pos")),
+                ));
+                let p = "st".to_string();
+                let mut a = vec!["vcf", "stats", input, "--out-prefix", &p, "--threads", t];
+                a.extend(STATS);
+                a.extend(["--summary", "--json", "--min-gq", "10"]);
+                a.extend(sel);
+                run_in(&dir, &a);
+                stats.push(s(&dir.join(&p)));
+            }
+            // The runs must have something to compare.
+            if ext == "vcf" {
+                assert!(
+                    lines_of(&filtered[0], "#") > 100,
+                    "{tag}: filter kept little"
                 );
+            } else {
+                assert!(filtered[0].len() > 10_000, "{tag}: filter kept little");
+            }
+            assert!(lines_of(&extracted[0].0, "#") > 100, "{tag}: extract table");
+            assert!(lines_of(&extracted[0].2, "#") > 100, "{tag}: .012.pos");
+            assert!(
+                lines_of(&read(&format!("{}.lmiss", stats[0])), "CHR") > 100,
+                "{tag}: .lmiss rows"
+            );
+            for i in 1..3 {
+                same(&filtered[0], &filtered[i], &format!("{tag} filter"));
+                assert_eq!(extracted[0], extracted[i], "{tag} extract");
+                for e in STAT_EXT.iter().chain(&["summary.txt", "summary.json"]) {
+                    same(
+                        &read(&format!("{}.{e}", stats[0])),
+                        &read(&format!("{}.{e}", stats[i])),
+                        &format!("{tag} stats .{e}"),
+                    );
+                }
             }
         }
-        assert!(extracted[0].0.len() > 100 && extracted[0].1.len() > 100);
     }
 }
 
