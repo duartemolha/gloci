@@ -833,16 +833,25 @@ pub struct IndexedFile {
     name: String,
     format: Format,
     header: Header,
+    /// The index found next to the file (its kind, path and staleness, D26).
     info: IndexInfo,
-    index: Arc<Loaded>,
     opts: ReaderOptions,
-    /// Reference ids by name as the records have it after `--chrom-map`,
-    /// for text formats (built forward: the map is not reversed).
-    by_new_name: HashMap<Vec<u8>, usize>,
     /// The readers made from this file keep their one-time warnings in their diagnostics.
     defer_warnings: bool,
-    /// A CRAM is read through its own reader, over the `.crai` (`index` is unused then).
-    cram: Option<crate::align::CramFile>,
+    backend: Backend,
+}
+
+/// How an [`IndexedFile`] is read.
+enum Backend {
+    /// BGZF read through a tabix, CSI or BAI index.
+    Binned {
+        index: Arc<Loaded>,
+        /// Reference ids by name as the records have it after `--chrom-map`, for text formats
+        /// and a renamed BAM (built forward: the map is not reversed).
+        by_new_name: HashMap<Vec<u8>, usize>,
+    },
+    /// A CRAM, read through its own reader over the `.crai`.
+    Cram(crate::align::CramFile),
 }
 
 impl IndexedFile {
@@ -920,16 +929,17 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
                 .unwrap_or_default()
         };
         Ok(IndexedFile {
-            cram: None,
             defer_warnings: false,
-            by_new_name,
             path: path.to_path_buf(),
             name,
             format,
             header,
             info,
-            index: Arc::new(index),
             opts: o.clone(),
+            backend: Backend::Binned {
+                index: Arc::new(index),
+                by_new_name,
+            },
         })
     }
 
@@ -950,16 +960,14 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
         };
         let cram = crate::align::CramFile::open(path, aln.clone(), &info, o)?;
         Ok(IndexedFile {
-            cram: Some(cram),
             defer_warnings: false,
-            by_new_name: HashMap::new(),
             path: path.to_path_buf(),
             name,
             format: Format::Cram,
             header,
             info,
-            index: Arc::new(Loaded::Tbi(Default::default())),
             opts: o.clone(),
+            backend: Backend::Cram(cram),
         })
     }
 
@@ -970,7 +978,10 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
     /// What the CRAM readers made from this file read from the FASTA, and the most they held
     /// at once; `None` for a file that is not a CRAM.
     pub fn reference_counts(&self) -> Option<crate::align::ReferenceCounts> {
-        self.cram.as_ref().map(|c| c.reference_counts())
+        match &self.backend {
+            Backend::Cram(c) => Some(c.reference_counts()),
+            Backend::Binned { .. } => None,
+        }
     }
 
     pub fn info(&self) -> &IndexInfo {
@@ -982,7 +993,7 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
     /// chunks of a run (`Diagnostics::log_deferred_warnings`).
     pub fn defer_warnings(&mut self) {
         self.defer_warnings = true;
-        if let Some(c) = &mut self.cram {
+        if let Backend::Cram(c) = &mut self.backend {
             c.defer_warnings();
         }
     }
@@ -990,13 +1001,14 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
     /// The reads with no place the index counts (BAM): the unmapped reads at the end of a
     /// coordinate-sorted file, which no chromosome's reader reaches. 0 for other indexes.
     pub fn unplaced_reads(&self) -> u64 {
-        if let Some(c) = &self.cram {
-            return c.unplaced_reads();
-        }
+        let index = match &self.backend {
+            Backend::Cram(c) => return c.unplaced_reads(),
+            Backend::Binned { index, .. } => index,
+        };
         if self.format != Format::Bam {
             return 0;
         }
-        match &*self.index {
+        match &**index {
             Loaded::Bai(i) => i.unplaced_unmapped_record_count().unwrap_or(0),
             Loaded::Csi(i) => i.unplaced_unmapped_record_count().unwrap_or(0),
             Loaded::Tbi(_) => 0,
@@ -1007,7 +1019,7 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
     /// `--chrom-map`): the BCF contig
     /// dictionary for a BCF's CSI (which stores no names), else the index's
     /// own names.
-    fn rid_of(&self, chrom: &[u8]) -> Option<usize> {
+    fn rid_of(&self, by_new_name: &HashMap<Vec<u8>, usize>, chrom: &[u8]) -> Option<usize> {
         match &self.header {
             Header::Vcf(VcfHeader {
                 bcf: Some(dicts), ..
@@ -1017,17 +1029,17 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
                 .position(|c| !c.is_empty() && c == chrom),
             // Without `--chrom-map` the header's own O(1) name map answers.
             Header::Alignment(aln) if self.opts.chrom_map.is_none() => aln.ref_id(chrom),
-            _ => self.by_new_name.get(chrom).copied(),
+            _ => by_new_name.get(chrom).copied(),
         }
     }
 
     /// The name the file itself gives reference `rid` (before `--chrom-map`);
     /// BCF's dictionary is not renamed by the map.
-    fn own_name(&self, rid: usize, renamed: &[u8]) -> Vec<u8> {
+    fn own_name(&self, index: &Loaded, rid: usize, renamed: &[u8]) -> Vec<u8> {
         if self.format == Format::Bcf || self.format == Format::Bam {
             return renamed.to_vec();
         }
-        self.index
+        index
             .names()
             .and_then(|n| n.get_index(rid))
             .map_or_else(|| renamed.to_vec(), |n| n.to_vec())
@@ -1036,13 +1048,14 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
     /// The reference names the index knows, in reference id order, as
     /// [`index_reference_names`] gives them.
     pub fn reference_names(&self) -> Vec<Vec<u8>> {
-        if let Some(c) = &self.cram {
-            return c.reference_names();
-        }
+        let index = match &self.backend {
+            Backend::Cram(c) => return c.reference_names(),
+            Backend::Binned { index, .. } => index,
+        };
         if let Header::Alignment(aln) = &self.header {
             return aln.refs.iter().map(|(n, _)| n.clone()).collect();
         }
-        if let Some(names) = self.index.names() {
+        if let Some(names) = index.names() {
             let map = self.opts.chrom_map.as_deref();
             return names
                 .iter()
@@ -1056,7 +1069,7 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
                 .contigs
                 .iter()
                 .enumerate()
-                .filter(|(rid, c)| !c.is_empty() && self.index.first_offset(*rid).is_some())
+                .filter(|(rid, c)| !c.is_empty() && index.first_offset(*rid).is_some())
                 .map(|(_, c)| c.clone())
                 .collect(),
             _ => Vec::new(),
@@ -1067,14 +1080,15 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
     /// appear in the file (by first chunk offset), which is the index's own
     /// order for a TBI but the file's order, not the dictionary's, for a BCF.
     pub fn file_order_reference_names(&self) -> Vec<Vec<u8>> {
-        if let Some(c) = &self.cram {
-            return c.file_order_reference_names();
-        }
+        let (index, by_new_name) = match &self.backend {
+            Backend::Cram(c) => return c.file_order_reference_names(),
+            Backend::Binned { index, by_new_name } => (index, by_new_name),
+        };
         let mut named: Vec<(VirtualPosition, Vec<u8>)> = self
             .reference_names()
             .into_iter()
             .filter_map(|n| {
-                let at = self.index.first_offset(self.rid_of(&n)?)?;
+                let at = index.first_offset(self.rid_of(by_new_name, &n)?)?;
                 Some((at, n))
             })
             .collect();
@@ -1084,7 +1098,7 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
 
     /// The reference names that hold records.
     pub fn non_empty_reference_names(&self) -> Vec<Vec<u8>> {
-        if let Some(c) = &self.cram {
+        if let Backend::Cram(c) = &self.backend {
             return c.non_empty_reference_names();
         }
         self.reference_names()
@@ -1097,10 +1111,11 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
     /// compressed bytes between its first and last chunk offsets, plus one;
     /// 0 when the index holds no records for it.
     pub fn weight(&self, chrom: &[u8]) -> u64 {
-        if let Some(c) = &self.cram {
-            return c.weight(chrom);
-        }
-        let Some(rid) = self.rid_of(chrom) else {
+        let (index, by_new_name) = match &self.backend {
+            Backend::Cram(c) => return c.weight(chrom),
+            Backend::Binned { index, by_new_name } => (index, by_new_name),
+        };
+        let Some(rid) = self.rid_of(by_new_name, chrom) else {
             return 0;
         };
         fn span<I: BinIndexKind>(rs: &ReferenceSequence<I>) -> Option<(u64, u64)> {
@@ -1109,7 +1124,7 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
             let hi = chunks.map(|c| c.end().compressed()).max()?;
             Some((lo, hi))
         }
-        let s = match &*self.index {
+        let s = match &**index {
             Loaded::Tbi(i) => i.reference_sequences().get(rid).and_then(span),
             Loaded::Csi(i) => i.reference_sequences().get(rid).and_then(span),
             Loaded::Bai(i) => i.reference_sequences().get(rid).and_then(span),
@@ -1126,14 +1141,16 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
         regions: &[(Vec<u8>, Interval)],
         inclusive_points: bool,
     ) -> Result<Box<dyn RecordReader>, IoError> {
-        if let Some(c) = &self.cram {
-            return Ok(Box::new(c.regions_reader(regions, inclusive_points, false)));
+        match &self.backend {
+            Backend::Cram(c) => Ok(Box::new(c.regions_reader(regions, inclusive_points, false))),
+            Backend::Binned { index, by_new_name } => Ok(Box::new(self.region_reader(
+                index,
+                by_new_name,
+                regions,
+                inclusive_points,
+                false,
+            )?)),
         }
-        Ok(Box::new(self.region_reader(
-            regions,
-            inclusive_points,
-            false,
-        )?))
     }
 
     /// The parser of this file's records. `all` is for BAM: keep every record, placed
@@ -1172,9 +1189,10 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
         regions: &[(Vec<u8>, Interval)],
         inclusive_points: bool,
     ) -> Result<Box<dyn AlnSource>, IoError> {
-        if let Some(c) = &self.cram {
-            return Ok(c.aln_regions_source(regions, inclusive_points));
-        }
+        let (index, by_new_name) = match &self.backend {
+            Backend::Cram(c) => return Ok(c.aln_regions_source(regions, inclusive_points)),
+            Backend::Binned { index, by_new_name } => (index, by_new_name),
+        };
         let Header::Alignment(aln) = &self.header else {
             return Err(IoError::Internal(
                 "an alignment source needs a BAM file".into(),
@@ -1182,7 +1200,7 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
         };
         Ok(Box::new(IndexedAlnSource {
             aln: aln.clone(),
-            reader: self.region_reader(regions, inclusive_points, true)?,
+            reader: self.region_reader(index, by_new_name, regions, inclusive_points, true)?,
             chroms: ChromTable::first_appearance(),
             batch: RecordBatch::default(),
         }))
@@ -1190,6 +1208,8 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
 
     fn region_reader(
         &self,
+        index: &Arc<Loaded>,
+        by_new_name: &HashMap<Vec<u8>, usize>,
         regions: &[(Vec<u8>, Interval)],
         inclusive_points: bool,
         all: bool,
@@ -1202,17 +1222,17 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
         );
         let mut by_rid: BTreeMap<usize, (Vec<u8>, Vec<Interval>)> = BTreeMap::new();
         for (chrom, iv) in regions {
-            let Some(rid) = self.rid_of(chrom) else {
+            let Some(rid) = self.rid_of(by_new_name, chrom) else {
                 continue;
             };
             // BCF's dictionary is already renamed; text uses the file's name.
             by_rid
                 .entry(rid)
-                .or_insert_with(|| (self.own_name(rid, chrom), Vec::new()))
+                .or_insert_with(|| (self.own_name(index, rid, chrom), Vec::new()))
                 .1
                 .push(*iv);
         }
-        let max_pos = self.index.max_position();
+        let max_pos = index.max_position();
         let mut plans: Vec<Plan> = by_rid
             .into_iter()
             .map(|(rid, (name, ivs))| Plan::new(rid, name, ivs, max_pos))
@@ -1220,11 +1240,7 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
         // File order, so that `last_emitted` only ever drops a record already
         // emitted. References without records yield nothing; their place is
         // irrelevant.
-        plans.sort_by_key(|p| {
-            self.index
-                .first_offset(p.rid)
-                .unwrap_or(VirtualPosition::MAX)
-        });
+        plans.sort_by_key(|p| index.first_offset(p.rid).unwrap_or(VirtualPosition::MAX));
         let file = File::open(&self.path).map_err(|source| IoError::Open {
             path: self.name.clone(),
             source,
@@ -1239,7 +1255,7 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
             src: noodles_bgzf::io::Reader::new(BufReader::new(file)),
             renamer: text_renamer(self.format, &self.opts),
             parser: self.parser(all)?,
-            index: self.index.clone(),
+            index: index.clone(),
             plans,
             whole: false,
             p: 0,
@@ -1260,17 +1276,18 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
     /// test, so zero-length records at position 0 are read too. Chromosomes
     /// the index does not know yield nothing.
     pub fn chromosomes_reader(&self, chroms: &[Vec<u8>]) -> Result<Box<dyn RecordReader>, IoError> {
-        if let Some(c) = &self.cram {
-            return Ok(Box::new(c.chromosomes_reader(chroms)));
-        }
-        let max_pos = self.index.max_position();
+        let (index, by_new_name) = match &self.backend {
+            Backend::Cram(c) => return Ok(Box::new(c.chromosomes_reader(chroms))),
+            Backend::Binned { index, by_new_name } => (index, by_new_name),
+        };
+        let max_pos = index.max_position();
         let plans: Vec<Plan> = chroms
             .iter()
             .filter_map(|c| {
-                self.rid_of(c).map(|rid| {
+                self.rid_of(by_new_name, c).map(|rid| {
                     Plan::new(
                         rid,
-                        self.own_name(rid, c),
+                        self.own_name(index, rid, c),
                         vec![Interval {
                             start: 0,
                             end: max_pos,
@@ -1294,7 +1311,7 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
             src: noodles_bgzf::io::Reader::new(BufReader::new(file)),
             renamer: text_renamer(self.format, &self.opts),
             parser: self.parser(false)?,
-            index: self.index.clone(),
+            index: index.clone(),
             plans,
             whole: true,
             p: 0,
