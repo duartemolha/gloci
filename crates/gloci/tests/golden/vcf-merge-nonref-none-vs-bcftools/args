@@ -1,0 +1,1 @@
+vcf merge input.vcf nonref-b.vcf nonref-c.vcf -m none

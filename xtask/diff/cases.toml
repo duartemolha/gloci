@@ -5822,3 +5822,43 @@ gloci = "gloci vcf merge input.vcf samepos-b.vcf samepos-c.vcf -m none"
 reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c samepos-b.vcf > samepos-b.vcf.gz && bcftools index samepos-b.vcf.gz && bgzip -c samepos-c.vcf > samepos-c.vcf.gz && bcftools index samepos-c.vcf.gz && bcftools merge --no-version -m none input.vcf.gz samepos-b.vcf.gz samepos-c.vcf.gz"
 compare = "vcf-records"
 
+
+# Fix round 1: <NON_REF> fill and join/Number=G INFO re-indexing.
+
+# A sample with a <NON_REF> ALT gives its AD (Number=R) and PL (Number=G) value for <NON_REF> to every
+# merged allele it lacks (1:10: B's AD 1,2,3 becomes 1,2,3,3; haploid and diploid), without -g.
+[[case]]
+name = "vcf-merge-nonref-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/nonref-a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/nonref-b.vcf", "xtask/diff/inputs/vcf/merge/nonref-c.vcf"]
+gloci = "gloci vcf merge input.vcf nonref-b.vcf nonref-c.vcf "
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c nonref-b.vcf > nonref-b.vcf.gz && bcftools index nonref-b.vcf.gz && bgzip -c nonref-c.vcf > nonref-c.vcf.gz && bcftools index nonref-c.vcf.gz && bcftools merge --no-version input.vcf.gz nonref-b.vcf.gz nonref-c.vcf.gz "
+compare = "vcf-records"
+
+# Same with -m none, where the records pair differently.
+[[case]]
+name = "vcf-merge-nonref-none-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/nonref-a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/nonref-b.vcf", "xtask/diff/inputs/vcf/merge/nonref-c.vcf"]
+gloci = "gloci vcf merge input.vcf nonref-b.vcf nonref-c.vcf -m none"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c nonref-b.vcf > nonref-b.vcf.gz && bcftools index nonref-b.vcf.gz && bgzip -c nonref-c.vcf > nonref-c.vcf.gz && bcftools index nonref-c.vcf.gz && bcftools merge --no-version input.vcf.gz nonref-b.vcf.gz nonref-c.vcf.gz -m none"
+compare = "vcf-records"
+
+# join of Number=R, A and G tags first re-indexes each record's values to the merged alleles (two records of
+# one file at 1:100); the tags become Number=. and move to the end of the header.
+[[case]]
+name = "vcf-merge-info-join-agr-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/join-a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/join-b.vcf"]
+gloci = "gloci vcf merge input.vcf join-b.vcf -i RR:join,AF:join,GG:join"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c join-b.vcf > join-b.vcf.gz && bcftools index join-b.vcf.gz && bcftools merge --no-version input.vcf.gz join-b.vcf.gz -i RR:join,AF:join,GG:join"
+compare = "vcf-records"
+
+# max, sum and min on Number=A, R and G tags, per merged allele or genotype.
+[[case]]
+name = "vcf-merge-info-agr-rules-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/merge/join-a.vcf" }
+aux = ["xtask/diff/inputs/vcf/merge/join-b.vcf"]
+gloci = "gloci vcf merge input.vcf join-b.vcf -i AF:max,RR:sum,GG:min"
+reference = "bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c join-b.vcf > join-b.vcf.gz && bcftools index join-b.vcf.gz && bcftools merge --no-version input.vcf.gz join-b.vcf.gz -i AF:max,RR:sum,GG:min"
+compare = "vcf-records"
