@@ -3,6 +3,7 @@
 
 use super::{Alleles, Merger, P, parse_f32, put_f32};
 use crate::annotate::hdr::{Number, Ty};
+use crate::srsort::alt_type;
 
 /// The called alleles of the merged genotypes: AN and AC per ALT.
 #[derive(Clone, Debug)]
@@ -94,6 +95,19 @@ pub(crate) fn merge_format(m: &Merger, recs: &[P<'_>], al: &Alleles) -> Result<F
             calls: None,
         });
     }
+    // The widest GT of the row: a sample whose record has no GT is that wide.
+    let gt_nsize = recs
+        .iter()
+        .filter_map(|r| {
+            let gi = r.fmt.iter().position(|k| *k == b"GT")?;
+            r.samples
+                .iter()
+                .filter_map(|s| s.split(|&b| b == b':').nth(gi))
+                .map(|f| gt_parts(f).0.len())
+                .max()
+        })
+        .max()
+        .unwrap_or(1);
     let mut cells: Vec<Vec<Vec<u8>>> = vec![Vec::with_capacity(keys.len()); total];
     let mut calls = None;
     for key in &keys {
@@ -113,7 +127,16 @@ pub(crate) fn merge_format(m: &Merger, recs: &[P<'_>], al: &Alleles) -> Result<F
                 .iter()
                 .position(|x| *x == b"GT")
                 .and_then(|gi| r.samples[s].split(|&b| b == b':').nth(gi))
-                .map_or(2, |f| gt_parts(f).0.len())
+                .map_or(gt_nsize, |f| gt_parts(f).0.len())
+        };
+        // The last ALT of the record that is a symbolic "no variant" allele.
+        let unkn_of = |k: usize| -> Option<usize> {
+            let r = &recs[k];
+            let alts = r.alts();
+            (0..alts.len()).rev().find_map(|j| {
+                (alts[j].first() == Some(&b'<') && alt_type(r.reference, alts[j]) == 0)
+                    .then_some(j + 1)
+            })
         };
         let mut col: Vec<Vec<u8>> = Vec::with_capacity(total);
         if *key == b"GT" {
@@ -208,13 +231,18 @@ pub(crate) fn merge_format(m: &Merger, recs: &[P<'_>], al: &Alleles) -> Result<F
                             } else {
                                 let map = &al.maps[k];
                                 let n_ori = map.len();
-                                let (len, slots): (usize, Vec<Option<usize>>) = match def.number {
+                                let (len, slots, fill_at): (
+                                    usize,
+                                    Vec<Option<usize>>,
+                                    Option<usize>,
+                                ) = match def.number {
                                     Number::A => (
                                         n_alt,
                                         toks.iter()
                                             .enumerate()
                                             .map(|(j, _)| (j < n_ori - 1).then(|| map[j + 1] - 1))
                                             .collect(),
+                                        unkn_of(k),
                                     ),
                                     Number::R => (
                                         n_alt + 1,
@@ -222,29 +250,17 @@ pub(crate) fn merge_format(m: &Merger, recs: &[P<'_>], al: &Alleles) -> Result<F
                                             .enumerate()
                                             .map(|(j, _)| (j < n_ori).then(|| map[j]))
                                             .collect(),
+                                        unkn_of(k),
                                     ),
                                     _ => {
                                         let nd = n_ori * (n_ori + 1) / 2;
-                                        // The sample's ploidy decides, as long as the count fits.
-                                        let diploid = if ploidy(k, s) == 1 {
-                                            toks.len() != n_ori && toks.len() == nd
-                                        } else {
-                                            toks.len() == nd
-                                        };
-                                        if diploid {
-                                            let mut v = Vec::new();
-                                            for b in 0..n_ori {
-                                                for a in 0..=b {
-                                                    let (x, y) = (map[a], map[b]);
-                                                    let (lo, hi) =
-                                                        if x <= y { (x, y) } else { (y, x) };
-                                                    v.push(Some(hi * (hi + 1) / 2 + lo));
-                                                }
-                                            }
-                                            ((n_alt + 1) * (n_alt + 2) / 2, v)
-                                        } else if toks.len() == n_ori {
-                                            (n_alt + 1, (0..n_ori).map(|j| Some(map[j])).collect())
-                                        } else {
+                                        // The sample's ploidy decides; the count may be
+                                        // short (bcftools reads what is there).
+                                        let haploid = ploidy(k, s) == 1;
+                                        if toks.len() != 1
+                                            && toks.len() != nd
+                                            && toks.len() != n_ori
+                                        {
                                             return Err(format!(
                                                 "{}: FORMAT/{} at {} has {} values; its Number=G needs {} (diploid) or {} (haploid) for {} alleles",
                                                 m.inputs[i].name,
@@ -256,9 +272,39 @@ pub(crate) fn merge_format(m: &Merger, recs: &[P<'_>], al: &Alleles) -> Result<F
                                                 n_ori
                                             ));
                                         }
+                                        if haploid {
+                                            (
+                                                n_alt + 1,
+                                                (0..toks.len())
+                                                    .map(|j| (j < n_ori).then(|| map[j]))
+                                                    .collect(),
+                                                unkn_of(k),
+                                            )
+                                        } else {
+                                            let mut v = Vec::new();
+                                            'g: for b in 0..n_ori {
+                                                for a in 0..=b {
+                                                    if v.len() == toks.len() {
+                                                        break 'g;
+                                                    }
+                                                    let (x, y) = (map[a], map[b]);
+                                                    let (lo, hi) =
+                                                        if x <= y { (x, y) } else { (y, x) };
+                                                    v.push(Some(hi * (hi + 1) / 2 + lo));
+                                                }
+                                            }
+                                            (
+                                                (n_alt + 1) * (n_alt + 2) / 2,
+                                                v,
+                                                unkn_of(k).map(|u| (u + 1) * (u + 2) / 2 - 1),
+                                            )
+                                        }
                                     }
                                 };
-                                let mut v: Vec<Option<&[u8]>> = vec![None; len];
+                                // An unknown allele (<NON_REF>, <*>) the sample carries gives
+                                // its value to every merged allele the sample lacks.
+                                let fill = fill_at.and_then(|ix| toks.get(ix).copied());
+                                let mut v: Vec<Option<&[u8]>> = vec![fill; len];
                                 for (t, sl) in toks.iter().zip(slots) {
                                     if let Some(sl) = sl {
                                         v[sl] = Some(t);
