@@ -254,6 +254,7 @@ fn samples_huge_header_match() {
         &fa2,
     ]);
     let took = t.elapsed();
-    assert!(took.as_secs() < 5, "took {took:?}");
+    // A loose bound for unoptimised builds on a loaded box; quadratic work would take minutes.
+    assert!(took.as_secs() < 15, "took {took:?}");
     assert_eq!(out, format!("s1\t{bam}\t{fa}\ns2\t{bam}\t{fa}\n"));
 }

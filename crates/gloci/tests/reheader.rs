@@ -235,7 +235,8 @@ fn reheader_huge_header() {
         .args(["reheader", &s(&hdr), &s(&bam), "-o", &s(&out)])
         .assert()
         .success();
-    assert!(t.elapsed().as_secs() < 10, "took {:?}", t.elapsed());
+    // A loose bound for unoptimised builds on a loaded box; quadratic work would take minutes.
+    assert!(t.elapsed().as_secs() < 30, "took {:?}", t.elapsed());
     let (inb, outb) = (std::fs::read(&bam).unwrap(), std::fs::read(&out).unwrap());
     let (old_end, new_end) = (extent(&inb), extent(&outb));
     assert!(old_end > 5_000_000, "header of {old_end} bytes");

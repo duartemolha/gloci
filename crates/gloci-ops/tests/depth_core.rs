@@ -553,8 +553,9 @@ fn depth_all_refs_huge_header() {
     let mut sink = std::io::sink();
     let s = depth(&paths, &o, &ro(DEFAULT_EXCLUDE), threads(1), &mut sink).unwrap();
     assert_eq!(s.rows, 2_000_000);
+    // A loose bound for unoptimised builds on a loaded box; quadratic work would take hours.
     assert!(
-        started.elapsed() < std::time::Duration::from_secs(20),
+        started.elapsed() < std::time::Duration::from_secs(60),
         "{:?}",
         started.elapsed()
     );

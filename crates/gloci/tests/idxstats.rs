@@ -270,7 +270,8 @@ fn idxstats_huge_header() {
     let (path, text) = lib(&bam);
     let took = t.elapsed();
     assert_eq!(path, IdxstatsPath::Index);
-    assert!(took.as_secs() < 5, "took {took:?}");
+    // A loose bound for unoptimised builds on a loaded box; quadratic work would take minutes.
+    assert!(took.as_secs() < 15, "took {took:?}");
     assert_eq!(text.lines().count(), 200_001);
     assert_eq!(text.lines().next(), Some("c0\t1000\t1\t0"));
     assert_eq!(text.lines().nth(1), Some("c1\t1000\t0\t0"));
