@@ -5738,3 +5738,270 @@ fn p3b_broken_pipe_matrix() {
     }
     assert!(ran >= 25, "ran {ran} broken-pipe cases");
 }
+
+/// Lines of a text output that are not `##glociCommand`.
+fn p3b_text(bytes: &[u8]) -> String {
+    String::from_utf8(without_command(bytes)).unwrap()
+}
+
+fn p3b_header_lines(bytes: &[u8]) -> Vec<String> {
+    p3b_text(bytes)
+        .lines()
+        .filter(|l| l.starts_with('#'))
+        .map(String::from)
+        .collect()
+}
+
+/// Empty inputs: nothing to report is success, with the header or table a downstream reader
+/// expects; asking for more records than there are is an error that writes nothing.
+#[test]
+fn p3b_empty_inputs_matrix() {
+    let fx = P2::new();
+    let genome = fx.plain("g.genome", "chr1\t1000\nchr2\t1000\n");
+    let a = fx.plain(
+        "a.bed",
+        "chr1\t10\t50\ta1\t100\t+\nchr1\t60\t100\ta2\t200\t-\n",
+    );
+    let pe = fx.plain("a.bedpe", "chr1\t10\t50\tchr1\t60\t100\tp\t1\t+\t-\n");
+    let empty = fx.plain("empty.bed", "");
+    let empty_gz = fx.bgzf("empty.bed.gz", "");
+    let empty_pe = fx.plain("empty.bedpe", "");
+    let empty_pe_gz = fx.bgzf("empty.bedpe.gz", "");
+    let hdr = p2_vcf(1..=1, 0);
+    let hv = fx.plain("h.vcf", &hdr);
+    let hv_gz = fx.bgzf("h.vcf.gz", &hdr);
+    let hv_bcf = fx.bcf("h.bcf", &hdr);
+    let hv2 = fx.plain("h2.vcf", &p3b_rename_samples(&hdr));
+    let one = fx.plain("one.vcf", &p2_vcf(1..=1, 3));
+    let sam = fx.plain(
+        "h.sam",
+        "@HD\tVN:1.6\tSO:queryname\n@SQ\tSN:chr1\tLN:1000\n",
+    );
+    let fasta = p3b_fasta(fx.dir.path());
+    let g = genome.as_str();
+    let jaccard_empty = "intersection\tunion\tjaccard\tn_intersections\n0\t0\tnan\t0\n";
+    let jaccard_a_only = "intersection\tunion\tjaccard\tn_intersections\n0\t80\t0\t0\n";
+    let reldist_head = "reldist\tcount\ttotal\tfraction\n";
+
+    for (kind, e, epe) in [
+        ("plain", &empty, &empty_pe),
+        ("bgzf", &empty_gz, &empty_pe_gz),
+    ] {
+        for t in ["1", "8"] {
+            let run = |args: &[&str]| stdout_with(args, t);
+            // statistics
+            for (x, y, want) in [(e, e, jaccard_empty), (&a, e, jaccard_a_only), (e, &a, jaccard_a_only)] {
+                assert_eq!(
+                    String::from_utf8(run(&["stats", "jaccard", "-a", x, "-b", y])).unwrap(),
+                    want,
+                    "{kind} jaccard"
+                );
+            }
+            for (x, y) in [(e, e), (e, &a), (&a, e)] {
+                let f = String::from_utf8(run(&["stats", "fisher", "-g", g, "-a", x, "-b", y]))
+                    .unwrap();
+                assert!(f.contains("left\tright\ttwo-tail\tratio\n1\t1\t1\t"), "{f}");
+                assert!(f.contains("# Number of overlaps: 0\n"), "{f}");
+                let r = String::from_utf8(run(&["stats", "reldist", "-a", x, "-b", y])).unwrap();
+                assert_eq!(r, reldist_head, "{kind} reldist");
+                assert!(
+                    run(&["stats", "reldist", "-a", x, "-b", y, "--detail"]).is_empty(),
+                    "{kind} reldist --detail"
+                );
+                assert_eq!(
+                    String::from_utf8(run(&["stats", "reldist", "-a", x, "-b", y, "--sort"]))
+                        .unwrap(),
+                    reldist_head
+                );
+            }
+            // randomness: nothing in, nothing out; nothing asked for, nothing out
+            assert!(run(&["random", "-g", g, "-n", "0", "--seed", "1"]).is_empty());
+            assert!(run(&["sample", "-n", "0", e, "--seed", "1"]).is_empty());
+            assert!(run(&["shuffle", "-g", g, e, "--seed", "1"]).is_empty());
+            assert!(run(&["shuffle", "-g", g, "--format", "bedpe", epe, "--seed", "1"]).is_empty());
+            // pairs
+            for ty in ["either", "both", "xor", "neither", "notboth", "ispan", "notospan"] {
+                assert!(
+                    run(&["pair-intersect", "-a", epe, "-b", &a, "--type", ty]).is_empty(),
+                    "{kind} pair-intersect {ty}: empty A"
+                );
+            }
+            for ty in ["both", "either", "neither", "notboth"] {
+                assert!(
+                    run(&["pair-pair", "-a", epe, "-b", &pe, "--type", ty]).is_empty(),
+                    "{kind} pair-pair {ty}: empty A"
+                );
+            }
+        }
+    }
+    // an empty B: pairs with nothing to hit are the "neither" rows, and the rest write nothing
+    let pe_row = "chr1\t10\t50\tchr1\t60\t100\tp\t1\t+\t-\n";
+    for e in [&empty, &empty_gz] {
+        assert_eq!(
+            String::from_utf8(run_stdout(&[
+                "pair-intersect", "-a", &pe, "-b", e, "--type", "neither"
+            ]))
+            .unwrap(),
+            pe_row
+        );
+        assert!(run_stdout(&["pair-intersect", "-a", &pe, "-b", e]).is_empty());
+        assert!(run_stdout(&["pair-intersect", "-a", &pe, "-b", e, "--type", "both"]).is_empty());
+    }
+    for e in [&empty_pe, &empty_pe_gz] {
+        assert_eq!(
+            String::from_utf8(run_stdout(&[
+                "pair-pair", "-a", &pe, "-b", e, "--type", "neither"
+            ]))
+            .unwrap(),
+            pe_row
+        );
+        assert!(run_stdout(&["pair-pair", "-a", &pe, "-b", e]).is_empty());
+    }
+    // -o with empty input: the file exists and is empty (or holds only the table)
+    for (args, ext, len) in [
+        (vec!["pair-intersect", "-a", &empty_pe, "-b", &a], "bedpe", 0),
+        (vec!["pair-pair", "-a", &empty_pe, "-b", &pe], "bedpe", 0),
+        (vec!["sample", "-n", "0", &empty, "--seed", "1"], "bed", 0),
+        (vec!["shuffle", "-g", g, &empty, "--seed", "1"], "bed", 0),
+        (vec!["random", "-g", g, "-n", "0", "--seed", "1"], "bed", 0),
+        (
+            vec!["stats", "jaccard", "-a", &empty, "-b", &empty],
+            "tsv",
+            jaccard_empty.len() as u64,
+        ),
+    ] {
+        let d = tempdir();
+        let out = s_of(&d.path().join(format!("o.{ext}")));
+        let o = gloci().args(&args).args(["-o", &out]).output().unwrap();
+        assert_eq!(
+            o.status.code(),
+            Some(0),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&o.stderr)
+        );
+        assert_eq!(std::fs::metadata(&out).unwrap().len(), len, "{args:?}");
+    }
+    // sampling more than there is: an error, with nothing written
+    for (name, input) in [("bed", &empty), ("bed.gz", &empty_gz), ("vcf", &hv)] {
+        let d = tempdir();
+        let out = s_of(&d.path().join(if name == "vcf" { "o.vcf" } else { "o.bed" }));
+        for t in ["1", "4"] {
+            let o = gloci()
+                .args(["sample", "-n", "1", input, "--seed", "1", "-t", t, "-o", &out])
+                .output()
+                .unwrap();
+            let err = String::from_utf8_lossy(&o.stderr);
+            assert_eq!(o.status.code(), Some(1), "sample {name}: {err}");
+            assert!(
+                err.contains("fewer than the 1 requested with -n") && err.contains("nothing was written"),
+                "sample {name}: {err}"
+            );
+            assert_eq!(std::fs::read_dir(d.path()).unwrap().count(), 0, "sample {name}");
+        }
+    }
+    // a record-less alignment file gives no pairs
+    for t in ["1", "8"] {
+        assert!(stdout_with(&["convert", "--bedpe", &sam], t).is_empty());
+    }
+
+    // header-only VCF in every flavour: the commands keep the header and write no records
+    let want_header: Vec<String> = hdr.lines().map(String::from).collect();
+    for v in [&hv, &hv_gz, &hv_bcf] {
+        for t in ["1", "8"] {
+            let run = |args: &[&str]| stdout_with(args, t);
+            let keeps: Vec<(&str, Vec<&str>)> = vec![
+                ("split", vec!["vcf", "split", v, "-O", "vcf"]),
+                ("split --types", vec!["vcf", "split", v, "--types", "snps", "-O", "vcf"]),
+                (
+                    "norm",
+                    vec!["vcf", "norm", v, "-f", &fasta, "-O", "vcf"],
+                ),
+                (
+                    "norm --split",
+                    vec!["vcf", "norm", v, "-f", &fasta, "--split", "-O", "vcf"],
+                ),
+                (
+                    "annotate",
+                    vec!["vcf", "annotate", v, "-a", &one, "-c", "ID", "-O", "vcf"],
+                ),
+                (
+                    "annotate (empty source)",
+                    vec!["vcf", "annotate", &one, "-a", v, "-c", "ID", "-O", "vcf"],
+                ),
+                ("filter", vec!["vcf", "filter", v, "--min-qual", "3", "-O", "vcf"]),
+                ("sample --header", vec!["sample", "-n", "0", "--header", v, "--seed", "1", "-O", "vcf"]),
+            ];
+            for (name, args) in &keeps {
+                if name.starts_with("sample") && v.ends_with(".bcf") {
+                    continue; // sample writes records in the input's own format
+                }
+                let out = run(args);
+                let got = p3b_header_lines(&out);
+                let records = p3b_text(&out).lines().filter(|l| !l.starts_with('#')).count();
+                assert_eq!(records, if name.starts_with("annotate (") { 3 } else { 0 }, "{name} {v}");
+                let want: &[String] = if name.starts_with("annotate (") {
+                    &p2_vcf(1..=1, 0).lines().map(String::from).collect::<Vec<_>>()
+                } else {
+                    &want_header
+                };
+                // the output may add header lines (annotate, norm, split) but keeps these
+                for l in want {
+                    assert!(got.contains(l), "{name} -t {t}: lost `{l}`");
+                }
+            }
+            // merge of two header-only files: both samples, no records
+            let out = run(&["vcf", "merge", v, &hv2, "-O", "vcf"]);
+            let head = p3b_header_lines(&out);
+            assert!(
+                head.last().unwrap().ends_with("FORMAT\ts1\ts2\ts3\tt1\tt2\tt3"),
+                "{head:?}"
+            );
+            assert_eq!(
+                p3b_text(&out).lines().filter(|l| !l.starts_with('#')).count(),
+                0
+            );
+        }
+        // extract writes its header row and no data row
+        assert_eq!(
+            String::from_utf8(run_stdout(&["vcf", "extract", v, "--info", "DP"])).unwrap(),
+            "CHROM\tPOS\tID\tREF\tALT\tDP\n"
+        );
+        // the files of stats and compare hold their headers, no rows
+        let d = tempdir();
+        let p = s_of(&d.path().join("s"));
+        gloci()
+            .args(["vcf", "stats", v, "--out-prefix", &p, "--freq", "--site-quality", "--het", "--missing-indv"])
+            .assert()
+            .success();
+        for (ext, rows) in [("frq", 1), ("lqual", 1), ("het", 1), ("imiss", 4)] {
+            let t = std::fs::read_to_string(format!("{p}.{ext}")).unwrap();
+            assert_eq!(t.lines().count(), rows, ".{ext}: {t}");
+        }
+        for (x, y) in [(v, v), (v, &one), (&one, v)] {
+            let d = tempdir();
+            let p = s_of(&d.path().join("c"));
+            for t in ["1", "8"] {
+                gloci()
+                    .args(["vcf", "compare", x, y, "--out-prefix", &p, "-t", t])
+                    .assert()
+                    .success();
+                let sites = std::fs::read_to_string(format!("{p}.diff.sites")).unwrap();
+                assert!(sites.starts_with("CHROM\tPOS\tFILES\t"), "{sites}");
+                // records on one side only are not discordant: no site has two files
+                assert!(
+                    sites.lines().skip(1).all(|l| l.split('\t').nth(2) != Some("B") || x != y),
+                    "{sites}"
+                );
+                for ext in ["diff.indv", "diff.discordance_matrix"] {
+                    assert!(std::path::Path::new(&format!("{p}.{ext}")).exists(), "{ext}");
+                }
+            }
+        }
+    }
+    // an empty source annotates nothing and an empty VCF annotates to the header
+    let out = run_stdout(&["vcf", "annotate", &one, "-a", &hv, "-c", "ID"]);
+    assert_eq!(
+        p3b_text(&out).lines().filter(|l| !l.starts_with('#')).collect::<Vec<_>>(),
+        p2_vcf(1..=1, 3).lines().filter(|l| !l.starts_with('#')).collect::<Vec<_>>()
+    );
+}
