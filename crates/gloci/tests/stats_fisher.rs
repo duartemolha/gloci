@@ -244,3 +244,29 @@ fn fisher_is_identical_at_every_thread_count() {
         assert!(outs[0].starts_with("# Number of query intervals: "));
     }
 }
+
+#[test]
+fn fisher_empty_a_and_b_estimate() {
+    let fx = Fx::new();
+    // bedtools' value is undefined behaviour (differs by CPU); gloci gives n11 + n12 + n21.
+    let r = fx.run("", B, &[]);
+    assert_eq!(
+        estimate(&r),
+        "# Number of possible intervals (estimated): 3"
+    );
+    assert!(
+        r.contains("# not in -a | 3            | 0            |\n"),
+        "{r}"
+    );
+    assert_eq!(last_line(&r), "1\t1\t1\t-nan");
+    let r = fx.run(A, "", &[]);
+    assert_eq!(
+        estimate(&r),
+        "# Number of possible intervals (estimated): 3"
+    );
+    assert!(
+        r.contains("#     in -a | 0            | 3            |\n"),
+        "{r}"
+    );
+    assert_eq!(last_line(&r), "1\t1\t1\t-nan");
+}

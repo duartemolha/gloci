@@ -6131,21 +6131,12 @@ gloci = "gloci stats fisher -a input.bed -b fisher-bu.bed -g fisher-genome.txt -
 reference = "bedtools fisher -a input.bed -b fisher-bu.bed -g fisher-genome.txt -s -m"
 compare = "exact"
 
-# bedtools estimates an empty side's n22_full as NaN; C turns that into a platform value.
+# bedtools fisher -S wants a + or - argument and exits 1 without one; gloci's -S is a flag.
 [[case]]
-name = "stats-fisher-empty-a-vs-bedtools"
-input = { file = "xtask/diff/inputs/p3b/stats/fisher-empty.bed" }
-aux = ["xtask/diff/inputs/p3b/stats/fisher-b.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
-gloci = "gloci stats fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt"
-reference = "bedtools fisher -a input.bed -b fisher-b.bed -g fisher-genome.txt"
-compare = "exact"
-expected_difference = "#fisher-empty-estimate"
-
-[[case]]
-name = "stats-fisher-empty-b-vs-bedtools"
-input = { file = "xtask/diff/inputs/p3b/stats/fisher-a.bed" }
-aux = ["xtask/diff/inputs/p3b/stats/fisher-empty.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
-gloci = "gloci stats fisher -a input.bed -b fisher-empty.bed -g fisher-genome.txt"
-reference = "bedtools fisher -a input.bed -b fisher-empty.bed -g fisher-genome.txt"
-compare = "exact"
+name = "stats-fisher-opposite-strand-flag-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/stats/fisher-au.bed" }
+aux = ["xtask/diff/inputs/p3b/stats/fisher-bu.bed", "xtask/diff/inputs/p3b/stats/fisher-genome.txt"]
+gloci = "gloci stats fisher -a input.bed -b fisher-bu.bed -g fisher-genome.txt -S"
+reference = "bedtools fisher -a input.bed -b fisher-bu.bed -g fisher-genome.txt -S"
+compare = "exit-status"
 expected_difference = "#fisher-empty-estimate"
