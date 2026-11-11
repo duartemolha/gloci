@@ -262,7 +262,7 @@ setup = "vcf --records 50000 --samples 2500 --seed 1 --chroms 1"
 input = "vcf.gz"
 targets = ["gloci <= 0.1 * vcftools-5runs"]
 [case.commands]
-gloci = "{gloci} vcf stats {in} --out-prefix {out} --freq --missing-site --missing-indv --het --tstv-summary"
+gloci = "{gloci} vcf stats -t 8 {in} --out-prefix {out} --freq --missing-site --missing-indv --het --tstv-summary"
 vcftools-5runs = "vcftools --gzvcf {in} --freq --out {out}.v1 && vcftools --gzvcf {in} --missing-site --out {out}.v2 && vcftools --gzvcf {in} --missing-indv --out {out}.v3 && vcftools --gzvcf {in} --het --out {out}.v4 && vcftools --gzvcf {in} --TsTv-summary --out {out}.v5"
 bcftools-stats = "bcftools stats -s - {in} > {out}"
 plink2 = "plink2 --vcf {in} --freq --missing --het --out {out}.plink"

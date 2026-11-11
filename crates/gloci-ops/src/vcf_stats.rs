@@ -11,13 +11,13 @@ use crate::vcf_select::{SelectStage, SelectedInput, VcfSelect, run_selection};
 use gloci_io::{AtomicFile, BcfDicts, IoError, Loc, StagedSet, UsageError};
 use gloci_vcf::{
     BcfSite, FilterSummary, Freq, GenoDepth, GtFields, Hardy, Heterozygosity, IndelHist,
-    MaskedGenotypes, MissingSample, MissingSite, RewritePlan, SampleDepth, Singletons, SiteDepth,
-    SiteMeanDepth, SiteQuality, SiteView, SnpDensity, Stat, StatSink, StatWrite, StatsEngine,
-    Summary, TsTv,
+    MissingSample, MissingSite, RewritePlan, SampleDepth, Singletons, SiteDepth, SiteMeanDepth,
+    SiteQuality, SiteView, SnpDensity, Stat, StatSink, StatWrite, StatsEngine, Summary, TsTv,
 };
 use std::cell::RefCell;
 use std::ffi::OsString;
 use std::io::{self, Write};
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -75,6 +75,8 @@ impl StatsRequest {
 #[derive(Clone, Debug)]
 pub struct StatsOptions {
     pub select: VcfSelect,
+    /// Threads the selection runs on (`None` = 1); see `SelectStage::set_threads`.
+    pub threads: Option<NonZeroUsize>,
     pub request: StatsRequest,
     /// Output files are `PREFIX.<extension>`.
     pub out_prefix: PathBuf,
@@ -284,11 +286,23 @@ pub fn vcf_stats(input: SelectedInput, o: &StatsOptions) -> Result<StatsSummary,
     // whenever a statistic needs them.
     let need_genotypes = o.request.needs_genotypes();
     let mut stage = SelectStage::new(COMMAND, reader.as_ref(), &o.select, &base, need_genotypes)?;
-    stage.share_decoded(decode_fields(o));
+    stage.set_threads(o.threads.unwrap_or(NonZeroUsize::MIN));
+    stage.decode_fields(decode_fields(o));
     let name = stage.name().to_string();
     let samples = selected_samples(&stage);
     let mut engine = StatsEngine::new(build_stats(&o.request, &samples));
     debug_assert_eq!(engine.needs_genotypes(), need_genotypes);
+    // On several threads the workers keep the per-sample counters of --depth,
+    // --missing-indv and --het; the records then carry no samples unless a
+    // statistic still reads them.
+    let indices: Vec<usize> = samples.iter().map(|(i, _)| *i).collect();
+    let tallied = stage.enable_tally(engine.tally_wants(), &indices);
+    if tallied {
+        engine.use_tally();
+    }
+    if engine.reads_genotypes() {
+        stage.share_decoded(decode_fields(o));
+    }
 
     let staged = Rc::new(RefCell::new(StagedSet::default()));
     let mut sink = PrefixSink {
@@ -330,15 +344,17 @@ pub fn vcf_stats(input: SelectedInput, o: &StatsOptions) -> Result<StatsSummary,
             return engine.site(&view, None, None).map_err(parse_err);
         }
         // Every selected sample was decoded by the selection stage.
-        let shared = hit.decoded.reader();
-        let masked = MaskedGenotypes {
-            inner: &shared,
-            masked: hit.masked,
-        };
         engine
-            .site(&view, Some(&masked), hit.stats)
-            .map_err(parse_err)
+            .site(&view, hit.genotypes(), hit.stats)
+            .map_err(parse_err)?;
+        if !hit.tally_called().is_empty() {
+            engine.called(hit.tally_called());
+        }
+        Ok(())
     })?;
+    if tallied {
+        engine.absorb(stage.tally());
+    }
     engine.finish().map_err(|e| write_err(&dest, e))?;
     drop(engine);
     drop(sink);

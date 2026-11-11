@@ -538,6 +538,18 @@ gloci vcf merge a.bcf b.bcf -i DP:sum,AF:avg -0 | gloci vcf stats - --out-prefix
 gloci vcf merge a.vcf.gz b.vcf.gz -f PASS,. -m id -o by-id.vcf.gz
 ```
 
+#### `gloci vcf compare`
+
+Compare the genotypes of two VCF/BCF files: per site, per sample and as a matrix (vcftools --diff-site-discordance, --diff-indv-discordance, --diff-discordance-matrix).
+
+Both files are read as sorted streams (the chromosome order of -g, else A's ##contig lines, else --chrom-order; an out-of-order record is exit 1 and names the file), so no index is needed. Sites are paired by --match: alleles (the default) pairs records at one CHROM and POS that share an ALT allele after trimming, position pairs as vcftools does (the same POS with the same REF, where a REF of N or . takes the other's). Discordance is counted over the sites in both files and the samples in both files (the union by name, after --sample-map renames B's samples). --thin needs both files to declare the same ##contig lines and no -g (exit 2 otherwise). A and B are always read on threads of their own, plus the thread that walks them, so -t 1 and -t 2 run three threads; more -t adds selection workers up to -t in all. A genotype is its unordered alleles, so 0/1 equals 1/0 and 0|1, and 0/1 of A>C,G equals 0/2 of A>G,C; any missing allele makes it missing (vcftools counts ./1 as called). --samples and --exclude-samples take names present in either file and apply to each file that has them; a name in neither is exit 2. With none of --site-discordance, --sample-discordance and --discordance-matrix, all three files are written, atomically and only when the whole run succeeds: PREFIX.diff.sites (CHROM POS FILES MATCHING_ALLELES N_COMMON_CALLED N_DISCORD DISCORDANCE, one row per site in both files, and per site in one file with zeros and nan), PREFIX.diff.indv (every sample of the union; one in a single file is 0, 0, nan) and PREFIX.diff.discordance_matrix (biallelic pairs of the same site: with --match alleles the same trimmed allele, so AT>A and ATG>AG count; with --match position the same REF and ALT text; haploid genotypes are not counted). Not available: vcftools --diff-site and --diff-indv (use gloci intersect and subtract --match alleles for sites, and the #CHROM lines for samples).
+
+```sh
+gloci vcf compare truth.vcf.gz calls.vcf.gz --out-prefix cmp
+gloci vcf compare a.bcf b.bcf --out-prefix cmp --sample-discordance --match position
+gloci vcf compare a.vcf.gz b.vcf.gz --out-prefix cmp --sample-map b-to-a.txt --samples s1,s2 --min-dp 10
+```
+
 ### `gloci stats`
 
 Statistics of interval sets (bedtools jaccard)
@@ -659,9 +671,8 @@ and the phase that builds it. The P2 command set, the packaging prerequisites,
 and P3a (BAM, CRAM and SAM input and output, FASTA, `getfasta`, `maskfasta`,
 `nuc`, `gloci cat`, and alignment `sort`, `sort -m`, `view`, `index`, `convert`,
 `intersect`, `coverage` and `genomecov`) are available, so the rows left are
-P3b (`stats`, `sample`, `random`, `shuffle`, BEDPE, `vcf popgen`,
-`vcf compare`), and then the rest of P2b (Python library, packaging, mdBook,
-paper evidence suite). BAM, CRAM and FASTA have their own section, [BAM, CRAM
+P3b (`sample`, `random`, `shuffle`, BEDPE, `vcf popgen`), and then the rest of
+P2b (Python library, packaging, mdBook, paper evidence suite). BAM, CRAM and FASTA have their own section, [BAM, CRAM
 and FASTA behaviour](#bam-cram-and-fasta-behaviour), after the tables.
 
 ### Sorting, indexing and viewing (htslib, bcftools, bedops, bedtools)
@@ -814,7 +825,10 @@ and FASTA behaviour](#bam-cram-and-fasta-behaviour), after the tables.
 | `--012` (writes `out.012`, `.012.indv`, `.012.pos`) | `gloci vcf extract FILE --genotype-matrix 012 --out-prefix out` (same files; haploid and half-missing reference calls count 0; [differences.md#vcf-extract-012](differences.md#vcf-extract-012)) |
 | `vcf-concat A.vcf.gz B.vcf.gz` | `gloci vcf concat A.vcf.gz B.vcf.gz -o OUT.vcf.gz` (identical samples; compatible header definitions; each file must start at or after the end of the one before, or it exits 1 with a `gloci sort` hint; inputs may be VCF, VCF.gz or BCF) |
 | `--site-pi`, `--window-pi`, `--TajimaD`, `--weir-fst-pop`, `--*-r2`, `--relatedness*` | not yet available (`vcf popgen`, P3b) |
-| `--diff*`, `vcf-compare` | not yet available (`vcf compare`, P3b) |
+| `--diff B` with `--diff-site-discordance` / `--diff-indv-discordance` / `--diff-discordance-matrix`, `--diff-indv-map FILE` | `gloci vcf compare A B --out-prefix P` with `--site-discordance` / `--sample-discordance` / `--discordance-matrix`, `--sample-map FILE` (`P.diff.sites`, `P.diff.indv`, `P.diff.discordance_matrix`, same columns; add `--match position` for vcftools' site pairing, which is not the default, [differences.md#compare-allele-matching](differences.md#compare-allele-matching); a half-missing `./1` is missing, [differences.md#compare-half-missing](differences.md#compare-half-missing)) |
+| `--diff B --diff-site` | sites in both files: `gloci intersect -a A -b B --match alleles`; in A only: `gloci subtract -a A -b B --match alleles` (swap A and B for B only) |
+| `--diff B --diff-indv` | the samples of each file are the `#CHROM` line: `gloci view --header-only FILE \| tail -n1 \| cut -f10-` (`vcf compare` lists the union in `P.diff.indv`) |
+| `vcf-compare` (text report) | not planned; the files above are the comparison |
 | `vcf-merge`, `--plink*`, `--IMPUTE`, `--BEAGLE-*`, `--ldhat*` | not planned |
 
 ### Filter expressions (bcftools `-i` / `-e`)

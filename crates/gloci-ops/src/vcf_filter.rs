@@ -10,6 +10,7 @@ use gloci_io::{
     UsageError, VcfHeader,
 };
 use gloci_vcf::{RewritePlan, rewrite_header, rewrite_text};
+use std::num::NonZeroUsize;
 
 const COMMAND: &str = "vcf filter";
 
@@ -18,6 +19,8 @@ const COMMAND: &str = "vcf filter";
 #[derive(Clone, Debug, Default)]
 pub struct VcfFilterOptions {
     pub select: VcfSelect,
+    /// Threads the selection runs on (`None` = 1); see `SelectStage::set_threads`.
+    pub threads: Option<NonZeroUsize>,
     /// INFO pruning and AC recalculation; `selection` and `mask` come from
     /// `select`.
     pub plan: RewritePlan,
@@ -119,6 +122,7 @@ fn filter(
         &o.plan,
         o.plan.recalc_ac,
     )?;
+    stage.set_threads(o.threads.unwrap_or(NonZeroUsize::MIN));
     let plan = stage.plan().clone();
     let input_is_bcf = stage.input_is_bcf();
     let output_is_bcf = w.is_bcf();

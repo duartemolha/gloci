@@ -1580,6 +1580,121 @@ Examples:
   gloci vcf merge a.bcf b.bcf -i DP:sum,AF:avg -0 | gloci vcf stats - --out-prefix qc
   gloci vcf merge a.vcf.gz b.vcf.gz -f PASS,. -m id -o by-id.vcf.gz")]
     Merge(VcfMergeArgs),
+    /// Compare the genotypes of two VCF/BCF files: per site, per sample and
+    /// as a matrix (vcftools --diff-site-discordance, --diff-indv-discordance,
+    /// --diff-discordance-matrix).
+    ///
+    /// Both files are read as sorted streams (the chromosome order of -g,
+    /// else A's ##contig lines, else --chrom-order; an out-of-order record is
+    /// exit 1 and names the file), so no index is needed. Sites are paired by
+    /// --match: alleles (the default) pairs records at one CHROM and POS that
+    /// share an ALT allele after trimming, position pairs as vcftools does (the
+    /// same POS with the same REF, where a REF of N or . takes the other's).
+    /// Discordance is counted over the sites in both files and the samples in
+    /// both files (the union by name, after --sample-map renames B's samples).
+    /// --thin needs both files to declare the same ##contig lines and no -g
+    /// (exit 2 otherwise). A and B are always read on threads of their own, plus the thread that
+    /// walks them, so -t 1 and -t 2 run three threads; more -t adds selection
+    /// workers up to -t in all.
+    /// A genotype is its unordered alleles, so 0/1 equals 1/0 and 0|1, and
+    /// 0/1 of A>C,G equals 0/2 of A>G,C; any missing allele makes it missing
+    /// (vcftools counts ./1 as called). --samples and --exclude-samples take
+    /// names present in either file and apply to each file that has them; a
+    /// name in neither is exit 2. With none of --site-discordance,
+    /// --sample-discordance and --discordance-matrix, all three files are
+    /// written, atomically and only when the whole run succeeds:
+    /// PREFIX.diff.sites (CHROM POS FILES MATCHING_ALLELES N_COMMON_CALLED
+    /// N_DISCORD DISCORDANCE, one row per site in both files, and per site in
+    /// one file with zeros and nan), PREFIX.diff.indv (every sample of the
+    /// union; one in a single file is 0, 0, nan) and
+    /// PREFIX.diff.discordance_matrix (biallelic pairs of the same site:
+    /// with --match alleles the same trimmed allele, so AT>A and ATG>AG
+    /// count; with --match position the same REF and ALT text; haploid
+    /// genotypes are not counted). Not available: vcftools
+    /// --diff-site and --diff-indv (use gloci intersect and subtract --match
+    /// alleles for sites, and the #CHROM lines for samples).
+    #[command(after_long_help = "\
+Examples:
+  gloci vcf compare truth.vcf.gz calls.vcf.gz --out-prefix cmp
+  gloci vcf compare a.bcf b.bcf --out-prefix cmp --sample-discordance --match position
+  gloci vcf compare a.vcf.gz b.vcf.gz --out-prefix cmp --sample-map b-to-a.txt --samples s1,s2 --min-dp 10")]
+    Compare(Box<VcfCompareArgs>),
+}
+
+/// `vcf compare --match`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum CompareMatchArg {
+    Alleles,
+    Position,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct VcfCompareArgs {
+    /// The first VCF or BCF file (`-` for stdin), sorted.
+    #[arg(value_name = "A")]
+    pub a: String,
+    /// The second VCF or BCF file, sorted in the same chromosome order (`-`
+    /// is allowed for one of the two).
+    #[arg(value_name = "B")]
+    pub b: String,
+
+    /// Applies to both files: samples, genotype masks, site filters,
+    /// expressions and regions.
+    #[command(flatten)]
+    pub select: VcfSelectArgs,
+
+    /// Prefix of the output files, PREFIX.diff.sites, PREFIX.diff.indv and
+    /// PREFIX.diff.discordance_matrix. An existing file of the same name is
+    /// replaced.
+    #[arg(long, value_name = "PREFIX", required = true)]
+    pub out_prefix: PathBuf,
+
+    /// How sites of the two files are paired: alleles (the same CHROM and
+    /// POS and a shared ALT allele; each record of A takes the first unmatched
+    /// match in B) or position (vcftools: the same POS and REF).
+    #[arg(
+        long = "match",
+        value_enum,
+        default_value = "alleles",
+        value_name = "RULE"
+    )]
+    pub match_rule: CompareMatchArg,
+
+    /// Rename samples of B to their names in A: two columns, the name in B
+    /// then the name in A, whitespace-separated, `#` comments allowed
+    /// (vcftools --diff-indv-map). A sample of B the file does not name keeps
+    /// its name.
+    #[arg(long, visible_alias = "diff-indv-map", value_name = "FILE")]
+    pub sample_map: Option<PathBuf>,
+
+    /// Write PREFIX.diff.sites: per site, the common called genotypes and
+    /// the discordant ones (vcftools --diff-site-discordance).
+    #[arg(long, visible_alias = "diff-site-discordance")]
+    pub site_discordance: bool,
+    /// Write PREFIX.diff.indv: per sample, the same over the shared sites
+    /// (vcftools --diff-indv-discordance).
+    #[arg(long, visible_alias = "diff-indv-discordance")]
+    pub sample_discordance: bool,
+    /// Write PREFIX.diff.discordance_matrix: genotype of B (rows) by genotype
+    /// of A (columns), 0/0, 0/1, 1/1 and ./. (vcftools
+    /// --diff-discordance-matrix).
+    #[arg(long, visible_alias = "diff-discordance-matrix")]
+    pub discordance_matrix: bool,
+
+    /// Which footprint a VCF record covers, which only matters for --region;
+    /// the default ref accepts symbolic ALTs without INFO/END.
+    #[arg(long, value_enum, default_value = "ref", value_name = "MODE")]
+    pub vcf_span: VcfSpan,
+    #[command(flatten)]
+    pub genome: GenomeArg,
+    #[command(flatten)]
+    pub chrom_order: ChromOrderArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
 }
 
 #[derive(Args, Debug, Clone)]

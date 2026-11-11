@@ -1,8 +1,8 @@
 mod common;
 use common::*;
 use gloci_vcf::{
-    GenotypeSource, GtFields, SampleCache, SampleFields, bcf_genotypes, text_genotypes,
-    text_genotypes_with,
+    GenotypeSource, GtFields, MaskedGenotypes, PackedGenotypes, SampleCache, SampleFields,
+    bcf_genotypes, text_genotypes, text_genotypes_with,
 };
 
 type Row = (
@@ -422,4 +422,85 @@ fn gt_only_decoding_skips_optional_fields_and_keeps_gt() {
     }
     let rows = all(&dp_only);
     assert_eq!((rows[0].1, rows[0].2, rows[0].3), (Some(5), None, true));
+}
+
+#[test]
+fn packed_roundtrip() {
+    // Mixed ploidy, phased and unphased, alleles over 63, DP/GQ/FT, a
+    // missing sample, and a masked one.
+    let mut l1 = line(
+        "GT:DP:GQ:FT",
+        &[
+            "0|1:5:20:PASS",
+            "70/200:9:30:LowQ",
+            ".",
+            "1:7:11:.",
+            "0/1/2:1:2:PASS",
+            "./.:.:.:PASS",
+            ".|.:4:5:PASS",
+            "4294967294/0:3:3:PASS",
+        ],
+    );
+    // Make the site list 201 alleles' worth is not needed: the arena does not check.
+    let l2 = line(
+        "GT:DP",
+        &["1/1:7", "0/0:3", "0/1:4", "1|1:8", "0", ".", "2|0", "1/0"],
+    );
+    let l3 = line("GT", &["0/1"]);
+    let mut arena = PackedGenotypes::default();
+    let mut expect = Vec::new();
+    let masks: [Vec<bool>; 3] = [
+        vec![false, true, false, false, true, false, false, false],
+        vec![],
+        vec![true],
+    ];
+    for (l, m) in [&l1, &l2, &l3].into_iter().zip(&masks) {
+        let t = text_genotypes(l).unwrap();
+        let slot = arena.push_record(&t, GtFields::ALL, m).unwrap();
+        expect.push((
+            slot,
+            all(&MaskedGenotypes {
+                inner: &t,
+                masked: m,
+            }),
+        ));
+    }
+    let mut sf = SampleFields::default();
+    for (slot, want) in &expect {
+        let rec = arena.record(*slot);
+        assert_eq!(&all(&rec), want);
+        for (i, m) in masks[expect.iter().position(|(s, _)| s == slot).unwrap()]
+            .iter()
+            .enumerate()
+        {
+            rec.sample(i, &mut sf).unwrap();
+            assert_eq!(sf.masked, *m, "masked flag of sample {i}");
+        }
+        assert!(rec.sample(want.len(), &mut sf).is_err());
+    }
+    // A field left out of `fields` reads as absent.
+    let t = text_genotypes(&l1).unwrap();
+    let slot = arena.push_record(&t, GtFields::GT_ONLY, &[]).unwrap();
+    let rec = arena.record(slot);
+    rec.sample(0, &mut sf).unwrap();
+    assert_eq!((sf.dp, sf.gq), (None, None));
+    // `keep` decodes only the samples it marks.
+    let keep = [true, false, true, false, false, false, false, false];
+    let slot = arena
+        .push_record_selected(&t, GtFields::ALL, &[], Some(&keep))
+        .unwrap();
+    let rec = arena.record(slot);
+    // Reading a sample the selection did not decode is a bug, as in SampleCache.
+    let e = rec.sample(1, &mut sf).unwrap_err();
+    assert!(e.contains("sample 2") && e.contains("not decoded"), "{e}");
+    rec.sample(0, &mut sf).unwrap();
+    assert_eq!(sf.gt.as_ref().unwrap().alleles, vec![Some(0), Some(1)]);
+    // A malformed sample fails the record and leaves the arena as it was.
+    l1.extend_from_slice(b"\tx/y");
+    let before = arena.n_samples_held();
+    let bad = text_genotypes(&l1).unwrap();
+    assert!(arena.push_record(&bad, GtFields::ALL, &[]).is_err());
+    assert_eq!(arena.n_samples_held(), before);
+    arena.clear();
+    assert_eq!(arena.n_samples_held(), 0);
 }
