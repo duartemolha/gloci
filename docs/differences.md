@@ -1934,9 +1934,11 @@ depends on the span.
     records;
   - the Golomb, Subexp and Golomb-Rice encodings, which htslib never writes (rewrite the
     file with `samtools view -C`);
-  - CRAM 2.0 and 2.1 files, where the commands that read only the header (`reheader`) say
-    "x.cram is CRAM 2.1, which gloci does not read (it reads CRAM 3.0 and 3.1); convert it
-    with samtools view -C" (pinned by the test `cram_2x_is_refused_by_name_and_version`).
+  - CRAM 2.0 and 2.1 files: every command, including those that read only the header
+    (`reheader`, `head`, `samples`, `check --quick`), says "x.cram is CRAM 2.1, which gloci
+    does not read; it reads CRAM 3.0 and 3.1; rewrite it with: samtools view -C -T ref.fa
+    --output-fmt-option version=3.0 -o x3.cram x.cram" (pinned by the test
+    `cram_2x_is_refused_by_name_and_version`).
 - **Old behaviour:** samtools decodes a read however far past the end it runs, and reads the
   other encodings and CRAM 2.x.
 - **Remaining risk:** gloci checks every container, block and slice header (each has a

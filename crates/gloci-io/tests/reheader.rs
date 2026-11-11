@@ -206,6 +206,24 @@ fn cram_2x_is_refused_by_name_and_version() {
     f.extend_from_slice(&[b'x'; 20]);
     f.extend_from_slice(&[0u8; 60]);
     std::fs::write(&p, &f).unwrap();
+    // One message, wherever the version is read: the record readers' (frame.rs), with the
+    // reference the rewrite needs.
+    let ro = gloci_io::ReaderOptions {
+        accept: gloci_io::Accept {
+            alignments: Some(gloci_io::AlignOptions::default()),
+            ..gloci_io::Accept::default()
+        },
+        chrom_map: None,
+        threads: std::num::NonZeroUsize::MIN,
+        format: None,
+        vcf_span: gloci_core::VcfSpan::default(),
+        invalid: gloci_io::InvalidPolicy::Fail,
+    };
+    let path = p.display().to_string();
+    let reader = gloci_io::open_aln_source(&path, &ro)
+        .err()
+        .unwrap()
+        .to_string();
     for e in [
         read_cram_prelude(&p).unwrap_err(),
         gloci_io::check_cram_version(&p).unwrap_err(),
@@ -214,8 +232,10 @@ fn cram_2x_is_refused_by_name_and_version() {
         assert!(matches!(e, IoError::Detect { .. }));
         assert!(m.contains("old.cram is CRAM 2.1"), "{m}");
         assert!(
-            m.contains("CRAM 3.0 and 3.1") && m.contains("samtools view -C"),
+            m.contains("CRAM 3.0 and 3.1")
+                && m.contains("samtools view -C -T ref.fa --output-fmt-option version=3.0"),
             "{m}"
         );
+        assert_eq!(m, reader);
     }
 }

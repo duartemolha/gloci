@@ -1,26 +1,14 @@
 //! The start and end of a CRAM file, read without decoding anything: the file definition and the
 //! SAM header text (`head`, `samples`, `reheader`, `check --quick`), and the end-of-file
-//! container. Any version noodles reads (2.x and 3.x) is accepted, because these commands only
-//! move the header and look at the tail.
+//! container. Only CRAM 3.0 and 3.1 are read, as by every other CRAM reader: a 2.x file is
+//! refused by its file definition, with the record readers' message.
 
+use super::cram::{CRAM_EOF, unread_version};
 use crate::error::IoError;
 use noodles_cram as cram;
 use std::fs::File;
 use std::io::{self, BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
-
-/// The 38 bytes of a CRAM 3.x end-of-file container.
-const EOF_V3: [u8; 38] = [
-    0x0f, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0x0f, 0xe0, 0x45, 0x4f, 0x46, 0x00, 0x00, 0x00,
-    0x00, 0x01, 0x00, 0x05, 0xbd, 0xd9, 0x4f, 0x00, 0x01, 0x00, 0x06, 0x06, 0x01, 0x00, 0x01, 0x00,
-    0x01, 0x00, 0xee, 0x63, 0x01, 0x4b,
-];
-
-/// The 30 bytes of a CRAM 2.1 end-of-file container.
-const EOF_V2: [u8; 30] = [
-    0x0b, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0x0f, 0xe0, 0x45, 0x4f, 0x46, 0x00, 0x00, 0x00,
-    0x00, 0x01, 0x00, 0x00, 0x01, 0x00, 0x06, 0x06, 0x01, 0x00, 0x01, 0x00, 0x01, 0x00,
-];
 
 /// The file definition and SAM header of a CRAM file.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,9 +22,9 @@ pub struct CramPrelude {
     pub data_start: u64,
 }
 
-/// Refuse a CRAM file older than 3.0 (read from its file definition), with a message that says
-/// what to do. noodles reads every container as CRAM 3, so a 2.x header would only fail as a
-/// generic decode error.
+/// Refuse a CRAM file of a version other than 3.0 and 3.1 (read from its file definition), with
+/// the message every CRAM reader gives. noodles reads every container as CRAM 3, so a 2.x header
+/// would only fail as a generic decode error.
 pub fn check_cram_version(path: &Path) -> Result<(), IoError> {
     let name = path.display().to_string();
     let mut start = [0u8; 6];
@@ -46,15 +34,11 @@ pub fn check_cram_version(path: &Path) -> Result<(), IoError> {
             path: name.clone(),
             source,
         })?;
-    if n == 6 && &start[..4] == b"CRAM" && start[4] < 3 {
-        return Err(IoError::Detect {
-            path: name.clone(),
-            msg: format!(
-                "{name} is CRAM {}.{}, which gloci does not read (it reads CRAM 3.0 and 3.1); \
-convert it with samtools view -C -o x3.cram {name}",
-                start[4], start[5]
-            ),
-        });
+    if n == 6
+        && &start[..4] == b"CRAM"
+        && let Some(e) = unread_version(&name, start[4], start[5])
+    {
+        return Err(e);
     }
     Ok(())
 }
@@ -130,27 +114,18 @@ after it); the file is probably truncated"
     })
 }
 
-/// Does the CRAM file `path` end with its end-of-file container: 38 bytes for CRAM 3.x, 30 for
-/// 2.1? Only the version bytes and the tail are read. CRAM 2.0 is checked like 2.1: any major
-/// version 2 uses the 30-byte container (htslib reads 2.0 and 2.1 alike).
+/// Does the CRAM file `path` end with the 38-byte CRAM 3 end-of-file container? Only the tail
+/// is read (a 2.x file never gets this far: [`check_cram_version`]).
 pub fn cram_eof_present(path: &Path) -> io::Result<bool> {
     let mut f = File::open(path)?;
     let len = f.metadata()?.len();
-    let mut start = [0u8; 6];
-    let n = f.read(&mut start)?;
-    // Version 2.0 is treated like 2.1 here: both end with the 30-byte container.
-    let tail: &[u8] = if n == 6 && start[4] == 2 {
-        &EOF_V2
-    } else {
-        &EOF_V3
-    };
-    if len < tail.len() as u64 {
+    if len < CRAM_EOF.len() as u64 {
         return Ok(false);
     }
-    f.seek(SeekFrom::Start(len - tail.len() as u64))?;
-    let mut buf = vec![0u8; tail.len()];
+    f.seek(SeekFrom::Start(len - CRAM_EOF.len() as u64))?;
+    let mut buf = [0u8; CRAM_EOF.len()];
     f.read_exact(&mut buf)?;
-    Ok(buf == tail)
+    Ok(buf == CRAM_EOF)
 }
 
 /// Read the container at `offset` (the first after the header: [`CramPrelude::data_start`]) as
