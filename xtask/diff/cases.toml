@@ -7450,3 +7450,19 @@ gloci = "gloci pair-pair --type both -a input.bedpe -b pp-b-order.bedpe"
 reference = "bedtools pairtopair -is -type both -a input.bedpe -b pp-b-order.bedpe"
 compare = "lines-unordered"
 
+
+[[case]]
+name = "pairtopair-fraction-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pp-a-frac.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pp-b-frac.bedpe"]
+gloci = "gloci pair-pair -f 0.5 -a input.bedpe -b pp-b-frac.bedpe"
+reference = "bedtools pairtopair -is -f 0.5 -a input.bedpe -b pp-b-frac.bedpe"
+compare = "exact"
+
+[[case]]
+name = "pairtopair-fraction-either-vs-bedtools"
+input = { file = "xtask/diff/inputs/p3b/pairs/pp-a-frac.bedpe" }
+aux = ["xtask/diff/inputs/p3b/pairs/pp-b-frac.bedpe"]
+gloci = "gloci pair-pair --type either -f 0.05 -a input.bedpe -b pp-b-frac.bedpe"
+reference = "bedtools pairtopair -is -type either -f 0.05 -a input.bedpe -b pp-b-frac.bedpe"
+compare = "exact"
