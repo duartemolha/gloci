@@ -207,7 +207,7 @@ fn past_end_reads_follow_convert() {
         // e1's READ1 straddles the end of chr1 (1,000 bases) and is cut; e2's READ1 starts at
         // the end, so it is an absent end: not in the score, no NM needed.
         let o = gloci()
-            .args(["convert", &aln(f), "--bedpe"])
+            .args(["convert", &aln(f), "--bedpe", "-v"])
             .assert()
             .success()
             .stderr(contains(
