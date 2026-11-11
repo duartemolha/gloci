@@ -1,0 +1,32 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##contig=<ID=1,length=100000>
+##contig=<ID=2,length=100000>
+##contig=<ID=3,length=100000>
+##FILTER=<ID=q10,Description="Quality below 10">
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Depth">
+##INFO=<ID=OLD,Number=1,Type=String,Description="An old tag">
+##INFO=<ID=FL,Number=0,Type=Flag,Description="A flag">
+##INFO=<ID=AFX,Number=A,Type=Float,Description="Existing allele frequency">
+##INFO=<ID=XA,Number=A,Type=Integer,Description="Existing allele counts">
+##INFO=<ID=TS,Number=1,Type=String,Description="Existing string">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read depth">
+##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype quality">
+##INFO=<ID=AF,Number=A,Type=Float,Description="Source allele frequency">
+##INFO=<ID=XR,Number=R,Type=Float,Description="Source per-allele values">
+##INFO=<ID=DB,Number=0,Type=Flag,Description="In the source database">
+##INFO=<ID=NAME,Number=1,Type=String,Description="Source name">
+##INFO=<ID=CNT,Number=A,Type=Integer,Description="Source allele counts">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	S1	S2
+1	100	.	A	G	10	.	DP=50;OLD=x;FL;AF=0.5;XR=0.1,0.2;DB;NAME=n1;CNT=7	GT:DP	0/1:3	1/1:4
+1	200	.	C	G	.	.	AF=0.7;NAME=n2b;CNT=3	GT	0/0	0/1
+1	200	idA	C	T,G	20	q10	DP=9;AFX=0.01,0.02;AF=0.2,0.1;XR=0.7,0.9,0.8;NAME=n2;CNT=2,1	GT:DP:GQ	1/2:4:30	0/0:5:20
+1	200	.	C	G	.	.	.	GT	0/1	1/1
+1	300	.	A	AT	.	.	DP=1	GT	0/1	0/1
+1	400	.	G	A,C	.	.	XA=9,9;TS=keep;AF=0.4,0.6;CNT=5,6	GT	1/2	0/1
+1	450	.	G	C,A	.	.	AFX=0.5,0.6;AF=0.3,0.1;XR=0.4,0.6,0.5;CNT=4,2	GT	0/1	1/2
+1	500	.	CA	C	30	PASS	DP=7;AF=0.2	GT	0/1	0/0
+1	501	.	A	G	.	.	.	GT	0/0	0/0
+2	50	.	T	C	.	.	DP=2;AF=0.9;DB	GT	0/1	0/1
+3	10	.	A	G	5	PASS	.	GT:DP:GQ	0/1:6:9	0/0:7:8

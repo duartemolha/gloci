@@ -1,0 +1,7 @@
+##fileformat=VCFv4.2
+##contig=<ID=1,length=100000>
+##INFO=<ID=AF,Number=A,Type=Float,Description="Source allele frequency">
+##INFO=<ID=SC,Number=1,Type=Float,Description="Score">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+1	100	rs1	A	G	99.50	.	AF=0.50;SC=1e-3
+1	300	rs3	A	AT	1.0	.	AF=0.10;SC=2.50

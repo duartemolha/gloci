@@ -5112,3 +5112,389 @@ reference = "bcftools norm --no-version -f ref.fa input.vcf"
 compare = "vcf-records"
 expected_difference = "#vcf-norm-edge-cases"
 
+
+# P3b Task 22: vcf annotate vs bcftools annotate --no-version (1.21)
+# file.vcf: two samples; C>T,G and two C>G at 1:200, an indel, a deletion, reordered ALTs at 1:450,
+# existing Number=A tags. src.vcf, ann.tab, pos.tab, regions.* hold what to transfer.
+# The reference needs bgzipped, indexed inputs for a VCF or positional tab source; gloci reads them plain.
+
+# Transfers from a VCF source pair on a shared allele. file.vcf has C>T,G, C>G and a duplicate C>G
+# at 1:200 against the source's C>G,T and C>G: the exact pair is written first, then the partial
+# pair, then the duplicate, as the synced reader orders them; 1:300 A>AT does not pair with the
+# source's A>T.
+[[case]]
+name = "vcf-annotate-vcf-id-qual-filter-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/src.vcf"]
+gloci = "gloci vcf annotate input.vcf -a src.vcf -c ID,QUAL,FILTER"
+reference = "bgzip -c input.vcf > f.vcf.gz && tabix -p vcf f.vcf.gz && bgzip -c src.vcf > s.vcf.gz && tabix -p vcf s.vcf.gz && bcftools annotate --no-version -a s.vcf.gz -c ID,QUAL,FILTER f.vcf.gz"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-vcf-info-all-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/src.vcf"]
+gloci = "gloci vcf annotate input.vcf -a src.vcf -c INFO"
+reference = "bgzip -c input.vcf > f.vcf.gz && tabix -p vcf f.vcf.gz && bgzip -c src.vcf > s.vcf.gz && tabix -p vcf s.vcf.gz && bcftools annotate --no-version -a s.vcf.gz -c INFO f.vcf.gz"
+compare = "vcf-records"
+
+# A flag the source record lacks is removed from the paired record (1:200 keeps no DB), as bcftools
+# does.
+[[case]]
+name = "vcf-annotate-vcf-info-tags-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/src.vcf"]
+gloci = "gloci vcf annotate input.vcf -a src.vcf -c INFO/AF,INFO/DB,INFO/NAME,INFO/DP"
+reference = "bgzip -c input.vcf > f.vcf.gz && tabix -p vcf f.vcf.gz && bgzip -c src.vcf > s.vcf.gz && tabix -p vcf s.vcf.gz && bcftools annotate --no-version -a s.vcf.gz -c INFO/AF,INFO/DB,INFO/NAME,INFO/DP f.vcf.gz"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-vcf-plus-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/src.vcf"]
+gloci = "gloci vcf annotate input.vcf -a src.vcf -c +ID,+QUAL,+FILTER,+INFO/DP,+INFO/NAME,+INFO/DB"
+reference = "bgzip -c input.vcf > f.vcf.gz && tabix -p vcf f.vcf.gz && bgzip -c src.vcf > s.vcf.gz && tabix -p vcf s.vcf.gz && bcftools annotate --no-version -a s.vcf.gz -c +ID,+QUAL,+FILTER,+INFO/DP,+INFO/NAME,+INFO/DB f.vcf.gz"
+compare = "vcf-records"
+
+# NEW:=OLD stores a source tag under another name, declaring it from the source's line; AFX exists,
+# so its values are overwritten allele by allele.
+[[case]]
+name = "vcf-annotate-vcf-rename-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/src.vcf"]
+gloci = "gloci vcf annotate input.vcf -a src.vcf -c NEW:=INFO/NAME,INFO/AFX:=INFO/AF,AC2:=CNT"
+reference = "bgzip -c input.vcf > f.vcf.gz && tabix -p vcf f.vcf.gz && bgzip -c src.vcf > s.vcf.gz && tabix -p vcf s.vcf.gz && bcftools annotate --no-version -a s.vcf.gz -c NEW:=INFO/NAME,INFO/AFX:=INFO/AF,AC2:=CNT f.vcf.gz"
+compare = "vcf-records"
+
+# With +, a Number=A Float keeps its existing values per allele; for Integer bcftools reads the
+# existing values as floats, fails, and overwrites them.
+[[case]]
+name = "vcf-annotate-vcf-rename-plus-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/src.vcf"]
+gloci = "gloci vcf annotate input.vcf -a src.vcf -c +AFX:=AF,+XA:=CNT"
+reference = "bgzip -c input.vcf > f.vcf.gz && tabix -p vcf f.vcf.gz && bgzip -c src.vcf > s.vcf.gz && tabix -p vcf s.vcf.gz && bcftools annotate --no-version -a s.vcf.gz -c +AFX:=AF,+XA:=CNT f.vcf.gz"
+compare = "vcf-records"
+
+# Number=R and A values follow their allele: 1:450 has ALT C,A against the source's A,C.
+[[case]]
+name = "vcf-annotate-vcf-number-r-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/src.vcf"]
+gloci = "gloci vcf annotate input.vcf -a src.vcf -c INFO/XR,INFO/CNT"
+reference = "bgzip -c input.vcf > f.vcf.gz && tabix -p vcf f.vcf.gz && bgzip -c src.vcf > s.vcf.gz && tabix -p vcf s.vcf.gz && bcftools annotate --no-version -a s.vcf.gz -c INFO/XR,INFO/CNT f.vcf.gz"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-vcf-skip-list-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/src.vcf"]
+gloci = "gloci vcf annotate input.vcf -a src.vcf -c ID,^INFO/DP,^INFO/DB"
+reference = "bgzip -c input.vcf > f.vcf.gz && tabix -p vcf f.vcf.gz && bgzip -c src.vcf > s.vcf.gz && tabix -p vcf s.vcf.gz && bcftools annotate --no-version -a s.vcf.gz -c ID,^INFO/DP,^INFO/DB f.vcf.gz"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-vcf-mark-listed-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/src.vcf"]
+gloci = "gloci vcf annotate input.vcf -a src.vcf -c ID -m +KNOWN"
+reference = "bgzip -c input.vcf > f.vcf.gz && tabix -p vcf f.vcf.gz && bgzip -c src.vcf > s.vcf.gz && tabix -p vcf s.vcf.gz && bcftools annotate --no-version -a s.vcf.gz -c ID -m +KNOWN f.vcf.gz"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-vcf-mark-unlisted-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/src.vcf"]
+gloci = "gloci vcf annotate input.vcf -a src.vcf -c ID -m -NOVEL"
+reference = "bgzip -c input.vcf > f.vcf.gz && tabix -p vcf f.vcf.gz && bgzip -c src.vcf > s.vcf.gz && tabix -p vcf s.vcf.gz && bcftools annotate --no-version -a s.vcf.gz -c ID -m -NOVEL f.vcf.gz"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-vcf-count-error-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/src-badcount.vcf"]
+gloci = "gloci vcf annotate input.vcf -a src-badcount.vcf -c INFO/AF"
+reference = "(bgzip -c input.vcf > f.vcf.gz && tabix -p vcf f.vcf.gz && bgzip -c src-badcount.vcf > s.vcf.gz && tabix -p vcf s.vcf.gz && bcftools annotate --no-version -a s.vcf.gz -c INFO/AF f.vcf.gz) >/dev/null 2>&1 || exit 1"
+compare = "exit-status"
+
+# bcftools prints floats with six significant digits; gloci copies the source's text.
+[[case]]
+name = "vcf-annotate-vcf-float-text-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/src-float.vcf"]
+gloci = "gloci vcf annotate input.vcf -a src-float.vcf -c QUAL,INFO"
+reference = "bgzip -c input.vcf > f.vcf.gz && tabix -p vcf f.vcf.gz && bgzip -c src-float.vcf > s.vcf.gz && tabix -p vcf s.vcf.gz && bcftools annotate --no-version -a s.vcf.gz -c QUAL,INFO f.vcf.gz"
+compare = "vcf-records"
+expected_difference = "#vcf-annotate-values"
+
+# A tab source with REF and ALT matches the record at the same POS whose REF agrees and that has one
+# of the ALTs; Number=A and R values follow their allele; ';' and '=' in a string become %3B and
+# %3D.
+[[case]]
+name = "vcf-annotate-tab-ref-alt-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/ann.tab", "xtask/diff/inputs/vcf/annotate/tags.hdr"]
+gloci = "gloci vcf annotate input.vcf -a ann.tab --header-lines tags.hdr -c CHROM,POS,REF,ALT,ID,QUAL,FILTER,INFO/TF,INFO/TS,INFO/TA,INFO/TFL,INFO/TI,INFO/TR"
+reference = "bgzip -c ann.tab > a.tab.gz && tabix -s1 -b2 -e2 a.tab.gz && bcftools annotate --no-version -a a.tab.gz -h tags.hdr -c CHROM,POS,REF,ALT,ID,QUAL,FILTER,INFO/TF,INFO/TS,INFO/TA,INFO/TFL,INFO/TI,INFO/TR input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-tab-plus-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/ann.tab", "xtask/diff/inputs/vcf/annotate/tags.hdr"]
+gloci = "gloci vcf annotate input.vcf -a ann.tab --header-lines tags.hdr -c CHROM,POS,REF,ALT,+ID,+QUAL,+FILTER,+INFO/TF,+INFO/TS,+INFO/TA,+INFO/TFL,+INFO/TI,+INFO/TR"
+reference = "bgzip -c ann.tab > a.tab.gz && tabix -s1 -b2 -e2 a.tab.gz && bcftools annotate --no-version -a a.tab.gz -h tags.hdr -c CHROM,POS,REF,ALT,+ID,+QUAL,+FILTER,+INFO/TF,+INFO/TS,+INFO/TA,+INFO/TFL,+INFO/TI,+INFO/TR input.vcf"
+compare = "vcf-records"
+
+# A leading . carries the source's missing values over; without it a . leaves the tag alone and a
+# later row may set it.
+[[case]]
+name = "vcf-annotate-tab-carry-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/ann.tab", "xtask/diff/inputs/vcf/annotate/tags.hdr"]
+gloci = "gloci vcf annotate input.vcf -a ann.tab --header-lines tags.hdr -c CHROM,POS,REF,ALT,-,-,-,.INFO/TF,.INFO/TS,.INFO/TA,-,.INFO/TI"
+reference = "bgzip -c ann.tab > a.tab.gz && tabix -s1 -b2 -e2 a.tab.gz && bcftools annotate --no-version -a a.tab.gz -h tags.hdr -c CHROM,POS,REF,ALT,-,-,-,.INFO/TF,.INFO/TS,.INFO/TA,-,.INFO/TI input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-tab-skip-columns-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/ann.tab", "xtask/diff/inputs/vcf/annotate/tags.hdr"]
+gloci = "gloci vcf annotate input.vcf -a ann.tab --header-lines tags.hdr -c CHROM,POS,REF,ALT,ID,-,-,INFO/TF -m +TABHIT"
+reference = "bgzip -c ann.tab > a.tab.gz && tabix -s1 -b2 -e2 a.tab.gz && bcftools annotate --no-version -a a.tab.gz -h tags.hdr -c CHROM,POS,REF,ALT,ID,-,-,INFO/TF -m +TABHIT input.vcf"
+compare = "vcf-records"
+
+# Without REF and ALT a row matches the records whose REF span covers its position; the first row
+# read for a record stays in use while it still overlaps, so the second row of 1:200 is never used.
+[[case]]
+name = "vcf-annotate-tab-no-ref-alt-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/ann.tab", "xtask/diff/inputs/vcf/annotate/tags.hdr"]
+gloci = "gloci vcf annotate input.vcf -a ann.tab --header-lines tags.hdr -c CHROM,POS,-,-,ID,-,-,INFO/TF,INFO/TS"
+reference = "bgzip -c ann.tab > a.tab.gz && tabix -s1 -b2 -e2 a.tab.gz && bcftools annotate --no-version -a a.tab.gz -h tags.hdr -c CHROM,POS,-,-,ID,-,-,INFO/TF,INFO/TS input.vcf"
+compare = "vcf-records"
+
+# Two rows at 1:100 (the first is used) and rows inside the deletion at 1:500.
+[[case]]
+name = "vcf-annotate-pos-tab-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/pos.tab", "xtask/diff/inputs/vcf/annotate/tags.hdr"]
+gloci = "gloci vcf annotate input.vcf -a pos.tab --header-lines tags.hdr -c CHROM,POS,ID,INFO/TS,INFO/TI"
+reference = "bgzip -c pos.tab > a.tab.gz && tabix -s1 -b2 -e2 a.tab.gz && bcftools annotate --no-version -a a.tab.gz -h tags.hdr -c CHROM,POS,ID,INFO/TS,INFO/TI input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-pos-tab-mark-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/pos.tab", "xtask/diff/inputs/vcf/annotate/tags.hdr"]
+gloci = "gloci vcf annotate input.vcf -a pos.tab --header-lines tags.hdr -c CHROM,POS,-,- -m +POSHIT"
+reference = "bgzip -c pos.tab > a.tab.gz && tabix -s1 -b2 -e2 a.tab.gz && bcftools annotate --no-version -a a.tab.gz -h tags.hdr -c CHROM,POS,-,- -m +POSHIT input.vcf"
+compare = "vcf-records"
+
+# A BED source (0-based starts) matches overlapping records; overlapping intervals are used in start
+# order, longer first; a . score does not set INFO/TI and the next interval sets it.
+[[case]]
+name = "vcf-annotate-bed-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/regions.bed", "xtask/diff/inputs/vcf/annotate/tags.hdr"]
+gloci = "gloci vcf annotate input.vcf -a regions.bed --header-lines tags.hdr -c CHROM,FROM,TO,INFO/TS,INFO/TI -m +INBED"
+reference = "bcftools annotate --no-version -a regions.bed -h tags.hdr -c CHROM,FROM,TO,INFO/TS,INFO/TI -m +INBED input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-bed-carry-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/regions.bed", "xtask/diff/inputs/vcf/annotate/tags.hdr"]
+gloci = "gloci vcf annotate input.vcf -a regions.bed --header-lines tags.hdr -c CHROM,FROM,TO,INFO/TS,.INFO/TI"
+reference = "bcftools annotate --no-version -a regions.bed -h tags.hdr -c CHROM,FROM,TO,INFO/TS,.INFO/TI input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-bed-min-overlap-ann-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/regions.bed", "xtask/diff/inputs/vcf/annotate/tags.hdr"]
+gloci = "gloci vcf annotate input.vcf -a regions.bed --header-lines tags.hdr -c CHROM,FROM,TO,INFO/TS --min-overlap 0.5"
+reference = "bcftools annotate --no-version -a regions.bed -h tags.hdr -c CHROM,FROM,TO,INFO/TS --min-overlap 0.5 input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-bed-min-overlap-vcf-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/regions.bed", "xtask/diff/inputs/vcf/annotate/tags.hdr"]
+gloci = "gloci vcf annotate input.vcf -a regions.bed --header-lines tags.hdr -c CHROM,FROM,TO,INFO/TS --min-overlap :0.9"
+reference = "bcftools annotate --no-version -a regions.bed -h tags.hdr -c CHROM,FROM,TO,INFO/TS --min-overlap :0.9 input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-bed-min-overlap-both-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/regions.bed", "xtask/diff/inputs/vcf/annotate/tags.hdr"]
+gloci = "gloci vcf annotate input.vcf -a regions.bed --header-lines tags.hdr -c CHROM,FROM,TO,INFO/TS --min-overlap 0.3:0.5"
+reference = "bcftools annotate --no-version -a regions.bed -h tags.hdr -c CHROM,FROM,TO,INFO/TS --min-overlap 0.3:0.5 input.vcf"
+compare = "vcf-records"
+
+# A tab source with FROM,TO columns has 1-based inclusive intervals.
+[[case]]
+name = "vcf-annotate-from-to-tab-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/regions.tab", "xtask/diff/inputs/vcf/annotate/tags.hdr"]
+gloci = "gloci vcf annotate input.vcf -a regions.tab --header-lines tags.hdr -c CHROM,FROM,TO,INFO/TS,INFO/TI"
+reference = "bcftools annotate --no-version -a regions.tab -h tags.hdr -c CHROM,FROM,TO,INFO/TS,INFO/TI input.vcf"
+compare = "vcf-records"
+
+# bcftools holds a FROM,TO file in memory and accepts any order; gloci streams it and exits 1 on an
+# unsorted one.
+[[case]]
+name = "vcf-annotate-from-to-unsorted-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/regions-unsorted.tab", "xtask/diff/inputs/vcf/annotate/tags.hdr"]
+gloci = "gloci vcf annotate input.vcf -a regions-unsorted.tab --header-lines tags.hdr -c CHROM,FROM,TO,INFO/TS"
+reference = "(bcftools annotate --no-version -a regions-unsorted.tab -h tags.hdr -c CHROM,FROM,TO,INFO/TS input.vcf) >/dev/null 2>&1 || exit 1"
+compare = "exit-status"
+expected_difference = "#vcf-annotate-sorted-source"
+
+# GT is kept.
+[[case]]
+name = "vcf-annotate-remove-format-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+gloci = "gloci vcf annotate input.vcf -x FORMAT"
+reference = "bcftools annotate --no-version -x FORMAT input.vcf"
+compare = "vcf-records"
+
+# Records left with no FORMAT key get . for FORMAT and for each sample.
+[[case]]
+name = "vcf-annotate-remove-format-gt-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+gloci = "gloci vcf annotate input.vcf -x FORMAT/GT"
+reference = "bcftools annotate --no-version -x FORMAT/GT input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-remove-format-tag-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+gloci = "gloci vcf annotate input.vcf -x FORMAT/DP,FORMAT/GQ"
+reference = "bcftools annotate --no-version -x FORMAT/DP,FORMAT/GQ input.vcf"
+compare = "vcf-records"
+
+# ^ keeps only the listed tags of the kind, GT included in the removal.
+[[case]]
+name = "vcf-annotate-remove-keep-format-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+gloci = "gloci vcf annotate input.vcf -x ^FORMAT/DP"
+reference = "bcftools annotate --no-version -x ^FORMAT/DP input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-remove-keep-info-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+gloci = "gloci vcf annotate input.vcf -x ^INFO/DP,^INFO/FL"
+reference = "bcftools annotate --no-version -x ^INFO/DP,^INFO/FL input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-remove-info-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+gloci = "gloci vcf annotate input.vcf -x INFO"
+reference = "bcftools annotate --no-version -x INFO input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-remove-info-tags-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+gloci = "gloci vcf annotate input.vcf -x INFO/OLD,INFO/FL"
+reference = "bcftools annotate --no-version -x INFO/OLD,INFO/FL input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-remove-filter-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+gloci = "gloci vcf annotate input.vcf -x FILTER"
+reference = "bcftools annotate --no-version -x FILTER input.vcf"
+compare = "vcf-records"
+
+# A record left with no filter becomes PASS.
+[[case]]
+name = "vcf-annotate-remove-filter-tag-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+gloci = "gloci vcf annotate input.vcf -x FILTER/q10"
+reference = "bcftools annotate --no-version -x FILTER/q10 input.vcf"
+compare = "vcf-records"
+
+# PASS is removed from the records that have it.
+[[case]]
+name = "vcf-annotate-remove-keep-filter-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+gloci = "gloci vcf annotate input.vcf -x ^FILTER/q10"
+reference = "bcftools annotate --no-version -x ^FILTER/q10 input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-remove-id-qual-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+gloci = "gloci vcf annotate input.vcf -x ID,QUAL"
+reference = "bcftools annotate --no-version -x ID,QUAL input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-remove-mixed-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+gloci = "gloci vcf annotate input.vcf -x INFO/DP,FORMAT/GQ,FILTER/q10,ID"
+reference = "bcftools annotate --no-version -x INFO/DP,FORMAT/GQ,FILTER/q10,ID input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-set-id-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+gloci = "gloci vcf annotate input.vcf -I '%CHROM:%POS:%REF:%FIRST_ALT'"
+reference = "bcftools annotate --no-version -I '%CHROM:%POS:%REF:%FIRST_ALT' input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-set-id-plus-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+gloci = "gloci vcf annotate input.vcf -I '+%CHROM:%POS:%REF:%FIRST_ALT'"
+reference = "bcftools annotate --no-version -I '+%CHROM:%POS:%REF:%FIRST_ALT' input.vcf"
+compare = "vcf-records"
+
+# A missing tag is ., a flag is 1.
+[[case]]
+name = "vcf-annotate-set-id-info-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+gloci = "gloci vcf annotate input.vcf -I '%INFO/DP-%INFO/FL-%INFO/XA-%ID'"
+reference = "bcftools annotate --no-version -I '%INFO/DP-%INFO/FL-%INFO/XA-%ID' input.vcf"
+compare = "vcf-records"
+
+# Without --annotations every record is marked.
+[[case]]
+name = "vcf-annotate-mark-all-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+gloci = "gloci vcf annotate input.vcf -m +ALL"
+reference = "bcftools annotate --no-version -m +ALL input.vcf"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-annotate-remove-then-set-id-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+gloci = "gloci vcf annotate input.vcf -x ID -I '+%CHROM:%POS'"
+reference = "bcftools annotate --no-version -x ID -I '+%CHROM:%POS' input.vcf"
+compare = "vcf-records"
+
+# bcftools needs both files bgzipped and indexed when --annotations is a VCF; gloci reads plain or
+# compressed files in order.
+[[case]]
+name = "vcf-annotate-plain-files-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file.vcf" }
+aux = ["xtask/diff/inputs/vcf/annotate/src.vcf"]
+gloci = "gloci vcf annotate input.vcf -a src.vcf -c ID"
+reference = "bcftools annotate --no-version -a src.vcf -c ID input.vcf >/dev/null 2>&1 || exit 1"
+compare = "exit-status"
+expected_difference = "#vcf-annotate-lenient"
+
+# A FILTER the header does not declare stops bcftools (exit 255); gloci passes the record through.
+[[case]]
+name = "vcf-annotate-undeclared-filter-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/annotate/file-undeclared.vcf" }
+gloci = "gloci vcf annotate input.vcf -m +ALL"
+reference = "bcftools annotate --no-version -m +ALL input.vcf >/dev/null 2>&1 || exit 1"
+compare = "exit-status"
+expected_difference = "#vcf-annotate-lenient"

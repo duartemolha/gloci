@@ -1,0 +1,25 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##contig=<ID=1,length=100000>
+##contig=<ID=2,length=100000>
+##contig=<ID=3,length=100000>
+##FILTER=<ID=q10,Description="Quality below 10">
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Depth">
+##INFO=<ID=OLD,Number=1,Type=String,Description="An old tag">
+##INFO=<ID=FL,Number=0,Type=Flag,Description="A flag">
+##INFO=<ID=AFX,Number=A,Type=Float,Description="Existing allele frequency">
+##INFO=<ID=XA,Number=A,Type=Integer,Description="Existing allele counts">
+##INFO=<ID=TS,Number=1,Type=String,Description="Existing string">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	S1	S2
+1	100	.	A	G	10	.	DP=5;OLD=x;FL	GT	0/1	1/1
+1	200	idA	C	T,G	20	q10	DP=9;AFX=0.01,0.02	GT	1/2	0/0
+1	200	.	C	G	.	.	.	GT	0/0	0/1
+1	200	.	C	G	.	.	.	GT	0/1	1/1
+1	300	.	A	AT	.	.	DP=1	GT	0/1	0/1
+1	400	.	G	A,C	.	.	XA=9,9;TS=keep	GT	1/2	0/1
+1	450	.	G	C,A	.	.	AFX=0.5,0.6	GT	0/1	1/2
+1	500	.	CA	C	30	PASS	DP=7	GT	0/1	0/0
+1	501	.	A	G	.	.	.	GT	0/0	0/0
+2	50	.	T	C	.	.	DP=2	GT	0/1	0/1
+3	10	.	A	G	5	PASS	.	GT	0/1	0/0

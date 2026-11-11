@@ -305,7 +305,7 @@ fn ar_transfer(
     // other count (a lone `.` included) is an error.
     if src_vals.len() != want && !(ic.def.ty == Ty::Str && lone_missing) {
         return Err(format!(
-            "incorrect number of values ({}) for the {} tag at {}: its Number is {}, which needs {want} for a record with {} ALT alleles",
+            "incorrect number of values ({}) for the {} tag at {}: its Number is {}, which needs {want} for a record with {} ALT allele(s)",
             src_vals.len(),
             lossy(&ic.src),
             at(rec),
@@ -510,9 +510,12 @@ pub fn tab_set(
 ) -> Result<bool, String> {
     let cell = match col.kind {
         CKind::Placeholder => return Ok(true),
-        _ => row
-            .col(col.icol)
-            .ok_or_else(|| format!("the line has no column {}", col.icol + 1))?,
+        _ => row.col(col.icol).ok_or_else(|| {
+            format!(
+                "the line has no column {}, which --columns names",
+                col.icol + 1
+            )
+        })?,
     };
     match &col.kind {
         CKind::Placeholder => Ok(true),

@@ -1,0 +1,1 @@
+vcf annotate input.vcf -a pos.tab --header-lines tags.hdr -c CHROM,POS,-,- -m +POSHIT

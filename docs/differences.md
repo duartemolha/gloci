@@ -1827,3 +1827,53 @@ depends on the span.
   `vcf-norm-check-ref-s-dup-vs-bcftools`, `vcf-norm-check-ref-s-iupac-alt-vs-bcftools`,
   `vcf-norm-check-ref-s-past-end-vs-bcftools` and `vcf-norm-float-text-vs-bcftools` (must
   differ). Every other `vcf norm` case matches.
+
+## `vcf annotate` keeps values as written {#vcf-annotate-values}
+
+- **gloci:** `gloci vcf annotate` copies a transferred value as its text: an INFO value, QUAL
+  and the text of a tab or BED column go in as they were written (an Integer from a tab file is
+  normalised as a number: `+5` and `007` become `5` and `7`). A record that nothing changes is
+  written byte for byte, and one that is changed keeps the text of every column it did not
+  change. The header is FILE's with the declarations that were added, no `##FILTER=<ID=PASS>`
+  line added and no command line.
+- **Old behaviour:** `bcftools annotate` reads every record into binary form and prints it
+  again. Floats come out with six significant digits (`AF=0.50` becomes `0.5`, `SC=1e-3`
+  becomes `0.001`, `QUAL=99.50` becomes `99.5`, `1.0` becomes `1`), a sample cut short is
+  padded with missing values, and `##FILTER=<ID=PASS>` is added to a header without it.
+- **Reason:** an annotator that rewrites nothing it did not have to keeps the file you gave it
+  diffable. Which values a transfer touches, which alleles a Number=A or R value follows and
+  what `+TAG` keeps follow bcftools exactly; only the number formatting differs.
+- **Pinned by:** `vcf-annotate-vcf-float-text-vs-bcftools` (must differ). Every other
+  `vcf annotate` case uses values that print the same either way and matches.
+
+## `vcf annotate` needs sorted sources, not indexes {#vcf-annotate-sorted-source}
+
+- **gloci:** FILE and `--annotations` must both be sorted in one chromosome order (FILE's
+  header contigs, else `--chrom-order`), and each is read once as a stream: neither is indexed,
+  held in memory or read twice. An out-of-order record in either, or a source chromosome order
+  that disagrees with FILE's, is an error (exit 1) that names the two records and the fix
+  (`gloci sort`). A tab or BED source with intervals keeps only the rows that can still overlap
+  the current record.
+- **Old behaviour:** `bcftools annotate -a` seeks by index for a VCF or a tab file with POS
+  (any chromosome order works), and reads a tab or BED file with FROM,TO columns whole into memory (any order
+  works, but a genome-sized interval file is held in RAM).
+- **Reason:** a sorted merge reads gigabytes in constant memory and needs no `tabix` step;
+  an order violation is reported, never silently skipped.
+- **Pinned by:** `vcf-annotate-from-to-unsorted-vs-bcftools` (bcftools exits 0, gloci exits 1:
+  must differ). Every sorted case matches.
+
+## `vcf annotate` reads what bcftools refuses {#vcf-annotate-lenient}
+
+- **gloci:** FILE and a VCF source can be plain, gzip or BGZF; no `.tbi` or `.csi` is needed,
+  and a tab source needs no `tabix` index. A FILTER, contig or INFO key the header does not
+  declare passes through a record gloci does not change (a transferred FILTER or tag is
+  declared from the source's header, or from `--header-lines`).
+- **Old behaviour:** `bcftools annotate -a VCF` needs both files bgzipped and indexed and stops
+  with `Failed to read from FILE: not compressed with bgzip`; a positional tab source must be
+  bgzipped and `tabix`-indexed; a record with an undeclared FILTER makes it stop with `Encountered
+  an error, cannot proceed` (exit 255, `--force` to go on).
+- **Reason:** the sort-and-stream design makes the index unnecessary, and a missing header line
+  is not a reason to lose the run.
+- **Pinned by:** `vcf-annotate-plain-files-vs-bcftools` and
+  `vcf-annotate-undeclared-filter-vs-bcftools` (must differ: gloci exits 0, bcftools 1).
+  Every other `vcf annotate` case gives the reference bgzipped, indexed copies and matches.

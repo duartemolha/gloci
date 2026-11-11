@@ -83,11 +83,13 @@ struct Stream {
     more: bool,
     max: usize,
     guard: OrderGuard,
+    /// Whether the order is checked: it matters only when a source is merged.
+    check: bool,
     bcf: Option<BcfText>,
 }
 
 impl Stream {
-    fn new(reader: Box<dyn RecordReader>) -> Result<Stream, IoError> {
+    fn new(reader: Box<dyn RecordReader>, check: bool) -> Result<Stream, IoError> {
         let name = reader.name().to_string();
         let guard = OrderGuard::new(&name, reader.format());
         let bcf = BcfText::for_reader(reader.as_ref())?;
@@ -99,6 +101,7 @@ impl Stream {
             more: true,
             max: 1,
             guard,
+            check,
             bcf,
         })
     }
@@ -112,7 +115,9 @@ impl Stream {
             self.batch.clear();
             self.i = 0;
             self.more = self.reader.read_batch(chroms, &mut self.batch, self.max)?;
-            self.guard.check(chroms, &self.batch)?;
+            if self.check {
+                self.guard.check(chroms, &self.batch)?;
+            }
             self.max = next_batch_size(&self.batch, self.max);
         }
         let m = &self.batch.recs[self.i];
@@ -203,6 +208,8 @@ impl TabStream {
                 loc: Loc::Line(self.lineno),
                 msg: e.to_string(),
             })?;
+            // An annotation chromosome FILE's header lacks is not a problem, so no warning.
+            let _ = chroms.take_undeclared();
             let key = row.start.max(0) as u64;
             if let Err(v) = self.checker.check(chroms, chrom, key) {
                 let hint = sort_hint(&self.name, chroms.order_source());
@@ -456,7 +463,7 @@ pub fn vcf_annotate(
         buf: Vec::new(),
         bin: Vec::new(),
     };
-    let mut file = Stream::new(input)?;
+    let mut file = Stream::new(input, !matches!(source, AnnotationSource::None))?;
     let mut sum = AnnotateSummary::default();
     let editing = annotator.edits_records();
     let mut rec = Rec::default();
@@ -469,7 +476,7 @@ pub fn vcf_annotate(
     }
     let mut src = match source {
         AnnotationSource::None => Src::None,
-        AnnotationSource::Vcf(r) => Src::Vcf(Box::new(Stream::new(r)?)),
+        AnnotationSource::Vcf(r) => Src::Vcf(Box::new(Stream::new(r, true)?)),
         AnnotationSource::Tab(reader, sname) => {
             let layout = annotator
                 .layout()

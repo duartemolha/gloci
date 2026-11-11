@@ -36,6 +36,8 @@ pub struct HeaderEdit {
     /// Every line but `#CHROM`, each ending in `\n`.
     lines: Vec<Vec<u8>>,
     chrom_line: Vec<u8>,
+    /// PASS is not declared but still a filter that exists.
+    implicit_pass: bool,
 }
 
 /// `(kind, id)` of a structured line `##KIND=<ID=...>`.
@@ -80,19 +82,14 @@ impl HeaderEdit {
                 lines.push(l);
             }
         }
-        let mut h = HeaderEdit { lines, chrom_line };
-        // htslib always declares PASS: as its second line when the file does not.
-        if !h.has("FILTER", b"PASS") {
-            let at = usize::from(
-                h.lines
-                    .first()
-                    .is_some_and(|l| l.starts_with(b"##fileformat")),
-            );
-            h.lines.insert(
-                at,
-                b"##FILTER=<ID=PASS,Description=\"All filters passed\">\n".to_vec(),
-            );
-        }
+        let mut h = HeaderEdit {
+            lines,
+            chrom_line,
+            implicit_pass: false,
+        };
+        // htslib always knows PASS, declared or not; the output header is
+        // the input's, so no line is added.
+        h.implicit_pass = !h.has("FILTER", b"PASS");
         h
     }
 
@@ -114,16 +111,20 @@ impl HeaderEdit {
     }
 
     pub fn has(&self, kind: &str, id: &[u8]) -> bool {
-        self.line(kind, id).is_some()
+        (self.implicit_pass && kind == "FILTER" && id == b"PASS") || self.line(kind, id).is_some()
     }
 
     /// The declared IDs of `kind`, in header order.
     pub fn ids(&self, kind: &str) -> Vec<Vec<u8>> {
-        self.lines
-            .iter()
-            .filter_map(|l| structured(trim_eol(l)))
-            .filter(|(k, _)| *k == kind.as_bytes())
-            .map(|(_, i)| i)
+        let pass = (self.implicit_pass && kind == "FILTER").then(|| b"PASS".to_vec());
+        pass.into_iter()
+            .chain(
+                self.lines
+                    .iter()
+                    .filter_map(|l| structured(trim_eol(l)))
+                    .filter(|(k, _)| *k == kind.as_bytes())
+                    .map(|(_, i)| i),
+            )
             .collect()
     }
 
@@ -138,11 +139,18 @@ impl HeaderEdit {
         self.lines.retain(
             |l| !matches!(structured(trim_eol(l)), Some((k, i)) if k == kind.as_bytes() && i == id),
         );
+        if kind == "FILTER" && id == b"PASS" && self.implicit_pass {
+            self.implicit_pass = false;
+            return true;
+        }
         self.lines.len() != before
     }
 
     /// Remove every `kind` declaration (but FORMAT/GT with `keep_gt`).
     pub fn remove_all(&mut self, kind: &str, keep_gt: bool) {
+        if kind == "FILTER" {
+            self.implicit_pass = false;
+        }
         self.lines.retain(|l| match structured(trim_eol(l)) {
             Some((k, i)) if k == kind.as_bytes() => keep_gt && kind == "FORMAT" && i == b"GT",
             _ => true,
@@ -159,20 +167,6 @@ impl HeaderEdit {
                 return true;
             };
             !(&rest[..eq] == key && rest.get(eq + 1) != Some(&b'<'))
-        });
-    }
-
-    /// Remove the structured lines `##key=<...>` that are not INFO, FILTER,
-    /// FORMAT, ALT or contig declarations (bcftools `-x key`).
-    pub fn remove_structured_key(&mut self, key: &[u8]) {
-        self.lines.retain(|l| {
-            let Some(rest) = l.strip_prefix(b"##") else {
-                return true;
-            };
-            let Some(eq) = rest.iter().position(|&b| b == b'=') else {
-                return true;
-            };
-            !(&rest[..eq] == key && rest.get(eq + 1) == Some(&b'<'))
         });
     }
 
@@ -278,8 +272,8 @@ mod tests {
     #[test]
     fn lookup_remove_append() {
         let mut h = HeaderEdit::parse(H);
-        assert!(h.has("FILTER", b"PASS"));
-        assert_eq!(HeaderEdit::parse(&h.to_bytes()).to_bytes(), h.to_bytes());
+        assert!(h.has("FILTER", b"PASS") && h.ids("FILTER") == vec![b"PASS".to_vec()]);
+        assert_eq!(h.to_bytes(), H);
         let d = h.info_def(b"DP").unwrap();
         assert_eq!((d.ty, d.number), (Ty::Int, Number::Fixed(1)));
         h.remove_all("FORMAT", true);

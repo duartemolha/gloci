@@ -1,0 +1,1 @@
+vcf annotate input.vcf -a src.vcf -c NEW:=INFO/NAME,INFO/AFX:=INFO/AF,AC2:=CNT

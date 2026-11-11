@@ -207,9 +207,10 @@ fn compile_remove(
                     if hdr_in.has("FORMAT", id) {
                         return Err(format!("--remove {s}: did you mean FORMAT/{s}?"));
                     }
-                    match s.strip_prefix("##") {
-                        Some(key) => hdr_out.remove_generic(key.as_bytes()),
-                        None => hdr_out.remove_structured_key(id),
+                    // `##key` removes the generic lines of that key. A bare key for a
+                    // structured line (-x PEDIGREE) removes nothing in bcftools either.
+                    if let Some(key) = s.strip_prefix("##") {
+                        hdr_out.remove_generic(key.as_bytes());
                     }
                 }
             }
@@ -604,4 +605,152 @@ fn parse_min_overlap(s: &str) -> Result<MinOverlap, String> {
         return Err(bad());
     }
     Ok(o)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const FILE_H: &[u8] = b"##fileformat=VCFv4.2\n##INFO=<ID=A1,Number=A,Type=Float,Description=\"a\">\n##INFO=<ID=A2,Number=A,Type=Integer,Description=\"a\">\n##INFO=<ID=S,Number=1,Type=String,Description=\"s\">\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n";
+    const SRC_H: &[u8] = b"##fileformat=VCFv4.2\n##INFO=<ID=A1,Number=A,Type=Float,Description=\"a\">\n##INFO=<ID=A2,Number=A,Type=Integer,Description=\"a\">\n##INFO=<ID=S,Number=1,Type=String,Description=\"s\">\n##INFO=<ID=NEW,Number=1,Type=String,Description=\"n\">\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n";
+
+    fn rec(line: &str) -> Rec {
+        let mut r = Rec::default();
+        r.load(line.as_bytes()).unwrap();
+        r
+    }
+
+    fn run(cols: &str, dst: &str, src: &str) -> String {
+        let opts = AnnotateOptions {
+            columns: Some(cols.into()),
+            ..AnnotateOptions::default()
+        };
+        let mut a = Annotator::new(&opts, FILE_H, SourceKind::Vcf(SRC_H)).unwrap();
+        let mut d = rec(dst);
+        a.apply_vcf(&mut d, &rec(src)).unwrap();
+        let mut out = Vec::new();
+        d.write(&mut out);
+        String::from_utf8(out).unwrap()
+    }
+
+    #[test]
+    fn number_a_follows_the_allele() {
+        let got = run(
+            "INFO/A1",
+            "1\t5\t.\tC\tT,G\t.\t.\t.",
+            "1\t5\t.\tC\tG,T\t.\t.\tA1=0.1,0.2",
+        );
+        assert_eq!(got, "1\t5\t.\tC\tT,G\t.\t.\tA1=0.2,0.1");
+        // An allele the source lacks stays missing.
+        let got = run(
+            "INFO/A1",
+            "1\t5\t.\tC\tT,G\t.\t.\t.",
+            "1\t5\t.\tC\tG\t.\t.\tA1=0.1",
+        );
+        assert_eq!(got, "1\t5\t.\tC\tT,G\t.\t.\tA1=.,0.1");
+    }
+
+    #[test]
+    fn plus_keeps_existing_float_values_but_not_integer_ones() {
+        let dst = "1\t5\t.\tC\tT,G\t.\t.\tA1=0.9,.;A2=7,8";
+        let src = "1\t5\t.\tC\tT,G\t.\t.\tA1=0.1,0.2;A2=1,2";
+        assert_eq!(
+            run("+INFO/A1,+INFO/A2", dst, src),
+            "1\t5\t.\tC\tT,G\t.\t.\tA1=0.9,0.2;A2=1,2"
+        );
+        assert_eq!(
+            run("INFO/A1,INFO/A2", dst, src),
+            "1\t5\t.\tC\tT,G\t.\t.\tA1=0.1,0.2;A2=1,2"
+        );
+    }
+
+    #[test]
+    fn a_wrong_count_and_incompatible_refs_are_errors() {
+        let opts = AnnotateOptions {
+            columns: Some("INFO/A1".into()),
+            ..AnnotateOptions::default()
+        };
+        let mut a = Annotator::new(&opts, FILE_H, SourceKind::Vcf(SRC_H)).unwrap();
+        let mut d = rec("1\t5\t.\tC\tT\t.\t.\t.");
+        let e = a
+            .apply_vcf(&mut d, &rec("1\t5\t.\tC\tT,G\t.\t.\tA1=0.1"))
+            .unwrap_err();
+        assert!(
+            e.contains("incorrect number of values (1)") && e.contains("1:5"),
+            "{e}"
+        );
+        let e = a
+            .apply_vcf(&mut d, &rec("1\t5\t.\tG\tT\t.\t.\tA1=0.1"))
+            .unwrap_err();
+        assert!(e.contains("REF alleles not compatible"), "{e}");
+    }
+
+    #[test]
+    fn rename_flag_and_missing_values() {
+        assert_eq!(
+            run(
+                "S:=NEW",
+                "1\t5\t.\tC\tT\t.\t.\t.",
+                "1\t5\t.\tC\tT\t.\t.\tNEW=x"
+            ),
+            "1\t5\t.\tC\tT\t.\t.\tS=x"
+        );
+        // A source value of . is carried over for a VCF source.
+        assert_eq!(
+            run(
+                "INFO/S",
+                "1\t5\t.\tC\tT\t.\t.\tS=a",
+                "1\t5\t.\tC\tT\t.\t.\tS=."
+            ),
+            "1\t5\t.\tC\tT\t.\t.\tS=."
+        );
+        // +TAG replaces a missing value.
+        assert_eq!(
+            run(
+                "+INFO/S",
+                "1\t5\t.\tC\tT\t.\t.\tS=.",
+                "1\t5\t.\tC\tT\t.\t.\tS=b"
+            ),
+            "1\t5\t.\tC\tT\t.\t.\tS=b"
+        );
+    }
+
+    #[test]
+    fn tab_rows_match_on_ref_and_an_alt() {
+        let opts = AnnotateOptions {
+            columns: Some("CHROM,POS,REF,ALT,ID".into()),
+            ..AnnotateOptions::default()
+        };
+        let mut a = Annotator::new(&opts, FILE_H, SourceKind::Tab { bed: false }).unwrap();
+        let layout = a.layout().unwrap().clone();
+        let row = |l: &str| TabRow::parse(l.as_bytes(), &layout).unwrap().unwrap();
+        let r = rec("1\t5\t.\tC\tT,G\t.\t.\t.");
+        assert!(a.tab_matches(&r, 4, &row("1\t5\tC\tG\trs1")));
+        assert!(!a.tab_matches(&r, 4, &row("1\t5\tC\tA\trs1")));
+        assert!(!a.tab_matches(&r, 4, &row("1\t5\tA\tG\trs1")));
+        assert!(!a.tab_matches(&r, 4, &row("1\t6\tC\tG\trs1")));
+        // A longer REF in the file matches an ALT that carries the extra bases.
+        assert!(a.tab_matches(&rec("1\t5\t.\tC\tT\t.\t.\t."), 4, &row("1\t5\tCA\tTA\trs1")));
+    }
+
+    #[test]
+    fn removals_and_set_id_and_mark() {
+        let opts = AnnotateOptions {
+            remove: Some("INFO/S,ID".into()),
+            set_id: Some("+%CHROM:%POS:%REF:%FIRST_ALT".into()),
+            mark_sites: Some("-NOHIT".into()),
+            ..AnnotateOptions::default()
+        };
+        let mut a = Annotator::new(&opts, FILE_H, SourceKind::Vcf(SRC_H)).unwrap();
+        let mut d = rec("1\t5\trs9\tC\tT,G\t.\t.\tS=x;A2=1");
+        a.apply_remove(&mut d);
+        a.finish(&mut d, false);
+        let mut out = Vec::new();
+        d.write(&mut out);
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "1\t5\t1:5:C:T\tC\tT,G\t.\t.\tA2=1;NOHIT"
+        );
+        assert!(!String::from_utf8(a.out_header()).unwrap().contains("ID=S,"));
+    }
 }

@@ -1,0 +1,9 @@
+#chrom	pos	id	ts	ti
+1	100	posA	p100	1
+1	100	posA2	p100b	2
+1	200	posB	p200	.
+1	201	posC	p201	3
+1	500	posD	p500	4
+1	501	posE	p501	5
+2	50	posF	p50	6
+4	7	posG	p7	7
