@@ -3918,13 +3918,14 @@ fn p3a_empty_inputs_matrix() {
     );
 
     // FASTA without sequences. An empty file is not a FASTA to gloci: it cannot be indexed, and
-    // getfasta, nuc and maskfasta say so (exit 1 or 2) instead of writing nothing.
+    // getfasta, nuc and maskfasta say so (exit 1 or 2) instead of writing nothing. index and
+    // maskfasta give the one empty-input message (M1).
     let fa = s_of(&plain_file(dir, "empty.fa", ""));
     gloci()
         .args(["index", &fa])
         .assert()
-        .code(2)
-        .stderr(starts_with_error());
+        .code(1)
+        .stderr(starts_with_error().and(contains("empty.fa is empty: it has no records")));
     assert!(!dir.join("empty.fa.fai").exists());
     for cmd in ["getfasta", "nuc"] {
         gloci()
@@ -3938,7 +3939,7 @@ fn p3a_empty_inputs_matrix() {
             .args(["maskfasta", "--fasta", &fa, "-b", b])
             .assert()
             .code(1)
-            .stderr(contains("is empty: it has no FASTA records"));
+            .stderr(contains("is empty: it has no records"));
     }
     // With an (empty) index beside it: nothing to read, so an empty BED is fine and any
     // interval names the chromosome the FASTA lacks.

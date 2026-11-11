@@ -137,8 +137,10 @@ fn an_empty_input_is_empty_where_records_are_needed() {
             .code(1)
             .stderr(contains(format!("{p} is empty: it has no records")));
     }
-    // Commands whose result may be empty read it as no records.
+    // Commands whose result may be empty read it as no records; so does convert --blocks, for
+    // which an empty file is an empty BED.
     for args in [
+        vec!["convert", paths[0].as_str(), "--blocks"],
         vec!["view", paths[0].as_str()],
         vec!["sort", paths[0].as_str()],
         vec!["intersect", "-a", paths[0].as_str(), "-b", bed],

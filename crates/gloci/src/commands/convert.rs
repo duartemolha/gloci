@@ -5,7 +5,7 @@ use crate::cli::ConvertArgs;
 use gloci_core::{ChromTable, VariantKind};
 use gloci_io::{
     Format, Header, InvalidPolicy, IoError, OutFormat, OutputOptions, ReaderOptions, TsvHeader,
-    UsageError, WriterOptions, open_output, open_reader_with_records, open_record_writer,
+    UsageError, WriterOptions, open_output, open_reader_noting_empty, open_record_writer,
     open_tsv_writer, parse_output_spec, refuse_binary_to_tty,
 };
 use gloci_ops::convert::{ConvertOptions, check_convert, convert};
@@ -80,9 +80,17 @@ pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
         },
     };
     // Open and check the input before the output is created.
-    let input = open_reader_with_records(&a.file, &ro)?;
+    let (input, empty) = open_reader_noting_empty(&a.file, &ro)?;
     gloci_io::warn_unused_reference(a.align.reference.as_deref(), input.format() == Format::Cram);
-    check_convert(input.format(), &o)?;
+    // An empty file is detected as an empty BED: fine for --blocks (no rows), but an empty BAM
+    // or SAM would be told "a BED input is already BED".
+    check_convert(input.format(), &o).map_err(|e| {
+        if empty {
+            IoError::empty_input(input.name())
+        } else {
+            e.into()
+        }
+    })?;
     let oo = OutputOptions {
         threads: ctx.threads,
         level: a.out.compression_level,

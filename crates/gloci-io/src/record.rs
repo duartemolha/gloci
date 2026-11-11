@@ -161,17 +161,16 @@ pub fn open_reader(path: &str, o: &ReaderOptions) -> Result<Box<dyn RecordReader
     finish_reader(path, dispatch(open_input(path, &input_options(o))?, o)?)
 }
 
-/// [`open_reader`] for a command that needs records (`convert`): an input with no bytes after
-/// decompression is [`IoError::empty_input`], not an empty BED file.
-pub fn open_reader_with_records(
+/// [`open_reader`], and whether the input has no bytes after decompression: such a file is
+/// detected as an empty BED, which a command that needs another format (`convert` of a BAM or
+/// SAM) reports as [`IoError::empty_input`] instead.
+pub fn open_reader_noting_empty(
     path: &str,
     o: &ReaderOptions,
-) -> Result<Box<dyn RecordReader>, IoError> {
+) -> Result<(Box<dyn RecordReader>, bool), IoError> {
     let mut input = open_input(path, &input_options(o))?;
-    if input.is_empty()? {
-        return Err(IoError::empty_input(&input.name));
-    }
-    finish_reader(path, dispatch(input, o)?)
+    let empty = input.is_empty()?;
+    Ok((finish_reader(path, dispatch(input, o)?)?, empty))
 }
 
 fn finish_reader(path: &str, r: Box<dyn RecordReader>) -> Result<Box<dyn RecordReader>, IoError> {
