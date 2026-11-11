@@ -255,7 +255,8 @@ Examples:
     /// with the size of B. Pairs and count write TSV (a VCF A gets a
     /// #CHROM line naming the columns); clip does not accept VCF/BCF.
     ///
-    /// BAM and SAM (A or B) work as intervals: a read is the reference span of its
+    /// BAM, CRAM and SAM (A or B) work as intervals (a CRAM needs --reference, and an
+    /// indexed BAM or CRAM is read per chromosome at -t above 1): a read is the reference span of its
     /// M, D, N, = and X operations (clips never widen it), on the strand of its
     /// flag. Unmapped reads are skipped; --min-mapq, --require-flags and
     /// --exclude-flags filter reads first. --split uses the segments between
@@ -439,7 +440,7 @@ Examples:
     /// reads of a BAM (bedtools genomecov -i and -ibam).
     ///
     /// Every feature adds one to the depth over its bases. -g is required
-    /// (unless the input is BAM or SAM):
+    /// (unless the input is BAM, CRAM or SAM):
     /// the output covers every chromosome of the genome from base 0 to its
     /// length, in genome order, chromosomes without features included
     /// (a built-in genome, .genome, .fai or .dict file with lengths). The
@@ -458,7 +459,7 @@ Examples:
     /// plus). A zero-length feature covers no bases and is ignored. A
     /// feature past the end of its chromosome is an error.
     ///
-    /// BAM and SAM input: the chromosomes and sizes come from the header
+    /// BAM, CRAM and SAM input (a CRAM needs --reference): the chromosomes and sizes come from the header
     /// (header order, empty chromosomes included) unless -g is given. A read
     /// counts its whole reference span, deletions included; --split counts
     /// the blocks between N operations, and --split-deletions also cuts at
@@ -910,7 +911,8 @@ Examples:
     /// memory, so memory grows with the size of B. The output is TSV with
     /// A's columns first.
     ///
-    /// BAM and SAM (A or B) work as intervals: a read is the reference span of its
+    /// BAM, CRAM and SAM (A or B) work as intervals (a CRAM needs --reference, and an
+    /// indexed BAM or CRAM is read per chromosome at -t above 1): a read is the reference span of its
     /// M, D, N, = and X operations (clips never widen it). Unmapped reads are
     /// skipped; --min-mapq, --require-flags and --exclude-flags filter reads
     /// first. With --split the blocks of a read are the segments between N
@@ -1077,7 +1079,7 @@ pub struct IntersectArgs {
     pub o: OverlapArgs,
     #[command(flatten)]
     pub w: WindowArgs,
-    /// BAM and SAM: also cut the blocks of a read at deletions (D), with or without
+    /// BAM, CRAM and SAM: also cut the blocks of a read at deletions (D), with or without
     /// --split (bedtools bamtobed -splitD).
     #[arg(long)]
     pub split_deletions: bool,
@@ -1272,7 +1274,7 @@ pub struct CoverageArgs {
     pub mean: bool,
     #[command(flatten)]
     pub o: OverlapArgs,
-    /// BAM and SAM: also cut the blocks of a read at deletions (D), with or without
+    /// BAM, CRAM and SAM: also cut the blocks of a read at deletions (D), with or without
     /// --split (bedtools bamtobed -splitD).
     #[arg(long)]
     pub split_deletions: bool,
@@ -2087,7 +2089,7 @@ pub struct GenomecovArgs {
     /// Input file (`-` for stdin).
     #[arg(value_name = "FILE")]
     pub file: String,
-    /// Chromosome order and sizes (required unless the input is BAM or SAM,
+    /// Chromosome order and sizes (required unless the input is BAM, CRAM or SAM,
     /// which gives its header's): a built-in genome such as hg38 (see gloci
     /// genomes), or a .fai, .genome or .dict file.
     #[arg(short, long, value_name = "NAME|FILE")]
@@ -2112,10 +2114,10 @@ pub struct GenomecovArgs {
           value_parser = clap::builder::PossibleValuesParser::new(["+", "-"]))]
     pub strand: Option<String>,
     /// Count the BED12 blocks of each feature, or the blocks of each read
-    /// between N operations (BAM and SAM), instead of the whole feature.
+    /// between N operations (BAM, CRAM and SAM), instead of the whole feature.
     #[arg(long, conflicts_with_all = ["five_prime", "three_prime"])]
     pub split: bool,
-    /// BAM and SAM: also cut the blocks of a read at deletions (D), with or
+    /// BAM, CRAM and SAM: also cut the blocks of a read at deletions (D), with or
     /// without --split; this is bedtools genomecov -ibam without -ignoreD.
     #[arg(long, conflicts_with_all = ["five_prime", "three_prime"])]
     pub split_deletions: bool,
