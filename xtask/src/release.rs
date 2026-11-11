@@ -23,6 +23,14 @@ fn parse_version(s: &str) -> Option<(u64, u64, u64)> {
     it.next().is_none().then_some(v)
 }
 
+fn is_link_def(l: &str) -> bool {
+    l.strip_prefix('[')
+        .and_then(|r| r.split_once("]:"))
+        .is_some_and(|(name, rest)| {
+            !name.is_empty() && !name.contains(']') && rest.starts_with(char::is_whitespace)
+        })
+}
+
 fn is_iso_date(s: &str) -> bool {
     let b = s.as_bytes();
     if b.len() != 10 || b[4] != b'-' || b[7] != b'-' {
@@ -33,7 +41,16 @@ fn is_iso_date(s: &str) -> bool {
         return false;
     }
     let (m, d): (u32, u32) = (s[5..7].parse().unwrap(), s[8..10].parse().unwrap());
-    (1..=12).contains(&m) && (1..=31).contains(&d)
+    let y: u32 = s[0..4].parse().unwrap();
+    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let max = match m {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return false,
+    };
+    (1..=max).contains(&d)
 }
 
 /// Parse the `## [..]` sections. `[Unreleased]` must come first, versions must
@@ -97,7 +114,14 @@ pub fn changelog_sections(text: &str) -> Result<Vec<Section>> {
     }
     Ok(out
         .into_iter()
-        .map(|(version, date, lines)| {
+        .map(|(version, date, mut lines)| {
+            // Keep a Changelog footer links (`[x]: https://...`) are not notes.
+            while lines
+                .last()
+                .is_some_and(|l| l.trim().is_empty() || is_link_def(l))
+            {
+                lines.pop();
+            }
             let start = lines.iter().position(|l| !l.trim().is_empty());
             let end = lines.iter().rposition(|l| !l.trim().is_empty());
             let body = match (start, end) {
@@ -128,6 +152,13 @@ pub fn release_notes(changelog: &str, version: &str) -> Result<String> {
 fn cff_field(cff: &str, key: &str) -> Option<String> {
     cff.lines().find_map(|l| {
         let v = l.strip_prefix(key)?.strip_prefix(':')?;
+        // A YAML comment starts at a `#` after whitespace (outside quotes).
+        let v = v.trim();
+        let v = if v.starts_with(['"', '\'']) {
+            v
+        } else {
+            v.split(" #").next().unwrap_or(v)
+        };
         Some(v.trim().trim_matches(['"', '\'']).to_string())
     })
 }

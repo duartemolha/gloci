@@ -20,6 +20,28 @@ fn changelog_parses_keep_a_changelog() {
 }
 
 #[test]
+fn footer_links_and_calendar_dates_and_cff_comments() {
+    let cl = format!(
+        "{CL}\n[Unreleased]: https://example.org/compare/v0.2.0...HEAD\n[0.1.0]: https://example.org/releases/v0.1.0\n"
+    );
+    let s = changelog_sections(&cl).unwrap();
+    assert_eq!(s[2].body, "- one");
+    assert_eq!(release_notes(&cl, "0.1.0").unwrap(), "- one");
+    assert!(changelog_sections("## [0.1.0] - 2026-02-31\n").is_err());
+    assert!(changelog_sections("## [0.1.0] - 2025-02-29\n").is_err());
+    assert!(changelog_sections("## [0.1.0] - 2024-02-29\n").is_ok());
+
+    let d = tempfile::tempdir().unwrap();
+    fixture(d.path());
+    fs::write(
+        d.path().join("CITATION.cff"),
+        "cff-version: 1.2.0\nversion: 0.2.0 # the release\ndate-released: 2026-12-01 # ISO\n",
+    )
+    .unwrap();
+    assert_eq!(release_check(d.path(), None).unwrap(), Vec::<String>::new());
+}
+
+#[test]
 fn release_notes_extracts_section() {
     assert_eq!(release_notes(CL, "0.2.0").unwrap(), "- two\n- more");
     let e = release_notes(CL, "0.3.0").unwrap_err().to_string();
