@@ -322,7 +322,7 @@ references; drop {flag}"
     let mut held: Vec<Option<Box<dyn AlnSource>>> = (0..n).map(|_| None).collect();
     let mut headers = Vec::with_capacity(n);
     let mut all_sam = true;
-    for i in 0..n {
+    for (i, slot) in held.iter_mut().enumerate() {
         let s = match src0.take() {
             Some(s) => s,
             None => sources.open_aln(i, &ropts)?,
@@ -330,7 +330,7 @@ references; drop {flag}"
         headers.push((s.name().to_string(), s.header().clone()));
         all_sam &= s.layout() == Format::Sam;
         if keep {
-            held[i] = Some(s);
+            *slot = Some(s);
         }
     }
     let mut open = |i: usize| -> Result<Box<dyn AlnSource>, IoError> {
