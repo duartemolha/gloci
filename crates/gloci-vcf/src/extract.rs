@@ -22,7 +22,7 @@ pub struct InfoKey {
 
 /// The `KEY=value` pairs of a header line's `<...>` body, with quotes
 /// respected (a `Description` may hold commas and `=`).
-fn structured_pairs(line: &[u8]) -> Vec<(&[u8], &[u8])> {
+pub(crate) fn structured_pairs(line: &[u8]) -> Vec<(&[u8], &[u8])> {
     let Some(open) = line.iter().position(|&b| b == b'<') else {
         return Vec::new();
     };

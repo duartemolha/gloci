@@ -27,6 +27,7 @@ pub mod sort;
 pub mod spacing;
 pub mod subtract;
 pub mod transform;
+pub mod vcf_annotate;
 pub mod vcf_concat;
 pub mod vcf_extract;
 pub mod vcf_filter;
@@ -50,6 +51,9 @@ pub use sort::{
     Dedup, MIN_MAX_MEM, SortConfig, SortSettings, SortStats, Sorter, Tie, check_definitions,
     check_definitions_pair, check_samples, check_samples_pair, merge_fan_in, merge_sorted,
     merge_sorted_batches, sort_input_options, sort_readers, sort_together,
+};
+pub use vcf_annotate::{
+    AnnotateSummary, AnnotationSource, is_bed_name, open_tab, vcf_annotate, vcf_annotate_output,
 };
 pub use vcf_concat::{ConcatOptions, vcf_concat};
 pub use vcf_extract::{

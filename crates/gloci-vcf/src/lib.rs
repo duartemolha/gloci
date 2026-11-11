@@ -1,6 +1,7 @@
 //! Genotype decoding (VCF text and BCF), per-site statistics and the exact
 //! Hardy-Weinberg test, shared by the `vcf` commands.
 
+pub mod annotate;
 mod bcf_fmt;
 pub mod concat;
 mod expr;

@@ -1341,6 +1341,40 @@ Examples:
   gloci vcf norm calls.vcf.gz -f ref.fa --check-ref x --rm-dup exact | gloci vcf stats -
   gloci vcf norm calls.vcf.gz -f ref.fa --check-ref s -o fixed.vcf.gz")]
     Norm(VcfNormArgs),
+    // P3b Task 22
+    /// Transfer, remove and add fields of a VCF/BCF (bcftools annotate).
+    ///
+    /// --annotations SRC names a VCF/BCF, a tab-delimited file (plain or
+    /// BGZF) or a BED file; --columns says what to take from it. FILE and SRC
+    /// must both be sorted in one chromosome order (FILE's header contigs,
+    /// else --chrom-order); both are read as a stream, no index is needed
+    /// and neither is held in memory. A record of a VCF SRC annotates the
+    /// FILE record at the same CHROM and POS that shares an allele with it
+    /// (bcftools' default --pair-logic); a tab file with REF and ALT columns
+    /// matches the same way, one with CHROM,POS matches the records whose
+    /// REF span covers the position, and a BED file or CHROM,FROM,TO columns
+    /// match overlapping records (--min-overlap restricts them). --columns
+    /// takes ID, QUAL, FILTER, INFO/TAG (or TAG), NEW:=OLD, INFO (every tag
+    /// of a VCF SRC) and ^INFO/TAG lists; +TAG fills only missing values;
+    /// `.TAG` carries a tab file's missing values over; `-` skips a tab
+    /// column. A tag the FILE header lacks is declared from a VCF SRC, or
+    /// must come from --header-lines. --remove drops ID, QUAL, FILTER, INFO,
+    /// FORMAT (GT stays), INFO/TAG, FORMAT/TAG or FILTER/NAME, and their
+    /// header lines; ^ keeps only the listed tags of its kind. --set-id
+    /// writes IDs from %CHROM, %POS, %REF, %FIRST_ALT, %ID and %INFO/TAG
+    /// (a + prefix fills only missing IDs). --mark-sites +TAG flags the
+    /// records that have a match, -TAG those that do not. INFO values are
+    /// copied as written, not reformatted; Number=A and R values follow
+    /// their allele, not their position. Not available: -s/-S, -i/-e,
+    /// --rename-chrs, --merge-logic, --single-overlaps, --rename-annots,
+    /// FORMAT transfers.
+    #[command(after_long_help = "\
+Examples:
+  gloci vcf annotate calls.vcf.gz -a dbsnp.vcf.gz -c ID,INFO/RS -o calls.annot.vcf.gz
+  gloci vcf annotate calls.vcf.gz -a genes.bed.gz -c CHROM,FROM,TO,GENE --header-lines genes.hdr
+  gloci vcf annotate calls.vcf.gz -x INFO,FORMAT/PL --mark-sites +CLEAN
+  gloci vcf annotate calls.vcf.gz -I '+%CHROM:%POS:%REF:%FIRST_ALT' -o ids.vcf.gz")]
+    Annotate(VcfAnnotateArgs),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -3316,6 +3350,93 @@ pub struct VcfNormArgs {
     pub old_rec_tag: Option<String>,
     #[arg(short = 'N', long = "do-not-normalize", hide = true)]
     pub do_not_normalize: bool,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+// P3b Task 22
+
+#[derive(Args, Debug, Clone)]
+pub struct VcfAnnotateArgs {
+    /// Input VCF or BCF (`-` for stdin), sorted.
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// The annotation source: a VCF/BCF, a tab-delimited file (plain or
+    /// BGZF) or a BED file, sorted in FILE's chromosome order. A tab file
+    /// needs --columns; a BED file is a tab file named *.bed, *.bed.gz or
+    /// *.bed.bgz (0-based starts).
+    #[arg(short = 'a', long, value_name = "SRC")]
+    pub annotations: Option<String>,
+    /// What to take from --annotations, comma-separated: ID, QUAL, FILTER,
+    /// INFO/TAG or TAG, NEW:=OLD (a VCF source's OLD stored as NEW), INFO
+    /// (every tag of a VCF source), ^INFO/TAG (INFO without it), +TAG (only
+    /// fill missing values), .TAG (carry a tab file's missing values) and
+    /// `-` (skip a tab column). A tab file's list also names its columns:
+    /// CHROM, POS (or FROM and TO) and optionally REF and ALT, in file order,
+    /// e.g. CHROM,POS,REF,ALT,ID,INFO/AF.
+    #[arg(short = 'c', long, value_name = "LIST", allow_hyphen_values = true)]
+    pub columns: Option<String>,
+    /// Remove, comma-separated: ID, QUAL, FILTER, INFO, FORMAT (GT is kept),
+    /// INFO/TAG, FORMAT/TAG, FILTER/NAME, or ##key for a header line. A
+    /// leading ^ (^INFO/TAG, ^FORMAT/TAG, ^FILTER/NAME) keeps only the
+    /// listed tags of that kind and removes the rest. Their header lines go
+    /// too. Removals run before anything is transferred.
+    #[arg(short = 'x', long, value_name = "LIST")]
+    pub remove: Option<String>,
+    /// Append the header lines of FILE (## lines such as ##INFO=<...>) to the
+    /// header; they can declare a tag --columns then uses.
+    #[arg(long, value_name = "FILE")]
+    pub header_lines: Option<PathBuf>,
+    /// Write IDs from a format of %CHROM, %POS, %REF, %FIRST_ALT, %ID and
+    /// %INFO/TAG; a leading + sets only missing IDs, e.g.
+    /// '+%CHROM:%POS:%REF:%FIRST_ALT'. A tag name is letters, digits, _ and
+    /// . only: write %POS:%REF, not %POS_%REF.
+    #[arg(
+        short = 'I',
+        long,
+        value_name = "[+]FORMAT",
+        allow_hyphen_values = true
+    )]
+    pub set_id: Option<String>,
+    /// Add INFO/TAG as a flag to the records that have a match in
+    /// --annotations (+TAG, or TAG) or that have none (-TAG); without
+    /// --annotations every record gets it.
+    #[arg(short = 'm', long, value_name = "[+-]TAG", allow_hyphen_values = true)]
+    pub mark_sites: Option<String>,
+    /// For a BED or FROM,TO annotation file: the fraction of the annotation
+    /// (ANN), of the record (:VCF) or of both (ANN:VCF) that must overlap.
+    #[arg(long, value_name = "ANN[:VCF]")]
+    pub min_overlap: Option<String>,
+    #[command(flatten)]
+    pub chrom_order: ChromOrderArg,
+    // bcftools annotate options gloci does not offer: each is a usage error
+    // that names the option.
+    #[arg(long = "rename-chrs", hide = true, value_name = "FILE")]
+    pub rename_chrs: Option<String>,
+    #[arg(short = 's', long = "samples", hide = true, value_name = "LIST")]
+    pub samples: Option<String>,
+    #[arg(short = 'S', long = "samples-file", hide = true, value_name = "FILE")]
+    pub samples_file: Option<String>,
+    #[arg(short = 'i', long = "include", hide = true, value_name = "EXPR")]
+    pub include: Option<String>,
+    #[arg(short = 'e', long = "exclude", hide = true, value_name = "EXPR")]
+    pub exclude: Option<String>,
+    #[arg(short = 'l', long = "merge-logic", hide = true, value_name = "LOGIC")]
+    pub merge_logic: Option<String>,
+    #[arg(long = "single-overlaps", hide = true)]
+    pub single_overlaps: bool,
+    #[arg(long = "rename-annots", hide = true, value_name = "FILE")]
+    pub rename_annots: Option<String>,
+    #[arg(long = "pair-logic", hide = true, value_name = "LOGIC")]
+    pub pair_logic: Option<String>,
+    #[arg(short = 'C', long = "columns-file", hide = true, value_name = "FILE")]
+    pub columns_file: Option<String>,
+    #[arg(short = 'H', long = "header-line", hide = true, value_name = "STR")]
+    pub header_line: Option<String>,
     #[command(flatten)]
     pub invalid: InvalidArg,
     #[command(flatten)]
