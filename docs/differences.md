@@ -2293,7 +2293,11 @@ depends on the span.
 ## `depth --min-baseq` counts every base of a read with SEQ `*` {#depth-seq-star-baseq}
 
 - **gloci:** a read whose SEQ is `*` has no base qualities, so every base of it
-  passes `--min-baseq`, as a missing quality (QUAL `*`) does.
+  passes `--min-baseq`, as a missing quality (QUAL `*`) does. A CIGAR that ends
+  in `D`, under `--count-deletions --min-baseq N`, gates those deleted bases by
+  the quality of the next query base, which does not exist: gloci uses quality
+  0, so they do not count, where samtools reads a byte past the record's
+  qualities.
 - **Old behaviour:** `samtools depth -q N` looks up the quality of each base
   past the end of such a record, where the quality bytes would be. It reads
   whatever follows the CIGAR in the record: the record's own aux bytes, and
