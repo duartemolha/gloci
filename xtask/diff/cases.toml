@@ -5913,8 +5913,8 @@ reference = "samtools depth input.bam"
 compare = "exit-status"
 expected_difference = "#depth-order-check"
 
-# A read with SEQ `*` under -q: samtools reads the qualities past the record (garbage), gloci
-# counts every base. Only the stored gloci side is replayed by cargo test.
+# A read with SEQ `*` under -q: samtools reads the qualities from the bytes after the CIGAR (the
+# record's own XB aux array, so the output is stable), gloci counts every base.
 [[case]]
 name = "depth-seq-star-min-baseq-vs-samtools"
 input = { file = "xtask/diff/inputs/samtools/depth-noseq.bam" }

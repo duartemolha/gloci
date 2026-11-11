@@ -2144,11 +2144,14 @@ depends on the span.
 - **gloci:** a read whose SEQ is `*` has no base qualities, so every base of it
   passes `--min-baseq`, as a missing quality (QUAL `*`) does.
 - **Old behaviour:** `samtools depth -q N` looks up the quality of each base
-  past the end of such a record, in whatever bytes follow it in memory, so
-  some bases count and some do not, in a pattern nobody chose.
+  past the end of such a record, where the quality bytes would be. It reads
+  whatever follows the CIGAR in the record: the record's own aux bytes, and
+  past those stale heap memory. Some bases count and some do not, in a pattern
+  nobody chose.
 - **Reason:** an answer that depends on the memory layout cannot be matched;
   counting the read is the only reading that does not invent a quality.
-- **Pinned by:** `depth-seq-star-min-baseq-vs-samtools` (must differ on a
-  machine where the bytes are not all passing; the stored reference is
-  samtools' output on one) and the cargo test
+- **Pinned by:** `depth-seq-star-min-baseq-vs-samtools` (must differ; the
+  fixture's SEQ `*` reads carry an aux array as long as their CIGAR, so the
+  bytes samtools reads are the file's own and its output is the same on every
+  run) and the cargo test
   `depth_noseq_reads_use_their_cigar_for_the_length`, which checks gloci's side.

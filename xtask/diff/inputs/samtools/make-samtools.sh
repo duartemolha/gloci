@@ -25,8 +25,9 @@ samtools index -@ 0 empty.bam
 # reads, a placed unmapped read, a read ending at chr2's LN, reads of 30, 49 and 50 bases once soft
 # clips are cut, and an empty chr3. depth2.sam has other reads on the same references;
 # depth-reordered.sam lists them in another order; depth-unsorted.sam has a read 3 bp before its
-# predecessor that ends after samtools' last row. depth-noseq.sam has reads with SEQ `*` (samtools
-# reads past the record for their base qualities, so only -l is compared on it). depth-pastend.sam
+# predecessor that ends after samtools' last row. depth-noseq.sam has reads with SEQ `*`, each with an
+# XB:B:C aux array as long as its CIGAR: samtools -q reads the bytes after the CIGAR as qualities,
+# which are then the array's own, so its output is stable (gloci passes every base). depth-pastend.sam
 # has reads that run past chr2's LN (samtools prints rows beyond it, so no other fixture has one).
 # depth.cram is
 # written without a reference (every base stored), so reading it needs none. depth-idx/input.bai
