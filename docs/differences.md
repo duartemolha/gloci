@@ -2138,3 +2138,17 @@ depends on the span.
   nothing in the output shows it.
 - **Pinned by:** `depth-reordered-references-vs-samtools` (exit status: must
   differ).
+
+## `depth --min-baseq` counts every base of a read with SEQ `*` {#depth-seq-star-baseq}
+
+- **gloci:** a read whose SEQ is `*` has no base qualities, so every base of it
+  passes `--min-baseq`, as a missing quality (QUAL `*`) does.
+- **Old behaviour:** `samtools depth -q N` looks up the quality of each base
+  past the end of such a record, in whatever bytes follow it in memory, so
+  some bases count and some do not, in a pattern nobody chose.
+- **Reason:** an answer that depends on the memory layout cannot be matched;
+  counting the read is the only reading that does not invent a quality.
+- **Pinned by:** `depth-seq-star-min-baseq-vs-samtools` (must differ on a
+  machine where the bytes are not all passing; the stored reference is
+  samtools' output on one) and the cargo test
+  `depth_noseq_reads_use_their_cigar_for_the_length`, which checks gloci's side.

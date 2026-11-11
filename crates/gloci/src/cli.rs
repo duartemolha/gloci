@@ -3426,7 +3426,9 @@ pub struct DepthArgs {
     /// Count deleted bases (D), each gated by the quality of the next base in the read.
     #[arg(long)]
     pub count_deletions: bool,
-    /// Count a base only when its quality is at least N.
+    /// Count a base only when its quality is at least N. A missing quality (QUAL *) passes, and
+    /// so does every base of a read with SEQ * (samtools reads past the record there, so its
+    /// answer is undefined).
     #[arg(long, value_name = "N", default_value_t = 0)]
     pub min_baseq: u8,
     /// Skip reads shorter than N bases (SEQ length less soft clips at the two ends).

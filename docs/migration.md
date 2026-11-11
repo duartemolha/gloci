@@ -496,6 +496,8 @@ there is one.
   [differences.md#depth-order-check](differences.md#depth-order-check)
   [differences.md#depth-regions](differences.md#depth-regions)
   [differences.md#depth-bedcov-same-sq](differences.md#depth-bedcov-same-sq)
+  A read with SEQ `*` passes every `--min-baseq`; samtools reads past the record there.
+  [differences.md#depth-seq-star-baseq](differences.md#depth-seq-star-baseq)
 - **TSV indexing without `-e`:** `gloci index -s -b` without `-e` sets the end
   column equal to the begin column (1-base feature) instead of tabix's GFF
   default of column 5.

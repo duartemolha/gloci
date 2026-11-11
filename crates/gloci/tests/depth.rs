@@ -273,7 +273,11 @@ fn depth_noseq_reads_use_their_cigar_for_the_length() {
     assert!(!o.contains("chr1\t445\t2\n"));
     assert!(out(&[&f("depth-noseq.bam"), "--min-read-length", "49"]).contains("chr1\t445\t2\n"));
     // Every base of such a read passes -q.
-    assert!(out(&[&f("depth-noseq.bam"), "--min-baseq", "40"]).contains("chr1\t400\t1\n"));
+    // (samtools' answer there is undefined: differences.md#depth-seq-star-baseq).
+    let q = out(&[&f("depth-noseq.bam"), "--min-baseq", "40"]);
+    for p in 400..=439 {
+        assert!(q.contains(&format!("chr1\t{p}\t1\n")), "{p}");
+    }
 }
 
 /// One BAM record (without `block_size`): `len` M bases at `pos` (0-based) on `rid`, with
