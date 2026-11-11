@@ -333,3 +333,42 @@ fn skip_invalid_warns_once_with_a_count_and_the_first_line() {
         "{e1}"
     );
 }
+
+/// Records that alternate between two chromosomes normalise exactly as each
+/// chromosome does alone (the reference keeps the last two windows, M6).
+#[test]
+fn alternating_chromosomes_give_the_same_records_as_each_alone() {
+    let (d, r, _v) = work();
+    let hdr = "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=120>\n##contig=<ID=chr2,length=52>\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n";
+    let fa = std::fs::read_to_string(fixture("ref.fa")).unwrap();
+    let base = |chrom: &str, pos: usize| -> char {
+        let mut it = fa.split('>').filter(|x| x.starts_with(chrom));
+        let seq: String = it.next().unwrap().lines().skip(1).collect();
+        (seq.as_bytes()[pos - 1] as char).to_ascii_uppercase()
+    };
+    let alt = |c: char| if c == 'A' { 'C' } else { 'A' };
+    let (mut mixed, mut c1, mut c2) = (String::new(), String::new(), String::new());
+    for p in 1..=40usize {
+        for (c, acc) in [("chr1", &mut c1), ("chr2", &mut c2)] {
+            let b = base(c, p);
+            if !"ACGT".contains(b) {
+                continue;
+            }
+            let line = format!("{c}\t{p}\t.\t{b}\t{}\t.\t.\t.\n", alt(b));
+            mixed.push_str(&line);
+            acc.push_str(&line);
+        }
+    }
+    let run = |name: &str, body: &str| {
+        let f = s(&plain_file(d.path(), name, &format!("{hdr}{body}")));
+        records(&out(&["vcf", "norm", &f, "-f", &r, "-t", "1"]))
+    };
+    let mut want = run("c1.vcf", &c1);
+    want.extend(run("c2.vcf", &c2));
+    let mut got = run("mixed.vcf", &mixed);
+    // Same records; the window sort keeps chromosomes together or in input order.
+    want.sort();
+    got.sort();
+    assert_eq!(got, want);
+}

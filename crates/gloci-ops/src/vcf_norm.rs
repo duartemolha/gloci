@@ -48,29 +48,49 @@ pub struct NormSummary {
     pub peak_reference_bases: u64,
 }
 
-/// A FASTA read through one bounded window of bases.
-struct FastaRef {
-    fa: IndexedFasta,
+/// One window of one chromosome's bases.
+#[derive(Default)]
+struct Window {
     chrom: Vec<u8>,
     lo: u64,
     buf: Vec<u8>,
+}
+
+impl Window {
+    fn holds(&self, chrom: &[u8], start0: u64, end: u64) -> bool {
+        self.chrom == chrom && start0 >= self.lo && end <= self.lo + self.buf.len() as u64
+    }
+}
+
+/// A FASTA read through two bounded windows of bases: the last two
+/// chromosomes asked for, so records that alternate between two chromosomes
+/// do not reload the reference every time (M6).
+struct FastaRef {
+    fa: IndexedFasta,
+    /// `win[0]` is the current window, `win[1]` the previous one.
+    win: [Window; 2],
     peak: u64,
     fatal: Option<IoError>,
 }
 
 impl FastaRef {
+    /// Load `[a, b)` of `chrom` into the previous window and make it current.
     fn load(&mut self, chrom: &[u8], a: u64, b: u64) -> Result<(), IoError> {
-        self.buf.clear();
-        self.chrom.clear();
-        self.lo = a;
-        let buf = &mut self.buf;
+        self.win.swap(0, 1);
+        let w = &mut self.win[0];
+        w.buf.clear();
+        w.chrom.clear();
+        w.lo = a;
+        let buf = &mut w.buf;
         self.fa
             .fetch(chrom, Interval { start: a, end: b }, &mut |c| {
                 clean_reference_bases(c, buf);
                 Ok(())
             })?;
-        self.chrom.extend_from_slice(chrom);
-        self.peak = self.peak.max(self.buf.len() as u64);
+        w.chrom.extend_from_slice(chrom);
+        self.peak = self
+            .peak
+            .max(self.win[0].buf.len() as u64 + self.win[1].buf.len() as u64);
         Ok(())
     }
 }
@@ -100,12 +120,13 @@ called against (the contigs of the FASTA are listed in its .fai)",
             return Ok(());
         }
         let end = (start0 + len).min(clen);
-        let held =
-            self.chrom == chrom && start0 >= self.lo && end <= self.lo + self.buf.len() as u64;
-        if !held {
+        if !self.win[0].holds(chrom, start0, end) && self.win[1].holds(chrom, start0, end) {
+            self.win.swap(0, 1);
+        }
+        if !self.win[0].holds(chrom, start0, end) {
             let (a, b) = if end - start0 >= WINDOW_BASES {
                 (start0, end)
-            } else if self.chrom == chrom && start0 < self.lo {
+            } else if self.win[0].chrom == chrom && start0 < self.win[0].lo {
                 (end.saturating_sub(WINDOW_BASES), end)
             } else {
                 (start0, (start0 + WINDOW_BASES).min(clen))
@@ -116,7 +137,8 @@ called against (the contigs of the FASTA are listed in its .fai)",
                 return Err(msg);
             }
         }
-        out.extend_from_slice(&self.buf[(start0 - self.lo) as usize..(end - self.lo) as usize]);
+        let w = &self.win[0];
+        out.extend_from_slice(&w.buf[(start0 - w.lo) as usize..(end - w.lo) as usize]);
         Ok(())
     }
 }
@@ -176,9 +198,7 @@ pub fn vcf_norm(
     let norm = Normalizer::new(o.check_ref);
     let mut refs = FastaRef {
         fa: fasta,
-        chrom: Vec::new(),
-        lo: 0,
-        buf: Vec::new(),
+        win: [Window::default(), Window::default()],
         peak: 0,
         fatal: None,
     };
