@@ -1130,6 +1130,35 @@ Examples:
   gloci sample peaks.bed -n 500 --strand + --seed 1
   gloci sample calls.vcf.gz -n 10000 --seed 3 -O vcf.gz -o subset.vcf.gz")]
     Sample(SampleArgs),
+    // P3b Task 6
+    /// Move every record to a random place in the genome (bedtools shuffle).
+    ///
+    /// Each record keeps its length, its other columns and its strand and goes
+    /// to a uniformly random place that keeps all of it inside the allowed
+    /// regions: --include regions (default: the whole genome) less --exclude
+    /// regions. (bedtools only puts the start inside an --include region; see
+    /// docs/differences.md#shuffle-placement.) --same-chrom keeps records on
+    /// their chromosome; --chrom-first picks a chromosome at random among those
+    /// with room, then a place on it, instead of weighting chromosomes by
+    /// their free length; --no-overlapping redraws a place that overlaps an
+    /// earlier output record, up to --max-tries times. A record with no place
+    /// is an error naming its line, length and the fix (nothing is written to a
+    /// file); --skip-unplaceable drops such records and warns with a count.
+    /// With --format bedpe each pair is moved: a pair on one chromosome keeps
+    /// its end lengths and gap, a pair on two places its ends independently,
+    /// and only --exclude, --seed, --max-tries and --skip-unplaceable apply.
+    /// Output is in input order and not sorted (pipe to gloci sort); VCF and
+    /// alignment input are refused (gloci convert). --include/--exclude read
+    /// the names of -g (--chrom-map renames the input only). The output depends
+    /// on --seed only, never on --threads; without --seed a fresh seed is
+    /// chosen and printed as a warning. It is not bedtools' output for the same
+    /// seed (see docs/differences.md#rng-stream).
+    #[command(after_long_help = "\
+Examples:
+  gloci shuffle peaks.bed -g hg38 --exclude gaps.bed --seed 42 -o null.bed
+  gloci shuffle peaks.bed -g genome.txt --include mappable.bed --same-chrom --seed 7 | gloci sort -g genome.txt -
+  gloci shuffle loops.bedpe --format bedpe -g hg38 --exclude blacklist.bed --seed 1 -o null.bedpe")]
+    Shuffle(ShuffleArgs),
 }
 
 /// What `intersect` reports.
@@ -4152,6 +4181,57 @@ pub struct RandomArgs {
     pub count: u64,
     #[command(flatten)]
     pub seed: SeedArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}
+
+// P3b Task 6
+#[derive(Args, Debug, Clone)]
+pub struct ShuffleArgs {
+    /// Input file (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// Chromosomes and lengths: a built-in genome such as hg38 (see gloci genomes), or a
+    /// .genome, .fai or .dict file.
+    #[arg(short, long, value_name = "NAME|FILE", required = true)]
+    pub genome: String,
+    /// Keep records inside these regions (BED, GFF or VCF; default: the whole genome).
+    #[arg(long, value_name = "BED")]
+    pub include: Option<String>,
+    /// Keep records off these regions (BED, GFF or VCF).
+    #[arg(long, value_name = "BED")]
+    pub exclude: Option<String>,
+    /// Keep each record on its own chromosome (bedtools -chrom).
+    #[arg(long, conflicts_with = "chrom_first")]
+    pub same_chrom: bool,
+    /// Pick the chromosome uniformly among those with room, then a place on it
+    /// (bedtools -chromFirst).
+    #[arg(long)]
+    pub chrom_first: bool,
+    /// Place records so that no two output records overlap (bedtools
+    /// -noOverlapping).
+    #[arg(long)]
+    pub no_overlapping: bool,
+    /// Draws per record before it counts as unplaceable (--no-overlapping, and
+    /// BEDPE --exclude).
+    #[arg(long, value_name = "N", default_value_t = 1000,
+          value_parser = clap::value_parser!(u32).range(1..))]
+    pub max_tries: u32,
+    /// Drop records that have no place, with a warning, instead of failing.
+    #[arg(long)]
+    pub skip_unplaceable: bool,
+    #[command(flatten)]
+    pub seed: SeedArg,
+    #[command(flatten)]
+    pub format: FormatArg,
+    #[command(flatten)]
+    pub header: HeaderArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
     #[command(flatten)]
     pub threads: ThreadArgs,
     #[command(flatten)]

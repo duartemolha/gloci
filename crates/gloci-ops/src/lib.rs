@@ -27,6 +27,7 @@ pub mod rng;
 pub mod sample;
 pub mod seq;
 pub mod shift;
+pub mod shuffle;
 mod skipped;
 pub mod sort;
 pub mod spacing;

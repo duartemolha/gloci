@@ -21,6 +21,7 @@ pub mod partition;
 pub mod random;
 pub mod sample;
 pub mod shift;
+pub mod shuffle;
 pub mod slop;
 pub mod sort;
 pub mod spacing;

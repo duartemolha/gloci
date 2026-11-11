@@ -327,6 +327,7 @@ fn dispatch(cli: &Cli, ctx: &Ctx) -> (anyhow::Result<()>, bool) {
         Commands::Coverage(a) => commands::coverage::run(ctx, a),
         Commands::Groupby(a) => commands::groupby::run(ctx, a),
         Commands::Maskfasta(a) => commands::maskfasta::run(ctx, a),
+        Commands::Shuffle(a) => commands::shuffle::run(ctx, a),
         Commands::Sample(a) => commands::sample::run(ctx, a),
         Commands::Random(a) => commands::random::run(ctx, a),
         Commands::Stats(a) => match &a.command {
