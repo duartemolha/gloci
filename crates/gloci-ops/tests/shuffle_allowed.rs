@@ -164,6 +164,7 @@ fn opts(seed: u64) -> ShuffleOptions {
         no_overlapping: false,
         max_tries: 1000,
         skip_unplaceable: true,
+        chrom_map: None,
     }
 }
 

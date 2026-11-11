@@ -13,10 +13,9 @@ pub mod allowed;
 mod bedpe;
 
 pub use allowed::Allowed;
-pub use bedpe::shuffle_bedpe;
+pub use bedpe::{refuse_flags as refuse_bedpe_flags, shuffle_bedpe};
 
 use crate::rng::Stream;
-use allowed::Regions;
 use gloci_core::{ChromId, ChromTable, Genome, Interval};
 use gloci_io::{
     Format, IoError, Loc, ReaderOptions, RecordBatch, RecordReader, RecordWriter, UsageError,
@@ -43,6 +42,9 @@ pub struct ShuffleOptions {
     pub max_tries: u32,
     /// Drop records with no place instead of failing.
     pub skip_unplaceable: bool,
+    /// `--chrom-map`: renames the chromosomes of `include` and `exclude` as it
+    /// does those of the input.
+    pub chrom_map: Option<std::sync::Arc<gloci_io::ChromMap>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -82,10 +84,11 @@ pub(crate) fn load_regions(
     path: &str,
     chroms: &mut ChromTable,
     threads: NonZeroUsize,
+    chrom_map: Option<std::sync::Arc<gloci_io::ChromMap>>,
 ) -> Result<Vec<(ChromId, Interval)>, IoError> {
     let ro = ReaderOptions {
         accept: gloci_io::Accept::default(),
-        chrom_map: None,
+        chrom_map,
         threads,
         format: None,
         vcf_span: gloci_core::VcfSpan::Allele,
@@ -282,11 +285,11 @@ on its chromosome, the second picks a chromosome at random"
     }
     prepare_genome(genome, chroms)?;
     let include = match &o.include {
-        Some(p) => Some((load_regions(p, chroms, threads)?, p)),
+        Some(p) => Some((load_regions(p, chroms, threads, o.chrom_map.clone())?, p)),
         None => None,
     };
     let exclude = match &o.exclude {
-        Some(p) => Some((load_regions(p, chroms, threads)?, p)),
+        Some(p) => Some((load_regions(p, chroms, threads, o.chrom_map.clone())?, p)),
         None => None,
     };
     let allowed = Allowed::build(
@@ -397,17 +400,4 @@ on its chromosome, the second picks a chromosome at random"
     crate::skipped::log_reader(reader.as_ref());
     warn_unplaceable(&summary, &listed);
     Ok(summary)
-}
-
-/// `regions` of `path` merged, for a test of overlap.
-pub(crate) fn load_exclude(
-    path: Option<&str>,
-    chroms: &mut ChromTable,
-    threads: NonZeroUsize,
-) -> Result<Regions, IoError> {
-    let regions = match path {
-        Some(p) => load_regions(p, chroms, threads)?,
-        None => Vec::new(),
-    };
-    Ok(Regions::new(&regions, chroms))
 }

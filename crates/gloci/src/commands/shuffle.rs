@@ -8,7 +8,7 @@ use gloci_io::{
     resolve_genome,
 };
 use gloci_ops::rng::seed_or_entropy;
-use gloci_ops::shuffle::{ShuffleOptions, shuffle, shuffle_bedpe};
+use gloci_ops::shuffle::{ShuffleOptions, refuse_bedpe_flags, shuffle, shuffle_bedpe};
 use gloci_ops::{ReportOutput, open_report};
 use std::io::{IsTerminal, Write};
 
@@ -50,6 +50,7 @@ pub fn run(ctx: &Ctx, a: &ShuffleArgs) -> anyhow::Result<()> {
         no_overlapping: a.no_overlapping,
         max_tries: a.max_tries,
         skip_unplaceable: a.skip_unplaceable,
+        chrom_map: ro.chrom_map.clone(),
     };
     let oo = OutputOptions {
         threads: ctx.threads,
@@ -61,6 +62,7 @@ pub fn run(ctx: &Ctx, a: &ShuffleArgs) -> anyhow::Result<()> {
         .as_ref()
         .map_or_else(|| "<stdout>".to_string(), |p| p.display().to_string());
     if format == Some(Format::Bedpe) {
+        refuse_bedpe_flags(&o)?;
         let to = spec.format.unwrap_or(OutFormat::Bedpe);
         if !matches!(to, OutFormat::Bedpe | OutFormat::Tsv) {
             return Err(UsageError(format!(

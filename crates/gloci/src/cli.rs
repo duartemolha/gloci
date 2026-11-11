@@ -1149,7 +1149,7 @@ Examples:
     /// and only --exclude, --seed, --max-tries and --skip-unplaceable apply.
     /// Output is in input order and not sorted (pipe to gloci sort); VCF and
     /// alignment input are refused (gloci convert). --include/--exclude read
-    /// the names of -g (--chrom-map renames the input only). The output depends
+    /// the names of -g, after --chrom-map (which renames them like the input). The output depends
     /// on --seed only, never on --threads; without --seed a fresh seed is
     /// chosen and printed as a warning. It is not bedtools' output for the same
     /// seed (see docs/differences.md#rng-stream).

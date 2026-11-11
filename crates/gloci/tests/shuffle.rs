@@ -587,3 +587,112 @@ fn shuffle_bedpe_pinned() {
 chr2\t130\t140\t.\t-1\t-1\tp3\t9\t+\t.\n"
     );
 }
+
+#[test]
+fn shuffle_chrom_map_applies_to_include_and_exclude() {
+    let d = tempdir();
+    let g = genome(d.path());
+    let map = plain_file(d.path(), "map.tsv", "one\tchr1\ntwo\tchr2\n");
+    let f = plain_file(d.path(), "a.bed", &"one\t0\t5\n".repeat(50));
+    let inc = plain_file(d.path(), "inc.bed", "two\t100\t110\n");
+    let out = run(&[
+        f.to_str().unwrap(),
+        "-g",
+        &g,
+        "--chrom-map",
+        map.to_str().unwrap(),
+        "--include",
+        inc.to_str().unwrap(),
+        "--seed",
+        "1",
+    ]);
+    for line in out.lines() {
+        let f = fields(line);
+        let (s, e): (u64, u64) = (f[1].parse().unwrap(), f[2].parse().unwrap());
+        assert!(f[0] == "chr2" && s >= 100 && e <= 110, "{line}");
+    }
+    assert_eq!(out.lines().count(), 50);
+    // The exclude file uses the source names too: chr1 [0, 95) is off limits.
+    let g1 = plain_file(d.path(), "g1.genome", "chr1\t100\n");
+    let ex = plain_file(d.path(), "ex.bed", "one\t0\t95\n");
+    let out = run(&[
+        f.to_str().unwrap(),
+        "-g",
+        g1.to_str().unwrap(),
+        "--chrom-map",
+        map.to_str().unwrap(),
+        "--exclude",
+        ex.to_str().unwrap(),
+        "--seed",
+        "1",
+    ]);
+    assert_eq!(out.lines().next().unwrap(), "chr1\t95\t100");
+    // BEDPE too.
+    let p = plain_file(d.path(), "a.bedpe", "one\t0\t5\t.\t-1\t-1\n");
+    let out = bedpe(&[
+        p.to_str().unwrap(),
+        "-g",
+        g1.to_str().unwrap(),
+        "--chrom-map",
+        map.to_str().unwrap(),
+        "--exclude",
+        ex.to_str().unwrap(),
+        "--seed",
+        "1",
+    ]);
+    assert_eq!(out, "chr1\t95\t100\t.\t-1\t-1\n");
+}
+
+#[test]
+fn shuffle_bedpe_exclude_warns_about_unknown_chromosomes() {
+    let d = tempdir();
+    let g = genome(d.path());
+    let f = plain_file(d.path(), "a.bedpe", BP);
+    let ex = plain_file(d.path(), "ex.bed", "chrZ\t0\t10\nchr1\t0\t5\n");
+    gloci()
+        .args([
+            "shuffle",
+            f.to_str().unwrap(),
+            "-g",
+            &g,
+            "--format",
+            "bedpe",
+            "--seed",
+            "1",
+            "--exclude",
+        ])
+        .arg(&ex)
+        .assert()
+        .success()
+        .stderr(contains("1 of the 2 regions"))
+        .stderr(contains("not in -g"));
+}
+
+#[test]
+fn shuffle_bedpe_refuses_flags_before_creating_output() {
+    let d = tempdir();
+    let g = genome(d.path());
+    let f = plain_file(d.path(), "a.bedpe", BP);
+    let out = d.path().join("o.bedpe");
+    gloci()
+        .args([
+            "shuffle",
+            f.to_str().unwrap(),
+            "-g",
+            &g,
+            "--format",
+            "bedpe",
+            "--same-chrom",
+            "-o",
+        ])
+        .arg(&out)
+        .assert()
+        .code(2)
+        .stderr(contains("--same-chrom"));
+    let mut left: Vec<String> = std::fs::read_dir(d.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    left.sort();
+    assert_eq!(left, ["a.bedpe", "g.genome"], "no output or temp file");
+}

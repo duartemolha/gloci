@@ -11,7 +11,8 @@
 
 use super::allowed::Regions;
 use super::{
-    Allowed, ShuffleOptions, ShuffleSummary, load_exclude, prepare_genome, warn_unplaceable,
+    Allowed, ShuffleOptions, ShuffleSummary, load_regions, prepare_genome, warn_unknown,
+    warn_unplaceable,
 };
 use crate::rng::Stream;
 use gloci_core::{ChromId, ChromTable, Genome};
@@ -21,7 +22,8 @@ use std::io::Write;
 /// Where one end went: chromosome, start, end.
 type Moved = Option<(ChromId, u64, u64)>;
 
-fn refuse_flags(o: &ShuffleOptions) -> Result<(), UsageError> {
+/// Refuse the options BEDPE shuffle does not take (callers do so before creating output).
+pub fn refuse_flags(o: &ShuffleOptions) -> Result<(), UsageError> {
     let flag = if o.include.is_some() {
         "--include"
     } else if o.same_chrom {
@@ -130,8 +132,15 @@ pub fn shuffle_bedpe(
     refuse_flags(o)?;
     prepare_genome(genome, chroms)?;
     let threads = std::num::NonZeroUsize::MIN;
-    let excl = load_exclude(o.exclude.as_deref(), chroms, threads)?;
+    let exclude = match &o.exclude {
+        Some(p) => Some((load_regions(p, chroms, threads, o.chrom_map.clone())?, p)),
+        None => None,
+    };
     let allowed = Allowed::build(genome, chroms, None, &[]);
+    if let Some((r, p)) = &exclude {
+        warn_unknown(r, |c| allowed.knows(c), "--exclude", p);
+    }
+    let excl = Regions::new(exclude.as_ref().map_or(&[], |(r, _)| r.as_slice()), chroms);
     let name = reader.name().to_string();
     let mut summary = ShuffleSummary::default();
     let mut listed: Vec<String> = Vec::new();
