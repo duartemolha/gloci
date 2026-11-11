@@ -127,7 +127,7 @@ chr3\t1\t2\tchr3\t5\t6\tnone
             format!("{one}\t{y}")
         ])
     );
-    assert_eq!(run(a, b, "neither"), rows(&[none.clone()]));
+    assert_eq!(run(a, b, "neither"), rows(std::slice::from_ref(&none)));
     assert_eq!(run(a, b, "notboth"), rows(&[one, none]));
 }
 
