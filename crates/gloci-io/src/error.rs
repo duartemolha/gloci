@@ -20,6 +20,8 @@ pub enum GateKind {
     Sequence,
     /// PSL and RepeatMasker are read by `convert` only.
     ConvertOnly,
+    /// The command reads alignments only (BAM, CRAM or SAM).
+    AlignmentsOnly,
 }
 
 #[derive(Debug, thiserror::Error)]

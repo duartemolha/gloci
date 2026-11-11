@@ -8,7 +8,7 @@ use super::sam::SamLines;
 use super::{AlignOptions, Aln, AlnHeader, alignment_query_span, aln_ref};
 use crate::detect::Format;
 use crate::diag::{Diagnostics, InvalidPolicy};
-use crate::error::{IoError, Loc, UsageError};
+use crate::error::{GateKind, IoError, Loc, UsageError};
 use crate::index::{IndexedFile, find_index};
 use crate::input::{Input, InputOptions, open_input, open_input_from};
 use crate::record::{Header, ReaderOptions};
@@ -158,8 +158,9 @@ pub(crate) fn source_from_input(
     o: &ReaderOptions,
 ) -> Result<Box<dyn AlnSource>, IoError> {
     let opts = o.accept.alignments.clone();
-    let not_alignments = |input: &Input| IoError::Detect {
-        path: input.name.clone(),
+    // The gate's other side: a format given to a command that cannot read it (exit 2).
+    let not_alignments = |input: &Input| IoError::Gate {
+        kind: GateKind::AlignmentsOnly,
         msg: format!(
             "{} is {}, but this command reads alignments (BAM, CRAM or SAM)",
             input.name,
