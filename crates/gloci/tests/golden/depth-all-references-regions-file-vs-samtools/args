@@ -1,0 +1,1 @@
+depth input.bam --all-references --regions-file targets.bed

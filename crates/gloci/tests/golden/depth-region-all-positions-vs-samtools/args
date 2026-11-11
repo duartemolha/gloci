@@ -1,0 +1,1 @@
+depth input.bam --region chr3:1-10 --all-positions

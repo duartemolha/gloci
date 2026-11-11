@@ -1,0 +1,20 @@
+chr2	0	300	whole2	0	+
+chr1	100	150
+# regions out of order, with 3 to 6 columns
+chr1	44	47	delonly
+track name=bedcov
+
+chr1	5	30	a	10
+chr1	20	45	b	7	-
+chrZ	10	20	badchrom
+chr1	25	25	point
+chr1	10	40	ov1
+chr1	30	60	ov2
+chr1	0	500	wholechr1
+chr1	248	290	crlf
+chr2	290	310	pastend
+chr3	0	200	emptychr3
+chr1	170	180	placedunmapped
+chr1	9	9	edge
+chr1	29	29	endedge
+chr1	250	275	pair

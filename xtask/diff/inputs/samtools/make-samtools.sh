@@ -163,3 +163,41 @@ samtools faidx other.fa
 # which bcftools head would otherwise add), for the head cases on compressed input.
 bgzip -c ../hdr-distinct.vcf > hdr-pass.vcf.gz
 bcftools view -O b -o hdr-pass.bcf ../hdr-distinct.vcf
+# Task 6: the `depth` fixtures, all written by hand. depth.sam sets the traps: a deletion whose
+# next base has quality 10, `N`, `S`, `I`, `=`/`X`, a CIGAR `*` (samtools reads a mapped read with
+# one as unmapped), QUAL `*`, MAPQ 29 and 30, duplicate, secondary, QC-fail and supplementary
+# reads, a placed unmapped read, a read ending at chr2's LN, reads of 30, 49 and 50 bases once soft
+# clips are cut, and an empty chr3. depth2.sam has other reads on the same references;
+# depth-reordered.sam lists them in another order; depth-unsorted.sam has a read 3 bp before its
+# predecessor that ends after samtools' last row. depth-noseq.sam has reads with SEQ `*`, each with an
+# XB:B:C aux array as long as its CIGAR: samtools -q reads the bytes after the CIGAR as qualities,
+# which are then the array's own, so its output is stable (gloci passes every base). depth-pastend.sam
+# has reads that run past chr2's LN (samtools prints rows beyond it, so no other fixture has one).
+# depth.cram is
+# written without a reference (every base stored), so reading it needs none. depth-idx/input.bai
+# is the index under the name samtools and gloci find beside a file called input.bam.
+for s in depth depth2 depth-reordered depth-unsorted depth-noseq depth-pastend; do
+    samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o "$s.bam" "$s.sam"
+done
+samtools index -@ 0 depth.bam
+samtools index -@ 0 depth2.bam
+samtools index -@ 0 depth-noseq.bam
+samtools index -@ 0 depth-pastend.bam
+mkdir -p depth-idx
+samtools index -@ 0 depth.bam depth-idx/input.bai
+samtools view -C -@ 0 --no-PG --output-fmt-option version=3.0 --output-fmt-option no_ref=1 -o depth.cram depth.sam
+samtools index -@ 0 depth.cram
+
+# Task 7: the `depth --skip-mate-overlap` fixture, written by hand (mates.sam). Templates: a overlaps
+# its mate in part; b has both mates at one position, the longer second; c's second mate lies inside
+# the first; d does not overlap; e's second mate has a deletion before the first mate's end; f has
+# the mate-unmapped flag clear and no mate position; g is a resolved pair followed by two
+# supplementary alignments of one name inside the second mate (samtools keeps a stale entry for
+# them, gloci does not: #depth-mate-overlap); h's second mate has quality 5 on the bases it shares;
+# j's mate is on chr2; k is a pair on chr2; n's first mate has MAPQ 5, so under -Q 10 it neither waits nor clips.
+samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o mates.bam mates.sam
+samtools index -@ 0 mates.bam
+
+# Task 8: the `bedcov` fixtures bedcov.bed and bedcov-badchrom.bed are written by hand (see the
+# comment of the Task 8 cases). bedcov-badchrom.bed is bedcov.bed with a chrZ line inserted as
+# line 9. Nothing to rebuild: the BAMs are depth.bam, depth2.bam and depth-pastend.bam above.

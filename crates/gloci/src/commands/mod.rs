@@ -1,3 +1,4 @@
+pub mod bedcov;
 pub mod cat;
 pub mod check;
 pub mod closest;
@@ -5,6 +6,7 @@ pub mod cluster;
 pub mod complement;
 pub mod convert;
 pub mod coverage;
+pub mod depth;
 pub mod dict;
 pub mod faidx;
 pub mod flags;

@@ -2189,3 +2189,130 @@ depends on the span.
   `head-vcf-vs-bcftools`, `head-vcf-gz-vs-bcftools` and `head-bcf-vs-bcftools` pin the agreeing
   output for headers that have the line.
 
+## `depth` cuts a read at the end of its reference {#depth-past-reference-end}
+
+- **gloci:** a read that runs past the end of its reference (`LN` in `@SQ`) is
+  counted only up to `LN`, and one warning says so. No row is written past `LN`,
+  and a read that starts at or past `LN` writes nothing.
+- **Old behaviour:** `samtools depth` writes rows for positions past `LN`, one
+  for each base the read covers there (`chr2 301 2` for a reference of length
+  300).
+- **Reason:** a position past the end of a reference does not exist; the same
+  cut applies to the spans of every other gloci command that reads alignments
+  (D101). A pipeline that wants those rows needs the reads, not a depth.
+- **`bedcov`:** the same cut applies. A read that runs past `LN` is counted
+  only up to `LN`, with one warning, and a region that starts at or past `LN`
+  counts nothing; `samtools bedcov` also counts the bases beyond `LN` that a
+  region reaches.
+- **Pinned by:** `depth-past-reference-end-vs-samtools` and
+  `bedcov-past-reference-end-vs-samtools` (each must differ).
+
+## `bedcov -d` leaves D and N bases out of both columns {#bedcov-depth-threshold}
+
+- **gloci:** `--bases-at-depth N` changes nothing about what counts. The sum
+  and the count of bases at depth N or more both use the depth that `--split`
+  and `--split-deletions` describe: D and N bases count unless the matching flag
+  is given. `samtools bedcov -j` is `--split --split-deletions`, and so is
+  `-d N -j` with `--bases-at-depth N --split --split-deletions` (those cases
+  match).
+- **Old behaviour:** `samtools bedcov -d N` without `-j` drops D and N bases
+  from the sum as well as from the count, so the sum column of a region over an
+  intron or a deletion is 0 and differs from the same command without `-d`.
+- **Reason:** a threshold should add a column, not change another one; and
+  asking for a count should not change the depth the sum reports.
+- **Pinned by:** `bedcov-depth-threshold-vs-samtools` (must differ).
+
+## `bedcov` stops at a BED line on a missing chromosome {#bedcov-bad-line}
+
+- **gloci:** a BED line whose chromosome is not in the `@SQ` list is a data
+  error: exit 1 naming the BED file and line; the lines before it are written, and none of
+  that line or after it. With `--skip-invalid` the line is skipped, every other line
+  is written, and one warning gives the count and the first line; the exit
+  status is 0.
+- **Old behaviour:** `samtools bedcov` prints an error for the line, carries on
+  with the rest and exits 2 at the end.
+- **Reason:** a region that cannot be counted is a mistake in the BED or the
+  reference (a `chr1` against `1` naming mismatch, `--chrom-map` fixes it), and
+  a table with a silently missing row misleads whoever reads it by position.
+  Exit 2 is gloci's code for usage errors, and this is a data error (§6.4).
+- **Pinned by:** `bedcov-bad-chrom-vs-samtools` (exit status: must differ), and
+  the test `bedcov_bad_chrom`.
+
+## `depth` stops at a read out of order, wherever it ends {#depth-order-check}
+
+- **gloci:** every decrease of `(reference, position)` within an input is an
+  error (exit 1) that names both records and says to run `gloci sort`.
+- **Old behaviour:** `samtools depth` notices only a read that ends before its
+  last printed row, so a read a few bases before its predecessor that ends
+  further on is counted only from where the pileup has got to (its first bases
+  have no rows), and the status is 0.
+- **Reason:** an unsorted file gives depths that depend on how far out of order
+  it is, and a pipeline gets no sign. Sorting is one command.
+- **Pinned by:** `depth-unsorted-vs-samtools` (exit status: must differ).
+
+## `depth --all-positions` with regions prints regions on every reference {#depth-regions}
+
+- **gloci:** with `--region` or `--regions-file`, `--all-positions` prints every
+  position of the regions, as `--all-references` does, whether or not a read is
+  on that reference. That is what `samtools depth -a -r REGION` and
+  `samtools depth -aa -b FILE` print.
+- **Old behaviour:** `samtools depth -a -b FILE` skips the regions on a
+  reference that has no passing read, so a region on an empty reference writes
+  nothing, where one on a reference with reads writes its zero rows.
+- **Reason:** the rows should not depend on whether some other read of the
+  reference passed a filter, and `-r` and `-b` should agree.
+- **Pinned by:** `depth-all-positions-regions-file-vs-samtools` (must differ),
+  and the test `depth_all_modes`.
+
+## `depth` and `bedcov` refuse inputs with different `@SQ` lists {#depth-bedcov-same-sq}
+
+- **gloci:** every input must have the same `@SQ` lines (names, lengths and
+  order). If not, the command exits 1 before writing anything and names the first
+  line that differs (`@SQ 1 is chr2 (LN 300) in the first and chr1 (LN 500) in
+  the second`).
+- **Old behaviour:** `samtools depth` and `samtools bedcov` compare reference ids
+  across files without checking, so files that list the same references in
+  another order are read as if their ids meant the same references, and the rows
+  carry the first file's names for the other file's depths. The status is 0.
+- **Reason:** the depths of different references in one row are wrong, and
+  nothing in the output shows it.
+- **Pinned by:** `depth-reordered-references-vs-samtools` (exit status: must
+  differ).
+
+## `depth --min-baseq` counts every base of a read with SEQ `*` {#depth-seq-star-baseq}
+
+- **gloci:** a read whose SEQ is `*` has no base qualities, so every base of it
+  passes `--min-baseq`, as a missing quality (QUAL `*`) does.
+- **Old behaviour:** `samtools depth -q N` looks up the quality of each base
+  past the end of such a record, where the quality bytes would be. It reads
+  whatever follows the CIGAR in the record: the record's own aux bytes, and
+  past those stale heap memory. Some bases count and some do not, in a pattern
+  nobody chose.
+- **Reason:** an answer that depends on the memory layout cannot be matched;
+  counting the read is the only reading that does not invent a quality.
+- **Pinned by:** `depth-seq-star-min-baseq-vs-samtools` (must differ; the
+  fixture's SEQ `*` reads carry an aux array as long as their CIGAR, so the
+  bytes samtools reads are the file's own and its output is the same on every
+  run) and the cargo test
+  `depth_noseq_reads_use_their_cigar_for_the_length`, which checks gloci's side.
+
+## `depth --skip-mate-overlap` does not clip by a stale entry {#depth-mate-overlap}
+
+- **gloci:** a read is held for its mate only when the mate is on the same
+  reference and starts inside the read (`pos <= mpos <= end`). An entry is dropped
+  once a read starts after its mate position, and at each reference change. A read
+  whose mate position is unknown or behind it is never held, so it clips no one.
+  The table holds only reads whose mates are still ahead, which is proportional to
+  the depth.
+- **Old behaviour:** `samtools depth -s` also stores reads whose mate position is
+  unknown or behind them, and never drops an entry. A later alignment with the
+  same name, anywhere in the file and on any reference, is then clipped by that
+  stale end: a second supplementary alignment inside the second mate loses its
+  bases up to the first one's end, and a supplementary alignment on the next
+  reference may lose all of them. The table grows with the number of pairs.
+- **Reason:** the clip is meant to count the bases two mates share once; a stale
+  entry removes bases that no mate covers, and an unbounded table cannot run on a
+  whole genome.
+- **Pinned by:** `depth-s-stale-entry-vs-samtools` (must differ) and the cargo
+  tests `stale_entry_template_is_not_clipped` and `mate_table_bounded`. The other
+  `depth-s-*` cases leave out the supplementary alignments and are exact.

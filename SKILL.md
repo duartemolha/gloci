@@ -574,6 +574,31 @@ gloci samples a.bam b.cram --show-index --column-names
 gloci samples reads.bam --match-reference hg38.fa --match-reference hs37d5.fa --tag LB
 ```
 
+### `gloci depth`
+
+Depth of coverage of alignments at each position (samtools depth).
+
+Reads BAM, CRAM or SAM files (CRAM needs --reference) in coordinate order and prints "chrom, 1-based position, depth" for each position covered by a passing read in any input, with one depth column per input in the order given, references in @SQ order. Inputs must have identical @SQ lists (exit 1, naming the first difference; samtools compares reference ids unchecked). A read counts when none of --exclude-flags is set (default UNMAP,SECONDARY,QCFAIL,DUP: this command's default, where other commands exclude nothing; --exclude-flags 0 counts everything), all of --require-flags are, its MAPQ is at least --min-mapq and its length (SEQ length less the soft clips at its two ends; with SEQ *, the bases of M, I, = and X) is at least --min-read-length. Each M, = and X base counts when its quality is at least --min-baseq (a missing quality passes, and so does every base of a read with SEQ *). D bases count only with --count-deletions, each gated by the quality of the next base in the read; N never counts. Positions a read spans but none of its bases count (deletions, introns, filtered bases) print 0. --all-positions adds every position of each reference that has a passing read; --all-references adds every position of every reference. --region (repeatable) and --regions-file (BED) limit the rows to their union, each position once, read through the index when there is one (else the input is scanned, with a warning); with regions, the --all-* options print every position in them. --column-names writes "#CHROM POS" and the paths first. A read past the end of its reference is cut there with one warning, where samtools prints rows beyond it. --skip-mate-overlap counts the bases two mates of a pair share once. An input that goes back in (reference, position) is an error telling you to run gloci sort. With indexes and -t above 1, runs of references are computed in parallel with the same output. Memory per input follows the longest read, not the reference.
+
+```sh
+gloci depth sample.bam --skip-mate-overlap -o depth.tsv
+gloci depth a.bam b.bam --column-names --min-mapq 20 --min-baseq 20
+gloci depth sample.bam --region chr1:100,000-200,000 --all-positions
+gloci depth sample.bam --regions-file targets.bed --count-deletions
+```
+
+### `gloci bedcov`
+
+Depth of coverage summed over each BED region (samtools bedcov).
+
+For each line of BED, in any order, writes the line as it is and then, for each FILE (BAM or CRAM, each with a .bai, .csi or .crai; exit 2 without one), the sum of the depth over the region's bases: one column per file, files in the order given. --bases-at-depth N adds one column per file of the bases whose depth is at least N, and --read-count one of the reads that overlap the region (a zero-length region has no bases and counts no reads, as samtools 1.21 does). Depth counts M, = and X bases always, D bases unless --split-deletions and N (intron) bases unless --split, so samtools -j is --split --split-deletions. A read counts when none of --exclude-flags is set (default UNMAP,SECONDARY,QCFAIL,DUP, as for depth; --exclude-flags 0 counts everything but unmapped reads, which never count), all of --require-flags are, and its MAPQ is at least --min-mapq. Comment, track, browser and blank lines are skipped. A line on a chromosome the files lack is an error naming the line, or skipped with one counted warning under --skip-invalid; samtools prints an error, carries on and exits 2. Files must have identical @SQ lists. --column-names writes "#chrom start end" and one column name per file and kind first. A read past the end of its reference counts up to the end. Regions are read in batches of 256 lines on up to -t threads, written in BED order. Memory per thread follows the longest read, not the region.
+
+```sh
+gloci bedcov targets.bed sample.bam
+gloci bedcov targets.bed a.bam b.bam --bases-at-depth 10 --read-count --column-names
+gloci bedcov exons.bed sample.cram --reference ref.fa --split --split-deletions -t 8
+```
+
 ## Migration tables
 
 Every row below was checked against `gloci <cmd> --help`.
@@ -669,6 +694,8 @@ and FASTA behaviour](#bam-cram-and-fasta-behaviour), after the tables.
 | `samtools quickcheck [-u] [-v] FILE...` | `gloci check --quick [-u] [--list-failed] FILE...` (`--list-failed` prints the failing paths as `-v` does; exit status 1 for any failing file, where samtools exits with a bit mask, see [differences.md#samtools-exit-codes](differences.md#samtools-exit-codes); the first record must also parse, and a VCF, BCF or BGZF BED passes, see [differences.md#quickcheck](differences.md#quickcheck)) |
 | `samtools head [-h N] [-n N] FILE`, `bcftools head` | `gloci head FILE [--headers N] [--records N]` (any format; a BAM with no `@SQ` text gets them written, see [differences.md#head-notext-header](differences.md#head-notext-header); a VCF header is printed as stored, without the PASS line bcftools adds, see [differences.md#head-vcf-pass-line](differences.md#head-vcf-pass-line)) |
 | `samtools samples [-T TAG] [-i] [-h] [-f FA]... FILE...` | `gloci samples FILE... [--tag TAG] [--show-index] [--column-names] [--match-reference FA]...` (samples in header order, see [differences.md#samples-order](differences.md#samples-order); a FASTA with no `.fai` exits 2, see [differences.md#fasta-implicit-index](differences.md#fasta-implicit-index)) |
+| `samtools depth [-a\|-aa] [-J] [-q N] [-Q N] [-l N] [-g F] [-G F] [--require-flags F] [-r REG] [-b BED] [-H] [-o OUT] FILE...` | `gloci depth FILE... [--all-positions\|--all-references] [--count-deletions] [--min-baseq N] [--min-mapq N] [--min-read-length N] [--exclude-flags F] [--require-flags F] [--region REG] [--regions-file BED] [--column-names] [-o OUT]` (output is byte-identical to samtools 1.21 except where [differences.md#depth-past-reference-end](differences.md#depth-past-reference-end), [differences.md#depth-order-check](differences.md#depth-order-check), [differences.md#depth-regions](differences.md#depth-regions) and [differences.md#depth-bedcov-same-sq](differences.md#depth-bedcov-same-sq) say; `--exclude-flags` defaults to `UNMAP,SECONDARY,QCFAIL,DUP`, so `-g DUP` is `--exclude-flags UNMAP,SECONDARY,QCFAIL` and `-G X` adds X to that list) |
+| `samtools bedcov [-Q N] [-g F] [-G F] [-j] [-d N] [-c] [-H] BED FILE...` | `gloci bedcov BED FILE... [--min-mapq N] [--exclude-flags F] [--require-flags F] [--split --split-deletions] [--bases-at-depth N] [--read-count] [--column-names] [-o OUT]` (each file needs an index; `-j` is `--split --split-deletions`; `-d N` alone drops D and N bases from both columns in samtools, see [differences.md#bedcov-depth-threshold](differences.md#bedcov-depth-threshold); a BED line on a missing chromosome exits 1, see [differences.md#bedcov-bad-line](differences.md#bedcov-bad-line); reads past the end of their reference are cut, see [differences.md#depth-past-reference-end](differences.md#depth-past-reference-end)) |
 | `jaccard`, `fisher`, `reldist` | not yet available (`stats jaccard / fisher / reldist`, P3b) |
 | `shuffle`, `random`, `sample` | not yet available (`shuffle`, `random`, `sample`, P3b) |
 | `pairtobed`, `pairtopair` | not yet available (`pair-intersect`, `pair-pair`, P3b) |

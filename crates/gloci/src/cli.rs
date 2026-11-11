@@ -1191,6 +1191,63 @@ Examples:
   gloci samples a.bam b.cram --show-index --column-names
   gloci samples reads.bam --match-reference hg38.fa --match-reference hs37d5.fa --tag LB")]
     Samples(SamplesArgs),
+    /// Depth of coverage of alignments at each position (samtools depth).
+    ///
+    /// Reads BAM, CRAM or SAM files (CRAM needs --reference) in coordinate order and prints
+    /// "chrom, 1-based position, depth" for each position covered by a passing read in any
+    /// input, with one depth column per input in the order given, references in @SQ order.
+    /// Inputs must have identical @SQ lists (exit 1, naming the first difference; samtools
+    /// compares reference ids unchecked). A read counts when none of --exclude-flags is set
+    /// (default UNMAP,SECONDARY,QCFAIL,DUP: this command's default, where other commands
+    /// exclude nothing; --exclude-flags 0 counts everything), all of --require-flags are, its
+    /// MAPQ is at least --min-mapq and its length (SEQ length less the soft clips at its two
+    /// ends; with SEQ *, the bases of M, I, = and X) is at least --min-read-length. Each M, =
+    /// and X base counts when its quality is at least --min-baseq (a missing quality passes,
+    /// and so does every base of a read with SEQ *). D bases count only with --count-deletions,
+    /// each gated by the quality of the next base in the read; N never counts. Positions a
+    /// read spans but none of its bases count (deletions, introns, filtered bases) print 0.
+    /// --all-positions adds every position of each reference that has a passing read;
+    /// --all-references adds every position of every reference. --region (repeatable) and
+    /// --regions-file (BED) limit the rows to their union, each position once, read through the
+    /// index when there is one (else the input is scanned, with a warning); with regions, the
+    /// --all-* options print every position in them. --column-names writes "#CHROM POS" and
+    /// the paths first. A read past the end of its reference is cut there with one warning,
+    /// where samtools prints rows beyond it. --skip-mate-overlap counts the bases two mates of
+    /// a pair share once. An input that goes back in (reference, position)
+    /// is an error telling you to run gloci sort. With indexes and -t above 1, runs of
+    /// references are computed in parallel with the same output. Memory per input follows the
+    /// longest read, not the reference.
+    #[command(after_long_help = "\
+Examples:
+  gloci depth sample.bam --skip-mate-overlap -o depth.tsv
+  gloci depth a.bam b.bam --column-names --min-mapq 20 --min-baseq 20
+  gloci depth sample.bam --region chr1:100,000-200,000 --all-positions
+  gloci depth sample.bam --regions-file targets.bed --count-deletions")]
+    Depth(DepthArgs),
+    /// Depth of coverage summed over each BED region (samtools bedcov).
+    ///
+    /// For each line of BED, in any order, writes the line as it is and then, for each FILE (BAM
+    /// or CRAM, each with a .bai, .csi or .crai; exit 2 without one), the sum of the depth over
+    /// the region's bases: one column per file, files in the order given. --bases-at-depth N
+    /// adds one column per file of the bases whose depth is at least N, and --read-count one of
+    /// the reads that overlap the region (a zero-length region has no bases and counts no reads,
+    /// as samtools 1.21 does). Depth counts M, = and X bases always, D bases unless --split-deletions and
+    /// N (intron) bases unless --split, so samtools -j is --split --split-deletions. A read counts
+    /// when none of --exclude-flags is set (default UNMAP,SECONDARY,QCFAIL,DUP, as for depth;
+    /// --exclude-flags 0 counts everything but unmapped reads, which never count), all of
+    /// --require-flags are, and its MAPQ is at least --min-mapq. Comment, track, browser and blank
+    /// lines are skipped. A line on a chromosome the files lack is an error naming the line,
+    /// or skipped with one counted warning under --skip-invalid; samtools prints an error,
+    /// carries on and exits 2. Files must have identical @SQ lists. --column-names writes
+    /// "#chrom start end" and one column name per file and kind first. A read past the end of
+    /// its reference counts up to the end. Regions are read in batches of 256 lines on up to -t
+    /// threads, written in BED order. Memory per thread follows the longest read, not the region.
+    #[command(after_long_help = "\
+Examples:
+  gloci bedcov targets.bed sample.bam
+  gloci bedcov targets.bed a.bam b.bam --bases-at-depth 10 --read-count --column-names
+  gloci bedcov exons.bed sample.cram --reference ref.fa --split --split-deletions -t 8")]
+    Bedcov(BedcovArgs),
 }
 
 /// What `intersect` reports.
@@ -3558,6 +3615,129 @@ pub struct SamplesArgs {
     pub match_reference: Vec<PathBuf>,
     #[command(flatten)]
     pub column_names: ColumnNamesArg,
+    /// Write the lines to FILE instead of stdout.
+    #[arg(short, long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
+}
+
+// P3c Task 6
+#[derive(Args)]
+pub struct DepthArgs {
+    /// BAM, CRAM or SAM files in coordinate order (- is standard input), with identical
+    /// @SQ lists; one depth column each.
+    #[arg(value_name = "FILE", required = true)]
+    pub files: Vec<String>,
+    /// Also print every position of each reference that has a passing read (samtools -a).
+    #[arg(long)]
+    pub all_positions: bool,
+    /// Also print every position of every reference, reads or not (samtools -aa).
+    #[arg(long)]
+    pub all_references: bool,
+    /// Count deleted bases (D), each gated by the quality of the next base in the read.
+    #[arg(long)]
+    pub count_deletions: bool,
+    /// Count a base only when its quality is at least N. A missing quality (QUAL *) passes, and
+    /// so does every base of a read with SEQ * (samtools reads the bytes after the CIGAR as
+    /// qualities there).
+    #[arg(long, value_name = "N", default_value_t = 0)]
+    pub min_baseq: u8,
+    /// Skip reads shorter than N bases (SEQ length less soft clips at the two ends).
+    #[arg(long, value_name = "N", default_value_t = 0)]
+    pub min_read_length: u64,
+    /// Skip reads with mapping quality below N.
+    #[arg(long, value_name = "N", default_value_t = 0)]
+    pub min_mapq: u8,
+    /// Keep only reads that have all of these flags: a number (0x2) or names such as
+    /// paired,proper_pair.
+    #[arg(long, value_name = "FLAGS")]
+    pub require_flags: Option<String>,
+    /// Drop reads that have any of these flags: a number or names. As for the other commands,
+    /// but this command's default is UNMAP,SECONDARY,QCFAIL,DUP (samtools depth's), where
+    /// theirs is none; 0 counts every read.
+    #[arg(
+        long,
+        value_name = "FLAGS",
+        default_value = "UNMAP,SECONDARY,QCFAIL,DUP"
+    )]
+    pub exclude_flags: String,
+    /// The FASTA a CRAM input was made with, with its .fai. Not needed for a CRAM written
+    /// without a reference.
+    #[arg(long, value_name = "FILE")]
+    pub reference: Option<PathBuf>,
+    /// Count each base of an overlapping mate pair once, per input: a read whose mate was
+    /// already seen starts counting where the mate ends (samtools -s). Reads with an unknown mate
+    /// position are never held, so unlike samtools a later alignment with the same name is not
+    /// clipped by a stale entry.
+    #[arg(long)]
+    pub skip_mate_overlap: bool,
+    #[command(flatten)]
+    pub region: RegionArgs,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub columns: ColumnNamesArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub tmp_dir: TmpDirArg,
+    /// Write the rows to FILE instead of stdout.
+    #[arg(short, long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
+}
+
+// P3c Task 8
+#[derive(Args)]
+pub struct BedcovArgs {
+    /// BED regions, in any order (- is standard input).
+    #[arg(value_name = "BED")]
+    pub bed: String,
+    /// BAM or CRAM files with an index (.bai, .csi or .crai) and identical @SQ lists; one
+    /// column each.
+    #[arg(value_name = "FILE", required = true)]
+    pub files: Vec<String>,
+    /// Do not count N (intron) bases (samtools -j, with --split-deletions).
+    #[arg(long)]
+    pub split: bool,
+    /// Do not count D (deleted) bases (samtools -j, with --split).
+    #[arg(long)]
+    pub split_deletions: bool,
+    /// Also write, per file, the number of bases of the region whose depth is at least N
+    /// (samtools -d; samtools then also leaves D and N bases out of both columns).
+    #[arg(long, value_name = "N")]
+    pub bases_at_depth: Option<u32>,
+    /// Also write, per file, the number of reads that overlap the region (samtools -c).
+    #[arg(long)]
+    pub read_count: bool,
+    /// Skip reads with mapping quality below N.
+    #[arg(long, value_name = "N", default_value_t = 0)]
+    pub min_mapq: u8,
+    /// Keep only reads that have all of these flags: a number (0x2) or names such as
+    /// paired,proper_pair.
+    #[arg(long, value_name = "FLAGS")]
+    pub require_flags: Option<String>,
+    /// Drop reads that have any of these flags: a number or names. As for the other commands,
+    /// but this command's default is UNMAP,SECONDARY,QCFAIL,DUP (samtools bedcov's), where
+    /// theirs is none; 0 counts every mapped read.
+    #[arg(
+        long,
+        value_name = "FLAGS",
+        default_value = "UNMAP,SECONDARY,QCFAIL,DUP"
+    )]
+    pub exclude_flags: String,
+    /// The FASTA a CRAM input was made with, with its .fai. Not needed for a CRAM written
+    /// without a reference.
+    #[arg(long, value_name = "FILE")]
+    pub reference: Option<PathBuf>,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub columns: ColumnNamesArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
     /// Write the lines to FILE instead of stdout.
     #[arg(short, long, value_name = "FILE")]
     pub output: Option<PathBuf>,

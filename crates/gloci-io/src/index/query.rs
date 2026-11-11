@@ -1349,6 +1349,63 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
             Backend::Cram(c) => return Ok(Box::new(c.chromosomes_reader(chroms))),
             Backend::Binned { index, by_new_name } => (index, by_new_name),
         };
+        Ok(Box::new(self.chromosomes_region_reader(
+            index,
+            by_new_name,
+            chroms,
+            false,
+        )?))
+    }
+
+    /// Every record on `chroms` of a BAM file as every-record [`AlnSource`] reads them (placed
+    /// unmapped reads included, D116), chromosome by chromosome in the order given, each
+    /// chromosome's records in file order. As [`chromosomes_reader`], it reads whole
+    /// chromosomes, so an invalid record is named as a streaming read names it (its number in
+    /// the chromosome and in the file), whatever the chunking. The read filters apply.
+    ///
+    /// [`chromosomes_reader`]: IndexedFile::chromosomes_reader
+    pub fn aln_chromosomes_source(
+        &self,
+        chroms: &[Vec<u8>],
+    ) -> Result<Box<dyn AlnSource>, IoError> {
+        let (index, by_new_name) = match &self.backend {
+            Backend::Cram(c) => {
+                let regions: Vec<(Vec<u8>, Interval)> = chroms
+                    .iter()
+                    .map(|c| {
+                        (
+                            c.clone(),
+                            Interval {
+                                start: 0,
+                                end: u64::MAX,
+                            },
+                        )
+                    })
+                    .collect();
+                return Ok(c.aln_regions_source(&regions, true));
+            }
+            Backend::Binned { index, by_new_name } => (index, by_new_name),
+        };
+        let Header::Alignment(aln) = &self.header else {
+            return Err(IoError::Internal(
+                "an alignment source needs a BAM file".into(),
+            ));
+        };
+        Ok(Box::new(IndexedAlnSource {
+            aln: aln.clone(),
+            reader: self.chromosomes_region_reader(index, by_new_name, chroms, true)?,
+            chroms: ChromTable::first_appearance(),
+            batch: RecordBatch::default(),
+        }))
+    }
+
+    fn chromosomes_region_reader(
+        &self,
+        index: &Arc<Loaded>,
+        by_new_name: &HashMap<Vec<u8>, usize>,
+        chroms: &[Vec<u8>],
+        all: bool,
+    ) -> Result<RegionReader, IoError> {
         let max_pos = index.max_position();
         let plans: Vec<Plan> = chroms
             .iter()
@@ -1370,7 +1427,7 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
             path: self.name.clone(),
             source,
         })?;
-        Ok(Box::new(RegionReader {
+        Ok(RegionReader {
             name: self.name.clone(),
             format: self.format,
             header: self.header.clone(),
@@ -1379,7 +1436,7 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
             inclusive: true,
             src: noodles_bgzf::io::Reader::new(BufReader::new(file)),
             renamer: text_renamer(self.format, &self.opts),
-            parser: self.parser(false)?,
+            parser: self.parser(all)?,
             index: index.clone(),
             plans,
             whole: true,
@@ -1393,6 +1450,6 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
             emitted: 0,
             seen: 0,
             seen_last: None,
-        }))
+        })
     }
 }

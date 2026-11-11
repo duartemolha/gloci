@@ -193,6 +193,8 @@ and FASTA behaviour](#bam-cram-and-fasta-behaviour), after the tables.
 | `samtools quickcheck [-u] [-v] FILE...` | `gloci check --quick [-u] [--list-failed] FILE...` (`--list-failed` prints the failing paths as `-v` does; exit status 1 for any failing file, where samtools exits with a bit mask, see [differences.md#samtools-exit-codes](differences.md#samtools-exit-codes); the first record must also parse, and a VCF, BCF or BGZF BED passes, see [differences.md#quickcheck](differences.md#quickcheck)) |
 | `samtools head [-h N] [-n N] FILE`, `bcftools head` | `gloci head FILE [--headers N] [--records N]` (any format; a BAM with no `@SQ` text gets them written, see [differences.md#head-notext-header](differences.md#head-notext-header); a VCF header is printed as stored, without the PASS line bcftools adds, see [differences.md#head-vcf-pass-line](differences.md#head-vcf-pass-line)) |
 | `samtools samples [-T TAG] [-i] [-h] [-f FA]... FILE...` | `gloci samples FILE... [--tag TAG] [--show-index] [--column-names] [--match-reference FA]...` (samples in header order, see [differences.md#samples-order](differences.md#samples-order); a FASTA with no `.fai` exits 2, see [differences.md#fasta-implicit-index](differences.md#fasta-implicit-index)) |
+| `samtools depth [-a\|-aa] [-J] [-q N] [-Q N] [-l N] [-g F] [-G F] [--require-flags F] [-r REG] [-b BED] [-H] [-o OUT] FILE...` | `gloci depth FILE... [--all-positions\|--all-references] [--count-deletions] [--min-baseq N] [--min-mapq N] [--min-read-length N] [--exclude-flags F] [--require-flags F] [--region REG] [--regions-file BED] [--column-names] [-o OUT]` (output is byte-identical to samtools 1.21 except where [differences.md#depth-past-reference-end](differences.md#depth-past-reference-end), [differences.md#depth-order-check](differences.md#depth-order-check), [differences.md#depth-regions](differences.md#depth-regions) and [differences.md#depth-bedcov-same-sq](differences.md#depth-bedcov-same-sq) say; `--exclude-flags` defaults to `UNMAP,SECONDARY,QCFAIL,DUP`, so `-g DUP` is `--exclude-flags UNMAP,SECONDARY,QCFAIL` and `-G X` adds X to that list) |
+| `samtools bedcov [-Q N] [-g F] [-G F] [-j] [-d N] [-c] [-H] BED FILE...` | `gloci bedcov BED FILE... [--min-mapq N] [--exclude-flags F] [--require-flags F] [--split --split-deletions] [--bases-at-depth N] [--read-count] [--column-names] [-o OUT]` (each file needs an index; `-j` is `--split --split-deletions`; `-d N` alone drops D and N bases from both columns in samtools, see [differences.md#bedcov-depth-threshold](differences.md#bedcov-depth-threshold); a BED line on a missing chromosome exits 1, see [differences.md#bedcov-bad-line](differences.md#bedcov-bad-line); reads past the end of their reference are cut, see [differences.md#depth-past-reference-end](differences.md#depth-past-reference-end)) |
 | `jaccard`, `fisher`, `reldist` | not yet available (`stats jaccard / fisher / reldist`, P3b) |
 | `shuffle`, `random`, `sample` | not yet available (`shuffle`, `random`, `sample`, P3b) |
 | `pairtobed`, `pairtopair` | not yet available (`pair-intersect`, `pair-pair`, P3b) |
@@ -486,6 +488,23 @@ there is one.
   exits 1.
   [differences.md#flags-leading-zero](differences.md#flags-leading-zero)
   [differences.md#samtools-exit-codes](differences.md#samtools-exit-codes)
+- **`depth` (replaces `samtools depth`):** `gloci depth FILE...` prints the same
+  rows for BAM, CRAM and SAM (`-a` is `--all-positions`, `-aa` is
+  `--all-references`, `-J` is `--count-deletions`, `-q` is `--min-baseq`, `-Q` is
+  `--min-mapq`, `-l` is `--min-read-length`, `-r` is `--region`, `-b` is
+  `--regions-file`, `-H` is `--column-names`). Four things differ: a read past
+  the end of its reference is cut there where samtools prints rows beyond it; an
+  input out of order is an error where samtools counts it; `-a` with regions
+  prints the regions on references with no read, as `-r` does; and inputs with
+  different `@SQ` lists are refused where samtools reads their ids as equal.
+  [differences.md#depth-past-reference-end](differences.md#depth-past-reference-end)
+  [differences.md#depth-order-check](differences.md#depth-order-check)
+  [differences.md#depth-regions](differences.md#depth-regions)
+  [differences.md#depth-bedcov-same-sq](differences.md#depth-bedcov-same-sq)
+  A read with SEQ `*` passes every `--min-baseq`; samtools reads past the record there.
+  [differences.md#depth-seq-star-baseq](differences.md#depth-seq-star-baseq)
+  `depth --skip-mate-overlap` (samtools `-s`) does not clip by a stale entry.
+  [differences.md#depth-mate-overlap](differences.md#depth-mate-overlap)
 - **TSV indexing without `-e`:** `gloci index -s -b` without `-e` sets the end
   column equal to the begin column (1-base feature) instead of tabix's GFF
   default of column 5.
