@@ -739,3 +739,26 @@ def test_module_functions_report_what_the_run_wrote(here: Path) -> None:
     (here / "a.bed.gz.other").write_text("not an index\n")
     assert gloci.index("a.bed.gz") == [Path("a.bed.gz.tbi")]
     assert gloci.index("a.bed.gz") == [Path("a.bed.gz.tbi")]
+
+
+def test_cli_quotes_what_only_looks_like_a_placeholder(ab: Path, bash) -> None:
+    # I2: a placeholder is known by where it came from, never by its text.
+    evil = "<(gloci view x; touch pwned)"
+    p = gloci.open("a.bed").intersect(b=evil)
+    assert p.cli() == "gloci intersect -a a.bed -b '<(gloci view x; touch pwned)'"
+    bash(p.cli(), ab)
+    assert not (ab / "pwned").exists()
+    named = "<python object 1>"
+    (ab / named).write_bytes((ab / "a.bed").read_bytes())
+    q = gloci.open(named).merge()
+    assert q.cli() == "gloci merge '<python object 1>'"
+    run = bash(q.cli(), ab)
+    assert run.returncode == 0, run.stderr
+    assert run.stdout == q.to_bytes()
+    # Real placeholders stay as they are, and recorded command lines hold no NUL.
+    rows = gloci.open(bed_rows(ab / "a.bed")).intersect(b=gloci.open("b.bed").view())
+    assert rows.cli() == "gloci intersect -a <python object 1> -b <(gloci view b.bed)"
+    vcf = gloci.open(VCF_X.splitlines()).view().to_bytes().decode()
+    want = f"##glociCommand=gloci view <python object 1>; Version={gloci.__version__}"
+    assert want in vcf.splitlines()
+    assert "\0" not in vcf

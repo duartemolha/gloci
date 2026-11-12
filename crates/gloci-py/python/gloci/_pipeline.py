@@ -40,6 +40,13 @@ def _pipe(i: int) -> str:
     return f"\0pipe:{i}"
 
 
+def _placeholder(text: str) -> str:
+    """`text` marked as a placeholder for `_native.command_line`, which shows it as it is. The
+    marks hold a NUL, which no value a user gives can, so a path that only looks like a
+    placeholder is quoted like any other word."""
+    return f"\0{{{text}\0}}"
+
+
 # Sources (D88)
 
 
@@ -237,9 +244,9 @@ class _Plan:
             return src.obj, src.obj
         if isinstance(src, Nested):
             j, lines = self.chain(src.obj, None, [])
-            return _pipe(j), f"<({' | '.join(lines)})"
+            return _pipe(j), _placeholder(f"<({' | '.join(lines)})")
         self._objects += 1
-        shown = f"<python object {self._objects}>"
+        shown = _placeholder(f"<python object {self._objects}>")
         if not self.run:
             return shown, shown
         if src.once:

@@ -154,12 +154,19 @@ fn bindings(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
     })
 }
 
-/// Whether `s` is a plan's token for an input (`"\0src:<k>"`, `"\0pipe:<j>"`), which a
-/// keyword argument holds where a pipeline's source goes (`b=`).
+/// Whether `s` is a word only a plan makes, which a keyword argument holds where a pipeline's
+/// source goes (`b=`): a token for an input (`"\0src:<k>"`, `"\0pipe:<j>"`), or a shown
+/// placeholder ([`PLACEHOLDER_OPEN`]). No value a user gives holds a NUL.
 fn is_plan_token(s: &str) -> bool {
-    s.strip_prefix("\0src:")
+    let token = s
+        .strip_prefix("\0src:")
         .or_else(|| s.strip_prefix("\0pipe:"))
-        .is_some_and(|n| !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()))
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()));
+    let placeholder = s
+        .strip_prefix(PLACEHOLDER_OPEN)
+        .and_then(|r| r.strip_suffix(PLACEHOLDER_CLOSE))
+        .is_some_and(|inner| !inner.contains('\0'));
+    token || placeholder
 }
 
 /// What a keyword argument's text may hold.
@@ -436,21 +443,17 @@ fn module_functions(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
     })
 }
 
-/// Whether a word of a shown argv stands for an input and is kept as it is: `<python object
-/// N>` for a Python object, and `<(gloci ...)>`, bash's process substitution, for a nested
-/// pipeline (its command lines are already quoted).
-fn is_placeholder(a: &str) -> bool {
-    let object = a
-        .strip_prefix("<python object ")
-        .and_then(|r| r.strip_suffix('>'))
-        .is_some_and(|n| !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()));
-    object || (a.starts_with("<(gloci ") && a.ends_with(')'))
-}
+/// The start and end of a placeholder in a shown argv: the text between them stands for an
+/// in-memory input (`<python object N>`, or `<(gloci ...)` for a nested pipeline) and is shown
+/// as it is. Only a plan makes them (gloci._pipeline); no value a user gives holds a NUL, so a
+/// path or value that merely looks like a placeholder is quoted like any other word (I2).
+const PLACEHOLDER_OPEN: &str = "\0{";
+const PLACEHOLDER_CLOSE: &str = "\0}";
 
 /// The shell form of a step's argv (D84): each word quoted as a shell needs it, except the
-/// placeholders that stand for in-memory inputs ([`is_placeholder`]), and without the `--` that
-/// [`step_argv`] puts before positionals where the line reads the same without it
-/// ([`embed::drop_needless_separator`]).
+/// placeholders a plan marked ([`PLACEHOLDER_OPEN`]), shown as they are without their marks,
+/// and without the `--` that [`step_argv`] puts before positionals where the line reads the
+/// same without it ([`embed::drop_needless_separator`]). The result holds no NUL.
 #[pyfunction]
 fn command_line(py: Python<'_>, argv: Vec<String>) -> PyResult<String> {
     guarded(py, || Ok(shell_form(argv)))
@@ -461,11 +464,36 @@ fn shell_form(argv: Vec<String>) -> String {
     embed::drop_needless_separator(&argv)
         .iter()
         .map(|w| match w.to_str() {
-            Some(p) if is_placeholder(p) => p.to_string(),
+            Some(word) if word.contains(PLACEHOLDER_OPEN) => shell_word(word),
             _ => gloci_io::shell_quote_args(std::slice::from_ref(w)),
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// One word holding marked placeholders (`--x=` and a placeholder, say): the placeholders as
+/// they are, the rest quoted.
+fn shell_word(word: &str) -> String {
+    let quote = |s: &str| gloci_io::shell_quote_args(&[OsString::from(s)]);
+    let mut out = String::new();
+    let mut rest = word;
+    while let Some(i) = rest.find(PLACEHOLDER_OPEN) {
+        if i > 0 {
+            out.push_str(&quote(&rest[..i]));
+        }
+        let after = &rest[i + PLACEHOLDER_OPEN.len()..];
+        let Some(end) = after.find(PLACEHOLDER_CLOSE) else {
+            // An open mark with no close: not a placeholder, so shown as text, without the NUL.
+            rest = after;
+            continue;
+        };
+        out.push_str(&after[..end].replace('\0', ""));
+        rest = &after[end + PLACEHOLDER_CLOSE.len()..];
+    }
+    if !rest.is_empty() {
+        out.push_str(&quote(&rest.replace('\0', "")));
+    }
+    out
 }
 
 /// Run a plan ([`run`]); a panic in this code raises `GlociError` (D90).
