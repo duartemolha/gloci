@@ -1039,3 +1039,53 @@ written to files, not to a pipeline"
     assert_eq!(strs(&a), ["--genotype-matrix", "012"]);
     assert!(argv_of(ve, &[("info", val("DP"))]).is_ok());
 }
+
+#[test]
+fn the_sort_step_refuses_check() {
+    // Every terminal passes -o, and `sort --check` writes nothing: the check stays on the CLI.
+    for v in [KwValue::Flag(true), KwValue::Flag(false)] {
+        let e = argv_of(&["sort"], &[("check", v)]).unwrap_err();
+        assert_eq!(
+            e,
+            "sort(check=True) writes no output; check sortedness with the CLI: gloci sort \
+--check FILE"
+        );
+    }
+    // Never suggested for a near miss.
+    let e = argv_of(&["sort"], &[("chek", KwValue::Flag(true))]).unwrap_err();
+    assert_eq!(e, "sort() got an unexpected keyword argument 'chek'");
+}
+
+#[test]
+fn file_arguments_are_known() {
+    let takes = |path: &[&str], name: &str| spec(path).arg(name).unwrap().takes_file;
+    // Files to read, whatever clap's value type.
+    for (path, name) in [
+        (&["intersect"][..], "b"),
+        (&["intersect"], "genome"),
+        (&["intersect"], "chrom_map"),
+        (&["vcf", "compare"], "a"),
+        (&["vcf", "compare"], "b"),
+        (&["vcf", "annotate"], "annotations"),
+        (&["vcf", "norm"], "fasta"),
+        (&["getfasta"], "fasta"),
+        (&["bedcov"], "files"),
+        (&["reheader"], "header"),
+        (&["shuffle"], "exclude"),
+    ] {
+        assert!(takes(path, name), "{path:?} {name}");
+    }
+    // Text, directories, prefixes, switches and the output are not.
+    for (path, name) in [
+        (&["intersect"][..], "names"),
+        (&["intersect"], "mode"),
+        (&["intersect"], "tmp_dir"),
+        (&["intersect"], "output"),
+        (&["merge"], "max_gap"),
+        (&["sort"], "header"),
+        (&["vcf", "stats"], "out_prefix"),
+        (&["vcf", "filter"], "samples"),
+    ] {
+        assert!(!takes(path, name), "{path:?} {name}");
+    }
+}

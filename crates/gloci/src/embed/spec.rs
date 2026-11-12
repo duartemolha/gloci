@@ -26,6 +26,9 @@ pub struct ArgSpec {
     pub value_names: Vec<String>,
     /// The values clap accepts, when it has a fixed list.
     pub possible_values: Vec<String>,
+    /// Its values are files to read ([`FILE_VALUE_NAMES`]), which a host may give an in-memory
+    /// source for (D88). Any other value is text: a label, a number, a directory or a prefix.
+    pub takes_file: bool,
     /// The one-line help.
     pub help: String,
 }
@@ -160,6 +163,17 @@ fn walk(cmd: &clap::Command, path: &mut Vec<String>, out: &mut Vec<CommandSpec>)
     path.pop();
 }
 
+/// The value names (clap's placeholders) of the arguments whose values are files to read, besides
+/// any name holding `FILE` (`FILE`, `FILES`, `NAME|FILE`): the inputs named by what they hold
+/// (`IN`, `BED`, `FASTA`, `REF`, `SRC`, `HEADER`) and `vcf compare`'s `A` and `B`. Clap's value
+/// types cannot tell: many file arguments are text (`-b`), and `--tmp-dir` and `--out-prefix`
+/// are paths that are not read.
+pub const FILE_VALUE_NAMES: &[&str] = &["IN", "A", "B", "BED", "FASTA", "REF", "SRC", "HEADER"];
+
+fn names_a_file(name: &str) -> bool {
+    name.contains("FILE") || FILE_VALUE_NAMES.contains(&name)
+}
+
 fn arg_spec(a: &clap::Arg) -> ArgSpec {
     let action = a.get_action();
     let takes_value = action.takes_values();
@@ -193,6 +207,12 @@ fn arg_spec(a: &clap::Arg) -> ArgSpec {
             .filter(|v| !v.is_hide_set())
             .map(|v| v.get_name().to_string())
             .collect(),
+        takes_file: takes_value
+            && a.get_id() != "output"
+            && a.get_value_names()
+                .unwrap_or_default()
+                .iter()
+                .any(|n| names_a_file(n.as_str())),
         help: a.get_help().map(|s| s.to_string()).unwrap_or_default(),
     }
 }

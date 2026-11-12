@@ -12,6 +12,10 @@
 //!   (the command's thread and its rayon pool). [`CancelToken::cancel`] then makes the run fail
 //!   with a cancellation, removing partial output files. Judge the error under the same token:
 //!   [`classify`] on that thread, or [`classify_under`] elsewhere.
+//! - **Outputs.** A token made with [`CancelToken::recording`] records every output file the
+//!   run commits ([`CancelToken::outputs`]): the exact list of what it wrote, which no
+//!   directory listing can give while other writers share the directory. [`StageSet`] makes
+//!   such a token ([`StageSet::outputs`]).
 //! - **In-memory endpoints (D84).** Inputs and outputs are names from
 //!   [`gloci_io::memio::register_input`] and `register_output`. Every name registered must be
 //!   discarded ([`gloci_io::memio::discard`]) once the run is over, whatever its result, or its
@@ -47,7 +51,7 @@ pub use bindings::{
 };
 pub use gloci_io::cancel::{CancelToken, RunGuard};
 pub use pipe::{PIPE_CHUNK, PIPE_CHUNKS, PipeFail, PipeReader, PipeWriter, pipe};
-pub use spec::{ArgSpec, CommandSpec, command_specs, find_spec};
+pub use spec::{ArgSpec, CommandSpec, FILE_VALUE_NAMES, command_specs, find_spec};
 pub use stages::{StageError, StageSet, StageSpec};
 
 use crate::cli::{self, Cli, Commands};

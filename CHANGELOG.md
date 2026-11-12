@@ -14,6 +14,7 @@ the minor version).
 - P2b: `gloci::embed`, the in-process API the Python library is built on: the CLI's own parsing and dispatch with in-memory inputs and outputs, per-run cancellation, command specs and keyword arguments.
 - P2b: the Python library `gloci` (crate `gloci-py`, built with maturin): lazy, immutable pipelines over files with one step method per stream command, run in-process with the CLI's output (`save()`, `to_bytes()`, `count()`, `cli()`); typed exceptions (`UsageError`, `DataError`, `UnsortedError`, `GlociError`); the GIL released while steps run, Ctrl-C cancelling the run, and warnings sent to the `logging` logger `gloci`.
 - P2b: the documentation site (mdBook): install, quickstart, semantics, migration, differences, the generated per-command reference, the Python guide and API, and the maintainers' release checklist; `cargo xtask book` generates the reference and checks every link.
+- P2b: Python-object sources for the Python library: file objects, iterables of lines or tuples, Arrow tables and streams (pyarrow, polars, pandas; read through the Arrow C stream interface) and nested pipelines, read as the run goes; the module sources `gloci.windows()` and `gloci.random()` and the functions `vcf_stats()`, `vcf_extract_matrix()`, `vcf_compare()` and `index()`. `sort(check=True)` is refused on the step: the check stays on the command line.
 
 ## [0.1.0] - 2026-11-08
 

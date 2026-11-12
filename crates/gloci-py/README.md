@@ -16,12 +16,36 @@ import gloci
 
 ## Pipelines
 
-- `gloci.open(path)` starts a pipeline from a file. `format=` overrides format detection.
+- `gloci.open(src)` starts a pipeline. `format=` overrides format detection. `src` may be:
+  - a path (`-` is standard input);
+  - a file object: binary, or text (encoded as UTF-8), such as `io.BytesIO`, `open(p, "rb")`
+    or `gzip.open(p)`;
+  - an iterable of lines (`str`), or of tuples of values: `("chr1", 15, 25, None)` is the line
+    `chr1\t15\t25\t.` (values are written as `str()`, and `None` as `.`);
+  - an Arrow table or stream: a pyarrow `Table` or `RecordBatchReader`, a polars or pandas
+    `DataFrame`. The integer columns `chrom`, `start` and `end` come first, then the others;
+    nulls are `.`. It is read through the Arrow C stream interface, so no extra package is
+    needed;
+  - another pipeline.
+
+  Python objects are read as the run goes, never whole. A tab in a value, or a null `chrom`,
+  `start` or `end`, raises `DataError` with `.line` set to the item or row.
+- An iterator, a file object or a pyarrow `RecordBatchReader` can be read by one run: a second
+  run raises `UsageError` rather than read nothing. gloci remembers a generator, a file object
+  or a `RecordBatchReader` that a run has read, whatever pipeline it is given to next. An
+  iterator that Python cannot hold a weak reference to (`iter()` of a list or tuple, `map()`,
+  `zip()`) is known only to the pipelines made from the `gloci.open()` (or step) it was given
+  to: pass a list, or a generator, to be safe. Lists, tuples, tables and data frames are read
+  again at each run.
+- `gloci.windows(g=..., w=...)` and `gloci.random(g=..., l=..., n=...)` start a pipeline with
+  windows or random intervals over a genome.
 - Each step is a method named after its command: `intersect`, `merge`, `vcf_filter` for
   `gloci vcf filter`, and so on. Keyword arguments are the command's flags, with `-` written as
   `_` (`max_gap=50` is `--max-gap 50`); one-letter flags work too (`f=0.5`, `s=True`).
   - `True` gives a switch, and `False` or `None` leaves it out.
   - A list repeats the flag (`b=["x.bed", "y.bed"]`).
+  - An input such as `b=` also takes any source above, or a list of them:
+    `intersect(b=gloci.open("b.bed").slop(b=10, g="hg38"))` runs both pipelines at once.
   - Any other value is passed as `str(value)`.
 - Steps are checked when they are called, and run only when a terminal method is called:
   - `save(path, *, output_format=None, write_index=False, compression_level=None, threads=None)`;
@@ -31,6 +55,15 @@ import gloci
 - A pipeline is immutable: each step returns a new one, and a pipeline can be run again.
 - `threads=` defaults to the command line's default (every core, or `$GLOCI_THREADS`).
   The output is the same at every thread count.
+
+## Functions
+
+These write files at once, as the command line does, and return the paths written, sorted:
+
+- `gloci.vcf_stats(src, *, out, **kw)`: `gloci vcf stats --out-prefix out` (`freq=True`, ...);
+- `gloci.vcf_extract_matrix(src, *, out, **kw)`: the 012 genotype matrix;
+- `gloci.vcf_compare(a, b, *, out, **kw)`: genotype concordance;
+- `gloci.index(path, **kw)`: the index next to the file (a file only).
 
 ## Errors
 
@@ -42,6 +75,15 @@ import gloci
 | `gloci.GlociError` | the base class; raised on its own for an internal error (a bug) |
 
 `str(error)` is the command line's message without `error: `.
+
+An exception a Python source raises (its iterator, or its file object's `read()`) is raised as
+it is, the same object, when the step that reads the source reads that far: the run fails there,
+as at a bad line of a file. A step that stops early (`head`) may never read that far, and the run
+then succeeds. An Arrow stream is different: pyarrow, polars and pandas hand gloci their
+data through the Arrow C stream interface, which carries an error as text only. So when a stream
+that pyarrow builds from Python code (`pa.RecordBatchReader.from_batches(schema, generator)`)
+fails, gloci raises `DataError` with the producer's message (which names the original exception),
+not the exception itself.
 
 ## Runtime
 

@@ -165,6 +165,9 @@ def test_panics_in_every_entry_point_are_glocierror(here: Path) -> None:
         "step_argv": lambda: _native.step_argv(["merge"], ["a.bed"]),
         "command_line": lambda: _native.command_line(["gloci", "merge", "a.bed"]),
         "run_plan": lambda: _native.run_plan(plan),
+        "source_argv": lambda: _native.source_argv(["windows"], {"g": "g.txt"}),
+        "function_argv": lambda: _native.function_argv(["index"], ["a.bed.gz"]),
+        "module_functions": lambda: _native.module_functions(),
     }
     for name, call in entries.items():
         _native._test_panic("next")  # the next entry point called panics

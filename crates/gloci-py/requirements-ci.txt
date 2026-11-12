@@ -1,3 +1,8 @@
 # The tools the Python tests need, pinned (python.yml installs these).
 maturin==1.16.0
 pytest==9.2.0
+# The Arrow sources' tests (D88) build frames with these, and skip where one is missing. None of
+# them supports Python 3.10 any more, so that cell tests without them.
+pyarrow==26.0.1 ; python_version >= "3.12"
+polars==2.1.0 ; python_version >= "3.12"
+pandas==3.1.1 ; python_version >= "3.12"
