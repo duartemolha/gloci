@@ -12,9 +12,10 @@
 #   Do not write it here.
 # - Compat mode (cases with `compat`): the same plus the `compat` flags after
 #   the first gloci subcommand, against the same reference output.
-# - `compare`: `exact` (lines), `numeric` (numbers to six significant digits)
-#   or `vcf-records` (`#` lines skipped). Lines are matched as multisets
-#   and the order is checked too.
+# - `compare`: `exact` (lines), `numeric` (numbers agree within the decimals
+#   the less precise side printed, or a relative 1e-5) or `vcf-records` (`#`
+#   lines skipped). Lines are matched as multisets and the order is checked
+#   too.
 # - `expected_difference` / `compat_difference`: the documented difference
 #   (docs/differences.md) the default / compat run may show. A run that
 #   differs without one fails; an anchor that never fires prints
@@ -22,8 +23,7 @@
 #
 # Reference commands and compat flags copy the diff case of the same command
 # (xtask/diff/cases.toml). Changes for real data, each noted where it is made:
-# `-prec 10` / `--prec 10` where bedtools map and bedmap round to fewer than
-# six digits, output piped through bgzip where it is gigabytes, and inputs
+# `-prec 17` where bedtools map and groupby round to 5 significant digits, output piped through bgzip where it is gigabytes, and inputs
 # reshaped where a tool reads another column layout.
 
 # ---- sort ----
@@ -178,25 +178,30 @@ expected_difference = "#closest-each-side"
 
 # ---- map: CTCF fold change (B, bedGraph) over cCREs (A) ----
 
-# bedtools map rounds to 5 significant digits unless -prec.
+# bedtools map rounds to 5 significant digits unless -prec: -prec 17 prints
+# the double whole.
 [[case]]
 name = "map-ccre-signal-vs-bedtools"
 command = "map"
 reference_tool = "bedtools"
 inputs = { a = "ccre.bed", b = "ctcf-fc.bedgraph" }
 gloci = "{gloci} map -a {in_a} -b {in_b} -c 4:mean -c 4:max -c 4:count > {out}"
-reference = "bedtools map -a {in_a} -b {in_b} -c 4,4,4 -o mean,max,count -prec 10 > {out}"
+reference = "bedtools map -a {in_a} -b {in_b} -c 4,4,4 -o mean,max,count -prec 17 > {out}"
 compare = "numeric"
 
-# bedmap scores come from column 5, so the bedGraph value is moved there;
-# bedmap prints 6 decimals unless --prec.
+# bedmap scores come from column 5, so the bedGraph value is moved there
+# (a process substitution: bedmap stops reading the map file after the last
+# cCRE chromosome, which would fail a pipe under pipefail). bedmap's default
+# 6 decimals are kept: its running sums drift (a mean of one 0 prints as
+# 0.00000000102 with --prec 17), and the numeric compare allows for the
+# decimals each side prints.
 [[case]]
 name = "map-ccre-signal-vs-bedmap"
 command = "map"
 reference_tool = "bedops"
 inputs = { a = "ccre.bed", b = "ctcf-fc.bedgraph" }
 gloci = "{gloci} map -a {in_a} -b {in_b} -c 4:mean > {out}"
-reference = '''awk 'BEGIN{OFS="\t"}{print $1,$2,$3,".",$4}' {in_b} | bedmap --echo --mean --prec 10 {in_a} - | tr '|' '\t' > {out}'''
+reference = '''bedmap --echo --mean {in_a} <(awk 'BEGIN{OFS="\t"}{print $1,$2,$3,".",$4}' {in_b}) | tr '|' '\t' > {out}'''
 compare = "numeric"
 compat = "--empty NAN"
 expected_difference = "#map-empty-value"
@@ -324,13 +329,16 @@ expected_difference = "#genomecov-chrom-order"
 
 # ---- partition: cCREs, exons and CTCF peaks ----
 
+# bedops needs sort-bed order (start, then end), which the derived inputs
+# (sorted by start, stable) do not have where records share a start; on them
+# bedops --partition writes segments whose end is before their start.
 [[case]]
 name = "partition-ccre-exons-peaks-vs-bedops"
 command = "partition"
 reference_tool = "bedops"
 inputs = { a = "ccre.bed", b = "exons.bed", c = "ctcf-peaks.bed" }
 gloci = "{gloci} partition --no-membership {in_a} {in_b} {in_c} > {out}"
-reference = "bedops --partition {in_a} {in_b} {in_c} > {out}"
+reference = "bedops --partition <(sort-bed {in_a}) <(sort-bed {in_b}) <(sort-bed {in_c}) > {out}"
 
 # multiinter reshaped to its first five columns, as in the diff cases.
 [[case]]
@@ -371,25 +379,29 @@ gloci = "{gloci} spacing {in_a} > {out}"
 reference = "bedtools spacing -i {in_a} > {out}"
 
 # GTF order: the exons of a gene are consecutive, so each run is one gene.
+# bedtools groupby rounds to 5 significant digits unless -prec.
 [[case]]
 name = "groupby-genes-exons-unsorted-vs-bedtools"
 command = "groupby"
 reference_tool = "bedtools"
 inputs = { a = "exons-unsorted.bed" }
 gloci = "{gloci} groupby {in_a} -g 1,4,6 -c 2:min,3:max,4:count,3:mean > {out}"
-reference = "bedtools groupby -i {in_a} -g 1,4,6 -c 2,3,4,3 -o min,max,count,mean > {out}"
+reference = "bedtools groupby -i {in_a} -g 1,4,6 -c 2,3,4,3 -o min,max,count,mean -prec 17 > {out}"
 compare = "numeric"
 
 # ---- convert ----
 
+# gtf2bed sorts its output unless --do-not-sort, and gloci convert keeps the
+# input order (#convert-input-order), so the records are compared in GTF order.
+# GTF rows are named by gene_id on both sides (#gff2bed-name is GFF3 only).
 [[case]]
 name = "convert-gencode-gtf-vs-gtf2bed"
 command = "convert"
 reference_tool = "bedops"
 inputs = { a = "gencode-v46-gtf" }
 gloci = "{gloci} convert {in_a} > {out}"
-reference = "zcat {in_a} | gtf2bed > {out}"
-expected_difference = "#gff2bed-name"
+reference = "zcat {in_a} | gtf2bed --do-not-sort > {out}"
+expected_difference = "#gff2bed-zero-length"
 
 # ---- interval statistics: cCREs and exons ----
 
@@ -590,6 +602,16 @@ inputs = { a = "1kg-30x-chr20" }
 gloci = "{gloci} vcf extract {in_a} --info AF,AC > {out}"
 reference = "vcftools --gzvcf {in_a} --get-INFO AF --get-INFO AC --stdout > {out}"
 expected_difference = "#vcf-extract-info"
+
+# The same table without gloci's ID column (#vcf-extract-info), so the values
+# are compared.
+[[case]]
+name = "vcf-extract-info-no-id-1kg-vs-vcftools"
+command = "vcf extract"
+reference_tool = "vcftools"
+inputs = { a = "1kg-30x-chr20" }
+gloci = "{gloci} vcf extract {in_a} --info AF,AC | cut -f 1,2,4- > {out}"
+reference = "vcftools --gzvcf {in_a} --get-INFO AF --get-INFO AC --stdout > {out}"
 
 # The first 100 samples of the header, the same list on both sides. No
 # expected_difference: #vcf-extract-012 (haploid and half-missing calls) is

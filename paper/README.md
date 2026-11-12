@@ -43,9 +43,10 @@ cargo xtask paper run --concordance-only [--only CASE] --data-dir DIR --out DIR
 runs each case of `xtask/paper/concordance.toml` in the bench image (cache
 mounted read-only): the reference command once, gloci in the default mode
 (`--chrom-order lex` added) and, for cases with `compat` flags, in the compat
-mode. Outputs are matched line by line as multisets (`exact`, `numeric` to
-six significant digits, or `vcf-records` without `#` lines), and the order is
-checked too. `<out>/<version>/concordance.csv` gets a row per run (rows of
+mode. Outputs are matched line by line as multisets (`exact`; `numeric`,
+where numbers agree within the decimals the less precise side printed or a
+relative 1e-5; or `vcf-records` without `#` lines), and the order is checked
+too. `<out>/<version>/concordance.csv` gets a row per run (rows of
 cases not run are kept), and `<out>/<version>/concordance/<case>.<mode>.txt`
 the commands, counts and the first 10 unmatched lines of each side. A run
 that differs passes only when the case names the documented difference
