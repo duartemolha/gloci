@@ -4775,6 +4775,9 @@ pub struct IdxstatsArgs {
     pub reference: Option<PathBuf>,
     #[command(flatten)]
     pub threads: ThreadArgs,
+    /// Write the counts to FILE instead of stdout; .gz compresses them.
+    #[arg(short, long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
 }
 
 // P3c Task 3
@@ -4817,6 +4820,10 @@ pub struct HeadArgs {
     pub reference: Option<PathBuf>,
     #[command(flatten)]
     pub threads: ThreadArgs,
+    /// Write the lines to FILE instead of stdout, as text whatever its extension (.sam, .vcf,
+    /// .txt, ...); .gz compresses them. A file is written only when head succeeds.
+    #[arg(short, long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
 }
 
 // P3c Task 5

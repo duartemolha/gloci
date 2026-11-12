@@ -1,11 +1,13 @@
 //! gloci command-line framework.
 pub mod cli;
 pub mod commands;
+pub mod embed;
 pub mod logging;
 
 use clap::{CommandFactory, Parser};
 use cli::{Cli, Commands};
-use gloci_io::{IoError, UsageError, install_cleanup_handlers, shell_quote_args};
+use embed::Outcome;
+use gloci_io::{install_cleanup_handlers, shell_quote_args};
 use std::ffi::OsString;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
@@ -17,19 +19,6 @@ pub struct Ctx {
     pub tmp_dir: PathBuf,
     pub command_line: String,
     pub version: &'static str,
-}
-
-/// The spill directory: the command's `--tmp-dir` (which clap also fills from
-/// `GLOCI_TMPDIR`), else a non-empty `GLOCI_TMPDIR`, else the system temp dir.
-fn resolve_tmp_dir(arg: Option<PathBuf>) -> PathBuf {
-    let non_empty = |p: &PathBuf| !p.as_os_str().is_empty();
-    arg.filter(non_empty)
-        .or_else(|| {
-            std::env::var_os("GLOCI_TMPDIR")
-                .map(PathBuf::from)
-                .filter(non_empty)
-        })
-        .unwrap_or_else(std::env::temp_dir)
 }
 
 /// The clap command tree (used by xtask for man pages and completions).
@@ -136,7 +125,7 @@ fn strip_thread_options(args: &[OsString]) -> Vec<OsString> {
 }
 
 /// An error whose message was already printed: the exit status is 1 and nothing more is said.
-/// `run` maps the other errors to an exit status by what they are ([`classify`]): usage
+/// `run` maps the other errors to an exit status by what they are ([`embed::classify`]): usage
 /// errors exit 2, a broken pipe exits 0, and the rest print their message and exit 1.
 #[derive(Debug)]
 pub struct Reported;
@@ -149,51 +138,6 @@ impl std::fmt::Display for Reported {
 
 impl std::error::Error for Reported {}
 
-enum Outcome {
-    /// The run was cancelled (D91): whatever error the cancellation surfaced as.
-    Cancelled,
-    Reported,
-    Usage(String),
-    BrokenPipe,
-    Failure(String),
-}
-
-fn classify(err: &anyhow::Error) -> Outcome {
-    // A failed run whose token was cancelled was cancelled, whichever error it surfaced as
-    // (a write that failed, an open, a lost worker).
-    if gloci_io::cancel::is_cancelled() || err.chain().any(gloci_io::cancel::is_cancellation) {
-        return Outcome::Cancelled;
-    }
-    if err.chain().any(|c| c.downcast_ref::<Reported>().is_some()) {
-        return Outcome::Reported;
-    }
-    for cause in err.chain() {
-        if let Some(u) = cause.downcast_ref::<UsageError>() {
-            return Outcome::Usage(gloci_io::memio::scrub(&u.0));
-        }
-        if let Some(IoError::Usage(u)) = cause.downcast_ref::<IoError>() {
-            return Outcome::Usage(gloci_io::memio::scrub(&u.0));
-        }
-        if let Some(e @ IoError::Gate { .. }) = cause.downcast_ref::<IoError>() {
-            return Outcome::Usage(gloci_io::memio::scrub(&e.to_string()));
-        }
-    }
-    for cause in err.chain() {
-        if let Some(e) = cause.downcast_ref::<std::io::Error>()
-            && e.kind() == std::io::ErrorKind::BrokenPipe
-        {
-            return Outcome::BrokenPipe;
-        }
-    }
-    // IoError messages already embed their source and hint; `{:#}` would repeat it.
-    let msg = if err.downcast_ref::<IoError>().is_some() {
-        err.to_string()
-    } else {
-        format!("{err:#}")
-    };
-    Outcome::Failure(gloci_io::memio::scrub(&msg))
-}
-
 /// Parse arguments, run the command and map the result to an exit code.
 pub fn run(args: Vec<OsString>) -> ExitCode {
     let (code, message) = run_reporting(args);
@@ -204,6 +148,10 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
 }
 
 /// [`run`], except that the final `error:` message is returned instead of printed.
+///
+/// The CLI is [`embed::parse`] (here clap's own error, so help, versions and colours print
+/// as clap does), then the logger and the signal and panic handlers, then [`embed::execute`]
+/// and [`embed::classify`].
 #[doc(hidden)]
 pub fn run_reporting(args: Vec<OsString>) -> (ExitCode, Option<String>) {
     let cli = match Cli::try_parse_from(&args) {
@@ -216,93 +164,14 @@ pub fn run_reporting(args: Vec<OsString>) -> (ExitCode, Option<String>) {
     };
     logging::init(cli.quiet, cli.verbose);
     install_cleanup_handlers();
-
-    let (requested, tmp_arg) = match &cli.command {
-        Commands::Genomes(_) => (None, None),
-        Commands::Index(a) => (a.threads.threads, None),
-        Commands::Sort(a) => (a.threads.threads, a.tmp_dir.tmp_dir.clone()),
-        Commands::View(a) => (a.threads.threads, None),
-        Commands::Cat(a) => (a.threads.threads, None),
-        Commands::Check(a) => (a.threads.threads, None),
-        Commands::Intersect(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
-        Commands::Merge(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
-        Commands::Cluster(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
-        Commands::Spacing(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
-        Commands::Complement(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
-        Commands::Partition(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
-        Commands::Genomecov(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
-        Commands::Slop(a) => (a.threads.threads, None),
-        Commands::Flank(a) => (a.threads.threads, None),
-        Commands::Shift(a) => (a.threads.threads, None),
-        Commands::Windows(a) => (a.threads.threads, None),
-        Commands::Convert(a) => (a.threads.threads, None),
-        Commands::Getfasta(a) => (a.threads.threads, None),
-        Commands::Nuc(a) => (a.threads.threads, None),
-        Commands::Subtract(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
-        Commands::Closest(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
-        Commands::Map(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
-        Commands::Coverage(a) => (a.threads.threads, a.sort.tmp_dir.clone()),
-        Commands::Groupby(a) => (a.threads.threads, None),
-        Commands::Maskfasta(a) => (a.threads.threads, None),
-        Commands::Stats(a) => match &a.command {
-            cli::StatsCommand::Jaccard(j) => (j.threads.threads, j.sort.tmp_dir.clone()),
-            cli::StatsCommand::Fisher(f) => (f.threads.threads, f.sort.tmp_dir.clone()),
-            cli::StatsCommand::Reldist(r) => (r.threads.threads, r.sort.tmp_dir.clone()),
-        },
-        Commands::PairIntersect(a) => (a.threads.threads, None),
-        Commands::PairPair(a) => (a.threads.threads, None),
-        Commands::Random(a) => (a.threads.threads, None),
-        Commands::Sample(a) => (a.threads.threads, None),
-        Commands::Shuffle(a) => (a.threads.threads, None),
-        Commands::Faidx(a) => (a.threads.threads, None),
-        Commands::Dict(a) => (a.threads.threads, None),
-        Commands::Flags(_) => (None, None),
-        Commands::Idxstats(a) => (a.threads.threads, None),
-        Commands::Flagstat(a) => (a.threads.threads, None),
-        Commands::Head(a) => (a.threads.threads, None),
-        Commands::Samples(_) => (None, None),
-        Commands::Depth(a) => (a.threads.threads, None),
-        Commands::Bedcov(a) => (a.threads.threads, None),
-        Commands::Reheader(a) => (a.threads.threads, None),
-        Commands::Vcf(a) => match &a.command {
-            cli::VcfCommand::Filter(f) => (f.threads.threads, None),
-            cli::VcfCommand::Extract(e) => (e.threads.threads, e.tmp_dir.tmp_dir.clone()),
-            cli::VcfCommand::Stats(e) => (e.threads.threads, None),
-            cli::VcfCommand::Concat(c) => (c.threads.threads, None),
-            cli::VcfCommand::Split(c) => (c.threads.threads, None),
-            cli::VcfCommand::Norm(c) => (c.threads.threads, None),
-            cli::VcfCommand::Annotate(c) => (c.threads.threads, None),
-            cli::VcfCommand::Merge(c) => (c.threads.threads, None),
-            cli::VcfCommand::Compare(c) => (c.threads.threads, None),
-        },
-    };
-    let threads = requested
-        .unwrap_or_else(|| std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN));
-    // An already-built global pool is fine.
-    let _ = rayon::ThreadPoolBuilder::new()
-        .num_threads(threads.get())
-        .stack_size(gloci_io::WORKER_STACK)
-        .build_global();
-
-    let ctx = Ctx {
-        threads,
-        tmp_dir: resolve_tmp_dir(tmp_arg),
+    let opts = embed::ExecOptions {
         command_line: shell_quote_args(&strip_thread_options(&args)),
-        version: env!("CARGO_PKG_VERSION"),
+        tmp_dir: None,
     };
-
-    // The command runs on a thread with the pool workers' stack, so that every thread that can
-    // decode CRAM has it: the command's own at -t 1 and the per-chromosome readers too.
-    let Some((result, all_ok)) = on_worker_stack(|| dispatch(&cli, &ctx)) else {
-        return (
-            ExitCode::from(1),
-            Some("cannot start the command's thread; check the system's thread limits".into()),
-        );
-    };
-    match result {
-        Ok(()) if all_ok => (ExitCode::SUCCESS, None),
-        Ok(()) => (ExitCode::from(1), None),
-        Err(e) => match classify(&e) {
+    match embed::execute(&cli, &opts) {
+        Ok(true) => (ExitCode::SUCCESS, None),
+        Ok(false) => (ExitCode::from(1), None),
+        Err(e) => match embed::classify(&e) {
             Outcome::Usage(msg) => (ExitCode::from(2), Some(msg)),
             Outcome::BrokenPipe => (ExitCode::SUCCESS, None),
             Outcome::Cancelled => (ExitCode::from(1), Some("interrupted".into())),
@@ -312,26 +181,8 @@ pub fn run_reporting(args: Vec<OsString>) -> (ExitCode, Option<String>) {
     }
 }
 
-/// Run `f` on a thread with the stack of the pool workers ([`gloci_io::WORKER_STACK`]):
-/// noodles-cram's order-1 rANS and name tokeniser need it. A panic in `f` goes on in the
-/// caller; `None` when the thread cannot be started.
-fn on_worker_stack<T: Send>(f: impl FnOnce() -> T + Send) -> Option<T> {
-    let run = gloci_io::cancel::Watch::current();
-    std::thread::scope(|s| {
-        let h = std::thread::Builder::new()
-            .name("gloci".into())
-            .stack_size(gloci_io::WORKER_STACK)
-            .spawn_scoped(s, move || {
-                let _run = run.enter();
-                f()
-            })
-            .ok()?;
-        Some(h.join().unwrap_or_else(|p| std::panic::resume_unwind(p)))
-    })
-}
-
 /// Run the parsed command: its result, and false when `check` found a problem.
-fn dispatch(cli: &Cli, ctx: &Ctx) -> (anyhow::Result<()>, bool) {
+pub(crate) fn dispatch(cli: &Cli, ctx: &Ctx) -> (anyhow::Result<()>, bool) {
     let mut all_ok = true;
     let result = match &cli.command {
         Commands::Genomes(a) => commands::genomes::run(a),
@@ -398,7 +249,6 @@ fn dispatch(cli: &Cli, ctx: &Ctx) -> (anyhow::Result<()>, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{Error, ErrorKind};
 
     fn strip(a: &[&str]) -> Vec<String> {
         let v: Vec<OsString> = a.iter().map(OsString::from).collect();
@@ -464,101 +314,6 @@ mod tests {
         assert_eq!(
             strip(&["gloci", "view", "-t", "2", "--", "-t2", "x"]),
             ["gloci", "view", "--", "-t2", "x"]
-        );
-    }
-
-    fn pipe() -> Error {
-        Error::from(ErrorKind::BrokenPipe)
-    }
-
-    /// An error whose `source()` is a `UsageError`.
-    #[derive(Debug)]
-    struct HasUsage(UsageError);
-    impl std::fmt::Display for HasUsage {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "has usage")
-        }
-    }
-    impl std::error::Error for HasUsage {
-        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-            Some(&self.0)
-        }
-    }
-
-    #[test]
-    fn usage_error_beats_broken_pipe_in_same_chain() {
-        // chain: io::Error(BrokenPipe) -> UsageError (a custom io::Error
-        // forwards `source()` of its payload), so both are in one chain.
-        let io = Error::new(
-            ErrorKind::BrokenPipe,
-            HasUsage(UsageError("bad flag".into())),
-        );
-        let e = anyhow::Error::new(io);
-        let kinds: Vec<_> = e
-            .chain()
-            .map(|c| c.downcast_ref::<UsageError>().is_some())
-            .collect();
-        assert!(kinds.contains(&true), "fixture must hold both: {kinds:?}");
-        assert!(matches!(classify(&e), Outcome::Usage(m) if m == "bad flag"));
-        let wrapped = anyhow::Error::new(IoError::Usage(UsageError("u".into()))).context("ctx");
-        assert!(matches!(classify(&wrapped), Outcome::Usage(_)));
-    }
-
-    #[test]
-    fn a_cancelled_write_or_open_is_cancelled_not_a_write_error() {
-        let w = anyhow::Error::new(IoError::Write {
-            path: "out".into(),
-            source: gloci_io::cancel::io_error(),
-        });
-        assert!(matches!(classify(&w), Outcome::Cancelled));
-        let bare = anyhow::Error::new(gloci_io::cancel::io_error()).context("while sorting");
-        assert!(matches!(classify(&bare), Outcome::Cancelled));
-        // Under a cancelled token any failure is the cancellation.
-        let token = gloci_io::cancel::CancelToken::new();
-        let _g = gloci_io::cancel::RunGuard::enter(&token);
-        token.cancel();
-        let other = anyhow::Error::new(Error::from(ErrorKind::NotFound));
-        assert!(matches!(classify(&other), Outcome::Cancelled));
-    }
-
-    #[test]
-    fn write_broken_pipe_is_quiet_success() {
-        let e = anyhow::Error::new(IoError::Write {
-            path: "out".into(),
-            source: pipe(),
-        });
-        assert!(matches!(classify(&e), Outcome::BrokenPipe));
-    }
-
-    #[test]
-    fn bare_broken_pipe_is_quiet_success() {
-        assert!(matches!(
-            classify(&anyhow::Error::new(pipe())),
-            Outcome::BrokenPipe
-        ));
-        let other = anyhow::Error::new(Error::from(ErrorKind::NotFound));
-        assert!(matches!(classify(&other), Outcome::Failure(_)));
-    }
-}
-
-#[cfg(test)]
-mod stack_tests {
-    use super::on_worker_stack;
-
-    /// About `n` x 256 KiB of stack.
-    fn deep(n: u32) -> u64 {
-        let buf = [n as u8; 256 << 10];
-        let x = u64::from(std::hint::black_box(&buf)[buf.len() - 1]);
-        if n == 0 { x } else { x + deep(n - 1) }
-    }
-
-    #[test]
-    fn the_command_runs_on_the_worker_stack() {
-        // 8 MiB of frames: more than a test thread's 2 MiB, well within the 16 MiB.
-        assert_eq!(on_worker_stack(|| deep(32)), Some((0..=32).sum()));
-        assert_eq!(
-            on_worker_stack(|| std::thread::current().name().map(String::from)),
-            Some(Some("gloci".into()))
         );
     }
 }

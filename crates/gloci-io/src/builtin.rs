@@ -170,7 +170,8 @@ pub fn builtin_alias(id: &str) -> Option<&'static str> {
     None
 }
 
-fn edit_distance(a: &str, b: &str) -> usize {
+/// The Levenshtein distance between `a` and `b`, in characters.
+pub fn edit_distance(a: &str, b: &str) -> usize {
     let b: Vec<char> = b.chars().collect();
     let mut prev: Vec<usize> = (0..=b.len()).collect();
     for (i, ca) in a.chars().enumerate() {

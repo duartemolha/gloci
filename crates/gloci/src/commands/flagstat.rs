@@ -53,7 +53,7 @@ pub fn run(ctx: &Ctx, a: &FlagstatArgs) -> anyhow::Result<()> {
         .into());
     }
     // Text of flagstat's own layout, BGZF-compressed when -o ends in .gz or .bgz.
-    let spec = super::own_tsv_output_spec(a.output.as_deref())?;
+    let spec = super::own_tsv_output_spec(a.output.as_deref(), "flagstat")?;
     let ro = ReaderOptions {
         accept: Accept {
             alignments: Some(AlignOptions {

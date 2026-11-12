@@ -17,9 +17,15 @@ impl Log for Logger {
             Level::Info => "info",
             Level::Debug | Level::Trace => "debug",
         };
-        eprintln!("{label}: {}", gloci_io::memio::scrub(&r.args().to_string()));
+        eprintln!("{label}: {}", render(r));
     }
     fn flush(&self) {}
+}
+
+/// The text of a log record, with in-memory names shown by their display names (D84). A host's
+/// logger calls it inside `Log::log`, while the run's names are still registered.
+pub fn render(r: &Record) -> String {
+    gloci_io::memio::scrub(&r.args().to_string())
 }
 
 /// Level for the flags: `-q` shows errors only, default warnings, `-v` info, `-vv` debug.

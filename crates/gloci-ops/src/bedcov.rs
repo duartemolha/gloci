@@ -467,25 +467,34 @@ the chromosome with --chrom-map, or pass --skip-invalid to skip lines on unknown
             for _ in 0..workers {
                 let (rx, tx, sh) = (job_rx.clone(), res_tx.clone(), &sh);
                 let run = run.clone();
-                s.spawn(move || {
-                    let _run = run.enter();
-                    let mut ring = DepthRing::new();
-                    let mut cursors: Vec<_> = sh
-                        .files
-                        .iter()
-                        .map(IndexedFile::aln_region_cursor)
-                        .collect();
-                    loop {
-                        let job = match rx.lock().unwrap().recv() {
-                            Ok(j) => j,
-                            Err(_) => break,
-                        };
-                        let r = run_batch(sh, &job, &mut ring, &mut cursors);
-                        if tx.send((job.id, r)).is_err() {
-                            break;
+                // The workers decode CRAM, whose 3.1 codecs (order-1 rANS, the name tokeniser)
+                // need more than a spawned thread's default stack.
+                let spawned = std::thread::Builder::new()
+                    .stack_size(gloci_io::WORKER_STACK)
+                    .spawn_scoped(s, move || {
+                        let _run = run.enter();
+                        let mut ring = DepthRing::new();
+                        let mut cursors: Vec<_> = sh
+                            .files
+                            .iter()
+                            .map(IndexedFile::aln_region_cursor)
+                            .collect();
+                        loop {
+                            let job = match rx.lock().unwrap().recv() {
+                                Ok(j) => j,
+                                Err(_) => break,
+                            };
+                            let r = run_batch(sh, &job, &mut ring, &mut cursors);
+                            if tx.send((job.id, r)).is_err() {
+                                break;
+                            }
                         }
-                    }
-                });
+                    });
+                if let Err(e) = spawned {
+                    return Err(IoError::Internal(format!(
+                        "cannot start a worker thread: {e}"
+                    )));
+                }
             }
             drop(res_tx);
             let mut pending: BTreeMap<u64, Result<Done, IoError>> = BTreeMap::new();

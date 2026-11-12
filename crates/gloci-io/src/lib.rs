@@ -59,7 +59,8 @@ pub use bcf_encode::encode_gt;
 pub use bed::{bed12_blocks, is_bed_record_line};
 pub use bedpe::{BedpeBatch, BedpeEnd, BedpeMeta, BedpeReader, bedpe_name};
 pub use builtin::{
-    BuiltinGenome, Naming, builtin, builtin_alias, builtin_genomes, resolve_genome, unknown_genome,
+    BuiltinGenome, Naming, builtin, builtin_alias, builtin_genomes, edit_distance, resolve_genome,
+    unknown_genome,
 };
 pub use chrom_map::ChromMap;
 pub use convert::{BcfText, HeaderMode, TextToBcf, convert_variants};

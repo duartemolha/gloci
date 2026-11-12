@@ -17,7 +17,7 @@ pub fn run(ctx: &Ctx, a: &SamplesArgs) -> anyhow::Result<()> {
         match_reference: a.match_reference.clone(),
         column_names: a.column_names.column_names,
     };
-    let spec = super::own_tsv_output_spec(a.output.as_deref())?;
+    let spec = super::own_tsv_output_spec(a.output.as_deref(), "samples")?;
     let oo = OutputOptions {
         threads: ctx.threads,
         level: 6,
