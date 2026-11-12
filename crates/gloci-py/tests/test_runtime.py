@@ -75,24 +75,31 @@ def test_keyboard_interrupt_cancels(here: Path) -> None:
     feeder = threading.Thread(target=feed, daemon=True)
     feeder.start()
     partial: list[Path] = []
+    interrupted: list[float] = []
 
     def interrupt() -> None:
-        partial.extend(here.glob("*.tmp-*"))
+        # Interrupt as soon as the output's temporary file exists (within 5 s), however loaded
+        # the machine is; interrupt anyway after that, so a missing file fails the test below.
+        deadline = time.monotonic() + 5
+        while not partial and time.monotonic() < deadline:
+            partial.extend(here.glob("*.tmp-*"))
+            time.sleep(0.005)
+        interrupted.append(time.monotonic())
         _thread.interrupt_main()
 
-    timer = threading.Timer(0.3, interrupt)
-    start = time.monotonic()
-    timer.start()
+    watcher = threading.Thread(target=interrupt, daemon=True)
+    watcher.start()
     try:
         with pytest.raises(KeyboardInterrupt):
             gloci.open("slow.bed").merge(max_gap=1).view().save("out.bed")
-        elapsed = time.monotonic() - start
+        raised = time.monotonic()
     finally:
-        timer.cancel()
         stop.set()
         feeder.join(5)
-    assert elapsed < 0.3 + 2, elapsed
-    assert partial, "the output's temporary file did not exist when the interrupt came"
+        watcher.join(10)
+    assert partial, "the output's temporary file did not appear within 5 s"
+    # The cancel reaches every step and the run ends well before the feeder's 10 s.
+    assert raised - interrupted[0] < 2, raised - interrupted[0]
     assert not list(here.glob("*.tmp-*"))
     assert not (here / "out.bed").exists()
     # The next call works: the cancel was this run's alone.
