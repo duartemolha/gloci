@@ -175,6 +175,8 @@ inputs = { a = "ctcf-peaks.bed", b = "exons.bed" }
 gloci = "{gloci} closest -a {in_a} -b {in_b} --each-side --distance --ignore-overlaps > {out}"
 reference = '''closest-features --dist --no-overlaps {in_a} {in_b} | tr '|' '\t' > {out}'''
 expected_difference = "#closest-each-side"
+compat = "--ties first"
+compat_difference = "#closest-each-side"
 
 # ---- map: CTCF fold change (B, bedGraph) over cCREs (A) ----
 
@@ -460,6 +462,8 @@ expected_difference = "#view-region-footprints"
 # ---- vcf filter ----
 
 # vcftools --max-missing 0.9 (fraction called) is gloci --max-missing 0.1.
+# The panel has no multi-allelic site, so #maf-multiallelic cannot show; its
+# mobile-element SVs (<DEL:ME:SINE|Alu|AluSx1>) show #vcf-allele-case.
 [[case]]
 name = "vcf-filter-maf-missing-1kg-vs-vcftools"
 command = "vcf filter"
@@ -468,7 +472,7 @@ inputs = { a = "1kg-30x-chr20" }
 gloci = "{gloci} vcf filter {in_a} --min-maf 0.01 --max-missing 0.1 -O vcf | bgzip -@ 2 -l 1 -c > {out}"
 reference = "vcftools --gzvcf {in_a} --recode --recode-INFO-all --stdout --maf 0.01 --max-missing 0.9 | bgzip -@ 2 -l 1 -c > {out}"
 compare = "vcf-records"
-expected_difference = "#maf-multiallelic"
+expected_difference = "#vcf-allele-case"
 
 [[case]]
 name = "vcf-filter-pass-only-gnomad-vs-vcftools"
@@ -479,7 +483,8 @@ gloci = "{gloci} vcf filter {in_a} --pass-only -O vcf | bgzip -@ 2 -l 1 -c > {ou
 reference = "vcftools --gzvcf {in_a} --recode --recode-INFO-all --stdout --remove-filtered-all | bgzip -@ 2 -l 1 -c > {out}"
 compare = "vcf-records"
 
-# --pass-only keeps FILTER PASS and `.`, which is bcftools -f .,PASS.
+# --pass-only keeps FILTER PASS and `.`, which is bcftools -f .,PASS. bcftools
+# prints every record again, with gnomAD's floats shortened (#vcf-filter-values).
 [[case]]
 name = "vcf-filter-pass-only-gnomad-vs-bcftools"
 command = "vcf filter"
@@ -488,6 +493,7 @@ inputs = { a = "gnomad-v4.1-exomes-chr22" }
 gloci = "{gloci} vcf filter {in_a} --pass-only -O vcf | bgzip -@ 2 -l 1 -c > {out}"
 reference = "bcftools view --no-version -f .,PASS {in_a} | bgzip -@ 2 -l 1 -c > {out}"
 compare = "vcf-records"
+expected_difference = "#vcf-filter-values"
 
 [[case]]
 name = "vcf-filter-include-1kg-vs-bcftools"
@@ -500,6 +506,9 @@ compare = "vcf-records"
 expected_difference = "#expr-subset"
 
 # ---- vcf stats: one vcftools run per statistic ----
+# vcftools upper-cases the alleles it prints (#vcf-allele-case), which the
+# panel's mobile-element SVs show in the --freq and --counts allele columns
+# (none of them is a singleton or doubleton).
 
 [[case]]
 name = "vcf-stats-freq-1kg-vs-vcftools"
@@ -509,6 +518,7 @@ inputs = { a = "1kg-30x-chr20" }
 gloci = "{gloci} vcf stats {in_a} --out-prefix {out}.p --freq && mv {out}.p.frq {out}"
 reference = "vcftools --gzvcf {in_a} --freq --out {out}.p && mv {out}.p.frq {out}"
 compare = "numeric"
+expected_difference = "#vcf-allele-case"
 
 [[case]]
 name = "vcf-stats-counts-1kg-vs-vcftools"
@@ -518,6 +528,7 @@ inputs = { a = "1kg-30x-chr20" }
 gloci = "{gloci} vcf stats {in_a} --out-prefix {out}.p --counts && mv {out}.p.frq.count {out}"
 reference = "vcftools --gzvcf {in_a} --counts --out {out}.p && mv {out}.p.frq.count {out}"
 compare = "numeric"
+expected_difference = "#vcf-allele-case"
 
 [[case]]
 name = "vcf-stats-missing-site-1kg-vs-vcftools"
@@ -612,6 +623,7 @@ reference_tool = "vcftools"
 inputs = { a = "1kg-30x-chr20" }
 gloci = "{gloci} vcf extract {in_a} --info AF,AC | cut -f 1,2,4- > {out}"
 reference = "vcftools --gzvcf {in_a} --get-INFO AF --get-INFO AC --stdout > {out}"
+expected_difference = "#vcf-allele-case"
 
 # The first 100 samples of the header, the same list on both sides. No
 # expected_difference: #vcf-extract-012 (haploid and half-missing calls) is
