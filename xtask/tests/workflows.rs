@@ -405,6 +405,26 @@ fn assert_in_order(what: &str, body: &str, steps: &[&str]) {
 }
 
 #[test]
+fn python_jobs_export_the_version_the_smoke_test_expects() {
+    let root = xtask::diff::workspace_root();
+    let py = fs::read_to_string(root.join(".github/workflows/python.yml")).unwrap();
+    // test_smoke.py checks gloci.__version__ against GLOCI_EXPECT_VERSION: both jobs that run
+    // pytest export the workspace version, as release.yml's version job reads it.
+    for job in ["pytest", "polars-only"] {
+        assert_in_order(
+            &format!("python.yml {job}"),
+            job_body(&py, job),
+            &[
+                "v=\"$(sed -n 's/^version = \"\\(.*\\)\"$/\\1/p' Cargo.toml | head -1)\"",
+                "test -n \"$v\"",
+                "echo \"GLOCI_EXPECT_VERSION=$v\" >> \"$GITHUB_ENV\"",
+                "pytest crates/gloci-py/tests",
+            ],
+        );
+    }
+}
+
+#[test]
 fn python_workflow_tests_polars_without_pyarrow() {
     let root = xtask::diff::workspace_root();
     let py = fs::read_to_string(root.join(".github/workflows/python.yml")).unwrap();

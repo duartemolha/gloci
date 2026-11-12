@@ -38,6 +38,9 @@ jobs:
         run: |
           cargo build -p gloci
           echo "GLOCI_BIN=$PWD/target/debug/gloci" >> "$GITHUB_ENV"
+          # test_smoke.py checks the version gloci-py reports: the workspace version.
+          v="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"; test -n "$v"
+          echo "GLOCI_EXPECT_VERSION=$v" >> "$GITHUB_ENV"
       - name: Make a virtualenv with the test tools
         run: |
           python -m venv "$RUNNER_TEMP/venv"
@@ -68,6 +71,9 @@ jobs:
         run: |
           cargo build -p gloci
           echo "GLOCI_BIN=$PWD/target/debug/gloci" >> "$GITHUB_ENV"
+          # test_smoke.py checks the version gloci-py reports: the workspace version.
+          v="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"; test -n "$v"
+          echo "GLOCI_EXPECT_VERSION=$v" >> "$GITHUB_ENV"
       - name: Make a virtualenv with polars and without pyarrow
         run: |
           python -m venv "$RUNNER_TEMP/venv"
