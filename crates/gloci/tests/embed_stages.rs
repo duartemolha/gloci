@@ -6,7 +6,7 @@ use gloci::embed::{
 };
 use gloci_io::Loc;
 use gloci_io::cancel::{self, CancelToken, RunGuard};
-use gloci_io::memio::Registered;
+use gloci_io::memio::{self, Registered};
 use std::ffi::OsString;
 use std::io::{Cursor, ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
@@ -394,7 +394,13 @@ fn chained_stages_equal_shell_pipeline() {
     let _s = serial();
     let (a, b) = (fixture("a.bed"), fixture("b.bed"));
     let (specs, sink) = intersect_merge(&a, &b, &[], &[]);
+    let names = specs
+        .iter()
+        .flat_map(|s| names_of(&s.endpoints.iter().collect::<Vec<_>>()))
+        .collect::<Vec<_>>();
+    assert_eq!(names.len(), 3);
     assert!(finish(StageSet::spawn(specs)).unwrap());
+    assert_discarded(&names);
     let shell = std::process::Command::new("sh")
         .arg("-c")
         .arg(r#""$0" intersect --mode any -a "$1" -b "$2" | "$0" merge --max-gap 50 -"#)
@@ -507,6 +513,7 @@ fn early_usage_error_does_not_hang() {
         p.out.name()
     ];
     let argv1 = argv!["merge", p.inp.name(), "-o", out.name()];
+    let names = names_of(&[&p.out, &p.inp, &out]);
     let set = StageSet::spawn(vec![
         stage(argv0, vec![p.out], vec![p.fail]),
         stage(argv1, vec![p.inp, out], vec![]),
@@ -518,6 +525,25 @@ fn early_usage_error_does_not_hang() {
         "{:?}",
         err.outcome
     );
+    // R2: every registration was discarded, the never-taken writer of stage 0 included.
+    assert_discarded(&names);
+}
+
+/// The names of registered endpoints, kept to check after their stages end.
+fn names_of(endpoints: &[&Registered]) -> Vec<String> {
+    endpoints.iter().map(|r| r.name().to_string()).collect()
+}
+
+/// Every name was discarded: its display name is gone.
+fn assert_discarded(names: &[String]) {
+    for n in names {
+        assert_eq!(
+            memio::display_name(n),
+            "<memory>",
+            "{} is still registered",
+            n.escape_debug()
+        );
+    }
 }
 
 #[test]
