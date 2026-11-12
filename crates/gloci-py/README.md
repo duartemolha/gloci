@@ -50,11 +50,61 @@ import gloci
 - Steps are checked when they are called, and run only when a terminal method is called:
   - `save(path, *, output_format=None, write_index=False, compression_level=None, threads=None)`;
   - `to_bytes(*, threads=None)`, the bytes the command line writes to stdout;
-  - `count(*, threads=None)`, the number of records (header lines are not counted);
+  - `count(*, threads=None)`, the number of records: as many as iteration gives;
+  - iteration (`for r in pipeline`), its records, below;
+  - `to_arrow()`, `to_polars()`, `to_pandas()` and `to_arrow_stream()`, its records as a table,
+    below;
   - `cli()`, the equivalent shell pipeline.
 - A pipeline is immutable: each step returns a new one, and a pipeline can be run again.
 - `threads=` defaults to the command line's default (every core, or `$GLOCI_THREADS`).
   The output is the same at every thread count.
+
+## Records and tables
+
+Iterating over a pipeline runs it and yields its records as `gloci.Record`s, read back from its
+output with gloci's own readers. `count()` and the tables read the output the same way, so they
+agree on what a record is.
+
+```python
+for r in gloci.open("calls.vcf.gz").intersect(b="targets.bed"):
+    r.chrom, r.start, r.end   # "chr1", 99, 100: the footprint, 0-based and half-open
+    r.fields                  # ("chr1", "100", "rs1", "A", "C", ...): the tab-separated fields
+    r[3], len(r), str(r)      # a sequence over its fields; str() is the line
+```
+
+- `chrom`, `start` and `end` are the record's footprint as gloci reads it: BED's columns, GFF's
+  1-based columns 4 and 5 as `start - 1` and `end`, a VCF record's span by the step's
+  `vcf_span=` (an insertion is a point: `start == end`), a read's aligned span. BAM output comes
+  back as SAM text, BCF output as VCF text, FASTA output as one record per sequence (its fields
+  are the name and the sequence).
+- They are `None` where the output has no coordinates: a table such as `vcf_extract()`,
+  `stats_jaccard()`, `idxstats()` or `depth()` writes, an unmapped read, a line that cannot be
+  read as a record.
+- Header lines are not records: `#` lines, SAM's `@` lines, `track` and `browser` lines, and a
+  table's header row (`vcf_extract()`'s `CHROM  POS  ...`), which names its columns.
+- Records are handed over in batches of about 4 MiB, so memory stays flat however large the
+  output. Breaking out of the loop (or dropping the iterator) stops the steps, and their
+  temporary files are removed. An error is raised once the records before it have been given.
+- A list of records is a source again: `gloci.open(records)` reads their lines.
+
+`to_arrow()` returns a `pyarrow.Table`, `to_polars()` a `polars.DataFrame` and `to_pandas()` a
+`pandas.DataFrame`, of the whole output, built in memory:
+
+- The columns are `chrom`, `start` and `end` (int64), then VCF's `pos id ref alt qual filter
+  info format` and the samples, GFF's `source feature score strand frame attributes`, SAM's
+  `qname flag pos mapq cigar rnext pnext tlen seq qual`, or else names from a `#` header line
+  (or a table's header row), else `col4`, `col5`, ... by the column's number. A table has no
+  `chrom start end` columns of its own.
+- Each column's type is inferred: int64 if every value is an integer, else float64 if every
+  value is a number, else string. In a number column `.` is null (VCF's `qual` is always
+  float64).
+- `names=` renames the columns: one name per column, or `UsageError`.
+- The table goes to pyarrow and polars through the Arrow PyCapsule interface, without copying:
+  `to_arrow_stream()` returns that `gloci.ArrowStream`, which any Arrow consumer takes
+  (`pyarrow.table(s)`, `polars.DataFrame(s)`).
+- pyarrow, polars and pandas are optional: `pip install gloci[arrow]` (pyarrow),
+  `gloci[polars]` (polars alone; no pyarrow needed) or `gloci[pandas]` (pandas and pyarrow).
+  Without the one a method needs, it raises `ImportError` naming the extra.
 
 ## Functions
 
