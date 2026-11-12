@@ -136,9 +136,24 @@ def test_open_error(here: Path, cli) -> None:
     assert str(e.value) == cli_message(cli(["merge", "missing.bed"], here))
 
 
-def test_open_takes_paths_only_for_now(here: Path) -> None:
+def test_open_refuses_what_is_not_a_source(here: Path) -> None:
     with pytest.raises(TypeError, match="path"):
         gloci.open(42)  # type: ignore[arg-type]
+
+
+def test_sort_check_is_reserved(here: Path) -> None:
+    # Every terminal writes the step's output, which sort --check does not: it is CLI-only.
+    for value in (True, False):
+        with pytest.raises(gloci.UsageError) as e:
+            gloci.open("a.bed").sort(check=value)
+        assert str(e.value) == (
+            "sort(check=True) writes no output; check sortedness with the CLI: "
+            "gloci sort --check FILE"
+        )
+    # Never suggested for a near miss either.
+    with pytest.raises(gloci.UsageError) as e:
+        gloci.open("a.bed").sort(chek=True)
+    assert "check" not in str(e.value).split("'chek'")[1]
 
 
 def test_save_output_format_is_named_as_its_keyword(here: Path) -> None:
