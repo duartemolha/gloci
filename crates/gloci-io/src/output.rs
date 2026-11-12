@@ -153,12 +153,18 @@ fn from_extension(path: &Path) -> Option<(OutFormat, bool)> {
 fn output_target(output: Option<&Path>) -> (Option<&Path>, bool) {
     let path = output.filter(|p| p.as_os_str() != "-" && *p != Path::new("/dev/stdout"));
     let direct = path.is_some_and(|p| {
-        p.starts_with("/dev/fd")
+        is_mem(p)
+            || p.starts_with("/dev/fd")
             || p.starts_with("/proc/self/fd")
             || p == Path::new("/dev/stderr")
             || std::fs::metadata(p).is_ok_and(|m| !m.is_file() && !m.is_dir())
     });
     (path, direct)
+}
+
+/// Whether `p` names an in-memory output (D84).
+fn is_mem(p: &Path) -> bool {
+    p.to_str().is_some_and(crate::memio::is_mem_path)
 }
 
 /// The spec of an output that holds plain text whatever its name (`view --count`): no format
@@ -270,6 +276,9 @@ enum Sink {
     /// A device or pipe, written to directly.
     DirectPlain(BufWriter<File>),
     DirectBgzf(noodles_bgzf::io::MultithreadedWriter<BufWriter<File>>),
+    /// A registered in-memory sink (D84).
+    Memory(BufWriter<Box<dyn Write + Send>>),
+    MemoryBgzf(noodles_bgzf::io::MultithreadedWriter<BufWriter<Box<dyn Write + Send>>>),
 }
 
 pub struct Output {
@@ -333,6 +342,13 @@ fn open_output_as(
             )
             .into());
         }
+        if spec.path.as_deref().is_some_and(is_mem) {
+            return Err(UsageError(
+                "--write-index needs -o FILE; an index cannot be written for an in-memory output"
+                    .into(),
+            )
+            .into());
+        }
         if spec.direct {
             return Err(UsageError(format!(
                 "--write-index needs a regular output file, but {} is a device or pipe; \
@@ -385,6 +401,15 @@ gloci view FILE -o x.bam --write-index"
             builder().build_from_writer(BufWriter::with_capacity(BUF, io::stdout())),
         ),
         None => Sink::StdoutPlain(BufWriter::with_capacity(BUF, io::stdout().lock())),
+        Some(p) if is_mem(p) => {
+            let (_, sink) = crate::memio::take_output(&p.to_string_lossy())?;
+            let w = BufWriter::with_capacity(BUF, sink);
+            if bgzf {
+                Sink::MemoryBgzf(builder().build_from_writer(w))
+            } else {
+                Sink::Memory(w)
+            }
+        }
         Some(p) if spec.direct => {
             let create = |source| IoError::Create {
                 path: p.display().to_string(),
@@ -440,9 +465,10 @@ impl Output {
     }
 
     fn dest_name(&self) -> String {
-        self.dest
-            .as_ref()
-            .map_or_else(|| "<stdout>".into(), |p| p.display().to_string())
+        self.dest.as_ref().map_or_else(
+            || "<stdout>".into(),
+            |p| crate::memio::display_name(&p.to_string_lossy()),
+        )
     }
 
     /// Finishes the stream (BGZF EOF block), builds the index from the temp
@@ -467,6 +493,15 @@ impl Output {
             }
             Sink::DirectPlain(mut w) => {
                 w.flush().map_err(werr)?;
+                None
+            }
+            Sink::Memory(mut w) => {
+                w.flush().map_err(werr)?;
+                None
+            }
+            Sink::MemoryBgzf(mut w) => {
+                let mut inner = w.finish().map_err(werr)?;
+                inner.flush().map_err(werr)?;
                 None
             }
             Sink::DirectBgzf(mut w) => {
@@ -581,6 +616,9 @@ impl Output {
 
 impl Write for Output {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if crate::cancel::is_cancelled() {
+            return Err(crate::cancel::io_error());
+        }
         match &mut self.sink {
             Sink::StdoutPlain(w) => w.write(buf),
             Sink::StdoutBgzf(w) => w.write(buf),
@@ -588,6 +626,8 @@ impl Write for Output {
             Sink::FileBgzf(w) => w.write(buf),
             Sink::DirectPlain(w) => w.write(buf),
             Sink::DirectBgzf(w) => w.write(buf),
+            Sink::Memory(w) => w.write(buf),
+            Sink::MemoryBgzf(w) => w.write(buf),
         }
     }
     fn flush(&mut self) -> io::Result<()> {
@@ -598,6 +638,8 @@ impl Write for Output {
             Sink::FileBgzf(w) => w.flush(),
             Sink::DirectPlain(w) => w.flush(),
             Sink::DirectBgzf(w) => w.flush(),
+            Sink::Memory(w) => w.flush(),
+            Sink::MemoryBgzf(w) => w.flush(),
         }
     }
 }

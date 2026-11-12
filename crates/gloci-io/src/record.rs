@@ -247,6 +247,49 @@ fn input_options(o: &ReaderOptions) -> InputOptions {
 }
 
 fn dispatch(input: Input, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, IoError> {
+    dispatch_raw(input, o).map(|r| Box::new(CancelAware(r)) as Box<dyn RecordReader>)
+}
+
+/// Reports a cancelled run (D91) as [`IoError::Cancelled`] whichever reader noticed it: a
+/// read that failed because of the cancellation is one of many `IoError::Read` sites.
+struct CancelAware(Box<dyn RecordReader>);
+
+impl RecordReader for CancelAware {
+    fn name(&self) -> &str {
+        self.0.name()
+    }
+    fn format(&self) -> Format {
+        self.0.format()
+    }
+    fn compression(&self) -> Compression {
+        self.0.compression()
+    }
+    fn header(&self) -> &Header {
+        self.0.header()
+    }
+    fn read_batch(
+        &mut self,
+        chroms: &mut ChromTable,
+        batch: &mut RecordBatch,
+        max: usize,
+    ) -> Result<bool, IoError> {
+        crate::cancel::check()?;
+        self.0
+            .read_batch(chroms, batch, max)
+            .map_err(IoError::normalize_cancel)
+    }
+    fn diagnostics(&self) -> &Diagnostics {
+        self.0.diagnostics()
+    }
+    fn consume_to_end(&self) -> bool {
+        self.0.consume_to_end()
+    }
+    fn whole_records(&self) -> bool {
+        self.0.whole_records()
+    }
+}
+
+fn dispatch_raw(input: Input, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, IoError> {
     crate::align::gate(&input.name, input.format, &o.accept)?;
     match input.format {
         Format::Bed | Format::BedGraph => Ok(Box::new(crate::bed::BedReader::open_bed(
