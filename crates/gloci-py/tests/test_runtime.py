@@ -5,6 +5,8 @@ from __future__ import annotations
 import _thread
 import logging
 import os
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -120,14 +122,31 @@ def test_panic_is_glocierror(here: Path) -> None:
         if os.environ.get("CI") == "true":
             pytest.fail("CI builds gloci-py with --features test-hooks")
         pytest.skip("built without the test-hooks feature")
-    # In a stage (twice: the first leaves nothing behind), in the driver's own code, and in
-    # the driver while a step that needs the GIL to end is running (no deadlock).
-    for place in ("stage", "stage", "driver", "unwind"):
+    # In a stage (twice: the first leaves nothing behind), and in the driver's own code.
+    for place in ("stage", "stage", "driver"):
         with pytest.raises(gloci.GlociError) as e:
             _native._test_panic(place)
         assert type(e.value) is gloci.GlociError
         assert str(e.value).startswith("internal error: ")
         assert "test panic" in str(e.value) and "this is a bug" in str(e.value)
+    # In the driver while a step that needs the GIL to end is running. A regression deadlocks
+    # with the GIL held, so this runs in a child process: it fails after 30 s, not hang.
+    code = (
+        "import gloci\n"
+        "try:\n"
+        "    gloci._native._test_panic('unwind')\n"
+        "except gloci.GlociError as e:\n"
+        "    print(type(e).__name__, e)\n"
+    )
+    try:
+        done = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, timeout=30
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail("_test_panic('unwind') did not return in 30 s: the run deadlocked")
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.startswith("GlociError internal error: "), done.stdout
+    assert "test panic while a step runs" in done.stdout
     # The interpreter survives and the next call works.
     (here / "x.bed").write_text("chr1\t1\t2\n")
     assert gloci.open("x.bed").merge().to_bytes() == b"chr1\t1\t2\n"
