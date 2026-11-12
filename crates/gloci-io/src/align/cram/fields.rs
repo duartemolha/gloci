@@ -1111,9 +1111,28 @@ mod tests {
         reading
     }
 
+    /// BF declared twice: first EXTERNAL in its own block, whose values are now wrong (every read
+    /// unmapped), then in the core block. noodles keeps a key's last encoding, so the full decode
+    /// reads the core; the fields path must not read the stale block. Returns whether the
+    /// container reads BF where the fields path cannot read it alone.
+    fn bf_declared_twice(c: &mut RawContainerParts, key: &[u8; 2]) -> bool {
+        let Coding::External(stale) = c.coding(key) else {
+            return in_core(c, key);
+        };
+        let first = c.series.iter().find(|(k, _)| k == key).unwrap().clone();
+        let reading = in_core(c, key);
+        for s in &mut c.slices {
+            let wrong = itf8_bytes(std::iter::repeat_n(0x4, s.records));
+            s.set_block(EXTERNAL, stale, wrong);
+        }
+        c.series.insert(0, first);
+        reading
+    }
+
     /// A CRAM whose BF or MQ is in the core block, or shares a block with a series flagstat skips
-    /// (AP): every container is decoded in full, and the fields are those of the file as
-    /// samtools wrote it, at -t 1 and 2.
+    /// (AP), or whose BF is declared twice (noodles keeps the last): every
+    /// container that reads the series there is decoded in full, and the fields are those of the
+    /// file as samtools wrote it, at -t 1 and 2.
     #[test]
     fn cram_flag_fields_fall_back() {
         let bytes = std::fs::read(aln("mates.raw.cram")).unwrap();
@@ -1124,11 +1143,16 @@ mod tests {
         assert_eq!(got, want);
         assert!(fast > 1 && full == 0, "{fast} {full}");
         type Edit = fn(&mut RawContainerParts, &[u8; 2]) -> bool;
-        let edits: [(&str, Edit, &[u8; 2]); 4] = [
+        let edits: [(&str, Edit, &[u8; 2]); 5] = [
             ("BF in the core block", in_core, b"BF"),
             ("MQ in the core block", in_core, b"MQ"),
             ("BF in AP's block", in_ap_block, b"BF"),
             ("MQ in AP's block", in_ap_block, b"MQ"),
+            (
+                "BF declared twice, last in the core block",
+                bf_declared_twice,
+                b"BF",
+            ),
         ];
         for (what, edit, key) in edits {
             let mut raw = RawCram::parse(&bytes);

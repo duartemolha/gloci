@@ -778,6 +778,10 @@ pub(crate) fn scan_map(mut s: &[u8], wide: bool, info: &mut CompressionInfo) -> 
         };
         let e = scan_encoding(&mut s, 0, &mut info.uses)?;
         if let Some(k) = key {
+            // A key declared twice takes its last encoding, as noodles reads the map. The
+            // earlier one's block stays counted in `uses`, which only makes it no series' own.
+            info.external.remove(&k);
+            info.constant.remove(&k);
             if let Some(b) = e.external {
                 info.external.insert(k, b);
             }
@@ -988,6 +992,20 @@ mod tests {
         let mut info = CompressionInfo::default();
         assert_eq!(scan_map(&map, false, &mut info), None);
         assert_eq!(info.own_block(b"BF"), None);
+        // A key declared twice takes its last encoding (noodles keeps the last): EXTERNAL(5),
+        // then BETA, is in the core block; a one-symbol HUFFMAN, then EXTERNAL(6), is block 6.
+        let map = [2, b'B', b'F', 1, 1, 5, b'B', b'F', 6, 2, 0, 8];
+        let mut info = CompressionInfo::default();
+        assert_eq!(scan_map(&map, false, &mut info), None);
+        assert_eq!(
+            (info.external.get(b"BF"), info.own_block(b"BF")),
+            (None, None)
+        );
+        let map = [2, b'M', b'Q', 3, 4, 1, 60, 1, 0, b'M', b'Q', 1, 1, 6];
+        let mut info = CompressionInfo::default();
+        assert_eq!(scan_map(&map, false, &mut info), None);
+        assert_eq!(info.constant.get(b"MQ"), None);
+        assert_eq!(info.own_block(b"MQ"), Some(6));
     }
 
     /// Each codec's clear-text decoded size must be the block header's, and no block may say
