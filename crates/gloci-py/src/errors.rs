@@ -30,6 +30,16 @@ pub(crate) fn usage(py: Python<'_>, msg: impl Into<String>) -> PyErr {
     raise(py, "UsageError", (msg.into(),))
 }
 
+/// `gloci.DataError(msg, path)`, with no line: an in-memory source's problem as a whole.
+pub(crate) fn data_error(py: Python<'_>, msg: impl Into<String>, path: &str) -> PyErr {
+    raise(py, "DataError", (msg.into(), path, None::<u64>))
+}
+
+/// `gloci.DataError(msg, path, line)`: a source's item or row `line` (1-based, D88).
+pub(crate) fn data_at(py: Python<'_>, msg: impl Into<String>, path: &str, line: u64) -> PyErr {
+    raise(py, "DataError", (msg.into(), path, line))
+}
+
 /// `gloci.GlociError(msg)`: an internal error.
 pub(crate) fn internal(py: Python<'_>, msg: impl Into<String>) -> PyErr {
     raise(py, "GlociError", (msg.into(),))

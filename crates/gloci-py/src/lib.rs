@@ -5,7 +5,8 @@
 //! - [`command_specs`] and [`bindings`] describe the commands and the step methods.
 //! - [`kwargs_to_argv`] checks a step's keyword arguments when the step is called (D85).
 //! - [`step_argv`] and [`command_line`] build a stage's argv and its shell equivalent.
-//! - [`run_plan`] runs a pipeline ([`run`]).
+//! - [`run_plan`] runs a pipeline ([`run`]), reading Python objects as sources ([`sources`],
+//!   [`frames`]).
 
 #[cfg(windows)]
 compile_error!(
@@ -14,8 +15,10 @@ compile_error!(
 );
 
 mod errors;
+mod frames;
 mod logs;
 mod run;
+mod sources;
 
 use gloci::embed::{
     self, ArgSpec, Bind, Binding, CommandSpec, KwValue, Role, rewrite_flags_as_kwargs,
@@ -148,9 +151,26 @@ fn bindings(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
     })
 }
 
+/// Whether `s` is a plan's token for an input (`"\0src:<k>"`, `"\0pipe:<j>"`), which a
+/// keyword argument holds where a pipeline's source goes (`b=`).
+fn is_plan_token(s: &str) -> bool {
+    s.strip_prefix("\0src:")
+        .or_else(|| s.strip_prefix("\0pipe:"))
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()))
+}
+
+/// What a keyword argument's text may hold.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tokens {
+    /// A value the caller gave: no NUL.
+    Refused,
+    /// A plan's argv: a value may be a plan token.
+    Allowed,
+}
+
 /// A keyword argument's value as text: a path-like object by its path, anything else by
 /// `str()` (D86).
-fn text(py: Python<'_>, name: &str, v: &Bound<'_, PyAny>) -> PyResult<String> {
+fn text(py: Python<'_>, name: &str, v: &Bound<'_, PyAny>, tokens: Tokens) -> PyResult<String> {
     let s: String = if v.hasattr("__fspath__")? {
         let os = py.import("os")?;
         os.call_method1("fsdecode", (os.call_method1("fspath", (v,))?,))?
@@ -158,7 +178,7 @@ fn text(py: Python<'_>, name: &str, v: &Bound<'_, PyAny>) -> PyResult<String> {
     } else {
         v.str()?.extract()?
     };
-    if s.contains('\0') {
+    if s.contains('\0') && !(tokens == Tokens::Allowed && is_plan_token(&s)) {
         return Err(errors::usage(
             py,
             format!("{name}= holds a NUL character, which no argument can hold"),
@@ -169,7 +189,7 @@ fn text(py: Python<'_>, name: &str, v: &Bound<'_, PyAny>) -> PyResult<String> {
 
 /// A keyword argument's value (D86): `True` gives the flag, `False` and `None` nothing, a list
 /// or tuple the flag once per item, anything else its text.
-fn kw_value(py: Python<'_>, name: &str, v: &Bound<'_, PyAny>) -> PyResult<KwValue> {
+fn kw_value(py: Python<'_>, name: &str, v: &Bound<'_, PyAny>, tokens: Tokens) -> PyResult<KwValue> {
     if v.is_none() {
         return Ok(KwValue::Absent);
     }
@@ -179,21 +199,25 @@ fn kw_value(py: Python<'_>, name: &str, v: &Bound<'_, PyAny>) -> PyResult<KwValu
     if v.is_instance_of::<PyList>() || v.is_instance_of::<PyTuple>() {
         let items = v
             .try_iter()?
-            .map(|i| text(py, name, &i?))
+            .map(|i| text(py, name, &i?, tokens))
             .collect::<PyResult<_>>()?;
         return Ok(KwValue::Values(items));
     }
-    Ok(KwValue::Value(text(py, name, v)?))
+    Ok(KwValue::Value(text(py, name, v, tokens)?))
 }
 
-fn kwargs(py: Python<'_>, kw: Option<&Bound<'_, PyDict>>) -> PyResult<Vec<(String, KwValue)>> {
+fn kwargs(
+    py: Python<'_>,
+    kw: Option<&Bound<'_, PyDict>>,
+    tokens: Tokens,
+) -> PyResult<Vec<(String, KwValue)>> {
     let Some(kw) = kw else {
         return Ok(Vec::new());
     };
     kw.iter()
         .map(|(k, v)| {
             let name: String = k.extract()?;
-            let value = kw_value(py, &name, &v)?;
+            let value = kw_value(py, &name, &v, tokens)?;
             Ok((name, value))
         })
         .collect()
@@ -232,7 +256,7 @@ fn kwargs_to_argv_in(
     kwargs: Option<&Bound<'_, PyDict>>,
 ) -> PyResult<Vec<String>> {
     let spec = spec(py, path)?;
-    let kw = self::kwargs(py, kwargs)?;
+    let kw = self::kwargs(py, kwargs, Tokens::Refused)?;
     let usage = |e: gloci_io::UsageError| errors::usage(py, e.0);
     let Some(b) = embed::binding(path) else {
         if embed::module_function(path).is_none() {
@@ -280,7 +304,7 @@ fn step_argv_in(
     let spec = spec(py, path)?;
     let b = embed::binding(path)
         .ok_or_else(|| errors::usage(py, format!("gloci {} is not a step", path.join(" "))))?;
-    let kw = self::kwargs(py, kwargs)?;
+    let kw = self::kwargs(py, kwargs, Tokens::Allowed)?;
     let os = |v: Vec<String>| v.into_iter().map(OsString::from).collect::<Vec<_>>();
     let argv =
         embed::step_argv(b, &os(inputs), &kw, &os(terminal)).map_err(|e| errors::usage(py, e.0))?;
@@ -290,14 +314,19 @@ fn step_argv_in(
     Ok(strings(argv))
 }
 
+/// Whether a word of a shown argv stands for an input and is kept as it is: `<python object
+/// N>` for a Python object, and `<(gloci ...)>`, bash's process substitution, for a nested
+/// pipeline (its command lines are already quoted).
 fn is_placeholder(a: &str) -> bool {
-    a.strip_prefix("<python object ")
+    let object = a
+        .strip_prefix("<python object ")
         .and_then(|r| r.strip_suffix('>'))
-        .is_some_and(|n| !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()))
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()));
+    object || (a.starts_with("<(gloci ") && a.ends_with(')'))
 }
 
 /// The shell form of a step's argv (D84): each word quoted as a shell needs it, except the
-/// `<python object N>` that stands for an in-memory input, and without the `--` that
+/// placeholders that stand for in-memory inputs ([`is_placeholder`]), and without the `--` that
 /// [`step_argv`] puts before positionals where the line reads the same without it
 /// ([`embed::drop_needless_separator`]).
 #[pyfunction]
@@ -335,7 +364,9 @@ fn _test_panic(py: Python<'_>, place: &str) -> PyResult<()> {
     catch_unwind(AssertUnwindSafe(|| match place {
         "stage" => {
             let set = StageSet::spawn_fns(vec![Box::new(|| panic!("test panic"))]);
-            run::drive(py, set).settle(py, |_| None).map(drop)
+            run::drive(py, set, &mut [])
+                .settle(py, |_| None, &mut [])
+                .map(drop)
         }
         "driver" => panic!("test panic on the driver"),
         "next" => {

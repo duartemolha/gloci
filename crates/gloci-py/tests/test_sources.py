@@ -53,11 +53,12 @@ def assert_threads_back_to(before: int | None) -> None:
     assert now is not None and now <= before, f"{now} threads after 1 s, {before} before"
 
 
-def bed_rows(path: Path) -> list[tuple[str, int, int]]:
-    rows = []
+def bed_rows(path: Path) -> list[tuple[object, ...]]:
+    """A BED file's records as tuples, with integer coordinates."""
+    rows: list[tuple[object, ...]] = []
     for line in path.read_text().splitlines():
-        c, s, e = line.split("\t")[:3]
-        rows.append((c, int(s), int(e)))
+        c, s, e, *rest = line.split("\t")
+        rows.append((c, int(s), int(e), *rest))
     return rows
 
 
@@ -85,17 +86,17 @@ def bash(gloci_path_dir: Path):
 
 
 def test_classify_source(here: Path) -> None:
-    kinds = {
-        "a.bed": _pipeline.Path,
-        here / "a.bed": _pipeline.Path,
-        io.StringIO("x"): _pipeline.FileObject,
-        io.BytesIO(b"x"): _pipeline.FileObject,
-        (r for r in [("chr1", 1, 2)]): _pipeline.Lines,
-        [("chr1", 1, 2)]: _pipeline.Lines,
-        ["chr1\t1\t2"]: _pipeline.Lines,
-        gloci.open("a.bed"): _pipeline.Nested,
-    }
-    for obj, kind in kinds.items():
+    kinds = [
+        ("a.bed", _pipeline.Path),
+        (here / "a.bed", _pipeline.Path),
+        (io.StringIO("x"), _pipeline.FileObject),
+        (io.BytesIO(b"x"), _pipeline.FileObject),
+        ((r for r in [("chr1", 1, 2)]), _pipeline.Lines),
+        ([("chr1", 1, 2)], _pipeline.Lines),
+        (["chr1\t1\t2"], _pipeline.Lines),
+        (gloci.open("a.bed"), _pipeline.Nested),
+    ]
+    for obj, kind in kinds:
         assert type(_pipeline.classify_source(obj)) is kind, obj
     for bad in (5, 2.5, None, object()):
         with pytest.raises(TypeError) as e:
@@ -207,10 +208,13 @@ def test_generator_exception_propagates(here: Path) -> None:
     assert e.value is big
     assert not list(here.glob("*.tmp-*")) and not (here / "m.bed").exists()
     assert_threads_back_to(before)
-    # A data error before the exception, in the source's order, is reported instead.
+    # The exception is delivered after the items before it, so a data error well before it
+    # (beyond what the step reads ahead) is reported instead, as with a file.
     def bad_then_boom():
         yield ("chr1", 1, 2)
         yield ("chr1", 9, 3)
+        for i in range(300_000):
+            yield ("chr1", 10 + i * 10, 15 + i * 10)
         raise boom
 
     with pytest.raises(gloci.DataError) as e:
@@ -442,7 +446,8 @@ def test_pipeline_as_b(ab: Path, sh, bash) -> None:
     m = gloci.open("a.bed").merge(inner.merge())
     assert m.cli() == "gloci merge a.bed <(gloci slop -b 10 -g hg38 b.bed | gloci merge -)"
     assert m.to_bytes() == bash(m.cli(), ab).stdout
-    both = gloci.open("a.bed").intersect(b=[inner, "b.bed"], wa=True)
+    # (With two B inputs, pairs are labelled with each one's name: names= sets them.)
+    both = gloci.open("a.bed").intersect(b=[inner, "b.bed"], mode="pairs", names="s,b")
     assert both.to_bytes() == bash(both.cli(), ab).stdout
     q = gloci.open(inner).merge()
     assert q.cli() == "gloci slop -b 10 -g hg38 b.bed | gloci merge -"
@@ -463,9 +468,14 @@ def test_two_inline_inputs(ab: Path) -> None:
     assert p.to_bytes() == want
     assert gloci.open(iter(a)).intersect(b=(r for r in b)).to_bytes() == want
     # A source and a path in one list repeat the flag.
-    q = gloci.open(a).intersect(b=[iter(b), "b.bed"], wa=True)
-    assert q.cli() == "gloci intersect -a <python object 1> -b <python object 2> -b b.bed -wa"
-    assert q.to_bytes() == gloci.open("a.bed").intersect(b=["b.bed", "b.bed"], wa=True).to_bytes()
+    q = gloci.open(a).intersect(b=[iter(b), "b.bed"], mode="pairs", names="x,b")
+    assert q.cli() == (
+        "gloci intersect -a <python object 1> -b <python object 2> -b b.bed --mode pairs "
+        "--names x,b"
+    )
+    pairs = gloci.open("a.bed").intersect(b=["b.bed", "b.bed"], mode="pairs", names="x,b")
+    pairs = pairs.to_bytes()
+    assert q.to_bytes() == pairs
     # Extra positional sources of an n-ary step.
     m = gloci.open(a).merge(b, io.StringIO((ab / "b.bed").read_text()))
     assert m.to_bytes() == gloci.open("a.bed").merge("b.bed", "b.bed").to_bytes()
@@ -566,7 +576,8 @@ def test_module_sources(here: Path, cli, sh) -> None:
     assert (here / "w.bed.gz.tbi").exists()
     assert gloci.open("w.bed.gz").to_bytes() == w.to_bytes()
     assert r.count() == 20
-    assert gloci.open("t.bed").intersect(b=w, c=True).count() == 2
+    counted = gloci.open("t.bed").intersect(b=w, mode="count").to_bytes()
+    assert counted == b"chr1\t50\t250\t3\nchr2\t0\t30\t1\n"
     # The step windows() reads its input with -i; the source cuts a genome with -g.
     assert gloci.open("t.bed").windows(w=100).cli() == "gloci windows -i t.bed -w 100"
     with pytest.raises(gloci.UsageError, match="output is set by save"):

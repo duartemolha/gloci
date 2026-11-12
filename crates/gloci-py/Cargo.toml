@@ -22,11 +22,19 @@ test-hooks = []
 
 [dependencies]
 gloci = { path = "../gloci" }
+gloci-core.workspace = true
 gloci-io.workspace = true
 pyo3 = { version = "0.30", features = ["abi3-py310", "extension-module"] }
 anyhow.workspace = true
+crossbeam-channel.workspace = true
+itoa.workspace = true
 log.workspace = true
 memchr.workspace = true
+# Arrow sources (D88): objects with `__arrow_c_stream__` are read through the Arrow C stream
+# interface, so pyarrow, polars and pandas inputs need no Python package at run time (spec 8.5).
+# Only this crate uses arrow-rs; the gloci binary does not.
+arrow-array = { version = "60.1", default-features = false, features = ["ffi"] }
+arrow-schema = { version = "60.1", default-features = false }
 
 [build-dependencies]
 pyo3-build-config = "0.30"
