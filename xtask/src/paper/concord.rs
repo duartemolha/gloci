@@ -129,7 +129,7 @@ pub const NO_CONCORDANCE_CASE: &[(&str, &str)] = &[
     ),
 ];
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug, Default)]
 #[serde(deny_unknown_fields)]
 pub struct ConcordCase {
     pub name: String,
@@ -154,6 +154,11 @@ pub struct ConcordCase {
     /// The documented difference the compat run may show.
     #[serde(default)]
     pub compat_difference: Option<String>,
+    /// `numeric` only: the reference prints this many fixed decimals (as
+    /// bedtools coverage prints 7 and bedmap 6), which widens the tolerance
+    /// of its numbers to half a unit of the last one.
+    #[serde(default)]
+    pub ref_decimals: Option<u32>,
 }
 
 fn exact() -> String {
@@ -232,6 +237,10 @@ pub fn parse_cases(text: &str) -> Result<Vec<ConcordCase>> {
         ensure!(
             c.compat.as_deref().is_none_or(|f| !f.trim().is_empty()),
             "{n}: empty compat flags"
+        );
+        ensure!(
+            c.ref_decimals.is_none() || c.compare == "numeric",
+            "{n}: ref_decimals applies to compare = \"numeric\" only"
         );
     }
     Ok(cases)
@@ -677,10 +686,16 @@ fn unmatched_lines(
         return Ok(out);
     }
     let mut r = open_output(path)?;
+    let mut index = 0u64;
     gloci_testkit::differential::for_each_line_key(mode, &mut *r, |_, line| {
-        if residual.take(gloci_side, line) {
-            out.push(shown_line(line));
+        if residual.take(gloci_side, index, line) {
+            out.push(if mode == "numeric" {
+                format!("line {}: {}", index + 1, shown_line(line))
+            } else {
+                shown_line(line)
+            });
         }
+        index += 1;
         out.len() < n
     })?;
     Ok(out)
@@ -967,6 +982,7 @@ pub fn run(a: &ConcordArgs) -> Result<bool> {
                 } else {
                     let (s, mut residual) = match_stats_with_residual(
                         &c.compare,
+                        c.ref_decimals,
                         &mut *open_output(&out_path)?,
                         &mut *open_output(&ref_path)?,
                     )

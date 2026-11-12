@@ -133,8 +133,7 @@ fn default_runs_add_chrom_order_lex_and_compat_flags() {
         reference: "sort-bed {in_a} > {out}".into(),
         compare: "exact".into(),
         compat: compat.map(String::from),
-        expected_difference: None,
-        compat_difference: None,
+        ..ConcordCase::default()
     };
     let c = case("{gloci} sort {in_a} > {out}", Some("--full-key"));
     assert_eq!(
@@ -328,9 +327,7 @@ fn concordance_csv_row_format() {
         gloci: "{gloci} sort {in_a} > {out}".into(),
         reference: "sort-bed {in_a} > {out}".into(),
         compare: "exact".into(),
-        compat: None,
-        expected_difference: None,
-        compat_difference: None,
+        ..ConcordCase::default()
     };
     let s = MatchStats {
         n_gloci: 4,

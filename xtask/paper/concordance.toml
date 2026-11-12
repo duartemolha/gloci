@@ -12,10 +12,15 @@
 #   Do not write it here.
 # - Compat mode (cases with `compat`): the same plus the `compat` flags after
 #   the first gloci subcommand, against the same reference output.
-# - `compare`: `exact` (lines), `numeric` (numbers agree within the decimals
-#   the less precise side printed, or a relative 1e-5) or `vcf-records` (`#`
-#   lines skipped). Lines are matched as multisets and the order is checked
-#   too.
+# - `compare`: `exact` (lines) or `vcf-records` (`#` lines skipped), matched
+#   as multisets with the order checked too; or `numeric` (D97), positional:
+#   line i of gloci against line i of the reference, the same text fields and
+#   every number within the diff harness's tolerance (relative 1e-5, absolute
+#   below 1e-9; integer literals exactly).
+# - `ref_decimals = N` (numeric): the reference prints N fixed decimals
+#   (bedtools coverage 7, bedmap 6), so its numbers with a decimal point also
+#   agree within half a unit of the N-th. gloci prints numbers exactly, so its
+#   own text never widens the tolerance.
 # - `expected_difference` / `compat_difference`: the documented difference
 #   (docs/differences.md) the default / compat run may show. A run that
 #   differs without one fails; an anchor that never fires prints
@@ -195,8 +200,7 @@ compare = "numeric"
 # (a process substitution: bedmap stops reading the map file after the last
 # cCRE chromosome, which would fail a pipe under pipefail). bedmap's default
 # 6 decimals are kept: its running sums drift (a mean of one 0 prints as
-# 0.00000000102 with --prec 17), and the numeric compare allows for the
-# decimals each side prints.
+# 0.00000000102 with --prec 17); ref_decimals = 6 allows for them.
 [[case]]
 name = "map-ccre-signal-vs-bedmap"
 command = "map"
@@ -207,6 +211,7 @@ reference = '''bedmap --echo --mean {in_a} <(awk 'BEGIN{OFS="\t"}{print $1,$2,$3
 compare = "numeric"
 compat = "--empty NAN"
 expected_difference = "#map-empty-value"
+ref_decimals = 6
 
 # ---- coverage: cCREs (A) by exons (B) ----
 
@@ -219,6 +224,7 @@ gloci = "{gloci} coverage -a {in_a} -b {in_b} > {out}"
 reference = "bedtools coverage -a {in_a} -b {in_b} > {out}"
 compare = "numeric"
 expected_difference = "#coverage-point"
+ref_decimals = 7
 
 [[case]]
 name = "coverage-hist-ccre-exons-vs-bedtools"
@@ -229,6 +235,7 @@ gloci = "{gloci} coverage -a {in_a} -b {in_b} --hist > {out}"
 reference = "bedtools coverage -a {in_a} -b {in_b} -hist > {out}"
 compare = "numeric"
 expected_difference = "#coverage-point"
+ref_decimals = 7
 
 [[case]]
 name = "coverage-mean-ccre-exons-vs-bedtools"
@@ -239,6 +246,7 @@ gloci = "{gloci} coverage -a {in_a} -b {in_b} --mean > {out}"
 reference = "bedtools coverage -a {in_a} -b {in_b} -mean > {out}"
 compare = "numeric"
 expected_difference = "#coverage-point"
+ref_decimals = 7
 
 # ---- merge: exons ----
 
