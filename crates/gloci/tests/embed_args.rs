@@ -1039,3 +1039,19 @@ written to files, not to a pipeline"
     assert_eq!(strs(&a), ["--genotype-matrix", "012"]);
     assert!(argv_of(ve, &[("info", val("DP"))]).is_ok());
 }
+
+#[test]
+fn the_sort_step_refuses_check() {
+    // Every terminal passes -o, and `sort --check` writes nothing: the check stays on the CLI.
+    for v in [KwValue::Flag(true), KwValue::Flag(false)] {
+        let e = argv_of(&["sort"], &[("check", v)]).unwrap_err();
+        assert_eq!(
+            e,
+            "sort(check=True) writes no output; check sortedness with the CLI: gloci sort \
+--check FILE"
+        );
+    }
+    // Never suggested for a near miss.
+    let e = argv_of(&["sort"], &[("chek", KwValue::Flag(true))]).unwrap_err();
+    assert_eq!(e, "sort() got an unexpected keyword argument 'chek'");
+}

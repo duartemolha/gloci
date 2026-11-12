@@ -57,13 +57,22 @@ or to_arrow()",
 ];
 
 /// Arguments one command's step never takes (by command, clap id and why): what a module
-/// function of the same command covers.
-pub const RESERVED_ON_STEP_OF: &[(&[&str], &str, &str)] = &[(
-    &["vcf", "extract"],
-    "genotype_matrix",
-    "genotype_matrix is set by vcf_extract_matrix(path, genotype_matrix=...): the matrix is \
+/// function of the same command covers, or what writes no output for a terminal to take.
+pub const RESERVED_ON_STEP_OF: &[(&[&str], &str, &str)] = &[
+    (
+        &["vcf", "extract"],
+        "genotype_matrix",
+        "genotype_matrix is set by vcf_extract_matrix(path, genotype_matrix=...): the matrix is \
 written to files, not to a pipeline",
-)];
+    ),
+    // Every terminal passes `-o`, which `sort --check` refuses: it writes nothing.
+    (
+        &["sort"],
+        "check",
+        "sort(check=True) writes no output; check sortedness with the CLI: gloci sort --check \
+FILE",
+    ),
+];
 
 /// The arguments no keyword argument sets, in any role: the log level is the host's logger's.
 pub const RESERVED_ALWAYS: &[(&str, &str)] = &[
