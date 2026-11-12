@@ -681,3 +681,18 @@ fn stage_threads_do_not_take_the_default_stack() {
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+#[test]
+fn wait_with_an_unbounded_timeout_blocks_until_the_end() {
+    let _s = serial();
+    // Duration::MAX does not fit after Instant::now(): wait blocks with no deadline instead.
+    let mut set = StageSet::spawn_fns(vec![f(|| {
+        std::thread::sleep(Duration::from_millis(100));
+        Ok(true)
+    })]);
+    assert!(set.wait(Duration::MAX).expect("the result").unwrap());
+    assert!(
+        set.wait(Duration::MAX).is_none(),
+        "the result is returned once"
+    );
+}

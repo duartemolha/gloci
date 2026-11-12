@@ -230,16 +230,23 @@ impl StageSet {
     }
 
     /// The set's result once every stage thread has ended (they are joined by then), or `None`
-    /// if `timeout` passes first. A host waits in short slices to look at its own signals in
-    /// between. The result is returned once; later calls return `None` at once.
+    /// if `timeout` passes first (`Duration::MAX` waits without a deadline). A host waits in
+    /// short slices to look at its own signals in between. The result is returned once; later
+    /// calls return `None` at once.
     pub fn wait(&mut self, timeout: Duration) -> Option<Result<bool, StageError>> {
         if self.reported {
             return None;
         }
-        let deadline = Instant::now() + timeout;
+        // A timeout too long to add to now (Duration::MAX) means no deadline.
+        let deadline = Instant::now().checked_add(timeout);
         while self.ended.iter().any(Option::is_none) {
-            let left = deadline.saturating_duration_since(Instant::now());
-            match self.rx.recv_timeout(left) {
+            let next = match deadline {
+                Some(d) => self
+                    .rx
+                    .recv_timeout(d.saturating_duration_since(Instant::now())),
+                None => self.rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
+            };
+            match next {
                 Ok((i, e)) => self.ended[i] = Some(e),
                 Err(RecvTimeoutError::Timeout) => return None,
                 Err(RecvTimeoutError::Disconnected) => {
