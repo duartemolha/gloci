@@ -8,7 +8,7 @@ use gloci_io::Loc;
 use gloci_io::cancel::{self, CancelToken, RunGuard};
 use gloci_io::memio::Registered;
 use std::ffi::OsString;
-use std::io::{ErrorKind, Read, Write};
+use std::io::{Cursor, ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -694,5 +694,85 @@ fn wait_with_an_unbounded_timeout_blocks_until_the_end() {
     assert!(
         set.wait(Duration::MAX).is_none(),
         "the result is returned once"
+    );
+}
+
+/// Whether `msg` shows an in-memory endpoint only by a display name: no raw `\0gloci:` name and
+/// no `<memory>` (what a name that was discarded too early shows as).
+fn no_raw_names(msg: &str) -> bool {
+    !msg.contains('\0') && !msg.contains("<memory>")
+}
+
+#[test]
+fn errors_show_display_names() {
+    let _s = serial();
+    // R3: the stage judges its error while its endpoints are still registered.
+    let src = Registered::input(
+        "<my list>",
+        Box::new(Cursor::new(b"chr1\t0\t10\nchr1\tx\t20\n".to_vec())),
+    );
+    let out = Registered::output("<my sink>", Box::new(Shared::default()));
+    let argv = argv!["merge", src.name(), "-o", out.name()];
+    let err = finish(StageSet::spawn(vec![stage(argv, vec![src, out], vec![])])).unwrap_err();
+    let Outcome::Failure(msg) = &err.outcome else {
+        panic!("{:?}", err.outcome)
+    };
+    assert!(msg.contains("<my list>") && no_raw_names(msg), "{msg:?}");
+    let site = err.site.as_ref().expect("a parse error has a site");
+    assert_eq!(site.path, "<my list>");
+
+    // Fed through a pipe: the unsorted error of the stage reading it names the pipe.
+    let src = Registered::input(
+        "<unsorted list>",
+        Box::new(Cursor::new(b"chr1\t50\t60\nchr1\t0\t10\n".to_vec())),
+    );
+    let p = link("<view output>");
+    let out = Registered::output("<my sink>", Box::new(Shared::default()));
+    let argv0 = argv!["view", src.name(), "-o", p.out.name()];
+    let argv1 = argv!["merge", p.inp.name(), "-o", out.name()];
+    let set = StageSet::spawn(vec![
+        stage(argv0, vec![src, p.out], vec![p.fail]),
+        stage(argv1, vec![p.inp, out], vec![]),
+    ]);
+    let err = finish(set).unwrap_err();
+    assert_eq!(err.stage, 1, "{:#}", err.error);
+    let Outcome::Failure(msg) = &err.outcome else {
+        panic!("{:?}", err.outcome)
+    };
+    assert!(
+        msg.contains("<view output>") && no_raw_names(msg),
+        "{msg:?}"
+    );
+    let site = err.site.as_ref().expect("an unsorted error has a site");
+    assert_eq!(site.kind, SiteKind::Unsorted);
+    assert_eq!(site.path, "<view output>");
+    let order = site.order.as_ref().unwrap();
+    assert!(no_raw_names(&order.hint), "{:?}", order.hint);
+
+    // The two errors above already carry display names when they are made. This one holds the
+    // raw name until it is judged (-g takes a path or a genome name, so an in-memory name is an
+    // unknown genome): judged after the endpoints were discarded, it would say `<memory>`.
+    let genome = Registered::input(
+        "<my genome>",
+        Box::new(Cursor::new(b"chr1\t100\n".to_vec())),
+    );
+    let out = Registered::output("<my sink>", Box::new(Shared::default()));
+    let argv = argv!["windows", "-g", genome.name(), "-w", "10", "-o", out.name()];
+    let err = finish(StageSet::spawn(vec![stage(
+        argv,
+        vec![genome, out],
+        vec![],
+    )]))
+    .unwrap_err();
+    assert!(
+        format!("{:#}", err.error).contains('\0'),
+        "the raw error no longer holds the raw name; find another case for R3"
+    );
+    let Outcome::Usage(msg) = &err.outcome else {
+        panic!("{:?}", err.outcome)
+    };
+    assert!(
+        msg.starts_with("unknown genome \"<my genome>\"") && no_raw_names(msg),
+        "{msg:?}"
     );
 }
