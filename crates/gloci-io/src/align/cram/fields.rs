@@ -259,7 +259,12 @@ fn reframe(
                 ));
             }
             check_block(b, (rn == Some(b.content_id)).then_some(head.records))?;
-            // The bytes noodles decodes it to: a raw or empty block is its stored bytes.
+            // The bytes noodles decodes it to, for the records-against-bytes limit: a raw block,
+            // or one of raw size 0 whatever its method (noodles reads that as raw), is its stored
+            // bytes; any other is its raw size, which check_block holds the codec's own header to
+            // (gzip, bzip2 and lzma decode into a buffer of that size). The full decode counts
+            // what noodles returned; the two agree but where a codec returns other than its
+            // stated size, which is an error in both decodes.
             Ok(if b.method == 0 || b.raw_size == 0 {
                 b.data.len()
             } else {
@@ -269,7 +274,8 @@ fn reframe(
         let core = read_block(&mut src)?;
         let mut bytes = check(&core, CORE)?;
         empty_block(&mut body, CORE, core.content_id);
-        let mut slice_ids = Vec::with_capacity(head.blocks - 1);
+        // No capacity from the header's block count: a corrupt one must not ask for gigabytes.
+        let mut slice_ids = Vec::new();
         for _ in 1..head.blocks {
             let at = src;
             let b = read_block(&mut src)?;
