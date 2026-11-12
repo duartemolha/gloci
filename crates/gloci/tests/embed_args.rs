@@ -577,6 +577,13 @@ fn specs_cover_every_subcommand_and_argument() {
     assert!(mode.takes_value && !mode.multiple && !mode.positional);
     let b = i.arg("b").unwrap();
     assert!(b.required && b.multiple && b.takes_value);
+    // `-b x y` takes any number of values at once; `-a` one; a switch none.
+    assert_eq!(b.max_values, None);
+    assert_eq!(i.arg("a").unwrap().max_values, Some(1));
+    assert_eq!(i.arg("s").unwrap().max_values, Some(0));
+    // `--split[=TYPES]`: at most one value, attached.
+    let split = spec(&["vcf", "norm"]).arg("split").unwrap();
+    assert!(split.require_equals && split.max_values == Some(1));
     assert!(!i.arg("s").unwrap().takes_value);
     assert!(
         i.arg("f").unwrap().help.contains("fraction"),
