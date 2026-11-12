@@ -19,6 +19,32 @@ jobs:
       - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
       - run: cargo test --release -- --ignored
 
+  # The Python library's large tests (pytest -m large): memory stays flat while 5 million
+  # records are iterated, and breaking out of a loop stops the steps. Built as the wheels are,
+  # with the release-py profile.
+  python-large:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master (2026-07-16)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+      - name: Make a virtualenv with the test tools
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/python" -m pip install -r crates/gloci-py/requirements-ci.txt
+          echo "VIRTUAL_ENV=$RUNNER_TEMP/venv" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+      - name: Build gloci-py into the virtualenv with the release-py profile
+        run: maturin develop -m crates/gloci-py/Cargo.toml --profile release-py
+      - name: pytest -m large
+        run: pytest crates/gloci-py/tests -m large
+
   differential:
     runs-on: ubuntu-24.04
     timeout-minutes: 60

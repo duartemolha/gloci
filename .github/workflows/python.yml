@@ -48,3 +48,37 @@ jobs:
         run: maturin develop -m crates/gloci-py/Cargo.toml --features test-hooks
       - name: pytest
         run: pytest crates/gloci-py/tests -m "not large"
+
+  # The Arrow output without pyarrow (D89): polars takes gloci's tables through the Arrow
+  # PyCapsule interface, so a venv with polars and no pyarrow must pass. The tests that need
+  # pyarrow (or pandas) skip.
+  polars-only:
+    name: pytest (polars without pyarrow)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master (2026-07-16)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+      - name: Build the CLI the tests compare with
+        run: |
+          cargo build -p gloci
+          echo "GLOCI_BIN=$PWD/target/debug/gloci" >> "$GITHUB_ENV"
+      - name: Make a virtualenv with polars and without pyarrow
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/python" -m pip install -r crates/gloci-py/requirements-polars-only.txt
+          if "$RUNNER_TEMP/venv/bin/python" -c "import pyarrow" 2>/dev/null; then
+            echo "pyarrow is installed; this job tests without it" >&2
+            exit 1
+          fi
+          echo "VIRTUAL_ENV=$RUNNER_TEMP/venv" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+      - name: Build gloci-py into the virtualenv
+        run: maturin develop -m crates/gloci-py/Cargo.toml --features test-hooks
+      - name: pytest
+        run: pytest crates/gloci-py/tests -m "not large"

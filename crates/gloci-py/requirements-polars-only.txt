@@ -1,0 +1,5 @@
+# The tools for python.yml's polars-only job (D89): polars without pyarrow, which the Arrow
+# output must not need. Same pins as requirements-ci.txt.
+maturin==1.16.0
+pytest==9.2.0
+polars==2.1.0

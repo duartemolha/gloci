@@ -366,6 +366,112 @@ fn job_body<'a>(yml: &'a str, job: &str) -> &'a str {
     &yml[at..at + 1 + end]
 }
 
+/// Every action of `yml` is pinned to a 40-hex commit, the same one ci.yml and release.yml pin.
+fn assert_pinned_like_the_others(name: &str, yml: &str) {
+    let root = xtask::diff::workspace_root();
+    let read = |n: &str| fs::read_to_string(root.join(".github/workflows").join(n)).unwrap();
+    let pinned: Vec<(String, String)> = [read("ci.yml"), read("release.yml"), read("python.yml")]
+        .iter()
+        .flat_map(|y| actions(y))
+        .collect();
+    for (action, rev) in actions(yml) {
+        assert!(
+            rev.len() == 40 && rev.bytes().all(|b| b.is_ascii_hexdigit()),
+            "{name}: {action}@{rev} is not pinned to a 40-char hex commit SHA"
+        );
+        for (a, r) in &pinned {
+            assert!(
+                *a != action || *r == rev,
+                "{name} pins {action}@{rev}, but another workflow pins {a}@{r}"
+            );
+        }
+    }
+}
+
+/// `steps` appear in `body` in this order.
+fn assert_in_order(what: &str, body: &str, steps: &[&str]) {
+    let at = |s: &str| {
+        body.find(s)
+            .unwrap_or_else(|| panic!("{what} must contain `{s}`"))
+    };
+    for pair in steps.windows(2) {
+        assert!(
+            at(pair[0]) < at(pair[1]),
+            "{what}: `{}` must come before `{}`",
+            pair[0],
+            pair[1]
+        );
+    }
+}
+
+#[test]
+fn python_workflow_tests_polars_without_pyarrow() {
+    let root = xtask::diff::workspace_root();
+    let py = fs::read_to_string(root.join(".github/workflows/python.yml")).unwrap();
+    // The Arrow output must work with polars alone (D89, P2b Task 8).
+    let job = job_body(&py, "polars-only");
+    assert_pinned_like_the_others("python.yml", job);
+    assert_in_order(
+        "python.yml polars-only",
+        job,
+        &[
+            "cargo build -p gloci\n",
+            "echo \"GLOCI_BIN=$PWD/target/debug/gloci\" >> \"$GITHUB_ENV\"",
+            "pip install -r crates/gloci-py/requirements-polars-only.txt",
+            "-c \"import pyarrow\"",
+            "exit 1",
+            "maturin develop -m crates/gloci-py/Cargo.toml --features test-hooks",
+            "pytest crates/gloci-py/tests -m \"not large\"",
+        ],
+    );
+    // Its requirements have polars and no pyarrow (nor pandas, which needs it).
+    let reqs =
+        fs::read_to_string(root.join("crates/gloci-py/requirements-polars-only.txt")).unwrap();
+    let pins: Vec<&str> = reqs
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect();
+    assert!(pins.iter().any(|l| l.starts_with("polars==")), "{pins:?}");
+    assert!(
+        !pins
+            .iter()
+            .any(|l| l.starts_with("pyarrow") || l.starts_with("pandas")),
+        "{pins:?}"
+    );
+}
+
+#[test]
+fn nightly_runs_the_large_python_tests() {
+    let root = xtask::diff::workspace_root();
+    let y = fs::read_to_string(root.join(".github/workflows/nightly.yml")).unwrap();
+    assert!(
+        y.contains("  schedule:\n"),
+        "nightly.yml runs on a schedule"
+    );
+    let job = job_body(&y, "python-large");
+    assert_pinned_like_the_others("nightly.yml", job);
+    assert!(
+        actions(job)
+            .iter()
+            .any(|(a, _)| a == "actions/setup-python")
+    );
+    // Built as the wheels are (release-py), then only the large tests.
+    assert_in_order(
+        "nightly.yml python-large",
+        job,
+        &[
+            "pip install -r crates/gloci-py/requirements-ci.txt",
+            "maturin develop -m crates/gloci-py/Cargo.toml --profile release-py",
+            "pytest crates/gloci-py/tests -m large\n",
+        ],
+    );
+    assert!(
+        !job.contains("test-hooks"),
+        "the large tests run on a wheel-like build"
+    );
+}
+
 #[test]
 fn publish_steps_are_gated() {
     let root = xtask::diff::workspace_root();
