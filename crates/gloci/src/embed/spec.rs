@@ -21,6 +21,9 @@ pub struct ArgSpec {
     pub required: bool,
     /// Its value must be attached (`--split=snps`).
     pub require_equals: bool,
+    /// The placeholders clap prints for its values (`FILE`, `REF`, `IN`); clap names a
+    /// positional by them in messages (`<IN>`, `[REGION]...`).
+    pub value_names: Vec<String>,
     /// The values clap accepts, when it has a fixed list.
     pub possible_values: Vec<String>,
     /// The one-line help.
@@ -178,6 +181,12 @@ fn arg_spec(a: &clap::Arg) -> ArgSpec {
         positional: a.is_positional(),
         required: a.is_required_set(),
         require_equals: a.is_require_equals_set(),
+        value_names: a
+            .get_value_names()
+            .unwrap_or_default()
+            .iter()
+            .map(|n| n.to_string())
+            .collect(),
         possible_values: a
             .get_possible_values()
             .iter()

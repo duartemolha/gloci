@@ -444,10 +444,23 @@ fn rewrite_flags() {
         ),
         "the following required arguments were not provided:\n  b="
     );
-    assert_eq!(
-        rewrite_flags_as_kwargs("invalid value for '[REGIONS]...'", spec(&["view"])),
-        "invalid value for 'regions='"
-    );
+    // Positionals as clap prints them: by their value names (<IN>, <REF>), from real errors.
+    for (argv, path, want) in [
+        (
+            &["gloci", "reheader"][..],
+            &["reheader"][..],
+            &["header=", "input="][..],
+        ),
+        (&["gloci", "dict"], &["dict"], &["fasta="]),
+        (&["gloci", "view"], &["view"], &["file="]),
+    ] {
+        let e = embed::parse(&os(argv)).err().unwrap();
+        let msg = rewrite_flags_as_kwargs(&e.0, spec(path));
+        for w in want {
+            assert!(msg.contains(w), "{path:?}: {w} in {msg:?} (from {:?})", e.0);
+        }
+        assert!(!msg.contains('<'), "{path:?}: {msg:?}");
+    }
 }
 
 /// Every runnable command under `cmd`, found by walking the clap tree.

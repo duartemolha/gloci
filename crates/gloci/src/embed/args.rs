@@ -461,16 +461,20 @@ fn placeholder_len(s: &str) -> usize {
     n
 }
 
-/// The kwarg for a positional of `spec` written as clap does (`<FILES>...`, `[REGIONS]...`),
-/// with its length.
+/// The kwarg for a positional of `spec` written as clap does (`<IN>`, `[REGION]...`): by its
+/// value name, or its id in capitals when it has none; with its length.
 fn positional_at(s: &str, spec: &CommandSpec) -> Option<(String, usize)> {
     let close = if s.starts_with('<') { '>' } else { ']' };
     let end = s.find(close)?;
     let name = &s[1..end];
-    let arg = spec
-        .args
-        .iter()
-        .find(|a| a.positional && a.id.to_uppercase() == name)?;
+    let arg = spec.args.iter().find(|a| {
+        a.positional
+            && if a.value_names.is_empty() {
+                a.id.to_uppercase() == name
+            } else {
+                a.value_names.iter().any(|v| v == name)
+            }
+    })?;
     let mut n = end + 1;
     if s[n..].starts_with("...") {
         n += 3;
