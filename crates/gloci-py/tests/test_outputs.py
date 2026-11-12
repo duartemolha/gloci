@@ -369,3 +369,102 @@ def test_arrow_of_alignments_and_tables(here: Path) -> None:
     assert t.column("chrom").to_pylist()[-1] is None
     i = gloci.open(BAM).idxstats().to_arrow()
     assert schema_of(i) == ["col1:string", "col2:int64", "col3:int64", "col4:int64"]
+
+
+# ---- What the readers pass over, empty outputs, and stopping early ---------------------------
+
+
+def test_lines_a_reader_passes_over_are_records(here: Path) -> None:
+    # convert --bedpe writes `.  -1  -1` for an absent end: BED's reader cannot place such a
+    # line, but it is still a record, with no coordinates.
+    p = gloci.open(GOLDEN / "bamtobed-bedpe-vs-bedtools" / "input.bam").convert(bedpe=True)
+    lines = p.to_bytes().decode().splitlines()
+    recs = list(p)
+    assert [r.line for r in recs] == lines
+    assert p.count() == len(lines)
+    absent = [r for r in recs if r.line.startswith(".\t-1\t-1")]
+    assert absent and all((r.chrom, r.start, r.end) == (None, None, None) for r in absent)
+    placed = [r for r in recs if not r.line.startswith(".")]
+    assert all(r.start == int(r.fields[1]) for r in placed)
+    if _try_import("pyarrow") is not None:
+        t = p.to_arrow()
+        assert t.num_rows == len(lines)
+        assert t.column("chrom").null_count == len(absent)
+        assert t.column("col7").to_pylist() == [r.fields[6] for r in recs]
+
+
+def test_empty_outputs(here: Path) -> None:
+    (here / "empty.bed").write_text("")
+    (here / "header.vcf").write_text(INDELS_VCF.split("chr1\t100")[0])
+    for p in (gloci.open("empty.bed"), gloci.open("header.vcf")):
+        assert list(p) == []
+        assert p.count() == 0
+    if _try_import("pyarrow") is not None:
+        assert gloci.open("empty.bed").to_arrow().column_names == ["chrom", "start", "end"]
+        v = gloci.open("header.vcf").to_arrow()
+        assert v.num_rows == 0
+        assert v.column_names[:8] == ["chrom", "start", "end", "pos", "id", "ref", "alt", "qual"]
+
+
+def threads_now() -> int | None:
+    from test_sources import os_threads
+
+    return os_threads()
+
+
+def test_break_stops_the_steps(here: Path) -> None:
+    from test_sources import assert_threads_back_to
+
+    (here / "g.txt").write_text("chr1\t10000000\n")
+    before = threads_now()
+    # 10 million windows: far more than the pipes and the batches hold.
+    p = gloci.windows(g="g.txt", w=1).slop(b=1, g="g.txt")
+    for r in p:
+        assert (r.chrom, r.start, r.end) == ("chr1", 0, 2)
+        break
+    assert_threads_back_to(before)
+
+    # A generator source is read no further once the loop is left.
+    taken = [0]
+
+    def rows():
+        for i in range(10_000_000):
+            taken[0] += 1
+            yield ("chr1", i, i + 1)
+
+    it = iter(gloci.open(rows()))
+    assert next(it).start == 0
+    del it
+    seen = taken[0]
+    assert seen < 10_000_000
+    assert_threads_back_to(before)
+    assert taken[0] == seen
+
+
+def test_keyboard_interrupt_in_iteration(here: Path) -> None:
+    from test_sources import assert_threads_back_to
+
+    before = threads_now()
+
+    def rows():
+        for i in range(50_000):
+            yield ("chr1", i, i + 1)
+        raise KeyboardInterrupt
+
+    got = 0
+    with pytest.raises(KeyboardInterrupt):
+        for _ in gloci.open(rows()):
+            got += 1
+    assert got < 50_000  # the run stopped at once, not after the records before
+    assert_threads_back_to(before)
+
+
+def test_iterators_are_independent_runs(ab: Path) -> None:
+    p = gloci.open("a.bed").merge()
+    a, b = iter(p), iter(p)
+    first_a = [next(a) for _ in range(3)]
+    first_b = [next(b) for _ in range(3)]
+    assert first_a == first_b
+    assert len(list(a)) + 3 == p.count()
+    b.close()
+    assert list(b) == []

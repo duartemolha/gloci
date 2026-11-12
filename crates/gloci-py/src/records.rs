@@ -324,7 +324,7 @@ fn passed_over(line: &[u8], rows: &mut u64, sink: &mut dyn RowSink) -> io::Resul
         return Ok(());
     }
     if is_header_line(line) {
-        if *rows == 0 {
+        if *rows == 0 && line[0] == b'#' {
             sink.names(line, false);
         }
         return Ok(());
