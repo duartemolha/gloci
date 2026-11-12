@@ -499,8 +499,20 @@ fn downstream_early_close_is_quiet() {
     let _s = serial();
     let dir = tempfile::tempdir().unwrap();
     let g = big_genome(dir.path());
+    // Start from no gloci thread at all: an earlier test's pool workers may still be exiting.
     #[cfg(target_os = "linux")]
-    let before = (gloci_threads(), all_threads());
+    let before = {
+        let t0 = Instant::now();
+        while gloci_threads() > 0 && t0.elapsed() < Duration::from_secs(1) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(
+            gloci_threads(),
+            0,
+            "gloci threads left from an earlier test"
+        );
+        all_threads()
+    };
     let p0 = link("<windows output>");
     let (w1, mut r1) = pipe(PIPE_CHUNKS, PIPE_CHUNK);
     let f1 = w1.fail_handle();
@@ -516,25 +528,23 @@ fn downstream_early_close_is_quiet() {
     r1.read_exact(&mut head).unwrap();
     assert!(head.starts_with(b"chr1\t0\t1\nchr1\t1\t2\n"));
     #[cfg(target_os = "linux")]
-    assert!(gloci_threads() > before.0, "no stage thread seen");
+    assert!(gloci_threads() > 0, "no stage thread seen");
     drop(r1);
     // Each stage ends with a broken pipe, which is quiet: the set succeeds.
     assert!(finish(set).unwrap());
     #[cfg(target_os = "linux")]
     {
-        // Back to the baseline within 1 s: the stage threads are joined, and the runs' pool
-        // workers exit on their own once their pools are dropped.
+        // Back to none within 1 s: the stage threads are joined, and the runs' pool workers
+        // exit on their own once their pools are dropped.
         let t0 = Instant::now();
-        while gloci_threads() > before.0 && t0.elapsed() < Duration::from_secs(1) {
+        while gloci_threads() > 0 && t0.elapsed() < Duration::from_secs(1) {
             std::thread::sleep(Duration::from_millis(10));
         }
-        assert!(
-            gloci_threads() <= before.0,
-            "{} gloci threads left after 1 s (baseline {}; Threads: {} now, {} before)",
+        assert_eq!(
             gloci_threads(),
-            before.0,
-            all_threads(),
-            before.1
+            0,
+            "gloci threads left after 1 s (Threads: {} now, {before} before)",
+            all_threads()
         );
     }
 }
