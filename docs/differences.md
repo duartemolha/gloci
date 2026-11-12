@@ -489,7 +489,10 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Old behaviour:** `closest-features` gives an overlapping element
   precedence on one side and reports the nearest non-overlapping element on
   the other ("elements reported as closest to the left and right edges are
-  never the same"); it writes `NA` for a missing side, and always one row.
+  never the same"); it writes `NA` for a missing side, and always one row:
+  among B equally near on one side it takes the last in its input on the
+  left and the first on the right, so `--ties first` (the first on both
+  sides) differs from it on the left.
   Where B elements nest, its left element can depend on the A records before:
   after an A that overlaps a long B, a later A gets a shorter B nested in the
   long one as its left element even when the long B ends nearer (with
@@ -498,8 +501,8 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   `closest` without `--each-side`, and the placeholder keeps the columns of
   every row the same width.
 - **Pinned by:** `closest-each-side-overlap-vs-bedops`,
-  `closest-each-side-missing-vs-bedops` and `closest-each-side-nested-vs-bedops`
-  (must differ). With
+  `closest-each-side-missing-vs-bedops`, `closest-each-side-ties-vs-bedops` and
+  `closest-each-side-nested-vs-bedops` (must differ). With
   `--ignore-overlaps` and every side present, `closest-each-side-vs-bedops`
   and `closest-each-side-nodist-vs-bedops` match exactly.
 

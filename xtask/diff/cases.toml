@@ -1016,6 +1016,18 @@ reference = "closest-features --dist input.bed closest-fb.bed | tr '|' '\t'"
 compare = "exact"
 expected_difference = "#closest-each-side"
 
+# Two B equally near on each side: closest-features takes the last on the
+# left (b2, b6) and the first on the right (b3, b8); `--ties first` takes the
+# first on both. Found by the real-data concordance run (Task 16).
+[[case]]
+name = "closest-each-side-ties-vs-bedops"
+input = { file = "xtask/diff/inputs/closest-ties-a.bed" }
+aux = ["xtask/diff/inputs/closest-ties-b.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-ties-b.bed --each-side --distance --ignore-overlaps --ties first"
+reference = "closest-features --dist --no-overlaps input.bed closest-ties-b.bed | tr '|' '\t'"
+compare = "exact"
+expected_difference = "#closest-each-side"
+
 # After a1, which overlaps the long b1, closest-features reports b3 as a2's
 # left neighbour (-411) where b1 (-11) is nearer; without a1 it reports b1.
 # Found by the real-data concordance run (Task 16).
