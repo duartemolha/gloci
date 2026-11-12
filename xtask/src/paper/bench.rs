@@ -62,10 +62,16 @@ pub struct PaperBenchArgs {
     pub out: PathBuf,
     /// Timed runs per command instead of each case's own (smoke runs).
     pub runs: Option<u32>,
+    /// A Python wheel of the same version: its name and sha256 are recorded
+    /// in environment.json (the Python benchmarks come later).
+    pub wheel: Option<PathBuf>,
 }
 
 pub fn run(a: &PaperBenchArgs) -> Result<bool> {
     let mut cases = load_paper_cases()?;
+    if let Some(w) = &a.wheel {
+        crate::paper::environment::wheel_info(w)?;
+    }
     if let Some(n) = a.runs {
         ensure!(n >= 1, "--runs must be at least 1");
         for c in &mut cases {
@@ -77,11 +83,11 @@ pub fn run(a: &PaperBenchArgs) -> Result<bool> {
     {
         bail!("--only {o}: not a paper benchmark (see {BENCH_PATH})");
     }
-    let results: PathBuf = Path::new(&a.out)
-        .join(env!("CARGO_PKG_VERSION"))
-        .join("bench");
+    let version_dir: PathBuf = Path::new(&a.out).join(env!("CARGO_PKG_VERSION"));
+    let results = version_dir.join("bench");
     std::fs::create_dir_all(&results)?;
-    crate::bench::run_cases(
+    let started_at = crate::paper::data::now_utc();
+    let ok = crate::bench::run_cases(
         &crate::bench::Args {
             cases: workspace_root().join(BENCH_PATH),
             out: a.out.clone(),
@@ -94,6 +100,46 @@ pub fn run(a: &PaperBenchArgs) -> Result<bool> {
             data_dir: a.data_dir.clone(),
             results: Some(results),
         },
+        cases.clone(),
+    )?;
+    write_run_records(a, &version_dir, &cases, &started_at)?;
+    Ok(ok)
+}
+
+/// `environment.json` and `repo-snapshot.json` next to the results.
+pub fn write_run_records(
+    a: &PaperBenchArgs,
+    dir: &Path,
+    cases: &[Case],
+    started_at: &str,
+) -> Result<()> {
+    use crate::paper::{environment, snapshot};
+    let root = workspace_root();
+    let commit = environment::git_commit(&root);
+    let version = env!("CARGO_PKG_VERSION");
+    let gloci = a.gloci.clone().or_else(|| {
+        let p = crate::bench::target_dir().join("release/gloci");
+        p.is_file().then_some(p)
+    });
+    let env = environment::environment(&environment::EnvArgs {
+        version,
+        commit: commit.clone(),
+        started_at,
+        finished_at: &crate::paper::data::now_utc(),
+        image: (!a.no_docker).then_some(a.image.as_str()),
+        gloci: gloci.as_deref(),
+        wheel: a.wheel.as_deref(),
         cases,
-    )
+    })?;
+    std::fs::write(
+        dir.join("environment.json"),
+        serde_json::to_string_pretty(&env)? + "\n",
+    )?;
+    let cat = crate::paper::fetch::load_catalog()?;
+    let snap = snapshot::snapshot(&root, &cat, &a.data_dir, version, commit.as_deref())?;
+    std::fs::write(
+        dir.join("repo-snapshot.json"),
+        serde_json::to_string_pretty(&snap)? + "\n",
+    )?;
+    Ok(())
 }

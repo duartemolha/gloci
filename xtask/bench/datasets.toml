@@ -31,6 +31,8 @@
 # directory (md5). A download on 2026-11-09 matched it; its sha256 was
 # 9e936fdf434a4aa4ff1d37c0d386a13a43a7211d4f09fb5da811ed6eb5125626.
 name = "1kg-30x-chr20"
+description = "1000 Genomes 30x (NYGC) chr20 phased SNV/INDEL/SV panel, 3,202 samples"
+release = "20220422_3202_phased_SNV_INDEL_SV"
 url = "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20220422_3202_phased_SNV_INDEL_SV/1kGP_high_coverage_Illumina.chr20.filtered.SNV_INDEL_SV_phased_panel.vcf.gz"
 md5 = "34a9a5dbfb285e7eb9d1f2881953014b"
 unpack = false
@@ -43,6 +45,8 @@ paper = true
 # GENCODE v46 comprehensive annotation (GRCh38), 51,006,804 bytes.
 # Checksum source: release_46/MD5SUMS on the EBI FTP.
 name = "gencode-v46-gtf"
+description = "GENCODE comprehensive gene annotation, GRCh38 (GTF)"
+release = "v46"
 url = "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_46/gencode.v46.annotation.gtf.gz"
 md5 = "68070e3c87f6a0e70af6e4ff4d55f61c"
 paper = true
@@ -51,6 +55,8 @@ paper = true
 # ENCODE SCREEN cCREs v4 (ENCSR800VNX), GRCh38, 32,795,453 bytes.
 # Checksum source: the ENCODE portal's md5sum for ENCFF420VPZ.
 name = "encode-ccre-v4"
+description = "ENCODE SCREEN candidate cis-regulatory elements, GRCh38 (BED)"
+release = "ENCSR800VNX"
 url = "https://www.encodeproject.org/files/ENCFF420VPZ/@@download/ENCFF420VPZ.bed.gz"
 md5 = "ea1820bd71581ba01c94fc600fbf794d"
 paper = true
@@ -59,6 +65,8 @@ paper = true
 # CTCF ChIP-seq in K562 (ENCSR000AKO), GRCh38 IDR peaks, 919,491 bytes.
 # Checksum source: the ENCODE portal's md5sum for ENCFF769AUF.
 name = "encode-ctcf-k562-peaks"
+description = "CTCF ChIP-seq IDR peaks, K562, GRCh38 (BED)"
+release = "ENCSR000AKO"
 url = "https://www.encodeproject.org/files/ENCFF769AUF/@@download/ENCFF769AUF.bed.gz"
 md5 = "7d086cac19c5311a77b7e21e3d931435"
 paper = true
@@ -67,6 +75,8 @@ paper = true
 # CTCF ChIP-seq in K562 (ENCSR000AKO), GRCh38 fold-change signal, 502,671,302 bytes.
 # Checksum source: the ENCODE portal's md5sum for ENCFF979PWH.
 name = "encode-ctcf-k562-fc"
+description = "CTCF ChIP-seq fold-change signal, K562, GRCh38 (bigWig)"
+release = "ENCSR000AKO"
 url = "https://www.encodeproject.org/files/ENCFF979PWH/@@download/ENCFF979PWH.bigWig"
 md5 = "4a1da9d7819bc622c27cd60950d28abb"
 paper = true
@@ -76,6 +86,8 @@ paper = true
 # bytes. Checksum source: the x-goog-hash header of the object
 # (md5=3PGRVj5pBUpxvU3HeGJ5mg==, base64 of this hex).
 name = "gnomad-v4.1-exomes-chr22"
+description = "gnomAD exomes sites VCF, chr22, no samples"
+release = "v4.1"
 url = "https://storage.googleapis.com/gcp-public-data--gnomad/release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr22.vcf.bgz"
 md5 = "dcf191563e69054a71bd4dc77862799a"
 paper = true
@@ -87,6 +99,8 @@ paper = true
 # the peaks and the signal above, 401,933,993 bytes.
 # Checksum source: the ENCODE portal's md5sum for ENCFF834MPG.
 name = "encode-ctcf-k562-bam"
+description = "CTCF ChIP-seq alignments, K562 replicate 1, GRCh38 (BAM)"
+release = "ENCSR000AKO"
 url = "https://www.encodeproject.org/files/ENCFF834MPG/@@download/ENCFF834MPG.bam"
 md5 = "22477d07776b89e20b0458ed873306d4"
 paper = true

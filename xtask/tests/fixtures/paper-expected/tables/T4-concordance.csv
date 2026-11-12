@@ -1,0 +1,5 @@
+case,command,reference_tool,dataset,mode,n_gloci,n_reference,n_matching,match_rate,anchors
+merge-exons,merge,bedtools,exons.bed,compat,1000000,1000000,1000000,1.000000,
+merge-exons,merge,bedtools,exons.bed,default,1000000,1000000,1000000,1.000000,
+sort-exons,sort,bedtools,exons-unsorted.bed,compat,1000000,1000000,1000000,1.000000,
+sort-exons,sort,bedtools,exons-unsorted.bed,default,1000000,1000000,750000,0.750000,karyotype-chromosome-order;sort-tie-order

@@ -1,0 +1,8 @@
+case,label,dataset,tool,role,threads,median_s,mean_s,stddev_s,min_s,max_s,runs,max_rss_mb
+merge-exons,"merge, GENCODE exons",exons.bed,bedops,baseline,1,1.100,1.104,0.030,1.070,1.150,5,30.0
+merge-exons,"merge, GENCODE exons",exons.bed,bedtools,baseline,1,3.200,3.250,0.100,3.100,3.400,5,200.0
+merge-exons,"merge, GENCODE exons",exons.bed,gloci,subject,1,0.800,0.812,0.021,0.781,0.853,5,50.0
+sort-exons,"sort, GENCODE exons",exons-unsorted.bed,bedtools,yardstick,1,9.500,9.600,0.200,9.300,9.900,5,2929.7
+sort-exons,"sort, GENCODE exons",exons-unsorted.bed,gloci,subject,1,4.500,4.510,0.050,4.440,4.600,5,2048.0
+sort-exons,"sort, GENCODE exons",exons-unsorted.bed,gnu-sort,yardstick,1,3.000,3.010,0.020,2.980,3.050,5,
+sort-exons,"sort, GENCODE exons",exons-unsorted.bed,sort-bed,baseline,1,4.000,4.020,0.040,3.970,4.100,5,2099.6
