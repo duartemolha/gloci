@@ -10,7 +10,7 @@ use gloci_io::memio::Registered;
 use std::ffi::OsString;
 use std::io::{Cursor, ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -775,4 +775,68 @@ fn errors_show_display_names() {
         msg.starts_with("unknown genome \"<my genome>\"") && no_raw_names(msg),
         "{msg:?}"
     );
+}
+
+/// A host source that yields one record, then blocks until released (a slow host iterator),
+/// or for 5 s at most.
+struct Blocking {
+    first: bool,
+    gate: std::sync::mpsc::Receiver<()>,
+    unblocked: Arc<AtomicBool>,
+}
+
+impl Read for Blocking {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        if std::mem::take(&mut self.first) {
+            let l = b"chr1\t0\t10\n";
+            out[..l.len()].copy_from_slice(l);
+            return Ok(l.len());
+        }
+        let _ = self.gate.recv_timeout(Duration::from_secs(5));
+        self.unblocked.store(true, Ordering::SeqCst);
+        Ok(0)
+    }
+}
+
+#[test]
+fn a_cancel_wakes_a_host_reading_the_last_pipe() {
+    let _s = serial();
+    // Stage 0 is stuck in a host source; the host thread, which has no token, is parked
+    // reading the last pipe. The set's token, bound to the pipe through its fail handle, wakes
+    // that read: the thread's own token cannot.
+    let (release, gate) = std::sync::mpsc::channel();
+    let unblocked = Arc::new(AtomicBool::new(false));
+    let src = Registered::input(
+        "<slow>",
+        Box::new(Blocking {
+            first: true,
+            gate,
+            unblocked: unblocked.clone(),
+        }),
+    );
+    let (w, mut r) = pipe(PIPE_CHUNKS, PIPE_CHUNK);
+    let fail = w.fail_handle();
+    let out = Registered::output("<merge output>", Box::new(w));
+    let argv = argv!["merge", src.name(), "-o", out.name()];
+    let set = StageSet::spawn(vec![stage(argv, vec![src, out], vec![fail])]);
+    assert!(cancel::current().is_none(), "the test thread has no token");
+    let (read, waited) = std::thread::scope(|s| {
+        s.spawn(|| {
+            std::thread::sleep(Duration::from_millis(300));
+            set.cancel();
+        });
+        let t0 = Instant::now();
+        let read = r.read(&mut [0u8; 64]);
+        (read, t0.elapsed())
+    });
+    assert!(
+        !unblocked.load(Ordering::SeqCst),
+        "the read waited for the source"
+    );
+    let e = read.expect_err("the read ends with the cancel");
+    assert!(cancel::is_cancel_error(&e), "{e}");
+    assert!(waited < Duration::from_millis(1300), "{waited:?}");
+    release.send(()).unwrap();
+    let err = finish(set).unwrap_err();
+    assert_eq!(err.outcome, Outcome::Cancelled);
 }
