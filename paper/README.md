@@ -41,3 +41,58 @@ run `cargo xtask paper fetch-script`. A test fails when it is stale.
 - GENCODE v46: open; cite Frankish et al., GENCODE.
 - gnomAD v4.1: released under CC0 1.0; cite Chen et al. 2024 (gnomAD v4).
 - 1000 Genomes 30x (NYGC): open; cite Byrska-Bishop et al. 2022, Cell.
+
+## Results, tables and the Zenodo bundle (D98)
+
+On a machine near the reference one (§9.1: 8-core x86_64, NVMe, 32 GB):
+
+```sh
+cargo xtask paper fetch
+cargo xtask paper run --gloci <release musl gloci> --wheel <x86_64 wheel>
+cargo xtask paper                  # tables and numbers from paper/results/<version>
+cargo xtask paper bundle -o gloci-paper-evidence.tar.gz
+```
+
+`paper run` writes `paper/results/<version>/`: `bench/` (hyperfine JSON and
+`<case>.rss.json` per case), `concordance.csv` (with `concordance/`),
+`environment.json` and `repo-snapshot.json`.
+
+- `environment.json` records the host (CPU model, cores, RAM, kernel,
+  architecture), the bench image id and repo digests, every tool's
+  `--version` (run in the image), the gloci version and commit, the wheel's
+  file name and sha256 (`--wheel` only records it; nothing is run with it) and
+  `started_at` / `finished_at`. A value that cannot be read is `null`, never a
+  guess; so is the version of a tool whose `--version` fails.
+- `repo-snapshot.json` records the repository at that commit: golden cases per
+  tool (the `-vs-<tool>` suffix), the differences anchors with their titles
+  and golden counts, the migration tables of `docs/migration.md` (status is
+  `unavailable` when the gloci cell starts with "not available", `partial`
+  when it says so later), test counts, and bytes and records of every dataset
+  and derived input.
+
+`cargo xtask paper` writes `paper/tables/T1..T8-*.csv`, `paper/numbers.tex`
+(`\glnum{bench.merge-exons.gloci.median_s}`) and `paper/numbers.json`:
+
+| Table | Content |
+|---|---|
+| T1 | datasets: release, url, provider checksum, bytes, records |
+| T2 | every benchmark command: role (subject, baseline = named by a target, else yardstick), median/mean/stddev/min/max seconds, runs, peak RSS in MiB |
+| T3 | speedup of each tool's median over gloci's, with the target that names it and whether it is met |
+| T4 | concordance per case and mode, without the verdict |
+| T5 | differences anchors: golden cases and concordance cases that exercise each |
+| T6 | the migration tables, one row per old command |
+| T7 | test counts |
+| T8 | software versions and roles |
+
+Seconds are `%.3f`, speedups `%.2f`, rates `%.6f`, MiB `%.1f`; rows are sorted.
+A median from the native timing runner (no hyperfine) has no mean, stddev, min
+or max: those cells are empty. `committed_tables_are_current` fails when the
+committed tables differ from what the committed results produce (it is skipped
+while `paper/results/` is empty).
+
+`cargo xtask paper bundle` writes a `.tar.gz` of the results, the tables and
+numbers, `datasets.toml`, the fetch script, both Dockerfiles,
+`xtask/paper/*.toml`, `CITATION.cff` and a `README.txt`. It is reproducible
+(sorted entries, mtime = `finished_at`, uid/gid 0, modes 0644/0755, gzip mtime
+0), so two runs give identical bytes; the deflate stream is the same for one
+build of `flate2`, not promised across versions of it.

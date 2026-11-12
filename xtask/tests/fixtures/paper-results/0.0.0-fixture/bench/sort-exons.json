@@ -1,0 +1,100 @@
+{
+  "results": [
+    {
+      "command": "gloci",
+      "mean": 4.51,
+      "stddev": 0.05,
+      "median": 4.5,
+      "user": 4.059,
+      "system": 0.05,
+      "min": 4.44,
+      "max": 4.6,
+      "times": [
+        4.44,
+        4.5,
+        4.51,
+        4.5,
+        4.6
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "sort-bed",
+      "mean": 4.02,
+      "stddev": 0.04,
+      "median": 4.0,
+      "user": 3.618,
+      "system": 0.05,
+      "min": 3.97,
+      "max": 4.1,
+      "times": [
+        3.97,
+        4.0,
+        4.02,
+        4.0,
+        4.1
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "bedtools",
+      "mean": 9.6,
+      "stddev": 0.2,
+      "median": 9.5,
+      "user": 8.64,
+      "system": 0.05,
+      "min": 9.3,
+      "max": 9.9,
+      "times": [
+        9.3,
+        9.5,
+        9.6,
+        9.5,
+        9.9
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "gnu-sort",
+      "mean": 3.01,
+      "stddev": 0.02,
+      "median": 3.0,
+      "user": 2.709,
+      "system": 0.05,
+      "min": 2.98,
+      "max": 3.05,
+      "times": [
+        2.98,
+        3.0,
+        3.01,
+        3.0,
+        3.05
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

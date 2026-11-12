@@ -60,6 +60,11 @@ pub struct Dataset {
     /// or `paper/fetch-datasets.sh`, never by CI.
     #[serde(default)]
     pub paper: bool,
+    /// What the dataset is and which release (paper table T1).
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub release: Option<String>,
 }
 
 /// An input made from datasets or other derived inputs by a command run with
