@@ -17,14 +17,14 @@
 //! (the tools are pinned in the image and the inputs by sha256), so a re-run
 //! after a gloci fix does not wait for vcftools again. Delete the directory to
 //! run them afresh.
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail, ensure};
 use gloci_testkit::differential::{
-    CONCORDANCE_MODES, MatchStats, line_key, match_stats_with_residual,
+    CONCORDANCE_MODES, MatchStats, Residual, line_key, match_stats_with_residual,
 };
 use serde::Deserialize;
 
@@ -663,13 +663,13 @@ fn shown_line(line: &[u8]) -> String {
     }
 }
 
-/// Up to `n` lines of `path` whose key `residual` counts on this side
-/// (`sign` 1 for gloci, -1 for the reference), each surplus line once.
+/// Up to `n` lines of `path` that `residual` left unmatched on this side
+/// (`gloci_side`), each surplus line once.
 fn unmatched_lines(
     mode: &str,
     path: &Path,
-    residual: &mut HashMap<u64, i64>,
-    sign: i64,
+    residual: &mut Residual,
+    gloci_side: bool,
     n: usize,
 ) -> Result<Vec<String>> {
     let mut out = Vec::new();
@@ -677,11 +677,8 @@ fn unmatched_lines(
         return Ok(out);
     }
     let mut r = open_output(path)?;
-    gloci_testkit::differential::for_each_line_key(mode, &mut *r, |k, line| {
-        if let Some(c) = residual.get_mut(&k)
-            && *c * sign > 0
-        {
-            *c -= sign;
+    gloci_testkit::differential::for_each_line_key(mode, &mut *r, |_, line| {
+        if residual.take(gloci_side, line) {
             out.push(shown_line(line));
         }
         out.len() < n
@@ -971,8 +968,8 @@ pub fn run(a: &ConcordArgs) -> Result<bool> {
                     )
                     .with_context(|| format!("{}: comparing outputs", c.name))?;
                     if s.rate() < 1.0 {
-                        let g = unmatched_lines(&c.compare, &out_path, &mut residual, 1, 10)?;
-                        let rf = unmatched_lines(&c.compare, &ref_path, &mut residual, -1, 10)?;
+                        let g = unmatched_lines(&c.compare, &out_path, &mut residual, true, 10)?;
+                        let rf = unmatched_lines(&c.compare, &ref_path, &mut residual, false, 10)?;
                         body.push_str(&format!(
                             "## only in gloci ({}, first {})\n",
                             s.n_gloci - s.n_matching,

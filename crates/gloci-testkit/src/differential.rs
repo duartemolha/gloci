@@ -368,21 +368,45 @@ impl MatchStats {
     }
 }
 
-/// The key of one output line (without its newline) under a concordance
-/// compare mode, or `None` for a line the mode skips:
-///
-/// - `exact`: the bytes of the line.
-/// - `vcf-records`: the same, and every line that starts with `#` (meta lines
-///   and the column-name line) is skipped, as tools write different headers.
-/// - `numeric`: a tab field that is a number counts by its value rounded to
-///   six significant digits, so `3`, `3.0` and `2.9999999` are one value
-///   (a value the tools round differently at the sixth digit does not match);
-///   an integer literal by its exact value; any other field by its bytes.
-///
-/// Panics on another mode ([`match_stats`] checks it first).
-pub fn line_key(mode: &str, line: &[u8]) -> Option<u64> {
+/// A number of a `numeric` line that is compared with a tolerance: its
+/// value and the decimal places its text gives (digits after the point, less
+/// the exponent: `0.25` has 2, `1.5e-3` has 4).
+type Approx = (f64, i32);
+
+/// One output line under a concordance compare mode: the key that must be
+/// equal, and for `numeric` the numbers compared with a tolerance.
+struct Parsed {
+    key: u64,
+    approx: Vec<Approx>,
+}
+
+/// Relative difference two doubles may have from computing in another order.
+const REL_TOL: f64 = 1e-9;
+
+fn decimals(text: &[u8]) -> i32 {
+    let s = std::str::from_utf8(text).unwrap_or("");
+    let (mant, exp) = match s.find(['e', 'E']) {
+        Some(i) => (&s[..i], s[i + 1..].parse::<i32>().unwrap_or(0)),
+        None => (s, 0),
+    };
+    let frac = mant.find('.').map_or(0, |i| (mant.len() - i - 1) as i32);
+    frac - exp
+}
+
+/// Two numbers agree when they differ by no more than half a unit of the last
+/// decimal place of the less precise text (a tool printing fewer digits
+/// rounded there), or by a relative [`REL_TOL`].
+fn approx_equal(x: Approx, y: Approx) -> bool {
+    let diff = (x.0 - y.0).abs();
+    let mag = x.0.abs().max(y.0.abs());
+    let printed = 0.5 * 10f64.powi(-x.1.min(y.1));
+    diff <= printed + 4.0 * f64::EPSILON * mag || diff <= REL_TOL * mag
+}
+
+fn parse_line(mode: &str, line: &[u8]) -> Option<Parsed> {
     use std::hash::Hasher;
     let mut h = std::collections::hash_map::DefaultHasher::new();
+    let mut approx = Vec::new();
     match mode {
         "exact" => h.write(line),
         "vcf-records" => {
@@ -392,48 +416,74 @@ pub fn line_key(mode: &str, line: &[u8]) -> Option<u64> {
             h.write(line)
         }
         "numeric" => {
-            let mut canon = String::new();
             for (i, f) in line.split(|&c| c == b'\t').enumerate() {
                 if i > 0 {
                     h.write_u8(b'\t');
                 }
-                canon.clear();
-                if canonical_number(f, &mut canon) {
-                    h.write(canon.as_bytes());
-                } else {
-                    h.write(f);
+                match numeric_field(f) {
+                    Numeric::Int(v) => h.write(v.to_string().as_bytes()),
+                    Numeric::Approx(x) => {
+                        h.write_u8(0x01);
+                        approx.push((x, decimals(f)));
+                    }
+                    Numeric::Text => h.write(f),
                 }
             }
         }
         other => panic!("unknown concordance compare mode `{other}`"),
     }
-    Some(h.finish())
+    Some(Parsed {
+        key: h.finish(),
+        approx,
+    })
 }
 
-/// The canonical text of a numeric field (see [`line_key`]), or false when the
-/// field is not a number.
-fn canonical_number(f: &[u8], out: &mut String) -> bool {
-    use std::fmt::Write;
+enum Numeric {
+    /// An integer literal, or a number within [`REL_TOL`] of an integer.
+    Int(i128),
+    Approx(f64),
+    Text,
+}
+
+fn numeric_field(f: &[u8]) -> Numeric {
     if is_int_literal(f) {
         return match std::str::from_utf8(f)
             .ok()
             .and_then(|s| s.parse::<i128>().ok())
         {
-            Some(v) => write!(out, "{v}").is_ok(),
-            None => false,
+            Some(v) => Numeric::Int(v),
+            None => Numeric::Text,
         };
     }
     let Some(x) = parse_f64(f) else {
-        return false;
+        return Numeric::Text;
     };
-    let six = format!("{x:.5e}");
-    let rounded: f64 = six.parse().unwrap_or(x);
-    if rounded.fract() == 0.0 && rounded.abs() < 1e15 {
-        write!(out, "{}", rounded as i64).is_ok()
+    let r = x.round();
+    if (x - r).abs() <= REL_TOL * x.abs().max(1.0) && r.abs() < 1e15 {
+        Numeric::Int(r as i128)
     } else {
-        out.push_str(&six);
-        true
+        Numeric::Approx(x)
     }
+}
+
+/// The key of one output line (without its newline) under a concordance
+/// compare mode, or `None` for a line the mode skips. Lines can match only
+/// when their keys are equal:
+///
+/// - `exact`: the bytes of the line.
+/// - `vcf-records`: the same, and every line that starts with `#` (meta lines
+///   and the column-name line) is skipped, as tools write different headers.
+/// - `numeric`: tab fields; an integer literal counts by its value (`007` is
+///   7), and so does a number within a relative 1e-9 of an integer (`3.0`,
+///   `2.9999999999999996`); any other number is compared apart, with the
+///   tolerance of the less precise text: half a unit of its last decimal
+///   place, so `0.1929825` (a tool printing 7 decimals) equals
+///   `0.19298245614035087`, while `0.012345` does not equal `0.012346`. Other
+///   fields count by their bytes.
+///
+/// Panics on another mode ([`match_stats`] checks it first).
+pub fn line_key(mode: &str, line: &[u8]) -> Option<u64> {
+    parse_line(mode, line).map(|p| p.key)
 }
 
 /// Call `f` with the key and the text of every line of `r` that `mode` keeps,
@@ -444,6 +494,14 @@ pub fn for_each_line_key(
     r: &mut dyn BufRead,
     mut f: impl FnMut(u64, &[u8]) -> bool,
 ) -> io::Result<(u64, u64)> {
+    for_each_parsed(mode, r, |p, line| f(p.key, line))
+}
+
+fn for_each_parsed(
+    mode: &str,
+    r: &mut dyn BufRead,
+    mut f: impl FnMut(Parsed, &[u8]) -> bool,
+) -> io::Result<(u64, u64)> {
     use std::hash::Hasher;
     let mut order = std::collections::hash_map::DefaultHasher::new();
     let (mut n, mut buf) = (0u64, Vec::new());
@@ -453,10 +511,10 @@ pub fn for_each_line_key(
             break;
         }
         let line = buf.strip_suffix(b"\n").unwrap_or(&buf);
-        if let Some(k) = line_key(mode, line) {
+        if let Some(p) = parse_line(mode, line) {
             n += 1;
-            order.write_u64(k);
-            if !f(k, line) {
+            order.write_u64(p.key);
+            if !f(p, line) {
                 break;
             }
         }
@@ -465,7 +523,8 @@ pub fn for_each_line_key(
 }
 
 /// [`MatchStats`] of two outputs under a concordance compare mode
-/// ([`CONCORDANCE_MODES`]), streamed: only a multiset of line keys is kept.
+/// ([`CONCORDANCE_MODES`]), streamed: what is kept is a multiset of line keys
+/// (with the tolerance-compared numbers of `numeric` lines).
 pub fn match_stats(
     mode: &str,
     gloci: &mut dyn BufRead,
@@ -474,14 +533,61 @@ pub fn match_stats(
     match_stats_with_residual(mode, gloci, reference).map(|(s, _)| s)
 }
 
-/// [`match_stats`], and the unmatched lines as a map from line key to count:
-/// positive for lines only gloci wrote, negative for lines only the reference
-/// wrote (a second pass over the outputs can then show them).
+/// The lines [`match_stats_with_residual`] left unmatched on each side, which a
+/// second pass over the outputs can pick out with [`Residual::take`].
+pub struct Residual {
+    mode: String,
+    /// Per key: lines only gloci wrote (positive) or only the reference
+    /// wrote (negative); `exact` and `vcf-records`.
+    counts: HashMap<u64, i64>,
+    /// Per key: the numbers of unmatched `numeric` lines, gloci's and the
+    /// reference's.
+    gloci: HashMap<u64, Vec<Box<[Approx]>>>,
+    reference: HashMap<u64, Vec<Box<[Approx]>>>,
+}
+
+impl Residual {
+    /// Whether `line` (without its newline) is one of the unmatched lines of
+    /// gloci's output (`gloci_side`) or of the reference's. Each unmatched
+    /// line answers true once, so repeated lines are counted out.
+    pub fn take(&mut self, gloci_side: bool, line: &[u8]) -> bool {
+        let Some(p) = parse_line(&self.mode, line) else {
+            return false;
+        };
+        if self.mode != "numeric" {
+            let sign = if gloci_side { 1 } else { -1 };
+            return match self.counts.get_mut(&p.key) {
+                Some(c) if *c * sign > 0 => {
+                    *c -= sign;
+                    true
+                }
+                _ => false,
+            };
+        }
+        let side = if gloci_side {
+            &mut self.gloci
+        } else {
+            &mut self.reference
+        };
+        let Some(list) = side.get_mut(&p.key) else {
+            return false;
+        };
+        match list.iter().position(|v| **v == *p.approx) {
+            Some(i) => {
+                list.swap_remove(i);
+                true
+            }
+            None => false,
+        }
+    }
+}
+
+/// [`match_stats`], and the unmatched lines ([`Residual`]).
 pub fn match_stats_with_residual(
     mode: &str,
     gloci: &mut dyn BufRead,
     reference: &mut dyn BufRead,
-) -> io::Result<(MatchStats, HashMap<u64, i64>)> {
+) -> io::Result<(MatchStats, Residual)> {
     use std::collections::hash_map::Entry;
     if !CONCORDANCE_MODES.contains(&mode) {
         return Err(io::Error::new(
@@ -491,33 +597,73 @@ pub fn match_stats_with_residual(
             ),
         ));
     }
-    let mut counts: HashMap<u64, i64> = HashMap::new();
-    let (n_gloci, order_g) = for_each_line_key(mode, gloci, |k, _| {
-        *counts.entry(k).or_insert(0) += 1;
+    let mut res = Residual {
+        mode: mode.to_string(),
+        counts: HashMap::new(),
+        gloci: HashMap::new(),
+        reference: HashMap::new(),
+    };
+    let numeric = mode == "numeric";
+    let (n_gloci, order_g) = for_each_parsed(mode, gloci, |p, _| {
+        if numeric {
+            res.gloci
+                .entry(p.key)
+                .or_default()
+                .push(p.approx.into_boxed_slice());
+        } else {
+            *res.counts.entry(p.key).or_insert(0) += 1;
+        }
         true
     })?;
-    let (n_reference, order_r) = for_each_line_key(mode, reference, |k, _| {
-        match counts.entry(k) {
-            Entry::Occupied(mut e) => {
-                *e.get_mut() -= 1;
-                if *e.get() == 0 {
-                    e.remove();
+    let mut n_matching = 0u64;
+    let (n_reference, order_r) = for_each_parsed(mode, reference, |p, _| {
+        if numeric {
+            let found = res.gloci.get_mut(&p.key).and_then(|list| {
+                let i = list.iter().position(|g| {
+                    g.len() == p.approx.len()
+                        && g.iter().zip(&p.approx).all(|(&a, &b)| approx_equal(a, b))
+                })?;
+                list.swap_remove(i);
+                Some(list.is_empty())
+            });
+            match found {
+                Some(emptied) => {
+                    n_matching += 1;
+                    if emptied {
+                        res.gloci.remove(&p.key);
+                    }
                 }
+                None => res
+                    .reference
+                    .entry(p.key)
+                    .or_default()
+                    .push(p.approx.into_boxed_slice()),
             }
-            Entry::Vacant(e) => {
-                e.insert(-1);
+        } else {
+            match res.counts.entry(p.key) {
+                Entry::Occupied(mut e) => {
+                    if *e.get() > 0 {
+                        n_matching += 1;
+                    }
+                    *e.get_mut() -= 1;
+                    if *e.get() == 0 {
+                        e.remove();
+                    }
+                }
+                Entry::Vacant(e) => {
+                    e.insert(-1);
+                }
             }
         }
         true
     })?;
-    let unmatched: u64 = counts.values().map(|v| v.unsigned_abs()).sum();
     let stats = MatchStats {
         n_gloci,
         n_reference,
-        n_matching: (n_gloci + n_reference - unmatched) / 2,
-        same_order: n_gloci == n_reference && order_g == order_r,
+        n_matching,
+        same_order: n_gloci == n_reference && n_matching == n_gloci && order_g == order_r,
     };
-    Ok((stats, counts))
+    Ok((stats, res))
 }
 
 #[cfg(test)]
@@ -726,16 +872,38 @@ mod tests {
         assert_eq!((s.n_gloci, s.n_reference, s.n_matching), (1, 1, 1));
         assert!(s.same_order);
         assert!(stats("exact", "#h\nx\n", "x\n").rate() < 1.0);
-        // numeric: 3 and 3.0 are equal, and numbers agree to six significant digits.
+        // numeric: 3 and 3.0 are equal, and a number printed with fewer digits
+        // equals the one it rounds.
         assert_eq!(stats("numeric", "x\t3\n", "x\t3.0\n").rate(), 1.0);
         assert_eq!(stats("numeric", "x\t19\n", "x\t19.000000\n").rate(), 1.0);
         assert_eq!(
             stats("numeric", "x\t0.0123456789\n", "x\t0.0123457\n").rate(),
             1.0
         );
-        assert_eq!(stats("numeric", "x\t2.9999999\n", "x\t3\n").rate(), 1.0);
+        // 7 decimals, as bedtools coverage prints, of a value at a tie of the 6th digit.
+        assert_eq!(
+            stats("numeric", "x\t0.19298245614035087\n", "x\t0.1929825\n").rate(),
+            1.0
+        );
+        assert_eq!(
+            stats("numeric", "x\t2.9044049999999997\n", "x\t2.904405\n").rate(),
+            1.0
+        );
+        assert_eq!(
+            stats("numeric", "x\t2.9999999999999996\n", "x\t3\n").rate(),
+            1.0
+        );
+        assert_eq!(stats("numeric", "x\t1.5e-3\n", "x\t0.0015\n").rate(), 1.0);
         assert_eq!(stats("numeric", "x\t-0.0\n", "x\t0\n").rate(), 1.0);
         assert!(stats("numeric", "x\t0.012345\n", "x\t0.012346\n").rate() < 1.0);
+        assert!(stats("numeric", "x\t0.0028571\n", "x\t0.0028572\n").rate() < 1.0);
+        assert!(stats("numeric", "x\t2.9999999\n", "x\t3\n").rate() < 1.0);
+        assert!(stats("numeric", "x\t3.4\n", "x\t3\n").rate() < 1.0);
+        // Numbers are matched within their line, any order of lines.
+        let s = stats("numeric", "a\t0.25\nb\t0.5\n", "b\t0.50000\na\t0.250\n");
+        assert_eq!((s.n_matching, s.same_order), (2, false));
+        let s = stats("numeric", "a\t0.25\na\t0.5\n", "a\t0.5\na\t0.6\n");
+        assert_eq!(s.n_matching, 1);
         // Integer literals must match exactly, other text exactly.
         assert!(stats("numeric", "x\t100000000\n", "x\t100000500\n").rate() < 1.0);
         assert!(stats("numeric", "x\t.\n", "x\tNA\n").rate() < 1.0);
@@ -754,14 +922,30 @@ mod tests {
 
     #[test]
     fn residual_names_the_unmatched_lines() {
-        let (s, residual) =
+        let (s, mut residual) =
             super::match_stats_with_residual("exact", &mut &b"a\nb\nb\n"[..], &mut &b"b\nc\n"[..])
                 .unwrap();
         assert_eq!(s.n_matching, 1);
-        let key = |l: &str| super::line_key("exact", l.as_bytes()).unwrap();
-        assert_eq!(residual.get(&key("a")), Some(&1));
-        assert_eq!(residual.get(&key("b")), Some(&1));
-        assert_eq!(residual.get(&key("c")), Some(&-1));
+        assert!(residual.take(true, b"a"));
+        assert!(!residual.take(true, b"a"));
+        assert!(residual.take(true, b"b"));
+        assert!(!residual.take(true, b"b"));
+        assert!(!residual.take(false, b"b"));
+        assert!(residual.take(false, b"c"));
+        let (s, mut residual) = super::match_stats_with_residual(
+            "numeric",
+            &mut &b"x\t0.25\nx\t0.75\n"[..],
+            &mut &b"x\t0.250\nx\t0.5\n"[..],
+        )
+        .unwrap();
+        assert_eq!(s.n_matching, 1);
+        assert!(!residual.take(true, b"x\t0.25"));
+        assert!(residual.take(true, b"x\t0.75"));
+        assert!(residual.take(false, b"x\t0.5"));
         assert_eq!(super::line_key("vcf-records", b"#CHROM\tPOS"), None);
+        assert_eq!(
+            super::line_key("numeric", b"x\t3"),
+            super::line_key("numeric", b"x\t3.000")
+        );
     }
 }
