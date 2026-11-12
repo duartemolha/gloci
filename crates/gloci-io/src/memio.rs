@@ -77,6 +77,35 @@ pub fn discard(path: &str) {
     drop(removed);
 }
 
+/// A registered endpoint name that is discarded when dropped, so a host forgets none: hold one
+/// per name for the length of the run, whatever its result.
+#[must_use = "the endpoint is discarded when this is dropped"]
+#[derive(Debug)]
+pub struct Registered(String);
+
+impl Registered {
+    /// [`register_input`], discarded on drop.
+    pub fn input(display: &str, src: Box<dyn Read + Send>) -> Registered {
+        Registered(register_input(display, src))
+    }
+
+    /// [`register_output`], discarded on drop.
+    pub fn output(display: &str, sink: Box<dyn Write + Send>) -> Registered {
+        Registered(register_output(display, sink))
+    }
+
+    /// The name, which goes wherever a path does.
+    pub fn name(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Drop for Registered {
+    fn drop(&mut self) {
+        discard(&self.0);
+    }
+}
+
 fn once(what: &str, display: String) -> IoError {
     UsageError(format!(
         "{display} {what}; an in-memory endpoint is used once, so register a fresh one"
