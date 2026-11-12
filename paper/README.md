@@ -54,8 +54,10 @@ cases not run are kept), and `<out>/<version>/concordance/<case>.<mode>.txt`
 the commands, counts and the first 10 unmatched lines of each side. A run
 that differs passes only when the case names the documented difference
 (`docs/differences.md`); `anchor unused` means it did not show on this data.
-Reference outputs are cached in `target/concordance-work` while their command
-and the image stay the same; delete that directory to run them again.
+Reference outputs are cached in `target/concordance-work`, keyed by the image
+Id (or, with `--no-docker`, the host tool's `--version`), the pinned digest of
+every input in `datasets.toml` and the command; a change to any of them runs
+the reference again. Delete that directory to run them all again.
 
 ## Providers: licence and citation
 

@@ -12,11 +12,11 @@
 //! `<out>/<version>/concordance/<case>.<mode>.txt` the commands, the counts
 //! and the first 10 unmatched lines of each side.
 //!
-//! Reference outputs are kept in `target/concordance-work` with the command
-//! that made them, and reused while the command and the image are the same
-//! (the tools are pinned in the image and the inputs by sha256), so a re-run
-//! after a gloci fix does not wait for vcftools again. Delete the directory to
-//! run them afresh.
+//! Reference outputs are kept in `target/concordance-work` and reused while
+//! their key is the same: the image Id (or the host tool's `--version`), the
+//! pinned digest of every input and the command ([`reference_stamp`]), so a
+//! re-run after a gloci fix does not wait for vcftools again. Delete the
+//! directory to run them afresh.
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
@@ -960,6 +960,64 @@ pub fn csv_row(
     .join(",")
 }
 
+/// The digest `datasets.toml` pins for an input: a derived input's sha256,
+/// or a dataset's own checksum, as `algorithm:hex`; `None` when unpinned.
+pub fn pinned_digest(cat: &Catalog, name: &str) -> Option<String> {
+    if let Some(d) = cat.derived.iter().find(|d| d.name == name) {
+        return (!d.sha256.is_empty()).then(|| format!("sha256:{}", d.sha256));
+    }
+    let d = cat.datasets.iter().find(|d| d.name == name)?;
+    let (alg, hex) = d.checksum().ok()?;
+    Some(format!("{alg}:{hex}"))
+}
+
+/// The key a cached reference output is kept under: the tools (the image
+/// and its Id, or the host tool's version), every input with its digest, and
+/// the command. The output is reused only while all of them are the same.
+pub fn reference_stamp(tools: &str, inputs: &[(String, String, String)], cmd: &str) -> String {
+    let mut s = format!("tools: {tools}\n");
+    for (slot, name, digest) in inputs {
+        s.push_str(&format!("input {slot}: {name} {digest}\n"));
+    }
+    s.push_str(&format!("command: {cmd}\n"));
+    s
+}
+
+/// The Id of a docker image (`docker image inspect --format {{.Id}}`).
+fn image_id(image: &str) -> Result<String> {
+    let o = Command::new("docker")
+        .args(["image", "inspect", "--format", "{{.Id}}", image])
+        .output()
+        .context("running docker image inspect")?;
+    ensure!(o.status.success(), "docker image inspect {image} failed");
+    Ok(String::from_utf8(o.stdout)?.trim().to_string())
+}
+
+/// The first line of `<tool> --version` on the host (the reference tool of a
+/// `--no-docker` run; `reference_tool` names a binary: sort-bed, bedops,
+/// bedtools, tabix, vcftools, bcftools, samtools), or a note that it has none.
+fn host_tool_version(bin: &str) -> String {
+    Command::new(bin)
+        .arg("--version")
+        .output()
+        .ok()
+        .map(|o| {
+            let text = if o.stdout.is_empty() {
+                o.stderr
+            } else {
+                o.stdout
+            };
+            String::from_utf8_lossy(&text)
+                .lines()
+                .find(|l| !l.trim().is_empty())
+                .unwrap_or("")
+                .trim()
+                .to_string()
+        })
+        .filter(|v| !v.is_empty())
+        .map_or_else(|| format!("{bin} (no --version)"), |v| format!("{bin} {v}"))
+}
+
 fn id_of(flag: &str) -> Result<String> {
     let o = Command::new("id").arg(flag).output()?;
     Ok(String::from_utf8(o.stdout)?.trim().to_string())
@@ -1014,9 +1072,9 @@ pub fn run(a: &ConcordArgs) -> Result<bool> {
         })
     };
     let runner = Runner { docker, work };
-    let where_ = match &runner.docker {
-        Some(d) => format!("image {}", d.image),
-        None => "host tools".to_string(),
+    let image_key = match &runner.docker {
+        Some(d) => Some(format!("image {} {}", d.image, image_id(&d.image)?)),
+        None => None,
     };
 
     let mut rows = Vec::new();
@@ -1077,7 +1135,30 @@ pub fn run(a: &ConcordArgs) -> Result<bool> {
         let ref_name = format!("{}.ref.out", c.name);
         slots.out = runner.shown(&ref_name);
         let ref_cmd = fill(&c.reference, &slots);
-        let stamp = format!("{where_}\n{ref_cmd}\n");
+        let tools = match &image_key {
+            Some(k) => k.clone(),
+            None => format!("host {}", host_tool_version(&c.reference_tool)),
+        };
+        let digests: Vec<(String, String, String)> = c
+            .inputs
+            .iter()
+            .map(|(slot, name)| {
+                let digest = match pinned_digest(&cat, name) {
+                    Some(d) => d,
+                    None => {
+                        let p = input_path(&cat, name, &cache).unwrap_or_default();
+                        let m = std::fs::metadata(&p).ok();
+                        format!(
+                            "unpinned size {} modified {:?}",
+                            m.as_ref().map_or(0, |m| m.len()),
+                            m.and_then(|m| m.modified().ok())
+                        )
+                    }
+                };
+                (slot.clone(), name.clone(), digest)
+            })
+            .collect();
+        let stamp = reference_stamp(&tools, &digests, &ref_cmd);
         let stamp_path = runner.work.join(format!("{}.ref.cmd", c.name));
         let ref_path = runner.work.join(&ref_name);
         let reused =

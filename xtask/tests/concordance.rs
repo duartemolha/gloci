@@ -508,3 +508,56 @@ fn concordance_csv_keeps_rows_of_cases_not_run() {
         )
     );
 }
+
+#[test]
+fn reference_cache_key_names_the_image_and_input_digests() {
+    let cat = catalog();
+    // Pinned digests: a derived input's sha256, a dataset's own checksum.
+    assert_eq!(
+        concord::pinned_digest(&cat, "exons.bed").as_deref(),
+        Some("sha256:e4f59e3acf34138e0c8bb04e5b89af0577e53bd1af83f1a7c489bcb6976e9a58")
+    );
+    assert_eq!(
+        concord::pinned_digest(&cat, "1kg-30x-chr20").as_deref(),
+        Some("md5:34a9a5dbfb285e7eb9d1f2881953014b")
+    );
+    assert_eq!(concord::pinned_digest(&cat, "no-such-input"), None);
+    let inputs = vec![
+        (
+            "a".to_string(),
+            "exons.bed".to_string(),
+            "sha256:aa".to_string(),
+        ),
+        (
+            "b".to_string(),
+            "ccre.bed".to_string(),
+            "sha256:bb".to_string(),
+        ),
+    ];
+    let stamp = |tools: &str, inputs: &[(String, String, String)], cmd: &str| {
+        concord::reference_stamp(tools, inputs, cmd)
+    };
+    let base = stamp("image gloci-bench:p1 sha256:1111", &inputs, "bedtools x");
+    assert!(
+        base.contains("sha256:1111") && base.contains("sha256:aa") && base.contains("bedtools x")
+    );
+    // Another image build, another input or another command is another key.
+    assert_ne!(
+        base,
+        stamp("image gloci-bench:p1 sha256:2222", &inputs, "bedtools x")
+    );
+    let mut other = inputs.clone();
+    other[1].2 = "sha256:bc".into();
+    assert_ne!(
+        base,
+        stamp("image gloci-bench:p1 sha256:1111", &other, "bedtools x")
+    );
+    assert_ne!(
+        base,
+        stamp("image gloci-bench:p1 sha256:1111", &inputs, "bedtools y")
+    );
+    assert_eq!(
+        base,
+        stamp("image gloci-bench:p1 sha256:1111", &inputs, "bedtools x")
+    );
+}
