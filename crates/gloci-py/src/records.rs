@@ -759,9 +759,9 @@ struct Live {
 
 /// The records of a pipeline's output, as the run makes them (D89, R2): `iter(pipeline)`.
 ///
-/// The steps run while it is read. Breaking out of a loop over it, or dropping it, cancels the
-/// steps and joins their threads (with the GIL released), and their temporary files are
-/// removed. An error of the run ends the iteration (D90); the records just before it may not
+/// The steps run while it is read. Breaking out of a loop over it, dropping it, `close()` or
+/// leaving a `with` block over it cancels the steps and joins their threads (with the GIL
+/// released), and their temporary files are removed. An error of the run ends the iteration (D90); the records just before it may not
 /// have been given, since a pipe reports a failure upstream before the data still in it.
 #[pyclass(module = "gloci._native", name = "RecordIterator")]
 pub(crate) struct RecordIterator {
@@ -860,7 +860,20 @@ impl RecordIterator {
         })
     }
 
+    /// `with iter(pipeline) as records:`: the iterator, closed when the block ends.
+    fn __enter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    /// Close the iterator; an exception from the block goes on.
+    #[pyo3(signature = (*_args))]
+    fn __exit__(&self, _args: &Bound<'_, PyTuple>) -> PyResult<bool> {
+        self.close()?;
+        Ok(false)
+    }
+
     /// Stop the run now, as dropping the iterator does: the steps are cancelled and joined.
+    /// Later calls of `next()` raise `StopIteration`.
     fn close(&self) -> PyResult<()> {
         let mut slot = match self.live.try_lock() {
             Ok(slot) => slot,

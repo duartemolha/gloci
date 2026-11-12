@@ -86,7 +86,9 @@ for r in gloci.open("calls.vcf.gz").intersect(b="targets.bed"):
   line), which names its columns.
 - Records are handed over in batches of about 4 MiB, so memory stays flat however large the
   output. Breaking out of the loop (or dropping the iterator) stops the steps, and their
-  temporary files are removed. An error ends the iteration (D90's exceptions); the records just
+  temporary files are removed. Where the iterator may outlive the loop (a loop whose body may
+  raise, the exception's traceback keeping it), close it: `with iter(pipeline) as records:`,
+  or `records.close()`. An error ends the iteration (D90's exceptions); the records just
   before it may not have been given, as a failing step stops its output where it fails.
 - A list of records is a source again: `gloci.open(records)` reads their lines.
 

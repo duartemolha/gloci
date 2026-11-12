@@ -626,7 +626,11 @@ class Pipeline:
         The output is read back with gloci's own readers: a record's `chrom`, `start` and `end`
         are its footprint (a VCF record's by the step's `vcf_span=`), and None where the output
         has none (a table such as `vcf_extract()`'s). Header lines, and a table's header row,
-        are not records. Breaking out of the loop stops the steps."""
+        are not records.
+
+        Breaking out of the loop, or dropping the iterator, stops the steps. Where the iterator
+        may outlive the loop (an exception in its body, kept by a traceback), close it:
+        `with iter(pipeline) as records: ...` or `records.close()`."""
         it: Iterator[Any] = self._plan(None, [], None).run_plan("iter")
         return it
 

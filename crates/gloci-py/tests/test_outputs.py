@@ -601,3 +601,22 @@ def test_ctrl_c_while_iterating(here: Path) -> None:
     assert raised - interrupted[0] < 2, raised - interrupted[0]
     assert_threads_back_to(before)
     assert list(spill.iterdir()) == []
+
+
+def test_iterator_as_a_context_manager(here: Path) -> None:
+    from test_sources import assert_threads_back_to
+
+    (here / "g.txt").write_text("chr1\t10000000\n")
+    p = gloci.windows(g="g.txt", w=1)
+    before = threads_now()
+    # `with` closes the iterator when the block ends, however it ends.
+    with iter(p) as it:
+        assert next(it).start == 0
+    assert list(it) == []
+    assert_threads_back_to(before)
+    with pytest.raises(ZeroDivisionError):
+        with iter(p) as it:
+            next(it)
+            1 / 0  # noqa: B018
+    assert list(it) == []
+    assert_threads_back_to(before)
