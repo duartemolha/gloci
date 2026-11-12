@@ -2,7 +2,8 @@
 //! `-f 0.5 -s -c a -c b`, which clap then parses exactly as on the command line, so the
 //! defaults, validation and messages are the CLI's.
 
-use super::bindings::{Bind, binding, method_name};
+use super::bindings::{Bind, Binding, binding, method_name};
+use super::spec::find_spec;
 use super::spec::{ArgSpec, CommandSpec};
 use gloci_io::UsageError;
 use std::ffi::OsString;
@@ -26,8 +27,9 @@ pub enum Role {
     /// A step of a pipeline: the output, its format, index and compression, and the threads
     /// belong to the terminal method; the input is the pipeline the step is called on.
     Step,
-    /// A module function (`vcf_stats`, `index`, ...), which runs at once: only the input, its
-    /// first argument, is set elsewhere.
+    /// A module function (`vcf_stats`, `index`, ...), which runs at once: only its inputs, the
+    /// command's positionals (both files of `vcf compare`), are set elsewhere. The sources
+    /// (`windows`, `random`) start a pipeline, so they take the step rules.
     Function,
 }
 
@@ -86,11 +88,7 @@ fn reserved_as(spec: &CommandSpec, arg: &ArgSpec, kw: &str, role: Role) -> Optio
                 return Some(why);
             }
             let b = binding(&spec.path)?;
-            let is_input = match b.input {
-                Bind::Flag(name) => arg.named(name),
-                Bind::Positional { .. } => first_positional(spec) == Some(arg),
-            };
-            is_input.then(|| match b.input {
+            (input_arg(spec, b) == Some(arg)).then(|| match b.input {
                 Bind::Positional { nary: true } => format!(
                     "{kw} is the input of {m}(): {m}() reads the pipeline it is called on, plus \
 any sources passed as positional arguments",
@@ -102,13 +100,23 @@ any sources passed as positional arguments",
                 ),
             })
         }
-        Role::Function => (first_positional(spec) == Some(arg))
-            .then(|| format!("{kw} is the first argument of the function, not a keyword")),
+        Role::Function => arg
+            .positional
+            .then(|| format!("{kw} is an argument of the function, not a keyword")),
     }
 }
 
-fn first_positional(spec: &CommandSpec) -> Option<&ArgSpec> {
-    spec.args.iter().find(|a| a.positional)
+/// The argument a step's input fills.
+pub fn input_arg<'s>(spec: &'s CommandSpec, b: &Binding) -> Option<&'s ArgSpec> {
+    let mut positionals = spec.args.iter().filter(|a| a.positional);
+    match b.input {
+        Bind::Flag(name) => spec.args.iter().find(|a| !a.positional && a.named(name)),
+        Bind::Positional { .. } => positionals.next(),
+        Bind::PositionalAfter(before) => {
+            positionals.by_ref().find(|a| a.named(before))?;
+            positionals.next()
+        }
+    }
 }
 
 /// The argv for keyword arguments of a pipeline step ([`Role::Step`]); see
@@ -136,6 +144,94 @@ pub fn kwargs_to_argv_as(
     kwargs: &[(String, KwValue)],
     role: Role,
 ) -> Result<Vec<OsString>, UsageError> {
+    let (mut argv, positionals) = split_kwargs(spec, kwargs, role)?;
+    if !positionals.is_empty() {
+        argv.push("--".into());
+        argv.extend(positionals);
+    }
+    Ok(argv)
+}
+
+/// The whole argv of a step (`gloci` first), with its inputs where its binding puts them:
+/// `inputs` are the paths or in-memory names of the pipeline the step is called on and, for an
+/// n-ary command, of the extra sources, in order.
+/// - [`Bind::Flag`]: `gloci intersect -a <input> <flags> [-- <positionals>]`;
+/// - [`Bind::Positional`]: `gloci merge <flags> -- <inputs> <positionals>`;
+/// - [`Bind::PositionalAfter`]: `gloci reheader <flags> -- <header> <input>`.
+///
+/// The keyword arguments follow [`kwargs_to_argv`]; a [`Bind::PositionalAfter`] step needs the
+/// positional its input follows.
+pub fn step_argv(
+    b: &Binding,
+    inputs: &[OsString],
+    kwargs: &[(String, KwValue)],
+) -> Result<Vec<OsString>, UsageError> {
+    let spec = find_spec(b.path)
+        .ok_or_else(|| UsageError(format!("{}: no such command", b.path.join(" "))))?;
+    let one = !matches!(b.input, Bind::Positional { nary: true });
+    if inputs.is_empty() || (one && inputs.len() > 1) {
+        return Err(UsageError(format!(
+            "{}() takes {} input{}, not {}",
+            b.method,
+            if one { "one" } else { "one or more" },
+            if one { "" } else { "s" },
+            inputs.len()
+        )));
+    }
+    let (flags, positionals) = split_kwargs(spec, kwargs, Role::Step)?;
+    let mut argv: Vec<OsString> = std::iter::once("gloci")
+        .chain(b.path.iter().copied())
+        .map(OsString::from)
+        .collect();
+    match b.input {
+        Bind::Flag(name) => {
+            let f = if name.chars().count() == 1 {
+                format!("-{name}")
+            } else {
+                input_arg(spec, b)
+                    .and_then(ArgSpec::flag)
+                    .unwrap_or_default()
+            };
+            let input = &inputs[0];
+            if input
+                .to_str()
+                .is_some_and(|i| i.starts_with('-') && i != "-")
+            {
+                let mut joined = OsString::from(format!("{f}="));
+                joined.push(input);
+                argv.push(joined);
+            } else {
+                argv.push(f.into());
+                argv.push(input.clone());
+            }
+            argv.extend(flags);
+            if !positionals.is_empty() {
+                argv.push("--".into());
+                argv.extend(positionals);
+            }
+        }
+        Bind::Positional { .. } => {
+            argv.extend(flags);
+            argv.push("--".into());
+            argv.extend(inputs.iter().cloned());
+            argv.extend(positionals);
+        }
+        Bind::PositionalAfter(_) => {
+            argv.extend(flags);
+            argv.push("--".into());
+            argv.extend(positionals);
+            argv.extend(inputs.iter().cloned());
+        }
+    }
+    Ok(argv)
+}
+
+/// The flags and the positionals of keyword arguments, checked.
+fn split_kwargs(
+    spec: &CommandSpec,
+    kwargs: &[(String, KwValue)],
+    role: Role,
+) -> Result<(Vec<OsString>, Vec<OsString>), UsageError> {
     let mut argv: Vec<OsString> = Vec::new();
     let mut positionals: Vec<OsString> = Vec::new();
     let mut seen: Vec<(&str, &str)> = Vec::new();
@@ -194,11 +290,19 @@ pub fn kwargs_to_argv_as(
             }
         }
     }
-    if !positionals.is_empty() {
-        argv.push("--".into());
-        argv.extend(positionals);
+    if role == Role::Step
+        && let Some(b) = binding(&spec.path)
+        && let Bind::PositionalAfter(before) = b.input
+        && !seen
+            .iter()
+            .any(|(_, name)| spec.arg(name).is_some_and(|a| a.named(before)))
+    {
+        return Err(UsageError(format!(
+            "{m}() needs {before}=: the command reads {before} before its input",
+            m = b.method
+        )));
     }
-    Ok(argv)
+    Ok((argv, positionals))
 }
 
 /// `unexpected keyword argument 'fooo'`, with the closest keyword argument when one is within

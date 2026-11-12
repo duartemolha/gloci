@@ -3,6 +3,8 @@
 //! own clap definition, and [`execute`]s it through the same dispatch as the command line, so
 //! the defaults, validation, messages and output bytes are the CLI's.
 //!
+//! A step's whole argv, with its inputs where its binding puts them, is [`step_argv`].
+//!
 //! What a host must do, since `execute` does none of it:
 //! - **Cancellation (D91).** Make one [`CancelToken`] per run and enter it on the thread that
 //!   calls `execute` ([`RunGuard::enter`]); `execute` installs it on every thread of the run
@@ -28,12 +30,12 @@ mod bindings;
 mod spec;
 
 pub use args::{
-    KwValue, RESERVED_ALWAYS, RESERVED_ON_STEPS, Role, kwargs_to_argv, kwargs_to_argv_as, reserved,
-    rewrite_flags_as_kwargs,
+    KwValue, RESERVED_ALWAYS, RESERVED_ON_STEPS, Role, input_arg, kwargs_to_argv,
+    kwargs_to_argv_as, reserved, rewrite_flags_as_kwargs, step_argv,
 };
 pub use bindings::{
-    BINDINGS, Bind, Binding, CLI_ONLY, MODULE_FUNCTIONS, UNBOUND, binding, is_cli_only, is_unbound,
-    method_name, module_function,
+    BINDINGS, Bind, Binding, CLI_ONLY, MODULE_FUNCTIONS, SOURCES, UNBOUND, binding, is_cli_only,
+    is_unbound, method_name, module_function,
 };
 pub use gloci_io::cancel::{CancelToken, RunGuard};
 pub use spec::{ArgSpec, CommandSpec, command_specs, find_spec};

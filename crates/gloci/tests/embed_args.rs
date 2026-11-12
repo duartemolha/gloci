@@ -409,7 +409,7 @@ fn kwargs_spelling_and_shape() {
     let a = kwargs_to_argv_as(stats, &kw(&[("threads", val("2"))]), Role::Function).unwrap();
     assert_eq!(strs(&a), ["--threads", "2"]);
     let e = kwargs_to_argv_as(stats, &kw(&[("file", val("x.vcf"))]), Role::Function).unwrap_err();
-    assert!(e.0.contains("first argument"), "{e}");
+    assert!(e.0.contains("an argument of the function"), "{e}");
     let e = kwargs_to_argv_as(stats, &kw(&[("quiet", Flag(true))]), Role::Function).unwrap_err();
     assert!(e.0.contains("logger 'gloci'"), "{e}");
 }
@@ -580,28 +580,178 @@ fn every_cli_command_is_bound_or_excluded() {
     for (p, _) in embed::MODULE_FUNCTIONS {
         assert!(real(p), "{p:?} is not a command");
     }
-    // Methods are the path joined with `_`, and every bound input exists with its shape.
+    // Methods are the path joined with `_` (and `-` as `_`), and every bound input exists with
+    // its shape.
     for b in embed::BINDINGS {
-        assert_eq!(b.method, b.path.join("_"));
+        assert_eq!(b.method, b.path.join("_").replace('-', "_"));
         let s = spec(b.path);
+        let input = embed::input_arg(s, b)
+            .unwrap_or_else(|| panic!("{}: no argument for {:?}", b.method, b.input));
         match b.input {
             Bind::Flag(name) => {
-                let a = s
-                    .arg(name)
-                    .unwrap_or_else(|| panic!("{}: no argument {name}", b.method));
-                assert!(a.takes_value && !a.positional, "{}: {name}", b.method);
+                assert_eq!(s.arg(name), Some(input));
+                assert!(
+                    input.takes_value && !input.positional,
+                    "{}: {name}",
+                    b.method
+                );
             }
             Bind::Positional { nary } => {
-                let a = s
+                assert!(input.positional);
+                assert_eq!(input.multiple, nary, "{}: {}", b.method, input.id);
+            }
+            Bind::PositionalAfter(before) => {
+                let pos: Vec<&str> = s
                     .args
                     .iter()
-                    .find(|a| a.positional)
-                    .unwrap_or_else(|| panic!("{}: no positional", b.method));
-                assert_eq!(a.multiple, nary, "{}: {}", b.method, a.id);
+                    .filter(|a| a.positional)
+                    .map(|a| a.id.as_str())
+                    .collect();
+                let i = pos.iter().position(|id| *id == before).unwrap();
+                assert_eq!(pos.get(i + 1), Some(&input.id.as_str()), "{}", b.method);
+                assert!(!input.multiple);
             }
         }
     }
+    // Everything is placed now; a new command fails above until it is.
+    assert!(embed::UNBOUND.is_empty(), "{:?}", embed::UNBOUND);
+    for f in embed::SOURCES {
+        assert!(
+            embed::MODULE_FUNCTIONS.iter().any(|(_, m)| m == f),
+            "source {f} is not a module function"
+        );
+    }
     assert!(embed::is_cli_only(&["genomes", "show"]));
+    assert!(embed::is_cli_only(&["flags"]));
+}
+
+#[test]
+fn step_argv_puts_inputs_where_the_binding_says() {
+    use KwValue::Values;
+    let b = |p: &[&str]| embed::binding(p).unwrap();
+    let argv = |p: &[&str], inputs: &[&str], k: &[(&str, KwValue)]| {
+        embed::step_argv(b(p), &os(inputs), &kw(k)).map(|v| strs(&v))
+    };
+    // A flag.
+    assert_eq!(
+        argv(&["intersect"], &["a.bed"], &[("b", val("b.bed"))]).unwrap(),
+        ["gloci", "intersect", "-a", "a.bed", "-b", "b.bed"]
+    );
+    assert_eq!(
+        argv(&["maskfasta"], &["ref.fa"], &[("b", val("m.bed"))]).unwrap(),
+        ["gloci", "maskfasta", "--fasta", "ref.fa", "-b", "m.bed"]
+    );
+    // A path that looks like a flag is attached; stdin is not.
+    assert_eq!(
+        argv(&["intersect"], &["-odd.bed"], &[("b", val("b.bed"))]).unwrap()[2],
+        "-a=-odd.bed"
+    );
+    assert_eq!(
+        argv(&["intersect"], &["-"], &[("b", val("b.bed"))]).unwrap()[2..4],
+        ["-a", "-"]
+    );
+    // Positionals: the inputs first, after `--`, then positional keywords.
+    assert_eq!(
+        argv(&["merge"], &["x.bed", "y.bed"], &[("max_gap", val("5"))]).unwrap(),
+        ["gloci", "merge", "--max-gap", "5", "--", "x.bed", "y.bed"]
+    );
+    assert_eq!(
+        argv(
+            &["bedcov"],
+            &["t.bed"],
+            &[("files", Values(vec!["a.bam".into(), "b.bam".into()]))]
+        )
+        .unwrap(),
+        ["gloci", "bedcov", "--", "t.bed", "a.bam", "b.bam"]
+    );
+    // reheader: the header first, then the input.
+    let r = argv(&["reheader"], &["in.bam"], &[("header", val("new.sam"))]).unwrap();
+    assert_eq!(r, ["gloci", "reheader", "--", "new.sam", "in.bam"]);
+    let cli = embed::parse(&os(&r.iter().map(String::as_str).collect::<Vec<_>>())).unwrap();
+    let gloci::cli::Commands::Reheader(a) = &cli.command else {
+        panic!("not reheader")
+    };
+    assert_eq!(a.header.as_str(), "new.sam");
+    assert_eq!(a.input, std::path::Path::new("in.bam"));
+    let e = argv(&["reheader"], &["in.bam"], &[]).unwrap_err();
+    assert_eq!(
+        e.0,
+        "reheader() needs header=: the command reads header before its input"
+    );
+    let e = kwargs_to_argv(spec(&["reheader"]), &[]).unwrap_err();
+    assert!(e.0.starts_with("reheader() needs header="), "{e}");
+    let e = argv(&["reheader"], &["in.bam"], &[("input", val("x"))]).unwrap_err();
+    assert!(e.0.starts_with("input is the input of reheader()"), "{e}");
+    // The number of inputs.
+    let e = argv(&["intersect"], &["a", "b"], &[]).unwrap_err();
+    assert_eq!(e.0, "intersect() takes one input, not 2");
+    let e = argv(&["merge"], &[], &[]).unwrap_err();
+    assert_eq!(e.0, "merge() takes one or more inputs, not 0");
+    // Every binding's argv parses with a placeholder input and its required keywords, or
+    // misses only an argument group clap requires (slop's --both or -l/-r), never the input.
+    for bd in embed::BINDINGS {
+        let s = spec(bd.path);
+        let input = embed::input_arg(s, bd).unwrap();
+        let required: Vec<(String, KwValue)> = s
+            .args
+            .iter()
+            .filter(|a| a.required && a.id != input.id)
+            .map(|a| {
+                // A value every such argument parses: a number is also a path.
+                let v = a.possible_values.first().map_or("1", String::as_str);
+                (a.kwarg(), val(v))
+            })
+            .collect();
+        let v = embed::step_argv(bd, &os(&["in"]), &required)
+            .unwrap_or_else(|e| panic!("{}: {e}", bd.method));
+        match embed::parse(&v) {
+            Ok(_) => {}
+            Err(e) => {
+                let msg = rewrite_flags_as_kwargs(&e.0, s);
+                assert!(
+                    msg.starts_with("the following required arguments were not provided"),
+                    "{}: {v:?}: {msg}",
+                    bd.method
+                );
+                assert!(
+                    !msg.contains(&format!("{}=", input.kwarg())),
+                    "{}: {msg}",
+                    bd.method
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn execute_equals_p3_goldens() {
+    // One exact golden for some of the commands placed in the follow-up, run in-process into
+    // an in-memory output (inputs as files: CRAM, FASTA and indexes are read at random).
+    for case in [
+        "depth-all-positions-vs-samtools",
+        "getfasta-bed-out-strand-vs-bedtools",
+        "head-bcf-vs-bcftools",
+        "idxstats-cram-vs-samtools",
+        "maskfasta-absent-chromosome-vs-bedtools",
+        "pairtobed-11-columns-vs-bedtools",
+        "stats-jaccard-both-empty-vs-bedtools",
+    ] {
+        let dir = golden_dir(case);
+        let expected = std::fs::read(dir.join("expected")).unwrap();
+        let mut argv = golden_argv(case, |p| p.to_str().unwrap().to_string());
+        let sink = Shared::default();
+        let out = Registered::output("<output>", Box::new(sink.clone()));
+        argv.extend(os(&["-o", out.name()]));
+        assert!(
+            run(&argv).unwrap_or_else(|e| panic!("{case}: {e:#}")),
+            "{case}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&sink.bytes()),
+            String::from_utf8_lossy(&expected),
+            "{case}"
+        );
+    }
 }
 
 #[test]
