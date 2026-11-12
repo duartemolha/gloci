@@ -200,22 +200,16 @@ impl AlnSource for BamSource {
             if !self.frames.next(buf)? {
                 return Ok(None);
             }
-            let size = buf.len() - start;
-            let problem = if size < 32 {
-                format!(
-                    "block_size {size} is below the 32 bytes of fixed fields of a BAM record; \
-the file is corrupt"
-                )
-            } else {
-                match Aln::parse(&buf[start..], &self.frames.aln) {
-                    Ok(a) if self.opts.drops(a.flag(), a.mapq()) => {
-                        self.diag.filtered += 1;
-                        buf.truncate(start);
-                        continue;
-                    }
-                    Ok(_) => return Ok(Some(self.frames.rec)),
-                    Err(msg) => msg,
+            // CramSource::walk_records checks, filters and reports a CRAM container decoded in
+            // full the same way.
+            let problem = match Aln::parse_framed(&buf[start..], &self.frames.aln) {
+                Ok(a) if self.opts.drops(a.flag(), a.mapq()) => {
+                    self.diag.filtered += 1;
+                    buf.truncate(start);
+                    continue;
                 }
+                Ok(_) => return Ok(Some(self.frames.rec)),
+                Err(msg) => msg,
             };
             buf.truncate(start);
             self.frames.invalid(self.policy, &mut self.diag, &problem)?;

@@ -533,21 +533,15 @@ impl CramSource {
             if let Some(r) = body.first_chunk::<4>() {
                 self.see(i32::from_le_bytes(*r));
             }
-            let problem = if size < 32 {
-                format!(
-                    "block_size {size} is below the 32 bytes of fixed fields of a BAM record; \
-the file is corrupt"
-                )
-            } else {
-                match Aln::parse(body, &self.header) {
-                    Ok(_) => {
-                        if let Some(fields) = FlagFields::of_bam(body) {
-                            self.deliver(fields, f)?;
-                        }
-                        continue;
+            // As BamSource::next_record: the same check, filters, message and place.
+            let problem = match Aln::parse_framed(body, &self.header) {
+                Ok(_) => {
+                    if let Some(fields) = FlagFields::of_bam(body) {
+                        self.deliver(fields, f)?;
                     }
-                    Err(msg) => msg,
+                    continue;
                 }
+                Err(msg) => msg,
             };
             let place = bam_record_place(&self.header.refs, self.run.0, self.run.1, None);
             match self.policy {

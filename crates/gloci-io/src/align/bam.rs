@@ -376,17 +376,7 @@ impl RecordReader for BamReader {
             if !self.frames.next(&mut batch.buf)? {
                 return Ok(false);
             }
-            if batch.buf.len() - start < 32 {
-                let msg = format!(
-                    "block_size {} is below the 32 bytes of fixed fields of a BAM record; \
-the file is corrupt",
-                    batch.buf.len() - start
-                );
-                batch.buf.truncate(start);
-                self.bad(&msg)?;
-                continue;
-            }
-            let a = match Aln::parse(&batch.buf[start..], &hdr) {
+            let a = match Aln::parse_framed(&batch.buf[start..], &hdr) {
                 Ok(a) => a,
                 Err(msg) => {
                     batch.buf.truncate(start);
