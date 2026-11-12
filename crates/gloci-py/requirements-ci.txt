@@ -6,3 +6,5 @@ pytest==9.2.0
 pyarrow==26.0.1 ; python_version >= "3.12"
 polars==2.1.0 ; python_version >= "3.12"
 pandas==3.1.1 ; python_version >= "3.12"
+# The stub is checked with mypy --strict on the 3.12 cells (python.yml).
+mypy==2.4.1 ; python_version >= "3.12"

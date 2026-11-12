@@ -324,6 +324,7 @@ fn python_workflow_runs_the_python_tests() {
         "pip install -r crates/gloci-py/requirements-ci.txt",
         "maturin develop -m crates/gloci-py/Cargo.toml --features test-hooks",
         "pytest crates/gloci-py/tests -m \"not large\"",
+        "mypy --strict crates/gloci-py/tests/typing_example.py",
     ];
     for pair in steps.windows(2) {
         assert!(
