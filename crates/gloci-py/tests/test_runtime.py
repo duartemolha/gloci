@@ -152,6 +152,30 @@ def test_panic_is_glocierror(here: Path) -> None:
     assert gloci.open("x.bed").merge().to_bytes() == b"chr1\t1\t2\n"
 
 
+def test_panics_in_every_entry_point_are_glocierror(here: Path) -> None:
+    if not hasattr(_native, "_test_panic"):
+        if os.environ.get("CI") == "true":
+            pytest.fail("CI builds gloci-py with --features test-hooks")
+        pytest.skip("built without the test-hooks feature")
+    plan = {"stages": [], "sources": {}, "terminal": "bytes", "names": None}
+    entries = {
+        "command_specs": lambda: _native.command_specs(),
+        "bindings": lambda: _native.bindings(),
+        "kwargs_to_argv": lambda: _native.kwargs_to_argv(["merge"], {}),
+        "step_argv": lambda: _native.step_argv(["merge"], ["a.bed"]),
+        "command_line": lambda: _native.command_line(["merge"], ["gloci", "merge", "a.bed"]),
+        "run_plan": lambda: _native.run_plan(plan),
+    }
+    for name, call in entries.items():
+        _native._test_panic("next")  # the next entry point called panics
+        with pytest.raises(gloci.GlociError) as e:
+            call()
+        assert type(e.value) is gloci.GlociError, name
+        assert str(e.value).startswith("internal error: "), name
+        assert "test panic in an entry point" in str(e.value), name
+    assert _native.command_line(["merge"], ["gloci", "merge", "a.bed"]) == "gloci merge a.bed"
+
+
 def test_warnings_go_to_logging(here: Path, caplog: pytest.LogCaptureFixture) -> None:
     (here / "a.bed").write_text("chr1\t10\t20\nchr1\t50\t60\n")
     (here / "nochr.bed").write_text("1\t10\t20\n1\t50\t60\n")

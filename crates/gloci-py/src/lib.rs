@@ -26,6 +26,27 @@ use std::ffi::OsString;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::OnceLock;
 
+/// Run an entry point's body: a panic in it raises `GlociError` with the internal-error text
+/// (D90), not pyo3's `PanicException`.
+fn guarded<T>(py: Python<'_>, body: impl FnOnce() -> PyResult<T>) -> PyResult<T> {
+    catch_unwind(AssertUnwindSafe(|| {
+        test_point();
+        body()
+    }))
+    .unwrap_or_else(|p| Err(errors::internal(py, errors::panic_message(&*p))))
+}
+
+/// With `test-hooks`, after `_test_panic("next")`: panic in the next entry point called.
+#[cfg(feature = "test-hooks")]
+static PANIC_NEXT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn test_point() {
+    #[cfg(feature = "test-hooks")]
+    if PANIC_NEXT.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        panic!("test panic in an entry point");
+    }
+}
+
 /// The spec of the command at `path`, or a `UsageError`.
 fn spec(py: Python<'_>, path: &[String]) -> PyResult<&'static CommandSpec> {
     embed::find_spec(path)
@@ -53,19 +74,21 @@ fn arg_dict<'py>(py: Python<'py>, a: &ArgSpec) -> PyResult<Bound<'py, PyDict>> {
 /// Every command that runs, with its arguments: `[{"path", "about", "args": [...]}]`.
 #[pyfunction]
 fn command_specs(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
-    let out = PyList::empty(py);
-    for s in embed::command_specs() {
-        let d = PyDict::new(py);
-        d.set_item("path", &s.path)?;
-        d.set_item("about", &s.about)?;
-        let args = PyList::empty(py);
-        for a in &s.args {
-            args.append(arg_dict(py, a)?)?;
+    guarded(py, || {
+        let out = PyList::empty(py);
+        for s in embed::command_specs() {
+            let d = PyDict::new(py);
+            d.set_item("path", &s.path)?;
+            d.set_item("about", &s.about)?;
+            let args = PyList::empty(py);
+            for a in &s.args {
+                args.append(arg_dict(py, a)?)?;
+            }
+            d.set_item("args", args)?;
+            out.append(d)?;
         }
-        d.set_item("args", args)?;
-        out.append(d)?;
-    }
-    Ok(out)
+        Ok(out)
+    })
 }
 
 /// The keyword argument that sets the format of a step's input (`a_format`, `format`), if the
@@ -89,39 +112,41 @@ fn input_format(spec: &CommandSpec, b: &Binding) -> Option<String> {
 ///   of `output`, `output_format`, `write_index` and `compression_level`.
 #[pyfunction]
 fn bindings(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
-    let out = PyList::empty(py);
-    for b in embed::BINDINGS {
-        let spec = embed::find_spec(b.path)
-            .ok_or_else(|| errors::internal(py, format!("no spec for {}", b.path.join(" "))))?;
-        let has = |id: &str| spec.args.iter().any(|a| a.id == id);
-        let (input, flag, nary) = match b.input {
-            Bind::Flag(f) => ("flag", Some(f), false),
-            Bind::Positional { nary } => ("positional", None, nary),
-            Bind::PositionalAfter(p) => ("after", Some(p), false),
-        };
-        let d = PyDict::new(py);
-        d.set_item("method", b.method)?;
-        d.set_item("path", b.path)?;
-        d.set_item("about", &spec.about)?;
-        d.set_item("input", input)?;
-        d.set_item("flag", flag)?;
-        d.set_item("nary", nary)?;
-        d.set_item("needs_file", b.needs_file)?;
-        d.set_item("input_format", input_format(spec, b))?;
-        d.set_item("threads", has("threads"))?;
-        let outputs: Vec<&str> = [
-            "output",
-            "output_format",
-            "write_index",
-            "compression_level",
-        ]
-        .into_iter()
-        .filter(|id| has(id))
-        .collect();
-        d.set_item("outputs", outputs)?;
-        out.append(d)?;
-    }
-    Ok(out)
+    guarded(py, || {
+        let out = PyList::empty(py);
+        for b in embed::BINDINGS {
+            let spec = embed::find_spec(b.path)
+                .ok_or_else(|| errors::internal(py, format!("no spec for {}", b.path.join(" "))))?;
+            let has = |id: &str| spec.args.iter().any(|a| a.id == id);
+            let (input, flag, nary) = match b.input {
+                Bind::Flag(f) => ("flag", Some(f), false),
+                Bind::Positional { nary } => ("positional", None, nary),
+                Bind::PositionalAfter(p) => ("after", Some(p), false),
+            };
+            let d = PyDict::new(py);
+            d.set_item("method", b.method)?;
+            d.set_item("path", b.path)?;
+            d.set_item("about", &spec.about)?;
+            d.set_item("input", input)?;
+            d.set_item("flag", flag)?;
+            d.set_item("nary", nary)?;
+            d.set_item("needs_file", b.needs_file)?;
+            d.set_item("input_format", input_format(spec, b))?;
+            d.set_item("threads", has("threads"))?;
+            let outputs: Vec<&str> = [
+                "output",
+                "output_format",
+                "write_index",
+                "compression_level",
+            ]
+            .into_iter()
+            .filter(|id| has(id))
+            .collect();
+            d.set_item("outputs", outputs)?;
+            out.append(d)?;
+        }
+        Ok(out)
+    })
 }
 
 /// A keyword argument's value as text: a path-like object by its path, anything else by
@@ -199,11 +224,19 @@ fn kwargs_to_argv(
     path: Vec<String>,
     kwargs: Option<&Bound<'_, PyDict>>,
 ) -> PyResult<Vec<String>> {
-    let spec = spec(py, &path)?;
+    guarded(py, || kwargs_to_argv_in(py, &path, kwargs))
+}
+
+fn kwargs_to_argv_in(
+    py: Python<'_>,
+    path: &[String],
+    kwargs: Option<&Bound<'_, PyDict>>,
+) -> PyResult<Vec<String>> {
+    let spec = spec(py, path)?;
     let kw = self::kwargs(py, kwargs)?;
     let usage = |e: gloci_io::UsageError| errors::usage(py, e.0);
-    let Some(b) = embed::binding(&path) else {
-        if embed::module_function(&path).is_none() {
+    let Some(b) = embed::binding(path) else {
+        if embed::module_function(path).is_none() {
             return Err(errors::usage(
                 py,
                 format!("gloci {} is not offered in Python", path.join(" ")),
@@ -232,8 +265,21 @@ fn step_argv(
     terminal: Vec<String>,
     check: bool,
 ) -> PyResult<Vec<String>> {
-    let spec = spec(py, &path)?;
-    let b = embed::binding(&path)
+    guarded(py, || {
+        step_argv_in(py, &path, inputs, kwargs, terminal, check)
+    })
+}
+
+fn step_argv_in(
+    py: Python<'_>,
+    path: &[String],
+    inputs: Vec<String>,
+    kwargs: Option<&Bound<'_, PyDict>>,
+    terminal: Vec<String>,
+    check: bool,
+) -> PyResult<Vec<String>> {
+    let spec = spec(py, path)?;
+    let b = embed::binding(path)
         .ok_or_else(|| errors::usage(py, format!("gloci {} is not a step", path.join(" "))))?;
     let kw = self::kwargs(py, kwargs)?;
     let os = |v: Vec<String>| v.into_iter().map(OsString::from).collect::<Vec<_>>();
@@ -318,10 +364,14 @@ fn is_placeholder(a: &str) -> bool {
 /// `<python object N>` that stands for an in-memory input, and without the `--` that
 /// [`step_argv`] puts before positionals, where the shell form reads the same without it.
 #[pyfunction]
-fn command_line(path: Vec<String>, argv: Vec<String>) -> String {
+fn command_line(py: Python<'_>, path: Vec<String>, argv: Vec<String>) -> PyResult<String> {
+    guarded(py, || Ok(shell_form(&path, argv)))
+}
+
+fn shell_form(path: &[String], argv: Vec<String>) -> String {
     let mut words = argv;
     if let Some(sep) = words.iter().position(|a| a == "--")
-        && !separator_needed(&path, &words[..sep], &words[sep + 1..])
+        && !separator_needed(path, &words[..sep], &words[sep + 1..])
     {
         words.remove(sep);
     }
@@ -341,13 +391,13 @@ fn command_line(path: Vec<String>, argv: Vec<String>) -> String {
 /// Run a plan ([`run`]); a panic in this code raises `GlociError` (D90).
 #[pyfunction]
 fn run_plan(py: Python<'_>, plan: &Bound<'_, PyDict>) -> PyResult<Py<PyAny>> {
-    catch_unwind(AssertUnwindSafe(|| run::run_plan(py, plan)))
-        .unwrap_or_else(|p| Err(errors::internal(py, errors::panic_message(&*p))))
+    guarded(py, || run::run_plan(py, plan))
 }
 
 /// Panic, for the tests: `"stage"` in a stage; `"driver"` in the driver's own code; `"unwind"`
 /// in the driver while a stage runs that ends only once cancelled and then takes the GIL, so
-/// the set must be cancelled and dropped with the GIL released while unwinding (R2).
+/// the set must be cancelled and dropped with the GIL released while unwinding (R2); `"next"`
+/// in the next entry point called.
 #[cfg(feature = "test-hooks")]
 #[pyfunction]
 #[pyo3(signature = (place = "stage"))]
@@ -359,6 +409,10 @@ fn _test_panic(py: Python<'_>, place: &str) -> PyResult<()> {
             run::drive(py, set).settle(py, |_| None).map(drop)
         }
         "driver" => panic!("test panic on the driver"),
+        "next" => {
+            PANIC_NEXT.store(true, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        }
         "unwind" => {
             let set = StageSet::spawn_fns(vec![Box::new(|| {
                 while !gloci_io::cancel::is_cancelled() {
