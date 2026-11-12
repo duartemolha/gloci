@@ -14,7 +14,7 @@ run goes, never whole.
 from __future__ import annotations
 
 import os
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from typing import Any
 
 from . import _native
@@ -97,7 +97,10 @@ class Lines(Source):
 
 class Frame(Source):
     """An object with `__arrow_c_stream__` (a pyarrow Table or RecordBatchReader, a polars or
-    pandas DataFrame): each row a line, the integer columns `chrom start end` first."""
+    pandas DataFrame): each row a line, the integer columns `chrom start end` first.
+
+    One that is an iterator (a RecordBatchReader) is read once. Whether another object's
+    `__arrow_c_stream__` can be called again cannot be told; a table or data frame can."""
 
     __slots__ = ()
     kind = "frame"
@@ -137,6 +140,11 @@ def _frame_name(obj: object) -> str:
     return f"<{t.__module__.split('.')[0]}.{t.__qualname__}>"
 
 
+def _is_iterator(obj: object) -> bool:
+    """Whether reading `obj` uses it up: an iterator, which is its own iterator."""
+    return isinstance(obj, Iterator) and iter(obj) is obj
+
+
 def classify_source(obj: object, what: str = "gloci.open()") -> Source:
     """What `obj` is as a source (D88): a `Path`, `FileObject`, `Lines`, `Frame` or `Nested`.
 
@@ -157,11 +165,11 @@ def classify_source(obj: object, what: str = "gloci.open()") -> Source:
             "io.BytesIO(data)"
         )
     if hasattr(type(obj), "__arrow_c_stream__"):
-        return Frame(obj, _frame_name(obj))
+        return Frame(obj, _frame_name(obj), once=_is_iterator(obj))
     if callable(getattr(obj, "read", None)):
         return FileObject(obj, _file_name(obj), once=True)
     if isinstance(obj, Iterable) and not isinstance(obj, Mapping):
-        return Lines(obj, f"<{type(obj).__name__}>", once=iter(obj) is obj)
+        return Lines(obj, f"<{type(obj).__name__}>", once=_is_iterator(obj))
     raise TypeError(f"{what} takes {_ACCEPTED}, not {type(obj).__name__}")
 
 

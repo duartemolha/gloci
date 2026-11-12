@@ -762,3 +762,17 @@ def test_cli_quotes_what_only_looks_like_a_placeholder(ab: Path, bash) -> None:
     want = f"##glociCommand=gloci view <python object 1>; Version={gloci.__version__}"
     assert want in vcf.splitlines()
     assert "\0" not in vcf
+
+
+def test_a_record_batch_reader_is_read_once(here: Path) -> None:
+    # I3: a RecordBatchReader is an iterator: a second run would read nothing.
+    pa = pytest.importorskip("pyarrow")
+    batch = pa.record_batch({"chrom": ["chr1"], "start": [1], "end": [2]})
+    p = gloci.open(pa.RecordBatchReader.from_batches(batch.schema, [batch]))
+    assert p.to_bytes() == b"chr1\t1\t2\n"
+    for again in (p.to_bytes, p.count):
+        with pytest.raises(gloci.UsageError, match="was read by an earlier run"):
+            again()
+    # A table is read again at each run.
+    t = gloci.open(pa.table({"chrom": ["chr1"], "start": [1], "end": [2]}))
+    assert t.to_bytes() == t.to_bytes() == b"chr1\t1\t2\n"
