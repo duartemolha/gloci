@@ -733,3 +733,69 @@ fn docs_workflow_is_valid() {
         }
     }
 }
+
+#[test]
+fn crates_publish_checks_the_registry_not_the_workspace() {
+    let root = xtask::diff::workspace_root();
+    let y = fs::read_to_string(root.join(".github/workflows/release.yml")).unwrap();
+    let body = job_body(&y, "publish-crates");
+    // A bare `cargo info crate@v` run in the workspace resolves the local crate and exits 0, so every
+    // crate would be skipped as "already published".
+    assert!(
+        body.contains("cargo info --registry crates-io \"${crate}@${VERSION}\""),
+        "publish-crates must ask the registry: cargo info --registry crates-io"
+    );
+    for l in body.lines().filter(|l| l.contains("cargo info")) {
+        assert!(
+            l.contains("--registry crates-io"),
+            "bare `cargo info` resolves the local crate: {l}"
+        );
+    }
+}
+
+#[test]
+fn release_does_not_need_a_public_repository_and_checksums_the_recipes() {
+    let root = xtask::diff::workspace_root();
+    let y = fs::read_to_string(root.join(".github/workflows/release.yml")).unwrap();
+    let rel = job_body(&y, "release");
+    // The conda render curls the public archive URL, which fails anonymously on a private repo:
+    // skip that step there, so the Release is still created.
+    let at = rel
+        .find("name: Render the conda recipes with the real checksums")
+        .unwrap();
+    assert!(
+        rel[at..]
+            .lines()
+            .nth(1)
+            .unwrap()
+            .contains("if: ${{ !github.event.repository.private }}"),
+        "the conda render step must be skipped on a private repository"
+    );
+    // conda-recipes.tar.gz is a release asset, so SHA256SUMS lists it: the sums step comes last.
+    let sums = rel.find("name: Generate SHA256SUMS").unwrap();
+    let render = rel.find("name: Render the conda recipes").unwrap();
+    let create = rel.find("name: Create GitHub Release").unwrap();
+    assert!(render < sums && sums < create, "SHA256SUMS must be made after the recipes tarball");
+    assert!(
+        rel.contains("conda-recipes.tar.gz > SHA256SUMS")
+            || rel.contains("conda-recipes.tar.gz")
+                && rel[sums..create].contains("conda-recipes.tar.gz"),
+        "SHA256SUMS must include conda-recipes.tar.gz"
+    );
+}
+
+#[test]
+fn docs_deploy_is_gated_on_a_repository_variable() {
+    let root = xtask::diff::workspace_root();
+    let y = fs::read_to_string(root.join(".github/workflows/docs.yml")).unwrap();
+    let deploy = job_body(&y, "deploy");
+    let cond = deploy
+        .lines()
+        .find(|l| l.trim_start().starts_with("if:"))
+        .expect("deploy has no `if:`");
+    assert!(
+        cond.contains("vars.GLOCI_PUBLISH_PAGES == 'true'")
+            && cond.contains("startsWith(github.ref, 'refs/tags/v')"),
+        "deploy must need a v* tag push and vars.GLOCI_PUBLISH_PAGES == 'true': {cond}"
+    );
+}

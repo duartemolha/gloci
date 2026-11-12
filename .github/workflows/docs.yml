@@ -1,5 +1,6 @@
 name: docs
-# The book builds on every pull request; it deploys to GitHub Pages only on a v* tag push.
+# The book builds on every pull request; it deploys to GitHub Pages only on a v* tag push, and only when the repository variable
+# GLOCI_PUBLISH_PAGES is 'true' (Pages must be enabled first, D80).
 on:
   pull_request:
   push:
@@ -35,7 +36,7 @@ jobs:
 
   deploy:
     needs: build
-    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && vars.GLOCI_PUBLISH_PAGES == 'true' }}
     runs-on: ubuntu-24.04
     permissions:
       pages: write

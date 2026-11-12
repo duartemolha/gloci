@@ -155,9 +155,25 @@ fn py_recipe_installs_no_cli() {
     assert!(t.contains("import gloci"));
     assert!(t.contains(".count()"));
     let host = block(&t, "requirements").join("\n");
-    for need in ["python >=3.10", "pip", "maturin >=1.9,<2"] {
+    for need in ["python >=3.10", "pip", "maturin >=1.9.4,<2"] {
         assert!(host.contains(need), "host requirement {need}\n{host}");
     }
+    // The wheel bundles every dependency's code, so it ships their licences like the CLI does,
+    // and the bundle tool is run (a build requirement nothing runs is dead weight).
+    assert!(
+        fs::read_to_string(recipes().join("py-gloci/build.sh"))
+            .unwrap()
+            .contains("cargo-bundle-licenses --format yaml --output THIRDPARTY.yml"),
+        "the py-gloci build script must run cargo-bundle-licenses"
+    );
+    assert!(t.contains("- THIRDPARTY.yml") && t.contains("license_file:"), "{t}");
+    let pyproject =
+        fs::read_to_string(xtask::diff::workspace_root().join("crates/gloci-py/pyproject.toml"))
+            .unwrap();
+    assert!(
+        pyproject.contains("maturin>=1.9.4,<2"),
+        "the recipe's maturin floor must match pyproject.toml"
+    );
     assert!(t.contains("recipe-maintainers:") && t.contains("- duartemolha"));
     assert!(
         !t.contains("cargo install") && !t.contains("entry_points"),
