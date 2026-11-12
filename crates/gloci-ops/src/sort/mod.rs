@@ -77,8 +77,8 @@ pub struct SortConfig {
     pub max_mem: u64,
     /// Where the spill directory is created.
     pub tmp_dir: PathBuf,
-    /// More than 1 sorts chunks in parallel on the global rayon pool. Never
-    /// changes the output.
+    /// More than 1 sorts chunks in parallel on the current rayon pool (the run's own pool,
+    /// which the command runs on). Never changes the output.
     pub threads: NonZeroUsize,
     /// How records are ordered; `Order::Interval(Tie::InputOrder)` for intervals.
     pub order: Order,
