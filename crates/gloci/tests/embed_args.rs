@@ -353,6 +353,22 @@ fn kwargs_spelling_and_shape() {
         argv_of(&["slop"], &[("b", val("-5")), ("g", val("hg38"))]).unwrap(),
         ["-b=-5", "-g", "hg38"]
     );
+    // So is the value of an argument that needs `=`; its bare flag takes the default.
+    let norm = &["vcf", "norm"][..];
+    assert!(spec(norm).arg("split").unwrap().require_equals);
+    assert_eq!(
+        argv_of(norm, &[("split", val("snps"))]).unwrap(),
+        ["--split=snps"]
+    );
+    assert_eq!(
+        argv_of(norm, &[("split", Flag(true))]).unwrap(),
+        ["--split"]
+    );
+    for kws in [&[("split", val("snps"))][..], &[("split", Flag(true))]] {
+        let mut full = os(&["gloci", "vcf", "norm", "x.vcf", "-f", "ref.fa"]);
+        full.extend(kwargs_to_argv(spec(norm), &kw(kws)).unwrap());
+        assert!(embed::parse(&full).is_ok(), "{full:?}");
+    }
     // Positionals given as keywords go last, after `--`.
     assert_eq!(
         argv_of(

@@ -127,7 +127,8 @@ pub fn kwargs_to_argv(
 /// A kwarg is a long flag with `-` as `_`, or a one-letter short flag; the spelling follows:
 /// `s=True` gives `-s`, `min_frac_a="50%"` gives `--min-frac-a 50%`. `True` gives the bare
 /// flag, `False` and `Absent` nothing, a list the flag once per value. A value that starts with
-/// `-` is attached (`--shift=-5`), so it is never read as a flag. Values are not checked here:
+/// `-` is attached (`--shift=-5`), so it is never read as a flag, and so is the value of an
+/// argument that needs it (`--split=snps`). Values are not checked here:
 /// clap checks them when the argv is parsed, and [`super::rewrite_flags_as_kwargs`] turns its
 /// message into keyword terms.
 pub fn kwargs_to_argv_as(
@@ -183,7 +184,7 @@ pub fn kwargs_to_argv_as(
             None => positionals.extend(values.into_iter().map(OsString::from)),
             Some(f) => {
                 for v in values {
-                    if v.starts_with('-') {
+                    if v.starts_with('-') || arg.require_equals {
                         argv.push(format!("{f}={v}").into());
                     } else {
                         argv.push(f.into());

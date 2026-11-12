@@ -16,6 +16,8 @@ pub struct ArgSpec {
     pub multiple: bool,
     pub positional: bool,
     pub required: bool,
+    /// Its value must be attached (`--split=snps`).
+    pub require_equals: bool,
     /// The values clap accepts, when it has a fixed list.
     pub possible_values: Vec<String>,
     /// The one-line help.
@@ -157,6 +159,7 @@ fn arg_spec(a: &clap::Arg) -> ArgSpec {
         multiple: matches!(action, clap::ArgAction::Append | clap::ArgAction::Count) || many_values,
         positional: a.is_positional(),
         required: a.is_required_set(),
+        require_equals: a.is_require_equals_set(),
         possible_values: a
             .get_possible_values()
             .iter()
