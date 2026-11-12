@@ -83,6 +83,11 @@ enum Task {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Bioconda recipes (packaging/bioconda); nothing is submitted anywhere
+    Conda {
+        #[command(subcommand)]
+        action: CondaAction,
+    },
     /// Run the benchmark suite
     Bench {
         #[arg(long, default_value = "xtask/bench/cases.toml")]
@@ -109,6 +114,28 @@ enum Task {
         /// Where generated inputs are cached
         #[arg(long, default_value = "target/bench-data")]
         data_dir: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum CondaAction {
+    /// Render the recipes with a version and the checksums of their sources
+    Render {
+        /// The release version, without the leading v
+        #[arg(long)]
+        version: String,
+        /// sha256 of the tag's source archive (the gloci recipe)
+        #[arg(long)]
+        sha256_cli: Option<String>,
+        /// sha256 of the sdist attached to the Release (the py-gloci recipe)
+        #[arg(long)]
+        sha256_py: Option<String>,
+        /// Build from source trees instead: DIR holds `gloci/` and `py-gloci/` (the unpacked sdist)
+        #[arg(long, value_name = "DIR")]
+        local: Option<PathBuf>,
+        /// Where the rendered recipes go (<out>/gloci, <out>/py-gloci)
+        #[arg(long, default_value = "target/bioconda")]
+        out: PathBuf,
     },
 }
 
@@ -630,6 +657,28 @@ fn run(cli: Cli) -> Result<bool> {
                 eprintln!("release-check: {p}");
             }
             return Ok(problems.is_empty());
+        }
+        Task::Conda {
+            action:
+                CondaAction::Render {
+                    version,
+                    sha256_cli,
+                    sha256_py,
+                    local,
+                    out,
+                },
+        } => {
+            let root = xtask::diff::workspace_root();
+            let local = local.map(|d| d.canonicalize().unwrap_or(d));
+            xtask::conda::render_all(
+                &root.join("packaging/bioconda"),
+                &out,
+                &version,
+                sha256_cli.as_deref(),
+                sha256_py.as_deref(),
+                local.as_deref(),
+            )?;
+            println!("rendered the recipes into {}", out.display());
         }
         Task::ReleaseNotes { version, out } => {
             let root = xtask::diff::workspace_root();

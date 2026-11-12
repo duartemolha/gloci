@@ -157,3 +157,32 @@ fn pyproject_version_must_be_dynamic() {
     fs::write(&py, "[project]\nname = \"gloci\"\n").unwrap();
     assert_eq!(release_check(r, None).unwrap().len(), 1);
 }
+
+#[test]
+fn recipe_version_mismatch_is_reported() {
+    let d = tempfile::tempdir().unwrap();
+    let r = d.path();
+    fixture(r);
+    let gloci = r.join("packaging/bioconda/gloci/meta.yaml");
+    let py = r.join("packaging/bioconda/py-gloci/meta.yaml");
+    fs::create_dir_all(gloci.parent().unwrap()).unwrap();
+    fs::create_dir_all(py.parent().unwrap()).unwrap();
+    let recipe = |v: &str| format!("{{% set version = \"{v}\" %}}\npackage:\n  name: x\n");
+    fs::write(&gloci, recipe("0.2.0")).unwrap();
+    fs::write(&py, recipe("0.2.0")).unwrap();
+    assert_eq!(release_check(r, None).unwrap(), Vec::<String>::new());
+
+    fs::write(&py, recipe("0.1.0")).unwrap();
+    let p = release_check(r, None).unwrap();
+    assert_eq!(p.len(), 1, "{p:?}");
+    assert!(
+        p[0].contains("packaging/bioconda/py-gloci/meta.yaml"),
+        "{p:?}"
+    );
+    assert!(p[0].contains("0.1.0") && p[0].contains("0.2.0"), "{p:?}");
+
+    fs::write(&py, "package:\n  name: x\n").unwrap();
+    let p = release_check(r, None).unwrap();
+    assert_eq!(p.len(), 1, "{p:?}");
+    assert!(p[0].contains("set version"), "{p:?}");
+}
