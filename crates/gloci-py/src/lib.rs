@@ -4,7 +4,10 @@
 //!
 //! - [`command_specs`] and [`bindings`] describe the commands and the step methods.
 //! - [`kwargs_to_argv`] checks a step's keyword arguments when the step is called (D85).
-//! - [`step_argv`] and [`command_line`] build a stage's argv and its shell equivalent.
+//! - [`step_argv`] and [`command_line`] build a stage's argv and its shell equivalent;
+//!   [`source_argv`] and [`function_argv`] do the same for the module sources (`windows`,
+//!   `random`) and the module functions (`vcf_stats`, `index`, ...), which
+//!   [`module_functions`] lists.
 //! - [`run_plan`] runs a pipeline ([`run`]), reading Python objects as sources ([`sources`],
 //!   [`frames`]).
 
@@ -314,6 +317,125 @@ fn step_argv_in(
     Ok(strings(argv))
 }
 
+/// The argv of a module source (`windows`, `random`; [`embed::SOURCES`]), which starts a
+/// pipeline: `gloci <path> <keyword arguments> <terminal>`. Its keyword arguments take the step
+/// rules ([`Role::Step`]: the output and threads belong to the terminal). With `check`, clap
+/// must accept it, or a `UsageError` in keyword terms is raised.
+#[pyfunction]
+#[pyo3(signature = (path, kwargs = None, terminal = Vec::new(), check = true))]
+fn source_argv(
+    py: Python<'_>,
+    path: Vec<String>,
+    kwargs: Option<&Bound<'_, PyDict>>,
+    terminal: Vec<String>,
+    check: bool,
+) -> PyResult<Vec<String>> {
+    guarded(py, || {
+        let spec = spec(py, &path)?;
+        let is_source = embed::module_function(&path).is_some_and(|f| embed::SOURCES.contains(&f));
+        if !is_source {
+            return Err(errors::usage(
+                py,
+                format!("gloci {} is not a module source", path.join(" ")),
+            ));
+        }
+        let kw = self::kwargs(py, kwargs, Tokens::Allowed)?;
+        let words =
+            embed::kwargs_to_argv_as(spec, &kw, Role::Step).map_err(|e| errors::usage(py, e.0))?;
+        // The terminal's options go with the flags, before any `--`.
+        let sep = words.iter().position(|w| w == "--").unwrap_or(words.len());
+        let argv: Vec<OsString> = std::iter::once(OsString::from("gloci"))
+            .chain(path.iter().map(OsString::from))
+            .chain(words[..sep].iter().cloned())
+            .chain(terminal.into_iter().map(OsString::from))
+            .chain(words[sep..].iter().cloned())
+            .collect();
+        if check {
+            check_parses(py, spec, &argv)?;
+        }
+        Ok(strings(argv))
+    })
+}
+
+/// The argv of a module function (`vcf_stats`, `vcf_extract_matrix`, `vcf_compare`, `index`;
+/// [`embed::MODULE_FUNCTIONS`]), which runs at once: `gloci <path> <keyword arguments> --
+/// <inputs>`, its inputs being all of its positionals ([`Role::Function`]). With `check`, clap
+/// must accept it, or a `UsageError` in keyword terms is raised.
+#[pyfunction]
+#[pyo3(signature = (path, inputs, kwargs = None, check = true))]
+fn function_argv(
+    py: Python<'_>,
+    path: Vec<String>,
+    inputs: Vec<String>,
+    kwargs: Option<&Bound<'_, PyDict>>,
+    check: bool,
+) -> PyResult<Vec<String>> {
+    guarded(py, || {
+        let spec = spec(py, &path)?;
+        let eager = embed::module_function(&path).is_some_and(|f| !embed::SOURCES.contains(&f));
+        if !eager {
+            return Err(errors::usage(
+                py,
+                format!("gloci {} is not a module function", path.join(" ")),
+            ));
+        }
+        let kw = self::kwargs(py, kwargs, Tokens::Allowed)?;
+        let words = embed::kwargs_to_argv_as(spec, &kw, Role::Function)
+            .map_err(|e| errors::usage(py, e.0))?;
+        let argv: Vec<OsString> = std::iter::once(OsString::from("gloci"))
+            .chain(path.iter().map(OsString::from))
+            .chain(words)
+            .chain(std::iter::once(OsString::from("--")))
+            .chain(inputs.into_iter().map(OsString::from))
+            .collect();
+        if check {
+            check_parses(py, spec, &argv)?;
+        }
+        Ok(strings(argv))
+    })
+}
+
+/// The module functions and sources (D87): `[{"function", "path", "about", "source",
+/// "inputs", "threads", "outputs"}]`. `source` says it starts a pipeline (`windows`, `random`)
+/// rather than run at once; `inputs` names its positionals (the sources an eager function
+/// takes); `threads` and `outputs` are as in [`bindings`].
+#[pyfunction]
+fn module_functions(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
+    guarded(py, || {
+        let out = PyList::empty(py);
+        for (path, function) in embed::MODULE_FUNCTIONS {
+            let spec = embed::find_spec(path)
+                .ok_or_else(|| errors::internal(py, format!("no spec for {}", path.join(" "))))?;
+            let has = |id: &str| spec.args.iter().any(|a| a.id == id);
+            let d = PyDict::new(py);
+            d.set_item("function", *function)?;
+            d.set_item("path", *path)?;
+            d.set_item("about", &spec.about)?;
+            d.set_item("source", embed::SOURCES.contains(function))?;
+            let inputs: Vec<&str> = spec
+                .args
+                .iter()
+                .filter(|a| a.positional)
+                .map(|a| a.id.as_str())
+                .collect();
+            d.set_item("inputs", inputs)?;
+            d.set_item("threads", has("threads"))?;
+            let outputs: Vec<&str> = [
+                "output",
+                "output_format",
+                "write_index",
+                "compression_level",
+            ]
+            .into_iter()
+            .filter(|id| has(id))
+            .collect();
+            d.set_item("outputs", outputs)?;
+            out.append(d)?;
+        }
+        Ok(out)
+    })
+}
+
 /// Whether a word of a shown argv stands for an input and is kept as it is: `<python object
 /// N>` for a Python object, and `<(gloci ...)>`, bash's process substitution, for a nested
 /// pipeline (its command lines are already quoted).
@@ -397,6 +519,9 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(bindings, m)?)?;
     m.add_function(wrap_pyfunction!(kwargs_to_argv, m)?)?;
     m.add_function(wrap_pyfunction!(step_argv, m)?)?;
+    m.add_function(wrap_pyfunction!(source_argv, m)?)?;
+    m.add_function(wrap_pyfunction!(function_argv, m)?)?;
+    m.add_function(wrap_pyfunction!(module_functions, m)?)?;
     m.add_function(wrap_pyfunction!(command_line, m)?)?;
     m.add_function(wrap_pyfunction!(run_plan, m)?)?;
     #[cfg(feature = "test-hooks")]

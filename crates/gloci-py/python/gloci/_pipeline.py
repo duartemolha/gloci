@@ -103,6 +103,15 @@ class Nested(Source):
     kind = "nested"
 
 
+class _Command(Source):
+    """A module source (`gloci.windows(g=...)`, `gloci.random(...)`): its command is the
+    pipeline's first stage. `obj` is its `_native.module_functions()` entry and its keyword
+    arguments."""
+
+    __slots__ = ()
+    kind = "command"
+
+
 def _file_name(f: object) -> str:
     """A file object's display name: `f.name` when it is a path, else `<BytesIO>`."""
     name = getattr(f, "name", None)
@@ -295,7 +304,17 @@ class _Plan:
         root = p._source
         prev: tuple[str, str] | None = None
         idx = -1
-        if isinstance(root, Nested):
+        if isinstance(root, _Command):
+            info, kw = root.obj
+            real_kw, shown_kw = self.kwargs(kw)
+            idx = len(self.stages)
+            to, to_shown = self._to(info, idx, not steps, out, shown_out)
+            shown = _native.source_argv(info["path"], shown_kw, to_shown, check=False)
+            argv = _native.source_argv(info["path"], real_kw, to) if self.run else None
+            self.add(argv, shown)
+            lines.append(self.stages[idx]["command_line"])
+            prev = (_pipe(idx), "-")
+        elif isinstance(root, Nested):
             j, nested = self.chain(root.obj, None, [])
             lines += nested
             prev = (_pipe(j), "-")
@@ -327,7 +346,8 @@ class _Plan:
 
 
 class Pipeline:
-    """A lazy pipeline of gloci steps. Start one with `gloci.open()`.
+    """A lazy pipeline of gloci steps. Start one with `gloci.open()` (or `gloci.windows()`,
+    `gloci.random()`).
 
     Each step method (`intersect`, `merge`, `vcf_filter`, ...) returns a new pipeline; the
     keyword arguments are the command's flags with `-` written as `_`. A keyword argument that
@@ -373,7 +393,7 @@ class Pipeline:
                 f"{method}() takes no positional arguments: pass its options as keyword arguments"
             )
         if b["needs_file"]:
-            if self._steps or isinstance(self._source, Nested):
+            if self._steps or isinstance(self._source, (Nested, _Command)):
                 raise UsageError(
                     f"{method} needs a file input; save() the previous step to a file and open it"
                 )
@@ -406,16 +426,23 @@ class Pipeline:
     # Terminals
 
     def _steps_to_run(self) -> tuple[_Step, ...]:
-        """The steps; a bare source is read with `view`, which writes it as it is."""
+        """The steps; a bare source is read with `view`, which writes it as it is, and a module
+        source (`gloci.windows()`) is its own command."""
         if self._steps:
             return self._steps
+        if isinstance(self._source, _Command):
+            return ()
         view = _BINDINGS["view"]
         kw = self._with_format(view, {}) if self._format is not None else {}
         return (_Step(view, kw, ()),)
 
     def _last(self) -> dict[str, Any]:
-        """The binding of the command whose output the terminal takes."""
-        return self._steps_to_run()[-1].binding
+        """The binding (or module source) of the command whose output the terminal takes."""
+        steps = self._steps_to_run()
+        if steps:
+            return steps[-1].binding
+        info: dict[str, Any] = self._source.obj[0]
+        return info
 
     def _plan(
         self, out: str | None, save_opts: list[str], threads: object, run: bool = True
