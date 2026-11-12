@@ -100,19 +100,34 @@ fn version_command(tool: &str) -> (&str, &'static [&'static str]) {
     }
 }
 
-/// The first line of a version command's output (either stream) that has a
-/// digit (bedops prints its name first, the version on a later line), else
-/// the first non-empty line.
+/// A tool's version from its version command's output (either stream):
+/// - a `version: X` line, shown after the first line (bedops and sort-bed
+///   print their name, then a citation with digits, then `version:`);
+/// - else the first line that has a digit;
+/// - else the first non-empty line.
 fn first_line(out: &std::process::Output) -> Option<String> {
     let both = [&out.stdout[..], &out.stderr[..]].concat();
     let text = String::from_utf8_lossy(&both);
-    let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty());
-    let first = lines.next()?;
-    std::iter::once(first)
-        .chain(lines)
-        .find(|l| l.chars().any(|c| c.is_ascii_digit()))
-        .or(Some(first))
-        .map(String::from)
+    let lines: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    let first = *lines.first()?;
+    let labelled = lines.iter().find_map(|l| {
+        let (key, value) = l.split_once(':')?;
+        key.trim()
+            .eq_ignore_ascii_case("version")
+            .then(|| format!("{first} {}", value.trim()))
+    });
+    labelled
+        .or_else(|| {
+            lines
+                .iter()
+                .find(|l| l.chars().any(|c| c.is_ascii_digit()))
+                .map(|l| l.to_string())
+        })
+        .or_else(|| Some(first.to_string()))
 }
 
 /// `--user UID:GID` of the current user, so a version query does not run
@@ -247,7 +262,13 @@ mod tests {
     fn version_line_has_a_digit() {
         assert_eq!(
             first_line(&out("bedops\n  version:  2.4.41 (typical)\n")).as_deref(),
-            Some("version:  2.4.41 (typical)")
+            Some("bedops 2.4.41 (typical)")
+        );
+        // bedops and sort-bed print their citation (with digits) before the version.
+        let bedops = "bedops\n  citation: http://bioinformatics.oxfordjournals.org/content/28/14/1919.abstract\n            https://doi.org/10.1093/bioinformatics/bts277\n  version:  2.4.41 (typical)\n  authors:  Shane Neph & Scott Kuehn\n";
+        assert_eq!(
+            first_line(&out(bedops)).as_deref(),
+            Some("bedops 2.4.41 (typical)")
         );
         assert_eq!(
             first_line(&out("bedtools v2.31.1\n")).as_deref(),
