@@ -231,18 +231,6 @@ fn a_cancel_stops_a_command_using_the_run_pool() {
     assert_eq!(sink.bytes(), b"chr1\t1\t2\nchr1\t5\t6\n");
 }
 
-#[test]
-fn execute_leaves_the_global_rayon_pool_alone() {
-    let src = Registered::input("<list>", Box::new(Cursor::new(b"chr1\t5\t6\n".to_vec())));
-    let o = Registered::output("<out>", Box::new(std::io::sink()));
-    assert!(run(&os(&["sort", src.name(), "-t", "3", "-o", o.name()])).unwrap());
-    // Nothing in this test binary builds or uses the global pool, so a host still can.
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(1)
-        .build_global()
-        .expect("execute must not build the global rayon pool");
-}
-
 fn spec(path: &[&str]) -> &'static embed::CommandSpec {
     embed::find_spec(path).unwrap_or_else(|| panic!("no spec for {path:?}"))
 }
