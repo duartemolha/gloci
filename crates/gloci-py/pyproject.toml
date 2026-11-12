@@ -8,6 +8,7 @@ description = "Fast genomic interval and VCF toolkit: the gloci commands as lazy
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
+license-files = ["LICENSE"]
 dynamic = ["version"]
 dependencies = []
 keywords = ["bioinformatics", "genomics", "bed", "vcf", "intervals", "bedtools"]
