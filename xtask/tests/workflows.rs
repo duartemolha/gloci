@@ -453,3 +453,64 @@ fn publish_steps_are_gated() {
     assert!(used.iter().any(|(a, _)| a == "PyO3/maturin-action"));
     assert!(used.iter().any(|(a, _)| a == "pypa/gh-action-pypi-publish"));
 }
+
+#[test]
+fn nightly_builds_and_installs_the_bioconda_recipes() {
+    let root = xtask::diff::workspace_root();
+    let y = fs::read_to_string(root.join(".github/workflows/nightly.yml")).unwrap();
+    let job = job_body(&y, "conda-recipe");
+    // The pinned miniforge image: a digest, never a moving tag.
+    let image = job
+        .split_whitespace()
+        .find(|w| w.starts_with("condaforge/miniforge3"))
+        .expect("conda-recipe runs in condaforge/miniforge3");
+    let (_, digest) = image
+        .split_once("@sha256:")
+        .expect("image pinned by digest");
+    assert!(
+        digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit()),
+        "{image}"
+    );
+    assert!(
+        job.contains("conda render") && job.contains("--local"),
+        "render with --local"
+    );
+    // The in-container steps live in one script that the job and a local run share.
+    let script = fs::read_to_string(root.join("packaging/bioconda/ci-build.sh")).unwrap();
+    assert!(job.contains("packaging/bioconda/ci-build.sh"));
+    for needle in [
+        "channel_priority strict",
+        "--strict-channel-priority",
+        "-c conda-forge -c bioconda",
+        "--override-channels",
+        "conda build",
+        "gloci --version",
+        "gloci.__version__",
+    ] {
+        assert!(script.contains(needle), "ci-build.sh lacks `{needle}`");
+    }
+    assert!(
+        script.contains("gloci py-gloci"),
+        "one env with both packages must install"
+    );
+    assert!(
+        !job.contains("secrets."),
+        "the recipe check publishes nothing"
+    );
+}
+
+#[test]
+fn release_renders_and_attaches_the_recipes() {
+    let root = xtask::diff::workspace_root();
+    let y = fs::read_to_string(root.join(".github/workflows/release.yml")).unwrap();
+    let body = job_body(&y, "release");
+    assert!(
+        body.contains("conda render"),
+        "release must render the recipes"
+    );
+    assert!(body.contains("--sha256-cli") && body.contains("--sha256-py"));
+    assert!(
+        body.contains("conda-recipes"),
+        "recipes are attached to the Release"
+    );
+}

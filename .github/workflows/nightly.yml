@@ -71,6 +71,39 @@ jobs:
           name: bench-results
           path: bench-results/
 
+  # The bioconda recipes build and install together (D93). Nothing is submitted to bioconda.
+  conda-recipe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master (2026-07-16)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+      - name: Source trees for a local build (the tag archive and the unpacked sdist)
+        run: |
+          src="$RUNNER_TEMP/src"
+          mkdir -p "$src/gloci" "$src/py-gloci" "$RUNNER_TEMP/sdist"
+          git archive HEAD | tar -x -C "$src/gloci"
+          pip3 install --break-system-packages maturin==1.16.0
+          maturin sdist -m crates/gloci-py/Cargo.toml --out "$RUNNER_TEMP/sdist"
+          tar -xzf "$RUNNER_TEMP/sdist"/gloci-*.tar.gz -C "$src/py-gloci" --strip-components=1
+      - name: Render the recipes with --local
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"
+          cargo xtask conda render --version "$version" --local "$RUNNER_TEMP/src" --out "$RUNNER_TEMP/recipes"
+      - name: Build both recipes and install them into a fresh environment
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -v "$RUNNER_TEMP/src:$RUNNER_TEMP/src:ro" \
+            -v "$RUNNER_TEMP/recipes:/recipes:ro" \
+            -v "$RUNNER_TEMP/out:/out" \
+            -v "$PWD/packaging/bioconda/ci-build.sh:/ci-build.sh:ro" \
+            condaforge/miniforge3:24.9.2-0@sha256:937dc1e8ab9ffc5f388f0d2a1ce5d24ba5b15850771571d7442fac1af53f3fad \
+            bash /ci-build.sh /recipes /out
+
   fuzz:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

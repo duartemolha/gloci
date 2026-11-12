@@ -289,6 +289,23 @@ pub fn release_check(root: &Path, tag: Option<&str>) -> Result<Vec<String>> {
         }
     }
 
+    // Bioconda recipes carry the version they render by default (D93).
+    for name in crate::conda::RECIPES {
+        let rel = format!("packaging/bioconda/{name}/meta.yaml");
+        let Ok(text) = std::fs::read_to_string(root.join(&rel)) else {
+            continue;
+        };
+        match crate::conda::recipe_version(&text) {
+            Some(v) if v == version => {}
+            Some(v) => problems.push(format!(
+                "{rel}: `set version` is {v} but the workspace version is {version}; set it to \"{version}\""
+            )),
+            None => problems.push(format!(
+                "{rel}: no `{{% set version = \"{version}\" %}}` line; add it at the top"
+            )),
+        }
+    }
+
     // Internal dependency versions
     dep_problems(&ws, "Cargo.toml", &version, &mut problems);
     let mut manifests = vec![root.join("xtask/Cargo.toml")];
