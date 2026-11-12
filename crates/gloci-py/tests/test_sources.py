@@ -828,18 +828,21 @@ def test_base_exceptions_cancel_at_once(here: Path, exc: type[BaseException]) ->
         except OSError:
             pass
 
+    raised_at: list[float] = []
+
     def rows():
         for i in range(40_000):
             yield ("chr1", i * 10, i * 10 + 5)
+        raised_at.append(time.monotonic())
         raise exc()
 
     feeder = threading.Thread(target=feed, daemon=True)
     feeder.start()
-    started = time.monotonic()
     try:
         with pytest.raises(exc):
             gloci.open(rows()).intersect(b="slow.bed").save("out.bed")
-        took = time.monotonic() - started
+        # From the raise, not from the setup: how long the cancel takes.
+        took = time.monotonic() - raised_at[0]
     finally:
         stop.set()
         feeder.join(10)
