@@ -8232,6 +8232,16 @@ gloci = "gloci flagstat input.v31.cram --reference ref.fa -O tsv"
 reference = "REF_PATH=/nonexistent samtools flagstat -O tsv input.v31.cram"
 compare = "exact"
 
+# overhang.cram: a read whose deletion ends 1.5 Mb past chr1, past gloci's limit for decoding
+# bases (#cram-limits). flagstat decodes no bases, so it counts both reads, as samtools does.
+[[case]]
+name = "flagstat-overhang-cram-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/overhang.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci flagstat input.cram --reference ref.fa"
+reference = "REF_PATH=/nonexistent samtools flagstat input.cram"
+compare = "exact"
+
 # P3c Task 4: `check --quick` is samtools quickcheck (D129). samtools prints the failing paths
 # with -v; gloci prints them with --list-failed. flagstat.bam is good; noeof.bam lacks the BGZF
 # end-of-file block; nosq.bam has no @SQ line (-u accepts it); badfirst.bam has a good header and

@@ -1135,8 +1135,41 @@ mod tests {
         reading
     }
 
+    /// RN, the read names (BYTE_ARRAY_STOP), read from BF's block: each read's BF then its name
+    /// and the stop byte, as noodles reads them. A container whose BF is a constant is left as
+    /// it is. Returns whether the container reads BF from a block another series reads.
+    fn rn_in_bf_block(c: &mut RawContainerParts, key: &[u8; 2]) -> bool {
+        let Coding::External(bf) = c.coding(key) else {
+            return false;
+        };
+        let (_, enc) = c.series.iter().find(|(k, _)| k == b"RN").unwrap();
+        let mut e = &enc[..];
+        assert_eq!(itf8(&mut e), Some(5), "RN is BYTE_ARRAY_STOP");
+        itf8(&mut e).unwrap();
+        let stop = e[0];
+        e = &e[1..];
+        let rn = itf8(&mut e).unwrap();
+        let mut params = vec![stop];
+        put_itf8(bf as u32, &mut params);
+        c.set_encoding(b"RN", 5, &params);
+        for s in &mut c.slices {
+            let flags = itf8_values(s.block(EXTERNAL, bf));
+            let names = s.block(EXTERNAL, rn).to_vec();
+            let names: Vec<&[u8]> = names.split(|&b| b == stop).take(s.records).collect();
+            assert_eq!(names.len(), flags.len());
+            let mut data = Vec::new();
+            for (flag, name) in flags.into_iter().zip(names) {
+                put_itf8(flag as u32, &mut data);
+                data.extend_from_slice(name);
+                data.push(stop);
+            }
+            s.set_block(EXTERNAL, bf, data);
+        }
+        true
+    }
+
     /// A CRAM whose BF or MQ is in the core block, or shares a block with a series flagstat skips
-    /// (AP), or whose BF is declared twice (noodles keeps the last): every
+    /// (AP, the read names), or whose BF is declared twice (noodles keeps the last): every
     /// container that reads the series there is decoded in full, and the fields are those of the
     /// file as samtools wrote it, at -t 1 and 2.
     #[test]
@@ -1149,11 +1182,12 @@ mod tests {
         assert_eq!(got, want);
         assert!(fast > 1 && full == 0, "{fast} {full}");
         type Edit = fn(&mut RawContainerParts, &[u8; 2]) -> bool;
-        let edits: [(&str, Edit, &[u8; 2]); 5] = [
+        let edits: [(&str, Edit, &[u8; 2]); 6] = [
             ("BF in the core block", in_core, b"BF"),
             ("MQ in the core block", in_core, b"MQ"),
             ("BF in AP's block", in_ap_block, b"BF"),
             ("MQ in AP's block", in_ap_block, b"MQ"),
+            ("RN in BF's block", rn_in_bf_block, b"BF"),
             (
                 "BF declared twice, last in the core block",
                 bf_declared_twice,
