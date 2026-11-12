@@ -78,7 +78,7 @@ fn stat(r: &Value, key: &str) -> Option<f64> {
         .or_else(|| r["summary"]["time_wall_clock"][key].as_f64())
 }
 
-fn parse_bench(case: &str, hf: &Value, rss: Option<&Value>) -> Result<BenchCase> {
+pub fn parse_bench(case: &str, hf: &Value, rss: Option<&Value>) -> Result<BenchCase> {
     let rows = hf["results"]
         .as_array()
         .ok_or_else(|| anyhow!("{case}.json has no `results` array"))?;
@@ -98,9 +98,12 @@ fn parse_bench(case: &str, hf: &Value, rss: Option<&Value>) -> Result<BenchCase>
             .to_string();
         let median =
             stat(r, "median").ok_or_else(|| anyhow!("{case}.json: `{tool}` has no median"))?;
-        let runs = r["times"]
+        // hyperfine 2: `measurements`, `summary.<metric>.count`; 1.x: `times`.
+        let runs = r["measurements"]
             .as_array()
             .map(|t| t.len() as u64)
+            .or_else(|| r["summary"]["time_wall_clock"]["count"].as_u64())
+            .or_else(|| r["times"].as_array().map(|t| t.len() as u64))
             .or_else(|| r["runs"].as_u64());
         tools.push(ToolRow {
             rss_kb: rss_of(&tool),
@@ -357,6 +360,19 @@ mod tests {
         assert_eq!(format_utc(0), "1970-01-01T00:00:00Z");
         assert_eq!(parse_utc("2024-02-29T23:59:59Z").unwrap(), 1_709_251_199);
         assert!(parse_utc("2026-11-12 10:30:15").is_err());
+    }
+
+    #[test]
+    fn hyperfine2_file_has_runs() {
+        let p = crate::diff::workspace_root()
+            .join("xtask/tests/fixtures/paper-hyperfine2/bedcov-ctcf-peaks.json");
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap();
+        let b = parse_bench("bedcov-ctcf-peaks", &v, None).unwrap();
+        assert_eq!(b.tools.len(), 2);
+        for t in &b.tools {
+            assert_eq!(t.runs, Some(3), "{}", t.tool);
+            assert!(t.mean.is_some() && t.stddev.is_some() && t.min.is_some() && t.max.is_some());
+        }
     }
 
     #[test]

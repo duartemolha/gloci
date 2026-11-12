@@ -95,17 +95,23 @@ fn docker_info(image: &str) -> Value {
 fn version_command(tool: &str) -> (&str, &'static [&'static str]) {
     match tool {
         "gnu-sort" => ("sort", &["--version"]),
+        "bedtk" => ("bedtk", &["version"]),
         _ => (tool, &["--version"]),
     }
 }
 
-/// First non-empty line of a version command's output (either stream).
+/// The first line of a version command's output (either stream) that has a
+/// digit (bedops prints its name first, the version on a later line), else
+/// the first non-empty line.
 fn first_line(out: &std::process::Output) -> Option<String> {
     let both = [&out.stdout[..], &out.stderr[..]].concat();
-    String::from_utf8_lossy(&both)
-        .lines()
-        .map(str::trim)
-        .find(|l| !l.is_empty())
+    let text = String::from_utf8_lossy(&both);
+    let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty());
+    let first = lines.next()?;
+    std::iter::once(first)
+        .chain(lines)
+        .find(|l| l.chars().any(|c| c.is_ascii_digit()))
+        .or(Some(first))
         .map(String::from)
 }
 
@@ -206,4 +212,32 @@ pub fn environment(a: &EnvArgs) -> Result<Value> {
 
 pub fn git_commit(root: &Path) -> Option<String> {
     capture("git", &["-C", &root.to_string_lossy(), "rev-parse", "HEAD"])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::process::ExitStatusExt;
+
+    fn out(s: &str) -> std::process::Output {
+        std::process::Output {
+            status: std::process::ExitStatus::from_raw(0),
+            stdout: s.as_bytes().to_vec(),
+            stderr: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn version_line_has_a_digit() {
+        assert_eq!(
+            first_line(&out("bedops\n  version:  2.4.41 (typical)\n")).as_deref(),
+            Some("version:  2.4.41 (typical)")
+        );
+        assert_eq!(
+            first_line(&out("bedtools v2.31.1\n")).as_deref(),
+            Some("bedtools v2.31.1")
+        );
+        assert_eq!(first_line(&out("tool\nother\n")).as_deref(), Some("tool"));
+        assert_eq!(first_line(&out("\n")), None);
+    }
 }
