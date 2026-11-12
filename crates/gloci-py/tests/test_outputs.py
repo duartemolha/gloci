@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -528,3 +529,75 @@ def test_groupby_header_names_the_columns(here: Path) -> None:
         assert p.count() == 2
         if _try_import("pyarrow") is not None:
             assert p.to_arrow().column_names == ["chrom", "score:sum"]
+
+
+def test_ctrl_c_while_iterating(here: Path) -> None:
+    # A real Ctrl-C (KeyboardInterrupt in the main thread, as SIGINT gives) while the first
+    # record is awaited: sort reads a FIFO, spills runs to tmp_dir, and waits for more input;
+    # the interrupt comes once a spill file exists.
+    import _thread
+    import random
+    import threading
+    import time
+
+    from test_sources import assert_threads_back_to
+
+    fifo = here / "big.bed"
+    os.mkfifo(fifo)
+    stop = threading.Event()
+
+    def feed() -> None:
+        rng = random.Random(3)
+        try:
+            with open(fifo, "w") as f:
+                # More than sort's 16M budget at once, so it spills ...
+                f.writelines(
+                    f"chr{rng.randint(1, 3)}\t{s}\t{s + 50}\n"
+                    for s in (rng.randrange(0, 100_000_000) for _ in range(1_000_000))
+                )
+                # ... then a trickle for 10 s at most, so the run cannot end before the
+                # interrupt, and a cancel that does not work fails the test rather than hang it.
+                end = time.monotonic() + 10
+                while not stop.is_set() and time.monotonic() < end:
+                    f.write("chr1\t1\t2\n")
+                    f.flush()
+                    time.sleep(0.002)
+        except (BrokenPipeError, OSError):
+            pass
+
+    spill = here / "spill"
+    spill.mkdir()
+    before = threads_now()
+    seen: list[Path] = []
+    interrupted: list[float] = []
+
+    def interrupt() -> None:
+        # As soon as a spill file exists (within 10 s), however loaded the machine is; anyway
+        # after that, so that a run that never spills fails the test below.
+        deadline = time.monotonic() + 10
+        while not seen and time.monotonic() < deadline:
+            seen.extend(p for p in spill.rglob("*") if p.is_file())
+            time.sleep(0.002)
+        interrupted.append(time.monotonic())
+        _thread.interrupt_main()
+
+    feeder = threading.Thread(target=feed, daemon=True)
+    watcher = threading.Thread(target=interrupt, daemon=True)
+    feeder.start()
+    watcher.start()
+    got = 0
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            for _ in gloci.open("big.bed").sort(tmp_dir=str(spill), max_mem="16M"):
+                got += 1
+        raised = time.monotonic()
+    finally:
+        stop.set()
+        watcher.join(15)
+        feeder.join(15)
+    assert seen, "sort did not spill within 10 s"
+    assert got == 0
+    # The cancel reached the steps at once, well before the feeder's 10 s.
+    assert raised - interrupted[0] < 2, raised - interrupted[0]
+    assert_threads_back_to(before)
+    assert list(spill.iterdir()) == []
