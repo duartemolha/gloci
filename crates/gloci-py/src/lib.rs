@@ -158,6 +158,37 @@ fn bindings(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
     })
 }
 
+/// The keyword-only parameters of each step method and module function, from
+/// [`embed::step_signature`] and [`embed::function_signature`] (the stub's source too):
+/// `{name: {"lead", "nary", "out", "args"}}`: `lead` the `(name, help)` of a function's positional
+/// parameters, `out` the help of its `out=` (or None), `args` the keyword names in order.
+#[pyfunction]
+fn signatures(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
+    guarded(py, || {
+        let put = |out: &Bound<'_, PyDict>, name: &str, sig: embed::Signature| -> PyResult<()> {
+            let d = PyDict::new(py);
+            d.set_item("lead", sig.lead.to_vec())?;
+            d.set_item("nary", sig.nary)?;
+            d.set_item("out", sig.out)?;
+            let args: Vec<String> = sig.args.iter().map(|a| a.kwarg()).collect();
+            d.set_item("args", args)?;
+            out.set_item(name, d)
+        };
+        let out = PyDict::new(py);
+        for b in embed::BINDINGS {
+            let sig = embed::step_signature(b)
+                .ok_or_else(|| errors::internal(py, format!("no spec for {}", b.path.join(" "))))?;
+            put(&out, b.method, sig)?;
+        }
+        for (_, f) in embed::MODULE_FUNCTIONS {
+            let sig = embed::function_signature(f)
+                .ok_or_else(|| errors::internal(py, format!("no spec for function {f}")))?;
+            put(&out, f, sig)?;
+        }
+        Ok(out)
+    })
+}
+
 /// Whether `s` is a word only a plan makes, which a keyword argument holds where a pipeline's
 /// source goes (`b=`): a token for an input (`"\0src:<k>"`, `"\0pipe:<j>"`), or a shown
 /// placeholder ([`PLACEHOLDER_OPEN`]). No value a user gives holds a NUL.
@@ -563,6 +594,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add_function(wrap_pyfunction!(command_specs, m)?)?;
     m.add_function(wrap_pyfunction!(bindings, m)?)?;
+    m.add_function(wrap_pyfunction!(signatures, m)?)?;
     m.add_function(wrap_pyfunction!(kwargs_to_argv, m)?)?;
     m.add_function(wrap_pyfunction!(step_argv, m)?)?;
     m.add_function(wrap_pyfunction!(source_argv, m)?)?;

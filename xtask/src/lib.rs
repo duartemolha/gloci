@@ -6,6 +6,7 @@ pub mod diff;
 pub mod docs;
 pub mod genomes;
 pub mod paper;
+pub mod pystub;
 pub mod release;
 // `gen` is a reserved keyword in edition 2024, so the module is named `synth`.
 #[path = "gen.rs"]

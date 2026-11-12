@@ -13,8 +13,9 @@ Arrow table (`to_arrow_stream()`, `to_arrow()`, `to_polars()`, `to_pandas()`).
 """
 
 from ._functions import index, random, vcf_compare, vcf_extract_matrix, vcf_stats, windows
-from ._native import ArrowStream, Record, __version__
+from ._native import ArrowStream, Record, RecordIterator, __version__
 from ._pipeline import Pipeline, open
+from ._types import Source, SupportsArrowStream
 from .errors import DataError, GlociError, UnsortedError, UsageError
 
 __all__ = [
@@ -23,6 +24,9 @@ __all__ = [
     "GlociError",
     "Pipeline",
     "Record",
+    "RecordIterator",
+    "Source",
+    "SupportsArrowStream",
     "UnsortedError",
     "UsageError",
     "__version__",

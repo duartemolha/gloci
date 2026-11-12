@@ -30,6 +30,16 @@ enum Task {
         #[arg(long, value_name = "DIR", default_value = "docs/book/src")]
         src: PathBuf,
     },
+    /// Generate the Python type stub from the command specs (crates/gloci-py/python/gloci/__init__.pyi)
+    Pystub {
+        /// The stub file to write
+        #[arg(
+            long,
+            value_name = "PATH",
+            default_value = "crates/gloci-py/python/gloci/__init__.pyi"
+        )]
+        out: PathBuf,
+    },
     /// Generate documentation artifacts (SKILL.md)
     Docs {
         /// Write the SKILL.md agent usage guide to PATH
@@ -401,6 +411,14 @@ fn run(cli: Cli) -> Result<bool> {
                 eprintln!("book: {p}");
             }
             return Ok(problems.is_empty());
+        }
+        Task::Pystub { out } => {
+            let out = if out.is_absolute() {
+                out
+            } else {
+                xtask::diff::workspace_root().join(out)
+            };
+            xtask::pystub::generate_pyi(&out)?
         }
         Task::Docs { skill } => xtask::docs::generate_skill(&skill)?,
         Task::Gen { kind } => match kind {

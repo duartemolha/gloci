@@ -24,6 +24,7 @@ from ._pipeline import (
     _Plan,
     classify_source,
 )
+from ._signature import SIGNATURES, make_doc, make_signature
 from .errors import UsageError
 
 __all__ = ["index", "random", "vcf_compare", "vcf_extract_matrix", "vcf_stats", "windows"]
@@ -47,18 +48,12 @@ def _source(name: str, kwargs: dict[str, Any]) -> Pipeline:
 
 
 def windows(**kwargs: Any) -> Pipeline:
-    """A pipeline that starts with windows cut from a genome: `gloci windows -g ...`.
-
-    `gloci.windows(g="hg38", w=1_000_000)` cuts every chromosome of hg38 into 1 Mb windows. To
-    cut intervals into windows, call the step instead: `gloci.open("t.bed").windows(w=100)`
-    (`-i`).
-    """
+    # The docstring is made from the command's spec (below).
     return _source("windows", kwargs)
 
 
 def random(**kwargs: Any) -> Pipeline:
-    """A pipeline that starts with random intervals placed uniformly over a genome:
-    `gloci random -g ...` (`gloci.random(g="hg38", l=100, n=1000, seed=7)`)."""
+    # The docstring is made from the command's spec (below).
     return _source("random", kwargs)
 
 
@@ -94,16 +89,7 @@ def _with_prefix(where: str, out: object, kwargs: dict[str, Any]) -> dict[str, A
 
 
 def vcf_stats(src: object, *, out: str | os.PathLike[str], **kwargs: Any) -> list[pathlib.Path]:
-    """Compute statistics of a VCF/BCF in one pass and write them as `out.<ext>` in vcftools'
-    formats: `gloci vcf stats --out-prefix out` (`freq=True`, `het=True`, `summary=True`, ...).
-
-    Args:
-        src: Any source (D88): a path, a file object, an iterable of lines, a Pipeline.
-        out: The prefix of the files written.
-
-    Returns:
-        The files written, sorted.
-    """
+    # The docstring is made from the command's spec (below).
     kw = _with_prefix("vcf_stats()", out, kwargs)
     return _run("vcf_stats", [classify_source(src, "vcf_stats()")], kw)
 
@@ -111,17 +97,7 @@ def vcf_stats(src: object, *, out: str | os.PathLike[str], **kwargs: Any) -> lis
 def vcf_extract_matrix(
     src: object, *, out: str | os.PathLike[str], **kwargs: Any
 ) -> list[pathlib.Path]:
-    """Write the 012 genotype matrix of a VCF/BCF as `out.012`, `out.012.indv` and
-    `out.012.pos`: `gloci vcf extract --genotype-matrix 012 --out-prefix out`.
-
-    Args:
-        src: Any source (D88).
-        out: The prefix of the files written.
-        genotype_matrix: The matrix's kind (`012`, the default).
-
-    Returns:
-        The files written, sorted.
-    """
+    # The docstring is made from the command's spec (below).
     kw = _with_prefix("vcf_extract_matrix()", out, kwargs)
     kw.setdefault("genotype_matrix", "012")
     src = classify_source(src, "vcf_extract_matrix()")
@@ -131,31 +107,14 @@ def vcf_extract_matrix(
 def vcf_compare(
     a: object, b: object, *, out: str | os.PathLike[str], **kwargs: Any
 ) -> list[pathlib.Path]:
-    """Compare the genotypes of two VCF/BCF files per site, per sample and as a matrix, written
-    as `out.diff.*`: `gloci vcf compare --out-prefix out A B`.
-
-    Args:
-        a, b: Any sources (D88).
-        out: The prefix of the files written.
-
-    Returns:
-        The files written, sorted.
-    """
+    # The docstring is made from the command's spec (below).
     kw = _with_prefix("vcf_compare()", out, kwargs)
     sources = [classify_source(a, "vcf_compare()"), classify_source(b, "vcf_compare()")]
     return _run("vcf_compare", sources, kw)
 
 
 def index(path: str | os.PathLike[str], **kwargs: Any) -> list[pathlib.Path]:
-    """Index a file, writing the index next to it: `gloci index FILE` (a `.tbi` or `.csi` for
-    sorted BGZF, `.bai` or `.csi` for BAM, `.crai` for CRAM, `.fai` for FASTA).
-
-    Args:
-        path: The file: an index is of a file, so no other source will do.
-
-    Returns:
-        The files written, sorted.
-    """
+    # The docstring is made from the command's spec (below).
     src = classify_source(path, "index()")
     if not isinstance(src, Path):
         shown = "a Pipeline" if isinstance(path, Pipeline) else src.display
@@ -164,3 +123,11 @@ def index(path: str | os.PathLike[str], **kwargs: Any) -> list[pathlib.Path]:
             "so save() the data to a file and index that"
         )
     return _run("index", [src], kwargs)
+
+
+# The signatures and docstrings come from the command specs, as the type stub's do.
+for _name, _info in _FUNCTIONS.items():
+    _f = globals()[_name]
+    _f.__doc__ = make_doc(tuple(_info["path"]), SIGNATURES[_name])
+    _f.__signature__ = make_signature(tuple(_info["path"]), SIGNATURES[_name], method=False)
+del _name, _info, _f

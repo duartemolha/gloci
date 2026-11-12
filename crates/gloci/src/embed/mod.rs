@@ -37,6 +37,7 @@
 mod args;
 mod bindings;
 mod pipe;
+mod signature;
 mod spec;
 mod stages;
 
@@ -51,6 +52,7 @@ pub use bindings::{
 };
 pub use gloci_io::cancel::{CancelToken, RunGuard};
 pub use pipe::{PIPE_CHUNK, PIPE_CHUNKS, PipeFail, PipeReader, PipeWriter, pipe};
+pub use signature::{OUT_HELP, Signature, function_inputs, function_signature, step_signature};
 pub use spec::{ArgSpec, CommandSpec, FILE_VALUE_NAMES, command_specs, find_spec};
 pub use stages::{HostStage, StageError, StageFn, StageSet, StageSpec};
 
