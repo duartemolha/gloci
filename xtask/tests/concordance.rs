@@ -205,6 +205,13 @@ reference = "sort-bed {in_a} > {out}"
             .contains("order_only")
     );
     assert!(with("compat_order_only = true").is_err());
+    assert!(with("allow_empty = \"no peaks on chrY\"").is_ok());
+    assert!(
+        with("allow_empty = \" \"")
+            .unwrap_err()
+            .to_string()
+            .contains("allow_empty")
+    );
     let twice = format!("{ok}{ok}");
     assert!(
         parse_cases(&twice)
@@ -310,16 +317,27 @@ fn verdict_rules() {
     let rate = |min_rate| Expect {
         anchor: Some("#closest-ties-k"),
         min_rate,
-        order_only: false,
+        ..Expect::default()
     };
     let order = Expect {
         anchor: Some("#sort-tie-order"),
-        min_rate: None,
         order_only: true,
+        ..Expect::default()
     };
     // Nothing documented.
     assert_eq!(verdict(Some(&s(10, 10, 10, true)), &none), Verdict::Match);
-    assert_eq!(verdict(Some(&s(0, 0, 0, true)), &none), Verdict::Match);
+    // An empty reference output is a failed run, unless the case allows it.
+    assert_eq!(verdict(Some(&s(0, 0, 0, true)), &none), Verdict::Failed);
+    assert_eq!(verdict(Some(&s(5, 0, 0, false)), &none), Verdict::Failed);
+    let empty_ok = Expect {
+        allow_empty: true,
+        ..Expect::default()
+    };
+    assert_eq!(verdict(Some(&s(0, 0, 0, true)), &empty_ok), Verdict::Match);
+    assert_eq!(
+        verdict(Some(&s(5, 0, 0, false)), &empty_ok),
+        Verdict::Mismatch
+    );
     assert_eq!(
         verdict(Some(&s(10, 10, 10, false)), &none),
         Verdict::Reordered

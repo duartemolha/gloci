@@ -174,6 +174,11 @@ pub struct ConcordCase {
     /// The same for the compat run.
     #[serde(default)]
     pub compat_order_only: bool,
+    /// Why an empty reference output is right for this case. Without it, a
+    /// reference that writes nothing fails the run (a tool that wrote
+    /// nothing must not count as a match).
+    #[serde(default)]
+    pub allow_empty: Option<String>,
 }
 
 /// What a run of a case may show: its documented difference, with the
@@ -183,6 +188,8 @@ pub struct Expect<'a> {
     pub anchor: Option<&'a str>,
     pub min_rate: Option<f64>,
     pub order_only: bool,
+    /// An empty reference output is allowed.
+    pub allow_empty: bool,
 }
 
 impl ConcordCase {
@@ -193,12 +200,14 @@ impl ConcordCase {
                 anchor: self.compat_difference.as_deref(),
                 min_rate: self.compat_min_rate,
                 order_only: self.compat_order_only,
+                allow_empty: self.allow_empty.is_some(),
             }
         } else {
             Expect {
                 anchor: self.expected_difference.as_deref(),
                 min_rate: self.min_rate,
                 order_only: self.order_only,
+                allow_empty: self.allow_empty.is_some(),
             }
         }
     }
@@ -307,6 +316,12 @@ pub fn parse_cases(text: &str) -> Result<Vec<ConcordCase>> {
                 "{n}: {what}min_rate must be at least 0 and below 1"
             );
         }
+        ensure!(
+            c.allow_empty
+                .as_deref()
+                .is_none_or(|r| !r.trim().is_empty()),
+            "{n}: allow_empty needs a reason"
+        );
         for (what, cmd) in [("gloci", &c.gloci), ("reference", &c.reference)] {
             ensure!(
                 !cmd.contains("<(") && !cmd.contains(">("),
@@ -555,6 +570,8 @@ impl Verdict {
 /// The verdict of a run: `stats` is `None` when a command failed; `expect`
 /// is the documented difference the run may show.
 ///
+/// - A failed command, or an empty reference output where the case does not
+///   allow one: `Failed`.
 /// - The same lines in the same order: `Match`, or `AnchorUnused` when a
 ///   difference is documented.
 /// - Different with nothing documented: `Reordered` (every line matched) or
@@ -569,6 +586,9 @@ pub fn verdict(stats: Option<&MatchStats>, expect: &Expect) -> Verdict {
     let Some(s) = stats else {
         return Verdict::Failed;
     };
+    if s.n_reference == 0 && !expect.allow_empty {
+        return Verdict::Failed;
+    }
     let all = s.rate() == 1.0;
     match (all && s.same_order, expect.anchor.is_some()) {
         (true, false) => Verdict::Match,
