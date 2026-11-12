@@ -503,6 +503,10 @@ pinned difference where there is one.
   over `POS + |SVLEN|` when indexing and querying; rebuild htslib-built indexes
   with `gloci index` to query inside them.
   [differences.md#htslib-index-svlen](differences.md#htslib-index-svlen)
+- **Symbolic insertions with `END` under `--vcf-span ref`:** an `<INS>` (or
+  `<INS:ME:...>`) with INFO/END spans to END, as tabix has it; `bedtools
+  intersect` spans it by its REF base alone.
+  [differences.md#vcf-span-ins-end](differences.md#vcf-span-ins-end)
 - **VCF header validation on BCF conversion:** Converting between VCF and BCF
   refuses malformed headers that `noodles` rejects (such as duplicate INFO IDs).
   [differences.md#vcf-header-conversion](differences.md#vcf-header-conversion)

@@ -27,8 +27,16 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **gloci:** a VCF record's footprint is the reference bases its ALT alleles
   change: the shared prefix and suffix of REF and ALT are trimmed, and a pure
   insertion is a point. `--vcf-span ref` gives the REF span.
-- **Old behaviour:** bedtools, tabix and bcftools use `[POS-1, POS-1+len(REF))`
-  (and INFO/END for symbolic alleles). That is `--vcf-span ref`.
+- **Old behaviour:** bedtools, tabix and bcftools use `[POS-1, POS-1+len(REF))`.
+  For a symbolic allele htslib (tabix, bcftools) uses INFO/END when the record
+  has it. bedtools 2.31.1 uses INFO/END, else `|SVLEN|`, except for an
+  insertion (an ALT that starts `<INS`, such as `<INS>` or `<INS:ME:ALU>`),
+  which it spans by its REF base alone, END or not. `--vcf-span ref` is the REF
+  span with htslib's rule (INFO/END for every symbolic allele that has it, and
+  `POS + |SVLEN|` without END, see
+  [Indexes built by htslib and SVs with only `SVLEN`](#htslib-index-svlen)), so
+  it reproduces tabix; it differs from bedtools on an insertion with END, see
+  [`--vcf-span ref` spans a symbolic insertion to its END](#vcf-span-ins-end).
 - **Reason:** the REF span ignores the alleles, so for example
   `bedtools subtract` against a VCF removes the wrong number of bases for an
   indel or a padded SNV. Pass `--vcf-span ref` for the old result.
@@ -171,6 +179,25 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   file: must match).
 - **Reason:** correct by default, fast on request. Index the file
   (`gloci sort FILE -o FILE.gz --write-index`) to get speed and checking.
+
+## `--vcf-span ref` spans a symbolic insertion to its END {#vcf-span-ins-end}
+
+- **gloci:** under `--vcf-span ref` a symbolic allele with INFO/END spans
+  `[POS-1, END)`, an insertion (`<INS>`, `<INS:ME:ALU>`, ...) included, as
+  htslib does; that is what makes `view --vcf-span ref` agree with tabix.
+- **Old behaviour:** `bedtools intersect` 2.31.1 spans a symbolic allele by
+  INFO/END (else `|SVLEN|`) except an ALT that starts `<INS`, which it spans by
+  its REF base alone: it decides by the ALT, not SVTYPE, and ignores END and
+  SVLEN there. The 1000 Genomes 30x panel writes `END=POS+51` on its insertion
+  SVs, so `intersect --vcf-span ref` reports 2 more records against the
+  GENCODE exons than `bedtools intersect -u` (85,063 against 85,061; the
+  concordance compat run of `intersect-1kg-exons-vs-bedtools`).
+- **Reason:** one rule for the `ref` span in every command; `view` must agree
+  with tabix, which is htslib. Under the default `--vcf-span allele` an
+  insertion is a point and neither tool reports these records.
+- **Pinned by:** `intersect-vcf-ref-span-ins-end-vs-bedtools` (must differ:
+  `ins_end` and `alu_end` are gloci's only; `del_end`, `dup_svlen` and the
+  insertion over its anchor base `ins_anchor` agree).
 
 ## Symbolic ALTs with neither `END` nor `SVLEN` {#vcf-symbolic-no-end}
 

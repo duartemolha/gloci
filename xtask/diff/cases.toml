@@ -596,6 +596,19 @@ gloci = "gloci intersect --chrom-order lex --vcf-span ref --mode any -a input.vc
 reference = "bedtools intersect -sorted -u -a input.vcf -b rel-vcf-b.bed"
 compare = "vcf-records"
 
+# Symbolic SVs under --vcf-span ref: bedtools 2.31.1 spans <DEL> by END and
+# <DUP> by SVLEN as gloci does, but an insertion (<INS>, <INS:ME:ALU>) by its
+# REF base only, END or not; gloci, like htslib, spans it to END. Found by the
+# real-data concordance run (Task 16) on the 1000 Genomes insertion SVs.
+[[case]]
+name = "intersect-vcf-ref-span-ins-end-vs-bedtools"
+input = { file = "xtask/diff/inputs/vcf-ins-end.vcf" }
+aux = ["xtask/diff/inputs/vcf-ins-end-b.bed"]
+gloci = "gloci intersect --chrom-order lex --vcf-span ref --mode any -a input.vcf -b vcf-ins-end-b.bed"
+reference = "bedtools intersect -sorted -u -a input.vcf -b vcf-ins-end-b.bed"
+compare = "vcf-records"
+expected_difference = "#vcf-span-ins-end"
+
 [[case]]
 name = "intersect-vcf-allele-span-vs-bedtools"
 input = { file = "xtask/diff/inputs/rel-a.vcf" }

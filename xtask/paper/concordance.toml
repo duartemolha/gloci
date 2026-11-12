@@ -436,7 +436,9 @@ reference = "bedtools reldist -a {in_a} -b {in_b} > {out}"
 # The VCF's ##contig lines (chr1, chr2, ...) take precedence over
 # --chrom-order, so exons.bed (chr1, chr10, ...) would be unsorted against
 # them; -g with the LC_ALL=C genome puts both in one order. bedtools reads B
-# into memory (no -sorted).
+# into memory (no -sorted). Under --vcf-span ref the panel's insertion SVs
+# with END span to END (htslib's rule), where bedtools spans an <INS> by its
+# REF base (#vcf-span-ins-end).
 [[case]]
 name = "intersect-1kg-exons-vs-bedtools"
 command = "intersect"
@@ -447,6 +449,7 @@ reference = "bedtools intersect -u -header -a {in_a} -b {in_b} | bgzip -@ 2 -l 1
 compare = "vcf-records"
 compat = "--vcf-span ref"
 expected_difference = "#vcf-allele-span"
+compat_difference = "#vcf-span-ins-end"
 
 # Ten regions of chr20 in order, apart from each other.
 [[case]]
