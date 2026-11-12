@@ -110,9 +110,8 @@ fn keywords(spec: &'static CommandSpec, role: Role, taken: &[&str]) -> (Vec<Kw>,
         let extras: Vec<String> = extras
             .into_iter()
             .filter(|e| {
-                if !is_identifier(e) {
-                    false
-                } else if used.contains(e) {
+                // A short flag or alias that is not an identifier (`-0`) is just left out.
+                if !is_identifier(e) || used.contains(e) {
                     false
                 } else {
                     used.push(e.clone());
