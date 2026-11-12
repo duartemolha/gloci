@@ -70,6 +70,7 @@ fn arg_dict<'py>(py: Python<'py>, a: &ArgSpec) -> PyResult<Bound<'py, PyDict>> {
     d.set_item("aliases", &a.aliases)?;
     d.set_item("takes_value", a.takes_value)?;
     d.set_item("multiple", a.multiple)?;
+    d.set_item("max_values", a.max_values)?;
     d.set_item("positional", a.positional)?;
     d.set_item("required", a.required)?;
     d.set_item("require_equals", a.require_equals)?;

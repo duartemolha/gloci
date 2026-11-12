@@ -17,6 +17,11 @@ pub struct ArgSpec {
     pub takes_value: bool,
     /// It may be given more than once, or takes several values.
     pub multiple: bool,
+    /// The most values one occurrence takes (clap's `num_args`): 0 for a switch, 1 for most
+    /// options, None when there is no limit (`-b x y`). A host that reads an argv back into
+    /// keyword arguments (the Python parity tests) needs it to tell `-b x y` from `-b x`
+    /// followed by a positional.
+    pub max_values: Option<usize>,
     pub positional: bool,
     pub required: bool,
     /// Its value must be attached (`--split=snps`).
@@ -192,6 +197,15 @@ fn arg_spec(a: &clap::Arg) -> ArgSpec {
             .collect(),
         takes_value,
         multiple: matches!(action, clap::ArgAction::Append | clap::ArgAction::Count) || many_values,
+        max_values: if takes_value {
+            match a.get_num_args().map(|r| r.max_values()) {
+                Some(usize::MAX) => None,
+                Some(n) => Some(n),
+                None => Some(1),
+            }
+        } else {
+            Some(0)
+        },
         positional: a.is_positional(),
         required: a.is_required_set(),
         require_equals: a.is_require_equals_set(),
