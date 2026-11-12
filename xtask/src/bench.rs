@@ -109,6 +109,7 @@ impl Dataset {
 
 #[derive(Deserialize)]
 struct DatasetsFile {
+    #[serde(default)]
     dataset: Vec<Dataset>,
     #[serde(default)]
     derived: Vec<Derived>,
@@ -275,6 +276,26 @@ pub fn input_path(cat: &Catalog, from: &str, cache_dir: &Path) -> Result<PathBuf
     bail!("`{from}` is neither a dataset, a derived input nor repo:<path>")
 }
 
+/// `s` as one single-quoted shell word.
+pub fn sh_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// The index files a derived input must have beside it, by its name.
+pub fn expected_sidecars(name: &str) -> &'static [&'static str] {
+    if name.ends_with(".bam") {
+        &["bai"]
+    } else if name.ends_with(".cram") {
+        &["crai"]
+    } else if name.ends_with(".bcf") {
+        &["csi"]
+    } else if name.ends_with(".vcf.gz") || name.ends_with(".bed.gz") {
+        &["tbi"]
+    } else {
+        &[]
+    }
+}
+
 /// `command` with `{in}`, `{in2}`... and `{out}` replaced.
 pub fn derived_command(command: &str, inputs: &[String], out: &str) -> String {
     let mut c = command.replace("{out}", out);
@@ -338,15 +359,34 @@ pub fn ensure_derived(
         }
         inputs.push(input_path(cat, f, cache_dir)?);
     }
-    if !out.exists() {
+    let sidecar = |ext: &str| cache_dir.join(format!("{}.{ext}", d.name));
+    let complete = out.exists()
+        && expected_sidecars(&d.name)
+            .iter()
+            .all(|e| sidecar(e).exists());
+    if !complete {
         eprintln!("deriving {}", d.name);
-        let tmp = cache_dir.join(format!("{}.partial", d.name));
-        let tmp_s = tmp.display().to_string();
-        let ins: Vec<String> = inputs.iter().map(|p| p.display().to_string()).collect();
+        // A stale partial result would make `bcftools index` or `tabix` refuse.
+        let prefix = format!("{}.partial", d.name);
+        for e in std::fs::read_dir(cache_dir)?.flatten() {
+            if e.file_name().to_string_lossy().starts_with(&prefix) {
+                std::fs::remove_file(e.path())?;
+            }
+        }
+        let _ = std::fs::remove_file(&out);
+        let tmp = cache_dir.join(&prefix);
+        let ins: Vec<String> = inputs
+            .iter()
+            .map(|p| sh_quote(&p.display().to_string()))
+            .collect();
         let status = match image {
             None => Command::new("bash")
                 .args(["-o", "pipefail", "-c"])
-                .arg(derived_command(&d.command, &ins, &tmp_s))
+                .arg(derived_command(
+                    &d.command,
+                    &ins,
+                    &sh_quote(&tmp.display().to_string()),
+                ))
                 .env("LC_ALL", "C")
                 .status(),
             Some(img) => {
@@ -356,16 +396,30 @@ pub fn ensure_derived(
                     s.replace(&cache_abs.display().to_string(), "/cache")
                         .replace(&root.display().to_string(), "/repo")
                 };
-                let ins: Vec<String> = ins.iter().map(|p| map(p)).collect();
-                let tmp_in = format!("/cache/{}.partial", d.name);
+                let ins: Vec<String> = inputs
+                    .iter()
+                    .map(|p| sh_quote(&map(&p.display().to_string())))
+                    .collect();
+                let id = |flag: &str| -> Result<String> {
+                    let o = Command::new("id")
+                        .arg(flag)
+                        .output()
+                        .context("running id")?;
+                    Ok(String::from_utf8_lossy(&o.stdout).trim().to_string())
+                };
+                let user = format!("{}:{}", id("-u")?, id("-g")?);
                 Command::new("docker")
-                    .args(["run", "--rm", "-e", "LC_ALL=C", "-v"])
+                    .args(["run", "--rm", "--user", &user, "-e", "LC_ALL=C", "-v"])
                     .arg(format!("{}:/cache", cache_abs.display()))
                     .arg("-v")
                     .arg(format!("{}:/repo:ro", root.display()))
                     .arg(img)
                     .args(["bash", "-o", "pipefail", "-c"])
-                    .arg(derived_command(&d.command, &ins, &tmp_in))
+                    .arg(derived_command(
+                        &d.command,
+                        &ins,
+                        &sh_quote(&format!("/cache/{prefix}")),
+                    ))
                     .status()
             }
         }
@@ -375,14 +429,22 @@ pub fn ensure_derived(
             "the command of derived input {} failed ({status}); fix it in datasets.toml",
             d.name
         );
-        std::fs::rename(&tmp, &out)?;
-        // Index files written beside the partial result (`x.partial.bai`).
-        let prefix = format!("{}.partial.", d.name);
+        // Index files first, the result last: an interrupted rename leaves no
+        // main file, so the next run derives again.
+        let pre = format!("{prefix}.");
         for e in std::fs::read_dir(cache_dir)?.flatten() {
             let n = e.file_name().to_string_lossy().into_owned();
-            if let Some(ext) = n.strip_prefix(&prefix) {
-                std::fs::rename(e.path(), cache_dir.join(format!("{}.{ext}", d.name)))?;
+            if let Some(ext) = n.strip_prefix(&pre) {
+                std::fs::rename(e.path(), sidecar(ext))?;
             }
+        }
+        std::fs::rename(&tmp, &out)?;
+        for e in expected_sidecars(&d.name) {
+            ensure!(
+                sidecar(e).exists(),
+                "derived input {} did not write its .{e} index; fix its command in datasets.toml",
+                d.name
+            );
         }
     }
     let hex = digest_file(&out, "sha256")?;
@@ -416,7 +478,7 @@ pub fn ensure_dataset(ds: &Dataset, cache_dir: &Path) -> Result<PathBuf> {
         eprintln!("fetching dataset {} from {}", ds.name, ds.url);
         let tmp = cache_dir.join(format!("{filename}.tmp"));
         let st = Command::new("curl")
-            .args(["-fsSL", "-o"])
+            .args(["-fsSL", "--retry", "3", "--proto", "=https", "-o"])
             .arg(&tmp)
             .arg(&ds.url)
             .status()
@@ -426,12 +488,15 @@ pub fn ensure_dataset(ds: &Dataset, cache_dir: &Path) -> Result<PathBuf> {
     }
     let (algorithm, want) = ds.checksum()?;
     let hash = digest_file(&target_path, algorithm)?;
-    ensure!(
-        hash.eq_ignore_ascii_case(want),
-        "{algorithm} mismatch for {}: expected {want}, got {hash}; delete {} and fetch again",
-        ds.name,
-        target_path.display()
-    );
+    if !hash.eq_ignore_ascii_case(want) {
+        let bad = cache_dir.join(format!("{filename}.bad"));
+        std::fs::rename(&target_path, &bad)?;
+        bail!(
+            "{algorithm} mismatch for {}: expected {want}, got {hash}; moved the file to {} (delete it and fetch again)",
+            ds.name,
+            bad.display()
+        );
+    }
     if ds.unpack {
         let unpacked_dir = cache_dir.join(&ds.name);
         if !unpacked_dir.exists() {

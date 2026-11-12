@@ -68,11 +68,25 @@ fn tool_pins(dockerfile: &str) -> Vec<String> {
         .collect()
 }
 
-fn sh_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "'\\''"))
+use crate::bench::sh_quote;
+
+/// Every derived input that needs `name`, directly or not.
+fn dependents(cat: &Catalog, name: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut frontier = vec![name.to_string()];
+    while let Some(n) = frontier.pop() {
+        for d in cat.derived.iter().filter(|d| d.from.contains(&n)) {
+            if !out.contains(&d.name) {
+                out.push(d.name.clone());
+                frontier.push(d.name.clone());
+            }
+        }
+    }
+    out
 }
 
-/// The POSIX sh script that fetches and derives everything.
+/// The sh script that fetches and derives everything. It starts under `sh`
+/// but needs bash: derived commands run under `bash -o pipefail`.
 pub fn generate_script(cat: &Catalog, bench_dockerfile: &str) -> Result<String> {
     let mut s = String::new();
     s.push_str(
@@ -81,8 +95,13 @@ pub fn generate_script(cat: &Catalog, bench_dockerfile: &str) -> Result<String> 
          # Do not edit: change datasets.toml and regenerate.\n\
          #\n\
          # Fetches the paper datasets (D95) and builds the derived inputs. CI never\n\
-         # runs this. Usage: sh paper/fetch-datasets.sh [NAME]   (NAME: one item)\n\
+         # runs this. Usage: sh paper/fetch-datasets.sh [NAME]\n\
+         # NAME is one dataset or derived input; what it needs is fetched or built\n\
+         # too, and an unknown NAME is an error.\n\
          # GLOCI_BENCH_CACHE sets the cache (default target/bench-data/cache).\n\
+         # Derived inputs without a recorded sha256 are UNVERIFIED: the script then\n\
+         # exits 1 unless GLOCI_ALLOW_UNPINNED=1.\n\
+         # Needs bash (derived commands run under `bash -o pipefail`) and curl.\n\
          #\n\
          # Tools the derived inputs need, as pinned in xtask/docker/Dockerfile.bench\n\
          # (run this in that image, or install the same versions):\n",
@@ -90,55 +109,89 @@ pub fn generate_script(cat: &Catalog, bench_dockerfile: &str) -> Result<String> 
     for p in tool_pins(bench_dockerfile) {
         s.push_str(&format!("#   {p}\n"));
     }
-    s.push_str(
-        "# Derived commands run with LC_ALL=C under plain sh (no pipefail): a\n\
-         # truncated pipeline is caught by the sha256 check once it is pinned.\n\
-         set -eu\n\
+    let mut known = String::from(" ");
+    for d in cat.datasets.iter().filter(|d| d.paper) {
+        known.push_str(&d.name);
+        known.push(' ');
+    }
+    for d in &cat.derived {
+        known.push_str(&d.name);
+        known.push(' ');
+    }
+    s.push_str(&format!(
+        "set -eu\n\
+         command -v bash >/dev/null 2>&1 || {{ echo \"fetch-datasets.sh needs bash (for pipefail)\" >&2; exit 1; }}\n\
          ROOT=$(cd \"$(dirname \"$0\")/..\" && pwd)\n\
-         CACHE=${GLOCI_BENCH_CACHE:-$ROOT/target/bench-data/cache}\n\
-         ONLY=${1:-}\n\
+         CACHE=${{GLOCI_BENCH_CACHE:-$ROOT/target/bench-data/cache}}\n\
+         ONLY=${{1:-}}\n\
+         KNOWN='{known}'\n\
+         if [ -n \"$ONLY\" ]; then\n\
+         \x20 case \"$KNOWN\" in *\" $ONLY \"*) ;; *) echo \"unknown dataset or derived input: $ONLY\" >&2; exit 2 ;; esac\n\
+         fi\n\
+         UNPINNED=\n\
+         NUNPINNED=0\n\
          mkdir -p \"$CACHE\"\n\
          \n\
-         want() { [ -z \"$ONLY\" ] || [ \"$ONLY\" = \"$1\" ]; }\n\
-         md5_of() { if command -v md5sum >/dev/null 2>&1; then md5sum \"$1\" | cut -d' ' -f1; else md5 -q \"$1\"; fi; }\n\
-         sha256_of() { if command -v sha256sum >/dev/null 2>&1; then sha256sum \"$1\" | cut -d' ' -f1; else shasum -a 256 \"$1\" | cut -d' ' -f1; fi; }\n\
+         # want NAME DEPENDENTS: NAME itself, or an item that needs it.\n\
+         want() {{ [ -z \"$ONLY\" ] || [ \"$ONLY\" = \"$1\" ] || case \" $2 \" in *\" $ONLY \"*) true ;; *) false ;; esac; }}\n\
+         md5_of() {{ if command -v md5sum >/dev/null 2>&1; then md5sum \"$1\" | cut -d' ' -f1; else md5 -q \"$1\"; fi; }}\n\
+         sha256_of() {{ if command -v sha256sum >/dev/null 2>&1; then sha256sum \"$1\" | cut -d' ' -f1; else shasum -a 256 \"$1\" | cut -d' ' -f1; fi; }}\n\
+         # sidecars NAME: the index extensions a derived input must have.\n\
+         sidecars() {{\n\
+         \x20 case \"$1\" in\n\
+         \x20   *.bam) echo bai ;; *.cram) echo crai ;; *.bcf) echo csi ;;\n\
+         \x20   *.vcf.gz|*.bed.gz) echo tbi ;; *) echo ;;\n\
+         \x20 esac\n\
+         }}\n\
          \n\
-         # fetch NAME URL FILE MD5: the provider's md5 is the check.\n\
-         fetch() {\n\
-         \x20 want \"$1\" || return 0\n\
+         # fetch NAME URL FILE MD5 DEPENDENTS: the provider's md5 is the check.\n\
+         fetch() {{\n\
+         \x20 want \"$1\" \"$5\" || return 0\n\
          \x20 if [ ! -e \"$CACHE/$3\" ]; then\n\
          \x20   echo \"fetching $1\" >&2\n\
-         \x20   curl -fsSL -o \"$CACHE/$3.tmp\" \"$2\"\n\
+         \x20   curl -fsSL --retry 3 --proto '=https' -o \"$CACHE/$3.tmp\" \"$2\"\n\
          \x20   mv \"$CACHE/$3.tmp\" \"$CACHE/$3\"\n\
          \x20 fi\n\
          \x20 got=$(md5_of \"$CACHE/$3\")\n\
          \x20 if [ \"$got\" != \"$4\" ]; then\n\
-         \x20   echo \"md5 mismatch for $1: expected $4, got $got; delete $CACHE/$3 and run again\" >&2\n\
+         \x20   mv \"$CACHE/$3\" \"$CACHE/$3.bad\"\n\
+         \x20   echo \"md5 mismatch for $1: expected $4, got $got; moved the file to $CACHE/$3.bad (delete it and run again)\" >&2\n\
          \x20   exit 1\n\
          \x20 fi\n\
-         }\n\
+         }}\n\
          \n\
-         # derive NAME SHA256 COMMAND: COMMAND sees IN, IN2... and OUT.\n\
-         derive() {\n\
-         \x20 want \"$1\" || return 0\n\
-         \x20 if [ ! -e \"$CACHE/$1\" ]; then\n\
+         # derive NAME SHA256 COMMAND DEPENDENTS: COMMAND sees IN, IN2... and OUT.\n\
+         # Index files go first and the result last, so an interrupted run leaves\n\
+         # no main file and the next run derives again.\n\
+         derive() {{\n\
+         \x20 want \"$1\" \"$4\" || return 0\n\
+         \x20 complete=1\n\
+         \x20 [ -e \"$CACHE/$1\" ] || complete=0\n\
+         \x20 for e in $(sidecars \"$1\"); do [ -e \"$CACHE/$1.$e\" ] || complete=0; done\n\
+         \x20 if [ \"$complete\" = 0 ]; then\n\
          \x20   echo \"deriving $1\" >&2\n\
-         \x20   OUT=\"$CACHE/$1.partial\" LC_ALL=C sh -c \"$3\"\n\
-         \x20   mv \"$CACHE/$1.partial\" \"$CACHE/$1\"\n\
+         \x20   rm -f \"$CACHE/$1\" \"$CACHE/$1.partial\" \"$CACHE/$1.partial\".*\n\
+         \x20   OUT=\"$CACHE/$1.partial\" LC_ALL=C bash -o pipefail -c \"$3\"\n\
          \x20   for f in \"$CACHE/$1.partial\".*; do\n\
-         \x20     if [ -e \"$f\" ]; then mv \"$f\" \"$CACHE/$1.${f##*.partial.}\"; fi\n\
+         \x20     if [ -e \"$f\" ]; then mv \"$f\" \"$CACHE/$1.${{f##*.partial.}}\"; fi\n\
          \x20   done\n\
+         \x20   for e in $(sidecars \"$1\"); do\n\
+         \x20     [ -e \"$CACHE/$1.$e\" ] || {{ echo \"$1: the command did not write its .$e index\" >&2; exit 1; }}\n\
+         \x20   done\n\
+         \x20   mv \"$CACHE/$1.partial\" \"$CACHE/$1\"\n\
          \x20 fi\n\
          \x20 if [ -z \"$2\" ]; then\n\
-         \x20   echo \"TO-PIN: $1 has no sha256 in datasets.toml (got $(sha256_of \"$CACHE/$1\"))\" >&2\n\
+         \x20   echo \"UNVERIFIED: $1 has no sha256 in datasets.toml (got $(sha256_of \"$CACHE/$1\"))\" >&2\n\
+         \x20   UNPINNED=\"$UNPINNED $1\"\n\
+         \x20   NUNPINNED=$((NUNPINNED + 1))\n\
          \x20 elif [ \"$(sha256_of \"$CACHE/$1\")\" != \"$2\" ]; then\n\
          \x20   echo \"sha256 mismatch for $1: expected $2; delete $CACHE/$1 and run again\" >&2\n\
          \x20   exit 1\n\
          \x20 fi\n\
-         }\n\n",
-    );
+         }}\n\n"
+    ));
     for d in cat.datasets.iter().filter(|d| d.paper) {
-        s.push_str(&fetch_line(d)?);
+        s.push_str(&fetch_line(d, &dependents(cat, &d.name).join(" "))?);
     }
     s.push('\n');
     for d in &cat.derived {
@@ -160,17 +213,27 @@ pub fn generate_script(cat: &Catalog, bench_dockerfile: &str) -> Result<String> 
         }
         let cmd = derived_command(&d.command, &ins, "\"$OUT\"");
         s.push_str(&format!(
-            "export {}\nderive {} {} {}\n",
+            "export {}\nderive {} {} {} {}\n",
             exports.join(" "),
             sh_quote(&d.name),
             sh_quote(&d.sha256),
             sh_quote(&cmd),
+            sh_quote(&dependents(cat, &d.name).join(" ")),
         ));
     }
+    s.push_str(
+        "\nif [ \"$NUNPINNED\" -gt 0 ]; then\n\
+         \x20 echo \"$NUNPINNED derived inputs UNVERIFIED (no sha256 in datasets.toml):$UNPINNED\" >&2\n\
+         \x20 if [ \"${GLOCI_ALLOW_UNPINNED:-}\" != 1 ]; then\n\
+         \x20   echo \"set GLOCI_ALLOW_UNPINNED=1 to accept them while recording the digests\" >&2\n\
+         \x20   exit 1\n\
+         \x20 fi\n\
+         fi\n",
+    );
     Ok(s)
 }
 
-fn fetch_line(d: &Dataset) -> Result<String> {
+fn fetch_line(d: &Dataset, dependents: &str) -> Result<String> {
     let (alg, hex) = d.checksum()?;
     if alg != "md5" {
         bail!(
@@ -180,11 +243,12 @@ fn fetch_line(d: &Dataset) -> Result<String> {
     }
     let file = d.url.split('/').next_back().unwrap_or(&d.name);
     Ok(format!(
-        "fetch {} {} {} {}\n",
+        "fetch {} {} {} {} {}\n",
         sh_quote(&d.name),
         sh_quote(&d.url),
         sh_quote(file),
-        sh_quote(hex)
+        sh_quote(hex),
+        sh_quote(dependents)
     ))
 }
 

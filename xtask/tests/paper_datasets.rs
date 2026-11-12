@@ -239,3 +239,120 @@ fn derived_command_and_record_helpers() {
     assert!(out.contains("sha256 = \"\" # TO-PIN"), "a is untouched");
     assert!(record_sha256(text, "zzz", "ff").is_err());
 }
+
+/// Run a generated script on a tiny local catalog: the dataset is pre-seeded
+/// in the cache (no network), the commands are `tr` and friends.
+fn run_script(
+    only: Option<&str>,
+    allow: bool,
+    break_cmd: bool,
+    tmp: &std::path::Path,
+) -> std::process::Output {
+    use md5::Digest;
+    let md5 = md5::Md5::digest(b"hello\n")
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+    let second = if break_cmd {
+        "zcat /nonexistent.gz | cat > {out}"
+    } else {
+        "tr a-z A-Z < {in} > {out}"
+    };
+    let cat = Catalog::parse(&format!(
+        r#"
+[[dataset]]
+name = "x"
+url = "https://example.invalid/x.txt"
+md5 = "{md5}"
+paper = true
+
+[[derived]]
+name = "up.txt"
+from = ["x"]
+command = "{second}"
+sha256 = ""
+
+[[derived]]
+name = "twice.txt"
+from = ["up.txt"]
+command = "cat {{in}} {{in}} > {{out}}"
+sha256 = ""
+"#
+    ))
+    .unwrap();
+    let script = generate_script(&cat, "").unwrap();
+    fs::create_dir_all(tmp.join("paper")).unwrap();
+    let path = tmp.join("paper/s.sh");
+    fs::write(&path, script).unwrap();
+    let cache = tmp.join("cache");
+    fs::create_dir_all(&cache).unwrap();
+    fs::write(cache.join("x.txt"), "hello\n").unwrap();
+    let mut c = std::process::Command::new("sh");
+    c.arg(&path).env("GLOCI_BENCH_CACHE", &cache);
+    if allow {
+        c.env("GLOCI_ALLOW_UNPINNED", "1");
+    }
+    if let Some(o) = only {
+        c.arg(o);
+    }
+    c.output().unwrap()
+}
+
+#[test]
+fn script_resolves_dependencies_and_rejects_unknown_names() {
+    let tmp = tempfile::tempdir().unwrap();
+    let o = run_script(Some("nope"), true, false, tmp.path());
+    assert_eq!(o.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("unknown dataset"));
+
+    let o = run_script(Some("twice.txt"), true, false, tmp.path());
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let cache = tmp.path().join("cache");
+    assert_eq!(fs::read_to_string(cache.join("up.txt")).unwrap(), "HELLO\n");
+    assert_eq!(
+        fs::read_to_string(cache.join("twice.txt")).unwrap(),
+        "HELLO\nHELLO\n"
+    );
+}
+
+#[test]
+fn script_fails_on_unpinned_digests_unless_allowed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let o = run_script(None, false, false, tmp.path());
+    assert_eq!(o.status.code(), Some(1));
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(err.contains("2 derived inputs UNVERIFIED"), "{err}");
+    let o = run_script(None, true, false, tmp.path());
+    assert!(o.status.success());
+}
+
+#[test]
+fn script_runs_derive_commands_under_pipefail() {
+    let tmp = tempfile::tempdir().unwrap();
+    let o = run_script(None, true, true, tmp.path());
+    assert!(
+        !o.status.success(),
+        "a failing pipe stage must fail the run"
+    );
+    assert!(
+        !tmp.path().join("cache/up.txt").exists(),
+        "no result is left behind"
+    );
+}
+
+#[test]
+fn derived_input_without_its_index_is_an_error() {
+    let tmp = tempfile::tempdir().unwrap();
+    let cat = Catalog::parse(
+        r#"
+[[derived]]
+name = "a.bam"
+from = ["repo:xtask/bench/datasets.toml"]
+command = "cp {in} {out}"
+sha256 = ""
+"#,
+    )
+    .unwrap();
+    let err = ensure_derived(&cat, &cat.derived[0], tmp.path(), None, true).unwrap_err();
+    assert!(err.to_string().contains(".bai"), "{err}");
+}
