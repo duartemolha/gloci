@@ -36,7 +36,8 @@ pub use sam::SamAln;
 pub(crate) use sam::SamReader;
 pub(crate) use source::source_from_input;
 pub use source::{
-    AlnSource, open_aln_source, open_aln_source_from, open_aln_source_regions, regions_source_from,
+    AlnSource, RecordVisitor, open_aln_source, open_aln_source_from, open_aln_source_regions,
+    regions_source_from,
 };
 pub use writer::{SamToBam, open_alignment_writer, sam_line_to_bam};
 

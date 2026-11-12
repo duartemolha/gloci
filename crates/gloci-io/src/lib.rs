@@ -38,8 +38,8 @@ pub mod writer;
 
 pub use align::{
     Accept, AlignOptions, Aln, AlnBed, AlnBedLayout, AlnBedOptions, AlnBlocks, AlnHeader, AlnRef,
-    AlnSortOrder, AlnSource, CramPrelude, CramReader, SAM_FLAGS, SamAln, SamToBam, SortOrder,
-    alignment_query_span, aln_ref, aln_view, bam_header_blocks, blocks, blocks_within,
+    AlnSortOrder, AlnSource, CramPrelude, CramReader, RecordVisitor, SAM_FLAGS, SamAln, SamToBam,
+    SortOrder, alignment_query_span, aln_ref, aln_view, bam_header_blocks, blocks, blocks_within,
     check_cram_version, check_sq_compatible, check_sq_compatible_named, cram_eof_present,
     cram_first_container, flag_names, open_alignment_writer, open_aln_source, open_aln_source_from,
     open_aln_source_regions, parse_flags, read_bam_file_header, read_bam_header_with_extent,

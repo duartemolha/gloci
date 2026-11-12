@@ -18,6 +18,9 @@ use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
 
+/// What [`AlnSource::for_each_record`] calls with each record and its number.
+pub type RecordVisitor<'a> = dyn FnMut(&[u8], u64) -> Result<(), IoError> + 'a;
+
 /// Every record of an alignment file, in file order.
 pub trait AlnSource: Send {
     /// The input's name, for messages.
@@ -37,10 +40,7 @@ pub trait AlnSource: Send {
     /// Call `f` with each record left and its number, as [`AlnSource::next_record`] gives
     /// them, stopping at the first error, `f`'s included. A BAM source passes most records in
     /// place, without copying them.
-    fn for_each_record(
-        &mut self,
-        f: &mut dyn FnMut(&[u8], u64) -> Result<(), IoError>,
-    ) -> Result<(), IoError> {
+    fn for_each_record(&mut self, f: &mut RecordVisitor<'_>) -> Result<(), IoError> {
         let mut buf = Vec::new();
         while let Some(rec) = self.next_record(&mut buf)? {
             f(&buf, rec)?;
@@ -90,10 +90,7 @@ impl AlnSource for BamSource {
         &self.diag
     }
 
-    fn for_each_record(
-        &mut self,
-        f: &mut dyn FnMut(&[u8], u64) -> Result<(), IoError>,
-    ) -> Result<(), IoError> {
+    fn for_each_record(&mut self, f: &mut RecordVisitor<'_>) -> Result<(), IoError> {
         let mut buf = Vec::new();
         loop {
             // The records wholly in the buffer that check are taken in place, a run at a time;
