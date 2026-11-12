@@ -145,35 +145,46 @@ fn pipe_ends_eof_fail_and_broken_pipe() {
 fn parked_pipe_ends_see_the_cancel() {
     let _s = serial();
     // A writer parked on a full pipe, and a reader parked on an empty one, each on a thread that
-    // entered the run's token.
+    // entered the run's token. Their errors come back on channels, so a cancel point that does
+    // not fire fails the test instead of hanging it.
     let token = CancelToken::new();
     let (mut w, _r) = pipe(1, 4);
+    let (wtx, wrx) = std::sync::mpsc::channel();
     let writer = {
         let token = token.clone();
         std::thread::spawn(move || {
             let _g = RunGuard::enter(&token);
             loop {
                 if let Err(e) = w.write_all(b"xxxx") {
-                    return e;
+                    let _ = wtx.send(e);
+                    return;
                 }
             }
         })
     };
     let (_w, mut r) = pipe(1, 4);
+    let (rtx, rrx) = std::sync::mpsc::channel();
     let reader = {
         let token = token.clone();
         std::thread::spawn(move || {
             let _g = RunGuard::enter(&token);
-            r.read(&mut [0u8; 4]).unwrap_err()
+            let _ = rtx.send(r.read(&mut [0u8; 4]));
         })
     };
     std::thread::sleep(Duration::from_millis(200));
     assert!(!writer.is_finished() && !reader.is_finished());
     token.cancel();
-    let t0 = std::time::Instant::now();
-    assert!(cancel::is_cancel_error(&writer.join().unwrap()));
-    assert!(cancel::is_cancel_error(&reader.join().unwrap()));
-    assert!(t0.elapsed() < Duration::from_secs(1), "{:?}", t0.elapsed());
+    let t0 = Instant::now();
+    let left = || Duration::from_secs(1).saturating_sub(t0.elapsed());
+    let we = wrx
+        .recv_timeout(left())
+        .expect("the parked writer did not see the cancel within 1 s");
+    assert!(cancel::is_cancel_error(&we), "{we}");
+    let re = rrx
+        .recv_timeout(left())
+        .expect("the parked reader did not see the cancel within 1 s")
+        .unwrap_err();
+    assert!(cancel::is_cancel_error(&re), "{re}");
 }
 
 /// An argv: `gloci`, then each argument (`&str`, `&Path`, an endpoint's name).
@@ -237,6 +248,21 @@ fn stage(
         endpoints,
         fail_downstream,
     }
+}
+
+/// `f()`, run on a helper thread, failing the test (rather than hanging it) when it takes
+/// longer than `limit`.
+fn within<T: Send + 'static>(
+    limit: Duration,
+    what: &str,
+    f: impl FnOnce() -> T + Send + 'static,
+) -> T {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(f());
+    });
+    rx.recv_timeout(limit)
+        .unwrap_or_else(|_| panic!("{what} took more than {limit:?}"))
 }
 
 /// The set's result, failing the test (rather than hanging it) after two minutes. (The error
@@ -621,6 +647,8 @@ fn cancel_unblocks_parked_stages() {
     let Link { out, inp, fail } = link("<windows output>");
     drop(fail);
     let argv0 = argv!["windows", "-g", &g, "-w", "1", "-o", out.name()];
+    // The pipe's reader stays alive here, unread, until the set has ended: only the pipe's own
+    // cancel point can release the writer parked on it.
     let mut set = StageSet::spawn_fns(vec![
         // A real command, parked on the full pipe.
         f(move || {
@@ -632,9 +660,8 @@ fn cancel_unblocks_parked_stages() {
             };
             embed::execute(&cli, &o)
         }),
-        // Holds the pipe's reader and never reads it.
-        f(move || {
-            let _inp = inp;
+        // Waits for the cancel.
+        f(|| {
             while !cancel::is_cancelled() {
                 std::thread::sleep(Duration::from_millis(5));
             }
@@ -647,11 +674,15 @@ fn cancel_unblocks_parked_stages() {
         "the stages ended before the cancel"
     );
     set.cancel();
-    let t0 = Instant::now();
-    let err = finish(set).unwrap_err();
-    assert!(t0.elapsed() < Duration::from_secs(1), "{:?}", t0.elapsed());
+    let err = within(
+        Duration::from_secs(1),
+        "the set after the cancel",
+        move || finish(set),
+    )
+    .unwrap_err();
     assert_eq!(err.outcome, Outcome::Cancelled);
     assert_eq!(err.stage, 0);
+    drop(inp);
 }
 
 #[test]
@@ -671,9 +702,11 @@ fn dropping_a_running_set_cancels_and_joins_it() {
     ]);
     // Nobody reads the last pipe, so both stages park.
     std::thread::sleep(Duration::from_millis(500));
-    let t0 = Instant::now();
-    drop(set);
-    assert!(t0.elapsed() < Duration::from_secs(1), "{:?}", t0.elapsed());
+    within(
+        Duration::from_secs(1),
+        "dropping the running set",
+        move || drop(set),
+    );
     // The last stage's reader is told the run stopped, not given a clean end.
     let mut rest = Vec::new();
     let e = r1.read_to_end(&mut rest).unwrap_err();
