@@ -115,15 +115,19 @@ enum PaperAction {
         #[arg(long, default_value = "target/bench-data")]
         data_dir: PathBuf,
     },
-    /// Run the paper's real-data benchmarks (peak RSS included)
+    /// Run the paper's real-data benchmarks (peak RSS included) or concordance cases
     Run {
-        /// Only the benchmarks (the concordance runs are a later task)
-        #[arg(long)]
+        /// The benchmarks of xtask/paper/bench.toml
+        #[arg(long, conflicts_with = "concordance_only")]
         bench_only: bool,
+        /// The concordance cases of xtask/paper/concordance.toml: gloci against the
+        /// reference tools, record by record (results in <out>/<version>/concordance.csv)
+        #[arg(long)]
+        concordance_only: bool,
         /// Run only this case
         #[arg(long, visible_alias = "case")]
         only: Option<String>,
-        /// gloci binary to benchmark (default: build --release for the host)
+        /// gloci binary to run (default: build --release for the host)
         #[arg(long)]
         gloci: Option<PathBuf>,
         /// Run on the host with host tools, not in the bench image
@@ -134,11 +138,11 @@ enum PaperAction {
         /// Where `paper fetch` put the datasets
         #[arg(long, default_value = "target/bench-data")]
         data_dir: PathBuf,
-        /// Results go to <out>/<version>/bench
+        /// Results go to <out>/<version>/bench, or <out>/<version>/concordance*
         #[arg(long, default_value = "paper/results")]
         out: PathBuf,
         /// Timed runs per command instead of each case's own (smoke runs)
-        #[arg(long)]
+        #[arg(long, conflicts_with = "concordance_only")]
         runs: Option<u32>,
     },
     /// Regenerate paper/fetch-datasets.sh from datasets.toml
@@ -529,6 +533,7 @@ fn run(cli: Cli) -> Result<bool> {
             }
             PaperAction::Run {
                 bench_only,
+                concordance_only,
                 only,
                 gloci,
                 no_docker,
@@ -538,9 +543,19 @@ fn run(cli: Cli) -> Result<bool> {
                 runs,
             } => {
                 anyhow::ensure!(
-                    bench_only,
-                    "only the benchmarks exist so far: pass --bench-only"
+                    bench_only || concordance_only,
+                    "pass --bench-only or --concordance-only"
                 );
+                if concordance_only {
+                    return xtask::paper::concord::run(&xtask::paper::concord::ConcordArgs {
+                        only,
+                        gloci,
+                        no_docker,
+                        image,
+                        data_dir,
+                        out,
+                    });
+                }
                 return xtask::paper::bench::run(&xtask::paper::bench::PaperBenchArgs {
                     only,
                     gloci,

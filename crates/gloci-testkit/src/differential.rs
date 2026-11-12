@@ -1,5 +1,9 @@
 //! Comparison rules shared by the live differential harness (`cargo xtask
-//! diff`) and the committed golden tests (`crates/gloci/tests/golden.rs`).
+//! diff`) and the committed golden tests (`crates/gloci/tests/golden.rs`),
+//! and the record-level match counts of the real-data concordance run (D97).
+
+use std::collections::HashMap;
+use std::io::{self, BufRead};
 
 /// Do two outputs agree under the compare mode?
 ///
@@ -338,6 +342,184 @@ pub fn check_anchor(doc: &str, anchor: &str) -> Result<(), String> {
     }
 }
 
+/// The compare modes of the real-data concordance run (D97), as [`line_key`]
+/// reads them.
+pub const CONCORDANCE_MODES: &[&str] = &["exact", "numeric", "vcf-records"];
+
+/// How far gloci's output agrees with a reference tool's, record by record
+/// (D97): the lines of each, and how many pair up as multisets (a line of
+/// either side is used at most once, so order does not matter).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MatchStats {
+    pub n_gloci: u64,
+    pub n_reference: u64,
+    pub n_matching: u64,
+    /// Both sides have the same lines in the same order.
+    pub same_order: bool,
+}
+
+impl MatchStats {
+    /// `n_matching` over the larger side; 1.0 when both are empty.
+    pub fn rate(&self) -> f64 {
+        match self.n_gloci.max(self.n_reference) {
+            0 => 1.0,
+            n => self.n_matching as f64 / n as f64,
+        }
+    }
+}
+
+/// The key of one output line (without its newline) under a concordance
+/// compare mode, or `None` for a line the mode skips:
+///
+/// - `exact`: the bytes of the line.
+/// - `vcf-records`: the same, and every line that starts with `#` (meta lines
+///   and the column-name line) is skipped, as tools write different headers.
+/// - `numeric`: a tab field that is a number counts by its value rounded to
+///   six significant digits, so `3`, `3.0` and `2.9999999` are one value
+///   (a value the tools round differently at the sixth digit does not match);
+///   an integer literal by its exact value; any other field by its bytes.
+///
+/// Panics on another mode ([`match_stats`] checks it first).
+pub fn line_key(mode: &str, line: &[u8]) -> Option<u64> {
+    use std::hash::Hasher;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    match mode {
+        "exact" => h.write(line),
+        "vcf-records" => {
+            if line.starts_with(b"#") {
+                return None;
+            }
+            h.write(line)
+        }
+        "numeric" => {
+            let mut canon = String::new();
+            for (i, f) in line.split(|&c| c == b'\t').enumerate() {
+                if i > 0 {
+                    h.write_u8(b'\t');
+                }
+                canon.clear();
+                if canonical_number(f, &mut canon) {
+                    h.write(canon.as_bytes());
+                } else {
+                    h.write(f);
+                }
+            }
+        }
+        other => panic!("unknown concordance compare mode `{other}`"),
+    }
+    Some(h.finish())
+}
+
+/// The canonical text of a numeric field (see [`line_key`]), or false when the
+/// field is not a number.
+fn canonical_number(f: &[u8], out: &mut String) -> bool {
+    use std::fmt::Write;
+    if is_int_literal(f) {
+        return match std::str::from_utf8(f)
+            .ok()
+            .and_then(|s| s.parse::<i128>().ok())
+        {
+            Some(v) => write!(out, "{v}").is_ok(),
+            None => false,
+        };
+    }
+    let Some(x) = parse_f64(f) else {
+        return false;
+    };
+    let six = format!("{x:.5e}");
+    let rounded: f64 = six.parse().unwrap_or(x);
+    if rounded.fract() == 0.0 && rounded.abs() < 1e15 {
+        write!(out, "{}", rounded as i64).is_ok()
+    } else {
+        out.push_str(&six);
+        true
+    }
+}
+
+/// Call `f` with the key and the text of every line of `r` that `mode` keeps,
+/// until `f` returns false. Returns the number of lines kept and a digest of
+/// their keys in order.
+pub fn for_each_line_key(
+    mode: &str,
+    r: &mut dyn BufRead,
+    mut f: impl FnMut(u64, &[u8]) -> bool,
+) -> io::Result<(u64, u64)> {
+    use std::hash::Hasher;
+    let mut order = std::collections::hash_map::DefaultHasher::new();
+    let (mut n, mut buf) = (0u64, Vec::new());
+    loop {
+        buf.clear();
+        if r.read_until(b'\n', &mut buf)? == 0 {
+            break;
+        }
+        let line = buf.strip_suffix(b"\n").unwrap_or(&buf);
+        if let Some(k) = line_key(mode, line) {
+            n += 1;
+            order.write_u64(k);
+            if !f(k, line) {
+                break;
+            }
+        }
+    }
+    Ok((n, order.finish()))
+}
+
+/// [`MatchStats`] of two outputs under a concordance compare mode
+/// ([`CONCORDANCE_MODES`]), streamed: only a multiset of line keys is kept.
+pub fn match_stats(
+    mode: &str,
+    gloci: &mut dyn BufRead,
+    reference: &mut dyn BufRead,
+) -> io::Result<MatchStats> {
+    match_stats_with_residual(mode, gloci, reference).map(|(s, _)| s)
+}
+
+/// [`match_stats`], and the unmatched lines as a map from line key to count:
+/// positive for lines only gloci wrote, negative for lines only the reference
+/// wrote (a second pass over the outputs can then show them).
+pub fn match_stats_with_residual(
+    mode: &str,
+    gloci: &mut dyn BufRead,
+    reference: &mut dyn BufRead,
+) -> io::Result<(MatchStats, HashMap<u64, i64>)> {
+    use std::collections::hash_map::Entry;
+    if !CONCORDANCE_MODES.contains(&mode) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "unknown concordance compare mode `{mode}` (use exact, numeric or vcf-records)"
+            ),
+        ));
+    }
+    let mut counts: HashMap<u64, i64> = HashMap::new();
+    let (n_gloci, order_g) = for_each_line_key(mode, gloci, |k, _| {
+        *counts.entry(k).or_insert(0) += 1;
+        true
+    })?;
+    let (n_reference, order_r) = for_each_line_key(mode, reference, |k, _| {
+        match counts.entry(k) {
+            Entry::Occupied(mut e) => {
+                *e.get_mut() -= 1;
+                if *e.get() == 0 {
+                    e.remove();
+                }
+            }
+            Entry::Vacant(e) => {
+                e.insert(-1);
+            }
+        }
+        true
+    })?;
+    let unmatched: u64 = counts.values().map(|v| v.unsigned_abs()).sum();
+    let stats = MatchStats {
+        n_gloci,
+        n_reference,
+        n_matching: (n_gloci + n_reference - unmatched) / 2,
+        same_order: n_gloci == n_reference && order_g == order_r,
+    };
+    Ok((stats, counts))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{compare, observe, split_args};
@@ -504,5 +686,82 @@ mod tests {
         assert!(!compare("numeric", b"inf\n", b"-inf\n"));
         assert!(compare("numeric", b"nan\n", b"nan\n"));
         assert!(!compare("exact", b"x\t3\n", b"x\t3.0\n"));
+    }
+
+    fn stats(mode: &str, g: &str, r: &str) -> super::MatchStats {
+        super::match_stats(mode, &mut g.as_bytes(), &mut r.as_bytes()).unwrap()
+    }
+
+    #[test]
+    fn match_stats_modes() {
+        let ten: String = (0..10).map(|i| format!("chr1\t{i}\t{}\n", i + 5)).collect();
+        // Identical inputs.
+        let s = stats("exact", &ten, &ten);
+        assert_eq!((s.n_gloci, s.n_reference, s.n_matching), (10, 10, 10));
+        assert_eq!(s.rate(), 1.0);
+        assert!(s.same_order);
+        // One changed line in 10.
+        let changed = ten.replace("chr1\t3\t8\n", "chr1\t3\t9\n");
+        let s = stats("exact", &changed, &ten);
+        assert_eq!((s.n_gloci, s.n_reference, s.n_matching), (10, 10, 9));
+        assert!((s.rate() - 0.9).abs() < 1e-12);
+        // Reordered lines: all match, the order does not.
+        let mut lines: Vec<&str> = ten.split_inclusive('\n').collect();
+        lines.reverse();
+        let s = stats("exact", &lines.concat(), &ten);
+        assert_eq!(s.n_matching, 10);
+        assert_eq!(s.rate(), 1.0);
+        assert!(!s.same_order);
+        // A line repeated on one side matches once.
+        let s = stats("exact", "a\na\n", "a\nb\n");
+        assert_eq!((s.n_gloci, s.n_reference, s.n_matching), (2, 2, 1));
+        // A missing final newline does not change the line.
+        assert_eq!(stats("exact", "a\nb", "a\nb\n").rate(), 1.0);
+        // vcf-records ignores every `#` line, the column-name line included.
+        let s = stats(
+            "vcf-records",
+            "##fileformat=VCFv4.2\n##glociCommand=x\n#CHROM\tPOS\nchr1\t5\n",
+            "##fileformat=VCFv4.2\nchr1\t5\n",
+        );
+        assert_eq!((s.n_gloci, s.n_reference, s.n_matching), (1, 1, 1));
+        assert!(s.same_order);
+        assert!(stats("exact", "#h\nx\n", "x\n").rate() < 1.0);
+        // numeric: 3 and 3.0 are equal, and numbers agree to six significant digits.
+        assert_eq!(stats("numeric", "x\t3\n", "x\t3.0\n").rate(), 1.0);
+        assert_eq!(stats("numeric", "x\t19\n", "x\t19.000000\n").rate(), 1.0);
+        assert_eq!(
+            stats("numeric", "x\t0.0123456789\n", "x\t0.0123457\n").rate(),
+            1.0
+        );
+        assert_eq!(stats("numeric", "x\t2.9999999\n", "x\t3\n").rate(), 1.0);
+        assert_eq!(stats("numeric", "x\t-0.0\n", "x\t0\n").rate(), 1.0);
+        assert!(stats("numeric", "x\t0.012345\n", "x\t0.012346\n").rate() < 1.0);
+        // Integer literals must match exactly, other text exactly.
+        assert!(stats("numeric", "x\t100000000\n", "x\t100000500\n").rate() < 1.0);
+        assert!(stats("numeric", "x\t.\n", "x\tNA\n").rate() < 1.0);
+        assert!(stats("numeric", "x\t3\n", "y\t3\n").rate() < 1.0);
+        assert!(stats("exact", "x\t3\n", "x\t3.0\n").rate() < 1.0);
+        // Two empty inputs agree.
+        let s = stats("exact", "", "");
+        assert_eq!((s.n_gloci, s.n_reference, s.n_matching), (0, 0, 0));
+        assert_eq!(s.rate(), 1.0);
+        assert!(s.same_order);
+        // One empty side matches nothing.
+        assert_eq!(stats("exact", "", "a\n").rate(), 0.0);
+        // Unknown modes are an error, not a guess.
+        assert!(super::match_stats("bam", &mut &b""[..], &mut &b""[..]).is_err());
+    }
+
+    #[test]
+    fn residual_names_the_unmatched_lines() {
+        let (s, residual) =
+            super::match_stats_with_residual("exact", &mut &b"a\nb\nb\n"[..], &mut &b"b\nc\n"[..])
+                .unwrap();
+        assert_eq!(s.n_matching, 1);
+        let key = |l: &str| super::line_key("exact", l.as_bytes()).unwrap();
+        assert_eq!(residual.get(&key("a")), Some(&1));
+        assert_eq!(residual.get(&key("b")), Some(&1));
+        assert_eq!(residual.get(&key("c")), Some(&-1));
+        assert_eq!(super::line_key("vcf-records", b"#CHROM\tPOS"), None);
     }
 }

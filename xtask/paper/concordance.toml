@@ -1,0 +1,647 @@
+# Real-data concordance (D97): `cargo xtask paper run --concordance-only`.
+#
+# Each case runs `reference` once and `gloci` once per mode in the bench image
+# (gloci-bench:p1, tools pinned there) with the paper dataset cache mounted
+# read-only at /cache. Commands are bash (`-o pipefail`, LC_ALL=C) and write
+# their result to {out}; gzip output (bgzip) is read back decompressed.
+# {in_a}, {in_b}, {in_c} and {genome} are the `inputs` (datasets and derived
+# inputs of xtask/bench/datasets.toml).
+#
+# - Default mode: the runner adds `--chrom-order lex` after every gloci
+#   subcommand that takes it, as the derived inputs are sorted with LC_ALL=C.
+#   Do not write it here.
+# - Compat mode (cases with `compat`): the same plus the `compat` flags after
+#   the first gloci subcommand, against the same reference output.
+# - `compare`: `exact` (lines), `numeric` (numbers to six significant digits)
+#   or `vcf-records` (`#` lines skipped). Lines are matched as multisets
+#   and the order is checked too.
+# - `expected_difference` / `compat_difference`: the documented difference
+#   (docs/differences.md) the default / compat run may show. A run that
+#   differs without one fails; an anchor that never fires prints
+#   `anchor unused`.
+#
+# Reference commands and compat flags copy the diff case of the same command
+# (xtask/diff/cases.toml). Changes for real data, each noted where it is made:
+# `-prec 10` / `--prec 10` where bedtools map and bedmap round to fewer than
+# six digits, output piped through bgzip where it is gigabytes, and inputs
+# reshaped where a tool reads another column layout.
+
+# ---- sort ----
+
+[[case]]
+name = "sort-exons-vs-sort-bed"
+command = "sort"
+reference_tool = "sort-bed"
+inputs = { a = "exons-unsorted.bed" }
+gloci = "{gloci} sort {in_a} > {out}"
+reference = "sort-bed {in_a} > {out}"
+compat = "--full-key"
+expected_difference = "#sort-tie-order"
+
+[[case]]
+name = "sort-exons-vs-bedtools-sort"
+command = "sort"
+reference_tool = "bedtools"
+inputs = { a = "exons-unsorted.bed" }
+gloci = "{gloci} sort {in_a} > {out}"
+reference = "bedtools sort -i {in_a} > {out}"
+expected_difference = "#sort-tie-order"
+
+# ---- intersect: cCREs (A) with exons (B) ----
+
+[[case]]
+name = "intersect-any-ccre-exons-vs-bedtools"
+command = "intersect"
+reference_tool = "bedtools"
+inputs = { a = "ccre.bed", b = "exons.bed" }
+gloci = "{gloci} intersect -a {in_a} -b {in_b} --mode any > {out}"
+reference = "bedtools intersect -sorted -a {in_a} -b {in_b} -u > {out}"
+
+[[case]]
+name = "intersect-none-ccre-exons-vs-bedtools"
+command = "intersect"
+reference_tool = "bedtools"
+inputs = { a = "ccre.bed", b = "exons.bed" }
+gloci = "{gloci} intersect -a {in_a} -b {in_b} --mode none > {out}"
+reference = "bedtools intersect -sorted -a {in_a} -b {in_b} -v > {out}"
+
+[[case]]
+name = "intersect-pairs-ccre-exons-vs-bedtools"
+command = "intersect"
+reference_tool = "bedtools"
+inputs = { a = "ccre.bed", b = "exons.bed" }
+gloci = "{gloci} intersect -a {in_a} -b {in_b} --mode pairs --overlap-bases > {out}"
+reference = "bedtools intersect -sorted -a {in_a} -b {in_b} -wo > {out}"
+
+[[case]]
+name = "intersect-clip-ccre-exons-vs-bedtools"
+command = "intersect"
+reference_tool = "bedtools"
+inputs = { a = "ccre.bed", b = "exons.bed" }
+gloci = "{gloci} intersect -a {in_a} -b {in_b} --mode clip > {out}"
+reference = "bedtools intersect -sorted -a {in_a} -b {in_b} > {out}"
+
+[[case]]
+name = "intersect-count-ccre-exons-vs-bedtools"
+command = "intersect"
+reference_tool = "bedtools"
+inputs = { a = "ccre.bed", b = "exons.bed" }
+gloci = "{gloci} intersect -a {in_a} -b {in_b} --mode count > {out}"
+reference = "bedtools intersect -sorted -a {in_a} -b {in_b} -c > {out}"
+
+[[case]]
+name = "intersect-reciprocal-ccre-exons-vs-bedtools"
+command = "intersect"
+reference_tool = "bedtools"
+inputs = { a = "ccre.bed", b = "exons.bed" }
+gloci = "{gloci} intersect -a {in_a} -b {in_b} --mode pairs -r -f 0.5 > {out}"
+reference = "bedtools intersect -sorted -a {in_a} -b {in_b} -wa -wb -r -f 0.5 > {out}"
+
+[[case]]
+name = "intersect-any-ccre-exons-vs-bedops"
+command = "intersect"
+reference_tool = "bedops"
+inputs = { a = "ccre.bed", b = "exons.bed" }
+gloci = "{gloci} intersect -a {in_a} -b {in_b} > {out}"
+reference = "bedops --element-of 1 {in_a} {in_b} > {out}"
+
+[[case]]
+name = "intersect-none-ccre-exons-vs-bedops"
+command = "intersect"
+reference_tool = "bedops"
+inputs = { a = "ccre.bed", b = "exons.bed" }
+gloci = "{gloci} intersect -a {in_a} -b {in_b} --mode none > {out}"
+reference = "bedops --not-element-of 1 {in_a} {in_b} > {out}"
+
+# ---- subtract: exons (A) minus cCREs (B) ----
+
+[[case]]
+name = "subtract-exons-ccre-vs-bedtools"
+command = "subtract"
+reference_tool = "bedtools"
+inputs = { a = "exons.bed", b = "ccre.bed" }
+gloci = "{gloci} subtract -a {in_a} -b {in_b} > {out}"
+reference = "bedtools subtract -a {in_a} -b {in_b} > {out}"
+
+[[case]]
+name = "subtract-whole-exons-ccre-vs-bedtools"
+command = "subtract"
+reference_tool = "bedtools"
+inputs = { a = "exons.bed", b = "ccre.bed" }
+gloci = "{gloci} subtract -a {in_a} -b {in_b} --whole > {out}"
+reference = "bedtools subtract -A -a {in_a} -b {in_b} > {out}"
+
+[[case]]
+name = "subtract-difference-exons-ccre-vs-bedops"
+command = "subtract"
+reference_tool = "bedops"
+inputs = { a = "exons.bed", b = "ccre.bed" }
+gloci = "{gloci} merge {in_a} | {gloci} subtract -a - -b {in_b} > {out}"
+reference = "bedops --difference {in_a} {in_b} > {out}"
+
+# ---- closest: CTCF peaks (A) to exons (B) ----
+
+[[case]]
+name = "closest-peaks-exons-vs-bedtools"
+command = "closest"
+reference_tool = "bedtools"
+inputs = { a = "ctcf-peaks.bed", b = "exons.bed" }
+gloci = "{gloci} closest -a {in_a} -b {in_b} --distance > {out}"
+reference = "bedtools closest -a {in_a} -b {in_b} -d -t all > {out}"
+
+[[case]]
+name = "closest-k2-ties-first-peaks-exons-vs-bedtools"
+command = "closest"
+reference_tool = "bedtools"
+inputs = { a = "ctcf-peaks.bed", b = "exons.bed" }
+gloci = "{gloci} closest -a {in_a} -b {in_b} -k 2 --ties first --distance > {out}"
+reference = "bedtools closest -a {in_a} -b {in_b} -k 2 -t first -d > {out}"
+expected_difference = "#closest-ties-k"
+
+[[case]]
+name = "closest-each-side-peaks-exons-vs-bedops"
+command = "closest"
+reference_tool = "bedops"
+inputs = { a = "ctcf-peaks.bed", b = "exons.bed" }
+gloci = "{gloci} closest -a {in_a} -b {in_b} --each-side --distance > {out}"
+reference = '''closest-features --dist {in_a} {in_b} | tr '|' '\t' > {out}'''
+expected_difference = "#closest-each-side"
+
+[[case]]
+name = "closest-each-side-no-overlaps-peaks-exons-vs-bedops"
+command = "closest"
+reference_tool = "bedops"
+inputs = { a = "ctcf-peaks.bed", b = "exons.bed" }
+gloci = "{gloci} closest -a {in_a} -b {in_b} --each-side --distance --ignore-overlaps > {out}"
+reference = '''closest-features --dist --no-overlaps {in_a} {in_b} | tr '|' '\t' > {out}'''
+expected_difference = "#closest-each-side"
+
+# ---- map: CTCF fold change (B, bedGraph) over cCREs (A) ----
+
+# bedtools map rounds to 5 significant digits unless -prec.
+[[case]]
+name = "map-ccre-signal-vs-bedtools"
+command = "map"
+reference_tool = "bedtools"
+inputs = { a = "ccre.bed", b = "ctcf-fc.bedgraph" }
+gloci = "{gloci} map -a {in_a} -b {in_b} -c 4:mean -c 4:max -c 4:count > {out}"
+reference = "bedtools map -a {in_a} -b {in_b} -c 4,4,4 -o mean,max,count -prec 10 > {out}"
+compare = "numeric"
+
+# bedmap scores come from column 5, so the bedGraph value is moved there;
+# bedmap prints 6 decimals unless --prec.
+[[case]]
+name = "map-ccre-signal-vs-bedmap"
+command = "map"
+reference_tool = "bedops"
+inputs = { a = "ccre.bed", b = "ctcf-fc.bedgraph" }
+gloci = "{gloci} map -a {in_a} -b {in_b} -c 4:mean > {out}"
+reference = '''awk 'BEGIN{OFS="\t"}{print $1,$2,$3,".",$4}' {in_b} | bedmap --echo --mean --prec 10 {in_a} - | tr '|' '\t' > {out}'''
+compare = "numeric"
+compat = "--empty NAN"
+expected_difference = "#map-empty-value"
+
+# ---- coverage: cCREs (A) by exons (B) ----
+
+[[case]]
+name = "coverage-ccre-exons-vs-bedtools"
+command = "coverage"
+reference_tool = "bedtools"
+inputs = { a = "ccre.bed", b = "exons.bed" }
+gloci = "{gloci} coverage -a {in_a} -b {in_b} > {out}"
+reference = "bedtools coverage -a {in_a} -b {in_b} > {out}"
+compare = "numeric"
+expected_difference = "#coverage-point"
+
+[[case]]
+name = "coverage-hist-ccre-exons-vs-bedtools"
+command = "coverage"
+reference_tool = "bedtools"
+inputs = { a = "ccre.bed", b = "exons.bed" }
+gloci = "{gloci} coverage -a {in_a} -b {in_b} --hist > {out}"
+reference = "bedtools coverage -a {in_a} -b {in_b} -hist > {out}"
+compare = "numeric"
+expected_difference = "#coverage-point"
+
+[[case]]
+name = "coverage-mean-ccre-exons-vs-bedtools"
+command = "coverage"
+reference_tool = "bedtools"
+inputs = { a = "ccre.bed", b = "exons.bed" }
+gloci = "{gloci} coverage -a {in_a} -b {in_b} --mean > {out}"
+reference = "bedtools coverage -a {in_a} -b {in_b} -mean > {out}"
+compare = "numeric"
+expected_difference = "#coverage-point"
+
+# ---- merge: exons ----
+
+[[case]]
+name = "merge-exons-vs-bedtools"
+command = "merge"
+reference_tool = "bedtools"
+inputs = { a = "exons.bed" }
+gloci = "{gloci} merge {in_a} > {out}"
+reference = "bedtools merge -i {in_a} > {out}"
+
+[[case]]
+name = "merge-count-distinct-exons-vs-bedtools"
+command = "merge"
+reference_tool = "bedtools"
+inputs = { a = "exons.bed" }
+gloci = "{gloci} merge -c 4:count_distinct {in_a} > {out}"
+reference = "bedtools merge -i {in_a} -c 4 -o count_distinct > {out}"
+
+[[case]]
+name = "merge-exons-vs-bedops"
+command = "merge"
+reference_tool = "bedops"
+inputs = { a = "exons.bed" }
+gloci = "{gloci} merge {in_a} > {out}"
+reference = "bedops --merge {in_a} > {out}"
+
+# ---- interval transforms: exons and the hg38 genome (LC_ALL=C order) ----
+
+[[case]]
+name = "complement-exons-vs-bedtools"
+command = "complement"
+reference_tool = "bedtools"
+inputs = { a = "exons.bed", genome = "hg38.lex.genome" }
+gloci = "{gloci} complement -g {genome} {in_a} > {out}"
+reference = "bedtools complement -i {in_a} -g {genome} > {out}"
+expected_difference = "#complement-past-end"
+
+[[case]]
+name = "slop-exons-vs-bedtools"
+command = "slop"
+reference_tool = "bedtools"
+inputs = { a = "exons.bed", genome = "hg38.lex.genome" }
+gloci = "{gloci} slop -b 100 -g {genome} {in_a} > {out}"
+reference = "bedtools slop -i {in_a} -g {genome} -b 100 > {out}"
+expected_difference = "#slop-flank-past-end"
+
+[[case]]
+name = "flank-exons-vs-bedtools"
+command = "flank"
+reference_tool = "bedtools"
+inputs = { a = "exons.bed", genome = "hg38.lex.genome" }
+gloci = "{gloci} flank -b 100 -g {genome} {in_a} > {out}"
+reference = "bedtools flank -i {in_a} -g {genome} -b 100 > {out}"
+expected_difference = "#slop-flank-past-end"
+
+[[case]]
+name = "shift-exons-vs-bedtools"
+command = "shift"
+reference_tool = "bedtools"
+inputs = { a = "exons.bed", genome = "hg38.lex.genome" }
+gloci = "{gloci} shift --by 100 -g {genome} {in_a} > {out}"
+reference = "bedtools shift -i {in_a} -g {genome} -s 100 > {out}"
+expected_difference = "#shift-past-edge"
+
+[[case]]
+name = "windows-exons-vs-bedtools"
+command = "windows"
+reference_tool = "bedtools"
+inputs = { a = "exons.bed" }
+gloci = "{gloci} windows -i {in_a} -w 100 --id-column > {out}"
+reference = "bedtools makewindows -b {in_a} -w 100 -i winnum > {out}"
+
+[[case]]
+name = "windows-genome-vs-bedtools"
+command = "windows"
+reference_tool = "bedtools"
+inputs = { genome = "hg38.lex.genome" }
+gloci = "{gloci} windows -g {genome} -w 100000 --step 50000 > {out}"
+reference = "bedtools makewindows -g {genome} -w 100000 -s 50000 > {out}"
+
+[[case]]
+name = "genomecov-bga-exons-vs-bedtools"
+command = "genomecov"
+reference_tool = "bedtools"
+inputs = { a = "exons.bed", genome = "hg38.lex.genome" }
+gloci = "{gloci} genomecov --bga -g {genome} {in_a} > {out}"
+reference = "bedtools genomecov -bga -i {in_a} -g {genome} > {out}"
+expected_difference = "#genomecov-chrom-order"
+
+# ---- partition: cCREs, exons and CTCF peaks ----
+
+[[case]]
+name = "partition-ccre-exons-peaks-vs-bedops"
+command = "partition"
+reference_tool = "bedops"
+inputs = { a = "ccre.bed", b = "exons.bed", c = "ctcf-peaks.bed" }
+gloci = "{gloci} partition --no-membership {in_a} {in_b} {in_c} > {out}"
+reference = "bedops --partition {in_a} {in_b} {in_c} > {out}"
+
+# multiinter reshaped to its first five columns, as in the diff cases.
+[[case]]
+name = "partition-ccre-exons-peaks-vs-multiinter"
+command = "partition"
+reference_tool = "bedtools"
+inputs = { a = "ccre.bed", b = "exons.bed", c = "ctcf-peaks.bed" }
+gloci = "{gloci} partition --names 1,2,3 {in_a} {in_b} {in_c} > {out}"
+reference = "bedtools multiinter -i {in_a} {in_b} {in_c} | cut -f1-5 > {out}"
+compat = "--merge-adjacent"
+expected_difference = "#partition-boundaries"
+
+# ---- cluster, spacing, groupby ----
+
+[[case]]
+name = "cluster-exons-vs-bedtools"
+command = "cluster"
+reference_tool = "bedtools"
+inputs = { a = "exons.bed" }
+gloci = "{gloci} cluster {in_a} > {out}"
+reference = "bedtools cluster -i {in_a} > {out}"
+
+[[case]]
+name = "cluster-strand-exons-vs-bedtools"
+command = "cluster"
+reference_tool = "bedtools"
+inputs = { a = "exons.bed" }
+gloci = "{gloci} cluster -s {in_a} > {out}"
+reference = "bedtools cluster -s -i {in_a} > {out}"
+expected_difference = "#cluster-strand"
+
+[[case]]
+name = "spacing-exons-vs-bedtools"
+command = "spacing"
+reference_tool = "bedtools"
+inputs = { a = "exons.bed" }
+gloci = "{gloci} spacing {in_a} > {out}"
+reference = "bedtools spacing -i {in_a} > {out}"
+
+# GTF order: the exons of a gene are consecutive, so each run is one gene.
+[[case]]
+name = "groupby-genes-exons-unsorted-vs-bedtools"
+command = "groupby"
+reference_tool = "bedtools"
+inputs = { a = "exons-unsorted.bed" }
+gloci = "{gloci} groupby {in_a} -g 1,4,6 -c 2:min,3:max,4:count,3:mean > {out}"
+reference = "bedtools groupby -i {in_a} -g 1,4,6 -c 2,3,4,3 -o min,max,count,mean > {out}"
+compare = "numeric"
+
+# ---- convert ----
+
+[[case]]
+name = "convert-gencode-gtf-vs-gtf2bed"
+command = "convert"
+reference_tool = "bedops"
+inputs = { a = "gencode-v46-gtf" }
+gloci = "{gloci} convert {in_a} > {out}"
+reference = "zcat {in_a} | gtf2bed > {out}"
+expected_difference = "#gff2bed-name"
+
+# ---- interval statistics: cCREs and exons ----
+
+[[case]]
+name = "stats-jaccard-ccre-exons-vs-bedtools"
+command = "stats jaccard"
+reference_tool = "bedtools"
+inputs = { a = "ccre.bed", b = "exons.bed" }
+gloci = "{gloci} stats jaccard -a {in_a} -b {in_b} > {out}"
+reference = "bedtools jaccard -a {in_a} -b {in_b} > {out}"
+
+[[case]]
+name = "stats-fisher-ccre-exons-vs-bedtools"
+command = "stats fisher"
+reference_tool = "bedtools"
+inputs = { a = "ccre.bed", b = "exons.bed", genome = "hg38.lex.genome" }
+gloci = "{gloci} stats fisher -a {in_a} -b {in_b} -g {genome} > {out}"
+reference = "bedtools fisher -a {in_a} -b {in_b} -g {genome} > {out}"
+
+[[case]]
+name = "stats-reldist-ccre-exons-vs-bedtools"
+command = "stats reldist"
+reference_tool = "bedtools"
+inputs = { a = "ccre.bed", b = "exons.bed" }
+gloci = "{gloci} stats reldist -a {in_a} -b {in_b} > {out}"
+reference = "bedtools reldist -a {in_a} -b {in_b} > {out}"
+
+# ---- VCF against BED: 1000 Genomes chr20 (A) and exons (B) ----
+
+# The VCF's ##contig lines (chr1, chr2, ...) take precedence over
+# --chrom-order, so exons.bed (chr1, chr10, ...) would be unsorted against
+# them; -g with the LC_ALL=C genome puts both in one order. bedtools reads B
+# into memory (no -sorted).
+[[case]]
+name = "intersect-1kg-exons-vs-bedtools"
+command = "intersect"
+reference_tool = "bedtools"
+inputs = { a = "1kg-30x-chr20", b = "exons.bed", genome = "hg38.lex.genome" }
+gloci = "{gloci} intersect --mode any -g {genome} -a {in_a} -b {in_b} | bgzip -@ 2 -l 1 -c > {out}"
+reference = "bedtools intersect -u -header -a {in_a} -b {in_b} | bgzip -@ 2 -l 1 -c > {out}"
+compare = "vcf-records"
+compat = "--vcf-span ref"
+expected_difference = "#vcf-allele-span"
+
+# Ten regions of chr20 in order, apart from each other.
+[[case]]
+name = "view-1kg-regions-vs-tabix"
+command = "view"
+reference_tool = "tabix"
+inputs = { a = "1kg-30x-chr20" }
+gloci = "{gloci} view --no-header {in_a} chr20:1000000-1010000 chr20:5000000-5005000 chr20:10000000-10002000 chr20:15000000-15010000 chr20:20000000-20001000 chr20:25000000-25050000 chr20:32000000-32005000 chr20:40000000-40010000 chr20:50000000-50005000 chr20:60000000-60010000 > {out}"
+reference = "tabix {in_a} chr20:1000000-1010000 chr20:5000000-5005000 chr20:10000000-10002000 chr20:15000000-15010000 chr20:20000000-20001000 chr20:25000000-25050000 chr20:32000000-32005000 chr20:40000000-40010000 chr20:50000000-50005000 chr20:60000000-60010000 > {out}"
+compat = "--vcf-span ref --inclusive-points"
+expected_difference = "#view-region-footprints"
+
+# ---- vcf filter ----
+
+# vcftools --max-missing 0.9 (fraction called) is gloci --max-missing 0.1.
+[[case]]
+name = "vcf-filter-maf-missing-1kg-vs-vcftools"
+command = "vcf filter"
+reference_tool = "vcftools"
+inputs = { a = "1kg-30x-chr20" }
+gloci = "{gloci} vcf filter {in_a} --min-maf 0.01 --max-missing 0.1 -O vcf | bgzip -@ 2 -l 1 -c > {out}"
+reference = "vcftools --gzvcf {in_a} --recode --recode-INFO-all --stdout --maf 0.01 --max-missing 0.9 | bgzip -@ 2 -l 1 -c > {out}"
+compare = "vcf-records"
+expected_difference = "#maf-multiallelic"
+
+[[case]]
+name = "vcf-filter-pass-only-gnomad-vs-vcftools"
+command = "vcf filter"
+reference_tool = "vcftools"
+inputs = { a = "gnomad-v4.1-exomes-chr22" }
+gloci = "{gloci} vcf filter {in_a} --pass-only -O vcf | bgzip -@ 2 -l 1 -c > {out}"
+reference = "vcftools --gzvcf {in_a} --recode --recode-INFO-all --stdout --remove-filtered-all | bgzip -@ 2 -l 1 -c > {out}"
+compare = "vcf-records"
+
+# --pass-only keeps FILTER PASS and `.`, which is bcftools -f .,PASS.
+[[case]]
+name = "vcf-filter-pass-only-gnomad-vs-bcftools"
+command = "vcf filter"
+reference_tool = "bcftools"
+inputs = { a = "gnomad-v4.1-exomes-chr22" }
+gloci = "{gloci} vcf filter {in_a} --pass-only -O vcf | bgzip -@ 2 -l 1 -c > {out}"
+reference = "bcftools view --no-version -f .,PASS {in_a} | bgzip -@ 2 -l 1 -c > {out}"
+compare = "vcf-records"
+
+[[case]]
+name = "vcf-filter-include-1kg-vs-bcftools"
+command = "vcf filter"
+reference_tool = "bcftools"
+inputs = { a = "1kg-30x-chr20" }
+gloci = '''{gloci} vcf filter {in_a} --include 'INFO/AF>0.05 && TYPE="snp"' -O vcf | bgzip -@ 2 -l 1 -c > {out}'''
+reference = '''bcftools view --no-version -i 'INFO/AF>0.05 && TYPE="snp"' {in_a} | bgzip -@ 2 -l 1 -c > {out}'''
+compare = "vcf-records"
+expected_difference = "#expr-subset"
+
+# ---- vcf stats: one vcftools run per statistic ----
+
+[[case]]
+name = "vcf-stats-freq-1kg-vs-vcftools"
+command = "vcf stats"
+reference_tool = "vcftools"
+inputs = { a = "1kg-30x-chr20" }
+gloci = "{gloci} vcf stats {in_a} --out-prefix {out}.p --freq && mv {out}.p.frq {out}"
+reference = "vcftools --gzvcf {in_a} --freq --out {out}.p && mv {out}.p.frq {out}"
+compare = "numeric"
+
+[[case]]
+name = "vcf-stats-counts-1kg-vs-vcftools"
+command = "vcf stats"
+reference_tool = "vcftools"
+inputs = { a = "1kg-30x-chr20" }
+gloci = "{gloci} vcf stats {in_a} --out-prefix {out}.p --counts && mv {out}.p.frq.count {out}"
+reference = "vcftools --gzvcf {in_a} --counts --out {out}.p && mv {out}.p.frq.count {out}"
+compare = "numeric"
+
+[[case]]
+name = "vcf-stats-missing-site-1kg-vs-vcftools"
+command = "vcf stats"
+reference_tool = "vcftools"
+inputs = { a = "1kg-30x-chr20" }
+gloci = "{gloci} vcf stats {in_a} --out-prefix {out}.p --missing-site && mv {out}.p.lmiss {out}"
+reference = "vcftools --gzvcf {in_a} --missing-site --out {out}.p && mv {out}.p.lmiss {out}"
+compare = "numeric"
+
+[[case]]
+name = "vcf-stats-missing-indv-1kg-vs-vcftools"
+command = "vcf stats"
+reference_tool = "vcftools"
+inputs = { a = "1kg-30x-chr20" }
+gloci = "{gloci} vcf stats {in_a} --out-prefix {out}.p --missing-indv && mv {out}.p.imiss {out}"
+reference = "vcftools --gzvcf {in_a} --missing-indv --out {out}.p && mv {out}.p.imiss {out}"
+compare = "numeric"
+
+[[case]]
+name = "vcf-stats-het-1kg-vs-vcftools"
+command = "vcf stats"
+reference_tool = "vcftools"
+inputs = { a = "1kg-30x-chr20" }
+gloci = "{gloci} vcf stats {in_a} --out-prefix {out}.p --het && mv {out}.p.het {out}"
+reference = "vcftools --gzvcf {in_a} --het --out {out}.p && mv {out}.p.het {out}"
+compare = "numeric"
+
+[[case]]
+name = "vcf-stats-hardy-1kg-vs-vcftools"
+command = "vcf stats"
+reference_tool = "vcftools"
+inputs = { a = "1kg-30x-chr20" }
+gloci = "{gloci} vcf stats {in_a} --out-prefix {out}.p --hardy && mv {out}.p.hwe {out}"
+reference = "vcftools --gzvcf {in_a} --hardy --out {out}.p && mv {out}.p.hwe {out}"
+compare = "numeric"
+expected_difference = "#hwe-multiallelic"
+
+[[case]]
+name = "vcf-stats-tstv-1kg-vs-vcftools"
+command = "vcf stats"
+reference_tool = "vcftools"
+inputs = { a = "1kg-30x-chr20" }
+gloci = "{gloci} vcf stats {in_a} --out-prefix {out}.p --tstv-summary && mv {out}.p.TsTv.summary {out}"
+reference = "vcftools --gzvcf {in_a} --TsTv-summary --out {out}.p && mv {out}.p.TsTv.summary {out}"
+compare = "numeric"
+
+[[case]]
+name = "vcf-stats-singletons-1kg-vs-vcftools"
+command = "vcf stats"
+reference_tool = "vcftools"
+inputs = { a = "1kg-30x-chr20" }
+gloci = "{gloci} vcf stats {in_a} --out-prefix {out}.p --singletons && mv {out}.p.singletons {out}"
+reference = "vcftools --gzvcf {in_a} --singletons --out {out}.p && mv {out}.p.singletons {out}"
+compare = "numeric"
+
+[[case]]
+name = "vcf-stats-snp-density-1kg-vs-vcftools"
+command = "vcf stats"
+reference_tool = "vcftools"
+inputs = { a = "1kg-30x-chr20" }
+gloci = "{gloci} vcf stats {in_a} --out-prefix {out}.p --snp-density 10000 && mv {out}.p.snpden {out}"
+reference = "vcftools --gzvcf {in_a} --SNPdensity 10000 --out {out}.p && mv {out}.p.snpden {out}"
+compare = "numeric"
+
+[[case]]
+name = "vcf-stats-indel-hist-1kg-vs-vcftools"
+command = "vcf stats"
+reference_tool = "vcftools"
+inputs = { a = "1kg-30x-chr20" }
+gloci = "{gloci} vcf stats {in_a} --out-prefix {out}.p --indel-hist && mv {out}.p.indel.hist {out}"
+reference = "vcftools --gzvcf {in_a} --hist-indel-len --out {out}.p && mv {out}.p.indel.hist {out}"
+compare = "numeric"
+
+# ---- vcf extract and concat ----
+
+[[case]]
+name = "vcf-extract-info-1kg-vs-vcftools"
+command = "vcf extract"
+reference_tool = "vcftools"
+inputs = { a = "1kg-30x-chr20" }
+gloci = "{gloci} vcf extract {in_a} --info AF,AC > {out}"
+reference = "vcftools --gzvcf {in_a} --get-INFO AF --get-INFO AC --stdout > {out}"
+expected_difference = "#vcf-extract-info"
+
+# The first 100 samples of the header, the same list on both sides. No
+# expected_difference: #vcf-extract-012 (haploid and half-missing calls) is
+# pinned by a live diff case only, not a golden, and chr20 of this panel has
+# neither kind of call.
+[[case]]
+name = "vcf-extract-012-1kg-vs-vcftools"
+command = "vcf extract"
+reference_tool = "vcftools"
+inputs = { a = "1kg-30x-chr20" }
+gloci = '''tabix -H {in_a} | tail -n 1 | cut -f 10-109 | tr '\t' '\n' > {out}.samples && {gloci} vcf extract {in_a} --samples-file {out}.samples --genotype-matrix 012 --out-prefix {out}.p && cat {out}.p.012 {out}.p.012.indv {out}.p.012.pos > {out}'''
+reference = '''tabix -H {in_a} | tail -n 1 | cut -f 10-109 | tr '\t' '\n' > {out}.samples && vcftools --gzvcf {in_a} --keep {out}.samples --012 --out {out}.p && cat {out}.p.012 {out}.p.012.indv {out}.p.012.pos > {out}'''
+
+[[case]]
+name = "vcf-concat-1kg-halves-vs-bcftools"
+command = "vcf concat"
+reference_tool = "bcftools"
+inputs = { a = "1kg-chr20.p1.vcf.gz", b = "1kg-chr20.p2.vcf.gz" }
+gloci = "{gloci} vcf concat {in_a} {in_b} -O vcf | bgzip -@ 2 -l 1 -c > {out}"
+reference = "bcftools concat --no-version {in_a} {in_b} | bgzip -@ 2 -l 1 -c > {out}"
+compare = "vcf-records"
+
+# ---- samtools: the CTCF K562 BAM and peaks ----
+
+[[case]]
+name = "flagstat-ctcf-bam-vs-samtools"
+command = "flagstat"
+reference_tool = "samtools"
+inputs = { a = "ctcf-k562.bam" }
+gloci = "{gloci} flagstat {in_a} > {out}"
+reference = "samtools flagstat {in_a} > {out}"
+
+[[case]]
+name = "idxstats-ctcf-bam-vs-samtools"
+command = "idxstats"
+reference_tool = "samtools"
+inputs = { a = "ctcf-k562.bam" }
+gloci = "{gloci} idxstats {in_a} > {out}"
+reference = "samtools idxstats {in_a} > {out}"
+
+[[case]]
+name = "bedcov-ctcf-peaks-vs-samtools"
+command = "bedcov"
+reference_tool = "samtools"
+inputs = { a = "ctcf-k562.bam", b = "ctcf-peaks.bed" }
+gloci = "{gloci} bedcov {in_b} {in_a} > {out}"
+reference = "samtools bedcov {in_b} {in_a} > {out}"
+
+[[case]]
+name = "depth-ctcf-peaks-vs-samtools"
+command = "depth"
+reference_tool = "samtools"
+inputs = { a = "ctcf-k562.bam", b = "ctcf-peaks.bed" }
+gloci = "{gloci} depth --regions-file {in_b} {in_a} > {out}"
+reference = "samtools depth -b {in_b} {in_a} > {out}"
