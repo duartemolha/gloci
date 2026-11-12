@@ -697,7 +697,8 @@ def test_a_stalled_step_stops_the_pump(here: Path) -> None:
             # The sweep still waits for the rest of b= here.
             stalled.append(read[0])
 
-    feeder = threading.Thread(target=feed)
+    # A daemon: if the run fails before it opens the FIFO, the feeder must not hang the exit.
+    feeder = threading.Thread(target=feed, daemon=True)
     feeder.start()
     try:
         got = gloci.open(rows()).intersect(b="slow.bed").count()
