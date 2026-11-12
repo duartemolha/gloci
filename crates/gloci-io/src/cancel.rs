@@ -193,3 +193,10 @@ impl<R: Read> Read for CancelRead<R> {
         self.inner.read(buf)
     }
 }
+
+impl<R: io::Seek> io::Seek for CancelRead<R> {
+    fn seek(&mut self, pos: io::SeekFrom) -> io::Result<u64> {
+        self.watch.check_io()?;
+        self.inner.seek(pos)
+    }
+}

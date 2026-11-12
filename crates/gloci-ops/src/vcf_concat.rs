@@ -487,10 +487,13 @@ fn naive(
                 ),
             });
         }
-        let mut src = File::open(path).map_err(|source| IoError::Open {
-            path: path.clone(),
-            source,
-        })?;
+        // The cancel point for every sink: the reads of each input check the run's token.
+        let mut src = gloci_io::cancel::CancelRead::new(File::open(path).map_err(|source| {
+            IoError::Open {
+                path: path.clone(),
+                source,
+            }
+        })?);
         let info = copy_blocks(
             &mut src,
             &mut sink,

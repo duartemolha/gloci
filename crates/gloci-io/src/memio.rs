@@ -145,18 +145,3 @@ pub fn scrub(text: &str) -> String {
     out.push_str(rest);
     out
 }
-
-/// The label an input gets in output data (`--names` defaults, partition): the file name
-/// without directories, or the display name of an in-memory input (D84).
-pub fn label(path: &str) -> String {
-    if path == "-" {
-        return "stdin".into();
-    }
-    let shown = display_name(path);
-    if is_mem_path(path) {
-        return shown;
-    }
-    std::path::Path::new(&shown)
-        .file_name()
-        .map_or_else(|| shown.clone(), |f| f.to_string_lossy().into_owned())
-}
