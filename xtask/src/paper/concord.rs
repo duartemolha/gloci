@@ -159,6 +159,49 @@ pub struct ConcordCase {
     /// of its numbers to half a unit of the last one.
     #[serde(default)]
     pub ref_decimals: Option<u32>,
+    /// The lowest rate the default run's documented difference explains:
+    /// the rate of the run that was checked line by line, truncated to six
+    /// decimals. Below it the run is a mismatch.
+    #[serde(default)]
+    pub min_rate: Option<f64>,
+    /// The same for the compat run.
+    #[serde(default)]
+    pub compat_min_rate: Option<f64>,
+    /// The default run's documented difference is the order alone: the run
+    /// passes only with every line matched (rate 1) in another order.
+    #[serde(default)]
+    pub order_only: bool,
+    /// The same for the compat run.
+    #[serde(default)]
+    pub compat_order_only: bool,
+}
+
+/// What a run of a case may show: its documented difference, with the
+/// lowest rate that difference explains or that it is about order alone.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Expect<'a> {
+    pub anchor: Option<&'a str>,
+    pub min_rate: Option<f64>,
+    pub order_only: bool,
+}
+
+impl ConcordCase {
+    /// What the default (`compat` false) or compat run may show.
+    pub fn expect(&self, compat: bool) -> Expect<'_> {
+        if compat {
+            Expect {
+                anchor: self.compat_difference.as_deref(),
+                min_rate: self.compat_min_rate,
+                order_only: self.compat_order_only,
+            }
+        } else {
+            Expect {
+                anchor: self.expected_difference.as_deref(),
+                min_rate: self.min_rate,
+                order_only: self.order_only,
+            }
+        }
+    }
 }
 
 fn exact() -> String {
@@ -242,6 +285,35 @@ pub fn parse_cases(text: &str) -> Result<Vec<ConcordCase>> {
             c.ref_decimals.is_none() || c.compare == "numeric",
             "{n}: ref_decimals applies to compare = \"numeric\" only"
         );
+        for (what, anchor, min_rate, order_only) in [
+            ("", &c.expected_difference, c.min_rate, c.order_only),
+            (
+                "compat_",
+                &c.compat_difference,
+                c.compat_min_rate,
+                c.compat_order_only,
+            ),
+        ] {
+            ensure!(
+                anchor.is_some() || (min_rate.is_none() && !order_only),
+                "{n}: {what}min_rate and {what}order_only need {what}difference"
+            );
+            ensure!(
+                !(order_only && min_rate.is_some()),
+                "{n}: {what}order_only runs match every line, so no {what}min_rate"
+            );
+            ensure!(
+                min_rate.is_none_or(|r| (0.0..1.0).contains(&r)),
+                "{n}: {what}min_rate must be at least 0 and below 1"
+            );
+        }
+        for (what, cmd) in [("gloci", &c.gloci), ("reference", &c.reference)] {
+            ensure!(
+                !cmd.contains("<(") && !cmd.contains(">("),
+                "{n}: {what} uses a process substitution, whose failure the run cannot see: \
+                 write the intermediate to a file ({{out}}.x) in the same command instead"
+            );
+        }
     }
     Ok(cases)
 }
@@ -480,19 +552,41 @@ impl Verdict {
     }
 }
 
-/// The verdict of a run: `stats` is `None` when a command failed; `anchor`
+/// The verdict of a run: `stats` is `None` when a command failed; `expect`
 /// is the documented difference the run may show.
-pub fn verdict(stats: Option<&MatchStats>, anchor: Option<&str>) -> Verdict {
+///
+/// - The same lines in the same order: `Match`, or `AnchorUnused` when a
+///   difference is documented.
+/// - Different with nothing documented: `Reordered` (every line matched) or
+///   `Mismatch`.
+/// - An order-only difference documents a run whose lines all match in
+///   another order; anything else is `Mismatch`.
+/// - Any other documented difference documents a run whose rate is at least
+///   its `min_rate`; below it, or without one, `Mismatch`. A run whose lines
+///   all match in another order is `Reordered`: its difference is not about
+///   order.
+pub fn verdict(stats: Option<&MatchStats>, expect: &Expect) -> Verdict {
     let Some(s) = stats else {
         return Verdict::Failed;
     };
-    let differs = s.rate() < 1.0 || !s.same_order;
-    match (differs, anchor.is_some()) {
-        (false, false) => Verdict::Match,
-        (false, true) => Verdict::AnchorUnused,
-        (true, true) => Verdict::Documented,
-        (true, false) if s.rate() == 1.0 => Verdict::Reordered,
-        (true, false) => Verdict::Mismatch,
+    let all = s.rate() == 1.0;
+    match (all && s.same_order, expect.anchor.is_some()) {
+        (true, false) => Verdict::Match,
+        (true, true) => Verdict::AnchorUnused,
+        (false, false) if all => Verdict::Reordered,
+        (false, false) => Verdict::Mismatch,
+        (false, true) if expect.order_only => {
+            if all {
+                Verdict::Documented
+            } else {
+                Verdict::Mismatch
+            }
+        }
+        (false, true) if all => Verdict::Reordered,
+        (false, true) => match expect.min_rate {
+            Some(m) if s.rate() >= m => Verdict::Documented,
+            _ => Verdict::Mismatch,
+        },
     }
 }
 
@@ -593,13 +687,7 @@ impl Runner {
                     .args(["-w", "/work", &d.image, "bash", "-o", "pipefail", "-c", cmd]);
                 c
             }
-            None => {
-                let mut c = Command::new("bash");
-                c.args(["-o", "pipefail", "-c", cmd])
-                    .env("LC_ALL", "C")
-                    .current_dir(&self.work);
-                c
-            }
+            None => host_shell(cmd, &self.work),
         };
         let t0 = std::time::Instant::now();
         let st = c
@@ -626,6 +714,27 @@ impl Runner {
             None => self.work.join(name).to_string_lossy().into_owned(),
         }
     }
+}
+
+/// `cmd` as the host runs it: `bash -o pipefail` with `LC_ALL=C` in `dir`, as
+/// the image does.
+fn host_shell(cmd: &str, dir: &Path) -> Command {
+    let mut c = Command::new("bash");
+    c.args(["-o", "pipefail", "-c", cmd])
+        .env("LC_ALL", "C")
+        .current_dir(dir);
+    c
+}
+
+/// Whether `cmd` succeeds when run as the commands of a case run on the host.
+pub fn host_command_succeeds(cmd: &str, dir: &Path) -> Result<bool> {
+    Ok(host_shell(cmd, dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .with_context(|| format!("running {cmd}"))?
+        .success())
 }
 
 /// Remove `name` and the files commands write beside it (`name.p.frq`, ...).
@@ -739,7 +848,7 @@ struct RunReport<'a> {
     mode: &'a str,
     gloci_cmd: &'a str,
     reference_cmd: &'a str,
-    anchor: Option<&'a str>,
+    expect: Expect<'a>,
     stats: Option<MatchStats>,
     verdict: Verdict,
     times: String,
@@ -757,8 +866,14 @@ fn write_report(dir: &Path, r: &RunReport) -> Result<()> {
         "gloci: {}\nreference: {}\n",
         r.gloci_cmd, r.reference_cmd
     ));
-    if let Some(a) = r.anchor {
-        t.push_str(&format!("documented difference: {a}\n"));
+    if let Some(a) = r.expect.anchor {
+        t.push_str(&format!("documented difference: {a}"));
+        if r.expect.order_only {
+            t.push_str(" (order only: every line must match)");
+        } else if let Some(m) = r.expect.min_rate {
+            t.push_str(&format!(" (min_rate {m:.6})"));
+        }
+        t.push('\n');
     }
     t.push_str(&r.times);
     if let Some(s) = &r.stats {
@@ -959,11 +1074,8 @@ pub fn run(a: &ConcordArgs) -> Result<bool> {
             &[("default", false)]
         };
         for &(mode, compat) in modes {
-            let anchor = if compat {
-                c.compat_difference.as_deref()
-            } else {
-                c.expected_difference.as_deref()
-            };
+            let expect = c.expect(compat);
+            let anchor = expect.anchor;
             let out_name = format!("{}.{mode}.out", c.name);
             slots.out = runner.shown(&out_name);
             let gloci_cmd = fill(&gloci_command(c, compat), &slots);
@@ -1020,7 +1132,7 @@ pub fn run(a: &ConcordArgs) -> Result<bool> {
                 }
                 remove_outputs(&runner.work, &out_name);
             }
-            let v = verdict(stats.as_ref(), anchor);
+            let v = verdict(stats.as_ref(), &expect);
             all_ok &= v.passes();
             let summary = match &stats {
                 Some(s) => format!(
@@ -1044,7 +1156,7 @@ pub fn run(a: &ConcordArgs) -> Result<bool> {
                     mode,
                     gloci_cmd: &gloci_cmd,
                     reference_cmd: &ref_cmd,
-                    anchor,
+                    expect,
                     stats,
                     verdict: v,
                     times,

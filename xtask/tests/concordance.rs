@@ -7,7 +7,7 @@ use gloci_testkit::differential::MatchStats;
 use xtask::bench::Catalog;
 use xtask::diff::workspace_root;
 use xtask::paper::concord::{
-    self, CSV_HEADER, ConcordCase, NO_CONCORDANCE_CASE, Verdict, csv_row, gloci_command,
+    self, CSV_HEADER, ConcordCase, Expect, NO_CONCORDANCE_CASE, Verdict, csv_row, gloci_command,
     gloci_invocations, load_cases, merge_csv, migration_commands, parse_cases, verdict,
 };
 
@@ -179,6 +179,32 @@ reference = "sort-bed {in_a} > {out}"
     assert!(bad("sort {in_a} > {out}\"", "sort {in_b} > {out}\"").contains("{in_b}"));
     assert!(bad("command = \"sort\"", "command = \"nosuch\"").contains("nosuch"));
     assert!(bad("sort-bed\"\n", "sort-bed\"\ncompat_difference = \"#x\"\n").contains("compat"));
+    assert!(
+        bad("sort {in_a} > {out}\"", "sort <(cat {in_a}) > {out}\"")
+            .contains("process substitution")
+    );
+    let with =
+        |extra: &str| parse_cases(&ok.replace("sort-bed\"\n", &format!("sort-bed\"\n{extra}\n")));
+    assert!(
+        with("min_rate = 0.5")
+            .unwrap_err()
+            .to_string()
+            .contains("need")
+    );
+    assert!(with("expected_difference = \"#sort-tie-order\"\nmin_rate = 0.5").is_ok());
+    assert!(
+        with("expected_difference = \"#sort-tie-order\"\nmin_rate = 1.0")
+            .unwrap_err()
+            .to_string()
+            .contains("below 1")
+    );
+    assert!(
+        with("expected_difference = \"#sort-tie-order\"\norder_only = true\nmin_rate = 0.5")
+            .unwrap_err()
+            .to_string()
+            .contains("order_only")
+    );
+    assert!(with("compat_order_only = true").is_err());
     let twice = format!("{ok}{ok}");
     assert!(
         parse_cases(&twice)
@@ -280,26 +306,78 @@ fn verdict_rules() {
         n_matching,
         same_order,
     };
-    let a = Some("#sort-tie-order");
-    assert_eq!(verdict(Some(&s(10, 10, 10, true)), None), Verdict::Match);
-    assert_eq!(verdict(Some(&s(0, 0, 0, true)), None), Verdict::Match);
+    let none = Expect::default();
+    let rate = |min_rate| Expect {
+        anchor: Some("#closest-ties-k"),
+        min_rate,
+        order_only: false,
+    };
+    let order = Expect {
+        anchor: Some("#sort-tie-order"),
+        min_rate: None,
+        order_only: true,
+    };
+    // Nothing documented.
+    assert_eq!(verdict(Some(&s(10, 10, 10, true)), &none), Verdict::Match);
+    assert_eq!(verdict(Some(&s(0, 0, 0, true)), &none), Verdict::Match);
     assert_eq!(
-        verdict(Some(&s(10, 10, 10, true)), a),
-        Verdict::AnchorUnused
-    );
-    assert_eq!(verdict(Some(&s(10, 10, 9, false)), a), Verdict::Documented);
-    assert_eq!(verdict(Some(&s(10, 10, 10, false)), a), Verdict::Documented);
-    assert_eq!(
-        verdict(Some(&s(10, 10, 10, false)), None),
+        verdict(Some(&s(10, 10, 10, false)), &none),
         Verdict::Reordered
     );
-    assert_eq!(verdict(Some(&s(10, 10, 9, false)), None), Verdict::Mismatch);
     assert_eq!(
-        verdict(Some(&s(10, 11, 10, false)), None),
+        verdict(Some(&s(10, 10, 9, false)), &none),
         Verdict::Mismatch
     );
-    assert_eq!(verdict(None, None), Verdict::Failed);
-    assert_eq!(verdict(None, a), Verdict::Failed);
+    assert_eq!(
+        verdict(Some(&s(10, 11, 10, false)), &none),
+        Verdict::Mismatch
+    );
+    assert_eq!(verdict(None, &none), Verdict::Failed);
+    // A documented difference that does not show.
+    assert_eq!(
+        verdict(Some(&s(10, 10, 10, true)), &rate(Some(0.9))),
+        Verdict::AnchorUnused
+    );
+    assert_eq!(
+        verdict(Some(&s(10, 10, 10, true)), &order),
+        Verdict::AnchorUnused
+    );
+    // A rate difference passes down to its min_rate, not below, not without one.
+    assert_eq!(
+        verdict(Some(&s(10, 10, 9, false)), &rate(Some(0.9))),
+        Verdict::Documented
+    );
+    assert_eq!(
+        verdict(Some(&s(10, 10, 8, false)), &rate(Some(0.9))),
+        Verdict::Mismatch
+    );
+    assert_eq!(
+        verdict(Some(&s(10, 10, 9, false)), &rate(None)),
+        Verdict::Mismatch
+    );
+    assert_eq!(
+        verdict(Some(&s(1000, 1000, 0, false)), &rate(Some(0.0))),
+        Verdict::Documented
+    );
+    // ...and a run that only reorders is not what it documents.
+    assert_eq!(
+        verdict(Some(&s(10, 10, 10, false)), &rate(Some(0.9))),
+        Verdict::Reordered
+    );
+    // An order-only difference passes with every line matched, nothing else.
+    assert_eq!(
+        verdict(Some(&s(10, 10, 10, false)), &order),
+        Verdict::Documented
+    );
+    assert_eq!(
+        verdict(Some(&s(10, 10, 9, false)), &order),
+        Verdict::Mismatch
+    );
+    assert_eq!(
+        verdict(Some(&s(10, 11, 10, false)), &order),
+        Verdict::Mismatch
+    );
+    assert_eq!(verdict(None, &order), Verdict::Failed);
     for v in [Verdict::Match, Verdict::AnchorUnused, Verdict::Documented] {
         assert!(v.passes(), "{v:?}");
     }
@@ -311,6 +389,24 @@ fn verdict_rules() {
         CSV_HEADER,
         "case,command,reference_tool,dataset,mode,n_gloci,n_reference,n_matching,match_rate,verdict,anchors"
     );
+}
+
+#[test]
+fn a_failing_step_fails_the_run() {
+    let d = tempfile::tempdir().unwrap();
+    let ok = |cmd: &str| concord::host_command_succeeds(cmd, d.path()).unwrap();
+    // The form reshaped references use: an intermediate file in the same
+    // command, so a failing step stops it.
+    assert!(ok("printf 'a\\n' > out.x && cat out.x > out && rm out.x"));
+    assert!(!ok(
+        "awk 'BEGIN { exit 3 }' > out.x && cat out.x > out && rm out.x"
+    ));
+    // pipefail: a failing first stage fails the pipe.
+    assert!(!ok("false | cat > out"));
+    // A process substitution would hide it, so the cases may not use one.
+    assert!(ok("cat <(false) > out"));
+    // A failed command is a failed run, whatever is documented.
+    assert_eq!(verdict(None, &Expect::default()), Verdict::Failed);
 }
 
 #[test]

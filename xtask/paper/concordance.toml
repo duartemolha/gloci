@@ -25,6 +25,12 @@
 #   (docs/differences.md) the default / compat run may show. A run that
 #   differs without one fails; an anchor that never fires prints
 #   `anchor unused`.
+# - `min_rate` / `compat_min_rate`: the rate of the run whose unmatched lines
+#   were checked against the anchor, truncated to six decimals. A documented
+#   run below it fails. `order_only` / `compat_order_only`: the anchor is
+#   about order alone, so the run must match every line (rate 1).
+# - No process substitutions (`<(...)`): a failure inside one is not seen.
+#   Write intermediates to `{out}.x` in the same command.
 #
 # Reference commands and compat flags copy the diff case of the same command
 # (xtask/diff/cases.toml). Changes for real data, each noted where it is made:
@@ -42,6 +48,7 @@ gloci = "{gloci} sort {in_a} > {out}"
 reference = "sort-bed {in_a} > {out}"
 compat = "--full-key"
 expected_difference = "#sort-tie-order"
+order_only = true
 
 [[case]]
 name = "sort-exons-vs-bedtools-sort"
@@ -51,6 +58,7 @@ inputs = { a = "exons-unsorted.bed" }
 gloci = "{gloci} sort {in_a} > {out}"
 reference = "bedtools sort -i {in_a} > {out}"
 expected_difference = "#sort-tie-order"
+order_only = true
 
 # ---- intersect: cCREs (A) with exons (B) ----
 
@@ -162,6 +170,7 @@ inputs = { a = "ctcf-peaks.bed", b = "exons.bed" }
 gloci = "{gloci} closest -a {in_a} -b {in_b} -k 2 --ties first --distance > {out}"
 reference = "bedtools closest -a {in_a} -b {in_b} -k 2 -t first -d > {out}"
 expected_difference = "#closest-ties-k"
+min_rate = 0.805058
 
 [[case]]
 name = "closest-each-side-peaks-exons-vs-bedops"
@@ -171,6 +180,7 @@ inputs = { a = "ctcf-peaks.bed", b = "exons.bed" }
 gloci = "{gloci} closest -a {in_a} -b {in_b} --each-side --distance > {out}"
 reference = '''closest-features --dist {in_a} {in_b} | tr '|' '\t' > {out}'''
 expected_difference = "#closest-each-side"
+min_rate = 0.220929
 
 [[case]]
 name = "closest-each-side-no-overlaps-peaks-exons-vs-bedops"
@@ -182,6 +192,8 @@ reference = '''closest-features --dist --no-overlaps {in_a} {in_b} | tr '|' '\t'
 expected_difference = "#closest-each-side"
 compat = "--ties first"
 compat_difference = "#closest-each-side"
+min_rate = 0.305746
+compat_min_rate = 0.875171
 
 # ---- map: CTCF fold change (B, bedGraph) over cCREs (A) ----
 
@@ -196,9 +208,10 @@ gloci = "{gloci} map -a {in_a} -b {in_b} -c 4:mean -c 4:max -c 4:count > {out}"
 reference = "bedtools map -a {in_a} -b {in_b} -c 4,4,4 -o mean,max,count -prec 17 > {out}"
 compare = "numeric"
 
-# bedmap scores come from column 5, so the bedGraph value is moved there
-# (a process substitution: bedmap stops reading the map file after the last
-# cCRE chromosome, which would fail a pipe under pipefail). bedmap's default
+# bedmap scores come from column 5, so the bedGraph value is moved there, in
+# a file of its own (bedmap stops reading the map file after the last cCRE
+# chromosome, so a pipe would fail under pipefail, and a failure inside a
+# process substitution would not be seen). bedmap's default
 # 6 decimals are kept: its running sums drift (a mean of one 0 prints as
 # 0.00000000102 with --prec 17); ref_decimals = 6 allows for them.
 [[case]]
@@ -207,11 +220,12 @@ command = "map"
 reference_tool = "bedops"
 inputs = { a = "ccre.bed", b = "ctcf-fc.bedgraph" }
 gloci = "{gloci} map -a {in_a} -b {in_b} -c 4:mean > {out}"
-reference = '''bedmap --echo --mean {in_a} <(awk 'BEGIN{OFS="\t"}{print $1,$2,$3,".",$4}' {in_b}) | tr '|' '\t' > {out}'''
+reference = '''awk 'BEGIN{OFS="\t"}{print $1,$2,$3,".",$4}' {in_b} > {out}.b5 && bedmap --echo --mean {in_a} {out}.b5 | tr '|' '\t' > {out} && rm {out}.b5'''
 compare = "numeric"
 compat = "--empty NAN"
 expected_difference = "#map-empty-value"
 ref_decimals = 6
+min_rate = 0.999996
 
 # ---- coverage: cCREs (A) by exons (B) ----
 
@@ -336,19 +350,21 @@ inputs = { a = "exons.bed", genome = "hg38.lex.genome" }
 gloci = "{gloci} genomecov --bga -g {genome} {in_a} > {out}"
 reference = "bedtools genomecov -bga -i {in_a} -g {genome} > {out}"
 expected_difference = "#genomecov-chrom-order"
+order_only = true
 
 # ---- partition: cCREs, exons and CTCF peaks ----
 
 # bedops needs sort-bed order (start, then end), which the derived inputs
 # (sorted by start, stable) do not have where records share a start; on them
-# bedops --partition writes segments whose end is before their start.
+# bedops --partition writes segments whose end is before their start. The
+# inputs go through sort-bed into files of their own.
 [[case]]
 name = "partition-ccre-exons-peaks-vs-bedops"
 command = "partition"
 reference_tool = "bedops"
 inputs = { a = "ccre.bed", b = "exons.bed", c = "ctcf-peaks.bed" }
 gloci = "{gloci} partition --no-membership {in_a} {in_b} {in_c} > {out}"
-reference = "bedops --partition <(sort-bed {in_a}) <(sort-bed {in_b}) <(sort-bed {in_c}) > {out}"
+reference = "sort-bed {in_a} > {out}.a && sort-bed {in_b} > {out}.b && sort-bed {in_c} > {out}.c && bedops --partition {out}.a {out}.b {out}.c > {out} && rm {out}.a {out}.b {out}.c"
 
 # multiinter reshaped to its first five columns, as in the diff cases.
 [[case]]
@@ -360,6 +376,7 @@ gloci = "{gloci} partition --names 1,2,3 {in_a} {in_b} {in_c} > {out}"
 reference = "bedtools multiinter -i {in_a} {in_b} {in_c} | cut -f1-5 > {out}"
 compat = "--merge-adjacent"
 expected_difference = "#partition-boundaries"
+min_rate = 0.826577
 
 # ---- cluster, spacing, groupby ----
 
@@ -379,6 +396,19 @@ inputs = { a = "exons.bed" }
 gloci = "{gloci} cluster -s {in_a} > {out}"
 reference = "bedtools cluster -s -i {in_a} > {out}"
 expected_difference = "#cluster-strand"
+min_rate = 0.000192
+
+# The same without the id column: every record is there, in bedtools'
+# strand-grouped order (#cluster-strand), so only the order differs.
+[[case]]
+name = "cluster-strand-records-exons-vs-bedtools"
+command = "cluster"
+reference_tool = "bedtools"
+inputs = { a = "exons.bed" }
+gloci = "{gloci} cluster -s {in_a} | cut -f 1-6 > {out}"
+reference = "bedtools cluster -s -i {in_a} | cut -f 1-6 > {out}"
+expected_difference = "#cluster-strand"
+order_only = true
 
 [[case]]
 name = "spacing-exons-vs-bedtools"
@@ -412,6 +442,7 @@ inputs = { a = "gencode-v46-gtf" }
 gloci = "{gloci} convert {in_a} > {out}"
 reference = "zcat {in_a} | gtf2bed --do-not-sort > {out}"
 expected_difference = "#gff2bed-zero-length"
+min_rate = 0.999178
 
 # ---- interval statistics: cCREs and exons ----
 
@@ -458,6 +489,8 @@ compare = "vcf-records"
 compat = "--vcf-span ref"
 expected_difference = "#vcf-allele-span"
 compat_difference = "#vcf-span-ins-end"
+min_rate = 0.999529
+compat_min_rate = 0.999976
 
 # Ten regions of chr20 in order, apart from each other.
 [[case]]
@@ -469,6 +502,7 @@ gloci = "{gloci} view --no-header {in_a} chr20:1000000-1010000 chr20:5000000-500
 reference = "tabix {in_a} chr20:1000000-1010000 chr20:5000000-5005000 chr20:10000000-10002000 chr20:15000000-15010000 chr20:20000000-20001000 chr20:25000000-25050000 chr20:32000000-32005000 chr20:40000000-40010000 chr20:50000000-50005000 chr20:60000000-60010000 > {out}"
 compat = "--vcf-span ref --inclusive-points"
 expected_difference = "#view-region-footprints"
+min_rate = 0.997730
 
 # ---- vcf filter ----
 
@@ -484,6 +518,7 @@ gloci = "{gloci} vcf filter {in_a} --min-maf 0.01 --max-missing 0.1 -O vcf | bgz
 reference = "vcftools --gzvcf {in_a} --recode --recode-INFO-all --stdout --maf 0.01 --max-missing 0.9 | bgzip -@ 2 -l 1 -c > {out}"
 compare = "vcf-records"
 expected_difference = "#vcf-allele-case"
+min_rate = 0.999986
 
 [[case]]
 name = "vcf-filter-pass-only-gnomad-vs-vcftools"
@@ -505,6 +540,7 @@ gloci = "{gloci} vcf filter {in_a} --pass-only -O vcf | bgzip -@ 2 -l 1 -c > {ou
 reference = "bcftools view --no-version -f .,PASS {in_a} | bgzip -@ 2 -l 1 -c > {out}"
 compare = "vcf-records"
 expected_difference = "#vcf-filter-values"
+min_rate = 0.0
 
 [[case]]
 name = "vcf-filter-include-1kg-vs-bcftools"
@@ -530,6 +566,7 @@ gloci = "{gloci} vcf stats {in_a} --out-prefix {out}.p --freq && mv {out}.p.frq 
 reference = "vcftools --gzvcf {in_a} --freq --out {out}.p && mv {out}.p.frq {out}"
 compare = "numeric"
 expected_difference = "#vcf-allele-case"
+min_rate = 0.999994
 
 [[case]]
 name = "vcf-stats-counts-1kg-vs-vcftools"
@@ -540,6 +577,7 @@ gloci = "{gloci} vcf stats {in_a} --out-prefix {out}.p --counts && mv {out}.p.fr
 reference = "vcftools --gzvcf {in_a} --counts --out {out}.p && mv {out}.p.frq.count {out}"
 compare = "numeric"
 expected_difference = "#vcf-allele-case"
+min_rate = 0.999994
 
 [[case]]
 name = "vcf-stats-missing-site-1kg-vs-vcftools"
@@ -624,6 +662,7 @@ inputs = { a = "1kg-30x-chr20" }
 gloci = "{gloci} vcf extract {in_a} --info AF,AC > {out}"
 reference = "vcftools --gzvcf {in_a} --get-INFO AF --get-INFO AC --stdout > {out}"
 expected_difference = "#vcf-extract-info"
+min_rate = 0.0
 
 # The same table without gloci's ID column (#vcf-extract-info), so the values
 # are compared.
@@ -635,6 +674,7 @@ inputs = { a = "1kg-30x-chr20" }
 gloci = "{gloci} vcf extract {in_a} --info AF,AC | cut -f 1,2,4- > {out}"
 reference = "vcftools --gzvcf {in_a} --get-INFO AF --get-INFO AC --stdout > {out}"
 expected_difference = "#vcf-allele-case"
+min_rate = 0.999994
 
 # The first 100 samples of the header, the same list on both sides. No
 # expected_difference: #vcf-extract-012 (haploid and half-missing calls) is
