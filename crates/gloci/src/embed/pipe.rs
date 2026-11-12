@@ -222,7 +222,9 @@ impl Drop for PipeWriter {
 
 /// Fails a pipe from outside its writer ([`PipeWriter::fail_handle`]). While a handle lives,
 /// the reader does not see EOF: drop every handle once the writing step has ended (the stage
-/// runtime does).
+/// runtime does). That is deadlock-free when each step writes at most one pipe, as in a
+/// pipeline of gloci commands (one `-o` each): the reader waits only for its own writer's
+/// step, which waits for nothing but its inputs and that reader.
 #[derive(Debug, Clone)]
 pub struct PipeFail {
     state: Arc<State>,

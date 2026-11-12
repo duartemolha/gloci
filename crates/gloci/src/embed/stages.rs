@@ -50,6 +50,10 @@ pub struct StageSpec {
     /// until the stage has ended, so the failure always arrives first. The set binds its
     /// cancel token to these pipes, so a cancel stops a read or write parked on one from any
     /// thread.
+    ///
+    /// Holding EOF back assumes each stage writes at most one pipe (gloci commands have one
+    /// `-o`, so a pipeline is a tree): a stage that wrote two pipes, read one after the other by
+    /// one consumer, would never end the first while it waited to write the second.
     pub fail_downstream: Vec<PipeFail>,
 }
 
