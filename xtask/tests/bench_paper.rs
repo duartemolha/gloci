@@ -90,7 +90,11 @@ fn paper_cases_parse_and_reference_known_inputs() {
 fn every_paper_gloci_command_parses() {
     let mut checked = 0;
     for c in load_paper_cases().unwrap() {
-        for (_, cmd) in c.commands.iter().filter(|(k, _)| k.starts_with("gloci")) {
+        for (_, cmd) in c
+            .commands
+            .iter()
+            .filter(|(k, _)| k.starts_with("gloci") && *k != "gloci-py")
+        {
             let args: Vec<String> = gloci_words(cmd)
                 .iter()
                 .flat_map(|w| {
@@ -183,4 +187,109 @@ fn placeholders_substitute() {
     assert_eq!(s, "gloci partition /d/a /d/b /d/c -g /d/g > /o; py x");
     assert!(!s.contains('{'));
     let _: BTreeMap<String, String> = BTreeMap::new();
+}
+
+/// The Python library benchmarks (D96, Task 18): gloci-py against pybedtools
+/// (binding) and three yardsticks, in the nightly and the paper cases.
+#[test]
+fn py_cases_parse() {
+    let root = workspace_root();
+    let nightly =
+        parse_cases(&std::fs::read_to_string(root.join("xtask/bench/cases.toml")).unwrap())
+            .unwrap();
+    let paper = load_paper_cases().unwrap();
+    let tools = [
+        ("gloci-py", "gloci"),
+        ("pybedtools", "pybedtools"),
+        ("polars-bio", "polars_bio"),
+        ("pyranges1", "pyranges1"),
+        ("bioframe", "bioframe"),
+    ];
+    for (name, op, set) in [
+        ("py-intersect-10M", "intersect", &nightly),
+        ("py-merge-10M", "merge", &nightly),
+        ("py-intersect-ccre-exons", "intersect", &paper),
+        ("py-merge-exons", "merge", &paper),
+    ] {
+        let c = set
+            .iter()
+            .find(|c| c.name == name)
+            .unwrap_or_else(|| panic!("missing case {name}"));
+        assert!(
+            c.targets.iter().any(|t| t == "gloci-py < pybedtools"),
+            "{name}: the binding target"
+        );
+        for (tool, script) in tools {
+            let cmd = c
+                .commands
+                .get(tool)
+                .unwrap_or_else(|| panic!("{name}: no `{tool}` command"));
+            let file = format!("{script}_{op}.py");
+            assert!(cmd.contains(&file), "{name}/{tool}: `{cmd}` runs {file}");
+            assert!(cmd.starts_with("{python} "), "{name}/{tool}: {{python}}");
+            assert!(
+                root.join("xtask/bench/py").join(&file).is_file(),
+                "{file} is missing"
+            );
+            assert!(cmd.contains("{out}"), "{name}/{tool}: no {{out}}");
+            assert_eq!(
+                cmd.contains("{in_b}"),
+                op == "intersect",
+                "{name}/{tool}: {{in_b}}"
+            );
+        }
+        // Only the binding baseline is a target; the rest are yardsticks.
+        assert_eq!(c.targets.len(), 1, "{name}: targets {:?}", c.targets);
+    }
+    let paper_case = paper.iter().find(|c| c.name == "py-merge-exons").unwrap();
+    assert_eq!(
+        paper_case.inputs.get("a").map(String::as_str),
+        Some("exons.bed")
+    );
+}
+
+/// The bench image pins Python 3.12 and every Python tool.
+#[test]
+fn bench_image_pins_python_tools() {
+    let text =
+        std::fs::read_to_string(workspace_root().join("xtask/docker/Dockerfile.bench")).unwrap();
+    assert!(text.contains("python=3.12"), "Python 3.12");
+    for tool in ["pybedtools", "polars-bio", "pyranges1", "bioframe"] {
+        assert!(
+            text.lines()
+                .any(|l| l.contains(&format!("{tool}==")) && !l.trim_start().starts_with('#')),
+            "{tool} is not pinned with =="
+        );
+        assert!(
+            text.contains(&format!("skipped: {tool} not installed")),
+            "{tool} has no skip message"
+        );
+    }
+}
+
+/// `--wheel` is installed with `pip install --no-deps` into a directory that
+/// the commands see through `{python}`.
+#[test]
+fn wheel_install_command() {
+    use xtask::bench::{pip_install_args, python_with_wheel};
+    let args = pip_install_args("/wheel/gloci-0.1.0-abi3.whl", "/pylib");
+    assert_eq!(
+        args,
+        [
+            "python3",
+            "-m",
+            "pip",
+            "install",
+            "--no-deps",
+            "--no-compile",
+            "--target",
+            "/pylib",
+            "/wheel/gloci-0.1.0-abi3.whl"
+        ]
+    );
+    assert_eq!(
+        python_with_wheel("python3", Some("/pylib")),
+        "PYTHONPATH=/pylib python3"
+    );
+    assert_eq!(python_with_wheel("python3", None), "python3");
 }

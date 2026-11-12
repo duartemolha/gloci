@@ -120,6 +120,9 @@ enum Task {
         /// Where generated inputs are cached
         #[arg(long, default_value = "target/bench-data")]
         data_dir: PathBuf,
+        /// Python wheel of this version, for the `gloci-py` cases (pip install --no-deps)
+        #[arg(long)]
+        wheel: Option<PathBuf>,
     },
 }
 
@@ -733,6 +736,7 @@ fn run(cli: Cli) -> Result<bool> {
             only,
             records,
             data_dir,
+            wheel,
         } => {
             return xtask::bench::run(&xtask::bench::Args {
                 cases,
@@ -745,6 +749,7 @@ fn run(cli: Cli) -> Result<bool> {
                 records,
                 data_dir,
                 results: None,
+                wheel,
             });
         }
     }

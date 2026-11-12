@@ -43,6 +43,26 @@ RUN micromamba install -y -n base -c conda-forge -c bioconda plink2=2.0.0a.6.9 \
     && micromamba clean --all --yes \
     || echo "skipped: plink2 not installed (micromamba install plink2=2.0.0a.6.9 failed); its benchmark columns will be empty"
 
+# Python 3.12 for the Python library benchmarks (D96): its own step, so a solver
+# conflict with the tools above cannot take them down. The bench runner skips the
+# Python cases' tools when `python3` cannot import them.
+RUN micromamba install -y -n base -c conda-forge python=3.12 pip \
+    && micromamba clean --all --yes \
+    || echo "skipped: python not installed (micromamba install python=3.12 failed); the Python benchmark columns will be empty"
+
+# The Python libraries: pybedtools is the binding baseline of gloci-py, the others
+# are yardsticks (their dependencies are not pinned). Each is its own step: a
+# package with no build for this architecture is reported here and skipped.
+# (`micromamba run`: RUN steps do not activate the base environment.)
+RUN micromamba run -n base python -m pip install --no-cache-dir pybedtools==0.12.1 \
+    || echo "skipped: pybedtools not installed (pip install pybedtools==0.12.1 failed); its benchmark columns will be empty"
+RUN micromamba run -n base python -m pip install --no-cache-dir polars-bio==0.37.0 \
+    || echo "skipped: polars-bio not installed (pip install polars-bio==0.37.0 failed); its benchmark columns will be empty"
+RUN micromamba run -n base python -m pip install --no-cache-dir pyranges1==1.5.1 \
+    || echo "skipped: pyranges1 not installed (pip install pyranges1==1.5.1 failed); its benchmark columns will be empty"
+RUN micromamba run -n base python -m pip install --no-cache-dir bioframe==0.8.0 \
+    || echo "skipped: bioframe not installed (pip install bioframe==0.8.0 failed); its benchmark columns will be empty"
+
 USER root
 # GNU time for peak RSS (D96). Debian's, not conda-forge's: its `time` 1.9
 # build reports 0 for %M on aarch64.
