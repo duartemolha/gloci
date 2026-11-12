@@ -120,10 +120,15 @@ enum Ended {
 }
 
 /// The stages of one pipeline, running. Each runs on its own thread (`gloci-stage-{i}`) under
-/// the set's one [`CancelToken`]. Dropping the set before [`wait`](Self::wait) has returned
-/// its result cancels it; either way, drop joins every stage thread. Endpoints whose drop
-/// needs a lock the dropping thread holds (a Python-backed one needs the GIL) must be dropped
-/// with that lock released.
+/// the set's one [`CancelToken`].
+///
+/// Dropping the set cancels it if any stage thread is still running, then joins every stage
+/// thread; a set whose stages have all ended is only joined.
+///
+/// Both [`wait`](Self::wait) and drop block until stage threads end, so a host must call them
+/// with any lock its endpoints need released: a Python-backed source or sink takes the GIL to
+/// read or write, and to be dropped. A cancel cannot interrupt a host read or write already in
+/// progress, so a drop or wait holding the GIL while a stage is inside one never returns.
 pub struct StageSet {
     token: CancelToken,
     handles: Vec<Option<JoinHandle<()>>>,
