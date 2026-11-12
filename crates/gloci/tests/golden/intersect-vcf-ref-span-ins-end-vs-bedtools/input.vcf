@@ -9,3 +9,6 @@ chr1	2000	ins_end	T	<INS>	.	.	END=2050;SVTYPE=INS;SVLEN=300
 chr1	3000	alu_end	T	<INS:ME:ALU>	.	.	END=3050;SVTYPE=INS;SVLEN=279
 chr1	4000	dup_svlen	T	<DUP>	.	.	SVTYPE=DUP;SVLEN=100
 chr1	5000	ins_anchor	T	<INS>	.	.	END=5050;SVTYPE=INS
+chr1	6000	ins_svtype_del	T	<INS>	.	.	END=6050;SVTYPE=DEL
+chr1	7000	del_svtype_ins	T	<DEL>	.	.	END=7050;SVTYPE=INS
+chr1	8000	ins_svlen_only	T	<INS>	.	.	SVTYPE=INS;SVLEN=300

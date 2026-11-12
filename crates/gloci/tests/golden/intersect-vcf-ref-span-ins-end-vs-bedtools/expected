@@ -1,3 +1,4 @@
 chr1	1000	del_end	T	<DEL>	.	.	END=1100;SVTYPE=DEL
 chr1	4000	dup_svlen	T	<DUP>	.	.	SVTYPE=DUP;SVLEN=100
 chr1	5000	ins_anchor	T	<INS>	.	.	END=5050;SVTYPE=INS
+chr1	7000	del_svtype_ins	T	<DEL>	.	.	END=7050;SVTYPE=INS

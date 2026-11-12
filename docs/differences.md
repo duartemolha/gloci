@@ -203,9 +203,13 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Reason:** one rule for the `ref` span in every command; `view` must agree
   with tabix, which is htslib. Under the default `--vcf-span allele` an
   insertion is a point and neither tool reports these records.
-- **Pinned by:** `intersect-vcf-ref-span-ins-end-vs-bedtools` (must differ:
-  `ins_end` and `alu_end` are gloci's only; `del_end`, `dup_svlen` and the
-  insertion over its anchor base `ins_anchor` agree).
+- **Pinned by:** `intersect-vcf-ref-span-ins-end-vs-bedtools` (must differ).
+  `ins_end`, `alu_end` and `ins_svtype_del` (ALT `<INS>` with `SVTYPE=DEL`:
+  bedtools goes by the ALT) are gloci's only. Both report `del_end`,
+  `dup_svlen` (SVLEN, no END), `del_svtype_ins` (ALT `<DEL>` with
+  `SVTYPE=INS`, spanned to END by both) and the insertion over its anchor
+  base `ins_anchor`; neither reports `ins_svlen_only` (an `<INS>` with SVLEN
+  and no END: one base on both sides).
 
 ## Symbolic ALTs with neither `END` nor `SVLEN` {#vcf-symbolic-no-end}
 
