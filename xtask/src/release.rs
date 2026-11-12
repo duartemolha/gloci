@@ -272,6 +272,23 @@ pub fn release_check(root: &Path, tag: Option<&str>) -> Result<Vec<String>> {
         problems.push("LICENSE is missing; add the MIT licence text as LICENSE".to_string());
     }
 
+    // The Python package takes its version from Cargo (maturin), never from pyproject.toml.
+    let pyproject = root.join("crates/gloci-py/pyproject.toml");
+    if pyproject.is_file() {
+        let project = read_toml(&pyproject)?;
+        let project = project.get("project");
+        let dynamic = project
+            .and_then(|p| p.get("dynamic"))
+            .and_then(|d| d.as_array())
+            .is_some_and(|d| d.iter().any(|v| v.as_str() == Some("version")));
+        if !dynamic || project.and_then(|p| p.get("version")).is_some() {
+            problems.push(
+                "crates/gloci-py/pyproject.toml must have `dynamic = [\"version\"]` and no `version` key (maturin takes it from Cargo.toml)"
+                    .to_string(),
+            );
+        }
+    }
+
     // Internal dependency versions
     dep_problems(&ws, "Cargo.toml", &version, &mut problems);
     let mut manifests = vec![root.join("xtask/Cargo.toml")];

@@ -68,3 +68,18 @@ fn skill_md_is_current() {
         }
     }
 }
+
+#[test]
+fn man_and_completions_tasks_take_out() {
+    let d = tempfile::tempdir().unwrap();
+    for (task, file) in [("man", "gloci.1"), ("completions", "gloci.bash")] {
+        let out = d.path().join(task);
+        let st = std::process::Command::new(env!("CARGO_BIN_EXE_xtask"))
+            .args([task, "--out"])
+            .arg(&out)
+            .status()
+            .unwrap();
+        assert!(st.success(), "{task} --out");
+        assert!(out.join(file).exists(), "{task}/{file}");
+    }
+}

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 #[derive(Parser)]
@@ -12,10 +12,18 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Task {
-    /// Generate man pages in target/assets/man
-    Man,
-    /// Generate shell completions in target/assets/completions
-    Completions,
+    /// Generate man pages from the clap definition
+    Man {
+        /// Directory to write into
+        #[arg(long, value_name = "DIR", default_value = "target/assets/man")]
+        out: PathBuf,
+    },
+    /// Generate shell completions (bash, zsh, fish) from the clap definition
+    Completions {
+        /// Directory to write into
+        #[arg(long, value_name = "DIR", default_value = "target/assets/completions")]
+        out: PathBuf,
+    },
     /// Generate documentation artifacts (SKILL.md)
     Docs {
         /// Write the SKILL.md agent usage guide to PATH
@@ -339,10 +347,8 @@ enum Gen {
 
 fn run(cli: Cli) -> Result<bool> {
     match cli.task {
-        Task::Man => xtask::docs::generate_man(Path::new("target/assets/man"))?,
-        Task::Completions => {
-            xtask::docs::generate_completions(Path::new("target/assets/completions"))?
-        }
+        Task::Man { out } => xtask::docs::generate_man(&out)?,
+        Task::Completions { out } => xtask::docs::generate_completions(&out)?,
         Task::Docs { skill } => xtask::docs::generate_skill(&skill)?,
         Task::Gen { kind } => match kind {
             Gen::Bed {

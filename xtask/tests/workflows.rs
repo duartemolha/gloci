@@ -88,11 +88,37 @@ fn release_workflow_and_dockerfile_are_valid() {
         "release.yml must declare permissions: contents: write"
     );
 
-    // Nothing published to crates.io or bioconda
+    // Nothing goes to bioconda; PyPI and crates.io publishing exist but are gated (below).
     assert!(
-        !release_yml.contains("cargo publish") && !release_yml.contains("bioconda"),
-        "release.yml must not publish to crates.io or bioconda"
+        !release_yml.contains("bioconda"),
+        "release.yml must not publish to bioconda"
     );
+    for needle in [
+        "workflow_dispatch",
+        "dry_run",
+        "man --out",
+        "completions --out",
+        "release-check",
+        "maturin",
+        "manylinux: 2014",
+        "quay.io/pypa/manylinux2014_x86_64",
+        "quay.io/pypa/manylinux2014_aarch64",
+        "auditwheel show",
+        "manylinux_2_17",
+        "gh-action-pypi-publish",
+        "skip-existing: true",
+        "id-token: write",
+        "cargo publish",
+        "cargo info",
+        "--profile release-py",
+        "MACOSX_DEPLOYMENT_TARGET",
+        "test_smoke.py",
+    ] {
+        assert!(
+            release_yml.contains(needle),
+            "release.yml must contain `{needle}`"
+        );
+    }
 
     // The tag must equal the workspace version, and the release is created
     // only after the image push (the last step of the publish job).
@@ -112,6 +138,12 @@ fn release_workflow_and_dockerfile_are_valid() {
         push < release,
         "release.yml must create the GitHub release after the image push"
     );
+    for job in ["publish-pypi:", "publish-crates:"] {
+        let at = release_yml
+            .find(&format!("\n  {job}"))
+            .unwrap_or_else(|| panic!("release.yml must have job {job}"));
+        assert!(at < release, "the Release must come after {job}");
+    }
 
     // Every job that runs `cargo xtask` installs the pinned toolchain first.
     let mut jobs: Vec<(String, String)> = Vec::new();
@@ -312,4 +344,112 @@ fn python_workflow_runs_the_python_tests() {
     ] {
         assert!(!py.contains(word), "python.yml must not publish ({word})");
     }
+}
+
+/// The text of one top-level job of a workflow.
+fn job_body<'a>(yml: &'a str, job: &str) -> &'a str {
+    let at = yml
+        .find(&format!("\n  {job}:\n"))
+        .unwrap_or_else(|| panic!("no job {job}"))
+        + 1;
+    let rest = &yml[at + 1..];
+    let end = rest
+        .lines()
+        .scan(0, |off, l| {
+            let o = *off;
+            *off += l.len() + 1;
+            Some((o, l))
+        })
+        .skip(1)
+        .find(|(_, l)| l.starts_with("  ") && !l.starts_with("   ") && l.trim_end().ends_with(':'))
+        .map_or(rest.len(), |(o, _)| o);
+    &yml[at..at + 1 + end]
+}
+
+#[test]
+fn publish_steps_are_gated() {
+    let root = xtask::diff::workspace_root();
+    let y = fs::read_to_string(root.join(".github/workflows/release.yml")).unwrap();
+
+    // Each publish job is off unless its repository variable is true (D80), and runs
+    // only for a real tag push with a LICENSE in the tree.
+    for (job, var) in [
+        ("publish-pypi", "GLOCI_PUBLISH_PYPI"),
+        ("publish-crates", "GLOCI_PUBLISH_CRATES"),
+    ] {
+        let body = job_body(&y, job);
+        let cond = body
+            .lines()
+            .find(|l| l.trim_start().starts_with("if:"))
+            .unwrap_or_else(|| panic!("{job} has no job-level `if:`"));
+        assert!(
+            cond.contains(&format!("vars.{var} == 'true'")),
+            "{job}: `{cond}` must test vars.{var}"
+        );
+        assert!(
+            cond.contains("github.event_name == 'push'"),
+            "{job}: `{cond}` must require a tag push (not workflow_dispatch)"
+        );
+        assert!(
+            cond.contains("needs.version.outputs.license == 'true'"),
+            "{job}: `{cond}` must require the LICENSE file (the version job's `license` output)"
+        );
+    }
+    let version = job_body(&y, "version");
+    assert!(version.contains("[ -f LICENSE ]") && version.contains("license="));
+    assert!(job_body(&y, "publish-pypi").contains("environment: pypi"));
+    assert!(job_body(&y, "publish-pypi").contains("gh-action-pypi-publish"));
+    assert!(job_body(&y, "publish-crates").contains("CARGO_REGISTRY_TOKEN"));
+
+    // Nothing publishes outside those jobs.
+    let within = |job: &str, needle: &str| {
+        let body = job_body(&y, job);
+        let start = body.as_ptr() as usize - y.as_ptr() as usize;
+        for (i, _) in y.match_indices(needle) {
+            assert!(
+                i >= start && i < start + body.len(),
+                "`{needle}` appears outside {job} (at byte {i})"
+            );
+        }
+    };
+    within("publish-pypi", "gh-action-pypi-publish");
+    within("publish-crates", "cargo publish");
+    within("ghcr", "build-push-action");
+    let ghcr = job_body(&y, "ghcr");
+    assert!(ghcr.contains("if: github.event_name == 'push'"));
+    for step in [
+        "Log in to GitHub Container Registry",
+        "Build and push GHCR image",
+    ] {
+        let at = ghcr.find(step).unwrap();
+        assert!(
+            ghcr[at..]
+                .lines()
+                .nth(1)
+                .unwrap()
+                .contains("if: vars.GLOCI_PUBLISH_GHCR == 'true'"),
+            "{step} must be gated"
+        );
+    }
+
+    // The Release job runs when a publish job is skipped, but not after a failure,
+    // and only on a tag push.
+    let rel = job_body(&y, "release");
+    assert!(
+        rel.contains("if: ${{ !failure() && !cancelled() && github.event_name == 'push' }}"),
+        "the release job must run when publish jobs are skipped"
+    );
+    for need in ["publish-pypi", "publish-crates", "wheels", "sdist", "build"] {
+        assert!(rel.contains(need), "release job must need {need}");
+    }
+
+    // The smoke test runs against a wheel on the Linux images and on macOS.
+    let smoke = job_body(&y, "wheel-smoke");
+    assert!(smoke.contains("cp310-cp310") && smoke.contains("--no-index"));
+    assert!(job_body(&y, "sdist-smoke").contains("python:3.12"));
+
+    // The new actions are pinned like the others.
+    let used = actions(&y);
+    assert!(used.iter().any(|(a, _)| a == "PyO3/maturin-action"));
+    assert!(used.iter().any(|(a, _)| a == "pypa/gh-action-pypi-publish"));
 }
