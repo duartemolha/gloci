@@ -78,8 +78,9 @@ for r in gloci.open("calls.vcf.gz").intersect(b="targets.bed"):
   back as SAM text, BCF output as VCF text, FASTA output as one record per sequence (its fields
   are the name and the sequence).
 - They are `None` where the output has no coordinates: a table such as `vcf_extract()`,
-  `stats_jaccard()`, `idxstats()` or `depth()` writes, an unmapped read, a line that cannot be
-  read as a record.
+  `stats_jaccard()`, `idxstats()`, `depth()`, `coverage(hist=True)` or `view(count=True)`
+  writes, or `groupby()` keyed on other columns than 1, 2 and 3; an unmapped read; a line that
+  cannot be read as a record.
 - Header lines are not records: `#` lines, SAM's `@` lines, `track` and `browser` lines, and a
   table's header row (`vcf_extract()`'s `CHROM  POS  ...`), which names its columns.
 - Records are handed over in batches of about 4 MiB, so memory stays flat however large the

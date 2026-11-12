@@ -44,15 +44,15 @@ pub enum Shape {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Output {
     pub shape: Shape,
-    /// The ids of flags any one of which, given, makes the output records instead
-    /// (`stats reldist --detail` writes A's records with their values).
-    pub records_with: &'static [&'static str],
+    /// Flags (clap ids) that change the shape when given, in order: the first one given wins
+    /// (`coverage --hist` writes a table, `stats reldist --detail` records).
+    pub with: &'static [(&'static str, Shape)],
 }
 
 /// The output of most steps: records.
 pub const RECORDS: Output = Output {
     shape: Shape::Records,
-    records_with: &[],
+    with: &[],
 };
 
 /// One step method.
@@ -71,13 +71,10 @@ pub struct Binding {
 }
 
 impl Binding {
-    /// The binding with the output `shape`, except with any of `records_with` given.
-    const fn shaped(self, shape: Shape, records_with: &'static [&'static str]) -> Binding {
+    /// The binding whose output is `shape`, but as `with` says when one of its flags is given.
+    const fn shaped(self, shape: Shape, with: &'static [(&'static str, Shape)]) -> Binding {
         Binding {
-            output: Output {
-                shape,
-                records_with,
-            },
+            output: Output { shape, with },
             ..self
         }
     }
@@ -114,22 +111,25 @@ const fn nary(path: &'static [&'static str], method: &'static str) -> Binding {
 }
 
 /// The step methods (D87). Each step whose output is a table rather than records is marked
-/// with its [`Shape`]: those that print an unprefixed header row (found by running every
-/// binding's command on the golden fixtures; `tests/embed_outputs.rs` keeps the list), and
-/// those whose rows would read back as wrong intervals.
+/// with its [`Shape`], and the flags that change it: those that print an unprefixed header row
+/// (found by running every binding's command on the golden fixtures; `tests/embed_outputs.rs`
+/// keeps the list), and those whose rows would read back as wrong intervals. `groupby` writes
+/// records only when its keys start with BED's chrom, start and end ([`super::read_back`]).
 pub const BINDINGS: &[Binding] = &[
     // relations: the pipeline is A
     flag(&["intersect"], "intersect", "a"),
     flag(&["subtract"], "subtract", "a"),
     flag(&["closest"], "closest", "a"),
     flag(&["map"], "map", "a"),
-    flag(&["coverage"], "coverage", "a"),
+    // --hist: A's lines with histogram columns, then `all` summary lines.
+    flag(&["coverage"], "coverage", "a").shaped(Shape::Records, &[("hist", Shape::Table)]),
     flag(&["pair-intersect"], "pair_intersect", "a"),
     flag(&["pair-pair"], "pair_pair", "a"),
     flag(&["stats", "jaccard"], "stats_jaccard", "a").shaped(Shape::HeaderRow, &[]),
     // `#` lines (the contingency table), then the header row of the p-values.
     flag(&["stats", "fisher"], "stats_fisher", "a").shaped(Shape::HeaderRow, &[]),
-    flag(&["stats", "reldist"], "stats_reldist", "a").shaped(Shape::HeaderRow, &["detail"]),
+    flag(&["stats", "reldist"], "stats_reldist", "a")
+        .shaped(Shape::HeaderRow, &[("detail", Shape::Records)]),
     // several inputs: the pipeline, then extra positional sources
     nary(&["merge"], "merge"),
     nary(&["partition"], "partition"),
@@ -142,7 +142,8 @@ pub const BINDINGS: &[Binding] = &[
     nary(&["depth"], "depth").shaped(Shape::Table, &[]),
     nary(&["samples"], "samples").shaped(Shape::Table, &[]),
     // one input
-    one(&["view"], "view"),
+    // --count: the number of records.
+    one(&["view"], "view").shaped(Shape::Records, &[("count", Shape::Table)]),
     one(&["convert"], "convert"),
     one(&["slop"], "slop"),
     one(&["flank"], "flank"),
@@ -151,13 +152,17 @@ pub const BINDINGS: &[Binding] = &[
     one(&["spacing"], "spacing"),
     one(&["groupby"], "groupby"),
     // A histogram, or one depth per base, unless it writes bedGraph.
-    one(&["genomecov"], "genomecov").shaped(Shape::Table, &["bedgraph", "bga"]),
+    one(&["genomecov"], "genomecov").shaped(
+        Shape::Table,
+        &[("bedgraph", Shape::Records), ("bga", Shape::Records)],
+    ),
     one(&["vcf", "filter"], "vcf_filter"),
     one(&["vcf", "extract"], "vcf_extract").shaped(Shape::HeaderRow, &[]),
     one(&["vcf", "split"], "vcf_split"),
     one(&["vcf", "norm"], "vcf_norm"),
     one(&["vcf", "annotate"], "vcf_annotate"),
-    one(&["getfasta"], "getfasta"),
+    // --tab: name and sequence.
+    one(&["getfasta"], "getfasta").shaped(Shape::Records, &[("tab", Shape::Table)]),
     one(&["nuc"], "nuc"),
     one(&["sample"], "sample"),
     one(&["shuffle"], "shuffle"),

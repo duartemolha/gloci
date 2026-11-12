@@ -92,8 +92,10 @@ pub struct ReadBack {
 }
 
 /// How the output of the stage `argv` (`gloci` first, as [`step_argv`] builds it) reads back:
-/// its binding's [`Output`] with the flags given ([`Output::records_with`]), and its
-/// `--vcf-span`. A command that is no step (a module source, `windows -g`) writes records.
+/// its binding's [`Output`] with the flags given ([`Output::with`]), and its `--vcf-span`.
+/// `groupby` writes records only when its keys (`-g`) start with columns 1, 2 and 3 (BED's
+/// chrom, start and end), else a table. A command that is no step (a module source,
+/// `windows -g`) writes records.
 pub fn read_back(argv: &[OsString]) -> Result<ReadBack, UsageError> {
     let matches = crate::command()
         .try_get_matches_from(argv)
@@ -106,11 +108,14 @@ pub fn read_back(argv: &[OsString]) -> Result<ReadBack, UsageError> {
     }
     let output = binding(&path).map_or(RECORDS, |b| b.output);
     let given = |id: &str| matches!(m.try_get_one::<bool>(id), Ok(Some(true)));
-    let shape = if output.records_with.iter().any(|id| given(id)) {
-        Shape::Records
-    } else {
-        output.shape
-    };
+    let mut shape = output
+        .with
+        .iter()
+        .find(|(id, _)| given(id))
+        .map_or(output.shape, |(_, s)| *s);
+    if path == ["groupby"] && shape == Shape::Records && !keyed_on_bed(m) {
+        shape = Shape::Table;
+    }
     let span = m
         .try_get_raw("vcf_span")
         .ok()
@@ -122,6 +127,23 @@ pub fn read_back(argv: &[OsString]) -> Result<ReadBack, UsageError> {
         VcfSpan::Allele
     };
     Ok(ReadBack { shape, vcf_span })
+}
+
+/// Whether `groupby`'s keys (`-g`, comma-separated, possibly repeated) start with columns 1, 2
+/// and 3 in order, so that its rows start with a BED interval.
+fn keyed_on_bed(m: &clap::ArgMatches) -> bool {
+    let Ok(Some(values)) = m.try_get_raw("group") else {
+        return false;
+    };
+    let keys: Vec<String> = values
+        .flat_map(|v| {
+            v.to_string_lossy()
+                .split(',')
+                .map(|k| k.trim().to_string())
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    keys.len() >= 3 && keys[..3] == ["1", "2", "3"]
 }
 
 /// How a run is told apart from the command line.

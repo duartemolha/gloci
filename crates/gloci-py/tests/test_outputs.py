@@ -468,3 +468,49 @@ def test_iterators_are_independent_runs(ab: Path) -> None:
     assert len(list(a)) + 3 == p.count()
     b.close()
     assert list(b) == []
+
+
+# ---- Shapes that follow the flags given (fix round 1, I1 and I2) ----------------------------
+
+
+def assert_columns_line_up(t, lines: list[str]) -> None:  # type: ignore[no-untyped-def]
+    """Each row of the table `t` (a table's `col<N>` columns) holds its line's fields, in
+    order, and nulls past its last field."""
+    for row, line in zip(t.to_pylist(), lines, strict=True):
+        fields = line.split("\t")
+        for k in range(t.num_columns):
+            v = row[f"col{k + 1}"]
+            if k >= len(fields):
+                assert v is None, (line, k)
+            elif isinstance(v, float):
+                assert v == float(fields[k]), (line, k)
+            else:
+                assert str(v) == fields[k], (line, k)
+
+
+def test_tables_do_not_read_back_as_intervals(ab: Path) -> None:
+    # coverage --hist: A's lines with histogram columns, then the `all` summary lines.
+    p = gloci.open("a.bed").coverage(b="b.bed", hist=True)
+    lines = p.to_bytes().decode().splitlines()
+    assert any(line.startswith("all\t") for line in lines)
+    recs = list(p)
+    assert [r.line for r in recs] == lines
+    assert p.count() == len(lines)
+    assert not any(r.chrom == "all" and r.start is not None for r in recs)
+    assert all((r.chrom, r.start, r.end) == (None, None, None) for r in recs)
+    if _try_import("pyarrow") is not None:
+        t = p.to_arrow()
+        assert t.column_names[0] == "col1"
+        assert_columns_line_up(t, lines)
+
+    # groupby keyed on other columns than chrom, start and end: `chr2  5310  450` is no
+    # interval.
+    g = gloci.open("a.bed").groupby(g="1", c=["5:sum", "5:count"])
+    lines = g.to_bytes().decode().splitlines()
+    rows = list(g)
+    assert [r.line for r in rows] == lines and len(rows) == 3
+    assert all((r.chrom, r.start, r.end) == (None, None, None) for r in rows)
+    # Keyed on chrom, start and end (then more), it writes BED records.
+    k = list(gloci.open("a.bed").groupby(g="1,2,3,4", c="5:sum"))
+    assert all((r.chrom, r.start, r.end) == (r[0], int(r[1]), int(r[2])) for r in k)
+

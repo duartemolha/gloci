@@ -185,34 +185,49 @@ would be seen"
     );
 }
 
-fn marked(shape: Shape) -> Vec<String> {
-    BINDINGS
-        .iter()
-        .filter(|b| b.output.shape == shape)
-        .map(|b| b.path.join(" "))
-        .collect()
-}
-
 #[test]
 fn the_marked_steps() {
+    // Each step whose output is not plain records, with the flags that change it: tables whose
+    // rows would read back as wrong intervals (or none), and tables with a header row.
+    let marked: Vec<String> = BINDINGS
+        .iter()
+        .filter(|b| b.output != embed::RECORDS)
+        .map(|b| {
+            let with: Vec<String> = b
+                .output
+                .with
+                .iter()
+                .map(|(id, s)| format!("{id}: {s:?}"))
+                .collect();
+            let with = if with.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", with.join(", "))
+            };
+            format!("{}: {:?}{with}", b.path.join(" "), b.output.shape)
+        })
+        .collect();
     assert_eq!(
-        marked(Shape::HeaderRow),
+        marked,
         [
-            "stats jaccard",
-            "stats fisher",
-            "stats reldist",
-            "vcf extract"
+            "coverage: Records (hist: Table)",
+            "stats jaccard: HeaderRow",
+            "stats fisher: HeaderRow",
+            "stats reldist: HeaderRow (detail: Records)",
+            "depth: Table",
+            "samples: Table",
+            "view: Records (count: Table)",
+            "genomecov: Table (bedgraph: Records, bga: Records)",
+            "vcf extract: HeaderRow",
+            "getfasta: Records (tab: Table)",
+            "flagstat: Table",
+            "idxstats: Table",
         ]
     );
-    // Tables whose rows would read back as wrong intervals, or none.
-    assert_eq!(
-        marked(Shape::Table),
-        ["depth", "samples", "genomecov", "flagstat", "idxstats"]
-    );
-    // The flags that make a table's output records are the command's own.
+    // The flags are the command's own switches.
     for b in BINDINGS {
         let spec = embed::find_spec(b.path).unwrap();
-        for id in b.output.records_with {
+        for (id, _) in b.output.with {
             assert!(
                 spec.args.iter().any(|a| a.id == *id && !a.takes_value),
                 "{}: no flag {id}",
@@ -251,6 +266,45 @@ fn read_back_follows_the_flags_given() {
     );
     assert_eq!(back("genomecov -g g.txt a.bed --bga").shape, Shape::Records);
     assert_eq!(back("intersect -a a.bed -b b.bed").shape, Shape::Records);
+    // coverage --hist: A's lines with histogram columns, then `all` lines.
+    assert_eq!(back("coverage -a a.bed -b b.bed").shape, Shape::Records);
+    assert_eq!(
+        back("coverage -a a.bed -b b.bed --hist").shape,
+        Shape::Table
+    );
+    assert_eq!(
+        back("coverage -a a.bed -b b.bed --per-base").shape,
+        Shape::Records
+    );
+    // getfasta --tab: name and sequence; view --count: a number.
+    assert_eq!(
+        back("getfasta --fasta r.fa a.bed --tab").shape,
+        Shape::Table
+    );
+    assert_eq!(
+        back("getfasta --fasta r.fa a.bed --bed-out").shape,
+        Shape::Records
+    );
+    assert_eq!(back("view x.bam --count").shape, Shape::Table);
+    // groupby writes records only when its keys start with BED's chrom, start and end.
+    assert_eq!(
+        back("groupby a.bed -g 1,2,3 -c 5:sum").shape,
+        Shape::Records
+    );
+    assert_eq!(
+        back("groupby a.bed -g 1,2,3,6 -c 5:sum").shape,
+        Shape::Records
+    );
+    assert_eq!(
+        back("groupby a.bed -g 1 -c 5:sum -c 5:count").shape,
+        Shape::Table
+    );
+    assert_eq!(back("groupby a.bed -g 1,2 -c 5:sum").shape, Shape::Table);
+    assert_eq!(back("groupby a.bed -g 2,1,3 -c 5:sum").shape, Shape::Table);
+    assert_eq!(
+        back("groupby a.bed -g 6,1,2,3 -c 5:sum").shape,
+        Shape::Table
+    );
     // A module source is no step: it writes records.
     assert_eq!(back("windows -g g.txt -w 10").shape, Shape::Records);
     // The footprint of VCF records is the step's --vcf-span, else the allele span.
