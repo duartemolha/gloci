@@ -20,6 +20,7 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from typing import Any
 
 from . import _native
+from ._signature import SIGNATURES, make_doc, make_signature
 from .errors import UsageError
 
 __all__ = ["Pipeline", "classify_source", "open"]
@@ -696,7 +697,10 @@ def _step_method(b: dict[str, Any]):  # type: ignore[no-untyped-def]
 
     step.__name__ = method
     step.__qualname__ = f"Pipeline.{method}"
-    step.__doc__ = f"{b['about']}\n\nCLI: gloci {' '.join(b['path'])}"
+    path = tuple(b["path"])
+    sig = SIGNATURES[method]
+    step.__doc__ = make_doc(path, sig)
+    step.__signature__ = make_signature(path, sig, method=True)  # type: ignore[attr-defined]
     return step
 
 

@@ -158,6 +158,55 @@ fn bindings(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
     })
 }
 
+/// The keyword-only parameters of each step method and module function, from
+/// [`embed::step_signature`] and [`embed::function_signature`] (the stub's source too):
+/// `{name: {"lead", "nary", "out", "args", "skipped"}}`: `lead` the `(name, help)` of a function's positional
+/// parameters, `out` the help of its `out=` (or None), `args` the keyword parameters in order
+/// (`name`, the arg's clap `id`, `alias_of` its primary name for a short flag or alias, and
+/// `required`), `skipped` the arguments (`name`, `switch`) whose own name is not a Python identifier.
+#[pyfunction]
+fn signatures(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
+    guarded(py, || {
+        let put = |out: &Bound<'_, PyDict>, name: &str, sig: embed::Signature| -> PyResult<()> {
+            let d = PyDict::new(py);
+            d.set_item("lead", sig.lead.to_vec())?;
+            d.set_item("nary", sig.nary)?;
+            d.set_item("out", sig.out)?;
+            let args = PyList::empty(py);
+            for k in &sig.args {
+                let a = PyDict::new(py);
+                a.set_item("name", &k.name)?;
+                a.set_item("id", &k.arg.id)?;
+                a.set_item("alias_of", &k.alias_of)?;
+                a.set_item("required", k.required)?;
+                args.append(a)?;
+            }
+            d.set_item("args", args)?;
+            let skipped = PyList::empty(py);
+            for k in &sig.skipped {
+                let a = PyDict::new(py);
+                a.set_item("name", &k.name)?;
+                a.set_item("switch", k.switch)?;
+                skipped.append(a)?;
+            }
+            d.set_item("skipped", skipped)?;
+            out.set_item(name, d)
+        };
+        let out = PyDict::new(py);
+        for b in embed::BINDINGS {
+            let sig = embed::step_signature(b)
+                .ok_or_else(|| errors::internal(py, format!("no spec for {}", b.path.join(" "))))?;
+            put(&out, b.method, sig)?;
+        }
+        for (_, f) in embed::MODULE_FUNCTIONS {
+            let sig = embed::function_signature(f)
+                .ok_or_else(|| errors::internal(py, format!("no spec for function {f}")))?;
+            put(&out, f, sig)?;
+        }
+        Ok(out)
+    })
+}
+
 /// Whether `s` is a word only a plan makes, which a keyword argument holds where a pipeline's
 /// source goes (`b=`): a token for an input (`"\0src:<k>"`, `"\0pipe:<j>"`), or a shown
 /// placeholder ([`PLACEHOLDER_OPEN`]). No value a user gives holds a NUL.
@@ -563,6 +612,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add_function(wrap_pyfunction!(command_specs, m)?)?;
     m.add_function(wrap_pyfunction!(bindings, m)?)?;
+    m.add_function(wrap_pyfunction!(signatures, m)?)?;
     m.add_function(wrap_pyfunction!(kwargs_to_argv, m)?)?;
     m.add_function(wrap_pyfunction!(step_argv, m)?)?;
     m.add_function(wrap_pyfunction!(source_argv, m)?)?;

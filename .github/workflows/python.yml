@@ -51,6 +51,12 @@ jobs:
         run: maturin develop -m crates/gloci-py/Cargo.toml --features test-hooks
       - name: pytest
         run: pytest crates/gloci-py/tests -m "not large"
+      # The stub types real usage: this cell has pyarrow, polars and pandas, whose types the
+      # stub's return types name. It runs the stub's own check too (cargo test -p xtask --test
+      # pystub: pyi_is_current), in ci.yml.
+      - name: mypy --strict
+        if: matrix.python == '3.12'
+        run: mypy --strict crates/gloci-py/tests/typing_example.py
 
   # The Arrow output without pyarrow (D89): polars takes gloci's tables through the Arrow
   # PyCapsule interface, so a venv with polars and no pyarrow must pass. The tests that need

@@ -324,6 +324,7 @@ fn python_workflow_runs_the_python_tests() {
         "pip install -r crates/gloci-py/requirements-ci.txt",
         "maturin develop -m crates/gloci-py/Cargo.toml --features test-hooks",
         "pytest crates/gloci-py/tests -m \"not large\"",
+        "mypy --strict crates/gloci-py/tests/typing_example.py",
     ];
     for pair in steps.windows(2) {
         assert!(
@@ -333,6 +334,14 @@ fn python_workflow_runs_the_python_tests() {
             pair[1]
         );
     }
+
+    // The stub check runs on the 3.12 cells only (they have pyarrow, polars and pandas).
+    assert!(
+        py.contains(
+            "      - name: mypy --strict\n        if: matrix.python == '3.12'\n        run: mypy --strict crates/gloci-py/tests/typing_example.py"
+        ),
+        "python.yml: the mypy step must be `if: matrix.python == '3.12'`"
+    );
 
     // It never publishes anything.
     for word in [
