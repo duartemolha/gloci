@@ -617,6 +617,13 @@ fn every_cli_command_is_bound_or_excluded() {
             }
         }
     }
+    // Only faidx and reheader need their input as a file.
+    let needs_file: Vec<&str> = embed::BINDINGS
+        .iter()
+        .filter(|b| b.needs_file)
+        .map(|b| b.method)
+        .collect();
+    assert_eq!(needs_file, ["faidx", "reheader"]);
     // Everything is placed now; a new command fails above until it is.
     assert!(embed::UNBOUND.is_empty(), "{:?}", embed::UNBOUND);
     for f in embed::SOURCES {
@@ -821,4 +828,37 @@ fn log_records_render_display_names() {
             .build(),
     );
     assert_eq!(rendered, "<generator> has no chr prefix");
+}
+
+#[test]
+fn faidx_refuses_an_in_memory_fasta() {
+    let src = Registered::input(
+        "<view output>",
+        Box::new(Cursor::new(b">chr1\nACGT\n".to_vec())),
+    );
+    let out = Registered::output("<out>", Box::new(std::io::sink()));
+    let err = run(&os(&["faidx", src.name(), "chr1:1-2", "-o", out.name()])).unwrap_err();
+    assert_eq!(
+        embed::classify(&err),
+        Outcome::Usage(
+            "<view output> is in memory; faidx needs an indexed FASTA file: save it to a file \
+and index it first"
+                .into()
+        )
+    );
+}
+
+#[test]
+fn reheader_refuses_an_in_memory_input() {
+    let src = Registered::input("<view output>", Box::new(Cursor::new(b"BAM\x01".to_vec())));
+    let out = Registered::output("<out>", Box::new(std::io::sink()));
+    let err = run(&os(&["reheader", "new.sam", src.name(), "-o", out.name()])).unwrap_err();
+    assert_eq!(
+        embed::classify(&err),
+        Outcome::Usage(
+            "<view output> is in memory; reheader reads its input twice and needs a file: save \
+it to a file first"
+                .into()
+        )
+    );
 }

@@ -31,6 +31,9 @@ pub struct Binding {
     /// The method: the path joined with `_`, with `-` as `_` (`pair_intersect`).
     pub method: &'static str,
     pub input: Bind,
+    /// The input must be a file: the command reads it at random or twice (`faidx`,
+    /// `reheader`), so it cannot follow another step or read an in-memory source.
+    pub needs_file: bool,
 }
 
 const fn flag(path: &'static [&'static str], method: &'static str, f: &'static str) -> Binding {
@@ -38,6 +41,7 @@ const fn flag(path: &'static [&'static str], method: &'static str, f: &'static s
         path,
         method,
         input: Bind::Flag(f),
+        needs_file: false,
     }
 }
 
@@ -46,6 +50,7 @@ const fn one(path: &'static [&'static str], method: &'static str) -> Binding {
         path,
         method,
         input: Bind::Positional { nary: false },
+        needs_file: false,
     }
 }
 
@@ -54,6 +59,7 @@ const fn nary(path: &'static [&'static str], method: &'static str) -> Binding {
         path,
         method,
         input: Bind::Positional { nary: true },
+        needs_file: false,
     }
 }
 
@@ -99,7 +105,12 @@ pub const BINDINGS: &[Binding] = &[
     one(&["nuc"], "nuc"),
     one(&["sample"], "sample"),
     one(&["shuffle"], "shuffle"),
-    one(&["faidx"], "faidx"),
+    Binding {
+        path: &["faidx"],
+        method: "faidx",
+        input: Bind::Positional { nary: false },
+        needs_file: true,
+    },
     one(&["dict"], "dict"),
     one(&["flagstat"], "flagstat"),
     one(&["idxstats"], "idxstats"),
@@ -112,6 +123,7 @@ pub const BINDINGS: &[Binding] = &[
         path: &["reheader"],
         method: "reheader",
         input: Bind::PositionalAfter("header"),
+        needs_file: true,
     },
 ];
 
