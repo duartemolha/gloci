@@ -10,7 +10,7 @@ the minor version).
 - P2a: the VCF commands `vcf filter`, `vcf extract`, `vcf stats` and `vcf concat`.
 - P3a: BAM, CRAM, SAM and FASTA input; the samtools-style commands `sort`, `merge`, `cat`, `index` and `faidx`; and `getfasta`, `nuc` and `maskfasta`.
 - P3b: `stats jaccard`, `fisher` and `reldist`; `random`, `sample` and `shuffle`; the BEDPE pair commands and `convert --bedpe`; parallel VCF selection; `vcf compare` (genotype concordance); and `vcf split`, `vcf norm`, `vcf annotate` and `vcf merge`.
-- P3c: (to be filled in as the phase lands.)
+- P3c: the samtools-style commands `flags`, `idxstats`, `flagstat`, `head`, `samples`, `depth` (with `--skip-mate-overlap`), `bedcov`, `dict` and `reheader`; `check` of alignment files and `check --quick` (quickcheck); and `view --count` and `view --regions-file` on alignments.
 
 ## [0.1.0] - 2026-11-08
 
