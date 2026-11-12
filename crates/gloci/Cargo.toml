@@ -23,6 +23,7 @@ gloci-ops.workspace = true
 gloci-vcf.workspace = true
 clap.workspace = true
 anyhow.workspace = true
+crossbeam-channel.workspace = true
 log.workspace = true
 rayon.workspace = true
 mimalloc.workspace = true

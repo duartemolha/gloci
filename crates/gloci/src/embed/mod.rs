@@ -25,10 +25,16 @@
 //! - **Handlers.** `execute` never prints (the output goes to `-o`, which a host always gives),
 //!   never installs signal or panic handlers and never exits the process. A panic in a command
 //!   goes on in the caller, which should catch it (`catch_unwind`).
+//!
+//! A pipeline's steps run at once, chained by bounded in-memory pipes ([`pipe`]), in a
+//! [`StageSet`] (D85): it does the token, the endpoint discarding, the classifying and the
+//! panic catching above for each step, and reports one error for the set.
 
 mod args;
 mod bindings;
+mod pipe;
 mod spec;
+mod stages;
 
 pub use args::{
     KwValue, RESERVED_ALWAYS, RESERVED_ON_STEP_OF, RESERVED_ON_STEPS, Role, input_arg,
@@ -39,7 +45,9 @@ pub use bindings::{
     is_unbound, method_name, module_function,
 };
 pub use gloci_io::cancel::{CancelToken, RunGuard};
+pub use pipe::{PIPE_CHUNK, PIPE_CHUNKS, PipeFail, PipeReader, PipeWriter, pipe};
 pub use spec::{ArgSpec, CommandSpec, command_specs, find_spec};
+pub use stages::{StageError, StageSet, StageSpec};
 
 use crate::cli::{self, Cli, Commands};
 use crate::{Ctx, Reported};

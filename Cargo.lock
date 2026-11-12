@@ -666,6 +666,7 @@ dependencies = [
  "anyhow",
  "assert_cmd",
  "clap",
+ "crossbeam-channel",
  "gloci-core",
  "gloci-io",
  "gloci-ops",
