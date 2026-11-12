@@ -16,6 +16,18 @@ const LOGGER: &str = "gloci";
 
 static QUEUE: Mutex<Vec<(Level, String)>> = Mutex::new(Vec::new());
 
+thread_local! {
+    /// This thread's records are dropped ([`mute_this_thread`]).
+    static MUTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Drop the log records this thread makes from now on: the host stage that reads a run's
+/// output back opens it with gloci's readers, whose warnings (an undeclared contig) the step
+/// that wrote it has already given.
+pub(crate) fn mute_this_thread() {
+    MUTED.with(|m| m.set(true));
+}
+
 fn queue() -> MutexGuard<'static, Vec<(Level, String)>> {
     QUEUE.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -28,7 +40,7 @@ impl Log for Forward {
     }
 
     fn log(&self, r: &Record) {
-        if self.enabled(r.metadata()) {
+        if self.enabled(r.metadata()) && !MUTED.with(std::cell::Cell::get) {
             let text = gloci::logging::render(r);
             queue().push((r.level(), text));
         }

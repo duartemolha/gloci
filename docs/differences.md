@@ -617,7 +617,8 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   unchanged (every leading `#` line) and does not accept names, so the header has
   the input's columns over the output's.
 - **Reason:** the copied header names columns that are no longer there.
-- **Pinned by:** `groupby-header-vs-bedtools` (must differ).
+- **Pinned by:** `groupby-header-vs-bedtools` and `groupby-header-unprefixed-vs-bedtools`
+  (must differ).
 
 ## A missing column is an error, not a message and exit 0 {#groupby-missing-column}
 

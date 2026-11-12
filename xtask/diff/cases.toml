@@ -2595,6 +2595,16 @@ reference = "bedtools groupby -i input.tsv -header -g 1 -c 4 -o sum"
 compare = "exact"
 expected_difference = "#groupby-header"
 
+# The same with a header line that has no `#`: gloci's output starts with an unprefixed header
+# line, which a host reading the output back takes as the header (P2b Task 8, fix round 1).
+[[case]]
+name = "groupby-header-unprefixed-vs-bedtools"
+input = { file = "xtask/diff/inputs/groupby-header-unprefixed.tsv" }
+gloci = "gloci groupby input.tsv --header -g 1 -c 5:sum"
+reference = "bedtools groupby -i input.tsv -header -g 1 -c 5 -o sum"
+compare = "exact"
+expected_difference = "#groupby-header"
+
 # bedtools reports a missing column and exits 0 after partial output; gloci exits 1.
 [[case]]
 name = "groupby-missing-column-vs-bedtools"

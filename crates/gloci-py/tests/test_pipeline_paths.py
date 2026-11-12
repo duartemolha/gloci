@@ -119,10 +119,9 @@ def test_count(ab: Path, calls: Path) -> None:
     assert region.count() == 1
 
 
-@pytest.mark.xfail(strict=True, reason="Task 8: count via re-read")
 def test_count_summary_tables(ab: Path) -> None:
-    # A summary table's header row has no `#`, so count() takes it for a record until Task 8
-    # counts what iteration reads.
+    # A summary table's header row has no `#`; it names the columns and is not a record
+    # (P2b Task 8: count() counts what iteration reads).
     p = gloci.open("a.bed").stats_jaccard(b="b.bed")
     assert p.to_bytes().startswith(b"intersection\tunion\tjaccard\tn_intersections\n")
     assert p.count() == 1

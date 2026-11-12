@@ -3,8 +3,8 @@
 //! defaults, validation and messages are the CLI's.
 
 use super::bindings::{Bind, Binding, binding, method_name};
-use super::spec::find_spec;
 use super::spec::{ArgSpec, CommandSpec};
+use super::spec::{command_specs, find_spec};
 use gloci_io::UsageError;
 use std::ffi::OsString;
 use std::sync::OnceLock;
@@ -488,13 +488,38 @@ fn rewrite(text: &str, spec: &CommandSpec) -> String {
     let mut i = 0;
     while i < b.len() {
         let boundary = i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'-');
-        let found = match b[i] {
-            b'-' if boundary => flag_at(&text[i..], spec)
-                .map(|(kw, len)| (kw, len + placeholder_len(&text[i + len..]))),
-            b'<' | b'[' if boundary => positional_at(&text[i..], spec),
-            _ => None,
-        };
-        if let Some((kw, len)) = found {
+        if boundary && let Some(n) = shell_command_at(&text[i..]) {
+            // A gloci command line in a hint stays a command line: it is run in a shell.
+            out.push_str(&text[i..i + n]);
+            i += n;
+            continue;
+        }
+        if b[i] == b'-'
+            && boundary
+            && let Some((arg, kw, len)) = flag_at(&text[i..], spec)
+        {
+            let rest = &text[i + len..];
+            let (value, used) = match placeholder_len(rest) {
+                0 if arg.takes_value => value_at(rest, arg).unwrap_or((None, 0)),
+                n => (None, n),
+            };
+            match (arg.id.as_str(), value) {
+                // The terminal's options (D86): save()'s path, and threads=.
+                ("output", Some(v)) => out.push_str(&format!("save(\"{v}\")")),
+                ("output", None) => out.push_str("save(path)"),
+                (_, v) => {
+                    out.push_str(&kw);
+                    out.push('=');
+                    out.push_str(v.unwrap_or(""));
+                }
+            }
+            i += len + used;
+            continue;
+        }
+        if matches!(b[i], b'<' | b'[')
+            && boundary
+            && let Some((kw, len)) = positional_at(&text[i..], spec)
+        {
             out.push_str(&kw);
             out.push('=');
             i += len;
@@ -507,8 +532,52 @@ fn rewrite(text: &str, spec: &CommandSpec) -> String {
     out
 }
 
-/// The kwarg for a `--long` or `-s` flag of `spec` at the start of `s`, with its length.
-fn flag_at(s: &str, spec: &CommandSpec) -> Option<(String, usize)> {
+/// The length of a gloci command line at the start of `s` (`gloci sort -n x.bam -o y.bam`, a
+/// hint's suggestion): `gloci`, a command, and the rest up to the end of the line, a `, `, a
+/// `;`, a `)` or a backtick. `None` when `s` does not start with one.
+fn shell_command_at(s: &str) -> Option<usize> {
+    let rest = s.strip_prefix("gloci ")?;
+    let word = rest
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '-'))
+        .next()?;
+    if !command_specs().iter().any(|c| c.path[0] == word) {
+        return None;
+    }
+    let end = ["\n", ", ", ";", ")", "`"]
+        .iter()
+        .filter_map(|e| s.find(e))
+        .min()
+        .unwrap_or(s.len());
+    Some(end)
+}
+
+/// The value written after a flag that takes one, at the start of `s`: ` VALUE` or `=VALUE`, up
+/// to a space, a quote, a `,`, `;` or `)`, without a full stop or colon that ends a sentence.
+/// Only what reads as a value is one: one of the flag's possible values, or a word with a
+/// digit, a `.` or a `/` in it (`4194304`, `16M`, `x.byname.bam`); any other word (`--max-mem
+/// needs a size`) is prose. The flag's own value name written bare (`-o FILE`) is a
+/// placeholder: `None`. Its value and the length used.
+fn value_at<'s>(s: &'s str, arg: &ArgSpec) -> Option<(Option<&'s str>, usize)> {
+    let body = s.strip_prefix(' ').or_else(|| s.strip_prefix('='))?;
+    let n = body
+        .find(|c: char| c.is_whitespace() || "'\"`,;)".contains(c))
+        .unwrap_or(body.len());
+    let mut v = &body[..n];
+    while let Some(t) = v.strip_suffix(['.', ':']) {
+        v = t;
+    }
+    if arg.value_names.iter().any(|p| p == v) {
+        return Some((None, 1 + v.len()));
+    }
+    let reads_as_value = arg.possible_values.iter().any(|p| p == v)
+        || v.chars()
+            .any(|c| c.is_ascii_digit() || c == '.' || c == '/');
+    (!v.is_empty() && reads_as_value).then(|| (Some(v), 1 + v.len()))
+}
+
+/// The flag of `spec` at the start of `s`, `--long` or `-s`: its argument, its keyword, and
+/// its length.
+fn flag_at<'a>(s: &str, spec: &'a CommandSpec) -> Option<(&'a ArgSpec, String, usize)> {
     let end_ok = |rest: &str| {
         !rest
             .chars()
@@ -529,14 +598,20 @@ fn flag_at(s: &str, spec: &CommandSpec) -> Option<(String, usize)> {
         } else {
             name.replace('-', "_")
         };
-        return Some((kw, 2 + n));
+        return Some((arg, kw, 2 + n));
     }
     let c = s[1..].chars().next()?;
     if !c.is_ascii_alphabetic() || !end_ok(&s[2..]) {
         return None;
     }
-    spec.args.iter().find(|a| a.short == Some(c))?;
-    Some((c.to_string(), 2))
+    let arg = spec.args.iter().find(|a| a.short == Some(c))?;
+    // A one-letter flag is its keyword (D86), but the threads are the terminal's.
+    let kw = if arg.id == "threads" {
+        arg.kwarg()
+    } else {
+        c.to_string()
+    };
+    Some((arg, kw, 2))
 }
 
 /// The length of a value placeholder after a flag: ` <N>`, `=<N>`, ` <N>...`; 0 when none.

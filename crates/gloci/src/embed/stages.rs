@@ -100,9 +100,18 @@ fn message(outcome: &Outcome) -> String {
 /// pool's [`gloci_io::WORKER_STACK`] threads.
 const STAGE_STACK: usize = 8 << 20;
 
-/// A stage's work, for [`StageSet::spawn_fns`].
-#[doc(hidden)]
+/// A stage's work: a host stage's code ([`HostStage`]), or a test's ([`StageSet::spawn_fns`]).
 pub type StageFn = Box<dyn FnOnce() -> anyhow::Result<bool> + Send>;
+
+/// A stage that runs the host's own code rather than a command, under the set's token, panic
+/// handling and error priority: the host's reader of the pipeline's output (the records it
+/// hands to Python, P2b Task 8). It owns what it reads, such as the reading end of the last
+/// command's pipe, and drops it when it ends; a command stage that writes that pipe keeps its
+/// fail handle, so a failure upstream reaches it as `upstream step failed: ...`, a derived
+/// error, and its own failures are primary.
+pub struct HostStage {
+    pub run: StageFn,
+}
 
 struct Stage {
     run: StageFn,
@@ -155,8 +164,14 @@ impl StageSet {
     /// Start every stage: [`super::parse`] its argv and [`super::execute`] it, on its thread.
     /// The set's token records the output files the stages commit ([`StageSet::outputs`]).
     pub fn spawn(specs: Vec<StageSpec>) -> StageSet {
+        StageSet::spawn_with_hosts(specs, Vec::new())
+    }
+
+    /// [`spawn`](Self::spawn) the command stages `specs`, and the host stages `hosts` after
+    /// them (numbered from `specs.len()`), under one token.
+    pub fn spawn_with_hosts(specs: Vec<StageSpec>, hosts: Vec<HostStage>) -> StageSet {
         let token = CancelToken::recording();
-        let stages = specs
+        let stages: Vec<Stage> = specs
             .into_iter()
             .map(|s| {
                 for f in &s.fail_downstream {
@@ -185,6 +200,11 @@ impl StageSet {
                     fail_downstream,
                 }
             })
+            .chain(hosts.into_iter().map(|h| Stage {
+                run: h.run,
+                endpoints: Vec::new(),
+                fail_downstream: Vec::new(),
+            }))
             .collect();
         StageSet::start(token, stages)
     }

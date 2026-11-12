@@ -1,8 +1,8 @@
 //! The stage runtime (D85): bounded in-memory pipes, and several commands running at once on
 //! threads, chained by those pipes, with one error reported for the set and cancellation.
 use gloci::embed::{
-    self, ExecOptions, Outcome, PIPE_CHUNK, PIPE_CHUNKS, PipeFail, SiteKind, StageError, StageSet,
-    StageSpec, pipe,
+    self, ExecOptions, HostStage, Outcome, PIPE_CHUNK, PIPE_CHUNKS, PipeFail, SiteKind, StageError,
+    StageSet, StageSpec, pipe,
 };
 use gloci_io::Loc;
 use gloci_io::cancel::{self, CancelToken, RunGuard};
@@ -473,6 +473,86 @@ fn upstream_data_error_wins() {
         err.outcome,
         Outcome::Failure(cli_error(&["merge"], &first_bad))
     );
+}
+
+#[test]
+fn host_stages_read_the_last_pipe_under_the_set() {
+    let _s = serial();
+    // A host stage reads the last command's pipe itself: it is numbered after the commands.
+    let read_all = |r: embed::PipeReader, got: Arc<Mutex<Vec<u8>>>| HostStage {
+        run: f(move || {
+            let mut r = r;
+            let mut buf = Vec::new();
+            r.read_to_end(&mut buf)?;
+            *got.lock().unwrap() = buf;
+            Ok(true)
+        }),
+    };
+    let (w, r) = pipe(PIPE_CHUNKS, PIPE_CHUNK);
+    let fail = w.fail_handle();
+    let out = Registered::output("<merge output>", Box::new(w));
+    let got = Arc::new(Mutex::new(Vec::new()));
+    let set = StageSet::spawn_with_hosts(
+        vec![stage(
+            argv!["merge", fixture("a.bed"), "-o", out.name()],
+            vec![out],
+            vec![fail],
+        )],
+        vec![read_all(r, got.clone())],
+    );
+    assert!(finish(set).unwrap());
+    let want = std::process::Command::new(env!("CARGO_BIN_EXE_gloci"))
+        .args([OsString::from("merge"), fixture("a.bed").into_os_string()])
+        .output()
+        .unwrap();
+    assert_eq!(*got.lock().unwrap(), want.stdout);
+
+    // The command's data error is primary; the host stage's read of the failed pipe is derived.
+    let dir = tempfile::tempdir().unwrap();
+    let bad = dir.path().join("bad.bed");
+    std::fs::write(&bad, "chr1\t1\t5\nchr1\tx\t9\n").unwrap();
+    let (w, r) = pipe(PIPE_CHUNKS, PIPE_CHUNK);
+    let fail = w.fail_handle();
+    let out = Registered::output("<merge output>", Box::new(w));
+    let set = StageSet::spawn_with_hosts(
+        vec![stage(
+            argv!["merge", &bad, "-o", out.name()],
+            vec![out],
+            vec![fail],
+        )],
+        vec![read_all(r, Arc::default())],
+    );
+    let err = finish(set).unwrap_err();
+    assert_eq!(err.stage, 0, "{:#}", err.error);
+    assert_eq!(err.outcome, Outcome::Failure(cli_error(&["merge"], &bad)));
+
+    // The host stage's own error is primary, and the command ends quietly (a broken pipe).
+    let (w, r) = pipe(PIPE_CHUNKS, PIPE_CHUNK);
+    let fail = w.fail_handle();
+    let out = Registered::output("<windows output>", Box::new(w));
+    let genome = big_genome(dir.path());
+    let set = StageSet::spawn_with_hosts(
+        vec![stage(
+            argv!["windows", "-g", &genome, "-w", "1", "-o", out.name()],
+            vec![out],
+            vec![fail],
+        )],
+        vec![HostStage {
+            run: f(move || {
+                let mut r = r;
+                r.read_exact(&mut [0u8; 100])?;
+                Err(gloci_io::IoError::Parse {
+                    path: "<windows output>".into(),
+                    loc: Loc::Line(3),
+                    msg: "not a record".into(),
+                }
+                .into())
+            }),
+        }],
+    );
+    let err = finish(set).unwrap_err();
+    assert_eq!(err.stage, 1, "{:#}", err.error);
+    assert_eq!(err.site.map(|s| s.loc), Some(Some(Loc::Line(3))));
 }
 
 #[test]

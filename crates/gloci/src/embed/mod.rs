@@ -46,17 +46,18 @@ pub use args::{
     rewrite_flags_as_kwargs, step_argv,
 };
 pub use bindings::{
-    BINDINGS, Bind, Binding, CLI_ONLY, MODULE_FUNCTIONS, SOURCES, UNBOUND, binding, is_cli_only,
-    is_unbound, method_name, module_function,
+    BINDINGS, Bind, Binding, CLI_ONLY, MODULE_FUNCTIONS, Output, RECORDS, SOURCES, Shape, UNBOUND,
+    binding, is_cli_only, is_unbound, method_name, module_function,
 };
 pub use gloci_io::cancel::{CancelToken, RunGuard};
 pub use pipe::{PIPE_CHUNK, PIPE_CHUNKS, PipeFail, PipeReader, PipeWriter, pipe};
 pub use spec::{ArgSpec, CommandSpec, FILE_VALUE_NAMES, command_specs, find_spec};
-pub use stages::{StageError, StageSet, StageSpec};
+pub use stages::{HostStage, StageError, StageFn, StageSet, StageSpec};
 
 use crate::cli::{self, Cli, Commands};
 use crate::{Ctx, Reported};
 use clap::Parser;
+use gloci_core::VcfSpan;
 use gloci_io::cancel::{self, Watch};
 use gloci_io::memio::scrub;
 use gloci_io::{IoError, Loc, OrderError, UsageError};
@@ -78,6 +79,71 @@ fn clap_message(e: &clap::Error) -> String {
         .filter(|l| !l.starts_with("For more information"))
         .collect();
     kept.join("\n").trim_end().to_string()
+}
+
+/// How a host reads a stage's output back as records (D89): what the output is, and the
+/// footprint of its VCF records.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReadBack {
+    pub shape: Shape,
+    /// The stage's `--vcf-span` when it has one, else the default, [`VcfSpan::Allele`]: the
+    /// records read back have the footprints the command used.
+    pub vcf_span: VcfSpan,
+}
+
+/// How the output of the stage `argv` (`gloci` first, as [`step_argv`] builds it) reads back:
+/// its binding's [`Output`] with the flags given ([`Output::with`]), and its `--vcf-span`.
+/// `groupby` writes records only when its keys (`-g`) start with columns 1, 2 and 3 (BED's
+/// chrom, start and end), else a table. A command that is no step (a module source,
+/// `windows -g`) writes records.
+pub fn read_back(argv: &[OsString]) -> Result<ReadBack, UsageError> {
+    let matches = crate::command()
+        .try_get_matches_from(argv)
+        .map_err(|e| UsageError(clap_message(&e)))?;
+    let mut path = Vec::new();
+    let mut m = &matches;
+    while let Some((name, sub)) = m.subcommand() {
+        path.push(name);
+        m = sub;
+    }
+    let output = binding(&path).map_or(RECORDS, |b| b.output);
+    let given = |id: &str| matches!(m.try_get_one::<bool>(id), Ok(Some(true)));
+    let mut shape = output
+        .with
+        .iter()
+        .find(|(id, _)| given(id))
+        .map_or(output.shape, |(_, s)| *s);
+    if path == ["groupby"] && shape == Shape::Records && !keyed_on_bed(m) {
+        shape = Shape::Table;
+    }
+    let span = m
+        .try_get_raw("vcf_span")
+        .ok()
+        .flatten()
+        .and_then(|mut v| v.next());
+    let vcf_span = if span.is_some_and(|v| v == "ref") {
+        VcfSpan::Ref
+    } else {
+        VcfSpan::Allele
+    };
+    Ok(ReadBack { shape, vcf_span })
+}
+
+/// Whether `groupby`'s keys (`-g`, comma-separated, possibly repeated) start with columns 1, 2
+/// and 3 in order, so that its rows start with a BED interval.
+fn keyed_on_bed(m: &clap::ArgMatches) -> bool {
+    let Ok(Some(values)) = m.try_get_raw("group") else {
+        return false;
+    };
+    let keys: Vec<String> = values
+        .flat_map(|v| {
+            v.to_string_lossy()
+                .split(',')
+                .map(|k| k.trim().to_string())
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    keys.len() >= 3 && keys[..3] == ["1", "2", "3"]
 }
 
 /// How a run is told apart from the command line.
