@@ -517,3 +517,36 @@ fn cram_unplaced_tail_is_read_only_when_streaming() {
     let (code, _, err) = go("4");
     assert_eq!(code, Some(0), "{err}");
 }
+
+/// Every thread that can decode CRAM is given the large stack explicitly: with
+/// RUST_MIN_STACK=65536 a thread spawned without a size gets 64 KiB, which CRAM 3.1 decoding
+/// (order-1 rANS, the name tokeniser) overflows. The output is the same as without it.
+#[test]
+fn cram_decoding_threads_never_take_the_default_stack() {
+    let dir = tempdir();
+    let bed = s(&plain_file(dir.path(), "t.bed", BED));
+    let r = reference();
+    let v31 = aln("many.v31.cram");
+    for args in [
+        mk(&["view", &v31, "--reference", &r, "-O", "sam", "-t", "8"]),
+        mk(&["depth", &v31, "--reference", &r, "-t", "8"]),
+        mk(&["bedcov", &bed, &v31, "--reference", &r, "-t", "8"]),
+    ] {
+        let (code, want, err) = run(&args);
+        assert_eq!(code, Some(0), "{args:?}: {err}");
+        assert!(!want.is_empty(), "{args:?}");
+        let o = gloci()
+            .env("RUST_MIN_STACK", "65536")
+            .args(&args)
+            .output()
+            .unwrap();
+        assert_eq!(
+            o.status.code(),
+            Some(0),
+            "{args:?} with RUST_MIN_STACK=65536: {:?} {}",
+            o.status,
+            String::from_utf8_lossy(&o.stderr)
+        );
+        assert!(o.stdout == want, "{args:?}: the output changed");
+    }
+}

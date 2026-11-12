@@ -1,0 +1,21 @@
+{
+  "case": "merge-exons",
+  "label": "merge, GENCODE exons",
+  "table": "intervals",
+  "threads": 1,
+  "unit": "KiB",
+  "results": [
+    {
+      "command": "gloci",
+      "max_rss_kb": 51200
+    },
+    {
+      "command": "bedtools",
+      "max_rss_kb": 204800
+    },
+    {
+      "command": "bedops",
+      "max_rss_kb": 30720
+    }
+  ]
+}

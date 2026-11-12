@@ -21,6 +21,37 @@ use std::sync::Arc;
 /// What [`AlnSource::for_each_record`] calls with each record and its number.
 pub type RecordVisitor<'a> = dyn FnMut(&[u8], u64) -> Result<(), IoError> + 'a;
 
+/// The fields of a record that `flagstat` counts (D128).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FlagFields {
+    pub flag: u16,
+    /// The read's reference id; `None` for none (BAM's -1).
+    pub ref_id: Option<usize>,
+    /// The mate's reference id; `None` for none.
+    pub mate_ref_id: Option<usize>,
+    pub mapq: u8,
+}
+
+impl FlagFields {
+    /// The fields of the BAM record `raw` (without `block_size`), read from their fixed offsets;
+    /// `None` when `raw` is shorter than the fixed part.
+    pub fn of_bam(raw: &[u8]) -> Option<FlagFields> {
+        let fixed = raw.get(..32)?;
+        let i32_at = |at: usize| {
+            i32::from_le_bytes([fixed[at], fixed[at + 1], fixed[at + 2], fixed[at + 3]])
+        };
+        Some(FlagFields {
+            flag: u16::from_le_bytes([fixed[14], fixed[15]]),
+            ref_id: usize::try_from(i32_at(0)).ok(),
+            mate_ref_id: usize::try_from(i32_at(20)).ok(),
+            mapq: fixed[9],
+        })
+    }
+}
+
+/// What [`AlnSource::for_each_flag_fields`] calls with each record's fields.
+pub type FlagFieldsVisitor<'a> = dyn FnMut(FlagFields) -> Result<(), IoError> + 'a;
+
 /// Every record of an alignment file, in file order.
 pub trait AlnSource: Send {
     /// The input's name, for messages.
@@ -48,6 +79,12 @@ pub trait AlnSource: Send {
         }
         Ok(())
     }
+    /// Call `f` with the [`FlagFields`] of each record left, in the order
+    /// [`AlnSource::for_each_record`] gives the records, stopping at the first error. A CRAM
+    /// decodes only the data series they come from; other sources read each whole record.
+    fn for_each_flag_fields(&mut self, f: &mut FlagFieldsVisitor<'_>) -> Result<(), IoError> {
+        flag_fields_of_records(self, f)
+    }
     fn diagnostics(&self) -> &Diagnostics;
     /// Where the record last returned is, as errors name it: "record N of CHROM (record M of
     /// the file)" for BAM and CRAM, "line N" for SAM. The region sources, which `view` alone
@@ -61,6 +98,37 @@ pub trait AlnSource: Send {
     fn last_bam(&self) -> Option<&[u8]> {
         None
     }
+}
+
+/// [`AlnSource::for_each_flag_fields`] over whole records: BAM bytes are read in place (a record
+/// the source returned was checked), a SAM line through its parse.
+pub(crate) fn flag_fields_of_records<S: AlnSource + ?Sized>(
+    src: &mut S,
+    f: &mut FlagFieldsVisitor<'_>,
+) -> Result<(), IoError> {
+    let header = src.header().clone();
+    let name = src.name().to_string();
+    let layout = src.layout();
+    let mut n = 0u64;
+    src.for_each_record(&mut |raw, _| {
+        n += 1;
+        if layout == Format::Bam
+            && let Some(fields) = FlagFields::of_bam(raw)
+        {
+            return f(fields);
+        }
+        let r = aln_ref(layout, raw, &header).map_err(|msg| IoError::Parse {
+            path: name.clone(),
+            loc: Loc::Record(n),
+            msg,
+        })?;
+        f(FlagFields {
+            flag: r.flag(),
+            ref_id: r.ref_id(),
+            mate_ref_id: r.mate_ref_id(),
+            mapq: r.mapq(),
+        })
+    })
 }
 
 pub(crate) struct BamSource {
@@ -132,22 +200,16 @@ impl AlnSource for BamSource {
             if !self.frames.next(buf)? {
                 return Ok(None);
             }
-            let size = buf.len() - start;
-            let problem = if size < 32 {
-                format!(
-                    "block_size {size} is below the 32 bytes of fixed fields of a BAM record; \
-the file is corrupt"
-                )
-            } else {
-                match Aln::parse(&buf[start..], &self.frames.aln) {
-                    Ok(a) if self.opts.drops(a.flag(), a.mapq()) => {
-                        self.diag.filtered += 1;
-                        buf.truncate(start);
-                        continue;
-                    }
-                    Ok(_) => return Ok(Some(self.frames.rec)),
-                    Err(msg) => msg,
+            // CramSource::walk_records checks, filters and reports a CRAM container decoded in
+            // full the same way.
+            let problem = match Aln::parse_framed(&buf[start..], &self.frames.aln) {
+                Ok(a) if self.opts.drops(a.flag(), a.mapq()) => {
+                    self.diag.filtered += 1;
+                    buf.truncate(start);
+                    continue;
                 }
+                Ok(_) => return Ok(Some(self.frames.rec)),
+                Err(msg) => msg,
             };
             buf.truncate(start);
             self.frames.invalid(self.policy, &mut self.diag, &problem)?;

@@ -1,0 +1,25 @@
+{
+  "case": "sort-exons",
+  "label": "sort, GENCODE exons",
+  "table": "intervals",
+  "threads": 1,
+  "unit": "KiB",
+  "results": [
+    {
+      "command": "gloci",
+      "max_rss_kb": 2097152
+    },
+    {
+      "command": "sort-bed",
+      "max_rss_kb": 2150000
+    },
+    {
+      "command": "bedtools",
+      "max_rss_kb": 3000000
+    },
+    {
+      "command": "gnu-sort",
+      "max_rss_kb": null
+    }
+  ]
+}

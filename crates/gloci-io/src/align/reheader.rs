@@ -220,7 +220,7 @@ HEADER is SAM header text, or a SAM, BAM or CRAM file whose header is taken"
     AlnHeader::parse_sam(text).map_err(|e| detect(format!("{name}: {e}")))
 }
 
-fn itf8(v: u32, out: &mut Vec<u8>) {
+pub(crate) fn itf8(v: u32, out: &mut Vec<u8>) {
     match v {
         0..=0x7f => out.push(v as u8),
         0x80..=0x3fff => out.extend_from_slice(&[0x80 | (v >> 8) as u8, v as u8]),

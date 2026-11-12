@@ -1,0 +1,6 @@
+case,label,baseline,speedup,target,target_met
+merge-exons,"merge, GENCODE exons",bedops,1.38,gloci <= bedops,true
+merge-exons,"merge, GENCODE exons",bedtools,4.00,gloci <= 0.5 * bedtools,true
+sort-exons,"sort, GENCODE exons",bedtools,2.11,,
+sort-exons,"sort, GENCODE exons",gnu-sort,0.67,,
+sort-exons,"sort, GENCODE exons",sort-bed,0.89,gloci < sort-bed,false

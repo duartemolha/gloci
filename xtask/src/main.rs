@@ -46,7 +46,14 @@ enum Task {
     /// Paper datasets (D95): never run by CI
     Paper {
         #[command(subcommand)]
-        action: PaperAction,
+        action: Option<PaperAction>,
+        /// Without a subcommand: the results directory to tabulate (default:
+        /// the newest under paper/results)
+        #[arg(long)]
+        results: Option<PathBuf>,
+        /// Without a subcommand: where the tables go (numbers.* go beside it)
+        #[arg(long, default_value = "paper/tables")]
+        out: PathBuf,
     },
     /// Maintain the built-in genomes in crates/gloci-io/data/genomes
     Genomes {
@@ -144,6 +151,18 @@ enum PaperAction {
         /// Timed runs per command instead of each case's own (smoke runs)
         #[arg(long, conflicts_with = "concordance_only")]
         runs: Option<u32>,
+        /// Python wheel of this version (name and sha256 go in environment.json)
+        #[arg(long)]
+        wheel: Option<PathBuf>,
+    },
+    /// Write the Zenodo evidence bundle of a results directory
+    Bundle {
+        /// Results directory (default: the newest under paper/results)
+        #[arg(long)]
+        results: Option<PathBuf>,
+        /// The .tar.gz to write
+        #[arg(short, long, default_value = "target/gloci-paper-evidence.tar.gz")]
+        output: PathBuf,
     },
     /// Regenerate paper/fetch-datasets.sh from datasets.toml
     FetchScript {
@@ -516,7 +535,28 @@ fn run(cli: Cli) -> Result<bool> {
                 )?
             }
         },
-        Task::Paper { action } => match action {
+        Task::Paper {
+            action: None,
+            results,
+            out,
+        } => {
+            let results = match results {
+                Some(r) => r,
+                None => xtask::paper::tables::latest_results()?,
+            };
+            xtask::paper::tables::tables(&results, &out)?;
+        }
+        Task::Paper {
+            action: Some(action),
+            ..
+        } => match action {
+            PaperAction::Bundle { results, output } => {
+                let results = match results {
+                    Some(r) => r,
+                    None => xtask::paper::tables::latest_results()?,
+                };
+                xtask::paper::bundle::bundle(&results, &output)?;
+            }
             PaperAction::Fetch {
                 record,
                 only,
@@ -541,6 +581,7 @@ fn run(cli: Cli) -> Result<bool> {
                 data_dir,
                 out,
                 runs,
+                wheel,
             } => {
                 anyhow::ensure!(
                     bench_only || concordance_only,
@@ -564,6 +605,7 @@ fn run(cli: Cli) -> Result<bool> {
                     data_dir,
                     out,
                     runs,
+                    wheel,
                 });
             }
             PaperAction::FetchScript { out } => {

@@ -1,0 +1,28 @@
+{
+  "gloci_version": "0.0.0-fixture",
+  "gloci_commit": "0123456789abcdef0123456789abcdef01234567",
+  "started_at": "2026-11-12T08:00:00Z",
+  "finished_at": "2026-11-12T10:30:15Z",
+  "host": {
+    "cpu_model": "Fixture CPU @ 3.00GHz",
+    "cores": 8,
+    "ram_bytes": 34359738368,
+    "kernel": "6.1.0-fixture",
+    "arch": "x86_64"
+  },
+  "docker": {
+    "image": "gloci-bench:p1",
+    "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "repo_digests": null
+  },
+  "wheel": null,
+  "tools": {
+    "gloci": "gloci 0.0.0-fixture",
+    "bedtools": "bedtools v2.31.1",
+    "bedops": "bedops  version:  2.4.41 (typical)",
+    "sort-bed": "sort-bed  version:  2.4.41 (typical)",
+    "gnu-sort": "sort (GNU coreutils) 9.5",
+    "hyperfine": "hyperfine 2.0.0",
+    "mosdepth": null
+  }
+}

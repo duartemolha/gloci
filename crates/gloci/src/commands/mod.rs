@@ -277,13 +277,23 @@ pub fn compressed_name(p: &std::path::Path) -> bool {
 }
 
 /// The output of a command that writes TSV of its own layout to `-o` (`flagstat`, `depth`,
-/// `samples`, `bedcov`): a name ending in `.gz` or `.bgz` is BGZF-compressed, as `.tsv.gz` is
-/// for every TSV output; any other name is checked as a TSV output's.
+/// `samples`, `bedcov`, `idxstats`): a name ending in `.gz` or `.bgz` is BGZF-compressed, as
+/// `.tsv.gz` is for every TSV output; any other name is checked as a TSV output's. A name of
+/// another format is refused in the words of `cmd`, which has no `-O`.
 pub fn own_tsv_output_spec(
     output: Option<&std::path::Path>,
+    cmd: &str,
 ) -> Result<gloci_io::OutputSpec, gloci_io::UsageError> {
     let gz = output.is_some_and(compressed_name);
-    gloci_io::parse_output_spec(output, Some(if gz { "tsv.gz" } else { "tsv" }))
+    gloci_io::parse_output_spec(output, Some(if gz { "tsv.gz" } else { "tsv" })).map_err(|e| {
+        match output {
+            Some(p) => gloci_io::UsageError(format!(
+                "-o {}: {cmd} writes TSV; use a .tsv (or .txt) name, or stdout",
+                gloci_io::memio::display_name(&p.to_string_lossy())
+            )),
+            None => e,
+        }
+    })
 }
 
 /// The output's name for messages: the path, or `stdout`. Write errors from

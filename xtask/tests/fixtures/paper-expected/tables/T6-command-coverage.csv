@@ -1,0 +1,5 @@
+tool,old_command,gloci_command,status
+bedops,bedops -m A,gloci merge A,available
+bedtools,bedtools merge -i A,gloci merge A,available
+bedtools,bedtools shuffle,not available,unavailable
+samtools,samtools view -H A,gloci view --header-only A,available

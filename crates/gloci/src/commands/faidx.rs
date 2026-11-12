@@ -13,6 +13,15 @@ use std::io::IsTerminal;
 const SHOWN: usize = 5;
 
 pub fn run(ctx: &Ctx, a: &FaidxArgs) -> anyhow::Result<()> {
+    let raw = a.fasta.to_string_lossy();
+    if gloci_io::memio::is_mem_path(&raw) {
+        return Err(UsageError(format!(
+            "{} is in memory; faidx needs an indexed FASTA file: save it to a file and index it \
+first",
+            gloci_io::memio::display_name(&raw)
+        ))
+        .into());
+    }
     let fasta_name = a.fasta.display().to_string();
     let typed: Vec<&String> = a.regions.iter().chain(&a.region.region).collect();
     if typed.is_empty() && a.region.regions_file.is_none() {

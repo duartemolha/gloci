@@ -117,6 +117,14 @@ impl Watch {
     pub fn enter(&self) -> RunGuard {
         RunGuard::install(self.0.clone())
     }
+
+    /// Install the captured token on this thread for the rest of its life, replacing any: for
+    /// the start handler of a thread pool a run builds, whose workers outlive any guard.
+    pub fn install_for_thread(&self) {
+        let t = self.0.clone();
+        let prev = CURRENT.with(|c| c.replace(t));
+        drop(prev);
+    }
 }
 
 /// `Err(IoError::Cancelled)` when this thread's token is cancelled. Loops should capture a

@@ -73,6 +73,15 @@ ending in .cram",
 }
 
 pub fn run(ctx: &Ctx, a: &ReheaderArgs) -> anyhow::Result<()> {
+    let raw = a.input.to_string_lossy();
+    if gloci_io::memio::is_mem_path(&raw) {
+        return Err(UsageError(format!(
+            "{} is in memory; reheader reads its input twice and needs a file: save it to a file \
+first",
+            gloci_io::memio::display_name(&raw)
+        ))
+        .into());
+    }
     let cram = is_cram(&a.input);
     let spec = if cram { cram_spec(a)? } else { bam_spec(a)? };
     if spec.path.is_none() && std::io::stdout().is_terminal() {

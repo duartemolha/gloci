@@ -30,6 +30,24 @@ impl Read for CancelAtEof {
     }
 }
 
+/// A source that cancels its run once it has given `after` bytes, so the cancellation lands
+/// while the command reads it.
+struct CancelAfter {
+    inner: Cursor<Vec<u8>>,
+    after: u64,
+    token: CancelToken,
+}
+
+impl Read for CancelAfter {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        if self.inner.position() >= self.after {
+            self.token.cancel();
+        }
+        Ok(n)
+    }
+}
+
 fn mem(data: Vec<u8>, token: &CancelToken) -> String {
     register_input(
         "<generator>",
@@ -84,11 +102,22 @@ fn files_in(dir: &Path) -> Vec<String> {
 
 /// Run `build(mem names)` under a token that the first input cancels at its end.
 fn cancelled_run(inputs: Vec<Vec<u8>>, build: impl Fn(&[String], &str) -> Vec<String>) {
+    cancelled_run_named(
+        |token| inputs.into_iter().map(|d| mem(d, token)).collect(),
+        build,
+    );
+}
+
+/// Run `build(names, output)` under a token, with the inputs `register` registers.
+fn cancelled_run_named(
+    register: impl FnOnce(&CancelToken) -> Vec<String>,
+    build: impl Fn(&[String], &str) -> Vec<String>,
+) {
     let _s = serial();
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("out.bed");
     let token = CancelToken::new();
-    let names: Vec<String> = inputs.into_iter().map(|d| mem(d, &token)).collect();
+    let names = register(&token);
     let argv = build(&names, out.to_str().unwrap());
     let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
     let (code, msg) = {
@@ -149,4 +178,82 @@ fn selection_stage_with_workers_is_cancelled() {
         .map(String::from)
         .to_vec()
     });
+}
+
+/// A CRAM's file definition and header container, its data containers, and its end-of-file
+/// container.
+fn cram_split(cram: &[u8]) -> (&[u8], &[u8], &[u8]) {
+    fn int(b: &[u8], at: &mut usize, long: bool) {
+        // ITF8 takes at most four bytes after the first, LTF8 eight.
+        let ones = b[*at].leading_ones() as usize;
+        *at += 1 + if long { ones } else { ones.min(4) };
+    }
+    let mut at = 26 + 4;
+    for long in [false, false, false, false, true, true, false] {
+        int(cram, &mut at, long);
+    }
+    let landmarks = cram[at] as usize; // the header container has one or none
+    int(cram, &mut at, false);
+    for _ in 0..landmarks {
+        int(cram, &mut at, false);
+    }
+    at += 4;
+    let len = u32::from_le_bytes([cram[26], cram[27], cram[28], cram[29]]) as usize;
+    let data = at + len;
+    let eof = cram.len() - 38;
+    (&cram[..data], &cram[data..eof], &cram[eof..])
+}
+
+/// `flagstat` of a CRAM, whose fields it decodes alone, cancelled while it reads the file (past
+/// the 64 KiB the input peeks at open): interrupted, exit 1, no output, at -t 1 and 2.
+#[test]
+fn cram_flagstat_is_cancelled() {
+    let cram = std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../xtask/diff/inputs/aln/mates.noref.cram"),
+    )
+    .unwrap();
+    let (head, data, eof) = cram_split(&cram);
+    let big: Vec<u8> = [head, &data.repeat(30), eof].concat();
+    {
+        // Uncancelled, the file is read whole: 30 times mates.noref.cram's 182 + 16 reads.
+        let _s = serial();
+        let dir = tempfile::tempdir().unwrap();
+        let (input, out) = (dir.path().join("big.cram"), dir.path().join("out.txt"));
+        std::fs::write(&input, &big).unwrap();
+        let argv = [
+            "flagstat",
+            input.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+        ];
+        let (code, msg) = gloci::run_reporting(args(&argv));
+        assert_eq!(
+            format!("{code:?}"),
+            format!("{:?}", std::process::ExitCode::SUCCESS),
+            "{msg:?}"
+        );
+        let text = std::fs::read_to_string(&out).unwrap();
+        assert!(text.starts_with("5460 + 480 in total"), "{text}");
+    }
+    for t in ["1", "2"] {
+        let big = big.clone();
+        cancelled_run_named(
+            |token| {
+                vec![register_input(
+                    "<generator>",
+                    Box::new(CancelAfter {
+                        after: big.len() as u64 / 2,
+                        inner: Cursor::new(big),
+                        token: token.clone(),
+                    }),
+                )]
+            },
+            |m, out| {
+                let out = out.replace(".bed", ".txt");
+                ["flagstat", &m[0], "-t", t, "-o", &out]
+                    .map(String::from)
+                    .to_vec()
+            },
+        );
+    }
 }

@@ -1293,9 +1293,10 @@ Examples:
     /// BGZF-compressed (stats.json.gz is compressed JSON). A percentage of nothing is
     /// N/A (null in JSON). Percentages are computed as samtools computes them, in 32-bit
     /// floating point, so 153 of 160 is 95.63% and not 95.62%. Every record counts, unmapped
-    /// and unplaced ones too, and no read filters apply. A CRAM that needs a reference
-    /// sequence needs --reference, though samtools reads such a file without one. The output
-    /// is the same at any number of threads.
+    /// and unplaced ones too, and no read filters apply. From a CRAM only the fields counted
+    /// are decoded, as samtools does; a CRAM that needs a reference sequence still needs
+    /// --reference, though samtools reads such a file without one. The output is the same at
+    /// any number of threads.
     #[command(after_long_help = "\
 Examples:
   gloci flagstat reads.bam
@@ -4775,6 +4776,9 @@ pub struct IdxstatsArgs {
     pub reference: Option<PathBuf>,
     #[command(flatten)]
     pub threads: ThreadArgs,
+    /// Write the counts to FILE instead of stdout; .gz compresses them.
+    #[arg(short, long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
 }
 
 // P3c Task 3
@@ -4817,6 +4821,10 @@ pub struct HeadArgs {
     pub reference: Option<PathBuf>,
     #[command(flatten)]
     pub threads: ThreadArgs,
+    /// Write the lines to FILE instead of stdout, as text whatever its extension (.sam, .vcf,
+    /// .txt, ...); .gz compresses them. A file is written only when head succeeds.
+    #[arg(short, long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
 }
 
 // P3c Task 5

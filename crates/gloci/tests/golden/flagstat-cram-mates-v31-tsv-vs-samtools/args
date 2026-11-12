@@ -1,0 +1,1 @@
+flagstat input.v31.cram --reference ref.fa -O tsv

@@ -1,0 +1,1 @@
+flagstat input.multi.cram --reference ref.fa -O json -t 4

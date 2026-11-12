@@ -66,14 +66,7 @@ impl BamRegionParse {
         chroms: &mut ChromTable,
         diag: &mut Diagnostics,
     ) -> Result<Option<Parsed>, String> {
-        if buf.len() - off < 32 {
-            return Err(format!(
-                "block_size {} is below the 32 bytes of fixed fields of a BAM record; \
-the file is corrupt",
-                buf.len() - off
-            ));
-        }
-        let a = Aln::parse(&buf[off..], &self.hdr)?;
+        let a = Aln::parse_framed(&buf[off..], &self.hdr)?;
         if self.all {
             if self.opts.drops(a.flag(), a.mapq()) {
                 diag.filtered += 1;

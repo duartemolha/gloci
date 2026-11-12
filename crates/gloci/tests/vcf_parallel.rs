@@ -674,9 +674,9 @@ fn threads_cap_decompression_plus_selection_workers() {
     stop.store(true, Ordering::Relaxed);
     poller.join().unwrap();
     let peak = peak.load(Ordering::Relaxed);
-    // 3 fixed (main, signal handler, the command's thread), 8 for the idle
-    // global rayon pool, and at most 8 for decompression plus selection
-    // workers; one spare. Before the cap this was 27.
+    // 2 fixed (main, signal handler), 8 for the run's rayon pool (one of them
+    // runs the command), and at most 8 for decompression plus selection
+    // workers; two spare. Before the cap this was 27.
     assert!(peak <= 3 + 8 + 8 + 1, "peak {peak} threads at -t 8");
     // Records are the same (the ##glociCommand line differs by -t).
     let body = |p: &Path| {
