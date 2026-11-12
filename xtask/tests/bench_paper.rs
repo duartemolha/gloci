@@ -20,7 +20,7 @@ fn paper_cases_parse_and_reference_known_inputs() {
     let cat = catalog();
     let cases = load_paper_cases().unwrap();
     let own: Vec<&Case> = cases.iter().filter(|c| !c.inputs.is_empty()).collect();
-    assert!(own.len() >= 19, "only {} real-input cases", own.len());
+    assert!(own.len() >= 18, "only {} real-input cases", own.len());
     for c in &own {
         assert!(c.inputs.contains_key("a"), "{}: no input a", c.name);
         for (slot, name) in &c.inputs {
@@ -75,7 +75,6 @@ fn paper_cases_parse_and_reference_known_inputs() {
         "coverage-ccre-exons",
         "genomecov-exons",
         "partition-3",
-        "intersect-1kg-exons",
         "vcf-filter-gnomad",
         "vcf-filter-1kg-bcf",
         "depth-ctcf-bam",

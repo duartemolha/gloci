@@ -134,18 +134,11 @@ gloci = "{gloci} partition --chrom-order lex -t 1 --no-membership {in_a} {in_b} 
 bedops = "bedops --partition {in_a} {in_b} {in_c} > {out}"
 bedtools = "bedtools multiinter -i {in_a} {in_b} {in_c} > {out}"
 
-[[case]]
-name = "intersect-1kg-exons"
-label = "intersect, 1000 Genomes chr20 with exons"
-table = "intervals"
-threads = 8
-input = "vcf.gz"
-inputs = { a = "1kg-30x-chr20", b = "exons.bed" }
-targets = ["gloci <= 0.2 * bedtools"]
-[case.commands]
-gloci = "{gloci} intersect --chrom-order lex --mode any -t 8 -a {in_a} -b {in_b} -o {out}"
-bedtools = "bedtools intersect -u -header -sorted -a {in_a} -b {in_b} > {out}"
-bcftools = "bcftools view -R {in_b} {in_a} -Oz -o {out}" # (y)
+# intersect-1kg-exons (VCF against exons) is not here yet: the 1000 Genomes
+# VCF is in natural contig order (chr1, chr2, ...) and exons.bed in LC_ALL=C
+# order (chr1, chr10, ...), so gloci rightly refuses it as unsorted and
+# `bedtools -sorted` would be wrong. It needs a derived natural-order exons
+# BED (a new pinned input); see the Task 15 report.
 
 [[case]]
 name = "vcf-filter-gnomad"
