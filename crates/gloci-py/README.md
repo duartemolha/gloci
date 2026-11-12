@@ -28,9 +28,15 @@ import gloci
     needed;
   - another pipeline.
 
-  Python objects are read as the run goes, never whole. An iterator or file object can be read
-  by one run only. A tab in a value, or a null `chrom`, `start` or `end`, raises `DataError`
-  with `.line` set to the item or row.
+  Python objects are read as the run goes, never whole. A tab in a value, or a null `chrom`,
+  `start` or `end`, raises `DataError` with `.line` set to the item or row.
+- An iterator, a file object or a pyarrow `RecordBatchReader` can be read by one run: a second
+  run raises `UsageError` rather than read nothing. gloci remembers a generator, a file object
+  or a `RecordBatchReader` that a run has read, whatever pipeline it is given to next. An
+  iterator that Python cannot hold a weak reference to (`iter()` of a list or tuple, `map()`,
+  `zip()`) is known only to the pipelines made from the `gloci.open()` (or step) it was given
+  to: pass a list, or a generator, to be safe. Lists, tuples, tables and data frames are read
+  again at each run.
 - `gloci.windows(g=..., w=...)` and `gloci.random(g=..., l=..., n=...)` start a pipeline with
   windows or random intervals over a genome.
 - Each step is a method named after its command: `intersect`, `merge`, `vcf_filter` for

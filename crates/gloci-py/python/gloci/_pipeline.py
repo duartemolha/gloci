@@ -14,6 +14,7 @@ run goes, never whole.
 from __future__ import annotations
 
 import os
+import weakref
 from collections.abc import Iterable, Iterator, Mapping
 from typing import Any
 
@@ -36,6 +37,19 @@ _ACCEPTED = (
 )
 
 
+#: The one-shot objects (iterators, file objects, RecordBatchReaders) that a run has read,
+#: whatever pipeline read them: those a weak reference can follow. An object that none can
+#: (`iter()` of a list, `map()`) is known as spent only through the pipeline that read it.
+_SPENT: weakref.WeakSet[Any] = weakref.WeakSet()
+
+
+def _spent(obj: object) -> bool:
+    try:
+        return obj in _SPENT
+    except TypeError:  # an object that cannot be hashed
+        return False
+
+
 def _pipe(i: int) -> str:
     return f"\0pipe:{i}"
 
@@ -56,7 +70,10 @@ class Source:
     Attributes:
         obj: The object (for a path, the path as a `str`).
         display: Its name in messages: the path, `f.name`, `<list>`, `<pyarrow.Table>`.
-        once: It can be read only once (an iterator, a file object).
+        once: It can be read only once (an iterator, a file object, a RecordBatchReader). Once
+            a run has read it, another run raises `UsageError`: through any pipeline when a
+            weak reference can follow the object (generators, file objects,
+            RecordBatchReaders), else through the pipelines made from this `Source`.
     """
 
     __slots__ = ("display", "obj", "once", "used")
@@ -263,7 +280,7 @@ class _Plan:
                     f"{src.display} is used twice in one run; an iterator or file object can be "
                     "read only once, so pass a list, or a path, for each use"
                 )
-            if src.used:
+            if src.used or _spent(src.obj):
                 raise UsageError(
                     f"{src.display} was read by an earlier run, and an iterator or file object "
                     "can be read only once; pass a list (or a path) to run a pipeline again"
@@ -356,6 +373,10 @@ class _Plan:
         """Run the plan; a one-shot source is spent from now on, whatever the result."""
         for s in self._once:
             s.used = True
+            try:
+                _SPENT.add(s.obj)
+            except TypeError:  # no weak reference to it: its Source alone knows
+                pass
         plan = {"stages": self.stages, "sources": self.sources, "terminal": terminal, "names": None}
         return _native.run_plan(plan)
 
@@ -566,8 +587,12 @@ def open(src: object, *, format: str | None = None) -> Pipeline:  # noqa: A001
             iterable of lines (str) or of tuples of values (tab-joined `str()` values, None as
             `.`); an Arrow table or stream (a pyarrow Table, a polars or pandas DataFrame:
             the integer columns `chrom start end` first, then the others); or a Pipeline.
-            Python objects are read as the run goes; an iterator or a file object can be read
-            by one run only.
+            Python objects are read as the run goes. An iterator, a file object or a
+            RecordBatchReader can be read by one run: another raises `UsageError`. gloci knows
+            a generator, a file object or a RecordBatchReader that a run has read whatever
+            pipeline it is given to next; an iterator Python cannot hold a weak reference to
+            (`iter()` of a list, `map()`) is known only to the pipelines made from the same
+            `open()`.
         format: The input's format (bed, vcf, ...), overriding detection; the first step
             takes it as its input-format option (`--format`, `--a-format`).
     """

@@ -776,3 +776,21 @@ def test_a_record_batch_reader_is_read_once(here: Path) -> None:
     # A table is read again at each run.
     t = gloci.open(pa.table({"chrom": ["chr1"], "start": [1], "end": [2]}))
     assert t.to_bytes() == t.to_bytes() == b"chr1\t1\t2\n"
+
+
+def test_a_spent_object_is_known_whatever_wraps_it(here: Path) -> None:
+    # M1: spent one-shot objects are tracked by object, not by the pipeline that read them.
+    gen = (r for r in [("chr1", 1, 2)])
+    assert gloci.open(gen).count() == 1
+    with pytest.raises(gloci.UsageError, match="was read by an earlier run"):
+        gloci.open(gen).count()
+    f = io.BytesIO(b"chr1\t1\t2\n")
+    assert gloci.open(f).to_bytes() == b"chr1\t1\t2\n"
+    with pytest.raises(gloci.UsageError, match="was read by an earlier run"):
+        gloci.open(f).merge().to_bytes()
+    # An object that a weak reference cannot follow is tracked by its pipeline only.
+    it = iter([("chr1", 1, 2)])
+    p = gloci.open(it)
+    assert p.count() == 1
+    with pytest.raises(gloci.UsageError):
+        p.count()
