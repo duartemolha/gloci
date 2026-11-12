@@ -23,6 +23,38 @@ pub enum Bind {
     PositionalAfter(&'static str),
 }
 
+/// What a step's output is, for a host that reads it back as records (D89, P2b Task 8): every
+/// terminal but `to_bytes()` and `save()` (iteration, `count()`, the Arrow tables) reads it the
+/// same way, so they agree on what a record is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shape {
+    /// Records in a format gloci reads (BED, VCF, GFF, SAM, BAM, BCF, FASTA), told by the
+    /// output's content; text gloci cannot read as records is a table with no header row.
+    Records,
+    /// A table of values, not records: its rows have no coordinates, even when they look like
+    /// BED (`idxstats` writes `chr1  248956422  11  0`).
+    Table,
+    /// A table whose header row is its first line that is not blank and does not start with
+    /// `#`: the header row names the columns and is not a row (`stats jaccard` writes
+    /// `intersection  union  jaccard  n_intersections`).
+    HeaderRow,
+}
+
+/// A step's [`Shape`], and the flags that change it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Output {
+    pub shape: Shape,
+    /// The ids of flags any one of which, given, makes the output records instead
+    /// (`stats reldist --detail` writes A's records with their values).
+    pub records_with: &'static [&'static str],
+}
+
+/// The output of most steps: records.
+pub const RECORDS: Output = Output {
+    shape: Shape::Records,
+    records_with: &[],
+};
+
 /// One step method.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Binding {
@@ -34,6 +66,21 @@ pub struct Binding {
     /// The input must be a file: the command reads it at random or twice (`faidx`,
     /// `reheader`), so it cannot follow another step or read an in-memory source.
     pub needs_file: bool,
+    /// What its output is, read back ([`read_back`](super::read_back)).
+    pub output: Output,
+}
+
+impl Binding {
+    /// The binding with the output `shape`, except with any of `records_with` given.
+    const fn shaped(self, shape: Shape, records_with: &'static [&'static str]) -> Binding {
+        Binding {
+            output: Output {
+                shape,
+                records_with,
+            },
+            ..self
+        }
+    }
 }
 
 const fn flag(path: &'static [&'static str], method: &'static str, f: &'static str) -> Binding {
@@ -42,6 +89,7 @@ const fn flag(path: &'static [&'static str], method: &'static str, f: &'static s
         method,
         input: Bind::Flag(f),
         needs_file: false,
+        output: RECORDS,
     }
 }
 
@@ -51,6 +99,7 @@ const fn one(path: &'static [&'static str], method: &'static str) -> Binding {
         method,
         input: Bind::Positional { nary: false },
         needs_file: false,
+        output: RECORDS,
     }
 }
 
@@ -60,10 +109,14 @@ const fn nary(path: &'static [&'static str], method: &'static str) -> Binding {
         method,
         input: Bind::Positional { nary: true },
         needs_file: false,
+        output: RECORDS,
     }
 }
 
-/// The step methods (D87).
+/// The step methods (D87). Each step whose output is a table rather than records is marked
+/// with its [`Shape`]: those that print an unprefixed header row (found by running every
+/// binding's command on the golden fixtures; `tests/embed_outputs.rs` keeps the list), and
+/// those whose rows would read back as wrong intervals.
 pub const BINDINGS: &[Binding] = &[
     // relations: the pipeline is A
     flag(&["intersect"], "intersect", "a"),
@@ -73,9 +126,10 @@ pub const BINDINGS: &[Binding] = &[
     flag(&["coverage"], "coverage", "a"),
     flag(&["pair-intersect"], "pair_intersect", "a"),
     flag(&["pair-pair"], "pair_pair", "a"),
-    flag(&["stats", "jaccard"], "stats_jaccard", "a"),
-    flag(&["stats", "fisher"], "stats_fisher", "a"),
-    flag(&["stats", "reldist"], "stats_reldist", "a"),
+    flag(&["stats", "jaccard"], "stats_jaccard", "a").shaped(Shape::HeaderRow, &[]),
+    // `#` lines (the contingency table), then the header row of the p-values.
+    flag(&["stats", "fisher"], "stats_fisher", "a").shaped(Shape::HeaderRow, &[]),
+    flag(&["stats", "reldist"], "stats_reldist", "a").shaped(Shape::HeaderRow, &["detail"]),
     // several inputs: the pipeline, then extra positional sources
     nary(&["merge"], "merge"),
     nary(&["partition"], "partition"),
@@ -84,8 +138,9 @@ pub const BINDINGS: &[Binding] = &[
     nary(&["vcf", "concat"], "vcf_concat"),
     nary(&["vcf", "merge"], "vcf_merge"),
     nary(&["cat"], "cat"),
-    nary(&["depth"], "depth"),
-    nary(&["samples"], "samples"),
+    // chrom, position, depth: a position is not a BED start, nor a depth an end.
+    nary(&["depth"], "depth").shaped(Shape::Table, &[]),
+    nary(&["samples"], "samples").shaped(Shape::Table, &[]),
     // one input
     one(&["view"], "view"),
     one(&["convert"], "convert"),
@@ -95,9 +150,10 @@ pub const BINDINGS: &[Binding] = &[
     one(&["cluster"], "cluster"),
     one(&["spacing"], "spacing"),
     one(&["groupby"], "groupby"),
-    one(&["genomecov"], "genomecov"),
+    // A histogram, or one depth per base, unless it writes bedGraph.
+    one(&["genomecov"], "genomecov").shaped(Shape::Table, &["bedgraph", "bga"]),
     one(&["vcf", "filter"], "vcf_filter"),
-    one(&["vcf", "extract"], "vcf_extract"),
+    one(&["vcf", "extract"], "vcf_extract").shaped(Shape::HeaderRow, &[]),
     one(&["vcf", "split"], "vcf_split"),
     one(&["vcf", "norm"], "vcf_norm"),
     one(&["vcf", "annotate"], "vcf_annotate"),
@@ -110,10 +166,12 @@ pub const BINDINGS: &[Binding] = &[
         method: "faidx",
         input: Bind::Positional { nary: false },
         needs_file: true,
+        output: RECORDS,
     },
     one(&["dict"], "dict"),
-    one(&["flagstat"], "flagstat"),
-    one(&["idxstats"], "idxstats"),
+    one(&["flagstat"], "flagstat").shaped(Shape::Table, &[]),
+    // chrom, length, mapped, unmapped.
+    one(&["idxstats"], "idxstats").shaped(Shape::Table, &[]),
     one(&["head"], "head"),
     one(&["bedcov"], "bedcov"),
     // the input as a flag or after another positional
@@ -124,6 +182,7 @@ pub const BINDINGS: &[Binding] = &[
         method: "reheader",
         input: Bind::PositionalAfter("header"),
         needs_file: true,
+        output: RECORDS,
     },
 ];
 
