@@ -55,6 +55,15 @@ or to_arrow()",
     ),
 ];
 
+/// Arguments one command's step never takes (by command, clap id and why): what a module
+/// function of the same command covers.
+pub const RESERVED_ON_STEP_OF: &[(&[&str], &str, &str)] = &[(
+    &["vcf", "extract"],
+    "genotype_matrix",
+    "genotype_matrix is set by vcf_extract_matrix(path, genotype_matrix=...): the matrix is \
+written to files, not to a pipeline",
+)];
+
 /// The arguments no keyword argument sets, in any role: the log level is the host's logger's.
 pub const RESERVED_ALWAYS: &[(&str, &str)] = &[
     (
@@ -86,6 +95,15 @@ fn reserved_as(spec: &CommandSpec, arg: &ArgSpec, kw: &str, role: Role) -> Optio
         Role::Step => {
             if let Some(why) = listed(RESERVED_ON_STEPS) {
                 return Some(why);
+            }
+            if let Some((_, _, why)) = RESERVED_ON_STEP_OF.iter().find(|(path, id, _)| {
+                *id == arg.id
+                    && path
+                        .iter()
+                        .copied()
+                        .eq(spec.path.iter().map(String::as_str))
+            }) {
+                return Some(why.to_string());
             }
             let b = binding(&spec.path)?;
             (input_arg(spec, b) == Some(arg)).then(|| match b.input {

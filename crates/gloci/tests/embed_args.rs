@@ -1031,3 +1031,23 @@ fn suggestions_never_name_a_reserved_keyword() {
     .unwrap_err();
     assert!(e.0.ends_with("did you mean 'threads'?"), "{e}");
 }
+
+#[test]
+fn the_vcf_extract_step_leaves_the_matrix_to_its_function() {
+    let ve = &["vcf", "extract"][..];
+    let e = argv_of(ve, &[("genotype_matrix", val("012"))]).unwrap_err();
+    assert_eq!(
+        e,
+        "genotype_matrix is set by vcf_extract_matrix(path, genotype_matrix=...): the matrix is \
+written to files, not to a pipeline"
+    );
+    // The module function takes it.
+    let a = kwargs_to_argv_as(
+        spec(ve),
+        &kw(&[("genotype_matrix", val("012"))]),
+        Role::Function,
+    )
+    .unwrap();
+    assert_eq!(strs(&a), ["--genotype-matrix", "012"]);
+    assert!(argv_of(ve, &[("info", val("DP"))]).is_ok());
+}
