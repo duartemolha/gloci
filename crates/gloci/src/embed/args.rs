@@ -120,7 +120,8 @@ pub fn input_arg<'s>(spec: &'s CommandSpec, b: &Binding) -> Option<&'s ArgSpec> 
 }
 
 /// The argv for keyword arguments of a pipeline step ([`Role::Step`]); see
-/// [`kwargs_to_argv_as`].
+/// [`kwargs_to_argv_as`]. This is the keywords' part only, for checking them: a step's whole
+/// argv comes from [`step_argv`], which puts the inputs where the binding says.
 pub fn kwargs_to_argv(
     spec: &CommandSpec,
     kwargs: &[(String, KwValue)],
@@ -129,8 +130,13 @@ pub fn kwargs_to_argv(
 }
 
 /// The argv for keyword arguments (D86), in their order: the flags, then `--` and the
-/// positionals given as keyword arguments (named by their clap id), so the host puts the
-/// command path and its input first: `gloci view <input> <these>`.
+/// positionals given as keyword arguments (named by their clap id).
+///
+/// Where the inputs go depends on the command, so this is not a command line to prepend
+/// `gloci <path> <input>` to: a step's input may be a flag (`-a`), or follow a positional
+/// keyword (`reheader`'s input comes after `header=`), and nothing may follow the `--`. Build a
+/// step's argv with [`step_argv`]. A module function's inputs are all of its positionals, so
+/// `gloci <path> <inputs> <these>` is right for [`Role::Function`].
 ///
 /// A kwarg is a long flag with `-` as `_`, or a one-letter short flag; the spelling follows:
 /// `s=True` gives `-s`, `min_frac_a="50%"` gives `--min-frac-a 50%`. `True` gives the bare
