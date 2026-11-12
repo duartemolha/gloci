@@ -7,6 +7,7 @@ use super::spec::find_spec;
 use super::spec::{ArgSpec, CommandSpec};
 use gloci_io::UsageError;
 use std::ffi::OsString;
+use std::sync::OnceLock;
 
 /// The value of one keyword argument.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -254,6 +255,79 @@ pub fn step_argv(
         }
     }
     Ok(argv)
+}
+
+/// A step's argv ([`step_argv`]) as its shell form shows it: without the `--` before the
+/// positionals where clap reads the line the same without it, so `gloci merge --max-gap 50 -`
+/// rather than `gloci merge --max-gap 50 -- -`. The `--` stays when a positional after it
+/// starts with `-` (other than `-` itself), or when the last option before it was given fewer
+/// values than it can take (`-b x y`), since it would take the positionals as its values.
+pub fn drop_needless_separator(argv: &[OsString]) -> Vec<OsString> {
+    let mut out = argv.to_vec();
+    if let Some(sep) = argv.iter().position(|a| a == "--")
+        && !separator_needed(&argv[..sep], &argv[sep + 1..])
+    {
+        out.remove(sep);
+    }
+    out
+}
+
+fn separator_needed(before: &[OsString], after: &[OsString]) -> bool {
+    let flag_like = |a: &OsString| a.as_encoded_bytes().first() == Some(&b'-') && a != "-";
+    if after.iter().any(flag_like) {
+        return true;
+    }
+    // The command, by the subcommand words after `gloci`.
+    static ROOT: OnceLock<clap::Command> = OnceLock::new();
+    let mut cmd = ROOT.get_or_init(|| {
+        let mut root = crate::command();
+        root.build();
+        root
+    });
+    for w in before.iter().skip(1) {
+        match w.to_str().and_then(|w| cmd.find_subcommand(w)) {
+            Some(sub) => cmd = sub,
+            None => break,
+        }
+    }
+    let option = |a: &OsString| -> Option<(&clap::Arg, bool)> {
+        let a = a.to_str()?;
+        if a == "-" || !a.starts_with('-') {
+            return None;
+        }
+        let (name, attached) = match a.split_once('=') {
+            Some((n, _)) => (n, true),
+            None => (a, false),
+        };
+        let arg = if let Some(long) = name.strip_prefix("--") {
+            cmd.get_arguments().find(|x| {
+                x.get_long() == Some(long)
+                    || x.get_all_aliases().is_some_and(|al| al.contains(&long))
+            })
+        } else {
+            let mut c = name[1..].chars();
+            match (c.next(), c.next()) {
+                (Some(s), None) => cmd.get_arguments().find(|x| x.get_short() == Some(s)),
+                _ => None,
+            }
+        };
+        arg.map(|x| (x, attached))
+    };
+    let Some((at, (arg, attached))) = before
+        .iter()
+        .enumerate()
+        .rev()
+        .find_map(|(i, a)| option(a).map(|o| (i, o)))
+    else {
+        return false;
+    };
+    let given = before.len() - at - 1 + usize::from(attached);
+    let max = arg
+        .get_num_args()
+        .map_or(usize::from(arg.get_action().takes_values()), |r| {
+            r.max_values()
+        });
+    given < max
 }
 
 /// The flags and the positionals of keyword arguments, checked.

@@ -24,7 +24,6 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyList, PyTuple};
 use std::ffi::OsString;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::OnceLock;
 
 /// Run an entry point's body: a panic in it raises `GlociError` with the internal-error text
 /// (D90), not pyo3's `PanicException`.
@@ -291,69 +290,6 @@ fn step_argv_in(
     Ok(strings(argv))
 }
 
-/// The clap definition of the command at `path`, built.
-fn clap_command(path: &[String]) -> Option<&'static clap::Command> {
-    static ROOT: OnceLock<clap::Command> = OnceLock::new();
-    let mut cmd = ROOT.get_or_init(|| {
-        let mut root = gloci::command();
-        root.build();
-        root
-    });
-    for p in path {
-        cmd = cmd.find_subcommand(p)?;
-    }
-    Some(cmd)
-}
-
-/// Whether the `--` of a step's argv can be left out of its shell form: no positional after it
-/// looks like a flag, and the last option before it takes no more values than it was given, so
-/// clap reads the positionals as positionals without it.
-fn separator_needed(path: &[String], before: &[String], after: &[String]) -> bool {
-    if after.iter().any(|a| a.starts_with('-') && a != "-") {
-        return true;
-    }
-    let Some(cmd) = clap_command(path) else {
-        return true;
-    };
-    let option = |a: &str| -> Option<(&clap::Arg, bool)> {
-        if a == "-" || !a.starts_with('-') {
-            return None;
-        }
-        let (name, attached) = match a.split_once('=') {
-            Some((n, _)) => (n, true),
-            None => (a, false),
-        };
-        let arg = if let Some(long) = name.strip_prefix("--") {
-            cmd.get_arguments().find(|x| {
-                x.get_long() == Some(long)
-                    || x.get_all_aliases().is_some_and(|al| al.contains(&long))
-            })
-        } else {
-            let mut c = name[1..].chars();
-            match (c.next(), c.next()) {
-                (Some(s), None) => cmd.get_arguments().find(|x| x.get_short() == Some(s)),
-                _ => None,
-            }
-        };
-        arg.map(|x| (x, attached))
-    };
-    let Some((at, (arg, attached))) = before
-        .iter()
-        .enumerate()
-        .rev()
-        .find_map(|(i, a)| option(a).map(|o| (i, o)))
-    else {
-        return false;
-    };
-    let given = before.len() - at - 1 + usize::from(attached);
-    let max = arg
-        .get_num_args()
-        .map_or(usize::from(arg.get_action().takes_values()), |r| {
-            r.max_values()
-        });
-    given < max
-}
-
 fn is_placeholder(a: &str) -> bool {
     a.strip_prefix("<python object ")
         .and_then(|r| r.strip_suffix('>'))
@@ -362,27 +298,20 @@ fn is_placeholder(a: &str) -> bool {
 
 /// The shell form of a step's argv (D84): each word quoted as a shell needs it, except the
 /// `<python object N>` that stands for an in-memory input, and without the `--` that
-/// [`step_argv`] puts before positionals, where the shell form reads the same without it.
+/// [`step_argv`] puts before positionals where the line reads the same without it
+/// ([`embed::drop_needless_separator`]).
 #[pyfunction]
-fn command_line(py: Python<'_>, path: Vec<String>, argv: Vec<String>) -> PyResult<String> {
-    guarded(py, || Ok(shell_form(&path, argv)))
+fn command_line(py: Python<'_>, argv: Vec<String>) -> PyResult<String> {
+    guarded(py, || Ok(shell_form(argv)))
 }
 
-fn shell_form(path: &[String], argv: Vec<String>) -> String {
-    let mut words = argv;
-    if let Some(sep) = words.iter().position(|a| a == "--")
-        && !separator_needed(path, &words[..sep], &words[sep + 1..])
-    {
-        words.remove(sep);
-    }
-    words
+fn shell_form(argv: Vec<String>) -> String {
+    let argv: Vec<OsString> = argv.into_iter().map(OsString::from).collect();
+    embed::drop_needless_separator(&argv)
         .iter()
-        .map(|w| {
-            if is_placeholder(w) {
-                w.clone()
-            } else {
-                gloci_io::shell_quote_args(&[OsString::from(w)])
-            }
+        .map(|w| match w.to_str() {
+            Some(p) if is_placeholder(p) => p.to_string(),
+            _ => gloci_io::shell_quote_args(std::slice::from_ref(w)),
         })
         .collect::<Vec<_>>()
         .join(" ")

@@ -163,7 +163,7 @@ def test_panics_in_every_entry_point_are_glocierror(here: Path) -> None:
         "bindings": lambda: _native.bindings(),
         "kwargs_to_argv": lambda: _native.kwargs_to_argv(["merge"], {}),
         "step_argv": lambda: _native.step_argv(["merge"], ["a.bed"]),
-        "command_line": lambda: _native.command_line(["merge"], ["gloci", "merge", "a.bed"]),
+        "command_line": lambda: _native.command_line(["gloci", "merge", "a.bed"]),
         "run_plan": lambda: _native.run_plan(plan),
     }
     for name, call in entries.items():
@@ -173,7 +173,7 @@ def test_panics_in_every_entry_point_are_glocierror(here: Path) -> None:
         assert type(e.value) is gloci.GlociError, name
         assert str(e.value).startswith("internal error: "), name
         assert "test panic in an entry point" in str(e.value), name
-    assert _native.command_line(["merge"], ["gloci", "merge", "a.bed"]) == "gloci merge a.bed"
+    assert _native.command_line(["gloci", "merge", "a.bed"]) == "gloci merge a.bed"
 
 
 def test_warnings_go_to_logging(here: Path, caplog: pytest.LogCaptureFixture) -> None:

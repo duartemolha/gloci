@@ -37,8 +37,9 @@ mod spec;
 mod stages;
 
 pub use args::{
-    KwValue, RESERVED_ALWAYS, RESERVED_ON_STEP_OF, RESERVED_ON_STEPS, Role, input_arg,
-    kwargs_to_argv, kwargs_to_argv_as, reserved, rewrite_flags_as_kwargs, step_argv,
+    KwValue, RESERVED_ALWAYS, RESERVED_ON_STEP_OF, RESERVED_ON_STEPS, Role,
+    drop_needless_separator, input_arg, kwargs_to_argv, kwargs_to_argv_as, reserved,
+    rewrite_flags_as_kwargs, step_argv,
 };
 pub use bindings::{
     BINDINGS, Bind, Binding, CLI_ONLY, MODULE_FUNCTIONS, SOURCES, UNBOUND, binding, is_cli_only,

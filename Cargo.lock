@@ -769,7 +769,6 @@ name = "gloci-py"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "clap",
  "gloci",
  "gloci-io",
  "log",

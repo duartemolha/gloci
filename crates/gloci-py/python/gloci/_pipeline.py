@@ -162,7 +162,7 @@ class Pipeline:
             shown = _native.step_argv(
                 b["path"], [shown_in, *step.extra], step.kwargs, shown_out, check=False
             )
-            stage: dict[str, Any] = {"command_line": _native.command_line(b["path"], shown)}
+            stage: dict[str, Any] = {"command_line": _native.command_line(shown)}
             if run:
                 real_in = self._source if i == 0 else _pipe(i - 1)
                 if not last:
