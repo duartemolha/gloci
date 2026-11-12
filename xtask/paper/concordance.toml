@@ -652,6 +652,31 @@ gloci = "{gloci} vcf stats {in_a} --out-prefix {out}.p --indel-hist && mv {out}.
 reference = "vcftools --gzvcf {in_a} --hist-indel-len --out {out}.p && mv {out}.p.indel.hist {out}"
 compare = "numeric"
 
+# ---- vcf annotate and split ----
+
+# -x removes INFO/CM (in every record) and its header line on both sides;
+# bcftools prints every record again, which keeps the panel's values as
+# they are (the --include case matches it on all 162,548 records).
+[[case]]
+name = "vcf-annotate-remove-1kg-vs-bcftools"
+command = "vcf annotate"
+reference_tool = "bcftools"
+inputs = { a = "1kg-30x-chr20" }
+gloci = "{gloci} vcf annotate {in_a} --remove INFO/CM -O vcf | bgzip -@ 2 -l 1 -c > {out}"
+reference = "bcftools annotate --no-version -x INFO/CM {in_a} | bgzip -@ 2 -l 1 -c > {out}"
+compare = "vcf-records"
+
+# An identity check: the panel has no multi-allelic record (0 of 1,644,384),
+# so a split writes every record unchanged on both sides.
+[[case]]
+name = "vcf-split-1kg-vs-bcftools"
+command = "vcf split"
+reference_tool = "bcftools"
+inputs = { a = "1kg-30x-chr20" }
+gloci = "{gloci} vcf split {in_a} -O vcf | bgzip -@ 2 -l 1 -c > {out}"
+reference = "bcftools norm -m- --no-version {in_a} | bgzip -@ 2 -l 1 -c > {out}"
+compare = "vcf-records"
+
 # ---- vcf extract and concat ----
 
 [[case]]
@@ -698,6 +723,15 @@ reference = "bcftools concat --no-version {in_a} {in_b} | bgzip -@ 2 -l 1 -c > {
 compare = "vcf-records"
 
 # ---- samtools: the CTCF K562 BAM and peaks ----
+
+# The header and the first 100,000 reads, as SAM.
+[[case]]
+name = "head-ctcf-bam-vs-samtools"
+command = "head"
+reference_tool = "samtools"
+inputs = { a = "ctcf-k562.bam" }
+gloci = "{gloci} head --records 100000 {in_a} > {out}"
+reference = "samtools head -n 100000 {in_a} > {out}"
 
 [[case]]
 name = "flagstat-ctcf-bam-vs-samtools"

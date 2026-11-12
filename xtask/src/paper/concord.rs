@@ -44,16 +44,8 @@ pub const NO_CONCORDANCE_CASE: &[(&str, &str)] = &[
         "writes a binary index, not records; covered by diff cases only (tabix, samtools and bcftools interop)",
     ),
     (
-        "vcf split",
-        "the 1000 Genomes panel is already split into biallelic records and gnomAD lists one ALT per row; covered by diff cases only",
-    ),
-    (
         "vcf norm",
         "needs a reference FASTA, which no paper dataset provides; covered by diff cases only",
-    ),
-    (
-        "vcf annotate",
-        "needs an annotation source matched to the calls, which no paper dataset provides; covered by diff cases only",
     ),
     (
         "vcf merge",
@@ -110,10 +102,6 @@ pub const NO_CONCORDANCE_CASE: &[(&str, &str)] = &[
     (
         "check",
         "reports pass or fail per file (exit status); covered by diff cases only",
-    ),
-    (
-        "head",
-        "prints the first records of a file unchanged; covered by diff cases only",
     ),
     (
         "samples",
