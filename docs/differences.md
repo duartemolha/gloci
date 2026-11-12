@@ -28,18 +28,26 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   change: the shared prefix and suffix of REF and ALT are trimmed, and a pure
   insertion is a point. `--vcf-span ref` gives the REF span.
 - **Old behaviour:** bedtools, tabix and bcftools use `[POS-1, POS-1+len(REF))`.
-  For a symbolic allele htslib (tabix, bcftools) uses INFO/END when the record
-  has it. bedtools 2.31.1 uses INFO/END, else `|SVLEN|`, except for an
-  insertion (an ALT that starts `<INS`, such as `<INS>` or `<INS:ME:ALU>`),
-  which it spans by its REF base alone, END or not. `--vcf-span ref` is the REF
-  span with htslib's rule (INFO/END for every symbolic allele that has it, and
-  `POS + |SVLEN|` without END, see
-  [Indexes built by htslib and SVs with only `SVLEN`](#htslib-index-svlen)), so
-  it reproduces tabix; it differs from bedtools on an insertion with END, see
-  [`--vcf-span ref` spans a symbolic insertion to its END](#vcf-span-ins-end).
+  For symbolic alleles they differ:
+  - tabix and bcftools (htslib) extend it to INFO/END when the record has
+    END, whatever its ALT, and never use SVLEN;
+  - bedtools 2.31.1 extends it to INFO/END, else to `POS + |SVLEN|`, for
+    `<DEL>`, `<DUP>`, `<INV>`, `<CNV>` and other symbolic ALTs, but spans an
+    ALT that starts `<INS` (`<INS>`, `<INS:ME:ALU>`) by its REF base alone,
+    END or not.
+
+  `--vcf-span ref` is `[POS-1, POS-1+len(REF))`, extended to INFO/END when the
+  record has END and a symbolic ALT (`<INS>`, `<*>` and `<NON_REF>` included),
+  as htslib does; without END, a symbolic ALT that is not an insertion or a
+  gVCF block extends it to `POS + |SVLEN|`, as bedtools does and htslib does
+  not (see [Indexes built by htslib and SVs with only `SVLEN`](#htslib-index-svlen)).
+  So it reproduces tabix on records with END, and bedtools except on an
+  insertion with END (see
+  [`--vcf-span ref` spans a symbolic insertion to its END](#vcf-span-ins-end)).
 - **Reason:** the REF span ignores the alleles, so for example
   `bedtools subtract` against a VCF removes the wrong number of bases for an
-  indel or a padded SNV. Pass `--vcf-span ref` for the old result.
+  indel or a padded SNV. Pass `--vcf-span ref` for the REF span, the old
+  result but for the symbolic-allele rules above.
 - **Pinned by:** `view-region-allele-span-vs-tabix` (a deletion whose anchor
   base is in the region: must differ) and `view-region-ref-inclusive-vs-tabix`
   (`--vcf-span ref`: must match).
@@ -334,7 +342,8 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   (see [Default `--vcf-span allele`](#default-vcf-span-allele)). An insertion
   is a point and a deletion covers only the deleted bases, so a region that
   holds only the anchor base of an indel does not select it. `--vcf-span ref`
-  gives the old result.
+  gives bedtools' span, except for a symbolic insertion with INFO/END (see
+  [`--vcf-span ref` spans a symbolic insertion to its END](#vcf-span-ins-end)).
 - **Old behaviour:** `bedtools intersect` uses `[POS-1, POS-1+len(REF))`, so a
   region over the anchor base alone selects the insertion and the deletion.
 - **Reason:** the same as the default span: the anchor base is not changed by
