@@ -43,6 +43,11 @@ enum Task {
         #[arg(long)]
         gloci: Option<PathBuf>,
     },
+    /// Paper datasets (D95): never run by CI
+    Paper {
+        #[command(subcommand)]
+        action: PaperAction,
+    },
     /// Maintain the built-in genomes in crates/gloci-io/data/genomes
     Genomes {
         #[command(subcommand)]
@@ -89,6 +94,32 @@ enum Task {
         /// Where generated inputs are cached
         #[arg(long, default_value = "target/bench-data")]
         data_dir: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum PaperAction {
+    /// Download the paper datasets and build the derived inputs
+    Fetch {
+        /// Write the sha256 of each derived input that has none
+        #[arg(long)]
+        record: bool,
+        /// Only this dataset or derived input
+        #[arg(long)]
+        only: Option<String>,
+        /// Build derived inputs on the host, not in the bench image
+        #[arg(long)]
+        no_docker: bool,
+        #[arg(long, default_value = "gloci-bench:p1")]
+        image: String,
+        #[arg(long, default_value = "target/bench-data")]
+        data_dir: PathBuf,
+    },
+    /// Regenerate paper/fetch-datasets.sh from datasets.toml
+    FetchScript {
+        /// Write here instead of paper/fetch-datasets.sh
+        #[arg(long)]
+        out: Option<PathBuf>,
     },
 }
 
@@ -453,6 +484,25 @@ fn run(cli: Cli) -> Result<bool> {
                     &mut std::fs::File::create(pa)?,
                     &mut std::fs::File::create(pb)?,
                 )?
+            }
+        },
+        Task::Paper { action } => match action {
+            PaperAction::Fetch {
+                record,
+                only,
+                no_docker,
+                image,
+                data_dir,
+            } => {
+                return xtask::paper::fetch::run(&xtask::paper::fetch::FetchArgs {
+                    record,
+                    only,
+                    image: (!no_docker).then_some(image),
+                    data_dir,
+                });
+            }
+            PaperAction::FetchScript { out } => {
+                xtask::paper::fetch::write_script(out.as_deref())?;
             }
         },
         Task::Genomes { action } => match action {

@@ -56,6 +56,41 @@ pub struct Dataset {
     pub md5: Option<String>,
     #[serde(default)]
     pub unpack: bool,
+    /// A paper dataset (D95): fetched only by `cargo xtask paper fetch`
+    /// or `paper/fetch-datasets.sh`, never by CI.
+    #[serde(default)]
+    pub paper: bool,
+}
+
+/// An input made from datasets or other derived inputs by a command run with
+/// `LC_ALL=C` in the bench image (D95). The result is `<cache>/<name>`.
+#[derive(Deserialize, Clone, Debug)]
+pub struct Derived {
+    pub name: String,
+    /// Each entry names a dataset, a derived input, or `repo:<path>`.
+    pub from: Vec<String>,
+    /// A shell command. `{in}` is the first input, `{in2}`, `{in3}` the
+    /// next ones, `{out}` the result.
+    pub command: String,
+    /// sha256 of the result; empty until recorded with `paper fetch --record`.
+    #[serde(default)]
+    pub sha256: String,
+}
+
+/// Every dataset and derived input of `datasets.toml`.
+pub struct Catalog {
+    pub datasets: Vec<Dataset>,
+    pub derived: Vec<Derived>,
+}
+
+impl Catalog {
+    pub fn parse(text: &str) -> Result<Catalog> {
+        let f = toml::from_str::<DatasetsFile>(text)?;
+        Ok(Catalog {
+            datasets: f.dataset,
+            derived: f.derived,
+        })
+    }
 }
 
 impl Dataset {
@@ -74,7 +109,10 @@ impl Dataset {
 
 #[derive(Deserialize)]
 struct DatasetsFile {
+    #[serde(default)]
     dataset: Vec<Dataset>,
+    #[serde(default)]
+    derived: Vec<Derived>,
 }
 
 pub fn parse_datasets(text: &str) -> Result<Vec<Dataset>> {
@@ -222,6 +260,216 @@ fn digest_file(path: &Path, algorithm: &str) -> Result<String> {
     }
 }
 
+/// Where an input of a derived command is: a dataset's or derived input's
+/// cache path, or a file of the repository.
+pub fn input_path(cat: &Catalog, from: &str, cache_dir: &Path) -> Result<PathBuf> {
+    if let Some(p) = from.strip_prefix("repo:") {
+        return Ok(workspace_root().join(p));
+    }
+    if let Some(d) = cat.datasets.iter().find(|d| d.name == from) {
+        let filename = d.url.split('/').next_back().unwrap_or(&d.name);
+        return Ok(cache_dir.join(filename));
+    }
+    if cat.derived.iter().any(|d| d.name == from) {
+        return Ok(cache_dir.join(from));
+    }
+    bail!("`{from}` is neither a dataset, a derived input nor repo:<path>")
+}
+
+/// `s` as one single-quoted shell word.
+pub fn sh_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// The index files a derived input must have beside it, by its name.
+pub fn expected_sidecars(name: &str) -> &'static [&'static str] {
+    if name.ends_with(".bam") {
+        &["bai"]
+    } else if name.ends_with(".cram") {
+        &["crai"]
+    } else if name.ends_with(".bcf") {
+        &["csi"]
+    } else if name.ends_with(".vcf.gz") || name.ends_with(".bed.gz") {
+        &["tbi"]
+    } else {
+        &[]
+    }
+}
+
+/// `command` with `{in}`, `{in2}`... and `{out}` replaced.
+pub fn derived_command(command: &str, inputs: &[String], out: &str) -> String {
+    let mut c = command.replace("{out}", out);
+    for (i, p) in inputs.iter().enumerate().rev() {
+        let key = if i == 0 {
+            "{in}".to_string()
+        } else {
+            format!("{{in{}}}", i + 1)
+        };
+        c = c.replace(&key, p);
+    }
+    c
+}
+
+/// Set `sha256 = "<hex>"` in the `[[derived]]` block named `name`.
+pub fn record_sha256(text: &str, name: &str, hex: &str) -> Result<String> {
+    let mut out = Vec::new();
+    let (mut in_block, mut done) = (false, false);
+    for line in text.lines() {
+        if line.starts_with("[[") {
+            in_block = false;
+        }
+        if line.trim() == format!("name = \"{name}\"") {
+            in_block = true;
+        }
+        if in_block && !done && line.trim_start().starts_with("sha256 =") {
+            out.push(format!("sha256 = \"{hex}\""));
+            done = true;
+        } else {
+            out.push(line.to_string());
+        }
+    }
+    ensure!(
+        done,
+        "no `sha256 =` line in the derived block `{name}` of datasets.toml"
+    );
+    Ok(out.join("\n") + "\n")
+}
+
+/// Build the derived input `d` (and what it needs) in `cache_dir`.
+///
+/// The command runs with `LC_ALL=C` under `bash -o pipefail`, in `image`
+/// (with the cache and the repository mounted) or on the host when `image`
+/// is `None`. An empty recorded sha256 is an error unless `record` is set,
+/// which writes the digest into datasets.toml.
+pub fn ensure_derived(
+    cat: &Catalog,
+    d: &Derived,
+    cache_dir: &Path,
+    image: Option<&str>,
+    record: bool,
+) -> Result<PathBuf> {
+    std::fs::create_dir_all(cache_dir)?;
+    let out = cache_dir.join(&d.name);
+    let mut inputs = Vec::new();
+    for f in &d.from {
+        if let Some(dep) = cat.derived.iter().find(|x| x.name == *f) {
+            ensure_derived(cat, dep, cache_dir, image, record)?;
+        } else if let Some(ds) = cat.datasets.iter().find(|x| x.name == *f) {
+            ensure_dataset(ds, cache_dir)?;
+        }
+        inputs.push(input_path(cat, f, cache_dir)?);
+    }
+    let sidecar = |ext: &str| cache_dir.join(format!("{}.{ext}", d.name));
+    let complete = out.exists()
+        && expected_sidecars(&d.name)
+            .iter()
+            .all(|e| sidecar(e).exists());
+    if !complete {
+        eprintln!("deriving {}", d.name);
+        // A stale partial result would make `bcftools index` or `tabix` refuse.
+        let prefix = format!("{}.partial", d.name);
+        for e in std::fs::read_dir(cache_dir)?.flatten() {
+            if e.file_name().to_string_lossy().starts_with(&prefix) {
+                std::fs::remove_file(e.path())?;
+            }
+        }
+        let _ = std::fs::remove_file(&out);
+        let tmp = cache_dir.join(&prefix);
+        let ins: Vec<String> = inputs
+            .iter()
+            .map(|p| sh_quote(&p.display().to_string()))
+            .collect();
+        let status = match image {
+            None => Command::new("bash")
+                .args(["-o", "pipefail", "-c"])
+                .arg(derived_command(
+                    &d.command,
+                    &ins,
+                    &sh_quote(&tmp.display().to_string()),
+                ))
+                .env("LC_ALL", "C")
+                .status(),
+            Some(img) => {
+                let root = workspace_root();
+                let cache_abs = std::fs::canonicalize(cache_dir)?;
+                let map = |s: &str| {
+                    s.replace(&cache_abs.display().to_string(), "/cache")
+                        .replace(&root.display().to_string(), "/repo")
+                };
+                let ins: Vec<String> = inputs
+                    .iter()
+                    .map(|p| sh_quote(&map(&p.display().to_string())))
+                    .collect();
+                let id = |flag: &str| -> Result<String> {
+                    let o = Command::new("id")
+                        .arg(flag)
+                        .output()
+                        .context("running id")?;
+                    Ok(String::from_utf8_lossy(&o.stdout).trim().to_string())
+                };
+                let user = format!("{}:{}", id("-u")?, id("-g")?);
+                Command::new("docker")
+                    .args(["run", "--rm", "--user", &user, "-e", "LC_ALL=C", "-v"])
+                    .arg(format!("{}:/cache", cache_abs.display()))
+                    .arg("-v")
+                    .arg(format!("{}:/repo:ro", root.display()))
+                    .arg(img)
+                    .args(["bash", "-o", "pipefail", "-c"])
+                    .arg(derived_command(
+                        &d.command,
+                        &ins,
+                        &sh_quote(&format!("/cache/{prefix}")),
+                    ))
+                    .status()
+            }
+        }
+        .with_context(|| format!("failed to run the command of derived input {}", d.name))?;
+        ensure!(
+            status.success(),
+            "the command of derived input {} failed ({status}); fix it in datasets.toml",
+            d.name
+        );
+        // Index files first, the result last: an interrupted rename leaves no
+        // main file, so the next run derives again.
+        let pre = format!("{prefix}.");
+        for e in std::fs::read_dir(cache_dir)?.flatten() {
+            let n = e.file_name().to_string_lossy().into_owned();
+            if let Some(ext) = n.strip_prefix(&pre) {
+                std::fs::rename(e.path(), sidecar(ext))?;
+            }
+        }
+        std::fs::rename(&tmp, &out)?;
+        for e in expected_sidecars(&d.name) {
+            ensure!(
+                sidecar(e).exists(),
+                "derived input {} did not write its .{e} index; fix its command in datasets.toml",
+                d.name
+            );
+        }
+    }
+    let hex = digest_file(&out, "sha256")?;
+    if d.sha256.is_empty() {
+        ensure!(
+            record,
+            "derived input {} has no sha256 yet; run `cargo xtask paper fetch --record` once and commit datasets.toml",
+            d.name
+        );
+        let path = workspace_root().join("xtask/bench/datasets.toml");
+        let text = std::fs::read_to_string(&path)?;
+        std::fs::write(&path, record_sha256(&text, &d.name, &hex)?)?;
+        eprintln!("recorded sha256 of {}: {hex}", d.name);
+    } else {
+        ensure!(
+            hex.eq_ignore_ascii_case(&d.sha256),
+            "sha256 mismatch for derived input {}: expected {}, got {hex}; delete {} and derive again",
+            d.name,
+            d.sha256,
+            out.display()
+        );
+    }
+    Ok(out)
+}
+
 pub fn ensure_dataset(ds: &Dataset, cache_dir: &Path) -> Result<PathBuf> {
     std::fs::create_dir_all(cache_dir)?;
     let filename = ds.url.split('/').next_back().unwrap_or(&ds.name);
@@ -230,7 +478,7 @@ pub fn ensure_dataset(ds: &Dataset, cache_dir: &Path) -> Result<PathBuf> {
         eprintln!("fetching dataset {} from {}", ds.name, ds.url);
         let tmp = cache_dir.join(format!("{filename}.tmp"));
         let st = Command::new("curl")
-            .args(["-fsSL", "-o"])
+            .args(["-fsSL", "--retry", "3", "--proto", "=https", "-o"])
             .arg(&tmp)
             .arg(&ds.url)
             .status()
@@ -240,12 +488,15 @@ pub fn ensure_dataset(ds: &Dataset, cache_dir: &Path) -> Result<PathBuf> {
     }
     let (algorithm, want) = ds.checksum()?;
     let hash = digest_file(&target_path, algorithm)?;
-    ensure!(
-        hash.eq_ignore_ascii_case(want),
-        "{algorithm} mismatch for {}: expected {want}, got {hash}; delete {} and fetch again",
-        ds.name,
-        target_path.display()
-    );
+    if !hash.eq_ignore_ascii_case(want) {
+        let bad = cache_dir.join(format!("{filename}.bad"));
+        std::fs::rename(&target_path, &bad)?;
+        bail!(
+            "{algorithm} mismatch for {}: expected {want}, got {hash}; moved the file to {} (delete it and fetch again)",
+            ds.name,
+            bad.display()
+        );
+    }
     if ds.unpack {
         let unpacked_dir = cache_dir.join(&ds.name);
         if !unpacked_dir.exists() {
