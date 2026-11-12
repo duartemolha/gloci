@@ -140,6 +140,17 @@ def test_threads_deterministic(pair, tmp_path: Path) -> None:
         assert out.read_bytes() == one
     assert p.count(threads=3) == one.count(b"\n")
     assert "-t" not in p.cli().split()
+    # threads= reaches every step's argv (so the runs above did use 1, 2 and 8 threads), but
+    # never the command lines recorded in headers.
+    for t in (1, 2, 8):
+        stages = p._stages(None, [], t)
+        assert len(stages) == 2
+        for stage in stages:
+            argv = stage["argv"]
+            assert "-t" in argv, argv
+            assert argv[argv.index("-t") + 1] == str(t), argv
+            assert "-t" not in stage["command_line"].split()
+    assert all("-t" not in s["argv"] for s in p._stages(None, [], None))
 
 
 def test_paths_are_kept_as_given(ab: Path) -> None:
