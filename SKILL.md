@@ -89,9 +89,9 @@ With regions, view prints the records whose footprint (per --vcf-span) overlaps 
 
 ```sh
 gloci view calls.vcf.gz chr1:1,000,000-2,000,000 chrX
-gloci view peaks.bed --regions-file targets.bed --inclusive-points
-gloci view reads.bam -O sam | head
 gloci view reads.cram --reference ref.fa -o reads.bam
+gloci view --count reads.bam chr1
+gloci view reads.bam --regions-file targets.bed -o on_target.bam
 ```
 
 ### `gloci cat`
@@ -111,10 +111,15 @@ Validate files and print a one-screen summary of each.
 
 check reads every file to the end, keeps going past problems and reports the record count, the chromosomes, whether the records are sorted, and the first 10 errors and warnings with their line numbers. Errors: records that do not parse, records out of order, an end past the chromosome length or a chromosome missing from -g, bad BED12 blocks, a bedGraph value that is not a number, a VCF line with the wrong number of columns. Warnings: exact duplicate lines at the same position, and blank lines. Exit status 1 when any file has errors. The order is checked against -g, else the ##contig lines of a VCF/BCF, else --chrom-order (karyotype by default).
 
+A BAM, CRAM or SAM is read record by record (a CRAM needs --reference): the summary adds the mapped, unmapped-but-placed and unplaced counts and the @HD sort order. With SO:coordinate declared, a read before the previous one, or a placed read after an unplaced one, is an error; a read past the end of its reference and identical records at one position are warnings. A BAM without its BGZF end-of-file block (a CRAM without its end-of-file container) is an error. -g, --chrom-order and --chrom-map do not apply to them (-g and --chrom-order give one warning, --chrom-map is a usage error): the header says the references and the order. Duplicate warnings assume coordinate-sorted input, as they compare only records at the same position.
+
+--quick is samtools quickcheck, for any format: the header must parse (alignments: with an @SQ line, unless --unaligned), the first record must parse (a CRAM: its first container, so no reference is needed) and a file (not stdin) must end with its end-of-file marker. Only those parts are read. --list-failed prints just the failing paths. Exit status 1 for any failing file, not samtools' bit mask.
+
 ```sh
 gloci check peaks.bed
 gloci check calls.vcf.gz -g hg38.fa.fai
-gloci check a.bed b.bed --chrom-order lex
+gloci check reads.bam
+gloci check --quick --list-failed *.bam > bad.txt
 ```
 
 ### `gloci intersect`
@@ -662,6 +667,129 @@ gloci shuffle peaks.bed -g genome.txt --include mappable.bed --same-chrom --seed
 gloci shuffle loops.bedpe --format bedpe -g hg38 --exclude blacklist.bed --seed 1 -o null.bedpe
 ```
 
+### `gloci faidx`
+
+Write regions of an indexed FASTA (samtools faidx).
+
+REF.fa is read at random through REF.fa.fai (and REF.fa.gz.gzi for BGZF); build them with gloci index. gloci never builds them itself (samtools faidx does): without them, or with no region, this exits 2 naming gloci index REF. Each REGION is chr, chr:START, chr:START-, chr:START-END, chr:-END (1-based, closed, commas allowed) or {name}:START-END for a name containing a colon, read as htslib reads it; --region adds more, and --regions-file reads BED lines (0-based, half-open; samtools -r reads chr:START-END text instead). Each region prints ">" and its text as typed, then its bases wrapped at --line-width (default: that sequence's line width in the .fai; 0 is one line), the case of the FASTA kept. A BED region is named chrom:START-END with a 1-based start, and a zero-length one is skipped with one warning that counts them. An end past the sequence is cut there with a warning; a start past it writes the header alone. A sequence the index lacks is an error before anything is written, unless --skip-invalid skips that region entirely (samtools -c still writes its header). --reverse-complement writes the reverse complement, with samtools' table (IUPAC-aware, case kept), and --mark-strand chooses the header suffix: rc (/rc on reverse-complemented regions, the default), no, sign ((+) or (-)) or custom,POS,NEG. Memory does not grow with the region length. -o FILE.fa.gz writes BGZF, and --write-index also writes FILE.fai (and FILE.gzi).
+
+```sh
+gloci faidx ref.fa chr1:1,000-2,000 chrM
+gloci faidx ref.fa chr2:500-900 --reverse-complement --mark-strand sign -o rc.fa
+gloci faidx ref.fa.gz --regions-file genes.bed --line-width 0 -o genes.fa.gz --write-index
+```
+
+### `gloci dict`
+
+Write a SAM sequence dictionary of a FASTA (samtools dict).
+
+Streams REF (plain, gzip or BGZF; standard input is -); no index is needed. Writes "@HD VN:1.0 SO:unsorted" (unless --no-header), then one "@SQ SN:<name> LN:<length> M5:<md5>" line per sequence, where the name is the first word of the header. Length and MD5 count only the bytes "!" to "~" with a-z uppercased, as samtools does: IUPAC codes, "*" and "-" count; spaces, tabs and carriage returns do not. More tags follow in samtools' order: AH:* (--alt), AN: (--alias), UR: and AS:, SP:. UR defaults to file:// and the canonical path of REF (none for standard input); --uri replaces it. --alias adds the name with "chr" removed or added; M and MT also list chrMT,MT or chrM,M. --alt reads one name per line (up to the first tab). A name used twice is an error naming both lines (samtools writes both). The result works as -g for gloci commands.
+
+```sh
+gloci dict ref.fa -o ref.dict
+gloci dict ref.fa.gz --alias --assembly GRCh38 --species human --alt ref.fa.alt -o ref.dict
+```
+
+### `gloci flags`
+
+Convert SAM FLAGS between numbers and names (samtools flags).
+
+Each FLAGS argument is a decimal number, a 0x hexadecimal number, or comma-separated names (case-insensitive), up to 0xFFFF. It prints "0x<hex>", the decimal value and the names of the bits set, tab separated, in bit order: PAIRED PROPER_PAIR UNMAP MUNMAP REVERSE MREVERSE READ1 READ2 SECONDARY QCFAIL DUP SUPPLEMENTARY. A value with none of them has an empty third field. With no argument it prints the twelve flags with their descriptions. All arguments are checked before anything is printed. A decimal with a leading zero (010) is an error, because samtools reads it as octal 8 (00 to 07 mean the same either way and are read), and so is trailing text (12abc), which samtools reads as 12.
+
+```sh
+gloci flags 0x704 1796 secondary,dup
+gloci flags
+```
+
+### `gloci idxstats`
+
+Count the reads of each reference of a BAM, CRAM or SAM (samtools idxstats).
+
+Writes one line per @SQ reference, in header order: name, length, mapped reads, unmapped reads (tab separated), then "*", 0, 0 and the reads with no reference. A read that is unmapped but placed on a reference counts as unmapped there. A BAM with a .bai or .csi is answered from the index, without reading any record. Anything else (a BAM without an index, a SAM, or a CRAM, whose .crai holds no counts) gets one warning and every record is counted, in any order of the references; samtools stops at the first reference that comes back. An index that lacks the counts of a reference also gets a warning and a scan. A CRAM that needs a reference sequence needs --reference, even though samtools reads such a file without one. Mapped and unmapped counts follow FLAGS bit 0x4 only; no read filters apply. The output is the same through the index and by a scan, at any number of threads.
+
+```sh
+gloci idxstats reads.bam
+gloci idxstats reads.cram --reference ref.fa
+gloci idxstats reads.sam -t 1
+```
+
+### `gloci flagstat`
+
+Count the reads of a BAM, CRAM or SAM by FLAGS category (samtools flagstat).
+
+Writes the counts of total, primary, secondary and supplementary reads, duplicates, mapped reads, paired reads, read 1 and read 2, properly paired reads, singletons and mates on another reference, as "QC-passed + QC-failed" (FLAGS bit 0x200), with percentages where samtools has them. -O picks the layout: text (the default), tsv or json; with no -O, a -o ending in .json or .tsv picks it, and a -o ending in .gz is BGZF-compressed (stats.json.gz is compressed JSON). A percentage of nothing is N/A (null in JSON). Percentages are computed as samtools computes them, in 32-bit floating point, so 153 of 160 is 95.63% and not 95.62%. Every record counts, unmapped and unplaced ones too, and no read filters apply. A CRAM that needs a reference sequence needs --reference, though samtools reads such a file without one. The output is the same at any number of threads.
+
+```sh
+gloci flagstat reads.bam
+gloci flagstat reads.bam -O json -o stats.json
+gloci flagstat reads.cram --reference ref.fa -O tsv
+```
+
+### `gloci head`
+
+Print the header and the first records of any input as text (samtools and bcftools head).
+
+With no options it prints the whole header and no record. --headers N keeps the first N header lines and --records N prints N records after them. BAM, CRAM and SAM print SAM text; a BAM whose header text lacks the @SQ lines of its binary references gets them written out (samtools prints nothing for such a file). VCF and BCF print VCF text, and BED, GFF and the other text formats print their header and data lines as stored. Nothing is added: no @PG line, no ##glociCommand line. Only the header and the records asked for are read. A file that is damaged after the lines printed exits 1 with the lines before the damage already written. A CRAM that needs a reference sequence needs --reference. head describes the whole file, so it takes no read filters and no --chrom-map.
+
+```sh
+gloci head reads.bam
+gloci head reads.bam --headers 0 --records 5
+gloci head calls.vcf.gz --records 2
+```
+
+### `gloci samples`
+
+List the samples of the read groups of BAM, CRAM or SAM files (samtools samples).
+
+Reads only the headers. For each file it prints one line per distinct value of the --tag (default SM) over the @RG lines, in the order the header lists them, then the path; a file with no such value gets "." as its sample. --show-index adds Y or N for whether the file has an index. --match-reference FASTA (repeatable) adds the first FASTA whose .fai has the same names and lengths in the same order as the @SQ lines, or ".", trying the FASTA given last first; every FASTA needs its .fai (gloci index REF). --column-names writes a line such as "#SM PATH INDEX REFERENCE" first. samtools prints the samples in hash order, so a file with several samples lists them in a different order.
+
+```sh
+gloci samples cohort.bam
+gloci samples a.bam b.cram --show-index --column-names
+gloci samples reads.bam --match-reference hg38.fa --match-reference hs37d5.fa --tag LB
+```
+
+### `gloci depth`
+
+Depth of coverage of alignments at each position (samtools depth).
+
+Reads BAM, CRAM or SAM files (CRAM needs --reference) in coordinate order and prints "chrom, 1-based position, depth" for each position covered by a passing read in any input, with one depth column per input in the order given, references in @SQ order. Inputs must have identical @SQ lists (exit 1, naming the first difference; samtools compares reference ids unchecked). A read counts when none of --exclude-flags is set (default UNMAP,SECONDARY,QCFAIL,DUP: this command's default, where other commands exclude nothing; --exclude-flags 0 counts everything), all of --require-flags are, its MAPQ is at least --min-mapq and its length (SEQ length less the soft clips at its two ends; with SEQ *, the bases of M, I, = and X) is at least --min-read-length. Each M, = and X base counts when its quality is at least --min-baseq (a missing quality passes, and so does every base of a read with SEQ *). D bases count only with --count-deletions, each gated by the quality of the next base in the read; N never counts. Positions a read spans but none of its bases count (deletions, introns, filtered bases) print 0. --all-positions adds every position of each reference that has a passing read; --all-references adds every position of every reference. --region (repeatable) and --regions-file (BED) limit the rows to their union, each position once, read through the index when there is one (else the input is scanned, with a warning); with regions, the --all-* options print every position in them. --column-names writes "#CHROM POS" and the paths first. A read past the end of its reference is cut there with one warning, where samtools prints rows beyond it. --skip-mate-overlap counts the bases two mates of a pair share once. An input that goes back in (reference, position) is an error telling you to run gloci sort. The inputs are read as one stream at every -t, with the same output; threads decode BGZF and CRAM, shared among the inputs. Memory per input follows the longest read, not the reference.
+
+```sh
+gloci depth sample.bam --skip-mate-overlap -o depth.tsv
+gloci depth a.bam b.bam --column-names --min-mapq 20 --min-baseq 20
+gloci depth sample.bam --region chr1:100,000-200,000 --all-positions
+gloci depth sample.bam --regions-file targets.bed --count-deletions
+```
+
+### `gloci bedcov`
+
+Depth of coverage summed over each BED region (samtools bedcov).
+
+For each line of BED, in any order, writes the line as it is and then, for each FILE (BAM or CRAM, each with a .bai, .csi or .crai; exit 2 without one), the sum of the depth over the region's bases: one column per file, files in the order given. --bases-at-depth N adds one column per file of the bases whose depth is at least N, and --read-count one of the reads that overlap the region (a zero-length region has no bases and counts no reads, as samtools 1.21 does). Depth counts M, = and X bases always, D bases unless --split-deletions and N (intron) bases unless --split, so samtools -j is --split --split-deletions. A read counts when none of --exclude-flags is set (default UNMAP,SECONDARY,QCFAIL,DUP, as for depth; --exclude-flags 0 counts everything but unmapped reads, which never count), all of --require-flags are, and its MAPQ is at least --min-mapq. Comment, track, browser and blank lines are skipped. A line on a chromosome the files lack is an error naming the line, or skipped with one counted warning under --skip-invalid; samtools prints an error, carries on and exits 2. Files must have identical @SQ lists. --column-names writes "#chrom start end" and one column name per file and kind first. A read past the end of its reference counts up to the end. Regions are read in batches of 256 lines on up to -t threads, written in BED order. Memory per thread follows the longest read, not the region.
+
+```sh
+gloci bedcov targets.bed sample.bam
+gloci bedcov targets.bed a.bam b.bam --bases-at-depth 10 --read-count --column-names
+gloci bedcov exons.bed sample.cram --reference ref.fa --split --split-deletions -t 8
+```
+
+### `gloci reheader`
+
+Replace the header of a BAM or CRAM file without decoding its records (samtools reheader).
+
+HEADER is SAM header text, or a SAM, BAM or CRAM file whose header is taken (as samtools does); - reads standard input. IN must be a regular BAM or CRAM file: standard input is refused (gloci view - -o x.bam makes a file) and so is SAM. The result goes to -o or stdout, in IN's format; -o may name IN, which is then replaced atomically, and a failure leaves it as it was. A gloci @PG line is added to the new header.
+
+Records point at their reference by its position in the @SQ list, so the new list must keep every old reference in the same place with the same LN. Names (SN:) may change, and @SQ lines may be added after the last one. For CRAM an M5: that both lists have must be equal. Anything else is an error naming both lines, and nothing is written (samtools checks nothing and would attach reads to the wrong contigs; use gloci view --chrom-map to rename references safely).
+
+BAM: the new header is compressed, and the rest of IN is copied block by block: only the block that held the old header's end is compressed again. CRAM (3.0 and 3.1; 2.x is refused): the file definition, a new header container, then every byte of IN from its first data container. The old and new headers and one BGZF block are all that is held in memory.
+
+```sh
+gloci reheader new-header.sam x.bam -o y.bam
+gloci reheader other.bam x.bam -o x.bam
+gloci view --header-only x.bam -O sam | sed 's/SN:chr/SN:/' | gloci reheader - x.bam -o y.bam
+```
+
 ## Migration tables
 
 Every row below was checked against `gloci <cmd> --help`.
@@ -670,6 +798,19 @@ Rows marked "not yet available" name a tool option that gloci does not have
 yet. The P2 command set, P3a (BAM, CRAM and SAM, FASTA) and P3b (`stats`,
 `sample`, `random`, `shuffle`, BEDPE, `vcf compare`) are available; the
 population-genetics options of vcftools (`vcf popgen`) are deferred. BAM, CRAM and FASTA have their own section, [BAM, CRAM
+The samtools commands have their own table, [samtools](#samtools), with
+[samtools behaviour](#samtools-behaviour) after the tables.
+
+Rows marked "not yet available" name the command that will replace the tool
+and the phase that builds it. The P2 command set, the packaging prerequisites,
+and P3a (BAM, CRAM and SAM input and output, FASTA, `getfasta`, `maskfasta`,
+`nuc`, `gloci cat`, and alignment `sort`, `sort -m`, `view`, `index`, `convert`,
+`intersect`, `coverage` and `genomecov`) and P3c (the samtools essentials: `flags`,
+`idxstats`, `flagstat`, `check`, `head`, `samples`, `depth`, `bedcov`, `faidx`,
+`dict`, `reheader`, `view --count`) are available, so the rows left are
+P3b (`stats`, `sample`, `random`, `shuffle`, BEDPE, `vcf popgen`,
+`vcf compare`), and then the rest of P2b (Python library, packaging, mdBook,
+paper evidence suite). BAM, CRAM and FASTA have their own section, [BAM, CRAM
 and FASTA behaviour](#bam-cram-and-fasta-behaviour), after the tables.
 
 ### Sorting, indexing and viewing (htslib, bcftools, bedops, bedtools)
@@ -698,14 +839,6 @@ and FASTA behaviour](#bam-cram-and-fasta-behaviour), after the tables.
 | `tabix -h FILE.gz REGION`, `tabix -H FILE.gz` | `gloci view FILE.gz REGION` keeps the header; `gloci view --header-only FILE.gz` prints only it |
 | `tabix -R TARGETS FILE.gz`, `bcftools view -R TARGETS FILE` | `gloci view FILE.gz --regions-file TARGETS.bed` (0-based BED, like `bedextract`) |
 | `bedextract CHR FILE`, `bedextract FILE REGIONS.bed` | `gloci view FILE CHR`, or `gloci view FILE --regions-file REGIONS.bed`; add `--assume-sorted` for the binary search on an uncompressed BED file |
-| `samtools index FILE.bam`, `samtools index -c FILE.bam` | `gloci index FILE.bam` (a `.bai`, or a `.csi` when a reference is longer than 2^29); `gloci index FILE.bam --csi` always writes a `.csi`. The BAM must be coordinate-sorted. SAM text has no index: `gloci view FILE.sam -o FILE.bam --write-index`. samtools and gloci read each other's indexes. [differences.md#bam-index-long-reference](differences.md#bam-index-long-reference) |
-| `samtools view FILE.bam REGION...` | `gloci view -O sam FILE.bam REGION...` (through `FILE.bam.bai`, `FILE.bai` or `FILE.bam.csi`, or for a CRAM `FILE.cram.crai` or `FILE.crai`, which also needs `--reference FASTA`; without an index gloci scans the file and warns, where samtools exits 1; [differences.md#bam-region-without-index](differences.md#bam-region-without-index)). `gloci view -O sam` writes the header, as `samtools view -h` does; add `--no-header` for `samtools view` without `-h`. Regions are 1-based and closed, a read is selected by where its CIGAR puts it, and a placed unmapped read counts as one base, as samtools finds them |
-| `samtools sort IN.bam -o OUT.bam`, `samtools sort -n`, `samtools sort -N` | `gloci sort IN.bam -o OUT.bam`, `gloci sort -n IN.bam -o OUT.bam`, `gloci sort -N IN.bam -o OUT.bam`. The order is samtools 1.21's: reference in header order with unplaced reads last, position, strand, then input order; `-n` is natural name order (`r2` before `r10`, `r01` equal to `r1`) and `-N` plain byte order, each with READ1 before READ2 and primary before supplementary before secondary. The `@HD` line gets `SO` (and `SS:queryname:natural` or `SS:queryname:lexicographical`) as samtools sets it. gloci keeps the input's format (BAM for BAM and CRAM, since CRAM is never written, and a CRAM needs `--reference FASTA`; SAM for SAM), where samtools always writes BAM: pass `-O bam` for samtools' default (`-o x.bam` and `-o x.sam` also choose); `--write-index` writes the `.bai` (or `.csi`) for coordinate order. The flag names differ: samtools' `-@ N` is `-t N`, `-m SIZE` (memory per thread) is `--max-mem SIZE` for the whole sort (gloci's `-m` merges sorted inputs), `-T PREFIX` is `--tmp-dir DIR`, `-l N` is `--compression-level N`, and `-u` is `--compression-level 0`. Not available: `-t TAG`, `-M` and `--template-coordinate`. `gloci sort --check FILE` checks the order without writing |
-| `samtools merge -c -p -o OUT.bam A.bam B.bam`, `samtools merge -n`, `samtools merge -N` | `gloci sort -m A.bam B.bam -o OUT.bam`, `gloci sort -m -n A.bam B.bam -o OUT.bam`, `gloci sort -m -N A.bam B.bam -o OUT.bam`. The inputs (BAM, SAM, or CRAM with `--reference`) must already be in the order; each is checked as it is read, and one whose `@HD SO`/`SS` says another order is refused up front. The keys and ties are `gloci sort`'s (ties go to the earlier input, then record order, as samtools). The header follows `samtools merge -c -p`: `@RG` and `@PG` lines with the same ID are kept once, `@CO` lines come from every input, `@HD` is the first input's with `SO`/`SS` set. Two differences: `@SQ` lists must be identical ([differences.md#alignment-merge-sq](differences.md#alignment-merge-sq)) and a same-ID `@RG` with different fields is an error ([differences.md#alignment-merge-rg](differences.md#alignment-merge-rg)); samtools' default (no `-c`) renames a colliding ID with a random suffix, which gloci does not. The output follows the inputs' format: SAM when every input is SAM, otherwise BAM (a CRAM input, or a mix of formats, writes BAM); `-o`/`-O` choose. Very large input counts are cascaded: at most 128 inputs (fewer under a small `--max-mem`) are open at a time, with the `-t` threads shared among them, and the rounds' runs go through `--tmp-dir`, so open files and memory stay bounded (1,100 inputs merge under `ulimit -n 1024`); a pipe input is spooled once to `--tmp-dir` first. Not available: `-r`, `-R`, `-h`, `-b`, `-f` |
-| `samtools view -b -o X.bam --write-index FILE`, then `samtools index X.bam` | `gloci view FILE -o X.bam --write-index` (writes `X.bam.bai`; the data must be coordinate-sorted). An old `X.bam.bai`, `X.bai` or `X.bam.csi` beside an output written without `--write-index` is removed |
-| `samtools cat -o X.bam A.bam B.bam` | `gloci cat A.bam B.bam -o X.bam [--write-index]` (BAM only: CRAM and SAM are refused with a hint; blocks are copied without recompression, the order of the records is not checked, and `@SQ` lists that differ are an error, where samtools joins them and the later records point at the wrong contigs, [differences.md#alignment-cat-sq](differences.md#alignment-cat-sq); `-` reads one input from stdin; `samtools cat -h` and `-b` are not available) |
-| `samtools faidx REF.fa`, `samtools faidx REF.fa.gz` (BGZF) | `gloci index REF.fa` (`.fai`, and `.gzi` for BGZF, byte-identical to samtools; stricter about uneven lines and duplicate names, [differences.md#fasta-index-strictness](differences.md#fasta-index-strictness); plain gzip is refused with a `bgzip` recipe). gloci never builds the index implicitly: every command that reads a FASTA at random (`getfasta`, `nuc`, a CRAM `--reference`) needs it first |
-| `samtools faidx REF.fa chr1:1-100`, `samtools faidx -r REGIONS REF.fa` | `gloci getfasta BED --fasta REF.fa` over a BED of the regions (0-based, so `chr1:1-100` is `chr1 0 100`; the header is `chr1:0-100`, bedtools' form, where samtools writes `chr1:1-100`; `samtools faidx -i` is a BED6 record on strand `-` with `-s`). `-n`, `-c` and `--mark-strand` have no counterpart |
 | `bcftools view -Ob FILE.vcf`, `bcftools view -Ov FILE.bcf` | `gloci view FILE.vcf -o FILE.bcf`, `gloci view FILE.bcf -O vcf` |
 
 ### bedtools
@@ -759,6 +892,38 @@ and FASTA behaviour](#bam-cram-and-fasta-behaviour), after the tables.
 | `random -g G -l L -n N -seed S` | `gloci random -g G -l L -n N --seed S` (BED6 in id order; same seed gives other intervals than bedtools, [differences.md#rng-stream](differences.md#rng-stream); `-l` longer than every chromosome is exit 2) |
 | `sample -i FILE -n N -seed S [-s forward\|reverse] [-header]` | `gloci sample FILE -n N --seed S [--strand +\|-] [--header]` (output in input order, [differences.md#sample-order](differences.md#sample-order); other records than bedtools picks, [differences.md#rng-stream](differences.md#rng-stream); `-ubam`/BAM: `samtools view -s`) |
 | `multicov`, `tag`, `bamtofastq`, `bedtobam`, `bedpetobam`, `igv`, `links`, `expand`, `split`, `summary`, `overlap` | not planned (`overlap` → `gloci intersect --mode pairs --overlap-bases`) |
+| `jaccard`, `fisher`, `reldist` | not yet available (`stats jaccard / fisher / reldist`, P3b) |
+| `shuffle`, `random`, `sample` | not yet available (`shuffle`, `random`, `sample`, P3b) |
+| `pairtobed`, `pairtopair` | not yet available (`pair-intersect`, `pair-pair`, P3b) |
+| `multicov -bams A.bam B.bam -bed X.bed` | `gloci bedcov X.bed A.bam B.bam --read-count` (one count column per file, after the base-depth sum; each file needs an index; the filters are samtools' defaults, so add `--exclude-flags 0` for every read, see [the samtools behaviour section](#samtools-behaviour)) |
+| `tag`, `bamtofastq`, `bedtobam`, `bedpetobam`, `igv`, `links`, `expand`, `split`, `summary`, `overlap` | not planned (`overlap` → `gloci intersect --mode pairs --overlap-bases`) |
+
+### samtools
+
+| samtools | gloci |
+|---|---|
+| `samtools index FILE.bam`, `samtools index -c FILE.bam` | `gloci index FILE.bam` (a `.bai`, or a `.csi` when a reference is longer than 2^29); `gloci index FILE.bam --csi` always writes a `.csi`. The BAM must be coordinate-sorted. SAM text has no index: `gloci view FILE.sam -o FILE.bam --write-index`. samtools and gloci read each other's indexes. [differences.md#bam-index-long-reference](differences.md#bam-index-long-reference) |
+| `samtools view FILE.bam REGION...` | `gloci view -O sam FILE.bam REGION...` (through `FILE.bam.bai`, `FILE.bai` or `FILE.bam.csi`, or for a CRAM `FILE.cram.crai` or `FILE.crai`, which also needs `--reference FASTA`; without an index gloci scans the file and warns, where samtools exits 1; [differences.md#bam-region-without-index](differences.md#bam-region-without-index)). `gloci view -O sam` writes the header, as `samtools view -h` does; add `--no-header` for `samtools view` without `-h`. Regions are 1-based and closed, a read is selected by where its CIGAR puts it, and a placed unmapped read counts as one base, as samtools finds them |
+| `samtools sort IN.bam -o OUT.bam`, `samtools sort -n`, `samtools sort -N` | `gloci sort IN.bam -o OUT.bam`, `gloci sort -n IN.bam -o OUT.bam`, `gloci sort -N IN.bam -o OUT.bam`. The order is samtools 1.21's: reference in header order with unplaced reads last, position, strand, then input order; `-n` is natural name order (`r2` before `r10`, `r01` equal to `r1`) and `-N` plain byte order, each with READ1 before READ2 and primary before supplementary before secondary. The `@HD` line gets `SO` (and `SS:queryname:natural` or `SS:queryname:lexicographical`) as samtools sets it. gloci keeps the input's format (BAM for BAM and CRAM, since CRAM is never written, and a CRAM needs `--reference FASTA`; SAM for SAM), where samtools always writes BAM: pass `-O bam` for samtools' default (`-o x.bam` and `-o x.sam` also choose); `--write-index` writes the `.bai` (or `.csi`) for coordinate order. The flag names differ: samtools' `-@ N` is `-t N`, `-m SIZE` (memory per thread) is `--max-mem SIZE` for the whole sort (gloci's `-m` merges sorted inputs), `-T PREFIX` is `--tmp-dir DIR`, `-l N` is `--compression-level N`, and `-u` is `--compression-level 0`. Not available: `-t TAG`, `-M` and `--template-coordinate`. `gloci sort --check FILE` checks the order without writing |
+| `samtools merge -c -p -o OUT.bam A.bam B.bam`, `samtools merge -n`, `samtools merge -N` | `gloci sort -m A.bam B.bam -o OUT.bam`, `gloci sort -m -n A.bam B.bam -o OUT.bam`, `gloci sort -m -N A.bam B.bam -o OUT.bam`. The inputs (BAM, SAM, or CRAM with `--reference`) must already be in the order; each is checked as it is read, and one whose `@HD SO`/`SS` says another order is refused up front. The keys and ties are `gloci sort`'s (ties go to the earlier input, then record order, as samtools). The header follows `samtools merge -c -p`: `@RG` and `@PG` lines with the same ID are kept once, `@CO` lines come from every input, `@HD` is the first input's with `SO`/`SS` set. Two differences: `@SQ` lists must be identical ([differences.md#alignment-merge-sq](differences.md#alignment-merge-sq)) and a same-ID `@RG` with different fields is an error ([differences.md#alignment-merge-rg](differences.md#alignment-merge-rg)); samtools' default (no `-c`) renames a colliding ID with a random suffix, which gloci does not. The output follows the inputs' format: SAM when every input is SAM, otherwise BAM (a CRAM input, or a mix of formats, writes BAM); `-o`/`-O` choose. Very large input counts are cascaded: at most 128 inputs (fewer under a small `--max-mem`) are open at a time, with the `-t` threads shared among them, and the rounds' runs go through `--tmp-dir`, so open files and memory stay bounded (1,100 inputs merge under `ulimit -n 1024`); a pipe input is spooled once to `--tmp-dir` first. Not available: `-r`, `-R`, `-h`, `-b`, `-f` |
+| `samtools view -b -o X.bam --write-index FILE`, then `samtools index X.bam` | `gloci view FILE -o X.bam --write-index` (writes `X.bam.bai`; the data must be coordinate-sorted). An old `X.bam.bai`, `X.bai` or `X.bam.csi` beside an output written without `--write-index` is removed |
+| `samtools cat -o X.bam A.bam B.bam` | `gloci cat A.bam B.bam -o X.bam [--write-index]` (BAM only: CRAM and SAM are refused with a hint; blocks are copied without recompression, the order of the records is not checked, and `@SQ` lists that differ are an error, where samtools joins them and the later records point at the wrong contigs, [differences.md#alignment-cat-sq](differences.md#alignment-cat-sq); `-` reads one input from stdin; `samtools cat -h` and `-b` are not available) |
+| `samtools faidx REF.fa`, `samtools faidx REF.fa.gz` (BGZF) | `gloci index REF.fa` (`.fai`, and `.gzi` for BGZF, byte-identical to samtools; stricter about uneven lines and duplicate names, [differences.md#fasta-index-strictness](differences.md#fasta-index-strictness); plain gzip is refused with a `bgzip` recipe). gloci never builds the index implicitly: every command that reads a FASTA at random (`getfasta`, `nuc`, a CRAM `--reference`) needs it first |
+| `samtools faidx REF.fa chr1:1-100`, `samtools faidx -r REGIONS REF.fa` | `gloci faidx REF.fa chr1:1-100` (byte-identical output, see the `samtools faidx REF REGION...` row below), or `gloci faidx REF.fa --regions-file BED`; `gloci getfasta BED --fasta REF.fa` over a BED of the regions (0-based, so `chr1:1-100` is `chr1 0 100`; the header is `chr1:0-100`, bedtools' form). `-r FILE` of `chr:START-END` text: `xargs gloci faidx ref.fa < list` ([differences.md#faidx-regions-file](differences.md#faidx-regions-file)) |
+| `samtools faidx REF REGION...` (`-n N`, `-i`, `--mark-strand T`, `-c`, `-r FILE`, `-o OUT`) | `gloci faidx REF REGION... [--line-width N] [--reverse-complement] [--mark-strand rc\|no\|sign\|custom,POS,NEG] [--skip-invalid] [--regions-file BED] [-o OUT[.gz] [--write-index]]` (output is byte-identical to samtools 1.21, headers as typed, wrapping at each sequence's `.fai` width by default, `chr:-END` accepted; the FASTA needs a `.fai` (and `.gzi` for BGZF) made with `gloci index`, which gloci never builds, so `samtools faidx REF` with no region, and a missing index, exit 2 naming `gloci index REF`, see [differences.md#fasta-implicit-index](differences.md#fasta-implicit-index); `-c` is `--skip-invalid` and skips the region without writing its header, see [differences.md#faidx-missing-sequence](differences.md#faidx-missing-sequence); a region htslib guesses at (`chr1:0-5`, `chr1:0`, `chr1:+5`, an ambiguous `ctgA:5`) is a usage error, see [differences.md#faidx-region-syntax](differences.md#faidx-region-syntax); `-r` read `chr:START-END` text, `--regions-file` reads BED, see [differences.md#faidx-regions-file](differences.md#faidx-regions-file); `-X`/`--fai-idx`, `--gzi-idx` and `-f` (FASTQ) are not available) |
+| `samtools dict [-H] [-A] [-l FILE] [-a STR] [-s STR] [-u STR] [-o OUT] REF` | `gloci dict REF [--no-header] [--alias] [--alt FILE] [--assembly STR] [--species STR] [--uri STR] [-o OUT]` (output is byte-identical to samtools 1.21; a repeated sequence name, [differences.md#dict-duplicate-names](differences.md#dict-duplicate-names), and an empty file, [differences.md#dict-empty-input](differences.md#dict-empty-input), exit 1) |
+| `samtools flags FLAGS...` | `gloci flags [FLAGS...]` (output is byte-identical to samtools 1.21, and with no argument the table of the twelve flags, without the usage text; a decimal with a leading zero such as `010`, which samtools reads as octal 8 (`00` to `07` mean the same either way and are read), and trailing text such as `12abc` exit 2, see [differences.md#flags-leading-zero](differences.md#flags-leading-zero); an unknown name exits 2 where samtools exits 1, see [differences.md#samtools-exit-codes](differences.md#samtools-exit-codes)) |
+| `samtools idxstats FILE` | `gloci idxstats FILE [--reference FA]` (output is byte-identical to samtools 1.21; a BAM with a `.bai`/`.csi` is answered from the index, anything else is counted record by record with one warning; a file whose references are not grouped is counted, where samtools stops, see [differences.md#idxstats-unsorted](differences.md#idxstats-unsorted); an index without a reference's counts is scanned, where samtools prints zeros, see [differences.md#idxstats-index-without-counts](differences.md#idxstats-index-without-counts); a CRAM that needs a reference needs `--reference`, see [differences.md#cram-counts-need-reference](differences.md#cram-counts-need-reference)) |
+| `samtools quickcheck [-u] [-v] FILE...` | `gloci check --quick [--unaligned] [--list-failed] FILE...` (`-u` is `--unaligned`; `--list-failed` prints the failing paths as `-v` does; exit status 1 for any failing file, where samtools exits with a bit mask, see [differences.md#samtools-exit-codes](differences.md#samtools-exit-codes); the first record must also parse, and a VCF, BCF or BGZF BED passes, see [differences.md#quickcheck](differences.md#quickcheck)) |
+| `samtools head [-h N] [-n N] FILE`, `bcftools head` | `gloci head FILE [--headers N] [--records N]` (any format; a BAM with no `@SQ` text gets them written, see [differences.md#head-notext-header](differences.md#head-notext-header); a VCF header is printed as stored, without the PASS line bcftools adds, see [differences.md#head-vcf-pass-line](differences.md#head-vcf-pass-line)) |
+| `samtools samples [-T TAG] [-i] [-h] [-f FA]... FILE...` | `gloci samples FILE... [--tag TAG] [--show-index] [--column-names] [--match-reference FA]...` (samples in header order, see [differences.md#samples-order](differences.md#samples-order); a FASTA with no `.fai` exits 2, see [differences.md#fasta-implicit-index](differences.md#fasta-implicit-index)) |
+| `samtools depth [-a\|-aa] [-J] [-q N] [-Q N] [-l N] [-g F] [-G F] [-s] [--require-flags F] [-r REG] [-b BED] [-H] [-o OUT] FILE...` | `gloci depth FILE... [--all-positions\|--all-references] [--count-deletions] [--min-baseq N] [--min-mapq N] [--min-read-length N] [--exclude-flags F] [--require-flags F] [--skip-mate-overlap] [--region REG] [--regions-file BED] [--column-names] [-o OUT]` (output is byte-identical to samtools 1.21 except where [differences.md#depth-past-reference-end](differences.md#depth-past-reference-end), [differences.md#depth-order-check](differences.md#depth-order-check), [differences.md#depth-regions](differences.md#depth-regions) and [differences.md#depth-bedcov-same-sq](differences.md#depth-bedcov-same-sq) say; `--exclude-flags` defaults to `UNMAP,SECONDARY,QCFAIL,DUP`, so `-g DUP` is `--exclude-flags UNMAP,SECONDARY,QCFAIL` and `-G X` adds X to that list; `-s` is `--skip-mate-overlap`, which counts the bases two mates share once and differs only for templates with a stale or unknown mate position, see [differences.md#depth-mate-overlap](differences.md#depth-mate-overlap)) |
+| `samtools bedcov [-Q N] [-g F] [-G F] [-j] [-d N] [-c] [-H] BED FILE...` | `gloci bedcov BED FILE... [--min-mapq N] [--exclude-flags F] [--require-flags F] [--split --split-deletions] [--bases-at-depth N] [--read-count] [--column-names] [-o OUT]` (each file needs an index; `-j` is `--split --split-deletions`; `-d N` alone drops D and N bases from both columns in samtools, see [differences.md#bedcov-depth-threshold](differences.md#bedcov-depth-threshold); a BED line on a missing chromosome exits 1, see [differences.md#bedcov-bad-line](differences.md#bedcov-bad-line); reads past the end of their reference are cut, see [differences.md#depth-past-reference-end](differences.md#depth-past-reference-end)) |
+| `samtools reheader [-P] HEADER IN.bam`, `samtools reheader [-P] HEADER IN.cram` | `gloci reheader HEADER IN [-o OUT]` (HEADER is SAM header text, or a SAM, BAM or CRAM file whose header is taken, `-` is stdin; IN is a BAM or CRAM regular file, never stdin or SAM; the new `@SQ` list must keep every old reference in place with the same `LN` (names may change, new `@SQ` lines may follow), else exit 1, where samtools writes a file whose reads point at the wrong contigs, [differences.md#reheader-sq-check](differences.md#reheader-sq-check); a gloci `@PG` line is always added, so `-P` has no equivalent; `-i` is `-o IN`, which replaces the file atomically; `-c CMD` is replaced by the `view --header-only | sed | reheader -` pipe in the samtools table) |
+| `samtools flagstat FILE`, `samtools flagstat -O json\|tsv FILE` | `gloci flagstat FILE [-O text\|tsv\|json] [-o OUT] [--reference FA]` (the layouts and counts are samtools 1.21's byte for byte; every record counts, unmapped and unplaced included; a CRAM that needs a reference needs `--reference`, see [differences.md#cram-counts-need-reference](differences.md#cram-counts-need-reference); `-@ N` is `-t N`) |
+| `samtools view -c FILE [REGION...]`, `samtools view -c -L BED FILE` | `gloci view --count FILE [REGION...] [--regions-file BED]` (`-c` is `COL:OP` in gloci, so the flag is long; prints the number of records `view` would write, with `--min-mapq`, `--require-flags` and `--exclude-flags` applied, and counts a read once however many regions it overlaps, see [differences.md#view-overlapping-regions](differences.md#view-overlapping-regions); `-L` is `--regions-file BED` (0-based BED), read through the index when there is one, and combines with positional regions as a union, where samtools intersects them, see [differences.md#view-regions-union](differences.md#view-regions-union); a CRAM that needs a reference needs `--reference`, see [differences.md#cram-counts-need-reference](differences.md#cram-counts-need-reference)) |
+| `samtools view -H FILE \| sed ... \| samtools reheader -c`, `samtools reheader -c CMD IN.bam` | `gloci view --header-only IN.bam \| sed ... \| gloci reheader - IN.bam -o OUT.bam` (`-c CMD` is not available; the pipe is its replacement) |
+| `samtools markdup`, `fixmate`, `calmd`, `mpileup`, `consensus`, `stats`, `ampliconclip`, `fqidx`, `faidx --fastq` / `-f`, `-X` / `--fai-idx` / `--gzi-idx`, `depth -f` and `--incl-flags` / `-d` / `-m`, `bedcov --max-depth`, `samples -F` | not planned (for `samples -F`, repeat `--match-reference`; the other options have no counterpart) |
 
 ### bedops
 
@@ -961,6 +1126,40 @@ there is one.
   [differences.md#maskfasta-layout](differences.md#maskfasta-layout),
   [differences.md#maskfasta-past-end](differences.md#maskfasta-past-end)).
 
+## samtools behaviour
+
+What to expect when `samtools` commands move to gloci. Each point links to the
+pinned difference where there is one.
+
+- **Filter defaults.** `depth` and `bedcov` exclude `UNMAP,SECONDARY,QCFAIL,DUP`
+  by default, as samtools does, where `coverage` and `genomecov` filter nothing
+  by default, as bedtools does (D102). `--exclude-flags 0` turns the default off
+  (unmapped reads still never count in pileups); samtools `-g DUP` is
+  `--exclude-flags UNMAP,SECONDARY,QCFAIL`.
+- **Zero rows inside spliced reads.** `depth` prints a 0 row at each position of
+  an intron, a deletion or a filtered base inside a read's span, as samtools
+  does; a position outside every span prints no row without `--all-positions`.
+  [differences.md#depth-regions](differences.md#depth-regions)
+- **`view --count` counts a read once.** However many regions it overlaps;
+  samtools repeats it per positional region.
+  [differences.md#view-overlapping-regions](differences.md#view-overlapping-regions)
+- **CRAM needs `--reference`** for every command that decodes records (`view`,
+  `depth`, `bedcov`, `head`, and the `flagstat` and `idxstats` scans) when a
+  container needs reference bases; `samples`, `reheader` and `check --quick`
+  never do. samtools reads `flagstat`, `idxstats` and `view -c` without one.
+  [differences.md#cram-counts-need-reference](differences.md#cram-counts-need-reference)
+- **Exit codes.** 0 for success, 1 for data errors and failed checks, 2 for usage
+  errors. samtools exits 1 for usage errors, 2 for `bedcov` errors and a bit mask
+  from `quickcheck`.
+  [differences.md#samtools-exit-codes](differences.md#samtools-exit-codes)
+- **No implicit FASTA indexes.** `faidx`, `samples --match-reference` and a CRAM
+  `--reference` need the `.fai` (and `.gzi`) from `gloci index ref.fa` first,
+  where samtools builds it.
+  [differences.md#fasta-implicit-index](differences.md#fasta-implicit-index)
+- **Long flags.** samtools' short flags are not copied, since `-c -n -i -s -a -b
+  -r -f` mean other things in gloci; every samtools flag maps to a long flag in
+  its row, and `-@ N` is `-t N`.
+
 ## Pitfalls
 
 - **`--max-missing` is inverted from vcftools:** In `gloci vcf filter`, `--max-missing FRAC` is the *maximum fraction of missing genotypes* (`--max-missing 0.1` allows at most 10% missing, matching `bcftools view -i 'F_MISSING<=0.1'`). In `vcftools`, `--max-missing 0.9` meant at least 90% called. Translate `vcftools --max-missing X` to `gloci vcf filter --max-missing (1 - X)`.
@@ -975,10 +1174,15 @@ there is one.
 - **`--split` is not `--split-deletions`:** on alignments, `--split` cuts a read at CIGAR `N` only (bedtools `-split`), and `--split-deletions` also cuts at `D` (bedtools `bamtobed -splitD`). `genomecov` of a BAM counts deleted bases by default, unlike `bedtools genomecov -ibam`: bedtools `-ibam -split` is `--split-deletions`, and `-split -ignoreD` is `--split`.
 - **Unmapped reads are skipped by interval commands and kept by record commands:** `intersect`, `coverage`, `genomecov` and `convert` skip unmapped reads (flag `0x4`, placed or not; counted at `-v`), even with `intersect --mode none` (bedtools `-v` writes them). `view`, `sort`, `sort -m` and `cat` keep every record. Filters default to nothing (`--min-mapq`, `--require-flags`, `--exclude-flags`); for `samtools depth` or mosdepth semantics pass `--exclude-flags 0x704`.
 - **`--reference` is for CRAM only, and BED B files must follow the BAM's order:** a BAM or SAM never needs it (and `--reference` with no CRAM input warns). Alignments are sorted in the header's `@SQ` order, which beats `--chrom-order`: sort a B BED with `gloci sort b.bed -g x.bam`, or pass `--sort` (which also sorts BAM, CRAM and SAM inputs, bounded by `--max-mem`).
-- **Eight commands read alignments:** `intersect`, `coverage`, `genomecov`, `convert`, `view`, `index`, `sort` and `cat` (`cat` is BAM only). Every other command exits 2 on a BAM, CRAM or SAM and names the eight; convert to BED first with `gloci convert x.bam`. Interval commands never build an index: `gloci index x.bam` or `--write-index` first, else regions and `-t` runs scan the file. FASTA needs `gloci index ref.fa` before `getfasta`, `nuc` or a CRAM `--reference` (never built implicitly; `maskfasta` streams and needs none).
+- **Sixteen commands read alignments:** `intersect`, `coverage`, `genomecov`, `convert`, `view`, `index`, `sort`, `cat` (BAM only), `idxstats`, `flagstat`, `check`, `reheader` (BAM or CRAM), `head`, `samples`, `depth` and `bedcov`. Every other command exits 2 on a BAM, CRAM or SAM and names them; convert to BED first with `gloci convert x.bam`. Interval commands never build an index: `gloci index x.bam` or `--write-index` first, else regions and `-t` runs scan the file. FASTA needs `gloci index ref.fa` before `getfasta`, `nuc`, `faidx` or a CRAM `--reference` (never built implicitly; `maskfasta` streams and needs none).
 - **`gloci merge` is not `samtools merge`:** `gloci merge` merges overlapping intervals and refuses alignment files, pointing at `gloci sort -m`, which merges already-sorted BAM, SAM or CRAM files as `samtools merge -c -p` does (`-n`/`-N` for name order; `@SQ` lists must be identical and a conflicting `@RG` is an error). Join BAMs without re-sorting with `gloci cat`.
 - **`sort -n` is by read name and `windows -n` is a window count:** `gloci sort -n x.bam` sorts alignments by natural read name (`-N` by byte order), as `samtools sort -n`/`-N`; `gloci windows -n 10` cuts each interval into 10 windows. `sort -m` is merge, not memory: the memory budget is `--max-mem` (a total, where `samtools sort -m` is per thread). `sort` writes the input's format (SAM for SAM, BAM for BAM and CRAM), where samtools always writes BAM; pass `-O bam`.
 - **BEDPE is never detected:** `pair-intersect` and `pair-pair` read A (and B for `pair-pair`) as BEDPE whatever it looks like, and `gloci shuffle` treats BEDPE as opt-in: pass `--format bedpe`, or the file is shuffled as BED. Make pairs from alignments with `gloci convert x.bam --bedpe` on a name-sorted BAM (`gloci sort -n`).
 - **`vcf compare` matches by alleles unless `--match position`:** the default pairs records at one CHROM and POS that share an ALT allele after trimming; `--match position` pairs by POS and REF as vcftools `--diff` does, so pass it when reproducing vcftools. It is genotype concordance only: vcftools `--diff-site` and `--diff-indv` are `gloci intersect` / `gloci subtract --match alleles` and the `#CHROM` line.
 - **`sample` is not `samples`:** `gloci sample FILE -n N --seed S` draws a random subset of records (bedtools `sample`); `gloci samples` (samtools `samples`, planned for P3c) is a different command. `--seed` reproduces gloci's own output at any `-t`, never bedtools' for the same seed.
 - **`--mode` has no `-m` short flag (and defaults to `any`):** `gloci intersect` defaults to `--mode any` (unique A records with a hit, like `bedtools intersect -u`), not coordinate clipping (`--mode clip`). Always spell `--mode` in full (`--mode any|none|pairs|clip|count`); `-m` is only `gloci sort -m` for merging pre-sorted files.
+- **`depth` and `bedcov` exclude unmapped, secondary, QC-fail and duplicate reads by default:** unlike `coverage` and `genomecov`, which filter nothing, their `--exclude-flags` defaults to `UNMAP,SECONDARY,QCFAIL,DUP` as in samtools; `--exclude-flags 0` counts everything but unmapped reads, and samtools `-g DUP` is `--exclude-flags UNMAP,SECONDARY,QCFAIL`.
+- **`check --quick --list-failed`, not `-v`:** `gloci check --quick --list-failed FILE...` prints only the failing paths (samtools `quickcheck -v`; gloci's `-v` is verbose logging). Any failing file exits 1, not samtools' bit mask; `-u` is `--unaligned` (no `@SQ` needed).
+- **`view --count`, not `-c`:** `gloci view --count x.bam [REGION...]` is `samtools view -c` (`-c` is `COL:OP` in gloci); a read is counted once however many regions it overlaps, and `--regions-file` (samtools `-L`) combines with positional regions as a union.
+- **`bedcov --split --split-deletions` is samtools `-j`:** by default `bedcov` counts `D` and `N` bases like `depth`; pass both flags to drop them. `--read-count` is `-c`, `--bases-at-depth N` is `-d`, and each BAM or CRAM needs an index.
+- **`faidx` needs `gloci index ref.fa` first:** gloci never builds the `.fai` (or `.gzi`) implicitly, so `gloci faidx ref.fa chr1:1-100` on an unindexed FASTA exits 2 naming `gloci index ref.fa`; `-r FILE` is `xargs gloci faidx ref.fa < list` or `--regions-file BED`.

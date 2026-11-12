@@ -14,9 +14,14 @@
 ///   numbers are equal within a relative tolerance of 1e-5 (absolute when
 ///   both are below 1e-9); any other field must match exactly.
 /// - `sam`: SAM text; the `@PG` header lines are ignored.
+/// - `vcf`: VCF text, header included; only the lines each tool stamps with its command
+///   (`##glociCommand=`, `##bcftools_*Version=`, `##bcftools_*Command=`) are ignored.
 /// - `bam` (D118): both are BAM files. They are decompressed, and then the
 ///   header text without its `@PG` lines, the reference list and the record
 ///   bytes must be identical; the BGZF block layout and level do not matter.
+/// - `cram` (D141): both are CRAM files with embedded or no references. They are decoded through
+///   `open_aln_source`; the header text without its `@PG` lines, the references and the
+///   records (as BAM bytes) must be equal. The container layout and codecs do not matter.
 pub fn compare(mode: &str, a: &[u8], b: &[u8]) -> bool {
     match mode {
         "exact" => a == b,
@@ -33,7 +38,27 @@ pub fn compare(mode: &str, a: &[u8], b: &[u8]) -> bool {
             };
             keep(a) == keep(b)
         }
+        "vcf" => {
+            let stamp = |l: &[u8]| {
+                l.starts_with(b"##glociCommand=")
+                    || (l.starts_with(b"##bcftools_")
+                        && l.splitn(2, |&c| c == b'=')
+                            .next()
+                            .is_some_and(|k| k.ends_with(b"Version") || k.ends_with(b"Command")))
+            };
+            let keep = |x: &[u8]| -> Vec<Vec<u8>> {
+                x.split(|&c| c == b'\n')
+                    .filter(|l| !stamp(l))
+                    .map(<[u8]>::to_vec)
+                    .collect()
+            };
+            keep(a) == keep(b)
+        }
         "bam" => match (bam_parts(a), bam_parts(b)) {
+            (Some(x), Some(y)) => x == y,
+            _ => false,
+        },
+        "cram" => match (cram_parts(a), cram_parts(b)) {
             (Some(x), Some(y)) => x == y,
             _ => false,
         },
@@ -146,6 +171,52 @@ fn bam_parts(bgzf: &[u8]) -> Option<BamParts> {
         i += 4 + size;
     }
     Some((header, refs, records))
+}
+
+/// A CRAM file with the `@PG` lines and the encoding taken out: (header text, references as
+/// name and length, each record's BAM bytes with its length). `None` when it does not decode
+/// (a reference that is needed but not embedded included).
+type CramParts = (Vec<u8>, Vec<(Vec<u8>, u64)>, Vec<u8>);
+
+fn cram_parts(cram: &[u8]) -> Option<CramParts> {
+    use gloci_io::{AlignOptions, open_aln_source_from};
+    let opts = gloci_io::ReaderOptions {
+        threads: std::num::NonZeroUsize::MIN,
+        format: Some(gloci_io::Format::Cram),
+        vcf_span: gloci_core::VcfSpan::Allele,
+        invalid: gloci_io::InvalidPolicy::Fail,
+        chrom_map: None,
+        accept: gloci_io::Accept {
+            alignments: Some(AlignOptions {
+                full_records: true,
+                ..AlignOptions::default()
+            }),
+            ..gloci_io::Accept::default()
+        },
+    };
+    let mut src =
+        open_aln_source_from("cram", Box::new(std::io::Cursor::new(cram.to_vec())), &opts).ok()?;
+    let header = src.header().clone();
+    let mut text = Vec::new();
+    for line in header.text.split_inclusive(|&c| c == b'\n') {
+        if !line.starts_with(b"@PG\t") {
+            text.extend_from_slice(line);
+        }
+    }
+    let mut records = Vec::new();
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        match src.next_record(&mut buf) {
+            Ok(Some(_)) => {
+                records.extend_from_slice(&(buf.len() as u64).to_le_bytes());
+                records.extend_from_slice(&buf);
+            }
+            Ok(None) => break,
+            Err(_) => return None,
+        }
+    }
+    Some((text, header.refs.clone(), records))
 }
 
 fn numeric_equal(a: &[u8], b: &[u8]) -> bool {
@@ -335,6 +406,62 @@ mod tests {
         // A truncated record fails framing, even compared with itself.
         let cut = truncated(&a, 3);
         assert!(!compare("bam", &cut, &cut));
+    }
+
+    const FLAGS_CRAM: &[u8] = include_bytes!("../../../xtask/diff/inputs/aln/flags.embed.cram");
+    const CIGARS_CRAM: &[u8] = include_bytes!("../../../xtask/diff/inputs/aln/cigars.embed.cram");
+
+    /// `cram` with its header container replaced by one holding `text`.
+    fn with_header(cram: &[u8], text: &[u8]) -> Vec<u8> {
+        let path = std::env::temp_dir().join(format!(
+            "gloci-cram-compare-{}-{}.cram",
+            std::process::id(),
+            cram.len()
+        ));
+        std::fs::write(&path, cram).unwrap();
+        let p = gloci_io::read_cram_prelude(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        let mut out = cram[..26].to_vec();
+        gloci_io::write_cram_header_container(text, &mut out).unwrap();
+        out.extend_from_slice(&cram[p.data_start as usize..]);
+        out
+    }
+
+    fn header_text(cram: &[u8]) -> Vec<u8> {
+        let path = std::env::temp_dir().join(format!(
+            "gloci-cram-header-{}-{}.cram",
+            std::process::id(),
+            cram.len()
+        ));
+        std::fs::write(&path, cram).unwrap();
+        let p = gloci_io::read_cram_prelude(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        let mut t = p.header_text;
+        if t.last() != Some(&b'\n') {
+            t.push(b'\n');
+        }
+        t
+    }
+
+    #[test]
+    fn compare_cram_ignores_pg_and_container_layout() {
+        let text = header_text(FLAGS_CRAM);
+        assert!(compare("cram", FLAGS_CRAM, FLAGS_CRAM));
+        // The header text is the same but for @PG lines: equal, though the bytes differ.
+        let mut pg = text.clone();
+        pg.extend_from_slice(b"@PG\tID:other\tPN:other\n");
+        let b = with_header(FLAGS_CRAM, &pg);
+        assert_ne!(b, FLAGS_CRAM);
+        assert!(compare("cram", FLAGS_CRAM, &b));
+        // Any other header line counts.
+        let mut co = text.clone();
+        co.extend_from_slice(b"@CO\textra\n");
+        assert!(!compare("cram", FLAGS_CRAM, &with_header(FLAGS_CRAM, &co)));
+        // Same header, other records.
+        let other = with_header(CIGARS_CRAM, &text);
+        assert!(!compare("cram", FLAGS_CRAM, &other));
+        // Not a CRAM file.
+        assert!(!compare("cram", FLAGS_CRAM, b"not a cram"));
     }
 
     #[test]

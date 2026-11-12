@@ -38,6 +38,42 @@ impl Loaded {
         }
     }
 
+    /// The per-reference record counts of a BAI or CSI, for `n_ref` references (P3c Task 2).
+    /// `None` for a TBI.
+    fn alignment_counts(&self, n_ref: usize) -> Option<AlnIndexCounts> {
+        fn counts<I: BinIndexKind>(
+            refs: &[ReferenceSequence<I>],
+            n_ref: usize,
+        ) -> Vec<Option<RefCounts>> {
+            (0..n_ref)
+                .map(|rid| match refs.get(rid) {
+                    Some(r) => match r.metadata() {
+                        Some(m) => Some(RefCounts {
+                            mapped: m.mapped_record_count(),
+                            unmapped: m.unmapped_record_count(),
+                        }),
+                        None if r.bins().is_empty() => Some(RefCounts::default()),
+                        None => None,
+                    },
+                    // A reference the index does not list has no reads.
+                    None => Some(RefCounts::default()),
+                })
+                .collect()
+        }
+        let (per_ref, unplaced) = match self {
+            Loaded::Bai(i) => (
+                counts(i.reference_sequences(), n_ref),
+                i.unplaced_unmapped_record_count(),
+            ),
+            Loaded::Csi(i) => (
+                counts(i.reference_sequences(), n_ref),
+                i.unplaced_unmapped_record_count(),
+            ),
+            Loaded::Tbi(_) => return None,
+        };
+        Some(AlnIndexCounts { per_ref, unplaced })
+    }
+
     /// Load the index of the data file `data`, after checking its structure against the data
     /// file's size and, when it is known, the number of references its header lists.
     fn read(info: &IndexInfo, data: &Path, n_ref: Option<usize>) -> Result<Loaded, IoError> {
@@ -623,6 +659,62 @@ struct IndexedAlnSource {
     batch: RecordBatch,
 }
 
+/// Region queries of one indexed BAM or CRAM, one after another. A BAM keeps one open file for
+/// every query and seeks to each query's chunks, instead of opening the file again; a CRAM opens
+/// a source per query. Each query yields exactly what [`IndexedFile::aln_regions_source`] would:
+/// its own record numbers and its own diagnostics.
+pub struct AlnRegionCursor<'f> {
+    file: &'f IndexedFile,
+    bam: Option<IndexedAlnSource>,
+    other: Option<Box<dyn AlnSource>>,
+}
+
+impl AlnRegionCursor<'_> {
+    /// The records that overlap `regions`, as [`IndexedFile::aln_regions_source`] gives them.
+    /// The source is valid until the next query.
+    pub fn query(
+        &mut self,
+        regions: &[(Vec<u8>, Interval)],
+        inclusive_points: bool,
+    ) -> Result<&mut dyn AlnSource, IoError> {
+        let f = self.file;
+        let (index, by_new_name) = match &f.backend {
+            Backend::Binned { index, by_new_name } => (index, by_new_name),
+            Backend::Cram(_) => {
+                let src = self
+                    .other
+                    .insert(f.aln_regions_source(regions, inclusive_points)?);
+                return Ok(src.as_mut());
+            }
+        };
+        let s = match self.bam.take() {
+            Some(mut s) => {
+                // The open file moves to the new query's reader; the rest starts afresh.
+                let open = s.reader.src;
+                s.reader =
+                    f.region_reader_on(open, index, by_new_name, regions, inclusive_points, true)?;
+                s.chroms = ChromTable::first_appearance();
+                s.batch.clear();
+                s
+            }
+            None => {
+                let Header::Alignment(aln) = &f.header else {
+                    return Err(IoError::Internal(
+                        "an alignment source needs a BAM file".into(),
+                    ));
+                };
+                IndexedAlnSource {
+                    aln: aln.clone(),
+                    reader: f.region_reader(index, by_new_name, regions, inclusive_points, true)?,
+                    chroms: ChromTable::first_appearance(),
+                    batch: RecordBatch::default(),
+                }
+            }
+        };
+        Ok(self.bam.insert(s))
+    }
+}
+
 impl AlnSource for IndexedAlnSource {
     fn name(&self) -> &str {
         &self.reader.name
@@ -825,6 +917,24 @@ pub fn index_non_empty_reference_names(
         .collect())
 }
 
+/// The reads an index counts for one reference.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RefCounts {
+    pub mapped: u64,
+    pub unmapped: u64,
+}
+
+/// What a BAI or CSI says about the records of a BAM (D127).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AlnIndexCounts {
+    /// One entry per header reference. `None` marks a reference with bins but no metadata
+    /// pseudo-bin; a reference with no bins is `Some(0, 0)`.
+    pub per_ref: Vec<Option<RefCounts>>,
+    /// The reads with no reference (`n_no_coor`); `None` when the index lacks the trailing
+    /// count, which makes its counts unusable (D127).
+    pub unplaced: Option<u64>,
+}
+
 /// An indexed BGZF file whose header and index are loaded once, from which
 /// whole-chromosome readers are made cheaply (per-chromosome parallelism,
 /// D41). The readers share the index.
@@ -999,6 +1109,21 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
         if let Backend::Cram(c) = &mut self.backend {
             c.defer_warnings();
         }
+    }
+
+    /// The per-reference counts of the index, for a BAM through a BAI or CSI (D127). `None`
+    /// for anything else: a CRAM's `.crai` holds no counts, and a TBI is not a BAM's index.
+    pub fn alignment_counts(&self) -> Option<AlnIndexCounts> {
+        let Backend::Binned { index, .. } = &self.backend else {
+            return None;
+        };
+        let Header::Alignment(aln) = &self.header else {
+            return None;
+        };
+        if self.format != Format::Bam {
+            return None;
+        }
+        index.alignment_counts(aln.refs.len())
     }
 
     /// The reads with no place the index counts (BAM): the unmapped reads at the end of a
@@ -1217,6 +1342,25 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
         inclusive_points: bool,
         all: bool,
     ) -> Result<RegionReader, IoError> {
+        let file = File::open(&self.path).map_err(|source| IoError::Open {
+            path: self.name.clone(),
+            source,
+        })?;
+        let src = noodles_bgzf::io::Reader::new(BufReader::new(file));
+        self.region_reader_on(src, index, by_new_name, regions, inclusive_points, all)
+    }
+
+    /// [`IndexedFile::region_reader`] over `src`, this file already open, wherever it stands:
+    /// the reader seeks to each chunk it reads.
+    fn region_reader_on(
+        &self,
+        src: noodles_bgzf::io::Reader<BufReader<File>>,
+        index: &Arc<Loaded>,
+        by_new_name: &HashMap<Vec<u8>, usize>,
+        regions: &[(Vec<u8>, Interval)],
+        inclusive_points: bool,
+        all: bool,
+    ) -> Result<RegionReader, IoError> {
         log::debug!(
             "reading {} through its index {} for {} region(s)",
             self.name,
@@ -1244,10 +1388,6 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
         // emitted. References without records yield nothing; their place is
         // irrelevant.
         plans.sort_by_key(|p| index.first_offset(p.rid).unwrap_or(VirtualPosition::MAX));
-        let file = File::open(&self.path).map_err(|source| IoError::Open {
-            path: self.name.clone(),
-            source,
-        })?;
         Ok(RegionReader {
             name: self.name.clone(),
             format: self.format,
@@ -1255,7 +1395,7 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
             diag: Diagnostics::default(),
             policy: self.opts.invalid,
             inclusive: inclusive_points,
-            src: noodles_bgzf::io::Reader::new(BufReader::new(file)),
+            src,
             renamer: text_renamer(self.format, &self.opts),
             parser: self.parser(all)?,
             index: index.clone(),
@@ -1274,6 +1414,16 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
         })
     }
 
+    /// Region queries of this BAM or CRAM, one after another, through one cursor (bedcov asks
+    /// one per BED line): see [`AlnRegionCursor`].
+    pub fn aln_region_cursor(&self) -> AlnRegionCursor<'_> {
+        AlnRegionCursor {
+            file: self,
+            bam: None,
+            other: None,
+        }
+    }
+
     /// Every record on `chroms`, chromosome by chromosome in the order
     /// given, each chromosome's records in file order. There is no footprint
     /// test, so zero-length records at position 0 are read too. Chromosomes
@@ -1283,6 +1433,63 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
             Backend::Cram(c) => return Ok(Box::new(c.chromosomes_reader(chroms))),
             Backend::Binned { index, by_new_name } => (index, by_new_name),
         };
+        Ok(Box::new(self.chromosomes_region_reader(
+            index,
+            by_new_name,
+            chroms,
+            false,
+        )?))
+    }
+
+    /// Every record on `chroms` of a BAM file as every-record [`AlnSource`] reads them (placed
+    /// unmapped reads included, D116), chromosome by chromosome in the order given, each
+    /// chromosome's records in file order. As [`chromosomes_reader`], it reads whole
+    /// chromosomes, so an invalid record is named as a streaming read names it (its number in
+    /// the chromosome and in the file), whatever the chunking. The read filters apply.
+    ///
+    /// [`chromosomes_reader`]: IndexedFile::chromosomes_reader
+    pub fn aln_chromosomes_source(
+        &self,
+        chroms: &[Vec<u8>],
+    ) -> Result<Box<dyn AlnSource>, IoError> {
+        let (index, by_new_name) = match &self.backend {
+            Backend::Cram(c) => {
+                let regions: Vec<(Vec<u8>, Interval)> = chroms
+                    .iter()
+                    .map(|c| {
+                        (
+                            c.clone(),
+                            Interval {
+                                start: 0,
+                                end: u64::MAX,
+                            },
+                        )
+                    })
+                    .collect();
+                return Ok(c.aln_regions_source(&regions, true));
+            }
+            Backend::Binned { index, by_new_name } => (index, by_new_name),
+        };
+        let Header::Alignment(aln) = &self.header else {
+            return Err(IoError::Internal(
+                "an alignment source needs a BAM file".into(),
+            ));
+        };
+        Ok(Box::new(IndexedAlnSource {
+            aln: aln.clone(),
+            reader: self.chromosomes_region_reader(index, by_new_name, chroms, true)?,
+            chroms: ChromTable::first_appearance(),
+            batch: RecordBatch::default(),
+        }))
+    }
+
+    fn chromosomes_region_reader(
+        &self,
+        index: &Arc<Loaded>,
+        by_new_name: &HashMap<Vec<u8>, usize>,
+        chroms: &[Vec<u8>],
+        all: bool,
+    ) -> Result<RegionReader, IoError> {
         let max_pos = index.max_position();
         let plans: Vec<Plan> = chroms
             .iter()
@@ -1304,7 +1511,7 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
             path: self.name.clone(),
             source,
         })?;
-        Ok(Box::new(RegionReader {
+        Ok(RegionReader {
             name: self.name.clone(),
             format: self.format,
             header: self.header.clone(),
@@ -1313,7 +1520,7 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
             inclusive: true,
             src: noodles_bgzf::io::Reader::new(BufReader::new(file)),
             renamer: text_renamer(self.format, &self.opts),
-            parser: self.parser(false)?,
+            parser: self.parser(all)?,
             index: index.clone(),
             plans,
             whole: true,
@@ -1327,6 +1534,6 @@ convert it to BED first: gloci convert {name} -o x.bed.gz",
             emitted: 0,
             seen: 0,
             seen_last: None,
-        }))
+        })
     }
 }

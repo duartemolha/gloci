@@ -42,8 +42,15 @@ pub struct FastaStream {
 }
 
 impl FastaStream {
-    /// Open `path` (`-` is standard input). The format must be FASTA.
+    /// Open `path` (`-` is standard input). The format must be FASTA; any other is refused
+    /// with a hint for a command that reads the reference of intervals.
     pub fn open(path: &str, threads: NonZeroUsize) -> Result<Self, IoError> {
+        FastaStream::open_as(path, threads, "pass the FASTA file the intervals refer to")
+    }
+
+    /// [`FastaStream::open`], where a file that is not FASTA is refused as `{path} is {format},
+    /// not FASTA; {hint}` ([`IoError::wrong_format`], exit 2).
+    pub fn open_as(path: &str, threads: NonZeroUsize, hint: &str) -> Result<Self, IoError> {
         let mut input = open_input(
             path,
             &InputOptions {
@@ -65,14 +72,11 @@ impl FastaStream {
             if empty {
                 return Err(IoError::empty_input(&input.name));
             }
-            return Err(IoError::Detect {
-                path: input.name.clone(),
-                msg: format!(
-                    "{} is {}, not FASTA; pass the FASTA file the intervals refer to",
-                    input.name,
-                    input.format.name()
-                ),
-            });
+            return Err(IoError::wrong_format(format!(
+                "{} is {}, not FASTA; {hint}",
+                input.name,
+                input.format.name()
+            )));
         }
         Ok(FastaStream {
             name: input.name,

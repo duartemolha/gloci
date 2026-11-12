@@ -157,6 +157,24 @@ pub fn open_reader_or_alignments_from(
     dispatch(input, o).map(Opened::Records)
 }
 
+/// As [`open_reader_or_alignments_from`], or `None` when the input has no bytes after
+/// decompression (a BGZF file of its end-of-file block alone, a gzip of nothing), which content
+/// detection would call an empty BED.
+pub fn open_reader_or_alignments_from_nonempty(
+    name: &str,
+    src: Box<dyn Read + Send>,
+    o: &ReaderOptions,
+) -> Result<Option<Opened>, IoError> {
+    let mut input = open_input_from(name, src, &input_options(o))?;
+    if input.is_empty()? {
+        return Ok(None);
+    }
+    if input.format.is_alignment() && o.accept.alignments.is_some() {
+        return crate::align::source_from_input(input, o).map(|s| Some(Opened::Alignments(s)));
+    }
+    dispatch(input, o).map(|r| Some(Opened::Records(r)))
+}
+
 pub fn open_reader(path: &str, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, IoError> {
     finish_reader(path, dispatch(open_input(path, &input_options(o))?, o)?)
 }

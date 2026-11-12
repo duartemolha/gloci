@@ -540,3 +540,118 @@ targets = ["gloci <= 0.2 * vcftools-3runs"]
 [case.commands]
 gloci = "{gloci} vcf compare -t 8 --match position --out-prefix {out} {in_a} {in_b}"
 vcftools-3runs = "vcftools --gzvcf {in_a} --gzdiff {in_b} --diff-site-discordance --out {out}.v1 && vcftools --gzvcf {in_a} --gzdiff {in_b} --diff-indv-discordance --out {out}.v2 && vcftools --gzvcf {in_a} --gzdiff {in_b} --diff-discordance-matrix --out {out}.v3"
+# P3c: samtools 1.21 is binding (gloci replaces it); mosdepth is a yardstick.
+# gloci -t N pairs with samtools -@ N-1 (its main thread also works).
+# `bam-indexed` is `bam` (every sorted BAM of a sam setup is indexed).
+[[case]]
+name = "flagstat-bam-50M"
+setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
+input = "bam"
+targets = ["gloci <= samtools", "gloci-t8 <= samtools-t8"]
+[case.commands]
+gloci = "{gloci} flagstat -t 1 {in} > {out}"
+samtools = "samtools flagstat -@ 0 {in} > {out}"
+gloci-t8 = "{gloci} flagstat -t 8 {in} > {out}"
+samtools-t8 = "samtools flagstat -@ 7 {in} > {out}"
+
+# 200,000 @SQ lines: idxstats answers from the index alone. Chromosomes have
+# at least 50 kb each (synth's minimum), so the reference is 10 Gbases.
+[[case]]
+name = "idxstats-bam-200k-sq"
+setup = "sam --records 20000000 --read-len 100 --depth 30 --chroms 200000 --spliced-frac 0.1 --seed 1"
+input = "bam-indexed"
+targets = ["gloci <= samtools"]
+[case.commands]
+gloci = "{gloci} idxstats {in} > {out}"
+samtools = "samtools idxstats {in} > {out}"
+
+[[case]]
+name = "view-count-bam-50M"
+setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
+input = "bam"
+targets = ["gloci <= samtools"]
+[case.commands]
+gloci = "{gloci} view --count -t 8 {in} > {out}"
+samtools = "samtools view -c -@ 7 {in} > {out}"
+
+# samtools depth is single-threaded (-t 1 is the binding comparison);
+# mosdepth -t 8 --fast-mode is the yardstick. --all-positions pairs with -a.
+[[case]]
+name = "depth-bam-50M"
+setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
+input = "bam"
+targets = ["gloci <= samtools", "gloci-all <= samtools-all"]
+[case.commands]
+gloci = "{gloci} depth -t 1 {in} > {out}"
+samtools = "samtools depth {in} > {out}"
+gloci-all = "{gloci} depth -t 1 --all-positions {in} > {out}"
+samtools-all = "samtools depth -a {in} > {out}"
+mosdepth = "mosdepth -t 8 --fast-mode {out}.mos {in}"
+
+# depth streams at every -t (D138): threads decode BGZF, so -t 8 must not be
+# slower than -t 1 (the per-reference chunks it replaced were).
+[[case]]
+name = "depth-bam-50M-t8"
+setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
+input = "bam"
+targets = ["gloci-t8 <= samtools", "gloci-t8 <= gloci"]
+[case.commands]
+gloci = "{gloci} depth -t 1 {in} > {out}"
+gloci-t8 = "{gloci} depth -t 8 {in} > {out}"
+samtools = "samtools depth {in} > {out}"
+
+# in_b = every 30th window of `gloci windows` over the reference, in windows
+# sized for about 10,000 targets (a 100 kb window gives 55 on this genome).
+# samtools bedcov uses the pileup engine.
+[[case]]
+name = "bedcov-bam-10k-targets"
+setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
+input = "bam-indexed"
+in_b = "windows"
+targets = ["gloci <= 0.5 * samtools"]
+[case.commands]
+gloci = "{gloci} bedcov -t 1 {in_b} {in} > {out}"
+samtools = "samtools bedcov {in_b} {in} > {out}"
+
+# An exome-like target list: 200,000 regions of 100 bp. Each worker keeps one
+# reader per input and seeks it per region (final fix wave M16).
+[[case]]
+name = "bedcov-bam-200k-exome"
+setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
+input = "bam-indexed"
+in_b = "exome"
+targets = ["gloci <= samtools"]
+[case.commands]
+gloci = "{gloci} bedcov -t 1 {in_b} {in} > {out}"
+samtools = "samtools bedcov {in_b} {in} > {out}"
+
+# {in_b} is a BED of 10,000 intervals; samtools -r wants chr:START-END text.
+[[case]]
+name = "faidx-10k-regions"
+setup = "fasta --records 10000 --chroms 24 --chrom-len 10000000 --len-max 1000 --seed 1"
+input = "fa"
+targets = ["gloci <= samtools"]
+[case.commands]
+gloci = "{gloci} faidx --regions-file {in_b} {in} > {out}"
+samtools = "awk -v OFS= '{print $1, \":\", $2 + 1, \"-\", $3}' {in_b} > {out}.reg && samtools faidx -r {out}.reg {in} > {out}"
+
+# The same 3 Gbase FASTA as maskfasta-3G.
+[[case]]
+name = "dict-3G"
+setup = "fasta --records 1000000 --chroms 24 --chrom-len 125000000 --len-max 1000 --seed 1"
+input = "fa"
+targets = ["gloci <= samtools"]
+[case.commands]
+gloci = "{gloci} dict {in} > {out}"
+samtools = "samtools dict {in} > {out}"
+
+# The header comes from the BAM itself (a no-op rewrite of the header).
+[[case]]
+name = "reheader-bam-50M"
+setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
+input = "bam"
+targets = ["gloci <= samtools"]
+runs = 10
+[case.commands]
+gloci = "{gloci} reheader {in} {in} -o {out}"
+samtools = "samtools reheader {in} {in} > {out}"

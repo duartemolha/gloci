@@ -370,8 +370,8 @@ pub use crai::{CraiEntry, CramIndex, crai_path, find_crai, write_crai};
 #[cfg(test)]
 use query::Plan;
 pub use query::{
-    IndexedFile, file_chrom_name, index_non_empty_reference_names, index_reference_names,
-    open_region_reader,
+    AlnIndexCounts, AlnRegionCursor, IndexedFile, RefCounts, file_chrom_name,
+    index_non_empty_reference_names, index_reference_names, open_region_reader,
 };
 use tsv::TsvKind;
 pub(crate) use tsv::build_tsv_index;

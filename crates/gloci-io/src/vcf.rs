@@ -97,6 +97,25 @@ impl VcfHeader {
         out
     }
 
+    /// `text` (this header's text, with a `##glociCommand` line or without) as it is written
+    /// before VCF records: a header read from BCF loses the `IDX=n` field BCF adds to its
+    /// dictionary lines, which bcftools does not show in VCF text. Any other header is `text`.
+    pub fn as_vcf_text(&self, text: Vec<u8>) -> Vec<u8> {
+        if self.bcf.is_none() {
+            return text;
+        }
+        let mut out = Vec::with_capacity(text.len());
+        for line in text.split_inclusive(|&b| b == b'\n') {
+            let (body, nl) = match line.strip_suffix(b"\n") {
+                Some(b) => (b, &b"\n"[..]),
+                None => (line, &b""[..]),
+            };
+            push_without_idx(&mut out, body);
+            out.extend_from_slice(nl);
+        }
+        out
+    }
+
     /// `raw` with a `##glociCommand` line inserted immediately before `#CHROM`.
     pub fn with_command_line(&self, cmd: &str, version: &str) -> Vec<u8> {
         let mut out = Vec::with_capacity(self.raw.len() + cmd.len() + 40);
@@ -114,6 +133,22 @@ impl VcfHeader {
         }
         out
     }
+}
+
+/// Append the header line `line` without a final `,IDX=n` field, which BCF adds to a
+/// dictionary line.
+fn push_without_idx(out: &mut Vec<u8>, line: &[u8]) {
+    if let Some(body) = line.strip_suffix(b">") {
+        let digits = body.iter().rev().take_while(|b| b.is_ascii_digit()).count();
+        if let Some(kept) = body[..body.len() - digits].strip_suffix(b",IDX=")
+            && digits > 0
+        {
+            out.extend_from_slice(kept);
+            out.push(b'>');
+            return;
+        }
+    }
+    out.extend_from_slice(line);
 }
 
 fn parse_contig(line: &[u8], body: &[u8]) -> Result<(Vec<u8>, Option<u64>), String> {

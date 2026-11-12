@@ -4,11 +4,14 @@
 mod bam;
 mod bed;
 pub(crate) mod cram;
+mod cram_prelude;
 mod encode;
+mod flags;
 mod header;
 mod place;
 mod record;
 mod region;
+mod reheader;
 mod sam;
 mod source;
 mod writer;
@@ -17,14 +20,25 @@ pub(crate) use bam::{BamReader, bam_record_place};
 pub use bed::{AlnBed, AlnBedLayout, AlnBedOptions, AlnBlocks};
 pub(crate) use cram::CramFile;
 pub use cram::{CramReader, ReferenceCounts, read_cram_header, warn_unused_reference};
+pub use cram_prelude::{
+    CramPrelude, check_cram_version, cram_eof_present, cram_first_container, read_cram_prelude,
+};
+pub use flags::{SAM_FLAGS, flag_names, parse_flags};
 pub use header::{AlnHeader, AlnSortOrder, SortOrder};
-pub use record::{Aln, AlnRef, aln_ref, blocks, blocks_within};
+pub use record::{Aln, AlnRef, aln_ref, aln_view, blocks, blocks_within};
 pub use region::alignment_query_span;
 pub(crate) use region::{BamRegionParse, index_span};
+pub use reheader::{
+    bam_header_blocks, check_sq_compatible, check_sq_compatible_named, read_bam_file_header,
+    read_bam_header_with_extent, read_new_header, write_cram_header_container,
+};
 pub use sam::SamAln;
 pub(crate) use sam::SamReader;
 pub(crate) use source::source_from_input;
-pub use source::{AlnSource, open_aln_source, open_aln_source_from};
+pub use source::{
+    AlnSource, RecordVisitor, open_aln_source, open_aln_source_from, open_aln_source_regions,
+    regions_source_from,
+};
 pub use writer::{SamToBam, open_alignment_writer, sam_line_to_bam};
 
 use crate::detect::Format;
@@ -92,68 +106,6 @@ pub struct Accept {
     pub convert_only: bool,
 }
 
-const FLAG_NAMES: [(&str, u16); 12] = [
-    ("PAIRED", 0x1),
-    ("PROPER_PAIR", 0x2),
-    ("UNMAP", 0x4),
-    ("MUNMAP", 0x8),
-    ("REVERSE", 0x10),
-    ("MREVERSE", 0x20),
-    ("READ1", 0x40),
-    ("READ2", 0x80),
-    ("SECONDARY", 0x100),
-    ("QCFAIL", 0x200),
-    ("DUP", 0x400),
-    ("SUPPLEMENTARY", 0x800),
-];
-
-/// Parse a SAM flag set: a decimal or `0x` hexadecimal number, or comma-separated
-/// names (`PAIRED`, `UNMAP`, `DUP`, ...), as `samtools view -f/-F` take.
-pub fn parse_flags(s: &str) -> Result<u16, String> {
-    let t = s.trim();
-    let names = || {
-        FLAG_NAMES
-            .iter()
-            .map(|(n, _)| *n)
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
-    if t.is_empty() {
-        return Err(format!(
-            "empty flag value; give a number such as 0x704 or names such as secondary,dup \
-(names: {})",
-            names()
-        ));
-    }
-    let number = if let Some(h) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
-        Some(u32::from_str_radix(h, 16))
-    } else if t.bytes().all(|b| b.is_ascii_digit()) {
-        Some(t.parse::<u32>())
-    } else {
-        None
-    };
-    if let Some(n) = number {
-        return n
-            .ok()
-            .and_then(|n| u16::try_from(n).ok())
-            .ok_or_else(|| format!("flag value '{t}' is not a number from 0 to 65535"));
-    }
-    let mut out = 0u16;
-    for part in t.split(',') {
-        let p = part.trim();
-        match FLAG_NAMES.iter().find(|(n, _)| n.eq_ignore_ascii_case(p)) {
-            Some((_, v)) => out |= v,
-            None => {
-                return Err(format!(
-                    "unknown flag name '{p}'; use a number or names from: {}",
-                    names()
-                ));
-            }
-        }
-    }
-    Ok(out)
-}
-
 fn gate_error(kind: GateKind, msg: String) -> IoError {
     IoError::Gate { kind, msg }
 }
@@ -178,7 +130,8 @@ shuffle --format bedpe read; to treat its first end as a BED interval, pass --fo
             GateKind::NoAlignments,
             format!(
                 "{name} is {}; this command does not read alignments (intersect, coverage, \
-genomecov, convert, view, index, sort, cat and stats jaccard, fisher and reldist do); convert it to BED first: \
+genomecov, convert, view, index, sort, cat, idxstats, flagstat, check, reheader, head, \
+samples, depth, bedcov and stats jaccard, fisher and reldist do); convert it to BED first: \
 gloci convert {name} -o x.bed",
                 format.name()
             ),
@@ -188,9 +141,9 @@ gloci convert {name} -o x.bed",
         return Err(gate_error(
             GateKind::Sequence,
             format!(
-                "{name} is FASTA, which is sequence, not intervals; only getfasta, maskfasta or \
-nuc read it, as the reference for the intervals in a BED, GFF or VCF file, and -g ref.fa \
-reads its .fai for the chromosome sizes (create it with: gloci index {name})"
+                "{name} is FASTA, which is sequence, not intervals; only getfasta, maskfasta, \
+nuc, faidx or dict read it, as the reference for the intervals in a BED, GFF or VCF file, and \
+-g ref.fa reads its .fai for the chromosome sizes (create it with: gloci index {name})"
             ),
         ));
     }

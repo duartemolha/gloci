@@ -1,0 +1,1 @@
+faidx ref.fa --line-width 7 chr1:5-70 chrM:1-20

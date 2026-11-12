@@ -1,0 +1,4 @@
+#LB	PATH
+libC	input.bam
+libB	input.bam
+libA	input.bam

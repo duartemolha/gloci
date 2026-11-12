@@ -38,7 +38,7 @@ mod reference;
 
 pub(crate) use decode::ExtentDecoder;
 pub(crate) use file::CramFile;
-pub(crate) use frame::{CramFrames, RawContainer, slice_heads};
+pub(crate) use frame::{CRAM_EOF, CramFrames, RawContainer, slice_heads, unread_version};
 pub(crate) use reference::CramInfo;
 
 use super::AlignOptions;
@@ -53,7 +53,7 @@ use crate::input::{Input, is_regular_file};
 use crate::pool::Ordered;
 use crate::record::{Header, ReaderOptions, RecordBatch, RecordReader};
 use decode::Decoder;
-use frame::{CRAM_EOF, CramHead, detect_err, read_head, take_into, truncated};
+use frame::{CramHead, detect_err, read_head, take_into, truncated};
 use gloci_core::ChromTable;
 pub use reference::ReferenceCounts;
 use reference::{Counters, RefCache};

@@ -104,6 +104,7 @@ impl VcfSelect {
             chrom_order: ChromOrder::Karyotype,
             assume_sorted: false,
             unordered: false,
+            count: false,
         }
     }
 }

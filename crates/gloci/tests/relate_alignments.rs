@@ -402,6 +402,49 @@ fn sort_flag_equals_gloci_sort_then_command() {
 }
 
 #[test]
+fn sort_flag_with_another_genome_order_never_claims_coordinate() {
+    // A coordinate-sorted BAM (its header says SO:coordinate) sorted by --sort under a -g
+    // table that reverses the references: the records follow the table, so the output says
+    // SO:unsorted, and gloci check passes it.
+    let dir = tempdir();
+    let tmp = dir.path().to_string_lossy().into_owned();
+    let u = bam_of(dir.path(), "u.bam", UNSORTED_TIES);
+    let sorted = dir.path().join("s.bam").to_string_lossy().into_owned();
+    gloci().args(["sort", &u, "-o", &sorted]).assert().success();
+    let hd = |f: &str| {
+        run(&["head", f, "--headers", "1", "--records", "0"])
+            .lines()
+            .next()
+            .unwrap()
+            .to_string()
+    };
+    assert!(hd(&sorted).contains("SO:coordinate"));
+    let g = write(dir.path(), "rev.genome", "chr1\t1000\nchr2\t1000\n");
+    let bed = write(dir.path(), "g.bed", "chr1\t0\t1000\nchr2\t0\t1000\n");
+    for out in ["i.bam", "i.sam"] {
+        let out = dir.path().join(out).to_string_lossy().into_owned();
+        gloci()
+            .args(["intersect", "-a", &sorted, "-b", &bed, "-g", &g, "--sort"])
+            .args(["--tmp-dir", &tmp, "-o", &out])
+            .assert()
+            .success();
+        let h = hd(&out);
+        assert!(
+            h.contains("SO:unsorted") && !h.contains("coordinate"),
+            "{h}"
+        );
+        let o = gloci().args(["check", &out]).output().unwrap();
+        assert_eq!(
+            o.status.code(),
+            Some(0),
+            "{}{}",
+            String::from_utf8_lossy(&o.stdout),
+            String::from_utf8_lossy(&o.stderr)
+        );
+    }
+}
+
+#[test]
 fn slim_b_records() {
     use gloci_io::{Accept, AlignOptions, InvalidPolicy, ReaderOptions, RecordBatch, open_reader};
     let dir = tempdir();

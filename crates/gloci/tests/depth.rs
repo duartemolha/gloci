@@ -1,0 +1,520 @@
+//! `gloci depth` (D137, D138): rows, filters, regions, several inputs, threads, errors.
+mod common;
+use common::*;
+use predicates::prelude::PredicateBooleanExt;
+use predicates::str::contains;
+use std::path::PathBuf;
+
+fn dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../xtask/diff/inputs/samtools")
+}
+
+fn f(name: &str) -> String {
+    dir().join(name).display().to_string()
+}
+
+fn out(args: &[&str]) -> String {
+    let o = gloci()
+        .arg("depth")
+        .args(args)
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    String::from_utf8(o.stdout).unwrap()
+}
+
+#[test]
+fn depth_rows_of_a_small_file() {
+    let t = tempdir();
+    let sam = plain_file(
+        t.path(),
+        "a.sam",
+        "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:c1\tLN:20\n@SQ\tSN:c2\tLN:5\n\
+r1\t0\tc1\t3\t60\t3M2D2M\t*\t0\t0\tACGTA\tIIIII\n\
+r2\t0\tc1\t4\t60\t4M\t*\t0\t0\tACGT\tIIII\n",
+    );
+    let p = sam.display().to_string();
+    assert_eq!(
+        out(&[&p]),
+        "c1\t3\t1\nc1\t4\t2\nc1\t5\t2\nc1\t6\t1\nc1\t7\t1\nc1\t8\t1\nc1\t9\t1\n"
+    );
+    assert_eq!(
+        out(&[&p, "--count-deletions"]),
+        "c1\t3\t1\nc1\t4\t2\nc1\t5\t2\nc1\t6\t2\nc1\t7\t2\nc1\t8\t1\nc1\t9\t1\n"
+    );
+    // -a: all of c1 (it has reads), none of c2; -aa: c2 too.
+    let all = out(&[&p, "--all-positions"]);
+    assert_eq!(all.lines().count(), 20);
+    assert!(all.starts_with("c1\t1\t0\nc1\t2\t0\nc1\t3\t1\n"));
+    assert!(all.ends_with("c1\t20\t0\n"));
+    let aa = out(&[&p, "--all-references"]);
+    assert_eq!(aa.lines().count(), 25);
+    assert!(aa.ends_with("c2\t5\t0\n"));
+    // --column-names
+    let named = out(&[&p, "--column-names", &p]);
+    assert!(named.starts_with(&format!("#CHROM\tPOS\t{p}\t{p}\nc1\t3\t1\t1\n")));
+}
+
+#[test]
+fn depth_exclude_flags_default_is_samtools_and_zero_turns_it_off() {
+    let f1 = f("depth.bam");
+    let base = out(&[&f1]);
+    // The placed unmapped read at chr1:175, a duplicate (200), a secondary (210) and a QC-fail
+    // read (220) are not counted by default; the supplementary read at 230 is.
+    for p in [175, 200, 210, 220] {
+        assert!(!base.contains(&format!("chr1\t{p}\t")), "{p}");
+    }
+    assert!(base.contains("chr1\t230\t1\n"));
+    let none = out(&[&f1, "--exclude-flags", "0"]);
+    assert!(
+        none.contains("chr1\t175\t0\n"),
+        "a placed unmapped read prints 0"
+    );
+    for p in [200, 210, 220] {
+        assert!(none.contains(&format!("chr1\t{p}\t1\n")), "{p}");
+    }
+    let same = out(&[&f1, "--exclude-flags", "unmap,secondary,qcfail,dup"]);
+    assert_eq!(same, base);
+    let sup = out(&[
+        &f1,
+        "--exclude-flags",
+        "UNMAP,SECONDARY,QCFAIL,DUP,SUPPLEMENTARY",
+    ]);
+    assert!(!sup.contains("chr1\t230\t"));
+    gloci().args(["depth", "--help"]).assert().success().stdout(
+        contains("default UNMAP,SECONDARY,QCFAIL,DUP").or(contains("UNMAP,SECONDARY,QCFAIL,DUP")),
+    );
+}
+
+#[test]
+fn depth_filters() {
+    let f1 = f("depth.bam");
+    // MAPQ 29 and 30 reads at 15 and 16: -Q 30 drops only the 29.
+    let q = out(&[&f1, "--min-mapq", "30"]);
+    assert!(q.contains("chr1\t16\t2\n") && q.contains("chr1\t24\t2\n"));
+    assert!(out(&[&f1]).contains("chr1\t16\t3\n"));
+    // -l 50: the 49-base read goes, the 50-base one stays, the clipped 30-base one goes.
+    let l = out(&[&f1, "--min-read-length", "50"]);
+    assert!(!l.contains("chr1\t300\t"));
+    assert!(l.contains("chr1\t335\t1\n"));
+    assert!(out(&[&f1, "--min-read-length", "49"]).contains("chr1\t340\t2\n"));
+    assert!(!l.contains("chr1\t385\t"));
+    // --require-flags: only the proper pair at 250 and 255.
+    let r = out(&[&f1, "--require-flags", "PROPER_PAIR"]);
+    assert_eq!(r.lines().next().unwrap(), "chr1\t250\t1");
+    assert_eq!(r.lines().count(), 25);
+}
+
+#[test]
+fn depth_regions_through_the_index_and_by_scanning() {
+    let bam = f("depth.bam");
+    let want = out(&[&bam, "--region", "chr1:100-200"]);
+    assert!(want.lines().count() > 0);
+    // The SAM is scanned, with a warning, and gives the same rows.
+    gloci()
+        .args(["depth", &f("depth.sam"), "--region", "chr1:100-200"])
+        .assert()
+        .success()
+        .stderr(contains("scanning the whole file"))
+        .stdout(want.clone());
+    // A regions file, and the union of regions with a point in two of them once.
+    let bed = f("targets.bed");
+    let a = out(&[&bam, "--regions-file", &bed]);
+    let b = out(&[
+        &bam,
+        "--region",
+        "chr1:6-30",
+        "--region",
+        "chr1:21-45",
+        "--region",
+        "chr1:96-130",
+        "--region",
+        "chr1:171-180",
+        "--region",
+        "chr1:461-480",
+        "--region",
+        "chr3:11-20",
+    ]);
+    assert_eq!(a, b);
+    // With -a, every position of the regions: chr3 has no read.
+    let c = out(&[&bam, "--regions-file", &bed, "--all-positions"]);
+    assert!(c.contains("chr3\t11\t0\n") && c.contains("chr3\t20\t0\n"));
+    assert_eq!(c.lines().filter(|l| l.starts_with("chr3\t")).count(), 10);
+    // A region on a reference the file lacks is dropped with a warning.
+    gloci()
+        .args([
+            "depth",
+            &bam,
+            "--region",
+            "chrZ:1-10",
+            "--region",
+            "chr1:10-12",
+        ])
+        .assert()
+        .success()
+        .stderr(contains("chrZ"))
+        .stdout("chr1\t10\t1\nchr1\t11\t1\nchr1\t12\t1\n");
+    // Each input is opened once, so regions work on stdin and on a pipe: scanned, as a file
+    // without an index is, with the same rows.
+    let bam_bytes = std::fs::read(&bam).unwrap();
+    for t in ["1", "4"] {
+        let o = gloci()
+            .args(["depth", "-", "--regions-file", &bed, "-t", t])
+            .write_stdin(bam_bytes.clone())
+            .assert()
+            .success()
+            .get_output()
+            .clone();
+        assert_eq!(String::from_utf8(o.stdout).unwrap(), a, "stdin -t {t}");
+        let o = bash_gloci(
+            &format!("depth <(cat '{bam}') '{bam}' --region chr1:100-200 -t {t}"),
+            "",
+        );
+        let err = String::from_utf8_lossy(&o.stderr);
+        assert_eq!(o.status.code(), Some(0), "pipe -t {t}: {err}");
+        // The pipe is scanned; no index is suggested for it (M4).
+        assert!(err.contains("scanning the whole file /dev/fd/"), "{err}");
+        assert_eq!(err.matches("gloci index").count(), 0, "{err}");
+        let two: String = want
+            .lines()
+            .map(|l| format!("{l}\t{}\n", l.rsplit('\t').next().unwrap()))
+            .collect();
+        assert_eq!(String::from_utf8_lossy(&o.stdout), two, "pipe -t {t}");
+    }
+}
+
+#[test]
+fn depth_past_the_end_of_a_reference_warns_once() {
+    let o = gloci()
+        .args(["depth", &f("depth-pastend.bam")])
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let err = String::from_utf8(o.stderr).unwrap();
+    assert_eq!(
+        err.matches("past the end of its reference").count(),
+        1,
+        "{err}"
+    );
+    assert!(err.contains("chr2") && err.contains("LN 300"));
+    let rows = String::from_utf8(o.stdout).unwrap();
+    assert!(rows.contains("chr2\t300\t2\n") && !rows.contains("chr2\t301\t"));
+}
+
+#[test]
+fn depth_inputs_must_agree_and_be_sorted() {
+    gloci()
+        .args(["depth", &f("depth-reordered.bam"), &f("depth.bam")])
+        .assert()
+        .code(1)
+        .stderr(contains("@SQ 1"))
+        .stdout("");
+    gloci()
+        .args(["depth", &f("depth-unsorted.bam")])
+        .assert()
+        .code(1)
+        .stderr(contains("gloci sort"));
+    gloci()
+        .args(["depth", &f("depth-unsorted.sam")])
+        .assert()
+        .code(1)
+        .stderr(contains("gloci sort"));
+    gloci().args(["depth"]).assert().code(2);
+    gloci()
+        .args(["depth", &f("depth.bam"), "--exclude-flags", "bogus"])
+        .assert()
+        .code(2)
+        .stderr(contains("--exclude-flags"));
+}
+
+#[test]
+fn depth_threads_give_identical_output() {
+    let bam = f("depth.bam");
+    let bed = f("targets.bed");
+    for extra in [
+        vec![],
+        vec!["--all-references"],
+        vec!["--all-positions", "--regions-file", bed.as_str()],
+        vec!["--count-deletions", "--min-baseq", "20"],
+    ] {
+        let run = |t: &str| {
+            let mut args = vec![bam.as_str(), "-t", t];
+            args.extend(extra.iter().copied());
+            out(&args)
+        };
+        let one = run("1");
+        assert_eq!(run("2"), one, "{extra:?}");
+        assert_eq!(run("8"), one, "{extra:?}");
+    }
+    // Two inputs, one of them in another format.
+    let two = |t: &str| out(&[&bam, &f("depth2.bam"), "-t", t, "--all-references"]);
+    assert_eq!(two("1"), two("4"));
+}
+
+/// depth streams at every -t (D138): it never spills, so it takes no --tmp-dir, and its help
+/// does not promise parallel runs of references (N2).
+#[test]
+fn depth_has_no_tmp_dir_and_its_help_says_it_streams() {
+    gloci()
+        .args(["depth", &f("depth.bam"), "--tmp-dir", "."])
+        .assert()
+        .code(2)
+        .stderr(contains("--tmp-dir"));
+    let help = gloci().args(["depth", "--help"]).assert().success();
+    let help = String::from_utf8(help.get_output().stdout.clone()).unwrap();
+    assert!(!help.contains("in parallel"), "{help}");
+    let flat = help.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(flat.contains("read as one stream at every -t"), "{help}");
+}
+
+#[test]
+fn depth_reads_sam_cram_and_stdin_alike() {
+    let bam = out(&[&f("depth.bam")]);
+    assert_eq!(out(&[&f("depth.sam")]), bam);
+    // The CRAM was written without a reference.
+    assert_eq!(out(&[&f("depth.cram")]), bam);
+    // -t 4 decodes the CRAM with more threads: the same rows as the BAM, whatever -a.
+    for extra in [vec![], vec!["--all-positions"], vec!["--all-references"]] {
+        let run = |file: &str, t: &str| {
+            let mut args = vec![file, "-t", t];
+            args.extend(extra.iter().copied());
+            out(&args)
+        };
+        let want = run(&f("depth.bam"), "1");
+        assert_eq!(run(&f("depth.cram"), "1"), want, "{extra:?}");
+        assert_eq!(run(&f("depth.cram"), "4"), want, "{extra:?}");
+    }
+    let o = gloci()
+        .args(["depth", "-"])
+        .write_stdin(std::fs::read(f("depth.sam")).unwrap())
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    assert_eq!(String::from_utf8(o.stdout).unwrap(), bam);
+}
+
+#[test]
+fn depth_writes_a_file_with_o() {
+    let t = tempdir();
+    let p = t.path().join("d.tsv");
+    gloci()
+        .args(["depth", &f("depth.bam"), "-o"])
+        .arg(&p)
+        .assert()
+        .success()
+        .stdout("");
+    assert_eq!(
+        std::fs::read_to_string(&p).unwrap(),
+        out(&[&f("depth.bam")])
+    );
+}
+
+#[test]
+fn depth_noseq_reads_use_their_cigar_for_the_length() {
+    // SEQ * : -l counts the bases the CIGAR puts in the read (n1 50M kept, n2 49M dropped).
+    let o = out(&[&f("depth-noseq.bam"), "--min-read-length", "50"]);
+    assert!(o.contains("chr1\t400\t1\n"));
+    assert!(!o.contains("chr1\t445\t2\n"));
+    assert!(out(&[&f("depth-noseq.bam"), "--min-read-length", "49"]).contains("chr1\t445\t2\n"));
+    // Every base of such a read passes -q.
+    // (samtools' answer there is undefined: differences.md#depth-seq-star-baseq).
+    let q = out(&[&f("depth-noseq.bam"), "--min-baseq", "40"]);
+    for p in 400..=439 {
+        assert!(q.contains(&format!("chr1\t{p}\t1\n")), "{p}");
+    }
+}
+
+/// One BAM record (without `block_size`): `len` M bases at `pos` (0-based) on `rid`, with
+/// `l_seq` bases of sequence; `l_seq != len` makes the record invalid.
+fn bam_record(rid: i32, pos: i32, name: &str, len: u32, l_seq: u32) -> Vec<u8> {
+    let mut r = Vec::new();
+    r.extend_from_slice(&rid.to_le_bytes());
+    r.extend_from_slice(&pos.to_le_bytes());
+    r.push(name.len() as u8 + 1);
+    r.push(60);
+    r.extend_from_slice(&0u16.to_le_bytes()); // bin
+    r.extend_from_slice(&1u16.to_le_bytes()); // n_cigar
+    r.extend_from_slice(&0u16.to_le_bytes()); // flag
+    r.extend_from_slice(&l_seq.to_le_bytes());
+    r.extend_from_slice(&(-1i32).to_le_bytes());
+    r.extend_from_slice(&(-1i32).to_le_bytes());
+    r.extend_from_slice(&0i32.to_le_bytes());
+    r.extend_from_slice(name.as_bytes());
+    r.push(0);
+    r.extend_from_slice(&(len << 4).to_le_bytes());
+    r.extend(std::iter::repeat_n(0x11u8, l_seq.div_ceil(2) as usize));
+    r.extend(std::iter::repeat_n(30u8, l_seq as usize));
+    r
+}
+
+/// Two references; chr1 and chr2 each hold a read whose CIGAR covers 6 bases of a 5-base
+/// sequence when `bad` (invalid), among good ones. The two files have the same layout, so the
+/// index of the good one serves the bad one.
+fn write_bam(dir: &std::path::Path, name: &str, bad: bool) -> PathBuf {
+    let mut raw = b"BAM\x01".to_vec();
+    raw.extend_from_slice(&0i32.to_le_bytes());
+    raw.extend_from_slice(&2i32.to_le_bytes());
+    for name in ["chr1", "chr2"] {
+        raw.extend_from_slice(&5i32.to_le_bytes());
+        raw.extend_from_slice(name.as_bytes());
+        raw.push(0);
+        raw.extend_from_slice(&100i32.to_le_bytes());
+    }
+    let len = if bad { 6 } else { 5 };
+    for rec in [
+        bam_record(0, 4, "a", 5, 5),
+        bam_record(0, 9, "bad1", len, 5),
+        bam_record(0, 19, "c", 5, 5),
+        bam_record(1, 4, "d", 5, 5),
+        bam_record(1, 9, "bad2", len, 5),
+    ] {
+        raw.extend_from_slice(&(rec.len() as i32).to_le_bytes());
+        raw.extend_from_slice(&rec);
+    }
+    gloci_testkit::fixtures::write(dir, name, &gloci_testkit::fixtures::bgzip(&raw))
+}
+
+fn bad_bam(dir: &std::path::Path) -> PathBuf {
+    let good = write_bam(dir, "good.bam", false);
+    gloci().args(["index"]).arg(&good).assert().success();
+    let bad = write_bam(dir, "bad.bam", true);
+    let bai = |p: &PathBuf| PathBuf::from(format!("{}.bai", p.display()));
+    std::fs::copy(bai(&good), bai(&bad)).unwrap();
+    bad
+}
+
+#[test]
+fn depth_diagnostics_do_not_depend_on_threads() {
+    let t = tempdir();
+    let bam = bad_bam(t.path());
+    let run = |t: &str, v: bool, region: bool| {
+        let mut c = gloci();
+        c.args(["depth", "--skip-invalid", "-t", t]).arg(&bam);
+        if v {
+            c.arg("-v");
+        }
+        if region {
+            c.args(["--region", "chr1", "--region", "chr2"]);
+        }
+        let o = c.assert().success().get_output().clone();
+        let err = String::from_utf8(o.stderr).unwrap();
+        (String::from_utf8(o.stdout).unwrap(), err)
+    };
+    for (v, region) in [(false, false), (true, false), (false, true), (true, true)] {
+        let (o1, e1) = run("1", v, region);
+        assert!(e1.contains("skipped 2 invalid records"), "{e1}");
+        // Whole references name a bad record as a stream does; regions name it by offset.
+        assert!(
+            e1.contains(if region {
+                "BGZF offset"
+            } else {
+                "record 2 of chr1"
+            }),
+            "{e1}"
+        );
+        for tt in ["2", "4"] {
+            let (o, e) = run(tt, v, region);
+            assert_eq!(o, o1);
+            assert_eq!(e, e1, "-t {tt} -v {v} region {region}");
+        }
+    }
+}
+
+/// chr1 and chr2 (LN 100 each): many reads on chr1 and a last one that ends past its end, and a
+/// read on chr2 that ends past its end first thing; with an index older than the file.
+fn pastend_stale_bam(dir: &std::path::Path) -> PathBuf {
+    let mut raw = b"BAM\x01".to_vec();
+    raw.extend_from_slice(&0i32.to_le_bytes());
+    raw.extend_from_slice(&2i32.to_le_bytes());
+    for name in ["chr1", "chr2"] {
+        raw.extend_from_slice(&5i32.to_le_bytes());
+        raw.extend_from_slice(name.as_bytes());
+        raw.push(0);
+        raw.extend_from_slice(&100i32.to_le_bytes());
+    }
+    let mut recs: Vec<Vec<u8>> = (0..20_000)
+        .map(|k: i32| bam_record(0, k / 250, &format!("r{k}"), 10, 10))
+        .collect();
+    recs.push(bam_record(0, 95, "past1", 10, 10));
+    recs.push(bam_record(1, 95, "past2", 10, 10));
+    for rec in recs {
+        raw.extend_from_slice(&(rec.len() as i32).to_le_bytes());
+        raw.extend_from_slice(&rec);
+    }
+    let bam = gloci_testkit::fixtures::write(dir, "pe.bam", &gloci_testkit::fixtures::bgzip(&raw));
+    gloci().args(["index"]).arg(&bam).assert().success();
+    let bai = PathBuf::from(format!("{}.bai", bam.display()));
+    std::fs::File::options()
+        .write(true)
+        .open(&bai)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(3600))
+        .unwrap();
+    bam
+}
+
+/// depth streams at every `-t` (D138): the past-`LN` warning names the first reference in file
+/// order, once, and a stale index used for regions is warned about once, whatever the threads.
+#[test]
+fn depth_past_ln_and_stale_index_warnings_do_not_depend_on_threads() {
+    let t = tempdir();
+    let bam = pastend_stale_bam(t.path());
+    let bam = bam.display().to_string();
+    for region in [false, true] {
+        let run = |t: &str| {
+            let mut c = gloci();
+            c.args(["depth", &bam, "-t", t]);
+            if region {
+                c.args(["--region", "chr2", "--region", "chr1"]);
+            }
+            let o = c.assert().success().get_output().clone();
+            (
+                String::from_utf8(o.stdout).unwrap(),
+                String::from_utf8(o.stderr).unwrap(),
+            )
+        };
+        let (o1, e1) = run("1");
+        assert_eq!(
+            e1.matches("past the end of its reference").count(),
+            1,
+            "{e1}"
+        );
+        assert!(e1.contains("chr1 has LN 100"), "{e1}");
+        assert_eq!(
+            e1.matches("is older than").count(),
+            usize::from(region),
+            "{e1}"
+        );
+        for tt in ["2", "4", "8"] {
+            for _ in 0..3 {
+                let (o, e) = run(tt);
+                assert_eq!(o, o1, "-t {tt} region {region}");
+                assert_eq!(e, e1, "-t {tt} region {region}");
+            }
+        }
+    }
+}
+
+/// A `--regions-file` whose path is not UTF-8 is not dropped silently (M14): it is read as
+/// view reads one, and here fails to open, by name.
+#[cfg(unix)]
+#[test]
+fn depth_non_utf8_regions_file_is_not_ignored() {
+    use std::os::unix::ffi::OsStrExt;
+    let t = tempdir();
+    let name = std::ffi::OsStr::from_bytes(b"r\xff.bed");
+    let p = t.path().join(name);
+    std::fs::write(&p, "chr1\t99\t200\n").unwrap();
+    gloci()
+        .arg("depth")
+        .arg(f("depth.bam"))
+        .arg("--regions-file")
+        .arg(&p)
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr(contains("cannot open").and(contains("r\u{FFFD}.bed")));
+}

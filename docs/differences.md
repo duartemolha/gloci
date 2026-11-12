@@ -2327,9 +2327,14 @@ cases (must match).
   - a name-tokeniser block that claims more names than its bytes or than the slice's
     records;
   - the Golomb, Subexp and Golomb-Rice encodings, which htslib never writes (rewrite the
-    file with `samtools view -C`).
+    file with `samtools view -C`);
+  - CRAM 2.0 and 2.1 files: every command, including those that read only the header
+    (`reheader`, `head`, `samples`, `check --quick`), says "x.cram is CRAM 2.1, which gloci
+    does not read; it reads CRAM 3.0 and 3.1; rewrite it with: samtools view -C -T ref.fa
+    --output-fmt-option version=3.0 -o x3.cram x.cram" (pinned by the test
+    `cram_2x_is_refused_by_name_and_version`).
 - **Old behaviour:** samtools decodes a read however far past the end it runs, and reads the
-  other encodings.
+  other encodings and CRAM 2.x.
 - **Remaining risk:** gloci checks every container, block and slice header (each has a
   CRC32 checksum, so random corruption is always an error), the values above where a data
   series has a block of its own or a constant code (as htslib writes them), and the decoded
@@ -2464,3 +2469,423 @@ cases (must match).
 - **Pinned by:** `vcf-compare-half-missing-vs-vcftools` (must differ) and
   `compare_half_missing_genotypes_are_missing` in `crates/gloci/tests/vcf_compare.rs` (gloci's
   three files, and vcftools' counts from the committed `half.diff.*`, which has no matrix).
+## A FASTA without an index is an error, never built on the fly {#fasta-implicit-index}
+
+- **gloci:** every command that reads a FASTA at random (`faidx`, `getfasta`,
+  `nuc`, a CRAM `--reference`) exits 2 when the `.fai` (or, for BGZF, the
+  `.gzi`) is missing, and the message names the fix: `gloci index REF`.
+  `gloci faidx REF` with no region exits 2 the same way.
+- **Old behaviour:** `samtools faidx REF` builds a missing `.fai` itself, with
+  or without a region, and so does any samtools command given a FASTA
+  reference.
+- **Reason:** an index written as a side effect of a read can be stale for the
+  next run, can land in a read-only directory (and fail there), and is a
+  file the user never asked for. Building it is one explicit step.
+- **Pinned by:** `faidx-no-index-vs-samtools` (exit status: must differ) and
+  `samples-fasta-no-fai-vs-samtools` (`gloci samples --match-reference ref.fa` with no
+  `ref.fa.fai` exits 2; samtools builds the index and exits 0).
+
+## `faidx` skips a missing sequence without writing its header {#faidx-missing-sequence}
+
+- **gloci:** an unknown sequence name is a data error (exit 1) before any
+  output, naming the region, as `samtools faidx` also exits 1. With
+  `--skip-invalid`, regions on unknown sequences are skipped entirely, with
+  one warning that counts them, and the rest are written.
+- **Old behaviour:** `samtools faidx -c` writes the `>` line of the region it
+  could not read, with no bases, then goes on. Without `-c` it exits 1 after
+  writing that header.
+- **Reason:** a header with no sequence reads as an empty sequence in the
+  output; skipping the region leaves a FASTA that holds only what exists.
+- **Pinned by:** `faidx-missing-sequence-continue-vs-samtools` (output must
+  differ); `faidx-missing-sequence-exit-vs-samtools` pins the agreeing exit 1.
+
+## `faidx` is strict about region syntax, where samtools guesses {#faidx-region-syntax}
+
+- **gloci:** a region is parsed under gloci's region rules (D8): a 1-based
+  start of at least 1, well-formed comma groups, plain digits, and an
+  unambiguous name. One that does not parse exits 2 before any output.
+  `chr:-END` is accepted as `chr:1-END`, as htslib does, but `chr:-0` is not.
+  A region whose end is before its start (`chr1:5-4`) is a header with no
+  bases and exit 0, like a start past the end. A coordinate beyond 2^64 is an
+  error ("too large").
+- **Old behaviour:** `samtools faidx` guesses:
+  - `chr1:0`, `chr1:`, `chr1:+5`, `chr1: 5`, `chr1:,5`, `chr1:1e3` and `chr1:-0`
+    return real sequence and exit 0 (the whole sequence for `chr1:0`, `chr1:`
+    and `chr1:-0`; from 5 for `chr1:+5`, `chr1: 5` and `chr1:,5`; position 1000
+    for `chr1:1e3`), and `chr1:1,0` reads as 10;
+  - `chr1:0-5` writes the header with no bases and exits 0 (a "Zero length
+    sequence" message);
+  - `chr1:5-1`, `chr1:5-4` and `chr1:abc` write the header and exit 1;
+  - when a contig is literally named `ctgA:5` and another is `ctgA`, the region
+    `ctgA:5` (or `ctgA:5-9`) writes the header and exits 1, where gloci exits 2
+    and asks for `{ctgA}:5` or `{ctgA:5}`;
+  - `chr1:1-99999999999999999999` is clamped to the end of the sequence.
+- **Reason:** a typo such as `chr1:0-5`, `chr1:1,0` or `chr1:+5` quietly gives
+  the wrong bases or an empty record; an error that shows the region is
+  safer. The `{name}` form removes every ambiguity.
+- **Pinned by:** `faidx-region-syntax-vs-samtools` (`chr1:0-5`) and
+  `faidx-region-ambiguous-vs-samtools` (exit status: must differ);
+  `faidx-region-braces-vs-samtools` pins the `{name}` forms, which agree.
+
+## `faidx --regions-file` reads BED {#faidx-regions-file}
+
+- **gloci:** `--regions-file FILE` reads BED lines (0-based, half-open), as in
+  every gloci command that takes regions. A region prints as
+  `chrom:START-END` with a 1-based start; a zero-length line is skipped with
+  one warning that counts them.
+- **Old behaviour:** `samtools faidx -r FILE` reads one `chr:START-END` text
+  region per line. Given a BED file it treats each whole line as a sequence
+  name and exits 1.
+- **Reason:** one regions-file format across commands. Text regions are
+  positional arguments, or `--region`.
+- **Pinned by:** `faidx-regions-file-text-vs-samtools` (exit status: must
+  differ); `faidx-regions-file-vs-samtools` pins identical output for the same
+  regions written as BED and as text.
+
+## `dict` refuses a repeated sequence name {#dict-duplicate-names}
+
+- **gloci:** `gloci dict` exits 1 when two sequences share a name (the first
+  word of the header), naming both lines, and writes no dictionary to `-o FILE`.
+- **Old behaviour:** `samtools dict` writes an `@SQ` line for each and exits 0.
+- **Reason:** a dictionary with two `SN:a` lines is rejected or misread by the
+  tools that take it as `-g`, and the duplicate is nearly always a mistake worth
+  catching where the dictionary is made. Rename one of the sequences.
+- **Pinned by:** `dict-duplicate-names-vs-samtools` (exit status: must differ).
+
+## `dict` of an empty file, or of text that does not start with `>`, is an error {#dict-empty-input}
+
+- **gloci:** a zero-byte file exits 1 saying it is empty and has no records
+  (`X is empty: it has no records`, the message every gloci command gives for
+  empty input), and a file
+  whose first line is not a `>` header exits 1 saying the format is not
+  recognised, as every gloci command that reads a FASTA does.
+- **Old behaviour:** `samtools dict` writes the `@HD` line for an empty file and
+  exits 0; for a file with sequence lines before the first header it ignores
+  them and writes the dictionary of the records that follow.
+- **Reason:** both are nearly always a failed upstream step or the wrong file;
+  an empty or partial dictionary would hide it.
+- **Pinned by:** `dict-empty-file-vs-samtools` and
+  `dict-text-before-header-vs-samtools` (exit status: must differ).
+
+## Exit codes follow gloci's, not samtools' {#samtools-exit-codes}
+
+- **gloci:** every command exits 0 on success, 1 for a data or runtime error
+  (and for a failed check), and 2 for a usage error: an unknown flag name, a
+  bad option value, a missing argument, or a file of a format the command does
+  not read (a BED given to `idxstats`, `cat` or `reheader`, a BAM given to
+  `merge` or `dict`, a BGZF VCF given to `cat`). A file whose format cannot be
+  told (a gzip that is not BGZF, given to `cat` or `reheader`, may be a damaged
+  BAM) is a data error.
+- **Old behaviour:** samtools exits 1 for a usage error (it prints its usage
+  text and exits 1, as `samtools flags bogus` does), 2 for an error in
+  `bedcov`, and from `quickcheck` a bit mask (2 for a file that cannot be
+  opened, 4 for a file that is not sequence data, 8 for a header with no
+  `@SQ` line and 16 for a missing end-of-file block, among others, summed when
+  several apply).
+- **Reason:** one meaning per code across every gloci command, so that a
+  pipeline can tell a mistake in the command line from a bad file without
+  reading the message. `check --quick` exits 1 for any failing file, and with
+  `--list-failed` writes only the failing paths to stdout and the problems to
+  stderr.
+- **Pinned by:** `flags-bad-name-vs-samtools`,
+  `check-quick-noeof-exit-vs-samtools` and `check-quick-nosq-exit-vs-samtools` (exit
+  status: must differ).
+
+## `flags` refuses a leading zero and trailing text {#flags-leading-zero}
+
+- **gloci:** a FLAGS argument written in decimal with a leading zero (`010`)
+  exits 2, and the message says samtools reads it as octal 8 and what to write
+  instead (`8` or `0x8`). `00` to `07`, which mean the same in octal and
+  decimal, are read as samtools reads them. Trailing text (`12abc`) exits 2 as
+  well. This applies to every option that takes FLAGS (`--require-flags`,
+  `--exclude-flags`), as well as to `gloci flags`.
+- **Old behaviour:** `samtools flags 010` prints `0x8 8 MUNMAP`, because C's
+  `strtol` with base 0 reads a leading zero as octal; `samtools flags 12abc`
+  prints the line for 12 and ignores `abc`.
+- **Reason:** `010` is written to mean ten far more often than eight, and a
+  flag set that silently means something else filters the wrong reads. Write
+  `0x8` or `8` for eight, and `10` for ten.
+- **Pinned by:** `flags-octal-vs-samtools` (exit status: must differ),
+  `flags-leading-zero-same-value-vs-samtools` (must match), and the tests
+  `parse_flags_samtools_rules` and `flags_usage_errors_exit_2_and_print_nothing`.
+
+## `idxstats` counts a file whose references are not grouped {#idxstats-unsorted}
+
+- **gloci:** the scan behind `idxstats` (a BAM without an index, a SAM, a CRAM) counts every
+  record under its own reference, in whatever order the references come, and exits 0.
+- **Old behaviour:** `samtools idxstats` falls back to its scan when there is no index, and
+  stops with `file is not position sorted` (exit 1) at the first record whose reference id is
+  lower than the one before it, printing no counts.
+- **Reason:** the counts do not depend on the order, so refusing the file costs the user a
+  sort they do not need. A file with a `.bai` is always in order, and the counts come from
+  the index.
+- **Pinned by:** `idxstats-unsorted-vs-samtools` (exit status: must differ), and the test
+  `idxstats_unsorted_scan`.
+
+## `idxstats` scans when the index lacks a reference's counts {#idxstats-index-without-counts}
+
+- **gloci:** a BAI or CSI holds per-reference counts in a metadata pseudo-bin. When a
+  reference has bins but no pseudo-bin, `idxstats` warns once, counts every record and prints
+  the true counts. An index that lacks the trailing count of unplaced reads (`n_no_coor`) is
+  treated the same way, so the `*` line is never a silent zero.
+- **Old behaviour:** htslib reports `0` mapped and `0` unmapped for such a reference, so
+  `samtools idxstats` prints zeros for reads that are there.
+- **Reason:** a silently wrong count is worse than a slow one. Indexes written by `gloci
+  index` and `samtools index` always hold the pseudo-bins.
+- **Pinned by:** `idxstats-index-without-counts-vs-samtools` (output: must differ), and the
+  test `idxstats_index_without_counts`.
+
+## `idxstats` of a CRAM needs `--reference` when the file does {#cram-counts-need-reference}
+
+- **gloci:** `idxstats` (and `flagstat`, `head`, `view`, `depth` and `bedcov`) decode every
+  record of a CRAM, so a CRAM whose containers need reference bases needs `--reference`; with
+  none it exits 1 and says what to pass (D109).
+- **Old behaviour:** samtools decodes only the fields `idxstats`, `flagstat` and `view -c`
+  need, so it reads such a file with no reference at all.
+- **Reason:** gloci has one CRAM decoder, which checks every record it reads. The cost is
+  one flag, and the check that the file decodes at all.
+- **Pinned by:** `idxstats-cram-no-reference-vs-samtools`,
+  `flagstat-cram-no-reference-vs-samtools` and `view-count-cram-no-reference-vs-samtools`
+  (exit status: must differ), and the tests
+  `idxstats_cram` and `flagstat_cram_equals_bam`.
+
+## `check --quick` is stricter and wider than `samtools quickcheck` {#quickcheck}
+
+- **gloci:** `gloci check --quick` checks the header, the first record and the end-of-file
+  marker of any format `check` reads.
+  - A file whose first record does not parse fails: a BAM whose first `block_size` is 20, a
+    CRAM whose first container is cut short or corrupt.
+  - A VCF, a BCF or a BGZF BED that is whole passes.
+  - A file or stdin with no bytes at all fails ("is empty: it has no records"), whatever its
+    name. The full `check` of such a file says "an empty BED, OK", as content detection reads it.
+  - The exit status is 1 for any failing file, and `--list-failed` prints the failing paths
+    (samtools `-v`).
+- **Old behaviour:** `samtools quickcheck` never reads a record, so a BAM with a good header
+  and end-of-file block and a corrupt first record passes. It rejects every file that is not
+  sequence data (a VCF, a BCF, a BED) as "not a sequence file".
+- **Reason:** `quickcheck` is used to screen files before a pipeline starts; a first record that
+  cannot be read stops the pipeline just as well, and `check --quick` is one command for the
+  alignment, variant and interval files a genomics team keeps side by side. The cost stays the
+  header, the first record and the last 28 bytes of a BGZF file; for a CRAM, the header, the first
+  container and the last 38 bytes.
+- **Pinned by:** `check-quick-badfirst-vs-samtools` and `check-quick-vcf-vs-samtools` (exit
+  status: must differ), and the tests `quick_check_matrix` and `quick_reads_little`.
+
+## `samples` lists samples in header order, where samtools uses hash order {#samples-order}
+
+- **gloci:** `gloci samples` prints the distinct values of the tag (`SM` by default) in the
+  order the `@RG` lines first name them, for every file, so the output is the same on every
+  platform and version.
+- **Old behaviour:** `samtools samples` keeps the values in a hash table and prints them in its
+  iteration order, which has nothing to do with the header and can change with the htslib
+  version. For `rg.bam` (header order NA12878, NA12891, HG002) it prints HG002, NA12878,
+  NA12891.
+- **Reason:** a list in the header's order reads like the header, and a script that takes the
+  first line gets the first read group's sample. The lines are the same set; sort them to
+  compare with samtools.
+- **Pinned by:** `samples-order-vs-samtools` (output must differ);
+  `samples-vs-samtools` pins the agreeing set.
+
+## `head` writes the `@SQ` lines of a BAM whose header text has none {#head-notext-header}
+
+- **gloci:** `gloci head` on a BAM whose header text is empty but whose binary header lists
+  references prints one `@SQ SN LN` line per reference, as `samtools view -h` and
+  `gloci view` do.
+- **Old behaviour:** `samtools head` prints the stored text, which is empty: nothing at all,
+  although `samtools view -H` of the same file prints the `@SQ` lines.
+- **Reason:** the references are the part of such a header that matters, and the other
+  commands show them; an empty answer reads as a file with no header.
+- **Pinned by:** `head-notext-vs-samtools` (output must differ).
+
+## `head` of a VCF prints the header as stored, without bcftools' PASS line {#head-vcf-pass-line}
+
+- **gloci:** `gloci head` prints the header lines of a VCF or BCF exactly as the file has
+  them, so a header with no `##FILTER=<ID=PASS,...>` line prints without one.
+- **Old behaviour:** `bcftools head` parses the header and writes it back, and htslib adds
+  `##FILTER=<ID=PASS,Description="All filters passed">` (as the second line, after
+  `##fileformat`) when the header lacks it.
+- **Reason:** `head` shows the file as stored, as it does for every format; a line the file
+  does not contain would be misleading when a header is being inspected for what is missing.
+- **Pinned by:** `head-vcf-nopass-vs-bcftools` (output must differ);
+  `head-vcf-vs-bcftools`, `head-vcf-gz-vs-bcftools` and `head-bcf-vs-bcftools` pin the agreeing
+  output for headers that have the line.
+
+## `depth` cuts a read at the end of its reference {#depth-past-reference-end}
+
+- **gloci:** a read that runs past the end of its reference (`LN` in `@SQ`) is
+  counted only up to `LN`, and one warning says so. No row is written past `LN`,
+  and a read that starts at or past `LN` writes nothing.
+- **Old behaviour:** `samtools depth` writes rows for positions past `LN`, one
+  for each base the read covers there (`chr2 301 2` for a reference of length
+  300).
+- **Reason:** a position past the end of a reference does not exist; the same
+  cut applies to the spans of every other gloci command that reads alignments
+  (D101). A pipeline that wants those rows needs the reads, not a depth.
+- **`bedcov`:** the same cut applies. A read that runs past `LN` is counted
+  only up to `LN`, with one warning, and a region that starts at or past `LN`
+  counts nothing; `samtools bedcov` also counts the bases beyond `LN` that a
+  region reaches.
+- **Pinned by:** `depth-past-reference-end-vs-samtools` and
+  `bedcov-past-reference-end-vs-samtools` (each must differ).
+
+## `bedcov -d` leaves D and N bases out of both columns {#bedcov-depth-threshold}
+
+- **gloci:** `--bases-at-depth N` changes nothing about what counts. The sum
+  and the count of bases at depth N or more both use the depth that `--split`
+  and `--split-deletions` describe: D and N bases count unless the matching flag
+  is given. `samtools bedcov -j` is `--split --split-deletions`, and so is
+  `-d N -j` with `--bases-at-depth N --split --split-deletions` (those cases
+  match).
+- **Old behaviour:** `samtools bedcov -d N` without `-j` drops D and N bases
+  from the sum as well as from the count, so the sum column of a region over an
+  intron or a deletion is 0 and differs from the same command without `-d`.
+- **Reason:** a threshold should add a column, not change another one; and
+  asking for a count should not change the depth the sum reports.
+- **Pinned by:** `bedcov-depth-threshold-vs-samtools` (must differ).
+
+## `bedcov` stops at a BED line on a missing chromosome {#bedcov-bad-line}
+
+- **gloci:** a BED line whose chromosome is not in the `@SQ` list is a data
+  error: exit 1 naming the BED file and line; the lines before it are written, and none of
+  that line or after it. With `--skip-invalid` the line is skipped, every other line
+  is written, and one warning gives the count and the first line; the exit
+  status is 0.
+- **Old behaviour:** `samtools bedcov` prints an error for the line, carries on
+  with the rest and exits 2 at the end.
+- **Reason:** a region that cannot be counted is a mistake in the BED or the
+  reference (a `chr1` against `1` naming mismatch, `--chrom-map` fixes it), and
+  a table with a silently missing row misleads whoever reads it by position.
+  Exit 2 is gloci's code for usage errors, and this is a data error (§6.4).
+- **Pinned by:** `bedcov-bad-chrom-vs-samtools` (exit status: must differ), and
+  the test `bedcov_bad_chrom`.
+
+## `depth` stops at a read out of order, wherever it ends {#depth-order-check}
+
+- **gloci:** every decrease of `(reference, position)` within an input is an
+  error (exit 1) that names both records and says to run `gloci sort`.
+- **Old behaviour:** `samtools depth` notices only a read that ends before its
+  last printed row, so a read a few bases before its predecessor that ends
+  further on is counted only from where the pileup has got to (its first bases
+  have no rows), and the status is 0.
+- **Reason:** an unsorted file gives depths that depend on how far out of order
+  it is, and a pipeline gets no sign. Sorting is one command.
+- **Pinned by:** `depth-unsorted-vs-samtools` (exit status: must differ).
+
+## `depth --all-positions` with regions prints regions on every reference {#depth-regions}
+
+- **gloci:** with `--region` or `--regions-file`, `--all-positions` prints every
+  position of the regions, as `--all-references` does, whether or not a read is
+  on that reference. That is what `samtools depth -a -r REGION` and
+  `samtools depth -aa -b FILE` print.
+- **Old behaviour:** `samtools depth -a -b FILE` skips the regions on a
+  reference that has no passing read, so a region on an empty reference writes
+  nothing, where one on a reference with reads writes its zero rows.
+- **Reason:** the rows should not depend on whether some other read of the
+  reference passed a filter, and `-r` and `-b` should agree.
+- **Pinned by:** `depth-all-positions-regions-file-vs-samtools` (must differ),
+  and the test `depth_all_modes`.
+
+## `depth` and `bedcov` refuse inputs with different `@SQ` lists {#depth-bedcov-same-sq}
+
+- **gloci:** every input must have the same `@SQ` lines (names, lengths and
+  order). If not, the command exits 1 before writing anything and names the first
+  line that differs (`@SQ 1 is chr2 (LN 300) in the first and chr1 (LN 500) in
+  the second`).
+- **Old behaviour:** `samtools depth` and `samtools bedcov` compare reference ids
+  across files without checking, so files that list the same references in
+  another order are read as if their ids meant the same references, and the rows
+  carry the first file's names for the other file's depths. The status is 0.
+- **Reason:** the depths of different references in one row are wrong, and
+  nothing in the output shows it.
+- **Pinned by:** `depth-reordered-references-vs-samtools` (exit status: must
+  differ).
+
+## `depth --min-baseq` counts every base of a read with SEQ `*` {#depth-seq-star-baseq}
+
+- **gloci:** a read whose SEQ is `*` has no base qualities, so every base of it
+  passes `--min-baseq`, as a missing quality (QUAL `*`) does. A CIGAR that ends
+  in `D`, under `--count-deletions --min-baseq N`, gates those deleted bases by
+  the quality of the next query base, which does not exist: gloci uses quality
+  0, so they do not count, where samtools reads a byte past the record's
+  qualities.
+- **Old behaviour:** `samtools depth -q N` looks up the quality of each base
+  past the end of such a record, where the quality bytes would be. It reads
+  whatever follows the CIGAR in the record: the record's own aux bytes, and
+  past those stale heap memory. Some bases count and some do not, in a pattern
+  nobody chose.
+- **Reason:** an answer that depends on the memory layout cannot be matched;
+  counting the read is the only reading that does not invent a quality.
+- **Pinned by:** `depth-seq-star-min-baseq-vs-samtools` (must differ; the
+  fixture's SEQ `*` reads carry an aux array as long as their CIGAR, so the
+  bytes samtools reads are the file's own and its output is the same on every
+  run) and the cargo test
+  `depth_noseq_reads_use_their_cigar_for_the_length`, which checks gloci's side.
+
+## `depth --skip-mate-overlap` does not clip by a stale entry {#depth-mate-overlap}
+
+- **gloci:** a read is held for its mate only when the mate is on the same
+  reference and starts inside the read (`pos <= mpos <= end`). An entry is dropped
+  once a read starts after its mate position, and at each reference change. A read
+  whose mate position is unknown or behind it is never held, so it clips no one.
+  The table holds only reads whose mates are still ahead, which is proportional to
+  the depth.
+- **Old behaviour:** `samtools depth -s` also stores reads whose mate position is
+  unknown or behind them, and never drops an entry. A later alignment with the
+  same name, anywhere in the file and on any reference, is then clipped by that
+  stale end: a second supplementary alignment inside the second mate loses its
+  bases up to the first one's end, and a supplementary alignment on the next
+  reference may lose all of them. The table grows with the number of pairs.
+- **Reason:** the clip is meant to count the bases two mates share once; a stale
+  entry removes bases that no mate covers, and an unbounded table cannot run on a
+  whole genome.
+- **Pinned by:** `depth-s-stale-entry-vs-samtools` (must differ) and the cargo
+  tests `stale_entry_template_is_not_clipped` and `mate_table_bounded`. The other
+  `depth-s-*` cases leave out the supplementary alignments and are exact.
+## `reheader` refuses a new `@SQ` list that changes the references {#reheader-sq-check}
+
+- **gloci:** `gloci reheader HEADER IN` checks the new `@SQ` lines against
+  those of IN. Each old reference must keep its position in the list and its
+  `LN`; names (`SN:`) may change, and new `@SQ` lines may follow the last old
+  one. For CRAM, an `M5:` that is in both lists must be equal. Otherwise it
+  exits 1 and writes nothing, naming both lines: `@SQ 3 of new.sam (SN:chr3
+  LN:1000) does not match @SQ 3 of x.bam (SN:chr3 LN:198295559); reheader keeps
+  each read's reference by its position in the @SQ list, so change only SN: to
+  rename, or use gloci view --chrom-map`.
+- **Equal lengths:** only names may change, so a swap of references of equal `LN` (chr1 and
+  chr2 of the same length, say) passes the check: the reads keep their positions in the list
+  and so now carry the other name. The check cannot tell such a swap from a rename; use
+  `gloci view --chrom-map` when the new names must follow the reads.
+- **Old behaviour:** `samtools reheader` checks nothing. It writes the new text
+  and reference list over the old records, so a changed `LN`, a swapped order
+  or a dropped `@SQ` gives a file whose reads point at other contigs (or at
+  none), and exits 0.
+- **Reason:** a record names its reference by its position in the `@SQ` list,
+  not by name. Renaming is safe and is what reheader is for; anything else
+  silently moves reads to the wrong place. To rename safely from a table, use
+  `gloci view --chrom-map`.
+- **Pinned by:** `reheader-bad-ln-vs-samtools` and
+  `reheader-bad-order-vs-samtools` (exit status: must differ), and the test
+  `sq_compatibility_table`.
+
+## `view` writes or counts a read once, however many regions it overlaps {#view-overlapping-regions}
+
+- **gloci:** `gloci view x.bam chr1:1-150 chr1:100-200` (and `--count`) gives each read
+  that overlaps any of the regions once, in file order. This is the rule for every format
+  `view` reads.
+- **Old behaviour:** `samtools view x.bam chr1:1-150 chr1:100-200` queries the index once per
+  region and writes a read again for each region it overlaps (`-c` counts it each time).
+- **Reason:** a region list is a set of places to look, and a read that is in two of them is
+  one read. Repeating it makes a count larger than the file and a BAM with duplicate records.
+- **Pinned by:** `view-count-overlapping-regions-vs-samtools` (the counts must differ).
+
+## `view` takes positional regions and `--regions-file` as a union {#view-regions-union}
+
+- **gloci:** `gloci view x.bam chr1 --regions-file targets.bed` selects the reads that overlap
+  `chr1` or a region of `targets.bed`, as every other command does (`--region` and
+  `--regions-file` add).
+- **Old behaviour:** `samtools view -L targets.bed x.bam chr1` finds the reads of `chr1`
+  through the index and then keeps only those that overlap `targets.bed`: an intersection.
+- **Reason:** regions given in two ways mean the same thing in every gloci command. To
+  intersect, run `gloci view` twice (`gloci view x.bam chr1 | gloci view - --regions-file
+  targets.bed`).
+- **Pinned by:** `view-count-regions-union-vs-samtools` (the counts must differ).

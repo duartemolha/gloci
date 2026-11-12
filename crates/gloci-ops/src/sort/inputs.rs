@@ -248,9 +248,7 @@ or run the command on each format separately",
         version: env!("CARGO_PKG_VERSION"),
     };
     let header = match inputs[0].header() {
-        Header::Alignment(h) => {
-            coordinate_header(h, chroms).unwrap_or_else(|| inputs[0].header().clone())
-        }
+        Header::Alignment(h) => coordinate_header(h, chroms),
         h => h.clone(),
     };
     let names: Vec<&str> = inputs.iter().map(|r| r.name()).collect();
@@ -299,12 +297,15 @@ or run the command on each format separately",
 }
 
 /// The header of alignments that `--sort` sorted with `chroms`: `h` with `SO:coordinate`, as
-/// `gloci sort` leaves it, since the records come out in its order (D121). `None` when the
-/// table (from `-g`, say) orders the references unlike the header, so the order is not one
-/// `SO:coordinate` describes.
-pub(crate) fn coordinate_header(h: &AlnHeader, chroms: &ChromTable) -> Option<Header> {
-    follows_header(h, chroms)
-        .then(|| Header::Alignment(Arc::new(h.with_sort_order(AlnSortOrder::Coordinate))))
+/// `gloci sort` leaves it, since the records come out in its order (D121). When the table
+/// (from `-g`, say) orders the references unlike the header, the order is not one
+/// `SO:coordinate` describes, and the header says `SO:unsorted`, whatever it said before.
+pub(crate) fn coordinate_header(h: &AlnHeader, chroms: &ChromTable) -> Header {
+    Header::Alignment(Arc::new(if follows_header(h, chroms) {
+        h.with_sort_order(AlnSortOrder::Coordinate)
+    } else {
+        h.with_unsorted_order()
+    }))
 }
 
 /// Whether `chroms` ranks the references of `h` that it knows in the header's order.

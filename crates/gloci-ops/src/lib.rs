@@ -2,8 +2,10 @@
 
 pub mod agg;
 pub mod aln_cat;
+pub mod aln_flags;
 pub mod aln_merge;
 pub mod aln_sort;
+pub mod bedcov;
 pub mod bedsearch;
 pub mod check;
 pub mod closest;
@@ -11,9 +13,15 @@ pub mod cluster;
 pub mod complement;
 pub mod convert;
 pub mod coverage;
+pub mod depth;
+pub mod dict;
+pub mod faidx;
+pub mod flagstat;
 pub mod genomecov;
 pub mod getfasta;
 pub mod groupby;
+pub mod head;
+pub mod idxstats;
 pub mod intersect;
 pub mod map;
 pub mod maskfasta;
@@ -22,9 +30,11 @@ pub mod nuc;
 pub mod pairs;
 pub mod partition;
 pub mod random;
+pub mod reheader;
 pub mod relate;
 pub mod rng;
 pub mod sample;
+pub mod samples;
 pub mod seq;
 pub mod shift;
 pub mod shuffle;
@@ -53,13 +63,20 @@ pub use aln_merge::{
 };
 pub use aln_sort::{AlnSortOptions, check_alignments, sort_alignments};
 pub use bedsearch::{ChromBlock, find_chrom_block, find_chrom_block_mapped};
-pub use check::{CheckReport, Problems, check_file};
+pub use check::{
+    AlnSummary, CheckReport, Problems, QuickOptions, check_file, quick_check, quick_check_reader,
+};
+pub use flagstat::{FlagStats, FlagstatFormat, flagstat, percent, render_flagstat};
 pub use gloci_engine::all_indexed;
+pub use head::{HeadOptions, head};
+pub use idxstats::{IdxstatsPath, idxstats};
 pub use maskfasta::{Mask, MaskSet, MaskSummary, PastEnd, maskfasta, maskfasta_with};
+pub use reheader::reheader;
 pub use relate::{
     Acceptor, InputPaths, RelateInputs, RelateOptions, RelationFiles, ReportOutput, RunOptions,
     b_placeholder, open_report, rewrite_coords, run_relation, runs_per_chromosome,
 };
+pub use samples::{SamplesOptions, samples};
 pub use sort::{
     Dedup, MIN_MAX_MEM, Order, SortConfig, SortSettings, SortStats, Sorter, Tie, check_definitions,
     check_definitions_pair, check_samples, check_samples_pair, coordinate_key, merge_fan_in,
@@ -92,4 +109,4 @@ pub use vcf_select::{
 };
 pub use vcf_split::{SplitOptions, SplitSummary, vcf_split, vcf_split_output};
 pub use vcf_stats::{StatsOptions, StatsRequest, StatsSummary, check_request, vcf_stats};
-pub use view::{ViewOptions, open_view, read_regions_file, run_view, select_a};
+pub use view::{ViewOptions, for_each_region, open_view, read_regions_file, run_view, select_a};

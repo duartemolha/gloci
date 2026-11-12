@@ -1,0 +1,1 @@
+depth input.bam --min-mapq 30

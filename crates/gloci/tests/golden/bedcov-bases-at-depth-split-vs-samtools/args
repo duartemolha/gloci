@@ -1,0 +1,1 @@
+bedcov input.bed depth.bam --bases-at-depth 2 --split --split-deletions

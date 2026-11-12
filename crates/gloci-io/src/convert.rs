@@ -796,7 +796,7 @@ pub fn convert_variants(
         if to == OutFormat::Bcf {
             write_bcf_header(&mut out, &text).map_err(werr)?;
         } else {
-            out.write_all(&text).map_err(werr)?;
+            out.write_all(&h.as_vcf_text(text)).map_err(werr)?;
         }
     }
     let mut n = 0u64;

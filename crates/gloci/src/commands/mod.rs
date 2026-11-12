@@ -1,3 +1,4 @@
+pub mod bedcov;
 pub mod cat;
 pub mod check;
 pub mod closest;
@@ -5,11 +6,18 @@ pub mod cluster;
 pub mod complement;
 pub mod convert;
 pub mod coverage;
+pub mod depth;
+pub mod dict;
+pub mod faidx;
+pub mod flags;
+pub mod flagstat;
 pub mod flank;
 pub mod genomecov;
 pub mod genomes;
 pub mod getfasta;
 pub mod groupby;
+pub mod head;
+pub mod idxstats;
 pub mod index;
 pub mod intersect;
 pub mod map;
@@ -19,7 +27,9 @@ pub mod nuc;
 pub mod pairs;
 pub mod partition;
 pub mod random;
+pub mod reheader;
 pub mod sample;
+pub mod samples;
 pub mod shift;
 pub mod shuffle;
 pub mod slop;
@@ -255,6 +265,25 @@ pub fn run_options(ctx: &Ctx) -> RunOptions {
         threads: ctx.threads,
         tmp_dir: ctx.tmp_dir.clone(),
     }
+}
+
+/// Whether an output name ends in a compression suffix (`.gz`, `.bgz`, any case).
+pub fn compressed_name(p: &std::path::Path) -> bool {
+    let name = p
+        .file_name()
+        .map(|n| n.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    name.ends_with(".gz") || name.ends_with(".bgz")
+}
+
+/// The output of a command that writes TSV of its own layout to `-o` (`flagstat`, `depth`,
+/// `samples`, `bedcov`): a name ending in `.gz` or `.bgz` is BGZF-compressed, as `.tsv.gz` is
+/// for every TSV output; any other name is checked as a TSV output's.
+pub fn own_tsv_output_spec(
+    output: Option<&std::path::Path>,
+) -> Result<gloci_io::OutputSpec, gloci_io::UsageError> {
+    let gz = output.is_some_and(compressed_name);
+    gloci_io::parse_output_spec(output, Some(if gz { "tsv.gz" } else { "tsv" }))
 }
 
 /// The output's name for messages: the path, or `stdout`. Write errors from

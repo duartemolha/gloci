@@ -145,24 +145,41 @@ fn from_extension(path: &Path) -> Option<(OutFormat, bool)> {
     lookup(&name[last + 1..])
 }
 
-pub fn parse_output_spec(
-    output: Option<&Path>,
-    output_format: Option<&str>,
-) -> Result<OutputSpec, UsageError> {
-    // "-" and /dev/stdout mean stdout. (Opening /dev/stdout again would
-    // restart at offset 0 of a file the shell redirected to.)
+/// `output` as a destination: `None` for stdout (`-`, `/dev/stdout`), and whether it is written
+/// directly. An existing path that is not a regular file once symlinks are followed cannot take
+/// a temp file and a rename; its format is chosen as for stdout. A descriptor path (`/dev/fd/N`,
+/// as in `-o >(cmd)` or `3> file`) counts even when it leads to a regular file, because the
+/// directory it sits in cannot hold a temp file.
+fn output_target(output: Option<&Path>) -> (Option<&Path>, bool) {
     let path = output.filter(|p| p.as_os_str() != "-" && *p != Path::new("/dev/stdout"));
-    // An existing path that is not a regular file once symlinks are followed
-    // cannot take a temp file and a rename; its format is chosen as for stdout.
-    // A descriptor path (`/dev/fd/N`, as in `-o >(cmd)` or `3> file`) counts
-    // even when it leads to a regular file, because the directory it sits in
-    // cannot hold a temp file.
     let direct = path.is_some_and(|p| {
         p.starts_with("/dev/fd")
             || p.starts_with("/proc/self/fd")
             || p == Path::new("/dev/stderr")
             || std::fs::metadata(p).is_ok_and(|m| !m.is_file() && !m.is_dir())
     });
+    (path, direct)
+}
+
+/// The spec of an output that holds plain text whatever its name (`view --count`): no format
+/// is read from the extension, and nothing is compressed.
+pub fn plain_text_output_spec(output: Option<&Path>) -> OutputSpec {
+    let (path, direct) = output_target(output);
+    OutputSpec {
+        path: path.map(Path::to_path_buf),
+        format: Some(OutFormat::Tsv),
+        bgzf: false,
+        direct,
+    }
+}
+
+pub fn parse_output_spec(
+    output: Option<&Path>,
+    output_format: Option<&str>,
+) -> Result<OutputSpec, UsageError> {
+    // "-" and /dev/stdout mean stdout. (Opening /dev/stdout again would
+    // restart at offset 0 of a file the shell redirected to.)
+    let (path, direct) = output_target(output);
     let cram_error = || {
         UsageError(
             "gloci does not write CRAM; write BAM with -o FILE.bam and convert it with \

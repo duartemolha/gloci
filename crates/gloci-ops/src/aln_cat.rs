@@ -180,6 +180,7 @@ it first: gloci view {name} -o x.bam"
     }
     match detect_compression(&head) {
         Compression::Bgzf => {}
+        // A gzip header that is not BGZF's may be a damaged BAM: a data error.
         Compression::Gzip => {
             return Err(detect(
                 path,
@@ -195,10 +196,10 @@ it first: gloci view {name} -o x.bam"
 Convert it first: gloci view {name} -o x.bam"
                 ))
                 .into(),
-                Ok(f) => detect(
-                    path,
-                    format!("{name} is {}, not BAM; gloci cat joins BAM files", f.name()),
-                ),
+                Ok(f) => IoError::wrong_format(format!(
+                    "{name} is {}, not BAM; gloci cat joins BAM files",
+                    f.name()
+                )),
                 Err(_) => detect(
                     path,
                     format!("{name} is not a BAM file; gloci cat joins BAM files"),
@@ -236,13 +237,11 @@ Convert it first: gloci view {name} -o x.bam"
         _ => {}
     }
     if &magic != b"BAM\x01" {
-        return Err(detect(
-            path,
-            format!(
-                "{name} is BGZF-compressed but not BAM (it does not start with the BAM magic bytes); \
+        // Another BGZF format (a VCF or BED .gz): the wrong input, not a damaged one.
+        return Err(IoError::wrong_format(format!(
+            "{name} is BGZF-compressed but not BAM (it does not start with the BAM magic bytes); \
 gloci cat joins BAM files"
-            ),
-        ));
+        )));
     }
     let header = AlnHeader::read_bam(&mut Cursor::new(magic).chain(&mut blocks)).map_err(|e| {
         detect(

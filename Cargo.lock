@@ -756,6 +756,7 @@ dependencies = [
  "libm",
  "log",
  "lz4_flex",
+ "md-5 0.10.6",
  "proptest",
  "rand_chacha",
  "rayon",

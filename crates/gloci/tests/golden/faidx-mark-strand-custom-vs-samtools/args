@@ -1,0 +1,1 @@
+faidx ref.fa --reverse-complement --mark-strand custom,+,- chr1:5-20 chrM:1-9

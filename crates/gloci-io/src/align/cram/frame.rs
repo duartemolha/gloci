@@ -318,6 +318,21 @@ pub(crate) struct CramHead {
     pub len: u64,
 }
 
+/// The refusal of a CRAM version gloci does not read (anything but 3.0 and 3.1), the same
+/// wherever the version is read; `None` for 3.0 and 3.1.
+pub(crate) fn unread_version(name: &str, major: u8, minor: u8) -> Option<IoError> {
+    (major != 3 || minor > 1).then(|| {
+        detect_err(
+            name,
+            format!(
+                "{name} is CRAM {major}.{minor}, which gloci does not read; it reads CRAM 3.0 and \
+3.1; rewrite it with: samtools view -C -T ref.fa --output-fmt-option version=3.0 -o x3.cram \
+{name}"
+            ),
+        )
+    })
+}
+
 pub(crate) fn detect_err(name: &str, msg: String) -> IoError {
     IoError::Detect {
         path: name.to_string(),
@@ -368,16 +383,8 @@ pub(crate) fn read_head(r: &mut dyn Read, name: &str) -> Result<CramHead, IoErro
             "the CRAM file definition is missing or cut short",
         ));
     }
-    let version = (def[4], def[5]);
-    if version.0 != 3 || version.1 > 1 {
-        return Err(detect_err(
-            name,
-            format!(
-                "{name} is CRAM {}.{}, which gloci does not read; it reads CRAM 3.0 and 3.1; \
-rewrite it with: samtools view -C -T ref.fa --output-fmt-option version=3.0 -o x3.cram {name}",
-                version.0, version.1
-            ),
-        ));
+    if let Some(e) = unread_version(name, def[4], def[5]) {
+        return Err(e);
     }
     let mut raw = Vec::new();
     let h = match read_container_header(r, &mut raw) {

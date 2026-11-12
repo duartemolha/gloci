@@ -18,6 +18,7 @@ gloci-io.workspace = true
 gloci-engine.workspace = true
 gloci-vcf.workspace = true
 lz4_flex.workspace = true
+md-5.workspace = true
 log.workspace = true
 libm.workspace = true
 rand_chacha.workspace = true

@@ -108,6 +108,32 @@ fn region_strings() {
 }
 
 #[test]
+fn region_open_start() {
+    let none = |_: &[u8]| false;
+    // htslib: `chr:-E` is `chr:1-E`.
+    assert_eq!(
+        Region::parse("chr1:-100", none).unwrap(),
+        Region::parse("chr1:1-100", none).unwrap()
+    );
+    assert_eq!(Region::parse("chr1:-1,000", none).unwrap().end, Some(1000));
+    // nothing else changes
+    for bad in [
+        "chr1:0-5",
+        "chr1:-",
+        "chr1:-0",
+        "chr1:-00",
+        "chr1:-5-6",
+        ":-5",
+        "chr1:--5",
+    ] {
+        assert!(Region::parse(bad, none).is_err(), "{bad}");
+    }
+    // a name that is known whole still wins
+    let known = |n: &[u8]| n == b"a:-5";
+    assert_eq!(Region::parse("a:-5", known).unwrap().chrom, b"a:-5");
+}
+
+#[test]
 fn region_interval_open_end() {
     let none = |_: &[u8]| false;
     let r = Region::parse("chr1:5", none).unwrap();

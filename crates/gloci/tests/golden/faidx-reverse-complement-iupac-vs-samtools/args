@@ -1,0 +1,1 @@
+faidx faidx-mixed.fa --reverse-complement chrA:3-125 chrB:5-148

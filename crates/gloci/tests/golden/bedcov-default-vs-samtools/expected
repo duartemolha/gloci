@@ -1,0 +1,16 @@
+chr2	0	300	whole2	0	+	60
+chr1	100	150	50
+chr1	44	47	delonly	3
+chr1	5	30	a	10	40
+chr1	20	45	b	7	-	24
+chr1	25	25	point	0
+chr1	10	40	ov1	40
+chr1	30	60	ov2	24
+chr1	0	500	wholechr1	378
+chr1	248	290	crlf	50
+chr2	290	310	pastend	10
+chr3	0	200	emptychr3	0
+chr1	170	180	placedunmapped	0
+chr1	9	9	edge	0
+chr1	29	29	endedge	0
+chr1	250	275	pair	39

@@ -22,6 +22,21 @@ pub enum GateKind {
     ConvertOnly,
     /// BEDPE is read by `pair-intersect`, `pair-pair` and `shuffle --format bedpe` only (D146).
     PairedOnly,
+    /// The command reads alignments only (BAM, CRAM or SAM).
+    AlignmentsOnly,
+    /// The command reads one format only, and the input is another one, detected: `cat` (BAM),
+    /// `reheader` (BAM or CRAM), `dict` and `maskfasta` (FASTA).
+    OneFormat,
+}
+
+impl IoError {
+    /// An input of another format than the one the command reads (exit 2).
+    pub fn wrong_format(msg: String) -> IoError {
+        IoError::Gate {
+            kind: GateKind::OneFormat,
+            msg,
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

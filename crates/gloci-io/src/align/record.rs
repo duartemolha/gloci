@@ -6,6 +6,7 @@ use super::header::AlnHeader;
 use super::sam::SamAln;
 use crate::detect::Format;
 use gloci_core::{Interval, Strand};
+use std::borrow::Cow;
 
 /// Bytes before the read name in a BAM record, after `block_size`.
 const FIXED: usize = 32;
@@ -43,6 +44,27 @@ fn words(c: &[u8]) -> impl Iterator<Item = (u8, u32)> + '_ {
         let v = u32::from_le_bytes([w[0], w[1], w[2], w[3]]);
         ((v & 0xf) as u8, v >> 4)
     })
+}
+
+/// Check the operation codes of the CIGAR words `c` and return the bases of the read they
+/// cover (`M I S = X`), in one pass.
+fn scan_cigar(c: &[u8]) -> Result<u64, String> {
+    // Bit `op` is set for the operations that consume the read: 0 M, 1 I, 4 S, 7 =, 8 X.
+    const QUERY: u32 = 1 << 0 | 1 << 1 | 1 << 4 | 1 << 7 | 1 << 8;
+    let mut q = 0u64;
+    for w in c.chunks_exact(4) {
+        let v = u32::from_le_bytes([w[0], w[1], w[2], w[3]]);
+        let op = v & 0xf;
+        if op > 9 {
+            return Err(format!(
+                "the CIGAR has the operation code {op}; BAM defines 0 to 9"
+            ));
+        }
+        if QUERY >> op & 1 != 0 {
+            q += u64::from(v >> 4);
+        }
+    }
+    Ok(q)
 }
 
 /// One aux field: `(tag, type, value bytes)`. For `B` arrays the value starts with
@@ -96,7 +118,79 @@ fn tags(mut data: &[u8]) -> impl Iterator<Item = Result<Tag<'_>, ()>> {
 
 impl<'a> Aln<'a> {
     /// Check and view the record `raw` (without its `block_size`).
+    #[inline]
     pub fn parse(raw: &'a [u8], h: &AlnHeader) -> Result<Aln<'a>, String> {
+        match Aln::parse_common(raw, h) {
+            Some(a) => Ok(a),
+            None => Aln::parse_in_full(raw, h),
+        }
+    }
+
+    /// [`Aln::parse`] of a record that passes every check and has no `CG` placeholder, as
+    /// nearly every record does, without building a message; `None` for any other, which
+    /// [`Aln::parse_in_full`] then checks in order.
+    #[inline]
+    fn parse_common(raw: &'a [u8], h: &AlnHeader) -> Option<Aln<'a>> {
+        // Bit `op` is set for the operations that consume the read: 0 M, 1 I, 4 S, 7 =, 8 X.
+        const QUERY: u32 = 1 << 0 | 1 << 1 | 1 << 4 | 1 << 7 | 1 << 8;
+        let fixed = raw.get(..FIXED)?;
+        let ref_id = i32_at(fixed, 0);
+        let pos = i32_at(fixed, 4);
+        let l_name = usize::from(fixed[8]);
+        let n_cigar = usize::from(u16::from_le_bytes([fixed[12], fixed[13]]));
+        let flag = u16::from_le_bytes([fixed[14], fixed[15]]);
+        let l_seq = u32_at(fixed, 16) as usize;
+        let name_end = FIXED + l_name;
+        let cigar_end = name_end + 4 * n_cigar;
+        let tags_at = cigar_end.checked_add(l_seq.checked_add(l_seq.div_ceil(2))?)?;
+        if ref_id < -1
+            || ref_id as i64 >= h.refs.len() as i64
+            || pos < -1
+            || l_name < 2
+            || tags_at > raw.len()
+            || raw[name_end - 1] != 0
+        {
+            return None;
+        }
+        let inline_cigar = &raw[name_end..cigar_end];
+        // A placeholder CIGAR (`kS nN`) may have its real one in a CG tag.
+        if n_cigar == 2 && inline_cigar[0] & 0xf == 4 && inline_cigar[4] & 0xf == 3 {
+            return None;
+        }
+        let mut q = 0u64;
+        let mut bad = false;
+        for w in inline_cigar.chunks_exact(4) {
+            let v = u32::from_le_bytes([w[0], w[1], w[2], w[3]]);
+            let op = v & 0xf;
+            bad |= op > 9;
+            if QUERY >> op & 1 != 0 {
+                q += u64::from(v >> 4);
+            }
+        }
+        let mapped = flag & FLAG_UNMAPPED == 0;
+        if bad
+            || mapped && (ref_id < 0 || pos < 0 || (l_seq > 0 && n_cigar > 0 && q != l_seq as u64))
+        {
+            return None;
+        }
+        Some(Aln {
+            raw,
+            ref_id,
+            pos,
+            flag,
+            mapq: fixed[9],
+            name: &raw[FIXED..name_end - 1],
+            inline_cigar,
+            cigar: inline_cigar,
+            tags: &raw[tags_at..],
+        })
+    }
+
+    /// [`Aln::parse`] with every check in order, each failing with its message, and a `CG`
+    /// placeholder resolved.
+    #[cold]
+    #[inline(never)]
+    fn parse_in_full(raw: &'a [u8], h: &AlnHeader) -> Result<Aln<'a>, String> {
         if raw.len() < FIXED {
             return Err(format!(
                 "the record is {} bytes, shorter than the {FIXED} fixed bytes of a BAM record",
@@ -154,7 +248,7 @@ impl<'a> Aln<'a> {
             cigar: inline_cigar,
             tags,
         };
-        a.check_ops(inline_cigar)?;
+        let mut q = scan_cigar(inline_cigar)?;
         // A placeholder CIGAR (`kS nN`) plus a CG tag holds the real one.
         let mut it = words(inline_cigar);
         if n_cigar == 2
@@ -163,7 +257,7 @@ impl<'a> Aln<'a> {
             && ref_id >= 0
             && let Some(cg) = a.cg_array()?
         {
-            a.check_ops(cg)?;
+            q = scan_cigar(cg)?;
             a.cigar = cg;
         }
         if flag & FLAG_UNMAPPED == 0 {
@@ -173,28 +267,50 @@ impl<'a> Aln<'a> {
 the flag should include 4 (unmapped), or the record needs a reference and position"
                 ));
             }
-            if l_seq > 0 && !a.cigar.is_empty() {
-                let q: u64 = words(a.cigar)
-                    .filter(|(op, _)| matches!(op, 0 | 1 | 4 | 7 | 8))
-                    .map(|(_, n)| u64::from(n))
-                    .sum();
-                if q != l_seq as u64 {
-                    return Err(format!(
-                        "the CIGAR covers {q} bases of the read but the sequence has {l_seq}"
-                    ));
-                }
+            if l_seq > 0 && !a.cigar.is_empty() && q != l_seq as u64 {
+                return Err(format!(
+                    "the CIGAR covers {q} bases of the read but the sequence has {l_seq}"
+                ));
             }
         }
         Ok(a)
     }
 
-    fn check_ops(&self, cigar: &[u8]) -> Result<(), String> {
-        match words(cigar).find(|(op, _)| *op > 9) {
-            Some((op, _)) => Err(format!(
-                "the CIGAR has the operation code {op}; BAM defines 0 to 9"
-            )),
-            None => Ok(()),
+    /// View the record `raw` that an [`AlnSource`](super::AlnSource) returned, and so checked:
+    /// the fields [`Aln::parse`] gives, without checking the CIGAR again. A record that does
+    /// not frame (or holds a `CG` placeholder) is parsed in full.
+    pub fn view(raw: &'a [u8], h: &AlnHeader) -> Result<Aln<'a>, String> {
+        let Some(fixed) = raw.get(..FIXED) else {
+            return Aln::parse(raw, h);
+        };
+        let l_name = usize::from(fixed[8]);
+        let n_cigar = usize::from(u16::from_le_bytes([fixed[12], fixed[13]]));
+        let l_seq = u32_at(fixed, 16) as usize;
+        let name_end = FIXED + l_name;
+        let cigar_end = name_end + 4 * n_cigar;
+        let tags_at = l_seq
+            .checked_add(l_seq.div_ceil(2))
+            .and_then(|s| cigar_end.checked_add(s))
+            .filter(|&t| t <= raw.len());
+        let Some(tags_at) = tags_at.filter(|_| l_name >= 2) else {
+            return Aln::parse(raw, h);
+        };
+        let inline_cigar = &raw[name_end..cigar_end];
+        // The placeholder of a CIGAR held in a `CG` tag (`kS nN`).
+        if n_cigar == 2 && inline_cigar[0] & 0xf == 4 && inline_cigar[4] & 0xf == 3 {
+            return Aln::parse(raw, h);
         }
+        Ok(Aln {
+            raw,
+            ref_id: i32_at(fixed, 0),
+            pos: i32_at(fixed, 4),
+            flag: u16::from_le_bytes([fixed[14], fixed[15]]),
+            mapq: fixed[9],
+            name: &raw[FIXED..name_end - 1],
+            inline_cigar,
+            cigar: inline_cigar,
+            tags: &raw[tags_at..],
+        })
     }
 
     /// The words of a `CG:B:I` tag.
@@ -227,6 +343,29 @@ the flag should include 4 (unmapped), or the record needs a reference and positi
 
     pub fn mapq(&self) -> u8 {
         self.mapq
+    }
+
+    /// The reference of the mate, or `None` when the record has none.
+    pub fn mate_ref_id(&self) -> Option<usize> {
+        usize::try_from(i32_at(self.raw, 20)).ok()
+    }
+
+    /// The 0-based position of the mate, or `None` when the record has none.
+    pub fn mate_pos(&self) -> Option<u64> {
+        u64::try_from(i32_at(self.raw, 24)).ok()
+    }
+
+    /// The number of bases in the read (0 for SEQ `*`).
+    pub fn seq_len(&self) -> usize {
+        u32_at(self.raw, 16) as usize
+    }
+
+    /// The raw Phred qualities: empty for SEQ `*`, and `0xFF` for every base of a record
+    /// whose QUAL is missing.
+    pub fn quals(&self) -> Cow<'a, [u8]> {
+        let l_seq = self.seq_len();
+        let tags_at = self.raw.len() - self.tags.len();
+        Cow::Borrowed(&self.raw[tags_at - l_seq..tags_at])
     }
 
     pub fn name(&self) -> &'a [u8] {
@@ -526,6 +665,10 @@ impl<'a> AlnRef<'a> {
     delegate!(pos() -> Option<u64>);
     delegate!(flag() -> u16);
     delegate!(mapq() -> u8);
+    delegate!(mate_ref_id() -> Option<usize>);
+    delegate!(mate_pos() -> Option<u64>);
+    delegate!(seq_len() -> usize);
+    delegate!(quals() -> Cow<'a, [u8]>);
     delegate!(strand() -> Strand);
     delegate!(int_tag(tag: [u8; 2]) -> Option<i64>);
     delegate!(tag_type(tag: [u8; 2]) -> Option<u8>);
@@ -549,6 +692,15 @@ pub fn aln_ref<'a>(f: Format, raw: &'a [u8], h: &AlnHeader) -> Result<AlnRef<'a>
             "{} records cannot be read as alignments here",
             other.name()
         )),
+    }
+}
+
+/// [`aln_ref`] of a record that an [`AlnSource`](super::AlnSource) returned, and so checked:
+/// BAM bytes are viewed with [`Aln::view`], without checking them again.
+pub fn aln_view<'a>(f: Format, raw: &'a [u8], h: &AlnHeader) -> Result<AlnRef<'a>, String> {
+    match f {
+        Format::Bam | Format::Cram => Aln::view(raw, h).map(AlnRef::Bam),
+        _ => aln_ref(f, raw, h),
     }
 }
 

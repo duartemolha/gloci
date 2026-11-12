@@ -39,7 +39,7 @@ fn input_gate() {
         .args(["sort", fa.to_str().unwrap()])
         .assert()
         .code(2)
-        .stderr(contains("getfasta, maskfasta or nuc"));
+        .stderr(contains("getfasta, maskfasta, nuc, faidx or dict"));
     let p = psl.to_str().unwrap();
     gloci()
         .args(["merge", p])
@@ -94,6 +94,39 @@ fn commands_that_do_not_read_alignments_say_never() {
         .assert()
         .code(2)
         .stderr(contains("does not read alignments"));
+}
+
+/// The other side of the gate (M3): a BED or VCF given to a command that reads only
+/// alignments is the same kind of mistake as a BAM given to a BED command, so it exits 2.
+#[test]
+fn commands_that_read_only_alignments_refuse_other_formats_as_usage() {
+    let dir = tempdir();
+    let bed = plain_file(dir.path(), "a.bed", "chr1\t1\t2\n");
+    let vcf = plain_file(
+        dir.path(),
+        "a.vcf",
+        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nchr1\t5\t.\tA\tC\t.\t.\t.\n",
+    );
+    for f in [&bed, &vcf] {
+        let x = f.to_str().unwrap();
+        let kind = if x.ends_with(".bed") { "BED" } else { "VCF" };
+        for args in [
+            vec!["idxstats", x],
+            vec!["flagstat", x],
+            vec!["samples", x],
+            vec!["depth", x],
+            vec!["bedcov", bed.to_str().unwrap(), x],
+        ] {
+            gloci()
+                .args(&args)
+                .assert()
+                .code(2)
+                .stdout("")
+                .stderr(contains(format!(
+                    "{x} is {kind}, but this command reads alignments (BAM, CRAM or SAM)"
+                )));
+        }
+    }
 }
 
 #[test]

@@ -156,6 +156,14 @@ impl IndexedFasta {
         &self.shared.entries
     }
 
+    /// The `.fai` row of `chrom`.
+    pub fn entry_of(&self, chrom: &[u8]) -> Option<&FaiEntry> {
+        self.shared
+            .by_name
+            .get(chrom)
+            .map(|&i| &self.shared.entries[i])
+    }
+
     pub fn len_of(&self, chrom: &[u8]) -> Option<u64> {
         self.shared
             .by_name

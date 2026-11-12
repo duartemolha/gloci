@@ -1,0 +1,6 @@
+chr1	1	100	chr1_alt
+chrM
+MT
+
+M extra
+1 

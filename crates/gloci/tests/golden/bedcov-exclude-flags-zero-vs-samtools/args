@@ -1,0 +1,1 @@
+bedcov input.bed depth.bam --exclude-flags 0 --read-count

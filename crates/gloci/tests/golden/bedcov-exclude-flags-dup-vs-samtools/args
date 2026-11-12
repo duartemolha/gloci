@@ -1,0 +1,1 @@
+bedcov input.bed depth.bam --exclude-flags UNMAP,SECONDARY,QCFAIL --read-count

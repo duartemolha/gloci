@@ -1857,3 +1857,318 @@ fn vcf_norm_2gib_vcf_streams() {
         rss_run(&format!("vcf norm -t {t} large"), &args, aln_ceiling(t));
     }
 }
+
+// ---------------------------------------------------------------------------
+// P3c: idxstats, flagstat, view --count, depth, bedcov, reheader, faidx, dict
+//
+// Each ceiling is absolute (200 MB, `ALN_RSS`): a child's `ru_maxrss` inherits its parent's peak,
+// so two runs are never compared with each other.
+// ---------------------------------------------------------------------------
+
+/// Write SAM text of proper pairs of 100 bp reads until `bytes` have been written, in coordinate
+/// order over `chroms` chromosomes of `len` bases: the first mate (flag 99) at a position, the
+/// second (flag 147) 20 to 79 bases after it, so each pair shares 21 to 80 bases.
+fn gen_sam_pairs(w: &mut impl Write, bytes: u64, chroms: u64, len: u64, seed: u64) {
+    use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
+    let mut rng = Rng(seed);
+    let header = sam_header(chroms, len, true);
+    w.write_all(header.as_bytes()).unwrap();
+    let mut written = header.len() as u64;
+    let mut buf = Vec::with_capacity(1 << 20);
+    let qual = "I".repeat(READ_LEN);
+    let per_chrom = (bytes / chroms).max(1024);
+    let mut i = 0u64;
+    let mut emit = |buf: &mut Vec<u8>, written: &mut u64, line: &[u8]| {
+        buf.extend_from_slice(line);
+        *written += line.len() as u64;
+        if buf.len() >= 1 << 20 {
+            w.write_all(buf).unwrap();
+            buf.clear();
+        }
+    };
+    for chrom in 1..=chroms {
+        let mut pending: BinaryHeap<Reverse<(u64, u64, Vec<u8>)>> = BinaryHeap::new();
+        let (mut chrom_written, mut pos) = (0u64, 1u64);
+        let target = written + per_chrom;
+        while written < target && written < bytes {
+            pos += 1 + rng.next() % 60;
+            let p1 = pos.min(len - 200);
+            while let Some(Reverse((q, _, _))) = pending.peek() {
+                if *q >= p1 {
+                    break;
+                }
+                let Reverse((_, _, line)) = pending.pop().unwrap();
+                chrom_written += line.len() as u64;
+                emit(&mut buf, &mut written, &line);
+            }
+            let gap = 20 + rng.next() % 60;
+            let p2 = p1 + gap;
+            let bits = rng.next();
+            let seq: String = (0..READ_LEN)
+                .map(|k| b"ACGT"[((bits >> (2 * (k % 30))) as usize + k) & 3] as char)
+                .collect();
+            let tlen = gap + READ_LEN as u64;
+            let l1 = format!(
+                "pair{i}\t99\tchr{chrom}\t{p1}\t60\t{READ_LEN}M\t=\t{p2}\t{tlen}\t{seq}\t{qual}\n"
+            );
+            let l2 = format!(
+                "pair{i}\t147\tchr{chrom}\t{p2}\t60\t{READ_LEN}M\t=\t{p1}\t-{tlen}\t{seq}\t{qual}\n"
+            );
+            chrom_written += l1.len() as u64;
+            emit(&mut buf, &mut written, l1.as_bytes());
+            pending.push(Reverse((p2, i, l2.into_bytes())));
+            i += 1;
+        }
+        while let Some(Reverse((_, _, line))) = pending.pop() {
+            emit(&mut buf, &mut written, &line);
+        }
+        let _ = chrom_written;
+    }
+    w.write_all(&buf).unwrap();
+}
+
+/// A BAM of about `bam_bytes` of proper pairs, indexed.
+fn make_pairs_bam(dir: &Path, name: &str, bam_bytes: u64, seed: u64) -> PathBuf {
+    let sam = dir.join(format!("{name}.sam"));
+    let mut f = std::io::BufWriter::new(std::fs::File::create(&sam).unwrap());
+    gen_sam_pairs(&mut f, bam_bytes * SAM_PER_BAM, 22, 249_000_000, seed);
+    f.flush().unwrap();
+    drop(f);
+    let bam = dir.join(format!("{name}.bam"));
+    let st = Command::new(gloci_bin())
+        .arg("view")
+        .arg(&sam)
+        .arg("-o")
+        .arg(&bam)
+        .status()
+        .unwrap();
+    assert!(st.success(), "SAM to BAM failed");
+    let _ = std::fs::remove_file(&sam);
+    let st = Command::new(gloci_bin())
+        .arg("index")
+        .arg(&bam)
+        .status()
+        .unwrap();
+    assert!(st.success(), "index BAM failed");
+    bam
+}
+
+static PAIRS_BAM: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+fn big_pairs_bam() -> &'static Path {
+    PAIRS_BAM.get_or_init(|| {
+        shared_input("pairs.bam", |dir| {
+            make_pairs_bam(dir, "pairs", payload_bytes(), 8)
+        })
+    })
+}
+
+/// A small generated pairs BAM is a valid, sorted, indexed file with mates that overlap.
+#[test]
+fn p3c_pairs_generator_small() {
+    let d = tempdir();
+    let bam = make_pairs_bam(d.path(), "p", MIB / 2, 1);
+    gloci()
+        .args(["sort", "--check"])
+        .arg(&bam)
+        .assert()
+        .success();
+    let count = |extra: &[&str]| -> u64 {
+        let o = gloci().arg("depth").arg(&bam).args(extra).output().unwrap();
+        assert!(o.status.success());
+        String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .map(|l| l.rsplit('\t').next().unwrap().parse::<u64>().unwrap())
+            .sum()
+    };
+    let (twice, once) = (count(&[]), count(&["--skip-mate-overlap"]));
+    assert!(once < twice, "{once} counted once, {twice} counted twice");
+}
+
+/// 10,000 targets of 20 kb over the 22 generated chromosomes, in no order.
+fn big_targets() -> PathBuf {
+    shared_input("targets10k.bed", |dir| {
+        let p = dir.join("targets10k.bed");
+        let mut w = std::io::BufWriter::new(std::fs::File::create(&p).unwrap());
+        let mut rng = Rng(123);
+        for i in 0..10_000 {
+            let r = rng.next();
+            let start = (r >> 8) % 248_000_000;
+            writeln!(w, "chr{}\t{start}\t{}\tt{i}", 1 + r % 22, start + 20_000).unwrap();
+        }
+        w.flush().unwrap();
+        p
+    })
+}
+
+/// A header file for `reheader`: the sorted BAM's header with a comment line added.
+fn big_new_header() -> PathBuf {
+    shared_input("new-header.sam", |dir| {
+        let o = Command::new(gloci_bin())
+            .arg("head")
+            .arg(big_sorted_bam())
+            .output()
+            .unwrap();
+        assert!(o.status.success());
+        let p = dir.join("new-header.sam");
+        let mut text = o.stdout;
+        text.extend_from_slice(b"@CO\tthe new header\n");
+        std::fs::write(&p, text).unwrap();
+        p
+    })
+}
+
+/// Run `args` at `-t 1` and `-t 4` (when the command takes `-t`) and assert each peak is under
+/// the ceiling.
+fn p3c_rss_ceiling(what: &str, args: &[&std::ffi::OsStr], threads: bool) {
+    for t in if threads { vec!["1", "4"] } else { vec![""] } {
+        let mut a: Vec<&std::ffi::OsStr> = args.to_vec();
+        if threads {
+            a.extend([std::ffi::OsStr::new("-t"), std::ffi::OsStr::new(t)]);
+        }
+        let rss = rss_of(&format!("{what} -t {t}"), &a);
+        assert!(
+            rss < aln_ceiling(t),
+            "{what} -t {t}: peak RSS {rss} bytes exceeds the ceiling"
+        );
+    }
+}
+
+#[test]
+#[ignore = "nightly: generates a 2 GB BAM"]
+fn flagstat_2gb_bam_streams() {
+    for bam in [big_sorted_bam(), big_shuffled_bam()] {
+        p3c_rss_ceiling("flagstat", &["flagstat".as_ref(), bam.as_os_str()], true);
+    }
+}
+
+#[test]
+#[ignore = "nightly: generates a 2 GB BAM"]
+fn idxstats_scan_2gb_bam_streams() {
+    // the shuffled BAM has no index, so every record is counted
+    p3c_rss_ceiling(
+        "idxstats scan",
+        &[
+            "idxstats".as_ref(),
+            big_shuffled_bam().as_os_str(),
+            "-q".as_ref(),
+        ],
+        true,
+    );
+    // and through the index it reads no record at all
+    p3c_rss_ceiling(
+        "idxstats index",
+        &["idxstats".as_ref(), big_sorted_bam().as_os_str()],
+        true,
+    );
+}
+
+#[test]
+#[ignore = "nightly: generates a 2 GB BAM"]
+fn view_count_2gb_bam_streams() {
+    for bam in [big_sorted_bam(), big_shuffled_bam()] {
+        p3c_rss_ceiling(
+            "view --count",
+            &["view".as_ref(), "--count".as_ref(), bam.as_os_str()],
+            true,
+        );
+    }
+}
+
+#[test]
+#[ignore = "nightly: generates a 2 GB BAM"]
+fn depth_all_positions_2gb_bam_streams() {
+    p3c_rss_ceiling(
+        "depth --all-positions",
+        &[
+            "depth".as_ref(),
+            big_sorted_bam().as_os_str(),
+            "--all-positions".as_ref(),
+        ],
+        true,
+    );
+}
+
+#[test]
+#[ignore = "nightly: generates 2 GB of pairs"]
+fn depth_skip_mate_overlap_2gb_pairs_streams() {
+    p3c_rss_ceiling(
+        "depth --skip-mate-overlap",
+        &[
+            "depth".as_ref(),
+            big_pairs_bam().as_os_str(),
+            "--skip-mate-overlap".as_ref(),
+        ],
+        true,
+    );
+}
+
+#[test]
+#[ignore = "nightly: generates a 2 GB BAM"]
+fn bedcov_10k_targets_2gb_bam_streams() {
+    let bed = big_targets();
+    p3c_rss_ceiling(
+        "bedcov 10,000 targets",
+        &[
+            "bedcov".as_ref(),
+            bed.as_os_str(),
+            big_sorted_bam().as_os_str(),
+        ],
+        true,
+    );
+    p3c_rss_ceiling(
+        "bedcov 10,000 targets, all columns",
+        &[
+            "bedcov".as_ref(),
+            bed.as_os_str(),
+            big_sorted_bam().as_os_str(),
+            "--read-count".as_ref(),
+            "--bases-at-depth".as_ref(),
+            "2".as_ref(),
+        ],
+        true,
+    );
+}
+
+#[test]
+#[ignore = "nightly: generates a 2 GB BAM"]
+fn reheader_2gb_bam_streams() {
+    let hdr = big_new_header();
+    p3c_rss_ceiling(
+        "reheader",
+        &[
+            "reheader".as_ref(),
+            hdr.as_os_str(),
+            big_sorted_bam().as_os_str(),
+        ],
+        true,
+    );
+}
+
+#[test]
+#[ignore = "nightly: generates a 1.2 GB FASTA"]
+fn faidx_whole_300mb_sequence_streams() {
+    let fa = big_fasta();
+    for (what, extra) in [
+        ("faidx whole sequence", vec![]),
+        ("faidx --reverse-complement", vec!["--reverse-complement"]),
+        ("faidx --line-width 0", vec!["--line-width", "0"]),
+    ] {
+        let mut args: Vec<&std::ffi::OsStr> =
+            vec!["faidx".as_ref(), fa.as_os_str(), "chr1".as_ref()];
+        args.extend(extra.iter().map(|s| std::ffi::OsStr::new(*s)));
+        p3c_rss_ceiling(what, &args, true);
+    }
+}
+
+/// 10 chromosomes of 300 Mb: 3 GB of FASTA, whatever `GLOCI_LARGE_BYTES` says.
+fn huge_fasta() -> PathBuf {
+    make_fasta("huge.fa", 10, 300_000_000, 78, true)
+}
+
+#[test]
+#[ignore = "nightly: generates a 3 GB FASTA"]
+fn dict_3gb_fasta_streams() {
+    let fa = huge_fasta();
+    p3c_rss_ceiling("dict", &["dict".as_ref(), fa.as_os_str()], true);
+}

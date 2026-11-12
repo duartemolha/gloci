@@ -244,7 +244,9 @@ pub fn detect_format(head: &[u8]) -> Result<Format, String> {
     if head.starts_with(b"BAM\x01") {
         return Ok(Format::Bam);
     }
-    if head.starts_with(b">") {
+    // FASTA may start with blank lines, which samtools skips.
+    let first = head.iter().position(|&b| b != b'\n' && b != b'\r');
+    if first.is_some_and(|i| head[i] == b'>') {
         return Ok(Format::Fasta);
     }
     if head.starts_with(b"BCF\x02") {

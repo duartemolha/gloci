@@ -1,0 +1,1 @@
+view -O vcf input.bcf

@@ -1,0 +1,1 @@
+idxstats input.cram --reference ref.fa

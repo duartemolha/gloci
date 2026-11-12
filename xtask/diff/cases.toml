@@ -7723,3 +7723,1228 @@ gloci = "gloci convert input.bam --bedpe"
 reference = "bedtools bamtobed -i input.bam -bedpe"
 compare = "exact"
 expected_difference = "#bamtobed-past-reference-end"
+# faidx (D131)
+# faidx (D131). ref.fa has lines of 60 and lower-case runs. chr2:1000-1300 ends past
+# chr2 (cut), chr2:60000-60100 starts past it (header only).
+[[case]]
+name = "faidx-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa chr1:5-70 chr2:1000-1300 chr2:60000-60100 chrM"
+reference = "samtools faidx ref.fa chr1:5-70 chr2:1000-1300 chr2:60000-60100 chrM"
+compare = "exact"
+
+[[case]]
+name = "faidx-line-width-7-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa --line-width 7 chr1:5-70 chrM:1-20"
+reference = "samtools faidx -n 7 ref.fa chr1:5-70 chrM:1-20"
+compare = "exact"
+
+[[case]]
+name = "faidx-line-width-0-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa --line-width 0 chr1:5-70 chr1"
+reference = "samtools faidx -n 0 ref.fa chr1:5-70 chr1"
+compare = "exact"
+
+# The default width is each sequence's own .fai width: 60 for chrA, 70 for chrB.
+[[case]]
+name = "faidx-default-width-per-sequence-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/faidx-mixed.fa", "xtask/diff/inputs/fa/faidx-mixed.fa.fai"]
+gloci = "gloci faidx faidx-mixed.fa chrA chrB chrB:3-100"
+reference = "samtools faidx faidx-mixed.fa chrA chrB chrB:3-100"
+compare = "exact"
+
+[[case]]
+name = "faidx-reverse-complement-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa --reverse-complement chr1:5-70 chrM:1-40"
+reference = "samtools faidx -i ref.fa chr1:5-70 chrM:1-40"
+compare = "exact"
+
+# IUPAC codes (R Y K M S W B D H V), U, N and both cases under --reverse-complement.
+[[case]]
+name = "faidx-reverse-complement-iupac-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/faidx-mixed.fa", "xtask/diff/inputs/fa/faidx-mixed.fa.fai"]
+gloci = "gloci faidx faidx-mixed.fa --reverse-complement chrA:3-125 chrB:5-148"
+reference = "samtools faidx -i faidx-mixed.fa chrA:3-125 chrB:5-148"
+compare = "exact"
+
+[[case]]
+name = "faidx-mark-strand-sign-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa --reverse-complement --mark-strand sign chr1:5-20 chrM:1-9"
+reference = "samtools faidx -i --mark-strand sign ref.fa chr1:5-20 chrM:1-9"
+compare = "exact"
+
+[[case]]
+name = "faidx-mark-strand-no-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa --reverse-complement --mark-strand no chr1:5-20 chrM:1-9"
+reference = "samtools faidx -i --mark-strand no ref.fa chr1:5-20 chrM:1-9"
+compare = "exact"
+
+[[case]]
+name = "faidx-mark-strand-custom-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa --reverse-complement --mark-strand custom,+,- chr1:5-20 chrM:1-9"
+reference = "samtools faidx -i --mark-strand custom,+,- ref.fa chr1:5-20 chrM:1-9"
+compare = "exact"
+
+[[case]]
+name = "faidx-mark-strand-forward-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa --mark-strand sign chr1:5-20"
+reference = "samtools faidx --mark-strand sign ref.fa chr1:5-20"
+compare = "exact"
+
+# Headers keep the region as typed (commas, braces); chr1:-100 is chr1:1-100.
+[[case]]
+name = "faidx-region-forms-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa chr1:1,000-1,050 {chr1}:1-10 chr1:-100 chr1:995 chr1:995-"
+reference = "samtools faidx ref.fa chr1:1,000-1,050 {chr1}:1-10 chr1:-100 chr1:995 chr1:995-"
+compare = "exact"
+
+[[case]]
+name = "faidx-end-past-sequence-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa chr1:990-1100 chrX:700-900 chrM:140-150"
+reference = "samtools faidx ref.fa chr1:990-1100 chrX:700-900 chrM:140-150"
+compare = "exact"
+
+[[case]]
+name = "faidx-start-past-sequence-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa chr1:1001-1010 chr1:5000- chrM:1-3"
+reference = "samtools faidx ref.fa chr1:1001-1010 chr1:5000- chrM:1-3"
+compare = "exact"
+
+[[case]]
+name = "faidx-bgzf-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa.gz", "xtask/diff/inputs/fa/ref.fa.gz.fai", "xtask/diff/inputs/fa/ref.fa.gz.gzi"]
+gloci = "gloci faidx ref.fa.gz chr1:5-70 chr2:100-130 chrM"
+reference = "samtools faidx ref.fa.gz chr1:5-70 chr2:100-130 chrM"
+compare = "exact"
+
+[[case]]
+name = "faidx-bgzf-reverse-complement-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa.gz", "xtask/diff/inputs/fa/ref.fa.gz.fai", "xtask/diff/inputs/fa/ref.fa.gz.gzi"]
+gloci = "gloci faidx ref.fa.gz --reverse-complement chr1:900-1000 chrX:1-30"
+reference = "samtools faidx -i ref.fa.gz chr1:900-1000 chrX:1-30"
+compare = "exact"
+
+# BED lines (0-based) give the headers samtools -r gets from chr:START-END text. The zero-length
+# BED line (chr2 10 10) is skipped by both; chr2 1200-1300 is cut, chr1 2000-2005 is header only.
+[[case]]
+name = "faidx-regions-file-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa --regions-file input.bed"
+reference = "awk -F'\\t' '$3>$2{print $1\":\"$2+1\"-\"$3}' input.bed > r.txt && samtools faidx -r r.txt ref.fa"
+compare = "exact"
+
+# Without --skip-invalid / -c an unknown sequence is exit 1 in both.
+[[case]]
+name = "faidx-missing-sequence-exit-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa nope:1-5 chr1:1-5"
+reference = "samtools faidx ref.fa nope:1-5 chr1:1-5"
+compare = "exit-status"
+
+# samtools -c still writes the header of the region it could not read.
+[[case]]
+name = "faidx-missing-sequence-continue-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa --skip-invalid nope:1-5 chr1:1-5"
+reference = "samtools faidx -c ref.fa nope:1-5 chr1:1-5"
+compare = "exact"
+expected_difference = "#faidx-missing-sequence"
+
+# samtools writes the header of a region it cannot use, exits 0 (chr1:0-5) or 1 (chr1:5-1);
+# gloci rejects the region before any output, exit 2.
+[[case]]
+name = "faidx-region-syntax-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa chr1:0-5"
+reference = "samtools faidx ref.fa chr1:0-5"
+compare = "exit-status"
+expected_difference = "#faidx-region-syntax"
+
+# samtools -r reads chr:START-END text; gloci --regions-file reads BED.
+[[case]]
+name = "faidx-regions-file-text-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx-regions.txt" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci faidx ref.fa --regions-file input.txt"
+reference = "samtools faidx -r input.txt ref.fa"
+compare = "exit-status"
+expected_difference = "#faidx-regions-file"
+
+# No input.fa.fai: samtools builds one and answers (exit 0); gloci exits 2 naming gloci index.
+[[case]]
+name = "faidx-no-index-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/ref.fa" }
+aux = []
+gloci = "gloci faidx input.fa chr1:1-5"
+reference = "mkdir r && cp input.fa r/ && samtools faidx r/input.fa chr1:1-5"
+compare = "exit-status"
+expected_difference = "#fasta-implicit-index"
+
+# ctgA:5 is both a contig and a region of ctgA: samtools writes the header and exits 1,
+# gloci exits 2 asking for {ctgA}:5.
+[[case]]
+name = "faidx-region-ambiguous-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/faidx-colon.fa", "xtask/diff/inputs/fa/faidx-colon.fa.fai"]
+gloci = "gloci faidx faidx-colon.fa ctgA:5"
+reference = "samtools faidx faidx-colon.fa ctgA:5"
+compare = "exit-status"
+expected_difference = "#faidx-region-syntax"
+
+# {ctgA}:5-9 names the contig explicitly: both tools write ACGTA.
+[[case]]
+name = "faidx-region-braces-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/faidx.bed" }
+aux = ["xtask/diff/inputs/fa/faidx-colon.fa", "xtask/diff/inputs/fa/faidx-colon.fa.fai"]
+gloci = "gloci faidx faidx-colon.fa {ctgA}:5-9 {ctgA:5}:1-3"
+reference = "samtools faidx faidx-colon.fa {ctgA}:5-9 {ctgA:5}:1-3"
+compare = "exact"
+
+# dict (D132). dict-edge.fa has lower case, IUPAC, * and -, spaces, tabs and CRLF
+# inside sequence lines, an empty sequence, chrM/MT/M/chrMT names, a name that is
+# just chr, descriptions after names and non-ASCII bytes. Both sides pass a fixed
+# URI so UR is the same everywhere.
+
+[[case]]
+name = "dict-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/ref.fa" }
+gloci = "gloci dict --uri x input.fa"
+reference = "samtools dict -u x input.fa"
+compare = "exact"
+
+# Blank lines before the first header are skipped, by both.
+[[case]]
+name = "dict-leading-blank-lines-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/dict-blank-lead.fa" }
+gloci = "gloci dict --uri x input.fa"
+reference = "samtools dict -u x input.fa"
+compare = "exact"
+
+[[case]]
+name = "dict-edge-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/dict-edge.fa" }
+gloci = "gloci dict --uri x input.fa"
+reference = "samtools dict -u x input.fa"
+compare = "exact"
+
+[[case]]
+name = "dict-no-header-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/dict-edge.fa" }
+gloci = "gloci dict --no-header --uri x input.fa"
+reference = "samtools dict -H -u x input.fa"
+compare = "exact"
+
+[[case]]
+name = "dict-alias-assembly-species-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/dict-edge.fa" }
+gloci = "gloci dict --alias --assembly GRCh38 --species human --uri x input.fa"
+reference = "samtools dict -A -a GRCh38 -s human -u x input.fa"
+compare = "exact"
+
+[[case]]
+name = "dict-alt-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/dict-edge.fa" }
+aux = ["xtask/diff/inputs/samtools/alt.txt"]
+gloci = "gloci dict --alias --alt alt.txt --uri x input.fa"
+reference = "samtools dict -A -l alt.txt -u x input.fa"
+compare = "exact"
+
+[[case]]
+name = "dict-bgzf-vs-samtools"
+input = { file = "xtask/diff/inputs/fa/ref.fa.gz" }
+gloci = "gloci dict --uri x input.fa.gz"
+reference = "samtools dict -u x input.fa.gz"
+compare = "exact"
+
+[[case]]
+name = "dict-gzip-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/ref-gzip.fa.gz" }
+gloci = "gloci dict --uri x input.fa.gz"
+reference = "samtools dict -u x input.fa.gz"
+compare = "exact"
+
+[[case]]
+name = "dict-duplicate-names-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/dup.fa" }
+gloci = "gloci dict --uri x input.fa"
+reference = "samtools dict -u x input.fa"
+compare = "exit-status"
+expected_difference = "#dict-duplicate-names"
+
+[[case]]
+name = "dict-empty-file-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/empty.fa" }
+gloci = "gloci dict --uri x input.fa"
+reference = "samtools dict -u x input.fa"
+compare = "exit-status"
+expected_difference = "#dict-empty-input"
+
+[[case]]
+name = "dict-text-before-header-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/nohdr.fa" }
+gloci = "gloci dict --uri x input.fa"
+reference = "samtools dict -u x input.fa"
+compare = "exit-status"
+expected_difference = "#dict-empty-input"
+
+# P3c Task 1: `flags` (D136). It reads no file, so the input is only there because every
+# case has one. The first case sets the traps: hex and decimal give the same line, a name list
+# is case-insensitive, a flag with no name (0x1000) and zero print an empty third field, and
+# the bits come out in bit order whatever the order of the names.
+
+[[case]]
+name = "flags-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/empty.sam" }
+gloci = "gloci flags 0x704 1796 secondary,dup UNMAP,MUNMAP 0 4096"
+reference = "samtools flags 0x704 1796 secondary,dup UNMAP,MUNMAP 0 4096"
+compare = "exact"
+
+[[case]]
+name = "flags-table-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/empty.sam" }
+gloci = "gloci flags"
+reference = "samtools flags | grep -E '^ +0x'"
+compare = "exact"
+
+# An unknown name: samtools prints its usage and exits 1; gloci exits 2 (usage error).
+[[case]]
+name = "flags-bad-name-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/empty.sam" }
+gloci = "gloci flags bogus"
+reference = "samtools flags bogus"
+compare = "exit-status"
+expected_difference = "#samtools-exit-codes"
+
+# 010: samtools reads octal 8 and prints it; gloci refuses (exit 2).
+# A leading zero whose octal and decimal readings agree (00 to 07) means the same to both.
+[[case]]
+name = "flags-leading-zero-same-value-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/empty.sam" }
+gloci = "gloci flags 00 01 02 03 04 05 06 07 0007"
+reference = "samtools flags 00 01 02 03 04 05 06 07 0007"
+compare = "exact"
+
+[[case]]
+name = "flags-octal-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/empty.sam" }
+gloci = "gloci flags 010"
+reference = "samtools flags 010"
+compare = "exit-status"
+expected_difference = "#flags-leading-zero"
+
+# P3c Task 2: `idxstats` (D127). flags.bam holds a placed unmapped read (chr1) and one with no
+# reference, so a rule that counts a placed unmapped read as unplaced, or leaves it out, differs.
+# order.bam lists chrM first and its references are not in name order: a count that sorts the
+# references differs. The CRAM is decoded by samtools first (view -b -T), as for P3a.
+[[case]]
+name = "idxstats-index-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.bam" }
+aux = ["xtask/diff/inputs/aln/flags.bam", "xtask/diff/inputs/aln/flags.bam.bai"]
+gloci = "gloci idxstats flags.bam"
+reference = "samtools idxstats flags.bam"
+compare = "exact"
+
+[[case]]
+name = "idxstats-scan-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/order.bam" }
+gloci = "gloci idxstats input.bam"
+reference = "samtools idxstats input.bam"
+compare = "exact"
+
+[[case]]
+name = "idxstats-sam-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.sam" }
+gloci = "gloci idxstats input.sam"
+reference = "samtools idxstats input.sam"
+compare = "exact"
+
+[[case]]
+name = "idxstats-cram-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci idxstats input.cram --reference ref.fa"
+reference = "samtools view -b -T ref.fa input.cram -o t.bam && samtools idxstats t.bam"
+compare = "exact"
+
+# Chromosomes interleaved (chr1, chr2, chr1) and an unmapped read with no place: gloci counts
+# by reference, samtools' scan stops at the second chr1 run.
+[[case]]
+name = "idxstats-unsorted-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/unsorted-chroms.bam" }
+gloci = "gloci idxstats input.bam"
+reference = "samtools idxstats input.bam"
+compare = "exit-status"
+expected_difference = "#idxstats-unsorted"
+
+# An index without metadata pseudo-bins: htslib prints 0 0 for every reference, gloci scans.
+[[case]]
+name = "idxstats-index-without-counts-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/nometa/flags.bam" }
+aux = ["xtask/diff/inputs/samtools/nometa/flags.bam", "xtask/diff/inputs/samtools/nometa/flags.bam.bai"]
+gloci = "gloci idxstats flags.bam"
+reference = "samtools idxstats flags.bam"
+compare = "exact"
+expected_difference = "#idxstats-index-without-counts"
+
+# A CRAM whose containers need the reference: samtools counts without one (it decodes only the
+# fields it needs), gloci exits 1 (D109).
+[[case]]
+name = "idxstats-cram-no-reference-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.cram" }
+gloci = "gloci idxstats input.cram"
+reference = "REF_PATH=/nonexistent samtools idxstats input.cram"
+compare = "exit-status"
+expected_difference = "#cram-counts-need-reference"
+
+# `view --count` of the same file: samtools `view -c` decodes only what it needs and counts
+# without a reference; gloci exits 1.
+[[case]]
+name = "view-count-cram-no-reference-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.cram" }
+gloci = "gloci view --count input.cram"
+reference = "REF_PATH=/nonexistent samtools view -c input.cram"
+compare = "exit-status"
+expected_difference = "#cram-counts-need-reference"
+
+# The index is a CSI written by samtools (`samtools index -c`): the counts come from its
+# pseudo-bin, which sits at a different bin number than a BAI's only for a long reference.
+[[case]]
+name = "idxstats-csi-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.bam" }
+aux = ["xtask/diff/inputs/samtools/csi/flags.bam", "xtask/diff/inputs/samtools/csi/flags.bam.csi"]
+gloci = "gloci idxstats flags.bam"
+reference = "samtools idxstats flags.bam"
+compare = "exact"
+
+# P3c Task 3: `flagstat` (D128). flagstat.bam has 306 of 320 QC-passed reads mapped (95.63% in
+# samtools' f32 arithmetic, 95.62% in f64) and 7 singletons of 160 paired (4.37%, f64 4.38%),
+# secondary, supplementary and duplicate secondary reads, mates on another reference at MAPQ 4
+# and 5, a mapped read with RNEXT *, an unmapped read with 0x2, placed and unplaced unmapped
+# reads, and 12 QC-failed reads with none paired (N/A, null). empty.bam gives N/A everywhere.
+[[case]]
+name = "flagstat-categories-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/flagstat.bam" }
+gloci = "gloci flagstat input.bam"
+reference = "samtools flagstat input.bam"
+compare = "exact"
+
+[[case]]
+name = "flagstat-tsv-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/flagstat.bam" }
+gloci = "gloci flagstat input.bam -O tsv"
+reference = "samtools flagstat -O tsv input.bam"
+compare = "exact"
+
+[[case]]
+name = "flagstat-json-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/flagstat.bam" }
+gloci = "gloci flagstat input.bam -O json"
+reference = "samtools flagstat -O json input.bam"
+compare = "exact"
+
+[[case]]
+name = "flagstat-sam-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/flagstat.sam" }
+gloci = "gloci flagstat input.sam"
+reference = "samtools flagstat input.sam"
+compare = "exact"
+
+[[case]]
+name = "flagstat-empty-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/empty.bam" }
+gloci = "gloci flagstat input.bam -O json"
+reference = "samtools flagstat -O json input.bam"
+compare = "exact"
+
+[[case]]
+name = "flagstat-cram-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci flagstat input.cram --reference ref.fa"
+reference = "samtools view -b -T ref.fa input.cram -o t.bam && samtools flagstat t.bam"
+compare = "exact"
+
+# A CRAM whose containers need the reference: samtools counts without one, gloci exits 1 (D109).
+[[case]]
+name = "flagstat-cram-no-reference-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.cram" }
+gloci = "gloci flagstat input.cram"
+reference = "REF_PATH=/nonexistent samtools flagstat input.cram"
+compare = "exit-status"
+expected_difference = "#cram-counts-need-reference"
+
+# P3c Task 4: `check --quick` is samtools quickcheck (D129). samtools prints the failing paths
+# with -v; gloci prints them with --list-failed. flagstat.bam is good; noeof.bam lacks the BGZF
+# end-of-file block; nosq.bam has no @SQ line (-u accepts it); badfirst.bam has a good header and
+# end-of-file block and a first record whose block_size is 20, which samtools never reads;
+# calls.vcf.gz is a good BGZF VCF, which samtools rejects as not sequence data. The harness
+# stops at a command that fails unless the mode is exit-status, so every case where either side
+# fails compares exit statuses (so does a pass: its output is empty, which a golden refuses); the paths --list-failed prints are asserted in
+# crates/gloci/tests/check_alignments.rs.
+[[case]]
+name = "check-quick-good-bam-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/flagstat.bam" }
+gloci = "gloci check --quick --list-failed input.bam"
+reference = "samtools quickcheck -v input.bam"
+compare = "exit-status"
+
+[[case]]
+name = "check-quick-noeof-exit-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/noeof.bam" }
+gloci = "gloci check --quick --list-failed input.bam"
+reference = "samtools quickcheck -v input.bam"
+compare = "exit-status"
+expected_difference = "#samtools-exit-codes"
+
+[[case]]
+name = "check-quick-nosq-exit-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/nosq.bam" }
+gloci = "gloci check --quick --list-failed input.bam"
+reference = "samtools quickcheck -v input.bam"
+compare = "exit-status"
+expected_difference = "#samtools-exit-codes"
+
+[[case]]
+name = "check-quick-nosq-unaligned-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/nosq.bam" }
+gloci = "gloci check --quick --list-failed --unaligned input.bam"
+reference = "samtools quickcheck -v -u input.bam"
+compare = "exit-status"
+
+[[case]]
+name = "check-quick-badfirst-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/badfirst.bam" }
+gloci = "gloci check --quick --list-failed input.bam"
+reference = "samtools quickcheck -v input.bam"
+compare = "exit-status"
+expected_difference = "#quickcheck"
+
+[[case]]
+name = "check-quick-vcf-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/calls.vcf.gz" }
+gloci = "gloci check --quick --list-failed input.vcf.gz"
+reference = "samtools quickcheck -v input.vcf.gz"
+compare = "exit-status"
+expected_difference = "#quickcheck"
+
+# P3c Task 5: `head` (D134) and `samples` (D135). rg.bam has five @RG lines (samples NA12878,
+# NA12891, NA12878, HG002; LB on two; one line with no SM) whose samtools hash order differs from
+# the header order: the unordered cases compare as sets, `samples-order-vs-samtools` pins the order.
+# bcftools head adds ##FILTER=PASS to a header that lacks it, so head-vcf uses a header that has it.
+# nosm.sam has @RG lines but no SM. aln/notext.bam has binary references and no header text:
+# samtools head prints nothing for it, gloci writes the @SQ lines (#head-notext-header).
+
+[[case]]
+name = "head-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+gloci = "gloci head input.bam"
+reference = "samtools head input.bam"
+compare = "exact"
+
+[[case]]
+name = "head-records-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+gloci = "gloci head input.bam --headers 2 --records 3"
+reference = "samtools head -h 2 -n 3 input.bam"
+compare = "exact"
+
+[[case]]
+name = "head-records-only-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+gloci = "gloci head input.bam --headers 0 --records 5"
+reference = "samtools head -h 0 -n 5 input.bam"
+compare = "exact"
+
+[[case]]
+name = "head-sam-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.sam" }
+gloci = "gloci head input.sam --headers 3 --records 2"
+reference = "samtools head -h 3 -n 2 input.sam"
+compare = "exact"
+
+[[case]]
+name = "head-notext-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/notext.bam" }
+gloci = "gloci head input.bam --records 1"
+reference = "samtools head -n 1 input.bam"
+compare = "exact"
+expected_difference = "#head-notext-header"
+
+[[case]]
+name = "head-vcf-vs-bcftools"
+input = { file = "xtask/diff/inputs/hdr-distinct.vcf" }
+gloci = "gloci head input.vcf --records 2"
+reference = "bcftools head -n 2 input.vcf"
+compare = "exact"
+
+[[case]]
+name = "samples-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+gloci = "gloci samples input.bam"
+reference = "samtools samples input.bam"
+compare = "lines-unordered"
+
+[[case]]
+name = "samples-order-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+gloci = "gloci samples input.bam"
+reference = "samtools samples input.bam"
+compare = "exact"
+expected_difference = "#samples-order"
+
+[[case]]
+name = "samples-tag-column-names-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+gloci = "gloci samples input.bam --column-names --tag LB"
+reference = "samtools samples -h -T LB input.bam"
+compare = "lines-unordered"
+
+[[case]]
+name = "samples-no-sample-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/nosm.sam" }
+gloci = "gloci samples input.sam"
+reference = "samtools samples input.sam"
+compare = "exact"
+
+[[case]]
+name = "samples-show-index-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+aux = ["xtask/diff/inputs/samtools/rg.bam", "xtask/diff/inputs/samtools/rg.bam.bai"]
+gloci = "gloci samples rg.bam --show-index"
+reference = "samtools samples -i rg.bam"
+compare = "lines-unordered"
+
+[[case]]
+name = "samples-no-index-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+gloci = "gloci samples input.bam --show-index"
+reference = "samtools samples -i input.bam"
+compare = "lines-unordered"
+
+[[case]]
+name = "samples-match-reference-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+aux = ["xtask/diff/inputs/samtools/ref.fa", "xtask/diff/inputs/samtools/ref.fa.fai"]
+gloci = "gloci samples input.bam --match-reference ref.fa --column-names --show-index"
+reference = "samtools samples -h -i -f ref.fa input.bam"
+compare = "lines-unordered"
+
+[[case]]
+name = "samples-match-last-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+aux = ["xtask/diff/inputs/samtools/ref.fa", "xtask/diff/inputs/samtools/ref.fa.fai", "xtask/diff/inputs/samtools/ref2.fa", "xtask/diff/inputs/samtools/ref2.fa.fai"]
+gloci = "gloci samples input.bam --match-reference ref.fa --match-reference ref2.fa"
+reference = "samtools samples -f ref.fa -f ref2.fa input.bam"
+compare = "lines-unordered"
+
+[[case]]
+name = "samples-no-match-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+aux = ["xtask/diff/inputs/samtools/other.fa", "xtask/diff/inputs/samtools/other.fa.fai"]
+gloci = "gloci samples input.bam --match-reference other.fa"
+reference = "samtools samples -f other.fa input.bam"
+compare = "lines-unordered"
+
+[[case]]
+name = "samples-two-files-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+aux = ["xtask/diff/inputs/samtools/nosm.sam"]
+gloci = "gloci samples input.bam nosm.sam"
+reference = "samtools samples input.bam nosm.sam"
+compare = "lines-unordered"
+
+[[case]]
+name = "samples-fasta-no-fai-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/rg.bam" }
+aux = ["xtask/diff/inputs/samtools/ref.fa"]
+gloci = "gloci samples input.bam --match-reference ref.fa"
+reference = "mkdir r && cp ref.fa input.bam r/ && samtools samples -f r/ref.fa r/input.bam"
+compare = "exit-status"
+expected_difference = "#fasta-implicit-index"
+
+# P3c Task 5 fix round 1: head on BGZF VCF and BCF (headers with ##FILTER=PASS), and the header
+# bcftools completes (cluster-in.vcf has no PASS line).
+
+[[case]]
+name = "head-vcf-gz-vs-bcftools"
+input = { file = "xtask/diff/inputs/samtools/hdr-pass.vcf.gz" }
+gloci = "gloci head input.vcf.gz --records 2"
+reference = "bcftools head -n 2 input.vcf.gz"
+compare = "exact"
+
+[[case]]
+name = "head-bcf-vs-bcftools"
+input = { file = "xtask/diff/inputs/samtools/hdr-pass.bcf" }
+gloci = "gloci head input.bcf --records 2"
+reference = "bcftools head -n 2 input.bcf"
+compare = "exact"
+
+# view -O vcf of a BCF: the header shows no IDX= field, as bcftools view does
+# (`vcf` ignores each tool's command lines).
+[[case]]
+name = "view-bcf-to-vcf-header-vs-bcftools"
+input = { file = "xtask/diff/inputs/samtools/hdr-pass.bcf" }
+gloci = "gloci view -O vcf input.bcf"
+reference = "bcftools view -O v input.bcf"
+compare = "vcf"
+
+[[case]]
+name = "head-vcf-nopass-vs-bcftools"
+input = { file = "xtask/diff/inputs/cluster-in.vcf" }
+gloci = "gloci head input.vcf --records 2"
+reference = "bcftools head -n 2 input.vcf"
+compare = "exact"
+expected_difference = "#head-vcf-pass-line"
+# P3c Task 6
+# `depth` (D137, D138) against samtools 1.21. depth.bam sets the traps: a deletion whose next base
+# has quality 10 (-J -q 20 differs if the gate is the previous base), a 100 bp `N`, soft clips,
+# insertions, `=`/`X`, a mapped read with CIGAR `*` (samtools reads it as unmapped), QUAL `*`
+# (passes -q 50), MAPQ 29 and 30 (-Q 30 keeps 30), duplicate, secondary, QC-fail and
+# supplementary reads (only the supplementary one counts by default), a placed unmapped read
+# (prints a 0 row with --exclude-flags 0), proper-pair reads, reads of 30 (after clips), 49 and
+# 50 bases (-l 50 keeps 50), and an empty chr3 (only -aa prints it). `-g DUP` and `-G
+# SUPPLEMENTARY` are samtools' way to write this command's --exclude-flags. The index of the
+# region and per-chromosome cases is `input.bai`, the name samtools and gloci find beside
+# input.bam. depth-noseq.bam has reads with SEQ `*`: samtools reads past the record for their
+# base qualities, so only -l is compared on it. depth.cram has no reference inside it.
+
+[[case]]
+name = "depth-default-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam"
+reference = "samtools depth input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-all-positions-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --all-positions"
+reference = "samtools depth -a input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-all-references-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --all-references"
+reference = "samtools depth -aa input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-count-deletions-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --count-deletions"
+reference = "samtools depth -J input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-min-baseq-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --min-baseq 20"
+reference = "samtools depth -q 20 input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-min-mapq-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --min-mapq 30"
+reference = "samtools depth -Q 30 input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-deletions-baseq-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --count-deletions --min-baseq 20"
+reference = "samtools depth -J -q 20 input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-min-read-length-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --min-read-length 50"
+reference = "samtools depth -l 50 input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-noseq-min-read-length-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth-noseq.bam" }
+gloci = "gloci depth input.bam --min-read-length 50"
+reference = "samtools depth -l 50 input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-exclude-flags-dup-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --exclude-flags UNMAP,SECONDARY,QCFAIL"
+reference = "samtools depth -g DUP input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-exclude-flags-supplementary-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --exclude-flags UNMAP,SECONDARY,QCFAIL,DUP,SUPPLEMENTARY"
+reference = "samtools depth -G SUPPLEMENTARY input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-exclude-flags-zero-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --exclude-flags 0"
+reference = "samtools depth -g 0x704 input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-require-flags-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --require-flags PROPER_PAIR"
+reference = "samtools depth --require-flags PROPER_PAIR input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-column-names-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --column-names"
+reference = "samtools depth -H input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-region-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+aux = ["xtask/diff/inputs/samtools/depth-idx/input.bai"]
+gloci = "gloci depth input.bam --region chr1:100-200"
+reference = "samtools depth -r chr1:100-200 input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-region-all-positions-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+aux = ["xtask/diff/inputs/samtools/depth-idx/input.bai"]
+gloci = "gloci depth input.bam --region chr3:1-10 --all-positions"
+reference = "samtools depth -a -r chr3:1-10 input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-regions-file-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+aux = ["xtask/diff/inputs/samtools/targets.bed"]
+gloci = "gloci depth input.bam --regions-file targets.bed"
+reference = "samtools depth -b targets.bed input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-all-references-regions-file-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+aux = ["xtask/diff/inputs/samtools/targets.bed"]
+gloci = "gloci depth input.bam --all-references --regions-file targets.bed"
+reference = "samtools depth -aa -b targets.bed input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-two-files-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+aux = ["xtask/diff/inputs/samtools/depth2.bam"]
+gloci = "gloci depth input.bam depth2.bam --column-names"
+reference = "samtools depth -H input.bam depth2.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-sam-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.sam" }
+gloci = "gloci depth input.sam"
+reference = "samtools depth input.sam"
+compare = "exact"
+
+[[case]]
+name = "depth-cram-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.cram" }
+gloci = "gloci depth input.cram"
+reference = "samtools depth input.cram"
+compare = "exact"
+
+[[case]]
+name = "depth-per-chromosome-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+aux = ["xtask/diff/inputs/samtools/depth-idx/input.bai"]
+gloci = "gloci depth input.bam --all-references -t 4"
+reference = "samtools depth -aa input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-all-positions-regions-file-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+aux = ["xtask/diff/inputs/samtools/targets.bed"]
+gloci = "gloci depth input.bam --all-positions --regions-file targets.bed"
+reference = "samtools depth -a -b targets.bed input.bam"
+compare = "exact"
+expected_difference = "#depth-regions"
+
+[[case]]
+name = "depth-past-reference-end-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth-pastend.bam" }
+gloci = "gloci depth input.bam"
+reference = "samtools depth input.bam"
+compare = "exact"
+expected_difference = "#depth-past-reference-end"
+
+[[case]]
+name = "depth-reordered-references-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth-reordered.bam" }
+aux = ["xtask/diff/inputs/samtools/depth.bam"]
+gloci = "gloci depth input.bam depth.bam"
+reference = "samtools depth input.bam depth.bam"
+compare = "exit-status"
+expected_difference = "#depth-bedcov-same-sq"
+
+[[case]]
+name = "depth-unsorted-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth-unsorted.bam" }
+gloci = "gloci depth input.bam"
+reference = "samtools depth input.bam"
+compare = "exit-status"
+expected_difference = "#depth-order-check"
+
+# A read with SEQ `*` under -q: samtools reads the qualities from the bytes after the CIGAR (the
+# record's own XB aux array, so the output is stable), gloci counts every base.
+[[case]]
+name = "depth-seq-star-min-baseq-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth-noseq.bam" }
+gloci = "gloci depth input.bam --min-baseq 20"
+reference = "samtools depth -q 20 input.bam"
+compare = "exact"
+expected_difference = "#depth-seq-star-baseq"
+
+# P3c Task 7
+# `depth --skip-mate-overlap` (D139) against samtools -s on mates.bam. The first four leave out the
+# supplementary alignments (-G SUPPLEMENTARY), which are the stale-entry templates. The traps:
+# a partial overlap, mates at one position (the longer second), a contained second mate, a pair
+# that does not overlap, deletions before and across the clip (-J), a read with no mate position,
+# a mate on another reference, and second-mate bases of quality 5 (-q 10).
+
+[[case]]
+name = "depth-s-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/mates.bam" }
+gloci = "gloci depth input.bam --skip-mate-overlap --exclude-flags UNMAP,SECONDARY,QCFAIL,DUP,SUPPLEMENTARY"
+reference = "samtools depth -s -G SUPPLEMENTARY input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-s-count-deletions-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/mates.bam" }
+gloci = "gloci depth input.bam --skip-mate-overlap --count-deletions --exclude-flags UNMAP,SECONDARY,QCFAIL,DUP,SUPPLEMENTARY"
+reference = "samtools depth -s -J -G SUPPLEMENTARY input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-s-min-baseq-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/mates.bam" }
+gloci = "gloci depth input.bam --skip-mate-overlap --min-baseq 10 --exclude-flags UNMAP,SECONDARY,QCFAIL,DUP,SUPPLEMENTARY"
+reference = "samtools depth -s -q 10 -G SUPPLEMENTARY input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-s-all-positions-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/mates.bam" }
+gloci = "gloci depth input.bam --skip-mate-overlap --all-positions --exclude-flags UNMAP,SECONDARY,QCFAIL,DUP,SUPPLEMENTARY"
+reference = "samtools depth -s -a -G SUPPLEMENTARY input.bam"
+compare = "exact"
+
+# Template g (a resolved pair, then two supplementary alignments of one name inside the second
+# mate) and m (a read waiting for a mate at the end of chr1, then a supplementary of that name on
+# chr2): samtools clips them by a stale entry, gloci does not.
+[[case]]
+name = "depth-s-stale-entry-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/mates.bam" }
+gloci = "gloci depth input.bam --skip-mate-overlap"
+reference = "samtools depth -s input.bam"
+compare = "exact"
+expected_difference = "#depth-mate-overlap"
+
+# Template n: its first mate has MAPQ 5, so under -Q 10 it is filtered before the mate table; its
+# second mate is neither clipped by it nor held for it.
+[[case]]
+name = "depth-s-min-mapq-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/mates.bam" }
+gloci = "gloci depth input.bam --skip-mate-overlap --min-mapq 10 --exclude-flags UNMAP,SECONDARY,QCFAIL,DUP,SUPPLEMENTARY"
+reference = "samtools depth -s -Q 10 -G SUPPLEMENTARY input.bam"
+compare = "exact"
+
+# P3c Task 8
+# `bedcov` (D140) against samtools 1.21. bedcov.bed sets the traps: lines out of order with 3 to 6
+# columns (echoed as they are, so a column dropped or reordered shows), one CRLF line (samtools
+# strips the CR), `#`, `track` and blank lines, a zero-length region inside a read and two on its
+# edges (samtools counts no read for any zero-length region), regions only over an intron (chr1
+# 100-150) and only over a deletion (44-47), overlapping regions (ov1, ov2), a whole reference, an empty
+# chr3, the placed unmapped read at chr1:175, and one region that runs past chr2's LN (300). With
+# no -d, samtools counts D and N bases in the sum, as gloci does; with -d it drops both from both
+# columns, so `-d` alone is pinned and the matching cases use `-j`. `--split` alone and
+# `--split-deletions` alone have no samtools flag: the reference is `-j` over a copy of depth.bam
+# whose D (or N) operations are rewritten to M, with SEQ and QUAL `*` so the lengths need not
+# agree. The index is depth.bam.bai, beside depth.bam. depth-pastend.bam has reads that run past
+# chr2's LN. Zero-length regions never read the index.
+
+[[case]]
+name = "bedcov-default-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.bam", "xtask/diff/inputs/samtools/depth.bam.bai"]
+gloci = "gloci bedcov input.bed depth.bam"
+reference = "samtools bedcov input.bed depth.bam"
+compare = "exact"
+
+[[case]]
+name = "bedcov-read-count-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.bam", "xtask/diff/inputs/samtools/depth.bam.bai"]
+gloci = "gloci bedcov input.bed depth.bam --read-count"
+reference = "samtools bedcov -c input.bed depth.bam"
+compare = "exact"
+
+[[case]]
+name = "bedcov-split-both-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.bam", "xtask/diff/inputs/samtools/depth.bam.bai"]
+gloci = "gloci bedcov input.bed depth.bam --split --split-deletions"
+reference = "samtools bedcov -j input.bed depth.bam"
+compare = "exact"
+
+[[case]]
+name = "bedcov-split-alone-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.bam", "xtask/diff/inputs/samtools/depth.bam.bai"]
+gloci = "gloci bedcov input.bed depth.bam --split"
+reference = '''set -e; samtools view -h depth.bam | awk 'BEGIN{OFS="\t"} /^@/{print;next} {gsub(/D/,"M",$6); $10="*"; $11="*"; print}' | samtools view -b -o t.bam -; samtools index t.bam; samtools bedcov -j input.bed t.bam'''
+compare = "exact"
+
+[[case]]
+name = "bedcov-split-deletions-alone-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.bam", "xtask/diff/inputs/samtools/depth.bam.bai"]
+gloci = "gloci bedcov input.bed depth.bam --split-deletions"
+reference = '''set -e; samtools view -h depth.bam | awk 'BEGIN{OFS="\t"} /^@/{print;next} {gsub(/N/,"M",$6); $10="*"; $11="*"; print}' | samtools view -b -o t.bam -; samtools index t.bam; samtools bedcov -j input.bed t.bam'''
+compare = "exact"
+
+[[case]]
+name = "bedcov-bases-at-depth-split-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.bam", "xtask/diff/inputs/samtools/depth.bam.bai"]
+gloci = "gloci bedcov input.bed depth.bam --bases-at-depth 2 --split --split-deletions"
+reference = "samtools bedcov -d 2 -j input.bed depth.bam"
+compare = "exact"
+
+[[case]]
+name = "bedcov-min-mapq-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.bam", "xtask/diff/inputs/samtools/depth.bam.bai"]
+gloci = "gloci bedcov input.bed depth.bam --min-mapq 30 --read-count"
+reference = "samtools bedcov -Q 30 -c input.bed depth.bam"
+compare = "exact"
+
+[[case]]
+name = "bedcov-exclude-flags-dup-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.bam", "xtask/diff/inputs/samtools/depth.bam.bai"]
+gloci = "gloci bedcov input.bed depth.bam --exclude-flags UNMAP,SECONDARY,QCFAIL --read-count"
+reference = "samtools bedcov -g DUP -c input.bed depth.bam"
+compare = "exact"
+
+[[case]]
+name = "bedcov-two-files-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.bam", "xtask/diff/inputs/samtools/depth.bam.bai", "xtask/diff/inputs/samtools/depth2.bam", "xtask/diff/inputs/samtools/depth2.bam.bai"]
+gloci = "gloci bedcov input.bed depth.bam depth2.bam --column-names --read-count --bases-at-depth 1 --split --split-deletions"
+reference = "samtools bedcov -H -c -d 1 -j input.bed depth.bam depth2.bam"
+compare = "exact"
+
+[[case]]
+name = "bedcov-cram-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.cram", "xtask/diff/inputs/samtools/depth.cram.crai"]
+gloci = "gloci bedcov input.bed depth.cram --read-count"
+reference = "set -e; samtools view -b -o t.bam depth.cram; samtools index t.bam; samtools bedcov -c input.bed t.bam"
+compare = "exact"
+
+# `-d` alone: samtools leaves D and N bases out of both columns; gloci keeps what --split and
+# --split-deletions say.
+
+[[case]]
+name = "bedcov-depth-threshold-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.bam", "xtask/diff/inputs/samtools/depth.bam.bai"]
+gloci = "gloci bedcov input.bed depth.bam --bases-at-depth 2"
+reference = "samtools bedcov -d 2 input.bed depth.bam"
+compare = "exact"
+expected_difference = "#bedcov-depth-threshold"
+
+# A chromosome the files lack (line 9): samtools reports it and exits 2, gloci exits 1.
+
+[[case]]
+name = "bedcov-bad-chrom-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov-badchrom.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.bam", "xtask/diff/inputs/samtools/depth.bam.bai"]
+gloci = "gloci bedcov input.bed depth.bam"
+reference = "samtools bedcov input.bed depth.bam"
+compare = "exit-status"
+expected_difference = "#bedcov-bad-line"
+
+# Reads that run past chr2's LN: samtools counts the bases beyond it.
+
+[[case]]
+name = "bedcov-past-reference-end-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth-pastend.bam", "xtask/diff/inputs/samtools/depth-pastend.bam.bai"]
+gloci = "gloci bedcov input.bed depth-pastend.bam"
+reference = "samtools bedcov input.bed depth-pastend.bam"
+compare = "exact"
+expected_difference = "#depth-past-reference-end"
+
+# --exclude-flags 0 is samtools -g 0x704: duplicate, secondary and QC-fail reads count, and the
+# placed unmapped read still does not.
+[[case]]
+name = "bedcov-exclude-flags-zero-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/bedcov.bed" }
+aux = ["xtask/diff/inputs/samtools/depth.bam", "xtask/diff/inputs/samtools/depth.bam.bai"]
+gloci = "gloci bedcov input.bed depth.bam --exclude-flags 0 --read-count"
+reference = "samtools bedcov -g 0x704 -c input.bed depth.bam"
+compare = "exact"
+# P3c Task 11: `reheader` (D130). reheader-in.bam has three references of different lengths
+# (chr1 1000, chr2 2000, chr3 3000) and a read on each, so a swapped order shows in the LNs.
+# new-header.sam renames them to 1, 2, 3, appends a fourth @SQ and changes the @RG; the BAM
+# header file new-header.bam holds the same header. samtools runs with -P (no @PG); the `bam` and
+# `cram` modes ignore gloci's own @PG line.
+[[case]]
+name = "reheader-bam-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/reheader-in.bam" }
+aux = ["xtask/diff/inputs/samtools/new-header.sam"]
+gloci = "gloci reheader new-header.sam input.bam"
+reference = "samtools reheader -P new-header.sam input.bam"
+compare = "bam"
+
+[[case]]
+name = "reheader-bam-header-file-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/reheader-in.bam" }
+aux = ["xtask/diff/inputs/samtools/new-header.bam"]
+gloci = "gloci reheader new-header.bam input.bam"
+reference = "samtools reheader -P new-header.bam input.bam"
+compare = "bam"
+
+# P3a's embed_ref CRAM (chr1 1000, chr2 1234, with M5): the new header repeats the M5s, renames
+# the references, adds a third @SQ and changes the @RG. gloci writes a new header container and
+# copies the data containers; the compare mode decodes both.
+[[case]]
+name = "reheader-cram-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.embed.cram" }
+aux = ["xtask/diff/inputs/samtools/new-header-cram.sam"]
+gloci = "gloci reheader new-header-cram.sam input.embed.cram"
+reference = "samtools reheader -P new-header-cram.sam input.embed.cram"
+compare = "cram"
+
+# bad-ln.sam changes chr2's LN and bad-order.sam swaps chr2 and chr3: samtools writes the file,
+# gloci exits 1.
+[[case]]
+name = "reheader-bad-ln-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/reheader-in.bam" }
+aux = ["xtask/diff/inputs/samtools/bad-ln.sam"]
+gloci = "gloci reheader bad-ln.sam input.bam"
+reference = "samtools reheader -P bad-ln.sam input.bam"
+compare = "exit-status"
+expected_difference = "#reheader-sq-check"
+
+[[case]]
+name = "reheader-bad-order-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/reheader-in.bam" }
+aux = ["xtask/diff/inputs/samtools/bad-order.sam"]
+gloci = "gloci reheader bad-order.sam input.bam"
+reference = "samtools reheader -P bad-order.sam input.bam"
+compare = "exit-status"
+expected_difference = "#reheader-sq-check"
+
+# P3c Task 12: `view --count` (samtools `view -c`) and `--regions-file` on alignments (samtools
+# `-L`), D133. The reads are aln/flags.bam's; gloci reads input.bam unindexed (it scans), and
+# samtools is given the .bai where positional regions need one. targets.bed holds zero-length
+# regions on the edges of and inside the reads at chr1:101, overlapping regions, the placed
+# unmapped read and a chr2 region (see make-samtools.sh).
+[[case]]
+name = "view-count-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.bam" }
+gloci = "gloci view --count input.bam"
+reference = "samtools view -c input.bam"
+compare = "exact"
+
+[[case]]
+name = "view-count-regions-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.bam" }
+aux = ["xtask/diff/inputs/aln/flags.bam.bai"]
+gloci = "gloci view --count input.bam chr1:1-150 chr2:95-105"
+reference = "samtools view -c -X input.bam flags.bam.bai chr1:1-150 chr2:95-105"
+compare = "exact"
+
+[[case]]
+name = "view-count-filters-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.bam" }
+gloci = "gloci view --count --exclude-flags UNMAP,SECONDARY input.bam"
+reference = "samtools view -c -F 0x104 input.bam"
+compare = "exact"
+
+[[case]]
+name = "view-regions-file-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.bam" }
+aux = ["xtask/diff/inputs/samtools/view-targets.bed"]
+gloci = "gloci view -O sam --no-header --regions-file view-targets.bed input.bam"
+reference = "samtools view --no-PG -L view-targets.bed input.bam"
+compare = "sam"
+
+[[case]]
+name = "view-count-regions-file-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.bam" }
+aux = ["xtask/diff/inputs/samtools/view-targets.bed"]
+gloci = "gloci view --count --regions-file view-targets.bed input.bam"
+reference = "samtools view -c -L view-targets.bed input.bam"
+compare = "exact"
+
+# Pinned (#view-overlapping-regions): chr1:101-110 matches both regions; samtools writes it twice.
+[[case]]
+name = "view-count-overlapping-regions-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.bam" }
+aux = ["xtask/diff/inputs/aln/flags.bam.bai"]
+gloci = "gloci view --count input.bam chr1:1-150 chr1:100-200"
+reference = "samtools view -c -X input.bam flags.bam.bai chr1:1-150 chr1:100-200"
+compare = "exact"
+expected_difference = "#view-overlapping-regions"
+
+# Pinned (#view-regions-union): view-targets.bed also covers chr2; samtools keeps only the chr1 reads
+# that are in view-targets.bed, gloci counts all of chr1 plus view-targets.bed's chr2 reads.
+[[case]]
+name = "view-count-regions-union-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/flags.bam" }
+aux = ["xtask/diff/inputs/aln/flags.bam.bai", "xtask/diff/inputs/samtools/view-targets.bed"]
+gloci = "gloci view --count input.bam chr1 --regions-file view-targets.bed"
+reference = "samtools view -c -X -L view-targets.bed input.bam flags.bam.bai chr1"
+compare = "exact"
+expected_difference = "#view-regions-union"

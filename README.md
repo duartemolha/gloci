@@ -7,8 +7,11 @@ multi-GB VCF, BED and BAM files.
 
 It reads BAM, CRAM and SAM in the interval commands (`intersect`, `coverage`,
 `genomecov`, `convert`), and covers samtools `view`, `sort`, `merge`
-(`gloci sort -m`), `cat`, `index` and `faidx` (`gloci index ref.fa`). FASTA
-tools are `getfasta`, `maskfasta` and `nuc`.
+(`gloci sort -m`), `cat` and `index` (`gloci index ref.fa` for FASTA). FASTA
+tools are `getfasta`, `maskfasta`, `nuc`, `faidx` and `dict`. The samtools
+essentials are there too: `flags`, `idxstats`, `flagstat`, `head`, `samples`,
+`depth`, `bedcov`, `reheader`, `view --count`, and `check` (`check --quick` is
+`samtools quickcheck`).
 
 ## Install
 

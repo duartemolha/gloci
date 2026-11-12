@@ -132,5 +132,5 @@ fn gate_message_names_the_fasta_uses() {
         .arg(&p)
         .assert()
         .code(2)
-        .stderr(contains("getfasta, maskfasta or nuc").and(contains("-g ref.fa")));
+        .stderr(contains("getfasta, maskfasta, nuc, faidx or dict").and(contains("-g ref.fa")));
 }

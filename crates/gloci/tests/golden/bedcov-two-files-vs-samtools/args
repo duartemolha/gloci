@@ -1,0 +1,1 @@
+bedcov input.bed depth.bam depth2.bam --column-names --read-count --bases-at-depth 1 --split --split-deletions

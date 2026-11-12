@@ -75,7 +75,9 @@ pub fn load_cases(path: &Path) -> Result<Vec<Case>> {
                     | "exit-status"
                     | "numeric"
                     | "sam"
+                    | "vcf"
                     | "bam"
+                    | "cram"
             ),
             "{}: unknown compare mode `{}`",
             c.name,
@@ -394,6 +396,16 @@ mod tests {
             b"##y=2\n#CHROM\nr1\n"
         ));
         assert!(!compare("vcf-records", b"#h\nr1\nr2\n", b"#h\nr2\nr1\n"));
+        assert!(compare(
+            "vcf",
+            b"##a=<ID=x>\n##bcftools_viewVersion=1\n##bcftools_viewCommand=v\n#CHROM\nr1\n",
+            b"##a=<ID=x>\n##glociCommand=g\n#CHROM\nr1\n"
+        ));
+        assert!(!compare(
+            "vcf",
+            b"##a=<ID=x>\n#CHROM\nr1\n",
+            b"##a=<ID=x,IDX=0>\n#CHROM\nr1\n"
+        ));
         assert!(compare("numeric", b"a\t2.5\n", b"a\t2.5000001\n"));
         assert!(!compare("numeric", b"a\t2.5\n", b"a\t2.6\n"));
     }
