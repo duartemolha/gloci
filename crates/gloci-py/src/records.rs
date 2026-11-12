@@ -761,7 +761,8 @@ struct Live {
 ///
 /// The steps run while it is read. Breaking out of a loop over it, or dropping it, cancels the
 /// steps and joins their threads (with the GIL released), and their temporary files are
-/// removed. An error of the run is raised once the records before it have been read (D90).
+/// removed. An error of the run ends the iteration (D90); the records just before it may not
+/// have been given, since a pipe reports a failure upstream before the data still in it.
 #[pyclass(module = "gloci._native", name = "RecordIterator")]
 pub(crate) struct RecordIterator {
     live: Mutex<Option<Live>>,
@@ -787,7 +788,7 @@ impl RecordIterator {
 
 impl Live {
     /// The next record, driving the run (D91) until one comes; None at the end. The run's
-    /// error is raised once every record before it was given.
+    /// error is raised once the batches the reader sent before it are given.
     fn next(&mut self, py: Python<'_>) -> PyResult<Option<Record>> {
         loop {
             if let Some(m) = self.batch.rows.get(self.next) {

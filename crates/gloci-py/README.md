@@ -86,7 +86,8 @@ for r in gloci.open("calls.vcf.gz").intersect(b="targets.bed"):
   line), which names its columns.
 - Records are handed over in batches of about 4 MiB, so memory stays flat however large the
   output. Breaking out of the loop (or dropping the iterator) stops the steps, and their
-  temporary files are removed. An error is raised once the records before it have been given.
+  temporary files are removed. An error ends the iteration (D90's exceptions); the records just
+  before it may not have been given, as a failing step stops its output where it fails.
 - A list of records is a source again: `gloci.open(records)` reads their lines.
 
 `to_arrow()` returns a `pyarrow.Table`, `to_polars()` a `polars.DataFrame` and `to_pandas()` a
