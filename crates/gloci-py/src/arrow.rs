@@ -201,8 +201,10 @@ pub(crate) struct ArrowSink {
     header_row: Option<Vec<u8>>,
     rows: usize,
     chrom: TextColumn,
-    start: Vec<Option<i64>>,
-    end: Vec<Option<i64>>,
+    /// The footprints, and the rows (in order) that have none.
+    start: Vec<i64>,
+    end: Vec<i64>,
+    no_span: Vec<usize>,
     /// The record's fields that are columns, by field index (`None`: the field is `chrom`,
     /// `start` or `end`).
     cols: Vec<Option<TextColumn>>,
@@ -222,6 +224,7 @@ impl ArrowSink {
             chrom: TextColumn::new(0),
             start: Vec::new(),
             end: Vec::new(),
+            no_span: Vec::new(),
             cols: Vec::new(),
             chunks: Vec::new(),
             chunk_bytes: 0,
@@ -336,70 +339,107 @@ impl ArrowSink {
         if bounds.last() != Some(&self.rows) {
             bounds.push(self.rows);
         }
-        let mut chrom = Cursor::new(&self.chrom);
-        let mut cursors: Vec<Cursor<'_>> = kinds
-            .iter()
-            .map(|(i, _)| Cursor::new(self.cols[*i].as_ref().expect("a column")))
+        let ranges: Vec<(usize, usize)> = std::iter::once(0)
+            .chain(bounds.iter().copied())
+            .zip(bounds.iter().copied())
+            .filter(|(a, b)| b > a)
             .collect();
-        let mut batches = Vec::new();
-        let mut from = 0;
-        for to in bounds {
-            if to == from {
-                continue;
+        // Column by column, each one's text freed once its arrays are built, so that the text
+        // and the arrays are not all held at once. `columns[c][k]` is column c of batch k.
+        let mut columns: Vec<Vec<ArrayRef>> = Vec::with_capacity(schema.fields().len());
+        if self.coords() {
+            let chrom = std::mem::take(&mut self.chrom);
+            columns.push(text_arrays(&chrom, &ranges));
+            drop(chrom);
+            let no_span = std::mem::take(&mut self.no_span);
+            for v in [
+                std::mem::take(&mut self.start),
+                std::mem::take(&mut self.end),
+            ] {
+                columns.push(int_arrays(&v, &no_span, &ranges));
             }
-            let n = to - from;
-            let mut arrays: Vec<ArrayRef> = Vec::with_capacity(schema.fields().len());
-            if self.coords() {
-                arrays.push(text_array(&mut chrom, n));
-                let ints = |v: &[Option<i64>]| -> ArrayRef {
-                    let mut b = Int64Builder::with_capacity(n);
-                    b.extend(v[from..to].iter().copied());
-                    Arc::new(b.finish())
-                };
-                arrays.push(ints(&self.start));
-                arrays.push(ints(&self.end));
-            }
-            for (c, (_, kind)) in cursors.iter_mut().zip(&kinds) {
-                arrays.push(match kind {
-                    Kind::Text => text_array(c, n),
-                    Kind::Int => {
-                        let mut b = Int64Builder::with_capacity(n);
-                        for _ in 0..n {
-                            b.append_option(c.next().and_then(int_value));
-                        }
-                        Arc::new(b.finish())
-                    }
-                    Kind::Float => {
-                        let mut b = Float64Builder::with_capacity(n);
-                        for _ in 0..n {
-                            b.append_option(c.next().and_then(float_value));
-                        }
-                        Arc::new(b.finish())
-                    }
-                });
-            }
-            batches.push(
-                RecordBatch::try_new(schema.clone(), arrays).expect("the columns match the schema"),
-            );
-            from = to;
         }
+        for (i, kind) in &kinds {
+            let col = self.cols[*i].take().expect("a column");
+            columns.push(match kind {
+                Kind::Text => text_arrays(&col, &ranges),
+                Kind::Int => parsed_arrays(&col, &ranges, Int64Builder::with_capacity, int_value),
+                Kind::Float => {
+                    parsed_arrays(&col, &ranges, Float64Builder::with_capacity, float_value)
+                }
+            });
+        }
+        let batches = (0..ranges.len())
+            .map(|k| {
+                let arrays: Vec<ArrayRef> = columns.iter().map(|c| c[k].clone()).collect();
+                RecordBatch::try_new(schema.clone(), arrays).expect("the columns match the schema")
+            })
+            .collect();
         Table { schema, batches }
     }
 }
 
-/// `n` values of a string column; an absent one is null.
-fn text_array(c: &mut Cursor<'_>, n: usize) -> ArrayRef {
-    let mut b = StringBuilder::with_capacity(n, 0);
-    for _ in 0..n {
-        match c.next() {
-            None => b.append_null(),
-            Some(v) => match std::str::from_utf8(v) {
-                Ok(s) => b.append_value(s),
-                Err(_) => b.append_value(String::from_utf8_lossy(v)),
-            },
-        }
-    }
-    Arc::new(b.finish())
+/// A string column's arrays, one per row range; an absent value is null.
+fn text_arrays(col: &TextColumn, ranges: &[(usize, usize)]) -> Vec<ArrayRef> {
+    let mut c = Cursor::new(col);
+    ranges
+        .iter()
+        .map(|&(from, to)| {
+            let bytes: usize = col.lens[from..to].iter().map(|&n| n as usize).sum();
+            let mut b = StringBuilder::with_capacity(to - from, bytes);
+            for _ in from..to {
+                match c.next() {
+                    None => b.append_null(),
+                    Some(v) => match std::str::from_utf8(v) {
+                        Ok(s) => b.append_value(s),
+                        Err(_) => b.append_value(String::from_utf8_lossy(v)),
+                    },
+                }
+            }
+            Arc::new(b.finish()) as ArrayRef
+        })
+        .collect()
+}
+
+/// A number column's arrays, one per row range, its values parsed with `parse`; an absent or
+/// `.` value is null.
+fn parsed_arrays<T, B>(
+    col: &TextColumn,
+    ranges: &[(usize, usize)],
+    builder: impl Fn(usize) -> B,
+    parse: impl Fn(&[u8]) -> Option<T>,
+) -> Vec<ArrayRef>
+where
+    B: arrow_array::builder::ArrayBuilder + Extend<Option<T>>,
+{
+    let mut c = Cursor::new(col);
+    ranges
+        .iter()
+        .map(|&(from, to)| {
+            let mut b = builder(to - from);
+            b.extend((from..to).map(|_| c.next().and_then(&parse)));
+            b.finish()
+        })
+        .collect()
+}
+
+/// An int64 column's arrays from its values, one per row range; the rows in `nulls` are null.
+fn int_arrays(values: &[i64], nulls: &[usize], ranges: &[(usize, usize)]) -> Vec<ArrayRef> {
+    let mut next_null = nulls.iter().peekable();
+    ranges
+        .iter()
+        .map(|&(from, to)| {
+            let mut b = Int64Builder::with_capacity(to - from);
+            for (r, v) in values.iter().enumerate().take(to).skip(from) {
+                if next_null.next_if(|&&n| n == r).is_some() {
+                    b.append_null();
+                } else {
+                    b.append_value(*v);
+                }
+            }
+            Arc::new(b.finish()) as ArrayRef
+        })
+        .collect()
 }
 
 impl RowSink for ArrowSink {
@@ -442,9 +482,12 @@ impl RowSink for ArrowSink {
                 Some(c) => self.chrom.push(&c),
                 None => self.chrom.push_absent(),
             }
-            let span = row.span.map(|(s, e)| (s as i64, e as i64));
-            self.start.push(span.map(|s| s.0));
-            self.end.push(span.map(|s| s.1));
+            let (s, e) = row.span.unwrap_or_else(|| {
+                self.no_span.push(self.rows);
+                (0, 0)
+            });
+            self.start.push(s as i64);
+            self.end.push(e as i64);
         }
         self.rows += 1;
         self.chunk_bytes += row.line.len() + 1;
