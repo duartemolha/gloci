@@ -368,10 +368,10 @@ impl MatchStats {
     }
 }
 
-/// A number of a `numeric` line that is compared with a tolerance: its
-/// value and the decimal places its text gives (digits after the point, less
-/// the exponent: `0.25` has 2, `1.5e-3` has 4).
-type Approx = (f64, i32);
+/// A number of a `numeric` line that is not an integer literal: its field
+/// index, its value and the decimal places its text gives (digits after the
+/// point, less the exponent: `0.25` has 2, `1.5e-3` has 4).
+type Approx = (u16, f64, i32);
 
 /// One output line under a concordance compare mode: the key that must be
 /// equal, and for `numeric` the numbers compared with a tolerance.
@@ -380,8 +380,11 @@ struct Parsed {
     approx: Vec<Approx>,
 }
 
-/// Relative difference two doubles may have from computing in another order.
-const REL_TOL: f64 = 1e-9;
+/// Relative difference two numbers may have and still agree, as in the
+/// `numeric` mode of [`compare`]: tools compute in another order or precision
+/// (bedtools coverage computes its fractions in single precision, which
+/// moves the 7th decimal; bedmap's running sums drift by about 1e-9).
+const REL_TOL: f64 = 1e-5;
 
 fn decimals(text: &[u8]) -> i32 {
     let s = std::str::from_utf8(text).unwrap_or("");
@@ -393,14 +396,48 @@ fn decimals(text: &[u8]) -> i32 {
     frac - exp
 }
 
-/// Two numbers agree when they differ by no more than half a unit of the last
-/// decimal place of the less precise text (a tool printing fewer digits
-/// rounded there), or by a relative [`REL_TOL`].
-fn approx_equal(x: Approx, y: Approx) -> bool {
+/// Two numbers (value, decimal places; `i32::MAX` for an integer literal)
+/// agree when they differ by no more than half a unit of the last decimal
+/// place of the less precise text (a tool printing fewer digits rounded
+/// there), or by a relative [`REL_TOL`].
+fn approx_equal(x: (f64, i32), y: (f64, i32)) -> bool {
     let diff = (x.0 - y.0).abs();
     let mag = x.0.abs().max(y.0.abs());
-    let printed = 0.5 * 10f64.powi(-x.1.min(y.1));
+    let printed = match x.1.min(y.1) {
+        i32::MAX => 0.0,
+        d => 0.5 * 10f64.powi(-d),
+    };
     diff <= printed + 4.0 * f64::EPSILON * mag || diff <= REL_TOL * mag
+}
+
+/// Whether the numbers of two `numeric` lines with one key agree. A field
+/// that is a number on one side only is an integer literal on the other, and
+/// the key says it is the number's nearest integer.
+fn approx_lines_equal(a: &[Approx], b: &[Approx]) -> bool {
+    let (mut i, mut j) = (0, 0);
+    loop {
+        let (x, y) = (a.get(i), b.get(j));
+        let ok = match (x, y) {
+            (None, None) => return true,
+            (Some(x), Some(y)) if x.0 == y.0 => {
+                i += 1;
+                j += 1;
+                approx_equal((x.1, x.2), (y.1, y.2))
+            }
+            (Some(x), y) if y.is_none_or(|y| x.0 < y.0) => {
+                i += 1;
+                approx_equal((x.1, x.2), (x.1.round(), i32::MAX))
+            }
+            (_, Some(y)) => {
+                j += 1;
+                approx_equal((y.1, y.2), (y.1.round(), i32::MAX))
+            }
+            (Some(_), None) => unreachable!(),
+        };
+        if !ok {
+            return false;
+        }
+    }
 }
 
 fn parse_line(mode: &str, line: &[u8]) -> Option<Parsed> {
@@ -422,9 +459,16 @@ fn parse_line(mode: &str, line: &[u8]) -> Option<Parsed> {
                 }
                 match numeric_field(f) {
                     Numeric::Int(v) => h.write(v.to_string().as_bytes()),
-                    Numeric::Approx(x) => {
-                        h.write_u8(0x01);
-                        approx.push((x, decimals(f)));
+                    Numeric::Float(x) => {
+                        // Keyed by its nearest integer, as an integer literal
+                        // is (or as a number only, when too large), and
+                        // compared by value.
+                        if x.abs() < 1e15 {
+                            h.write((x.round() as i128).to_string().as_bytes());
+                        } else {
+                            h.write_u8(0x01);
+                        }
+                        approx.push((i.min(u16::MAX as usize) as u16, x, decimals(f)));
                     }
                     Numeric::Text => h.write(f),
                 }
@@ -439,9 +483,8 @@ fn parse_line(mode: &str, line: &[u8]) -> Option<Parsed> {
 }
 
 enum Numeric {
-    /// An integer literal, or a number within [`REL_TOL`] of an integer.
     Int(i128),
-    Approx(f64),
+    Float(f64),
     Text,
 }
 
@@ -455,14 +498,9 @@ fn numeric_field(f: &[u8]) -> Numeric {
             None => Numeric::Text,
         };
     }
-    let Some(x) = parse_f64(f) else {
-        return Numeric::Text;
-    };
-    let r = x.round();
-    if (x - r).abs() <= REL_TOL * x.abs().max(1.0) && r.abs() < 1e15 {
-        Numeric::Int(r as i128)
-    } else {
-        Numeric::Approx(x)
+    match parse_f64(f) {
+        Some(x) => Numeric::Float(x),
+        None => Numeric::Text,
     }
 }
 
@@ -473,13 +511,16 @@ fn numeric_field(f: &[u8]) -> Numeric {
 /// - `exact`: the bytes of the line.
 /// - `vcf-records`: the same, and every line that starts with `#` (meta lines
 ///   and the column-name line) is skipped, as tools write different headers.
-/// - `numeric`: tab fields; an integer literal counts by its value (`007` is
-///   7), and so does a number within a relative 1e-9 of an integer (`3.0`,
-///   `2.9999999999999996`); any other number is compared apart, with the
-///   tolerance of the less precise text: half a unit of its last decimal
-///   place, so `0.1929825` (a tool printing 7 decimals) equals
-///   `0.19298245614035087`, while `0.012345` does not equal `0.012346`. Other
-///   fields count by their bytes.
+/// - `numeric`: tab fields. An integer literal counts by its value (`007` is
+///   7). Another number counts in the key by its nearest integer, and the
+///   numbers of two lines with one key are then compared with a tolerance
+///   (an integer literal against the number it is nearest to): half a unit of
+///   the last decimal place of the less precise text, so `0.1929825` (a tool
+///   printing 7 decimals) equals `0.19298245614035087` and `3` equals `3.0`,
+///   while `0.012345` does not equal `0.012346`; or a relative 1e-5, the
+///   tolerance of the `numeric` mode of [`compare`]. Two values on either
+///   side of a half (`2.4999` and `2.5001`) never match. Other fields count by
+///   their bytes.
 ///
 /// Panics on another mode ([`match_stats`] checks it first).
 pub fn line_key(mode: &str, line: &[u8]) -> Option<u64> {
@@ -619,10 +660,7 @@ pub fn match_stats_with_residual(
     let (n_reference, order_r) = for_each_parsed(mode, reference, |p, _| {
         if numeric {
             let found = res.gloci.get_mut(&p.key).and_then(|list| {
-                let i = list.iter().position(|g| {
-                    g.len() == p.approx.len()
-                        && g.iter().zip(&p.approx).all(|(&a, &b)| approx_equal(a, b))
-                })?;
+                let i = list.iter().position(|g| approx_lines_equal(g, &p.approx))?;
                 list.swap_remove(i);
                 Some(list.is_empty())
             });
@@ -897,8 +935,35 @@ mod tests {
         assert_eq!(stats("numeric", "x\t-0.0\n", "x\t0\n").rate(), 1.0);
         assert!(stats("numeric", "x\t0.012345\n", "x\t0.012346\n").rate() < 1.0);
         assert!(stats("numeric", "x\t0.0028571\n", "x\t0.0028572\n").rate() < 1.0);
-        assert!(stats("numeric", "x\t2.9999999\n", "x\t3\n").rate() < 1.0);
+        assert_eq!(stats("numeric", "x\t2.9999999\n", "x\t3\n").rate(), 1.0);
+        // bedtools coverage prints 7 decimals of a tiny fraction.
+        assert_eq!(
+            stats(
+                "numeric",
+                "all\t3\t0.000000007968778593\n",
+                "all\t3\t0.0000000\n"
+            )
+            .rate(),
+            1.0
+        );
+        assert!(stats("numeric", "x\t3.00004\n", "x\t3\n").rate() < 1.0);
         assert!(stats("numeric", "x\t3.4\n", "x\t3\n").rate() < 1.0);
+        // Single-precision results, as bedtools coverage prints its fractions.
+        assert_eq!(
+            stats("numeric", "x\t0.0364963503649635\n", "x\t0.0364963\n").rate(),
+            1.0
+        );
+        // A relative 1e-5 agrees whatever the printed precision.
+        assert_eq!(
+            stats(
+                "numeric",
+                "x\t0.16491666666666666\n",
+                "x\t0.16491666649121869\n"
+            )
+            .rate(),
+            1.0
+        );
+        assert!(stats("numeric", "x\t0.1649166\n", "x\t0.1649196\n").rate() < 1.0);
         // Numbers are matched within their line, any order of lines.
         let s = stats("numeric", "a\t0.25\nb\t0.5\n", "b\t0.50000\na\t0.250\n");
         assert_eq!((s.n_matching, s.same_order), (2, false));
