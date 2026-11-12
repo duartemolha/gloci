@@ -1016,6 +1016,18 @@ reference = "closest-features --dist input.bed closest-fb.bed | tr '|' '\t'"
 compare = "exact"
 expected_difference = "#closest-each-side"
 
+# After a1, which overlaps the long b1, closest-features reports b3 as a2's
+# left neighbour (-411) where b1 (-11) is nearer; without a1 it reports b1.
+# Found by the real-data concordance run (Task 16).
+[[case]]
+name = "closest-each-side-nested-vs-bedops"
+input = { file = "xtask/diff/inputs/closest-nested-a.bed" }
+aux = ["xtask/diff/inputs/closest-nested-b.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-nested-b.bed --each-side --distance --ignore-overlaps"
+reference = "closest-features --dist --no-overlaps input.bed closest-nested-b.bed | tr '|' '\t'"
+compare = "exact"
+expected_difference = "#closest-each-side"
+
 # A missing side is the D45 placeholder here, `NA` in bedops.
 [[case]]
 name = "closest-each-side-missing-vs-bedops"
@@ -1907,6 +1919,49 @@ gloci = "gloci convert input.gff3"
 reference = "gff2bed < input.gff3"
 compare = "exact"
 expected_difference = "#gff2bed-name"
+
+# A GTF/GFF3 feature one base long (start = end): bedops appends
+# `zero_length_insertion=True` to its attributes, gloci copies them as they are.
+# Found by the real-data concordance run (Task 16).
+[[case]]
+name = "convert-gtf-one-base-vs-gtf2bed"
+input = { file = "xtask/diff/inputs/convert-one-base.gtf" }
+gloci = "gloci convert input.gtf"
+reference = "gtf2bed < input.gtf"
+compare = "exact"
+expected_difference = "#gff2bed-zero-length"
+
+[[case]]
+name = "convert-gff3-one-base-vs-gff2bed"
+input = { file = "xtask/diff/inputs/convert-one-base.gff3" }
+gloci = "gloci convert input.gff3 --name-attr NoSuchAttribute"
+reference = "gff2bed < input.gff3"
+compare = "exact"
+expected_difference = "#gff2bed-zero-length"
+
+# GTF order (a gene, its transcript, then its exons): gtf2bed sorts its output
+# with sort-bed unless --do-not-sort; gloci convert keeps the input order.
+[[case]]
+name = "convert-gtf-input-order-vs-gtf2bed"
+input = { file = "xtask/diff/inputs/convert-unsorted.gtf" }
+gloci = "gloci convert input.gtf"
+reference = "gtf2bed < input.gtf"
+compare = "exact"
+expected_difference = "#convert-input-order"
+
+[[case]]
+name = "convert-gtf-input-order-vs-gtf2bed-do-not-sort"
+input = { file = "xtask/diff/inputs/convert-unsorted.gtf" }
+gloci = "gloci convert input.gtf"
+reference = "gtf2bed --do-not-sort < input.gtf"
+compare = "exact"
+
+[[case]]
+name = "convert-gtf-sorted-vs-gtf2bed"
+input = { file = "xtask/diff/inputs/convert-unsorted.gtf" }
+gloci = "gloci convert input.gtf | gloci sort --chrom-order lex --full-key -"
+reference = "gtf2bed < input.gtf"
+compare = "exact"
 
 [[case]]
 name = "convert-bed12-blocks-vs-bedtools"

@@ -1,0 +1,5 @@
+chr1	100	300	g1	.	+	HAVANA	gene	.	gene_id "g1"; gene_name "Foo";
+chr1	100	300	g1	.	+	HAVANA	transcript	.	gene_id "g1"; transcript_id "t1";
+chr1	149	152	g1	.	+	HAVANA	start_codon	0	gene_id "g1"; transcript_id "t1";
+chr1	249	250	g1	.	+	HAVANA	stop_codon	0	gene_id "g1"; transcript_id "t1";
+chr2	10	11	g2	.	-	HAVANA	CDS	1	gene_id "g2"; transcript_id "t2";

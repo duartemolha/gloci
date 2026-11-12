@@ -950,7 +950,7 @@ and FASTA behaviour](#bam-cram-and-fasta-behaviour), after the tables.
 | `closest-features` | `gloci closest -a A -b B --each-side [--distance]` (add `--ignore-overlaps` when an overlapping B should not count on both sides) |
 | `sort-bed [--max-mem --tmpdir --check-sort --unique --duplicates]` | `gloci sort [--max-mem --tmp-dir --check --unique --duplicates]`; add `--chrom-order lex` to reproduce `sort-bed`'s chromosome order (`--full-key` reproduces whole-line tie breaking) |
 | `bedextract CHR FILE`, `bedextract FILE REGIONS.bed` | `gloci view FILE CHR`, `gloci view FILE --regions-file REGIONS.bed` (add `--assume-sorted` for binary search on an uncompressed BED file) |
-| `convert2bed`, `vcf2bed [--snvs/--insertions/--deletions]`, `gff2bed`, `gtf2bed` | `gloci convert FILE [--types snv/ins/del] [--split-alleles] [--feature TYPE] [--name-attr KEY]` |
+| `convert2bed`, `vcf2bed [--snvs/--insertions/--deletions]`, `gff2bed`, `gtf2bed` | `gloci convert FILE [--types snv/ins/del] [--split-alleles] [--feature TYPE] [--name-attr KEY]` (rows in input order, where bedops sorts them unless `--do-not-sort`: pipe to `gloci sort --chrom-order lex --full-key` for its order, see [differences.md#convert-input-order](differences.md#convert-input-order); a one-base GFF/GTF feature keeps its attributes, without bedops' added `zero_length_insertion=True`, see [differences.md#gff2bed-zero-length](differences.md#gff2bed-zero-length)) |
 | `bedops -p` / `--partition` | `gloci partition FILES --no-membership` |
 | `bedops -i` / `--intersect` | `gloci partition FILES --all --merge-adjacent --no-membership` |
 | `bedops -s` / `--symmdiff` | `gloci partition FILES --max-files 1 --merge-adjacent --no-membership` |

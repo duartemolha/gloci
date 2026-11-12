@@ -1,0 +1,7 @@
+chr1	11868	12227	g1	.	+	HAVANA	exon	.	gene_id "g1"; transcript_id "t1"; exon_number 1;
+chr1	11868	14409	g1	.	+	HAVANA	gene	.	gene_id "g1"; gene_name "DDX11L2";
+chr1	11868	14409	g1	.	+	HAVANA	transcript	.	gene_id "g1"; transcript_id "t1";
+chr1	12009	12057	g2	.	+	HAVANA	exon	.	gene_id "g2"; transcript_id "t2"; exon_number 1;
+chr1	12009	13670	g2	.	+	HAVANA	gene	.	gene_id "g2"; gene_name "DDX11L1";
+chr1	12612	12721	g1	.	+	HAVANA	exon	.	gene_id "g1"; transcript_id "t1"; exon_number 2;
+chr2	99	200	g3	.	-	HAVANA	gene	.	gene_id "g3"; gene_name "Baz";

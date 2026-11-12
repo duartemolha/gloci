@@ -490,11 +490,16 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   precedence on one side and reports the nearest non-overlapping element on
   the other ("elements reported as closest to the left and right edges are
   never the same"); it writes `NA` for a missing side, and always one row.
+  Where B elements nest, its left element can depend on the A records before:
+  after an A that overlaps a long B, a later A gets a shorter B nested in the
+  long one as its left element even when the long B ends nearer (with
+  `--no-overlaps`, as in the real-data concordance run on GENCODE exons).
 - **Reason:** counting an overlap on both sides is the same rule as
   `closest` without `--each-side`, and the placeholder keeps the columns of
   every row the same width.
-- **Pinned by:** `closest-each-side-overlap-vs-bedops` and
-  `closest-each-side-missing-vs-bedops` (must differ). With
+- **Pinned by:** `closest-each-side-overlap-vs-bedops`,
+  `closest-each-side-missing-vs-bedops` and `closest-each-side-nested-vs-bedops`
+  (must differ). With
   `--ignore-overlaps` and every side present, `closest-each-side-vs-bedops`
   and `closest-each-side-nodist-vs-bedops` match exactly.
 
@@ -915,6 +920,35 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Pinned by:** `convert-gff3-name-vs-gff2bed` (must differ). With a
   `--name-attr` the feature does not have, every other column matches:
   `convert-gff3-vs-gff2bed`.
+
+## `convert` copies the attributes of a one-base GFF/GTF feature {#gff2bed-zero-length}
+
+- **gloci:** a GFF3 or GTF feature with start equal to end is one base long,
+  `[start-1, end)` in BED, and its attribute column is written as it is.
+- **Old behaviour:** `gtf2bed` and `gff2bed` 2.4.41 write the same interval
+  but append `zero_length_insertion=True` to the attributes (`; ` before it in
+  GTF, `;` in GFF3), as if the feature had no bases. GENCODE has thousands of
+  such features (one-base CDS, UTR, exon and `stop_codon` rows).
+- **Reason:** the feature covers a base, and gloci does not add to the data
+  it converts.
+- **Pinned by:** `convert-gtf-one-base-vs-gtf2bed` and
+  `convert-gff3-one-base-vs-gff2bed` (must differ). Found by the real-data
+  concordance run (`convert-gencode-gtf-vs-gtf2bed`).
+
+## `convert` keeps the input order {#convert-input-order}
+
+- **gloci:** `convert` writes one row per input record in the input's own
+  order and does not sort; pipe it to `gloci sort` (with `--chrom-order lex
+  --full-key` for `sort-bed`'s order) for sorted BED.
+- **Old behaviour:** `convert2bed` and its wrappers (`gtf2bed`, `gff2bed`,
+  `vcf2bed` ...) sort their output with `sort-bed` unless `--do-not-sort`, so
+  the gene, transcript and exon rows of a GTF come out by start and end.
+- **Reason:** conversion streams, with no memory or temporary files; sorting
+  is a separate step that the next command may not need.
+- **Pinned by:** `convert-gtf-input-order-vs-gtf2bed` (must differ);
+  `convert-gtf-input-order-vs-gtf2bed-do-not-sort` and, piped through `gloci
+  sort --chrom-order lex --full-key`, `convert-gtf-sorted-vs-gtf2bed` (must
+  match).
 
 ## `convert --blocks` rejects a record that is not valid BED12 {#bed12-short-line}
 

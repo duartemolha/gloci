@@ -1,0 +1,3 @@
+chr1	100	300	.	.	+	src	gene	.	ID=g1;Name=Foo
+chr1	249	250	.	.	+	src	stop_codon	0	ID=s1;Parent=g1
+chr2	10	11	.	.	.	src	SNP	.	ID=v1
