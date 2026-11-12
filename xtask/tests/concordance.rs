@@ -7,8 +7,8 @@ use gloci_testkit::differential::MatchStats;
 use xtask::bench::Catalog;
 use xtask::diff::workspace_root;
 use xtask::paper::concord::{
-    self, CSV_HEADER, ConcordCase, NO_CONCORDANCE_CASE, Verdict, gloci_command, gloci_invocations,
-    load_cases, merge_csv, migration_commands, parse_cases, verdict,
+    self, CSV_HEADER, ConcordCase, NO_CONCORDANCE_CASE, Verdict, csv_row, gloci_command,
+    gloci_invocations, load_cases, merge_csv, migration_commands, parse_cases, verdict,
 };
 
 fn catalog() -> Catalog {
@@ -311,6 +311,47 @@ fn verdict_rules() {
     assert_eq!(
         CSV_HEADER,
         "case,command,reference_tool,dataset,mode,n_gloci,n_reference,n_matching,match_rate,verdict,anchors"
+    );
+}
+
+#[test]
+fn concordance_csv_row_format() {
+    let c = ConcordCase {
+        name: "sort-x".into(),
+        command: "sort".into(),
+        reference_tool: "sort-bed".into(),
+        inputs: [
+            ("a".to_string(), "exons.bed".to_string()),
+            ("genome".to_string(), "hg38.lex.genome".to_string()),
+        ]
+        .into(),
+        gloci: "{gloci} sort {in_a} > {out}".into(),
+        reference: "sort-bed {in_a} > {out}".into(),
+        compare: "exact".into(),
+        compat: None,
+        expected_difference: None,
+        compat_difference: None,
+    };
+    let s = MatchStats {
+        n_gloci: 4,
+        n_reference: 4,
+        n_matching: 3,
+        same_order: false,
+    };
+    // Anchors are plain names, match_rate a decimal from 0 to 1.
+    assert_eq!(
+        csv_row(
+            &c,
+            "default",
+            Some(&s),
+            Verdict::Documented,
+            Some("#sort-tie-order")
+        ),
+        "sort-x,sort,sort-bed,exons.bed+hg38.lex.genome,default,4,4,3,0.750000,documented,sort-tie-order"
+    );
+    assert_eq!(
+        csv_row(&c, "compat", None, Verdict::Failed, None),
+        "sort-x,sort,sort-bed,exons.bed+hg38.lex.genome,compat,,,,,failed,"
     );
 }
 

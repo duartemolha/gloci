@@ -762,7 +762,11 @@ fn write_report(dir: &Path, r: &RunReport) -> Result<()> {
     std::fs::write(&path, t).with_context(|| path.display().to_string())
 }
 
-fn csv_row(
+/// One row of `concordance.csv`: `match_rate` is a decimal from 0 to 1 (six
+/// places), empty with the counts when a command failed; `anchors` holds the
+/// run's documented difference as a plain name (no `#`; names would be
+/// joined with `;`).
+pub fn csv_row(
     c: &ConcordCase,
     mode: &str,
     stats: Option<&MatchStats>,
@@ -788,7 +792,7 @@ fn csv_row(
         mode.to_string(),
         nums,
         v.as_str().to_string(),
-        csv_field(anchor.unwrap_or("")),
+        csv_field(anchor.map_or("", |a| a.trim_start_matches('#'))),
     ]
     .join(",")
 }
