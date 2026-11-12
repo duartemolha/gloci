@@ -1,0 +1,50 @@
+name: python
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The Python library (crates/gloci-py): build it into a virtualenv and run its tests, which
+  # compare pipelines with the gloci CLI built here. It never publishes anything.
+  pytest:
+    name: pytest (${{ matrix.os }}, Python ${{ matrix.python }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            python: "3.10"
+          - os: ubuntu-24.04
+            python: "3.14"
+          - os: ubuntu-24.04-arm
+            python: "3.12"
+          - os: macos-latest
+            python: "3.12"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master (2026-07-16)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+      - name: Build the CLI the tests compare with
+        run: |
+          cargo build -p gloci
+          echo "GLOCI_BIN=$PWD/target/debug/gloci" >> "$GITHUB_ENV"
+      - name: Make a virtualenv with the test tools
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/python" -m pip install -r crates/gloci-py/requirements-ci.txt
+          echo "VIRTUAL_ENV=$RUNNER_TEMP/venv" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+      - name: Build gloci-py into the virtualenv
+        run: maturin develop -m crates/gloci-py/Cargo.toml --features test-hooks
+      - name: pytest
+        run: pytest crates/gloci-py/tests -m "not large"

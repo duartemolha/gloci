@@ -204,3 +204,112 @@ fn release_workflow_and_dockerfile_are_valid() {
         }
     }
 }
+
+/// The `uses:` actions of a workflow, as (action, rev) in order.
+fn actions(yml: &str) -> Vec<(String, String)> {
+    yml.lines()
+        .filter_map(|line| {
+            let t = line.trim_start().trim_start_matches("- ").trim_start();
+            let spec = t.strip_prefix("uses:")?.split('#').next()?.trim();
+            let (action, rev) = spec.split_once('@')?;
+            Some((action.to_string(), rev.to_string()))
+        })
+        .collect()
+}
+
+#[test]
+fn python_workflow_runs_the_python_tests() {
+    let root = xtask::diff::workspace_root();
+    let read = |name: &str| fs::read_to_string(root.join(".github/workflows").join(name)).unwrap();
+    let py = read("python.yml");
+
+    // On pull requests and on pushes to main.
+    assert!(
+        py.contains("\n  pull_request:"),
+        "python.yml must run on pull requests"
+    );
+    assert!(
+        py.contains("  push:\n    branches: [main]"),
+        "python.yml must run on pushes to main"
+    );
+
+    // The matrix: (os, python) pairs.
+    let mut pairs = Vec::new();
+    let mut os: Option<String> = None;
+    for line in py.lines() {
+        let t = line.trim();
+        if let Some(o) = t.strip_prefix("- os: ") {
+            os = Some(o.to_string());
+        } else if let Some(v) = t.strip_prefix("python: ")
+            && let Some(o) = os.take()
+        {
+            pairs.push((o, v.trim_matches('"').to_string()));
+        }
+    }
+    let want = [
+        ("ubuntu-24.04", "3.10"),
+        ("ubuntu-24.04", "3.14"),
+        ("ubuntu-24.04-arm", "3.12"),
+        ("macos-latest", "3.12"),
+    ];
+    assert_eq!(
+        pairs,
+        want.map(|(o, v)| (o.to_string(), v.to_string())),
+        "python.yml matrix"
+    );
+    assert!(py.contains("runs-on: ${{ matrix.os }}"));
+    assert!(py.contains("python-version: ${{ matrix.python }}"));
+
+    // Every action is pinned to a commit, the same one ci.yml and release.yml pin.
+    let pinned: Vec<(String, String)> = [read("ci.yml"), read("release.yml")]
+        .iter()
+        .flat_map(|y| actions(y))
+        .collect();
+    let used = actions(&py);
+    assert!(used.iter().any(|(a, _)| a == "actions/setup-python"));
+    for (action, rev) in &used {
+        assert!(
+            rev.len() == 40 && rev.bytes().all(|b| b.is_ascii_hexdigit()),
+            "python.yml: {action}@{rev} is not pinned to a 40-char hex commit SHA"
+        );
+        for (a, r) in &pinned {
+            assert!(
+                a != action || r == rev,
+                "python.yml pins {action}@{rev}, but the other workflows pin {a}@{r}"
+            );
+        }
+    }
+
+    // The steps, in order: the CLI (exported as GLOCI_BIN, which the tests require on CI),
+    // the test tools, gloci-py with its test hooks, then pytest without the large tests.
+    let at = |s: &str| {
+        py.find(s)
+            .unwrap_or_else(|| panic!("python.yml must contain `{s}`"))
+    };
+    let steps = [
+        "cargo build -p gloci\n",
+        "echo \"GLOCI_BIN=$PWD/target/debug/gloci\" >> \"$GITHUB_ENV\"",
+        "pip install -r crates/gloci-py/requirements-ci.txt",
+        "maturin develop -m crates/gloci-py/Cargo.toml --features test-hooks",
+        "pytest crates/gloci-py/tests -m \"not large\"",
+    ];
+    for pair in steps.windows(2) {
+        assert!(
+            at(pair[0]) < at(pair[1]),
+            "python.yml: `{}` must come before `{}`",
+            pair[0],
+            pair[1]
+        );
+    }
+
+    // It never publishes anything.
+    for word in [
+        "maturin publish",
+        "maturin upload",
+        "twine",
+        "GLOCI_PUBLISH",
+        "secrets.",
+    ] {
+        assert!(!py.contains(word), "python.yml must not publish ({word})");
+    }
+}
