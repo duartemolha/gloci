@@ -374,11 +374,66 @@ impl MatchStats {
 type Approx = (u16, f64, i32);
 
 /// One output line under a concordance compare mode: the key that must be
-/// equal, and for `numeric` the numbers compared with a tolerance.
+/// equal, and for `numeric` the numbers compared with a tolerance and the
+/// other keys the line may have when a number is near a half (see
+/// [`neighbour_buckets`]).
 struct Parsed {
     key: u64,
     approx: Vec<Approx>,
+    alts: Vec<u64>,
 }
+
+/// A `numeric` line kept for matching: its numbers and its other keys.
+struct Pending {
+    approx: Box<[Approx]>,
+    alts: Box<[u64]>,
+}
+
+/// The integers other than its own nearest one that a number printed with
+/// `d` decimals may be keyed by on the other side: the nearest integers of
+/// every value within its tolerance (half a unit of its last decimal, or a
+/// relative [`REL_TOL`]). Empty unless the number is that close to a half;
+/// at most two on each side.
+fn neighbour_buckets(x: f64, d: i32) -> Vec<i128> {
+    let half = if d == i32::MAX {
+        0.0
+    } else {
+        0.5 * 10f64.powi(-d)
+    };
+    let slack = half + REL_TOL * x.abs().max(1.0) * 1.001 + 4.0 * f64::EPSILON * x.abs();
+    let r = x.round() as i128;
+    let (lo, hi) = ((x - slack).round() as i128, (x + slack).round() as i128);
+    (lo.max(r - 2)..=hi.min(r + 2))
+        .filter(|&k| k != r)
+        .collect()
+}
+
+/// The pieces of a `numeric` key: a field's bytes, an integer, or a number
+/// too large to key by its integer.
+enum Tok<'a> {
+    Bytes(&'a [u8]),
+    Num(i128),
+    Big,
+}
+
+fn hash_toks(toks: &[Tok]) -> u64 {
+    use std::hash::Hasher;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for (i, t) in toks.iter().enumerate() {
+        if i > 0 {
+            h.write_u8(b'\t');
+        }
+        match t {
+            Tok::Bytes(b) => h.write(b),
+            Tok::Num(v) => h.write(v.to_string().as_bytes()),
+            Tok::Big => h.write_u8(0x01),
+        }
+    }
+    h.finish()
+}
+
+/// Most numbers near a half a line may have whose other keys are tried.
+const MAX_NEAR_FIELDS: usize = 3;
 
 /// Relative difference two numbers may have and still agree, as in the
 /// `numeric` mode of [`compare`]: tools compute in another order or precision
@@ -412,7 +467,9 @@ fn approx_equal(x: (f64, i32), y: (f64, i32)) -> bool {
 
 /// Whether the numbers of two `numeric` lines with one key agree. A field
 /// that is a number on one side only is an integer literal on the other, and
-/// the key says it is the number's nearest integer.
+/// the key says it is the number's nearest integer (or, matched through
+/// another key, a neighbour of it within the number's tolerance, so comparing
+/// with the nearest integer errs by no more than that tolerance).
 fn approx_lines_equal(a: &[Approx], b: &[Approx]) -> bool {
     let (mut i, mut j) = (0, 0);
     loop {
@@ -443,7 +500,6 @@ fn approx_lines_equal(a: &[Approx], b: &[Approx]) -> bool {
 fn parse_line(mode: &str, line: &[u8]) -> Option<Parsed> {
     use std::hash::Hasher;
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    let mut approx = Vec::new();
     match mode {
         "exact" => h.write(line),
         "vcf-records" => {
@@ -452,34 +508,78 @@ fn parse_line(mode: &str, line: &[u8]) -> Option<Parsed> {
             }
             h.write(line)
         }
-        "numeric" => {
-            for (i, f) in line.split(|&c| c == b'\t').enumerate() {
-                if i > 0 {
-                    h.write_u8(b'\t');
-                }
-                match numeric_field(f) {
-                    Numeric::Int(v) => h.write(v.to_string().as_bytes()),
-                    Numeric::Float(x) => {
-                        // Keyed by its nearest integer, as an integer literal
-                        // is (or as a number only, when too large), and
-                        // compared by value.
-                        if x.abs() < 1e15 {
-                            h.write((x.round() as i128).to_string().as_bytes());
-                        } else {
-                            h.write_u8(0x01);
-                        }
-                        approx.push((i.min(u16::MAX as usize) as u16, x, decimals(f)));
-                    }
-                    Numeric::Text => h.write(f),
-                }
-            }
-        }
+        "numeric" => return Some(parse_numeric(line)),
         other => panic!("unknown concordance compare mode `{other}`"),
     }
     Some(Parsed {
         key: h.finish(),
-        approx,
+        approx: Vec::new(),
+        alts: Vec::new(),
     })
+}
+
+fn parse_numeric(line: &[u8]) -> Parsed {
+    let mut toks = Vec::new();
+    let mut approx = Vec::new();
+    // (token index, the other integers the number may be keyed by)
+    let mut near: Vec<(usize, Vec<i128>)> = Vec::new();
+    for (i, f) in line.split(|&c| c == b'\t').enumerate() {
+        match numeric_field(f) {
+            Numeric::Int(v) => toks.push(Tok::Num(v)),
+            Numeric::Float(x) => {
+                // Keyed by its nearest integer, as an integer literal is (or as
+                // a number only, when too large), and compared by value.
+                let d = decimals(f);
+                if x.abs() < 1e15 {
+                    let others = neighbour_buckets(x, d);
+                    if !others.is_empty() && near.len() < MAX_NEAR_FIELDS {
+                        near.push((toks.len(), others));
+                    }
+                    toks.push(Tok::Num(x.round() as i128));
+                } else {
+                    toks.push(Tok::Big);
+                }
+                approx.push((i.min(u16::MAX as usize) as u16, x, d));
+            }
+            Numeric::Text => toks.push(Tok::Bytes(f)),
+        }
+    }
+    let key = hash_toks(&toks);
+    // Every other choice of integer for the numbers near a half.
+    let mut alts = Vec::new();
+    if !near.is_empty() {
+        let own: Vec<i128> = near
+            .iter()
+            .map(|(t, _)| match toks[*t] {
+                Tok::Num(v) => v,
+                _ => unreachable!(),
+            })
+            .collect();
+        let mut choice = vec![0usize; near.len()];
+        loop {
+            // Advance the odometer: digit 0 is the own integer.
+            let mut k = 0;
+            while k < near.len() {
+                choice[k] += 1;
+                if choice[k] <= near[k].1.len() {
+                    break;
+                }
+                choice[k] = 0;
+                k += 1;
+            }
+            if k == near.len() {
+                break;
+            }
+            for (n, (t, others)) in near.iter().enumerate() {
+                toks[*t] = Tok::Num(match choice[n] {
+                    0 => own[n],
+                    c => others[c - 1],
+                });
+            }
+            alts.push(hash_toks(&toks));
+        }
+    }
+    Parsed { key, approx, alts }
 }
 
 enum Numeric {
@@ -518,9 +618,10 @@ fn numeric_field(f: &[u8]) -> Numeric {
 ///   the last decimal place of the less precise text, so `0.1929825` (a tool
 ///   printing 7 decimals) equals `0.19298245614035087` and `3` equals `3.0`,
 ///   while `0.012345` does not equal `0.012346`; or a relative 1e-5, the
-///   tolerance of the `numeric` mode of [`compare`]. Two values on either
-///   side of a half (`2.4999` and `2.5001`) never match. Other fields count by
-///   their bytes.
+///   tolerance of the `numeric` mode of [`compare`]. A number that close to
+///   a half also gives the line other keys, with its integer on the other
+///   side of the half, so `2.4999999` and `2.5000001` still match. Other
+///   fields count by their bytes.
 ///
 /// Panics on another mode ([`match_stats`] checks it first).
 pub fn line_key(mode: &str, line: &[u8]) -> Option<u64> {
@@ -583,8 +684,8 @@ pub struct Residual {
     counts: HashMap<u64, i64>,
     /// Per key: the numbers of unmatched `numeric` lines, gloci's and the
     /// reference's.
-    gloci: HashMap<u64, Vec<Box<[Approx]>>>,
-    reference: HashMap<u64, Vec<Box<[Approx]>>>,
+    gloci: HashMap<u64, Vec<Pending>>,
+    reference: HashMap<u64, Vec<Pending>>,
 }
 
 impl Residual {
@@ -613,7 +714,7 @@ impl Residual {
         let Some(list) = side.get_mut(&p.key) else {
             return false;
         };
-        match list.iter().position(|v| **v == *p.approx) {
+        match list.iter().position(|v| *v.approx == *p.approx) {
             Some(i) => {
                 list.swap_remove(i);
                 true
@@ -647,10 +748,10 @@ pub fn match_stats_with_residual(
     let numeric = mode == "numeric";
     let (n_gloci, order_g) = for_each_parsed(mode, gloci, |p, _| {
         if numeric {
-            res.gloci
-                .entry(p.key)
-                .or_default()
-                .push(p.approx.into_boxed_slice());
+            res.gloci.entry(p.key).or_default().push(Pending {
+                approx: p.approx.into_boxed_slice(),
+                alts: p.alts.into_boxed_slice(),
+            });
         } else {
             *res.counts.entry(p.key).or_insert(0) += 1;
         }
@@ -659,23 +760,17 @@ pub fn match_stats_with_residual(
     let mut n_matching = 0u64;
     let (n_reference, order_r) = for_each_parsed(mode, reference, |p, _| {
         if numeric {
-            let found = res.gloci.get_mut(&p.key).and_then(|list| {
-                let i = list.iter().position(|g| approx_lines_equal(g, &p.approx))?;
-                list.swap_remove(i);
-                Some(list.is_empty())
-            });
-            match found {
-                Some(emptied) => {
-                    n_matching += 1;
-                    if emptied {
-                        res.gloci.remove(&p.key);
-                    }
-                }
-                None => res
-                    .reference
-                    .entry(p.key)
-                    .or_default()
-                    .push(p.approx.into_boxed_slice()),
+            // The line's own key first, then its other keys.
+            let found = std::iter::once(p.key)
+                .chain(p.alts.iter().copied())
+                .any(|k| take_match(&mut res.gloci, k, &p.approx));
+            if found {
+                n_matching += 1;
+            } else {
+                res.reference.entry(p.key).or_default().push(Pending {
+                    approx: p.approx.into_boxed_slice(),
+                    alts: p.alts.into_boxed_slice(),
+                });
             }
         } else {
             match res.counts.entry(p.key) {
@@ -695,6 +790,33 @@ pub fn match_stats_with_residual(
         }
         true
     })?;
+    if numeric {
+        // gloci's lines left over with a number near a half: their other keys
+        // against the reference's leftovers (the reference's own other keys
+        // were tried when it was read).
+        let keys: Vec<u64> = res
+            .gloci
+            .iter()
+            .filter(|(_, l)| l.iter().any(|g| !g.alts.is_empty()))
+            .map(|(k, _)| *k)
+            .collect();
+        for k in keys {
+            let mut list = res.gloci.remove(&k).unwrap_or_default();
+            list.retain(|g| {
+                let found = g
+                    .alts
+                    .iter()
+                    .any(|&a| take_match(&mut res.reference, a, &g.approx));
+                if found {
+                    n_matching += 1;
+                }
+                !found
+            });
+            if !list.is_empty() {
+                res.gloci.insert(k, list);
+            }
+        }
+    }
     let stats = MatchStats {
         n_gloci,
         n_reference,
@@ -702,6 +824,25 @@ pub fn match_stats_with_residual(
         same_order: n_gloci == n_reference && n_matching == n_gloci && order_g == order_r,
     };
     Ok((stats, res))
+}
+
+/// Remove from `map[key]` a line whose numbers agree with `approx`; whether
+/// there was one.
+fn take_match(map: &mut HashMap<u64, Vec<Pending>>, key: u64, approx: &[Approx]) -> bool {
+    let Some(list) = map.get_mut(&key) else {
+        return false;
+    };
+    let Some(i) = list
+        .iter()
+        .position(|g| approx_lines_equal(&g.approx, approx))
+    else {
+        return false;
+    };
+    list.swap_remove(i);
+    if list.is_empty() {
+        map.remove(&key);
+    }
+    true
 }
 
 #[cfg(test)]
@@ -953,6 +1094,38 @@ mod tests {
             stats("numeric", "x\t0.0364963503649635\n", "x\t0.0364963\n").rate(),
             1.0
         );
+        // Two values within the tolerance on either side of a half: their
+        // nearest integers differ, the numbers agree.
+        assert_eq!(
+            stats("numeric", "x\t2.4999999\n", "x\t2.5000001\n").rate(),
+            1.0
+        );
+        assert_eq!(
+            stats("numeric", "x\t2.5000001\n", "x\t2.4999999\n").rate(),
+            1.0
+        );
+        // Six decimals of a value just under a half, as bedmap prints it.
+        assert_eq!(
+            stats("numeric", "x\t0.4999996\n", "x\t0.500000\n").rate(),
+            1.0
+        );
+        // The less precise side's tolerance, whichever side that is.
+        assert_eq!(stats("numeric", "x\t2.5\n", "x\t2.4999\n").rate(), 1.0);
+        assert_eq!(stats("numeric", "x\t2.4999\n", "x\t2.5\n").rate(), 1.0);
+        // Two fields at a half at once, and a line that also has to wait for
+        // its partner (the reference line comes first).
+        assert_eq!(
+            stats(
+                "numeric",
+                "x\t1.4999999\t2.5000001\ny\t7.4999999\n",
+                "y\t7.5000001\nx\t1.5000001\t2.4999999\n"
+            )
+            .rate(),
+            1.0
+        );
+        // Still not equal beyond the tolerance, at a half or not.
+        assert!(stats("numeric", "x\t2.49\n", "x\t2.51\n").rate() < 1.0);
+        assert!(stats("numeric", "x\t2.4999\n", "x\t2.5001\n").rate() < 1.0);
         // A relative 1e-5 agrees whatever the printed precision.
         assert_eq!(
             stats(
