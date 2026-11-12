@@ -1,5 +1,6 @@
 //! Developer tasks for gloci.
 pub mod bench;
+pub mod book;
 pub mod conda;
 pub mod diff;
 pub mod docs;

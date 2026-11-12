@@ -514,3 +514,87 @@ fn release_renders_and_attaches_the_recipes() {
         "recipes are attached to the Release"
     );
 }
+
+#[test]
+fn docs_workflow_is_valid() {
+    let root = xtask::diff::workspace_root();
+    let read = |name: &str| fs::read_to_string(root.join(".github/workflows").join(name)).unwrap();
+    let y = read("docs.yml");
+
+    // Builds on pull requests; deploys only on a v* tag push.
+    assert!(
+        y.contains("pull_request:"),
+        "docs.yml must build on pull requests"
+    );
+    assert!(
+        y.contains("tags:") && y.contains("\"v*\""),
+        "docs.yml must run on v* tags"
+    );
+    assert!(
+        !y.contains("branches:"),
+        "docs.yml must not run on branch pushes"
+    );
+    assert!(
+        !y.contains("workflow_dispatch"),
+        "docs.yml must not be dispatchable"
+    );
+
+    let build = job_body(&y, "build");
+    assert!(
+        build.contains("tool: mdbook@"),
+        "mdbook must be pinned with tool: mdbook@<version>"
+    );
+    assert!(build.contains("cargo xtask book"));
+    assert!(build.contains("mdbook build docs/book"));
+    assert!(build.contains("upload-pages-artifact"));
+    assert!(
+        !build.contains("deploy-pages"),
+        "the build job must not deploy"
+    );
+
+    let deploy = job_body(&y, "deploy");
+    assert!(deploy.contains("actions/deploy-pages@"));
+    assert!(deploy.contains("pages: write"), "deploy needs pages: write");
+    assert!(
+        deploy.contains("id-token: write"),
+        "deploy needs id-token: write"
+    );
+    assert!(
+        deploy.contains("startsWith(github.ref, 'refs/tags/v')"),
+        "deploy must require a v* tag push"
+    );
+    assert!(
+        deploy.contains("github-pages"),
+        "deploy uses the github-pages environment"
+    );
+    assert!(!build.contains("pages: write") && !build.contains("id-token: write"));
+
+    // Every action is pinned to a 40-hex SHA, the same one the other workflows pin.
+    let pinned: Vec<(String, String)> = [read("ci.yml"), read("release.yml")]
+        .iter()
+        .flat_map(|y| actions(y))
+        .collect();
+    let used = actions(&y);
+    for needed in [
+        "actions/checkout",
+        "taiki-e/install-action",
+        "actions/deploy-pages",
+    ] {
+        assert!(
+            used.iter().any(|(a, _)| a == needed),
+            "docs.yml must use {needed}"
+        );
+    }
+    for (action, rev) in &used {
+        assert!(
+            rev.len() == 40 && rev.bytes().all(|b| b.is_ascii_hexdigit()),
+            "docs.yml: {action}@{rev} is not pinned to a 40-char hex commit SHA"
+        );
+        for (a, r) in &pinned {
+            assert!(
+                a != action || r == rev,
+                "docs.yml pins {action}@{rev}, but the other workflows pin {a}@{r}"
+            );
+        }
+    }
+}

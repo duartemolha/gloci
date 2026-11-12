@@ -1,0 +1,13 @@
+[book]
+title = "gloci"
+description = "Fast genomic interval, VCF, alignment and sequence tools in one binary, and a Python library."
+src = "src"
+language = "en"
+
+[build]
+build-dir = "../../target/book"
+create-missing = false
+
+[output.html]
+site-url = "/gloci/"
+git-repository-url = "https://github.com/duartemolha/gloci"

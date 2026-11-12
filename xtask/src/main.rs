@@ -24,6 +24,12 @@ enum Task {
         #[arg(long, value_name = "DIR", default_value = "target/assets/completions")]
         out: PathBuf,
     },
+    /// Generate the mdBook reference pages and SUMMARY.md (then run `mdbook build docs/book`)
+    Book {
+        /// The book's source directory
+        #[arg(long, value_name = "DIR", default_value = "docs/book/src")]
+        src: PathBuf,
+    },
     /// Generate documentation artifacts (SKILL.md)
     Docs {
         /// Write the SKILL.md agent usage guide to PATH
@@ -380,6 +386,19 @@ fn run(cli: Cli) -> Result<bool> {
     match cli.task {
         Task::Man { out } => xtask::docs::generate_man(&out)?,
         Task::Completions { out } => xtask::docs::generate_completions(&out)?,
+        Task::Book { src } => {
+            let src = if src.is_absolute() {
+                src
+            } else {
+                xtask::diff::workspace_root().join(src)
+            };
+            xtask::book::generate_book(&src)?;
+            let problems = xtask::book::check_links(&src)?;
+            for p in &problems {
+                eprintln!("book: {p}");
+            }
+            return Ok(problems.is_empty());
+        }
         Task::Docs { skill } => xtask::docs::generate_skill(&skill)?,
         Task::Gen { kind } => match kind {
             Gen::Bed {
