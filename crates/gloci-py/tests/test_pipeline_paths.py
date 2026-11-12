@@ -107,6 +107,25 @@ def test_count(ab: Path, calls: Path) -> None:
     # Header lines are not records.
     assert gloci.open("calls.vcf").intersect(b="t.bed").count() == 2
     assert gloci.open("calls.vcf").count() == 3
+    # FASTA output: a record is a `>` line and its sequence lines.
+    (calls / "ref.fa").write_text(">chr1\nACGTACGTAC\n>chr2\nGGGGCCCCAA\n")
+    (calls / "ref.fa.fai").write_text("chr1\t10\t6\t10\t11\nchr2\t10\t23\t10\t11\n")
+    (calls / "r.bed").write_text("chr1\t0\t5\nchr2\t2\t6\n")
+    seqs = gloci.open("r.bed").getfasta(fasta="ref.fa")
+    assert seqs.to_bytes() == b">chr1:0-5\nACGTA\n>chr2:2-6\nGGCC\n"
+    assert seqs.count() == 2
+    region = gloci.open("ref.fa").faidx(region="chr1:1-5")
+    assert region.to_bytes() == b">chr1:1-5\nACGTA\n"
+    assert region.count() == 1
+
+
+@pytest.mark.xfail(strict=True, reason="Task 8: count via re-read")
+def test_count_summary_tables(ab: Path) -> None:
+    # A summary table's header row has no `#`, so count() takes it for a record until Task 8
+    # counts what iteration reads.
+    p = gloci.open("a.bed").stats_jaccard(b="b.bed")
+    assert p.to_bytes().startswith(b"intersection\tunion\tjaccard\tn_intersections\n")
+    assert p.count() == 1
 
 
 def test_threads_deterministic(pair, tmp_path: Path) -> None:

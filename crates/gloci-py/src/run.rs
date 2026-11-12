@@ -124,9 +124,15 @@ impl Write for Shared<Vec<u8>> {
     }
 }
 
-/// Counts the records of a text output as it is written: its lines, but blank ones, `#`
-/// header and comment lines, `track` and `browser` lines, and SAM's `@XY` header lines before
-/// the first record.
+/// Counts the records of a text output as it is written.
+/// - FASTA (the first non-blank line starts with `>`): its `>` lines, one per sequence.
+/// - Anything else: its lines, but blank ones, `#` header and comment lines, `track` and
+///   `browser` lines, and SAM's `@XY` header lines before the first record.
+///
+/// Known gap, for P2b Task 8: a summary table whose header row has no `#` (`stats jaccard`,
+/// `stats fisher`, `stats reldist`, ...) counts that row as a record. Task 8 makes `count()`
+/// count what iteration reads, through its re-read of the output
+/// (`test_count_summary_tables`, a strict xfail until then).
 #[derive(Default)]
 struct RecordCount {
     records: u64,
@@ -135,6 +141,8 @@ struct RecordCount {
     head_len: usize,
     /// Bytes of the current line have been written.
     in_line: bool,
+    /// Whether the output is FASTA, once its first non-blank line has ended.
+    fasta: Option<bool>,
 }
 
 impl RecordCount {
@@ -150,17 +158,26 @@ impl RecordCount {
 
     fn end_line(&mut self) {
         let head = &self.head[..self.head_len];
-        let word = |w: &[u8]| {
-            head.starts_with(w) && matches!(head.get(w.len()), None | Some(b' ' | b'\t' | b'\r'))
-        };
-        let sam_header = self.records == 0
-            && head.len() >= 3
-            && head[0] == b'@'
-            && head[1..3].iter().all(u8::is_ascii_alphabetic)
-            && matches!(head.get(3), None | Some(b'\t' | b'\r'));
         let blank = !self.in_line || head == b"\r";
-        if !(blank || head[0] == b'#' || word(b"track") || word(b"browser") || sam_header) {
-            self.records += 1;
+        if !blank {
+            let fasta = *self.fasta.get_or_insert(head[0] == b'>');
+            let word = |w: &[u8]| {
+                head.starts_with(w)
+                    && matches!(head.get(w.len()), None | Some(b' ' | b'\t' | b'\r'))
+            };
+            let sam_header = self.records == 0
+                && head.len() >= 3
+                && head[0] == b'@'
+                && head[1..3].iter().all(u8::is_ascii_alphabetic)
+                && matches!(head.get(3), None | Some(b'\t' | b'\r'));
+            let record = if fasta {
+                head[0] == b'>'
+            } else {
+                !(head[0] == b'#' || word(b"track") || word(b"browser") || sam_header)
+            };
+            if record {
+                self.records += 1;
+            }
         }
         self.head_len = 0;
         self.in_line = false;
