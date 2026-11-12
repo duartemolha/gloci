@@ -1,0 +1,3 @@
+# The tools the Python tests need, pinned (python.yml installs these).
+maturin==1.16.0
+pytest==9.2.0
