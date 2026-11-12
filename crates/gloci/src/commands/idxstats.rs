@@ -10,7 +10,7 @@ use std::io::Write;
 
 pub fn run(ctx: &Ctx, a: &IdxstatsArgs) -> anyhow::Result<()> {
     // TSV of idxstats' own layout, BGZF-compressed when -o ends in .gz or .bgz.
-    let spec = super::own_tsv_output_spec(a.output.as_deref())?;
+    let spec = super::own_tsv_output_spec(a.output.as_deref(), "idxstats")?;
     let ro = ReaderOptions {
         accept: Accept {
             alignments: Some(AlignOptions {

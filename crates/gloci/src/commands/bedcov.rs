@@ -22,7 +22,7 @@ pub fn run(ctx: &Ctx, a: &BedcovArgs) -> anyhow::Result<()> {
         reference: a.reference.clone(),
         score_tag: None,
     };
-    let spec = super::own_tsv_output_spec(a.output.as_deref())?;
+    let spec = super::own_tsv_output_spec(a.output.as_deref(), "bedcov")?;
     let chrom_map = a.chrom_map.load()?;
     let invalid = if a.invalid.skip_invalid {
         InvalidPolicy::Skip

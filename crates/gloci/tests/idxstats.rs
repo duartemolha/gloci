@@ -452,3 +452,34 @@ fn idxstats_writes_to_o() {
         .code(1);
     assert!(!out.exists());
 }
+
+#[test]
+fn tsv_commands_without_o_format_name_themselves_for_a_wrong_extension() {
+    // idxstats, depth, samples and bedcov write TSV and have no -O: the message must not
+    // mention one.
+    let d = tempdir();
+    let bam = s(&copy(
+        d.path(),
+        &inputs().join("aln/flags.bam"),
+        "flags.bam",
+    ));
+    let bed = d.path().join("t.bed");
+    std::fs::write(&bed, "chr1\t0\t100\n").unwrap();
+    let bed = s(&bed);
+    for (cmd, args) in [
+        ("idxstats", vec![bam.clone()]),
+        ("depth", vec![bam.clone()]),
+        ("samples", vec![bam.clone()]),
+        ("bedcov", vec![bed.clone(), bam.clone()]),
+    ] {
+        for name in ["x.sam", "x.vcf.gz", "x.cram"] {
+            let out = s(&d.path().join(name));
+            let mut argv = vec![cmd.to_string()];
+            argv.extend(args.iter().cloned());
+            argv.extend(["-o".to_string(), out.clone()]);
+            gloci().args(&argv).assert().code(2).stderr(format!(
+                "error: -o {out}: {cmd} writes TSV; use a .tsv (or .txt) name, or stdout\n"
+            ));
+        }
+    }
+}
