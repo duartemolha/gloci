@@ -315,7 +315,6 @@ def test_text_and_binary_file_objects(here: Path) -> None:
     assert e.value is oops
 
 
-@pytest.mark.xfail(strict=True, reason="Task 8: gloci.Record and iteration")
 def test_records_and_lines_roundtrip(ab: Path) -> None:
     records = list(gloci.open("a.bed"))
     assert gloci.open(records).to_bytes() == gloci.open("a.bed").to_bytes()
