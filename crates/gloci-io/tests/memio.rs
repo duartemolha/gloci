@@ -1,11 +1,13 @@
 use gloci_io::cancel::{CancelToken, RunGuard};
-use gloci_io::memio::{discard, display_name, is_mem_path, register_input, register_output};
+use gloci_io::memio::{
+    MEM_PREFIX, discard, display_name, is_mem_path, register_input, register_output,
+};
 use gloci_io::*;
 use std::io::{Cursor, Write};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-// The cancel flag is process-global: serialise.
+// Serialise: tests share the registry.
 static SERIAL: Mutex<()> = Mutex::new(());
 fn serial() -> MutexGuard<'static, ()> {
     SERIAL.lock().unwrap_or_else(|e| e.into_inner())
@@ -113,12 +115,22 @@ fn mem_output_receives_exact_bytes() {
 fn mem_names_never_collide_with_files() {
     let _s = serial();
     let dir = tempfile::tempdir().unwrap();
-    let p = dir.path().join("gloci:1");
-    std::fs::write(&p, BED).unwrap();
-    let _ = register_input("<list>", Box::new(Cursor::new(Vec::new())));
-    let mut r = open_reader(p.to_str().unwrap(), &ropts()).unwrap();
-    assert_eq!(count(&mut r).unwrap(), 2);
-    assert!(!is_mem_path(p.to_str().unwrap()));
+    // A registered name, and a real file named like its printable part ("gloci:<id>"),
+    // holding other data: each opens its own data.
+    let name = register_input("<list>", Box::new(Cursor::new(BED.to_vec())));
+    let file = dir.path().join(
+        name.strip_prefix(MEM_PREFIX)
+            .map(|id| format!("gloci:{id}"))
+            .unwrap(),
+    );
+    std::fs::write(&file, b"chr1\t1\t2\n").unwrap();
+    assert!(is_regular_file(file.to_str().unwrap()));
+    assert!(!is_mem_path(file.to_str().unwrap()));
+    let mut r = open_reader(file.to_str().unwrap(), &ropts()).unwrap();
+    assert_eq!(count(&mut r).unwrap(), 1);
+    let mut m = open_reader(&name, &ropts()).unwrap();
+    assert_eq!(m.name(), "<list>");
+    assert_eq!(count(&mut m).unwrap(), 2);
 }
 
 #[test]
@@ -191,4 +203,27 @@ fn a_cancel_stays_with_its_run() {
     // No token installed: nothing can cancel the read.
     let mut none = open_reader(bed.to_str().unwrap(), &ropts()).unwrap();
     assert_eq!(count(&mut none).unwrap(), 20000);
+}
+
+#[test]
+fn a_cancelled_memory_output_gets_no_end_of_file_block() {
+    let _s = serial();
+    let token = CancelToken::new();
+    let sink = Shared::default();
+    {
+        let _g = RunGuard::enter(&token);
+        let name = register_output("<out>", Box::new(sink.clone()));
+        let spec = parse_output_spec(Some(std::path::Path::new(&name)), Some("bed.gz")).unwrap();
+        let mut out = open_output(&spec, OutFormat::Bed, &oopts(false)).unwrap();
+        out.write_all(BED).unwrap();
+        token.cancel();
+        assert!(out.write_all(BED).is_err());
+        drop(out);
+    }
+    let bytes = sink.0.lock().unwrap().clone();
+    assert!(
+        bytes.len() < 28 || bytes[bytes.len() - 28..] != BGZF_EOF,
+        "{} bytes",
+        bytes.len()
+    );
 }

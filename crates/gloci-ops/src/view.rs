@@ -379,7 +379,10 @@ fn select(
             }
         }
     } else {
-        if path != "-" && !opts.unordered {
+        if gloci_io::memio::is_mem_path(path) {
+            // Nothing to index: it is read once, as it is.
+            log::debug!("{name} is in memory; scanning it whole for the regions");
+        } else if path != "-" && !opts.unordered {
             log::warn!(
                 "no index for {name}; scanning the whole file ({})",
                 index_hint(&name, format, compression)

@@ -69,10 +69,12 @@ pub fn display_name(path: &str) -> String {
 }
 
 /// Forget an endpoint (and drop its source or sink, if it was never opened).
+///
+/// The entry is dropped after the registry lock is released: dropping a source or sink may run
+/// arbitrary code (a Python-backed one takes the GIL), which must never happen under the lock.
 pub fn discard(path: &str) {
-    if let (Some(id), Some(m)) = (id_of(path), lock().as_mut()) {
-        m.remove(&id);
-    }
+    let removed = id_of(path).and_then(|id| lock().as_mut()?.remove(&id));
+    drop(removed);
 }
 
 fn once(what: &str, display: String) -> IoError {

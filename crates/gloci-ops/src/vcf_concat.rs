@@ -131,6 +131,15 @@ pub fn vcf_concat(
     if files.is_empty() {
         return Err(usage("vcf concat needs at least one input file"));
     }
+    if opts.naive
+        && let Some(m) = files.iter().find(|f| gloci_io::memio::is_mem_path(f))
+    {
+        return Err(usage(format!(
+            "--naive copies the BGZF blocks of files and reads each one twice, so {} cannot be \
+used; leave out --naive for in-memory inputs",
+            gloci_io::memio::display_name(m)
+        )));
+    }
     if opts.naive {
         if oo.write_index {
             return Err(usage(
@@ -429,14 +438,6 @@ fn naive(
     spec: &OutputSpec,
 ) -> Result<(), IoError> {
     drop(readers);
-    if let Some(m) = files.iter().find(|f| gloci_io::memio::is_mem_path(f)) {
-        return Err(UsageError(format!(
-            "--naive copies the BGZF blocks of files and reads each one twice, so {} cannot be \
-used; leave out --naive for in-memory inputs",
-            gloci_io::memio::display_name(m)
-        ))
-        .into());
-    }
     refuse_binary_to_tty(
         spec.path.is_none() && io::stdout().is_terminal(),
         OutFormat::Vcf,

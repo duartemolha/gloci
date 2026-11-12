@@ -80,7 +80,7 @@ pub fn open_input(path: &str, opts: &InputOptions) -> Result<Input, IoError> {
 
 /// The bytes of `path` as they are, not decompressed or detected: `-` is stdin, an in-memory
 /// name (D84) is taken (once), anything else is a file. For commands that copy or inspect
-/// bytes themselves (`cat`, `concat --naive`, `check --quick`).
+/// bytes themselves (`cat`, `check --quick`).
 pub fn open_raw(path: &str) -> Result<Box<dyn Read + Send>, IoError> {
     if path == "-" {
         return Ok(Box::new(crate::cancel::CancelRead::new(std::io::stdin())));

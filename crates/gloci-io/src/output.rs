@@ -281,6 +281,23 @@ enum Sink {
     MemoryBgzf(noodles_bgzf::io::MultithreadedWriter<BufWriter<Box<dyn Write + Send>>>),
 }
 
+/// An in-memory sink that refuses writes once its run is cancelled.
+struct CancelledSink {
+    inner: Box<dyn Write + Send>,
+    watch: crate::cancel::Watch,
+}
+
+impl Write for CancelledSink {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.watch.check_io()?;
+        self.inner.write(buf)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.watch.check_io()?;
+        self.inner.flush()
+    }
+}
+
 pub struct Output {
     sink: Sink,
     dest: Option<PathBuf>,
@@ -405,6 +422,12 @@ gloci view FILE -o x.bam --write-index"
         None => Sink::StdoutPlain(BufWriter::with_capacity(BUF, io::stdout().lock())),
         Some(p) if is_mem(p) => {
             let (_, sink) = crate::memio::take_output(&p.to_string_lossy())?;
+            // After a cancel nothing more reaches the sink, not even what a drop would
+            // flush or the end-of-file block a dropped BGZF writer would add.
+            let sink: Box<dyn Write + Send> = Box::new(CancelledSink {
+                inner: sink,
+                watch: crate::cancel::Watch::current(),
+            });
             let w = BufWriter::with_capacity(BUF, sink);
             if bgzf {
                 Sink::MemoryBgzf(builder().build_from_writer(w))
