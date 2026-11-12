@@ -210,10 +210,10 @@ pub fn run(ctx: &Ctx, a: &VcfAnnotateArgs) -> anyhow::Result<()> {
         command_line: None,
         version: ctx.version,
     };
-    let dest = spec
-        .path
-        .as_ref()
-        .map_or_else(|| "stdout".to_string(), |p| p.display().to_string());
+    let dest = spec.path.as_ref().map_or_else(
+        || "stdout".to_string(),
+        |p| gloci_io::memio::display_name(&p.to_string_lossy()),
+    );
     let out = open_output(&spec, to, &oo)?;
     let record_format = if to == OutFormat::Bcf {
         Format::Bcf

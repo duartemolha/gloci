@@ -94,7 +94,7 @@ sort the inputs without -m to remove or find duplicates",
         return Err(usage(format!(
             "{} is not an alignment file, and -n and -N sort alignments (BAM, SAM, CRAM) by read \
 name; drop {}, or give a BAM, SAM or CRAM file",
-            files[0],
+            gloci_io::memio::display_name(&files[0]),
             if a.by_name { "-n" } else { "-N" }
         )));
     }
@@ -181,10 +181,10 @@ separately",
         out_format,
         spec.bgzf,
     )?;
-    let dest = spec
-        .path
-        .as_ref()
-        .map_or_else(|| "<stdout>".to_string(), |p| p.display().to_string());
+    let dest = spec.path.as_ref().map_or_else(
+        || "<stdout>".to_string(),
+        |p| gloci_io::memio::display_name(&p.to_string_lossy()),
+    );
     let (tie, dedup) = (
         if a.full_key {
             Tie::FullLine
@@ -375,10 +375,10 @@ drop --write-index, or drop -n/-N",
         out_format,
         spec.bgzf,
     )?;
-    let dest = spec
-        .path
-        .as_ref()
-        .map_or_else(|| "<stdout>".to_string(), |p| p.display().to_string());
+    let dest = spec.path.as_ref().map_or_else(
+        || "<stdout>".to_string(),
+        |p| gloci_io::memio::display_name(&p.to_string_lossy()),
+    );
     let output = open_output(
         spec,
         out_format,
@@ -485,15 +485,15 @@ impl Sources {
             None => open_reader(&self.paths[i], &self.opts),
             Some(copy) => {
                 let name = if self.paths[i] == "-" {
-                    "stdin"
+                    "stdin".to_string()
                 } else {
-                    &self.paths[i]
+                    gloci_io::memio::display_name(&self.paths[i])
                 };
                 let f = File::open(copy).map_err(|source| IoError::Read {
-                    path: name.to_string(),
+                    path: name.clone(),
                     source,
                 })?;
-                open_reader_from(name, Box::new(f), &self.opts)
+                open_reader_from(&name, Box::new(f), &self.opts)
             }
         }
     }

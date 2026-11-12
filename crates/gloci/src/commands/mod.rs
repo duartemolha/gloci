@@ -290,7 +290,8 @@ pub fn own_tsv_output_spec(
 /// the ops name the placeholder `output`; `IoError::with_output_name` puts
 /// this in its place.
 pub fn dest_name(spec: &gloci_io::OutputSpec) -> String {
-    spec.path
-        .as_ref()
-        .map_or_else(|| "stdout".to_string(), |p| p.display().to_string())
+    spec.path.as_ref().map_or_else(
+        || "stdout".to_string(),
+        |p| gloci_io::memio::display_name(&p.to_string_lossy()),
+    )
 }

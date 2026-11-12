@@ -123,3 +123,38 @@ pub fn take_output(path: &str) -> Result<(String, Box<dyn Write + Send>), IoErro
         }
     }
 }
+
+/// `text` with every in-memory name in it (`\0gloci:<id>`) replaced by its display name, so a
+/// raw name never reaches a message, a log line or a command line.
+pub fn scrub(text: &str) -> String {
+    if !text.contains(MEM_PREFIX) {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(i) = rest.find(MEM_PREFIX) {
+        out.push_str(&rest[..i]);
+        let after = &rest[i + MEM_PREFIX.len()..];
+        let digits = after.bytes().take_while(u8::is_ascii_digit).count();
+        let name = &rest[i..i + MEM_PREFIX.len() + digits];
+        out.push_str(&display_name(name));
+        rest = &after[digits..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The label an input gets in output data (`--names` defaults, partition): the file name
+/// without directories, or the display name of an in-memory input (D84).
+pub fn label(path: &str) -> String {
+    if path == "-" {
+        return "stdin".into();
+    }
+    let shown = display_name(path);
+    if is_mem_path(path) {
+        return shown;
+    }
+    std::path::Path::new(&shown)
+        .file_name()
+        .map_or_else(|| shown.clone(), |f| f.to_string_lossy().into_owned())
+}

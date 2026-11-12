@@ -82,10 +82,10 @@ pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
         level: a.out.compression_level,
         write_index: a.out.write_index,
     };
-    let dest = spec
-        .path
-        .as_ref()
-        .map_or_else(|| "<stdout>".to_string(), |p| p.display().to_string());
+    let dest = spec.path.as_ref().map_or_else(
+        || "<stdout>".to_string(),
+        |p| gloci_io::memio::display_name(&p.to_string_lossy()),
+    );
     let out = open_output(&spec, to, &oo)?;
     let mut w = if to == OutFormat::Tsv {
         open_tsv_writer(out, Format::Bed, &[], TsvHeader::None, oo.write_index)
@@ -173,10 +173,10 @@ fn run_bedpe(
         level: a.out.compression_level,
         write_index: a.out.write_index,
     };
-    let dest = spec
-        .path
-        .as_ref()
-        .map_or_else(|| "<stdout>".to_string(), |p| p.display().to_string());
+    let dest = spec.path.as_ref().map_or_else(
+        || "<stdout>".to_string(),
+        |p| gloci_io::memio::display_name(&p.to_string_lossy()),
+    );
     let mut out = open_output(spec, to, &oo).map_err(|e| e.with_output_name(&dest))?;
     let bo = BedpeOptions {
         mate1_first: a.mate1_first,

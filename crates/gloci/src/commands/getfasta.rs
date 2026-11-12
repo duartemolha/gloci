@@ -91,10 +91,10 @@ gloci index OUT.fa"
         level: a.out.compression_level,
         write_index: false,
     };
-    let dest = spec
-        .path
-        .as_ref()
-        .map_or_else(|| "<stdout>".to_string(), |p| p.display().to_string());
+    let dest = spec.path.as_ref().map_or_else(
+        || "<stdout>".to_string(),
+        |p| gloci_io::memio::display_name(&p.to_string_lossy()),
+    );
     let mut out = open_output(&spec, OutFormat::Fasta, &oo)?;
     let mut chroms = ChromTable::first_appearance();
     let named = |e: IoError| e.with_output_name(&dest);

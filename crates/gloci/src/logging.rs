@@ -17,7 +17,7 @@ impl Log for Logger {
             Level::Info => "info",
             Level::Debug | Level::Trace => "debug",
         };
-        eprintln!("{label}: {}", r.args());
+        eprintln!("{label}: {}", gloci_io::memio::scrub(&r.args().to_string()));
     }
     fn flush(&self) {}
 }

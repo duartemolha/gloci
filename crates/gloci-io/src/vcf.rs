@@ -217,9 +217,11 @@ pub fn shell_quote_args(args: &[OsString]) -> String {
     let quoted: Vec<String> = args
         .iter()
         .map(|a| {
-            let a = a.to_string_lossy();
+            // A raw in-memory name (it holds a NUL) never reaches a header line (D84).
+            let a = crate::memio::scrub(&a.to_string_lossy());
+            debug_assert!(!a.contains('\0'), "a NUL in a command line");
             if !a.is_empty() && a.chars().all(safe) {
-                return a.into_owned();
+                return a;
             }
             let mut s = String::from("'");
             for c in a.chars() {

@@ -3582,9 +3582,11 @@ impl BArgs {
                 .b
                 .iter()
                 .map(|p| {
-                    std::path::Path::new(p)
+                    // An in-memory input is labelled by the basename of its display name.
+                    let shown = gloci_io::memio::display_name(p);
+                    std::path::Path::new(&shown)
                         .file_name()
-                        .map_or_else(|| p.clone(), |f| f.to_string_lossy().into_owned())
+                        .map_or_else(|| shown.clone(), |f| f.to_string_lossy().into_owned())
                 })
                 .collect()),
         }

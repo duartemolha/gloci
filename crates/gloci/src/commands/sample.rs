@@ -59,10 +59,10 @@ pub fn run(ctx: &Ctx, a: &SampleArgs) -> anyhow::Result<()> {
     )?;
     // Records are written in input order, so the table only gives names ids.
     let mut chroms = ChromTable::first_appearance();
-    let dest = spec
-        .path
-        .as_ref()
-        .map_or_else(|| "<stdout>".to_string(), |p| p.display().to_string());
+    let dest = spec.path.as_ref().map_or_else(
+        || "<stdout>".to_string(),
+        |p| gloci_io::memio::display_name(&p.to_string_lossy()),
+    );
     sample(reader, &mut chroms, &o, w.as_mut()).map_err(|e| e.with_output_name(&dest))?;
     w.finish().map_err(|e| e.with_output_name(&dest))?;
     Ok(())

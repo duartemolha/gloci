@@ -14,6 +14,13 @@ first (gloci view - -o x.bed.gz), then run: gloci index x.bed.gz"
         )
         .into());
     }
+    if gloci_io::memio::is_mem_path(&args.file.to_string_lossy()) {
+        return Err(UsageError(format!(
+            "{} is in memory; index needs a file",
+            gloci_io::memio::display_name(&args.file.to_string_lossy())
+        ))
+        .into());
+    }
     let csi_only = |what: &str| {
         UsageError(format!(
             "--csi is for BAM files, but {what}; {}",

@@ -169,13 +169,13 @@ fn classify(err: &anyhow::Error) -> Outcome {
     }
     for cause in err.chain() {
         if let Some(u) = cause.downcast_ref::<UsageError>() {
-            return Outcome::Usage(u.0.clone());
+            return Outcome::Usage(gloci_io::memio::scrub(&u.0));
         }
         if let Some(IoError::Usage(u)) = cause.downcast_ref::<IoError>() {
-            return Outcome::Usage(u.0.clone());
+            return Outcome::Usage(gloci_io::memio::scrub(&u.0));
         }
         if let Some(e @ IoError::Gate { .. }) = cause.downcast_ref::<IoError>() {
-            return Outcome::Usage(e.to_string());
+            return Outcome::Usage(gloci_io::memio::scrub(&e.to_string()));
         }
     }
     for cause in err.chain() {
@@ -186,11 +186,12 @@ fn classify(err: &anyhow::Error) -> Outcome {
         }
     }
     // IoError messages already embed their source and hint; `{:#}` would repeat it.
-    if err.downcast_ref::<IoError>().is_some() {
-        Outcome::Failure(err.to_string())
+    let msg = if err.downcast_ref::<IoError>().is_some() {
+        err.to_string()
     } else {
-        Outcome::Failure(format!("{err:#}"))
-    }
+        format!("{err:#}")
+    };
+    Outcome::Failure(gloci_io::memio::scrub(&msg))
 }
 
 /// Parse arguments, run the command and map the result to an exit code.

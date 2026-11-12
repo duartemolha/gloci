@@ -136,7 +136,7 @@ struct Entry {
 
 fn detect(path: &str, msg: String) -> IoError {
     IoError::Detect {
-        path: path.to_string(),
+        path: gloci_io::memio::scrub(path),
         msg,
     }
 }
@@ -253,7 +253,8 @@ gloci cat joins BAM files"
         Some((stored, Box::new(rest) as Box<dyn Read>))
     };
     Ok(Entry {
-        path: path.to_string(),
+        // The display name: an in-memory input is held, never reopened by this name.
+        path: gloci_io::memio::display_name(path),
         header,
         header_len,
         held,
