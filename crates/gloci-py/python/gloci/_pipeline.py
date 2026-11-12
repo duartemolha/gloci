@@ -623,6 +623,11 @@ def open(src: object, *, format: str | None = None) -> Pipeline:  # noqa: A001
             `open()`.
         format: The input's format (bed, vcf, ...), overriding detection; the first step
             takes it as its input-format option (`--format`, `--a-format`).
+
+    An exception a source raises is raised as it is, the same object, except from an Arrow
+    stream: the Arrow C stream interface carries an error as text only, so a stream pyarrow
+    builds from Python code (`RecordBatchReader.from_batches(schema, generator)`) that fails
+    raises `DataError` with the producer's message.
     """
     source = classify_source(src, "gloci.open()")
     if isinstance(source, Nested) and format is None:

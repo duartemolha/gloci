@@ -76,6 +76,13 @@ These write files at once, as the command line does, and return the paths writte
 
 `str(error)` is the command line's message without `error: `.
 
+An exception a Python source raises (its iterator, or its file object's `read()`) is raised as
+it is, the same object. An Arrow stream is different: pyarrow, polars and pandas hand gloci their
+data through the Arrow C stream interface, which carries an error as text only. So when a stream
+that pyarrow builds from Python code (`pa.RecordBatchReader.from_batches(schema, generator)`)
+fails, gloci raises `DataError` with the producer's message (which names the original exception),
+not the exception itself.
+
 ## Runtime
 
 - The GIL is released while the steps run, so other Python threads keep going.
