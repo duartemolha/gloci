@@ -220,3 +220,6 @@ cp many.cram many.badtail.cram
 printf '\252' | dd of=many.badtail.cram bs=1 seek=21011 conv=notrunc 2>/dev/null
 mkdir -p index/badtail
 cp many.cram.crai index/badtail/input.badtail.cram.crai
+
+# mates.*.cram: pairs attached and detached, for flagstat's partial decoding (Extra X1).
+sh make-mates.sh

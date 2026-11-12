@@ -554,6 +554,8 @@ pub(crate) struct SliceHead {
     pub records: usize,
     /// The external block holding the slice's reference bases, or -1.
     pub embedded: i32,
+    /// The blocks the slice header says follow it: the core block and the external ones.
+    pub blocks: usize,
     /// Where the slice starts in the container's data, and its bytes.
     pub landmark: usize,
     pub size: usize,
@@ -606,9 +608,9 @@ pub(crate) fn slice_heads(
         }
         let records = usize::try_from(records)
             .map_err(|_| bad(format!("slice {} claims {records} records", i + 1)))?;
-        if blocks < 1 {
+        let Some(blocks) = usize::try_from(blocks).ok().filter(|&b| b >= 1) else {
             return Err(bad(format!("slice {} has no data blocks", i + 1)));
-        }
+        };
         if ref_id < -2 || ref_id >= 0 && ref_id as usize >= n_refs {
             return Err(bad(format!(
                 "slice {} names reference id {ref_id}, but the header has {} references",
@@ -628,6 +630,7 @@ pub(crate) fn slice_heads(
             span,
             records,
             embedded,
+            blocks,
             landmark: at,
             size: end - at,
         });
@@ -775,6 +778,10 @@ pub(crate) fn scan_map(mut s: &[u8], wide: bool, info: &mut CompressionInfo) -> 
         };
         let e = scan_encoding(&mut s, 0, &mut info.uses)?;
         if let Some(k) = key {
+            // A key declared twice takes its last encoding, as noodles reads the map. The
+            // earlier one's block stays counted in `uses`, which only makes it no series' own.
+            info.external.remove(&k);
+            info.constant.remove(&k);
             if let Some(b) = e.external {
                 info.external.insert(k, b);
             }
@@ -985,6 +992,20 @@ mod tests {
         let mut info = CompressionInfo::default();
         assert_eq!(scan_map(&map, false, &mut info), None);
         assert_eq!(info.own_block(b"BF"), None);
+        // A key declared twice takes its last encoding (noodles keeps the last): EXTERNAL(5),
+        // then BETA, is in the core block; a one-symbol HUFFMAN, then EXTERNAL(6), is block 6.
+        let map = [2, b'B', b'F', 1, 1, 5, b'B', b'F', 6, 2, 0, 8];
+        let mut info = CompressionInfo::default();
+        assert_eq!(scan_map(&map, false, &mut info), None);
+        assert_eq!(
+            (info.external.get(b"BF"), info.own_block(b"BF")),
+            (None, None)
+        );
+        let map = [2, b'M', b'Q', 3, 4, 1, 60, 1, 0, b'M', b'Q', 1, 1, 6];
+        let mut info = CompressionInfo::default();
+        assert_eq!(scan_map(&map, false, &mut info), None);
+        assert_eq!(info.constant.get(b"MQ"), None);
+        assert_eq!(info.own_block(b"MQ"), Some(6));
     }
 
     /// Each codec's clear-text decoded size must be the block header's, and no block may say

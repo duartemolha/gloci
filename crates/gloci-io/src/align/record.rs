@@ -117,6 +117,19 @@ fn tags(mut data: &[u8]) -> impl Iterator<Item = Result<Tag<'_>, ()>> {
 }
 
 impl<'a> Aln<'a> {
+    /// [`Aln::parse`] of a record a BAM stream framed (`raw` is its `block_size` bytes): one
+    /// shorter than the fixed fields gets the message every BAM reader gives for it.
+    pub(crate) fn parse_framed(raw: &'a [u8], h: &AlnHeader) -> Result<Aln<'a>, String> {
+        if raw.len() < FIXED {
+            return Err(format!(
+                "block_size {} is below the {FIXED} bytes of fixed fields of a BAM record; the \
+file is corrupt",
+                raw.len()
+            ));
+        }
+        Aln::parse(raw, h)
+    }
+
     /// Check and view the record `raw` (without its `block_size`).
     #[inline]
     pub fn parse(raw: &'a [u8], h: &AlnHeader) -> Result<Aln<'a>, String> {

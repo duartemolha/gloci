@@ -8202,6 +8202,46 @@ reference = "REF_PATH=/nonexistent samtools flagstat input.cram"
 compare = "exit-status"
 expected_difference = "#cram-counts-need-reference"
 
+# Extra X1: from a CRAM, flagstat decodes only the series it counts (BF, CF, RI, MQ, MF, NS, NF)
+# and resolves mates within each slice, as samtools flagstat does (htslib's required fields; it
+# needs no reference for them). The mates fixtures hold pairs attached within a slice (NF) and
+# detached (across slices, on other references), unmapped mates, unplaced pairs, secondary,
+# supplementary, duplicate and QC-failed reads: CRAM 3.0, slices of several references (RI) at
+# -t 4, and CRAM 3.1.
+[[case]]
+name = "flagstat-cram-mates-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/mates.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci flagstat input.cram --reference ref.fa"
+reference = "REF_PATH=/nonexistent samtools flagstat input.cram"
+compare = "exact"
+
+[[case]]
+name = "flagstat-cram-mates-multi-ref-json-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/mates.multi.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci flagstat input.multi.cram --reference ref.fa -O json -t 4"
+reference = "REF_PATH=/nonexistent samtools flagstat -O json input.multi.cram"
+compare = "exact"
+
+[[case]]
+name = "flagstat-cram-mates-v31-tsv-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/mates.v31.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci flagstat input.v31.cram --reference ref.fa -O tsv"
+reference = "REF_PATH=/nonexistent samtools flagstat -O tsv input.v31.cram"
+compare = "exact"
+
+# overhang.cram: a read whose deletion ends 1.5 Mb past chr1, past gloci's limit for decoding
+# bases (#cram-limits). flagstat decodes no bases, so it counts both reads, as samtools does.
+[[case]]
+name = "flagstat-overhang-cram-vs-samtools"
+input = { file = "xtask/diff/inputs/aln/overhang.cram" }
+aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai"]
+gloci = "gloci flagstat input.cram --reference ref.fa"
+reference = "REF_PATH=/nonexistent samtools flagstat input.cram"
+compare = "exact"
+
 # P3c Task 4: `check --quick` is samtools quickcheck (D129). samtools prints the failing paths
 # with -v; gloci prints them with --list-failed. flagstat.bam is good; noeof.bam lacks the BGZF
 # end-of-file block; nosq.bam has no @SQ line (-u accepts it); badfirst.bam has a good header and
