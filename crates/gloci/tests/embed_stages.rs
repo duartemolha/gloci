@@ -40,25 +40,38 @@ fn pipe_is_bounded() {
             None
         })
     };
-    // Wait until the writer stops making progress.
-    let mut last = usize::MAX;
-    loop {
-        std::thread::sleep(Duration::from_millis(200));
-        let now = accepted.load(Ordering::SeqCst);
-        if now == last || writer.is_finished() {
-            break;
-        }
-        last = now;
-    }
-    let held = accepted.load(Ordering::SeqCst);
     let full = PIPE_CHUNKS * PIPE_CHUNK;
+    let load = || accepted.load(Ordering::SeqCst);
+    // The pipe takes at least its chunks' worth (however slow this machine is) ...
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while load() < full - 1000 {
+        assert!(!writer.is_finished(), "the writer ended early");
+        assert!(Instant::now() < deadline, "only {} bytes accepted", load());
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    // ... then the writer stops: no progress over a window ...
+    let held = loop {
+        let before = load();
+        std::thread::sleep(Duration::from_millis(200));
+        if load() == before || writer.is_finished() {
+            break load();
+        }
+        assert!(
+            Instant::now() < deadline,
+            "still writing at {} bytes",
+            load()
+        );
+    };
     assert!(
         !writer.is_finished(),
         "the writer never blocked ({held} bytes accepted)"
     );
+    // ... and none over a further one.
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(load(), held, "the writer went on after stopping");
     // At most the channel's chunks, plus the one partial buffer being filled, are unread.
     assert!(
-        held >= full - 1000 && held <= full + PIPE_CHUNK,
+        held <= full + PIPE_CHUNK,
         "{held} bytes accepted before blocking"
     );
     // The reader going away unblocks it with BrokenPipe.
