@@ -259,6 +259,20 @@ fn bench_image_pins_python_tools() {
     let text =
         std::fs::read_to_string(workspace_root().join("xtask/docker/Dockerfile.bench")).unwrap();
     assert!(text.contains("python=3.12"), "Python 3.12");
+    // Their dependencies are fixed by a constraints file.
+    let c = std::fs::read_to_string(workspace_root().join("xtask/docker/py-bench-constraints.txt"))
+        .unwrap();
+    for dep in ["numpy", "pandas", "polars", "pyarrow", "datafusion"] {
+        assert!(
+            c.lines().any(|l| l.starts_with(&format!("{dep}=="))),
+            "{dep} not in constraints"
+        );
+    }
+    assert_eq!(
+        text.matches("-c /tmp/py-bench-constraints.txt").count(),
+        4,
+        "every pip install uses the constraints"
+    );
     for tool in ["pybedtools", "polars-bio", "pyranges1", "bioframe"] {
         assert!(
             text.lines()
