@@ -52,6 +52,9 @@ pub fn crai_path(cram: &Path) -> PathBuf {
 /// The `.crai` of `cram` (`x.cram.crai`, else `x.crai`), and whether it is older than the CRAM
 /// (D26, D107).
 pub fn find_crai(cram: &Path) -> Option<(PathBuf, bool)> {
+    if cram.to_str().is_some_and(crate::memio::is_mem_path) {
+        return None;
+    }
     let data = std::fs::metadata(cram).and_then(|m| m.modified()).ok();
     let mut candidates = vec![crai_path(cram)];
     if cram.extension().is_some_and(|e| e == "cram") {

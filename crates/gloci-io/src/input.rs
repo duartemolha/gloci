@@ -45,6 +45,10 @@ pub fn open_input(path: &str, opts: &InputOptions) -> Result<Input, IoError> {
     if path == "-" {
         return open_input_from("stdin", Box::new(std::io::stdin()), opts);
     }
+    if crate::memio::is_mem_path(path) {
+        let (display, src) = crate::memio::take_input(path)?;
+        return open_input_from(&display, src, opts);
+    }
     let open_err = |source| IoError::Open {
         path: path.to_string(),
         source,
@@ -74,15 +78,35 @@ pub fn open_input(path: &str, opts: &InputOptions) -> Result<Input, IoError> {
     open_input_from(path, Box::new(f), opts)
 }
 
+/// The bytes of `path` as they are, not decompressed or detected: `-` is stdin, an in-memory
+/// name (D84) is taken (once), anything else is a file. For commands that copy or inspect
+/// bytes themselves (`cat`, `check --quick`).
+pub fn open_raw(path: &str) -> Result<Box<dyn Read + Send>, IoError> {
+    if path == "-" {
+        return Ok(Box::new(crate::cancel::CancelRead::new(std::io::stdin())));
+    }
+    if crate::memio::is_mem_path(path) {
+        let (_, src) = crate::memio::take_input(path)?;
+        return Ok(Box::new(crate::cancel::CancelRead::new(src)));
+    }
+    let f = File::open(path).map_err(|source| IoError::Open {
+        path: path.to_string(),
+        source,
+    })?;
+    Ok(Box::new(crate::cancel::CancelRead::new(f)))
+}
+
 pub fn open_input_from(
     name: &str,
-    mut src: Box<dyn Read + Send>,
+    src: Box<dyn Read + Send>,
     opts: &InputOptions,
 ) -> Result<Input, IoError> {
     let read_err = |source| IoError::Read {
         path: name.to_string(),
         source,
     };
+    // Every source fails once the host cancels the run (D91).
+    let mut src: Box<dyn Read + Send> = Box::new(crate::cancel::CancelRead::new(src));
     let raw = read_up_to(&mut src, PEEK).map_err(read_err)?;
     let compression = detect_compression(&raw);
     let chained = Cursor::new(raw).chain(src);
@@ -192,7 +216,8 @@ impl InputSpool {
     /// Copy all of `path` (`-` is stdin) byte for byte into a new spool file
     /// and return the file's path.
     pub fn spool(&mut self, path: &str) -> Result<std::path::PathBuf, IoError> {
-        let name = if path == "-" { "stdin" } else { path };
+        let shown = crate::memio::display_name(path);
+        let name = if path == "-" { "stdin" } else { shown.as_str() };
         let dest = self.dir.path().join(format!("input-{:06}", self.next));
         self.next += 1;
         let mut out =
@@ -201,7 +226,11 @@ impl InputSpool {
                 source,
             })?;
         let mut src: Box<dyn Read> = if path == "-" {
-            Box::new(std::io::stdin().lock())
+            Box::new(crate::cancel::CancelRead::new(std::io::stdin().lock()))
+        } else if crate::memio::is_mem_path(path) {
+            Box::new(crate::cancel::CancelRead::new(
+                crate::memio::take_input(path)?.1,
+            ))
         } else {
             Box::new(File::open(path).map_err(|source| IoError::Open {
                 path: path.to_string(),

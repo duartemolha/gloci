@@ -16,7 +16,9 @@ fn bam_spec(a: &CatArgs) -> Result<OutputSpec, UsageError> {
             "cat writes BAM, but {} names {}; use an output name ending in .bam",
             a.output
                 .as_deref()
-                .map_or_else(String::new, |p| p.display().to_string()),
+                .map_or_else(String::new, |p| gloci_io::memio::display_name(
+                    &p.to_string_lossy()
+                )),
             s.format.map_or("another format", OutFormat::name)
         ))),
         // An output name without a known extension (a device, say) is taken as BAM.
@@ -41,10 +43,10 @@ pub fn run(ctx: &Ctx, a: &CatArgs) -> anyhow::Result<()> {
         command_line: Some(ctx.command_line.clone()),
         version: ctx.version,
     };
-    let dest = spec
-        .path
-        .as_ref()
-        .map_or_else(|| "<stdout>".to_string(), |p| p.display().to_string());
+    let dest = spec.path.as_ref().map_or_else(
+        || "<stdout>".to_string(),
+        |p| gloci_io::memio::display_name(&p.to_string_lossy()),
+    );
     let out = open_raw_output(&spec, OutFormat::Bam, &oo)?;
     cat_bams(&a.files, out, &wo).map_err(|e| e.with_output_name(&dest))?;
     Ok(())

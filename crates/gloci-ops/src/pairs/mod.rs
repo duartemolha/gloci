@@ -129,13 +129,16 @@ fn parallel(
     let n = threads.get();
     let limit = 2 * n;
     let died = || IoError::Internal(format!("a {label} worker died"));
+    let run = gloci_io::cancel::Watch::current();
     std::thread::scope(|scope| {
         let (job_tx, job_rx) = sync_channel::<(u64, BedpeBatch)>(limit);
         let job_rx = Arc::new(Mutex::new(job_rx));
         let (done_tx, done_rx) = channel::<(u64, Done)>();
         for _ in 0..n {
             let (job_rx, done_tx) = (job_rx.clone(), done_tx.clone());
+            let run = run.clone();
             scope.spawn(move || {
+                let _run = run.enter();
                 loop {
                     let job = job_rx.lock().unwrap_or_else(|e| e.into_inner()).recv();
                     let Ok((seq, batch)) = job else { break };

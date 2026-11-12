@@ -136,17 +136,13 @@ struct Entry {
 
 fn detect(path: &str, msg: String) -> IoError {
     IoError::Detect {
-        path: path.to_string(),
+        path: gloci_io::memio::scrub(path),
         msg,
     }
 }
 
 /// Open `path` as BAM and read its header.
 fn read_header(path: &str) -> Result<Entry, IoError> {
-    let open_err = |source| IoError::Open {
-        path: path.to_string(),
-        source,
-    };
     let read_err = |source| IoError::Read {
         path: path.to_string(),
         source,
@@ -154,9 +150,10 @@ fn read_header(path: &str) -> Result<Entry, IoError> {
     let mut src: Box<dyn Read> = if path == "-" {
         Box::new(io::stdin())
     } else {
-        Box::new(File::open(path).map_err(open_err)?)
+        gloci_io::open_raw(path)?
     };
-    let name = if path == "-" { "stdin" } else { path };
+    let shown = gloci_io::memio::display_name(path);
+    let name = if path == "-" { "stdin" } else { shown.as_str() };
     let mut head = vec![0u8; 1 << 16];
     let mut got = 0;
     while got < head.len() {
@@ -256,7 +253,8 @@ gloci cat joins BAM files"
         Some((stored, Box::new(rest) as Box<dyn Read>))
     };
     Ok(Entry {
-        path: path.to_string(),
+        // The display name: an in-memory input is held, never reopened by this name.
+        path: gloci_io::memio::display_name(path),
         header,
         header_len,
         held,

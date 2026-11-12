@@ -56,10 +56,10 @@ pub fn run(ctx: &Ctx, a: &GroupbyArgs) -> anyhow::Result<()> {
         empty: a.empty.clone(),
         delim: a.delim.clone(),
     };
-    let dest = spec
-        .path
-        .as_ref()
-        .map_or_else(|| "<stdout>".to_string(), |p| p.display().to_string());
+    let dest = spec.path.as_ref().map_or_else(
+        || "<stdout>".to_string(),
+        |p| gloci_io::memio::display_name(&p.to_string_lossy()),
+    );
     let oo = OutputOptions {
         threads: ctx.threads,
         level: a.out.compression_level,

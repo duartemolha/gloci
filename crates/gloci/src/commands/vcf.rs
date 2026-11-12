@@ -291,10 +291,10 @@ pub fn run_filter(ctx: &Ctx, a: &VcfFilterArgs) -> anyhow::Result<()> {
         command_line: Some(ctx.command_line.clone()),
         version: ctx.version,
     };
-    let dest = spec
-        .path
-        .as_ref()
-        .map_or_else(|| "stdout".to_string(), |p| p.display().to_string());
+    let dest = spec.path.as_ref().map_or_else(
+        || "stdout".to_string(),
+        |p| gloci_io::memio::display_name(&p.to_string_lossy()),
+    );
     let out = open_output(&spec, to, &oo)?;
     let record_format = if to == OutFormat::Bcf {
         Format::Bcf
@@ -409,10 +409,10 @@ or use -o FILE for a table"
         ))
         .into());
     }
-    let dest = spec
-        .path
-        .as_ref()
-        .map_or_else(|| "stdout".to_string(), |p| p.display().to_string());
+    let dest = spec.path.as_ref().map_or_else(
+        || "stdout".to_string(),
+        |p| gloci_io::memio::display_name(&p.to_string_lossy()),
+    );
     let mut out = open_output(&spec, OutFormat::Tsv, &oo)?;
     extract_table(input, &options, &mut out).map_err(|e| e.with_output_name(&dest))?;
     out.finish()?;

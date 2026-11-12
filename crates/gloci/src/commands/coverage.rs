@@ -99,10 +99,10 @@ pub fn run(ctx: &Ctx, a: &CoverageArgs) -> anyhow::Result<()> {
         &wo,
         a.header.header,
     )?;
-    let dest = spec
-        .path
-        .as_ref()
-        .map_or_else(|| "stdout".to_string(), |p| p.display().to_string());
+    let dest = spec.path.as_ref().map_or_else(
+        || "stdout".to_string(),
+        |p| gloci_io::memio::display_name(&p.to_string_lossy()),
+    );
 
     coverage_files(files, &o, w.as_mut(), &run_options(ctx)).map_err(|e| {
         e.with_output_name(&dest)

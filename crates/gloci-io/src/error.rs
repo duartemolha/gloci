@@ -78,6 +78,9 @@ pub enum IoError {
     Order(Box<OrderError>),
     #[error("internal error: {0}; this is a bug, please report it")]
     Internal(String),
+    /// The host asked the run to stop (D91, [`crate::cancel`]).
+    #[error("interrupted")]
+    Cancelled,
     #[error("{path}: BGZF end-of-file marker missing; the file is probably truncated")]
     Truncated { path: String },
 }
@@ -134,6 +137,28 @@ impl From<OrderError> for IoError {
 }
 
 impl IoError {
+    /// Whether this error is a cancellation: [`IoError::Cancelled`], or a read or write that
+    /// failed because [`crate::cancel::CancelToken::cancel`] was called.
+    pub fn is_cancelled(&self) -> bool {
+        match self {
+            IoError::Cancelled => true,
+            IoError::Read { source, .. }
+            | IoError::Write { source, .. }
+            | IoError::Open { source, .. }
+            | IoError::Create { source, .. } => crate::cancel::is_cancel_error(source),
+            _ => false,
+        }
+    }
+
+    /// [`IoError::Cancelled`] when this error is a cancellation, else the error itself.
+    pub fn normalize_cancel(self) -> IoError {
+        if self.is_cancelled() {
+            IoError::Cancelled
+        } else {
+            self
+        }
+    }
+
     /// The one error for an input with no bytes (after decompression) given to a command that
     /// needs records: `convert`, `index`, `cat` and `maskfasta`. Commands whose result may be
     /// empty (`view`, `intersect`, `sort`, ...) read such an input as no records and exit 0.

@@ -150,6 +150,8 @@ impl std::fmt::Display for Reported {
 impl std::error::Error for Reported {}
 
 enum Outcome {
+    /// The run was cancelled (D91): whatever error the cancellation surfaced as.
+    Cancelled,
     Reported,
     Usage(String),
     BrokenPipe,
@@ -157,18 +159,23 @@ enum Outcome {
 }
 
 fn classify(err: &anyhow::Error) -> Outcome {
+    // A failed run whose token was cancelled was cancelled, whichever error it surfaced as
+    // (a write that failed, an open, a lost worker).
+    if gloci_io::cancel::is_cancelled() || err.chain().any(gloci_io::cancel::is_cancellation) {
+        return Outcome::Cancelled;
+    }
     if err.chain().any(|c| c.downcast_ref::<Reported>().is_some()) {
         return Outcome::Reported;
     }
     for cause in err.chain() {
         if let Some(u) = cause.downcast_ref::<UsageError>() {
-            return Outcome::Usage(u.0.clone());
+            return Outcome::Usage(gloci_io::memio::scrub(&u.0));
         }
         if let Some(IoError::Usage(u)) = cause.downcast_ref::<IoError>() {
-            return Outcome::Usage(u.0.clone());
+            return Outcome::Usage(gloci_io::memio::scrub(&u.0));
         }
         if let Some(e @ IoError::Gate { .. }) = cause.downcast_ref::<IoError>() {
-            return Outcome::Usage(e.to_string());
+            return Outcome::Usage(gloci_io::memio::scrub(&e.to_string()));
         }
     }
     for cause in err.chain() {
@@ -179,21 +186,32 @@ fn classify(err: &anyhow::Error) -> Outcome {
         }
     }
     // IoError messages already embed their source and hint; `{:#}` would repeat it.
-    if err.downcast_ref::<IoError>().is_some() {
-        Outcome::Failure(err.to_string())
+    let msg = if err.downcast_ref::<IoError>().is_some() {
+        err.to_string()
     } else {
-        Outcome::Failure(format!("{err:#}"))
-    }
+        format!("{err:#}")
+    };
+    Outcome::Failure(gloci_io::memio::scrub(&msg))
 }
 
 /// Parse arguments, run the command and map the result to an exit code.
 pub fn run(args: Vec<OsString>) -> ExitCode {
+    let (code, message) = run_reporting(args);
+    if let Some(m) = message {
+        eprintln!("error: {m}");
+    }
+    code
+}
+
+/// [`run`], except that the final `error:` message is returned instead of printed.
+#[doc(hidden)]
+pub fn run_reporting(args: Vec<OsString>) -> (ExitCode, Option<String>) {
     let cli = match Cli::try_parse_from(&args) {
         Ok(c) => c,
         Err(e) => {
             let code = e.exit_code();
             let _ = e.print();
-            return ExitCode::from(code as u8);
+            return (ExitCode::from(code as u8), None);
         }
     };
     logging::init(cli.quiet, cli.verbose);
@@ -276,23 +294,20 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
     // The command runs on a thread with the pool workers' stack, so that every thread that can
     // decode CRAM has it: the command's own at -t 1 and the per-chromosome readers too.
     let Some((result, all_ok)) = on_worker_stack(|| dispatch(&cli, &ctx)) else {
-        eprintln!("error: cannot start the command's thread; check the system's thread limits");
-        return ExitCode::from(1);
+        return (
+            ExitCode::from(1),
+            Some("cannot start the command's thread; check the system's thread limits".into()),
+        );
     };
     match result {
-        Ok(()) if all_ok => ExitCode::SUCCESS,
-        Ok(()) => ExitCode::from(1),
+        Ok(()) if all_ok => (ExitCode::SUCCESS, None),
+        Ok(()) => (ExitCode::from(1), None),
         Err(e) => match classify(&e) {
-            Outcome::Usage(msg) => {
-                eprintln!("error: {msg}");
-                ExitCode::from(2)
-            }
-            Outcome::BrokenPipe => ExitCode::SUCCESS,
-            Outcome::Reported => ExitCode::from(1),
-            Outcome::Failure(msg) => {
-                eprintln!("error: {msg}");
-                ExitCode::from(1)
-            }
+            Outcome::Usage(msg) => (ExitCode::from(2), Some(msg)),
+            Outcome::BrokenPipe => (ExitCode::SUCCESS, None),
+            Outcome::Cancelled => (ExitCode::from(1), Some("interrupted".into())),
+            Outcome::Reported => (ExitCode::from(1), None),
+            Outcome::Failure(msg) => (ExitCode::from(1), Some(msg)),
         },
     }
 }
@@ -301,11 +316,15 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
 /// noodles-cram's order-1 rANS and name tokeniser need it. A panic in `f` goes on in the
 /// caller; `None` when the thread cannot be started.
 fn on_worker_stack<T: Send>(f: impl FnOnce() -> T + Send) -> Option<T> {
+    let run = gloci_io::cancel::Watch::current();
     std::thread::scope(|s| {
         let h = std::thread::Builder::new()
             .name("gloci".into())
             .stack_size(gloci_io::WORKER_STACK)
-            .spawn_scoped(s, f)
+            .spawn_scoped(s, move || {
+                let _run = run.enter();
+                f()
+            })
             .ok()?;
         Some(h.join().unwrap_or_else(|p| std::panic::resume_unwind(p)))
     })
@@ -483,6 +502,23 @@ mod tests {
         assert!(matches!(classify(&e), Outcome::Usage(m) if m == "bad flag"));
         let wrapped = anyhow::Error::new(IoError::Usage(UsageError("u".into()))).context("ctx");
         assert!(matches!(classify(&wrapped), Outcome::Usage(_)));
+    }
+
+    #[test]
+    fn a_cancelled_write_or_open_is_cancelled_not_a_write_error() {
+        let w = anyhow::Error::new(IoError::Write {
+            path: "out".into(),
+            source: gloci_io::cancel::io_error(),
+        });
+        assert!(matches!(classify(&w), Outcome::Cancelled));
+        let bare = anyhow::Error::new(gloci_io::cancel::io_error()).context("while sorting");
+        assert!(matches!(classify(&bare), Outcome::Cancelled));
+        // Under a cancelled token any failure is the cancellation.
+        let token = gloci_io::cancel::CancelToken::new();
+        let _g = gloci_io::cancel::RunGuard::enter(&token);
+        token.cancel();
+        let other = anyhow::Error::new(Error::from(ErrorKind::NotFound));
+        assert!(matches!(classify(&other), Outcome::Cancelled));
     }
 
     #[test]

@@ -57,10 +57,10 @@ pub fn run(ctx: &Ctx, a: &ShuffleArgs) -> anyhow::Result<()> {
         level: a.out.compression_level,
         write_index: false,
     };
-    let dest = spec
-        .path
-        .as_ref()
-        .map_or_else(|| "<stdout>".to_string(), |p| p.display().to_string());
+    let dest = spec.path.as_ref().map_or_else(
+        || "<stdout>".to_string(),
+        |p| gloci_io::memio::display_name(&p.to_string_lossy()),
+    );
     if format == Some(Format::Bedpe) {
         refuse_bedpe_flags(&o)?;
         let to = spec.format.unwrap_or(OutFormat::Bedpe);

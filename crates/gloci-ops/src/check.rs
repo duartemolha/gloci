@@ -801,6 +801,11 @@ pub struct QuickOptions {
 pub fn quick_check(path: &str, o: &ReaderOptions, q: &QuickOptions) -> CheckReport {
     let r = if path == "-" {
         quick_open(path, Box::new(std::io::stdin()), o, q)
+    } else if gloci_io::memio::is_mem_path(path) {
+        // An in-memory input has no end-of-file marker to look at: it is read as a stream.
+        gloci_io::open_raw(path)
+            .map_err(|e| e.to_string())
+            .and_then(|src| quick_open(&gloci_io::memio::display_name(path), src, o, q))
     } else {
         File::open(path)
             .map_err(|e| format!("cannot open {path}: {e}"))

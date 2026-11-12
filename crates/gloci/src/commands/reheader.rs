@@ -28,7 +28,9 @@ fn bam_spec(a: &ReheaderArgs) -> Result<OutputSpec, UsageError> {
             a.input.display(),
             a.output
                 .as_deref()
-                .map_or_else(String::new, |p| p.display().to_string()),
+                .map_or_else(String::new, |p| gloci_io::memio::display_name(
+                    &p.to_string_lossy()
+                )),
             s.format.map_or("another format", OutFormat::name)
         ))),
         Err(_) => parse_output_spec(a.output.as_deref(), Some("bam")),

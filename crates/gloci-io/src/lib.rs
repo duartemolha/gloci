@@ -9,6 +9,7 @@ pub mod bed;
 pub mod bedpe;
 pub mod bgzf_copy;
 pub mod builtin;
+pub mod cancel;
 pub mod chrom_map;
 pub mod convert;
 pub mod detect;
@@ -22,6 +23,7 @@ pub mod genome;
 pub mod gff;
 pub mod index;
 pub mod input;
+pub mod memio;
 pub mod naming;
 pub mod output;
 pub(crate) mod pool;
@@ -78,6 +80,7 @@ pub use index::{
 };
 pub use input::{
     BGZF_EOF, Input, InputOptions, InputSpool, is_regular_file, open_input, open_input_from,
+    open_raw,
 };
 pub use naming::{
     SeenChroms, chr_prefix_hint, format_chrom_list, format_disjoint_chroms_warning,

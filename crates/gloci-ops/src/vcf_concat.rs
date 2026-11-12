@@ -110,7 +110,7 @@ vcf concat writes the files one after another, so each must start where the one 
 /// Open `path`. With `lenient`, a BGZF file without its EOF marker is
 /// accepted (`--naive` warns about it instead).
 fn open(path: &str, ro: &ReaderOptions, lenient: bool) -> Result<Box<dyn RecordReader>, IoError> {
-    if !lenient || path == "-" {
+    if !lenient || path == "-" || gloci_io::memio::is_mem_path(path) {
         return open_reader(path, ro);
     }
     let f = File::open(path).map_err(|source| IoError::Open {
@@ -130,6 +130,15 @@ pub fn vcf_concat(
 ) -> Result<(), IoError> {
     if files.is_empty() {
         return Err(usage("vcf concat needs at least one input file"));
+    }
+    if opts.naive
+        && let Some(m) = files.iter().find(|f| gloci_io::memio::is_mem_path(f))
+    {
+        return Err(usage(format!(
+            "--naive copies the BGZF blocks of files and reads each one twice, so {} cannot be \
+used; leave out --naive for in-memory inputs",
+            gloci_io::memio::display_name(m)
+        )));
     }
     if opts.naive {
         if oo.write_index {
@@ -365,6 +374,11 @@ fn shown_record(chroms: &ChromTable, batch: &RecordBatch, i: usize, binary: bool
 /// Where `--naive` writes: a temp file published atomically, stdout, or a
 /// device or pipe written directly.
 enum Sink {
+    /// A registered in-memory sink (D84).
+    Memory(
+        io::BufWriter<Box<dyn Write + Send>>,
+        gloci_io::cancel::Watch,
+    ),
     Atomic(AtomicFile),
     Stdout(io::BufWriter<io::Stdout>),
     Direct(io::BufWriter<File>),
@@ -373,6 +387,10 @@ enum Sink {
 impl Write for Sink {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         match self {
+            Sink::Memory(w, run) => {
+                run.check_io()?;
+                w.write(buf)
+            }
             Sink::Atomic(w) => w.write(buf),
             Sink::Stdout(w) => w.write(buf),
             Sink::Direct(w) => w.write(buf),
@@ -380,6 +398,7 @@ impl Write for Sink {
     }
     fn flush(&mut self) -> io::Result<()> {
         match self {
+            Sink::Memory(w, _) => w.flush(),
             Sink::Atomic(w) => w.flush(),
             Sink::Stdout(w) => w.flush(),
             Sink::Direct(w) => w.flush(),
@@ -424,16 +443,20 @@ fn naive(
         OutFormat::Vcf,
         true,
     )?;
-    let dest = spec
-        .path
-        .as_ref()
-        .map_or_else(|| "<stdout>".to_string(), |p| p.display().to_string());
+    let dest = spec.path.as_ref().map_or_else(
+        || "<stdout>".to_string(),
+        |p| gloci_io::memio::display_name(&p.to_string_lossy()),
+    );
     let werr = |source| IoError::Write {
         path: dest.clone(),
         source,
     };
     let mut sink = match &spec.path {
         None => Sink::Stdout(io::BufWriter::new(io::stdout())),
+        Some(p) if gloci_io::memio::is_mem_path(&p.to_string_lossy()) => {
+            let (_, w) = gloci_io::memio::take_output(&p.to_string_lossy())?;
+            Sink::Memory(io::BufWriter::new(w), gloci_io::cancel::Watch::current())
+        }
         Some(p) if spec.direct => {
             let f = std::fs::OpenOptions::new()
                 .write(true)
@@ -464,10 +487,13 @@ fn naive(
                 ),
             });
         }
-        let mut src = File::open(path).map_err(|source| IoError::Open {
-            path: path.clone(),
-            source,
-        })?;
+        // The cancel point for every sink: the reads of each input check the run's token.
+        let mut src = gloci_io::cancel::CancelRead::new(File::open(path).map_err(|source| {
+            IoError::Open {
+                path: path.clone(),
+                source,
+            }
+        })?);
         let info = copy_blocks(
             &mut src,
             &mut sink,

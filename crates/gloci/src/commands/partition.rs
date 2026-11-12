@@ -58,10 +58,10 @@ pub fn run(ctx: &Ctx, a: &PartitionArgs) -> anyhow::Result<()> {
         level: a.out.compression_level,
         write_index: a.out.write_index,
     };
-    let dest = spec
-        .path
-        .as_ref()
-        .map_or_else(|| "<stdout>".to_string(), |p| p.display().to_string());
+    let dest = spec.path.as_ref().map_or_else(
+        || "<stdout>".to_string(),
+        |p| gloci_io::memio::display_name(&p.to_string_lossy()),
+    );
     let out = open_output(&spec, to, &oo)?;
     let mut w = if to == OutFormat::Tsv {
         open_tsv_writer(out, Format::Bed, &[], TsvHeader::None, oo.write_index)
@@ -88,7 +88,8 @@ fn label_of(file: &str) -> String {
     if file == "-" {
         return "stdin".into();
     }
-    std::path::Path::new(file)
+    let shown = gloci_io::memio::display_name(file);
+    std::path::Path::new(&shown)
         .file_name()
-        .map_or_else(|| file.to_string(), |n| n.to_string_lossy().into_owned())
+        .map_or_else(|| shown.clone(), |n| n.to_string_lossy().into_owned())
 }

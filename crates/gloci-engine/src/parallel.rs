@@ -113,6 +113,7 @@ pub fn run_chunks<J: Clone + Send + Sync, R: Send>(
     // and freeing a buffer per chunk leaves freed buffers resident in the
     // allocator for a while, beyond the budget.
     let mut buffers: Vec<Vec<u8>> = (0..in_flight).map(|_| Vec::new()).collect();
+    let cancel = gloci_io::cancel::Watch::current();
     let run_one = |job: &J, buf: Vec<u8>| -> Result<(R, ChunkSink), IoError> {
         let mut sink = ChunkSink::with_buffer(tmp_dir, mem_limit, buf);
         let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(job, &mut sink)))
@@ -124,6 +125,7 @@ pub fn run_chunks<J: Clone + Send + Sync, R: Send>(
         let mut results = Vec::with_capacity(jobs.len());
         let mut buf = buffers.pop().unwrap_or_default();
         for job in &jobs {
+            cancel.check()?;
             let (r, mut sink) = run_one(job, buf)?;
             sink.drain_to(out)?;
             buf = sink.into_buffer();
@@ -144,16 +146,21 @@ pub fn run_chunks<J: Clone + Send + Sync, R: Send>(
             let job_rx = job_rx.clone();
             let result_tx = result_tx.clone();
             let (run_one, fail_at) = (&run_one, &fail_at);
+            let cancel = cancel.clone();
             // CRAM 3.1's codecs (order-1 rANS, the name tokeniser) need more stack than a
             // spawned thread's default 2 MiB, and chunk workers decode CRAM.
             let spawned = std::thread::Builder::new()
                 .stack_size(gloci_io::WORKER_STACK)
                 .spawn_scoped(s, move || {
+                    let _run = cancel.enter();
                     while let Ok((idx, job, buf)) = job_rx.recv() {
                         let res = if idx > fail_at.load(Ordering::Relaxed) {
                             None
                         } else {
-                            let r = run_one(&job, buf);
+                            let r = match cancel.check() {
+                                Err(e) => Err(e),
+                                Ok(()) => run_one(&job, buf),
+                            };
                             if r.is_err() {
                                 fail_at.fetch_min(idx, Ordering::Relaxed);
                             }
