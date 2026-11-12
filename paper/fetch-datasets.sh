@@ -25,8 +25,8 @@
 #   bedtk=1.1
 #   coreutils=9.12
 #   gawk=5.3.1
-#   time=1.9
 #   ucsc-bigwigtobedgraph=469
+#   time=1.9-0.2
 set -eu
 command -v bash >/dev/null 2>&1 || { echo "fetch-datasets.sh needs bash (for pipefail)" >&2; exit 1; }
 ROOT=$(cd "$(dirname "$0")/.." && pwd)

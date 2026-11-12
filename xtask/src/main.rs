@@ -137,6 +137,9 @@ enum PaperAction {
         /// Results go to <out>/<version>/bench
         #[arg(long, default_value = "paper/results")]
         out: PathBuf,
+        /// Timed runs per command instead of each case's own (smoke runs)
+        #[arg(long)]
+        runs: Option<u32>,
     },
     /// Regenerate paper/fetch-datasets.sh from datasets.toml
     FetchScript {
@@ -532,6 +535,7 @@ fn run(cli: Cli) -> Result<bool> {
                 image,
                 data_dir,
                 out,
+                runs,
             } => {
                 anyhow::ensure!(
                     bench_only,
@@ -544,6 +548,7 @@ fn run(cli: Cli) -> Result<bool> {
                     image,
                     data_dir,
                     out,
+                    runs,
                 });
             }
             PaperAction::FetchScript { out } => {

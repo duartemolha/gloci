@@ -139,6 +139,7 @@ name = "intersect-1kg-exons"
 label = "intersect, 1000 Genomes chr20 with exons"
 table = "intervals"
 threads = 8
+input = "vcf.gz"
 inputs = { a = "1kg-30x-chr20", b = "exons.bed" }
 targets = ["gloci <= 0.2 * bedtools"]
 [case.commands]

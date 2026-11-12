@@ -25,7 +25,6 @@ RUN micromamba install -y -n base -c conda-forge -c bioconda \
         bedtk=1.1 \
         coreutils=9.12 \
         gawk=5.3.1 \
-        time=1.9 \
         ucsc-bigwigtobedgraph=469 \
     && micromamba clean --all --yes
 
@@ -45,6 +44,12 @@ RUN micromamba install -y -n base -c conda-forge -c bioconda plink2=2.0.0a.6.9 \
     || echo "skipped: plink2 not installed (micromamba install plink2=2.0.0a.6.9 failed); its benchmark columns will be empty"
 
 USER root
+# GNU time for peak RSS (D96). Debian's, not conda-forge's: its `time` 1.9
+# build reports 0 for %M on aarch64.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        time=1.9-0.2 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install yardsticks from cargo / git with pinned versions and commits
 ENV CARGO_HOME=/usr/local/cargo
 ENV PATH="/usr/local/cargo/bin:${PATH}"

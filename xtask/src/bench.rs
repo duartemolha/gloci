@@ -241,6 +241,9 @@ pub fn parse_rss_kb(text: &str) -> Result<u64> {
         .map(str::trim)
         .find(|l| !l.is_empty())
         .and_then(|l| l.parse::<u64>().ok())
+        // A running process has pages: 0 is a broken `time` build (conda-forge's
+        // reports 0 on aarch64), not a measurement.
+        .filter(|&kb| kb > 0)
         .ok_or_else(|| anyhow!("no peak RSS (KiB) in GNU time output: {text:?}"))
 }
 
@@ -1224,11 +1227,17 @@ fn measure_rss(
     let mut c = match docker {
         Some((image, data, results, gloci)) => {
             let mut c = docker_run(image, data, results, gloci)?;
-            c.args(["time", "-f", "%M", "-o", &format!("/results/{tag}.rss.txt")]);
+            c.args([
+                "/usr/bin/time",
+                "-f",
+                "%M",
+                "-o",
+                &format!("/results/{tag}.rss.txt"),
+            ]);
             c
         }
         None => {
-            let mut c = Command::new("time");
+            let mut c = Command::new("/usr/bin/time");
             c.args(["-f", "%M", "-o"]).arg(&file);
             c
         }
@@ -1236,7 +1245,8 @@ fn measure_rss(
     c.args(["sh", "-c", cmd])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    c.status().context("running GNU time (`time` not found?)")?;
+    c.status()
+        .context("running /usr/bin/time (GNU time not installed?)")?;
     let text = std::fs::read_to_string(&file).context("GNU time wrote no report")?;
     let _ = std::fs::remove_file(&file);
     parse_rss_kb(&text)

@@ -152,6 +152,10 @@ fn rss_file_parses() {
         2048
     );
     assert!(parse_rss_kb("").is_err());
+    assert!(
+        parse_rss_kb("0\n").is_err(),
+        "0 is a broken time, not a reading"
+    );
     assert!(parse_rss_kb("time: cannot run x\n").is_err());
 
     let case = load_paper_cases()

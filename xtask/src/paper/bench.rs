@@ -60,10 +60,18 @@ pub struct PaperBenchArgs {
     pub image: String,
     pub data_dir: PathBuf,
     pub out: PathBuf,
+    /// Timed runs per command instead of each case's own (smoke runs).
+    pub runs: Option<u32>,
 }
 
 pub fn run(a: &PaperBenchArgs) -> Result<bool> {
-    let cases = load_paper_cases()?;
+    let mut cases = load_paper_cases()?;
+    if let Some(n) = a.runs {
+        ensure!(n >= 1, "--runs must be at least 1");
+        for c in &mut cases {
+            c.runs = n;
+        }
+    }
     if let Some(o) = &a.only
         && !cases.iter().any(|c| &c.name == o)
     {
