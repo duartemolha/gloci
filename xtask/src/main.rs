@@ -115,6 +115,29 @@ enum PaperAction {
         #[arg(long, default_value = "target/bench-data")]
         data_dir: PathBuf,
     },
+    /// Run the paper's real-data benchmarks (peak RSS included)
+    Run {
+        /// Only the benchmarks (the concordance runs are a later task)
+        #[arg(long)]
+        bench_only: bool,
+        /// Run only this case
+        #[arg(long, visible_alias = "case")]
+        only: Option<String>,
+        /// gloci binary to benchmark (default: build --release for the host)
+        #[arg(long)]
+        gloci: Option<PathBuf>,
+        /// Run on the host with host tools, not in the bench image
+        #[arg(long)]
+        no_docker: bool,
+        #[arg(long, default_value = "gloci-bench:p1")]
+        image: String,
+        /// Where `paper fetch` put the datasets
+        #[arg(long, default_value = "target/bench-data")]
+        data_dir: PathBuf,
+        /// Results go to <out>/<version>/bench
+        #[arg(long, default_value = "paper/results")]
+        out: PathBuf,
+    },
     /// Regenerate paper/fetch-datasets.sh from datasets.toml
     FetchScript {
         /// Write here instead of paper/fetch-datasets.sh
@@ -501,6 +524,28 @@ fn run(cli: Cli) -> Result<bool> {
                     data_dir,
                 });
             }
+            PaperAction::Run {
+                bench_only,
+                only,
+                gloci,
+                no_docker,
+                image,
+                data_dir,
+                out,
+            } => {
+                anyhow::ensure!(
+                    bench_only,
+                    "only the benchmarks exist so far: pass --bench-only"
+                );
+                return xtask::paper::bench::run(&xtask::paper::bench::PaperBenchArgs {
+                    only,
+                    gloci,
+                    no_docker,
+                    image,
+                    data_dir,
+                    out,
+                });
+            }
             PaperAction::FetchScript { out } => {
                 xtask::paper::fetch::write_script(out.as_deref())?;
             }
@@ -563,6 +608,7 @@ fn run(cli: Cli) -> Result<bool> {
                 only,
                 records,
                 data_dir,
+                results: None,
             });
         }
     }

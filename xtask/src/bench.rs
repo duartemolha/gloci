@@ -124,7 +124,7 @@ struct CaseFile {
     case: Vec<Case>,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct Case {
     pub name: String,
     /// Arguments of `cargo xtask gen`, e.g. `bed --records 10000000 --seed 1`.
@@ -153,6 +153,20 @@ pub struct Case {
     /// (fewer on a reference too short to keep them 200 bp apart).
     #[serde(default)]
     pub in_b: Option<String>,
+    /// Real inputs (paper cases): `a`, `b`, `c` and `genome` name a dataset
+    /// or derived input of `datasets.toml`, found in the bench cache and
+    /// bound to `{in_a}`, `{in_b}`, `{in_c}` and `{genome}`.
+    #[serde(default)]
+    pub inputs: BTreeMap<String, String>,
+    /// Row label of the paper table.
+    #[serde(default)]
+    pub label: Option<String>,
+    /// Paper table the case belongs to.
+    #[serde(default)]
+    pub table: Option<String>,
+    /// Threads of the gloci command (recorded with the results).
+    #[serde(default)]
+    pub threads: Option<u32>,
 }
 
 /// Timed runs per tool unless a case sets `runs`.
@@ -208,6 +222,58 @@ pub fn substitute_pair(cmd: &str, gloci: &str, in_a: &str, in_b: &str, output: &
         .replace("{b}", in_b)
         .replace("{in}", in_a)
         .replace("{out}", output)
+}
+
+/// Replace `{in_c}`, `{genome}` and `{python}` (the placeholders of cases with
+/// `inputs`). Run before `substitute_pair`.
+pub fn substitute_extra(cmd: &str, in_c: &str, genome: &str, python: &str) -> String {
+    cmd.replace("{in_c}", in_c)
+        .replace("{genome}", genome)
+        .replace("{python}", python)
+}
+
+/// Peak resident set size in KiB from the `-o` file of GNU `time -f %M`: the
+/// last line that is a bare integer (a failing command adds a "Command exited
+/// with non-zero status N" line before it).
+pub fn parse_rss_kb(text: &str) -> Result<u64> {
+    text.lines()
+        .rev()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .and_then(|l| l.parse::<u64>().ok())
+        .ok_or_else(|| anyhow!("no peak RSS (KiB) in GNU time output: {text:?}"))
+}
+
+/// The `<case>.rss.json` document: one row per command, `max_rss_kb` null
+/// when the measurement failed.
+pub fn rss_json(case: &Case, rows: &[(String, Option<u64>)]) -> serde_json::Value {
+    serde_json::json!({
+        "case": case.name,
+        "label": case.label,
+        "table": case.table,
+        "threads": case.threads,
+        "unit": "KiB",
+        "results": rows.iter().map(|(tool, kb)| serde_json::json!({
+            "command": tool,
+            "max_rss_kb": kb,
+        })).collect::<Vec<_>>(),
+    })
+}
+
+/// Read the `max_rss_kb` of every command from a `<case>.rss.json`.
+pub fn parse_rss_json(json: &str) -> Result<Vec<(String, Option<u64>)>> {
+    let v: serde_json::Value = serde_json::from_str(json)?;
+    let rows = v["results"]
+        .as_array()
+        .ok_or_else(|| anyhow!("rss json has no `results` array"))?;
+    rows.iter()
+        .map(|r| {
+            let name = r["command"]
+                .as_str()
+                .ok_or_else(|| anyhow!("rss row without `command`"))?;
+            Ok((name.to_string(), r["max_rss_kb"].as_u64()))
+        })
+        .collect()
 }
 
 /// Read `results[].{command,median}` from a hyperfine `--export-json` file.
@@ -535,6 +601,8 @@ pub struct Args {
     /// Override `--records` in every case's setup (reduced local runs).
     pub records: Option<u64>,
     pub data_dir: PathBuf,
+    /// Write results here instead of `<out>/<version>` (the paper run).
+    pub results: Option<PathBuf>,
 }
 
 fn workspace_root() -> PathBuf {
@@ -564,6 +632,10 @@ struct PreparedInputs {
     reference: Option<PathBuf>,
     /// Every file of a multi-part alignment setup (`{ins}`).
     ins: Vec<PathBuf>,
+    /// The third input (`{in_c}`) of a case with `inputs`.
+    in_c: Option<PathBuf>,
+    /// The chromosome sizes file (`{genome}`) of a case with `inputs`.
+    genome: Option<PathBuf>,
 }
 
 impl PreparedInputs {
@@ -573,6 +645,8 @@ impl PreparedInputs {
             in_b,
             reference: None,
             ins: Vec::new(),
+            in_c: None,
+            genome: None,
         }
     }
 }
@@ -778,6 +852,8 @@ fn prepare_sam(
         in_b: Some(in_b),
         reference: Some(reference),
         ins: bams,
+        in_c: None,
+        genome: None,
     })
 }
 
@@ -889,6 +965,40 @@ fn link_or_copy(src: &Path, dst: &Path) -> Result<()> {
 }
 
 /// Generate (or reuse) the input for a case; returns its paths.
+/// Inputs of a case with `inputs`: the datasets and derived inputs of
+/// `datasets.toml` where `paper fetch` left them (the bench cache, which for
+/// docker runs must lie under the data directory).
+fn prepare_real_inputs(case: &Case, dir: &Path) -> Result<PreparedInputs> {
+    let text = std::fs::read_to_string(workspace_root().join("xtask/bench/datasets.toml"))
+        .context("reading datasets.toml")?;
+    let cat = Catalog::parse(&text)?;
+    let cache = bench_cache_dir(dir);
+    let mut found: BTreeMap<&str, PathBuf> = BTreeMap::new();
+    for (slot, name) in &case.inputs {
+        ensure!(
+            matches!(slot.as_str(), "a" | "b" | "c" | "genome"),
+            "case {}: unknown input slot `{slot}` (use a, b, c or genome)",
+            case.name
+        );
+        let p = input_path(&cat, name, &cache)?;
+        ensure!(
+            p.exists(),
+            "case {}: input `{name}` is missing at {}: run `cargo xtask paper fetch --data-dir {}`",
+            case.name,
+            p.display(),
+            dir.display()
+        );
+        found.insert(slot.as_str(), p);
+    }
+    let in_a = found
+        .remove("a")
+        .ok_or_else(|| anyhow!("case {}: `inputs` has no `a`", case.name))?;
+    let mut prepared = PreparedInputs::new(in_a, found.remove("b"));
+    prepared.in_c = found.remove("c");
+    prepared.genome = found.remove("genome");
+    Ok(prepared)
+}
+
 fn prepare_input(
     case: &Case,
     setup: Option<&str>,
@@ -897,6 +1007,10 @@ fn prepare_input(
     image: Option<&str>,
 ) -> Result<PreparedInputs> {
     std::fs::create_dir_all(dir)?;
+
+    if !case.inputs.is_empty() {
+        return prepare_real_inputs(case, dir);
+    }
 
     if let Some(ref ds_name) = case.dataset {
         let text = std::fs::read_to_string(workspace_root().join("xtask/bench/datasets.toml"))
@@ -1074,6 +1188,60 @@ fn remove_outputs(data: &Path, out_name: &str) {
     }
 }
 
+/// `docker run` of the bench image as the current user, with the data,
+/// results and gloci binary mounted; the caller appends the command.
+fn docker_run(image: &str, data: &Path, results: &Path, gloci: &Path) -> Result<Command> {
+    let mut c = Command::new("docker");
+    c.args([
+        "run",
+        "--rm",
+        "--user",
+        &format!("{}:{}", id_of("-u")?, id_of("-g")?),
+    ])
+    .args(["-e", "HOME=/tmp"])
+    .arg("-v")
+    .arg(format!("{}:/data", data.display()))
+    .arg("-v")
+    .arg(format!("{}:/results", results.display()))
+    .arg("-v")
+    .arg(format!("{}:/usr/local/bin/gloci:ro", gloci.display()))
+    .arg(image);
+    Ok(c)
+}
+
+/// Peak RSS (KiB) of one run of `cmd` under GNU `time -f %M`. The command's
+/// own failure does not matter here (hyperfine already ran it); a missing
+/// `time` or an unreadable report is an `Err`. For a pipeline, `time` reports
+/// the largest single process, not the sum.
+fn measure_rss(
+    cmd: &str,
+    docker: Option<(&str, &Path, &Path, &Path)>,
+    results: &Path,
+    tag: &str,
+) -> Result<u64> {
+    let file = results.join(format!("{tag}.rss.txt"));
+    let _ = std::fs::remove_file(&file);
+    let mut c = match docker {
+        Some((image, data, results, gloci)) => {
+            let mut c = docker_run(image, data, results, gloci)?;
+            c.args(["time", "-f", "%M", "-o", &format!("/results/{tag}.rss.txt")]);
+            c
+        }
+        None => {
+            let mut c = Command::new("time");
+            c.args(["-f", "%M", "-o"]).arg(&file);
+            c
+        }
+    };
+    c.args(["sh", "-c", cmd])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    c.status().context("running GNU time (`time` not found?)")?;
+    let text = std::fs::read_to_string(&file).context("GNU time wrote no report")?;
+    let _ = std::fs::remove_file(&file);
+    parse_rss_kb(&text)
+}
+
 fn tool_binary(tool: &str) -> &str {
     match tool {
         "gnu-sort" => "sort",
@@ -1176,10 +1344,16 @@ pub fn resolve_gloci(explicit: Option<&Path>) -> Result<PathBuf> {
 }
 
 pub fn run(a: &Args) -> Result<bool> {
-    let gloci = resolve_gloci(a.gloci.as_deref())?;
     let cases = parse_cases(&std::fs::read_to_string(&a.cases)?)?;
+    run_cases(a, cases)
+}
+
+/// Run `cases` (those of `a.only` when set) and write the results to
+/// `a.results`, or `<a.out>/<version>`.
+pub fn run_cases(a: &Args, cases: Vec<Case>) -> Result<bool> {
+    let gloci = resolve_gloci(a.gloci.as_deref())?;
     let version = env!("CARGO_PKG_VERSION");
-    let results = a.out.join(version);
+    let results = a.results.clone().unwrap_or_else(|| a.out.join(version));
     std::fs::create_dir_all(&results)?;
     let results = std::fs::canonicalize(&results)?;
     std::fs::create_dir_all(&a.data_dir)?;
@@ -1228,52 +1402,64 @@ pub fn run(a: &Args) -> Result<bool> {
         let out_name = format!("{}.out.{}", case.name, case.input);
         let json = results.join(format!("{}.json", case.name));
 
-        let (gloci_cmd, in_a_arg, in_b_arg, out_arg, ref_arg, ins_arg) = if use_docker {
-            let in_dir = |p: &Path| format!("/data/{}", p.file_name().unwrap().to_string_lossy());
-            let in_a_file = inputs.in_a.file_name().unwrap().to_string_lossy();
-            let in_b_file = inputs
-                .in_b
-                .as_ref()
-                .map(|p| p.file_name().unwrap().to_string_lossy().into_owned());
-            (
-                "gloci".to_string(),
-                format!("/data/{in_a_file}"),
-                in_b_file.map(|b| format!("/data/{b}")).unwrap_or_default(),
-                format!("/data/{out_name}"),
-                inputs.reference.as_deref().map(in_dir).unwrap_or_default(),
-                inputs
-                    .ins
-                    .iter()
-                    .map(|p| in_dir(p))
-                    .collect::<Vec<_>>()
-                    .join(" "),
-            )
-        } else {
-            (
-                gloci.to_string_lossy().into_owned(),
-                inputs.in_a.to_string_lossy().into_owned(),
-                inputs
-                    .in_b
-                    .as_ref()
-                    .map(|p| p.to_string_lossy().into_owned())
-                    .unwrap_or_default(),
-                data.join(&out_name).to_string_lossy().into_owned(),
-                inputs
-                    .reference
-                    .as_ref()
-                    .map(|p| p.to_string_lossy().into_owned())
-                    .unwrap_or_default(),
-                inputs
-                    .ins
-                    .iter()
-                    .map(|p| p.to_string_lossy().into_owned())
-                    .collect::<Vec<_>>()
-                    .join(" "),
-            )
+        // A path as the commands see it: under /data in the container.
+        let shown = |p: &Path| -> Result<String> {
+            if !use_docker {
+                return Ok(p.to_string_lossy().into_owned());
+            }
+            match p.strip_prefix(&data) {
+                Ok(rel) => Ok(format!("/data/{}", rel.display())),
+                Err(_) => {
+                    ensure!(
+                        case.inputs.is_empty(),
+                        "case {}: input {} is outside the data directory {}, which is all the container sees (unset GLOCI_BENCH_CACHE)",
+                        case.name,
+                        p.display(),
+                        data.display()
+                    );
+                    Ok(format!(
+                        "/data/{}",
+                        p.file_name().unwrap().to_string_lossy()
+                    ))
+                }
+            }
         };
+        let opt = |p: &Option<PathBuf>| -> Result<String> {
+            p.as_deref()
+                .map(&shown)
+                .transpose()
+                .map(Option::unwrap_or_default)
+        };
+        let gloci_cmd = if use_docker {
+            "gloci".to_string()
+        } else {
+            gloci.to_string_lossy().into_owned()
+        };
+        let in_a_arg = shown(&inputs.in_a)?;
+        let in_b_arg = opt(&inputs.in_b)?;
+        let in_c_arg = opt(&inputs.in_c)?;
+        let genome_arg = opt(&inputs.genome)?;
+        let out_arg = if use_docker {
+            format!("/data/{out_name}")
+        } else {
+            data.join(&out_name).to_string_lossy().into_owned()
+        };
+        let ref_arg = opt(&inputs.reference)?;
+        let ins_arg = inputs
+            .ins
+            .iter()
+            .map(|p| shown(p))
+            .collect::<Result<Vec<_>>>()?
+            .join(" ");
+        let python = std::env::var("GLOCI_PYTHON").unwrap_or_else(|_| "python3".into());
         let fill = |cmd: &str| {
             substitute_pair(
-                &cmd.replace("{ref}", &ref_arg).replace("{ins}", &ins_arg),
+                &substitute_extra(
+                    &cmd.replace("{ref}", &ref_arg).replace("{ins}", &ins_arg),
+                    &in_c_arg,
+                    &genome_arg,
+                    &python,
+                ),
                 &gloci_cmd,
                 &in_a_arg,
                 &in_b_arg,
@@ -1350,22 +1536,8 @@ pub fn run(a: &Args) -> Result<bool> {
             eprintln!("== {} ({} tools)", case.name, active_commands.len());
             let mut c;
             if use_docker {
-                c = Command::new("docker");
-                c.args([
-                    "run",
-                    "--rm",
-                    "--user",
-                    &format!("{}:{}", id_of("-u")?, id_of("-g")?),
-                ])
-                .args(["-e", "HOME=/tmp"])
-                .arg("-v")
-                .arg(format!("{}:/data", data.display()))
-                .arg("-v")
-                .arg(format!("{}:/results", results.display()))
-                .arg("-v")
-                .arg(format!("{}:/usr/local/bin/gloci:ro", gloci.display()))
-                .arg(&a.image)
-                .args(&hf);
+                c = docker_run(&a.image, &data, &results, &gloci)?;
+                c.args(&hf);
             } else {
                 c = Command::new(&hf[0]);
                 c.args(&hf[1..]);
@@ -1386,6 +1558,35 @@ pub fn run(a: &Args) -> Result<bool> {
             run_native_bench(&substituted, case.runs, &json)?;
             remove_outputs(&data, &out_name);
         }
+
+        // Peak RSS: one more run of every command under GNU time (D96).
+        let mut rss_rows: Vec<(String, Option<u64>)> = Vec::new();
+        for (tool, cmd) in &active_commands {
+            remove_outputs(&data, &out_name);
+            let tag = format!("{}.{tool}", case.name);
+            let docker = use_docker.then_some((
+                a.image.as_str(),
+                data.as_path(),
+                results.as_path(),
+                gloci.as_path(),
+            ));
+            let kb = match measure_rss(&fill(cmd), docker, &results, &tag) {
+                Ok(kb) => {
+                    eprintln!("  {tool:<12} peak RSS {:.1} MiB", kb as f64 / 1024.0);
+                    Some(kb)
+                }
+                Err(e) => {
+                    eprintln!("  warning: no peak RSS for {tool}: {e:#}");
+                    None
+                }
+            };
+            rss_rows.push((tool.clone(), kb));
+        }
+        remove_outputs(&data, &out_name);
+        std::fs::write(
+            results.join(format!("{}.rss.json", case.name)),
+            serde_json::to_string_pretty(&rss_json(case, &rss_rows))?,
+        )?;
 
         let med = parse_hyperfine(&std::fs::read_to_string(&json)?)?;
         let pairs: Vec<(&str, f64)> = med.iter().map(|(k, v)| (k.as_str(), *v)).collect();
@@ -1413,6 +1614,37 @@ pub fn run(a: &Args) -> Result<bool> {
     Ok(all_ok || !a.check_targets)
 }
 
+/// The words of the `{gloci}` command in `cmd`, up to the first unquoted
+/// pipe, redirection or `&`.
+pub fn gloci_words(cmd: &str) -> Vec<String> {
+    let rest = &cmd[cmd.find("{gloci}").expect("a {gloci} word")..];
+    let mut words = Vec::new();
+    let (mut cur, mut have, mut quoted) = (String::new(), false, false);
+    for ch in rest.chars() {
+        match ch {
+            '\'' => {
+                quoted = !quoted;
+                have = true;
+            }
+            '|' | '>' | '&' if !quoted => break,
+            c if c.is_whitespace() && !quoted => {
+                if have {
+                    words.push(std::mem::take(&mut cur));
+                    have = false;
+                }
+            }
+            c => {
+                cur.push(c);
+                have = true;
+            }
+        }
+    }
+    if have {
+        words.push(cur);
+    }
+    words
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1434,35 +1666,6 @@ mod tests {
 
     /// The words of a case's gloci command: from `{gloci}` to the first
     /// unquoted pipe, redirection or `&&`, with single quotes removed.
-    fn gloci_words(cmd: &str) -> Vec<String> {
-        let rest = &cmd[cmd.find("{gloci}").expect("a {gloci} word")..];
-        let mut words = Vec::new();
-        let (mut cur, mut have, mut quoted) = (String::new(), false, false);
-        for ch in rest.chars() {
-            match ch {
-                '\'' => {
-                    quoted = !quoted;
-                    have = true;
-                }
-                '|' | '>' | '&' if !quoted => break,
-                c if c.is_whitespace() && !quoted => {
-                    if have {
-                        words.push(std::mem::take(&mut cur));
-                        have = false;
-                    }
-                }
-                c => {
-                    cur.push(c);
-                    have = true;
-                }
-            }
-        }
-        if have {
-            words.push(cur);
-        }
-        words
-    }
-
     #[test]
     fn gloci_words_respect_quotes_and_prefixes() {
         assert_eq!(
@@ -1715,6 +1918,10 @@ mod tests {
             targets: Vec::new(),
             runs: DEFAULT_RUNS,
             in_b: None,
+            inputs: BTreeMap::new(),
+            label: None,
+            table: None,
+            threads: None,
         };
         let inputs = prepare_input(&c, c.setup.as_deref(), &gloci, td.path(), None).unwrap();
         assert!(inputs.in_a.exists());

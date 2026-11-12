@@ -1,0 +1,249 @@
+# Paper benchmarks on real data (D95, D96): `cargo xtask paper run --bench-only`.
+# Inputs are the datasets and derived inputs of xtask/bench/datasets.toml,
+# fetched with `cargo xtask paper fetch`; `inputs` binds a, b, c and genome to
+# {in_a}, {in_b}, {in_c} and {genome}. {python} is $GLOCI_PYTHON (python3).
+# Every BED gloci command uses --chrom-order lex, as the derived inputs are
+# sorted with LC_ALL=C. (y) marks a yardstick: its time is reported, no
+# target names it. Peak RSS of every command lands in <case>.rss.json.
+
+# Cases of xtask/bench/cases.toml that the paper also reports, by name.
+from_nightly = [
+  "vcf-filter-1kg-chr20",
+  "vcf-stats-1kg-chr20",
+  "partition-plain-10M",
+  "genomecov-plain-10M",
+]
+
+[[case]]
+name = "sort-exons"
+label = "sort, GENCODE exons"
+table = "intervals"
+threads = 1
+inputs = { a = "exons-unsorted.bed" }
+targets = ["gloci < sort-bed"]
+[case.commands]
+gloci = "{gloci} sort --chrom-order lex -o {out} {in_a}"
+sort-bed = "sort-bed --max-mem 2G {in_a} > {out}"
+bedtools = "bedtools sort -i {in_a} > {out}"
+gnu-sort = "LC_ALL=C sort -k1,1 -k2,2n --parallel=8 -S 2G {in_a} > {out}" # (y)
+
+[[case]]
+name = "intersect-ccre-exons"
+label = "intersect, cCREs with exons"
+table = "intervals"
+threads = 1
+inputs = { a = "ccre.bed", b = "exons.bed" }
+targets = ["gloci <= 0.5 * bedtools", "gloci <= bedops"]
+[case.commands]
+gloci = "{gloci} intersect --chrom-order lex --mode any -t 1 -a {in_a} -b {in_b} > {out}"
+bedtools = "bedtools intersect -u -sorted -a {in_a} -b {in_b} > {out}"
+bedops = "bedops -e 1 {in_a} {in_b} > {out}"
+
+# §9.1: BGZF inputs, 8 threads.
+[[case]]
+name = "intersect-ccre-exons-bgzf"
+label = "intersect, cCREs with exons (BGZF, 8 threads)"
+table = "intervals"
+threads = 8
+inputs = { a = "ccre.bed.gz", b = "exons.bed.gz" }
+targets = ["gloci <= 0.2 * bedtools"]
+[case.commands]
+gloci = "{gloci} intersect --chrom-order lex --mode any -t 8 -a {in_a} -b {in_b} > {out}"
+bedtools = "bedtools intersect -u -sorted -a {in_a} -b {in_b} > {out}"
+bedops = "bgzip -dc {in_a} > {out}.a && bgzip -dc {in_b} > {out}.b && bedops -e 1 {out}.a {out}.b > {out}"
+
+[[case]]
+name = "subtract-exons-ccre"
+label = "subtract, exons minus cCREs"
+table = "intervals"
+threads = 1
+inputs = { a = "exons.bed", b = "ccre.bed" }
+targets = ["gloci <= 0.5 * bedtools", "gloci <= bedops"]
+[case.commands]
+gloci = "{gloci} subtract --chrom-order lex -t 1 -a {in_a} -b {in_b} > {out}"
+bedtools = "bedtools subtract -sorted -a {in_a} -b {in_b} > {out}"
+bedops = "bedops -m {in_b} | bedops -d {in_a} - > {out}"
+
+[[case]]
+name = "merge-exons"
+label = "merge, GENCODE exons"
+table = "intervals"
+threads = 1
+inputs = { a = "exons.bed" }
+targets = ["gloci <= 0.5 * bedtools", "gloci <= bedops"]
+[case.commands]
+gloci = "{gloci} merge --chrom-order lex -t 1 {in_a} > {out}"
+bedtools = "bedtools merge -i {in_a} > {out}"
+bedops = "bedops -m {in_a} > {out}"
+
+[[case]]
+name = "closest-peaks-exons"
+label = "closest, CTCF peaks to exons"
+table = "intervals"
+threads = 1
+inputs = { a = "ctcf-peaks.bed", b = "exons.bed" }
+targets = ["gloci <= 0.5 * bedtools", "gloci <= bedops"]
+[case.commands]
+gloci = "{gloci} closest --chrom-order lex -t 1 --distance -a {in_a} -b {in_b} > {out}"
+bedtools = "bedtools closest -d -a {in_a} -b {in_b} > {out}"
+bedops = "closest-features --dist {in_a} {in_b} > {out}"
+
+[[case]]
+name = "map-ccre-signal"
+label = "map, CTCF signal onto cCREs"
+table = "intervals"
+threads = 1
+inputs = { a = "ccre.bed", b = "ctcf-fc.bedgraph" }
+targets = ["gloci <= 0.5 * bedtools", "gloci <= bedops"]
+[case.commands]
+gloci = "{gloci} map --chrom-order lex -t 1 -c 4:mean -a {in_a} -b {in_b} > {out}"
+bedtools = "bedtools map -o mean -c 4 -a {in_a} -b {in_b} > {out}"
+bedops = "bedmap --echo --mean {in_a} {in_b} > {out}"
+
+[[case]]
+name = "coverage-ccre-exons"
+label = "coverage, cCREs by exons"
+table = "intervals"
+threads = 1
+inputs = { a = "ccre.bed", b = "exons.bed" }
+targets = ["gloci <= 0.5 * bedtools"]
+[case.commands]
+gloci = "{gloci} coverage --chrom-order lex -t 1 -a {in_a} -b {in_b} > {out}"
+bedtools = "bedtools coverage -sorted -a {in_a} -b {in_b} > {out}"
+
+[[case]]
+name = "genomecov-exons"
+label = "genomecov, GENCODE exons"
+table = "intervals"
+threads = 1
+inputs = { a = "exons.bed", genome = "hg38.lex.genome" }
+targets = ["gloci <= 0.5 * bedtools"]
+[case.commands]
+gloci = "{gloci} genomecov --chrom-order lex -t 1 --bga -g {genome} {in_a} > {out}"
+bedtools = "bedtools genomecov -bga -i {in_a} -g {genome} > {out}"
+
+[[case]]
+name = "partition-3"
+label = "partition, cCREs, exons and peaks"
+table = "intervals"
+threads = 1
+inputs = { a = "ccre.bed", b = "exons.bed", c = "ctcf-peaks.bed" }
+targets = ["gloci <= bedops"]
+[case.commands]
+gloci = "{gloci} partition --chrom-order lex -t 1 --no-membership {in_a} {in_b} {in_c} > {out}"
+bedops = "bedops --partition {in_a} {in_b} {in_c} > {out}"
+bedtools = "bedtools multiinter -i {in_a} {in_b} {in_c} > {out}"
+
+[[case]]
+name = "intersect-1kg-exons"
+label = "intersect, 1000 Genomes chr20 with exons"
+table = "intervals"
+threads = 8
+inputs = { a = "1kg-30x-chr20", b = "exons.bed" }
+targets = ["gloci <= 0.2 * bedtools"]
+[case.commands]
+gloci = "{gloci} intersect --chrom-order lex --mode any -t 8 -a {in_a} -b {in_b} -o {out}"
+bedtools = "bedtools intersect -u -header -sorted -a {in_a} -b {in_b} > {out}"
+bcftools = "bcftools view -R {in_b} {in_a} -Oz -o {out}" # (y)
+
+[[case]]
+name = "vcf-filter-gnomad"
+label = "vcf filter, gnomAD exomes chr22, PASS only"
+table = "vcf"
+threads = 8
+input = "vcf.gz"
+inputs = { a = "gnomad-v4.1-exomes-chr22" }
+targets = ["gloci <= 0.2 * vcftools"]
+[case.commands]
+gloci = "{gloci} vcf filter --pass-only -t 8 {in_a} -o {out}"
+vcftools = "vcftools --gzvcf {in_a} --remove-filtered-all --recode --recode-INFO-all --stdout | bgzip -@ 8 > {out}"
+bcftools = "bcftools view -f PASS -Oz -o {out} {in_a}" # (y)
+
+[[case]]
+name = "vcf-filter-1kg-bcf"
+label = "vcf filter, 1000 Genomes chr20 (BCF)"
+table = "vcf"
+threads = 8
+input = "vcf.gz"
+inputs = { a = "1kg-chr20.bcf" }
+targets = ["gloci <= 0.2 * vcftools"]
+[case.commands]
+gloci = "{gloci} vcf filter --min-maf 0.01 --max-missing 0.1 {in_a} -o {out}"
+vcftools = "vcftools --bcf {in_a} --maf 0.01 --max-missing 0.9 --recode --recode-INFO-all --stdout | bgzip -@ 8 > {out}"
+bcftools = "bcftools view -i 'MAF>=0.01 && F_MISSING<=0.1' {in_a} -Oz -o {out}" # (y)
+
+# P3 commands. Chromosome halves p1 and p2 are disjoint: this times the
+# command on real genotype data and says nothing about concordance.
+[[case]]
+name = "vcf-compare-1kg"
+label = "vcf compare, 1000 Genomes chr20 halves"
+table = "vcf"
+threads = 8
+input = "vcf.gz"
+inputs = { a = "1kg-chr20.p1.vcf.gz", b = "1kg-chr20.p2.vcf.gz" }
+targets = ["gloci <= 0.2 * vcftools-3runs"]
+[case.commands]
+gloci = "{gloci} vcf compare -t 8 --match position --out-prefix {out} {in_a} {in_b}"
+vcftools-3runs = "vcftools --gzvcf {in_a} --gzdiff {in_b} --diff-site-discordance --out {out}.v1 && vcftools --gzvcf {in_a} --gzdiff {in_b} --diff-indv-discordance --out {out}.v2 && vcftools --gzvcf {in_a} --gzdiff {in_b} --diff-discordance-matrix --out {out}.v3"
+
+[[case]]
+name = "depth-ctcf-bam"
+label = "depth, CTCF K562 BAM"
+table = "alignments"
+threads = 1
+input = "bam"
+inputs = { a = "ctcf-k562.bam" }
+targets = ["gloci <= samtools"]
+[case.commands]
+gloci = "{gloci} depth -t 1 {in_a} > {out}"
+samtools = "samtools depth {in_a} > {out}"
+mosdepth = "mosdepth -t 8 --fast-mode {out}.mos {in_a}" # (y)
+
+[[case]]
+name = "depth-ctcf-cram"
+label = "depth, CTCF K562 CRAM"
+table = "alignments"
+threads = 1
+input = "cram"
+inputs = { a = "ctcf-k562.cram" }
+targets = ["gloci <= samtools"]
+[case.commands]
+gloci = "{gloci} depth -t 1 {in_a} > {out}"
+samtools = "samtools depth {in_a} > {out}"
+
+[[case]]
+name = "flagstat-ctcf-bam"
+label = "flagstat, CTCF K562 BAM"
+table = "alignments"
+threads = 1
+input = "bam"
+inputs = { a = "ctcf-k562.bam" }
+targets = ["gloci <= samtools"]
+[case.commands]
+gloci = "{gloci} flagstat -t 1 {in_a} > {out}"
+samtools = "samtools flagstat -@ 0 {in_a} > {out}"
+
+[[case]]
+name = "flagstat-ctcf-cram"
+label = "flagstat, CTCF K562 CRAM"
+table = "alignments"
+threads = 1
+input = "cram"
+inputs = { a = "ctcf-k562.cram" }
+targets = ["gloci <= samtools"]
+[case.commands]
+gloci = "{gloci} flagstat -t 1 {in_a} > {out}"
+samtools = "samtools flagstat -@ 0 {in_a} > {out}"
+
+# The CTCF peaks as targets: real, sorted, on contigs the BAM has.
+[[case]]
+name = "bedcov-ctcf-peaks"
+label = "bedcov, CTCF peaks over the CTCF BAM"
+table = "alignments"
+threads = 1
+input = "bam"
+inputs = { a = "ctcf-k562.bam", b = "ctcf-peaks.bed" }
+targets = ["gloci <= 0.5 * samtools"]
+[case.commands]
+gloci = "{gloci} bedcov -t 1 {in_b} {in_a} > {out}"
+samtools = "samtools bedcov {in_b} {in_a} > {out}"
