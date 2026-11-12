@@ -40,7 +40,7 @@ if set(_FUNCTIONS) != set(__all__):
 
 def _source(name: str, kwargs: dict[str, Any]) -> Pipeline:
     info = _FUNCTIONS[name]
-    kw = {k: _kwarg(f"{name}()", k, v) for k, v in kwargs.items()}
+    kw = {k: _kwarg(f"{name}()", info["path"], k, v) for k, v in kwargs.items()}
     _native.source_argv(info["path"], _placeholders(kw))  # raises UsageError at once (D85)
     return Pipeline._make(_Command((info, kw), f"<{name}>"), None, ())
 
@@ -73,7 +73,7 @@ def _run(name: str, sources: list[Source], kwargs: dict[str, Any]) -> list[pathl
     the directory meanwhile."""
     info = _FUNCTIONS[name]
     where = f"{name}()"
-    kw = {k: _kwarg(where, k, v) for k, v in kwargs.items()}
+    kw = {k: _kwarg(where, info["path"], k, v) for k, v in kwargs.items()}
     # Checked before anything runs (D85).
     _native.function_argv(info["path"], ["-"] * len(sources), _placeholders(kw))
     plan = _Plan()

@@ -51,7 +51,7 @@ pub use bindings::{
 };
 pub use gloci_io::cancel::{CancelToken, RunGuard};
 pub use pipe::{PIPE_CHUNK, PIPE_CHUNKS, PipeFail, PipeReader, PipeWriter, pipe};
-pub use spec::{ArgSpec, CommandSpec, command_specs, find_spec};
+pub use spec::{ArgSpec, CommandSpec, FILE_VALUE_NAMES, command_specs, find_spec};
 pub use stages::{StageError, StageSet, StageSpec};
 
 use crate::cli::{self, Cli, Commands};

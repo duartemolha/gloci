@@ -26,6 +26,25 @@ __all__ = ["Pipeline", "classify_source", "open"]
 #: Each step method's binding, by method name (`_native.bindings()`).
 _BINDINGS: dict[str, dict[str, Any]] = {b["method"]: b for b in _native.bindings()}
 
+
+def _arg_names(a: dict[str, Any]) -> set[str]:
+    """The keyword arguments that name an argument (D86)."""
+    names = {a["kwarg"], *(alias.replace("-", "_") for alias in a["aliases"])}
+    if a["short"]:
+        names.add(a["short"])
+    if a["positional"]:
+        names.add(a["id"])
+    return names
+
+
+#: The keyword arguments that take a file, by command: only these take a source (D88).
+_FILE_KWARGS: dict[tuple[str, ...], frozenset[str]] = {
+    tuple(spec["path"]): frozenset(
+        name for a in spec["args"] if a["takes_file"] for name in _arg_names(a)
+    )
+    for spec in _native.command_specs()
+}
+
 # Plan tokens (`_native.run_plan`): the pipe stage `i` writes, and the terminal's output.
 _OUT = "\0out"
 
@@ -202,21 +221,30 @@ def _is_source(value: object) -> bool:
     return isinstance(value, Iterable) and not isinstance(value, Mapping)
 
 
-def _kwarg(where: str, name: str, value: Any) -> Any:
-    """A keyword argument's value, with the sources in it made `Source`s (D87: `b=` takes any
-    source, or a list of them). A list or tuple whose items are all tuples (or lists) is one
-    source, of rows; any other list repeats the flag, each item a value or a source."""
+def _kwarg(where: str, path: list[str], name: str, value: Any) -> Any:
+    """A keyword argument of the command `path`, with the sources in it made `Source`s (D87:
+    `b=` takes any source, or a list of them). Only an argument that takes a file takes a
+    source; any other refuses one, rather than read it as a value. A list or tuple whose items
+    are all tuples (or lists) is one source, of rows; any other list repeats the flag, each item
+    a value or a source."""
     what = f"{where}: {name}="
+    takes_file = name in _FILE_KWARGS.get(tuple(path), frozenset())
 
     def one(v: Any) -> Any:
         if _is_source(v):
+            if not takes_file:
+                raise UsageError(
+                    f"{what} takes values, not a {type(v).__name__}: only an argument that "
+                    "takes a file takes a source (a file object, an iterable, an Arrow table or "
+                    "a Pipeline)"
+                )
             return classify_source(v, what)
         if isinstance(v, (str, os.PathLike)) and "\0" in os.fsdecode(os.fspath(v)):
             raise UsageError(f"{name}= holds a NUL character, which no argument can hold")
         return v
 
     if isinstance(value, (list, tuple)):
-        if value and all(isinstance(v, (tuple, list)) for v in value):
+        if takes_file and value and all(isinstance(v, (tuple, list)) for v in value):
             return classify_source(value, what)
         items = [one(v) for v in value]
         return items if any(isinstance(i, Source) for i in items) else value
@@ -439,7 +467,7 @@ class Pipeline:
                     "file and open that"
                 )
         extra = tuple(classify_source(s, f"{method}()") for s in sources)
-        kw = {name: _kwarg(f"{method}()", name, value) for name, value in kwargs.items()}
+        kw = {name: _kwarg(f"{method}()", b["path"], name, v) for name, v in kwargs.items()}
         if not self._steps and self._format is not None:
             kw = self._with_format(b, kw)
         _native.kwargs_to_argv(b["path"], _placeholders(kw))  # raises UsageError at once (D85)

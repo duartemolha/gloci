@@ -72,6 +72,7 @@ fn arg_dict<'py>(py: Python<'py>, a: &ArgSpec) -> PyResult<Bound<'py, PyDict>> {
     d.set_item("require_equals", a.require_equals)?;
     d.set_item("value_names", &a.value_names)?;
     d.set_item("possible_values", &a.possible_values)?;
+    d.set_item("takes_file", a.takes_file)?;
     d.set_item("help", &a.help)?;
     Ok(d)
 }

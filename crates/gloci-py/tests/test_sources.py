@@ -794,3 +794,16 @@ def test_a_spent_object_is_known_whatever_wraps_it(here: Path) -> None:
     assert p.count() == 1
     with pytest.raises(gloci.UsageError):
         p.count()
+
+
+def test_only_file_arguments_take_sources(ab: Path) -> None:
+    # M2: names= takes labels, so a set is refused rather than read as a source.
+    with pytest.raises(gloci.UsageError) as e:
+        gloci.open("a.bed").intersect(b=["b.bed", "b.bed"], mode="pairs", names=["x", {"y"}])
+    assert "names=" in str(e.value)
+    no_nul(e.value)
+    for bad in ((r for r in ["x"]), io.StringIO("x"), gloci.open("b.bed")):
+        with pytest.raises(gloci.UsageError, match="names="):
+            gloci.open("a.bed").intersect(b="b.bed", names=bad)
+    # A file argument still takes them.
+    assert gloci.open("a.bed").intersect(b=iter(bed_rows(ab / "b.bed"))).count() > 0
