@@ -24,10 +24,12 @@ about as much again. Each download is checked against the provider's own md5
 (a bad file is moved to `.bad`). A derived input is checked against the sha256
 in `xtask/bench/datasets.toml`; an empty one is TO-PIN and `--record` fills it.
 
-**Before pinning (Task 15):** derive every input twice into different cache
-directories (`--data-dir A`, then `--data-dir B`) and compare the digests; pin
-only inputs that agree. The commands are written to be byte-deterministic
-(`--no-version`, `--no-PG`, fixed CRAM file name), but only a second run proves it.
+**Pinned (Task 15):** every derived input was built twice into different
+cache directories and the sha256 of every file (inputs, indexes and the CRAM
+`.crai`) was identical. That check found one non-determinism, the CRAM written
+with `-@ 4` (htslib picks codecs per slice by trial, so the choice depends on
+slice arrival order); it is now written single-threaded. To re-check after
+editing a command, derive into two directories and compare.
 
 `paper/fetch-datasets.sh` is generated: edit `xtask/bench/datasets.toml`, then
 run `cargo xtask paper fetch-script`. A test fails when it is stale.

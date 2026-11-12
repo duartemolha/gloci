@@ -22,12 +22,11 @@
 #   samtools=1.21
 #   mosdepth=0.3.10
 #   hyperfine=2.0.0
-#   bedtk=0.1
-#   vcfkit=0.2.9
+#   bedtk=1.1
 #   coreutils=9.12
 #   gawk=5.3.1
-#   time=1.10
 #   ucsc-bigwigtobedgraph=469
+#   time=1.9-0.2
 set -eu
 command -v bash >/dev/null 2>&1 || { echo "fetch-datasets.sh needs bash (for pipefail)" >&2; exit 1; }
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -108,31 +107,31 @@ fetch 'gnomad-v4.1-exomes-chr22' 'https://storage.googleapis.com/gcp-public-data
 fetch 'encode-ctcf-k562-bam' 'https://www.encodeproject.org/files/ENCFF834MPG/@@download/ENCFF834MPG.bam' 'ENCFF834MPG.bam' '22477d07776b89e20b0458ed873306d4' 'ctcf-k562.bam ctcf-k562.cram ctcf-peaks.bed'
 
 export IN="$CACHE/gencode.v46.annotation.gtf.gz"
-derive 'exons-unsorted.bed' '' 'zcat "$IN" | gawk -F'\''\t'\'' -v OFS='\''\t'\'' '\''$3=="exon"{match($9,/gene_name "[^"]+"/);print $1,$4-1,$5,substr($9,RSTART+11,RLENGTH-12),0,$7}'\'' > "$OUT"' 'exons.bed exons.bed.gz'
+derive 'exons-unsorted.bed' '915ed366960cbd4ec72a1f3ee54d48c9b3e29c72b924bf12eba148ec87c1dd69' 'zcat "$IN" | gawk -F'\''\t'\'' -v OFS='\''\t'\'' '\''$3=="exon"{match($9,/gene_name "[^"]+"/);print $1,$4-1,$5,substr($9,RSTART+11,RLENGTH-12),0,$7}'\'' > "$OUT"' 'exons.bed exons.bed.gz'
 export IN="$CACHE/exons-unsorted.bed"
-derive 'exons.bed' '' 'sort -k1,1 -k2,2n -s "$IN" > "$OUT"' 'exons.bed.gz'
+derive 'exons.bed' 'e4f59e3acf34138e0c8bb04e5b89af0577e53bd1af83f1a7c489bcb6976e9a58' 'sort -k1,1 -k2,2n -s "$IN" > "$OUT"' 'exons.bed.gz'
 export IN="$CACHE/ENCFF420VPZ.bed.gz"
-derive 'ccre.bed' '' 'zcat "$IN" | cut -f1-6 | sort -k1,1 -k2,2n -s > "$OUT"' 'ccre.bed.gz'
+derive 'ccre.bed' '5b2c8d03c699baf152c982bba95fd168beae2b0416f2181d643f9c2bb9ead5f3' 'zcat "$IN" | cut -f1-6 | sort -k1,1 -k2,2n -s > "$OUT"' 'ccre.bed.gz'
 export IN="$CACHE/ccre.bed"
-derive 'ccre.bed.gz' '' 'bgzip -c "$IN" > "$OUT" && tabix -p bed "$OUT"' ''
+derive 'ccre.bed.gz' '558e3ef6f06253d939c699f973989a6a6d9498cc8d83166ccfc6273a00dd744c' 'bgzip -c "$IN" > "$OUT" && tabix -p bed "$OUT"' ''
 export IN="$CACHE/exons.bed"
-derive 'exons.bed.gz' '' 'bgzip -c "$IN" > "$OUT" && tabix -p bed "$OUT"' ''
+derive 'exons.bed.gz' 'b25d68b06c8e1f45c1cabbc27594be7bfd9294146da9a844194d894892a3bce5' 'bgzip -c "$IN" > "$OUT" && tabix -p bed "$OUT"' ''
 export IN="$CACHE/ENCFF979PWH.bigWig"
-derive 'ctcf-fc.bedgraph' '' 'bigWigToBedGraph "$IN" /dev/stdout | sort -k1,1 -k2,2n -s > "$OUT"' ''
+derive 'ctcf-fc.bedgraph' '1477693dbaff846a203295fd29d1115e507589296e0aba4661ade690c3e6cb1a' 'bigWigToBedGraph "$IN" /dev/stdout | sort -k1,1 -k2,2n -s > "$OUT"' ''
 export IN="$CACHE/1kGP_high_coverage_Illumina.chr20.filtered.SNV_INDEL_SV_phased_panel.vcf.gz"
-derive '1kg-chr20.bcf' '' 'bcftools view --no-version -Ob -o "$OUT" "$IN" && bcftools index "$OUT"' ''
+derive '1kg-chr20.bcf' '5041e7f9cd6cc55025ce0fd1b9d174c12851e503717df869c5a43e04771c9835' 'bcftools view --no-version -Ob -o "$OUT" "$IN" && bcftools index "$OUT"' ''
 export IN="$CACHE/1kGP_high_coverage_Illumina.chr20.filtered.SNV_INDEL_SV_phased_panel.vcf.gz"
-derive '1kg-chr20.p1.vcf.gz' '' 'bcftools index -f -t "$IN" && bcftools view --no-version -Oz -r chr20:1-30000000 -o "$OUT" "$IN" && bcftools index -t "$OUT"' ''
+derive '1kg-chr20.p1.vcf.gz' '93be1bd3a387592d483471a626bcded73bad1769093c362e24040cd674097b27' 'bcftools index -f -t "$IN" && bcftools view --no-version -Oz -r chr20:1-30000000 -o "$OUT" "$IN" && bcftools index -t "$OUT"' ''
 export IN="$CACHE/1kGP_high_coverage_Illumina.chr20.filtered.SNV_INDEL_SV_phased_panel.vcf.gz"
-derive '1kg-chr20.p2.vcf.gz' '' 'bcftools index -f -t "$IN" && bcftools view --no-version -Oz -r chr20:30000001- -o "$OUT" "$IN" && bcftools index -t "$OUT"' ''
+derive '1kg-chr20.p2.vcf.gz' 'f6f86390be54872fbe6f10b72a74ad181d19d88dd44e88f0a4c7ec4c34be6e22' 'bcftools index -f -t "$IN" && bcftools view --no-version -Oz -r chr20:30000001- -o "$OUT" "$IN" && bcftools index -t "$OUT"' ''
 export IN="$CACHE/ENCFF834MPG.bam"
-derive 'ctcf-k562.bam' '' 'cp "$IN" "$OUT" && samtools index -@ 4 "$OUT"' 'ctcf-k562.cram ctcf-peaks.bed'
+derive 'ctcf-k562.bam' '7e86b221c30456d5a10f988d272a5f5af978ab55336ab28f7301efeb81d3fdb3' 'cp "$IN" "$OUT" && samtools index -@ 4 "$OUT"' 'ctcf-k562.cram ctcf-peaks.bed'
 export IN="$CACHE/ctcf-k562.bam"
-derive 'ctcf-k562.cram' '' 't=$(mktemp -d) && (cd "$t" && samtools view -C --output-fmt-option no_ref --no-PG -@ 4 -o c.cram "$IN" && samtools index c.cram) && mv "$t/c.cram.crai" "$OUT".crai && mv "$t/c.cram" "$OUT" && rmdir "$t"' ''
+derive 'ctcf-k562.cram' 'd65a67fb0f98abc76b3c7de888056c28cda4f4cde717f9c4d3e89303213111b1' 't=$(mktemp -d) && (cd "$t" && samtools view -C --output-fmt-option no_ref --no-PG -@ 0 -o c.cram "$IN" && samtools index c.cram) && mv "$t/c.cram.crai" "$OUT".crai && mv "$t/c.cram" "$OUT" && rmdir "$t"' ''
 export IN="$CACHE/ENCFF769AUF.bed.gz" IN2="$CACHE/ctcf-k562.bam"
-derive 'ctcf-peaks.bed' '' 'zcat "$IN" | cut -f1-6 | sort -k1,1 -k2,2n -s > "$OUT" && missing=$(comm -23 <(cut -f1 "$OUT" | sort -u) <(samtools view -H "$IN2" | gawk -F'\''\t'\'' '\''$1=="@SQ"{sub("SN:","",$2);print $2}'\'' | sort)) && [ -z "$missing" ] || { echo "contigs of the CTCF peaks that are not @SQ of the BAM: $missing" >&2; false; }' ''
+derive 'ctcf-peaks.bed' '2f669c78b6b56ee317fc9142a8a7a4be45f263f861828b01c715bffe6d300f9d' 'zcat "$IN" | cut -f1-6 | sort -k1,1 -k2,2n -s > "$OUT" && missing=$(comm -23 <(cut -f1 "$OUT" | sort -u) <(samtools view -H "$IN2" | gawk -F'\''\t'\'' '\''$1=="@SQ"{sub("SN:","",$2);print $2}'\'' | sort)) && [ -z "$missing" ] || { echo "contigs of the CTCF peaks that are not @SQ of the BAM: $missing" >&2; false; }' ''
 export IN="$ROOT/crates/gloci-io/data/genomes/hg38.genome"
-derive 'hg38.lex.genome' '' 'sort -k1,1 "$IN" > "$OUT"' ''
+derive 'hg38.lex.genome' 'f0114a219fb57b6c3948c075a8ff9d0b87aa461b5a753f4e9aa749e7ad7a994d' 'sort -k1,1 "$IN" > "$OUT"' ''
 
 if [ "$NUNPINNED" -gt 0 ]; then
   echo "$NUNPINNED derived inputs UNVERIFIED (no sha256 in datasets.toml):$UNPINNED" >&2
