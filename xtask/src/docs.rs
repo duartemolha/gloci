@@ -74,22 +74,33 @@ const PITFALLS: &str = "\
 - **`faidx` needs `gloci index ref.fa` first:** gloci never builds the `.fai` (or `.gzi`) implicitly, so `gloci faidx ref.fa chr1:1-100` on an unindexed FASTA exits 2 naming `gloci index ref.fa`; `-r FILE` is `xargs gloci faidx ref.fa < list` or `--regions-file BED`.
 ";
 
+/// The example lines of a command: the non-blank lines after `Examples:` in its after-help.
+pub fn examples_of(sub: &clap::Command) -> Vec<String> {
+    let after = sub
+        .get_after_long_help()
+        .or_else(|| sub.get_after_help())
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+    after
+        .split("Examples:")
+        .nth(1)
+        .map(|s| {
+            s.lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn write_cmd_section(buf: &mut String, heading: &str, full_name: &str, sub: &clap::Command) {
     let about = sub
         .get_long_about()
         .or_else(|| sub.get_about())
         .map(|s| s.to_string())
         .unwrap_or_default();
-    let after = sub
-        .get_after_long_help()
-        .or_else(|| sub.get_after_help())
-        .map(|s| s.to_string())
-        .unwrap_or_default();
-    let examples: Vec<&str> = after
-        .split("Examples:")
-        .nth(1)
-        .map(|s| s.lines().map(str::trim).filter(|l| !l.is_empty()).collect())
-        .unwrap_or_default();
+    let examples = examples_of(sub);
 
     let _ = writeln!(buf, "{heading} `{full_name}`\n");
     if !about.trim().is_empty() {

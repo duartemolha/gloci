@@ -10,3 +10,5 @@ __pycache__/
 .venv/
 /crates/gloci-py/python/gloci/_native*.so
 /crates/gloci-py/python/gloci/_native*.pyd
+/docs/book/src/reference/
+/docs/book/src/SUMMARY.md
