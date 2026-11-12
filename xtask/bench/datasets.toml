@@ -36,7 +36,8 @@ md5 = "34a9a5dbfb285e7eb9d1f2881953014b"
 unpack = false
 paper = true
 
-# Everything below is paper = true.
+# Everything below is paper = true. All ENCODE items are GRCh38 (assembly
+# recorded per item below).
 
 [[dataset]]
 # GENCODE v46 comprehensive annotation (GRCh38), 51,006,804 bytes.
@@ -47,7 +48,7 @@ md5 = "68070e3c87f6a0e70af6e4ff4d55f61c"
 paper = true
 
 [[dataset]]
-# ENCODE SCREEN cCREs v4 (ENCSR800VNX), 32,795,453 bytes.
+# ENCODE SCREEN cCREs v4 (ENCSR800VNX), GRCh38, 32,795,453 bytes.
 # Checksum source: the ENCODE portal's md5sum for ENCFF420VPZ.
 name = "encode-ccre-v4"
 url = "https://www.encodeproject.org/files/ENCFF420VPZ/@@download/ENCFF420VPZ.bed.gz"
@@ -55,7 +56,7 @@ md5 = "ea1820bd71581ba01c94fc600fbf794d"
 paper = true
 
 [[dataset]]
-# CTCF ChIP-seq in K562 (ENCSR000AKO), IDR peaks, 919,491 bytes.
+# CTCF ChIP-seq in K562 (ENCSR000AKO), GRCh38 IDR peaks, 919,491 bytes.
 # Checksum source: the ENCODE portal's md5sum for ENCFF769AUF.
 name = "encode-ctcf-k562-peaks"
 url = "https://www.encodeproject.org/files/ENCFF769AUF/@@download/ENCFF769AUF.bed.gz"
@@ -63,7 +64,7 @@ md5 = "7d086cac19c5311a77b7e21e3d931435"
 paper = true
 
 [[dataset]]
-# CTCF ChIP-seq in K562 (ENCSR000AKO), fold-change signal, 502,671,302 bytes.
+# CTCF ChIP-seq in K562 (ENCSR000AKO), GRCh38 fold-change signal, 502,671,302 bytes.
 # Checksum source: the ENCODE portal's md5sum for ENCFF979PWH.
 name = "encode-ctcf-k562-fc"
 url = "https://www.encodeproject.org/files/ENCFF979PWH/@@download/ENCFF979PWH.bigWig"
@@ -91,6 +92,12 @@ md5 = "22477d07776b89e20b0458ed873306d4"
 paper = true
 
 # ---- derived inputs (D95) ----
+# Byte-determinism: pins are only useful if a rebuild gives the same bytes. Every
+# `bcftools view` has --no-version (no ##bcftools_viewCommand with date and
+# path), samtools has --no-PG, and nothing embeds a path or a time. TASK 15:
+# before recording, derive each input twice into different cache directories
+# (`cargo xtask paper fetch --data-dir A`, then `--data-dir B`) and compare the
+# digests; pin only when they agree.
 # Commands run in the bench image under `bash -o pipefail` with LC_ALL=C.
 # {in} is the first `from`, {in2} the second; {out} is the result.
 
@@ -109,12 +116,6 @@ sha256 = "" # TO-PIN
 [[derived]]
 name = "ccre.bed"
 from = ["encode-ccre-v4"]
-command = "zcat {in} | cut -f1-6 | sort -k1,1 -k2,2n -s > {out}"
-sha256 = "" # TO-PIN
-
-[[derived]]
-name = "ctcf-peaks.bed"
-from = ["encode-ctcf-k562-peaks"]
 command = "zcat {in} | cut -f1-6 | sort -k1,1 -k2,2n -s > {out}"
 sha256 = "" # TO-PIN
 
@@ -139,36 +140,53 @@ sha256 = "" # TO-PIN
 [[derived]]
 name = "1kg-chr20.bcf"
 from = ["1kg-30x-chr20"]
-command = "bcftools view -Ob -o {out} {in} && bcftools index {out}"
+command = "bcftools view --no-version -Ob -o {out} {in} && bcftools index {out}"
 sha256 = "" # TO-PIN
 
 [[derived]]
-# The first half of chr20; `bcftools index` writes the .tbi beside the input.
+# p1 and p2 are DISJOINT halves of chr20 (1-30,000,000 and 30,000,001-end). That
+# is fine for timing `vcf compare` (same sizes, same sample columns), but it
+# says nothing about concordance: concordance runs use other inputs (two calls
+# of the same samples). The first half of chr20; `bcftools index` writes the .tbi beside the input.
 name = "1kg-chr20.p1.vcf.gz"
 from = ["1kg-30x-chr20"]
-command = "bcftools index -f -t {in} && bcftools view -Oz -r chr20:1-30000000 -o {out} {in} && bcftools index -t {out}"
+command = "bcftools index -f -t {in} && bcftools view --no-version -Oz -r chr20:1-30000000 -o {out} {in} && bcftools index -t {out}"
 sha256 = "" # TO-PIN
 
 [[derived]]
 name = "1kg-chr20.p2.vcf.gz"
 from = ["1kg-30x-chr20"]
-command = "bcftools index -f -t {in} && bcftools view -Oz -r chr20:30000001- -o {out} {in} && bcftools index -t {out}"
+command = "bcftools index -f -t {in} && bcftools view --no-version -Oz -r chr20:30000001- -o {out} {in} && bcftools index -t {out}"
 sha256 = "" # TO-PIN
 
 [[derived]]
-# Addition (P3): coordinate-sorted and indexed (`.bai` beside it) for depth,
-# flagstat, idxstats, bedcov and view --count.
+# Addition (P3): the ENCODE BAM, indexed (`.bai` beside it) for depth, flagstat,
+# idxstats, bedcov and view --count. ENCODE's filtered alignments are already
+# coordinate-sorted, and `samtools index` fails on unsorted input, so the BAM
+# is copied byte for byte: no re-sort, hence no tie-order or @PG question.
 name = "ctcf-k562.bam"
 from = ["encode-ctcf-k562-bam"]
-command = "samtools sort -@ 4 -o {out} {in} && samtools index -@ 4 {out}"
+command = "cp {in} {out} && samtools index -@ 4 {out}"
 sha256 = "" # TO-PIN
 
 [[derived]]
 # Addition (P3): the same reads as CRAM, written without embedded or external
-# reference (no_ref), so no reference download is needed.
+# reference (no_ref), so no reference download is needed. Deterministic bytes:
+# --no-PG drops the @PG line (it carries paths), and the CRAM file definition
+# holds the output file name (htslib copies it into the 20-byte file id), so
+# the file is written under a fixed name in a scratch directory, then moved.
 name = "ctcf-k562.cram"
 from = ["ctcf-k562.bam"]
-command = "samtools view -C --output-fmt-option no_ref -@ 4 -o {out} {in} && samtools index {out}"
+command = '''t=$(mktemp -d) && (cd "$t" && samtools view -C --output-fmt-option no_ref --no-PG -@ 4 -o c.cram {in} && samtools index c.cram) && mv "$t/c.cram.crai" {out}.crai && mv "$t/c.cram" {out} && rmdir "$t"'''
+sha256 = "" # TO-PIN
+
+[[derived]]
+# The bedcov target list, sorted. It also checks that every contig of the peaks
+# (GRCh38, chr-prefixed) is an @SQ of the BAM (GRCh38 no-alt analysis set), and
+# fails otherwise: bedcov would silently count nothing on a missing contig.
+name = "ctcf-peaks.bed"
+from = ["encode-ctcf-k562-peaks", "ctcf-k562.bam"]
+command = '''zcat {in} | cut -f1-6 | sort -k1,1 -k2,2n -s > {out} && missing=$(comm -23 <(cut -f1 {out} | sort -u) <(samtools view -H {in2} | gawk -F'\t' '$1=="@SQ"{sub("SN:","",$2);print $2}' | sort)) && [ -z "$missing" ] || { echo "contigs of the CTCF peaks that are not @SQ of the BAM: $missing" >&2; false; }'''
 sha256 = "" # TO-PIN
 
 [[derived]]

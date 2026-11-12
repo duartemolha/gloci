@@ -83,8 +83,6 @@ export IN="$CACHE/exons-unsorted.bed"
 derive 'exons.bed' '' 'sort -k1,1 -k2,2n -s "$IN" > "$OUT"'
 export IN="$CACHE/ENCFF420VPZ.bed.gz"
 derive 'ccre.bed' '' 'zcat "$IN" | cut -f1-6 | sort -k1,1 -k2,2n -s > "$OUT"'
-export IN="$CACHE/ENCFF769AUF.bed.gz"
-derive 'ctcf-peaks.bed' '' 'zcat "$IN" | cut -f1-6 | sort -k1,1 -k2,2n -s > "$OUT"'
 export IN="$CACHE/ccre.bed"
 derive 'ccre.bed.gz' '' 'bgzip -c "$IN" > "$OUT" && tabix -p bed "$OUT"'
 export IN="$CACHE/exons.bed"
@@ -92,14 +90,16 @@ derive 'exons.bed.gz' '' 'bgzip -c "$IN" > "$OUT" && tabix -p bed "$OUT"'
 export IN="$CACHE/ENCFF979PWH.bigWig"
 derive 'ctcf-fc.bedgraph' '' 'bigWigToBedGraph "$IN" /dev/stdout | sort -k1,1 -k2,2n -s > "$OUT"'
 export IN="$CACHE/1kGP_high_coverage_Illumina.chr20.filtered.SNV_INDEL_SV_phased_panel.vcf.gz"
-derive '1kg-chr20.bcf' '' 'bcftools view -Ob -o "$OUT" "$IN" && bcftools index "$OUT"'
+derive '1kg-chr20.bcf' '' 'bcftools view --no-version -Ob -o "$OUT" "$IN" && bcftools index "$OUT"'
 export IN="$CACHE/1kGP_high_coverage_Illumina.chr20.filtered.SNV_INDEL_SV_phased_panel.vcf.gz"
-derive '1kg-chr20.p1.vcf.gz' '' 'bcftools index -f -t "$IN" && bcftools view -Oz -r chr20:1-30000000 -o "$OUT" "$IN" && bcftools index -t "$OUT"'
+derive '1kg-chr20.p1.vcf.gz' '' 'bcftools index -f -t "$IN" && bcftools view --no-version -Oz -r chr20:1-30000000 -o "$OUT" "$IN" && bcftools index -t "$OUT"'
 export IN="$CACHE/1kGP_high_coverage_Illumina.chr20.filtered.SNV_INDEL_SV_phased_panel.vcf.gz"
-derive '1kg-chr20.p2.vcf.gz' '' 'bcftools index -f -t "$IN" && bcftools view -Oz -r chr20:30000001- -o "$OUT" "$IN" && bcftools index -t "$OUT"'
+derive '1kg-chr20.p2.vcf.gz' '' 'bcftools index -f -t "$IN" && bcftools view --no-version -Oz -r chr20:30000001- -o "$OUT" "$IN" && bcftools index -t "$OUT"'
 export IN="$CACHE/ENCFF834MPG.bam"
-derive 'ctcf-k562.bam' '' 'samtools sort -@ 4 -o "$OUT" "$IN" && samtools index -@ 4 "$OUT"'
+derive 'ctcf-k562.bam' '' 'cp "$IN" "$OUT" && samtools index -@ 4 "$OUT"'
 export IN="$CACHE/ctcf-k562.bam"
-derive 'ctcf-k562.cram' '' 'samtools view -C --output-fmt-option no_ref -@ 4 -o "$OUT" "$IN" && samtools index "$OUT"'
+derive 'ctcf-k562.cram' '' 't=$(mktemp -d) && (cd "$t" && samtools view -C --output-fmt-option no_ref --no-PG -@ 4 -o c.cram "$IN" && samtools index c.cram) && mv "$t/c.cram.crai" "$OUT".crai && mv "$t/c.cram" "$OUT" && rmdir "$t"'
+export IN="$CACHE/ENCFF769AUF.bed.gz" IN2="$CACHE/ctcf-k562.bam"
+derive 'ctcf-peaks.bed' '' 'zcat "$IN" | cut -f1-6 | sort -k1,1 -k2,2n -s > "$OUT" && missing=$(comm -23 <(cut -f1 "$OUT" | sort -u) <(samtools view -H "$IN2" | gawk -F'\''\t'\'' '\''$1=="@SQ"{sub("SN:","",$2);print $2}'\'' | sort)) && [ -z "$missing" ] || { echo "contigs of the CTCF peaks that are not @SQ of the BAM: $missing" >&2; false; }'
 export IN="$ROOT/crates/gloci-io/data/genomes/hg38.genome"
 derive 'hg38.lex.genome' '' 'sort -k1,1 "$IN" > "$OUT"'
