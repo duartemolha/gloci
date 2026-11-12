@@ -1,11 +1,16 @@
 //! `gloci idxstats`: reads per reference of a BAM, CRAM or SAM (D127).
 use crate::Ctx;
 use crate::cli::IdxstatsArgs;
-use gloci_io::{Accept, AlignOptions, InvalidPolicy, ReaderOptions};
+use gloci_io::{
+    Accept, AlignOptions, InvalidPolicy, IoError, OutFormat, OutputOptions, ReaderOptions,
+    open_output,
+};
 use gloci_ops::idxstats;
-use std::io::BufWriter;
+use std::io::Write;
 
 pub fn run(ctx: &Ctx, a: &IdxstatsArgs) -> anyhow::Result<()> {
+    // TSV of idxstats' own layout, BGZF-compressed when -o ends in .gz or .bgz.
+    let spec = super::own_tsv_output_spec(a.output.as_deref())?;
     let ro = ReaderOptions {
         accept: Accept {
             alignments: Some(AlignOptions {
@@ -20,17 +25,18 @@ pub fn run(ctx: &Ctx, a: &IdxstatsArgs) -> anyhow::Result<()> {
         vcf_span: gloci_core::VcfSpan::Allele,
         invalid: InvalidPolicy::Fail,
     };
-    // Counted whole before anything is written, so a failing scan prints nothing.
+    // Counted whole before anything is opened for writing, so a failing scan leaves no output.
     let mut text = Vec::new();
     idxstats(&a.file, &ro, &mut text)?;
-    let mut out = BufWriter::new(std::io::stdout().lock());
-    std::io::Write::write_all(&mut out, &text).map_err(|e| gloci_io::IoError::Write {
-        path: "stdout".into(),
-        source: e,
-    })?;
-    std::io::Write::flush(&mut out).map_err(|e| gloci_io::IoError::Write {
-        path: "stdout".into(),
-        source: e,
-    })?;
+    let oo = OutputOptions {
+        threads: ctx.threads,
+        level: 6,
+        write_index: false,
+    };
+    let dest = super::dest_name(&spec);
+    let mut out = open_output(&spec, OutFormat::Tsv, &oo)?;
+    out.write_all(&text)
+        .map_err(|source| IoError::Write { path: dest, source })?;
+    out.finish()?;
     Ok(())
 }

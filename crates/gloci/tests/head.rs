@@ -175,3 +175,81 @@ fn head_refuses_what_it_does_not_take() {
         .failure()
         .stdout(predicate::str::is_empty());
 }
+
+#[test]
+fn head_writes_to_o_as_text() {
+    let d = tempdir();
+    let f = rg("bam");
+    let want = format!("{HEADER}{R1}");
+    // Any text name gets the text as it is, as stdout does.
+    for name in ["first.sam", "first.txt", "first"] {
+        let out = d.path().join(name);
+        gloci()
+            .args(["head", &f, "--records", "1", "-o", &s(&out)])
+            .assert()
+            .success()
+            .stdout(predicate::str::is_empty());
+        assert_eq!(std::fs::read_to_string(&out).unwrap(), want, "{name}");
+    }
+    // .gz compresses it (BGZF).
+    let gz = d.path().join("first.sam.gz");
+    gloci()
+        .args(["head", &f, "--records", "1", "--output", &s(&gz)])
+        .assert()
+        .success();
+    let raw = std::fs::read(&gz).unwrap();
+    assert_eq!(&raw[..2], &[0x1f, 0x8b]);
+    let mut text = String::new();
+    noodles_bgzf::io::Reader::new(&raw[..])
+        .read_to_string(&mut text)
+        .unwrap();
+    assert_eq!(text, want);
+    // A VCF's first lines are a VCF.
+    let vcf = d.path().join("in.vcf");
+    std::fs::write(
+        &vcf,
+        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nchr1\t5\t.\tA\tC\t.\t.\t.\n",
+    )
+    .unwrap();
+    let out = d.path().join("first.vcf");
+    gloci()
+        .args(["head", &s(&vcf), "--records", "1", "-o", &s(&out)])
+        .assert()
+        .success();
+    assert_eq!(std::fs::read(&out).unwrap(), std::fs::read(&vcf).unwrap());
+}
+
+#[test]
+fn head_refuses_a_binary_output_name_and_leaves_no_file_on_failure() {
+    let d = tempdir();
+    for name in ["x.bam", "x.BCF", "x.cram"] {
+        let out = d.path().join(name);
+        gloci()
+            .args(["head", &rg("bam"), "-o", &s(&out)])
+            .assert()
+            .code(2)
+            .stderr(contains("head writes text"));
+        assert!(!out.exists(), "{name}");
+    }
+    // A truncated BAM fails; the FILE is not kept (stdout keeps what was read).
+    let mut raw = Vec::new();
+    noodles_bgzf::io::Reader::new(std::fs::File::open(rg("bam")).unwrap())
+        .read_to_end(&mut raw)
+        .unwrap();
+    raw.truncate(raw.len() - 10);
+    let f = s(&fixtures::write(
+        d.path(),
+        "cut.bam",
+        &fixtures::bgzip(&raw),
+    ));
+    let out = d.path().join("cut.sam");
+    gloci()
+        .args(["head", &f, "--records", "3", "-o", &s(&out)])
+        .assert()
+        .code(1);
+    let left: Vec<_> = std::fs::read_dir(d.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(!out.exists() && left == ["cut.bam"], "{left:?}");
+}

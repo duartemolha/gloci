@@ -409,3 +409,46 @@ fn idxstats_stale_index_warns_once_and_is_used() {
     assert_eq!(err.matches("older than").count(), 1, "{err}");
     assert_eq!(err.matches("warning").count(), 1, "{err}");
 }
+
+#[test]
+fn idxstats_writes_to_o() {
+    let d = tempdir();
+    let bam = copy(d.path(), &inputs().join("aln/flags.bam"), "flags.bam");
+    for name in ["stats.tsv", "stats.txt", "stats"] {
+        let out = d.path().join(name);
+        gloci()
+            .args(["idxstats", &s(&bam), "-o", &s(&out)])
+            .assert()
+            .success()
+            .stdout(predicate::str::is_empty());
+        assert_eq!(std::fs::read_to_string(&out).unwrap(), FLAGS, "{name}");
+    }
+    // .gz compresses the table (BGZF).
+    let gz = d.path().join("stats.tsv.gz");
+    gloci()
+        .args(["idxstats", &s(&bam), "--output", &s(&gz)])
+        .assert()
+        .success();
+    let mut text = String::new();
+    std::io::Read::read_to_string(
+        &mut noodles_bgzf::io::Reader::new(std::fs::File::open(&gz).unwrap()),
+        &mut text,
+    )
+    .unwrap();
+    assert_eq!(text, FLAGS);
+    // A name of another format is refused before anything is read.
+    let bad = d.path().join("stats.bam");
+    gloci()
+        .args(["idxstats", &s(&bam), "-o", &s(&bad)])
+        .assert()
+        .code(2);
+    assert!(!bad.exists());
+    // A failing scan leaves no output file.
+    let missing = d.path().join("missing.bam");
+    let out = d.path().join("never.tsv");
+    gloci()
+        .args(["idxstats", &s(&missing), "-o", &s(&out)])
+        .assert()
+        .code(1);
+    assert!(!out.exists());
+}
