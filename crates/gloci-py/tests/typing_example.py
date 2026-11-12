@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import pathlib
 from collections.abc import Iterator
+from typing import assert_type
 
 import gloci
 from gloci import DataError, GlociError, Pipeline, Record, UnsortedError, UsageError
@@ -43,7 +44,9 @@ def pipeline() -> None:
         s: int | None = r.start
         f: tuple[str, ...] = r.fields
         line: str = r.line
-        _ = (c, s, f, line, r[0], len(r), data, n, cli)
+        assert_type(r[0], str)
+        assert_type(r[1:3], tuple[str, ...])
+        _ = (c, s, f, line, len(r), data, n, cli)
     with iter(p) as records:
         first: Record = next(records)
         records.close()
@@ -98,3 +101,11 @@ def errors() -> None:
         _ = value
     except GlociError:
         raise
+
+
+def returns_inside_with(p: Pipeline) -> int:
+    # `__exit__` does not swallow exceptions, so mypy knows every path returns.
+    with iter(p) as records:
+        for _ in records:
+            return 1
+        return 0
