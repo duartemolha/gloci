@@ -366,7 +366,10 @@ fn shown_record(chroms: &ChromTable, batch: &RecordBatch, i: usize, binary: bool
 /// device or pipe written directly.
 enum Sink {
     /// A registered in-memory sink (D84).
-    Memory(io::BufWriter<Box<dyn Write + Send>>),
+    Memory(
+        io::BufWriter<Box<dyn Write + Send>>,
+        gloci_io::cancel::Watch,
+    ),
     Atomic(AtomicFile),
     Stdout(io::BufWriter<io::Stdout>),
     Direct(io::BufWriter<File>),
@@ -374,11 +377,11 @@ enum Sink {
 
 impl Write for Sink {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        if gloci_io::cancel::is_cancelled() {
-            return Err(gloci_io::cancel::io_error());
-        }
         match self {
-            Sink::Memory(w) => w.write(buf),
+            Sink::Memory(w, run) => {
+                run.check_io()?;
+                w.write(buf)
+            }
             Sink::Atomic(w) => w.write(buf),
             Sink::Stdout(w) => w.write(buf),
             Sink::Direct(w) => w.write(buf),
@@ -386,7 +389,7 @@ impl Write for Sink {
     }
     fn flush(&mut self) -> io::Result<()> {
         match self {
-            Sink::Memory(w) => w.flush(),
+            Sink::Memory(w, _) => w.flush(),
             Sink::Atomic(w) => w.flush(),
             Sink::Stdout(w) => w.flush(),
             Sink::Direct(w) => w.flush(),
@@ -451,7 +454,7 @@ used; leave out --naive for in-memory inputs",
         None => Sink::Stdout(io::BufWriter::new(io::stdout())),
         Some(p) if gloci_io::memio::is_mem_path(&p.to_string_lossy()) => {
             let (_, w) = gloci_io::memio::take_output(&p.to_string_lossy())?;
-            Sink::Memory(io::BufWriter::new(w))
+            Sink::Memory(io::BufWriter::new(w), gloci_io::cancel::Watch::current())
         }
         Some(p) if spec.direct => {
             let f = std::fs::OpenOptions::new()

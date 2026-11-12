@@ -288,6 +288,8 @@ pub struct Output {
     /// FASTA output without `--write-index`: an old `.fai`/`.gzi` beside the
     /// destination describes other data and is removed when the file is replaced.
     drop_fasta_index: bool,
+    /// The token of the run that opened this output (D91).
+    cancel: crate::cancel::Watch,
 }
 
 /// What `--write-index` builds at `finish`.
@@ -447,6 +449,7 @@ gloci view FILE -o x.bam --write-index"
         dest: spec.path.clone(),
         drop_fasta_index: f == OutFormat::Fasta && !opts.write_index,
         index,
+        cancel: crate::cancel::Watch::current(),
     })
 }
 
@@ -616,9 +619,7 @@ impl Output {
 
 impl Write for Output {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        if crate::cancel::is_cancelled() {
-            return Err(crate::cancel::io_error());
-        }
+        self.cancel.check_io()?;
         match &mut self.sink {
             Sink::StdoutPlain(w) => w.write(buf),
             Sink::StdoutBgzf(w) => w.write(buf),

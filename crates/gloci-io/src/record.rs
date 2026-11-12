@@ -247,12 +247,13 @@ fn input_options(o: &ReaderOptions) -> InputOptions {
 }
 
 fn dispatch(input: Input, o: &ReaderOptions) -> Result<Box<dyn RecordReader>, IoError> {
-    dispatch_raw(input, o).map(|r| Box::new(CancelAware(r)) as Box<dyn RecordReader>)
+    dispatch_raw(input, o)
+        .map(|r| Box::new(CancelAware(r, crate::cancel::Watch::current())) as Box<dyn RecordReader>)
 }
 
 /// Reports a cancelled run (D91) as [`IoError::Cancelled`] whichever reader noticed it: a
 /// read that failed because of the cancellation is one of many `IoError::Read` sites.
-struct CancelAware(Box<dyn RecordReader>);
+struct CancelAware(Box<dyn RecordReader>, crate::cancel::Watch);
 
 impl RecordReader for CancelAware {
     fn name(&self) -> &str {
@@ -273,7 +274,7 @@ impl RecordReader for CancelAware {
         batch: &mut RecordBatch,
         max: usize,
     ) -> Result<bool, IoError> {
-        crate::cancel::check()?;
+        self.1.check()?;
         self.0
             .read_batch(chroms, batch, max)
             .map_err(IoError::normalize_cancel)

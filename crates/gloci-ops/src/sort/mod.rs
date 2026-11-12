@@ -118,6 +118,8 @@ pub struct Sorter {
     spills: u32,
     runs: Vec<Run>,
     spill: SpillDir,
+    /// The run this sorter belongs to (D91).
+    cancel: gloci_io::cancel::Watch,
 }
 
 impl Sorter {
@@ -145,6 +147,7 @@ impl Sorter {
             spills: 0,
             runs: Vec::new(),
             spill: SpillDir::create(&cfg.tmp_dir)?,
+            cancel: gloci_io::cancel::Watch::current(),
         })
     }
 
@@ -220,11 +223,11 @@ impl Sorter {
 
     /// Sort the chunk and write it as a run.
     fn spill_chunk(&mut self, ranks: &[u32]) -> Result<(), IoError> {
-        gloci_io::cancel::check()?;
+        self.cancel.check()?;
         self.chunk.sort(ranks, self.order, self.parallel);
         let mut w = self.spill.create_run()?;
         for e in &self.chunk.entries {
-            gloci_io::cancel::check()?;
+            self.cancel.check()?;
             let h = RecHead {
                 chrom: e.chrom,
                 key: e.key,
@@ -264,10 +267,10 @@ impl Sorter {
     ) -> Result<SortStats, IoError> {
         let mut emit = Emitter::new(self.dedup, out);
         if self.runs.is_empty() {
-            gloci_io::cancel::check()?;
+            self.cancel.check()?;
             self.chunk.sort(ranks, self.order, self.parallel);
             for e in &self.chunk.entries {
-                gloci_io::cancel::check()?;
+                self.cancel.check()?;
                 emit.emit(self.chunk.raw(e))?;
             }
         } else {

@@ -459,13 +459,16 @@ the chromosome with --chrom-map, or pass --skip-invalid to skip lines on unknown
         Ok(())
     } else {
         let in_flight = 2 * workers;
+        let run = gloci_io::cancel::Watch::current();
         std::thread::scope(|s| {
             let (job_tx, job_rx) = mpsc::channel::<Job>();
             let job_rx: Arc<Mutex<Receiver<Job>>> = Arc::new(Mutex::new(job_rx));
             let (res_tx, res_rx) = mpsc::channel::<(u64, Result<Done, IoError>)>();
             for _ in 0..workers {
                 let (rx, tx, sh) = (job_rx.clone(), res_tx.clone(), &sh);
+                let run = run.clone();
                 s.spawn(move || {
+                    let _run = run.enter();
                     let mut ring = DepthRing::new();
                     let mut cursors: Vec<_> = sh
                         .files

@@ -1,4 +1,4 @@
-use gloci_io::cancel::{RunGuard, request_cancel};
+use gloci_io::cancel::{CancelToken, RunGuard};
 use gloci_io::memio::{discard, display_name, is_mem_path, register_input, register_output};
 use gloci_io::*;
 use std::io::{Cursor, Write};
@@ -128,13 +128,13 @@ fn cancel_fails_reads_and_writes() {
     let bed = dir.path().join("in.bed");
     std::fs::write(&bed, BED).unwrap();
     let dest = dir.path().join("out.bed");
+    let token = CancelToken::new();
     {
-        let _g = RunGuard::enter();
+        let _g = RunGuard::enter(&token);
         let spec = parse_output_spec(Some(&dest), None).unwrap();
         let mut out = open_output(&spec, OutFormat::Bed, &oopts(false)).unwrap();
         out.write_all(BED).unwrap();
-        request_cancel();
-        assert!(gloci_io::cancel::is_cancelled());
+        token.cancel();
         let e = out.write_all(BED).unwrap_err();
         assert!(gloci_io::cancel::is_cancel_error(&e));
         drop(out);
@@ -150,14 +150,45 @@ fn cancel_fails_reads_and_writes() {
             .to_string_lossy()
             .contains(".tmp-"))
     );
-    // A reader opened before the cancel fails with Cancelled at read_batch.
-    let mut r = open_reader(bed.to_str().unwrap(), &ropts()).unwrap();
-    {
-        let _g = RunGuard::enter();
-        request_cancel();
-        let e = count(&mut r).unwrap_err();
-        assert!(matches!(e, IoError::Cancelled), "{e:?}");
-        assert_eq!(e.to_string(), "interrupted; the partial output was removed");
-    }
-    assert_eq!(count(&mut r).unwrap(), 2);
+    // A reader built inside a run fails with Cancelled at read_batch, on any thread, and a
+    // later run (new token) is unaffected.
+    let token = CancelToken::new();
+    let mut r = {
+        let _g = RunGuard::enter(&token);
+        open_reader(bed.to_str().unwrap(), &ropts()).unwrap()
+    };
+    token.cancel();
+    let e = count(&mut r).unwrap_err();
+    assert!(matches!(e, IoError::Cancelled), "{e:?}");
+    assert_eq!(e.to_string(), "interrupted");
+    let mut again = open_reader(bed.to_str().unwrap(), &ropts()).unwrap();
+    assert_eq!(count(&mut again).unwrap(), 2);
+}
+
+#[test]
+fn a_cancel_stays_with_its_run() {
+    let _s = serial();
+    let dir = tempfile::tempdir().unwrap();
+    let bed = dir.path().join("in.bed");
+    let big: Vec<u8> = (0..20000)
+        .flat_map(|i| format!("chr1\t{}\t{}\n", i * 10, i * 10 + 5).into_bytes())
+        .collect();
+    std::fs::write(&bed, &big).unwrap();
+    let (a, b) = (CancelToken::new(), CancelToken::new());
+    let open = |t: &CancelToken| {
+        let _g = RunGuard::enter(t);
+        open_reader(bed.to_str().unwrap(), &ropts()).unwrap()
+    };
+    let (mut ra, mut rb) = (open(&a), open(&b));
+    // Cancelling a run that has ended (nothing alive uses `c`) changes nothing for later runs.
+    let c = CancelToken::new();
+    c.cancel();
+    let mut rd = open(&CancelToken::new());
+    a.cancel();
+    assert!(matches!(count(&mut ra), Err(IoError::Cancelled)));
+    assert_eq!(count(&mut rb).unwrap(), 20000);
+    assert_eq!(count(&mut rd).unwrap(), 20000);
+    // No token installed: nothing can cancel the read.
+    let mut none = open_reader(bed.to_str().unwrap(), &ropts()).unwrap();
+    assert_eq!(count(&mut none).unwrap(), 20000);
 }

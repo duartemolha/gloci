@@ -103,6 +103,7 @@ pub(crate) fn merge_runs<const M: u8>(
     ranks: &[u32],
     sink: &mut Sink,
 ) -> Result<(), IoError> {
+    let cancel = gloci_io::cancel::Watch::current();
     let mut readers = runs
         .iter()
         .map(RunReader::open)
@@ -125,7 +126,7 @@ pub(crate) fn merge_runs<const M: u8>(
         let Some(mut top) = heap.peek_mut() else {
             break;
         };
-        gloci_io::cancel::check()?;
+        cancel.check()?;
         sink(&top.rec, &top.bytes)?;
         let h = &mut *top;
         if readers[h.src].next(&mut h.rec, &mut h.bytes)? {

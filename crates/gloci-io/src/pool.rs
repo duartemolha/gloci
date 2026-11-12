@@ -42,14 +42,18 @@ impl<J: Send + 'static, R: Send + 'static> Ordered<J, R> {
         let (res_tx, results) = mpsc::channel();
         let mut workers = Vec::with_capacity(states.len());
         let cancel = Arc::new(AtomicBool::new(false));
+        // The run that builds the pool owns its workers (D91).
+        let run = crate::cancel::Watch::current();
         for (i, mut state) in states.into_iter().enumerate() {
             let rx = job_rx.clone();
             let tx = res_tx.clone();
             let cancel = cancel.clone();
+            let run = run.clone();
             let h = std::thread::Builder::new()
                 .name(format!("gloci-pool-{i}"))
                 .stack_size(WORKER_STACK)
                 .spawn(move || {
+                    let _run = run.enter();
                     loop {
                         let job = match rx.lock() {
                             Ok(g) => g.recv(),
@@ -61,7 +65,7 @@ impl<J: Send + 'static, R: Send + 'static> Ordered<J, R> {
                         }
                         // The host cancelled the run (D91): answer, so the reader waiting
                         // for this job does not hang, and take no more work.
-                        if crate::cancel::is_cancelled() {
+                        if run.is_cancelled() {
                             let _ = tx.send((seq, Err(IoError::Cancelled)));
                             continue;
                         }

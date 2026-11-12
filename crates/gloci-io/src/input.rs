@@ -83,17 +83,17 @@ pub fn open_input(path: &str, opts: &InputOptions) -> Result<Input, IoError> {
 /// bytes themselves (`cat`, `concat --naive`, `check --quick`).
 pub fn open_raw(path: &str) -> Result<Box<dyn Read + Send>, IoError> {
     if path == "-" {
-        return Ok(Box::new(crate::cancel::CancelRead(std::io::stdin())));
+        return Ok(Box::new(crate::cancel::CancelRead::new(std::io::stdin())));
     }
     if crate::memio::is_mem_path(path) {
         let (_, src) = crate::memio::take_input(path)?;
-        return Ok(Box::new(crate::cancel::CancelRead(src)));
+        return Ok(Box::new(crate::cancel::CancelRead::new(src)));
     }
     let f = File::open(path).map_err(|source| IoError::Open {
         path: path.to_string(),
         source,
     })?;
-    Ok(Box::new(crate::cancel::CancelRead(f)))
+    Ok(Box::new(crate::cancel::CancelRead::new(f)))
 }
 
 pub fn open_input_from(
@@ -106,7 +106,7 @@ pub fn open_input_from(
         source,
     };
     // Every source fails once the host cancels the run (D91).
-    let mut src: Box<dyn Read + Send> = Box::new(crate::cancel::CancelRead(src));
+    let mut src: Box<dyn Read + Send> = Box::new(crate::cancel::CancelRead::new(src));
     let raw = read_up_to(&mut src, PEEK).map_err(read_err)?;
     let compression = detect_compression(&raw);
     let chained = Cursor::new(raw).chain(src);
@@ -226,9 +226,11 @@ impl InputSpool {
                 source,
             })?;
         let mut src: Box<dyn Read> = if path == "-" {
-            Box::new(crate::cancel::CancelRead(std::io::stdin().lock()))
+            Box::new(crate::cancel::CancelRead::new(std::io::stdin().lock()))
         } else if crate::memio::is_mem_path(path) {
-            Box::new(crate::cancel::CancelRead(crate::memio::take_input(path)?.1))
+            Box::new(crate::cancel::CancelRead::new(
+                crate::memio::take_input(path)?.1,
+            ))
         } else {
             Box::new(File::open(path).map_err(|source| IoError::Open {
                 path: path.to_string(),

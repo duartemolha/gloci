@@ -147,6 +147,7 @@ pub fn sweep_sorted(
     };
     let mut right_bounds = vec![0; streams.len()];
     let mut starts: [BinaryHeap<u64>; 2] = Default::default();
+    let cancel = gloci_io::cancel::Watch::current();
     let mut guard = OrderGuard::new(reader.name(), reader.format());
     let mut summary = SweepSummary {
         a_records: 0,
@@ -170,7 +171,7 @@ pub fn sweep_sorted(
             // batches happen to start.
             guard.check_range(chroms, &batch, i..i + 1)?;
             // A host that embeds gloci can cancel the run (D91).
-            gloci_io::cancel::check()?;
+            cancel.check()?;
             if chrom != Some(a.chrom) {
                 chrom = Some(a.chrom);
                 for (s, set) in streams.iter_mut().zip(&mut active) {
@@ -252,7 +253,7 @@ pub fn sweep_sorted(
     for s in &mut streams {
         if s.reader.consume_to_end() {
             while s.peek(chroms)?.is_some() {
-                gloci_io::cancel::check()?;
+                cancel.check()?;
                 s.pos = s.batch.recs.len();
                 s.validate(chroms)?;
             }

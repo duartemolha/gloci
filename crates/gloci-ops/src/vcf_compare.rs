@@ -599,16 +599,21 @@ pub fn vcf_compare(
     let mut matrix = DiscordanceMatrix::default();
     let rule = o.matching;
 
+    let run = gloci_io::cancel::Watch::current();
     let walked = std::thread::scope(|scope| -> Result<(), IoError> {
         let (tx_a, rx_a) = crossbeam_channel::bounded::<Msg>(4);
         let (tx_b, rx_b) = crossbeam_channel::bounded::<Msg>(4);
         let (sel_a, sel_b) = (&sel_a, &sel_b);
         let (sa, sb) = (&shared_a, &shared_b);
+        let run_a = run.clone();
         scope.spawn(move || {
+            let _run = run_a.enter();
             let r = produce(a, sel_a, sa, per_side, &tx_a);
             let _ = tx_a.send(Msg::End(r));
         });
+        let run_b = run.clone();
         scope.spawn(move || {
+            let _run = run_b.enter();
             let r = produce(b, sel_b, sb, per_side, &tx_b);
             let _ = tx_b.send(Msg::End(r));
         });
