@@ -38,14 +38,22 @@ def test_gil_released(pair, here: Path) -> None:
     try:
         time.sleep(0.05)
         before = counter[0]
+        started = time.monotonic()
         gloci.open(a).intersect(b=b).save("o.bed")
-        advanced = counter[0] - before
+        took = time.monotonic() - started
+        during = counter[0] - before
+        # The counter's free rate: as long again, with the main thread asleep (not holding
+        # the GIL), on the same machine under the same load.
+        before = counter[0]
+        time.sleep(took)
+        free = counter[0] - before
     finally:
         stop.set()
         t.join()
     assert (here / "o.bed").stat().st_size > 0
-    # A run that held the GIL throughout would let the counter take at most a step or two.
-    assert advanced >= 100, advanced
+    assert free >= 100, f"the counter barely ran even when free ({free} in {took:.2f} s)"
+    # A driver that held the GIL for most of each turn would leave the counter a small share.
+    assert during >= 0.2 * free, f"{during} steps during the run, {free} when free"
 
 
 def test_keyboard_interrupt_cancels(here: Path) -> None:
