@@ -2336,10 +2336,12 @@ cases (must match).
 - **`flagstat`** reads only the data series it counts (the flags, the reference ids of a read
   and its mate, the MAPQ) from a container where each is in a block of its own or a constant,
   as htslib writes them; every block's CRC32 and stated size, and the counts of those series,
-  are still checked, and any other container is decoded in full with every check above. The
-  overhang limit and the checks on the series it does not read do not apply to it, as they do
-  not to `samtools flagstat`: it counts overhang.cram's two reads, and does not notice a
-  `--reference` whose bases differ from the checksums in the file (pinned by the tests
+  are still checked, and any other container is decoded in full with every check above. Checks
+  on the fields it never reads (the position, the name, the CIGAR and the sequence length, the
+  bases against the reference) do not apply to it, as they do not to `samtools flagstat`. So it
+  counts overhang.cram's two reads despite the overhang limit, and does not notice a
+  `--reference` whose bases differ from the checksums in the file (pinned by
+  `flagstat-overhang-cram-vs-samtools`, equal to samtools, and the tests
   `cram_flag_fields_match_full_decode` and `flagstat_cram_reads_no_bases`).
 - **Old behaviour:** samtools decodes a read however far past the end it runs, and reads the
   other encodings and CRAM 2.x.
