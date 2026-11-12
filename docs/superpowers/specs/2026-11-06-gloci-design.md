@@ -689,7 +689,8 @@ Output must be byte-identical for every thread count (Section 6.4).
 
 ### 8.5 Python library (P2) **[you; design my call]**
 
-- **Packaging.** `pip install gloci` installs prebuilt wheels built with maturin: abi3, Linux x86_64 and aarch64 (manylinux), and macOS arm64. There are no runtime dependencies beyond Python. The same package goes to bioconda. The name was free on PyPI on 2026-11-06.
+- **Packaging.** `pip install gloci` installs prebuilt wheels built with maturin: abi3, Linux x86_64 and aarch64 (manylinux), and macOS arm64. There are no runtime dependencies beyond Python. The bioconda package for the library is the separate `py-gloci` recipe (the `gloci` recipe is the CLI). The name was free on PyPI on 2026-11-06.
+- **Terminal methods.** `save()`, `to_bytes()` (the output as `bytes`), `count()`, iteration and the Arrow/polars/pandas converters run the chain; `cli()` returns the equivalent `gloci` command line without running it.
 - **In-process, not a CLI wrapper.** Calls go straight into `gloci-ops` through PyO3 and release the GIL during work. There is no subprocess and no temp-file shuttling, unlike pybedtools. Results and semantics are identical to the CLI because it is the same code.
 - **Fluent, lazy pipelines.** Each step is recorded, and the chain runs as one streaming pass when a terminal method is called. Keyword arguments use the CLI flag names with `-` replaced by `_`.
 
@@ -931,5 +932,5 @@ The user-facing version of this guide lives in `docs/migration.md` (later part o
 
 ## 13. Open questions (non-blocking)
 
-- **License, and public open source or internal.** This affects nothing in P0–P1 but should be settled before the first release.
+- **License, and public open source or internal.** The licence is MIT (confirmed). The copyright holder (the LICENSE names Duarte Molha) is still the owner's call and should be settled before the first public release.
 - **Which commands the team uses most.** The answer may reorder P1 and P2, but it doesn't change the design.
