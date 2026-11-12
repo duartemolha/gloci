@@ -641,7 +641,7 @@ fn step_argv_puts_inputs_where_the_binding_says() {
     use KwValue::Values;
     let b = |p: &[&str]| embed::binding(p).unwrap();
     let argv = |p: &[&str], inputs: &[&str], k: &[(&str, KwValue)]| {
-        embed::step_argv(b(p), &os(inputs), &kw(k)).map(|v| strs(&v))
+        embed::step_argv(b(p), &os(inputs), &kw(k), &[]).map(|v| strs(&v))
     };
     // A flag.
     assert_eq!(
@@ -713,7 +713,7 @@ fn step_argv_puts_inputs_where_the_binding_says() {
                 (a.kwarg(), val(v))
             })
             .collect();
-        let v = embed::step_argv(bd, &os(&["in"]), &required)
+        let v = embed::step_argv(bd, &os(&["in"]), &required, &[])
             .unwrap_or_else(|e| panic!("{}: {e}", bd.method));
         match embed::parse(&v) {
             Ok(_) => {}
@@ -861,4 +861,136 @@ it to a file first"
                 .into()
         )
     );
+}
+
+/// A step's argv with the terminal's options (`-o`, `-t`), as a host builds it.
+fn step_with_terminal(
+    path: &[&str],
+    inputs: &[OsString],
+    kwargs: &[(String, KwValue)],
+    terminal: &[OsString],
+) -> Vec<OsString> {
+    embed::step_argv(embed::binding(path).unwrap(), inputs, kwargs, terminal).unwrap()
+}
+
+#[test]
+fn step_argv_takes_the_terminal_options_for_every_binding_shape() {
+    let file = |case: &str, name: &str| golden_dir(case).join(name).into_os_string();
+    let s = |o: &OsString| o.to_str().unwrap().to_string();
+    // (step, inputs, kwargs, the same command for the CLI)
+    let merge_in = file("merge-default-vs-bedtools", "input.bed");
+    let a = file("intersect-pairs-vs-bedtools", "input.bed");
+    let b = file("intersect-pairs-vs-bedtools", "rel-b.bed");
+    let bam = file("reheader-bam-vs-samtools", "input.bam");
+    let hdr = file("reheader-bam-vs-samtools", "new-header.sam");
+    let fa = file("faidx-line-width-7-vs-samtools", "ref.fa");
+    type Case<'a> = (
+        &'a [&'a str],
+        Vec<OsString>,
+        Vec<(String, KwValue)>,
+        Vec<String>,
+    );
+    let cases: Vec<Case> = vec![
+        // Positional
+        (
+            &["merge"],
+            vec![merge_in.clone()],
+            kw(&[("chrom_order", val("lex"))]),
+            vec![
+                "merge".into(),
+                "--chrom-order".into(),
+                "lex".into(),
+                s(&merge_in),
+            ],
+        ),
+        // Flag
+        (
+            &["intersect"],
+            vec![a.clone()],
+            kw(&[
+                ("b", val(&s(&b))),
+                ("mode", val("pairs")),
+                ("chrom_order", val("lex")),
+            ]),
+            [
+                "intersect",
+                "--chrom-order",
+                "lex",
+                "-a",
+                &s(&a),
+                "-b",
+                &s(&b),
+                "--mode",
+                "pairs",
+            ]
+            .map(String::from)
+            .to_vec(),
+        ),
+        // PositionalAfter
+        (
+            &["reheader"],
+            vec![bam.clone()],
+            kw(&[("header", val(&s(&hdr)))]),
+            vec!["reheader".into(), s(&hdr), s(&bam)],
+        ),
+        // Positional, with positional keywords after it
+        (
+            &["faidx"],
+            vec![fa.clone()],
+            kw(&[
+                ("line_width", val("7")),
+                (
+                    "regions",
+                    KwValue::Values(vec!["chr1:5-70".into(), "chrM:1-20".into()]),
+                ),
+            ]),
+            [
+                "faidx",
+                &s(&fa),
+                "--line-width",
+                "7",
+                "chr1:5-70",
+                "chrM:1-20",
+            ]
+            .map(String::from)
+            .to_vec(),
+        ),
+    ];
+    for (path, inputs, kwargs, cli) in cases {
+        let want = assert_cmd::Command::cargo_bin("gloci")
+            .unwrap()
+            .args(&cli)
+            .output()
+            .unwrap();
+        assert!(want.status.success(), "{cli:?}");
+        let sink = Shared::default();
+        let out = Registered::output("<save>", Box::new(sink.clone()));
+        let terminal = os(&["-o", out.name(), "-t", "2"]);
+        let argv = step_with_terminal(path, &inputs, &kwargs, &terminal);
+        let dash = argv.iter().position(|a| a == "--");
+        let o = argv.iter().position(|a| a == "-o").unwrap();
+        assert!(
+            dash.is_none_or(|d| o < d),
+            "{path:?}: -o after --: {argv:?}"
+        );
+        // The CLI records its argv[0] (the binary's path) in reheader's @PG line.
+        let bin = assert_cmd::cargo::cargo_bin("gloci");
+        let cli_line: Vec<OsString> = std::iter::once(bin.into_os_string())
+            .chain(cli.iter().map(OsString::from))
+            .collect();
+        let parsed = embed::parse(&argv).unwrap_or_else(|e| panic!("{path:?}: {argv:?}: {e}"));
+        let ok = embed::execute(
+            &parsed,
+            &ExecOptions {
+                command_line: gloci_io::shell_quote_args(&cli_line),
+                tmp_dir: None,
+            },
+        )
+        .unwrap_or_else(|e| panic!("{path:?}: {e:#}"));
+        assert!(ok);
+        assert!(
+            sink.bytes() == want.stdout,
+            "{path:?}: the bytes differ from the CLI's"
+        );
+    }
 }

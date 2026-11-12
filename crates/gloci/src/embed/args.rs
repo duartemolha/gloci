@@ -154,17 +154,20 @@ pub fn kwargs_to_argv_as(
 
 /// The whole argv of a step (`gloci` first), with its inputs where its binding puts them:
 /// `inputs` are the paths or in-memory names of the pipeline the step is called on and, for an
-/// n-ary command, of the extra sources, in order.
-/// - [`Bind::Flag`]: `gloci intersect -a <input> <flags> [-- <positionals>]`;
-/// - [`Bind::Positional`]: `gloci merge <flags> -- <inputs> <positionals>`;
-/// - [`Bind::PositionalAfter`]: `gloci reheader <flags> -- <header> <input>`.
+/// n-ary command, of the extra sources, in order; `terminal` are the options the host adds for
+/// the terminal method (`-o`, `-O`, `-t`, ...), which go with the flags, before any `--`:
+/// - [`Bind::Flag`]: `gloci intersect -a <input> <flags> <terminal> [-- <positionals>]`;
+/// - [`Bind::Positional`]: `gloci merge <flags> <terminal> -- <inputs> <positionals>`;
+/// - [`Bind::PositionalAfter`]: `gloci reheader <flags> <terminal> -- <header> <input>`.
 ///
 /// The keyword arguments follow [`kwargs_to_argv`]; a [`Bind::PositionalAfter`] step needs the
-/// positional its input follows.
+/// positional its input follows. Nothing may be appended to the result: after `--` it would
+/// be read as an input.
 pub fn step_argv(
     b: &Binding,
     inputs: &[OsString],
     kwargs: &[(String, KwValue)],
+    terminal: &[OsString],
 ) -> Result<Vec<OsString>, UsageError> {
     let spec = find_spec(b.path)
         .ok_or_else(|| UsageError(format!("{}: no such command", b.path.join(" "))))?;
@@ -205,6 +208,7 @@ pub fn step_argv(
                 argv.push(input.clone());
             }
             argv.extend(flags);
+            argv.extend(terminal.iter().cloned());
             if !positionals.is_empty() {
                 argv.push("--".into());
                 argv.extend(positionals);
@@ -212,12 +216,14 @@ pub fn step_argv(
         }
         Bind::Positional { .. } => {
             argv.extend(flags);
+            argv.extend(terminal.iter().cloned());
             argv.push("--".into());
             argv.extend(inputs.iter().cloned());
             argv.extend(positionals);
         }
         Bind::PositionalAfter(_) => {
             argv.extend(flags);
+            argv.extend(terminal.iter().cloned());
             argv.push("--".into());
             argv.extend(positionals);
             argv.extend(inputs.iter().cloned());

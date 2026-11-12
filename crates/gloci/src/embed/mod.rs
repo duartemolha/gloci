@@ -3,7 +3,8 @@
 //! own clap definition, and [`execute`]s it through the same dispatch as the command line, so
 //! the defaults, validation, messages and output bytes are the CLI's.
 //!
-//! A step's whole argv, with its inputs where its binding puts them, is [`step_argv`].
+//! A step's whole argv, with its inputs where its binding puts them and the terminal's options
+//! (`-o`, `-t`) before any `--`, is [`step_argv`]; nothing may be appended to it.
 //!
 //! What a host must do, since `execute` does none of it:
 //! - **Cancellation (D91).** Make one [`CancelToken`] per run and enter it on the thread that
