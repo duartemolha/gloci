@@ -108,7 +108,7 @@ generator, to be safe. Lists, tuples, tables and data frames are read again at e
 
 Each step is a method named after its command: `intersect`, `merge`, `vcf_filter` for
 `gloci vcf filter`, and so on. Keyword arguments are the command's flags, with `-` written as `_`
-(`max_gap=50` is `--max-gap 50`); a flag with no long name keeps its letter (`b=`). A one-letter
+(`max_gap=50` is `--max-gap 50`); a flag with no long name keeps its letter (`s=True` on `slop`, `b=` on `intersect`). A one-letter
 short flag (`f=0.5`, `g="hg38"`) and a visible alias (`diff_indv_map=`) are keyword arguments
 too, typed like the long form and documented as "alias of ...". A name that is not a Python
 identifier (`genomecov`'s `--5p` and `--3p`) is not a parameter: pass it as `**{"5p": True}`
@@ -243,6 +243,10 @@ print(table.schema.names)
 - The table goes to pyarrow and polars through the Arrow PyCapsule interface, without copying:
   `to_arrow_stream()` returns that `gloci.ArrowStream`, which any Arrow consumer takes
   (`pyarrow.table(s)`, `polars.DataFrame(s)`).
+- The return types name `pyarrow.Table`, `polars.DataFrame` and `pandas.DataFrame`. mypy knows
+  them only where their types are installed (polars ships them; `pandas-stubs` and
+  `pyarrow-stubs` do for the others): without those, `to_pandas()` and `to_arrow()` are `Any`
+  to mypy.
 - pyarrow, polars and pandas are optional: `gloci[arrow]` (pyarrow 15 or later), `gloci[polars]`
   (polars 1.3 or later alone; no pyarrow needed) or `gloci[pandas]` (pandas and pyarrow 15 or
   later). Without the one a method needs, it raises `ImportError` naming the extra.
@@ -283,7 +287,9 @@ the exception itself.
 ## Threads and the GIL
 
 - The GIL is released while the steps run, so other Python threads keep going, and several
-  pipelines can run in parallel from a thread pool.
+  pipelines can run in parallel from a thread pool. Python sources are the exception (D91): an
+  iterator, a file object or an Arrow stream is pumped with the GIL held, a chunk of at most
+  1 MiB at a time, so a slow Python source slows the other Python threads (a path does not).
 - `threads=` (on a terminal) is the number of threads per step; it defaults to the command
   line's default (every core, or `$GLOCI_THREADS`). The output is the same at every thread
   count.
@@ -313,12 +319,12 @@ A once (`-u`). The book's migration page lists every flag.
 | `a.intersect(b, v=True)` | `a.intersect(b="b.bed", mode="none").count()` |
 | `a.intersect(b, wa=True, wb=True)` | `a.intersect(b="b.bed", mode="pairs").count()` |
 | `a.merge(d=100)` | `a.merge(max_gap=100).count()` |
-| `a.slop(g="hg38", b=100)` | `a.slop(genome="hg38", both=100).count()` |
+| `a.slop(genome="hg38", b=100)` | `a.slop(genome="hg38", both=100).count()` |
 | `a.closest(b, d=True)` | `a.closest(b="b.bed", distance=True).count()` |
 | `len(a)` | `a.count()` |
-| `a.saveas("out.bed")` | `a.sort().save("sorted.bed")` |
-| `a.to_dataframe()` | `a.to_polars()` |
+| `a.saveas("out.bed")` | `a.save("out.bed")` |
+| `a.to_dataframe()` | `a.to_pandas()` |
 
-Here `a` is `gloci.open("a.bed")`.
+Here `a` is `gloci.open("a.bed")`. For a polars data frame, use `a.to_polars()`.
 
 Linux (x86_64, aarch64) and macOS (arm64) are supported. On Windows, use WSL.

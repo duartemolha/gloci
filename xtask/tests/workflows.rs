@@ -335,6 +335,14 @@ fn python_workflow_runs_the_python_tests() {
         );
     }
 
+    // The stub check runs on the 3.12 cells only (they have pyarrow, polars and pandas).
+    assert!(
+        py.contains(
+            "      - name: mypy --strict\n        if: matrix.python == '3.12'\n        run: mypy --strict crates/gloci-py/tests/typing_example.py"
+        ),
+        "python.yml: the mypy step must be `if: matrix.python == '3.12'`"
+    );
+
     // It never publishes anything.
     for word in [
         "maturin publish",
