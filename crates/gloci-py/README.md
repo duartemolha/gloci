@@ -159,6 +159,8 @@ bounded in-memory pipes.
 - `count(*, threads=None)` returns the number of records: as many as iteration gives. Header
   lines are not records.
 - Iteration (`for r in pipeline`) yields `gloci.Record`s, as they come.
+  Iteration takes no `threads=`: each step uses the command line's default, every core or
+  `$GLOCI_THREADS`; set that variable to limit a loop run from a thread pool.
 - `to_arrow()`, `to_polars()`, `to_pandas()` and `to_arrow_stream()` return the whole output as
   a table; see Frames.
 - `cli()` is the equivalent shell pipeline.

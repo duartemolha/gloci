@@ -239,6 +239,11 @@ def _kwarg(where: str, path: list[str], name: str, value: Any) -> Any:
     takes_file = name in _FILE_KWARGS.get(tuple(path), frozenset())
 
     def one(v: Any) -> Any:
+        if isinstance(v, (bytes, bytearray)):
+            raise TypeError(
+                f"{what} takes a str or os.PathLike, not {type(v).__name__}; decode it first "
+                "(os.fsdecode)"
+            )
         if _is_source(v):
             if not takes_file:
                 raise UsageError(
@@ -257,6 +262,13 @@ def _kwarg(where: str, path: list[str], name: str, value: Any) -> Any:
         items = [one(v) for v in value]
         return items if any(isinstance(i, Source) for i in items) else value
     return one(value)
+
+
+def _no_nul(name: str, value: object) -> None:
+    """A terminal option is text to the plan: a NUL in it would forge a placeholder, so it is
+    refused here, as a keyword argument's is."""
+    if value is not None and "\0" in str(value):
+        raise UsageError(f"{name}= holds a NUL character, which no argument can hold")
 
 
 def _placeholders(kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -552,6 +564,7 @@ class Pipeline:
     ) -> _Plan:
         """The run's plan: the last stage writes the file `out` with `save_opts` (`save()`), or
         the terminal's output (`out` None)."""
+        _no_nul("threads", threads)
         plan = _Plan(threads, run)
         if out is None:
             _, plan.lines = plan.chain(self, ["-o", _OUT], [])
@@ -591,6 +604,12 @@ class Pipeline:
         if not isinstance(path, (str, os.PathLike)):
             raise TypeError(f"save() takes a path (str or os.PathLike), not {type(path).__name__}")
         out = classify_source(path, "save()")
+        for name, value in (
+            ("output_format", output_format),
+            ("compression_level", compression_level),
+            ("threads", threads),
+        ):
+            _no_nul(name, value)
         last = self._last()
         given: list[tuple[str, list[str]]] = []
         if output_format is not None:
@@ -628,6 +647,9 @@ class Pipeline:
         are its footprint (a VCF record's by the step's `vcf_span=`), and None where the output
         has none (a table such as `vcf_extract()`'s). Header lines, and a table's header row,
         are not records.
+
+        Iteration takes no `threads=`: each step uses the command line's default, every core or
+        `$GLOCI_THREADS`. Set that variable to limit a loop run from a thread pool.
 
         Breaking out of the loop, or dropping the iterator, stops the steps. Where the iterator
         may outlive the loop (an exception in its body, kept by a traceback), close it:

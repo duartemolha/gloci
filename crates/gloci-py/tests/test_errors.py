@@ -179,3 +179,54 @@ def test_hints_in_keyword_terms(here: Path) -> None:
     assert str(e.value).endswith(
         f"sort it by name first: gloci sort -n {bam} -o x.byname.bam"
     ), str(e.value)
+
+
+# The P2b final fix wave: the edges of the keyword and terminal arguments.
+
+
+def test_save_options_hold_no_nul(here: Path) -> None:
+    # M1: a NUL in a terminal option is a UsageError (it never reaches the plan, which refuses
+    # its own sentinel with a plain ValueError), and no NUL reaches the message.
+    (here / "a.bed").write_text("chr1\t1\t5\n")
+    p = gloci.open("a.bed").sort()
+    for kw in (
+        {"output_format": "\0src:0"},
+        {"output_format": "bed\0"},
+        {"threads": "\0src:0"},
+        {"compression_level": "1\0"},
+    ):
+        with pytest.raises(gloci.UsageError, match="NUL") as e:
+            p.save("o.bed", **kw)  # type: ignore[arg-type]
+        no_nul(e.value)
+    for terminal in (p.to_bytes, p.count, p.to_arrow_stream):
+        with pytest.raises(gloci.UsageError, match="NUL") as e:
+            terminal(threads="\0src:0")  # type: ignore[operator]
+        no_nul(e.value)
+    assert not (here / "o.bed").exists()
+
+
+def test_a_bytes_value_is_refused(here: Path) -> None:
+    # M3: bytes would be str()'d into the path "b'x.bed'"; refuse it, as open(b"...") is refused.
+    (here / "a.bed").write_text("chr1\t1\t5\n")
+    p = gloci.open("a.bed")
+    for v in (b"a.bed", bytearray(b"a.bed"), [b"a.bed"]):
+        with pytest.raises(TypeError, match="not (bytes|bytearray)"):
+            p.intersect(b=v)  # type: ignore[arg-type]
+    # A str still works.
+    assert p.intersect(b="a.bed").count() == 1
+
+
+def test_vcf_merge_step_refuses_file_list(here: Path) -> None:
+    # M12: the step's inputs are sources.
+    with pytest.raises(gloci.UsageError) as e:
+        gloci.open("a.vcf").vcf_merge(file_list="list.txt")
+    assert str(e.value) == "pass the files as sources: open(a).vcf_merge(b, c)"
+
+
+def test_usage_messages_name_the_long_keyword(here: Path) -> None:
+    # M13: the run's message names `-c`; the keyword the caller can pass is column=.
+    (here / "a.bed").write_text("chr1\t1\t5\tx\n")
+    for kw in ({"column": "5"}, {"c": "5"}):
+        with pytest.raises(gloci.UsageError) as e:
+            gloci.open("a.bed").map(b="a.bed", **kw).to_bytes()
+        assert "column=5" in str(e.value) and "-c" not in str(e.value), str(e.value)
