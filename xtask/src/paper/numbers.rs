@@ -49,14 +49,14 @@ pub fn numbers_of(r: &Results) -> Result<BTreeMap<String, Value>> {
         let at_100 = r
             .concordance
             .iter()
-            .filter(|c| c.mode == "compat" && c.match_rate >= 1.0)
+            .filter(|c| c.mode == "compat" && c.match_rate.is_some_and(|r| r >= 1.0))
             .count();
         m.insert("concordance.compat.at_100".into(), int(at_100 as u64));
         let def: Vec<f64> = r
             .concordance
             .iter()
             .filter(|c| c.mode == "default")
-            .map(|c| c.match_rate)
+            .filter_map(|c| c.match_rate)
             .collect();
         if !def.is_empty() {
             let mean = def.iter().sum::<f64>() / def.len() as f64;
@@ -65,11 +65,14 @@ pub fn numbers_of(r: &Results) -> Result<BTreeMap<String, Value>> {
                 float(format!("{mean:.6}")),
             );
         }
+        // A failed run has no rate: no number for it.
         for c in &r.concordance {
-            m.insert(
-                format!("concordance.{}.{}.match_rate", c.case, c.mode),
-                float(format!("{:.6}", c.match_rate)),
-            );
+            if let Some(rate) = c.match_rate {
+                m.insert(
+                    format!("concordance.{}.{}.match_rate", c.case, c.mode),
+                    float(format!("{rate:.6}")),
+                );
+            }
         }
     }
     let golden = &r.snapshot["golden"];

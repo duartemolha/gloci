@@ -17,7 +17,7 @@
   "bench.sort-exons.speedup.bedtools": 2.11,
   "bench.sort-exons.speedup.gnu-sort": 0.67,
   "bench.sort-exons.speedup.sort-bed": 0.89,
-  "concordance.cases": 2,
+  "concordance.cases": 3,
   "concordance.compat.at_100": 2,
   "concordance.default.mean_match_rate": 0.875,
   "concordance.merge-exons.compat.match_rate": 1.0,
