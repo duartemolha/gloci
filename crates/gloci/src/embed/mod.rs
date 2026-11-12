@@ -28,6 +28,7 @@
 
 mod args;
 mod bindings;
+mod pipe;
 mod spec;
 
 pub use args::{
@@ -39,6 +40,7 @@ pub use bindings::{
     is_unbound, method_name, module_function,
 };
 pub use gloci_io::cancel::{CancelToken, RunGuard};
+pub use pipe::{PIPE_CHUNK, PIPE_CHUNKS, PipeFail, PipeReader, PipeWriter, pipe};
 pub use spec::{ArgSpec, CommandSpec, command_specs, find_spec};
 
 use crate::cli::{self, Cli, Commands};
