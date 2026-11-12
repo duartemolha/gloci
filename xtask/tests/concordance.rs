@@ -442,6 +442,24 @@ fn concordance_csv_row_format() {
         ),
         "sort-x,sort,sort-bed,exons.bed+hg38.lex.genome,default,4,4,3,0.750000,documented,sort-tie-order"
     );
+    // Truncated, not rounded: a run that misses one line in ten million is
+    // not 1.000000.
+    let s = MatchStats {
+        n_gloci: 10_000_000,
+        n_reference: 10_000_000,
+        n_matching: 9_999_999,
+        same_order: false,
+    };
+    assert!(
+        csv_row(&c, "default", Some(&s), Verdict::Mismatch, None).contains(",0.999999,mismatch,")
+    );
+    let s = MatchStats {
+        n_gloci: 10,
+        n_reference: 10,
+        n_matching: 3,
+        same_order: false,
+    };
+    assert!(csv_row(&c, "default", Some(&s), Verdict::Mismatch, None).contains(",0.300000,"));
     assert_eq!(
         csv_row(&c, "compat", None, Verdict::Failed, None),
         "sort-x,sort,sort-bed,exons.bed+hg38.lex.genome,compat,,,,,failed,"

@@ -590,6 +590,18 @@ pub fn verdict(stats: Option<&MatchStats>, expect: &Expect) -> Verdict {
     }
 }
 
+/// The match rate with six decimals, truncated from the counts (exact
+/// integer arithmetic), so a run that is not a full match never reads
+/// `1.000000`.
+pub fn rate_text(s: &MatchStats) -> String {
+    let n = s.n_gloci.max(s.n_reference);
+    if n == 0 {
+        return "1.000000".to_string();
+    }
+    let micro = u128::from(s.n_matching) * 1_000_000 / u128::from(n);
+    format!("{}.{:06}", micro / 1_000_000, micro % 1_000_000)
+}
+
 fn csv_field(s: &str) -> String {
     if s.contains([',', '"', '\n']) {
         format!("\"{}\"", s.replace('"', "\"\""))
@@ -878,11 +890,11 @@ fn write_report(dir: &Path, r: &RunReport) -> Result<()> {
     t.push_str(&r.times);
     if let Some(s) = &r.stats {
         t.push_str(&format!(
-            "n_gloci: {}\nn_reference: {}\nn_matching: {}\nmatch_rate: {:.6}\nsame order: {}\n",
+            "n_gloci: {}\nn_reference: {}\nn_matching: {}\nmatch_rate: {}\nsame order: {}\n",
             s.n_gloci,
             s.n_reference,
             s.n_matching,
-            s.rate(),
+            rate_text(s),
             if s.same_order { "yes" } else { "no" }
         ));
     }
@@ -892,8 +904,9 @@ fn write_report(dir: &Path, r: &RunReport) -> Result<()> {
     std::fs::write(&path, t).with_context(|| path.display().to_string())
 }
 
-/// One row of `concordance.csv`: `match_rate` is a decimal from 0 to 1 (six
-/// places), empty with the counts when a command failed; `anchors` holds the
+/// One row of `concordance.csv`: `match_rate` is a decimal from 0 to 1, six
+/// places truncated ([`rate_text`]), empty with the counts when a command
+/// failed; `anchors` holds the
 /// run's documented difference as a plain name (no `#`; names would be
 /// joined with `;`).
 pub fn csv_row(
@@ -906,11 +919,11 @@ pub fn csv_row(
     let dataset = c.inputs.values().cloned().collect::<Vec<_>>().join("+");
     let nums = match stats {
         Some(s) => format!(
-            "{},{},{},{:.6}",
+            "{},{},{},{}",
             s.n_gloci,
             s.n_reference,
             s.n_matching,
-            s.rate()
+            rate_text(s)
         ),
         None => ",,,".to_string(),
     };
@@ -1136,11 +1149,11 @@ pub fn run(a: &ConcordArgs) -> Result<bool> {
             all_ok &= v.passes();
             let summary = match &stats {
                 Some(s) => format!(
-                    "{}/{} gloci, {} reference, rate {:.6}{}",
+                    "{}/{} gloci, {} reference, rate {}{}",
                     s.n_matching,
                     s.n_gloci,
                     s.n_reference,
-                    s.rate(),
+                    rate_text(s),
                     if s.same_order { "" } else { ", order differs" }
                 ),
                 None => "no comparison".to_string(),
