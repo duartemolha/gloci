@@ -62,8 +62,8 @@ pub struct PaperBenchArgs {
     pub out: PathBuf,
     /// Timed runs per command instead of each case's own (smoke runs).
     pub runs: Option<u32>,
-    /// A Python wheel of the same version: its name and sha256 are recorded
-    /// in environment.json (the Python benchmarks come later).
+    /// A Python wheel of the same version: the `gloci-py` commands import it,
+    /// and its name and sha256 are recorded in environment.json.
     pub wheel: Option<PathBuf>,
 }
 
@@ -99,6 +99,7 @@ pub fn run(a: &PaperBenchArgs) -> Result<bool> {
             records: None,
             data_dir: a.data_dir.clone(),
             results: Some(results),
+            wheel: a.wheel.clone(),
         },
         cases.clone(),
     )?;

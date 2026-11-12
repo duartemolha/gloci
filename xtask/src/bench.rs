@@ -611,6 +611,9 @@ pub struct Args {
     pub data_dir: PathBuf,
     /// Write results here instead of `<out>/<version>` (the paper run).
     pub results: Option<PathBuf>,
+    /// A Python wheel of the version under test: installed with `pip install
+    /// --no-deps` (in the container), and what the `gloci-py` commands import.
+    pub wheel: Option<PathBuf>,
 }
 
 fn workspace_root() -> PathBuf {
@@ -1198,7 +1201,92 @@ fn remove_outputs(data: &Path, out_name: &str) {
 
 /// `docker run` of the bench image as the current user, with the data,
 /// results and gloci binary mounted; the caller appends the command.
-fn docker_run(image: &str, data: &Path, results: &Path, gloci: &Path) -> Result<Command> {
+/// The Python benchmark scripts, as the container sees them.
+const PY_DIR_IN_CONTAINER: &str = "/bench-py";
+
+/// `pip install --no-deps` of `wheel` into `target` (D96: the wheel brings
+/// its own dependencies, which are none beyond Python).
+pub fn pip_install_args(wheel: &str, target: &str) -> Vec<String> {
+    [
+        "python3",
+        "-m",
+        "pip",
+        "install",
+        "--no-deps",
+        "--no-compile",
+        "--target",
+        target,
+        wheel,
+    ]
+    .map(String::from)
+    .to_vec()
+}
+
+/// What `{python}` stands for: the interpreter, with the directory the wheel
+/// was installed into on its path.
+pub fn python_with_wheel(python: &str, pylib: Option<&str>) -> String {
+    match pylib {
+        Some(dir) => format!("PYTHONPATH={dir} {python}"),
+        None => python.to_string(),
+    }
+}
+
+/// Install `wheel` into `<results>/.pylib`, in the container when there is
+/// one. Returns that directory as the commands see it.
+fn install_wheel(
+    wheel: &Path,
+    results: &Path,
+    docker: Option<(&str, &Path, &Path)>,
+    python: &str,
+) -> Result<String> {
+    let wheel = std::fs::canonicalize(wheel)
+        .with_context(|| format!("--wheel {}: no such file", wheel.display()))?;
+    let name = wheel
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .context("--wheel: no file name")?;
+    let host_dir = results.join(".pylib");
+    let _ = std::fs::remove_dir_all(&host_dir);
+    match docker {
+        Some((image, data, results_mount)) => {
+            let in_c = "/results/.pylib";
+            let mut c = docker_run(
+                image,
+                data,
+                results_mount,
+                &[
+                    "-v".to_string(),
+                    format!("{}:/wheel/{name}:ro", wheel.display()),
+                ],
+            )?;
+            c.args(pip_install_args(&format!("/wheel/{name}"), in_c));
+            run_ok(&mut c).context(
+                "installing --wheel in the bench image (is it a wheel for the image's architecture and Python 3.12?)",
+            )?;
+            Ok(in_c.to_string())
+        }
+        None => {
+            let mut args = pip_install_args(&wheel.to_string_lossy(), &host_dir.to_string_lossy());
+            args[0] = python.to_string();
+            run_ok(Command::new(&args[0]).args(&args[1..]))
+                .context("installing --wheel with the host's pip")?;
+            Ok(host_dir.to_string_lossy().into_owned())
+        }
+    }
+}
+
+/// The Python module a benchmark tool name stands for, when it is one.
+fn python_module(tool: &str) -> Option<&'static str> {
+    match tool {
+        "pybedtools" => Some("pybedtools"),
+        "polars-bio" => Some("polars_bio"),
+        "pyranges1" => Some("pyranges1"),
+        "bioframe" => Some("bioframe"),
+        _ => None,
+    }
+}
+
+fn docker_run(image: &str, data: &Path, results: &Path, extra: &[String]) -> Result<Command> {
     let mut c = Command::new("docker");
     c.args([
         "run",
@@ -1211,8 +1299,7 @@ fn docker_run(image: &str, data: &Path, results: &Path, gloci: &Path) -> Result<
     .arg(format!("{}:/data", data.display()))
     .arg("-v")
     .arg(format!("{}:/results", results.display()))
-    .arg("-v")
-    .arg(format!("{}:/usr/local/bin/gloci:ro", gloci.display()))
+    .args(extra)
     .arg(image);
     Ok(c)
 }
@@ -1223,15 +1310,15 @@ fn docker_run(image: &str, data: &Path, results: &Path, gloci: &Path) -> Result<
 /// the largest single process, not the sum.
 fn measure_rss(
     cmd: &str,
-    docker: Option<(&str, &Path, &Path, &Path)>,
+    docker: Option<(&str, &Path, &Path, &[String])>,
     results: &Path,
     tag: &str,
 ) -> Result<u64> {
     let file = results.join(format!("{tag}.rss.txt"));
     let _ = std::fs::remove_file(&file);
     let mut c = match docker {
-        Some((image, data, results, gloci)) => {
-            let mut c = docker_run(image, data, results, gloci)?;
+        Some((image, data, results, extra)) => {
+            let mut c = docker_run(image, data, results, extra)?;
             c.args([
                 "/usr/bin/time",
                 "-f",
@@ -1270,6 +1357,23 @@ fn tool_binary(tool: &str) -> &str {
 }
 
 fn check_tool_available(tool: &str, use_docker: bool, image: &str) -> bool {
+    // A Python library is available when `python3` can import it.
+    if let Some(module) = python_module(tool) {
+        let py = std::env::var("GLOCI_PYTHON").unwrap_or_else(|_| "python3".into());
+        let code = format!("import {module}");
+        let mut c = if use_docker {
+            let mut c = Command::new("docker");
+            c.args(["run", "--rm", image, "python3"]);
+            c
+        } else {
+            Command::new(py)
+        };
+        return c
+            .args(["-c", &code])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+    }
     let bin = tool_binary(tool);
     if use_docker {
         Command::new("docker")
@@ -1396,6 +1500,36 @@ pub fn run_cases(a: &Args, cases: Vec<Case>) -> Result<bool> {
         );
     }
 
+    // What the container is given besides the data and results: the binary
+    // under test and the Python benchmark scripts.
+    let py_dir = workspace_root().join("xtask/bench/py");
+    let mounts: Vec<String> = vec![
+        "-v".into(),
+        format!("{}:/usr/local/bin/gloci:ro", gloci.display()),
+        "-v".into(),
+        format!("{}:{PY_DIR_IN_CONTAINER}:ro", py_dir.display()),
+    ];
+    let python = std::env::var("GLOCI_PYTHON").unwrap_or_else(|_| "python3".into());
+    let wants_py = cases
+        .iter()
+        .filter(|c| a.only.as_ref().is_none_or(|o| *o == c.name))
+        .any(|c| c.commands.contains_key("gloci-py"));
+    let pylib = match (&a.wheel, wants_py) {
+        (Some(w), true) => Some(install_wheel(
+            w,
+            &results,
+            use_docker.then_some((a.image.as_str(), data.as_path(), results.as_path())),
+            &python,
+        )?),
+        _ => None,
+    };
+    let python_cmd = python_with_wheel(&python, pylib.as_deref());
+    let py_arg = if use_docker {
+        PY_DIR_IN_CONTAINER.to_string()
+    } else {
+        py_dir.to_string_lossy().into_owned()
+    };
+
     let mut all_ok = true;
     let mut ran = 0;
     for case in cases
@@ -1466,14 +1600,15 @@ pub fn run_cases(a: &Args, cases: Vec<Case>) -> Result<bool> {
             .map(|p| shown(p))
             .collect::<Result<Vec<_>>>()?
             .join(" ");
-        let python = std::env::var("GLOCI_PYTHON").unwrap_or_else(|_| "python3".into());
         let fill = |cmd: &str| {
             substitute_pair(
                 &substitute_extra(
-                    &cmd.replace("{ref}", &ref_arg).replace("{ins}", &ins_arg),
+                    &cmd.replace("{ref}", &ref_arg)
+                        .replace("{ins}", &ins_arg)
+                        .replace("{py}", &py_arg),
                     &in_c_arg,
                     &genome_arg,
-                    &python,
+                    &python_cmd,
                 ),
                 &gloci_cmd,
                 &in_a_arg,
@@ -1485,6 +1620,15 @@ pub fn run_cases(a: &Args, cases: Vec<Case>) -> Result<bool> {
         // Filter commands based on tool availability
         let mut active_commands: Vec<(String, String)> = Vec::new();
         for (tool, cmd) in &case.commands {
+            // `gloci-py` runs the wheel: without `--wheel` there is nothing to time.
+            if tool == "gloci-py" {
+                if pylib.is_some() {
+                    active_commands.push((tool.clone(), cmd.clone()));
+                } else {
+                    eprintln!("  skipping gloci-py: no --wheel");
+                }
+                continue;
+            }
             // `gloci` and its variants (`gloci-t8`) run the binary under test.
             if tool == "gloci" || tool.starts_with("gloci-") {
                 active_commands.push((tool.clone(), cmd.clone()));
@@ -1551,7 +1695,7 @@ pub fn run_cases(a: &Args, cases: Vec<Case>) -> Result<bool> {
             eprintln!("== {} ({} tools)", case.name, active_commands.len());
             let mut c;
             if use_docker {
-                c = docker_run(&a.image, &data, &results, &gloci)?;
+                c = docker_run(&a.image, &data, &results, &mounts)?;
                 c.args(&hf);
             } else {
                 c = Command::new(&hf[0]);
@@ -1583,7 +1727,7 @@ pub fn run_cases(a: &Args, cases: Vec<Case>) -> Result<bool> {
                 a.image.as_str(),
                 data.as_path(),
                 results.as_path(),
-                gloci.as_path(),
+                mounts.as_slice(),
             ));
             let kb = match measure_rss(&fill(cmd), docker, &results, &tag) {
                 Ok(kb) => {
@@ -1735,8 +1879,12 @@ mod tests {
         let cases = parse_cases(&text).unwrap();
         let mut checked = 0;
         for c in &cases {
-            // `gloci` and its variants (`gloci-t8`).
-            for (_, cmd) in c.commands.iter().filter(|(k, _)| k.starts_with("gloci")) {
+            // `gloci` and its variants (`gloci-t8`), not the Python library (`gloci-py`).
+            for (_, cmd) in c
+                .commands
+                .iter()
+                .filter(|(k, _)| k.starts_with("gloci") && *k != "gloci-py")
+            {
                 let line = gloci_words(cmd).join(" ");
                 let args: Vec<String> = gloci_words(cmd)
                     .iter()

@@ -59,12 +59,23 @@ jobs:
           key: bench-datasets-${{ hashFiles('xtask/bench/datasets.toml') }}
       # A static binary runs inside the container whatever its glibc.
       - run: cargo build --release --target x86_64-unknown-linux-musl -p gloci
+      # The Python cases (gloci-py against pybedtools) install this wheel in the container.
+      - name: Build the x86_64 wheel
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          maturin-version: v1.16.0
+          command: build
+          target: x86_64-unknown-linux-gnu
+          manylinux: 2014
+          rust-toolchain: stable
+          args: --profile release-py --locked -m crates/gloci-py/Cargo.toml --out wheel-dist
       - name: Benchmarks
         env:
           GLOCI_BENCH_CACHE: target/bench-cache
         run: >
           cargo xtask bench --check-targets --image gloci-bench:p1
           --gloci target/x86_64-unknown-linux-musl/release/gloci
+          --wheel "$(ls wheel-dist/*.whl)"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:

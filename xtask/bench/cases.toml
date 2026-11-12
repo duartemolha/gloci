@@ -655,3 +655,30 @@ runs = 10
 [case.commands]
 gloci = "{gloci} reheader {in} {in} -o {out}"
 samtools = "samtools reheader {in} {in} > {out}"
+
+# Python library (D96): gloci-py (the wheel of `--wheel`) against pybedtools, the
+# binding baseline (target < , the §2 anti-goal), and three yardsticks. {python} is
+# python3 with the wheel on its path, {py} is xtask/bench/py. Skipped without --wheel.
+[[case]]
+name = "py-intersect-10M"
+setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
+input = "bed"
+targets = ["gloci-py < pybedtools"]
+[case.commands]
+gloci-py = "{python} {py}/gloci_intersect.py {in_a} {in_b} {out} --threads 1"
+pybedtools = "{python} {py}/pybedtools_intersect.py {in_a} {in_b} {out}"
+polars-bio = "{python} {py}/polars_bio_intersect.py {in_a} {in_b} {out}" # (y)
+pyranges1 = "{python} {py}/pyranges1_intersect.py {in_a} {in_b} {out}" # (y)
+bioframe = "{python} {py}/bioframe_intersect.py {in_a} {in_b} {out}" # (y)
+
+[[case]]
+name = "py-merge-10M"
+setup = "bed --records 10000000 --chroms 24 --seed 1 --profile uniform --sorted"
+input = "bed"
+targets = ["gloci-py < pybedtools"]
+[case.commands]
+gloci-py = "{python} {py}/gloci_merge.py {in} {out} --threads 1"
+pybedtools = "{python} {py}/pybedtools_merge.py {in} {out}"
+polars-bio = "{python} {py}/polars_bio_merge.py {in} {out}" # (y)
+pyranges1 = "{python} {py}/pyranges1_merge.py {in} {out}" # (y)
+bioframe = "{python} {py}/bioframe_merge.py {in} {out}" # (y)

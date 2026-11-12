@@ -118,7 +118,7 @@ fn paper_cases() -> Result<BTreeMap<String, Case>> {
 
 /// A tool is a baseline when a target of its case names it.
 fn role(case: Option<&Case>, tool: &str) -> &'static str {
-    if tool == "gloci" {
+    if tool == "gloci" || tool == "gloci-py" {
         return "subject";
     }
     let named = case.is_some_and(|c| {

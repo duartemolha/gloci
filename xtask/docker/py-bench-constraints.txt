@@ -1,0 +1,36 @@
+# Constraints for the Python tools of Dockerfile.bench: `pip freeze` of the
+# image's Python 3.12 after installing them (aarch64), minus the packages conda
+# manages (packaging, setuptools, wheel). Regenerate with
+#   docker run --rm gloci-bench:p1 python3 -m pip freeze
+bioframe==0.8.0
+certifi==2026.10.23
+charset-normalizer==3.5.2
+contourpy==1.4.0
+cycler==0.12.1
+datafusion==53.0.0
+fonttools==4.68.0
+gtfreader==0.3.1
+idna==3.20
+kiwisolver==1.5.1
+matplotlib==3.11.2
+natsort==8.4.0
+numpy==2.5.4
+pandas==3.1.1
+pillow==13.0.0
+polars==2.1.0
+polars-bio==0.37.0
+polars-runtime-32==2.1.0
+pyarrow==24.0.0
+pybedtools==0.12.1
+pyparsing==3.3.3
+pyranges1==1.5.1
+pysam==0.24.1
+python-dateutil==4.0.0
+PyYAML==6.0.3
+requests==2.34.2
+ruranges==0.2.9
+tabulate==0.10.0
+tqdm==4.70.1
+typing_extensions==4.16.0
+tzdata==2026.6
+urllib3==2.8.0
