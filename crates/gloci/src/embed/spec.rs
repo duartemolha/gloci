@@ -10,6 +10,9 @@ pub struct ArgSpec {
     pub id: String,
     pub long: Option<String>,
     pub short: Option<char>,
+    /// Other long names it is shown with (`--diff-indv-map` for `--sample-map`); each is a
+    /// keyword argument too.
+    pub aliases: Vec<String>,
     /// It takes a value (`-f 0.5`), rather than being a switch (`-s`).
     pub takes_value: bool,
     /// It may be given more than once, or takes several values.
@@ -35,13 +38,14 @@ impl ArgSpec {
         }
     }
 
-    /// Whether `name` names it: its long flag with `-` as `_`, its short letter, or (a
-    /// positional) its clap id.
+    /// Whether `name` names it: its long flag or an alias with `-` as `_`, its short letter,
+    /// or (a positional) its clap id.
     pub fn named(&self, name: &str) -> bool {
         if self
             .long
             .as_deref()
             .is_some_and(|l| l.replace('-', "_") == name)
+            || self.alias_named(name).is_some()
         {
             return true;
         }
@@ -52,6 +56,14 @@ impl ArgSpec {
             return true;
         }
         self.positional && self.id == name
+    }
+
+    /// The alias that `name` (with `_` for `-`) names, if any.
+    pub fn alias_named(&self, name: &str) -> Option<&str> {
+        self.aliases
+            .iter()
+            .find(|l| l.replace('-', "_") == name)
+            .map(String::as_str)
     }
 
     /// The command-line spelling: `--long`, else `-s`.
@@ -155,6 +167,12 @@ fn arg_spec(a: &clap::Arg) -> ArgSpec {
         id: a.get_id().to_string(),
         long: a.get_long().map(String::from),
         short: a.get_short(),
+        aliases: a
+            .get_visible_aliases()
+            .unwrap_or_default()
+            .into_iter()
+            .map(String::from)
+            .collect(),
         takes_value,
         multiple: matches!(action, clap::ArgAction::Append | clap::ArgAction::Count) || many_values,
         positional: a.is_positional(),

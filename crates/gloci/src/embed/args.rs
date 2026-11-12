@@ -252,6 +252,8 @@ fn split_kwargs(
             None
         } else if name.chars().count() == 1 && arg.short.is_some() {
             Some(format!("-{name}"))
+        } else if let Some(alias) = arg.alias_named(name) {
+            Some(format!("--{alias}"))
         } else {
             arg.flag()
         };
@@ -313,7 +315,9 @@ fn unknown(spec: &CommandSpec, name: &str) -> UsageError {
         .args
         .iter()
         .filter(|a| a.long.is_some() || a.positional)
-        .map(|a| a.kwarg())
+        .flat_map(|a| {
+            std::iter::once(a.kwarg()).chain(a.aliases.iter().map(|l| l.replace('-', "_")))
+        })
         .map(|k| (gloci_io::edit_distance(name, &k), k))
         .filter(|(d, k)| *d <= 2 && *d < k.chars().count())
         .min_by_key(|(d, _)| *d)
@@ -399,8 +403,16 @@ fn flag_at(s: &str, spec: &CommandSpec) -> Option<(String, usize)> {
             .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-'))
             .unwrap_or(long.len());
         let name = &long[..n];
-        let arg = spec.args.iter().find(|a| a.long.as_deref() == Some(name))?;
-        return Some((arg.kwarg(), 2 + n));
+        let arg = spec
+            .args
+            .iter()
+            .find(|a| a.long.as_deref() == Some(name) || a.aliases.iter().any(|l| l == name))?;
+        let kw = if arg.long.as_deref() == Some(name) {
+            arg.kwarg()
+        } else {
+            name.replace('-', "_")
+        };
+        return Some((kw, 2 + n));
     }
     let c = s[1..].chars().next()?;
     if !c.is_ascii_alphabetic() || !end_ok(&s[2..]) {

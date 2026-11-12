@@ -513,6 +513,10 @@ fn specs_cover_every_subcommand_and_argument() {
             if let Some(c) = a.short {
                 assert_eq!(s.arg(&c.to_string()).map(|x| &x.id), Some(&a.id));
             }
+            for alias in &a.aliases {
+                let k = alias.replace('-', "_");
+                assert_eq!(s.arg(&k).map(|x| &x.id), Some(&a.id), "{} {k}", s.name());
+            }
         }
     }
     let i = spec(&["intersect"]);
@@ -720,6 +724,44 @@ fn step_argv_puts_inputs_where_the_binding_says() {
                 );
             }
         }
+    }
+}
+
+#[test]
+fn visible_aliases_are_keywords() {
+    use KwValue::Flag;
+    let cmp = spec(&["vcf", "compare"]);
+    let map = cmp.arg("diff_indv_map").unwrap();
+    assert_eq!(map.long.as_deref(), Some("sample-map"));
+    assert!(map.aliases.iter().any(|a| a == "diff-indv-map"));
+    let a = kwargs_to_argv_as(
+        cmp,
+        &kw(&[
+            ("diff_indv_map", val("m.txt")),
+            ("diff_site_discordance", Flag(true)),
+        ]),
+        Role::Function,
+    )
+    .unwrap();
+    assert_eq!(
+        strs(&a),
+        ["--diff-indv-map", "m.txt", "--diff-site-discordance"]
+    );
+    let e = kwargs_to_argv_as(
+        cmp,
+        &kw(&[("sample_map", val("m")), ("diff_indv_map", val("m"))]),
+        Role::Function,
+    )
+    .unwrap_err();
+    assert!(e.0.contains("set the same option"), "{e}");
+    assert_eq!(
+        rewrite_flags_as_kwargs("'--diff-indv-map <FILE>' is bad", cmp),
+        "'diff_indv_map=' is bad"
+    );
+    // Both inputs of a module function are its arguments.
+    for k in ["a", "b"] {
+        let e = kwargs_to_argv_as(cmp, &kw(&[(k, val("x.vcf"))]), Role::Function).unwrap_err();
+        assert!(e.0.contains("an argument of the function"), "{k}: {e}");
     }
 }
 
