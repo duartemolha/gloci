@@ -325,6 +325,7 @@ fn run_records_describe_this_repo_and_host() {
         gloci: None,
         wheel: Some(&wheel),
         cases: &cases,
+        extra_tools: &["vcftools".to_string()],
     })
     .unwrap();
     if std::env::var_os("SHOW_PAPER_ENV").is_some() {

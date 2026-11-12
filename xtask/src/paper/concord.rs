@@ -990,17 +990,18 @@ fn host_tool_version(bin: &str) -> String {
         .output()
         .ok()
         .map(|o| {
-            let text = if o.stdout.is_empty() {
-                o.stderr
-            } else {
-                o.stdout
-            };
-            String::from_utf8_lossy(&text)
+            // The first line with a digit (bedops prints its name first).
+            let text = String::from_utf8_lossy(&[o.stdout, o.stderr].concat()).into_owned();
+            let lines: Vec<&str> = text
                 .lines()
-                .find(|l| !l.trim().is_empty())
-                .unwrap_or("")
-                .trim()
-                .to_string()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect();
+            lines
+                .iter()
+                .find(|l| l.chars().any(|c| c.is_ascii_digit()))
+                .or(lines.first())
+                .map_or(String::new(), |l| l.to_string())
         })
         .filter(|v| !v.is_empty())
         .map_or_else(|| format!("{bin} (no --version)"), |v| format!("{bin} {v}"))
@@ -1013,6 +1014,7 @@ fn id_of(flag: &str) -> Result<String> {
 
 /// Run the concordance cases (one with `--only`); true when every run passes.
 pub fn run(a: &ConcordArgs) -> Result<bool> {
+    let started_at = crate::paper::data::now_utc();
     let cases = load_cases()?;
     if let Some(o) = &a.only {
         ensure!(
@@ -1277,5 +1279,53 @@ pub fn run(a: &ConcordArgs) -> Result<bool> {
     std::fs::File::create(&tmp)?.write_all(text.as_bytes())?;
     std::fs::rename(&tmp, &csv_path)?;
     eprintln!("wrote {}", csv_path.display());
+    write_run_records(a, &results, &gloci, &cases, &started_at)?;
     Ok(all_ok)
+}
+
+/// `environment.json` and `repo-snapshot.json` beside `concordance.csv`, which
+/// the paper tables read, when the directory has none yet: a benchmark run
+/// into the same directory writes its own, which also list the tools and are
+/// kept.
+pub fn write_run_records(
+    a: &ConcordArgs,
+    dir: &Path,
+    gloci: &Path,
+    cases: &[ConcordCase],
+    started_at: &str,
+) -> Result<()> {
+    use crate::paper::{environment, snapshot};
+    let (env_path, snap_path) = (dir.join("environment.json"), dir.join("repo-snapshot.json"));
+    if env_path.exists() && snap_path.exists() {
+        return Ok(());
+    }
+    let root = workspace_root();
+    let commit = environment::git_commit(&root);
+    let version = env!("CARGO_PKG_VERSION");
+    let tools: Vec<String> = cases
+        .iter()
+        .map(|c| c.reference_tool.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    if !env_path.exists() {
+        let env = environment::environment(&environment::EnvArgs {
+            version,
+            commit: commit.clone(),
+            started_at,
+            finished_at: &crate::paper::data::now_utc(),
+            image: (!a.no_docker).then_some(a.image.as_str()),
+            gloci: Some(gloci),
+            wheel: None,
+            cases: &[],
+            extra_tools: &tools,
+        })?;
+        std::fs::write(&env_path, serde_json::to_string_pretty(&env)? + "\n")?;
+    }
+    if !snap_path.exists() {
+        let cat = crate::paper::fetch::load_catalog()?;
+        let snap = snapshot::snapshot(&root, &cat, &a.data_dir, version, commit.as_deref())?;
+        std::fs::write(&snap_path, serde_json::to_string_pretty(&snap)? + "\n")?;
+    }
+    Ok(())
 }

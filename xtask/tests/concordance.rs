@@ -561,3 +561,63 @@ fn reference_cache_key_names_the_image_and_input_digests() {
         stamp("image gloci-bench:p1 sha256:1111", &inputs, "bedtools x")
     );
 }
+
+/// A concordance-only results directory gets the run records the paper
+/// tables read, so `cargo xtask paper` renders T4 from it.
+#[test]
+fn a_concordance_results_dir_renders_t4() {
+    let dir = tempfile::tempdir().unwrap();
+    let results = dir.path().join("9.9.9");
+    std::fs::create_dir_all(&results).unwrap();
+    let csv = format!(
+        "{CSV_HEADER}\nsort-x,sort,sort-bed,exons.bed,default,4,4,3,0.750000,documented,sort-tie-order\nmap-x,map,bedtools,ccre.bed,default,,,,,failed,\n"
+    );
+    std::fs::write(results.join("concordance.csv"), csv).unwrap();
+    let args = concord::ConcordArgs {
+        only: None,
+        gloci: None,
+        no_docker: true,
+        image: "unused".into(),
+        data_dir: dir.path().join("no-data"),
+        out: dir.path().to_path_buf(),
+    };
+    let tables = dir.path().join("tables");
+    // Without the records the tables cannot be made.
+    assert!(xtask::paper::tables::tables(&results, &tables).is_err());
+    let cases = load_cases().unwrap();
+    concord::write_run_records(
+        &args,
+        &results,
+        std::path::Path::new("/bin/true"),
+        &cases,
+        "2026-01-01T00:00:00Z",
+    )
+    .unwrap();
+    assert!(results.join("environment.json").is_file());
+    assert!(results.join("repo-snapshot.json").is_file());
+    xtask::paper::tables::tables(&results, &tables).unwrap();
+    let t4 = std::fs::read_to_string(tables.join("tables/T4-concordance.csv"))
+        .or_else(|_| std::fs::read_to_string(tables.join("T4-concordance.csv")))
+        .unwrap();
+    assert!(t4.contains("sort-x,sort,sort-bed,exons.bed,default,4,4,3,0.750000,sort-tie-order"));
+    assert!(t4.contains("map-x,map,bedtools,ccre.bed,default,,,,,"));
+    // Records a benchmark run wrote are kept.
+    std::fs::write(
+        results.join("environment.json"),
+        "{\"gloci_version\": \"keep\"}\n",
+    )
+    .unwrap();
+    concord::write_run_records(
+        &args,
+        &results,
+        std::path::Path::new("/bin/true"),
+        &cases,
+        "2026-01-01T00:00:00Z",
+    )
+    .unwrap();
+    assert!(
+        std::fs::read_to_string(results.join("environment.json"))
+            .unwrap()
+            .contains("keep")
+    );
+}
