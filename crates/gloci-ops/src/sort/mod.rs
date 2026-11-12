@@ -220,9 +220,11 @@ impl Sorter {
 
     /// Sort the chunk and write it as a run.
     fn spill_chunk(&mut self, ranks: &[u32]) -> Result<(), IoError> {
+        gloci_io::cancel::check()?;
         self.chunk.sort(ranks, self.order, self.parallel);
         let mut w = self.spill.create_run()?;
         for e in &self.chunk.entries {
+            gloci_io::cancel::check()?;
             let h = RecHead {
                 chrom: e.chrom,
                 key: e.key,
@@ -262,8 +264,10 @@ impl Sorter {
     ) -> Result<SortStats, IoError> {
         let mut emit = Emitter::new(self.dedup, out);
         if self.runs.is_empty() {
+            gloci_io::cancel::check()?;
             self.chunk.sort(ranks, self.order, self.parallel);
             for e in &self.chunk.entries {
+                gloci_io::cancel::check()?;
                 emit.emit(self.chunk.raw(e))?;
             }
         } else {

@@ -124,6 +124,7 @@ pub fn run_chunks<J: Clone + Send + Sync, R: Send>(
         let mut results = Vec::with_capacity(jobs.len());
         let mut buf = buffers.pop().unwrap_or_default();
         for job in &jobs {
+            gloci_io::cancel::check()?;
             let (r, mut sink) = run_one(job, buf)?;
             sink.drain_to(out)?;
             buf = sink.into_buffer();
@@ -153,7 +154,10 @@ pub fn run_chunks<J: Clone + Send + Sync, R: Send>(
                         let res = if idx > fail_at.load(Ordering::Relaxed) {
                             None
                         } else {
-                            let r = run_one(&job, buf);
+                            let r = match gloci_io::cancel::check() {
+                                Err(e) => Err(e),
+                                Ok(()) => run_one(&job, buf),
+                            };
                             if r.is_err() {
                                 fail_at.fetch_min(idx, Ordering::Relaxed);
                             }

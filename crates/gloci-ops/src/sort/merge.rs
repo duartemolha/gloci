@@ -125,6 +125,7 @@ pub(crate) fn merge_runs<const M: u8>(
         let Some(mut top) = heap.peek_mut() else {
             break;
         };
+        gloci_io::cancel::check()?;
         sink(&top.rec, &top.bytes)?;
         let h = &mut *top;
         if readers[h.src].next(&mut h.rec, &mut h.bytes)? {

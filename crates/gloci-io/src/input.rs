@@ -78,6 +78,24 @@ pub fn open_input(path: &str, opts: &InputOptions) -> Result<Input, IoError> {
     open_input_from(path, Box::new(f), opts)
 }
 
+/// The bytes of `path` as they are, not decompressed or detected: `-` is stdin, an in-memory
+/// name (D84) is taken (once), anything else is a file. For commands that copy or inspect
+/// bytes themselves (`cat`, `concat --naive`, `check --quick`).
+pub fn open_raw(path: &str) -> Result<Box<dyn Read + Send>, IoError> {
+    if path == "-" {
+        return Ok(Box::new(crate::cancel::CancelRead(std::io::stdin())));
+    }
+    if crate::memio::is_mem_path(path) {
+        let (_, src) = crate::memio::take_input(path)?;
+        return Ok(Box::new(crate::cancel::CancelRead(src)));
+    }
+    let f = File::open(path).map_err(|source| IoError::Open {
+        path: path.to_string(),
+        source,
+    })?;
+    Ok(Box::new(crate::cancel::CancelRead(f)))
+}
+
 pub fn open_input_from(
     name: &str,
     src: Box<dyn Read + Send>,

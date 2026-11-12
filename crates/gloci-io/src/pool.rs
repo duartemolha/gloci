@@ -59,6 +59,12 @@ impl<J: Send + 'static, R: Send + 'static> Ordered<J, R> {
                         if cancel.load(Ordering::Relaxed) {
                             break;
                         }
+                        // The host cancelled the run (D91): answer, so the reader waiting
+                        // for this job does not hang, and take no more work.
+                        if crate::cancel::is_cancelled() {
+                            let _ = tx.send((seq, Err(IoError::Cancelled)));
+                            continue;
+                        }
                         let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                             work(&mut state, j)
                         }))

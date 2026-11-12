@@ -80,6 +80,7 @@ pub use index::{
 };
 pub use input::{
     BGZF_EOF, Input, InputOptions, InputSpool, is_regular_file, open_input, open_input_from,
+    open_raw,
 };
 pub use naming::{
     SeenChroms, chr_prefix_hint, format_chrom_list, format_disjoint_chroms_warning,

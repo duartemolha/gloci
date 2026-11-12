@@ -177,6 +177,10 @@ pub(crate) fn all_index_paths(data: &Path) -> Vec<PathBuf> {
 /// Look for the index of `data` (see `index_candidates` for the names), preferring the
 /// newer one (the CSI when they are equally new, since it can describe any file).
 pub fn find_index(data: &Path) -> Option<IndexInfo> {
+    // An in-memory input (D84) has no index.
+    if data.to_str().is_some_and(crate::memio::is_mem_path) {
+        return None;
+    }
     let data_mtime = fs::metadata(data).and_then(|m| m.modified()).ok();
     let mut best: Option<(Option<SystemTime>, IndexInfo)> = None;
     for (kind, path) in index_candidates(data) {

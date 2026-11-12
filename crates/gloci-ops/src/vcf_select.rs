@@ -784,6 +784,18 @@ fn worker(
             break;
         }
         let (seq, base) = (job.seq, job.base);
+        // The host cancelled the run (D91): the driver waits for this batch, so answer it.
+        if gloci_io::cancel::is_cancelled() {
+            let job = Job {
+                seq,
+                base,
+                batch: RecordBatch::default(),
+                hits: Hits::default(),
+            };
+            let err = Some(IoError::Cancelled);
+            let _ = done.send(Done { job, err });
+            break;
+        }
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             work_batch(spec, &mut core, job, flight)
         }));
@@ -884,6 +896,7 @@ where
         let (more, ended) =
             read_guarded(input, chroms, &mut stage.guard, &mut batch, max.min(limit));
         for i in 0..batch.len() {
+            gloci_io::cancel::check()?;
             records_in += 1;
             let m = &batch.recs[i];
             let raw = batch.raw(i);
@@ -972,6 +985,7 @@ where
         let mut input_err: Option<IoError> = None;
         let result = (|| -> Result<u64, IoError> {
             loop {
+                gloci_io::cancel::check()?;
                 while !eof && input_err.is_none() && sent - taken < cap as u64 {
                     let (mut batch, mut hits) = spare.pop().unwrap_or_default();
                     batch.clear();
@@ -1011,7 +1025,13 @@ where
                     if let Some(d) = pending.remove(&taken) {
                         break d;
                     }
-                    let d = done_rx.recv().map_err(|_| no_workers())?;
+                    let d = done_rx.recv().map_err(|_| {
+                        if gloci_io::cancel::is_cancelled() {
+                            IoError::Cancelled
+                        } else {
+                            no_workers()
+                        }
+                    })?;
                     pending.insert(d.job.seq, d);
                 };
                 taken += 1;

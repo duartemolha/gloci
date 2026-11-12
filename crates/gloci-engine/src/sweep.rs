@@ -169,6 +169,8 @@ pub fn sweep_sorted(
             // read in with: what is reported then does not depend on where
             // batches happen to start.
             guard.check_range(chroms, &batch, i..i + 1)?;
+            // A host that embeds gloci can cancel the run (D91).
+            gloci_io::cancel::check()?;
             if chrom != Some(a.chrom) {
                 chrom = Some(a.chrom);
                 for (s, set) in streams.iter_mut().zip(&mut active) {
@@ -250,6 +252,7 @@ pub fn sweep_sorted(
     for s in &mut streams {
         if s.reader.consume_to_end() {
             while s.peek(chroms)?.is_some() {
+                gloci_io::cancel::check()?;
                 s.pos = s.batch.recs.len();
                 s.validate(chroms)?;
             }
