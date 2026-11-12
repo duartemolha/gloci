@@ -1006,6 +1006,23 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   `bcftools view` also keeps INFO by default, agreeing with gloci:
   `vcf-filter-info-default-vs-bcftools` (must match).
 
+## REF and ALT are written as read, not upper-cased {#vcf-allele-case}
+
+- **gloci:** `vcf filter` writes the records it keeps unchanged, and the
+  allele columns of `vcf stats` (`--freq`, `--counts`) and `vcf extract`
+  show REF and ALT as the file spells them.
+- **Old behaviour:** vcftools 0.1.16 upper-cases REF and ALT: `--recode`
+  rewrites `c`/`t` as `C`/`T` and a symbolic allele `<DEL:ME:Alu>` as
+  `<DEL:ME:ALU>`, which no longer matches its `##ALT` line; `--freq` prints
+  the upper-cased alleles too. The 1000 Genomes panel's mobile-element SVs
+  (`<DEL:ME:SINE|Alu|AluSx1>`, ...) show it.
+- **Reason:** a filter keeps records, it does not edit them, and symbolic
+  allele IDs are case-sensitive. Bases are case-insensitive in VCF, so a
+  lower-case base means the same either way.
+- **Pinned by:** `vcf-filter-allele-case-vs-vcftools` and, live only,
+  `vcf-stats-freq-allele-case-vs-vcftools` (must differ). Found by the
+  real-data concordance run (`vcf-filter-maf-missing-1kg-vs-vcftools`).
+
 ## Inverted `--max-missing` parameter {#max-missing-inverted}
 
 - **gloci:** `--max-missing FRAC` specifies the maximum allowed fraction of

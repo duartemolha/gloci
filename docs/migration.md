@@ -769,6 +769,10 @@ pinned difference where there is one.
   pruned with `--keep-info` or `--drop-info` (`vcftools --recode` drops INFO
   unless `--recode-INFO-all` is given).
   [differences.md#info-kept-by-default](differences.md#info-kept-by-default)
+- **REF and ALT as read:** `vcf filter` output, and the allele columns of
+  `vcf stats` and `vcf extract`, keep the case of REF and ALT, where vcftools
+  upper-cases them (a symbolic `<DEL:ME:Alu>` becomes `<DEL:ME:ALU>`).
+  [differences.md#vcf-allele-case](differences.md#vcf-allele-case)
 - **Inverted `vcf filter --max-missing`:** `--max-missing FRAC` is the maximum
   fraction of *missing* genotypes (`0.1` = at most 10% missing), the inverse of
   `vcftools --max-missing` (`0.9` = at least 90% called).

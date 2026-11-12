@@ -1998,6 +1998,26 @@ compare = "exit-status"
 
 # vcf filter (Task 23) vs vcftools 0.1.16
 
+# Lower-case bases and a mixed-case symbolic allele: vcftools upper-cases REF
+# and ALT on output (`<DEL:ME:Alu>` becomes `<DEL:ME:ALU>`, which no longer
+# matches its ##ALT line); gloci writes them as read. Found by the real-data
+# concordance run (Task 16) on the 1000 Genomes SVs.
+[[case]]
+name = "vcf-filter-allele-case-vs-vcftools"
+input = { file = "xtask/diff/inputs/allele-case.vcf" }
+gloci = "gloci vcf filter input.vcf"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout"
+compare = "vcf-records"
+expected_difference = "#vcf-allele-case"
+
+[[case]]
+name = "vcf-stats-freq-allele-case-vs-vcftools"
+input = { file = "xtask/diff/inputs/allele-case.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --freq && cat o.frq"
+reference = "vcftools --vcf input.vcf --freq --out o >/dev/null 2>&1 && cat o.frq"
+compare = "exact"
+expected_difference = "#vcf-allele-case"
+
 [[case]]
 name = "vcf-filter-min-qual-vs-vcftools"
 input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
