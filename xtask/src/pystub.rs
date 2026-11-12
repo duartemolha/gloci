@@ -23,7 +23,7 @@
 //! says how to pass them.
 
 use anyhow::{Context, Result};
-use gloci::embed::{BINDINGS, Kw, MODULE_FUNCTIONS, Signature};
+use gloci::embed::{BINDINGS, Kw, MODULE_FUNCTIONS, Signature, Skipped};
 use std::fmt::Write as _;
 use std::path::Path;
 
@@ -286,7 +286,7 @@ fn doc_body(text: &str, indent: usize) -> String {
 
 /// A docstring: the about text, `Args:` with each argument's help, and the `CLI:` line. The
 /// runtime builds the same text (`gloci._signature.make_doc`).
-pub fn docstring(about: &str, args: &[(String, String)], skipped: &[String], cli: &str) -> String {
+pub fn docstring(about: &str, args: &[(String, String)], skipped: &[Skipped], cli: &str) -> String {
     let mut s = squash(about);
     if !args.is_empty() {
         s.push_str("\n\nArgs:");
@@ -300,10 +300,13 @@ pub fn docstring(about: &str, args: &[(String, String)], skipped: &[String], cli
         }
     }
     if let Some(first) = skipped.first() {
+        let names: Vec<&str> = skipped.iter().map(|k| k.name.as_str()).collect();
+        let value = if first.switch { "True" } else { "\"...\"" };
         let _ = write!(
             s,
-            "\n\nNot Python identifiers, so not parameters: {}. Pass them as **{{\"{first}\": True}}.",
-            skipped.join(", ")
+            "\n\nNot Python identifiers, so not parameters: {}. Pass one as **{{\"{}\": {value}}}.",
+            names.join(", "),
+            first.name
         );
     }
     let _ = write!(s, "\n\nCLI: {cli}");

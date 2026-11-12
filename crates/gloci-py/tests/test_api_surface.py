@@ -170,3 +170,52 @@ def test_short_flags_and_aliases_are_parameters() -> None:
     assert "5p" not in cov
     assert '**{"5p": True}' in (inspect.getdoc(gloci.Pipeline.genomecov) or "")
     gloci.open([("chr1", 1, 5)]).genomecov(**{"5p": True}, genome="hg38").to_bytes()
+
+
+def test_only_unreachable_names_are_skipped() -> None:
+    # vcf merge's `-0` is the short form of missing_to_ref, which is a parameter: no hint.
+    assert "missing_to_ref" in inspect.signature(gloci.Pipeline.vcf_merge).parameters
+    assert "Not Python identifiers" not in (inspect.getdoc(gloci.Pipeline.vcf_merge) or "")
+    # genomecov's --5p/--3p are switches: the hint passes True.
+    doc = inspect.getdoc(gloci.Pipeline.genomecov) or ""
+    assert '**{"5p": True}' in doc
+
+
+def test_every_parameter_resolves_to_the_argument_the_stub_types(tmp_path: Path) -> None:
+    from gloci import _native
+
+    specs = {tuple(s["path"]): {a["id"]: a for a in s["args"]} for s in _native.command_specs()}
+    sigs = _native.signatures()
+    paths = {b["method"]: tuple(b["path"]) for b in _native.bindings()}
+    paths.update({f["function"]: tuple(f["path"]) for f in _native.module_functions()})
+    funcs = {f["function"]: f for f in _native.module_functions()}
+    checked = 0
+    for name, sig in sigs.items():
+        path = paths[name]
+        for k in sig["args"]:
+            arg = specs[path][k["id"]]
+            value: object = True if not arg["takes_value"] else "1"
+            kw = {k["name"]: value}
+            if name in funcs and not funcs[name]["source"]:
+                words = _native.function_argv(
+                    list(path), ["-"] * len(funcs[name]["inputs"]), kw, check=False
+                )
+            elif name in funcs:
+                words = _native.source_argv(list(path), kw, check=False)
+            else:
+                words = _native.step_argv(list(path), ["-"], kw, check=False)
+            flag = (
+                f"--{arg['long']}"
+                if arg["long"]
+                else f"-{arg['short']}" if arg["short"] else None
+            )
+            names = {f"--{arg['long']}"} if arg["long"] else set()
+            names |= {f"--{a}" for a in arg["aliases"]}
+            if arg["short"]:
+                names.add(f"-{arg['short']}")
+            if arg["positional"]:
+                assert "1" in words, (name, k["name"], words)
+            else:
+                assert any(w.split("=")[0] in names for w in words), (name, k, words, flag)
+            checked += 1
+    assert checked > 900

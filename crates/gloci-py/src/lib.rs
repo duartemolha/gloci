@@ -163,7 +163,7 @@ fn bindings(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
 /// `{name: {"lead", "nary", "out", "args", "skipped"}}`: `lead` the `(name, help)` of a function's positional
 /// parameters, `out` the help of its `out=` (or None), `args` the keyword parameters in order
 /// (`name`, the arg's clap `id`, `alias_of` its primary name for a short flag or alias, and
-/// `required`), `skipped` the names that are not Python identifiers.
+/// `required`), `skipped` the arguments (`name`, `switch`) whose own name is not a Python identifier.
 #[pyfunction]
 fn signatures(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
     guarded(py, || {
@@ -182,7 +182,14 @@ fn signatures(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
                 args.append(a)?;
             }
             d.set_item("args", args)?;
-            d.set_item("skipped", &sig.skipped)?;
+            let skipped = PyList::empty(py);
+            for k in &sig.skipped {
+                let a = PyDict::new(py);
+                a.set_item("name", &k.name)?;
+                a.set_item("switch", k.switch)?;
+                skipped.append(a)?;
+            }
+            d.set_item("skipped", skipped)?;
             out.set_item(name, d)
         };
         let out = PyDict::new(py);

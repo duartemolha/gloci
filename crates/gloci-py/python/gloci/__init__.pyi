@@ -1132,8 +1132,6 @@ class Pipeline:
             F: alias of filter_logic
             chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
 
-        Not Python identifiers, so not parameters: 0. Pass them as **{"0": True}.
-
         CLI: gloci vcf merge
         """
     def cat(
@@ -1546,7 +1544,7 @@ class Pipeline:
             max_mem: Memory budget for --sort, in binary units (K, M, G, T); at least 16M
             tmp_dir: Directory for --sort's temporary files, ignored without --sort; it must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
 
-        Not Python identifiers, so not parameters: 5p, 3p. Pass them as **{"5p": True}.
+        Not Python identifiers, so not parameters: 5p, 3p. Pass one as **{"5p": True}.
 
         CLI: gloci genomecov
         """

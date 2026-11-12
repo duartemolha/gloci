@@ -21,9 +21,18 @@ pub struct Signature {
     /// The keyword-only parameters, in the command's order: each argument by its [`ArgSpec::kwarg`]
     /// name, followed by its one-letter short flag and visible aliases (D86, D87).
     pub args: Vec<Kw>,
-    /// Keyword names that are not Python identifiers (`genomecov`'s `5p`): they are accepted
-    /// at runtime (`**{"5p": True}`) but have no parameter.
-    pub skipped: Vec<String>,
+    /// Arguments whose own keyword name is not a Python identifier (`genomecov`'s `5p`): they
+    /// are accepted at runtime (`**{"5p": True}`) but have no parameter. A short flag or alias
+    /// that is not an identifier (`vcf merge`'s `0`) is not listed: its argument has a parameter.
+    pub skipped: Vec<Skipped>,
+}
+
+/// An argument with no parameter.
+#[derive(Debug, Clone)]
+pub struct Skipped {
+    pub name: String,
+    /// It is a switch (`True`), not an option that takes a value.
+    pub switch: bool,
 }
 
 /// One keyword-only parameter.
@@ -75,14 +84,14 @@ fn is_identifier(name: &str) -> bool {
         && !KEYWORDS.contains(&name)
 }
 
-fn keywords(spec: &'static CommandSpec, role: Role, taken: &[&str]) -> (Vec<Kw>, Vec<String>) {
+fn keywords(spec: &'static CommandSpec, role: Role, taken: &[&str]) -> (Vec<Kw>, Vec<Skipped>) {
     let args: Vec<&'static ArgSpec> = spec
         .args
         .iter()
         .filter(|a| reserved(spec, a, role).is_none())
         .filter(|a| !(role == Role::Function && a.id == "out_prefix"))
         .collect();
-    let mut skipped = Vec::new();
+    let mut skipped: Vec<Skipped> = Vec::new();
     let mut used: Vec<String> = taken.iter().map(|s| s.to_string()).collect();
     let primary = |a: &ArgSpec| a.kwarg();
     for a in &args {
@@ -102,7 +111,6 @@ fn keywords(spec: &'static CommandSpec, role: Role, taken: &[&str]) -> (Vec<Kw>,
             .into_iter()
             .filter(|e| {
                 if !is_identifier(e) {
-                    skipped.push(e.clone());
                     false
                 } else if used.contains(e) {
                     false
@@ -113,7 +121,10 @@ fn keywords(spec: &'static CommandSpec, role: Role, taken: &[&str]) -> (Vec<Kw>,
             })
             .collect();
         if !is_identifier(&name) {
-            skipped.push(name);
+            skipped.push(Skipped {
+                name,
+                switch: !a.takes_value,
+            });
             continue;
         }
         out.push(Kw {

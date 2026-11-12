@@ -17,14 +17,13 @@ __all__ = ["make_doc", "make_signature"]
 
 _P = inspect.Parameter
 
+_SPECS = _native.command_specs()
+
 #: Each command's arguments by clap id: `{path: {id: spec}}`.
 _ARGS: dict[tuple[str, ...], dict[str, dict[str, Any]]] = {
-    tuple(spec["path"]): {a["id"]: a for a in spec["args"]}
-    for spec in _native.command_specs()
+    tuple(spec["path"]): {a["id"]: a for a in spec["args"]} for spec in _SPECS
 }
-_ABOUT: dict[tuple[str, ...], str] = {
-    tuple(spec["path"]): spec["about"] for spec in _native.command_specs()
-}
+_ABOUT: dict[tuple[str, ...], str] = {tuple(spec["path"]): spec["about"] for spec in _SPECS}
 
 #: Each step method's and function's parameters (`_native.signatures()`).
 SIGNATURES: dict[str, dict[str, Any]] = _native.signatures()
@@ -50,10 +49,12 @@ def make_doc(path: tuple[str, ...], sig: dict[str, Any]) -> str:
             help_ = _squash(help_)
             text += f"\n    {name}: {help_}" if help_ else f"\n    {name}:"
     if sig["skipped"]:
-        names = sig["skipped"]
+        first = sig["skipped"][0]
+        names = ", ".join(k["name"] for k in sig["skipped"])
+        value = "True" if first["switch"] else '"..."'
         text += (
-            f"\n\nNot Python identifiers, so not parameters: {', '.join(names)}. "
-            f'Pass them as **{{"{names[0]}": True}}.'
+            f"\n\nNot Python identifiers, so not parameters: {names}. "
+            f'Pass one as **{{"{first["name"]}": {value}}}.'
         )
     return f"{text}\n\nCLI: gloci {' '.join(path)}"
 
