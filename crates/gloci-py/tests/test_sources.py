@@ -807,3 +807,15 @@ def test_only_file_arguments_take_sources(ab: Path) -> None:
             gloci.open("a.bed").intersect(b="b.bed", names=bad)
     # A file argument still takes them.
     assert gloci.open("a.bed").intersect(b=iter(bed_rows(ab / "b.bed"))).count() > 0
+
+
+def test_pre_run_checks_refuse_plan_tokens() -> None:
+    # M5: a check of the user's values never lets a plan token through.
+    from gloci import _native
+
+    with pytest.raises(gloci.UsageError, match="NUL"):
+        _native.source_argv(["windows"], {"g": "\0src:0"}, tokens=False)
+    with pytest.raises(gloci.UsageError, match="NUL"):
+        _native.function_argv(["index"], ["-"], {"csi": "\0pipe:0"}, tokens=False)
+    # A plan's own argv may hold them.
+    assert _native.source_argv(["windows"], {"g": "\0src:0"}, check=False)[3] == "\0src:0"

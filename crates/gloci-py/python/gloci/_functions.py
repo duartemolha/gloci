@@ -41,7 +41,8 @@ if set(_FUNCTIONS) != set(__all__):
 def _source(name: str, kwargs: dict[str, Any]) -> Pipeline:
     info = _FUNCTIONS[name]
     kw = {k: _kwarg(f"{name}()", info["path"], k, v) for k, v in kwargs.items()}
-    _native.source_argv(info["path"], _placeholders(kw))  # raises UsageError at once (D85)
+    # The user's values, checked at once (D85).
+    _native.source_argv(info["path"], _placeholders(kw), tokens=False)
     return Pipeline._make(_Command((info, kw), f"<{name}>"), None, ())
 
 
@@ -74,8 +75,8 @@ def _run(name: str, sources: list[Source], kwargs: dict[str, Any]) -> list[pathl
     info = _FUNCTIONS[name]
     where = f"{name}()"
     kw = {k: _kwarg(where, info["path"], k, v) for k, v in kwargs.items()}
-    # Checked before anything runs (D85).
-    _native.function_argv(info["path"], ["-"] * len(sources), _placeholders(kw))
+    # The user's values, checked before anything runs (D85).
+    _native.function_argv(info["path"], ["-"] * len(sources), _placeholders(kw), tokens=False)
     plan = _Plan()
     inputs = [plan.input(s) for s in sources]
     real_kw, shown_kw = plan.kwargs(kw)

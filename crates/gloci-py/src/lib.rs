@@ -179,6 +179,16 @@ enum Tokens {
     Allowed,
 }
 
+impl From<bool> for Tokens {
+    fn from(allowed: bool) -> Tokens {
+        if allowed {
+            Tokens::Allowed
+        } else {
+            Tokens::Refused
+        }
+    }
+}
+
 /// A keyword argument's value as text: a path-like object by its path, anything else by
 /// `str()` (D86).
 fn text(py: Python<'_>, name: &str, v: &Bound<'_, PyAny>, tokens: Tokens) -> PyResult<String> {
@@ -328,15 +338,17 @@ fn step_argv_in(
 /// The argv of a module source (`windows`, `random`; [`embed::SOURCES`]), which starts a
 /// pipeline: `gloci <path> <keyword arguments> <terminal>`. Its keyword arguments take the step
 /// rules ([`Role::Step`]: the output and threads belong to the terminal). With `check`, clap
-/// must accept it, or a `UsageError` in keyword terms is raised.
+/// must accept it, or a `UsageError` in keyword terms is raised. With `tokens` false (a check
+/// of the values a user gave), no value may be a plan's token.
 #[pyfunction]
-#[pyo3(signature = (path, kwargs = None, terminal = Vec::new(), check = true))]
+#[pyo3(signature = (path, kwargs = None, terminal = Vec::new(), check = true, tokens = true))]
 fn source_argv(
     py: Python<'_>,
     path: Vec<String>,
     kwargs: Option<&Bound<'_, PyDict>>,
     terminal: Vec<String>,
     check: bool,
+    tokens: bool,
 ) -> PyResult<Vec<String>> {
     guarded(py, || {
         let spec = spec(py, &path)?;
@@ -347,7 +359,7 @@ fn source_argv(
                 format!("gloci {} is not a module source", path.join(" ")),
             ));
         }
-        let kw = self::kwargs(py, kwargs, Tokens::Allowed)?;
+        let kw = self::kwargs(py, kwargs, Tokens::from(tokens))?;
         let words =
             embed::kwargs_to_argv_as(spec, &kw, Role::Step).map_err(|e| errors::usage(py, e.0))?;
         // The terminal's options go with the flags, before any `--`.
@@ -368,15 +380,17 @@ fn source_argv(
 /// The argv of a module function (`vcf_stats`, `vcf_extract_matrix`, `vcf_compare`, `index`;
 /// [`embed::MODULE_FUNCTIONS`]), which runs at once: `gloci <path> <keyword arguments> --
 /// <inputs>`, its inputs being all of its positionals ([`Role::Function`]). With `check`, clap
-/// must accept it, or a `UsageError` in keyword terms is raised.
+/// must accept it, or a `UsageError` in keyword terms is raised. With `tokens` false (a check of
+/// the values a user gave), no value may be a plan's token.
 #[pyfunction]
-#[pyo3(signature = (path, inputs, kwargs = None, check = true))]
+#[pyo3(signature = (path, inputs, kwargs = None, check = true, tokens = true))]
 fn function_argv(
     py: Python<'_>,
     path: Vec<String>,
     inputs: Vec<String>,
     kwargs: Option<&Bound<'_, PyDict>>,
     check: bool,
+    tokens: bool,
 ) -> PyResult<Vec<String>> {
     guarded(py, || {
         let spec = spec(py, &path)?;
@@ -387,7 +401,7 @@ fn function_argv(
                 format!("gloci {} is not a module function", path.join(" ")),
             ));
         }
-        let kw = self::kwargs(py, kwargs, Tokens::Allowed)?;
+        let kw = self::kwargs(py, kwargs, Tokens::from(tokens))?;
         let words = embed::kwargs_to_argv_as(spec, &kw, Role::Function)
             .map_err(|e| errors::usage(py, e.0))?;
         let argv: Vec<OsString> = std::iter::once(OsString::from("gloci"))
