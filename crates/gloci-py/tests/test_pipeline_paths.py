@@ -161,6 +161,11 @@ def test_save_options(ab: Path) -> None:
     assert gloci.open("m.bed.gz").to_bytes() == plain
     gloci.open("a.bed").merge().save("m.out", output_format="bed")
     assert (ab / "m.out").read_bytes() == plain
+    # The command line recorded in a header spells the option as save()'s keyword does.
+    (ab / "c.vcf").write_text("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
+    gloci.open("c.vcf").view().save("c.out", output_format="vcf")
+    want = f"##glociCommand=gloci view -o c.out --output-format vcf c.vcf; Version={gloci.__version__}"
+    assert want in (ab / "c.out").read_text().splitlines()
 
 
 def test_step_methods_cover_bindings() -> None:

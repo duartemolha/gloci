@@ -139,3 +139,11 @@ def test_open_error(here: Path, cli) -> None:
 def test_open_takes_paths_only_for_now(here: Path) -> None:
     with pytest.raises(TypeError, match="path"):
         gloci.open(42)  # type: ignore[arg-type]
+
+
+def test_save_output_format_is_named_as_its_keyword(here: Path) -> None:
+    (here / "a.bed").write_text("chr1\t10\t20\n")
+    with pytest.raises(gloci.UsageError) as e:
+        gloci.open("a.bed").merge().save("o.bed", output_format="xyz")
+    assert str(e.value).startswith("unknown output format 'xyz' for output_format=; use one of:")
+    assert not list(here.glob("o.bed*"))

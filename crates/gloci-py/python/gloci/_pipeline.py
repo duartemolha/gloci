@@ -202,7 +202,7 @@ class Pipeline:
         succeeded.
 
         Args:
-            output_format: The format, overriding the extension (`-O`).
+            output_format: The format, overriding the extension (`--output-format`).
             write_index: Also write an index next to the file (`--write-index`).
             compression_level: The BGZF compression level, 0-12 (`--compression-level`).
             threads: Threads per step (`-t`); the command line's default when None.
@@ -211,7 +211,7 @@ class Pipeline:
         last = self._steps_to_run()[-1].binding
         opts: list[str] = []
         for name, flag, value in (
-            ("output_format", "-O", output_format),
+            ("output_format", "--output-format", output_format),
             ("write_index", "--write-index", write_index or None),
             ("compression_level", "--compression-level", compression_level),
         ):

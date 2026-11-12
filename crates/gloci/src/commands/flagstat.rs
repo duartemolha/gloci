@@ -27,7 +27,7 @@ fn format_of(a: &FlagstatArgs) -> Result<FlagstatFormat, UsageError> {
     if let Some(s) = &a.output_format {
         return FlagstatFormat::from_name(s).ok_or_else(|| {
             UsageError(format!(
-                "unknown output format '{s}' for -O; use one of: {}",
+                "unknown output format '{s}' for --output-format; use one of: {}",
                 FlagstatFormat::NAMES
             ))
         });

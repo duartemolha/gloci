@@ -206,7 +206,7 @@ pub fn parse_output_spec(
             let key = s.trim_start_matches('.').to_ascii_lowercase();
             Some(lookup(&key).ok_or_else(|| {
                 UsageError(format!(
-                    "unknown output format '{s}' for -O; use one of: {ACCEPTED}"
+                    "unknown output format '{s}' for --output-format; use one of: {ACCEPTED}"
                 ))
             })?)
         }
