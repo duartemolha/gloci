@@ -244,7 +244,7 @@ samtools = "samtools bedcov {in_b} {in_a} > {out}"
 
 # Python library (D96, Task 18): gloci-py against pybedtools (binding) and three
 # yardsticks, on the same real inputs as the CLI cases above. The scripts leave
-# the library's thread count at its default; `threads` is the CLI cases' count.
+# one thread, as `threads` says (`--threads 1`), like the CLI cases.
 [[case]]
 name = "py-intersect-ccre-exons"
 label = "intersect, cCREs with exons (Python)"
@@ -253,7 +253,7 @@ threads = 1
 inputs = { a = "ccre.bed", b = "exons.bed" }
 targets = ["gloci-py < pybedtools"]
 [case.commands]
-gloci-py = "{python} {py}/gloci_intersect.py {in_a} {in_b} {out}"
+gloci-py = "{python} {py}/gloci_intersect.py {in_a} {in_b} {out} --threads 1"
 pybedtools = "{python} {py}/pybedtools_intersect.py {in_a} {in_b} {out}"
 polars-bio = "{python} {py}/polars_bio_intersect.py {in_a} {in_b} {out}" # (y)
 pyranges1 = "{python} {py}/pyranges1_intersect.py {in_a} {in_b} {out}" # (y)
@@ -267,7 +267,7 @@ threads = 1
 inputs = { a = "exons.bed" }
 targets = ["gloci-py < pybedtools"]
 [case.commands]
-gloci-py = "{python} {py}/gloci_merge.py {in_a} {out}"
+gloci-py = "{python} {py}/gloci_merge.py {in_a} {out} --threads 1"
 pybedtools = "{python} {py}/pybedtools_merge.py {in_a} {out}"
 polars-bio = "{python} {py}/polars_bio_merge.py {in_a} {out}" # (y)
 pyranges1 = "{python} {py}/pyranges1_merge.py {in_a} {out}" # (y)

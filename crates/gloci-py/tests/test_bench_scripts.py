@@ -16,7 +16,7 @@ TOOLS = ["gloci", "pybedtools", "polars_bio", "pyranges1", "bioframe"]
 OPS = ["intersect", "merge"]
 
 
-def run_script(name: str, *args: Path) -> None:
+def run_script(name: str, *args: Path | str) -> None:
     done = subprocess.run(
         [sys.executable, "-I", str(SCRIPTS / name), *map(str, args)],
         capture_output=True,
@@ -50,6 +50,12 @@ def test_gloci_bench_scripts_match_cli(ab: Path, cli) -> None:
     want = (ab / "m.cli.bed").read_bytes()
     assert len(want.splitlines()) > 100
     assert (ab / "m.py.bed").read_bytes() == want
+
+    # --threads N changes nothing in the bytes.
+    run_script("gloci_intersect.py", ab / "a.bed", ab / "b.bed", ab / "i.t1.bed", "--threads", "1")
+    assert (ab / "i.t1.bed").read_bytes() == (ab / "i.cli.bed").read_bytes()
+    run_script("gloci_merge.py", ab / "a.bed", ab / "m.t1.bed", "--threads", "1")
+    assert (ab / "m.t1.bed").read_bytes() == (ab / "m.cli.bed").read_bytes()
 
 
 @pytest.mark.parametrize("tool", ["pybedtools", "polars_bio", "pyranges1", "bioframe"])

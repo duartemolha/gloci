@@ -238,6 +238,11 @@ fn py_cases_parse() {
                 "{name}/{tool}: {{in_b}}"
             );
         }
+        // The case runs gloci-py with the thread count it records: one.
+        assert!(
+            c.commands["gloci-py"].ends_with("{out} --threads 1"),
+            "{name}: gloci-py must run with --threads 1"
+        );
         // Only the binding baseline is a target; the rest are yardsticks.
         assert_eq!(c.targets.len(), 1, "{name}: targets {:?}", c.targets);
     }
