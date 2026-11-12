@@ -620,3 +620,16 @@ def test_iterator_as_a_context_manager(here: Path) -> None:
             1 / 0  # noqa: B018
     assert list(it) == []
     assert_threads_back_to(before)
+
+
+def test_track_and_browser_lines_are_not_rows(here: Path) -> None:
+    # coverage --hist is a table; --header copies A's track and browser lines into it.
+    (here / "a.bed").write_text(
+        "track name=x\nbrowser position chr1:1-100\nchr1\t10\t20\nchr1\t30\t40\n"
+    )
+    (here / "b.bed").write_text("chr1\t15\t35\n")
+    p = gloci.open("a.bed").coverage(b="b.bed", hist=True, header=True)
+    lines = p.to_bytes().decode().splitlines()
+    assert lines[:2] == ["track name=x", "browser position chr1:1-100"]
+    assert [r.line for r in p] == lines[2:]
+    assert p.count() == len(lines) - 2

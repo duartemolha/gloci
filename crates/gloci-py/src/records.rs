@@ -4,8 +4,8 @@
 //! The last step writes into a pipe that a host stage reads ([`reread`]), on its own thread and
 //! never holding the GIL. How it reads depends on the step ([`embed::read_back`]):
 //! - **A table** ([`Shape::Table`], [`Shape::HeaderRow`], [`Shape::HeaderLine`]): each line
-//!   that is neither blank nor a `#` line is a row with no coordinates. A step that prints a
-//!   header row (`stats jaccard`, `groupby --header`) has it name the columns; it is no row.
+//!   that is neither blank nor a header line is a row with no coordinates. A step that prints
+//!   a header row (`stats jaccard`, `groupby --header`) has it name the columns; it is no row.
 //! - **Records**, by their format as gloci's readers tell it from the content:
 //!   - BED, bedGraph, GFF, GTF and VCF, through the format's reader: the coordinates are the
 //!     record's footprint (a VCF record's by the step's `--vcf-span`). A line the reader does
@@ -202,13 +202,14 @@ fn is_header_line(line: &[u8]) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TableHeader {
     None,
-    /// The first line that is not blank and does not start with `#` ([`Shape::HeaderRow`]).
+    /// The first line that is not blank nor a header line ([`Shape::HeaderRow`]).
     Unprefixed,
     /// The first line that is not blank, `#` or not ([`Shape::HeaderLine`]).
     FirstLine,
 }
 
-/// A table: every line but blank and `#` lines is a row, but its header row.
+/// A table: every line but blank and header lines (`#`, `track`, `browser`) is a row, but its
+/// header row.
 fn read_table(
     r: &mut dyn BufRead,
     display: &str,
@@ -223,13 +224,13 @@ fn read_table(
         if is_blank(&line) {
             continue;
         }
-        if header_due && (header == TableHeader::FirstLine || line[0] != b'#') {
+        if header_due && (header == TableHeader::FirstLine || !is_header_line(&line)) {
             header_due = false;
             sink.names(&line, true);
             continue;
         }
-        if line[0] == b'#' {
-            if rows == 0 {
+        if is_header_line(&line) {
+            if rows == 0 && line[0] == b'#' {
                 sink.names(&line, false);
             }
             continue;
