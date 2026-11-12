@@ -26,7 +26,7 @@
 #   vcfkit=0.2.9
 #   coreutils=9.12
 #   gawk=5.3.1
-#   time=1.10
+#   time=1.9
 #   ucsc-bigwigtobedgraph=469
 set -eu
 command -v bash >/dev/null 2>&1 || { echo "fetch-datasets.sh needs bash (for pipefail)" >&2; exit 1; }

@@ -22,13 +22,19 @@ RUN micromamba install -y -n base -c conda-forge -c bioconda \
         samtools=1.21 \
         mosdepth=0.3.10 \
         hyperfine=2.0.0 \
-        bedtk=0.1 \
-        vcfkit=0.2.9 \
+        bedtk=1.1 \
         coreutils=9.12 \
         gawk=5.3.1 \
-        time=1.10 \
+        time=1.9 \
         ucsc-bigwigtobedgraph=469 \
     && micromamba clean --all --yes
+
+# vcfkit (yardstick for `vcf filter`): its own step, because every conda build
+# requires networkx 1.11, which no longer exists (the solver fails). A failure
+# is reported here and the bench runner then skips the yardstick.
+RUN micromamba install -y -n base -c conda-forge -c bioconda vcfkit=0.2.8 \
+    && micromamba clean --all --yes \
+    || echo "skipped: vcfkit not installed (micromamba install vcfkit=0.2.8 failed); its benchmark columns will be empty"
 
 # plink2 (yardstick for `vcf stats`): its own step, because the bioconda
 # package is not built for every architecture. A failure is reported here and
