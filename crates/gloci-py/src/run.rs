@@ -327,9 +327,33 @@ pub(crate) struct Driven {
     logged: Option<String>,
 }
 
+/// A running set, dropped with the GIL released however the driver leaves (R2): its drop
+/// cancels any stage still running and joins every stage thread, and a stage may need the GIL
+/// to end (a Python-backed source or sink), even when the driver is unwinding from a panic.
+pub(crate) struct Running<'py> {
+    py: Python<'py>,
+    set: Option<StageSet>,
+}
+
+impl<'py> Running<'py> {
+    pub(crate) fn new(py: Python<'py>, set: StageSet) -> Running<'py> {
+        Running { py, set: Some(set) }
+    }
+}
+
+impl Drop for Running<'_> {
+    fn drop(&mut self) {
+        if let Some(set) = self.set.take() {
+            self.py.detach(move || drop(set));
+        }
+    }
+}
+
 /// Drive a running set to its end (D91): forward logs and check signals with the GIL held,
 /// and wait for the stages with it released, [`TURN`] at a time.
-pub(crate) fn drive(py: Python<'_>, mut set: StageSet) -> Driven {
+pub(crate) fn drive(py: Python<'_>, set: StageSet) -> Driven {
+    let mut running = Running::new(py, set);
+    let set = running.set.as_mut().expect("the set is taken only on drop");
     let mut pending: Option<PyErr> = None;
     let mut logged = None;
     let mut stop = |set: &StageSet, e: PyErr| {
@@ -340,20 +364,20 @@ pub(crate) fn drive(py: Python<'_>, mut set: StageSet) -> Driven {
     };
     let result = loop {
         if let Err(e) = logs::forward(py, &mut logged) {
-            stop(&set, e);
+            stop(set, e);
         }
         if let Err(e) = py.check_signals() {
-            stop(&set, e);
+            stop(set, e);
         }
         if let Some(r) = py.detach(|| set.wait(TURN)) {
             break r;
         }
     };
     if let Err(e) = logs::forward(py, &mut logged) {
-        stop(&set, e);
+        stop(set, e);
     }
-    // Every stage has ended, so this only joins; any endpoint left is dropped without the GIL.
-    py.detach(move || drop(set));
+    // Every stage has ended, so dropping the set only joins.
+    drop(running);
     Driven {
         result,
         pending,

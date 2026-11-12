@@ -345,17 +345,32 @@ fn run_plan(py: Python<'_>, plan: &Bound<'_, PyDict>) -> PyResult<Py<PyAny>> {
         .unwrap_or_else(|p| Err(errors::internal(py, errors::panic_message(&*p))))
 }
 
-/// Panic in a stage (or, with `on_driver`, in the driver's own code), for the tests.
+/// Panic, for the tests: `"stage"` in a stage; `"driver"` in the driver's own code; `"unwind"`
+/// in the driver while a stage runs that ends only once cancelled and then takes the GIL, so
+/// the set must be cancelled and dropped with the GIL released while unwinding (R2).
 #[cfg(feature = "test-hooks")]
 #[pyfunction]
-#[pyo3(signature = (on_driver = false))]
-fn _test_panic(py: Python<'_>, on_driver: bool) -> PyResult<()> {
-    catch_unwind(AssertUnwindSafe(|| {
-        if on_driver {
-            panic!("test panic on the driver");
+#[pyo3(signature = (place = "stage"))]
+fn _test_panic(py: Python<'_>, place: &str) -> PyResult<()> {
+    use gloci::embed::StageSet;
+    catch_unwind(AssertUnwindSafe(|| match place {
+        "stage" => {
+            let set = StageSet::spawn_fns(vec![Box::new(|| panic!("test panic"))]);
+            run::drive(py, set).settle(py, |_| None).map(drop)
         }
-        let set = gloci::embed::StageSet::spawn_fns(vec![Box::new(|| panic!("test panic"))]);
-        run::drive(py, set).settle(py, |_| None).map(drop)
+        "driver" => panic!("test panic on the driver"),
+        "unwind" => {
+            let set = StageSet::spawn_fns(vec![Box::new(|| {
+                while !gloci_io::cancel::is_cancelled() {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                Python::attach(|_| ());
+                Ok(true)
+            })]);
+            let _running = run::Running::new(py, set);
+            panic!("test panic while a step runs");
+        }
+        other => Err(errors::usage(py, format!("no panic place {other:?}"))),
     }))
     .unwrap_or_else(|p| Err(errors::internal(py, errors::panic_message(&*p))))
 }

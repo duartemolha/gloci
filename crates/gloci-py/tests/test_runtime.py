@@ -105,10 +105,11 @@ def test_panic_is_glocierror(here: Path) -> None:
         if os.environ.get("CI") == "true":
             pytest.fail("CI builds gloci-py with --features test-hooks")
         pytest.skip("built without the test-hooks feature")
-    # In a stage (twice: the first leaves nothing behind), and in the driver's own code.
-    for on_driver in (False, False, True):
+    # In a stage (twice: the first leaves nothing behind), in the driver's own code, and in
+    # the driver while a step that needs the GIL to end is running (no deadlock).
+    for place in ("stage", "stage", "driver", "unwind"):
         with pytest.raises(gloci.GlociError) as e:
-            _native._test_panic(on_driver)
+            _native._test_panic(place)
         assert type(e.value) is gloci.GlociError
         assert str(e.value).startswith("internal error: ")
         assert "test panic" in str(e.value) and "this is a bug" in str(e.value)
