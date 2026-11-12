@@ -158,6 +158,6 @@ def test_step_methods_cover_bindings() -> None:
 
 
 def test_kwargs_to_argv() -> None:
-    argv = _native.kwargs_to_argv(["intersect"], {"f": 0.5, "s": True, "split": False, "names": None})
-    assert argv == ["-f", "0.5", "-s"]
+    kw = {"b": Path("x.bed"), "f": 0.5, "s": True, "split": False, "names": None}
+    assert _native.kwargs_to_argv(["intersect"], kw) == ["-b", "x.bed", "-f", "0.5", "-s"]
     assert _native.kwargs_to_argv(["merge"], {"max_gap": -2}) == ["--max-gap=-2"]

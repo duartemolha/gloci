@@ -27,9 +27,11 @@ def test_gil_released(pair, here: Path) -> None:
     stop = threading.Event()
 
     def count() -> None:
+        # sleep(0) gives the GIL up at every step, so the main thread is never kept from it,
+        # and the counter runs whenever the main thread does not hold it.
         while not stop.is_set():
             counter[0] += 1
-            time.sleep(0.0005)
+            time.sleep(0)
 
     t = threading.Thread(target=count)
     t.start()
@@ -47,7 +49,7 @@ def test_gil_released(pair, here: Path) -> None:
 
 
 def test_keyboard_interrupt_cancels(here: Path) -> None:
-    # A FIFO fed forever: the run cannot end before the interrupt, however fast it is.
+    # A FIFO fed for 10 s: the run cannot end before the interrupt, however fast it is.
     fifo = here / "slow.bed"
     os.mkfifo(fifo)
     stop = threading.Event()
@@ -55,10 +57,14 @@ def test_keyboard_interrupt_cancels(here: Path) -> None:
     def feed() -> None:
         try:
             with open(fifo, "w") as f:
-                # Enough at once for the format to be read and the output to be created ...
-                f.writelines(f"chr1\t{i * 10}\t{i * 10 + 5}\n" for i in range(100_000))
+                # Enough at once (about 6 MB) to pass the first step's output buffer and the
+                # pipe's chunk, so the last step creates its output file ...
+                f.writelines(f"chr1\t{i * 10}\t{i * 10 + 5}\n" for i in range(300_000))
                 i = 0
-                while not stop.is_set():  # ... then a trickle.
+                # ... then a trickle, for 10 s at most: a cancel that does not work fails the
+                # test rather than hanging it.
+                end = time.monotonic() + 10
+                while not stop.is_set() and time.monotonic() < end:
                     f.write(f"chr2\t{i * 10}\t{i * 10 + 5}\n")
                     f.flush()
                     i += 1
@@ -99,9 +105,10 @@ def test_panic_is_glocierror(here: Path) -> None:
         if os.environ.get("CI") == "true":
             pytest.fail("CI builds gloci-py with --features test-hooks")
         pytest.skip("built without the test-hooks feature")
-    for _ in range(2):
+    # In a stage (twice: the first leaves nothing behind), and in the driver's own code.
+    for on_driver in (False, False, True):
         with pytest.raises(gloci.GlociError) as e:
-            _native._test_panic()
+            _native._test_panic(on_driver)
         assert type(e.value) is gloci.GlociError
         assert str(e.value).startswith("internal error: ")
         assert "test panic" in str(e.value) and "this is a bug" in str(e.value)
@@ -126,3 +133,27 @@ def test_warnings_go_to_logging(here: Path, caplog: pytest.LogCaptureFixture) ->
     caplog.set_level(logging.ERROR, logger="gloci")
     assert p.to_bytes() == b""
     assert not [r for r in caplog.records if r.name == "gloci"]
+
+
+def test_concurrent_runs(pair, here: Path, caplog: pytest.LogCaptureFixture) -> None:
+    a, b = pair(20_000, seed=3)
+    (here / "nochr.bed").write_text("1\t10\t20\n")
+    p = gloci.open(a).intersect(b=b).merge(max_gap=10)
+    want = p.to_bytes()
+    warn = gloci.open(a).intersect(b="nochr.bed")
+    results: dict[int, bytes] = {}
+
+    def work(i: int) -> None:
+        results[i] = (warn if i % 2 else p).to_bytes(threads=2)
+
+    caplog.set_level(logging.WARNING, logger="gloci")
+    threads = [threading.Thread(target=work, args=(i,)) for i in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert [results[i] for i in range(0, 6, 2)] == [want] * 3
+    assert [results[i] for i in range(1, 6, 2)] == [b""] * 3
+    # Each run's warning is forwarded once, whichever thread's driver forwards it.
+    got = [r for r in caplog.records if r.name == "gloci"]
+    assert len(got) == 3 and all("share no chromosome names" in r.getMessage() for r in got)

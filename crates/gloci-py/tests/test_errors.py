@@ -36,8 +36,11 @@ def test_usage_error_is_eager(here: Path) -> None:
     with pytest.raises(gloci.UsageError) as e:
         p.merge(fooo=1)
     assert isinstance(e.value, ValueError) and isinstance(e.value, gloci.GlociError)
-    assert "merge() got an unexpected keyword argument 'fooo'" in str(e.value)
-    assert "did you mean" in str(e.value)
+    assert str(e.value) == "merge() got an unexpected keyword argument 'fooo'"
+    # A near miss is suggested (Task 4: within two edits); no name is that close to fooo.
+    with pytest.raises(gloci.UsageError) as e:
+        p.merge(max_gp=5)
+    assert str(e.value).endswith("did you mean 'max_gap'?")
 
     with pytest.raises(gloci.UsageError) as e:
         p.merge(max_gap="x")
