@@ -2,6 +2,22 @@
 # Entries: name, url, one checksum (sha256 or md5, hex), unpack (boolean).
 # Datasets are fetched to $GLOCI_BENCH_CACHE and verified before use.
 #
+# Paper datasets (paper = true, D95) are fetched only by
+# `cargo xtask paper fetch` or paper/fetch-datasets.sh, never by CI: no
+# workflow runs either, and no nightly case uses one (the exception is
+# 1kg-30x-chr20, which nightly already fetched before the paper). Every one
+# carries the provider's own published md5, checked on 2026-11-12.
+# [[derived]] inputs are made from them with LC_ALL=C in the bench image; an
+# empty sha256 is TO-PIN: `cargo xtask paper fetch --record` fills it on a
+# workstation (derived inputs need the multi-GB downloads, so they could not
+# be pinned when this was written). Regenerate the script with
+# `cargo xtask paper fetch-script` after any edit.
+#
+# bioRxiv 2025.02.19.639167 (§9.2, deferred by D53): the preprint's data
+# statement names no downloadable input set, so it is not pinned. Its
+# comparisons run on the public datasets below. Revisit if the authors
+# publish their inputs.
+#
 # coitrees: the coitrees benchmark data (Ensembl annotations against RNA-Seq
 # alignments) has no public download: the repository has no releases and its
 # bench/bench.jl reads local test1/test2 BED files. The dataset and its two
@@ -18,3 +34,145 @@ name = "1kg-30x-chr20"
 url = "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20220422_3202_phased_SNV_INDEL_SV/1kGP_high_coverage_Illumina.chr20.filtered.SNV_INDEL_SV_phased_panel.vcf.gz"
 md5 = "34a9a5dbfb285e7eb9d1f2881953014b"
 unpack = false
+paper = true
+
+# Everything below is paper = true.
+
+[[dataset]]
+# GENCODE v46 comprehensive annotation (GRCh38), 51,006,804 bytes.
+# Checksum source: release_46/MD5SUMS on the EBI FTP.
+name = "gencode-v46-gtf"
+url = "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_46/gencode.v46.annotation.gtf.gz"
+md5 = "68070e3c87f6a0e70af6e4ff4d55f61c"
+paper = true
+
+[[dataset]]
+# ENCODE SCREEN cCREs v4 (ENCSR800VNX), 32,795,453 bytes.
+# Checksum source: the ENCODE portal's md5sum for ENCFF420VPZ.
+name = "encode-ccre-v4"
+url = "https://www.encodeproject.org/files/ENCFF420VPZ/@@download/ENCFF420VPZ.bed.gz"
+md5 = "ea1820bd71581ba01c94fc600fbf794d"
+paper = true
+
+[[dataset]]
+# CTCF ChIP-seq in K562 (ENCSR000AKO), IDR peaks, 919,491 bytes.
+# Checksum source: the ENCODE portal's md5sum for ENCFF769AUF.
+name = "encode-ctcf-k562-peaks"
+url = "https://www.encodeproject.org/files/ENCFF769AUF/@@download/ENCFF769AUF.bed.gz"
+md5 = "7d086cac19c5311a77b7e21e3d931435"
+paper = true
+
+[[dataset]]
+# CTCF ChIP-seq in K562 (ENCSR000AKO), fold-change signal, 502,671,302 bytes.
+# Checksum source: the ENCODE portal's md5sum for ENCFF979PWH.
+name = "encode-ctcf-k562-fc"
+url = "https://www.encodeproject.org/files/ENCFF979PWH/@@download/ENCFF979PWH.bigWig"
+md5 = "4a1da9d7819bc622c27cd60950d28abb"
+paper = true
+
+[[dataset]]
+# gnomAD v4.1 exomes sites, chr22 (sites only: no samples), 5,060,347,554
+# bytes. Checksum source: the x-goog-hash header of the object
+# (md5=3PGRVj5pBUpxvU3HeGJ5mg==, base64 of this hex).
+name = "gnomad-v4.1-exomes-chr22"
+url = "https://storage.googleapis.com/gcp-public-data--gnomad/release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr22.vcf.bgz"
+md5 = "dcf191563e69054a71bd4dc77862799a"
+paper = true
+
+[[dataset]]
+# Addition for the P3 commands (depth, flagstat, bedcov, view --count, CRAM):
+# CTCF ChIP-seq in K562 (ENCSR000AKO), GRCh38 alignments of replicate 1
+# (ENCFF834MPG, bowtie2, single-end), a real BAM from the same experiment as
+# the peaks and the signal above, 401,933,993 bytes.
+# Checksum source: the ENCODE portal's md5sum for ENCFF834MPG.
+name = "encode-ctcf-k562-bam"
+url = "https://www.encodeproject.org/files/ENCFF834MPG/@@download/ENCFF834MPG.bam"
+md5 = "22477d07776b89e20b0458ed873306d4"
+paper = true
+
+# ---- derived inputs (D95) ----
+# Commands run in the bench image under `bash -o pipefail` with LC_ALL=C.
+# {in} is the first `from`, {in2} the second; {out} is the result.
+
+[[derived]]
+name = "exons-unsorted.bed"
+from = ["gencode-v46-gtf"]
+command = '''zcat {in} | gawk -F'\t' -v OFS='\t' '$3=="exon"{match($9,/gene_name "[^"]+"/);print $1,$4-1,$5,substr($9,RSTART+11,RLENGTH-12),0,$7}' > {out}'''
+sha256 = "" # TO-PIN
+
+[[derived]]
+name = "exons.bed"
+from = ["exons-unsorted.bed"]
+command = "sort -k1,1 -k2,2n -s {in} > {out}"
+sha256 = "" # TO-PIN
+
+[[derived]]
+name = "ccre.bed"
+from = ["encode-ccre-v4"]
+command = "zcat {in} | cut -f1-6 | sort -k1,1 -k2,2n -s > {out}"
+sha256 = "" # TO-PIN
+
+[[derived]]
+name = "ctcf-peaks.bed"
+from = ["encode-ctcf-k562-peaks"]
+command = "zcat {in} | cut -f1-6 | sort -k1,1 -k2,2n -s > {out}"
+sha256 = "" # TO-PIN
+
+[[derived]]
+name = "ccre.bed.gz"
+from = ["ccre.bed"]
+command = "bgzip -c {in} > {out} && tabix -p bed {out}"
+sha256 = "" # TO-PIN
+
+[[derived]]
+name = "exons.bed.gz"
+from = ["exons.bed"]
+command = "bgzip -c {in} > {out} && tabix -p bed {out}"
+sha256 = "" # TO-PIN
+
+[[derived]]
+name = "ctcf-fc.bedgraph"
+from = ["encode-ctcf-k562-fc"]
+command = "bigWigToBedGraph {in} /dev/stdout | sort -k1,1 -k2,2n -s > {out}"
+sha256 = "" # TO-PIN
+
+[[derived]]
+name = "1kg-chr20.bcf"
+from = ["1kg-30x-chr20"]
+command = "bcftools view -Ob -o {out} {in} && bcftools index {out}"
+sha256 = "" # TO-PIN
+
+[[derived]]
+# The first half of chr20; `bcftools index` writes the .tbi beside the input.
+name = "1kg-chr20.p1.vcf.gz"
+from = ["1kg-30x-chr20"]
+command = "bcftools index -f -t {in} && bcftools view -Oz -r chr20:1-30000000 -o {out} {in} && bcftools index -t {out}"
+sha256 = "" # TO-PIN
+
+[[derived]]
+name = "1kg-chr20.p2.vcf.gz"
+from = ["1kg-30x-chr20"]
+command = "bcftools index -f -t {in} && bcftools view -Oz -r chr20:30000001- -o {out} {in} && bcftools index -t {out}"
+sha256 = "" # TO-PIN
+
+[[derived]]
+# Addition (P3): coordinate-sorted and indexed (`.bai` beside it) for depth,
+# flagstat, idxstats, bedcov and view --count.
+name = "ctcf-k562.bam"
+from = ["encode-ctcf-k562-bam"]
+command = "samtools sort -@ 4 -o {out} {in} && samtools index -@ 4 {out}"
+sha256 = "" # TO-PIN
+
+[[derived]]
+# Addition (P3): the same reads as CRAM, written without embedded or external
+# reference (no_ref), so no reference download is needed.
+name = "ctcf-k562.cram"
+from = ["ctcf-k562.bam"]
+command = "samtools view -C --output-fmt-option no_ref -@ 4 -o {out} {in} && samtools index {out}"
+sha256 = "" # TO-PIN
+
+[[derived]]
+name = "hg38.lex.genome"
+from = ["repo:crates/gloci-io/data/genomes/hg38.genome"]
+command = "sort -k1,1 {in} > {out}"
+sha256 = "" # TO-PIN
