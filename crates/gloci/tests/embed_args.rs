@@ -427,7 +427,7 @@ fn rewrite_flags() {
             "-f <F> and -s: half-open, --no-such-flag, chr1:1-100, -o FILE",
             i
         ),
-        "f= and s=: half-open, --no-such-flag, chr1:1-100, save(path)"
+        "min_frac_a= and same_strand=: half-open, --no-such-flag, chr1:1-100, save(path)"
     );
     assert_eq!(
         rewrite_flags_as_kwargs(
@@ -435,6 +435,13 @@ fn rewrite_flags() {
             i
         ),
         "the following required arguments were not provided:\n  b="
+    );
+    // The message cannot tell which spelling the caller used (`c=` or `column=`), so a short flag
+    // is named by its long keyword, which says what it is; a flag with no long form keeps its letter.
+    let map = spec(&["map"]);
+    assert_eq!(
+        rewrite_flags_as_kwargs("-c 5: expected COL:OP", map),
+        "column=5: expected COL:OP"
     );
     // A flag's value is written after `=` (fix round 1, M2): the messages the review saw.
     let sort = spec(&["sort"]);
@@ -1106,6 +1113,19 @@ fn the_sort_step_refuses_check() {
     // Never suggested for a near miss.
     let e = argv_of(&["sort"], &[("chek", KwValue::Flag(true))]).unwrap_err();
     assert_eq!(e, "sort() got an unexpected keyword argument 'chek'");
+}
+
+#[test]
+fn the_vcf_merge_step_refuses_file_list() {
+    // The step's inputs are sources: open(a).vcf_merge(b, c), so the list file is not a keyword.
+    let e = argv_of(&["vcf", "merge"], &[("file_list", val("shards.txt"))]).unwrap_err();
+    assert_eq!(e, "pass the files as sources: open(a).vcf_merge(b, c)");
+    // Not suggested for a near miss.
+    let e = argv_of(&["vcf", "merge"], &[("file_lst", val("x"))]).unwrap_err();
+    assert_eq!(
+        e,
+        "vcf_merge() got an unexpected keyword argument 'file_lst'"
+    );
 }
 
 #[test]

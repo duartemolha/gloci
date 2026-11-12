@@ -301,3 +301,83 @@ fn releasing_page_lists_the_owner_steps() {
         assert!(page.contains(needle), "releasing.md lacks {needle:?}");
     }
 }
+
+/// The words of a shell line up to its first unquoted operator (`|`, `>`, `<`, `&&`, `;`, `#`).
+fn shell_words(line: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut cur: Option<String> = None;
+    let mut quote: Option<char> = None;
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), c) => cur.get_or_insert_with(String::new).push(c),
+            (None, '\'' | '"') => {
+                quote = Some(c);
+                cur.get_or_insert_with(String::new);
+            }
+            (None, '|' | '>' | '<' | ';' | '#') => break,
+            (None, '&') if chars.peek() == Some(&'&') => break,
+            (None, c) if c.is_whitespace() => words.extend(cur.take()),
+            (None, c) => cur.get_or_insert_with(String::new).push(c),
+        }
+    }
+    words.extend(cur.take());
+    words
+}
+
+/// Every `gloci ...` command line of the shell blocks of a Markdown file (a trailing `\` joins lines).
+fn gloci_command_lines(md: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut in_sh = false;
+    let mut pending = String::new();
+    for line in md.lines() {
+        let t = line.trim_start();
+        if let Some(rest) = t.strip_prefix("```") {
+            in_sh = !in_sh && matches!(rest.trim(), "sh" | "bash" | "shell" | "console");
+            pending.clear();
+            continue;
+        }
+        if !in_sh {
+            continue;
+        }
+        let t = t.strip_prefix("$ ").unwrap_or(t);
+        if pending.is_empty() && !t.starts_with("gloci ") {
+            continue;
+        }
+        if let Some(head) = t.strip_suffix('\\') {
+            pending.push_str(head);
+            continue;
+        }
+        pending.push_str(t);
+        out.push(std::mem::take(&mut pending));
+    }
+    out
+}
+
+#[test]
+fn every_documented_gloci_command_line_parses() {
+    let files = [
+        src().join("quickstart.md"),
+        root().join("crates/gloci-py/README.md"),
+        root().join("README.md"),
+    ];
+    let mut checked = 0;
+    let mut failures = Vec::new();
+    for f in &files {
+        let md = fs::read_to_string(f).unwrap();
+        for line in gloci_command_lines(&md) {
+            let argv: Vec<std::ffi::OsString> =
+                shell_words(&line).into_iter().map(Into::into).collect();
+            checked += 1;
+            if let Err(e) = gloci::embed::parse(&argv) {
+                failures.push(format!("{}: `{line}`: {}", f.display(), e.0));
+            }
+        }
+    }
+    assert!(
+        checked >= 8,
+        "only {checked} command lines found; the extractor is broken"
+    );
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

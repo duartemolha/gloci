@@ -149,6 +149,9 @@ class Pipeline:
         has none (a table such as `vcf_extract()`'s). Header lines, and a table's header row,
         are not records.
 
+        Iteration takes no `threads=`: each step uses the command line's default, every core or
+        `$GLOCI_THREADS`. Set that variable to limit a loop run from a thread pool.
+
         Breaking out of the loop, or dropping the iterator, stops the steps. Where the iterator
         may outlive the loop (an exception in its body, kept by a traceback), close it:
         `with iter(pipeline) as records: ...` or `records.close()`.

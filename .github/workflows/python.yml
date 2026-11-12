@@ -94,3 +94,35 @@ jobs:
         run: maturin develop -m crates/gloci-py/Cargo.toml --features test-hooks
       - name: pytest
         run: pytest crates/gloci-py/tests -m "not large"
+
+  # The lowest versions of the extras (pyproject.toml: pyarrow 15, polars 1.5, pandas 2.2) run the
+  # same tests as the newest ones. pandas 2.2 has no Python 3.13 wheels, so this is Python 3.11.
+  floors:
+    name: pytest (lowest pyarrow, polars and pandas)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11"
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master (2026-07-16)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+      - name: Build the CLI the tests compare with
+        run: |
+          cargo build -p gloci
+          echo "GLOCI_BIN=$PWD/target/debug/gloci" >> "$GITHUB_ENV"
+          # test_smoke.py checks the version gloci-py reports: the workspace version.
+          v="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"; test -n "$v"
+          echo "GLOCI_EXPECT_VERSION=$v" >> "$GITHUB_ENV"
+      - name: Make a virtualenv with the lowest extras
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/python" -m pip install -r crates/gloci-py/requirements-floors.txt
+          echo "VIRTUAL_ENV=$RUNNER_TEMP/venv" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+      - name: Build gloci-py into the virtualenv
+        run: maturin develop -m crates/gloci-py/Cargo.toml --features test-hooks
+      - name: pytest
+        run: pytest crates/gloci-py/tests -m "not large"

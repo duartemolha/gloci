@@ -20,7 +20,10 @@ A push of a `v*` tag runs `.github/workflows/release.yml`:
    `ghcr.io` image.
 
 `.github/workflows/docs.yml` builds this book on every pull request and deploys it to GitHub Pages only
-on a `v*` tag push.
+on a `v*` tag push, and only when the repository variable `GLOCI_PUBLISH_PAGES` is `true`.
+
+On a private repository the release workflow skips the conda-recipe rendering (it downloads the public tag
+archive), so the Release carries no `conda-recipes.tar.gz`. The bioconda recipes need a public repository.
 
 A manual run of the release workflow (`workflow_dispatch`) builds and tests everything and publishes
 nothing, whatever `dry_run` says.
@@ -28,7 +31,9 @@ nothing, whatever `dry_run` says.
 ## Release checklist
 
 1. Bump the version (see [First-release steps](#first-release-steps) for the first one) in the workspace
-   `Cargo.toml`, the crate dependencies' `version` fields, `CITATION.cff` and the Python package; move the
+   `Cargo.toml`, the crate dependencies' `version` fields, `CITATION.cff` and the two bioconda recipes'
+   `{% set version = ... %}` lines (`packaging/bioconda/gloci/meta.yaml` and `py-gloci/meta.yaml`). The
+   Python package takes its version from Cargo, so it needs no edit of its own. Move the
    `[Unreleased]` entries of `CHANGELOG.md` under the new version and date.
 2. `cargo xtask release-check` passes.
 3. CI is green on `main`, including the nightly differential, benchmark and `conda-recipe` jobs.
@@ -45,9 +50,10 @@ These steps are the owner's. The project has deferred them on purpose; each is a
   `duartemolha`, repository `gloci`, workflow `release.yml`, environment `pypi`). In the repository
   settings, create the `pypi` environment, which the `publish-pypi` job uses.
 - [ ] **crates.io token.** Add the repository secret `CARGO_REGISTRY_TOKEN`, a crates.io API token that may
-  publish the workspace crates.
-- [ ] **Repository variables.** Set `GLOCI_PUBLISH_PYPI=true`, `GLOCI_PUBLISH_CRATES=true` and
-  `GLOCI_PUBLISH_GHCR=true` when the matching channel should go live. Each job also needs a real tag push
+  publish the workspace crates. crates.io rate-limits new crates (HTTP 429): if the publish job stops on
+  one, re-run it. Each crate already on crates.io is skipped, so the re-run completes the publish.
+- [ ] **Repository variables.** Set `GLOCI_PUBLISH_PYPI=true`, `GLOCI_PUBLISH_CRATES=true`,
+  `GLOCI_PUBLISH_GHCR=true` and `GLOCI_PUBLISH_PAGES=true` when the matching channel should go live. Each job also needs a real tag push
   and a `LICENSE` file.
 - [ ] **Dry run.** Dispatch the release workflow once with `dry_run` set (it is the default) and check that
   every build and smoke test passes before the first tag.
@@ -57,8 +63,9 @@ These steps are the owner's. The project has deferred them on purpose; each is a
   pull request against `bioconda-recipes` with the `gloci` and `py-gloci` recipes.
 - [ ] **Zenodo.** Create the Zenodo record for the release (with the paper's evidence bundle, from
   `cargo xtask paper bundle`) and put its DOI in `CITATION.cff`.
-- [ ] **Pages.** In the repository settings, enable GitHub Pages with the source "GitHub Actions". The docs
-  workflow then deploys this site on the next `v*` tag.
+- [ ] **Pages.** In the repository settings, enable GitHub Pages with the source "GitHub Actions", then set
+  `GLOCI_PUBLISH_PAGES=true`. The docs workflow deploys this site on the next `v*` tag; until the variable is
+  set the deploy job is skipped, so the first tag does not fail on a disabled Pages site.
 - [ ] **Paper benchmarks.** Run the paper benchmarks (`cargo xtask paper fetch`, then `cargo xtask paper run`)
   on the 8-core x86_64 reference machine. CI never downloads the paper datasets.
 - [ ] **Quiet-box performance.** Re-measure the performance numbers (`cargo xtask bench`) on a quiet box

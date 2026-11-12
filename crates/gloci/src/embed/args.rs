@@ -65,6 +65,12 @@ pub const RESERVED_ON_STEP_OF: &[(&[&str], &str, &str)] = &[
         "genotype_matrix is set by vcf_extract_matrix(path, genotype_matrix=...): the matrix is \
 written to files, not to a pipeline",
     ),
+    // The step's inputs are its sources, not a list file.
+    (
+        &["vcf", "merge"],
+        "file_list",
+        "pass the files as sources: open(a).vcf_merge(b, c)",
+    ),
     // Every terminal passes `-o`, which `sort --check` refuses: it writes nothing.
     (
         &["sort"],
@@ -465,7 +471,7 @@ fn unknown(spec: &CommandSpec, name: &str, role: Role) -> UsageError {
 }
 
 /// `msg` (a clap or gloci message about the command `spec`) with every flag of the command in
-/// keyword terms (D86): `'--max-gap <N>'` becomes `'max_gap='`, `-s` becomes `s=`. clap's
+/// keyword terms (D86): `'--max-gap <N>'` becomes `'max_gap='`, and `-c` becomes `column=` (a short flag is named by its long keyword). clap's
 /// `Usage:` line and its `-- --flag` tip, which describe a command line, are dropped.
 pub fn rewrite_flags_as_kwargs(msg: &str, spec: &CommandSpec) -> String {
     let kept: Vec<&str> = msg
@@ -605,8 +611,10 @@ fn flag_at<'a>(s: &str, spec: &'a CommandSpec) -> Option<(&'a ArgSpec, String, u
         return None;
     }
     let arg = spec.args.iter().find(|a| a.short == Some(c))?;
-    // A one-letter flag is its keyword (D86), but the threads are the terminal's.
-    let kw = if arg.id == "threads" {
+    // The message does not say whether the caller wrote `c=` or `column=`: name the flag by its
+    // long keyword (what it is), or by its letter when it has no long form. `threads=` is the
+    // terminal's keyword.
+    let kw = if arg.long.is_some() {
         arg.kwarg()
     } else {
         c.to_string()

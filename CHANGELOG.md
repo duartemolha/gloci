@@ -16,6 +16,13 @@ the minor version).
 - P2b: the documentation site (mdBook): install, quickstart, semantics, migration, differences, the generated per-command reference, the Python guide and API, and the maintainers' release checklist; `cargo xtask book` generates the reference and checks every link.
 - P2b: Python-object sources for the Python library: file objects, iterables of lines or tuples, Arrow tables and streams (pyarrow, polars, pandas; read through the Arrow C stream interface) and nested pipelines, read as the run goes; the module sources `gloci.windows()` and `gloci.random()` and the functions `vcf_stats()`, `vcf_extract_matrix()`, `vcf_compare()` and `index()`. `sort(check=True)` is refused on the step: the check stays on the command line.
 - P2b: records and tables from the Python library: iteration yields `gloci.Record`s (coordinates read back with gloci's readers, fields and line), handed over in 4 MiB batches with the steps stopped by `break`; `count()` counts what iteration yields, in Rust; `to_arrow()`, `to_polars()`, `to_pandas()` and `to_arrow_stream()` (a `gloci.ArrowStream`, through the Arrow PyCapsule interface; polars needs no pyarrow) build a table with `chrom start end` first and inferred column types. A step whose output is a table (`stats jaccard`, `vcf extract`, `idxstats`, ...) is marked in `gloci::embed`, so its header row names the columns rather than being a record.
+- P2b: `idxstats` and `head` take `-o FILE` (atomic; a `.gz` name compresses).
+- P2b: `flagstat` on a CRAM decodes only the data series it counts, and reads the same counts as before: a 258 MB CRAM of 7.5 million reads takes about 0.27 s where it took 13.4 s, against 0.45 s for `samtools flagstat` (output byte-identical, in text, JSON and TSV, at every `--threads`).
+- P2b: the release archives carry the man pages, the shell completions and `CHANGELOG.md` next to the binary, `SKILL.md` and the licence.
+- P2b: Python wheels (abi3, for CPython 3.10 and later; manylinux2014 on x86_64 and aarch64, macOS arm64), an sdist, and bioconda recipes for `gloci` and `py-gloci`; each release carries them with `SHA256SUMS`. Publishing to PyPI, crates.io, `ghcr.io` and GitHub Pages stays off until the owner enables it.
+- P2b: the Python package is typed: `py.typed` and a generated stub (checked by `mypy --strict`), runtime signatures and docstrings from the CLI definition, and a Python guide in the book.
+- P2b: the Python extras need pyarrow 15, polars 1.5 and pandas 2.2 or later (the lowest versions whose Arrow stream interface gloci uses); CI runs the tests on exactly those.
+- P2b: a usage message that names the long option now says `--output-format` where it said `-O`.
 
 ## [0.1.0] - 2026-11-08
 

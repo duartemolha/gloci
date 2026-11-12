@@ -41,7 +41,7 @@ def test_gil_released(pair, here: Path) -> None:
         time.sleep(0.05)
         before = counter[0]
         started = time.monotonic()
-        gloci.open(a).intersect(b=b).save("o.bed")
+        gloci.open(a).intersect(b=b).save("o.bed", threads=1)
         took = time.monotonic() - started
         during = counter[0] - before
         # The counter's free rate: as long again, with the main thread asleep (not holding

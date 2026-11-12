@@ -119,6 +119,9 @@ class Pipeline:
         has none (a table such as `vcf_extract()`'s). Header lines, and a table's header row,
         are not records.
 
+        Iteration takes no `threads=`: each step uses the command line's default, every core or
+        `$GLOCI_THREADS`. Set that variable to limit a loop run from a thread pool.
+
         Breaking out of the loop, or dropping the iterator, stops the steps. Where the iterator
         may outlive the loop (an exception in its body, kept by a traceback), close it:
         `with iter(pipeline) as records: ...` or `records.close()`.
@@ -1101,8 +1104,6 @@ class Pipeline:
     def vcf_merge(
         self,
         *sources: Source,
-        file_list: Source | None = None,
-        l: Source | None = None,
         merge: Literal["none", "snps", "indels", "both", "all", "id"] | None = None,
         m: Literal["none", "snps", "indels", "both", "all", "id"] | None = None,
         force_samples: bool = False,
@@ -1118,8 +1119,6 @@ class Pipeline:
         """Combine the samples of several VCF/BCF files (bcftools merge)
 
         Args:
-            file_list: Read the input file names from FILE, one per line (bcftools -l)
-            l: alias of file_list
             merge: Which records at one position are merged into one (bcftools -m): none (only records with the same alleles), snps, indels, both (SNPs together and indels together; the default), all (any records) or id (records with the same ID)
             m: alias of merge
             force_samples: Rename a repeated sample name to N:NAME (N is the number of its file) instead of failing
