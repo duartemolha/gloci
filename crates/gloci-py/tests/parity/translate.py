@@ -400,6 +400,8 @@ def _check_not_reserved(b: dict[str, Any], parsed: _Parsed, bound: str | None) -
             continue
         if arg_id in _TERMINAL or arg_id in _LOG_LEVEL:
             continue
+        if arg_id == "file_list" and b["nary"]:
+            continue  # the inputs: the translation reads the list, and passes them as sources
         try:
             _native.kwargs_to_argv(list(parsed.path), {a["kwarg"]: True})
             why = "not a parameter of the step"
