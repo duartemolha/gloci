@@ -1,0 +1,4 @@
+##gff-version 3
+chr1	src	gene	101	300	.	+	.	ID=g1;Name=Foo
+chr1	src	stop_codon	250	250	.	+	0	ID=s1;Parent=g1
+chr2	src	SNP	11	11	.	.	.	ID=v1

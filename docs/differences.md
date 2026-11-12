@@ -27,11 +27,27 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **gloci:** a VCF record's footprint is the reference bases its ALT alleles
   change: the shared prefix and suffix of REF and ALT are trimmed, and a pure
   insertion is a point. `--vcf-span ref` gives the REF span.
-- **Old behaviour:** bedtools, tabix and bcftools use `[POS-1, POS-1+len(REF))`
-  (and INFO/END for symbolic alleles). That is `--vcf-span ref`.
+- **Old behaviour:** bedtools, tabix and bcftools use `[POS-1, POS-1+len(REF))`.
+  For symbolic alleles they differ:
+  - tabix and bcftools (htslib) extend it to INFO/END when the record has
+    END, whatever its ALT, and never use SVLEN;
+  - bedtools 2.31.1 extends it to INFO/END, else to `POS + |SVLEN|`, for
+    `<DEL>`, `<DUP>`, `<INV>`, `<CNV>` and other symbolic ALTs, but spans an
+    ALT that starts `<INS` (`<INS>`, `<INS:ME:ALU>`) by its REF base alone,
+    END or not.
+
+  `--vcf-span ref` is `[POS-1, POS-1+len(REF))`, extended to INFO/END when the
+  record has END and a symbolic ALT (`<INS>`, `<*>` and `<NON_REF>` included),
+  as htslib does; without END, a symbolic ALT that is not an insertion or a
+  gVCF block extends it to `POS + |SVLEN|`, as bedtools does and htslib does
+  not (see [Indexes built by htslib and SVs with only `SVLEN`](#htslib-index-svlen)).
+  So it reproduces tabix on records with END, and bedtools except on an
+  insertion with END (see
+  [`--vcf-span ref` spans a symbolic insertion to its END](#vcf-span-ins-end)).
 - **Reason:** the REF span ignores the alleles, so for example
   `bedtools subtract` against a VCF removes the wrong number of bases for an
-  indel or a padded SNV. Pass `--vcf-span ref` for the old result.
+  indel or a padded SNV. Pass `--vcf-span ref` for the REF span, the old
+  result but for the symbolic-allele rules above.
 - **Pinned by:** `view-region-allele-span-vs-tabix` (a deletion whose anchor
   base is in the region: must differ) and `view-region-ref-inclusive-vs-tabix`
   (`--vcf-span ref`: must match).
@@ -172,6 +188,29 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Reason:** correct by default, fast on request. Index the file
   (`gloci sort FILE -o FILE.gz --write-index`) to get speed and checking.
 
+## `--vcf-span ref` spans a symbolic insertion to its END {#vcf-span-ins-end}
+
+- **gloci:** under `--vcf-span ref` a symbolic allele with INFO/END spans
+  `[POS-1, END)`, an insertion (`<INS>`, `<INS:ME:ALU>`, ...) included, as
+  htslib does; that is what makes `view --vcf-span ref` agree with tabix.
+- **Old behaviour:** `bedtools intersect` 2.31.1 spans a symbolic allele by
+  INFO/END (else `|SVLEN|`) except an ALT that starts `<INS`, which it spans by
+  its REF base alone: it decides by the ALT, not SVTYPE, and ignores END and
+  SVLEN there. The 1000 Genomes 30x panel writes `END=POS+51` on its insertion
+  SVs, so `intersect --vcf-span ref` reports 2 more records against the
+  GENCODE exons than `bedtools intersect -u` (85,063 against 85,061; the
+  concordance compat run of `intersect-1kg-exons-vs-bedtools`).
+- **Reason:** one rule for the `ref` span in every command; `view` must agree
+  with tabix, which is htslib. Under the default `--vcf-span allele` an
+  insertion is a point and neither tool reports these records.
+- **Pinned by:** `intersect-vcf-ref-span-ins-end-vs-bedtools` (must differ).
+  `ins_end`, `alu_end` and `ins_svtype_del` (ALT `<INS>` with `SVTYPE=DEL`:
+  bedtools goes by the ALT) are gloci's only. Both report `del_end`,
+  `dup_svlen` (SVLEN, no END), `del_svtype_ins` (ALT `<DEL>` with
+  `SVTYPE=INS`, spanned to END by both) and the insertion over its anchor
+  base `ins_anchor`; neither reports `ins_svlen_only` (an `<INS>` with SVLEN
+  and no END: one base on both sides).
+
 ## Symbolic ALTs with neither `END` nor `SVLEN` {#vcf-symbolic-no-end}
 
 - **gloci:** under the default `--vcf-span allele`, a record whose ALT is a
@@ -307,7 +346,8 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   (see [Default `--vcf-span allele`](#default-vcf-span-allele)). An insertion
   is a point and a deletion covers only the deleted bases, so a region that
   holds only the anchor base of an indel does not select it. `--vcf-span ref`
-  gives the old result.
+  gives bedtools' span, except for a symbolic insertion with INFO/END (see
+  [`--vcf-span ref` spans a symbolic insertion to its END](#vcf-span-ins-end)).
 - **Old behaviour:** `bedtools intersect` uses `[POS-1, POS-1+len(REF))`, so a
   region over the anchor base alone selects the insertion and the deletion.
 - **Reason:** the same as the default span: the anchor base is not changed by
@@ -489,12 +529,20 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Old behaviour:** `closest-features` gives an overlapping element
   precedence on one side and reports the nearest non-overlapping element on
   the other ("elements reported as closest to the left and right edges are
-  never the same"); it writes `NA` for a missing side, and always one row.
+  never the same"); it writes `NA` for a missing side, and always one row:
+  among B equally near on one side it takes the last in its input on the
+  left and the first on the right, so `--ties first` (the first on both
+  sides) differs from it on the left.
+  Where B elements nest, its left element can depend on the A records before:
+  after an A that overlaps a long B, a later A gets a shorter B nested in the
+  long one as its left element even when the long B ends nearer (with
+  `--no-overlaps`, as in the real-data concordance run on GENCODE exons).
 - **Reason:** counting an overlap on both sides is the same rule as
   `closest` without `--each-side`, and the placeholder keeps the columns of
   every row the same width.
-- **Pinned by:** `closest-each-side-overlap-vs-bedops` and
-  `closest-each-side-missing-vs-bedops` (must differ). With
+- **Pinned by:** `closest-each-side-overlap-vs-bedops`,
+  `closest-each-side-missing-vs-bedops`, `closest-each-side-ties-vs-bedops` and
+  `closest-each-side-nested-vs-bedops` (must differ). With
   `--ignore-overlaps` and every side present, `closest-each-side-vs-bedops`
   and `closest-each-side-nodist-vs-bedops` match exactly.
 
@@ -916,6 +964,35 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   `--name-attr` the feature does not have, every other column matches:
   `convert-gff3-vs-gff2bed`.
 
+## `convert` copies the attributes of a one-base GFF/GTF feature {#gff2bed-zero-length}
+
+- **gloci:** a GFF3 or GTF feature with start equal to end is one base long,
+  `[start-1, end)` in BED, and its attribute column is written as it is.
+- **Old behaviour:** `gtf2bed` and `gff2bed` 2.4.41 write the same interval
+  but append `zero_length_insertion=True` to the attributes (`; ` before it in
+  GTF, `;` in GFF3), as if the feature had no bases. GENCODE has thousands of
+  such features (one-base CDS, UTR, exon and `stop_codon` rows).
+- **Reason:** the feature covers a base, and gloci does not add to the data
+  it converts.
+- **Pinned by:** `convert-gtf-one-base-vs-gtf2bed` and
+  `convert-gff3-one-base-vs-gff2bed` (must differ). Found by the real-data
+  concordance run (`convert-gencode-gtf-vs-gtf2bed`).
+
+## `convert` keeps the input order {#convert-input-order}
+
+- **gloci:** `convert` writes one row per input record in the input's own
+  order and does not sort; pipe it to `gloci sort` (with `--chrom-order lex
+  --full-key` for `sort-bed`'s order) for sorted BED.
+- **Old behaviour:** `convert2bed` and its wrappers (`gtf2bed`, `gff2bed`,
+  `vcf2bed` ...) sort their output with `sort-bed` unless `--do-not-sort`, so
+  the gene, transcript and exon rows of a GTF come out by start and end.
+- **Reason:** conversion streams, with no memory or temporary files; sorting
+  is a separate step that the next command may not need.
+- **Pinned by:** `convert-gtf-input-order-vs-gtf2bed` (must differ);
+  `convert-gtf-input-order-vs-gtf2bed-do-not-sort` and, piped through `gloci
+  sort --chrom-order lex --full-key`, `convert-gtf-sorted-vs-gtf2bed` (must
+  match).
+
 ## `convert --blocks` rejects a record that is not valid BED12 {#bed12-short-line}
 
 - **gloci:** a record with fewer than 12 columns, a first block that does not
@@ -971,6 +1048,38 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   `--recode-INFO-all` vcftools matches gloci: `vcf-filter-min-qual-vs-vcftools`.
   `bcftools view` also keeps INFO by default, agreeing with gloci:
   `vcf-filter-info-default-vs-bcftools` (must match).
+
+## REF and ALT are written as read, not upper-cased {#vcf-allele-case}
+
+- **gloci:** `vcf filter` writes the records it keeps unchanged, and the
+  allele columns of `vcf stats` (`--freq`, `--counts`) and `vcf extract`
+  show REF and ALT as the file spells them.
+- **Old behaviour:** vcftools 0.1.16 upper-cases REF and ALT: `--recode`
+  rewrites `c`/`t` as `C`/`T` and a symbolic allele `<DEL:ME:Alu>` as
+  `<DEL:ME:ALU>`, which no longer matches its `##ALT` line; `--freq` prints
+  the upper-cased alleles too. The 1000 Genomes panel's mobile-element SVs
+  (`<DEL:ME:SINE|Alu|AluSx1>`, ...) show it.
+- **Reason:** a filter keeps records, it does not edit them, and symbolic
+  allele IDs are case-sensitive. Bases are case-insensitive in VCF, so a
+  lower-case base means the same either way.
+- **Pinned by:** `vcf-filter-allele-case-vs-vcftools` and, live only,
+  `vcf-stats-freq-allele-case-vs-vcftools` (must differ). Found by the
+  real-data concordance run (`vcf-filter-maf-missing-1kg-vs-vcftools`).
+
+## `vcf filter` keeps values as written {#vcf-filter-values}
+
+- **gloci:** the records `vcf filter` keeps are written byte for byte.
+- **Old behaviour:** `bcftools view` (with `-f`, `-i` or `-e`) reads every
+  record into binary form and prints it again: floats come out with six
+  significant digits and no trailing zeros (`AF_afr=0.600000` becomes `0.6`,
+  `0.00000` becomes `0`, QUAL `50.0` becomes `50`). gnomAD v4.1 writes such
+  values in every record, so `bcftools view -f .,PASS` and `vcf filter
+  --pass-only` keep the same 1,621,586 records of chr22 and no line is
+  identical. `vcftools --recode` keeps the values, and matches gloci there.
+- **Reason:** a filter keeps records, it does not edit them (as `vcf split`,
+  see [`vcf split` keeps values as written](#vcf-split-values)).
+- **Pinned by:** `vcf-filter-float-text-vs-bcftools` (must differ). Found by
+  the real-data concordance run (`vcf-filter-pass-only-gnomad-vs-bcftools`).
 
 ## Inverted `--max-missing` parameter {#max-missing-inverted}
 

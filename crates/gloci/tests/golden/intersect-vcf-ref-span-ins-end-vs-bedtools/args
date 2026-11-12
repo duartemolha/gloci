@@ -1,0 +1,1 @@
+intersect --chrom-order lex --vcf-span ref --mode any -a input.vcf -b vcf-ins-end-b.bed

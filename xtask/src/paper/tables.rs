@@ -254,10 +254,11 @@ fn t4(r: &Results) -> Vec<Vec<String>> {
                     c.reference_tool.clone(),
                     c.dataset.clone(),
                     c.mode.clone(),
-                    c.n_gloci.to_string(),
-                    c.n_reference.to_string(),
-                    c.n_matching.to_string(),
-                    rate(c.match_rate),
+                    // A failed run has no counts: empty cells.
+                    opt(c.n_gloci, |v| v.to_string()),
+                    opt(c.n_reference, |v| v.to_string()),
+                    opt(c.n_matching, |v| v.to_string()),
+                    opt(c.match_rate, rate),
                     c.anchors.join(";"),
                 ]
             })

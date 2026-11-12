@@ -130,6 +130,7 @@ pub fn write_run_records(
         gloci: gloci.as_deref(),
         wheel: a.wheel.as_deref(),
         cases,
+        extra_tools: &[],
     })?;
     std::fs::write(
         dir.join("environment.json"),

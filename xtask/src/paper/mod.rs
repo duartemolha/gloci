@@ -2,6 +2,7 @@
 //! datasets are fetched by hand, on a workstation, never by CI.
 pub mod bench;
 pub mod bundle;
+pub mod concord;
 pub mod data;
 pub mod environment;
 pub mod fetch;

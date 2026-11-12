@@ -1,0 +1,1 @@
+convert input.gff3 --name-attr NoSuchAttribute

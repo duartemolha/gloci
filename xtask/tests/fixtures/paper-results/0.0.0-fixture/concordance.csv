@@ -3,3 +3,4 @@ merge-exons,merge,bedtools,exons.bed,compat,1000000,1000000,1000000,1.000000,mat
 merge-exons,merge,bedtools,exons.bed,default,1000000,1000000,1000000,1.000000,match,
 sort-exons,sort,bedtools,exons-unsorted.bed,compat,1000000,1000000,1000000,1.000000,match,
 sort-exons,sort,bedtools,exons-unsorted.bed,default,1000000,1000000,750000,0.750000,differs,karyotype-chromosome-order;sort-tie-order
+merge-exons-failed,merge,bedtools,exons.bed,default,,,,,failed,

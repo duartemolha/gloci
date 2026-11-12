@@ -1,5 +1,6 @@
 //! `cargo xtask paper`: tables, numbers and the Zenodo bundle (D98), checked
-//! on a small fixture of results (two cases, four concordance rows).
+//! on a small fixture of results (three cases, five concordance rows, one of
+//! them a failed run).
 use std::collections::BTreeSet;
 use std::fs;
 use std::io::Read;
@@ -141,7 +142,8 @@ fn numbers_tex_defines_every_key() {
     }
     assert_eq!(map["migration.bedtools.available"], 1);
     assert_eq!(map["migration.bedtools.total"], 2);
-    assert_eq!(map["concordance.cases"], 2);
+    // The failed run is a case that ran: it counts, without a rate.
+    assert_eq!(map["concordance.cases"], 3);
     assert_eq!(map["concordance.compat.at_100"], 2);
 }
 
@@ -323,6 +325,7 @@ fn run_records_describe_this_repo_and_host() {
         gloci: None,
         wheel: Some(&wheel),
         cases: &cases,
+        extra_tools: &["vcftools".to_string()],
     })
     .unwrap();
     if std::env::var_os("SHOW_PAPER_ENV").is_some() {
@@ -339,4 +342,31 @@ fn run_records_describe_this_repo_and_host() {
     assert_eq!(env["wheel"]["sha256"].as_str().unwrap().len(), 64);
     // A missing wheel is refused.
     assert!(environment::wheel_info(&empty.path().join("nope.whl")).is_err());
+}
+
+/// A failed run's row (`,,,,,failed,`) has no counts: it loads, T4 shows it
+/// with empty cells, and `numbers` has no rate for it.
+#[test]
+fn a_failed_concordance_row_has_no_counts() {
+    let r = xtask::paper::data::load(&fixture()).unwrap();
+    let f = r
+        .concordance
+        .iter()
+        .find(|c| c.case == "merge-exons-failed")
+        .expect("the fixture's failed row");
+    assert_eq!(
+        (f.n_gloci, f.n_reference, f.n_matching, f.match_rate),
+        (None, None, None, None)
+    );
+    let tmp = tempfile::tempdir().unwrap();
+    generate(tmp.path());
+    let t4 = fs::read_to_string(tmp.path().join("tables/T4-concordance.csv")).unwrap();
+    assert!(
+        t4.lines()
+            .any(|l| l == "merge-exons-failed,merge,bedtools,exons.bed,default,,,,,"),
+        "{t4}"
+    );
+    let map = numbers(&fixture()).unwrap();
+    assert!(!map.contains_key("concordance.merge-exons-failed.default.match_rate"));
+    assert!(map.contains_key("concordance.sort-exons.default.match_rate"));
 }

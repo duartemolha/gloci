@@ -258,7 +258,7 @@ and FASTA behaviour](#bam-cram-and-fasta-behaviour), after the tables.
 | `closest-features` | `gloci closest -a A -b B --each-side [--distance]` (add `--ignore-overlaps` when an overlapping B should not count on both sides) |
 | `sort-bed [--max-mem --tmpdir --check-sort --unique --duplicates]` | `gloci sort [--max-mem --tmp-dir --check --unique --duplicates]`; add `--chrom-order lex` to reproduce `sort-bed`'s chromosome order (`--full-key` reproduces whole-line tie breaking) |
 | `bedextract CHR FILE`, `bedextract FILE REGIONS.bed` | `gloci view FILE CHR`, `gloci view FILE --regions-file REGIONS.bed` (add `--assume-sorted` for binary search on an uncompressed BED file) |
-| `convert2bed`, `vcf2bed [--snvs/--insertions/--deletions]`, `gff2bed`, `gtf2bed` | `gloci convert FILE [--types snv/ins/del] [--split-alleles] [--feature TYPE] [--name-attr KEY]` |
+| `convert2bed`, `vcf2bed [--snvs/--insertions/--deletions]`, `gff2bed`, `gtf2bed` | `gloci convert FILE [--types snv/ins/del] [--split-alleles] [--feature TYPE] [--name-attr KEY]` (rows in input order, where bedops sorts them unless `--do-not-sort`: pipe to `gloci sort --chrom-order lex --full-key` for its order, see [differences.md#convert-input-order](differences.md#convert-input-order); a one-base GFF/GTF feature keeps its attributes, without bedops' added `zero_length_insertion=True`, see [differences.md#gff2bed-zero-length](differences.md#gff2bed-zero-length)) |
 | `bedops -p` / `--partition` | `gloci partition FILES --no-membership` |
 | `bedops -i` / `--intersect` | `gloci partition FILES --all --merge-adjacent --no-membership` |
 | `bedops -s` / `--symmdiff` | `gloci partition FILES --max-files 1 --merge-adjacent --no-membership` |
@@ -503,6 +503,10 @@ pinned difference where there is one.
   over `POS + |SVLEN|` when indexing and querying; rebuild htslib-built indexes
   with `gloci index` to query inside them.
   [differences.md#htslib-index-svlen](differences.md#htslib-index-svlen)
+- **Symbolic insertions with `END` under `--vcf-span ref`:** an `<INS>` (or
+  `<INS:ME:...>`) with INFO/END spans to END, as tabix has it; `bedtools
+  intersect` spans it by its REF base alone.
+  [differences.md#vcf-span-ins-end](differences.md#vcf-span-ins-end)
 - **VCF header validation on BCF conversion:** Converting between VCF and BCF
   refuses malformed headers that `noodles` rejects (such as duplicate INFO IDs).
   [differences.md#vcf-header-conversion](differences.md#vcf-header-conversion)
@@ -769,6 +773,14 @@ pinned difference where there is one.
   pruned with `--keep-info` or `--drop-info` (`vcftools --recode` drops INFO
   unless `--recode-INFO-all` is given).
   [differences.md#info-kept-by-default](differences.md#info-kept-by-default)
+- **REF and ALT as read:** `vcf filter` output, and the allele columns of
+  `vcf stats` and `vcf extract`, keep the case of REF and ALT, where vcftools
+  upper-cases them (a symbolic `<DEL:ME:Alu>` becomes `<DEL:ME:ALU>`).
+  [differences.md#vcf-allele-case](differences.md#vcf-allele-case)
+- **`vcf filter` keeps values as written:** where `bcftools view -i/-e/-f`
+  prints every record again (`0.600000` becomes `0.6`), gloci writes the kept
+  records unchanged.
+  [differences.md#vcf-filter-values](differences.md#vcf-filter-values)
 - **Inverted `vcf filter --max-missing`:** `--max-missing FRAC` is the maximum
   fraction of *missing* genotypes (`0.1` = at most 10% missing), the inverse of
   `vcftools --max-missing` (`0.9` = at least 90% called).

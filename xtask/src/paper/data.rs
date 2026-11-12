@@ -40,16 +40,18 @@ pub struct BenchCase {
     pub tools: Vec<ToolRow>,
 }
 
+/// One row of `concordance.csv`. The counts and the rate are missing in the
+/// row of a run that failed (verdict `failed`), which has no comparison.
 pub struct ConcRow {
     pub case: String,
     pub command: String,
     pub reference_tool: String,
     pub dataset: String,
     pub mode: String,
-    pub n_gloci: u64,
-    pub n_reference: u64,
-    pub n_matching: u64,
-    pub match_rate: f64,
+    pub n_gloci: Option<u64>,
+    pub n_reference: Option<u64>,
+    pub n_matching: Option<u64>,
+    pub match_rate: Option<f64>,
     pub anchors: Vec<String>,
 }
 
@@ -207,8 +209,12 @@ fn parse_concordance(text: &str) -> Result<Vec<ConcRow>> {
             header.len()
         );
         let get = |i: usize| r[cols[i]].as_str();
-        let num = |i: usize| -> Result<u64> {
-            get(i).parse().with_context(|| {
+        // An empty field is a missing value (a failed run has no counts).
+        let num = |i: usize| -> Result<Option<u64>> {
+            if get(i).is_empty() {
+                return Ok(None);
+            }
+            get(i).parse().map(Some).with_context(|| {
                 format!(
                     "concordance.csv line {}: `{}` is not a count",
                     n + 1,
@@ -225,13 +231,12 @@ fn parse_concordance(text: &str) -> Result<Vec<ConcRow>> {
             n_gloci: num(5)?,
             n_reference: num(6)?,
             n_matching: num(7)?,
-            match_rate: get(8).parse().with_context(|| {
-                format!(
-                    "concordance.csv line {}: bad match_rate `{}`",
-                    n + 1,
-                    get(8)
-                )
-            })?,
+            match_rate: match get(8) {
+                "" => None,
+                t => Some(t.parse().with_context(|| {
+                    format!("concordance.csv line {}: bad match_rate `{t}`", n + 1)
+                })?),
+            },
             anchors: get(10)
                 .split([';', '|', ' '])
                 .map(|a| a.trim().trim_start_matches('#'))

@@ -596,6 +596,19 @@ gloci = "gloci intersect --chrom-order lex --vcf-span ref --mode any -a input.vc
 reference = "bedtools intersect -sorted -u -a input.vcf -b rel-vcf-b.bed"
 compare = "vcf-records"
 
+# Symbolic SVs under --vcf-span ref: bedtools 2.31.1 spans <DEL> by END and
+# <DUP> by SVLEN as gloci does, but an insertion (<INS>, <INS:ME:ALU>) by its
+# REF base only, END or not; gloci, like htslib, spans it to END. Found by the
+# real-data concordance run (Task 16) on the 1000 Genomes insertion SVs.
+[[case]]
+name = "intersect-vcf-ref-span-ins-end-vs-bedtools"
+input = { file = "xtask/diff/inputs/vcf-ins-end.vcf" }
+aux = ["xtask/diff/inputs/vcf-ins-end-b.bed"]
+gloci = "gloci intersect --chrom-order lex --vcf-span ref --mode any -a input.vcf -b vcf-ins-end-b.bed"
+reference = "bedtools intersect -sorted -u -a input.vcf -b vcf-ins-end-b.bed"
+compare = "vcf-records"
+expected_difference = "#vcf-span-ins-end"
+
 [[case]]
 name = "intersect-vcf-allele-span-vs-bedtools"
 input = { file = "xtask/diff/inputs/rel-a.vcf" }
@@ -1013,6 +1026,30 @@ input = { file = "xtask/diff/inputs/closest-fa.bed" }
 aux = ["xtask/diff/inputs/closest-fb.bed"]
 gloci = "gloci closest --chrom-order lex -a input.bed -b closest-fb.bed --each-side --distance"
 reference = "closest-features --dist input.bed closest-fb.bed | tr '|' '\t'"
+compare = "exact"
+expected_difference = "#closest-each-side"
+
+# Two B equally near on each side: closest-features takes the last on the
+# left (b2, b6) and the first on the right (b3, b8); `--ties first` takes the
+# first on both. Found by the real-data concordance run (Task 16).
+[[case]]
+name = "closest-each-side-ties-vs-bedops"
+input = { file = "xtask/diff/inputs/closest-ties-a.bed" }
+aux = ["xtask/diff/inputs/closest-ties-b.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-ties-b.bed --each-side --distance --ignore-overlaps --ties first"
+reference = "closest-features --dist --no-overlaps input.bed closest-ties-b.bed | tr '|' '\t'"
+compare = "exact"
+expected_difference = "#closest-each-side"
+
+# After a1, which overlaps the long b1, closest-features reports b3 as a2's
+# left neighbour (-411) where b1 (-11) is nearer; without a1 it reports b1.
+# Found by the real-data concordance run (Task 16).
+[[case]]
+name = "closest-each-side-nested-vs-bedops"
+input = { file = "xtask/diff/inputs/closest-nested-a.bed" }
+aux = ["xtask/diff/inputs/closest-nested-b.bed"]
+gloci = "gloci closest --chrom-order lex -a input.bed -b closest-nested-b.bed --each-side --distance --ignore-overlaps"
+reference = "closest-features --dist --no-overlaps input.bed closest-nested-b.bed | tr '|' '\t'"
 compare = "exact"
 expected_difference = "#closest-each-side"
 
@@ -1908,6 +1945,49 @@ reference = "gff2bed < input.gff3"
 compare = "exact"
 expected_difference = "#gff2bed-name"
 
+# A GTF/GFF3 feature one base long (start = end): bedops appends
+# `zero_length_insertion=True` to its attributes, gloci copies them as they are.
+# Found by the real-data concordance run (Task 16).
+[[case]]
+name = "convert-gtf-one-base-vs-gtf2bed"
+input = { file = "xtask/diff/inputs/convert-one-base.gtf" }
+gloci = "gloci convert input.gtf"
+reference = "gtf2bed < input.gtf"
+compare = "exact"
+expected_difference = "#gff2bed-zero-length"
+
+[[case]]
+name = "convert-gff3-one-base-vs-gff2bed"
+input = { file = "xtask/diff/inputs/convert-one-base.gff3" }
+gloci = "gloci convert input.gff3 --name-attr NoSuchAttribute"
+reference = "gff2bed < input.gff3"
+compare = "exact"
+expected_difference = "#gff2bed-zero-length"
+
+# GTF order (a gene, its transcript, then its exons): gtf2bed sorts its output
+# with sort-bed unless --do-not-sort; gloci convert keeps the input order.
+[[case]]
+name = "convert-gtf-input-order-vs-gtf2bed"
+input = { file = "xtask/diff/inputs/convert-unsorted.gtf" }
+gloci = "gloci convert input.gtf"
+reference = "gtf2bed < input.gtf"
+compare = "exact"
+expected_difference = "#convert-input-order"
+
+[[case]]
+name = "convert-gtf-input-order-vs-gtf2bed-do-not-sort"
+input = { file = "xtask/diff/inputs/convert-unsorted.gtf" }
+gloci = "gloci convert input.gtf"
+reference = "gtf2bed --do-not-sort < input.gtf"
+compare = "exact"
+
+[[case]]
+name = "convert-gtf-sorted-vs-gtf2bed"
+input = { file = "xtask/diff/inputs/convert-unsorted.gtf" }
+gloci = "gloci convert input.gtf | gloci sort --chrom-order lex --full-key -"
+reference = "gtf2bed < input.gtf"
+compare = "exact"
+
 [[case]]
 name = "convert-bed12-blocks-vs-bedtools"
 input = { file = "xtask/diff/inputs/convert-bed12.bed" }
@@ -1942,6 +2022,37 @@ reference = "bedtools bed12tobed6 -i input.bed"
 compare = "exit-status"
 
 # vcf filter (Task 23) vs vcftools 0.1.16
+
+# Lower-case bases and a mixed-case symbolic allele: vcftools upper-cases REF
+# and ALT on output (`<DEL:ME:Alu>` becomes `<DEL:ME:ALU>`, which no longer
+# matches its ##ALT line); gloci writes them as read. Found by the real-data
+# concordance run (Task 16) on the 1000 Genomes SVs.
+[[case]]
+name = "vcf-filter-allele-case-vs-vcftools"
+input = { file = "xtask/diff/inputs/allele-case.vcf" }
+gloci = "gloci vcf filter input.vcf"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout"
+compare = "vcf-records"
+expected_difference = "#vcf-allele-case"
+
+[[case]]
+name = "vcf-stats-freq-allele-case-vs-vcftools"
+input = { file = "xtask/diff/inputs/allele-case.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --freq && cat o.frq"
+reference = "vcftools --vcf input.vcf --freq --out o >/dev/null 2>&1 && cat o.frq"
+compare = "exact"
+expected_difference = "#vcf-allele-case"
+
+# Floats as gnomAD writes them (`0.00000`, `0.600000`, QUAL `50.0`): bcftools
+# view prints every record again (`0`, `0.6`, `50`); gloci keeps the text.
+# Found by the real-data concordance run (Task 16) on gnomAD chr22.
+[[case]]
+name = "vcf-filter-float-text-vs-bcftools"
+input = { file = "xtask/diff/inputs/filter-float-text.vcf" }
+gloci = "gloci vcf filter input.vcf --pass-only"
+reference = "bcftools view -f .,PASS input.vcf"
+compare = "vcf-records"
+expected_difference = "#vcf-filter-values"
 
 [[case]]
 name = "vcf-filter-min-qual-vs-vcftools"

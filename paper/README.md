@@ -34,6 +34,31 @@ editing a command, derive into two directories and compare.
 `paper/fetch-datasets.sh` is generated: edit `xtask/bench/datasets.toml`, then
 run `cargo xtask paper fetch-script`. A test fails when it is stale.
 
+## Concordance (D97)
+
+```sh
+cargo xtask paper run --concordance-only [--only CASE] --data-dir DIR --out DIR
+```
+
+runs each case of `xtask/paper/concordance.toml` in the bench image (cache
+mounted read-only): the reference command once, gloci in the default mode
+(`--chrom-order lex` added) and, for cases with `compat` flags, in the compat
+mode. `exact` and `vcf-records` (without `#` lines) outputs are matched line
+by line as multisets, and the order is checked too. `numeric` outputs are
+compared by position (D97): line i of gloci with line i of the reference, the
+same text fields and every number within the diff harness's tolerance
+(relative 1e-5, absolute below 1e-9, integer literals exactly), or within half
+a unit of the last decimal for a reference that prints a fixed number of them
+(`ref_decimals`). `<out>/<version>/concordance.csv` gets a row per run (rows of
+cases not run are kept), and `<out>/<version>/concordance/<case>.<mode>.txt`
+the commands, counts and the first 10 unmatched lines of each side. A run
+that differs passes only when the case names the documented difference
+(`docs/differences.md`); `anchor unused` means it did not show on this data.
+Reference outputs are cached in `target/concordance-work`, keyed by the image
+Id (or, with `--no-docker`, the host tool's `--version`), the pinned digest of
+every input in `datasets.toml` and the command; a change to any of them runs
+the reference again. Delete that directory to run them all again.
+
 ## Providers: licence and citation
 
 - ENCODE (cCREs, CTCF peaks, signal, BAM): open access, no restrictions;

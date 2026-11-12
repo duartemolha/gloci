@@ -1,0 +1,10 @@
+##fileformat=VCFv4.2
+##contig=<ID=chr1,length=100000>
+##ALT=<ID=DEL:ME:Alu,Description="Alu deletion">
+##INFO=<ID=END,Number=1,Type=Integer,Description="End">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	s1	s2
+chr1	100	v1	A	G	50	PASS	.	GT	0/1	0/0
+chr1	200	v2	C	T	50	PASS	.	GT	0/1	1/1
+chr1	300	v3	T	<DEL:ME:ALU>	50	PASS	END=600	GT	0/1	0/0
+chr1	700	v4	G	GTT	50	PASS	.	GT	1/1	0/1

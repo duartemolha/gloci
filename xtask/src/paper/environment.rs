@@ -115,11 +115,22 @@ fn first_line(out: &std::process::Output) -> Option<String> {
         .map(String::from)
 }
 
+/// `--user UID:GID` of the current user, so a version query does not run
+/// the container as root; empty when `id` is not available.
+fn docker_user() -> Vec<String> {
+    match (capture("id", &["-u"]), capture("id", &["-g"])) {
+        (Some(u), Some(g)) => vec!["--user".into(), format!("{u}:{g}")],
+        _ => Vec::new(),
+    }
+}
+
 fn tool_version(image: Option<&str>, tool: &str) -> Value {
     let (bin, args) = version_command(tool);
     let out = match image {
         Some(img) => Command::new("docker")
-            .args(["run", "--rm", img, bin])
+            .args(["run", "--rm", "--network", "none"])
+            .args(docker_user().as_slice())
+            .args([img, bin])
             .args(args)
             .output(),
         None => Command::new(bin).args(args).output(),
@@ -183,6 +194,9 @@ pub struct EnvArgs<'a> {
     pub gloci: Option<&'a Path>,
     pub wheel: Option<&'a Path>,
     pub cases: &'a [Case],
+    /// Tools run outside the benchmark cases (the concordance run's
+    /// reference tools), recorded too.
+    pub extra_tools: &'a [String],
 }
 
 pub fn environment(a: &EnvArgs) -> Result<Value> {
@@ -195,7 +209,9 @@ pub fn environment(a: &EnvArgs) -> Result<Value> {
         "gloci".into(),
         gloci_version.map_or(Value::Null, Value::from),
     );
-    for t in tool_names(a.cases) {
+    let mut names = tool_names(a.cases);
+    names.extend(a.extra_tools.iter().cloned());
+    for t in names {
         tools.insert(t.clone(), tool_version(a.image, &t));
     }
     Ok(json!({
