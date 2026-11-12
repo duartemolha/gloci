@@ -1026,6 +1026,21 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   `vcf-stats-freq-allele-case-vs-vcftools` (must differ). Found by the
   real-data concordance run (`vcf-filter-maf-missing-1kg-vs-vcftools`).
 
+## `vcf filter` keeps values as written {#vcf-filter-values}
+
+- **gloci:** the records `vcf filter` keeps are written byte for byte.
+- **Old behaviour:** `bcftools view` (with `-f`, `-i` or `-e`) reads every
+  record into binary form and prints it again: floats come out with six
+  significant digits and no trailing zeros (`AF_afr=0.600000` becomes `0.6`,
+  `0.00000` becomes `0`, QUAL `50.0` becomes `50`). gnomAD v4.1 writes such
+  values in every record, so `bcftools view -f .,PASS` and `vcf filter
+  --pass-only` keep the same 1,621,586 records of chr22 and no line is
+  identical. `vcftools --recode` keeps the values, and matches gloci there.
+- **Reason:** a filter keeps records, it does not edit them (as `vcf split`,
+  see [`vcf split` keeps values as written](#vcf-split-values)).
+- **Pinned by:** `vcf-filter-float-text-vs-bcftools` (must differ). Found by
+  the real-data concordance run (`vcf-filter-pass-only-gnomad-vs-bcftools`).
+
 ## Inverted `--max-missing` parameter {#max-missing-inverted}
 
 - **gloci:** `--max-missing FRAC` specifies the maximum allowed fraction of

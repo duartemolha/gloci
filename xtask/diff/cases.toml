@@ -2030,6 +2030,17 @@ reference = "vcftools --vcf input.vcf --freq --out o >/dev/null 2>&1 && cat o.fr
 compare = "exact"
 expected_difference = "#vcf-allele-case"
 
+# Floats as gnomAD writes them (`0.00000`, `0.600000`, QUAL `50.0`): bcftools
+# view prints every record again (`0`, `0.6`, `50`); gloci keeps the text.
+# Found by the real-data concordance run (Task 16) on gnomAD chr22.
+[[case]]
+name = "vcf-filter-float-text-vs-bcftools"
+input = { file = "xtask/diff/inputs/filter-float-text.vcf" }
+gloci = "gloci vcf filter input.vcf --pass-only"
+reference = "bcftools view -f .,PASS input.vcf"
+compare = "vcf-records"
+expected_difference = "#vcf-filter-values"
+
 [[case]]
 name = "vcf-filter-min-qual-vs-vcftools"
 input = { file = "xtask/diff/inputs/filter-cohort.vcf" }

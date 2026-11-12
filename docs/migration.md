@@ -773,6 +773,10 @@ pinned difference where there is one.
   `vcf stats` and `vcf extract`, keep the case of REF and ALT, where vcftools
   upper-cases them (a symbolic `<DEL:ME:Alu>` becomes `<DEL:ME:ALU>`).
   [differences.md#vcf-allele-case](differences.md#vcf-allele-case)
+- **`vcf filter` keeps values as written:** where `bcftools view -i/-e/-f`
+  prints every record again (`0.600000` becomes `0.6`), gloci writes the kept
+  records unchanged.
+  [differences.md#vcf-filter-values](differences.md#vcf-filter-values)
 - **Inverted `vcf filter --max-missing`:** `--max-missing FRAC` is the maximum
   fraction of *missing* genotypes (`0.1` = at most 10% missing), the inverse of
   `vcftools --max-missing` (`0.9` = at least 90% called).

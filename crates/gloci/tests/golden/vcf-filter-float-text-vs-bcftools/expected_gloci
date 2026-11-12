@@ -1,0 +1,12 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##FILTER=<ID=AC0,Description="No called alt">
+##contig=<ID=chr22,length=50818468>
+##INFO=<ID=AC,Number=A,Type=Integer,Description="Allele count">
+##INFO=<ID=AF,Number=A,Type=Float,Description="Allele frequency">
+##INFO=<ID=AF_afr,Number=A,Type=Float,Description="Allele frequency, afr">
+##glociCommand=<normalised>
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+chr22	10736362	rs879131185	C	T	.	PASS	AC=63;AF=0.194444;AF_afr=0.00000
+chr22	10736399	rs1206833908	T	C	50.0	PASS	AC=442;AF=0.490022;AF_afr=0.600000
+chr22	10736414	.	G	C	.	.	AC=1;AF=0.000719424;AF_afr=0.0150000
