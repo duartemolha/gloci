@@ -102,8 +102,9 @@ for r in gloci.open("calls.vcf.gz").intersect(b="targets.bed"):
 - The table goes to pyarrow and polars through the Arrow PyCapsule interface, without copying:
   `to_arrow_stream()` returns that `gloci.ArrowStream`, which any Arrow consumer takes
   (`pyarrow.table(s)`, `polars.DataFrame(s)`).
-- pyarrow, polars and pandas are optional: `pip install gloci[arrow]` (pyarrow),
-  `gloci[polars]` (polars alone; no pyarrow needed) or `gloci[pandas]` (pandas and pyarrow).
+- pyarrow, polars and pandas are optional: `pip install gloci[arrow]` (pyarrow 15 or later),
+  `gloci[polars]` (polars 1.3 or later alone; no pyarrow needed) or `gloci[pandas]` (pandas and
+  pyarrow 15 or later).
   Without the one a method needs, it raises `ImportError` naming the extra.
 
 ## Functions
