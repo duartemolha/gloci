@@ -104,6 +104,74 @@ fn flagstat_cram_equals_bam() {
         .stderr(contains("--reference"));
 }
 
+/// The mates fixtures, attached and detached mates in every layout samtools writes (CRAM 3.0
+/// and 3.1, slices of several references, name order, no reference, raw blocks), give one
+/// report; flagstat decodes only the fields it counts from each (`flagstat-cram-mates-*`
+/// compare it with samtools).
+#[test]
+fn flagstat_cram_mates_layouts_agree() {
+    let reference = s(&inputs().join("fa/ref.fa"));
+    let want = out(&[
+        "flagstat",
+        &s(&inputs().join("aln/mates.cram")),
+        "--reference",
+        &reference,
+    ]);
+    assert!(want.starts_with("182 + 16 in total"), "{want}");
+    assert!(
+        want.contains("18 + 2 with mate mapped to a different chr\n"),
+        "{want}"
+    );
+    for v in ["v31", "multi", "namesorted", "noref", "raw"] {
+        let f = s(&inputs().join(format!("aln/mates.{v}.cram")));
+        assert_eq!(
+            out(&["flagstat", &f, "--reference", &reference]),
+            want,
+            "{v}"
+        );
+    }
+}
+
+/// From a CRAM, flagstat decodes no bases (#cram-limits): a FASTA with the right names and
+/// lengths but other bases gives the same counts, where `view`, which decodes them, refuses it.
+/// overhang.cram's read 1.5 Mb past chr1, past gloci's limit for decoding bases, is counted.
+#[test]
+fn flagstat_cram_reads_no_bases() {
+    let d = tempdir();
+    let fa = std::fs::read_to_string(inputs().join("fa/ref.fa")).unwrap();
+    let other: String = fa
+        .lines()
+        .map(|l| {
+            if l.starts_with('>') {
+                format!("{l}\n")
+            } else {
+                format!("{}\n", "A".repeat(l.len()))
+            }
+        })
+        .collect();
+    let wrong = d.path().join("other.fa");
+    std::fs::write(&wrong, other).unwrap();
+    std::fs::copy(
+        inputs().join("fa/ref.fa.fai"),
+        d.path().join("other.fa.fai"),
+    )
+    .unwrap();
+    let reference = s(&inputs().join("fa/ref.fa"));
+    let mates = s(&inputs().join("aln/mates.cram"));
+    assert_eq!(
+        out(&["flagstat", &mates, "--reference", &s(&wrong)]),
+        out(&["flagstat", &mates, "--reference", &reference])
+    );
+    gloci()
+        .args(["view", &mates, "--reference", &s(&wrong)])
+        .assert()
+        .code(1)
+        .stderr(contains("does not match"));
+    let overhang = s(&inputs().join("aln/overhang.cram"));
+    let t = out(&["flagstat", &overhang, "--reference", &reference]);
+    assert!(t.starts_with("2 + 0 in total"), "{t}");
+}
+
 #[test]
 fn flagstat_sam_equals_bam() {
     let sam = out(&["flagstat", &s(&inputs().join("samtools/flagstat.sam"))]);
@@ -114,11 +182,25 @@ fn flagstat_sam_equals_bam() {
 fn flagstat_is_identical_at_any_thread_count() {
     let big = s(&inputs().join("aln/cat-big.bam"));
     let cram = s(&inputs().join("aln/many.cram"));
+    let mates = s(&inputs().join("aln/mates.cram"));
+    let mates_multi = s(&inputs().join("aln/mates.multi.cram"));
     let reference = s(&inputs().join("fa/ref.fa"));
     let one_bam = fixture();
     for args in [
         vec!["flagstat", big.as_str()],
         vec!["flagstat", cram.as_str(), "--reference", reference.as_str()],
+        vec![
+            "flagstat",
+            mates.as_str(),
+            "--reference",
+            reference.as_str(),
+        ],
+        vec![
+            "flagstat",
+            mates_multi.as_str(),
+            "--reference",
+            reference.as_str(),
+        ],
         vec!["flagstat", one_bam.as_str()],
     ] {
         let mut one = args.clone();

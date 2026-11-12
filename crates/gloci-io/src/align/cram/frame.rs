@@ -554,6 +554,8 @@ pub(crate) struct SliceHead {
     pub records: usize,
     /// The external block holding the slice's reference bases, or -1.
     pub embedded: i32,
+    /// The blocks the slice header says follow it: the core block and the external ones.
+    pub blocks: usize,
     /// Where the slice starts in the container's data, and its bytes.
     pub landmark: usize,
     pub size: usize,
@@ -606,9 +608,9 @@ pub(crate) fn slice_heads(
         }
         let records = usize::try_from(records)
             .map_err(|_| bad(format!("slice {} claims {records} records", i + 1)))?;
-        if blocks < 1 {
+        let Some(blocks) = usize::try_from(blocks).ok().filter(|&b| b >= 1) else {
             return Err(bad(format!("slice {} has no data blocks", i + 1)));
-        }
+        };
         if ref_id < -2 || ref_id >= 0 && ref_id as usize >= n_refs {
             return Err(bad(format!(
                 "slice {} names reference id {ref_id}, but the header has {} references",
@@ -628,6 +630,7 @@ pub(crate) fn slice_heads(
             span,
             records,
             embedded,
+            blocks,
             landmark: at,
             size: end - at,
         });

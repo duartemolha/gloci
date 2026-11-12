@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 /// Records a slice may claim beyond one per byte of its blocks: noodles allocates a record for
 /// each before reading any, so a corrupt count must not ask for gigabytes.
-const SLACK_RECORDS: usize = 4096;
+pub(super) const SLACK_RECORDS: usize = 4096;
 /// The least overhang past a reference's end gloci decodes against `N`.
 const MIN_OVERHANG: i64 = 1 << 20;
 
@@ -53,7 +53,7 @@ pub(crate) enum Extent {
 
 /// While container `c` of `name` is decoded, a panic in noodles-cram means malformed data the
 /// checks before it let through (a crafted file): say so, and where (`#cram-limits`).
-fn decoder_note(name: &str, c: &RawContainer) -> crate::atomic::PanicNote {
+pub(super) fn decoder_note(name: &str, c: &RawContainer) -> crate::atomic::PanicNote {
     crate::atomic::panic_note(format!(
         "{name}: the CRAM decoder failed on malformed data in {}; the file is corrupt or was \
 crafted (see #cram-limits in docs/differences.md)",
@@ -888,6 +888,7 @@ mod tests {
             span: 1,
             records,
             embedded: -1,
+            blocks: 1,
             landmark: 0,
             size: 0,
         }

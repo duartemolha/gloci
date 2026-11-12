@@ -67,11 +67,11 @@ impl BamFrames {
     pub(crate) fn from_parts(
         name: String,
         compression: Compression,
-        aln: AlnHeader,
+        aln: impl Into<Arc<AlnHeader>>,
         src: Box<dyn BufRead + Send>,
     ) -> BamFrames {
         BamFrames {
-            aln: Arc::new(aln),
+            aln: aln.into(),
             name,
             compression,
             src,
