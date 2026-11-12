@@ -101,7 +101,7 @@ pub fn pipe(chunks: usize, chunk_bytes: usize) -> (PipeWriter, PipeReader) {
         token: Mutex::new(cancel::current()),
     });
     let w = PipeWriter {
-        tx: Some(tx),
+        tx,
         spare: spare_rx,
         buf: Vec::new(),
         chunk: chunk_bytes.max(1),
@@ -126,7 +126,7 @@ fn broken() -> io::Error {
 /// The writing end. It buffers a chunk before sending it; [`Write::flush`] sends a partial one.
 #[derive(Debug)]
 pub struct PipeWriter {
-    tx: Option<Sender<Vec<u8>>>,
+    tx: Sender<Vec<u8>>,
     spare: Receiver<Vec<u8>>,
     buf: Vec<u8>,
     chunk: usize,
@@ -158,12 +158,12 @@ impl PipeWriter {
         if self.buf.is_empty() {
             return Ok(());
         }
-        let Some(tx) = self.tx.as_ref().filter(|_| !self.broken) else {
+        if self.broken {
             return Err(broken());
-        };
+        }
         let mut chunk = std::mem::take(&mut self.buf);
         loop {
-            match tx.send_timeout(chunk, POLL) {
+            match self.tx.send_timeout(chunk, POLL) {
                 Ok(()) => return Ok(()),
                 Err(SendTimeoutError::Timeout(back)) => {
                     if self.state.cancelled() {
@@ -229,7 +229,7 @@ impl Drop for PipeWriter {
 pub struct PipeFail {
     state: Arc<State>,
     /// A sender held only so that the stream does not end before the handle says how.
-    _hold: Option<Sender<Vec<u8>>>,
+    _hold: Sender<Vec<u8>>,
 }
 
 impl PipeFail {
