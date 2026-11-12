@@ -21,6 +21,7 @@ the minor version).
 - P2b: the release archives carry the man pages, the shell completions and `CHANGELOG.md` next to the binary, `SKILL.md` and the licence.
 - P2b: Python wheels (abi3, for CPython 3.10 and later; manylinux2014 on x86_64 and aarch64, macOS arm64), an sdist, and bioconda recipes for `gloci` and `py-gloci`; each release carries them with `SHA256SUMS`. Publishing to PyPI, crates.io, `ghcr.io` and GitHub Pages stays off until the owner enables it.
 - P2b: the Python package is typed: `py.typed` and a generated stub (checked by `mypy --strict`), runtime signatures and docstrings from the CLI definition, and a Python guide in the book.
+- P2b: the Python extras need pyarrow 15, polars 1.5 and pandas 2.2 or later (the lowest versions whose Arrow stream interface gloci uses); CI runs the tests on exactly those.
 - P2b: a usage message that names the long option now says `--output-format` where it said `-O`.
 
 ## [0.1.0] - 2026-11-08

@@ -1,0 +1,9 @@
+# The tools for python.yml's floors job: the lowest versions of the extras that pyproject.toml
+# supports (xtask/tests/workflows.rs keeps the two in step), with the test tools of
+# requirements-ci.txt. numpy 2 needs newer pyarrow and pandas than these.
+maturin==1.16.0
+pytest==9.2.0
+numpy<2
+pyarrow==15.0.0
+polars==1.5.0
+pandas==2.2.0

@@ -775,7 +775,10 @@ fn release_does_not_need_a_public_repository_and_checksums_the_recipes() {
     let sums = rel.find("name: Generate SHA256SUMS").unwrap();
     let render = rel.find("name: Render the conda recipes").unwrap();
     let create = rel.find("name: Create GitHub Release").unwrap();
-    assert!(render < sums && sums < create, "SHA256SUMS must be made after the recipes tarball");
+    assert!(
+        render < sums && sums < create,
+        "SHA256SUMS must be made after the recipes tarball"
+    );
     assert!(
         rel.contains("conda-recipes.tar.gz > SHA256SUMS")
             || rel.contains("conda-recipes.tar.gz")
@@ -798,4 +801,51 @@ fn docs_deploy_is_gated_on_a_repository_variable() {
             && cond.contains("startsWith(github.ref, 'refs/tags/v')"),
         "deploy must need a v* tag push and vars.GLOCI_PUBLISH_PAGES == 'true': {cond}"
     );
+}
+
+#[test]
+fn python_workflow_tests_the_lowest_extras() {
+    let root = xtask::diff::workspace_root();
+    let py = fs::read_to_string(root.join(".github/workflows/python.yml")).unwrap();
+    let job = job_body(&py, "floors");
+    assert!(
+        job.contains("requirements-floors.txt") && job.contains("pytest crates/gloci-py/tests"),
+        "the floors job must install requirements-floors.txt and run the Python tests"
+    );
+    // The floors file pins exactly what pyproject.toml's extras say is the lowest supported.
+    let pyproject = fs::read_to_string(root.join("crates/gloci-py/pyproject.toml")).unwrap();
+    let floors = fs::read_to_string(root.join("crates/gloci-py/requirements-floors.txt")).unwrap();
+    let extras = pyproject
+        .split("[project.optional-dependencies]")
+        .nth(1)
+        .unwrap();
+    let extras = extras.split("\n[").next().unwrap();
+    let mut seen = 0;
+    for pkg in ["pyarrow", "polars", "pandas"] {
+        let floor = extras
+            .split(&format!("\"{pkg}>="))
+            .nth(1)
+            .unwrap_or_else(|| panic!("pyproject.toml has no {pkg} floor"))
+            .split('"')
+            .next()
+            .unwrap();
+        let pinned = floors
+            .lines()
+            .find_map(|l| l.strip_prefix(&format!("{pkg}==")))
+            .unwrap_or_else(|| panic!("requirements-floors.txt does not pin {pkg}"));
+        let pinned = pinned.split_whitespace().next().unwrap();
+        assert!(
+            pinned == floor
+                || pinned.strip_suffix(".0") == Some(floor)
+                || pinned
+                    .strip_prefix(floor)
+                    .is_some_and(|r| r.starts_with('.')),
+            "requirements-floors.txt pins {pkg}=={pinned}, but pyproject.toml's floor is {floor}"
+        );
+        seen += 1;
+    }
+    assert_eq!(seen, 3);
+    // numpy 2 needs newer pyarrow and pandas than the floors.
+    assert!(floors.contains("numpy<2"), "the floors need numpy<2");
+    assert_pinned_like_the_others("python.yml", &py);
 }

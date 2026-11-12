@@ -375,6 +375,9 @@ fn every_documented_gloci_command_line_parses() {
             }
         }
     }
-    assert!(checked >= 8, "only {checked} command lines found; the extractor is broken");
+    assert!(
+        checked >= 8,
+        "only {checked} command lines found; the extractor is broken"
+    );
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

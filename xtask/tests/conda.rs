@@ -166,7 +166,10 @@ fn py_recipe_installs_no_cli() {
             .contains("cargo-bundle-licenses --format yaml --output THIRDPARTY.yml"),
         "the py-gloci build script must run cargo-bundle-licenses"
     );
-    assert!(t.contains("- THIRDPARTY.yml") && t.contains("license_file:"), "{t}");
+    assert!(
+        t.contains("- THIRDPARTY.yml") && t.contains("license_file:"),
+        "{t}"
+    );
     let pyproject =
         fs::read_to_string(xtask::diff::workspace_root().join("crates/gloci-py/pyproject.toml"))
             .unwrap();

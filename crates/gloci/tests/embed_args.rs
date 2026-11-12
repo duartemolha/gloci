@@ -1122,7 +1122,10 @@ fn the_vcf_merge_step_refuses_file_list() {
     assert_eq!(e, "pass the files as sources: open(a).vcf_merge(b, c)");
     // Not suggested for a near miss.
     let e = argv_of(&["vcf", "merge"], &[("file_lst", val("x"))]).unwrap_err();
-    assert_eq!(e, "vcf_merge() got an unexpected keyword argument 'file_lst'");
+    assert_eq!(
+        e,
+        "vcf_merge() got an unexpected keyword argument 'file_lst'"
+    );
 }
 
 #[test]

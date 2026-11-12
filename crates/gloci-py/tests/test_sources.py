@@ -400,14 +400,19 @@ def test_frame_sources(lib: str, ab: Path) -> None:
 
 def test_frame_types_and_batches(here: Path) -> None:
     pa = pytest.importorskip("pyarrow")
+
+    def view_type() -> object:
+        # string_view is pyarrow 16's; the lowest supported pyarrow (15) has plain strings only.
+        return pa.string_view() if hasattr(pa, "string_view") else pa.string()
+
     batches = [
-        pa.record_batch({"chrom": pa.array(["chr1"] * 3).dictionary_encode(),
+        pa.RecordBatch.from_pydict({"chrom": pa.array(["chr1"] * 3).dictionary_encode(),
                          "start": pa.array([1, 2, 3], pa.uint64()),
                          "end": pa.array([5, 6, 7], pa.int32()),
                          "f": pa.array([0.1, None, 1e16]),
                          "b": pa.array([True, False, None]),
                          "s": pa.array(["x", "y", "z"], pa.large_string()),
-                         "v": pa.array(["p", None, "r"], pa.string_view()),
+                         "v": pa.array(["p", None, "r"], view_type()),
                          "i": pa.array([-1, 0, 2**40], pa.int64())}),
     ] * 3
     reader = pa.RecordBatchReader.from_batches(batches[0].schema, batches)
@@ -416,7 +421,12 @@ def test_frame_types_and_batches(here: Path) -> None:
            f"chr1\t3\t7\t1e+16\t.\tz\tr\t{2**40}"]
     assert got == one * 3
     # Rows count across batches.
-    bad = [batches[0], batches[0].set_column(1, "start", pa.array([1, None, 3], pa.uint64()))]
+    holed = (
+        pa.Table.from_batches([batches[0]])
+        .set_column(1, "start", pa.array([1, None, 3], pa.uint64()))
+        .to_batches()[0]
+    )
+    bad = [batches[0], holed]
     with pytest.raises(gloci.DataError) as e:
         gloci.open(pa.RecordBatchReader.from_batches(bad[0].schema, bad)).to_bytes()
     assert (e.value.path, e.value.line) == ("<pyarrow.RecordBatchReader>", 5)
@@ -766,7 +776,7 @@ def test_cli_quotes_what_only_looks_like_a_placeholder(ab: Path, bash) -> None:
 def test_a_record_batch_reader_is_read_once(here: Path) -> None:
     # I3: a RecordBatchReader is an iterator: a second run would read nothing.
     pa = pytest.importorskip("pyarrow")
-    batch = pa.record_batch({"chrom": ["chr1"], "start": [1], "end": [2]})
+    batch = pa.RecordBatch.from_pydict({"chrom": ["chr1"], "start": [1], "end": [2]})
     p = gloci.open(pa.RecordBatchReader.from_batches(batch.schema, [batch]))
     assert p.to_bytes() == b"chr1\t1\t2\n"
     for again in (p.to_bytes, p.count):

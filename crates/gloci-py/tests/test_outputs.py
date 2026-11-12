@@ -346,9 +346,12 @@ df = p.to_polars()
 assert df.columns == ["chrom", "start", "end", "col4", "col5", "col6", "col7"], df.columns
 assert df.dtypes == [pl.String, pl.Int64, pl.Int64, pl.String, pl.Int64, pl.String, pl.Int64]
 assert df.height == 1200, df.height
-# polars.from_arrow takes the stream itself (as a struct Series, one field per column).
-s = pl.from_arrow(p.to_arrow_stream())
-assert s.struct.unnest().equals(df)
+# polars.from_arrow takes the stream itself (a struct Series, one field per column, in some
+# polars versions, a DataFrame in others) without pyarrow from polars 1.22; to_polars() above
+# needs no more than polars 1.5.
+if tuple(int(x) for x in pl.__version__.split(".")[:2]) >= (1, 22):
+    s = pl.from_arrow(p.to_arrow_stream())
+    assert (s.struct.unnest() if isinstance(s, pl.Series) else s).equals(df)
 assert sys.modules["pyarrow"] is None
 print("ok")
 """
