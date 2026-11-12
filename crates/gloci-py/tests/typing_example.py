@@ -51,6 +51,19 @@ def pipeline() -> None:
     p.cat(gloci.open("x.bed"), gloci.open("y.bed"))
 
 
+def short_flags_and_lists() -> None:
+    a = gloci.open("a.bed")
+    # A one-letter short flag and an alias are keyword arguments too (D86, D87).
+    a.intersect(b="b.bed", f=0.5, r=True).count()
+    gloci.windows(g="hg38", w=1_000_000).count()
+    gloci.random(g="hg38", l=100, n=10, seed=7).count()
+    gloci.vcf_compare("a.vcf", "b.vcf", out="c", diff_indv_discordance=True)
+    # A repeatable option takes a value or a sequence of values, whatever their type.
+    gloci.open("calls.vcf").vcf_filter(region=["chr1:1-100", "chr2"], keep_filter="PASS")
+    gloci.open("calls.vcf").vcf_extract(format=["GT", "DP"], chrom=[1, 2])
+    gloci.open("a.bed").merge(column=[4, 5], max_gap=10)
+
+
 def frames() -> None:
     p = gloci.open("a.bed")
     table = p.to_arrow(names=["c", "s", "e"])

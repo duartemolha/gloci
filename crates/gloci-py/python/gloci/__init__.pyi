@@ -164,22 +164,29 @@ class Pipeline:
         *,
         a_format: str | int | float | os.PathLike[str] | None = None,
         b: Source | Sequence[Source],
-        names: str | Sequence[str] | None = None,
+        names: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         b_format: str | int | float | os.PathLike[str] | None = None,
         mode: Literal["any", "none", "pairs", "clip", "count"] | None = None,
         overlap_bases: bool = False,
         keep_unmatched: bool = False,
         match: Literal["overlap", "alleles"] | None = None,
         min_frac_a: str | int | float | os.PathLike[str] | None = None,
+        f: str | int | float | os.PathLike[str] | None = None,
         min_frac_b: str | int | float | os.PathLike[str] | None = None,
+        F: str | int | float | os.PathLike[str] | None = None,
         reciprocal: bool = False,
+        r: bool = False,
         either: bool = False,
+        e: bool = False,
         min_bases: str | int | float | os.PathLike[str] | None = None,
         same_strand: bool = False,
+        s: bool = False,
         opposite_strand: bool = False,
+        S: bool = False,
         split: bool = False,
         inclusive_points: bool = False,
         window: str | int | float | os.PathLike[str] | None = None,
+        w: str | int | float | os.PathLike[str] | None = None,
         left: str | int | float | os.PathLike[str] | None = None,
         right: str | int | float | os.PathLike[str] | None = None,
         strand_window: bool = False,
@@ -194,12 +201,13 @@ class Pipeline:
         max_mem: str | int | float | os.PathLike[str] | None = None,
         tmp_dir: str | int | float | os.PathLike[str] | None = None,
         genome: Source | None = None,
+        g: Source | None = None,
         chrom_order: Literal["karyotype", "lex"] | None = None,
         vcf_span: Literal["allele", "ref"] | None = None,
         chrom_map: Source | None = None,
         header: bool = False,
         skip_invalid: bool = False,
-        region: str | Sequence[str] | None = None,
+        region: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     ) -> Pipeline:
         """Report the records of A that overlap, or do not overlap, records of B
 
@@ -213,15 +221,22 @@ class Pipeline:
             keep_unmatched: With --mode pairs: also write each A without a hit, with placeholder B columns
             match: What makes a hit count: overlap, or overlap plus a shared ALT allele (alleles; VCF/BCF inputs only)
             min_frac_a: Minimum fraction of A covered, e.g. 0.5 or 50% (4.3: fractions)
+            f: alias of min_frac_a
             min_frac_b: Minimum fraction of B covered, e.g. 0.5 or 50% (4.3: fractions)
+            F: alias of min_frac_b
             reciprocal: Require both fractions to be met (4.3: -r)
+            r: alias of reciprocal
             either: Require either fraction to be met (4.3: -e)
+            e: alias of either
             min_bases: Minimum number of overlapping bases (4.3: --min-bases)
             same_strand: Only overlaps on the same strand; unknown strands never match (4.3: strand)
+            s: alias of same_strand
             opposite_strand: Only overlaps on opposite strands; unknown strands never match (4.3: strand)
+            S: alias of opposite_strand
             split: Compare BED12 blocks (exons) and the aligned segments of BAM/SAM reads (cut at CIGAR N) instead of whole spans (4.3: BED12 blocks)
             inclusive_points: A point on the edge of an interval overlaps it (4.3: points)
             window: Pad B by N on both sides before testing (4.3: windows)
+            w: alias of window
             left: Pad B by N on the left (4.3: windows)
             right: Pad B by N on the right (4.3: windows)
             strand_window: Left and right follow A's strand (4.3: windows)
@@ -236,6 +251,7 @@ class Pipeline:
             max_mem: Memory budget for --sort, in binary units (K, M, G, T); at least 16M
             tmp_dir: Directory for temporary files: --sort's, and the spills of per-chromosome runs on indexed and plain files; ignored when nothing spills. It must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            g: alias of genome
             chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
@@ -250,21 +266,28 @@ class Pipeline:
         *,
         a_format: str | int | float | os.PathLike[str] | None = None,
         b: Source | Sequence[Source],
-        names: str | Sequence[str] | None = None,
+        names: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         b_format: str | int | float | os.PathLike[str] | None = None,
         whole: bool = False,
         sum_overlaps: bool = False,
         match: Literal["overlap", "alleles"] | None = None,
         min_frac_a: str | int | float | os.PathLike[str] | None = None,
+        f: str | int | float | os.PathLike[str] | None = None,
         min_frac_b: str | int | float | os.PathLike[str] | None = None,
+        F: str | int | float | os.PathLike[str] | None = None,
         reciprocal: bool = False,
+        r: bool = False,
         either: bool = False,
+        e: bool = False,
         min_bases: str | int | float | os.PathLike[str] | None = None,
         same_strand: bool = False,
+        s: bool = False,
         opposite_strand: bool = False,
+        S: bool = False,
         split: bool = False,
         inclusive_points: bool = False,
         window: str | int | float | os.PathLike[str] | None = None,
+        w: str | int | float | os.PathLike[str] | None = None,
         left: str | int | float | os.PathLike[str] | None = None,
         right: str | int | float | os.PathLike[str] | None = None,
         strand_window: bool = False,
@@ -274,12 +297,13 @@ class Pipeline:
         max_mem: str | int | float | os.PathLike[str] | None = None,
         tmp_dir: str | int | float | os.PathLike[str] | None = None,
         genome: Source | None = None,
+        g: Source | None = None,
         chrom_order: Literal["karyotype", "lex"] | None = None,
         vcf_span: Literal["allele", "ref"] | None = None,
         chrom_map: Source | None = None,
         header: bool = False,
         skip_invalid: bool = False,
-        region: str | Sequence[str] | None = None,
+        region: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     ) -> Pipeline:
         """Remove from A the bases covered by B (bedtools subtract, bedops -d)
 
@@ -292,15 +316,22 @@ class Pipeline:
             sum_overlaps: Drop an A when the bases shared with all B (strand rule only) reach -f of A; takes only -f
             match: What makes a hit count: overlap, or overlap plus a shared ALT allele (alleles; VCF/BCF inputs only). With alleles, an A is dropped only for a B with the same position, REF and ALT; one shared ALT drops a multi-allelic A whole
             min_frac_a: Minimum fraction of A covered, e.g. 0.5 or 50% (4.3: fractions)
+            f: alias of min_frac_a
             min_frac_b: Minimum fraction of B covered, e.g. 0.5 or 50% (4.3: fractions)
+            F: alias of min_frac_b
             reciprocal: Require both fractions to be met (4.3: -r)
+            r: alias of reciprocal
             either: Require either fraction to be met (4.3: -e)
+            e: alias of either
             min_bases: Minimum number of overlapping bases (4.3: --min-bases)
             same_strand: Only overlaps on the same strand; unknown strands never match (4.3: strand)
+            s: alias of same_strand
             opposite_strand: Only overlaps on opposite strands; unknown strands never match (4.3: strand)
+            S: alias of opposite_strand
             split: Compare BED12 blocks (exons) and the aligned segments of BAM/SAM reads (cut at CIGAR N) instead of whole spans (4.3: BED12 blocks)
             inclusive_points: A point on the edge of an interval overlaps it (4.3: points)
             window: Pad B by N on both sides before testing (4.3: windows)
+            w: alias of window
             left: Pad B by N on the left (4.3: windows)
             right: Pad B by N on the right (4.3: windows)
             strand_window: Left and right follow A's strand (4.3: windows)
@@ -310,6 +341,7 @@ class Pipeline:
             max_mem: Memory budget for --sort, in binary units (K, M, G, T); at least 16M
             tmp_dir: Directory for temporary files: --sort's, and the spills of per-chromosome runs on indexed and plain files; ignored when nothing spills. It must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            g: alias of genome
             chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
@@ -324,7 +356,7 @@ class Pipeline:
         *,
         a_format: str | int | float | os.PathLike[str] | None = None,
         b: Source | Sequence[Source],
-        names: str | Sequence[str] | None = None,
+        names: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         b_format: str | int | float | os.PathLike[str] | None = None,
         k: str | int | float | os.PathLike[str] | None = None,
         ties: Literal["all", "first", "last"] | None = None,
@@ -337,7 +369,9 @@ class Pipeline:
         each_side: bool = False,
         per_file: bool = False,
         same_strand: bool = False,
+        s: bool = False,
         opposite_strand: bool = False,
+        S: bool = False,
         inclusive_points: bool = False,
         regions_file: Source | None = None,
         unsorted: bool = False,
@@ -345,12 +379,13 @@ class Pipeline:
         max_mem: str | int | float | os.PathLike[str] | None = None,
         tmp_dir: str | int | float | os.PathLike[str] | None = None,
         genome: Source | None = None,
+        g: Source | None = None,
         chrom_order: Literal["karyotype", "lex"] | None = None,
         vcf_span: Literal["allele", "ref"] | None = None,
         chrom_map: Source | None = None,
         header: bool = False,
         skip_invalid: bool = False,
-        region: str | Sequence[str] | None = None,
+        region: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     ) -> Pipeline:
         """Find the nearest B to each A (bedtools closest, bedops closest-features)
 
@@ -370,7 +405,9 @@ class Pipeline:
             each_side: One row per A: the nearest upstream B, then the nearest downstream B
             per_file: With several -b files: choose the nearest in each file
             same_strand: Only B on the same strand; unknown strands never match
+            s: alias of same_strand
             opposite_strand: Only B on the opposite strand; unknown strands never match
+            S: alias of opposite_strand
             inclusive_points: A point on the edge of an interval overlaps it (4.3: points)
             regions_file: Read regions from FILE (BED: 0-based, half-open); see --region
             unsorted: Accept inputs in any order and keep A's order in the output; every -b file is held in memory. Cannot be combined with --sort
@@ -378,6 +415,7 @@ class Pipeline:
             max_mem: Memory budget for --sort, in binary units (K, M, G, T); at least 16M
             tmp_dir: Directory for temporary files: --sort's, and the spills of per-chromosome runs on indexed and plain files; ignored when nothing spills. It must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            g: alias of genome
             chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
@@ -392,22 +430,30 @@ class Pipeline:
         *,
         a_format: str | int | float | os.PathLike[str] | None = None,
         b: Source | Sequence[Source],
-        names: str | Sequence[str] | None = None,
+        names: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         b_format: str | int | float | os.PathLike[str] | None = None,
-        column: str | Sequence[str],
+        column: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+        c: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         skip_unmatched: bool = False,
         empty: str | int | float | os.PathLike[str] | None = None,
         delim: str | int | float | os.PathLike[str] | None = None,
         min_frac_a: str | int | float | os.PathLike[str] | None = None,
+        f: str | int | float | os.PathLike[str] | None = None,
         min_frac_b: str | int | float | os.PathLike[str] | None = None,
+        F: str | int | float | os.PathLike[str] | None = None,
         reciprocal: bool = False,
+        r: bool = False,
         either: bool = False,
+        e: bool = False,
         min_bases: str | int | float | os.PathLike[str] | None = None,
         same_strand: bool = False,
+        s: bool = False,
         opposite_strand: bool = False,
+        S: bool = False,
         split: bool = False,
         inclusive_points: bool = False,
         window: str | int | float | os.PathLike[str] | None = None,
+        w: str | int | float | os.PathLike[str] | None = None,
         left: str | int | float | os.PathLike[str] | None = None,
         right: str | int | float | os.PathLike[str] | None = None,
         strand_window: bool = False,
@@ -417,12 +463,13 @@ class Pipeline:
         max_mem: str | int | float | os.PathLike[str] | None = None,
         tmp_dir: str | int | float | os.PathLike[str] | None = None,
         genome: Source | None = None,
+        g: Source | None = None,
         chrom_order: Literal["karyotype", "lex"] | None = None,
         vcf_span: Literal["allele", "ref"] | None = None,
         chrom_map: Source | None = None,
         header: bool = False,
         skip_invalid: bool = False,
-        region: str | Sequence[str] | None = None,
+        region: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     ) -> Pipeline:
         """Aggregate columns of the B records over each A (bedtools map, bedops bedmap)
 
@@ -432,19 +479,27 @@ class Pipeline:
             names: Labels for the B files, comma-separated, one per -b (default: the file basenames, spec 5)
             b_format: B's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
             column: Aggregate a column of the overlapping B, such as 5:mean or 0:count (repeatable; commas also separate)
+            c: alias of column
             skip_unmatched: Drop an A with no overlapping B instead of writing it
             empty: Value for an aggregation with no values
             delim: Separator for collapse and distinct lists
             min_frac_a: Minimum fraction of A covered, e.g. 0.5 or 50% (4.3: fractions)
+            f: alias of min_frac_a
             min_frac_b: Minimum fraction of B covered, e.g. 0.5 or 50% (4.3: fractions)
+            F: alias of min_frac_b
             reciprocal: Require both fractions to be met (4.3: -r)
+            r: alias of reciprocal
             either: Require either fraction to be met (4.3: -e)
+            e: alias of either
             min_bases: Minimum number of overlapping bases (4.3: --min-bases)
             same_strand: Only overlaps on the same strand; unknown strands never match (4.3: strand)
+            s: alias of same_strand
             opposite_strand: Only overlaps on opposite strands; unknown strands never match (4.3: strand)
+            S: alias of opposite_strand
             split: Compare BED12 blocks (exons) and the aligned segments of BAM/SAM reads (cut at CIGAR N) instead of whole spans (4.3: BED12 blocks)
             inclusive_points: A point on the edge of an interval overlaps it (4.3: points)
             window: Pad B by N on both sides before testing (4.3: windows)
+            w: alias of window
             left: Pad B by N on the left (4.3: windows)
             right: Pad B by N on the right (4.3: windows)
             strand_window: Left and right follow A's strand (4.3: windows)
@@ -454,6 +509,7 @@ class Pipeline:
             max_mem: Memory budget for --sort, in binary units (K, M, G, T); at least 16M
             tmp_dir: Directory for temporary files: --sort's, and the spills of per-chromosome runs on indexed and plain files; ignored when nothing spills. It must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            g: alias of genome
             chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
@@ -468,18 +524,24 @@ class Pipeline:
         *,
         a_format: str | int | float | os.PathLike[str] | None = None,
         b: Source | Sequence[Source],
-        names: str | Sequence[str] | None = None,
+        names: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         b_format: str | int | float | os.PathLike[str] | None = None,
         hist: bool = False,
         per_base: bool = False,
         mean: bool = False,
         min_frac_a: str | int | float | os.PathLike[str] | None = None,
+        f: str | int | float | os.PathLike[str] | None = None,
         min_frac_b: str | int | float | os.PathLike[str] | None = None,
+        F: str | int | float | os.PathLike[str] | None = None,
         reciprocal: bool = False,
+        r: bool = False,
         either: bool = False,
+        e: bool = False,
         min_bases: str | int | float | os.PathLike[str] | None = None,
         same_strand: bool = False,
+        s: bool = False,
         opposite_strand: bool = False,
+        S: bool = False,
         split: bool = False,
         inclusive_points: bool = False,
         split_deletions: bool = False,
@@ -493,12 +555,13 @@ class Pipeline:
         max_mem: str | int | float | os.PathLike[str] | None = None,
         tmp_dir: str | int | float | os.PathLike[str] | None = None,
         genome: Source | None = None,
+        g: Source | None = None,
         chrom_order: Literal["karyotype", "lex"] | None = None,
         vcf_span: Literal["allele", "ref"] | None = None,
         chrom_map: Source | None = None,
         header: bool = False,
         skip_invalid: bool = False,
-        region: str | Sequence[str] | None = None,
+        region: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     ) -> Pipeline:
         """How much of each A the B records cover (bedtools coverage and annotate)
 
@@ -511,12 +574,18 @@ class Pipeline:
             per_base: One row per base of A: its 1-based offset and depth
             mean: The mean depth over A
             min_frac_a: Minimum fraction of A covered, e.g. 0.5 or 50% (4.3: fractions)
+            f: alias of min_frac_a
             min_frac_b: Minimum fraction of B covered, e.g. 0.5 or 50% (4.3: fractions)
+            F: alias of min_frac_b
             reciprocal: Require both fractions to be met (4.3: -r)
+            r: alias of reciprocal
             either: Require either fraction to be met (4.3: -e)
+            e: alias of either
             min_bases: Minimum number of overlapping bases (4.3: --min-bases)
             same_strand: Only overlaps on the same strand; unknown strands never match (4.3: strand)
+            s: alias of same_strand
             opposite_strand: Only overlaps on opposite strands; unknown strands never match (4.3: strand)
+            S: alias of opposite_strand
             split: Compare BED12 blocks (exons) and the aligned segments of BAM/SAM reads (cut at CIGAR N) instead of whole spans (4.3: BED12 blocks)
             inclusive_points: A point on the edge of an interval overlaps it (4.3: points)
             split_deletions: BAM, CRAM and SAM: also cut the blocks of a read at deletions (D), with or without --split (bedtools bamtobed -splitD)
@@ -530,6 +599,7 @@ class Pipeline:
             max_mem: Memory budget for --sort, in binary units (K, M, G, T); at least 16M
             tmp_dir: Directory for temporary files: --sort's, and the spills of per-chromosome runs on indexed and plain files; ignored when nothing spills. It must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            g: alias of genome
             chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
@@ -546,12 +616,18 @@ class Pipeline:
         b_format: str | int | float | os.PathLike[str] | None = None,
         type: Literal["either", "neither", "both", "xor", "notboth", "ispan", "ospan", "notispan", "notospan"] | None = None,
         min_frac_a: str | int | float | os.PathLike[str] | None = None,
+        f: str | int | float | os.PathLike[str] | None = None,
         min_frac_b: str | int | float | os.PathLike[str] | None = None,
+        F: str | int | float | os.PathLike[str] | None = None,
         reciprocal: bool = False,
+        r: bool = False,
         either: bool = False,
+        e: bool = False,
         min_bases: str | int | float | os.PathLike[str] | None = None,
         same_strand: bool = False,
+        s: bool = False,
         opposite_strand: bool = False,
+        S: bool = False,
         inclusive_points: bool = False,
         vcf_span: Literal["allele", "ref"] | None = None,
         chrom_map: Source | None = None,
@@ -564,12 +640,18 @@ class Pipeline:
             b_format: B's format, overriding detection: bed, bedgraph, gff, vcf or bcf (B does not read alignments; convert them to BED first)
             type: What to report: either, neither, both, xor, notboth, ispan, ospan, notispan or notospan
             min_frac_a: Minimum fraction of A covered, e.g. 0.5 or 50% (4.3: fractions)
+            f: alias of min_frac_a
             min_frac_b: Minimum fraction of B covered, e.g. 0.5 or 50% (4.3: fractions)
+            F: alias of min_frac_b
             reciprocal: Require both fractions to be met (4.3: -r)
+            r: alias of reciprocal
             either: Require either fraction to be met (4.3: -e)
+            e: alias of either
             min_bases: Minimum number of overlapping bases (4.3: --min-bases)
             same_strand: Only overlaps on the same strand; unknown strands never match (4.3: strand)
+            s: alias of same_strand
             opposite_strand: Only overlaps on opposite strands; unknown strands never match (4.3: strand)
+            S: alias of opposite_strand
             inclusive_points: A point on the edge of an interval overlaps it (4.3: points)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
@@ -583,14 +665,21 @@ class Pipeline:
         b: Source,
         type: Literal["neither", "either", "both", "notboth"] | None = None,
         min_frac_a: str | int | float | os.PathLike[str] | None = None,
+        f: str | int | float | os.PathLike[str] | None = None,
         min_frac_b: str | int | float | os.PathLike[str] | None = None,
+        F: str | int | float | os.PathLike[str] | None = None,
         reciprocal: bool = False,
+        r: bool = False,
         either: bool = False,
+        e: bool = False,
         min_bases: str | int | float | os.PathLike[str] | None = None,
         same_strand: bool = False,
+        s: bool = False,
         opposite_strand: bool = False,
+        S: bool = False,
         inclusive_points: bool = False,
         window: str | int | float | os.PathLike[str] | None = None,
+        w: str | int | float | os.PathLike[str] | None = None,
         left: str | int | float | os.PathLike[str] | None = None,
         right: str | int | float | os.PathLike[str] | None = None,
         strand_window: bool = False,
@@ -604,14 +693,21 @@ class Pipeline:
             b: B: the BEDPE file the pairs of A are tested against (`-` for stdin)
             type: What to report: neither, either, both or notboth
             min_frac_a: Minimum fraction of A covered, e.g. 0.5 or 50% (4.3: fractions)
+            f: alias of min_frac_a
             min_frac_b: Minimum fraction of B covered, e.g. 0.5 or 50% (4.3: fractions)
+            F: alias of min_frac_b
             reciprocal: Require both fractions to be met (4.3: -r)
+            r: alias of reciprocal
             either: Require either fraction to be met (4.3: -e)
+            e: alias of either
             min_bases: Minimum number of overlapping bases (4.3: --min-bases)
             same_strand: Only overlaps on the same strand; unknown strands never match (4.3: strand)
+            s: alias of same_strand
             opposite_strand: Only overlaps on opposite strands; unknown strands never match (4.3: strand)
+            S: alias of opposite_strand
             inclusive_points: A point on the edge of an interval overlaps it (4.3: points)
             window: Pad B by N on both sides before testing (4.3: windows)
+            w: alias of window
             left: Pad B by N on the left (4.3: windows)
             right: Pad B by N on the right (4.3: windows)
             strand_window: Left and right follow A's strand (4.3: windows)
@@ -628,17 +724,24 @@ class Pipeline:
         b: Source,
         b_format: str | int | float | os.PathLike[str] | None = None,
         min_frac_a: str | int | float | os.PathLike[str] | None = None,
+        f: str | int | float | os.PathLike[str] | None = None,
         min_frac_b: str | int | float | os.PathLike[str] | None = None,
+        F: str | int | float | os.PathLike[str] | None = None,
         reciprocal: bool = False,
+        r: bool = False,
         either: bool = False,
+        e: bool = False,
         min_bases: str | int | float | os.PathLike[str] | None = None,
         same_strand: bool = False,
+        s: bool = False,
         opposite_strand: bool = False,
+        S: bool = False,
         inclusive_points: bool = False,
         sort: bool = False,
         max_mem: str | int | float | os.PathLike[str] | None = None,
         tmp_dir: str | int | float | os.PathLike[str] | None = None,
         genome: Source | None = None,
+        g: Source | None = None,
         chrom_order: Literal["karyotype", "lex"] | None = None,
         vcf_span: Literal["allele", "ref"] | None = None,
         chrom_map: Source | None = None,
@@ -655,17 +758,24 @@ class Pipeline:
             b: B: the file to compare A with (`-` for stdin)
             b_format: B's format, overriding detection: bed, bedgraph, gff, vcf or bcf; bam, cram or sam (alignments are read as intervals, as `intersect` reads them)
             min_frac_a: Minimum fraction of a merged A interval covered, e.g. 0.5 or 50% (4.3: fractions)
+            f: alias of min_frac_a
             min_frac_b: Minimum fraction of a merged B interval covered, e.g. 0.5 or 50% (4.3: fractions)
+            F: alias of min_frac_b
             reciprocal: Require both fractions to be met (4.3: -r)
+            r: alias of reciprocal
             either: Require either fraction to be met (4.3: -e)
+            e: alias of either
             min_bases: Minimum number of overlapping bases (4.3: --min-bases)
             same_strand: Merge each strand apart and count only overlaps on the same strand; unknown strands never match
+            s: alias of same_strand
             opposite_strand: Merge each strand apart and count only overlaps on opposite strands; unknown strands never match
+            S: alias of opposite_strand
             inclusive_points: A point on the edge of an interval overlaps it (4.3: points)
             sort: Sort the inputs first, for inputs that are unsorted or too large to sort in memory (external sort bounded by --max-mem). The sorted records are written to a temporary file in --tmp-dir and read back, so besides the spill runs (about the size of the input, compressed) the directory needs one uncompressed sorted copy: allow roughly twice the input size. Everything is removed afterwards
             max_mem: Memory budget for --sort, in binary units (K, M, G, T); at least 16M
             tmp_dir: Directory for temporary files: --sort's, and the spills of per-chromosome runs on indexed and plain files; ignored when nothing spills. It must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            g: alias of genome
             chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
@@ -683,16 +793,24 @@ class Pipeline:
         a_format: str | int | float | os.PathLike[str] | None = None,
         b: Source,
         b_format: str | int | float | os.PathLike[str] | None = None,
-        genome: Source,
+        genome: Source | None = None,
+        g: Source | None = None,
         merge_overlaps: bool = False,
+        m: bool = False,
         exclude: Source | None = None,
         min_frac_a: str | int | float | os.PathLike[str] | None = None,
+        f: str | int | float | os.PathLike[str] | None = None,
         min_frac_b: str | int | float | os.PathLike[str] | None = None,
+        F: str | int | float | os.PathLike[str] | None = None,
         reciprocal: bool = False,
+        r: bool = False,
         either: bool = False,
+        e: bool = False,
         min_bases: str | int | float | os.PathLike[str] | None = None,
         same_strand: bool = False,
+        s: bool = False,
         opposite_strand: bool = False,
+        S: bool = False,
         inclusive_points: bool = False,
         sort: bool = False,
         max_mem: str | int | float | os.PathLike[str] | None = None,
@@ -712,15 +830,23 @@ class Pipeline:
             b: B: the file to compare A with (`-` for stdin)
             b_format: B's format, overriding detection: bed, bedgraph, gff, vcf or bcf; bam, cram or sam (alignments are read as intervals, as `intersect` reads them)
             genome: Genome with chromosome lengths: a built-in genome such as hg38 (see gloci genomes), or a .genome, .fai, .dict, VCF/BCF or BAM header file. Its lengths add up to the genome size
+            g: alias of genome
             merge_overlaps: Merge overlapping and bookended intervals of each input before counting (bedtools -m)
+            m: alias of merge_overlaps
             exclude: Leave the merged length of this sorted BED out of the genome size (bedtools -exclude)
             min_frac_a: Minimum fraction of an A interval covered, e.g. 0.5 or 50% (4.3: fractions)
+            f: alias of min_frac_a
             min_frac_b: Minimum fraction of a B interval covered, e.g. 0.5 or 50% (4.3: fractions)
+            F: alias of min_frac_b
             reciprocal: Require both fractions to be met (4.3: -r)
+            r: alias of reciprocal
             either: Require either fraction to be met (4.3: -e)
+            e: alias of either
             min_bases: Minimum number of overlapping bases (4.3: --min-bases)
             same_strand: Count only overlaps on the same strand; with --merge-overlaps each strand merges apart and unknown strands never match
+            s: alias of same_strand
             opposite_strand: Count only overlaps on opposite strands (bedtools -S needs a + or - here; gloci's is a flag, as in the other commands)
+            S: alias of opposite_strand
             inclusive_points: A point on the edge of an interval overlaps it (4.3: points)
             sort: Sort the inputs first, for inputs that are unsorted or too large to sort in memory (external sort bounded by --max-mem). The sorted records are written to a temporary file in --tmp-dir and read back, so besides the spill runs (about the size of the input, compressed) the directory needs one uncompressed sorted copy: allow roughly twice the input size. Everything is removed afterwards
             max_mem: Memory budget for --sort, in binary units (K, M, G, T); at least 16M
@@ -747,6 +873,7 @@ class Pipeline:
         tmp_dir: str | int | float | os.PathLike[str] | None = None,
         unsorted: bool = False,
         genome: Source | None = None,
+        g: Source | None = None,
         chrom_order: Literal["karyotype", "lex"] | None = None,
         vcf_span: Literal["allele", "ref"] | None = None,
         chrom_map: Source | None = None,
@@ -768,6 +895,7 @@ class Pipeline:
             tmp_dir: Directory for temporary files: --sort's, and the spills of per-chromosome runs on indexed and plain files; ignored when nothing spills. It must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
             unsorted: Accept inputs in any order and keep A's order in the output; every -b file is held in memory. Cannot be combined with --sort
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            g: alias of genome
             chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
@@ -783,12 +911,16 @@ class Pipeline:
         self,
         *sources: Source,
         max_gap: str | int | float | os.PathLike[str] | None = None,
+        d: str | int | float | os.PathLike[str] | None = None,
         strand: bool = False,
+        s: bool = False,
         count: bool = False,
-        column: str | Sequence[str] | None = None,
+        column: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+        c: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         empty: str | int | float | os.PathLike[str] | None = None,
         delim: str | int | float | os.PathLike[str] | None = None,
         genome: Source | None = None,
+        g: Source | None = None,
         chrom_order: Literal["karyotype", "lex"] | None = None,
         vcf_span: Literal["allele", "ref"] | None = None,
         chrom_map: Source | None = None,
@@ -802,12 +934,16 @@ class Pipeline:
 
         Args:
             max_gap: Join records up to N bases apart; negative values require that much overlap
+            d: alias of max_gap
             strand: Cluster each strand separately
+            s: alias of strand
             count: Add a column with the number of records in each cluster
             column: Aggregate a column per cluster, such as 5:max or 4:distinct (repeatable; commas also separate)
+            c: alias of column
             empty: Value for an aggregation with no values
             delim: Separator for collapse and distinct lists
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            g: alias of genome
             chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
@@ -822,7 +958,7 @@ class Pipeline:
     def partition(
         self,
         *sources: Source,
-        names: str | Sequence[str] | None = None,
+        names: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         min_files: str | int | float | os.PathLike[str] | None = None,
         max_files: str | int | float | os.PathLike[str] | None = None,
         all: bool = False,
@@ -831,6 +967,7 @@ class Pipeline:
         bedgraph: bool = False,
         empty: str | int | float | os.PathLike[str] | None = None,
         genome: Source | None = None,
+        g: Source | None = None,
         chrom_order: Literal["karyotype", "lex"] | None = None,
         vcf_span: Literal["allele", "ref"] | None = None,
         chrom_map: Source | None = None,
@@ -852,6 +989,7 @@ class Pipeline:
             bedgraph: Inputs are bedGraphs: write one value column per file
             empty: With --bedgraph: the value of a file that does not cover a segment (default 0); also writes the segments no file covers
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            g: alias of genome
             chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
@@ -867,6 +1005,7 @@ class Pipeline:
         self,
         *sources: Source,
         genome: Source | None = None,
+        g: Source | None = None,
         chrom_order: Literal["karyotype", "lex"] | None = None,
         vcf_span: Literal["allele", "ref"] | None = None,
         chrom_map: Source | None = None,
@@ -880,6 +1019,7 @@ class Pipeline:
 
         Args:
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            g: alias of genome
             chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
@@ -895,6 +1035,7 @@ class Pipeline:
         self,
         *sources: Source,
         genome: Source | None = None,
+        g: Source | None = None,
         chrom_order: Literal["karyotype", "lex"] | None = None,
         format: str | int | float | os.PathLike[str] | None = None,
         max_mem: str | int | float | os.PathLike[str] | None = None,
@@ -903,8 +1044,11 @@ class Pipeline:
         unique: bool = False,
         duplicates: bool = False,
         merge_sorted: bool = False,
+        m: bool = False,
         by_name: bool = False,
+        n: bool = False,
         by_name_bytes: bool = False,
+        N: bool = False,
         reference: Source | None = None,
         header: bool = False,
         skip_invalid: bool = False,
@@ -914,6 +1058,7 @@ class Pipeline:
 
         Args:
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            g: alias of genome
             chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
             max_mem: Memory budget for sorting, in binary units (K, M, G, T); at least 16M
@@ -922,8 +1067,11 @@ class Pipeline:
             unique: Write one copy of each distinct record (implies --full-key)
             duplicates: Write one copy of each record that occurs more than once (implies --full-key)
             merge_sorted: Merge inputs that are already sorted instead of sorting them
+            m: alias of merge_sorted
             by_name: Alignments: sort by read name, in natural order (r2 before r10), as samtools sort -n
+            n: alias of by_name
             by_name_bytes: Alignments: sort by read name as bytes (r10 before r2), as samtools sort -N
+            N: alias of by_name_bytes
             reference: The FASTA a CRAM input was made with (bedtools --cram-ref), with its .fai (and .gzi when BGZF). Not needed for a CRAM written without a reference
             header: Keep header lines in the output
             skip_invalid: Skip invalid records with a warning instead of failing
@@ -951,25 +1099,37 @@ class Pipeline:
         self,
         *sources: Source,
         file_list: Source | None = None,
+        l: Source | None = None,
         merge: Literal["none", "snps", "indels", "both", "all", "id"] | None = None,
+        m: Literal["none", "snps", "indels", "both", "all", "id"] | None = None,
         force_samples: bool = False,
         info_rules: str | int | float | os.PathLike[str] | None = None,
+        i: str | int | float | os.PathLike[str] | None = None,
         missing_to_ref: bool = False,
         apply_filters: str | int | float | os.PathLike[str] | None = None,
+        f: str | int | float | os.PathLike[str] | None = None,
         filter_logic: Literal["+", "x"] | None = None,
+        F: Literal["+", "x"] | None = None,
         chrom_order: Literal["karyotype", "lex"] | None = None,
     ) -> Pipeline:
         """Combine the samples of several VCF/BCF files (bcftools merge)
 
         Args:
             file_list: Read the input file names from FILE, one per line (bcftools -l)
+            l: alias of file_list
             merge: Which records at one position are merged into one (bcftools -m): none (only records with the same alleles), snps, indels, both (SNPs together and indels together; the default), all (any records) or id (records with the same ID)
+            m: alias of merge
             force_samples: Rename a repeated sample name to N:NAME (N is the number of its file) instead of failing
             info_rules: How INFO tags are merged, TAG:METHOD with METHOD one of sum, avg, min, max, join, comma-separated; `-` for none. The default is DP:sum,DP4:sum (and AC:sum,AN:sum when there are no samples; with samples AC and AN are recomputed from the merged genotypes). A tag with no rule takes the first record's value; Number=A and R tags are re-indexed to the merged alleles
+            i: alias of info_rules
             missing_to_ref: Fill a sample absent from a record with 0/0 instead of ./. (bcftools -0)
             apply_filters: Skip, before merging, the records whose FILTER has none of these names (comma-separated; `.` is a missing FILTER, PASS is PASS)
+            f: alias of apply_filters
             filter_logic: What to do with the FILTER of merged records: + (all filters kept, PASS dropped when another filter is set; the default) or x (PASS in any input makes the result PASS)
+            F: alias of filter_logic
             chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
+
+        Not Python identifiers, so not parameters: 0. Pass them as **{"0": True}.
 
         CLI: gloci vcf merge
         """
@@ -994,7 +1154,7 @@ class Pipeline:
         exclude_flags: str | int | float | os.PathLike[str] | None = None,
         reference: Source | None = None,
         skip_mate_overlap: bool = False,
-        region: str | Sequence[str] | None = None,
+        region: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         regions_file: Source | None = None,
         chrom_map: Source | None = None,
         column_names: bool = False,
@@ -1042,12 +1202,13 @@ class Pipeline:
     def view(
         self,
         *,
-        regions: str | Sequence[str] | None = None,
-        region: str | Sequence[str] | None = None,
+        regions: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+        region: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         regions_file: Source | None = None,
         inclusive_points: bool = False,
         assume_sorted: bool = False,
         genome: Source | None = None,
+        g: Source | None = None,
         chrom_order: Literal["karyotype", "lex"] | None = None,
         header_only: bool = False,
         no_header: bool = False,
@@ -1070,6 +1231,7 @@ class Pipeline:
             inclusive_points: A point on the edge of a region overlaps it
             assume_sorted: Find regions in an uncompressed BED file without an index by binary search, like bedextract. Fast, but it trusts that the file is sorted (in -g or --chrom-order order) and checks only the chromosome block it reads; on an unsorted file the answer can be incomplete
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            g: alias of genome
             chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             header_only: Write only the header lines
             no_header: Write only the records, without the header
@@ -1090,7 +1252,7 @@ class Pipeline:
         *,
         split_alleles: bool = False,
         types: Literal["snv", "mnv", "ins", "del", "sv", "ref", "other"] | Sequence[Literal["snv", "mnv", "ins", "del", "sv", "ref", "other"]] | None = None,
-        feature: str | Sequence[str] | None = None,
+        feature: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         name_attr: str | int | float | os.PathLike[str] | None = None,
         blocks: bool = False,
         bed12: bool = False,
@@ -1139,11 +1301,13 @@ class Pipeline:
         self,
         *,
         both: str | int | float | os.PathLike[str] | None = None,
+        b: str | int | float | os.PathLike[str] | None = None,
         left: str | int | float | os.PathLike[str] | None = None,
         right: str | int | float | os.PathLike[str] | None = None,
         s: bool = False,
         pct: bool = False,
         genome: Source | None = None,
+        g: Source | None = None,
         format: str | int | float | os.PathLike[str] | None = None,
         header: bool = False,
         skip_invalid: bool = False,
@@ -1153,11 +1317,13 @@ class Pipeline:
 
         Args:
             both: Pad both sides by N
+            b: alias of both
             left: Pad the left side (smaller coordinates) by N
             right: Pad the right side by N
             s: Swap --left and --right for minus-strand records
             pct: Read each amount as a fraction of the feature length (0.5 or 50%, floored) instead of bases
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            g: alias of genome
             format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
             header: Keep header lines in the output
             skip_invalid: Skip invalid records with a warning instead of failing
@@ -1169,11 +1335,13 @@ class Pipeline:
         self,
         *,
         both: str | int | float | os.PathLike[str] | None = None,
+        b: str | int | float | os.PathLike[str] | None = None,
         left: str | int | float | os.PathLike[str] | None = None,
         right: str | int | float | os.PathLike[str] | None = None,
         s: bool = False,
         pct: bool = False,
         genome: Source | None = None,
+        g: Source | None = None,
         format: str | int | float | os.PathLike[str] | None = None,
         header: bool = False,
         skip_invalid: bool = False,
@@ -1183,11 +1351,13 @@ class Pipeline:
 
         Args:
             both: Pad both sides by N
+            b: alias of both
             left: Pad the left side (smaller coordinates) by N
             right: Pad the right side by N
             s: Swap --left and --right for minus-strand records
             pct: Read each amount as a fraction of the feature length (0.5 or 50%, floored) instead of bases
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            g: alias of genome
             format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
             header: Keep header lines in the output
             skip_invalid: Skip invalid records with a warning instead of failing
@@ -1202,6 +1372,7 @@ class Pipeline:
         s: bool = False,
         pct: bool = False,
         genome: Source | None = None,
+        g: Source | None = None,
         format: str | int | float | os.PathLike[str] | None = None,
         header: bool = False,
         skip_invalid: bool = False,
@@ -1214,6 +1385,7 @@ class Pipeline:
             s: Negate the shift for minus-strand records (unknown strand counts as +)
             pct: Read --by as a fraction of the feature length (0.5, -25%, floored) instead of bases
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            g: alias of genome
             format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
             header: Keep header lines in the output
             skip_invalid: Skip invalid records with a warning instead of failing
@@ -1225,8 +1397,11 @@ class Pipeline:
         self,
         *,
         max_gap: str | int | float | os.PathLike[str] | None = None,
+        d: str | int | float | os.PathLike[str] | None = None,
         strand: bool = False,
+        s: bool = False,
         genome: Source | None = None,
+        g: Source | None = None,
         chrom_order: Literal["karyotype", "lex"] | None = None,
         vcf_span: Literal["allele", "ref"] | None = None,
         chrom_map: Source | None = None,
@@ -1241,8 +1416,11 @@ class Pipeline:
 
         Args:
             max_gap: Join records up to N bases apart; negative values require that much overlap
+            d: alias of max_gap
             strand: Cluster each strand separately
+            s: alias of strand
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            g: alias of genome
             chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
@@ -1259,6 +1437,7 @@ class Pipeline:
         self,
         *,
         genome: Source | None = None,
+        g: Source | None = None,
         chrom_order: Literal["karyotype", "lex"] | None = None,
         vcf_span: Literal["allele", "ref"] | None = None,
         chrom_map: Source | None = None,
@@ -1273,6 +1452,7 @@ class Pipeline:
 
         Args:
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            g: alias of genome
             chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
@@ -1288,8 +1468,10 @@ class Pipeline:
     def groupby(
         self,
         *,
-        group: str | int | float | os.PathLike[str],
-        column: str | Sequence[str],
+        group: str | int | float | os.PathLike[str] | None = None,
+        g: str | int | float | os.PathLike[str] | None = None,
+        column: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+        c: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         header: bool = False,
         empty: str | int | float | os.PathLike[str] | None = None,
         delim: str | int | float | os.PathLike[str] | None = None,
@@ -1298,7 +1480,9 @@ class Pipeline:
 
         Args:
             group: Key columns: 1-based numbers (or names with --header), comma-separated
+            g: alias of group
             column: Aggregate a column per group, such as 5:sum or 4:collapse (repeatable; commas also separate)
+            c: alias of column
             header: The first line names the columns (allowing names in -g and -c) and the output starts with a line naming its columns
             empty: Value for an aggregation with no values
             delim: Separator for collapse and distinct lists
@@ -1309,6 +1493,7 @@ class Pipeline:
         self,
         *,
         genome: Source | None = None,
+        g: Source | None = None,
         hist: bool = False,
         bedgraph: bool = False,
         bga: bool = False,
@@ -1335,6 +1520,7 @@ class Pipeline:
 
         Args:
             genome: Chromosome order and sizes (required unless the input is BAM, CRAM or SAM, which gives its header's): a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome or .dict file
+            g: alias of genome
             hist: Write the histogram of depths (the default)
             bedgraph: Write runs of equal depth above zero as bedGraph
             bga: Write runs of equal depth as bedGraph, zero-depth runs included
@@ -1357,24 +1543,26 @@ class Pipeline:
             max_mem: Memory budget for --sort, in binary units (K, M, G, T); at least 16M
             tmp_dir: Directory for --sort's temporary files, ignored without --sort; it must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
 
+        Not Python identifiers, so not parameters: 5p, 3p. Pass them as **{"5p": True}.
+
         CLI: gloci genomecov
         """
     def vcf_filter(
         self,
         *,
-        samples: str | Sequence[str] | None = None,
+        samples: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         samples_file: Source | None = None,
-        exclude_samples: str | Sequence[str] | None = None,
+        exclude_samples: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         exclude_samples_file: Source | None = None,
         min_gq: str | int | float | os.PathLike[str] | None = None,
         min_dp: str | int | float | os.PathLike[str] | None = None,
         max_dp: str | int | float | os.PathLike[str] | None = None,
         mask_filtered_genotypes: bool = False,
-        region: str | Sequence[str] | None = None,
+        region: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         regions_file: Source | None = None,
         exclude_regions_file: Source | None = None,
-        chrom: str | Sequence[str] | None = None,
-        exclude_chrom: str | Sequence[str] | None = None,
+        chrom: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+        exclude_chrom: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         positions: Source | None = None,
         exclude_positions: Source | None = None,
         ids: Source | None = None,
@@ -1386,10 +1574,10 @@ class Pipeline:
         biallelic: bool = False,
         min_qual: str | int | float | os.PathLike[str] | None = None,
         pass_only: bool = False,
-        keep_filter: str | Sequence[str] | None = None,
-        remove_filter: str | Sequence[str] | None = None,
-        require_info: str | Sequence[str] | None = None,
-        exclude_info: str | Sequence[str] | None = None,
+        keep_filter: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+        remove_filter: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+        require_info: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+        exclude_info: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         include: str | int | float | os.PathLike[str] | None = None,
         exclude: str | int | float | os.PathLike[str] | None = None,
         min_maf: str | int | float | os.PathLike[str] | None = None,
@@ -1404,8 +1592,8 @@ class Pipeline:
         thin: str | int | float | os.PathLike[str] | None = None,
         phased_only: bool = False,
         inclusive_points: bool = False,
-        keep_info: str | Sequence[str] | None = None,
-        drop_info: str | Sequence[str] | None = None,
+        keep_info: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+        drop_info: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         recalc_ac: bool = False,
         format: str | int | float | os.PathLike[str] | None = None,
         vcf_span: Literal["allele", "ref"] | None = None,
@@ -1470,19 +1658,19 @@ class Pipeline:
     def vcf_extract(
         self,
         *,
-        samples: str | Sequence[str] | None = None,
+        samples: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         samples_file: Source | None = None,
-        exclude_samples: str | Sequence[str] | None = None,
+        exclude_samples: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         exclude_samples_file: Source | None = None,
         min_gq: str | int | float | os.PathLike[str] | None = None,
         min_dp: str | int | float | os.PathLike[str] | None = None,
         max_dp: str | int | float | os.PathLike[str] | None = None,
         mask_filtered_genotypes: bool = False,
-        region: str | Sequence[str] | None = None,
+        region: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         regions_file: Source | None = None,
         exclude_regions_file: Source | None = None,
-        chrom: str | Sequence[str] | None = None,
-        exclude_chrom: str | Sequence[str] | None = None,
+        chrom: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+        exclude_chrom: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         positions: Source | None = None,
         exclude_positions: Source | None = None,
         ids: Source | None = None,
@@ -1494,10 +1682,10 @@ class Pipeline:
         biallelic: bool = False,
         min_qual: str | int | float | os.PathLike[str] | None = None,
         pass_only: bool = False,
-        keep_filter: str | Sequence[str] | None = None,
-        remove_filter: str | Sequence[str] | None = None,
-        require_info: str | Sequence[str] | None = None,
-        exclude_info: str | Sequence[str] | None = None,
+        keep_filter: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+        remove_filter: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+        require_info: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+        exclude_info: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         include: str | int | float | os.PathLike[str] | None = None,
         exclude: str | int | float | os.PathLike[str] | None = None,
         min_maf: str | int | float | os.PathLike[str] | None = None,
@@ -1512,8 +1700,8 @@ class Pipeline:
         thin: str | int | float | os.PathLike[str] | None = None,
         phased_only: bool = False,
         inclusive_points: bool = False,
-        info: str | Sequence[str] | None = None,
-        format: str | Sequence[str] | None = None,
+        info: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+        format: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         layout: Literal["wide", "long"] | None = None,
         out_prefix: str | int | float | os.PathLike[str] | None = None,
         max_mem: str | int | float | os.PathLike[str] | None = None,
@@ -1596,21 +1784,31 @@ class Pipeline:
     def vcf_norm(
         self,
         *,
-        fasta: Source,
+        fasta: Source | None = None,
+        f: Source | None = None,
+        fasta_ref: Source | None = None,
         split: Literal["snps", "indels", "both", "any"] | None = None,
         check_ref: Literal["e", "w", "x", "s"] | None = None,
+        c: Literal["e", "w", "x", "s"] | None = None,
         rm_dup: Literal["snps", "indels", "both", "all", "exact"] | None = None,
+        d: Literal["snps", "indels", "both", "all", "exact"] | None = None,
         window: str | int | float | os.PathLike[str] | None = None,
+        w: str | int | float | os.PathLike[str] | None = None,
         skip_invalid: bool = False,
     ) -> Pipeline:
         """Left-align and normalise records against a reference (bcftools norm -f)
 
         Args:
             fasta: Reference FASTA, with its .fai (and .gzi if BGZF-compressed); create them with `gloci index REF`
+            f: alias of fasta
+            fasta_ref: alias of fasta
             split: Split multi-allelic records first, as `bcftools norm -m-TYPES -f`: snps, indels, both or any (the default; bcftools splits both and any alike). The same split as `gloci vcf split`
             check_ref: What to do with a record whose REF is not the FASTA's (or has a base other than ACGTN, or an ALT equal to REF): e (fail, the default), w (warn, write the record as it is), x (drop it) or s (set REF from the FASTA; an ALT that equals the FASTA is swapped into REF and GT is recoded)
+            c: alias of check_ref
             rm_dup: Remove duplicate records after normalising, keeping the first: snps (a SNP or MNP record at the position of a kept one), indels, both (each type on its own), all (any record at a kept record's position) or exact (the same REF and ALT alleles)
+            d: alias of rm_dup
             window: Records that move left are re-sorted within this many bases (bcftools --site-win). A window smaller than the largest shift can order records differently from bcftools; the default 1000 matches it
+            w: alias of window
             skip_invalid: Skip invalid records with a warning instead of failing
 
         CLI: gloci vcf norm
@@ -1619,11 +1817,16 @@ class Pipeline:
         self,
         *,
         annotations: Source | None = None,
+        a: Source | None = None,
         columns: str | int | float | os.PathLike[str] | None = None,
+        c: str | int | float | os.PathLike[str] | None = None,
         remove: str | int | float | os.PathLike[str] | None = None,
+        x: str | int | float | os.PathLike[str] | None = None,
         header_lines: Source | None = None,
         set_id: str | int | float | os.PathLike[str] | None = None,
+        I: str | int | float | os.PathLike[str] | None = None,
         mark_sites: str | int | float | os.PathLike[str] | None = None,
+        m: str | int | float | os.PathLike[str] | None = None,
         min_overlap: str | int | float | os.PathLike[str] | None = None,
         chrom_order: Literal["karyotype", "lex"] | None = None,
         skip_invalid: bool = False,
@@ -1632,11 +1835,16 @@ class Pipeline:
 
         Args:
             annotations: The annotation source: a VCF/BCF, a tab-delimited file (plain or BGZF) or a BED file, sorted in FILE's chromosome order. A tab file needs --columns; a BED file is a tab file named *.bed, *.bed.gz or *.bed.bgz (0-based starts)
+            a: alias of annotations
             columns: What to take from --annotations, comma-separated: ID, QUAL, FILTER, INFO/TAG or TAG, NEW:=OLD (a VCF source's OLD stored as NEW), INFO (every tag of a VCF source), ^INFO/TAG (INFO without it), +TAG (only fill missing values), .TAG (carry a tab file's missing values) and `-` (skip a tab column). A tab file's list also names its columns: CHROM, POS (or FROM and TO) and optionally REF and ALT, in file order, e.g. CHROM,POS,REF,ALT,ID,INFO/AF
+            c: alias of columns
             remove: Remove, comma-separated: ID, QUAL, FILTER, INFO, FORMAT (GT is kept), INFO/TAG, FORMAT/TAG, FILTER/NAME, or ##key for a header line. A leading ^ (^INFO/TAG, ^FORMAT/TAG, ^FILTER/NAME) keeps only the listed tags of that kind and removes the rest. Their header lines go too. Removals run before anything is transferred
+            x: alias of remove
             header_lines: Append the header lines of FILE (## lines such as ##INFO=<...>) to the header; they can declare a tag --columns then uses
             set_id: Write IDs from a format of %CHROM, %POS, %REF, %FIRST_ALT, %ID and %INFO/TAG; a leading + sets only missing IDs, e.g. '+%CHROM:%POS:%REF:%FIRST_ALT'. A tag name is letters, digits, _ and . only: write %POS:%REF, not %POS_%REF
+            I: alias of set_id
             mark_sites: Add INFO/TAG as a flag to the records that have a match in --annotations (+TAG, or TAG) or that have none (-TAG); without --annotations every record gets it
+            m: alias of mark_sites
             min_overlap: For a BED or FROM,TO annotation file: the fraction of the annotation (ANN), of the record (:VCF) or of both (ANN:VCF) that must overlap
             chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             skip_invalid: Skip invalid records with a warning instead of failing
@@ -1646,7 +1854,8 @@ class Pipeline:
     def getfasta(
         self,
         *,
-        fasta: Source,
+        fasta: Source | None = None,
+        f: Source | None = None,
         s: bool = False,
         name: bool = False,
         name_only: bool = False,
@@ -1663,6 +1872,7 @@ class Pipeline:
 
         Args:
             fasta: The FASTA to read (plain or BGZF), with its .fai (and .gzi) beside it
+            f: alias of fasta
             s: Reverse-complement minus-strand records and add the strand to the header
             name: Header `name::chrom:start-end`
             name_only: Header `name`
@@ -1680,11 +1890,13 @@ class Pipeline:
     def nuc(
         self,
         *,
-        fasta: Source,
+        fasta: Source | None = None,
+        f: Source | None = None,
         s: bool = False,
         seq: bool = False,
         pattern: str | int | float | os.PathLike[str] | None = None,
         ignore_case: bool = False,
+        C: bool = False,
         format: str | int | float | os.PathLike[str] | None = None,
         vcf_span: Literal["allele", "ref"] | None = None,
         chrom_map: Source | None = None,
@@ -1694,10 +1906,12 @@ class Pipeline:
 
         Args:
             fasta: The FASTA to read (plain or BGZF), with its .fai (and .gzi) beside it
+            f: alias of fasta
             s: Reverse-complement minus-strand records before counting
             seq: Add the sequence as a column
             pattern: Add a column counting this pattern (overlapping matches)
             ignore_case: Match --pattern without regard to case
+            C: alias of ignore_case
             format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
@@ -1708,7 +1922,8 @@ class Pipeline:
     def sample(
         self,
         *,
-        count: str | int | float | os.PathLike[str],
+        count: str | int | float | os.PathLike[str] | None = None,
+        n: str | int | float | os.PathLike[str] | None = None,
         strand: Literal["+", "-"] | None = None,
         seed: str | int | float | os.PathLike[str] | None = None,
         format: str | int | float | os.PathLike[str] | None = None,
@@ -1720,6 +1935,7 @@ class Pipeline:
 
         Args:
             count: How many records to keep
+            n: alias of count
             strand: Sample only the records on this strand (+ or -)
             seed: Seed for the random stream, so a run can be reproduced (default: a fresh seed, which is printed as a warning)
             format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
@@ -1732,7 +1948,8 @@ class Pipeline:
     def shuffle(
         self,
         *,
-        genome: Source,
+        genome: Source | None = None,
+        g: Source | None = None,
         include: Source | None = None,
         exclude: Source | None = None,
         same_chrom: bool = False,
@@ -1750,6 +1967,7 @@ class Pipeline:
 
         Args:
             genome: Chromosomes and lengths: a built-in genome such as hg38 (see gloci genomes), or a .genome, .fai or .dict file
+            g: alias of genome
             include: Keep records inside these regions (BED, GFF or VCF; default: the whole genome)
             exclude: Keep records off these regions (BED, GFF or VCF)
             same_chrom: Keep each record on its own chromosome (bedtools -chrom)
@@ -1768,12 +1986,12 @@ class Pipeline:
     def faidx(
         self,
         *,
-        regions: str | Sequence[str] | None = None,
+        regions: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         line_width: str | int | float | os.PathLike[str] | None = None,
         reverse_complement: bool = False,
         mark_strand: str | int | float | os.PathLike[str] | None = None,
         skip_invalid: bool = False,
-        region: str | Sequence[str] | None = None,
+        region: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         regions_file: Source | None = None,
     ) -> Pipeline:
         """Write regions of an indexed FASTA (samtools faidx)
@@ -1911,9 +2129,12 @@ class Pipeline:
         self,
         *,
         genome: Source | None = None,
+        g: Source | None = None,
         size: str | int | float | os.PathLike[str] | None = None,
+        w: str | int | float | os.PathLike[str] | None = None,
         step: str | int | float | os.PathLike[str] | None = None,
         count: str | int | float | os.PathLike[str] | None = None,
+        n: str | int | float | os.PathLike[str] | None = None,
         reverse: bool = False,
         id_column: bool = False,
         format: str | int | float | os.PathLike[str] | None = None,
@@ -1925,9 +2146,12 @@ class Pipeline:
 
         Args:
             genome: Cut every chromosome of a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome or .dict file with lengths
+            g: alias of genome
             size: Window size in bases
+            w: alias of size
             step: Distance between window starts (default: the window size)
             count: Split every interval into COUNT windows
+            n: alias of count
             reverse: Number the windows from the end of the interval
             id_column: Append the 1-based window number of each source interval
             format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
@@ -1978,19 +2202,19 @@ def vcf_stats(
     src: Source,
     *,
     out: str | os.PathLike[str],
-    samples: str | Sequence[str] | None = None,
+    samples: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     samples_file: Source | None = None,
-    exclude_samples: str | Sequence[str] | None = None,
+    exclude_samples: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     exclude_samples_file: Source | None = None,
     min_gq: str | int | float | os.PathLike[str] | None = None,
     min_dp: str | int | float | os.PathLike[str] | None = None,
     max_dp: str | int | float | os.PathLike[str] | None = None,
     mask_filtered_genotypes: bool = False,
-    region: str | Sequence[str] | None = None,
+    region: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     regions_file: Source | None = None,
     exclude_regions_file: Source | None = None,
-    chrom: str | Sequence[str] | None = None,
-    exclude_chrom: str | Sequence[str] | None = None,
+    chrom: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+    exclude_chrom: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     positions: Source | None = None,
     exclude_positions: Source | None = None,
     ids: Source | None = None,
@@ -2002,10 +2226,10 @@ def vcf_stats(
     biallelic: bool = False,
     min_qual: str | int | float | os.PathLike[str] | None = None,
     pass_only: bool = False,
-    keep_filter: str | Sequence[str] | None = None,
-    remove_filter: str | Sequence[str] | None = None,
-    require_info: str | Sequence[str] | None = None,
-    exclude_info: str | Sequence[str] | None = None,
+    keep_filter: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+    remove_filter: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+    require_info: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+    exclude_info: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     include: str | int | float | os.PathLike[str] | None = None,
     exclude: str | int | float | os.PathLike[str] | None = None,
     min_maf: str | int | float | os.PathLike[str] | None = None,
@@ -2033,14 +2257,19 @@ def vcf_stats(
     hardy: bool = False,
     singletons: bool = False,
     filter_summary: bool = False,
+    FILTER_summary: bool = False,
     tstv_summary: bool = False,
+    TsTv_summary: bool = False,
     indel_hist: bool = False,
+    hist_indel_len: bool = False,
     snp_density: str | int | float | os.PathLike[str] | None = None,
+    SNPdensity: str | int | float | os.PathLike[str] | None = None,
     summary: bool = False,
     json: bool = False,
     vcf_span: Literal["allele", "ref"] | None = None,
     chrom_map: Source | None = None,
     threads: str | int | float | os.PathLike[str] | None = None,
+    t: str | int | float | os.PathLike[str] | None = None,
     skip_invalid: bool = False,
 ) -> list[pathlib.Path]:
     """Compute statistics in one pass: per-site, per-sample and whole-file, written as PREFIX.<ext> in vcftools' formats, plus a summary
@@ -2103,14 +2332,19 @@ def vcf_stats(
         hardy: Hardy-Weinberg test per site: PREFIX.hwe (vcftools --hardy)
         singletons: Singleton and doubleton alleles: PREFIX.singletons (vcftools --singletons)
         filter_summary: Records per FILTER value: PREFIX.FILTER.summary (vcftools --FILTER-summary)
+        FILTER_summary: alias of filter_summary
         tstv_summary: Substitution types and Ts/Tv: PREFIX.TsTv.summary (vcftools --TsTv-summary)
+        TsTv_summary: alias of tstv_summary
         indel_hist: Histogram of indel lengths: PREFIX.indel.hist (vcftools --hist-indel-len)
+        hist_indel_len: alias of indel_hist
         snp_density: SNPs per BIN bases: PREFIX.snpden (vcftools --SNPdensity). Needs input sorted by chromosome and position
+        SNPdensity: alias of snp_density
         summary: A short overview in PREFIX.summary.txt: records by type, Ts/Tv, samples, mean depth and missingness. A record's type is that of its ALT alleles when they agree: snp, mnp or indel (a multi-allelic record of SNPs only is snp). Mixed ALTs, such as a SNP with an indel, are other, and other also takes structural variants (sv is not a type of its own). A `<*>` ALT is ignored beside a real one; a record whose only ALT is `<*>` or `.` is ref. Ts/Tv counts biallelic single-base SNPs only
         json: The same overview as JSON in PREFIX.summary.json. Keys are sorted; "schema_version" is 1. Layout: counts_by_type {indel, mnp, other, ref, snp}, depth {mean, values}, genotypes {filtered, missing, missing_fraction, total}, multiallelic_sites, records, samples, schema_version, ts_tv {ratio, transitions, transversions}. A ratio that has no denominator is null
         vcf_span: Which footprint a VCF record covers: the allele span or the REF span. The statistics do not depend on it, so the default is ref, which accepts symbolic ALTs without INFO/END; it only matters for --region
         chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
         threads: Number of threads (default: all available cores)
+        t: alias of threads
         skip_invalid: Skip invalid records with a warning instead of failing
 
     CLI: gloci vcf stats
@@ -2120,19 +2354,19 @@ def vcf_extract_matrix(
     src: Source,
     *,
     out: str | os.PathLike[str],
-    samples: str | Sequence[str] | None = None,
+    samples: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     samples_file: Source | None = None,
-    exclude_samples: str | Sequence[str] | None = None,
+    exclude_samples: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     exclude_samples_file: Source | None = None,
     min_gq: str | int | float | os.PathLike[str] | None = None,
     min_dp: str | int | float | os.PathLike[str] | None = None,
     max_dp: str | int | float | os.PathLike[str] | None = None,
     mask_filtered_genotypes: bool = False,
-    region: str | Sequence[str] | None = None,
+    region: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     regions_file: Source | None = None,
     exclude_regions_file: Source | None = None,
-    chrom: str | Sequence[str] | None = None,
-    exclude_chrom: str | Sequence[str] | None = None,
+    chrom: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+    exclude_chrom: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     positions: Source | None = None,
     exclude_positions: Source | None = None,
     ids: Source | None = None,
@@ -2144,10 +2378,10 @@ def vcf_extract_matrix(
     biallelic: bool = False,
     min_qual: str | int | float | os.PathLike[str] | None = None,
     pass_only: bool = False,
-    keep_filter: str | Sequence[str] | None = None,
-    remove_filter: str | Sequence[str] | None = None,
-    require_info: str | Sequence[str] | None = None,
-    exclude_info: str | Sequence[str] | None = None,
+    keep_filter: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+    remove_filter: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+    require_info: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+    exclude_info: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     include: str | int | float | os.PathLike[str] | None = None,
     exclude: str | int | float | os.PathLike[str] | None = None,
     min_maf: str | int | float | os.PathLike[str] | None = None,
@@ -2162,17 +2396,19 @@ def vcf_extract_matrix(
     thin: str | int | float | os.PathLike[str] | None = None,
     phased_only: bool = False,
     inclusive_points: bool = False,
-    info: str | Sequence[str] | None = None,
-    format: str | Sequence[str] | None = None,
+    info: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+    format: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     layout: Literal["wide", "long"] | None = None,
     genotype_matrix: Literal["012"] | None = None,
     output: str | int | float | os.PathLike[str] | None = None,
+    o: str | int | float | os.PathLike[str] | None = None,
     compression_level: str | int | float | os.PathLike[str] | None = None,
     max_mem: str | int | float | os.PathLike[str] | None = None,
     tmp_dir: str | int | float | os.PathLike[str] | None = None,
     vcf_span: Literal["allele", "ref"] | None = None,
     chrom_map: Source | None = None,
     threads: str | int | float | os.PathLike[str] | None = None,
+    t: str | int | float | os.PathLike[str] | None = None,
     skip_invalid: bool = False,
 ) -> list[pathlib.Path]:
     """Extract INFO or FORMAT values as a table, or the 012 genotype matrix
@@ -2227,12 +2463,14 @@ def vcf_extract_matrix(
         layout: Layout of --format: wide is one row per site (CHROM POS ID REF ALT, then SAMPLE:KEY columns); long is one row per site and sample (CHROM POS ID REF ALT SAMPLE, then a column per key). Default: wide
         genotype_matrix: Write the genotype matrix to --out-prefix.012 (a row per sample: its index, then the count of non-reference alleles at each site, -1 when missing), --out-prefix.012.indv (sample names) and --out-prefix.012.pos (CHROM and POS of each site). Multi-allelic sites are left out, as in vcftools --012. Memory stays within --max-mem: the codes spill to a temporary file in --tmp-dir beyond it and the rows are written in blocks of samples. The budget cannot bound a single row: one site's codes (a sample count) or one sample's row (a site count) wider than half the budget is held whole, so memory then exceeds the budget by that row
         output: Write the table to FILE (.tsv or .tsv.gz) instead of stdout
+        o: alias of output
         compression_level: BGZF compression level for a .gz output, 0-12
         max_mem: Memory budget of --genotype-matrix, in binary units (K, M, G, T); at least 16M
         tmp_dir: Directory for temporary spill files; it must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
         vcf_span: Which footprint a VCF record covers: the allele span or the REF span
         chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
         threads: Number of threads (default: all available cores)
+        t: alias of threads
         skip_invalid: Skip invalid records with a warning instead of failing
 
     CLI: gloci vcf extract
@@ -2243,19 +2481,19 @@ def vcf_compare(
     b: Source,
     *,
     out: str | os.PathLike[str],
-    samples: str | Sequence[str] | None = None,
+    samples: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     samples_file: Source | None = None,
-    exclude_samples: str | Sequence[str] | None = None,
+    exclude_samples: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     exclude_samples_file: Source | None = None,
     min_gq: str | int | float | os.PathLike[str] | None = None,
     min_dp: str | int | float | os.PathLike[str] | None = None,
     max_dp: str | int | float | os.PathLike[str] | None = None,
     mask_filtered_genotypes: bool = False,
-    region: str | Sequence[str] | None = None,
+    region: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     regions_file: Source | None = None,
     exclude_regions_file: Source | None = None,
-    chrom: str | Sequence[str] | None = None,
-    exclude_chrom: str | Sequence[str] | None = None,
+    chrom: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+    exclude_chrom: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     positions: Source | None = None,
     exclude_positions: Source | None = None,
     ids: Source | None = None,
@@ -2267,10 +2505,10 @@ def vcf_compare(
     biallelic: bool = False,
     min_qual: str | int | float | os.PathLike[str] | None = None,
     pass_only: bool = False,
-    keep_filter: str | Sequence[str] | None = None,
-    remove_filter: str | Sequence[str] | None = None,
-    require_info: str | Sequence[str] | None = None,
-    exclude_info: str | Sequence[str] | None = None,
+    keep_filter: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+    remove_filter: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+    require_info: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+    exclude_info: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     include: str | int | float | os.PathLike[str] | None = None,
     exclude: str | int | float | os.PathLike[str] | None = None,
     min_maf: str | int | float | os.PathLike[str] | None = None,
@@ -2287,14 +2525,20 @@ def vcf_compare(
     inclusive_points: bool = False,
     match: Literal["alleles", "position"] | None = None,
     sample_map: Source | None = None,
+    diff_indv_map: Source | None = None,
     site_discordance: bool = False,
+    diff_site_discordance: bool = False,
     sample_discordance: bool = False,
+    diff_indv_discordance: bool = False,
     discordance_matrix: bool = False,
+    diff_discordance_matrix: bool = False,
     vcf_span: Literal["allele", "ref"] | None = None,
     genome: Source | None = None,
+    g: Source | None = None,
     chrom_order: Literal["karyotype", "lex"] | None = None,
     chrom_map: Source | None = None,
     threads: str | int | float | os.PathLike[str] | None = None,
+    t: str | int | float | os.PathLike[str] | None = None,
     skip_invalid: bool = False,
 ) -> list[pathlib.Path]:
     """Compare the genotypes of two VCF/BCF files: per site, per sample and as a matrix (vcftools --diff-site-discordance, --diff-indv-discordance, --diff-discordance-matrix)
@@ -2347,14 +2591,20 @@ def vcf_compare(
         inclusive_points: A point on a region's edge overlaps it
         match: How sites of the two files are paired: alleles (the same CHROM and POS and a shared ALT allele; each record of A takes the first unmatched match in B) or position (vcftools: the same POS and REF)
         sample_map: Rename samples of B to their names in A: two columns, the name in B then the name in A, whitespace-separated, `#` comments allowed (vcftools --diff-indv-map). A sample of B the file does not name keeps its name
+        diff_indv_map: alias of sample_map
         site_discordance: Write PREFIX.diff.sites: per site, the common called genotypes and the discordant ones (vcftools --diff-site-discordance)
+        diff_site_discordance: alias of site_discordance
         sample_discordance: Write PREFIX.diff.indv: per sample, the same over the shared sites (vcftools --diff-indv-discordance)
+        diff_indv_discordance: alias of sample_discordance
         discordance_matrix: Write PREFIX.diff.discordance_matrix: genotype of B (rows) by genotype of A (columns), 0/0, 0/1, 1/1 and ./. (vcftools --diff-discordance-matrix)
+        diff_discordance_matrix: alias of discordance_matrix
         vcf_span: Which footprint a VCF record covers, which only matters for --region; the default ref accepts symbolic ALTs without INFO/END
         genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+        g: alias of genome
         chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
         chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
         threads: Number of threads (default: all available cores)
+        t: alias of threads
         skip_invalid: Skip invalid records with a warning instead of failing
 
     CLI: gloci vcf compare
@@ -2364,13 +2614,17 @@ def index(
     path: str | os.PathLike[str],
     *,
     seq_col: str | int | float | os.PathLike[str] | None = None,
+    s: str | int | float | os.PathLike[str] | None = None,
     begin_col: str | int | float | os.PathLike[str] | None = None,
+    b: str | int | float | os.PathLike[str] | None = None,
     end_col: str | int | float | os.PathLike[str] | None = None,
+    e: str | int | float | os.PathLike[str] | None = None,
     zero_based: bool = False,
     skip_lines: str | int | float | os.PathLike[str] | None = None,
     comment: str | int | float | os.PathLike[str] | None = None,
     csi: bool = False,
     threads: str | int | float | os.PathLike[str] | None = None,
+    t: str | int | float | os.PathLike[str] | None = None,
     reference: Source | None = None,
 ) -> list[pathlib.Path]:
     """Build a .tbi/.csi index for a sorted BGZF file, a .bai/.csi for a BAM, a .crai for a CRAM, or a .fai for a FASTA
@@ -2378,13 +2632,17 @@ def index(
     Args:
         path: The file to index: a path (an index is of a file, so no other source will do).
         seq_col: Sequence (chromosome) column, numbered from 1. Selects TSV mode; needs -b
+        s: alias of seq_col
         begin_col: Begin column, numbered from 1. Selects TSV mode; needs -s
+        b: alias of begin_col
         end_col: End column, numbered from 1; without it a feature covers one base. Selects TSV mode
+        e: alias of end_col
         zero_based: The begin column is 0-based (TSV mode)
         skip_lines: Skip the first N lines (TSV mode)
         comment: Lines starting with this character are comments (TSV mode, default #)
         csi: Write a .csi instead of a .bai for a BAM file. A BAM with a reference longer than 2^29 always gets one
         threads: Number of threads (default: all available cores)
+        t: alias of threads
         reference: The FASTA a CRAM was made with. Indexing a CRAM reads no reference bases, so it is optional; when given, its sequence lengths are checked against the CRAM's header
 
     CLI: gloci index
@@ -2393,9 +2651,12 @@ def index(
 def windows(
     *,
     genome: Source | None = None,
+    g: Source | None = None,
     size: str | int | float | os.PathLike[str] | None = None,
+    w: str | int | float | os.PathLike[str] | None = None,
     step: str | int | float | os.PathLike[str] | None = None,
     count: str | int | float | os.PathLike[str] | None = None,
+    n: str | int | float | os.PathLike[str] | None = None,
     reverse: bool = False,
     id_column: bool = False,
     format: str | int | float | os.PathLike[str] | None = None,
@@ -2407,9 +2668,12 @@ def windows(
 
     Args:
         genome: Cut every chromosome of a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome or .dict file with lengths
+        g: alias of genome
         size: Window size in bases
+        w: alias of size
         step: Distance between window starts (default: the window size)
         count: Split every interval into COUNT windows
+        n: alias of count
         reverse: Number the windows from the end of the interval
         id_column: Append the 1-based window number of each source interval
         format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
@@ -2422,17 +2686,23 @@ def windows(
 
 def random(
     *,
-    genome: Source,
+    genome: Source | None = None,
+    g: Source | None = None,
     length: str | int | float | os.PathLike[str] | None = None,
+    l: str | int | float | os.PathLike[str] | None = None,
     count: str | int | float | os.PathLike[str] | None = None,
+    n: str | int | float | os.PathLike[str] | None = None,
     seed: str | int | float | os.PathLike[str] | None = None,
 ) -> Pipeline:
     """Random intervals placed uniformly over a genome (bedtools random)
 
     Args:
         genome: Chromosomes and lengths: a built-in genome such as hg38 (see gloci genomes), or a .genome, .fai or .dict file
+        g: alias of genome
         length: Length of each interval in bases
+        l: alias of length
         count: How many intervals to write
+        n: alias of count
         seed: Seed for the random stream, so a run can be reproduced (default: a fresh seed, which is printed as a warning)
 
     CLI: gloci random

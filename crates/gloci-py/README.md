@@ -108,10 +108,16 @@ generator, to be safe. Lists, tuples, tables and data frames are read again at e
 
 Each step is a method named after its command: `intersect`, `merge`, `vcf_filter` for
 `gloci vcf filter`, and so on. Keyword arguments are the command's flags, with `-` written as `_`
-(`max_gap=50` is `--max-gap 50`); a flag with no long name keeps its letter (`b=`).
+(`max_gap=50` is `--max-gap 50`); a flag with no long name keeps its letter (`b=`). A one-letter
+short flag (`f=0.5`, `g="hg38"`) and a visible alias (`diff_indv_map=`) are keyword arguments
+too, typed like the long form and documented as "alias of ...". A name that is not a Python
+identifier (`genomecov`'s `--5p` and `--3p`) is not a parameter: pass it as `**{"5p": True}`
+(mypy wants a `# type: ignore[arg-type]` there).
 
 - `True` gives a switch, and `False` or `None` leaves it out.
-- A list repeats the flag (`b=["x.bed", "y.bed"]`, `region=["chr1:1-100", "chr2"]`).
+- A list repeats the flag (`b=["x.bed", "y.bed"]`, `region=["chr1:1-100", "chr2"]`). Its items may be
+  any values (`column=[4, 5]`); a list that mixes sources and paths needs a type for mypy:
+  `several: list[gloci.Source] = ["x.bed", pipeline]`.
 - Any other value is passed as `str(value)`.
 - A step whose command takes several inputs takes the others as positional sources:
   `a.cat("b.bed", "c.bed")`.
@@ -120,6 +126,11 @@ Each step is a method named after its command: `intersect`, `merge`, `vcf_filter
   that says where they go.
 - A pipeline is immutable: each step returns a new one, so a pipeline can be kept, extended in
   two ways, and run again.
+
+```python
+print(gloci.open("a.bed").intersect(b="b.bed", f=0.5, r=True).count())      # f= is min_frac_a=
+print(gloci.windows(g="hg38", w=100_000_000).count())                      # g= is genome=
+```
 
 ```python
 base = gloci.open("a.bed").sort()

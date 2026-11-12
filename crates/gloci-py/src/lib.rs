@@ -160,8 +160,10 @@ fn bindings(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
 
 /// The keyword-only parameters of each step method and module function, from
 /// [`embed::step_signature`] and [`embed::function_signature`] (the stub's source too):
-/// `{name: {"lead", "nary", "out", "args"}}`: `lead` the `(name, help)` of a function's positional
-/// parameters, `out` the help of its `out=` (or None), `args` the keyword names in order.
+/// `{name: {"lead", "nary", "out", "args", "skipped"}}`: `lead` the `(name, help)` of a function's positional
+/// parameters, `out` the help of its `out=` (or None), `args` the keyword parameters in order
+/// (`name`, the arg's clap `id`, `alias_of` its primary name for a short flag or alias, and
+/// `required`), `skipped` the names that are not Python identifiers.
 #[pyfunction]
 fn signatures(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
     guarded(py, || {
@@ -170,8 +172,17 @@ fn signatures(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
             d.set_item("lead", sig.lead.to_vec())?;
             d.set_item("nary", sig.nary)?;
             d.set_item("out", sig.out)?;
-            let args: Vec<String> = sig.args.iter().map(|a| a.kwarg()).collect();
+            let args = PyList::empty(py);
+            for k in &sig.args {
+                let a = PyDict::new(py);
+                a.set_item("name", &k.name)?;
+                a.set_item("id", &k.arg.id)?;
+                a.set_item("alias_of", &k.alias_of)?;
+                a.set_item("required", k.required)?;
+                args.append(a)?;
+            }
             d.set_item("args", args)?;
+            d.set_item("skipped", &sig.skipped)?;
             out.set_item(name, d)
         };
         let out = PyDict::new(py);

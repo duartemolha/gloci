@@ -153,3 +153,20 @@ def test_stub_rejects_wrong_calls(tmp_path: Path) -> None:
     assert status == 1
     for line in (3, 4, 5, 6):
         assert f"bad.py:{line}:" in out, out
+
+
+def test_short_flags_and_aliases_are_parameters() -> None:
+    inter = inspect.signature(gloci.Pipeline.intersect).parameters
+    assert {"min_frac_a", "f", "min_frac_b", "F", "reciprocal", "r"} <= set(inter)
+    assert "alias of min_frac_a" in (inspect.getdoc(gloci.Pipeline.intersect) or "")
+    assert inter["b"].default is inspect.Parameter.empty  # no long form, so no alias: required
+    assert inter["f"].default is None
+    cmp_ = inspect.signature(gloci.vcf_compare).parameters
+    assert "sample_map" in cmp_ and "diff_indv_map" in cmp_
+    rnd = inspect.signature(gloci.random).parameters
+    assert rnd["genome"].default is None and rnd["g"].default is None  # one of them is needed
+    # The names that are not identifiers are in the docstring, not the signature.
+    cov = inspect.signature(gloci.Pipeline.genomecov).parameters
+    assert "5p" not in cov
+    assert '**{"5p": True}' in (inspect.getdoc(gloci.Pipeline.genomecov) or "")
+    gloci.open([("chr1", 1, 5)]).genomecov(**{"5p": True}, genome="hg38").to_bytes()

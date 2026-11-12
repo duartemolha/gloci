@@ -13,13 +13,17 @@
 //! - one that takes a file ([`gloci::embed::ArgSpec::takes_file`]): `Source` (`Source |
 //!   Sequence[Source]` where it may repeat);
 //! - one with possible values: `Literal[...]` (or a sequence of them where it may repeat);
-//! - one that may repeat: `str | Sequence[str]`;
+//! - one that may repeat: `Value | Sequence[Value]`, `Value` being the line below;
 //! - any other: `str | int | float | os.PathLike[str]` (the value is passed as `str()`).
 //!
-//! An argument that is not required is `| None = None`.
+//! An argument that is not required is `| None = None`. Each one-letter short flag and visible
+//! alias is a parameter too, of its long form's type, documented "alias of <long>"; an argument
+//! with such names is never required in the signature (the command line's check says what is
+//! missing). Names that are not Python identifiers (`--5p`) are not parameters; the docstring
+//! says how to pass them.
 
 use anyhow::{Context, Result};
-use gloci::embed::{ArgSpec, BINDINGS, MODULE_FUNCTIONS, Signature};
+use gloci::embed::{BINDINGS, Kw, MODULE_FUNCTIONS, Signature};
 use std::fmt::Write as _;
 use std::path::Path;
 
@@ -216,7 +220,8 @@ const VALUE: &str = "str | int | float | os.PathLike[str]";
 const SOURCE: &str = "Source";
 
 /// The type of a keyword argument, and its default (None for a required one).
-fn kw_type(a: &ArgSpec) -> (String, Option<&'static str>) {
+fn kw_type(k: &Kw) -> (String, Option<&'static str>) {
+    let a = k.arg;
     let base = if !a.takes_value {
         return ("bool".into(), Some("False"));
     } else if a.takes_file {
@@ -240,11 +245,11 @@ fn kw_type(a: &ArgSpec) -> (String, Option<&'static str>) {
             lit
         }
     } else if a.multiple {
-        "str | Sequence[str]".into()
+        format!("{VALUE} | Sequence[{VALUE}]")
     } else {
         VALUE.into()
     };
-    if a.required {
+    if k.required {
         (base, None)
     } else {
         (format!("{base} | None"), Some("None"))
@@ -278,7 +283,7 @@ fn doc_body(text: &str, indent: usize) -> String {
 
 /// A docstring: the about text, `Args:` with each argument's help, and the `CLI:` line. The
 /// runtime builds the same text (`gloci._signature.make_doc`).
-pub fn docstring(about: &str, args: &[(String, String)], cli: &str) -> String {
+pub fn docstring(about: &str, args: &[(String, String)], skipped: &[String], cli: &str) -> String {
     let mut s = squash(about);
     if !args.is_empty() {
         s.push_str("\n\nArgs:");
@@ -290,6 +295,13 @@ pub fn docstring(about: &str, args: &[(String, String)], cli: &str) -> String {
                 let _ = write!(s, "\n    {name}: {help}");
             }
         }
+    }
+    if let Some(first) = skipped.first() {
+        let _ = write!(
+            s,
+            "\n\nNot Python identifiers, so not parameters: {}. Pass them as **{{\"{first}\": True}}.",
+            skipped.join(", ")
+        );
     }
     let _ = write!(s, "\n\nCLI: {cli}");
     s
@@ -311,7 +323,13 @@ fn doc_args(sig: &Signature) -> Vec<(String, String)> {
     if let Some(h) = sig.out {
         v.push(("out".into(), h.into()));
     }
-    v.extend(sig.args.iter().map(|a| (a.kwarg(), a.help.clone())));
+    v.extend(sig.args.iter().map(|k| {
+        let help = match &k.alias_of {
+            Some(long) => format!("alias of {long}"),
+            None => k.arg.help.clone(),
+        };
+        (k.name.clone(), help)
+    }));
     v
 }
 
@@ -334,15 +352,15 @@ fn def(
     if sig.out.is_some() {
         params.push("out: str | os.PathLike[str]".to_string());
     }
-    for a in &sig.args {
-        let (ty, default) = kw_type(a);
+    for k in &sig.args {
+        let (ty, default) = kw_type(k);
         params.push(match default {
-            Some(d) => format!("{}: {ty} = {d}", a.kwarg()),
-            None => format!("{}: {ty}", a.kwarg()),
+            Some(d) => format!("{}: {ty} = {d}", k.name),
+            None => format!("{}: {ty}", k.name),
         });
     }
     let cli = format!("gloci {}", sig.spec.path.join(" "));
-    let doc = docstring(&sig.spec.about, &doc_args(sig), &cli);
+    let doc = docstring(&sig.spec.about, &doc_args(sig), &sig.skipped, &cli);
     let mut s = format!("{pad}def {name}(\n");
     for p in params {
         let _ = writeln!(s, "{inner}{p},");
