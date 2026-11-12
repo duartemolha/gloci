@@ -3,9 +3,9 @@
 //!
 //! The last step writes into a pipe that a host stage reads ([`reread`]), on its own thread and
 //! never holding the GIL. How it reads depends on the step ([`embed::read_back`]):
-//! - **A table** ([`Shape::Table`], [`Shape::HeaderRow`]): each line that is neither blank nor a
-//!   `#` line is a row with no coordinates. A step that prints a header row (`stats jaccard`)
-//!   has it name the columns; it is no row.
+//! - **A table** ([`Shape::Table`], [`Shape::HeaderRow`], [`Shape::HeaderLine`]): each line
+//!   that is neither blank nor a `#` line is a row with no coordinates. A step that prints a
+//!   header row (`stats jaccard`, `groupby --header`) has it name the columns; it is no row.
 //! - **Records**, by their format as gloci's readers tell it from the content:
 //!   - BED, bedGraph, GFF, GTF and VCF, through the format's reader: the coordinates are the
 //!     record's footprint (a VCF record's by the step's `--vcf-span`). A line the reader does
@@ -148,8 +148,9 @@ pub(crate) fn reread(
     )?;
     let mut reader = input.reader;
     match back.shape {
-        Shape::Table => read_table(&mut *reader, display, false, sink)?,
-        Shape::HeaderRow => read_table(&mut *reader, display, true, sink)?,
+        Shape::Table => read_table(&mut *reader, display, TableHeader::None, sink)?,
+        Shape::HeaderRow => read_table(&mut *reader, display, TableHeader::Unprefixed, sink)?,
+        Shape::HeaderLine => read_table(&mut *reader, display, TableHeader::FirstLine, sink)?,
         Shape::Records => {
             let head = reader.fill_buf().map_err(read_error(display))?;
             match detect_format(head) {
@@ -163,7 +164,7 @@ pub(crate) fn reread(
                 }
                 Ok(Format::Fasta) => read_fasta(&mut *reader, display, sink)?,
                 // Text gloci does not read as records (`groupby -g 1`, `getfasta --tab`).
-                _ => read_table(&mut *reader, display, false, sink)?,
+                _ => read_table(&mut *reader, display, TableHeader::None, sink)?,
             }
         }
     }
@@ -197,31 +198,40 @@ fn is_header_line(line: &[u8]) -> bool {
     line.first() == Some(&b'#') || word(b"track") || word(b"browser")
 }
 
-/// A table: every line but blank and `#` lines is a row; with `header_row`, the first is the
-/// header row.
+/// Which line of a table is its header row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TableHeader {
+    None,
+    /// The first line that is not blank and does not start with `#` ([`Shape::HeaderRow`]).
+    Unprefixed,
+    /// The first line that is not blank, `#` or not ([`Shape::HeaderLine`]).
+    FirstLine,
+}
+
+/// A table: every line but blank and `#` lines is a row, but its header row.
 fn read_table(
     r: &mut dyn BufRead,
     display: &str,
-    header_row: bool,
+    header: TableHeader,
     sink: &mut dyn RowSink,
 ) -> anyhow::Result<()> {
     sink.layout(Layout::Table);
     let mut line = Vec::new();
-    let mut header_due = header_row;
+    let mut header_due = header != TableHeader::None;
     let mut rows = 0u64;
     while next_line(r, &mut line, display)? {
         if is_blank(&line) {
+            continue;
+        }
+        if header_due && (header == TableHeader::FirstLine || line[0] != b'#') {
+            header_due = false;
+            sink.names(&line, true);
             continue;
         }
         if line[0] == b'#' {
             if rows == 0 {
                 sink.names(&line, false);
             }
-            continue;
-        }
-        if header_due {
-            header_due = false;
-            sink.names(&line, true);
             continue;
         }
         sink.row(&Row {

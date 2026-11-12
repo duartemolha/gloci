@@ -82,7 +82,8 @@ for r in gloci.open("calls.vcf.gz").intersect(b="targets.bed"):
   writes, or `groupby()` keyed on other columns than 1, 2 and 3; an unmapped read; a line that
   cannot be read as a record.
 - Header lines are not records: `#` lines, SAM's `@` lines, `track` and `browser` lines, and a
-  table's header row (`vcf_extract()`'s `CHROM  POS  ...`), which names its columns.
+  table's header row (`vcf_extract()`'s `CHROM  POS  ...`, `groupby(header=True)`'s first
+  line), which names its columns.
 - Records are handed over in batches of about 4 MiB, so memory stays flat however large the
   output. Breaking out of the loop (or dropping the iterator) stops the steps, and their
   temporary files are removed. An error is raised once the records before it have been given.

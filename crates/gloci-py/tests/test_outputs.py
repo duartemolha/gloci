@@ -514,3 +514,17 @@ def test_tables_do_not_read_back_as_intervals(ab: Path) -> None:
     k = list(gloci.open("a.bed").groupby(g="1,2,3,4", c="5:sum"))
     assert all((r.chrom, r.start, r.end) == (r[0], int(r[1]), int(r[2])) for r in k)
 
+
+def test_groupby_header_names_the_columns(here: Path) -> None:
+    rows = "chr1\t1\t2\ta\t3\nchr1\t5\t6\tb\t4\nchr2\t1\t2\tc\t1\n"
+    for header in ("chrom\tstart\tend\tname\tscore", "#chrom\tstart\tend\tname\tscore"):
+        (here / "t.tsv").write_text(f"{header}\n{rows}")
+        p = gloci.open("t.tsv").groupby(header=True, g="chrom", c="score:sum")
+        lines = p.to_bytes().decode().splitlines()
+        assert lines[0] == header.split("\t")[0] + "\tscore:sum"
+        recs = list(p)
+        # The first line is the header, prefixed or not: two groups, two records.
+        assert [r.line for r in recs] == lines[1:] == ["chr1\t7", "chr2\t1"]
+        assert p.count() == 2
+        if _try_import("pyarrow") is not None:
+            assert p.to_arrow().column_names == ["chrom", "score:sum"]

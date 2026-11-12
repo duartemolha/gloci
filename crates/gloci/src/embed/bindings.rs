@@ -38,6 +38,10 @@ pub enum Shape {
     /// `#`: the header row names the columns and is not a row (`stats jaccard` writes
     /// `intersection  union  jaccard  n_intersections`).
     HeaderRow,
+    /// A table whose header row is its first line that is not blank, whether or not it starts
+    /// with `#` (`groupby --header` writes the input header's key names, with its `#` if it
+    /// had one, and the `-c` labels).
+    HeaderLine,
 }
 
 /// A step's [`Shape`], and the flags that change it.
@@ -150,7 +154,9 @@ pub const BINDINGS: &[Binding] = &[
     one(&["shift"], "shift"),
     one(&["cluster"], "cluster"),
     one(&["spacing"], "spacing"),
-    one(&["groupby"], "groupby"),
+    // --header: the first line names the columns. Without it, records only when keyed on
+    // columns 1,2,3 (read_back).
+    one(&["groupby"], "groupby").shaped(Shape::Records, &[("header", Shape::HeaderLine)]),
     // A histogram, or one depth per base, unless it writes bedGraph.
     one(&["genomecov"], "genomecov").shaped(
         Shape::Table,

@@ -130,6 +130,24 @@ fn has_header_row(out: &[u8]) -> Option<bool> {
     Some((0..head.len()).any(|i| below.iter().all(|r| r.get(i).is_some_and(|f| is_number(f)))))
 }
 
+/// What is wrong with an output whose first line that is not blank is its header (a
+/// [`Shape::HeaderLine`] step), if anything: a number in that line, or a header row after it.
+fn header_line_problem(out: &[u8]) -> Option<String> {
+    let mut lines = out
+        .split(|&b| b == b'\n')
+        .filter(|l| !l.iter().all(u8::is_ascii_whitespace));
+    let first = lines.next()?;
+    if first.split(|&b| b == b'\t').any(is_number) {
+        return Some(format!(
+            "is marked Shape::HeaderLine, but its first line ({}) holds a number",
+            String::from_utf8_lossy(first)
+        ));
+    }
+    let rest: Vec<u8> = lines.flat_map(|l| l.iter().chain(b"\n")).copied().collect();
+    (has_header_row(&rest) == Some(true))
+        .then(|| "is marked Shape::HeaderLine, but a header row follows its first line".into())
+}
+
 fn command_of(argv: &[OsString]) -> Option<&'static embed::Binding> {
     let words: Vec<String> = argv[1..]
         .iter()
@@ -155,6 +173,14 @@ fn every_step_that_prints_a_header_row_is_marked() {
             continue;
         };
         checked.push(b.method);
+        if back.shape == Shape::HeaderLine {
+            // The header is the first line, prefixed or not: it holds no number, and no header
+            // row follows it.
+            if let Some(why) = header_line_problem(&case.out) {
+                wrong.push(format!("{} ({}): {why}", case.name, b.method));
+            }
+            continue;
+        }
         let marked = back.shape == Shape::HeaderRow;
         if seen != marked {
             wrong.push(format!(
@@ -217,6 +243,7 @@ fn the_marked_steps() {
             "depth: Table",
             "samples: Table",
             "view: Records (count: Table)",
+            "groupby: Records (header: HeaderLine)",
             "genomecov: Table (bedgraph: Records, bga: Records)",
             "vcf extract: HeaderRow",
             "getfasta: Records (tab: Table)",
@@ -308,6 +335,15 @@ fn read_back_follows_the_flags_given() {
     // A module source is no step: it writes records.
     assert_eq!(back("windows -g g.txt -w 10").shape, Shape::Records);
     // The footprint of VCF records is the step's --vcf-span, else the allele span.
+    // groupby --header: its first line is the header, `#` or not, whatever the keys.
+    assert_eq!(
+        back("groupby t.tsv --header -g 1 -c 5:sum").shape,
+        Shape::HeaderLine
+    );
+    assert_eq!(
+        back("groupby t.tsv --header -g 1,2,3 -c 5:sum").shape,
+        Shape::HeaderLine
+    );
     assert_eq!(back("view x.vcf").vcf_span, VcfSpan::Allele);
     assert_eq!(back("view x.vcf --vcf-span ref").vcf_span, VcfSpan::Ref);
     assert_eq!(back("cluster x.vcf --vcf-span=ref").vcf_span, VcfSpan::Ref);
