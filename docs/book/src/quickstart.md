@@ -17,7 +17,7 @@ gloci subtract -a targets.bed -b calls.vcf.gz                  # allele-aware by
 gloci map -a genes.bed -b signal.bedgraph -c 4:mean -c 4:max
 gloci merge peaks_*.bed.gz --max-gap 50 -c 5:max
 gloci vcf filter cohort.bcf --pass-only --min-qual 30 --min-maf 0.01 --max-missing 0.1 -o filtered.bcf
-gloci vcf stats cohort.vcf.gz --freq --missing-site --missing-indv --het --tstv --out-prefix qc/cohort
+gloci vcf stats cohort.vcf.gz --freq --missing-site --missing-indv --het --tstv-summary --out-prefix qc/cohort
 ```
 
 What each line does:

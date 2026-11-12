@@ -61,7 +61,7 @@ gloci subtract -a targets.bed -b calls.vcf.gz                  # allele-aware by
 gloci map -a genes.bed -b signal.bedgraph -c 4:mean -c 4:max
 gloci merge peaks_*.bed.gz --max-gap 50 -c 5:max
 gloci vcf filter cohort.bcf --pass-only --min-qual 30 --min-maf 0.01 --max-missing 0.1 -o filtered.bcf
-gloci vcf stats cohort.vcf.gz --freq --missing-site --missing-indv --het --tstv --out-prefix qc/cohort
+gloci vcf stats cohort.vcf.gz --freq --missing-site --missing-indv --het --tstv-summary --out-prefix qc/cohort
 ```
 
 **Name:** `gloci`, for "genomic loci", pronounced **GLOH-sigh** (/ˈɡloʊsaɪ/), with the ending said the way English speakers say "loci". **[you]** It is used for the binary, the crate, the repository and the bioconda package. On 2026-11-06 the name was free on crates.io, bioconda, conda-forge, PyPI, CRAN and Debian. The nearest existing name is `cloci`, an unrelated Python gene-cluster tool.
