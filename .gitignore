@@ -4,3 +4,9 @@
 /fuzz/target/
 /fuzz/corpus/
 /fuzz/artifacts/
+# Python (gloci-py): bytecode, test caches, and the extension module `maturin develop` builds in place
+__pycache__/
+.pytest_cache/
+.venv/
+/crates/gloci-py/python/gloci/_native*.so
+/crates/gloci-py/python/gloci/_native*.pyd

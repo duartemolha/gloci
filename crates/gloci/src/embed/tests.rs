@@ -230,3 +230,64 @@ fn parse_errors_are_plain_text() {
     );
     assert!(!e.0.ends_with('\n'));
 }
+
+fn words(w: &[&str]) -> Vec<OsString> {
+    w.iter().map(OsString::from).collect()
+}
+
+#[test]
+fn a_needless_separator_is_dropped_from_the_shell_form() {
+    // Plain: step_argv's `--` before the input, after an option given its one value.
+    let merge = binding(&["merge"]).unwrap();
+    let kw = [("max_gap".to_string(), KwValue::Value("50".into()))];
+    let argv = step_argv(merge, &words(&["-"]), &kw, &[]).unwrap();
+    assert_eq!(
+        argv,
+        words(&["gloci", "merge", "--max-gap", "50", "--", "-"])
+    );
+    assert_eq!(
+        drop_needless_separator(&argv),
+        words(&["gloci", "merge", "--max-gap", "50", "-"])
+    );
+    // A value attached because it starts with `-`, a switch, and a two-word command.
+    for (with, without) in [
+        (
+            &["gloci", "merge", "--max-gap=-2", "--", "a.bed"][..],
+            &["gloci", "merge", "--max-gap=-2", "a.bed"][..],
+        ),
+        (
+            &["gloci", "merge", "-s", "--", "a.bed", "b.bed"],
+            &["gloci", "merge", "-s", "a.bed", "b.bed"],
+        ),
+        (
+            &["gloci", "vcf", "filter", "--include", "QUAL>10", "--", "-"],
+            &["gloci", "vcf", "filter", "--include", "QUAL>10", "-"],
+        ),
+    ] {
+        assert_eq!(drop_needless_separator(&words(with)), words(without));
+    }
+}
+
+#[test]
+fn a_needed_separator_is_kept() {
+    for argv in [
+        // A positional that looks like a flag.
+        &["gloci", "merge", "--", "a.bed", "-weird.bed"][..],
+        // The option before it could take more values (`-b x y`), and would swallow them.
+        &[
+            "gloci",
+            "maskfasta",
+            "--fasta",
+            "ref.fa",
+            "-b",
+            "m.bed",
+            "--",
+            "x.bed",
+        ],
+    ] {
+        assert_eq!(drop_needless_separator(&words(argv)), words(argv));
+    }
+    // No separator: as it is.
+    let plain = words(&["gloci", "merge", "a.bed"]);
+    assert_eq!(drop_needless_separator(&plain), plain);
+}

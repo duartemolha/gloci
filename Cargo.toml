@@ -65,3 +65,9 @@ tar = { version = "0.4", default-features = false }
 lto = "fat"
 codegen-units = 1
 panic = "abort"
+
+# The Python extension module (gloci-py, via maturin): release, but a panic unwinds so that it
+# raises a Python exception instead of aborting the interpreter (D91).
+[profile.release-py]
+inherits = "release"
+panic = "unwind"

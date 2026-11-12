@@ -1,0 +1,42 @@
+[build-system]
+requires = ["maturin>=1.9.4,<2"]
+build-backend = "maturin"
+
+[project]
+name = "gloci"
+description = "Fast genomic interval and VCF toolkit: the gloci commands as lazy, streaming Python pipelines, run in-process."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+dynamic = ["version"]
+dependencies = []
+keywords = ["bioinformatics", "genomics", "bed", "vcf", "intervals", "bedtools"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+arrow = ["pyarrow>=14"]
+polars = ["polars>=1.0"]
+pandas = ["pandas>=2.0", "pyarrow>=14"]
+test = ["pytest>=8"]
+
+[project.urls]
+Repository = "https://github.com/duartemolha/gloci"
+
+[tool.maturin]
+python-source = "python"
+module-name = "gloci._native"
+profile = "release-py"
+
+[tool.pytest.ini_options]
+markers = [
+    "large: slow tests over large generated inputs (run nightly: pytest -m large)",
+]

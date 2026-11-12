@@ -1,0 +1,32 @@
+[package]
+name = "gloci-py"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "The gloci Python library (PyO3 glue over gloci::embed; built with maturin, not published to crates.io)."
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "_native"
+crate-type = ["cdylib"]
+# The Python tests (pytest) cover this crate; it links no libpython, so a Rust test binary
+# could not run it.
+test = false
+doctest = false
+
+[features]
+# `_native._test_panic()`, for the Python tests.
+test-hooks = []
+
+[dependencies]
+gloci = { path = "../gloci" }
+gloci-io.workspace = true
+pyo3 = { version = "0.30", features = ["abi3-py310", "extension-module"] }
+anyhow.workspace = true
+log.workspace = true
+memchr.workspace = true
+
+[build-dependencies]
+pyo3-build-config = "0.30"
