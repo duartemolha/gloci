@@ -3,9 +3,19 @@ on:
   push:
     tags:
       - "v*"
+  # A manual run builds and tests everything (archives, wheels, sdist, smoke tests) and
+  # publishes nothing: every publish job and the GitHub Release need a tag push.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and test only (a manual run never publishes, whatever this says)"
+        type: boolean
+        default: true
 
 env:
   CARGO_TERM_COLOR: always
+  # The tag a tag push names; "dry-run" for a manual run.
+  RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'dry-run' }}
 
 jobs:
   version:
@@ -13,6 +23,10 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      # "true" when LICENSE exists; the publish jobs run only then.
+      license: ${{ steps.meta.outputs.license }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master (2026-07-16)
@@ -20,7 +34,19 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
       - name: Release metadata is consistent (tag, version, CHANGELOG, CITATION.cff, LICENSE)
-        run: cargo xtask release-check --tag "$GITHUB_REF_NAME"
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            cargo xtask release-check --tag "$GITHUB_REF_NAME"
+          else
+            cargo xtask release-check
+          fi
+      - name: Workspace version
+        id: meta
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ -f LICENSE ]; then echo "license=true" >> "$GITHUB_OUTPUT"; else echo "license=false" >> "$GITHUB_OUTPUT"; fi
 
   build:
     needs: version
@@ -69,11 +95,13 @@ jobs:
         run: target/${{ matrix.target }}/release/gloci --version
       - name: Package release archive
         run: |
-          TAG="${GITHUB_REF_NAME}"
-          STAGE="gloci-${TAG}-${{ matrix.target }}"
+          STAGE="gloci-${RELEASE_TAG}-${{ matrix.target }}"
           mkdir -p "dist/${STAGE}"
           cp "target/${{ matrix.target }}/release/gloci" "dist/${STAGE}/gloci"
-          cp SKILL.md "dist/${STAGE}/"
+          cp SKILL.md CHANGELOG.md "dist/${STAGE}/"
+          # Man pages and shell completions come from the clap definition.
+          cargo run --locked -p xtask -- man --out "dist/${STAGE}/man"
+          cargo run --locked -p xtask -- completions --out "dist/${STAGE}/completions"
           if [ -f README.md ]; then cp README.md "dist/${STAGE}/"; fi
           for f in LICENSE*; do
             if [ -f "$f" ]; then cp "$f" "dist/${STAGE}/"; fi
@@ -93,37 +121,167 @@ jobs:
           path: target/x86_64-unknown-linux-musl/release/gloci
           if-no-files-found: error
 
-  publish:
-    needs: build
+  wheels:
+    # abi3 wheels (one per platform covers Python 3.10 and up).
+    name: wheel (${{ matrix.name }})
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: manylinux2014-x86_64
+            os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            manylinux: 2014
+          - name: manylinux2014-aarch64
+            os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            manylinux: 2014
+          - name: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            manylinux: "off"
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Build the wheel
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+        with:
+          maturin-version: v1.16.0
+          command: build
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          rust-toolchain: stable
+          args: --profile release-py --locked -m crates/gloci-py/Cargo.toml --out dist
+      - name: Upload wheel
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: wheels-${{ matrix.name }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  sdist:
+    needs: version
     runs-on: ubuntu-24.04
     permissions:
-      contents: write
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Build the sdist
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          maturin-version: v1.16.0
+          command: sdist
+          args: -m crates/gloci-py/Cargo.toml --out dist
+      - name: Upload sdist
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  wheel-smoke:
+    # Install each wheel by itself (no network, no repository code) and run test_smoke.py.
+    name: wheel smoke (${{ matrix.name }})
+    needs: [version, wheels]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: manylinux2014-x86_64
+            os: ubuntu-24.04
+            image: quay.io/pypa/manylinux2014_x86_64
+          - name: manylinux2014-aarch64
+            os: ubuntu-24.04-arm
+            image: quay.io/pypa/manylinux2014_aarch64
+          - name: macos-arm64
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    env:
+      GLOCI_EXPECT_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Download the wheel
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          name: wheels-${{ matrix.name }}
+          path: dist
+      - name: Smoke test in the manylinux2014 image (oldest and newest CPython)
+        if: runner.os == 'Linux'
+        run: |
+          docker run --rm -e GLOCI_EXPECT_VERSION -v "$PWD:/w" -w /w "${{ matrix.image }}" bash -euxo pipefail -c '
+            auditwheel show dist/*.whl | tee /dev/stderr | grep manylinux_2_17
+            newest="$(ls /opt/python | grep -E "^cp3[0-9]+-cp3[0-9]+$" | sort -V | tail -1)"
+            for py in cp310-cp310 "$newest"; do
+              /opt/python/$py/bin/python -m venv "/tmp/venv-$py"
+              "/tmp/venv-$py/bin/pip" install --no-index --find-links dist gloci
+              "/tmp/venv-$py/bin/python" crates/gloci-py/tests/test_smoke.py
+            done
+          '
+      - name: Python 3.10 (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.10"
+      - name: Python 3.14 (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+      - name: Smoke test on macOS (Python 3.10 and 3.14)
+        if: runner.os == 'macOS'
+        run: |
+          for v in 3.10 3.14; do
+            "python$v" -m venv "venv-$v"
+            "venv-$v/bin/pip" install --no-index --find-links dist gloci
+            "venv-$v/bin/python" crates/gloci-py/tests/test_smoke.py
+          done
+
+  sdist-smoke:
+    # Build the sdist from source with the minimum supported Rust and test the result.
+    needs: [version, sdist]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      GLOCI_EXPECT_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Download the sdist
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          name: sdist
+          path: dist
+      - name: Install from the sdist in python:3.12 with Rust 1.91
+        run: |
+          docker run --rm -e GLOCI_EXPECT_VERSION -v "$PWD:/w" -w /w python:3.12 bash -euxo pipefail -c '
+            curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.91.0
+            . "$HOME/.cargo/env"
+            python -m venv /tmp/venv
+            /tmp/venv/bin/pip install dist/gloci-*.tar.gz
+            /tmp/venv/bin/python crates/gloci-py/tests/test_smoke.py
+          '
+
+  ghcr:
+    needs: [version, build]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
       packages: write
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: Download release archives
-        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
-        with:
-          pattern: archive-*
-          path: release-assets
-          merge-multiple: true
       - name: Download x86_64 static binary
         uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
         with:
           name: bin-x86_64-unknown-linux-musl
           path: target/x86_64-unknown-linux-musl/release
-      - name: Generate SHA256SUMS
-        run: |
-          chmod +x target/x86_64-unknown-linux-musl/release/gloci
-          cd release-assets || exit 1
-          sha256sum gloci-*.tar.gz > SHA256SUMS
-          cat SHA256SUMS
-      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master (2026-07-16)
-        with:
-          toolchain: stable
-      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
-      - name: Build release notes from CHANGELOG.md
-        run: cargo xtask release-notes --version "${GITHUB_REF_NAME#v}" --out release-notes.md
       - name: Compute lowercase image name
         id: meta
         run: |
@@ -149,11 +307,87 @@ jobs:
           tags: |
             ${{ steps.meta.outputs.image }}:${{ github.ref_name }}
             ${{ steps.meta.outputs.image }}:latest
-      # Created last, so a failed image push publishes no release.
+
+  # PyPI stays off until the owner sets the repository variable GLOCI_PUBLISH_PYPI=true (D80).
+  # It needs a real tag push and a LICENSE file, and a trusted publisher set up on PyPI.
+  publish-pypi:
+    needs: [version, wheels, wheel-smoke, sdist, sdist-smoke]
+    if: ${{ vars.GLOCI_PUBLISH_PYPI == 'true' && github.event_name == 'push' && needs.version.outputs.license == 'true' }}
+    runs-on: ubuntu-24.04
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - name: Download wheels and sdist
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          pattern: "{wheels-*,sdist}"
+          path: dist
+          merge-multiple: true
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: dist
+          skip-existing: true
+
+  # crates.io stays off until the owner sets the repository variable GLOCI_PUBLISH_CRATES=true (D80).
+  # It needs a real tag push and a LICENSE file. A crate already published at this version is skipped.
+  publish-crates:
+    needs: [version, build, wheel-smoke, sdist-smoke]
+    if: ${{ vars.GLOCI_PUBLISH_CRATES == 'true' && github.event_name == 'push' && needs.version.outputs.license == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master (2026-07-16)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+      - name: Publish the crates in dependency order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          for crate in gloci-core gloci-io gloci-engine gloci-vcf gloci-ops gloci; do
+            if cargo info "${crate}@${VERSION}" > /dev/null 2>&1; then
+              echo "${crate} ${VERSION} is already on crates.io; skipping"
+              continue
+            fi
+            cargo publish -p "${crate}" --locked
+          done
+
+  # Created last, and when a publish job is skipped (they are off by default) but not after a failure.
+  release:
+    needs: [version, build, wheels, wheel-smoke, sdist, sdist-smoke, ghcr, publish-pypi, publish-crates]
+    if: ${{ !failure() && !cancelled() && github.event_name == 'push' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Download release archives, wheels and sdist
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          pattern: "{archive-*,wheels-*,sdist}"
+          path: release-assets
+          merge-multiple: true
+      - name: Generate SHA256SUMS
+        run: |
+          cd release-assets || exit 1
+          sha256sum gloci-*.tar.gz *.whl > SHA256SUMS
+          cat SHA256SUMS
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master (2026-07-16)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+      - name: Build release notes from CHANGELOG.md
+        run: cargo xtask release-notes --version "${GITHUB_REF_NAME#v}" --out release-notes.md
       - name: Create GitHub Release
         uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1
         with:
           files: |
             release-assets/gloci-*.tar.gz
+            release-assets/*.whl
             release-assets/SHA256SUMS
           body_path: release-notes.md

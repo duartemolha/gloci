@@ -136,3 +136,24 @@ fn repo_metadata_is_consistent() {
     let p = release_check(&root, None).unwrap();
     assert!(p.is_empty(), "{p:#?}");
 }
+
+#[test]
+fn pyproject_version_must_be_dynamic() {
+    let d = tempfile::tempdir().unwrap();
+    let r = d.path();
+    fixture(r);
+    let py = r.join("crates/gloci-py/pyproject.toml");
+    fs::create_dir_all(py.parent().unwrap()).unwrap();
+    fs::write(
+        &py,
+        "[project]\nname = \"gloci\"\ndynamic = [\"version\"]\n",
+    )
+    .unwrap();
+    assert_eq!(release_check(r, None).unwrap(), Vec::<String>::new());
+    fs::write(&py, "[project]\nname = \"gloci\"\nversion = \"0.2.0\"\n").unwrap();
+    let p = release_check(r, None).unwrap();
+    assert_eq!(p.len(), 1, "{p:?}");
+    assert!(p[0].contains("dynamic"), "{p:?}");
+    fs::write(&py, "[project]\nname = \"gloci\"\n").unwrap();
+    assert_eq!(release_check(r, None).unwrap().len(), 1);
+}
