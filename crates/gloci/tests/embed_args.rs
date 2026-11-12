@@ -420,13 +420,14 @@ fn rewrite_flags() {
         ),
         "the argument 'same_strand=' cannot be used with 'opposite_strand='"
     );
-    // Short flags and placeholders; words with dashes and unknown flags are left alone.
+    // Short flags and placeholders; words with dashes and unknown flags are left alone. The
+    // output is save()'s path (FILE is -o's placeholder).
     assert_eq!(
         rewrite_flags_as_kwargs(
             "-f <F> and -s: half-open, --no-such-flag, chr1:1-100, -o FILE",
             i
         ),
-        "f= and s=: half-open, --no-such-flag, chr1:1-100, o= FILE"
+        "f= and s=: half-open, --no-such-flag, chr1:1-100, save(path)"
     );
     assert_eq!(
         rewrite_flags_as_kwargs(
@@ -434,6 +435,50 @@ fn rewrite_flags() {
             i
         ),
         "the following required arguments were not provided:\n  b="
+    );
+    // A flag's value is written after `=` (fix round 1, M2): the messages the review saw.
+    let sort = spec(&["sort"]);
+    assert_eq!(
+        rewrite_flags_as_kwargs(
+            "--max-mem 4194304 bytes is too small; use at least 16M",
+            sort
+        ),
+        "max_mem=4194304 bytes is too small; use at least 16M"
+    );
+    assert_eq!(
+        rewrite_flags_as_kwargs("pass --max-mem=64M, or --chrom-order lex.", sort),
+        "pass max_mem=64M, or chrom_order=lex."
+    );
+    // A word after a flag that is no value of it stays a word.
+    assert_eq!(
+        rewrite_flags_as_kwargs("--max-mem needs a size, and --unique cannot be used", sort),
+        "max_mem= needs a size, and unique= cannot be used"
+    );
+    // The output is save()'s path, and the threads are the terminal's.
+    assert_eq!(
+        rewrite_flags_as_kwargs(
+            "write it with -o x.sorted.bed, or --output y.bed; -t 4",
+            sort
+        ),
+        "write it with save(\"x.sorted.bed\"), or save(\"y.bed\"); threads=4"
+    );
+    // A gloci command line in a hint stays a command line: it is run in a shell.
+    let conv = spec(&["convert"]);
+    assert_eq!(
+        rewrite_flags_as_kwargs(
+            "x.bam is sorted by coordinate (@HD SO:coordinate), and --bedpe pairs the reads that \
+are next to each other by name; sort it by name first: gloci sort -n x.bam -o x.byname.bam",
+            conv
+        ),
+        "x.bam is sorted by coordinate (@HD SO:coordinate), and bedpe= pairs the reads that are \
+next to each other by name; sort it by name first: gloci sort -n x.bam -o x.byname.bam"
+    );
+    assert_eq!(
+        rewrite_flags_as_kwargs(
+            "hint: run: gloci sort in.bcf -o s.bcf, or pass --sort to sort the inputs first",
+            i
+        ),
+        "hint: run: gloci sort in.bcf -o s.bcf, or pass sort= to sort the inputs first"
     );
     // Positionals as clap prints them: by their value names (<IN>, <REF>), from real errors.
     for (argv, path, want) in [

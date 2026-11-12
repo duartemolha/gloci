@@ -162,3 +162,20 @@ def test_save_output_format_is_named_as_its_keyword(here: Path) -> None:
         gloci.open("a.bed").merge().save("o.bed", output_format="xyz")
     assert str(e.value).startswith("unknown output format 'xyz' for output_format=; use one of:")
     assert not list(here.glob("o.bed*"))
+
+
+def test_hints_in_keyword_terms(here: Path) -> None:
+    # A flag's value follows its `=`; a gloci command line in a hint stays a command line.
+    (here / "a.bed").write_text("chr1\t1\t5\n")
+    with pytest.raises(gloci.UsageError) as e:
+        gloci.open("a.bed").sort(max_mem="4M").to_bytes()
+    assert str(e.value) == "max_mem=4194304 bytes is too small; use at least 16M"
+    bam = (
+        Path(__file__).resolve().parents[2]
+        / "gloci/tests/golden/view-bam-to-sam-vs-samtools/input.bam"
+    )
+    with pytest.raises(gloci.UsageError) as e:
+        gloci.open(bam).convert(bedpe=True).to_bytes()
+    assert str(e.value).endswith(
+        f"sort it by name first: gloci sort -n {bam} -o x.byname.bam"
+    ), str(e.value)
