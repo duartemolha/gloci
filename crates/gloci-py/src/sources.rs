@@ -19,6 +19,7 @@
 
 use crate::errors;
 use crate::frames::Frame;
+use crate::records::Record;
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, TrySendError, bounded};
 use gloci::embed::StageError;
 use gloci_io::cancel::{self, Watch};
@@ -487,9 +488,16 @@ fn fill_lines(
     Fill::More
 }
 
-/// One item as a line: a `str` or `bytes` line (its line break added if it has none), or a
-/// tuple (or list) of values, tab-joined.
+/// One item as a line: a `gloci.Record`'s text, a `str` or `bytes` line (its line break added
+/// if it has none), or a tuple (or list) of values, tab-joined.
 fn write_item(item: &Bound<'_, PyAny>, buf: &mut Vec<u8>) -> Result<(), Bad> {
+    if let Ok(r) = item.cast::<Record>() {
+        // A record of an output (D89): its text, as the output had it (a FASTA record's
+        // holds its sequence lines).
+        buf.extend_from_slice(r.get().line_str(item.py()).to_str()?.as_bytes());
+        buf.push(b'\n');
+        return Ok(());
+    }
     if let Ok(s) = item.cast::<PyString>() {
         return write_line(s.to_str()?.as_bytes(), buf);
     }

@@ -13,9 +13,10 @@ run goes, never whole.
 
 from __future__ import annotations
 
+import importlib
 import os
 import weakref
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from typing import Any
 
 from . import _native
@@ -190,6 +191,10 @@ def classify_source(obj: object, what: str = "gloci.open()") -> Source:
     """
     if isinstance(obj, Pipeline):
         return Nested(obj, "<pipeline>")
+    if isinstance(obj, _native.Record):
+        raise TypeError(
+            f"{what} takes {_ACCEPTED}, not one gloci.Record; pass a list of records"
+        )
     if isinstance(obj, (str, os.PathLike)):
         path = obj if isinstance(obj, str) else os.fsdecode(os.fspath(obj))
         if "\0" in path:
@@ -214,6 +219,8 @@ def _is_source(value: object) -> bool:
     than a value (D86: anything else is its `str()`)."""
     if value is None or isinstance(value, (str, bytes, bytearray, os.PathLike, int, float)):
         return False
+    if isinstance(value, _native.Record):
+        return True  # refused by classify_source, which says why
     if isinstance(value, Pipeline) or hasattr(type(value), "__arrow_c_stream__"):
         return True
     if callable(getattr(value, "read", None)):
@@ -397,16 +404,46 @@ class _Plan:
             prev = (_pipe(idx), "-")
         return idx, lines
 
-    def run_plan(self, terminal: str) -> Any:
-        """Run the plan; a one-shot source is spent from now on, whatever the result."""
+    def run_plan(self, terminal: str, names: list[str] | None = None) -> Any:
+        """Run the plan; a one-shot source is spent from now on, whatever the result. For
+        `"iter"`, the run starts, and the iterator returned drives it as it is read."""
         for s in self._once:
             s.used = True
             try:
                 _SPENT.add(s.obj)
             except TypeError:  # no weak reference to it: its Source alone knows
                 pass
-        plan = {"stages": self.stages, "sources": self.sources, "terminal": terminal, "names": None}
+        plan = {
+            "stages": self.stages,
+            "sources": self.sources,
+            "terminal": terminal,
+            "names": names,
+        }
         return _native.run_plan(plan)
+
+
+def _extra(module: str, extra: str, what: str) -> Any:
+    """Import `module`, which the optional extra `gloci[extra]` installs (D89)."""
+    try:
+        return importlib.import_module(module)
+    except ImportError as e:
+        raise ImportError(
+            f"{what} needs {module}, which is not installed: pip install gloci[{extra}]"
+        ) from e
+
+
+def _names(names: Sequence[str] | None, what: str) -> list[str] | None:
+    """`names=` checked: a sequence of str, or None. Its length is checked against the
+    output's columns once the run has read them."""
+    if names is None:
+        return None
+    if isinstance(names, (str, bytes)) or not isinstance(names, Sequence):
+        raise TypeError(f"{what}: names= takes a list of column names, not {type(names).__name__}")
+    out = list(names)
+    for n in out:
+        if not isinstance(n, str):
+            raise TypeError(f"{what}: names= takes str names, not {type(n).__name__}")
+    return out
 
 
 class Pipeline:
@@ -416,8 +453,9 @@ class Pipeline:
     Each step method (`intersect`, `merge`, `vcf_filter`, ...) returns a new pipeline; the
     keyword arguments are the command's flags with `-` written as `_`. A keyword argument that
     takes a file (`b=`) also takes any source: a file object, an iterable, an Arrow table, or
-    another pipeline. Terminal methods run it: `save()`, `to_bytes()` and `count()`. `cli()` is
-    the equivalent shell pipeline.
+    another pipeline. Terminal methods run it: `save()`, `to_bytes()`, `count()`, iteration
+    (`gloci.Record`s), `to_arrow_stream()`, `to_arrow()`, `to_polars()` and `to_pandas()`.
+    `cli()` is the equivalent shell pipeline.
     """
 
     __slots__ = ("_format", "_source", "_steps")
@@ -576,10 +614,68 @@ class Pipeline:
         return result
 
     def count(self, *, threads: int | None = None) -> int:
-        """Run the pipeline and return the number of records it writes (header lines, such as
-        `#` lines and SAM's `@` lines, are not records)."""
+        """Run the pipeline and return the number of records it writes: as many as iterating
+        over it gives. Header lines (`#` lines, SAM's `@` lines, a table's header row) are not
+        records. The records are counted without making Python objects."""
         result: int = self._run("count", None, [], threads)
         return result
+
+    def __iter__(self) -> Iterator[Any]:
+        """Run the pipeline and yield its records, `gloci.Record`s, as they come (D89).
+
+        The output is read back with gloci's own readers: a record's `chrom`, `start` and `end`
+        are its footprint (a VCF record's by the step's `vcf_span=`), and None where the output
+        has none (a table such as `vcf_extract()`'s). Header lines, and a table's header row,
+        are not records. Breaking out of the loop stops the steps."""
+        it: Iterator[Any] = self._plan(None, [], None).run_plan("iter")
+        return it
+
+    def to_arrow_stream(
+        self, *, names: Sequence[str] | None = None, threads: int | None = None
+    ) -> Any:
+        """Run the pipeline and return its records as a `gloci.ArrowStream`: a table built in
+        memory, which any Arrow consumer takes through `__arrow_c_stream__` without copying
+        (`pyarrow.table(s)`, `polars.DataFrame(s)`), no extra needed.
+
+        The columns are `chrom start end` (int64 coordinates), then the format's own (VCF:
+        `pos id ref alt qual filter info format` and the samples; GFF: `source feature score
+        strand frame attributes`), else named by a `#` header line or header row, else
+        `col<N>`. Types are inferred: int64, then float64, then string.
+
+        Args:
+            names: The column names, one per column, instead of those (`UsageError` if the count
+                differs).
+            threads: Threads per step (`-t`); the command line's default when None.
+        """
+        what = "to_arrow_stream()"
+        return self._plan(None, [], threads).run_plan("arrow", _names(names, what))
+
+    def to_arrow(self, *, names: Sequence[str] | None = None, threads: int | None = None) -> Any:
+        """Run the pipeline and return its records as a `pyarrow.Table` (needs pyarrow: `pip
+        install gloci[arrow]`). The columns are those of `to_arrow_stream()`."""
+        pa = _extra("pyarrow", "arrow", "to_arrow()")
+        stream = self.to_arrow_stream(names=_names(names, "to_arrow()"), threads=threads)
+        return pa.table(stream)
+
+    def to_polars(
+        self, *, names: Sequence[str] | None = None, threads: int | None = None
+    ) -> Any:
+        """Run the pipeline and return its records as a `polars.DataFrame` (needs polars, not
+        pyarrow: `pip install gloci[polars]`). The columns are those of `to_arrow_stream()`."""
+        pl = _extra("polars", "polars", "to_polars()")
+        stream = self.to_arrow_stream(names=_names(names, "to_polars()"), threads=threads)
+        return pl.DataFrame(stream)
+
+    def to_pandas(
+        self, *, names: Sequence[str] | None = None, threads: int | None = None
+    ) -> Any:
+        """Run the pipeline and return its records as a `pandas.DataFrame`, through pyarrow
+        (needs both: `pip install gloci[pandas]`). The columns are those of
+        `to_arrow_stream()`."""
+        _extra("pandas", "pandas", "to_pandas()")
+        pa = _extra("pyarrow", "pandas", "to_pandas()")
+        stream = self.to_arrow_stream(names=_names(names, "to_pandas()"), threads=threads)
+        return pa.table(stream).to_pandas()
 
     def cli(self) -> str:
         """The equivalent shell pipeline, for stdout: `gloci intersect -a a.bed -b b.bed |

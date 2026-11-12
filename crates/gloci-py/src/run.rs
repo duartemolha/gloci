@@ -2,27 +2,33 @@
 //! ([`StageSet`]), driven from the calling Python thread.
 //!
 //! A plan is `{"stages": [{"argv", "command_line"}], "sources": {token: source},
-//! "terminal": "save"|"bytes"|"count", "names"}`. Each stage's argv is its whole command line,
-//! `gloci` first, with these tokens where paths go, which become in-memory names (D84):
+//! "terminal": "save"|"bytes"|"count"|"iter"|"arrow", "names"}`. Each stage's argv is its whole
+//! command line, `gloci` first, with these tokens where paths go, which become in-memory names
+//! (D84):
 //! - `"\0pipe:<j>"`: the pipe stage `j` writes (its `-o`), read by exactly one later stage; a
 //!   chain's steps, and a nested pipeline (a Pipeline given as a source), are such stages;
-//! - `"\0out"`: the last stage's output, collected for the terminal (`bytes`, `count`);
+//! - `"\0out"`: the last stage's output, for the terminal: its bytes (`bytes`), or its records
+//!   (`count`, `iter`, `arrow`), which a host stage after the commands reads back
+//!   ([`records::reread`]) as the step's [`embed::read_back`] says;
 //! - `"\0src:<k>"`: the Python-object source of `"sources"` with that token
 //!   (`{"kind", "obj", "display"}`, [`sources`]), read by exactly one stage.
 //!
-//! **The driver loop** holds the GIL only to pump the Python-object sources (at most
-//! [`sources::TURN_BYTES`] each a turn, and only into room their channel has), forward log
+//! **The driver loop** ([`Driver`]) holds the GIL only to pump the Python-object sources (at
+//! most [`sources::TURN_BYTES`] each a turn, and only into room their channel has), forward log
 //! records and check signals. It releases the GIL while it waits, at most [`TURN`] at a time,
-//! for room in a source's channel or for the stages to end. A signal handler's exception
-//! (`KeyboardInterrupt`) cancels the run, which removes its partial output files, and is raised
-//! once every stage has ended. The stage set is dropped with the GIL released (its drop joins
-//! the stage threads, R2).
+//! for room in a source's channel, for a batch of records (iteration), or for the stages to
+//! end. A signal handler's exception (`KeyboardInterrupt`) cancels the run, which removes its
+//! partial output files, and is raised once every stage has ended. The stage set is dropped
+//! with the GIL released (its drop joins the stage threads, R2).
 
+use crate::arrow::{ArrowSink, ArrowStream, Table};
+use crate::records::{self, Batch, CountSink, IterSink, RecordIterator, RowSink};
 use crate::sources::{self, Pump, SourceSpec, Turn};
 use crate::{errors, logs};
-use crossbeam_channel::{Select, Sender};
+use crossbeam_channel::{Receiver, Select, Sender, bounded};
 use gloci::embed::{
-    self, CommandSpec, PIPE_CHUNK, PIPE_CHUNKS, PipeFail, StageError, StageSet, StageSpec,
+    self, CommandSpec, HostStage, PIPE_CHUNK, PIPE_CHUNKS, PipeFail, PipeReader, StageError,
+    StageSet, StageSpec,
 };
 use gloci_io::memio::Registered;
 use pyo3::exceptions::PyValueError;
@@ -31,6 +37,7 @@ use pyo3::types::{PyBytes, PyDict};
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
@@ -54,8 +61,19 @@ enum Terminal {
     Save,
     /// `to_bytes()`: the last stage's output.
     Bytes,
-    /// `count()`: the number of records in it.
+    /// `count()`: the number of records it reads back as (R5: counted in Rust).
     Count,
+    /// Iteration: its records, handed to Python as they come ([`RecordIterator`]).
+    Iter,
+    /// `to_arrow_stream()` and the frame terminals: its records as an Arrow table.
+    Arrow,
+}
+
+impl Terminal {
+    /// Whether the terminal reads the output back as records.
+    fn reads_back(self) -> bool {
+        matches!(self, Terminal::Count | Terminal::Iter | Terminal::Arrow)
+    }
 }
 
 struct PlanStage {
@@ -67,8 +85,14 @@ fn invalid(msg: impl Into<String>) -> PyErr {
     PyValueError::new_err(format!("invalid gloci plan: {}", msg.into()))
 }
 
-/// A plan's parts: its stages, its terminal, and its Python-object sources by token.
-type Plan = (Vec<PlanStage>, Terminal, BTreeMap<String, SourceSpec>);
+/// A plan's parts: its stages, its terminal, its Python-object sources by token, and the
+/// column names of an Arrow table (`names=`).
+type Plan = (
+    Vec<PlanStage>,
+    Terminal,
+    BTreeMap<String, SourceSpec>,
+    Option<Vec<String>>,
+);
 
 fn read_plan(plan: &Bound<'_, PyDict>) -> PyResult<Plan> {
     let item = |key: &str| {
@@ -90,7 +114,13 @@ fn read_plan(plan: &Bound<'_, PyDict>) -> PyResult<Plan> {
         "save" => Terminal::Save,
         "bytes" => Terminal::Bytes,
         "count" => Terminal::Count,
+        "iter" => Terminal::Iter,
+        "arrow" => Terminal::Arrow,
         other => return Err(invalid(format!("unknown terminal {other:?}"))),
+    };
+    let names: Option<Vec<String>> = match plan.get_item("names")? {
+        Some(n) if !n.is_none() => Some(n.extract()?),
+        _ => None,
     };
     let mut sources = BTreeMap::new();
     if let Some(given) = plan.get_item("sources")?
@@ -108,7 +138,7 @@ fn read_plan(plan: &Bound<'_, PyDict>) -> PyResult<Plan> {
             sources.insert(token, spec);
         }
     }
-    Ok((stages, terminal, sources))
+    Ok((stages, terminal, sources, names))
 }
 
 /// `k` of a source token `"\0src:<k>"`.
@@ -154,97 +184,12 @@ impl Write for Shared<Vec<u8>> {
     }
 }
 
-/// Counts the records of a text output as it is written.
-/// - FASTA (the first non-blank line starts with `>`): its `>` lines, one per sequence.
-/// - Anything else: its lines, but blank ones, `#` header and comment lines, `track` and
-///   `browser` lines, and SAM's `@XY` header lines before the first record.
-///
-/// Known gap, for P2b Task 8: a summary table whose header row has no `#` (`stats jaccard`,
-/// `stats fisher`, `stats reldist`, ...) counts that row as a record. Task 8 makes `count()`
-/// count what iteration reads, through its re-read of the output
-/// (`test_count_summary_tables`, a strict xfail until then).
-#[derive(Default)]
-struct RecordCount {
-    records: u64,
-    /// The first bytes of the line being written, enough to tell a header line.
-    head: [u8; 8],
-    head_len: usize,
-    /// Bytes of the current line have been written.
-    in_line: bool,
-    /// Whether the output is FASTA, once its first non-blank line has ended.
-    fasta: Option<bool>,
-}
-
-impl RecordCount {
-    fn take(&mut self, bytes: &[u8]) {
-        if bytes.is_empty() {
-            return;
-        }
-        self.in_line = true;
-        let n = (self.head.len() - self.head_len).min(bytes.len());
-        self.head[self.head_len..self.head_len + n].copy_from_slice(&bytes[..n]);
-        self.head_len += n;
-    }
-
-    fn end_line(&mut self) {
-        let head = &self.head[..self.head_len];
-        let blank = !self.in_line || head == b"\r";
-        if !blank {
-            let fasta = *self.fasta.get_or_insert(head[0] == b'>');
-            let word = |w: &[u8]| {
-                head.starts_with(w)
-                    && matches!(head.get(w.len()), None | Some(b' ' | b'\t' | b'\r'))
-            };
-            let sam_header = self.records == 0
-                && head.len() >= 3
-                && head[0] == b'@'
-                && head[1..3].iter().all(u8::is_ascii_alphabetic)
-                && matches!(head.get(3), None | Some(b'\t' | b'\r'));
-            let record = if fasta {
-                head[0] == b'>'
-            } else {
-                !(head[0] == b'#' || word(b"track") || word(b"browser") || sam_header)
-            };
-            if record {
-                self.records += 1;
-            }
-        }
-        self.head_len = 0;
-        self.in_line = false;
-    }
-
-    /// The count, with a last line that has no line break.
-    fn total(&mut self) -> u64 {
-        if self.in_line {
-            self.end_line();
-        }
-        self.records
-    }
-}
-
-impl Write for Shared<RecordCount> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let mut c = self.lock();
-        let mut rest = buf;
-        while let Some(i) = memchr::memchr(b'\n', rest) {
-            c.take(&rest[..i]);
-            c.end_line();
-            rest = &rest[i + 1..];
-        }
-        c.take(rest);
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
 /// Where the last stage's output goes.
 enum Sink {
     None,
     Bytes(Shared<Vec<u8>>),
-    Count(Shared<RecordCount>),
+    /// A pipe a host stage reads the records from: its reading end, and its name.
+    Records(PipeReader, String),
 }
 
 /// The stage specs of a plan, with every token replaced by an in-memory name registered for
@@ -317,23 +262,22 @@ fn build(
                 if i + 1 != n || terminal == Terminal::Save || !matches!(sink, Sink::None) {
                     return Err(invalid(format!("stage {i} writes \\0out")));
                 }
-                let (reg, made) = match terminal {
-                    Terminal::Count => {
-                        let c = Shared::<RecordCount>::default();
-                        (
-                            Registered::output("<count()>", Box::new(c.clone())),
-                            Sink::Count(c),
-                        )
-                    }
-                    _ => {
-                        let b = Shared::<Vec<u8>>::default();
-                        (
-                            Registered::output("<to_bytes()>", Box::new(b.clone())),
-                            Sink::Bytes(b),
-                        )
-                    }
+                let reg = if terminal.reads_back() {
+                    // A pipe to the host stage that reads the records back; the one fail
+                    // handle goes to this stage (ruling R1 of Task 6).
+                    let display = format!(
+                        "<{} output>",
+                        spec_of(&s.argv).map_or_else(|| "step".into(), embed::method_name)
+                    );
+                    let (w, r) = embed::pipe(PIPE_CHUNKS, PIPE_CHUNK);
+                    fails[i].push(w.fail_handle());
+                    sink = Sink::Records(r, display.clone());
+                    Registered::output(&display, Box::new(w))
+                } else {
+                    let b = Shared::<Vec<u8>>::default();
+                    sink = Sink::Bytes(b.clone());
+                    Registered::output("<to_bytes()>", Box::new(b))
                 };
-                sink = made;
                 let name = reg.name().to_string();
                 endpoints[i].push(reg);
                 name
@@ -384,154 +328,261 @@ read twice"
     Ok((specs, sink, pumps))
 }
 
-/// How a run ended, as the driver saw it.
-pub(crate) struct Driven {
-    result: Result<bool, StageError>,
+/// A running set and its driver loop (D91), from its start to its result: [`run_plan`]
+/// drives it to the end at once, a [`RecordIterator`] a turn at a time as records are asked
+/// for.
+///
+/// However it is left (the end, an error, an iterator dropped, a panic unwinding), the set is
+/// dropped with the GIL released (R2): its drop cancels any stage still running and joins
+/// every stage thread, and a stage may need the GIL to end.
+pub(crate) struct Driver {
+    set: Option<StageSet>,
+    pumps: Vec<Pump>,
     /// An exception to raise instead of the result: a signal handler's (`KeyboardInterrupt`)
     /// or a log handler's, which cancelled the run.
     pending: Option<PyErr>,
     /// The last error record forwarded.
     logged: Option<String>,
+    /// The set's result, once every stage has ended.
+    result: Option<Result<bool, StageError>>,
     /// The output files the run committed ([`StageSet::outputs`]).
-    outputs: Vec<std::path::PathBuf>,
+    outputs: Vec<PathBuf>,
 }
 
-/// A running set, dropped with the GIL released however the driver leaves (R2): its drop
-/// cancels any stage still running and joins every stage thread, and a stage may need the GIL
-/// to end (a Python-backed source or sink), even when the driver is unwinding from a panic.
-pub(crate) struct Running<'py> {
-    py: Python<'py>,
-    set: Option<StageSet>,
-}
-
-impl<'py> Running<'py> {
-    pub(crate) fn new(py: Python<'py>, set: StageSet) -> Running<'py> {
-        Running { py, set: Some(set) }
-    }
-}
-
-impl Drop for Running<'_> {
-    fn drop(&mut self) {
-        if let Some(set) = self.set.take() {
-            self.py.detach(move || drop(set));
-        }
-    }
-}
-
-/// Wait, with the GIL released, until one of `senders` has room (or its reader is gone), at
-/// most `timeout`.
-fn wait_for_room(senders: &[Sender<Vec<u8>>], timeout: Duration) {
+/// Wait, with the GIL released, until one of `senders` has room (or its reader is gone), or
+/// `ready` has something (or its sender is gone), at most `timeout`.
+fn wait_for(senders: &[Sender<Vec<u8>>], ready: Option<&Receiver<Batch>>, timeout: Duration) {
     let mut sel = Select::new();
     for s in senders {
         sel.send(s);
     }
+    if let Some(r) = ready {
+        sel.recv(r);
+    }
     let _ = sel.ready_timeout(timeout);
 }
 
-/// Drive a running set to its end (D91): pump the sources, forward logs and check signals with
-/// the GIL held, and wait with it released, [`TURN`] at a time: for room in a source's channel
-/// while any source is being pumped, else for the stages.
-pub(crate) fn drive(py: Python<'_>, set: StageSet, pumps: &mut [Pump]) -> Driven {
-    let mut running = Running::new(py, set);
-    let set = running.set.as_mut().expect("the set is taken only on drop");
-    let mut pending: Option<PyErr> = None;
-    let mut logged = None;
-    let mut stop = |set: &StageSet, pumps: &mut [Pump], e: PyErr| {
-        if pending.is_none() {
-            set.cancel();
-            // The sources' readers fail with the cancellation rather than see an end.
-            pumps.iter_mut().for_each(Pump::abandon);
-            pending = Some(e);
+impl Driver {
+    pub(crate) fn new(set: StageSet, pumps: Vec<Pump>) -> Driver {
+        Driver {
+            set: Some(set),
+            pumps,
+            pending: None,
+            logged: None,
+            result: None,
+            outputs: Vec::new(),
         }
-    };
-    let result = loop {
-        if let Err(e) = logs::forward(py, &mut logged) {
-            stop(set, pumps, e);
+    }
+
+    /// Every stage has ended.
+    pub(crate) fn ended(&self) -> bool {
+        self.result.is_some()
+    }
+
+    /// A signal or log handler's exception cancelled the run.
+    pub(crate) fn interrupted(&self) -> bool {
+        self.pending.is_some()
+    }
+
+    fn stop(&mut self, e: PyErr) {
+        if self.pending.is_none() {
+            if let Some(set) = &self.set {
+                set.cancel();
+            }
+            // The sources' readers fail with the cancellation rather than see an end.
+            self.pumps.iter_mut().for_each(Pump::abandon);
+            self.pending = Some(e);
+        }
+    }
+
+    /// One turn of the loop: forward logs, check signals and pump the sources with the GIL
+    /// held, then wait with it released, at most [`TURN`]: for room in a source's channel while
+    /// any is being pumped, or for a batch on `ready`, else for the stages. True once every
+    /// stage has ended.
+    pub(crate) fn turn(&mut self, py: Python<'_>, ready: Option<&Receiver<Batch>>) -> bool {
+        if self.result.is_some() {
+            return true;
+        }
+        if let Err(e) = logs::forward(py, &mut self.logged) {
+            self.stop(e);
         }
         if let Err(e) = py.check_signals() {
-            stop(set, pumps, e);
+            self.stop(e);
         }
         let mut room: Vec<Sender<Vec<u8>>> = Vec::new();
         let mut starved = false;
-        for i in 0..pumps.len() {
-            match pumps[i].pump(py) {
+        for i in 0..self.pumps.len() {
+            match self.pumps[i].pump(py) {
                 Ok(Turn::Done) => {}
-                Ok(Turn::Room | Turn::Full) => room.extend(pumps[i].sender()),
+                Ok(Turn::Room | Turn::Full) => room.extend(self.pumps[i].sender()),
                 Ok(Turn::Starved) => starved = true,
-                Err(e) => stop(set, pumps, e),
+                Err(e) => self.stop(e),
             }
         }
-        let r = if room.is_empty() && !starved {
+        let set = self
+            .set
+            .as_mut()
+            .expect("the set is taken only once it has ended");
+        let r = if room.is_empty() && !starved && ready.is_none() {
             py.detach(|| set.wait(TURN))
         } else {
             py.detach(|| {
-                wait_for_room(&room, if starved { STARVED } else { TURN });
+                wait_for(&room, ready, if starved { STARVED } else { TURN });
                 drop(room);
                 set.wait(Duration::ZERO)
             })
         };
-        if let Some(r) = r {
-            break r;
+        let Some(r) = r else {
+            return false;
+        };
+        self.outputs = set.outputs();
+        self.result = Some(r);
+        if let Err(e) = logs::forward(py, &mut self.logged) {
+            self.stop(e);
         }
-    };
-    if let Err(e) = logs::forward(py, &mut logged) {
-        stop(set, pumps, e);
+        // Every stage has ended, so dropping the set only joins.
+        if let Some(set) = self.set.take() {
+            py.detach(move || drop(set));
+        }
+        true
     }
-    let outputs = set.outputs();
-    // Every stage has ended, so dropping the set only joins.
-    drop(running);
-    Driven {
-        result,
-        pending,
-        logged,
-        outputs,
-    }
-}
 
-impl Driven {
-    /// The run's result as Python sees it: the pending exception; else, when the run failed on
-    /// a Python-object source's failure as its stage read it, what the source raised (or the
-    /// `DataError` for what it held); else the run's error as a gloci exception (`spec` gives
-    /// each stage's command, for usage messages).
+    /// Drive the run to its end.
+    pub(crate) fn finish(&mut self, py: Python<'_>) {
+        while !self.turn(py, None) {}
+    }
+
+    /// The run's result as Python sees it, once it has ended: the pending exception; else, when
+    /// the run failed on a Python-object source's failure as its stage read it, what the source
+    /// raised (or the `DataError` for what it held); else the run's error as a gloci exception
+    /// (`spec` gives each stage's command, for usage messages).
     pub(crate) fn settle(
-        self,
+        &mut self,
         py: Python<'_>,
         spec: impl Fn(usize) -> Option<&'static CommandSpec>,
-        pumps: &mut [Pump],
     ) -> PyResult<bool> {
-        if let Some(e) = self.pending {
+        let result = self.result.take().expect("settled once the run has ended");
+        if let Some(e) = self.pending.take() {
             return Err(e);
         }
-        self.result.map_err(|e| {
-            pumps
+        let logged = self.logged.as_deref();
+        result.map_err(|e| {
+            self.pumps
                 .iter_mut()
                 .find_map(|p| p.claim(&e))
-                .unwrap_or_else(|| {
-                    errors::from_stage(py, &e, spec(e.stage), self.logged.as_deref())
-                })
+                .unwrap_or_else(|| errors::from_stage(py, &e, spec(e.stage), logged))
         })
     }
 }
 
-/// Run a plan and return the terminal's result.
+impl Drop for Driver {
+    fn drop(&mut self) {
+        let Some(set) = self.set.take() else {
+            return;
+        };
+        set.cancel();
+        self.pumps.iter_mut().for_each(Pump::abandon);
+        // With the GIL released. `try_attach` runs the closure unless the interpreter is shutting
+        // down; then the closure, and the set in it, is dropped here (the pumps are abandoned,
+        // so no stage needs the GIL to end).
+        let _ = Python::try_attach(move |py| py.detach(move || drop(set)));
+    }
+}
+
+/// The spec of stage `i`'s command; none for a host stage.
+fn stage_spec(stages: &[PlanStage], i: usize) -> Option<&'static CommandSpec> {
+    stages.get(i).and_then(|s| spec_of(&s.argv))
+}
+
+/// The host stage that reads the output `r` back into `sink`.
+fn host<S: RowSink + Send + 'static>(
+    r: PipeReader,
+    display: String,
+    back: embed::ReadBack,
+    mut sink: S,
+    done: impl FnOnce(S) + Send + 'static,
+) -> HostStage {
+    HostStage {
+        run: Box::new(move || {
+            records::reread(Box::new(r), &display, back, &mut sink)?;
+            done(sink);
+            Ok(true)
+        }),
+    }
+}
+
+/// Run a plan and return the terminal's result: the files written (`save`), the bytes, the
+/// count, a [`RecordIterator`] (which drives the run as it is read) or an [`ArrowStream`].
 pub(crate) fn run_plan(py: Python<'_>, plan: &Bound<'_, PyDict>) -> PyResult<Py<PyAny>> {
-    let (stages, terminal, sources) = read_plan(plan)?;
+    let (stages, terminal, sources, names) = read_plan(plan)?;
     logs::sync_level(py)?;
-    let (specs, sink, mut pumps) = build(py, &stages, terminal, sources)?;
-    let set = StageSet::spawn(specs);
-    let mut driven = drive(py, set, &mut pumps);
-    let outputs = std::mem::take(&mut driven.outputs);
-    driven.settle(py, |i| spec_of(&stages[i].argv), &mut pumps)?;
-    Ok(match sink {
-        Sink::None => {
+    let (specs, sink, pumps) = build(py, &stages, terminal, sources)?;
+    let last: Vec<OsString> = specs.last().map(|s| s.argv.clone()).unwrap_or_default();
+    let reread = |r: PipeReader, display: String| -> PyResult<_> {
+        let back = embed::read_back(&last).map_err(|e| errors::internal(py, e.0))?;
+        Ok((r, display, back))
+    };
+    let count = Arc::new(Mutex::new(0u64));
+    let table: Arc<Mutex<Option<Table>>> = Arc::default();
+    let mut batches = None;
+    let mut hosts = Vec::new();
+    let sink = match sink {
+        Sink::Records(r, display) => {
+            let (r, display, back) = reread(r, display)?;
+            hosts.push(match terminal {
+                Terminal::Iter => {
+                    // One batch waiting, one being filled: about 8 MiB besides the one read.
+                    let (tx, rx) = bounded(1);
+                    batches = Some(rx);
+                    host(r, display, back, IterSink::new(tx), drop)
+                }
+                Terminal::Arrow => host(r, display, back, ArrowSink::new(table.clone()), drop),
+                _ => {
+                    let count = count.clone();
+                    host(r, display, back, CountSink::default(), move |c| {
+                        *count.lock().unwrap_or_else(PoisonError::into_inner) = c.0;
+                    })
+                }
+            });
+            None
+        }
+        other => Some(other),
+    };
+    let set = StageSet::spawn_with_hosts(specs, hosts);
+    let mut driver = Driver::new(set, pumps);
+    if let Some(rx) = batches {
+        let argvs: Vec<Vec<String>> = stages.iter().map(|s| s.argv.clone()).collect();
+        let it = RecordIterator::new(rx, driver, &argvs);
+        return Ok(Bound::new(py, it)?.into_any().unbind());
+    }
+    driver.finish(py);
+    let outputs = std::mem::take(&mut driver.outputs);
+    driver.settle(py, |i| stage_spec(&stages, i))?;
+    drop(driver);
+    Ok(match (sink, terminal) {
+        (Some(Sink::None), _) => {
             let paths: Vec<std::ffi::OsString> =
                 outputs.into_iter().map(|p| p.into_os_string()).collect();
             paths.into_pyobject(py)?.into_any().unbind()
         }
-        Sink::Bytes(b) => {
+        (Some(Sink::Bytes(b)), _) => {
             let bytes = std::mem::take(&mut *b.lock());
             PyBytes::new(py, &bytes).into_any().unbind()
         }
-        Sink::Count(c) => c.lock().total().into_pyobject(py)?.into_any().unbind(),
+        (_, Terminal::Arrow) => {
+            let mut built = table
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .take()
+                .ok_or_else(|| errors::internal(py, "the Arrow table was not built"))?;
+            if let Some(names) = names {
+                built = built.renamed(&names).map_err(|e| errors::usage(py, e))?;
+            }
+            Bound::new(py, ArrowStream::new(built))?.into_any().unbind()
+        }
+        _ => {
+            let n = *count.lock().unwrap_or_else(PoisonError::into_inner);
+            n.into_pyobject(py)?.into_any().unbind()
+        }
     })
 }

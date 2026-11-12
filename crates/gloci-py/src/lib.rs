@@ -9,7 +9,8 @@
 //!   `random`) and the module functions (`vcf_stats`, `index`, ...), which
 //!   [`module_functions`] lists.
 //! - [`run_plan`] runs a pipeline ([`run`]), reading Python objects as sources ([`sources`],
-//!   [`frames`]).
+//!   [`frames`]), and reading its output back as records ([`records`]: iteration, `count()`)
+//!   or an Arrow table ([`arrow`]).
 
 #[cfg(windows)]
 compile_error!(
@@ -17,9 +18,11 @@ compile_error!(
      gloci there with `pip install gloci`"
 );
 
+mod arrow;
 mod errors;
 mod frames;
 mod logs;
+mod records;
 mod run;
 mod sources;
 
@@ -33,7 +36,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Run an entry point's body: a panic in it raises `GlociError` with the internal-error text
 /// (D90), not pyo3's `PanicException`.
-fn guarded<T>(py: Python<'_>, body: impl FnOnce() -> PyResult<T>) -> PyResult<T> {
+pub(crate) fn guarded<T>(py: Python<'_>, body: impl FnOnce() -> PyResult<T>) -> PyResult<T> {
     catch_unwind(AssertUnwindSafe(|| {
         test_point();
         body()
@@ -529,9 +532,9 @@ fn _test_panic(py: Python<'_>, place: &str) -> PyResult<()> {
     catch_unwind(AssertUnwindSafe(|| match place {
         "stage" => {
             let set = StageSet::spawn_fns(vec![Box::new(|| panic!("test panic"))]);
-            run::drive(py, set, &mut [])
-                .settle(py, |_| None, &mut [])
-                .map(drop)
+            let mut driver = run::Driver::new(set, Vec::new());
+            driver.finish(py);
+            driver.settle(py, |_| None).map(drop)
         }
         "driver" => panic!("test panic on the driver"),
         "next" => {
@@ -546,7 +549,7 @@ fn _test_panic(py: Python<'_>, place: &str) -> PyResult<()> {
                 Python::attach(|_| ());
                 Ok(true)
             })]);
-            let _running = run::Running::new(py, set);
+            let _running = run::Driver::new(set, Vec::new());
             panic!("test panic while a step runs");
         }
         other => Err(errors::usage(py, format!("no panic place {other:?}"))),
@@ -567,6 +570,9 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(module_functions, m)?)?;
     m.add_function(wrap_pyfunction!(command_line, m)?)?;
     m.add_function(wrap_pyfunction!(run_plan, m)?)?;
+    m.add_class::<records::Record>()?;
+    m.add_class::<records::RecordIterator>()?;
+    m.add_class::<arrow::ArrowStream>()?;
     #[cfg(feature = "test-hooks")]
     m.add_function(wrap_pyfunction!(_test_panic, m)?)?;
     Ok(())
