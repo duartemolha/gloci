@@ -67,23 +67,10 @@ def _prefix(where: str, out: object) -> str:
     return os.fsdecode(os.fspath(out))
 
 
-def _snapshot(directory: str, start: str) -> dict[str, tuple[int, int, int]]:
-    """The files in `directory` whose names start with `start`, with what tells a rewrite."""
-    try:
-        entries = list(os.scandir(directory or "."))
-    except FileNotFoundError:
-        return {}
-    found = {}
-    for e in entries:
-        if e.name.startswith(start) and e.is_file():
-            st = e.stat()
-            found[e.name] = (st.st_ino, st.st_mtime_ns, st.st_size)
-    return found
-
-
-def _run(name: str, sources: list[Source], kwargs: dict[str, Any], written: str) -> list[pathlib.Path]:
-    """Run the module function `name` on `sources`, and return the files it wrote: those that
-    start with `written` (a path and the start of the file names) and are new or rewritten."""
+def _run(name: str, sources: list[Source], kwargs: dict[str, Any]) -> list[pathlib.Path]:
+    """Run the module function `name` on `sources`, and return the files it wrote, sorted: the
+    output files the run itself committed, as the command named them, whatever else changed in
+    the directory meanwhile."""
     info = _FUNCTIONS[name]
     where = f"{name}()"
     kw = {k: _kwarg(where, k, v) for k, v in kwargs.items()}
@@ -95,18 +82,14 @@ def _run(name: str, sources: list[Source], kwargs: dict[str, Any], written: str)
     argv = _native.function_argv(info["path"], [r for r, _ in inputs], real_kw)
     shown = _native.function_argv(info["path"], [s for _, s in inputs], shown_kw, check=False)
     plan.add(argv, shown)
-    directory, start = os.path.split(written)
-    before = _snapshot(directory, start)
-    plan.run_plan("save")
-    after = _snapshot(directory, start)
-    return sorted(pathlib.Path(directory) / n for n, st in after.items() if before.get(n) != st)
+    written: list[str] = plan.run_plan("save")
+    return sorted({pathlib.Path(p) for p in written})
 
 
-def _with_prefix(where: str, out: object, kwargs: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+def _with_prefix(where: str, out: object, kwargs: dict[str, Any]) -> dict[str, Any]:
     if "out_prefix" in kwargs:
         raise UsageError(f"{where}: out= and out_prefix= both set the prefix; pass out= only")
-    prefix = _prefix(where, out)
-    return prefix, {**kwargs, "out_prefix": prefix}
+    return {**kwargs, "out_prefix": _prefix(where, out)}
 
 
 def vcf_stats(src: object, *, out: str | os.PathLike[str], **kwargs: Any) -> list[pathlib.Path]:
@@ -120,8 +103,8 @@ def vcf_stats(src: object, *, out: str | os.PathLike[str], **kwargs: Any) -> lis
     Returns:
         The files written, sorted.
     """
-    prefix, kw = _with_prefix("vcf_stats()", out, kwargs)
-    return _run("vcf_stats", [classify_source(src, "vcf_stats()")], kw, prefix + ".")
+    kw = _with_prefix("vcf_stats()", out, kwargs)
+    return _run("vcf_stats", [classify_source(src, "vcf_stats()")], kw)
 
 
 def vcf_extract_matrix(
@@ -138,10 +121,10 @@ def vcf_extract_matrix(
     Returns:
         The files written, sorted.
     """
-    prefix, kw = _with_prefix("vcf_extract_matrix()", out, kwargs)
+    kw = _with_prefix("vcf_extract_matrix()", out, kwargs)
     kw.setdefault("genotype_matrix", "012")
     src = classify_source(src, "vcf_extract_matrix()")
-    return _run("vcf_extract_matrix", [src], kw, prefix + ".")
+    return _run("vcf_extract_matrix", [src], kw)
 
 
 def vcf_compare(
@@ -157,9 +140,9 @@ def vcf_compare(
     Returns:
         The files written, sorted.
     """
-    prefix, kw = _with_prefix("vcf_compare()", out, kwargs)
+    kw = _with_prefix("vcf_compare()", out, kwargs)
     sources = [classify_source(a, "vcf_compare()"), classify_source(b, "vcf_compare()")]
-    return _run("vcf_compare", sources, kw, prefix + ".")
+    return _run("vcf_compare", sources, kw)
 
 
 def index(path: str | os.PathLike[str], **kwargs: Any) -> list[pathlib.Path]:
@@ -179,4 +162,4 @@ def index(path: str | os.PathLike[str], **kwargs: Any) -> list[pathlib.Path]:
             f"index needs a file, not {shown}: an index is written next to the file it indexes, "
             "so save() the data to a file and index that"
         )
-    return _run("index", [src], kwargs, src.obj + ".")
+    return _run("index", [src], kwargs)

@@ -49,7 +49,8 @@ const SRC: &str = "\0src:";
 /// What the caller gets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Terminal {
-    /// `save(path)`: the last stage writes the file; the result is `None`.
+    /// `save(path)`, and the module functions: the stages write files; the result is the list
+    /// of the output files the run committed, as the commands named them.
     Save,
     /// `to_bytes()`: the last stage's output.
     Bytes,
@@ -391,6 +392,8 @@ pub(crate) struct Driven {
     pending: Option<PyErr>,
     /// The last error record forwarded.
     logged: Option<String>,
+    /// The output files the run committed ([`StageSet::outputs`]).
+    outputs: Vec<std::path::PathBuf>,
 }
 
 /// A running set, dropped with the GIL released however the driver leaves (R2): its drop
@@ -474,12 +477,14 @@ pub(crate) fn drive(py: Python<'_>, set: StageSet, pumps: &mut [Pump]) -> Driven
     if let Err(e) = logs::forward(py, &mut logged) {
         stop(set, pumps, e);
     }
+    let outputs = set.outputs();
     // Every stage has ended, so dropping the set only joins.
     drop(running);
     Driven {
         result,
         pending,
         logged,
+        outputs,
     }
 }
 
@@ -514,10 +519,15 @@ pub(crate) fn run_plan(py: Python<'_>, plan: &Bound<'_, PyDict>) -> PyResult<Py<
     logs::sync_level(py)?;
     let (specs, sink, mut pumps) = build(py, &stages, terminal, sources)?;
     let set = StageSet::spawn(specs);
-    let driven = drive(py, set, &mut pumps);
+    let mut driven = drive(py, set, &mut pumps);
+    let outputs = std::mem::take(&mut driven.outputs);
     driven.settle(py, |i| spec_of(&stages[i].argv), &mut pumps)?;
     Ok(match sink {
-        Sink::None => py.None(),
+        Sink::None => {
+            let paths: Vec<std::ffi::OsString> =
+                outputs.into_iter().map(|p| p.into_os_string()).collect();
+            paths.into_pyobject(py)?.into_any().unbind()
+        }
         Sink::Bytes(b) => {
             let bytes = std::mem::take(&mut *b.lock());
             PyBytes::new(py, &bytes).into_any().unbind()

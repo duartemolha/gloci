@@ -225,11 +225,13 @@ fn temp_suffix() -> String {
 }
 
 /// A file written under `DEST.tmp-XXXXXX` and renamed onto `DEST` by [`AtomicFile::commit`].
-/// Dropping without committing removes the temp file.
+/// Dropping without committing removes the temp file. It captures the run's token when created,
+/// and its commit records `DEST` as an output of the run ([`crate::cancel::CancelToken::recording`]).
 pub struct AtomicFile {
     file: Option<File>,
     tmp: PathBuf,
     dest: PathBuf,
+    run: crate::cancel::Watch,
 }
 
 impl AtomicFile {
@@ -248,6 +250,7 @@ impl AtomicFile {
                         file: Some(file),
                         tmp,
                         dest: dest.to_path_buf(),
+                        run: crate::cancel::Watch::current(),
                     });
                 }
                 Err(e) if e.kind() == io::ErrorKind::AlreadyExists => last_err = Some(e),
@@ -262,8 +265,17 @@ impl AtomicFile {
         &self.tmp
     }
 
-    /// Flushes and renames the temp file onto the destination.
-    pub fn commit(mut self) -> io::Result<()> {
+    /// Flushes and renames the temp file onto the destination, and records the destination as
+    /// an output of the run.
+    pub fn commit(self) -> io::Result<()> {
+        let (run, dest) = self.commit_unrecorded()?;
+        run.record_output(&dest);
+        Ok(())
+    }
+
+    /// [`AtomicFile::commit`] without the record: for [`crate::StagedSet::publish`], which
+    /// records its files once all of them are in place. Returns what to record it with.
+    pub(crate) fn commit_unrecorded(mut self) -> io::Result<(crate::cancel::Watch, PathBuf)> {
         let file = self.file.take().expect("file present until commit");
         file.sync_all()?;
         drop(file);
@@ -271,7 +283,7 @@ impl AtomicFile {
         unregister(&self.tmp);
         // Disarm Drop: tmp no longer exists.
         self.tmp = PathBuf::new();
-        Ok(())
+        Ok((self.run.clone(), std::mem::take(&mut self.dest)))
     }
 }
 

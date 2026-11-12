@@ -153,8 +153,9 @@ impl std::fmt::Debug for StageSet {
 
 impl StageSet {
     /// Start every stage: [`super::parse`] its argv and [`super::execute`] it, on its thread.
+    /// The set's token records the output files the stages commit ([`StageSet::outputs`]).
     pub fn spawn(specs: Vec<StageSpec>) -> StageSet {
-        let token = CancelToken::new();
+        let token = CancelToken::recording();
         let stages = specs
             .into_iter()
             .map(|s| {
@@ -281,6 +282,14 @@ impl StageSet {
     /// the token, and the set reports [`Outcome::Cancelled`].
     pub fn cancel(&self) {
         self.token.cancel();
+    }
+
+    /// The output files the stages have committed so far, each as its command named it, in the
+    /// order they were committed: every file a run renamed into place
+    /// ([`gloci_io::AtomicFile::commit`], [`gloci_io::StagedSet::publish`]), and no other.
+    /// Once [`StageSet::wait`] has returned the result, this is everything the run wrote.
+    pub fn outputs(&self) -> Vec<PathBuf> {
+        self.token.outputs()
     }
 
     fn join(&mut self) {

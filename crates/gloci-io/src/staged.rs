@@ -43,6 +43,8 @@ remove or rename it, or choose another --out-prefix"
         let mut done: Vec<PathBuf> = Vec::new();
         // (destination, where its previous content waits)
         let mut backups: Vec<(PathBuf, PathBuf)> = Vec::new();
+        // The run each file is recorded with, once every file is in place.
+        let mut records = Vec::new();
         for (file, dest) in self.files {
             let step = (|| -> io::Result<()> {
                 if std::fs::symlink_metadata(&dest).is_ok() {
@@ -53,7 +55,8 @@ remove or rename it, or choose another --out-prefix"
                     )?;
                     backups.push((dest.clone(), backup));
                 }
-                file.commit()
+                records.push(file.commit_unrecorded()?);
+                Ok(())
             })();
             if let Err(e) = step {
                 let kept = roll_back(&done, &backups);
@@ -76,6 +79,9 @@ remove or rename it, or choose another --out-prefix"
         }
         for (_, backup) in &backups {
             let _ = std::fs::remove_file(backup);
+        }
+        for (run, path) in records {
+            run.record_output(&path);
         }
         Ok(done)
     }
@@ -239,5 +245,68 @@ mod tests {
         .publish()
         .unwrap_err();
         assert!(names(d.path()).is_empty(), "{:?}", names(d.path()));
+    }
+
+    #[test]
+    fn a_recording_run_records_what_it_committed() {
+        use crate::cancel::{CancelToken, RunGuard};
+        let d = tempfile::tempdir().unwrap();
+        let run = CancelToken::recording();
+        let (kept, dropped, elsewhere) = {
+            let _g = RunGuard::enter(&run);
+            (
+                staged(d.path(), "kept.bed", "x"),
+                staged(d.path(), "dropped.bed", "x"),
+                staged(d.path(), "elsewhere.bed", "x"),
+            )
+        };
+        kept.0.commit().unwrap();
+        // Uncommitted: no output.
+        drop(dropped);
+        // Committed on another thread: still this run's, which it captured when made.
+        std::thread::spawn(move || elsewhere.0.commit().unwrap())
+            .join()
+            .unwrap();
+        // Made outside the run (the CLI): never recorded, nor by a token that does not record.
+        staged(d.path(), "cli.bed", "x").0.commit().unwrap();
+        let quiet = CancelToken::new();
+        {
+            let _g = RunGuard::enter(&quiet);
+            staged(d.path(), "quiet.bed", "x").0.commit().unwrap();
+        }
+        assert_eq!(
+            run.outputs(),
+            [d.path().join("kept.bed"), d.path().join("elsewhere.bed")]
+        );
+        assert!(quiet.outputs().is_empty());
+    }
+
+    #[test]
+    fn a_staged_set_is_recorded_only_once_published() {
+        use crate::cancel::{CancelToken, RunGuard};
+        let d = tempfile::tempdir().unwrap();
+        let run = CancelToken::recording();
+        let _g = RunGuard::enter(&run);
+        let ok = StagedSet {
+            files: vec![
+                staged(d.path(), "a.012", "1"),
+                staged(d.path(), "a.012.pos", "2"),
+            ],
+        };
+        ok.publish().unwrap();
+        assert_eq!(
+            run.outputs(),
+            [d.path().join("a.012"), d.path().join("a.012.pos")]
+        );
+        // A set whose second rename fails publishes nothing, and records nothing.
+        let first = staged(d.path(), "b.frq", "new");
+        let second = staged(d.path(), "b.hwe", "new");
+        std::fs::remove_file(second.0.temp_path()).unwrap();
+        StagedSet {
+            files: vec![first, second],
+        }
+        .publish()
+        .unwrap_err();
+        assert_eq!(run.outputs().len(), 2);
     }
 }

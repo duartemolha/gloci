@@ -707,3 +707,35 @@ def test_a_stalled_step_stops_the_pump(here: Path) -> None:
     assert got == 100
     assert read[0] == n
     assert stalled[0] < 1_000_000, f"{stalled[0]} of {n} items read while the step waited"
+
+
+# ---- fix round 1 -----------------------------------------------------------------------------
+
+
+def test_module_functions_report_what_the_run_wrote(here: Path) -> None:
+    # I1: the files the run itself committed, not what changed in the directory meanwhile.
+    (here / "x.vcf").write_text(VCF_X)
+    (here / "s.het").write_text("left alone\n")
+
+    def lines():
+        for i, line in enumerate(VCF_X.splitlines()):
+            if i == 5:
+                # Another job writes next to ours while the run reads its source.
+                (here / "s.other_job.frq").write_text("another job\n")
+                (here / "s.frq.tmp-otherjob").write_text("another writer's temp file\n")
+            yield line
+
+    got = gloci.vcf_stats(lines(), out="s", freq=True)
+    assert got == [Path("s.frq")]
+    assert (here / "s.het").read_text() == "left alone\n"
+    # A re-run with the same prefix reports the same files.
+    assert gloci.vcf_stats("x.vcf", out="s", freq=True) == got
+    assert gloci.vcf_stats("x.vcf", out=here / "s", freq=True, het=True) == [
+        here / "s.frq",
+        here / "s.het",
+    ]
+    # index: only the index it wrote.
+    gloci.open(FIXTURES / "a.bed").save("a.bed.gz")
+    (here / "a.bed.gz.other").write_text("not an index\n")
+    assert gloci.index("a.bed.gz") == [Path("a.bed.gz.tbi")]
+    assert gloci.index("a.bed.gz") == [Path("a.bed.gz.tbi")]

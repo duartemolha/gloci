@@ -7,30 +7,70 @@
 //! partial output *file*. Runs never share a token, so cancelling one leaves the others alone,
 //! and a token that is never cancelled costs one relaxed load per poll. The CLI installs no
 //! token: its watch is empty and never fires.
+//!
+//! **The run's outputs.** A token made with [`CancelToken::recording`] also records each output
+//! file the run commits: an [`crate::AtomicFile`] renamed into place, or every file of a
+//! [`crate::StagedSet`] once it is published. The file captures the token when it is created,
+//! like a reader, so the record reaches every thread of the run the way the cancel flag does,
+//! and a host learns exactly what its run wrote ([`CancelToken::outputs`]), whatever else
+//! changes on disk meanwhile. Without a recording token (the CLI) nothing is recorded.
 
 use crate::error::IoError;
 use std::cell::RefCell;
 use std::io::{self, Read};
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
-/// The cancel flag of one run. Clones share it.
+/// The cancel flag of one run, and the output files it committed when it records them. Clones
+/// share both.
 #[derive(Clone, Debug, Default)]
-pub struct CancelToken(Arc<AtomicBool>);
+pub struct CancelToken(Arc<RunState>);
+
+#[derive(Debug, Default)]
+struct RunState {
+    cancelled: AtomicBool,
+    /// The committed output files, in the order they were committed; `None` when not recorded.
+    outputs: Option<Mutex<Vec<PathBuf>>>,
+}
 
 impl CancelToken {
     pub fn new() -> CancelToken {
         CancelToken::default()
     }
 
+    /// A token that also records the output files the run commits ([`CancelToken::outputs`]).
+    pub fn recording() -> CancelToken {
+        CancelToken(Arc::new(RunState {
+            cancelled: AtomicBool::new(false),
+            outputs: Some(Mutex::new(Vec::new())),
+        }))
+    }
+
     /// Ask the run to stop.
     pub fn cancel(&self) {
-        self.0.store(true, Ordering::SeqCst);
+        self.0.cancelled.store(true, Ordering::SeqCst);
     }
 
     #[inline]
     pub fn is_cancelled(&self) -> bool {
-        self.0.load(Ordering::Relaxed)
+        self.0.cancelled.load(Ordering::Relaxed)
+    }
+
+    /// The output files the run has committed so far, in the order it committed them, each as
+    /// the command named it; empty for a token that does not record.
+    pub fn outputs(&self) -> Vec<PathBuf> {
+        self.0.outputs.as_ref().map_or_else(Vec::new, |o| {
+            o.lock().unwrap_or_else(PoisonError::into_inner).clone()
+        })
+    }
+
+    fn record(&self, path: &Path) {
+        if let Some(o) = &self.0.outputs {
+            o.lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(path.to_path_buf());
+        }
     }
 }
 
@@ -110,6 +150,14 @@ impl Watch {
             Err(io_error())
         } else {
             Ok(())
+        }
+    }
+
+    /// Record `path` as an output file the run committed, when the captured token records
+    /// ([`CancelToken::recording`]); nothing otherwise, as in the CLI.
+    pub fn record_output(&self, path: &Path) {
+        if let Some(t) = &self.0 {
+            t.record(path);
         }
     }
 

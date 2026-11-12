@@ -922,3 +922,45 @@ fn a_cancel_wakes_a_host_reading_the_last_pipe() {
     let err = finish(set).unwrap_err();
     assert_eq!(err.outcome, Outcome::Cancelled);
 }
+
+#[test]
+fn a_set_reports_the_files_its_stages_committed() {
+    let _s = serial();
+    let d = tempfile::tempdir().unwrap();
+    std::fs::write(d.path().join("o.bed.gz.old"), "another writer's").unwrap();
+    let out = d.path().join("o.bed.gz");
+    let o = out.to_str().unwrap();
+    let a = fixture("a.bed");
+    let specs = vec![stage(
+        argv!["view", "-o", o, "--write-index", a.to_str().unwrap()],
+        vec![],
+        vec![],
+    )];
+    let mut set = StageSet::spawn(specs);
+    let deadline = Instant::now() + Duration::from_secs(120);
+    let r = loop {
+        if let Some(r) = set.wait(Duration::from_millis(50)) {
+            break r;
+        }
+        assert!(Instant::now() < deadline, "the stage hung");
+    };
+    assert!(r.unwrap());
+    assert_eq!(set.outputs(), [out.clone(), d.path().join("o.bed.gz.tbi")]);
+    // A run into an in-memory sink commits no file.
+    let sink = Shared::default();
+    let reg = Registered::output("<sink>", Box::new(sink.clone()));
+    let name = reg.name().to_string();
+    let mut set = StageSet::spawn(vec![stage(
+        argv!["view", "-o", name, a.to_str().unwrap()],
+        vec![reg],
+        vec![],
+    )]);
+    let r = loop {
+        if let Some(r) = set.wait(Duration::from_millis(50)) {
+            break r;
+        }
+    };
+    assert!(r.unwrap());
+    assert!(set.outputs().is_empty());
+    assert!(!sink.bytes().is_empty());
+}
