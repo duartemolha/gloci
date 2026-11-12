@@ -249,7 +249,7 @@ fn split_kwargs(
     let mut seen: Vec<(&str, &str)> = Vec::new();
     for (name, value) in kwargs {
         let Some(arg) = spec.arg(name) else {
-            return Err(unknown(spec, name));
+            return Err(unknown(spec, name, role));
         };
         if let Some(&(_, first)) = seen.iter().find(|(id, _)| *id == arg.id) {
             return Err(UsageError(format!(
@@ -321,11 +321,14 @@ fn split_kwargs(
 
 /// `unexpected keyword argument 'fooo'`, with the closest keyword argument when one is within
 /// two edits (and closer than its own length, so `D` does not suggest `a`), or a short flag
-/// that differs only in case.
-fn unknown(spec: &CommandSpec, name: &str) -> UsageError {
+/// that differs only in case. A keyword reserved in `role` is never suggested: it would only
+/// be refused next.
+fn unknown(spec: &CommandSpec, name: &str, role: Role) -> UsageError {
+    let open = |a: &&ArgSpec| reserved(spec, a, role).is_none();
     let near = spec
         .args
         .iter()
+        .filter(open)
         .filter(|a| a.long.is_some() || a.positional)
         .flat_map(|a| {
             std::iter::once(a.kwarg()).chain(a.aliases.iter().map(|l| l.replace('-', "_")))
@@ -346,6 +349,7 @@ fn unknown(spec: &CommandSpec, name: &str) -> UsageError {
             };
             spec.args
                 .iter()
+                .filter(open)
                 .any(|a| a.short == Some(other))
                 .then(|| other.to_string())
         });

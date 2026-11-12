@@ -333,8 +333,11 @@ fn kwargs_rules() {
     let e = argv_of(i, &[("same_strnad", Flag(true))]).unwrap_err();
     assert!(e.ends_with("did you mean 'same_strand'?"), "{e}");
     // A one-letter name suggests the short flag of the other case, never a far long name.
+    let e = argv_of(&["merge"], &[("C", val("1"))]).unwrap_err();
+    assert!(e.ends_with("did you mean 'c'?"), "{e}");
+    // ... unless that flag is reserved (q is quiet, the logger's level).
     let e = argv_of(&["closest"], &[("Q", Flag(true))]).unwrap_err();
-    assert!(e.ends_with("did you mean 'q'?"), "{e}");
+    assert!(!e.contains("did you mean"), "{e}");
     let e = argv_of(&["closest"], &[("D", Flag(true))]).unwrap_err();
     assert!(!e.contains("'a'"), "{e}");
     let e = argv_of(i, &[("F", Flag(true))]);
@@ -1006,4 +1009,25 @@ fn step_argv_takes_the_terminal_options_for_every_binding_shape() {
             "{path:?}: the bytes differ from the CLI's"
         );
     }
+}
+
+#[test]
+fn suggestions_never_name_a_reserved_keyword() {
+    // On a step, output and threads belong to the terminal and a is the input: never suggested.
+    for typo in ["outptu", "thread", "aa"] {
+        let e = argv_of(&["intersect"], &[(typo, val("1"))]).unwrap_err();
+        assert_eq!(
+            e,
+            format!("intersect() got an unexpected keyword argument '{typo}'"),
+            "{typo}"
+        );
+    }
+    // A module function takes threads, so it is suggested there.
+    let e = kwargs_to_argv_as(
+        spec(&["vcf", "stats"]),
+        &kw(&[("thread", val("2"))]),
+        Role::Function,
+    )
+    .unwrap_err();
+    assert!(e.0.ends_with("did you mean 'threads'?"), "{e}");
 }
