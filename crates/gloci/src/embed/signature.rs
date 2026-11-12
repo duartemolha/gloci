@@ -92,10 +92,10 @@ fn keywords(spec: &'static CommandSpec, role: Role, taken: &[&str]) -> (Vec<Kw>,
     for a in args {
         let name = a.kwarg();
         let mut extras: Vec<String> = Vec::new();
-        if a.long.is_some() {
-            if let Some(c) = a.short {
-                extras.push(c.to_string());
-            }
+        if a.long.is_some()
+            && let Some(c) = a.short
+        {
+            extras.push(c.to_string());
         }
         extras.extend(a.aliases.iter().map(|l| l.replace('-', "_")));
         let extras: Vec<String> = extras
