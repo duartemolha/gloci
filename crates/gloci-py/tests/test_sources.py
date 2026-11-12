@@ -672,3 +672,37 @@ def test_module_functions(here: Path, cli) -> None:
         gloci.vcf_stats(["#CHROM\tPOS", "chr1\tx"], out=here / "py" / "e", freq=True)
     assert e.value.path == "<list>"
     assert not list((here / "py").glob("e.*"))
+
+
+def test_a_stalled_step_stops_the_pump(here: Path) -> None:
+    # intersect reads the generator only as far as its sweep can go, and a FIFO trickles its
+    # b= records: the pump must stop when the source's channel is full, not read on.
+    fifo = here / "slow.bed"
+    os.mkfifo(fifo)
+    n = 3_000_000
+    read = [0]
+    stalled: list[int] = []
+
+    def rows():
+        for i in range(n):
+            read[0] += 1
+            yield ("chr1", i * 10, i * 10 + 5)
+
+    def feed() -> None:
+        with open(fifo, "w") as f:
+            for i in range(100):
+                f.write(f"chr1\t{i * 10}\t{i * 10 + 1}\n")
+                f.flush()
+                time.sleep(0.01)
+            # The sweep still waits for the rest of b= here.
+            stalled.append(read[0])
+
+    feeder = threading.Thread(target=feed)
+    feeder.start()
+    try:
+        got = gloci.open(rows()).intersect(b="slow.bed").count()
+    finally:
+        feeder.join(10)
+    assert got == 100
+    assert read[0] == n
+    assert stalled[0] < 1_000_000, f"{stalled[0]} of {n} items read while the step waited"
