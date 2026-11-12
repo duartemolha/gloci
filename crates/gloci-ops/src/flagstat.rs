@@ -1,6 +1,6 @@
 //! `gloci flagstat` (D128): samtools' flag counts, in its text, TSV and JSON layouts.
 
-use gloci_io::{AlnSource, Format, IoError, Loc, aln_ref};
+use gloci_io::{AlnSource, IoError};
 
 /// The counters of samtools' `flagstat_loop`: index 0 holds the QC-passed reads, index 1 the
 /// QC-failed ones (FLAGS bit 0x200).
@@ -228,51 +228,13 @@ pub fn render_flagstat(s: &FlagStats, f: FlagstatFormat) -> String {
     o
 }
 
-/// Count every record of `src`, unmapped and unplaced ones included.
+/// Count every record of `src`, unmapped and unplaced ones included. A CRAM decodes only the
+/// fields counted ([`AlnSource::for_each_flag_fields`]).
 pub fn flagstat(mut src: Box<dyn AlnSource>) -> Result<FlagStats, IoError> {
-    let header = src.header().clone();
-    let name = src.name().to_string();
-    let layout = src.layout();
     let mut stats = FlagStats::default();
-    let mut n = 0u64;
-    src.for_each_record(&mut |raw, _| {
-        n += 1;
-        // A BAM-layout record was checked by the source: its fixed fields are read in place.
-        if layout == Format::Bam
-            && let Some(f) = bam_fixed(raw)
-        {
-            stats.add(f.flag, f.ref_id, f.mate_ref_id, f.mapq);
-            return Ok(());
-        }
-        let r = aln_ref(layout, raw, &header).map_err(|msg| IoError::Parse {
-            path: name.clone(),
-            loc: Loc::Record(n),
-            msg,
-        })?;
-        stats.add(r.flag(), r.ref_id(), r.mate_ref_id(), r.mapq());
+    src.for_each_flag_fields(&mut |r| {
+        stats.add(r.flag, r.ref_id, r.mate_ref_id, r.mapq);
         Ok(())
     })?;
     Ok(stats)
-}
-
-/// The fields flagstat counts, of a BAM record.
-struct Fixed {
-    flag: u16,
-    mapq: u8,
-    ref_id: Option<usize>,
-    mate_ref_id: Option<usize>,
-}
-
-/// The fields of the BAM record `raw` (without `block_size`) that flagstat counts, read from
-/// their fixed offsets; `None` when `raw` is shorter than the fixed part.
-fn bam_fixed(raw: &[u8]) -> Option<Fixed> {
-    let fixed = raw.get(..32)?;
-    let i32_at =
-        |at: usize| i32::from_le_bytes([fixed[at], fixed[at + 1], fixed[at + 2], fixed[at + 3]]);
-    Some(Fixed {
-        flag: u16::from_le_bytes([fixed[14], fixed[15]]),
-        mapq: fixed[9],
-        ref_id: usize::try_from(i32_at(0)).ok(),
-        mate_ref_id: usize::try_from(i32_at(20)).ok(),
-    })
 }
