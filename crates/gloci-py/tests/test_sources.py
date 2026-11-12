@@ -809,6 +809,45 @@ def test_only_file_arguments_take_sources(ab: Path) -> None:
     assert gloci.open("a.bed").intersect(b=iter(bed_rows(ab / "b.bed"))).count() > 0
 
 
+@pytest.mark.parametrize("exc", [KeyboardInterrupt, SystemExit])
+def test_base_exceptions_cancel_at_once(here: Path, exc: type[BaseException]) -> None:
+    # M3: intersect waits on a FIFO that never ends in time, so only a cancel stops the run.
+    fifo = here / "slow.bed"
+    os.mkfifo(fifo)
+    stop = threading.Event()
+
+    def feed() -> None:
+        try:
+            with open(fifo, "w") as f:
+                end = time.monotonic() + 10
+                i = 0
+                while not stop.is_set() and time.monotonic() < end:
+                    f.write(f"chr1\t{i}\t{i + 1}\n")
+                    f.flush()
+                    i += 1
+                    time.sleep(0.002)
+        except OSError:
+            pass
+
+    def rows():
+        for i in range(40_000):
+            yield ("chr1", i * 10, i * 10 + 5)
+        raise exc()
+
+    feeder = threading.Thread(target=feed, daemon=True)
+    feeder.start()
+    started = time.monotonic()
+    try:
+        with pytest.raises(exc):
+            gloci.open(rows()).intersect(b="slow.bed").save("out.bed")
+        took = time.monotonic() - started
+    finally:
+        stop.set()
+        feeder.join(10)
+    assert took < 1, f"{exc.__name__} took {took:.2f} s to stop the run"
+    assert not (here / "out.bed").exists() and not list(here.glob("*.tmp-*"))
+
+
 def test_pre_run_checks_refuse_plan_tokens() -> None:
     # M5: a check of the user's values never lets a plan token through.
     from gloci import _native
