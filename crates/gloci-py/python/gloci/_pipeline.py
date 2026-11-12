@@ -209,20 +209,21 @@ class Pipeline:
         """
         out = _path(path, "save()")
         last = self._steps_to_run()[-1].binding
+        given: list[tuple[str, list[str]]] = []
+        if output_format is not None:
+            given.append(("output_format", ["--output-format", str(output_format)]))
+        if write_index:
+            given.append(("write_index", ["--write-index"]))
+        if compression_level is not None:
+            given.append(("compression_level", ["--compression-level", str(compression_level)]))
         opts: list[str] = []
-        for name, flag, value in (
-            ("output_format", "--output-format", output_format),
-            ("write_index", "--write-index", write_index or None),
-            ("compression_level", "--compression-level", compression_level),
-        ):
-            if value is None:
-                continue
+        for name, words in given:
             if name not in last["outputs"]:
                 raise UsageError(
                     f"save(): {last['method']}() has no {name}= (gloci "
-                    f"{' '.join(last['path'])} has no {flag} option)"
+                    f"{' '.join(last['path'])} has no {words[0]} option)"
                 )
-            opts += [flag] if value is True else [flag, str(value)]
+            opts += words
         self._run("save", out, opts, threads)
 
     def to_bytes(self, *, threads: int | None = None) -> bytes:

@@ -159,6 +159,14 @@ def test_save_options(ab: Path) -> None:
     assert (ab / "m.bed.gz.tbi").exists()
     plain = gloci.open("a.bed").merge().to_bytes()
     assert gloci.open("m.bed.gz").to_bytes() == plain
+    # write_index= takes any truthy or falsy value, like a bool.
+    gloci.open("a.bed").merge().save("one.bed.gz", write_index=1)
+    assert (ab / "one.bed.gz.tbi").exists()
+    gloci.open("a.bed").merge().save("zero.bed.gz", write_index=0)
+    assert (ab / "zero.bed.gz").exists() and not (ab / "zero.bed.gz.tbi").exists()
+    with pytest.raises(gloci.UsageError) as e:
+        gloci.open("x.bam").depth().save("d.txt", write_index=True)
+    assert str(e.value) == "save(): depth() has no write_index= (gloci depth has no --write-index option)"
     gloci.open("a.bed").merge().save("m.out", output_format="bed")
     assert (ab / "m.out").read_bytes() == plain
     # The command line recorded in a header spells the option as save()'s keyword does.
