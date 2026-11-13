@@ -133,16 +133,21 @@ fn lookup(s: &str) -> Option<(OutFormat, bool)> {
 }
 
 fn from_extension(path: &Path) -> Option<(OutFormat, bool)> {
+    lookup(&extension_key(path)?)
+}
+
+/// The output-format key `path`'s name ends in (`vcf.gz` for `x.vcf.gz`, `bed` for `X.BED`): the
+/// two-part suffix when it is a known format, else the one-part one; `None` when neither is.
+fn extension_key(path: &Path) -> Option<String> {
     let name = path.file_name()?.to_string_lossy().to_ascii_lowercase();
-    // try two-part suffix first (x.bed.gz), then one-part
     let mut dots = name.match_indices('.').map(|(i, _)| i).rev();
     let last = dots.next()?;
     if let Some(prev) = dots.next()
-        && let Some(r) = lookup(&name[prev + 1..])
+        && lookup(&name[prev + 1..]).is_some()
     {
-        return Some(r);
+        return Some(name[prev + 1..].to_string());
     }
-    lookup(&name[last + 1..])
+    lookup(&name[last + 1..]).map(|_| name[last + 1..].to_string())
 }
 
 /// `output` as a destination: `None` for stdout (`-`, `/dev/stdout`), and whether it is written
@@ -227,8 +232,10 @@ pub fn parse_output_spec(
     };
     let (format, bgzf) = match (from_ext, from_o) {
         (Some(a), Some(b)) if a != b => {
+            let matching = path.and_then(extension_key).unwrap_or_default();
             return Err(UsageError(format!(
-                "-o {} and -O {} disagree about the output format; drop one of them",
+                "-o {} and -O {} disagree about the output format; drop -O, or pass -O \
+                 {matching} to match",
                 path.map(|p| p.display().to_string()).unwrap_or_default(),
                 output_format.unwrap_or_default()
             )));
