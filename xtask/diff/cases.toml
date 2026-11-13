@@ -7334,10 +7334,10 @@ compare = "bam"
 
 [[case]]
 name = "aln-merge-name-bytes-vs-samtools"
-input = { file = "xtask/diff/inputs/aln/merge-a.N.bam" }
-aux = ["xtask/diff/inputs/aln/merge-b.N.bam"]
-gloci = "gloci sort -m -N input.N.bam merge-b.N.bam"
-reference = "samtools merge -N -c -p --no-PG -o - input.N.bam merge-b.N.bam"
+input = { file = "xtask/diff/inputs/aln/merge-a.bytes.bam" }
+aux = ["xtask/diff/inputs/aln/merge-b.bytes.bam"]
+gloci = "gloci sort -m -N input.bytes.bam merge-b.bytes.bam"
+reference = "samtools merge -N -c -p --no-PG -o - input.bytes.bam merge-b.bytes.bam"
 compare = "bam"
 
 [[case]]

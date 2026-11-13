@@ -882,3 +882,33 @@ fn nightly_fuzzes_every_target() {
     }
     assert!(targets >= 11, "only {targets} fuzz targets");
 }
+
+/// No two files or directories of the repository have names that differ only in letter
+/// case: macOS's default filesystem keeps one of such a pair, so a checkout there had the
+/// wrong golden files and fixtures (`intersect-f` beside `intersect-F`, `merge-a.n.bam`
+/// beside `merge-a.N.bam`).
+#[test]
+fn no_two_paths_differ_only_in_letter_case() {
+    fn walk(dir: &std::path::Path, clashes: &mut Vec<String>, seen_dirs: &mut usize) {
+        *seen_dirs += 1;
+        let mut names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut entries: Vec<_> = fs::read_dir(dir).unwrap().map(|e| e.unwrap()).collect();
+        entries.sort_by_key(|e| e.file_name());
+        for e in entries {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if matches!(name.as_str(), "target" | ".git") {
+                continue;
+            }
+            if let Some(other) = names.insert(name.to_lowercase(), name.clone()) {
+                clashes.push(format!("{}: {other} and {name}", dir.display()));
+            }
+            if e.file_type().unwrap().is_dir() {
+                walk(&e.path(), clashes, seen_dirs);
+            }
+        }
+    }
+    let (mut clashes, mut dirs) = (Vec::new(), 0);
+    walk(&xtask::diff::workspace_root(), &mut clashes, &mut dirs);
+    assert!(dirs > 100, "only {dirs} directories walked");
+    assert!(clashes.is_empty(), "{clashes:#?}");
+}
