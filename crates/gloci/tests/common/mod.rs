@@ -69,3 +69,66 @@ pub fn copy_with_fresh_index(
         .unwrap();
     d
 }
+
+/// `xtask/diff/inputs`, the fixtures the differential cases use.
+pub fn diff_inputs() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../xtask/diff/inputs")
+}
+
+/// A FASTA in `dir` with the names and lengths of `fa/ref.fa` (and its `.fai`) but every base
+/// an `A`: a CRAM made with ref.fa decodes against it only where no base is read.
+pub fn wrong_bases_fasta(dir: &std::path::Path) -> PathBuf {
+    let fa = std::fs::read_to_string(diff_inputs().join("fa/ref.fa")).unwrap();
+    let other: String = fa
+        .lines()
+        .map(|l| {
+            if l.starts_with('>') {
+                format!("{l}\n")
+            } else {
+                format!("{}\n", "A".repeat(l.len()))
+            }
+        })
+        .collect();
+    let wrong = dir.join("other.fa");
+    std::fs::write(&wrong, other).unwrap();
+    std::fs::copy(
+        diff_inputs().join("fa/ref.fa.fai"),
+        dir.join("other.fa.fai"),
+    )
+    .unwrap();
+    wrong
+}
+
+/// Every CRAM fixture that `gloci view` decodes in full with `fa/ref.fa`, with the SAM text of
+/// that decode: its header lines and its records. The fixtures that are meant to fail (a
+/// missing end-of-file container, a read past the overhang limit, another reference) are left
+/// out, so what is returned is what the full decode says each file holds.
+pub fn decodable_crams() -> Vec<(PathBuf, Vec<String>, Vec<String>)> {
+    let reference = diff_inputs().join("fa/ref.fa");
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(diff_inputs().join("aln"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.extension().is_some_and(|x| x == "cram"))
+        .collect();
+    paths.sort();
+    let mut out = Vec::new();
+    for p in paths {
+        let o = gloci()
+            .args(["view", "-O", "sam", "--reference"])
+            .arg(&reference)
+            .arg(&p)
+            .output()
+            .unwrap();
+        if !o.status.success() {
+            continue;
+        }
+        let text = String::from_utf8(o.stdout).unwrap();
+        let (header, records): (Vec<String>, Vec<String>) = text
+            .lines()
+            .map(String::from)
+            .partition(|l| l.starts_with('@'));
+        out.push((p, header, records));
+    }
+    assert!(out.len() >= 20, "only {} CRAM fixtures decode", out.len());
+    out
+}

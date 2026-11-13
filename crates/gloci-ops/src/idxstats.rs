@@ -1,8 +1,8 @@
 //! `gloci idxstats` (D127): per-reference read counts of a BAM, CRAM or SAM.
 
 use gloci_io::{
-    AlnIndexCounts, Format, Header, IndexKind, IndexedFile, IoError, Loc, ReaderOptions, RefCounts,
-    aln_ref, find_index, open_aln_source,
+    AlnIndexCounts, Format, Header, IndexKind, IndexedFile, IoError, ReaderOptions, RefCounts,
+    find_index, open_aln_source,
 };
 use std::io::Write;
 use std::path::Path;
@@ -24,8 +24,11 @@ fn write_err(source: std::io::Error) -> IoError {
 }
 
 /// Write `name TAB LN TAB mapped TAB unmapped` per reference, then `* 0 0 unplaced`. Counts
-/// come from the index of a BAM when it has them, else from reading every record. `o` carries
+/// come from the index of a BAM when it has them, else from reading every record: its flag and
+/// reference id, which is all a CRAM decodes ([`AlnSource::for_each_flag_fields`]). `o` carries
 /// `--reference` (for a CRAM that needs one) and the threads, and no read filters.
+///
+/// [`AlnSource::for_each_flag_fields`]: gloci_io::AlnSource::for_each_flag_fields
 pub fn idxstats(
     path: &str,
     o: &ReaderOptions,
@@ -82,29 +85,18 @@ pub fn idxstats(
     let n = header.refs.len();
     let mut per_ref = vec![RefCounts::default(); n];
     let mut unplaced = 0u64;
-    let layout = src.layout();
-    let mut buf = Vec::new();
-    loop {
-        buf.clear();
-        let Some(rec) = src.next_record(&mut buf)? else {
-            break;
-        };
-        // The sources check each record as they read it, so this names a record as flagstat
-        // does, should one ever get through.
-        let r = aln_ref(layout, &buf, &header).map_err(|msg| IoError::Parse {
-            path: name.clone(),
-            loc: Loc::Record(rec),
-            msg,
-        })?;
-        match r.ref_id() {
+    // Only the flag and the reference id count, so a CRAM decodes those data series alone
+    // (as flagstat does) and not the names, bases, qualities and tags of every read.
+    src.for_each_flag_fields(&mut |r| {
+        match r.ref_id {
             Some(rid) if rid < n => {
-                if r.flag() & 0x4 != 0 {
+                if r.flag & 0x4 != 0 {
                     per_ref[rid].unmapped += 1;
                 } else {
                     per_ref[rid].mapped += 1;
                 }
             }
-            // The record parsers check refID against the header, so this is a bug.
+            // The sources check refID against the header, so this is a bug.
             Some(rid) => {
                 return Err(IoError::Internal(format!(
                     "{name}: record with refID {rid} passed the header's {n} references"
@@ -112,7 +104,8 @@ pub fn idxstats(
             }
             None => unplaced += 1,
         }
-    }
+        Ok(())
+    })?;
     let counts = AlnIndexCounts {
         per_ref: per_ref.into_iter().map(Some).collect(),
         unplaced: Some(unplaced),

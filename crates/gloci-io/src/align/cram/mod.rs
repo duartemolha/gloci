@@ -411,8 +411,9 @@ impl RecordReader for CramReader {
 }
 
 /// Every record of a CRAM (D120): the BAM source over the transcoded records, started at the
-/// first record read. Flagstat's fields come from the data series they need alone
-/// ([`fields`]), with the record path's filters, errors and places.
+/// first record read. The fields `flagstat`, `idxstats` and `view --count` read come from
+/// the data series they need alone ([`fields`]), with the record path's filters, errors and
+/// places.
 pub(crate) struct CramSource {
     name: String,
     header: Arc<AlnHeader>,
