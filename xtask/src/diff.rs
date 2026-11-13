@@ -94,6 +94,18 @@ pub fn load_cases(path: &Path) -> Result<Vec<Case>> {
             c.name
         );
     }
+    // A case's golden files live in a directory of its name, and a filesystem that ignores
+    // letter case (macOS's default) gives `intersect-f` and `intersect-F` one directory.
+    let mut seen: std::collections::HashMap<String, &str> = std::collections::HashMap::new();
+    for c in &cases {
+        if let Some(other) = seen.insert(c.name.to_ascii_lowercase(), &c.name) {
+            anyhow::bail!(
+                "cases `{other}` and `{}` have the same name when letter case is ignored, so their \
+golden directories are one on macOS; rename one",
+                c.name
+            );
+        }
+    }
     Ok(cases)
 }
 
@@ -493,6 +505,28 @@ mod tests {
                 "docs/differences.md section {{#{a}}} is not pinned by any case"
             );
         }
+    }
+
+    /// Two cases whose names differ only in letter case are refused: macOS would give
+    /// their golden files one directory.
+    #[test]
+    fn case_names_are_unique_whatever_the_letter_case() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("cases.toml");
+        let case = |n: &str| {
+            format!(
+                "[[case]]\nname = \"{n}\"\ninput = {{ file = \"x.bed\" }}\ngloci = \"gloci merge input.bed\"\n\
+reference = \"bedtools merge -i input.bed\"\ncompare = \"exact\"\n"
+            )
+        };
+        std::fs::write(&p, case("merge-s") + &case("merge-other")).unwrap();
+        assert_eq!(load_cases(&p).unwrap().len(), 2);
+        std::fs::write(&p, case("merge-s") + &case("merge-S")).unwrap();
+        let e = load_cases(&p).unwrap_err().to_string();
+        assert!(
+            e.contains("`merge-s` and `merge-S`") && e.contains("macOS"),
+            "{e}"
+        );
     }
 
     #[test]

@@ -401,6 +401,8 @@ fn determinism() {
     assert_eq!(one, out("8"));
 }
 
+/// Linux only: `/dev/full` is what fails the write.
+#[cfg(target_os = "linux")]
 #[test]
 fn write_error_names_the_destination() {
     let fx = Fx::new();
