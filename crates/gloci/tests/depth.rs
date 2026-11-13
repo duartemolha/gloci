@@ -499,8 +499,9 @@ fn depth_past_ln_and_stale_index_warnings_do_not_depend_on_threads() {
 }
 
 /// A `--regions-file` whose path is not UTF-8 is not dropped silently (M14): it is read as
-/// view reads one, and here fails to open, by name.
-#[cfg(unix)]
+/// view reads one, and here fails to open, by name. Linux only: macOS refuses to create a
+/// file whose name is not UTF-8 ("Illegal byte sequence").
+#[cfg(target_os = "linux")]
 #[test]
 fn depth_non_utf8_regions_file_is_not_ignored() {
     use std::os::unix::ffi::OsStrExt;
