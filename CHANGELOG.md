@@ -27,6 +27,7 @@ the minor version).
 - Stability tiers: `genomes`, `index`, `sort`, `view`, `intersect`, `merge`, `subtract`, `closest` and `coverage` are the stable core; every other command is experimental and its help starts with a line saying so. `contrib/gloci-shadow.sh` runs a pipeline step with the tool it uses today and with gloci, and logs whether the outputs are identical.
 - `SKILL.md` is an index of 28 KB where it was 173 KB: the semantics, one entry per command and the pitfalls. The rules of a command stay in its `--help`, and the release archives now carry `docs/migration.md` and `docs/differences.md`, which it points to.
 - Help text no longer cites sections of the internal design spec. `docs/migration.md` no longer lists `jaccard`, `fisher`, `reldist`, `shuffle`, `random`, `sample`, `pairtobed` and `pairtopair` as not yet available: they have been since P3b.
+- The README has a performance table from the real-data benchmarks (indicative: a 4-core aarch64 machine), including the cases where bedops, samtools or bcftools is faster.
 - Fuzzing: `cram_reader` and `fasta_index` targets; the nightly job runs every target (it left out `sam_reader` and `bedpe_reader`) for 180 s each.
 
 ## [0.1.0] - 2026-11-08
