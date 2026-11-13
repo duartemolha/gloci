@@ -3121,6 +3121,18 @@ reference = "bedtools genomecov -i input.bed -g gc.genome -bg"
 compare = "exit-status"
 expected_difference = "#genomecov-past-end"
 
+# bedtools adds the bases of every chromosome up in 32 bits for the "genome"
+# rows, so the depth-0 count of a genome longer than 2^32 bases wraps. The
+# chromosomes without a feature cost nothing in either tool.
+[[case]]
+name = "genomecov-hist-wide-genome-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-wide.bed" }
+aux = ["xtask/diff/inputs/gc-wide.genome"]
+gloci = "gloci genomecov input.bed -g gc-wide.genome"
+reference = "bedtools genomecov -i input.bed -g gc-wide.genome"
+compare = "exact"
+expected_difference = "#genomecov-genome-total"
+
 [[case]]
 name = "genomecov-max-depth-bedgraph-vs-bedtools"
 input = { file = "xtask/diff/inputs/gc-a.bed" }
