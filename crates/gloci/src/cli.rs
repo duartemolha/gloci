@@ -331,8 +331,10 @@ Examples:
     /// cluster when its start is at most the cluster end plus -d/--max-gap.
     /// The default 0 joins overlapping and bookended features; a negative
     /// gap such as -d -2 needs at least that many shared bases; a point
-    /// joins a cluster it lies inside or touches. The output is BED
-    /// (chrom, start, end), or TSV for -o x.tsv, and is not A's records.
+    /// joins a cluster it lies inside or touches. The output is the merged
+    /// regions as BED (chrom, start, end) whatever the input format (VCF,
+    /// GFF, BAM, ...), or TSV for -o x.tsv; the input records themselves
+    /// are not written.
     /// --count adds the number of records per cluster and -c COL:OP adds
     /// one aggregation column per option (count, sum, mean, median, min,
     /// max, stdev, var, stdev_pop, var_pop, collapse, distinct, distinct_sorted, first, last,
@@ -353,6 +355,7 @@ Examples:
   gloci merge peaks.bed
   gloci merge a.bed b.bed -d 100 --count
   gloci merge genes.bed -s -c 5:max -c 4:distinct
+  # variants in, BED regions out (-d -1: only footprints sharing a base join)
   gloci merge calls.vcf.gz -d -1 -o regions.bed.gz --write-index")]
     Merge(MergeArgs),
     /// Give every record the id of its cluster (bedtools cluster).

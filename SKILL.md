@@ -149,7 +149,7 @@ gloci intersect -a reads.bam -b targets.bed -o on_target.bam
 
 Merge overlapping or nearby records into clusters (bedtools merge, bedops -m).
 
-Records are grouped by their footprints: a record joins the open cluster when its start is at most the cluster end plus -d/--max-gap. The default 0 joins overlapping and bookended features; a negative gap such as -d -2 needs at least that many shared bases; a point joins a cluster it lies inside or touches. The output is BED (chrom, start, end), or TSV for -o x.tsv, and is not A's records. --count adds the number of records per cluster and -c COL:OP adds one aggregation column per option (count, sum, mean, median, min, max, stdev, var, stdev_pop, var_pop, collapse, distinct, distinct_sorted, first, last, count_distinct, indicator, cv, mad, quantile:Q, tmean:LO-HI, mode, antimode; the ops that need a second input, like wmean, are for map). -s clusters each strand separately (unknown strand apart from + and -) without adding a strand column.
+Records are grouped by their footprints: a record joins the open cluster when its start is at most the cluster end plus -d/--max-gap. The default 0 joins overlapping and bookended features; a negative gap such as -d -2 needs at least that many shared bases; a point joins a cluster it lies inside or touches. The output is the merged regions as BED (chrom, start, end) whatever the input format (VCF, GFF, BAM, ...), or TSV for -o x.tsv; the input records themselves are not written. --count adds the number of records per cluster and -c COL:OP adds one aggregation column per option (count, sum, mean, median, min, max, stdev, var, stdev_pop, var_pop, collapse, distinct, distinct_sorted, first, last, count_distinct, indicator, cv, mad, quantile:Q, tmean:LO-HI, mode, antimode; the ops that need a second input, like wmean, are for map). -s clusters each strand separately (unknown strand apart from + and -) without adding a strand column.
 
 Several files are merged together as one stream. Every input must be sorted in one chromosome order, which is checked as it is read; an unsorted input is an error whose hint is to run gloci sort or to pass --sort, which sorts the inputs first with an external sort bounded by --max-mem (spilling to --tmp-dir); the result equals gloci sort FILES | gloci merge -. Memory stays flat apart from the clusters being built.
 
@@ -157,6 +157,7 @@ Several files are merged together as one stream. Every input must be sorted in o
 gloci merge peaks.bed
 gloci merge a.bed b.bed -d 100 --count
 gloci merge genes.bed -s -c 5:max -c 4:distinct
+# variants in, BED regions out (-d -1: only footprints sharing a base join)
 gloci merge calls.vcf.gz -d -1 -o regions.bed.gz --write-index
 ```
 

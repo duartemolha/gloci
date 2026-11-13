@@ -371,3 +371,18 @@ fn sigterm_with_registry_locked_exits_130_instead_of_hanging() {
     };
     assert_eq!(status.code(), Some(130));
 }
+
+/// When -o's extension and -O name different formats, the message says which -O value matches
+/// the file name (`-O vcf` is plain VCF; `x.vcf.gz` is `vcf.gz`).
+#[test]
+fn a_format_clash_names_the_matching_output_format() {
+    let err = parse_output_spec(Some(Path::new("calls.vcf.gz")), Some("vcf")).unwrap_err();
+    assert!(
+        err.0.contains("-o calls.vcf.gz and -O vcf disagree")
+            && err.0.contains("pass -O vcf.gz to match"),
+        "{}",
+        err.0
+    );
+    let err = parse_output_spec(Some(Path::new("Out.BED")), Some("tsv")).unwrap_err();
+    assert!(err.0.contains("pass -O bed to match"), "{}", err.0);
+}

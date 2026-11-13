@@ -96,3 +96,23 @@ fn index_help_does_not_claim_maskfasta_needs_an_index() {
     assert!(help.contains("maskfasta streams"), "{help}");
     assert!(!help.contains("nuc, maskfasta"), "{help}");
 }
+
+/// merge's help says its output is BED regions whatever the input, and its VCF example says so.
+#[test]
+fn merge_help_says_the_output_is_regions_whatever_the_input() {
+    let help = gloci::command()
+        .find_subcommand_mut("merge")
+        .unwrap()
+        .render_long_help()
+        .to_string();
+    let flat = help.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(!flat.contains("A's records"), "{help}");
+    assert!(flat.contains("whatever the input format"), "{help}");
+    let examples = help.split("Examples:").nth(1).unwrap();
+    let vcf = examples
+        .lines()
+        .position(|l| l.contains("calls.vcf.gz"))
+        .unwrap();
+    let above = examples.lines().nth(vcf - 1).unwrap().trim_start();
+    assert!(above.starts_with('#') && above.contains("BED"), "{above}");
+}
