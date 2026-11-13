@@ -13,6 +13,101 @@ fn man_and_completions_generate() {
     }
 }
 
+/// What the generated bash completion offers for `words`, the last of which is being completed
+/// (empty for a fresh word); `None` when bash is not available.
+fn bash_completes(script: &std::path::Path, words: &[&str]) -> Option<Vec<String>> {
+    let quoted: Vec<String> = words.iter().map(|w| format!("'{w}'")).collect();
+    let cword = words.len() - 1;
+    let prev = if cword > 0 { words[cword - 1] } else { "" };
+    let body = format!(
+        "source \"$1\"; COMP_WORDS=({}); COMP_CWORD={cword}; COMP_LINE='{}'; \
+         COMP_POINT=${{#COMP_LINE}}; _gloci gloci '{}' '{prev}'; printf '%s\\n' \"${{COMPREPLY[@]}}\"",
+        quoted.join(" "),
+        words.join(" "),
+        words[cword],
+    );
+    let out = std::process::Command::new("bash")
+        .args(["-c", &body, "_"])
+        .arg(script)
+        .output()
+        .ok()?;
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    Some(
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(String::from)
+            .collect(),
+    )
+}
+
+/// After a command that takes files (`gloci merge `), bash must fall back to listing files (an
+/// empty reply under `-o default`), not offer only the options, whose common prefix `-` it would
+/// insert. Commands with subcommands still offer them.
+#[test]
+fn bash_completion_offers_files_for_a_commands_first_argument() {
+    let d = tempfile::tempdir().unwrap();
+    xtask::docs::generate_completions(d.path()).unwrap();
+    let script = d.path().join("gloci.bash");
+    let Some(merge) = bash_completes(&script, &["gloci", "merge", ""]) else {
+        eprintln!("bash not found; skipping");
+        return;
+    };
+    assert!(
+        merge.is_empty(),
+        "gloci merge <TAB> offered {merge:?}, not files"
+    );
+    for words in [
+        &["gloci", "merge", "a.bed", ""][..],
+        &["gloci", "vcf", "filter", ""],
+        &["gloci", "intersect", "-a", "a.bed", ""],
+    ] {
+        let got = bash_completes(&script, words).unwrap();
+        assert!(got.is_empty(), "{words:?} offered {got:?}, not files");
+    }
+    // Every command with no subcommands of its own, not only merge.
+    fn leaves(cmd: &clap::Command, path: Vec<String>, out: &mut Vec<Vec<String>>) {
+        let subs: Vec<_> = cmd
+            .get_subcommands()
+            .filter(|s| s.get_name() != "help")
+            .collect();
+        if subs.is_empty() {
+            out.push(path.clone());
+        }
+        for s in subs {
+            let mut p = path.clone();
+            p.push(s.get_name().to_string());
+            leaves(s, p, out);
+        }
+    }
+    let mut all = Vec::new();
+    leaves(&gloci::command(), vec!["gloci".to_string()], &mut all);
+    assert!(all.len() > 50, "only {} leaf commands found", all.len());
+    for path in &all {
+        let mut words: Vec<&str> = path.iter().map(String::as_str).collect();
+        words.push("");
+        let got = bash_completes(&script, &words).unwrap();
+        assert!(
+            got.is_empty(),
+            "{} <TAB> offered {got:?}, not files",
+            path.join(" ")
+        );
+    }
+    let opts = bash_completes(&script, &["gloci", "merge", "--max"]).unwrap();
+    assert!(opts.contains(&"--max-gap".to_string()), "{opts:?}");
+    let top = bash_completes(&script, &["gloci", ""]).unwrap();
+    assert!(
+        top.contains(&"merge".to_string()) && top.contains(&"vcf".to_string()),
+        "{top:?}"
+    );
+    let vcf = bash_completes(&script, &["gloci", "vcf", ""]).unwrap();
+    assert!(vcf.contains(&"filter".to_string()), "{vcf:?}");
+}
+
 #[test]
 fn skill_md_is_current() {
     let d = tempfile::tempdir().unwrap();

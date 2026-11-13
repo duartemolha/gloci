@@ -16,10 +16,52 @@ pub fn generate_completions(out: &Path) -> anyhow::Result<()> {
     std::fs::create_dir_all(out).with_context(|| format!("creating {}", out.display()))?;
     for shell in [Shell::Bash, Shell::Zsh, Shell::Fish] {
         let mut cmd = gloci::command();
-        clap_complete::generate_to(shell, &mut cmd, "gloci", out)
+        let path = clap_complete::generate_to(shell, &mut cmd, "gloci", out)
             .with_context(|| format!("generating {shell} completions"))?;
+        if shell == Shell::Bash {
+            let script = std::fs::read_to_string(&path)
+                .with_context(|| format!("reading {}", path.display()))?;
+            std::fs::write(&path, bash_first_argument_completes_files(&script))
+                .with_context(|| format!("writing {}", path.display()))?;
+        }
     }
     Ok(())
+}
+
+/// clap_complete's bash script offers a command's options for any word that is not an option's
+/// value: for the first word after the command (`|| ${COMP_CWORD} -eq N`) and again as the
+/// fall-through after `esac`. That is right where the next word may be a subcommand, but wrong
+/// for a command that takes files: `gloci merge <TAB>` offers only options, and bash inserts
+/// their common prefix `-`. For each command whose options list holds no subcommand (every word
+/// starts with `-`), options are offered only for a word that starts with `-`; any other word
+/// gets an empty reply, so bash lists files (the script's `-o default`).
+fn bash_first_argument_completes_files(script: &str) -> String {
+    const ANY_FIRST_WORD: &str = "if [[ ${cur} == -* || ${COMP_CWORD} -eq ";
+    const OFFER_OPTIONS: &str = "COMPREPLY=( $(compgen -W \"${opts}\" -- \"${cur}\") )";
+    let mut out = String::with_capacity(script.len());
+    let (mut no_subcommands, mut after_case) = (false, false);
+    for line in script.split_inclusive('\n') {
+        let text = line.trim_start();
+        let indent = &line[..line.len() - text.len()];
+        if let Some(rest) = text.strip_prefix("opts=\"") {
+            let words = rest.trim_end().trim_end_matches('"');
+            no_subcommands = words.split_whitespace().all(|w| w.starts_with('-'));
+            after_case = false;
+        } else if no_subcommands && text.starts_with(ANY_FIRST_WORD) {
+            out.push_str(indent);
+            out.push_str("if [[ ${cur} == -* ]] ; then\n");
+            continue;
+        } else if no_subcommands && text.trim_end() == "esac" {
+            after_case = true;
+        } else if no_subcommands && after_case && text.trim_end() == OFFER_OPTIONS {
+            out.push_str(indent);
+            out.push_str("COMPREPLY=()\n");
+            (no_subcommands, after_case) = (false, false);
+            continue;
+        }
+        out.push_str(line);
+    }
+    out
 }
 
 const FRONT_MATTER_AND_SEMANTICS: &str = "\
