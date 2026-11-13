@@ -1235,7 +1235,7 @@ class Pipeline:
             chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one: karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             header_only: Write only the header lines
             no_header: Write only the records, without the header
-            count: Write the number of records that would be written (regions and read filters applied), as one line, instead of the records; as samtools view -c
+            count: Write the number of records that would be written (regions and read filters applied), as one line, instead of the records; as samtools view -c. Without regions, a CRAM decodes only the flags and MAPQ, as samtools does
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
             format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert

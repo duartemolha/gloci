@@ -1311,8 +1311,9 @@ Examples:
     /// an index, a SAM, or a CRAM, whose .crai holds no counts) gets one warning and every
     /// record is counted, in any order of the references; samtools stops at the first
     /// reference that comes back. An index that lacks the counts of a reference also gets a
-    /// warning and a scan. A CRAM that needs a reference sequence needs --reference, even
-    /// though samtools reads such a file without one. Mapped and unmapped counts follow
+    /// warning and a scan. From a CRAM only the fields counted are decoded, as samtools
+    /// does; a CRAM that needs a reference sequence still needs --reference, though
+    /// samtools reads such a file without one. Mapped and unmapped counts follow
     /// FLAGS bit 0x4 only; no read filters apply. The output is the same through the index
     /// and by a scan, at any number of threads.
     #[command(after_long_help = "\
@@ -3217,7 +3218,8 @@ pub struct ViewArgs {
     #[arg(long)]
     pub no_header: bool,
     /// Write the number of records that would be written (regions and read filters
-    /// applied), as one line, instead of the records; as samtools view -c.
+    /// applied), as one line, instead of the records; as samtools view -c. Without
+    /// regions, a CRAM decodes only the flags and MAPQ, as samtools does.
     #[arg(long, conflicts_with_all = ["header_only", "no_header", "output_format", "write_index"])]
     pub count: bool,
     #[command(flatten)]

@@ -136,6 +136,75 @@ fn view_count_filters() {
     assert_eq!(written(&["--min-mapq", "30", &bam], true), 10);
 }
 
+/// `view --count` of a CRAM without regions reads the flags and MAPQ alone: for every CRAM
+/// fixture, at one thread and several, it prints the number of records the full decode
+/// (`view`) writes, with and without read filters.
+#[test]
+fn view_count_cram_equals_the_records_view_writes() {
+    let fa = p(&inputs().join("fa/ref.fa"));
+    let mut reads = 0;
+    for (cram, _, records) in decodable_crams() {
+        let cram = p(&cram);
+        reads += records.len();
+        let flag_and_mapq = |r: &String| {
+            let mut f = r.split('\t');
+            let flag: u16 = f.nth(1).unwrap().parse().unwrap();
+            let mapq: u8 = f.nth(2).unwrap().parse().unwrap();
+            (flag, mapq)
+        };
+        let mapped = records
+            .iter()
+            .filter(|r| flag_and_mapq(r).0 & 0x4 == 0)
+            .count() as u64;
+        let mapq30 = records.iter().filter(|r| flag_and_mapq(r).1 >= 30).count() as u64;
+        for t in ["1", "4"] {
+            let base = ["--reference", fa.as_str(), "-t", t, cram.as_str()];
+            assert_eq!(count(&base), records.len() as u64, "{cram} -t {t}");
+            let mut a = vec!["--exclude-flags", "UNMAP"];
+            a.extend(base);
+            assert_eq!(count(&a), mapped, "{cram} -t {t} --exclude-flags UNMAP");
+            let mut a = vec!["--min-mapq", "30"];
+            a.extend(base);
+            assert_eq!(count(&a), mapq30, "{cram} -t {t} --min-mapq 30");
+        }
+    }
+    assert!(reads > 1000, "{reads} reads compared");
+}
+
+/// From a CRAM, `view --count` without regions decodes no bases (#cram-limits), as flagstat:
+/// a FASTA with the right names and lengths but other bases gives the same count, where
+/// `view`, which decodes them, refuses it; overhang.cram's two reads are counted. With a
+/// region the positions are read, so the records of that region are decoded in full and the
+/// wrong FASTA is refused. A CRAM that needs a reference still needs --reference.
+#[test]
+fn view_count_cram_reads_no_bases() {
+    use predicates::str::contains;
+    let d = tempdir();
+    let wrong = p(&wrong_bases_fasta(d.path()));
+    let fa = p(&inputs().join("fa/ref.fa"));
+    let mates = p(&inputs().join("aln/mates.cram"));
+    let n = count(&["--reference", &fa, &mates]);
+    assert!(n > 0);
+    assert_eq!(count(&["--reference", &wrong, &mates]), n);
+    gloci()
+        .args(["view", "--reference", &wrong, &mates])
+        .assert()
+        .code(1)
+        .stderr(contains("does not match"));
+    gloci()
+        .args(["view", "--count", "--reference", &wrong, &mates, "chr1"])
+        .assert()
+        .code(1)
+        .stderr(contains("does not match"));
+    let overhang = p(&inputs().join("aln/overhang.cram"));
+    assert_eq!(count(&["--reference", &fa, &overhang]), 2);
+    gloci()
+        .args(["view", "--count", &mates])
+        .assert()
+        .code(1)
+        .stderr(contains("--reference"));
+}
+
 /// A BAM of `n` reads on chr1, with a .bai, and the BED regions file for its first reads.
 fn big_bam(dir: &Path, n: usize) -> PathBuf {
     let mut sam = String::from("@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:100000000\n");

@@ -32,7 +32,7 @@ command -v bash >/dev/null 2>&1 || { echo "fetch-datasets.sh needs bash (for pip
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 CACHE=${GLOCI_BENCH_CACHE:-$ROOT/target/bench-data/cache}
 ONLY=${1:-}
-KNOWN=' 1kg-30x-chr20 gencode-v46-gtf encode-ccre-v4 encode-ctcf-k562-peaks encode-ctcf-k562-fc gnomad-v4.1-exomes-chr22 encode-ctcf-k562-bam exons-unsorted.bed exons.bed ccre.bed ccre.bed.gz exons.bed.gz ctcf-fc.bedgraph 1kg-chr20.bcf 1kg-chr20.p1.vcf.gz 1kg-chr20.p2.vcf.gz ctcf-k562.bam ctcf-k562.cram ctcf-peaks.bed hg38.lex.genome '
+KNOWN=' 1kg-30x-chr20 gencode-v46-gtf encode-ccre-v4 encode-ctcf-k562-peaks encode-ctcf-k562-fc gnomad-v4.1-exomes-chr22 encode-ctcf-k562-bam exons-unsorted.bed exons.bed ccre.bed ccre.bed.gz exons.bed.gz ctcf-fc.bedgraph ctcf-fc.bed5 1kg-chr20.bcf 1kg-chr20.p1.vcf.gz 1kg-chr20.p2.vcf.gz ctcf-k562.bam ctcf-k562.cram ctcf-peaks.bed hg38.lex.genome '
 if [ -n "$ONLY" ]; then
   case "$KNOWN" in *" $ONLY "*) ;; *) echo "unknown dataset or derived input: $ONLY" >&2; exit 2 ;; esac
 fi
@@ -102,22 +102,24 @@ fetch '1kg-30x-chr20' 'https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collectio
 fetch 'gencode-v46-gtf' 'https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_46/gencode.v46.annotation.gtf.gz' 'gencode.v46.annotation.gtf.gz' '68070e3c87f6a0e70af6e4ff4d55f61c' 'exons-unsorted.bed exons.bed exons.bed.gz'
 fetch 'encode-ccre-v4' 'https://www.encodeproject.org/files/ENCFF420VPZ/@@download/ENCFF420VPZ.bed.gz' 'ENCFF420VPZ.bed.gz' 'ea1820bd71581ba01c94fc600fbf794d' 'ccre.bed ccre.bed.gz'
 fetch 'encode-ctcf-k562-peaks' 'https://www.encodeproject.org/files/ENCFF769AUF/@@download/ENCFF769AUF.bed.gz' 'ENCFF769AUF.bed.gz' '7d086cac19c5311a77b7e21e3d931435' 'ctcf-peaks.bed'
-fetch 'encode-ctcf-k562-fc' 'https://www.encodeproject.org/files/ENCFF979PWH/@@download/ENCFF979PWH.bigWig' 'ENCFF979PWH.bigWig' '4a1da9d7819bc622c27cd60950d28abb' 'ctcf-fc.bedgraph'
+fetch 'encode-ctcf-k562-fc' 'https://www.encodeproject.org/files/ENCFF979PWH/@@download/ENCFF979PWH.bigWig' 'ENCFF979PWH.bigWig' '4a1da9d7819bc622c27cd60950d28abb' 'ctcf-fc.bedgraph ctcf-fc.bed5'
 fetch 'gnomad-v4.1-exomes-chr22' 'https://storage.googleapis.com/gcp-public-data--gnomad/release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr22.vcf.bgz' 'gnomad.exomes.v4.1.sites.chr22.vcf.bgz' 'dcf191563e69054a71bd4dc77862799a' ''
 fetch 'encode-ctcf-k562-bam' 'https://www.encodeproject.org/files/ENCFF834MPG/@@download/ENCFF834MPG.bam' 'ENCFF834MPG.bam' '22477d07776b89e20b0458ed873306d4' 'ctcf-k562.bam ctcf-k562.cram ctcf-peaks.bed'
 
 export IN="$CACHE/gencode.v46.annotation.gtf.gz"
 derive 'exons-unsorted.bed' '915ed366960cbd4ec72a1f3ee54d48c9b3e29c72b924bf12eba148ec87c1dd69' 'zcat "$IN" | gawk -F'\''\t'\'' -v OFS='\''\t'\'' '\''$3=="exon"{match($9,/gene_name "[^"]+"/);print $1,$4-1,$5,substr($9,RSTART+11,RLENGTH-12),0,$7}'\'' > "$OUT"' 'exons.bed exons.bed.gz'
 export IN="$CACHE/exons-unsorted.bed"
-derive 'exons.bed' 'e4f59e3acf34138e0c8bb04e5b89af0577e53bd1af83f1a7c489bcb6976e9a58' 'sort -k1,1 -k2,2n -s "$IN" > "$OUT"' 'exons.bed.gz'
+derive 'exons.bed' 'ebd86df27ee539d7422d667cbe30fa4fca3a08f5dd096dca92a7dcf5123632e3' 'sort -k1,1 -k2,2n -k3,3n -s "$IN" > "$OUT"' 'exons.bed.gz'
 export IN="$CACHE/ENCFF420VPZ.bed.gz"
 derive 'ccre.bed' '5b2c8d03c699baf152c982bba95fd168beae2b0416f2181d643f9c2bb9ead5f3' 'zcat "$IN" | cut -f1-6 | sort -k1,1 -k2,2n -s > "$OUT"' 'ccre.bed.gz'
 export IN="$CACHE/ccre.bed"
 derive 'ccre.bed.gz' '558e3ef6f06253d939c699f973989a6a6d9498cc8d83166ccfc6273a00dd744c' 'bgzip -c "$IN" > "$OUT" && tabix -p bed "$OUT"' ''
 export IN="$CACHE/exons.bed"
-derive 'exons.bed.gz' 'b25d68b06c8e1f45c1cabbc27594be7bfd9294146da9a844194d894892a3bce5' 'bgzip -c "$IN" > "$OUT" && tabix -p bed "$OUT"' ''
+derive 'exons.bed.gz' '63f807c0cba04db8e5ab0a0c761f8f58a0e6933432e43e5b3b26558217f01724' 'bgzip -c "$IN" > "$OUT" && tabix -p bed "$OUT"' ''
 export IN="$CACHE/ENCFF979PWH.bigWig"
-derive 'ctcf-fc.bedgraph' '1477693dbaff846a203295fd29d1115e507589296e0aba4661ade690c3e6cb1a' 'bigWigToBedGraph "$IN" /dev/stdout | sort -k1,1 -k2,2n -s > "$OUT"' ''
+derive 'ctcf-fc.bedgraph' '1477693dbaff846a203295fd29d1115e507589296e0aba4661ade690c3e6cb1a' 'bigWigToBedGraph "$IN" /dev/stdout | sort -k1,1 -k2,2n -s > "$OUT"' 'ctcf-fc.bed5'
+export IN="$CACHE/ctcf-fc.bedgraph"
+derive 'ctcf-fc.bed5' '62258b45a53c1cd22ba58b67b9c21886b006d3090904c4b0f35643cdf7dfc55c' 'gawk -v OFS='\''\t'\'' '\''{print $1,$2,$3,".",$4}'\'' "$IN" > "$OUT"' ''
 export IN="$CACHE/1kGP_high_coverage_Illumina.chr20.filtered.SNV_INDEL_SV_phased_panel.vcf.gz"
 derive '1kg-chr20.bcf' '5041e7f9cd6cc55025ce0fd1b9d174c12851e503717df869c5a43e04771c9835' 'bcftools view --no-version -Ob -o "$OUT" "$IN" && bcftools index "$OUT"' ''
 export IN="$CACHE/1kGP_high_coverage_Illumina.chr20.filtered.SNV_INDEL_SV_phased_panel.vcf.gz"

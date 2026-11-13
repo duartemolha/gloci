@@ -203,6 +203,97 @@ fn idxstats_cram() {
     assert_eq!(sam, FLAGS);
 }
 
+/// What idxstats must print for a file whose full decode gives the SAM `header` and `records`.
+fn idxstats_of_sam(header: &[String], records: &[String]) -> String {
+    let refs: Vec<(String, String)> = header
+        .iter()
+        .filter(|l| l.starts_with("@SQ"))
+        .map(|l| {
+            let field = |tag: &str| {
+                l.split('\t')
+                    .find_map(|f| f.strip_prefix(tag))
+                    .unwrap()
+                    .to_string()
+            };
+            (field("SN:"), field("LN:"))
+        })
+        .collect();
+    let mut counts = vec![(0u64, 0u64); refs.len()];
+    let mut unplaced = 0u64;
+    for r in records {
+        let mut f = r.split('\t');
+        let flag: u16 = f.nth(1).unwrap().parse().unwrap();
+        let rname = f.next().unwrap();
+        match refs.iter().position(|(n, _)| n == rname) {
+            Some(i) if flag & 0x4 != 0 => counts[i].1 += 1,
+            Some(i) => counts[i].0 += 1,
+            None => {
+                assert_eq!(rname, "*");
+                unplaced += 1;
+            }
+        }
+    }
+    let mut text = String::new();
+    for ((name, len), (mapped, unmapped)) in refs.iter().zip(&counts) {
+        text.push_str(&format!("{name}\t{len}\t{mapped}\t{unmapped}\n"));
+    }
+    text.push_str(&format!("*\t0\t0\t{unplaced}\n"));
+    text
+}
+
+/// idxstats of a CRAM reads the flag and reference id alone: for every CRAM fixture, at one
+/// thread and several, it prints what the records of the full decode (`view`) count to.
+#[test]
+fn idxstats_cram_equals_the_full_decode() {
+    let reference = s(&inputs().join("fa/ref.fa"));
+    let mut reads = 0;
+    for (cram, header, records) in decodable_crams() {
+        let want = idxstats_of_sam(&header, &records);
+        reads += records.len();
+        for t in ["1", "4"] {
+            let (got, _) = run_ok(&["idxstats", &s(&cram), "--reference", &reference, "-t", t]);
+            assert_eq!(got, want, "{} -t {t}", cram.display());
+        }
+    }
+    assert!(reads > 1000, "{reads} reads compared");
+}
+
+/// From a CRAM, idxstats decodes no bases (#cram-limits), as flagstat: a FASTA with the right
+/// names and lengths but other bases gives the same counts, where `view`, which decodes them,
+/// refuses it. overhang.cram's read 1.5 Mb past chr1, past gloci's limit for decoding bases,
+/// is counted. A CRAM that needs a reference still needs --reference.
+#[test]
+fn idxstats_cram_reads_no_bases() {
+    let d = tempdir();
+    let wrong = s(&wrong_bases_fasta(d.path()));
+    let reference = s(&inputs().join("fa/ref.fa"));
+    let mates = s(&inputs().join("aln/mates.cram"));
+    assert_eq!(
+        run_ok(&["idxstats", &mates, "--reference", &wrong]).0,
+        run_ok(&["idxstats", &mates, "--reference", &reference]).0
+    );
+    gloci()
+        .args(["view", &mates, "--reference", &wrong])
+        .assert()
+        .code(1)
+        .stderr(contains("does not match"));
+    let overhang = s(&inputs().join("aln/overhang.cram"));
+    let (t, _) = run_ok(&["idxstats", &overhang, "--reference", &reference]);
+    let counted: u64 = t
+        .lines()
+        .map(|l| {
+            let f: Vec<&str> = l.split('\t').collect();
+            f[2].parse::<u64>().unwrap() + f[3].parse::<u64>().unwrap()
+        })
+        .sum();
+    assert_eq!(counted, 2, "{t}");
+    gloci()
+        .args(["idxstats", &mates])
+        .assert()
+        .code(1)
+        .stderr(contains("--reference"));
+}
+
 #[test]
 fn idxstats_scan_is_identical_at_any_thread_count() {
     let bam = s(&inputs().join("aln/many.cram"));

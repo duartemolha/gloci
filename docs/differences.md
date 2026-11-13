@@ -2446,16 +2446,20 @@ cases (must match).
     does not read; it reads CRAM 3.0 and 3.1; rewrite it with: samtools view -C -T ref.fa
     --output-fmt-option version=3.0 -o x3.cram x.cram" (pinned by the test
     `cram_2x_is_refused_by_name_and_version`).
-- **`flagstat`** reads only the data series it counts (the flags, the reference ids of a read
-  and its mate, the MAPQ) from a container where each is in a block of its own or a constant,
-  as htslib writes them; every block's CRC32 and stated size, and the counts of those series,
-  are still checked, and any other container is decoded in full with every check above. Checks
-  on the fields it never reads (the position, the name, the CIGAR and the sequence length, the
-  bases against the reference) do not apply to it, as they do not to `samtools flagstat`. So it
-  counts overhang.cram's two reads despite the overhang limit, and does not notice a
-  `--reference` whose bases differ from the checksums in the file (pinned by
+- **`flagstat`, `idxstats` and `view --count` without regions** read only the data series
+  they count (the flags, the reference ids of a read and its mate, the MAPQ) from a container
+  where each is in a block of its own or a constant, as htslib writes them; every block's
+  CRC32 and stated size, and the counts of those series, are still checked, and any other
+  container is decoded in full with every check above. Checks on the fields they never read
+  (the position, the name, the CIGAR and the sequence length, the bases against the
+  reference) do not apply to them, as they do not to `samtools flagstat`, `idxstats` and
+  `view -c`. So they count overhang.cram's two reads despite the overhang limit, and do not
+  notice a `--reference` whose bases differ from the checksums in the file (pinned by
   `flagstat-overhang-cram-vs-samtools`, equal to samtools, and the tests
-  `cram_flag_fields_match_full_decode` and `flagstat_cram_reads_no_bases`).
+  `cram_flag_fields_match_full_decode`, `flagstat_cram_reads_no_bases`,
+  `idxstats_cram_reads_no_bases` and `view_count_cram_reads_no_bases`). `view --count` with
+  regions reads positions, so it decodes the records of those regions in full. To check
+  that every record of a CRAM decodes, use `gloci check`.
 - **Old behaviour:** samtools decodes a read however far past the end it runs, and reads the
   other encodings and CRAM 2.x.
 - **Remaining risk:** gloci checks every container, block and slice header (each has a
@@ -2760,17 +2764,16 @@ cases (must match).
 
 ## `idxstats` of a CRAM needs `--reference` when the file does {#cram-counts-need-reference}
 
-- **gloci:** `idxstats` (and `head`, `view`, `depth` and `bedcov`) decode every record of a
-  CRAM, so a CRAM whose containers need reference bases needs `--reference`; with none it
-  exits 1 and says what to pass (D109). `flagstat` decodes only the data series it counts, as
-  samtools does, but asks for `--reference` all the same.
+- **gloci:** `head`, `view`, `depth` and `bedcov` decode every record of a CRAM, so a CRAM
+  whose containers need reference bases needs `--reference`; with none it exits 1 and says
+  what to pass (D109). `flagstat`, `idxstats` and `view --count` decode only the data series
+  they count, as samtools does, but ask for `--reference` all the same.
 - **Old behaviour:** samtools decodes only the fields `idxstats`, `flagstat` and `view -c`
   need, so it reads such a file with no reference at all.
-- **Reason:** gloci has one CRAM decoder, which checks every record it reads. The cost is
-  one flag, and the check that the file decodes at all. `flagstat` decodes a container in
-  full when its fields cannot be read alone (an encoding htslib does not write), which needs
-  the bases; keeping the rule means whether a file needs `--reference` never depends on how
-  its containers are encoded.
+- **Reason:** the counting commands decode a container in full when its fields cannot be
+  read alone (an encoding htslib does not write), which needs the bases; keeping the rule
+  means whether a file needs `--reference` never depends on how its containers are encoded.
+  The cost is one flag.
 - **Pinned by:** `idxstats-cram-no-reference-vs-samtools`,
   `flagstat-cram-no-reference-vs-samtools` and `view-count-cram-no-reference-vs-samtools`
   (exit status: must differ), and the tests

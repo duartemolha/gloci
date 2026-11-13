@@ -864,7 +864,14 @@ write SAM instead (-O sam)",
     // No region on any chromosome of the file: nothing to read.
     let filter = regions && !indexed;
     let nothing = filter && by_ref.iter().all(Option::is_none);
-    if !opts.header_only && !nothing {
+    if count && !regions {
+        // Only the read filters decide what counts, and they read the flag and the MAPQ: a
+        // CRAM decodes those data series alone, as flagstat does, and no other record field.
+        src.for_each_flag_fields(&mut |_| {
+            counted += 1;
+            Ok(())
+        })?;
+    } else if !opts.header_only && !nothing {
         let mut buf = Vec::new();
         while src.next_record(&mut buf)?.is_some() {
             let keep = !filter
