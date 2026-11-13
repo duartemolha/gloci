@@ -1,1 +1,1 @@
-sort -m -N input.N.bam merge-b.N.bam
+sort -m -N input.bytes.bam merge-b.bytes.bam
