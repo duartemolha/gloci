@@ -92,15 +92,32 @@ Not run in the audit, only read: `vcf-filter-gnomad`, `vcf-compare-1kg`, the
 - `intersect-plain-10M` and `intersect-bgzf-10M`: bedtools had no `-u`, so it
   wrote every overlap where gloci, bedops and the other tools write each A
   once. Fixed.
-- Thread counts that differ within a case and are not labelled:
-  `sort-plain-10M` (gloci every core, GNU sort 8, sort-bed one), the
-  `vcf-filter-*` and `vcf-stats-1kg-chr20` cases (gloci every core, bcftools
-  one), `intersect-bam-any` and `coverage-cram-targets` (gloci 8, bedtools
-  one). Not changed: they are the nightly targets.
+- Thread counts that differed within a case: `sort-plain-10M` (gloci every
+  core beside GNU sort's 8), and the `vcf-filter-*` and `vcf-stats-1kg-chr20`
+  cases (gloci every core, bcftools one). Every gloci command there now says
+  `-t 8` and bcftools `--threads 8`. `intersect-bam-any` and
+  `coverage-cram-targets` keep gloci at 8 threads beside bedtools, which has
+  one.
+- `subtract-plain-10M` and `closest-plain-10M` named bedops in targets for
+  work gloci's plain command does not do; they have the `gloci-merged` and
+  `gloci-each-side` commands of the paper cases, and the targets name those.
 
-What would keep this true is a step in the runner that runs each command once
-into its own file and compares the files by a rule the case states; until then
-a new or edited case needs the same check by hand.
+The runner does this check itself now. A case lists the commands that must
+agree (`[[case.same]]`: `exact` by default, or `unordered`, `numeric`,
+`vcf-records`, `vcf-sites`, `bam-records`, `bcf-records`, and `columns = N`),
+and a gloci command or a tool a target names that is compared with no other
+says why (`[case.not_compared]`); a test fails for a case with neither. Before
+it times a case the runner runs each of those commands once into its own file
+and compares the files (`xtask/src/verify.rs`). A case whose commands disagree
+is not timed and the run fails, with the first difference in the log and in
+`<case>.verify.txt` beside the results.
+
+```sh
+cargo xtask paper run --bench-only --verify-only --data-dir DIR   # compare, time nothing
+cargo xtask bench --verify-only --records 200000                  # the nightly cases, small
+```
+
+`--no-verify` times without comparing.
 
 ## Providers: licence and citation
 

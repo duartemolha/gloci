@@ -133,7 +133,22 @@ enum Task {
         /// Python wheel of this version, for the `gloci-py` cases (pip install --no-deps)
         #[arg(long)]
         wheel: Option<PathBuf>,
+        /// Compare the outputs of every case's `same` groups and time nothing
+        #[arg(long, conflicts_with = "no_verify")]
+        verify_only: bool,
+        /// Time without first comparing the outputs of each case's `same` groups
+        #[arg(long)]
+        no_verify: bool,
     },
+}
+
+/// `--verify-only` and `--no-verify` as the runner's setting.
+fn verify_mode(verify_only: bool, no_verify: bool) -> xtask::bench::Verify {
+    match (verify_only, no_verify) {
+        (true, _) => xtask::bench::Verify::Only,
+        (_, true) => xtask::bench::Verify::Skip,
+        _ => xtask::bench::Verify::Before,
+    }
 }
 
 #[derive(Subcommand)]
@@ -208,6 +223,12 @@ enum PaperAction {
         /// Python wheel of this version (name and sha256 go in environment.json)
         #[arg(long)]
         wheel: Option<PathBuf>,
+        /// Compare the outputs of every benchmark case's `same` groups and time nothing
+        #[arg(long, conflicts_with_all = ["no_verify", "concordance_only"])]
+        verify_only: bool,
+        /// Time without first comparing the outputs of each case's `same` groups
+        #[arg(long, conflicts_with = "concordance_only")]
+        no_verify: bool,
     },
     /// Write the Zenodo evidence bundle of a results directory
     Bundle {
@@ -655,6 +676,8 @@ fn run(cli: Cli) -> Result<bool> {
                 out,
                 runs,
                 wheel,
+                verify_only,
+                no_verify,
             } => {
                 anyhow::ensure!(
                     bench_only || concordance_only,
@@ -679,6 +702,7 @@ fn run(cli: Cli) -> Result<bool> {
                     out,
                     runs,
                     wheel,
+                    verify: verify_mode(verify_only, no_verify),
                 });
             }
             PaperAction::FetchScript { out } => {
@@ -755,6 +779,8 @@ fn run(cli: Cli) -> Result<bool> {
             records,
             data_dir,
             wheel,
+            verify_only,
+            no_verify,
         } => {
             return xtask::bench::run(&xtask::bench::Args {
                 cases,
@@ -768,6 +794,7 @@ fn run(cli: Cli) -> Result<bool> {
                 data_dir,
                 results: None,
                 wheel,
+                verify: verify_mode(verify_only, no_verify),
             });
         }
     }

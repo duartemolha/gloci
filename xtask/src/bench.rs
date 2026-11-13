@@ -172,6 +172,26 @@ pub struct Case {
     /// Threads of the gloci command (recorded with the results).
     #[serde(default)]
     pub threads: Option<u32>,
+    /// Commands whose outputs must agree (`[[case.same]]`): the runner runs each once into
+    /// its own file and compares them before it times anything ([`crate::verify`]).
+    #[serde(default)]
+    pub same: Vec<crate::verify::Same>,
+    /// Why a command is compared with no other (`[case.not_compared]`: tool = "reason").
+    #[serde(default)]
+    pub not_compared: BTreeMap<String, String>,
+}
+
+/// When the runner checks that the commands of a case agree ([`crate::verify`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Verify {
+    /// Before a case is timed; a case whose commands disagree is not timed, and the run
+    /// fails.
+    #[default]
+    Before,
+    /// Check every case and time nothing.
+    Only,
+    /// Time without checking.
+    Skip,
 }
 
 /// Timed runs per tool unless a case sets `runs`.
@@ -189,6 +209,7 @@ pub fn parse_cases(text: &str) -> Result<Vec<Case>> {
     let cases = toml::from_str::<CaseFile>(text)?.case;
     for c in &cases {
         ensure!(c.runs >= 1, "{}: runs must be at least 1", c.name);
+        crate::verify::check_schema(&c.name, &c.same, &c.not_compared, &c.commands)?;
     }
     Ok(cases)
 }
@@ -614,6 +635,8 @@ pub struct Args {
     /// A Python wheel of the version under test: installed with `pip install
     /// --no-deps` (in the container), and what the `gloci-py` commands import.
     pub wheel: Option<PathBuf>,
+    /// Whether the outputs of each case are compared first.
+    pub verify: Verify,
 }
 
 fn workspace_root() -> PathBuf {
@@ -1167,7 +1190,14 @@ fn prepare_input(
                 std::fs::rename(&tmp, &plain)?;
             }
             if case.input.ends_with(".gz") {
-                eprintln!("compressing and indexing {}", want.display());
+                // An index needs sorted records: the input of a sort case is not sorted,
+                // and `gloci index` refuses it.
+                let sorted = setup_str.split_whitespace().any(|w| w == "--sorted");
+                eprintln!(
+                    "compressing{} {}",
+                    if sorted { " and indexing" } else { "" },
+                    want.display()
+                );
                 let tmp = dir.join(format!("{stem}.partial.{}", case.input));
                 run_ok(
                     Command::new(gloci)
@@ -1177,7 +1207,9 @@ fn prepare_input(
                         .arg(&tmp),
                 )?;
                 std::fs::rename(&tmp, &want)?;
-                run_ok(Command::new(gloci).arg("index").arg(&want))?;
+                if sorted {
+                    run_ok(Command::new(gloci).arg("index").arg(&want))?;
+                }
                 let _ = std::fs::remove_file(&plain);
             }
         }
@@ -1532,6 +1564,8 @@ pub fn run_cases(a: &Args, cases: Vec<Case>) -> Result<bool> {
 
     let mut all_ok = true;
     let mut ran = 0;
+    // Cases whose commands do not give the same result.
+    let mut disagree: Vec<String> = Vec::new();
     for case in cases
         .iter()
         .filter(|c| a.only.as_ref().is_none_or(|o| *o == c.name))
@@ -1600,7 +1634,7 @@ pub fn run_cases(a: &Args, cases: Vec<Case>) -> Result<bool> {
             .map(|p| shown(p))
             .collect::<Result<Vec<_>>>()?
             .join(" ");
-        let fill = |cmd: &str| {
+        let fill_out = |cmd: &str, out: &str| {
             substitute_pair(
                 &substitute_extra(
                     &cmd.replace("{ref}", &ref_arg)
@@ -1613,9 +1647,10 @@ pub fn run_cases(a: &Args, cases: Vec<Case>) -> Result<bool> {
                 &gloci_cmd,
                 &in_a_arg,
                 &in_b_arg,
-                &out_arg,
+                out,
             )
         };
+        let fill = |cmd: &str| fill_out(cmd, &out_arg);
 
         // Filter commands based on tool availability
         let mut active_commands: Vec<(String, String)> = Vec::new();
@@ -1658,6 +1693,41 @@ pub fn run_cases(a: &Args, cases: Vec<Case>) -> Result<bool> {
             "no commands available for case {}",
             case.name
         );
+
+        // Do the commands agree? Each command of a `same` group is run once into its own
+        // file and the files are compared; a case that fails is not timed.
+        if a.verify != Verify::Skip {
+            if case.same.is_empty() {
+                eprintln!("== {}: no `same` group, nothing compared", case.name);
+            } else {
+                eprintln!("== {} (comparing the outputs)", case.name);
+                let docker = use_docker.then_some((
+                    a.image.as_str(),
+                    data.as_path(),
+                    results.as_path(),
+                    mounts.as_slice(),
+                ));
+                let reports = verify_case(case, &active_commands, &data, &fill_out, docker)?;
+                let mut text = String::new();
+                for r in &reports {
+                    eprintln!("  {}", r.line());
+                    text.push_str(&r.line());
+                    text.push('\n');
+                }
+                for (tool, why) in &case.not_compared {
+                    text.push_str(&format!("not compared: {tool}: {why}\n"));
+                }
+                std::fs::write(results.join(format!("{}.verify.txt", case.name)), text)?;
+                if reports.iter().any(|r| !r.ok()) {
+                    eprintln!("  {}: not timed, its commands disagree", case.name);
+                    disagree.push(case.name.clone());
+                    continue;
+                }
+            }
+        }
+        if a.verify == Verify::Only {
+            continue;
+        }
 
         let has_hyperfine = if use_docker {
             true
@@ -1770,7 +1840,110 @@ pub fn run_cases(a: &Args, cases: Vec<Case>) -> Result<bool> {
         }
     }
     ensure!(ran > 0, "no case matched");
+    ensure!(
+        disagree.is_empty(),
+        "the commands of {} do not give the same result (see above, and <case>.verify.txt in {}); \
+fix the commands or the case's `same` groups, or pass --no-verify to time them anyway",
+        disagree.join(", "),
+        results.display()
+    );
     Ok(all_ok || !a.check_targets)
+}
+
+/// Run `cmd` through `sh -c`, in the bench container when `docker` is given, and return
+/// whether it succeeded and what it wrote to standard error.
+fn run_shell(cmd: &str, docker: Option<(&str, &Path, &Path, &[String])>) -> Result<(bool, String)> {
+    let mut c = match docker {
+        Some((image, data, results, extra)) => docker_run(image, data, results, extra)?,
+        None => Command::new("sh"),
+    };
+    if docker.is_some() {
+        c.arg("sh");
+    }
+    let o = c
+        .args(["-c", cmd])
+        .stdout(std::process::Stdio::null())
+        .output()
+        .with_context(|| format!("running {cmd}"))?;
+    Ok((
+        o.status.success(),
+        String::from_utf8_lossy(&o.stderr).into_owned(),
+    ))
+}
+
+/// Run every command of the `same` groups of `case` once, each into its own file
+/// (`<case>.verify.<tool>.<ext>` in the data directory), and compare the files group by
+/// group. `active` are the commands whose tools are installed; `fill_out` fills a command's
+/// placeholders with a given `{out}`.
+fn verify_case(
+    case: &Case,
+    active: &[(String, String)],
+    data: &Path,
+    fill_out: &dyn Fn(&str, &str) -> String,
+    docker: Option<(&str, &Path, &Path, &[String])>,
+) -> Result<Vec<crate::verify::GroupReport>> {
+    let out_name = |tool: &str| format!("{}.verify.{tool}.{}", case.name, case.input);
+    let shown = |name: &str| match docker {
+        Some(_) => format!("/data/{name}"),
+        None => data.join(name).to_string_lossy().into_owned(),
+    };
+    let mut tools: Vec<&str> = case
+        .same
+        .iter()
+        .flat_map(|g| g.tools.iter().map(String::as_str))
+        .collect();
+    tools.sort_unstable();
+    tools.dedup();
+    let mut outputs: BTreeMap<String, PathBuf> = BTreeMap::new();
+    for tool in tools {
+        let Some((_, cmd)) = active.iter().find(|(t, _)| t == tool) else {
+            continue;
+        };
+        let name = out_name(tool);
+        remove_outputs(data, &name);
+        let cmd = fill_out(cmd, &shown(&name));
+        let (ok, stderr) = run_shell(&cmd, docker)?;
+        ensure!(
+            ok,
+            "case {}: `{tool}` failed when run to compare its output: {cmd}\n{}",
+            case.name,
+            stderr.trim_end()
+        );
+        outputs.insert(tool.to_string(), data.join(&name));
+    }
+    let mut reports = Vec::new();
+    for g in &case.same {
+        // Binary outputs are compared as the records a reference tool prints for them.
+        let decoded = |p: &Path| PathBuf::from(format!("{}.records.txt", p.display()));
+        if let Some(decoder) = crate::verify::decoder(&g.compare) {
+            for t in &g.tools {
+                let Some(p) = outputs.get(t).filter(|p| p.exists()) else {
+                    continue;
+                };
+                let name = p.file_name().unwrap().to_string_lossy();
+                let cmd = format!("{decoder} {} > {}.records.txt", shown(&name), shown(&name));
+                let (ok, stderr) = run_shell(&cmd, docker)?;
+                ensure!(
+                    ok,
+                    "case {}: cannot read the output of `{t}` to compare it: {cmd}\n{}",
+                    case.name,
+                    stderr.trim_end()
+                );
+            }
+        }
+        let output = |tool: &str| -> Option<PathBuf> {
+            let p = outputs.get(tool)?;
+            Some(match crate::verify::decoder(&g.compare) {
+                Some(_) => decoded(p),
+                None => p.clone(),
+            })
+        };
+        reports.push(crate::verify::compare_group(g, &output)?);
+    }
+    for tool in outputs.keys() {
+        remove_outputs(data, &out_name(tool));
+    }
+    Ok(reports)
 }
 
 /// The words of the `{gloci}` command in `cmd`, up to the first unquoted
@@ -2064,6 +2237,38 @@ mod tests {
         );
     }
 
+    /// The input of a sort case is not sorted: it is compressed and not indexed (`gloci index`
+    /// refuses it, which stopped the whole run at `sort-bgzf-10M`).
+    #[test]
+    fn prepare_input_does_not_index_an_unsorted_bgzf_input() {
+        let gloci = match std::env::var_os("GLOCI_BIN") {
+            Some(b) => PathBuf::from(b),
+            None => built_gloci("debug").unwrap(),
+        };
+        let td = tempfile::tempdir().unwrap();
+        let c = Case {
+            name: "test-sort-bgzf".into(),
+            setup: Some("bed --records 200 --chroms 3 --seed 1 --profile uniform".into()),
+            dataset: None,
+            input: "bed.gz".into(),
+            commands: BTreeMap::new(),
+            targets: Vec::new(),
+            runs: DEFAULT_RUNS,
+            in_b: None,
+            inputs: BTreeMap::new(),
+            label: None,
+            table: None,
+            threads: None,
+            same: Vec::new(),
+            not_compared: BTreeMap::new(),
+        };
+        let inputs = prepare_input(&c, c.setup.as_deref(), &gloci, td.path(), None).unwrap();
+        assert!(inputs.in_a.exists());
+        for ext in ["tbi", "csi"] {
+            assert!(!PathBuf::from(format!("{}.{ext}", inputs.in_a.display())).exists());
+        }
+    }
+
     #[test]
     fn prepare_input_indexes_bgzf() {
         // A debug build (or $GLOCI_BIN): fast, and under any CARGO_TARGET_DIR.
@@ -2085,6 +2290,8 @@ mod tests {
             label: None,
             table: None,
             threads: None,
+            same: Vec::new(),
+            not_compared: BTreeMap::new(),
         };
         let inputs = prepare_input(&c, c.setup.as_deref(), &gloci, td.path(), None).unwrap();
         assert!(inputs.in_a.exists());

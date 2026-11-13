@@ -65,6 +65,8 @@ pub struct PaperBenchArgs {
     /// A Python wheel of the same version: the `gloci-py` commands import it,
     /// and its name and sha256 are recorded in environment.json.
     pub wheel: Option<PathBuf>,
+    /// Whether the outputs of each case are compared first ([`crate::verify`]).
+    pub verify: crate::bench::Verify,
 }
 
 pub fn run(a: &PaperBenchArgs) -> Result<bool> {
@@ -100,9 +102,14 @@ pub fn run(a: &PaperBenchArgs) -> Result<bool> {
             data_dir: a.data_dir.clone(),
             results: Some(results),
             wheel: a.wheel.clone(),
+            verify: a.verify,
         },
         cases.clone(),
     )?;
+    if a.verify == crate::bench::Verify::Only {
+        // Nothing was timed, so there is no run to record.
+        return Ok(ok);
+    }
     write_run_records(a, &version_dir, &cases, &started_at)?;
     Ok(ok)
 }

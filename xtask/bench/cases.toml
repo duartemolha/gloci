@@ -3,6 +3,16 @@
 # Targets: NAME (<|<=) [FACTOR *] NAME, over the medians of the named commands.
 # runs = N (default 5): timed runs per tool after one warm-up. The I/O-heavy cases (cat,
 # maskfasta and the cases that write a sorted BAM) take 10, as their wall clock is noisy.
+#
+# Before a case is timed the runner checks that its commands agree: each command of a
+# [[case.same]] group is run once into its own file, and the first tool's output is compared
+# with each of the others' (compare = "exact" by default; see xtask/src/verify.rs for the
+# modes). A gloci command or a tool a target names that is in no group says why in
+# [case.not_compared]. `cargo xtask bench --verify-only` checks every case and times nothing.
+# A command asks for its threads itself (-t N, --threads N, --parallel=N, -@ N): the runner
+# sets none. Where a tool has one thread only, or answers another question than gloci's plain
+# command (bedops -d, closest-features), a `gloci-<variant>` command does that tool's work
+# and is what the target names.
 
 [[case]]
 name = "sort-plain-10M"
@@ -10,10 +20,15 @@ setup = "bed --records 10000000 --chroms 24 --seed 1 --profile uniform"
 input = "bed"
 targets = ["gloci < sort-bed", "gloci <= 1.5 * gnu-sort"]
 [case.commands]
-gloci = "{gloci} sort --chrom-order lex -o {out} {in}"
+gloci = "{gloci} sort --chrom-order lex -t 8 -o {out} {in}"
 sort-bed = "sort-bed --max-mem 2G {in} > {out}"
 gnu-sort = "LC_ALL=C sort -k1,1 -k2,2n --parallel=8 -S 2G {in} > {out}"
 bedtools = "bedtools sort -i {in} > {out}"
+
+# The same lines; ties in each tool's own order (docs/differences.md#sort-tie-order).
+[[case.same]]
+tools = ["gloci", "sort-bed", "gnu-sort", "bedtools"]
+compare = "unordered"
 
 [[case]]
 name = "sort-bgzf-10M"
@@ -25,6 +40,10 @@ gloci = "{gloci} sort --chrom-order lex -t 8 -o {out} {in}"
 sort-bed = "bgzip -dc {in} | sort-bed --max-mem 2G - | bgzip -@ 8 > {out}"
 gnu-sort = "bgzip -dc {in} | LC_ALL=C sort -k1,1 -k2,2n --parallel=8 -S 2G | bgzip -@ 8 > {out}"
 bedtools = "bedtools sort -i {in} | bgzip -@ 8 > {out}"
+
+[[case.same]]
+tools = ["gloci", "sort-bed", "gnu-sort", "bedtools"]
+compare = "unordered"
 
 [[case]]
 name = "intersect-plain-10M"
@@ -41,6 +60,9 @@ granges = "granges filter --overlap {in_b} {in_a} > {out}"
 bedtk = "bedtk flt {in_a} {in_b} > {out}"
 grit-genomics = "grit intersect -a {in_a} -b {in_b} > {out}"
 
+[[case.same]]
+tools = ["gloci", "bedtools", "bedops"]
+
 [[case]]
 name = "merge-plain-10M"
 setup = "bed --records 10000000 --chroms 24 --seed 1 --profile uniform --sorted"
@@ -56,14 +78,18 @@ granges = "granges merge {in} > {out}"
 bedtk = "bedtk cov {in} > {out}"
 grit-genomics = "grit merge -i {in} > {out}"
 
+[[case.same]]
+tools = ["gloci", "bedtools", "bedops"]
+
 [[case]]
 name = "subtract-plain-10M"
 setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
 input = "bed"
-targets = ["gloci <= 0.5 * bedtools", "gloci <= bedops"]
+targets = ["gloci <= 0.5 * bedtools", "gloci-merged <= bedops"]
 [case.commands]
 gloci = "{gloci} subtract --chrom-order lex -t 1 -a {in_a} -b {in_b} > {out}"
 bedtools = "bedtools subtract -sorted -a {in_a} -b {in_b} > {out}"
+gloci-merged = "{gloci} merge --chrom-order lex -t 1 {in_a} | {gloci} subtract --chrom-order lex -t 1 -a - -b {in_b} > {out}"
 bedops = "bedops -m {in_b} | bedops -d {in_a} - > {out}"
 gia = "gia subtract -a {in_a} -b {in_b} > {out}"
 bedder = "bedder subtract -a {in_a} -b {in_b} > {out}"
@@ -71,20 +97,34 @@ granges = "granges filter --no-overlap {in_b} {in_a} > {out}"
 bedtk = "bedtk sub {in_a} {in_b} > {out}"
 grit-genomics = "grit subtract -a {in_a} -b {in_b} > {out}"
 
+[[case.same]]
+tools = ["gloci", "bedtools"]
+
+[[case.same]]
+tools = ["gloci-merged", "bedops"]
+
 [[case]]
 name = "closest-plain-10M"
 setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
 input = "bed"
-targets = ["gloci <= 0.5 * bedtools", "gloci <= bedops"]
+targets = ["gloci <= 0.5 * bedtools", "gloci-each-side <= bedops"]
 [case.commands]
 gloci = "{gloci} closest --chrom-order lex -t 1 --distance -a {in_a} -b {in_b} > {out}"
 bedtools = "bedtools closest -d -a {in_a} -b {in_b} > {out}"
+gloci-each-side = "{gloci} closest --chrom-order lex -t 1 --each-side --ties first --distance -a {in_a} -b {in_b} > {out}"
 bedops = "closest-features --dist {in_a} {in_b} > {out}"
 gia = "gia closest -a {in_a} -b {in_b} > {out}"
 bedder = "bedder closest -a {in_a} -b {in_b} > {out}"
 granges = "granges nearest -a {in_a} -b {in_b} > {out}"
 bedtk = "bedtk closest {in_a} {in_b} > {out}"
 grit-genomics = "grit closest -a {in_a} -b {in_b} > {out}"
+
+[[case.same]]
+tools = ["gloci", "bedtools"]
+
+[case.not_compared]
+gloci-each-side = "the work of closest-features, not its bytes (docs/differences.md#closest-each-side)"
+bedops = "one neighbour on each side, where gloci and bedtools write every tied nearest record"
 
 [[case]]
 name = "map-plain-10M"
@@ -94,12 +134,22 @@ targets = ["gloci <= 0.5 * bedtools", "gloci <= bedops"]
 [case.commands]
 gloci = "{gloci} map --chrom-order lex -t 1 -c 5:sum -a {in_a} -b {in_b} > {out}"
 bedtools = "bedtools map -c 5 -o sum -a {in_a} -b {in_b} > {out}"
-bedops = "bedmap --echo --sum {in_a} {in_b} > {out}"
+bedops = "bedmap --echo --sum --delim '\\t' {in_a} {in_b} > {out}"
 gia = "gia map -a {in_a} -b {in_b} > {out}"
 bedder = "bedder map -a {in_a} -b {in_b} > {out}"
 granges = "granges map -a {in_a} -b {in_b} > {out}"
 bedtk = "bedtk map {in_a} {in_b} > {out}"
 grit-genomics = "grit map -a {in_a} -b {in_b} > {out}"
+
+[[case.same]]
+tools = ["gloci", "bedtools"]
+compare = "numeric"
+
+[[case.same]]
+tools = ["gloci", "bedops"]
+compare = "numeric"
+decimals = 6
+missing = "NAN"
 
 [[case]]
 name = "coverage-plain-10M"
@@ -115,6 +165,9 @@ granges = "granges coverage -a {in_a} -b {in_b} > {out}"
 bedtk = "bedtk cov {in_a} {in_b} > {out}"
 grit-genomics = "grit coverage -a {in_a} -b {in_b} > {out}"
 
+[[case.same]]
+tools = ["gloci", "bedtools"]
+
 [[case]]
 name = "intersect-bgzf-10M"
 setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
@@ -123,6 +176,9 @@ targets = ["gloci <= 0.2 * bedtools"]
 [case.commands]
 gloci = "{gloci} intersect --chrom-order lex -t 8 --mode any -a {in_a} -b {in_b} -o {out}"
 bedtools = "bedtools intersect -u -sorted -a {in_a} -b {in_b} | bgzip -@ 8 > {out}"
+
+[[case.same]]
+tools = ["gloci", "bedtools"]
 
 [[case]]
 name = "merge-bgzf-10M"
@@ -133,6 +189,9 @@ targets = ["gloci <= 0.2 * bedtools"]
 gloci = "{gloci} merge --chrom-order lex -t 8 {in} -o {out}"
 bedtools = "bedtools merge -i {in} | bgzip -@ 8 > {out}"
 
+[[case.same]]
+tools = ["gloci", "bedtools"]
+
 [[case]]
 name = "subtract-bgzf-10M"
 setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
@@ -141,6 +200,9 @@ targets = ["gloci <= 0.2 * bedtools"]
 [case.commands]
 gloci = "{gloci} subtract --chrom-order lex -t 8 -a {in_a} -b {in_b} -o {out}"
 bedtools = "bedtools subtract -sorted -a {in_a} -b {in_b} | bgzip -@ 8 > {out}"
+
+[[case.same]]
+tools = ["gloci", "bedtools"]
 
 [[case]]
 name = "closest-bgzf-10M"
@@ -151,6 +213,9 @@ targets = ["gloci <= 0.2 * bedtools"]
 gloci = "{gloci} closest --chrom-order lex -t 8 --distance -a {in_a} -b {in_b} -o {out}"
 bedtools = "bedtools closest -d -a {in_a} -b {in_b} | bgzip -@ 8 > {out}"
 
+[[case.same]]
+tools = ["gloci", "bedtools"]
+
 [[case]]
 name = "map-bgzf-10M"
 setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
@@ -159,6 +224,10 @@ targets = ["gloci <= 0.2 * bedtools"]
 [case.commands]
 gloci = "{gloci} map --chrom-order lex -t 8 -c 5:sum -a {in_a} -b {in_b} -o {out}"
 bedtools = "bedtools map -c 5 -o sum -a {in_a} -b {in_b} | bgzip -@ 8 > {out}"
+
+[[case.same]]
+tools = ["gloci", "bedtools"]
+compare = "numeric"
 
 [[case]]
 name = "coverage-bgzf-10M"
@@ -169,17 +238,28 @@ targets = ["gloci <= 0.2 * bedtools"]
 gloci = "{gloci} coverage --chrom-order lex -t 8 -a {in_a} -b {in_b} -o {out}"
 bedtools = "bedtools coverage -sorted -a {in_a} -b {in_b} | bgzip -@ 8 > {out}"
 
+[[case.same]]
+tools = ["gloci", "bedtools"]
+
 [[case]]
 name = "vcf-filter-1kg-chr20"
 dataset = "1kg-30x-chr20"
 input = "vcf.gz"
 targets = ["gloci <= 0.2 * vcftools"]
 [case.commands]
-gloci = "{gloci} vcf filter --min-maf 0.01 --max-missing 0.1 {in} -o {out}"
+gloci = "{gloci} vcf filter --min-maf 0.01 --max-missing 0.1 -t 8 {in} -o {out}"
 vcftools = "vcftools --gzvcf {in} --maf 0.01 --max-missing 0.9 --recode --recode-INFO-all --stdout | bgzip -@ 8 > {out}"
-bcftools = "bcftools view -i 'MAF>=0.01 && F_MISSING<=0.1' {in} -Oz -o {out}"
+bcftools = "bcftools view --threads 8 -i 'MAF>=0.01 && F_MISSING<=0.1' {in} -Oz -o {out}"
 vcfkit = "vk filter --maf 0.01 --missing 0.1 {in} | bgzip -@ 8 > {out}"
 vcfexpress = "vcfexpress filter --expr 'maf >= 0.01 && missing <= 0.1' {in} -o {out}"
+
+[[case.same]]
+tools = ["gloci", "vcftools"]
+compare = "vcf-sites"
+
+[[case.same]]
+tools = ["gloci", "bcftools"]
+compare = "vcf-sites"
 
 [[case]]
 name = "vcf-filter-synthetic-2500"
@@ -187,11 +267,20 @@ setup = "vcf --records 50000 --samples 2500 --seed 1 --chroms 1"
 input = "vcf.gz"
 targets = ["gloci <= 0.2 * vcftools"]
 [case.commands]
-gloci = "{gloci} vcf filter --min-maf 0.01 --max-missing 0.1 --min-qual 30 {in} -o {out}"
+gloci = "{gloci} vcf filter --min-maf 0.01 --max-missing 0.1 --min-qual 30 -t 8 {in} -o {out}"
 vcftools = "vcftools --gzvcf {in} --maf 0.01 --max-missing 0.9 --minQ 30 --recode --recode-INFO-all --stdout | bgzip -@ 8 > {out}"
-bcftools = "bcftools view -i 'MAF>=0.01 && F_MISSING<=0.1 && QUAL>=30' {in} -Oz -o {out}"
+bcftools = "bcftools view --threads 8 -i 'MAF>=0.01 && F_MISSING<=0.1 && QUAL>=30' {in} -Oz -o {out}"
 vcfkit = "vk filter --maf 0.01 --missing 0.1 --min-qual 30 {in} | bgzip -@ 8 > {out}"
 vcfexpress = "vcfexpress filter --expr 'maf >= 0.01 && missing <= 0.1 && qual >= 30' {in} -o {out}"
+
+[[case.same]]
+tools = ["gloci", "vcftools"]
+compare = "vcf-sites"
+
+[[case.same]]
+tools = ["gloci", "bcftools"]
+compare = "vcf-sites"
+
 
 # ---- P2 cases ----
 # genomecov and shift need a genome: the synthetic chromosomes are chr1..chr24
@@ -207,14 +296,25 @@ targets = ["gloci <= bedops"]
 gloci = "{gloci} partition --chrom-order lex -t 1 --no-membership {in} > {out}"
 bedops = "bedops --partition {in} > {out}"
 
+[[case.same]]
+tools = ["gloci", "bedops"]
+
+# 16 chromosomes, not 24: bedtools adds the "genome" rows up in 32 bits, and
+# 24 x 250 Mb is past 2^32 bases, so its depth-0 row wrapped whenever fewer
+# records left more of the genome uncovered (docs/differences.md
+# #genomecov-genome-total). 16 x 250 Mb = 4.0 Gb cannot wrap.
 [[case]]
 name = "genomecov-plain-10M"
-setup = "bed --records 10000000 --chroms 24 --seed 1 --profile uniform --sorted"
+setup = "bed --records 10000000 --chroms 16 --seed 1 --profile uniform --sorted"
 input = "bed"
 targets = ["gloci <= 0.5 * bedtools"]
 [case.commands]
-gloci = "printf 'chr%s\\t250000000\\n' $(seq 1 24 | LC_ALL=C sort) > {out}.genome && {gloci} genomecov --chrom-order lex -t 1 -g {out}.genome {in} > {out}"
-bedtools = "printf 'chr%s\\t250000000\\n' $(seq 1 24 | LC_ALL=C sort) > {out}.genome && bedtools genomecov -i {in} -g {out}.genome > {out}"
+gloci = "printf 'chr%s\\t250000000\\n' $(seq 1 16 | LC_ALL=C sort) > {out}.genome && {gloci} genomecov --chrom-order lex -t 1 -g {out}.genome {in} > {out}"
+bedtools = "printf 'chr%s\\t250000000\\n' $(seq 1 16 | LC_ALL=C sort) > {out}.genome && bedtools genomecov -i {in} -g {out}.genome > {out}"
+
+[[case.same]]
+tools = ["gloci", "bedtools"]
+compare = "unordered"
 
 [[case]]
 name = "cluster-plain-10M"
@@ -225,6 +325,9 @@ targets = ["gloci <= 0.5 * bedtools"]
 gloci = "{gloci} cluster --chrom-order lex -t 1 {in} > {out}"
 bedtools = "bedtools cluster -i {in} > {out}"
 
+[[case.same]]
+tools = ["gloci", "bedtools"]
+
 [[case]]
 name = "groupby-plain-10M"
 setup = "bed --records 10000000 --chroms 24 --seed 1 --profile uniform --sorted"
@@ -233,6 +336,10 @@ targets = ["gloci <= 0.5 * bedtools"]
 [case.commands]
 gloci = "{gloci} groupby -g 1 -c 5:sum {in} > {out}"
 bedtools = "bedtools groupby -i {in} -g 1 -c 5 -o sum > {out}"
+
+[[case.same]]
+tools = ["gloci", "bedtools"]
+compare = "numeric"
 
 [[case]]
 name = "shift-plain-10M"
@@ -243,18 +350,27 @@ targets = ["gloci <= 0.5 * bedtools"]
 gloci = "printf 'chr%s\\t250000000\\n' $(seq 1 24 | LC_ALL=C sort) > {out}.genome && {gloci} shift --by 100 -g {out}.genome {in} > {out}"
 bedtools = "printf 'chr%s\\t250000000\\n' $(seq 1 24 | LC_ALL=C sort) > {out}.genome && bedtools shift -i {in} -g {out}.genome -s 100 > {out}"
 
+[[case.same]]
+tools = ["gloci", "bedtools"]
+
+
 # vcf stats with five statistics. The baseline runs vcftools once per
 # statistic, in sequence. plink2 is skipped when it is not installed.
+
 [[case]]
 name = "vcf-stats-1kg-chr20"
 dataset = "1kg-30x-chr20"
 input = "vcf.gz"
 targets = ["gloci <= 0.1 * vcftools-5runs"]
 [case.commands]
-gloci = "{gloci} vcf stats {in} --out-prefix {out} --freq --missing-site --missing-indv --het --tstv-summary"
+gloci = "{gloci} vcf stats -t 8 {in} --out-prefix {out} --freq --missing-site --missing-indv --het --tstv-summary"
 vcftools-5runs = "vcftools --gzvcf {in} --freq --out {out}.v1 && vcftools --gzvcf {in} --missing-site --out {out}.v2 && vcftools --gzvcf {in} --missing-indv --out {out}.v3 && vcftools --gzvcf {in} --het --out {out}.v4 && vcftools --gzvcf {in} --TsTv-summary --out {out}.v5"
 bcftools-stats = "bcftools stats -s - {in} > {out}"
 plink2 = "plink2 --vcf {in} --freq --missing --het --out {out}.plink"
+
+[case.not_compared]
+gloci = "{out} is a prefix of several files; the concordance cases of xtask/paper/concordance.toml compare them"
+vcftools-5runs = "{out} is a prefix of several files; the concordance cases of xtask/paper/concordance.toml compare them"
 
 [[case]]
 name = "vcf-stats-synthetic-2500"
@@ -267,18 +383,30 @@ vcftools-5runs = "vcftools --gzvcf {in} --freq --out {out}.v1 && vcftools --gzvc
 bcftools-stats = "bcftools stats -s - {in} > {out}"
 plink2 = "plink2 --vcf {in} --freq --missing --het --out {out}.plink"
 
+[case.not_compared]
+gloci = "{out} is a prefix of several files; the concordance cases of xtask/paper/concordance.toml compare them"
+vcftools-5runs = "{out} is a prefix of several files; the concordance cases of xtask/paper/concordance.toml compare them"
+
+
 # Yardstick only (no target): an expression filter against bcftools.
+
 [[case]]
 name = "vcf-filter-include-synthetic-2500"
 setup = "vcf --records 50000 --samples 2500 --seed 1 --chroms 1"
 input = "vcf.gz"
 targets = []
 [case.commands]
-gloci = "{gloci} vcf filter --include 'QUAL>30 && INFO/DP>20' {in} -o {out}"
-bcftools = "bcftools view -i 'QUAL>30 && INFO/DP>20' {in} -Oz -o {out}"
+gloci = "{gloci} vcf filter --include 'QUAL>30 && INFO/DP>20' -t 8 {in} -o {out}"
+bcftools = "bcftools view --threads 8 -i 'QUAL>30 && INFO/DP>20' {in} -Oz -o {out}"
+
+[[case.same]]
+tools = ["gloci", "bcftools"]
+compare = "vcf-sites"
+
 
 # Tracked since the native GT encoding of Task 3 (+9% user time against the
 # old path): VCF to BCF on a multi-sample VCF.
+
 [[case]]
 name = "convert-bcf-synthetic-100"
 setup = "vcf --records 100000 --samples 100 --seed 1 --chroms 1"
@@ -287,6 +415,11 @@ targets = []
 [case.commands]
 gloci = "{gloci} view {in} -O bcf > {out}"
 bcftools = "bcftools view {in} -Ob > {out}"
+
+[[case.same]]
+tools = ["gloci", "bcftools"]
+compare = "bcf-records"
+
 
 # ---- P3a cases: alignments (BAM, CRAM), FASTA and alignment sort ----
 # `sam` setups generate coordinate-sorted single-end reads (10% spliced, 3%
@@ -310,8 +443,13 @@ targets = ["gloci <= 0.5 * bedtools"]
 gloci = "{gloci} convert -t 1 {in} > {out}"
 bedtools = "bedtools bamtobed -i {in} > {out}"
 
+[[case.same]]
+tools = ["gloci", "bedtools"]
+
+
 # bedtools genomecov -ibam cuts reads at deletions, gloci --split-deletions.
 # mosdepth (-t 8) and gloci -t 8 are yardsticks.
+
 [[case]]
 name = "genomecov-bam-50M"
 setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
@@ -323,6 +461,9 @@ bedtools = "bedtools genomecov -ibam {in} -bga > {out}"
 gloci-t8 = "{gloci} genomecov -t 8 --bga --split-deletions {in} > {out}"
 mosdepth = "mosdepth -t 8 {out}.mos {in}"
 
+[[case.same]]
+tools = ["gloci", "gloci-t8", "bedtools"]
+
 [[case]]
 name = "coverage-bam-targets"
 setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
@@ -331,6 +472,9 @@ targets = ["gloci <= 0.5 * bedtools"]
 [case.commands]
 gloci = "{gloci} coverage -t 1 -a {in_b} -b {in} > {out}"
 bedtools = "bedtools coverage -sorted -a {in_b} -b {in} > {out}"
+
+[[case.same]]
+tools = ["gloci", "bedtools"]
 
 [[case]]
 name = "intersect-bam-any"
@@ -341,7 +485,13 @@ targets = ["gloci <= 0.5 * bedtools"]
 gloci = "{gloci} intersect -t 8 --mode any -a {in} -b {in_b} -o {out}"
 bedtools = "bedtools intersect -abam {in} -b {in_b} -u > {out}"
 
+[[case.same]]
+tools = ["gloci", "bedtools"]
+compare = "bam-records"
+
+
 # CRAM: gloci decodes with -t 8, bedtools reads it through htslib.
+
 [[case]]
 name = "coverage-cram-targets"
 setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
@@ -350,6 +500,9 @@ targets = ["gloci <= bedtools"]
 [case.commands]
 gloci = "{gloci} coverage -t 8 --reference {ref} -a {in_b} -b {in} > {out}"
 bedtools = "bedtools coverage --cram-ref {ref} -a {in_b} -b {in} > {out}"
+
+[[case.same]]
+tools = ["gloci", "bedtools"]
 
 [[case]]
 name = "getfasta-1M"
@@ -360,6 +513,9 @@ targets = ["gloci <= 0.5 * bedtools"]
 gloci = "{gloci} getfasta -t 1 -f {in} {in_b} > {out}"
 bedtools = "bedtools getfasta -fi {in} -bed {in_b} > {out}"
 
+[[case.same]]
+tools = ["gloci", "bedtools"]
+
 [[case]]
 name = "nuc-1M"
 setup = "fasta --records 1000000 --chroms 24 --chrom-len 10000000 --len-max 1000 --seed 1"
@@ -369,7 +525,12 @@ targets = ["gloci <= 0.5 * bedtools"]
 gloci = "{gloci} nuc -t 1 -f {in} {in_b} > {out}"
 bedtools = "bedtools nuc -fi {in} -bed {in_b} > {out}"
 
+[[case.same]]
+tools = ["gloci", "bedtools"]
+
+
 # 3 Gbases: 24 chromosomes of 125 Mbases.
+
 [[case]]
 name = "maskfasta-3G"
 setup = "fasta --records 1000000 --chroms 24 --chrom-len 125000000 --len-max 1000 --seed 1"
@@ -380,7 +541,12 @@ runs = 10
 gloci = "{gloci} maskfasta -t 1 --fasta {in} -b {in_b} -o {out}"
 bedtools = "bedtools maskfasta -fi {in} -bed {in_b} -fo {out}"
 
+[[case.same]]
+tools = ["gloci", "bedtools"]
+
+
 # Yardstick only: gloci index against samtools index (both rewrite the index).
+
 [[case]]
 name = "index-bam-50M"
 setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
@@ -390,7 +556,12 @@ targets = []
 gloci = "{gloci} index -t 8 {in}"
 samtools = "samtools index -@ 8 {in} {out}"
 
+[case.not_compared]
+gloci = "it writes the index beside the input, not to {out}; the gloci-io tests compare its .bai with the one samtools writes"
+
+
 # Shuffled input is unsorted, so it has no index.
+
 [[case]]
 name = "sort-bam-50M"
 setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --shuffled --seed 1"
@@ -400,6 +571,10 @@ runs = 10
 [case.commands]
 gloci = "{gloci} sort -t 8 --max-mem 4G -o {out} {in}"
 samtools = "samtools sort -@ 8 -m 512M -o {out} {in}"
+
+[[case.same]]
+tools = ["gloci", "samtools"]
+compare = "bam-records"
 
 [[case]]
 name = "sort-name-bam-50M"
@@ -411,7 +586,13 @@ runs = 10
 gloci = "{gloci} sort -n -t 8 --max-mem 4G -o {out} {in}"
 samtools = "samtools sort -n -@ 8 -m 512M -o {out} {in}"
 
+[[case.same]]
+tools = ["gloci", "samtools"]
+compare = "bam-records"
+
+
 # Eight coordinate-sorted BAMs of one reference ({ins}), 50M records in all.
+
 [[case]]
 name = "merge-bam-8x"
 setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1 --parts 8"
@@ -422,6 +603,10 @@ runs = 10
 gloci = "{gloci} sort -m -t 8 -o {out} {ins}"
 samtools = "samtools merge -f -@ 8 {out} {ins}"
 
+[[case.same]]
+tools = ["gloci", "samtools"]
+compare = "bam-records"
+
 [[case]]
 name = "cat-bam-8x"
 setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1 --parts 8"
@@ -431,6 +616,11 @@ runs = 10
 [case.commands]
 gloci = "{gloci} cat -o {out} {ins}"
 samtools = "samtools cat -o {out} {ins}"
+
+[[case.same]]
+tools = ["gloci", "samtools"]
+compare = "bam-records"
+
 
 # ---- P3b cases: statistics, randomness, BEDPE pairs and VCF compare ----
 # Statistics and randomness need a genome: the synthetic chromosomes chr1..chr24
@@ -450,6 +640,9 @@ targets = ["gloci <= 0.5 * bedtools"]
 gloci = "{gloci} stats jaccard --chrom-order lex -t 1 -a {in_a} -b {in_b} > {out}"
 bedtools = "bedtools jaccard -a {in_a} -b {in_b} > {out}"
 
+[[case.same]]
+tools = ["gloci", "bedtools"]
+
 [[case]]
 name = "fisher-plain-10M"
 setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
@@ -458,6 +651,9 @@ targets = ["gloci <= 0.5 * bedtools"]
 [case.commands]
 gloci = "printf 'chr%s\\t250000000\\n' $(seq 1 24 | LC_ALL=C sort) > {out}.genome && {gloci} stats fisher -t 1 -g {out}.genome -a {in_a} -b {in_b} > {out}"
 bedtools = "printf 'chr%s\\t250000000\\n' $(seq 1 24 | LC_ALL=C sort) > {out}.genome && bedtools fisher -a {in_a} -b {in_b} -g {out}.genome > {out}"
+
+[[case.same]]
+tools = ["gloci", "bedtools"]
 
 [[case]]
 name = "reldist-plain-10M"
@@ -468,7 +664,12 @@ targets = ["gloci <= 0.5 * bedtools"]
 gloci = "{gloci} stats reldist --chrom-order lex -t 1 -a {in_a} -b {in_b} > {out}"
 bedtools = "bedtools reldist -a {in_a} -b {in_b} > {out}"
 
+[[case.same]]
+tools = ["gloci", "bedtools"]
+
+
 # 1,000,000 of 10,000,000 records, written in input order.
+
 [[case]]
 name = "sample-plain-10M"
 setup = "bed --records 10000000 --chroms 24 --seed 1 --profile uniform"
@@ -478,8 +679,14 @@ targets = ["gloci <= 0.5 * bedtools"]
 gloci = "{gloci} sample -t 1 --seed 1 -n 1000000 {in} > {out}"
 bedtools = "bedtools sample -seed 1 -n 1000000 -i {in} > {out}"
 
+[case.not_compared]
+gloci = "its own random stream, so other records than the other tool picks (docs/differences.md#rng-stream)"
+bedtools = "its own random stream, so other records than the other tool picks (docs/differences.md#rng-stream)"
+
+
 # 10M records moved off a 10M-interval exclude file (the exclude is B of the
 # pair: short intervals, a tenth of the genome, so every record finds a place).
+
 [[case]]
 name = "shuffle-plain-10M"
 setup = "pair --records 10000000 --depth 1 --seed 1 --chroms 24 --len-max 100 --sorted"
@@ -489,7 +696,13 @@ targets = ["gloci <= bedtools"]
 gloci = "printf 'chr%s\\t250000000\\n' $(seq 1 24 | LC_ALL=C sort) > {out}.genome && {gloci} shuffle -t 1 --seed 1 -g {out}.genome --exclude {in_b} {in_a} > {out}"
 bedtools = "printf 'chr%s\\t250000000\\n' $(seq 1 24 | LC_ALL=C sort) > {out}.genome && bedtools shuffle -seed 1 -g {out}.genome -excl {in_b} -i {in_a} > {out}"
 
+[case.not_compared]
+gloci = "its own random stream, so other records than the other tool picks (docs/differences.md#rng-stream)"
+bedtools = "its own random stream, so other records than the other tool picks (docs/differences.md#rng-stream)"
+
+
 # `random` reads no input; the one-record BED only satisfies the runner.
+
 [[case]]
 name = "random-10M"
 setup = "bed --records 1 --chroms 1 --seed 1"
@@ -499,7 +712,13 @@ targets = ["gloci <= bedtools"]
 gloci = "printf 'chr%s\\t250000000\\n' $(seq 1 24 | LC_ALL=C sort) > {out}.genome && {gloci} random -t 1 --seed 1 -g {out}.genome -l 100 -n 10000000 > {out}"
 bedtools = "printf 'chr%s\\t250000000\\n' $(seq 1 24 | LC_ALL=C sort) > {out}.genome && bedtools random -seed 1 -g {out}.genome -l 100 -n 10000000 > {out}"
 
+[case.not_compared]
+gloci = "its own random stream, so other records than the other tool picks (docs/differences.md#rng-stream)"
+bedtools = "its own random stream, so other records than the other tool picks (docs/differences.md#rng-stream)"
+
+
 # A: 1M BEDPE pairs (10% on two chromosomes); B: 10M BED intervals.
+
 [[case]]
 name = "pair-intersect-1M-vs-10M"
 setup = "bedpe --pairs 1000000 --chroms 24 --inter-frac 0.1 --seed 1 --b-bed 10000000"
@@ -509,8 +728,13 @@ targets = ["gloci <= bedtools"]
 gloci = "{gloci} pair-intersect -t 1 -a {in_a} -b {in_b} > {out}"
 bedtools = "bedtools pairtobed -a {in_a} -b {in_b} > {out}"
 
+[[case.same]]
+tools = ["gloci", "bedtools"]
+
+
 # B: the pairs of A with each end moved by up to 40 bases, so every pair of A
 # has a partner.
+
 [[case]]
 name = "pair-pair-1M"
 setup = "bedpe --pairs 1000000 --chroms 24 --inter-frac 0.1 --seed 1 --b-pairs 1000000"
@@ -520,7 +744,12 @@ targets = ["gloci <= bedtools"]
 gloci = "{gloci} pair-pair -t 1 -a {in_a} -b {in_b} > {out}"
 bedtools = "bedtools pairtopair -a {in_a} -b {in_b} > {out}"
 
+[[case.same]]
+tools = ["gloci", "bedtools"]
+
+
 # 25M read pairs (50M records), written name-grouped, READ1 then READ2.
+
 [[case]]
 name = "convert-bedpe-50M"
 setup = "sam --records 50000000 --paired --by-name --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
@@ -530,8 +759,13 @@ targets = ["gloci <= bedtools"]
 gloci = "{gloci} convert --bedpe -t 1 {in} > {out}"
 bedtools = "bedtools bamtobed -bedpe -i {in} > {out}"
 
+[[case.same]]
+tools = ["gloci", "bedtools"]
+
+
 # All three discordance outputs (sites, samples, matrix) against three vcftools
 # runs, which each read both files. --match position is what vcftools does.
+
 [[case]]
 name = "vcf-compare-synthetic-2500"
 setup = "vcf-pair --records 50000 --samples 2500 --seed 1 --chroms 1 --discord 0.02"
@@ -540,9 +774,15 @@ targets = ["gloci <= 0.2 * vcftools-3runs"]
 [case.commands]
 gloci = "{gloci} vcf compare -t 8 --match position --out-prefix {out} {in_a} {in_b}"
 vcftools-3runs = "vcftools --gzvcf {in_a} --gzdiff {in_b} --diff-site-discordance --out {out}.v1 && vcftools --gzvcf {in_a} --gzdiff {in_b} --diff-indv-discordance --out {out}.v2 && vcftools --gzvcf {in_a} --gzdiff {in_b} --diff-discordance-matrix --out {out}.v3"
+
+[case.not_compared]
+gloci = "{out} is a prefix of several files; the concordance cases of xtask/paper/concordance.toml compare them"
+vcftools-3runs = "{out} is a prefix of several files; the concordance cases of xtask/paper/concordance.toml compare them"
+
 # P3c: samtools 1.21 is binding (gloci replaces it); mosdepth is a yardstick.
 # gloci -t N pairs with samtools -@ N-1 (its main thread also works).
 # `bam-indexed` is `bam` (every sorted BAM of a sam setup is indexed).
+
 [[case]]
 name = "flagstat-bam-50M"
 setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
@@ -554,8 +794,13 @@ samtools = "samtools flagstat -@ 0 {in} > {out}"
 gloci-t8 = "{gloci} flagstat -t 8 {in} > {out}"
 samtools-t8 = "samtools flagstat -@ 7 {in} > {out}"
 
+[[case.same]]
+tools = ["gloci", "gloci-t8", "samtools", "samtools-t8"]
+
+
 # 200,000 @SQ lines: idxstats answers from the index alone. Chromosomes have
 # at least 50 kb each (synth's minimum), so the reference is 10 Gbases.
+
 [[case]]
 name = "idxstats-bam-200k-sq"
 setup = "sam --records 20000000 --read-len 100 --depth 30 --chroms 200000 --spliced-frac 0.1 --seed 1"
@@ -564,6 +809,9 @@ targets = ["gloci <= samtools"]
 [case.commands]
 gloci = "{gloci} idxstats {in} > {out}"
 samtools = "samtools idxstats {in} > {out}"
+
+[[case.same]]
+tools = ["gloci", "samtools"]
 
 [[case]]
 name = "view-count-bam-50M"
@@ -574,8 +822,13 @@ targets = ["gloci <= samtools"]
 gloci = "{gloci} view --count -t 8 {in} > {out}"
 samtools = "samtools view -c -@ 7 {in} > {out}"
 
+[[case.same]]
+tools = ["gloci", "samtools"]
+
+
 # samtools depth is single-threaded (-t 1 is the binding comparison);
 # mosdepth -t 8 --fast-mode is the yardstick. --all-positions pairs with -a.
+
 [[case]]
 name = "depth-bam-50M"
 setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
@@ -588,8 +841,16 @@ gloci-all = "{gloci} depth -t 1 --all-positions {in} > {out}"
 samtools-all = "samtools depth -a {in} > {out}"
 mosdepth = "mosdepth -t 8 --fast-mode {out}.mos {in}"
 
+[[case.same]]
+tools = ["gloci", "samtools"]
+
+[[case.same]]
+tools = ["gloci-all", "samtools-all"]
+
+
 # depth streams at every -t (D138): threads decode BGZF, so -t 8 must not be
 # slower than -t 1 (the per-reference chunks it replaced were).
+
 [[case]]
 name = "depth-bam-50M-t8"
 setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
@@ -600,9 +861,14 @@ gloci = "{gloci} depth -t 1 {in} > {out}"
 gloci-t8 = "{gloci} depth -t 8 {in} > {out}"
 samtools = "samtools depth {in} > {out}"
 
+[[case.same]]
+tools = ["gloci", "gloci-t8", "samtools"]
+
+
 # in_b = every 30th window of `gloci windows` over the reference, in windows
 # sized for about 10,000 targets (a 100 kb window gives 55 on this genome).
 # samtools bedcov uses the pileup engine.
+
 [[case]]
 name = "bedcov-bam-10k-targets"
 setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
@@ -613,8 +879,13 @@ targets = ["gloci <= 0.5 * samtools"]
 gloci = "{gloci} bedcov -t 1 {in_b} {in} > {out}"
 samtools = "samtools bedcov {in_b} {in} > {out}"
 
+[[case.same]]
+tools = ["gloci", "samtools"]
+
+
 # An exome-like target list: 200,000 regions of 100 bp. Each worker keeps one
 # reader per input and seeks it per region (final fix wave M16).
+
 [[case]]
 name = "bedcov-bam-200k-exome"
 setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
@@ -625,7 +896,12 @@ targets = ["gloci <= samtools"]
 gloci = "{gloci} bedcov -t 1 {in_b} {in} > {out}"
 samtools = "samtools bedcov {in_b} {in} > {out}"
 
+[[case.same]]
+tools = ["gloci", "samtools"]
+
+
 # {in_b} is a BED of 10,000 intervals; samtools -r wants chr:START-END text.
+
 [[case]]
 name = "faidx-10k-regions"
 setup = "fasta --records 10000 --chroms 24 --chrom-len 10000000 --len-max 1000 --seed 1"
@@ -635,7 +911,12 @@ targets = ["gloci <= samtools"]
 gloci = "{gloci} faidx --regions-file {in_b} {in} > {out}"
 samtools = "awk -v OFS= '{print $1, \":\", $2 + 1, \"-\", $3}' {in_b} > {out}.reg && samtools faidx -r {out}.reg {in} > {out}"
 
+[[case.same]]
+tools = ["gloci", "samtools"]
+
+
 # The same 3 Gbase FASTA as maskfasta-3G.
+
 [[case]]
 name = "dict-3G"
 setup = "fasta --records 1000000 --chroms 24 --chrom-len 125000000 --len-max 1000 --seed 1"
@@ -645,7 +926,12 @@ targets = ["gloci <= samtools"]
 gloci = "{gloci} dict {in} > {out}"
 samtools = "samtools dict {in} > {out}"
 
+[[case.same]]
+tools = ["gloci", "samtools"]
+
+
 # The header comes from the BAM itself (a no-op rewrite of the header).
+
 [[case]]
 name = "reheader-bam-50M"
 setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
@@ -656,9 +942,15 @@ runs = 10
 gloci = "{gloci} reheader {in} {in} -o {out}"
 samtools = "samtools reheader {in} {in} > {out}"
 
+[[case.same]]
+tools = ["gloci", "samtools"]
+compare = "bam-records"
+
+
 # Python library (D96): gloci-py (the wheel of `--wheel`) against pybedtools, the
 # binding baseline (target < , the §2 anti-goal), and three yardsticks. {python} is
 # python3 with the wheel on its path, {py} is xtask/bench/py. Skipped without --wheel.
+
 [[case]]
 name = "py-intersect-10M"
 setup = "pair --records 10000000 --depth 2 --seed 1 --chroms 24 --sorted"
@@ -671,6 +963,9 @@ polars-bio = "{python} {py}/polars_bio_intersect.py {in_a} {in_b} {out}" # (y)
 pyranges1 = "{python} {py}/pyranges1_intersect.py {in_a} {in_b} {out}" # (y)
 bioframe = "{python} {py}/bioframe_intersect.py {in_a} {in_b} {out}" # (y)
 
+[case.not_compared]
+pybedtools = "the Python scripts' outputs have not been compared; the Python parity tests compare gloci-py with the gloci command"
+
 [[case]]
 name = "py-merge-10M"
 setup = "bed --records 10000000 --chroms 24 --seed 1 --profile uniform --sorted"
@@ -682,3 +977,7 @@ pybedtools = "{python} {py}/pybedtools_merge.py {in} {out}"
 polars-bio = "{python} {py}/polars_bio_merge.py {in} {out}" # (y)
 pyranges1 = "{python} {py}/pyranges1_merge.py {in} {out}" # (y)
 bioframe = "{python} {py}/bioframe_merge.py {in} {out}" # (y)
+
+[case.not_compared]
+pybedtools = "the Python scripts' outputs have not been compared; the Python parity tests compare gloci-py with the gloci command"
+
