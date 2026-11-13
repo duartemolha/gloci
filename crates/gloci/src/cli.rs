@@ -960,7 +960,10 @@ Examples:
     /// last A, `all` rows with the totals. --per-base writes one row per
     /// base of A (1-based offset, depth). --mean writes the mean depth over
     /// A. With several -b files only the default report is allowed and each
-    /// file gives one covered fraction (bedtools annotate).
+    /// file gives one covered fraction (bedtools annotate). Fractions and
+    /// the mean depth are written as bedtools writes them: seven decimals of
+    /// a 32-bit quotient, and six decimals of a 64-bit one in the report of
+    /// several -b files (bedtools annotate).
     ///
     /// With --split, A and B are their BED12 blocks: depth counts the bases
     /// shared by an A block and a B block, A's length is the sum of its

@@ -682,6 +682,9 @@ pinned difference where there is one.
   [points](differences.md#genomecov-points),
   [strand](differences.md#genomecov-unknown-strand),
   [past the end](differences.md#genomecov-past-end)
+- **`genomecov` counts a genome of more than 2^32 bases:** the `genome` rows
+  of `bedtools genomecov` wrap at 2^32 bases; gloci's do not.
+  [differences.md#genomecov-genome-total](differences.md#genomecov-genome-total)
 - **`genomecov --max-depth` is for the histogram only:** `bedtools -max` is
   silently ignored with `-bg`, `-bga` and `-d`; gloci refuses it.
   [differences.md#genomecov-max-depth](differences.md#genomecov-max-depth)

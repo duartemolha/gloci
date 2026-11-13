@@ -139,8 +139,19 @@ fn write_row(w: &mut dyn RecordWriter, row: &[u8]) -> Result<(), IoError> {
     })
 }
 
+/// `num / den` as bedtools prints a fraction or a mean depth: the quotient of the two as
+/// 32-bit floats, to seven decimals (its `%0.7f` of a `float`). On 2.35 million ENCODE cCREs
+/// this gives bedtools 2.31.1's text for every row; the 64-bit quotient differs in the last
+/// decimal for 15,366 of them.
 fn ratio(num: u64, den: u64) -> String {
-    (num as f64 / den as f64).to_string()
+    format!("{:.7}", num as f32 / den as f32)
+}
+
+/// `num / den` as `bedtools annotate` prints the fraction of each file: the 64-bit quotient
+/// to six decimals (its `%f` of a `double`). This gives bedtools 2.31.1's text for every one
+/// of 2.35 million cCREs; the 32-bit quotient differs for 1,284 of them.
+fn annotate_ratio(num: u64, den: u64) -> String {
+    format!("{:.6}", num as f64 / den as f64)
 }
 
 /// Segments `(start, end, depth)` with depth above 0, in order, from the
@@ -237,7 +248,7 @@ impl Visitor for Reporter<'_, '_> {
                     if length == 0 {
                         self.row.push(b'.');
                     } else {
-                        let r = ratio(union_len(p), length);
+                        let r = annotate_ratio(union_len(p), length);
                         self.row.extend_from_slice(r.as_bytes());
                     }
                 }

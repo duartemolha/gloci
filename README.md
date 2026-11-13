@@ -50,8 +50,9 @@ ChIP-seq BAM and CRAM (7.6 million reads) and the 1000 Genomes chr20 panel
 2.4.41 (sort-bed in the sort row), samtools and bcftools 1.21 and vcftools
 0.1.16.
 
-The commands of a row give the same result. Where the tools answer different
-questions there is a row for each form, with gloci doing that same work.
+The commands of a row give the same result, which the benchmark runner now
+checks before it times them. Where the tools answer different questions there
+is a row for each form, with gloci doing that same work.
 
 | Task | gloci | bedtools | bedops | other |
 |---|---:|---:|---:|---|
@@ -76,12 +77,17 @@ questions there is a row for each form, with gloci doing that same work.
 | vcf filter, BCF to compressed VCF, 8 threads | 209.6 | | | bcftools 63.7, vcftools 504 |
 
 Where gloci is slower. Filtering a BCF on genotypes and writing VCF, bcftools
-is more than three times as fast: gloci counts genotypes and writes VCF text
+was more than three times as fast: gloci counted genotypes and wrote VCF text
 several times slower than bcftools does, and with more threads than cores
-(this machine has four) it loses more: with four threads it takes 123 to 141
-seconds. `depth` on a CRAM costs gloci 16.9 seconds of CPU against 9.5 for
-samtools, which decodes only the fields `depth` reads; both `depth` rows are
-mostly the time to write 3.3 GB of output.
+(this machine has four) it lost more: with four threads it took 123 to 141
+seconds. That row was measured before gloci's BCF-to-VCF writer was replaced
+by one that writes the text as htslib does; the change took the command's CPU
+time at one thread from 215 to 110 seconds, and the row has not been timed
+again, so read its gloci figure as an upper bound. Counting genotypes is
+still several times slower than in bcftools. `depth` on a CRAM costs gloci
+16.9 seconds of CPU against 9.5 for samtools, which decodes only the fields
+`depth` reads; both `depth` rows are mostly the time to write 3.3 GB of
+output.
 
 In the BGZF row bedtools has one thread, and bedops, which cannot read BGZF, is
 timed with the decompression of both inputs to files.

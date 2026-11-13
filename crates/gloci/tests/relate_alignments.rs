@@ -586,31 +586,31 @@ fn split_blocks_hand_checked() {
     // Whole spans: the intron target is covered.
     assert_eq!(
         cov("chr1\t120\t180\n", &[]),
-        "chr1\t120\t180\t1\t60\t60\t1\n"
+        "chr1\t120\t180\t1\t60\t60\t1.0000000\n"
     );
     // Blocks: inside the intron, nothing.
     assert_eq!(
         cov("chr1\t120\t180\n", &["--split"]),
-        "chr1\t120\t180\t0\t0\t60\t0\n"
+        "chr1\t120\t180\t0\t0\t60\t0.0000000\n"
     );
     // Bookended to a block on both sides: no overlap.
     assert_eq!(
         cov("chr1\t105\t205\n", &["--split"]),
-        "chr1\t105\t205\t0\t0\t100\t0\n"
+        "chr1\t105\t205\t0\t0\t100\t0.0000000\n"
     );
     // Over only the deletion: covered by the span and by --split, not by --split-deletions.
     assert_eq!(
         cov("chr1\t305\t307\n", &["--split"]),
-        "chr1\t305\t307\t1\t2\t2\t1\n"
+        "chr1\t305\t307\t1\t2\t2\t1.0000000\n"
     );
     assert_eq!(
         cov("chr1\t305\t307\n", &["--split-deletions"]),
-        "chr1\t305\t307\t0\t0\t2\t0\n"
+        "chr1\t305\t307\t0\t0\t2\t0.0000000\n"
     );
     // A spanning the deletion: 10 of 12 bases.
     assert_eq!(
         cov("chr1\t300\t312\n", &["--split-deletions"]),
-        "chr1\t300\t312\t1\t10\t12\t0.8333333333333334\n"
+        "chr1\t300\t312\t1\t10\t12\t0.8333333\n"
     );
     // A point inside the deletion (a point never has bases).
     assert_eq!(cov("chr1\t306\t306\n", &[]), "chr1\t306\t306\t1\t0\t0\t.\n");

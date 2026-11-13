@@ -1042,7 +1042,7 @@ fn empty_inputs_matrix() {
     assert_eq!(o.status.code(), Some(0));
     assert_eq!(
         String::from_utf8(o.stdout).unwrap(),
-        "chr1\t10\t50\ta1\t100\t+\t0\t0\t40\t0\nchr1\t60\t100\ta2\t200\t-\t0\t0\t40\t0\n"
+        "chr1\t10\t50\ta1\t100\t+\t0\t0\t40\t0.0000000\nchr1\t60\t100\ta2\t200\t-\t0\t0\t40\t0.0000000\n"
     );
 
     // 3. Header-only VCF A -> exits 0 with header-only output
@@ -1150,7 +1150,7 @@ fn empty_inputs_matrix() {
         ),
         (
             &["coverage", "-a", a_str, "-b", b_diff_str],
-            "chr1\t10\t50\ta1\t100\t+\t0\t0\t40\t0\nchr1\t60\t100\ta2\t200\t-\t0\t0\t40\t0\n",
+            "chr1\t10\t50\ta1\t100\t+\t0\t0\t40\t0.0000000\nchr1\t60\t100\ta2\t200\t-\t0\t0\t40\t0.0000000\n",
         ),
     ];
     for (args, expected) in diff_cases {
@@ -3849,7 +3849,7 @@ fn p3a_empty_inputs_matrix() {
             let cov = ok(&["coverage", "-a", &bed, "-b", input]);
             assert_eq!(
                 String::from_utf8_lossy(&cov.stdout),
-                "chr1\t0\t100\t0\t0\t100\t0\nchr2\t10\t20\t0\t0\t10\t0\n",
+                "chr1\t0\t100\t0\t0\t100\t0.0000000\nchr2\t10\t20\t0\t0\t10\t0.0000000\n",
                 "coverage -t {t}"
             );
             let gc = ok(&["genomecov", input]);

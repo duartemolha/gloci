@@ -40,11 +40,10 @@ fn bcf_gt_records_equal_bcftools() {
     );
 }
 
-/// A BCF whose GT is 16-bit (an allele index of 63 or more) cannot be
-/// rendered by noodles (it panics); gloci reports a clear error instead of an
-/// internal one (M8).
+/// A BCF whose GT is 16-bit (an allele index of 63 or more) is written as text like any
+/// other, as bcftools writes it. (It was an error while noodles rendered the text: M8.)
 #[test]
-fn a_16_bit_gt_renders_as_a_clear_error_not_a_panic() {
+fn a_16_bit_gt_is_written_as_text() {
     let dir = tempdir();
     let alts: Vec<String> = (1..=70).map(|i| format!("A{}", "C".repeat(i))).collect();
     let vcf = plain_file(
@@ -65,20 +64,20 @@ fn a_16_bit_gt_renders_as_a_clear_error_not_a_panic() {
         .arg(&bcf)
         .assert()
         .success();
-    for args in [
-        vec!["view", "-O", "vcf"],
-        vec!["convert"],
-        vec!["vcf", "filter", "-O", "vcf"],
-        vec!["vcf", "extract", "--format", "GT"],
+    for (args, last) in [
+        (vec!["view", "-O", "vcf"], "\tGT\t1/65"),
+        (vec!["vcf", "filter", "-O", "vcf"], "\tGT\t1/65"),
+        (vec!["vcf", "extract", "--format", "GT"], "\t1/65"),
+        (vec!["convert"], ""),
     ] {
         let o = gloci().args(&args).arg(&bcf).output().unwrap();
         let err = String::from_utf8_lossy(&o.stderr);
-        assert_eq!(o.status.code(), Some(1), "{args:?}: {err}");
+        assert_eq!(o.status.code(), Some(0), "{args:?}: {err}");
+        let out = String::from_utf8_lossy(&o.stdout);
+        let line = out.lines().last().unwrap_or_default();
         assert!(
-            err.contains("allele index of 63 or more")
-                && !err.contains("internal error")
-                && !err.contains("declared in the header"),
-            "{args:?}: {err}"
+            line.starts_with("chr1\t") && line.ends_with(last),
+            "{args:?}: {line}"
         );
     }
 }

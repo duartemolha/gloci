@@ -102,8 +102,15 @@ fn shuffle(v: Vec<TestRec>, seed: u64) -> Vec<TestRec> {
     keyed.into_iter().map(|k| k.1).collect()
 }
 
+/// A fraction or mean depth as bedtools prints it: `%0.7f` of a 32-bit quotient.
 fn ratio(n: u64, d: u64) -> String {
-    (n as f64 / d as f64).to_string()
+    format!("{:.7}", n as f32 / d as f32)
+}
+
+/// The fraction of one of several `-b` files, as `bedtools annotate` prints it: `%f` of a
+/// 64-bit quotient.
+fn annotate_ratio(n: u64, d: u64) -> String {
+    format!("{:.6}", n as f64 / d as f64)
 }
 
 /// The rows gloci should write for `report`, from the naive depth profiles
@@ -265,7 +272,7 @@ proptest! {
                         if d.is_empty() {
                             row.push('.');
                         } else {
-                            row.push_str(&ratio(d.covered(), d.len()));
+                            row.push_str(&annotate_ratio(d.covered(), d.len()));
                         }
                     }
                     row

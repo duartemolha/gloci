@@ -45,8 +45,9 @@ fn code(args: &[&str]) -> i32 {
     gloci().args(args).output().unwrap().status.code().unwrap()
 }
 
-fn f(n: u64, d: u64) -> String {
-    (n as f64 / d as f64).to_string()
+fn f(num: u64, den: u64) -> String {
+    // bedtools' `%0.7f` of the quotient of two floats.
+    format!("{:.7}", num as f32 / den as f32)
 }
 
 const A: &str = "chr1\t100\t200\ta1\t0\t+\nchr1\t300\t400\ta2\t0\t-\nchr2\t5\t15\ta3\t0\t+\nchr3\t10\t10\tpt\t0\t+\n";
@@ -58,9 +59,9 @@ fn summary() {
     assert_eq!(
         fx.run(A, &[B], &[]),
         [
-            "chr1\t100\t200\ta1\t0\t+\t2\t30\t100\t0.3".to_string(),
-            "chr1\t300\t400\ta2\t0\t-\t1\t5\t100\t0.05".to_string(),
-            "chr2\t5\t15\ta3\t0\t+\t0\t0\t10\t0".to_string(),
+            "chr1\t100\t200\ta1\t0\t+\t2\t30\t100\t0.3000000".to_string(),
+            "chr1\t300\t400\ta2\t0\t-\t1\t5\t100\t0.0500000".to_string(),
+            "chr2\t5\t15\ta3\t0\t+\t0\t0\t10\t0.0000000".to_string(),
             "chr3\t10\t10\tpt\t0\t+\t1\t0\t0\t.".to_string(),
         ]
     );
@@ -75,7 +76,7 @@ fn hist_with_all() {
         format!("chr1\t100\t200\ta1\t0\t+\t1\t30\t100\t{}", f(30, 100)),
         format!("chr1\t300\t400\ta2\t0\t-\t0\t95\t100\t{}", f(95, 100)),
         format!("chr1\t300\t400\ta2\t0\t-\t1\t5\t100\t{}", f(5, 100)),
-        "chr2\t5\t15\ta3\t0\t+\t0\t10\t10\t1".to_string(),
+        "chr2\t5\t15\ta3\t0\t+\t0\t10\t10\t1.0000000".to_string(),
         // the point has no rows and adds nothing to the totals
         format!("all\t0\t175\t210\t{}", f(175, 210)),
         format!("all\t1\t35\t210\t{}", f(35, 210)),
@@ -130,7 +131,7 @@ fn mean() {
         [
             format!("chr1\t100\t200\ta1\t0\t+\t{}", f(30, 100)),
             format!("chr1\t300\t400\ta2\t0\t-\t{}", f(5, 100)),
-            "chr2\t5\t15\ta3\t0\t+\t0".to_string(),
+            "chr2\t5\t15\ta3\t0\t+\t0.0000000".to_string(),
             "chr3\t10\t10\tpt\t0\t+\t.".to_string(),
         ]
     );
@@ -141,7 +142,7 @@ fn mean() {
             &["chr1\t11\t13\nchr1\t12\t20\n"],
             &["--mean"]
         ),
-        ["chr1\t10\t14\t1"]
+        ["chr1\t10\t14\t1.0000000"]
     );
 }
 
@@ -151,10 +152,11 @@ fn annotate_multi_b() {
     let b2 = "chr1\t0\t120\nchr2\t0\t8\n";
     assert_eq!(
         fx.run(A, &[B, b2], &[]),
+        // Six decimals, as bedtools annotate prints them.
         [
-            format!("chr1\t100\t200\ta1\t0\t+\t{}\t{}", f(30, 100), f(20, 100)),
-            format!("chr1\t300\t400\ta2\t0\t-\t{}\t0", f(5, 100)),
-            format!("chr2\t5\t15\ta3\t0\t+\t0\t{}", f(3, 10)),
+            "chr1\t100\t200\ta1\t0\t+\t0.300000\t0.200000".to_string(),
+            "chr1\t300\t400\ta2\t0\t-\t0.050000\t0.000000".to_string(),
+            "chr2\t5\t15\ta3\t0\t+\t0.000000\t0.300000".to_string(),
             "chr3\t10\t10\tpt\t0\t+\t.\t.".to_string(),
         ]
     );
@@ -177,7 +179,7 @@ fn points() {
     // a point B counts as a hit and covers nothing
     assert_eq!(
         fx.run("chr1\t0\t10\n", &["chr1\t5\t5\n"], &[]),
-        ["chr1\t0\t10\t1\t0\t10\t0"]
+        ["chr1\t0\t10\t1\t0\t10\t0.0000000"]
     );
 }
 
@@ -212,13 +214,16 @@ fn split_blocks() {
     let a = "chr1\t100\t200\tsp\t0\t+\t100\t200\t0\t2\t20,20\t0,80\n";
     let b = "chr1\t100\t180\tsb\t0\t+\t100\t180\t0\t2\t20,20\t0,60\n";
     let row = |t: &str| format!("{}{t}", a.trim_end());
-    assert_eq!(fx.run(a, &[b], &["--split"]), [row("\t1\t20\t40\t0.5")]);
+    assert_eq!(
+        fx.run(a, &[b], &["--split"]),
+        [row("\t1\t20\t40\t0.5000000")]
+    );
     // without --split the spans cover 80 of A's 100 bases
-    assert_eq!(fx.run(a, &[b], &[]), [row("\t1\t80\t100\t0.8")]);
+    assert_eq!(fx.run(a, &[b], &[]), [row("\t1\t80\t100\t0.8000000")]);
     // a plain B has no blocks: it covers the part of A's blocks it meets
     assert_eq!(
         fx.run(a, &["chr1\t150\t190\n"], &["--split"]),
-        [row("\t1\t10\t40\t0.25")]
+        [row("\t1\t10\t40\t0.2500000")]
     );
     // per-base offsets run along the blocks
     let rows = fx.run(a, &["chr1\t110\t190\n"], &["--split", "--per-base"]);
@@ -246,7 +251,10 @@ fn split_hist_and_mean() {
             format!("all\t2\t10\t40\t{}", f(10, 40)),
         ]
     );
-    assert_eq!(fx.run(a, &[b], &["--split", "--mean"]), [row("\t1")]);
+    assert_eq!(
+        fx.run(a, &[b], &["--split", "--mean"]),
+        [row("\t1.0000000")]
+    );
     // without --split B1 and B2 are plain spans over A's whole span
     assert_eq!(
         fx.run(a, &[b], &["--mean"]),
@@ -274,8 +282,8 @@ chr1\t151\t.\tA\tC\t.\t.\t.\nchr1\t161\t.\tA\tC\t.\t.\t.\n",
         lines,
         [
             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\thits\tcovered_bases\ta_length\tcovered_fraction",
-            "chr1\t151\t.\tA\tC\t.\t.\t.\t1\t1\t1\t1",
-            "chr1\t161\t.\tA\tC\t.\t.\t.\t0\t0\t1\t0",
+            "chr1\t151\t.\tA\tC\t.\t.\t.\t1\t1\t1\t1.0000000",
+            "chr1\t161\t.\tA\tC\t.\t.\t.\t0\t0\t1\t0.0000000",
         ]
     );
 }

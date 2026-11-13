@@ -312,3 +312,54 @@ fn wheel_install_command() {
     );
     assert_eq!(python_with_wheel("python3", None), "python3");
 }
+
+/// Every benchmark case, nightly and paper, accounts for its commands: each gloci command
+/// and each tool a target names is in a `same` group (its output is compared with another
+/// tool's before anything is timed) or says in `not_compared` why it is not
+/// (`xtask::verify`). A case added without either fails here.
+#[test]
+fn every_benchmark_command_is_compared_or_says_why_not() {
+    let root = workspace_root();
+    let nightly =
+        parse_cases(&std::fs::read_to_string(root.join("xtask/bench/cases.toml")).unwrap())
+            .unwrap();
+    let paper = load_paper_cases().unwrap();
+    let mut groups = 0;
+    for c in nightly.iter().chain(&paper) {
+        let open = xtask::verify::unaccounted(&c.same, &c.not_compared, &c.commands, &c.targets);
+        assert!(
+            open.is_empty(),
+            "{}: {open:?} is in no [[case.same]] group and has no reason in [case.not_compared]",
+            c.name
+        );
+        groups += c.same.len();
+    }
+    assert!(groups >= 70, "only {groups} `same` groups");
+}
+
+/// The threads a paper case states are the threads its gloci commands ask for: the runner
+/// sets none, so a command without `-t` uses every core beside single-threaded tools.
+#[test]
+fn paper_gloci_commands_ask_for_the_threads_their_case_states() {
+    for c in load_paper_cases().unwrap() {
+        let Some(threads) = c.threads else { continue };
+        for (tool, cmd) in &c.commands {
+            if !(tool == "gloci" || tool.starts_with("gloci-")) || tool == "gloci-py" {
+                continue;
+            }
+            for part in cmd.split('|').filter(|p| p.contains("{gloci}")) {
+                let words = gloci_words(part);
+                let t = words
+                    .iter()
+                    .position(|w| w == "-t")
+                    .and_then(|i| words.get(i + 1));
+                assert_eq!(
+                    t.map(String::as_str),
+                    Some(threads.to_string().as_str()),
+                    "{}: `{tool}` must say -t {threads}: {part}",
+                    c.name
+                );
+            }
+        }
+    }
+}

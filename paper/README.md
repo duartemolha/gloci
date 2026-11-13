@@ -75,13 +75,13 @@ All exited 0 with nothing on standard error (vcftools prints its banner).
 | subtract-exons-ccre | gloci = bedtools; bedops writes the merged difference | `gloci-merged` (`merge` piped into `subtract`) gives bedops' bytes and is what the bedops target now names |
 | closest-peaks-exons | gloci = bedtools; closest-features writes one neighbour on each side | `gloci-each-side` does that work (its rows differ where an exon overlaps the peak, `differences.md#closest-each-side`); the bedops target now names it |
 | map-ccre-signal | the same 2,348,854 means from all three | bedmap reads column 5: given the four-column bedGraph it printed `NAN` for every row but the first, in about a second, without reading the file. It now reads `ctcf-fc.bed5` |
-| coverage-ccre-exons | the same counts, covered bases and lengths; gloci prints the fraction in full and bedtools to seven decimals | none |
+| coverage-ccre-exons | the same counts, covered bases and lengths; gloci printed the fraction in full and bedtools to seven decimals. gloci now writes bedtools' seven decimals and the outputs are identical | none |
 | genomecov-exons | the same rows; the chromosome order differs (`differences.md#genomecov-chrom-order`) | none |
 | partition-3 | gloci = bedops; multiinter joins segments and names the files | bedops needs sort-bed order and `exons.bed` was sorted by start alone: bedops wrote 42,593 rows with start past end. `exons.bed` is now sorted by start and end. `gloci-merge-adjacent` gives multiinter's first five columns byte for byte and is what the bedtools target names |
 | flagstat-ctcf-bam, flagstat-ctcf-cram | identical: gloci, samtools | none |
 | bedcov-ctcf-peaks | identical: gloci, samtools | none |
 | depth-ctcf-bam, depth-ctcf-cram | identical: gloci, samtools (199,427,781 lines) | mosdepth uses 8 threads and writes a compressed per-base file: a yardstick, not the same work |
-| vcf-filter-1kg-bcf | the same 370,398 records from all three; vcftools upper-cases five symbolic ALTs, and gloci writes INFO numbers and one string differently from bcftools | gloci had no `-t` (every core) and bcftools one thread; both now ask for 8 |
+| vcf-filter-1kg-bcf | the same 370,398 records from all three; vcftools upper-cases five symbolic ALTs, and gloci wrote INFO numbers and one string differently from bcftools. gloci now writes a BCF record as htslib does and its records are bcftools' byte for byte | gloci had no `-t` (every core) and bcftools one thread; both now ask for 8 |
 
 The same sorting fault changed `closest-features`' answer for 4,832 peaks;
 `bedops -e`, `-m` and `-d` gave the same output on either order.
@@ -92,15 +92,53 @@ Not run in the audit, only read: `vcf-filter-gnomad`, `vcf-compare-1kg`, the
 - `intersect-plain-10M` and `intersect-bgzf-10M`: bedtools had no `-u`, so it
   wrote every overlap where gloci, bedops and the other tools write each A
   once. Fixed.
-- Thread counts that differ within a case and are not labelled:
-  `sort-plain-10M` (gloci every core, GNU sort 8, sort-bed one), the
-  `vcf-filter-*` and `vcf-stats-1kg-chr20` cases (gloci every core, bcftools
-  one), `intersect-bam-any` and `coverage-cram-targets` (gloci 8, bedtools
-  one). Not changed: they are the nightly targets.
+- Thread counts that differed within a case: `sort-plain-10M` (gloci every
+  core beside GNU sort's 8), and the `vcf-filter-*` and `vcf-stats-1kg-chr20`
+  cases (gloci every core, bcftools one). Every gloci command there now says
+  `-t 8` and bcftools `--threads 8`. `intersect-bam-any` and
+  `coverage-cram-targets` keep gloci at 8 threads beside bedtools, which has
+  one.
+- `subtract-plain-10M` and `closest-plain-10M` named bedops in targets for
+  work gloci's plain command does not do; they have the `gloci-merged` and
+  `gloci-each-side` commands of the paper cases, and the targets name those.
 
-What would keep this true is a step in the runner that runs each command once
-into its own file and compares the files by a rule the case states; until then
-a new or edited case needs the same check by hand.
+The runner does this check itself now. A case lists the commands that must
+agree (`[[case.same]]`: `exact` by default, or `unordered`, `distinct`,
+`numeric`, `vcf-records`, `vcf-sites`, `bam-records`, `bcf-records`, and
+`columns = N`),
+and a gloci command or a tool a target names that is compared with no other
+says why (`[case.not_compared]`); a test fails for a case with neither. Before
+it times a case the runner runs each of those commands once into its own file
+and compares the files (`xtask/src/verify.rs`). A case whose commands disagree
+is not timed and the run fails, with the first difference in the log and in
+`<case>.verify.txt` beside the results.
+
+```sh
+cargo xtask paper run --bench-only --verify-only --data-dir DIR   # compare, time nothing
+cargo xtask bench --verify-only --records 20000                   # the nightly cases, small
+```
+
+`--no-verify` times without comparing.
+
+Its first run over the nightly cases (2026-11-13, at 20,000 records) found
+what reading them had not:
+
+- `genomecov-bam-50M`: a tenth of the reads are spliced, and
+  `bedtools genomecov -ibam` counted their introns where
+  `gloci --split-deletions` cuts at them. bedtools now has `-split`, which is
+  the same work.
+- `pair-pair-1M`: `bedtools pairtopair` enforces strand unless `-is` and
+  `gloci pair-pair` ignores it unless `-s`. bedtools now has `-is`. It still
+  writes a pair that hits in both orientations twice
+  (`differences.md#pair-pair-once`), so the case compares distinct lines.
+- `genomecov-plain-10M`: the genome was 24 chromosomes of 250 Mb, and
+  bedtools adds its `genome` rows up in 32 bits, so the depth-0 row wrapped
+  whenever more than 2^32 bases were uncovered
+  (`differences.md#genomecov-genome-total`). The case has 16 chromosomes.
+- `map-plain-10M`: bedmap wrote `|` before its column and prints `NAN` where
+  nothing maps; it now writes a tab, and the comparison reads `NAN` as `.`.
+- The runner indexed a BGZF input whether or not the case's data was sorted,
+  which stopped the run at `sort-bgzf-10M`.
 
 ## Providers: licence and citation
 

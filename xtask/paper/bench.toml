@@ -38,6 +38,12 @@ sort-bed = "sort-bed --max-mem 2G {in_a} > {out}"
 bedtools = "bedtools sort -i {in_a} > {out}"
 gnu-sort = "LC_ALL=C sort -k1,1 -k2,2n --parallel=1 -S 2G {in_a} > {out}" # (y)
 
+# The same lines from all four; each tool orders ties its own way
+# (docs/differences.md#sort-tie-order).
+[[case.same]]
+tools = ["gloci", "sort-bed", "bedtools", "gnu-sort"]
+compare = "unordered"
+
 [[case]]
 name = "intersect-ccre-exons"
 label = "intersect, cCREs with exons"
@@ -50,7 +56,11 @@ gloci = "{gloci} intersect --chrom-order lex --mode any -t 1 -a {in_a} -b {in_b}
 bedtools = "bedtools intersect -u -sorted -a {in_a} -b {in_b} > {out}"
 bedops = "bedops -e 1 {in_a} {in_b} > {out}"
 
+[[case.same]]
+tools = ["gloci", "bedtools", "bedops"]
+
 # §9.1: BGZF inputs, 8 threads.
+
 [[case]]
 name = "intersect-ccre-exons-bgzf"
 label = "intersect, cCREs with exons (BGZF, 8 threads)"
@@ -62,6 +72,9 @@ targets = ["gloci <= 0.2 * bedtools"]
 gloci = "{gloci} intersect --chrom-order lex --mode any -t 8 -a {in_a} -b {in_b} > {out}"
 bedtools = "bedtools intersect -u -sorted -a {in_a} -b {in_b} > {out}"
 bedops = "bgzip -dc {in_a} > {out}.a && bgzip -dc {in_b} > {out}.b && bedops -e 1 {out}.a {out}.b > {out}"
+
+[[case.same]]
+tools = ["gloci", "bedtools", "bedops"]
 
 [[case]]
 name = "subtract-exons-ccre"
@@ -79,6 +92,11 @@ bedtools = "bedtools subtract -sorted -a {in_a} -b {in_b} > {out}"
 gloci-merged = "{gloci} merge --chrom-order lex -t 1 {in_a} | {gloci} subtract --chrom-order lex -t 1 -a - -b {in_b} > {out}"
 bedops = "bedops -m {in_b} | bedops -d {in_a} - > {out}"
 
+[[case.same]]
+tools = ["gloci", "bedtools"]
+[[case.same]]
+tools = ["gloci-merged", "bedops"]
+
 [[case]]
 name = "merge-exons"
 label = "merge, GENCODE exons"
@@ -90,6 +108,9 @@ targets = ["gloci <= 0.5 * bedtools", "gloci <= bedops"]
 gloci = "{gloci} merge --chrom-order lex -t 1 {in_a} > {out}"
 bedtools = "bedtools merge -i {in_a} > {out}"
 bedops = "bedops -m {in_a} > {out}"
+
+[[case.same]]
+tools = ["gloci", "bedtools", "bedops"]
 
 [[case]]
 name = "closest-peaks-exons"
@@ -109,6 +130,12 @@ bedtools = "bedtools closest -d -a {in_a} -b {in_b} > {out}"
 gloci-each-side = "{gloci} closest --chrom-order lex -t 1 --each-side --ties first --distance -a {in_a} -b {in_b} > {out}"
 bedops = "closest-features --dist {in_a} {in_b} > {out}"
 
+[[case.same]]
+tools = ["gloci", "bedtools"]
+[case.not_compared]
+gloci-each-side = "the work of closest-features, not its bytes: an exon that overlaps the peak counts on both sides in gloci and on one in bedops (docs/differences.md#closest-each-side)"
+bedops = "one neighbour on each side of each peak, where gloci and bedtools write every tied nearest exon"
+
 [[case]]
 name = "map-ccre-signal"
 label = "map, CTCF signal onto cCREs"
@@ -117,12 +144,24 @@ threads = 1
 inputs = { a = "ccre.bed", b = "ctcf-fc.bedgraph", c = "ctcf-fc.bed5" }
 # bedmap takes its values from column 5, so it reads the five-column copy of
 # the signal ({in_c}); on the bedGraph it prints NAN for every row but the
-# first, in a second. The three tools give the same 2,348,854 means.
+# first, in a second. The three tools give the same 2,348,854 means; --delim
+# puts bedmap's mean in a column of its own, and its NAN for the nine cCREs
+# no signal row overlaps is read as the others' `.` (missing = "NAN").
 targets = ["gloci <= 0.5 * bedtools", "gloci <= bedops"]
 [case.commands]
 gloci = "{gloci} map --chrom-order lex -t 1 -c 4:mean -a {in_a} -b {in_b} > {out}"
 bedtools = "bedtools map -o mean -c 4 -a {in_a} -b {in_b} > {out}"
-bedops = "bedmap --echo --mean {in_a} {in_c} > {out}"
+bedops = "bedmap --echo --mean --delim '\\t' {in_a} {in_c} > {out}"
+
+[[case.same]]
+tools = ["gloci", "bedtools"]
+compare = "numeric"
+# bedmap prints six decimals, and NAN where nothing maps.
+[[case.same]]
+tools = ["gloci", "bedops"]
+compare = "numeric"
+decimals = 6
+missing = "NAN"
 
 [[case]]
 name = "coverage-ccre-exons"
@@ -135,6 +174,9 @@ targets = ["gloci <= 0.5 * bedtools"]
 gloci = "{gloci} coverage --chrom-order lex -t 1 -a {in_a} -b {in_b} > {out}"
 bedtools = "bedtools coverage -sorted -a {in_a} -b {in_b} > {out}"
 
+[[case.same]]
+tools = ["gloci", "bedtools"]
+
 [[case]]
 name = "genomecov-exons"
 label = "genomecov, GENCODE exons"
@@ -145,6 +187,12 @@ targets = ["gloci <= 0.5 * bedtools"]
 [case.commands]
 gloci = "{gloci} genomecov --chrom-order lex -t 1 --bga -g {genome} {in_a} > {out}"
 bedtools = "bedtools genomecov -bga -i {in_a} -g {genome} > {out}"
+
+# The same rows; gloci writes the chromosomes in the genome file's order
+# (docs/differences.md#genomecov-chrom-order).
+[[case.same]]
+tools = ["gloci", "bedtools"]
+compare = "unordered"
 
 [[case]]
 name = "partition-3"
@@ -162,6 +210,13 @@ gloci = "{gloci} partition --chrom-order lex -t 1 --no-membership {in_a} {in_b} 
 bedops = "bedops --partition {in_a} {in_b} {in_c} > {out}"
 gloci-merge-adjacent = "{gloci} partition --chrom-order lex -t 1 --merge-adjacent --names 1,2,3 {in_a} {in_b} {in_c} > {out}"
 bedtools = "bedtools multiinter -i {in_a} {in_b} {in_c} > {out}"
+
+[[case.same]]
+tools = ["gloci", "bedops"]
+# multiinter also writes one 0/1 column per file.
+[[case.same]]
+tools = ["gloci-merge-adjacent", "bedtools"]
+columns = 5
 
 # intersect-1kg-exons (VCF against exons) is not here yet: the 1000 Genomes
 # VCF is in natural contig order (chr1, chr2, ...) and exons.bed in LC_ALL=C
@@ -182,6 +237,16 @@ gloci = "{gloci} vcf filter --pass-only -t 8 {in_a} -o {out}"
 vcftools = "vcftools --gzvcf {in_a} --remove-filtered-all --recode --recode-INFO-all --stdout | bgzip -@ 8 > {out}"
 bcftools = "bcftools view --threads 8 -f PASS -Oz -o {out} {in_a}" # (y)
 
+# vcftools --recode keeps each value as written, as gloci does; bcftools
+# prints numbers its own way (docs/differences.md#vcf-filter-values), so only
+# the sites are compared with it.
+[[case.same]]
+tools = ["gloci", "vcftools"]
+compare = "vcf-records"
+[[case.same]]
+tools = ["gloci", "bcftools"]
+compare = "vcf-sites"
+
 [[case]]
 name = "vcf-filter-1kg-bcf"
 label = "vcf filter, 1000 Genomes chr20 (BCF)"
@@ -195,8 +260,18 @@ gloci = "{gloci} vcf filter --min-maf 0.01 --max-missing 0.1 -t 8 {in_a} -o {out
 vcftools = "vcftools --bcf {in_a} --maf 0.01 --max-missing 0.9 --recode --recode-INFO-all --stdout | bgzip -@ 8 > {out}"
 bcftools = "bcftools view --threads 8 -i 'MAF>=0.01 && F_MISSING<=0.1' {in_a} -Oz -o {out}" # (y)
 
+# From BCF, gloci writes the text bcftools writes; vcftools upper-cases
+# symbolic alleles and prints numbers its own way.
+[[case.same]]
+tools = ["gloci", "bcftools"]
+compare = "vcf-records"
+[[case.same]]
+tools = ["gloci", "vcftools"]
+compare = "vcf-sites"
+
 # P3 commands. Chromosome halves p1 and p2 are disjoint: this times the
 # command on real genotype data and says nothing about concordance.
+
 [[case]]
 name = "vcf-compare-1kg"
 label = "vcf compare, 1000 Genomes chr20 halves"
@@ -208,6 +283,10 @@ targets = ["gloci <= 0.2 * vcftools-3runs"]
 [case.commands]
 gloci = "{gloci} vcf compare -t 8 --match position --out-prefix {out} {in_a} {in_b}"
 vcftools-3runs = "vcftools --gzvcf {in_a} --gzdiff {in_b} --diff-site-discordance --out {out}.v1 && vcftools --gzvcf {in_a} --gzdiff {in_b} --diff-indv-discordance --out {out}.v2 && vcftools --gzvcf {in_a} --gzdiff {in_b} --diff-discordance-matrix --out {out}.v3"
+
+[case.not_compared]
+gloci = "{out} is a prefix of three files; the concordance cases compare them with vcftools' (xtask/paper/concordance.toml)"
+vcftools-3runs = "{out} is a prefix of three files, one per run"
 
 [[case]]
 name = "depth-ctcf-bam"
@@ -222,6 +301,11 @@ gloci = "{gloci} depth -t 1 {in_a} > {out}"
 samtools = "samtools depth {in_a} > {out}"
 mosdepth = "mosdepth -t 8 --fast-mode {out}.mos {in_a}" # (y)
 
+[[case.same]]
+tools = ["gloci", "samtools"]
+[case.not_compared]
+mosdepth = "8 threads and a compressed per-base file of runs of equal depth: a yardstick"
+
 [[case]]
 name = "depth-ctcf-cram"
 label = "depth, CTCF K562 CRAM"
@@ -233,6 +317,9 @@ targets = ["gloci <= samtools"]
 [case.commands]
 gloci = "{gloci} depth -t 1 {in_a} > {out}"
 samtools = "samtools depth {in_a} > {out}"
+
+[[case.same]]
+tools = ["gloci", "samtools"]
 
 [[case]]
 name = "flagstat-ctcf-bam"
@@ -246,6 +333,9 @@ targets = ["gloci <= samtools"]
 gloci = "{gloci} flagstat -t 1 {in_a} > {out}"
 samtools = "samtools flagstat -@ 0 {in_a} > {out}"
 
+[[case.same]]
+tools = ["gloci", "samtools"]
+
 [[case]]
 name = "flagstat-ctcf-cram"
 label = "flagstat, CTCF K562 CRAM"
@@ -258,7 +348,11 @@ targets = ["gloci <= samtools"]
 gloci = "{gloci} flagstat -t 1 {in_a} > {out}"
 samtools = "samtools flagstat -@ 0 {in_a} > {out}"
 
+[[case.same]]
+tools = ["gloci", "samtools"]
+
 # The CTCF peaks as targets: real, sorted, on contigs the BAM has.
+
 [[case]]
 name = "bedcov-ctcf-peaks"
 label = "bedcov, CTCF peaks over the CTCF BAM"
@@ -271,9 +365,13 @@ targets = ["gloci <= 0.5 * samtools"]
 gloci = "{gloci} bedcov -t 1 {in_b} {in_a} > {out}"
 samtools = "samtools bedcov {in_b} {in_a} > {out}"
 
+[[case.same]]
+tools = ["gloci", "samtools"]
+
 # Python library (D96, Task 18): gloci-py against pybedtools (binding) and three
 # yardsticks, on the same real inputs as the CLI cases above. The scripts leave
 # one thread, as `threads` says (`--threads 1`), like the CLI cases.
+
 [[case]]
 name = "py-intersect-ccre-exons"
 label = "intersect, cCREs with exons (Python)"
@@ -288,6 +386,9 @@ polars-bio = "{python} {py}/polars_bio_intersect.py {in_a} {in_b} {out}" # (y)
 pyranges1 = "{python} {py}/pyranges1_intersect.py {in_a} {in_b} {out}" # (y)
 bioframe = "{python} {py}/bioframe_intersect.py {in_a} {in_b} {out}" # (y)
 
+[case.not_compared]
+pybedtools = "the Python scripts' outputs have not been compared; the Python parity tests compare gloci-py with the gloci command"
+
 [[case]]
 name = "py-merge-exons"
 label = "merge, GENCODE exons (Python)"
@@ -301,3 +402,7 @@ pybedtools = "{python} {py}/pybedtools_merge.py {in_a} {out}"
 polars-bio = "{python} {py}/polars_bio_merge.py {in_a} {out}" # (y)
 pyranges1 = "{python} {py}/pyranges1_merge.py {in_a} {out}" # (y)
 bioframe = "{python} {py}/bioframe_merge.py {in_a} {out}" # (y)
+
+[case.not_compared]
+pybedtools = "the Python scripts' outputs have not been compared; the Python parity tests compare gloci-py with the gloci command"
+

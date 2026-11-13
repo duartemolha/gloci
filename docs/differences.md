@@ -1373,6 +1373,20 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 - **Reason:** a mismatched genome build gives wrong depths without a sign.
 - **Pinned by:** `genomecov-past-end-vs-bedtools` (exit status must differ).
 
+## `genomecov` counts a genome longer than 2^32 bases {#genomecov-genome-total}
+
+- **gloci:** the `genome` rows of the histogram count bases in 64 bits, so
+  they are right for any genome size.
+- **Old behaviour:** `bedtools genomecov` adds the per-chromosome counts up in
+  32 bits. When the genome has more than 4,294,967,295 bases at one depth
+  (in practice depth 0), the `genome` row for that depth is short by 2^32 and
+  its fraction is wrong: a 5,000,001,000-base genome with 100 covered bases
+  gives `genome 0 705033604 5000001000 0.141007`. The per-chromosome rows are
+  right. No single human or mouse assembly is this long; a genome file that
+  holds two assemblies, or a large plant genome, is.
+- **Reason:** the bedtools number is an overflow, not a count.
+- **Pinned by:** `genomecov-hist-wide-genome-vs-bedtools` (must differ).
+
 ## `genomecov --max-depth` is histogram-only {#genomecov-max-depth}
 
 - **gloci:** `--max-depth N` with `--bedgraph`, `--bga` or `--per-base` is a
