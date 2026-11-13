@@ -447,8 +447,10 @@ bedtools = "bedtools bamtobed -i {in} > {out}"
 tools = ["gloci", "bedtools"]
 
 
-# bedtools genomecov -ibam cuts reads at deletions, gloci --split-deletions.
-# mosdepth (-t 8) and gloci -t 8 are yardsticks.
+# One tenth of the reads are spliced. bedtools -ibam -split and gloci
+# --split-deletions both cut a read at N and at D; plain -ibam cuts at D only
+# and counted the introns, so the two tools were not doing the same work (the
+# verify step found it). mosdepth (-t 8) and gloci -t 8 are yardsticks.
 
 [[case]]
 name = "genomecov-bam-50M"
@@ -457,7 +459,7 @@ input = "bam"
 targets = ["gloci <= 0.5 * bedtools"]
 [case.commands]
 gloci = "{gloci} genomecov -t 1 --bga --split-deletions {in} > {out}"
-bedtools = "bedtools genomecov -ibam {in} -bga > {out}"
+bedtools = "bedtools genomecov -ibam {in} -bga -split > {out}"
 gloci-t8 = "{gloci} genomecov -t 8 --bga --split-deletions {in} > {out}"
 mosdepth = "mosdepth -t 8 {out}.mos {in}"
 
@@ -733,7 +735,11 @@ tools = ["gloci", "bedtools"]
 
 
 # B: the pairs of A with each end moved by up to 40 bases, so every pair of A
-# has a partner.
+# has a partner. bedtools pairtopair enforces strand unless -is and gloci
+# pair-pair ignores it unless -s, so bedtools gets -is: without it the two
+# were not doing the same work (the verify step found it). bedtools writes a
+# pair that hits in both orientations twice (docs/differences.md
+# #pair-pair-once), so the outputs are compared as distinct lines.
 
 [[case]]
 name = "pair-pair-1M"
@@ -742,10 +748,11 @@ input = "bedpe"
 targets = ["gloci <= bedtools"]
 [case.commands]
 gloci = "{gloci} pair-pair -t 1 -a {in_a} -b {in_b} > {out}"
-bedtools = "bedtools pairtopair -a {in_a} -b {in_b} > {out}"
+bedtools = "bedtools pairtopair -is -a {in_a} -b {in_b} > {out}"
 
 [[case.same]]
 tools = ["gloci", "bedtools"]
+compare = "distinct"
 
 
 # 25M read pairs (50M records), written name-grouped, READ1 then READ2.

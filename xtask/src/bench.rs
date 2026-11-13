@@ -1571,6 +1571,12 @@ pub fn run_cases(a: &Args, cases: Vec<Case>) -> Result<bool> {
         .filter(|c| a.only.as_ref().is_none_or(|o| *o == c.name))
     {
         ran += 1;
+        if a.verify == Verify::Only && case.same.is_empty() {
+            // Nothing to compare, so nothing to generate or run either (and the Python
+            // cases, which have no group, need a wheel that a comparison run has no use for).
+            eprintln!("== {}: no `same` group, nothing compared", case.name);
+            continue;
+        }
         let setup = case.setup.as_ref().map(|s| match a.records {
             Some(n) => override_records(s, n),
             None => s.clone(),
@@ -1850,9 +1856,8 @@ fix the commands or the case's `same` groups, or pass --no-verify to time them a
     Ok(all_ok || !a.check_targets)
 }
 
-/// Run `cmd` through `sh -c`, in the bench container when `docker` is given, and return
-/// whether it succeeded and what it wrote to standard error.
-fn run_shell(cmd: &str, docker: Option<(&str, &Path, &Path, &[String])>) -> Result<(bool, String)> {
+/// `cmd` through `sh -c`, in the bench container when `docker` is given.
+fn shell(cmd: &str, docker: Option<(&str, &Path, &Path, &[String])>) -> Result<Command> {
     let mut c = match docker {
         Some((image, data, results, extra)) => docker_run(image, data, results, extra)?,
         None => Command::new("sh"),
@@ -1860,8 +1865,14 @@ fn run_shell(cmd: &str, docker: Option<(&str, &Path, &Path, &[String])>) -> Resu
     if docker.is_some() {
         c.arg("sh");
     }
-    let o = c
-        .args(["-c", cmd])
+    c.args(["-c", cmd]);
+    Ok(c)
+}
+
+/// Run `cmd` ([`shell`]) and return whether it succeeded and what it wrote to standard
+/// error.
+fn run_shell(cmd: &str, docker: Option<(&str, &Path, &Path, &[String])>) -> Result<(bool, String)> {
+    let o = shell(cmd, docker)?
         .stdout(std::process::Stdio::null())
         .output()
         .with_context(|| format!("running {cmd}"))?;
@@ -1913,30 +1924,22 @@ fn verify_case(
     }
     let mut reports = Vec::new();
     for g in &case.same {
-        // Binary outputs are compared as the records a reference tool prints for them.
-        let decoded = |p: &Path| PathBuf::from(format!("{}.records.txt", p.display()));
-        if let Some(decoder) = crate::verify::decoder(&g.compare) {
-            for t in &g.tools {
-                let Some(p) = outputs.get(t).filter(|p| p.exists()) else {
-                    continue;
-                };
-                let name = p.file_name().unwrap().to_string_lossy();
-                let cmd = format!("{decoder} {} > {}.records.txt", shown(&name), shown(&name));
-                let (ok, stderr) = run_shell(&cmd, docker)?;
-                ensure!(
-                    ok,
-                    "case {}: cannot read the output of `{t}` to compare it: {cmd}\n{}",
-                    case.name,
-                    stderr.trim_end()
-                );
-            }
-        }
-        let output = |tool: &str| -> Option<PathBuf> {
-            let p = outputs.get(tool)?;
-            Some(match crate::verify::decoder(&g.compare) {
-                Some(_) => decoded(p),
-                None => p.clone(),
-            })
+        // A binary output is compared as the records a reference tool prints for it, read
+        // from that tool as it prints them.
+        let output = |tool: &str| -> Result<Option<crate::verify::Output>> {
+            let Some(p) = outputs.get(tool) else {
+                return Ok(None);
+            };
+            Ok(Some(match crate::verify::decoder(&g.compare) {
+                Some(decoder) if p.exists() => {
+                    let name = p.file_name().unwrap().to_string_lossy();
+                    crate::verify::Output::Records(shell(
+                        &format!("{decoder} {}", shown(&name)),
+                        docker,
+                    )?)
+                }
+                _ => crate::verify::Output::File(p.clone()),
+            }))
         };
         reports.push(crate::verify::compare_group(g, &output)?);
     }

@@ -18,23 +18,28 @@
 //! |---|---|
 //! | `exact` | they are the same bytes |
 //! | `unordered` | they hold the same lines, in any order |
+//! | `distinct` | they hold the same distinct lines, in any order and however often (`bedtools pairtopair` writes a pair that hits in both orientations twice) |
 //! | `numeric` | line by line, the text fields are the same and the numbers agree: within a relative 1e-5, or, with `decimals = N`, within half a unit of the N-th decimal of the other tool's number |
 //! | `vcf-records` | the lines that do not start with `#` are the same bytes |
 //! | `vcf-sites` | those lines have the same CHROM, POS, REF and ALT, whatever the case of the letters |
 //! | `bam-records` | `samtools view` prints the same records for both |
 //! | `bcf-records` | `bcftools view -H` prints the same records for both |
 //!
-//! `columns = N` compares the first N tab-separated columns only (`exact` and `unordered`).
+//! `columns = N` compares the first N tab-separated columns only (`exact`, `unordered` and
+//! `distinct`).
 //! `missing = "NAN"` (`numeric`) reads a field that is exactly that, in the outputs after the
 //! first, as `.`: bedmap prints `NAN` for an interval nothing maps to.
-//! Output that is gzip or BGZF is read through its compression.
+//! Output that is gzip or BGZF is read through its compression. The records of a BAM or BCF
+//! are read from the decoder's standard output and never written down: those of a
+//! 50-million-read BAM are 12 GB of text.
 
 use anyhow::{Context, Result, bail, ensure};
 use gloci_testkit::differential::match_stats_with_residual;
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, BufReader, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
 
 /// Commands of a case whose outputs must agree: the first with each of the others.
 #[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -62,6 +67,7 @@ fn exact() -> String {
 pub const MODES: &[&str] = &[
     "exact",
     "unordered",
+    "distinct",
     "numeric",
     "vcf-records",
     "vcf-sites",
@@ -114,8 +120,8 @@ pub fn check_schema(
             g.tools
         );
         ensure!(
-            g.columns.is_none() || matches!(g.compare.as_str(), "exact" | "unordered"),
-            "{name}: `columns` applies to compare = \"exact\" and \"unordered\" only"
+            g.columns.is_none() || matches!(g.compare.as_str(), "exact" | "unordered" | "distinct"),
+            "{name}: `columns` applies to compare = \"exact\", \"unordered\" and \"distinct\" only"
         );
         ensure!(g.columns != Some(0), "{name}: `columns` must be at least 1");
         ensure!(
@@ -249,16 +255,16 @@ fn shown(line: &[u8]) -> String {
 }
 
 /// A tool's output with every field that is exactly `missing` replaced by `.`.
-struct MissingAsDot {
-    inner: Box<dyn BufRead>,
+struct MissingAsDot<'a> {
+    inner: &'a mut dyn BufRead,
     missing: Vec<u8>,
     raw: Vec<u8>,
     line: Vec<u8>,
     at: usize,
 }
 
-impl MissingAsDot {
-    fn new(inner: Box<dyn BufRead>, missing: &[u8]) -> MissingAsDot {
+impl<'a> MissingAsDot<'a> {
+    fn new(inner: &'a mut dyn BufRead, missing: &[u8]) -> MissingAsDot<'a> {
         MissingAsDot {
             inner,
             missing: missing.to_vec(),
@@ -269,7 +275,7 @@ impl MissingAsDot {
     }
 }
 
-impl Read for MissingAsDot {
+impl Read for MissingAsDot<'_> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let have = self.fill_buf()?;
         let n = have.len().min(buf.len());
@@ -279,7 +285,7 @@ impl Read for MissingAsDot {
     }
 }
 
-impl BufRead for MissingAsDot {
+impl BufRead for MissingAsDot<'_> {
     fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
         if self.at == self.line.len() {
             self.raw.clear();
@@ -314,11 +320,19 @@ impl BufRead for MissingAsDot {
 /// Whether the outputs `a` (the group's first tool) and `b` agree under the group `g`:
 /// `Ok(None)` when they do, else what differs first.
 pub fn differ(g: &Same, a: &Path, b: &Path) -> Result<Option<String>> {
-    let (mut ra, mut rb) = (open(a)?, open(b)?);
+    differ_streams(g, &mut *open(a)?, &mut *open(b)?)
+}
+
+/// [`differ`] for two outputs that are already open.
+fn differ_streams(g: &Same, ra: &mut dyn BufRead, rb: &mut dyn BufRead) -> Result<Option<String>> {
     match g.compare.as_str() {
         "numeric" => {
-            let mut rb: Box<dyn BufRead> = match &g.missing {
-                Some(m) => Box::new(MissingAsDot::new(rb, m.as_bytes())),
+            let mut dotted;
+            let rb: &mut dyn BufRead = match &g.missing {
+                Some(m) => {
+                    dotted = MissingAsDot::new(rb, m.as_bytes());
+                    &mut dotted
+                }
                 None => rb,
             };
             let (s, _) = match_stats_with_residual("numeric", g.decimals, &mut *ra, &mut *rb)?;
@@ -350,6 +364,30 @@ pub fn differ(g: &Same, a: &Path, b: &Path) -> Result<Option<String>> {
                     odd.len(),
                     c.abs(),
                     if **c > 0 { "first" } else { "second" },
+                    shown(line)
+                )
+            }))
+        }
+        "distinct" => {
+            // 1: in the first output, 2: in the second, 3: in both.
+            let mut seen: HashMap<Vec<u8>, u8> = HashMap::new();
+            let (mut raw, mut v) = (Vec::new(), Vec::new());
+            let (mut na, mut nb) = (0u64, 0u64);
+            while next_view("distinct", g.columns, &mut *ra, &mut raw, &mut v)? {
+                *seen.entry(v.clone()).or_default() |= 1;
+                na += 1;
+            }
+            while next_view("distinct", g.columns, &mut *rb, &mut raw, &mut v)? {
+                *seen.entry(v.clone()).or_default() |= 2;
+                nb += 1;
+            }
+            let odd: Vec<(&Vec<u8>, &u8)> = seen.iter().filter(|(_, s)| **s != 3).collect();
+            Ok(odd.first().map(|(line, s)| {
+                format!(
+                    "{na} and {nb} lines; {} distinct lines are in one output only, such as \
+                     this one, in the {} only: {}",
+                    odd.len(),
+                    if **s == 1 { "first" } else { "second" },
                     shown(line)
                 )
             }))
@@ -440,11 +478,67 @@ impl GroupReport {
     }
 }
 
-/// Compare the outputs of the group `g`: `output(tool)` is where a tool's output is, or
-/// `None` for a tool that was not run.
+/// Where the output of a tool is read from.
+#[derive(Debug)]
+pub enum Output {
+    /// A file, read through gzip or BGZF when it is compressed.
+    File(PathBuf),
+    /// The records of a binary output: the standard output of the command that prints them
+    /// ([`decoder`]). Nothing is written to disk.
+    Records(Command),
+}
+
+/// An output being read, and the command that prints it when there is one.
+struct Stream {
+    reader: Box<dyn BufRead>,
+    child: Option<(Child, String)>,
+}
+
+impl Stream {
+    fn open(o: Output) -> Result<Stream> {
+        match o {
+            Output::File(p) => Ok(Stream {
+                reader: open(&p)?,
+                child: None,
+            }),
+            Output::Records(mut c) => {
+                let what = format!("{c:?}");
+                let mut child = c
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::piped())
+                    .spawn()
+                    .with_context(|| format!("running {what}"))?;
+                let out = child.stdout.take().expect("a piped stdout");
+                Ok(Stream {
+                    reader: Box::new(BufReader::with_capacity(1 << 20, out)),
+                    child: Some((child, what)),
+                })
+            }
+        }
+    }
+
+    /// Wait for the command behind the stream, and fail when it failed: an output that
+    /// could not be read must not pass for one that agrees. What is left of its output is
+    /// read to the end first, so that the command ends by itself (killing `docker run`
+    /// would leave its container running).
+    fn finish(mut self) -> Result<()> {
+        if let Some((mut child, what)) = self.child.take() {
+            std::io::copy(&mut self.reader, &mut std::io::sink())?;
+            let status = child.wait()?;
+            ensure!(
+                status.success(),
+                "cannot read an output to compare it: {what} ({status})"
+            );
+        }
+        Ok(())
+    }
+}
+
+/// Compare the outputs of the group `g`: `output(tool)` is where a tool's output is read
+/// from, or `None` for a tool that was not run.
 pub fn compare_group(
     g: &Same,
-    output: &dyn Fn(&str) -> Option<std::path::PathBuf>,
+    output: &dyn Fn(&str) -> Result<Option<Output>>,
 ) -> Result<GroupReport> {
     let mut report = GroupReport {
         tools: g.tools.clone(),
@@ -452,27 +546,37 @@ pub fn compare_group(
         missing: Vec::new(),
         different: Vec::new(),
     };
-    let mut have: Vec<(&str, std::path::PathBuf)> = Vec::new();
+    let mut ran: Vec<&str> = Vec::new();
     for t in &g.tools {
-        match output(t) {
-            Some(p) => have.push((t, p)),
+        match output(t)? {
+            Some(_) => ran.push(t),
             None => report.missing.push(t.clone()),
         }
     }
-    let Some(((first, first_path), rest)) = have.split_first() else {
+    let Some((first, rest)) = ran.split_first() else {
         return Ok(report);
     };
-    for (t, p) in rest {
-        if !first_path.exists() {
-            bail!("{first} wrote no output at {}", first_path.display());
+    let wrote = |o: &Output| !matches!(o, Output::File(p) if !p.exists());
+    for t in rest {
+        // The first output is read again for each of the others.
+        let (a, b) = (
+            output(first)?.expect("a tool that ran"),
+            output(t)?.expect("a tool that ran"),
+        );
+        if !wrote(&a) {
+            bail!("{first} wrote no output ({a:?})");
         }
-        if !p.exists() {
+        if !wrote(&b) {
             report
                 .different
                 .push((t.to_string(), "it wrote no output".into()));
             continue;
         }
-        if let Some(why) = differ(g, first_path, p)? {
+        let (mut sa, mut sb) = (Stream::open(a)?, Stream::open(b)?);
+        let why = differ_streams(g, &mut *sa.reader, &mut *sb.reader)?;
+        sa.finish()?;
+        sb.finish()?;
+        if let Some(why) = why {
             report.different.push((t.to_string(), why));
         }
     }
@@ -525,6 +629,18 @@ mod tests {
         assert_eq!(cmp(&g, b"a\nb\nb\n", b"b\na\nb\n"), None);
         let why = cmp(&g, b"a\nb\nb\n", b"b\na\na\n").unwrap();
         assert!(why.contains("3 and 3 lines; 2 differ"), "{why}");
+    }
+
+    #[test]
+    fn distinct_ignores_order_and_repeats() {
+        // bedtools pairtopair writes a pair that hits in both orientations twice.
+        let g = group("distinct", None, None);
+        assert_eq!(cmp(&g, b"a\nb\n", b"b\na\nb\n"), None);
+        let why = cmp(&g, b"a\nb\n", b"b\nb\nc\n").unwrap();
+        assert!(
+            why.contains("2 and 3 lines; 2 distinct lines are in one output only"),
+            "{why}"
+        );
     }
 
     #[test]
@@ -706,7 +822,7 @@ mod tests {
             ],
             ..group("exact", None, None)
         };
-        let out = |t: &str| (t != "gia").then(|| d.path().join(t));
+        let out = |t: &str| Ok((t != "gia").then(|| Output::File(d.path().join(t))));
         let r = compare_group(&g, &out).unwrap();
         assert!(!r.ok());
         assert_eq!(r.missing, ["gia"]);
@@ -722,12 +838,49 @@ mod tests {
             "{line}"
         );
         // Only one tool ran: nothing was compared.
-        let alone = |t: &str| (t == "gloci").then(|| d.path().join(t));
+        let alone = |t: &str| Ok((t == "gloci").then(|| Output::File(d.path().join(t))));
         let r = compare_group(&g, &alone).unwrap();
         assert!(
             r.ok() && r.line().starts_with("not checked (exact)"),
             "{}",
             r.line()
         );
+    }
+
+    fn sh(script: &str) -> Output {
+        let mut c = Command::new("sh");
+        c.args(["-c", script]);
+        Output::Records(c)
+    }
+
+    #[test]
+    fn decoded_records_are_read_from_the_decoder() {
+        let g = Same {
+            tools: vec!["gloci".into(), "samtools".into()],
+            ..group("bam-records", None, None)
+        };
+        let print = |a: &'static str, b: &'static str| {
+            move |t: &str| Ok(Some(sh(if t == "gloci" { a } else { b })))
+        };
+        let r = compare_group(&g, &print("printf 'r1\\nr2\\n'", "printf 'r1\\nr2\\n'")).unwrap();
+        assert!(r.ok(), "{}", r.line());
+        let r = compare_group(&g, &print("printf 'r1\\nr2\\n'", "printf 'r1\\nr3\\n'")).unwrap();
+        assert!(r.line().contains("line 2 differs"), "{}", r.line());
+        // More than a pipe holds after the difference: the decoders still end.
+        let long = "printf 'x\\n'; yes r | head -n 200000";
+        let r = compare_group(&g, &print("printf 'y\\n'; yes r | head -n 200000", long)).unwrap();
+        assert!(r.line().contains("line 1 differs"), "{}", r.line());
+    }
+
+    #[test]
+    fn a_decoder_that_fails_is_an_error_not_agreement() {
+        // Two truncated files that print the same records before the decoder gives up.
+        let g = Same {
+            tools: vec!["gloci".into(), "samtools".into()],
+            ..group("bam-records", None, None)
+        };
+        let out = |_: &str| Ok(Some(sh("printf 'r1\\n'; exit 3")));
+        let e = compare_group(&g, &out).unwrap_err().to_string();
+        assert!(e.contains("cannot read an output to compare it"), "{e}");
     }
 }
