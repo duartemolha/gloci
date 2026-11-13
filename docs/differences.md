@@ -1577,7 +1577,10 @@ comparison of `crates/gloci/tests/vcf_stats.rs` with the committed vcftools
   position, as vcftools does; depth, quality, FILTER, Ts/Tv, indel and the
   summary read through such records.
 - Numbers use C `%g` (6 digits), `%e` for the HWE columns, `%.2f`, `%.1f` and
-  `%.5f` where vcftools does, and `nan` in lower case.
+  `%.5f` where vcftools does, and `nan` in lower case. vcftools itself prints
+  0/0 as `-nan` on x86_64 and `nan` on aarch64 (the sign of the NaN the CPU
+  makes); gloci writes `nan` on both, and the harness reads vcftools' `-nan`
+  as `nan`.
 
 `vcf stats` also differs from vcftools in ways that are not about its output:
 it takes every `vcf filter` selection flag, runs any number of statistics in one

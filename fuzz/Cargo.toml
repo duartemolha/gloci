@@ -75,4 +75,18 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "cram_reader"
+path = "fuzz_targets/cram_reader.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fasta_index"
+path = "fuzz_targets/fasta_index.rs"
+test = false
+doc = false
+bench = false
+
 [workspace]

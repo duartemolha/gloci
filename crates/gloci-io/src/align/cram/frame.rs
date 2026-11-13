@@ -81,6 +81,11 @@ pub(crate) fn u32_le(src: &mut &[u8]) -> Option<u32> {
     Some(u32::from_le_bytes(*b))
 }
 
+/// Under `cargo fuzz` (`--cfg fuzzing`) a wrong checksum is let through: a fuzzer cannot
+/// compute a CRC32, and a file with right checksums and wrong bytes behind them is what the
+/// fuzz target is for. Never set in a normal build.
+const FUZZING: bool = cfg!(fuzzing);
+
 pub(crate) fn crc32(b: &[u8]) -> u32 {
     let mut c = flate2::Crc::new();
     c.update(b);
@@ -221,7 +226,7 @@ pub(crate) fn read_container_header(
     need(r, raw, 4)?;
     let at = raw.len() - 4;
     let stored = u32::from_le_bytes([raw[at], raw[at + 1], raw[at + 2], raw[at + 3]]);
-    if stored != crc {
+    if stored != crc && !FUZZING {
         return Err(HeaderProblem::Bad(
             "a container header's checksum does not match its bytes".into(),
         ));
@@ -273,7 +278,7 @@ pub(crate) fn read_block<'a>(src: &mut &'a [u8]) -> Result<Block<'a>, String> {
     let mut rest = &rest[size..];
     let used = all.len() - rest.len();
     let stored = u32_le(&mut rest).ok_or_else(short)?;
-    if crc32(&all[..used]) != stored {
+    if crc32(&all[..used]) != stored && !FUZZING {
         return Err("a block's checksum does not match its bytes".into());
     }
     *src = rest;
