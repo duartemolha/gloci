@@ -1,6 +1,8 @@
 //! `depth` shares its decode threads among its inputs (N1): each input gets `-t / inputs`, at
 //! least 1, so many inputs at a high `-t` do not start inputs × `-t` threads. Its own test
-//! binary, so no other test's threads are counted.
+//! binary, so no other test's threads are counted. Linux only: the threads are counted in
+//! `/proc/self/task`.
+#![cfg(target_os = "linux")]
 
 use gloci_core::VcfSpan;
 use gloci_io::{Accept, AlignOptions, InvalidPolicy, ReaderOptions};
@@ -35,12 +37,10 @@ fn threads(n: usize) -> NonZeroUsize {
 }
 
 /// The threads of this process.
-#[cfg(target_os = "linux")]
 fn tasks() -> usize {
     std::fs::read_dir("/proc/self/task").unwrap().count()
 }
 
-#[cfg(target_os = "linux")]
 #[test]
 fn depth_decode_threads_do_not_grow_with_the_inputs() {
     let bam = fixture("depth.bam");
