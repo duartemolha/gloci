@@ -1,6 +1,6 @@
 //! Cooperative cancellation (D91). A host that embeds gloci (the Python library) makes one
-//! [`CancelToken`] per run, installs it on the threads that run work ([`RunGuard`]), and calls
-//! [`CancelToken::cancel`] when the user interrupts. Everything a run builds (readers, outputs,
+//! [`RunToken`] per run, installs it on the threads that run work ([`RunGuard`]), and calls
+//! [`RunToken::cancel`] when the user interrupts. Everything a run builds (readers, outputs,
 //! sorters, worker pools) captures the thread's token when it is constructed, as a [`Watch`];
 //! a cancelled watch makes reads and writes fail with [`IoError::Cancelled`]-classified errors
 //! and long loops stop at their next poll, after which the usual error path removes any
@@ -8,11 +8,11 @@
 //! and a token that is never cancelled costs one relaxed load per poll. The CLI installs no
 //! token: its watch is empty and never fires.
 //!
-//! **The run's outputs.** A token made with [`CancelToken::recording`] also records each output
+//! **The run's outputs.** A token made with [`RunToken::recording`] also records each output
 //! file the run commits: an [`crate::AtomicFile`] renamed into place, or every file of a
 //! [`crate::StagedSet`] once it is published. The file captures the token when it is created,
 //! like a reader, so the record reaches every thread of the run the way the cancel flag does,
-//! and a host learns exactly what its run wrote ([`CancelToken::outputs`]), whatever else
+//! and a host learns exactly what its run wrote ([`RunToken::outputs`]), whatever else
 //! changes on disk meanwhile. Without a recording token (the CLI) nothing is recorded.
 
 use crate::error::IoError;
@@ -22,10 +22,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-/// The cancel flag of one run, and the output files it committed when it records them. Clones
+/// One run's token: its cancel flag, and the output files it committed when it records them. Clones
 /// share both.
 #[derive(Clone, Debug, Default)]
-pub struct CancelToken(Arc<RunState>);
+pub struct RunToken(Arc<RunState>);
 
 #[derive(Debug, Default)]
 struct RunState {
@@ -34,14 +34,14 @@ struct RunState {
     outputs: Option<Mutex<Vec<PathBuf>>>,
 }
 
-impl CancelToken {
-    pub fn new() -> CancelToken {
-        CancelToken::default()
+impl RunToken {
+    pub fn new() -> RunToken {
+        RunToken::default()
     }
 
-    /// A token that also records the output files the run commits ([`CancelToken::outputs`]).
-    pub fn recording() -> CancelToken {
-        CancelToken(Arc::new(RunState {
+    /// A token that also records the output files the run commits ([`RunToken::outputs`]).
+    pub fn recording() -> RunToken {
+        RunToken(Arc::new(RunState {
             cancelled: AtomicBool::new(false),
             outputs: Some(Mutex::new(Vec::new())),
         }))
@@ -75,34 +75,34 @@ impl CancelToken {
 }
 
 thread_local! {
-    static CURRENT: RefCell<Option<CancelToken>> = const { RefCell::new(None) };
+    static CURRENT: RefCell<Option<RunToken>> = const { RefCell::new(None) };
 }
 
 /// The token installed on this thread, if any.
-pub fn current() -> Option<CancelToken> {
+pub fn current() -> Option<RunToken> {
     CURRENT.with(|c| c.borrow().clone())
 }
 
 /// Whether this thread's token is cancelled.
 pub fn is_cancelled() -> bool {
-    CURRENT.with(|c| c.borrow().as_ref().is_some_and(CancelToken::is_cancelled))
+    CURRENT.with(|c| c.borrow().as_ref().is_some_and(RunToken::is_cancelled))
 }
 
 /// Installs a token on the current thread; the previous one is restored on drop. A thread a
 /// run spawns enters the run's token at its start.
 #[must_use = "the token is uninstalled when the guard drops"]
 pub struct RunGuard {
-    prev: Option<CancelToken>,
+    prev: Option<RunToken>,
     // Restores thread-local state: must drop on the thread that made it.
     _not_send: std::marker::PhantomData<*const ()>,
 }
 
 impl RunGuard {
-    pub fn enter(token: &CancelToken) -> RunGuard {
+    pub fn enter(token: &RunToken) -> RunGuard {
         RunGuard::install(Some(token.clone()))
     }
 
-    fn install(t: Option<CancelToken>) -> RunGuard {
+    fn install(t: Option<RunToken>) -> RunGuard {
         RunGuard {
             prev: CURRENT.with(|c| c.replace(t)),
             _not_send: std::marker::PhantomData,
@@ -120,7 +120,7 @@ impl Drop for RunGuard {
 /// A token captured when something is built, to poll later from any thread. Empty (never
 /// fires) when no run installed one.
 #[derive(Clone, Debug, Default)]
-pub struct Watch(Option<CancelToken>);
+pub struct Watch(Option<RunToken>);
 
 impl Watch {
     /// Capture this thread's token.
@@ -130,7 +130,7 @@ impl Watch {
 
     #[inline]
     pub fn is_cancelled(&self) -> bool {
-        self.0.as_ref().is_some_and(CancelToken::is_cancelled)
+        self.0.as_ref().is_some_and(RunToken::is_cancelled)
     }
 
     /// `Err(IoError::Cancelled)` once cancelled: the poll for long loops.
@@ -154,7 +154,7 @@ impl Watch {
     }
 
     /// Record `path` as an output file the run committed, when the captured token records
-    /// ([`CancelToken::recording`]); nothing otherwise, as in the CLI.
+    /// ([`RunToken::recording`]); nothing otherwise, as in the CLI.
     pub fn record_output(&self, path: &Path) {
         if let Some(t) = &self.0 {
             t.record(path);

@@ -138,7 +138,7 @@ impl From<OrderError> for IoError {
 
 impl IoError {
     /// Whether this error is a cancellation: [`IoError::Cancelled`], or a read or write that
-    /// failed because [`crate::cancel::CancelToken::cancel`] was called.
+    /// failed because [`crate::cancel::RunToken::cancel`] was called.
     pub fn is_cancelled(&self) -> bool {
         match self {
             IoError::Cancelled => true,

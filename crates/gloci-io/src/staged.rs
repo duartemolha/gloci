@@ -249,9 +249,9 @@ mod tests {
 
     #[test]
     fn a_recording_run_records_what_it_committed() {
-        use crate::cancel::{CancelToken, RunGuard};
+        use crate::cancel::{RunGuard, RunToken};
         let d = tempfile::tempdir().unwrap();
-        let run = CancelToken::recording();
+        let run = RunToken::recording();
         let (kept, dropped, elsewhere) = {
             let _g = RunGuard::enter(&run);
             (
@@ -269,7 +269,7 @@ mod tests {
             .unwrap();
         // Made outside the run (the CLI): never recorded, nor by a token that does not record.
         staged(d.path(), "cli.bed", "x").0.commit().unwrap();
-        let quiet = CancelToken::new();
+        let quiet = RunToken::new();
         {
             let _g = RunGuard::enter(&quiet);
             staged(d.path(), "quiet.bed", "x").0.commit().unwrap();
@@ -283,9 +283,9 @@ mod tests {
 
     #[test]
     fn a_staged_set_is_recorded_only_once_published() {
-        use crate::cancel::{CancelToken, RunGuard};
+        use crate::cancel::{RunGuard, RunToken};
         let d = tempfile::tempdir().unwrap();
-        let run = CancelToken::recording();
+        let run = RunToken::recording();
         let _g = RunGuard::enter(&run);
         let ok = StagedSet {
             files: vec![

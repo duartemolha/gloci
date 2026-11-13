@@ -16,7 +16,7 @@
 //!   [`crate::embed::StageSet::spawn`] binds through the pipe's fail handle.
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, SendTimeoutError, Sender, bounded};
-use gloci_io::cancel::{self, CancelToken};
+use gloci_io::cancel::{self, RunToken};
 use std::io::{self, Read, Write};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
@@ -26,7 +26,7 @@ pub const PIPE_CHUNKS: usize = 4;
 /// The size of a pipeline pipe's chunk: the writer sends when it has this much.
 pub const PIPE_CHUNK: usize = 1 << 20;
 
-/// How often a parked read or write looks at the cancel token.
+/// How often a parked read or write checks the run token for a cancel.
 const POLL: Duration = Duration::from_millis(20);
 
 const UPSTREAM: &str = "upstream step failed";
@@ -37,7 +37,7 @@ struct State {
     /// The first failure reported; later ones are ignored.
     failed: OnceLock<String>,
     /// The run's token: captured when the pipe is made, replaced by the stage set's.
-    token: Mutex<Option<CancelToken>>,
+    token: Mutex<Option<RunToken>>,
 }
 
 impl State {
@@ -54,7 +54,7 @@ impl State {
                 .lock()
                 .unwrap_or_else(|p| p.into_inner())
                 .as_ref()
-                .is_some_and(CancelToken::is_cancelled)
+                .is_some_and(RunToken::is_cancelled)
     }
 }
 
@@ -241,7 +241,7 @@ impl PipeFail {
 
     /// Let the token of the stage set that owns this pipe stop a parked read or write, from
     /// any thread.
-    pub(crate) fn bind(&self, token: &CancelToken) {
+    pub(crate) fn bind(&self, token: &RunToken) {
         *self.state.token.lock().unwrap_or_else(|p| p.into_inner()) = Some(token.clone());
     }
 }

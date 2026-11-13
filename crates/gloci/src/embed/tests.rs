@@ -50,7 +50,7 @@ fn a_cancelled_write_or_open_is_cancelled_not_a_write_error() {
     let bare = anyhow::Error::new(gloci_io::cancel::io_error()).context("while sorting");
     assert!(matches!(classify(&bare), Outcome::Cancelled));
     // Under a cancelled token any failure is the cancellation.
-    let token = gloci_io::cancel::CancelToken::new();
+    let token = gloci_io::cancel::RunToken::new();
     let _g = gloci_io::cancel::RunGuard::enter(&token);
     token.cancel();
     let other = anyhow::Error::new(Error::from(ErrorKind::NotFound));
@@ -109,7 +109,7 @@ fn the_command_runs_on_the_worker_stack() {
 
 #[test]
 fn every_worker_of_the_run_pool_carries_the_run_token() {
-    let token = CancelToken::new();
+    let token = RunToken::new();
     let watch = {
         let _g = RunGuard::enter(&token);
         Watch::current()
@@ -144,7 +144,7 @@ fn every_worker_of_the_run_pool_carries_the_run_token() {
 
 #[test]
 fn classify_under_judges_by_the_given_token_not_the_threads() {
-    let token = CancelToken::new();
+    let token = RunToken::new();
     let other = anyhow::Error::new(Error::from(ErrorKind::NotFound));
     assert!(matches!(
         classify_under(&other, Some(&token)),

@@ -18,7 +18,7 @@
 //! readers stop at once and its writers' next writes fail with a broken pipe.
 
 use super::pipe::{PipeFail, mentions_upstream_failure, upstream_failure};
-use super::{CancelToken, ErrorSite, ExecOptions, Outcome, RunGuard, classify_under, error_site};
+use super::{ErrorSite, ExecOptions, Outcome, RunGuard, RunToken, classify_under, error_site};
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, unbounded};
 use gloci_io::IoError;
 use gloci_io::memio::Registered;
@@ -48,7 +48,7 @@ pub struct StageSpec {
     /// before the endpoints are dropped, so the next stage gets `upstream step failed: {msg}`
     /// rather than a clean end of a cut-off stream. The handles also hold the pipes' EOF back
     /// until the stage has ended, so the failure always arrives first. The set binds its
-    /// cancel token to these pipes, so a cancel stops a read or write parked on one from any
+    /// run token to these pipes, so a cancel stops a read or write parked on one from any
     /// thread.
     ///
     /// Holding EOF back assumes each stage writes at most one pipe (gloci commands have one
@@ -133,7 +133,7 @@ enum Ended {
 }
 
 /// The stages of one pipeline, running. Each runs on its own thread (`gloci-stage-{i}`) under
-/// the set's one [`CancelToken`].
+/// the set's one [`RunToken`].
 ///
 /// Dropping the set cancels it if any stage thread is still running, then joins every stage
 /// thread; a set whose stages have all ended is only joined.
@@ -143,7 +143,7 @@ enum Ended {
 /// read or write, and to be dropped. A cancel cannot interrupt a host read or write already in
 /// progress, so a drop or wait holding the GIL while a stage is inside one never returns.
 pub struct StageSet {
-    token: CancelToken,
+    token: RunToken,
     handles: Vec<Option<JoinHandle<()>>>,
     rx: Receiver<(usize, Ended)>,
     ended: Vec<Option<Ended>>,
@@ -170,7 +170,7 @@ impl StageSet {
     /// [`spawn`](Self::spawn) the command stages `specs`, and the host stages `hosts` after
     /// them (numbered from `specs.len()`), under one token.
     pub fn spawn_with_hosts(specs: Vec<StageSpec>, hosts: Vec<HostStage>) -> StageSet {
-        let token = CancelToken::recording();
+        let token = RunToken::recording();
         let stages: Vec<Stage> = specs
             .into_iter()
             .map(|s| {
@@ -221,10 +221,10 @@ impl StageSet {
                 fail_downstream: Vec::new(),
             })
             .collect();
-        StageSet::start(CancelToken::new(), stages)
+        StageSet::start(RunToken::new(), stages)
     }
 
-    fn start(token: CancelToken, stages: Vec<Stage>) -> StageSet {
+    fn start(token: RunToken, stages: Vec<Stage>) -> StageSet {
         let (tx, rx) = unbounded();
         let mut handles = Vec::with_capacity(stages.len());
         let mut ended = Vec::with_capacity(stages.len());
@@ -330,7 +330,7 @@ impl Drop for StageSet {
 
 /// A stage's thread: run it under the set's token, judge its result while its endpoints are
 /// registered, fail its downstream pipes if it failed, drop its endpoints, and report.
-fn run_stage(i: usize, stage: Stage, token: &CancelToken, tx: &Sender<(usize, Ended)>) {
+fn run_stage(i: usize, stage: Stage, token: &RunToken, tx: &Sender<(usize, Ended)>) {
     let Stage {
         run,
         endpoints,
@@ -364,7 +364,7 @@ fn panicked(payload: &(dyn Any + Send)) -> anyhow::Error {
 /// Judge stage `i`'s result under the set's token and, when it failed other than with a broken
 /// pipe, fail the pipes it writes: with the message the failed pipe it read carried (so a
 /// chain of stages passes the first failure on), else with its own.
-fn judge(i: usize, result: anyhow::Result<bool>, token: &CancelToken, fails: &[PipeFail]) -> Ended {
+fn judge(i: usize, result: anyhow::Result<bool>, token: &RunToken, fails: &[PipeFail]) -> Ended {
     let error = match result {
         Ok(ok) => return Ended::Ok(ok),
         Err(e) => e,
@@ -393,7 +393,7 @@ fn judge(i: usize, result: anyhow::Result<bool>, token: &CancelToken, fails: &[P
 }
 
 /// The set's result from its stages', in stage order (see the module docs).
-fn verdict(ended: Vec<Ended>, token: &CancelToken) -> Result<bool, Box<StageError>> {
+fn verdict(ended: Vec<Ended>, token: &RunToken) -> Result<bool, Box<StageError>> {
     let mut all_ok = true;
     let mut failed = Vec::new();
     for e in ended {
@@ -446,7 +446,7 @@ mod tests {
         .context("while merging")
     }
 
-    fn judged(results: Vec<anyhow::Result<bool>>, token: &CancelToken) -> Vec<Ended> {
+    fn judged(results: Vec<anyhow::Result<bool>>, token: &RunToken) -> Vec<Ended> {
         results
             .into_iter()
             .enumerate()
@@ -456,14 +456,14 @@ mod tests {
 
     fn picked(
         results: Vec<anyhow::Result<bool>>,
-        token: &CancelToken,
+        token: &RunToken,
     ) -> Result<bool, Box<StageError>> {
         verdict(judged(results, token), token)
     }
 
     #[test]
     fn success_is_every_stage_ok_or_quiet() {
-        let t = CancelToken::new();
+        let t = RunToken::new();
         assert!(picked(vec![Ok(true), Ok(true)], &t).unwrap());
         // `check` finding a problem in one stage.
         assert!(!picked(vec![Ok(true), Ok(false)], &t).unwrap());
@@ -472,7 +472,7 @@ mod tests {
 
     #[test]
     fn the_earliest_primary_error_wins() {
-        let t = CancelToken::new();
+        let t = RunToken::new();
         let e = picked(
             vec![
                 Err(broken_pipe()),
@@ -496,7 +496,7 @@ mod tests {
 
     #[test]
     fn a_cancelled_set_reports_cancelled_from_the_earliest_failed_stage() {
-        let t = CancelToken::new();
+        let t = RunToken::new();
         // Judged before the cancel: a data error with a site.
         let site_err: anyhow::Error = IoError::Parse {
             path: "a.bed".into(),
@@ -518,7 +518,7 @@ mod tests {
 
     #[test]
     fn a_failed_stage_fails_its_downstream_pipes_with_the_first_failure() {
-        let t = CancelToken::new();
+        let t = RunToken::new();
         // Its own error, when it is primary.
         let (w, mut r) = pipe(1, 4);
         judge(0, Err(failure("bad line 2")), &t, &[w.fail_handle()]);
