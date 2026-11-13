@@ -103,23 +103,12 @@ gloci intersect -a peaks.sorted.bed -b genes.sorted.bed --chrom-order lex > hits
 Every row below was checked against `gloci <cmd> --help`.
 
 Rows marked "not yet available" name a tool option that gloci does not have
-yet. The P2 command set, P3a (BAM, CRAM and SAM, FASTA) and P3b (`stats`,
-`sample`, `random`, `shuffle`, BEDPE, `vcf compare`) are available; the
-population-genetics options of vcftools (`vcf popgen`) are deferred. BAM, CRAM and FASTA have their own section, [BAM, CRAM
-The samtools commands have their own table, [samtools](#samtools), with
-[samtools behaviour](#samtools-behaviour) after the tables.
-
-Rows marked "not yet available" name the command that will replace the tool
-and the phase that builds it. The P2 command set, the packaging prerequisites,
-and P3a (BAM, CRAM and SAM input and output, FASTA, `getfasta`, `maskfasta`,
-`nuc`, `gloci cat`, and alignment `sort`, `sort -m`, `view`, `index`, `convert`,
-`intersect`, `coverage` and `genomecov`) and P3c (the samtools essentials: `flags`,
-`idxstats`, `flagstat`, `check`, `head`, `samples`, `depth`, `bedcov`, `faidx`,
-`dict`, `reheader`, `view --count`) are available, so the rows left are
-P3b (`stats`, `sample`, `random`, `shuffle`, BEDPE, `vcf popgen`,
-`vcf compare`), and then the rest of P2b (Python library, packaging, mdBook,
-paper evidence suite). BAM, CRAM and FASTA have their own section, [BAM, CRAM
-and FASTA behaviour](#bam-cram-and-fasta-behaviour), after the tables.
+yet; the population-genetics options of vcftools (`vcf popgen`) are deferred.
+Rows marked "not planned" name tools gloci does not intend to replace. BAM,
+CRAM and FASTA have their own section, [BAM, CRAM and FASTA
+behaviour](#bam-cram-and-fasta-behaviour), after the tables. The samtools
+commands have their own table, [samtools](#samtools), with [samtools
+behaviour](#samtools-behaviour) after the tables.
 
 ### Sorting, indexing and viewing (htslib, bcftools, bedops, bedtools)
 
@@ -199,10 +188,6 @@ and FASTA behaviour](#bam-cram-and-fasta-behaviour), after the tables.
 | `shuffle -i FILE -g G [-seed S -chrom -chromFirst -excl BED -incl BED -noOverlapping -maxTries N]` | `gloci shuffle FILE -g G [--seed S] [--same-chrom] [--chrom-first] [--exclude BED] [--include BED] [--no-overlapping] [--max-tries N] [--skip-unplaceable] [--header]` (other places than bedtools picks for the same seed, [differences.md#rng-stream](differences.md#rng-stream); the whole record stays inside `--include`, and a record that fits nowhere is exit 1 where bedtools drops it, `--skip-unplaceable` drops it, see [differences.md#shuffle-placement](differences.md#shuffle-placement); BEDPE is opt-in with `--format bedpe` and gloci moves both ends where bedtools moves only end 1, see [differences.md#shuffle-bedpe-ends](differences.md#shuffle-bedpe-ends); output is in input order and unsorted; `-f`, `-allowBeyondChromEnd` and `-incl` strand copying are not planned; VCF and BAM input are refused, use `gloci convert`) |
 | `random -g G -l L -n N -seed S` | `gloci random -g G -l L -n N --seed S` (BED6 in id order; same seed gives other intervals than bedtools, [differences.md#rng-stream](differences.md#rng-stream); `-l` longer than every chromosome is exit 2) |
 | `sample -i FILE -n N -seed S [-s forward\|reverse] [-header]` | `gloci sample FILE -n N --seed S [--strand +\|-] [--header]` (output in input order, [differences.md#sample-order](differences.md#sample-order); other records than bedtools picks, [differences.md#rng-stream](differences.md#rng-stream); `-ubam`/BAM: `samtools view -s`) |
-| `multicov`, `tag`, `bamtofastq`, `bedtobam`, `bedpetobam`, `igv`, `links`, `expand`, `split`, `summary`, `overlap` | not planned (`overlap` → `gloci intersect --mode pairs --overlap-bases`) |
-| `jaccard`, `fisher`, `reldist` | not yet available (`stats jaccard / fisher / reldist`, P3b) |
-| `shuffle`, `random`, `sample` | not yet available (`shuffle`, `random`, `sample`, P3b) |
-| `pairtobed`, `pairtopair` | not yet available (`pair-intersect`, `pair-pair`, P3b) |
 | `multicov -bams A.bam B.bam -bed X.bed` | `gloci bedcov X.bed A.bam B.bam --read-count` (one count column per file, after the base-depth sum; each file needs an index; the filters are samtools' defaults, so add `--exclude-flags 0` for every read, see [the samtools behaviour section](#samtools-behaviour)) |
 | `tag`, `bamtofastq`, `bedtobam`, `bedpetobam`, `igv`, `links`, `expand`, `split`, `summary`, `overlap` | not planned (`overlap` → `gloci intersect --mode pairs --overlap-bases`) |
 

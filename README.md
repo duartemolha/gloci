@@ -41,6 +41,19 @@ gloci genomecov reads.sorted.bam --bedgraph -o coverage.bedgraph
 `gloci --help` lists every subcommand, and `gloci <subcommand> --help` gives
 its options and examples.
 
+## Stability
+
+gloci is young. `genomes`, `index`, `sort`, `view`, `intersect`, `merge`,
+`subtract`, `closest` and `coverage` are the stable core: their options and
+output change only with a version bump and a changelog entry. Every other
+command is experimental and says so at the top of its `--help`: it is checked
+against the tool it replaces, but its options and output may still change.
+
+Before moving a pipeline step to gloci, run it beside the tool it replaces on
+your own data. [contrib/gloci-shadow.sh](contrib/gloci-shadow.sh) does that
+for one step and logs whether the outputs were identical; see
+[Stability](docs/book/src/stability.md).
+
 ## Coming from bedtools, bedops, vcftools or samtools
 
 See the [migration guide](docs/migration.md) for the command mapping, and

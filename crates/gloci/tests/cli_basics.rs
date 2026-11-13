@@ -33,6 +33,55 @@ fn every_command_has_2_to_4_examples() {
     }
 }
 
+/// Stability tiers: a command is in `gloci::CORE_COMMANDS` or its help (and the help of each
+/// of its subcommands) starts with the experimental marker, never both; the top-level help
+/// names the core.
+#[test]
+fn every_command_is_core_or_marked_experimental() {
+    let mut root = gloci::command();
+    let top = root.render_help().to_string();
+    for name in gloci::CORE_COMMANDS {
+        assert!(
+            root.find_subcommand(name).is_some(),
+            "CORE_COMMANDS names {name}, which is not a command"
+        );
+        assert!(
+            top.contains(name),
+            "the top-level help does not name {name}"
+        );
+    }
+    assert!(top.contains("Stable core:"), "{top}");
+    for sub in root.get_subcommands_mut() {
+        let name = sub.get_name().to_string();
+        if name == "help" {
+            continue;
+        }
+        // The help is wrapped at the terminal width, so compare the words.
+        let marked = |c: &mut clap::Command| {
+            let help = c.render_help().to_string();
+            let words: Vec<&str> = help.split_whitespace().collect();
+            let marker: Vec<&str> = gloci::cli::EXPERIMENTAL.split_whitespace().collect();
+            words.starts_with(&marker)
+        };
+        assert_eq!(
+            marked(sub),
+            !gloci::is_core(&name),
+            "{name}: core commands carry no marker, every other command does"
+        );
+        for nested in sub.get_subcommands_mut() {
+            if nested.get_name() == "help" {
+                continue;
+            }
+            assert_eq!(
+                marked(nested),
+                !gloci::is_core(&name),
+                "{name} {}",
+                nested.get_name()
+            );
+        }
+    }
+}
+
 #[test]
 fn bad_threads_is_usage_error() {
     gloci_cmd()

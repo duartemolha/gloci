@@ -22,6 +22,8 @@ Why another tool:
 Where to go next:
 
 - New to gloci: [Install](install.md), then the [Quickstart](quickstart.md).
+- Deciding what to rely on: [Stability](stability.md) says which commands are the stable core and
+  how to run gloci beside the tool it replaces.
 - Coming from bedtools, bedops, vcftools or samtools: [Migrating](migration.md) maps each command and
   flag.
 - Looking for one command: the [command reference](reference/sort.md) has the usage text and examples of

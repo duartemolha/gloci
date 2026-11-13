@@ -99,6 +99,9 @@ jobs:
           mkdir -p "dist/${STAGE}"
           cp "target/${{ matrix.target }}/release/gloci" "dist/${STAGE}/gloci"
           cp SKILL.md CHANGELOG.md "dist/${STAGE}/"
+          # SKILL.md is an index: the tables and differences it points to travel with it.
+          mkdir -p "dist/${STAGE}/docs"
+          cp docs/migration.md docs/differences.md "dist/${STAGE}/docs/"
           # Man pages and shell completions come from the clap definition.
           cargo run --locked -p xtask -- man --out "dist/${STAGE}/man"
           cargo run --locked -p xtask -- completions --out "dist/${STAGE}/completions"

@@ -636,8 +636,12 @@ fn index_2gib_bed_gz_rss() {
 }
 
 /// I7: per-chromosome mode on indexed inputs runs at most 8 chunks at once,
-/// sharing one 64 MiB budget, so `-t 8` and `-t 16` stay under the 200 MB
-/// ceiling even though `--mode pairs` writes more than it reads.
+/// sharing one 64 MiB budget, so `-t 8` and `-t 16` stay bounded even though
+/// `--mode pairs` writes more than it reads. The ceiling is the model the help
+/// text states (64 MiB plus about 20 MiB per run in flight: 224 MiB at 8 runs)
+/// with headroom for the allocator, 256 MiB. Measured 2026-11-13: 199 MiB on
+/// aarch64 and 235 MiB on the x86_64 CI runner; the 200 MB ceiling this test
+/// had until then was below the model and failed on both.
 #[test]
 #[ignore = "nightly: generates large file"]
 fn intersect_indexed_2gib_rss() {
@@ -683,7 +687,7 @@ fn intersect_indexed_2gib_rss() {
         );
         assert!(ok, "gloci intersect (indexed, -t {threads}) failed");
         assert!(
-            rss <= 200_000_000,
+            rss <= 256 * MIB,
             "-t {threads}: peak RSS {rss} bytes exceeds the ceiling"
         );
     }

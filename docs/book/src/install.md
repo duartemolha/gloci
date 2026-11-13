@@ -22,7 +22,8 @@ gloci --version
 ```
 
 The archive also holds `man/` (man pages), `completions/` (bash, zsh and fish), `SKILL.md` (an agent
-usage guide), `CHANGELOG.md` and the licence. Each release lists a `SHA256SUMS` file; check the archive
+usage guide), `docs/` (the migration tables and the differences it points to), `CHANGELOG.md` and the
+licence. Each release lists a `SHA256SUMS` file; check the archive
 with `sha256sum -c --ignore-missing SHA256SUMS`.
 
 ## Python wheels from a GitHub Release

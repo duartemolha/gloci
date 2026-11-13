@@ -125,7 +125,7 @@ fn skill_md_is_current() {
     // Verify required structure of SKILL.md.
     assert!(generated.starts_with("---\nname: gloci\ndescription: "));
     let (_, after_sem) = generated.split_once("## Core semantics\n").unwrap();
-    let (sem, _) = after_sem.split_once("\n## Command reference\n").unwrap();
+    let (sem, _) = after_sem.split_once("\n## Commands\n").unwrap();
     let sem_lines = sem.trim().lines().count();
     assert!(
         sem_lines < 40,
@@ -133,13 +133,15 @@ fn skill_md_is_current() {
     );
     for cmd in gloci::command().get_subcommands() {
         if cmd.get_name() != "help" {
-            let hdr = format!("### `gloci {}`", cmd.get_name());
-            assert!(generated.contains(&hdr), "missing {hdr}");
+            let entry = format!("\n- `gloci {}`", cmd.get_name());
+            assert!(generated.contains(&entry), "missing {entry}");
         }
     }
     for req in [
-        "## Migration tables",
+        "## Commands",
+        "## Where the details are",
         "## Pitfalls",
+        "(experimental)",
         "--max-missing",
         "--vcf-span ref",
         "--chrom-order lex",
@@ -147,6 +149,13 @@ fn skill_md_is_current() {
     ] {
         assert!(generated.contains(req), "SKILL.md missing {req:?}");
     }
+    // An agent loads the whole guide, so it stays an index: the rules of a command are in its
+    // --help and the old-tool tables in docs/migration.md (it was 173 KB with both inlined).
+    assert!(
+        generated.len() < 48 * 1024,
+        "SKILL.md is {} bytes; keep it under 48 KiB",
+        generated.len()
+    );
 
     // Verify every {#anchor} in docs/differences.md is linked in docs/migration.md.
     let diffs = std::fs::read_to_string(root.join("docs/differences.md")).unwrap();

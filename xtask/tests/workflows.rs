@@ -849,3 +849,36 @@ fn python_workflow_tests_the_lowest_extras() {
     assert!(floors.contains("numpy<2"), "the floors need numpy<2");
     assert_pinned_like_the_others("python.yml", &py);
 }
+
+/// Every fuzz target is declared, has seeds and is run nightly: the job loops over the files
+/// of `fuzz/fuzz_targets`, so a target cannot exist without being run (`sam_reader` and
+/// `bedpe_reader` once did).
+#[test]
+fn nightly_fuzzes_every_target() {
+    let root = xtask::diff::workspace_root();
+    let y = fs::read_to_string(root.join(".github/workflows/nightly.yml")).unwrap();
+    let job = job_body(&y, "fuzz");
+    assert!(
+        job.contains("for f in fuzz/fuzz_targets/*.rs; do"),
+        "the fuzz job runs every file of fuzz/fuzz_targets"
+    );
+    let manifest = fs::read_to_string(root.join("fuzz/Cargo.toml")).unwrap();
+    let mut targets = 0;
+    for e in fs::read_dir(root.join("fuzz/fuzz_targets")).unwrap() {
+        let path = e.unwrap().path();
+        let name = path.file_stem().unwrap().to_str().unwrap();
+        targets += 1;
+        assert!(
+            manifest.contains(&format!(
+                "name = \"{name}\"\npath = \"fuzz_targets/{name}.rs\""
+            )),
+            "fuzz/Cargo.toml has no [[bin]] for {name}"
+        );
+        let seeds = root.join("fuzz/seeds").join(name);
+        assert!(
+            seeds.is_dir() && fs::read_dir(&seeds).unwrap().next().is_some(),
+            "fuzz/seeds/{name} has no seed input"
+        );
+    }
+    assert!(targets >= 11, "only {targets} fuzz targets");
+}

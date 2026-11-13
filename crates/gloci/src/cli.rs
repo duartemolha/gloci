@@ -48,12 +48,20 @@ fn parse_comment(s: &str) -> Result<u8, String> {
     }
 }
 
+/// The first line of the help of every command outside the stable core
+/// ([`crate::CORE_COMMANDS`]); `every_command_is_core_or_marked_experimental` keeps the two in step.
+pub const EXPERIMENTAL: &str = "Experimental: checked against the tool it replaces, but its options and output may \
+still change between releases.";
+
 #[derive(Parser)]
 #[command(
     name = "gloci",
     version,
     about = "Genomic interval toolkit",
-    arg_required_else_help = true
+    arg_required_else_help = true,
+    after_help = "Stable core: genomes, index, sort, view, intersect, merge, subtract, closest, coverage.\n\
+Every other command is experimental: checked against the tool it replaces, but its options and\n\
+output may still change between releases."
 )]
 pub struct Cli {
     /// Only print errors.
@@ -208,6 +216,7 @@ Examples:
 Examples:
   gloci cat lane1.bam lane2.bam -o all.bam
   gloci cat part-*.bam > all.bam")]
+    #[command(before_help = EXPERIMENTAL)]
     Cat(CatArgs),
     /// Validate files and print a one-screen summary of each.
     ///
@@ -247,6 +256,7 @@ Examples:
   gloci check calls.vcf.gz -g hg38.fa.fai
   gloci check reads.bam
   gloci check --quick --list-failed *.bam > bad.txt")]
+    #[command(before_help = EXPERIMENTAL)]
     Check(CheckArgs),
     /// Report the records of A that overlap, or do not overlap, records of B.
     ///
@@ -260,7 +270,7 @@ Examples:
     /// With several -b files, pairs rows carry a label column (--names,
     /// else the file basename) before B's columns; unmatched rows get `.`.
     ///
-    /// Overlap follows spec section 4.3: records overlap when they share a
+    /// Overlap: records overlap when they share a
     /// base, a point overlaps an interval when strictly inside it (or on
     /// its edge with --inclusive-points), and every threshold (-f, -F, -r,
     /// -e, --min-bases) is met when either side is a point. Thresholds are
@@ -296,28 +306,28 @@ Examples:
     /// afterwards. Use --unsorted when you want A's order kept and every
     /// -b file fits in memory. The two cannot be combined.
     ///
-    /// When A and every -b file are BGZF files with a .tbi or .csi index (a
-    /// BAM with a .bai or .csi), or plain (uncompressed) BED, bedGraph or VCF
-    /// files, which are scanned once
-    /// for where each chromosome's records lie, and more than one thread is
-    /// used, the work runs on runs of chromosomes in parallel, which are
-    /// read and written in the chromosome-table order
+    /// Parallel runs: with more than one thread, when A and every -b file
+    /// are BGZF files with a .tbi or .csi index (a BAM with a .bai or .csi)
+    /// or plain (uncompressed) BED, bedGraph or VCF files, the chromosomes
+    /// are worked on in parallel and written in the chromosome-table order
     /// (karyotype by default; -g, a VCF header or --chrom-order set it).
-    /// At most 8 runs are in flight (more threads speed up BGZF). Memory is
-    /// about 64 MiB plus 20 MiB per run in flight (more with many -b files):
-    /// the output waiting to be written shares 64 MiB and the rest spills to
-    /// --tmp-dir. Indexed and streaming runs give identical output
-    /// for inputs in chromosome-table order; an input that is not in table
-    /// order is refused with the same error whatever the thread count. After
-    /// an error, how much output was already written to standard output
-    /// varies with the thread count (-o FILE is written atomically). Plain
-    /// inputs are validated to their end at every thread count; for indexed
-    /// inputs, records outside the queried chromosomes are validated only at
-    /// -t 1. With -v, the counts of reads left out of an indexed -b (or of
-    /// anything under --region) are of the reads read, which depend on the
-    /// thread count. When more than one input is malformed, the error reported may
-    /// name a different input at different thread counts; the exit code is
-    /// the same.
+    /// The output is the same as at -t 1.
+    ///
+    /// A parallel run holds about 64 MiB plus 20 MiB for each run of
+    /// chromosomes in flight, at most 8 (more with many -b files; threads
+    /// beyond 8 still speed up BGZF). Output waiting to be written beyond
+    /// 64 MiB spills to --tmp-dir.
+    ///
+    /// What depends on the thread count: after an error, how much output
+    /// was already written to standard output (-o FILE is written
+    /// atomically); which input the error names when more than one is
+    /// malformed (the exit code is the same); and, with -v, the counts of
+    /// reads left out of an indexed -b or of anything under --region, which
+    /// are of the reads read. Plain inputs are validated to their end at
+    /// every thread count; for indexed inputs, records outside the queried
+    /// chromosomes are validated only at -t 1. An input that is not in
+    /// chromosome-table order is refused with the same error at every
+    /// thread count.
     #[command(after_long_help = "\
 Examples:
   gloci intersect -a peaks.bed -b genes.bed
@@ -380,6 +390,7 @@ Examples:
   gloci cluster peaks.bed
   gloci cluster peaks.bed -d 100 -s
   gloci cluster calls.vcf.gz --vcf-span ref -d 50")]
+    #[command(before_help = EXPERIMENTAL)]
     Cluster(ClusterArgs),
     /// Give every record its distance to the previous record (bedtools spacing).
     ///
@@ -395,6 +406,7 @@ Examples:
     #[command(after_long_help = "Examples:
   gloci spacing peaks.bed
   gloci spacing calls.vcf.gz --vcf-span ref")]
+    #[command(before_help = EXPERIMENTAL)]
     Spacing(SpacingArgs),
     /// Write the bases no feature covers (bedtools complement, bedops -c).
     ///
@@ -420,6 +432,7 @@ Examples:
   gloci complement peaks.bed -g hg38 -o uncovered.bed
   gloci complement a.bed b.bed -g sacCer3
   gloci complement shuffled.bed -g genome.txt --sort --max-mem 512M")]
+    #[command(before_help = EXPERIMENTAL)]
     Complement(ComplementArgs),
     /// Split the inputs at every boundary into segments and say who covers
     /// each (bedtools multiinter and unionbedg, bedops -p, -i and -s).
@@ -459,6 +472,7 @@ Examples:
   gloci partition a.bed b.bed --names tumour,normal --min-files 2
   gloci partition a.bed b.bed --all --merge-adjacent --no-membership
   gloci partition a.bg b.bg --bedgraph --empty 0 -g hg38")]
+    #[command(before_help = EXPERIMENTAL)]
     Partition(PartitionArgs),
     /// Depth of coverage of a genome by the features of a BED file or the
     /// reads of a BAM (bedtools genomecov -i and -ibam).
@@ -507,6 +521,7 @@ Examples:
   gloci genomecov reads.bed -g hg38 --bedgraph --scale 0.000001 -o cov.bedgraph
   gloci genomecov exons12.bed -g hg38 --split --per-base
   gloci genomecov reads.bam --bga --split")]
+    #[command(before_help = EXPERIMENTAL)]
     Genomecov(GenomecovArgs),
     /// Grow each feature on its sides (bedtools slop, bedops --range).
     ///
@@ -527,6 +542,7 @@ Examples:
   gloci slop genes.bed --left 2000 --right 500 -s -g hg38 -o promoters.bed
   gloci slop peaks.bed --pct -b 0.5 -g genome.txt
   gloci slop annotation.gff3 -b 100 -g hg38")]
+    #[command(before_help = EXPERIMENTAL)]
     Slop(SlopArgs),
     /// Write the strips beside each feature (bedtools flank).
     ///
@@ -541,6 +557,7 @@ Examples:
   gloci flank genes.bed -b 100 -g hg38
   gloci flank genes.bed --left 2000 -s -g hg38
   gloci flank peaks.bed --pct -b 0.25 -g genome.txt | gloci sort -g genome.txt -")]
+    #[command(before_help = EXPERIMENTAL)]
     Flank(FlankArgs),
     /// Move each feature along its chromosome (bedtools shift).
     ///
@@ -561,6 +578,7 @@ Examples:
   gloci shift genes.bed --by -50 -g hg38
   gloci shift peaks.bed --by 1000 -s -g hg38 | gloci sort -g hg38 -
   gloci shift peaks.bed --pct --by 0.5 -g genome.txt")]
+    #[command(before_help = EXPERIMENTAL)]
     Shift(ShiftArgs),
     /// Cut chromosomes or intervals into windows (bedtools makewindows,
     /// bedops --chop).
@@ -581,6 +599,7 @@ Examples:
   gloci windows -g genome.txt -w 1000 --step 500
   gloci windows -i genes.bed -n 10 --id-column --reverse
   gloci merge peaks.bed | gloci windows -i - -w 100")]
+    #[command(before_help = EXPERIMENTAL)]
     Windows(WindowsArgs),
     /// Convert VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out, BED12 or
     /// BAM/CRAM/SAM to BED (bedops convert2bed, vcf2bed, gff2bed, gtf2bed;
@@ -644,6 +663,7 @@ Examples:
   gloci convert transcripts.bed --blocks -o exons.bed
   gloci convert reads.bam --bed12 --score-tag NM --min-mapq 30
   gloci convert reads.byname.bam --bedpe -o pairs.bedpe")]
+    #[command(before_help = EXPERIMENTAL)]
     Convert(ConvertArgs),
     /// Write the sequence under each interval (bedtools getfasta).
     ///
@@ -672,6 +692,7 @@ Examples:
   gloci getfasta --fasta ref.fa genes.bed
   gloci getfasta --fasta ref.fa genes.bed12 --split -s --name-only -o transcripts.fa
   gloci getfasta --fasta ref.fa.gz calls.vcf.gz --vcf-span ref --tab")]
+    #[command(before_help = EXPERIMENTAL)]
     Getfasta(GetfastaArgs),
     /// Base composition of the sequence under each interval (bedtools nuc).
     ///
@@ -697,6 +718,7 @@ Examples:
   gloci nuc --fasta ref.fa genes.bed
   gloci nuc --fasta ref.fa genes.bed -s --seq -o genes.nuc.tsv
   gloci nuc --fasta ref.fa.gz calls.vcf.gz --vcf-span ref --pattern CG")]
+    #[command(before_help = EXPERIMENTAL)]
     Nuc(NucArgs),
     /// Remove from A the bases covered by B (bedtools subtract, bedops -d).
     ///
@@ -737,28 +759,28 @@ Examples:
     /// afterwards. Use --unsorted when you want A's order kept and every
     /// -b file fits in memory. The two cannot be combined.
     ///
-    /// When A and every -b file are BGZF files with a .tbi or .csi index (a
-    /// BAM with a .bai or .csi), or plain (uncompressed) BED, bedGraph or VCF
-    /// files, which are scanned once
-    /// for where each chromosome's records lie, and more than one thread is
-    /// used, the work runs on runs of chromosomes in parallel, which are
-    /// read and written in the chromosome-table order
+    /// Parallel runs: with more than one thread, when A and every -b file
+    /// are BGZF files with a .tbi or .csi index (a BAM with a .bai or .csi)
+    /// or plain (uncompressed) BED, bedGraph or VCF files, the chromosomes
+    /// are worked on in parallel and written in the chromosome-table order
     /// (karyotype by default; -g, a VCF header or --chrom-order set it).
-    /// At most 8 runs are in flight (more threads speed up BGZF). Memory is
-    /// about 64 MiB plus 20 MiB per run in flight (more with many -b files):
-    /// the output waiting to be written shares 64 MiB and the rest spills to
-    /// --tmp-dir. Indexed and streaming runs give identical output
-    /// for inputs in chromosome-table order; an input that is not in table
-    /// order is refused with the same error whatever the thread count. After
-    /// an error, how much output was already written to standard output
-    /// varies with the thread count (-o FILE is written atomically). Plain
-    /// inputs are validated to their end at every thread count; for indexed
-    /// inputs, records outside the queried chromosomes are validated only at
-    /// -t 1. With -v, the counts of reads left out of an indexed -b (or of
-    /// anything under --region) are of the reads read, which depend on the
-    /// thread count. When more than one input is malformed, the error reported may
-    /// name a different input at different thread counts; the exit code is
-    /// the same.
+    /// The output is the same as at -t 1.
+    ///
+    /// A parallel run holds about 64 MiB plus 20 MiB for each run of
+    /// chromosomes in flight, at most 8 (more with many -b files; threads
+    /// beyond 8 still speed up BGZF). Output waiting to be written beyond
+    /// 64 MiB spills to --tmp-dir.
+    ///
+    /// What depends on the thread count: after an error, how much output
+    /// was already written to standard output (-o FILE is written
+    /// atomically); which input the error names when more than one is
+    /// malformed (the exit code is the same); and, with -v, the counts of
+    /// reads left out of an indexed -b or of anything under --region, which
+    /// are of the reads read. Plain inputs are validated to their end at
+    /// every thread count; for indexed inputs, records outside the queried
+    /// chromosomes are validated only at -t 1. An input that is not in
+    /// chromosome-table order is refused with the same error at every
+    /// thread count.
     #[command(after_long_help = "\
 Examples:
   gloci subtract -a peaks.bed -b blacklist.bed
@@ -817,28 +839,28 @@ Examples:
     /// afterwards. Use --unsorted when you want A's order kept and every
     /// -b file fits in memory. The two cannot be combined.
     ///
-    /// When A and every -b file are BGZF files with a .tbi or .csi index (a
-    /// BAM with a .bai or .csi), or plain (uncompressed) BED, bedGraph or VCF
-    /// files, which are scanned once
-    /// for where each chromosome's records lie, and more than one thread is
-    /// used, the work runs on runs of chromosomes in parallel, which are
-    /// read and written in the chromosome-table order
+    /// Parallel runs: with more than one thread, when A and every -b file
+    /// are BGZF files with a .tbi or .csi index (a BAM with a .bai or .csi)
+    /// or plain (uncompressed) BED, bedGraph or VCF files, the chromosomes
+    /// are worked on in parallel and written in the chromosome-table order
     /// (karyotype by default; -g, a VCF header or --chrom-order set it).
-    /// At most 8 runs are in flight (more threads speed up BGZF). Memory is
-    /// about 64 MiB plus 20 MiB per run in flight (more with many -b files):
-    /// the output waiting to be written shares 64 MiB and the rest spills to
-    /// --tmp-dir. Indexed and streaming runs give identical output
-    /// for inputs in chromosome-table order; an input that is not in table
-    /// order is refused with the same error whatever the thread count. After
-    /// an error, how much output was already written to standard output
-    /// varies with the thread count (-o FILE is written atomically). Plain
-    /// inputs are validated to their end at every thread count; for indexed
-    /// inputs, records outside the queried chromosomes are validated only at
-    /// -t 1. With -v, the counts of reads left out of an indexed -b (or of
-    /// anything under --region) are of the reads read, which depend on the
-    /// thread count. When more than one input is malformed, the error reported may
-    /// name a different input at different thread counts; the exit code is
-    /// the same.
+    /// The output is the same as at -t 1.
+    ///
+    /// A parallel run holds about 64 MiB plus 20 MiB for each run of
+    /// chromosomes in flight, at most 8 (more with many -b files; threads
+    /// beyond 8 still speed up BGZF). Output waiting to be written beyond
+    /// 64 MiB spills to --tmp-dir.
+    ///
+    /// What depends on the thread count: after an error, how much output
+    /// was already written to standard output (-o FILE is written
+    /// atomically); which input the error names when more than one is
+    /// malformed (the exit code is the same); and, with -v, the counts of
+    /// reads left out of an indexed -b or of anything under --region, which
+    /// are of the reads read. Plain inputs are validated to their end at
+    /// every thread count; for indexed inputs, records outside the queried
+    /// chromosomes are validated only at -t 1. An input that is not in
+    /// chromosome-table order is refused with the same error at every
+    /// thread count.
     #[command(after_long_help = "\
 Examples:
   gloci closest -a genes.bed -b peaks.bed --distance
@@ -897,34 +919,35 @@ Examples:
     /// afterwards. Use --unsorted when you want A's order kept and every
     /// -b file fits in memory. The two cannot be combined.
     ///
-    /// When A and every -b file are BGZF files with a .tbi or .csi index (a
-    /// BAM with a .bai or .csi), or plain (uncompressed) BED, bedGraph or VCF
-    /// files, which are scanned once
-    /// for where each chromosome's records lie, and more than one thread is
-    /// used, the work runs on runs of chromosomes in parallel, which are
-    /// read and written in the chromosome-table order
+    /// Parallel runs: with more than one thread, when A and every -b file
+    /// are BGZF files with a .tbi or .csi index (a BAM with a .bai or .csi)
+    /// or plain (uncompressed) BED, bedGraph or VCF files, the chromosomes
+    /// are worked on in parallel and written in the chromosome-table order
     /// (karyotype by default; -g, a VCF header or --chrom-order set it).
-    /// At most 8 runs are in flight (more threads speed up BGZF). Memory is
-    /// about 64 MiB plus 20 MiB per run in flight (more with many -b files):
-    /// the output waiting to be written shares 64 MiB and the rest spills to
-    /// --tmp-dir. Indexed and streaming runs give identical output
-    /// for inputs in chromosome-table order; an input that is not in table
-    /// order is refused with the same error whatever the thread count. After
-    /// an error, how much output was already written to standard output
-    /// varies with the thread count (-o FILE is written atomically). Plain
-    /// inputs are validated to their end at every thread count; for indexed
-    /// inputs, records outside the queried chromosomes are validated only at
-    /// -t 1. With -v, the counts of reads left out of an indexed -b (or of
-    /// anything under --region) are of the reads read, which depend on the
-    /// thread count. When more than one input is malformed, the error reported may
-    /// name a different input at different thread counts; the exit code is
-    /// the same.
+    /// The output is the same as at -t 1.
+    ///
+    /// A parallel run holds about 64 MiB plus 20 MiB for each run of
+    /// chromosomes in flight, at most 8 (more with many -b files; threads
+    /// beyond 8 still speed up BGZF). Output waiting to be written beyond
+    /// 64 MiB spills to --tmp-dir.
+    ///
+    /// What depends on the thread count: after an error, how much output
+    /// was already written to standard output (-o FILE is written
+    /// atomically); which input the error names when more than one is
+    /// malformed (the exit code is the same); and, with -v, the counts of
+    /// reads left out of an indexed -b or of anything under --region, which
+    /// are of the reads read. Plain inputs are validated to their end at
+    /// every thread count; for indexed inputs, records outside the queried
+    /// chromosomes are validated only at -t 1. An input that is not in
+    /// chromosome-table order is refused with the same error at every
+    /// thread count.
     #[command(after_long_help = "\
 Examples:
   gloci map -a genes.bed -b scores.bedgraph -c 4:mean
   gloci map -a windows.bed -b peaks.bed -c 0:count -c 5:max --skip-unmatched
   gloci map -a snps.vcf.gz -b regions.bed -c 4:distinct --delim ';'
   gloci map -a genes.bed -b peaks.bed -w 100 -c 0:count -c 0:bases")]
+    #[command(before_help = EXPERIMENTAL)]
     Map(MapArgs),
     /// How much of each A the B records cover (bedtools coverage and annotate).
     ///
@@ -970,28 +993,28 @@ Examples:
     /// afterwards. Use --unsorted when you want A's order kept and every
     /// -b file fits in memory. The two cannot be combined.
     ///
-    /// When A and every -b file are BGZF files with a .tbi or .csi index (a
-    /// BAM with a .bai or .csi), or plain (uncompressed) BED, bedGraph or VCF
-    /// files, which are scanned once
-    /// for where each chromosome's records lie, and more than one thread is
-    /// used, the work runs on runs of chromosomes in parallel, which are
-    /// read and written in the chromosome-table order
+    /// Parallel runs: with more than one thread, when A and every -b file
+    /// are BGZF files with a .tbi or .csi index (a BAM with a .bai or .csi)
+    /// or plain (uncompressed) BED, bedGraph or VCF files, the chromosomes
+    /// are worked on in parallel and written in the chromosome-table order
     /// (karyotype by default; -g, a VCF header or --chrom-order set it).
-    /// At most 8 runs are in flight (more threads speed up BGZF). Memory is
-    /// about 64 MiB plus 20 MiB per run in flight (more with many -b files):
-    /// the output waiting to be written shares 64 MiB and the rest spills to
-    /// --tmp-dir. Indexed and streaming runs give identical output
-    /// for inputs in chromosome-table order; an input that is not in table
-    /// order is refused with the same error whatever the thread count. After
-    /// an error, how much output was already written to standard output
-    /// varies with the thread count (-o FILE is written atomically). Plain
-    /// inputs are validated to their end at every thread count; for indexed
-    /// inputs, records outside the queried chromosomes are validated only at
-    /// -t 1. With -v, the counts of reads left out of an indexed -b (or of
-    /// anything under --region) are of the reads read, which depend on the
-    /// thread count. When more than one input is malformed, the error reported may
-    /// name a different input at different thread counts; the exit code is
-    /// the same.
+    /// The output is the same as at -t 1.
+    ///
+    /// A parallel run holds about 64 MiB plus 20 MiB for each run of
+    /// chromosomes in flight, at most 8 (more with many -b files; threads
+    /// beyond 8 still speed up BGZF). Output waiting to be written beyond
+    /// 64 MiB spills to --tmp-dir.
+    ///
+    /// What depends on the thread count: after an error, how much output
+    /// was already written to standard output (-o FILE is written
+    /// atomically); which input the error names when more than one is
+    /// malformed (the exit code is the same); and, with -v, the counts of
+    /// reads left out of an indexed -b or of anything under --region, which
+    /// are of the reads read. Plain inputs are validated to their end at
+    /// every thread count; for indexed inputs, records outside the queried
+    /// chromosomes are validated only at -t 1. An input that is not in
+    /// chromosome-table order is refused with the same error at every
+    /// thread count.
     #[command(after_long_help = "\
 Examples:
   gloci coverage -a genes.bed -b reads.bed
@@ -1026,6 +1049,7 @@ Examples:
   gloci groupby scores.bed -g 1,2 -c 5:sum -c 5:mean
   gloci groupby calls.tsv -g 1 -c 4:collapse -c 5:count_distinct
   gloci groupby table.tsv --header -g gene -c expr:median -o medians.tsv")]
+    #[command(before_help = EXPERIMENTAL)]
     Groupby(GroupbyArgs),
     /// Mask bases of a FASTA under intervals, streaming it (bedtools maskfasta).
     ///
@@ -1059,13 +1083,15 @@ Examples:
   gloci maskfasta --fasta hg38.fa -b repeats.bed -o hg38.masked.fa
   gloci maskfasta --fasta hg38.fa.gz -b rmsk.bed segdups.bed --soft -o soft.fa.gz --write-index
   gloci maskfasta --fasta ref.fa -b low-mappability.bed --mask-char X | head")]
+    #[command(before_help = EXPERIMENTAL)]
     Maskfasta(MaskfastaArgs),
-    /// VCF operations (spec §7.8).
+    /// VCF and BCF operations: filter, extract, stats, concat, split, norm, annotate, merge and compare.
     #[command(after_long_help = "\
 Examples:
   gloci vcf filter cohort.bcf --pass-only --min-qual 30 -o filtered.bcf
   gloci vcf filter input.vcf --samples s1,s2 --min-dp 10 --recalc-ac -o out.vcf
   gloci vcf filter variants.bcf --types indel --biallelic")]
+    #[command(before_help = EXPERIMENTAL)]
     Vcf(Box<VcfArgs>),
     // P3b Task 2
     /// Statistics of interval sets (bedtools jaccard).
@@ -1073,6 +1099,7 @@ Examples:
 Examples:
   gloci stats jaccard -a peaks.bed -b genes.bed
   gloci stats jaccard -a rep1.bed -b rep2.bed -f 0.5 -r")]
+    #[command(before_help = EXPERIMENTAL)]
     Stats(StatsArgs),
     // P3b Task 7
     /// BEDPE pairs by how their ends overlap B (bedtools pairtobed).
@@ -1104,6 +1131,7 @@ Examples:
   gloci pair-intersect -a sv.bedpe -b exons.bed --type both -f 0.5
   gloci pair-intersect -a sv.bedpe -b repeats.bed --type neither -o clean.bedpe
   gloci pair-intersect -a sv.bedpe -b genes.bed --type xor -s -t 4")]
+    #[command(before_help = EXPERIMENTAL)]
     PairIntersect(PairIntersectArgs),
     // P3b Task 8
     /// BEDPE pairs by how their ends overlap the ends of the pairs of B (bedtools pairtopair).
@@ -1128,6 +1156,7 @@ Examples:
   gloci pair-pair -a sv1.bedpe -b sv2.bedpe --type either -w 100
   gloci pair-pair -a sv1.bedpe -b sv2.bedpe --type notboth -o unique.bedpe
   gloci pair-pair -a sv.bedpe -b sv.bedpe --require-different-names -s -t 4")]
+    #[command(before_help = EXPERIMENTAL)]
     PairPair(PairPairArgs),
     // P3b Task 5
     /// Random intervals placed uniformly over a genome (bedtools random).
@@ -1146,6 +1175,7 @@ Examples:
   gloci random -g hg38 -l 500 -n 100000 --seed 42 -o random.bed
   gloci random -g genome.txt -l 1000 -n 1000 --seed 7 | gloci sort -g genome.txt - > sorted.bed
   gloci random -g hg38 -n 10000 --seed 1 -o a.bed && gloci shift a.bed --by 5 -g hg38")]
+    #[command(before_help = EXPERIMENTAL)]
     Random(RandomArgs),
     /// A random subset of the records of a file (bedtools sample; for
     /// alignments see samtools view -s, gloci samples is a different command).
@@ -1166,6 +1196,7 @@ Examples:
   gloci sample peaks.bed -n 1000 --seed 42 -o subset.bed
   gloci sample peaks.bed -n 500 --strand + --seed 1
   gloci sample calls.vcf.gz -n 10000 --seed 3 -O vcf.gz -o subset.vcf.gz")]
+    #[command(before_help = EXPERIMENTAL)]
     Sample(SampleArgs),
     // P3b Task 6
     /// Move every record to a random place in the genome (bedtools shuffle).
@@ -1196,6 +1227,7 @@ Examples:
   gloci shuffle peaks.bed -g hg38 --exclude gaps.bed --seed 42 -o null.bed
   gloci shuffle peaks.bed -g genome.txt --include mappable.bed --same-chrom --seed 7 | gloci sort -g genome.txt -
   gloci shuffle loops.bedpe --format bedpe -g hg38 --exclude blacklist.bed --seed 1 -o null.bedpe")]
+    #[command(before_help = EXPERIMENTAL)]
     Shuffle(ShuffleArgs),
     /// Write regions of an indexed FASTA (samtools faidx).
     ///
@@ -1228,6 +1260,7 @@ Examples:
   gloci faidx ref.fa.gz --regions-file genes.bed --line-width 0 -o genes.fa.gz --write-index")]
     #[command(mut_arg("region", |a| a.help(FAIDX_REGION_HELP)))]
     #[command(mut_arg("regions_file", |a| a.help(FAIDX_REGIONS_FILE_HELP)))]
+    #[command(before_help = EXPERIMENTAL)]
     Faidx(FaidxArgs),
     /// Write a SAM sequence dictionary of a FASTA (samtools dict).
     ///
@@ -1248,6 +1281,7 @@ Examples:
 Examples:
   gloci dict ref.fa -o ref.dict
   gloci dict ref.fa.gz --alias --assembly GRCh38 --species human --alt ref.fa.alt -o ref.dict")]
+    #[command(before_help = EXPERIMENTAL)]
     Dict(DictArgs),
     /// Convert SAM FLAGS between numbers and names (samtools flags).
     ///
@@ -1266,6 +1300,7 @@ Examples:
 Examples:
   gloci flags 0x704 1796 secondary,dup
   gloci flags")]
+    #[command(before_help = EXPERIMENTAL)]
     Flags(FlagsArgs),
     /// Count the reads of each reference of a BAM, CRAM or SAM (samtools idxstats).
     ///
@@ -1285,6 +1320,7 @@ Examples:
   gloci idxstats reads.bam
   gloci idxstats reads.cram --reference ref.fa
   gloci idxstats reads.sam -t 1")]
+    #[command(before_help = EXPERIMENTAL)]
     Idxstats(IdxstatsArgs),
     /// Count the reads of a BAM, CRAM or SAM by FLAGS category (samtools flagstat).
     ///
@@ -1305,6 +1341,7 @@ Examples:
   gloci flagstat reads.bam
   gloci flagstat reads.bam -O json -o stats.json
   gloci flagstat reads.cram --reference ref.fa -O tsv")]
+    #[command(before_help = EXPERIMENTAL)]
     Flagstat(FlagstatArgs),
     /// Print the header and the first records of any input as text (samtools and bcftools head).
     ///
@@ -1323,6 +1360,7 @@ Examples:
   gloci head reads.bam
   gloci head reads.bam --headers 0 --records 5
   gloci head calls.vcf.gz --records 2")]
+    #[command(before_help = EXPERIMENTAL)]
     Head(HeadArgs),
     /// List the samples of the read groups of BAM, CRAM or SAM files (samtools samples).
     ///
@@ -1339,6 +1377,7 @@ Examples:
   gloci samples cohort.bam
   gloci samples a.bam b.cram --show-index --column-names
   gloci samples reads.bam --match-reference hg38.fa --match-reference hs37d5.fa --tag LB")]
+    #[command(before_help = EXPERIMENTAL)]
     Samples(SamplesArgs),
     /// Depth of coverage of alignments at each position (samtools depth).
     ///
@@ -1372,6 +1411,7 @@ Examples:
   gloci depth a.bam b.bam --column-names --min-mapq 20 --min-baseq 20
   gloci depth sample.bam --region chr1:100,000-200,000 --all-positions
   gloci depth sample.bam --regions-file targets.bed --count-deletions")]
+    #[command(before_help = EXPERIMENTAL)]
     Depth(DepthArgs),
     /// Depth of coverage summed over each BED region (samtools bedcov).
     ///
@@ -1396,6 +1436,7 @@ Examples:
   gloci bedcov targets.bed sample.bam
   gloci bedcov targets.bed a.bam b.bam --bases-at-depth 10 --read-count --column-names
   gloci bedcov exons.bed sample.cram --reference ref.fa --split --split-deletions -t 8")]
+    #[command(before_help = EXPERIMENTAL)]
     Bedcov(BedcovArgs),
     /// Replace the header of a BAM or CRAM file without decoding its records (samtools reheader).
     ///
@@ -1424,6 +1465,7 @@ Examples:
   gloci reheader new-header.sam x.bam -o y.bam
   gloci reheader other.bam x.bam -o x.bam
   gloci view --header-only x.bam -O sam | sed 's/SN:chr/SN:/' | gloci reheader - x.bam -o y.bam")]
+    #[command(before_help = EXPERIMENTAL)]
     Reheader(ReheaderArgs),
 }
 
@@ -1717,6 +1759,7 @@ Examples:
   gloci vcf filter cohort.bcf --pass-only --min-qual 30 --min-maf 0.01 --max-missing 0.1 -o filtered.bcf
   gloci vcf filter input.vcf --samples s1,s2 --min-dp 10 --recalc-ac -o out.vcf
   gloci vcf filter variants.bcf --types indel --biallelic")]
+    #[command(before_help = EXPERIMENTAL)]
     Filter(Box<VcfFilterArgs>),
     /// Extract INFO or FORMAT values as a table, or the 012 genotype matrix.
     #[command(after_long_help = "\
@@ -1724,6 +1767,7 @@ Examples:
   gloci vcf extract cohort.vcf.gz --info DP,AF -o info.tsv
   gloci vcf extract cohort.bcf --format GT,DP --layout long --samples s1,s2
   gloci vcf extract cohort.vcf.gz --genotype-matrix 012 --out-prefix cohort --biallelic")]
+    #[command(before_help = EXPERIMENTAL)]
     Extract(VcfExtractArgs),
     /// Compute statistics in one pass: per-site, per-sample and whole-file,
     /// written as PREFIX.<ext> in vcftools' formats, plus a summary.
@@ -1737,6 +1781,7 @@ Examples:
   gloci vcf stats cohort.vcf.gz --out-prefix qc --freq --missing-indv --het --summary
   gloci vcf stats cohort.bcf --out-prefix qc --depth --site-mean-depth --min-dp 8 --samples s1,s2
   gloci vcf stats cohort.vcf.gz --out-prefix qc --tstv-summary --json --pass-only")]
+    #[command(before_help = EXPERIMENTAL)]
     Stats(VcfStatsArgs),
     /// Write VCF/BCF files one after another (bcftools concat, vcf-concat).
     #[command(after_long_help = "\
@@ -1744,6 +1789,7 @@ Examples:
   gloci vcf concat chr1.vcf.gz chr2.vcf.gz -o all.vcf.gz
   gloci vcf concat chr*.bcf -o all.bcf
   gloci vcf concat --naive chr1.vcf.gz chr2.vcf.gz -o all.vcf.gz")]
+    #[command(before_help = EXPERIMENTAL)]
     Concat(VcfConcatArgs),
     /// Split multi-allelic records into biallelic ones (bcftools norm -m-).
     ///
@@ -1762,6 +1808,7 @@ Examples:
   gloci vcf split calls.vcf.gz -o calls.split.vcf.gz
   gloci vcf split calls.bcf --types snps -o snps-split.bcf
   gloci vcf split calls.vcf.gz | gloci subtract -a - -b known.vcf.gz --match alleles")]
+    #[command(before_help = EXPERIMENTAL)]
     Split(VcfSplitArgs),
     // P3b Task 21
     /// Left-align and normalise records against a reference (bcftools norm -f).
@@ -1785,6 +1832,7 @@ Examples:
   gloci vcf norm calls.bcf --fasta ref.fa --split -o calls.norm.bcf
   gloci vcf norm calls.vcf.gz -f ref.fa --check-ref x --rm-dup exact | gloci vcf stats -
   gloci vcf norm calls.vcf.gz -f ref.fa --check-ref s -o fixed.vcf.gz")]
+    #[command(before_help = EXPERIMENTAL)]
     Norm(VcfNormArgs),
     // P3b Task 22
     /// Transfer, remove and add fields of a VCF/BCF (bcftools annotate).
@@ -1819,6 +1867,7 @@ Examples:
   gloci vcf annotate calls.vcf.gz -a genes.bed.gz -c CHROM,FROM,TO,GENE --header-lines genes.hdr
   gloci vcf annotate calls.vcf.gz -x INFO,FORMAT/PL --mark-sites +CLEAN
   gloci vcf annotate calls.vcf.gz -I '+%CHROM:%POS:%REF:%FIRST_ALT' -o ids.vcf.gz")]
+    #[command(before_help = EXPERIMENTAL)]
     Annotate(VcfAnnotateArgs),
     // P3b Task 23
     /// Combine the samples of several VCF/BCF files (bcftools merge).
@@ -1844,6 +1893,7 @@ Examples:
   gloci vcf merge --file-list shards.txt -m none --force-samples -o cohort.bcf
   gloci vcf merge a.bcf b.bcf -i DP:sum,AF:avg -0 | gloci vcf stats - --out-prefix qc
   gloci vcf merge a.vcf.gz b.vcf.gz -f PASS,. -m id -o by-id.vcf.gz")]
+    #[command(before_help = EXPERIMENTAL)]
     Merge(VcfMergeArgs),
     /// Compare the genotypes of two VCF/BCF files: per site, per sample and
     /// as a matrix (vcftools --diff-site-discordance, --diff-indv-discordance,
@@ -1883,6 +1933,7 @@ Examples:
   gloci vcf compare truth.vcf.gz calls.vcf.gz --out-prefix cmp
   gloci vcf compare a.bcf b.bcf --out-prefix cmp --sample-discordance --match position
   gloci vcf compare a.vcf.gz b.vcf.gz --out-prefix cmp --sample-map b-to-a.txt --samples s1,s2 --min-dp 10")]
+    #[command(before_help = EXPERIMENTAL)]
     Compare(Box<VcfCompareArgs>),
 }
 
@@ -3350,9 +3401,9 @@ pub struct GenomeArg {
 
 #[derive(Args, Debug, Clone)]
 pub struct ChromOrderArg {
-    /// Chromosome order when neither -g nor a VCF/BCF header sets one (spec
-    /// section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte
-    /// order, as sort -k1,1, sort-bed and bedtools sort).
+    /// Chromosome order when neither -g nor a VCF/BCF header sets one:
+    /// karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as
+    /// sort -k1,1, sort-bed and bedtools sort).
     #[arg(
         long,
         value_name = "ORDER",
@@ -3562,7 +3613,7 @@ pub struct BArgs {
     )]
     pub b: Vec<String>,
     /// Labels for the B files, comma-separated, one per -b (default: the file
-    /// basenames, spec 5).
+    /// basenames).
     #[arg(long, value_name = "A,B,...", value_delimiter = ',')]
     pub names: Option<Vec<String>>,
     /// B's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or
@@ -3749,6 +3800,7 @@ Examples:
   gloci stats jaccard -a rep1.bed -b rep2.bed -f 0.5 -r
   gloci stats jaccard -a calls.vcf.gz -b regions.bed --vcf-span ref
   gloci stats jaccard -a unsorted-a.bed -b unsorted-b.bed --sort")]
+    #[command(before_help = EXPERIMENTAL)]
     Jaccard(JaccardArgs),
     // P3b Task 3
     /// Fisher's exact test of the overlap of two interval sets (bedtools fisher).
@@ -3772,6 +3824,7 @@ Examples:
   gloci stats fisher -a peaks.bed -b genes.bed -g sizes.genome --merge-overlaps
   gloci stats fisher -a peaks.bed -b genes.bed -g hg38 --exclude gaps.bed -f 0.5
   gloci stats fisher -a unsorted-a.bed -b unsorted-b.bed -g hg38 --sort")]
+    #[command(before_help = EXPERIMENTAL)]
     Fisher(FisherArgs),
     // P3b Task 4
     /// The relative distance of A midpoints to B midpoints (bedtools reldist).
@@ -3793,6 +3846,7 @@ Examples:
   gloci stats reldist -a peaks.bed -b genes.bed --detail
   gloci stats reldist -a unsorted-a.bed -b unsorted-b.bed --sort
   gloci stats reldist -a peaks.bed -b genes.bed --unsorted")]
+    #[command(before_help = EXPERIMENTAL)]
     Reldist(ReldistArgs),
 }
 

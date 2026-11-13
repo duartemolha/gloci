@@ -7,6 +7,7 @@
 - [Install](install.md)
 - [Quickstart](quickstart.md)
 - [Semantics](semantics.md)
+- [Stability](stability.md)
 - [Migrating from bedtools, bedops and vcftools](migration.md)
 - [Differences from the reference tools](differences.md)
 - [Python](python.md)
