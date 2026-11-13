@@ -121,11 +121,14 @@ from = ["gencode-v46-gtf"]
 command = '''zcat {in} | gawk -F'\t' -v OFS='\t' '$3=="exon"{match($9,/gene_name "[^"]+"/);print $1,$4-1,$5,substr($9,RSTART+11,RLENGTH-12),0,$7}' > {out}'''
 sha256 = "915ed366960cbd4ec72a1f3ee54d48c9b3e29c72b924bf12eba148ec87c1dd69"
 
+# sort-bed order (chromosome, start, end), which bedops needs: sorted by start
+# alone, bedops --partition wrote 42,593 rows with start past end and
+# closest-features picked other neighbours for 4,832 peaks.
 [[derived]]
 name = "exons.bed"
 from = ["exons-unsorted.bed"]
-command = "sort -k1,1 -k2,2n -s {in} > {out}"
-sha256 = "e4f59e3acf34138e0c8bb04e5b89af0577e53bd1af83f1a7c489bcb6976e9a58"
+command = "sort -k1,1 -k2,2n -k3,3n -s {in} > {out}"
+sha256 = "ebd86df27ee539d7422d667cbe30fa4fca3a08f5dd096dca92a7dcf5123632e3"
 
 [[derived]]
 name = "ccre.bed"
@@ -143,13 +146,20 @@ sha256 = "558e3ef6f06253d939c699f973989a6a6d9498cc8d83166ccfc6273a00dd744c"
 name = "exons.bed.gz"
 from = ["exons.bed"]
 command = "bgzip -c {in} > {out} && tabix -p bed {out}"
-sha256 = "b25d68b06c8e1f45c1cabbc27594be7bfd9294146da9a844194d894892a3bce5"
+sha256 = "63f807c0cba04db8e5ab0a0c761f8f58a0e6933432e43e5b3b26558217f01724"
 
 [[derived]]
 name = "ctcf-fc.bedgraph"
 from = ["encode-ctcf-k562-fc"]
 command = "bigWigToBedGraph {in} /dev/stdout | sort -k1,1 -k2,2n -s > {out}"
 sha256 = "1477693dbaff846a203295fd29d1115e507589296e0aba4661ade690c3e6cb1a"
+
+# The signal as five-column BED (the value in column 5), which bedmap reads.
+[[derived]]
+name = "ctcf-fc.bed5"
+from = ["ctcf-fc.bedgraph"]
+command = '''gawk -v OFS='\t' '{print $1,$2,$3,".",$4}' {in} > {out}'''
+sha256 = "62258b45a53c1cd22ba58b67b9c21886b006d3090904c4b0f35643cdf7dfc55c"
 
 [[derived]]
 name = "1kg-chr20.bcf"

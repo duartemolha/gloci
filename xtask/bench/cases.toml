@@ -33,7 +33,7 @@ input = "bed"
 targets = ["gloci <= 0.5 * bedtools", "gloci <= bedops"]
 [case.commands]
 gloci = "{gloci} intersect --chrom-order lex -t 1 --mode any -a {in_a} -b {in_b} > {out}"
-bedtools = "bedtools intersect -sorted -a {in_a} -b {in_b} > {out}"
+bedtools = "bedtools intersect -u -sorted -a {in_a} -b {in_b} > {out}"
 bedops = "bedops -e 1 {in_a} {in_b} > {out}"
 gia = "gia intersect -a {in_a} -b {in_b} > {out}"
 bedder = "bedder intersect -a {in_a} -b {in_b} > {out}"
@@ -122,7 +122,7 @@ input = "bed.gz"
 targets = ["gloci <= 0.2 * bedtools"]
 [case.commands]
 gloci = "{gloci} intersect --chrom-order lex -t 8 --mode any -a {in_a} -b {in_b} -o {out}"
-bedtools = "bedtools intersect -sorted -a {in_a} -b {in_b} | bgzip -@ 8 > {out}"
+bedtools = "bedtools intersect -u -sorted -a {in_a} -b {in_b} | bgzip -@ 8 > {out}"
 
 [[case]]
 name = "merge-bgzf-10M"

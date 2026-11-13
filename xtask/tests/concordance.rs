@@ -514,8 +514,8 @@ fn reference_cache_key_names_the_image_and_input_digests() {
     let cat = catalog();
     // Pinned digests: a derived input's sha256, a dataset's own checksum.
     assert_eq!(
-        concord::pinned_digest(&cat, "exons.bed").as_deref(),
-        Some("sha256:e4f59e3acf34138e0c8bb04e5b89af0577e53bd1af83f1a7c489bcb6976e9a58")
+        concord::pinned_digest(&cat, "ccre.bed").as_deref(),
+        Some("sha256:5b2c8d03c699baf152c982bba95fd168beae2b0416f2181d643f9c2bb9ead5f3")
     );
     assert_eq!(
         concord::pinned_digest(&cat, "1kg-30x-chr20").as_deref(),
