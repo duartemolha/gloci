@@ -62,8 +62,8 @@ fn as_cram_keeps(raw: &[u8]) -> Vec<u8> {
     let n = usize::from(u16::from_le_bytes([raw[12], raw[13]]));
     let at = 32 + l_name;
     let mut ops: Vec<(u32, u32)> = Vec::new();
-    for w in raw[at..at + 4 * n].chunks_exact(4) {
-        let v = u32::from_le_bytes([w[0], w[1], w[2], w[3]]);
+    for w in raw[at..at + 4 * n].as_chunks::<4>().0 {
+        let v = u32::from_le_bytes(*w);
         let (op, len) = (if matches!(v & 0xf, 7 | 8) { 0 } else { v & 0xf }, v >> 4);
         match ops.last_mut() {
             Some((o, l)) if *o == 0 && op == 0 => *l += len,

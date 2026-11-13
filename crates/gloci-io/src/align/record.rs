@@ -40,8 +40,8 @@ fn i32_at(b: &[u8], at: usize) -> i32 {
 }
 
 fn words(c: &[u8]) -> impl Iterator<Item = (u8, u32)> + '_ {
-    c.chunks_exact(4).map(|w| {
-        let v = u32::from_le_bytes([w[0], w[1], w[2], w[3]]);
+    c.as_chunks::<4>().0.iter().map(|w| {
+        let v = u32::from_le_bytes(*w);
         ((v & 0xf) as u8, v >> 4)
     })
 }
@@ -52,8 +52,8 @@ fn scan_cigar(c: &[u8]) -> Result<u64, String> {
     // Bit `op` is set for the operations that consume the read: 0 M, 1 I, 4 S, 7 =, 8 X.
     const QUERY: u32 = 1 << 0 | 1 << 1 | 1 << 4 | 1 << 7 | 1 << 8;
     let mut q = 0u64;
-    for w in c.chunks_exact(4) {
-        let v = u32::from_le_bytes([w[0], w[1], w[2], w[3]]);
+    for w in c.as_chunks::<4>().0 {
+        let v = u32::from_le_bytes(*w);
         let op = v & 0xf;
         if op > 9 {
             return Err(format!(
@@ -172,8 +172,8 @@ file is corrupt",
         }
         let mut q = 0u64;
         let mut bad = false;
-        for w in inline_cigar.chunks_exact(4) {
-            let v = u32::from_le_bytes([w[0], w[1], w[2], w[3]]);
+        for w in inline_cigar.as_chunks::<4>().0 {
+            let v = u32::from_le_bytes(*w);
             let op = v & 0xf;
             bad |= op > 9;
             if QUERY >> op & 1 != 0 {

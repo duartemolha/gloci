@@ -213,15 +213,14 @@ pub fn run_chunks<J: Clone + Send + Sync, R: Send>(
                 break;
             };
             match res {
-                None => {}
                 Some(Ok(done)) => {
                     pending.insert(idx, done);
                 }
-                Some(Err(e)) => {
-                    if first_error.as_ref().is_none_or(|(i, _)| idx < *i) {
-                        first_error = Some((idx, e));
-                    }
+                Some(Err(e)) if first_error.as_ref().is_none_or(|(i, _)| idx < *i) => {
+                    first_error = Some((idx, e));
                 }
+                // No result, or an error later than the one already kept.
+                None | Some(Err(_)) => {}
             }
             while let Some((r, mut sink)) = pending.remove(&next_to_drain) {
                 if first_error.is_none()

@@ -743,8 +743,8 @@ pub fn vcf_compare(
         text.push('\n');
         for (r, g) in G.iter().enumerate() {
             text.push_str(&format!("N_{g}_file2"));
-            for c in 0..4 {
-                text.push_str(&format!("\t{}", matrix.cells[r][c]));
+            for cell in &matrix.cells[r] {
+                text.push_str(&format!("\t{cell}"));
             }
             text.push('\n');
         }

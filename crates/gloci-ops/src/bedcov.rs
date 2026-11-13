@@ -448,10 +448,7 @@ the chromosome with --chrom-map, or pass --skip-invalid to skip lines on unknown
             .iter()
             .map(IndexedFile::aln_region_cursor)
             .collect();
-        loop {
-            let Some(job) = next_job(&mut bed, &mut read_err, &mut more)? else {
-                break;
-            };
+        while let Some(job) = next_job(&mut bed, &mut read_err, &mut more)? {
             let done = run_batch(&sh, &job, &mut ring, &mut cursors)?;
             out.write_all(&done.out).map_err(write_err)?;
             absorb(done, &mut merged, &mut lines);

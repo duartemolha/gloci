@@ -717,8 +717,10 @@ pub(crate) fn htslib_fields(r: &mut [u8]) {
     let rlen: i64 = r
         .get(at..at + 4 * n_cigar)
         .unwrap_or(&[])
-        .chunks_exact(4)
-        .map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|w| u32::from_le_bytes(*w))
         .filter(|v| matches!(v & 0xf, 0 | 2 | 3 | 7 | 8))
         .map(|v| i64::from(v >> 4))
         .sum();
