@@ -8,7 +8,7 @@
 //! Run: `cargo bench -p gloci-engine --bench index`. D40's rule: a crate
 //! replaces the incumbent only if it is at least 1.2x faster on both sets.
 
-use coitrees::{COITree, Interval as CoiInterval, IntervalTree};
+use coitrees::{COITree, GenericInterval, Interval as CoiInterval, IntervalTree};
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -126,7 +126,7 @@ fn run_queries(name: &str, ix: &Indexes, queries: &[(u64, u64)], buf: &mut Vec<u
         match name {
             "coitrees" => ix
                 .coitrees
-                .query(s as i32, e as i32 - 1, |n| buf.push(*n.metadata)),
+                .query(s as i32, e as i32 - 1, |n| buf.push(*n.metadata())),
             "superintervals" => ix.superintervals.search_values(s as i32, e as i32 - 1, buf),
             "rust-lapper" => buf.extend(ix.lapper.find(s, e).map(|iv| iv.val)),
             _ => unreachable!(),
