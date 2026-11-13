@@ -508,7 +508,7 @@ reference = "bedtools intersect -sorted -a input.bed -b rel-b.bed -wa -wb -f 0.5
 compare = "exact"
 
 [[case]]
-name = "intersect-F-vs-bedtools"
+name = "intersect-fraction-of-b-vs-bedtools"
 input = { file = "xtask/diff/inputs/rel-a.bed" }
 aux = ["xtask/diff/inputs/rel-b.bed"]
 gloci = "gloci intersect --chrom-order lex -a input.bed -b rel-b.bed --mode pairs -F 0.5"
@@ -540,7 +540,7 @@ reference = "bedtools intersect -sorted -a input.bed -b rel-b.bed -wa -wb -s"
 compare = "exact"
 
 [[case]]
-name = "intersect-S-vs-bedtools"
+name = "intersect-opposite-strand-vs-bedtools"
 input = { file = "xtask/diff/inputs/rel-a.bed" }
 aux = ["xtask/diff/inputs/rel-b.bed"]
 gloci = "gloci intersect --chrom-order lex -a input.bed -b rel-b.bed --mode pairs -S"
@@ -4855,7 +4855,7 @@ reference = "bedtools intersect -abam input.bam -b targets6.bed -u -s"
 compare = "bam"
 
 [[case]]
-name = "intersect-bam-u-S-vs-bedtools"
+name = "intersect-bam-u-opposite-strand-vs-bedtools"
 input = { file = "xtask/diff/inputs/aln/order.bam" }
 aux = ["xtask/diff/inputs/aln/targets6.bed"]
 gloci = "gloci intersect -a input.bam -b targets6.bed -S -O bam"

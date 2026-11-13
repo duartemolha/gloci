@@ -448,11 +448,19 @@ gloci view FILE -o x.bam --write-index"
                 source,
             };
             let truncate = std::fs::metadata(p).is_ok_and(|m| m.is_file());
-            let file = OpenOptions::new()
+            let mut file = OpenOptions::new()
                 .write(true)
                 .truncate(truncate)
                 .open(p)
                 .map_err(create)?;
+            if truncate {
+                // Linux opens /dev/fd/N as the file it leads to, so the open above truncated
+                // it. macOS duplicates the descriptor instead and ignores the truncation,
+                // which left the old tail of a longer file after the new output: empty it
+                // and start at its beginning, as Linux does.
+                file.set_len(0).map_err(create)?;
+                std::io::Seek::rewind(&mut file).map_err(create)?;
+            }
             refuse_binary_to_tty(file.is_terminal(), f, bgzf || raw)?;
             let w = BufWriter::with_capacity(BUF, file);
             if bgzf {
