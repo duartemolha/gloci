@@ -504,10 +504,11 @@ fn overflow_encodings_and_earlier_info_types_match_the_vcf_text_path() {
     assert_eq!(noodles_records(&bcf_bytes).len(), 7);
 }
 
-/// M15: an Integer INFO whose BCF vector holds zero values renders as
-/// `KEY=.` in VCF text, never as a bare key (which would read as a Flag).
+/// An Integer INFO whose BCF vector holds zero values (htslib never writes one: a missing
+/// value is one missing integer) renders as the bare key, as bcftools 1.21 prints it. It was
+/// `KEY=.` while noodles rendered the text (M15).
 #[test]
-fn zero_length_integer_info_renders_missing() {
+fn zero_length_integer_info_renders_as_bcftools_does() {
     let vcf = b"##fileformat=VCFv4.3\n\
 ##INFO=<ID=XD,Number=.,Type=Integer,Description=\"Depths\">\n\
 ##contig=<ID=chr1,length=1000>\n\
@@ -529,7 +530,7 @@ chr1\t10\t.\tA\tG\t.\t.\tXD=7\n";
     // The record still reads (its footprint does not use XD).
     let recs = strip_raw(read_all(&bytes, bcf(VcfSpan::Ref)).1);
     assert_eq!(recs, [("chr1".to_string(), 9, iv(9, 10))]);
-    // And renders with a missing value, not a bare key.
+    // And renders as bcftools renders it.
     let r = gloci_io::open_reader_from(
         "x.bcf",
         Box::new(Cursor::new(bytes.clone())),
@@ -543,5 +544,5 @@ chr1\t10\t.\tA\tG\t.\t.\tXD=7\n";
     r.read_batch(&mut chroms, &mut batch, 10).unwrap();
     let line = String::from_utf8(text.render(batch.raw(0), 1).unwrap().to_vec()).unwrap();
     let info = line.split('\t').nth(7).unwrap();
-    assert_eq!(info, "XD=.", "{line}");
+    assert_eq!(info, "XD", "{line}");
 }

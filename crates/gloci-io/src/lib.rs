@@ -5,6 +5,7 @@ pub mod atomic;
 pub mod bcf;
 pub mod bcf_encode;
 mod bcf_fields;
+mod bcf_text;
 pub mod bed;
 pub mod bedpe;
 pub mod bgzf_copy;

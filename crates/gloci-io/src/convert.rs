@@ -4,12 +4,15 @@
 //! `##glociCommand` line inserted, never a header serialised by noodles:
 //! noodles drops `IDX=` attributes when it writes a header, although BCF
 //! records are encoded against the IDX-aware dictionaries. noodles is only
-//! used to encode and decode records, against a header parsed from the same
-//! text whose dictionary positions are set from gloci's own dictionaries
-//! (`BcfDicts`), so the header text and the records always agree.
+//! used to encode the fixed part of a record (VCF to BCF), against a header
+//! parsed from the same text whose dictionary positions are set from gloci's
+//! own dictionaries (`BcfDicts`), so the header text and the records always
+//! agree. BCF records are written as VCF text by [`crate::bcf_text`], as
+//! htslib writes them.
 
-use crate::bcf::{BcfDicts, typed, write_bcf_header};
+use crate::bcf::{BcfDicts, write_bcf_header};
 use crate::bcf_fields::{Def, Defs, FieldEncoder, Kind};
+use crate::bcf_text;
 use crate::detect::Format;
 use crate::error::{IoError, Loc};
 use crate::output::{OutFormat, Output};
@@ -90,8 +93,8 @@ enum Encoder {
     /// VCF text records to BCF: noodles encodes into `buf`, with the string
     /// maps of the header.
     ToBcf(noodles_bcf::io::Writer<Vec<u8>>),
-    /// BCF records to VCF text lines.
-    ToVcf(noodles_vcf::io::Writer<Vec<u8>>),
+    /// BCF records to VCF text lines ([`crate::bcf_text`]).
+    ToVcf,
 }
 
 /// Converts the records of batches between VCF and BCF.
@@ -104,8 +107,8 @@ struct Converter {
     /// of the record's INFO and sample columns.
     defs: Defs,
     n_samples: usize,
-    /// String-dictionary index of FORMAT/GT, when declared.
-    gt_key: Option<usize>,
+    /// The dictionaries a BCF record's ids are looked up in.
+    dicts: BcfDicts,
     fields: FieldEncoder,
     /// The record's shared part (without INFO) and its INFO and sample
     /// parts, reused between records.
@@ -113,9 +116,8 @@ struct Converter {
     info: Vec<u8>,
     indiv: Vec<u8>,
     framed: Vec<u8>,
-    widened: Vec<u8>,
-    /// The record with GT moved first, when it was not (noodles' VCF writer needs it there).
-    gt_moved: Vec<u8>,
+    /// The VCF line of the BCF record being converted.
+    line: Vec<u8>,
 }
 
 impl Converter {
@@ -131,7 +133,7 @@ impl Converter {
                 w.get_mut().clear();
                 Encoder::ToBcf(w)
             }
-            _ => Encoder::ToVcf(noodles_vcf::io::Writer::new(Vec::new())),
+            _ => Encoder::ToVcf,
         };
         let dicts = match &h.bcf {
             Some(d) => d.clone(),
@@ -175,7 +177,6 @@ impl Converter {
             }
         }
         let n_samples = header.sample_names().len();
-        let defs_gt = defs.format.get(&b"GT"[..]).map(|d| d.idx);
         Ok(Converter {
             name: name.to_string(),
             from,
@@ -183,14 +184,13 @@ impl Converter {
             enc,
             defs,
             n_samples,
-            gt_key: defs_gt,
+            dicts,
             fields: FieldEncoder::new(name),
             shared: Vec::new(),
             info: Vec::new(),
             indiv: Vec::new(),
             framed: Vec::new(),
-            widened: Vec::new(),
-            gt_moved: Vec::new(),
+            line: Vec::new(),
         })
     }
 
@@ -334,11 +334,6 @@ add ##FILTER=<ID={id},Description=\"...\"> to the header"
             } else {
                 Loc::Line(m.loc)
             };
-            let fail = |e: std::io::Error| IoError::Parse {
-                path: self.name.clone(),
-                loc,
-                msg: convert_failure(&e),
-            };
             let raw = batch.raw(i);
             let werr = |source| IoError::Write {
                 path: "output".to_string(),
@@ -346,32 +341,17 @@ add ##FILTER=<ID={id},Description=\"...\"> to the header"
             };
             match &mut self.enc {
                 Encoder::ToBcf(_) => self.encode_text(raw, loc, out)?,
-                Encoder::ToVcf(w) => {
-                    let mut rec = noodles_bcf::Record::default();
-                    let moved = gt_first(raw, self.gt_key, &mut self.gt_moved).map_err(fail)?;
-                    let raw: &[u8] = if moved.is_some() { &self.gt_moved } else { raw };
-                    let raw =
-                        fill_empty_fields(raw, self.gt_key, &mut self.widened).map_err(fail)?;
-                    noodles_bcf::io::Reader::from(raw)
-                        .read_record(&mut rec)
-                        .map_err(fail)?;
-                    w.write_variant_record(&self.header, &rec).map_err(fail)?;
-                    let line = w.get_mut();
-                    if let Some(p) = moved {
-                        restore_gt_position(line, p);
-                    }
-                    if line.contains(&b'%') {
-                        let had_eol = line.last() == Some(&b'\n');
-                        if had_eol {
-                            line.pop();
+                Encoder::ToVcf => {
+                    self.line.clear();
+                    bcf_text::write_vcf_line(raw, &self.dicts, &mut self.line).map_err(|e| {
+                        IoError::Parse {
+                            path: self.name.clone(),
+                            loc,
+                            msg: render_failure(&e),
                         }
-                        tidy_line(line);
-                        if had_eol {
-                            line.push(b'\n');
-                        }
-                    }
-                    out.write_all(w.get_ref()).map_err(werr)?;
-                    w.get_mut().clear();
+                    })?;
+                    self.line.push(b'\n');
+                    out.write_all(&self.line).map_err(werr)?;
                 }
             }
         }
@@ -413,304 +393,31 @@ impl BcfText {
     /// The VCF line of the BCF record `raw` (record number `loc`), without
     /// a newline. Valid until the next call.
     pub fn render(&mut self, raw: &[u8], loc: u64) -> Result<&[u8], IoError> {
-        let fail = |e: std::io::Error| IoError::Parse {
-            path: self.name.clone(),
-            loc: Loc::Record(loc),
-            msg: format!("cannot render the record as VCF text: {e}"),
-        };
-        let Encoder::ToVcf(w) = &mut self.conv.enc else {
-            return Err(internal(
-                &self.name,
-                "internal error: not a BCF renderer".into(),
-            ));
-        };
-        let mut rec = noodles_bcf::Record::default();
-        let moved = gt_first(raw, self.conv.gt_key, &mut self.conv.gt_moved).map_err(fail)?;
-        let raw: &[u8] = if moved.is_some() {
-            &self.conv.gt_moved
-        } else {
-            raw
-        };
-        let raw = fill_empty_fields(raw, self.conv.gt_key, &mut self.conv.widened).map_err(fail)?;
-        noodles_bcf::io::Reader::from(raw)
-            .read_record(&mut rec)
-            .map_err(fail)?;
-        w.write_variant_record(&self.conv.header, &rec)
-            .map_err(fail)?;
         self.line.clear();
-        self.line.extend_from_slice(w.get_ref());
-        w.get_mut().clear();
-        while self.line.last() == Some(&b'\n') {
-            self.line.pop();
-        }
-        if let Some(p) = moved {
-            restore_gt_position(&mut self.line, p);
-        }
-        tidy_line(&mut self.line);
+        bcf_text::write_vcf_line(raw, &self.conv.dicts, &mut self.line).map_err(|e| {
+            IoError::Parse {
+                path: self.name.clone(),
+                loc: Loc::Record(loc),
+                msg: format!("cannot render the record as VCF text: {e}"),
+            }
+        })?;
         Ok(&self.line)
     }
 }
 
-/// The message for a record that failed to convert: the declared-in-the-header
-/// hint fits every cause but an unsupported one (the 16-bit GT).
+/// The message for a text record that failed to encode as BCF.
 fn convert_failure(e: &std::io::Error) -> String {
-    if e.kind() == std::io::ErrorKind::Unsupported {
-        format!("cannot convert the record: {e}")
-    } else {
-        format!(
-            "cannot convert the record: {e}; check that every contig, INFO, FILTER and FORMAT field it uses is declared in the header"
-        )
-    }
+    format!(
+        "cannot convert the record: {e}; check that every contig, INFO, FILTER and FORMAT field it uses is declared in the header"
+    )
 }
 
-/// Stands for an empty String value while noodles decodes the record.
-const EMPTY_CELL: u8 = 0x01;
-
-/// Undoes what noodles' VCF writer does to two values: the INFO string `.`
-/// (written `%2E`, though it is the missing value) and the empty-value
-/// placeholder of `fill_empty_fields` (written `%01`), a whole sample cell
-/// that bcftools prints as nothing.
-fn tidy_line(line: &mut Vec<u8>) {
-    if !line.contains(&b'%') {
-        return;
-    }
-    let mut out = Vec::with_capacity(line.len());
-    for (i, col) in line.split(|&b| b == b'\t').enumerate() {
-        if i > 0 {
-            out.push(b'\t');
-        }
-        if i == 7 {
-            for (j, item) in col.split(|&b| b == b';').enumerate() {
-                if j > 0 {
-                    out.push(b';');
-                }
-                match item.strip_suffix(b"=%2E") {
-                    Some(key) => {
-                        out.extend_from_slice(key);
-                        out.extend_from_slice(b"=.");
-                    }
-                    None => out.extend_from_slice(item),
-                }
-            }
-        } else if i >= 9 {
-            for (j, cell) in col.split(|&b| b == b':').enumerate() {
-                if j > 0 {
-                    out.push(b':');
-                }
-                if cell != b"%01" {
-                    out.extend_from_slice(cell);
-                }
-            }
-        } else {
-            out.extend_from_slice(col);
-        }
-    }
-    *line = out;
-}
-
-/// htslib writes a FORMAT key that no sample has a value for (every sample
-/// cut short before it) as a zero-width field, which noodles cannot decode, and an empty String value
-/// as NULs, which it refuses. Returns `raw` with each zero-width field
-/// replaced by one missing value per sample and each empty value by `.`
-/// (written to `buf`), or `raw` itself when there is none.
-fn fill_empty_fields<'a>(
-    raw: &'a [u8],
-    gt_key: Option<usize>,
-    buf: &'a mut Vec<u8>,
-) -> std::io::Result<&'a [u8]> {
-    let bad = || std::io::Error::new(std::io::ErrorKind::InvalidData, "malformed BCF record");
-    let u32_at = |at: usize| -> std::io::Result<usize> {
-        raw.get(at..at + 4)
-            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize)
-            .ok_or_else(bad)
-    };
-    let (l_shared, l_indiv) = (u32_at(0)?, u32_at(4)?);
-    let indiv_at = 8 + l_shared;
-    let n_fmt = u32_at(8 + 20)? >> 24;
-    let n_samples = u32_at(8 + 20)? & 0x00ff_ffff;
-    let indiv = raw.get(indiv_at..indiv_at + l_indiv).ok_or_else(bad)?;
-    let mut cur = indiv;
-    let mut body: Option<Vec<u8>> = None;
-    for _ in 0..n_fmt {
-        let start = indiv.len() - cur.len();
-        let key = typed::read(&mut cur).map_err(|_| bad())?;
-        let is_gt = matches!(key.int(0), Some(typed::Int::Value(v)) if Some(v as usize) == gt_key);
-        let desc = indiv.len() - cur.len();
-        let (ty, n) = typed::read_descriptor(&mut cur).map_err(|_| bad())?;
-        if is_gt && matches!(ty, typed::Ty::Int16 | typed::Ty::Int32) {
-            // noodles-bcf panics on a GT wider than 8 bits.
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "the genotype uses an allele index of 63 or more (a 16-bit GT), which gloci \
-cannot render as VCF text; `gloci vcf stats` reads such a record",
-            ));
-        }
-        let len = n
-            .checked_mul(ty.width())
-            .and_then(|l| l.checked_mul(n_samples))
-            .filter(|&l| l <= cur.len())
-            .ok_or_else(bad)?;
-        cur = &cur[len..];
-        let end = indiv.len() - cur.len();
-        if n == 0 && n_samples > 0 {
-            let b = body.get_or_insert_with(|| indiv[..start].to_vec());
-            b.extend_from_slice(&indiv[start..desc]);
-            // One missing value per sample, of the type the field has (GT and
-            // the others are decoded by their declared type).
-            match ty {
-                typed::Ty::Char => {
-                    b.push(0x17);
-                    b.extend(std::iter::repeat_n(b'.', n_samples));
-                }
-                typed::Ty::Float => {
-                    b.push(0x15);
-                    for _ in 0..n_samples {
-                        b.extend_from_slice(&0x7F80_0001u32.to_le_bytes());
-                    }
-                }
-                // GT: the missing allele (a GT field is never zero-width
-                // for any other type).
-                typed::Ty::Missing => {
-                    b.push(0x11);
-                    b.extend(std::iter::repeat_n(0, n_samples));
-                }
-                _ => {
-                    b.push(0x11);
-                    b.extend(std::iter::repeat_n(0x80, n_samples));
-                }
-            }
-        } else if is_gt
-            && ty == typed::Ty::Int8
-            && n > 0
-            && indiv[end - n * n_samples..end]
-                .chunks(n)
-                .any(|c| c[0] == 0x80)
-        {
-            // A sample cut short before its GT has the integer-missing value
-            // there; noodles reads it as an allele, so it is made the
-            // missing allele.
-            let b = body.get_or_insert_with(|| indiv[..start].to_vec());
-            b.extend_from_slice(&indiv[start..end]);
-            let at = b.len() - n * n_samples;
-            for cell in b[at..].chunks_mut(n) {
-                if cell[0] == 0x80 {
-                    cell[0] = 0;
-                }
-            }
-        } else if ty == typed::Ty::Char
-            && n > 0
-            && indiv[end - n * n_samples..end]
-                .chunks(n)
-                .any(|c| c.iter().all(|&b| b == 0))
-        {
-            // An empty string is all NULs, which noodles refuses; it decodes
-            // a placeholder that `tidy_line` turns back into an empty value.
-            let b = body.get_or_insert_with(|| indiv[..start].to_vec());
-            b.extend_from_slice(&indiv[start..end]);
-            let at = b.len() - n * n_samples;
-            for cell in b[at..].chunks_mut(n) {
-                if cell.iter().all(|&x| x == 0) {
-                    cell[0] = EMPTY_CELL;
-                }
-            }
-        } else if let Some(b) = body.as_mut() {
-            b.extend_from_slice(&indiv[start..end]);
-        }
-    }
-    let Some(body) = body else {
-        return Ok(raw);
-    };
-    buf.clear();
-    buf.extend_from_slice(&raw[..4]);
-    buf.extend_from_slice(&(body.len() as u32).to_le_bytes());
-    buf.extend_from_slice(&raw[8..indiv_at]);
-    buf.extend_from_slice(&body);
-    Ok(buf)
-}
-
-/// When GT is a FORMAT field of the BCF record `raw` but not the first, write
-/// the record to `buf` with GT first, which noodles' VCF writer insists on,
-/// and return GT's original position (see [`restore_gt_position`]).
-fn gt_first(
-    raw: &[u8],
-    gt_key: Option<usize>,
-    buf: &mut Vec<u8>,
-) -> std::io::Result<Option<usize>> {
-    let bad = || std::io::Error::new(std::io::ErrorKind::InvalidData, "malformed BCF record");
-    let Some(gt_key) = gt_key else {
-        return Ok(None);
-    };
-    let u32_at = |at: usize| -> std::io::Result<usize> {
-        raw.get(at..at + 4)
-            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize)
-            .ok_or_else(bad)
-    };
-    let (l_shared, l_indiv) = (u32_at(0)?, u32_at(4)?);
-    let indiv_at = 8 + l_shared;
-    let n_fmt = u32_at(8 + 20)? >> 24;
-    let n_samples = u32_at(8 + 20)? & 0x00ff_ffff;
-    let indiv = raw.get(indiv_at..indiv_at + l_indiv).ok_or_else(bad)?;
-    let mut cur = indiv;
-    let mut blocks: Vec<(usize, usize)> = Vec::new();
-    let mut gt_at = None;
-    for k in 0..n_fmt {
-        let start = indiv.len() - cur.len();
-        let key = typed::read(&mut cur).map_err(|_| bad())?;
-        if matches!(key.int(0), Some(typed::Int::Value(v)) if v as usize == gt_key) {
-            gt_at = Some(k);
-        }
-        let (ty, n) = typed::read_descriptor(&mut cur).map_err(|_| bad())?;
-        let len = n
-            .checked_mul(ty.width())
-            .and_then(|l| l.checked_mul(n_samples))
-            .filter(|&l| l <= cur.len())
-            .ok_or_else(bad)?;
-        cur = &cur[len..];
-        blocks.push((start, indiv.len() - cur.len()));
-    }
-    let Some(p) = gt_at.filter(|&p| p > 0) else {
-        return Ok(None);
-    };
-    buf.clear();
-    buf.extend_from_slice(&raw[..indiv_at]);
-    buf.extend_from_slice(&indiv[blocks[p].0..blocks[p].1]);
-    for (k, &(a, b)) in blocks.iter().enumerate() {
-        if k != p {
-            buf.extend_from_slice(&indiv[a..b]);
-        }
-    }
-    buf.extend_from_slice(&indiv[blocks.last().map_or(0, |b| b.1)..]);
-    Ok(Some(p))
-}
-
-/// Put the first `:` field of the FORMAT column and of every sample back at
-/// index `p` (GT was moved first by [`gt_first`]) in the VCF line `line`.
-fn restore_gt_position(line: &mut Vec<u8>, p: usize) {
-    let had_eol = line.last() == Some(&b'\n');
-    let body_end = line.len() - usize::from(had_eol);
-    let mut out = Vec::with_capacity(line.len());
-    for (i, col) in line[..body_end].split(|&b| b == b'\t').enumerate() {
-        if i > 0 {
-            out.push(b'\t');
-        }
-        if i < 8 {
-            out.extend_from_slice(col);
-            continue;
-        }
-        let mut fields: Vec<&[u8]> = col.split(|&b| b == b':').collect();
-        let first = fields.remove(0);
-        fields.insert(p.min(fields.len()), first);
-        for (k, f) in fields.iter().enumerate() {
-            if k > 0 {
-                out.push(b':');
-            }
-            out.extend_from_slice(f);
-        }
-    }
-    if had_eol {
-        out.push(b'\n');
-    }
-    *line = out;
+/// The message for a BCF record that cannot be written as VCF text: one cut short, or one
+/// with an id its header does not have.
+fn render_failure(e: &str) -> String {
+    format!(
+        "cannot convert the record: {e}; check that every contig, INFO, FILTER and FORMAT field it uses is declared in the header"
+    )
 }
 
 /// The first FILTER of the text record `raw` that the header does not

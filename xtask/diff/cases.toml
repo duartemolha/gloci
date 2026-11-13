@@ -1383,7 +1383,7 @@ input = { file = "xtask/diff/inputs/cov-a.bed" }
 aux = ["xtask/diff/inputs/cov-b.bed"]
 gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-b.bed"
 reference = "bedtools coverage -a input.bed -b cov-b.bed"
-compare = "numeric"
+compare = "exact"
 
 [[case]]
 name = "coverage-hist-vs-bedtools"
@@ -1391,7 +1391,7 @@ input = { file = "xtask/diff/inputs/cov-a.bed" }
 aux = ["xtask/diff/inputs/cov-b.bed"]
 gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-b.bed --hist"
 reference = "bedtools coverage -a input.bed -b cov-b.bed -hist"
-compare = "numeric"
+compare = "exact"
 
 [[case]]
 name = "coverage-per-base-vs-bedtools"
@@ -1399,7 +1399,7 @@ input = { file = "xtask/diff/inputs/cov-a.bed" }
 aux = ["xtask/diff/inputs/cov-b.bed"]
 gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-b.bed --per-base"
 reference = "bedtools coverage -a input.bed -b cov-b.bed -d"
-compare = "numeric"
+compare = "exact"
 
 [[case]]
 name = "coverage-mean-vs-bedtools"
@@ -1407,7 +1407,7 @@ input = { file = "xtask/diff/inputs/cov-a.bed" }
 aux = ["xtask/diff/inputs/cov-b.bed"]
 gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-b.bed --mean"
 reference = "bedtools coverage -a input.bed -b cov-b.bed -mean"
-compare = "numeric"
+compare = "exact"
 
 [[case]]
 name = "coverage-same-strand-vs-bedtools"
@@ -1415,7 +1415,7 @@ input = { file = "xtask/diff/inputs/cov-a.bed" }
 aux = ["xtask/diff/inputs/cov-b.bed"]
 gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-b.bed -s"
 reference = "bedtools coverage -a input.bed -b cov-b.bed -s"
-compare = "numeric"
+compare = "exact"
 
 [[case]]
 name = "coverage-fraction-vs-bedtools"
@@ -1423,7 +1423,7 @@ input = { file = "xtask/diff/inputs/cov-a.bed" }
 aux = ["xtask/diff/inputs/cov-b.bed"]
 gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-b.bed -f 0.5"
 reference = "bedtools coverage -a input.bed -b cov-b.bed -f 0.5"
-compare = "numeric"
+compare = "exact"
 
 # bedtools annotate prints one covered fraction per file, as coverage with several -b does.
 [[case]]
@@ -1432,7 +1432,7 @@ input = { file = "xtask/diff/inputs/cov-a.bed" }
 aux = ["xtask/diff/inputs/cov-b.bed", "xtask/diff/inputs/cov-b2.bed"]
 gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-b.bed cov-b2.bed"
 reference = "bedtools annotate -i input.bed -files cov-b.bed cov-b2.bed"
-compare = "numeric"
+compare = "exact"
 
 # A point has no bases. gloci reports its overlapping B with 0 bases, length 0 and
 # fraction `.`; bedtools treats it as 2 bases long (D56). `-d`, `-hist` and `-mean` differ too.
@@ -1442,7 +1442,7 @@ input = { file = "xtask/diff/inputs/cov-points-a.bed" }
 aux = ["xtask/diff/inputs/cov-points-b.bed"]
 gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-points-b.bed"
 reference = "bedtools coverage -a input.bed -b cov-points-b.bed"
-compare = "numeric"
+compare = "exact"
 expected_difference = "#coverage-point"
 
 [[case]]
@@ -1451,7 +1451,7 @@ input = { file = "xtask/diff/inputs/cov-points-a.bed" }
 aux = ["xtask/diff/inputs/cov-points-b.bed"]
 gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-points-b.bed --hist"
 reference = "bedtools coverage -a input.bed -b cov-points-b.bed -hist"
-compare = "numeric"
+compare = "exact"
 expected_difference = "#coverage-point"
 
 [[case]]
@@ -1460,7 +1460,7 @@ input = { file = "xtask/diff/inputs/cov-points-a.bed" }
 aux = ["xtask/diff/inputs/cov-points-b.bed"]
 gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-points-b.bed --per-base"
 reference = "bedtools coverage -a input.bed -b cov-points-b.bed -d"
-compare = "numeric"
+compare = "exact"
 expected_difference = "#coverage-point"
 
 [[case]]
@@ -1469,7 +1469,7 @@ input = { file = "xtask/diff/inputs/cov-points-a.bed" }
 aux = ["xtask/diff/inputs/cov-points-b.bed"]
 gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-points-b.bed --mean"
 reference = "bedtools coverage -a input.bed -b cov-points-b.bed -mean"
-compare = "numeric"
+compare = "exact"
 expected_difference = "#coverage-point"
 
 # With --split A's length is the sum of its blocks; bedtools divides by A's whole span.
@@ -1479,7 +1479,7 @@ input = { file = "xtask/diff/inputs/cov-split-a.bed" }
 aux = ["xtask/diff/inputs/cov-split-b.bed"]
 gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-split-b.bed --split"
 reference = "bedtools coverage -a input.bed -b cov-split-b.bed -split"
-compare = "numeric"
+compare = "exact"
 expected_difference = "#coverage-split-length"
 
 [[case]]
@@ -1488,7 +1488,7 @@ input = { file = "xtask/diff/inputs/cov-split-a.bed" }
 aux = ["xtask/diff/inputs/cov-split-b.bed"]
 gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-split-b.bed --split --hist"
 reference = "bedtools coverage -a input.bed -b cov-split-b.bed -split -hist"
-compare = "numeric"
+compare = "exact"
 expected_difference = "#coverage-split-length"
 
 # `bedtools coverage -d -split` ignores -split (A and B are whole spans, offsets
@@ -1499,7 +1499,7 @@ input = { file = "xtask/diff/inputs/cov-split-a.bed" }
 aux = ["xtask/diff/inputs/cov-split-b.bed"]
 gloci = "gloci coverage --chrom-order lex -a input.bed -b cov-split-b.bed --split --per-base"
 reference = "bedtools coverage -a input.bed -b cov-split-b.bed -split -d"
-compare = "numeric"
+compare = "exact"
 expected_difference = "#coverage-split-length"
 
 # complement (Task 16): comp-in.bed is sorted in comp.genome order (chr1, chr2,
@@ -4942,7 +4942,7 @@ input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
 aux = ["xtask/diff/inputs/aln/relate-cigars-cov.bed"]
 gloci = "gloci coverage -a relate-cigars-cov.bed -b input.bam"
 reference = "bedtools coverage -a relate-cigars-cov.bed -b input.bam"
-compare = "numeric"
+compare = "exact"
 
 [[case]]
 name = "coverage-bed-bam-split-vs-bedtools"
@@ -4950,7 +4950,7 @@ input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
 aux = ["xtask/diff/inputs/aln/relate-cigars-cov.bed"]
 gloci = "gloci coverage -a relate-cigars-cov.bed -b input.bam --split"
 reference = "bedtools coverage -a relate-cigars-cov.bed -b input.bam -split"
-compare = "numeric"
+compare = "exact"
 
 [[case]]
 name = "coverage-bed-bam-hist-vs-bedtools"
@@ -4958,7 +4958,7 @@ input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
 aux = ["xtask/diff/inputs/aln/relate-cigars-cov.bed"]
 gloci = "gloci coverage -a relate-cigars-cov.bed -b input.bam --hist"
 reference = "bedtools coverage -a relate-cigars-cov.bed -b input.bam -hist"
-compare = "numeric"
+compare = "exact"
 
 [[case]]
 name = "coverage-bed-bam-mean-vs-bedtools"
@@ -4966,7 +4966,7 @@ input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
 aux = ["xtask/diff/inputs/aln/relate-cigars-cov.bed"]
 gloci = "gloci coverage -a relate-cigars-cov.bed -b input.bam --mean"
 reference = "bedtools coverage -a relate-cigars-cov.bed -b input.bam -mean"
-compare = "numeric"
+compare = "exact"
 
 [[case]]
 name = "coverage-bed-bam-d-vs-bedtools"
@@ -4974,7 +4974,7 @@ input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
 aux = ["xtask/diff/inputs/aln/relate-cigars-cov.bed"]
 gloci = "gloci coverage -a relate-cigars-cov.bed -b input.bam --per-base"
 reference = "bedtools coverage -a relate-cigars-cov.bed -b input.bam -d"
-compare = "numeric"
+compare = "exact"
 
 [[case]]
 name = "intersect-bed-bam-loj-vs-bedtools"
@@ -5000,7 +5000,7 @@ input = { file = "xtask/diff/inputs/aln/cigars-bases.bam" }
 aux = ["xtask/diff/inputs/aln/split-count.bed"]
 gloci = "gloci coverage -a split-count.bed -b input.bam --split"
 reference = "bedtools coverage -a split-count.bed -b input.bam -split"
-compare = "numeric"
+compare = "exact"
 expected_difference = "#coverage-split-count"
 
 # bedtools decides `-f` under `-split` for all the hits of an A together, not hit by hit:
@@ -7403,7 +7403,7 @@ input = { file = "xtask/diff/inputs/aln/many.cram" }
 aux = ["xtask/diff/inputs/fa/ref.fa", "xtask/diff/inputs/fa/ref.fa.fai", "xtask/diff/inputs/aln/many-targets.bed"]
 gloci = "gloci coverage -a many-targets.bed -b input.cram --reference ref.fa"
 reference = "samtools view -b -T ref.fa --input-fmt-option decode_md=0 -o d.bam input.cram && bedtools coverage -a many-targets.bed -b d.bam"
-compare = "numeric"
+compare = "exact"
 
 [[case]]
 name = "genomecov-cram-split-deletions-vs-bedtools"
@@ -8575,6 +8575,17 @@ compare = "exact"
 name = "view-bcf-to-vcf-header-vs-bcftools"
 input = { file = "xtask/diff/inputs/samtools/hdr-pass.bcf" }
 gloci = "gloci view -O vcf input.bcf"
+reference = "bcftools view -O v input.bcf"
+compare = "vcf"
+
+# Every value of a BCF record as text: strings as stored (a `,`, `=` or `%` in them
+# stays), numbers in htslib's notation, short and missing vectors, every integer width, a
+# 16-bit genotype, and a sample cut short before its GT (`-65` in htslib). The input is
+# crates/gloci/tests/bcf-text-parity/input.bcf (see the README there).
+[[case]]
+name = "view-bcf-to-vcf-values-vs-bcftools"
+input = { file = "xtask/diff/inputs/bcf-text.bcf" }
+gloci = "gloci view -O vcf --vcf-span ref input.bcf"
 reference = "bcftools view -O v input.bcf"
 compare = "vcf"
 
