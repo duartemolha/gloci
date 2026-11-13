@@ -46,7 +46,14 @@ RUN micromamba install -y -n base -c conda-forge -c bioconda plink2=2.0.0a.6.9 \
 # Python 3.12 for the Python library benchmarks (D96): its own step, so a solver
 # conflict with the tools above cannot take them down. The bench runner skips the
 # Python cases' tools when `python3` cannot import them.
-RUN micromamba install -y -n base -c conda-forge python=3.12 pip \
+# pip has a floor: on x86_64 a step above brings Python 3.6 with pip 21.3.1, and
+# the solver kept that pip when it moved Python to 3.12, where it cannot start
+# (`pkgutil.ImpImporter` is gone). Every `pip install` below was then skipped and
+# the runner's install of the gloci wheel failed, which stopped the nightly
+# benchmark job before its first case. The step runs pip once so that a pip that
+# cannot start shows here.
+RUN micromamba install -y -n base -c conda-forge python=3.12 'pip>=24' \
+    && micromamba run -n base python -m pip --version \
     && micromamba clean --all --yes \
     || echo "skipped: python not installed (micromamba install python=3.12 failed); the Python benchmark columns will be empty"
 
