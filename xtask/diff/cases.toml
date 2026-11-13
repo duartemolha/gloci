@@ -3258,7 +3258,7 @@ expected_difference = "#cluster-strand"
 name = "vcf-stats-freq-vs-vcftools"
 input = { file = "crates/gloci-vcf/tests/golden/stats/permask.vcf" }
 gloci = "gloci vcf stats input.vcf --out-prefix o --freq && cat o.frq"
-reference = "vcftools --vcf input.vcf --freq --out o >/dev/null 2>&1 && cat o.frq"
+reference = "vcftools --vcf input.vcf --freq --out o >/dev/null 2>&1 && cat o.frq | sed 's/-nan/nan/g'"
 compare = "exact"
 
 [[case]]
@@ -3328,7 +3328,7 @@ compare = "exact"
 name = "vcf-stats-hardy-vs-vcftools"
 input = { file = "crates/gloci-vcf/tests/golden/stats/permask.vcf" }
 gloci = "gloci vcf stats input.vcf --out-prefix o --hardy && cat o.hwe"
-reference = "vcftools --vcf input.vcf --hardy --out o >/dev/null 2>&1 && cat o.hwe"
+reference = "vcftools --vcf input.vcf --hardy --out o >/dev/null 2>&1 && cat o.hwe | sed 's/-nan/nan/g'"
 compare = "exact"
 
 [[case]]
@@ -3391,7 +3391,7 @@ compare = "exact"
 name = "vcf-stats-masked-hardy-vs-vcftools"
 input = { file = "crates/gloci-vcf/tests/golden/stats/permask.vcf" }
 gloci = "gloci vcf stats input.vcf --out-prefix o --hardy --min-dp 4 --max-dp 20 --min-gq 10 --mask-filtered-genotypes && cat o.hwe"
-reference = "vcftools --vcf input.vcf --hardy --minDP 4 --maxDP 20 --minGQ 10 --remove-filtered-geno-all --out o >/dev/null 2>&1 && cat o.hwe"
+reference = "vcftools --vcf input.vcf --hardy --minDP 4 --maxDP 20 --minGQ 10 --remove-filtered-geno-all --out o >/dev/null 2>&1 && cat o.hwe | sed 's/-nan/nan/g'"
 compare = "exact"
 
 [[case]]

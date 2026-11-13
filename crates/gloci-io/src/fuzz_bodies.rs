@@ -134,6 +134,29 @@ pub fn read_aln_source(data: &[u8], format: Format) {
     }
 }
 
+/// Read `data` as a CRAM with no `--reference` (a file with an embedded reference, or written
+/// without one, decodes; any other is an error), through the interval reader and the
+/// every-record source, under both invalid-record policies: gloci's framing and slice checks,
+/// the decode pool, noodles' codecs and the transcoding to BAM bytes are in this path.
+pub fn read_cram(data: &[u8]) {
+    read_all_both(data, Some(Format::Cram));
+    read_aln_source(data, Format::Cram);
+}
+
+/// Index `data` as a FASTA and parse `data` as a `.fai`. An index that was built must
+/// serialise to text that parses back to the same rows.
+pub fn fasta_index(data: &[u8]) {
+    let (_, body) = split_config(data);
+    if let Ok(entries) = crate::build_fai(&mut Cursor::new(body), "fuzz") {
+        let text = crate::fai_bytes(&entries);
+        let back = crate::parse_fai(&text, "fuzz").expect("a built .fai parses");
+        assert_eq!(crate::fai_bytes(&back), text, "a built .fai is stable");
+    }
+    if let Ok(entries) = crate::parse_fai(body, "fuzz") {
+        let _ = crate::fai_bytes(&entries);
+    }
+}
+
 fn split_config(data: &[u8]) -> (u8, &[u8]) {
     match data.split_first() {
         Some((&c, rest)) => (c, rest),

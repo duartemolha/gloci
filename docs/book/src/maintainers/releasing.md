@@ -11,7 +11,8 @@ A push of a `v*` tag runs `.github/workflows/release.yml`:
 1. `cargo xtask release-check --tag <tag>` requires that the tag is `v<workspace version>`, that
    `CHANGELOG.md` has a section for the version, that `CITATION.cff` carries it, and that `LICENSE` exists.
 2. Static musl archives for Linux x86_64 and aarch64 and a macOS arm64 archive, each with the man pages,
-   shell completions, `SKILL.md`, `CHANGELOG.md` and the licence.
+   shell completions, `SKILL.md`, `docs/migration.md`, `docs/differences.md`, `CHANGELOG.md` and the
+   licence.
 3. abi3 wheels (manylinux2014 x86_64 and aarch64, macOS arm64) and an sdist, each smoke-tested on its
    platform (the wheels on the oldest and newest supported CPython).
 4. The GitHub Release: the archives, wheels, `SHA256SUMS`, the notes from the `CHANGELOG.md` section, and

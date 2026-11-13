@@ -556,10 +556,7 @@ pub fn vcf_annotate(
 
     // Records at one position are handled together: the source decides the
     // order they are written in (bcftools' synced reader).
-    loop {
-        let Some((chrom, key)) = file.peek(chroms)? else {
-            break;
-        };
+    while let Some((chrom, key)) = file.peek(chroms)? {
         let mut group = Group {
             chrom,
             key,

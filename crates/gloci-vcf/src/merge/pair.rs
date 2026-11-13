@@ -332,8 +332,7 @@ impl Stager<'_> {
             }
             if found.is_none() && collapse != 0 {
                 // something compatible to make a multiallelic record of
-                for j in 0..n {
-                    let rec = &buf.recs[j];
+                for (j, rec) in buf.recs.iter().enumerate().take(n) {
                     if rec.skip != 0 {
                         continue;
                     }

@@ -586,7 +586,7 @@ pub fn naive_merge(
         }
         close(cur.take(), &mut rows);
     }
-    rows.sort_by(|a, b| (a.0, a.1, a.2, a.3).cmp(&(b.0, b.1, b.2, b.3)));
+    rows.sort_by_key(|a| (a.0, a.1, a.2, a.3));
     rows.into_iter()
         .map(|(_, st, en, _, chrom, n, names)| {
             format!("{chrom}\t{st}\t{en}\t{n}\t{}", names.join(","))

@@ -4,7 +4,9 @@
 //! The first byte of every input is the config byte of `fuzz_bodies`.
 
 use gloci_io::Format;
-use gloci_io::fuzz_bodies::{drain_input, read_all_both, read_bedpe, region_parse};
+use gloci_io::fuzz_bodies::{
+    drain_input, fasta_index, read_all_both, read_bedpe, read_cram, region_parse,
+};
 use gloci_testkit::fixtures::{bgzip, sam_to_bam, vcf_to_bcf};
 use proptest::prelude::*;
 
@@ -336,6 +338,71 @@ fn bam_mutations(base: Vec<u8>) -> impl Strategy<Value = Vec<u8>> {
         })
 }
 
+/// The CRAM seeds of the `cram_reader` fuzz target (reference-free and embedded-reference
+/// fixtures), without their config byte.
+fn cram_seeds() -> Vec<Vec<u8>> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/seeds/cram_reader");
+    let mut names: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    names.sort();
+    assert!(names.len() >= 4, "{} CRAM seeds", names.len());
+    names
+        .iter()
+        .map(|p| std::fs::read(p).unwrap()[1..].to_vec())
+        .collect()
+}
+
+/// A CRAM seed with bytes changed, inserted and cut off. In a normal build most changes stop at
+/// a checksum; the header container, the end-of-file check and the truncations do not.
+fn cram_mutated() -> impl Strategy<Value = Vec<u8>> {
+    prop::sample::select(cram_seeds()).prop_flat_map(|base| {
+        let len = base.len();
+        (
+            prop::collection::vec((0..len, any::<u8>()), 0..6),
+            prop::option::of(0..len),
+            prop::option::of((0..len, bytes())),
+        )
+            .prop_map(move |(flips, trunc, ins)| {
+                let mut d = base.clone();
+                for (i, b) in flips {
+                    d[i] = b;
+                }
+                if let Some((at, extra)) = ins {
+                    d.splice(at..at, extra);
+                }
+                if let Some(t) = trunc {
+                    d.truncate(t.min(d.len()));
+                }
+                d
+            })
+    })
+}
+
+/// FASTA-like text: headers, sequence lines of even and uneven width, CRLF, blank lines.
+fn fasta_text() -> impl Strategy<Value = Vec<u8>> {
+    let line = prop_oneof![
+        3 => "[ACGTNacgtn]{0,24}",
+        2 => ">[a-z0-9_.]{0,8}( [ -~]{0,10})?",
+        1 => Just(String::new()),
+        1 => Just(">".to_string()),
+        1 => "[ -~]{0,12}",
+    ];
+    (
+        prop::collection::vec(line, 0..24),
+        prop_oneof![Just("\n"), Just("\r\n")],
+        any::<bool>(),
+    )
+        .prop_map(|(lines, eol, last)| {
+            let mut d = lines.join(eol).into_bytes();
+            if last {
+                d.extend_from_slice(eol.as_bytes());
+            }
+            d
+        })
+}
+
 /// A SAM header and lines whose fields are mostly well-formed, with mutations.
 fn sam_text() -> impl Strategy<Value = Vec<u8>> {
     let tag = prop_oneof![
@@ -549,6 +616,21 @@ proptest! {
     fn input_never_panics(d in prop_oneof![bytes(), texty()], c in cfg()) {
         drain_input(&with_cfg(c, d.clone()));
         drain_input(&with_cfg(c, bgzip(&d)));
+    }
+
+    #[test]
+    fn mutated_cram(d in cram_mutated(), c in cfg()) {
+        read_cram(&with_cfg(c, d));
+    }
+
+    #[test]
+    fn arbitrary_bytes_as_cram(d in prop_oneof![bytes(), texty()], c in cfg()) {
+        read_cram(&with_cfg(c, d));
+    }
+
+    #[test]
+    fn fasta_index_never_panics(d in prop_oneof![fasta_text(), bytes(), texty()], c in cfg()) {
+        fasta_index(&with_cfg(c, d));
     }
 
     #[test]

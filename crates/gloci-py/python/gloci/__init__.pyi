@@ -220,7 +220,7 @@ class Pipeline:
         Args:
             a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
             b: B: one or more files to relate A to, in the order given (-b x y or -b x -b y)
-            names: Labels for the B files, comma-separated, one per -b (default: the file basenames, spec 5)
+            names: Labels for the B files, comma-separated, one per -b (default: the file basenames)
             b_format: B's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
             mode: What to report: any, none, pairs, clip or count
             overlap_bases: With --mode pairs: add the number of shared bases to each row
@@ -258,7 +258,7 @@ class Pipeline:
             tmp_dir: Directory for temporary files: --sort's, and the spills of per-chromosome runs on indexed and plain files; ignored when nothing spills. It must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
-            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
+            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one: karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
             header: Keep header lines in the output
@@ -316,7 +316,7 @@ class Pipeline:
         Args:
             a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
             b: B: one or more files to relate A to, in the order given (-b x y or -b x -b y)
-            names: Labels for the B files, comma-separated, one per -b (default: the file basenames, spec 5)
+            names: Labels for the B files, comma-separated, one per -b (default: the file basenames)
             b_format: B's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
             whole: Drop an A that has any counting B instead of cutting it
             sum_overlaps: Drop an A when the bases shared with all B (strand rule only) reach -f of A; takes only -f
@@ -348,7 +348,7 @@ class Pipeline:
             tmp_dir: Directory for temporary files: --sort's, and the spills of per-chromosome runs on indexed and plain files; ignored when nothing spills. It must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
-            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
+            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one: karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
             header: Keep header lines in the output
@@ -398,7 +398,7 @@ class Pipeline:
         Args:
             a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
             b: B: one or more files to relate A to, in the order given (-b x y or -b x -b y)
-            names: Labels for the B files, comma-separated, one per -b (default: the file basenames, spec 5)
+            names: Labels for the B files, comma-separated, one per -b (default: the file basenames)
             b_format: B's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
             k: Report the N nearest B (and their ties)
             ties: Among B tied at the N-th distance: keep all, the first or the last
@@ -422,7 +422,7 @@ class Pipeline:
             tmp_dir: Directory for temporary files: --sort's, and the spills of per-chromosome runs on indexed and plain files; ignored when nothing spills. It must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
-            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
+            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one: karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
             header: Keep header lines in the output
@@ -482,7 +482,7 @@ class Pipeline:
         Args:
             a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
             b: B: one or more files to relate A to, in the order given (-b x y or -b x -b y)
-            names: Labels for the B files, comma-separated, one per -b (default: the file basenames, spec 5)
+            names: Labels for the B files, comma-separated, one per -b (default: the file basenames)
             b_format: B's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
             column: Aggregate a column of the overlapping B, such as 5:mean or 0:count (repeatable; commas also separate)
             c: alias of column
@@ -516,7 +516,7 @@ class Pipeline:
             tmp_dir: Directory for temporary files: --sort's, and the spills of per-chromosome runs on indexed and plain files; ignored when nothing spills. It must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
-            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
+            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one: karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
             header: Keep header lines in the output
@@ -574,7 +574,7 @@ class Pipeline:
         Args:
             a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
             b: B: one or more files to relate A to, in the order given (-b x y or -b x -b y)
-            names: Labels for the B files, comma-separated, one per -b (default: the file basenames, spec 5)
+            names: Labels for the B files, comma-separated, one per -b (default: the file basenames)
             b_format: B's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
             hist: One row per depth present in A, then `all` rows with the totals
             per_base: One row per base of A: its 1-based offset and depth
@@ -606,7 +606,7 @@ class Pipeline:
             tmp_dir: Directory for temporary files: --sort's, and the spills of per-chromosome runs on indexed and plain files; ignored when nothing spills. It must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
-            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
+            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one: karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
             header: Keep header lines in the output
@@ -782,7 +782,7 @@ class Pipeline:
             tmp_dir: Directory for temporary files: --sort's, and the spills of per-chromosome runs on indexed and plain files; ignored when nothing spills. It must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
-            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
+            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one: karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
             min_mapq: Skip alignments with a mapping quality below N (BAM, CRAM and SAM input)
@@ -902,7 +902,7 @@ class Pipeline:
             unsorted: Accept inputs in any order and keep A's order in the output; every -b file is held in memory. Cannot be combined with --sort
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
-            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
+            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one: karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
             min_mapq: Skip alignments with a mapping quality below N (BAM, CRAM and SAM input)
@@ -950,7 +950,7 @@ class Pipeline:
             delim: Separator for collapse and distinct lists
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
-            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
+            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one: karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
             format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
@@ -996,7 +996,7 @@ class Pipeline:
             empty: With --bedgraph: the value of a file that does not cover a segment (default 0); also writes the segments no file covers
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
-            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
+            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one: karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
             format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
@@ -1026,7 +1026,7 @@ class Pipeline:
         Args:
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
-            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
+            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one: karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
             format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
@@ -1065,7 +1065,7 @@ class Pipeline:
         Args:
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
-            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
+            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one: karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
             max_mem: Memory budget for sorting, in binary units (K, M, G, T); at least 16M
             tmp_dir: Directory for temporary spill files; it must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
@@ -1096,7 +1096,7 @@ class Pipeline:
 
         Args:
             naive: Copy the BGZF blocks of the inputs without recompressing them. Needs BGZF-compressed VCF files with byte-identical headers (exit 2 otherwise; BCF inputs are not supported) and writes BGZF VCF. The order is checked across files only, from each file's first and last record. The output is the same as without --naive, after decompression (bcftools concat -n)
-            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
+            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one: karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
 
         CLI: gloci vcf concat
@@ -1129,7 +1129,7 @@ class Pipeline:
             f: alias of apply_filters
             filter_logic: What to do with the FILTER of merged records: + (all filters kept, PASS dropped when another filter is set; the default) or x (PASS in any input makes the result PASS)
             F: alias of filter_logic
-            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
+            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one: karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
 
         CLI: gloci vcf merge
         """
@@ -1232,7 +1232,7 @@ class Pipeline:
             assume_sorted: Find regions in an uncompressed BED file without an index by binary search, like bedextract. Fast, but it trusts that the file is sorted (in -g or --chrom-order order) and checks only the chromosome block it reads; on an unsorted file the answer can be incomplete
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
-            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
+            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one: karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             header_only: Write only the header lines
             no_header: Write only the records, without the header
             count: Write the number of records that would be written (regions and read filters applied), as one line, instead of the records; as samtools view -c
@@ -1421,7 +1421,7 @@ class Pipeline:
             s: alias of strand
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
-            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
+            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one: karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
             format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
@@ -1453,7 +1453,7 @@ class Pipeline:
         Args:
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
-            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
+            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one: karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
             format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
@@ -1534,7 +1534,7 @@ class Pipeline:
             require_flags: Keep only alignments that have all of these flags: a number (0x2 or 2) or names such as paired,proper_pair (as samtools view -f)
             exclude_flags: Drop alignments that have any of these flags: a number or names such as unmap,secondary,dup (as samtools view -F)
             reference: The FASTA a CRAM input was made with (bedtools --cram-ref), with its .fai (and .gzi when BGZF). Not needed for a CRAM written without a reference
-            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
+            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one: karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
             format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
@@ -1846,7 +1846,7 @@ class Pipeline:
             mark_sites: Add INFO/TAG as a flag to the records that have a match in --annotations (+TAG, or TAG) or that have none (-TAG); without --annotations every record gets it
             m: alias of mark_sites
             min_overlap: For a BED or FROM,TO annotation file: the fraction of the annotation (ANN), of the record (:VCF) or of both (ANN:VCF) that must overlap
-            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
+            chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one: karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
             skip_invalid: Skip invalid records with a warning instead of failing
 
         CLI: gloci vcf annotate
@@ -2601,7 +2601,7 @@ def vcf_compare(
         vcf_span: Which footprint a VCF record covers, which only matters for --region; the default ref accepts symbolic ALTs without INFO/END
         genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
         g: alias of genome
-        chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one (spec section 4.5): karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
+        chrom_order: Chromosome order when neither -g nor a VCF/BCF header sets one: karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as sort -k1,1, sort-bed and bedtools sort)
         chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
         threads: Number of threads (default: all available cores)
         t: alias of threads

@@ -8,6 +8,10 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+# `--cfg fuzzing` is set by cargo-fuzz (fuzz/): the CRAM framing lets a wrong checksum through under it.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
+
 [dependencies]
 gloci-core.workspace = true
 noodles-bgzf.workspace = true

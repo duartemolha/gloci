@@ -99,6 +99,9 @@ jobs:
           mkdir -p "dist/${STAGE}"
           cp "target/${{ matrix.target }}/release/gloci" "dist/${STAGE}/gloci"
           cp SKILL.md CHANGELOG.md "dist/${STAGE}/"
+          # SKILL.md is an index: the tables and differences it points to travel with it.
+          mkdir -p "dist/${STAGE}/docs"
+          cp docs/migration.md docs/differences.md "dist/${STAGE}/docs/"
           # Man pages and shell completions come from the clap definition.
           cargo run --locked -p xtask -- man --out "dist/${STAGE}/man"
           cargo run --locked -p xtask -- completions --out "dist/${STAGE}/completions"
@@ -396,7 +399,9 @@ jobs:
         run: |
           cd release-assets || exit 1
           # conda-recipes.tar.gz is absent when the render step was skipped (a private repository).
-          sha256sum gloci-*.tar.gz *.whl $(ls conda-recipes.tar.gz 2>/dev/null) > SHA256SUMS
+          files=(gloci-*.tar.gz *.whl)
+          if [ -f conda-recipes.tar.gz ]; then files+=(conda-recipes.tar.gz); fi
+          sha256sum -- "${files[@]}" > SHA256SUMS
           cat SHA256SUMS
       - name: Create GitHub Release
         uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1

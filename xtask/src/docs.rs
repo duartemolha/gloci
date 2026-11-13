@@ -1,5 +1,5 @@
 //! Man page, shell completion, and `SKILL.md` generation.
-use anyhow::{Context, bail};
+use anyhow::Context;
 use clap_complete::Shell;
 use std::fmt::Write as _;
 use std::path::Path;
@@ -107,7 +107,7 @@ const PITFALLS: &str = "\
 - **`sort -n` is by read name and `windows -n` is a window count:** `gloci sort -n x.bam` sorts alignments by natural read name (`-N` by byte order), as `samtools sort -n`/`-N`; `gloci windows -n 10` cuts each interval into 10 windows. `sort -m` is merge, not memory: the memory budget is `--max-mem` (a total, where `samtools sort -m` is per thread). `sort` writes the input's format (SAM for SAM, BAM for BAM and CRAM), where samtools always writes BAM; pass `-O bam`.
 - **BEDPE is never detected:** `pair-intersect` and `pair-pair` read A (and B for `pair-pair`) as BEDPE whatever it looks like, and `gloci shuffle` treats BEDPE as opt-in: pass `--format bedpe`, or the file is shuffled as BED. Make pairs from alignments with `gloci convert x.bam --bedpe` on a name-sorted BAM (`gloci sort -n`).
 - **`vcf compare` matches by alleles unless `--match position`:** the default pairs records at one CHROM and POS that share an ALT allele after trimming; `--match position` pairs by POS and REF as vcftools `--diff` does, so pass it when reproducing vcftools. It is genotype concordance only: vcftools `--diff-site` and `--diff-indv` are `gloci intersect` / `gloci subtract --match alleles` and the `#CHROM` line.
-- **`sample` is not `samples`:** `gloci sample FILE -n N --seed S` draws a random subset of records (bedtools `sample`); `gloci samples` (samtools `samples`, planned for P3c) is a different command. `--seed` reproduces gloci's own output at any `-t`, never bedtools' for the same seed.
+- **`sample` is not `samples`:** `gloci sample FILE -n N --seed S` draws a random subset of records (bedtools `sample`); `gloci samples` (samtools `samples`) lists the samples of read groups. `--seed` reproduces gloci's own output at any `-t`, never bedtools' for the same seed.
 - **`--mode` has no `-m` short flag (and defaults to `any`):** `gloci intersect` defaults to `--mode any` (unique A records with a hit, like `bedtools intersect -u`), not coordinate clipping (`--mode clip`). Always spell `--mode` in full (`--mode any|none|pairs|clip|count`); `-m` is only `gloci sort -m` for merging pre-sorted files.
 - **`depth` and `bedcov` exclude unmapped, secondary, QC-fail and duplicate reads by default:** unlike `coverage` and `genomecov`, which filter nothing, their `--exclude-flags` defaults to `UNMAP,SECONDARY,QCFAIL,DUP` as in samtools; `--exclude-flags 0` counts everything but unmapped reads, and samtools `-g DUP` is `--exclude-flags UNMAP,SECONDARY,QCFAIL`.
 - **`check --quick --list-failed`, not `-v`:** `gloci check --quick --list-failed FILE...` prints only the failing paths (samtools `quickcheck -v`; gloci's `-v` is verbose logging). Any failing file exits 1, not samtools' bit mask; `-u` is `--unaligned` (no `@SQ` needed).
@@ -136,68 +136,76 @@ pub fn examples_of(sub: &clap::Command) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn write_cmd_section(buf: &mut String, heading: &str, full_name: &str, sub: &clap::Command) {
-    let about = sub
-        .get_long_about()
-        .or_else(|| sub.get_about())
-        .map(|s| s.to_string())
-        .unwrap_or_default();
-    let examples = examples_of(sub);
+/// How many examples of a command the guide shows; `--help` has them all.
+const SKILL_EXAMPLES: usize = 2;
 
-    let _ = writeln!(buf, "{heading} `{full_name}`\n");
-    if !about.trim().is_empty() {
-        let _ = writeln!(buf, "{}\n", about.trim());
-    }
+/// One entry of the command list: the name, whether it is experimental, the one-line summary
+/// (which names the tool it replaces) and its first examples.
+fn write_cmd_entry(buf: &mut String, full_name: &str, sub: &clap::Command, experimental: bool) {
+    let about = sub.get_about().map(|s| s.to_string()).unwrap_or_default();
+    let mark = if experimental { " (experimental)" } else { "" };
+    let _ = writeln!(buf, "- `{full_name}`{mark}: {}", about.trim());
+    let examples: Vec<String> = examples_of(sub)
+        .into_iter()
+        .filter(|l| l.starts_with("gloci "))
+        .take(SKILL_EXAMPLES)
+        .map(|l| format!("`{l}`"))
+        .collect();
     if !examples.is_empty() {
-        let _ = writeln!(buf, "```sh");
-        for ex in examples {
-            let _ = writeln!(buf, "{ex}");
-        }
-        let _ = writeln!(buf, "```\n");
+        let _ = writeln!(buf, "  {}", examples.join(" · "));
     }
 }
 
-/// Generate `SKILL.md` from clap help and `docs/migration.md` into `out`.
+const COMMANDS_INTRO: &str = "\
+## Commands
+
+`gloci <command> --help` prints every option, rule and example of a command. Read it before \
+the first use of a command, and do not guess a flag from the tool being replaced: many differ. \
+The names in brackets are the tools a command replaces. Commands marked *experimental* are \
+tested against those tools, but their options and output may still change between releases; \
+the others are the stable core.
+
+";
+
+const DETAILS: &str = "\
+## Where the details are
+
+- `gloci <command> --help`: the full rules of a command (formats, sortedness, memory, threads).
+- `docs/migration.md`: every bedtools, bedops, vcftools, bcftools, tabix and samtools command \
+and flag with its gloci form, and what is not available. It is in the source tree, in the \
+`docs/` directory of a release archive and in the book.
+- `docs/differences.md`: every place where gloci's output intentionally differs from the tool \
+it replaces, with the reason. Read the linked section before reporting a difference as a bug.
+
+";
+
+/// Generate `SKILL.md` from the clap definition into `out`: the semantics, one entry per
+/// command and the pitfalls. It is an index, kept small because an agent loads all of it: the
+/// rules of each command stay in its `--help`, and the old-tool mapping in `docs/migration.md`.
 pub fn generate_skill(out: &Path) -> anyhow::Result<()> {
     let mut buf = String::with_capacity(32 * 1024);
     buf.push_str(FRONT_MATTER_AND_SEMANTICS);
-    buf.push_str("\n## Command reference\n\n");
+    buf.push('\n');
+    buf.push_str(COMMANDS_INTRO);
 
     let root = gloci::command();
     for sub in root.get_subcommands() {
         if sub.get_name() == "help" {
             continue;
         }
+        let experimental = !gloci::is_core(sub.get_name());
         let full = format!("gloci {}", sub.get_name());
-        write_cmd_section(&mut buf, "###", &full, sub);
+        write_cmd_entry(&mut buf, &full, sub, experimental);
         for nested in sub.get_subcommands() {
             if nested.get_name() == "help" {
                 continue;
             }
             let nested_full = format!("{full} {}", nested.get_name());
-            write_cmd_section(&mut buf, "####", &nested_full, nested);
+            write_cmd_entry(&mut buf, &nested_full, nested, experimental);
         }
     }
-
-    let migration_path = crate::diff::workspace_root().join("docs/migration.md");
-    let migration = std::fs::read_to_string(&migration_path)
-        .with_context(|| format!("reading {}", migration_path.display()))?;
-    let Some((_, after_heading)) = migration.split_once("## Command mapping\n") else {
-        bail!(
-            "{}: missing '## Command mapping' heading",
-            migration_path.display()
-        );
-    };
-    let Some((tables, _)) = after_heading.split_once("\n## Other behaviour changes") else {
-        bail!(
-            "{}: missing '## Other behaviour changes' heading",
-            migration_path.display()
-        );
-    };
-
-    buf.push_str("## Migration tables\n\n");
-    buf.push_str(tables.trim());
-    buf.push_str("\n\n");
+    buf.push('\n');
+    buf.push_str(DETAILS);
     buf.push_str(PITFALLS);
 
     if let Some(parent) = out.parent()

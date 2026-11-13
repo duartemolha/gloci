@@ -21,6 +21,27 @@ pub struct Ctx {
     pub version: &'static str,
 }
 
+/// The stable core: the commands whose options and output change only with a version bump and a
+/// `CHANGELOG.md` entry. Every other command is experimental and says so at the top of its help
+/// ([`cli::EXPERIMENTAL`]). To promote a command, add it here and take the marker off its variant
+/// in `cli.rs`; `docs/book/src/stability.md` lists what promotion asks for.
+pub const CORE_COMMANDS: &[&str] = &[
+    "genomes",
+    "index",
+    "sort",
+    "view",
+    "intersect",
+    "merge",
+    "subtract",
+    "closest",
+    "coverage",
+];
+
+/// Is `name` (a top-level command) in the stable core?
+pub fn is_core(name: &str) -> bool {
+    CORE_COMMANDS.contains(&name)
+}
+
 /// The clap command tree (used by xtask for man pages and completions).
 pub fn command() -> clap::Command {
     Cli::command()
