@@ -40,7 +40,7 @@ const CHUNK: usize = 256 << 10;
 const CHUNKS: usize = 4;
 /// The most a pump reads from its Python object in one turn of the driver loop (R4).
 pub(crate) const TURN_BYTES: usize = 1 << 20;
-/// How often a read parked on an empty channel looks at the run's cancel token.
+/// How often a read parked on an empty channel checks the run's token for a cancel.
 const POLL: Duration = Duration::from_millis(20);
 
 /// What kind of Python object a source is (`classify_source` in `gloci._pipeline`).
@@ -120,7 +120,7 @@ pub(crate) struct SourceReader {
     cur: Vec<u8>,
     pos: usize,
     shared: Arc<Shared>,
-    /// The run's cancel token, as the reading thread has it (taken at the first read).
+    /// The run's token, as the reading thread has it (taken at the first read).
     watch: Option<Watch>,
     eof: bool,
 }

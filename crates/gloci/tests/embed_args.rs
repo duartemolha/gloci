@@ -4,7 +4,7 @@ use gloci::embed::{
     self, Bind, ExecOptions, KwValue, Outcome, Role, kwargs_to_argv, kwargs_to_argv_as,
     rewrite_flags_as_kwargs,
 };
-use gloci_io::cancel::{CancelToken, RunGuard};
+use gloci_io::cancel::{RunGuard, RunToken};
 use gloci_io::memio::{self, Registered};
 use std::ffi::OsString;
 use std::io::{Cursor, Read, Write};
@@ -161,7 +161,7 @@ fn execute_reports_errors_without_printing_and_under_display_names() {
 /// A source that cancels its run when it reaches the end of its bytes.
 struct CancelAtEof {
     inner: Cursor<Vec<u8>>,
-    token: CancelToken,
+    token: RunToken,
 }
 
 impl Read for CancelAtEof {
@@ -184,7 +184,7 @@ fn a_cancel_stops_a_command_using_the_run_pool() {
     }
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("out.bed");
-    let token = CancelToken::new();
+    let token = RunToken::new();
     let src = Registered::input(
         "<generator>",
         Box::new(CancelAtEof {
@@ -226,7 +226,7 @@ fn a_cancel_stops_a_command_using_the_run_pool() {
     );
     let sink = Shared::default();
     let o = Registered::output("<out>", Box::new(sink.clone()));
-    let _g = RunGuard::enter(&CancelToken::new());
+    let _g = RunGuard::enter(&RunToken::new());
     assert!(run(&os(&["sort", src.name(), "-t", "4", "-o", o.name()])).unwrap());
     assert_eq!(sink.bytes(), b"chr1\t1\t2\nchr1\t5\t6\n");
 }

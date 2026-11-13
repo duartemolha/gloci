@@ -7,13 +7,13 @@
 //! (`-o`, `-t`) before any `--`, is [`step_argv`]; nothing may be appended to it.
 //!
 //! What a host must do, since `execute` does none of it:
-//! - **Cancellation (D91).** Make one [`CancelToken`] per run and enter it on the thread that
+//! - **Cancellation (D91).** Make one [`RunToken`] per run and enter it on the thread that
 //!   calls `execute` ([`RunGuard::enter`]); `execute` installs it on every thread of the run
-//!   (the command's thread and its rayon pool). [`CancelToken::cancel`] then makes the run fail
+//!   (the command's thread and its rayon pool). [`RunToken::cancel`] then makes the run fail
 //!   with a cancellation, removing partial output files. Judge the error under the same token:
 //!   [`classify`] on that thread, or [`classify_under`] elsewhere.
-//! - **Outputs.** A token made with [`CancelToken::recording`] records every output file the
-//!   run commits ([`CancelToken::outputs`]): the exact list of what it wrote, which no
+//! - **Outputs.** A token made with [`RunToken::recording`] records every output file the
+//!   run commits ([`RunToken::outputs`]): the exact list of what it wrote, which no
 //!   directory listing can give while other writers share the directory. [`StageSet`] makes
 //!   such a token ([`StageSet::outputs`]).
 //! - **In-memory endpoints (D84).** Inputs and outputs are names from
@@ -50,7 +50,7 @@ pub use bindings::{
     BINDINGS, Bind, Binding, CLI_ONLY, MODULE_FUNCTIONS, Output, RECORDS, SOURCES, Shape, UNBOUND,
     binding, is_cli_only, is_unbound, method_name, module_function,
 };
-pub use gloci_io::cancel::{CancelToken, RunGuard};
+pub use gloci_io::cancel::{RunGuard, RunToken};
 pub use pipe::{PIPE_CHUNK, PIPE_CHUNKS, PipeFail, PipeReader, PipeWriter, pipe};
 pub use signature::{
     Kw, OUT_HELP, Signature, Skipped, function_inputs, function_signature, step_signature,
@@ -166,7 +166,7 @@ pub struct ExecOptions {
 ///
 /// The command runs on a worker of a rayon pool of its own, sized by its `-t` (else every
 /// core), whose threads have the stack CRAM decoding needs ([`gloci_io::WORKER_STACK`]); the
-/// process-global pool is never touched. The calling thread's cancel token ([`RunGuard`]) is
+/// process-global pool is never touched. The calling thread's run token ([`RunGuard`]) is
 /// installed on every thread of the pool. See the module docs for what the host does.
 pub fn execute(cli: &Cli, o: &ExecOptions) -> anyhow::Result<bool> {
     let (requested, tmp_arg) = thread_and_tmp(&cli.command);
@@ -309,8 +309,8 @@ pub fn classify(err: &anyhow::Error) -> Outcome {
 /// What `err`, the error of a run whose token is `token`, is. A failed run whose token was
 /// cancelled was cancelled, whichever error it surfaced as (a write that failed, an open, a
 /// lost worker).
-pub fn classify_under(err: &anyhow::Error, token: Option<&CancelToken>) -> Outcome {
-    if token.is_some_and(CancelToken::is_cancelled) || err.chain().any(cancel::is_cancellation) {
+pub fn classify_under(err: &anyhow::Error, token: Option<&RunToken>) -> Outcome {
+    if token.is_some_and(RunToken::is_cancelled) || err.chain().any(cancel::is_cancellation) {
         return Outcome::Cancelled;
     }
     if err.chain().any(|c| c.downcast_ref::<Reported>().is_some()) {

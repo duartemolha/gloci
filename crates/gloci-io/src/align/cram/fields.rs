@@ -509,7 +509,7 @@ mod tests {
     use super::super::frame::{CramFrames, ltf8, read_head};
     use super::*;
     use crate::align::{AlignOptions, AlnSource};
-    use crate::cancel::{CancelToken, RunGuard};
+    use crate::cancel::{RunGuard, RunToken};
     use crate::diag::InvalidPolicy;
     use crate::input::{InputOptions, open_input_from};
     use crate::record::ReaderOptions;
@@ -1232,7 +1232,7 @@ mod tests {
     fn cram_flag_fields_are_cancelled() {
         let bytes = std::fs::read(aln("mates.noref.cram")).unwrap();
         for t in [1, 2] {
-            let token = CancelToken::new();
+            let token = RunToken::new();
             let _run = RunGuard::enter(&token);
             let mut s =
                 source("mates.cram", Box::new(Cursor::new(bytes.clone())), None, t).unwrap();

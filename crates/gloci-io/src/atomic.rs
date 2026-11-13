@@ -226,7 +226,7 @@ fn temp_suffix() -> String {
 
 /// A file written under `DEST.tmp-XXXXXX` and renamed onto `DEST` by [`AtomicFile::commit`].
 /// Dropping without committing removes the temp file. It captures the run's token when created,
-/// and its commit records `DEST` as an output of the run ([`crate::cancel::CancelToken::recording`]).
+/// and its commit records `DEST` as an output of the run ([`crate::cancel::RunToken::recording`]).
 pub struct AtomicFile {
     file: Option<File>,
     tmp: PathBuf,

@@ -1,6 +1,6 @@
 //! Cancellation (D91) at command level: a run whose token fires while it works fails with a
 //! cancellation (never a write or read error), exits 1 and leaves no output file.
-use gloci_io::cancel::{CancelToken, RunGuard};
+use gloci_io::cancel::{RunGuard, RunToken};
 use gloci_io::memio::register_input;
 use std::ffi::OsString;
 use std::io::{Cursor, Read};
@@ -17,7 +17,7 @@ fn serial() -> MutexGuard<'static, ()> {
 /// lands after the input was read, inside the command's own loops.
 struct CancelAtEof {
     inner: Cursor<Vec<u8>>,
-    token: CancelToken,
+    token: RunToken,
 }
 
 impl Read for CancelAtEof {
@@ -35,7 +35,7 @@ impl Read for CancelAtEof {
 struct CancelAfter {
     inner: Cursor<Vec<u8>>,
     after: u64,
-    token: CancelToken,
+    token: RunToken,
 }
 
 impl Read for CancelAfter {
@@ -48,7 +48,7 @@ impl Read for CancelAfter {
     }
 }
 
-fn mem(data: Vec<u8>, token: &CancelToken) -> String {
+fn mem(data: Vec<u8>, token: &RunToken) -> String {
     register_input(
         "<generator>",
         Box::new(CancelAtEof {
@@ -110,13 +110,13 @@ fn cancelled_run(inputs: Vec<Vec<u8>>, build: impl Fn(&[String], &str) -> Vec<St
 
 /// Run `build(names, output)` under a token, with the inputs `register` registers.
 fn cancelled_run_named(
-    register: impl FnOnce(&CancelToken) -> Vec<String>,
+    register: impl FnOnce(&RunToken) -> Vec<String>,
     build: impl Fn(&[String], &str) -> Vec<String>,
 ) {
     let _s = serial();
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("out.bed");
-    let token = CancelToken::new();
+    let token = RunToken::new();
     let names = register(&token);
     let argv = build(&names, out.to_str().unwrap());
     let argv: Vec<&str> = argv.iter().map(String::as_str).collect();

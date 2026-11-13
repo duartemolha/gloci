@@ -1,4 +1,4 @@
-use gloci_io::cancel::{CancelToken, RunGuard};
+use gloci_io::cancel::{RunGuard, RunToken};
 use gloci_io::memio::{
     MEM_PREFIX, discard, display_name, is_mem_path, register_input, register_output,
 };
@@ -140,7 +140,7 @@ fn cancel_fails_reads_and_writes() {
     let bed = dir.path().join("in.bed");
     std::fs::write(&bed, BED).unwrap();
     let dest = dir.path().join("out.bed");
-    let token = CancelToken::new();
+    let token = RunToken::new();
     {
         let _g = RunGuard::enter(&token);
         let spec = parse_output_spec(Some(&dest), None).unwrap();
@@ -164,7 +164,7 @@ fn cancel_fails_reads_and_writes() {
     );
     // A reader built inside a run fails with Cancelled at read_batch, on any thread, and a
     // later run (new token) is unaffected.
-    let token = CancelToken::new();
+    let token = RunToken::new();
     let mut r = {
         let _g = RunGuard::enter(&token);
         open_reader(bed.to_str().unwrap(), &ropts()).unwrap()
@@ -186,16 +186,16 @@ fn a_cancel_stays_with_its_run() {
         .flat_map(|i| format!("chr1\t{}\t{}\n", i * 10, i * 10 + 5).into_bytes())
         .collect();
     std::fs::write(&bed, &big).unwrap();
-    let (a, b) = (CancelToken::new(), CancelToken::new());
-    let open = |t: &CancelToken| {
+    let (a, b) = (RunToken::new(), RunToken::new());
+    let open = |t: &RunToken| {
         let _g = RunGuard::enter(t);
         open_reader(bed.to_str().unwrap(), &ropts()).unwrap()
     };
     let (mut ra, mut rb) = (open(&a), open(&b));
     // Cancelling a run that has ended (nothing alive uses `c`) changes nothing for later runs.
-    let c = CancelToken::new();
+    let c = RunToken::new();
     c.cancel();
-    let mut rd = open(&CancelToken::new());
+    let mut rd = open(&RunToken::new());
     a.cancel();
     assert!(matches!(count(&mut ra), Err(IoError::Cancelled)));
     assert_eq!(count(&mut rb).unwrap(), 20000);
@@ -208,7 +208,7 @@ fn a_cancel_stays_with_its_run() {
 #[test]
 fn a_cancelled_memory_output_gets_no_end_of_file_block() {
     let _s = serial();
-    let token = CancelToken::new();
+    let token = RunToken::new();
     let sink = Shared::default();
     {
         let _g = RunGuard::enter(&token);

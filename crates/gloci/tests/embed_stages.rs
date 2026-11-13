@@ -5,7 +5,7 @@ use gloci::embed::{
     StageSet, StageSpec, pipe,
 };
 use gloci_io::Loc;
-use gloci_io::cancel::{self, CancelToken, RunGuard};
+use gloci_io::cancel::{self, RunGuard, RunToken};
 use gloci_io::memio::{self, Registered};
 use std::ffi::OsString;
 use std::io::{Cursor, ErrorKind, Read, Write};
@@ -147,7 +147,7 @@ fn parked_pipe_ends_see_the_cancel() {
     // A writer parked on a full pipe, and a reader parked on an empty one, each on a thread that
     // entered the run's token. Their errors come back on channels, so a cancel point that does
     // not fire fails the test instead of hanging it.
-    let token = CancelToken::new();
+    let token = RunToken::new();
     let (mut w, _r) = pipe(1, 4);
     let (wtx, wrx) = std::sync::mpsc::channel();
     let writer = {

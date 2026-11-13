@@ -44,7 +44,7 @@ use std::time::Duration;
 pub(crate) const BATCH_BYTES: usize = 4 << 20;
 /// The most records in a batch, whatever their size.
 const BATCH_ROWS: usize = 1 << 16;
-/// How long a full batch channel is waited on before the run's cancel token is looked at.
+/// How long a full batch channel is waited on before the run's token is checked for a cancel.
 const SEND_POLL: Duration = Duration::from_millis(50);
 
 /// How a record's fields are laid out, for the Arrow columns.
