@@ -124,6 +124,36 @@ fn genome_errors_count_leading_blank_lines() {
     assert!(e.contains("blank.dict line 2: "), "{e}");
 }
 
+/// A header error in a VCF given as -g reads as it does when the VCF is
+/// read as input: with no line number, where it said "line 1".
+#[test]
+fn genome_vcf_header_errors_read_as_the_reader_says_them() {
+    let p = write(
+        "badg.vcf",
+        b"##fileformat=VCFv4.2\n##source=x\n##contig=<ID=chr1,length=abc>\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n",
+    );
+    let name = p.display().to_string();
+    let e = load_genome(&p).unwrap_err().to_string();
+    assert_eq!(
+        e,
+        format!("{name}: header line ##contig=<ID=chr1,length=abc> has a non-integer length")
+    );
+    let as_input = open_reader(&name, &opts(Format::Vcf))
+        .err()
+        .unwrap()
+        .to_string();
+    assert_eq!(e, as_input);
+    let p = write(
+        "nochrom.vcf",
+        b"##fileformat=VCFv4.2\n##contig=<ID=chr1,length=10>\n",
+    );
+    assert_eq!(
+        load_genome(&p).unwrap_err().to_string(),
+        format!("{}: VCF header has no #CHROM line", p.display())
+    );
+}
+
 #[test]
 fn bcf_header_order_is_dictionary_order() {
     let vcf: &[u8] = b"##fileformat=VCFv4.3\n##contig=<ID=chr1,length=2000,IDX=1>\n##contig=<ID=chr2,length=1000,IDX=0>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n";

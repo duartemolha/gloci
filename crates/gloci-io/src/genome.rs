@@ -90,7 +90,12 @@ pub fn load_genome(path: &Path) -> Result<Genome, IoError> {
                 break;
             }
         }
-        let h = VcfHeader::parse(raw).map_err(|msg| parse_err(Loc::Line(1), msg))?;
+        // Worded as when the VCF is read as input: the message quotes the header line,
+        // so it carries no line number.
+        let h = VcfHeader::parse(raw).map_err(|msg| IoError::Detect {
+            path: name.clone(),
+            msg: format!("{name}: {msg}"),
+        })?;
         return header_genome(&name, &h);
     }
     let mut text = first;
