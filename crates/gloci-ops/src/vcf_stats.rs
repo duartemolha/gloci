@@ -8,7 +8,7 @@
 //! fails part-way.
 
 use crate::vcf_select::{SelectStage, SelectedInput, VcfSelect, run_selection};
-use gloci_io::{AtomicFile, BcfDicts, IoError, Loc, StagedSet, UsageError};
+use gloci_io::{AtomicFile, BcfDicts, IoError, Loc, StagedSet, UsageError, VcfHeader};
 use gloci_vcf::{
     BcfSite, FilterSummary, Freq, GenoDepth, GtFields, Hardy, Heterozygosity, IndelHist,
     MissingSample, MissingSite, RewritePlan, SampleDepth, Singletons, SiteDepth, SiteMeanDepth,
@@ -18,7 +18,7 @@ use std::cell::RefCell;
 use std::ffi::OsString;
 use std::io::{self, Write};
 use std::num::NonZeroUsize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 const COMMAND: &str = "vcf stats";
@@ -241,28 +241,13 @@ impl StatSink for PrefixSink {
     }
 }
 
-/// The optional FORMAT fields the selection and the statistics read: DP for a
-/// depth statistic, a summary, a DP mask or a mean-depth site filter; GQ for a
-/// GQ mask; FT for an FT mask. An expression may read any, so it takes all.
+/// The optional FORMAT fields `vcf stats` decodes: the selection's, plus DP
+/// for a depth statistic or a summary.
 fn decode_fields(o: &StatsOptions) -> GtFields {
-    if o.select.expr.is_some() {
-        return GtFields::ALL;
-    }
-    let (r, m, s) = (&o.request, &o.select.mask, &o.select.sites);
-    GtFields {
-        dp: r.depth
-            || r.site_depth
-            || r.site_mean_depth
-            || r.geno_depth
-            || r.summary
-            || r.json
-            || m.min_dp.is_some()
-            || m.max_dp.is_some()
-            || s.min_mean_dp.is_some()
-            || s.max_mean_dp.is_some(),
-        gq: m.min_gq.is_some(),
-        ft: m.mask_filtered,
-    }
+    let r = &o.request;
+    let mut f = selection_fields(&o.select);
+    f.dp |= r.depth || r.site_depth || r.site_mean_depth || r.geno_depth || r.summary || r.json;
+    f
 }
 
 /// The selected samples as (index in the record, name).
@@ -276,21 +261,69 @@ fn selected_samples(stage: &SelectStage<'_>) -> Vec<(usize, String)> {
         .collect()
 }
 
+/// The optional FORMAT fields the selection reads: DP for a DP mask or a
+/// mean-depth site filter, GQ for a GQ mask, FT for an FT mask. An expression
+/// may read any, so it takes all.
+pub(crate) fn selection_fields(sel: &VcfSelect) -> GtFields {
+    if sel.expr.is_some() {
+        return GtFields::ALL;
+    }
+    let (m, s) = (&sel.mask, &sel.sites);
+    GtFields {
+        dp: m.min_dp.is_some()
+            || m.max_dp.is_some()
+            || s.min_mean_dp.is_some()
+            || s.max_mean_dp.is_some(),
+        gq: m.min_gq.is_some(),
+        ft: m.mask_filtered,
+    }
+}
+
 /// Compute the requested statistics of the records of `input` and write
 /// `PREFIX.<extension>` for each.
 pub fn vcf_stats(input: SelectedInput, o: &StatsOptions) -> Result<StatsSummary, IoError> {
     check_request(o)?;
+    run_stats(
+        input,
+        &o.select,
+        &o.out_prefix,
+        decode_fields(o),
+        o.request.needs_genotypes(),
+        o.threads.unwrap_or(NonZeroUsize::MIN),
+        COMMAND,
+        &|samples, _| Ok(build_stats(&o.request, samples)),
+    )
+}
+
+/// Run the selection stage on `input` and feed every selected record to the
+/// statistics `build` makes from the selected samples (index in the record
+/// and name) and the header, in one pass. Each statistic writes
+/// `prefix.<extension>`; the files are published together once every
+/// statistic has finished. `fields` names the optional FORMAT fields to
+/// decode, and `need_genotypes` must be true when a statistic needs genotypes
+/// or [`gloci_vcf::SiteStats`]. `command` names the command in messages.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run_stats(
+    input: SelectedInput,
+    select: &VcfSelect,
+    prefix: &Path,
+    fields: GtFields,
+    need_genotypes: bool,
+    threads: NonZeroUsize,
+    command: &str,
+    build: &dyn Fn(&[(usize, String)], &VcfHeader) -> Result<Vec<Box<dyn Stat>>, IoError>,
+) -> Result<StatsSummary, IoError> {
     let (reader, mut chroms) = input.into_parts();
     let base = RewritePlan::default();
     // The selection computes the site statistics (under the masking rules)
     // whenever a statistic needs them.
-    let need_genotypes = o.request.needs_genotypes();
-    let mut stage = SelectStage::new(COMMAND, reader.as_ref(), &o.select, &base, need_genotypes)?;
-    stage.set_threads(o.threads.unwrap_or(NonZeroUsize::MIN));
-    stage.decode_fields(decode_fields(o));
+    let mut stage = SelectStage::new(command, reader.as_ref(), select, &base, need_genotypes)?;
+    stage.set_threads(threads);
+    stage.decode_fields(fields);
     let name = stage.name().to_string();
     let samples = selected_samples(&stage);
-    let mut engine = StatsEngine::new(build_stats(&o.request, &samples));
+    let header = stage.header().clone();
+    let mut engine = StatsEngine::new(build(&samples, &header)?);
     debug_assert_eq!(engine.needs_genotypes(), need_genotypes);
     // On several threads the workers keep the per-sample counters of --depth,
     // --missing-indv and --het; the records then carry no samples unless a
@@ -301,18 +334,17 @@ pub fn vcf_stats(input: SelectedInput, o: &StatsOptions) -> Result<StatsSummary,
         engine.use_tally();
     }
     if engine.reads_genotypes() {
-        stage.share_decoded(decode_fields(o));
+        stage.share_decoded(fields);
     }
 
     let staged = Rc::new(RefCell::new(StagedSet::default()));
     let mut sink = PrefixSink {
-        prefix: o.out_prefix.clone(),
+        prefix: prefix.to_path_buf(),
         staged: Rc::clone(&staged),
     };
-    let dest = o.out_prefix.display().to_string();
+    let dest = prefix.display().to_string();
     engine.start(&mut sink).map_err(|e| write_err(&dest, e))?;
 
-    let header = stage.header().clone();
     let dicts = if stage.input_is_bcf() {
         match &header.bcf {
             Some(d) => d.clone(),
