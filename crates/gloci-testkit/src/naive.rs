@@ -1483,3 +1483,97 @@ pub fn naive_pair_pair(
     }
     rows
 }
+
+/// One sample's genotype for [`naive_site_counts`], as VCF text writes it:
+/// the alleles in order (`None` is `.`), each with the separator before it
+/// (`true` is `|`). The first allele has no separator; its flag is not read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NaiveGt(pub Vec<(Option<u32>, bool)>);
+
+/// What [`naive_site_counts`] counts over the genotypes of one site.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NaiveSiteCounts {
+    /// Called alleles per allele index (REF is 0).
+    pub allele_counts: Vec<u64>,
+    /// The samples counted.
+    pub samples: u64,
+    /// Samples with no GT, or with a `.` among their alleles.
+    pub missing: u64,
+    /// Alleles written, `.` included; a sample with no GT counts as two.
+    pub data_alleles: u64,
+    /// The `.` among `data_alleles` (two for a sample with no GT).
+    pub missing_alleles: u64,
+    /// A sample has a one-allele genotype.
+    pub haploid: bool,
+    /// A sample has more than two alleles.
+    pub polyploid: bool,
+    /// Fully called two-allele genotypes of a site with two alleles, as
+    /// (0/0, 0/1, 1/1); `None` for any other number of alleles.
+    pub diploid: Option<(u64, u64, u64)>,
+    /// No genotype of two or more alleles has a `/`.
+    pub all_phased: bool,
+}
+
+/// The genotype counts of one site (decision D50), by the definitions and
+/// one question at a time. `samples[i]` is `None` for a sample with no GT;
+/// `keep` selects samples (`None` = all); the site has `n_alleles` alleles,
+/// REF included. `Err(a)` when a genotype names allele `a`, which the site
+/// does not have.
+pub fn naive_site_counts(
+    samples: &[Option<NaiveGt>],
+    keep: Option<&[bool]>,
+    n_alleles: usize,
+) -> Result<NaiveSiteCounts, u32> {
+    let kept: Vec<&Option<NaiveGt>> = samples
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| keep.is_none_or(|k| k[*i]))
+        .map(|(_, s)| s)
+        .collect();
+    let written: Vec<&Vec<(Option<u32>, bool)>> = kept
+        .iter()
+        .filter_map(|s| s.as_ref().map(|g| &g.0))
+        .collect();
+    let no_gt = (kept.len() - written.len()) as u64;
+    let called: Vec<u32> = written
+        .iter()
+        .flat_map(|g| g.iter().filter_map(|(a, _)| *a))
+        .collect();
+    if let Some(&a) = called.iter().find(|&&a| a as usize >= n_alleles) {
+        return Err(a);
+    }
+    let dots = written
+        .iter()
+        .map(|g| g.iter().filter(|(a, _)| a.is_none()).count() as u64)
+        .sum::<u64>();
+    let diploid = (n_alleles == 2).then(|| {
+        let sums: Vec<u32> = written
+            .iter()
+            .filter_map(|g| match g[..] {
+                [(Some(a), _), (Some(b), _)] => Some(a + b),
+                _ => None,
+            })
+            .collect();
+        let n = |s: u32| sums.iter().filter(|&&x| x == s).count() as u64;
+        (n(0), n(1), n(2))
+    });
+    Ok(NaiveSiteCounts {
+        allele_counts: (0..n_alleles as u32)
+            .map(|k| called.iter().filter(|&&a| a == k).count() as u64)
+            .collect(),
+        samples: kept.len() as u64,
+        missing: no_gt
+            + written
+                .iter()
+                .filter(|g| g.iter().any(|(a, _)| a.is_none()))
+                .count() as u64,
+        data_alleles: 2 * no_gt + written.iter().map(|g| g.len() as u64).sum::<u64>(),
+        missing_alleles: 2 * no_gt + dots,
+        haploid: written.iter().any(|g| g.len() == 1),
+        polyploid: written.iter().any(|g| g.len() > 2),
+        diploid,
+        all_phased: written
+            .iter()
+            .all(|g| g.len() < 2 || g[1..].iter().all(|(_, bar)| *bar)),
+    })
+}

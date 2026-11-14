@@ -345,8 +345,12 @@ impl Core {
             let fields = spec.fields;
             let bcf_gt;
             let text_gt;
+            // A BCF record's statistics are counted from its bytes, unless
+            // its samples are decoded anyway for the stages after this one.
+            let mut counted = None;
             let gt: &dyn GenotypeSource = if input_is_bcf {
                 bcf_gt = bcf_genotypes_with(raw, &spec.dicts, fields).map_err(parse_err)?;
+                counted = Some(&bcf_gt);
                 &bcf_gt
             } else {
                 text_gt = text_genotypes_with(raw, fields).map_err(parse_err)?;
@@ -357,6 +361,7 @@ impl Core {
             let gt: &dyn GenotypeSource = if !fast && (spec.share_decoded || spec.tally.is_some()) {
                 self.decoded.start_record(gt.n_samples());
                 cached = self.decoded.wrap(gt);
+                counted = None;
                 &cached
             } else {
                 gt
@@ -387,6 +392,9 @@ impl Core {
                     })
                     .map_err(parse_err)?;
                 SiteStats::default()
+            } else if let Some(bcf) = counted {
+                bcf.site_stats(keep, &spec.plan.mask, n_alleles, &mut self.masked_buf)
+                    .map_err(parse_err)?
             } else {
                 site_stats(gt, keep, &spec.plan.mask, n_alleles, &mut self.masked_buf)
                     .map_err(parse_err)?

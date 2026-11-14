@@ -1,7 +1,9 @@
 //! BCF genotype decoder: walks the FORMAT (individual) section of a framed
 //! record (BCF2.2 §6.3.4).
 
+use crate::bcf_counts;
 use crate::gt::{GenotypeSource, GtFields, SampleFields, ft_passes};
+use crate::stats::{MaskRules, SiteStats, site_stats};
 use gloci_io::BcfDicts;
 use gloci_io::bcf::typed::{self, Int, Ty};
 
@@ -109,6 +111,81 @@ fn int_field(col: Option<Col<'_>>, i: usize, what: &str) -> Result<Option<u32>, 
             })
         }
         _ => Err(format!("FORMAT/{what} is not an integer field")),
+    }
+}
+
+/// Can reading a value of the optional integer field `col` fail? Only one
+/// stored as floats or characters does.
+fn reads_as_integer(col: Option<Col<'_>>) -> bool {
+    col.is_none_or(|c| matches!(c.ty, Ty::Missing | Ty::Int8 | Ty::Int16 | Ty::Int32))
+}
+
+impl BcfGenotypes<'_> {
+    /// [`site_stats`] of this record, with its result and its errors, counted
+    /// from the bytes of the FORMAT fields instead of one decoded sample at a
+    /// time where that is possible: with no mask rule, on a GT field of
+    /// integers. Any other record, and any record with a value that is an
+    /// error, is counted by [`site_stats`] itself.
+    pub fn site_stats(
+        &self,
+        keep: Option<&[bool]>,
+        mask: &MaskRules,
+        n_alleles: usize,
+        masked: &mut Vec<bool>,
+    ) -> Result<SiteStats, String> {
+        match self.counted(keep, mask, n_alleles) {
+            Some(s) => {
+                masked.clear();
+                masked.resize(self.n_samples, false);
+                Ok(s)
+            }
+            None => site_stats(self, keep, mask, n_alleles, masked),
+        }
+    }
+
+    /// The statistics when nothing masks a sample and no value is an error.
+    fn counted(
+        &self,
+        keep: Option<&[bool]>,
+        mask: &MaskRules,
+        n_alleles: usize,
+    ) -> Option<SiteStats> {
+        let gt = self.gt?;
+        if !mask.is_empty()
+            || keep.is_some_and(|k| k.len() != self.n_samples)
+            || !reads_as_integer(self.dp)
+            || !reads_as_integer(self.gq)
+        {
+            return None;
+        }
+        let mut s = SiteStats {
+            allele_counts: vec![0; n_alleles],
+            ..SiteStats::default()
+        };
+        let c = bcf_counts::count(gt.ty, gt.n, gt.data, keep, &mut s.allele_counts)?;
+        s.called_alleles = c.called_alleles;
+        s.samples = c.samples;
+        s.missing = c.missing;
+        s.data_alleles = c.data_alleles;
+        s.missing_alleles = c.missing_alleles;
+        s.haploid = c.haploid;
+        s.polyploid = c.polyploid;
+        s.hwe_counts = (n_alleles == 2).then_some(c.diploid);
+        s.all_phased = !c.unphased;
+        // Depth is summed over the same samples, with a genotype or not.
+        if let Some(dp) = self.dp.filter(|c| c.n > 0 && c.ty != Ty::Missing) {
+            for i in (0..self.n_samples).filter(|&i| keep.is_none_or(|k| k[i])) {
+                if let Some(Int::Value(v)) = dp.of(i).int(0)
+                    && v >= 0
+                {
+                    let d = v as u64;
+                    s.dp_sum += d;
+                    s.dp_sumsq += d * d;
+                    s.dp_n += 1;
+                }
+            }
+        }
+        Some(s)
     }
 }
 

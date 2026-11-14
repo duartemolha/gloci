@@ -2,6 +2,7 @@
 //! Hardy-Weinberg test, shared by the `vcf` commands.
 
 pub mod annotate;
+mod bcf_counts;
 mod bcf_fmt;
 pub mod compare;
 pub mod concat;

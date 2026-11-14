@@ -985,6 +985,7 @@ dependencies = [
  "log",
  "memchr",
  "noodles-bgzf",
+ "proptest",
  "regex",
 ]
 
