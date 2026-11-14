@@ -1107,14 +1107,16 @@ where
     let handoff = Handoff::new(workers);
     let handoff = &handoff;
     std::thread::scope(|scope| {
-        for _ in 0..workers {
-            let abort = &abort;
-            scope.spawn(move || worker(spec, handoff, abort, flight, run));
-        }
+        // Before the first worker starts: whatever ends this closure (even a
+        // worker that cannot be spawned) lets the workers go.
         let _driving = Driving {
             handoff,
             abort: &abort,
         };
+        for _ in 0..workers {
+            let abort = &abort;
+            scope.spawn(move || worker(spec, handoff, abort, flight, run));
+        }
         let no_workers =
             || IoError::Internal("the selection workers stopped before the input was read".into());
 
