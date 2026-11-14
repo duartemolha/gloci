@@ -35,6 +35,10 @@ pub enum RegionError {
     #[error("invalid region \"{0}\": unterminated '{{' (expected {{name}}:start-end)")]
     Unterminated(String),
     #[error(
+        "invalid region \"{region}\": unexpected \"{rest}\" after '}}' (expected {{name}}:start-end)"
+    )]
+    TextAfterBrace { region: String, rest: String },
+    #[error(
         "region \"{0}\" is ambiguous: both the whole string and its prefix are chromosome names; write it as {{name}}:start-end"
     )]
     Ambiguous(String),

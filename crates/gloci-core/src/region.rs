@@ -28,10 +28,14 @@ impl Region {
             if name.is_empty() {
                 return Err(RegionError::MissingChrom(s.into()));
             }
-            return match rest[close + 1..].strip_prefix(':') {
+            let after = &rest[close + 1..];
+            return match after.strip_prefix(':') {
                 Some(range) => parse_range(s, name, range),
-                None if rest[close + 1..].is_empty() => Ok(whole(name)),
-                None => Err(RegionError::Unterminated(s.into())),
+                None if after.is_empty() => Ok(whole(name)),
+                None => Err(RegionError::TextAfterBrace {
+                    region: s.into(),
+                    rest: after.into(),
+                }),
             };
         }
         let split = s.rfind(':');

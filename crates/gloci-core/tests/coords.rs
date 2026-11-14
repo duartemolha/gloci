@@ -108,6 +108,30 @@ fn region_strings() {
 }
 
 #[test]
+fn braced_region_errors() {
+    let none = |_: &[u8]| false;
+    let msg = |s: &str| Region::parse(s, none).unwrap_err().to_string();
+    // The brace is closed: what follows it is the problem.
+    assert_eq!(
+        msg("{chr1}x"),
+        r#"invalid region "{chr1}x": unexpected "x" after '}' (expected {name}:start-end)"#
+    );
+    assert_eq!(
+        msg("{chr1}5-10"),
+        r#"invalid region "{chr1}5-10": unexpected "5-10" after '}' (expected {name}:start-end)"#
+    );
+    assert_eq!(
+        msg("{chr1"),
+        r#"invalid region "{chr1": unterminated '{' (expected {name}:start-end)"#
+    );
+    assert_eq!(
+        msg("{}:1-5"),
+        r#"invalid region "{}:1-5": missing chromosome name"#
+    );
+    assert_eq!(Region::parse("{chr1}", none).unwrap().chrom, b"chr1");
+}
+
+#[test]
 fn region_open_start() {
     let none = |_: &[u8]| false;
     // htslib: `chr:-E` is `chr:1-E`.
