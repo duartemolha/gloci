@@ -97,7 +97,7 @@ description: Use gloci for genomic interval and variant operations (sorting, ind
   `gloci vcf merge a.vcf.gz b.vcf.gz c.vcf.gz -o cohort.vcf.gz` · `gloci vcf merge --file-list shards.txt -m none --force-samples -o cohort.bcf`
 - `gloci vcf compare` (experimental): Compare the genotypes of two VCF/BCF files: per site, per sample and as a matrix (vcftools --diff-site-discordance, --diff-indv-discordance, --diff-discordance-matrix)
   `gloci vcf compare truth.vcf.gz calls.vcf.gz --out-prefix cmp` · `gloci vcf compare a.bcf b.bcf --out-prefix cmp --sample-discordance --match position`
-- `gloci stats` (experimental): Statistics of interval sets (bedtools jaccard)
+- `gloci stats` (experimental): Statistics of interval sets (bedtools jaccard, fisher and reldist)
   `gloci stats jaccard -a peaks.bed -b genes.bed` · `gloci stats jaccard -a rep1.bed -b rep2.bed -f 0.5 -r`
 - `gloci stats jaccard` (experimental): The Jaccard similarity of two interval sets (bedtools jaccard)
   `gloci stats jaccard -a peaks.bed -b genes.bed` · `gloci stats jaccard -a rep1.bed -b rep2.bed -f 0.5 -r`

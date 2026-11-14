@@ -1097,11 +1097,13 @@ Examples:
     #[command(before_help = EXPERIMENTAL)]
     Vcf(Box<VcfArgs>),
     // P3b Task 2
-    /// Statistics of interval sets (bedtools jaccard).
+    /// Statistics of interval sets (bedtools jaccard, fisher and reldist).
     #[command(after_long_help = "\
 Examples:
   gloci stats jaccard -a peaks.bed -b genes.bed
-  gloci stats jaccard -a rep1.bed -b rep2.bed -f 0.5 -r")]
+  gloci stats jaccard -a rep1.bed -b rep2.bed -f 0.5 -r
+  gloci stats fisher -a peaks.bed -b genes.bed -g hg38
+  gloci stats reldist -a peaks.bed -b genes.bed --detail")]
     #[command(before_help = EXPERIMENTAL)]
     Stats(StatsArgs),
     // P3b Task 7
