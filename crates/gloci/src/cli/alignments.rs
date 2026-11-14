@@ -385,10 +385,10 @@ pub struct BedcovArgs {
 /// Replace the header of a BAM or CRAM file without decoding its records (samtools reheader).
 ///
 /// HEADER is SAM header text, or a SAM, BAM or CRAM file whose header is taken (as samtools does); -
-/// reads standard input. IN must be a regular BAM or CRAM file: standard input is refused (gloci view
-/// - -o x.bam makes a file) and so is SAM. The result goes to -o or stdout, in IN's format; -o may
-/// name IN, which is then replaced atomically, and a failure leaves it as it was. A gloci @PG line is
-/// added to the new header.
+/// reads standard input. IN must be a regular BAM or CRAM file: standard input is refused (gloci view -
+/// -o x.bam makes a file) and so is SAM. The result goes to -o or stdout, in IN's format; -o may name
+/// IN, which is then replaced atomically, and a failure leaves it as it was. A gloci @PG line is added
+/// to the new header.
 #[derive(Args)]
 #[command(about = "Replace the header of a BAM or CRAM file (samtools reheader)")]
 #[command(after_long_help = "\
