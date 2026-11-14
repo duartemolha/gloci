@@ -1,5 +1,18 @@
 # gloci — Design Spec
 
+This is the design specification gloci was built from. The source cites it by section (`spec §4.3`, or a bare
+`§4.3`) and cites the numbered design decisions by number (`D37`); the decisions are in
+[`decisions.md`](decisions.md), grouped by the phase that made them. The section numbers and headings below
+are cited and stay as written.
+
+Two markers in the text say where a choice came from:
+
+- `[owner, DATE]` (also written `[you, DATE]` or `[you]`, in the spec's early drafts, where "you" is the
+  project owner) is a decision the project owner made, on that date when one is given.
+- `[my call]` is a default the spec's author chose instead of asking.
+
+Text with no marker follows from those decisions. Later amendments are marked where they apply.
+
 **Status:** Draft for review · **Date:** 2026-11-06
 
 A single, fast, correct Rust command-line tool that replaces **bedtools**, **bedops** and **vcftools** for genomic interval and variant work on files of many gigabytes.

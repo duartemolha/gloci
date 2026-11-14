@@ -198,8 +198,7 @@ fn table_after(text: &str, heading: &str, after_marker: Option<&str>) -> String 
 
 #[test]
 fn semantics_tables_match_spec() {
-    let spec = fs::read_to_string(root().join("docs/superpowers/specs/2026-11-06-gloci-design.md"))
-        .unwrap();
+    let spec = fs::read_to_string(root().join("docs/design.md")).unwrap();
     let page = fs::read_to_string(src().join("semantics.md")).unwrap();
     let footprints = table_after(&spec, "### 4.2 Variant footprints", None);
     assert!(
@@ -220,8 +219,7 @@ fn semantics_tables_match_spec() {
 
 #[test]
 fn quickstart_has_the_spec_examples() {
-    let spec = fs::read_to_string(root().join("docs/superpowers/specs/2026-11-06-gloci-design.md"))
-        .unwrap();
+    let spec = fs::read_to_string(root().join("docs/design.md")).unwrap();
     let block = spec
         .split("## 3. Shape of the tool")
         .nth(1)

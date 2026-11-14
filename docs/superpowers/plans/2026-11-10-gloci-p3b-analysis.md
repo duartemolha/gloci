@@ -18,7 +18,7 @@
 
 **Tech Stack:** Everything P3c uses, plus `libm` 0.2 (pure-Rust `lgamma`/`exp`, identical on every platform) and `rand_chacha` 0.10 as a normal dependency of gloci-ops (already locked for xtask). No reference tool or Docker change: every bedtools 2.31.1 and vcftools 0.1.16 option used here exists in `gloci-diff:p0` (checked against their sources; Task 1 re-checks in the image).
 
-**Spec:** `docs/superpowers/specs/2026-11-06-gloci-design.md`: §2, §4.1–§4.6, §5.1–§5.2, §6.1–§6.4, §7.3, §7.6, §7.7, §7.8 (`vcf popgen`, `vcf compare`), §8.1–§8.4, §9, §10 (P3 row, Order note) and §11.
+**Spec:** `docs/design.md`: §2, §4.1–§4.6, §5.1–§5.2, §6.1–§6.4, §7.3, §7.6, §7.7, §7.8 (`vcf popgen`, `vcf compare`), §8.1–§8.4, §9, §10 (P3 row, Order note) and §11.
 
 **Builds on:** P3a (D99–D124) and P3c (D125–D141), fully merged; D1–D79 and D82 stay in force; P2b's D80–D98 are untouched. In particular: D50/D71/D72 (selection, expressions, the `vcf stats` engine: `Stat`, `StatsEngine`, `SelectStage`, `run_selection`); D36–D39, D42, D45 (sweep, criteria, `--sort`/`--unsorted`, TSV, placeholders); D61 (store `[start, end+1)`, widen queries by one, re-test exactly); D62 (`--chrom-map`); D101, D102, D120 (alignment spans, read filters, `AlnSource`).
 

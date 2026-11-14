@@ -129,6 +129,11 @@ See the [migration guide](docs/migration.md) for the command mapping, and
 [docs/differences.md](docs/differences.md) for the places where gloci
 intentionally differs.
 
+## Design
+
+The design specification gloci was built from is [`docs/design.md`](docs/design.md), and the numbered design
+decisions the source cites (`D37`) are in [`docs/decisions.md`](docs/decisions.md).
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE).

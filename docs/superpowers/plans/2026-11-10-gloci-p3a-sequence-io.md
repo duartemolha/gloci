@@ -22,7 +22,7 @@
 - noodles-sam 0.93, noodles-bam 0.98, noodles-cram 0.102 (feature `libdeflate`) and noodles-fasta 0.68;
 - samtools 1.21 in both images, and mosdepth 0.3.10 in the bench image.
 
-**Spec:** `docs/superpowers/specs/2026-11-06-gloci-design.md`: §2, §4.1–§4.6, §5.1–§5.2, §6.1, §6.4, §7.1, §7.3 (`genomecov`), §7.4 (`index` rows and `convert`), §7.5, §8.3, §8.4, §9, §10 (the P3 row and the Order note, as amended in d9a1635), and §11 (bedtools rows).
+**Spec:** `docs/design.md`: §2, §4.1–§4.6, §5.1–§5.2, §6.1, §6.4, §7.1, §7.3 (`genomecov`), §7.4 (`index` rows and `convert`), §7.5, §8.3, §8.4, §9, §10 (the P3 row and the Order note, as amended in d9a1635), and §11 (bedtools rows).
 
 **Builds on:**
 - P2a, fully merged, plus P2b Task 1. D1–D79 and D82 stay in force; D80–D98 are untouched.

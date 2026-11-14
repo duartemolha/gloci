@@ -19,7 +19,7 @@
 
 **Tech Stack:** Everything P3a uses, with no new dependency: `md-5` 0.10 is already a workspace dependency and is added to gloci-ops for `dict`. CRC32 comes from `flate2::Crc`, which gloci-io already depends on. Reference tool: samtools 1.21 (and bcftools 1.21 for `head` on VCF), in `gloci-diff:p0` since P3a Task 1.
 
-**Spec:** `docs/superpowers/specs/2026-11-06-gloci-design.md`, covering:
+**Spec:** `docs/design.md`, covering:
 - §10, the P3c row and the Order note;
 - §4.1 (region strings), §4.3 (overlap), §4.5 (order and sortedness);
 - §5.2 (atomic output);

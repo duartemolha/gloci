@@ -8,7 +8,7 @@
 
 **Tech Stack:** Rust stable (edition 2024); clap 4.6 (+ clap_complete 4.6, clap_mangen 0.3); noodles-bgzf 0.52 (feature `libdeflate`), noodles-vcf 0.96, noodles-bcf 0.94, noodles-csi 0.62, noodles-tabix 0.68, noodles-core 0.21; flate2 1.1; memchr 2.8; itoa 1; rayon 1.12; crossbeam-channel 0.5; lz4_flex 0.14; tempfile 3.27; ctrlc 3.5 (feature `termination`); mimalloc 0.1; thiserror 2; anyhow 1; log 0.4; libc 0.2; proptest 1.12; insta 1.49; assert_cmd 2.2; predicates 3.1; rand 0.10 + rand_chacha 0.10; serde 1 + toml 1 + serde_json 1; cargo-fuzz; hyperfine.
 
-**Spec:** `docs/superpowers/specs/2026-11-06-gloci-design.md`. This plan implements the P0 row of §10, using §4 (semantics), §5 (formats), §6 (CLI), §7.4 (commands), §8 (architecture) and §9 (testing).
+**Spec:** `docs/design.md`. This plan implements the P0 row of §10, using §4 (semantics), §5 (formats), §6 (CLI), §7.4 (commands), §8 (architecture) and §9 (testing).
 
 **Scope:** P0 only. P1 (relations, `gloci-engine`, `gloci-vcf`), P2 and P3 get their own plans after P0 lands. Out of this plan: `--unsorted`, `--chrom-map`, per-chromosome parallelism, the mdBook, release binaries and bioconda.
 

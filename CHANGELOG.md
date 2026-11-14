@@ -7,6 +7,7 @@ the minor version).
 
 ## [Unreleased]
 
+- docs: the design specification is `docs/design.md` and the numbered design decisions are `docs/decisions.md`; the source cites both by section (`spec §4.3`) and by number (`D37`).
 - P2a: the VCF commands `vcf filter`, `vcf extract`, `vcf stats` and `vcf concat`.
 - P3a: BAM, CRAM, SAM and FASTA input; the samtools-style commands `sort`, `merge`, `cat`, `index` and `faidx`; and `getfasta`, `nuc` and `maskfasta`.
 - P3b: `stats jaccard`, `fisher` and `reldist`; `random`, `sample` and `shuffle`; the BEDPE pair commands and `convert --bedpe`; parallel VCF selection; `vcf compare` (genotype concordance); and `vcf split`, `vcf norm`, `vcf annotate` and `vcf merge`.

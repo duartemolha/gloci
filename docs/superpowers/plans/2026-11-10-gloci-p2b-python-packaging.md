@@ -29,7 +29,7 @@ so the Python library, docs and paper evidence cover the complete command set (s
 
 Use the newest releases at implementation time. PyO3 0.26 renamed `allow_threads` to `detach`.
 
-**Spec:** `docs/superpowers/specs/2026-11-06-gloci-design.md`, covering:
+**Spec:** `docs/design.md`, covering:
 - §2 (goal 6, non-goal Windows);
 - §6.4;
 - §8.1 and §8.5;

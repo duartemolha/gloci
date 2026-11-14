@@ -22,7 +22,7 @@
 
 **Tech Stack:** Everything P1 uses, plus rust-lapper (replacing coitrees, per D61) and a hand-written recursive-descent parser for expressions (no parser-generator dependency).
 
-**Spec:** `docs/superpowers/specs/2026-11-06-gloci-design.md`, covering:
+**Spec:** `docs/design.md`, covering:
 - §4.5 (`--chrom-map`);
 - §5.1 (WIG);
 - §6.3 (full op set);

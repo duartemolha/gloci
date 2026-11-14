@@ -24,7 +24,7 @@
 
 Use the newest release of each new crate at implementation time, and let `Cargo.lock` pin it.
 
-**Spec:** `docs/superpowers/specs/2026-11-06-gloci-design.md` (amended 2026-11-08: §4.3 point thresholds, §7.1 `--mode` has no short flag). This plan implements the P1 row of §10, using §4, §5, §6, §7.1–7.4, §7.8, §8 and §9.
+**Spec:** `docs/design.md` (amended 2026-11-08: §4.3 point thresholds, §7.1 `--mode` has no short flag). This plan implements the P1 row of §10, using §4, §5, §6, §7.1–7.4, §7.8, §8 and §9.
 
 **Builds on:** P0 (`docs/superpowers/plans/2026-11-06-gloci-p0-foundations.md`, merged as `cb30575`). P0's decisions D1–D33 stay in force, except D5, which D34 supersedes. The P0 follow-up list is `docs/superpowers/plans/2026-11-06-gloci-p0-followups.md`.
 
