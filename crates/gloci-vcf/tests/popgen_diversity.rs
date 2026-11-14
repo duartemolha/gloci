@@ -54,7 +54,7 @@ fn record(chrom: &str, pos: u64, alts: &str, samples: &[&str]) -> String {
 }
 
 /// Feed `lines` to `stat` under `mask` and return the file it writes.
-fn run(mut stat: impl Stat, lines: &[String], mask: &MaskRules) -> String {
+fn run(stat: &mut dyn Stat, lines: &[String], mask: &MaskRules) -> String {
     let sink = MemSink::default();
     stat.start(&mut sink.clone()).unwrap();
     let mut masked = Vec::new();
@@ -90,12 +90,12 @@ fn site_pi_table() {
         ..NO_MASK
     };
     assert_eq!(
-        run(SitePi::new(), &lines, &mask),
+        run(&mut SitePi::new(), &lines, &mask),
         "CHROM\tPOS\tPI\nchr1\t1\t0.5\nchr1\t2\t0\nchr1\t3\tnan\nchr1\t5\t0.5\n"
     );
     // Unmasked, the haploid sample keeps the last site out.
     assert_eq!(
-        run(SitePi::new(), &lines, &NO_MASK),
+        run(&mut SitePi::new(), &lines, &NO_MASK),
         "CHROM\tPOS\tPI\nchr1\t1\t0.5\nchr1\t2\t0\nchr1\t3\tnan\n"
     );
 }
@@ -107,14 +107,14 @@ fn window_pi_table() {
     // 4 × 3 pairs each: 6 / 120.
     let at5 = [record("chr1", 5, "G", &["0/0", "0/1"])];
     assert_eq!(
-        run(WindowPi::new(10, 10), &at5, &NO_MASK),
+        run(&mut WindowPi::new(10, 10), &at5, &NO_MASK),
         format!("{head}chr1\t1\t10\t1\t0.05\n")
     );
     // Step 5: POS 7 is in 1-10 and 6-15 only (not 11-20, nor a window
     // starting below 1).
     let at7 = [record("chr1", 7, "G", &["0/0", "0/1"])];
     assert_eq!(
-        run(WindowPi::new(10, 5), &at7, &NO_MASK),
+        run(&mut WindowPi::new(10, 5), &at7, &NO_MASK),
         format!("{head}chr1\t1\t10\t1\t0.05\nchr1\t6\t15\t1\t0.05\n")
     );
     // A fixed or monomorphic site and a haploid one add nothing: no window
@@ -124,7 +124,7 @@ fn window_pi_table() {
         record("chr1", 13, "G", &["0/0", "0/0"]),
         record("chr1", 23, "G", &["0", "0/1"]),
     ];
-    assert_eq!(run(WindowPi::new(10, 10), &none, &NO_MASK), head);
+    assert_eq!(run(&mut WindowPi::new(10, 10), &none, &NO_MASK), head);
 }
 
 #[test]
@@ -133,10 +133,10 @@ fn tajima_bin_reciprocal() {
     // bin 1, where integer division would give bins 1 and 2.
     let two = ["0/1", "0/0"];
     let at49 = [record("chr1", 49, "G", &two)];
-    let got = run(TajimaD::new(49, 2), &at49, &NO_MASK);
+    let got = run(&mut TajimaD::new(49, 2), &at49, &NO_MASK);
     assert!(got.contains("\nchr1\t0\t1\t"), "{got}");
     let at98 = [record("chr1", 98, "G", &two)];
-    let got = run(TajimaD::new(49, 2), &at98, &NO_MASK);
+    let got = run(&mut TajimaD::new(49, 2), &at98, &NO_MASK);
     assert!(got.contains("\nchr1\t49\t1\t"), "{got}");
     assert_eq!(got.lines().count(), 2, "{got}");
 }
@@ -151,7 +151,7 @@ fn tajima_trailing_bins() {
         record("chr1", 75, "G,C", &["0/1", "0/2"]), // multi-allelic: not a bin
         record("chr1", 85, "G", &["1", "0/1"]),  // a haploid sample: not a bin
     ];
-    let got = run(TajimaD::new(10, 2), &lines, &NO_MASK);
+    let got = run(&mut TajimaD::new(10, 2), &lines, &NO_MASK);
     let rows: Vec<&str> = got.lines().skip(1).collect();
     assert_eq!(rows.len(), 4, "{got}");
     assert!(rows[0].starts_with("chr1\t20\t1\t"), "{got}");
@@ -163,7 +163,7 @@ fn tajima_trailing_bins() {
     let mut two = lines.to_vec();
     two.push(record("chr2", 3, "G", &["0/0", "0/0"]));
     two.push(record("chr2", 31, "G", &["0/1", "1/1"]));
-    let got = run(TajimaD::new(10, 2), &two, &NO_MASK);
+    let got = run(&mut TajimaD::new(10, 2), &two, &NO_MASK);
     let last: Vec<&str> = got.lines().skip(5).collect();
     assert_eq!(last.len(), 1, "{got}");
     assert!(last[0].starts_with("chr2\t30\t1\t"), "{got}");
@@ -219,4 +219,88 @@ fn tajima_oracle() {
     let got = TajimaD::new(100, 5).d(s, sum_pq);
     assert!((got - want).abs() < 1e-12, "{got} vs {want}");
     assert!(want.is_finite() && want != 0.0);
+}
+
+/// Nei and Li (1979): π is the mean number of differences between two
+/// sequences drawn without replacement, here counted over every ordered pair
+/// of called alleles, site by site; in a window, every position without a
+/// polymorphic site has all `2N (2N − 1)` pairs and no difference.
+#[test]
+fn pi_oracle() {
+    // Three samples; a multi-allelic site, missing alleles, a ./1.
+    let sites: [(u64, &str, [&str; 3]); 4] = [
+        (2, "G,T", ["0/1", "1/2", "2/2"]),
+        (4, "G", ["./1", "0/0", "0/1"]),
+        (7, "G,T,C", ["3/1", "./.", "2/0"]),
+        (9, "G", ["0/1", "1/1", "1/0"]),
+    ];
+    let called = |gts: &[&str; 3]| -> Vec<char> {
+        gts.iter()
+            .flat_map(|g| g.split('/'))
+            .filter(|a| *a != ".")
+            .map(|a| a.chars().next().unwrap())
+            .collect()
+    };
+    let pairs = |a: &[char]| -> (u64, u64) {
+        let (mut differ, mut all) = (0, 0);
+        for i in 0..a.len() {
+            for j in 0..a.len() {
+                if i != j {
+                    all += 1;
+                    differ += u64::from(a[i] != a[j]);
+                }
+            }
+        }
+        (differ, all)
+    };
+    let lines: Vec<String> = sites
+        .iter()
+        .map(|(pos, alts, gts)| record("chr1", *pos, alts, gts))
+        .collect();
+    let close = |got: &str, want: f64| {
+        let got: f64 = got.parse().unwrap();
+        assert!((got - want).abs() <= 5e-6 * want.abs(), "{got} vs {want}");
+    };
+    let sites_pi = run(&mut SitePi::new(), &lines, &NO_MASK);
+    let rows: Vec<&str> = sites_pi.lines().skip(1).collect();
+    assert_eq!(rows.len(), sites.len());
+    let (mut differ, mut all) = (0, 0);
+    for (row, (_, _, gts)) in rows.iter().zip(&sites) {
+        let (d, a) = pairs(&called(gts));
+        close(row.split('\t').nth(2).unwrap(), d as f64 / a as f64);
+        differ += d;
+        all += a;
+    }
+    // One window of 10 positions holds the four polymorphic sites.
+    let window = run(&mut WindowPi::new(10, 10), &lines, &NO_MASK);
+    let row: Vec<&str> = window.lines().nth(1).unwrap().split('\t').collect();
+    assert_eq!(row[..4], ["chr1", "1", "10", "4"]);
+    close(row[4], differ as f64 / (all + 6 * 6 * 5) as f64);
+}
+
+/// Window π holds at most ⌈SIZE/STEP⌉ + 1 windows, however many sites and
+/// chromosomes pass.
+#[test]
+fn window_pi_open_windows_are_bounded() {
+    let mut lines = Vec::new();
+    for chrom in ["chr1", "chr2"] {
+        for pos in (1..3000).step_by(3).chain([10_000, 10_001, 50_000]) {
+            lines.push(record(chrom, pos, "G", &["0/1", "0/0"]));
+        }
+    }
+    for (size, step) in [(100, 7), (100, 100), (10, 1), (1000, 333)] {
+        let mut w = WindowPi::new(size, step);
+        let out = run(&mut w, &lines, &NO_MASK);
+        assert!(out.lines().count() > 20, "{size}/{step}");
+        let bound = size.div_ceil(step) as usize + 1;
+        assert!(
+            w.peak_open() <= bound,
+            "{size}/{step}: {} windows open, bound {bound}",
+            w.peak_open()
+        );
+        assert!(
+            w.peak_open() >= bound - 1,
+            "{size}/{step}: the bound is reached"
+        );
+    }
 }

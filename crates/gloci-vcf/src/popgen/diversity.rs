@@ -120,6 +120,8 @@ pub struct WindowPi {
     /// The index `k` of the first open window.
     base: u64,
     open: VecDeque<Window>,
+    /// The most windows open at once.
+    peak: usize,
     /// 2 × the selected samples.
     n_chr: u64,
     out: Out,
@@ -139,9 +141,17 @@ impl WindowPi {
             chrom: Vec::new(),
             base: 0,
             open: VecDeque::new(),
+            peak: 0,
             n_chr: 0,
             out: Out::closed(),
         }
+    }
+
+    /// The most windows held open at once so far: at most
+    /// `⌈size/step⌉ + 1`. For tests.
+    #[doc(hidden)]
+    pub fn peak_open(&self) -> usize {
+        self.peak
     }
 
     /// Write the open windows below index `end` (all of them for
@@ -221,6 +231,7 @@ impl Stat for WindowPi {
         if last > have {
             self.open
                 .resize(self.open.len() + (last - have) as usize, Window::default());
+            self.peak = self.peak.max(self.open.len());
         }
         let variant = st.allele_counts.first().is_some_and(|&c| c < n);
         for w in self
