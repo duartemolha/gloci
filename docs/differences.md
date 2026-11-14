@@ -1602,6 +1602,90 @@ pass (vcftools allows one output function per run), writes each file only when
 the whole run succeeds, and defaults `--vcf-span` to `ref` because no statistic
 depends on the span.
 
+## `vcf popgen` windowed statistics need sorted input {#popgen-sorted-input}
+
+- **gloci:** `--window-pi` and `--tajima-d` write their rows as the input passes
+  them, so they need the input sorted by chromosome and position. A chromosome
+  that comes back after another, or a position below the one before it on the
+  same chromosome, stops the run with the record's position and
+  `run: gloci sort FILE`; no file of the run is written. `--site-pi` takes the
+  records in any order.
+- **Old behaviour:** vcftools `--window-pi` and `--TajimaD` accept unsorted
+  input. When a chromosome comes back, `--window-pi` drops every window of its
+  earlier records but the first and writes the chromosome's windows twice;
+  `--TajimaD` adds both runs into the same bins and writes them twice.
+- **Reason:** rows already written cannot be merged, and holding every window of
+  a multi-gigabyte file to repair unsorted input is what the streaming design
+  avoids. A dropped or repeated window is a wrong answer.
+- **Pinned by:** `vcf-popgen-unsorted-vs-vcftools` (exit status: must differ)
+  and `popgen_unsorted_window_stats` in `crates/gloci/tests/vcf_popgen.rs`.
+
+## `vcf popgen --window-pi-step` larger than the window is an error {#popgen-window-step}
+
+- **gloci:** a `--window-pi-step` larger than `--window-pi` exits 2 and names the
+  largest step allowed. A window size, step or `--tajima-d` bin of 0 exits 2
+  too.
+- **Old behaviour:** vcftools sets a step larger than the window, or of 0, to the
+  window size without a word, and writes no file and exits 0 for a window or
+  bin size of 0.
+- **Reason:** a step larger than the window leaves positions in no window, and
+  quietly running other windows than the ones asked for gives a table that
+  looks right and is not what was requested.
+- **Pinned by:** `vcf-popgen-window-step-vs-vcftools` (exit status: must
+  differ) and `popgen_unsorted_window_stats` in
+  `crates/gloci/tests/vcf_popgen.rs`.
+
+## `vcf popgen` counts in 64 bits {#popgen-integer-overflow}
+
+- **gloci:** allele counts, pairs, window counts and positions are 64-bit
+  integers, and the constants of Tajima's D are computed in double precision,
+  so any number of samples and any position gives the formula's value.
+- **Old behaviour:** vcftools takes several of them in 32 bits. `--TajimaD`
+  computes `1/(i*i)` with `i*i` in 32 bits, which wraps to 0 at i = 65,536: from
+  32,769 samples on, every D is `nan` (and `n*n` in its variance constant wraps
+  from 32,768 samples). `--site-pi` multiplies allele counts and `--window-pi`
+  counts the pairs of a monomorphic position in a 32-bit `int`, which overflows
+  from about 23,200 samples (on 32,769 samples site pi comes out near -4.6
+  where it is 0.5); positions are an `int` too, so none past 2,147,483,647 is
+  read right.
+- **Reason:** cohorts of tens of thousands of samples are common, and a
+  statistic that turns into `nan` or a wrong number past a sample count is a
+  silent wrong answer.
+- **Pinned by:** `vcf-popgen-integer-overflow-vs-vcftools` (32,769 generated
+  samples; live only: must differ, vcftools writes `nan` for every bin).
+
+## `vcf popgen` and the vcftools behaviour it reproduces
+
+These are not differences: gloci writes what vcftools writes. They are listed
+because a user may take them for bugs. Each is pinned by the byte-for-byte
+comparison of `crates/gloci/tests/vcf_popgen.rs` with the committed vcftools
+0.1.16 files in `crates/gloci-vcf/tests/golden/popgen`.
+
+- A site counts only when every selected sample that is not masked is diploid:
+  one haploid genotype (`1`, or a lone `.`) drops the site from all three
+  statistics, unless masking or the sample selection removes that sample. A
+  `./1` counts its called allele.
+- `--site-pi` writes `nan` for a site with fewer than two called alleles.
+- `--window-pi` counts every position of a window that has no polymorphic site
+  as monomorphic with all 2N(2N−1) pairs called, missing data or not (N the
+  selected samples), and the last window of a chromosome as full length. A site
+  whose called alleles are all ALT is not polymorphic, so it is no variant of
+  `N_VARIANTS`. Two records at one position count as two sites.
+- `--tajima-d` puts POS in bin `floor(POS * (1/BIN))` in floating point, so
+  POS 49 with BIN 49 is in bin 0 (and 98 in bin 1), uses n = 2N whatever is
+  missing at a site, and writes a chromosome's bins from its first bin with a
+  segregating site to its last bin with a biallelic site, so a monomorphic site
+  after the last segregating one adds `0 nan` rows and a multi-allelic one does
+  not.
+- Numbers use C `%g` (6 digits) and `nan` in lower case; vcftools itself prints a
+  0/0 site pi as `-nan` on x86_64.
+
+`vcf popgen` also differs from vcftools in ways that are not about its output:
+it takes every `vcf filter` selection flag, runs any number of statistics in one
+pass (vcftools allows one per run) and writes each file only when the whole run
+succeeds. Like vcftools, it stops when no sample is selected (here a usage
+error, exit 2).
+
 ## `index` on FASTA refuses what `samtools faidx` quietly mishandles {#fasta-index-strictness}
 
 - **gloci:** `gloci index ref.fa` exits 1, naming the line, for three inputs:

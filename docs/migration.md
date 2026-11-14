@@ -103,9 +103,8 @@ gloci intersect -a peaks.sorted.bed -b genes.sorted.bed --chrom-order lex > hits
 Every row below was checked against `gloci <cmd> --help`.
 
 Rows marked "not yet available" name a tool option that gloci does not have
-yet; the population-genetics options of vcftools (`vcf popgen`) are deferred.
-Rows marked "not planned" name tools gloci does not intend to replace. BAM,
-CRAM and FASTA have their own section, [BAM, CRAM and FASTA
+yet. Rows marked "not planned" name tools gloci does not intend to replace.
+BAM, CRAM and FASTA have their own section, [BAM, CRAM and FASTA
 behaviour](#bam-cram-and-fasta-behaviour), after the tables. The samtools
 commands have their own table, [samtools](#samtools), with [samtools
 behaviour](#samtools-behaviour) after the tables.
@@ -281,7 +280,8 @@ behaviour](#samtools-behaviour) after the tables.
 | `--extract-FORMAT-info KEY` | `gloci vcf extract FILE --format KEY --layout wide` (columns are `SAMPLE:KEY`; `--layout long` gives a row per sample; [differences.md#vcf-extract-format-wide](differences.md#vcf-extract-format-wide)) |
 | `--012` (writes `out.012`, `.012.indv`, `.012.pos`) | `gloci vcf extract FILE --genotype-matrix 012 --out-prefix out` (same files; haploid and half-missing reference calls count 0; [differences.md#vcf-extract-012](differences.md#vcf-extract-012)) |
 | `vcf-concat A.vcf.gz B.vcf.gz` | `gloci vcf concat A.vcf.gz B.vcf.gz -o OUT.vcf.gz` (identical samples; compatible header definitions; each file must start at or after the end of the one before, or it exits 1 with a `gloci sort` hint; inputs may be VCF, VCF.gz or BCF) |
-| `--site-pi`, `--window-pi`, `--window-pi-step`, `--TajimaD`, `--weir-fst-pop`, `--fst-window-size`, `--fst-window-step`, `--geno-r2`, `--hap-r2`, `--interchrom-geno-r2`, `--interchrom-hap-r2`, `--ld-window`, `--ld-window-bp`, `--min-r2`, `--relatedness`, `--relatedness2` | not yet available (deferred; `vcf popgen` is not in this release) |
+| `--site-pi` / `--window-pi SIZE` / `--window-pi-step STEP` / `--TajimaD BIN` | `gloci vcf popgen FILE --out-prefix P --site-pi` / `--window-pi SIZE` / `--window-pi-step STEP` / `--tajima-d BIN` (write `P.sites.pi`, `P.windowed.pi`, `P.Tajima.D`, same columns; any of them in one run; the windowed ones need sorted input, [differences.md#popgen-sorted-input](differences.md#popgen-sorted-input); a step larger than the window is an error, [differences.md#popgen-window-step](differences.md#popgen-window-step); counts never wrap, [differences.md#popgen-integer-overflow](differences.md#popgen-integer-overflow)) |
+| `--weir-fst-pop`, `--fst-window-size`, `--fst-window-step`, `--geno-r2`, `--hap-r2`, `--interchrom-geno-r2`, `--interchrom-hap-r2`, `--ld-window`, `--ld-window-bp`, `--min-r2`, `--relatedness`, `--relatedness2` | not yet available |
 | `--diff B`, `--gzdiff B`, `--diff-bcf B` with `--diff-site-discordance` / `--diff-indv-discordance` / `--diff-discordance-matrix`, `--diff-indv-map FILE` | `gloci vcf compare A B --out-prefix P` with `--site-discordance` / `--sample-discordance` / `--discordance-matrix`, `--sample-map FILE` (B is the second positional file, any of VCF, VCF.gz or BCF, so `--gzdiff` and `--diff-bcf` need no flag; `P.diff.sites`, `P.diff.indv`, `P.diff.discordance_matrix`, same columns; genotype concordance only. Sites are paired by `--match alleles` by default (same CHROM and POS and a shared ALT after trimming); add `--match position` for vcftools' site pairing, [differences.md#compare-allele-matching](differences.md#compare-allele-matching). The matrix counts biallelic pairs of the same trimmed allele under `--match alleles` (so `AT>A` and `ATG>AG` count together) and of the same REF and ALT text under `--match position`. A half-missing `./1` is missing, [differences.md#compare-half-missing](differences.md#compare-half-missing). `--thin` is refused unless both headers declare the same contigs and no `-g` is given) |
 | `--diff B --diff-site` | sites in both files: `gloci intersect -a A -b B --match alleles`; in A only: `gloci subtract -a A -b B --match alleles` (swap A and B for B only). `--match alleles` is the default; `--match position` pairs by POS and REF like vcftools. `vcf compare` does not write these site sets |
 | `--diff B --diff-indv` | the samples of each file are the `#CHROM` line: `gloci view --header-only FILE \| tail -n1 \| cut -f10-`; `vcf compare` writes every sample of the union in `P.diff.indv` with a discordance row, not the in-one-file lists |
@@ -804,6 +804,16 @@ pinned difference where there is one.
   keeps the original DP and GQ of masked genotypes) are in
   [differences.md](differences.md), under "`vcf stats --json`: the summary.json
   schema" and "`vcf filter ... | vcf stats` is `vcf stats` without masking".
+- **`vcf popgen` replaces `--site-pi`, `--window-pi` and `--TajimaD`:** one
+  `gloci vcf popgen FILE --out-prefix P` run writes any of `P.sites.pi`,
+  `P.windowed.pi` and `P.Tajima.D` in vcftools' formats, after the same
+  selection flags as `vcf filter` (`--minDP 5` is `--min-dp 5`, `--indv s1` is
+  `--samples s1`). Differences: the windowed statistics reject unsorted input,
+  a `--window-pi-step` larger than the window is an error rather than reset,
+  and no count wraps past 32-bit limits.
+  [differences.md#popgen-sorted-input](differences.md#popgen-sorted-input),
+  [differences.md#popgen-window-step](differences.md#popgen-window-step),
+  [differences.md#popgen-integer-overflow](differences.md#popgen-integer-overflow)
 - **`vcf filter --include/--exclude` is a subset of `bcftools view -i/-e`:**
   fields against numbers, strings or `.`, `N_PASS`, and the FORMAT fields GT,
   DP and GQ only (other FORMAT keys such as AD and FT are rejected, exit 2).

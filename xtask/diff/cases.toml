@@ -3537,6 +3537,140 @@ reference = "vcftools --vcf input.vcf --diff half-b.vcf --diff-indv-discordance 
 compare = "exact"
 expected_difference = "#compare-half-missing"
 
+# vcf popgen (D158, D159) vs vcftools 0.1.16 --site-pi, --window-pi and
+# --TajimaD. Each statistic is compared through its output file (`&& cat`), so
+# these run live only; plain `cargo test` pins the same files through
+# crates/gloci/tests/vcf_popgen.rs against the committed vcftools outputs in
+# crates/gloci-vcf/tests/golden/popgen. vcftools prints a 0/0 site pi as nan or
+# -nan by CPU: the reference side maps -nan to nan.
+
+[[case]]
+name = "vcf-popgen-site-pi-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/popgen.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --site-pi && cat o.sites.pi"
+reference = "vcftools --vcf input.vcf --site-pi --out o >/dev/null 2>&1 && cat o.sites.pi | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-window-pi-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/popgen.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --window-pi 10 && cat o.windowed.pi"
+reference = "vcftools --vcf input.vcf --window-pi 10 --out o >/dev/null 2>&1 && cat o.windowed.pi | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-window-pi-step-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/popgen.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --window-pi 10 --window-pi-step 5 && cat o.windowed.pi"
+reference = "vcftools --vcf input.vcf --window-pi 10 --window-pi-step 5 --out o >/dev/null 2>&1 && cat o.windowed.pi | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-window-pi-step-3-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/popgen.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --window-pi 10 --window-pi-step 3 && cat o.windowed.pi"
+reference = "vcftools --vcf input.vcf --window-pi 10 --window-pi-step 3 --out o >/dev/null 2>&1 && cat o.windowed.pi | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-tajima-d-49-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/popgen.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --tajima-d 49 && cat o.Tajima.D"
+reference = "vcftools --vcf input.vcf --TajimaD 49 --out o >/dev/null 2>&1 && cat o.Tajima.D | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-tajima-d-100-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/popgen.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --tajima-d 100 && cat o.Tajima.D"
+reference = "vcftools --vcf input.vcf --TajimaD 100 --out o >/dev/null 2>&1 && cat o.Tajima.D | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-masked-site-pi-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/popgen.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --site-pi --min-dp 5 && cat o.sites.pi"
+reference = "vcftools --vcf input.vcf --site-pi --minDP 5 --out o >/dev/null 2>&1 && cat o.sites.pi | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-masked-window-pi-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/popgen.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --window-pi 10 --window-pi-step 3 --min-dp 5 && cat o.windowed.pi"
+reference = "vcftools --vcf input.vcf --window-pi 10 --window-pi-step 3 --minDP 5 --out o >/dev/null 2>&1 && cat o.windowed.pi | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-masked-tajima-d-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/popgen.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --tajima-d 49 --min-dp 5 && cat o.Tajima.D"
+reference = "vcftools --vcf input.vcf --TajimaD 49 --minDP 5 --out o >/dev/null 2>&1 && cat o.Tajima.D | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-samples-site-pi-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/popgen.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --site-pi --samples s2,s3 && cat o.sites.pi"
+reference = "vcftools --vcf input.vcf --site-pi --indv s2 --indv s3 --out o >/dev/null 2>&1 && cat o.sites.pi | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-samples-window-pi-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/popgen.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --window-pi 10 --window-pi-step 5 --samples s2,s3 && cat o.windowed.pi"
+reference = "vcftools --vcf input.vcf --window-pi 10 --window-pi-step 5 --indv s2 --indv s3 --out o >/dev/null 2>&1 && cat o.windowed.pi | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-samples-tajima-d-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/popgen.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --tajima-d 100 --samples s2,s3 && cat o.Tajima.D"
+reference = "vcftools --vcf input.vcf --TajimaD 100 --indv s2 --indv s3 --out o >/dev/null 2>&1 && cat o.Tajima.D | sed 's/-nan/nan/g'"
+compare = "exact"
+
+# Every statistic in one pass equals vcftools' three runs.
+[[case]]
+name = "vcf-popgen-one-pass-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/popgen.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --site-pi --window-pi 10 --window-pi-step 5 --tajima-d 49 -t 4 && cat o.sites.pi o.windowed.pi o.Tajima.D"
+reference = "vcftools --vcf input.vcf --site-pi --out o >/dev/null 2>&1 && vcftools --vcf input.vcf --window-pi 10 --window-pi-step 5 --out o >/dev/null 2>&1 && vcftools --vcf input.vcf --TajimaD 49 --out o >/dev/null 2>&1 && cat o.sites.pi o.windowed.pi o.Tajima.D | sed 's/-nan/nan/g'"
+compare = "exact"
+
+# A generated VCF: SNVs, MNVs, indels, multi-allelic sites, deletions and
+# missing genotypes on three chromosomes.
+[[case]]
+name = "vcf-popgen-generated-vs-vcftools"
+input = { gen = ["vcf", "--records", "3000", "--samples", "7", "--chroms", "3", "--seed", "41"] }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --site-pi --window-pi 2000000 --window-pi-step 500000 --tajima-d 5000000 && cat o.sites.pi o.windowed.pi o.Tajima.D"
+reference = "vcftools --vcf input.vcf --site-pi --out o >/dev/null 2>&1 && vcftools --vcf input.vcf --window-pi 2000000 --window-pi-step 500000 --out o >/dev/null 2>&1 && vcftools --vcf input.vcf --TajimaD 5000000 --out o >/dev/null 2>&1 && cat o.sites.pi o.windowed.pi o.Tajima.D | sed 's/-nan/nan/g'"
+compare = "exact"
+
+# Documented differences.
+[[case]]
+name = "vcf-popgen-unsorted-vs-vcftools"
+input = { file = "xtask/diff/inputs/stats-unsorted.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --window-pi 1000"
+reference = "vcftools --vcf input.vcf --window-pi 1000 --out o >/dev/null 2>&1"
+compare = "exit-status"
+expected_difference = "#popgen-sorted-input"
+
+[[case]]
+name = "vcf-popgen-window-step-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/popgen.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --window-pi 10 --window-pi-step 20"
+reference = "vcftools --vcf input.vcf --window-pi 10 --window-pi-step 20 --out o >/dev/null 2>&1"
+compare = "exit-status"
+expected_difference = "#popgen-window-step"
+
+# 32,769 samples: vcftools' 32-bit 1/(i*i) divides by zero, so every D is nan.
+[[case]]
+name = "vcf-popgen-integer-overflow-vs-vcftools"
+input = { gen = ["vcf", "--records", "12", "--samples", "32769", "--chroms", "1", "--seed", "5"] }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --tajima-d 100000000 && cat o.Tajima.D"
+reference = "vcftools --vcf input.vcf --TajimaD 100000000 --out o >/dev/null 2>&1 && cat o.Tajima.D | sed 's/-nan/nan/g'"
+compare = "exact"
+expected_difference = "#popgen-integer-overflow"
+
 # vcf concat (D74): bcftools concat writes the files in the order given.
 # The headers are identical, so the header lines match too; records are
 # compared.
