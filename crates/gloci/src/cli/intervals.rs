@@ -7,32 +7,32 @@ use std::path::PathBuf;
 
 /// Aggregate columns over runs of lines with equal keys (bedtools groupby).
 ///
-/// Reads any tab-separated text, BED included, and groups consecutive
-/// lines whose -g key columns are equal; the input does not have to be
-/// sorted, and a key that comes back later starts a new group (as in
-/// bedtools groupby; sort first to get one group per key). Each group
-/// writes its key columns, exactly as in its first line, followed by one
-/// column per -c COL:OP, with the ops of map (count, count_distinct, sum,
-/// mean, median, min, max, stdev, var, stdev_pop, var_pop, collapse,
-/// distinct, distinct_sorted, first, last, indicator, cv, mad, quantile:Q,
-/// tmean:LO-HI, mode, antimode); the ops that need a second input
-/// (wmean, records, min_record, max_record, frac_*, bases_uniq, bases)
-/// are for map. Blank lines, `#` lines and track/browser lines are
-/// skipped. A line with fewer columns than -g needs is an error naming
-/// the line.
-///
-/// With --header the first line names the columns: -g and -c may use the
-/// names, and the output starts with a line holding the key names and
-/// the -c labels (bedtools -header copies the input header unchanged).
-/// VCF and BCF input is refused; extract the fields first with gloci vcf
-/// extract. --threads is accepted for uniformity with the other commands;
-/// groupby runs on a single thread.
+/// Reads any tab-separated text, BED included, and groups consecutive lines whose -g key columns are
+/// equal; the input does not have to be sorted, and a key that comes back later starts a new group
+/// (as in bedtools groupby; sort first to get one group per key). Each group writes its key columns,
+/// exactly as in its first line, followed by one column per -c COL:OP, with the ops of map (count,
+/// count_distinct, sum, mean, median, min, max, stdev, var, stdev_pop, var_pop, collapse, distinct,
+/// distinct_sorted, first, last, indicator, cv, mad, quantile:Q, tmean:LO-HI, mode, antimode); the
+/// ops that need a second input (wmean, records, min_record, max_record, frac_*, bases_uniq, bases)
+/// are for map.
 #[derive(Args)]
+#[command(about = "Aggregate columns over runs of equal keys (bedtools groupby)")]
 #[command(after_long_help = "\
 Examples:
   gloci groupby scores.bed -g 1,2 -c 5:sum -c 5:mean
   gloci groupby calls.tsv -g 1 -c 4:collapse -c 5:count_distinct
-  gloci groupby table.tsv --header -g gene -c expr:median -o medians.tsv")]
+  gloci groupby table.tsv --header -g gene -c expr:median -o medians.tsv
+
+Input lines:
+Blank lines, `#` lines and track/browser lines are skipped. A line with fewer columns than \
+-g needs is an error naming the line.
+
+Header and other input:
+With --header the first line names the columns: -g and -c may use the names, and the \
+output starts with a line holding the key names and the -c labels (bedtools -header copies \
+the input header unchanged). VCF and BCF input is refused; extract the fields first with \
+gloci vcf extract. --threads is accepted for uniformity with the other commands; groupby \
+runs on a single thread.")]
 pub struct GroupbyArgs {
     /// Tab-separated input (`-` for stdin).
     #[arg(value_name = "FILE")]
@@ -62,37 +62,35 @@ pub struct GroupbyArgs {
 
 /// Merge overlapping or nearby records into clusters (bedtools merge, bedops -m).
 ///
-/// Records are grouped by their footprints: a record joins the open
-/// cluster when its start is at most the cluster end plus -d/--max-gap.
-/// The default 0 joins overlapping and bookended features; a negative
-/// gap such as -d -2 needs at least that many shared bases; a point
-/// joins a cluster it lies inside or touches. The output is the merged
-/// regions as BED (chrom, start, end) whatever the input format (VCF,
-/// GFF, BAM, ...), or TSV for -o x.tsv; the input records themselves
-/// are not written.
-/// --count adds the number of records per cluster and -c COL:OP adds
-/// one aggregation column per option (count, sum, mean, median, min,
-/// max, stdev, var, stdev_pop, var_pop, collapse, distinct, distinct_sorted, first, last,
-/// count_distinct, indicator, cv, mad, quantile:Q, tmean:LO-HI, mode,
-/// antimode; the ops that need a second input, like wmean, are for
-/// map). -s clusters each strand separately
-/// (unknown strand apart from + and -) without adding a strand column.
-///
-/// Several files are merged together as one stream. Every input must be
-/// sorted in one chromosome order, which is checked as it is read; an
-/// unsorted input is an error whose hint is to run gloci sort or to pass
-/// --sort, which sorts the inputs first with an external sort bounded by
-/// --max-mem (spilling to --tmp-dir); the result equals gloci sort
-/// FILES | gloci merge -. Memory stays flat apart from the clusters
-/// being built.
+/// Records are grouped by their footprints: a record joins the open cluster when its start is at most
+/// the cluster end plus -d/--max-gap. The default 0 joins overlapping and bookended features; a
+/// negative gap such as -d -2 needs at least that many shared bases; a point joins a cluster it lies
+/// inside or touches. The output is the merged regions as BED (chrom, start, end) whatever the input
+/// format (VCF, GFF, BAM, ...), or TSV for -o x.tsv; the input records themselves are not written.
 #[derive(Args)]
+#[command(about = "Merge overlapping or nearby records (bedtools merge, bedops -m)")]
 #[command(after_long_help = "\
 Examples:
   gloci merge peaks.bed
   gloci merge a.bed b.bed -d 100 --count
   gloci merge genes.bed -s -c 5:max -c 4:distinct
   # variants in, BED regions out (-d -1: only footprints sharing a base join)
-  gloci merge calls.vcf.gz -d -1 -o regions.bed.gz --write-index")]
+  gloci merge calls.vcf.gz -d -1 -o regions.bed.gz --write-index
+
+Counting and columns:
+--count adds the number of records per cluster and -c COL:OP adds one aggregation column \
+per option (count, sum, mean, median, min, max, stdev, var, stdev_pop, var_pop, collapse, \
+distinct, distinct_sorted, first, last, count_distinct, indicator, cv, mad, quantile:Q, \
+tmean:LO-HI, mode, antimode; the ops that need a second input, like wmean, are for map). \
+-s clusters each strand separately (unknown strand apart from + and -) without adding a \
+strand column.
+
+Sorted input:
+Several files are merged together as one stream. Every input must be sorted in one \
+chromosome order, which is checked as it is read; an unsorted input is an error whose hint \
+is to run gloci sort or to pass --sort, which sorts the inputs first with an external sort \
+bounded by --max-mem (spilling to --tmp-dir); the result equals gloci sort FILES | gloci \
+merge -. Memory stays flat apart from the clusters being built.")]
 pub struct MergeArgs {
     /// Input files (`-` for stdin).
     #[arg(value_name = "FILES", required = true)]
@@ -145,27 +143,26 @@ pub struct MergeArgs {
 
 /// Give every record the id of its cluster (bedtools cluster).
 ///
-/// Writes each input line unchanged followed by a tab and a cluster id.
-/// Clusters are those of gloci merge, with the same -d/--max-gap
-/// (default 0: overlapping and bookended records share a cluster; a
-/// negative gap needs that many shared bases) and -s (each strand
-/// clustered separately, unknown strand apart from + and -). Ids start
-/// at 1 and increase through the file, across chromosomes. With -s, a
-/// cluster takes the next id when its first record is read, and the
-/// records stay in input order (bedtools cluster -s regroups them by
-/// strand within each chromosome).
-///
-/// The output is TSV, not a copy of the input format: a VCF input
-/// (clustered by its footprints, see --vcf-span) gets a #CHROM column
-/// line ending in "cluster" and then its records with the id appended.
-/// --header keeps the header lines of a BED or GFF input. The input
-/// must be sorted in one chromosome order, checked as it is read; pass
-/// --sort to sort it first.
+/// Writes each input line unchanged followed by a tab and a cluster id. Clusters are those of gloci
+/// merge, with the same -d/--max-gap (default 0: overlapping and bookended records share a cluster; a
+/// negative gap needs that many shared bases) and -s (each strand clustered separately, unknown
+/// strand apart from + and -). Ids start at 1 and increase through the file, across chromosomes. With
+/// -s, a cluster takes the next id when its first record is read, and the records stay in input order
+/// (bedtools cluster -s regroups them by strand within each chromosome).
 #[derive(Args)]
 #[command(after_long_help = "Examples:
   gloci cluster peaks.bed
   gloci cluster peaks.bed -d 100 -s
-  gloci cluster calls.vcf.gz --vcf-span ref -d 50")]
+  gloci cluster calls.vcf.gz --vcf-span ref -d 50
+
+Output:
+The output is TSV, not a copy of the input format: a VCF input (clustered by its \
+footprints, see --vcf-span) gets a #CHROM column line ending in \"cluster\" and then its \
+records with the id appended. --header keeps the header lines of a BED or GFF input.
+
+Sorted input:
+The input must be sorted in one chromosome order, checked as it is read; pass --sort to \
+sort it first.")]
 pub struct ClusterArgs {
     /// Input file (`-` for stdin).
     #[arg(value_name = "FILE")]
@@ -217,6 +214,7 @@ pub struct ClusterArgs {
 /// of the input format; for VCF input see gloci cluster. The input
 /// must be sorted in one chromosome order; pass --sort to sort it first.
 #[derive(Args)]
+#[command(about = "Distance to the previous record (bedtools spacing)")]
 #[command(after_long_help = "Examples:
   gloci spacing peaks.bed
   gloci spacing calls.vcf.gz --vcf-span ref")]
@@ -246,45 +244,44 @@ pub struct SpacingArgs {
     pub out: OutputArgs,
 }
 
-/// Split the inputs at every boundary into segments and say who covers
-/// each (bedtools multiinter and unionbedg, bedops -p, -i and -s).
+/// Split the inputs at every boundary into segments and say who covers each (bedtools multiinter and
+/// unionbedg, bedops -p, -i and -s).
 ///
-/// The footprints of all files are cut at every start and end, giving
-/// disjoint segments in sorted order. Each row is chrom, start, end, the
-/// number of files covering the segment and their labels joined with
-/// commas (--names, default the file names without directories). A file
-/// counts once however many of its features overlap there, and points
-/// cover no bases, so they add neither segments nor boundaries. Only
-/// segments covered by at least one file are written. --min-files K and
-/// --max-files K keep segments covered by at least or at most K files;
-/// --all keeps those covered by every file. --empty implies --min-files 0
-/// (an explicit --min-files overrides it); --min-files 0 needs --empty.
-/// By default a boundary is
-/// kept even where the membership does not change (as in bedops -p);
-/// --merge-adjacent joins neighbouring segments with the same output
-/// columns (as multiinter does). --no-membership writes coordinates
-/// only, so with --merge-adjacent every run of touching kept segments is
-/// joined.
-///
-/// With --bedgraph the inputs are bedGraph files and each row has one
-/// value per file instead of the membership; a file that does not cover
-/// the segment shows --empty (default 0). Giving --empty also writes the
-/// segments no file covers, with that value in every column; with -g
-/// (needs lengths) it covers whole chromosomes, including those with no
-/// features, otherwise only the gaps between features. The intervals of
-/// one bedGraph must not overlap.
-///
-/// Every input must be sorted in one chromosome order, which is checked
-/// as it is read; an unsorted input is an error whose hint names --sort,
-/// which sorts each file first with an external sort bounded by
-/// --max-mem. Memory is bounded by the intervals open at one position.
+/// The footprints of all files are cut at every start and end, giving disjoint segments in sorted
+/// order. Each row is chrom, start, end, the number of files covering the segment and their labels
+/// joined with commas (--names, default the file names without directories). A file counts once
+/// however many of its features overlap there, and points cover no bases, so they add neither
+/// segments nor boundaries. Only segments covered by at least one file are written.
 #[derive(Args)]
+#[command(about = "Segment the inputs by coverage (bedtools multiinter, bedops -p)")]
 #[command(after_long_help = "\
 Examples:
   gloci partition a.bed b.bed c.bed --merge-adjacent
   gloci partition a.bed b.bed --names tumour,normal --min-files 2
   gloci partition a.bed b.bed --all --merge-adjacent --no-membership
-  gloci partition a.bg b.bg --bedgraph --empty 0 -g hg38")]
+  gloci partition a.bg b.bg --bedgraph --empty 0 -g hg38
+
+Selecting segments:
+--min-files K and --max-files K keep segments covered by at least or at most K files; \
+--all keeps those covered by every file. --empty implies --min-files 0 (an explicit \
+--min-files overrides it); --min-files 0 needs --empty. By default a boundary is kept even \
+where the membership does not change (as in bedops -p); --merge-adjacent joins \
+neighbouring segments with the same output columns (as multiinter does). --no-membership \
+writes coordinates only, so with --merge-adjacent every run of touching kept segments is \
+joined.
+
+bedGraph input:
+With --bedgraph the inputs are bedGraph files and each row has one value per file instead \
+of the membership; a file that does not cover the segment shows --empty (default 0). \
+Giving --empty also writes the segments no file covers, with that value in every column; \
+with -g (needs lengths) it covers whole chromosomes, including those with no features, \
+otherwise only the gaps between features. The intervals of one bedGraph must not overlap.
+
+Sorted input:
+Every input must be sorted in one chromosome order, which is checked as it is read; an \
+unsorted input is an error whose hint names --sort, which sorts each file first with an \
+external sort bounded by --max-mem. Memory is bounded by the intervals open at one \
+position.")]
 pub struct PartitionArgs {
     /// Input files (`-` for stdin).
     #[arg(value_name = "FILES", required = true)]
@@ -335,54 +332,53 @@ pub struct PartitionArgs {
     pub out: OutputArgs,
 }
 
-/// Depth of coverage of a genome by the features of a BED file or the
-/// reads of a BAM (bedtools genomecov -i and -ibam).
+/// Depth of coverage of a genome by the features of a BED file or the reads of a BAM (bedtools
+/// genomecov -i and -ibam).
 ///
-/// Every feature adds one to the depth over its bases. -g is required
-/// (unless the input is BAM, CRAM or SAM):
-/// the output covers every chromosome of the genome from base 0 to its
-/// length, in genome order, chromosomes without features included
-/// (a built-in genome, .genome, .fai or .dict file with lengths). The
-/// default --hist writes, per chromosome and then for the whole genome
-/// (chrom `genome`), one row per depth present: chrom, depth, bases at
-/// that depth, chromosome length, fraction (six significant digits, as
-/// bedtools). --bedgraph writes runs of equal depth above zero, --bga
-/// also the zero-depth runs, --per-base one row per base: chrom,
-/// 1-based position, depth. --scale X multiplies the depths of the
-/// last three (six significant digits, as bedtools); --max-depth N
-/// puts every depth of N or more into the bin N of --hist.
-/// --strand + or - counts only features on that strand (BED needs
-/// column 6; a feature with unknown strand is not counted). --split
-/// counts the BED12 blocks of each feature. --5p and --3p count one
-/// base per feature, its 5' or 3' end by strand (unknown counts as
-/// plus). A zero-length feature covers no bases and is ignored. A
-/// feature past the end of its chromosome is an error.
-///
-/// BAM, CRAM and SAM input (a CRAM needs --reference): the chromosomes and sizes come from the header
-/// (header order, empty chromosomes included) unless -g is given. A read
-/// counts its whole reference span, deletions included; --split counts
-/// the blocks between N operations, and --split-deletions also cuts at
-/// D. --split-deletions is bedtools -ibam -split, so use it for parity;
-/// plain -ibam (cuts at D, not N) has no gloci counterpart, see
-/// docs/differences.md#bam-genomecov-deletions.
-/// Unmapped reads are left out, and --min-mapq, --require-flags and
-/// --exclude-flags filter reads first. --strand follows the read's
-/// direction. An indexed BAM or CRAM at -t above 1 runs per chromosome,
-/// with the same output as -t 1. At most 8 runs are in flight; memory is
-/// then about 64 MiB plus 20 MiB per run in flight: the output waiting to
-/// be written shares 64 MiB and the rest spills to --tmp-dir.
-///
-/// The input must be sorted in the genome order, which is checked as it
-/// is read; an unsorted input is an error whose hint names --sort.
-/// Memory is bounded by the features open at one position, whatever
-/// the output mode.
+/// Every feature adds one to the depth over its bases. -g is required (unless the input is BAM, CRAM
+/// or SAM): the output covers every chromosome of the genome from base 0 to its length, in genome
+/// order, chromosomes without features included (a built-in genome, .genome, .fai or .dict file with
+/// lengths). The default --hist writes, per chromosome and then for the whole genome (chrom
+/// `genome`), one row per depth present: chrom, depth, bases at that depth, chromosome length,
+/// fraction (six significant digits, as bedtools).
 #[derive(Args)]
+#[command(about = "Coverage depth of a genome (bedtools genomecov)")]
 #[command(after_long_help = "\
 Examples:
   gloci genomecov peaks.bed -g hg38
   gloci genomecov reads.bed -g hg38 --bedgraph --scale 0.000001 -o cov.bedgraph
   gloci genomecov exons12.bed -g hg38 --split --per-base
-  gloci genomecov reads.bam --bga --split")]
+  gloci genomecov reads.bam --bga --split
+
+Output:
+--bedgraph writes runs of equal depth above zero, --bga also the zero-depth runs, \
+--per-base one row per base: chrom, 1-based position, depth. --scale X multiplies the \
+depths of the last three (six significant digits, as bedtools); --max-depth N puts every \
+depth of N or more into the bin N of --hist.
+
+Selecting features:
+--strand + or - counts only features on that strand (BED needs column 6; a feature with \
+unknown strand is not counted). --split counts the BED12 blocks of each feature. --5p and \
+--3p count one base per feature, its 5' or 3' end by strand (unknown counts as plus). A \
+zero-length feature covers no bases and is ignored. A feature past the end of its \
+chromosome is an error.
+
+Alignments:
+BAM, CRAM and SAM input (a CRAM needs --reference): the chromosomes and sizes come from \
+the header (header order, empty chromosomes included) unless -g is given. A read counts \
+its whole reference span, deletions included; --split counts the blocks between N \
+operations, and --split-deletions also cuts at D. --split-deletions is bedtools -ibam \
+-split, so use it for parity; plain -ibam (cuts at D, not N) has no gloci counterpart, see \
+docs/differences.md#bam-genomecov-deletions. Unmapped reads are left out, and --min-mapq, \
+--require-flags and --exclude-flags filter reads first. --strand follows the read's \
+direction. An indexed BAM or CRAM at -t above 1 runs per chromosome, with the same output \
+as -t 1. At most 8 runs are in flight; memory is then about 64 MiB plus 20 MiB per run in \
+flight: the output waiting to be written shares 64 MiB and the rest spills to --tmp-dir.
+
+Sorted input:
+The input must be sorted in the genome order, which is checked as it is read; an unsorted \
+input is an error whose hint names --sort. Memory is bounded by the features open at one \
+position, whatever the output mode.")]
 pub struct GenomecovArgs {
     /// Input file (`-` for stdin).
     #[arg(value_name = "FILE")]
@@ -452,29 +448,29 @@ pub struct GenomecovArgs {
 
 /// Write the bases no feature covers (bedtools complement, bedops -c).
 ///
-/// Features of all files are united, and the gaps between them are
-/// written as BED (chrom, start, end). With -g, the gaps are taken over
-/// each chromosome of the genome, in genome order: a chromosome with no
-/// features becomes one row over its whole length, and the gaps before
-/// the first and after the last feature are included. The genome needs
-/// lengths (a built-in genome, .genome, .fai or .dict file); a feature
-/// that reaches past the end of its chromosome is an error. Without -g
+/// Features of all files are united, and the gaps between them are written as BED (chrom, start,
+/// end). With -g, the gaps are taken over each chromosome of the genome, in genome order: a
+/// chromosome with no features becomes one row over its whole length, and the gaps before the first
+/// and after the last feature are included. The genome needs lengths (a built-in genome, .genome,
+/// .fai or .dict file); a feature that reaches past the end of its chromosome is an error. Without -g
 /// only the gaps between features of the same chromosome are written.
-/// Points cover no bases and are ignored. Bookended features leave no
-/// gap.
-///
-/// Every input must be sorted in one chromosome order, which is checked
-/// as it is read; with -g, use the genome's own order (gloci sort -g).
-/// An unsorted input is an error whose hint names --sort, which sorts
-/// the inputs first with an external sort bounded by --max-mem; the
-/// result equals gloci sort FILES | gloci complement -.
 #[derive(Args)]
+#[command(about = "Bases no feature covers (bedtools complement, bedops -c)")]
 #[command(after_long_help = "\
 Examples:
   gloci complement peaks.bed
   gloci complement peaks.bed -g hg38 -o uncovered.bed
   gloci complement a.bed b.bed -g sacCer3
-  gloci complement shuffled.bed -g genome.txt --sort --max-mem 512M")]
+  gloci complement shuffled.bed -g genome.txt --sort --max-mem 512M
+
+Points and bookends:
+Points cover no bases and are ignored. Bookended features leave no gap.
+
+Sorted input:
+Every input must be sorted in one chromosome order, which is checked as it is read; with \
+-g, use the genome's own order (gloci sort -g). An unsorted input is an error whose hint \
+names --sort, which sorts the inputs first with an external sort bounded by --max-mem; the \
+result equals gloci sort FILES | gloci complement -.")]
 pub struct ComplementArgs {
     /// Input files (`-` for stdin).
     #[arg(value_name = "FILES", required = true)]
@@ -664,6 +660,7 @@ pub struct FlankArgs {
 /// warning. Output is BED3; --id-column adds the 1-based window number
 /// of each source interval, counted from the end with --reverse.
 #[derive(Args)]
+#[command(about = "Cut chromosomes or intervals into windows (bedtools makewindows)")]
 #[command(after_long_help = "\
 Examples:
   gloci windows -g hg38 -w 1000000 -o bins.bed

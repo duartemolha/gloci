@@ -4,6 +4,10 @@ use std::path::PathBuf;
 
 /// Write VCF/BCF files one after another (bcftools concat, vcf-concat).
 #[derive(Args, Debug, Clone)]
+#[command(
+    about = "Write VCF/BCF files one after another (bcftools concat)",
+    long_about
+)]
 #[command(after_long_help = "\
 Examples:
   gloci vcf concat chr1.vcf.gz chr2.vcf.gz -o all.vcf.gz
@@ -66,6 +70,7 @@ pub enum SplitTypesArg {
 /// left-aligned. A record with one ALT is written as it is. A field
 /// with the wrong number of values for its Number is an error (exit 1).
 #[derive(Args, Debug, Clone)]
+#[command(about = "Split multi-allelic records (bcftools norm -m-)")]
 #[command(after_long_help = "\
 Examples:
   gloci vcf split calls.vcf.gz -o calls.split.vcf.gz
@@ -135,6 +140,7 @@ pub enum RmDupArg {
 /// --skip-invalid also skips records that fail --check-ref e. `bcftools
 /// norm -a`, `-m+`, `--old-rec-tag` and `-N` are not available.
 #[derive(Args, Debug, Clone)]
+#[command(about = "Left-align and normalise records (bcftools norm -f)")]
 #[command(after_long_help = "\
 Examples:
   gloci vcf norm calls.vcf.gz -f ref.fa -o calls.norm.vcf.gz
@@ -213,37 +219,39 @@ pub struct VcfNormArgs {
 
 /// Transfer, remove and add fields of a VCF/BCF (bcftools annotate).
 ///
-/// --annotations SRC names a VCF/BCF, a tab-delimited file (plain or
-/// BGZF) or a BED file; --columns says what to take from it. FILE and SRC
-/// must both be sorted in one chromosome order (FILE's header contigs,
-/// else --chrom-order); both are read as a stream, no index is needed
-/// and neither is held in memory. A record of a VCF SRC annotates the
-/// FILE record at the same CHROM and POS that shares an allele with it
-/// (bcftools' default --pair-logic); a tab file with REF and ALT columns
-/// matches the same way, one with CHROM,POS matches the records whose
-/// REF span covers the position, and a BED file or CHROM,FROM,TO columns
-/// match overlapping records (--min-overlap restricts them). --columns
-/// takes ID, QUAL, FILTER, INFO/TAG (or TAG), NEW:=OLD, INFO (every tag
-/// of a VCF SRC) and ^INFO/TAG lists; +TAG fills only missing values;
-/// `.TAG` carries a tab file's missing values over; `-` skips a tab
-/// column. A tag the FILE header lacks is declared from a VCF SRC, or
-/// must come from --header-lines. --remove drops ID, QUAL, FILTER, INFO,
-/// FORMAT (GT stays), INFO/TAG, FORMAT/TAG or FILTER/NAME, and their
-/// header lines; ^ keeps only the listed tags of its kind. --set-id
-/// writes IDs from %CHROM, %POS, %REF, %FIRST_ALT, %ID and %INFO/TAG
-/// (a + prefix fills only missing IDs). --mark-sites +TAG flags the
-/// records that have a match, -TAG those that do not. INFO values are
-/// copied as written, not reformatted; Number=A and R values follow
-/// their allele, not their position. Not available: -s/-S, -i/-e,
-/// --rename-chrs, --merge-logic, --single-overlaps, --rename-annots,
-/// FORMAT transfers.
+/// --annotations SRC names a VCF/BCF, a tab-delimited file (plain or BGZF) or a BED file; --columns
+/// says what to take from it. FILE and SRC must both be sorted in one chromosome order (FILE's header
+/// contigs, else --chrom-order); both are read as a stream, no index is needed and neither is held in
+/// memory. A record of a VCF SRC annotates the FILE record at the same CHROM and POS that shares an
+/// allele with it (bcftools' default --pair-logic); a tab file with REF and ALT columns matches the
+/// same way, one with CHROM,POS matches the records whose REF span covers the position, and a BED
+/// file or CHROM,FROM,TO columns match overlapping records (--min-overlap restricts them).
 #[derive(Args, Debug, Clone)]
+#[command(about = "Transfer, remove and add fields (bcftools annotate)")]
 #[command(after_long_help = "\
 Examples:
   gloci vcf annotate calls.vcf.gz -a dbsnp.vcf.gz -c ID,INFO/RS -o calls.annot.vcf.gz
   gloci vcf annotate calls.vcf.gz -a genes.bed.gz -c CHROM,FROM,TO,GENE --header-lines genes.hdr
   gloci vcf annotate calls.vcf.gz -x INFO,FORMAT/PL --mark-sites +CLEAN
-  gloci vcf annotate calls.vcf.gz -I '+%CHROM:%POS:%REF:%FIRST_ALT' -o ids.vcf.gz")]
+  gloci vcf annotate calls.vcf.gz -I '+%CHROM:%POS:%REF:%FIRST_ALT' -o ids.vcf.gz
+
+Columns:
+--columns takes ID, QUAL, FILTER, INFO/TAG (or TAG), NEW:=OLD, INFO (every tag of a VCF \
+SRC) and ^INFO/TAG lists; +TAG fills only missing values; `.TAG` carries a tab file's \
+missing values over; `-` skips a tab column. A tag the FILE header lacks is declared from \
+a VCF SRC, or must come from --header-lines.
+
+Removing and setting:
+--remove drops ID, QUAL, FILTER, INFO, FORMAT (GT stays), INFO/TAG, FORMAT/TAG or \
+FILTER/NAME, and their header lines; ^ keeps only the listed tags of its kind. --set-id \
+writes IDs from %CHROM, %POS, %REF, %FIRST_ALT, %ID and %INFO/TAG (a + prefix fills only \
+missing IDs). --mark-sites +TAG flags the records that have a match, -TAG those that do \
+not.
+
+Values and limits:
+INFO values are copied as written, not reformatted; Number=A and R values follow their \
+allele, not their position. Not available: -s/-S, -i/-e, --rename-chrs, --merge-logic, \
+--single-overlaps, --rename-annots, FORMAT transfers.")]
 pub struct VcfAnnotateArgs {
     /// Input VCF or BCF (`-` for stdin), sorted.
     #[arg(value_name = "FILE")]
@@ -360,28 +368,30 @@ pub enum FilterLogicArg {
 
 /// Combine the samples of several VCF/BCF files (bcftools merge).
 ///
-/// The inputs must be sorted in one chromosome order (the first input's
-/// ##contig lines, else --chrom-order); they are read as a stream, so no
-/// index is needed and only the records of one position are held. Records
-/// at the same CHROM and POS are merged as --merge says: ALT alleles are
-/// united in input order (a shorter REF is extended to the longest), and
-/// GT and Number=A, R and G FORMAT values are re-indexed to the merged
-/// alleles. A sample absent from a record is ./. (or 0/0 with -0) in the
-/// record's ploidy. QUAL is the largest, FILTER the union without PASS,
-/// ID the distinct IDs joined with ;. Sample names must be distinct
-/// (--force-samples renames a repeat to N:NAME). The header is the first
-/// input's with the other inputs' new lines added. The inputs are open
-/// together: merging more files than `ulimit -n` allows fails with the
-/// operating system's error; raise the limit (ulimit -n 4096). bcftools
-/// merge -g, -L, -r, -R, -T, --print-header and --use-header are not
-/// available.
+/// The inputs must be sorted in one chromosome order (the first input's ##contig lines, else
+/// --chrom-order); they are read as a stream, so no index is needed and only the records of one
+/// position are held. Records at the same CHROM and POS are merged as --merge says: ALT alleles are
+/// united in input order (a shorter REF is extended to the longest), and GT and Number=A, R and G
+/// FORMAT values are re-indexed to the merged alleles. A sample absent from a record is ./. (or 0/0
+/// with -0) in the record's ploidy.
 #[derive(Args, Debug, Clone)]
+#[command(about = "Combine the samples of VCF/BCF files (bcftools merge)")]
 #[command(after_long_help = "\
 Examples:
   gloci vcf merge a.vcf.gz b.vcf.gz c.vcf.gz -o cohort.vcf.gz
   gloci vcf merge --file-list shards.txt -m none --force-samples -o cohort.bcf
   gloci vcf merge a.bcf b.bcf -i DP:sum,AF:avg -0 | gloci vcf stats - --out-prefix qc
-  gloci vcf merge a.vcf.gz b.vcf.gz -f PASS,. -m id -o by-id.vcf.gz")]
+  gloci vcf merge a.vcf.gz b.vcf.gz -f PASS,. -m id -o by-id.vcf.gz
+
+Merged fields:
+QUAL is the largest, FILTER the union without PASS, ID the distinct IDs joined with ;. \
+Sample names must be distinct (--force-samples renames a repeat to N:NAME). The header is \
+the first input's with the other inputs' new lines added.
+
+Open files:
+The inputs are open together: merging more files than `ulimit -n` allows fails with the \
+operating system's error; raise the limit (ulimit -n 4096). bcftools merge -g, -L, -r, -R, \
+-T, --print-header and --use-header are not available.")]
 pub struct VcfMergeArgs {
     /// Input VCF or BCF files (two or more; `-` is not allowed), each
     /// sorted in the same chromosome order. Or use --file-list.

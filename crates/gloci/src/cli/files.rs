@@ -41,69 +41,79 @@ impl From<KindArg> for gloci_core::VariantKind {
     }
 }
 
-/// Convert VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out, BED12 or
-/// BAM/CRAM/SAM to BED (bedops convert2bed, vcf2bed, gff2bed, gtf2bed;
-/// bedtools bed12tobed6, bamtobed).
-///
-/// VCF/BCF gives one row per record: chrom, start, end, ID, REF, ALT,
-/// QUAL, FILTER, with the footprint chosen by --vcf-span.
-/// --split-alleles writes one row per ALT instead, each with that ALT's
-/// own footprint (with --vcf-span ref, the record's REF footprint on
-/// every row; `*`, `<*>` and `<NON_REF>` rows are skipped when other ALTs
-/// exist). --types keeps the records
-/// (with --split-alleles, the ALTs) of the listed kinds: snv, mnv, ins,
-/// del, sv, ref, other; a record is kept when any of its ALTs is of a
-/// listed kind. GFF3/GTF gives 10 columns (bedops gff2bed): chrom,
-/// start, end, name, score, strand, source, type, phase, attributes.
-/// The name is the --name-attr attribute (default ID for GFF3, gene_id
-/// for GTF; `.` when absent). --feature keeps the listed column-3 types.
-/// WIG (fixedStep or variableStep, with optional span) gives one bedGraph
-/// row per data line: chrom, start, end, value; equal values are not
-/// merged. fixedStep needs start= and step=; values must be finite. A
-/// span larger than the step gives overlapping rows.
-/// PSL (BLAT; the header is skipped) gives bedops psl2bed's 21 columns:
-/// tName, tStart, tEnd, qName, matches, strand, then the other PSL
-/// columns in order. RepeatMasker .out gives bedops rmsk2bed's columns:
-/// sequence, begin-1, end, repeat, score, strand (`C` is `-`), the
-/// divergence, deletion and insertion percentages, the `(left)` of the
-/// query, class/family, the repeat positions as written, ID and `*`.
-/// BAM, CRAM and SAM give one BED6 row per mapped read, in input order:
-/// chrom, start, end, name (with /1 or /2 for the first or second mate),
-/// MAPQ, strand; unmapped reads are skipped and counted at -v, and
-/// --min-mapq, --require-flags and --exclude-flags filter. The span is
-/// the reference bases the CIGAR covers (M D N = X), cut at the end of
-/// the reference. --bed12 writes one BED12 row per read with the thick
-/// span equal to the read and --color as itemRgb; --blocks writes one
-/// BED6 row per block, cut at N; --split-deletions cuts at D as well.
-/// --score-tag NM takes the score from an integer tag (NM is bedtools
-/// -ed), and --cigar appends the CIGAR to BED6 rows.
-/// --bedpe (bedtools bamtobed -bedpe) writes BEDPE instead, one row per
-/// read name from alignments sorted by name (gloci sort -n; a coordinate
-/// sorted file is exit 2): chrom1 start1 end1 chrom2 start2 end2 name
-/// score strand1 strand2, from the primary READ1 and READ2 that are next
-/// to each other (secondary and supplementary reads are ignored). An
-/// unmapped mate is `. -1 -1` with strand `.`. The end that sorts first
-/// by (chromosome as bytes, start) comes first; --mate1-first keeps READ1
-/// first (bedtools -mate1). The score is the smaller MAPQ of two mapped
-/// ends, else 0; with --score-tag it is the sum over the mapped ends
-/// (--score-tag NM is bedtools -ed). A name with one mate is not written
-/// and is counted in a warning. The output is .bedpe (or .bedpe.gz) and
-/// feeds pair-intersect and pair-pair; --bedpe cannot be used with
-/// --bed12, --blocks, --cigar, --color or --split-deletions.
-/// BED12 with --blocks gives one BED6 row per block; a line that is not
-/// valid BED12 (fewer than 12 columns, block counts that disagree, blocks
-/// out of order, a last block not ending at chromEnd) is an error, also
-/// with --skip-invalid. The input is
-/// converted in its own order and needs no sorting. A conversion whose
-/// output goes out of order (allele footprints can start after their
-/// record) prints one warning; --write-index then fails.
+/// Convert VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out, BED12 or BAM/CRAM/SAM to BED (bedops
+/// convert2bed, vcf2bed, gff2bed, gtf2bed; bedtools bed12tobed6, bamtobed).
 #[derive(Args)]
+#[command(
+    about = "Convert VCF, GFF, WIG, PSL, BAM and more to BED (convert2bed)",
+    long_about
+)]
 #[command(after_long_help = "\
 Examples:
   gloci convert calls.vcf.gz -o calls.bed
   gloci convert transcripts.bed --blocks -o exons.bed
   gloci convert reads.bam --bed12 --score-tag NM --min-mapq 30
-  gloci convert reads.byname.bam --bedpe -o pairs.bedpe")]
+  gloci convert reads.byname.bam --bedpe -o pairs.bedpe
+
+VCF and BCF:
+VCF/BCF gives one row per record: chrom, start, end, ID, REF, ALT, QUAL, FILTER, with the \
+footprint chosen by --vcf-span. --split-alleles writes one row per ALT instead, each with \
+that ALT's own footprint (with --vcf-span ref, the record's REF footprint on every row; \
+`*`, `<*>` and `<NON_REF>` rows are skipped when other ALTs exist). --types keeps the \
+records (with --split-alleles, the ALTs) of the listed kinds: snv, mnv, ins, del, sv, ref, \
+other; a record is kept when any of its ALTs is of a listed kind.
+
+GFF3 and GTF:
+GFF3/GTF gives 10 columns (bedops gff2bed): chrom, start, end, name, score, strand, \
+source, type, phase, attributes. The name is the --name-attr attribute (default ID for \
+GFF3, gene_id for GTF; `.` when absent). --feature keeps the listed column-3 types.
+
+WIG:
+WIG (fixedStep or variableStep, with optional span) gives one bedGraph row per data line: \
+chrom, start, end, value; equal values are not merged. fixedStep needs start= and step=; \
+values must be finite. A span larger than the step gives overlapping rows.
+
+PSL:
+PSL (BLAT; the header is skipped) gives bedops psl2bed's 21 columns: tName, tStart, tEnd, \
+qName, matches, strand, then the other PSL columns in order.
+
+RepeatMasker:
+RepeatMasker .out gives bedops rmsk2bed's columns: sequence, begin-1, end, repeat, score, \
+strand (`C` is `-`), the divergence, deletion and insertion percentages, the `(left)` of \
+the query, class/family, the repeat positions as written, ID and `*`.
+
+Alignments:
+BAM, CRAM and SAM give one BED6 row per mapped read, in input order: chrom, start, end, \
+name (with /1 or /2 for the first or second mate), MAPQ, strand; unmapped reads are \
+skipped and counted at -v, and --min-mapq, --require-flags and --exclude-flags filter. The \
+span is the reference bases the CIGAR covers (M D N = X), cut at the end of the reference. \
+--bed12 writes one BED12 row per read with the thick span equal to the read and --color as \
+itemRgb; --blocks writes one BED6 row per block, cut at N; --split-deletions cuts at D as \
+well. --score-tag NM takes the score from an integer tag (NM is bedtools -ed), and --cigar \
+appends the CIGAR to BED6 rows.
+
+BEDPE from alignments:
+--bedpe (bedtools bamtobed -bedpe) writes BEDPE instead, one row per read name from \
+alignments sorted by name (gloci sort -n; a coordinate sorted file is exit 2): chrom1 \
+start1 end1 chrom2 start2 end2 name score strand1 strand2, from the primary READ1 and \
+READ2 that are next to each other (secondary and supplementary reads are ignored). An \
+unmapped mate is `. -1 -1` with strand `.`. The end that sorts first by (chromosome as \
+bytes, start) comes first; --mate1-first keeps READ1 first (bedtools -mate1). The score is \
+the smaller MAPQ of two mapped ends, else 0; with --score-tag it is the sum over the \
+mapped ends (--score-tag NM is bedtools -ed). A name with one mate is not written and is \
+counted in a warning. The output is .bedpe (or .bedpe.gz) and feeds pair-intersect and \
+pair-pair; --bedpe cannot be used with --bed12, --blocks, --cigar, --color or \
+--split-deletions.
+
+BED12:
+BED12 with --blocks gives one BED6 row per block; a line that is not valid BED12 (fewer \
+than 12 columns, block counts that disagree, blocks out of order, a last block not ending \
+at chromEnd) is an error, also with --skip-invalid.
+
+Order and output:
+The input is converted in its own order and needs no sorting. A conversion whose output \
+goes out of order (allele footprints can start after their record) prints one warning; \
+--write-index then fails.")]
 pub struct ConvertArgs {
     /// Input file (`-` for stdin).
     #[arg(value_name = "FILE")]
@@ -169,43 +179,42 @@ pub struct ConvertArgs {
 
 /// Validate files and print a one-screen summary of each.
 ///
-/// check reads every file to the end, keeps going past problems and
-/// reports the record count, the chromosomes, whether the records are
-/// sorted, and the first 10 errors and warnings with their line numbers.
-/// Errors: records that do not parse, records out of order, an end past
-/// the chromosome length or a chromosome missing from -g, bad BED12
-/// blocks, a bedGraph value that is not a number, a VCF line with the
-/// wrong number of columns. Warnings: exact duplicate lines at the same
-/// position, and blank lines. Exit status 1 when any file has errors.
-/// The order is checked against -g, else the ##contig lines of a
-/// VCF/BCF, else --chrom-order (karyotype by default).
-///
-/// A BAM, CRAM or SAM is read record by record (a CRAM needs
-/// --reference): the summary adds the mapped, unmapped-but-placed and
-/// unplaced counts and the @HD sort order. With SO:coordinate declared,
-/// a read before the previous one, or a placed read after an unplaced
-/// one, is an error; a read past the end of its reference and identical
-/// records at one position are warnings. A BAM without its BGZF
-/// end-of-file block (a CRAM without its end-of-file container) is an
-/// error. -g, --chrom-order and --chrom-map do not apply to them
-/// (-g and --chrom-order give one warning, --chrom-map is a usage
-/// error): the header says the references and the order. Duplicate
-/// warnings assume coordinate-sorted input, as they compare only
-/// records at the same position.
-///
-/// --quick is samtools quickcheck, for any format: the header must
-/// parse (alignments: with an @SQ line, unless --unaligned), the first
-/// record must parse (a CRAM: its first container, so no reference is
-/// needed) and a file (not stdin) must end with its end-of-file marker.
-/// Only those parts are read. --list-failed prints just the failing
-/// paths. Exit status 1 for any failing file, not samtools' bit mask.
+/// check reads every file to the end, keeps going past problems and reports the record count, the
+/// chromosomes, whether the records are sorted, and the first 10 errors and warnings with their line
+/// numbers.
 #[derive(Args)]
 #[command(after_long_help = "\
 Examples:
   gloci check peaks.bed
   gloci check calls.vcf.gz -g hg38.fa.fai
   gloci check reads.bam
-  gloci check --quick --list-failed *.bam > bad.txt")]
+  gloci check --quick --list-failed *.bam > bad.txt
+
+Errors and warnings:
+Errors: records that do not parse, records out of order, an end past the chromosome length \
+or a chromosome missing from -g, bad BED12 blocks, a bedGraph value that is not a number, \
+a VCF line with the wrong number of columns. Warnings: exact duplicate lines at the same \
+position, and blank lines. Exit status 1 when any file has errors. The order is checked \
+against -g, else the ##contig lines of a VCF/BCF, else --chrom-order (karyotype by \
+default).
+
+Alignments:
+A BAM, CRAM or SAM is read record by record (a CRAM needs --reference): the summary adds \
+the mapped, unmapped-but-placed and unplaced counts and the @HD sort order. With \
+SO:coordinate declared, a read before the previous one, or a placed read after an unplaced \
+one, is an error; a read past the end of its reference and identical records at one \
+position are warnings. A BAM without its BGZF end-of-file block (a CRAM without its \
+end-of-file container) is an error. -g, --chrom-order and --chrom-map do not apply to them \
+(-g and --chrom-order give one warning, --chrom-map is a usage error): the header says the \
+references and the order. Duplicate warnings assume coordinate-sorted input, as they \
+compare only records at the same position.
+
+Quick check:
+--quick is samtools quickcheck, for any format: the header must parse (alignments: with an \
+@SQ line, unless --unaligned), the first record must parse (a CRAM: its first container, \
+so no reference is needed) and a file (not stdin) must end with its end-of-file marker. \
+Only those parts are read. --list-failed prints just the failing paths. Exit status 1 for \
+any failing file, not samtools' bit mask.")]
 pub struct CheckArgs {
     /// Input files.
     #[arg(value_name = "FILES", required = true)]
@@ -240,47 +249,42 @@ pub struct CheckArgs {
     pub reference: Option<PathBuf>,
 }
 
-/// Print the records in regions, stream or recompress a file, convert
-/// VCF to BCF and back, or print only the header.
+/// Print the records in regions, stream or recompress a file, convert VCF to BCF and back, or print
+/// only the header.
 ///
-/// With no regions the records are written as read (comment and track
-/// lines after the first record and blank lines are dropped, and CRLF
-/// line ends become LF), so view can recompress a file (-o FILE.gz is
-/// BGZF) or index it (--write-index).
-/// VCF and BCF convert to each other with -O or the -o extension;
-/// the header is kept as it is, plus a ##glociCommand line. BED and GFF
-/// header lines are kept by default. For conversions to BED from VCF/BCF,
-/// GFF3/GTF or BED12, use gloci convert.
-///
-/// BAM, CRAM and SAM input is written as BAM or SAM, as -O or
-/// the -o extension say (the same as the input by default; BAM for
-/// CRAM), every record, unmapped reads included, with an @PG line added
-/// to the header. --header-only, --no-header (SAM output only),
-/// --min-mapq, --require-flags and --exclude-flags apply. Regions select
-/// the reads whose footprint overlaps them; an unmapped read placed at a
-/// position counts as one base there. It is not samtools view: there is
-/// no -b, -h, -c or -L. CRAM needs the FASTA it was made with
-/// (--reference, with its .fai), unless it was written without one; MD
-/// and NM tags come out as stored, not regenerated as samtools does.
-///
-/// With regions, view prints the records whose footprint (per
-/// --vcf-span) overlaps a region, each once, in file order. A point
-/// (a zero-length BED record, an insertion) overlaps a region only when
-/// strictly inside it, unless --inclusive-points is given. Regions are
-/// read through a .tbi/.csi index when the file has one, and otherwise
-/// by scanning the whole file, with a warning. Either way the order of
-/// every record read is checked, so an unsorted file is an error, never
-/// a wrong answer. With --assume-sorted, an uncompressed BED file
-/// without an index is binary-searched instead (like bedextract); that
-/// trusts the file to be sorted. Index the file (gloci sort FILE -o
-/// FILE.gz --write-index) for speed and checking both.
+/// With no regions the records are written as read (comment and track lines after the first record
+/// and blank lines are dropped, and CRLF line ends become LF), so view can recompress a file (-o
+/// FILE.gz is BGZF) or index it (--write-index). VCF and BCF convert to each other with -O or the -o
+/// extension; the header is kept as it is, plus a ##glociCommand line. BED and GFF header lines are
+/// kept by default. For conversions to BED from VCF/BCF, GFF3/GTF or BED12, use gloci convert.
 #[derive(Args)]
+#[command(about = "Print regions, recompress or convert a file (samtools view)")]
 #[command(after_long_help = "\
 Examples:
   gloci view calls.vcf.gz chr1:1,000,000-2,000,000 chrX
   gloci view reads.cram --reference ref.fa -o reads.bam
   gloci view --count reads.bam chr1
-  gloci view reads.bam --regions-file targets.bed -o on_target.bam")]
+  gloci view reads.bam --regions-file targets.bed -o on_target.bam
+
+Alignments:
+BAM, CRAM and SAM input is written as BAM or SAM, as -O or the -o extension say (the same \
+as the input by default; BAM for CRAM), every record, unmapped reads included, with an @PG \
+line added to the header. --header-only, --no-header (SAM output only), --min-mapq, \
+--require-flags and --exclude-flags apply. Regions select the reads whose footprint \
+overlaps them; an unmapped read placed at a position counts as one base there. It is not \
+samtools view: there is no -b, -h, -c or -L. CRAM needs the FASTA it was made with \
+(--reference, with its .fai), unless it was written without one; MD and NM tags come out \
+as stored, not regenerated as samtools does.
+
+Regions:
+With regions, view prints the records whose footprint (per --vcf-span) overlaps a region, \
+each once, in file order. A point (a zero-length BED record, an insertion) overlaps a \
+region only when strictly inside it, unless --inclusive-points is given. Regions are read \
+through a .tbi/.csi index when the file has one, and otherwise by scanning the whole file, \
+with a warning. Either way the order of every record read is checked, so an unsorted file \
+is an error, never a wrong answer. With --assume-sorted, an uncompressed BED file without \
+an index is binary-searched instead (like bedextract); that trusts the file to be sorted. \
+Index the file (gloci sort FILE -o FILE.gz --write-index) for speed and checking both.")]
 pub struct ViewArgs {
     /// Input file (`-` for stdin).
     #[arg(value_name = "FILE")]
@@ -331,43 +335,41 @@ pub struct ViewArgs {
     pub out: OutputArgs,
 }
 
-/// Sort BED/bedGraph/GFF/VCF/BCF files, or BAM/SAM/CRAM alignments, with
-/// bounded memory.
+/// Sort BED/bedGraph/GFF/VCF/BCF files, or BAM/SAM/CRAM alignments, with bounded memory.
 ///
-/// Records are ordered by chromosome, then start, then end. The
-/// chromosome order comes from -g, else from the ##contig lines of a
-/// VCF/BCF header, else from --chrom-order (karyotype by default).
+/// Records are ordered by chromosome, then start, then end. The chromosome order comes from -g, else
+/// from the ##contig lines of a VCF/BCF header, else from --chrom-order (karyotype by default).
 /// Records that tie keep their input order unless --full-key is given.
-/// BED header lines are kept only with --header; the leading ## lines of
-/// a GFF and the header of a VCF/BCF are always kept. VCF/BCF records are
-/// ordered by POS and REF end whatever --vcf-span says, so the output is
-/// tabix-compatible. The output format is the input format: -o must
-/// match it. Use -o with the same path as an input to sort a file in
-/// place.
-///
-/// Sorting spills to --tmp-dir when the input is larger than --max-mem.
-/// That directory must exist and be writable; it is checked before any
-/// input is read.
-///
-/// Alignments (one BAM, SAM or CRAM file, or stdin) are sorted as
-/// samtools sort does: by reference in header order (unplaced reads
-/// last), position and strand, ties in input order; -n by read name in
-/// natural order (r2 before r10) and -N by plain byte order, each with
-/// READ1 before READ2 and primary before supplementary before secondary.
-/// Every record is kept, unmapped reads included. The header's @HD line
-/// gets SO (and SS for -n and -N) and gloci adds an @PG line. The output
-/// keeps the input's format (BAM for BAM and CRAM, SAM for SAM; -o and -O
-/// override), where samtools sort always writes BAM. --write-index
-/// works for coordinate-sorted BAM output only. -g, --full-key, --unique and
-/// --duplicates do not apply: the order is the header's. To merge sorted
-/// BAM files use sort -m (or cat for files already in order); -n reads.bam sorts by name.
 #[derive(Args)]
+#[command(about = "Sort intervals, VCF or alignments (bedtools sort, samtools sort)")]
 #[command(after_long_help = "\
 Examples:
   gloci sort reads.bam -o reads.sorted.bam --write-index -t 8
   gloci sort peaks.bed > peaks.sorted.bed
   gloci sort huge.bed --max-mem 8G --tmp-dir /scratch -t 16 -o huge.sorted.bed.gz
-  gloci sort --check peaks.sorted.bed")]
+  gloci sort --check peaks.sorted.bed
+
+Records and output:
+BED header lines are kept only with --header; the leading ## lines of a GFF and the header \
+of a VCF/BCF are always kept. VCF/BCF records are ordered by POS and REF end whatever \
+--vcf-span says, so the output is tabix-compatible. The output format is the input format: \
+-o must match it. Use -o with the same path as an input to sort a file in place.
+
+Memory:
+Sorting spills to --tmp-dir when the input is larger than --max-mem. That directory must \
+exist and be writable; it is checked before any input is read.
+
+Alignments:
+Alignments (one BAM, SAM or CRAM file, or stdin) are sorted as samtools sort does: by \
+reference in header order (unplaced reads last), position and strand, ties in input order; \
+-n by read name in natural order (r2 before r10) and -N by plain byte order, each with \
+READ1 before READ2 and primary before supplementary before secondary. Every record is \
+kept, unmapped reads included. The header's @HD line gets SO (and SS for -n and -N) and \
+gloci adds an @PG line. The output keeps the input's format (BAM for BAM and CRAM, SAM for \
+SAM; -o and -O override), where samtools sort always writes BAM. --write-index works for \
+coordinate-sorted BAM output only. -g, --full-key, --unique and --duplicates do not apply: \
+the order is the header's. To merge sorted BAM files use sort -m (or cat for files already \
+in order); -n reads.bam sorts by name.")]
 pub struct SortArgs {
     /// Input files (default: stdin).
     #[arg(value_name = "FILES")]
@@ -457,36 +459,40 @@ Examples:
     },
 }
 
-/// Build a .tbi/.csi index for a sorted BGZF file, a .bai/.csi for a BAM, a .crai for a CRAM,
-/// or a .fai for a FASTA.
+/// Build a .tbi/.csi index for a sorted BGZF file, a .bai/.csi for a BAM, a .crai for a CRAM, or a
+/// .fai for a FASTA.
 ///
-/// A coordinate-sorted BAM gets PATH.bai, or PATH.csi with --csi or when a
-/// reference is longer than 2^29; samtools and gloci read each other's
-/// indexes. SAM text has no index: write BAM with gloci view x.sam -o x.bam.
-///
-/// A CRAM file gets PATH.crai, with the entries samtools index writes;
-/// it needs no reference, even for slices that hold several references.
-/// A FASTA file (plain or BGZF) gets PATH.fai, and PATH.gzi when it is
-/// BGZF, byte-identical to samtools faidx. Every line of a sequence but
-/// the last must have the same length. Reading a FASTA at random
-/// (getfasta, nuc, a CRAM reference) needs these files and never builds
-/// them itself; maskfasta streams its FASTA and needs no index. Plain gzip is refused: recompress with
-/// bgzip. Otherwise, BED, GFF/GTF, VCF and BCF files are recognised by content. Any other
-/// tab-separated file is indexed like tabix does when you name its
-/// columns with -s (sequence), -b (begin) and -e (end, optional). The
-/// columns are numbered from 1. Without --zero-based the begin column is
-/// 1-based and a feature covers [begin-1, end]; with it, [begin, end).
-/// Without -e a feature covers one base. Lines starting with --comment
-/// (default #) and the first --skip-lines lines are not indexed; both
-/// are recorded in the index. Chromosomes must be contiguous and sorted
-/// by begin. The index is a .tbi, or a .csi when an end passes 2^29.
+/// A coordinate-sorted BAM gets PATH.bai, or PATH.csi with --csi or when a reference is longer than
+/// 2^29; samtools and gloci read each other's indexes. SAM text has no index: write BAM with gloci
+/// view x.sam -o x.bam.
 #[derive(Args)]
+#[command(about = "Index a BGZF file, BAM, CRAM or FASTA (tabix, samtools index)")]
 #[command(after_long_help = "\
 Examples:
   gloci index calls.vcf.gz
   gloci index sorted.bam
   gloci index reads.cram
-  gloci index scores.tsv.gz -s 1 -b 2 -e 3 --zero-based")]
+  gloci index scores.tsv.gz -s 1 -b 2 -e 3 --zero-based
+
+CRAM:
+A CRAM file gets PATH.crai, with the entries samtools index writes; it needs no reference, \
+even for slices that hold several references.
+
+FASTA:
+A FASTA file (plain or BGZF) gets PATH.fai, and PATH.gzi when it is BGZF, byte-identical \
+to samtools faidx. Every line of a sequence but the last must have the same length. \
+Reading a FASTA at random (getfasta, nuc, a CRAM reference) needs these files and never \
+builds them itself; maskfasta streams its FASTA and needs no index.
+
+Text and VCF files:
+Plain gzip is refused: recompress with bgzip. Otherwise, BED, GFF/GTF, VCF and BCF files \
+are recognised by content. Any other tab-separated file is indexed like tabix does when \
+you name its columns with -s (sequence), -b (begin) and -e (end, optional). The columns \
+are numbered from 1. Without --zero-based the begin column is 1-based and a feature covers \
+[begin-1, end]; with it, [begin, end). Without -e a feature covers one base. Lines \
+starting with --comment (default #) and the first --skip-lines lines are not indexed; both \
+are recorded in the index. Chromosomes must be contiguous and sorted by begin. The index \
+is a .tbi, or a .csi when an end passes 2^29.")]
 pub struct IndexArgs {
     /// Sorted, BGZF-compressed BED/GFF/VCF/BCF file to index, a FASTA file (.fai, .gzi), or
     /// a CRAM file (.crai).
@@ -536,6 +542,7 @@ pub struct IndexArgs {
 /// --reference. head describes the whole file, so it takes no read filters and no
 /// --chrom-map.
 #[derive(Args)]
+#[command(about = "Print the header and first records (samtools, bcftools head)")]
 #[command(after_long_help = "\
 Examples:
   gloci head reads.bam

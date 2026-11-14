@@ -1,5 +1,5 @@
 //! clap definitions: global flags, shared option groups and the subcommands.
-use clap::{Parser, Subcommand};
+use clap::{Command, FromArgMatches, Parser, Subcommand};
 
 mod alignments;
 mod fasta;
@@ -31,10 +31,7 @@ still change between releases.";
     name = "gloci",
     version,
     about = "Genomic interval toolkit",
-    arg_required_else_help = true,
-    after_help = "Stable core: genomes, index, sort, view, intersect, merge, subtract, closest, coverage.\n\
-Every other command is experimental: checked against the tool it replaces, but its options and\n\
-output may still change between releases."
+    arg_required_else_help = true
 )]
 pub struct Cli {
     /// Only print errors.
@@ -131,4 +128,111 @@ pub enum Commands {
     Bedcov(BedcovArgs),
     #[command(before_help = EXPERIMENTAL)]
     Reheader(ReheaderArgs),
+}
+
+/// The groups of the commands outside the stable core, in the order `gloci --help` lists them:
+/// the title of each group and its commands. This is the one place that says which group an
+/// experimental command is in; the stable group is [`crate::CORE_COMMANDS`].
+/// `every_command_is_in_one_group` fails when a command is in none or in two.
+pub const EXPERIMENTAL_GROUPS: &[(&str, &[&str])] = &[
+    (
+        "Intervals",
+        &[
+            "cluster",
+            "spacing",
+            "complement",
+            "partition",
+            "genomecov",
+            "slop",
+            "flank",
+            "shift",
+            "windows",
+            "map",
+            "groupby",
+            "convert",
+        ],
+    ),
+    (
+        "Statistics and sampling",
+        &[
+            "stats",
+            "random",
+            "sample",
+            "shuffle",
+            "pair-intersect",
+            "pair-pair",
+        ],
+    ),
+    ("VCF", &["vcf"]),
+    (
+        "Alignments",
+        &[
+            "cat", "flags", "idxstats", "flagstat", "samples", "depth", "bedcov", "reheader",
+        ],
+    ),
+    ("FASTA", &["getfasta", "maskfasta", "nuc", "faidx", "dict"]),
+    ("Any file", &["check", "head"]),
+];
+
+/// The heading and commands of each group of the top-level help, stable core first.
+pub fn command_groups() -> Vec<(String, Vec<&'static str>)> {
+    let mut groups = vec![("Stable core".to_string(), crate::CORE_COMMANDS.to_vec())];
+    for (title, names) in EXPERIMENTAL_GROUPS {
+        groups.push((format!("{title} (experimental)"), names.to_vec()));
+    }
+    groups
+}
+
+/// The line under the command list.
+const TIERS: &str =
+    "Stable core: changes only with a version bump. Experimental: may change between releases.";
+
+/// The clap command tree. clap 4.6 has one heading for all subcommands, so the root command's
+/// help template lists them in [`command_groups`] with their one-line summaries; the usage,
+/// the options and the version are clap's own.
+pub fn command() -> Command {
+    let root = <Cli as clap::CommandFactory>::command();
+    let styles = root.get_styles().clone();
+    let (head, reset) = (
+        styles.get_header().render().to_string(),
+        styles.get_header().render_reset().to_string(),
+    );
+    let (lit, lit_reset) = (
+        styles.get_literal().render().to_string(),
+        styles.get_literal().render_reset().to_string(),
+    );
+    let width = root
+        .get_subcommands()
+        .map(|c| c.get_name().len())
+        .max()
+        .unwrap_or(0);
+    let mut list = String::new();
+    for (title, names) in command_groups() {
+        list.push_str(&format!("{head}{title}:{reset}\n"));
+        for name in names {
+            let about = root
+                .find_subcommand(name)
+                .and_then(|c| c.get_about())
+                .map(|a| a.to_string())
+                .unwrap_or_default();
+            list.push_str(&format!("  {lit}{name:<width$}{lit_reset}  {about}\n"));
+        }
+        list.push('\n');
+    }
+    // `{` and `}` are template syntax; no command name or summary has one.
+    let template = format!(
+        "{{about-with-newline}}\n{{usage-heading}} {{usage}}\n\n{list}{head}Options:{reset}\n{{options}}\n\n{TIERS}\n"
+    );
+    root.help_template(template)
+}
+
+/// Parse an argv (`gloci` first) with [`command`], so that help prints with the grouped list.
+pub fn try_parse_from<I, T>(args: I) -> Result<Cli, clap::Error>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    let mut cmd = command();
+    let matches = cmd.try_get_matches_from_mut(args)?;
+    Cli::from_arg_matches(&matches).map_err(|e| e.format(&mut cmd))
 }

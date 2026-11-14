@@ -60,7 +60,6 @@ pub use stages::{HostStage, StageError, StageFn, StageSet, StageSpec};
 
 use crate::cli::{self, Cli, Commands};
 use crate::{Ctx, Reported};
-use clap::Parser;
 use gloci_core::VcfSpan;
 use gloci_io::cancel::{self, Watch};
 use gloci_io::memio::scrub;
@@ -72,7 +71,7 @@ use std::path::PathBuf;
 /// Parse an argv (`gloci` first) with the CLI's definition. The error is clap's message as
 /// plain text: no colours, no `error: ` and no "For more information" line.
 pub fn parse(args: &[OsString]) -> Result<Cli, UsageError> {
-    Cli::try_parse_from(args).map_err(|e| UsageError(clap_message(&e)))
+    crate::cli::try_parse_from(args).map_err(|e| UsageError(clap_message(&e)))
 }
 
 fn clap_message(e: &clap::Error) -> String {

@@ -17,6 +17,7 @@ use std::path::PathBuf;
 /// --write-index also writes the .bai, for files that are already in
 /// coordinate order.
 #[derive(Args)]
+#[command(about = "Join BAM files by copying their blocks (samtools cat)")]
 #[command(after_long_help = "\
 Examples:
   gloci cat lane1.bam lane2.bam -o all.bam
@@ -87,6 +88,7 @@ pub struct FlagsArgs {
 /// FLAGS bit 0x4 only; no read filters apply. The output is the same through the index
 /// and by a scan, at any number of threads.
 #[derive(Args)]
+#[command(about = "Count the reads of each reference (samtools idxstats)")]
 #[command(after_long_help = "\
 Examples:
   gloci idxstats reads.bam
@@ -123,6 +125,7 @@ pub struct IdxstatsArgs {
 /// --reference, though samtools reads such a file without one. The output is the same at
 /// any number of threads.
 #[derive(Args)]
+#[command(about = "Count reads by FLAGS category (samtools flagstat)")]
 #[command(after_long_help = "\
 Examples:
   gloci flagstat reads.bam
@@ -159,6 +162,7 @@ pub struct FlagstatArgs {
 /// writes a line such as "#SM PATH INDEX REFERENCE" first. samtools prints the samples in
 /// hash order, so a file with several samples lists them in a different order.
 #[derive(Args)]
+#[command(about = "List the samples of BAM, CRAM or SAM files (samtools samples)")]
 #[command(after_long_help = "\
 Examples:
   gloci samples cohort.bam
@@ -188,37 +192,47 @@ pub struct SamplesArgs {
 // P3c Task 6
 /// Depth of coverage of alignments at each position (samtools depth).
 ///
-/// Reads BAM, CRAM or SAM files (CRAM needs --reference) in coordinate order and prints
-/// "chrom, 1-based position, depth" for each position covered by a passing read in any
-/// input, with one depth column per input in the order given, references in @SQ order.
-/// Inputs must have identical @SQ lists (exit 1, naming the first difference; samtools
-/// compares reference ids unchecked). A read counts when none of --exclude-flags is set
-/// (default UNMAP,SECONDARY,QCFAIL,DUP: this command's default, where other commands
-/// exclude nothing; --exclude-flags 0 counts everything), all of --require-flags are, its
-/// MAPQ is at least --min-mapq and its length (SEQ length less the soft clips at its two
-/// ends; with SEQ *, the bases of M, I, = and X) is at least --min-read-length. Each M, =
-/// and X base counts when its quality is at least --min-baseq (a missing quality passes,
-/// and so does every base of a read with SEQ *). D bases count only with --count-deletions,
-/// each gated by the quality of the next base in the read; N never counts. Positions a
-/// read spans but none of its bases count (deletions, introns, filtered bases) print 0.
-/// --all-positions adds every position of each reference that has a passing read;
-/// --all-references adds every position of every reference. --region (repeatable) and
-/// --regions-file (BED) limit the rows to their union, each position once, read through the
-/// index when there is one (else the input is scanned, with a warning); with regions, the
-/// --all-* options print every position in them. --column-names writes "#CHROM POS" and
-/// the paths first. A read past the end of its reference is cut there with one warning,
-/// where samtools prints rows beyond it. --skip-mate-overlap counts the bases two mates of
-/// a pair share once. An input that goes back in (reference, position)
-/// is an error telling you to run gloci sort. The inputs are read as one stream at every
-/// -t, with the same output; threads decode BGZF and CRAM, shared among the inputs. Memory
-/// per input follows the longest read, not the reference.
+/// Reads BAM, CRAM or SAM files (CRAM needs --reference) in coordinate order and prints "chrom,
+/// 1-based position, depth" for each position covered by a passing read in any input, with one depth
+/// column per input in the order given, references in @SQ order. Inputs must have identical @SQ lists
+/// (exit 1, naming the first difference; samtools compares reference ids unchecked).
 #[derive(Args)]
+#[command(about = "Depth of alignments at each position (samtools depth)")]
 #[command(after_long_help = "\
 Examples:
   gloci depth sample.bam --skip-mate-overlap -o depth.tsv
   gloci depth a.bam b.bam --column-names --min-mapq 20 --min-baseq 20
   gloci depth sample.bam --region chr1:100,000-200,000 --all-positions
-  gloci depth sample.bam --regions-file targets.bed --count-deletions")]
+  gloci depth sample.bam --regions-file targets.bed --count-deletions
+
+Counting:
+A read counts when none of --exclude-flags is set (default UNMAP,SECONDARY,QCFAIL,DUP: \
+this command's default, where other commands exclude nothing; --exclude-flags 0 counts \
+everything), all of --require-flags are, its MAPQ is at least --min-mapq and its length \
+(SEQ length less the soft clips at its two ends; with SEQ *, the bases of M, I, = and X) \
+is at least --min-read-length. Each M, = and X base counts when its quality is at least \
+--min-baseq (a missing quality passes, and so does every base of a read with SEQ *). D \
+bases count only with --count-deletions, each gated by the quality of the next base in the \
+read; N never counts. Positions a read spans but none of its bases count (deletions, \
+introns, filtered bases) print 0.
+
+Positions and regions:
+--all-positions adds every position of each reference that has a passing read; \
+--all-references adds every position of every reference. --region (repeatable) and \
+--regions-file (BED) limit the rows to their union, each position once, read through the \
+index when there is one (else the input is scanned, with a warning); with regions, the \
+--all-* options print every position in them. --column-names writes \"#CHROM POS\" and the \
+paths first.
+
+Reads and mates:
+A read past the end of its reference is cut there with one warning, where samtools prints \
+rows beyond it. --skip-mate-overlap counts the bases two mates of a pair share once.
+
+Order, memory and threads:
+An input that goes back in (reference, position) is an error telling you to run gloci \
+sort. The inputs are read as one stream at every -t, with the same output; threads decode \
+BGZF and CRAM, shared among the inputs. Memory per input follows the longest read, not the \
+reference.")]
 pub struct DepthArgs {
     /// BAM, CRAM or SAM files in coordinate order (- is standard input), with identical
     /// @SQ lists; one depth column each.
@@ -285,28 +299,35 @@ pub struct DepthArgs {
 // P3c Task 8
 /// Depth of coverage summed over each BED region (samtools bedcov).
 ///
-/// For each line of BED, in any order, writes the line as it is and then, for each FILE (BAM
-/// or CRAM, each with a .bai, .csi or .crai; exit 2 without one), the sum of the depth over
-/// the region's bases: one column per file, files in the order given. --bases-at-depth N
-/// adds one column per file of the bases whose depth is at least N, and --read-count one of
-/// the reads that overlap the region (a zero-length region has no bases and counts no reads,
-/// as samtools 1.21 does). Depth counts M, = and X bases always, D bases unless --split-deletions and
-/// N (intron) bases unless --split, so samtools -j is --split --split-deletions. A read counts
-/// when none of --exclude-flags is set (default UNMAP,SECONDARY,QCFAIL,DUP, as for depth;
-/// --exclude-flags 0 counts everything but unmapped reads, which never count), all of
-/// --require-flags are, and its MAPQ is at least --min-mapq. Comment, track, browser and blank
-/// lines are skipped. A line on a chromosome the files lack is an error naming the line,
-/// or skipped with one counted warning under --skip-invalid; samtools prints an error,
-/// carries on and exits 2. Files must have identical @SQ lists. --column-names writes
-/// "#chrom start end" and one column name per file and kind first. A read past the end of
-/// its reference counts up to the end. Regions are read in batches of 256 lines on up to -t
-/// threads, written in BED order. Memory per thread follows the longest read, not the region.
+/// For each line of BED, in any order, writes the line as it is and then, for each FILE (BAM or CRAM,
+/// each with a .bai, .csi or .crai; exit 2 without one), the sum of the depth over the region's
+/// bases: one column per file, files in the order given. --bases-at-depth N adds one column per file
+/// of the bases whose depth is at least N, and --read-count one of the reads that overlap the region
+/// (a zero-length region has no bases and counts no reads, as samtools 1.21 does).
 #[derive(Args)]
 #[command(after_long_help = "\
 Examples:
   gloci bedcov targets.bed sample.bam
   gloci bedcov targets.bed a.bam b.bam --bases-at-depth 10 --read-count --column-names
-  gloci bedcov exons.bed sample.cram --reference ref.fa --split --split-deletions -t 8")]
+  gloci bedcov exons.bed sample.cram --reference ref.fa --split --split-deletions -t 8
+
+Depth and reads:
+Depth counts M, = and X bases always, D bases unless --split-deletions and N (intron) \
+bases unless --split, so samtools -j is --split --split-deletions. A read counts when none \
+of --exclude-flags is set (default UNMAP,SECONDARY,QCFAIL,DUP, as for depth; \
+--exclude-flags 0 counts everything but unmapped reads, which never count), all of \
+--require-flags are, and its MAPQ is at least --min-mapq. A read past the end of its \
+reference counts up to the end.
+
+Regions:
+Comment, track, browser and blank lines are skipped. A line on a chromosome the files lack \
+is an error naming the line, or skipped with one counted warning under --skip-invalid; \
+samtools prints an error, carries on and exits 2. Files must have identical @SQ lists. \
+--column-names writes \"#chrom start end\" and one column name per file and kind first.
+
+Threads and memory:
+Regions are read in batches of 256 lines on up to -t threads, written in BED order. Memory \
+per thread follows the longest read, not the region.")]
 pub struct BedcovArgs {
     /// BED regions, in any order (- is standard input).
     #[arg(value_name = "BED")]
@@ -363,32 +384,33 @@ pub struct BedcovArgs {
 // P3c Task 11
 /// Replace the header of a BAM or CRAM file without decoding its records (samtools reheader).
 ///
-/// HEADER is SAM header text, or a SAM, BAM or CRAM file whose header is
-/// taken (as samtools does); - reads standard input. IN must be a regular
-/// BAM or CRAM file: standard input is refused (gloci view - -o x.bam makes
-/// a file) and so is SAM. The result goes to -o or stdout, in IN's format;
-/// -o may name IN, which is then replaced atomically, and a failure leaves
-/// it as it was. A gloci @PG line is added to the new header.
-///
-/// Records point at their reference by its position in the @SQ list, so the
-/// new list must keep every old reference in the same place with the same
-/// LN. Names (SN:) may change, and @SQ lines may be added after the last
-/// one. For CRAM an M5: that both lists have must be equal. Anything else
-/// is an error naming both lines, and nothing is written (samtools
-/// checks nothing and would attach reads to the wrong contigs; use gloci
-/// view --chrom-map to rename references safely).
-///
-/// BAM: the new header is compressed, and the rest of IN is copied block
-/// by block: only the block that held the old header's end is compressed
-/// again. CRAM (3.0 and 3.1; 2.x is refused): the file definition, a new
-/// header container, then every byte of IN from its first data container. The old and new headers and
-/// one BGZF block are all that is held in memory.
+/// HEADER is SAM header text, or a SAM, BAM or CRAM file whose header is taken (as samtools does); -
+/// reads standard input. IN must be a regular BAM or CRAM file: standard input is refused (gloci view
+/// - -o x.bam makes a file) and so is SAM. The result goes to -o or stdout, in IN's format; -o may
+/// name IN, which is then replaced atomically, and a failure leaves it as it was. A gloci @PG line is
+/// added to the new header.
 #[derive(Args)]
+#[command(about = "Replace the header of a BAM or CRAM file (samtools reheader)")]
 #[command(after_long_help = "\
 Examples:
   gloci reheader new-header.sam x.bam -o y.bam
   gloci reheader other.bam x.bam -o x.bam
-  gloci view --header-only x.bam -O sam | sed 's/SN:chr/SN:/' | gloci reheader - x.bam -o y.bam")]
+  gloci view --header-only x.bam -O sam | sed 's/SN:chr/SN:/' | gloci reheader - x.bam -o y.bam
+
+Header rules:
+Records point at their reference by its position in the @SQ list, so the new list must \
+keep every old reference in the same place with the same LN. Names (SN:) may change, and \
+@SQ lines may be added after the last one. For CRAM an M5: that both lists have must be \
+equal. Anything else is an error naming both lines, and nothing is written (samtools \
+checks nothing and would attach reads to the wrong contigs; use gloci view --chrom-map to \
+rename references safely).
+
+How the file is written:
+BAM: the new header is compressed, and the rest of IN is copied block by block: only the \
+block that held the old header's end is compressed again. CRAM (3.0 and 3.1; 2.x is \
+refused): the file definition, a new header container, then every byte of IN from its \
+first data container. The old and new headers and one BGZF block are all that is held in \
+memory.")]
 pub struct ReheaderArgs {
     /// The new header: SAM header text, or a SAM, BAM or CRAM file whose header is taken (- is
     /// standard input).

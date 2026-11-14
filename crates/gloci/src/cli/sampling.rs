@@ -19,6 +19,10 @@ pub struct SeedArg {
 // P3b Task 2
 /// Statistics of interval sets (bedtools jaccard, fisher and reldist).
 #[derive(Args, Debug, Clone)]
+#[command(
+    about = "Statistics of interval sets (bedtools jaccard, fisher, reldist)",
+    long_about
+)]
 #[command(after_long_help = "\
 Examples:
   gloci stats jaccard -a peaks.bed -b genes.bed
@@ -44,29 +48,27 @@ pub enum StatsCommand {
 
 /// The Jaccard similarity of two interval sets (bedtools jaccard).
 ///
-/// Each input is first merged as `gloci merge` does (overlapping and
-/// bookended intervals join; per strand with -s or -S). The intersection
-/// is the sum of the overlap bases of every pair (merged A, merged B) that
-/// passes -f, -F, -r, -e, --min-bases, -s, -S and --inclusive-points
-/// (measured on the merged intervals), the union is the bases covered by
-/// either input, and jaccard = intersection / union divided in single
-/// precision and printed as %g (six significant digits; `nan` when both
-/// are empty). n_intersections counts the accepted pairs. Output is a
-/// header line and one row: intersection, union, jaccard,
-/// n_intersections. A point (zero-length interval) covers no bases, so
-/// it adds nothing to the intersection or the union, but a point inside a
-/// merged interval of the other input counts as an intersection (bedtools
-/// widens a point to two bases; see docs/differences.md). Inputs must be
-/// sorted (--sort sorts them; --unsorted does not apply); a VCF is read
-/// as its footprints (--vcf-span); BAM, CRAM and SAM reads are read as
-/// their reference spans.
+/// Each input is first merged as `gloci merge` does (overlapping and bookended intervals join; per
+/// strand with -s or -S). The intersection is the sum of the overlap bases of every pair (merged A,
+/// merged B) that passes -f, -F, -r, -e, --min-bases, -s, -S and --inclusive-points (measured on the
+/// merged intervals), the union is the bases covered by either input, and jaccard = intersection /
+/// union divided in single precision and printed as %g (six significant digits; `nan` when both are
+/// empty). n_intersections counts the accepted pairs. Output is a header line and one row:
+/// intersection, union, jaccard, n_intersections.
 #[derive(Args, Debug, Clone)]
 #[command(after_long_help = "\
 Examples:
   gloci stats jaccard -a peaks.bed -b genes.bed
   gloci stats jaccard -a rep1.bed -b rep2.bed -f 0.5 -r
   gloci stats jaccard -a calls.vcf.gz -b regions.bed --vcf-span ref
-  gloci stats jaccard -a unsorted-a.bed -b unsorted-b.bed --sort")]
+  gloci stats jaccard -a unsorted-a.bed -b unsorted-b.bed --sort
+
+Points and sorting:
+A point (zero-length interval) covers no bases, so it adds nothing to the intersection or \
+the union, but a point inside a merged interval of the other input counts as an \
+intersection (bedtools widens a point to two bases; see docs/differences.md). Inputs must \
+be sorted (--sort sorts them; --unsorted does not apply); a VCF is read as its footprints \
+(--vcf-span); BAM, CRAM and SAM reads are read as their reference spans.")]
 pub struct JaccardArgs {
     #[command(flatten)]
     pub a: AArg,
@@ -140,6 +142,7 @@ pub struct JaccardArgs {
 /// Inputs must be sorted in -g's order (--sort sorts A, B and the exclude
 /// file); a VCF is read as its footprints (--vcf-span).
 #[derive(Args, Debug, Clone)]
+#[command(about = "Fisher's exact test of overlap (bedtools fisher)")]
 #[command(after_long_help = "\
 Examples:
   gloci stats fisher -a peaks.bed -b genes.bed -g hg38
@@ -234,34 +237,34 @@ pub enum PairTypeArg {
 // P3b Task 7
 /// BEDPE pairs by how their ends overlap B (bedtools pairtobed).
 ///
-/// A is a BEDPE file (chrom1 start1 end1 chrom2 start2 end2, then optionally name, score,
-/// strand1, strand2 and more; it is never detected, so a BED file of pairs is read
-/// as BEDPE only here). B is BED, GFF or VCF (a VCF as its footprints, --vcf-span) and is
-/// loaded into memory; A streams in any order. Each present end of a pair is tested against B
-/// as an interval under -f, -F, -r, -e, --min-bases, -s, -S and --inclusive-points (section
-/// 4.3: a point is inside only strictly, and unknown strands never match -s or -S); -s and -S
-/// use strand1 for end 1 and strand2 for end 2. An end whose chromosome is `.` overlaps
-/// nothing.
-///
-/// --type chooses what is written. Rows with a B are A's line, a tab and B's line (TSV);
-/// the A-alone types write A's BEDPE line. either (default): A with each B hitting end 1, then
-/// each hitting end 2 (a B hitting both ends is written twice). both: the same, when both ends
-/// hit. xor: the same, when exactly one end hits. neither: A alone, when no end hits. notboth:
-/// A with each B, when exactly one end hits, and A alone padded with a placeholder B (`.`,
-/// `-1`, `-1` ...) when none does. ispan and ospan: A with each B overlapping the gap between
-/// the ends, or the span from the first start to the last end; notispan and notospan: A alone
-/// when none does. The span types need both ends on one chromosome (a pair with one end absent or the
-/// ends on two chromosomes is left out, counted in one warning), an empty gap (touching or overlapping ends) hits nothing, and
-/// -s/-S with them is an error. Hits of one A come in B's input order; output follows A's
-/// order whatever the thread count. Output is TSV or BEDPE (-o x.bedpe, x.tsv, .gz for
-/// BGZF); header lines of A are not written.
+/// A is a BEDPE file (chrom1 start1 end1 chrom2 start2 end2, then optionally name, score, strand1,
+/// strand2 and more; it is never detected, so a BED file of pairs is read as BEDPE only here). B is
+/// BED, GFF or VCF (a VCF as its footprints, --vcf-span) and is loaded into memory; A streams in any
+/// order. Each present end of a pair is tested against B as an interval under -f, -F, -r, -e,
+/// --min-bases, -s, -S and --inclusive-points (section 4.3: a point is inside only strictly, and
+/// unknown strands never match -s or -S); -s and -S use strand1 for end 1 and strand2 for end 2. An
+/// end whose chromosome is `.` overlaps nothing.
 #[derive(Args, Debug, Clone)]
 #[command(after_long_help = "\
 Examples:
   gloci pair-intersect -a sv.bedpe -b genes.bed
   gloci pair-intersect -a sv.bedpe -b exons.bed --type both -f 0.5
   gloci pair-intersect -a sv.bedpe -b repeats.bed --type neither -o clean.bedpe
-  gloci pair-intersect -a sv.bedpe -b genes.bed --type xor -s -t 4")]
+  gloci pair-intersect -a sv.bedpe -b genes.bed --type xor -s -t 4
+
+Output:
+--type chooses what is written. Rows with a B are A's line, a tab and B's line (TSV); the \
+A-alone types write A's BEDPE line. either (default): A with each B hitting end 1, then \
+each hitting end 2 (a B hitting both ends is written twice). both: the same, when both \
+ends hit. xor: the same, when exactly one end hits. neither: A alone, when no end hits. \
+notboth: A with each B, when exactly one end hits, and A alone padded with a placeholder B \
+(`.`, `-1`, `-1` ...) when none does. ispan and ospan: A with each B overlapping the gap \
+between the ends, or the span from the first start to the last end; notispan and notospan: \
+A alone when none does. The span types need both ends on one chromosome (a pair with one \
+end absent or the ends on two chromosomes is left out, counted in one warning), an empty \
+gap (touching or overlapping ends) hits nothing, and -s/-S with them is an error. Hits of \
+one A come in B's input order; output follows A's order whatever the thread count. Output \
+is TSV or BEDPE (-o x.bedpe, x.tsv, .gz for BGZF); header lines of A are not written.")]
 #[command(mut_arg("split", |a| a.hide(true)))]
 pub struct PairIntersectArgs {
     /// A: the BEDPE file whose pairs are reported (`-` for stdin).
@@ -312,27 +315,32 @@ pub enum PairPairTypeArg {
 // P3b Task 8
 /// BEDPE pairs by how their ends overlap the ends of the pairs of B (bedtools pairtopair).
 ///
-/// A and B are both BEDPE files (never detected). B is loaded into memory; A streams in any
-/// order. Orientation 1 tests end 1 of A against end 1 of B and end 2 against end 2;
-/// orientation 2 tests end 1 of A against end 2 of B and end 2 against end 1. --type both
-/// (default): A with each B that overlaps on both ends in either orientation. either: A with
-/// each B with any end overlapping an end of A. neither: A alone when no B end overlaps.
-/// notboth: A alone when no B overlaps on both ends. A B is written once per A, as its line
-/// reads (TSV: A's line, a tab, B's line), in B's input order; the A-alone types write A's
-/// BEDPE line. Ends are tested under -f, -F, -r, -e, --min-bases and --inclusive-points
-/// (section 4.3); strand is ignored unless -s or -S, which compare strand1 with strand1 and
-/// strand2 with strand2 of the tested ends (unknown strands never match). -w, --left, --right
-/// and --strand-window pad B's ends before testing (not with the thresholds). An end whose
-/// chromosome is `.` overlaps nothing. --require-different-names drops a B named like A
-/// (column 7); a pair without a name is then an error. Output follows A's order whatever the
-/// thread count; -o x.bedpe, x.tsv, .gz for BGZF.
+/// A and B are both BEDPE files (never detected). B is loaded into memory; A streams in any order.
+/// Orientation 1 tests end 1 of A against end 1 of B and end 2 against end 2; orientation 2 tests end
+/// 1 of A against end 2 of B and end 2 against end 1. --type both (default): A with each B that
+/// overlaps on both ends in either orientation. either: A with each B with any end overlapping an end
+/// of A. neither: A alone when no B end overlaps. notboth: A alone when no B overlaps on both ends.
 #[derive(Args, Debug, Clone)]
+#[command(about = "BEDPE pairs against BEDPE pairs (bedtools pairtopair)")]
 #[command(after_long_help = "\
 Examples:
   gloci pair-pair -a sv1.bedpe -b sv2.bedpe
   gloci pair-pair -a sv1.bedpe -b sv2.bedpe --type either -w 100
   gloci pair-pair -a sv1.bedpe -b sv2.bedpe --type notboth -o unique.bedpe
-  gloci pair-pair -a sv.bedpe -b sv.bedpe --require-different-names -s -t 4")]
+  gloci pair-pair -a sv.bedpe -b sv.bedpe --require-different-names -s -t 4
+
+Overlap tests:
+Ends are tested under -f, -F, -r, -e, --min-bases and --inclusive-points (section 4.3); \
+strand is ignored unless -s or -S, which compare strand1 with strand1 and strand2 with \
+strand2 of the tested ends (unknown strands never match). -w, --left, --right and \
+--strand-window pad B's ends before testing (not with the thresholds). An end whose \
+chromosome is `.` overlaps nothing. --require-different-names drops a B named like A \
+(column 7); a pair without a name is then an error.
+
+Output:
+A B is written once per A, as its line reads (TSV: A's line, a tab, B's line), in B's \
+input order; the A-alone types write A's BEDPE line. Output follows A's order whatever the \
+thread count; -o x.bedpe, x.tsv, .gz for BGZF.")]
 #[command(mut_arg("split", |a| a.hide(true)))]
 pub struct PairPairArgs {
     /// A: the BEDPE file whose pairs are reported (`-` for stdin).
@@ -376,6 +384,7 @@ pub struct PairPairArgs {
 /// appended. A VCF is read as its footprints (--vcf-span). Inputs must be
 /// sorted (--sort sorts them; --unsorted loads every B midpoint instead).
 #[derive(Args, Debug, Clone)]
+#[command(about = "Relative distance of A to B midpoints (bedtools reldist)")]
 #[command(after_long_help = "\
 Examples:
   gloci stats reldist -a peaks.bed -b genes.bed
@@ -464,6 +473,7 @@ impl JaccardArgs {
 /// reproduces the output. It is not bedtools' output for the same seed
 /// (see docs/differences.md#rng-stream).
 #[derive(Args, Debug, Clone)]
+#[command(about = "Random intervals over a genome (bedtools random)")]
 #[command(after_long_help = "\
 Examples:
   gloci random -g hg38 -l 500 -n 100000 --seed 42 -o random.bed
@@ -491,33 +501,38 @@ pub struct RandomArgs {
 // P3b Task 6
 /// Move every record to a random place in the genome (bedtools shuffle).
 ///
-/// Each record keeps its length, its other columns and its strand and goes
-/// to a uniformly random place that keeps all of it inside the allowed
-/// regions: --include regions (default: the whole genome) less --exclude
-/// regions. (bedtools only puts the start inside an --include region; see
-/// docs/differences.md#shuffle-placement.) --same-chrom keeps records on
-/// their chromosome; --chrom-first picks a chromosome at random among those
-/// with room, then a place on it, instead of weighting chromosomes by
-/// their free length; --no-overlapping redraws a place that overlaps an
-/// earlier output record, up to --max-tries times. A record with no place
-/// is an error naming its line, length and the fix (nothing is written to a
-/// file); --skip-unplaceable drops such records and warns with a count.
-/// With --format bedpe each pair is moved: a pair on one chromosome keeps
-/// its end lengths and gap, a pair on two places its ends independently,
-/// and only --exclude, --seed, --max-tries and --skip-unplaceable apply.
-/// Output is in input order and not sorted (pipe to gloci sort). WIG is read
-/// as intervals and written as bedGraph; VCF and alignment input are refused
-/// (gloci convert). --include/--exclude read
-/// the names of -g, after --chrom-map (which renames them like the input). The output depends
-/// on --seed only, never on --threads; without --seed a fresh seed is
-/// chosen and printed as a warning. It is not bedtools' output for the same
-/// seed (see docs/differences.md#rng-stream).
+/// Each record keeps its length, its other columns and its strand and goes to a uniformly random
+/// place that keeps all of it inside the allowed regions: --include regions (default: the whole
+/// genome) less --exclude regions. (bedtools only puts the start inside an --include region; see
+/// docs/differences.md#shuffle-placement.) --same-chrom keeps records on their chromosome;
+/// --chrom-first picks a chromosome at random among those with room, then a place on it, instead of
+/// weighting chromosomes by their free length; --no-overlapping redraws a place that overlaps an
+/// earlier output record, up to --max-tries times.
 #[derive(Args, Debug, Clone)]
+#[command(about = "Move every record to a random place (bedtools shuffle)")]
 #[command(after_long_help = "\
 Examples:
   gloci shuffle peaks.bed -g hg38 --exclude gaps.bed --seed 42 -o null.bed
   gloci shuffle peaks.bed -g genome.txt --include mappable.bed --same-chrom --seed 7 | gloci sort -g genome.txt -
-  gloci shuffle loops.bedpe --format bedpe -g hg38 --exclude blacklist.bed --seed 1 -o null.bedpe")]
+  gloci shuffle loops.bedpe --format bedpe -g hg38 --exclude blacklist.bed --seed 1 -o null.bedpe
+
+Placement:
+A record with no place is an error naming its line, length and the fix (nothing is written \
+to a file); --skip-unplaceable drops such records and warns with a count. With --format \
+bedpe each pair is moved: a pair on one chromosome keeps its end lengths and gap, a pair \
+on two places its ends independently, and only --exclude, --seed, --max-tries and \
+--skip-unplaceable apply.
+
+Output:
+Output is in input order and not sorted (pipe to gloci sort). WIG is read as intervals and \
+written as bedGraph; VCF and alignment input are refused (gloci convert). \
+--include/--exclude read the names of -g, after --chrom-map (which renames them like the \
+input).
+
+Random numbers:
+The output depends on --seed only, never on --threads; without --seed a fresh seed is \
+chosen and printed as a warning. It is not bedtools' output for the same seed (see \
+docs/differences.md#rng-stream).")]
 pub struct ShuffleArgs {
     /// Input file (`-` for stdin).
     #[arg(value_name = "FILE")]
@@ -582,6 +597,7 @@ pub struct ShuffleArgs {
 /// printed as a warning. It is not bedtools' output for the same seed
 /// (see docs/differences.md#rng-stream).
 #[derive(Args, Debug, Clone)]
+#[command(about = "A random subset of the records (bedtools sample)")]
 #[command(after_long_help = "\
 Examples:
   gloci sample peaks.bed -n 1000 --seed 42 -o subset.bed

@@ -215,7 +215,7 @@ class Pipeline:
         skip_invalid: bool = False,
         region: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     ) -> Pipeline:
-        """Report the records of A that overlap, or do not overlap, records of B
+        """Report A records that overlap B (bedtools intersect)
 
         Args:
             a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
@@ -311,7 +311,7 @@ class Pipeline:
         skip_invalid: bool = False,
         region: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     ) -> Pipeline:
-        """Remove from A the bases covered by B (bedtools subtract, bedops -d)
+        """Remove the bases of B from A (bedtools subtract, bedops -d)
 
         Args:
             a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
@@ -393,7 +393,7 @@ class Pipeline:
         skip_invalid: bool = False,
         region: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     ) -> Pipeline:
-        """Find the nearest B to each A (bedtools closest, bedops closest-features)
+        """Nearest B to each A (bedtools closest, bedops closest-features)
 
         Args:
             a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
@@ -477,7 +477,7 @@ class Pipeline:
         skip_invalid: bool = False,
         region: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     ) -> Pipeline:
-        """Aggregate columns of the B records over each A (bedtools map, bedops bedmap)
+        """Aggregate B columns over each A (bedtools map, bedops bedmap)
 
         Args:
             a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
@@ -569,7 +569,7 @@ class Pipeline:
         skip_invalid: bool = False,
         region: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     ) -> Pipeline:
-        """How much of each A the B records cover (bedtools coverage and annotate)
+        """How much of each A the B records cover (bedtools coverage)
 
         Args:
             a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
@@ -693,7 +693,7 @@ class Pipeline:
         chrom_map: Source | None = None,
         skip_invalid: bool = False,
     ) -> Pipeline:
-        """BEDPE pairs by how their ends overlap the ends of the pairs of B (bedtools pairtopair)
+        """BEDPE pairs against BEDPE pairs (bedtools pairtopair)
 
         Args:
             b: B: the BEDPE file the pairs of A are tested against (`-` for stdin)
@@ -829,7 +829,7 @@ class Pipeline:
         reference: Source | None = None,
         skip_invalid: bool = False,
     ) -> Pipeline:
-        """Fisher's exact test of the overlap of two interval sets (bedtools fisher)
+        """Fisher's exact test of overlap (bedtools fisher)
 
         Args:
             a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
@@ -889,7 +889,7 @@ class Pipeline:
         reference: Source | None = None,
         skip_invalid: bool = False,
     ) -> Pipeline:
-        """The relative distance of A midpoints to B midpoints (bedtools reldist)
+        """Relative distance of A to B midpoints (bedtools reldist)
 
         Args:
             a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
@@ -936,7 +936,7 @@ class Pipeline:
         max_mem: str | int | float | os.PathLike[str] | None = None,
         tmp_dir: str | int | float | os.PathLike[str] | None = None,
     ) -> Pipeline:
-        """Merge overlapping or nearby records into clusters (bedtools merge, bedops -m)
+        """Merge overlapping or nearby records (bedtools merge, bedops -m)
 
         Args:
             max_gap: Join records up to N bases apart; negative values require that much overlap
@@ -983,7 +983,7 @@ class Pipeline:
         max_mem: str | int | float | os.PathLike[str] | None = None,
         tmp_dir: str | int | float | os.PathLike[str] | None = None,
     ) -> Pipeline:
-        """Split the inputs at every boundary into segments and say who covers each (bedtools multiinter and unionbedg, bedops -p, -i and -s)
+        """Segment the inputs by coverage (bedtools multiinter, bedops -p)
 
         Args:
             names: Labels of the files, comma-separated, one per file (default: the file names without directories)
@@ -1021,7 +1021,7 @@ class Pipeline:
         max_mem: str | int | float | os.PathLike[str] | None = None,
         tmp_dir: str | int | float | os.PathLike[str] | None = None,
     ) -> Pipeline:
-        """Write the bases no feature covers (bedtools complement, bedops -c)
+        """Bases no feature covers (bedtools complement, bedops -c)
 
         Args:
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
@@ -1060,7 +1060,7 @@ class Pipeline:
         skip_invalid: bool = False,
         chrom_map: Source | None = None,
     ) -> Pipeline:
-        """Sort BED/bedGraph/GFF/VCF/BCF files, or BAM/SAM/CRAM alignments, with bounded memory
+        """Sort intervals, VCF or alignments (bedtools sort, samtools sort)
 
         Args:
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
@@ -1092,7 +1092,7 @@ class Pipeline:
         chrom_order: Literal["karyotype", "lex"] | None = None,
         chrom_map: Source | None = None,
     ) -> Pipeline:
-        """Write VCF/BCF files one after another (bcftools concat, vcf-concat)
+        """Write VCF/BCF files one after another (bcftools concat)
 
         Args:
             naive: Copy the BGZF blocks of the inputs without recompressing them. Needs BGZF-compressed VCF files with byte-identical headers (exit 2 otherwise; BCF inputs are not supported) and writes BGZF VCF. The order is checked across files only, from each file's first and last record. The output is the same as without --naive, after decompression (bcftools concat -n)
@@ -1116,7 +1116,7 @@ class Pipeline:
         F: Literal["+", "x"] | None = None,
         chrom_order: Literal["karyotype", "lex"] | None = None,
     ) -> Pipeline:
-        """Combine the samples of several VCF/BCF files (bcftools merge)
+        """Combine the samples of VCF/BCF files (bcftools merge)
 
         Args:
             merge: Which records at one position are merged into one (bcftools -m): none (only records with the same alleles), snps, indels, both (SNPs together and indels together; the default), all (any records) or id (records with the same ID)
@@ -1137,7 +1137,7 @@ class Pipeline:
         self,
         *sources: Source,
     ) -> Pipeline:
-        """Join BAM files by copying their compressed blocks, as samtools cat does
+        """Join BAM files by copying their blocks (samtools cat)
 
         CLI: gloci cat
         """
@@ -1160,7 +1160,7 @@ class Pipeline:
         column_names: bool = False,
         skip_invalid: bool = False,
     ) -> Pipeline:
-        """Depth of coverage of alignments at each position (samtools depth)
+        """Depth of alignments at each position (samtools depth)
 
         Args:
             all_positions: Also print every position of each reference that has a passing read (samtools -a)
@@ -1189,7 +1189,7 @@ class Pipeline:
         match_reference: Source | Sequence[Source] | None = None,
         column_names: bool = False,
     ) -> Pipeline:
-        """List the samples of the read groups of BAM, CRAM or SAM files (samtools samples)
+        """List the samples of BAM, CRAM or SAM files (samtools samples)
 
         Args:
             tag: The @RG tag to list the values of: two characters
@@ -1222,7 +1222,7 @@ class Pipeline:
         exclude_flags: str | int | float | os.PathLike[str] | None = None,
         reference: Source | None = None,
     ) -> Pipeline:
-        """Print the records in regions, stream or recompress a file, convert VCF to BCF and back, or print only the header
+        """Print regions, recompress or convert a file (samtools view)
 
         Args:
             regions: Regions such as chr1, chr1:1,000-2,000 or chr1:5,000- (1-based, inclusive); write {name}:start-end for a name containing ':'
@@ -1271,7 +1271,7 @@ class Pipeline:
         chrom_map: Source | None = None,
         skip_invalid: bool = False,
     ) -> Pipeline:
-        """Convert VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out, BED12 or BAM/CRAM/SAM to BED (bedops convert2bed, vcf2bed, gff2bed, gtf2bed; bedtools bed12tobed6, bamtobed)
+        """Convert VCF, GFF, WIG, PSL, BAM and more to BED (convert2bed)
 
         Args:
             split_alleles: VCF/BCF: one row per ALT, with that ALT's footprint
@@ -1448,7 +1448,7 @@ class Pipeline:
         max_mem: str | int | float | os.PathLike[str] | None = None,
         tmp_dir: str | int | float | os.PathLike[str] | None = None,
     ) -> Pipeline:
-        """Give every record its distance to the previous record (bedtools spacing)
+        """Distance to the previous record (bedtools spacing)
 
         Args:
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
@@ -1476,7 +1476,7 @@ class Pipeline:
         empty: str | int | float | os.PathLike[str] | None = None,
         delim: str | int | float | os.PathLike[str] | None = None,
     ) -> Pipeline:
-        """Aggregate columns over runs of lines with equal keys (bedtools groupby)
+        """Aggregate columns over runs of equal keys (bedtools groupby)
 
         Args:
             group: Key columns: 1-based numbers (or names with --header), comma-separated
@@ -1516,7 +1516,7 @@ class Pipeline:
         max_mem: str | int | float | os.PathLike[str] | None = None,
         tmp_dir: str | int | float | os.PathLike[str] | None = None,
     ) -> Pipeline:
-        """Depth of coverage of a genome by the features of a BED file or the reads of a BAM (bedtools genomecov -i and -ibam)
+        """Coverage depth of a genome (bedtools genomecov)
 
         Args:
             genome: Chromosome order and sizes (required unless the input is BAM, CRAM or SAM, which gives its header's): a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome or .dict file
@@ -1600,7 +1600,7 @@ class Pipeline:
         chrom_map: Source | None = None,
         skip_invalid: bool = False,
     ) -> Pipeline:
-        """Filter VCF/BCF files with the selection pipeline
+        """Filter VCF/BCF files (bcftools view, vcftools)
 
         Args:
             samples: Keep only these sample names (repeatable or comma-separated). They are written in the input header's order, not the order given here (bcftools view -s writes them in the order given)
@@ -1710,7 +1710,7 @@ class Pipeline:
         chrom_map: Source | None = None,
         skip_invalid: bool = False,
     ) -> Pipeline:
-        """Extract INFO or FORMAT values as a table, or the 012 genotype matrix
+        """Tabulate INFO/FORMAT values or genotypes (vcftools --012)
 
         Args:
             samples: Keep only these sample names (repeatable or comma-separated). They are written in the input header's order, not the order given here (bcftools view -s writes them in the order given)
@@ -1773,7 +1773,7 @@ class Pipeline:
         types: Literal["snps", "indels", "both", "any"] | None = None,
         skip_invalid: bool = False,
     ) -> Pipeline:
-        """Split multi-allelic records into biallelic ones (bcftools norm -m-)
+        """Split multi-allelic records (bcftools norm -m-)
 
         Args:
             types: Split only records with an ALT of this type: snps (a record with a SNP ALT), indels (an insertion or deletion ALT), both or any (every multi-allelic record; bcftools splits both and any alike). A split record is split into all its ALTs; other records are written as they are
@@ -1796,7 +1796,7 @@ class Pipeline:
         w: str | int | float | os.PathLike[str] | None = None,
         skip_invalid: bool = False,
     ) -> Pipeline:
-        """Left-align and normalise records against a reference (bcftools norm -f)
+        """Left-align and normalise records (bcftools norm -f)
 
         Args:
             fasta: Reference FASTA, with its .fai (and .gzi if BGZF-compressed); create them with `gloci index REF`
@@ -1831,7 +1831,7 @@ class Pipeline:
         chrom_order: Literal["karyotype", "lex"] | None = None,
         skip_invalid: bool = False,
     ) -> Pipeline:
-        """Transfer, remove and add fields of a VCF/BCF (bcftools annotate)
+        """Transfer, remove and add fields (bcftools annotate)
 
         Args:
             annotations: The annotation source: a VCF/BCF, a tab-delimited file (plain or BGZF) or a BED file, sorted in FILE's chromosome order. A tab file needs --columns; a BED file is a tab file named *.bed, *.bed.gz or *.bed.bgz (0-based starts)
@@ -1902,7 +1902,7 @@ class Pipeline:
         chrom_map: Source | None = None,
         skip_invalid: bool = False,
     ) -> Pipeline:
-        """Base composition of the sequence under each interval (bedtools nuc)
+        """Base composition under each interval (bedtools nuc)
 
         Args:
             fasta: The FASTA to read (plain or BGZF), with its .fai (and .gzi) beside it
@@ -1931,7 +1931,7 @@ class Pipeline:
         skip_invalid: bool = False,
         chrom_map: Source | None = None,
     ) -> Pipeline:
-        """A random subset of the records of a file (bedtools sample; for alignments see samtools view -s, gloci samples is a different command)
+        """A random subset of the records (bedtools sample)
 
         Args:
             count: How many records to keep
@@ -1963,7 +1963,7 @@ class Pipeline:
         skip_invalid: bool = False,
         chrom_map: Source | None = None,
     ) -> Pipeline:
-        """Move every record to a random place in the genome (bedtools shuffle)
+        """Move every record to a random place (bedtools shuffle)
 
         Args:
             genome: Chromosomes and lengths: a built-in genome such as hg38 (see gloci genomes), or a .genome, .fai or .dict file
@@ -2034,7 +2034,7 @@ class Pipeline:
         *,
         reference: Source | None = None,
     ) -> Pipeline:
-        """Count the reads of a BAM, CRAM or SAM by FLAGS category (samtools flagstat)
+        """Count reads by FLAGS category (samtools flagstat)
 
         Args:
             reference: The FASTA a CRAM input was made with, with its .fai (and .gzi when BGZF). Not needed for a CRAM written without a reference
@@ -2046,7 +2046,7 @@ class Pipeline:
         *,
         reference: Source | None = None,
     ) -> Pipeline:
-        """Count the reads of each reference of a BAM, CRAM or SAM (samtools idxstats)
+        """Count the reads of each reference (samtools idxstats)
 
         Args:
             reference: The FASTA a CRAM input was made with, with its .fai (and .gzi when BGZF). Not needed for a CRAM written without a reference
@@ -2060,7 +2060,7 @@ class Pipeline:
         records: str | int | float | os.PathLike[str] | None = None,
         reference: Source | None = None,
     ) -> Pipeline:
-        """Print the header and the first records of any input as text (samtools and bcftools head)
+        """Print the header and first records (samtools, bcftools head)
 
         Args:
             headers: Print the first N header lines (default: all of them)
@@ -2113,7 +2113,7 @@ class Pipeline:
         chrom_map: Source | None = None,
         skip_invalid: bool = False,
     ) -> Pipeline:
-        """Mask bases of a FASTA under intervals, streaming it (bedtools maskfasta)
+        """Mask FASTA bases under intervals (bedtools maskfasta)
 
         Args:
             b: Interval files whose bases are masked (-b x y or -b x -b y)
@@ -2142,7 +2142,7 @@ class Pipeline:
         chrom_map: Source | None = None,
         skip_invalid: bool = False,
     ) -> Pipeline:
-        """Cut chromosomes or intervals into windows (bedtools makewindows, bedops --chop)
+        """Cut chromosomes or intervals into windows (bedtools makewindows)
 
         Args:
             genome: Cut every chromosome of a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome or .dict file with lengths
@@ -2166,7 +2166,7 @@ class Pipeline:
         *,
         header: Source,
     ) -> Pipeline:
-        """Replace the header of a BAM or CRAM file without decoding its records (samtools reheader)
+        """Replace the header of a BAM or CRAM file (samtools reheader)
 
         Args:
             header: The new header: SAM header text, or a SAM, BAM or CRAM file whose header is taken (- is standard input)
@@ -2272,7 +2272,7 @@ def vcf_stats(
     t: str | int | float | os.PathLike[str] | None = None,
     skip_invalid: bool = False,
 ) -> list[pathlib.Path]:
-    """Compute statistics in one pass: per-site, per-sample and whole-file, written as PREFIX.<ext> in vcftools' formats, plus a summary
+    """Per-site, per-sample and file statistics (vcftools)
 
     Args:
         src: Any source: a path, a file object, an iterable of lines or tuples, an Arrow table, or a Pipeline.
@@ -2411,7 +2411,7 @@ def vcf_extract_matrix(
     t: str | int | float | os.PathLike[str] | None = None,
     skip_invalid: bool = False,
 ) -> list[pathlib.Path]:
-    """Extract INFO or FORMAT values as a table, or the 012 genotype matrix
+    """Tabulate INFO/FORMAT values or genotypes (vcftools --012)
 
     Args:
         src: Any source: a path, a file object, an iterable of lines or tuples, an Arrow table, or a Pipeline.
@@ -2541,7 +2541,7 @@ def vcf_compare(
     t: str | int | float | os.PathLike[str] | None = None,
     skip_invalid: bool = False,
 ) -> list[pathlib.Path]:
-    """Compare the genotypes of two VCF/BCF files: per site, per sample and as a matrix (vcftools --diff-site-discordance, --diff-indv-discordance, --diff-discordance-matrix)
+    """Compare genotypes of two VCF/BCF files (vcftools --diff-*)
 
     Args:
         a: Any source: a path, a file object, an iterable of lines or tuples, an Arrow table, or a Pipeline.
@@ -2627,7 +2627,7 @@ def index(
     t: str | int | float | os.PathLike[str] | None = None,
     reference: Source | None = None,
 ) -> list[pathlib.Path]:
-    """Build a .tbi/.csi index for a sorted BGZF file, a .bai/.csi for a BAM, a .crai for a CRAM, or a .fai for a FASTA
+    """Index a BGZF file, BAM, CRAM or FASTA (tabix, samtools index)
 
     Args:
         path: The file to index: a path (an index is of a file, so no other source will do).
@@ -2664,7 +2664,7 @@ def windows(
     chrom_map: Source | None = None,
     skip_invalid: bool = False,
 ) -> Pipeline:
-    """Cut chromosomes or intervals into windows (bedtools makewindows, bedops --chop)
+    """Cut chromosomes or intervals into windows (bedtools makewindows)
 
     Args:
         genome: Cut every chromosome of a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome or .dict file with lengths
@@ -2694,7 +2694,7 @@ def random(
     n: str | int | float | os.PathLike[str] | None = None,
     seed: str | int | float | os.PathLike[str] | None = None,
 ) -> Pipeline:
-    """Random intervals placed uniformly over a genome (bedtools random)
+    """Random intervals over a genome (bedtools random)
 
     Args:
         genome: Chromosomes and lengths: a built-in genome such as hg38 (see gloci genomes), or a .genome, .fai or .dict file

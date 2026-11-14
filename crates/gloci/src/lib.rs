@@ -4,7 +4,6 @@ pub mod commands;
 pub mod embed;
 pub mod logging;
 
-use clap::{CommandFactory, Parser};
 use cli::{Cli, Commands};
 use embed::Outcome;
 use gloci_io::{install_cleanup_handlers, shell_quote_args};
@@ -44,7 +43,7 @@ pub fn is_core(name: &str) -> bool {
 
 /// The clap command tree (used by xtask for man pages and completions).
 pub fn command() -> clap::Command {
-    Cli::command()
+    cli::command()
 }
 
 /// The arguments without the thread option, so the recorded `##glociCommand`
@@ -175,7 +174,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
 /// and [`embed::classify`].
 #[doc(hidden)]
 pub fn run_reporting(args: Vec<OsString>) -> (ExitCode, Option<String>) {
-    let cli = match Cli::try_parse_from(&args) {
+    let cli = match cli::try_parse_from(&args) {
         Ok(c) => c,
         Err(e) => {
             let code = e.exit_code();

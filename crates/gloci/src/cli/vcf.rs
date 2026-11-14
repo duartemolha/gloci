@@ -10,6 +10,10 @@ use std::path::PathBuf;
 /// VCF and BCF operations: filter, extract, stats, concat, split, norm, annotate, merge, compare
 /// and popgen.
 #[derive(Args, Debug, Clone)]
+#[command(
+    about = "VCF and BCF operations (bcftools and vcftools equivalents)",
+    long_about
+)]
 #[command(after_long_help = "\
 Examples:
   gloci vcf filter cohort.bcf --pass-only --min-qual 30 -o filtered.bcf
@@ -54,45 +58,47 @@ pub enum CompareMatchArg {
     Position,
 }
 
-/// Compare the genotypes of two VCF/BCF files: per site, per sample and
-/// as a matrix (vcftools --diff-site-discordance, --diff-indv-discordance,
-/// --diff-discordance-matrix).
+/// Compare the genotypes of two VCF/BCF files: per site, per sample and as a matrix (vcftools
+/// --diff-site-discordance, --diff-indv-discordance, --diff-discordance-matrix).
 ///
-/// Both files are read as sorted streams (the chromosome order of -g,
-/// else A's ##contig lines, else --chrom-order; an out-of-order record is
-/// exit 1 and names the file), so no index is needed. Sites are paired by
-/// --match: alleles (the default) pairs records at one CHROM and POS that
-/// share an ALT allele after trimming, position pairs as vcftools does (the
-/// same POS with the same REF, where a REF of N or . takes the other's).
-/// Discordance is counted over the sites in both files and the samples in
-/// both files (the union by name, after --sample-map renames B's samples).
-/// --thin needs both files to declare the same ##contig lines and no -g
-/// (exit 2 otherwise). A and B are always read on threads of their own, plus the thread that
-/// walks them, so -t 1 and -t 2 run three threads; more -t adds selection
-/// workers up to -t in all.
-/// A genotype is its unordered alleles, so 0/1 equals 1/0 and 0|1, and
-/// 0/1 of A>C,G equals 0/2 of A>G,C; any missing allele makes it missing
-/// (vcftools counts ./1 as called). --samples and --exclude-samples take
-/// names present in either file and apply to each file that has them; a
-/// name in neither is exit 2. With none of --site-discordance,
-/// --sample-discordance and --discordance-matrix, all three files are
-/// written, atomically and only when the whole run succeeds:
-/// PREFIX.diff.sites (CHROM POS FILES MATCHING_ALLELES N_COMMON_CALLED
-/// N_DISCORD DISCORDANCE, one row per site in both files, and per site in
-/// one file with zeros and nan), PREFIX.diff.indv (every sample of the
-/// union; one in a single file is 0, 0, nan) and
-/// PREFIX.diff.discordance_matrix (biallelic pairs of the same site:
-/// with --match alleles the same trimmed allele, so AT>A and ATG>AG
-/// count; with --match position the same REF and ALT text; haploid
-/// genotypes are not counted). Not available: vcftools
-/// --diff-site and --diff-indv (use gloci intersect and subtract --match
-/// alleles for sites, and the #CHROM lines for samples).
+/// With none of --site-discordance, --sample-discordance and --discordance-matrix, all three files
+/// are written, atomically and only when the whole run succeeds: PREFIX.diff.sites (CHROM POS FILES
+/// MATCHING_ALLELES N_COMMON_CALLED N_DISCORD DISCORDANCE, one row per site in both files, and per
+/// site in one file with zeros and nan), PREFIX.diff.indv (every sample of the union; one in a single
+/// file is 0, 0, nan) and PREFIX.diff.discordance_matrix (biallelic pairs of the same site: with
+/// --match alleles the same trimmed allele, so AT>A and ATG>AG count; with --match position the same
+/// REF and ALT text; haploid genotypes are not counted).
 #[derive(Args, Debug, Clone)]
+#[command(about = "Compare genotypes of two VCF/BCF files (vcftools --diff-*)")]
 #[command(after_long_help = "\
 Examples:
   gloci vcf compare truth.vcf.gz calls.vcf.gz --out-prefix cmp
   gloci vcf compare a.bcf b.bcf --out-prefix cmp --sample-discordance --match position
-  gloci vcf compare a.vcf.gz b.vcf.gz --out-prefix cmp --sample-map b-to-a.txt --samples s1,s2 --min-dp 10")]
+  gloci vcf compare a.vcf.gz b.vcf.gz --out-prefix cmp --sample-map b-to-a.txt --samples s1,s2 --min-dp 10
+
+Pairing and counting:
+Both files are read as sorted streams (the chromosome order of -g, else A's ##contig \
+lines, else --chrom-order; an out-of-order record is exit 1 and names the file), so no \
+index is needed. Sites are paired by --match: alleles (the default) pairs records at one \
+CHROM and POS that share an ALT allele after trimming, position pairs as vcftools does \
+(the same POS with the same REF, where a REF of N or . takes the other's). Discordance is \
+counted over the sites in both files and the samples in both files (the union by name, \
+after --sample-map renames B's samples). --thin needs both files to declare the same \
+##contig lines and no -g (exit 2 otherwise).
+
+Threads:
+A and B are always read on threads of their own, plus the thread that walks them, so -t 1 \
+and -t 2 run three threads; more -t adds selection workers up to -t in all.
+
+Genotypes and samples:
+A genotype is its unordered alleles, so 0/1 equals 1/0 and 0|1, and 0/1 of A>C,G equals \
+0/2 of A>G,C; any missing allele makes it missing (vcftools counts ./1 as called). \
+--samples and --exclude-samples take names present in either file and apply to each file \
+that has them; a name in neither is exit 2.
+
+Not available:
+Not available: vcftools --diff-site and --diff-indv (use gloci intersect and subtract \
+--match alleles for sites, and the #CHROM lines for samples).")]
 pub struct VcfCompareArgs {
     /// The first VCF or BCF file (`-` for stdin), sorted.
     #[arg(value_name = "A")]
@@ -370,6 +376,10 @@ pub enum ExtractLayout {
 
 /// Extract INFO or FORMAT values as a table, or the 012 genotype matrix.
 #[derive(Args, Debug, Clone)]
+#[command(
+    about = "Tabulate INFO/FORMAT values or genotypes (vcftools --012)",
+    long_about
+)]
 #[command(after_long_help = "\
 Examples:
   gloci vcf extract cohort.vcf.gz --info DP,AF -o info.tsv
@@ -449,6 +459,7 @@ pub struct VcfExtractArgs {
 /// them) are decoded, so a malformed DP, GQ or FT value that nothing
 /// reads is not an error.
 #[derive(Args, Debug, Clone)]
+#[command(about = "Per-site, per-sample and file statistics (vcftools)")]
 #[command(after_long_help = "\
 Examples:
   gloci vcf stats cohort.vcf.gz --out-prefix qc --freq --missing-indv --het --summary
@@ -637,6 +648,7 @@ pub struct VcfPopgenArgs {
 
 /// Filter VCF/BCF files with the selection pipeline.
 #[derive(Args, Debug, Clone)]
+#[command(about = "Filter VCF/BCF files (bcftools view, vcftools)", long_about)]
 #[command(after_long_help = "\
 Examples:
   gloci vcf filter cohort.bcf --pass-only --min-qual 30 --min-maf 0.01 --max-missing 0.1 -o filtered.bcf
