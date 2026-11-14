@@ -13,6 +13,7 @@ mod gt;
 mod hwe;
 pub mod merge;
 mod norm;
+pub mod popgen;
 mod split;
 pub mod srsort;
 mod stats;
