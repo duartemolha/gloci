@@ -43,6 +43,22 @@ nothing, whatever `dry_run` says.
 5. Tag `v<version>` and push the tag. The release workflow and the docs workflow run.
 6. Check the Release assets against `SHA256SUMS`, then follow the steps for the channels that are enabled.
 
+## Bumping the Rust toolchain
+
+CI builds with the exact Rust version named in `rust-toolchain.toml`, so a new Rust release (and its new
+clippy lints) reaches CI only when a commit asks for it. To bump it:
+
+1. Edit `channel` in `rust-toolchain.toml` and every `toolchain:` and `rust-toolchain:` value in
+   `.github/workflows/*.yml` to the new `X.Y.Z` in one commit. The fuzz job stays on `nightly`.
+   `cargo test -p xtask` fails with the file and line of anything left out of step.
+2. Run `cargo clippy --workspace --all-targets --keep-going -- -D warnings` with the new version and fix
+   what it reports in the same commit.
+
+The oldest supported Rust is `rust-version` in the workspace `Cargo.toml`. The `msrv` job in `ci.yml` runs
+`cargo check --workspace --locked` with it, the `sdist-smoke` job in `release.yml` builds the sdist with it,
+and the README and the install page name it. Raising it means editing all of these together; the same test
+checks that they agree.
+
 ## First-release steps
 
 These steps are the owner's. The project has deferred them on purpose; each is a checklist item to do once.
