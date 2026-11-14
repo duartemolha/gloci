@@ -92,14 +92,13 @@ impl Stat for SitePi {
 /// The counts of one window of `--window-pi`.
 #[derive(Clone, Copy, Debug, Default)]
 struct Window {
-    /// Polymorphic sites placed in the window.
+    /// Polymorphic sites placed in the window. Each has a called allele other
+    /// than REF, so this is also vcftools' N_VARIANTS.
     sites: u64,
     /// Their pairs of called alleles, `Σ n (n − 1)`.
     pairs: u64,
     /// Their differing pairs, `Σ Σ c (n − c)`.
     mismatches: u64,
-    /// Those with a called allele other than REF (vcftools' N_VARIANTS).
-    variants: u64,
 }
 
 /// `--window-pi SIZE` with `--window-pi-step STEP` (`.windowed.pi`):
@@ -110,8 +109,10 @@ struct Window {
 /// selected samples. π is the differing pairs over all pairs. Windows
 /// without a polymorphic site have no row.
 ///
-/// Input must be sorted by chromosome and position. A window is written
-/// once the input passes its end, so at most `⌈SIZE/STEP⌉ + 1` are open.
+/// Input must be sorted by chromosome and position. Only windows that hold
+/// a polymorphic site are open, and each is written once a polymorphic site
+/// lies past it or its chromosome ends, so at most `⌈SIZE/STEP⌉ + 1` are
+/// open.
 pub struct WindowPi {
     size: u64,
     step: u64,
@@ -163,9 +164,6 @@ impl WindowPi {
             };
             let k = self.base;
             self.base += 1;
-            if w.variants == 0 && w.mismatches == 0 {
-                continue;
-            }
             // vcftools' unsigned arithmetic: with more records than positions
             // in a window (several at one position) the monomorphic count
             // goes below zero and wraps, and the sum wraps back.
@@ -180,7 +178,7 @@ impl WindowPi {
             b.push(b'\t');
             write_u64(b, k * self.step + self.size);
             b.push(b'\t');
-            write_u64(b, w.variants);
+            write_u64(b, w.sites);
             b.push(b'\t');
             write_g6(b, pi);
             b.push(b'\n');
@@ -233,7 +231,6 @@ impl Stat for WindowPi {
                 .resize(self.open.len() + (last - have) as usize, Window::default());
             self.peak = self.peak.max(self.open.len());
         }
-        let variant = st.allele_counts.first().is_some_and(|&c| c < n);
         for w in self
             .open
             .range_mut((first - self.base) as usize..(last - self.base) as usize)
@@ -241,7 +238,6 @@ impl Stat for WindowPi {
             w.sites += 1;
             w.pairs += n * (n - 1);
             w.mismatches += diffs;
-            w.variants += u64::from(variant);
         }
         Ok(())
     }
