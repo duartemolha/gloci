@@ -110,6 +110,20 @@ fn load_genome_by_content() {
     assert!(e.contains("bad.genome line 1"), "{e}");
 }
 
+/// Line numbers in a genome file's errors count the blank lines before its
+/// first line, which content detection skips.
+#[test]
+fn genome_errors_count_leading_blank_lines() {
+    let e = load_genome(&write("blank.genome", b"\n\r\nchr1\t100\nchr2\tabc\n"))
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("blank.genome line 4: "), "{e}");
+    let e = load_genome(&write("blank.dict", b"\n@SQ\tSN:chr1\tLN:x\n"))
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("blank.dict line 2: "), "{e}");
+}
+
 #[test]
 fn bcf_header_order_is_dictionary_order() {
     let vcf: &[u8] = b"##fileformat=VCFv4.3\n##contig=<ID=chr1,length=2000,IDX=1>\n##contig=<ID=chr2,length=1000,IDX=0>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n";

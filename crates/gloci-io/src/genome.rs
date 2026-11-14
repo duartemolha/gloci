@@ -36,8 +36,9 @@ pub fn load_genome(path: &Path) -> Result<Genome, IoError> {
         loc,
         msg,
     };
-    let from_genome_err = |e: GenomeError| match e {
-        GenomeError::Line { line, msg } => parse_err(Loc::Line(line as u64), msg),
+    // `skipped`: lines before the text the parser saw, which its line numbers do not count.
+    let from_genome_err = |e: GenomeError, skipped: u64| match e {
+        GenomeError::Line { line, msg } => parse_err(Loc::Line(line as u64 + skipped), msg),
         e => IoError::Detect {
             path: name.clone(),
             msg: format!("{name}: {e}"),
@@ -58,7 +59,7 @@ pub fn load_genome(path: &Path) -> Result<Genome, IoError> {
         // The @SQ lines of its header; no reference is needed (D103).
         let h = crate::align::read_cram_header(&mut src, &name)?;
         return Genome::new(h.refs.into_iter().map(|(n, l)| (n, Some(l))).collect())
-            .map_err(from_genome_err);
+            .map_err(|e| from_genome_err(e, 0));
     }
     if magic.starts_with(b">") {
         // A FASTA: its chromosome sizes are in its .fai, which must exist (D108).
@@ -66,11 +67,15 @@ pub fn load_genome(path: &Path) -> Result<Genome, IoError> {
     }
     // Text: the first non-empty line decides.
     let mut first = Vec::new();
-    while first.is_empty() || first == b"\n" || first == b"\r\n" {
+    let mut blank = 0;
+    loop {
         first.clear();
-        if src.read_until(b'\n', &mut first).map_err(read_err)? == 0 {
+        if src.read_until(b'\n', &mut first).map_err(read_err)? == 0
+            || (first != b"\n" && first != b"\r\n")
+        {
             break;
         }
+        blank += 1;
     }
     if first.starts_with(b"##fileformat=VCF") {
         let mut raw = first;
@@ -95,7 +100,7 @@ pub fn load_genome(path: &Path) -> Result<Genome, IoError> {
     } else {
         Genome::parse_sizes(&text)
     }
-    .map_err(from_genome_err)
+    .map_err(|e| from_genome_err(e, blank))
 }
 
 /// The chromosome list of a FASTA, from `PATH.fai`. gloci never builds the
