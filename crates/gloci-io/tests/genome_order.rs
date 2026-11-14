@@ -154,6 +154,23 @@ fn genome_vcf_header_errors_read_as_the_reader_says_them() {
     );
 }
 
+/// A BAM reference name stored without its closing NUL keeps every byte, as
+/// htslib reads it (samtools 1.21 shows `SN:chr1`), not one letter fewer.
+#[test]
+fn bam_genome_name_without_nul_keeps_its_last_byte() {
+    let mut raw = b"BAM\x01".to_vec();
+    raw.extend(0i32.to_le_bytes()); // no header text
+    raw.extend(2i32.to_le_bytes());
+    for (name, len) in [(&b"chr1"[..], 1000i32), (b"chr2\0", 500)] {
+        raw.extend((name.len() as i32).to_le_bytes());
+        raw.extend_from_slice(name);
+        raw.extend(len.to_le_bytes());
+    }
+    let g = load_genome(&write("nonul.bam", &fixtures::bgzip(&raw))).unwrap();
+    assert_eq!((g.length(0), g.length(1)), (Some(1000), Some(500)));
+    assert_eq!(names(g), ["chr1", "chr2"]);
+}
+
 #[test]
 fn bcf_header_order_is_dictionary_order() {
     let vcf: &[u8] = b"##fileformat=VCFv4.3\n##contig=<ID=chr1,length=2000,IDX=1>\n##contig=<ID=chr2,length=1000,IDX=0>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n";

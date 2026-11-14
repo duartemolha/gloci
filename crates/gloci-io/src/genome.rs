@@ -167,7 +167,11 @@ fn bam_genome(src: &mut dyn BufRead, name: &str) -> Result<Genome, IoError> {
         let mut n = vec![0u8; l_name];
         src.read_exact(&mut n)
             .map_err(|_| bad("BAM header is truncated"))?;
-        n.pop(); // trailing NUL
+        // The name ends at its NUL; one stored without it keeps every byte, as htslib
+        // and the BAM reader (`AlnHeader::read_bam`) read it.
+        if let Some(nul) = memchr::memchr(0, &n) {
+            n.truncate(nul);
+        }
         let l_ref = i32le(src)?;
         let l_ref = u64::try_from(l_ref).map_err(|_| bad("BAM reference length is negative"))?;
         entries.push((n, Some(l_ref)));
