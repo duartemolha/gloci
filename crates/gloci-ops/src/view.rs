@@ -673,18 +673,15 @@ pub fn run_view(
         .path
         .as_ref()
         .map_or_else(|| "<stdout>".to_string(), |p| p.display().to_string());
-    // Errors of the output side name the destination; an order error found
-    // while indexing names the input, which is the file that needs sorting.
-    let input_name = reader.name().to_string();
-    let named = |e: IoError| {
-        e.with_output_name(&dest)
-            .with_index_input(&input_name, &dest)
-    };
+    // Errors of the output side name the destination.
+    let named = |e: IoError| e.with_output_name(&dest);
 
     let mut wo = wo.clone();
     // View keeps whatever header the file has unless told otherwise.
     wo.write_header = !opts.no_header;
-    let out = open_output(out_spec, out_format, oo)?;
+    let mut out = open_output(out_spec, out_format, oo)?;
+    // An order error found while indexing names the input, which is the file that needs sorting.
+    out.set_index_input(reader.name());
 
     if opts.header_only {
         // No records are read, so nothing is checked either.
@@ -815,8 +812,7 @@ write SAM instead (-O sam)",
         .map_or_else(|| "<stdout>".to_string(), |p| p.display().to_string());
     let header = src.header().clone();
     let name = src.name().to_string();
-    // An order error found while indexing names the input, which is the file to sort.
-    let named = |e: IoError| e.with_output_name(&dest).with_index_input(&name, &dest);
+    let named = |e: IoError| e.with_output_name(&dest);
 
     // Regions, as the chromosomes the header lists (a name it lacks is warned about and
     // dropped); `by_ref[rid]` is the region set of reference `rid`.
@@ -857,7 +853,9 @@ write SAM instead (-O sam)",
     let mut w = if count {
         None
     } else {
-        let out = open_output(out_spec, out_format, oo)?;
+        let mut out = open_output(out_spec, out_format, oo)?;
+        // An order error found while indexing names the input, which is the file to sort.
+        out.set_index_input(&name);
         Some(open_record_writer(out, layout, out_format, &hdr, &wo).map_err(named)?)
     };
     let mut counted = 0u64;

@@ -205,6 +205,62 @@ fn stale_index_removed_and_write_index_builds() {
     assert!(no_tmp_files(dir.path()));
 }
 
+/// An output that is not sorted is not written under --write-index, so the
+/// hint says so instead of naming it as a file to sort.
+#[test]
+fn unsorted_output_with_write_index_says_it_was_not_written() {
+    let _s = serial();
+    let dir = tempfile::tempdir().unwrap();
+    let e =
+        write_via_output(dir.path(), "u.bed.gz", b"chr1\t5\t6\nchr1\t1\t2\n", true).unwrap_err();
+    let IoError::Order(o) = &e else { panic!("{e}") };
+    let dest = dir.path().join("u.bed.gz").display().to_string();
+    assert_eq!(o.path, dest);
+    assert_eq!(
+        o.hint,
+        format!(
+            "{dest} was not written, as --write-index needs sorted output; pipe the output \
+through gloci sort instead: ... | gloci sort - -o {dest} --write-index"
+        )
+    );
+    assert!(!dir.path().join("u.bed.gz").exists());
+    // An output that holds an input's records in their order names that input.
+    let spec = parse_output_spec(Some(&dir.path().join("v.bed.gz")), None).unwrap();
+    let mut out = open_output(&spec, OutFormat::Bed, &opts(1, true)).unwrap();
+    out.set_index_input("in.bed");
+    out.write_all(b"chr1\t5\t6\nchr1\t1\t2\n").unwrap();
+    let e = out.finish().unwrap_err();
+    let IoError::Order(o) = &e else { panic!("{e}") };
+    assert_eq!(
+        (o.path.as_str(), o.hint.as_str()),
+        ("in.bed", "run: gloci sort in.bed")
+    );
+    // A TSV, which gloci sort does not read, keeps the recipe for sorting it once written.
+    let spec = parse_output_spec(Some(&dir.path().join("t.tsv.gz")), None).unwrap();
+    let mut out = open_output(&spec, OutFormat::Tsv, &opts(1, true)).unwrap();
+    out.set_tsv_index(TsvColumns {
+        seq: 1,
+        begin: 2,
+        end: Some(3),
+        zero_based: true,
+        skip_lines: 0,
+        comment: b'#',
+    });
+    out.write_all(b"chr1\t5\t6\tx\nchr1\t1\t2\ty\n").unwrap();
+    let e = out.finish().unwrap_err();
+    let IoError::Order(o) = &e else { panic!("{e}") };
+    let dest = dir.path().join("t.tsv.gz").display().to_string();
+    assert!(
+        o.hint.starts_with(&format!(
+            "{dest} was not written, as --write-index needs sorted output; write it without \
+--write-index, then sort by chromosome"
+        )),
+        "{}",
+        o.hint
+    );
+    assert!(no_tmp_files(dir.path()));
+}
+
 #[test]
 fn bgzf_is_deterministic_and_terminated() {
     let _s = serial();

@@ -314,6 +314,8 @@ pub struct Output {
     drop_fasta_index: bool,
     /// The token of the run that opened this output (D91).
     cancel: crate::cancel::Watch,
+    /// The input whose records this output holds in their order ([`Output::set_index_input`]).
+    index_input: Option<String>,
 }
 
 /// What `--write-index` builds at `finish`.
@@ -488,7 +490,33 @@ gloci view FILE -o x.bam --write-index"
         drop_fasta_index: f == OutFormat::Fasta && !opts.write_index,
         index,
         cancel: crate::cancel::Watch::current(),
+        index_input: None,
     })
+}
+
+/// An order error found while indexing the finished output at `dest`, which is
+/// therefore not published. With `input` (the output holds that input's records
+/// in their order) it names the input, the file to sort. Otherwise the command's
+/// own output is out of order, and the hint says to sort it on the way to `dest`;
+/// a TSV, which `gloci sort` does not read, keeps the recipe for sorting it.
+fn unindexable_output(e: IoError, dest: &Path, input: Option<&str>, tsv: bool) -> IoError {
+    let dest = dest.display().to_string();
+    match (e, input) {
+        (e, Some(input)) => e.with_index_input(input, &dest),
+        (IoError::Order(mut o), None) => {
+            let head = format!("{dest} was not written, as --write-index needs sorted output");
+            o.hint = if tsv {
+                format!("{head}; write it without --write-index, then {}", o.hint)
+            } else {
+                format!(
+                    "{head}; pipe the output through gloci sort instead: ... | gloci sort - -o \
+{dest} --write-index"
+                )
+            };
+            IoError::Order(o)
+        }
+        (e, None) => e,
+    }
 }
 
 impl Output {
@@ -498,6 +526,13 @@ impl Output {
         if let IndexPlan::TsvPending(t) | IndexPlan::Tsv(_, t) = self.index {
             self.index = IndexPlan::Tsv(cols, t);
         }
+    }
+
+    /// This output holds the records of the input `name` in their order (`view`): an
+    /// order error found while indexing it at `finish` names that input, the file to
+    /// sort, not the output, which is not published.
+    pub fn set_index_input(&mut self, name: &str) {
+        self.index_input = Some(name.to_string());
     }
 
     /// Whether `--write-index` was asked for.
@@ -561,20 +596,18 @@ impl Output {
             // file, remove the old PATH.tbi/PATH.csi, rename the data, then
             // rename the index. Interrupted at any point, PATH is left with
             // no index, never beside an index of other data (D19).
+            let input = self.index_input.as_deref();
+            let unindexable = |e, tsv| unindexable_output(e, dest, input, tsv);
             let built = match &self.index {
                 IndexPlan::None => None,
-                IndexPlan::Format(format, threads) => Some(crate::index::build_index(
-                    af.temp_path(),
-                    dest,
-                    *format,
-                    *threads,
-                )?),
-                IndexPlan::Tsv(cols, threads) => Some(crate::index::build_tsv_index(
-                    af.temp_path(),
-                    dest,
-                    cols,
-                    *threads,
-                )?),
+                IndexPlan::Format(format, threads) => Some(
+                    crate::index::build_index(af.temp_path(), dest, *format, *threads)
+                        .map_err(|e| unindexable(e, false))?,
+                ),
+                IndexPlan::Tsv(cols, threads) => Some(
+                    crate::index::build_tsv_index(af.temp_path(), dest, cols, *threads)
+                        .map_err(|e| unindexable(e, true))?,
+                ),
                 IndexPlan::Fasta(_) => None,
                 IndexPlan::TsvPending(_) => {
                     return Err(IoError::Detect {

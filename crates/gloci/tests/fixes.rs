@@ -508,6 +508,31 @@ fn view_write_index_on_unsorted_input_names_the_input() {
     assert!(!Path::new(&o).exists());
 }
 
+/// A command whose output is not sorted (`slop -s` here) cannot index it: the
+/// hint says the output was not written and how to sort it on the way, instead
+/// of naming the unwritten file as one to sort.
+#[test]
+fn write_index_on_unsorted_output_says_it_was_not_written() {
+    let d = tempdir();
+    let i = w(
+        d.path(),
+        "s.bed",
+        "chr1\t100\t200\t.\t0\t+\nchr1\t110\t120\t.\t0\t-\n",
+    );
+    let g = w(d.path(), "g.genome", "chr1\t1000\n");
+    let o = p(d.path(), "out.bed.gz");
+    gloci()
+        .args(["slop", &i, "-g", &g, "--left", "0", "--right", "50", "-s"])
+        .args(["-o", &o, "--write-index"])
+        .assert()
+        .code(1)
+        .stderr(contains(format!(
+            "hint: {o} was not written, as --write-index needs sorted output; pipe the output \
+through gloci sort instead: ... | gloci sort - -o {o} --write-index"
+        )));
+    assert!(!Path::new(&o).exists());
+}
+
 #[test]
 fn genome_path_like_values_say_no_such_file() {
     let d = tempdir();
