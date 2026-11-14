@@ -964,28 +964,29 @@ fn rust_toolchain_pin_and_msrv_agree_everywhere() {
         .expect("Cargo.toml has no rust-version");
     let msrv = format!("{rust_version}.0");
 
-    // The README's install line names the same minimum.
-    let readme = read("README.md");
-    match readme
-        .lines()
-        .enumerate()
-        .find(|(_, l)| l.contains("Rust toolchain ("))
-    {
-        None => problems.push(
-            "README.md: no \"Rust toolchain (X.Y or newer)\" line; add one saying the rust-version"
-                .into(),
-        ),
-        Some((i, l)) => {
-            let named = l
-                .split("Rust toolchain (")
-                .nth(1)
-                .and_then(|r| r.split(" or newer").next())
-                .unwrap_or("");
-            if named != rust_version {
-                problems.push(format!(
-                    "README.md:{}: says Rust {named} but Cargo.toml's rust-version is {rust_version}; edit the README line",
-                    i + 1
-                ));
+    // The README's and the install page's install lines name the same minimum.
+    for rel in ["README.md", "docs/book/src/install.md"] {
+        let text = read(rel);
+        match text
+            .lines()
+            .enumerate()
+            .find(|(_, l)| l.contains("Rust toolchain ("))
+        {
+            None => problems.push(format!(
+                "{rel}: no \"Rust toolchain (X.Y or newer)\" line; add one saying the rust-version"
+            )),
+            Some((i, l)) => {
+                let named = l
+                    .split("Rust toolchain (")
+                    .nth(1)
+                    .and_then(|r| r.split(" or newer").next())
+                    .unwrap_or("");
+                if named != rust_version {
+                    problems.push(format!(
+                        "{rel}:{}: says Rust {named} but Cargo.toml's rust-version is {rust_version}; edit this line",
+                        i + 1
+                    ));
+                }
             }
         }
     }
