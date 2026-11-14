@@ -471,6 +471,52 @@ fn parallel_selection_reports_a_worker_panic() {
     }
 }
 
+/// A panic in the caller's sink (a bug, and an unwinding one in tests and in
+/// the Python module) leaves the stage: the workers waiting for batches are
+/// let go, so the panic goes on to the caller instead of hanging the run.
+#[test]
+fn parallel_selection_lets_a_panic_in_the_sink_through() {
+    let _g = IN_PROCESS.lock().unwrap_or_else(|e| e.into_inner());
+    let d = tempdir();
+    let path = s(&plain_file(d.path(), "p.vcf", &cohort(2000, 800, &[])));
+    for threads in [2usize, 4, 8] {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let path = path.clone();
+        std::thread::spawn(move || {
+            let sel = VcfSelect::default();
+            let input = open_selected(&path, &in_process_ro(), &sel).unwrap();
+            let (reader, mut chroms) = input.into_parts();
+            let mut stage = gloci_ops::SelectStage::new(
+                "test",
+                reader.as_ref(),
+                &sel,
+                &RewritePlan::default(),
+                true,
+            )
+            .unwrap();
+            stage.set_threads(NonZero::new(threads).unwrap());
+            let mut seen = 0;
+            let r = run_selection(reader, &mut chroms, &mut stage, |_| {
+                seen += 1;
+                if seen == 200 {
+                    // `resume_unwind` panics without the panic hook's message.
+                    std::panic::resume_unwind(Box::new("test: the sink panics"));
+                }
+                Ok(())
+            });
+            // Not reached: the panic unwinds this thread and drops `tx`.
+            let _ = tx.send(r.map_err(|e| e.to_string()));
+        });
+        match rx.recv_timeout(std::time::Duration::from_secs(60)) {
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                panic!("-t {threads}: the selection hung after a panic in the sink")
+            }
+            Ok(r) => panic!("-t {threads}: the selection went on after a panic in the sink: {r:?}"),
+        }
+    }
+}
+
 /// Both errors lie in one batch: the earlier record's wins at every -t.
 #[test]
 fn parallel_selection_earliest_record_error_in_a_batch() {

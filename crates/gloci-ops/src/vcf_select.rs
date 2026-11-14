@@ -796,6 +796,21 @@ impl Handoff {
     }
 }
 
+/// The driver's end of the hand-off: dropped when the driver leaves, with
+/// its result or unwinding from a panic in the sink, so that the workers are
+/// told to stop and the scope that waits for them can end.
+struct Driving<'a> {
+    handoff: &'a Handoff,
+    abort: &'a AtomicBool,
+}
+
+impl Drop for Driving<'_> {
+    fn drop(&mut self) {
+        self.abort.store(true, Ordering::Relaxed);
+        self.handoff.close();
+    }
+}
+
 /// A worker's presence at the hand-off: dropped when the worker returns,
 /// however it returns, so the driver never waits for a worker that is gone.
 struct Present<'a>(&'a Handoff);
@@ -1096,6 +1111,10 @@ where
             let abort = &abort;
             scope.spawn(move || worker(spec, handoff, abort, flight, run));
         }
+        let _driving = Driving {
+            handoff,
+            abort: &abort,
+        };
         let no_workers =
             || IoError::Internal("the selection workers stopped before the input was read".into());
 
@@ -1108,7 +1127,7 @@ where
         // A read or order error ends the input: the batches before it are
         // still taken (so an earlier record's error comes first).
         let mut input_err: Option<IoError> = None;
-        let result = (|| -> Result<u64, IoError> {
+        (|| -> Result<u64, IoError> {
             loop {
                 run.check()?;
                 while !eof && input_err.is_none() && sent - taken < cap as u64 {
@@ -1190,10 +1209,7 @@ where
                 Some(e) => Err(e),
                 None => Ok(records_in),
             }
-        })();
-        abort.store(true, Ordering::Relaxed);
-        handoff.close();
-        result
+        })()
     })
 }
 
