@@ -171,6 +171,50 @@ INFO/SVLEN, use --vcf-span ref, or skip invalid records where the command suppor
     );
 }
 
+/// An SVLEN whose end runs past the largest coordinate is too large; it is an
+/// integer, and its sign is kept in the message.
+#[test]
+fn svlen_past_the_largest_coordinate_is_too_large() {
+    for svlen in [
+        "-18446744073709551610",
+        "18446744073709551615",
+        "-99999999999999999999",
+    ] {
+        for span in [VcfSpan::Allele, VcfSpan::Ref] {
+            assert_eq!(
+                fp(10, "N", "<DEL>", None, Some(svlen), span)
+                    .unwrap_err()
+                    .to_string(),
+                format!(
+                    "INFO/SVLEN value \"{svlen}\" is too large: POS 10 plus its length \
+overflows a 64-bit coordinate; fix the record"
+                ),
+                "{svlen} {span:?}"
+            );
+        }
+    }
+    // Of a list, the value that overflows is the one named.
+    let e = fp(
+        10,
+        "N",
+        "<DEL>,<DEL>",
+        None,
+        Some("-5,-18446744073709551610"),
+        VcfSpan::Allele,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        e.starts_with("INFO/SVLEN value \"-18446744073709551610\" is too large"),
+        "{e}"
+    );
+    // Text that is not a number is still reported as that.
+    assert!(matches!(
+        fp(10, "N", "<DEL>", None, Some("-1x"), VcfSpan::Allele),
+        Err(FootprintError::BadSvlen { .. })
+    ));
+}
+
 /// Found by the structured VCF fuzz test: POS near u64::MAX overflowed in debug
 /// builds (and wrapped silently in release).
 #[test]

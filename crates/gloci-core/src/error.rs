@@ -86,6 +86,11 @@ INFO/SVLEN, use --vcf-span ref, or skip invalid records where the command suppor
     #[error("INFO/SVLEN value \"{value}\" is not an integer (or '.'); fix the record")]
     BadSvlen { value: String },
     #[error(
+        "INFO/SVLEN value \"{value}\" is too large: POS {pos} plus its length overflows a \
+64-bit coordinate; fix the record"
+    )]
+    SvlenTooLarge { value: String, pos: u64 },
+    #[error(
         "INFO/SVLEN has {svlen} values but the record has {alts} ALT alleles; it needs 1 or {alts}"
     )]
     SvlenCount { svlen: usize, alts: usize },

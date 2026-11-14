@@ -88,23 +88,27 @@ fn lossy(b: &[u8]) -> String {
     String::from_utf8_lossy(b).into_owned()
 }
 
-fn parse_svlen(raw: &[u8]) -> Result<Vec<Option<u64>>, FootprintError> {
+/// SVLEN's values (their magnitudes) for a record at `pos`.
+fn parse_svlen(raw: &[u8], pos: u64) -> Result<Vec<Option<u64>>, FootprintError> {
     split_alts(raw)
         .into_iter()
         .map(|t| {
             if t == b"." {
                 return Ok(None);
             }
-            let bad = || FootprintError::BadSvlen { value: lossy(t) };
             let digits = t.strip_prefix(b"-").or(t.strip_prefix(b"+")).unwrap_or(t);
             if digits.is_empty() || !digits.iter().all(u8::is_ascii_digit) {
-                return Err(bad());
+                return Err(FootprintError::BadSvlen { value: lossy(t) });
             }
+            // An integer, but maybe past u64.
             std::str::from_utf8(digits)
                 .ok()
                 .and_then(|s| s.parse::<u64>().ok())
                 .map(Some)
-                .ok_or_else(bad)
+                .ok_or_else(|| FootprintError::SvlenTooLarge {
+                    value: lossy(t),
+                    pos,
+                })
         })
         .collect()
 }
@@ -127,18 +131,21 @@ fn sv_end(
     let missing = || FootprintError::MissingSvEnd { alt: lossy(alt) };
     let raw = v.svlen.ok_or_else(missing)?;
     if svlen.is_none() {
-        *svlen = Some(parse_svlen(raw)?);
+        *svlen = Some(parse_svlen(raw, v.pos)?);
     }
     let vals = svlen.as_ref().expect("just set");
-    let val = match vals.len() {
-        1 => vals[0],
-        k if k == n => vals[i],
+    let k = match vals.len() {
+        1 => 0,
+        k if k == n => i,
         k => return Err(FootprintError::SvlenCount { svlen: k, alts: n }),
     };
-    let len = val.ok_or_else(missing)?;
-    v.pos.checked_add(len).ok_or(FootprintError::BadSvlen {
-        value: len.to_string(),
-    })
+    let len = vals[k].ok_or_else(missing)?;
+    v.pos
+        .checked_add(len)
+        .ok_or_else(|| FootprintError::SvlenTooLarge {
+            value: lossy(split_alts(raw)[k]),
+            pos: v.pos,
+        })
 }
 
 fn validate(v: &Variant, alts: &[Alt]) -> Result<(), FootprintError> {
