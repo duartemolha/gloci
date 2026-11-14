@@ -18,9 +18,10 @@ use gloci_vcf::{
     SiteStats, SiteView, TallyWants, Thinner, bcf_genotypes_with, parse_expr, select_samples,
     site_stats, text_genotypes_with,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Condvar, Mutex, MutexGuard};
 
 /// A `--include` or `--exclude` expression (decision D71).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -693,6 +694,119 @@ struct Done {
     err: Option<IoError>,
 }
 
+/// Where the driver and the workers of a parallel run meet: the batches to
+/// work on, and the batches done.
+///
+/// Whoever waits here sleeps on a condition variable until it is woken. A
+/// channel's blocking calls first retry around `sched_yield`, and on Linux a
+/// yield on a CPU that another thread wants gives up a whole scheduler
+/// slice (milliseconds): with more runnable threads than cores every
+/// hand-off of a batch then costs a slice or more, on the workers and on
+/// the driver.
+struct Handoff {
+    state: Mutex<HandoffState>,
+    /// A job was queued, or the hand-off closed.
+    job_ready: Condvar,
+    /// A batch came back, or a worker left.
+    done_ready: Condvar,
+}
+
+struct HandoffState {
+    jobs: VecDeque<Job>,
+    done: BTreeMap<u64, Done>,
+    /// Workers still running.
+    workers: usize,
+    /// The driver takes no more batches.
+    closed: bool,
+}
+
+impl Handoff {
+    fn new(workers: usize) -> Handoff {
+        Handoff {
+            state: Mutex::new(HandoffState {
+                jobs: VecDeque::new(),
+                done: BTreeMap::new(),
+                workers,
+                closed: false,
+            }),
+            job_ready: Condvar::new(),
+            done_ready: Condvar::new(),
+        }
+    }
+
+    /// The state. Nothing panics while holding the lock (a worker's panic is
+    /// caught around its batch), so a poisoned lock still holds a sound state.
+    fn lock(&self) -> MutexGuard<'_, HandoffState> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Queue `job` for a worker. False, and the job is dropped, when no
+    /// worker is left to take it.
+    fn send(&self, job: Job) -> bool {
+        let mut s = self.lock();
+        if s.workers == 0 {
+            return false;
+        }
+        s.jobs.push_back(job);
+        drop(s);
+        self.job_ready.notify_one();
+        true
+    }
+
+    /// A worker's next job, waiting for one; `None` once the driver has
+    /// closed the hand-off.
+    fn next_job(&self) -> Option<Job> {
+        let mut s = self.lock();
+        loop {
+            if s.closed {
+                return None;
+            }
+            if let Some(job) = s.jobs.pop_front() {
+                return Some(job);
+            }
+            s = self.job_ready.wait(s).unwrap_or_else(|e| e.into_inner());
+        }
+    }
+
+    /// A worker hands a batch back.
+    fn finish(&self, done: Done) {
+        self.lock().done.insert(done.job.seq, done);
+        self.done_ready.notify_one();
+    }
+
+    /// Batch `seq`, waiting for it; `None` when it is not back and no worker
+    /// is left to bring it.
+    fn take(&self, seq: u64) -> Option<Done> {
+        let mut s = self.lock();
+        loop {
+            if let Some(done) = s.done.remove(&seq) {
+                return Some(done);
+            }
+            if s.workers == 0 {
+                return None;
+            }
+            s = self.done_ready.wait(s).unwrap_or_else(|e| e.into_inner());
+        }
+    }
+
+    /// The driver is done: waiting workers leave, busy ones after their batch.
+    fn close(&self) {
+        self.lock().closed = true;
+        self.job_ready.notify_all();
+    }
+}
+
+/// A worker's presence at the hand-off: dropped when the worker returns,
+/// however it returns, so the driver never waits for a worker that is gone.
+struct Present<'a>(&'a Handoff);
+
+impl Drop for Present<'_> {
+    fn drop(&mut self) {
+        self.0.lock().workers -= 1;
+        self.0.done_ready.notify_one();
+    }
+}
+
 fn work_batch(spec: &Spec<'_>, core: &mut Core, mut job: Job, flight: &AtomicUsize) -> Done {
     let mut err = None;
     #[cfg(feature = "test-hooks")]
@@ -776,12 +890,12 @@ fn work_batch(spec: &Spec<'_>, core: &mut Core, mut job: Job, flight: &AtomicUsi
 
 fn worker(
     spec: &Spec<'_>,
-    jobs: &crossbeam_channel::Receiver<Job>,
-    done: &crossbeam_channel::Sender<Done>,
+    handoff: &Handoff,
     abort: &AtomicBool,
     flight: &AtomicUsize,
     run: &gloci_io::cancel::Watch,
 ) {
+    let _present = Present(handoff);
     let _run = run.enter();
     // The expression parsed for the driver's core, so this cannot fail; a
     // worker that cannot start leaves its jobs to the others, and the driver
@@ -789,7 +903,7 @@ fn worker(
     let Ok(mut core) = Core::new(spec) else {
         return;
     };
-    for job in jobs.iter() {
+    while let Some(job) = handoff.next_job() {
         if abort.load(Ordering::Relaxed) {
             break;
         }
@@ -803,7 +917,7 @@ fn worker(
                 hits: Hits::default(),
             };
             let err = Some(IoError::Cancelled);
-            let _ = done.send(Done { job, err });
+            handoff.finish(Done { job, err });
             break;
         }
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -832,7 +946,8 @@ fn worker(
                 )
             }
         };
-        if done.send(d).is_err() || panicked {
+        handoff.finish(d);
+        if panicked {
             break;
         }
     }
@@ -974,19 +1089,16 @@ where
     let run = &run;
     let flight = AtomicUsize::new(0);
     let flight = &flight;
+    let handoff = Handoff::new(workers);
+    let handoff = &handoff;
     std::thread::scope(|scope| {
-        let (job_tx, job_rx) = crossbeam_channel::bounded::<Job>(cap);
-        let (done_tx, done_rx) = crossbeam_channel::unbounded::<Done>();
         for _ in 0..workers {
-            let (rx, tx, abort) = (job_rx.clone(), done_tx.clone(), &abort);
-            scope.spawn(move || worker(spec, &rx, &tx, abort, flight, run));
+            let abort = &abort;
+            scope.spawn(move || worker(spec, handoff, abort, flight, run));
         }
-        drop(job_rx);
-        drop(done_tx);
         let no_workers =
             || IoError::Internal("the selection workers stopped before the input was read".into());
 
-        let mut pending: BTreeMap<u64, Done> = BTreeMap::new();
         let mut spare: Vec<(RecordBatch, Hits)> = Vec::new();
         let (mut sent, mut taken) = (0u64, 0u64);
         let mut records_in = 0u64;
@@ -1018,7 +1130,7 @@ where
                         batch,
                         hits,
                     };
-                    if job_tx.send(job).is_err() {
+                    if !handoff.send(job) {
                         // Every worker has exited. One may have left an
                         // error (a panic) for a batch already sent: stop
                         // reading and take the batches in order, so that
@@ -1034,19 +1146,13 @@ where
                 if sent == taken {
                     break;
                 }
-                let done = loop {
-                    if let Some(d) = pending.remove(&taken) {
-                        break d;
+                let done = handoff.take(taken).ok_or_else(|| {
+                    if run.is_cancelled() {
+                        IoError::Cancelled
+                    } else {
+                        no_workers()
                     }
-                    let d = done_rx.recv().map_err(|_| {
-                        if run.is_cancelled() {
-                            IoError::Cancelled
-                        } else {
-                            no_workers()
-                        }
-                    })?;
-                    pending.insert(d.job.seq, d);
-                };
+                })?;
                 taken += 1;
                 let Done { job, err } = done;
                 let held = job.hits.packed.n_samples_held();
@@ -1086,7 +1192,112 @@ where
             }
         })();
         abort.store(true, Ordering::Relaxed);
-        drop(job_tx);
+        handoff.close();
         result
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn job(seq: u64) -> Job {
+        Job {
+            seq,
+            base: 0,
+            batch: RecordBatch::default(),
+            hits: Hits::default(),
+        }
+    }
+
+    /// The driver sees what the workers hand back in the order it asks for,
+    /// and learns that the last worker has left.
+    #[test]
+    fn handoff_returns_batches_by_number_and_notices_the_last_worker_leaving() {
+        let handoff = Handoff::new(2);
+        std::thread::scope(|s| {
+            for _ in 0..2 {
+                s.spawn(|| {
+                    let _present = Present(&handoff);
+                    while let Some(job) = handoff.next_job() {
+                        // The later batches come back first.
+                        std::thread::sleep(std::time::Duration::from_millis(20 - 5 * job.seq));
+                        handoff.finish(Done { job, err: None });
+                    }
+                });
+            }
+            for seq in 0..4 {
+                assert!(handoff.send(job(seq)));
+            }
+            for seq in 0..4 {
+                assert_eq!(handoff.take(seq).map(|d| d.job.seq), Some(seq));
+            }
+            handoff.close();
+        });
+        // Both workers have returned: nothing more comes back, nothing is taken.
+        assert!(handoff.take(4).is_none());
+        assert!(!handoff.send(job(4)));
+    }
+
+    /// How often the kernel has switched this thread out while it could run.
+    #[cfg(target_os = "linux")]
+    fn switched_out() -> u64 {
+        let status = std::fs::read_to_string("/proc/thread-self/status").unwrap();
+        let line = status
+            .lines()
+            .find_map(|l| l.strip_prefix("nonvoluntary_ctxt_switches:"))
+            .expect("the kernel reports context switches");
+        line.trim().parse().unwrap()
+    }
+
+    /// A worker with nothing to do sleeps until a job wakes it; it does not
+    /// retry around `sched_yield`. With every CPU busy, a thread that yields
+    /// is switched out at each yield while it could still run, and the kernel
+    /// counts that; one that sleeps is not. (A channel's blocking receive
+    /// yields several times before it sleeps: on Linux each yield on a busy
+    /// CPU costs a scheduler slice, which is what made the selection slower
+    /// with more threads than cores.)
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_waiting_worker_sleeps_instead_of_yielding() {
+        use std::sync::atomic::AtomicBool;
+        let rounds = 100u64;
+        let busy = AtomicBool::new(true);
+        let handoff = Handoff::new(1);
+        let (taken, switched) = std::thread::scope(|s| {
+            let cpus = std::thread::available_parallelism().map_or(4, |n| n.get());
+            for _ in 0..cpus {
+                s.spawn(|| {
+                    while busy.load(Ordering::Relaxed) {
+                        std::hint::spin_loop();
+                    }
+                });
+            }
+            let worker = s.spawn(|| {
+                let _present = Present(&handoff);
+                let before = switched_out();
+                let mut taken = 0;
+                while let Some(job) = handoff.next_job() {
+                    taken += 1;
+                    handoff.finish(Done { job, err: None });
+                }
+                (taken, switched_out() - before)
+            });
+            for seq in 0..rounds {
+                // Long enough for the worker to be waiting again.
+                std::thread::sleep(std::time::Duration::from_millis(2));
+                assert!(handoff.send(job(seq)));
+                assert!(handoff.take(seq).is_some());
+            }
+            handoff.close();
+            let counts = worker.join().unwrap();
+            busy.store(false, Ordering::Relaxed);
+            counts
+        });
+        assert_eq!(taken, rounds);
+        assert!(
+            switched < rounds / 2,
+            "the waiting worker was switched out {switched} times while runnable in {rounds} waits"
+        );
+    }
 }
