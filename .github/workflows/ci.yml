@@ -9,6 +9,8 @@ env:
   # No debug info: with it the test binaries (about 180) are some 100 MB each, more than the
   # x86_64 runner's disk holds ("ld terminated with signal 7" when it filled up).
   CARGO_PROFILE_DEV_DEBUG: "0"
+  # The oldest Rust the workspace promises to build with (`rust-version` in Cargo.toml).
+  MSRV: "1.91.0"
 
 jobs:
   test:
@@ -21,7 +23,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master (2026-07-16)
         with:
-          toolchain: stable
+          toolchain: "1.100.0"
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
       - name: actionlint
@@ -41,7 +43,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master (2026-07-16)
         with:
-          toolchain: stable
+          toolchain: "1.100.0"
           targets: x86_64-unknown-linux-musl
       - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
       - run: sudo apt-get update && sudo apt-get install -y musl-tools
@@ -63,6 +65,17 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master (2026-07-16)
         with:
-          toolchain: stable
+          toolchain: "1.100.0"
       - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
       - run: cargo publish --dry-run --locked -p gloci-core -p gloci-io -p gloci-engine -p gloci-vcf -p gloci-ops -p gloci
+
+  # rust-toolchain.toml pins a newer Rust, so the check names the toolchain with +.
+  msrv:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master (2026-07-16)
+        with:
+          toolchain: ${{ env.MSRV }}
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+      - run: cargo +${{ env.MSRV }} check --workspace --locked
