@@ -170,6 +170,53 @@ fn counts_many_samples_cross_every_word_boundary() {
 }
 
 #[test]
+fn counts_records_of_thousands_of_samples() {
+    // Whole words are counted in blocks of 255 (1,020 samples): the counts
+    // must hold at a block's last word, past it and over several blocks,
+    // when every genotype adds to the same counters.
+    // The genotype, its two values, its calls of each allele, and which of
+    // 0/0, 0/1 and 1/1 it is.
+    let patterns = [
+        ("1|1", [4i32, 5], [0u64, 2], (0u64, 0u64, 1u64)),
+        ("0|1", [2, 5], [1, 1], (0, 1, 0)),
+        ("1|0", [4, 3], [1, 1], (0, 1, 0)),
+        ("0|0", [2, 3], [2, 0], (1, 0, 0)),
+    ];
+    for n_samples in [1016usize, 1019, 1020, 1021, 1024, 1028, 2040, 2044, 5003] {
+        for (name, pair, calls, kind) in patterns {
+            let n = n_samples as u64;
+            let v = pair.repeat(n_samples);
+            let s = counts(&gt_record(INT8, 2, &v), None, 2).unwrap();
+            assert_eq!(
+                s.allele_counts,
+                [calls[0] * n, calls[1] * n],
+                "{n} x {name}"
+            );
+            assert_eq!(
+                s.hwe_counts,
+                Some((kind.0 * n, kind.1 * n, kind.2 * n)),
+                "{n} x {name}"
+            );
+            assert_eq!((s.samples, s.missing, s.called_alleles), (n, 0, 2 * n));
+            assert!(s.all_phased);
+            // One unphased, half-missing genotype anywhere leaves the rest counted.
+            for at in [0, 3, 1015, n_samples - 5, n_samples - 1] {
+                let mut v = v.clone();
+                v[2 * at] = 0;
+                v[2 * at + 1] = 4;
+                let s = counts(&gt_record(INT8, 2, &v), None, 2).unwrap();
+                assert_eq!(
+                    s.allele_counts,
+                    [calls[0] * (n - 1), calls[1] * (n - 1) + 1],
+                    "{n} x {name}, ./1 at {at}"
+                );
+                assert_eq!((s.missing, s.all_phased), (1, false));
+            }
+        }
+    }
+}
+
+#[test]
 fn counts_int16_and_int32_vectors() {
     // 0/70 70|0 1/1: allele 70 needs int16.
     let v = [

@@ -137,30 +137,44 @@ const LOW: u64 = 0x0101_0101_0101_0101;
 /// of the second.
 const FIRST: u64 = 0x0001_0001_0001_0001;
 const SECOND: u64 = FIRST << 8;
+/// Words a block holds: a count per byte of a word must stay below 256.
+const BLOCK: usize = 255;
+
+/// The sum of the four 16-bit counts of `lanes`, each below 2^14.
+#[inline(always)]
+fn sum_lanes(lanes: u64) -> u64 {
+    lanes.wrapping_mul(FIRST) >> 48
+}
 
 /// Two int8 values per sample, every sample counted, at a site with at least
 /// two alleles: the shape of a diploid cohort. Eight bytes (four genotypes)
 /// are counted at once when each is 2, 3, 4 or 5, which is allele 0 or 1
 /// after a `/` or a `|`; any other word goes through [`count_sample`].
 fn count_diploid_int8(data: &[u8], calls: &mut [u64], c: &mut GtCounts) -> bool {
-    let (mut words, mut alt, mut het, mut hom_alt) = (0u64, 0u64, 0u64, 0u64);
+    let (mut words, mut alt, mut het) = (0u64, 0u64, 0u64);
     // The bits every counted word has: its second alleles' low bits say `|`.
     let mut common = SECOND;
     let (chunks, rest) = data.as_chunks::<8>();
-    for chunk in chunks {
-        let w = u64::from_le_bytes(*chunk);
-        // 2 to 5: nothing above the third bit, and one of the second and third.
-        if w & !(7 * LOW) == 0 && ((w >> 1) ^ (w >> 2)) & LOW == LOW {
-            // The third bit is set for allele 1.
-            let alts = (w >> 2) & LOW;
-            words += 1;
-            alt += u64::from(alts.count_ones());
-            het += u64::from(((alts ^ (alts >> 8)) & FIRST).count_ones());
-            hom_alt += u64::from((alts & (alts >> 8) & FIRST).count_ones());
-            common &= w;
-        } else if !count_pairs(chunk, calls, c) {
-            return false;
+    for block in chunks.chunks(BLOCK) {
+        // Per byte of a word, the words of this block whose allele there is
+        // 1; per genotype (16 bits), those whose two alleles differ.
+        let (mut alts, mut hets) = (0u64, 0u64);
+        for chunk in block {
+            let w = u64::from_le_bytes(*chunk);
+            // 2 to 5: nothing above the third bit, and one of the second and third.
+            if w & !(7 * LOW) == 0 && ((w >> 1) ^ (w >> 2)) & LOW == LOW {
+                // The third bit is set for allele 1.
+                let alt1 = (w >> 2) & LOW;
+                words += 1;
+                alts += alt1;
+                hets += (alt1 ^ (alt1 >> 8)) & FIRST;
+                common &= w;
+            } else if !count_pairs(chunk, calls, c) {
+                return false;
+            }
         }
+        alt += sum_lanes((alts & (0xff * FIRST)) + ((alts >> 8) & (0xff * FIRST)));
+        het += sum_lanes(hets);
     }
     if !count_pairs(rest, calls, c) {
         return false;
@@ -171,6 +185,9 @@ fn count_diploid_int8(data: &[u8], calls: &mut [u64], c: &mut GtCounts) -> bool 
     c.called_alleles += 8 * words;
     c.data_alleles += 8 * words;
     c.unphased |= common != SECOND;
+    // Each genotype is 0/0, 0/1 or 1/1, so the alleles 1 not in a
+    // heterozygote come in pairs.
+    let hom_alt = (alt - het) / 2;
     c.diploid.0 += 4 * words - het - hom_alt;
     c.diploid.1 += het;
     c.diploid.2 += hom_alt;
