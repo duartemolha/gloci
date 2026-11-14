@@ -49,7 +49,7 @@ These items came out of the P0 task reviews and the final whole-branch review of
 ### Indexing and region queries
 
 - `--assume-sorted` reads a whole batch past a chromosome's block, so a bad line or a chromosome missing from `-g` just after it fails the query (`crates/gloci-ops/src/bedsearch.rs:327`).
-- An order error on the index path cites the emitted-record count as a line number; it can fire only when an index does not match its file (`crates/gloci-io/src/index/query.rs:610`).
+- An order error on the index path cites the emitted-record count as a line number; it can fire only when an index does not match its file, which D26 allows with a warning (`crates/gloci-io/src/index/query.rs:610`). The fix needs a location form other than `Loc::Line` for the order error, and `Loc` is matched exhaustively.
 - The `--assume-sorted` fallback warning advises sorting also when the chromosome is simply absent (`crates/gloci-ops/src/view.rs:374`).
 - One chromosome bisection cannot find turns a multi-region query into a full scan, and `--assume-sorted` is ignored silently where it does not apply; neither is in `docs/differences.md#view-assume-sorted` (`crates/gloci-ops/src/view.rs:363`).
 - The index is read twice for a region query (`crates/gloci-ops/src/view.rs:253`, `:362`); each bisection probe makes a fresh 8 KiB `BufReader` (`crates/gloci-ops/src/bedsearch.rs:41`); selected records are copied twice (`crates/gloci-ops/src/view.rs:508`, `:572`).
