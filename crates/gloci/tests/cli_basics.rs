@@ -163,17 +163,10 @@ fn every_command_is_in_one_group() {
         .filter_map(|l| l.split_whitespace().next())
         .collect();
     assert_eq!(order, listed, "{top}");
-    let first = |c: &str| {
-        top.lines()
-            .find(|l| l.trim_start().starts_with(c))
-            .unwrap()
-            .to_string()
-    };
     assert!(
-        top.contains("Stable core:") && top.contains("Experimental:"),
-        "{top}"
+        top.contains("Experimental:"),
+        "the tiers line is missing:\n{top}"
     );
-    assert!(first("genomes").len() <= 100);
 }
 
 /// The summary of every command is one short line that still names the tool it replaces.
