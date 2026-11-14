@@ -77,7 +77,7 @@ description: Use gloci for genomic interval and variant operations (sorting, ind
   `gloci groupby scores.bed -g 1,2 -c 5:sum -c 5:mean` · `gloci groupby calls.tsv -g 1 -c 4:collapse -c 5:count_distinct`
 - `gloci maskfasta` (experimental): Mask bases of a FASTA under intervals, streaming it (bedtools maskfasta)
   `gloci maskfasta --fasta hg38.fa -b repeats.bed -o hg38.masked.fa` · `gloci maskfasta --fasta hg38.fa.gz -b rmsk.bed segdups.bed --soft -o soft.fa.gz --write-index`
-- `gloci vcf` (experimental): VCF and BCF operations: filter, extract, stats, concat, split, norm, annotate, merge and compare
+- `gloci vcf` (experimental): VCF and BCF operations: filter, extract, stats, concat, split, norm, annotate, merge, compare and popgen
   `gloci vcf filter cohort.bcf --pass-only --min-qual 30 -o filtered.bcf` · `gloci vcf filter input.vcf --samples s1,s2 --min-dp 10 --recalc-ac -o out.vcf`
 - `gloci vcf filter` (experimental): Filter VCF/BCF files with the selection pipeline
   `gloci vcf filter cohort.bcf --pass-only --min-qual 30 --min-maf 0.01 --max-missing 0.1 -o filtered.bcf` · `gloci vcf filter input.vcf --samples s1,s2 --min-dp 10 --recalc-ac -o out.vcf`
@@ -97,6 +97,8 @@ description: Use gloci for genomic interval and variant operations (sorting, ind
   `gloci vcf merge a.vcf.gz b.vcf.gz c.vcf.gz -o cohort.vcf.gz` · `gloci vcf merge --file-list shards.txt -m none --force-samples -o cohort.bcf`
 - `gloci vcf compare` (experimental): Compare the genotypes of two VCF/BCF files: per site, per sample and as a matrix (vcftools --diff-site-discordance, --diff-indv-discordance, --diff-discordance-matrix)
   `gloci vcf compare truth.vcf.gz calls.vcf.gz --out-prefix cmp` · `gloci vcf compare a.bcf b.bcf --out-prefix cmp --sample-discordance --match position`
+- `gloci vcf popgen` (experimental): Population statistics: pi, Tajima's D (vcftools)
+  `gloci vcf popgen cohort.vcf.gz --out-prefix pg --site-pi --window-pi 10000` · `gloci vcf popgen cohort.bcf --out-prefix pg --tajima-d 10000 --samples-file pop1.txt`
 - `gloci stats` (experimental): Statistics of interval sets (bedtools jaccard, fisher and reldist)
   `gloci stats jaccard -a peaks.bed -b genes.bed` · `gloci stats jaccard -a rep1.bed -b rep2.bed -f 0.5 -r`
 - `gloci stats jaccard` (experimental): The Jaccard similarity of two interval sets (bedtools jaccard)
@@ -161,6 +163,7 @@ description: Use gloci for genomic interval and variant operations (sorting, ind
 - **`sort -n` is by read name and `windows -n` is a window count:** `gloci sort -n x.bam` sorts alignments by natural read name (`-N` by byte order), as `samtools sort -n`/`-N`; `gloci windows -n 10` cuts each interval into 10 windows. `sort -m` is merge, not memory: the memory budget is `--max-mem` (a total, where `samtools sort -m` is per thread). `sort` writes the input's format (SAM for SAM, BAM for BAM and CRAM), where samtools always writes BAM; pass `-O bam`.
 - **BEDPE is never detected:** `pair-intersect` and `pair-pair` read A (and B for `pair-pair`) as BEDPE whatever it looks like, and `gloci shuffle` treats BEDPE as opt-in: pass `--format bedpe`, or the file is shuffled as BED. Make pairs from alignments with `gloci convert x.bam --bedpe` on a name-sorted BAM (`gloci sort -n`).
 - **`vcf compare` matches by alleles unless `--match position`:** the default pairs records at one CHROM and POS that share an ALT allele after trimming; `--match position` pairs by POS and REF as vcftools `--diff` does, so pass it when reproducing vcftools. It is genotype concordance only: vcftools `--diff-site` and `--diff-indv` are `gloci intersect` / `gloci subtract --match alleles` and the `#CHROM` line.
+- **`vcf popgen` is vcftools `--site-pi`, `--window-pi` and `--TajimaD`:** `gloci vcf popgen FILE --out-prefix P --site-pi --window-pi SIZE --tajima-d BIN` writes vcftools' files in one run (`--TajimaD` is spelled `--tajima-d`). `--window-pi` and `--tajima-d` need input sorted by chromosome and position, and a `--window-pi-step` larger than the window is exit 2 where vcftools quietly resets it.
 - **`sample` is not `samples`:** `gloci sample FILE -n N --seed S` draws a random subset of records (bedtools `sample`); `gloci samples` (samtools `samples`) lists the samples of read groups. `--seed` reproduces gloci's own output at any `-t`, never bedtools' for the same seed.
 - **`--mode` has no `-m` short flag (and defaults to `any`):** `gloci intersect` defaults to `--mode any` (unique A records with a hit, like `bedtools intersect -u`), not coordinate clipping (`--mode clip`). Always spell `--mode` in full (`--mode any|none|pairs|clip|count`); `-m` is only `gloci sort -m` for merging pre-sorted files.
 - **`depth` and `bedcov` exclude unmapped, secondary, QC-fail and duplicate reads by default:** unlike `coverage` and `genomecov`, which filter nothing, their `--exclude-flags` defaults to `UNMAP,SECONDARY,QCFAIL,DUP` as in samtools; `--exclude-flags 0` counts everything but unmapped reads, and samtools `-g DUP` is `--exclude-flags UNMAP,SECONDARY,QCFAIL`.

@@ -652,6 +652,35 @@ gloci = "{gloci} vcf stats {in_a} --out-prefix {out}.p --indel-hist && mv {out}.
 reference = "vcftools --gzvcf {in_a} --hist-indel-len --out {out}.p && mv {out}.p.indel.hist {out}"
 compare = "numeric"
 
+# ---- vcf popgen: one vcftools run per statistic ----
+
+[[case]]
+name = "vcf-popgen-site-pi-1kg-vs-vcftools"
+command = "vcf popgen"
+reference_tool = "vcftools"
+inputs = { a = "1kg-30x-chr20" }
+gloci = "{gloci} vcf popgen {in_a} --out-prefix {out}.p --site-pi && mv {out}.p.sites.pi {out}"
+reference = "vcftools --gzvcf {in_a} --site-pi --out {out}.p && mv {out}.p.sites.pi {out}"
+compare = "numeric"
+
+[[case]]
+name = "vcf-popgen-window-pi-1kg-vs-vcftools"
+command = "vcf popgen"
+reference_tool = "vcftools"
+inputs = { a = "1kg-30x-chr20" }
+gloci = "{gloci} vcf popgen {in_a} --out-prefix {out}.p --window-pi 100000 --window-pi-step 25000 && mv {out}.p.windowed.pi {out}"
+reference = "vcftools --gzvcf {in_a} --window-pi 100000 --window-pi-step 25000 --out {out}.p && mv {out}.p.windowed.pi {out}"
+compare = "numeric"
+
+[[case]]
+name = "vcf-popgen-tajima-d-1kg-vs-vcftools"
+command = "vcf popgen"
+reference_tool = "vcftools"
+inputs = { a = "1kg-30x-chr20" }
+gloci = "{gloci} vcf popgen {in_a} --out-prefix {out}.p --tajima-d 100000 && mv {out}.p.Tajima.D {out}"
+reference = "vcftools --gzvcf {in_a} --TajimaD 100000 --out {out}.p && mv {out}.p.Tajima.D {out}"
+compare = "numeric"
+
 # ---- vcf annotate and split ----
 
 # -x removes INFO/CM (in every record) and its header line on both sides;
