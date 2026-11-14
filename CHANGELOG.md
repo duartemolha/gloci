@@ -7,6 +7,7 @@ the minor version).
 
 ## [Unreleased]
 
+- `gloci --help` lists the commands in groups (the stable core first, then the experimental groups), with a one-line summary for each. The `--help` of a command now opens with a short summary, then the usage and the options, then the examples and the detail under headings.
 - docs: the design specification is `docs/design.md` and the numbered design decisions are `docs/decisions.md`; the source cites both by section (`spec §4.3`) and by number (`D37`).
 - CI builds with a pinned Rust (1.100.0, set in `rust-toolchain.toml`) instead of the newest stable, and a new `msrv` job checks that the workspace builds with the minimum supported Rust (1.91), so a new Rust release no longer changes a build by itself.
 - `gloci stats --help` names all three of its commands (`jaccard`, `fisher` and `reldist`) and shows an example of each.

@@ -6,6 +6,8 @@ gloci is young. Its commands are in two tiers, so that you know what you can bui
 
 `genomes`, `index`, `sort`, `view`, `intersect`, `merge`, `subtract`, `closest` and `coverage`.
 
+`gloci --help` lists them first, under the heading `Stable core`.
+
 For these commands:
 
 - options and output change only with a version bump and an entry in the [changelog](changelog.md)
@@ -23,6 +25,8 @@ $ gloci cluster --help
 Experimental: checked against the tool it replaces, but its options and output may still change
 between releases.
 ```
+
+`gloci --help` puts every other command in a group whose heading ends in `(experimental)`.
 
 Experimental does not mean untested: these commands have golden cases too, and most are compared with
 bedtools, bcftools or samtools output byte for byte. It means that they have had less use on real data,

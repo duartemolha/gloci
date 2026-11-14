@@ -114,6 +114,8 @@ gloci is young. `genomes`, `index`, `sort`, `view`, `intersect`, `merge`,
 output change only with a version bump and a changelog entry. Every other
 command is experimental and says so at the top of its `--help`: it is checked
 against the tool it replaces, but its options and output may still change.
+`gloci --help` lists the commands in groups and marks every group but the
+stable core as experimental.
 
 Before moving a pipeline step to gloci, run it beside the tool it replaces on
 your own data. [contrib/gloci-shadow.sh](contrib/gloci-shadow.sh) does that
