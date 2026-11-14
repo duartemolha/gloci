@@ -96,8 +96,9 @@ def split_args(line: str) -> list[str]:
 
 
 def is_cli_only(path: tuple[str, ...]) -> bool:
-    """Whether the command at `path` is neither a step nor a module function: CLI_ONLY (D87;
-    `embed::UNBOUND` is empty, which `every_cli_command_is_bound_or_excluded` checks)."""
+    """Whether the command at `path` is neither a step nor a module function: CLI_ONLY (D87)
+    and the commands not placed yet (`embed::UNBOUND`, which
+    `every_cli_command_is_bound_or_excluded` checks)."""
     return path in SPECS and path not in BINDINGS and path not in FUNCTIONS
 
 

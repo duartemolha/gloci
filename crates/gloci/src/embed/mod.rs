@@ -279,6 +279,7 @@ pub fn thread_and_tmp(command: &Commands) -> (Option<NonZeroUsize>, Option<PathB
             cli::VcfCommand::Annotate(c) => (c.threads.threads, None),
             cli::VcfCommand::Merge(c) => (c.threads.threads, None),
             cli::VcfCommand::Compare(c) => (c.threads.threads, None),
+            cli::VcfCommand::Popgen(c) => (c.threads.threads, None),
         },
     }
 }

@@ -3,7 +3,7 @@
 use crate::Ctx;
 use crate::cli::{
     ChromMapArg, CompareMatchArg, ExtractLayout, InvalidArg, VcfCompareArgs, VcfConcatArgs,
-    VcfExtractArgs, VcfFilterArgs, VcfSelectArgs, VcfSpan, VcfSpanArg, VcfStatsArgs,
+    VcfExtractArgs, VcfFilterArgs, VcfPopgenArgs, VcfSelectArgs, VcfSpan, VcfSpanArg, VcfStatsArgs,
 };
 use gloci_core::{Interval, RegionSet};
 use gloci_io::{
@@ -546,6 +546,42 @@ pub fn run_compare(ctx: &Ctx, a: &VcfCompareArgs) -> anyhow::Result<()> {
         done.second,
         a.b,
         done.overlap,
+        done.files.len()
+    );
+    Ok(())
+}
+
+pub fn run_popgen(ctx: &Ctx, a: &VcfPopgenArgs) -> anyhow::Result<()> {
+    let (select, ro) = select_from_args(&a.select, || {
+        reader_options(
+            ctx,
+            &a.chrom_map,
+            None,
+            &VcfSpanArg {
+                vcf_span: a.vcf_span,
+            },
+            &a.invalid,
+        )
+    })?;
+    let options = gloci_ops::PopgenOptions {
+        select,
+        request: gloci_ops::PopgenRequest {
+            site_pi: a.site_pi,
+            window_pi: a
+                .window_pi
+                .map(|size| (size, a.window_pi_step.unwrap_or(size))),
+            tajima_d: a.tajima_d,
+        },
+        out_prefix: a.out_prefix.clone(),
+    };
+    gloci_ops::check_popgen_request(&options)?;
+    let input = open_selected(&a.file, &ro, &options.select)?;
+    vcf_header("vcf popgen", input.reader())?;
+    let done = gloci_ops::vcf_popgen(input, &options, split_threads(ctx.threads).1)?;
+    log::info!(
+        "vcf popgen: {} of {} records selected; wrote {} file(s)",
+        done.records_selected,
+        done.records_in,
         done.files.len()
     );
     Ok(())

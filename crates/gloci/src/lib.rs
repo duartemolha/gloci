@@ -262,6 +262,7 @@ pub(crate) fn dispatch(cli: &Cli, ctx: &Ctx) -> (anyhow::Result<()>, bool) {
             cli::VcfCommand::Annotate(c) => commands::vcf_annotate::run(ctx, c),
             cli::VcfCommand::Merge(c) => commands::vcf_merge::run(ctx, c),
             cli::VcfCommand::Compare(c) => commands::vcf::run_compare(ctx, c),
+            cli::VcfCommand::Popgen(c) => commands::vcf::run_popgen(ctx, c),
         },
     };
     (result, all_ok)

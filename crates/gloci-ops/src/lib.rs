@@ -51,6 +51,7 @@ pub mod vcf_extract;
 pub mod vcf_filter;
 pub mod vcf_merge;
 pub mod vcf_norm;
+pub mod vcf_popgen;
 pub mod vcf_select;
 pub mod vcf_split;
 pub mod vcf_stats;
@@ -101,6 +102,9 @@ pub use vcf_filter::{
 };
 pub use vcf_merge::{FilterList, MergeSummary, vcf_merge, vcf_merge_output};
 pub use vcf_norm::{NormOptions, NormSummary, vcf_norm, vcf_norm_output};
+pub use vcf_popgen::{
+    PopgenOptions, PopgenRequest, check_request as check_popgen_request, vcf_popgen,
+};
 #[cfg(feature = "test-hooks")]
 pub use vcf_select::set_worker_panic_at;
 pub use vcf_select::{

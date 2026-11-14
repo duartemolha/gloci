@@ -6,7 +6,7 @@
 //!   ([`SOURCES`]); `windows` and `vcf extract` are also steps (`gloci.windows(g=...)` is a
 //!   source, `vcf_extract_matrix` writes the 012 files);
 //! - [`CLI_ONLY`]: never offered;
-//! - [`UNBOUND`]: commands not placed yet (empty; a new command goes here until it is).
+//! - [`UNBOUND`]: commands not placed yet (a new command goes here until it is).
 
 use super::spec::CommandSpec;
 
@@ -216,9 +216,10 @@ pub const SOURCES: &[&str] = &["windows", "random"];
 /// with no input.
 pub const CLI_ONLY: &[&[&str]] = &[&["genomes"], &["check"], &["flags"]];
 
-/// Commands not placed yet: none. A new command goes here until it is bound, made a module
-/// function or added to [`CLI_ONLY`].
-pub const UNBOUND: &[&[&str]] = &[];
+/// Commands not placed yet. A new command goes here until it is bound, made a module function
+/// or added to [`CLI_ONLY`]: `vcf popgen` becomes a module function once its statistics are
+/// complete, as `vcf stats` and `vcf compare` are.
+pub const UNBOUND: &[&[&str]] = &[&["vcf", "popgen"]];
 
 fn same<S: AsRef<str>>(a: &[&str], b: &[S]) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(x, y)| *x == y.as_ref())

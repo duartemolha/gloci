@@ -7,7 +7,8 @@ use super::vcf_edit::{VcfAnnotateArgs, VcfConcatArgs, VcfMergeArgs, VcfNormArgs,
 use clap::{Args, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
-/// VCF and BCF operations: filter, extract, stats, concat, split, norm, annotate, merge and compare.
+/// VCF and BCF operations: filter, extract, stats, concat, split, norm, annotate, merge, compare
+/// and popgen.
 #[derive(Args, Debug, Clone)]
 #[command(after_long_help = "\
 Examples:
@@ -42,6 +43,8 @@ pub enum VcfCommand {
     Merge(VcfMergeArgs),
     #[command(before_help = EXPERIMENTAL)]
     Compare(Box<VcfCompareArgs>),
+    #[command(before_help = EXPERIMENTAL)]
+    Popgen(Box<VcfPopgenArgs>),
 }
 
 /// `vcf compare --match`.
@@ -537,6 +540,87 @@ pub struct VcfStatsArgs {
     /// that has no denominator is null.
     #[arg(long)]
     pub json: bool,
+
+    /// Which footprint a VCF record covers: the allele span or the REF span.
+    /// The statistics do not depend on it, so the default is ref, which
+    /// accepts symbolic ALTs without INFO/END; it only matters for --region.
+    #[arg(long, value_enum, default_value = "ref", value_name = "MODE")]
+    pub vcf_span: VcfSpan,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+}
+
+// The "at least one statistic" rule is `check_popgen_request`'s, not a clap
+// group: its message lists every flag.
+/// Population statistics: pi, Tajima's D (vcftools)
+///
+/// Nucleotide diversity per site (--site-pi) and in windows (--window-pi), and Tajima's D in
+/// bins (--tajima-d), as vcftools 0.1.16 computes them over the selected samples. Every
+/// requested statistic is computed in one pass over the records that pass the selection flags
+/// (samples, genotype masks, site filters, regions), and each writes PREFIX.<extension> with
+/// vcftools' file name and columns. The files are written atomically and only when the whole
+/// run succeeds.
+#[derive(Args, Debug, Clone)]
+#[command(after_long_help = "\
+Examples:
+  gloci vcf popgen cohort.vcf.gz --out-prefix pg --site-pi --window-pi 10000
+  gloci vcf popgen cohort.bcf --out-prefix pg --tajima-d 10000 --samples-file pop1.txt
+  gloci vcf popgen cohort.vcf.gz --out-prefix pg --window-pi 50000 --window-pi-step 10000 --min-dp 8
+
+Sites:
+  A site counts only when every selected sample that is not masked is diploid. A half-called
+  genotype (./1) counts its called allele; a masked genotype is missing. Site and window pi take
+  every allele of a multi-allelic site; Tajima's D takes biallelic sites only.
+
+Window pi:
+  Windows are [k*STEP+1, k*STEP+SIZE] on each chromosome. A polymorphic site adds its pairs of
+  called alleles, and the pairs that differ, to every window that holds it; every other position
+  of the window counts as monomorphic, with all 2N(2N-1) pairs of the N selected samples. pi is
+  the differing pairs over all pairs. N_VARIANTS counts the polymorphic sites with a called
+  allele other than REF; a window without a polymorphic site has no row.
+
+Tajima's D:
+  POS falls in bin floor(POS * (1/BIN)), the product taken in floating point as vcftools does
+  (POS 49 with BIN 49 is in bin 0); BIN_START is bin * BIN. The sample size is 2 x the selected
+  samples whatever is missing at a site. A chromosome's rows run from its first bin with a
+  segregating site to its last bin with a biallelic site; a bin without one is 0 nan.
+
+Sorted input:
+  --window-pi and --tajima-d write their rows as the input passes them, so they need input
+  sorted by chromosome and position: a chromosome that comes back or a position that goes
+  backwards is exit 1, and gloci sort fixes it. --site-pi takes records in any order.")]
+pub struct VcfPopgenArgs {
+    /// Input VCF or BCF file (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+
+    #[command(flatten)]
+    pub select: VcfSelectArgs,
+
+    /// Prefix of the output files: PREFIX.sites.pi, PREFIX.windowed.pi and
+    /// PREFIX.Tajima.D. An existing file of the same name is replaced.
+    #[arg(long, value_name = "PREFIX", required = true)]
+    pub out_prefix: PathBuf,
+
+    /// Nucleotide diversity per site: PREFIX.sites.pi (vcftools --site-pi).
+    #[arg(long)]
+    pub site_pi: bool,
+    /// Nucleotide diversity in windows of SIZE bases: PREFIX.windowed.pi
+    /// (vcftools --window-pi). Needs sorted input.
+    #[arg(long, value_name = "SIZE")]
+    pub window_pi: Option<u64>,
+    /// Start a --window-pi window every STEP bases, at most SIZE (vcftools
+    /// --window-pi-step). Default: SIZE, windows that do not overlap.
+    #[arg(long, value_name = "STEP", requires = "window_pi")]
+    pub window_pi_step: Option<u64>,
+    /// Tajima's D in bins of BIN bases: PREFIX.Tajima.D (vcftools --TajimaD).
+    /// Needs sorted input.
+    #[arg(long, value_name = "BIN")]
+    pub tajima_d: Option<u64>,
 
     /// Which footprint a VCF record covers: the allele span or the REF span.
     /// The statistics do not depend on it, so the default is ref, which
