@@ -912,3 +912,137 @@ fn no_two_paths_differ_only_in_letter_case() {
     assert!(dirs > 100, "only {dirs} directories walked");
     assert!(clashes.is_empty(), "{clashes:#?}");
 }
+
+/// The text after `key:` on a line, without quotes and a trailing comment, or None.
+fn yaml_value<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    let t = line.trim_start().trim_start_matches("- ").trim_start();
+    let v = t.strip_prefix(key)?.strip_prefix(':')?;
+    Some(v.split('#').next()?.trim().trim_matches('"'))
+}
+
+fn is_exact_version(v: &str) -> bool {
+    let parts: Vec<&str> = v.split('.').collect();
+    parts.len() == 3
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+}
+
+#[test]
+fn rust_toolchain_pin_and_msrv_agree_everywhere() {
+    let root = xtask::diff::workspace_root();
+    let read = |rel: &str| fs::read_to_string(root.join(rel)).unwrap();
+    let mut problems: Vec<String> = Vec::new();
+
+    // The pin: an exact X.Y.Z, so a new Rust release is a commit, not a surprise in CI.
+    let toolchain = read("rust-toolchain.toml");
+    let pin = toolchain
+        .lines()
+        .find_map(|l| {
+            let v = l.trim().strip_prefix("channel")?.trim().strip_prefix('=')?;
+            Some(v.trim().trim_matches('"').to_string())
+        })
+        .expect("rust-toolchain.toml has no channel");
+    if !is_exact_version(&pin) {
+        problems.push(format!(
+            "rust-toolchain.toml: channel = \"{pin}\" is not an exact X.Y.Z version; edit it to the pinned release"
+        ));
+    }
+
+    // The MSRV: Cargo.toml's rust-version (X.Y), used in the workflows as X.Y.0.
+    let cargo = read("Cargo.toml");
+    let rust_version = cargo
+        .lines()
+        .find_map(|l| {
+            let v = l
+                .trim()
+                .strip_prefix("rust-version")?
+                .trim()
+                .strip_prefix('=')?;
+            Some(v.trim().trim_matches('"').to_string())
+        })
+        .expect("Cargo.toml has no rust-version");
+    let msrv = format!("{rust_version}.0");
+
+    // The README's install line names the same minimum.
+    let readme = read("README.md");
+    match readme
+        .lines()
+        .enumerate()
+        .find(|(_, l)| l.contains("Rust toolchain ("))
+    {
+        None => problems.push(
+            "README.md: no \"Rust toolchain (X.Y or newer)\" line; add one saying the rust-version"
+                .into(),
+        ),
+        Some((i, l)) => {
+            let named = l
+                .split("Rust toolchain (")
+                .nth(1)
+                .and_then(|r| r.split(" or newer").next())
+                .unwrap_or("");
+            if named != rust_version {
+                problems.push(format!(
+                    "README.md:{}: says Rust {named} but Cargo.toml's rust-version is {rust_version}; edit the README line",
+                    i + 1
+                ));
+            }
+        }
+    }
+
+    // Every workflow toolchain is the pin, nightly, or the MSRV.
+    let dir = root.join(".github/workflows");
+    let mut names: Vec<_> = fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .filter(|n| n.ends_with(".yml"))
+        .collect();
+    names.sort();
+    for name in names {
+        let rel = format!(".github/workflows/{name}");
+        let yml = read(&rel);
+        // A workflow-level `env: MSRV: "X.Y.Z"` is what `${{ env.MSRV }}` refers to.
+        let env_msrv = yml.lines().find_map(|l| yaml_value(l, "MSRV"));
+        if let Some(v) = env_msrv
+            && v != msrv
+        {
+            problems.push(format!(
+                "{rel}: MSRV is {v} but Cargo.toml's rust-version {rust_version} means {msrv}; edit the MSRV line"
+            ));
+        }
+        for (i, line) in yml.lines().enumerate() {
+            let Some(v) =
+                yaml_value(line, "toolchain").or_else(|| yaml_value(line, "rust-toolchain"))
+            else {
+                continue;
+            };
+            let v = if v == "${{ env.MSRV }}" && env_msrv.is_some() {
+                msrv.as_str()
+            } else {
+                v
+            };
+            if v != pin && v != "nightly" && v != msrv {
+                problems.push(format!(
+                    "{rel}:{}: toolchain \"{v}\" is not the pin {pin} (rust-toolchain.toml), nightly or the MSRV {msrv}; edit this line",
+                    i + 1
+                ));
+            }
+        }
+        // The pinned MSRV in a script (`--default-toolchain 1.91.0`, `RUSTUP_TOOLCHAIN=1.91.0`).
+        for (i, line) in yml.lines().enumerate() {
+            for key in ["--default-toolchain ", "RUSTUP_TOOLCHAIN="] {
+                if let Some(rest) = line.split(key).nth(1) {
+                    let v = rest.split_whitespace().next().unwrap_or("");
+                    if v != msrv {
+                        problems.push(format!(
+                            "{rel}:{}: {key}{v} is not the MSRV {msrv} (Cargo.toml rust-version {rust_version}); edit this line",
+                            i + 1
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    assert!(problems.is_empty(), "\n{}\n", problems.join("\n"));
+}
