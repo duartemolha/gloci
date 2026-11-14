@@ -5444,7 +5444,7 @@ impl P3b {
     }
 }
 
-/// The files `vcf compare` and `vcf stats` write, at one thread count.
+/// The files `vcf compare`, `vcf stats` and `vcf popgen` write, at one thread count.
 fn p3b_prefix_files(args: &[String], exts: &[&str], t: &str) -> Vec<Vec<u8>> {
     let d = tempdir();
     let prefix = s_of(&d.path().join("o"));
@@ -5517,6 +5517,22 @@ fn p3b_prefix_cmds(fx: &P3b) -> Vec<(String, Vec<String>, Vec<&'static str>)> {
                 "1000",
             ]),
             stats.to_vec(),
+        ));
+        c.push((
+            format!("vcf popgen {tag}"),
+            sv(&[
+                "vcf",
+                "popgen",
+                f,
+                "--site-pi",
+                "--window-pi",
+                "1000",
+                "--window-pi-step",
+                "300",
+                "--tajima-d",
+                "700",
+            ]),
+            ["sites.pi", "windowed.pi", "Tajima.D"].to_vec(),
         ));
     }
     c
@@ -6009,7 +6025,7 @@ fn p3b_empty_inputs_matrix() {
             String::from_utf8(run_stdout(&["vcf", "extract", v, "--info", "DP"])).unwrap(),
             "CHROM\tPOS\tID\tREF\tALT\tDP\n"
         );
-        // the files of stats and compare hold their headers, no rows
+        // the files of stats, popgen and compare hold their headers, no rows
         let d = tempdir();
         let p = s_of(&d.path().join("s"));
         gloci()
@@ -6029,6 +6045,15 @@ fn p3b_empty_inputs_matrix() {
         for (ext, rows) in [("frq", 1), ("lqual", 1), ("het", 1), ("imiss", 4)] {
             let t = std::fs::read_to_string(format!("{p}.{ext}")).unwrap();
             assert_eq!(t.lines().count(), rows, ".{ext}: {t}");
+        }
+        gloci()
+            .args(["vcf", "popgen", v, "--out-prefix", &p, "--site-pi"])
+            .args(["--window-pi", "10", "--tajima-d", "10"])
+            .assert()
+            .success();
+        for ext in ["sites.pi", "windowed.pi", "Tajima.D"] {
+            let t = std::fs::read_to_string(format!("{p}.{ext}")).unwrap();
+            assert_eq!(t.lines().count(), 1, ".{ext}: {t}");
         }
         for (x, y) in [(v, v), (v, &one), (&one, v)] {
             let d = tempdir();
@@ -6443,6 +6468,13 @@ fn p3b_failure_matrix() {
             false,
         ),
         (
+            "vcf popgen",
+            vec!["vcf", "popgen", "--site-pi", "{IN}"],
+            Sink::Prefix,
+            false,
+            false,
+        ),
+        (
             "sample vcf",
             vec!["sample", "-n", "3", "--seed", "1", "{IN}"],
             Sink::File("vcf"),
@@ -6584,6 +6616,11 @@ fn p3b_failure_matrix() {
         (
             "vcf stats",
             vec!["vcf", "stats", "--freq", "{IN}"],
+            Sink::Prefix,
+        ),
+        (
+            "vcf popgen",
+            vec!["vcf", "popgen", "--site-pi", "{IN}"],
             Sink::Prefix,
         ),
     ];
