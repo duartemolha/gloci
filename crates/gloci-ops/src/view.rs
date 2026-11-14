@@ -382,7 +382,11 @@ fn select(
         if gloci_io::memio::is_mem_path(path) {
             // Nothing to index: it is read once, as it is.
             log::debug!("{name} is in memory; scanning it whole for the regions");
-        } else if path != "-" && !opts.unordered {
+        } else if !gloci_io::is_regular_file(path) {
+            // Stdin, a pipe or a descriptor path (`<(...)`, /dev/stdin): no index can
+            // exist for it, so there is nothing to advise.
+            log::debug!("{name} is not a regular file; scanning it whole for the regions");
+        } else if !opts.unordered {
             log::warn!(
                 "no index for {name}; scanning the whole file ({})",
                 index_hint(&name, format, compression)

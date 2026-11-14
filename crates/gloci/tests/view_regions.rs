@@ -560,6 +560,22 @@ gloci sort {bed} -o {bed}.gz --write-index; or, if it is sorted, pass --assume-s
         .stderr("");
 }
 
+/// A pipe or a descriptor path cannot have an index, as stdin cannot: it is
+/// scanned as stdin is, without a fix command naming it (`/dev/stdin.gz`).
+#[cfg(unix)]
+#[test]
+fn pipes_and_descriptors_are_scanned_without_an_index_hint() {
+    for path in ["-", "/dev/stdin"] {
+        gloci()
+            .args(["view", path, "chr1:1-10"])
+            .write_stdin("chr1\t1\t5\nchr2\t1\t5\n")
+            .assert()
+            .success()
+            .stdout("chr1\t1\t5\n")
+            .stderr("");
+    }
+}
+
 #[test]
 fn stale_index_warns() {
     // D26: an index older than its data file is used, with a warning.
