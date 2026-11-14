@@ -24,7 +24,7 @@ pub struct Ctx {
 /// The stable core: the commands whose options and output change only with a version bump and a
 /// `CHANGELOG.md` entry. Every other command is experimental and says so at the top of its help
 /// ([`cli::EXPERIMENTAL`]). To promote a command, add it here and take the marker off its variant
-/// in `cli.rs`; `docs/book/src/stability.md` lists what promotion asks for.
+/// in `cli/mod.rs`; `docs/book/src/stability.md` lists what promotion asks for.
 pub const CORE_COMMANDS: &[&str] = &[
     "genomes",
     "index",
