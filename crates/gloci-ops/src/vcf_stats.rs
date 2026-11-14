@@ -295,6 +295,11 @@ pub fn vcf_stats(input: SelectedInput, o: &StatsOptions) -> Result<StatsSummary,
     )
 }
 
+/// What builds a run's statistics from the selected samples (index in the
+/// record and name) and the header.
+pub(crate) type BuildStats<'a> =
+    dyn Fn(&[(usize, String)], &VcfHeader) -> Result<Vec<Box<dyn Stat>>, IoError> + 'a;
+
 /// Run the selection stage on `input` and feed every selected record to the
 /// statistics `build` makes from the selected samples (index in the record
 /// and name) and the header, in one pass. Each statistic writes
@@ -311,7 +316,7 @@ pub(crate) fn run_stats(
     need_genotypes: bool,
     threads: NonZeroUsize,
     command: &str,
-    build: &dyn Fn(&[(usize, String)], &VcfHeader) -> Result<Vec<Box<dyn Stat>>, IoError>,
+    build: &BuildStats<'_>,
 ) -> Result<StatsSummary, IoError> {
     let (reader, mut chroms) = input.into_parts();
     let base = RewritePlan::default();
