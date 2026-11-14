@@ -203,18 +203,25 @@ pub mod typed {
     }
 
     impl Ty {
-        fn from_code(c: u8) -> Result<Ty, String> {
-            Ok(match c {
+        /// The type with code `c`, if there is one.
+        #[inline]
+        fn known(c: u8) -> Option<Ty> {
+            Some(match c {
                 0 => Ty::Missing,
                 1 => Ty::Int8,
                 2 => Ty::Int16,
                 3 => Ty::Int32,
                 5 => Ty::Float,
                 7 => Ty::Char,
-                c => return Err(format!("unknown BCF value type {c}")),
+                _ => return None,
             })
         }
 
+        fn from_code(c: u8) -> Result<Ty, String> {
+            Ty::known(c).ok_or_else(|| format!("unknown BCF value type {c}"))
+        }
+
+        #[inline]
         pub fn width(self) -> usize {
             match self {
                 Ty::Missing => 0,
@@ -259,7 +266,29 @@ pub mod typed {
     /// Read one typed value from the front of `src` and advance past it.
     /// The type is in the low 4 bits of the descriptor and the count in the
     /// high 4 bits; a count of 15 means the count follows as a typed integer.
+    ///
+    /// A record of a cohort file has a hundred or more values (two per INFO
+    /// field), read once to filter it and again to write it, and nearly all
+    /// are short and whole: a known type and a count below 15 in the
+    /// descriptor, with every byte present. Those are read here, inline; any
+    /// other value (a longer one, an unknown type, one cut short) is read
+    /// from its start by [`read_any`], which has the errors.
+    #[inline(always)]
     pub fn read<'a>(src: &mut &'a [u8]) -> Result<Value<'a>, String> {
+        if let Some((&d, rest)) = src.split_first()
+            && let Some(ty) = Ty::known(d & 0x0f)
+            && let n = usize::from(d >> 4)
+            && n < 15
+            && let Some((data, rest)) = rest.split_at_checked(n * ty.width())
+        {
+            *src = rest;
+            return Ok(Value { ty, n, data });
+        }
+        read_any(src)
+    }
+
+    /// [`read`] without its short cut: every value, and every error.
+    pub(super) fn read_any<'a>(src: &mut &'a [u8]) -> Result<Value<'a>, String> {
         let (ty, n) = read_descriptor(src)?;
         let len = n
             .checked_mul(ty.width())
@@ -861,7 +890,7 @@ pub fn check_record(raw: &[u8]) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::typed::{Float, Int, Ty, read};
+    use super::typed::{Float, Int, Ty, read, read_any};
     use super::*;
 
     fn one(bytes: &[u8]) -> typed::Value<'_> {
@@ -984,6 +1013,30 @@ mod tests {
         ][..];
         assert_eq!(read(&mut src).unwrap().n, 15);
         assert_eq!(ints(read(&mut src).unwrap()), [Int::Value(9)]);
+    }
+
+    /// `read` takes short values on a path of its own: for every descriptor
+    /// byte and every length of what follows it, up to past the longest short
+    /// value (14 four-byte elements), it gives what the general path gives
+    /// and stops where that stops.
+    #[test]
+    fn short_values_read_as_any_value_does() {
+        let (mut ok, mut err) = (0, 0);
+        for d in 0..=255u8 {
+            for len in 0..=60usize {
+                for fill in [0x00u8, 0x11, 0x12, 0x7f, 0xff] {
+                    let mut bytes = vec![d];
+                    bytes.extend((0..len).map(|i| fill.wrapping_add((i as u8).wrapping_mul(37))));
+                    let (mut short, mut any) = (&bytes[..], &bytes[..]);
+                    let (a, b) = (read(&mut short), read_any(&mut any));
+                    assert_eq!(a, b, "descriptor {d:#04x}, {len} bytes after it");
+                    assert_eq!(short.len(), any.len(), "descriptor {d:#04x}, {len} bytes");
+                    if a.is_ok() { ok += 1 } else { err += 1 }
+                }
+            }
+        }
+        assert!(ok > 10_000 && err > 10_000, "{ok} values, {err} errors");
+        assert_eq!(read(&mut &[][..]), read_any(&mut &[][..]));
     }
 
     #[test]
