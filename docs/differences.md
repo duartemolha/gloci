@@ -1645,23 +1645,28 @@ depends on the span.
 
 ## `vcf popgen` windowed statistics need sorted input {#popgen-sorted-input}
 
-- **gloci:** `--window-pi`, `--tajima-d` and `--fst-window-size` write their
-  rows as the input passes them, so they need the input sorted by chromosome and
-  position. A chromosome that comes back after another, or a position below the
-  one before it on the same chromosome, stops the run with the record's position
-  and `run: gloci sort FILE`; no file of the run is written. `--site-pi` and
-  `--fst-pop` without a window take the records in any order.
-- **Old behaviour:** vcftools `--window-pi`, `--TajimaD` and
-  `--fst-window-size` accept unsorted input. When a chromosome comes back,
-  `--window-pi` drops every window of its earlier records but the first and
+- **gloci:** `--window-pi`, `--tajima-d`, `--fst-window-size`, `--geno-r2` and
+  `--hap-r2` write their rows as the input passes them, so they need the input
+  sorted by chromosome and position. A chromosome that comes back after another,
+  or a position below the one before it on the same chromosome, stops the run
+  with the record's position and `run: gloci sort FILE`; no file of the run is
+  written. `--site-pi`, `--fst-pop` without a window and the interchromosomal LD
+  pairs take the records in any order.
+- **Old behaviour:** vcftools `--window-pi`, `--TajimaD`, `--fst-window-size`,
+  `--geno-r2` and `--hap-r2` accept unsorted input. When a chromosome comes
+  back, `--window-pi` drops every window of its earlier records but the first and
   writes the chromosome's windows twice; `--TajimaD` and `--fst-window-size` add
-  both runs into the same bins and windows and write them twice.
+  both runs into the same bins and windows and write them twice. `--geno-r2` and
+  `--hap-r2` warn that "results may not be complete", leave out every pair whose
+  second position is the lower, and pair the sites of a chromosome that comes
+  back with those of its earlier run.
 - **Reason:** rows already written cannot be merged, and holding every window of
   a multi-gigabyte file to repair unsorted input is what the streaming design
   avoids. A dropped or repeated window is a wrong answer.
-- **Pinned by:** `vcf-popgen-unsorted-vs-vcftools` and
-  `vcf-popgen-fst-unsorted-vs-vcftools` (exit status: must differ),
-  `popgen_unsorted_window_stats` and `fst_windows_need_sorted_input` in
+- **Pinned by:** `vcf-popgen-unsorted-vs-vcftools`,
+  `vcf-popgen-fst-unsorted-vs-vcftools` and `vcf-popgen-ld-unsorted-vs-vcftools`
+  (exit status: must differ), `popgen_unsorted_window_stats`,
+  `fst_windows_need_sorted_input` and `ld_windows_need_sorted_input` in
   `crates/gloci/tests/vcf_popgen.rs`.
 
 ## `vcf popgen` window steps larger than the window are an error {#popgen-window-step}
@@ -1669,18 +1674,24 @@ depends on the span.
 - **gloci:** a `--window-pi-step` larger than `--window-pi`, or a
   `--fst-window-step` larger than `--fst-window-size`, exits 2 and names the
   largest step allowed. A window size, step or `--tajima-d` bin of 0 exits 2
-  too.
+  too, and so does an LD window that admits no pair: an `--ld-window` of 0, an
+  `--ld-window-min` above `--ld-window`, or an `--ld-window-bp-min` above
+  `--ld-window-bp`.
 - **Old behaviour:** vcftools sets a step larger than the window, or of 0, to the
   window size without a word. For a `--window-pi` or `--TajimaD` size of 0 it
   writes no file and exits 0; for an `--fst-window-size` of 0 it writes the
-  per-site Fst file instead of the windows.
+  per-site Fst file instead of the windows. For an LD window that admits no
+  pair it writes the column headers and exits 0.
 - **Reason:** a step larger than the window leaves positions in no window, and
   quietly running other windows than the ones asked for gives a table that
-  looks right and is not what was requested.
-- **Pinned by:** `vcf-popgen-window-step-vs-vcftools` and
-  `vcf-popgen-fst-window-step-vs-vcftools` (exit status: must differ),
-  `popgen_unsorted_window_stats` and `fst_population_rules` in
-  `crates/gloci/tests/vcf_popgen.rs`.
+  looks right and is not what was requested; a window of no pairs is a typing
+  slip whose empty table says nothing about the data.
+- **Pinned by:** `vcf-popgen-window-step-vs-vcftools`,
+  `vcf-popgen-fst-window-step-vs-vcftools`,
+  `vcf-popgen-ld-window-zero-vs-vcftools` and
+  `vcf-popgen-ld-window-min-above-vs-vcftools` (exit status: must differ),
+  `popgen_unsorted_window_stats`, `fst_population_rules` and `ld_window_rules`
+  in `crates/gloci/tests/vcf_popgen.rs`.
 
 ## `vcf popgen` counts in 64 bits {#popgen-integer-overflow}
 
@@ -1743,7 +1754,29 @@ depends on the span.
   only (`expected_difference_arch`): with the reference tools on aarch64 it must
   differ; on x86_64 it must match.
 
-## `vcf popgen` populations select no samples {#popgen-independent-options}
+## `vcf popgen` LD rounds as vcftools' source does on every platform {#ld-rounding}
+
+- **gloci:** r², D and D′ are computed in vcftools' order of operations, each
+  operation rounded once, so every platform prints the same digits.
+- **Old behaviour:** the vcftools 0.1.16 of the reference image on aarch64
+  (bioconda, built by GCC, which fuses `x * y + z` there) computes r²'s two
+  variances and its covariance (`X2 - X*X`, `Y2 - Y*Y`, `XY - X*Y`) as fused
+  multiply-adds, each rounding once where the source rounds twice; D, whose
+  product also feeds Dmax, is not fused. Where r² is 0 the covariance then keeps
+  rounding noise: on the generated 3,000-record VCF of the cases below, 502 of
+  128,075 `--geno-r2` pairs and 346 of the `--hap-r2` ones, such as
+  chr1:143797 with chr1:731009, where it prints `2.21867e-31` and gloci `0`.
+  Values that are not noise agree to every printed digit, and so do all the
+  committed fixtures. vcftools built for x86_64 (bioconda targets a CPU without
+  fused multiply-add) does not fuse them.
+- **Reason:** identical output on every platform, from the formula as vcftools
+  writes it; which steps fuse is a choice of one compiler on one CPU.
+- **Pinned by:** `vcf-popgen-ld-generated-vs-vcftools` and
+  `vcf-popgen-ld-generated-hap-vs-vcftools`, differences on aarch64 only
+  (`expected_difference_arch`): with the reference tools on aarch64 they must
+  differ; on x86_64 they must match.
+
+## `vcf popgen` populations select no samples, and `--hap-r2` filters no sites {#popgen-independent-options}
 
 - **gloci:** the `--fst-pop` files only say which selected samples form each
   population. The genotype masks, the site filters (`--min-maf`,
@@ -1751,17 +1784,58 @@ depends on the span.
   selected sample, in a population or not, so adding `--fst-pop` to a run
   changes none of its other files. To filter sites over the population members
   only, as vcftools does, select them with `--samples` or `--samples-file`.
+  Likewise `--hap-r2` uses only the sites where every selected genotype is
+  phased, but that rule is its own: `--geno-r2` and the other statistics in the
+  run still use the unphased sites. To drop them from every statistic, add
+  `--phased-only`.
 - **Old behaviour:** vcftools adds each `--weir-fst-pop` file to its `--keep`
   list, so only population members are kept, and `--maf`, `--max-missing` and
-  the other site filters are computed over them.
+  the other site filters are computed over them. Its `--hap-r2` turns on
+  `--phased`, a site filter of the whole run.
 - **Reason:** one `vcf popgen` run computes several statistics; if the
-  populations removed samples, pi and Tajima's D in the same run would describe
-  other samples than the ones selected, without a word.
+  populations removed samples, or one statistic's rule removed sites, the other
+  statistics in the same run would describe other samples or sites than the
+  ones selected, without a word.
 - **Pinned by:** `vcf-popgen-fst-maf-vs-vcftools` (must differ: `--min-maf 0.4`
   keeps other sites when the samples in no population count),
   `vcf-popgen-fst-members-maf-vs-vcftools` (matches once `--samples` selects
-  the members) and `fst_populations_select_no_samples` in
-  `crates/gloci/tests/vcf_popgen.rs`.
+  the members), `vcf-popgen-ld-phase-rule-vs-vcftools` (must differ: geno.ld
+  beside `--hap-r2` keeps the unphased sites that `--phased` drops),
+  `vcf-popgen-ld-one-pass-vs-vcftools` (matches vcftools' separate runs), and
+  `fst_populations_select_no_samples` and `ld_one_pass_keeps_its_rules_to_itself`
+  in `crates/gloci/tests/vcf_popgen.rs`.
+
+## `vcf popgen` LD holds its sites within `--max-mem` {#ld-rules}
+
+- **gloci:** `--geno-r2` and `--hap-r2` hold the sites of one pair window in
+  memory (every site of a chromosome when neither `--ld-window` nor
+  `--ld-window-bp` limits the pairs), and the interchromosomal pairs every site
+  they use, at most 4 bits per selected sample each. When the sites the LD
+  statistics hold together would pass `--max-mem` (default 2G), the run stops
+  with exit 1, writes no file, and names the fix: narrow the window with
+  `--ld-window-bp` or `--ld-window`, or raise `--max-mem`. With fewer than two
+  sites to pair, an LD file holds its column headers and the run succeeds. An
+  unphased genotype of a sample left out by `--samples` or `--exclude-samples`
+  is not read.
+- **Old behaviour:** vcftools 0.1.16 writes every site's genotypes to a
+  temporary file and has no memory limit. With fewer than two sites left it
+  writes the column headers, then stops ("Insufficient sites remained after
+  filtering", exit 1). Its `--hap-r2` reads the phase of every sample in the
+  file, so an unphased genotype of a sample removed by `--remove-indv` stops it
+  ("Require phased haplotypes for r^2 calculation", exit 1), although its
+  `--phased` filter, which looks only at the kept samples, let the site through.
+- **Reason:** gloci streams its input and keeps no temporary file of
+  genotypes; a limit that stops with the fix is better than filling memory or
+  disk without a word on a whole-chromosome window of a large cohort. An empty
+  table is the answer for fewer than two sites, as for every other statistic,
+  and a sample is usually excluded because its genotypes are not wanted.
+- **Pinned by:** `vcf-popgen-ld-max-mem-vs-vcftools` (exit status: must
+  differ), `vcf-popgen-ld-one-site-vs-vcftools` and
+  `vcf-popgen-ld-excluded-unphased-vs-vcftools` (exit status: must differ;
+  live only, since gloci writes its files there), and in every `cargo test` by
+  `ld_memory_guard` in `crates/gloci/tests/vcf_popgen.rs` and
+  `crates/gloci-vcf/tests/popgen_ld.rs`, and the header-only LD files of
+  `p3b_empty_inputs_matrix` in `crates/gloci/tests/behaviour/`.
 
 ## `vcf popgen` and the vcftools behaviour it reproduces
 
@@ -1801,8 +1875,24 @@ comparison of `crates/gloci/tests/vcf_popgen.rs` with the committed vcftools
   as `1e+06`); `WEIGHTED_FST` is Σa / Σ(a + b + c) and `MEAN_FST` the mean of
   the sites' Fst. A window without such a site, or whose Σ(a + b + c) is 0,
   has no row.
+- `--geno-r2` correlates the REF allele counts (2, 1, 0) of the samples whose
+  genotypes are called at both sites (`N_INDV`); a missing, half-called (`./1`),
+  haploid or masked genotype is left out of the pair. A pair with no such sample,
+  or whose site does not vary among them, is `nan`.
+- `--hap-r2` uses a site only when every selected genotype is phased, read
+  before masking: `./.` is unphased and `.|.` phased, and a masked `0/1` still
+  leaves the site out. A haploid genotype is one haplotype and `.|1` its called
+  one. When one site does not vary, D is 0 and r² and D′ are `nan`.
+- The pairs of `--geno-r2` and `--hap-r2` are counted among the sites each
+  uses, so multi-allelic sites, ALT `.` sites and (for `--hap-r2`) unphased sites
+  take no place in `--ld-window`. Two records at one position are a pair 0
+  bases apart. An `--ld-window-min` of 0 is 1, and `--min-r2 0` keeps the `nan`
+  pairs. The interchromosomal pairs go by chromosome name, in input order.
+- A genotype of ploidy above two among the selected, unmasked samples of a
+  biallelic site stops LD; at a multi-allelic site, which LD does not use, it
+  does not (vcftools drops such a site before it reads its genotypes).
 - Numbers use C `%g` (6 digits) and `nan` in lower case; vcftools itself prints a
-  0/0 site pi or Fst as `-nan` on x86_64.
+  0/0 site pi, Fst or r² as `-nan` on x86_64.
 
 `vcf popgen` also differs from vcftools in ways that are not about its output:
 it takes every `vcf filter` selection flag, runs any number of statistics in one

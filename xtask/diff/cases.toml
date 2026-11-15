@@ -3895,6 +3895,253 @@ reference = "vcftools --vcf input.vcf --weir-fst-pop pop1.txt --weir-fst-pop pop
 compare = "exit-status"
 expected_difference = "#popgen-window-step"
 
+# Linkage disequilibrium (D161) vs vcftools --geno-r2, --hap-r2 and the
+# interchromosomal forms: live like the cases above (crates/gloci/tests/
+# vcf_popgen.rs pins the same files in plain cargo test). ld.vcf is unphased;
+# phased.vcf is phased but for chr1:40, chr1:60 and chr1:80, which --hap-r2
+# leaves out and --geno-r2 keeps.
+
+[[case]]
+name = "vcf-popgen-geno-r2-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/ld.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --geno-r2 && cat o.geno.ld"
+reference = "vcftools --vcf input.vcf --geno-r2 --out o >/dev/null 2>&1 && cat o.geno.ld | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-ld-window-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/ld.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --geno-r2 --ld-window 2 && cat o.geno.ld"
+reference = "vcftools --vcf input.vcf --geno-r2 --ld-window 2 --out o >/dev/null 2>&1 && cat o.geno.ld | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-ld-window-bp-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/ld.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --geno-r2 --ld-window-bp 100 && cat o.geno.ld"
+reference = "vcftools --vcf input.vcf --geno-r2 --ld-window-bp 100 --out o >/dev/null 2>&1 && cat o.geno.ld | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-ld-window-min-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/ld.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --geno-r2 --ld-window-min 2 && cat o.geno.ld"
+reference = "vcftools --vcf input.vcf --geno-r2 --ld-window-min 2 --out o >/dev/null 2>&1 && cat o.geno.ld | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-ld-window-bp-min-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/ld.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --geno-r2 --ld-window-bp-min 10 && cat o.geno.ld"
+reference = "vcftools --vcf input.vcf --geno-r2 --ld-window-bp-min 10 --out o >/dev/null 2>&1 && cat o.geno.ld | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-ld-windows-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/ld.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --geno-r2 --ld-window 3 --ld-window-bp 150 --ld-window-min 2 --ld-window-bp-min 5 && cat o.geno.ld"
+reference = "vcftools --vcf input.vcf --geno-r2 --ld-window 3 --ld-window-bp 150 --ld-window-min 2 --ld-window-bp-min 5 --out o >/dev/null 2>&1 && cat o.geno.ld | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-min-r2-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/ld.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --geno-r2 --min-r2 0.2 && cat o.geno.ld"
+reference = "vcftools --vcf input.vcf --geno-r2 --min-r2 0.2 --out o >/dev/null 2>&1 && cat o.geno.ld | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-masked-geno-r2-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/ld.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --geno-r2 --min-dp 5 && cat o.geno.ld"
+reference = "vcftools --vcf input.vcf --geno-r2 --minDP 5 --out o >/dev/null 2>&1 && cat o.geno.ld | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-samples-geno-r2-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/ld.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --geno-r2 --exclude-samples s1,s5 && cat o.geno.ld"
+reference = "vcftools --vcf input.vcf --geno-r2 --remove-indv s1 --remove-indv s5 --out o >/dev/null 2>&1 && cat o.geno.ld | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-interchrom-geno-r2-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/ld.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --interchrom-geno-r2 && cat o.interchrom.geno.ld"
+reference = "vcftools --vcf input.vcf --interchrom-geno-r2 --out o >/dev/null 2>&1 && cat o.interchrom.geno.ld | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-interchrom-geno-r2-min-r2-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/ld.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --interchrom-geno-r2 --min-r2 0.2 && cat o.interchrom.geno.ld"
+reference = "vcftools --vcf input.vcf --interchrom-geno-r2 --min-r2 0.2 --out o >/dev/null 2>&1 && cat o.interchrom.geno.ld | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-hap-r2-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/phased.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --hap-r2 && cat o.hap.ld"
+reference = "vcftools --vcf input.vcf --hap-r2 --out o >/dev/null 2>&1 && cat o.hap.ld | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-phased-geno-r2-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/phased.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --geno-r2 && cat o.geno.ld"
+reference = "vcftools --vcf input.vcf --geno-r2 --out o >/dev/null 2>&1 && cat o.geno.ld | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-hap-r2-window-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/phased.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --hap-r2 --ld-window 1 && cat o.hap.ld"
+reference = "vcftools --vcf input.vcf --hap-r2 --ld-window 1 --out o >/dev/null 2>&1 && cat o.hap.ld | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-masked-hap-r2-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/phased.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --hap-r2 --min-dp 5 && cat o.hap.ld"
+reference = "vcftools --vcf input.vcf --hap-r2 --minDP 5 --out o >/dev/null 2>&1 && cat o.hap.ld | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-hap-r2-min-r2-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/phased.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --hap-r2 --min-r2 0.2 && cat o.hap.ld"
+reference = "vcftools --vcf input.vcf --hap-r2 --min-r2 0.2 --out o >/dev/null 2>&1 && cat o.hap.ld | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-interchrom-hap-r2-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/phased.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --interchrom-hap-r2 && cat o.interchrom.hap.ld"
+reference = "vcftools --vcf input.vcf --interchrom-hap-r2 --out o >/dev/null 2>&1 && cat o.interchrom.hap.ld | sed 's/-nan/nan/g'"
+compare = "exact"
+
+# Every LD statistic in one pass equals vcftools' three runs: hap-r2's phase
+# rule removes no site from geno.ld.
+[[case]]
+name = "vcf-popgen-ld-one-pass-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/phased.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --geno-r2 --hap-r2 --interchrom-hap-r2 -t 4 && cat o.geno.ld o.hap.ld o.interchrom.hap.ld"
+reference = "vcftools --vcf input.vcf --geno-r2 --out o >/dev/null 2>&1 && vcftools --vcf input.vcf --hap-r2 --out o >/dev/null 2>&1 && vcftools --vcf input.vcf --interchrom-hap-r2 --out o >/dev/null 2>&1 && cat o.geno.ld o.hap.ld o.interchrom.hap.ld | sed 's/-nan/nan/g'"
+compare = "exact"
+
+# A generated VCF: multi-allelic sites, indels and missing genotypes on three
+# chromosomes, pairs at most 50 sites apart; the second case writes its
+# genotypes phased. vcftools on aarch64 fuses the multiply-adds of r²'s
+# variances and covariance, so where r² is 0 it prints rounding noise (502 and
+# 346 of 128,075 rows); on x86_64 the build cannot fuse them and must match.
+[[case]]
+name = "vcf-popgen-ld-generated-vs-vcftools"
+input = { gen = ["vcf", "--records", "3000", "--samples", "7", "--chroms", "3", "--seed", "41"] }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --geno-r2 --ld-window 50 && cat o.geno.ld"
+reference = "vcftools --vcf input.vcf --geno-r2 --ld-window 50 --out o >/dev/null 2>&1 && cat o.geno.ld | sed 's/-nan/nan/g'"
+compare = "exact"
+expected_difference = "#ld-rounding"
+expected_difference_arch = ["aarch64"]
+
+[[case]]
+name = "vcf-popgen-ld-generated-hap-vs-vcftools"
+input = { gen = ["vcf", "--records", "3000", "--samples", "7", "--chroms", "3", "--seed", "41"] }
+gloci = "sed 's#/#|#g' input.vcf > p.vcf && gloci vcf popgen p.vcf --out-prefix o --hap-r2 --ld-window 50 && cat o.hap.ld"
+reference = "sed 's#/#|#g' input.vcf > p.vcf && vcftools --vcf p.vcf --hap-r2 --ld-window 50 --out o >/dev/null 2>&1 && cat o.hap.ld | sed 's/-nan/nan/g'"
+compare = "exact"
+expected_difference = "#ld-rounding"
+expected_difference_arch = ["aarch64"]
+
+# A genotype of ploidy above two at a biallelic site stops LD in both tools
+# (gloci writes no file); at a multi-allelic site, which LD does not use,
+# neither stops.
+[[case]]
+name = "vcf-popgen-polyploid-geno-r2-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/ploidy.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --geno-r2"
+reference = "vcftools --vcf input.vcf --geno-r2 --out o >/dev/null 2>&1"
+compare = "exit-status"
+
+[[case]]
+name = "vcf-popgen-polyploid-hap-r2-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/ploidy.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --hap-r2"
+reference = "vcftools --vcf input.vcf --hap-r2 --out o >/dev/null 2>&1"
+compare = "exit-status"
+
+[[case]]
+name = "vcf-popgen-ld-polyploid-multiallelic-vs-vcftools"
+input = { file = "xtask/diff/inputs/ld-polyploid-multiallelic.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --geno-r2 && cat o.geno.ld"
+reference = "vcftools --vcf input.vcf --geno-r2 --out o >/dev/null 2>&1 && cat o.geno.ld | sed 's/-nan/nan/g'"
+compare = "exact"
+
+# Documented differences.
+[[case]]
+name = "vcf-popgen-ld-unsorted-vs-vcftools"
+input = { file = "xtask/diff/inputs/stats-unsorted.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --geno-r2"
+reference = "vcftools --vcf input.vcf --geno-r2 --out o >/dev/null 2>&1"
+compare = "exit-status"
+expected_difference = "#popgen-sorted-input"
+
+[[case]]
+name = "vcf-popgen-ld-window-zero-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/ld.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --geno-r2 --ld-window 0"
+reference = "vcftools --vcf input.vcf --geno-r2 --ld-window 0 --out o >/dev/null 2>&1"
+compare = "exit-status"
+expected_difference = "#popgen-window-step"
+
+[[case]]
+name = "vcf-popgen-ld-window-min-above-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/ld.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --geno-r2 --ld-window 2 --ld-window-min 3"
+reference = "vcftools --vcf input.vcf --geno-r2 --ld-window 2 --ld-window-min 3 --out o >/dev/null 2>&1"
+compare = "exit-status"
+expected_difference = "#popgen-window-step"
+
+# 7 samples take 24 bytes a site, so 1K holds 42 of the chromosome's 100
+# sites; vcftools holds them in a temporary file.
+[[case]]
+name = "vcf-popgen-ld-max-mem-vs-vcftools"
+input = { gen = ["vcf", "--records", "100", "--samples", "7", "--chroms", "1", "--seed", "41"] }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --geno-r2 --max-mem 1K"
+reference = "vcftools --vcf input.vcf --geno-r2 --out o >/dev/null 2>&1"
+compare = "exit-status"
+expected_difference = "#ld-rules"
+
+# One biallelic site: vcftools stops ("Insufficient sites remained after
+# filtering"); gloci writes the header. gloci succeeds here, so these cases
+# check its file and are live only.
+[[case]]
+name = "vcf-popgen-ld-one-site-vs-vcftools"
+input = { file = "xtask/diff/inputs/ld-one-site.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --geno-r2 && test -s o.geno.ld"
+reference = "vcftools --vcf input.vcf --geno-r2 --out o >/dev/null 2>&1"
+compare = "exit-status"
+expected_difference = "#ld-rules"
+
+# p2's unphased genotype at chr1:40, with p2 left out: vcftools still reads
+# its phase and stops; gloci does not read it.
+[[case]]
+name = "vcf-popgen-ld-excluded-unphased-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/phased.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --hap-r2 --exclude-samples p2 && test -s o.hap.ld"
+reference = "vcftools --vcf input.vcf --hap-r2 --remove-indv p2 --out o >/dev/null 2>&1"
+compare = "exit-status"
+expected_difference = "#ld-rules"
+
+# vcftools' --hap-r2 is --phased, a site filter on the run; gloci's phase rule
+# is hap-r2's own, so geno.ld beside it keeps the unphased sites.
+[[case]]
+name = "vcf-popgen-ld-phase-rule-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/phased.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --geno-r2 --hap-r2 && cat o.geno.ld"
+reference = "vcftools --vcf input.vcf --geno-r2 --phased --out o >/dev/null 2>&1 && cat o.geno.ld | sed 's/-nan/nan/g'"
+compare = "exact"
+expected_difference = "#popgen-independent-options"
+
 # vcf concat (D74): bcftools concat writes the files in the order given.
 # The headers are identical, so the header lines match too; records are
 # compared.
