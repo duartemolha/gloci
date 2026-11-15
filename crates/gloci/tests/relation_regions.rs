@@ -524,7 +524,7 @@ fn indexed_parse_error_names_the_renamed_chromosome() {
     let good = bed(&[
         ("1", 10, 50, "a".into()),
         ("2", 10, 50, "b".into()),
-        ("3", 10, 50, "c".into()),
+        ("chr3", 10, 50, "c".into()),
     ]);
     let dir = fx.dir.path().join("bad");
     std::fs::create_dir(&dir).unwrap();

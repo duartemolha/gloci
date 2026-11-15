@@ -144,7 +144,7 @@ fn skill_md_is_current() {
         "(experimental)",
         "--max-missing",
         "--vcf-span ref",
-        "--chrom-order lex",
+        "--chrom-order karyotype",
         "--mode",
     ] {
         assert!(generated.contains(req), "SKILL.md missing {req:?}");

@@ -5,7 +5,7 @@ expression: "stdout_of(&[\"check\", &f]).replace(&f, \"clean.bed\")"
 clean.bed: BED, plain
   records:      3
   chromosomes:  2 (chr1, chr2)
-  order:        sorted (karyotype order)
+  order:        sorted (lexicographic order)
   errors:       0
   warnings:     0
 result: OK

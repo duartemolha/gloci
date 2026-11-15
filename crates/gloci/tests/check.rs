@@ -135,7 +135,7 @@ fn hint_visible_after_many_parse_errors() {
     for _ in 0..12 {
         t.push_str("chr1\tabc\t20\n");
     }
-    t.push_str("chr1\t100\t200\nchr1\t50\t60\nchr10\t1\t2\nchr2\t1\t2\n");
+    t.push_str("chr1\t100\t200\nchr1\t50\t60\nchr2\t1\t2\nchr10\t1\t2\n");
     let f = p(&plain_file(d.path(), "h.bed", &t));
     let s = stdout_of(&["check", &f]);
     assert!(
@@ -146,8 +146,8 @@ fn hint_visible_after_many_parse_errors() {
         s.contains("order:        NOT sorted\n                hint: run: gloci sort"),
         "{s}"
     );
-    // The lex note comes from a later chromosome violation.
-    assert!(s.contains("--chrom-order lex"), "{s}");
+    // The karyotype note comes from a later chromosome violation.
+    assert!(s.contains("--chrom-order karyotype"), "{s}");
 }
 
 #[test]
@@ -283,24 +283,44 @@ fn bedgraph_value_validated() {
 }
 
 #[test]
-fn lex_sorted_file_hint_under_default_order() {
+fn karyotype_sorted_file_hint_under_default_order() {
     let d = tempdir();
-    let f = p(&plain_file(
+    let kar = p(&plain_file(
+        d.path(),
+        "kar.bed",
+        "chr1\t1\t2\nchr2\t1\t2\nchr10\t1\t2\n",
+    ));
+    gloci()
+        .args(["check", &kar])
+        .assert()
+        .code(1)
+        .stdout(contains("order:        NOT sorted"))
+        .stdout(contains("looks sorted in karyotype order"))
+        .stdout(contains("--chrom-order karyotype"));
+    gloci()
+        .args(["check", &kar, "--chrom-order", "karyotype"])
+        .assert()
+        .success()
+        .stdout(contains("sorted (karyotype order)"));
+    let lex = p(&plain_file(
         d.path(),
         "lex.bed",
         "chr1\t1\t2\nchr10\t1\t2\nchr2\t1\t2\n",
     ));
     gloci()
-        .args(["check", &f])
-        .assert()
-        .code(1)
-        .stdout(contains("order:        NOT sorted"))
-        .stdout(contains("--chrom-order lex"));
-    gloci()
-        .args(["check", &f, "--chrom-order", "lex"])
+        .args(["check", &lex])
         .assert()
         .success()
         .stdout(contains("sorted (lexicographic order)"));
+    // The other direction keeps its hint.
+    gloci()
+        .args(["check", &lex, "--chrom-order", "karyotype"])
+        .assert()
+        .code(1)
+        .stdout(contains(
+            "looks sorted by sort -k1,1, sort-bed or bedtools sort",
+        ))
+        .stdout(contains("gloci sort --chrom-order karyotype"));
 }
 
 #[test]

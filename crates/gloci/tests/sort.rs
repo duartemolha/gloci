@@ -38,23 +38,25 @@ fn vcf(head: &str, cols: &str, recs: &[&str]) -> String {
 }
 
 #[test]
-fn bed_karyotype_default() {
+fn bed_default_is_lex() {
     let d = tempdir();
     let u = w(
         d.path(),
         "u.bed",
         "chr2\t5\t10\nchrX\t1\t2\nchr10\t1\t2\nchr1\t7\t9\nchrM\t0\t5\nchr1\t3\t4\n",
     );
-    gloci()
-        .args(["sort", &u])
-        .assert()
-        .success()
-        .stdout("chr1\t3\t4\nchr1\t7\t9\nchr2\t5\t10\nchr10\t1\t2\nchrX\t1\t2\nchrM\t0\t5\n");
+    let lex = "chr1\t3\t4\nchr1\t7\t9\nchr10\t1\t2\nchr2\t5\t10\nchrM\t0\t5\nchrX\t1\t2\n";
+    gloci().args(["sort", &u]).assert().success().stdout(lex);
     gloci()
         .args(["sort", &u, "--chrom-order", "lex"])
         .assert()
         .success()
-        .stdout("chr1\t3\t4\nchr1\t7\t9\nchr10\t1\t2\nchr2\t5\t10\nchrM\t0\t5\nchrX\t1\t2\n");
+        .stdout(lex);
+    gloci()
+        .args(["sort", &u, "--chrom-order", "karyotype"])
+        .assert()
+        .success()
+        .stdout("chr1\t3\t4\nchr1\t7\t9\nchr2\t5\t10\nchr10\t1\t2\nchrX\t1\t2\nchrM\t0\t5\n");
 }
 
 #[test]
@@ -252,12 +254,12 @@ fn check_mode() {
 fn merge_sorted_inputs() {
     let d = tempdir();
     let a = w(d.path(), "a.bed", "chr1\t1\t2\nchr1\t9\t10\nchr2\t1\t2\n");
-    let b = w(d.path(), "b.bed", "chr1\t5\t6\nchr2\t0\t1\nchr10\t1\t2\n");
+    let b = w(d.path(), "b.bed", "chr1\t5\t6\nchr10\t1\t2\nchr2\t0\t1\n");
     gloci()
         .args(["sort", "-m", &a, &b])
         .assert()
         .success()
-        .stdout("chr1\t1\t2\nchr1\t5\t6\nchr1\t9\t10\nchr2\t0\t1\nchr2\t1\t2\nchr10\t1\t2\n");
+        .stdout("chr1\t1\t2\nchr1\t5\t6\nchr1\t9\t10\nchr10\t1\t2\nchr2\t0\t1\nchr2\t1\t2\n");
     let u = w(d.path(), "u.bed", "chr1\t9\t10\nchr1\t1\t2\n");
     gloci()
         .args(["sort", "-m", &a, &u])
@@ -584,7 +586,7 @@ fn many_contigs() {
     }
     let p = w(d.path(), "many.bed", &text);
     let t = Instant::now();
-    let out = stdout_of(&["sort", &p]);
+    let out = stdout_of(&["sort", &p, "--chrom-order", "karyotype"]);
     // 3 s alone, 12 s on a loaded 4-core box. A scan of the contig table per record would be
     // 3e10 comparisons, minutes; the bound only has to tell the two apart.
     assert!(t.elapsed().as_secs() < 60, "took {:?}", t.elapsed());
@@ -600,15 +602,28 @@ fn many_contigs() {
 fn check_on_old_lex_sorted_file_explains() {
     let d = tempdir();
     let l = w(d.path(), "l.bed", "chr1\t1\t2\nchr10\t1\t2\nchr2\t1\t2\n");
+    gloci().args(["sort", "--check", &l]).assert().success();
     gloci()
-        .args(["sort", "--check", &l])
+        .args(["sort", "--check", "--chrom-order", "karyotype", &l])
         .assert()
         .code(1)
         .stderr(contains(
             "looks sorted by sort -k1,1, sort-bed or bedtools sort",
         ));
+}
+
+#[test]
+fn check_on_karyotype_sorted_file_explains() {
+    let d = tempdir();
+    let k = w(d.path(), "k.bed", "chr1\t1\t2\nchr2\t1\t2\nchr10\t1\t2\n");
     gloci()
-        .args(["sort", "--check", "--chrom-order", "lex", &l])
+        .args(["sort", "--check", &k])
+        .assert()
+        .code(1)
+        .stderr(contains("looks sorted in karyotype order"))
+        .stderr(contains("-g GENOME or --chrom-order karyotype"));
+    gloci()
+        .args(["sort", "--check", "--chrom-order", "karyotype", &k])
         .assert()
         .success();
 }

@@ -219,7 +219,7 @@ fn jaccard_is_identical_at_every_thread_count() {
     let fx = Fx::new();
     let mut a = String::new();
     let mut b = String::new();
-    for c in ["chr1", "chr2", "chr10", "chrX"] {
+    for c in ["chr1", "chr10", "chr2", "chrX"] {
         for i in 0..400u64 {
             a += &format!(
                 "{c}\t{}\t{}\t.\t0\t{}\n",

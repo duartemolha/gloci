@@ -65,19 +65,30 @@ fn gen_bed(w: &mut impl Write, bytes: u64, seed: u64) {
     w.write_all(&buf).unwrap();
 }
 
-/// Write sorted BED6 lines in karyotype order until `bytes` have been written.
+/// The numbers 1..=n ordered as the strings `chr1`, `chr10`, ... sort: the
+/// default chromosome order.
+fn lex_chroms(n: u32) -> Vec<u32> {
+    let mut v: Vec<u32> = (1..=n).collect();
+    v.sort_by_key(|c| c.to_string());
+    v
+}
+
+/// Write sorted BED6 lines in lexicographic chromosome order (the default order) until `bytes` have been written.
 fn gen_sorted_bed(w: &mut impl Write, bytes: u64, seed: u64) {
     let mut rng = Rng(seed);
     let mut line = Vec::with_capacity(96);
     let mut buf = Vec::with_capacity(1 << 20);
     let (mut written, mut i) = (0u64, 0u64);
     let bytes_per_chrom = (bytes / 22).max(1024);
-    let mut chrom = 1;
+    let order = lex_chroms(22);
+    let mut ci = 0;
+    let mut chrom = order[0];
     let mut chrom_written = 0u64;
     let mut pos = 100u64;
     while written < bytes {
-        if chrom_written >= bytes_per_chrom && chrom < 22 {
-            chrom += 1;
+        if chrom_written >= bytes_per_chrom && ci + 1 < order.len() {
+            ci += 1;
+            chrom = order[ci];
             chrom_written = 0;
             pos = 100;
         }
@@ -104,7 +115,7 @@ fn gen_sorted_bed(w: &mut impl Write, bytes: u64, seed: u64) {
     w.write_all(&buf).unwrap();
 }
 
-/// Write sorted VCF lines in karyotype order until `bytes` have been written.
+/// Write sorted VCF lines in lexicographic chromosome order (the default order) until `bytes` have been written.
 fn gen_sorted_vcf(w: &mut impl Write, bytes: u64, seed: u64) {
     let mut rng = Rng(seed);
     let mut line = Vec::with_capacity(128);
@@ -117,12 +128,15 @@ fn gen_sorted_vcf(w: &mut impl Write, bytes: u64, seed: u64) {
     let mut written = buf.len() as u64;
     let mut i = 0u64;
     let bytes_per_chrom = (bytes / 22).max(1024);
-    let mut chrom = 1;
+    let order = lex_chroms(22);
+    let mut ci = 0;
+    let mut chrom = order[0];
     let mut chrom_written = 0u64;
     let mut pos = 100u64;
     while written < bytes {
-        if chrom_written >= bytes_per_chrom && chrom < 22 {
-            chrom += 1;
+        if chrom_written >= bytes_per_chrom && ci + 1 < order.len() {
+            ci += 1;
+            chrom = order[ci];
             chrom_written = 0;
             pos = 100;
         }
@@ -717,7 +731,7 @@ fn big_genome() -> PathBuf {
     let p = shared_dir().join("big.genome");
     if !p.exists() {
         let mut t = String::new();
-        for c in 1..=22 {
+        for c in lex_chroms(22) {
             t.push_str(&format!("chr{c}\t2000000000\n"));
         }
         std::fs::write(&p, t).unwrap();
@@ -806,11 +820,14 @@ fn gen_sample_vcf(w: &mut impl Write, bytes: u64, seed: u64) -> u64 {
     buf.extend_from_slice(head.as_bytes());
     let mut written = buf.len() as u64;
     let bytes_per_chrom = (bytes / 22).max(1024);
-    let (mut chrom, mut chrom_written, mut pos, mut n) = (1, 0u64, 100u64, 0u64);
+    let order = lex_chroms(22);
+    let mut ci = 0;
+    let (mut chrom, mut chrom_written, mut pos, mut n) = (order[0], 0u64, 100u64, 0u64);
     let mut line = String::new();
     while written < bytes {
-        if chrom_written >= bytes_per_chrom && chrom < 22 {
-            chrom += 1;
+        if chrom_written >= bytes_per_chrom && ci + 1 < order.len() {
+            ci += 1;
+            chrom = order[ci];
             chrom_written = 0;
             pos = 100;
         }

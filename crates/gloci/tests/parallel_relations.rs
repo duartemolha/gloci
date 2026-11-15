@@ -607,7 +607,10 @@ chr3\t755\tv3\tA\tG\t.\tPASS\t.\n";
 fn ties_keep_b_input_order_indexed() {
     let dir = tempdir();
     let (mut a_text, mut b_text) = (String::new(), String::new());
-    for c in 1..=40 {
+    // chr1, chr10, chr11 ... chr2 ...: the default order is lexicographic
+    let mut names: Vec<String> = (1..=40).map(|c| c.to_string()).collect();
+    names.sort();
+    for c in names {
         let chrom = format!("chr{c}");
         a_text.push_str(&format!(
             "{chrom}\t2051\t2052\ta{c}\n{chrom}\t5000\t5100\tx{c}\n"
@@ -680,18 +683,23 @@ fn assert_refuse_alike(args: &[&str], needles: &[&str]) {
 }
 
 /// Indexed and streaming relations refuse an input that is not in table
-/// order alike, whatever `--threads` is (a lex-sorted indexed BED; a VCF
+/// order alike, whatever `--threads` is (a karyotype-sorted indexed BED; a VCF
 /// whose header lists its contigs in another order than its records).
 #[test]
 fn indexed_and_streaming_refuse_alike() {
     let dir = tempdir();
     let bed = |c: &str| format!("{c}\t10\t20\n");
-    let lex: String = ["chr1", "chr10", "chr2"].iter().map(|c| bed(c)).collect();
-    let (a, _) = indexed_pair(dir.path(), "lexa", &lex);
-    let (b, _) = indexed_pair(dir.path(), "lexb", &lex);
+    let kar: String = ["chr1", "chr2", "chr10"].iter().map(|c| bed(c)).collect();
+    let (a, _) = indexed_pair(dir.path(), "kara", &kar);
+    let (b, _) = indexed_pair(dir.path(), "karb", &kar);
     assert_refuse_alike(
         &["intersect", "--a", &a, "--b", &b],
-        &["lexa.bed.gz is not sorted", "chr10", "chr2", "sort-bed"],
+        &[
+            "kara.bed.gz is not sorted",
+            "chr10",
+            "chr2",
+            "--chrom-order karyotype",
+        ],
     );
 
     let vcf = "##fileformat=VCFv4.2\n##contig=<ID=chr2,length=1000>\n##contig=<ID=chr1,length=1000>\n\
@@ -720,8 +728,8 @@ chr1\t10\t.\tA\tC\t.\t.\t.\nchr2\t10\t.\tA\tC\t.\t.\t.\n";
     );
 }
 
-/// No false positive: a file in karyotype order is accepted under the
-/// karyotype table, and indexed and streaming runs agree.
+/// No false positive: a file in karyotype order is accepted under
+/// `--chrom-order karyotype`, and indexed and streaming runs agree.
 #[test]
 fn karyotype_sorted_indexed_file_is_accepted() {
     let dir = tempdir();
@@ -734,11 +742,29 @@ fn karyotype_sorted_indexed_file_is_accepted() {
     let b = indexed_pair(dir.path(), "karb", &text);
     assert_indexed_equals_streaming(
         "karyotype",
-        &["intersect", "--a", "{A}", "--b", "{B}"],
+        &[
+            "intersect",
+            "--a",
+            "{A}",
+            "--b",
+            "{B}",
+            "--chrom-order",
+            "karyotype",
+        ],
         &a,
         &b,
     );
-    let got = out(&["intersect", "--a", &a.0, "--b", &b.0, "-t", "4"]);
+    let got = out(&[
+        "intersect",
+        "--a",
+        &a.0,
+        "--b",
+        &b.0,
+        "-t",
+        "4",
+        "--chrom-order",
+        "karyotype",
+    ]);
     assert_eq!(String::from_utf8_lossy(&got), text);
 }
 
@@ -754,7 +780,7 @@ fn ran_per_chromosome(args: &[&str], t: &str) -> bool {
 
 /// A plain BED with a track line, comments and blank lines (also between
 /// chromosomes and at the end), Windows line ends on some lines, and 8
-/// chromosomes in karyotype order.
+/// chromosomes in lexicographic order.
 fn plain_text(seed: u64, with_noise: bool) -> String {
     let mut t = String::new();
     if with_noise {
@@ -768,7 +794,7 @@ fn plain_text(seed: u64, with_noise: bool) -> String {
         (state >> 33) % m
     };
     for c in [
-        "chr1", "chr2", "chr3", "chr4", "chr5", "chr10", "chrX", "chrY",
+        "chr1", "chr10", "chr2", "chr3", "chr4", "chr5", "chrX", "chrY",
     ] {
         let mut starts: Vec<u64> = (0..40).map(|_| next(5000)).collect();
         starts.sort_unstable();
@@ -1006,9 +1032,9 @@ fn seekable_order_errors_are_streamings() {
             &["backwards.bed is not sorted", "line 2"],
         ),
         (
-            "lex",
-            "chr1\t10\t20\nchr10\t10\t20\nchr2\t10\t20\n",
-            &["lex.bed is not sorted", "chr10", "chr2"],
+            "kar",
+            "chr1\t10\t20\nchr2\t10\t20\nchr10\t10\t20\n",
+            &["kar.bed is not sorted", "chr10", "chr2"],
         ),
     ];
     for (name, text, needles) in cases {
@@ -1140,12 +1166,12 @@ fn seekable_chrom_map() {
     let a = s(&plain_file(
         dir.path(),
         "a.bed",
-        &text(&["1", "2", "3", "10", "X"]),
+        &text(&["1", "10", "2", "3", "X"]),
     ));
     let b = s(&plain_file(
         dir.path(),
         "b.bed",
-        &text(&["chr1", "chr2", "chr10", "chrX"]),
+        &text(&["chr1", "chr10", "chr2", "chrX"]),
     ));
     let map = s(&plain_file(
         dir.path(),
@@ -1307,8 +1333,8 @@ fn seekable_chrom_map_with_indexed_inputs() {
             })
             .collect()
     };
-    let raw = rows(&["1", "2", "10", "X"], 20);
-    let named = rows(&["chr1", "chr2", "chr10", "chrX"], 30);
+    let raw = rows(&["1", "10", "2", "X"], 20);
+    let named = rows(&["chr1", "chr10", "chr2", "chrX"], 30);
     let map = s(&plain_file(
         dir.path(),
         "m.tsv",

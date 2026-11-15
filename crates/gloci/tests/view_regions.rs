@@ -342,23 +342,10 @@ const CHR10_RECS: &str = "chr10\t5\t50\tx\nchr10\t60\t70\ty\n";
 
 #[test]
 fn other_chrom_order_without_flag_still_correct() {
-    // file in lexicographic order (chr1, chr10, chr2, …) queried in default
+    // file in lexicographic order (chr1, chr10, chr2, …) queried in
     // karyotype mode: bisection may miss → full scan, correct answer + warning
     let fx = Fx::new();
     let lex_sorted = fx.plain_bed(&lex_sorted_text());
-    gloci()
-        .args(["view", &lex_sorted, "chr10:1-100", "--assume-sorted"])
-        .assert()
-        .success()
-        .stdout(CHR10_RECS)
-        .stderr(contains("scanning the whole file"));
-    gloci()
-        .args(["view", &lex_sorted, "chr10:1-100", "--assume-sorted"])
-        .assert()
-        .stderr(contains(
-            "warning: could not locate chr10 by binary search; scanning the whole file (sort it with gloci sort, or index it)",
-        ));
-    // bisection hits
     gloci()
         .args([
             "view",
@@ -366,8 +353,17 @@ fn other_chrom_order_without_flag_still_correct() {
             "chr10:1-100",
             "--assume-sorted",
             "--chrom-order",
-            "lex",
+            "karyotype",
         ])
+        .assert()
+        .success()
+        .stdout(CHR10_RECS)
+        .stderr(contains(
+            "warning: could not locate chr10 by binary search; scanning the whole file (sort it with gloci sort, or index it)",
+        ));
+    // the default is lexicographic: bisection hits
+    gloci()
+        .args(["view", &lex_sorted, "chr10:1-100", "--assume-sorted"])
         .assert()
         .success()
         .stdout(CHR10_RECS)

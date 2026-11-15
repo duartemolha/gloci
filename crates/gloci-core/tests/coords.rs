@@ -373,5 +373,5 @@ fn chrom_order_parses() {
     assert_eq!("karyotype".parse(), Ok(ChromOrder::Karyotype));
     assert_eq!("lex".parse(), Ok(ChromOrder::Lex));
     assert!("natural".parse::<ChromOrder>().is_err());
-    assert_eq!(ChromOrder::default(), ChromOrder::Karyotype);
+    assert_eq!(ChromOrder::default(), ChromOrder::Lex);
 }

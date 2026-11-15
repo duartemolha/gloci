@@ -226,8 +226,30 @@ fn guard_message() {
     assert_eq!(
         e,
         "x.bed is not sorted: line 2 (chr10\t1\t2) comes after line 1 (chr2\t5\t9)\n\
-                   hint: run: gloci sort x.bed --chrom-order lex"
+                   hint: run: gloci sort x.bed (this file looks sorted in karyotype order, as a VCF or BAM header lists it; pass -g GENOME or --chrom-order karyotype, or re-sort it with gloci sort)"
     );
+}
+
+#[test]
+fn guard_lex_explains_karyotype_order() {
+    let e = guard_err_lex(b"chr1\t5\t9\nchr2\t1\t2\nchr10\t0\t3\n").to_string();
+    assert!(
+        e.contains("line 3 (chr10\t0\t3) comes after line 2 (chr2\t1\t2)"),
+        "{e}"
+    );
+    assert!(
+        e.contains("looks sorted in karyotype order")
+            && e.contains("-g GENOME")
+            && e.contains("--chrom-order karyotype")
+            && e.contains("gloci sort"),
+        "{e}"
+    );
+    // Not a karyotype pair (chr2 then chr1 is backwards in both): plain hint, no note.
+    let e = guard_err_lex(b"chr2\t5\t9\nchr1\t1\t2\n").to_string();
+    assert!(e.ends_with("hint: run: gloci sort x.bed"), "{e}");
+    // Start-backwards never gets the note.
+    let e = guard_err_lex(b"chr1\t5\t9\nchr1\t1\t2\n").to_string();
+    assert!(e.ends_with("hint: run: gloci sort x.bed"), "{e}");
 }
 
 #[test]
@@ -239,22 +261,28 @@ fn guard_karyotype_explains_old_sort_order() {
     );
     assert!(
         e.contains("looks sorted by sort -k1,1, sort-bed or bedtools sort")
-            && e.contains("--chrom-order lex")
+            && e.contains("drop --chrom-order karyotype")
             && e.contains("docs/migration.md"),
         "{e}"
     );
     // Not a lexicographic pair: plain hint, no note.
     let e = guard_err_karyotype(b"chr2\t5\t9\nchr1\t1\t2\n").to_string();
-    assert!(e.ends_with("hint: run: gloci sort x.bed"), "{e}");
+    assert!(
+        e.ends_with("hint: run: gloci sort x.bed --chrom-order karyotype"),
+        "{e}"
+    );
     // Start-backwards never gets the note.
     let e = guard_err_karyotype(b"chr1\t5\t9\nchr1\t1\t2\n").to_string();
-    assert!(e.ends_with("hint: run: gloci sort x.bed"), "{e}");
+    assert!(
+        e.ends_with("hint: run: gloci sort x.bed --chrom-order karyotype"),
+        "{e}"
+    );
 }
 
 #[test]
 fn guard_start_backwards_across_batches_and_hint() {
     let mut r = reader("x.bed", b"chr1\t50\t60\nchr1\t5\t9\n", Format::Bed);
-    let mut chroms = ChromTable::karyotype();
+    let mut chroms = ChromTable::lexicographic();
     let mut guard = OrderGuard::new("x.bed", Format::Bed);
     let mut batch = RecordBatch::default();
     batch.clear();
@@ -308,7 +336,7 @@ fn contiguity_guard() {
         .to_string();
         assert_eq!(
             e,
-            "x.bed is not sorted: line 3 (chr1\t7\t8) comes after line 2 (chr2\t1\t2)\nhint: run: gloci sort x.bed"
+            "x.bed is not sorted: line 3 (chr1\t7\t8) comes after line 2 (chr2\t1\t2)\nhint: run: gloci sort x.bed --chrom-order karyotype"
         );
     }
     let e = contiguous(
@@ -322,10 +350,7 @@ fn contiguity_guard() {
         e.contains("line 2 (chr1\t5\t9) comes after line 1 (chr1\t50\t60)"),
         "{e}"
     );
-    assert!(
-        e.ends_with("hint: run: gloci sort x.bed --chrom-order lex"),
-        "{e}"
-    );
+    assert!(e.ends_with("hint: run: gloci sort x.bed"), "{e}");
 }
 
 #[test]
@@ -341,11 +366,11 @@ fn sort_hints() {
     );
     assert_eq!(
         sort_hint("a.bed", &OrderSource::Lexicographic),
-        "run: gloci sort a.bed --chrom-order lex"
+        "run: gloci sort a.bed"
     );
     assert_eq!(
         sort_hint("a.bed", &OrderSource::Karyotype),
-        "run: gloci sort a.bed"
+        "run: gloci sort a.bed --chrom-order karyotype"
     );
 }
 
