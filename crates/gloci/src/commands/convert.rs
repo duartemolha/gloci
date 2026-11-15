@@ -218,6 +218,8 @@ or drop --write-index"
 struct Fastq {
     first: gloci_io::Output,
     second: Option<gloci_io::Output>,
+    /// A write to `second` failed, so the error names the `--fastq2` file.
+    second_failed: bool,
 }
 
 impl FastqSink for Fastq {
@@ -226,10 +228,49 @@ impl FastqSink for Fastq {
     }
     fn second(&mut self, record: &[u8]) -> std::io::Result<()> {
         match &mut self.second {
-            Some(b) => b.write_all(record),
+            Some(b) => b
+                .write_all(record)
+                .inspect_err(|_| self.second_failed = true),
             None => self.first.write_all(record),
         }
     }
+}
+
+/// Whether the outputs `a` and `b` are one output, whatever their spelling (`same.fq`,
+/// `./same.fq`, `d/../same.fq`): both stdout; for a file (written to a temp file and renamed
+/// into place), the same name in the same directory, resolved, since the file may not exist
+/// yet and two renames onto one name keep only the second; for a device or pipe written
+/// directly, the same file. A second hard link or a symlink to a file is another name, which
+/// its own rename replaces, so it is another output.
+fn same_output(a: &gloci_io::OutputSpec, b: &gloci_io::OutputSpec) -> bool {
+    use std::path::{Path, PathBuf};
+    let (pa, pb) = match (&a.path, &b.path) {
+        (None, None) => return true,
+        (Some(pa), Some(pb)) => (pa, pb),
+        _ => return false,
+    };
+    if pa == pb {
+        return true;
+    }
+    if a.direct || b.direct {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            if let (Ok(ma), Ok(mb)) = (std::fs::metadata(pa), std::fs::metadata(pb)) {
+                return ma.dev() == mb.dev() && ma.ino() == mb.ino();
+            }
+        }
+        return false;
+    }
+    let landing = |p: &Path| -> Option<PathBuf> {
+        let name = p.file_name()?;
+        let dir = match p.parent() {
+            Some(d) if !d.as_os_str().is_empty() => d,
+            _ => Path::new("."),
+        };
+        Some(std::fs::canonicalize(dir).ok()?.join(name))
+    };
+    matches!((landing(pa), landing(pb)), (Some(x), Some(y)) if x == y)
 }
 
 /// `convert --fastq` (D166): the reads of alignments as FASTQ, in pairs with `--fastq2`.
@@ -250,14 +291,10 @@ in .fq, .fq.gz, .fastq or .fastq.gz (or -O fq)",
             .into());
         }
     }
-    // Both ends go to one output when both name it: stdout, or the same file.
-    let shared = spec2
-        .as_ref()
-        .is_some_and(|s2| s2.path == spec.path && s2.bgzf == spec.bgzf);
-    if let Some(s2) = &spec2
-        && s2.path == spec.path
-        && !shared
-    {
+    // Both ends go to one output when both name it: stdout, or the same file by any spelling.
+    let one_output = spec2.as_ref().is_some_and(|s2| same_output(spec, s2));
+    let shared = one_output && spec2.as_ref().is_some_and(|s2| s2.bgzf == spec.bgzf);
+    if one_output && !shared {
         return Err(UsageError(
             "-o and --fastq2 name the same file with different compression; use the same ending \
 for both, or two files"
@@ -301,18 +338,32 @@ for both, or two files"
         Some(s2) if !shared => Some(open(s2)?),
         _ => None,
     };
-    let mut sink = Fastq { first, second };
+    let dest2 = spec2.as_ref().map(name_of);
+    let mut sink = Fastq {
+        first,
+        second,
+        second_failed: false,
+    };
     let o = FastqOptions {
         paired: spec2.is_some(),
         tags: a.tags,
     };
-    alignments_to_fastq(src, &o, &mut sink).map_err(|e| e.with_output_name(&dest))?;
-    sink.first.finish().map_err(|e| e.with_output_name(&dest))?;
-    if let (Some(second), Some(s2)) = (sink.second, &spec2) {
+    alignments_to_fastq(src, &o, &mut sink).map_err(|e| match &dest2 {
+        Some(d2) if sink.second_failed => e.with_output_name(d2),
+        _ => e.with_output_name(&dest),
+    })?;
+    // The two files are published together: a failure in finishing either leaves neither in
+    // place (and the previous ones as they were).
+    let mut staged = gloci_io::StagedSet::default();
+    sink.first
+        .finish_staged(&mut staged)
+        .map_err(|e| e.with_output_name(&dest))?;
+    if let (Some(second), Some(d2)) = (sink.second, &dest2) {
         second
-            .finish()
-            .map_err(|e| e.with_output_name(&name_of(s2)))?;
+            .finish_staged(&mut staged)
+            .map_err(|e| e.with_output_name(d2))?;
     }
+    staged.publish()?;
     Ok(())
 }
 

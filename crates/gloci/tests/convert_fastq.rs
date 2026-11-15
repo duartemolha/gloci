@@ -3,6 +3,7 @@
 //! formats and errors those cannot show.
 mod common;
 use common::*;
+use predicates::prelude::*;
 use predicates::str::contains;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -147,6 +148,47 @@ fn the_same_file_for_both_ends_interleaves_them() {
         std::fs::read(&both).unwrap(),
         golden("bamtofastq-fq2-vs-bedtools")
     );
+    // Another spelling of the same file is the same output: both ends interleaved, as for the
+    // identical spelling, not the first ends replaced by the second ones.
+    std::fs::create_dir(d.path().join("sub")).unwrap();
+    for other in ["./both.fq", "sub/../both.fq"] {
+        std::fs::remove_file(&both).unwrap();
+        gloci()
+            .current_dir(d.path())
+            .args([
+                "convert",
+                &aln("fastq-pairs.bam"),
+                "--fastq",
+                "-o",
+                "both.fq",
+                "--fastq2",
+                other,
+            ])
+            .assert()
+            .success();
+        assert_eq!(
+            std::fs::read(&both).unwrap(),
+            golden("bamtofastq-fq2-vs-bedtools"),
+            "-o both.fq --fastq2 {other}"
+        );
+    }
+    // Another name is another output.
+    gloci()
+        .current_dir(d.path())
+        .args([
+            "convert",
+            &aln("fastq-pairs.bam"),
+            "--fastq",
+            "-o",
+            "both.fq",
+            "--fastq2",
+            "./both2.fq",
+        ])
+        .assert()
+        .success();
+    let (want1, want2) = split_ends(&golden("bamtofastq-fq2-vs-bedtools"));
+    assert_eq!(std::fs::read(&both).unwrap(), want1);
+    assert_eq!(std::fs::read(d.path().join("both2.fq")).unwrap(), want2);
     // Stdout as a BGZF stream for one end and as text for the other is not one output.
     gloci()
         .args([
@@ -391,4 +433,59 @@ fn reads_are_written_once_in_input_order() {
     // QUAL and SEQ missing
     assert!(got.contains("@r8\nACGTAC\n+\n!!!!!!\n"));
     assert!(got.contains("@r9\n\n+\n\n"));
+}
+
+/// Linux only: `/dev/full` is what fails the write. A `--fastq2` output that cannot be
+/// finished leaves no `-o` file either, and an earlier one as it was.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_failed_second_output_leaves_neither_file() {
+    let d = tempdir();
+    let r1 = d.path().join("r1.fq");
+    // Small: the second ends fail when their output is finished.
+    gloci()
+        .args(["convert", &aln("fastq-pairs.bam"), "--fastq", "-o"])
+        .arg(&r1)
+        .args(["--fastq2", "/dev/full"])
+        .assert()
+        .code(1)
+        .stderr(contains("error writing /dev/full"));
+    assert!(!r1.exists());
+    std::fs::write(&r1, "old\n").unwrap();
+    gloci()
+        .args(["convert", &aln("fastq-pairs.bam"), "--fastq", "-o"])
+        .arg(&r1)
+        .args(["--fastq2", "/dev/full"])
+        .assert()
+        .code(1);
+    assert_eq!(std::fs::read_to_string(&r1).unwrap(), "old\n");
+}
+
+/// Linux only: an error in writing the second ends, while they are written (more than the
+/// 1 MiB output buffer of them), names the `--fastq2` file, not the `-o` one.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_write_error_in_the_second_ends_names_the_fastq2_file() {
+    let d = tempdir();
+    let mut sam = String::from("@HD\tVN:1.6\tSO:queryname\n@SQ\tSN:chr1\tLN:100000\n");
+    let (seq, qual) = ("ACGT".repeat(25), "I".repeat(100));
+    for i in 0..6000 {
+        sam.push_str(&format!(
+            "r{i:06}\t99\tchr1\t100\t60\t100M\t=\t300\t300\t{seq}\t{qual}\n\
+             r{i:06}\t147\tchr1\t300\t60\t100M\t=\t100\t-300\t{seq}\t{qual}\n"
+        ));
+    }
+    let big = plain_file(d.path(), "big.sam", &sam);
+    let r1gz = d.path().join("ok.fq.gz");
+    gloci()
+        .arg("convert")
+        .arg(&big)
+        .args(["--fastq", "-o"])
+        .arg(&r1gz)
+        .args(["--fastq2", "/dev/full"])
+        .assert()
+        .code(1)
+        .stderr(contains("error writing /dev/full"))
+        .stderr(contains("ok.fq.gz").not());
+    assert!(!r1gz.exists());
 }

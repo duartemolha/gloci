@@ -35,7 +35,7 @@ impl StagedSet {
                     path: d.clone(),
                     msg: format!(
                         "cannot write {d}: a directory with that name exists; \
-remove or rename it, or choose another --out-prefix"
+remove or rename it, or choose another output name"
                     ),
                 });
             }
