@@ -1233,7 +1233,15 @@ mod tests {
     #[test]
     fn handoff_returns_batches_by_number_and_notices_the_last_worker_leaving() {
         let handoff = Handoff::new(2);
+        let stop = AtomicBool::new(false);
         std::thread::scope(|s| {
+            // The test is the driver. Its end of the hand-off is dropped
+            // however this closure ends, a failed assertion included: the
+            // scope waits for the workers, and they wait for the hand-off.
+            let _driving = Driving {
+                handoff: &handoff,
+                abort: &stop,
+            };
             for _ in 0..2 {
                 s.spawn(|| {
                     let _present = Present(&handoff);
@@ -1250,7 +1258,6 @@ mod tests {
             for seq in 0..4 {
                 assert_eq!(handoff.take(seq).map(|d| d.job.seq), Some(seq));
             }
-            handoff.close();
         });
         // Both workers have returned: nothing more comes back, nothing is taken.
         assert!(handoff.take(4).is_none());
@@ -1278,15 +1285,22 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn a_waiting_worker_sleeps_instead_of_yielding() {
-        use std::sync::atomic::AtomicBool;
         let rounds = 100u64;
-        let busy = AtomicBool::new(true);
+        let stop = AtomicBool::new(false);
         let handoff = Handoff::new(1);
         let (taken, switched) = std::thread::scope(|s| {
+            // The test is the driver. Dropping its end of the hand-off stops
+            // the busy threads and lets the worker go, however this closure
+            // ends: the scope waits for every thread, so a failed assertion
+            // that left them running would hang the test with every CPU busy.
+            let driving = Driving {
+                handoff: &handoff,
+                abort: &stop,
+            };
             let cpus = std::thread::available_parallelism().map_or(4, |n| n.get());
             for _ in 0..cpus {
                 s.spawn(|| {
-                    while busy.load(Ordering::Relaxed) {
+                    while !stop.load(Ordering::Relaxed) {
                         std::hint::spin_loop();
                     }
                 });
@@ -1307,10 +1321,8 @@ mod tests {
                 assert!(handoff.send(job(seq)));
                 assert!(handoff.take(seq).is_some());
             }
-            handoff.close();
-            let counts = worker.join().unwrap();
-            busy.store(false, Ordering::Relaxed);
-            counts
+            drop(driving);
+            worker.join().unwrap()
         });
         assert_eq!(taken, rounds);
         assert!(
