@@ -55,6 +55,11 @@ fn record(chrom: &str, pos: u64, alts: &str, samples: &[&str]) -> String {
 
 /// Feed `lines` to `stat` under `mask` and return the file it writes.
 fn run(stat: &mut dyn Stat, lines: &[String], mask: &MaskRules) -> String {
+    try_run(stat, lines, mask).unwrap()
+}
+
+/// [`run`], or the first error a site gives.
+fn try_run(stat: &mut dyn Stat, lines: &[String], mask: &MaskRules) -> Result<String, String> {
     let sink = MemSink::default();
     stat.start(&mut sink.clone()).unwrap();
     let mut masked = Vec::new();
@@ -69,10 +74,10 @@ fn run(stat: &mut dyn Stat, lines: &[String], mask: &MaskRules) -> String {
         };
         let g = text_genotypes(line.as_bytes()).unwrap();
         let st = site_stats(&g, None, mask, n_alleles, &mut masked).unwrap();
-        stat.site(&site, None, Some(&st)).unwrap();
+        stat.site(&site, None, Some(&st))?;
     }
     stat.finish().unwrap();
-    String::from_utf8(sink.0.take()).unwrap()
+    Ok(String::from_utf8(sink.0.take()).unwrap())
 }
 
 #[test]
@@ -301,6 +306,40 @@ fn window_pi_open_windows_are_bounded() {
         assert!(
             w.peak_open() >= bound - 1,
             "{size}/{step}: the bound is reached"
+        );
+    }
+}
+
+/// A genotype of ploidy above two stops every statistic, as vcftools does
+/// (`vcf stats` too); a masked one does not, and a haploid one only drops its
+/// site.
+#[test]
+fn polyploid_genotypes_stop_like_vcftools() {
+    let lines = [
+        record("chr1", 5, "G", &["0/1", "0/0"]),
+        // multi-allelic, so Tajima's D would skip it: the check comes first
+        record("chr1", 7, "G,T", &["0/0/1:9", "0/1:9"]),
+    ];
+    type Make = fn() -> Box<dyn Stat>;
+    let stats: [(&str, Make); 3] = [
+        ("site pi", || Box::new(SitePi::new())),
+        ("window pi", || Box::new(WindowPi::new(10, 5))),
+        ("Tajima's D", || Box::new(TajimaD::new(10, 2))),
+    ];
+    for (name, make) in stats {
+        let e = try_run(make().as_mut(), &lines, &NO_MASK).unwrap_err();
+        assert!(
+            e.starts_with("polyploid genotypes are not supported (vcftools stops here too)"),
+            "{name}: {e}"
+        );
+        // masked, the genotype is missing and the run goes on
+        let mask = MaskRules {
+            min_dp: Some(10),
+            ..NO_MASK
+        };
+        assert!(
+            try_run(make().as_mut(), &lines, &mask).is_ok(),
+            "{name} masked"
         );
     }
 }

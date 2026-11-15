@@ -3,10 +3,11 @@
 //! it: the multi-allele estimator of Weir and Cockerham (1984) per site, in
 //! windows, and its mean and weighted mean over the run.
 
+use super::POLYPLOID_HINT;
 use super::window::OpenWindows;
 use crate::filter::SiteView;
 use crate::gt::{GenotypeSource, SampleFields};
-use crate::stats::{Out, SiteStats, SortedInput, Stat, StatSink};
+use crate::stats::{Out, SiteStats, SortedInput, Stat, StatSink, no_polyploid};
 use gloci_core::cfmt::{write_g6, write_u64};
 use gloci_io::{IoError, UsageError};
 use std::collections::{HashMap, HashSet};
@@ -244,7 +245,8 @@ impl Windows {
 }
 
 /// `--fst-pop FILE` (two or more): Weir and Cockerham's Fst between the
-/// populations, with vcftools' multi-allele form. Per site where every
+/// populations, with vcftools' multi-allele form. A member's genotype of
+/// ploidy above two stops the run, as in vcftools. Per site where every
 /// population member that is not masked is diploid, each population's
 /// fully called genotypes give its size n_i, allele frequencies and
 /// heterozygote frequencies; per allele these give vcftools' a, b and c,
@@ -318,22 +320,30 @@ impl WeirFst {
     }
 
     /// Count the members' fully called genotypes into `hom` and `het`, for
-    /// `k` alleles. False when a member that is not masked is not diploid
-    /// (a masked genotype reads as missing).
+    /// `k` alleles. False when a member that is not masked is haploid (a
+    /// masked genotype reads as missing); an error when one has a ploidy
+    /// above two, where vcftools stops.
     fn count(&mut self, gt: &dyn GenotypeSource, k: usize) -> Result<bool, String> {
         let n = self.pops.members.len() * k;
         self.hom.clear();
         self.hom.resize(n, 0);
         self.het.clear();
         self.het.resize(n, 0);
+        let mut diploid = true;
         for (p, members) in self.pops.members.iter().enumerate() {
             for &i in members {
                 gt.sample(i, &mut self.f)?;
                 // No GT (or a masked one) is a missing diploid genotype.
                 let Some(g) = &self.f.gt else { continue };
+                no_polyploid(g.alleles.len() > 2, POLYPLOID_HINT)?;
                 let &[x, y] = g.alleles.as_slice() else {
-                    return Ok(false);
+                    // Haploid: no row, but every member is still checked.
+                    diploid = false;
+                    continue;
                 };
+                if !diploid {
+                    continue;
+                }
                 let (Some(x), Some(y)) = (x, y) else { continue };
                 let (x, y) = (x as usize, y as usize);
                 if x.max(y) >= k {
@@ -350,7 +360,7 @@ impl WeirFst {
                 }
             }
         }
-        Ok(true)
+        Ok(diploid)
     }
 }
 

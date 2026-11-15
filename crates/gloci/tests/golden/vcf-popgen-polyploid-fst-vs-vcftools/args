@@ -1,0 +1,1 @@
+vcf popgen input.vcf --out-prefix o --fst-pop popgen-ploidy-pop1.txt --fst-pop popgen-ploidy-pop2.txt

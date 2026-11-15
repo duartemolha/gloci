@@ -412,7 +412,7 @@ fn fst_diploid_members_only() {
         record("chr1", 1, "G", &["0/0", "0/1", "1/1", "1/1", "1"]), // non-member haploid
         record("chr1", 2, "G", &["0/0", "1", "1/1", "1/1", "0/0"]), // member haploid
         record("chr1", 3, "G", &["0/0", "1:3", "1/1", "1/1", "0/0"]), // masked below
-        record("chr1", 4, "G", &["0/0", "0/1/1", "1/1", "1/1", "0/0"]), // member triploid
+        record("chr1", 4, "G", &["0/0", "0/0", "1/1", "1/1", "0/1/1"]), // non-member triploid
         record("chr1", 5, "G", &["0/0", "./1", "1/1", "0/1", "0/0"]), // half-called
     ];
     let got = run(&mut p(), &lines, &NO_MASK)["weir.fst"].clone();
@@ -421,14 +421,14 @@ fn fst_diploid_members_only() {
         .skip(1)
         .map(|l| l.split('\t').nth(1).unwrap())
         .collect();
-    assert_eq!(positions, ["1", "5"], "{got}");
+    assert_eq!(positions, ["1", "4", "5"], "{got}");
     let mask = MaskRules {
         min_dp: Some(5),
         ..NO_MASK
     };
     let got = run(&mut p(), &lines, &mask)["weir.fst"].clone();
     let rows: Vec<&str> = got.lines().skip(1).collect();
-    assert_eq!(rows.len(), 3, "{got}");
+    assert_eq!(rows.len(), 4, "{got}");
     // the masked genotype is missing: population 1 has one called sample
     let one = |gts: Vec<Vec<&str>>| {
         let (hom, het) = counts(&gts, 2);
@@ -441,9 +441,32 @@ fn fst_diploid_members_only() {
     );
     // ./1 is left out of the counts, as vcftools does (pi counts its allele)
     assert_eq!(
-        rows[2],
+        rows[3],
         format!("chr1\t5\t{}", one(vec![vec!["0/0"], vec!["1/1", "0/1"]]))
     );
+}
+
+/// A member's genotype of ploidy above two stops Fst, as vcftools does; a
+/// masked one does not, and neither does a sample in no population.
+#[test]
+fn fst_polyploid_member_stops() {
+    let lines = [
+        record("chr1", 1, "G", &["0/0", "0/1", "1/1", "1/1", "0/0"]),
+        // a haploid member before the triploid one does not hide it
+        record("chr1", 2, "G", &["1", "0/0/1:3", "1/1", "1/1", "0/0"]),
+    ];
+    let e = try_run(&mut WeirFst::new(pops(&[2, 2]), None), &lines, &NO_MASK).unwrap_err();
+    assert!(
+        e.starts_with("polyploid genotypes are not supported (vcftools stops here too)"),
+        "{e}"
+    );
+    let mask = MaskRules {
+        min_dp: Some(5),
+        ..NO_MASK
+    };
+    let files = run(&mut WeirFst::new(pops(&[2, 2]), None), &lines, &mask);
+    // the haploid member still drops the second site
+    assert_eq!(files["weir.fst"].lines().count(), 2, "{files:?}");
 }
 
 /// `--min-dp` masks genotypes, which changes the number of called

@@ -31,7 +31,8 @@ fn header(out: &mut Out, line: &str) -> io::Result<()> {
 /// `--site-pi` (`.sites.pi`): per diploid site, the chance that two called
 /// alleles drawn without replacement differ, `Σ c (n − c) / (n (n − 1))`;
 /// `nan` with fewer than two called alleles. A site where a selected,
-/// unmasked sample is not diploid has no row.
+/// unmasked sample is haploid has no row; a genotype of ploidy above two
+/// stops the run, as in vcftools (so for window pi and Tajima's D too).
 pub struct SitePi {
     out: Out,
 }
@@ -60,7 +61,7 @@ impl Stat for SitePi {
         st: Option<&SiteStats>,
     ) -> Result<(), String> {
         let st = stats_of(st)?;
-        if !diploid(st) {
+        if !diploid(st)? {
             return Ok(());
         }
         let n = st.called_alleles;
@@ -188,7 +189,7 @@ impl Stat for WindowPi {
             self.chrom.extend_from_slice(s.chrom);
         }
         self.n_chr = 2 * st.samples;
-        if !diploid(st) {
+        if !diploid(st)? {
             return Ok(());
         }
         let diffs = mismatches(st);
@@ -337,10 +338,13 @@ impl Stat for TajimaD {
             self.chrom.clear();
             self.chrom.extend_from_slice(s.chrom);
         }
+        // The ploidy check comes first: vcftools stops on a genotype of
+        // ploidy above two at any record, biallelic or not.
+        let diploid = diploid(st)?;
         let &[c_ref, _] = st.allele_counts.as_slice() else {
             return Ok(());
         };
-        if !diploid(st) {
+        if !diploid {
             return Ok(());
         }
         let bin = (s.pos as f64 * self.inv) as u64;

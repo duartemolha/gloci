@@ -1,0 +1,1 @@
+vcf popgen input.vcf --out-prefix o --tajima-d 100

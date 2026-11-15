@@ -3675,6 +3675,37 @@ reference = "vcftools --vcf input.vcf --TajimaD 100000000 --out o >/dev/null 2>&
 compare = "exact"
 expected_difference = "#popgen-integer-overflow"
 
+# A genotype of ploidy above two (0/0/0 at 1:10 of the vcf stats fixture)
+# stops every statistic with exit 1 in both tools; gloci writes no file.
+[[case]]
+name = "vcf-popgen-polyploid-site-pi-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/ploidy.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --site-pi"
+reference = "vcftools --vcf input.vcf --site-pi --out o >/dev/null 2>&1"
+compare = "exit-status"
+
+[[case]]
+name = "vcf-popgen-polyploid-window-pi-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/ploidy.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --window-pi 10"
+reference = "vcftools --vcf input.vcf --window-pi 10 --out o >/dev/null 2>&1"
+compare = "exit-status"
+
+[[case]]
+name = "vcf-popgen-polyploid-tajima-d-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/ploidy.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --tajima-d 100"
+reference = "vcftools --vcf input.vcf --TajimaD 100 --out o >/dev/null 2>&1"
+compare = "exit-status"
+
+[[case]]
+name = "vcf-popgen-polyploid-fst-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/ploidy.vcf" }
+aux = ["xtask/diff/inputs/popgen-ploidy-pop1.txt", "xtask/diff/inputs/popgen-ploidy-pop2.txt"]
+gloci = "gloci vcf popgen input.vcf --out-prefix o --fst-pop popgen-ploidy-pop1.txt --fst-pop popgen-ploidy-pop2.txt"
+reference = "vcftools --vcf input.vcf --weir-fst-pop popgen-ploidy-pop1.txt --weir-fst-pop popgen-ploidy-pop2.txt --out o >/dev/null 2>&1"
+compare = "exit-status"
+
 # Weir and Cockerham Fst (D160) vs vcftools --weir-fst-pop: live like the
 # cases above (crates/gloci/tests/vcf_popgen.rs pins the same files, and the
 # summary against the estimates vcftools logs, in plain cargo test). fst.vcf

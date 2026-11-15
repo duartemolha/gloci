@@ -1734,7 +1734,9 @@ comparison of `crates/gloci/tests/vcf_popgen.rs` with the committed vcftools
 - A site counts only when every selected sample that is not masked is diploid:
   one haploid genotype (`1`, or a lone `.`) drops the site from all three
   statistics, unless masking or the sample selection removes that sample. A
-  `./1` counts its called allele.
+  `./1` counts its called allele. A genotype of ploidy above two among those
+  samples (for Fst, among the population members) stops the run with the
+  record's position, exit 1 and no file, as vcftools and `vcf stats` stop.
 - `--site-pi` writes `nan` for a site with fewer than two called alleles.
 - `--window-pi` counts every position of a window that has no polymorphic site
   as monomorphic with all 2N(2N−1) pairs called, missing data or not (N the

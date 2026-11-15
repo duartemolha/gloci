@@ -11,6 +11,7 @@ mod whole;
 pub use engine::{Out, Stat, StatSink, StatWrite, StatsEngine};
 pub use report::{SUMMARY_SCHEMA_VERSION, Summary};
 pub use sample::{Heterozygosity, MissingSample, SampleDepth};
+pub(crate) use site::no_polyploid;
 pub use site::{
     Freq, GenoDepth, Hardy, MissingSite, Singletons, SiteDepth, SiteMeanDepth, SiteQuality,
 };

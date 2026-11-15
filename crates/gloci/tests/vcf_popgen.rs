@@ -714,3 +714,46 @@ fn fst_windows_need_sorted_input() {
     let rows = String::from_utf8(read(&prefix, "weir.fst")).unwrap();
     assert_eq!(rows.lines().count(), 4, "{rows}");
 }
+
+/// A genotype of ploidy above two among the samples a statistic reads stops
+/// the run with the record's position and writes no file, as vcftools and
+/// `vcf stats` do: the selected samples for pi and Tajima's D, the population
+/// members for Fst. Haploid genotypes still only drop their site.
+#[test]
+fn popgen_polyploid_stops_like_vcftools() {
+    let d = tempdir();
+    let ploidy =
+        s(&Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../gloci-vcf/tests/golden/stats/ploidy.vcf"));
+    // s1 is 0/0/0 at 1:10
+    let p12 = s(&plain_file(d.path(), "p12.txt", "s1\ns2\n"));
+    let p2 = s(&plain_file(d.path(), "p2.txt", "s2\n"));
+    let p34 = s(&plain_file(d.path(), "p34.txt", "s3\ns4\n"));
+    let stats: [&[&str]; 4] = [
+        &["--site-pi"],
+        &["--window-pi", "10"],
+        &["--tajima-d", "100"],
+        &["--fst-pop", &p12, "--fst-pop", &p34],
+    ];
+    for stat in stats {
+        let out = tempdir();
+        let prefix = s(&out.path().join("o"));
+        gloci()
+            .args(["vcf", "popgen", &ploidy, "--out-prefix", &prefix])
+            .args(stat)
+            .assert()
+            .code(1)
+            .stderr(contains("1:10: polyploid genotypes are not supported"));
+        assert_eq!(
+            std::fs::read_dir(out.path()).unwrap().count(),
+            0,
+            "{stat:?}: a failed run writes no file"
+        );
+    }
+    // Not among the samples read: the selection removes s1, or s1 is in no
+    // population.
+    popgen(&ploidy, &["--site-pi", "--exclude-samples", "s1"]);
+    let (_o, prefix) = popgen(&ploidy, &["--fst-pop", &p2, "--fst-pop", &p34]);
+    let rows = String::from_utf8(read(&prefix, "weir.fst")).unwrap();
+    assert_eq!(rows.lines().count(), 4, "{rows}");
+}

@@ -18,13 +18,21 @@ fn genos(gt: Option<&dyn GenotypeSource>) -> Result<&dyn GenotypeSource, String>
 
 /// vcftools stops on genotypes of ploidy above two.
 pub(super) fn diploid_only(st: &SiteStats) -> Result<(), String> {
-    if st.polyploid {
-        return Err(
+    no_polyploid(
+        st.polyploid,
+        "or request only depth, quality, --FILTER-summary, --TsTv-summary or --indel-hist",
+    )
+}
+
+/// The stop for a genotype of ploidy above two (`polyploid`), where vcftools
+/// stops too; `hint` is what else the command allows, after "drop or fix
+/// those records, ". Every statistic that stops on them goes through here.
+pub(crate) fn no_polyploid(polyploid: bool, hint: &str) -> Result<(), String> {
+    if polyploid {
+        return Err(format!(
             "polyploid genotypes are not supported (vcftools stops here too); drop or fix those \
-             records, or request only depth, quality, --FILTER-summary, --TsTv-summary or \
-             --indel-hist"
-                .into(),
-        );
+             records, {hint}"
+        ));
     }
     Ok(())
 }

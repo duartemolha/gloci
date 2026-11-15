@@ -586,9 +586,10 @@ Examples:
 
 Sites:
   A site counts only when every selected sample that is not masked is diploid (for Fst, every
-  population member). A half-called genotype (./1) counts its called allele in pi and Tajima's
-  D, and is missing for Fst; a masked genotype is missing. Site and window pi and Fst take every
-  allele of a multi-allelic site; Tajima's D takes biallelic sites only.
+  population member); a genotype of ploidy above two among them is exit 1, as in vcftools. A
+  half-called genotype (./1) counts its called allele in pi and Tajima's D, and is missing for
+  Fst; a masked genotype is missing. Site and window pi and Fst take every allele of a
+  multi-allelic site; Tajima's D takes biallelic sites only.
 
 Window pi:
   Windows are [k*STEP+1, k*STEP+SIZE] on each chromosome. A polymorphic site adds its pairs of
