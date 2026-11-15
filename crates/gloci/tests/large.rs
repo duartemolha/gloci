@@ -991,8 +991,12 @@ fn gen_sam(w: &mut impl Write, bytes: u64, chroms: u64, len: u64, sorted: bool, 
     w.write_all(&buf).unwrap();
 }
 
-/// A BAM of about `bam_bytes` made from generated SAM (removed afterwards); `index` also writes
-/// the `.bai`.
+/// Held while a generated SAM is on disk: it is `SAM_PER_BAM` times the size of its BAM (14 GiB at
+/// the default payload), and two of them at once, with the shared inputs, can fill a CI runner.
+static SAM_ON_DISK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// A BAM of about `bam_bytes` made from generated SAM (removed afterwards, one SAM at a time);
+/// `index` also writes the `.bai`.
 fn make_bam(
     dir: &Path,
     name: &str,
@@ -1001,6 +1005,7 @@ fn make_bam(
     seed: u64,
     index: bool,
 ) -> PathBuf {
+    let _one_sam = SAM_ON_DISK.lock().unwrap_or_else(|e| e.into_inner());
     let sam = dir.join(format!("{name}.sam"));
     let mut f = std::io::BufWriter::new(std::fs::File::create(&sam).unwrap());
     gen_sam(
@@ -1934,6 +1939,7 @@ fn gen_sam_pairs(w: &mut impl Write, bytes: u64, chroms: u64, len: u64, seed: u6
 
 /// A BAM of about `bam_bytes` of proper pairs, indexed.
 fn make_pairs_bam(dir: &Path, name: &str, bam_bytes: u64, seed: u64) -> PathBuf {
+    let _one_sam = SAM_ON_DISK.lock().unwrap_or_else(|e| e.into_inner());
     let sam = dir.join(format!("{name}.sam"));
     let mut f = std::io::BufWriter::new(std::fs::File::create(&sam).unwrap());
     gen_sam_pairs(&mut f, bam_bytes * SAM_PER_BAM, 22, 249_000_000, seed);

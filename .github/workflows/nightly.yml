@@ -12,6 +12,17 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
+      # The tests keep about 23 GiB of generated inputs for the whole run and a generated
+      # SAM of 14 GiB while a BAM is made (see crates/gloci/tests/large.rs), and the build is
+      # several GiB more: more than the runner's free disk as it comes. The job uses none of
+      # the preinstalled SDKs below.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/share/swift /usr/local/share/powershell
+          docker image prune --all --force > /dev/null
+          df -h /
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master (2026-07-16)
         with:
