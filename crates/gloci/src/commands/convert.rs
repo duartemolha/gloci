@@ -1,16 +1,18 @@
-//! `gloci convert`: VCF/BCF, GFF3/GTF and BED12 to BED, and alignments to BED, BEDPE or FASTQ.
+//! `gloci convert`: VCF/BCF, GFF3/GTF and BED12 to BED, alignments to BED, BEDPE or FASTQ, and
+//! features or BEDPE pairs to BAM.
 use super::user_span;
 use crate::Ctx;
 use crate::cli::ConvertArgs;
 use gloci_core::{ChromTable, VariantKind};
 use gloci_io::{
-    Format, Header, InvalidPolicy, IoError, OutFormat, OutputOptions, ReaderOptions, TsvHeader,
-    UsageError, WriterOptions, open_aln_source, open_output, open_reader_noting_empty,
-    open_record_writer, open_tsv_writer, parse_output_spec, refuse_binary_to_tty,
+    BedpeReader, Format, Header, InvalidPolicy, IoError, OutFormat, OutputOptions, ReaderOptions,
+    RecordReader, TsvHeader, UsageError, WriterOptions, open_alignment_writer, open_aln_source,
+    open_output, open_reader, open_reader_noting_empty, open_record_writer, open_tsv_writer,
+    parse_output_spec, refuse_binary_to_tty, resolve_genome,
 };
 use gloci_ops::convert::{
-    BedpeOptions, ConvertOptions, FastqOptions, FastqSink, alignments_to_bedpe,
-    alignments_to_fastq, check_convert, convert,
+    BamOptions, BedpeOptions, ConvertOptions, FastqOptions, FastqSink, alignments_to_bedpe,
+    alignments_to_fastq, bam_header, bedpe_to_bam, check_convert, convert, features_to_bam,
 };
 use std::io::{IsTerminal, Write};
 
@@ -50,6 +52,9 @@ pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
     }
     if a.fastq {
         return run_fastq(ctx, a, &spec);
+    }
+    if a.bam {
+        return run_bam(ctx, a, &spec);
     }
     let to = spec.format.unwrap_or(OutFormat::Bed);
     if !matches!(to, OutFormat::Bed | OutFormat::BedGraph | OutFormat::Tsv) {
@@ -308,5 +313,121 @@ for both, or two files"
             .finish()
             .map_err(|e| e.with_output_name(&name_of(s2)))?;
     }
+    Ok(())
+}
+
+/// What `convert --bam` reads: features, or BEDPE pairs.
+enum BamInput {
+    Features(Box<dyn RecordReader>),
+    Pairs(BedpeReader),
+}
+
+/// `convert --bam` (D167): BED, GFF or VCF features, or BEDPE pairs, as BAM records.
+fn run_bam(ctx: &Ctx, a: &ConvertArgs, spec: &gloci_io::OutputSpec) -> anyhow::Result<()> {
+    if let Some(to) = spec.format
+        && to != OutFormat::Bam
+    {
+        return Err(UsageError(format!(
+            "convert --bam writes BAM, not {}: pick an output ending in .bam (or -O bam); \
+gloci view x.bam -O sam shows it as SAM",
+            to.name()
+        ))
+        .into());
+    }
+    let format = match a.format.format.as_deref() {
+        None => None,
+        Some(f) => Some(f.parse::<Format>().map_err(UsageError)?),
+    };
+    let pairs = format == Some(Format::Bedpe);
+    let lower = a.file.to_ascii_lowercase();
+    if format.is_none() && (lower.ends_with(".bedpe") || lower.ends_with(".bedpe.gz")) {
+        return Err(UsageError(format!(
+            "{} is named as BEDPE, but BEDPE is read only when asked for: add --format bedpe to \
+write two records per pair (bedtools bedpetobam), or --format bed to read it as BED",
+            a.file
+        ))
+        .into());
+    }
+    if pairs && a.bed12 {
+        return Err(UsageError(
+            "--bed12 reads the blocks of BED12 records, and BEDPE has none; drop --bed12".into(),
+        )
+        .into());
+    }
+    let g = a
+        .genome
+        .as_deref()
+        .ok_or_else(|| UsageError("--bam needs -g GENOME for the BAM header".into()))?;
+    let (genome, source) = resolve_genome(g)?;
+    let header = bam_header(&genome, g).map_err(UsageError)?;
+    refuse_binary_to_tty(
+        spec.path.is_none() && std::io::stdout().is_terminal(),
+        OutFormat::Bam,
+        true,
+    )?;
+    let ro = ReaderOptions {
+        accept: gloci_io::Accept::default(),
+        chrom_map: a.chrom_map.load()?,
+        threads: ctx.threads,
+        format: format.filter(|_| !pairs),
+        // bedtools' footprint of a VCF record is its REF bases.
+        vcf_span: gloci_core::VcfSpan::Ref,
+        invalid: if a.invalid.skip_invalid {
+            InvalidPolicy::Skip
+        } else {
+            InvalidPolicy::Fail
+        },
+    };
+    // Open and check the input before the output is created.
+    let input = if pairs {
+        BamInput::Pairs(BedpeReader::open(&a.file, &ro)?)
+    } else {
+        let r = open_reader(&a.file, &ro)?;
+        match r.format() {
+            Format::Bed | Format::BedGraph | Format::Gff3 | Format::Gtf | Format::Vcf => {}
+            f => {
+                return Err(UsageError(format!(
+                    "convert --bam reads BED, GFF or VCF, or BEDPE with --format bedpe; {} is {}",
+                    r.name(),
+                    f.name()
+                ))
+                .into());
+            }
+        }
+        BamInput::Features(r)
+    };
+    let oo = OutputOptions {
+        threads: ctx.threads,
+        level: a.out.compression_level,
+        write_index: a.out.write_index,
+    };
+    let dest = spec.path.as_ref().map_or_else(
+        || "<stdout>".to_string(),
+        |p| gloci_io::memio::display_name(&p.to_string_lossy()),
+    );
+    let named = |e: IoError| e.with_output_name(&dest);
+    let out = open_output(spec, OutFormat::Bam, &oo).map_err(named)?;
+    let wo = WriterOptions {
+        write_header: true,
+        command_line: Some(ctx.command_line.clone()),
+        version: ctx.version,
+    };
+    // The records are SAM lines, which the writer's encoder turns into BAM.
+    let mut w =
+        open_alignment_writer(out, Format::Sam, OutFormat::Bam, &header, &wo).map_err(named)?;
+    let mut chroms = ChromTable::first_appearance();
+    let o = BamOptions {
+        mapq: a.mapq.unwrap_or(255),
+        bed12: a.bed12,
+    };
+    match input {
+        BamInput::Features(r) => {
+            features_to_bam(r, &mut chroms, &header, &source, &o, w.as_mut()).map_err(named)?
+        }
+        BamInput::Pairs(r) => {
+            bedpe_to_bam(r, &mut chroms, &header, &source, o.mapq, w.as_mut()).map_err(named)?
+        }
+    };
+    w.finish().map_err(named)?;
     Ok(())
 }

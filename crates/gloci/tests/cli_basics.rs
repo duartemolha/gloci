@@ -209,6 +209,8 @@ fn long_summary_names_every_tool_of_the_short_one() {
         "tabix",
         "convert2bed",
         "bamtofastq",
+        "bedtobam",
+        "bedpetobam",
         "vcf-concat",
     ];
     let mut missing = Vec::new();

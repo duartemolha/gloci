@@ -2,8 +2,9 @@
 //! of a BED, GFF or VCF file (the bedtools commands of the same names).
 //!
 //! Both read the features in input order and write as they go. They share bedtools' reading of a
-//! record: BED and GFF need the same number of columns on every record, a zero-length BED record
-//! is shown one base wider on each side, and a VCF record is its REF bases.
+//! record, which `convert --bam` uses too: BED and GFF need the same number of columns on every
+//! record, a zero-length BED record is shown one base wider on each side, and a VCF record is its
+//! REF bases.
 
 use gloci_core::ChromTable;
 use gloci_io::{Format, IoError, Loc, RecordBatch, RecordReader, field};
@@ -16,16 +17,22 @@ fn write_err(source: std::io::Error) -> IoError {
     }
 }
 
-/// One feature as the browser commands see it.
-struct Feature<'a> {
-    chrom: &'a [u8],
-    start: i128,
-    end: i128,
+/// One feature as the browser commands (and `convert --bam`) see it.
+pub(crate) struct Feature<'a> {
+    pub(crate) chrom: &'a [u8],
+    pub(crate) start: i128,
+    pub(crate) end: i128,
     /// The name the record gives: BED column 4, the GFF feature type, a VCF record's
     /// `REF/ALT[_ID]`; absent from a BED record of three columns.
-    name: Option<Vec<u8>>,
+    pub(crate) name: Option<Vec<u8>>,
     /// The cells `links` writes after the position.
-    cells: Vec<Vec<u8>>,
+    pub(crate) cells: Vec<Vec<u8>>,
+    /// The strand column is `-` (BED column 6, GFF column 7): bedtools reads nothing else as
+    /// the reverse strand, and a VCF record has none.
+    pub(crate) minus: bool,
+    /// The record as read, without one trailing tab, and its number of columns.
+    pub(crate) raw: &'a [u8],
+    pub(crate) columns: usize,
 }
 
 /// The formats both commands read.
@@ -84,6 +91,9 @@ fn feature<'a>(
                 end: pos - 1 + col(3).len() as i128,
                 name: Some(name),
                 cells,
+                minus: false,
+                raw,
+                columns,
             })
         }
         Format::Gff3 | Format::Gtf => Ok(Feature {
@@ -92,6 +102,9 @@ fn feature<'a>(
             end: i128::from(span.end),
             name: Some(col(2).to_vec()),
             cells: vec![col(2).to_vec(), col(5).to_vec(), col(6).to_vec()],
+            minus: col(6) == b"-",
+            raw,
+            columns,
         }),
         _ => {
             let (mut start, mut end) = (i128::from(span.start), i128::from(span.end));
@@ -110,6 +123,9 @@ fn feature<'a>(
                 end,
                 name: (columns >= 4).then(|| col(3).to_vec()),
                 cells,
+                minus: columns >= 6 && col(5) == b"-",
+                raw,
+                columns,
             })
         }
     }
@@ -117,7 +133,7 @@ fn feature<'a>(
 
 /// Call `each` with every feature of `input`, in order, and `line` (the physical line of the
 /// record) for an error of its own.
-fn for_each_feature(
+pub(crate) fn for_each_feature(
     command: &str,
     mut input: Box<dyn RecordReader>,
     chroms: &mut ChromTable,

@@ -41,20 +41,20 @@ impl From<KindArg> for gloci_core::VariantKind {
     }
 }
 
-/// Convert VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out, BED12 or BAM/CRAM/SAM to BED, or
-/// BAM/CRAM/SAM to FASTQ (bedops convert2bed, vcf2bed, gff2bed, gtf2bed; bedtools bed12tobed6,
-/// bamtobed, bamtofastq).
+/// Convert VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out, BED12 or BAM/CRAM/SAM to BED,
+/// BAM/CRAM/SAM to FASTQ, or BED, GFF, VCF and BEDPE to BAM (bedops convert2bed, vcf2bed,
+/// gff2bed, gtf2bed; bedtools bed12tobed6, bamtobed, bamtofastq, bedtobam, bedpetobam).
 #[derive(Args)]
 #[command(
-    about = "Convert VCF, BAM, GFF to BED/FASTQ (convert2bed, bamtofastq)",
+    about = "Convert to BED/FASTQ/BAM (convert2bed, bedtobam, bedpetobam)",
     long_about
 )]
 #[command(after_long_help = "\
 Examples:
   gloci convert calls.vcf.gz -o calls.bed
-  gloci convert reads.bam --bed12 --score-tag NM --min-mapq 30
   gloci convert reads.byname.bam --bedpe -o pairs.bedpe
   gloci convert reads.byname.bam --fastq -o r1.fq.gz --fastq2 r2.fq.gz
+  gloci convert peaks.bed --bam -g hg38 -o peaks.bam
 
 VCF and BCF:
 VCF/BCF gives one row per record: chrom, start, end, ID, REF, ALT, QUAL, FILTER, with the \
@@ -123,6 +123,23 @@ stdout, or both the same file, the ends are interleaved. --tags (bedtools -tags)
 the second end from the R2 and Q2 tags of the first record of each pair, as they are \
 (--fastq2 is needed). --fastq cannot be used with the options of the BED outputs.
 
+BAM from features:
+--bam (bedtools bedtobam) writes BED, GFF or VCF records as BAM instead of BED, one record \
+per feature in input order, to -o (.bam) or stdout. The header is @HD SO:unsorted and one \
+@SQ per chromosome of -g, in its order, with AS: the -g value as given; a feature on a \
+chromosome -g lacks is exit 1. A record is the name (BED column 4: BED3 is exit 1; the GFF \
+feature type; REF/ALT_ID for VCF), FLAG 16 on the - strand and 0 otherwise, the start, \
+--mapq (default 255), the length as M, and no mate, bases or qualities. A zero-length BED \
+record is one base wider on each side, as bedtools reads it. --bed12 makes each block of a \
+BED12 record an M and each gap an N (adjacent blocks stay separate M operations); a record \
+that is not valid BED12 is exit 1. With --format bedpe (bedtools bedpetobam) each BEDPE \
+pair, which needs a name (column 7), is two records: READ1 (FLAG 65) and READ2 (FLAG 129), \
+plus 16 when the end is on - and 32 when its mate is, and 2 when both ends are on one \
+chromosome with the first on + and the second on -; the mate fields point at the other end \
+and TLEN on both is start2 - start1 (0 across chromosomes). An absent end (. -1 -1) is \
+unmapped (FLAG 4, and 8 on its mate) and placed at its mate. --compression-level 0 is \
+bedtools -ubam.
+
 BED12:
 BED12 with --blocks gives one BED6 row per block; a line that is not valid BED12 (fewer \
 than 12 columns, block counts that disagree, blocks out of order, a last block not ending \
@@ -154,7 +171,8 @@ pub struct ConvertArgs {
     #[arg(long)]
     pub blocks: bool,
     /// BAM, CRAM, SAM: write one BED12 row per read, its blocks cut at N
-    /// (bedtools bamtobed -bed12).
+    /// (bedtools bamtobed -bed12); with --bam: read BED12 blocks as M and the gaps as N
+    /// (bedtools bedtobam -bed12).
     #[arg(long)]
     pub bed12: bool,
     /// BAM, CRAM, SAM with --bed12: the itemRgb column, as R,G,B.
@@ -194,6 +212,21 @@ pub struct ConvertArgs {
     /// each pair (bedtools -tags).
     #[arg(long, requires = "fastq2")]
     pub tags: bool,
+    /// BED, GFF, VCF, or BEDPE with --format bedpe: write the records as BAM instead of BED,
+    /// to -o or stdout (bedtools bedtobam, bedpetobam); needs -g.
+    #[arg(long, requires = "genome", conflicts_with_all = [
+        "split_alleles", "types", "feature", "name_attr", "blocks", "color", "score_tag",
+        "cigar", "split_deletions", "bedpe", "mate1_first", "fastq", "min_mapq",
+        "require_flags", "exclude_flags", "reference", "vcf_span",
+    ])]
+    pub bam: bool,
+    /// With --bam: the references of the BAM header, in their order: a built-in genome
+    /// such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file.
+    #[arg(short, long, value_name = "NAME|FILE", requires = "bam")]
+    pub genome: Option<String>,
+    /// With --bam: the MAPQ of every record, 0 to 255 (default 255; bedtools -mapq).
+    #[arg(long, value_name = "N", requires = "bam")]
+    pub mapq: Option<u8>,
     #[command(flatten)]
     pub align: AlignArgs,
     #[command(flatten)]
