@@ -84,7 +84,10 @@ pub fn run(ctx: &Ctx, a: &TagArgs) -> anyhow::Result<()> {
     let formats: Vec<(&str, Format)> = readers.iter().map(|r| (r.name(), r.format())).collect();
     validate(&o, &formats)?;
     let features = load_features(readers, &o)?;
-    log::info!("holding {} features", features.len());
+    log::info!(
+        "holding {} features",
+        gloci_core::thousands(features.len() as u64)
+    );
     let oo = OutputOptions {
         threads: ctx.threads,
         level: a.out.compression_level,
