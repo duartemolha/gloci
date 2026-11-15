@@ -2143,9 +2143,9 @@ class Pipeline:
             names: The tag holds the names of the features hit (bedtools -names)
             scores: The tag holds the scores of the features hit, as written (bedtools -scores)
             intervals: The tag holds label:chrom:start-end,name,score,strand for each feature hit (bedtools -intervals); needs --labels
-            same_strand: Only features on the read's strand
+            same_strand: Only features on the read's strand; unknown strands never match
             s: alias of same_strand
-            opposite_strand: Only features not on the read's strand; one of unknown strand counts
+            opposite_strand: Only features on the other strand; unknown strands never match
             S: alias of opposite_strand
             fraction: The least share of the read's span a feature must cover, e.g. 0.5 or 50% (default: one base; bedtools -f)
             f: alias of fraction
