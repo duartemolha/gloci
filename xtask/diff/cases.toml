@@ -10359,8 +10359,10 @@ compare = "exact"
 # - duplicate: two identical dupA lines give dupA,dupA (dropping duplicates differs).
 # - half: half of the read is on "half": -f 0.5 tags, -f 0.51 does not. third: 1 base of 3 on
 #   "third": -f 0.3333333334 tags in 32-bit floating point (exact arithmetic does not).
-# - reverse, forward: strand.bed has + - and . copies of one feature, plain.bed a BED3 one: -S
-#   counts . and no strand as the other strand (gloci intersect's rule differs), -s never.
+# - reverse, forward: strand.bed has +, -, . and ? copies of one feature, plain.bed a BED3 one.
+#   gloci's -s and -S take only the + or - copy (unknown strands never match, as in intersect);
+#   bedtools counts ., ? and no strand as the other strand under -S (pinned, #tag-unknown-strand).
+#   Without a strand rule all four copies and the BED3 one count, in both tools.
 # - zero-over, zero-before, zero-after: the zero-length "zero" at 8000 is [7999, 8001) to bedtools:
 #   zero-before (ending at 8000) is tagged and zero-after (starting at 8001) is not; --intervals
 #   writes 7999-8001. zero-at-0 is [-1, 1): tagged, written -1-1.
@@ -10427,6 +10429,8 @@ gloci = "gloci tag input.bam -b strand.bed plain.bed --labels S,P -s -O sam"
 reference = "bedtools tag -i input.bam -files strand.bed plain.bed -labels S P -s | samtools view -h"
 compare = "sam"
 
+# Pinned (#tag-unknown-strand): under -S bedtools counts the ., ? and BED3 copies as the other
+# strand (reverse gets S;P, r1 and its copies P); gloci takes only the - or + copy (S, r1 none).
 [[case]]
 name = "tag-opposite-strand-vs-bedtools"
 input = { file = "xtask/diff/inputs/tag/reads.bam" }
@@ -10434,14 +10438,35 @@ aux = ["xtask/diff/inputs/tag/strand.bed", "xtask/diff/inputs/tag/plain.bed"]
 gloci = "gloci tag input.bam -b strand.bed plain.bed --labels S,P -S -O sam"
 reference = "bedtools tag -i input.bam -files strand.bed plain.bed -labels S P -S | samtools view -h"
 compare = "sam"
+expected_difference = "#tag-unknown-strand"
 
-# plain.bed has no names: its empty part leaves the value ending in ; (plus,dot;).
+# Pinned (#tag-unknown-strand): bedtools writes plus,dot,query; for reverse, gloci plus.
 [[case]]
 name = "tag-opposite-strand-names-vs-bedtools"
 input = { file = "xtask/diff/inputs/tag/reads.bam" }
 aux = ["xtask/diff/inputs/tag/strand.bed", "xtask/diff/inputs/tag/plain.bed"]
 gloci = "gloci tag input.bam -b strand.bed plain.bed --names -S -O sam"
 reference = "bedtools tag -i input.bam -files strand.bed plain.bed -names -S | samtools view -h"
+compare = "sam"
+expected_difference = "#tag-unknown-strand"
+
+# -S where every feature has a strand: the two tools agree (forward reads take big, on -).
+[[case]]
+name = "tag-opposite-strand-known-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/genes.bed"]
+gloci = "gloci tag input.bam -b genes.bed --names -S -O sam"
+reference = "bedtools tag -i input.bam -files genes.bed -names -S | samtools view -h"
+compare = "sam"
+
+# No strand rule: every copy counts; plain.bed has no names, so its empty part leaves the value
+# ending in ; (plus,minus,dot,query;).
+[[case]]
+name = "tag-names-empty-part-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/strand.bed", "xtask/diff/inputs/tag/plain.bed"]
+gloci = "gloci tag input.bam -b strand.bed plain.bed --names -O sam"
+reference = "bedtools tag -i input.bam -files strand.bed plain.bed -names | samtools view -h"
 compare = "sam"
 
 # A BED3 has no names: the tag is added with an empty value (YB:Z:).
@@ -10547,13 +10572,13 @@ reference = "bedtools tag -i reads-cram.bam -files genes.bed -names | samtools v
 compare = "sam"
 
 # gloci's BAM output, decompressed, against bedtools': header text (without @PG), references and
-# record bytes, bin included.
+# record bytes, bin included. -s, where the tools agree on unknown strands (they never match).
 [[case]]
 name = "tag-bam-records-vs-bedtools"
 input = { file = "xtask/diff/inputs/tag/reads.bam" }
 aux = ["xtask/diff/inputs/tag/genes.bed", "xtask/diff/inputs/tag/strand.bed"]
-gloci = "gloci tag input.bam -b genes.bed strand.bed --intervals --labels G,S -S"
-reference = "bedtools tag -i input.bam -files genes.bed strand.bed -intervals -labels G S -S"
+gloci = "gloci tag input.bam -b genes.bed strand.bed --intervals --labels G,S -s"
+reference = "bedtools tag -i input.bam -files genes.bed strand.bed -intervals -labels G S -s"
 compare = "bam"
 
 # SAM in, BAM out (-o's extension, here -O), the records as bedtools writes them from the BAM.

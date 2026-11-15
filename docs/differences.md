@@ -3476,6 +3476,23 @@ cases (must match).
   `tag-fraction-above-one-vs-bedtools`, `tag-names-and-labels-vs-bedtools` and
   `tag-intervals-no-labels-vs-bedtools` (exit status: must differ).
 
+## `tag -s`/`-S`: an unknown strand never matches {#tag-unknown-strand}
+
+- **gloci:** under `-s` (`--same-strand`) a feature hits a read on the read's strand, and under
+  `-S` (`--opposite-strand`) on the other strand. A feature whose strand is unknown (`.`, a BED
+  with fewer than 6 columns, a GFF with `.`, or any text but `+` or `-`) matches neither, and each
+  `-b` file that has such features gets one warning. Without `-s` or `-S` every feature counts.
+- **Old behaviour:** `bedtools tag` compares the strand text with the read's `+` or `-`, so under
+  `-S` a feature of strand `.`, `?` or none is "different" and tags every read it overlaps, on
+  either strand; under `-s` it never matches, as in gloci.
+- **Reason:** one flag means one thing across gloci: `-S` is "on the other strand" in `intersect`,
+  the `pair-*` commands and here (spec section 4.3), and a feature of unknown strand is on neither.
+  Counting it as the opposite strand tags reads by a strand nobody gave, which is a silent wrong
+  answer. Drop `-S` to count such features, or give them a strand.
+- **Pinned by:** `tag-opposite-strand-vs-bedtools` and `tag-opposite-strand-names-vs-bedtools`
+  (must differ), and the test `unknown_strands_match_neither_strand`; `tag-same-strand-vs-bedtools`
+  and `tag-opposite-strand-known-vs-bedtools` (features of known strand) must match.
+
 ## `tag` reads features from BED and GFF only {#tag-feature-formats}
 
 - **gloci:** the `-b` files of `gloci tag` are BED (bedGraph is read as BED), GFF or GTF. A VCF,

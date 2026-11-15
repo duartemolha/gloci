@@ -463,3 +463,79 @@ fn write_index_needs_sorted_reads() {
         .stderr(contains("sort"));
     assert!(!bad.exists());
 }
+
+/// The tag of each read named in `names`, from `gloci tag reads.bam ARGS -O sam` (empty when the
+/// read has none), and the standard error.
+fn tags_of(args: &[&str], names: &[&str]) -> (Vec<String>, String) {
+    let o = gloci()
+        .arg("tag")
+        .arg(f("reads.bam"))
+        .args(args)
+        .args(["-O", "sam"])
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let text = String::from_utf8(o.stdout).unwrap();
+    let tags = names
+        .iter()
+        .map(|n| {
+            let line = records(&text)
+                .into_iter()
+                .find(|l| l.split('\t').next() == Some(n))
+                .unwrap_or_else(|| panic!("no read {n}"));
+            line.split('\t')
+                .skip(11)
+                .filter(|t| t.starts_with("YB:Z:"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect();
+    (tags, String::from_utf8(o.stderr).unwrap())
+}
+
+/// gloci's strand rule (spec section 4.3), not bedtools tag's: a feature whose strand is not +
+/// or - (`.`, `?`, or a BED3 with no strand column) matches neither -s nor -S, and each file that
+/// has such features gets one warning. `reverse` (16) and `forward` (0) sit on four copies of one
+/// feature in strand.bed (+, -, ., ?) and on one in plain.bed (BED3).
+#[test]
+fn unknown_strands_match_neither_strand() {
+    let reads = ["reverse", "forward", "r1"];
+    let files = [f("strand.bed"), f("plain.bed")];
+    let base = ["-b", files[0].as_str(), files[1].as_str(), "--names"];
+    let (same, err) = tags_of(&[&base[..], &["-s"]].concat(), &reads);
+    assert_eq!(same, ["YB:Z:minus", "YB:Z:plus", ""]);
+    assert!(
+        err.contains("strand.bed has records with unknown strand; they never match under -s or -S"),
+        "{err}"
+    );
+    assert!(
+        err.contains("plain.bed has records with unknown strand"),
+        "{err}"
+    );
+    let (opposite, _) = tags_of(&[&base[..], &["-S"]].concat(), &reads);
+    assert_eq!(opposite, ["YB:Z:plus", "YB:Z:minus", ""]);
+    // Without a strand rule every copy counts, and nothing is said about strands.
+    let (any, err) = tags_of(&base, &reads);
+    assert_eq!(
+        any,
+        [
+            "YB:Z:plus,minus,dot,query;",
+            "YB:Z:plus,minus,dot,query;",
+            "YB:Z:"
+        ]
+    );
+    assert!(!err.contains("unknown strand"), "{err}");
+    // Labels: plain.bed (strand unknown) never counts under -S, so no read gets P.
+    let (labels, _) = tags_of(
+        &[
+            "-b",
+            files[0].as_str(),
+            files[1].as_str(),
+            "--labels",
+            "S,P",
+            "-S",
+        ],
+        &reads,
+    );
+    assert_eq!(labels, ["YB:Z:S", "YB:Z:S", ""]);
+}

@@ -14,8 +14,11 @@
 //!   written as it is.
 //! - **Hits.** A feature hits a read when the bases they share, divided by the read's span, reach
 //!   `fraction`; the division and the comparison are in 32-bit floating point, as bedtools
-//!   makes them. Under [`TagStrand::Same`] the feature's strand must be the read's; under
-//!   [`TagStrand::Opposite`] it must not be, so a feature of unknown strand (`.`, or none) passes.
+//!   makes them. Under [`TagStrand::Same`] the feature's strand must be the read's, under
+//!   [`TagStrand::Opposite`] the other one; a feature of unknown strand (`.`, no strand column, any
+//!   text but `+` or `-`) matches neither, as in `intersect` (spec section 4.3), and its file gets
+//!   one warning. bedtools tag counts such a feature as on the opposite strand
+//!   (`#tag-unknown-strand`).
 //! - **Order.** bedtools finds the features of one file by walking its bins (16 kb bins, then
 //!   bins 8 times larger, 7 levels), so a file's hits come in bin order: finer levels first, then
 //!   by bin, then in the file's order. [`bin_key`] is that place.
@@ -52,9 +55,9 @@ pub enum TagValue {
 pub enum TagStrand {
     #[default]
     Any,
-    /// The feature's strand is the read's.
+    /// The feature's strand is the read's; a feature of unknown strand never matches.
     Same,
-    /// The feature's strand is not the read's (a feature of unknown strand passes).
+    /// The feature's strand is the other one; a feature of unknown strand never matches.
     Opposite,
 }
 
@@ -224,6 +227,7 @@ pub fn load_features(
     let mut text: Vec<u8> = Vec::new();
     for (file, mut r) in readers.into_iter().enumerate() {
         let gff = matches!(r.format(), Format::Gff3 | Format::Gtf);
+        let mut unknown_strand = false;
         let (mut batch, mut max) = (RecordBatch::default(), 1);
         loop {
             batch.clear();
@@ -265,6 +269,7 @@ them, or tag in several passes",
                     file: file as u16,
                     strand: m.strand,
                 });
+                unknown_strand |= m.strand == Strand::Unknown;
                 entries.push(IndexEntry {
                     chrom: m.chrom,
                     span: Interval {
@@ -279,6 +284,12 @@ them, or tag in several passes",
             }
         }
         log_reader(r.as_ref());
+        if unknown_strand && o.strand != TagStrand::Any {
+            log::warn!(
+                "{} has records with unknown strand; they never match under -s or -S",
+                r.name()
+            );
+        }
     }
     text.shrink_to_fit();
     feats.shrink_to_fit();
@@ -331,7 +342,7 @@ impl Features {
             let strand_ok = match o.strand {
                 TagStrand::Any => true,
                 TagStrand::Same => f.strand == strand,
-                TagStrand::Opposite => f.strand != strand,
+                TagStrand::Opposite => f.strand != Strand::Unknown && f.strand != strand,
             };
             strand_ok && shared as f32 / len >= o.fraction
         }));

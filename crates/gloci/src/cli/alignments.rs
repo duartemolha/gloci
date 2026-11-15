@@ -469,8 +469,9 @@ span counts M, D, N, = and X bases, so a feature inside an intron or a deletion 
 read and one under a soft clip does not; a read with no such base spans nothing and is never \
 tagged. The shared bases are divided by the span and compared with --fraction (default: one \
 base) in 32-bit floating point, as bedtools compares them. -s keeps the features on the read's \
-strand and -S those not on it, so under -S a feature of unknown strand (. or no strand column) \
-counts, as in bedtools tag; intersect's -S never matches one.
+strand and -S those on the other strand. A feature of unknown strand (., no strand column, or \
+any text but + or -) matches neither, as in intersect, and its file gets one warning; bedtools \
+tag counts it as on the other strand under -S.
 
 Features:
 BED (and bedGraph, read as BED) gives the name, score and strand of columns 4, 5 and 6, and a \
@@ -523,10 +524,10 @@ pub struct TagArgs {
     /// -intervals); needs --labels.
     #[arg(long)]
     pub intervals: bool,
-    /// Only features on the read's strand.
+    /// Only features on the read's strand; unknown strands never match.
     #[arg(short = 's', long = "same-strand", conflicts_with = "opposite_strand")]
     pub same_strand: bool,
-    /// Only features not on the read's strand; one of unknown strand counts.
+    /// Only features on the other strand; unknown strands never match.
     #[arg(short = 'S', long = "opposite-strand")]
     pub opposite_strand: bool,
     /// The least share of the read's span a feature must cover, e.g. 0.5 or 50% (default: one

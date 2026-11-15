@@ -1,1 +1,1 @@
-tag input.bam -b genes.bed strand.bed --intervals --labels G,S -S
+tag input.bam -b genes.bed strand.bed --intervals --labels G,S -s
