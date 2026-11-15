@@ -66,20 +66,6 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   base is in the region: must differ) and `view-region-ref-inclusive-vs-tabix`
   (`--vcf-span ref`: must match).
 
-## Default karyotype chromosome order {#karyotype-chromosome-order}
-
-- **gloci:** without `-g` and without a VCF/BCF header that lists contigs,
-  chromosomes are ordered `chr1, chr2 ... chr22, chrX, chrY, chrM`.
-  `--chrom-order lex` selects byte order.
-- **Old behaviour:** `sort-bed`, `bedtools sort`, and `LC_ALL=C sort -k1,1` order
-  lexicographically: `chr1, chr10, chr11 ... chr2`.
-- **Reason:** karyotype order is what people expect from a sorted genome file,
-  and a file sorted either way is detected, so a mismatch is an error with a
-  hint, never a silently wrong answer. See [migration.md](migration.md) for the
-  two fixes (re-sort once, or pass `--chrom-order lex` everywhere).
-- **Pinned by:** `sort-bed-karyotype-default-vs-bedtools-sort` (must differ).
-  Every other sort case passes `--chrom-order lex` or `-g`, and matches.
-
 ## Sort tie order {#sort-tie-order}
 
 - **gloci:** `sort` orders by chromosome, start and end. Records that tie on
@@ -996,8 +982,8 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 ## `convert` keeps the input order {#convert-input-order}
 
 - **gloci:** `convert` writes one row per input record in the input's own
-  order and does not sort; pipe it to `gloci sort` (with `--chrom-order lex
-  --full-key` for `sort-bed`'s order) for sorted BED.
+  order and does not sort; pipe it to `gloci sort` (with `--full-key`
+  for `sort-bed`'s order) for sorted BED.
 - **Old behaviour:** `convert2bed` and its wrappers (`gtf2bed`, `gff2bed`,
   `vcf2bed` ...) sort their output with `sort-bed` unless `--do-not-sort`, so
   the gene, transcript and exon rows of a GTF come out by start and end.

@@ -583,7 +583,7 @@ reference = \"bedtools merge -i input.bed\"\n{extra}"
             "sort-bed-vs-sort-bed",
             "sort-bed-vs-bedtools-sort",
             "sort-bed-vs-gnu-sort",
-            "sort-bed-karyotype-default-vs-bedtools-sort",
+            "sort-bed-default-vs-bedtools-sort",
             "sort-bed-vs-bedtools-sort-genome",
             "sort-vcf-vs-bcftools-sort",
             "view-region-ref-inclusive-vs-tabix",

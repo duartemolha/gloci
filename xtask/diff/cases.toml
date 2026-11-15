@@ -61,12 +61,11 @@ reference = "LC_ALL=C sort -k1,1 -k2,2n -s input.bed"
 compare = "exact"
 
 [[case]]
-name = "sort-bed-karyotype-default-vs-bedtools-sort"
+name = "sort-bed-default-vs-bedtools-sort"
 input = { file = "xtask/diff/inputs/distinct-starts.bed" }
 gloci = "gloci sort input.bed"
 reference = "bedtools sort -i input.bed"
 compare = "exact"
-expected_difference = "#karyotype-chromosome-order"
 
 [[case]]
 name = "sort-bed-vs-bedtools-sort-genome"
