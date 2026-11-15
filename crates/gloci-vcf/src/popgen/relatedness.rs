@@ -179,7 +179,7 @@ fn count_site(used: &mut u64, flag: &str) -> Result<(), String> {
     if *used == u64::from(u32::MAX) {
         return Err(format!(
             "{flag} counts the sites of each pair in 32 bits, and this input has more than \
-             {} sites it uses; split it with --region and add the counts",
+             {} sites it uses; use fewer sites, with --region or the site filters",
             u32::MAX
         ));
     }
@@ -207,10 +207,10 @@ fn header(out: &mut Out, line: &str) -> io::Result<()> {
 /// ordered pair of selected samples, itself included, in header order, the
 /// sites where both are heterozygous (`N_AaAa`), where they are homozygous
 /// for different alleles (`N_AAaa`), each one's heterozygous sites (`N1_Aa`,
-/// `N2_Aa`) and φ = (N_AaAa − 2 N_AAaa) / (N1_Aa + N2_Aa). A pair without a
-/// heterozygous site is `nan`, or `-inf` when they are opposite homozygotes
-/// somewhere. Counts print as vcftools prints a double (`1e+06` from a
-/// million).
+/// `N2_Aa`) and φ = (N_AaAa − 2 N_AAaa) / (N1_Aa + N2_Aa). A pair neither of
+/// which is heterozygous anywhere is `nan`, or `-inf` when they are opposite
+/// homozygotes somewhere. Counts print as vcftools prints a double (`1e+06`
+/// from a million).
 pub struct RelatednessManichaikul {
     samples: Vec<(usize, String)>,
     threads: NonZeroUsize,

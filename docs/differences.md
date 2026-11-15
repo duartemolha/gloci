@@ -1957,7 +1957,7 @@ comparison of `crates/gloci/tests/vcf_popgen.rs` with the committed vcftools
 - `--relatedness2` writes every ordered pair, a sample with itself included,
   so each pair twice; `--relatedness` writes each pair once, a sample with
   itself first. A pair with nothing to divide by is `nan` (called together at
-  no site in `--relatedness`, heterozygous at no site in `--relatedness2`),
+  no site in `--relatedness`, neither heterozygous anywhere in `--relatedness2`),
   and `-inf` in `--relatedness2` for two samples heterozygous nowhere that are
   opposite homozygotes somewhere. The counts of `--relatedness2` print as
   vcftools prints a double (`1e+06` from a million).
