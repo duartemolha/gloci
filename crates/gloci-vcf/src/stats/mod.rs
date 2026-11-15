@@ -4,6 +4,7 @@ mod engine;
 mod report;
 mod sample;
 mod site;
+mod sorted;
 mod tally;
 mod whole;
 
@@ -13,6 +14,7 @@ pub use sample::{Heterozygosity, MissingSample, SampleDepth};
 pub use site::{
     Freq, GenoDepth, Hardy, MissingSite, Singletons, SiteDepth, SiteMeanDepth, SiteQuality,
 };
+pub(crate) use sorted::SortedInput;
 pub use tally::{SampleTally, TallyWants};
 pub use whole::{FilterSummary, IndelHist, SnpDensity, TsTv};
 

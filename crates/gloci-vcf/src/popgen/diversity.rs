@@ -3,11 +3,11 @@
 //! computes them. Products vcftools takes in 32-bit integers are taken in
 //! u64 here, so they never wrap.
 
+use super::diploid;
 use super::window::OpenWindows;
-use super::{SortedInput, diploid};
 use crate::filter::SiteView;
 use crate::gt::GenotypeSource;
-use crate::stats::{Out, SiteStats, Stat, StatSink};
+use crate::stats::{Out, SiteStats, SortedInput, Stat, StatSink};
 use gloci_core::cfmt::{write_g6, write_u64};
 use std::io;
 
@@ -127,7 +127,7 @@ impl WindowPi {
     pub fn new(size: u64, step: u64) -> WindowPi {
         WindowPi {
             windows: OpenWindows::new(size, step),
-            sorted: SortedInput::new("--window-pi"),
+            sorted: SortedInput::new("--window-pi", "statistic"),
             chrom: Vec::new(),
             n_chr: 0,
             out: Out::closed(),
@@ -269,7 +269,7 @@ impl TajimaD {
             a1,
             e1: c1 / a1,
             e2: c2 / (a1 * a1 + a2),
-            sorted: SortedInput::new("--tajima-d"),
+            sorted: SortedInput::new("--tajima-d", "statistic"),
             chrom: Vec::new(),
             cur: None,
             started: false,

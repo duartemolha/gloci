@@ -612,6 +612,32 @@ fn snp_density_streams_and_requires_sorted_input() {
     assert!(e.contains("run: gloci sort FILE"), "{e}");
     let e = run1(&mk(&["1\t100", "1\t10"]), 5).unwrap_err();
     assert!(e.contains("goes backwards"), "{e}");
+    // The whole messages, as --snp-density has always written them.
+    let e = run1(&mk(&["1\t10", "2\t10", "1\t20"]), 5).unwrap_err();
+    assert!(
+        e.ends_with(
+            "--snp-density needs input sorted by chromosome and position, but the chromosome \
+             reappears at 1:20; run: gloci sort FILE (a streamed density cannot merge rows it \
+             already wrote)"
+        ),
+        "{e}"
+    );
+    let e = run1(&mk(&["1\t100", "1\t10"]), 5).unwrap_err();
+    assert!(
+        e.ends_with(
+            "--snp-density needs input sorted by chromosome and position, but a position goes \
+             backwards at 1:10; run: gloci sort FILE (a streamed density cannot merge rows it \
+             already wrote)"
+        ),
+        "{e}"
+    );
+    // The order is checked on the bin: a position may go back within one, and
+    // the position before it is the only one a record is deduplicated against.
+    let (f, _) = run1(&mk(&["1\t104", "1\t101", "1\t101", "1\t104", "1\t106"]), 5).unwrap();
+    assert_eq!(
+        String::from_utf8(f["snpden"].clone()).unwrap(),
+        "CHROM\tBIN_START\tSNP_COUNT\tVARIANTS/KB\n1\t100\t3\t600\n1\t105\t1\t200\n"
+    );
     // An empty input writes the header only.
     let (f, _) = run1(&mk(&[]), 5).unwrap();
     assert_eq!(

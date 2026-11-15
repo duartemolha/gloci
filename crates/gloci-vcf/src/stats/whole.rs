@@ -4,11 +4,12 @@
 //! `SnpDensity` streams its rows and keeps only the current bin.
 
 use super::engine::{Out, Stat, StatSink};
+use super::sorted::SortedInput;
 use crate::filter::SiteView;
 use crate::gt::GenotypeSource;
 use crate::stats::SiteStats;
 use gloci_core::cfmt::{write_g6, write_i64, write_u64};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::io;
 
 /// Substitution models in output order; the index is `pair_index`.
@@ -324,9 +325,10 @@ pub struct SnpDensity {
     bin: u64,
     /// The previous record's place: vcftools counts one SNP per position.
     last: (Vec<u8>, u64),
+    /// The order check, on the bin: positions may go back within one.
+    sorted: SortedInput,
     /// The chromosome being counted, its current bin and that bin's count.
     cur: Option<(Vec<u8>, u64, u64)>,
-    done: HashSet<Vec<u8>>,
     out: Out,
 }
 
@@ -337,8 +339,8 @@ impl SnpDensity {
         SnpDensity {
             bin,
             last: (Vec::new(), u64::MAX),
+            sorted: SortedInput::new("--snp-density", "density"),
             cur: None,
-            done: HashSet::new(),
             out: Out::closed(),
         }
     }
@@ -379,38 +381,29 @@ impl Stat for SnpDensity {
         self.last.0.extend_from_slice(s.chrom);
         self.last.1 = s.pos;
         let bin = s.pos / self.bin * self.bin;
-        let same = self.cur.as_ref().is_some_and(|c| c.0 == s.chrom);
-        if same {
-            let (_, cur_bin, count) = self.cur.as_mut().expect("same chromosome");
-            if bin < *cur_bin {
-                return Err(sorted_msg(s, "a position goes backwards"));
+        if self.sorted.check_key(s, bin)? {
+            if let Some((_, cur_bin, count)) = self.cur.as_ref() {
+                let (cur_bin, count) = (*cur_bin, *count);
+                self.emit(cur_bin, count)?;
             }
-            if bin == *cur_bin {
-                *count += 1;
-                return Ok(());
-            }
-            let (cur_bin, count) = (*cur_bin, *count);
-            self.emit(cur_bin, count)?;
-            let mut gap = cur_bin + self.bin;
-            while gap < bin {
-                self.emit(gap, 0)?;
-                gap += self.bin;
-            }
-            let c = self.cur.as_mut().expect("same chromosome");
-            c.1 = bin;
-            c.2 = 1;
+            self.cur = Some((s.chrom.to_vec(), bin, 1));
             return Ok(());
         }
-        if self.done.contains(s.chrom) {
-            return Err(sorted_msg(s, "the chromosome reappears"));
+        let (_, cur_bin, count) = self.cur.as_mut().expect("same chromosome");
+        if bin == *cur_bin {
+            *count += 1;
+            return Ok(());
         }
-        if let Some((_, cur_bin, count)) = self.cur.as_ref() {
-            let (cur_bin, count) = (*cur_bin, *count);
-            self.emit(cur_bin, count)?;
-            let name = self.cur.take().expect("current").0;
-            self.done.insert(name);
+        let (cur_bin, count) = (*cur_bin, *count);
+        self.emit(cur_bin, count)?;
+        let mut gap = cur_bin + self.bin;
+        while gap < bin {
+            self.emit(gap, 0)?;
+            gap += self.bin;
         }
-        self.cur = Some((s.chrom.to_vec(), bin, 1));
+        let c = self.cur.as_mut().expect("same chromosome");
+        c.1 = bin;
+        c.2 = 1;
         Ok(())
     }
     fn finish(&mut self) -> io::Result<()> {
@@ -426,13 +419,4 @@ impl Stat for SnpDensity {
     fn ext(&self) -> &'static str {
         "snpden"
     }
-}
-
-fn sorted_msg(s: &SiteView, why: &str) -> String {
-    format!(
-        "--snp-density needs input sorted by chromosome and position, but {why} at {}:{}; \
-         run: gloci sort FILE (a streamed density cannot merge rows it already wrote)",
-        String::from_utf8_lossy(s.chrom),
-        s.pos
-    )
 }
