@@ -1,0 +1,41 @@
+<html>
+	<body>
+<title>input.vcf</title>
+<br>Firefox users: Press and hold the "apple" or "alt" key and click link to open in new tab.
+<p style="font-family:courier">
+<table border="0" align="justify"
+<h3>BED Entries from: stdin </h3>
+<tr>
+	<td>
+		<a href=http://genome.ucsc.edu/cgi-bin/hgTracks?org=human&db=hg18&position=chr1:99-100>chr1:100-100</a>
+	</td>
+</tr>
+<tr>
+	<td>
+		<a href=http://genome.ucsc.edu/cgi-bin/hgTracks?org=human&db=hg18&position=chr1:199-201>chr1:200-201</a>
+	</td>
+</tr>
+<tr>
+	<td>
+		<a href=http://genome.ucsc.edu/cgi-bin/hgTracks?org=human&db=hg18&position=chr1:299-300>chr1:300-300</a>
+	</td>
+</tr>
+<tr>
+	<td>
+		<a href=http://genome.ucsc.edu/cgi-bin/hgTracks?org=human&db=hg18&position=chr1:399-400>chr1:400-400</a>
+	</td>
+</tr>
+<tr>
+	<td>
+		<a href=http://genome.ucsc.edu/cgi-bin/hgTracks?org=human&db=hg18&position=chr1:499-503>chr1:500-503</a>
+	</td>
+</tr>
+<tr>
+	<td>
+		<a href=http://genome.ucsc.edu/cgi-bin/hgTracks?org=human&db=hg18&position=chr2:9-10>chr2:10-10</a>
+	</td>
+</tr>
+</table>
+</p>
+	</body>
+</html>

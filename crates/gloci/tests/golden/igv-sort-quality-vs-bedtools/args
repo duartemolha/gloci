@@ -1,0 +1,1 @@
+igv --sort quality input.bed

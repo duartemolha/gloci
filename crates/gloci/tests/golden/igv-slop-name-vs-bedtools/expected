@@ -1,0 +1,15 @@
+snapshotDirectory ./
+goto chr2:850-1650
+snapshot chr2_1000_1500_geneB_slop150.png
+goto chr1:-50-350
+snapshot chr1_100_200_foo/bar x_slop150.png
+goto chrM:-151-151
+snapshot chrM_-1_1_atstart_slop150.png
+goto chr1:4849-5151
+snapshot chr1_4999_5001_point_slop150.png
+goto chr10:2147483498-2147483850
+snapshot chr10_2147483648_2147483700_big_slop150.png
+goto chr1:-150-200
+snapshot chr1_0_50_edge_slop150.png
+goto chrX:150-550
+snapshot chrX_300_400_._slop150.png

@@ -1,0 +1,16 @@
+snapshotDirectory ./
+load run.xml
+goto chr2:1000-1500
+snapshot chr2_1000_1500.png
+goto chr1:100-200
+snapshot chr1_100_200.png
+goto chrM:-1-1
+snapshot chrM_-1_1.png
+goto chr1:4999-5001
+snapshot chr1_4999_5001.png
+goto chr10:2147483648-2147483700
+snapshot chr10_2147483648_2147483700.png
+goto chr1:0-50
+snapshot chr1_0_50.png
+goto chrX:300-400
+snapshot chrX_300_400.png

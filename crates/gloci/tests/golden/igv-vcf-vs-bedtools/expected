@@ -1,0 +1,13 @@
+snapshotDirectory ./
+goto chr1:99-100
+snapshot chr1_99_100.png
+goto chr1:199-201
+snapshot chr1_199_201.png
+goto chr1:299-300
+snapshot chr1_299_300.png
+goto chr1:399-400
+snapshot chr1_399_400.png
+goto chr1:499-503
+snapshot chr1_499_503.png
+goto chr2:9-10
+snapshot chr2_9_10.png

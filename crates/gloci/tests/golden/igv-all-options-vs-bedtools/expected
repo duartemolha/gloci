@@ -1,0 +1,30 @@
+snapshotDirectory /data/shots
+load run.xml
+goto chr2:975-1525
+sort position
+collapse
+snapshot chr2_1000_1500_geneB_slop25.svg
+goto chr1:75-225
+sort position
+collapse
+snapshot chr1_100_200_foo/bar x_slop25.svg
+goto chrM:-26-26
+sort position
+collapse
+snapshot chrM_-1_1_atstart_slop25.svg
+goto chr1:4974-5026
+sort position
+collapse
+snapshot chr1_4999_5001_point_slop25.svg
+goto chr10:2147483623-2147483725
+sort position
+collapse
+snapshot chr10_2147483648_2147483700_big_slop25.svg
+goto chr1:-25-75
+sort position
+collapse
+snapshot chr1_0_50_edge_slop25.svg
+goto chrX:275-425
+sort position
+collapse
+snapshot chrX_300_400_._slop25.svg

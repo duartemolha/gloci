@@ -1,0 +1,27 @@
+<html>
+	<body>
+<title>input.bed</title>
+<br>Firefox users: Press and hold the "apple" or "alt" key and click link to open in new tab.
+<p style="font-family:courier">
+<table border="0" align="justify"
+<h3>BED Entries from: stdin </h3>
+<tr>
+	<td>
+		<a href=http://genome.ucsc.edu/cgi-bin/hgTracks?org=human&db=hg18&position=chr1:100-200>chr1:101-200</a>
+	</td>
+	<td>
+n1
+	</td>
+</tr>
+<tr>
+	<td>
+		<a href=http://genome.ucsc.edu/cgi-bin/hgTracks?org=human&db=hg18&position=chr2:5-9>chr2:6-9</a>
+	</td>
+	<td>
+n2
+	</td>
+</tr>
+</table>
+</p>
+	</body>
+</html>

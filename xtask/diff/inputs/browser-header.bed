@@ -1,0 +1,7 @@
+#comment
+track name=peaks
+browser position chr1:1-1000
+
+chr1	100	200	n1
+
+chr2	5	9	n2

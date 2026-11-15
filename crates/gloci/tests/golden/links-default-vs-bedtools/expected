@@ -1,0 +1,109 @@
+<html>
+	<body>
+<title>input.bed</title>
+<br>Firefox users: Press and hold the "apple" or "alt" key and click link to open in new tab.
+<p style="font-family:courier">
+<table border="0" align="justify"
+<h3>BED Entries from: stdin </h3>
+<tr>
+	<td>
+		<a href=http://genome.ucsc.edu/cgi-bin/hgTracks?org=human&db=hg18&position=chr2:1000-1500>chr2:1001-1500</a>
+	</td>
+	<td>
+geneB
+	</td>
+	<td>
+10
+	</td>
+	<td>
+-
+	</td>
+</tr>
+<tr>
+	<td>
+		<a href=http://genome.ucsc.edu/cgi-bin/hgTracks?org=human&db=hg18&position=chr1:100-200>chr1:101-200</a>
+	</td>
+	<td>
+foo/bar x
+	</td>
+	<td>
+5
+	</td>
+	<td>
++
+	</td>
+</tr>
+<tr>
+	<td>
+		<a href=http://genome.ucsc.edu/cgi-bin/hgTracks?org=human&db=hg18&position=chrM:-1-1>chrM:0-1</a>
+	</td>
+	<td>
+atstart
+	</td>
+	<td>
+.
+	</td>
+	<td>
+.
+	</td>
+</tr>
+<tr>
+	<td>
+		<a href=http://genome.ucsc.edu/cgi-bin/hgTracks?org=human&db=hg18&position=chr1:4999-5001>chr1:5000-5001</a>
+	</td>
+	<td>
+point
+	</td>
+	<td>
+0
+	</td>
+	<td>
++
+	</td>
+</tr>
+<tr>
+	<td>
+		<a href=http://genome.ucsc.edu/cgi-bin/hgTracks?org=human&db=hg18&position=chr10:2147483648-2147483700>chr10:2147483649-2147483700</a>
+	</td>
+	<td>
+big
+	</td>
+	<td>
+1
+	</td>
+	<td>
++
+	</td>
+</tr>
+<tr>
+	<td>
+		<a href=http://genome.ucsc.edu/cgi-bin/hgTracks?org=human&db=hg18&position=chr1:0-50>chr1:1-50</a>
+	</td>
+	<td>
+edge
+	</td>
+	<td>
+3
+	</td>
+	<td>
+-
+	</td>
+</tr>
+<tr>
+	<td>
+		<a href=http://genome.ucsc.edu/cgi-bin/hgTracks?org=human&db=hg18&position=chrX:300-400>chrX:301-400</a>
+	</td>
+	<td>
+.
+	</td>
+	<td>
+0
+	</td>
+	<td>
+.
+	</td>
+</tr>
+</table>
+</p>
+	</body>
+</html>

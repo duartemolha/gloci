@@ -1,0 +1,1 @@
+igv --path /data/shots --session run.xml --sort position --collapse --name --slop 25 --image svg input.bed

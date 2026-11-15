@@ -1,0 +1,1 @@
+igv --name --slop 150 input.bed

@@ -1,0 +1,7 @@
+chr2	1000	1500	geneB	10	-
+chr1	100	200	foo/bar x	5	+
+chrM	0	0	atstart	.	.
+chr1	5000	5000	point	0	+
+chr10	2147483648	2147483700	big	1	+
+chr1	0	50	edge	3	-
+chrX	300	400	.	0	.

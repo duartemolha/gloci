@@ -1,0 +1,1 @@
+igv --sort sample input.bed

@@ -1,0 +1,3 @@
+snapshotDirectory ./
+goto chr1:99-100
+snapshot chr1_99_100_A/G_rs1.png

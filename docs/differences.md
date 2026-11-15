@@ -3121,3 +3121,32 @@ cases (must match).
   intersect, run `gloci view` twice (`gloci view x.bam chr1 | gloci view - --regions-file
   targets.bed`).
 - **Pinned by:** `view-count-regions-union-vs-samtools` (the counts must differ).
+
+## `igv` checks `--image`, `--sort` and `--slop` {#igv-option-values}
+
+- **gloci:** `gloci igv --image` takes `png`, `eps` or `svg`, and `--slop` takes a whole
+  number from 0 to 2147483647. Anything else is a usage error (exit 2). `--sort` takes the
+  six keys bedtools lists (`base`, `position`, `strand`, `quality`, `sample`, `readGroup`,
+  spelt that way) and a usage error otherwise.
+- **Old behaviour:** `bedtools igv -img jpg` writes `.jpg` image names and exits 0, and
+  `-slop abc` reads the text as 0 and exits 0. A negative `-slop` and an unknown `-sort` print
+  the usage text and exit 1.
+- **Reason:** IGV writes only those three image types, so another name is a script that fails
+  inside IGV, and a slop that is not a number is a typing mistake the script would hide.
+- **Pinned by:** `igv-image-jpg-vs-bedtools` and `igv-slop-text-vs-bedtools` (exit status:
+  must differ).
+
+## `igv` and `links` write nothing when they cannot recognise the input {#browser-unrecognised-input}
+
+- **gloci:** a file whose first record is not tab-delimited BED, GFF or VCF (space-separated
+  columns, a start that is not a number) is an error before anything is written. An error
+  after the first record leaves what was written before it, as bedtools does.
+- **Old behaviour:** `bedtools igv` has already written `snapshotDirectory ./` and
+  `bedtools links` the top of the page when it finds the first record unreadable, and both
+  exit 1.
+- **Reason:** a script or page that stops after its first line looks complete to a reader
+  that ignores the exit status.
+- **Pinned by:** `igv-unrecognised-input-stdout-vs-bedtools` and
+  `links-unrecognised-input-stdout-vs-bedtools` (live only: the stdout of a failed run is
+  not part of a committed golden), and the test `unrecognised_input_writes_nothing` in
+  `crates/gloci/tests/browser.rs`.

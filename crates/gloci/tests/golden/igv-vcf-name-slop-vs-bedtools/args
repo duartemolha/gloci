@@ -1,0 +1,1 @@
+igv --name --slop 3 input.vcf

@@ -1,0 +1,1 @@
+igv --slop 10 input.bed

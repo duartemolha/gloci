@@ -1,0 +1,7 @@
+snapshotDirectory ./
+goto chr1:100-200
+snapshot chr1_100_200.png
+goto chr1:0-50
+snapshot chr1_0_50.png
+goto chr2:100-100
+snapshot chr2_100_100.png

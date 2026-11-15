@@ -1,0 +1,13 @@
+snapshotDirectory ./
+goto chr1:96-103
+snapshot chr1_99_100_A/G_rs1_slop3.png
+goto chr1:196-204
+snapshot chr1_199_201_AT/A_slop3.png
+goto chr1:296-303
+snapshot chr1_299_300_G/<DEL>_rs3_slop3.png
+goto chr1:396-403
+snapshot chr1_399_400_C/G,T_slop3.png
+goto chr1:496-506
+snapshot chr1_499_503_ACGT/AC_indel_slop3.png
+goto chr2:6-13
+snapshot chr2_9_10_A/._slop3.png

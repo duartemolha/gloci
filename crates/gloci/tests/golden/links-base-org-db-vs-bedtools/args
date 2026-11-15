@@ -1,0 +1,1 @@
+links --base http://mirror.example.edu --org mouse --db mm9 input.bed

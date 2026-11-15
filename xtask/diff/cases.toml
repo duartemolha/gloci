@@ -9274,3 +9274,445 @@ gloci = "gloci view --count input.bam chr1 --regions-file view-targets.bed"
 reference = "samtools view -c -X -L view-targets.bed input.bam flags.bam.bai chr1"
 compare = "exact"
 expected_difference = "#view-regions-union"
+
+# igv and links (bedtools 2.31.1). The inputs are named browser-*; the traps they set are
+# listed in docs/differences.md next to the commands' differences.
+
+[[case]]
+name = "igv-default-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-features.bed" }
+gloci = "gloci igv input.bed"
+reference = "bedtools igv -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "igv-all-options-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-features.bed" }
+gloci = "gloci igv --path /data/shots --session run.xml --sort position --collapse --name --slop 25 --image svg input.bed"
+reference = "bedtools igv -i input.bed -path /data/shots -sess run.xml -sort position -clps -name -slop 25 -img svg"
+compare = "exact"
+
+[[case]]
+name = "igv-name-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-features.bed" }
+gloci = "gloci igv --name input.bed"
+reference = "bedtools igv -i input.bed -name"
+compare = "exact"
+
+[[case]]
+name = "igv-slop-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-features.bed" }
+gloci = "gloci igv --slop 150 input.bed"
+reference = "bedtools igv -i input.bed -slop 150"
+compare = "exact"
+
+[[case]]
+name = "igv-slop-name-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-features.bed" }
+gloci = "gloci igv --name --slop 150 input.bed"
+reference = "bedtools igv -i input.bed -name -slop 150"
+compare = "exact"
+
+[[case]]
+name = "igv-collapse-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-features.bed" }
+gloci = "gloci igv --collapse input.bed"
+reference = "bedtools igv -i input.bed -clps"
+compare = "exact"
+
+[[case]]
+name = "igv-sort-base-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-features.bed" }
+gloci = "gloci igv --sort base input.bed"
+reference = "bedtools igv -i input.bed -sort base"
+compare = "exact"
+
+[[case]]
+name = "igv-sort-position-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-features.bed" }
+gloci = "gloci igv --sort position input.bed"
+reference = "bedtools igv -i input.bed -sort position"
+compare = "exact"
+
+[[case]]
+name = "igv-sort-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-features.bed" }
+gloci = "gloci igv --sort strand input.bed"
+reference = "bedtools igv -i input.bed -sort strand"
+compare = "exact"
+
+[[case]]
+name = "igv-sort-quality-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-features.bed" }
+gloci = "gloci igv --sort quality input.bed"
+reference = "bedtools igv -i input.bed -sort quality"
+compare = "exact"
+
+[[case]]
+name = "igv-sort-sample-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-features.bed" }
+gloci = "gloci igv --sort sample input.bed"
+reference = "bedtools igv -i input.bed -sort sample"
+compare = "exact"
+
+[[case]]
+name = "igv-sort-readgroup-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-features.bed" }
+gloci = "gloci igv --sort readGroup input.bed"
+reference = "bedtools igv -i input.bed -sort readGroup"
+compare = "exact"
+
+[[case]]
+name = "igv-image-eps-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-features.bed" }
+gloci = "gloci igv --image eps input.bed"
+reference = "bedtools igv -i input.bed -img eps"
+compare = "exact"
+
+[[case]]
+name = "igv-image-svg-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-features.bed" }
+gloci = "gloci igv --image svg input.bed"
+reference = "bedtools igv -i input.bed -img svg"
+compare = "exact"
+
+[[case]]
+name = "igv-path-no-slash-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-features.bed" }
+gloci = "gloci igv --path /data/shots input.bed"
+reference = "bedtools igv -i input.bed -path /data/shots"
+compare = "exact"
+
+[[case]]
+name = "igv-session-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-features.bed" }
+gloci = "gloci igv --session run.xml input.bed"
+reference = "bedtools igv -i input.bed -sess run.xml"
+compare = "exact"
+
+[[case]]
+name = "igv-bed3-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-bed3.bed" }
+gloci = "gloci igv input.bed"
+reference = "bedtools igv -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "igv-bed3-slop-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-bed3.bed" }
+gloci = "gloci igv --slop 10 input.bed"
+reference = "bedtools igv -i input.bed -slop 10"
+compare = "exact"
+
+[[case]]
+name = "igv-bed4-name-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-bed4.bed" }
+gloci = "gloci igv --name input.bed"
+reference = "bedtools igv -i input.bed -name"
+compare = "exact"
+
+[[case]]
+name = "igv-bed7-name-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-bed7.bed" }
+gloci = "gloci igv --name input.bed"
+reference = "bedtools igv -i input.bed -name"
+compare = "exact"
+
+[[case]]
+name = "igv-bed12-name-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-bed12.bed" }
+gloci = "gloci igv --name input.bed"
+reference = "bedtools igv -i input.bed -name"
+compare = "exact"
+
+[[case]]
+name = "igv-trailing-tab-name-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-trailing-tab.bed" }
+gloci = "gloci igv --name input.bed"
+reference = "bedtools igv -i input.bed -name"
+compare = "exact"
+
+[[case]]
+name = "igv-header-lines-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-header.bed" }
+gloci = "gloci igv --name input.bed"
+reference = "bedtools igv -i input.bed -name"
+compare = "exact"
+
+[[case]]
+name = "igv-gff-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-annotation.gff" }
+gloci = "gloci igv input.gff"
+reference = "bedtools igv -i input.gff"
+compare = "exact"
+
+[[case]]
+name = "igv-gff-name-slop-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-annotation.gff" }
+gloci = "gloci igv --name --slop 3 input.gff"
+reference = "bedtools igv -i input.gff -name -slop 3"
+compare = "exact"
+
+[[case]]
+name = "igv-vcf-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-calls.vcf" }
+gloci = "gloci igv input.vcf"
+reference = "bedtools igv -i input.vcf"
+compare = "exact"
+
+[[case]]
+name = "igv-vcf-name-slop-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-calls.vcf" }
+gloci = "gloci igv --name --slop 3 input.vcf"
+reference = "bedtools igv -i input.vcf -name -slop 3"
+compare = "exact"
+
+[[case]]
+name = "igv-vcf9-name-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-calls9.vcf" }
+gloci = "gloci igv --name input.vcf"
+reference = "bedtools igv -i input.vcf -name"
+compare = "exact"
+
+[[case]]
+name = "igv-vcf10-name-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-calls10.vcf" }
+gloci = "gloci igv --name input.vcf"
+reference = "bedtools igv -i input.vcf -name"
+compare = "exact"
+
+# Input bedtools rejects is an error in both: pinned by exit status (bedtools writes the first
+# line of the script before it fails; gloci writes nothing when it cannot recognise the input).
+
+[[case]]
+name = "igv-bed3-name-error-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-bed3.bed" }
+gloci = "gloci igv --name input.bed"
+reference = "bedtools igv -i input.bed -name"
+compare = "exit-status"
+
+[[case]]
+name = "igv-trailing-tab-bed3-name-error-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-bed3-trailing-tab.bed" }
+gloci = "gloci igv --name input.bed"
+reference = "bedtools igv -i input.bed -name"
+compare = "exit-status"
+
+[[case]]
+name = "igv-ragged-error-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-ragged.bed" }
+gloci = "gloci igv input.bed"
+reference = "bedtools igv -i input.bed"
+compare = "exit-status"
+
+[[case]]
+name = "igv-ragged-gff-error-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-ragged.gff" }
+gloci = "gloci igv input.gff"
+reference = "bedtools igv -i input.gff"
+compare = "exit-status"
+
+[[case]]
+name = "igv-spaces-error-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-spaces.bed" }
+gloci = "gloci igv input.bed"
+reference = "bedtools igv -i input.bed"
+compare = "exit-status"
+
+[[case]]
+name = "igv-inverted-error-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-inverted.bed" }
+gloci = "gloci igv input.bed"
+reference = "bedtools igv -i input.bed"
+compare = "exit-status"
+
+# Option values gloci checks and bedtools does not.
+
+[[case]]
+name = "igv-image-jpg-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-features.bed" }
+gloci = "gloci igv --image jpg input.bed"
+reference = "bedtools igv -i input.bed -img jpg"
+compare = "exit-status"
+expected_difference = "#igv-option-values"
+
+[[case]]
+name = "igv-slop-text-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-features.bed" }
+gloci = "gloci igv --slop abc input.bed"
+reference = "bedtools igv -i input.bed -slop abc"
+compare = "exit-status"
+expected_difference = "#igv-option-values"
+
+[[case]]
+name = "links-default-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-features.bed" }
+gloci = "gloci links input.bed"
+reference = "bedtools links -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "links-base-org-db-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-features.bed" }
+gloci = "gloci links --base http://mirror.example.edu --org mouse --db mm9 input.bed"
+reference = "bedtools links -i input.bed -base http://mirror.example.edu -org mouse -db mm9"
+compare = "exact"
+
+[[case]]
+name = "links-bed3-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-bed3.bed" }
+gloci = "gloci links input.bed"
+reference = "bedtools links -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "links-bed3-trailing-tab-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-bed3-trailing-tab.bed" }
+gloci = "gloci links input.bed"
+reference = "bedtools links -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "links-bed4-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-bed4.bed" }
+gloci = "gloci links input.bed"
+reference = "bedtools links -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "links-bed5-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-bed5.bed" }
+gloci = "gloci links input.bed"
+reference = "bedtools links -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "links-bed7-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-bed7.bed" }
+gloci = "gloci links input.bed"
+reference = "bedtools links -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "links-bed9-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-bed9.bed" }
+gloci = "gloci links input.bed"
+reference = "bedtools links -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "links-bed10-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-bed10.bed" }
+gloci = "gloci links input.bed"
+reference = "bedtools links -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "links-bed12-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-bed12.bed" }
+gloci = "gloci links input.bed"
+reference = "bedtools links -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "links-trailing-tab-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-trailing-tab.bed" }
+gloci = "gloci links input.bed"
+reference = "bedtools links -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "links-trailing-tabs2-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-trailing-tabs2.bed" }
+gloci = "gloci links input.bed"
+reference = "bedtools links -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "links-header-lines-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-header.bed" }
+gloci = "gloci links input.bed"
+reference = "bedtools links -i input.bed"
+compare = "exact"
+
+[[case]]
+name = "links-gff-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-annotation.gff" }
+gloci = "gloci links input.gff"
+reference = "bedtools links -i input.gff"
+compare = "exact"
+
+[[case]]
+name = "links-vcf-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-calls.vcf" }
+gloci = "gloci links input.vcf"
+reference = "bedtools links -i input.vcf"
+compare = "exact"
+
+[[case]]
+name = "links-vcf9-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-calls9.vcf" }
+gloci = "gloci links input.vcf"
+reference = "bedtools links -i input.vcf"
+compare = "exact"
+
+[[case]]
+name = "links-vcf10-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-calls10.vcf" }
+gloci = "gloci links input.vcf"
+reference = "bedtools links -i input.vcf"
+compare = "exact"
+
+[[case]]
+name = "links-ragged-error-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-ragged.bed" }
+gloci = "gloci links input.bed"
+reference = "bedtools links -i input.bed"
+compare = "exit-status"
+
+[[case]]
+name = "links-ragged-gff-error-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-ragged.gff" }
+gloci = "gloci links input.gff"
+reference = "bedtools links -i input.gff"
+compare = "exit-status"
+
+[[case]]
+name = "links-spaces-error-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-spaces.bed" }
+gloci = "gloci links input.bed"
+reference = "bedtools links -i input.bed"
+compare = "exit-status"
+
+[[case]]
+name = "links-inverted-error-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-inverted.bed" }
+gloci = "gloci links input.bed"
+reference = "bedtools links -i input.bed"
+compare = "exit-status"
+
+# Live only (shell syntax): what each tool has written to stdout when it fails. crates/gloci/tests/browser.rs
+# pins gloci's side.
+[[case]]
+name = "igv-unrecognised-input-stdout-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-spaces.bed" }
+gloci = "gloci igv input.bed 2>/dev/null || true"
+reference = "bedtools igv -i input.bed 2>/dev/null || true"
+compare = "exact"
+expected_difference = "#browser-unrecognised-input"
+
+[[case]]
+name = "links-unrecognised-input-stdout-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-spaces.bed" }
+gloci = "gloci links input.bed 2>/dev/null || true"
+reference = "bedtools links -i input.bed 2>/dev/null || true"
+compare = "exact"
+expected_difference = "#browser-unrecognised-input"
+
+# The page title of standard input: gloci names it `stdin` for `-`, as `bedtools links -i stdin` does.
+[[case]]
+name = "links-stdin-vs-bedtools"
+input = { file = "xtask/diff/inputs/browser-header.bed" }
+gloci = "cat input.bed | gloci links -"
+reference = "cat input.bed | bedtools links -i stdin"
+compare = "exact"

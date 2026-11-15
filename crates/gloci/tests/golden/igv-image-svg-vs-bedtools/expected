@@ -1,0 +1,15 @@
+snapshotDirectory ./
+goto chr2:1000-1500
+snapshot chr2_1000_1500.svg
+goto chr1:100-200
+snapshot chr1_100_200.svg
+goto chrM:-1-1
+snapshot chrM_-1_1.svg
+goto chr1:4999-5001
+snapshot chr1_4999_5001.svg
+goto chr10:2147483648-2147483700
+snapshot chr10_2147483648_2147483700.svg
+goto chr1:0-50
+snapshot chr1_0_50.svg
+goto chrX:300-400
+snapshot chrX_300_400.svg
