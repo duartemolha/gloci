@@ -148,7 +148,7 @@ fn read_header(path: &str) -> Result<Entry, IoError> {
         source,
     };
     let mut src: Box<dyn Read> = if path == "-" {
-        Box::new(io::stdin())
+        Box::new(gloci_io::open_stdin()?)
     } else {
         gloci_io::open_raw(path)?
     };

@@ -41,9 +41,17 @@ pub(crate) fn read_up_to(r: &mut dyn Read, n: usize) -> std::io::Result<Vec<u8>>
     Ok(v)
 }
 
+/// Standard input, for an input named `-`. A run reads it for at most one input: the reader
+/// that opens it second is refused with a usage error ([`crate::cancel::claim_stdin`]). Every
+/// reader of `-` opens standard input here.
+pub fn open_stdin() -> Result<std::io::Stdin, IoError> {
+    crate::cancel::claim_stdin()?;
+    Ok(std::io::stdin())
+}
+
 pub fn open_input(path: &str, opts: &InputOptions) -> Result<Input, IoError> {
     if path == "-" {
-        return open_input_from("stdin", Box::new(std::io::stdin()), opts);
+        return open_input_from("stdin", Box::new(open_stdin()?), opts);
     }
     if crate::memio::is_mem_path(path) {
         let (display, src) = crate::memio::take_input(path)?;
@@ -83,7 +91,7 @@ pub fn open_input(path: &str, opts: &InputOptions) -> Result<Input, IoError> {
 /// bytes themselves (`cat`, `check --quick`).
 pub fn open_raw(path: &str) -> Result<Box<dyn Read + Send>, IoError> {
     if path == "-" {
-        return Ok(Box::new(crate::cancel::CancelRead::new(std::io::stdin())));
+        return Ok(Box::new(crate::cancel::CancelRead::new(open_stdin()?)));
     }
     if crate::memio::is_mem_path(path) {
         let (_, src) = crate::memio::take_input(path)?;
@@ -225,7 +233,7 @@ impl InputSpool {
                 source,
             })?;
         let mut src: Box<dyn Read> = if path == "-" {
-            Box::new(crate::cancel::CancelRead::new(std::io::stdin().lock()))
+            Box::new(crate::cancel::CancelRead::new(open_stdin()?.lock()))
         } else if crate::memio::is_mem_path(path) {
             Box::new(crate::cancel::CancelRead::new(
                 crate::memio::take_input(path)?.1,

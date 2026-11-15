@@ -6,7 +6,7 @@
 //! and long loops stop at their next poll, after which the usual error path removes any
 //! partial output *file*. Runs never share a token, so cancelling one leaves the others alone,
 //! and a token that is never cancelled costs one relaxed load per poll. The CLI installs no
-//! token: its watch is empty and never fires.
+//! token: its run gets one that is never cancelled, so its watch never fires.
 //!
 //! **The run's outputs.** A token made with [`RunToken::recording`] also records each output
 //! file the run commits: an [`crate::AtomicFile`] renamed into place, or every file of a
@@ -14,6 +14,15 @@
 //! like a reader, so the record reaches every thread of the run the way the cancel flag does,
 //! and a host learns exactly what its run wrote ([`RunToken::outputs`]), whatever else
 //! changes on disk meanwhile. Without a recording token (the CLI) nothing is recorded.
+//!
+//! **Standard input.** A run reads standard input for at most one of its inputs: a second
+//! would find it empty (or with the bytes the first left) and the run would succeed with a
+//! wrong answer. The token holds which input takes it. A host gives the inputs the command line
+//! names `-` before the run starts ([`RunToken::give_stdin`]), so that two of them are refused
+//! by the names the user wrote; and every reader of `-` claims it as it opens
+//! ([`claim_stdin`], through [`crate::open_stdin`]), so that a second reader is refused even
+//! when no host named it. Runs never share a token, so one run's use of standard input never
+//! reaches the next. Without a token (code that runs outside any run) nothing is checked.
 
 use crate::error::IoError;
 use std::cell::RefCell;
@@ -32,6 +41,23 @@ struct RunState {
     cancelled: AtomicBool,
     /// The committed output files, in the order they were committed; `None` when not recorded.
     outputs: Option<Mutex<Vec<PathBuf>>>,
+    stdin: Mutex<StdinUse>,
+}
+
+/// Which input of a run takes standard input.
+#[derive(Debug, Default)]
+struct StdinUse {
+    /// The input the command line names `-`, as the user wrote it ([`RunToken::give_stdin`]).
+    given: Option<String>,
+    /// Whether a reader has opened standard input ([`claim_stdin`]).
+    opened: bool,
+}
+
+/// The usage error for standard input given to two inputs, `first` and `second`.
+fn stdin_twice(first: &str, second: &str) -> IoError {
+    IoError::Usage(crate::UsageError(format!(
+        "standard input is given for both {first} and {second}; give one of them as a file"
+    )))
 }
 
 impl RunToken {
@@ -42,9 +68,43 @@ impl RunToken {
     /// A token that also records the output files the run commits ([`RunToken::outputs`]).
     pub fn recording() -> RunToken {
         RunToken(Arc::new(RunState {
-            cancelled: AtomicBool::new(false),
             outputs: Some(Mutex::new(Vec::new())),
+            ..RunState::default()
         }))
+    }
+
+    /// A [`Watch`] of this token, for code that runs the run's work on other threads.
+    pub fn watch(&self) -> Watch {
+        Watch(Some(self.clone()))
+    }
+
+    /// Record that the command line gives `-` (standard input) to `input`, named as the user
+    /// wrote it (`-a`, `-b (value 2)`, `A`). The second input given `-` in the run is a usage
+    /// error that names both. Call it for each such input before the run reads any: the reader
+    /// that then opens `-` takes what was given ([`claim_stdin`]).
+    pub fn give_stdin(&self, input: &str) -> Result<(), IoError> {
+        let mut s = self.0.stdin.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(first) = &s.given {
+            return Err(stdin_twice(first, input));
+        }
+        s.given = Some(input.to_string());
+        Ok(())
+    }
+
+    fn claim_stdin(&self) -> Result<(), IoError> {
+        let mut s = self.0.stdin.lock().unwrap_or_else(PoisonError::into_inner);
+        if s.opened {
+            let msg = match &s.given {
+                Some(first) => format!(
+                    "standard input is given for {first} and read for another input too; give \
+one of them as a file"
+                ),
+                None => "standard input is read for two inputs; give one of them as a file".into(),
+            };
+            return Err(IoError::Usage(crate::UsageError(msg)));
+        }
+        s.opened = true;
+        Ok(())
     }
 
     /// Ask the run to stop.
@@ -81,6 +141,17 @@ thread_local! {
 /// The token installed on this thread, if any.
 pub fn current() -> Option<RunToken> {
     CURRENT.with(|c| c.borrow().clone())
+}
+
+/// Take standard input for the reader that is opening `-`, under this thread's token: the first
+/// reader of a run takes it, and a second is a usage error, whichever inputs they are. Every
+/// reader of `-` calls it before it reads ([`crate::open_stdin`]). Without a token nothing is
+/// checked.
+pub fn claim_stdin() -> Result<(), IoError> {
+    match current() {
+        Some(t) => t.claim_stdin(),
+        None => Ok(()),
+    }
 }
 
 /// Whether this thread's token is cancelled.

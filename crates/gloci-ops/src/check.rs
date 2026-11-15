@@ -800,7 +800,9 @@ pub struct QuickOptions {
 /// fails to be made; an option that does not apply to the format is a usage error in it.
 pub fn quick_check(path: &str, o: &ReaderOptions, q: &QuickOptions) -> CheckReport {
     let r = if path == "-" {
-        quick_open(path, Box::new(std::io::stdin()), o, q)
+        gloci_io::open_stdin()
+            .map_err(|e| e.to_string())
+            .and_then(|stdin| quick_open(path, Box::new(stdin), o, q))
     } else if gloci_io::memio::is_mem_path(path) {
         // An in-memory input has no end-of-file marker to look at: it is read as a stream.
         gloci_io::open_raw(path)

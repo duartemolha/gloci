@@ -160,7 +160,7 @@ pub fn read_new_header(src: &str) -> Result<AlnHeader, IoError> {
         msg,
     };
     let raw: Box<dyn Read> = if src == "-" {
-        Box::new(io::stdin())
+        Box::new(crate::open_stdin()?)
     } else {
         Box::new(File::open(src).map_err(|source| IoError::Open {
             path: src.to_string(),
