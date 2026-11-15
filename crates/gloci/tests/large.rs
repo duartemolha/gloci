@@ -2182,3 +2182,42 @@ fn dict_3gb_fasta_streams() {
     let fa = huge_fasta();
     p3c_rss_ceiling("dict", &["dict".as_ref(), fa.as_os_str()], true);
 }
+
+// ---------------------------------------------------------------------------
+// tag (D168): the -b features are held in memory and the reads stream, so the ceiling is a
+// multiple of the features' size on top of the streaming alignment ceiling.
+// ---------------------------------------------------------------------------
+
+static TAG_FEATURES: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+/// BED6 features (unsorted, 24 chromosomes), a sixteenth of the payload: 128 MiB, about 3
+/// million features, at the default 2 GiB.
+fn tag_features() -> &'static Path {
+    TAG_FEATURES
+        .get_or_init(|| shared_file("tag_features.bed", |f| gen_bed(f, payload_bytes() / 16, 71)))
+}
+
+#[test]
+#[ignore = "nightly: generates a 2 GB BAM"]
+fn tag_holds_the_features_and_streams_the_reads() {
+    let (a, b) = (big_shuffled_bam(), tag_features());
+    let size = std::fs::metadata(b).unwrap().len();
+    // Each feature costs about 140 bytes while the index is built (its record, the index entry
+    // and the index, with the growth of the vectors that hold them), plus the text the tag takes
+    // from it. Measured on 2 million BED6 features (78 MB): 274 MiB for --labels, 284 MiB for
+    // --names and 356 MiB for --intervals, 3.6, 3.7 and 4.7 times the file; the reads add the
+    // streaming ceiling.
+    for (mode, factor, t) in [
+        (vec!["--labels", "f"], 4, "1"),
+        (vec!["--names"], 4, "8"),
+        (vec!["--intervals", "--labels", "f"], 5, "2"),
+    ] {
+        let mut args = args_of(&["tag", "-t", t], &[a]);
+        args.extend(["-b".into(), b.into()]);
+        args.extend(mode.iter().map(Into::into));
+        rss_run(
+            &format!("tag {mode:?} -t {t} large"),
+            &args,
+            factor * size + aln_ceiling(t),
+        );
+    }
+}
