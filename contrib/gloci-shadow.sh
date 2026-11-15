@@ -5,7 +5,7 @@
 #
 #   gloci-shadow.sh --name merge-peaks --log shadow.tsv \
 #       --ref 'bedtools merge -i peaks.bed' \
-#       --new 'gloci merge peaks.bed --chrom-order lex' > merged.bed
+#       --new 'gloci merge peaks.bed' > merged.bed
 #
 # Both commands run under `bash -o pipefail` and must write their result to standard output.
 # One tab-separated line is appended to the log:

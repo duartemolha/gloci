@@ -75,12 +75,16 @@ fn lex_chroms(n: u32) -> Vec<u32> {
 
 /// Write sorted BED6 lines in lexicographic chromosome order (the default order) until `bytes` have been written.
 fn gen_sorted_bed(w: &mut impl Write, bytes: u64, seed: u64) {
+    gen_sorted_bed_in(w, bytes, seed, &lex_chroms(22));
+}
+
+/// Like [`gen_sorted_bed`], with the chromosomes (`chr{n}`) in the order `order` lists them.
+fn gen_sorted_bed_in(w: &mut impl Write, bytes: u64, seed: u64, order: &[u32]) {
     let mut rng = Rng(seed);
     let mut line = Vec::with_capacity(96);
     let mut buf = Vec::with_capacity(1 << 20);
     let (mut written, mut i) = (0u64, 0u64);
     let bytes_per_chrom = (bytes / 22).max(1024);
-    let order = lex_chroms(22);
     let mut ci = 0;
     let mut chrom = order[0];
     let mut chrom_written = 0u64;
@@ -192,7 +196,7 @@ fn gen_plain(dir: &Path, bytes: u64) -> std::path::PathBuf {
 }
 
 /// Bump when a generator of a shared input changes, so that an old input is not reused.
-const GENERATORS_VERSION: u32 = 1;
+const GENERATORS_VERSION: u32 = 2;
 
 /// The directory of the inputs several tests share: `$CARGO_TARGET_TMPDIR/large-v<N>-<bytes>`,
 /// kept between runs, as the inputs depend only on the generators and the size.
@@ -225,6 +229,19 @@ fn shared_input(name: &str, make: impl FnOnce(&Path) -> PathBuf) -> PathBuf {
     }
     std::fs::rename(&made, &dest).unwrap();
     dest
+}
+
+/// A sorted BED in the BAM header's order (chr1, chr2, ...,
+/// chr22), as the shared input `name`: what a BAM given as `-b` needs of its A.
+fn shared_sorted_bed_numeric(name: &str, bytes: u64, seed: u64) -> PathBuf {
+    shared_input(name, |dir| {
+        let p = dir.join(name);
+        let mut f = std::io::BufWriter::new(std::fs::File::create(&p).unwrap());
+        let order: Vec<u32> = (1..=22).collect();
+        gen_sorted_bed_in(&mut f, bytes, seed, &order);
+        f.flush().unwrap();
+        p
+    })
 }
 
 /// A sorted BED of `bytes` with `seed`, as the shared input `name`.
@@ -1159,7 +1176,9 @@ fn convert_2gb_bam_streams() {
 #[ignore = "nightly: generates a 2 GB BAM"]
 fn coverage_with_2gb_bam_as_b_streams() {
     let bam = big_sorted_bam();
-    let a = big_bed_b();
+    // The BAM header sets the order (chr1, chr2, ...), so A follows it, not the lex default.
+    let a = shared_sorted_bed_numeric("big_b_numeric.bed", payload_bytes() / 4, 99);
+    let a = a.as_path();
     for t in ["1", "4", "8"] {
         let rss = rss_of(
             &format!("coverage -b BAM -t {t}"),
