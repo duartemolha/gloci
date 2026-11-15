@@ -318,6 +318,29 @@ fn missing_dp_gq_is_not_masked_unlike_vcftools() {
     }
 }
 
+/// Anchored in docs/differences.md#polyploid-unused-samples: the 0/0/0 of
+/// s1 at 1:10 stops the genotype statistics (as vcftools), but not once s1
+/// is excluded or its genotype masked (DP 5), where vcftools stops anyway.
+#[test]
+fn polyploid_genotype_of_an_unused_sample_does_not_stop_unlike_vcftools() {
+    let file = fixture("ploidy");
+    let d = tempdir();
+    let p = s(&d.path().join("o"));
+    gloci()
+        .args(stats_args(&file, &p, &["--freq"]))
+        .assert()
+        .code(1)
+        .stderr(contains("1:10: polyploid genotypes are not supported"));
+    for rest in [
+        &["--freq", "--exclude-samples", "s1"][..],
+        &["--freq", "--min-dp", "6"],
+    ] {
+        gloci().args(stats_args(&file, &p, rest)).assert().success();
+        let frq = std::fs::read_to_string(format!("{p}.frq")).unwrap();
+        assert!(frq.contains("\n1\t10\t"), "{rest:?}: {frq}");
+    }
+}
+
 /// A sample cell cut short before DP or GQ (`0/1:9` under GT:DP:GQ, or a bare
 /// `0/0`) is masked by vcftools and kept by gloci, like a `.` (D50).
 #[test]

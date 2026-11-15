@@ -3706,6 +3706,53 @@ gloci = "gloci vcf popgen input.vcf --out-prefix o --fst-pop popgen-ploidy-pop1.
 reference = "vcftools --vcf input.vcf --weir-fst-pop popgen-ploidy-pop1.txt --weir-fst-pop popgen-ploidy-pop2.txt --out o >/dev/null 2>&1"
 compare = "exit-status"
 
+# vcftools stops on a polyploid genotype of any sample; gloci reads only the
+# genotypes it uses, so s1's 0/0/0 does not stop it once s1 is excluded,
+# masked (DP 5 under a minimum of 6) or in no population. gloci succeeds here,
+# so each case also checks that its file was written, which makes it live only
+# (a golden replay would leave the output files in the golden directory);
+# crates/gloci/tests/vcf_popgen.rs and vcf_stats.rs pin gloci's side.
+[[case]]
+name = "vcf-popgen-polyploid-excluded-sample-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/ploidy.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --site-pi --exclude-samples s1 && test -s o.sites.pi"
+reference = "vcftools --vcf input.vcf --site-pi --remove-indv s1 --out o >/dev/null 2>&1"
+compare = "exit-status"
+expected_difference = "#polyploid-unused-samples"
+
+[[case]]
+name = "vcf-popgen-polyploid-masked-sample-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/ploidy.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --site-pi --min-dp 6 && test -s o.sites.pi"
+reference = "vcftools --vcf input.vcf --site-pi --minDP 6 --out o >/dev/null 2>&1"
+compare = "exit-status"
+expected_difference = "#polyploid-unused-samples"
+
+[[case]]
+name = "vcf-popgen-polyploid-non-member-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/ploidy.vcf" }
+aux = ["xtask/diff/inputs/popgen-ploidy-s2.txt", "xtask/diff/inputs/popgen-ploidy-pop2.txt"]
+gloci = "gloci vcf popgen input.vcf --out-prefix o --fst-pop popgen-ploidy-s2.txt --fst-pop popgen-ploidy-pop2.txt && test -s o.weir.fst"
+reference = "vcftools --vcf input.vcf --weir-fst-pop popgen-ploidy-s2.txt --weir-fst-pop popgen-ploidy-pop2.txt --out o >/dev/null 2>&1"
+compare = "exit-status"
+expected_difference = "#polyploid-unused-samples"
+
+[[case]]
+name = "vcf-stats-polyploid-excluded-sample-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/ploidy.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --freq --exclude-samples s1 && test -s o.frq"
+reference = "vcftools --vcf input.vcf --freq --remove-indv s1 --out o >/dev/null 2>&1"
+compare = "exit-status"
+expected_difference = "#polyploid-unused-samples"
+
+[[case]]
+name = "vcf-stats-polyploid-masked-sample-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/ploidy.vcf" }
+gloci = "gloci vcf stats input.vcf --out-prefix o --freq --min-dp 6 && test -s o.frq"
+reference = "vcftools --vcf input.vcf --freq --minDP 6 --out o >/dev/null 2>&1"
+compare = "exit-status"
+expected_difference = "#polyploid-unused-samples"
+
 # Weir and Cockerham Fst (D160) vs vcftools --weir-fst-pop: live like the
 # cases above (crates/gloci/tests/vcf_popgen.rs pins the same files, and the
 # summary against the estimates vcftools logs, in plain cargo test). fst.vcf

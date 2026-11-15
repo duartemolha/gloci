@@ -750,9 +750,11 @@ fn popgen_polyploid_stops_like_vcftools() {
             "{stat:?}: a failed run writes no file"
         );
     }
-    // Not among the samples read: the selection removes s1, or s1 is in no
-    // population.
+    // Not among the samples read: the selection removes s1, masking removes
+    // its genotype (DP 5), or s1 is in no population. vcftools stops in all
+    // three (docs/differences.md#polyploid-unused-samples).
     popgen(&ploidy, &["--site-pi", "--exclude-samples", "s1"]);
+    popgen(&ploidy, &["--site-pi", "--min-dp", "6"]);
     let (_o, prefix) = popgen(&ploidy, &["--fst-pop", &p2, "--fst-pop", &p34]);
     let rows = String::from_utf8(read(&prefix, "weir.fst")).unwrap();
     assert_eq!(rows.lines().count(), 4, "{rows}");

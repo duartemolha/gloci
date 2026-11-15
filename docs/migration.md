@@ -800,10 +800,12 @@ pinned difference where there is one.
   formats, after the same selection flags as `vcf filter`, and publishes files
   only when the whole run succeeds. Differences: a singleton's carrier is
   searched among the unmasked genotypes, `--snp-density` rejects unsorted
-  input, and a `.` DP or GQ is never masked.
+  input, a `.` DP or GQ is never masked, and a polyploid genotype stops the run
+  only in a sample that is selected and not masked.
   [differences.md#vcf-stats-singletons-masked](differences.md#vcf-stats-singletons-masked),
   [differences.md#vcf-stats-snp-density-unsorted](differences.md#vcf-stats-snp-density-unsorted),
-  [differences.md#vcf-stats-mask-missing](differences.md#vcf-stats-mask-missing).
+  [differences.md#vcf-stats-mask-missing](differences.md#vcf-stats-mask-missing),
+  [differences.md#polyploid-unused-samples](differences.md#polyploid-unused-samples).
   The layout of `--json` and the note on `vcf filter ... | vcf stats` (which
   keeps the original DP and GQ of masked genotypes) are in
   [differences.md](differences.md), under "`vcf stats --json`: the summary.json
@@ -820,13 +822,16 @@ pinned difference where there is one.
   select no samples (vcftools keeps only their samples, so its site filters
   count only them), and one population, a population with no selected sample
   or a sample in two populations is an error. Fst prints the same digits on
-  every platform, where vcftools on aarch64 rounds a few steps differently.
+  every platform, where vcftools on aarch64 rounds a few steps differently. A
+  polyploid genotype stops the run only in a sample that is used, where
+  vcftools stops on any.
   [differences.md#popgen-sorted-input](differences.md#popgen-sorted-input),
   [differences.md#popgen-window-step](differences.md#popgen-window-step),
   [differences.md#popgen-integer-overflow](differences.md#popgen-integer-overflow),
   [differences.md#popgen-independent-options](differences.md#popgen-independent-options),
   [differences.md#fst-populations](differences.md#fst-populations),
-  [differences.md#fst-rounding](differences.md#fst-rounding)
+  [differences.md#fst-rounding](differences.md#fst-rounding),
+  [differences.md#polyploid-unused-samples](differences.md#polyploid-unused-samples)
 - **`vcf filter --include/--exclude` is a subset of `bcftools view -i/-e`:**
   fields against numbers, strings or `.`, `N_PASS`, and the FORMAT fields GT,
   DP and GQ only (other FORMAT keys such as AD and FT are rejected, exit 2).

@@ -1509,6 +1509,32 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   `crates/gloci/tests/vcf_stats.rs` (both tools' counts, from the committed
   vcftools files `mq.*`).
 
+## A polyploid genotype stops only where it is used {#polyploid-unused-samples}
+
+- **gloci:** `vcf stats` and `vcf popgen` look only at the genotypes they use:
+  those of the selected samples that are not masked, and for `--fst-pop` those
+  of the population members. A genotype of ploidy above two among them stops a
+  statistic that needs diploid genotypes, with the record's position, exit 1
+  and no file, as vcftools stops. One in a sample left out by `--samples` or
+  `--exclude-samples`, masked by `--min-dp`, `--max-dp`, `--min-gq` or
+  `--mask-filtered-genotypes`, or (for Fst) in no population is not read, and
+  the run goes on.
+- **Old behaviour:** vcftools 0.1.16 parses the genotypes of every sample in the
+  file and stops on any polyploid one ("Polyploidy found, and not supported by
+  vcftools: CHROM:POS", exit 1), also when `--remove-indv` removed the sample,
+  `--minDP` masked its genotype, or it is in no `--weir-fst-pop` population.
+- **Reason:** a sample is usually excluded or masked because its genotypes are
+  wrong; refusing the whole file because of it would defeat the exclusion.
+- **Pinned by:** `vcf-popgen-polyploid-excluded-sample-vs-vcftools`,
+  `vcf-popgen-polyploid-masked-sample-vs-vcftools`,
+  `vcf-popgen-polyploid-non-member-vs-vcftools`,
+  `vcf-stats-polyploid-excluded-sample-vs-vcftools` and
+  `vcf-stats-polyploid-masked-sample-vs-vcftools` (exit status: must differ;
+  live only, since gloci writes its files there), and in every `cargo test` by
+  `popgen_polyploid_stops_like_vcftools` in `crates/gloci/tests/vcf_popgen.rs`
+  and `polyploid_genotype_of_an_unused_sample_does_not_stop_unlike_vcftools` in
+  `crates/gloci/tests/vcf_stats.rs`.
+
 ## `vcf stats --json`: the summary.json schema
 
 `--json` writes `PREFIX.summary.json`; `--summary` writes the same figures as
@@ -1591,7 +1617,8 @@ comparison of `crates/gloci/tests/vcf_stats.rs` with the committed vcftools
 - A genotype of ploidy above 2 stops `--freq`, `--counts`, `--missing-site`,
   `--missing-indv`, `--hardy`, `--het` and `--singletons` with the record's
   position, as vcftools does; depth, quality, FILTER, Ts/Tv, indel and the
-  summary read through such records.
+  summary read through such records. (One in a sample that is not selected, or
+  is masked, is not read: [#polyploid-unused-samples](#polyploid-unused-samples).)
 - Numbers use C `%g` (6 digits), `%e` for the HWE columns, `%.2f`, `%.1f` and
   `%.5f` where vcftools does, and `nan` in lower case. vcftools itself prints
   0/0 as `-nan` on x86_64 and `nan` on aarch64 (the sign of the NaN the CPU
@@ -1736,7 +1763,8 @@ comparison of `crates/gloci/tests/vcf_popgen.rs` with the committed vcftools
   statistics, unless masking or the sample selection removes that sample. A
   `./1` counts its called allele. A genotype of ploidy above two among those
   samples (for Fst, among the population members) stops the run with the
-  record's position, exit 1 and no file, as vcftools and `vcf stats` stop.
+  record's position, exit 1 and no file, as vcftools and `vcf stats` stop (one
+  elsewhere is not read: [#polyploid-unused-samples](#polyploid-unused-samples)).
 - `--site-pi` writes `nan` for a site with fewer than two called alleles.
 - `--window-pi` counts every position of a window that has no polymorphic site
   as monomorphic with all 2N(2N−1) pairs called, missing data or not (N the
