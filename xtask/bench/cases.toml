@@ -631,7 +631,7 @@ compare = "bam-records"
 # bedtools' (docs/differences.md#rng-stream), so only the time is compared.
 # `bedpe` setups write A as BEDPE and B as a jittered copy of it (--b-pairs) or random BED (--b-bed);
 # `vcf-pair` writes two VCFs of the same sites whose genotypes differ in
-# about 1.3% of the calls. vcf popgen is not benchmarked yet (it is deferred).
+# about 1.3% of the calls. vcf popgen runs on the synthetic VCF of vcf stats.
 
 [[case]]
 name = "jaccard-plain-10M"
@@ -781,6 +781,22 @@ targets = ["gloci <= 0.2 * vcftools-3runs"]
 [case.commands]
 gloci = "{gloci} vcf compare -t 8 --match position --out-prefix {out} {in_a} {in_b}"
 vcftools-3runs = "vcftools --gzvcf {in_a} --gzdiff {in_b} --diff-site-discordance --out {out}.v1 && vcftools --gzvcf {in_a} --gzdiff {in_b} --diff-indv-discordance --out {out}.v2 && vcftools --gzvcf {in_a} --gzdiff {in_b} --diff-discordance-matrix --out {out}.v3"
+
+[case.not_compared]
+gloci = "{out} is a prefix of several files; the concordance cases of xtask/paper/concordance.toml compare them"
+vcftools-3runs = "{out} is a prefix of several files; the concordance cases of xtask/paper/concordance.toml compare them"
+
+# vcf popgen with three statistics in one run against one vcftools run per
+# statistic. A yardstick (no target) until it is timed on the benchmark box.
+
+[[case]]
+name = "vcf-popgen-synthetic-2500"
+setup = "vcf --records 50000 --samples 2500 --seed 1 --chroms 1"
+input = "vcf.gz"
+targets = []
+[case.commands]
+gloci = "{gloci} vcf popgen -t 8 {in} --out-prefix {out} --site-pi --window-pi 100000 --window-pi-step 25000 --tajima-d 100000"
+vcftools-3runs = "vcftools --gzvcf {in} --site-pi --out {out}.v1 && vcftools --gzvcf {in} --window-pi 100000 --window-pi-step 25000 --out {out}.v2 && vcftools --gzvcf {in} --TajimaD 100000 --out {out}.v3"
 
 [case.not_compared]
 gloci = "{out} is a prefix of several files; the concordance cases of xtask/paper/concordance.toml compare them"
