@@ -56,6 +56,10 @@ _TERMINAL = ("output", "output_format", "write_index", "compression_level", "thr
 _LOG_LEVEL = ("quiet", "verbose")
 #: The scratch file a step's output goes to when the argv has an output option but no `-o`.
 SCRATCH_OUTPUT = "parity-output"
+STDOUT = "/dev/stdout"
+# Where the Python side writes what a case sends to /dev/stdout. Only `convert --fastq` cases do,
+# and a file needs an extension to say its format.
+SCRATCH_STDOUT = "parity-stdout.fq"
 
 
 class UntranslatableError(Exception):
@@ -319,8 +323,9 @@ class Call:
         opts = "".join(f", {k}={v!r}" for k, v in self.terminal.items())
         return f"save({out!r}{opts})"
 
-    def pipeline(self) -> gloci.Pipeline:
-        """The pipeline of a step or module source."""
+    def pipeline(self, stdout_to: str | None = None) -> gloci.Pipeline:
+        """The pipeline of a step or module source; with `stdout_to`, an option naming
+        `/dev/stdout` names that file instead."""
         if self.kind == "source":
             source: Callable[..., gloci.Pipeline] = getattr(gloci, self.name)
             return source(**self.kwargs)
@@ -328,20 +333,29 @@ class Call:
         if self.file_list is not None:
             text = pathlib.Path(self.file_list).read_text()
             inputs = [line.removesuffix("\r") for line in text.split("\n") if line.strip("\r")]
+        kwargs = self.kwargs
+        if stdout_to is not None:
+            kwargs = {k: stdout_to if v == STDOUT else v for k, v in kwargs.items()}
         head = gloci.open(inputs[0])
-        return getattr(head, self.name)(*inputs[1:], **self.kwargs)
+        return getattr(head, self.name)(*inputs[1:], **kwargs)
 
     def __call__(self) -> bytes:
         if self.kind == "function":
             f: Callable[..., list[pathlib.Path]] = getattr(gloci, self.name)
             self.written = f(*map(_input, self.inputs), **self.kwargs)
             return b""
-        p = self.pipeline()
+        # `-o /dev/stdout` is standard output. Reading /dev/stdout back works only on Linux,
+        # where it reopens pytest's capture file; on macOS it duplicates the write end and
+        # reads nothing. So the Python side writes a scratch file, and an option that also
+        # names /dev/stdout (`--fastq2`) names the same file, which gloci interleaves as it
+        # does standard output.
+        to_stdout = self.output == STDOUT
+        p = self.pipeline(SCRATCH_STDOUT if to_stdout else None)
         threads = self.terminal.get("threads")
         save = {k: v for k, v in self.terminal.items() if k != "threads"}
         if self.output is None and not save:
             return p.to_bytes(threads=threads)
-        out = pathlib.Path(self.output or SCRATCH_OUTPUT)
+        out = pathlib.Path(SCRATCH_STDOUT if to_stdout else (self.output or SCRATCH_OUTPUT))
         p.save(out, threads=threads, **save)
         return out.read_bytes()
 
