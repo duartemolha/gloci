@@ -23,14 +23,16 @@ cases run on every `cargo test` from committed reference outputs; the few marked
 "live only" need Docker and run nightly (`cargo xtask diff`). The commit history
 of `crates/gloci/tests/golden/` shows every change in a reference tool's output.
 
-BAM output is compared without the header lines that record which program wrote
-the file, `@PG` and `@CO` (D165): each tool writes its own `@PG` line (gloci's
-holds its command line, `bedtools bedtobam` writes `@PG ID:BEDTools_bedToBam`),
-so they cannot agree. The committed cases decompress both files and compare the
-header text without its `@PG` lines, the reference list and the bytes of every
-record; the live cases compare `samtools view -h` text without `@PG` lines, and
-read the files back through `samtools quickcheck` and `gloci view`. Neither
-tool writes a `@CO` line for `convert --bam`, so there is none to leave out.
+BAM output is compared without its compression and without the header lines that record
+which program wrote the file, `@PG` and `@CO` (D165): each tool writes its own `@PG` line
+(gloci's holds its command line, `bedtools bedtobam` writes `@PG ID:BEDTools_bedToBam`), so
+they cannot agree. The committed cases either decompress both files and compare the header
+text without its `@PG` lines, the reference list and the bytes of every record (compare mode
+`bam`, D118), or compare gloci's SAM output with the reference tool's BAM read back by
+`samtools view -h` in the reference image (compare mode `sam`). The live cases compare the
+`samtools view -h` text of both without `@PG` lines; those of `convert --bam` also read the
+files back through `samtools quickcheck` and `gloci view`. Neither tool writes a `@CO` line for
+`convert --bam` or `tag`, so there is none to leave out.
 
 Each section gives the gloci behaviour, the old behaviour and the reason.
 
@@ -3453,22 +3455,6 @@ cases (must match).
   `links-unrecognised-input-stdout-vs-bedtools` (live only: the stdout of a failed run is
   not part of a committed golden), and the test `unrecognised_input_writes_nothing` in
   `crates/gloci/tests/browser.rs`.
-
-## BAM output of the bedtools BAM utilities is compared as SAM text {#bam-compared-as-sam}
-
-- **gloci:** `gloci tag` writes BAM by copying each record's bytes and appending the new tag,
-  with the header text of its input and a gloci `@PG` line, BGZF-compressed as every gloci BAM.
-- **Old behaviour:** bedtools reads and writes BAM through BamTools, which encodes every record
-  again: the `bin` field and the compression differ from gloci's, though no field that
-  `samtools view` shows does. bedtools adds no `@PG` line.
-- **Reason:** the bytes of a BAM are not the alignments. Following D165, the cases read both
-  outputs back as SAM text with `samtools view -h` in the reference image (or compare gloci's
-  own SAM output, `-O sam`, with that text) and leave out the header lines that record who wrote
-  the file (`@PG`, and `@CO` when either tool writes one). Every other header line and every
-  record field must be equal.
-- **Pinned by:** `tag-bam-output-vs-bedtools` and `tag-sam-input-bam-output-vs-bedtools` (live
-  only, compared this way: must match), and every other `tag-*-vs-bedtools` case, which compares
-  gloci's SAM output with bedtools' BAM read back as SAM.
 
 ## `tag` checks its option values {#tag-option-values}
 

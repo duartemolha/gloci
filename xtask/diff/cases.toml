@@ -10337,8 +10337,9 @@ compare = "exact"
 
 # ---------------------------------------------------------------------------
 # gloci tag (D168) against bedtools tag 2.31.1. bedtools writes BAM, so its output is read back as
-# SAM text with `samtools view -h` (D165, #bam-compared-as-sam); gloci writes SAM (-O sam, or from
-# SAM input), so the goldens compare text directly, @PG lines left out. reads.sam (and its
+# SAM text with `samtools view -h` (D165); gloci writes SAM (-O sam, or from SAM input), so the
+# goldens compare text directly, @PG lines left out. The tag-*-bam-records cases compare gloci's
+# BAM with bedtools' decompressed (compare = "bam"): the record bytes are equal too. reads.sam (and its
 # reads.bam and reads.cram, from make-tag.sh) is in no order, and each read sets a trap:
 # - r1, secondary, supplementary, unmapped-placed: all on g1; the unmapped one is never tagged
 #   (tagging every placed read differs), secondary and supplementary are (skipping them differs).
@@ -10543,6 +10544,25 @@ aux = ["xtask/diff/inputs/tag/genes.bed", "xtask/diff/inputs/tag/reads-cram.bam"
 gloci = "gloci tag input.cram -b genes.bed --names -O sam"
 reference = "bedtools tag -i reads-cram.bam -files genes.bed -names | samtools view -h"
 compare = "sam"
+
+# gloci's BAM output, decompressed, against bedtools': header text (without @PG), references and
+# record bytes, bin included.
+[[case]]
+name = "tag-bam-records-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/genes.bed", "xtask/diff/inputs/tag/strand.bed"]
+gloci = "gloci tag input.bam -b genes.bed strand.bed --intervals --labels G,S -S"
+reference = "bedtools tag -i input.bam -files genes.bed strand.bed -intervals -labels G S -S"
+compare = "bam"
+
+# SAM in, BAM out (-o's extension, here -O), the records as bedtools writes them from the BAM.
+[[case]]
+name = "tag-sam-input-bam-records-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.sam" }
+aux = ["xtask/diff/inputs/tag/genes.bed", "xtask/diff/inputs/tag/reads.bam"]
+gloci = "gloci tag input.sam -b genes.bed --names -O bam"
+reference = "bedtools tag -i reads.bam -files genes.bed -names"
+compare = "bam"
 
 # Live only (a pipe): gloci's BAM output, read back by samtools as bedtools' is.
 [[case]]
