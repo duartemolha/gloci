@@ -998,8 +998,9 @@ impl IndexedFile {
         {
             return Err(UsageError(format!(
                 "{name} is {}, which cannot be read through a tabix or CSI index as intervals; \
-convert it to BED first: gloci convert {name} -o x.bed.gz",
-                format.name()
+convert it to BED first: gloci convert {name} -o x.bed.gz{}",
+                format.name(),
+                crate::align::converted_order_note(&name, format)
             ))
             .into());
         }

@@ -39,7 +39,21 @@ fn indexed_query_refuses_alignment_and_convert_only_formats() {
             convert_only: true,
         });
         let e = IndexedFile::open(&sam, f, Header::None, &o).err().unwrap();
-        assert!(e.to_string().contains("tabix or CSI index"), "{f:?}: {e}");
+        let e = e.to_string();
+        assert!(e.contains("tabix or CSI index"), "{f:?}: {e}");
+        // The converted BED keeps the input's order, which the message says how to meet.
+        let note = match f {
+            Format::Sam => Some(format!(
+                "the BED keeps the header's chromosome order: pass -g {}, or --sort",
+                sam.display()
+            )),
+            Format::Psl | Format::Rmsk => Some("the BED keeps the file's record order".into()),
+            _ => None,
+        };
+        match note {
+            Some(n) => assert!(e.contains(&n), "{f:?}: {e}"),
+            None => assert!(!e.contains("the BED keeps"), "{f:?}: {e}"),
+        }
     }
     // A CRAM is read through its `.crai`: a file with only a tabix index has none.
     let o = opts(Accept {

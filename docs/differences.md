@@ -991,8 +991,7 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   is a separate step that the next command may not need.
 - **Pinned by:** `convert-gtf-input-order-vs-gtf2bed` (must differ);
   `convert-gtf-input-order-vs-gtf2bed-do-not-sort` and, piped through `gloci
-  sort --chrom-order lex --full-key`, `convert-gtf-sorted-vs-gtf2bed` (must
-  match).
+  sort --full-key`, `convert-gtf-sorted-vs-gtf2bed` (must match).
 
 ## `convert --blocks` rejects a record that is not valid BED12 {#bed12-short-line}
 

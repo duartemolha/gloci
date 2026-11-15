@@ -28,8 +28,20 @@ fn input_gate() {
         .code(2)
         .stderr(contains("does not read alignments"))
         .stderr(contains(format!("gloci convert {x} -o x.bed")))
+        // The BED keeps the header's order, which -g names.
+        .stderr(contains(format!(
+            "the BED keeps the header's chromosome order: pass -g {x}, or --sort"
+        )))
         .stderr(contains("gloci sort -m"))
         .stderr(contains("stats jaccard, fisher and reldist"));
+    // From standard input, the command names it `-`, and -g needs the file itself.
+    gloci()
+        .args(["merge", "-"])
+        .write_stdin(std::fs::read(&bam).unwrap())
+        .assert()
+        .code(2)
+        .stderr(contains("gloci convert - -o x.bed"))
+        .stderr(contains("pass -g with the alignment file, or --sort"));
     gloci()
         .args(["merge", sam.to_str().unwrap()])
         .assert()
@@ -45,7 +57,8 @@ fn input_gate() {
         .args(["merge", p])
         .assert()
         .code(2)
-        .stderr(contains(format!("gloci convert {p}")));
+        .stderr(contains(format!("gloci convert {p}")))
+        .stderr(contains("the BED keeps the file's record order"));
     gloci()
         .args(["sort", bed.to_str().unwrap(), "-o"])
         .arg(dir.path().join("o.cram"))

@@ -110,6 +110,35 @@ fn gate_error(kind: GateKind, msg: String) -> IoError {
     IoError::Gate { kind, msg }
 }
 
+/// `name` as a command line names it: standard input is `-`.
+fn as_argument(name: &str) -> &str {
+    if name == "stdin" { "-" } else { name }
+}
+
+/// What follows `gloci convert NAME -o x.bed` in a message that sends `name`
+/// (of `format`) to `convert`: the BED keeps the chromosome order of the
+/// alignment header, or the record order of a PSL or RepeatMasker file, which
+/// a command that checks the order may not expect. Empty for other formats.
+pub(crate) fn converted_order_note(name: &str, format: Format) -> String {
+    if format.is_alignment() {
+        let genome = if name == "stdin" || name == "-" {
+            "-g with the alignment file".to_string()
+        } else {
+            format!("-g {name}")
+        };
+        format!(
+            " (the BED keeps the header's chromosome order: pass {genome}, or --sort, to a \
+command that needs sorted input)"
+        )
+    } else if format.is_convert_only() {
+        " (the BED keeps the file's record order: sort it with gloci sort, or pass --sort, for a \
+command that needs sorted input)"
+            .to_string()
+    } else {
+        String::new()
+    }
+}
+
 /// Refuse a format the command does not read (D100).
 pub fn gate(name: &str, format: Format, accept: &Accept) -> Result<(), IoError> {
     if format == Format::Bedpe {
@@ -132,8 +161,10 @@ shuffle --format bedpe read; to treat its first end as a BED interval, pass --fo
                 "{name} is {}; this command does not read alignments (intersect, coverage, \
 genomecov, convert, view, index, sort, cat, idxstats, flagstat, check, reheader, head, \
 samples, depth, bedcov, tag and stats jaccard, fisher and reldist do); convert it to BED first: \
-gloci convert {name} -o x.bed",
-                format.name()
+gloci convert {} -o x.bed{}",
+                format.name(),
+                as_argument(name),
+                converted_order_note(name, format)
             ),
         ));
     }
@@ -156,9 +187,11 @@ nuc, faidx or dict read it, as the reference for the intervals in a BED, GFF or 
             GateKind::ConvertOnly,
             format!(
                 "{name} is {}; only gloci convert reads it; convert it to BED first: \
-gloci convert {name} -o x.bed (if {name} is not {} at all, \
-pass --format bed or the format it is)",
+gloci convert {} -o x.bed{}; if {name} is not {} at all, \
+pass --format bed or the format it is",
                 format.name(),
+                as_argument(name),
+                converted_order_note(name, format),
                 format.name()
             ),
         ));

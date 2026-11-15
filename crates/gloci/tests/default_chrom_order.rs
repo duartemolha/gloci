@@ -214,3 +214,41 @@ fn vcf_order_notes_name_only_the_commands_options() {
         }
     }
 }
+
+/// The migration guide's recipe for BAM input to `merge`: the BED `convert` writes keeps the
+/// BAM header's order (chr2 before chr10), which `-g x.bam` names; without it the lexicographic
+/// default refuses the stream.
+#[test]
+fn a_bed_converted_from_a_bam_merges_with_g_the_bam() {
+    let d = tempdir();
+    let sam = p(
+        d.path(),
+        "x.sam",
+        "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:1000\n@SQ\tSN:chr2\tLN:1000\n\
+         @SQ\tSN:chr10\tLN:1000\n\
+         r1\t0\tchr1\t10\t60\t5M\t*\t0\t0\tACGTA\tIIIII\n\
+         r2\t0\tchr2\t10\t60\t5M\t*\t0\t0\tACGTA\tIIIII\n\
+         r3\t0\tchr10\t10\t60\t5M\t*\t0\t0\tACGTA\tIIIII\n",
+    );
+    let bam = d.path().join("x.bam").to_string_lossy().into_owned();
+    gloci().args(["view", &sam, "-o", &bam]).assert().success();
+    let bed = gloci()
+        .args(["convert", &bam])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    gloci()
+        .args(["merge", "-"])
+        .write_stdin(bed.clone())
+        .assert()
+        .code(1)
+        .stderr(contains("looks sorted in karyotype order"));
+    gloci()
+        .args(["merge", "-", "-g", &bam])
+        .write_stdin(bed)
+        .assert()
+        .success()
+        .stdout("chr1\t9\t14\nchr2\t9\t14\nchr10\t9\t14\n");
+}
