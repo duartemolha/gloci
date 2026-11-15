@@ -577,8 +577,25 @@ pub fn run_popgen(ctx: &Ctx, a: &VcfPopgenArgs) -> anyhow::Result<()> {
                     .fst_window_size
                     .map(|size| (size, a.fst_window_step.unwrap_or(size))),
             }),
+            ld: gloci_ops::LdRequest {
+                geno: a.geno_r2,
+                hap: a.hap_r2,
+                interchrom_geno: a.interchrom_geno_r2,
+                interchrom_hap: a.interchrom_hap_r2,
+                window: {
+                    let d = gloci_ops::LdWindow::default();
+                    gloci_ops::LdWindow {
+                        snps: a.ld_window.unwrap_or(d.snps),
+                        bp: a.ld_window_bp.unwrap_or(d.bp),
+                        min_snps: a.ld_window_min.unwrap_or(d.min_snps),
+                        min_bp: a.ld_window_bp_min.unwrap_or(d.min_bp),
+                        min_r2: a.min_r2,
+                    }
+                },
+            },
         },
         out_prefix: a.out_prefix.clone(),
+        max_mem: a.max_mem,
     };
     gloci_ops::check_popgen_request(&options)?;
     let input = open_selected(&a.file, &ro, &options.select)?;

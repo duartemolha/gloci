@@ -1,8 +1,9 @@
-//! Tests for `gloci vcf popgen` (decisions D158 to D160): every file matches
+//! Tests for `gloci vcf popgen` (decisions D158 to D161): every file matches
 //! the vcftools 0.1.16 file committed in `gloci-vcf/tests/golden/popgen` (made
 //! by its `regen.sh`), one pass equals separate runs, the thread count and the
-//! input format change nothing, the windowed statistics need sorted input, and
-//! the population files of Fst follow their rules.
+//! input format change nothing, the windowed statistics need sorted input, the
+//! population files of Fst follow their rules, and the sites LD holds stay
+//! within --max-mem.
 mod common;
 use common::*;
 use predicates::str::contains;
@@ -232,6 +233,71 @@ fn popgen_output_is_the_same_at_every_thread_count() {
     ] {
         assert_eq!(fst_files(&file, t), base, "{file} -t {t}");
     }
+
+    // LD holds and pairs the sites on the main thread, with pi beside it.
+    for (fixture, args, exts) in [
+        (
+            "ld.vcf",
+            &[
+                "--geno-r2",
+                "--interchrom-geno-r2",
+                "--ld-window-bp",
+                "150",
+                "--min-dp",
+                "5",
+                "--site-pi",
+            ][..],
+            &["geno.ld", "interchrom.geno.ld", "sites.pi"][..],
+        ),
+        (
+            "phased.vcf",
+            &[
+                "--hap-r2",
+                "--geno-r2",
+                "--interchrom-hap-r2",
+                "--ld-window",
+                "3",
+            ],
+            &["hap.ld", "geno.ld", "interchrom.hap.ld"],
+        ),
+    ] {
+        let text = std::fs::read_to_string(golden_dir().join(fixture)).unwrap();
+        let gz = s(&bgzf_file(d.path(), &format!("{fixture}.gz"), &text));
+        let bcf = s(&d.path().join(format!("{fixture}.bcf")));
+        gloci()
+            .args([
+                "vcf",
+                "filter",
+                &gpath(fixture),
+                "--vcf-span",
+                "ref",
+                "-o",
+                &bcf,
+            ])
+            .assert()
+            .success();
+        let files = |file: &str, t: &str| -> Vec<Vec<u8>> {
+            let mut a = args.to_vec();
+            a.extend(["-t", t]);
+            let (_d, prefix) = popgen(file, &a);
+            exts.iter().map(|e| read(&prefix, e)).collect()
+        };
+        let base = files(&gpath(fixture), "1");
+        assert!(
+            base.iter().all(|f| f.len() > 100),
+            "{fixture}: rows written"
+        );
+        for (file, t) in [
+            (gpath(fixture), "2"),
+            (gpath(fixture), "8"),
+            (gz.clone(), "1"),
+            (gz, "8"),
+            (bcf.clone(), "2"),
+            (bcf, "8"),
+        ] {
+            assert_eq!(files(&file, t), base, "{file} -t {t}");
+        }
+    }
 }
 
 const UNSORTED: &str = "##fileformat=VCFv4.2
@@ -312,7 +378,7 @@ fn popgen_unsorted_window_stats() {
     usage(&["--window-pi-step", "5", "--site-pi"], "--window-pi");
     usage(
         &[],
-        "add at least one of --site-pi, --window-pi SIZE, --tajima-d BIN or --fst-pop FILE",
+        "add at least one of --site-pi, --window-pi SIZE, --tajima-d BIN, --fst-pop FILE",
     );
 }
 
@@ -729,11 +795,14 @@ fn popgen_polyploid_stops_like_vcftools() {
     let p12 = s(&plain_file(d.path(), "p12.txt", "s1\ns2\n"));
     let p2 = s(&plain_file(d.path(), "p2.txt", "s2\n"));
     let p34 = s(&plain_file(d.path(), "p34.txt", "s3\ns4\n"));
-    let stats: [&[&str]; 4] = [
+    let stats: [&[&str]; 7] = [
         &["--site-pi"],
         &["--window-pi", "10"],
         &["--tajima-d", "100"],
         &["--fst-pop", &p12, "--fst-pop", &p34],
+        &["--geno-r2"],
+        &["--hap-r2"],
+        &["--interchrom-geno-r2"],
     ];
     for stat in stats {
         let out = tempdir();
@@ -758,4 +827,323 @@ fn popgen_polyploid_stops_like_vcftools() {
     let (_o, prefix) = popgen(&ploidy, &["--fst-pop", &p2, "--fst-pop", &p34]);
     let rows = String::from_utf8(read(&prefix, "weir.fst")).unwrap();
     assert_eq!(rows.lines().count(), 4, "{rows}");
+}
+
+/// The LD runs of regen.sh: the golden's prefix, the fixture, gloci's flags
+/// and the file's extension.
+const LD_RUNS: [(&str, &str, &[&str], &str); 17] = [
+    ("ld", "ld.vcf", &["--geno-r2"], "geno.ld"),
+    (
+        "ld.w2",
+        "ld.vcf",
+        &["--geno-r2", "--ld-window", "2"],
+        "geno.ld",
+    ),
+    (
+        "ld.bp100",
+        "ld.vcf",
+        &["--geno-r2", "--ld-window-bp", "100"],
+        "geno.ld",
+    ),
+    (
+        "ld.min2",
+        "ld.vcf",
+        &["--geno-r2", "--ld-window-min", "2"],
+        "geno.ld",
+    ),
+    (
+        "ld.bpmin10",
+        "ld.vcf",
+        &["--geno-r2", "--ld-window-bp-min", "10"],
+        "geno.ld",
+    ),
+    (
+        "ld.mix",
+        "ld.vcf",
+        &[
+            "--geno-r2",
+            "--ld-window",
+            "3",
+            "--ld-window-bp",
+            "150",
+            "--ld-window-min",
+            "2",
+            "--ld-window-bp-min",
+            "5",
+        ],
+        "geno.ld",
+    ),
+    (
+        "ld.r2",
+        "ld.vcf",
+        &["--geno-r2", "--min-r2", "0.2"],
+        "geno.ld",
+    ),
+    (
+        "ld.dp5",
+        "ld.vcf",
+        &["--geno-r2", "--min-dp", "5"],
+        "geno.ld",
+    ),
+    (
+        "ld.indv",
+        "ld.vcf",
+        &["--geno-r2", "--exclude-samples", "s1,s5"],
+        "geno.ld",
+    ),
+    (
+        "ld",
+        "ld.vcf",
+        &["--interchrom-geno-r2"],
+        "interchrom.geno.ld",
+    ),
+    (
+        "ld.r2",
+        "ld.vcf",
+        &["--interchrom-geno-r2", "--min-r2", "0.2"],
+        "interchrom.geno.ld",
+    ),
+    ("phased", "phased.vcf", &["--hap-r2"], "hap.ld"),
+    ("phased", "phased.vcf", &["--geno-r2"], "geno.ld"),
+    (
+        "phased.w1",
+        "phased.vcf",
+        &["--hap-r2", "--ld-window", "1"],
+        "hap.ld",
+    ),
+    (
+        "phased.dp5",
+        "phased.vcf",
+        &["--hap-r2", "--min-dp", "5"],
+        "hap.ld",
+    ),
+    (
+        "phased.r2",
+        "phased.vcf",
+        &["--hap-r2", "--min-r2", "0.2"],
+        "hap.ld",
+    ),
+    (
+        "phased",
+        "phased.vcf",
+        &["--interchrom-hap-r2"],
+        "interchrom.hap.ld",
+    ),
+];
+
+#[test]
+fn every_ld_file_matches_vcftools() {
+    for (tag, file, args, ext) in LD_RUNS {
+        let (d, prefix) = popgen(&gpath(file), args);
+        let name = format!("{tag}.{ext}");
+        assert_eq!(
+            String::from_utf8(read(&prefix, ext)).unwrap(),
+            golden(&name),
+            "{name} ({args:?})"
+        );
+        assert_eq!(std::fs::read_dir(d.path()).unwrap().count(), 1, "{name}");
+    }
+}
+
+/// Every LD statistic in one run with Fst: each file is vcftools' alone, so
+/// hap-r2's phase rule removes no site from the others; the unphased
+/// chr1:40, chr1:60 and chr1:80 are in geno.ld and weir.fst and not in
+/// hap.ld (decision D158, docs/differences.md#popgen-independent-options).
+#[test]
+fn ld_one_pass_keeps_its_rules_to_itself() {
+    let d = tempdir();
+    // p6 is haploid throughout, so pi would have no site: Fst over the
+    // diploid samples stands in for the other statistics.
+    let p1 = s(&plain_file(d.path(), "p1.txt", "p1\np2\n"));
+    let p2 = s(&plain_file(d.path(), "p2.txt", "p3\np4\np5\n"));
+    let (o, prefix) = popgen(
+        &gpath("phased.vcf"),
+        &[
+            "--geno-r2",
+            "--hap-r2",
+            "--interchrom-hap-r2",
+            "--fst-pop",
+            &p1,
+            "--fst-pop",
+            &p2,
+            "-t",
+            "4",
+        ],
+    );
+    let geno = String::from_utf8(read(&prefix, "geno.ld")).unwrap();
+    let hap = String::from_utf8(read(&prefix, "hap.ld")).unwrap();
+    assert_eq!(geno, golden("phased.geno.ld"));
+    assert_eq!(hap, golden("phased.hap.ld"));
+    assert_eq!(
+        String::from_utf8(read(&prefix, "interchrom.hap.ld")).unwrap(),
+        golden("phased.interchrom.hap.ld")
+    );
+    let fst = String::from_utf8(read(&prefix, "weir.fst")).unwrap();
+    for pos in ["40", "60", "80"] {
+        assert!(geno.contains(&format!("chr1\t10\t{pos}\t")), "{pos}");
+        assert!(!hap.contains(&format!("\t{pos}\t")), "{pos}");
+        assert!(fst.contains(&format!("chr1\t{pos}\t")), "{pos}: {fst}");
+    }
+    assert_eq!(std::fs::read_dir(o.path()).unwrap().count(), 5);
+}
+
+/// `LINES` phased sites of 8 samples on chromosome 1, 10 bases apart, and
+/// one on chromosome 2.
+fn ld_many(lines: u64) -> String {
+    let mut t = String::from(
+        "##fileformat=VCFv4.2\n##FORMAT=<ID=GT,Number=1,Type=String,Description=\"g\">\n\
+         #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT",
+    );
+    for i in 1..=8 {
+        t.push_str(&format!("\ts{i}"));
+    }
+    t.push('\n');
+    let gts = ["0|0", "0|1", "1|0", "1|1"];
+    for i in 0..=lines {
+        let chrom = if i == lines { "2" } else { "1" };
+        t.push_str(&format!("{chrom}\t{}\t.\tA\tG\t.\t.\t.\tGT", 10 * (i + 1)));
+        for k in 0..8u64 {
+            t.push('\t');
+            t.push_str(gts[((i * 7 + k * 3 + i * k) % 4) as usize]);
+        }
+        t.push('\n');
+    }
+    t
+}
+
+/// The sites LD holds stay within --max-mem: past it the run is exit 1,
+/// naming the fix, and writes no file; a window holds fewer
+/// (decision D161, docs/differences.md#ld-rules).
+#[test]
+fn ld_memory_guard() {
+    let d = tempdir();
+    // 8 samples: 24 bytes a site for genotypes, 32 for haplotypes, so 1K
+    // holds 42 or 32 sites.
+    let vcf = s(&plain_file(d.path(), "many.vcf", &ld_many(200)));
+    for (stat, fixes) in [
+        (
+            &["--geno-r2"][..],
+            &["--ld-window-bp", "--ld-window", "raise --max-mem"][..],
+        ),
+        (&["--hap-r2", "--min-r2", "0.5"], &["--ld-window-bp"]),
+        (&["--interchrom-geno-r2"], &["raise --max-mem", "--region"]),
+    ] {
+        let out = tempdir();
+        let prefix = s(&out.path().join("o"));
+        let mut a = gloci()
+            .args(["vcf", "popgen", &vcf, "--out-prefix", &prefix, "--site-pi"])
+            .args(stat)
+            .args(["--max-mem", "1K"])
+            .assert()
+            .code(1)
+            .stderr(contains("pass --max-mem 1K"));
+        for f in fixes {
+            a = a.stderr(contains(*f));
+        }
+        assert_eq!(
+            std::fs::read_dir(out.path()).unwrap().count(),
+            0,
+            "{stat:?}: a failed run writes no file"
+        );
+    }
+    // Pairs at most 300 bases apart hold 31 sites each: 744 bytes for
+    // genotypes and 992 for haplotypes, within 2K.
+    let (_o, prefix) = popgen(
+        &vcf,
+        &[
+            "--geno-r2",
+            "--hap-r2",
+            "--ld-window-bp",
+            "300",
+            "--max-mem",
+            "2K",
+        ],
+    );
+    let rows = String::from_utf8(read(&prefix, "geno.ld")).unwrap();
+    assert_eq!(rows.lines().count(), 1 + 30 * 170 + 30 * 29 / 2);
+    // The two windowed statistics share the budget: 1,736 bytes pass 1K.
+    let out = tempdir();
+    let prefix = s(&out.path().join("o"));
+    gloci()
+        .args(["vcf", "popgen", &vcf, "--out-prefix", &prefix])
+        .args(["--geno-r2", "--hap-r2", "--ld-window-bp", "300"])
+        .args(["--max-mem", "1K"])
+        .assert()
+        .code(1)
+        .stderr(contains("holds the sites of a pair window"))
+        .stderr(contains("pass --max-mem 1K"));
+}
+
+/// The windowed LD statistics stream their rows, so unsorted input is exit
+/// 1 with the fix and no file (docs/differences.md#popgen-sorted-input); the
+/// interchromosomal pairs take any order.
+#[test]
+fn ld_windows_need_sorted_input() {
+    let d = tempdir();
+    let unsorted = s(&plain_file(d.path(), "u.vcf", UNSORTED));
+    let backwards = s(&plain_file(d.path(), "b.vcf", BACKWARDS));
+    for (file, why) in [
+        (&unsorted, "the chromosome reappears at 1:200"),
+        (&backwards, "a position goes backwards at 1:499"),
+    ] {
+        let out = tempdir();
+        let prefix = s(&out.path().join("o"));
+        gloci()
+            .args(["vcf", "popgen", file, "--out-prefix", &prefix])
+            .args(["--geno-r2", "--ld-window-bp", "1000"])
+            .assert()
+            .code(1)
+            .stderr(contains("--geno-r2 needs input sorted"))
+            .stderr(contains(why))
+            .stderr(contains("gloci sort"));
+        assert_eq!(std::fs::read_dir(out.path()).unwrap().count(), 0);
+    }
+    let (_o, prefix) = popgen(&unsorted, &["--interchrom-geno-r2"]);
+    assert_eq!(
+        String::from_utf8(read(&prefix, "interchrom.geno.ld")).unwrap(),
+        "CHR1\tPOS1\tCHR2\tPOS2\tN_INDV\tR^2\n1\t500\t2\t100\t2\t1\n\
+         2\t100\t1\t200\t2\t1\n"
+    );
+}
+
+/// Window options without a statistic that uses them, and windows that
+/// admit no pair, are usage errors (docs/differences.md#popgen-window-step).
+#[test]
+fn ld_window_rules() {
+    let usage = |args: &[&str], msg: &str| {
+        let out = tempdir();
+        let prefix = s(&out.path().join("o"));
+        gloci()
+            .args(["vcf", "popgen", &gpath("ld.vcf"), "--out-prefix", &prefix])
+            .args(args)
+            .assert()
+            .code(2)
+            .stderr(contains(msg));
+        assert_eq!(std::fs::read_dir(out.path()).unwrap().count(), 0);
+    };
+    usage(
+        &["--geno-r2", "--ld-window", "0"],
+        "--ld-window 0 admits no pair",
+    );
+    usage(
+        &["--hap-r2", "--ld-window", "2", "--ld-window-min", "3"],
+        "--ld-window-min 3 is above --ld-window 2",
+    );
+    usage(
+        &[
+            "--geno-r2",
+            "--ld-window-bp",
+            "10",
+            "--ld-window-bp-min",
+            "11",
+        ],
+        "--ld-window-bp-min 11 is above --ld-window-bp 10",
+    );
+    usage(&["--interchrom-geno-r2", "--ld-window", "5"], "--ld-window");
+    usage(&["--site-pi", "--min-r2", "0.2"], "--min-r2");
+    usage(&["--geno-r2", "--max-mem", "2X"], "invalid size");
+    usage(
+        &[],
+        "--geno-r2, --hap-r2, --interchrom-geno-r2 or --interchrom-hap-r2",
+    );
 }

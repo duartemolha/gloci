@@ -567,29 +567,37 @@ pub struct VcfStatsArgs {
 
 // The "at least one statistic" rule is `check_popgen_request`'s, not a clap
 // group: its message lists every flag.
-/// Pi, Tajima's D, Fst (vcftools --*-pi, --TajimaD, --weir-fst-pop)
+/// Pi, Tajima's D, Fst and LD r2 (vcftools population genetics)
 ///
 /// Nucleotide diversity per site (--site-pi) and in windows (--window-pi), Tajima's D in bins
-/// (--tajima-d) and Weir and Cockerham's Fst between populations (--fst-pop, per site, in
-/// windows and over the run), as vcftools 0.1.16 computes them over the selected samples. Every
-/// requested statistic is computed in one pass over the records that pass the selection flags
-/// (samples, genotype masks, site filters, regions), and each writes PREFIX.<extension> with
-/// vcftools' file name and columns. The files are written atomically and only when the whole
-/// run succeeds.
+/// (--tajima-d), Weir and Cockerham's Fst between populations (--fst-pop, per site, in windows
+/// and over the run) and linkage disequilibrium between pairs of biallelic sites (--geno-r2,
+/// --hap-r2, in a window of pairs or between chromosomes), as vcftools 0.1.16 computes them over
+/// the selected samples. Every requested statistic is computed in one pass over the records that
+/// pass the selection flags (samples, genotype masks, site filters, regions), and each writes
+/// PREFIX.<extension> with vcftools' file name and columns. The files are written atomically and
+/// only when the whole run succeeds.
 #[derive(Args, Debug, Clone)]
+#[command(group(clap::ArgGroup::new("pair_ld").multiple(true).args(["geno_r2", "hap_r2"])))]
+#[command(group(
+    clap::ArgGroup::new("any_ld")
+        .multiple(true)
+        .args(["geno_r2", "hap_r2", "interchrom_geno_r2", "interchrom_hap_r2"])
+))]
 #[command(after_long_help = "\
 Examples:
   gloci vcf popgen cohort.vcf.gz --out-prefix pg --site-pi --window-pi 10000 --tajima-d 10000
-  gloci vcf popgen cohort.vcf.gz --out-prefix pg --window-pi 50000 --window-pi-step 10000 --min-dp 8
+  gloci vcf popgen cohort.vcf.gz --out-prefix ld --geno-r2 --ld-window-bp 50000 --min-r2 0.2
   gloci vcf popgen cohort.bcf --out-prefix fst --fst-pop yri.txt --fst-pop ceu.txt --fst-pop chb.txt
   gloci vcf popgen cohort.bcf --out-prefix fst --fst-pop yri --fst-pop ceu --fst-window-size 50000
 
 Sites:
-  A site counts only when every selected sample that is not masked is diploid (for Fst, every
-  population member); a genotype of ploidy above two among them is exit 1, as in vcftools. A
-  half-called genotype (./1) counts its called allele in pi and Tajima's D, and is missing for
-  Fst; a masked genotype is missing. Site and window pi and Fst take every allele of a
-  multi-allelic site; Tajima's D takes biallelic sites only.
+  Pi, Tajima's D and Fst use a site only when every selected sample that is not masked is diploid
+  (for Fst, every population member); LD leaves a haploid genotype out of its pairs instead. A
+  genotype of ploidy above two among them is exit 1, as in vcftools. A half-called genotype (./1)
+  counts its called allele in pi and Tajima's D, and is missing for Fst and --geno-r2; a masked
+  genotype is missing. Site and window pi and Fst take every allele of a multi-allelic site;
+  Tajima's D and LD take biallelic sites only.
 
 Window pi:
   Windows are [k*STEP+1, k*STEP+SIZE] on each chromosome. A polymorphic site adds its pairs of
@@ -617,11 +625,31 @@ Fst:
   With --fst-window-size, PREFIX.windowed.weir.fst sums them over the windows of window pi; a
   window without such a site, or whose sum(a+b+c) is 0, has no row.
 
+LD:
+  --geno-r2 and --hap-r2 pair the sites i < j of one chromosome, counted among the sites the
+  statistic uses, with --ld-window-min <= j - i <= --ld-window and --ld-window-bp-min <= POSj -
+  POSi <= --ld-window-bp: by default every pair of a chromosome (a minimum of 0 is 1). Rows come
+  in (i, j) order. --geno-r2 gives the squared correlation of the genotypes' REF allele counts
+  (2, 1, 0) over the samples called at both sites (N_INDV); a missing, half-called, haploid or
+  masked genotype is left out. --hap-r2 gives r2, Lewontin's D and D' of the haplotypes called at
+  both (N_CHR) and uses only sites where every selected genotype is phased (./. is not, .|. is);
+  a haploid genotype is one haplotype and .|1 its called one. A site --hap-r2 does not use takes
+  no place in --ld-window, and the other statistics still use it. --interchrom-geno-r2 and
+  --interchrom-hap-r2 write every pair of sites on different chromosomes, in input order, at the
+  end. --min-r2 above 0 leaves out the pairs with a smaller r2 or none (nan), in all four files.
+
+Memory:
+  The LD statistics hold sites in memory, at most 4 bits per selected sample each: --geno-r2 and
+  --hap-r2 the sites of one pair window (every site of a chromosome when neither --ld-window nor
+  --ld-window-bp limits it), the interchromosomal pairs every site they use. When the sites held
+  would pass --max-mem, the run stops with exit 1 and names the fix: narrow the window with
+  --ld-window-bp or --ld-window, or raise --max-mem. vcftools writes them to a temporary file.
+
 Sorted input:
-  --window-pi, --tajima-d and --fst-window-size write their rows as the input passes them, so
-  they need input sorted by chromosome and position: a chromosome that comes back or a position
-  that goes backwards is exit 1, and gloci sort fixes it. --site-pi and --fst-pop without a
-  window take records in any order.")]
+  --window-pi, --tajima-d, --fst-window-size, --geno-r2 and --hap-r2 write their rows as the
+  input passes them, so they need input sorted by chromosome and position: a chromosome that
+  comes back or a position that goes backwards is exit 1, and gloci sort fixes it. --site-pi,
+  --fst-pop without a window and the interchromosomal pairs take records in any order.")]
 pub struct VcfPopgenArgs {
     /// Input VCF or BCF file (`-` for stdin).
     #[arg(value_name = "FILE")]
@@ -631,9 +659,10 @@ pub struct VcfPopgenArgs {
     pub select: VcfSelectArgs,
 
     /// Prefix of the output files: PREFIX.sites.pi, PREFIX.windowed.pi,
-    /// PREFIX.Tajima.D, PREFIX.weir.fst, PREFIX.weir.fst.summary and
-    /// PREFIX.windowed.weir.fst. An existing file of the same name is
-    /// replaced.
+    /// PREFIX.Tajima.D, PREFIX.weir.fst, PREFIX.weir.fst.summary,
+    /// PREFIX.windowed.weir.fst, PREFIX.geno.ld, PREFIX.hap.ld,
+    /// PREFIX.interchrom.geno.ld and PREFIX.interchrom.hap.ld. An existing
+    /// file of the same name is replaced.
     #[arg(long, value_name = "PREFIX", required = true)]
     pub out_prefix: PathBuf,
 
@@ -666,6 +695,46 @@ pub struct VcfPopgenArgs {
     /// overlap.
     #[arg(long, value_name = "BP", requires = "fst_window_size")]
     pub fst_window_step: Option<u64>,
+    /// Linkage disequilibrium as the squared correlation of genotypes:
+    /// PREFIX.geno.ld (vcftools --geno-r2). Needs sorted input.
+    #[arg(long)]
+    pub geno_r2: bool,
+    /// Linkage disequilibrium of phased haplotypes, r2, D and D':
+    /// PREFIX.hap.ld (vcftools --hap-r2). Needs sorted input.
+    #[arg(long)]
+    pub hap_r2: bool,
+    /// --geno-r2 between every pair of sites on different chromosomes:
+    /// PREFIX.interchrom.geno.ld (vcftools --interchrom-geno-r2).
+    #[arg(long)]
+    pub interchrom_geno_r2: bool,
+    /// --hap-r2's r2 between every pair of sites on different chromosomes:
+    /// PREFIX.interchrom.hap.ld (vcftools --interchrom-hap-r2).
+    #[arg(long)]
+    pub interchrom_hap_r2: bool,
+    /// Pair sites at most N sites apart (vcftools --ld-window). Default: no
+    /// limit.
+    #[arg(long, value_name = "N", requires = "pair_ld")]
+    pub ld_window: Option<u64>,
+    /// Pair sites at most BP bases apart (vcftools --ld-window-bp). Default:
+    /// no limit.
+    #[arg(long, value_name = "BP", requires = "pair_ld")]
+    pub ld_window_bp: Option<u64>,
+    /// Pair sites at least N sites apart (vcftools --ld-window-min). Default:
+    /// 1.
+    #[arg(long, value_name = "N", requires = "pair_ld")]
+    pub ld_window_min: Option<u64>,
+    /// Pair sites at least BP bases apart (vcftools --ld-window-bp-min).
+    /// Default: 0.
+    #[arg(long, value_name = "BP", requires = "pair_ld")]
+    pub ld_window_bp_min: Option<u64>,
+    /// Leave out the pairs whose r2 is below R2, or nan, when R2 is above 0
+    /// (vcftools --min-r2).
+    #[arg(long, value_name = "R2", requires = "any_ld")]
+    pub min_r2: Option<f64>,
+    /// Memory the LD statistics may hold sites in, at most 4 bits per
+    /// selected sample and site; past it the run stops (see Memory).
+    #[arg(long, value_name = "SIZE", default_value = "2G", value_parser = parse_size)]
+    pub max_mem: u64,
 
     /// Which footprint a VCF record covers: the allele span or the REF span.
     /// The statistics do not depend on it, so the default is ref, which

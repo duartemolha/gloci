@@ -72,6 +72,7 @@ pub use check::{
 };
 pub use flagstat::{FlagStats, FlagstatFormat, flagstat, percent, render_flagstat};
 pub use gloci_engine::all_indexed;
+pub use gloci_vcf::popgen::LdWindow;
 pub use head::{HeadOptions, head};
 pub use idxstats::{IdxstatsPath, idxstats};
 pub use maskfasta::{Mask, MaskSet, MaskSummary, PastEnd, maskfasta, maskfasta_with};
@@ -106,7 +107,8 @@ pub use vcf_filter::{
 pub use vcf_merge::{FilterList, MergeSummary, vcf_merge, vcf_merge_output};
 pub use vcf_norm::{NormOptions, NormSummary, vcf_norm, vcf_norm_output};
 pub use vcf_popgen::{
-    FstRequest, PopgenOptions, PopgenRequest, check_request as check_popgen_request, vcf_popgen,
+    FstRequest, LdRequest, PopgenOptions, PopgenRequest, check_request as check_popgen_request,
+    vcf_popgen,
 };
 #[cfg(feature = "test-hooks")]
 pub use vcf_select::set_worker_panic_at;
