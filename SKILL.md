@@ -27,17 +27,17 @@ description: Use gloci for genomic interval and variant operations (sorting, ind
   `gloci genomes` · `gloci genomes show hg38`
 - `gloci genomes show`: Print one built-in genome as name and length, tab-separated
   `gloci genomes show hg38` · `gloci genomes show GRCh38 > GRCh38.genome`
-- `gloci index`: Build a .tbi/.csi index for a sorted BGZF file, a .bai/.csi for a BAM, a .crai for a CRAM, or a .fai for a FASTA
+- `gloci index`: Build a .tbi/.csi index for a sorted BGZF file, a .bai/.csi for a BAM, a .crai for a CRAM, or a .fai for a FASTA (tabix, samtools index)
   `gloci index calls.vcf.gz` · `gloci index sorted.bam`
-- `gloci sort`: Sort BED/bedGraph/GFF/VCF/BCF files, or BAM/SAM/CRAM alignments, with bounded memory
+- `gloci sort`: Sort BED/bedGraph/GFF/VCF/BCF files, or BAM/SAM/CRAM alignments, with bounded memory (bedtools sort, samtools sort)
   `gloci sort reads.bam -o reads.sorted.bam --write-index -t 8` · `gloci sort peaks.bed > peaks.sorted.bed`
-- `gloci view`: Print the records in regions, stream or recompress a file, convert VCF to BCF and back, or print only the header
+- `gloci view`: Print the records in regions, stream or recompress a file, convert VCF to BCF and back, or print only the header (samtools view)
   `gloci view calls.vcf.gz chr1:1,000,000-2,000,000 chrX` · `gloci view reads.cram --reference ref.fa -o reads.bam`
 - `gloci cat` (experimental): Join BAM files by copying their compressed blocks, as samtools cat does
   `gloci cat lane1.bam lane2.bam -o all.bam` · `gloci cat part-*.bam > all.bam`
-- `gloci check` (experimental): Validate files and print a one-screen summary of each
+- `gloci check` (experimental): Validate files and print a one-screen summary of each (samtools quickcheck)
   `gloci check peaks.bed` · `gloci check calls.vcf.gz -g hg38.fa.fai`
-- `gloci intersect`: Report the records of A that overlap, or do not overlap, records of B
+- `gloci intersect`: Report the records of A that overlap, or do not overlap, records of B (bedtools intersect)
   `gloci intersect -a peaks.bed -b genes.bed` · `gloci intersect -a calls.vcf.gz -b exons.bed --mode none -o off_target.vcf.gz`
 - `gloci merge`: Merge overlapping or nearby records into clusters (bedtools merge, bedops -m)
   `gloci merge peaks.bed` · `gloci merge a.bed b.bed -d 100 --count`
@@ -77,11 +77,11 @@ description: Use gloci for genomic interval and variant operations (sorting, ind
   `gloci groupby scores.bed -g 1,2 -c 5:sum -c 5:mean` · `gloci groupby calls.tsv -g 1 -c 4:collapse -c 5:count_distinct`
 - `gloci maskfasta` (experimental): Mask bases of a FASTA under intervals, streaming it (bedtools maskfasta)
   `gloci maskfasta --fasta hg38.fa -b repeats.bed -o hg38.masked.fa` · `gloci maskfasta --fasta hg38.fa.gz -b rmsk.bed segdups.bed --soft -o soft.fa.gz --write-index`
-- `gloci vcf` (experimental): VCF and BCF operations: filter, extract, stats, concat, split, norm, annotate, merge, compare and popgen
+- `gloci vcf` (experimental): VCF and BCF operations: filter, extract, stats, concat, split, norm, annotate, merge, compare and popgen (bcftools and vcftools equivalents)
   `gloci vcf filter cohort.bcf --pass-only --min-qual 30 -o filtered.bcf` · `gloci vcf filter input.vcf --samples s1,s2 --min-dp 10 --recalc-ac -o out.vcf`
-- `gloci vcf filter` (experimental): Filter VCF/BCF files with the selection pipeline
+- `gloci vcf filter` (experimental): Filter VCF/BCF files with the selection pipeline (bcftools view, vcftools)
   `gloci vcf filter cohort.bcf --pass-only --min-qual 30 --min-maf 0.01 --max-missing 0.1 -o filtered.bcf` · `gloci vcf filter input.vcf --samples s1,s2 --min-dp 10 --recalc-ac -o out.vcf`
-- `gloci vcf extract` (experimental): Extract INFO or FORMAT values as a table, or the 012 genotype matrix
+- `gloci vcf extract` (experimental): Extract INFO or FORMAT values as a table, or the 012 genotype matrix (vcftools --012)
   `gloci vcf extract cohort.vcf.gz --info DP,AF -o info.tsv` · `gloci vcf extract cohort.bcf --format GT,DP --layout long --samples s1,s2`
 - `gloci vcf stats` (experimental): Compute statistics in one pass: per-site, per-sample and whole-file, written as PREFIX.<ext> in vcftools' formats, plus a summary
   `gloci vcf stats cohort.vcf.gz --out-prefix qc --freq --missing-indv --het --summary` · `gloci vcf stats cohort.bcf --out-prefix qc --depth --site-mean-depth --min-dp 8 --samples s1,s2`
