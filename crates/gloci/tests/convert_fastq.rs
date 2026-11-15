@@ -3,6 +3,8 @@
 //! formats and errors those cannot show.
 mod common;
 use common::*;
+// Only the Linux-only tests below use `predicate::`.
+#[cfg(target_os = "linux")]
 use predicates::prelude::*;
 use predicates::str::contains;
 use std::io::Read;
