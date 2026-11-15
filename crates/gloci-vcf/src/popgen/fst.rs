@@ -96,16 +96,19 @@ impl Populations {
             m.sort_unstable();
             members.push(m);
         }
-        if let Some(first) = unknown.first() {
-            let n = unknown.len();
-            log::warn!(
-                "vcf popgen: {n} name{} in the --fst-pop files {} not a selected sample and {} \
-                 left out of Fst (the first is {})",
-                if n == 1 { "" } else { "s" },
-                if n == 1 { "is" } else { "are" },
-                if n == 1 { "is" } else { "are" },
+        match unknown.as_slice() {
+            [] => {}
+            [one] => log::warn!(
+                "vcf popgen: {} in the --fst-pop files is not a selected sample, so Fst leaves it \
+                 out",
+                String::from_utf8_lossy(one)
+            ),
+            [first, ..] => log::warn!(
+                "vcf popgen: {} names in the --fst-pop files are not selected samples, so Fst \
+                 leaves them out (the first is {})",
+                unknown.len(),
                 String::from_utf8_lossy(first)
-            );
+            ),
         }
         Ok(Populations { names, members })
     }

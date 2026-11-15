@@ -571,6 +571,12 @@ pub fn run_popgen(ctx: &Ctx, a: &VcfPopgenArgs) -> anyhow::Result<()> {
                 .window_pi
                 .map(|size| (size, a.window_pi_step.unwrap_or(size))),
             tajima_d: a.tajima_d,
+            fst: (!a.fst_pop.is_empty()).then(|| gloci_ops::FstRequest {
+                pop_files: a.fst_pop.clone(),
+                window: a
+                    .fst_window_size
+                    .map(|size| (size, a.fst_window_step.unwrap_or(size))),
+            }),
         },
         out_prefix: a.out_prefix.clone(),
     };

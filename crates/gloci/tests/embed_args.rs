@@ -1144,9 +1144,12 @@ fn file_arguments_are_known() {
         (&["bedcov"], "files"),
         (&["reheader"], "header"),
         (&["shuffle"], "exclude"),
+        (&["vcf", "popgen"], "fst_pop"),
     ] {
         assert!(takes(path, name), "{path:?} {name}");
     }
+    // One population per value, given once per population.
+    assert!(spec(&["vcf", "popgen"]).arg("fst_pop").unwrap().multiple);
     // Text, directories, prefixes, switches and the output are not.
     for (path, name) in [
         (&["intersect"][..], "names"),
@@ -1157,6 +1160,7 @@ fn file_arguments_are_known() {
         (&["sort"], "header"),
         (&["vcf", "stats"], "out_prefix"),
         (&["vcf", "filter"], "samples"),
+        (&["vcf", "popgen"], "fst_window_size"),
     ] {
         assert!(!takes(path, name), "{path:?} {name}");
     }

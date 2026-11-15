@@ -1,6 +1,6 @@
 //! `gloci vcf popgen`: vcftools' population genetics statistics in one pass
 //! over the records that pass the shared selection stage, through the
-//! `vcf stats` engine (decisions D158, D159). Each statistic writes
+//! `vcf stats` engine (decisions D158 to D160). Each statistic writes
 //! `PREFIX.<extension>` with vcftools' name and columns; the files are
 //! published together only when the whole run succeeds.
 
@@ -8,7 +8,7 @@ use crate::vcf_select::{SelectedInput, VcfSelect};
 use crate::vcf_stats::{StatsSummary, run_stats, selection_fields};
 use gloci_io::{IoError, UsageError};
 use gloci_vcf::Stat;
-use gloci_vcf::popgen::{SitePi, TajimaD, WindowPi};
+use gloci_vcf::popgen::{FST_TWO_FILES, Populations, SitePi, TajimaD, WeirFst, WindowPi};
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 
@@ -23,6 +23,18 @@ pub struct PopgenRequest {
     pub window_pi: Option<(u64, u64)>,
     /// `PREFIX.Tajima.D` (vcftools `--TajimaD`): the bin size.
     pub tajima_d: Option<u64>,
+    /// `PREFIX.weir.fst` and `PREFIX.weir.fst.summary`, with a window also
+    /// `PREFIX.windowed.weir.fst` (vcftools `--weir-fst-pop`).
+    pub fst: Option<FstRequest>,
+}
+
+/// Weir and Cockerham's Fst between populations.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FstRequest {
+    /// One file per population (`--fst-pop`), at least two.
+    pub pop_files: Vec<PathBuf>,
+    /// Window size and step (`--fst-window-size`, `--fst-window-step`).
+    pub window: Option<(u64, u64)>,
 }
 
 impl PopgenRequest {
@@ -51,35 +63,26 @@ pub fn check_request(o: &PopgenOptions) -> Result<(), IoError> {
     let r = &o.request;
     if r.is_empty() {
         return Err(usage(
-            "no statistic requested; add at least one of --site-pi, --window-pi SIZE or \
-             --tajima-d BIN",
+            "no statistic requested; add at least one of --site-pi, --window-pi SIZE, \
+             --tajima-d BIN or --fst-pop FILE (twice or more)",
         ));
     }
-    if let Some((size, step)) = r.window_pi {
-        if size == 0 {
-            return Err(usage(
-                "--window-pi needs a window size above 0; give the window width in bases, such \
-                 as --window-pi 10000",
-            ));
-        }
-        if step == 0 {
-            return Err(usage(
-                "--window-pi-step needs a step above 0; give it in bases, or leave it out for \
-                 windows that do not overlap",
-            ));
-        }
-        if step > size {
-            return Err(usage(format!(
-                "--window-pi-step {step} is larger than the window ({size}), which would leave \
-                 positions in no window; give a step of at most {size}"
-            )));
-        }
+    if let Some(w) = r.window_pi {
+        check_window(w, "--window-pi", "--window-pi-step")?;
     }
     if r.tajima_d == Some(0) {
         return Err(usage(
             "--tajima-d needs a bin size above 0; give the bin width in bases, such as \
              --tajima-d 10000",
         ));
+    }
+    if let Some(f) = &r.fst {
+        if f.pop_files.len() < 2 {
+            return Err(usage(FST_TWO_FILES));
+        }
+        if let Some(w) = f.window {
+            check_window(w, "--fst-window-size", "--fst-window-step")?;
+        }
     }
     if o.out_prefix.as_os_str().is_empty() {
         return Err(usage(
@@ -89,8 +92,36 @@ pub fn check_request(o: &PopgenOptions) -> Result<(), IoError> {
     Ok(())
 }
 
-/// The statistics a request asks for, over `n_samples` selected samples.
-fn build_stats(r: &PopgenRequest, n_samples: u64) -> Vec<Box<dyn Stat>> {
+/// A window's size and step, for the flags `size_flag` and `step_flag`:
+/// both above 0, and the step at most the size (D158).
+fn check_window((size, step): (u64, u64), size_flag: &str, step_flag: &str) -> Result<(), IoError> {
+    if size == 0 {
+        return Err(usage(format!(
+            "{size_flag} needs a window size above 0; give the window width in bases, such as \
+             {size_flag} 10000"
+        )));
+    }
+    if step == 0 {
+        return Err(usage(format!(
+            "{step_flag} needs a step above 0; give it in bases, or leave it out for windows \
+             that do not overlap"
+        )));
+    }
+    if step > size {
+        return Err(usage(format!(
+            "{step_flag} {step} is larger than the window ({size}), which would leave positions \
+             in no window; give a step of at most {size}"
+        )));
+    }
+    Ok(())
+}
+
+/// The statistics a request asks for, over the selected samples
+/// (`samples`: index in the record and name).
+fn build_stats(
+    r: &PopgenRequest,
+    samples: &[(usize, String)],
+) -> Result<Vec<Box<dyn Stat>>, IoError> {
     let mut v: Vec<Box<dyn Stat>> = Vec::new();
     if r.site_pi {
         v.push(Box::new(SitePi::new()));
@@ -99,9 +130,13 @@ fn build_stats(r: &PopgenRequest, n_samples: u64) -> Vec<Box<dyn Stat>> {
         v.push(Box::new(WindowPi::new(size, step)));
     }
     if let Some(bin) = r.tajima_d {
-        v.push(Box::new(TajimaD::new(bin, n_samples)));
+        v.push(Box::new(TajimaD::new(bin, samples.len() as u64)));
     }
-    v
+    if let Some(f) = &r.fst {
+        let pops = Populations::load(&f.pop_files, samples)?;
+        v.push(Box::new(WeirFst::new(pops, f.window)));
+    }
+    Ok(v)
 }
 
 /// Compute the requested statistics of the records of `input`, with the
@@ -129,7 +164,7 @@ pub fn vcf_popgen(
                      --exclude-samples removed them all"
                 )));
             }
-            Ok(build_stats(&o.request, samples.len() as u64))
+            build_stats(&o.request, samples)
         },
     )
 }

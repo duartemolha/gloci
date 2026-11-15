@@ -567,10 +567,11 @@ pub struct VcfStatsArgs {
 
 // The "at least one statistic" rule is `check_popgen_request`'s, not a clap
 // group: its message lists every flag.
-/// Population statistics: pi, Tajima's D (vcftools)
+/// Pi, Tajima's D, Fst (vcftools --*-pi, --TajimaD, --weir-fst-pop)
 ///
-/// Nucleotide diversity per site (--site-pi) and in windows (--window-pi), and Tajima's D in
-/// bins (--tajima-d), as vcftools 0.1.16 computes them over the selected samples. Every
+/// Nucleotide diversity per site (--site-pi) and in windows (--window-pi), Tajima's D in bins
+/// (--tajima-d) and Weir and Cockerham's Fst between populations (--fst-pop, per site, in
+/// windows and over the run), as vcftools 0.1.16 computes them over the selected samples. Every
 /// requested statistic is computed in one pass over the records that pass the selection flags
 /// (samples, genotype masks, site filters, regions), and each writes PREFIX.<extension> with
 /// vcftools' file name and columns. The files are written atomically and only when the whole
@@ -581,11 +582,13 @@ Examples:
   gloci vcf popgen cohort.vcf.gz --out-prefix pg --site-pi --window-pi 10000
   gloci vcf popgen cohort.bcf --out-prefix pg --tajima-d 10000 --samples-file pop1.txt
   gloci vcf popgen cohort.vcf.gz --out-prefix pg --window-pi 50000 --window-pi-step 10000 --min-dp 8
+  gloci vcf popgen cohort.vcf.gz --out-prefix pg --fst-pop pop1.txt --fst-pop pop2.txt --fst-window-size 50000
 
 Sites:
-  A site counts only when every selected sample that is not masked is diploid. A half-called
-  genotype (./1) counts its called allele; a masked genotype is missing. Site and window pi take
-  every allele of a multi-allelic site; Tajima's D takes biallelic sites only.
+  A site counts only when every selected sample that is not masked is diploid (for Fst, every
+  population member). A half-called genotype (./1) counts its called allele in pi and Tajima's
+  D, and is missing for Fst; a masked genotype is missing. Site and window pi and Fst take every
+  allele of a multi-allelic site; Tajima's D takes biallelic sites only.
 
 Window pi:
   Windows are [k*STEP+1, k*STEP+SIZE] on each chromosome. A polymorphic site adds its pairs of
@@ -600,10 +603,24 @@ Tajima's D:
   samples whatever is missing at a site. A chromosome's rows run from its first bin with a
   segregating site to its last bin with a biallelic site; a bin without one is 0 nan.
 
+Fst:
+  Each --fst-pop file is a population: the first word of each line names a sample (blank lines
+  are skipped). Names are matched against the selected samples, and the populations select no
+  samples for the other statistics or the site filters. Fewer than two files, a file that names
+  no selected sample, or a sample in two files is exit 2; names that are not selected samples
+  are left out, with one warning that counts them. Per site, each population's fully called
+  genotypes give vcftools' a, b and c per allele (Weir and Cockerham 1984), and Fst is
+  sum(a) / sum(a+b+c) over the alleles; it is nan when a population has no call or nothing
+  varies. PREFIX.weir.fst has a row per site; PREFIX.weir.fst.summary gives N_SITES, MEAN_FST and
+  WEIGHTED_FST (sum(a) / sum(a+b+c)) over the sites that are not nan, which vcftools only logs.
+  With --fst-window-size, PREFIX.windowed.weir.fst sums them over the windows of window pi; a
+  window without such a site, or whose sum(a+b+c) is 0, has no row.
+
 Sorted input:
-  --window-pi and --tajima-d write their rows as the input passes them, so they need input
-  sorted by chromosome and position: a chromosome that comes back or a position that goes
-  backwards is exit 1, and gloci sort fixes it. --site-pi takes records in any order.")]
+  --window-pi, --tajima-d and --fst-window-size write their rows as the input passes them, so
+  they need input sorted by chromosome and position: a chromosome that comes back or a position
+  that goes backwards is exit 1, and gloci sort fixes it. --site-pi and --fst-pop without a
+  window take records in any order.")]
 pub struct VcfPopgenArgs {
     /// Input VCF or BCF file (`-` for stdin).
     #[arg(value_name = "FILE")]
@@ -612,8 +629,10 @@ pub struct VcfPopgenArgs {
     #[command(flatten)]
     pub select: VcfSelectArgs,
 
-    /// Prefix of the output files: PREFIX.sites.pi, PREFIX.windowed.pi and
-    /// PREFIX.Tajima.D. An existing file of the same name is replaced.
+    /// Prefix of the output files: PREFIX.sites.pi, PREFIX.windowed.pi,
+    /// PREFIX.Tajima.D, PREFIX.weir.fst, PREFIX.weir.fst.summary and
+    /// PREFIX.windowed.weir.fst. An existing file of the same name is
+    /// replaced.
     #[arg(long, value_name = "PREFIX", required = true)]
     pub out_prefix: PathBuf,
 
@@ -632,6 +651,20 @@ pub struct VcfPopgenArgs {
     /// Needs sorted input.
     #[arg(long, value_name = "BIN")]
     pub tajima_d: Option<u64>,
+    /// A population for Weir and Cockerham's Fst: a file of sample names,
+    /// one per line. Give it once per population, at least twice:
+    /// PREFIX.weir.fst and PREFIX.weir.fst.summary (vcftools --weir-fst-pop).
+    #[arg(long, value_name = "FILE")]
+    pub fst_pop: Vec<PathBuf>,
+    /// Fst in windows of BP bases as well: PREFIX.windowed.weir.fst
+    /// (vcftools --fst-window-size). Needs sorted input.
+    #[arg(long, value_name = "BP", requires = "fst_pop")]
+    pub fst_window_size: Option<u64>,
+    /// Start an Fst window every BP bases, at most the window size (vcftools
+    /// --fst-window-step). Default: the window size, windows that do not
+    /// overlap.
+    #[arg(long, value_name = "BP", requires = "fst_window_size")]
+    pub fst_window_step: Option<u64>,
 
     /// Which footprint a VCF record covers: the allele span or the REF span.
     /// The statistics do not depend on it, so the default is ref, which
