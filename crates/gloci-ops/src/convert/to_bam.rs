@@ -10,7 +10,7 @@ use crate::browser::for_each_feature;
 use gloci_core::{ChromTable, Genome, OrderSource};
 use gloci_io::{
     AlnHeader, BedpeBatch, BedpeReader, Format, IoError, Loc, RecordReader, RecordWriter,
-    SortOrder, bed12_blocks, bedpe_name, field, sam_line_to_bam, unknown_chrom_err,
+    SortOrder, bed12_blocks, bedpe_name, column_count, field, sam_line_to_bam, unknown_chrom_err,
 };
 use std::io::Write;
 
@@ -215,7 +215,8 @@ have a name column (BED4 or more)"
 /// end, and TLEN on both is `start2 - start1` on one chromosome, else 0. The CIGAR of an end is
 /// `(end-start)M`, `0M` when it is zero-length. An absent end (chromosome `.`) is an unmapped
 /// record (0x4, and 0x8 on its mate) with no CIGAR and MAPQ 0, placed at its mate as the SAM
-/// specification recommends, or unplaced when both ends are absent; TLEN is then 0.
+/// specification recommends, or unplaced when both ends are absent; TLEN is then 0. Every line
+/// needs the first line's number of columns, as bedtools requires.
 pub fn bedpe_to_bam(
     mut input: BedpeReader,
     chroms: &mut ChromTable,
@@ -228,6 +229,7 @@ pub fn bedpe_to_bam(
     let mut batch = BedpeBatch::default();
     let mut line = Line::default();
     let mut cigar: [Vec<u8>; 2] = Default::default();
+    let mut first_columns: Option<usize> = None;
     let mut n = 0u64;
     loop {
         batch.clear();
@@ -240,6 +242,14 @@ pub fn bedpe_to_bam(
                 loc: Loc::Line(m.loc),
                 msg,
             };
+            let columns = column_count(raw);
+            let first = *first_columns.get_or_insert(columns);
+            if columns != first {
+                return Err(fail(format!(
+                    "{columns} columns, but the first line has {first}; every line must have the \
+same number of columns"
+                )));
+            }
             let name = bedpe_name(raw).ok_or_else(|| {
                 fail(
                     "the line has 6 columns; a BAM record needs a read name, so the line must \

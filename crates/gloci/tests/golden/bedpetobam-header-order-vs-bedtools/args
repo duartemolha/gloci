@@ -1,0 +1,1 @@
+convert input.bedpe --format bedpe --bam -g genome.txt

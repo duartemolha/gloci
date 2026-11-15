@@ -8320,6 +8320,311 @@ gloci = "gloci convert input.bam --fastq -o /dev/null --fastq2 /dev/null --tags"
 reference = "bedtools bamtofastq -i input.bam -fq /dev/null -fq2 /dev/null -tags"
 compare = "exit-status"
 expected_difference = "#bamtofastq-tags-missing"
+
+# convert --bam (bedtobam, bedpetobam, D167). BAM output is compared as BAM: the header text
+# without its @PG lines, the reference list and every record's bytes (bin included) must be
+# bedtools'. The live `-sam` cases compare the same files as `samtools view -h` text, and the
+# `-read-back` cases read them back through `samtools quickcheck` and `gloci view`.
+#
+# tobam/genome.txt lists chr2, chr1, chr10, chrX, chrM: not byte order, not the order the
+# records name them, and chrM has no record (a header from the records' chromosomes, or sorted,
+# differs; AS: is the -g value). features.bed has a track and a comment line, records in no order
+# (an output in any other order differs), a `.` and an `x` strand (only `-` is 16), a score of 5
+# (MAPQ stays 255), a zero-length record (bedtools reads it one base wider on each side: 2M at
+# 100, not 0M at 101), a record past the end of chr1 (written as it is, not cut), a name with a
+# space, a repeated name, a numeric name, and a record across a 16 kb bin boundary (bin 585).
+[[case]]
+name = "bedtobam-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/features.bed" }
+aux = ["xtask/diff/inputs/tobam/genome.txt"]
+gloci = "gloci convert input.bed --bam -g genome.txt"
+reference = "bedtools bedtobam -i input.bed -g genome.txt"
+compare = "bam"
+
+[[case]]
+name = "bedtobam-sam-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/features.bed" }
+aux = ["xtask/diff/inputs/tobam/genome.txt"]
+gloci = "gloci convert input.bed --bam -g genome.txt | samtools view -h"
+reference = "bedtools bedtobam -i input.bed -g genome.txt | samtools view -h"
+compare = "sam"
+
+[[case]]
+name = "bedtobam-read-back-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/features.bed" }
+aux = ["xtask/diff/inputs/tobam/genome.txt"]
+gloci = "gloci convert input.bed --bam -g genome.txt -o o.bam && samtools quickcheck -v o.bam && gloci view o.bam -O sam"
+reference = "bedtools bedtobam -i input.bed -g genome.txt > o.bam && samtools quickcheck -v o.bam && samtools view -h o.bam"
+compare = "sam"
+
+# The header lines the comparison leaves out: each tool's own @PG line (neither writes @CO).
+[[case]]
+name = "bedtobam-provenance-lines-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/features.bed" }
+aux = ["xtask/diff/inputs/tobam/genome.txt"]
+gloci = "gloci convert input.bed --bam -g genome.txt | samtools view -H --no-PG | grep -e '^@PG' -e '^@CO' | cut -f 1-3"
+reference = "bedtools bedtobam -i input.bed -g genome.txt | samtools view -H --no-PG | grep -e '^@PG' -e '^@CO' | cut -f 1-3"
+compare = "exact"
+expected_difference = "#bam-output-provenance"
+
+# BED4 (no strand: FLAG 0) with --mapq.
+[[case]]
+name = "bedtobam-mapq-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/bed4.bed" }
+aux = ["xtask/diff/inputs/tobam/genome.txt"]
+gloci = "gloci convert input.bed --bam -g genome.txt --mapq 30"
+reference = "bedtools bedtobam -i input.bed -g genome.txt -mapq 30"
+compare = "bam"
+
+# bedtools -ubam is --compression-level 0 (bedtools 2.31.1 compresses it anyway).
+[[case]]
+name = "bedtobam-ubam-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/features.bed" }
+aux = ["xtask/diff/inputs/tobam/genome.txt"]
+gloci = "gloci convert input.bed --bam -g genome.txt --compression-level 0"
+reference = "bedtools bedtobam -i input.bed -g genome.txt -ubam"
+compare = "bam"
+
+# bed12.bed: gaps as N, adjacent blocks as two M (`100M100M`, not 200M or `0N`), a size-0 block
+# as 0M (`100M0M100M`: dropping it differs), a zero-length record (POS one base before its
+# start, CIGAR from its blocks: 0M at 500), an intron across bin boundaries, block lists with and
+# without the trailing comma. Without --bed12 every record is one M over its span.
+[[case]]
+name = "bedtobam-bed12-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/bed12.bed" }
+aux = ["xtask/diff/inputs/tobam/genome.txt"]
+gloci = "gloci convert input.bed --bam -g genome.txt --bed12"
+reference = "bedtools bedtobam -i input.bed -g genome.txt -bed12"
+compare = "bam"
+
+[[case]]
+name = "bedtobam-bed12-sam-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/bed12.bed" }
+aux = ["xtask/diff/inputs/tobam/genome.txt"]
+gloci = "gloci convert input.bed --bam -g genome.txt --bed12 | samtools view -h"
+reference = "bedtools bedtobam -i input.bed -g genome.txt -bed12 | samtools view -h"
+compare = "sam"
+
+[[case]]
+name = "bedtobam-bed12-as-bed-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/bed12.bed" }
+aux = ["xtask/diff/inputs/tobam/genome.txt"]
+gloci = "gloci convert input.bed --bam -g genome.txt"
+reference = "bedtools bedtobam -i input.bed -g genome.txt"
+compare = "bam"
+
+# GFF: the feature type is the name, start-1, column 7 the strand, a one-base feature is 1M.
+[[case]]
+name = "bedtobam-gff-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/features.gff" }
+aux = ["xtask/diff/inputs/tobam/genome.txt"]
+gloci = "gloci convert input.gff --bam -g genome.txt"
+reference = "bedtools bedtobam -i input.gff -g genome.txt"
+compare = "bam"
+
+# VCF: REF/ALT_ID (no _ID for `.`), over the REF bases, also for an insertion and a <DEL> with
+# END (an allele footprint or END would differ).
+[[case]]
+name = "bedtobam-vcf-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/features.vcf" }
+aux = ["xtask/diff/inputs/tobam/genome.txt"]
+gloci = "gloci convert input.vcf --bam -g genome.txt"
+reference = "bedtools bedtobam -i input.vcf -g genome.txt"
+compare = "bam"
+
+[[case]]
+name = "bedtobam-empty-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/empty.bed" }
+aux = ["xtask/diff/inputs/tobam/genome.txt"]
+gloci = "gloci convert input.bed --bam -g genome.txt"
+reference = "bedtools bedtobam -i input.bed -g genome.txt"
+compare = "bam"
+
+# BED3 has no name, a record with fewer columns than the first, and --bed12 on BED6: exit 1 in both.
+[[case]]
+name = "bedtobam-no-name-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/no-name.bed" }
+aux = ["xtask/diff/inputs/tobam/genome.txt"]
+gloci = "gloci convert input.bed --bam -g genome.txt -o /dev/null"
+reference = "bedtools bedtobam -i input.bed -g genome.txt > /dev/null"
+compare = "exit-status"
+
+[[case]]
+name = "bedtobam-ragged-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/ragged.bed" }
+aux = ["xtask/diff/inputs/tobam/genome.txt"]
+gloci = "gloci convert input.bed --bam -g genome.txt -o /dev/null"
+reference = "bedtools bedtobam -i input.bed -g genome.txt > /dev/null"
+compare = "exit-status"
+
+[[case]]
+name = "bedtobam-bed12-not-bed12-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/features.bed" }
+aux = ["xtask/diff/inputs/tobam/genome.txt"]
+gloci = "gloci convert input.bed --bam -g genome.txt --bed12 -o /dev/null"
+reference = "bedtools bedtobam -i input.bed -g genome.txt -bed12 > /dev/null"
+compare = "exit-status"
+
+# A chromosome the genome lacks: bedtools writes the record on the first reference, gloci stops.
+[[case]]
+name = "bedtobam-missing-chromosome-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/missing-chrom.bed" }
+aux = ["xtask/diff/inputs/tobam/genome.txt"]
+gloci = "gloci convert input.bed --bam -g genome.txt -o /dev/null"
+reference = "bedtools bedtobam -i input.bed -g genome.txt > /dev/null"
+compare = "exit-status"
+expected_difference = "#bedtobam-missing-chromosome"
+
+# A zero-length record at 0: bedtools writes position -1, gloci the base after it.
+[[case]]
+name = "bedtobam-zero-length-at-start-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/zero-at-start.bed" }
+aux = ["xtask/diff/inputs/tobam/genome.txt"]
+gloci = "gloci convert input.bed --bam -g genome.txt"
+reference = "bedtools bedtobam -i input.bed -g genome.txt"
+compare = "bam"
+expected_difference = "#bedtobam-zero-length-at-start"
+
+# BED12 blocks out of order: bedtools writes `100N100M100M`, gloci stops.
+[[case]]
+name = "bedtobam-bed12-unsorted-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/bed12-unsorted.bed" }
+aux = ["xtask/diff/inputs/tobam/genome.txt"]
+gloci = "gloci convert input.bed --bam -g genome.txt --bed12 -o /dev/null"
+reference = "bedtools bedtobam -i input.bed -g genome.txt -bed12 > /dev/null"
+compare = "exit-status"
+expected_difference = "#bedtobam-bed12-blocks"
+
+# A name of 255 characters: bedtools writes a record samtools cannot read, gloci stops.
+[[case]]
+name = "bedtobam-long-name-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/long-name.bed" }
+aux = ["xtask/diff/inputs/tobam/genome.txt"]
+gloci = "gloci convert input.bed --bam -g genome.txt -o /dev/null"
+reference = "bedtools bedtobam -i input.bed -g genome.txt > /dev/null"
+compare = "exit-status"
+expected_difference = "#bedtobam-unrepresentable"
+
+# pairs.bedpe against genome-lex.txt (byte order, so bedtools' sorted @SQ lines are the genome's
+# order): + - on one chromosome is 99/147 with 0x2 whichever end is first (a rule that needs the
+# first end first differs), - + is 81/161 without it, + - across chromosomes is 97/145 without
+# it (RNEXT names the chromosome), - - and + + set 0x10/0x20 from each strand, `.` sets none;
+# TLEN is start2 - start1 on both records (400 and 400, -400 and -400, -50 for an end that
+# contains the other, 0 for identical ends; the SAM rule, signed by leftmost, differs), 0 across
+# chromosomes; a zero-length end is 0M (no widening); an end past chrX is written as it is.
+[[case]]
+name = "bedpetobam-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/pairs.bedpe" }
+aux = ["xtask/diff/inputs/tobam/genome-lex.txt"]
+gloci = "gloci convert input.bedpe --format bedpe --bam -g genome-lex.txt"
+reference = "bedtools bedpetobam -i input.bedpe -g genome-lex.txt"
+compare = "bam"
+
+[[case]]
+name = "bedpetobam-sam-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/pairs.bedpe" }
+aux = ["xtask/diff/inputs/tobam/genome-lex.txt"]
+gloci = "gloci convert input.bedpe --format bedpe --bam -g genome-lex.txt | samtools view -h"
+reference = "bedtools bedpetobam -i input.bedpe -g genome-lex.txt | samtools view -h"
+compare = "sam"
+
+[[case]]
+name = "bedpetobam-read-back-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/pairs.bedpe" }
+aux = ["xtask/diff/inputs/tobam/genome-lex.txt"]
+gloci = "gloci convert input.bedpe --format bedpe --bam -g genome-lex.txt -o o.bam && samtools quickcheck -v o.bam && gloci view o.bam -O sam"
+reference = "bedtools bedpetobam -i input.bedpe -g genome-lex.txt > o.bam && samtools quickcheck -v o.bam && samtools view -h o.bam"
+compare = "sam"
+
+[[case]]
+name = "bedpetobam-mapq-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/pairs.bedpe" }
+aux = ["xtask/diff/inputs/tobam/genome-lex.txt"]
+gloci = "gloci convert input.bedpe --format bedpe --bam -g genome-lex.txt --mapq 7"
+reference = "bedtools bedpetobam -i input.bedpe -g genome-lex.txt -mapq 7"
+compare = "bam"
+
+# Columns after the tenth are ignored.
+[[case]]
+name = "bedpetobam-extra-columns-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/pairs-extra.bedpe" }
+aux = ["xtask/diff/inputs/tobam/genome-lex.txt"]
+gloci = "gloci convert input.bedpe --format bedpe --bam -g genome-lex.txt"
+reference = "bedtools bedpetobam -i input.bedpe -g genome-lex.txt"
+compare = "bam"
+
+[[case]]
+name = "bedpetobam-empty-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/empty.bed" }
+aux = ["xtask/diff/inputs/tobam/genome-lex.txt"]
+gloci = "gloci convert input.bed --format bedpe --bam -g genome-lex.txt"
+reference = "bedtools bedpetobam -i input.bed -g genome-lex.txt"
+compare = "bam"
+
+# A line of 6 columns has no name, and lines with different column counts: exit 1 in both.
+[[case]]
+name = "bedpetobam-six-columns-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/pairs-6col.bedpe" }
+aux = ["xtask/diff/inputs/tobam/genome-lex.txt"]
+gloci = "gloci convert input.bedpe --format bedpe --bam -g genome-lex.txt -o /dev/null"
+reference = "bedtools bedpetobam -i input.bedpe -g genome-lex.txt > /dev/null"
+compare = "exit-status"
+
+[[case]]
+name = "bedpetobam-ragged-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/pairs-ragged.bedpe" }
+aux = ["xtask/diff/inputs/tobam/genome-lex.txt"]
+gloci = "gloci convert input.bedpe --format bedpe --bam -g genome-lex.txt -o /dev/null"
+reference = "bedtools bedpetobam -i input.bedpe -g genome-lex.txt > /dev/null"
+compare = "exit-status"
+
+# The genome in its own order: bedtools sorts the @SQ lines of bedpetobam by name.
+[[case]]
+name = "bedpetobam-header-order-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/pairs.bedpe" }
+aux = ["xtask/diff/inputs/tobam/genome.txt"]
+gloci = "gloci convert input.bedpe --format bedpe --bam -g genome.txt"
+reference = "bedtools bedpetobam -i input.bedpe -g genome.txt"
+compare = "bam"
+expected_difference = "#bedpetobam-header-order"
+
+# Absent ends (`. -1 -1`): bedtools writes them mapped on the first reference at position -1.
+[[case]]
+name = "bedpetobam-absent-end-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/pairs-absent.bedpe" }
+aux = ["xtask/diff/inputs/tobam/genome-lex.txt"]
+gloci = "gloci convert input.bedpe --format bedpe --bam -g genome-lex.txt"
+reference = "bedtools bedpetobam -i input.bedpe -g genome-lex.txt"
+compare = "bam"
+expected_difference = "#bedpetobam-absent-end"
+
+# Seven columns (a name, no strands): bedtools stops, gloci writes the pairs.
+[[case]]
+name = "bedpetobam-seven-columns-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/pairs-7col.bedpe" }
+aux = ["xtask/diff/inputs/tobam/genome-lex.txt"]
+gloci = "gloci convert input.bedpe --format bedpe --bam -g genome-lex.txt -o /dev/null"
+reference = "bedtools bedpetobam -i input.bedpe -g genome-lex.txt > /dev/null"
+compare = "exit-status"
+expected_difference = "#bedpetobam-columns"
+
+[[case]]
+name = "bedpetobam-strand-xy-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/pairs-strand-x.bedpe" }
+aux = ["xtask/diff/inputs/tobam/genome-lex.txt"]
+gloci = "gloci convert input.bedpe --format bedpe --bam -g genome-lex.txt -o /dev/null"
+reference = "bedtools bedpetobam -i input.bedpe -g genome-lex.txt > /dev/null"
+compare = "exit-status"
+expected_difference = "#bedpe-strictness"
+
+[[case]]
+name = "bedpetobam-missing-chromosome-vs-bedtools"
+input = { file = "xtask/diff/inputs/tobam/pairs-missing-chrom.bedpe" }
+aux = ["xtask/diff/inputs/tobam/genome-lex.txt"]
+gloci = "gloci convert input.bedpe --format bedpe --bam -g genome-lex.txt -o /dev/null"
+reference = "bedtools bedpetobam -i input.bedpe -g genome-lex.txt > /dev/null"
+compare = "exit-status"
+expected_difference = "#bedtobam-missing-chromosome"
 # faidx (D131)
 # faidx (D131). ref.fa has lines of 60 and lower-case runs. chr2:1000-1300 ends past
 # chr2 (cut), chr2:60000-60100 starts past it (header only).

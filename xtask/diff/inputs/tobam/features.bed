@@ -1,0 +1,12 @@
+track name=features
+# features in no order
+chr1	100	200	r1	5	+
+chr2	10	20	r2	0	-
+chr1	50	60	r3	0	.
+chr10	0	30	r4	1	x
+chr1	100	100	zero	0	-
+chr1	249990	250010	past	0	+
+chrX	5	9	sp ace	0	+
+chr1	16000	17000	bin	0	-
+chr2	4000	4500	r1	0	+
+chr1	1	1000	12	0	+

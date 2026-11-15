@@ -1,0 +1,12 @@
+chr1	100	200	chr1	500	600	p1	30	+	-
+chr1	500	600	chr1	100	200	p2	30	-	+
+chr1	500	600	chr1	100	200	pm	0	+	-
+chr1	100	200	chr2	500	600	dc	0	+	-
+chr1	100	200	chr1	500	600	mm	0	-	-
+chr1	100	200	chr1	500	600	pp	0	+	+
+chr1	100	200	chr1	50	250	cont	0	+	-
+chr1	100	200	chr1	100	200	same	0	+	-
+chr1	100	100	chr1	500	500	zz	5	+	-
+chr2	10	20	chr10	10	20	dots	0	.	.
+chr1	16000	17000	chr1	20000	20100	bin	0	+	-
+chrX	1990	2010	chrM	0	10	past	0	-	+

@@ -1,0 +1,1 @@
+convert input.bed --bam -g genome.txt -o /dev/null

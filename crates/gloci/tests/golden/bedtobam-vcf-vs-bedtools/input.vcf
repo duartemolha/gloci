@@ -1,0 +1,6 @@
+##fileformat=VCFv4.2
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+chr1	101	rs1	ACG	A	50	PASS	.
+chr2	11	.	A	T	.	.	.
+chr1	2001	rs2	A	ACGT	.	.	.
+chr10	5	rs3	C	<DEL>	.	.	END=500;SVLEN=-495

@@ -1,0 +1,1 @@
+convert input.gff --bam -g genome.txt

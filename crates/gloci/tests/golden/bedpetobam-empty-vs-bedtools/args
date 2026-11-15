@@ -1,0 +1,1 @@
+convert input.bed --format bedpe --bam -g genome-lex.txt

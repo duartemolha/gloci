@@ -12,8 +12,9 @@ Each section has an anchor and lists the cases that pin it. A case in
 `xtask/diff/cases.toml` that names a section as its `expected_difference` must
 produce different output (or a different exit status) from the reference tool,
 and gloci's own output for it is committed (`expected_gloci`) and must stay
-byte for byte the same, so a difference cannot quietly turn into a different
-wrong answer. If the behaviour stops differing, the case fails as stale until
+byte for byte the same (a BAM or CRAM output as its compare mode reads it,
+without gloci's `@PG` line), so a difference cannot quietly turn into a
+different wrong answer. If the behaviour stops differing, the case fails as stale until
 the section is removed. Cases without an `expected_difference` must match the
 reference tool. A difference that shows only where the reference tool runs on a
 particular platform (its C library or CPU) is pinned there: the case names those
@@ -2219,6 +2220,116 @@ only.
 - **Reason:** as above.
 - **Pinned by:** `bamtofastq-tags-orphan-vs-bedtools` (must differ).
 
+## `convert --bam` output is compared without its `@PG` lines {#bam-output-provenance}
+
+- **gloci:** `convert --bam` writes gloci's own `@PG` line (`ID:gloci PN:gloci VN:... CL:...`, the
+  command line) after the `@SQ` lines, as every gloci command that writes BAM does (D104), and no
+  `@CO` line.
+- **Old behaviour:** `bedtools bedtobam` writes `@PG ID:BEDTools_bedToBam VN:Vv2.31.1` between the
+  `@HD` and `@SQ` lines (`bedpetobam`: `ID:BEDTools_bedpeToBam`), and no `@CO` line.
+- **Reason:** these lines record which program wrote the file, and with what command line, so they
+  cannot be the same. BAM output is compared without them (D165): the `bam` cases decompress both
+  files and compare the header text without its `@PG` lines, the reference list and the bytes of
+  every record (the `bin` field included); the live `-sam` and `-read-back` cases compare
+  `samtools view -h` text without `@PG` lines. Neither tool writes a `@CO` line, so there is none
+  to leave out.
+- **Pinned by:** `bedtobam-provenance-lines-vs-bedtools` (live only: the `@PG` and `@CO` lines of
+  each header, which must differ). Every other `bedtobam-*` and `bedpetobam-*` case that compares
+  output leaves them out, among them `bedtobam-vs-bedtools`, `bedtobam-sam-vs-bedtools` and
+  `bedtobam-read-back-vs-bedtools` (which also runs `samtools quickcheck` and reads gloci's BAM
+  back with `gloci view`).
+
+## `convert --bam` stops at a chromosome the genome lacks {#bedtobam-missing-chromosome}
+
+- **gloci:** a feature, or a BEDPE end, on a chromosome that `-g` does not list is exit 1, naming
+  the file, the line and the chromosome, with the fix: add it to the genome, pass a genome that
+  lists it, or rename the input's chromosomes with `--chrom-map`.
+- **Old behaviour:** `bedtools bedtobam` and `bedpetobam` write the record on the first reference
+  of the header, at its own position, and exit 0 (`chrZ 1 2 miss` becomes a record on `chr2`, the
+  first chromosome of `tobam/genome.txt`).
+- **Reason:** the record would say it is on another chromosome.
+- **Pinned by:** `bedtobam-missing-chromosome-vs-bedtools` and
+  `bedpetobam-missing-chromosome-vs-bedtools` (exit status 1, not 0).
+
+## `convert --bam` writes a zero-length record at the start of a chromosome on its first base {#bedtobam-zero-length-at-start}
+
+- **gloci:** a zero-length BED record is read one base wider on each side, as bedtools reads it
+  (`chr1 100 100` is `2M` at POS 100). At 0, where there is no base before it, it is the base
+  after it: `chr1 0 0` is `1M` at POS 1.
+- **Old behaviour:** `bedtools bedtobam` writes position -1 with `2M`: `samtools view` shows POS 0
+  on `chr1`, and htslib reads the record back as unmapped ("mapped query cannot have zero
+  coordinate; treated as unmapped").
+- **Reason:** a mapped record needs a position on its reference.
+- **Pinned by:** `bedtobam-zero-length-at-start-vs-bedtools` (must differ).
+  `bedtobam-vs-bedtools` and `bedtobam-bed12-vs-bedtools` match bedtools on zero-length records
+  away from the start.
+
+## `convert --bam --bed12` stops at a record that is not valid BED12 {#bedtobam-bed12-blocks}
+
+- **gloci:** with `--bed12`, a record whose blocks are out of order or overlap, whose first block
+  does not start at offset 0, whose last block does not end at chromEnd, whose blockSizes or
+  blockStarts do not number blockCount, or whose blockCount is 0, is exit 1 naming the line, as
+  `convert --blocks` refuses it. Valid BED12 is written as bedtools writes it.
+- **Old behaviour:** `bedtools bedtobam -bed12` checks only that blockSizes has blockCount
+  entries. It writes an `N` for the gap before each block counted from offset 0 (`10N50M90N50M`
+  for a first block at offset 10) and none where blocks overlap or go back (`100M150M` for
+  overlapping blocks, `100N100M100M` for two blocks listed in reverse), and ignores extra
+  blockStarts.
+- **Reason:** such a CIGAR does not describe the record's blocks, and gloci reads BED12 the same
+  way in every command (`convert --blocks`, `getfasta --split`).
+- **Pinned by:** `bedtobam-bed12-unsorted-vs-bedtools` (exit status 1, not 0).
+  `bedtobam-bed12-vs-bedtools` matches bedtools on adjacent blocks, a size-0 block and a
+  zero-length record.
+
+## `convert --bam` stops at a record BAM cannot hold {#bedtobam-unrepresentable}
+
+- **gloci:** a name longer than 254 characters, a feature of 2^28 bases or more (one CIGAR
+  operation), or a position past 2^31 is exit 1, naming the line and what is too large.
+- **Old behaviour:** `bedtools bedtobam` writes the record anyway and exits 0: a 255-character
+  name gives a BAM that `samtools view` stops on ("Corrupted aux data").
+- **Reason:** a BAM file that readers stop on part of the way through is worse than none.
+- **Pinned by:** `bedtobam-long-name-vs-bedtools` (exit status 1, not 0).
+
+## `convert --bam --format bedpe` keeps the genome's order in the header {#bedpetobam-header-order}
+
+- **gloci:** the `@SQ` lines are the chromosomes of `-g` in the genome's order, for BEDPE input as
+  for BED, GFF and VCF.
+- **Old behaviour:** `bedtools bedpetobam` sorts the `@SQ` lines by name, in byte order (`chr1`,
+  `chr10`, `chr2`, ...), where `bedtobam` keeps the genome's order. The records are the same, but
+  their reference ids follow the header.
+- **Reason:** one header rule for both, and the genome's order is the one gloci sorts by with
+  `-g`, so a BAM made from BEDPE sorts and merges with the BAM files made against that genome.
+- **Pinned by:** `bedpetobam-header-order-vs-bedtools` (must differ). The other `bedpetobam`
+  cases use a genome already in byte order (`tobam/genome-lex.txt`) and match.
+
+## `convert --bam --format bedpe` writes an absent end as an unmapped read {#bedpetobam-absent-end}
+
+- **gloci:** an end whose chromosome is `.` (`. -1 -1`) is an unmapped record: FLAG `0x4` on it and
+  `0x8` on its mate, no CIGAR and MAPQ 0, placed at its mate (its mate's RNAME and POS, the two
+  records' RNEXT `=` and PNEXT pointing at each other) as the SAM specification recommends, or
+  unplaced (`*` and 0) when both ends are absent. TLEN is 0 and `0x2` is not set. Its strand
+  column sets `0x10` on it and `0x20` on its mate as for any end.
+- **Old behaviour:** `bedtools bedpetobam` writes an absent end as a mapped record on the first
+  reference of the header at position -1, with CIGAR `0M` and the MAPQ given (`samtools view`
+  shows `chr1 0 255 0M`, and htslib reads it back as unmapped), sets neither `0x4` nor `0x8`,
+  points its mate's RNEXT and PNEXT at it, and takes TLEN from position -1 when the mate is on
+  the first reference (`-101` for a mate at 100).
+- **Reason:** an end that is nowhere is an unmapped read, and `gloci convert x.bam --bedpe` writes
+  an unmapped read as `. -1 -1`, so the round trip keeps it.
+- **Pinned by:** `bedpetobam-absent-end-vs-bedtools` (must differ).
+
+## `convert --bam --format bedpe` reads BEDPE of 7 and 8 columns {#bedpetobam-columns}
+
+- **gloci:** a line of 7 columns (with a name) or 8 (and a score) is a pair whose ends have no
+  strand, as every gloci command reads BEDPE (D146): FLAG 65 and 129, without `0x2`. A line of 6
+  columns has no name and is exit 1, and every line needs the first line's number of columns, as
+  in bedtools.
+- **Old behaviour:** `bedtools bedpetobam` stops at 7 and 8 columns with "BEDPE entry without name
+  found", exit 1.
+- **Reason:** the name is there, and the strand columns are optional in BEDPE.
+- **Pinned by:** `bedpetobam-seven-columns-vs-bedtools` (exit status 0, not 1).
+  `bedpetobam-six-columns-vs-bedtools` and `bedpetobam-ragged-vs-bedtools` match (exit status 1).
+
 ## `convert` and `genomecov` of a read with no reference bases: one base {#bamtobed-no-reference-ops}
 
 - **gloci:** a mapped read whose CIGAR has no `M D N = X` operation (`10S5I`) is the one
@@ -2611,12 +2722,13 @@ even an A sitting on the only one. bedtools does the same and gloci ports it on 
   - the line has 9 columns, or fewer than 6 (bedtools refuses these too).
 - **Old behaviour:** `bedtools pairtobed` takes a named chromosome with `-1 -1` as an absent end
   (the pair is then a one-end pair), accepts `start > end` (and finds hits for some such ends),
-  a negative start, and any text as a strand (`x`, `y`), exiting 0.
+  a negative start, and any text as a strand (`x`, `y`), exiting 0. `bedtools bedpetobam` also
+  takes any text as a strand and reads only `-` as the reverse strand.
 - **Reason:** these are typing mistakes more often than data, and a quietly wrong overlap is worse
   than a stopped run. A caller with `-1 -1` ends only needs to write `.` for the chromosome.
 - **Pinned by:** `pairtobed-named-chrom-minus-one-vs-bedtools`, `pairtobed-strand-xy-vs-bedtools`,
-  `pairtobed-start-after-end-vs-bedtools` and `pairtobed-negative-start-vs-bedtools` (must differ:
-  gloci exits 1, bedtools 0). The 9-column and 5-column refusals match
+  `pairtobed-start-after-end-vs-bedtools`, `pairtobed-negative-start-vs-bedtools` and
+  `bedpetobam-strand-xy-vs-bedtools` (must differ: gloci exits 1, bedtools 0). The 9-column and 5-column refusals match
   (`pairtobed-nine-columns-vs-bedtools`, `pairtobed-five-columns-vs-bedtools`).
 
 ## `pair-intersect` span types leave out a pair with both ends absent {#pair-span-absent-ends}
