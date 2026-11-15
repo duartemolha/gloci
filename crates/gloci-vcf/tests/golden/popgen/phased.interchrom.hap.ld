@@ -1,0 +1,13 @@
+CHR1	POS1	CHR2	POS2	N_CHR	R^2
+chr1	10	chr2	15	11	0.0964286
+chr1	10	chr2	25	11	0.01
+chr1	20	chr2	15	11	0.0318878
+chr1	20	chr2	25	11	0.0964286
+chr1	30	chr2	15	10	0.340278
+chr1	30	chr2	25	10	0.166667
+chr1	50	chr2	15	9	0.00357143
+chr1	50	chr2	25	9	0.64
+chr1	70	chr2	15	11	nan
+chr1	70	chr2	25	11	nan
+chr1	90	chr2	15	11	0.20119
+chr1	90	chr2	25	11	0.01

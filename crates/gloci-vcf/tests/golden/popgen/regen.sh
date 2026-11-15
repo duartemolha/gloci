@@ -57,3 +57,39 @@ fst missingpop.vcf missingpop $P2
 fst missingpop.vcf missingpop.w100 $P2 --fst-window-size 100
 sed -i "s/-nan/nan/g" *.weir.fst *.weir.fst.log
 '
+
+# Linkage disequilibrium on ld.vcf (unphased: --geno-r2, --interchrom-geno-r2)
+# and phased.vcf (phased but for chr1:40, chr1:60 and chr1:80: --hap-r2,
+# --interchrom-hap-r2, and --geno-r2, which keeps those sites). A run's file
+# is PREFIX.geno.ld, PREFIX.hap.ld or PREFIX.interchrom.{geno,hap}.ld, with
+# PREFIX = ld|phased[.TAG]: w2 and w1 (--ld-window 2 or 1), bp100
+# (--ld-window-bp 100), min2 (--ld-window-min 2), bpmin10 (--ld-window-bp-min
+# 10), mix (--ld-window 3 --ld-window-bp 150 --ld-window-min 2
+# --ld-window-bp-min 5), r2 (--min-r2 0.2), dp5 (--minDP 5), indv
+# (--remove-indv s1 --remove-indv s5). vcftools prints 0/0 as -nan on x86;
+# the files are rewritten with nan.
+docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/work" gloci-diff:p0 sh -c '
+cd /work
+r2() { # VCF PREFIX [vcftools options]
+  f=$1; p=$2; shift 2
+  vcftools --vcf $f "$@" --out $p >/dev/null 2>&1
+}
+r2 ld.vcf ld --geno-r2
+r2 ld.vcf ld.w2 --geno-r2 --ld-window 2
+r2 ld.vcf ld.bp100 --geno-r2 --ld-window-bp 100
+r2 ld.vcf ld.min2 --geno-r2 --ld-window-min 2
+r2 ld.vcf ld.bpmin10 --geno-r2 --ld-window-bp-min 10
+r2 ld.vcf ld.mix --geno-r2 --ld-window 3 --ld-window-bp 150 --ld-window-min 2 --ld-window-bp-min 5
+r2 ld.vcf ld.r2 --geno-r2 --min-r2 0.2
+r2 ld.vcf ld.dp5 --geno-r2 --minDP 5
+r2 ld.vcf ld.indv --geno-r2 --remove-indv s1 --remove-indv s5
+r2 ld.vcf ld --interchrom-geno-r2
+r2 ld.vcf ld.r2 --interchrom-geno-r2 --min-r2 0.2
+r2 phased.vcf phased --hap-r2
+r2 phased.vcf phased --geno-r2
+r2 phased.vcf phased.w1 --hap-r2 --ld-window 1
+r2 phased.vcf phased.dp5 --hap-r2 --minDP 5
+r2 phased.vcf phased.r2 --hap-r2 --min-r2 0.2
+r2 phased.vcf phased --interchrom-hap-r2
+sed -i "s/-nan/nan/g" *.geno.ld *.hap.ld
+'

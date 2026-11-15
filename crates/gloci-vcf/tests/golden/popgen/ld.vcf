@@ -1,0 +1,20 @@
+##fileformat=VCFv4.2
+##contig=<ID=chr1,length=1000>
+##contig=<ID=chr2,length=1000>
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read depth">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	s1	s2	s3	s4	s5	s6	s7	s8
+chr1	100	.	A	G	50	PASS	.	GT:DP	0/0:9	0/1:9	1/1:9	0/1:9	0/0:9	0/0:9	0/1:9	1/1:9
+chr1	109	.	C	T	50	PASS	.	GT:DP	0/0:9	0/1:9	1/1:9	0/1:9	0/0:9	0/1:9	0/1:9	1/1:9
+chr1	110	.	G	A	50	PASS	.	GT:DP	1/1:9	0/1:9	0/0:9	0/1:9	1/1:9	1/1:9	0/1:9	0/0:9
+chr1	150	.	A	G,T	50	PASS	.	GT:DP	0/1:9	1/2:9	2/2:9	0/0:9	0/2:9	1/1:9	0/1:9	0/0:9
+chr1	160	.	T	.	50	PASS	.	GT:DP	0/0:9	0/0:9	0/0:9	0/0:9	0/0:9	0/0:9	0/0:9	0/0:9
+chr1	200	.	A	C	50	PASS	.	GT:DP	0/1:9	0/0:9	0/1:9	0/0:3	0/1:9	0/0:9	0/1:9	0/0:9
+chr1	201	.	T	G	50	PASS	.	GT:DP	0/0:9	0/0:9	0/1:9	1/1:9	./1:9	0/0:9	0/1:9	0/0:9
+chr1	201	.	TA	T	50	PASS	.	GT:DP	0/1:9	1/1:9	0/0:9	0/1:9	0/1:9	1:9	0/0:9	./.:9
+chr1	250	.	G	A	50	PASS	.	GT:DP	0/0:9	0/0:9	0/0:9	0/0:9	0/0:9	0/0:9	0/0:9	0/0:9
+chr1	300	.	C	G	50	PASS	.	GT:DP	./.:9	./.:9	./.:9	./.:9	./.:9	./.:9	./.:9	./.:9
+chr1	320	.	A	T	50	PASS	.	GT:DP	0/1:4	1/1:9	0/0:9	0/1:9	0/0:9	0/1:9	1/1:2	0/0:9
+chr2	50	.	A	G	50	PASS	.	GT:DP	0/1:9	0/1:9	0/0:9	1/1:9	0/0:9	0/1:9	0/0:9	0/1:9
+chr2	60	.	C	T	50	PASS	.	GT:DP	0/0:9	0/1:9	0/0:9	1/1:9	0/1:9	0/1:9	0/0:9	0/0:9
+chr2	500	.	G	C	50	PASS	.	GT:DP	1/1:9	0/1:9	0/1:9	0/0:9	0/0:9	1/1:9	0/1:9	0/1:9
