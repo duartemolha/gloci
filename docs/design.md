@@ -47,7 +47,7 @@ A single, fast, correct Rust command-line tool that replaces **bedtools**, **bed
 - Variant calling, left-alignment or normalization against a reference, annotation (VEP-like), imputation and phasing.
 - Becoming a general replacement for bcftools or samtools. Merging samples across VCFs (`vcf-merge`) is not planned for v1.
 - The bedops **Starch** format, and legacy genotype export formats (IMPUTE, BEAGLE, LDhat, PLINK ped/tped). **[my call]**
-- bedtools' BAM-specific utilities were a non-goal **[my call]**, reversed on the owner's request of 2026-11-15: `igv`, `links`, `bamtofastq`, `bedtobam`, `bedpetobam` and `tag` are built (D169, D170; `bamtofastq` as `gloci convert --fastq`, D166; `bedtobam` and `bedpetobam` as `gloci convert --bam`, D167; `tag`, D168). **[owner, 2026-11-15]** `multicov` is `gloci bedcov X.bed A.bam B.bam --read-count`.
+- bedtools' BAM-specific utilities were a non-goal **[my call]**, reversed on the owner's request of 2026-11-15: `igv`, `links`, `bamtofastq`, `bedtobam`, `bedpetobam` and `tag` are built (D165 is their scope; D169, D170; `bamtofastq` as `gloci convert --fastq`, D166; `bedtobam` and `bedpetobam` as `gloci convert --bam`, D167; `tag`, D168). **[owner, 2026-11-15]** `multicov` is `gloci bedcov X.bed A.bam B.bam --read-count`.
 - Native Windows. WSL works. **[my call]**
 - A stable public Rust library API in v1. The crates are internal; the stable, versioned API is the Python one from P2 (Section 8.5). **[my call, revised: Python bindings moved to goals]**
 
@@ -315,6 +315,8 @@ gloci ships chromosome names and sizes for common assemblies, so `-g hg38` works
 - **Errors** say what, where and how to fix it. Example: `error: calls.vcf.gz line 1,204,331: POS "12a4" is not an integer`.
 - **Determinism:** output is byte-identical for every `--threads` value.
 - **Help:** every command's `--help` has 2–4 real examples. Shell completions and man pages are generated from the CLI definition.
+- **Help layout [owner, 2026-11-14].** `gloci --help` lists the commands in groups, the stable core first and then the experimental groups (`Stable core`, then headings such as `Intervals (experimental)`; `command_groups` in `crates/gloci/src/cli/mod.rs`), each with a one-line summary of at most 64 characters that names the tool it replaces (`Report A records that overlap B (bedtools intersect)`), and a line under the list saying what the two tiers mean. A command's `--help` has the layout: a summary paragraph (at most 12 lines at 100 columns, naming every tool the one-line summary names), the usage, the options, an `Examples:` block, and headed sections for the detail. Tests in `crates/gloci/tests/cli_basics.rs` enforce the grouping (every command is in exactly one group), the 64 characters, the 80-column list, the summary length and the examples.
+- **Stability tiers.** The stable core is `genomes`, `index`, `sort`, `view`, `intersect`, `merge`, `subtract`, `closest` and `coverage` (`CORE_COMMANDS` in `crates/gloci/src/lib.rs`): their options and output change only with a version bump and a changelog entry. Every other command is experimental and its help starts with a line saying so; a test fails when a command is neither in the core nor marked. A command is promoted when it has been run beside the tool it replaces on real data (each difference fixed or listed in `docs/differences.md`), has a large-input test with a memory ceiling in the nightly run, and has had its option names reviewed once more (`docs/book/src/stability.md`). `contrib/gloci-shadow.sh` runs a step with the old tool and with gloci and logs whether the outputs are identical.
 
 ---
 
@@ -617,7 +619,9 @@ Definitions:
 **`gloci vcf popgen IN`** — built on the owner's request of 2026-11-14. Replaces `--site-pi`, `--window-pi`, `--TajimaD`, `--weir-fst-pop`/`--fst-window-*`, `--geno-r2`, `--hap-r2`, `--interchrom-*`, `--ld-window*`, `--relatedness` and `--relatedness2`.
 
 - Multiple statistics are computed in one pass where possible.
-- Formulas are documented, and each is cross-checked against vcftools.
+- Formulas are documented, and each is cross-checked against vcftools 0.1.16 by differential cases and committed goldens.
+- **Statistics [D158–D162, owner 2026-11-14].** Nucleotide diversity per site (`--site-pi`) and in windows (`--window-pi`, `--window-pi-step`), Tajima's D in bins (`--tajima-d`) (D159); Weir and Cockerham's Fst for two or more populations (`--fst-pop FILE`, once per population), per site, in windows (`--fst-window-size`, `--fst-window-step`) and as a summary (D160); linkage disequilibrium (`--geno-r2`, `--hap-r2`, `--interchrom-geno-r2`, `--interchrom-hap-r2`, with `--ld-window*` and `--min-r2`), its sites held within `--max-mem` (D161); and relatedness of every pair of samples (`--relatedness` Yang's Ajk, `--relatedness2` Manichaikul's kinship) (D162). The usual `vcf` selection flags apply first (D158). Python has `vcf_popgen()`.
+- **Differences from vcftools** are in `docs/differences.md` (the `vcf popgen` sections, `#popgen-sorted-input` to `#relatedness-rounding`): sorted input for windows, an error for a window step larger than the window, 64-bit counts, populations that vcftools mishandles refused, and LD and relatedness stopping where vcftools fills a file or reads masked genotypes as called.
 
 **`gloci vcf compare A B`** — P3b. Genotype concordance only **[owner, 2026-11-11]**: replaces vcftools `--diff-site-discordance`, `--diff-indv-discordance`, `--diff-discordance-matrix` and `--diff-indv-map`. `--diff-site` and `--diff-indv` are `gloci intersect`/`subtract --match alleles` and the `#CHROM` line.
 
@@ -677,6 +681,7 @@ xtask/         benchmark runner, differential-test runner, synthetic data genera
 4. Streaming from stdin is limited to stages 1–2. The docs say so.
 
 5. **CRAM decode pool (P3a) [D110].** CRAM containers are read in order and decoded on at most `-t` workers, with at most 2 × `-t` in flight, and released in order: the CRAM analogue of stage 1. Workers have 16 MiB stacks (noodles-cram's order-1 rANS and name tokeniser need them). The workers share one lease-based cache of reference sequences, each read from the FASTA once; with a `.crai` and `-t` above 1 a CRAM is read per chromosome, one chromosome per worker. Other pools stay deferred unless a benchmark misses a target.
+6. **Waiting is sleeping [owner, 2026-11-14].** Threads that wait for each other sleep on a mutex and condition variables (`crates/gloci-io/src/handoff.rs`): the hand-off between the selection stage of the `vcf` commands and its workers, and the workers of the BGZF reader and writer (`crates/gloci-io/src/bgzf.rs`), which replace `noodles_bgzf`'s multithreaded pair. A crossbeam channel's blocking calls and an idle rayon worker retry around `sched_yield`, and on Linux a yield on a CPU another thread wants gives up a whole scheduler slice (milliseconds); with more runnable threads than cores, which is a busy machine or `-t` above the core count, every block or batch then costs a slice. The compressed bytes are the same at every thread count, and a bad block fails with noodles' own error.
 
 **CRAM limits [D109].** A reference is `--reference` only. Every `@SQ` in the `.fai` must match its CRAM `LN`, else an error before any record. gloci builds the `.crai` itself and never reaches a noodles code path that panics on a missing reference (the repository adapter returns an error, not `None`, and slice reference ids are checked first). Decoding is bounded: every codec's clear-text decoded size is checked against the block size, a block is capped at 1 GiB, and a read may overhang the end of its reference (`LN`) by at most max(1 Mb, 4 × the read length). The residual risk on crafted files with valid checksums is documented in `docs/differences.md#cram-limits`.
 
@@ -689,14 +694,14 @@ Output must be byte-identical for every thread count (Section 6.4).
 | CLI | `clap` (derive) + `clap_complete` + `clap_mangen` | completions and man pages for free |
 | VCF/BCF/tabix/CSI/FASTA/BAM | `noodles` | pure Rust, spec-faithful; keeps the static build simple. Hot paths (BED parse, VCF fixed columns, GT decode) may get hand-written fast parsers if profiling says so, verified against noodles |
 | Deflate | `libdeflater` | much faster than zlib for BGZF blocks |
-| Threads | `crossbeam-channel` + a fixed worker pool (or `rayon` where it fits) | bounded queues give back-pressure and bounded memory |
+| Threads | a mutex and condition variables (`gloci-io`'s `Handoff` and `Pool`) for the BGZF pools and the `vcf` selection stage; `crossbeam-channel` and `rayon` elsewhere **[amended, owner 2026-11-14]** | bounded queues give back-pressure and bounded memory; waiters that sleep instead of yielding the CPU (item 6 of Section 8.3) |
 | Bytes and numbers | `memchr`, `atoi`/hand-rolled, `itoa`, `ryu` | |
 | Allocator | `mimalloc` | |
 | Errors | `thiserror` (libs), `anyhow` (CLI) | |
 | Testing | `proptest`, `cargo-fuzz`, `insta` (snapshots), `criterion` + `hyperfine` | |
 
 - **No htslib.** A pure-Rust plus vendored-C build gives one static `musl` binary.
-- Rust stable, edition 2024.
+- Rust edition 2024, built with the toolchain pinned in `rust-toolchain.toml` (1.100.0) instead of the newest stable, so a new Rust release does not change a build by itself **[owner, 2026-11-14]**. The minimum supported Rust (`rust-version`, 1.91) is checked by its own CI job, `msrv`, with `cargo +1.91 check --workspace --locked`.
 - Release profile: `lto = "fat"`, `codegen-units = 1`, `panic = "abort"`.
 - Portable x86-64 builds, plus an optional `x86-64-v3` build.
 
@@ -773,8 +778,9 @@ Reference machine: 8-core x86_64, NVMe, 32 GB RAM. Baselines: bedtools 2.31.x, b
 3. **Differential tests:**
    - Pinned bedtools, bedops and vcftools run in a container on a test corpus.
    - Every difference must be either fixed as a bug or listed in `docs/differences.md` with the reason. Examples of listed differences: default `--vcf-span allele`, default karyotype chromosome order, MAF on multi-allelic sites, and INFO kept by default.
+   - A difference that comes from the platform of the reference tool (its C library or CPU, such as vcftools rounding sums differently on aarch64) is pinned with `expected_difference_arch` in the case, naming the architectures where it shows; on any other the outputs must be equal.
 4. **Fuzzing:** BED, VCF, BCF, GFF and BGZF readers, plus region-string parsing.
-5. **Thread determinism:** every command runs with `-t 1`, `-t 2` and `-t 8`, and the outputs must be byte-identical.
+5. **Thread determinism:** every command runs with `-t 1`, `-t 2` and `-t 8`, and the outputs must be byte-identical. The behaviour tests (matrices of every command over its input formats, thread counts, failures and standard input) are one test binary, `crates/gloci/tests/behaviour/main.rs`, with a module for each matrix and for its fixtures.
 6. **Large-file tests (nightly):**
    - Generated multi-GB inputs, with an RSS ceiling assertion for streaming commands.
    - `sort` on an input 4× larger than `--max-mem`.
@@ -871,9 +877,9 @@ The user-facing version of this guide lives in `docs/migration.md` (later part o
 | `pairtobed`, `pairtopair` | `pair-intersect`, `pair-pair` (P3) |
 | `igv -i F [-path D -sess S -sort K -clps -name -slop N -img T]` | `gloci igv F [--path D --session S --sort K --collapse --name --slop N --image T]` (D169 **[owner, 2026-11-15]**) |
 | `links -i F [-base U -org O -db B]` | `gloci links F [--base U --org O --db B]` (D170 **[owner, 2026-11-15]**) |
-| `bamtofastq` | `convert --fastq` (D166 **[owner, 2026-11-15]**) |
+| `bamtofastq -i FILE -fq R1.fq [-fq2 R2.fq] [-tags]` | `convert FILE --fastq [-o R1.fq] [--fastq2 R2.fq] [--tags]` (D166 **[owner, 2026-11-15]**) |
 | `bedtobam [-mapq -bed12 -ubam]`, `bedpetobam [-mapq -ubam]` | `convert --bam -g G [--mapq --bed12 --compression-level 0]`, `convert --format bedpe --bam -g G` (D167 **[owner, 2026-11-15]**) |
-| `multicov` | `bedcov --read-count` |
+| `multicov -bams A.bam B.bam -bed F` | `bedcov F A.bam B.bam --read-count` (D165 **[owner, 2026-11-15]**) |
 | `tag -i IN.bam -files F… [-labels L…] [-tag XX] [-names -scores -intervals -s -S -f F]` | `gloci tag IN.bam -b F… [--labels L,… --tag XX --names --scores --intervals -s -S -f F]` (D168 **[owner, 2026-11-15]**) |
 | `expand`, `split`, `summary`, `overlap` | not planned (see non-goals; `overlap` → `--mode pairs --overlap-bases`) |
 
