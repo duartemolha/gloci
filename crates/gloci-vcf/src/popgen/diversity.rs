@@ -93,8 +93,8 @@ impl Stat for SitePi {
 /// The counts of one window of `--window-pi`.
 #[derive(Clone, Copy, Debug, Default)]
 struct Window {
-    /// Polymorphic sites placed in the window. Each has a called allele other
-    /// than REF, so this is also vcftools' N_VARIANTS.
+    /// Polymorphic sites placed in the window: at least two different alleles
+    /// are called (REF need not be one of them). This is vcftools' N_VARIANTS.
     sites: u64,
     /// Their pairs of called alleles, `Σ n (n − 1)`.
     pairs: u64,

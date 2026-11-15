@@ -24,7 +24,7 @@ about as much again. Each download is checked against the provider's own md5
 (a bad file is moved to `.bad`). A derived input is checked against the sha256
 in `xtask/bench/datasets.toml`; an empty one is TO-PIN and `--record` fills it.
 
-**Pinned (Task 15):** every derived input was built twice into different
+**Pinned:** every derived input was built twice into different
 cache directories and the sha256 of every file (inputs, indexes and the CRAM
 `.crai`) was identical. That check found one non-determinism, the CRAM written
 with `-@ 4` (htslib picks codecs per slice by trial, so the choice depends on

@@ -28,7 +28,7 @@ test:
   imports:
     - gloci
   commands:
-    # Needs the Python-object sources (Task 7): gloci.open([...]) of in-memory tuples.
+    # Needs the Python-object sources: gloci.open([...]) of in-memory tuples.
     - python -c "import gloci; assert gloci.open([('chr1', 1, 5), ('chr1', 9, 12)]).count() == 2"
     - python -c "import gloci; print(gloci.__version__)"
     # The library ships no command-line program; that is the gloci package.

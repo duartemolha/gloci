@@ -23,7 +23,7 @@ fn root() -> std::path::PathBuf {
 }
 
 /// The tracked files whose text can cite a decision or a section: not the internal plans, not
-/// `Cargo.lock`, not the decision log itself (it defines the numbers), not fixtures or golden
+/// `Cargo.lock`, not the decision log itself (it defines the numbers), not (for citations) fixtures or golden
 /// outputs (sample names, CIGAR strings and qualities that look like citations), not this file.
 fn scanned_files() -> Vec<String> {
     let out = Command::new("git")
@@ -44,10 +44,7 @@ fn scanned_files() -> Vec<String> {
             text_kind
                 && !f.starts_with("docs/superpowers/")
                 && *f != "Cargo.lock"
-                && *f != "docs/decisions.md"
                 && *f != "xtask/tests/references.rs"
-                && !f.contains("/inputs/")
-                && !f.contains("/golden/")
         })
         .map(str::to_string)
         .collect()
@@ -155,23 +152,46 @@ fn design_sections(design: &str) -> BTreeSet<String> {
         .collect()
 }
 
-/// Is this a comment that names a task of an internal plan (the `P` of a phase, a digit, maybe a
-/// letter, then `Task`)? The pattern is built here so that this file does not contain one.
-fn is_task_comment(line: &str) -> bool {
-    let t = line.trim_start();
-    let Some(t) = t.strip_prefix("//") else {
-        return false;
+/// The line of the decision log without the anchor and the label that define its number.
+fn without_definition(line: &str) -> &str {
+    let Some(rest) = line.strip_prefix("<a id=\"d") else {
+        return line;
     };
-    let t = t.trim_start_matches(['/', '!']).trim_start();
-    let b = t.as_bytes();
-    b.len() > 3 && b[0] == b'P' && b[1].is_ascii_digit() && {
-        let rest = if b[2].is_ascii_lowercase() {
-            &t[3..]
-        } else {
-            &t[2..]
-        };
-        rest.starts_with(" Task")
+    let Some(end) = rest.find("</a>") else {
+        return line;
+    };
+    let rest = &rest[end + 4..];
+    rest.strip_prefix("**D")
+        .and_then(|r| r.find("**").map(|i| &r[i + 2..]))
+        .unwrap_or(rest)
+}
+
+/// The part of a line a label could sit in: the text after `//` in Rust, after `#` in scripts,
+/// TOML, YAML and Python, the whole line in Markdown. Trailing comments are included.
+fn comment_part<'a>(file: &str, line: &'a str) -> &'a str {
+    let ext = file.rsplit('.').next().unwrap_or("");
+    let marker = match ext {
+        "md" => return line,
+        "rs" => "//",
+        "py" | "pyi" | "toml" | "sh" | "yml" | "yaml" | "txt" => "#",
+        _ if file.contains("Dockerfile") => "#",
+        _ => return "",
+    };
+    line.find(marker).map_or("", |i| &line[i..])
+}
+
+/// Does a comment (or Markdown text) name a task of an internal plan: `Task` and a number, as
+/// in `Task 12`, `(Task 9, R3)` or a phase and task? The words "task" and `asyncio.Task` have
+/// no number after them. The design specification is history and keeps its plan mentions.
+fn labelled_with_task(file: &str, line: &str) -> bool {
+    if file == "docs/design.md" {
+        return false;
     }
+    let text = comment_part(file, line);
+    text.match_indices("Task ").any(|(at, _)| {
+        let before_ok = at == 0 || !word_byte(text.as_bytes()[at - 1]);
+        before_ok && text[at + 5..].starts_with(|c: char| c.is_ascii_digit())
+    })
 }
 
 fn findings() -> Vec<Finding> {
@@ -190,9 +210,14 @@ fn findings() -> Vec<Finding> {
         let Ok(text) = std::fs::read_to_string(Path::new(&root()).join(&f)) else {
             continue;
         };
-        let task_dirs =
-            f.starts_with("crates/") || f.starts_with("xtask/") || f.starts_with("fuzz/");
         for (i, line) in text.lines().enumerate() {
+            // The decision log defines its numbers: skip the anchor and label that define one.
+            let line = if f == "docs/decisions.md" {
+                without_definition(line)
+            } else {
+                line
+            };
+            let fixture = f.contains("/inputs/") || f.contains("/golden/");
             let mut push = |what: String| {
                 out.push(Finding {
                     file: f.clone(),
@@ -200,23 +225,23 @@ fn findings() -> Vec<Finding> {
                     what,
                 })
             };
-            for n in decisions_cited(line) {
+            for n in decisions_cited(line).into_iter().filter(|_| !fixture) {
                 if !defined.contains(&n) {
                     push(format!(
                         "cites D{n}, which docs/decisions.md does not define: add `<a id=\"d{n}\"></a>**D{n}** ...` there, or fix the number"
                     ));
                 }
             }
-            for s in sections_cited(line) {
+            for s in sections_cited(line).into_iter().filter(|_| !fixture) {
                 if !sections.contains(&s) {
                     push(format!(
                         "cites section {s}, which is not a numbered heading of docs/design.md: fix the section number, or name the other specification before it (`BCF2.2 §6.3.3`)"
                     ));
                 }
             }
-            if task_dirs && f.ends_with(".rs") && is_task_comment(line) {
+            if f != "docs/decisions.md" && labelled_with_task(&f, line) {
                 push(
-                    "a comment names a plan task: drop the label and keep any explanation"
+                    "names a plan task (`Task N`): drop the label and keep any explanation"
                         .to_string(),
                 );
             }
@@ -266,11 +291,38 @@ fn the_scanner_tells_citations_from_look_alikes() {
     assert!(design.contains("4") && design.contains("4.3") && design.contains("9"));
     assert!(!design.contains("4.4"));
 
-    let label = format!("// P{}{} Task {}", 3, "b", 7);
-    assert!(is_task_comment(&label));
-    assert!(is_task_comment(&format!(
-        "    {label}: pairs are read here"
-    )));
-    assert!(is_task_comment(&format!("//! P{} Task 1", 2)));
-    assert!(!is_task_comment("// The P3 commands"));
+    let label = format!("Task {}", 7);
+    assert!(labelled_with_task("a.rs", &format!("// P3b {label}")));
+    assert!(labelled_with_task(
+        "a.rs",
+        &format!("let x = 1; // {label}: pairs are read here")
+    ));
+    assert!(labelled_with_task(
+        "a.sh",
+        &format!("# {label}: the inputs")
+    ));
+    assert!(labelled_with_task(
+        "a.toml",
+        &format!("x = 1 # (P2b {label}, R3)")
+    ));
+    assert!(labelled_with_task(
+        "a.md",
+        &format!("**Pinned ({label}):** every input")
+    ));
+    assert!(!labelled_with_task(
+        "a.rs",
+        "// the task of the run; asyncio.Task is not one"
+    ));
+    assert!(!labelled_with_task(
+        "a.rs",
+        &format!("let s = \"{label}\";")
+    ));
+    assert!(!labelled_with_task(
+        "docs/design.md",
+        &format!("P2b {label} only")
+    ));
+    assert_eq!(
+        without_definition("<a id=\"d12\"></a>**D12** see D13"),
+        " see D13"
+    );
 }

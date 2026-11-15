@@ -5,21 +5,21 @@
 # One thread, level 6, no @PG line, so the output is reproducible.
 set -eu
 
-# Task 10: the inputs of the `gloci dict` cases that are not hand-written FASTA: a plain (non-BGZF)
+# the inputs of the `gloci dict` cases that are not hand-written FASTA: a plain (non-BGZF)
 # gzip of fa/ref.fa and an empty file. dup.fa (a repeated name) and alt.txt (an alternate-locus
 # list: first tab-separated field is the name, "MT\r" ends in CRLF, "M extra" and "1 " match
 # nothing) and nohdr.fa (sequence text before the first header) are written by hand.
 gzip -n -c ../fa/ref.fa > ref-gzip.fa.gz
 : > empty.fa
 
-# Task 1: empty.sam and empty.bam, a header and no records, for the cases whose input neither
+# empty.sam and empty.bam, a header and no records, for the cases whose input neither
 # side reads (`flags`) and for the commands that must cope with a file of no reads. The header
 # has two references and a read group; the BAM has its .bai.
 printf '@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:1000\n@SQ\tSN:chr2\tLN:2000\n@RG\tID:g1\tSM:s1\n' > empty.sam
 samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o empty.bam empty.sam
 samtools index -@ 0 empty.bam
 
-# Task 2: unsorted-chroms.{sam,bam}, the reads of chr2 between two runs of chr1 reads and an
+# unsorted-chroms.{sam,bam}, the reads of chr2 between two runs of chr1 reads and an
 # unmapped read with no place at the end: `idxstats` must count by reference, not by run, where
 # samtools' scan stops at "file is not position sorted". No @HD SO: the file claims no order. The
 # BAM has no index (it could not be sorted into one). nometa/flags.bam is a copy of the alignment BAM
@@ -40,13 +40,13 @@ cp ../aln/flags.bam nometa/flags.bam
 # The copy is newer than its .bai, which would draw a stale-index warning; keep the index newer.
 touch nometa/flags.bam.bai
 
-# Task 2: a CSI of flags.bam written by `samtools index -c`, in csi/ beside a copy of the BAM so
+# a CSI of flags.bam written by `samtools index -c`, in csi/ beside a copy of the BAM so
 # the case can name both as aux files.
 mkdir -p csi
 cp ../aln/flags.bam csi/flags.bam
 samtools index -c -@ 0 csi/flags.bam
 
-# Task 3: flagstat.{sam,bam}, built by the awk below and sorted by samtools. QC-passed: 320 records,
+# flagstat.{sam,bam}, built by the awk below and sorted by samtools. QC-passed: 320 records,
 # 306 mapped (95.63% in samtools' f32 arithmetic, 95.62% in f64), 160 paired primaries of which 7
 # are singletons (4.37% against 4.38%), 14 unmapped (7 mates of singletons, 7 single-end; placed
 # and unplaced, one mate carrying 0x2), 60+26+20+40 mapped pairs (proper; proper duplicates; not
@@ -109,7 +109,7 @@ rm flagstat-unsorted.sam
 samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o flagstat.bam flagstat.sam
 samtools index -@ 0 flagstat.bam
 
-# Task 4: the inputs of the `check` cases. noeof.bam is flagstat.bam without its 28-byte BGZF
+# the inputs of the `check` cases. noeof.bam is flagstat.bam without its 28-byte BGZF
 # end-of-file block; truncated.bam is cut in the middle of a block. nosq.{sam,bam} are unaligned
 # reads with a read group and no @SQ line. coord-unsorted.{sam,bam} claim SO:coordinate and have
 # one read (record 7) before the one that precedes it; no case uses it (samtools has nothing to
@@ -141,7 +141,7 @@ samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o coord-unsorted.bam 
 # samtools quickcheck rejects as "not sequence data" and gloci accepts.
 bgzip -c ../cluster-in.vcf > calls.vcf.gz
 
-# Task 5: the inputs of the `head` and `samples` cases. rg.{sam,bam} have five @RG lines: samples
+# the inputs of the `head` and `samples` cases. rg.{sam,bam} have five @RG lines: samples
 # NA12878, NA12891, NA12878 (again) and HG002, a LB on two (libA, libB) and a fifth with a LB (libC)
 # and no SM, so samtools' hash order (HG002, NA12878, NA12891) is not the header order and the
 # tag cases tell the samples apart. nosm.sam has @RG lines with no SM at all. ref.fa matches the
@@ -159,11 +159,11 @@ cp ref.fa.fai ref2.fa.fai
 awk 'BEGIN{print ">chr1"; s=""; for(i=0;i<1000;i++)s=s "A"; print s; print ">chr2"; s=""; for(i=0;i<999;i++)s=s "A"; print s}' > other.fa
 samtools faidx other.fa
 
-# Task 5 fix round 1: BGZF and BCF copies of ../hdr-distinct.vcf (its header has ##FILTER=PASS,
+# BGZF and BCF copies of ../hdr-distinct.vcf (its header has ##FILTER=PASS,
 # which bcftools head would otherwise add), for the head cases on compressed input.
 bgzip -c ../hdr-distinct.vcf > hdr-pass.vcf.gz
 bcftools view -O b -o hdr-pass.bcf ../hdr-distinct.vcf
-# Task 6: the `depth` fixtures, all written by hand. depth.sam sets the traps: a deletion whose
+# the `depth` fixtures, all written by hand. depth.sam sets the traps: a deletion whose
 # next base has quality 10, `N`, `S`, `I`, `=`/`X`, a CIGAR `*` (samtools reads a mapped read with
 # one as unmapped), QUAL `*`, MAPQ 29 and 30, duplicate, secondary, QC-fail and supplementary
 # reads, a placed unmapped read, a read ending at chr2's LN, reads of 30, 49 and 50 bases once soft
@@ -188,7 +188,7 @@ samtools index -@ 0 depth.bam depth-idx/input.bai
 samtools view -C -@ 0 --no-PG --output-fmt-option version=3.0 --output-fmt-option no_ref=1 -o depth.cram depth.sam
 samtools index -@ 0 depth.cram
 
-# Task 7: the `depth --skip-mate-overlap` fixture, written by hand (mates.sam). Templates: a overlaps
+# the `depth --skip-mate-overlap` fixture, written by hand (mates.sam). Templates: a overlaps
 # its mate in part; b has both mates at one position, the longer second; c's second mate lies inside
 # the first; d does not overlap; e's second mate has a deletion before the first mate's end; f has
 # the mate-unmapped flag clear and no mate position; g is a resolved pair followed by two
@@ -198,10 +198,10 @@ samtools index -@ 0 depth.cram
 samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o mates.bam mates.sam
 samtools index -@ 0 mates.bam
 
-# Task 8: the `bedcov` fixtures bedcov.bed and bedcov-badchrom.bed are written by hand (see the
-# comment of the Task 8 cases). bedcov-badchrom.bed is bedcov.bed with a chrZ line inserted as
+# the `bedcov` fixtures bedcov.bed and bedcov-badchrom.bed are written by hand (see the
+# comment of the bedcov cases). bedcov-badchrom.bed is bedcov.bed with a chrZ line inserted as
 # line 9. Nothing to rebuild: the BAMs are depth.bam, depth2.bam and depth-pastend.bam above.
-# Task 11: the inputs of the `gloci reheader` cases. reheader-in.sam is hand-written (three
+# the inputs of the `gloci reheader` cases. reheader-in.sam is hand-written (three
 # references of different lengths, so a swapped order shows in the LNs, and one unplaced read);
 # new-header.sam renames its references to 1, 2, 3, appends a fourth @SQ and changes the @RG;
 # bad-ln.sam changes chr2's LN and bad-order.sam swaps chr2 and chr3 (both are hand-written).
@@ -211,7 +211,7 @@ samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o reheader-in.bam reh
 samtools index -@ 0 reheader-in.bam
 samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o new-header.bam new-header.sam
 
-# Task 12: view-targets.bed, the `view --regions-file` / `-L` regions, is hand-written; the reads are
+# view-targets.bed, the `view --regions-file` / `-L` regions, is hand-written; the reads are
 # aln/flags.bam's. chr1 100 100 and chr1 110 110 sit on the edges of the 10-base reads at
 # chr1:101 (so a zero-length region must match only reads that strictly contain it), chr1 105 105
 # is inside them, chr1 250 260 and chr1 255 258 overlap each other and r_mapq10 (a read must
