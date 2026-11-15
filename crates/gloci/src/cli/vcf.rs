@@ -69,7 +69,7 @@ pub enum CompareMatchArg {
 /// --match alleles the same trimmed allele, so AT>A and ATG>AG count; with --match position the same
 /// REF and ALT text; haploid genotypes are not counted).
 #[derive(Args, Debug, Clone)]
-#[command(about = "Compare genotypes of two VCF/BCF files (vcftools --diff-*)")]
+#[command(about = "Genotype discordance (vcftools --diff-*-discordance)")]
 #[command(after_long_help = "\
 Examples:
   gloci vcf compare truth.vcf.gz calls.vcf.gz --out-prefix cmp
@@ -97,7 +97,7 @@ A genotype is its unordered alleles, so 0/1 equals 1/0 and 0|1, and 0/1 of A>C,G
 that has them; a name in neither is exit 2.
 
 Not available:
-Not available: vcftools --diff-site and --diff-indv (use gloci intersect and subtract \
+vcftools --diff-site and --diff-indv (use gloci intersect and subtract \
 --match alleles for sites, and the #CHROM lines for samples).")]
 pub struct VcfCompareArgs {
     /// The first VCF or BCF file (`-` for stdin), sorted.

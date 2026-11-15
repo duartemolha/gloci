@@ -289,7 +289,7 @@ pub enum ClosestTies {
 /// features 1, and otherwise the gap in bases plus 1. An A with no candidate gets one row with a
 /// placeholder B (`. -1 -1 ...`) and distance -1. A VCF/BCF A gets a column-name line.
 #[derive(Args)]
-#[command(about = "Nearest B to each A (bedtools closest, bedops closest-features)")]
+#[command(about = "Nearest B per A (bedtools closest, bedops closest-features)")]
 #[command(after_long_help = "\
 Examples:
   gloci closest -a genes.bed -b peaks.bed --distance

@@ -68,7 +68,7 @@ pub struct GroupbyArgs {
 /// inside or touches. The output is the merged regions as BED (chrom, start, end) whatever the input
 /// format (VCF, GFF, BAM, ...), or TSV for -o x.tsv; the input records themselves are not written.
 #[derive(Args)]
-#[command(about = "Merge overlapping or nearby records (bedtools merge, bedops -m)")]
+#[command(about = "Merge overlapping or near records (bedtools merge, bedops -m)")]
 #[command(after_long_help = "\
 Examples:
   gloci merge peaks.bed
@@ -253,7 +253,7 @@ pub struct SpacingArgs {
 /// however many of its features overlap there, and points cover no bases, so they add neither
 /// segments nor boundaries. Only segments covered by at least one file are written.
 #[derive(Args)]
-#[command(about = "Segment the inputs by coverage (bedtools multiinter, bedops -p)")]
+#[command(about = "Segment inputs by coverage (bedtools multiinter, bedops -p)")]
 #[command(after_long_help = "\
 Examples:
   gloci partition a.bed b.bed c.bed --merge-adjacent
@@ -660,7 +660,7 @@ pub struct FlankArgs {
 /// warning. Output is BED3; --id-column adds the 1-based window number
 /// of each source interval, counted from the end with --reverse.
 #[derive(Args)]
-#[command(about = "Cut chromosomes or intervals into windows (bedtools makewindows)")]
+#[command(about = "Window chromosomes or intervals (bedtools makewindows)")]
 #[command(after_long_help = "\
 Examples:
   gloci windows -g hg38 -w 1000000 -o bins.bed

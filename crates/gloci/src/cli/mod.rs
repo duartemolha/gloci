@@ -185,7 +185,7 @@ pub fn command_groups() -> Vec<(String, Vec<&'static str>)> {
 
 /// The line under the command list.
 const TIERS: &str =
-    "Stable core: changes only with a version bump. Experimental: may change between releases.";
+    "Stable core: changes only with a version bump.\nExperimental: may change between releases.";
 
 /// The clap command tree. clap 4.6 has one heading for all subcommands, so the root command's
 /// help template lists them in [`command_groups`] with their one-line summaries; the usage,

@@ -27,6 +27,10 @@ fn every_command_has_2_to_4_examples() {
             .nth(1)
             .unwrap_or_else(|| panic!("{}", sub.get_name()))
             .lines()
+            .skip(1)
+            // The examples end at the first blank line; the headed sections after it may
+            // mention other commands.
+            .take_while(|l| !l.trim().is_empty())
             .filter(|l| l.trim_start().starts_with("gloci "))
             .count();
         assert!((2..=4).contains(&n), "{}: {n} examples", sub.get_name());
@@ -167,6 +171,14 @@ fn every_command_is_in_one_group() {
         top.contains("Experimental:"),
         "the tiers line is missing:\n{top}"
     );
+    // Every line of the list fits an 80-column terminal.
+    for l in top.lines() {
+        assert!(
+            l.chars().count() <= 80,
+            "{} characters: {l}",
+            l.chars().count()
+        );
+    }
 }
 
 /// The summary of every command is one short line that still names the tool it replaces.

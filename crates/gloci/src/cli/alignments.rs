@@ -305,6 +305,7 @@ pub struct DepthArgs {
 /// of the bases whose depth is at least N, and --read-count one of the reads that overlap the region
 /// (a zero-length region has no bases and counts no reads, as samtools 1.21 does).
 #[derive(Args)]
+#[command(about = "Depth summed over each BED region (samtools bedcov)")]
 #[command(after_long_help = "\
 Examples:
   gloci bedcov targets.bed sample.bam

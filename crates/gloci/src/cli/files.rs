@@ -181,8 +181,10 @@ pub struct ConvertArgs {
 ///
 /// check reads every file to the end, keeps going past problems and reports the record count, the
 /// chromosomes, whether the records are sorted, and the first 10 errors and warnings with their line
-/// numbers.
+/// numbers. --quick only checks the header, the first record and the end-of-file marker, as samtools
+/// quickcheck does.
 #[derive(Args)]
+#[command(about = "Validate files and summarise each (samtools quickcheck)")]
 #[command(after_long_help = "\
 Examples:
   gloci check peaks.bed
@@ -341,7 +343,7 @@ pub struct ViewArgs {
 /// from the ##contig lines of a VCF/BCF header, else from --chrom-order (karyotype by default).
 /// Records that tie keep their input order unless --full-key is given.
 #[derive(Args)]
-#[command(about = "Sort intervals, VCF or alignments (bedtools sort, samtools sort)")]
+#[command(about = "Sort BED, VCF or alignments (bedtools sort, samtools sort)")]
 #[command(after_long_help = "\
 Examples:
   gloci sort reads.bam -o reads.sorted.bam --write-index -t 8
@@ -465,6 +467,8 @@ Examples:
 /// A coordinate-sorted BAM gets PATH.bai, or PATH.csi with --csi or when a reference is longer than
 /// 2^29; samtools and gloci read each other's indexes. SAM text has no index: write BAM with gloci
 /// view x.sam -o x.bam.
+///
+/// Plain gzip is refused: recompress with bgzip.
 #[derive(Args)]
 #[command(about = "Index a BGZF file, BAM, CRAM or FASTA (tabix, samtools index)")]
 #[command(after_long_help = "\
@@ -485,7 +489,7 @@ Reading a FASTA at random (getfasta, nuc, a CRAM reference) needs these files an
 builds them itself; maskfasta streams its FASTA and needs no index.
 
 Text and VCF files:
-Plain gzip is refused: recompress with bgzip. Otherwise, BED, GFF/GTF, VCF and BCF files \
+BED, GFF/GTF, VCF and BCF files \
 are recognised by content. Any other tab-separated file is indexed like tabix does when \
 you name its columns with -s (sequence), -b (begin) and -e (end, optional). The columns \
 are numbered from 1. Without --zero-based the begin column is 1-based and a feature covers \

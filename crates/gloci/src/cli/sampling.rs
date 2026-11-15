@@ -20,7 +20,7 @@ pub struct SeedArg {
 /// Statistics of interval sets (bedtools jaccard, fisher and reldist).
 #[derive(Args, Debug, Clone)]
 #[command(
-    about = "Statistics of interval sets (bedtools jaccard, fisher, reldist)",
+    about = "Interval set statistics (bedtools jaccard, fisher, reldist)",
     long_about
 )]
 #[command(after_long_help = "\
@@ -243,7 +243,9 @@ pub enum PairTypeArg {
 /// order. Each present end of a pair is tested against B as an interval under -f, -F, -r, -e,
 /// --min-bases, -s, -S and --inclusive-points (section 4.3: a point is inside only strictly, and
 /// unknown strands never match -s or -S); -s and -S use strand1 for end 1 and strand2 for end 2. An
-/// end whose chromosome is `.` overlaps nothing.
+/// end whose chromosome is `.` overlaps nothing. --type chooses what is written: A with the B its ends
+/// hit, or A alone, by one of the rules either (default), both, xor, neither, notboth, ispan, ospan,
+/// notispan or notospan.
 #[derive(Args, Debug, Clone)]
 #[command(after_long_help = "\
 Examples:
@@ -253,7 +255,7 @@ Examples:
   gloci pair-intersect -a sv.bedpe -b genes.bed --type xor -s -t 4
 
 Output:
---type chooses what is written. Rows with a B are A's line, a tab and B's line (TSV); the \
+Rows with a B are A's line, a tab and B's line (TSV); the \
 A-alone types write A's BEDPE line. either (default): A with each B hitting end 1, then \
 each hitting end 2 (a B hitting both ends is written twice). both: the same, when both \
 ends hit. xor: the same, when exactly one end hits. neither: A alone, when no end hits. \
