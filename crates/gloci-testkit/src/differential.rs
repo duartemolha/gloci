@@ -105,15 +105,20 @@ pub fn split_args(line: &str) -> Option<Vec<String>> {
 }
 
 /// What a command produced, as compared and stored: the exit code for the
-/// `exit-status` mode, else standard output with the machine-specific
-/// `##glociCommand` header line normalised.
+/// `exit-status` mode, standard output as it is for the binary `bam` and `cram`
+/// modes (their comparison leaves out the `@PG` lines itself, and editing the bytes
+/// would break a BGZF block written without compression), else standard output with
+/// the machine-specific `##glociCommand` header line normalised.
 pub fn observe(mode: &str, code: Option<i32>, stdout: &[u8]) -> Vec<u8> {
     if mode == "exit-status" {
         return format!("{}\n", code.unwrap_or(-1)).into_bytes();
     }
+    if matches!(mode, "bam" | "cram") {
+        return stdout.to_vec();
+    }
     let mut out = Vec::with_capacity(stdout.len());
     for line in stdout.split_inclusive(|&c| c == b'\n') {
-        if matches!(mode, "bam" | "sam") && line.starts_with(b"@PG\tID:gloci") {
+        if mode == "sam" && line.starts_with(b"@PG\tID:gloci") {
             // gloci's own @PG line names the machine's command line (D118).
             continue;
         }
@@ -740,10 +745,13 @@ mod tests {
     }
 
     #[test]
-    fn at_pg_filter_is_scoped_to_bam_and_sam_modes() {
+    fn at_pg_filter_is_scoped_to_sam_mode() {
         let text = b"@HD\tVN:1.6\n@PG\tID:gloci\tPN:gloci\nr1\t0\n";
         assert_eq!(observe("sam", Some(0), text), b"@HD\tVN:1.6\nr1\t0\n");
         assert_eq!(observe("exact", Some(0), text), text);
+        // BAM bytes are never edited: a block stored without compression holds the text.
+        assert_eq!(observe("bam", Some(0), text), text);
+        assert_eq!(observe("cram", Some(0), text), text);
     }
 
     #[test]

@@ -110,12 +110,22 @@ fn every_golden_case_agrees_with_its_reference_tool() {
             c.name
         );
         if let Some(pinned) = &c.expected_gloci {
-            assert_eq!(
-                String::from_utf8_lossy(&got),
-                String::from_utf8_lossy(pinned),
-                "{}: gloci's output changed (it still differs from the reference tool, but differently)",
-                c.name
-            );
+            // A BAM or CRAM holds gloci's `@PG` line (the command line, the version) inside its
+            // compressed blocks: it is pinned as its compare mode reads it, without that line.
+            if matches!(c.compare.as_str(), "bam" | "cram") {
+                assert!(
+                    compare(&c.compare, &got, pinned),
+                    "{}: gloci's output changed (it still differs from the reference tool, but differently)",
+                    c.name
+                );
+            } else {
+                assert_eq!(
+                    String::from_utf8_lossy(&got),
+                    String::from_utf8_lossy(pinned),
+                    "{}: gloci's output changed (it still differs from the reference tool, but differently)",
+                    c.name
+                );
+            }
         }
         assert_eq!(
             c.verdict(&got),
