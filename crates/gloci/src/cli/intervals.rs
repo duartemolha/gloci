@@ -761,8 +761,8 @@ pub struct IgvArgs {
     /// The directory IGV writes the images to, as IGV is to read it.
     #[arg(long, value_name = "DIR", default_value = "./")]
     pub path: String,
-    /// An IGV session file to load before the snapshots.
-    #[arg(long, value_name = "FILE")]
+    /// The path of an IGV session file to load before the snapshots, as IGV is to read it.
+    #[arg(long, value_name = "PATH")]
     pub session: Option<String>,
     /// Sort the reads of each image: base, position, strand, quality, sample or readGroup.
     #[arg(

@@ -327,6 +327,8 @@ MATRIX: dict[str, Step] = {
     "maskfasta": step("fasta", b="b.bed"),
     "windows": step("bed", size=100),
     "reheader": step("bam", header="new-header.sam"),
+    "igv": step("bed"),
+    "links": step("bed"),
 }
 
 _EMPTY_FASTA = "an empty FASTA is a DataError (it has no records), on the command line too"
@@ -340,6 +342,8 @@ EXEMPT: dict[tuple[str, str], str] = {
     ("complement", "empty"): "the complement of nothing is the whole genome",
     ("genomecov", "empty"): "the genome's coverage: every base at depth 0",
     ("flagstat", "empty"): "a summary: every count is 0",
+    ("igv", "empty"): "writes the script's first line whatever the input",
+    ("links", "empty"): "writes the head and the end of the page whatever the input",
     ("idxstats", "empty"): "a row per reference of the header, with 0 reads",
     ("samples", "empty"): "lists the header's read groups, which an empty BAM has",
     ("stats_jaccard", "empty"): "a summary row: the statistic of an empty A",
@@ -361,6 +365,8 @@ EXEMPT: dict[tuple[str, str], str] = {
     ("shuffle", "unsorted"): _ANY_ORDER,
     ("sample", "unsorted"): _ANY_ORDER,
     ("head", "unsorted"): _ANY_ORDER,
+    ("igv", "unsorted"): _ANY_ORDER,
+    ("links", "unsorted"): _ANY_ORDER,
     ("vcf_filter", "unsorted"): _ANY_ORDER,
     ("vcf_extract", "unsorted"): _ANY_ORDER,
     ("vcf_split", "unsorted"): _ANY_ORDER,

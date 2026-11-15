@@ -137,6 +137,10 @@ description: Use gloci for genomic interval and variant operations (sorting, ind
   `gloci bedcov targets.bed sample.bam` · `gloci bedcov targets.bed a.bam b.bam --bases-at-depth 10 --read-count --column-names`
 - `gloci reheader` (experimental): Replace the header of a BAM or CRAM file without decoding its records (samtools reheader)
   `gloci reheader new-header.sam x.bam -o y.bam` · `gloci reheader other.bam x.bam -o x.bam`
+- `gloci igv` (experimental): Write an IGV batch script that takes a snapshot of each feature (bedtools igv)
+  `gloci igv peaks.bed -o snapshots.txt` · `gloci igv peaks.bed --path /data/shots --session run.xml --sort position --collapse`
+- `gloci links` (experimental): Write an HTML page with a link to the UCSC Genome Browser for each feature (bedtools links)
+  `gloci links peaks.bed -o peaks.html` · `gloci links peaks.bed --org human --db hg38 -o peaks.html`
 
 ## Where the details are
 

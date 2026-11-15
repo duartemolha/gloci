@@ -7,6 +7,7 @@ the minor version).
 
 ## [Unreleased]
 
+- `gloci igv` writes the IGV batch script bedtools writes, a `goto` and a `snapshot` line for each feature of a BED, GFF or VCF file (`--path`, `--session`, `--sort`, `--collapse`, `--name`, `--slop`, `--image`), and `gloci links` writes the HTML page of UCSC Genome Browser links (`--base`, `--org`, `--db`). Both give the bytes `bedtools igv` and `bedtools links` give on the same file, read the features in file order without sorting, and are experimental.
 - `gloci --help` lists the commands in groups (the stable core first, then the experimental groups), with a one-line summary for each. The `--help` of a command now opens with a short summary, then the usage and the options, then the examples and the detail under headings.
 - docs: the design specification is `docs/design.md` and the numbered design decisions are `docs/decisions.md`; the source cites both by section (`spec §4.3`) and by number (`D37`).
 - CI builds with a pinned Rust (1.100.0, set in `rust-toolchain.toml`) instead of the newest stable, and a new `msrv` job checks that the workspace builds with the minimum supported Rust (1.91), so a new Rust release no longer changes a build by itself.

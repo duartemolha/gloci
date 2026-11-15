@@ -64,5 +64,7 @@ pub fn run(ctx: &Ctx, a: &IgvArgs) -> anyhow::Result<()> {
         image: a.image.clone(),
     };
     let mut chroms = ChromTable::first_appearance();
-    write_text(ctx, a.output.as_deref(), |w| igv(reader, &mut chroms, &o, w))
+    write_text(ctx, a.output.as_deref(), |w| {
+        igv(reader, &mut chroms, &o, w)
+    })
 }

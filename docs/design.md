@@ -47,7 +47,7 @@ A single, fast, correct Rust command-line tool that replaces **bedtools**, **bed
 - Variant calling, left-alignment or normalization against a reference, annotation (VEP-like), imputation and phasing.
 - Becoming a general replacement for bcftools or samtools. Merging samples across VCFs (`vcf-merge`) is not planned for v1.
 - The bedops **Starch** format, and legacy genotype export formats (IMPUTE, BEAGLE, LDhat, PLINK ped/tped). **[my call]**
-- bedtools' BAM-specific utilities: `bamtofastq`, `bedtobam`, `bedpetobam`, `tag`, `multicov`, `igv`, `links`. **[my call]**
+- bedtools' BAM-specific utilities: `bamtofastq`, `bedtobam`, `bedpetobam`, `tag`, `multicov`. **[my call]** `igv` and `links` are built on the owner's request of 2026-11-15 (D169, D170). **[owner, 2026-11-15]**
 - Native Windows. WSL works. **[my call]**
 - A stable public Rust library API in v1. The crates are internal; the stable, versioned API is the Python one from P2 (Section 8.5). **[my call, revised: Python bindings moved to goals]**
 
@@ -869,7 +869,9 @@ The user-facing version of this guide lives in `docs/migration.md` (later part o
 | `jaccard`, `fisher`, `reldist` | `stats jaccard / fisher / reldist` (P3) |
 | `shuffle`, `random`, `sample` | same names (P3) |
 | `pairtobed`, `pairtopair` | `pair-intersect`, `pair-pair` (P3) |
-| `multicov`, `tag`, `bamtofastq`, `bedtobam`, `bedpetobam`, `igv`, `links`, `expand`, `split`, `summary`, `overlap` | not planned (see non-goals; `overlap` → `--mode pairs --overlap-bases`) |
+| `igv -i F [-path D -sess S -sort K -clps -name -slop N -img T]` | `gloci igv F [--path D --session S --sort K --collapse --name --slop N --image T]` (D169 **[owner, 2026-11-15]**) |
+| `links -i F [-base U -org O -db B]` | `gloci links F [--base U --org O --db B]` (D170 **[owner, 2026-11-15]**) |
+| `multicov`, `tag`, `bamtofastq`, `bedtobam`, `bedpetobam`, `expand`, `split`, `summary`, `overlap` | not planned (see non-goals; `overlap` → `--mode pairs --overlap-bases`) |
 
 ### samtools **[P3a, owner addition]**
 

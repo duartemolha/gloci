@@ -2103,6 +2103,50 @@ class Pipeline:
 
         CLI: gloci bedcov
         """
+    def igv(
+        self,
+        *,
+        path: str | int | float | os.PathLike[str] | None = None,
+        session: str | int | float | os.PathLike[str] | None = None,
+        sort: Literal["base", "position", "strand", "quality", "sample", "readGroup"] | None = None,
+        collapse: bool = False,
+        name: bool = False,
+        slop: str | int | float | os.PathLike[str] | None = None,
+        image: Literal["png", "eps", "svg"] | None = None,
+        format: str | int | float | os.PathLike[str] | None = None,
+    ) -> Pipeline:
+        """Write an IGV batch script that takes a snapshot of each feature (bedtools igv)
+
+        Args:
+            path: The directory IGV writes the images to, as IGV is to read it
+            session: The path of an IGV session file to load before the snapshots, as IGV is to read it
+            sort: Sort the reads of each image: base, position, strand, quality, sample or readGroup
+            collapse: Collapse the reads before each snapshot
+            name: Put the name of each record in its image's file name
+            slop: Bases to show on each side of the feature (the image file name ends _slopN)
+            image: The image type
+            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
+
+        CLI: gloci igv
+        """
+    def links(
+        self,
+        *,
+        base: str | int | float | os.PathLike[str] | None = None,
+        org: str | int | float | os.PathLike[str] | None = None,
+        db: str | int | float | os.PathLike[str] | None = None,
+        format: str | int | float | os.PathLike[str] | None = None,
+    ) -> Pipeline:
+        """Write an HTML page with a link to the UCSC Genome Browser for each feature (bedtools links)
+
+        Args:
+            base: The browser's address; the links add /cgi-bin/hgTracks
+            org: The organism
+            db: The genome build
+            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
+
+        CLI: gloci links
+        """
     def maskfasta(
         self,
         *,
