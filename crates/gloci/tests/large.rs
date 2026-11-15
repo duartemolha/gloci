@@ -1555,9 +1555,8 @@ fn convert_cram_streams() {
 }
 
 // ---------------------------------------------------------------------------
-// P3b: stats, sample, BEDPE pairs, vcf compare/split/norm/annotate/merge and the parallel
-// vcf filter/extract/stats. Ceilings are absolute; the inputs are streamed to disk.
-// (`vcf popgen` is deferred, so it has no ceiling here.)
+// P3b: stats, sample, BEDPE pairs, vcf compare/split/norm/annotate/merge/popgen and the
+// parallel vcf filter/extract/stats. Ceilings are absolute; the inputs are streamed to disk.
 // ---------------------------------------------------------------------------
 
 /// Write BEDPE lines (unsorted, 24 chromosomes, ends 1-10 kb apart on one chromosome) until
@@ -1864,6 +1863,64 @@ fn vcf_norm_2gib_vcf_streams() {
         );
         args.push(vcf.clone().into());
         rss_run(&format!("vcf norm -t {t} large"), &args, aln_ceiling(t));
+    }
+}
+
+/// Every `vcf popgen` statistic in one run over the 2 GiB VCF of 50 samples streams: the windows
+/// of pi, Tajima's D and Fst hold ⌈size/step⌉ + 1 windows, `--geno-r2` the sites of a 100-base
+/// window, and relatedness 50 samples' pairs, so the run is bounded as `vcf stats` is.
+#[test]
+#[ignore = "nightly: generates large file"]
+fn vcf_popgen_2gib_vcf_streams() {
+    let v = big_sample_vcf_a();
+    let d = tempdir();
+    let pops: Vec<PathBuf> = [(1, 25), (26, 50)]
+        .iter()
+        .enumerate()
+        .map(|(k, &(a, b))| {
+            let p = d.path().join(format!("pop{k}.txt"));
+            let names: String = (a..=b).map(|i| format!("s{i}\n")).collect();
+            std::fs::write(&p, names).unwrap();
+            p
+        })
+        .collect();
+    for t in ["1", "8"] {
+        let prefix = d.path().join(format!("pg{t}"));
+        let mut args = args_of(&["vcf", "popgen", "-t", t, "--out-prefix"], &[&prefix]);
+        args.push(v.into());
+        args.extend(
+            [
+                "--site-pi",
+                "--window-pi",
+                "100000",
+                "--window-pi-step",
+                "25000",
+                "--tajima-d",
+                "100000",
+                "--fst-window-size",
+                "100000",
+                "--geno-r2",
+                "--ld-window-bp",
+                "100",
+                "--relatedness",
+                "--relatedness2",
+                "--min-dp",
+                "5",
+            ]
+            .map(Into::into),
+        );
+        for p in &pops {
+            args.extend(["--fst-pop".into(), p.into()]);
+        }
+        rss_run(&format!("vcf popgen -t {t} large"), &args, aln_ceiling(t));
+        let rows = lines_of(&d.path().join(format!("pg{t}.relatedness2")));
+        assert_eq!(rows, 50 * 50 + 1, "relatedness2 rows");
+        for e in std::fs::read_dir(d.path()).unwrap() {
+            let p = e.unwrap().path();
+            if p.file_name().unwrap().to_string_lossy().starts_with("pg") {
+                std::fs::remove_file(p).unwrap();
+            }
+        }
     }
 }
 
