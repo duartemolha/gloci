@@ -1947,7 +1947,7 @@ fn gen_wide_vcf(w: &mut impl Write, samples: usize, sites: u64, seed: u64) {
             let x = rng.next();
             let alt = u64::from(x % 1000 < p) + u64::from((x >> 10) % 1000 < p);
             line.push(b'\t');
-            line.extend_from_slice(if (x >> 20) % 50 == 0 {
+            line.extend_from_slice(if (x >> 20).is_multiple_of(50) {
                 b"./."
             } else {
                 [b"0/0", b"0/1", b"1/1"][alt as usize]
