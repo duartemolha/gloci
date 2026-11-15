@@ -69,10 +69,11 @@ fn decisions_cited(line: &str) -> Vec<u32> {
             while j < b.len() && b[j].is_ascii_digit() {
                 j += 1;
             }
-            if j > i + 1 && (j == b.len() || !word_byte(b[j])) {
-                if let Ok(n) = line[i + 1..j].parse() {
-                    out.push(n);
-                }
+            if j > i + 1
+                && (j == b.len() || !word_byte(b[j]))
+                && let Ok(n) = line[i + 1..j].parse()
+            {
+                out.push(n);
             }
             i = j;
         } else {
@@ -99,7 +100,7 @@ fn follows_other_spec(before: &str) -> bool {
     loop {
         // Step back over a list of sections: `§6.2.1, `, `§4 and `.
         let trimmed = rest
-            .trim_end_matches(|c: char| c == ',' || c == '/' || c == ' ')
+            .trim_end_matches([',', '/', ' '])
             .trim_end_matches("and")
             .trim_end();
         let digits = trimmed.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.');
@@ -117,10 +118,10 @@ fn sections_cited(line: &str) -> Vec<String> {
     let mut out = Vec::new();
     for (at, _) in line.match_indices('§') {
         let after = &line[at + '§'.len_utf8()..];
-        if let Some(n) = number_at(after) {
-            if !follows_other_spec(&line[..at]) {
-                out.push(n.to_string());
-            }
+        if let Some(n) = number_at(after)
+            && !follows_other_spec(&line[..at])
+        {
+            out.push(n.to_string());
         }
     }
     let lower = line.to_ascii_lowercase();
@@ -136,10 +137,10 @@ fn sections_cited(line: &str) -> Vec<String> {
         if let Some(a) = after.strip_prefix("section ") {
             after = a;
         }
-        if let Some(n) = number_at(after) {
-            if n.contains('.') {
-                out.push(n.to_string());
-            }
+        if let Some(n) = number_at(after)
+            && n.contains('.')
+        {
+            out.push(n.to_string());
         }
     }
     out
