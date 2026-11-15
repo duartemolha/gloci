@@ -108,7 +108,8 @@ sed -i "s/-nan/nan/g" nogt.hap.ld nogt.w1.hap.ld
 # Relatedness (--relatedness, --relatedness2) on related.vcf: dad, mom, their
 # child kid, unrelated u1, u2 and u3, h1 and h2 (homozygous everywhere, so
 # --relatedness2 divides by 0) and gap (called at four sites, none of them
-# u3's); and on halfcall.vcf, which holds ./1 and 1/. genotypes. A run's file
+# u3's), where u1's lone . drops chr1:803 unless the selection leaves u1 out;
+# and on halfcall.vcf, which holds ./1 and 1/. genotypes. A run's file
 # is PREFIX.relatedness or PREFIX.relatedness2, with PREFIX = related,
 # related.dp5 (--minDP 5), related.indv (--indv u2 --indv kid --indv dad) or
 # halfcall. related.dp5.relatedness2 and halfcall.relatedness differ from

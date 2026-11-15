@@ -1,7 +1,7 @@
 INDV1	INDV2	RELATEDNESS_AJK
-dad	dad	0.828205
-dad	kid	-0.364744
-dad	u2	-0.5375
-kid	kid	0.746154
-kid	u2	-0.404167
-u2	u2	0.975
+dad	dad	0.797531
+dad	kid	-0.341975
+dad	u2	-0.536
+kid	kid	0.718519
+kid	u2	-0.408
+u2	u2	0.996
