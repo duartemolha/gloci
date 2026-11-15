@@ -43,7 +43,7 @@ its options and examples.
 
 ## Performance
 
-Seconds, median of 5 runs (3 for the VCF row), on real data: GENCODE v46
+Seconds, median of 5 runs (one run for the VCF row, see below), on real data: GENCODE v46
 exons (1.67 million intervals), ENCODE cCREs (2.35 million), an ENCODE CTCF
 ChIP-seq BAM and CRAM (7.6 million reads) and the 1000 Genomes chr20 panel
 (BCF). One thread unless noted. The other tools are bedtools 2.31.1, bedops
@@ -74,27 +74,24 @@ is a row for each form, with gloci doing that same work.
 | bedcov of CTCF peaks, BAM | 4.08 | | | samtools 4.46 |
 | depth, BAM | 20.6 | | | samtools 24.3 |
 | depth, CRAM | 27.8 | | | samtools 23.2 |
-| vcf filter, BCF to compressed VCF, 8 threads | 209.6 | | | bcftools 63.7, vcftools 504 |
+| vcf filter, BCF to compressed VCF, 8 threads | 27.0 | | | bcftools 38.8, vcftools 504 |
 
-Where gloci is slower. Filtering a BCF on genotypes and writing VCF, bcftools
-was more than three times as fast: gloci counted genotypes and wrote VCF text
-several times slower than bcftools does, and with more threads than cores
-(this machine has four) it lost more: with four threads it took 123 to 141
-seconds. That row was measured before gloci's BCF-to-VCF writer was replaced
-by one that writes the text as htslib does; the change took the command's CPU
-time at one thread from 215 to 110 seconds, and the row has not been timed
-again, so read its gloci figure as an upper bound. Counting genotypes is
-still several times slower than in bcftools. `depth` on a CRAM costs gloci
-16.9 seconds of CPU against 9.5 for samtools, which decodes only the fields
-`depth` reads; both `depth` rows are mostly the time to write 3.3 GB of
-output.
+The VCF row was timed again on 15 November 2026, once per command on an
+otherwise idle machine, after gloci's genotype counting was rewritten: gloci
+took 27.0 seconds at 8 threads, 29.0 at 4 and 47.1 at 1 (67 to 70 seconds of
+user CPU at every thread count); bcftools took 38.8 seconds at 8 threads,
+including the start of its container. The vcftools figure is from 13 November.
+
+Where gloci is slower. `depth` on a CRAM costs gloci 16.9 seconds of CPU
+against 9.5 for samtools, which decodes only the fields `depth` reads; both
+`depth` rows are mostly the time to write 3.3 GB of output.
 
 In the BGZF row bedtools has one thread, and bedops, which cannot read BGZF, is
 timed with the decompression of both inputs to files.
 
 Memory: gloci holds 18 to 67 MiB in the single-thread rows, 260 MiB for
-`sort` (which keeps the file), 288 MiB for the 8-thread intersect and 81 MiB
-for the VCF filter. bedops and samtools stream with 3 to 14 MiB;
+`sort` (which keeps the file), 288 MiB for the 8-thread intersect and 91 MiB
+for the VCF filter at 8 threads. bedops and samtools stream with 3 to 14 MiB;
 `bedtools genomecov` holds 1.9 GiB.
 
 These numbers are indicative. They were measured on 13 November 2026 on a
