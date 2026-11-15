@@ -20,3 +20,4 @@ noodles-bgzf.workspace = true
 [dev-dependencies]
 gloci-testkit.workspace = true
 proptest.workspace = true
+tempfile.workspace = true

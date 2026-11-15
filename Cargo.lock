@@ -987,6 +987,7 @@ dependencies = [
  "noodles-bgzf",
  "proptest",
  "regex",
+ "tempfile",
 ]
 
 [[package]]
