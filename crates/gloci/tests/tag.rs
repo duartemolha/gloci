@@ -539,3 +539,21 @@ fn unknown_strands_match_neither_strand() {
     );
     assert_eq!(labels, ["YB:Z:S", "YB:Z:S", ""]);
 }
+
+#[test]
+fn standard_input_is_read_once() {
+    let bam = f("reads.bam");
+    for args in [
+        vec!["-", "-b", "-", "--labels", "x"],
+        vec![bam.as_str(), "-b", "-", "-", "--names"],
+    ] {
+        gloci()
+            .arg("tag")
+            .args(&args)
+            .write_stdin("chr1\t1\t2\n")
+            .assert()
+            .code(2)
+            .stdout("")
+            .stderr(contains("standard input for at most one of its files"));
+    }
+}
