@@ -249,6 +249,8 @@ fn the_marked_steps() {
             "getfasta: Records (tab: Table)",
             "flagstat: Table",
             "idxstats: Table",
+            "igv: Table",
+            "links: Table",
         ]
     );
     // The flags are the command's own switches.

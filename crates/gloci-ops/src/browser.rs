@@ -160,7 +160,14 @@ must have the same number of columns"
 }
 
 /// The sorting `igv` can ask IGV for.
-pub const IGV_SORTS: &[&str] = &["base", "position", "strand", "quality", "sample", "readGroup"];
+pub const IGV_SORTS: &[&str] = &[
+    "base",
+    "position",
+    "strand",
+    "quality",
+    "sample",
+    "readGroup",
+];
 
 /// What `igv` writes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -200,7 +207,12 @@ pub fn igv(
         line.extend_from_slice(b"goto ");
         line.extend_from_slice(f.chrom);
         line.extend_from_slice(
-            format!(":{}-{}\n", f.start - i128::from(o.slop), f.end + i128::from(o.slop)).as_bytes(),
+            format!(
+                ":{}-{}\n",
+                f.start - i128::from(o.slop),
+                f.end + i128::from(o.slop)
+            )
+            .as_bytes(),
         );
         if let Some(s) = &o.sort {
             line.extend_from_slice(format!("sort {s}\n").as_bytes());

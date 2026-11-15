@@ -112,6 +112,14 @@ pub const NO_CONCORDANCE_CASE: &[(&str, &str)] = &[
         "rewrites a header without touching records; covered by diff cases only",
     ),
     (
+        "igv",
+        "writes a script for IGV from the feature list, with no computation to compare at scale; covered by diff cases only",
+    ),
+    (
+        "links",
+        "writes a page of browser links from the feature list, with no computation to compare at scale; covered by diff cases only",
+    ),
+    (
         "cat",
         "needs several BAM files of one reference; the paper has one; covered by diff cases only",
     ),

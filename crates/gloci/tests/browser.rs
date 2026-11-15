@@ -170,6 +170,10 @@ fn links_page_cells_by_column_count() {
         out.matches("\t<td>\n").count() - 1 // the link's cell
     };
     assert_eq!(cells("chr1\t1\t2\n"), 0);
+    // One tab at the end of a line is not a column.
+    assert_eq!(cells("chr1\t1\t2\t\n"), 0);
+    assert_eq!(cells("chr1\t1\t2\ta\t\n"), 1);
+    assert_eq!(cells("chr1\t1\t2\ta\t\t\n"), 2);
     assert_eq!(cells("chr1\t1\t2\ta\n"), 1);
     assert_eq!(cells("chr1\t1\t2\ta\t5\n"), 2);
     assert_eq!(cells("chr1\t1\t2\ta\t5\t+\n"), 3);
