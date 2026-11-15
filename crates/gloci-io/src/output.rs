@@ -5,7 +5,6 @@ use crate::detect::Format;
 use crate::error::{IoError, UsageError};
 use crate::index::TsvColumns;
 use crate::staged::StagedSet;
-use noodles_bgzf::io::multithreaded_writer::Builder as BgzfBuilder;
 use noodles_bgzf::io::writer::CompressionLevel;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufWriter, IsTerminal, Stdout, StdoutLock, Write};
@@ -286,15 +285,15 @@ type FileBuf = BufWriter<AtomicFile>;
 
 enum Sink {
     StdoutPlain(BufWriter<StdoutLock<'static>>),
-    StdoutBgzf(noodles_bgzf::io::MultithreadedWriter<BufWriter<Stdout>>),
+    StdoutBgzf(crate::bgzf::Writer<BufWriter<Stdout>>),
     FilePlain(FileBuf),
-    FileBgzf(noodles_bgzf::io::MultithreadedWriter<FileBuf>),
+    FileBgzf(crate::bgzf::Writer<FileBuf>),
     /// A device or pipe, written to directly.
     DirectPlain(BufWriter<File>),
-    DirectBgzf(noodles_bgzf::io::MultithreadedWriter<BufWriter<File>>),
+    DirectBgzf(crate::bgzf::Writer<BufWriter<File>>),
     /// A registered in-memory sink (D84).
     Memory(BufWriter<Box<dyn Write + Send>>),
-    MemoryBgzf(noodles_bgzf::io::MultithreadedWriter<BufWriter<Box<dyn Write + Send>>>),
+    MemoryBgzf(crate::bgzf::Writer<BufWriter<Box<dyn Write + Send>>>),
 }
 
 /// An in-memory sink that refuses writes once its run is cancelled.
@@ -341,6 +340,15 @@ enum IndexPlan {
 }
 
 const BUF: usize = 1 << 20;
+
+/// A BGZF writer to `sink` that compresses on `opts.threads` workers.
+fn compressing<W: Write>(
+    sink: W,
+    level: CompressionLevel,
+    opts: &OutputOptions,
+) -> Result<crate::bgzf::Writer<W>, IoError> {
+    crate::bgzf::Writer::new(sink, level, opts.threads).map_err(crate::bgzf::start_error)
+}
 
 pub fn open_output(
     spec: &OutputSpec,
@@ -435,15 +443,12 @@ gloci view FILE -o x.bam --write-index"
             None => IndexPlan::TsvPending(opts.threads),
         };
     }
-    let builder = || {
-        BgzfBuilder::default()
-            .set_compression_level(level)
-            .set_worker_count(opts.threads)
-    };
     let sink = match &spec.path {
-        None if bgzf => Sink::StdoutBgzf(
-            builder().build_from_writer(BufWriter::with_capacity(BUF, io::stdout())),
-        ),
+        None if bgzf => Sink::StdoutBgzf(compressing(
+            BufWriter::with_capacity(BUF, io::stdout()),
+            level,
+            opts,
+        )?),
         None => Sink::StdoutPlain(BufWriter::with_capacity(BUF, io::stdout().lock())),
         Some(p) if is_mem(p) => {
             let (_, sink) = crate::memio::take_output(&p.to_string_lossy())?;
@@ -455,7 +460,7 @@ gloci view FILE -o x.bam --write-index"
             });
             let w = BufWriter::with_capacity(BUF, sink);
             if bgzf {
-                Sink::MemoryBgzf(builder().build_from_writer(w))
+                Sink::MemoryBgzf(compressing(w, level, opts)?)
             } else {
                 Sink::Memory(w)
             }
@@ -482,7 +487,7 @@ gloci view FILE -o x.bam --write-index"
             refuse_binary_to_tty(file.is_terminal(), f, bgzf || raw)?;
             let w = BufWriter::with_capacity(BUF, file);
             if bgzf {
-                Sink::DirectBgzf(builder().build_from_writer(w))
+                Sink::DirectBgzf(compressing(w, level, opts)?)
             } else {
                 Sink::DirectPlain(w)
             }
@@ -494,7 +499,7 @@ gloci view FILE -o x.bam --write-index"
             })?;
             let w = BufWriter::with_capacity(BUF, af);
             if bgzf {
-                Sink::FileBgzf(builder().build_from_writer(w))
+                Sink::FileBgzf(compressing(w, level, opts)?)
             } else {
                 Sink::FilePlain(w)
             }

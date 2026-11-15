@@ -8,6 +8,7 @@ mod bcf_fields;
 mod bcf_text;
 pub mod bed;
 pub mod bedpe;
+pub(crate) mod bgzf;
 pub mod bgzf_copy;
 pub mod builtin;
 pub mod cancel;
