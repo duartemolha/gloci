@@ -439,6 +439,76 @@ fn usage_errors_are_exit_2() {
     assert!(!d.path().join("x.bed").exists());
 }
 
+/// Plain `convert` writes BED; asked for another format, it names the option that writes it
+/// for the input given (`--bam` for features, `--fastq` and `--bedpe` for alignments), and
+/// `--bam` given alignments points to `gloci view`.
+#[test]
+fn messages_name_the_option_that_writes_the_output() {
+    let g = tobam("genome.txt");
+    let bed = tobam("features.bed");
+    let d = tempdir();
+    let bam_in = d.path().join("in.bam");
+    std::fs::write(&bam_in, golden("bedtobam-vs-bedtools")).unwrap();
+    let bam_in = bam_in.to_str().unwrap();
+    let cases: Vec<(Vec<&str>, &str, &str)> = vec![
+        (
+            vec!["convert", &bed, "-o", "peaks.bam"],
+            "add --bam -g GENOME to write the features",
+            "gloci view converts",
+        ),
+        (
+            vec!["convert", &bed, "-o", "peaks.sam"],
+            "add --bam -g GENOME and name the output .bam",
+            "gloci view converts",
+        ),
+        (
+            vec!["convert", &bed, "-o", "peaks.cram"],
+            "add --bam -g GENOME and name the output .bam",
+            "write BAM with -o FILE.bam",
+        ),
+        (
+            vec!["convert", &bed, "-o", "peaks.fq"],
+            "convert writes FASTQ only from alignments",
+            "convert writes BED, not FASTQ",
+        ),
+        (
+            vec!["convert", bam_in, "-o", "reads.fq"],
+            "add --fastq to write the reads",
+            "convert writes BED, not FASTQ",
+        ),
+        (
+            vec!["convert", bam_in, "-o", "reads.bedpe"],
+            "add --bedpe to write the read pairs",
+            "convert writes BED, not BEDPE",
+        ),
+        (
+            vec!["convert", bam_in, "-o", "reads.bam"],
+            "gloci view converts between alignment formats",
+            "--bam -g GENOME",
+        ),
+        (
+            vec!["convert", bam_in, "--bam", "-g", &g, "-o", "again.bam"],
+            "convert --bam writes BAM from BED, GFF or VCF features",
+            "does not read alignments",
+        ),
+    ];
+    for (args, says, not) in cases {
+        let out = gloci().current_dir(d.path()).args(&args).output().unwrap();
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(2), "{args:?}: {err}");
+        assert!(err.contains(says), "{args:?}: {err}");
+        assert!(!err.contains(not), "{args:?}: {err}");
+    }
+    assert!(only_the_input(d.path()));
+}
+
+/// Only the input written for the test is in `dir`: no output was created.
+fn only_the_input(dir: &Path) -> bool {
+    std::fs::read_dir(dir)
+        .unwrap()
+        .all(|e| e.unwrap().file_name() == "in.bam")
+}
+
 #[test]
 fn write_index_needs_input_in_the_genome_order() {
     let d = tempdir();

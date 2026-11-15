@@ -5,10 +5,10 @@ use crate::Ctx;
 use crate::cli::ConvertArgs;
 use gloci_core::{ChromTable, VariantKind};
 use gloci_io::{
-    BedpeReader, Format, Header, InvalidPolicy, IoError, OutFormat, OutputOptions, ReaderOptions,
-    RecordReader, TsvHeader, UsageError, WriterOptions, open_alignment_writer, open_aln_source,
-    open_output, open_reader, open_reader_noting_empty, open_record_writer, open_tsv_writer,
-    parse_output_spec, refuse_binary_to_tty, resolve_genome,
+    BedpeReader, Format, GateKind, Header, InvalidPolicy, IoError, OutFormat, OutputOptions,
+    ReaderOptions, RecordReader, TsvHeader, UsageError, WriterOptions, open_alignment_writer,
+    open_aln_source, open_output, open_reader, open_reader_noting_empty, open_record_writer,
+    open_tsv_writer, parse_output_spec, refuse_binary_to_tty, resolve_genome,
 };
 use gloci_ops::convert::{
     BamOptions, BedpeOptions, ConvertOptions, FastqOptions, FastqSink, alignments_to_bedpe,
@@ -17,7 +17,23 @@ use gloci_ops::convert::{
 use std::io::{IsTerminal, Write};
 
 pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
-    let spec = parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref())?;
+    let spec = match parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref()) {
+        Ok(spec) => spec,
+        // gloci writes no CRAM; for features, the alignments convert can write are --bam's.
+        Err(e) if !(a.bam || a.fastq || a.bedpe) && names_cram(a) => {
+            return Err(match input_format(ctx, a) {
+                Some(f) if is_feature(f) => UsageError(format!(
+                    "gloci does not write CRAM; to write the features of {} as alignments, add \
+--bam -g GENOME and name the output .bam (bedtools bedtobam), then convert it with `samtools \
+view -C -T ref.fa`",
+                    a.file
+                )),
+                _ => e,
+            }
+            .into());
+        }
+        Err(e) => return Err(e.into()),
+    };
     let score_tag = match a.score_tag.as_deref() {
         None => None,
         Some(t) => match t.as_bytes() {
@@ -58,16 +74,7 @@ pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
     }
     let to = spec.format.unwrap_or(OutFormat::Bed);
     if !matches!(to, OutFormat::Bed | OutFormat::BedGraph | OutFormat::Tsv) {
-        let view = if matches!(to, OutFormat::Bam | OutFormat::Sam) {
-            "; gloci view converts between alignment formats (gloci view x.cram -o x.bam)"
-        } else {
-            ""
-        };
-        return Err(UsageError(format!(
-            "convert writes BED, not {}: pick an output ending in .bed or .bed.gz (or -O bed){view}",
-            to.name()
-        ))
-        .into());
+        return Err(UsageError(wrong_output(to, &a.file, input_format(ctx, a))).into());
     }
     refuse_binary_to_tty(
         spec.path.is_none() && std::io::stdout().is_terminal(),
@@ -114,6 +121,96 @@ pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
     convert(input, &mut chroms, &o, w.as_mut()).map_err(named)?;
     w.finish().map_err(named)?;
     Ok(())
+}
+
+/// Whether `-o` or `-O` names CRAM.
+fn names_cram(a: &ConvertArgs) -> bool {
+    let ext = a
+        .out
+        .output
+        .as_deref()
+        .and_then(|p| p.extension())
+        .is_some_and(|e| e.eq_ignore_ascii_case("cram"));
+    let flag = a
+        .out
+        .output_format
+        .as_deref()
+        .is_some_and(|s| s.trim_start_matches('.').eq_ignore_ascii_case("cram"));
+    ext || flag
+}
+
+/// The formats `convert --bam` reads as features.
+fn is_feature(f: Format) -> bool {
+    matches!(
+        f,
+        Format::Bed | Format::BedGraph | Format::Gff3 | Format::Gtf | Format::Vcf
+    )
+}
+
+/// The detected format of the input, for a message about the output that depends on it;
+/// `None` when the input cannot be opened (the message then does not depend on it). Only
+/// called on the way to an error, since it reads the start of the input.
+fn input_format(ctx: &Ctx, a: &ConvertArgs) -> Option<Format> {
+    let ro = reader_options(ctx, a, None, false).ok()?;
+    open_reader_noting_empty(&a.file, &ro)
+        .ok()
+        .map(|(r, _)| r.format())
+}
+
+/// The message for an output format plain `convert` (no --bam, --fastq or --bedpe) does not
+/// write: it writes BED, and the option that writes `to` depends on what the input is.
+fn wrong_output(to: OutFormat, name: &str, input: Option<Format>) -> String {
+    let pick = "pick an output ending in .bed or .bed.gz (or -O bed)";
+    let alignments = input.is_some_and(Format::is_alignment);
+    let features = input.is_some_and(is_feature);
+    let what = |f: Format| format!("{name} is {}", f.name());
+    match (to, input) {
+        (OutFormat::Bam, _) if features => format!(
+            "convert writes BED unless --bam asks for BAM: add --bam -g GENOME to write the \
+features of {name} as BAM records (bedtools bedtobam)"
+        ),
+        (OutFormat::Sam, _) if features => format!(
+            "convert writes BED, or BAM with --bam -g GENOME, not SAM: add --bam -g GENOME and \
+name the output .bam to write the features of {name} as alignments (gloci view x.bam -O sam \
+shows it as SAM)"
+        ),
+        (OutFormat::Bam | OutFormat::Sam, _) if alignments => format!(
+            "convert writes BED, not {}: {pick}; gloci view converts between alignment formats \
+(gloci view {name} -o x.bam)",
+            to.name()
+        ),
+        (OutFormat::Fastq, _) if alignments => format!(
+            "convert writes BED unless --fastq asks for FASTQ: add --fastq to write the reads of \
+{name} as FASTQ (bedtools bamtofastq)"
+        ),
+        (OutFormat::Bedpe, _) if alignments => format!(
+            "convert writes BED unless --bedpe asks for BEDPE: add --bedpe to write the read \
+pairs of {name} as BEDPE (bedtools bamtobed -bedpe)"
+        ),
+        (OutFormat::Bam | OutFormat::Sam, Some(f)) => format!(
+            "convert writes BED, not {}: {pick}; --bam writes BAM from BED, GFF or VCF features, \
+and {}",
+            to.name(),
+            what(f)
+        ),
+        (OutFormat::Fastq | OutFormat::Bedpe, Some(f)) => format!(
+            "convert writes {} only from alignments (BAM, CRAM or SAM), and {}: {pick}",
+            to.name(),
+            what(f)
+        ),
+        (OutFormat::Bam | OutFormat::Sam, None) => format!(
+            "convert writes BED, not {}: {pick}; --bam -g GENOME writes BAM from BED, GFF or VCF \
+features, and gloci view converts between alignment formats",
+            to.name()
+        ),
+        (OutFormat::Fastq, None) => {
+            format!("convert writes BED, not FASTQ: {pick}; --fastq writes FASTQ from alignments")
+        }
+        (OutFormat::Bedpe, None) => {
+            format!("convert writes BED, not BEDPE: {pick}; --bedpe writes BEDPE from alignments")
+        }
+        _ => format!("convert writes BED, not {}: {pick}", to.name()),
+    }
 }
 
 /// The reader options of `convert`.
@@ -433,7 +530,20 @@ write two records per pair (bedtools bedpetobam), or --format bed to read it as 
     let input = if pairs {
         BamInput::Pairs(Box::new(BedpeReader::open(&a.file, &ro)?))
     } else {
-        let r = open_reader(&a.file, &ro)?;
+        let r = open_reader(&a.file, &ro).map_err(|e| match e {
+            // `--bam` writes alignments from features; from alignments, that is view's work.
+            IoError::Gate {
+                kind: GateKind::NoAlignments,
+                ..
+            } => UsageError(format!(
+                "convert --bam writes BAM from BED, GFF or VCF features, and {} holds alignments \
+(BAM, CRAM or SAM); gloci view converts between alignment formats: gloci view {} -o x.bam",
+                if a.file == "-" { "stdin" } else { &a.file },
+                a.file
+            ))
+            .into(),
+            e => e,
+        })?;
         match r.format() {
             Format::Bed | Format::BedGraph | Format::Gff3 | Format::Gtf | Format::Vcf => {}
             f => {
