@@ -114,6 +114,9 @@ sed -i "s/-nan/nan/g" nogt.hap.ld nogt.w1.hap.ld
 # halfcall. related.dp5.relatedness2 and halfcall.relatedness differ from
 # gloci (docs/differences.md#relatedness-genotypes): vcftools counts masked
 # genotypes in --relatedness2 and reads ./1 and 1/. as 0 in --relatedness.
+# related.premasked.relatedness2 is vcftools' --relatedness2 of related.vcf
+# with every genotype of DP below 5 written ./.: what gloci's --relatedness2
+# --min-dp 5 gives.
 docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/work" gloci-diff:p0 sh -c '
 cd /work
 rel() { # VCF PREFIX [vcftools options]
@@ -125,6 +128,18 @@ rel related.vcf related
 rel related.vcf related.dp5 --minDP 5
 rel related.vcf related.indv --indv u2 --indv kid --indv dad
 rel halfcall.vcf halfcall
-rm -f related.log related.dp5.log related.indv.log halfcall.log
+awk -F "\t" -v OFS="\t" "/^#/ { print; next } {
+  n = split(\$9, f, \":\"); g = 0; d = 0
+  for (k = 1; k <= n; k++) { if (f[k] == \"GT\") g = k; if (f[k] == \"DP\") d = k }
+  for (i = 10; i <= NF; i++) {
+    m = split(\$i, v, \":\")
+    if (g && d && d <= m && v[d] != \".\" && v[d] + 0 < 5) {
+      v[g] = \"./.\"; s = v[1]; for (k = 2; k <= m; k++) s = s \":\" v[k]; \$i = s
+    }
+  }
+  print
+}" related.vcf > premasked.vcf
+vcftools --vcf premasked.vcf --relatedness2 --out related.premasked >/dev/null 2>&1
+rm -f premasked.vcf related.log related.dp5.log related.indv.log halfcall.log related.premasked.log
 sed -i "s/-nan/nan/g" *.relatedness *.relatedness2
 '

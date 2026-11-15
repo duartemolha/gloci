@@ -1,6 +1,6 @@
 //! `gloci vcf popgen`: vcftools' population genetics statistics in one pass
 //! over the records that pass the shared selection stage, through the
-//! `vcf stats` engine (decisions D158 to D161). Each statistic writes
+//! `vcf stats` engine (decisions D158 to D162). Each statistic writes
 //! `PREFIX.<extension>` with vcftools' name and columns; the files are
 //! published together only when the whole run succeeds.
 
@@ -9,8 +9,8 @@ use crate::vcf_stats::{StatsRun, StatsSummary, run_stats, selection_fields};
 use gloci_io::{IoError, UsageError};
 use gloci_vcf::Stat;
 use gloci_vcf::popgen::{
-    FST_TWO_FILES, GenoR2, HapR2, InterchromR2, LdBudget, LdWindow, Populations, SitePi, TajimaD,
-    WeirFst, WindowPi,
+    FST_TWO_FILES, GenoR2, HapR2, InterchromR2, LdBudget, LdWindow, Populations,
+    RelatednessManichaikul, RelatednessYang, SitePi, TajimaD, WeirFst, WindowPi,
 };
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
@@ -31,6 +31,12 @@ pub struct PopgenRequest {
     pub fst: Option<FstRequest>,
     /// Linkage disequilibrium.
     pub ld: LdRequest,
+    /// `PREFIX.relatedness`: Yang's unadjusted Ajk of each pair of samples
+    /// (vcftools `--relatedness`).
+    pub relatedness: bool,
+    /// `PREFIX.relatedness2`: Manichaikul's kinship φ of each pair of
+    /// samples (vcftools `--relatedness2`).
+    pub relatedness2: bool,
 }
 
 /// Weir and Cockerham's Fst between populations.
@@ -72,6 +78,8 @@ impl PopgenRequest {
             && self.tajima_d.is_none()
             && self.fst.is_none()
             && !self.ld.any()
+            && !self.relatedness
+            && !self.relatedness2
     }
 }
 
@@ -84,6 +92,9 @@ pub struct PopgenOptions {
     pub out_prefix: PathBuf,
     /// The bytes the LD statistics may hold sites in (`--max-mem`).
     pub max_mem: u64,
+    /// The threads the relatedness statistics add their blocks of sites on
+    /// (the run's `--threads`; the selection stage takes `vcf_popgen`'s).
+    pub matrix_threads: NonZeroUsize,
 }
 
 fn usage(msg: impl Into<String>) -> IoError {
@@ -98,7 +109,7 @@ pub fn check_request(o: &PopgenOptions) -> Result<(), IoError> {
         return Err(usage(
             "no statistic requested; add at least one of --site-pi, --window-pi SIZE, \
              --tajima-d BIN, --fst-pop FILE (twice or more), --geno-r2, --hap-r2, \
-             --interchrom-geno-r2 or --interchrom-hap-r2",
+             --interchrom-geno-r2, --interchrom-hap-r2, --relatedness or --relatedness2",
         ));
     }
     if let Some(w) = r.window_pi {
@@ -193,14 +204,15 @@ fn check_window((size, step): (u64, u64), size_flag: &str, step_flag: &str) -> R
     Ok(())
 }
 
-/// The statistics a request asks for, over the selected samples
-/// (`samples`: index in the record and name); the LD statistics hold sites
-/// within `max_mem` bytes together.
+/// The statistics `o` asks for, over the selected samples (`samples`:
+/// index in the record and name) of the input `name`; the LD statistics
+/// hold sites within `max_mem` bytes together.
 fn build_stats(
-    r: &PopgenRequest,
+    o: &PopgenOptions,
     samples: &[(usize, String)],
-    max_mem: u64,
+    name: &str,
 ) -> Result<Vec<Box<dyn Stat>>, IoError> {
+    let (r, max_mem) = (&o.request, o.max_mem);
     let mut v: Vec<Box<dyn Stat>> = Vec::new();
     if r.site_pi {
         v.push(Box::new(SitePi::new()));
@@ -234,6 +246,19 @@ fn build_stats(
             )));
         }
     }
+    let too_many = |msg: String| IoError::Detect {
+        path: name.to_string(),
+        msg,
+    };
+    if r.relatedness {
+        let s = RelatednessYang::new(samples.to_vec(), o.matrix_threads).map_err(too_many)?;
+        v.push(Box::new(s));
+    }
+    if r.relatedness2 {
+        let s =
+            RelatednessManichaikul::new(samples.to_vec(), o.matrix_threads).map_err(too_many)?;
+        v.push(Box::new(s));
+    }
     Ok(v)
 }
 
@@ -264,7 +289,7 @@ pub fn vcf_popgen(
                      --exclude-samples removed them all"
                 )));
             }
-            build_stats(&o.request, samples, o.max_mem)
+            build_stats(o, samples, &name)
         },
     )
 }

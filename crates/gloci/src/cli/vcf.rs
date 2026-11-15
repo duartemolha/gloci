@@ -568,14 +568,15 @@ pub struct VcfStatsArgs {
 
 // The "at least one statistic" rule is `check_popgen_request`'s, not a clap
 // group: its message lists every flag.
-/// Pi, Tajima's D, Fst and LD r2 (vcftools population genetics)
+/// Pi, Tajima's D, Fst, LD and relatedness (vcftools popgen)
 ///
 /// Nucleotide diversity per site (--site-pi) and in windows (--window-pi), Tajima's D in bins
 /// (--tajima-d), Weir and Cockerham's Fst between populations (--fst-pop, per site, in windows
-/// and over the run) and linkage disequilibrium between pairs of biallelic sites (--geno-r2,
-/// --hap-r2, in a window of pairs or between chromosomes), as vcftools 0.1.16 computes them over
-/// the selected samples. Every requested statistic is computed in one pass over the records that
-/// pass the selection flags (samples, genotype masks, site filters, regions), and each writes
+/// and over the run), linkage disequilibrium between pairs of biallelic sites (--geno-r2,
+/// --hap-r2, in a window of pairs or between chromosomes) and the relatedness of every pair of
+/// samples (--relatedness, --relatedness2), as vcftools 0.1.16 computes them over the selected
+/// samples. Every requested statistic is computed in one pass over the records that pass the
+/// selection flags (samples, genotype masks, site filters, regions), and each writes
 /// PREFIX.<extension> with vcftools' file name and columns. The files are written atomically and
 /// only when the whole run succeeds.
 #[derive(Args, Debug, Clone)]
@@ -590,15 +591,15 @@ Examples:
   gloci vcf popgen cohort.vcf.gz --out-prefix pg --site-pi --window-pi 10000 --tajima-d 10000
   gloci vcf popgen cohort.vcf.gz --out-prefix ld --geno-r2 --ld-window-bp 50000 --min-r2 0.2
   gloci vcf popgen cohort.bcf --out-prefix fst --fst-pop yri.txt --fst-pop ceu.txt --fst-pop chb.txt
-  gloci vcf popgen cohort.bcf --out-prefix fst --fst-pop yri --fst-pop ceu --fst-window-size 50000
+  gloci vcf popgen cohort.bcf --out-prefix kin --relatedness --relatedness2 --min-dp 10
 
 Sites:
-  Pi, Tajima's D and Fst use a site only when every selected sample that is not masked is diploid
-  (for Fst, every population member); LD leaves a haploid genotype out of its pairs instead. A
-  genotype of ploidy above two among them is exit 1, as in vcftools. A half-called genotype (./1)
-  counts its called allele in pi and Tajima's D, and is missing for Fst and --geno-r2; a masked
-  genotype is missing. Site and window pi and Fst take every allele of a multi-allelic site;
-  Tajima's D and LD take biallelic sites only.
+  Pi, Tajima's D, Fst and relatedness use a site only when every selected sample that is not
+  masked is diploid (for Fst, every population member); LD leaves a haploid genotype out of its
+  pairs instead. A genotype of ploidy above two among them is exit 1, as in vcftools. A
+  half-called genotype (./1) counts its called allele in pi and Tajima's D, and is missing for
+  Fst, --geno-r2 and relatedness; a masked genotype is missing. Site and window pi and Fst take
+  every allele of a multi-allelic site; Tajima's D, LD and relatedness take biallelic sites only.
 
 Window pi:
   Windows are [k*STEP+1, k*STEP+SIZE] on each chromosome. A polymorphic site adds its pairs of
@@ -640,6 +641,22 @@ LD:
   chromosomes, in input order, at the end. --min-r2 above 0 leaves out the pairs with a smaller
   r2 or none (nan), in all four files.
 
+Relatedness:
+  --relatedness2 (Manichaikul et al. 2010) writes, for every ordered pair of selected samples, a
+  sample with itself included, the sites where both are heterozygous (N_AaAa), where they are
+  homozygous for different alleles (N_AAaa), each one's heterozygous sites (N1_Aa, N2_Aa) and
+  phi = (N_AaAa - 2 N_AAaa) / (N1_Aa + N2_Aa): 0.5 for a sample with itself or a twin, about 0.25
+  for a parent and child, 0 or below for unrelated samples. --relatedness writes Yang et al.'s
+  (2010) unadjusted Ajk of each pair, a sample with itself first: over the sites whose ALT
+  frequency f is strictly between 0 and 1, the mean of (x_i - 2f)(x_j - 2f) / (2f(1 - f)) over
+  the sites where both are called, x the ALT allele count, and for a sample with itself 1 plus
+  the mean of (x^2 - (1 + 2f)x + 2f^2) / (2f(1 - f)). A genotype counts only when both alleles
+  are called and it is not masked (vcftools counts a masked one in --relatedness2 and reads ./1
+  as 0 in --relatedness); f counts every called allele, a half-called genotype's included. A pair
+  with nothing to divide by is nan, or -inf in --relatedness2 for two samples that are opposite
+  homozygotes somewhere and heterozygous nowhere. Each block of 64 sites is added with the pairs
+  split between the --threads threads; the files are the same at every thread count.
+
 Memory:
   The LD statistics hold sites in memory: --geno-r2 and --hap-r2 the sites of one pair window
   (every site of a chromosome when neither --ld-window nor --ld-window-bp limits it), the
@@ -648,13 +665,16 @@ Memory:
   and position; a statistic's store grows by doubling and keeps what it took. When the stores of
   all the LD statistics together would pass --max-mem, the run stops with exit 1 and names the
   fix: narrow the window with --ld-window-bp or --ld-window, or raise --max-mem. vcftools writes
-  the sites to a temporary file.
+  the sites to a temporary file. --relatedness holds 12 bytes for each pair of the N selected
+  samples, N(N+1)/2 pairs (150 MB for 5,000 samples), and --relatedness2 8, each beside one block
+  of 64 sites; --max-mem does not bound them, and --relatedness2 writes N x N rows.
 
 Sorted input:
   --window-pi, --tajima-d, --fst-window-size, --geno-r2 and --hap-r2 write their rows as the
   input passes them, so they need input sorted by chromosome and position: a chromosome that
   comes back or a position that goes backwards is exit 1, and gloci sort fixes it. --site-pi,
-  --fst-pop without a window and the interchromosomal pairs take records in any order.")]
+  --fst-pop without a window, the interchromosomal pairs and relatedness take records in any
+  order.")]
 pub struct VcfPopgenArgs {
     /// Input VCF or BCF file (`-` for stdin).
     #[arg(value_name = "FILE")]
@@ -666,8 +686,9 @@ pub struct VcfPopgenArgs {
     /// Prefix of the output files: PREFIX.sites.pi, PREFIX.windowed.pi,
     /// PREFIX.Tajima.D, PREFIX.weir.fst, PREFIX.weir.fst.summary,
     /// PREFIX.windowed.weir.fst, PREFIX.geno.ld, PREFIX.hap.ld,
-    /// PREFIX.interchrom.geno.ld and PREFIX.interchrom.hap.ld. An existing
-    /// file of the same name is replaced.
+    /// PREFIX.interchrom.geno.ld, PREFIX.interchrom.hap.ld,
+    /// PREFIX.relatedness and PREFIX.relatedness2. An existing file of the
+    /// same name is replaced.
     #[arg(long, value_name = "PREFIX", required = true)]
     pub out_prefix: PathBuf,
 
@@ -741,6 +762,14 @@ pub struct VcfPopgenArgs {
     /// site; past it the run stops (see Memory).
     #[arg(long, value_name = "SIZE", default_value = "2G", value_parser = parse_size)]
     pub max_mem: u64,
+    /// Yang's unadjusted relatedness Ajk of each pair of selected samples:
+    /// PREFIX.relatedness (vcftools --relatedness).
+    #[arg(long)]
+    pub relatedness: bool,
+    /// Manichaikul's kinship phi of each pair of selected samples, with the
+    /// counts it comes from: PREFIX.relatedness2 (vcftools --relatedness2).
+    #[arg(long)]
+    pub relatedness2: bool,
 
     /// Which footprint a VCF record covers: the allele span or the REF span.
     /// The statistics do not depend on it, so the default is ref, which

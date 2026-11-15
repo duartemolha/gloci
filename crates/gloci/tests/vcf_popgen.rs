@@ -1,9 +1,10 @@
-//! Tests for `gloci vcf popgen` (decisions D158 to D161): every file matches
+//! Tests for `gloci vcf popgen` (decisions D158 to D162): every file matches
 //! the vcftools 0.1.16 file committed in `gloci-vcf/tests/golden/popgen` (made
 //! by its `regen.sh`), one pass equals separate runs, the thread count and the
 //! input format change nothing, the windowed statistics need sorted input, the
-//! population files of Fst follow their rules, and the sites LD holds stay
-//! within --max-mem.
+//! population files of Fst follow their rules, the sites LD holds stay
+//! within --max-mem, and relatedness reads masked and half-called genotypes
+//! as missing.
 mod common;
 use common::*;
 use predicates::str::contains;
@@ -233,6 +234,67 @@ fn popgen_output_is_the_same_at_every_thread_count() {
     ] {
         assert_eq!(fst_files(&file, t), base, "{file} -t {t}");
     }
+
+    // Relatedness splits the rows of each block between threads: 400
+    // samples give every thread rows, and 150 sites two full blocks and a
+    // partial one.
+    let many = many_samples(400, 150);
+    let many_vcf = s(&plain_file(d.path(), "many.vcf", &many));
+    let many_gz = s(&bgzf_file(d.path(), "many.vcf.gz", &many));
+    let many_bcf = s(&d.path().join("many.bcf"));
+    gloci()
+        .args([
+            "vcf",
+            "filter",
+            &many_vcf,
+            "--vcf-span",
+            "ref",
+            "-o",
+            &many_bcf,
+        ])
+        .assert()
+        .success();
+    let rel_files = |file: &str, t: &str| -> Vec<Vec<u8>> {
+        let (_d, prefix) = popgen(
+            file,
+            &["--relatedness", "--relatedness2", "--min-dp", "5", "-t", t],
+        );
+        ["relatedness", "relatedness2"]
+            .iter()
+            .map(|e| read(&prefix, e))
+            .collect()
+    };
+    let base = rel_files(&many_vcf, "1");
+    assert_eq!(
+        base[0].iter().filter(|&&b| b == b'\n').count(),
+        1 + 400 * 401 / 2
+    );
+    for (file, t) in [
+        (many_vcf.clone(), "2"),
+        (many_vcf, "8"),
+        (many_gz.clone(), "1"),
+        (many_gz, "8"),
+        (many_bcf.clone(), "2"),
+        (many_bcf, "8"),
+    ] {
+        assert!(rel_files(&file, t) == base, "{file} -t {t}");
+    }
+    let small = |file: &str, t: &str| -> Vec<Vec<u8>> {
+        let (_d, prefix) = popgen(
+            file,
+            &["--relatedness", "--relatedness2", "--site-pi", "-t", t],
+        );
+        ["relatedness", "relatedness2", "sites.pi"]
+            .iter()
+            .map(|e| read(&prefix, e))
+            .collect()
+    };
+    let base = small(&gpath("related.vcf"), "1");
+    assert_eq!(
+        String::from_utf8(base[0].clone()).unwrap(),
+        golden("related.relatedness")
+    );
+    assert_eq!(small(&gpath("related.vcf"), "8"), base);
 
     // LD holds and pairs the sites on the main thread, with pi beside it.
     for (fixture, args, exts) in [
@@ -783,8 +845,9 @@ fn fst_windows_need_sorted_input() {
 
 /// A genotype of ploidy above two among the samples a statistic reads stops
 /// the run with the record's position and writes no file, as vcftools and
-/// `vcf stats` do: the selected samples for pi and Tajima's D, the population
-/// members for Fst. Haploid genotypes still only drop their site.
+/// `vcf stats` do: the selected samples for pi, Tajima's D, LD and
+/// relatedness, the population members for Fst. Haploid genotypes still
+/// only drop their site.
 #[test]
 fn popgen_polyploid_stops_like_vcftools() {
     let d = tempdir();
@@ -795,7 +858,7 @@ fn popgen_polyploid_stops_like_vcftools() {
     let p12 = s(&plain_file(d.path(), "p12.txt", "s1\ns2\n"));
     let p2 = s(&plain_file(d.path(), "p2.txt", "s2\n"));
     let p34 = s(&plain_file(d.path(), "p34.txt", "s3\ns4\n"));
-    let stats: [&[&str]; 7] = [
+    let stats: [&[&str]; 9] = [
         &["--site-pi"],
         &["--window-pi", "10"],
         &["--tajima-d", "100"],
@@ -803,6 +866,8 @@ fn popgen_polyploid_stops_like_vcftools() {
         &["--geno-r2"],
         &["--hap-r2"],
         &["--interchrom-geno-r2"],
+        &["--relatedness"],
+        &["--relatedness2"],
     ];
     for stat in stats {
         let out = tempdir();
@@ -998,7 +1063,8 @@ fn ld_one_pass_keeps_its_rules_to_itself() {
 /// one on chromosome 2.
 fn ld_many(lines: u64) -> String {
     let mut t = String::from(
-        "##fileformat=VCFv4.2\n##FORMAT=<ID=GT,Number=1,Type=String,Description=\"g\">\n\
+        "##fileformat=VCFv4.2\n##contig=<ID=1,length=100000>\n\
+         ##FORMAT=<ID=GT,Number=1,Type=String,Description=\"g\">\n\
          #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT",
     );
     for i in 1..=8 {
@@ -1152,6 +1218,162 @@ fn ld_window_rules() {
     usage(&["--geno-r2", "--max-mem", "2X"], "invalid size");
     usage(
         &[],
-        "--geno-r2, --hap-r2, --interchrom-geno-r2 or --interchrom-hap-r2",
+        "--geno-r2, --hap-r2, --interchrom-geno-r2, --interchrom-hap-r2, --relatedness or \
+         --relatedness2",
     );
+}
+
+/// The relatedness runs of regen.sh: the golden's prefix, the fixture,
+/// gloci's flags and the file's extension.
+const RELATEDNESS_RUNS: [(&str, &str, &[&str], &str); 6] = [
+    ("related", "related.vcf", &["--relatedness"], "relatedness"),
+    (
+        "related",
+        "related.vcf",
+        &["--relatedness2"],
+        "relatedness2",
+    ),
+    (
+        "related.indv",
+        "related.vcf",
+        &["--relatedness", "--samples", "u2,kid,dad"],
+        "relatedness",
+    ),
+    (
+        "related.indv",
+        "related.vcf",
+        &["--relatedness2", "--samples", "u2,kid,dad"],
+        "relatedness2",
+    ),
+    (
+        "related.dp5",
+        "related.vcf",
+        &["--relatedness", "--min-dp", "5"],
+        "relatedness",
+    ),
+    (
+        "halfcall",
+        "halfcall.vcf",
+        &["--relatedness2"],
+        "relatedness2",
+    ),
+];
+
+#[test]
+fn every_relatedness_file_matches_vcftools() {
+    for (tag, file, args, ext) in RELATEDNESS_RUNS {
+        let (d, prefix) = popgen(&gpath(file), args);
+        let name = format!("{tag}.{ext}");
+        assert_eq!(
+            String::from_utf8(read(&prefix, ext)).unwrap(),
+            golden(&name),
+            "{name} ({args:?})"
+        );
+        assert_eq!(std::fs::read_dir(d.path()).unwrap().count(), 1, "{name}");
+    }
+}
+
+/// Both statistics in one run, beside pi and LD: each file is vcftools' own.
+#[test]
+fn relatedness_one_pass() {
+    let (d, prefix) = popgen(
+        &gpath("related.vcf"),
+        &[
+            "--relatedness",
+            "--relatedness2",
+            "--site-pi",
+            "--geno-r2",
+            "--samples",
+            "dad,kid,u2",
+            "-t",
+            "4",
+        ],
+    );
+    for ext in ["relatedness", "relatedness2"] {
+        assert_eq!(
+            String::from_utf8(read(&prefix, ext)).unwrap(),
+            golden(&format!("related.indv.{ext}")),
+            "{ext}"
+        );
+    }
+    assert_eq!(std::fs::read_dir(d.path()).unwrap().count(), 4);
+}
+
+/// Masked and half-called genotypes are missing for both statistics
+/// (decision D162, docs/differences.md#relatedness-genotypes): vcftools
+/// counts a masked genotype in --relatedness2 and reads ./1 and 1/. as 0
+/// in --relatedness.
+#[test]
+fn relatedness_genotypes_differ_from_vcftools() {
+    // --min-dp 5 gives vcftools' file of related.vcf with the genotypes of
+    // DP below 5 written ./. (regen.sh), not its --minDP 5 file.
+    let (_d, prefix) = popgen(&gpath("related.vcf"), &["--relatedness2", "--min-dp", "5"]);
+    let got = String::from_utf8(read(&prefix, "relatedness2")).unwrap();
+    assert_eq!(got, golden("related.premasked.relatedness2"));
+    assert_ne!(got, golden("related.dp5.relatedness2"));
+    // The parent and child: vcftools counts kid's masked heterozygote and
+    // the two opposite homozygotes of masked genotypes, and phi falls from
+    // 0.167 to 0.04.
+    assert!(
+        got.contains("\ndad\tkid\t4\t0\t12\t12\t0.166667\n"),
+        "{got}"
+    );
+    assert!(golden("related.dp5.relatedness2").contains("\ndad\tkid\t5\t2\t12\t13\t0.04\n"));
+
+    // halfcall.vcf: dad, kid and u1 hold ./1 or 1/.; every other pair is
+    // vcftools' (the frequency counts the called allele in both).
+    let (_d, prefix) = popgen(&gpath("halfcall.vcf"), &["--relatedness"]);
+    let got = String::from_utf8(read(&prefix, "relatedness")).unwrap();
+    let want = golden("halfcall.relatedness");
+    assert_eq!(got.lines().count(), want.lines().count());
+    let mut differ = std::collections::BTreeSet::new();
+    for (g, w) in got.lines().zip(want.lines()) {
+        let (a, b) = g
+            .split_once('\t')
+            .map(|(a, r)| (a, r.split('\t').next().unwrap()))
+            .unwrap();
+        assert!(w.starts_with(&format!("{a}\t{b}\t")), "{g} / {w}");
+        let half = |x: &str| ["dad", "kid", "u1"].contains(&x);
+        if half(a) || half(b) {
+            if g != w {
+                differ.insert(if half(a) { a } else { b }.to_string());
+            }
+        } else {
+            assert_eq!(g, w, "no half call in {a}, {b}");
+        }
+    }
+    assert_eq!(
+        differ.into_iter().collect::<Vec<_>>(),
+        ["dad", "kid", "u1"],
+        "{got}"
+    );
+}
+
+/// A VCF of `n` samples at `sites` biallelic sites, with missing and
+/// half-called genotypes, for the thread-count comparison.
+fn many_samples(n: usize, sites: u64) -> String {
+    let mut t = String::from(
+        "##fileformat=VCFv4.2\n##contig=<ID=1,length=100000>\n\
+         ##FORMAT=<ID=GT,Number=1,Type=String,Description=\"g\">\n\
+         ##FORMAT=<ID=DP,Number=1,Type=Integer,Description=\"d\">\n\
+         #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT",
+    );
+    for i in 0..n {
+        t.push_str(&format!("\tn{i}"));
+    }
+    t.push('\n');
+    let gts = ["0/0", "0/1", "1/1", "0/0", "./.", "./1", "1/0", "0/0"];
+    let mut x = 17u64;
+    for i in 0..sites {
+        t.push_str(&format!("1\t{}\t.\tA\tG\t.\t.\t.\tGT:DP", 10 * (i + 1)));
+        for _ in 0..n {
+            x = x
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            let r = x >> 33;
+            t.push_str(&format!("\t{}:{}", gts[(r % 8) as usize], 3 + (r >> 8) % 7));
+        }
+        t.push('\n');
+    }
+    t
 }

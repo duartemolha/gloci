@@ -289,7 +289,7 @@ behaviour](#samtools-behaviour) after the tables.
 | `--site-pi` / `--window-pi SIZE` / `--window-pi-step STEP` / `--TajimaD BIN` | `gloci vcf popgen FILE --out-prefix P --site-pi` / `--window-pi SIZE` / `--window-pi-step STEP` / `--tajima-d BIN` (write `P.sites.pi`, `P.windowed.pi`, `P.Tajima.D`, same columns; any of them in one run; the windowed ones need sorted input, [differences.md#popgen-sorted-input](differences.md#popgen-sorted-input); a step larger than the window is an error, [differences.md#popgen-window-step](differences.md#popgen-window-step); counts never wrap, [differences.md#popgen-integer-overflow](differences.md#popgen-integer-overflow)) |
 | `--weir-fst-pop FILE` (twice or more) / `--fst-window-size SIZE` / `--fst-window-step STEP` | `gloci vcf popgen FILE --out-prefix P --fst-pop FILE` (once per population) / `--fst-window-size SIZE` / `--fst-window-step STEP` (write `P.weir.fst` and, with a window, `P.windowed.weir.fst`, same columns, plus `P.weir.fst.summary` with the two estimates vcftools logs; the populations select no samples, [differences.md#popgen-independent-options](differences.md#popgen-independent-options); one population, an empty one or a sample in two is an error, [differences.md#fst-populations](differences.md#fst-populations)) |
 | `--geno-r2` / `--hap-r2` / `--interchrom-geno-r2` / `--interchrom-hap-r2` with `--ld-window N` / `--ld-window-bp BP` / `--ld-window-min N` / `--ld-window-bp-min BP` / `--min-r2 R2` | `gloci vcf popgen FILE --out-prefix P --geno-r2` / `--hap-r2` / `--interchrom-geno-r2` / `--interchrom-hap-r2` with the same window flags and `--min-r2` (write `P.geno.ld`, `P.hap.ld`, `P.interchrom.geno.ld`, `P.interchrom.hap.ld`, same columns; any of them in one run; `--hap-r2` uses only fully phased sites but filters none from the other statistics, add `--phased-only` for vcftools' `--phased`, [differences.md#popgen-independent-options](differences.md#popgen-independent-options); `--geno-r2` and `--hap-r2` need sorted input, [differences.md#popgen-sorted-input](differences.md#popgen-sorted-input); a window that admits no pair is an error, [differences.md#popgen-window-step](differences.md#popgen-window-step); the sites held stay within `--max-mem SIZE` (default 2G), with fewer than two sites the files hold their headers, and an excluded sample's phase is not read, [differences.md#ld-rules](differences.md#ld-rules)) |
-| `--relatedness`, `--relatedness2` | not yet available |
+| `--relatedness` / `--relatedness2` | `gloci vcf popgen FILE --out-prefix P --relatedness` / `--relatedness2` (write `P.relatedness`, `P.relatedness2`, same columns; both in one run, beside the other statistics; a masked or half-called genotype is missing in both, [differences.md#relatedness-genotypes](differences.md#relatedness-genotypes)) |
 | `--diff B`, `--gzdiff B`, `--diff-bcf B` with `--diff-site-discordance` / `--diff-indv-discordance` / `--diff-discordance-matrix`, `--diff-indv-map FILE` | `gloci vcf compare A B --out-prefix P` with `--site-discordance` / `--sample-discordance` / `--discordance-matrix`, `--sample-map FILE` (B is the second positional file, any of VCF, VCF.gz or BCF, so `--gzdiff` and `--diff-bcf` need no flag; `P.diff.sites`, `P.diff.indv`, `P.diff.discordance_matrix`, same columns; genotype concordance only. Sites are paired by `--match alleles` by default (same CHROM and POS and a shared ALT after trimming); add `--match position` for vcftools' site pairing, [differences.md#compare-allele-matching](differences.md#compare-allele-matching). The matrix counts biallelic pairs of the same trimmed allele under `--match alleles` (so `AT>A` and `ATG>AG` count together) and of the same REF and ALT text under `--match position`. A half-missing `./1` is missing, [differences.md#compare-half-missing](differences.md#compare-half-missing). `--thin` is refused unless both headers declare the same contigs and no `-g` is given) |
 | `--diff B --diff-site` | sites in both files: `gloci intersect -a A -b B --match alleles`; in A only: `gloci subtract -a A -b B --match alleles` (swap A and B for B only). `--match alleles` is the default; `--match position` pairs by POS and REF like vcftools. `vcf compare` does not write these site sets |
 | `--diff B --diff-indv` | the samples of each file are the `#CHROM` line: `gloci view --header-only FILE \| tail -n1 \| cut -f10-`; `vcf compare` writes every sample of the union in `P.diff.indv` with a discordance row, not the in-one-file lists |
@@ -815,10 +815,11 @@ pinned difference where there is one.
   [differences.md](differences.md), under "`vcf stats --json`: the summary.json
   schema" and "`vcf filter ... | vcf stats` is `vcf stats` without masking".
 - **`vcf popgen` replaces `--site-pi`, `--window-pi`, `--TajimaD`,
-  `--weir-fst-pop` and the LD options:** one `gloci vcf popgen FILE --out-prefix
-  P` run writes any of `P.sites.pi`, `P.windowed.pi`, `P.Tajima.D`,
-  `P.weir.fst`, `P.windowed.weir.fst`, `P.geno.ld`, `P.hap.ld` and
-  `P.interchrom.{geno,hap}.ld` in vcftools' formats, after the same selection
+  `--weir-fst-pop`, the LD options, `--relatedness` and `--relatedness2`:** one
+  `gloci vcf popgen FILE --out-prefix P` run writes any of `P.sites.pi`,
+  `P.windowed.pi`, `P.Tajima.D`, `P.weir.fst`, `P.windowed.weir.fst`,
+  `P.geno.ld`, `P.hap.ld`, `P.interchrom.{geno,hap}.ld`, `P.relatedness` and
+  `P.relatedness2` in vcftools' formats, after the same selection
   flags as `vcf filter` (`--minDP 5` is `--min-dp 5`, `--indv s1` is `--samples
   s1`). `--weir-fst-pop` is `--fst-pop`, and `P.weir.fst.summary` holds the mean
   and weighted Fst vcftools prints in its log. Differences: the windowed
@@ -833,8 +834,11 @@ pinned difference where there is one.
   LD, where it prints rounding noise for an r² of 0. LD holds
   its sites in memory within `--max-mem`, where vcftools uses a temporary file,
   writes its headers for fewer than two sites, where vcftools stops, and does
-  not read the phase of an excluded sample. A polyploid genotype stops the run
-  only in a sample that is used, where vcftools stops on any.
+  not read the phase of an excluded sample. Relatedness reads a masked or
+  half-called genotype as missing, where vcftools counts a masked one in
+  `--relatedness2` and reads `./1` as `0/0` in `--relatedness`. A polyploid
+  genotype stops the run only in a sample that is used, where vcftools stops on
+  any.
   [differences.md#popgen-sorted-input](differences.md#popgen-sorted-input),
   [differences.md#popgen-window-step](differences.md#popgen-window-step),
   [differences.md#popgen-integer-overflow](differences.md#popgen-integer-overflow),
@@ -843,6 +847,7 @@ pinned difference where there is one.
   [differences.md#fst-rounding](differences.md#fst-rounding),
   [differences.md#ld-rules](differences.md#ld-rules),
   [differences.md#ld-rounding](differences.md#ld-rounding),
+  [differences.md#relatedness-genotypes](differences.md#relatedness-genotypes),
   [differences.md#polyploid-unused-samples](differences.md#polyploid-unused-samples)
 - **`vcf filter --include/--exclude` is a subset of `bcftools view -i/-e`:**
   fields against numbers, strings or `.`, `N_PASS`, and the FORMAT fields GT,

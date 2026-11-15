@@ -1842,6 +1842,35 @@ depends on the span.
   `crates/gloci-vcf/tests/popgen_ld.rs`, and the header-only LD files of
   `p3b_empty_inputs_matrix` in `crates/gloci/tests/behaviour/`.
 
+## `vcf popgen` relatedness reads masked and half-called genotypes as missing {#relatedness-genotypes}
+
+- **gloci:** `--relatedness` and `--relatedness2` count a genotype only when
+  both its alleles are called and it is not masked (`--min-dp`, `--max-dp`,
+  `--min-gq`, `--mask-filtered-genotypes`). A masked genotype counts in
+  neither statistic, nor in the ALT frequency of `--relatedness`. A half-called
+  one (`./1`, `1/.`, `./0`, `0/.`) is missing in both, though its called allele
+  still counts in that frequency, as in vcftools.
+- **Old behaviour:** vcftools 0.1.16's `--relatedness2` reads the alleles of a
+  masked genotype as if it were not masked: a masked heterozygote still counts
+  in `N_AaAa` and `N1_Aa`, and masked homozygotes in `N_AAaa`. Its
+  `--relatedness` leaves masked genotypes out but adds a genotype's two alleles
+  with `.` as −1, so `./1` and `1/.` come to 0 and count as homozygous REF,
+  while `./0` and `0/.` come to −1 and are left out.
+- **Reason:** a genotype masked for its depth or quality is one the run was
+  told not to trust, and counting it makes relatives look unrelated: on
+  `related.vcf` with `--minDP 5`, vcftools gives the parent and child φ 0.04
+  where gloci gives 0.167, through a masked heterozygote and two masked
+  opposite homozygotes. A half call says nothing about its missing allele;
+  reading `./1` as `0/0` invents a REF allele, and reading it differently from
+  `./0` makes the answer depend on which allele was called.
+- **Pinned by:** `vcf-popgen-relatedness2-masked-vs-vcftools` and
+  `vcf-popgen-relatedness-half-call-vs-vcftools` (must differ; live only, since
+  gloci writes its files there), and in every `cargo test` by
+  `relatedness_genotypes_differ_from_vcftools` in
+  `crates/gloci/tests/vcf_popgen.rs` (gloci's `--relatedness2 --min-dp 5` is
+  vcftools' file of the same VCF with the masked genotypes written `./.`) and
+  `relatedness_genotype_rules` in `crates/gloci-vcf/tests/popgen_relatedness.rs`.
+
 ## `vcf popgen` and the vcftools behaviour it reproduces
 
 These are not differences: gloci writes what vcftools writes. They are listed
@@ -1895,10 +1924,24 @@ comparison of `crates/gloci/tests/vcf_popgen.rs` with the committed vcftools
   bases apart. An `--ld-window-min` of 0 is 1, and `--min-r2 0` keeps the `nan`
   pairs. The interchromosomal pairs go by chromosome name, in input order.
 - A genotype of ploidy above two among the selected, unmasked samples of a
-  biallelic site stops LD; at a multi-allelic site, which LD does not use, it
-  does not (vcftools drops such a site before it reads its genotypes).
+  biallelic site stops LD and relatedness; at a multi-allelic site, which they
+  do not use, it does not (vcftools drops such a site before it reads its
+  genotypes).
+- `--relatedness` and `--relatedness2` use a biallelic site only when every
+  selected sample that is not masked is diploid: one haploid genotype (`1`, or
+  a lone `.`) drops the site from both, a sample without GT is missing and
+  keeps it. `--relatedness` also needs the site's ALT frequency strictly
+  between 0 and 1 (beyond a double's epsilon), so a site where every call is
+  REF, or ALT, adds nothing to it.
+- `--relatedness2` writes every ordered pair, a sample with itself included,
+  so each pair twice; `--relatedness` writes each pair once, a sample with
+  itself first. A pair with nothing to divide by is `nan` (called together at
+  no site in `--relatedness`, heterozygous at no site in `--relatedness2`),
+  and `-inf` in `--relatedness2` for two samples heterozygous nowhere that are
+  opposite homozygotes somewhere. The counts of `--relatedness2` print as
+  vcftools prints a double (`1e+06` from a million).
 - Numbers use C `%g` (6 digits) and `nan` in lower case; vcftools itself prints a
-  0/0 site pi, Fst or r² as `-nan` on x86_64.
+  0/0 site pi, Fst, r² or relatedness as `-nan` on x86_64.
 
 `vcf popgen` also differs from vcftools in ways that are not about its output:
 it takes every `vcf filter` selection flag, runs any number of statistics in one

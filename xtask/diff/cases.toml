@@ -4166,6 +4166,116 @@ reference = "vcftools --vcf input.vcf --geno-r2 --phased --out o >/dev/null 2>&1
 compare = "exact"
 expected_difference = "#popgen-independent-options"
 
+# Relatedness (D162) vs vcftools --relatedness and --relatedness2: live like
+# the cases above (crates/gloci/tests/vcf_popgen.rs pins the same files in
+# plain cargo test). related.vcf holds a parent-child trio, unrelated samples,
+# two samples homozygous everywhere and one called at four sites; halfcall.vcf
+# holds the ./1 and 1/. genotypes --relatedness2 leaves out in both tools.
+
+[[case]]
+name = "vcf-popgen-relatedness-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/related.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --relatedness && cat o.relatedness"
+reference = "vcftools --vcf input.vcf --relatedness --out o >/dev/null 2>&1 && cat o.relatedness | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-relatedness2-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/related.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --relatedness2 && cat o.relatedness2"
+reference = "vcftools --vcf input.vcf --relatedness2 --out o >/dev/null 2>&1 && cat o.relatedness2 | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-relatedness-samples-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/related.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --relatedness --samples u2,kid,dad && cat o.relatedness"
+reference = "vcftools --vcf input.vcf --relatedness --indv u2 --indv kid --indv dad --out o >/dev/null 2>&1 && cat o.relatedness | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-relatedness2-samples-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/related.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --relatedness2 --samples u2,kid,dad && cat o.relatedness2"
+reference = "vcftools --vcf input.vcf --relatedness2 --indv u2 --indv kid --indv dad --out o >/dev/null 2>&1 && cat o.relatedness2 | sed 's/-nan/nan/g'"
+compare = "exact"
+
+# Masking leaves a genotype out of --relatedness in both tools, the ALT
+# frequency included.
+[[case]]
+name = "vcf-popgen-relatedness-masked-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/related.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --relatedness --min-dp 5 && cat o.relatedness"
+reference = "vcftools --vcf input.vcf --relatedness --minDP 5 --out o >/dev/null 2>&1 && cat o.relatedness | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-relatedness2-half-call-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/halfcall.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --relatedness2 && cat o.relatedness2"
+reference = "vcftools --vcf input.vcf --relatedness2 --out o >/dev/null 2>&1 && cat o.relatedness2 | sed 's/-nan/nan/g'"
+compare = "exact"
+
+# Both statistics in one run equal vcftools' two runs.
+[[case]]
+name = "vcf-popgen-relatedness-one-pass-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/related.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --relatedness --relatedness2 -t 4 && cat o.relatedness o.relatedness2"
+reference = "vcftools --vcf input.vcf --relatedness --out o >/dev/null 2>&1 && vcftools --vcf input.vcf --relatedness2 --out o >/dev/null 2>&1 && cat o.relatedness o.relatedness2 | sed 's/-nan/nan/g'"
+compare = "exact"
+
+# A generated VCF of 40 samples: multi-allelic sites, indels and missing
+# genotypes on three chromosomes. Relatedness takes the records in any order,
+# as vcftools does: the second case shuffles them.
+[[case]]
+name = "vcf-popgen-relatedness-generated-vs-vcftools"
+input = { gen = ["vcf", "--records", "3000", "--samples", "40", "--chroms", "3", "--seed", "43"] }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --relatedness --relatedness2 && cat o.relatedness o.relatedness2"
+reference = "vcftools --vcf input.vcf --relatedness --out o >/dev/null 2>&1 && vcftools --vcf input.vcf --relatedness2 --out o >/dev/null 2>&1 && cat o.relatedness o.relatedness2 | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-relatedness-unsorted-vs-vcftools"
+input = { gen = ["vcf", "--records", "3000", "--samples", "40", "--chroms", "3", "--seed", "43"] }
+gloci = "(grep '^#' input.vcf; grep -v '^#' input.vcf | sort -k2,2n) > u.vcf && gloci vcf popgen u.vcf --out-prefix o --relatedness --relatedness2 && cat o.relatedness o.relatedness2"
+reference = "(grep '^#' input.vcf; grep -v '^#' input.vcf | sort -k2,2n) > u.vcf && vcftools --vcf u.vcf --relatedness --out o >/dev/null 2>&1 && vcftools --vcf u.vcf --relatedness2 --out o >/dev/null 2>&1 && cat o.relatedness o.relatedness2 | sed 's/-nan/nan/g'"
+compare = "exact"
+
+# A genotype of ploidy above two at a biallelic site stops both tools (gloci
+# writes no file).
+[[case]]
+name = "vcf-popgen-polyploid-relatedness-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/ploidy.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --relatedness"
+reference = "vcftools --vcf input.vcf --relatedness --out o >/dev/null 2>&1"
+compare = "exit-status"
+
+[[case]]
+name = "vcf-popgen-polyploid-relatedness2-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/stats/ploidy.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --relatedness2"
+reference = "vcftools --vcf input.vcf --relatedness2 --out o >/dev/null 2>&1"
+compare = "exit-status"
+
+# Documented differences: vcftools counts masked genotypes in --relatedness2
+# (dad and kid, parent and child, come out at phi 0.04 where gloci gives
+# 0.167) and reads ./1 and 1/. as 0 in --relatedness.
+[[case]]
+name = "vcf-popgen-relatedness2-masked-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/related.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --relatedness2 --min-dp 5 && cat o.relatedness2"
+reference = "vcftools --vcf input.vcf --relatedness2 --minDP 5 --out o >/dev/null 2>&1 && cat o.relatedness2 | sed 's/-nan/nan/g'"
+compare = "exact"
+expected_difference = "#relatedness-genotypes"
+
+[[case]]
+name = "vcf-popgen-relatedness-half-call-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/halfcall.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --relatedness && cat o.relatedness"
+reference = "vcftools --vcf input.vcf --relatedness --out o >/dev/null 2>&1 && cat o.relatedness | sed 's/-nan/nan/g'"
+compare = "exact"
+expected_difference = "#relatedness-genotypes"
+
 # vcf concat (D74): bcftools concat writes the files in the order given.
 # The headers are identical, so the header lines match too; records are
 # compared.

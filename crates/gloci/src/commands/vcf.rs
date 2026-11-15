@@ -586,9 +586,12 @@ pub fn run_popgen(ctx: &Ctx, a: &VcfPopgenArgs) -> anyhow::Result<()> {
                     }
                 },
             },
+            relatedness: a.relatedness,
+            relatedness2: a.relatedness2,
         },
         out_prefix: a.out_prefix.clone(),
         max_mem: a.max_mem,
+        matrix_threads: ctx.threads,
     };
     gloci_ops::check_popgen_request(&options)?;
     let input = open_selected(&a.file, &ro, &options.select)?;
