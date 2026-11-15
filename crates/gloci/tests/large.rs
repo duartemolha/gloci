@@ -1867,6 +1867,97 @@ fn vcf_norm_2gib_vcf_streams() {
     }
 }
 
+/// A VCF of `samples` genotype columns at `sites` biallelic sites of one chromosome, with a
+/// frequency that changes from site to site and 2% missing genotypes.
+fn gen_wide_vcf(w: &mut impl Write, samples: usize, sites: u64, seed: u64) {
+    let mut rng = Rng(seed);
+    let mut head = String::from(
+        "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=248956422>\n\
+##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT",
+    );
+    for i in 1..=samples {
+        head.push_str(&format!("\ts{i}"));
+    }
+    head.push('\n');
+    w.write_all(head.as_bytes()).unwrap();
+    let mut line = Vec::with_capacity(samples * 4 + 64);
+    for k in 0..sites {
+        line.clear();
+        write!(line, "chr1\t{}\t.\tA\tG\t50\tPASS\t.\tGT", 1000 + 100 * k).unwrap();
+        let p = 50 + rng.next() % 900;
+        for _ in 0..samples {
+            let x = rng.next();
+            let alt = u64::from(x % 1000 < p) + u64::from((x >> 10) % 1000 < p);
+            line.push(b'\t');
+            line.extend_from_slice(if (x >> 20) % 50 == 0 {
+                b"./."
+            } else {
+                [b"0/0", b"0/1", b"1/1"][alt as usize]
+            });
+        }
+        line.push(b'\n');
+        w.write_all(&line).unwrap();
+    }
+}
+
+/// Relatedness holds a matrix of 12 bytes (`--relatedness`) or 8 (`--relatedness2`) for each
+/// pair of the N selected samples, a sample with itself included, beside one block of 64 sites
+/// (D162). With 5,000 samples, the peak RSS of each stays within that bound over a run of the
+/// same input that holds no matrix (`--geno-r2 --ld-window 1`, which reads the genotypes too).
+#[test]
+#[ignore = "nightly: 5,000 samples, writes 1 GB of rows"]
+fn vcf_popgen_relatedness_5000_samples_rss() {
+    const N: u64 = 5000;
+    // Used by this test only: in a temp dir removed afterwards.
+    let d = tempdir();
+    let vcf = d.path().join("wide.vcf");
+    {
+        let mut f = std::io::BufWriter::new(std::fs::File::create(&vcf).unwrap());
+        // five full blocks and a partial one
+        gen_wide_vcf(&mut f, N as usize, 330, 77);
+        f.flush().unwrap();
+    }
+    let prefix = d.path().join("rel");
+    let run = |what: &str, stat: &[&str]| -> u64 {
+        let mut args = args_of(&["vcf", "popgen", "-t", "4", "--out-prefix"], &[&prefix]);
+        args.push(vcf.clone().into());
+        args.extend(stat.iter().map(Into::into));
+        let refs: Vec<&std::ffi::OsStr> = args.iter().map(|s| s.as_os_str()).collect();
+        rss_of(what, &refs)
+    };
+    let base = run(
+        "vcf popgen --geno-r2 (5,000 samples)",
+        &["--geno-r2", "--ld-window", "1"],
+    );
+    let pairs = N * (N + 1) / 2;
+    for (stat, per_pair, block, rows) in [
+        ("--relatedness", 12, 64 * 8 * N + 8 * N + 64 * 8, pairs),
+        ("--relatedness2", 8, 3 * 8 * N, N * N),
+    ] {
+        let rss = run(&format!("vcf popgen {stat} (5,000 samples)"), &[stat]);
+        let bound = per_pair * pairs + block;
+        eprintln!(
+            "{stat}: {} MiB over the run without a matrix; the bound is {} MiB",
+            rss.saturating_sub(base) / MIB,
+            bound / MIB
+        );
+        // 8 MiB for what the run allocates beside the matrix and the block: the threads'
+        // stacks and the output buffer
+        assert!(
+            rss <= base + bound + 8 * MIB,
+            "{stat}: peak RSS {rss} bytes, more than {base} + {bound} + 8 MiB"
+        );
+        let ext = stat.trim_start_matches("--");
+        assert_eq!(
+            lines_of(&d.path().join(format!("rel.{ext}"))),
+            rows + 1,
+            "{stat} rows"
+        );
+        std::fs::remove_file(d.path().join(format!("rel.{ext}"))).unwrap();
+    }
+}
+
 // ---------------------------------------------------------------------------
 // P3c: idxstats, flagstat, view --count, depth, bedcov, reheader, faidx, dict
 //
