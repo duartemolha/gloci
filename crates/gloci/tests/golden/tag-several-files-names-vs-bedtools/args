@@ -1,0 +1,1 @@
+tag input.bam -b genes.bed -b genes2.bed --names -O sam

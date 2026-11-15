@@ -1,0 +1,1 @@
+tag input.cram -b genes.bed --names -O sam

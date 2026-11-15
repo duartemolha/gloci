@@ -1,0 +1,1 @@
+tag input.bam -b genes.gff3 --names -O sam

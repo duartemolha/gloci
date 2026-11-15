@@ -1,0 +1,1 @@
+tag input.bam -b strand.bed plain.bed --names -S -O sam

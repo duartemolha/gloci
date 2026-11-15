@@ -1,0 +1,1 @@
+tag input.bam -b genes.bed --labels G --fraction 0.51 -O sam

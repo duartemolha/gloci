@@ -10334,3 +10334,290 @@ input = { file = "xtask/diff/inputs/browser-header.bed" }
 gloci = "cat input.bed | gloci links -"
 reference = "cat input.bed | bedtools links -i stdin"
 compare = "exact"
+
+# ---------------------------------------------------------------------------
+# gloci tag (D168) against bedtools tag 2.31.1. bedtools writes BAM, so its output is read back as
+# SAM text with `samtools view -h` (D165, #bam-compared-as-sam); gloci writes SAM (-O sam, or from
+# SAM input), so the goldens compare text directly, @PG lines left out. reads.sam (and its
+# reads.bam and reads.cram, from make-tag.sh) is in no order, and each read sets a trap:
+# - r1, secondary, supplementary, unmapped-placed: all on g1; the unmapped one is never tagged
+#   (tagging every placed read differs), secondary and supplementary are (skipping them differs).
+# - spliced (20M500N30M) over the feature "intron" inside its intron, deletion (20M10D20M) over
+#   "indel" inside its deletion: tagged, as bedtools uses the whole span (blocks differ).
+# - softclip (10S40M): "clip" lies under the clip only; untagged (counting clips differs).
+# - pad-hard (5H10M2P10M): "after-pad" starts 1 base after the span; untagged (counting P differs).
+# - eq-x (10=5X10=): "eqx" overlaps only the last = bases (counting only M differs).
+# - only-clips (5S5I): spans no base, inside g1; untagged (htslib's one-base span differs).
+# - bookend: "left" ends where it starts and "right" starts where it ends; untagged.
+# - bin-order: "big" (listed first, crosses a 16 kb boundary) and "small"; names give small,big
+#   (file order or start order differ). p-q: P and Q share a bin, so file order (P,Q, not by
+#   start). level: small3 before big3 though big3 starts and ends first. length: L0 (a long
+#   feature in one 16 kb bin) before big3 and L1 (short, across the boundary).
+# - bin-edge: "edge" ends at its start, on a bin boundary: untagged by it.
+# - duplicate: two identical dupA lines give dupA,dupA (dropping duplicates differs).
+# - half: half of the read is on "half": -f 0.5 tags, -f 0.51 does not. third: 1 base of 3 on
+#   "third": -f 0.3333333334 tags in 32-bit floating point (exact arithmetic does not).
+# - reverse, forward: strand.bed has + - and . copies of one feature, plain.bed a BED3 one: -S
+#   counts . and no strand as the other strand (gloci intersect's rule differs), -s never.
+# - zero-over, zero-before, zero-after: the zero-length "zero" at 8000 is [7999, 8001) to bedtools:
+#   zero-before (ending at 8000) is tagged and zero-after (starting at 8001) is not; --intervals
+#   writes 7999-8001. zero-at-0 is [-1, 1): tagged, written -1-1.
+# - has-yb already has YB:Z:old: a second YB is added after it (replacing it differs).
+# - tags, qual-star, seq-star, pair: aux types, QUAL *, SEQ *, mate fields kept as they are.
+# - no-features (chr3, in no feature file), unmapped (no place): written untagged.
+# ---------------------------------------------------------------------------
+
+[[case]]
+name = "tag-labels-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/genes.bed"]
+gloci = "gloci tag input.bam -b genes.bed --labels G -O sam"
+reference = "bedtools tag -i input.bam -files genes.bed -labels G | samtools view -h"
+compare = "sam"
+
+[[case]]
+name = "tag-names-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/genes.bed"]
+gloci = "gloci tag input.bam -b genes.bed --names -O sam"
+reference = "bedtools tag -i input.bam -files genes.bed -names | samtools view -h"
+compare = "sam"
+
+[[case]]
+name = "tag-scores-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/genes.bed"]
+gloci = "gloci tag input.bam -b genes.bed --scores -O sam"
+reference = "bedtools tag -i input.bam -files genes.bed -scores | samtools view -h"
+compare = "sam"
+
+[[case]]
+name = "tag-intervals-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/genes.bed"]
+gloci = "gloci tag input.bam -b genes.bed --intervals --labels G -O sam"
+reference = "bedtools tag -i input.bam -files genes.bed -intervals -labels G | samtools view -h"
+compare = "sam"
+
+# Parts in -b order; strand.bed has no hit for r1, which leaves no empty part (A;C).
+[[case]]
+name = "tag-several-files-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/genes.bed", "xtask/diff/inputs/tag/strand.bed", "xtask/diff/inputs/tag/genes2.bed"]
+gloci = "gloci tag input.bam -b genes.bed strand.bed genes2.bed --labels A,B,C -O sam"
+reference = "bedtools tag -i input.bam -files genes.bed strand.bed genes2.bed -labels A B C | samtools view -h"
+compare = "sam"
+
+# genes2.bed's name "gene one" has a space; -b given twice is one list.
+[[case]]
+name = "tag-several-files-names-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/genes.bed", "xtask/diff/inputs/tag/genes2.bed"]
+gloci = "gloci tag input.bam -b genes.bed -b genes2.bed --names -O sam"
+reference = "bedtools tag -i input.bam -files genes.bed genes2.bed -names | samtools view -h"
+compare = "sam"
+
+[[case]]
+name = "tag-same-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/strand.bed", "xtask/diff/inputs/tag/plain.bed"]
+gloci = "gloci tag input.bam -b strand.bed plain.bed --labels S,P -s -O sam"
+reference = "bedtools tag -i input.bam -files strand.bed plain.bed -labels S P -s | samtools view -h"
+compare = "sam"
+
+[[case]]
+name = "tag-opposite-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/strand.bed", "xtask/diff/inputs/tag/plain.bed"]
+gloci = "gloci tag input.bam -b strand.bed plain.bed --labels S,P -S -O sam"
+reference = "bedtools tag -i input.bam -files strand.bed plain.bed -labels S P -S | samtools view -h"
+compare = "sam"
+
+# plain.bed has no names: its empty part leaves the value ending in ; (plus,dot;).
+[[case]]
+name = "tag-opposite-strand-names-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/strand.bed", "xtask/diff/inputs/tag/plain.bed"]
+gloci = "gloci tag input.bam -b strand.bed plain.bed --names -S -O sam"
+reference = "bedtools tag -i input.bam -files strand.bed plain.bed -names -S | samtools view -h"
+compare = "sam"
+
+# A BED3 has no names: the tag is added with an empty value (YB:Z:).
+[[case]]
+name = "tag-no-names-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/plain.bed"]
+gloci = "gloci tag input.bam -b plain.bed --names -O sam"
+reference = "bedtools tag -i input.bam -files plain.bed -names | samtools view -h"
+compare = "sam"
+
+[[case]]
+name = "tag-bed3-intervals-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/plain.bed"]
+gloci = "gloci tag input.bam -b plain.bed --intervals --labels P -O sam"
+reference = "bedtools tag -i input.bam -files plain.bed -intervals -labels P | samtools view -h"
+compare = "sam"
+
+[[case]]
+name = "tag-fraction-half-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/genes.bed"]
+gloci = "gloci tag input.bam -b genes.bed --labels G -f 0.5 -O sam"
+reference = "bedtools tag -i input.bam -files genes.bed -labels G -f 0.5 | samtools view -h"
+compare = "sam"
+
+[[case]]
+name = "tag-fraction-over-half-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/genes.bed"]
+gloci = "gloci tag input.bam -b genes.bed --labels G --fraction 0.51 -O sam"
+reference = "bedtools tag -i input.bam -files genes.bed -labels G -f 0.51 | samtools view -h"
+compare = "sam"
+
+# -f applies to --names too: bin-order keeps big only, half loses half.
+[[case]]
+name = "tag-fraction-names-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/genes.bed"]
+gloci = "gloci tag input.bam -b genes.bed --names -f 0.51 -O sam"
+reference = "bedtools tag -i input.bam -files genes.bed -names -f 0.51 | samtools view -h"
+compare = "sam"
+
+[[case]]
+name = "tag-fraction-float-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/genes.bed"]
+gloci = "gloci tag input.bam -b genes.bed --names -f 0.3333333334 -O sam"
+reference = "bedtools tag -i input.bam -files genes.bed -names -f 0.3333333334 | samtools view -h"
+compare = "sam"
+
+[[case]]
+name = "tag-custom-tag-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/genes.bed"]
+gloci = "gloci tag input.bam -b genes.bed --labels G --tag XT -O sam"
+reference = "bedtools tag -i input.bam -files genes.bed -labels G -tag XT | samtools view -h"
+compare = "sam"
+
+# A GFF's name is its feature type (column 3), its start column 4 less 1.
+[[case]]
+name = "tag-gff-names-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/genes.gff3"]
+gloci = "gloci tag input.bam -b genes.gff3 --names -O sam"
+reference = "bedtools tag -i input.bam -files genes.gff3 -names | samtools view -h"
+compare = "sam"
+
+[[case]]
+name = "tag-gff-scores-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/genes.gff3"]
+gloci = "gloci tag input.bam -b genes.gff3 --scores -O sam"
+reference = "bedtools tag -i input.bam -files genes.gff3 -scores | samtools view -h"
+compare = "sam"
+
+[[case]]
+name = "tag-gff-intervals-same-strand-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/genes.gff3"]
+gloci = "gloci tag input.bam -b genes.gff3 --intervals --labels F -s -O sam"
+reference = "bedtools tag -i input.bam -files genes.gff3 -intervals -labels F -s | samtools view -h"
+compare = "sam"
+
+# SAM in, SAM out; bedtools reads the BAM of the same SAM.
+[[case]]
+name = "tag-sam-input-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.sam" }
+aux = ["xtask/diff/inputs/tag/genes.bed", "xtask/diff/inputs/tag/reads.bam"]
+gloci = "gloci tag input.sam -b genes.bed --intervals --labels G"
+reference = "bedtools tag -i reads.bam -files genes.bed -intervals -labels G | samtools view -h"
+compare = "sam"
+
+# A CRAM written without a reference needs no --reference; bedtools reads its records decoded
+# back to BAM (the CRAM keeps eq-x's 10=5X10= as 25M).
+[[case]]
+name = "tag-cram-input-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.cram" }
+aux = ["xtask/diff/inputs/tag/genes.bed", "xtask/diff/inputs/tag/reads-cram.bam"]
+gloci = "gloci tag input.cram -b genes.bed --names -O sam"
+reference = "bedtools tag -i reads-cram.bam -files genes.bed -names | samtools view -h"
+compare = "sam"
+
+# Live only (a pipe): gloci's BAM output, read back by samtools as bedtools' is.
+[[case]]
+name = "tag-bam-output-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/genes.bed", "xtask/diff/inputs/tag/genes2.bed"]
+gloci = "gloci tag input.bam -b genes.bed genes2.bed --intervals --labels G,H | samtools view -h"
+reference = "bedtools tag -i input.bam -files genes.bed genes2.bed -intervals -labels G H | samtools view -h"
+compare = "sam"
+
+# Live only (a pipe): SAM in, BAM out.
+[[case]]
+name = "tag-sam-input-bam-output-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.sam" }
+aux = ["xtask/diff/inputs/tag/genes.bed", "xtask/diff/inputs/tag/reads.bam"]
+gloci = "gloci tag input.sam -b genes.bed --names -O bam | samtools view -h"
+reference = "bedtools tag -i reads.bam -files genes.bed -names | samtools view -h"
+compare = "sam"
+
+# Pinned (#tag-option-values): bedtools writes the tag X followed by a NUL byte.
+[[case]]
+name = "tag-one-character-tag-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/genes.bed"]
+gloci = "gloci tag input.bam -b genes.bed --labels G --tag X -O sam"
+reference = "bedtools tag -i input.bam -files genes.bed -labels G -tag X"
+compare = "exit-status"
+expected_difference = "#tag-option-values"
+
+# Pinned (#tag-option-values): bedtools uses G and ignores H.
+[[case]]
+name = "tag-label-count-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/genes.bed"]
+gloci = "gloci tag input.bam -b genes.bed --labels G,H -O sam"
+reference = "bedtools tag -i input.bam -files genes.bed -labels G H"
+compare = "exit-status"
+expected_difference = "#tag-option-values"
+
+# Pinned (#tag-option-values): bedtools runs with -f 1.5 and tags nothing.
+[[case]]
+name = "tag-fraction-above-one-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/genes.bed"]
+gloci = "gloci tag input.bam -b genes.bed --labels G -f 1.5 -O sam"
+reference = "bedtools tag -i input.bam -files genes.bed -labels G -f 1.5"
+compare = "exit-status"
+expected_difference = "#tag-option-values"
+
+# Pinned (#tag-option-values): bedtools ignores -labels under -names.
+[[case]]
+name = "tag-names-and-labels-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/genes.bed"]
+gloci = "gloci tag input.bam -b genes.bed --names --labels G -O sam"
+reference = "bedtools tag -i input.bam -files genes.bed -names -labels G"
+compare = "exit-status"
+expected_difference = "#tag-option-values"
+
+# Pinned (#tag-option-values): both refuse; bedtools exits 1, gloci 2 (a usage error).
+[[case]]
+name = "tag-intervals-no-labels-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/genes.bed"]
+gloci = "gloci tag input.bam -b genes.bed --intervals -O sam"
+reference = "bedtools tag -i input.bam -files genes.bed -intervals"
+compare = "exit-status"
+expected_difference = "#tag-option-values"
+
+# Pinned (#tag-feature-formats): bedtools tags r1 with V; gloci refuses a VCF.
+[[case]]
+name = "tag-vcf-features-vs-bedtools"
+input = { file = "xtask/diff/inputs/tag/reads.bam" }
+aux = ["xtask/diff/inputs/tag/calls.vcf"]
+gloci = "gloci tag input.bam -b calls.vcf --labels V -O sam"
+reference = "bedtools tag -i input.bam -files calls.vcf -labels V"
+compare = "exit-status"
+expected_difference = "#tag-feature-formats"

@@ -1,0 +1,1 @@
+tag input.bam -b plain.bed --intervals --labels P -O sam

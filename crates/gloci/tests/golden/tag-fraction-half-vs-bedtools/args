@@ -1,0 +1,1 @@
+tag input.bam -b genes.bed --labels G -f 0.5 -O sam

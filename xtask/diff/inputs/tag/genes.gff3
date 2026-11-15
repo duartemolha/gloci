@@ -1,0 +1,4 @@
+##gff-version 3
+chr1	src	gene	101	150	9.5	-	.	ID=g1;Name=GeneOne
+chr1	src	exon	1001	1020	.	+	.	Parent=g1
+chr2	src	CDS	5521	5560	.	.	0	ID=c1

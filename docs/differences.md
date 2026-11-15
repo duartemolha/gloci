@@ -3453,3 +3453,52 @@ cases (must match).
   `links-unrecognised-input-stdout-vs-bedtools` (live only: the stdout of a failed run is
   not part of a committed golden), and the test `unrecognised_input_writes_nothing` in
   `crates/gloci/tests/browser.rs`.
+
+## BAM output of the bedtools BAM utilities is compared as SAM text {#bam-compared-as-sam}
+
+- **gloci:** `gloci tag` writes BAM by copying each record's bytes and appending the new tag,
+  with the header text of its input and a gloci `@PG` line, BGZF-compressed as every gloci BAM.
+- **Old behaviour:** bedtools reads and writes BAM through BamTools, which encodes every record
+  again: the `bin` field and the compression differ from gloci's, though no field that
+  `samtools view` shows does. bedtools adds no `@PG` line.
+- **Reason:** the bytes of a BAM are not the alignments. Following D165, the cases read both
+  outputs back as SAM text with `samtools view -h` in the reference image (or compare gloci's
+  own SAM output, `-O sam`, with that text) and leave out the header lines that record who wrote
+  the file (`@PG`, and `@CO` when either tool writes one). Every other header line and every
+  record field must be equal.
+- **Pinned by:** `tag-bam-output-vs-bedtools` and `tag-sam-input-bam-output-vs-bedtools` (live
+  only, compared this way: must match), and every other `tag-*-vs-bedtools` case, which compares
+  gloci's SAM output with bedtools' BAM read back as SAM.
+
+## `tag` checks its option values {#tag-option-values}
+
+- **gloci:** `gloci tag` refuses, with exit 2 and the reason: a `--tag` that is not two characters
+  (a letter, then a letter or a digit, as the SAM specification says); a `--labels` list with
+  more or fewer labels than `-b` files; a `--fraction` that is not above 0 and at most 1; and
+  `--labels` with `--names` or `--scores`, which do not use labels. What both tools refuse
+  (`--intervals` without `--labels`, `-f 0`) is exit 2 here (a usage error) and exit 1 in
+  bedtools.
+- **Old behaviour:** `bedtools tag` takes a one-character `-tag X` and writes the tag `X`
+  followed by a NUL byte, which `samtools view` shows as `X :Z:` and other tools reject; with
+  more labels than files it uses the first ones, and with fewer it crashes (exit 139); it runs
+  with `-f` above 1, tagging nothing, and with a negative `-f`, counting features near the read
+  that do not overlap it, as far as its bins reach; and it ignores `-labels` under `-names` and
+  `-scores`.
+- **Reason:** each of these is a mistake in the command line, and writing a file anyway hides it:
+  a tag no tool can read, labels that name the wrong files, or options that do nothing.
+- **Pinned by:** `tag-one-character-tag-vs-bedtools`, `tag-label-count-vs-bedtools`,
+  `tag-fraction-above-one-vs-bedtools`, `tag-names-and-labels-vs-bedtools` and
+  `tag-intervals-no-labels-vs-bedtools` (exit status: must differ).
+
+## `tag` reads features from BED and GFF only {#tag-feature-formats}
+
+- **gloci:** the `-b` files of `gloci tag` are BED (bedGraph is read as BED), GFF or GTF. A VCF,
+  BCF, WIG, BEDPE or alignment file is exit 2, naming the file and `gloci convert` to make a BED
+  of it.
+- **Old behaviour:** `bedtools tag` also reads VCF. It spans a record `[POS-1, POS-1+len(REF))`
+  whatever its ALT or `END`, names it `REF/ALT_ID`, and gives it no score and the strand `+`.
+- **Reason:** a VCF record's span is a choice gloci makes with `--vcf-span` (see
+  [Default `--vcf-span allele`](#default-vcf-span-allele)), and none of gloci's spans is the one
+  bedtools gives a symbolic allele; the name, score and strand bedtools makes up are not in the
+  file. Converting the VCF to BED first makes the features explicit.
+- **Pinned by:** `tag-vcf-features-vs-bedtools` (exit status: must differ).

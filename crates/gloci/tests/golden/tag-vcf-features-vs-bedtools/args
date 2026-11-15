@@ -1,0 +1,1 @@
+tag input.bam -b calls.vcf --labels V -O sam
