@@ -250,6 +250,7 @@ pub(crate) fn dispatch(cli: &Cli, ctx: &Ctx) -> (anyhow::Result<()>, bool) {
         Commands::Reheader(a) => commands::reheader::run(ctx, a),
         Commands::Igv(a) => commands::igv::run(ctx, a),
         Commands::Links(a) => commands::links::run(ctx, a),
+        Commands::Tag(a) => commands::tag::run(ctx, a),
         Commands::Faidx(a) => commands::faidx::run(ctx, a),
         Commands::Head(a) => commands::head::run(ctx, a),
         Commands::Samples(a) => commands::samples::run(ctx, a),

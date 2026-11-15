@@ -132,6 +132,8 @@ pub enum Commands {
     Igv(IgvArgs),
     #[command(before_help = EXPERIMENTAL)]
     Links(LinksArgs),
+    #[command(before_help = EXPERIMENTAL)]
+    Tag(TagArgs),
 }
 
 /// The groups of the commands outside the stable core, in the order `gloci --help` lists them:
@@ -173,7 +175,7 @@ pub const EXPERIMENTAL_GROUPS: &[(&str, &[&str])] = &[
     (
         "Alignments",
         &[
-            "cat", "flags", "idxstats", "flagstat", "samples", "depth", "bedcov", "reheader",
+            "cat", "flags", "idxstats", "flagstat", "samples", "depth", "bedcov", "reheader", "tag",
         ],
     ),
     ("FASTA", &["getfasta", "maskfasta", "nuc", "faidx", "dict"]),

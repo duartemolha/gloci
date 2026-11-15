@@ -39,6 +39,7 @@ pub mod sort;
 pub mod spacing;
 pub mod stats;
 pub mod subtract;
+pub mod tag;
 pub mod vcf;
 pub mod vcf_annotate;
 pub mod vcf_merge;

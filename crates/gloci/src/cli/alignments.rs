@@ -1,4 +1,4 @@
-use super::shared::{ChromMapArg, InvalidArg, RegionArgs, ThreadArgs, parse_level};
+use super::shared::{ChromMapArg, InvalidArg, OutputArgs, RegionArgs, ThreadArgs, parse_level};
 use clap::Args;
 use std::path::PathBuf;
 
@@ -426,6 +426,119 @@ pub struct ReheaderArgs {
     /// BGZF compression level of a BAM's new header, 0-12.
     #[arg(long, value_name = "N", default_value = "6", value_parser = parse_level)]
     pub compression_level: u8,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+}
+
+/// `--fraction` of `tag`: a fraction as the other commands take it (`0.5`, `50%`), held as the
+/// 32-bit float bedtools compares with.
+fn parse_tag_fraction(s: &str) -> Result<f32, String> {
+    gloci_core::Fraction::parse(s).map_err(|e| e.to_string())?;
+    let (body, scale) = match s.strip_suffix('%') {
+        Some(b) => (b, 100.0),
+        None => (s, 1.0),
+    };
+    let v: f64 = body
+        .parse()
+        .map_err(|_| format!("invalid fraction {s:?}"))?;
+    Ok((v / scale) as f32)
+}
+
+/// Tag each alignment with the features it overlaps, as bedtools tag does.
+///
+/// Writes every record of ALN (BAM, CRAM or SAM) in input order, unchanged but for one Z tag
+/// (--tag, default YB) added to each mapped read that overlaps features of the -b files (BED or
+/// GFF, held in memory). For each -b file with a hit, in -b order, the tag holds the file's
+/// label (--labels), or with --names, --scores or --intervals the name, score or whole interval
+/// of each feature hit, joined by commas; the parts of the files are joined by semicolons. A read
+/// overlaps a feature when they share bases of the read's span, from POS over the reference bases
+/// of its CIGAR (introns and deletions included, clips not), and the bases shared are at least
+/// --fraction of that span. The output is in the input's format (a CRAM gives BAM); -o and -O
+/// choose BAM or SAM.
+#[derive(Args)]
+#[command(about = "Tag alignments with the features they overlap (bedtools tag)")]
+#[command(after_long_help = "\
+Examples:
+  gloci tag reads.bam -b genes.bed --labels genes -o tagged.bam
+  gloci tag reads.bam -b exons.bed introns.bed --labels exon,intron -s -O sam
+  gloci tag reads.cram --reference ref.fa -b genes.gff3 --names --tag XG -o tagged.bam
+
+Reads and overlap:
+Unmapped reads (FLAGS 0x4) are never tagged; secondary and supplementary alignments are. The \
+span counts M, D, N, = and X bases, so a feature inside an intron or a deletion overlaps the \
+read and one under a soft clip does not; a read with no such base spans nothing and is never \
+tagged. The shared bases are divided by the span and compared with --fraction (default: one \
+base) in 32-bit floating point, as bedtools compares them. -s keeps the features on the read's \
+strand and -S those not on it, so under -S a feature of unknown strand (. or no strand column) \
+counts, as in bedtools tag; intersect's -S never matches one.
+
+Features:
+BED (and bedGraph, read as BED) gives the name, score and strand of columns 4, 5 and 6, and a \
+zero-length record overlaps as [start-1, end+1), which --intervals shows. GFF and GTF give the \
+feature type (column 3), score and strand, from start-1 to end. A column a file lacks gives an \
+empty name or score. Comment, track and browser lines are skipped. Every feature is held in \
+memory, about 110 bytes each plus the text the tag takes from it.
+
+The tag:
+The hits of one file come in bedtools' bin order: features that fit in one 16 kb bin first, by \
+bin and then in file order, then those of each larger bin size. Duplicates are kept. An empty \
+part still counts, so a value can be empty or end in a semicolon. The tag is a string added \
+after the record's other tags, also when the record already has one of that name (bedtools adds \
+a second one); nothing else of the record changes.")]
+pub struct TagArgs {
+    /// The BAM, CRAM or SAM file to tag (- is standard input).
+    #[arg(value_name = "ALN")]
+    pub input: String,
+    /// Feature files (BED or GFF), held in memory; their parts of the tag come in this order
+    /// (-b x y or -b x -b y).
+    #[arg(
+        short = 'b',
+        long = "b",
+        value_name = "FILE",
+        required = true,
+        num_args = 1..,
+        action = clap::ArgAction::Append
+    )]
+    pub b: Vec<String>,
+    /// One label per -b file, comma-separated: the tag's value (bedtools -labels), and the start
+    /// of each --intervals entry.
+    #[arg(
+        long,
+        value_name = "L,...",
+        value_delimiter = ',',
+        required_unless_present_any = ["names", "scores"],
+        conflicts_with_all = ["names", "scores"]
+    )]
+    pub labels: Option<Vec<String>>,
+    /// The tag to add: two characters, a letter and then a letter or a digit (bedtools -tag).
+    #[arg(long, value_name = "XX", default_value = "YB")]
+    pub tag: String,
+    /// The tag holds the names of the features hit (bedtools -names).
+    #[arg(long, conflicts_with_all = ["scores", "intervals"])]
+    pub names: bool,
+    /// The tag holds the scores of the features hit, as written (bedtools -scores).
+    #[arg(long, conflicts_with = "intervals")]
+    pub scores: bool,
+    /// The tag holds label:chrom:start-end,name,score,strand for each feature hit (bedtools
+    /// -intervals); needs --labels.
+    #[arg(long)]
+    pub intervals: bool,
+    /// Only features on the read's strand.
+    #[arg(short = 's', long = "same-strand", conflicts_with = "opposite_strand")]
+    pub same_strand: bool,
+    /// Only features not on the read's strand; one of unknown strand counts.
+    #[arg(short = 'S', long = "opposite-strand")]
+    pub opposite_strand: bool,
+    /// The least share of the read's span a feature must cover, e.g. 0.5 or 50% (default: one
+    /// base; bedtools -f).
+    #[arg(short = 'f', long, value_name = "FRAC", value_parser = parse_tag_fraction)]
+    pub fraction: Option<f32>,
+    /// The FASTA a CRAM input was made with, with its .fai. Not needed for a CRAM written
+    /// without a reference.
+    #[arg(long, value_name = "FILE")]
+    pub reference: Option<PathBuf>,
+    #[command(flatten)]
+    pub out: OutputArgs,
     #[command(flatten)]
     pub threads: ThreadArgs,
 }

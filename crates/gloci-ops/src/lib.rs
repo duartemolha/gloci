@@ -44,6 +44,7 @@ pub mod sort;
 pub mod spacing;
 pub mod stats;
 pub mod subtract;
+pub mod tag;
 pub mod transform;
 pub mod vcf_annotate;
 pub mod vcf_compare;
