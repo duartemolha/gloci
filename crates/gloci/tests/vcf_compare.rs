@@ -709,29 +709,54 @@ fn compare_order_error_names_the_previous_selected_record() {
         .stderr(contains("record 3 (chr1:5) comes after record 1 (chr1:90)"));
 }
 
+/// `--thin` thins each file on its own, whatever the two headers list and
+/// with `-g`: it checks only that each chromosome is one block.
 #[test]
-fn compare_thin_needs_one_chromosome_order() {
+fn compare_thin_works_with_different_contig_lists_and_with_g() {
     let d = tempdir();
-    let a = write(
-        d.path(),
-        "a.vcf",
-        &vcf(&["s1"], &[&rec("chr1", 1, "A", "C", &["0/1"])]),
-    );
+    let rows = |ps: &[u64]| -> Vec<String> {
+        ps.iter()
+            .map(|p| rec("chr1", *p, "A", "C", &["0/1"]))
+            .collect()
+    };
+    let (ra, rb) = (rows(&[1, 5, 20]), rows(&[1, 12, 15, 20]));
+    let ra: Vec<&str> = ra.iter().map(String::as_str).collect();
+    let rb: Vec<&str> = rb.iter().map(String::as_str).collect();
+    let a = write(d.path(), "a.vcf", &vcf(&["s1"], &ra));
     let b = write(
         d.path(),
         "b.vcf",
-        &vcf(&["s1"], &[&rec("chr1", 1, "A", "C", &["0/1"])])
-            .replace("##contig=<ID=chr2,length=1000>\n", ""),
+        &vcf(&["s1"], &rb).replace("##contig=<ID=chr2,length=1000>\n", ""),
     );
-    let p = d.path().join("o").to_string_lossy().into_owned();
-    gloci()
-        .args(["vcf", "compare", &a, &b, "--out-prefix", &p, "--thin", "10"])
-        .assert()
-        .code(2)
-        .stderr(contains("--thin with vcf compare needs both files"));
-    // the same headers: fine
-    gloci()
-        .args(["vcf", "compare", &a, &a, "--out-prefix", &p, "--thin", "10"])
-        .assert()
-        .success();
+    let genome = write(d.path(), "g.genome", "chr1\t1000\nchr2\t1000\n");
+    let sites = |extra: &[&str]| {
+        let p = d.path().join("o").to_string_lossy().into_owned();
+        gloci()
+            .args([
+                "vcf",
+                "compare",
+                &a,
+                &b,
+                "--out-prefix",
+                &p,
+                "--site-discordance",
+            ])
+            .args(["--thin", "10"])
+            .args(extra)
+            .assert()
+            .success();
+        read(&p, "diff.sites")
+    };
+    // A keeps 1 and 20; B keeps 1 and 12 (15 and 20 are under 10 from 12)
+    for out in [sites(&[]), sites(&["-g", &genome])] {
+        let rows: Vec<(&str, &str)> = out
+            .lines()
+            .skip(1)
+            .map(|l| {
+                let f: Vec<&str> = l.split('\t').collect();
+                (f[1], f[2])
+            })
+            .collect();
+        assert_eq!(rows, [("1", "B"), ("12", "2"), ("20", "1")], "{out}");
+    }
 }

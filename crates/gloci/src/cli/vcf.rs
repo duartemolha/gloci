@@ -80,8 +80,8 @@ index is needed. Sites are paired by --match: alleles (the default) pairs record
 CHROM and POS that share an ALT allele after trimming, position pairs as vcftools does \
 (the same POS with the same REF, where a REF of N or . takes the other's). Discordance is \
 counted over the sites in both files and the samples in both files (the union by name, \
-after --sample-map renames B's samples). --thin needs both files to declare the same \
-##contig lines and no -g (exit 2 otherwise).
+after --sample-map renames B's samples). --thin thins each file on its own, as vcf \
+filter --thin does, whatever the two headers list and with -g.
 
 Threads:
 A and B are always read on threads of their own, plus the thread that walks them, so -t 1 \

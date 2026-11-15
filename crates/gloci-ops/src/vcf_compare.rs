@@ -484,20 +484,6 @@ pub fn vcf_compare(
     let request = o.request.resolved();
     let ha = crate::vcf_select::vcf_header(COMMAND, a.reader())?;
     let hb = crate::vcf_select::vcf_header(COMMAND, b.reader())?;
-    // --thin keeps the refusal of the D163 amendment (spec §10): both headers
-    // declare the same contigs and nothing else sets the order. It dates from
-    // when each file's selection checked its own chromosome order; the
-    // selection now checks only that each chromosome is one block.
-    if o.select.sites.thin.is_some() {
-        let own_order = o.genome.is_none()
-            && ha.contigs == hb.contigs
-            && (!ha.contigs.is_empty() || o.chrom_order == ChromOrder::default());
-        if !own_order {
-            return Err(usage(
-                "--thin with vcf compare needs both files to declare the same ##contig lines (or none, with the default lex order) and no -g; thin each file first with gloci vcf filter --thin, or drop --thin",
-            ));
-        }
-    }
     let (name_a, name_b) = (a.reader().name().to_string(), b.reader().name().to_string());
     let map = match &o.sample_map {
         Some(p) => read_sample_map(p)?,

@@ -1129,7 +1129,7 @@ class Pipeline:
             f: alias of apply_filters
             filter_logic: What to do with the FILTER of merged records: + (all filters kept, PASS dropped when another filter is set; the default) or x (PASS in any input makes the result PASS)
             F: alias of filter_logic
-            chrom_order: Chromosome order when neither -g nor the header of a VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
+            chrom_order: Chromosome order when no input header lists contigs: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
 
         CLI: gloci vcf merge
         """
