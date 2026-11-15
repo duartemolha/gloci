@@ -983,7 +983,7 @@ mod tests {
 
     #[test]
     fn zero_count_typed_value_renders_as_absent() {
-        // Task 26 item 6: zero-count typed values (Flag END, etc.) count as absent (None)
+        // zero-count typed values (Flag END, etc.) count as absent (None)
         assert_eq!(rendered(one(&[0x01])), None);
         assert_eq!(rendered(one(&[0x02])), None);
         assert_eq!(rendered(one(&[0x03])), None);

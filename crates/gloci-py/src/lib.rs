@@ -573,7 +573,7 @@ fn run_plan(py: Python<'_>, plan: &Bound<'_, PyDict>) -> PyResult<Py<PyAny>> {
 
 /// Panic, for the tests: `"stage"` in a stage; `"driver"` in the driver's own code; `"unwind"`
 /// in the driver while a stage runs that ends only once cancelled and then takes the GIL, so
-/// the set must be cancelled and dropped with the GIL released while unwinding (R2); `"next"`
+/// the set must be cancelled and dropped with the GIL released while unwinding; `"next"`
 /// in the next entry point called.
 #[cfg(feature = "test-hooks")]
 #[pyfunction]

@@ -93,7 +93,7 @@ md5 = "dcf191563e69054a71bd4dc77862799a"
 paper = true
 
 [[dataset]]
-# Addition for the P3 commands (depth, flagstat, bedcov, view --count, CRAM):
+# Addition for the samtools-style commands (depth, flagstat, bedcov, view --count, CRAM):
 # CTCF ChIP-seq in K562 (ENCSR000AKO), GRCh38 alignments of replicate 1
 # (ENCFF834MPG, bowtie2, single-end), a real BAM from the same experiment as
 # the peaks and the signal above, 401,933,993 bytes.
@@ -184,7 +184,7 @@ command = "bcftools index -f -t {in} && bcftools view --no-version -Oz -r chr20:
 sha256 = "f6f86390be54872fbe6f10b72a74ad181d19d88dd44e88f0a4c7ec4c34be6e22"
 
 [[derived]]
-# Addition (P3): the ENCODE BAM, indexed (`.bai` beside it) for depth, flagstat,
+# Addition: the ENCODE BAM, indexed (`.bai` beside it) for depth, flagstat,
 # idxstats, bedcov and view --count. ENCODE's filtered alignments are already
 # coordinate-sorted, and `samtools index` fails on unsorted input, so the BAM
 # is copied byte for byte: no re-sort, hence no tie-order or @PG question.
@@ -194,14 +194,14 @@ command = "cp {in} {out} && samtools index -@ 4 {out}"
 sha256 = "7e86b221c30456d5a10f988d272a5f5af978ab55336ab28f7301efeb81d3fdb3"
 
 [[derived]]
-# Addition (P3): the same reads as CRAM, written without embedded or external
+# Addition: the same reads as CRAM, written without embedded or external
 # reference (no_ref), so no reference download is needed. Deterministic bytes:
 # --no-PG drops the @PG line (it carries paths), and the CRAM file definition
 # holds the output file name (htslib copies it into the 20-byte file id), so
 # the file is written under a fixed name in a scratch directory, then moved.
 # Single-threaded (-@ 0): with -@ 4 htslib picks codecs per slice by trial and
 # the choice depends on slice arrival order, so two runs gave different bytes
-# (found by deriving twice, Task 15).
+# (found by deriving twice).
 name = "ctcf-k562.cram"
 from = ["ctcf-k562.bam"]
 command = '''t=$(mktemp -d) && (cd "$t" && samtools view -C --output-fmt-option no_ref --no-PG -@ 0 -o c.cram {in} && samtools index c.cram) && mv "$t/c.cram.crai" {out}.crai && mv "$t/c.cram" {out} && rmdir "$t"'''

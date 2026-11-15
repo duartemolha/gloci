@@ -938,7 +938,7 @@ and printed as a warning, so a run can be repeated from its log. Samples are
 as uniform as bedtools' (checked by chi-squared tests at fixed seeds), not the
 same samples. [differences.md#rng-stream](differences.md#rng-stream)
 
-### Memory of the P3b commands
+### Memory of the statistics commands
 
 - `shuffle` holds its allowed intervals: about 52 bytes per interval of
   `--include` (or of the genome minus `--exclude`), plus the records it moves

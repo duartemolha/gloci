@@ -523,7 +523,7 @@ fn bcf_info_values_render_like_text() {
     let _: Option<&dyn GenotypeSource> = None;
 }
 
-// ---- fix round 1 -----------------------------------------------------------
+// ---- later fixes -----------------------------------------------------------
 
 #[test]
 fn bare_ac_an_maf_read_header_info_and_compute_otherwise() {

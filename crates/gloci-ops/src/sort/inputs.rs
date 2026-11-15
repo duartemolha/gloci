@@ -1,8 +1,8 @@
 //! Sorting a set of readers into one sorted reader (`--sort`, D39).
 //!
 //! [`sort_readers`] is the one place that turns unsorted inputs into a sorted
-//! record stream for `merge`, `complement` and (Task 16b) the relation
-//! commands. It runs the P0 external sorter (same chromosome table and tie
+//! record stream for `merge`, `complement` and the relation
+//! commands. It runs the external sorter (same chromosome table and tie
 //! rules as `gloci sort`) and writes the sorted records to a file in a
 //! registered temp directory under `tmp_dir`, then opens that file as a
 //! [`RecordReader`]. Memory stays within `max_mem`; the temp directory is

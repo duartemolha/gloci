@@ -1,4 +1,4 @@
-//! P3a format detection (D100) and `parse_flags`.
+//! Format detection (D100) and `parse_flags`.
 use gloci_io::{Format, detect_format, parse_flags};
 use gloci_testkit::fixtures;
 

@@ -2,7 +2,7 @@
 
 use gloci_io::UsageError;
 
-/// The P1 aggregation operations (D46).
+/// The aggregation operations (D46).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Op {
     Count,

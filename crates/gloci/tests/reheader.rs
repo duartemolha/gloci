@@ -373,7 +373,7 @@ fn aln_ref_fa() -> PathBuf {
 
 #[test]
 fn reheader_cram_header_is_the_fixtures_header_text_otherwise() {
-    // The new header container is read back by P3a's reader: header lines, refs, @PG.
+    // The new header container is read back by the alignment reader: header lines, refs, @PG.
     let dir = tempdir();
     let hdr = write(dir.path(), "new.sam", &cram_header_text(["a", "b"], ""));
     let out = dir.path().join("o.cram");

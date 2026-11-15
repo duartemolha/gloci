@@ -36,13 +36,10 @@ pub enum VcfCommand {
     Concat(VcfConcatArgs),
     #[command(before_help = EXPERIMENTAL)]
     Split(VcfSplitArgs),
-    // P3b Task 21
     #[command(before_help = EXPERIMENTAL)]
     Norm(VcfNormArgs),
-    // P3b Task 22
     #[command(before_help = EXPERIMENTAL)]
     Annotate(VcfAnnotateArgs),
-    // P3b Task 23
     #[command(before_help = EXPERIMENTAL)]
     Merge(VcfMergeArgs),
     #[command(before_help = EXPERIMENTAL)]

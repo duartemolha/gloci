@@ -1,4 +1,4 @@
-//! `gloci flags` (D136) and the D100 gate lists of P3c's commands (D125).
+//! `gloci flags` (D136) and the D100 gate lists of the samtools-style commands (D125).
 mod common;
 use common::*;
 use gloci_testkit::fixtures;

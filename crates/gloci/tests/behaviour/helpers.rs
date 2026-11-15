@@ -104,7 +104,7 @@ pub(crate) fn run_stdout(args: &[&str]) -> Vec<u8> {
 /// byte-identical output. This does not exercise chunk boundaries:
 /// `GLOCI_TEST_CHUNK_MEM_LIMIT` only shrinks the chunks of the relation
 /// commands' chunk driver (intersect, subtract, closest, map, coverage),
-/// which the P2 commands do not use.
+/// which the BED and VCF commands do not use.
 pub(crate) fn same_at_every_thread_count(what: &str, args: &[&str]) -> Vec<u8> {
     let outs: Vec<Vec<u8>> = ["1", "2", "8"]
         .iter()
@@ -137,7 +137,7 @@ pub(crate) fn leftovers(dir: &Path, keep: &[&str]) -> Vec<String> {
         .collect()
 }
 
-/// One failing run of a P2 command: which output it writes decides what
+/// One failing run of a BED or VCF command: which output it writes decides what
 /// "nothing left behind" means.
 pub(crate) enum Sink {
     /// `-o DIR/out.EXT`

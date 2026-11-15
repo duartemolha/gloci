@@ -1,4 +1,4 @@
-//! Stress test for the signal-cleanup race (task 26a). Sends SIGTERM to a
+//! Stress test for the signal-cleanup race. Sends SIGTERM to a
 //! spilling `gloci sort` at pseudo-random 0-12 ms delays and checks that no
 //! temp output or spill directory survives. Before the registry-lock fix this
 //! left a file in about 3 of 400 runs under CPU load.

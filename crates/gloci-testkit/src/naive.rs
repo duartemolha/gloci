@@ -80,7 +80,7 @@ pub fn naive_hits<R: Feature>(
 /// file's records, nearest first.
 pub type Sides = (Vec<usize>, Vec<usize>);
 
-/// Nearest-neighbour candidates (Task 6), by brute force: for each A in
+/// Nearest-neighbour candidates, by brute force: for each A in
 /// the order given and each `b[f]`, the B on A's chromosome that do not
 /// overlap A under §4.3, split into **left** (`end <= A.start`) and
 /// **right** (`start >= A.end`). Each side is sorted by gloci-core
@@ -1249,7 +1249,6 @@ pub fn naive_genomecov(
     out
 }
 
-// P3b Task 2
 /// The merged intervals of `recs` per chromosome (and per strand when
 /// `per_strand`): sorted by start, joined while `start <= end`, as `merge`.
 fn naive_merged(

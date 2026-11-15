@@ -1,4 +1,4 @@
-//! What each step's output reads back as (D89; P2b Task 8, ruling R1): iteration, `count()` and
+//! What each step's output reads back as (D89): iteration, `count()` and
 //! the Arrow tables of the Python library share one notion of a record, so a step whose output
 //! starts with an unprefixed header row (`stats jaccard`: `intersection  union  jaccard ...`)
 //! is marked in `BINDINGS`, and that row names the columns rather than being a record.

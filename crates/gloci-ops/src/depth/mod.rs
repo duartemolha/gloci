@@ -45,7 +45,7 @@ pub struct DepthOptions {
     /// Print only positions in the union of these regions (0-based, half-open, by reference
     /// name as the header lists it).
     pub regions: Option<Vec<(Vec<u8>, Interval)>>,
-    /// Count each base of an overlapping mate pair once (Task 7).
+    /// Count each base of an overlapping mate pair once.
     pub skip_mate_overlap: bool,
     /// Write `#CHROM POS <path>...` first.
     pub column_names: bool,

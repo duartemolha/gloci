@@ -1,5 +1,4 @@
-"""Runtime `__signature__` and `__doc__` of the generated step methods and module functions
-(P2b Task 9, R3).
+"""Runtime `__signature__` and `__doc__` of the generated step methods and module functions.
 
 They are built from the same specs as the type stub (`cargo xtask pystub` writes it from
 `gloci::embed`), which `_native.signatures()` and `_native.command_specs()` report: the parameter

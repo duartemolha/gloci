@@ -121,7 +121,7 @@ def test_count(ab: Path, calls: Path) -> None:
 
 def test_count_summary_tables(ab: Path) -> None:
     # A summary table's header row has no `#`; it names the columns and is not a record
-    # (P2b Task 8: count() counts what iteration reads).
+    # (count() counts what iteration reads).
     p = gloci.open("a.bed").stats_jaccard(b="b.bed")
     assert p.to_bytes().startswith(b"intersection\tunion\tjaccard\tn_intersections\n")
     assert p.count() == 1

@@ -474,7 +474,7 @@ def test_iterators_are_independent_runs(ab: Path) -> None:
     assert list(b) == []
 
 
-# ---- Shapes that follow the flags given (fix round 1, I1 and I2) ----------------------------
+# ---- Shapes that follow the flags given ----------------------------
 
 
 def assert_columns_line_up(t, lines: list[str]) -> None:  # type: ignore[no-untyped-def]

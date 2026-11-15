@@ -130,7 +130,7 @@ samtools view -C -@ 0 --no-PG -T "$REF" --output-fmt-option version=3.0 -o overh
 rm tmp-overhang.sam
 # flags-noeof: flags.cram without its 38-byte end-of-file container (a truncated copy).
 head -c -38 flags.cram > flags-noeof.cram
-# many.cram (P3a Task 14): the five contigs of ref.fa with 240 reads each (flags, strands, CIGARs
+# many.cram: the five contigs of ref.fa with 240 reads each (flags, strands, CIGARs
 # with clips, insertions, deletions and skips, placed unmapped reads), then three reads with no
 # place; slices of 100 reads, three to a container, so a chromosome spans several slices and
 # containers. many.multi.cram: slices of 100 reads that may hold several references. Reads are

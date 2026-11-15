@@ -91,7 +91,7 @@ fn keep_and_remove_filter() {
 
 #[test]
 fn pos_zero_does_not_underflow() {
-    // Task 26 item 8: POS = 0 in SiteView doesn't underflow during type filtering
+    // POS = 0 in SiteView doesn't underflow during type filtering
     let line = b"1\t0\t.\tA\tC\t30\tPASS\t.";
     let v = SiteView::from_text(line, Interval::new(0, 1).unwrap()).unwrap();
     let f = SiteFilters {

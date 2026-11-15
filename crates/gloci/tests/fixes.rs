@@ -1,4 +1,4 @@
-//! Regression tests for the final-review fix wave (groups A-G).
+//! Regression tests for fixes made after a review.
 mod common;
 use common::*;
 use predicates::prelude::*;

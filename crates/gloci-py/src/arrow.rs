@@ -1,4 +1,4 @@
-//! Arrow output (D89, R3): `to_arrow()`, `to_polars()` and `to_pandas()` take the records the
+//! Arrow output (D89): `to_arrow()`, `to_polars()` and `to_pandas()` take the records the
 //! output reads back as ([`crate::records`]) as one table, built in memory.
 //!
 //! The sink ([`ArrowSink`]) buffers each column's text as the records come, on the host
@@ -193,7 +193,7 @@ fn is_column(layout: Layout, i: usize) -> bool {
     }
 }
 
-/// The table being built from the records (R3).
+/// The table being built from the records.
 pub(crate) struct ArrowSink {
     layout: Layout,
     /// The last `#` line before the first record, and a table's header row.

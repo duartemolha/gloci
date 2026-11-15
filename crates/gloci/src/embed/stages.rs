@@ -105,7 +105,7 @@ pub type StageFn = Box<dyn FnOnce() -> anyhow::Result<bool> + Send>;
 
 /// A stage that runs the host's own code rather than a command, under the set's token, panic
 /// handling and error priority: the host's reader of the pipeline's output (the records it
-/// hands to Python, P2b Task 8). It owns what it reads, such as the reading end of the last
+/// hands to Python). It owns what it reads, such as the reading end of the last
 /// command's pipe, and drops it when it ends; a command stage that writes that pipe keeps its
 /// fail handle, so a failure upstream reaches it as `upstream step failed: ...`, a derived
 /// error, and its own failures are primary.

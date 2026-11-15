@@ -37,7 +37,7 @@ def test_usage_error_is_eager(here: Path) -> None:
         p.merge(fooo=1)
     assert isinstance(e.value, ValueError) and isinstance(e.value, gloci.GlociError)
     assert str(e.value) == "merge() got an unexpected keyword argument 'fooo'"
-    # A near miss is suggested (Task 4: within two edits); no name is that close to fooo.
+    # A near miss is suggested (within two edits); no name is that close to fooo.
     with pytest.raises(gloci.UsageError) as e:
         p.merge(max_gp=5)
     assert str(e.value).endswith("did you mean 'max_gap'?")
@@ -181,7 +181,7 @@ def test_hints_in_keyword_terms(here: Path) -> None:
     ), str(e.value)
 
 
-# The P2b final fix wave: the edges of the keyword and terminal arguments.
+# The edges of the keyword and terminal arguments.
 
 
 def test_save_options_hold_no_nul(here: Path) -> None:

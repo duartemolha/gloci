@@ -44,7 +44,7 @@ pub(crate) fn p2_vcf(chroms: std::ops::RangeInclusive<usize>, per_chrom: usize) 
     t
 }
 
-/// Every P2 fixture, as plain / BGZF / indexed BGZF where the command takes it.
+/// Every BED and VCF fixture, as plain / BGZF / indexed BGZF where the command takes it.
 pub(crate) struct P2 {
     pub(crate) dir: tempfile::TempDir,
 }

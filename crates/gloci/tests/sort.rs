@@ -982,7 +982,7 @@ fn sort_bgzf_inputs_peaks(n: usize, records: usize) -> (u64, u64) {
     (peak.load(Ordering::Relaxed), ru.ru_maxrss as u64 * 1024)
 }
 
-/// P1 follow-up: regular files are reopened per pass, so 100 BGZF inputs
+/// Regular files are reopened per pass, so 100 BGZF inputs
 /// do not hold 100 readers (each with its own thread pool) open at once.
 #[cfg(target_os = "linux")]
 #[test]

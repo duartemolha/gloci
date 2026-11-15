@@ -2113,11 +2113,11 @@ mod tests {
             std::fs::read_to_string(workspace_root().join("xtask/bench/cases.toml")).unwrap();
         let cases = parse_cases(&text).unwrap();
         let names: Vec<_> = cases.iter().map(|c| c.name.as_str()).collect();
-        // Preserves P0 sort cases
+        // The sort cases are kept
         assert!(names.contains(&"sort-plain-10M"));
         assert!(names.contains(&"sort-bgzf-10M"));
 
-        // Requires P1 cases
+        // The bedtools-core cases are present
         let expected = [
             "intersect-plain-10M",
             "merge-plain-10M",
@@ -2133,7 +2133,7 @@ mod tests {
             "coverage-bgzf-10M",
             "vcf-filter-1kg-chr20",
             "vcf-filter-synthetic-2500",
-            // P2 cases
+            // BED and VCF cases
             "partition-plain-10M",
             "genomecov-plain-10M",
             "cluster-plain-10M",
@@ -2143,7 +2143,7 @@ mod tests {
             "vcf-stats-synthetic-2500",
             "vcf-filter-include-synthetic-2500",
             "convert-bcf-synthetic-100",
-            // P3a cases
+            // Alignment cases
             "convert-bam-50M",
             "genomecov-bam-50M",
             "coverage-bam-targets",
@@ -2157,7 +2157,7 @@ mod tests {
             "sort-name-bam-50M",
             "merge-bam-8x",
             "cat-bam-8x",
-            // P3b cases
+            // Statistics cases
             "jaccard-plain-10M",
             "fisher-plain-10M",
             "reldist-plain-10M",
@@ -2168,7 +2168,7 @@ mod tests {
             "pair-pair-1M",
             "convert-bedpe-50M",
             "vcf-compare-synthetic-2500",
-            // P3c cases
+            // Samtools-essentials cases
             "flagstat-bam-50M",
             "idxstats-bam-200k-sq",
             "view-count-bam-50M",
@@ -2450,7 +2450,7 @@ mod tests {
         assert!(checked >= 6, "only {checked} vcf cases checked");
     }
 
-    /// Every P3a and P3c case's gloci command runs on a tiny generated version of its
+    /// Every alignment and samtools-essentials case's gloci command runs on a tiny generated version of its
     /// own setup (a SAM, or a FASTA with its BED), succeeds and writes
     /// output. A CRAM case reads the BAM here (samtools makes the CRAM only
     /// in the benchmark image); `{ref}` is still the generated reference.
@@ -2546,11 +2546,14 @@ mod tests {
             );
             checked += 1;
         }
-        assert_eq!(checked, 24, "P3a and P3c cases and convert-bedpe run");
+        assert_eq!(
+            checked, 24,
+            "alignment and samtools-essentials cases and convert-bedpe run"
+        );
     }
-    /// The P3b cases' gloci commands (shell lines, some writing a genome file
+    /// The statistics cases' gloci commands (shell lines, some writing a genome file
     /// first) run on a small version of their own setup and write output.
-    /// `convert-bedpe-50M` is a `sam` setup, run by the P3a test above.
+    /// `convert-bedpe-50M` is a `sam` setup, run by the alignment test above.
     #[test]
     fn p3b_gloci_bench_commands_run_on_small_data() {
         let gloci = match std::env::var_os("GLOCI_BIN") {
@@ -2641,6 +2644,6 @@ mod tests {
             }
             checked += 1;
         }
-        assert_eq!(checked, 9, "P3b cases run");
+        assert_eq!(checked, 9, "statistics cases run");
     }
 }

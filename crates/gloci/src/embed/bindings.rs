@@ -1,4 +1,4 @@
-//! Which commands a host offers, and how (D87, as amended in P2b Task 4). Every leaf command
+//! Which commands a host offers, and how (D87, as amended). Every leaf command
 //! is in exactly one of these groups, which a test checks against the clap tree, so a new
 //! command cannot go unnoticed:
 //! - [`BINDINGS`]: a step method of a pipeline, reading the pipeline as its input;
@@ -23,7 +23,7 @@ pub enum Bind {
     PositionalAfter(&'static str),
 }
 
-/// What a step's output is, for a host that reads it back as records (D89, P2b Task 8): every
+/// What a step's output is, for a host that reads it back as records (D89): every
 /// terminal but `to_bytes()` and `save()` (iteration, `count()`, the Arrow tables) reads it the
 /// same way, so they agree on what a record is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

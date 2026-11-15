@@ -1,6 +1,6 @@
 //! Arrow sources (D88): an object with `__arrow_c_stream__` (a pyarrow Table or
 //! RecordBatchReader, a polars or pandas DataFrame) is read through the Arrow C stream interface
-//! with arrow-rs, so reading it needs no Python package (spec 8.5, R3).
+//! with arrow-rs, so reading it needs no Python package (spec 8.5).
 //!
 //! Each row is a line: the integer columns `chrom start end` first, then the other columns in
 //! their order, tab-separated, with a null written `.`. Values are written as Python's `str()`

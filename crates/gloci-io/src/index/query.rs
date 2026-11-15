@@ -38,7 +38,7 @@ impl Loaded {
         }
     }
 
-    /// The per-reference record counts of a BAI or CSI, for `n_ref` references (P3c Task 2).
+    /// The per-reference record counts of a BAI or CSI, for `n_ref` references.
     /// `None` for a TBI.
     fn alignment_counts(&self, n_ref: usize) -> Option<AlnIndexCounts> {
         fn counts<I: BinIndexKind>(

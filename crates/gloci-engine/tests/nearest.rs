@@ -1,4 +1,4 @@
-//! Nearest-neighbour candidates (Task 6): for each A and B file, the `k`
+//! Nearest-neighbour candidates: for each A and B file, the `k`
 //! nearest non-overlapping B on each side, plus ties at the k-th distance,
 //! within `max_distance`, under the strand rule (D55). Checked against a
 //! brute-force reference over BED inputs and over BED/VCF inputs whose VCF

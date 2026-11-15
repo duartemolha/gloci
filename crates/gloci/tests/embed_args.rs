@@ -443,7 +443,7 @@ fn rewrite_flags() {
         rewrite_flags_as_kwargs("-c 5: expected COL:OP", map),
         "column=5: expected COL:OP"
     );
-    // A flag's value is written after `=` (fix round 1, M2): the messages the review saw.
+    // A flag's value is written after `=`: the messages the review saw.
     let sort = spec(&["sort"]);
     assert_eq!(
         rewrite_flags_as_kwargs(
@@ -535,7 +535,7 @@ fn specs_cover_every_subcommand_and_argument() {
     let specs = embed::command_specs();
     let paths: Vec<Vec<String>> = specs.iter().map(|s| s.path.clone()).collect();
     assert_eq!(paths, leaves);
-    // P3 commands among them.
+    // The alignment, statistics and samtools-style commands are among them.
     for p in [
         &["depth"][..],
         &["cat"],

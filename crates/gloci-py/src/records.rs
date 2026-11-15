@@ -1,5 +1,5 @@
 //! Records (D89): a pipeline's output read back with gloci's own readers, so that iteration,
-//! `count()` and the Arrow tables ([`crate::arrow`]) share one notion of a record (R1).
+//! `count()` and the Arrow tables ([`crate::arrow`]) share one notion of a record.
 //!
 //! The last step writes into a pipe that a host stage reads ([`reread`]), on its own thread and
 //! never holding the GIL. How it reads depends on the step ([`embed::read_back`]):
@@ -109,7 +109,7 @@ pub(crate) trait RowSink {
     }
 }
 
-/// Counts the records (`count()`, R5): no Python object is made.
+/// Counts the records (`count()`): no Python object is made.
 #[derive(Default)]
 pub(crate) struct CountSink(pub u64);
 
@@ -758,7 +758,7 @@ struct Live {
     specs: Vec<Option<&'static CommandSpec>>,
 }
 
-/// The records of a pipeline's output, as the run makes them (D89, R2): `iter(pipeline)`.
+/// The records of a pipeline's output, as the run makes them (D89): `iter(pipeline)`.
 ///
 /// The steps run while it is read. Breaking out of a loop over it, dropping it, `close()` or
 /// leaving a `with` block over it cancels the steps and joins their threads (with the GIL

@@ -6,7 +6,7 @@ use crate::helpers::*;
 use std::fmt::Write as _;
 use std::path::Path;
 
-/// One command of the P3c matrices: its name, its arguments, whether it takes `-t`, and whether
+/// One command of the samtools-essentials matrices: its name, its arguments, whether it takes `-t`, and whether
 /// its output is the same for BAM, SAM and CRAM copies of the same reads.
 pub(crate) struct P3cCmd {
     pub(crate) name: String,
@@ -24,7 +24,7 @@ pub(crate) fn p3c_run(c: &P3cCmd, t: &str) -> std::process::Output {
 }
 
 impl P3a {
-    /// The P3c commands over one alignment input.
+    /// The samtools-essentials commands over one alignment input.
     pub(crate) fn p3c_cmds(&self, kind: &str, input: &str) -> Vec<P3cCmd> {
         let s = |a: &[&str]| -> Vec<String> { a.iter().map(|s| s.to_string()).collect() };
         let with_ref = |mut a: Vec<String>| -> Vec<String> {
@@ -143,7 +143,7 @@ impl P3a {
         c
     }
 
-    /// The P3c commands over the FASTA files, which have no format variants.
+    /// The samtools-essentials commands over the FASTA files, which have no format variants.
     pub(crate) fn p3c_fasta_cmds(&self) -> Vec<P3cCmd> {
         let s = |a: &[&str]| -> Vec<String> { a.iter().map(|s| s.to_string()).collect() };
         let mk = |name: &str, args: Vec<String>, threads: bool| P3cCmd {

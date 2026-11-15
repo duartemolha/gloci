@@ -165,7 +165,7 @@ fn stale_index_removed_and_write_index_builds() {
     assert!(!dir.path().join("o.bed.gz.csi").exists());
     assert!(dir.path().join("o.bed.gz").exists());
 
-    // --write-index builds the index from the finished temp file (Task 12)
+    // --write-index builds the index from the finished temp file
     fs::write(dir.path().join("p.bed.gz.csi"), b"stale").unwrap();
     write_via_output(dir.path(), "p.bed.gz", b"chr1\t1\t2\n", true).unwrap();
     let tbi = noodles_tabix::fs::read(dir.path().join("p.bed.gz.tbi")).unwrap();

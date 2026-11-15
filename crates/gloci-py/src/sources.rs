@@ -7,7 +7,7 @@
 //! - a [`Pump`], kept by the driver, which turns the Python object's items into bytes and sends
 //!   them. It runs in the driver loop with the GIL held, at most [`TURN_BYTES`] a turn and only
 //!   while the channel has room, so the driver never waits holding the GIL and a source is never
-//!   in memory whole (R4).
+//!   in memory whole.
 //!
 //! **Errors are delivered in the data's order.** When a source raises (its iterator, or its
 //! `read()`), or holds what no line can (a tab in a value, a null coordinate), the bytes before
@@ -38,7 +38,7 @@ const CHUNK: usize = 256 << 10;
 /// The chunks a source's channel holds: with the chunk being read and the one the pump is
 /// making, about 1.5 MiB per source.
 const CHUNKS: usize = 4;
-/// The most a pump reads from its Python object in one turn of the driver loop (R4).
+/// The most a pump reads from its Python object in one turn of the driver loop.
 pub(crate) const TURN_BYTES: usize = 1 << 20;
 /// How often a read parked on an empty channel checks the run's token for a cancel.
 const POLL: Duration = Duration::from_millis(20);

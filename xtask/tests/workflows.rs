@@ -4,7 +4,7 @@ use std::fs;
 fn release_workflow_and_dockerfile_are_valid() {
     let root = xtask::diff::workspace_root();
 
-    // 1. Dockerfile.release checks (D59 / Task 30)
+    // 1. Dockerfile.release checks (D59)
     let dockerfile_path = root.join("xtask/docker/Dockerfile.release");
     assert!(
         dockerfile_path.exists(),
@@ -28,7 +28,7 @@ fn release_workflow_and_dockerfile_are_valid() {
         "Dockerfile.release must have ENTRYPOINT [\"/gloci\"]"
     );
 
-    // 2. release.yml checks (D59 / Task 30)
+    // 2. release.yml checks (D59)
     let release_path = root.join(".github/workflows/release.yml");
     assert!(
         release_path.exists(),
@@ -437,7 +437,7 @@ fn python_jobs_export_the_version_the_smoke_test_expects() {
 fn python_workflow_tests_polars_without_pyarrow() {
     let root = xtask::diff::workspace_root();
     let py = fs::read_to_string(root.join(".github/workflows/python.yml")).unwrap();
-    // The Arrow output must work with polars alone (D89, P2b Task 8).
+    // The Arrow output must work with polars alone (D89).
     let job = job_body(&py, "polars-only");
     assert_pinned_like_the_others("python.yml", job);
     assert_in_order(

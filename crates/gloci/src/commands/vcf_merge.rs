@@ -1,4 +1,4 @@
-//! `gloci vcf merge` (P3b Task 23).
+//! `gloci vcf merge`.
 
 use crate::Ctx;
 use crate::cli::{FilterLogicArg, MergeModeArg, VcfMergeArgs};

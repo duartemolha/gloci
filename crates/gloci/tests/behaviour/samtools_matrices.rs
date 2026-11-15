@@ -12,7 +12,7 @@ use std::path::Path;
 use std::process::Command;
 use std::process::Stdio;
 
-/// Every P3c command gives the same bytes at `-t 1`, `-t2` and `--threads=8`, on BAM (indexed),
+/// Every samtools-essentials command gives the same bytes at `-t 1`, `-t2` and `--threads=8`, on BAM (indexed),
 /// SAM and CRAM (indexed); the three formats of the same reads agree for the commands whose
 /// output does not name the format.
 #[test]
@@ -195,7 +195,7 @@ fn p3c_determinism_large_fixture() {
 }
 
 /// Closing stdout after the first bytes is a quiet success (exit 0, nothing on stderr) for every
-/// P3c command whose output outgrows a pipe: `depth --all-references | head`, `faidx | head`
+/// A samtools-essentials command whose output outgrows a pipe: `depth --all-references | head`, `faidx | head`
 /// and the rest. The commands that write a few lines (`flagstat`, `view --count`, `flags` with
 /// an argument, `check --quick`, `reheader` to a file) have nothing to cut short.
 #[test]
@@ -588,7 +588,7 @@ fn p3c_empty_inputs_matrix() {
     assert!(ran.get() > 80, "ran {}", ran.get());
 }
 
-/// Each damaged alignment file fails every P3c command that reads it: exit 1, one `error:` line
+/// Each damaged alignment file fails every samtools-essentials command that reads it: exit 1, one `error:` line
 /// that says what is wrong (`check --quick` reports it in its summary), nothing left behind, at
 /// `-t 1` and `-t 4`. A BAM without its BGZF end-of-file block and a CRAM cut short or without its
 /// end-of-file container are caught before any result is written.
@@ -888,7 +888,7 @@ fn p3c_failure_matrix_missing_index() {
     gloci().args(["dict", &s_of(&fa)]).assert().success();
 }
 
-/// With the output directory missing every P3c command that writes a file exits 1, names the
+/// With the output directory missing every samtools-essentials command that writes a file exits 1, names the
 /// directory and how to fix it, and creates nothing.
 #[test]
 fn p3c_failure_matrix_missing_output_dir() {

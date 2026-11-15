@@ -6,7 +6,7 @@ use crate::fixtures_stats::*;
 use crate::helpers::*;
 use gloci_testkit::fixtures::{bgzip, write};
 
-/// Every P3b command gives the same bytes at `-t 1`, `-t2` and `--threads=8` (the seeded ones
+/// Every statistics command gives the same bytes at `-t 1`, `-t2` and `--threads=8` (the seeded ones
 /// with a `--seed`), and the file-writing commands the same files.
 #[test]
 fn p3b_determinism_matrix() {
@@ -556,7 +556,7 @@ fn p3b_empty_inputs_matrix() {
     );
 }
 
-/// The failure matrix of the P3b commands: unsorted input where order matters, malformed
+/// The failure matrix of the statistics commands: unsorted input where order matters, malformed
 /// lines, truncated BGZF/BCF, a missing output directory; every run exits 1 with the
 /// `error:` format and leaves nothing behind.
 #[test]
@@ -972,7 +972,7 @@ fn p3b_failure_matrix() {
     );
     ran += 2;
 
-    // a missing output directory: every P3b command that writes a file
+    // a missing output directory: every statistics command that writes a file
     let all: Vec<(&str, Vec<&str>, Sink)> = vec![
         (
             "jaccard",

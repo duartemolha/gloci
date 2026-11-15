@@ -1,4 +1,4 @@
-//! `gloci vcf split` (P3b Task 20).
+//! `gloci vcf split`.
 
 use crate::Ctx;
 use crate::cli::{SplitTypesArg, VcfSplitArgs};

@@ -82,7 +82,7 @@ fn region_strings() {
     assert!(
         Region::parse("chr1:0-10", none).is_err() && Region::parse("chr1:20-10", none).is_err()
     );
-    // Malformed comma groups in region coordinates (Task 26 item 2)
+    // Malformed comma groups in region coordinates
     let err = Region::parse("chr1:1,,0-5", none).unwrap_err().to_string();
     assert!(
         err.contains("malformed comma") || err.contains("thousands"),
@@ -178,7 +178,7 @@ fn chromosome_tables() {
     assert_eq!(t.cmp(c1, c10), Ordering::Less); // prefix sorts first
     assert_eq!(t.intern(b"chr2").unwrap(), c2);
     assert_eq!(t.name(c10), b"chr10");
-    // Task 26 item 7: ChromTable::cmp fast path for identical ChromIds
+    // ChromTable::cmp fast path for identical ChromIds
     assert_eq!(t.cmp(c1, c1), Ordering::Equal);
     assert_eq!(t.cmp(c2, c2), Ordering::Equal);
     assert_eq!(t.cmp(ChromId(999), ChromId(999)), Ordering::Equal);
@@ -212,7 +212,7 @@ fn genome_and_closed_tables() {
             .length(0),
         Some(248956422)
     );
-    // Task 26 item 3: @SQX is not an @SQ line; # comments skipped, empty names rejected
+    // @SQX is not an @SQ line; # comments skipped, empty names rejected
     assert_eq!(
         Genome::parse_dict(b"@HD\tVN:1.6\n@SQX\tSN:chr1\tLN:100\n@SQ\tSN:chr2\tLN:200\n")
             .unwrap()

@@ -598,7 +598,6 @@ pub struct IndexArgs {
     pub reference: Option<PathBuf>,
 }
 
-// P3c Task 5
 /// Print the header and the first records of any input as text (samtools and bcftools head).
 ///
 /// With no options it prints the whole header and no record. --headers N keeps the first N

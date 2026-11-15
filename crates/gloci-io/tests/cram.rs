@@ -600,7 +600,7 @@ fn genome_from_cram_header() {
     assert_eq!(t.name(t.get(b"chr2").unwrap()), b"chr2");
 }
 
-// ---- through the .crai (Task 14) ----
+// ---- through the .crai ----
 
 /// Reader options for the `many` fixtures (reference ref.fa).
 fn many_opts(threads: usize) -> ReaderOptions {

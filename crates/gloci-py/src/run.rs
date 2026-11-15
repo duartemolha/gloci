@@ -19,7 +19,7 @@
 //! for room in a source's channel, for a batch of records (iteration), or for the stages to
 //! end. A signal handler's exception (`KeyboardInterrupt`) cancels the run, which removes its
 //! partial output files, and is raised once every stage has ended. The stage set is dropped
-//! with the GIL released (its drop joins the stage threads, R2).
+//! with the GIL released (its drop joins the stage threads).
 
 use crate::arrow::{ArrowSink, ArrowStream, Table};
 use crate::records::{self, Batch, CountSink, IterSink, RecordIterator, RowSink};
@@ -61,7 +61,7 @@ enum Terminal {
     Save,
     /// `to_bytes()`: the last stage's output.
     Bytes,
-    /// `count()`: the number of records it reads back as (R5: counted in Rust).
+    /// `count()`: the number of records it reads back as (counted in Rust).
     Count,
     /// Iteration: its records, handed to Python as they come ([`RecordIterator`]).
     Iter,
@@ -225,7 +225,7 @@ fn build(
             spec_of(&s.argv).map_or_else(|| "step".into(), embed::method_name)
         );
         let (w, r) = embed::pipe(PIPE_CHUNKS, PIPE_CHUNK);
-        // Ruling R1: the one fail handle goes to the writing stage, and no copy is kept.
+        // The one fail handle goes to the writing stage, and no copy is kept.
         fails[j].push(w.fail_handle());
         let w = Registered::output(&display, Box::new(w));
         writers.insert(j, w.name().to_string());
@@ -264,7 +264,7 @@ fn build(
                 }
                 let reg = if terminal.reads_back() {
                     // A pipe to the host stage that reads the records back; the one fail
-                    // handle goes to this stage (ruling R1 of Task 6).
+                    // handle goes to this stage.
                     let display = format!(
                         "<{} output>",
                         spec_of(&s.argv).map_or_else(|| "step".into(), embed::method_name)
@@ -333,7 +333,7 @@ read twice"
 /// for.
 ///
 /// However it is left (the end, an error, an iterator dropped, a panic unwinding), the set is
-/// dropped with the GIL released (R2): its drop cancels any stage still running and joins
+/// dropped with the GIL released: its drop cancels any stage still running and joins
 /// every stage thread, and a stage may need the GIL to end.
 pub(crate) struct Driver {
     set: Option<StageSet>,

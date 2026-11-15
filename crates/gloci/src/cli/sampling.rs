@@ -6,7 +6,6 @@ use super::shared::{
 };
 use clap::{Args, Subcommand, ValueEnum};
 
-// P3b Task 1
 /// `--seed` for the commands that draw random numbers (D143).
 #[derive(Args, Debug, Clone, Copy)]
 pub struct SeedArg {
@@ -16,7 +15,6 @@ pub struct SeedArg {
     pub seed: Option<u64>,
 }
 
-// P3b Task 2
 /// Statistics of interval sets (bedtools jaccard, fisher and reldist).
 #[derive(Args, Debug, Clone)]
 #[command(
@@ -38,10 +36,8 @@ pub struct StatsArgs {
 pub enum StatsCommand {
     #[command(before_help = EXPERIMENTAL)]
     Jaccard(JaccardArgs),
-    // P3b Task 3
     #[command(before_help = EXPERIMENTAL)]
     Fisher(FisherArgs),
-    // P3b Task 4
     #[command(before_help = EXPERIMENTAL)]
     Reldist(ReldistArgs),
 }
@@ -125,7 +121,6 @@ pub struct JaccardArgs {
     pub out: OutputArgs,
 }
 
-// P3b Task 3
 /// Fisher's exact test of the overlap of two interval sets (bedtools fisher).
 ///
 /// Counts the records of A and B (nA, nB), their total lengths (LA, LB)
@@ -234,7 +229,6 @@ pub enum PairTypeArg {
     Notospan,
 }
 
-// P3b Task 7
 /// BEDPE pairs by how their ends overlap B (bedtools pairtobed).
 ///
 /// A is a BEDPE file (chrom1 start1 end1 chrom2 start2 end2, then optionally name, score, strand1,
@@ -314,7 +308,6 @@ pub enum PairPairTypeArg {
     Notboth,
 }
 
-// P3b Task 8
 /// BEDPE pairs by how their ends overlap the ends of the pairs of B (bedtools pairtopair).
 ///
 /// A and B are both BEDPE files (never detected). B is loaded into memory; A streams in any order.
@@ -371,7 +364,6 @@ pub struct PairPairArgs {
     pub out: OutputArgs,
 }
 
-// P3b Task 4
 /// The relative distance of A midpoints to B midpoints (bedtools reldist).
 ///
 /// For each A interval, finds the two B midpoints that enclose A's
@@ -462,7 +454,6 @@ impl JaccardArgs {
     }
 }
 
-// P3b Task 5
 /// Random intervals placed uniformly over a genome (bedtools random).
 ///
 /// Every valid start of every chromosome is equally likely: a chromosome
@@ -500,7 +491,6 @@ pub struct RandomArgs {
     pub out: OutputArgs,
 }
 
-// P3b Task 6
 /// Move every record to a random place in the genome (bedtools shuffle).
 ///
 /// Each record keeps its length, its other columns and its strand and goes to a uniformly random

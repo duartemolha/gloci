@@ -433,7 +433,7 @@ gloci = '''set -e; bgzip -c input.tsv > g.tsv.gz; gloci index -s 1 -b 2 -e 3 --z
 reference = '''set -e; bgzip -c input.tsv > t.tsv.gz; tabix -s1 -b2 -e3 -0 t.tsv.gz; zcat t.tsv.gz.tbi | head -c 32 | od -An -tx4'''
 compare = "exact"
 
-# intersect (Task 9): rel-a.bed / rel-b.bed are BED6 with strands, lex-sorted, no
+# intersect: rel-a.bed / rel-b.bed are BED6 with strands, lex-sorted, no
 # points. rel-points-*.bed hold points. rel-a.vcf / rel-b.vcf are for --match
 # alleles, rel-vcf-b.bed has regions on the anchor bases of an insertion and a
 # deletion.
@@ -603,7 +603,7 @@ compare = "vcf-records"
 # Symbolic SVs under --vcf-span ref: bedtools 2.31.1 spans <DEL> by END and
 # <DUP> by SVLEN as gloci does, but an insertion (<INS>, <INS:ME:ALU>) by its
 # REF base only, END or not; gloci, like htslib, spans it to END. Found by the
-# real-data concordance run (Task 16) on the 1000 Genomes insertion SVs.
+# real-data concordance run on the 1000 Genomes insertion SVs.
 [[case]]
 name = "intersect-vcf-ref-span-ins-end-vs-bedtools"
 input = { file = "xtask/diff/inputs/vcf-ins-end.vcf" }
@@ -716,7 +716,7 @@ reference = "bgzip -c input.vcf > a.vcf.gz && bgzip -c rel-shared-alt-b.vcf > b.
 compare = "vcf-records"
 expected_difference = "#trimmed-allele-match"
 
-# merge (Task 11): merge-in.bed is BED6, lex-sorted, with bookended, nested,
+# merge: merge-in.bed is BED6, lex-sorted, with bookended, nested,
 # overlapping and nearby records on both strands and an unknown strand.
 [[case]]
 name = "merge-default-vs-bedtools"
@@ -776,7 +776,7 @@ gloci = "gloci merge --chrom-order lex input.bed rel-b.bed"
 reference = "bedops --merge input.bed rel-b.bed"
 compare = "exact"
 
-# subtract (Task 12): rel-a.bed / rel-b.bed as for intersect. bedtools
+# subtract: rel-a.bed / rel-b.bed as for intersect. bedtools
 # subtract is run on the same files; -A is --whole and -N is --sum-overlaps.
 [[case]]
 name = "subtract-pieces-vs-bedtools"
@@ -1035,7 +1035,7 @@ expected_difference = "#closest-each-side"
 
 # Two B equally near on each side: closest-features takes the last on the
 # left (b2, b6) and the first on the right (b3, b8); `--ties first` takes the
-# first on both. Found by the real-data concordance run (Task 16).
+# first on both. Found by the real-data concordance run.
 [[case]]
 name = "closest-each-side-ties-vs-bedops"
 input = { file = "xtask/diff/inputs/closest-ties-a.bed" }
@@ -1047,7 +1047,7 @@ expected_difference = "#closest-each-side"
 
 # After a1, which overlaps the long b1, closest-features reports b3 as a2's
 # left neighbour (-411) where b1 (-11) is nearer; without a1 it reports b1.
-# Found by the real-data concordance run (Task 16).
+# Found by the real-data concordance run.
 [[case]]
 name = "closest-each-side-nested-vs-bedops"
 input = { file = "xtask/diff/inputs/closest-nested-a.bed" }
@@ -1506,7 +1506,7 @@ reference = "bedtools coverage -a input.bed -b cov-split-b.bed -split -d"
 compare = "exact"
 expected_difference = "#coverage-split-length"
 
-# complement (Task 16): comp-in.bed is sorted in comp.genome order (chr1, chr2,
+# complement: comp-in.bed is sorted in comp.genome order (chr1, chr2,
 # chr10, chrX, chrM) and has overlapping, nested and bookended features, a
 # feature starting at 0 and a chromosome (chrM) without features.
 [[case]]
@@ -1565,7 +1565,7 @@ gloci = "gloci complement -g comp.genome input.bed"
 reference = "bedtools complement -i input.bed -g comp.genome"
 compare = "exit-status"
 
-# slop and flank (Task 17). transform-in.bed has features at 0, at the end of
+# slop and flank. transform-in.bed has features at 0, at the end of
 # their chromosome, a minus strand and an unknown strand; both tools
 # need the genome (comp.genome). transform-in.gff3 is the GFF counterpart.
 [[case]]
@@ -1719,7 +1719,7 @@ reference = "bedtools flank -i input.bed -g comp.genome -l 5 -r 5 -s"
 compare = "exact"
 expected_difference = "#flank-unknown-strand"
 
-# windows (Task 18). comp.genome gives lengths that do not divide evenly.
+# windows. comp.genome gives lengths that do not divide evenly.
 # windows-in.bed is unsorted, has extra columns, a 3 bp interval (skipped by
 # -n 4 in both tools) and a feature that covers a whole chromosome.
 [[case]]
@@ -1799,7 +1799,7 @@ reference = "bedtools makewindows -g input.genome -w 100"
 compare = "exit-status"
 expected_difference = "#windows-zero-length-chromosome"
 
-# convert (Task 19). vcf2bed writes ID, QUAL, REF, ALT, FILTER, INFO after the
+# convert. vcf2bed writes ID, QUAL, REF, ALT, FILTER, INFO after the
 # coordinates; the awk in the reference puts them in gloci's order (ID, REF,
 # ALT, QUAL, FILTER) and drops INFO. vcf2bed also writes one row per ALT and
 # spans each variant its own way, so most of these inputs are single-ALT.
@@ -1951,7 +1951,7 @@ expected_difference = "#gff2bed-name"
 
 # A GTF/GFF3 feature one base long (start = end): bedops appends
 # `zero_length_insertion=True` to its attributes, gloci copies them as they are.
-# Found by the real-data concordance run (Task 16).
+# Found by the real-data concordance run.
 [[case]]
 name = "convert-gtf-one-base-vs-gtf2bed"
 input = { file = "xtask/diff/inputs/convert-one-base.gtf" }
@@ -2025,12 +2025,12 @@ gloci = "gloci convert input.bed --blocks"
 reference = "bedtools bed12tobed6 -i input.bed"
 compare = "exit-status"
 
-# vcf filter (Task 23) vs vcftools 0.1.16
+# vcf filter vs vcftools 0.1.16
 
 # Lower-case bases and a mixed-case symbolic allele: vcftools upper-cases REF
 # and ALT on output (`<DEL:ME:Alu>` becomes `<DEL:ME:ALU>`, which no longer
 # matches its ##ALT line); gloci writes them as read. Found by the real-data
-# concordance run (Task 16) on the 1000 Genomes SVs.
+# concordance run on the 1000 Genomes SVs.
 [[case]]
 name = "vcf-filter-allele-case-vs-vcftools"
 input = { file = "xtask/diff/inputs/allele-case.vcf" }
@@ -2049,7 +2049,7 @@ expected_difference = "#vcf-allele-case"
 
 # Floats as gnomAD writes them (`0.00000`, `0.600000`, QUAL `50.0`): bcftools
 # view prints every record again (`0`, `0.6`, `50`); gloci keeps the text.
-# Found by the real-data concordance run (Task 16) on gnomAD chr22.
+# Found by the real-data concordance run on gnomAD chr22.
 [[case]]
 name = "vcf-filter-float-text-vs-bcftools"
 input = { file = "xtask/diff/inputs/filter-float-text.vcf" }
@@ -2124,7 +2124,7 @@ compare = "vcf-records"
 expected_difference = "#hwe-multiallelic"
 
 # All-missing sites (no called allele; one with FORMAT/DP) against vcftools:
-# the provisional Task 21 rules, refined. --min-maf differs from vcftools
+# the provisional rules, refined. --min-maf differs from vcftools
 # (pinned; bcftools agrees with gloci); the rest match.
 [[case]]
 name = "vcf-filter-all-missing-maf-vs-vcftools"
@@ -2333,7 +2333,7 @@ gloci = "set -e; gloci view -O bcf input.vcf -o in.bcf; gloci view --chrom-map c
 reference = "set -e; bcftools view -Ob -o in.bcf input.vcf; bcftools annotate --rename-chrs chrom-map.tsv -Ob -o t.bcf in.bcf; bcftools view -H t.bcf"
 compare = "exact"
 
-# vcf filter --include/--exclude (Task 14, D71) vs bcftools view -i 1.21.
+# vcf filter --include/--exclude (D71) vs bcftools view -i 1.21.
 # The matches-bcftools cases cover every supported grammar construct; the
 # differs-from-bcftools cases pin documented differences.
 
@@ -2609,7 +2609,7 @@ compare = "exact"
 expected_difference = "#groupby-header"
 
 # The same with a header line that has no `#`: gloci's output starts with an unprefixed header
-# line, which a host reading the output back takes as the header (P2b Task 8, fix round 1).
+# line, which a host reading the output back takes as the header.
 [[case]]
 name = "groupby-header-unprefixed-vs-bedtools"
 input = { file = "xtask/diff/inputs/groupby-header-unprefixed.tsv" }
@@ -2707,7 +2707,7 @@ gloci = "gloci groupby input.tsv -g 1 -c 2:min,2:max,2:median,2:sum"
 reference = "bedtools groupby -i input.tsv -g 1 -c 2,2,2,2 -o min,max,median,sum"
 compare = "exact"
 
-# partition (Task 10). part-c.bed is a third BED with adjacent and enclosing
+# partition. part-c.bed is a third BED with adjacent and enclosing
 # features; every input is lexicographically sorted (sort-bed order). The
 # multiinter cases reshape `bedtools multiinter` (chrom start end num list
 # <one 0/1 column per file>) to gloci's two membership columns with `cut -f1-5`;
@@ -2803,7 +2803,7 @@ reference = "bedtools unionbedg -empty -filler 0 -g part.genome -i input.bedgrap
 compare = "exact"
 expected_difference = "#partition-empty-chromosomes"
 
-# shift (Task 7, D70). shift-in.bed is transform-in.bed without the feature
+# shift (D70). shift-in.bed is transform-in.bed without the feature
 # that every positive shift pushes wholly past the chromosome end, plus an
 # unknown-strand feature in mid-chromosome. bedtools -s N is --by N; its
 # -p X -m -X pair is --by X -s; -pct is --pct.
@@ -3155,7 +3155,7 @@ reference = "bedtools genomecov -i input.bed -g gc.genome -bg -max 2"
 compare = "exit-status"
 expected_difference = "#genomecov-max-depth"
 
-# vcf extract (Task 17, D73) vs vcftools 0.1.16. --get-INFO has no ID column
+# vcf extract (D73) vs vcftools 0.1.16. --get-INFO has no ID column
 # and writes `?` for a missing value; --extract-FORMAT-info names its columns by
 # sample alone and skips sites without the key; --012 counts a haploid
 # reference call and a half-missing reference call as 1.
@@ -3190,7 +3190,7 @@ reference = "vcftools --vcf input.vcf --012 --out g >/dev/null 2>&1 && cat g.012
 compare = "exact"
 expected_difference = "#vcf-extract-012"
 
-# cluster and spacing (Task 8): the ids and distances of bedtools cluster / spacing.
+# cluster and spacing: the ids and distances of bedtools cluster / spacing.
 [[case]]
 name = "cluster-default-vs-bedtools"
 input = { file = "xtask/diff/inputs/cluster-points.bed" }
@@ -3274,7 +3274,7 @@ reference = "bedtools cluster -s -i input.bed"
 compare = "exact"
 expected_difference = "#cluster-strand"
 
-# vcf stats (Task 16, D72) vs vcftools 0.1.16. Every statistic is compared
+# vcf stats (D72) vs vcftools 0.1.16. Every statistic is compared
 # through its output file (`&& cat`), so these run live only; plain `cargo
 # test` pins the same files through crates/gloci/tests/vcf_stats.rs against the
 # committed vcftools outputs in crates/gloci-vcf/tests/golden/stats.
@@ -3466,7 +3466,7 @@ reference = "vcftools --vcf input.vcf --missing-indv --minGQ 10 --out o >/dev/nu
 compare = "exact"
 expected_difference = "#vcf-stats-mask-missing"
 
-# vcf compare (Task 15/16, D163) vs vcftools 0.1.16 --diff-site-discordance,
+# vcf compare (D163) vs vcftools 0.1.16 --diff-site-discordance,
 # --diff-indv-discordance and --diff-discordance-matrix. vcftools pairs sites
 # by position, so gloci runs --match position. Each statistic is compared
 # through its output file (`&& cat`), so these run live only; plain `cargo test`
@@ -4385,7 +4385,7 @@ reference = "samtools faidx input.fa"
 compare = "exit-status"
 expected_difference = "#fasta-index-strictness"
 
-# PSL and RepeatMasker (Task 12, D114) vs bedops convert2bed 2.4.41
+# PSL and RepeatMasker (D114) vs bedops convert2bed 2.4.41
 # --do-not-sort. The fixtures hold minus-strand hits, a three-block hit, a
 # translated (two-character) strand, `C` repeats and parenthesised fields.
 # convert2bed does not skip the PSL header, so the headered file is compared
@@ -5115,7 +5115,7 @@ reference = "samtools index input.bam"
 compare = "exit-status"
 expected_difference = "#bam-index-long-reference"
 
-# Edge records (D104, D116, review of Task 3). edge.sam has the shapes samtools normalises or
+# Edge records (D104, D116). edge.sam has the shapes samtools normalises or
 # encodes in its own way: a mapped read with CIGAR `*`, RNEXT on another contig, RNEXT `=` with
 # POS 0 or PNEXT 0, SEQ `*`, SEQ with QUAL `*`, lower-case, IUPAC, `=` and digit bases, empty
 # B arrays, H, `I` and `c` tags, hex and octal FLAG, a mapped read with RNAME `*`, POS 2^31,
@@ -5786,7 +5786,7 @@ reference = "bedtools intersect -a splitfrac.bed -b input.bam -split -f 0.7 -wa 
 compare = "exact"
 expected_difference = "#split-fraction"
 
-# P3b Task 20: vcf split vs bcftools norm -m- --no-version (no -f)
+# vcf split vs bcftools norm -m- --no-version (no -f)
 # multi.vcf: six samples with GT/AD/PL/GL/AQ/DP; diploid, haploid, phased and missing GT;
 # Number=A/R/G INFO and FORMAT; a haploid sample whose G holds the biallelic count;
 # SNPs, indels, MNPs and symbolic ALTs; rows of one value left alone.
@@ -5866,7 +5866,6 @@ reference = "bcftools norm -m- --no-version input.vcf"
 compare = "exit-status"
 expected_difference = "#vcf-split-values"
 
-# P3b Task 20 fix round 1
 # Type=String and Type=Character R/G fields: a lone `.` stays `.`; a G vector of nals values
 # is kept whole; a diploid vector is subset.
 [[case]]
@@ -5895,7 +5894,7 @@ reference = "bcftools norm -m- --no-version input.vcf"
 compare = "exit-status"
 expected_difference = "#vcf-split-values"
 
-# P3b Task 21: gloci vcf norm against bcftools norm -f.
+# gloci vcf norm against bcftools norm -f.
 # Left-alignment in homopolymers and tandem repeats, trimming, MNPs, a * allele, symbolic ALTs,
 # POS 1 and contig ends, END, three samples, and records that move past their neighbours.
 [[case]]
@@ -6094,7 +6093,6 @@ compare = "vcf-records"
 expected_difference = "#vcf-norm-edge-cases"
 
 
-# P3b Task 21 fix round 1
 # A swapped ALT: GT is recoded and that ALT's AC is recounted; AN, AF and the other AC values stay.
 [[case]]
 name = "vcf-norm-check-ref-s-ac-vs-bcftools"
@@ -6133,7 +6131,7 @@ compare = "vcf-records"
 expected_difference = "#vcf-norm-edge-cases"
 
 
-# P3b Task 22: vcf annotate vs bcftools annotate --no-version (1.21)
+# vcf annotate vs bcftools annotate --no-version (1.21)
 # file.vcf: two samples; C>T,G and two C>G at 1:200, an indel, a deletion, reordered ALTs at 1:450,
 # existing Number=A tags. src.vcf, ann.tab, pos.tab, regions.* hold what to transfer.
 # The reference needs bgzipped, indexed inputs for a VCF or positional tab source; gloci reads them plain.
@@ -6576,7 +6574,7 @@ gloci = "gloci vcf annotate input.vcf -a ann.tab --header-lines tags.hdr -c CHRO
 reference = "bgzip -c ann.tab > a.tab.gz && tabix -s1 -b2 -e2 a.tab.gz && bcftools annotate --no-version -a a.tab.gz -h tags.hdr -c CHROM,POS,-,ALT,ID,INFO/TF input.vcf"
 compare = "vcf-records"
 
-# P3b Task 23: vcf merge vs bcftools merge --no-version (1.21)
+# vcf merge vs bcftools merge --no-version (1.21)
 # a.vcf (A1, A2), b.vcf (B1) and c.vcf (C1, C2) share sites: identical records, the same POS with
 # different ALTs (1:100 A>C, A>G; 1:150 T,A against A against T,C), a SNP and an indel at 1:300, a
 # haploid sample at 1:350, a site only one file has, and a second contig. The reference needs
@@ -6912,7 +6910,7 @@ gloci = "gloci vcf merge input.vcf undecl-b.vcf"
 reference = "(bgzip -c input.vcf > input.vcf.gz && bcftools index input.vcf.gz && bgzip -c undecl-b.vcf > undecl-b.vcf.gz && bcftools index undecl-b.vcf.gz && bcftools merge --no-version input.vcf.gz undecl-b.vcf.gz) >/dev/null 2>&1 || exit 1"
 compare = "exit-status"
 expected_difference = "#vcf-merge-undeclared-info"
-# P3b Task 2: stats jaccard vs bedtools jaccard 2.31.1
+# stats jaccard vs bedtools jaccard 2.31.1
 # jaccard-a.bed: 10-20 and 20-30 are bookended and must merge before counting (3 raw A records,
 # 2 merged: n_intersections 2, not 3). jaccard-a6/b6.bed: + and - A records overlap each other.
 # jaccard-fa/fb.bed: merged A is 0-20 (0-12 and 10-20), so -f 0.5 and -r give other answers than
@@ -7020,7 +7018,7 @@ reference = "bedtools jaccard -a input.bed -b jaccard-a.bed"
 compare = "exact"
 expected_difference = "#jaccard-points"
 
-# P3b Task 2 fix round 1: records of unknown strand (`.`) are left out under -s by both tools.
+# records of unknown strand (`.`) are left out under -s by both tools.
 [[case]]
 name = "stats-jaccard-unknown-strand-vs-bedtools"
 input = { file = "xtask/diff/inputs/p3b/stats/jaccard-au.bed" }
@@ -7029,7 +7027,7 @@ gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-bu.bed -s
 reference = "bedtools jaccard -a input.bed -b jaccard-bu.bed -s"
 compare = "exact"
 
-# P3b Task 3: stats fisher vs bedtools fisher 2.31.1 (reference spells --exclude as -exclude).
+# stats fisher vs bedtools fisher 2.31.1 (reference spells --exclude as -exclude).
 # fisher-a.bed has overlapping records (5 raw, 4 merged), so -m and the all-overlap case (n11 = 7 > nA = 5,
 # n12 clamps to 0) tell merged from raw counting; -f 0.5 drops two of the five pairs.
 
@@ -7197,7 +7195,6 @@ compare = "exact"
 expected_difference = "#fisher-lgamma"
 expected_difference_arch = ["aarch64"]
 
-# P3b Task 4
 [[case]]
 name = "stats-reldist-table-vs-bedtools"
 input = { file = "xtask/diff/inputs/p3b/stats/reldist-a.bed" }
@@ -7253,7 +7250,7 @@ gloci = "gloci stats reldist --detail -a input.bed -b reldist-one-b.bed"
 reference = "bedtools reldist -detail -a input.bed -b reldist-one-b.bed"
 compare = "exact"
 
-# P3b Task 7: pair-intersect vs bedtools pairtobed. The fixtures keep every hit of one pair in
+# pair-intersect vs bedtools pairtobed. The fixtures keep every hit of one pair in
 # one 16 kb bin, so bedtools' bin order is B's input order and the output matches exactly;
 # hits in different bins are pinned apart (docs/differences.md#pair-hit-order).
 [[case]]
@@ -7843,7 +7840,6 @@ reference = "bedtools genomecov -ibam input.bam -bga -ignoreD"
 compare = "exact"
 expected_difference = "#bamtobed-no-reference-ops"
 
-# P3a Task 13
 # view of CRAM (D109, D110) against samtools 1.21. The CRAM fixtures (aln/make-cram.sh) were
 # written by samtools from the SAM fixtures with fa/ref.fa (3.0, 3.1, slices of several
 # references, embedded reference, no reference); samtools reads them with `-T ref.fa` and
@@ -7964,7 +7960,7 @@ gloci = "set -e; gloci index input.cram; samtools view -h --no-PG --input-fmt-op
 reference = "set -e; samtools index input.cram; samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa input.cram chr1:650-701 chr2:51-55 chr1:1-200"
 compare = "sam"
 
-# Task 13 fix round 1. cat-big.v31.cram reaches order-1 rANS Nx16 and the name tokeniser (whose
+# cat-big.v31.cram reaches order-1 rANS Nx16 and the name tokeniser (whose
 # tables noodles keeps on the stack); contigs.noref.cram has slices of several references
 # stored without the reference (chr1 of 10 Mb, then 200 contigs), where noodles needs a
 # placeholder sequence per reference; overhang.cram has a read whose deletion ends 1.5 Mb past
@@ -7992,7 +7988,7 @@ reference = "samtools view -h --no-PG --input-fmt-option decode_md=0 -T ref.fa i
 compare = "exit-status"
 expected_difference = "#cram-limits"
 
-# Task 13 fix round 2: name-sorted CRAMs in slices of several references, where every slice needs
+# name-sorted CRAMs in slices of several references, where every slice needs
 # the same references (the decoders share one copy of each): with the reference, and without.
 [[case]]
 name = "view-cram-name-sorted-vs-samtools"
@@ -8009,7 +8005,7 @@ gloci = "gloci view -O bam input.namesorted.noref.cram"
 reference = "samtools view -b --no-PG --input-fmt-option decode_md=0 input.namesorted.noref.cram"
 compare = "bam"
 
-# Task 13 fix round 3: chr1 of 10 Mb and 300 small contigs in name order, without a reference
+# chr1 of 10 Mb and 300 small contigs in name order, without a reference
 # (every slice needs chr1 and other contigs; the shared placeholders are made once).
 [[case]]
 name = "view-cram-no-ref-mixed-vs-samtools"
@@ -8153,7 +8149,7 @@ reference = "samtools view -h --no-PG -T ref.fa input.cram"
 compare = "sam"
 expected_difference = "#cram-md-nm"
 
-# P3a Task 14: CRAM in every alignment command. gloci reads the CRAM with --reference; the
+# CRAM in every alignment command. gloci reads the CRAM with --reference; the
 # reference command decodes it first (samtools view -b -T ref.fa, MD and NM as stored) and runs
 # bedtools or samtools on the BAM. many.cram has five chromosomes in slices of 100 reads, placed
 # and unplaced unmapped reads, and flags of every kind.
@@ -8252,7 +8248,7 @@ reference = "gloci genomecov input.badtail.cram --reference ref.fa -t 1"
 compare = "exit-status"
 expected_difference = "#cram-unplaced-tail"
 
-# P3b Task 8: pair-pair vs bedtools pairtopair. bedtools enforces strand unless -is, so the
+# pair-pair vs bedtools pairtopair. bedtools enforces strand unless -is, so the
 # default-strand cases run bedtools without -is against gloci -s. Its hits come orientation 1
 # first, then orientation 2, which equals B's order in every fixture but pp-b-order.
 [[case]]
@@ -8447,7 +8443,6 @@ aux = ["xtask/diff/inputs/p3b/pairs/pp-b-frac.bedpe"]
 gloci = "gloci pair-pair --type either -f 0.05 -a input.bedpe -b pp-b-frac.bedpe"
 reference = "bedtools pairtopair -is -type either -f 0.05 -a input.bedpe -b pp-b-frac.bedpe"
 compare = "exact"
-# P3b Task 5
 # `-n` equal to the record count returns every record, so the (random) choice cannot show: the
 # comparison pins everything else. Trap: extra columns, and the `#` and `track` header lines,
 # which only `--header` / bedtools `-header` print.
@@ -8493,7 +8488,6 @@ reference = "bedtools random -g input.genome -l 10 -n 5 -seed 1"
 compare = "exact"
 expected_difference = "#rng-stream"
 
-# P3b Task 6
 # Every record spans its whole chromosome, so each has one possible place and the output must
 # match whatever the generator. Trap: the passthrough columns (name, score, strand, an extra
 # column, a `.` strand) and `-chrom` / `--same-chrom` keeping chrA's two records on chrA.
@@ -9311,7 +9305,7 @@ reference = "samtools dict -u x input.fa"
 compare = "exit-status"
 expected_difference = "#dict-empty-input"
 
-# P3c Task 1: `flags` (D136). It reads no file, so the input is only there because every
+# `flags` (D136). It reads no file, so the input is only there because every
 # case has one. The first case sets the traps: hex and decimal give the same line, a name list
 # is case-insensitive, a flag with no name (0x1000) and zero print an empty third field, and
 # the bits come out in bit order whatever the order of the names.
@@ -9356,10 +9350,10 @@ reference = "samtools flags 010"
 compare = "exit-status"
 expected_difference = "#flags-leading-zero"
 
-# P3c Task 2: `idxstats` (D127). flags.bam holds a placed unmapped read (chr1) and one with no
+# `idxstats` (D127). flags.bam holds a placed unmapped read (chr1) and one with no
 # reference, so a rule that counts a placed unmapped read as unplaced, or leaves it out, differs.
 # order.bam lists chrM first and its references are not in name order: a count that sorts the
-# references differs. The CRAM is decoded by samtools first (view -b -T), as for P3a.
+# references differs. The CRAM is decoded by samtools first (view -b -T), as for the other alignment cases.
 [[case]]
 name = "idxstats-index-vs-samtools"
 input = { file = "xtask/diff/inputs/aln/flags.bam" }
@@ -9440,7 +9434,7 @@ gloci = "gloci idxstats flags.bam"
 reference = "samtools idxstats flags.bam"
 compare = "exact"
 
-# P3c Task 3: `flagstat` (D128). flagstat.bam has 306 of 320 QC-passed reads mapped (95.63% in
+# `flagstat` (D128). flagstat.bam has 306 of 320 QC-passed reads mapped (95.63% in
 # samtools' f32 arithmetic, 95.62% in f64) and 7 singletons of 160 paired (4.37%, f64 4.38%),
 # secondary, supplementary and duplicate secondary reads, mates on another reference at MAPQ 4
 # and 5, a mapped read with RNEXT *, an unmapped read with 0x2, placed and unplaced unmapped
@@ -9537,7 +9531,7 @@ gloci = "gloci flagstat input.cram --reference ref.fa"
 reference = "REF_PATH=/nonexistent samtools flagstat input.cram"
 compare = "exact"
 
-# P3c Task 4: `check --quick` is samtools quickcheck (D129). samtools prints the failing paths
+# `check --quick` is samtools quickcheck (D129). samtools prints the failing paths
 # with -v; gloci prints them with --list-failed. flagstat.bam is good; noeof.bam lacks the BGZF
 # end-of-file block; nosq.bam has no @SQ line (-u accepts it); badfirst.bam has a good header and
 # end-of-file block and a first record whose block_size is 20, which samtools never reads;
@@ -9591,7 +9585,7 @@ reference = "samtools quickcheck -v input.vcf.gz"
 compare = "exit-status"
 expected_difference = "#quickcheck"
 
-# P3c Task 5: `head` (D134) and `samples` (D135). rg.bam has five @RG lines (samples NA12878,
+# `head` (D134) and `samples` (D135). rg.bam has five @RG lines (samples NA12878,
 # NA12891, NA12878, HG002; LB on two; one line with no SM) whose samtools hash order differs from
 # the header order: the unordered cases compare as sets, `samples-order-vs-samtools` pins the order.
 # bcftools head adds ##FILTER=PASS to a header that lacks it, so head-vcf uses a header that has it.
@@ -9726,7 +9720,7 @@ reference = "mkdir r && cp ref.fa input.bam r/ && samtools samples -f r/ref.fa r
 compare = "exit-status"
 expected_difference = "#fasta-implicit-index"
 
-# P3c Task 5 fix round 1: head on BGZF VCF and BCF (headers with ##FILTER=PASS), and the header
+# head on BGZF VCF and BCF (headers with ##FILTER=PASS), and the header
 # bcftools completes (cluster-in.vcf has no PASS line).
 
 [[case]]
@@ -9770,7 +9764,6 @@ gloci = "gloci head input.vcf --records 2"
 reference = "bcftools head -n 2 input.vcf"
 compare = "exact"
 expected_difference = "#head-vcf-pass-line"
-# P3c Task 6
 # `depth` (D137, D138) against samtools 1.21. depth.bam sets the traps: a deletion whose next base
 # has quality 10 (-J -q 20 differs if the gate is the previous base), a 100 bp `N`, soft clips,
 # insertions, `=`/`X`, a mapped read with CIGAR `*` (samtools reads it as unmapped), QUAL `*`
@@ -9987,7 +9980,6 @@ reference = "samtools depth -q 20 input.bam"
 compare = "exact"
 expected_difference = "#depth-seq-star-baseq"
 
-# P3c Task 7
 # `depth --skip-mate-overlap` (D139) against samtools -s on mates.bam. The first four leave out the
 # supplementary alignments (-G SUPPLEMENTARY), which are the stale-entry templates. The traps:
 # a partial overlap, mates at one position (the longer second), a contained second mate, a pair
@@ -10042,7 +10034,6 @@ gloci = "gloci depth input.bam --skip-mate-overlap --min-mapq 10 --exclude-flags
 reference = "samtools depth -s -Q 10 -G SUPPLEMENTARY input.bam"
 compare = "exact"
 
-# P3c Task 8
 # `bedcov` (D140) against samtools 1.21. bedcov.bed sets the traps: lines out of order with 3 to 6
 # columns (echoed as they are, so a column dropped or reordered shows), one CRLF line (samtools
 # strips the CR), `#`, `track` and blank lines, a zero-length region inside a read and two on its
@@ -10179,7 +10170,7 @@ aux = ["xtask/diff/inputs/samtools/depth.bam", "xtask/diff/inputs/samtools/depth
 gloci = "gloci bedcov input.bed depth.bam --exclude-flags 0 --read-count"
 reference = "samtools bedcov -g 0x704 -c input.bed depth.bam"
 compare = "exact"
-# P3c Task 11: `reheader` (D130). reheader-in.bam has three references of different lengths
+# `reheader` (D130). reheader-in.bam has three references of different lengths
 # (chr1 1000, chr2 2000, chr3 3000) and a read on each, so a swapped order shows in the LNs.
 # new-header.sam renames them to 1, 2, 3, appends a fourth @SQ and changes the @RG; the BAM
 # header file new-header.bam holds the same header. samtools runs with -P (no @PG); the `bam` and
@@ -10200,7 +10191,7 @@ gloci = "gloci reheader new-header.bam input.bam"
 reference = "samtools reheader -P new-header.bam input.bam"
 compare = "bam"
 
-# P3a's embed_ref CRAM (chr1 1000, chr2 1234, with M5): the new header repeats the M5s, renames
+# The embed_ref CRAM of the alignment cases (chr1 1000, chr2 1234, with M5): the new header repeats the M5s, renames
 # the references, adds a third @SQ and changes the @RG. gloci writes a new header container and
 # copies the data containers; the compare mode decodes both.
 [[case]]
@@ -10231,7 +10222,7 @@ reference = "samtools reheader -P bad-order.sam input.bam"
 compare = "exit-status"
 expected_difference = "#reheader-sq-check"
 
-# P3c Task 12: `view --count` (samtools `view -c`) and `--regions-file` on alignments (samtools
+# `view --count` (samtools `view -c`) and `--regions-file` on alignments (samtools
 # `-L`), D133. The reads are aln/flags.bam's; gloci reads input.bam unindexed (it scans), and
 # samtools is given the .bai where positional regions need one. targets.bed holds zero-length
 # regions on the edges of and inside the reads at chr1:101, overlapping regions, the placed

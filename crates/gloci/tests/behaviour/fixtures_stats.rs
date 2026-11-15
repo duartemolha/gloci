@@ -565,7 +565,7 @@ pub(crate) fn p3b_prefix_cmds(fx: &P3b) -> Vec<(String, Vec<String>, Vec<&'stati
     c
 }
 
-/// Output larger than a pipe, closed after 64 bytes: exit 0 and silent, as for the P2 commands.
+/// Output larger than a pipe, closed after 64 bytes: exit 0 and silent, as for the BED and VCF commands.
 pub(crate) fn p3b_assert_broken_pipe(name: &str, args: &[String], min_bytes: usize) {
     let full = gloci().args(args).output().unwrap();
     assert_eq!(
@@ -623,7 +623,7 @@ pub(crate) fn p3b_header_lines(bytes: &[u8]) -> Vec<String> {
         .collect()
 }
 
-/// Bad VCF inputs of the P3b matrices: sorted rows with a swapped pair, a bad POS, and
+/// Bad VCF inputs of the statistics matrices: sorted rows with a swapped pair, a bad POS, and
 /// truncated BGZF / BCF files; `renamed` gives them the sample names `t1..t3` (for merge).
 pub(crate) struct P3bBadVcf {
     pub(crate) good: String,

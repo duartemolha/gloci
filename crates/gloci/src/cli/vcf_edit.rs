@@ -46,8 +46,6 @@ pub struct VcfConcatArgs {
     pub out: OutputArgs,
 }
 
-// P3b Task 20
-
 /// Which multi-allelic records `vcf split` splits.
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
 pub enum SplitTypesArg {
@@ -94,8 +92,6 @@ pub struct VcfSplitArgs {
     #[command(flatten)]
     pub out: OutputArgs,
 }
-
-// P3b Task 21
 
 /// `--check-ref` modes (bcftools `-c`).
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
@@ -214,8 +210,6 @@ pub struct VcfNormArgs {
     #[command(flatten)]
     pub out: OutputArgs,
 }
-
-// P3b Task 22
 
 /// Transfer, remove and add fields of a VCF/BCF (bcftools annotate).
 ///
@@ -341,8 +335,6 @@ pub struct VcfAnnotateArgs {
     #[command(flatten)]
     pub out: OutputArgs,
 }
-
-// P3b Task 23
 
 /// `bcftools merge -m`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]

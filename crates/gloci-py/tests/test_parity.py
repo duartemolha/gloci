@@ -1,4 +1,4 @@
-"""Golden parity (P2b Task 10, spec 8.5): every committed golden case of the CLI
+"""Golden parity (spec 8.5): every committed golden case of the CLI
 (`crates/gloci/tests/golden/<case>/`), replayed through Python, gives the CLI's output.
 
 Each case's argv becomes one Python call (`parity.translate`), run in a scratch copy of the
@@ -35,7 +35,7 @@ TESTS = Path(__file__).resolve().parent
 REPO = TESTS.parents[2]
 GOLDEN = REPO / "crates" / "gloci" / "tests" / "golden"
 PYTHON_YML = REPO / ".github" / "workflows" / "python.yml"
-#: The share of golden cases that must become a Python call (R1).
+#: The share of golden cases that must become a Python call.
 COVERAGE = 0.95
 
 
@@ -89,7 +89,7 @@ class Outcome:
 
 class CliRuns:
     """`GLOCI_BIN`'s outcome of each case, run once per session in a scratch copy of the case;
-    the first `get()` runs them all on a thread pool (R4)."""
+    the first `get()` runs them all on a thread pool."""
 
     def __init__(self, binary: str, scratch: Path) -> None:
         self.binary = binary
@@ -276,7 +276,7 @@ def test_ci_requires_gloci_bin(tmp_path: Path) -> None:
     assert "GLOCI_BIN must name the gloci binary when CI=true" in done.stdout, done.stdout
 
 
-# The translation rules (R1), beyond what the golden cases use
+# The translation rules, beyond what the golden cases use
 
 
 @pytest.mark.parametrize(

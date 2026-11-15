@@ -1,5 +1,5 @@
 //! The keyword arguments of a step method or module function, as the Python stub declares them
-//! and the runtime's `__signature__` lists them (P2b Task 9): both come from here, so they agree.
+//! and the runtime's `__signature__` lists them: both come from here, so they agree.
 
 use super::args::{Role, reserved};
 use super::bindings::{Bind, Binding};

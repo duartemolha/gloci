@@ -97,21 +97,16 @@ pub enum Commands {
     Maskfasta(MaskfastaArgs),
     #[command(before_help = EXPERIMENTAL)]
     Vcf(Box<VcfArgs>),
-    // P3b Task 2
     #[command(before_help = EXPERIMENTAL)]
     Stats(StatsArgs),
-    // P3b Task 7
     #[command(before_help = EXPERIMENTAL)]
     PairIntersect(PairIntersectArgs),
-    // P3b Task 8
     #[command(before_help = EXPERIMENTAL)]
     PairPair(PairPairArgs),
-    // P3b Task 5
     #[command(before_help = EXPERIMENTAL)]
     Random(RandomArgs),
     #[command(before_help = EXPERIMENTAL)]
     Sample(SampleArgs),
-    // P3b Task 6
     #[command(before_help = EXPERIMENTAL)]
     Shuffle(ShuffleArgs),
     #[command(before_help = EXPERIMENTAL)]

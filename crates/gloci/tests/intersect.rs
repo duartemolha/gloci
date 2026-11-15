@@ -169,7 +169,7 @@ chr1\t10\t20\ta1\tY\tchr1\t19\t30\ty2\n"
         run(&["--mode", "count"]),
         "chr1\t10\t20\ta1\t3\nchr1\t50\t60\ta3\t0\n"
     );
-    // R-P3: unmatched rows carry `.` as the label
+    // Unmatched rows carry `.` as the label
     assert_eq!(
         run(&["--mode", "pairs", "--keep-unmatched", "--overlap-bases"]),
         "chr1\t10\t20\ta1\tx.bed\tchr1\t15\t25\tx1\t5\n\

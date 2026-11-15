@@ -725,7 +725,7 @@ fn big_genome() -> PathBuf {
     p
 }
 
-/// Peak RSS ceiling of the streaming P2 commands: about three times the
+/// Peak RSS ceiling of the streaming BED and VCF commands: about three times the
 /// largest value measured (22 MiB). It is meaningful only at the default
 /// 2 GiB payload: with `GLOCI_LARGE_BYTES` set small, a command that buffered
 /// its whole input would still fit under it.
@@ -909,7 +909,7 @@ fn vcf_stats_2gib_vcf_streams() {
 }
 
 // ---------------------------------------------------------------------------
-// P3a: BAM, CRAM, FASTA and alignment sort
+// BAM, CRAM, FASTA and alignment sort
 // ---------------------------------------------------------------------------
 
 /// SAM bytes per BAM byte for the generated reads (random bases, constant qualities): a BAM of
@@ -1555,7 +1555,7 @@ fn convert_cram_streams() {
 }
 
 // ---------------------------------------------------------------------------
-// P3b: stats, sample, BEDPE pairs, vcf compare/split/norm/annotate/merge/popgen and the
+// Stats, sample, BEDPE pairs, vcf compare/split/norm/annotate/merge/popgen and the
 // parallel vcf filter/extract/stats. Ceilings are absolute; the inputs are streamed to disk.
 // ---------------------------------------------------------------------------
 
@@ -2043,7 +2043,7 @@ fn vcf_popgen_relatedness_5000_samples_rss() {
 }
 
 // ---------------------------------------------------------------------------
-// P3c: idxstats, flagstat, view --count, depth, bedcov, reheader, faidx, dict
+// Idxstats, flagstat, view --count, depth, bedcov, reheader, faidx, dict
 //
 // Each ceiling is absolute (200 MB, `ALN_RSS`): a child's `ru_maxrss` inherits its parent's peak,
 // so two runs are never compared with each other.

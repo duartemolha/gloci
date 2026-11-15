@@ -1,4 +1,4 @@
-//! `gloci vcf norm` (P3b Task 21).
+//! `gloci vcf norm`.
 
 use crate::Ctx;
 use crate::cli::{CheckRefArg, RmDupArg, SplitTypesArg, VcfNormArgs};

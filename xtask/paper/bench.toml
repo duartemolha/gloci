@@ -222,7 +222,7 @@ columns = 5
 # VCF is in natural contig order (chr1, chr2, ...) and exons.bed in LC_ALL=C
 # order (chr1, chr10, ...), so gloci rightly refuses it as unsorted and
 # `bedtools -sorted` would be wrong. It needs a derived natural-order exons
-# BED (a new pinned input); see the Task 15 report.
+# BED (a new pinned input).
 
 [[case]]
 name = "vcf-filter-gnomad"
@@ -269,7 +269,7 @@ compare = "vcf-records"
 tools = ["gloci", "vcftools"]
 compare = "vcf-sites"
 
-# P3 commands. Chromosome halves p1 and p2 are disjoint: this times the
+# The alignment and statistics commands. Chromosome halves p1 and p2 are disjoint: this times the
 # command on real genotype data and says nothing about concordance.
 
 [[case]]
@@ -368,7 +368,7 @@ samtools = "samtools bedcov {in_b} {in_a} > {out}"
 [[case.same]]
 tools = ["gloci", "samtools"]
 
-# Python library (D96, Task 18): gloci-py against pybedtools (binding) and three
+# Python library (D96): gloci-py against pybedtools (binding) and three
 # yardsticks, on the same real inputs as the CLI cases above. The scripts leave
 # one thread, as `threads` says (`--threads 1`), like the CLI cases.
 

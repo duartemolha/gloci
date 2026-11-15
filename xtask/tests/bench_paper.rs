@@ -189,7 +189,7 @@ fn placeholders_substitute() {
     let _: BTreeMap<String, String> = BTreeMap::new();
 }
 
-/// The Python library benchmarks (D96, Task 18): gloci-py against pybedtools
+/// The Python library benchmarks (D96): gloci-py against pybedtools
 /// (binding) and three yardsticks, in the nightly and the paper cases.
 #[test]
 fn py_cases_parse() {

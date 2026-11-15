@@ -37,7 +37,6 @@ pub struct CatArgs {
     pub threads: ThreadArgs,
 }
 
-// P3c Task 1
 /// `--column-names`: a `#`-prefixed line naming the columns comes first (samtools `-H` of
 /// `depth` and `bedcov`, `-h` of `samples`).
 #[derive(Args, Debug, Clone)]
@@ -72,7 +71,6 @@ pub struct FlagsArgs {
     pub flags: Vec<String>,
 }
 
-// P3c Task 2
 /// Count the reads of each reference of a BAM, CRAM or SAM (samtools idxstats).
 ///
 /// Writes one line per @SQ reference, in header order: name, length, mapped reads, unmapped
@@ -109,7 +107,6 @@ pub struct IdxstatsArgs {
     pub output: Option<PathBuf>,
 }
 
-// P3c Task 3
 /// Count the reads of a BAM, CRAM or SAM by FLAGS category (samtools flagstat).
 ///
 /// Writes the counts of total, primary, secondary and supplementary reads, duplicates,
@@ -150,7 +147,6 @@ pub struct FlagstatArgs {
     pub threads: ThreadArgs,
 }
 
-// P3c Task 5
 /// List the samples of the read groups of BAM, CRAM or SAM files (samtools samples).
 ///
 /// Reads only the headers. For each file it prints one line per distinct value of the --tag
@@ -189,7 +185,6 @@ pub struct SamplesArgs {
     pub output: Option<PathBuf>,
 }
 
-// P3c Task 6
 /// Depth of coverage of alignments at each position (samtools depth).
 ///
 /// Reads BAM, CRAM or SAM files (CRAM needs --reference) in coordinate order and prints "chrom,
@@ -296,7 +291,6 @@ pub struct DepthArgs {
     pub output: Option<PathBuf>,
 }
 
-// P3c Task 8
 /// Depth of coverage summed over each BED region (samtools bedcov).
 ///
 /// For each line of BED, in any order, writes the line as it is and then, for each FILE (BAM or CRAM,
@@ -382,7 +376,6 @@ pub struct BedcovArgs {
     #[arg(short, long, value_name = "FILE")]
     pub output: Option<PathBuf>,
 }
-// P3c Task 11
 /// Replace the header of a BAM or CRAM file without decoding its records (samtools reheader).
 ///
 /// HEADER is SAM header text, or a SAM, BAM or CRAM file whose header is taken (as samtools does); -

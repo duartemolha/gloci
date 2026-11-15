@@ -1,5 +1,5 @@
 //! The Python stub (`__init__.pyi`) is generated from the Rust specs, so it cannot drift from
-//! what the runtime accepts (Task 9, R1).
+//! what the runtime accepts.
 use std::fs;
 
 fn stub_path() -> std::path::PathBuf {

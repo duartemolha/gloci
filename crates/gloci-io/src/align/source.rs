@@ -1,5 +1,5 @@
-//! The every-record alignment source (D120): `view`, `sort`, `cat` and P3c's per-record
-//! commands read BAM, CRAM and SAM through it, so unmapped reads are kept, where the interval
+//! The every-record alignment source (D120): `view`, `sort`, `cat` and the per-record
+//! samtools-style commands read BAM, CRAM and SAM through it, so unmapped reads are kept, where the interval
 //! readers skip them (D101). Records come in the reader's raw layout: BAM bytes (without
 //! `block_size`) for BAM and CRAM, the line (without the newline) for SAM.
 

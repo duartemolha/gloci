@@ -218,7 +218,6 @@ pub struct NucArgs {
     pub out: OutputArgs,
 }
 
-// P3c Task 9
 const FAIDX_REGION_HELP: &str = "Another region, as the positional REGION (repeatable).";
 const FAIDX_REGIONS_FILE_HELP: &str = "Read regions from a BED FILE (0-based, half-open); each prints as chrom:START-END with a 1-based start.";
 
@@ -283,7 +282,6 @@ pub struct FaidxArgs {
     pub out: OutputArgs,
 }
 
-// P3c Task 10
 /// Write a SAM sequence dictionary of a FASTA (samtools dict).
 ///
 /// Streams REF (plain, gzip or BGZF; standard input is -); no index is

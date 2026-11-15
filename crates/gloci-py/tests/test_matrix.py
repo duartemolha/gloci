@@ -1,4 +1,4 @@
-"""The behaviour matrix (P2b Task 10, ruling R2): every step method, on an input of its kind,
+"""The behaviour matrix: every step method, on an input of its kind,
 - gives the same bytes at `threads` 1, 2 and 8;
 - gives empty or header-only output (no records) for an empty input;
 - raises `UnsortedError` for an unsorted input;

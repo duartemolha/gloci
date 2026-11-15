@@ -282,7 +282,7 @@ tools = ["gloci", "bcftools"]
 compare = "vcf-sites"
 
 
-# ---- P2 cases ----
+# ---- BED and VCF cases ----
 # genomecov and shift need a genome: the synthetic chromosomes are chr1..chr24
 # of 250,000,000 bases (gen.rs CHROM_LEN), written in lexical order beside the
 # output. The `{gloci}` word starts the gloci command line wherever it sits.
@@ -404,7 +404,7 @@ tools = ["gloci", "bcftools"]
 compare = "vcf-sites"
 
 
-# Tracked since the native GT encoding of Task 3 (+9% user time against the
+# Tracked since the native GT encoding (+9% user time against the
 # old path): VCF to BCF on a multi-sample VCF.
 
 [[case]]
@@ -421,7 +421,7 @@ tools = ["gloci", "bcftools"]
 compare = "bcf-records"
 
 
-# ---- P3a cases: alignments (BAM, CRAM), FASTA and alignment sort ----
+# ---- Alignment cases: BAM, CRAM, FASTA and alignment sort ----
 # `sam` setups generate coordinate-sorted single-end reads (10% spliced, 3%
 # with a deletion) on a reference of 24 chromosomes at 30x, a BED of target
 # windows ({in_b}) and the reference FASTA ({ref}); the generated SAM streams
@@ -624,7 +624,7 @@ tools = ["gloci", "samtools"]
 compare = "bam-records"
 
 
-# ---- P3b cases: statistics, randomness, BEDPE pairs and VCF compare ----
+# ---- Statistics cases: randomness, BEDPE pairs and VCF compare ----
 # Statistics and randomness need a genome: the synthetic chromosomes chr1..chr24
 # of 250,000,000 bases written in lexical order beside the output, as for
 # genomecov. gloci's random, shuffle and sample draw another stream than
@@ -802,7 +802,7 @@ vcftools-3runs = "vcftools --gzvcf {in} --site-pi --out {out}.v1 && vcftools --g
 gloci = "{out} is a prefix of several files; the concordance cases of xtask/paper/concordance.toml compare them"
 vcftools-3runs = "{out} is a prefix of several files; the concordance cases of xtask/paper/concordance.toml compare them"
 
-# P3c: samtools 1.21 is binding (gloci replaces it); mosdepth is a yardstick.
+# Samtools essentials: samtools 1.21 is binding (gloci replaces it); mosdepth is a yardstick.
 # gloci -t N pairs with samtools -@ N-1 (its main thread also works).
 # `bam-indexed` is `bam` (every sorted BAM of a sam setup is indexed).
 
@@ -907,7 +907,7 @@ tools = ["gloci", "samtools"]
 
 
 # An exome-like target list: 200,000 regions of 100 bp. Each worker keeps one
-# reader per input and seeks it per region (final fix wave M16).
+# reader per input and seeks it per region.
 
 [[case]]
 name = "bedcov-bam-200k-exome"

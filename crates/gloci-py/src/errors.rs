@@ -1,6 +1,6 @@
 //! Python exceptions from a run's error (D90): the classes of `gloci.errors`, built from the
 //! [`StageError`] the stage runtime judged while the run's in-memory names were registered, so
-//! messages and attributes show display names, never a raw `\0gloci:` name (ruling R4).
+//! messages and attributes show display names, never a raw `\0gloci:` name.
 
 use gloci::embed::{CommandSpec, ErrorSite, Outcome, StageError, rewrite_flags_as_kwargs};
 use gloci_io::{IoError, Loc};

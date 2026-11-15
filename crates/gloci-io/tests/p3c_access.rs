@@ -1,4 +1,4 @@
-//! P3c's shared foundation: the record accessors of every layout, FLAGS parsing and names, the
+//! The shared foundation of the alignment commands: the record accessors of every layout, FLAGS parsing and names, the
 //! regions source, and the CRAM prelude.
 
 use gloci_core::{Interval, RegionSet, VcfSpan};

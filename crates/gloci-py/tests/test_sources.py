@@ -718,7 +718,7 @@ def test_a_stalled_step_stops_the_pump(here: Path) -> None:
     assert stalled[0] < 1_000_000, f"{stalled[0]} of {n} items read while the step waited"
 
 
-# ---- fix round 1 -----------------------------------------------------------------------------
+# ---- later fixes -----------------------------------------------------------------------------
 
 
 def test_module_functions_report_what_the_run_wrote(here: Path) -> None:

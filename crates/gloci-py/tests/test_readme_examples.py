@@ -1,6 +1,6 @@
 """The README's examples run: every `python` block, in order, in one session in a scratch
 directory (a block tagged `no-run` is skipped), and every gloci idiom of the "From pybedtools"
-table (Task 9, R4)."""
+table."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-//! `gloci vcf annotate` (P3b Task 22).
+//! `gloci vcf annotate`.
 
 use crate::Ctx;
 use crate::cli::VcfAnnotateArgs;

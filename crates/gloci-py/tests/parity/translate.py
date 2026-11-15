@@ -1,4 +1,4 @@
-"""A CLI argv as the Python call that asks for the same output (P2b Task 10, ruling R1).
+"""A CLI argv as the Python call that asks for the same output.
 
 `translate(args)` reads a gloci argv (without `gloci`) with the command's own spec
 (`_native.command_specs()`): which words are options, which take values and how many, which
@@ -21,7 +21,7 @@ F` passes F's files as the step's sources, which is how a step takes several inp
 What stays on the command line raises `UntranslatableError` with `cli_only` set: a command
 D87 lists as `CLI_ONLY` (neither a step nor a module function), and an argument a step never
 takes that no module function offers instead (`sort --check`: it writes no output for a
-terminal to take, P2b Task 7 R2). Anything else untranslatable (a word the spec does not
+terminal to take). Anything else untranslatable (a word the spec does not
 know, a step with no input, standard input with no file for it) has `cli_only` unset.
 """
 
@@ -243,7 +243,7 @@ def _command(words: list[str]) -> tuple[tuple[str, ...], list[str]]:
 
 class Stdin:
     """Standard input (`-`): the file standing for it, opened as a file object when the call
-    runs (R1)."""
+    runs."""
 
     def __init__(self, path: str | os.PathLike[str]) -> None:
         self.path = path
@@ -391,7 +391,7 @@ def _uses_function(path: tuple[str, ...], parsed: _Parsed, given: set[str]) -> b
 def _check_not_reserved(b: dict[str, Any], parsed: _Parsed, bound: str | None) -> None:
     """Raise `UntranslatableError` (`cli_only`) for an argument the step never takes and no
     module function offers instead (`sort --check`, which writes no output for a terminal to
-    take; P2b Task 7 R2): it stays on the command line."""
+    take): it stays on the command line."""
     sig = _SIGNATURES[b["method"]]
     params = {a["id"] for a in sig["args"]}
     unnamed = {s["name"] for s in sig["skipped"]}  # `5p`: not identifiers, still kwargs

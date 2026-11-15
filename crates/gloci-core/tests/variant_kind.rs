@@ -13,7 +13,7 @@ fn kinds(r: &str, a: &str) -> Vec<VariantKind> {
 
 #[test]
 fn pos_zero_does_not_underflow() {
-    // Task 26 item 8: POS = 0 saturating arithmetic pos.saturating_sub(1)
+    // POS = 0 saturating arithmetic pos.saturating_sub(1)
     let v = Variant {
         pos: 0,
         reference: b"A",
