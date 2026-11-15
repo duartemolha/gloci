@@ -167,6 +167,11 @@ fn determinism_matrix() {
         GffSingle(&'a [&'a str]),
         GenomeSingle(&'a [&'a str]),
         VcfSingle(&'a [&'a str]),
+        /// BED in, BAM out: compared across the input formats without the `@PG` line, which
+        /// names the input.
+        BedBam(&'a [&'a str]),
+        Bed12Bam(&'a [&'a str]),
+        GffBam(&'a [&'a str]),
     }
 
     let cases: &[(&str, Kind)] = &[
@@ -325,6 +330,18 @@ fn determinism_matrix() {
             Kind::Bed12Single(&["convert", "{a}", "--blocks"]),
         ),
         ("convert gff3-to-bed", Kind::GffSingle(&["convert", "{a}"])),
+        (
+            "convert --bam",
+            Kind::BedBam(&["convert", "{a}", "--bam", "-g", &genome]),
+        ),
+        (
+            "convert --bam --bed12",
+            Kind::Bed12Bam(&["convert", "{a}", "--bam", "--bed12", "-g", &genome]),
+        ),
+        (
+            "convert --bam gff",
+            Kind::GffBam(&["convert", "{a}", "--bam", "-g", &genome]),
+        ),
         // vcf filter
         (
             "vcf filter",
@@ -348,12 +365,14 @@ fn determinism_matrix() {
                 false,
             ),
             Kind::BedUnsortedRel(_) => (vec![(&ua_plain, &ub_plain), (&ua_bgzf, &ub_bgzf)], false),
-            Kind::BedSingle(_) => (vec![(&a_plain, ""), (&a_bgzf, ""), (&a_idx, "")], false),
-            Kind::Bed12Single(_) => (
+            Kind::BedSingle(_) | Kind::BedBam(_) => {
+                (vec![(&a_plain, ""), (&a_bgzf, ""), (&a_idx, "")], false)
+            }
+            Kind::Bed12Single(_) | Kind::Bed12Bam(_) => (
                 vec![(&bed12_plain, ""), (&bed12_bgzf, ""), (&bed12_idx, "")],
                 false,
             ),
-            Kind::GffSingle(_) => (
+            Kind::GffSingle(_) | Kind::GffBam(_) => (
                 vec![(&gff_plain, ""), (&gff_bgzf, ""), (&gff_idx, "")],
                 false,
             ),
@@ -363,6 +382,7 @@ fn determinism_matrix() {
                 true,
             ),
         };
+        let is_bam = matches!(kind, Kind::BedBam(_) | Kind::Bed12Bam(_) | Kind::GffBam(_));
 
         let mut format_outputs = Vec::new();
 
@@ -374,7 +394,10 @@ fn determinism_matrix() {
                 | Kind::Bed12Single(tmpl)
                 | Kind::GffSingle(tmpl)
                 | Kind::GenomeSingle(tmpl)
-                | Kind::VcfSingle(tmpl) => tmpl,
+                | Kind::VcfSingle(tmpl)
+                | Kind::BedBam(tmpl)
+                | Kind::Bed12Bam(tmpl)
+                | Kind::GffBam(tmpl) => tmpl,
             };
             let args: Vec<String> = template
                 .iter()
@@ -412,6 +435,13 @@ fn determinism_matrix() {
                 assert_eq!(
                     strip_gloci_command(&w[0]),
                     strip_gloci_command(&w[1]),
+                    "{name}: plain vs bgzf vs indexed bgzf"
+                );
+            }
+        } else if is_bam {
+            for w in format_outputs.windows(2) {
+                assert!(
+                    gloci_testkit::differential::compare("bam", &w[0], &w[1]),
                     "{name}: plain vs bgzf vs indexed bgzf"
                 );
             }
@@ -478,6 +508,7 @@ fn broken_pipe_matrix() {
         &["windows", "-i", a_str, "-w", "5"],
         &["convert", bed12_str, "--blocks"],
         &["convert", vcf_str],
+        &["convert", a_str, "--bam", "-g", genome_str],
         &["vcf", "filter", vcf_str],
     ];
 
@@ -553,6 +584,34 @@ fn empty_inputs_matrix() {
         let o = gloci().args(*args).output().unwrap();
         assert_eq!(o.status.code(), Some(0), "{args:?}");
         assert!(o.stdout.is_empty(), "{args:?}: expected empty stdout");
+    }
+    // empty BED, BEDPE and VCF through convert --bam: a BAM with the header and no records
+    for args in [
+        &["convert", empty_bed_str, "--bam", "-g", genome_str][..],
+        &[
+            "convert",
+            empty_bed_str,
+            "--format",
+            "bedpe",
+            "--bam",
+            "-g",
+            genome_str,
+        ][..],
+        &["convert", empty_vcf_str, "--bam", "-g", genome_str][..],
+    ] {
+        let o = gloci().args(args).output().unwrap();
+        assert_eq!(o.status.code(), Some(0), "{args:?}");
+        let sam = gloci()
+            .args(["view", "-", "-O", "sam"])
+            .write_stdin(o.stdout)
+            .output()
+            .unwrap();
+        let text = String::from_utf8(sam.stdout).unwrap();
+        assert!(
+            text.starts_with("@HD\tVN:1.0\tSO:unsorted\n@SQ\tSN:chr1\t"),
+            "{args:?}: {text}"
+        );
+        assert!(text.lines().all(|l| l.starts_with('@')), "{args:?}: {text}");
     }
     // empty VCF A through vcf filter
     let o = gloci()

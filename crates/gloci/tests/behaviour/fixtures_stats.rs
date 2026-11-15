@@ -329,6 +329,11 @@ impl P3b {
             sv(&["convert", "--bedpe", &p3b_xtask("aln/pairs.bam")]),
         );
         add(
+            "convert --bam bedpe",
+            sv(&["convert", "--bam", "--format", "bedpe", pa, "-g", g]),
+        );
+        add("convert --bam", sv(&["convert", "--bam", a, "-g", g]));
+        add(
             "convert --fastq fixture pairs",
             sv(&[
                 "convert",

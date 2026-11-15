@@ -99,7 +99,9 @@ fn p3b_broken_pipe_matrix() {
             || name == "vcf split --types"
             || name.starts_with("pair-intersect")
             || name.starts_with("pair-pair")
-            || name.starts_with("shuffle");
+            || name.starts_with("shuffle")
+            // compressed BAM of the shared BED, under 100 kB; matrices.rs breaks its pipe
+            || name == "convert --bam";
         if skip {
             continue;
         }
