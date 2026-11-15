@@ -829,8 +829,8 @@ pinned difference where there is one.
   site filters count only them) and `--hap-r2` filters no sites from the other
   statistics, and one population, a population with no selected sample or a
   sample in two populations is an error. Fst prints the same digits on every
-  platform, where vcftools on aarch64 rounds a few steps differently, and so does
-  LD, where it prints rounding noise for an r² of 0. LD holds
+  platform, where vcftools on aarch64 rounds a few steps differently, and so do
+  LD, where it prints rounding noise for an r² of 0, and relatedness. LD holds
   its sites in memory within `--max-mem`, where vcftools uses a temporary file,
   writes its headers for fewer than two sites, where vcftools stops, and does
   not read the phase of an excluded sample. Relatedness reads a masked or
@@ -847,6 +847,7 @@ pinned difference where there is one.
   [differences.md#ld-rules](differences.md#ld-rules),
   [differences.md#ld-rounding](differences.md#ld-rounding),
   [differences.md#relatedness-genotypes](differences.md#relatedness-genotypes),
+  [differences.md#relatedness-rounding](differences.md#relatedness-rounding),
   [differences.md#polyploid-unused-samples](differences.md#polyploid-unused-samples)
 - **`vcf filter --include/--exclude` is a subset of `bcftools view -i/-e`:**
   fields against numbers, strings or `.`, `N_PASS`, and the FORMAT fields GT,

@@ -1871,6 +1871,27 @@ depends on the span.
   vcftools' file of the same VCF with the masked genotypes written `./.`) and
   `relatedness_genotype_rules` in `crates/gloci-vcf/tests/popgen_relatedness.rs`.
 
+## `vcf popgen --relatedness` rounds as vcftools' source does on every platform {#relatedness-rounding}
+
+- **gloci:** each site's term of Yang's Ajk is computed in vcftools' order of
+  operations and added to its pair's sum in input order, each operation rounded
+  once, so every platform prints the same digits.
+- **Old behaviour:** the vcftools 0.1.16 of the reference image on aarch64
+  (bioconda, built by GCC, which fuses `x * y + z` there) adds each term to its
+  sum as a fused multiply-add, rounding once where the source rounds twice.
+  Where a sum is 0 up to rounding the noise it prints then differs: on the
+  four-site VCF of the case below it gives a sample with itself `1.11022e-16`
+  where gloci gives `2.22045e-16`. Values that are not rounding noise agree to
+  every printed digit, and so do all the committed fixtures and a generated
+  VCF of 40 samples and 3,000 records. vcftools built for x86_64 (bioconda
+  targets a CPU without fused multiply-add) does not fuse it.
+  `--relatedness2` divides whole numbers, so it has nothing to fuse.
+- **Reason:** identical output on every platform, from the formula as vcftools
+  writes it; which steps fuse is a choice of one compiler on one CPU.
+- **Pinned by:** `vcf-popgen-relatedness-rounding-vs-vcftools`, a difference on
+  aarch64 only (`expected_difference_arch`): with the reference tools on
+  aarch64 it must differ; on x86_64 it must match.
+
 ## `vcf popgen` and the vcftools behaviour it reproduces
 
 These are not differences: gloci writes what vcftools writes. They are listed

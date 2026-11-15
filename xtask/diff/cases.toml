@@ -4265,6 +4265,19 @@ gloci = "gloci vcf popgen input.vcf --out-prefix o --relatedness2"
 reference = "vcftools --vcf input.vcf --relatedness2 --out o >/dev/null 2>&1"
 compare = "exit-status"
 
+# vcftools on aarch64 fuses the multiply-add that adds each site's term to a
+# sum, so where a sum is 0 up to rounding it prints other noise: s2 with
+# itself is 1.11022e-16 there and 2.22045e-16 in gloci, as the source's two
+# roundings give. On x86_64 the build cannot fuse it and must match.
+[[case]]
+name = "vcf-popgen-relatedness-rounding-vs-vcftools"
+input = { file = "xtask/diff/inputs/relatedness-rounding.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --relatedness && cat o.relatedness"
+reference = "vcftools --vcf input.vcf --relatedness --out o >/dev/null 2>&1 && cat o.relatedness | sed 's/-nan/nan/g'"
+compare = "exact"
+expected_difference = "#relatedness-rounding"
+expected_difference_arch = ["aarch64"]
+
 # Documented differences: vcftools counts masked genotypes in --relatedness2
 # (dad and kid, parent and child, come out at phi 0.04 where gloci gives
 # 0.167) and reads ./1 and 1/. as 0 in --relatedness.
