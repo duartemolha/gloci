@@ -1942,11 +1942,13 @@ fn vcf_popgen_relatedness_5000_samples_rss() {
             rss.saturating_sub(base) / MIB,
             bound / MIB
         );
-        // 8 MiB for what the run allocates beside the matrix and the block: the threads'
-        // stacks and the output buffer
+        // The selection stage holds up to 2 batches per worker (D157). While a block keeps
+        // the main thread busy they fill, which they need not in the run without a matrix,
+        // whose main thread keeps up: 24 MiB for that, the threads' stacks and the output
+        // buffer. Measured 5 to 10 MiB above or below the bound.
         assert!(
-            rss <= base + bound + 8 * MIB,
-            "{stat}: peak RSS {rss} bytes, more than {base} + {bound} + 8 MiB"
+            rss <= base + bound + 24 * MIB,
+            "{stat}: peak RSS {rss} bytes, more than {base} + {bound} + 24 MiB"
         );
         let ext = stat.trim_start_matches("--");
         assert_eq!(
