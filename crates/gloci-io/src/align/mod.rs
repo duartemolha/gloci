@@ -131,7 +131,7 @@ shuffle --format bedpe read; to treat its first end as a BED interval, pass --fo
             format!(
                 "{name} is {}; this command does not read alignments (intersect, coverage, \
 genomecov, convert, view, index, sort, cat, idxstats, flagstat, check, reheader, head, \
-samples, depth, bedcov and stats jaccard, fisher and reldist do); convert it to BED first: \
+samples, depth, bedcov, tag and stats jaccard, fisher and reldist do); convert it to BED first: \
 gloci convert {name} -o x.bed",
                 format.name()
             ),

@@ -167,6 +167,20 @@ impl P3a {
                 "sort small budget".into(),
                 v(&["sort", "--max-mem", "16M", "-O", "sam", input]),
             ),
+            (
+                "tag".into(),
+                v(&[
+                    "tag",
+                    input,
+                    "-b",
+                    bed,
+                    "--intervals",
+                    "--labels",
+                    "t",
+                    "-O",
+                    "sam",
+                ]),
+            ),
         ];
         if kind != "cram" {
             let sorted = input.replace("many.", "sorted.");

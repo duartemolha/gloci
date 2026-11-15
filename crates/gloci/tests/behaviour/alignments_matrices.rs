@@ -66,7 +66,7 @@ fn p3a_determinism_matrix() {
         );
     }
     // The same reads sorted in each format are the same reads.
-    for name in ["sort", "sort -n", "view"] {
+    for name in ["sort", "sort -n", "view", "tag"] {
         let runs = &by_cmd[name];
         let recs = |b: &[u8]| -> Vec<String> {
             String::from_utf8_lossy(b)
@@ -107,6 +107,18 @@ fn p3a_determinism_matrix() {
     // by the parallel writer, and a BGZF FASTA.
     let files: Vec<(&str, Vec<String>)> = vec![
         ("sort", vec!["sort".into(), fx.bam.clone()]),
+        (
+            "tag",
+            vec![
+                "tag".into(),
+                fx.sam.clone(),
+                "-b".into(),
+                fx.bed.clone(),
+                "--names".into(),
+                "-O".into(),
+                "bam".into(),
+            ],
+        ),
         (
             "sort spill",
             vec![
@@ -199,6 +211,7 @@ fn p3a_broken_pipe_matrix() {
             ("genomecov per-base", v(&["genomecov", input, "--per-base"])),
             ("sort", v(&["sort", input])),
             ("sort -n", v(&["sort", "-n", input])),
+            ("tag", v(&["tag", input, "-b", &chroms, "--labels", "c"])),
         ] {
             cmds.push((format!("{kind} {name}"), a));
         }
@@ -224,6 +237,21 @@ fn p3a_broken_pipe_matrix() {
         (
             "sort",
             v(&["sort", &cram, "--reference", &cram_fa, "-O", "sam"]),
+        ),
+        (
+            "tag",
+            v(&[
+                "tag",
+                &cram,
+                "--reference",
+                &cram_fa,
+                "-b",
+                &chroms,
+                "--labels",
+                "c",
+                "-O",
+                "sam",
+            ]),
         ),
     ] {
         cmds.push((format!("cram {name}"), a));
@@ -383,6 +411,8 @@ fn p3a_empty_inputs_matrix() {
             sam_out(&["sort", "-m", input, input, "-O", "sam"]);
             sam_out(&["intersect", "-a", input, "-b", &empty_bed, "-O", "sam"]);
             sam_out(&["intersect", "-a", input, "-b", &bed, "-O", "sam"]);
+            sam_out(&["tag", input, "-b", &bed, "--labels", "t", "-O", "sam"]);
+            sam_out(&["tag", input, "-b", &empty_bed, "--names", "-O", "bam"]);
             if input == &bam {
                 sam_out(&["cat", input, input]);
             }
@@ -590,6 +620,11 @@ fn p3a_failure_matrix_bad_inputs() {
                 Sink::File("bam"),
             ),
             ("cat", vec!["cat", "{IN}", "{IN}"], Sink::File("bam")),
+            (
+                "tag",
+                vec!["tag", "{IN}", "-b", bed, "--labels", "b"],
+                Sink::File("bam"),
+            ),
         ];
         for (name, mut tpl, sink) in cmds {
             if is_cram && matches!(name, "sort -m" | "cat") {
@@ -932,6 +967,12 @@ fn p3a_failure_matrix_missing_output_dir() {
             Sink::File("bam"),
         ),
         (
+            "tag",
+            vec!["tag", "{IN}", "-b", bed, "--names"],
+            &fx.sam,
+            Sink::File("bam"),
+        ),
+        (
             "getfasta",
             vec!["getfasta", "--fasta", fx.fa.as_str(), "{IN}"],
             &gf,
@@ -1011,6 +1052,12 @@ fn p3a_failure_matrix_missing_output_dir() {
             vec!["sort", "{IN}"],
             &fx.cram,
             Sink::File("bam"),
+        ),
+        (
+            "cram tag",
+            vec!["tag", "{IN}", "-b", bed, "--labels", "b"],
+            &fx.cram,
+            Sink::File("sam"),
         ),
     ];
     for c in &mut cram_cases {
