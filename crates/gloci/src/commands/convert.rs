@@ -26,7 +26,7 @@ pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
                     "gloci does not write CRAM; to write the features of {} as alignments, add \
 --bam -g GENOME and name the output .bam (bedtools bedtobam), then convert it with `samtools \
 view -C -T ref.fa`",
-                    a.file
+                    if a.file == "-" { "stdin" } else { &a.file }
                 )),
                 _ => e,
             }
@@ -159,10 +159,12 @@ fn input_format(ctx: &Ctx, a: &ConvertArgs) -> Option<Format> {
 
 /// The message for an output format plain `convert` (no --bam, --fastq or --bedpe) does not
 /// write: it writes BED, and the option that writes `to` depends on what the input is.
-fn wrong_output(to: OutFormat, name: &str, input: Option<Format>) -> String {
+fn wrong_output(to: OutFormat, arg: &str, input: Option<Format>) -> String {
     let pick = "pick an output ending in .bed or .bed.gz (or -O bed)";
     let alignments = input.is_some_and(Format::is_alignment);
     let features = input.is_some_and(is_feature);
+    // `arg` as the text names it; the command line names standard input `-`.
+    let name = if arg == "-" { "stdin" } else { arg };
     let what = |f: Format| format!("{name} is {}", f.name());
     match (to, input) {
         (OutFormat::Bam, _) if features => format!(
@@ -176,7 +178,7 @@ shows it as SAM)"
         ),
         (OutFormat::Bam | OutFormat::Sam, _) if alignments => format!(
             "convert writes BED, not {}: {pick}; gloci view converts between alignment formats \
-(gloci view {name} -o x.bam)",
+(gloci view {arg} -o x.bam)",
             to.name()
         ),
         (OutFormat::Fastq, _) if alignments => format!(

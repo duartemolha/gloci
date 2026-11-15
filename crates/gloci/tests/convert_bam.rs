@@ -500,6 +500,21 @@ fn messages_name_the_option_that_writes_the_output() {
         assert!(!err.contains(not), "{args:?}: {err}");
     }
     assert!(only_the_input(d.path()));
+    // Standard input is `stdin` in the text and `-` in a command.
+    gloci()
+        .current_dir(d.path())
+        .args(["convert", "-", "-o", "x.fq"])
+        .write_stdin(std::fs::read(&bed).unwrap())
+        .assert()
+        .code(2)
+        .stderr(contains("and stdin is BED"));
+    gloci()
+        .current_dir(d.path())
+        .args(["convert", "-", "-o", "x.sam"])
+        .write_stdin(std::fs::read(bam_in).unwrap())
+        .assert()
+        .code(2)
+        .stderr(contains("(gloci view - -o x.bam)"));
 }
 
 /// Only the input written for the test is in `dir`: no output was created.
