@@ -116,6 +116,7 @@ fn commands_that_read_only_alignments_refuse_other_formats_as_usage() {
             vec!["samples", x],
             vec!["depth", x],
             vec!["bedcov", bed.to_str().unwrap(), x],
+            vec!["tag", x, "-b", bed.to_str().unwrap(), "--labels", "a"],
         ] {
             gloci()
                 .args(&args)
