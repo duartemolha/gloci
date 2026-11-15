@@ -104,3 +104,27 @@ vcftools --vcf nogt.vcf --hap-r2 --out nogt >/dev/null 2>&1
 vcftools --vcf nogt.vcf --hap-r2 --ld-window 1 --out nogt.w1 >/dev/null 2>&1
 sed -i "s/-nan/nan/g" nogt.hap.ld nogt.w1.hap.ld
 '
+
+# Relatedness (--relatedness, --relatedness2) on related.vcf: dad, mom, their
+# child kid, unrelated u1, u2 and u3, h1 and h2 (homozygous everywhere, so
+# --relatedness2 divides by 0) and gap (called at four sites, none of them
+# u3's); and on halfcall.vcf, which holds ./1 and 1/. genotypes. A run's file
+# is PREFIX.relatedness or PREFIX.relatedness2, with PREFIX = related,
+# related.dp5 (--minDP 5), related.indv (--indv u2 --indv kid --indv dad) or
+# halfcall. related.dp5.relatedness2 and halfcall.relatedness differ from
+# gloci (docs/differences.md#relatedness-genotypes): vcftools counts masked
+# genotypes in --relatedness2 and reads ./1 and 1/. as 0 in --relatedness.
+docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/work" gloci-diff:p0 sh -c '
+cd /work
+rel() { # VCF PREFIX [vcftools options]
+  f=$1; p=$2; shift 2
+  vcftools --vcf $f --relatedness "$@" --out $p >/dev/null 2>&1
+  vcftools --vcf $f --relatedness2 "$@" --out $p >/dev/null 2>&1
+}
+rel related.vcf related
+rel related.vcf related.dp5 --minDP 5
+rel related.vcf related.indv --indv u2 --indv kid --indv dad
+rel halfcall.vcf halfcall
+rm -f related.log related.dp5.log related.indv.log halfcall.log
+sed -i "s/-nan/nan/g" *.relatedness *.relatedness2
+'
