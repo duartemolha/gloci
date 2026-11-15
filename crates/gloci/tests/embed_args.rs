@@ -1167,13 +1167,16 @@ fn file_arguments_are_known() {
     ] {
         assert!(!takes(path, name), "{path:?} {name}");
     }
-    // The LD statistics are switches; their window and memory take a value.
+    // The LD and relatedness statistics are switches; the LD window and
+    // memory take a value.
     let popgen = spec(&["vcf", "popgen"]);
     for name in [
         "geno_r2",
         "hap_r2",
         "interchrom_geno_r2",
         "interchrom_hap_r2",
+        "relatedness",
+        "relatedness2",
     ] {
         assert!(!popgen.arg(name).unwrap().takes_value, "{name}");
     }
