@@ -1958,6 +1958,28 @@ fn gen_wide_vcf(w: &mut impl Write, samples: usize, sites: u64, seed: u64) {
     }
 }
 
+/// The bytes D157 lets the selection stage of `vcf popgen -t T` hold: at most 2 batches per
+/// worker in flight (one batch at `-t 1`), each of at most 524,288 decoded genotypes of about 24
+/// bytes. The selection gets the threads `split_threads` leaves after BGZF decoding
+/// (`crates/gloci/src/commands/vcf.rs`), and all of them but one are workers (`run_parallel` in
+/// `crates/gloci-ops/src/vcf_select.rs`): 24 MiB at `-t 4`.
+fn d157_selection_bytes(t: usize) -> u64 {
+    let decode = (t / 2).max(1);
+    let select = if decode == 1 { t } else { t - decode };
+    let batches = (2 * select.saturating_sub(1)).max(1);
+    (batches * 524_288 * 24) as u64
+}
+
+#[test]
+fn d157_selection_bytes_follow_the_thread_split() {
+    // -t 1 reads one batch at a time; -t 2 and -t 4 have one worker, -t 8 three.
+    let batch = 524_288 * 24;
+    assert_eq!(d157_selection_bytes(1), batch);
+    assert_eq!(d157_selection_bytes(2), 2 * batch);
+    assert_eq!(d157_selection_bytes(4), 24 * MIB);
+    assert_eq!(d157_selection_bytes(8), 6 * batch);
+}
+
 /// Relatedness holds a matrix of 12 bytes (`--relatedness`) or 8 (`--relatedness2`) for each
 /// pair of the N selected samples, a sample with itself included, beside one block of 64 sites
 /// (D162). With 5,000 samples, the peak RSS of each stays within that bound over a run of the
@@ -1966,6 +1988,7 @@ fn gen_wide_vcf(w: &mut impl Write, samples: usize, sites: u64, seed: u64) {
 #[ignore = "nightly: 5,000 samples, writes 1 GB of rows"]
 fn vcf_popgen_relatedness_5000_samples_rss() {
     const N: u64 = 5000;
+    const THREADS: usize = 4;
     // Used by this test only: in a temp dir removed afterwards.
     let d = tempdir();
     let vcf = d.path().join("wide.vcf");
@@ -1977,7 +2000,8 @@ fn vcf_popgen_relatedness_5000_samples_rss() {
     }
     let prefix = d.path().join("rel");
     let run = |what: &str, stat: &[&str]| -> u64 {
-        let mut args = args_of(&["vcf", "popgen", "-t", "4", "--out-prefix"], &[&prefix]);
+        let t = THREADS.to_string();
+        let mut args = args_of(&["vcf", "popgen", "-t", &t, "--out-prefix"], &[&prefix]);
         args.push(vcf.clone().into());
         args.extend(stat.iter().map(Into::into));
         let refs: Vec<&std::ffi::OsStr> = args.iter().map(|s| s.as_os_str()).collect();
@@ -1999,13 +2023,14 @@ fn vcf_popgen_relatedness_5000_samples_rss() {
             rss.saturating_sub(base) / MIB,
             bound / MIB
         );
-        // The selection stage holds up to 2 batches per worker (D157). While a block keeps
-        // the main thread busy they fill, which they need not in the run without a matrix,
-        // whose main thread keeps up: 24 MiB for that, the threads' stacks and the output
-        // buffer. Measured 5 to 10 MiB above or below the bound.
+        // While a block keeps the main thread busy, the selection stage's batches fill up to
+        // D157's bound, which they need not do in the run without a matrix, whose main thread
+        // keeps up; the threads' stacks and the 64 KiB output buffer are small beside it.
+        // Measured at -t 4: 5 to 10 MiB above or below the D162 bound.
+        let selection = d157_selection_bytes(THREADS);
         assert!(
-            rss <= base + bound + 24 * MIB,
-            "{stat}: peak RSS {rss} bytes, more than {base} + {bound} + 24 MiB"
+            rss <= base + bound + selection,
+            "{stat}: peak RSS {rss} bytes, more than {base} + {bound} + {selection} (D157)"
         );
         let ext = stat.trim_start_matches("--");
         assert_eq!(
