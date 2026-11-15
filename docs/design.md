@@ -44,8 +44,8 @@ A single, fast, correct Rust command-line tool that replaces **bedtools**, **bed
 
 - **Command or flag compatibility with the old tools.** Pipelines will be rewritten. **[you]** A migration guide (Section 11) maps old commands to new ones.
 - Byte-identical output with the old tools. Differences are allowed but must be documented (Section 9.3).
-- Variant calling, left-alignment or normalization against a reference, annotation (VEP-like), imputation and phasing.
-- Becoming a general replacement for bcftools or samtools. Merging samples across VCFs (`vcf-merge`) is not planned for v1.
+- Variant calling, annotation (VEP-like), imputation and phasing. Left-alignment and normalization against a reference were a non-goal too, until the owner's VCF additions to P3b (Section 10): `vcf norm -f` (bcftools `norm -f`) and `vcf split` (bcftools `norm -m-`) are built. **[owner, 2026-11-11]**
+- Becoming a general replacement for bcftools or samtools. Merging samples across VCFs (`vcf-merge`) was not planned for v1; it is built as `vcf merge` (bcftools `merge`), one of the owner's VCF additions to P3b (Section 10). **[owner, 2026-11-11]**
 - The bedops **Starch** format, and legacy genotype export formats (IMPUTE, BEAGLE, LDhat, PLINK ped/tped). **[my call]**
 - bedtools' BAM-specific utilities were a non-goal **[my call]**, reversed on the owner's request of 2026-11-15: `igv`, `links`, `bamtofastq`, `bedtobam`, `bedpetobam` and `tag` are built (D165 is their scope; D169, D170; `bamtofastq` as `gloci convert --fastq`, D166; `bedtobam` and `bedpetobam` as `gloci convert --bam`, D167; `tag`, D168). **[owner, 2026-11-15]** `multicov` is `gloci bedcov X.bed A.bam B.bam --read-count`.
 - Native Windows. WSL works. **[my call]**
@@ -129,7 +129,7 @@ Further rules:
 - **Symbolic SVs:** use `INFO/END` when present. Otherwise use `POS + |SVLEN|` as the 1-based last affected base. If neither is present, it is an error, or a warning with `--skip-invalid`.
 - **`*`, `<*>` and `<NON_REF>` alternative alleles** contribute no footprint when other ALTs exist.
 - **Breakend mates** are ignored in v1.
-- **gloci does not left-align.** Inside repeats the footprint depends on how the caller wrote the variant. The docs recommend normalized input (e.g. `bcftools norm`).
+- **gloci does not left-align footprints.** Inside repeats the footprint depends on how the caller wrote the variant. The docs recommend normalized input (`gloci vcf norm -f REF`, or `bcftools norm`).
 
 ### 4.3 Overlap
 
@@ -942,7 +942,8 @@ The user-facing version of this guide lives in `docs/migration.md` (later part o
 | `--site-pi`, `--window-pi`, `--TajimaD`, `--weir-fst-pop`, `--*-r2`, `--relatedness*` | `vcf popgen` |
 | `--diff-site-discordance`, `--diff-indv-discordance`, `--diff-discordance-matrix`, `--diff-indv-map` | `vcf compare` (P3b); `--diff-site` and `--diff-indv` are `intersect`/`subtract --match alleles` and the `#CHROM` line |
 | `vcf-concat`, `vcf-sort`, `vcf-isec`, `vcf-subset`, `vcf-stats` | `vcf concat` (P2), `sort`, `intersect --match alleles`, `vcf filter --samples`, `vcf stats` |
-| `vcf-merge`, `--plink*`, `--IMPUTE`, `--BEAGLE-*`, `--ldhat*` | not planned |
+| `vcf-merge` | `vcf merge` (bcftools `merge`; an owner addition to P3b) |
+| `--plink*`, `--IMPUTE`, `--BEAGLE-*`, `--ldhat*` | not planned |
 
 ---
 
