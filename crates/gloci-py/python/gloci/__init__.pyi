@@ -2117,6 +2117,42 @@ class Pipeline:
 
         CLI: gloci bedcov
         """
+    def tag(
+        self,
+        *,
+        b: Source | Sequence[Source],
+        labels: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+        tag: str | int | float | os.PathLike[str] | None = None,
+        names: bool = False,
+        scores: bool = False,
+        intervals: bool = False,
+        same_strand: bool = False,
+        s: bool = False,
+        opposite_strand: bool = False,
+        S: bool = False,
+        fraction: str | int | float | os.PathLike[str] | None = None,
+        f: str | int | float | os.PathLike[str] | None = None,
+        reference: Source | None = None,
+    ) -> Pipeline:
+        """Tag each alignment with the features it overlaps, as bedtools tag does
+
+        Args:
+            b: Feature files (BED or GFF), held in memory; their parts of the tag come in this order (-b x y or -b x -b y)
+            labels: One label per -b file, comma-separated: the tag's value (bedtools -labels), and the start of each --intervals entry
+            tag: The tag to add: two characters, a letter and then a letter or a digit (bedtools -tag)
+            names: The tag holds the names of the features hit (bedtools -names)
+            scores: The tag holds the scores of the features hit, as written (bedtools -scores)
+            intervals: The tag holds label:chrom:start-end,name,score,strand for each feature hit (bedtools -intervals); needs --labels
+            same_strand: Only features on the read's strand
+            s: alias of same_strand
+            opposite_strand: Only features not on the read's strand; one of unknown strand counts
+            S: alias of opposite_strand
+            fraction: The least share of the read's span a feature must cover, e.g. 0.5 or 50% (default: one base; bedtools -f)
+            f: alias of fraction
+            reference: The FASTA a CRAM input was made with, with its .fai. Not needed for a CRAM written without a reference
+
+        CLI: gloci tag
+        """
     def igv(
         self,
         *,

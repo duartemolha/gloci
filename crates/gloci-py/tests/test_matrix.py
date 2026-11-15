@@ -329,6 +329,7 @@ MATRIX: dict[str, Step] = {
     "reheader": step("bam", header="new-header.sam"),
     "igv": step("bed"),
     "links": step("bed"),
+    "tag": step("bam", b="b.bed", labels="b"),
 }
 
 _EMPTY_FASTA = "an empty FASTA is a DataError (it has no records), on the command line too"
@@ -382,6 +383,8 @@ EXEMPT: dict[tuple[str, str], str] = {
     "bedcov)",
     ("cat", "unsorted"): "copies the BAM files' blocks as they are (samtools cat)",
     ("reheader", "unsorted"): "replaces the header without decoding the records",
+    ("tag", "unsorted"): "writes the reads in input order, against features held in memory "
+    "(bedtools tag)",
     ("flagstat", "unsorted"): "counts flags, in any order",
     ("idxstats", "unsorted"): "counts reads per reference, in any order",
     ("samples", "unsorted"): "reads the header only",

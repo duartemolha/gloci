@@ -47,7 +47,7 @@ A single, fast, correct Rust command-line tool that replaces **bedtools**, **bed
 - Variant calling, left-alignment or normalization against a reference, annotation (VEP-like), imputation and phasing.
 - Becoming a general replacement for bcftools or samtools. Merging samples across VCFs (`vcf-merge`) is not planned for v1.
 - The bedops **Starch** format, and legacy genotype export formats (IMPUTE, BEAGLE, LDhat, PLINK ped/tped). **[my call]**
-- bedtools' BAM-specific utility `tag`. **[my call]** `igv`, `links`, `bamtofastq`, `bedtobam` and `bedpetobam` are built on the owner's request of 2026-11-15 (D169, D170; `bamtofastq` as `gloci convert --fastq`, D166; `bedtobam` and `bedpetobam` as `gloci convert --bam`, D167). **[owner, 2026-11-15]** `multicov` is `gloci bedcov X.bed A.bam B.bam --read-count`.
+- bedtools' BAM-specific utilities were a non-goal **[my call]**, reversed on the owner's request of 2026-11-15: `igv`, `links`, `bamtofastq`, `bedtobam`, `bedpetobam` and `tag` are built (D169, D170; `bamtofastq` as `gloci convert --fastq`, D166; `bedtobam` and `bedpetobam` as `gloci convert --bam`, D167; `tag`, D168). **[owner, 2026-11-15]** `multicov` is `gloci bedcov X.bed A.bam B.bam --read-count`.
 - Native Windows. WSL works. **[my call]**
 - A stable public Rust library API in v1. The crates are internal; the stable, versioned API is the Python one from P2 (Section 8.5). **[my call, revised: Python bindings moved to goals]**
 
@@ -874,7 +874,8 @@ The user-facing version of this guide lives in `docs/migration.md` (later part o
 | `bamtofastq` | `convert --fastq` (D166 **[owner, 2026-11-15]**) |
 | `bedtobam [-mapq -bed12 -ubam]`, `bedpetobam [-mapq -ubam]` | `convert --bam -g G [--mapq --bed12 --compression-level 0]`, `convert --format bedpe --bam -g G` (D167 **[owner, 2026-11-15]**) |
 | `multicov` | `bedcov --read-count` |
-| `tag`, `expand`, `split`, `summary`, `overlap` | not planned (see non-goals; `overlap` → `--mode pairs --overlap-bases`) |
+| `tag -i IN.bam -files F… [-labels L…] [-tag XX] [-names -scores -intervals -s -S -f F]` | `gloci tag IN.bam -b F… [--labels L,… --tag XX --names --scores --intervals -s -S -f F]` (D168 **[owner, 2026-11-15]**) |
+| `expand`, `split`, `summary`, `overlap` | not planned (see non-goals; `overlap` → `--mode pairs --overlap-bases`) |
 
 ### samtools **[P3a, owner addition]**
 

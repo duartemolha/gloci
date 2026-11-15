@@ -477,7 +477,7 @@ BED (and bedGraph, read as BED) gives the name, score and strand of columns 4, 5
 zero-length record overlaps as [start-1, end+1), which --intervals shows. GFF and GTF give the \
 feature type (column 3), score and strand, from start-1 to end. A column a file lacks gives an \
 empty name or score. Comment, track and browser lines are skipped. Every feature is held in \
-memory, about 110 bytes each plus the text the tag takes from it.
+memory, about 140 bytes each plus the text the tag takes from it.
 
 The tag:
 The hits of one file come in bedtools' bin order: features that fit in one 16 kb bin first, by \

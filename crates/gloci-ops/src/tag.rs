@@ -5,7 +5,7 @@
 //!   [`IntervalIndex`], the in-memory index `--unsorted` and the `pair-*` commands hold B in
 //!   (D61, D154). Each feature keeps its file, its coordinates as bedtools reads them (a
 //!   zero-length BED record is `[start - 1, end + 1)`), its strand, its place in bedtools' bins
-//!   and the text the tag takes from it. Memory grows with the features alone: about 110 bytes
+//!   and the text the tag takes from it. Memory grows with the features alone: about 140 bytes
 //!   each while the index is built, plus that text.
 //! - **Reads.** A record is tagged only when it is mapped (FLAGS bit 0x4 clear). Its span runs
 //!   from POS over the reference bases of its CIGAR (`M`, `D`, `N`, `=`, `X`), as BamTools'

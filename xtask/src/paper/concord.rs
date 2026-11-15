@@ -123,6 +123,10 @@ pub const NO_CONCORDANCE_CASE: &[(&str, &str)] = &[
         "cat",
         "needs several BAM files of one reference; the paper has one; covered by diff cases only",
     ),
+    (
+        "tag",
+        "writes the reads back with a tag from a feature list, a BAM bedtools rewrites through BamTools; covered by diff cases only",
+    ),
 ];
 
 #[derive(Deserialize, Clone, Debug, Default)]
