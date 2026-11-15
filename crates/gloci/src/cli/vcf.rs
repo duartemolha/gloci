@@ -579,10 +579,10 @@ pub struct VcfStatsArgs {
 #[derive(Args, Debug, Clone)]
 #[command(after_long_help = "\
 Examples:
-  gloci vcf popgen cohort.vcf.gz --out-prefix pg --site-pi --window-pi 10000
-  gloci vcf popgen cohort.bcf --out-prefix pg --tajima-d 10000 --samples-file pop1.txt
+  gloci vcf popgen cohort.vcf.gz --out-prefix pg --site-pi --window-pi 10000 --tajima-d 10000
   gloci vcf popgen cohort.vcf.gz --out-prefix pg --window-pi 50000 --window-pi-step 10000 --min-dp 8
-  gloci vcf popgen cohort.vcf.gz --out-prefix pg --fst-pop pop1.txt --fst-pop pop2.txt --fst-window-size 50000
+  gloci vcf popgen cohort.bcf --out-prefix fst --fst-pop yri.txt --fst-pop ceu.txt --fst-pop chb.txt
+  gloci vcf popgen cohort.bcf --out-prefix fst --fst-pop yri --fst-pop ceu --fst-window-size 50000
 
 Sites:
   A site counts only when every selected sample that is not masked is diploid (for Fst, every

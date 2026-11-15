@@ -98,7 +98,7 @@ description: Use gloci for genomic interval and variant operations (sorting, ind
 - `gloci vcf compare` (experimental): Compare the genotypes of two VCF/BCF files: per site, per sample and as a matrix (vcftools --diff-site-discordance, --diff-indv-discordance, --diff-discordance-matrix)
   `gloci vcf compare truth.vcf.gz calls.vcf.gz --out-prefix cmp` · `gloci vcf compare a.bcf b.bcf --out-prefix cmp --sample-discordance --match position`
 - `gloci vcf popgen` (experimental): Pi, Tajima's D, Fst (vcftools --*-pi, --TajimaD, --weir-fst-pop)
-  `gloci vcf popgen cohort.vcf.gz --out-prefix pg --site-pi --window-pi 10000` · `gloci vcf popgen cohort.bcf --out-prefix pg --tajima-d 10000 --samples-file pop1.txt`
+  `gloci vcf popgen cohort.vcf.gz --out-prefix pg --site-pi --window-pi 10000 --tajima-d 10000` · `gloci vcf popgen cohort.vcf.gz --out-prefix pg --window-pi 50000 --window-pi-step 10000 --min-dp 8`
 - `gloci stats` (experimental): Statistics of interval sets (bedtools jaccard, fisher and reldist)
   `gloci stats jaccard -a peaks.bed -b genes.bed` · `gloci stats jaccard -a rep1.bed -b rep2.bed -f 0.5 -r`
 - `gloci stats jaccard` (experimental): The Jaccard similarity of two interval sets (bedtools jaccard)
