@@ -574,7 +574,8 @@ fn fst_windows_progressive() {
             stat.peak_open()
         );
     }
-    // The bound is reached: sites every 10 bases fill every window.
+    // Sites every 10 bases keep open all the windows a position falls in,
+    // ⌈100/30⌉ = 4 (within the bound of 5).
     let dense: Vec<String> = (1..=40)
         .map(|i| record("chr1", i * 10, "G", &["0/0", "0/1", "1/1", "1/1"]))
         .collect();
