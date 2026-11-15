@@ -501,6 +501,20 @@ fn p3b_empty_inputs_matrix() {
             let t = std::fs::read_to_string(format!("{p}.{ext}")).unwrap();
             assert_eq!(t.lines().count(), 1, ".{ext}: {t}");
         }
+        // relatedness: every pair of the three samples, nan (as vcftools)
+        gloci()
+            .args(["vcf", "popgen", v, "--out-prefix", &p])
+            .args(["--relatedness", "--relatedness2"])
+            .assert()
+            .success();
+        for (ext, rows) in [("relatedness", 1 + 6), ("relatedness2", 1 + 9)] {
+            let t = std::fs::read_to_string(format!("{p}.{ext}")).unwrap();
+            assert_eq!(t.lines().count(), rows, ".{ext}: {t}");
+            assert!(
+                t.lines().skip(1).all(|l| l.ends_with("\tnan")),
+                ".{ext}: {t}"
+            );
+        }
         for (x, y) in [(v, v), (v, &one), (&one, v)] {
             let d = tempdir();
             let p = s_of(&d.path().join("c"));
@@ -891,6 +905,13 @@ fn p3b_failure_matrix() {
             false,
         ),
         (
+            "vcf popgen relatedness",
+            vec!["vcf", "popgen", "--relatedness", "--relatedness2", "{IN}"],
+            Sink::Prefix,
+            false,
+            false,
+        ),
+        (
             "sample vcf",
             vec!["sample", "-n", "3", "--seed", "1", "{IN}"],
             Sink::File("vcf"),
@@ -1060,6 +1081,11 @@ fn p3b_failure_matrix() {
         (
             "vcf popgen ld",
             vec!["vcf", "popgen", "--hap-r2", "--interchrom-geno-r2", "{IN}"],
+            Sink::Prefix,
+        ),
+        (
+            "vcf popgen relatedness",
+            vec!["vcf", "popgen", "--relatedness", "--relatedness2", "{IN}"],
             Sink::Prefix,
         ),
     ];

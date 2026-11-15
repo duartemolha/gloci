@@ -548,6 +548,19 @@ pub(crate) fn p3b_prefix_cmds(fx: &P3b) -> Vec<(String, Vec<String>, Vec<&'stati
             ]),
             ["geno.ld", "hap.ld"].to_vec(),
         ));
+        c.push((
+            format!("vcf popgen relatedness {tag}"),
+            sv(&[
+                "vcf",
+                "popgen",
+                f,
+                "--relatedness",
+                "--relatedness2",
+                "--min-dp",
+                "3",
+            ]),
+            ["relatedness", "relatedness2"].to_vec(),
+        ));
     }
     c
 }

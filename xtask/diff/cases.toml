@@ -4241,6 +4241,14 @@ gloci = "(grep '^#' input.vcf; grep -v '^#' input.vcf | sort -k2,2n) > u.vcf && 
 reference = "(grep '^#' input.vcf; grep -v '^#' input.vcf | sort -k2,2n) > u.vcf && vcftools --vcf u.vcf --relatedness --out o >/dev/null 2>&1 && vcftools --vcf u.vcf --relatedness2 --out o >/dev/null 2>&1 && cat o.relatedness o.relatedness2 | sed 's/-nan/nan/g'"
 compare = "exact"
 
+# No site: every pair is nan in both tools.
+[[case]]
+name = "vcf-popgen-relatedness-no-sites-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/related.vcf" }
+gloci = "grep '^#' input.vcf > e.vcf && gloci vcf popgen e.vcf --out-prefix o --relatedness --relatedness2 && cat o.relatedness o.relatedness2"
+reference = "grep '^#' input.vcf > e.vcf && vcftools --vcf e.vcf --relatedness --out o >/dev/null 2>&1 && vcftools --vcf e.vcf --relatedness2 --out o >/dev/null 2>&1 && cat o.relatedness o.relatedness2 | sed 's/-nan/nan/g'"
+compare = "exact"
+
 # A genotype of ploidy above two at a biallelic site stops both tools (gloci
 # writes no file).
 [[case]]
