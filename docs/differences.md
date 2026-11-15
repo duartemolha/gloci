@@ -1606,35 +1606,41 @@ depends on the span.
 
 ## `vcf popgen` windowed statistics need sorted input {#popgen-sorted-input}
 
-- **gloci:** `--window-pi` and `--tajima-d` write their rows as the input passes
-  them, so they need the input sorted by chromosome and position. A chromosome
-  that comes back after another, or a position below the one before it on the
-  same chromosome, stops the run with the record's position and
-  `run: gloci sort FILE`; no file of the run is written. `--site-pi` takes the
-  records in any order.
-- **Old behaviour:** vcftools `--window-pi` and `--TajimaD` accept unsorted
-  input. When a chromosome comes back, `--window-pi` drops every window of its
-  earlier records but the first and writes the chromosome's windows twice;
-  `--TajimaD` adds both runs into the same bins and writes them twice.
+- **gloci:** `--window-pi`, `--tajima-d` and `--fst-window-size` write their
+  rows as the input passes them, so they need the input sorted by chromosome and
+  position. A chromosome that comes back after another, or a position below the
+  one before it on the same chromosome, stops the run with the record's position
+  and `run: gloci sort FILE`; no file of the run is written. `--site-pi` and
+  `--fst-pop` without a window take the records in any order.
+- **Old behaviour:** vcftools `--window-pi`, `--TajimaD` and
+  `--fst-window-size` accept unsorted input. When a chromosome comes back,
+  `--window-pi` drops every window of its earlier records but the first and
+  writes the chromosome's windows twice; `--TajimaD` and `--fst-window-size` add
+  both runs into the same bins and windows and write them twice.
 - **Reason:** rows already written cannot be merged, and holding every window of
   a multi-gigabyte file to repair unsorted input is what the streaming design
   avoids. A dropped or repeated window is a wrong answer.
-- **Pinned by:** `vcf-popgen-unsorted-vs-vcftools` (exit status: must differ)
-  and `popgen_unsorted_window_stats` in `crates/gloci/tests/vcf_popgen.rs`.
+- **Pinned by:** `vcf-popgen-unsorted-vs-vcftools` and
+  `vcf-popgen-fst-unsorted-vs-vcftools` (exit status: must differ),
+  `popgen_unsorted_window_stats` and `fst_windows_need_sorted_input` in
+  `crates/gloci/tests/vcf_popgen.rs`.
 
-## `vcf popgen --window-pi-step` larger than the window is an error {#popgen-window-step}
+## `vcf popgen` window steps larger than the window are an error {#popgen-window-step}
 
-- **gloci:** a `--window-pi-step` larger than `--window-pi` exits 2 and names the
+- **gloci:** a `--window-pi-step` larger than `--window-pi`, or a
+  `--fst-window-step` larger than `--fst-window-size`, exits 2 and names the
   largest step allowed. A window size, step or `--tajima-d` bin of 0 exits 2
   too.
 - **Old behaviour:** vcftools sets a step larger than the window, or of 0, to the
-  window size without a word, and writes no file and exits 0 for a window or
-  bin size of 0.
+  window size without a word. For a `--window-pi` or `--TajimaD` size of 0 it
+  writes no file and exits 0; for an `--fst-window-size` of 0 it writes the
+  per-site Fst file instead of the windows.
 - **Reason:** a step larger than the window leaves positions in no window, and
   quietly running other windows than the ones asked for gives a table that
   looks right and is not what was requested.
-- **Pinned by:** `vcf-popgen-window-step-vs-vcftools` (exit status: must
-  differ) and `popgen_unsorted_window_stats` in
+- **Pinned by:** `vcf-popgen-window-step-vs-vcftools` and
+  `vcf-popgen-fst-window-step-vs-vcftools` (exit status: must differ),
+  `popgen_unsorted_window_stats` and `fst_population_rules` in
   `crates/gloci/tests/vcf_popgen.rs`.
 
 ## `vcf popgen` counts in 64 bits {#popgen-integer-overflow}
@@ -1655,6 +1661,68 @@ depends on the span.
   silent wrong answer.
 - **Pinned by:** `vcf-popgen-integer-overflow-vs-vcftools` (32,769 generated
   samples; live only: must differ, vcftools writes `nan` for every bin).
+
+## `vcf popgen --fst-pop` refuses populations vcftools computes with {#fst-populations}
+
+- **gloci:** Fst needs at least two `--fst-pop` files. A file that names no
+  selected sample, or a sample named in two files, stops the run with exit 2,
+  naming the file, or the sample and both files; no file of the run is written.
+  Names that are not selected samples are left out, with one warning that
+  counts them.
+- **Old behaviour:** vcftools with one `--weir-fst-pop` logs that it needs two
+  populations, writes no file and exits 0. A population with no kept sample
+  divides by zero, and every row is `nan` (exit 0). A sample in two files is
+  counted in both populations, so `--weir-fst-pop p.txt --weir-fst-pop p.txt`
+  writes an estimate between a population and itself (exit 0).
+- **Reason:** each of these gives a table, or no table, where an estimate
+  between the populations asked for was expected, and nothing says so. A
+  population with no sample is usually a misspelt name or a sample removed by
+  `--samples` or `--exclude-samples`.
+- **Pinned by:** `vcf-popgen-fst-one-population-vs-vcftools`,
+  `vcf-popgen-fst-empty-population-vs-vcftools` and
+  `vcf-popgen-fst-shared-sample-vs-vcftools` (exit status: must differ) and
+  `fst_population_rules` in `crates/gloci/tests/vcf_popgen.rs`.
+
+## `vcf popgen --fst-pop` rounds as vcftools' source does on every platform {#fst-rounding}
+
+- **gloci:** Weir and Cockerham's a, b and c are computed in vcftools' order of
+  operations, each operation rounded once, so every platform prints the same
+  digits.
+- **Old behaviour:** the vcftools 0.1.16 of the reference image on aarch64
+  (bioconda, built by GCC, which fuses `x * y + z` there) computes three of
+  those steps as fused multiply-adds: the sum of n(p − p̄)², and p̄(1 − p̄)
+  less the s² term in a and in b, with b's h̄ term. A fused step rounds once
+  where the source's two operations round twice. Where Fst is 0 up to rounding
+  the noise it prints then differs: on the generated 3,000-record VCF of the
+  case below, 4 rows, such as chr1:78555205, where it prints `0` and gloci
+  `-1.04083e-17`. Estimates that are not rounding noise agree to every printed
+  digit, and so do all the committed fixtures. vcftools built for x86_64
+  (bioconda targets a CPU without fused multiply-add) does not fuse them.
+- **Reason:** identical output on every platform, from the formula as vcftools
+  writes it; which steps fuse is a choice of one compiler on one CPU.
+- **Pinned by:** `vcf-popgen-fst-generated-vs-vcftools`, a difference on aarch64
+  only (`expected_difference_arch`): with the reference tools on aarch64 it must
+  differ; on x86_64 it must match.
+
+## `vcf popgen` populations select no samples {#popgen-independent-options}
+
+- **gloci:** the `--fst-pop` files only say which selected samples form each
+  population. The genotype masks, the site filters (`--min-maf`,
+  `--max-missing`, `--hwe` and the rest) and the other statistics see every
+  selected sample, in a population or not, so adding `--fst-pop` to a run
+  changes none of its other files. To filter sites over the population members
+  only, as vcftools does, select them with `--samples` or `--samples-file`.
+- **Old behaviour:** vcftools adds each `--weir-fst-pop` file to its `--keep`
+  list, so only population members are kept, and `--maf`, `--max-missing` and
+  the other site filters are computed over them.
+- **Reason:** one `vcf popgen` run computes several statistics; if the
+  populations removed samples, pi and Tajima's D in the same run would describe
+  other samples than the ones selected, without a word.
+- **Pinned by:** `vcf-popgen-fst-maf-vs-vcftools` (must differ: `--min-maf 0.4`
+  keeps other sites when the samples in no population count),
+  `vcf-popgen-fst-members-maf-vs-vcftools` (matches once `--samples` selects
+  the members) and `fst_populations_select_no_samples` in
+  `crates/gloci/tests/vcf_popgen.rs`.
 
 ## `vcf popgen` and the vcftools behaviour it reproduces
 
@@ -1679,14 +1747,30 @@ comparison of `crates/gloci/tests/vcf_popgen.rs` with the committed vcftools
   segregating site to its last bin with a biallelic site, so a monomorphic or
   all-missing site after the last segregating one adds `0 nan` rows and a
   multi-allelic one does not.
+- `--fst-pop` uses a site when every population member that is not masked is
+  diploid; a haploid sample in no population does not drop it. A half-called
+  `./1` is missing for Fst (pi and Tajima's D count its called allele). Every
+  such site has a `.weir.fst` row, `nan` when a population has no call or
+  nothing varies, and a multi-allelic site takes all its alleles. Estimates
+  near 0 can print rounding noise such as `5.55112e-17`, as vcftools prints
+  it.
+- `--fst-window-size` counts in `N_VARIANTS` the sites of a window that have an
+  estimate, printed as vcftools prints a double (a million sites or more show
+  as `1e+06`); `WEIGHTED_FST` is Σa / Σ(a + b + c) and `MEAN_FST` the mean of
+  the sites' Fst. A window without such a site, or whose Σ(a + b + c) is 0,
+  has no row.
 - Numbers use C `%g` (6 digits) and `nan` in lower case; vcftools itself prints a
-  0/0 site pi as `-nan` on x86_64.
+  0/0 site pi or Fst as `-nan` on x86_64.
 
 `vcf popgen` also differs from vcftools in ways that are not about its output:
 it takes every `vcf filter` selection flag, runs any number of statistics in one
 pass (vcftools allows one per run) and writes each file only when the whole run
 succeeds. Like vcftools, it stops when no sample is selected (here a usage
-error, exit 2).
+error, exit 2). `--fst-pop` also writes `PREFIX.weir.fst.summary` with the
+number of sites with an estimate and the mean and weighted Fst, which vcftools
+only prints in its log (to 5 digits), and with a window it writes the per-site
+file and the summary beside the windows, where vcftools writes the windows
+only.
 
 ## `index` on FASTA refuses what `samtools faidx` quietly mishandles {#fasta-index-strictness}
 

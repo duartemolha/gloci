@@ -1,0 +1,8 @@
+##fileformat=VCFv4.2
+##FORMAT=<ID=GT,Number=1,Type=String,Description="g">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	a1	a2	b1	b2
+1	50	.	A	G	.	.	.	GT	0/1	0/0	1/1	0/1
+1	1500	.	A	G	.	.	.	GT	0/0	0/0	1/1	1/1
+2	100	.	A	G	.	.	.	GT	0/1	0/0	1/1	0/1
+1	200	.	A	G	.	.	.	GT	0/1	1/1	0/0	0/1
+1	2600	.	A	G	.	.	.	GT	0/1	0/0	1/1	1/1

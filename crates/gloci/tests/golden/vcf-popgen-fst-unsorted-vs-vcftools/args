@@ -1,0 +1,1 @@
+vcf popgen input.vcf --out-prefix o --fst-pop pop1.txt --fst-pop pop2.txt --fst-window-size 1000
