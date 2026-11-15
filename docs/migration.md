@@ -102,8 +102,7 @@ gloci intersect -a peaks.sorted.bed -b genes.sorted.bed --chrom-order lex > hits
 
 Every row below was checked against `gloci <cmd> --help`.
 
-Rows marked "not yet available" name a tool option that gloci does not have
-yet. Rows marked "not planned" name tools gloci does not intend to replace.
+Rows marked "not planned" name tools gloci does not intend to replace.
 BAM, CRAM and FASTA have their own section, [BAM, CRAM and FASTA
 behaviour](#bam-cram-and-fasta-behaviour), after the tables. The samtools
 commands have their own table, [samtools](#samtools), with [samtools
