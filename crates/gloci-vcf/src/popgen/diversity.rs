@@ -3,12 +3,12 @@
 //! computes them. Products vcftools takes in 32-bit integers are taken in
 //! u64 here, so they never wrap.
 
+use super::window::OpenWindows;
 use super::{SortedInput, diploid};
 use crate::filter::SiteView;
 use crate::gt::GenotypeSource;
 use crate::stats::{Out, SiteStats, Stat, StatSink};
 use gloci_core::cfmt::{write_g6, write_u64};
-use std::collections::VecDeque;
 use std::io;
 
 fn stats_of(st: Option<&SiteStats>) -> Result<&SiteStats, String> {
@@ -114,15 +114,9 @@ struct Window {
 /// lies past it or its chromosome ends, so at most `⌈SIZE/STEP⌉ + 1` are
 /// open.
 pub struct WindowPi {
-    size: u64,
-    step: u64,
+    windows: OpenWindows<Window>,
     sorted: SortedInput,
     chrom: Vec<u8>,
-    /// The index `k` of the first open window.
-    base: u64,
-    open: VecDeque<Window>,
-    /// The most windows open at once.
-    peak: usize,
     /// 2 × the selected samples.
     n_chr: u64,
     out: Out,
@@ -131,18 +125,10 @@ pub struct WindowPi {
 impl WindowPi {
     /// `size` and `step` must be positive, `step` at most `size`.
     pub fn new(size: u64, step: u64) -> WindowPi {
-        assert!(
-            size > 0 && step > 0 && step <= size,
-            "a pi window needs 0 < step <= size"
-        );
         WindowPi {
-            size,
-            step,
+            windows: OpenWindows::new(size, step),
             sorted: SortedInput::new("--window-pi"),
             chrom: Vec::new(),
-            base: 0,
-            open: VecDeque::new(),
-            peak: 0,
             n_chr: 0,
             out: Out::closed(),
         }
@@ -152,31 +138,27 @@ impl WindowPi {
     /// `⌈size/step⌉ + 1`. For tests.
     #[doc(hidden)]
     pub fn peak_open(&self) -> usize {
-        self.peak
+        self.windows.peak()
     }
 
     /// Write the open windows below index `end` (all of them for
     /// `u64::MAX`) and drop them.
     fn close_before(&mut self, end: u64) -> Result<(), String> {
-        while self.base < end {
-            let Some(w) = self.open.pop_front() else {
-                break;
-            };
-            let k = self.base;
-            self.base += 1;
+        while let Some((k, w)) = self.windows.pop_before(end) {
+            let (start, last) = self.windows.bounds(k);
             // vcftools' unsigned arithmetic: with more records than positions
             // in a window (several at one position) the monomorphic count
             // goes below zero and wraps, and the sum wraps back.
-            let mono = self.size.wrapping_sub(w.sites);
+            let mono = (last - start + 1).wrapping_sub(w.sites);
             let all_pairs = self.n_chr * self.n_chr.saturating_sub(1);
             let pairs = w.pairs.wrapping_add(mono.wrapping_mul(all_pairs));
             let pi = w.mismatches as f64 / pairs as f64;
             let b = &mut self.out.buf;
             b.extend_from_slice(&self.chrom);
             b.push(b'\t');
-            write_u64(b, k * self.step + 1);
+            write_u64(b, start);
             b.push(b'\t');
-            write_u64(b, k * self.step + self.size);
+            write_u64(b, last);
             b.push(b'\t');
             write_u64(b, w.sites);
             b.push(b'\t');
@@ -214,31 +196,13 @@ impl Stat for WindowPi {
             return Ok(());
         }
         let n = st.called_alleles;
-        // The windows holding the position: k·step + 1 <= pos <= k·step + size.
-        let first = if s.pos > self.size {
-            (s.pos - self.size).div_ceil(self.step)
-        } else {
-            0
-        };
-        let last = s.pos.div_ceil(self.step);
+        let first = self.windows.first_holding(s.pos);
         self.close_before(first)?;
-        if self.open.is_empty() {
-            self.base = first;
-        }
-        let have = self.base + self.open.len() as u64;
-        if last > have {
-            self.open
-                .resize(self.open.len() + (last - have) as usize, Window::default());
-            self.peak = self.peak.max(self.open.len());
-        }
-        for w in self
-            .open
-            .range_mut((first - self.base) as usize..(last - self.base) as usize)
-        {
+        self.windows.add(s.pos, |w| {
             w.sites += 1;
             w.pairs += n * (n - 1);
             w.mismatches += diffs;
-        }
+        });
         Ok(())
     }
     fn finish(&mut self) -> io::Result<()> {

@@ -3,6 +3,7 @@
 //! nucleotide diversity (π) and Tajima's D.
 
 mod diversity;
+mod window;
 
 pub use diversity::{SitePi, TajimaD, WindowPi};
 
