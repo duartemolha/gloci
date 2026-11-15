@@ -10341,8 +10341,9 @@ compare = "exact"
 # goldens compare text directly, @PG lines left out. The tag-*-bam-records cases compare gloci's
 # BAM with bedtools' decompressed (compare = "bam"): the record bytes are equal too. reads.sam (and its
 # reads.bam and reads.cram, from make-tag.sh) is in no order, and each read sets a trap:
-# - r1, secondary, supplementary, unmapped-placed: all on g1; the unmapped one is never tagged
-#   (tagging every placed read differs), secondary and supplementary are (skipping them differs).
+# - r1, secondary, supplementary, unmapped-placed, unmapped-cigar: all on g1; the unmapped ones
+#   are never tagged, unmapped-cigar (flag 4 with a 50M CIGAR) included (tagging a placed read by
+#   its CIGAR differs), secondary and supplementary are (skipping them differs).
 # - spliced (20M500N30M) over the feature "intron" inside its intron, deletion (20M10D20M) over
 #   "indel" inside its deletion: tagged, as bedtools uses the whole span (blocks differ).
 # - softclip (10S40M): "clip" lies under the clip only; untagged (counting clips differs).
