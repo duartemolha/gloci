@@ -248,6 +248,8 @@ pub(crate) fn dispatch(cli: &Cli, ctx: &Ctx) -> (anyhow::Result<()>, bool) {
         Commands::Depth(a) => commands::depth::run(ctx, a),
         Commands::Bedcov(a) => commands::bedcov::run(ctx, a),
         Commands::Reheader(a) => commands::reheader::run(ctx, a),
+        Commands::Igv(a) => commands::igv::run(ctx, a),
+        Commands::Links(a) => commands::links::run(ctx, a),
         Commands::Faidx(a) => commands::faidx::run(ctx, a),
         Commands::Head(a) => commands::head::run(ctx, a),
         Commands::Samples(a) => commands::samples::run(ctx, a),

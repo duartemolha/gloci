@@ -727,3 +727,130 @@ pub struct SortArg {
     #[arg(long, value_name = "DIR")]
     pub tmp_dir: Option<PathBuf>,
 }
+
+/// Write an IGV batch script that takes a snapshot of each feature (bedtools igv).
+///
+/// Each BED, GFF or VCF record becomes a goto line for IGV's batch mode and a snapshot line
+/// that names the image chrom_start_end.png, with the record's name and the slop added to the
+/// name on request. The script goes to stdout or -o; run it from IGV (Tools, Run Batch
+/// Script) after loading the genome and tracks, or name a session with --session. Records are
+/// read in order and need no sorting. As in bedtools, the goto line shows the 0-based start,
+/// a zero-length BED record is shown one base wider on each side, and every BED or GFF record
+/// must have the same number of columns.
+#[derive(Args)]
+#[command(about = "IGV snapshot script for each feature (bedtools igv)")]
+#[command(after_long_help = "\
+Examples:
+  gloci igv peaks.bed -o snapshots.txt
+  gloci igv peaks.bed --path /data/shots --session run.xml --sort position --collapse
+  gloci igv peaks.bed --name --slop 500 --image svg
+
+Names:
+With --name the image is named chrom_start_end_NAME. NAME is the BED name column, the GFF \
+feature type, or for a VCF record REF/ALT followed by _ID when the ID is not a dot. A record \
+with no name is an error.
+
+Differences from bedtools:
+--image takes png, eps or svg (bedtools writes any extension it is given), and --slop must \
+be a whole number from 0 to 2147483647 (bedtools reads a bad value as 0 and a negative one \
+as an error).")]
+pub struct IgvArgs {
+    /// Input BED, GFF or VCF (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// The directory IGV writes the images to, as IGV is to read it.
+    #[arg(long, value_name = "DIR", default_value = "./")]
+    pub path: String,
+    /// An IGV session file to load before the snapshots.
+    #[arg(long, value_name = "FILE")]
+    pub session: Option<String>,
+    /// Sort the reads of each image: base, position, strand, quality, sample or readGroup.
+    #[arg(
+        long,
+        value_name = "KEY",
+        value_parser = clap::builder::PossibleValuesParser::new(gloci_ops::IGV_SORTS)
+    )]
+    pub sort: Option<String>,
+    /// Collapse the reads before each snapshot.
+    #[arg(long)]
+    pub collapse: bool,
+    /// Put the name of each record in its image's file name.
+    #[arg(long)]
+    pub name: bool,
+    /// Bases to show on each side of the feature (the image file name ends _slopN).
+    #[arg(long, value_name = "N", default_value_t = 0, value_parser = parse_slop)]
+    pub slop: i64,
+    /// The image type.
+    #[arg(
+        long,
+        value_name = "TYPE",
+        default_value = "png",
+        value_parser = ["png", "eps", "svg"]
+    )]
+    pub image: String,
+    #[command(flatten)]
+    pub format: FormatArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    /// Write the script to FILE instead of stdout; .gz compresses it. A file is written only
+    /// when the command succeeds.
+    #[arg(short, long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
+}
+
+fn parse_slop(s: &str) -> Result<i64, String> {
+    match s.parse::<i64>() {
+        Ok(n) if (0..=i64::from(i32::MAX)).contains(&n) => Ok(n),
+        _ => Err(format!(
+            "\"{s}\" is not a whole number of bases from 0 to {}",
+            i32::MAX
+        )),
+    }
+}
+
+/// Write an HTML page with a link to the UCSC Genome Browser for each feature (bedtools links).
+///
+/// The page has a table with one row per BED, GFF or VCF record: a link to the record's
+/// region, and the record's name, score and strand when it has them. Open it in a browser. The
+/// links point to the UCSC browser for human hg18, as bedtools does; --base, --org and --db
+/// point them at another build or a mirror. Records are read in order and need no sorting. As
+/// in bedtools, a zero-length BED record is shown one base wider on each side and every BED or
+/// GFF record must have the same number of columns.
+#[derive(Args)]
+#[command(about = "HTML genome browser links per feature (bedtools links)")]
+#[command(after_long_help = "\
+Examples:
+  gloci links peaks.bed -o peaks.html
+  gloci links peaks.bed --org human --db hg38 -o peaks.html
+  gloci links peaks.bed --base http://mirror.example.edu --org mouse --db mm9
+
+Columns:
+A BED record of 4, 5, 6, 9 or 12 columns gets the name, then the score, then the strand, as \
+far as it has them. A BED record of any other length gets the link alone. A GFF record gets \
+its feature type, score and strand. A VCF record gets the link alone, or for 9 or 12 columns \
+REF/ALT_ID, an empty score and the strand +. Nothing is escaped, as in bedtools.
+
+Title:
+The page title is the input's name as given on the command line, or stdin for -.")]
+pub struct LinksArgs {
+    /// Input BED, GFF or VCF (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// The browser's address; the links add /cgi-bin/hgTracks.
+    #[arg(long, value_name = "URL", default_value = "http://genome.ucsc.edu")]
+    pub base: String,
+    /// The organism.
+    #[arg(long, value_name = "ORG", default_value = "human")]
+    pub org: String,
+    /// The genome build.
+    #[arg(long, value_name = "DB", default_value = "hg18")]
+    pub db: String,
+    #[command(flatten)]
+    pub format: FormatArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    /// Write the page to FILE instead of stdout; .gz compresses it. A file is written only
+    /// when the command succeeds.
+    #[arg(short, long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
+}

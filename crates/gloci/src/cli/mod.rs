@@ -128,6 +128,10 @@ pub enum Commands {
     Bedcov(BedcovArgs),
     #[command(before_help = EXPERIMENTAL)]
     Reheader(ReheaderArgs),
+    #[command(before_help = EXPERIMENTAL)]
+    Igv(IgvArgs),
+    #[command(before_help = EXPERIMENTAL)]
+    Links(LinksArgs),
 }
 
 /// The groups of the commands outside the stable core, in the order `gloci --help` lists them:
@@ -150,6 +154,8 @@ pub const EXPERIMENTAL_GROUPS: &[(&str, &[&str])] = &[
             "map",
             "groupby",
             "convert",
+            "igv",
+            "links",
         ],
     ),
     (
