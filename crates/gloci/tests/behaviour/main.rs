@@ -16,3 +16,4 @@ mod matrices;
 mod process;
 mod samtools_matrices;
 mod stats_matrices;
+mod stdin;
