@@ -5,7 +5,7 @@
 //! published together only when the whole run succeeds.
 
 use crate::vcf_select::{SelectedInput, VcfSelect};
-use crate::vcf_stats::{StatsSummary, run_stats, selection_fields};
+use crate::vcf_stats::{StatsRun, StatsSummary, run_stats, selection_fields};
 use gloci_io::{IoError, UsageError};
 use gloci_vcf::Stat;
 use gloci_vcf::popgen::{FST_TWO_FILES, Populations, SitePi, TajimaD, WeirFst, WindowPi};
@@ -150,12 +150,14 @@ pub fn vcf_popgen(
     let name = input.reader().name().to_string();
     run_stats(
         input,
-        &o.select,
-        &o.out_prefix,
-        selection_fields(&o.select),
-        true,
-        threads,
-        COMMAND,
+        &StatsRun {
+            select: &o.select,
+            prefix: &o.out_prefix,
+            fields: selection_fields(&o.select),
+            need_genotypes: true,
+            threads,
+            command: COMMAND,
+        },
         &|samples, _| {
             if samples.is_empty() {
                 return Err(usage(format!(

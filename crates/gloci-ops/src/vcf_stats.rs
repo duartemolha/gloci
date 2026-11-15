@@ -285,12 +285,14 @@ pub fn vcf_stats(input: SelectedInput, o: &StatsOptions) -> Result<StatsSummary,
     check_request(o)?;
     run_stats(
         input,
-        &o.select,
-        &o.out_prefix,
-        decode_fields(o),
-        o.request.needs_genotypes(),
-        o.threads.unwrap_or(NonZeroUsize::MIN),
-        COMMAND,
+        &StatsRun {
+            select: &o.select,
+            prefix: &o.out_prefix,
+            fields: decode_fields(o),
+            need_genotypes: o.request.needs_genotypes(),
+            threads: o.threads.unwrap_or(NonZeroUsize::MIN),
+            command: COMMAND,
+        },
         &|samples, _| Ok(build_stats(&o.request, samples)),
     )
 }
@@ -300,24 +302,39 @@ pub fn vcf_stats(input: SelectedInput, o: &StatsOptions) -> Result<StatsSummary,
 pub(crate) type BuildStats<'a> =
     dyn Fn(&[(usize, String)], &VcfHeader) -> Result<Vec<Box<dyn Stat>>, IoError> + 'a;
 
+/// How [`run_stats`] runs: the selection, where the files go, what to decode.
+pub(crate) struct StatsRun<'a> {
+    pub select: &'a VcfSelect,
+    /// Each statistic writes `prefix.<extension>`.
+    pub prefix: &'a Path,
+    /// The optional FORMAT fields to decode.
+    pub fields: GtFields,
+    /// True when a statistic needs genotypes or [`gloci_vcf::SiteStats`].
+    pub need_genotypes: bool,
+    /// Threads the selection runs on.
+    pub threads: NonZeroUsize,
+    /// The command, for messages.
+    pub command: &'a str,
+}
+
 /// Run the selection stage on `input` and feed every selected record to the
 /// statistics `build` makes from the selected samples (index in the record
-/// and name) and the header, in one pass. Each statistic writes
-/// `prefix.<extension>`; the files are published together once every
-/// statistic has finished. `fields` names the optional FORMAT fields to
-/// decode, and `need_genotypes` must be true when a statistic needs genotypes
-/// or [`gloci_vcf::SiteStats`]. `command` names the command in messages.
-#[allow(clippy::too_many_arguments)]
+/// and name) and the header, in one pass, as `run` says. Each statistic
+/// writes `PREFIX.<extension>`; the files are published together once every
+/// statistic has finished.
 pub(crate) fn run_stats(
     input: SelectedInput,
-    select: &VcfSelect,
-    prefix: &Path,
-    fields: GtFields,
-    need_genotypes: bool,
-    threads: NonZeroUsize,
-    command: &str,
+    run: &StatsRun<'_>,
     build: &BuildStats<'_>,
 ) -> Result<StatsSummary, IoError> {
+    let &StatsRun {
+        select,
+        prefix,
+        fields,
+        need_genotypes,
+        threads,
+        command,
+    } = run;
     let (reader, mut chroms) = input.into_parts();
     let base = RewritePlan::default();
     // The selection computes the site statistics (under the masking rules)
