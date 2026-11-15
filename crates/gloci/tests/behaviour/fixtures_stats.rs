@@ -442,6 +442,8 @@ pub(crate) fn p3b_prefix_files(args: &[String], exts: &[&str], t: &str) -> Vec<V
 pub(crate) fn p3b_prefix_cmds(fx: &P3b) -> Vec<(String, Vec<String>, Vec<&'static str>)> {
     let cmp = ["diff.sites", "diff.indv", "diff.discordance_matrix"];
     let stats = ["frq", "lqual", "imiss", "het", "singletons", "snpden"];
+    let pop1 = fx.fx.plain("fst-pop1.txt", "s1\n");
+    let pop2 = fx.fx.plain("fst-pop2.txt", "s2\ns3\n");
     let mut c = vec![
         (
             "vcf compare".to_string(),
@@ -508,6 +510,23 @@ pub(crate) fn p3b_prefix_cmds(fx: &P3b) -> Vec<(String, Vec<String>, Vec<&'stati
                 "700",
             ]),
             ["sites.pi", "windowed.pi", "Tajima.D"].to_vec(),
+        ));
+        c.push((
+            format!("vcf popgen fst {tag}"),
+            sv(&[
+                "vcf",
+                "popgen",
+                f,
+                "--fst-pop",
+                &pop1,
+                "--fst-pop",
+                &pop2,
+                "--fst-window-size",
+                "1000",
+                "--fst-window-step",
+                "300",
+            ]),
+            ["weir.fst", "weir.fst.summary", "windowed.weir.fst"].to_vec(),
         ));
     }
     c

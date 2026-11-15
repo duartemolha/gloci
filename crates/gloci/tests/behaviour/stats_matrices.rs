@@ -187,6 +187,8 @@ fn p3b_empty_inputs_matrix() {
     let empty_pe_gz = fx.bgzf("empty.bedpe.gz", "");
     let hdr = p2_vcf(1..=1, 0);
     let hv = fx.plain("h.vcf", &hdr);
+    let fst_pop1 = fx.plain("fst-pop1.txt", "s1\n");
+    let fst_pop2 = fx.plain("fst-pop2.txt", "s2\ns3\n");
     let hv_gz = fx.bgzf("h.vcf.gz", &hdr);
     let hv_bcf = fx.bcf("h.bcf", &hdr);
     let hv2 = fx.plain("h2.vcf", &p3b_rename_samples(&hdr));
@@ -466,6 +468,21 @@ fn p3b_empty_inputs_matrix() {
             let t = std::fs::read_to_string(format!("{p}.{ext}")).unwrap();
             assert_eq!(t.lines().count(), 1, ".{ext}: {t}");
         }
+        // Fst: the column headers, and a summary of no site
+        gloci()
+            .args(["vcf", "popgen", v, "--out-prefix", &p])
+            .args(["--fst-pop", &fst_pop1, "--fst-pop", &fst_pop2])
+            .args(["--fst-window-size", "10"])
+            .assert()
+            .success();
+        for ext in ["weir.fst", "windowed.weir.fst"] {
+            let t = std::fs::read_to_string(format!("{p}.{ext}")).unwrap();
+            assert_eq!(t.lines().count(), 1, ".{ext}: {t}");
+        }
+        assert_eq!(
+            std::fs::read_to_string(format!("{p}.weir.fst.summary")).unwrap(),
+            "N_SITES\tMEAN_FST\tWEIGHTED_FST\n0\tnan\tnan\n"
+        );
         for (x, y) in [(v, v), (v, &one), (&one, v)] {
             let d = tempdir();
             let p = s_of(&d.path().join("c"));
@@ -740,6 +757,8 @@ fn p3b_failure_matrix() {
         ("truncated BCF", &vs.trunc_bcf, &vr.trunc_bcf, false, ""),
     ];
     let (sg, rg) = (&vs.good, &vr.good);
+    let fst_pop1 = fx.plain("fst-pop1.txt", "s1\n");
+    let fst_pop2 = fx.plain("fst-pop2.txt", "s2\ns3\n");
     // (name, template, sink, takes the sample-renamed input, order matters)
     type VCase<'a> = (&'a str, Vec<&'a str>, Sink, bool, bool);
     let vcf_cases: Vec<VCase> = vec![
@@ -825,6 +844,24 @@ fn p3b_failure_matrix() {
             vec!["vcf", "popgen", "--site-pi", "{IN}"],
             Sink::Prefix,
             false,
+            false,
+        ),
+        (
+            "vcf popgen fst",
+            vec![
+                "vcf",
+                "popgen",
+                "--fst-pop",
+                &fst_pop1,
+                "--fst-pop",
+                &fst_pop2,
+                "--fst-window-size",
+                "1000",
+                "{IN}",
+            ],
+            Sink::Prefix,
+            false,
+            // its own message for unsorted input: tests/vcf_popgen.rs
             false,
         ),
         (
@@ -979,6 +1016,19 @@ fn p3b_failure_matrix() {
         (
             "vcf popgen",
             vec!["vcf", "popgen", "--site-pi", "{IN}"],
+            Sink::Prefix,
+        ),
+        (
+            "vcf popgen fst",
+            vec![
+                "vcf",
+                "popgen",
+                "--fst-pop",
+                &fst_pop1,
+                "--fst-pop",
+                &fst_pop2,
+                "{IN}",
+            ],
             Sink::Prefix,
         ),
     ];
