@@ -108,24 +108,53 @@ fn zeroes<T: Clone + Default>(n: usize) -> Vec<T> {
     v
 }
 
-/// The threads worth starting for `work` pair-site steps.
-fn threads_for(work: usize, threads: NonZeroUsize) -> usize {
-    (work / MIN_WORK).clamp(1, threads.get())
+/// The threads worth starting for `work` pair-site steps, at least
+/// `min_work` each.
+fn threads_for(work: usize, threads: NonZeroUsize, min_work: usize) -> usize {
+    (work / min_work.max(1)).clamp(1, threads.get())
+}
+
+/// How a statistic splits its blocks between threads.
+#[derive(Clone, Copy, Debug)]
+struct Split {
+    threads: NonZeroUsize,
+    /// The pair-site steps a thread must have to be started ([`MIN_WORK`];
+    /// tests lower it to split small blocks).
+    min_work: usize,
+    /// The most row ranges a block was split into so far.
+    most: usize,
+}
+
+impl Split {
+    fn new(threads: NonZeroUsize) -> Split {
+        Split {
+            threads,
+            min_work: MIN_WORK,
+            most: 0,
+        }
+    }
+
+    /// The threads for a block of `work` pair-site steps.
+    fn threads(&self, work: usize) -> usize {
+        threads_for(work, self.threads, self.min_work)
+    }
 }
 
 /// Run `f` over contiguous ranges of rows of `tri`, each with the slices of
-/// `a` and `b` that hold its pairs, on up to `threads` threads.
+/// `a` and `b` that hold its pairs, on up to `threads` threads; the number
+/// of ranges.
 fn split_rows<A: Send, B: Send>(
     tri: Triangle,
     a: &mut [A],
     b: &mut [B],
     threads: usize,
     f: impl Fn(Range<usize>, &mut [A], &mut [B]) + Sync,
-) {
+) -> usize {
     let parts = tri.split(threads);
-    if parts.len() <= 1 {
+    let used = parts.len();
+    if used <= 1 {
         f(0..tri.n, a, b);
-        return;
+        return used;
     }
     std::thread::scope(|scope| {
         let (mut a, mut b) = (a, b);
@@ -143,6 +172,7 @@ fn split_rows<A: Send, B: Send>(
             }
         }
     });
+    used
 }
 
 /// A sample's ALT allele count (0, 1 or 2), `None` when its genotype is
@@ -213,7 +243,7 @@ fn header(out: &mut Out, line: &str) -> io::Result<()> {
 /// from a million).
 pub struct RelatednessManichaikul {
     samples: Vec<(usize, String)>,
-    threads: NonZeroUsize,
+    split: Split,
     tri: Triangle,
     /// Per pair: both heterozygous, and opposite homozygotes.
     both_het: Vec<u32>,
@@ -246,7 +276,7 @@ impl RelatednessManichaikul {
             hom_alt: zeroes(n),
             tri: Triangle { n },
             samples,
-            threads,
+            split: Split::new(threads),
             filled: 0,
             used: 0,
             scratch: SampleFields::default(),
@@ -261,11 +291,11 @@ impl RelatednessManichaikul {
         }
         let (tri, het, hom_ref, hom_alt) = (self.tri, &self.het, &self.hom_ref, &self.hom_alt);
         let work = tri.row(tri.n).saturating_mul(4);
-        split_rows(
+        let used = split_rows(
             tri,
             &mut self.both_het,
             &mut self.opposite,
-            threads_for(work, self.threads),
+            self.split.threads(work),
             |rows, both, opp| {
                 let mut at = 0;
                 for i in rows {
@@ -284,6 +314,7 @@ impl RelatednessManichaikul {
                 }
             },
         );
+        self.split.most = self.split.most.max(used);
         self.het.fill(0);
         self.hom_ref.fill(0);
         self.hom_alt.fill(0);
@@ -304,6 +335,19 @@ impl RelatednessManichaikul {
         let (both, opp) = self.counts(i, j);
         let het = |k: usize| f64::from(self.both_het[self.tri.row(k)]);
         (f64::from(both) - 2.0 * f64::from(opp)) / (het(i) + het(j))
+    }
+
+    /// Split a block between threads from `steps` pair-site steps a
+    /// thread instead of the default. For tests.
+    #[doc(hidden)]
+    pub fn set_min_work(&mut self, steps: usize) {
+        self.split.min_work = steps;
+    }
+
+    /// The most threads that took rows of one block so far. For tests.
+    #[doc(hidden)]
+    pub fn most_threads(&self) -> usize {
+        self.split.most
     }
 
     /// The bytes of the matrix and of the block. For tests.
@@ -401,7 +445,7 @@ impl Stat for RelatednessManichaikul {
 /// called together at no site is `nan`.
 pub struct RelatednessYang {
     samples: Vec<(usize, String)>,
-    threads: NonZeroUsize,
+    split: Split,
     tri: Triangle,
     /// Per pair: the sum and the sites called at both.
     sums: Vec<f64>,
@@ -439,7 +483,7 @@ impl RelatednessYang {
             called: zeroes(n),
             tri: Triangle { n },
             samples,
-            threads,
+            split: Split::new(threads),
             filled: 0,
             used: 0,
             scratch: SampleFields::default(),
@@ -455,11 +499,11 @@ impl RelatednessYang {
         }
         let (tri, called, centred, div) = (self.tri, &self.called, &self.centred, &self.div);
         let work = tri.row(tri.n).saturating_mul(self.filled);
-        split_rows(
+        let used = split_rows(
             tri,
             &mut self.sums,
             &mut self.counts,
-            threads_for(work, self.threads),
+            self.split.threads(work),
             |rows, sums, counts| {
                 let n = tri.n;
                 let mut at = 0;
@@ -491,6 +535,7 @@ impl RelatednessYang {
                 }
             },
         );
+        self.split.most = self.split.most.max(used);
         self.called.fill(0);
         self.filled = 0;
     }
@@ -502,6 +547,19 @@ impl RelatednessYang {
         let p = self.tri.at(i, j);
         let mean = self.sums[p] / f64::from(self.counts[p]);
         if i == j { 1.0 + mean } else { mean }
+    }
+
+    /// Split a block between threads from `steps` pair-site steps a
+    /// thread instead of the default. For tests.
+    #[doc(hidden)]
+    pub fn set_min_work(&mut self, steps: usize) {
+        self.split.min_work = steps;
+    }
+
+    /// The most threads that took rows of one block so far. For tests.
+    #[doc(hidden)]
+    pub fn most_threads(&self) -> usize {
+        self.split.most
     }
 
     /// The bytes of the matrix and of the block. For tests.
@@ -639,8 +697,10 @@ mod tests {
     #[test]
     fn work_decides_the_threads() {
         let t = NonZeroUsize::new(8).unwrap();
-        assert_eq!(threads_for(0, t), 1);
-        assert_eq!(threads_for(MIN_WORK * 3, t), 3);
-        assert_eq!(threads_for(usize::MAX, t), 8);
+        assert_eq!(threads_for(0, t, MIN_WORK), 1);
+        assert_eq!(threads_for(MIN_WORK * 3, t, MIN_WORK), 3);
+        assert_eq!(threads_for(usize::MAX, t, MIN_WORK), 8);
+        assert_eq!(threads_for(5, t, 1), 5);
+        assert_eq!(threads_for(5, t, 0), 5);
     }
 }

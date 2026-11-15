@@ -565,17 +565,47 @@ fn site_by_site(sites: &[Vec<String>]) -> (Vec<Vec<f64>>, Vec<Vec<u32>>) {
     (sum, count)
 }
 
+/// The counts of `--relatedness2`, site by site: per pair i ≤ j, the sites
+/// where both are heterozygous and where they are opposite homozygotes.
+fn kinship_site_by_site(sites: &[Vec<String>]) -> (Vec<Vec<u32>>, Vec<Vec<u32>>) {
+    let n = sites[0].len();
+    let mut both_het = vec![vec![0u32; n]; n];
+    let mut opposite = vec![vec![0u32; n]; n];
+    for site in sites {
+        let x: Vec<Option<u32>> = site.iter().map(|g| dosage(g, &NO_MASK)).collect();
+        for i in 0..n {
+            let Some(xi) = x[i] else { continue };
+            for j in i..n {
+                match (xi, x[j]) {
+                    (1, Some(1)) => both_het[i][j] += 1,
+                    (0, Some(2)) | (2, Some(0)) => opposite[i][j] += 1,
+                    _ => {}
+                }
+            }
+        }
+    }
+    (both_het, opposite)
+}
+
 #[test]
 fn relatedness_blocks() {
-    // 300 samples: enough work per block for every thread to take rows.
+    // 300 samples: enough work per block for every thread to take rows of
+    // --relatedness. --relatedness2 does about 4 steps a pair, not 64, so a
+    // block of 300 samples stays on one thread; a lower threshold splits it.
     let n = 300;
     let sites = generated(13, n, 130);
     let (sum, count) = site_by_site(&sites);
+    let (both_het, opposite) = kinship_site_by_site(&sites);
     let lines = lines_of(&sites);
     let mut first: Option<String> = None;
     for t in [1, 2, 3, 8] {
         let mut stat = RelatednessYang::new(named(n), threads(t)).unwrap();
         let out = run(&mut stat, &lines, &NO_MASK);
+        assert_eq!(
+            stat.most_threads(),
+            t,
+            "--relatedness -t {t}: threads with rows"
+        );
         for i in 0..n {
             for j in i..n {
                 let mean = sum[i][j] / f64::from(count[i][j]);
@@ -588,13 +618,40 @@ fn relatedness_blocks() {
             }
         }
         let mut m = RelatednessManichaikul::new(named(n), threads(t)).unwrap();
+        m.set_min_work(1);
         let out2 = run(&mut m, &lines, &NO_MASK);
+        assert_eq!(
+            m.most_threads(),
+            t,
+            "--relatedness2 -t {t}: threads with rows"
+        );
+        for i in 0..n {
+            for j in i..n {
+                assert_eq!(
+                    m.counts(i, j),
+                    (both_het[i][j], opposite[i][j]),
+                    "-t {t}: s{i}, s{j}"
+                );
+            }
+        }
         let both = format!("{out}{out2}");
         match &first {
             None => first = Some(both),
             Some(f) => assert!(*f == both, "-t {t} wrote other files than -t 1"),
         }
     }
+    // At the default threshold --relatedness2 splits a block of 1,024
+    // samples between 8 threads, and writes what one thread writes.
+    let n = 1024;
+    let sites = generated(17, n, 20);
+    let lines = lines_of(&sites);
+    let mut files = Vec::new();
+    for t in [1, 8] {
+        let mut m = RelatednessManichaikul::new(named(n), threads(t)).unwrap();
+        files.push(run(&mut m, &lines, &NO_MASK));
+        assert_eq!(m.most_threads(), t, "1,024 samples, -t {t}");
+    }
+    assert!(files[0] == files[1], "-t 8 wrote another file than -t 1");
     // the 130 sites hold two full blocks and a partial one, and some sites
     // are not used, so used sites and blocks do not line up
     assert!(count[0][0] > 64 && count[0][0] < 130, "{}", count[0][0]);
