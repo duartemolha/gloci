@@ -82,6 +82,7 @@ def functions() -> None:
     written: list[pathlib.Path] = gloci.vcf_stats("a.vcf", out="stats", freq=True)
     gloci.vcf_extract_matrix("a.vcf", out="m")
     gloci.vcf_compare("a.vcf", gloci.open("b.vcf"), out="cmp", site_discordance=True)
+    gloci.vcf_popgen("a.vcf", out="pg", fst_pop=["p1.txt", "p2.txt"], relatedness=True)
     gloci.index(pathlib.Path("a.bed.gz"))
     _ = written
 

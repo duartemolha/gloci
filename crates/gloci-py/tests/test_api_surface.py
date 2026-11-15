@@ -81,9 +81,15 @@ def test_runtime_methods_match_stub() -> None:
 
 def test_runtime_functions_match_stub() -> None:
     functions = stub_functions()
-    assert {"open", "windows", "random", "vcf_stats", "vcf_extract_matrix", "vcf_compare"} <= set(
-        functions
-    )
+    assert {
+        "open",
+        "windows",
+        "random",
+        "vcf_stats",
+        "vcf_extract_matrix",
+        "vcf_compare",
+        "vcf_popgen",
+    } <= set(functions)
     for name, node in functions.items():
         got = runtime_params(getattr(gloci, name))
         assert got == stub_params(node), f"gloci.{name}"
@@ -163,6 +169,8 @@ def test_short_flags_and_aliases_are_parameters() -> None:
     assert inter["f"].default is None
     cmp_ = inspect.signature(gloci.vcf_compare).parameters
     assert "sample_map" in cmp_ and "diff_indv_map" in cmp_
+    pg = inspect.signature(gloci.vcf_popgen).parameters
+    assert {"src", "out", "fst_pop", "relatedness", "relatedness2", "max_mem"} <= set(pg)
     rnd = inspect.signature(gloci.random).parameters
     assert rnd["genome"].default is None and rnd["g"].default is None  # one of them is needed
     # The names that are not identifiers are in the docstring, not the signature.

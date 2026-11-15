@@ -1,6 +1,6 @@
 """D87's module functions: the sources `windows()` and `random()`, which start a pipeline with
 no input, and the functions that write files at once, as the command line does
-(`vcf_stats()`, `vcf_extract_matrix()`, `vcf_compare()`, `index()`).
+(`vcf_stats()`, `vcf_extract_matrix()`, `vcf_compare()`, `vcf_popgen()`, `index()`).
 
 Keyword arguments are the command's flags with `-` written as `_` (D86), checked before
 anything runs. The functions run through the same driver as a pipeline: the GIL is released,
@@ -27,7 +27,15 @@ from ._pipeline import (
 from ._signature import SIGNATURES, make_doc, make_signature
 from .errors import UsageError
 
-__all__ = ["index", "random", "vcf_compare", "vcf_extract_matrix", "vcf_stats", "windows"]
+__all__ = [
+    "index",
+    "random",
+    "vcf_compare",
+    "vcf_extract_matrix",
+    "vcf_popgen",
+    "vcf_stats",
+    "windows",
+]
 
 #: Each module function's command, by name (`_native.module_functions()`).
 _FUNCTIONS: dict[str, dict[str, Any]] = {
@@ -111,6 +119,12 @@ def vcf_compare(
     kw = _with_prefix("vcf_compare()", out, kwargs)
     sources = [classify_source(a, "vcf_compare()"), classify_source(b, "vcf_compare()")]
     return _run("vcf_compare", sources, kw)
+
+
+def vcf_popgen(src: object, *, out: str | os.PathLike[str], **kwargs: Any) -> list[pathlib.Path]:
+    # The docstring is made from the command's spec (below).
+    kw = _with_prefix("vcf_popgen()", out, kwargs)
+    return _run("vcf_popgen", [classify_source(src, "vcf_popgen()")], kw)
 
 
 def index(path: str | os.PathLike[str], **kwargs: Any) -> list[pathlib.Path]:

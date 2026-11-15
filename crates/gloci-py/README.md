@@ -186,6 +186,7 @@ sorted:
 print(gloci.vcf_stats("calls.vcf", out="stats", freq=True))        # stats.frq
 print(gloci.vcf_extract_matrix("calls.vcf", out="matrix"))         # matrix.012, .012.indv, .012.pos
 print(gloci.vcf_compare("calls.vcf", "calls.vcf", out="cmp", site_discordance=True))
+print(gloci.vcf_popgen("calls.vcf", out="pg", site_pi=True, relatedness2=True))
 gloci.open("a.bed").sort().save("a.sorted.bed.gz")
 print(gloci.index("a.sorted.bed.gz"))                              # the index next to the file
 ```

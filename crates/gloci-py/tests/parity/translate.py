@@ -12,8 +12,8 @@ result is a `Call`, which runs the call when called and returns the output's byt
   (`-O sam` to stdout: saved to a scratch file, whose bytes are the output);
 - a module source (`windows -g`, `random`): `gloci.windows(**kwargs)` and the same terminals;
 - an eager module function (`vcf stats`, `vcf extract --genotype-matrix`, `vcf compare`,
-  `index`): the function, with `--out-prefix` as `out=`; it writes files, whose paths are kept
-  in `Call.written`, and the output (its stdout) is empty.
+  `vcf popgen`, `index`): the function, with `--out-prefix` as `out=`; it writes files, whose
+  paths are kept in `Call.written`, and the output (its stdout) is empty.
 
 Standard input (`-`) is the file given as `stdin`, as a file object. `vcf merge --file-list
 F` passes F's files as the step's sources, which is how a step takes several inputs.
@@ -497,12 +497,19 @@ def translate(args: list[str] | str, *, stdin: str | os.PathLike[str] | None = N
     if b["input"] == "flag" and len(values) != 1:
         raise UntranslatableError(f"{bound} is given {len(values)} times")
     inputs = [_stdin(w, stdin) for w in values]
+    terminal = _terminal(parsed, options)
+    output = _output(parsed, options)
+    if output is None and set(terminal) - {"threads"} and "output_format" not in terminal:
+        # Saved to the scratch file, which has no extension: name the format the command
+        # writes to standard output when a flag rather than `-O` chooses it.
+        if path == ("convert",) and options.get("bam") is True:
+            terminal["output_format"] = "bam"
     return Call(
         words,
         "step",
         b["method"],
         inputs,
         kwargs({bound, *_TERMINAL}),
-        _terminal(parsed, options),
-        _output(parsed, options),
+        terminal,
+        output,
     )

@@ -430,7 +430,8 @@ fn source_argv(
     })
 }
 
-/// The argv of a module function (`vcf_stats`, `vcf_extract_matrix`, `vcf_compare`, `index`;
+/// The argv of a module function (`vcf_stats`, `vcf_extract_matrix`, `vcf_compare`, `vcf_popgen`,
+/// `index`;
 /// [`embed::MODULE_FUNCTIONS`]), which runs at once: `gloci <path> <keyword arguments> --
 /// <inputs>`, its inputs being all of its positionals ([`Role::Function`]). With `check`, clap
 /// must accept it, or a `UsageError` in keyword terms is raised. With `tokens` false (a check of

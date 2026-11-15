@@ -687,8 +687,8 @@ fn every_cli_command_is_bound_or_excluded() {
         .map(|b| b.method)
         .collect();
     assert_eq!(needs_file, ["faidx", "reheader"]);
-    // Everything but vcf popgen is placed; a new command fails above until it is.
-    assert_eq!(embed::UNBOUND, [&["vcf", "popgen"][..]]);
+    // Everything is placed; a new command fails above until it is.
+    assert!(embed::UNBOUND.is_empty(), "{:?}", embed::UNBOUND);
     for f in embed::SOURCES {
         assert!(
             embed::MODULE_FUNCTIONS.iter().any(|(_, m)| m == f),

@@ -7,12 +7,20 @@ Each step is a gloci command (`gloci intersect`, `gloci merge`), run in the same
 command line, so the output equals the shell pipeline that `Pipeline.cli()` prints. A source is
 a path, a file object, an iterable of lines or tuples, an Arrow table (pyarrow, polars,
 pandas) or another pipeline; `gloci.windows()` and `gloci.random()` start a pipeline with no
-input, and `vcf_stats()`, `vcf_extract_matrix()`, `vcf_compare()` and `index()` write files at
-once. A pipeline's output comes back as bytes, a count, `gloci.Record`s (iteration), or an
+input, and `vcf_stats()`, `vcf_extract_matrix()`, `vcf_compare()`, `vcf_popgen()` and `index()`
+write files at once. A pipeline's output comes back as bytes, a count, `gloci.Record`s (iteration), or an
 Arrow table (`to_arrow_stream()`, `to_arrow()`, `to_polars()`, `to_pandas()`).
 """
 
-from ._functions import index, random, vcf_compare, vcf_extract_matrix, vcf_stats, windows
+from ._functions import (
+    index,
+    random,
+    vcf_compare,
+    vcf_extract_matrix,
+    vcf_popgen,
+    vcf_stats,
+    windows,
+)
 from ._native import ArrowStream, Record, RecordIterator, __version__
 from ._pipeline import Pipeline, open
 from ._types import Source, SupportsArrowStream
@@ -35,6 +43,7 @@ __all__ = [
     "random",
     "vcf_compare",
     "vcf_extract_matrix",
+    "vcf_popgen",
     "vcf_stats",
     "windows",
 ]

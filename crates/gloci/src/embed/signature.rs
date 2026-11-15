@@ -57,7 +57,7 @@ pub const OUT_HELP: &str =
 /// A module function's leading positional parameters, with their help.
 pub fn function_inputs(function: &str) -> &'static [(&'static str, &'static str)] {
     match function {
-        "vcf_stats" | "vcf_extract_matrix" => &[("src", SOURCE_HELP)],
+        "vcf_stats" | "vcf_extract_matrix" | "vcf_popgen" => &[("src", SOURCE_HELP)],
         "vcf_compare" => &[("a", SOURCE_HELP), ("b", SOURCE_HELP)],
         "index" => &[(
             "path",

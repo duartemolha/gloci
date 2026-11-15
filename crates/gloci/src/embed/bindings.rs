@@ -207,6 +207,7 @@ pub const MODULE_FUNCTIONS: &[(&[&str], &str)] = &[
     (&["vcf", "stats"], "vcf_stats"),
     (&["vcf", "extract"], "vcf_extract_matrix"),
     (&["vcf", "compare"], "vcf_compare"),
+    (&["vcf", "popgen"], "vcf_popgen"),
     (&["index"], "index"),
     (&["windows"], "windows"),
     (&["random"], "random"),
@@ -221,9 +222,8 @@ pub const SOURCES: &[&str] = &["windows", "random"];
 pub const CLI_ONLY: &[&[&str]] = &[&["genomes"], &["check"], &["flags"]];
 
 /// Commands not placed yet. A new command goes here until it is bound, made a module function
-/// or added to [`CLI_ONLY`]: `vcf popgen` becomes a module function once its statistics are
-/// complete, as `vcf stats` and `vcf compare` are.
-pub const UNBOUND: &[&[&str]] = &[&["vcf", "popgen"]];
+/// or added to [`CLI_ONLY`]; every command is placed now.
+pub const UNBOUND: &[&[&str]] = &[];
 
 fn same<S: AsRef<str>>(a: &[&str], b: &[S]) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(x, y)| *x == y.as_ref())

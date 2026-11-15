@@ -2704,6 +2704,152 @@ def vcf_compare(
     CLI: gloci vcf compare
     """
 
+def vcf_popgen(
+    src: Source,
+    *,
+    out: str | os.PathLike[str],
+    samples: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+    samples_file: Source | None = None,
+    exclude_samples: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+    exclude_samples_file: Source | None = None,
+    min_gq: str | int | float | os.PathLike[str] | None = None,
+    min_dp: str | int | float | os.PathLike[str] | None = None,
+    max_dp: str | int | float | os.PathLike[str] | None = None,
+    mask_filtered_genotypes: bool = False,
+    region: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+    regions_file: Source | None = None,
+    exclude_regions_file: Source | None = None,
+    chrom: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+    exclude_chrom: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+    positions: Source | None = None,
+    exclude_positions: Source | None = None,
+    ids: Source | None = None,
+    exclude_ids: Source | None = None,
+    types: Literal["snv", "mnv", "ins", "del", "indel", "sv", "ref", "other"] | Sequence[Literal["snv", "mnv", "ins", "del", "indel", "sv", "ref", "other"]] | None = None,
+    exclude_types: Literal["snv", "mnv", "ins", "del", "indel", "sv", "ref", "other"] | Sequence[Literal["snv", "mnv", "ins", "del", "indel", "sv", "ref", "other"]] | None = None,
+    min_alleles: str | int | float | os.PathLike[str] | None = None,
+    max_alleles: str | int | float | os.PathLike[str] | None = None,
+    biallelic: bool = False,
+    min_qual: str | int | float | os.PathLike[str] | None = None,
+    pass_only: bool = False,
+    keep_filter: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+    remove_filter: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+    require_info: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+    exclude_info: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+    include: str | int | float | os.PathLike[str] | None = None,
+    exclude: str | int | float | os.PathLike[str] | None = None,
+    min_maf: str | int | float | os.PathLike[str] | None = None,
+    max_maf: str | int | float | os.PathLike[str] | None = None,
+    min_mac: str | int | float | os.PathLike[str] | None = None,
+    max_mac: str | int | float | os.PathLike[str] | None = None,
+    max_missing: str | int | float | os.PathLike[str] | None = None,
+    max_missing_count: str | int | float | os.PathLike[str] | None = None,
+    min_mean_dp: str | int | float | os.PathLike[str] | None = None,
+    max_mean_dp: str | int | float | os.PathLike[str] | None = None,
+    hwe: str | int | float | os.PathLike[str] | None = None,
+    thin: str | int | float | os.PathLike[str] | None = None,
+    phased_only: bool = False,
+    inclusive_points: bool = False,
+    site_pi: bool = False,
+    window_pi: str | int | float | os.PathLike[str] | None = None,
+    window_pi_step: str | int | float | os.PathLike[str] | None = None,
+    tajima_d: str | int | float | os.PathLike[str] | None = None,
+    fst_pop: Source | Sequence[Source] | None = None,
+    fst_window_size: str | int | float | os.PathLike[str] | None = None,
+    fst_window_step: str | int | float | os.PathLike[str] | None = None,
+    geno_r2: bool = False,
+    hap_r2: bool = False,
+    interchrom_geno_r2: bool = False,
+    interchrom_hap_r2: bool = False,
+    ld_window: str | int | float | os.PathLike[str] | None = None,
+    ld_window_bp: str | int | float | os.PathLike[str] | None = None,
+    ld_window_min: str | int | float | os.PathLike[str] | None = None,
+    ld_window_bp_min: str | int | float | os.PathLike[str] | None = None,
+    min_r2: str | int | float | os.PathLike[str] | None = None,
+    max_mem: str | int | float | os.PathLike[str] | None = None,
+    relatedness: bool = False,
+    relatedness2: bool = False,
+    vcf_span: Literal["allele", "ref"] | None = None,
+    chrom_map: Source | None = None,
+    threads: str | int | float | os.PathLike[str] | None = None,
+    t: str | int | float | os.PathLike[str] | None = None,
+    skip_invalid: bool = False,
+) -> list[pathlib.Path]:
+    """Pi, Tajima's D, Fst, LD and relatedness (vcftools popgen)
+
+    Args:
+        src: Any source: a path, a file object, an iterable of lines or tuples, an Arrow table, or a Pipeline.
+        out: The prefix of the files written (`--out-prefix`); the files are returned, sorted.
+        samples: Keep only these sample names (repeatable or comma-separated). They are written in the input header's order, not the order given here (bcftools view -s writes them in the order given)
+        samples_file: File containing sample names to keep, one per line (written in the input header's order, as with --samples)
+        exclude_samples: Remove these sample names (repeatable or comma-separated)
+        exclude_samples_file: File containing sample names to remove, one per line
+        min_gq: Mask genotypes with FORMAT/GQ below N
+        min_dp: Mask genotypes with FORMAT/DP below N
+        max_dp: Mask genotypes with FORMAT/DP above N
+        mask_filtered_genotypes: Mask genotypes whose FORMAT/FT is not PASS, . or absent
+        region: Restrict to a region such as chr1:1,000-2,000 (repeatable)
+        regions_file: Read regions from FILE (BED: 0-based, half-open); see --region
+        exclude_regions_file: Exclude records whose footprint overlaps a region in FILE (BED)
+        chrom: Keep records on these chromosomes (repeatable or comma-separated)
+        exclude_chrom: Remove records on these chromosomes (repeatable or comma-separated)
+        positions: Keep records matching (chrom, POS) in FILE
+        exclude_positions: Remove records matching (chrom, POS) in FILE
+        ids: Keep records whose ID matches a name in FILE
+        exclude_ids: Remove records whose ID matches a name in FILE
+        types: Keep records of these variant types (snv, mnv, ins, del, indel, sv, ref, other)
+        exclude_types: Remove records of these variant types
+        min_alleles: Minimum number of listed alleles (REF + ALTs)
+        max_alleles: Maximum number of listed alleles (REF + ALTs)
+        biallelic: Restrict to biallelic sites (equivalent to --min-alleles 2 --max-alleles 2)
+        min_qual: Minimum QUAL score
+        pass_only: Keep only records whose FILTER is PASS or
+        keep_filter: Keep records containing any of these FILTER tags
+        remove_filter: Remove records containing any of these FILTER tags
+        require_info: Keep only records that define this INFO tag
+        exclude_info: Remove records that define this INFO tag
+        include: Keep records for which the bcftools-style EXPR holds, e.g. 'QUAL>30 && INFO/DP>10 && N_PASS(GT="het")>=2'. FORMAT fields are limited to GT, DP and GQ. With --samples it sees only the selected samples (bcftools view -s -i sees all of them), and a sample masked by --min-gq and friends reads as missing in it, though the output keeps its values
+        exclude: Remove records for which the bcftools-style EXPR holds (same grammar as --include)
+        min_maf: Minimum minor allele frequency among called genotypes [0, 1]
+        max_maf: Maximum minor allele frequency among called genotypes [0, 1]
+        min_mac: Minimum minor allele count among called genotypes
+        max_mac: Maximum minor allele count among called genotypes
+        max_missing: Maximum fraction of missing genotypes [0, 1]
+        max_missing_count: Maximum count of missing genotypes across samples
+        min_mean_dp: Minimum mean read depth across samples with depth
+        max_mean_dp: Maximum mean read depth across samples with depth
+        hwe: Hardy-Weinberg p-value threshold (exact test on biallelic diploid sites)
+        thin: Minimum distance between kept sites in bp (first wins; requires sorted input)
+        phased_only: Keep only sites where every genotype of ploidy 2 or more is written phased (`|`), called or not, and every selected sample has a GT: `.|.` counts as phased, `./.` and a sample without GT do not (as vcftools --phased)
+        inclusive_points: A point on a region's edge overlaps it
+        site_pi: Nucleotide diversity per site: PREFIX.sites.pi (vcftools --site-pi)
+        window_pi: Nucleotide diversity in windows of SIZE bases: PREFIX.windowed.pi (vcftools --window-pi). Needs sorted input
+        window_pi_step: Start a --window-pi window every STEP bases, at most SIZE (vcftools --window-pi-step). Default: SIZE, windows that do not overlap
+        tajima_d: Tajima's D in bins of BIN bases: PREFIX.Tajima.D (vcftools --TajimaD). Needs sorted input
+        fst_pop: A population for Weir and Cockerham's Fst: a file of sample names, one per line. Give it once per population, at least twice: PREFIX.weir.fst and PREFIX.weir.fst.summary (vcftools --weir-fst-pop)
+        fst_window_size: Fst in windows of BP bases as well: PREFIX.windowed.weir.fst (vcftools --fst-window-size). Needs sorted input
+        fst_window_step: Start an Fst window every BP bases, at most the window size (vcftools --fst-window-step). Default: the window size, windows that do not overlap
+        geno_r2: Linkage disequilibrium as the squared correlation of genotypes: PREFIX.geno.ld (vcftools --geno-r2). Needs sorted input
+        hap_r2: Linkage disequilibrium of phased haplotypes, r2, D and D': PREFIX.hap.ld (vcftools --hap-r2). Needs sorted input
+        interchrom_geno_r2: --geno-r2 between every pair of sites on different chromosomes: PREFIX.interchrom.geno.ld (vcftools --interchrom-geno-r2)
+        interchrom_hap_r2: --hap-r2's r2 between every pair of sites on different chromosomes: PREFIX.interchrom.hap.ld (vcftools --interchrom-hap-r2)
+        ld_window: Pair sites at most N sites apart (vcftools --ld-window). Default: no limit
+        ld_window_bp: Pair sites at most BP bases apart (vcftools --ld-window-bp). Default: no limit
+        ld_window_min: Pair sites at least N sites apart (vcftools --ld-window-min). Default: 1
+        ld_window_bp_min: Pair sites at least BP bases apart (vcftools --ld-window-bp-min). Default: 0
+        min_r2: Leave out the pairs whose r2 is below R2, or nan, when R2 is above 0 (vcftools --min-r2)
+        max_mem: Memory the LD statistics may hold sites in together: 3 or 4 bits per selected sample and site, in 64-sample words, and 16 bytes per site; past it the run stops (see Memory)
+        relatedness: Yang's unadjusted relatedness Ajk of each pair of selected samples: PREFIX.relatedness (vcftools --relatedness)
+        relatedness2: Manichaikul's kinship phi of each pair of selected samples, with the counts it comes from: PREFIX.relatedness2 (vcftools --relatedness2)
+        vcf_span: Which footprint a VCF record covers: the allele span or the REF span. The statistics do not depend on it, so the default is ref, which accepts symbolic ALTs without INFO/END; it only matters for --region
+        chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
+        threads: Number of threads (default: all available cores)
+        t: alias of threads
+        skip_invalid: Skip invalid records with a warning instead of failing
+
+    CLI: gloci vcf popgen
+    """
+
 def index(
     path: str | os.PathLike[str],
     *,

@@ -114,7 +114,9 @@ class CliRuns:
             output = translate(case.args).output
         except UntranslatableError:
             output = None
-        out = files.get(output, b"") if output is not None else done.stdout
+        # `-o /dev/stdout` (`convert --fastq --fastq2 /dev/stdout`) is standard output
+        to_file = output is not None and output != "/dev/stdout"
+        out = files.get(output, b"") if to_file else done.stdout
         return Outcome(done.returncode, out, cli_message(done.stderr), files)
 
     def get(self, name: str) -> Outcome:
@@ -332,6 +334,10 @@ def test_ci_requires_gloci_bin(tmp_path: Path) -> None:
             "gloci.open('x.vcf').vcf_extract(format='GT').to_bytes()",
         ),
         ("vcf compare a.vcf b.vcf --out-prefix o", "gloci.vcf_compare('a.vcf', 'b.vcf', out='o')"),
+        (
+            "vcf popgen x.vcf --out-prefix o --site-pi --relatedness2",
+            "gloci.vcf_popgen('x.vcf', site_pi=True, relatedness2=True, out='o')",
+        ),
         ("index a.bed.gz", "gloci.index('a.bed.gz')"),
     ],
 )
@@ -380,6 +386,7 @@ VCF = (
         ("view calls.vcf -o out.vcf.gz --compression-level 1", None),
         ("view x.sam -O bam", None),
         ("vcf stats calls.vcf --out-prefix st --freq", None),
+        ("vcf popgen calls.vcf --out-prefix pg --site-pi --relatedness --relatedness2", None),
         ("index sorted.bed.gz", None),
     ],
 )
