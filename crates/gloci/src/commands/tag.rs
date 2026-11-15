@@ -13,18 +13,6 @@ use gloci_ops::tag::{
 use std::io::IsTerminal;
 
 pub fn run(ctx: &Ctx, a: &TagArgs) -> anyhow::Result<()> {
-    let stdin = std::iter::once(&a.input)
-        .chain(&a.b)
-        .filter(|p| *p == "-")
-        .count();
-    if stdin > 1 {
-        return Err(UsageError(
-            "tag reads standard input for at most one of its files (ALN and the -b files); give \
-the others a path"
-                .into(),
-        )
-        .into());
-    }
     let labels = || a.labels.clone().unwrap_or_default();
     let value = if a.names {
         TagValue::Names

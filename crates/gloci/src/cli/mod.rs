@@ -42,6 +42,12 @@ pub struct Cli {
     pub verbose: u8,
     #[command(subcommand)]
     pub command: Commands,
+    /// The inputs the command line gives `-` (standard input) to, in the order given, as the
+    /// user can find them (`-a`, `-b (value 2)`, `A`): read from the parse by
+    /// [`try_parse_from`], not an argument. A run gives them to its token before it starts
+    /// ([`crate::embed::execute`]), which refuses a second.
+    #[arg(skip)]
+    pub stdin_inputs: Vec<String>,
 }
 
 #[derive(Subcommand)]
@@ -242,5 +248,7 @@ where
 {
     let mut cmd = command();
     let matches = cmd.try_get_matches_from_mut(args)?;
-    Cli::from_arg_matches(&matches).map_err(|e| e.format(&mut cmd))
+    let mut cli = Cli::from_arg_matches(&matches).map_err(|e| e.format(&mut cmd))?;
+    cli.stdin_inputs = crate::embed::stdin_inputs(&cmd, &matches);
+    Ok(cli)
 }

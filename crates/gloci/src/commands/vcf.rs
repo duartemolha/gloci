@@ -509,13 +509,6 @@ pub fn run_compare(ctx: &Ctx, a: &VcfCompareArgs) -> anyhow::Result<()> {
             &a.invalid,
         )
     })?;
-    if a.a == "-" && a.b == "-" {
-        return Err(UsageError(
-            "vcf compare reads standard input for at most one of its two files; give the other a path"
-                .to_string(),
-        )
-        .into());
-    }
     let options = gloci_ops::CompareOptions {
         select,
         matching: match a.match_rule {

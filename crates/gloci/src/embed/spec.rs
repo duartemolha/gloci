@@ -183,13 +183,71 @@ fn walk(cmd: &clap::Command, path: &mut Vec<String>, out: &mut Vec<CommandSpec>)
 
 /// The value names (clap's placeholders) of the arguments whose values are files to read, besides
 /// any name holding `FILE` (`FILE`, `FILES`, `NAME|FILE`): the inputs named by what they hold
-/// (`IN`, `BED`, `FASTA`, `REF`, `SRC`, `HEADER`) and `vcf compare`'s `A` and `B`. Clap's value
-/// types cannot tell: many file arguments are text (`-b`), and `--tmp-dir` and `--out-prefix`
-/// are paths that are not read.
-pub const FILE_VALUE_NAMES: &[&str] = &["IN", "A", "B", "BED", "FASTA", "REF", "SRC", "HEADER"];
+/// (`IN`, `ALN`, `BED`, `FASTA`, `REF`, `SRC`, `HEADER`) and `vcf compare`'s `A` and `B`. Clap's
+/// value types cannot tell: many file arguments are text (`-b`), and `--tmp-dir` and
+/// `--out-prefix` are paths that are not read.
+pub const FILE_VALUE_NAMES: &[&str] = &[
+    "IN", "ALN", "A", "B", "BED", "FASTA", "REF", "SRC", "HEADER",
+];
 
 fn names_a_file(name: &str) -> bool {
     name.contains("FILE") || FILE_VALUE_NAMES.contains(&name)
+}
+
+/// Whether the values of `a` are files to read ([`ArgSpec::takes_file`]).
+fn takes_file(a: &clap::Arg) -> bool {
+    a.get_action().takes_values()
+        && a.get_id() != "output"
+        && a.get_value_names()
+            .unwrap_or_default()
+            .iter()
+            .any(|n| names_a_file(n.as_str()))
+}
+
+/// The inputs a parsed command line gives `-` (standard input) to, in the order given: each
+/// argument whose values are files to read ([`ArgSpec::takes_file`]) for each `-` the user wrote
+/// for it, named as the user can find it: its short flag (`-a`), else its long one, else (a
+/// positional) its value name (`A`), and the value's place when the argument was given several
+/// (`-b (value 2)`). `matches` are those of `cmd`, the root, as clap built it.
+pub(crate) fn stdin_inputs(cmd: &clap::Command, matches: &clap::ArgMatches) -> Vec<String> {
+    let (mut cmd, mut m) = (cmd, matches);
+    while let Some((name, sub)) = m.subcommand() {
+        let Some(c) = cmd.find_subcommand(name) else {
+            break;
+        };
+        (cmd, m) = (c, sub);
+    }
+    let mut found: Vec<(usize, String)> = Vec::new();
+    for a in cmd.get_arguments().filter(|a| takes_file(a)) {
+        let id = a.get_id().as_str();
+        if m.value_source(id) != Some(clap::parser::ValueSource::CommandLine) {
+            continue;
+        }
+        let (Ok(Some(values)), Some(at)) = (m.try_get_raw(id), m.indices_of(id)) else {
+            continue;
+        };
+        let values: Vec<_> = values.zip(at).collect();
+        let name = match (a.get_short(), a.get_long()) {
+            (Some(c), _) => format!("-{c}"),
+            (None, Some(l)) => format!("--{l}"),
+            (None, None) => a
+                .get_value_names()
+                .and_then(|n| n.first())
+                .map_or_else(|| id.to_uppercase(), |n| n.to_string()),
+        };
+        for (k, (v, i)) in values.iter().enumerate() {
+            if *v == "-" {
+                let label = if values.len() > 1 {
+                    format!("{name} (value {})", k + 1)
+                } else {
+                    name.clone()
+                };
+                found.push((*i, label));
+            }
+        }
+    }
+    found.sort_by_key(|(i, _)| *i);
+    found.into_iter().map(|(_, label)| label).collect()
 }
 
 fn arg_spec(a: &clap::Arg) -> ArgSpec {
@@ -234,12 +292,7 @@ fn arg_spec(a: &clap::Arg) -> ArgSpec {
             .filter(|v| !v.is_hide_set())
             .map(|v| v.get_name().to_string())
             .collect(),
-        takes_file: takes_value
-            && a.get_id() != "output"
-            && a.get_value_names()
-                .unwrap_or_default()
-                .iter()
-                .any(|n| names_a_file(n.as_str())),
+        takes_file: takes_file(a),
         help: a.get_help().map(|s| s.to_string()).unwrap_or_default(),
     }
 }

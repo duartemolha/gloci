@@ -11,7 +11,8 @@
 //!   calls `execute` ([`RunGuard::enter`]); `execute` installs it on every thread of the run
 //!   (the command's thread and its rayon pool). [`RunToken::cancel`] then makes the run fail
 //!   with a cancellation, removing partial output files. Judge the error under the same token:
-//!   [`classify`] on that thread, or [`classify_under`] elsewhere.
+//!   [`classify`] on that thread, or [`classify_under`] elsewhere. The token also holds which
+//!   input of the run reads standard input, so a token used for a second run refuses its `-`.
 //! - **Outputs.** A token made with [`RunToken::recording`] records every output file the
 //!   run commits ([`RunToken::outputs`]): the exact list of what it wrote, which no
 //!   directory listing can give while other writers share the directory. [`StageSet`] makes
@@ -55,6 +56,7 @@ pub use pipe::{PIPE_CHUNK, PIPE_CHUNKS, PipeFail, PipeReader, PipeWriter, pipe};
 pub use signature::{
     Kw, OUT_HELP, Signature, Skipped, function_inputs, function_signature, step_signature,
 };
+pub(crate) use spec::stdin_inputs;
 pub use spec::{ArgSpec, CommandSpec, FILE_VALUE_NAMES, command_specs, find_spec};
 pub use stages::{HostStage, StageError, StageFn, StageSet, StageSpec};
 
@@ -166,7 +168,12 @@ pub struct ExecOptions {
 /// The command runs on a worker of a rayon pool of its own, sized by its `-t` (else every
 /// core), whose threads have the stack CRAM decoding needs ([`gloci_io::WORKER_STACK`]); the
 /// process-global pool is never touched. The calling thread's run token ([`RunGuard`]) is
-/// installed on every thread of the pool. See the module docs for what the host does.
+/// installed on every thread of the pool; without one (the command line) the run makes its
+/// own, which is never cancelled. See the module docs for what the host does.
+///
+/// Before anything runs, the inputs the command line gives `-` ([`Cli::stdin_inputs`]) are given
+/// to the token ([`RunToken::give_stdin`]): a second is a usage error, so standard input is
+/// read for at most one input of a run.
 pub fn execute(cli: &Cli, o: &ExecOptions) -> anyhow::Result<bool> {
     let (requested, tmp_arg) = thread_and_tmp(&cli.command);
     let threads = requested
@@ -177,7 +184,11 @@ pub fn execute(cli: &Cli, o: &ExecOptions) -> anyhow::Result<bool> {
         command_line: scrub(&o.command_line),
         version: env!("CARGO_PKG_VERSION"),
     };
-    let (result, all_ok) = in_run_pool(threads, &Watch::current(), || crate::dispatch(cli, &ctx))?;
+    let token = cancel::current().unwrap_or_default();
+    for input in &cli.stdin_inputs {
+        token.give_stdin(input)?;
+    }
+    let (result, all_ok) = in_run_pool(threads, &token.watch(), || crate::dispatch(cli, &ctx))?;
     result.map(|()| all_ok)
 }
 

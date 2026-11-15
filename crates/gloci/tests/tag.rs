@@ -543,9 +543,12 @@ fn unknown_strands_match_neither_strand() {
 #[test]
 fn standard_input_is_read_once() {
     let bam = f("reads.bam");
-    for args in [
-        vec!["-", "-b", "-", "--labels", "x"],
-        vec![bam.as_str(), "-b", "-", "-", "--names"],
+    for (args, inputs) in [
+        (vec!["-", "-b", "-", "--labels", "x"], "ALN and -b"),
+        (
+            vec![bam.as_str(), "-b", "-", "-", "--names"],
+            "-b (value 1) and -b (value 2)",
+        ),
     ] {
         gloci()
             .arg("tag")
@@ -554,6 +557,8 @@ fn standard_input_is_read_once() {
             .assert()
             .code(2)
             .stdout("")
-            .stderr(contains("standard input for at most one of its files"));
+            .stderr(format!(
+                "error: standard input is given for both {inputs}; give one of them as a file\n"
+            ));
     }
 }
