@@ -196,6 +196,47 @@ fn every_summary_is_at_most_64_characters() {
     }
 }
 
+/// The tools a command's summary names (the parenthesised part) are also named in the first
+/// paragraph of its long help, which SKILL.md and the Python stub use.
+#[test]
+fn long_summary_names_every_tool_of_the_short_one() {
+    const TOOLS: &[&str] = &[
+        "bedtools",
+        "bedops",
+        "samtools",
+        "bcftools",
+        "vcftools",
+        "tabix",
+        "convert2bed",
+        "vcf-concat",
+    ];
+    let mut missing = Vec::new();
+    for path in all_paths() {
+        let cmd = at_path(&path);
+        let about = cmd.get_about().map(|a| a.to_string()).unwrap_or_default();
+        let Some((_, tools)) = about.split_once('(') else {
+            continue;
+        };
+        let long = cmd
+            .get_long_about()
+            .or_else(|| cmd.get_about())
+            .map(|a| a.to_string())
+            .unwrap_or_default();
+        let first = long.trim().split("\n\n").next().unwrap_or("");
+        for piece in tools.trim_end_matches(')').split(',') {
+            let tool = piece.split_whitespace().next().unwrap_or("");
+            if TOOLS.contains(&tool) && !first.contains(tool) {
+                missing.push(format!("{path:?} names {tool}: {first}"));
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "the long summary must name the tools of the short one:\n{}",
+        missing.join("\n")
+    );
+}
+
 /// The summary paragraph before the usage line is at most 12 lines at 100 columns (the
 /// experimental marker above it does not count).
 #[test]

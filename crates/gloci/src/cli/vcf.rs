@@ -8,7 +8,7 @@ use clap::{Args, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 /// VCF and BCF operations: filter, extract, stats, concat, split, norm, annotate, merge, compare
-/// and popgen.
+/// and popgen (bcftools and vcftools equivalents).
 #[derive(Args, Debug, Clone)]
 #[command(
     about = "VCF and BCF operations (bcftools and vcftools equivalents)",
@@ -374,7 +374,7 @@ pub enum ExtractLayout {
     Long,
 }
 
-/// Extract INFO or FORMAT values as a table, or the 012 genotype matrix.
+/// Extract INFO or FORMAT values as a table, or the 012 genotype matrix (vcftools --012).
 #[derive(Args, Debug, Clone)]
 #[command(
     about = "Tabulate INFO/FORMAT values or genotypes (vcftools --012)",
@@ -646,7 +646,7 @@ pub struct VcfPopgenArgs {
     pub invalid: InvalidArg,
 }
 
-/// Filter VCF/BCF files with the selection pipeline.
+/// Filter VCF/BCF files with the selection pipeline (bcftools view, vcftools).
 #[derive(Args, Debug, Clone)]
 #[command(about = "Filter VCF/BCF files (bcftools view, vcftools)", long_about)]
 #[command(after_long_help = "\

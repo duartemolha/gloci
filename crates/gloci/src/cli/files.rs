@@ -177,7 +177,7 @@ pub struct ConvertArgs {
     pub out: OutputArgs,
 }
 
-/// Validate files and print a one-screen summary of each.
+/// Validate files and print a one-screen summary of each (samtools quickcheck).
 ///
 /// check reads every file to the end, keeps going past problems and reports the record count, the
 /// chromosomes, whether the records are sorted, and the first 10 errors and warnings with their line
@@ -252,7 +252,7 @@ pub struct CheckArgs {
 }
 
 /// Print the records in regions, stream or recompress a file, convert VCF to BCF and back, or print
-/// only the header.
+/// only the header (samtools view).
 ///
 /// With no regions the records are written as read (comment and track lines after the first record
 /// and blank lines are dropped, and CRLF line ends become LF), so view can recompress a file (-o
@@ -337,7 +337,7 @@ pub struct ViewArgs {
     pub out: OutputArgs,
 }
 
-/// Sort BED/bedGraph/GFF/VCF/BCF files, or BAM/SAM/CRAM alignments, with bounded memory.
+/// Sort BED/bedGraph/GFF/VCF/BCF files, or BAM/SAM/CRAM alignments, with bounded memory (bedtools sort, samtools sort).
 ///
 /// Records are ordered by chromosome, then start, then end. The chromosome order comes from -g, else
 /// from the ##contig lines of a VCF/BCF header, else from --chrom-order (karyotype by default).
@@ -462,7 +462,7 @@ Examples:
 }
 
 /// Build a .tbi/.csi index for a sorted BGZF file, a .bai/.csi for a BAM, a .crai for a CRAM, or a
-/// .fai for a FASTA.
+/// .fai for a FASTA (tabix, samtools index).
 ///
 /// A coordinate-sorted BAM gets PATH.bai, or PATH.csi with --csi or when a reference is longer than
 /// 2^29; samtools and gloci read each other's indexes. SAM text has no index: write BAM with gloci
@@ -489,7 +489,7 @@ Reading a FASTA at random (getfasta, nuc, a CRAM reference) needs these files an
 builds them itself; maskfasta streams its FASTA and needs no index.
 
 Text and VCF files:
-BED, GFF/GTF, VCF and BCF files \
+For any other BGZF file, BED, GFF/GTF, VCF and BCF files \
 are recognised by content. Any other tab-separated file is indexed like tabix does when \
 you name its columns with -s (sequence), -b (begin) and -e (end, optional). The columns \
 are numbered from 1. Without --zero-based the begin column is 1-based and a feature covers \

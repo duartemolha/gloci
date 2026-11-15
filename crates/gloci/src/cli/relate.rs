@@ -26,7 +26,7 @@ pub enum IntersectMatch {
     Alleles,
 }
 
-/// Report the records of A that overlap, or do not overlap, records of B.
+/// Report the records of A that overlap, or do not overlap, records of B (bedtools intersect).
 ///
 /// The default mode is any: A's records that overlap at least one B record are written as read, in
 /// A's format. --mode picks another report: none (A's records with no overlap), pairs (one TSV row
@@ -451,8 +451,6 @@ Output format:
 Fractions and the mean depth are written as bedtools writes them: seven decimals of a \
 32-bit quotient, and six decimals of a 64-bit one in the report of several -b files \
 (bedtools annotate).
-
-Fractions and means print in the shortest exact decimal form (0.3, not 0.3000000).
 
 The output is TSV with A's columns first.
 

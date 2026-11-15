@@ -11,9 +11,9 @@
 //!
 //! One TSV row per A is written for the summary and `--mean` reports, and
 //! one row per depth (`--hist`) or per base (`--per-base`). Fractions and
-//! means print in Rust's shortest round-trip form (D46). With several `-b`
-//! files only the summary report is allowed, and it gives one covered
-//! fraction per file (D57).
+//! means print as bedtools prints them: the 32-bit quotient to seven decimals (`0.3000000`).
+//! With several `-b` files only the summary report is allowed, and it gives one covered
+//! fraction per file (D57), as the 64-bit quotient to six decimals, as `bedtools annotate` does.
 
 use crate::intersect::Text;
 use crate::relate::{

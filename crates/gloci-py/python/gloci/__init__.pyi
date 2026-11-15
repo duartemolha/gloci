@@ -215,7 +215,7 @@ class Pipeline:
         skip_invalid: bool = False,
         region: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
     ) -> Pipeline:
-        """Report the records of A that overlap, or do not overlap, records of B
+        """Report the records of A that overlap, or do not overlap, records of B (bedtools intersect)
 
         Args:
             a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
@@ -1060,7 +1060,7 @@ class Pipeline:
         skip_invalid: bool = False,
         chrom_map: Source | None = None,
     ) -> Pipeline:
-        """Sort BED/bedGraph/GFF/VCF/BCF files, or BAM/SAM/CRAM alignments, with bounded memory
+        """Sort BED/bedGraph/GFF/VCF/BCF files, or BAM/SAM/CRAM alignments, with bounded memory (bedtools sort, samtools sort)
 
         Args:
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
@@ -1222,7 +1222,7 @@ class Pipeline:
         exclude_flags: str | int | float | os.PathLike[str] | None = None,
         reference: Source | None = None,
     ) -> Pipeline:
-        """Print the records in regions, stream or recompress a file, convert VCF to BCF and back, or print only the header
+        """Print the records in regions, stream or recompress a file, convert VCF to BCF and back, or print only the header (samtools view)
 
         Args:
             regions: Regions such as chr1, chr1:1,000-2,000 or chr1:5,000- (1-based, inclusive); write {name}:start-end for a name containing ':'
@@ -1600,7 +1600,7 @@ class Pipeline:
         chrom_map: Source | None = None,
         skip_invalid: bool = False,
     ) -> Pipeline:
-        """Filter VCF/BCF files with the selection pipeline
+        """Filter VCF/BCF files with the selection pipeline (bcftools view, vcftools)
 
         Args:
             samples: Keep only these sample names (repeatable or comma-separated). They are written in the input header's order, not the order given here (bcftools view -s writes them in the order given)
@@ -1710,7 +1710,7 @@ class Pipeline:
         chrom_map: Source | None = None,
         skip_invalid: bool = False,
     ) -> Pipeline:
-        """Extract INFO or FORMAT values as a table, or the 012 genotype matrix
+        """Extract INFO or FORMAT values as a table, or the 012 genotype matrix (vcftools --012)
 
         Args:
             samples: Keep only these sample names (repeatable or comma-separated). They are written in the input header's order, not the order given here (bcftools view -s writes them in the order given)
@@ -2411,7 +2411,7 @@ def vcf_extract_matrix(
     t: str | int | float | os.PathLike[str] | None = None,
     skip_invalid: bool = False,
 ) -> list[pathlib.Path]:
-    """Extract INFO or FORMAT values as a table, or the 012 genotype matrix
+    """Extract INFO or FORMAT values as a table, or the 012 genotype matrix (vcftools --012)
 
     Args:
         src: Any source: a path, a file object, an iterable of lines or tuples, an Arrow table, or a Pipeline.
@@ -2627,7 +2627,7 @@ def index(
     t: str | int | float | os.PathLike[str] | None = None,
     reference: Source | None = None,
 ) -> list[pathlib.Path]:
-    """Build a .tbi/.csi index for a sorted BGZF file, a .bai/.csi for a BAM, a .crai for a CRAM, or a .fai for a FASTA
+    """Build a .tbi/.csi index for a sorted BGZF file, a .bai/.csi for a BAM, a .crai for a CRAM, or a .fai for a FASTA (tabix, samtools index)
 
     Args:
         path: The file to index: a path (an index is of a file, so no other source will do).
