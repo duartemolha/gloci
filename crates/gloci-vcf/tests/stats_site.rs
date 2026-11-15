@@ -609,16 +609,16 @@ fn snp_density_streams_and_requires_sorted_input() {
     );
     let e = run1(&mk(&["1\t10", "2\t10", "1\t20"]), 5).unwrap_err();
     assert!(e.contains("reappears") && e.contains("1:20"), "{e}");
-    assert!(e.contains("run: gloci sort FILE"), "{e}");
+    assert!(e.contains("sort the input with gloci sort"), "{e}");
     let e = run1(&mk(&["1\t100", "1\t10"]), 5).unwrap_err();
     assert!(e.contains("goes backwards"), "{e}");
-    // The whole messages, as --snp-density has always written them.
+    // The whole messages; without the input's name the hint says "the input".
     let e = run1(&mk(&["1\t10", "2\t10", "1\t20"]), 5).unwrap_err();
     assert!(
         e.ends_with(
             "--snp-density needs input sorted by chromosome and position, but the chromosome \
-             reappears at 1:20; run: gloci sort FILE (a streamed density cannot merge rows it \
-             already wrote)"
+             reappears at 1:20; sort the input with gloci sort (a streamed density cannot merge \
+             rows it already wrote)"
         ),
         "{e}"
     );
@@ -626,9 +626,22 @@ fn snp_density_streams_and_requires_sorted_input() {
     assert!(
         e.ends_with(
             "--snp-density needs input sorted by chromosome and position, but a position goes \
-             backwards at 1:10; run: gloci sort FILE (a streamed density cannot merge rows it \
-             already wrote)"
+             backwards at 1:10; sort the input with gloci sort (a streamed density cannot merge \
+             rows it already wrote)"
         ),
+        "{e}"
+    );
+    // With the input's name (as a command line names it), the hint is the command to run.
+    let mut named = SnpDensity::new(5);
+    Stat::set_input(&mut named, "calls.vcf");
+    let e = run(
+        &mk(&["1\t10", "2\t10", "1\t20"]),
+        vec![Box::new(named)],
+        &MaskRules::default(),
+    )
+    .unwrap_err();
+    assert!(
+        e.contains("; run: gloci sort calls.vcf (a streamed density"),
         "{e}"
     );
     // The order is checked on the bin: a position may go back within one, and

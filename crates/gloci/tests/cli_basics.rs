@@ -381,3 +381,36 @@ fn chrom_order_help_names_what_takes_precedence() {
     }
     assert!(seen > 10, "{seen} commands with -g and --chrom-order");
 }
+
+/// Whether `text` names the option `-g` (not `--genome`, not inside a longer word).
+fn names_g(text: &str) -> bool {
+    text.match_indices("-g").any(|(i, _)| {
+        let before = text[..i].chars().next_back();
+        let after = text[i + 2..].chars().next();
+        !before.is_some_and(|c| c.is_alphanumeric() || c == '-')
+            && !after.is_some_and(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    })
+}
+
+/// An option's help names `-g` only on a command that has `-g`: `--chrom-map` and
+/// `--chrom-order` are shared by commands with and without it.
+#[test]
+fn option_help_names_g_only_where_the_command_has_it() {
+    assert!(names_g("Order checks, -g and the output") && !names_g("--genome or -gz"));
+    for path in all_paths() {
+        let cmd = at_path(&path);
+        if cmd.get_arguments().any(|a| a.get_short() == Some('g')) {
+            continue;
+        }
+        for a in cmd.get_arguments() {
+            for help in [a.get_help(), a.get_long_help()].into_iter().flatten() {
+                let help = help.to_string();
+                assert!(
+                    !names_g(&help),
+                    "{path:?} --{}: the help names -g, which the command does not have: {help}",
+                    a.get_id()
+                );
+            }
+        }
+    }
+}

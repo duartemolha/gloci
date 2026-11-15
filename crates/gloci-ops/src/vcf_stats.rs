@@ -346,6 +346,7 @@ pub(crate) fn run_stats(
     let samples = selected_samples(&stage);
     let header = stage.header().clone();
     let mut engine = StatsEngine::new(build(&samples, &header)?);
+    engine.set_input(gloci_io::as_argument(&name));
     debug_assert_eq!(engine.needs_genotypes(), need_genotypes);
     // On several threads the workers keep the per-sample counters of --depth,
     // --missing-indv and --het; the records then carry no samples unless a

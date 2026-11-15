@@ -11,8 +11,15 @@ const SHOW_CHARS: usize = 120;
 /// Bytes kept per record: enough for `SHOW_CHARS` characters of UTF-8.
 const KEEP_BYTES: usize = SHOW_CHARS * 4;
 
+/// `name` as a command line names it: standard input, which a reader calls
+/// `stdin`, is `-`.
+pub fn as_argument(name: &str) -> &str {
+    if name == "stdin" { "-" } else { name }
+}
+
 /// The `hint:` line for a sortedness error.
 pub fn sort_hint(name: &str, source: &OrderSource) -> String {
+    let name = as_argument(name);
     match source {
         OrderSource::GenomeFile(p) => format!("run: gloci sort {name} -g {}", p.display()),
         OrderSource::BuiltinGenome(id) => format!("run: gloci sort {name} -g {id}"),
@@ -25,6 +32,7 @@ pub fn sort_hint(name: &str, source: &OrderSource) -> String {
 /// The `hint:` line for an alignment input that is out of order: sort it, or let
 /// the command sort it (D103). `so` is what its header declares.
 pub fn alignment_sort_hint(name: &str, source: &OrderSource, so: SortOrder) -> String {
+    let name = as_argument(name);
     let out = match name.strip_suffix(".bam") {
         Some(stem) => format!("{stem}.sorted.bam"),
         None => "sorted.bam".to_string(),

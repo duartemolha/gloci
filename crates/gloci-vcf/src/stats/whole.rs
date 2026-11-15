@@ -361,6 +361,9 @@ impl SnpDensity {
 }
 
 impl Stat for SnpDensity {
+    fn set_input(&mut self, name: &str) {
+        self.sorted.set_input(name);
+    }
     fn start(&mut self, sink: &mut dyn StatSink) -> io::Result<()> {
         self.out.open(sink, "snpden")?;
         self.out

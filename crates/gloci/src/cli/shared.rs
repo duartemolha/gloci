@@ -72,14 +72,21 @@ pub struct GenomeArg {
     pub genome: Option<String>,
 }
 
+/// The help of `--chrom-order` on a command with `-g`.
+pub const CHROM_ORDER_HELP: &str = "Chromosome order when neither -g nor the header of a \
+VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; \
+the default) or karyotype (chr1..chr22, chrX, chrY, chrM)";
+
+/// The help of `--chrom-order` on a command without `-g` (see [`help_without_g`]).
+pub const CHROM_ORDER_HELP_NO_G: &str = "Chromosome order when no input header lists contigs: lex \
+(byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, \
+chrX, chrY, chrM)";
+
 #[derive(Args, Debug, Clone)]
 pub struct ChromOrderArg {
-    /// Chromosome order when neither -g nor the header of a VCF/BCF or
-    /// alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and
-    /// bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY,
-    /// chrM).
     #[arg(
         long,
+        help = CHROM_ORDER_HELP,
         value_name = "ORDER",
         default_value = "lex",
         value_parser = clap::builder::PossibleValuesParser::new(["karyotype", "lex"])
@@ -101,16 +108,42 @@ pub struct VcfSpanArg {
     pub vcf_span: VcfSpan,
 }
 
+/// The help of `--chrom-map` on a command with `-g`.
+pub const CHROM_MAP_HELP: &str = "Rename chromosomes on input with a two-column table (old name, \
+new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an \
+old name and its new name is refused. Order checks, -g and the output all see the new names; -g \
+itself is never renamed";
+
+/// The help of `--chrom-map` on a command without `-g` (see [`help_without_g`]).
+pub const CHROM_MAP_HELP_NO_G: &str = "Rename chromosomes on input with a two-column table (old \
+name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has \
+both an old name and its new name is refused. Order checks and the output see the new names";
+
 /// `--chrom-map` (D62), on every command that reads intervals or variants.
 #[derive(Args, Debug, Clone)]
 pub struct ChromMapArg {
-    /// Rename chromosomes on input with a two-column table (old name, new
-    /// name; tab-separated, `#` comments allowed). Unlisted names are kept.
-    /// A file that has both an old name and its new name is refused.
-    /// Order checks, -g and the output all see the new names; -g itself is
-    /// never renamed.
-    #[arg(long, value_name = "FILE")]
+    #[arg(long, value_name = "FILE", help = CHROM_MAP_HELP)]
     pub chrom_map: Option<String>,
+}
+
+/// `cmd` and its subcommands, with the shared help of `--chrom-order` and `--chrom-map`,
+/// which names `-g`, said without it on a command that has no `-g`. A command whose help for
+/// them is its own keeps it.
+pub fn help_without_g(cmd: clap::Command) -> clap::Command {
+    let has_g = cmd.get_arguments().any(|a| a.get_short() == Some('g'));
+    let cmd = if has_g {
+        cmd
+    } else {
+        cmd.mut_args(|a| {
+            let help = a.get_help().map(|h| h.to_string());
+            match (a.get_id().as_str(), help.as_deref()) {
+                ("chrom_order", Some(CHROM_ORDER_HELP)) => a.help(CHROM_ORDER_HELP_NO_G),
+                ("chrom_map", Some(CHROM_MAP_HELP)) => a.help(CHROM_MAP_HELP_NO_G),
+                _ => a,
+            }
+        })
+    };
+    cmd.mut_subcommands(help_without_g)
 }
 
 impl ChromMapArg {

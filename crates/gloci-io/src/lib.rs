@@ -104,7 +104,8 @@ pub use record::{
 pub use rmsk::rmsk_fields;
 pub use seekable::{ChromRange, SeekableFile, chrom_ranges, open_range_reader};
 pub use sorted::{
-    KARYOTYPE_SORTED_NOTE, LEX_SORTED_NOTE, OrderGuard, OrderOptions, order_note, sort_hint,
+    KARYOTYPE_SORTED_NOTE, LEX_SORTED_NOTE, OrderGuard, OrderOptions, as_argument, order_note,
+    sort_hint,
 };
 pub use staged::StagedSet;
 pub use tsv::{TsvHeader, open_tsv_writer, tsv_output_ok};

@@ -371,6 +371,11 @@ fn header(out: &mut Out, line: &str) -> io::Result<()> {
 }
 
 impl Stat for WeirFst {
+    fn set_input(&mut self, name: &str) {
+        if let Some(w) = self.windows.as_mut() {
+            w.sorted.set_input(name);
+        }
+    }
     fn start(&mut self, sink: &mut dyn StatSink) -> io::Result<()> {
         self.out.open(sink, "weir.fst")?;
         header(&mut self.out, "CHROM\tPOS\tWEIR_AND_COCKERHAM_FST")?;

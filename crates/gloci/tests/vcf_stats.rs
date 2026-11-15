@@ -761,7 +761,9 @@ fn unsorted_input_stops_snp_density_with_a_hint_and_publishes_nothing() {
         .args(stats_args(&file, &p, &["--freq", "--snp-density", "1000"]))
         .assert()
         .code(1)
-        .stderr(contains("run: gloci sort FILE"));
+        .stderr(contains(format!(
+            "run: gloci sort {file} (a streamed density"
+        )));
     let left: Vec<_> = std::fs::read_dir(d.path())
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())

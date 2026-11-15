@@ -252,3 +252,47 @@ fn a_bed_converted_from_a_bam_merges_with_g_the_bam() {
         .success()
         .stdout("chr1\t9\t14\nchr2\t9\t14\nchr10\t9\t14\n");
 }
+
+/// A hint names standard input as a command line does, `-`, never `stdin`; a streamed statistic
+/// names the input it read.
+#[test]
+fn hints_name_the_input_as_a_command_line_does() {
+    gloci()
+        .args(["merge", "-"])
+        .write_stdin(KARYO)
+        .assert()
+        .code(1)
+        .stderr(contains("hint: run: gloci sort - ("))
+        .stderr(contains("gloci sort stdin").not());
+    let d = tempdir();
+    let mut text = String::from(
+        "##fileformat=VCFv4.3\n##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n\
+         #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n",
+    );
+    for c in ["chr1", "chr2", "chr1"] {
+        text.push_str(&format!("{c}\t10\t.\tA\tG\t.\t.\t.\tGT\t0/1\n"));
+    }
+    let back = p(d.path(), "back.vcf", &text);
+    let prefix = d.path().join("o").to_string_lossy().into_owned();
+    gloci()
+        .args([
+            "vcf",
+            "popgen",
+            &back,
+            "--window-pi",
+            "1000",
+            "--out-prefix",
+        ])
+        .arg(&prefix)
+        .assert()
+        .code(1)
+        .stderr(contains(format!("run: gloci sort {back} (")));
+    gloci()
+        .args(["vcf", "popgen", "-", "--window-pi", "1000", "--out-prefix"])
+        .arg(&prefix)
+        .write_stdin(text)
+        .assert()
+        .code(1)
+        .stderr(contains("run: gloci sort - ("))
+        .stderr(contains("FILE").not());
+}

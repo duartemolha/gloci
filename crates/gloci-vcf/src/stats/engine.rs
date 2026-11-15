@@ -94,6 +94,9 @@ pub trait Stat {
     fn absorb(&mut self, _t: &SampleTally) {}
     /// vcftools' file extension, without the output prefix or leading dot.
     fn ext(&self) -> &'static str;
+    /// The input as a command line names it (`-` for standard input), for the
+    /// `gloci sort` hint of a statistic that needs sorted input.
+    fn set_input(&mut self, _name: &str) {}
 }
 
 /// Runs every requested statistic in one pass.
@@ -128,6 +131,14 @@ impl StatsEngine {
     pub fn use_tally(&mut self) {
         for s in &mut self.stats {
             s.use_tally();
+        }
+    }
+
+    /// Name the input (as a command line names it) in the messages of the
+    /// statistics.
+    pub fn set_input(&mut self, name: &str) {
+        for s in &mut self.stats {
+            s.set_input(name);
         }
     }
 

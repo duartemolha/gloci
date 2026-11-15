@@ -372,6 +372,11 @@ fn sort_hints() {
         sort_hint("a.bed", &OrderSource::Karyotype),
         "run: gloci sort a.bed --chrom-order karyotype"
     );
+    // Standard input, which a reader calls stdin, is `-` on a command line.
+    assert_eq!(
+        sort_hint("stdin", &OrderSource::Lexicographic),
+        "run: gloci sort -"
+    );
 }
 
 #[test]

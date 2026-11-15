@@ -7,12 +7,15 @@ use std::collections::HashSet;
 /// each chromosome in one run and, within it, an order key (the position,
 /// or the bin of `--snp-density`) that never goes backwards. A chromosome
 /// that reappears or a key that goes backwards is an error naming the flag,
-/// the record and `gloci sort`.
+/// the record and `gloci sort` of the input.
 pub(crate) struct SortedInput {
     /// The option that needs the order, for the message.
     flag: &'static str,
     /// What streams its rows (`statistic`, `density`), for the message.
     noun: &'static str,
+    /// The input as a command line names it, for the hint (see
+    /// [`crate::Stat::set_input`]).
+    input: Option<String>,
     /// The current chromosome and the last key on it.
     chrom: Option<Vec<u8>>,
     key: u64,
@@ -25,10 +28,16 @@ impl SortedInput {
         SortedInput {
             flag,
             noun,
+            input: None,
             chrom: None,
             key: 0,
             done: HashSet::new(),
         }
+    }
+
+    /// Name the input in the hint of an error.
+    pub(crate) fn set_input(&mut self, name: &str) {
+        self.input = Some(name.to_string());
     }
 
     /// Check `s` against the records before it, with its position as the
@@ -58,9 +67,13 @@ impl SortedInput {
     }
 
     fn unsorted(&self, s: &SiteView, why: &str) -> String {
+        let fix = match &self.input {
+            Some(name) => format!("run: gloci sort {name}"),
+            None => "sort the input with gloci sort".to_string(),
+        };
         format!(
-            "{} needs input sorted by chromosome and position, but {why} at {}:{}; run: gloci \
-             sort FILE (a streamed {} cannot merge rows it already wrote)",
+            "{} needs input sorted by chromosome and position, but {why} at {}:{}; {fix} (a \
+             streamed {} cannot merge rows it already wrote)",
             self.flag,
             String::from_utf8_lossy(s.chrom),
             s.pos,

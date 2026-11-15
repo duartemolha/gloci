@@ -172,6 +172,9 @@ impl WindowPi {
 }
 
 impl Stat for WindowPi {
+    fn set_input(&mut self, name: &str) {
+        self.sorted.set_input(name);
+    }
     fn start(&mut self, sink: &mut dyn StatSink) -> io::Result<()> {
         self.out.open(sink, self.ext())?;
         header(&mut self.out, "CHROM\tBIN_START\tBIN_END\tN_VARIANTS\tPI")
@@ -321,6 +324,9 @@ impl TajimaD {
 }
 
 impl Stat for TajimaD {
+    fn set_input(&mut self, name: &str) {
+        self.sorted.set_input(name);
+    }
     fn start(&mut self, sink: &mut dyn StatSink) -> io::Result<()> {
         self.out.open(sink, self.ext())?;
         header(&mut self.out, "CHROM\tBIN_START\tN_SNPS\tTajimaD")

@@ -632,6 +632,9 @@ macro_rules! window_stat {
             fn ext(&self) -> &'static str {
                 self.0.ext()
             }
+            fn set_input(&mut self, name: &str) {
+                self.0.sorted.set_input(name);
+            }
         }
     };
 }

@@ -200,7 +200,7 @@ const TIERS: &str =
 /// help template lists them in [`command_groups`] with their one-line summaries; the usage,
 /// the options and the version are clap's own.
 pub fn command() -> Command {
-    let root = <Cli as clap::CommandFactory>::command();
+    let root = shared::help_without_g(<Cli as clap::CommandFactory>::command());
     let styles = root.get_styles().clone();
     let (head, reset) = (
         styles.get_header().render().to_string(),

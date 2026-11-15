@@ -110,11 +110,6 @@ fn gate_error(kind: GateKind, msg: String) -> IoError {
     IoError::Gate { kind, msg }
 }
 
-/// `name` as a command line names it: standard input is `-`.
-fn as_argument(name: &str) -> &str {
-    if name == "stdin" { "-" } else { name }
-}
-
 /// What follows `gloci convert NAME -o x.bed` in a message that sends `name`
 /// (of `format`) to `convert`: the BED keeps the chromosome order of the
 /// alignment header, or the record order of a PSL or RepeatMasker file, which
@@ -163,7 +158,7 @@ genomecov, convert, view, index, sort, cat, idxstats, flagstat, check, reheader,
 samples, depth, bedcov, tag and stats jaccard, fisher and reldist do); convert it to BED first: \
 gloci convert {} -o x.bed{}",
                 format.name(),
-                as_argument(name),
+                crate::sorted::as_argument(name),
                 converted_order_note(name, format)
             ),
         ));
@@ -190,7 +185,7 @@ nuc, faidx or dict read it, as the reference for the intervals in a BED, GFF or 
 gloci convert {} -o x.bed{}; if {name} is not {} at all, \
 pass --format bed or the format it is",
                 format.name(),
-                as_argument(name),
+                crate::sorted::as_argument(name),
                 converted_order_note(name, format),
                 format.name()
             ),

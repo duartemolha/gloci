@@ -21,8 +21,9 @@ use gloci_core::{ChromId, ChromOrder, ChromTable};
 use gloci_io::{
     AtomicFile, BGZF_EOF, BcfDicts, BcfText, Compression, Format, Header, IoError, OrderGuard,
     OrderOptions, OutFormat, OutputOptions, OutputSpec, ReaderOptions, RecordBatch, RecordReader,
-    TextToBcf, UsageError, WriterOptions, chrom_table_lenient, next_batch_size, open_output,
-    open_reader, open_reader_from, open_record_writer, refuse_binary_to_tty, sort_hint,
+    TextToBcf, UsageError, WriterOptions, as_argument, chrom_table_lenient, next_batch_size,
+    open_output, open_reader, open_reader_from, open_record_writer, refuse_binary_to_tty,
+    sort_hint,
 };
 use gloci_vcf::concat::{NaiveError, NaiveFile, copy_blocks};
 use std::fs::File;
@@ -86,7 +87,10 @@ impl Boundary {
         if !before {
             return Ok(());
         }
-        let hint = sort_hint(&format!("{} {file}", p.file), chroms.order_source());
+        let hint = sort_hint(
+            &format!("{} {}", as_argument(&p.file), as_argument(file)),
+            chroms.order_source(),
+        );
         Err(IoError::Detect {
             path: file.to_string(),
             msg: format!(

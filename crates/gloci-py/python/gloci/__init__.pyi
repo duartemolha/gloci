@@ -660,7 +660,7 @@ class Pipeline:
             S: alias of opposite_strand
             inclusive_points: A point on the edge of an interval overlaps it (4.3: points)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
-            chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
+            chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks and the output see the new names
             skip_invalid: Skip invalid records with a warning instead of failing
 
         CLI: gloci pair-intersect
@@ -718,7 +718,7 @@ class Pipeline:
             right: Pad B by N on the right (4.3: windows)
             strand_window: Left and right follow A's strand (4.3: windows)
             require_different_names: Drop a B named like A (column 7), as bedtools -rdn; every pair then needs a name
-            chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
+            chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks and the output see the new names
             skip_invalid: Skip invalid records with a warning instead of failing
 
         CLI: gloci pair-pair
@@ -1096,8 +1096,8 @@ class Pipeline:
 
         Args:
             naive: Copy the BGZF blocks of the inputs without recompressing them. Needs BGZF-compressed VCF files with byte-identical headers (exit 2 otherwise; BCF inputs are not supported) and writes BGZF VCF. The order is checked across files only, from each file's first and last record. The output is the same as without --naive, after decompression (bcftools concat -n)
-            chrom_order: Chromosome order when neither -g nor the header of a VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
-            chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
+            chrom_order: Chromosome order when no input header lists contigs: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
+            chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks and the output see the new names
 
         CLI: gloci vcf concat
         """
@@ -1175,7 +1175,7 @@ class Pipeline:
             skip_mate_overlap: Count each base of an overlapping mate pair once, per input: a read whose mate was already seen starts counting where the mate ends (samtools -s). Reads with an unknown mate position are never held, so unlike samtools a later alignment with the same name is not clipped by a stale entry
             region: Restrict to a region such as chr1:1,000-2,000 (repeatable)
             regions_file: Read regions from FILE (BED: 0-based, half-open); see --region
-            chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
+            chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks and the output see the new names
             column_names: Write a line of column names, starting with #, before the first row
             skip_invalid: Skip invalid records with a warning instead of failing
 
@@ -1664,7 +1664,7 @@ class Pipeline:
             recalc_ac: Recalculate INFO/AC, AN and AF after sample selection and masking
             format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
-            chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
+            chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks and the output see the new names
             skip_invalid: Skip invalid records with a warning instead of failing
 
         CLI: gloci vcf filter
@@ -1776,7 +1776,7 @@ class Pipeline:
             max_mem: Memory budget of --genotype-matrix, in binary units (K, M, G, T); at least 16M
             tmp_dir: Directory for temporary spill files; it must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
-            chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
+            chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks and the output see the new names
             skip_invalid: Skip invalid records with a warning instead of failing
 
         CLI: gloci vcf extract
@@ -1860,7 +1860,7 @@ class Pipeline:
             mark_sites: Add INFO/TAG as a flag to the records that have a match in --annotations (+TAG, or TAG) or that have none (-TAG); without --annotations every record gets it
             m: alias of mark_sites
             min_overlap: For a BED or FROM,TO annotation file: the fraction of the annotation (ANN), of the record (:VCF) or of both (ANN:VCF) that must overlap
-            chrom_order: Chromosome order when neither -g nor the header of a VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
+            chrom_order: Chromosome order when no input header lists contigs: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
             skip_invalid: Skip invalid records with a warning instead of failing
 
         CLI: gloci vcf annotate
@@ -1896,7 +1896,7 @@ class Pipeline:
             rna: Write U for the complement of A (reverse-complemented sequences only)
             format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
-            chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
+            chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks and the output see the new names
             skip_invalid: Skip invalid records with a warning instead of failing
 
         CLI: gloci getfasta
@@ -1928,7 +1928,7 @@ class Pipeline:
             C: alias of ignore_case
             format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
-            chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
+            chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks and the output see the new names
             skip_invalid: Skip invalid records with a warning instead of failing
 
         CLI: gloci nuc
@@ -1955,7 +1955,7 @@ class Pipeline:
             format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
             header: Keep header lines in the output
             skip_invalid: Skip invalid records with a warning instead of failing
-            chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
+            chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks and the output see the new names
 
         CLI: gloci sample
         """
@@ -2111,7 +2111,7 @@ class Pipeline:
             require_flags: Keep only reads that have all of these flags: a number (0x2) or names such as paired,proper_pair
             exclude_flags: Drop reads that have any of these flags: a number or names. As for the other commands, but this command's default is UNMAP,SECONDARY,QCFAIL,DUP (samtools bedcov's), where theirs is none; 0 counts every mapped read
             reference: The FASTA a CRAM input was made with, with its .fai. Not needed for a CRAM written without a reference
-            chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
+            chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks and the output see the new names
             column_names: Write a line of column names, starting with #, before the first row
             skip_invalid: Skip invalid records with a warning instead of failing
 
@@ -2214,7 +2214,7 @@ class Pipeline:
             soft: Lowercase masked letters instead of replacing them
             mask_char: Character that replaces masked bases
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
-            chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
+            chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks and the output see the new names
             skip_invalid: Skip invalid records with a warning instead of failing
 
         CLI: gloci maskfasta
@@ -2436,7 +2436,7 @@ def vcf_stats(
         summary: A short overview in PREFIX.summary.txt: records by type, Ts/Tv, samples, mean depth and missingness. A record's type is that of its ALT alleles when they agree: snp, mnp or indel (a multi-allelic record of SNPs only is snp). Mixed ALTs, such as a SNP with an indel, are other, and other also takes structural variants (sv is not a type of its own). A `<*>` ALT is ignored beside a real one; a record whose only ALT is `<*>` or `.` is ref. Ts/Tv counts biallelic single-base SNPs only
         json: The same overview as JSON in PREFIX.summary.json. Keys are sorted; "schema_version" is 1. Layout: counts_by_type {indel, mnp, other, ref, snp}, depth {mean, values}, genotypes {filtered, missing, missing_fraction, total}, multiallelic_sites, records, samples, schema_version, ts_tv {ratio, transitions, transversions}. A ratio that has no denominator is null
         vcf_span: Which footprint a VCF record covers: the allele span or the REF span. The statistics do not depend on it, so the default is ref, which accepts symbolic ALTs without INFO/END; it only matters for --region
-        chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
+        chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks and the output see the new names
         threads: Number of threads (default: all available cores)
         t: alias of threads
         skip_invalid: Skip invalid records with a warning instead of failing
@@ -2562,7 +2562,7 @@ def vcf_extract_matrix(
         max_mem: Memory budget of --genotype-matrix, in binary units (K, M, G, T); at least 16M
         tmp_dir: Directory for temporary spill files; it must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
         vcf_span: Which footprint a VCF record covers: the allele span or the REF span
-        chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
+        chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks and the output see the new names
         threads: Number of threads (default: all available cores)
         t: alias of threads
         skip_invalid: Skip invalid records with a warning instead of failing
@@ -2842,7 +2842,7 @@ def vcf_popgen(
         relatedness: Yang's unadjusted relatedness Ajk of each pair of selected samples: PREFIX.relatedness (vcftools --relatedness)
         relatedness2: Manichaikul's kinship phi of each pair of selected samples, with the counts it comes from: PREFIX.relatedness2 (vcftools --relatedness2)
         vcf_span: Which footprint a VCF record covers: the allele span or the REF span. The statistics do not depend on it, so the default is ref, which accepts symbolic ALTs without INFO/END; it only matters for --region
-        chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
+        chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks and the output see the new names
         threads: Number of threads (default: all available cores)
         t: alias of threads
         skip_invalid: Skip invalid records with a warning instead of failing
