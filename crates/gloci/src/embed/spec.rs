@@ -144,6 +144,19 @@ fn specs() -> &'static [CommandSpec] {
     })
 }
 
+/// The first paragraph of the long about (the sentence that names every tool the command
+/// replaces), without its final full stop; the short about when there is no long one.
+fn long_summary(cmd: &clap::Command) -> String {
+    let long = cmd
+        .get_long_about()
+        .or_else(|| cmd.get_about())
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+    let first = long.trim().split("\n\n").next().unwrap_or("");
+    let one = first.split_whitespace().collect::<Vec<_>>().join(" ");
+    one.strip_suffix('.').map(String::from).unwrap_or(one)
+}
+
 fn walk(cmd: &clap::Command, path: &mut Vec<String>, out: &mut Vec<CommandSpec>) {
     if cmd.get_name() == "help" {
         return;
@@ -153,7 +166,7 @@ fn walk(cmd: &clap::Command, path: &mut Vec<String>, out: &mut Vec<CommandSpec>)
     if !has_subs || !cmd.is_subcommand_required_set() {
         out.push(CommandSpec {
             path: path.clone(),
-            about: cmd.get_about().map(|s| s.to_string()).unwrap_or_default(),
+            about: long_summary(cmd),
             args: cmd
                 .get_arguments()
                 .filter(|a| !a.is_hide_set())

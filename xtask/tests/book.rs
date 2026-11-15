@@ -89,6 +89,28 @@ fn book_generates_every_command() {
     assert!(sort.contains("```sh"));
 }
 
+/// The `## Examples` block of a reference page holds the examples only: every line is a gloci
+/// command or a comment, never a heading or a sentence of the long help's sections.
+#[test]
+fn reference_examples_blocks_hold_only_commands() {
+    let src = generated();
+    for path in leaves() {
+        let file = format!("reference/{}.md", path.join("-"));
+        let page = fs::read_to_string(src.join(&file)).unwrap();
+        let Some(block) = page.split("\n## Examples\n\n```sh\n").nth(1) else {
+            continue;
+        };
+        let block = block.split("\n```").next().unwrap();
+        assert!(!block.trim().is_empty(), "{file}: empty Examples block");
+        for line in block.lines() {
+            assert!(
+                line.starts_with("gloci ") || line.starts_with("# "),
+                "{file}: not an example line: {line}"
+            );
+        }
+    }
+}
+
 #[test]
 fn every_page_is_in_the_summary() {
     let src = generated();

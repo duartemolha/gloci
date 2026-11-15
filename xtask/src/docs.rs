@@ -117,7 +117,8 @@ const PITFALLS: &str = "\
 - **`faidx` needs `gloci index ref.fa` first:** gloci never builds the `.fai` (or `.gzi`) implicitly, so `gloci faidx ref.fa chr1:1-100` on an unindexed FASTA exits 2 naming `gloci index ref.fa`; `-r FILE` is `xargs gloci faidx ref.fa < list` or `--regions-file BED`.
 ";
 
-/// The example lines of a command: the non-blank lines after `Examples:` in its after-help.
+/// The example lines of a command: the lines after `Examples:` in its after-help, up to the first
+/// blank line (the headed sections of the long help follow it).
 pub fn examples_of(sub: &clap::Command) -> Vec<String> {
     let after = sub
         .get_after_long_help()
@@ -129,8 +130,9 @@ pub fn examples_of(sub: &clap::Command) -> Vec<String> {
         .nth(1)
         .map(|s| {
             s.lines()
+                .skip(1)
                 .map(str::trim)
-                .filter(|l| !l.is_empty())
+                .take_while(|l| !l.is_empty())
                 .map(String::from)
                 .collect()
         })
@@ -140,10 +142,25 @@ pub fn examples_of(sub: &clap::Command) -> Vec<String> {
 /// How many examples of a command the guide shows; `--help` has them all.
 const SKILL_EXAMPLES: usize = 2;
 
+/// The first paragraph of a command's long about, without its final full stop; the short about
+/// when there is no long one.
+pub fn first_sentence_of_long_about(sub: &clap::Command) -> String {
+    let long = sub
+        .get_long_about()
+        .or_else(|| sub.get_about())
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+    let first = long.trim().split("\n\n").next().unwrap_or("");
+    let one = first.split_whitespace().collect::<Vec<_>>().join(" ");
+    one.strip_suffix('.').map(String::from).unwrap_or(one)
+}
+
 /// One entry of the command list: the name, whether it is experimental, the one-line summary
 /// (which names the tool it replaces) and its first examples.
 fn write_cmd_entry(buf: &mut String, full_name: &str, sub: &clap::Command, experimental: bool) {
-    let about = sub.get_about().map(|s| s.to_string()).unwrap_or_default();
+    // The first sentence of the long about is the long summary (it names every tool); the
+    // terminal list shows the short one.
+    let about = first_sentence_of_long_about(sub);
     let mark = if experimental { " (experimental)" } else { "" };
     let _ = writeln!(buf, "- `{full_name}`{mark}: {}", about.trim());
     let examples: Vec<String> = examples_of(sub)
