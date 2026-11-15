@@ -1,13 +1,16 @@
 //! Population genetics statistics as vcftools 0.1.16 computes them, run by
 //! the `vcf stats` engine ([`crate::StatsEngine`]): per-site and windowed
-//! nucleotide diversity (π), Tajima's D, and Weir and Cockerham's Fst.
+//! nucleotide diversity (π), Tajima's D, Weir and Cockerham's Fst, and
+//! linkage disequilibrium.
 
 mod diversity;
 mod fst;
+mod ld;
 mod window;
 
 pub use diversity::{SitePi, TajimaD, WindowPi};
 pub use fst::{Populations, TWO_FILES as FST_TWO_FILES, WeirFst};
+pub use ld::{GenoR2, HapR2, InterchromR2, LdBudget, LdWindow};
 
 use crate::stats::{SiteStats, no_polyploid};
 
