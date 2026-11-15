@@ -1676,9 +1676,9 @@ comparison of `crates/gloci/tests/vcf_popgen.rs` with the committed vcftools
 - `--tajima-d` puts POS in bin `floor(POS * (1/BIN))` in floating point, so
   POS 49 with BIN 49 is in bin 0 (and 98 in bin 1), uses n = 2N whatever is
   missing at a site, and writes a chromosome's bins from its first bin with a
-  segregating site to its last bin with a biallelic site, so a monomorphic site
-  after the last segregating one adds `0 nan` rows and a multi-allelic one does
-  not.
+  segregating site to its last bin with a biallelic site, so a monomorphic or
+  all-missing site after the last segregating one adds `0 nan` rows and a
+  multi-allelic one does not.
 - Numbers use C `%g` (6 digits) and `nan` in lower case; vcftools itself prints a
   0/0 site pi as `-nan` on x86_64.
 

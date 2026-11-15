@@ -5,6 +5,7 @@ chr1	200	1	1.63299
 chr1	300	0	nan
 chr1	400	0	nan
 chr1	500	1	-0.612372
+chr1	600	0	nan
 chr2	100	2	0.59158
 chr2	200	0	nan
 chr2	300	0	nan

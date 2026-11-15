@@ -11,6 +11,7 @@ chr1	392	0	nan
 chr1	441	0	nan
 chr1	490	0	nan
 chr1	539	1	-0.612372
+chr1	588	0	nan
 chr2	98	2	0.59158
 chr2	147	0	nan
 chr2	196	0	nan

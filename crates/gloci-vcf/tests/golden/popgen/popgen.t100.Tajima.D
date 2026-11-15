@@ -4,6 +4,8 @@ chr1	100	1	0.333503
 chr1	200	1	1.1665
 chr1	300	0	nan
 chr1	400	0	nan
+chr1	500	0	nan
+chr1	600	0	nan
 chr2	100	2	0.241783
 chr2	200	0	nan
 chr2	300	1	-0.530342

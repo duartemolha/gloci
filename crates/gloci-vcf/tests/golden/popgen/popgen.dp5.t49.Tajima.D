@@ -8,6 +8,10 @@ chr1	245	1	1.1665
 chr1	294	0	nan
 chr1	343	0	nan
 chr1	392	0	nan
+chr1	441	0	nan
+chr1	490	0	nan
+chr1	539	0	nan
+chr1	588	0	nan
 chr2	98	1	1.44416
 chr2	147	0	nan
 chr2	196	0	nan
