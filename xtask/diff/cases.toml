@@ -1,7 +1,11 @@
 # Differential cases. Commands run with the case directory as working directory:
 # the input is `input.<ext>`, `aux` files keep their basename, `gloci` is on PATH.
 # A case without `expected_difference` must match; one with it must differ, and
-# the anchor must exist in docs/differences.md.
+# the anchor must exist in docs/differences.md. A difference that comes from the
+# platform the reference tools run on (their C library or CPU) also names the
+# architectures where it shows, `expected_difference_arch = ["aarch64"]`
+# (`x86_64`, `aarch64`: the architecture of the image); on any other the case
+# must match, and `--update-golden` there leaves its golden files as they are.
 #
 # A case whose `gloci` is a single plain `gloci ARGS` invocation (no shell
 # syntax) also becomes a committed golden case, replayed by `cargo test`.
@@ -6373,13 +6377,15 @@ gloci = "gloci stats jaccard --chrom-order lex -a input.vcf -b jaccard-b.bed --v
 reference = "bedtools jaccard -a input.vcf -b jaccard-b.bed"
 compare = "exact"
 
-# Both empty: 0 0 nan 0 in both (nan, not -nan).
+# Both empty: 0 0 nan 0. bedtools prints the 0/0 jaccard as `-nan` on x86_64 and `nan` on
+# aarch64 (the sign of the NaN the CPU makes); gloci writes `nan` on both, and the reference
+# side maps `-nan` to `nan`.
 [[case]]
 name = "stats-jaccard-both-empty-vs-bedtools"
 input = { file = "xtask/diff/inputs/p3b/stats/jaccard-empty.bed" }
 aux = ["xtask/diff/inputs/p3b/stats/jaccard-empty.bed"]
 gloci = "gloci stats jaccard --chrom-order lex -a input.bed -b jaccard-empty.bed"
-reference = "bedtools jaccard -a input.bed -b jaccard-empty.bed"
+reference = "bedtools jaccard -a input.bed -b jaccard-empty.bed | sed 's/-nan/nan/g'"
 compare = "exact"
 
 # Points: bedtools widens each to two bases (start-1 to end+1) and counts overlap bases; gloci counts none.
@@ -6557,7 +6563,8 @@ compare = "exact"
 expected_difference = "#fisher-exclude-estimate"
 
 # A table (1, 8, 3, 6741594) on a 1.36 Gb genome: the right tail is 1 - left + q, and the last bits of
-# lgamma decide how much of it cancels. The true value is about 5.3e-06; bedtools (glibc lgamma) prints 9.5051e-12.
+# lgamma decide how much of it cancels. The true value is about 5.3e-06; bedtools (glibc lgamma) prints
+# 9.5051e-12 on aarch64, and on x86_64 the same digits as gloci. The golden holds the aarch64 output.
 [[case]]
 name = "stats-fisher-lgamma-vs-bedtools"
 input = { file = "xtask/diff/inputs/p3b/stats/fisher-lg-a.bed" }
@@ -6566,6 +6573,7 @@ gloci = "gloci stats fisher -a input.bed -b fisher-lg-b.bed -g fisher-lg-genome.
 reference = "bedtools fisher -a input.bed -b fisher-lg-b.bed -g fisher-lg-genome.txt"
 compare = "exact"
 expected_difference = "#fisher-lgamma"
+expected_difference_arch = ["aarch64"]
 
 # P3b Task 4
 [[case]]

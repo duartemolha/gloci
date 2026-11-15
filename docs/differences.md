@@ -15,10 +15,12 @@ and gloci's own output for it is committed (`expected_gloci`) and must stay
 byte for byte the same, so a difference cannot quietly turn into a different
 wrong answer. If the behaviour stops differing, the case fails as stale until
 the section is removed. Cases without an `expected_difference` must match the
-reference tool. Most cases run on every `cargo test` from committed reference
-outputs; the few marked "live only" need Docker and run nightly (`cargo xtask
-diff`). The commit history of `crates/gloci/tests/golden/` shows every change in
-a reference tool's output.
+reference tool. A difference that shows only where the reference tool runs on a
+particular platform (its C library or CPU) is pinned there: the case names those
+architectures in `expected_difference_arch` and must match on the others. Most
+cases run on every `cargo test` from committed reference outputs; the few marked
+"live only" need Docker and run nightly (`cargo xtask diff`). The commit history
+of `crates/gloci/tests/golden/` shows every change in a reference tool's output.
 
 Each section gives the gloci behaviour, the old behaviour and the reason.
 
@@ -2292,14 +2294,16 @@ error, exit 2).
   every platform. With a large genome and few overlaps, the p-values are computed as
   `1 - left + q`, where nearly everything cancels; the last bits of `lgamma` then decide the result.
   For the table 1 / 8 / 3 / 6741594 gloci prints `5.34e-06` (the true tail, about 9 x 4 / 6.7e6).
-- **Old behaviour:** `bedtools fisher` calls the C library's `lgamma`, which differs from `libm` by a
-  few ulps. For the same table it prints `9.5051e-12`, and for 1 / 0 / 6 / 241379311 it prints `0`
-  where gloci prints `2.9e-08`. About 7% of large-genome, few-overlap tables differ this way; tables
-  whose p-values are not tiny agree to all printed digits.
+- **Old behaviour:** `bedtools fisher` calls the C library's `lgamma`. On aarch64, glibc's differs
+  from `libm` by a few ulps: for the same table bedtools prints `9.5051e-12`, and for 1 / 0 / 6 /
+  241379311 it prints `0` where gloci prints `2.9e-08`. About 7% of large-genome, few-overlap tables
+  differ this way there; tables whose p-values are not tiny agree to all printed digits. On x86_64,
+  glibc's `lgamma` gives bedtools gloci's digits for the pinned table.
 - **Reason:** portable, identical results (a reference built on another C library may differ from
   this one too). Whether to port glibc's `lgamma` for byte identity is an open owner question.
-- **Pinned by:** `stats-fisher-lgamma-vs-bedtools` (must differ; the reference is glibc on aarch64,
-  and x86 glibc may differ in the last bits, which has not been checked).
+- **Pinned by:** `stats-fisher-lgamma-vs-bedtools`, a difference on aarch64 only
+  (`expected_difference_arch`): with the reference tools on aarch64 it must differ, and its golden
+  holds their aarch64 output; on x86_64 it must match.
 - **Also:** genome lengths near 2^64 saturate the genome size in gloci where bedtools prints `1`;
   no real genome is that large.
 

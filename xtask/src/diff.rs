@@ -8,6 +8,11 @@
 //! under `crates/gloci/tests/golden/<case>/`, which plain `cargo test` checks
 //! without Docker (`crates/gloci/tests/golden.rs`).
 //!
+//! A difference that comes from the platform the reference tools run on names
+//! the architectures where it shows (`expected_difference_arch`), which are
+//! compared with the image's: on the others the case must match, and
+//! `--update-golden` leaves its golden files, written where it shows, as they are.
+//!
 //! Commands run with the case directory as working directory: the input is
 //! `input.<ext>` and every `aux` file keeps its basename. `gloci` is on PATH.
 use anyhow::{Context, Result, anyhow, bail, ensure};
@@ -44,6 +49,32 @@ pub struct Case {
     pub compare: String,
     /// Anchor in docs/differences.md of the documented difference.
     pub expected_difference: Option<String>,
+    /// The architectures (`x86_64`, `aarch64`) of the reference tools on which the documented
+    /// difference shows, when it comes from the platform (its C library or CPU); on any other the
+    /// outputs must be equal. Empty: on every architecture.
+    #[serde(default)]
+    pub expected_difference_arch: Vec<String>,
+}
+
+/// The architectures `expected_difference_arch` may name, as Rust spells them.
+const ARCHES: [&str; 2] = ["x86_64", "aarch64"];
+
+impl Case {
+    /// The documented difference this case expects when the reference tools run on `arch`.
+    pub fn expected_difference_on(&self, arch: &str) -> Option<&str> {
+        let shows = self.expected_difference_arch.is_empty()
+            || self.expected_difference_arch.iter().any(|a| a == arch);
+        self.expected_difference.as_deref().filter(|_| shows)
+    }
+}
+
+/// A Docker image architecture (`docker image inspect`'s `amd64`, `arm64`) as Rust spells it.
+pub fn rust_arch(docker_arch: &str) -> &str {
+    match docker_arch {
+        "amd64" => "x86_64",
+        "arm64" => "aarch64",
+        a => a,
+    }
 }
 
 fn exact() -> String {
@@ -93,6 +124,19 @@ pub fn load_cases(path: &Path) -> Result<Vec<Case>> {
             "{}: gloci and reference are required",
             c.name
         );
+        ensure!(
+            c.expected_difference_arch.is_empty() || c.expected_difference.is_some(),
+            "{}: expected_difference_arch needs an expected_difference",
+            c.name
+        );
+        for a in &c.expected_difference_arch {
+            ensure!(
+                ARCHES.contains(&a.as_str()),
+                "{}: unknown architecture `{a}` in expected_difference_arch (one of {})",
+                c.name,
+                ARCHES.join(", ")
+            );
+        }
     }
     // A case's golden files live in a directory of its name, and a filesystem that ignores
     // letter case (macOS's default) gives `intersect-f` and `intersect-F` one directory.
@@ -117,8 +161,9 @@ pub fn validate(c: &Case, doc: &str) -> Result<(), String> {
     }
 }
 
-pub fn verdict(c: &Case, equal: bool) -> Verdict {
-    gloci_testkit::differential::verdict(c.expected_difference.as_deref(), equal)
+/// The verdict when the reference tools run on `arch`.
+pub fn verdict(c: &Case, arch: &str, equal: bool) -> Verdict {
+    gloci_testkit::differential::verdict(c.expected_difference_on(arch), equal)
 }
 
 /// The gloci arguments when the case is a single plain `gloci ARGS...`
@@ -279,16 +324,25 @@ pub fn run(a: &Args) -> Result<bool> {
             root.join("target/debug/gloci")
         }
     };
-    let ok = Command::new("docker")
-        .args(["image", "inspect", &a.image])
+    let inspect = Command::new("docker")
+        .args([
+            "image",
+            "inspect",
+            "--format",
+            "{{.Architecture}}",
+            &a.image,
+        ])
         .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    ensure!(
-        ok,
-        "image {0} not found: docker build -t {0} xtask/docker",
-        a.image
-    );
+        .ok()
+        .filter(|o| o.status.success());
+    let Some(inspect) = inspect else {
+        bail!(
+            "image {0} not found: docker build -t {0} xtask/docker",
+            a.image
+        );
+    };
+    // the architecture the reference tools run on, which a platform difference depends on
+    let arch = rust_arch(String::from_utf8_lossy(&inspect.stdout).trim()).to_string();
     let doc = std::fs::read_to_string(root.join("docs/differences.md"))?;
     let cases = load_cases(&a.cases)?;
     let work = root.join("target/diff-work");
@@ -308,6 +362,19 @@ pub fn run(a: &Args) -> Result<bool> {
             eprintln!(
                 "skip  {} (not a single gloci invocation; live only)",
                 c.name
+            );
+            continue;
+        }
+        // The golden of a platform difference holds the reference output of an architecture
+        // where it shows; another architecture's equal output would erase the difference.
+        if a.update_golden
+            && c.expected_difference.is_some()
+            && c.expected_difference_on(&arch).is_none()
+        {
+            eprintln!(
+                "keep  {} (its difference shows on {} only; the reference tools here are {arch})",
+                c.name,
+                c.expected_difference_arch.join(", ")
             );
             continue;
         }
@@ -361,9 +428,11 @@ pub fn run(a: &Args) -> Result<bool> {
         }
         let mine_out = observe(&mine);
         let equal = compare(&c.compare, &mine_out, &reference_out);
-        let v = verdict(c, equal);
+        let v = verdict(c, &arch, equal);
         let word = match v {
-            Verdict::Pass if c.expected_difference.is_some() => "ok    (differs as documented)",
+            Verdict::Pass if c.expected_difference_on(&arch).is_some() => {
+                "ok    (differs as documented)"
+            }
             Verdict::Pass => "ok    (matches)",
             Verdict::Mismatch => "FAIL  mismatch",
             Verdict::StaleDifference => "FAIL  stale expected_difference: outputs are now equal",
@@ -442,15 +511,66 @@ mod tests {
         assert!(validate(&case(Some("nope")), doc).is_err());
         assert!(validate(&case(None), doc).is_ok());
         assert_eq!(
-            verdict(&case(Some("view-region-footprints")), true),
+            verdict(&case(Some("view-region-footprints")), "x86_64", true),
             Verdict::StaleDifference
         );
         assert_eq!(
-            verdict(&case(Some("view-region-footprints")), false),
+            verdict(&case(Some("view-region-footprints")), "x86_64", false),
             Verdict::Pass
         );
-        assert_eq!(verdict(&case(None), false), Verdict::Mismatch);
-        assert_eq!(verdict(&case(None), true), Verdict::Pass);
+        assert_eq!(verdict(&case(None), "x86_64", false), Verdict::Mismatch);
+        assert_eq!(verdict(&case(None), "x86_64", true), Verdict::Pass);
+    }
+
+    /// A difference restricted to some architectures is expected there and is a mismatch
+    /// elsewhere, where equal outputs pass.
+    #[test]
+    fn expected_difference_on_some_architectures() {
+        let c = Case {
+            expected_difference_arch: vec!["aarch64".into()],
+            ..case(Some("#fisher-lgamma"))
+        };
+        assert_eq!(c.expected_difference_on("aarch64"), Some("#fisher-lgamma"));
+        assert_eq!(c.expected_difference_on("x86_64"), None);
+        assert_eq!(verdict(&c, "aarch64", false), Verdict::Pass);
+        assert_eq!(verdict(&c, "aarch64", true), Verdict::StaleDifference);
+        assert_eq!(verdict(&c, "x86_64", true), Verdict::Pass);
+        assert_eq!(verdict(&c, "x86_64", false), Verdict::Mismatch);
+        // unrestricted: on every architecture
+        assert_eq!(
+            case(Some("#x")).expected_difference_on("x86_64"),
+            Some("#x")
+        );
+        assert_eq!(rust_arch("amd64"), "x86_64");
+        assert_eq!(rust_arch("arm64"), "aarch64");
+        assert_eq!(rust_arch("riscv64"), "riscv64");
+    }
+
+    /// `expected_difference_arch` needs an `expected_difference` and names known architectures.
+    #[test]
+    fn expected_difference_arch_is_checked_when_loading() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("cases.toml");
+        let with = |extra: &str| {
+            std::fs::write(
+                &p,
+                format!(
+                    "[[case]]\nname = \"c\"\ninput = {{ file = \"x.bed\" }}\ngloci = \"gloci merge input.bed\"\n\
+reference = \"bedtools merge -i input.bed\"\n{extra}"
+                ),
+            )
+            .unwrap();
+            load_cases(&p).map_err(|e| e.to_string())
+        };
+        let c = with("expected_difference = \"#x\"\nexpected_difference_arch = [\"aarch64\"]\n")
+            .unwrap();
+        assert_eq!(c[0].expected_difference_arch, ["aarch64"]);
+        assert!(with("").unwrap()[0].expected_difference_arch.is_empty());
+        let e = with("expected_difference_arch = [\"aarch64\"]\n").unwrap_err();
+        assert!(e.contains("needs an expected_difference"), "{e}");
+        let e = with("expected_difference = \"#x\"\nexpected_difference_arch = [\"arm64\"]\n")
+            .unwrap_err();
+        assert!(e.contains("unknown architecture `arm64`"), "{e}");
     }
 
     #[test]
