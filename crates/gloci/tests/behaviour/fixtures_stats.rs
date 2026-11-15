@@ -533,6 +533,21 @@ pub(crate) fn p3b_prefix_cmds(fx: &P3b) -> Vec<(String, Vec<String>, Vec<&'stati
             ]),
             ["weir.fst", "weir.fst.summary", "windowed.weir.fst"].to_vec(),
         ));
+        c.push((
+            format!("vcf popgen ld {tag}"),
+            sv(&[
+                "vcf",
+                "popgen",
+                f,
+                "--geno-r2",
+                "--hap-r2",
+                "--ld-window",
+                "10",
+                "--min-dp",
+                "3",
+            ]),
+            ["geno.ld", "hap.ld"].to_vec(),
+        ));
     }
     c
 }

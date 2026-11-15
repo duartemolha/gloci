@@ -485,6 +485,22 @@ fn p3b_empty_inputs_matrix() {
             std::fs::read_to_string(format!("{p}.weir.fst.summary")).unwrap(),
             "N_SITES\tMEAN_FST\tWEIGHTED_FST\n0\tnan\tnan\n"
         );
+        // LD: the column headers (vcftools stops: docs/differences.md#ld-rules)
+        gloci()
+            .args(["vcf", "popgen", v, "--out-prefix", &p])
+            .args(["--geno-r2", "--hap-r2", "--interchrom-geno-r2"])
+            .args(["--interchrom-hap-r2"])
+            .assert()
+            .success();
+        for ext in [
+            "geno.ld",
+            "hap.ld",
+            "interchrom.geno.ld",
+            "interchrom.hap.ld",
+        ] {
+            let t = std::fs::read_to_string(format!("{p}.{ext}")).unwrap();
+            assert_eq!(t.lines().count(), 1, ".{ext}: {t}");
+        }
         for (x, y) in [(v, v), (v, &one), (&one, v)] {
             let d = tempdir();
             let p = s_of(&d.path().join("c"));
@@ -867,6 +883,14 @@ fn p3b_failure_matrix() {
             false,
         ),
         (
+            "vcf popgen ld",
+            vec!["vcf", "popgen", "--geno-r2", "--ld-window", "5", "{IN}"],
+            Sink::Prefix,
+            false,
+            // its own message for unsorted input: tests/vcf_popgen.rs
+            false,
+        ),
+        (
             "sample vcf",
             vec!["sample", "-n", "3", "--seed", "1", "{IN}"],
             Sink::File("vcf"),
@@ -1031,6 +1055,11 @@ fn p3b_failure_matrix() {
                 &fst_pop2,
                 "{IN}",
             ],
+            Sink::Prefix,
+        ),
+        (
+            "vcf popgen ld",
+            vec!["vcf", "popgen", "--hap-r2", "--interchrom-geno-r2", "{IN}"],
             Sink::Prefix,
         ),
     ];
