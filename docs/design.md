@@ -173,13 +173,13 @@ Further rules:
 - **Chromosome order is chosen in this order** **[my call]**:
   1. `--genome NAME|FILE` order, if given. NAME is a built-in genome such as `hg38` (Section 5.3). FILE can be `.fai`, a 2-column `.genome`, `.dict`, or a VCF/BCF/BAM/SAM/CRAM header.
   2. Otherwise, the contig order declared in the header of an input, if any: a VCF/BCF header's `##contig` lines, or an alignment header's `@SQ` lines (BAM, SAM, CRAM), taken from the first such header in input order, and closed (a name outside it is an error). **[D103, as amended by D124]** The order of an alignment header is a declared order like a VCF header's. An alignment out of that order is an error whose hint is `gloci sort x.bam -o x.sorted.bam` (naming `SO:queryname` when the header declares it) or `--sort`; a B BED must follow the same order (`gloci sort b.bed -g x.bam`), or be sorted by `--sort` too. `--unsorted` holds B alignments in memory. `--chrom-map` renames the binary reference list and the `@SQ SN:` values, so BAM and CRAM records, which name references by number, carry the new names in any output, SAM included. SAM text is written as it is read, so it keeps its `RNAME`/`RNEXT`: `--chrom-map` is refused whenever SAM input lines would be written as records (`view`, `sort` and `sort -m` of a SAM input, whatever the output format, and `intersect --mode any|none` of a SAM A; convert to BAM first). The commands that only compare SAM reads as intervals (`intersect --mode pairs|count`, `coverage`, `genomecov`, `convert`) rename their chromosomes.
-  3. Otherwise, **karyotype order** **[you]**, which matches how people read chromosomes and how reference genomes (and therefore most VCFs) are laid out. Names are compared with any leading `chr` prefix ignored:
+  3. Otherwise, **lexicographic order** (byte order of the names) **[owner, 2026-11-15, reversing D32]**, the order of `sort -k1,1` (with `LC_ALL=C`), bedops `sort-bed` and `bedtools sort`, so files from the tools gloci replaces just work. `--chrom-order karyotype` selects **karyotype order** instead, which matches how people read chromosomes and how reference genomes (and therefore most VCFs) are laid out. Karyotype order compares names with any leading `chr` prefix ignored:
      1. names that are a number, optionally followed by letters (`1`, `2`, `22`, `2L`, `2A`), by number and then suffix;
      2. then `X`, `Y`, and `M`/`MT`, in that order;
      3. then everything else (`chr1_KI270706v1_random`, `chrUn_…`, `chrEBV`, `HLA-…`) in natural order, with digit runs compared as numbers;
      4. remaining ties (`1` vs `chr1`, `chr01` vs `chr1`) are broken by raw bytes, so the order is total.
 
-     This gives `chr1 … chr22, chrX, chrY, chrM` for human, the GRCh38 layout. `--chrom-order lex` selects lexicographic byte order instead, the same as `sort -k1,1`, bedops `sort-bed` and `bedtools sort`. Names that don't follow these patterns, such as yeast's Roman numerals, need `-g`.
+     This gives `chr1 … chr22, chrX, chrY, chrM` for human, the GRCh38 layout. Names that don't follow these patterns, such as yeast's Roman numerals, need `-g` in either order to get the reference order.
 - **Validation:** sortedness is **checked on the fly** in every streaming command.
   - At the first violation, the command stops with exit code 1.
   - The error names the file, line number and both offending records, and gives a hint such as: `run: gloci sort FILE -g <genome>`.
@@ -243,7 +243,7 @@ gloci ships chromosome names and sizes for common assemblies, so `-g hg38` works
   - UCSC ids use `chr`-prefixed names.
   - GRC/Ensembl ids use the Ensembl names (`1 … 22, X, Y, MT`).
   - Each entry is built from its own project's published tables. They are not renamed copies: hg19 `chrM` (16,571 bp) is not GRCh37 `MT` (16,569 bp).
-- **Order.** Built-ins list chromosomes in the same karyotype order gloci uses without `-g` (Section 4.5), so `-g NAME` adds lengths and the exact chromosome set but never reorders. The exception is genomes with Roman-numeral chromosome names (yeast `sacCer3`/`R64`, worm `ce11`/`WBcel235`). These list their Roman-numeral chromosomes in numeric order (I, II, … XVI), followed by the rest.
+- **Order.** Built-ins list chromosomes in karyotype order (Section 4.5, `--chrom-order karyotype`), so `-g NAME` adds lengths and the exact chromosome set but never reorders. The exception is genomes with Roman-numeral chromosome names (yeast `sacCer3`/`R64`, worm `ce11`/`WBcel235`). These list their Roman-numeral chromosomes in numeric order (I, II, … XVI), followed by the rest.
 - **Initial list:**
   - Human: `hg19`, `hg38`, `hs1` (T2T-CHM13v2.0), `GRCh37`, `GRCh38`.
   - Mouse: `mm10`, `mm39`, `GRCm38`, `GRCm39`.
@@ -271,7 +271,7 @@ gloci ships chromosome names and sizes for common assemblies, so `-g hg38` works
 | `--compression-level N` | BGZF level (default 6) |
 | `-t, --threads N` | default: `available_parallelism()`, which honours cgroups and CPU affinity (so SLURM allocations); env `GLOCI_THREADS` |
 | `-g, --genome NAME\|FILE` | chromosome sizes and order: a built-in genome name (`hg38`, `GRCh38`, `mm39` …, see `gloci genomes`) or a file (`.fai`, `.genome`, `.dict`, VCF/BCF/BAM header) The one exception is `groupby`, where `-g COLS` names the group columns, as in bedtools groupby; `groupby` takes no genome. **[owner, 2026-11-10: keep this exception]** |
-| `--chrom-order karyotype\|lex` | chromosome order when neither `-g` nor a VCF/BCF header sets one (Section 4.5), default `karyotype` |
+| `--chrom-order karyotype\|lex` | chromosome order when neither `-g` nor a VCF/BCF header sets one (Section 4.5), default `lex` |
 | `--vcf-span allele\|ref` | variant footprint rule (Section 4.2), default `allele` |
 | `--unsorted` | process unsorted input in its own order via the in-memory index; results follow A's order (Section 4.5) |
 | `--sort` | sort the inputs first with bounded memory (`--max-mem`), then run the streaming pass; results in sorted order (Section 4.5) |
@@ -777,7 +777,7 @@ Reference machine: 8-core x86_64, NVMe, 32 GB RAM. Baselines: bedtools 2.31.x, b
 2. **Property tests:** every two-input and n-ary operation is compared with a **naive O(n·m) reference implementation** on random inputs. Inputs include points, bookended features, duplicates, nesting, huge intervals, empty chromosomes and strand mixes.
 3. **Differential tests:**
    - Pinned bedtools, bedops and vcftools run in a container on a test corpus.
-   - Every difference must be either fixed as a bug or listed in `docs/differences.md` with the reason. Examples of listed differences: default `--vcf-span allele`, default karyotype chromosome order, MAF on multi-allelic sites, and INFO kept by default.
+   - Every difference must be either fixed as a bug or listed in `docs/differences.md` with the reason. Examples of listed differences: default `--vcf-span allele`, MAF on multi-allelic sites, and INFO kept by default.
    - A difference that comes from the platform of the reference tool (its C library or CPU, such as vcftools rounding sums differently on aarch64) is pinned with `expected_difference_arch` in the case, naming the architectures where it shows; on any other the outputs must be equal.
 4. **Fuzzing:** BED, VCF, BCF, GFF and BGZF readers, plus region-string parsing.
 5. **Thread determinism:** every command runs with `-t 1`, `-t 2` and `-t 8`, and the outputs must be byte-identical. The behaviour tests (matrices of every command over its input formats, thread counts, failures and standard input) are one test binary, `crates/gloci/tests/behaviour/main.rs`, with a module for each matrix and for its fixtures.
@@ -835,12 +835,12 @@ The user-facing version of this guide lives in `docs/migration.md` (later part o
 
 ### Behaviour changes to know about
 
-**Chromosome order.** Without `-g` or a VCF/BCF header, gloci sorts and expects chromosomes in karyotype order (`chr1, chr2 … chr22, chrX, chrY, chrM`). bedtools, bedops `sort-bed` and `sort -k1,1` use lexicographic order (`chr1, chr10, chr11 …`). In practice:
+**Chromosome order.** Without `-g` or a VCF/BCF header, gloci sorts and expects chromosomes in lexicographic byte order (`chr1, chr10, chr11 … chr2`), as bedtools, bedops `sort-bed` and `sort -k1,1` do (`LC_ALL=C`). `--chrom-order karyotype` selects `chr1, chr2 … chr22, chrX, chrY, chrM` instead. In practice:
 
-- Files sorted by the old tools are reported as **not sorted** by gloci's streaming commands. The error names both records. When the pair is in lexicographic order, the hint says the file looks sorted by `sort`/`sort-bed`/`bedtools sort`, and gives both fixes: re-sort with `gloci sort FILE`, or pass `--chrom-order lex`.
-- `gloci sort` output differs from `sort-bed`/`bedtools sort` output in chromosome order only. Within a chromosome, records are ordered the same way. `gloci sort --chrom-order lex` reproduces the old order.
-- `-g genome.fai` and VCF/BCF header order still take precedence, so pipelines that already pass a genome file behave as before.
-- Re-sort stored intermediate files once with `gloci sort`, or keep `--chrom-order lex` on every gloci command in a pipeline that must stay byte-compatible with old outputs. Mixing the two orders within one pipeline is reported as an error, never as a silent wrong answer.
+- Files sorted by the old tools work as they are, and `gloci sort` writes the same bytes as `sort-bed` and `bedtools sort`.
+- A file in karyotype order (the output of `gloci convert` from a VCF or BAM, which keeps the header's order, or of `--chrom-order karyotype`) is reported as **not sorted** by the streaming commands. The error names both records. When the pair is in karyotype order, the hint says so and gives the fixes: pass `-g GENOME` or `--chrom-order karyotype`, or re-sort with `gloci sort FILE`. The other direction is hinted the same way for runs with `--chrom-order karyotype`.
+- `-g genome.fai` and VCF/BCF header order still take precedence over the default.
+- Mixing the two orders within one pipeline is reported as an error, never as a silent wrong answer.
 
 **BAM, CRAM and FASTA.** Interval commands skip unmapped reads (bedtools `intersect -v` writes them); `view`, `sort`, `sort -m` and `cat` keep every record. The read filters default to nothing. CRAM needs `--reference FASTA` (bedtools `--cram-ref`), and gloci never writes a CRAM. `genomecov` of a BAM counts deleted bases, so bedtools' `-ibam -split` is `--split-deletions`. gloci never builds an index implicitly (bedtools builds a `.fai`). `gloci merge` is the interval merge; `samtools merge` is `gloci sort -m`. See `docs/migration.md`.
 
@@ -914,7 +914,7 @@ The user-facing version of this guide lives in `docs/migration.md` (later part o
 | `bedmap --echo-map`, `--echo-map-id` | `map -c 0:records`, `map -c 4:collapse` |
 | `bedmap --bases`, `--fraction-*` | `map -c 0:bases`, `-f/-F/-e` |
 | `closest-features` | `closest --each-side [--distance]` |
-| `sort-bed [--max-mem --tmpdir --check-sort --unique --duplicates]` | `sort [--max-mem --tmp-dir --check --unique --duplicates]`; add `--chrom-order lex` to reproduce sort-bed's chromosome order |
+| `sort-bed [--max-mem --tmpdir --check-sort --unique --duplicates]` | `sort [--max-mem --tmp-dir --check --unique --duplicates]`; `sort-bed`'s chromosome order is the default |
 | `bedextract` | `view FILE REGION` |
 | `convert2bed`, `vcf2bed [--snvs/--insertions/--deletions]`, `gff2bed`, `gtf2bed` | `convert [--types snv/ins/del]` |
 | `starch`, `unstarch`, `starchcat` | not planned |

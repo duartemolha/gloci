@@ -36,6 +36,7 @@ the minor version).
 
 ### Changed
 
+- Without `-g` and without a VCF/BCF header that lists contigs, gloci now orders chromosomes lexicographically (`chr1, chr10, chr2 ... chrX`), the order of `bedtools sort`, `sort-bed` and `LC_ALL=C sort -k1,1`, where it used karyotype order (`chr1, chr2 ... chr22, chrX, chrY, chrM`). Files from those tools work as they are and `gloci sort` writes the same bytes as they do. `--chrom-order karyotype` gives the old order. A file in karyotype order (for example the BED that `gloci convert` makes from a VCF or BAM) is now the one reported as not sorted, with a hint to pass `-g GENOME` or `--chrom-order karyotype`, or to re-sort it with `gloci sort`. `-g`, a built-in genome (still in karyotype order) and the contig order of a VCF/BCF or alignment header still win.
 - The design specification is `docs/design.md` and the numbered design decisions are `docs/decisions.md`; the source cites both by section (`spec §4.3`) and by number (`D37`).
 - `gloci --help` lists the commands in groups (the stable core first, then the experimental groups), with a one-line summary for each. The `--help` of a command now opens with a short summary, then the usage and the options, then the examples and the detail under headings.
 - CI builds with a pinned Rust (1.100.0, set in `rust-toolchain.toml`) instead of the newest stable, and a new `msrv` job checks that the workspace builds with the minimum supported Rust (1.91), so a new Rust release no longer changes a build by itself.

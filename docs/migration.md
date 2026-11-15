@@ -7,26 +7,14 @@ This guide is for people moving existing pipelines to gloci. It starts with the
 behaviour changes that break or alter a pipeline even after the flags are
 rewritten.
 
-## Chromosome order (behaviour change)
+## Chromosome order
 
 Without `-g` and without a VCF/BCF header that lists contigs, gloci uses
-**karyotype order**: `chr1, chr2 ... chr22, chrX, chrY, chrM` (see
-[differences.md](differences.md#karyotype-chromosome-order)). `sort -k1,1`,
-bedops `sort-bed` and `bedtools sort` use **lexicographic** order (for `sort`,
-only with `LC_ALL=C`; other locales order names differently again):
-`chr1, chr10, chr11 ... chr19, chr2, chr20 ...`.
-
-Same records, `chr1, chr2, chr10, chrX`:
-
-```
-# sort-bed / bedtools sort / sort -k1,1 -k2,2n      # gloci sort
-chr1    100  200                                    chr1    100  200
-chr10   100  200                                    chr2    100  200
-chr2    100  200                                    chr10   100  200
-chrX    100  200                                    chrX    100  200
-```
-
-Within a chromosome the order is the same. Only the chromosome order differs.
+**lexicographic order**, the byte order of the names: `chr1, chr10, chr11 ...
+chr19, chr2, chr20 ...`. That is the order of `sort-bed`, `bedtools sort` and
+`LC_ALL=C sort -k1,1` (other locales order names differently), so files sorted
+by those tools work as they are, and `gloci sort x.bed` writes the same bytes as
+`sort-bed` and `bedtools sort`. Within a chromosome the order is the same too.
 
 Records that share a start are ordered by end by `gloci sort`. `sort -k1,1 -k2,2n -s`
 leaves them in input order; without `-s`, GNU `sort` falls back to comparing the
@@ -34,34 +22,44 @@ whole line, so ties are not in input order either. `gloci sort` keeps input orde
 for records that tie on chromosome, start and end, and `--full-key` orders such
 ties by the whole line (see [differences.md](differences.md#sort-tie-order)).
 
+### Karyotype order
+
+`--chrom-order karyotype` selects `chr1, chr2 ... chr22, chrX, chrY, chrM`
+instead (a leading `chr` is ignored, everything else is in natural order). A VCF,
+BCF or BAM header usually lists its contigs in that order, and `gloci convert`
+keeps the header's order, so a BED made from one is in karyotype order.
+
 ### What you will see
 
-A file sorted by an old tool is rejected by gloci's streaming commands:
+A file in karyotype order, read without `-g` or `--chrom-order karyotype`, is
+rejected by gloci's streaming commands:
 
 ```
 x.bed is not sorted: line 3 (chr2	0	3) comes after line 2 (chr10	1	2)
-hint: run: gloci sort x.bed (this file looks sorted by sort -k1,1, sort-bed or bedtools sort; re-sort it with gloci sort, or pass --chrom-order lex; see docs/migration.md)
+hint: run: gloci sort x.bed (this file looks sorted in karyotype order, as a VCF or BAM header lists it; pass -g GENOME or --chrom-order karyotype, or re-sort it with gloci sort)
 ```
 
-gloci reports this as an error. It never silently gives a wrong answer from
-files in a mixed order.
+The reverse also holds: with `--chrom-order karyotype`, a file sorted by
+`sort-bed` or `sort -k1,1` is rejected, and the hint says so. gloci reports this
+as an error. It never silently gives a wrong answer from files in a mixed order.
 
-### Two fixes
+### Fixes
 
-1. Re-sort once, then keep the files: `gloci sort x.bed > x.sorted.bed` (or add
+1. Pass the genome the file follows: `-g hg38` or `-g genome.fai` (or any
+   `.genome`, `.dict`, BAM header).
+2. Or pass `--chrom-order karyotype` to every gloci command in the pipeline.
+3. Or re-sort once, then keep the files: `gloci sort x.bed > x.sorted.bed` (or add
    `--sort` to a streaming relation, `merge` or `complement` command to sort on
    the fly).
-2. Keep the old order everywhere: add `--chrom-order lex` to every gloci command
-   in the pipeline. Use this when outputs must stay byte-compatible with old
-   results. `gloci sort x.bed --chrom-order lex` writes the old order.
 
 ### What still takes precedence
 
-`-g genome.fai` (or `.genome`, `.dict`, a BAM header) and the contig order in a
-VCF/BCF header win over `--chrom-order`. A pipeline that already passes `-g`
-behaves as before. `--chrom-order` only applies when neither is present.
+`-g genome.fai` (or `.genome`, `.dict`, a BAM header, a built-in such as `hg38`)
+and the contig order in a VCF/BCF header win over `--chrom-order`.
+`--chrom-order` only applies when neither is present.
 
-Names that follow no common pattern, such as yeast's Roman numerals, need `-g`.
+Names that follow no common pattern, such as yeast's Roman numerals, need `-g`
+to get the reference order.
 
 ### Built-in genomes
 
@@ -82,7 +80,7 @@ LC_ALL=C sort -k1,1 -k2,2n genes.bed > genes.sorted.bed
 bedtools intersect -sorted -a peaks.sorted.bed -b genes.sorted.bed -u > hits.bed
 ```
 
-After, with karyotype order:
+After, with the same order and the same `hits.bed`:
 
 ```sh
 gloci sort peaks.bed > peaks.sorted.bed
@@ -90,13 +88,7 @@ gloci sort genes.bed > genes.sorted.bed
 gloci intersect -a peaks.sorted.bed -b genes.sorted.bed > hits.bed
 ```
 
-After, keeping the old order so `hits.bed` is unchanged:
-
-```sh
-gloci sort peaks.bed --chrom-order lex > peaks.sorted.bed
-gloci sort genes.bed --chrom-order lex > genes.sorted.bed
-gloci intersect -a peaks.sorted.bed -b genes.sorted.bed --chrom-order lex > hits.bed
-```
+Files that are already sorted by the old tools need no `gloci sort` step.
 
 ## Command mapping
 
@@ -112,7 +104,7 @@ behaviour](#samtools-behaviour) after the tables.
 
 | Old command | gloci |
 |---|---|
-| `sort-bed FILE`, `bedtools sort -i FILE`, `LC_ALL=C sort -k1,1 -k2,2n FILE` | `gloci sort FILE --chrom-order lex` (drop `--chrom-order lex` to get karyotype order) |
+| `sort-bed FILE`, `bedtools sort -i FILE`, `LC_ALL=C sort -k1,1 -k2,2n FILE` | `gloci sort FILE` (add `--chrom-order karyotype` for karyotype order) |
 | `bedtools sort -i FILE -g GENOME` | `gloci sort FILE -g GENOME` (`-g` also takes a built-in such as `hg38`) |
 | `vcf-sort FILE`, `bcftools sort FILE` | `gloci sort FILE` (the order comes from the `##contig` lines; `-g` overrides) |
 | `sort-bed --max-mem 8G --tmpdir DIR FILE` | `gloci sort FILE --max-mem 8G --tmp-dir DIR` |
@@ -165,14 +157,14 @@ behaviour](#samtools-behaviour) after the tables.
 | `flank -b -l -r -s -pct -g` | `gloci flank FILE -b/--both N` or `--left L --right R` with `-s`, `--pct`, `-g GENOME` |
 | `shift -s N`, `shift -p X -m Y`, `-pct`, `-g` | `gloci shift FILE --by N [-g GENOME]` (signed; `--pct` reads N as an exact decimal fraction of the feature length); `-p X -m -X` is `--by X -s`. bedtools' `-p`/`-m` with unrelated magnitudes has no gloci equivalent: run `shift` per strand after filtering |
 | `makewindows -g/-b -w -s -n -i` | `gloci windows -g GENOME \| -i/--intervals FILE` with `-w/--size SIZE [--step S]` or `-n/--count COUNT`, plus `--id-column`, `--reverse` |
-| `sort -i FILE [-g GENOME]` | `gloci sort FILE [-g GENOME]` (`--chrom-order lex` reproduces byte order) |
+| `sort -i FILE [-g GENOME]` | `gloci sort FILE [-g GENOME]` (byte order is the default; `--chrom-order karyotype` gives karyotype order) |
 | `bed12tobed6 -i FILE` | `gloci convert FILE --blocks` |
 | `genomecov -i x.bed -g G` (`-bg`, `-bga`, `-d`, `-scale`, `-strand`, `-split`, `-5`, `-3`, `-max`) | `gloci genomecov x.bed -g G [--bedgraph \| --bga \| --per-base] [--scale X] [--strand +\|-] [--split] [--5p \| --3p] [--max-depth N]` (`-g` is required, as in bedtools; the input must be sorted, `--sort` sorts it; `-dz` and `-trackline` have no counterpart; the `--hist` fractions divide in single precision and print six significant digits, as bedtools does; a `genome` row that counts more than 2^32 bases at one depth is correct in gloci, see the `genomecov` note under Other behaviour changes; BAM input is `-ibam`, see the next row) |
 | `genomecov -ibam x.bam` (`-bg`, `-bga`, `-d`, `-scale`, `-strand`, `-split`, `-5`, `-3`, `-max`, `-ignoreD`) | `gloci genomecov x.bam [--bedgraph \| --bga \| --per-base] [--scale X] [--strand +\|-] [--split \| --split-deletions] [--5p \| --3p] [--max-depth N]` (the chromosomes and sizes come from the header, in header order with empty chromosomes included, where bedtools writes a contig without reads after the others, see [differences.md#genomecov-chrom-order](differences.md#genomecov-chrom-order); `-g` overrides them where bedtools ignores it, see [differences.md#genomecov-bam-genome-arg](differences.md#genomecov-bam-genome-arg); a read with no reference operations counts one base, see [differences.md#bamtobed-no-reference-ops](differences.md#bamtobed-no-reference-ops); reads are cut at the end of their reference and unmapped reads are left out, counted at `-v`; `--min-mapq`, `--require-flags` and `--exclude-flags` filter first; bedtools cuts a read at deletions unless `-ignoreD`, gloci counts deleted bases by default, so `-split` is `--split-deletions`, `-split -ignoreD` is `--split`, and `-ignoreD` is the default, see [differences.md#bam-genomecov-deletions](differences.md#bam-genomecov-deletions); an indexed BAM, or a CRAM with a `.crai` (and `--reference FASTA`), at `-t` above 1 runs per chromosome with the same output; `-pc`, `-fs` and `-du` are not planned) |
 | `multiinter -i A B C [-names]` | `gloci partition A B C --merge-adjacent [--names X,Y,Z]` (the count and label columns; the per-file 0/1 columns are not written; without `-names` bedtools labels the files `1,2,3` and gloci uses the file names (pass `--names 1,2,3` to match); `-cluster` and `-empty -g` have no counterpart (for the latter use `gloci complement -g`)) |
 | `unionbedg -i A B [-filler -empty -g]` | `gloci partition A B --bedgraph [--empty VALUE [-g GENOME]]` (`-filler X` is `--empty X`; `--empty` also writes the uncovered segments, as it implies `--min-files 0`; an explicit `--min-files` overrides that) |
 | `groupby -g -c -o [-header]` | `gloci groupby FILE -g COLS -c/--column COL:OP` (bedtools `-o OP` becomes the `:OP` of `-c COL:OP`, and gloci's `-o` is the output file; `--header`, `--delim`, `--empty`; same ops as `map` except those that need a second input; `distinct` keeps first-seen order where bedtools sorts it, use `distinct_sorted`, see [differences.md#map-distinct-order](differences.md#map-distinct-order); VCF input is refused, use `gloci vcf extract`) |
-| `cluster -d -s` | `gloci cluster FILE -d/--max-gap N -s` (`--sort`; the same gap and strand rules as `gloci merge`; ids are global, and `-s` keeps input order, see [differences.md#cluster-strand](differences.md#cluster-strand); a VCF input is clustered by its footprints and the output is TSV with a `#CHROM ... cluster` line, see [differences.md#append-vcf-header](differences.md#append-vcf-header); BCF is refused, use `gloci view -O vcf`; bedtools accepts chromosomes in any grouped order, gloci needs a sorted chromosome order, see [Chromosome order](#chromosome-order-behaviour-change)) |
+| `cluster -d -s` | `gloci cluster FILE -d/--max-gap N -s` (`--sort`; the same gap and strand rules as `gloci merge`; ids are global, and `-s` keeps input order, see [differences.md#cluster-strand](differences.md#cluster-strand); a VCF input is clustered by its footprints and the output is TSV with a `#CHROM ... cluster` line, see [differences.md#append-vcf-header](differences.md#append-vcf-header); BCF is refused, use `gloci view -O vcf`; bedtools accepts chromosomes in any grouped order, gloci needs a sorted chromosome order, see [Chromosome order](#chromosome-order)) |
 | `spacing` | `gloci spacing FILE` (`.` for the first record of a chromosome, `0` bookended, `-1` overlapping, only the previous record counts, as in bedtools; a zero-length record is a point, see [differences.md#spacing-zero-length](differences.md#spacing-zero-length); VCF input and chromosome order as for `cluster`) |
 | `bamtobed -i FILE` (`-bed12`, `-split`, `-splitD`, `-ed`, `-tag TAG`, `-cigar`, `-color R,G,B`, `-bedpe`, `-mate1`) | `gloci convert FILE [--bed12] [--blocks] [--blocks --split-deletions] [--score-tag NM\|TAG] [--cigar] [--color R,G,B] [--bedpe [--mate1-first]]` (BAM, CRAM or SAM input, a CRAM with `--reference FASTA`, which bedtools reads as BAM only; output matches bedtools 2.31.1 in input order except for the pinned differences below, with `/1` and `/2` on mates, MAPQ as the score and unmapped reads skipped; `-ed` is `--score-tag NM`; `--min-mapq`, `--require-flags` and `--exclude-flags` filter; a read with no reference bases is one base, not zero-length, see [differences.md#bamtobed-no-reference-ops](differences.md#bamtobed-no-reference-ops); reads are cut at the end of their reference, and a BED12 row opens at its first kept block and closes at its last, with no size-0 blocks, see [differences.md#bamtobed-past-reference-end](differences.md#bamtobed-past-reference-end); a negative tag score is printed signed, where bedtools wraps it to unsigned 32-bit, see [differences.md#bamtobed-negative-score](differences.md#bamtobed-negative-score); `--blocks --score-tag` has no extra column and `--cigar` with `--blocks` is an error, see [differences.md#bamtobed-split-tag](differences.md#bamtobed-split-tag); `-bedpe` is `gloci convert FILE --bedpe` on a name-sorted file (`gloci sort -n`; a coordinate-sorted one is exit 2), `-mate1` is `--mate1-first` and `-ed` is `--score-tag NM`; the output is BEDPE (`.bedpe`, `.bedpe.gz`) and feeds `pair-intersect` and `pair-pair`; it matches bedtools, except that secondary and supplementary alignments are not mates, see [differences.md#bamtobed-bedpe](differences.md#bamtobed-bedpe)) |
 | `getfasta -fi REF -bed FILE` (`-name`, `-nameOnly`, `-s`, `-split`, `-tab`, `-bedOut`, `-rna`) | `gloci getfasta FILE --fasta REF [--name \| --name-only] [-s] [--split] [--tab \| --bed-out] [--rna]` (output is byte-identical to bedtools 2.31.1 for BED, GFF and VCF input, including the IUPAC-aware reverse complement, except that `--split` refuses BED12 records whose blocks are out of order, overlap, or do not span the record where bedtools writes them unchecked, see [differences.md#getfasta-split-blocks](differences.md#getfasta-split-blocks); the FASTA needs a `.fai` (and `.gzi` for BGZF) made with `gloci index`, which gloci never builds itself; VCF is bedtools' REF span with `--vcf-span ref`; zero-length intervals are skipped with a counted warning, as bedtools does; an interval on a chromosome the FASTA lacks, or past its end, is an error where bedtools skips it, `--skip-invalid` gives bedtools' behaviour, see [differences.md#getfasta-outside-fasta](differences.md#getfasta-outside-fasta); there is no `-fullHeader`) |
@@ -245,7 +237,7 @@ behaviour](#samtools-behaviour) after the tables.
 | `bedmap --echo-map-id`, `--echo-map-id-uniq` | `gloci map -a A -b B -c 4:collapse`, `-c 4:distinct_sorted` (`--echo-map-id-uniq` sorts the IDs bytewise, as `distinct_sorted` does; plain `distinct` keeps first-seen order, see [differences.md#map-distinct-order](differences.md#map-distinct-order); `--echo-map` whole-record list is `0:records`, tabs shown as `\|`) |
 | `bedmap --bases`, `--fraction-ref/--fraction-map/--fraction-both/--fraction-either` | `gloci map -a A -b B -c 0:bases`, with `-f` / `-F` / `-r` / `-e`; `--bp-ovr N` is `--min-bases N` |
 | `closest-features` | `gloci closest -a A -b B --each-side [--distance]` (add `--ignore-overlaps` when an overlapping B should not count on both sides) |
-| `sort-bed [--max-mem --tmpdir --check-sort --unique --duplicates]` | `gloci sort [--max-mem --tmp-dir --check --unique --duplicates]`; add `--chrom-order lex` to reproduce `sort-bed`'s chromosome order (`--full-key` reproduces whole-line tie breaking) |
+| `sort-bed [--max-mem --tmpdir --check-sort --unique --duplicates]` | `gloci sort [--max-mem --tmp-dir --check --unique --duplicates]`; `sort-bed`'s chromosome order is the default (`--full-key` reproduces whole-line tie breaking) |
 | `bedextract CHR FILE`, `bedextract FILE REGIONS.bed` | `gloci view FILE CHR`, `gloci view FILE --regions-file REGIONS.bed` (add `--assume-sorted` for binary search on an uncompressed BED file) |
 | `convert2bed`, `vcf2bed [--snvs/--insertions/--deletions]`, `gff2bed`, `gtf2bed` | `gloci convert FILE [--types snv/ins/del] [--split-alleles] [--feature TYPE] [--name-attr KEY]` (rows in input order, where bedops sorts them unless `--do-not-sort`: pipe to `gloci sort --chrom-order lex --full-key` for its order, see [differences.md#convert-input-order](differences.md#convert-input-order); a one-base GFF/GTF feature keeps its attributes, without bedops' added `zero_length_insertion=True`, see [differences.md#gff2bed-zero-length](differences.md#gff2bed-zero-length)) |
 | `bedops -p` / `--partition` | `gloci partition FILES --no-membership` |

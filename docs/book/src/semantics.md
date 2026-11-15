@@ -85,7 +85,7 @@ Streaming commands need inputs sorted by **(chromosome, start)**. The chromosome
 
 1. `--genome NAME|FILE` (or `-g`): a built-in genome such as `hg38`, or a `.fai`, a two-column `.genome`, a `.dict`, or a VCF/BCF/BAM/SAM/CRAM header.
 2. The contig order declared in the header of the first input that has one (`##contig` lines of a VCF/BCF, `@SQ` lines of an alignment file).
-3. **Karyotype order**: `chr1 ... chr22, chrX, chrY, chrM`, with a leading `chr` ignored and everything else in natural order. `--chrom-order lex` selects byte order instead, the same as `sort -k1,1`, bedops `sort-bed` and `bedtools sort`.
+3. **Lexicographic order** (byte order): `chr1, chr10, chr2 ...`, the same as `sort -k1,1`, bedops `sort-bed` and `bedtools sort`. `--chrom-order karyotype` selects `chr1 ... chr22, chrX, chrY, chrM` instead, with a leading `chr` ignored and everything else in natural order.
 
 Sortedness is checked on the fly in every streaming command. At the first violation the command exits 1, naming the file, the line, both records and a hint such as `run: gloci sort FILE -g <genome>`. Two switches handle unsorted input, each with one meaning everywhere:
 

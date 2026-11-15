@@ -43,13 +43,13 @@ the two outputs were identical, with the time each took.
 ```sh
 contrib/gloci-shadow.sh --name merge-peaks --log shadow.tsv \
     --ref 'bedtools merge -i peaks.bed' \
-    --new 'gloci merge peaks.bed --chrom-order lex' > merged.bed
+    --new 'gloci merge peaks.bed' > merged.bed
 ```
 
 The step keeps producing the old tool's output, so nothing downstream changes while you collect
 evidence. Both outputs are held in `$TMPDIR` until they are compared, so it needs room for them. A run that differs keeps the first differing lines next to the log. Before reporting a
 difference, look it up in [Differences](differences.md): the intentional ones are listed there with the
-option that gives the old behaviour (`--vcf-span ref`, `--chrom-order lex`, `--inclusive-points`).
+option that gives the old behaviour (`--vcf-span ref`, `--inclusive-points`).
 
 `--unordered` compares the outputs as sets of lines, for commands whose row order is allowed to differ.
 
