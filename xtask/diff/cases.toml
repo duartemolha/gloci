@@ -4101,8 +4101,9 @@ reference = "vcftools --vcf input.vcf --geno-r2 --ld-window 2 --ld-window-min 3 
 compare = "exit-status"
 expected_difference = "#popgen-window-step"
 
-# 7 samples take 24 bytes a site, so 1K holds 42 of the chromosome's 100
-# sites; vcftools holds them in a temporary file.
+# 7 samples take 40 bytes a site (genotypes, index and position), so 1K
+# holds at most 25 of the chromosome's 100 sites; vcftools holds them in a
+# temporary file.
 [[case]]
 name = "vcf-popgen-ld-max-mem-vs-vcftools"
 input = { gen = ["vcf", "--records", "100", "--samples", "7", "--chroms", "1", "--seed", "41"] }

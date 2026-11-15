@@ -1810,8 +1810,12 @@ depends on the span.
 - **gloci:** `--geno-r2` and `--hap-r2` hold the sites of one pair window in
   memory (every site of a chromosome when neither `--ld-window` nor
   `--ld-window-bp` limits the pairs), and the interchromosomal pairs every site
-  they use, at most 4 bits per selected sample each. When the sites the LD
-  statistics hold together would pass `--max-mem` (default 2G), the run stops
+  they use. A site takes 3 bits per selected sample for genotypes or 4 for
+  haplotypes, in whole 64-bit words of 64 samples, and 16 bytes for its index
+  and position; each statistic's store grows by doubling, never past what the
+  budget has left, and keeps what it took to the end of the run. When the
+  stores of the LD statistics together would pass `--max-mem` (default 2G), the
+  run stops
   with exit 1, writes no file, and names the fix: narrow the window with
   `--ld-window-bp` or `--ld-window`, or raise `--max-mem`. With fewer than two
   sites to pair, an LD file holds its column headers and the run succeeds. An

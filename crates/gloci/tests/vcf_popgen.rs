@@ -1017,8 +1017,8 @@ fn ld_many(lines: u64) -> String {
 #[test]
 fn ld_memory_guard() {
     let d = tempdir();
-    // 8 samples: 24 bytes a site for genotypes, 32 for haplotypes, so 1K
-    // holds 42 or 32 sites.
+    // 8 samples: with its index and position a site takes 40 bytes for
+    // genotypes and 48 for haplotypes, so 1K holds at most 25 or 21 sites.
     let vcf = s(&plain_file(d.path(), "many.vcf", &ld_many(200)));
     for (stat, fixes) in [
         (
@@ -1046,8 +1046,9 @@ fn ld_memory_guard() {
             "{stat:?}: a failed run writes no file"
         );
     }
-    // Pairs at most 300 bases apart hold 31 sites each: 744 bytes for
-    // genotypes and 992 for haplotypes, within 2K.
+    // Pairs at most 300 bases apart hold 31 sites each: their stores grow
+    // to 32 slots, 1,280 bytes for genotypes and 1,536 for haplotypes,
+    // within 4K.
     let (_o, prefix) = popgen(
         &vcf,
         &[
@@ -1056,12 +1057,12 @@ fn ld_memory_guard() {
             "--ld-window-bp",
             "300",
             "--max-mem",
-            "2K",
+            "4K",
         ],
     );
     let rows = String::from_utf8(read(&prefix, "geno.ld")).unwrap();
     assert_eq!(rows.lines().count(), 1 + 30 * 170 + 30 * 29 / 2);
-    // The two windowed statistics share the budget: 1,736 bytes pass 1K.
+    // The two windowed statistics share the budget: 31 slots of each pass 1K.
     let out = tempdir();
     let prefix = s(&out.path().join("o"));
     gloci()

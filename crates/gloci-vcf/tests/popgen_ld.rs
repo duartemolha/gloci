@@ -540,8 +540,9 @@ fn many_sites() -> Vec<String> {
 #[test]
 fn ld_memory_guard() {
     let lines = many_sites();
-    // 8 samples take one 64-sample word per genotype plane: 24 bytes a site
-    // for genotypes, 32 for haplotypes. 1K holds 42 or 32 sites.
+    // 8 samples take one 64-sample word per plane: with its index and
+    // position a site takes 40 bytes for genotypes, 48 for haplotypes, so
+    // 1K holds at most 25 or 21 sites.
     let e = try_run(
         &mut GenoR2::new(samples(8), LdWindow::default(), LdBudget::new(1024)),
         &lines,
@@ -560,8 +561,8 @@ fn ld_memory_guard() {
     let out = run(&mut g, &lines, &NO_MASK);
     assert_eq!(pairs(&out).len(), 20 * 280 + (20 * 19) / 2);
     assert_eq!(g.peak_held(), 21, "a site and the 20 within 200 bases");
-    // The budget is shared: two statistics each holding 21 sites of 24 and
-    // 32 bytes need 1176 bytes.
+    // The budget is shared: two statistics each holding 21 sites take
+    // slots of 40 and 48 bytes, more than 1K together.
     let budget = LdBudget::new(1024);
     let mut g = GenoR2::new(samples(8), w, budget.clone());
     let mut h = HapR2::new(samples(8), w, budget.clone());
@@ -696,4 +697,110 @@ fn ld_windows_need_sorted_input() {
             &NO_MASK,
         );
     }
+}
+
+/// A statistic and the bytes it has allocated for the sites it holds.
+trait Holds: Stat {
+    fn held(&self) -> u64;
+}
+
+impl Holds for GenoR2 {
+    fn held(&self) -> u64 {
+        self.held_bytes()
+    }
+}
+
+impl Holds for HapR2 {
+    fn held(&self) -> u64 {
+        self.held_bytes()
+    }
+}
+
+impl Holds for InterchromR2 {
+    fn held(&self) -> u64 {
+        self.held_bytes()
+    }
+}
+
+/// Feed `lines` to every statistic in turn, site by site, until one fails;
+/// after each site the bytes they hold together, by what is allocated, must
+/// be within `max`. The number of sites fed.
+fn within_budget(stats: &mut [&mut dyn Holds], lines: &[String], max: u64) -> usize {
+    let sink = MemSink::default();
+    for s in stats.iter_mut() {
+        s.start(&mut sink.clone()).unwrap();
+    }
+    let mut masked = Vec::new();
+    for (n, line) in lines.iter().enumerate() {
+        let pos: u64 = line.split('\t').nth(1).unwrap().parse().unwrap();
+        let site =
+            SiteView::from_text(line.as_bytes(), Interval::new(pos, pos + 1).unwrap()).unwrap();
+        let gt = text_genotypes(line.as_bytes()).unwrap();
+        let st = site_stats(&gt, None, &NO_MASK, 2, &mut masked).unwrap();
+        let mg = MaskedGenotypes {
+            inner: &gt,
+            masked: &masked,
+        };
+        for s in stats.iter_mut() {
+            if s.site(&site, Some(&mg), Some(&st)).is_err() {
+                return n;
+            }
+        }
+        let now: u64 = stats.iter().map(|s| s.held()).sum();
+        assert!(
+            now <= max,
+            "site {n}: {now} bytes held, past the budget of {max}"
+        );
+    }
+    lines.len()
+}
+
+/// `n` sites of 8 samples on `chrom`, phased or not.
+fn sites_on(chrom: &str, n: u64, phased: bool, seed: u64) -> Vec<String> {
+    let mut rng = Lcg(seed);
+    let gts: [&str; 3] = if phased {
+        ["0|0", "0|1", "1|1"]
+    } else {
+        ["0/0", "0/1", "1/1"]
+    };
+    (1..=n)
+        .map(|i| {
+            let s: Vec<&str> = (0..8).map(|_| gts[rng.next(3) as usize]).collect();
+            record(chrom, i * 10, "G", &s)
+        })
+        .collect()
+}
+
+/// The budget bounds what the LD statistics hold together, by the bytes
+/// allocated: sites one statistic has let go of are not free for another
+/// while it keeps their memory, and the interchromosomal store does not
+/// grow past it.
+#[test]
+fn ld_budget_bounds_the_bytes_held() {
+    // A phased chromosome both hold whole, then an unphased one only
+    // --geno-r2 holds.
+    let mut lines = sites_on("1", 30, true, 5);
+    lines.extend(sites_on("2", 200, false, 6));
+    let max = 4096;
+    let budget = LdBudget::new(max);
+    let mut g = GenoR2::new(samples(8), LdWindow::default(), budget.clone());
+    let mut h = HapR2::new(samples(8), LdWindow::default(), budget.clone());
+    let fed = within_budget(&mut [&mut g, &mut h], &lines, max);
+    assert!(
+        fed > 30 && fed < lines.len(),
+        "{fed}: the budget stops chromosome 2"
+    );
+    // --geno-r2 beside the interchromosomal pairs.
+    let budget = LdBudget::new(max);
+    let w = LdWindow {
+        snps: 20,
+        ..LdWindow::default()
+    };
+    let mut g = GenoR2::new(samples(8), w, budget.clone());
+    let mut x = InterchromR2::new(samples(8), false, None, budget.clone());
+    let fed = within_budget(&mut [&mut g, &mut x], &lines, max);
+    assert!(
+        fed > 30 && fed < lines.len(),
+        "{fed}: the budget stops the pairs"
+    );
 }

@@ -8,9 +8,10 @@
 //! A held site keeps its selected samples' genotypes as bit planes, one
 //! 64-bit word per plane for every 64 samples: three planes for genotypes
 //! (both alleles called, REF/REF, REF/ALT) and four for haplotypes (each
-//! haplotype called, and ALT), so at most 4 bits a sample. The sums a pair
-//! needs are popcounts of their intersections; they are whole numbers, so
-//! the floating-point steps that follow are vcftools' own, in its order.
+//! haplotype called, and ALT), so 3 or 4 bits a sample in whole words of 64
+//! samples, and 16 bytes for its index and position. The sums a pair needs
+//! are popcounts of their intersections; they are whole numbers, so the
+//! floating-point steps that follow are vcftools' own, in its order.
 
 use super::POLYPLOID_HINT;
 use crate::filter::SiteView;
@@ -18,7 +19,7 @@ use crate::gt::{GenotypeSource, SampleFields};
 use crate::stats::{Out, SiteStats, SortedInput, Stat, StatSink, no_polyploid};
 use gloci_core::cfmt::{write_g6, write_u64};
 use std::cell::Cell;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::io;
 use std::rc::Rc;
 
@@ -76,7 +77,9 @@ fn keeps(min_r2: Option<f64>, r2: f64) -> bool {
 }
 
 /// The memory the LD statistics of a run share for the sites they hold
-/// (`--max-mem`). Clones share it.
+/// (`--max-mem`). Clones share it. A statistic takes memory as its store of
+/// sites grows and keeps it to the end of the run, so the bytes taken are
+/// the bytes allocated.
 #[derive(Clone, Debug)]
 pub struct LdBudget {
     max: u64,
@@ -103,8 +106,9 @@ impl LdBudget {
         }
     }
 
-    fn give(&self, bytes: u64) {
-        self.used.set(self.used.get() - bytes);
+    /// The bytes not taken yet.
+    fn room(&self) -> u64 {
+        self.max - self.used.get()
     }
 
     /// The budget as `--max-mem` takes it (`2G`, `512M`, or bytes).
@@ -161,21 +165,15 @@ impl Encoder {
         self.words * self.kind.planes()
     }
 
-    /// The bytes one held site takes.
-    fn bytes(&self) -> u64 {
-        self.stride() as u64 * 8
-    }
-
     /// Encode the site's genotypes into `out`, word by word, each word's
     /// planes together. Genotypes: both alleles called (a missing, masked,
     /// half-called or haploid genotype is not), REF/REF, and REF/ALT; the
     /// rest of the called ones are ALT/ALT. Haplotypes: for each of the two,
     /// called and ALT; a haploid genotype is one haplotype, as vcftools
     /// reads it, and a masked one none.
-    fn encode(&mut self, gt: &dyn GenotypeSource, out: &mut Vec<u64>) -> Result<(), String> {
+    fn encode(&mut self, gt: &dyn GenotypeSource, out: &mut [u64]) -> Result<(), String> {
         let p = self.kind.planes();
-        out.clear();
-        out.resize(self.stride(), 0);
+        out.fill(0);
         for (k, &i) in self.samples.iter().enumerate() {
             gt.sample(i, &mut self.f)?;
             let Some(g) = &self.f.gt else { continue };
@@ -328,12 +326,98 @@ fn used<'a>(
         .ok_or_else(|| "internal error: this statistic needs genotypes".to_string())
 }
 
-/// A site held for its pairs.
-struct Held {
-    /// Its index among the sites the statistic uses.
-    idx: u64,
-    pos: u64,
+/// The sites a statistic holds, each with a key (its index or chromosome
+/// id, and its position) and its planes, in a ring of slots. The slots are
+/// allocated whole and taken from the budget as the ring grows (doubling,
+/// but never past what the budget has left), and kept to the end, so the
+/// memory the statistic holds is what the budget gave it.
+struct Ring {
+    /// Words of planes per site.
+    stride: usize,
+    keys: Vec<(u64, u64)>,
     planes: Vec<u64>,
+    /// The slot of the first site held, and how many are held.
+    head: usize,
+    len: usize,
+}
+
+impl Ring {
+    fn new(stride: usize) -> Ring {
+        Ring {
+            stride,
+            keys: Vec::new(),
+            planes: Vec::new(),
+            head: 0,
+            len: 0,
+        }
+    }
+
+    /// The bytes of one slot.
+    fn slot_bytes(&self) -> u64 {
+        (self.stride * size_of::<u64>() + size_of::<(u64, u64)>()) as u64
+    }
+
+    /// The bytes allocated.
+    fn bytes(&self) -> u64 {
+        (self.keys.capacity() * size_of::<(u64, u64)>() + self.planes.capacity() * size_of::<u64>())
+            as u64
+    }
+
+    fn slot(&self, k: usize) -> usize {
+        (self.head + k) % self.keys.len()
+    }
+
+    /// The key of the `k`-th site held.
+    fn key(&self, k: usize) -> (u64, u64) {
+        self.keys[self.slot(k)]
+    }
+
+    /// The planes of the `k`-th site held.
+    fn planes(&self, k: usize) -> &[u64] {
+        let s = self.slot(k);
+        &self.planes[s * self.stride..(s + 1) * self.stride]
+    }
+
+    fn pop_front(&mut self) {
+        if self.len > 0 {
+            self.head = (self.head + 1) % self.keys.len();
+            self.len -= 1;
+        }
+    }
+
+    /// The slot for one more site with `key`, whose planes the caller
+    /// writes; `None` when the ring is full and `budget` has no room for
+    /// another slot.
+    fn push(&mut self, key: (u64, u64), budget: &LdBudget) -> Option<&mut [u64]> {
+        if self.len == self.keys.len() && !self.grow(budget) {
+            return None;
+        }
+        let s = (self.head + self.len) % self.keys.len();
+        self.len += 1;
+        self.keys[s] = key;
+        Some(&mut self.planes[s * self.stride..(s + 1) * self.stride])
+    }
+
+    /// Double the slots, or take what the budget has left; false when it
+    /// has no room for one more.
+    fn grow(&mut self, budget: &LdBudget) -> bool {
+        let cap = self.keys.len();
+        let room = usize::try_from(budget.room() / self.slot_bytes()).unwrap_or(usize::MAX);
+        let new = (cap.saturating_mul(2)).max(4).min(cap.saturating_add(room));
+        if new == cap || !budget.take((new - cap) as u64 * self.slot_bytes()) {
+            return false;
+        }
+        let mut keys = vec![(0, 0); new];
+        let mut planes = vec![0; new * self.stride];
+        for k in 0..self.len {
+            keys[k] = self.key(k);
+            planes[k * self.stride..(k + 1) * self.stride].copy_from_slice(self.planes(k));
+        }
+        self.keys = keys;
+        self.planes = planes;
+        self.head = 0;
+        true
+    }
 }
 
 /// `--geno-r2` and `--hap-r2`: the pairs of a window on each chromosome.
@@ -349,9 +433,8 @@ struct WindowLd {
     chrom: Vec<u8>,
     /// The index of the next site used.
     next: u64,
-    held: VecDeque<Held>,
-    /// Plane buffers of closed sites, for reuse.
-    spare: Vec<Vec<u64>>,
+    /// The sites held, keyed by index and position.
+    ring: Ring,
     peak: usize,
     out: Out,
 }
@@ -362,16 +445,16 @@ impl WindowLd {
             Kind::Geno => "--geno-r2",
             Kind::Hap => "--hap-r2",
         };
+        let enc = Encoder::new(kind, samples);
         WindowLd {
             flag,
             window,
-            enc: Encoder::new(kind, samples),
+            ring: Ring::new(enc.stride()),
+            enc,
             budget,
             sorted: SortedInput::new(flag, "statistic"),
             chrom: Vec::new(),
             next: 0,
-            held: VecDeque::new(),
-            spare: Vec::new(),
             peak: 0,
             out: Out::closed(),
         }
@@ -380,46 +463,49 @@ impl WindowLd {
     /// Write the pairs of the first held site with the sites held after it,
     /// and drop it.
     fn close_front(&mut self) -> Result<(), String> {
-        let Some(i) = self.held.pop_front() else {
+        if self.ring.len == 0 {
             return Ok(());
-        };
-        for j in &self.held {
-            if !self.window.admits(j.idx - i.idx, j.pos - i.pos) {
+        }
+        let (i_idx, i_pos) = self.ring.key(0);
+        let a = self.ring.planes(0);
+        for k in 1..self.ring.len {
+            let (j_idx, j_pos) = self.ring.key(k);
+            if !self.window.admits(j_idx - i_idx, j_pos - i_pos) {
                 continue;
             }
-            let b = &mut self.out.buf;
+            let b = self.ring.planes(k);
+            let o = &mut self.out.buf;
             match self.enc.kind {
                 Kind::Geno => {
-                    let (n, r2) = geno_r2(&i.planes, &j.planes);
+                    let (n, r2) = geno_r2(a, b);
                     if !keeps(self.window.min_r2, r2) {
                         continue;
                     }
-                    pair_prefix(b, &self.chrom, i.pos, j.pos, n);
-                    write_g6(b, r2);
+                    pair_prefix(o, &self.chrom, i_pos, j_pos, n);
+                    write_g6(o, r2);
                 }
                 Kind::Hap => {
-                    let (n, r2, d, dprime) = hap_r2(&i.planes, &j.planes);
+                    let (n, r2, d, dprime) = hap_r2(a, b);
                     if !keeps(self.window.min_r2, r2) {
                         continue;
                     }
-                    pair_prefix(b, &self.chrom, i.pos, j.pos, n);
-                    write_g6(b, r2);
-                    b.push(b'\t');
-                    write_g6(b, d);
-                    b.push(b'\t');
-                    write_g6(b, dprime);
+                    pair_prefix(o, &self.chrom, i_pos, j_pos, n);
+                    write_g6(o, r2);
+                    o.push(b'\t');
+                    write_g6(o, d);
+                    o.push(b'\t');
+                    write_g6(o, dprime);
                 }
             }
-            b.push(b'\n');
+            o.push(b'\n');
             self.out.row()?;
         }
-        self.budget.give(self.enc.bytes());
-        self.spare.push(i.planes);
+        self.ring.pop_front();
         Ok(())
     }
 
     fn close_all(&mut self) -> Result<(), String> {
-        while !self.held.is_empty() {
+        while self.ring.len > 0 {
             self.close_front()?;
         }
         Ok(())
@@ -452,31 +538,26 @@ impl WindowLd {
         };
         let idx = self.next;
         self.next += 1;
-        while let Some(f) = self.held.front() {
-            if self.window.holds(idx - f.idx, s.pos - f.pos) {
+        while self.ring.len > 0 {
+            let (f_idx, f_pos) = self.ring.key(0);
+            if self.window.holds(idx - f_idx, s.pos - f_pos) {
                 break;
             }
             self.close_front()?;
         }
-        if !self.budget.take(self.enc.bytes()) {
+        let Some(slot) = self.ring.push((idx, s.pos), &self.budget) else {
             return Err(format!(
                 "{} holds the sites of a pair window in memory, and {} sites of {} samples pass \
                  --max-mem {}; narrow the window with --ld-window-bp or --ld-window, or raise \
                  --max-mem",
                 self.flag,
-                self.held.len() + 1,
+                self.ring.len + 1,
                 self.enc.samples.len(),
                 self.budget.shown()
             ));
-        }
-        let mut planes = self.spare.pop().unwrap_or_default();
-        self.enc.encode(gt, &mut planes)?;
-        self.held.push_back(Held {
-            idx,
-            pos: s.pos,
-            planes,
-        });
-        self.peak = self.peak.max(self.held.len());
+        };
+        self.enc.encode(gt, slot)?;
+        self.peak = self.peak.max(self.ring.len);
         Ok(())
     }
 
@@ -518,6 +599,12 @@ macro_rules! window_stat {
             #[doc(hidden)]
             pub fn peak_held(&self) -> usize {
                 self.0.peak
+            }
+
+            /// The bytes allocated for held sites now. For tests.
+            #[doc(hidden)]
+            pub fn held_bytes(&self) -> u64 {
+                self.0.ring.bytes()
             }
         }
 
@@ -582,11 +669,8 @@ pub struct InterchromR2 {
     /// The chromosome names, and the id of each.
     names: Vec<Vec<u8>>,
     ids: HashMap<Vec<u8>, u32>,
-    /// The chromosome id and position of each site held.
-    keys: Vec<(u32, u64)>,
-    /// Their planes, one stride each.
-    planes: Vec<u64>,
-    scratch: Vec<u64>,
+    /// Every site used, keyed by chromosome id and position, in input order.
+    ring: Ring,
     out: Out,
 }
 
@@ -605,26 +689,33 @@ impl InterchromR2 {
         } else {
             (Kind::Geno, "--interchrom-geno-r2")
         };
+        let enc = Encoder::new(kind, samples);
         InterchromR2 {
             flag,
-            enc: Encoder::new(kind, samples),
+            ring: Ring::new(enc.stride()),
+            enc,
             min_r2,
             budget,
             names: Vec::new(),
             ids: HashMap::new(),
-            keys: Vec::new(),
-            planes: Vec::new(),
-            scratch: Vec::new(),
             out: Out::closed(),
         }
     }
 
+    /// The bytes allocated for held sites now. For tests.
+    #[doc(hidden)]
+    pub fn held_bytes(&self) -> u64 {
+        self.ring.bytes()
+    }
+
     /// The id of chromosome `name`, given one if it has none.
     fn chrom_id(&mut self, name: &[u8]) -> u32 {
-        if let Some(&(id, _)) = self.keys.last()
-            && self.names[id as usize] == name
-        {
-            return id;
+        // Most sites are on the chromosome of the site before.
+        if let Some(last) = self.ring.len.checked_sub(1) {
+            let id = self.ring.key(last).0 as u32;
+            if self.names[id as usize] == name {
+                return id;
+            }
         }
         if let Some(&id) = self.ids.get(name) {
             return id;
@@ -636,16 +727,15 @@ impl InterchromR2 {
     }
 
     fn write_pairs(&mut self) -> Result<(), String> {
-        let stride = self.enc.stride();
-        for i in 0..self.keys.len() {
-            let (ci, pi) = self.keys[i];
-            let a = &self.planes[i * stride..(i + 1) * stride];
-            for j in i + 1..self.keys.len() {
-                let (cj, pj) = self.keys[j];
+        for i in 0..self.ring.len {
+            let (ci, pi) = self.ring.key(i);
+            let a = self.ring.planes(i);
+            for j in i + 1..self.ring.len {
+                let (cj, pj) = self.ring.key(j);
                 if ci == cj {
                     continue;
                 }
-                let b = &self.planes[j * stride..(j + 1) * stride];
+                let b = self.ring.planes(j);
                 let (n, r2) = match self.enc.kind {
                     Kind::Geno => geno_r2(a, b),
                     Kind::Hap => {
@@ -696,23 +786,19 @@ impl Stat for InterchromR2 {
         let Some(gt) = used(self.enc.kind, st, gt)? else {
             return Ok(());
         };
-        if !self.budget.take(self.enc.bytes()) {
+        let id = self.chrom_id(s.chrom);
+        let Some(slot) = self.ring.push((u64::from(id), s.pos), &self.budget) else {
             return Err(format!(
                 "{} holds every site it uses until the end of the input, and {} sites of {} \
                  samples pass --max-mem {}; raise --max-mem, or use fewer sites or samples \
                  (--region, --samples)",
                 self.flag,
-                self.keys.len() + 1,
+                self.ring.len + 1,
                 self.enc.samples.len(),
                 self.budget.shown()
             ));
-        }
-        let id = self.chrom_id(s.chrom);
-        let mut scratch = std::mem::take(&mut self.scratch);
-        self.enc.encode(gt, &mut scratch)?;
-        self.planes.extend_from_slice(&scratch);
-        self.scratch = scratch;
-        self.keys.push((id, s.pos));
+        };
+        self.enc.encode(gt, slot)?;
         Ok(())
     }
     fn finish(&mut self) -> io::Result<()> {
@@ -789,7 +875,6 @@ mod tests {
         let b = LdBudget::new(100);
         let c = b.clone();
         assert!(b.take(60) && !c.take(41) && c.take(40));
-        c.give(100);
-        assert!(b.take(100));
+        assert_eq!(b.room(), 0);
     }
 }

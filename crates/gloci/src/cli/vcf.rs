@@ -639,11 +639,14 @@ LD:
   end. --min-r2 above 0 leaves out the pairs with a smaller r2 or none (nan), in all four files.
 
 Memory:
-  The LD statistics hold sites in memory, at most 4 bits per selected sample each: --geno-r2 and
-  --hap-r2 the sites of one pair window (every site of a chromosome when neither --ld-window nor
-  --ld-window-bp limits it), the interchromosomal pairs every site they use. When the sites held
-  would pass --max-mem, the run stops with exit 1 and names the fix: narrow the window with
-  --ld-window-bp or --ld-window, or raise --max-mem. vcftools writes them to a temporary file.
+  The LD statistics hold sites in memory: --geno-r2 and --hap-r2 the sites of one pair window
+  (every site of a chromosome when neither --ld-window nor --ld-window-bp limits it), the
+  interchromosomal pairs every site they use. A site takes 3 bits per selected sample for
+  genotypes or 4 for haplotypes, in whole 64-bit words of 64 samples, and 16 bytes for its index
+  and position; a statistic's store grows by doubling and keeps what it took. When the stores of
+  all the LD statistics together would pass --max-mem, the run stops with exit 1 and names the
+  fix: narrow the window with --ld-window-bp or --ld-window, or raise --max-mem. vcftools writes
+  the sites to a temporary file.
 
 Sorted input:
   --window-pi, --tajima-d, --fst-window-size, --geno-r2 and --hap-r2 write their rows as the
@@ -731,8 +734,9 @@ pub struct VcfPopgenArgs {
     /// (vcftools --min-r2).
     #[arg(long, value_name = "R2", requires = "any_ld")]
     pub min_r2: Option<f64>,
-    /// Memory the LD statistics may hold sites in, at most 4 bits per
-    /// selected sample and site; past it the run stops (see Memory).
+    /// Memory the LD statistics may hold sites in together: 3 or 4 bits
+    /// per selected sample and site, in 64-sample words, and 16 bytes per
+    /// site; past it the run stops (see Memory).
     #[arg(long, value_name = "SIZE", default_value = "2G", value_parser = parse_size)]
     pub max_mem: u64,
 
