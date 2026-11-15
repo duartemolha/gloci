@@ -28,12 +28,17 @@ RUN micromamba install -y -n base -c conda-forge -c bioconda \
         ucsc-bigwigtobedgraph=469 \
     && micromamba clean --all --yes
 
-# vcfkit (yardstick for `vcf filter`): its own step, because every conda build
-# requires networkx 1.11, which no longer exists (the solver fails). A failure
-# is reported here and the bench runner then skips the yardstick.
-RUN micromamba install -y -n base -c conda-forge -c bioconda vcfkit=0.2.8 \
+# vcfkit (yardstick for `vcf filter`): its own step and its own environment. It
+# needs Python 3.6, and installed into base the solver meets that by downgrading
+# the pinned tools above (htslib, bcftools and samtools to 1.5-1.6, openssl to
+# 1.1) and removing rust. Only its `vk` is linked into base's bin, so the
+# benchmark starts it directly, with no `micromamba run` start-up in the timings.
+# Where the install fails (no build of its dependencies for the architecture)
+# the failure is reported here and the bench runner then skips the yardstick.
+RUN micromamba create -y -n vcfkit -c conda-forge -c bioconda vcfkit=0.2.8 \
+    && ln -s /opt/conda/envs/vcfkit/bin/vk /opt/conda/bin/vk \
     && micromamba clean --all --yes \
-    || echo "skipped: vcfkit not installed (micromamba install vcfkit=0.2.8 failed); its benchmark columns will be empty"
+    || echo "skipped: vcfkit not installed (micromamba create -n vcfkit vcfkit=0.2.8 failed); its benchmark columns will be empty"
 
 # plink2 (yardstick for `vcf stats`): its own step, because the bioconda
 # package is not built for every architecture. A failure is reported here and
@@ -46,12 +51,12 @@ RUN micromamba install -y -n base -c conda-forge -c bioconda plink2=2.0.0a.6.9 \
 # Python 3.12 for the Python library benchmarks (D96): its own step, so a solver
 # conflict with the tools above cannot take them down. The bench runner skips the
 # Python cases' tools when `python3` cannot import them.
-# pip has a floor: on x86_64 a step above brings Python 3.6 with pip 21.3.1, and
-# the solver kept that pip when it moved Python to 3.12, where it cannot start
-# (`pkgutil.ImpImporter` is gone). Every `pip install` below was then skipped and
-# the runner's install of the gloci wheel failed, which stopped the nightly
-# benchmark job before its first case. The step runs pip once so that a pip that
-# cannot start shows here.
+# pip has a floor: a pip older than 24 cannot start on Python 3.12
+# (`pkgutil.ImpImporter` is gone), and every `pip install` below would then be
+# skipped and the runner's install of the gloci wheel fail. Such a pip comes with
+# Python 3.6, which is in vcfkit's environment, not in base; the floor keeps an
+# older pip from being kept should base ever have one. The step runs pip once so
+# that a pip that cannot start shows here.
 RUN micromamba install -y -n base -c conda-forge python=3.12 'pip>=24' \
     && micromamba run -n base python -m pip --version \
     && micromamba clean --all --yes \
@@ -107,4 +112,41 @@ RUN cargo install --git https://github.com/vcfexpress/vcfexpress --rev 3a893cb v
     || echo "skipped: vcfexpress not installed (cargo install --git https://github.com/vcfexpress/vcfexpress --rev 3a893cb vcfexpress failed); its benchmark columns will be empty"
 
 USER mambauser
+
+# The pinned conda tools are their pinned versions: a solver that changes one to
+# satisfy a later step (as vcfkit's Python 3.6 does in base) fails the build here,
+# not the first benchmark. A tool from an optional step is checked when it
+# is there (vk only has to start: its own environment cannot touch these).
+# bigWigToBedGraph prints no version; Debian's time and the cargo yardsticks are
+# installed at their exact version or not at all.
+RUN set -eu; PATH="/opt/conda/bin:$PATH"; \
+    pin() { \
+        want="$1"; shift; \
+        got="$("$@" 2>&1 | head -n 5 || true)"; \
+        case "$got" in \
+            *"$want"*) echo "pinned: $* reports $want" ;; \
+            *) printf 'error: "%s" does not report %s; it reports:\n%s\n' "$*" "$want" "$got" >&2; exit 1 ;; \
+        esac; \
+    }; \
+    pin "bgzip (htslib) 1.21" bgzip --version; \
+    pin "tabix (htslib) 1.21" tabix --version; \
+    pin "bcftools 1.21" bcftools --version; \
+    pin "Using htslib 1.21" bcftools --version; \
+    pin "samtools 1.21" samtools --version; \
+    pin "Using htslib 1.21" samtools --version; \
+    pin "bedtools v2.31.1" bedtools --version; \
+    pin "VCFtools (0.1.16)" vcftools --version; \
+    pin "version:  2.4.41" bedops --version; \
+    pin "version:  2.4.41" sort-bed --version; \
+    pin "rustc 1.99.1" rustc --version; \
+    pin "cargo 1.99.1" cargo --version; \
+    pin "mosdepth 0.3.10" mosdepth --version; \
+    pin "hyperfine 2.0.0" hyperfine --version; \
+    pin "1.1-r" bedtk version; \
+    pin "(GNU coreutils) 9.12" sort --version; \
+    pin "GNU Awk 5.3.1" gawk --version; \
+    if [ -e /opt/conda/bin/vk ]; then vk --help >/dev/null; echo "vk runs"; fi; \
+    if [ -e /opt/conda/bin/plink2 ]; then pin "2.0.0" plink2 --version; fi; \
+    if [ -e /opt/conda/bin/python3 ]; then pin "Python 3.12." python3 --version; fi
+
 WORKDIR /
