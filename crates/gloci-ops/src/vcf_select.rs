@@ -101,7 +101,7 @@ impl VcfSelect {
             regions_file: self.regions_file.clone(),
             inclusive_points: self.sites.inclusive_points,
             genome: None,
-            chrom_order: ChromOrder::Karyotype,
+            chrom_order: ChromOrder::default(),
             assume_sorted: false,
             unordered: false,
             count: false,

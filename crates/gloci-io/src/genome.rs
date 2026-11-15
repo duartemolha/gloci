@@ -214,7 +214,7 @@ fn header_genome(name: &str, h: &VcfHeader) -> Result<Genome, IoError> {
 
 /// Choose the chromosome table: `--genome` (the raw `-g` value: a built-in
 /// genome id or a file), else the first VCF/BCF/alignment header with contigs, else
-/// `fallback` (karyotype by default, spec §4.5).
+/// `fallback` (lex by default, spec §4.5).
 pub fn chrom_table_for(
     genome: Option<&str>,
     inputs: &[&dyn RecordReader],

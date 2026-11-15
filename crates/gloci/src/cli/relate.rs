@@ -83,7 +83,7 @@ bounded by --max-mem.
 Parallel runs:
 With more than one thread, when A and every -b file are BGZF files with a .tbi or .csi \
 index (a BAM with a .bai or .csi) or plain (uncompressed) BED, bedGraph or VCF files, the \
-chromosomes are worked on in parallel and written in the chromosome-table order (karyotype \
+chromosomes are worked on in parallel and written in the chromosome-table order (lex \
 by default; -g, a VCF header or --chrom-order set it). The output is the same as at -t 1.
 
 A parallel run holds about 64 MiB plus 20 MiB for each run of chromosomes in flight, at \
@@ -198,7 +198,7 @@ A's order kept and every -b file fits in memory. The two cannot be combined.
 Parallel runs:
 With more than one thread, when A and every -b file are BGZF files with a .tbi or .csi \
 index (a BAM with a .bai or .csi) or plain (uncompressed) BED, bedGraph or VCF files, the \
-chromosomes are worked on in parallel and written in the chromosome-table order (karyotype \
+chromosomes are worked on in parallel and written in the chromosome-table order (lex \
 by default; -g, a VCF header or --chrom-order set it). The output is the same as at -t 1.
 
 A parallel run holds about 64 MiB plus 20 MiB for each run of chromosomes in flight, at \
@@ -340,7 +340,7 @@ A's order kept and every -b file fits in memory. The two cannot be combined.
 Parallel runs:
 With more than one thread, when A and every -b file are BGZF files with a .tbi or .csi \
 index (a BAM with a .bai or .csi) or plain (uncompressed) BED, bedGraph or VCF files, the \
-chromosomes are worked on in parallel and written in the chromosome-table order (karyotype \
+chromosomes are worked on in parallel and written in the chromosome-table order (lex \
 by default; -g, a VCF header or --chrom-order set it). The output is the same as at -t 1.
 
 A parallel run holds about 64 MiB plus 20 MiB for each run of chromosomes in flight, at \
@@ -484,7 +484,7 @@ a temporary BAM first, bounded by --max-mem.
 Parallel runs:
 With more than one thread, when A and every -b file are BGZF files with a .tbi or .csi \
 index (a BAM with a .bai or .csi) or plain (uncompressed) BED, bedGraph or VCF files, the \
-chromosomes are worked on in parallel and written in the chromosome-table order (karyotype \
+chromosomes are worked on in parallel and written in the chromosome-table order (lex \
 by default; -g, a VCF header or --chrom-order set it). The output is the same as at -t 1.
 
 A parallel run holds about 64 MiB plus 20 MiB for each run of chromosomes in flight, at \
@@ -601,7 +601,7 @@ A's order kept and every -b file fits in memory. The two cannot be combined.
 Parallel runs:
 With more than one thread, when A and every -b file are BGZF files with a .tbi or .csi \
 index (a BAM with a .bai or .csi) or plain (uncompressed) BED, bedGraph or VCF files, the \
-chromosomes are worked on in parallel and written in the chromosome-table order (karyotype \
+chromosomes are worked on in parallel and written in the chromosome-table order (lex \
 by default; -g, a VCF header or --chrom-order set it). The output is the same as at -t 1.
 
 A parallel run holds about 64 MiB plus 20 MiB for each run of chromosomes in flight, at \

@@ -263,7 +263,7 @@ Errors: records that do not parse, records out of order, an end past the chromos
 or a chromosome missing from -g, bad BED12 blocks, a bedGraph value that is not a number, \
 a VCF line with the wrong number of columns. Warnings: exact duplicate lines at the same \
 position, and blank lines. Exit status 1 when any file has errors. The order is checked \
-against -g, else the ##contig lines of a VCF/BCF, else --chrom-order (karyotype by \
+against -g, else the ##contig lines of a VCF/BCF, else --chrom-order (lex by \
 default).
 
 Alignments:
@@ -406,7 +406,7 @@ pub struct ViewArgs {
 /// Sort BED/bedGraph/GFF/VCF/BCF files, or BAM/SAM/CRAM alignments, with bounded memory (bedtools sort, samtools sort).
 ///
 /// Records are ordered by chromosome, then start, then end. The chromosome order comes from -g, else
-/// from the ##contig lines of a VCF/BCF header, else from --chrom-order (karyotype by default).
+/// from the ##contig lines of a VCF/BCF header, else from --chrom-order (lex by default).
 /// Records that tie keep their input order unless --full-key is given.
 #[derive(Args)]
 #[command(about = "Sort BED, VCF or alignments (bedtools sort, samtools sort)")]

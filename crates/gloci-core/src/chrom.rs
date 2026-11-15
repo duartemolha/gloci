@@ -26,8 +26,8 @@ pub enum OrderSource {
 /// The order used when neither `-g` nor a VCF/BCF header sets one (spec §4.5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ChromOrder {
-    #[default]
     Karyotype,
+    #[default]
     Lex,
 }
 

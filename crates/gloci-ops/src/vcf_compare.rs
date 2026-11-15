@@ -485,15 +485,15 @@ pub fn vcf_compare(
     let ha = crate::vcf_select::vcf_header(COMMAND, a.reader())?;
     let hb = crate::vcf_select::vcf_header(COMMAND, b.reader())?;
     // --thin checks each file's order inside its own selection, by that file's
-    // header (else karyotype order), which is the walk's order only when both
+    // header (else the default lexicographic order), which is the walk's order only when both
     // headers declare the same contigs and nothing else sets the order.
     if o.select.sites.thin.is_some() {
         let own_order = o.genome.is_none()
             && ha.contigs == hb.contigs
-            && (!ha.contigs.is_empty() || o.chrom_order == ChromOrder::Karyotype);
+            && (!ha.contigs.is_empty() || o.chrom_order == ChromOrder::default());
         if !own_order {
             return Err(usage(
-                "--thin with vcf compare needs both files to declare the same ##contig lines (or none, with the default karyotype order) and no -g; thin each file first with gloci vcf filter --thin, or drop --thin",
+                "--thin with vcf compare needs both files to declare the same ##contig lines (or none, with the default lex order) and no -g; thin each file first with gloci vcf filter --thin, or drop --thin",
             ));
         }
     }

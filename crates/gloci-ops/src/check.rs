@@ -11,11 +11,11 @@ use gloci_core::{
     ChromId, ChromOrder, ChromTable, Genome, OrderChecker, OrderSource, OrderViolation, thousands,
 };
 use gloci_io::{
-    AlignOptions, AlnSource, BGZF_EOF, Compression, Format, Header, InvalidPolicy, IoError,
-    LEX_SORTED_NOTE, Loc, Opened, ReaderOptions, RecordBatch, SortOrder, UsageError, aln_ref,
-    bed12_blocks, check_bcf_record, chrom_table_for, cram_eof_present, cram_first_container,
-    detect_compression, next_batch_size, open_reader_or_alignments,
-    open_reader_or_alignments_from_nonempty, read_cram_prelude, sort_hint,
+    AlignOptions, AlnSource, BGZF_EOF, Compression, Format, Header, InvalidPolicy, IoError, Loc,
+    Opened, ReaderOptions, RecordBatch, SortOrder, UsageError, aln_ref, bed12_blocks,
+    check_bcf_record, chrom_table_for, cram_eof_present, cram_first_container, detect_compression,
+    next_batch_size, open_reader_or_alignments, open_reader_or_alignments_from_nonempty,
+    order_note, read_cram_prelude, sort_hint,
 };
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -389,7 +389,7 @@ pub fn check_file(
     let mut records = 0u64;
     let (mut order_errs, mut other_errs, mut dups) =
         (Found::default(), Found::default(), Found::default());
-    let mut lex_looking = false;
+    let mut order_note_text: Option<&str> = None;
     let mut group: Option<(ChromId, u64)> = None;
     let mut seen: HashSet<u64> = HashSet::new();
     let mut fatal: Option<String> = None;
@@ -437,10 +437,9 @@ pub fn check_file(
                     ),
                 };
                 if let OrderViolation::ChromBackwards { prev, next } = v
-                    && source == OrderSource::Karyotype
-                    && chroms.name(prev) < chroms.name(next)
+                    && order_note_text.is_none()
                 {
-                    lex_looking = true;
+                    order_note_text = order_note(&source, chroms.name(prev), chroms.name(next));
                 }
                 order_errs.add(m.loc, at(msg));
             }
@@ -570,8 +569,8 @@ pub fn check_file(
         order: order_text,
         order_hint: (order_errs.count > 0).then(|| {
             let mut h = sort_hint(reader.name(), &source);
-            if lex_looking {
-                h.push_str(LEX_SORTED_NOTE);
+            if let Some(note) = order_note_text {
+                h.push_str(note);
             }
             h
         }),

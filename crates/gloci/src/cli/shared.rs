@@ -75,12 +75,12 @@ pub struct GenomeArg {
 #[derive(Args, Debug, Clone)]
 pub struct ChromOrderArg {
     /// Chromosome order when neither -g nor a VCF/BCF header sets one:
-    /// karyotype (chr1..chr22, chrX, chrY, chrM) or lex (byte order, as
-    /// sort -k1,1, sort-bed and bedtools sort).
+    /// lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the
+    /// default) or karyotype (chr1..chr22, chrX, chrY, chrM).
     #[arg(
         long,
         value_name = "ORDER",
-        default_value = "karyotype",
+        default_value = "lex",
         value_parser = clap::builder::PossibleValuesParser::new(["karyotype", "lex"])
             .try_map(|s| s.parse::<gloci_core::ChromOrder>())
     )]
@@ -397,10 +397,10 @@ mod tests {
     #[test]
     fn chrom_order_arg() {
         let order = |a: &[&str]| T::try_parse_from(a).map(|t| t.o.chrom_order);
-        assert_eq!(order(&["t"]).unwrap(), ChromOrder::Karyotype);
+        assert_eq!(order(&["t"]).unwrap(), ChromOrder::Lex);
         assert_eq!(
-            order(&["t", "--chrom-order", "lex"]).unwrap(),
-            ChromOrder::Lex
+            order(&["t", "--chrom-order", "karyotype"]).unwrap(),
+            ChromOrder::Karyotype
         );
         assert!(order(&["t", "--chrom-order", "natural"]).is_err());
     }

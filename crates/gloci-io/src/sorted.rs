@@ -17,7 +17,7 @@ pub fn sort_hint(name: &str, source: &OrderSource) -> String {
         OrderSource::GenomeFile(p) => format!("run: gloci sort {name} -g {}", p.display()),
         OrderSource::BuiltinGenome(id) => format!("run: gloci sort {name} -g {id}"),
         OrderSource::AlignmentHeader(p) => format!("run: gloci sort {name} -g {p}"),
-        OrderSource::Lexicographic => format!("run: gloci sort {name} --chrom-order lex"),
+        OrderSource::Karyotype => format!("run: gloci sort {name} --chrom-order karyotype"),
         _ => format!("run: gloci sort {name}"),
     }
 }
@@ -44,8 +44,27 @@ pub fn alignment_sort_hint(name: &str, source: &OrderSource, so: SortOrder) -> S
 
 /// Added to the hint when a karyotype-order check fails on a pair of
 /// chromosomes that are in lexicographic order: the file was probably
-/// sorted by an old tool.
-pub const LEX_SORTED_NOTE: &str = " (this file looks sorted by sort -k1,1, sort-bed or bedtools sort; re-sort it with gloci sort, or pass --chrom-order lex; see docs/migration.md)";
+/// sorted by sort -k1,1, sort-bed or bedtools sort.
+pub const LEX_SORTED_NOTE: &str = " (this file looks sorted by sort -k1,1, sort-bed or bedtools sort; drop --chrom-order karyotype, or re-sort it with gloci sort --chrom-order karyotype; see docs/migration.md)";
+
+/// Added to the hint when a lexicographic-order check fails on a pair of
+/// chromosomes that are in karyotype order: the file was probably written by
+/// `gloci convert` from a VCF or BAM, or sorted with `--chrom-order karyotype`.
+pub const KARYOTYPE_SORTED_NOTE: &str = " (this file looks sorted in karyotype order, as a VCF or BAM header lists it; pass -g GENOME or --chrom-order karyotype, or re-sort it with gloci sort)";
+
+/// The note for an out-of-order pair of chromosomes (`prev` came first, `next`
+/// sorts before it), when the pair is in the other mode's order.
+pub fn order_note(source: &OrderSource, prev: &[u8], next: &[u8]) -> Option<&'static str> {
+    match source {
+        OrderSource::Karyotype if prev < next => Some(LEX_SORTED_NOTE),
+        OrderSource::Lexicographic
+            if gloci_core::karyotype_cmp(prev, next) == std::cmp::Ordering::Less =>
+        {
+            Some(KARYOTYPE_SORTED_NOTE)
+        }
+        _ => None,
+    }
+}
 
 /// Checks that one input's records arrive in `(chrom, key)` order.
 pub struct OrderGuard {
@@ -174,10 +193,13 @@ impl OrderGuard {
                         };
                         if let OrderViolation::ChromBackwards { prev, next } = v
                             && self.seen.is_none()
-                            && *chroms.order_source() == OrderSource::Karyotype
-                            && chroms.name(prev) < chroms.name(next)
+                            && let Some(note) = order_note(
+                                chroms.order_source(),
+                                chroms.name(prev),
+                                chroms.name(next),
+                            )
                         {
-                            hint.push_str(LEX_SORTED_NOTE);
+                            hint.push_str(note);
                         }
                         hint
                     },
