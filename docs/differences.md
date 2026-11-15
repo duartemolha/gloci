@@ -23,6 +23,15 @@ cases run on every `cargo test` from committed reference outputs; the few marked
 "live only" need Docker and run nightly (`cargo xtask diff`). The commit history
 of `crates/gloci/tests/golden/` shows every change in a reference tool's output.
 
+BAM output is compared without the header lines that record which program wrote
+the file, `@PG` and `@CO` (D165): each tool writes its own `@PG` line (gloci's
+holds its command line, `bedtools bedtobam` writes `@PG ID:BEDTools_bedToBam`),
+so they cannot agree. The committed cases decompress both files and compare the
+header text without its `@PG` lines, the reference list and the bytes of every
+record; the live cases compare `samtools view -h` text without `@PG` lines, and
+read the files back through `samtools quickcheck` and `gloci view`. Neither
+tool writes a `@CO` line for `convert --bam`, so there is none to leave out.
+
 Each section gives the gloci behaviour, the old behaviour and the reason.
 
 ## Default `--vcf-span allele` {#default-vcf-span-allele}
@@ -2219,25 +2228,6 @@ only.
   mate (an orphan, `t0` then `t1`, `t2`, `t3` writes `t2` and `t3` only).
 - **Reason:** as above.
 - **Pinned by:** `bamtofastq-tags-orphan-vs-bedtools` (must differ).
-
-## `convert --bam` output is compared without its `@PG` lines {#bam-output-provenance}
-
-- **gloci:** `convert --bam` writes gloci's own `@PG` line (`ID:gloci PN:gloci VN:... CL:...`, the
-  command line) after the `@SQ` lines, as every gloci command that writes BAM does (D104), and no
-  `@CO` line.
-- **Old behaviour:** `bedtools bedtobam` writes `@PG ID:BEDTools_bedToBam VN:Vv2.31.1` between the
-  `@HD` and `@SQ` lines (`bedpetobam`: `ID:BEDTools_bedpeToBam`), and no `@CO` line.
-- **Reason:** these lines record which program wrote the file, and with what command line, so they
-  cannot be the same. BAM output is compared without them (D165): the `bam` cases decompress both
-  files and compare the header text without its `@PG` lines, the reference list and the bytes of
-  every record (the `bin` field included); the live `-sam` and `-read-back` cases compare
-  `samtools view -h` text without `@PG` lines. Neither tool writes a `@CO` line, so there is none
-  to leave out.
-- **Pinned by:** `bedtobam-provenance-lines-vs-bedtools` (live only: the `@PG` and `@CO` lines of
-  each header, which must differ). Every other `bedtobam-*` and `bedpetobam-*` case that compares
-  output leaves them out, among them `bedtobam-vs-bedtools`, `bedtobam-sam-vs-bedtools` and
-  `bedtobam-read-back-vs-bedtools` (which also runs `samtools quickcheck` and reads gloci's BAM
-  back with `gloci view`).
 
 ## `convert --bam` stops at a chromosome the genome lacks {#bedtobam-missing-chromosome}
 
