@@ -74,9 +74,10 @@ pub struct GenomeArg {
 
 #[derive(Args, Debug, Clone)]
 pub struct ChromOrderArg {
-    /// Chromosome order when neither -g nor a VCF/BCF header sets one:
-    /// lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the
-    /// default) or karyotype (chr1..chr22, chrX, chrY, chrM).
+    /// Chromosome order when neither -g nor the header of a VCF/BCF or
+    /// alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and
+    /// bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY,
+    /// chrM).
     #[arg(
         long,
         value_name = "ORDER",

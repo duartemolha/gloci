@@ -355,3 +355,29 @@ fn merge_help_says_the_output_is_regions_whatever_the_input() {
     let above = examples.lines().nth(vcf - 1).unwrap().trim_start();
     assert!(above.starts_with('#') && above.contains("BED"), "{above}");
 }
+
+/// `--chrom-order` applies only when nothing else sets the order: on a command with `-g`, its
+/// help names `-g` and the headers that set it, a VCF/BCF input's and an alignment input's.
+#[test]
+fn chrom_order_help_names_what_takes_precedence() {
+    let mut seen = 0;
+    for path in all_paths() {
+        let cmd = at_path(&path);
+        let has_g = cmd.get_arguments().any(|a| a.get_short() == Some('g'));
+        let Some(arg) = cmd
+            .get_arguments()
+            .find(|a| a.get_long() == Some("chrom-order"))
+        else {
+            continue;
+        };
+        if !has_g {
+            continue;
+        }
+        seen += 1;
+        let help = arg.get_help().map(|h| h.to_string()).unwrap_or_default();
+        for word in ["-g", "VCF/BCF", "alignment"] {
+            assert!(help.contains(word), "{path:?} --chrom-order: {help}");
+        }
+    }
+    assert!(seen > 10, "{seen} commands with -g and --chrom-order");
+}

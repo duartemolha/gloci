@@ -9,12 +9,16 @@ rewritten.
 
 ## Chromosome order
 
-Without `-g` and without a VCF/BCF header that lists contigs, gloci uses
+Without `-g`, without a VCF/BCF header that lists contigs and without an
+alignment (BAM, CRAM, SAM) input, whose header lists its references, gloci uses
 **lexicographic order**, the byte order of the names: `chr1, chr10, chr11 ...
 chr19, chr2, chr20 ...`. That is the order of `sort-bed`, `bedtools sort` and
 `LC_ALL=C sort -k1,1` (other locales order names differently), so files sorted
 by those tools work as they are, and `gloci sort x.bed` writes the same bytes as
 `sort-bed` and `bedtools sort`. Within a chromosome the order is the same too.
+Beside a header that sets the order, a BED must follow that order instead: for
+`gloci intersect -a reads.bam -b x.bed`, sort it with `gloci sort x.bed -g
+reads.bam`, or pass `--sort`.
 
 Records that share a start are ordered by end by `gloci sort`. `sort -k1,1 -k2,2n -s`
 leaves them in input order; without `-s`, GNU `sort` falls back to comparing the
@@ -54,9 +58,10 @@ as an error. It never silently gives a wrong answer from files in a mixed order.
 
 ### What still takes precedence
 
-`-g genome.fai` (or `.genome`, `.dict`, a BAM header, a built-in such as `hg38`)
-and the contig order in a VCF/BCF header win over `--chrom-order`.
-`--chrom-order` only applies when neither is present.
+`-g genome.fai` (or `.genome`, `.dict`, a BAM header, a built-in such as `hg38`),
+the contig order in a VCF/BCF header and the reference order in the header of
+an alignment input (BAM, CRAM, SAM) win over `--chrom-order`, in that order.
+`--chrom-order` only applies when none of them is present.
 
 Names that follow no common pattern, such as yeast's Roman numerals, need `-g`
 to get the reference order.

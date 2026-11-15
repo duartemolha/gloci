@@ -23,7 +23,8 @@ pub enum OrderSource {
     FirstAppearance,
 }
 
-/// The order used when neither `-g` nor a VCF/BCF header sets one (spec §4.5).
+/// The order used when neither `-g` nor the header of a VCF/BCF or alignment input sets one
+/// (spec §4.5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ChromOrder {
     Karyotype,
