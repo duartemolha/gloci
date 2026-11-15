@@ -20,9 +20,9 @@ use crate::sort::{HeaderRuleCmd, check_definitions_for, check_samples_for};
 use gloci_core::{ChromId, ChromOrder, ChromTable};
 use gloci_io::{
     AtomicFile, BGZF_EOF, BcfDicts, BcfText, Compression, Format, Header, IoError, OrderGuard,
-    OutFormat, OutputOptions, OutputSpec, ReaderOptions, RecordBatch, RecordReader, TextToBcf,
-    UsageError, WriterOptions, chrom_table_lenient, next_batch_size, open_output, open_reader,
-    open_reader_from, open_record_writer, refuse_binary_to_tty, sort_hint,
+    OrderOptions, OutFormat, OutputOptions, OutputSpec, ReaderOptions, RecordBatch, RecordReader,
+    TextToBcf, UsageError, WriterOptions, chrom_table_lenient, next_batch_size, open_output,
+    open_reader, open_reader_from, open_record_writer, refuse_binary_to_tty, sort_hint,
 };
 use gloci_vcf::concat::{NaiveError, NaiveFile, copy_blocks};
 use std::fs::File;
@@ -293,7 +293,9 @@ fn checked(
     for (reader, conv) in readers.iter_mut().zip(convs.iter_mut()) {
         let name = reader.name().to_string();
         let binary = reader.format() == Format::Bcf;
-        let mut guard = OrderGuard::new(&name, reader.format());
+        // vcf concat has --chrom-order but no -g.
+        let mut guard =
+            OrderGuard::new(&name, reader.format()).with_options(OrderOptions::CHROM_ORDER);
         let mut max = 1;
         let mut first = true;
         let mut last: Option<(ChromId, u64, String)> = None;

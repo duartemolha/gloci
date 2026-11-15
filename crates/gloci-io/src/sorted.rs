@@ -50,17 +50,66 @@ pub const LEX_SORTED_NOTE: &str = " (this file looks sorted by sort -k1,1, sort-
 /// Added to the hint when a lexicographic-order check fails on a pair of
 /// chromosomes that are in karyotype order: the file was probably written by
 /// `gloci convert` from a VCF or BAM, or sorted with `--chrom-order karyotype`.
+/// This is the note of a command that has `-g` and `--chrom-order`; see
+/// [`OrderOptions`] for the others.
 pub const KARYOTYPE_SORTED_NOTE: &str = " (this file looks sorted in karyotype order, as a VCF or BAM header lists it; pass -g GENOME or --chrom-order karyotype, or re-sort it with gloci sort)";
 
+/// Which of the options that set the chromosome order the command has, so that
+/// the note of an order error suggests only those.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OrderOptions {
+    /// `-g GENOME`.
+    pub genome: bool,
+    /// `--chrom-order`.
+    pub chrom_order: bool,
+}
+
+impl OrderOptions {
+    /// `-g` and `--chrom-order`, which most commands that check the order have.
+    pub const BOTH: OrderOptions = OrderOptions {
+        genome: true,
+        chrom_order: true,
+    };
+    /// `--chrom-order` without `-g` (`vcf concat`, `vcf merge`, `vcf annotate`).
+    pub const CHROM_ORDER: OrderOptions = OrderOptions {
+        genome: false,
+        chrom_order: true,
+    };
+
+    /// The note for a file in karyotype order read in lexicographic order.
+    fn karyotype_note(self) -> &'static str {
+        match (self.genome, self.chrom_order) {
+            (true, true) => KARYOTYPE_SORTED_NOTE,
+            (false, true) => {
+                " (this file looks sorted in karyotype order, as a VCF or BAM header lists it; pass --chrom-order karyotype, or re-sort it with gloci sort)"
+            }
+            (true, false) => {
+                " (this file looks sorted in karyotype order, as a VCF or BAM header lists it; pass -g GENOME, or re-sort it with gloci sort)"
+            }
+            (false, false) => {
+                " (this file looks sorted in karyotype order, as a VCF or BAM header lists it; re-sort it with gloci sort)"
+            }
+        }
+    }
+}
+
 /// The note for an out-of-order pair of chromosomes (`prev` came first, `next`
-/// sorts before it), when the pair is in the other mode's order.
-pub fn order_note(source: &OrderSource, prev: &[u8], next: &[u8]) -> Option<&'static str> {
+/// sorts before it), when the pair is in the other mode's order. `options` are
+/// the order options of the command, which the note may suggest.
+pub fn order_note(
+    source: &OrderSource,
+    prev: &[u8],
+    next: &[u8],
+    options: OrderOptions,
+) -> Option<&'static str> {
     match source {
+        // Karyotype order comes from --chrom-order karyotype, which the
+        // command therefore has.
         OrderSource::Karyotype if prev < next => Some(LEX_SORTED_NOTE),
         OrderSource::Lexicographic
             if gloci_core::karyotype_cmp(prev, next) == std::cmp::Ordering::Less =>
         {
-            Some(KARYOTYPE_SORTED_NOTE)
+            Some(options.karyotype_note())
         }
         _ => None,
     }
@@ -78,6 +127,8 @@ pub struct OrderGuard {
     prev: Vec<u8>,
     /// Contiguity mode: the chromosomes in the order this input shows them.
     seen: Option<Seen>,
+    /// The order options of the command, for the note of an error.
+    options: OrderOptions,
 }
 
 /// Chromosomes numbered by first appearance in one input.
@@ -114,7 +165,15 @@ impl OrderGuard {
             prev_loc: 0,
             prev: Vec::new(),
             seen: None,
+            options: OrderOptions::BOTH,
         }
+    }
+
+    /// Name only `options` in the note of an order error: the order options
+    /// the command has (both, unless this is called).
+    pub fn with_options(mut self, options: OrderOptions) -> OrderGuard {
+        self.options = options;
+        self
     }
 
     /// Note what the alignment header of this input declares, for the hint.
@@ -197,6 +256,7 @@ impl OrderGuard {
                                 chroms.order_source(),
                                 chroms.name(prev),
                                 chroms.name(next),
+                                self.options,
                             )
                         {
                             hint.push_str(note);

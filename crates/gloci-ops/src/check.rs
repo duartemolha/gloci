@@ -12,7 +12,7 @@ use gloci_core::{
 };
 use gloci_io::{
     AlignOptions, AlnSource, BGZF_EOF, Compression, Format, Header, InvalidPolicy, IoError, Loc,
-    Opened, ReaderOptions, RecordBatch, SortOrder, UsageError, aln_ref, bed12_blocks,
+    Opened, OrderOptions, ReaderOptions, RecordBatch, SortOrder, UsageError, aln_ref, bed12_blocks,
     check_bcf_record, chrom_table_for, cram_eof_present, cram_first_container, detect_compression,
     next_batch_size, open_reader_or_alignments, open_reader_or_alignments_from_nonempty,
     order_note, read_cram_prelude, sort_hint,
@@ -439,7 +439,13 @@ pub fn check_file(
                 if let OrderViolation::ChromBackwards { prev, next } = v
                     && order_note_text.is_none()
                 {
-                    order_note_text = order_note(&source, chroms.name(prev), chroms.name(next));
+                    // `check` has -g and --chrom-order.
+                    order_note_text = order_note(
+                        &source,
+                        chroms.name(prev),
+                        chroms.name(next),
+                        OrderOptions::BOTH,
+                    );
                 }
                 order_errs.add(m.loc, at(msg));
             }

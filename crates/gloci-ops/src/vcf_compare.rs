@@ -484,9 +484,10 @@ pub fn vcf_compare(
     let request = o.request.resolved();
     let ha = crate::vcf_select::vcf_header(COMMAND, a.reader())?;
     let hb = crate::vcf_select::vcf_header(COMMAND, b.reader())?;
-    // --thin checks each file's order inside its own selection, by that file's
-    // header (else the default lexicographic order), which is the walk's order only when both
-    // headers declare the same contigs and nothing else sets the order.
+    // --thin keeps the refusal of the D163 amendment (spec §10): both headers
+    // declare the same contigs and nothing else sets the order. It dates from
+    // when each file's selection checked its own chromosome order; the
+    // selection now checks only that each chromosome is one block.
     if o.select.sites.thin.is_some() {
         let own_order = o.genome.is_none()
             && ha.contigs == hb.contigs

@@ -492,11 +492,14 @@ impl<'a> SelectStage<'a> {
         } else {
             BcfDicts::default()
         };
+        // --thin needs each chromosome in one block with ascending positions,
+        // in any chromosome order (what tabix needs, and what the windowed
+        // statistics check): it keeps a last position per chromosome.
         let guard = sel
             .sites
             .thin
             .is_some()
-            .then(|| OrderGuard::new(input.name(), in_format));
+            .then(|| OrderGuard::contiguous(input.name(), in_format));
         let selection_needs_stats = sel.sites.needs_genotypes()
             || !plan.mask.is_empty()
             || expr

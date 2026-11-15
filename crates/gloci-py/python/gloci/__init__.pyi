@@ -1656,7 +1656,7 @@ class Pipeline:
             min_mean_dp: Minimum mean read depth across samples with depth
             max_mean_dp: Maximum mean read depth across samples with depth
             hwe: Hardy-Weinberg p-value threshold (exact test on biallelic diploid sites)
-            thin: Minimum distance between kept sites in bp (first wins; requires sorted input)
+            thin: Minimum distance between kept sites in bp (first wins; each chromosome's records must be together, by position, in any chromosome order)
             phased_only: Keep only sites where every genotype of ploidy 2 or more is written phased (`|`), called or not, and every selected sample has a GT: `.|.` counts as phased, `./.` and a sample without GT do not (as vcftools --phased)
             inclusive_points: A point on a region's edge overlaps it
             keep_info: Keep only these INFO keys in output records and header
@@ -1766,7 +1766,7 @@ class Pipeline:
             min_mean_dp: Minimum mean read depth across samples with depth
             max_mean_dp: Maximum mean read depth across samples with depth
             hwe: Hardy-Weinberg p-value threshold (exact test on biallelic diploid sites)
-            thin: Minimum distance between kept sites in bp (first wins; requires sorted input)
+            thin: Minimum distance between kept sites in bp (first wins; each chromosome's records must be together, by position, in any chromosome order)
             phased_only: Keep only sites where every genotype of ploidy 2 or more is written phased (`|`), called or not, and every selected sample has a GT: `.|.` counts as phased, `./.` and a sample without GT do not (as vcftools --phased)
             inclusive_points: A point on a region's edge overlaps it
             info: Write these INFO keys as a TSV, one row per site: CHROM POS ID REF ALT then a column per key (comma-separated). A missing value is `.`, a flag is 1 when set and 0 when not
@@ -2410,7 +2410,7 @@ def vcf_stats(
         min_mean_dp: Minimum mean read depth across samples with depth
         max_mean_dp: Maximum mean read depth across samples with depth
         hwe: Hardy-Weinberg p-value threshold (exact test on biallelic diploid sites)
-        thin: Minimum distance between kept sites in bp (first wins; requires sorted input)
+        thin: Minimum distance between kept sites in bp (first wins; each chromosome's records must be together, by position, in any chromosome order)
         phased_only: Keep only sites where every genotype of ploidy 2 or more is written phased (`|`), called or not, and every selected sample has a GT: `.|.` counts as phased, `./.` and a sample without GT do not (as vcftools --phased)
         inclusive_points: A point on a region's edge overlaps it
         freq: Allele frequencies per site: PREFIX.frq (vcftools --freq)
@@ -2549,7 +2549,7 @@ def vcf_extract_matrix(
         min_mean_dp: Minimum mean read depth across samples with depth
         max_mean_dp: Maximum mean read depth across samples with depth
         hwe: Hardy-Weinberg p-value threshold (exact test on biallelic diploid sites)
-        thin: Minimum distance between kept sites in bp (first wins; requires sorted input)
+        thin: Minimum distance between kept sites in bp (first wins; each chromosome's records must be together, by position, in any chromosome order)
         phased_only: Keep only sites where every genotype of ploidy 2 or more is written phased (`|`), called or not, and every selected sample has a GT: `.|.` counts as phased, `./.` and a sample without GT do not (as vcftools --phased)
         inclusive_points: A point on a region's edge overlaps it
         info: Write these INFO keys as a TSV, one row per site: CHROM POS ID REF ALT then a column per key (comma-separated). A missing value is `.`, a flag is 1 when set and 0 when not
@@ -2680,7 +2680,7 @@ def vcf_compare(
         min_mean_dp: Minimum mean read depth across samples with depth
         max_mean_dp: Maximum mean read depth across samples with depth
         hwe: Hardy-Weinberg p-value threshold (exact test on biallelic diploid sites)
-        thin: Minimum distance between kept sites in bp (first wins; requires sorted input)
+        thin: Minimum distance between kept sites in bp (first wins; each chromosome's records must be together, by position, in any chromosome order)
         phased_only: Keep only sites where every genotype of ploidy 2 or more is written phased (`|`), called or not, and every selected sample has a GT: `.|.` counts as phased, `./.` and a sample without GT do not (as vcftools --phased)
         inclusive_points: A point on a region's edge overlaps it
         match: How sites of the two files are paired: alleles (the same CHROM and POS and a shared ALT allele; each record of A takes the first unmatched match in B) or position (vcftools: the same POS and REF)
@@ -2819,7 +2819,7 @@ def vcf_popgen(
         min_mean_dp: Minimum mean read depth across samples with depth
         max_mean_dp: Maximum mean read depth across samples with depth
         hwe: Hardy-Weinberg p-value threshold (exact test on biallelic diploid sites)
-        thin: Minimum distance between kept sites in bp (first wins; requires sorted input)
+        thin: Minimum distance between kept sites in bp (first wins; each chromosome's records must be together, by position, in any chromosome order)
         phased_only: Keep only sites where every genotype of ploidy 2 or more is written phased (`|`), called or not, and every selected sample has a GT: `.|.` counts as phased, `./.` and a sample without GT do not (as vcftools --phased)
         inclusive_points: A point on a region's edge overlaps it
         site_pi: Nucleotide diversity per site: PREFIX.sites.pi (vcftools --site-pi)

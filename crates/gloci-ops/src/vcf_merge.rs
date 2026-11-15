@@ -7,8 +7,8 @@
 use crate::vcf_split::vcf_rewrite_output;
 use gloci_core::{ChromId, ChromTable};
 use gloci_io::{
-    BcfText, Header, IoError, OrderGuard, OutFormat, RecordBatch, RecordReader, RecordWriter,
-    TextToBcf, VcfHeader, next_batch_size,
+    BcfText, Header, IoError, OrderGuard, OrderOptions, OutFormat, RecordBatch, RecordReader,
+    RecordWriter, TextToBcf, VcfHeader, next_batch_size,
 };
 use gloci_vcf::merge::{Merger, PairIn, stage_position};
 use std::cmp::Ordering;
@@ -86,7 +86,8 @@ struct Stream {
 impl Stream {
     fn new(reader: Box<dyn RecordReader>, filter: Option<FilterList>) -> Result<Stream, IoError> {
         let name = reader.name().to_string();
-        let guard = OrderGuard::new(&name, reader.format());
+        // vcf merge has --chrom-order but no -g.
+        let guard = OrderGuard::new(&name, reader.format()).with_options(OrderOptions::CHROM_ORDER);
         let bcf = BcfText::for_reader(reader.as_ref())?;
         Ok(Stream {
             reader,

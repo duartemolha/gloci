@@ -340,7 +340,8 @@ pub struct VcfSelectArgs {
     /// Hardy-Weinberg p-value threshold (exact test on biallelic diploid sites).
     #[arg(long, value_name = "P")]
     pub hwe: Option<f64>,
-    /// Minimum distance between kept sites in bp (first wins; requires sorted input).
+    /// Minimum distance between kept sites in bp (first wins; each chromosome's
+    /// records must be together, by position, in any chromosome order).
     #[arg(long, value_name = "N")]
     pub thin: Option<u64>,
     /// Keep only sites where every genotype of ploidy 2 or more is written

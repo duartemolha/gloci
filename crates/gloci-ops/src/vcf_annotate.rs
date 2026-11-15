@@ -7,8 +7,8 @@
 use crate::vcf_split::vcf_rewrite_output;
 use gloci_core::{ChromId, ChromTable, OrderChecker, OrderSource, OrderViolation};
 use gloci_io::{
-    BcfText, Format, Header, IoError, Loc, OrderError, OrderGuard, OutFormat, RecordBatch,
-    RecordReader, RecordWriter, TextToBcf, VcfHeader, next_batch_size, sort_hint,
+    BcfText, Format, Header, IoError, Loc, OrderError, OrderGuard, OrderOptions, OutFormat,
+    RecordBatch, RecordReader, RecordWriter, TextToBcf, VcfHeader, next_batch_size, sort_hint,
 };
 use gloci_vcf::annotate::{
     Annotator, PairRec, Rec, TabLayout, TabRow, info_get, pair_rec, pair_rows,
@@ -116,7 +116,8 @@ impl Stream {
         strict: Option<Strict>,
     ) -> Result<Stream, IoError> {
         let name = reader.name().to_string();
-        let guard = OrderGuard::new(&name, reader.format());
+        // vcf annotate has --chrom-order but no -g.
+        let guard = OrderGuard::new(&name, reader.format()).with_options(OrderOptions::CHROM_ORDER);
         let bcf = BcfText::for_reader(reader.as_ref())?;
         Ok(Stream {
             reader,
