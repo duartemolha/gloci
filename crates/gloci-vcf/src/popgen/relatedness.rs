@@ -19,7 +19,7 @@ use crate::compare::Gt;
 use crate::filter::SiteView;
 use crate::gt::{GenotypeSource, SampleFields};
 use crate::stats::{Out, SiteStats, Stat, StatSink};
-use gloci_core::cfmt::write_g6;
+use gloci_core::cfmt::{write_g6, write_u64};
 use std::io;
 use std::num::NonZeroUsize;
 use std::ops::Range;
@@ -185,6 +185,16 @@ fn count_site(used: &mut u64, flag: &str) -> Result<(), String> {
     }
     *used += 1;
     Ok(())
+}
+
+/// A count as vcftools prints a double (`%g`): a whole number below a
+/// million as it is, a larger one with an exponent (`1e+06`).
+fn write_count(o: &mut Vec<u8>, c: u32) {
+    if c < 1_000_000 {
+        write_u64(o, u64::from(c));
+    } else {
+        write_g6(o, f64::from(c));
+    }
 }
 
 fn header(out: &mut Out, line: &str) -> io::Result<()> {
@@ -355,7 +365,7 @@ impl Stat for RelatednessManichaikul {
                 o.extend_from_slice(b.as_bytes());
                 for c in [both, opp, het_i, het_j] {
                     o.push(b'\t');
-                    write_g6(o, f64::from(c));
+                    write_count(o, c);
                 }
                 o.push(b'\t');
                 let phi = (f64::from(both) - 2.0 * f64::from(opp))
@@ -614,6 +624,16 @@ mod tests {
         assert_eq!(s.len(), 4);
         assert!(s[0].len() < s[3].len());
         assert_eq!(Triangle { n: 0 }.split(3), Vec::<Range<usize>>::new());
+    }
+
+    #[test]
+    fn counts_print_as_doubles() {
+        for c in [0, 1, 999_999, 1_000_000, 1_234_567, 99_999_999, u32::MAX] {
+            let (mut a, mut b) = (Vec::new(), Vec::new());
+            write_count(&mut a, c);
+            write_g6(&mut b, f64::from(c));
+            assert_eq!(a, b, "{c}");
+        }
     }
 
     #[test]
