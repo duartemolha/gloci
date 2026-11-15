@@ -48,7 +48,7 @@ fn bam_pass<I: BinIndexKind + Default>(
         path: name.to_string(),
         source,
     })?;
-    let mut r = MultithreadedReader::with_worker_count(threads, file);
+    let mut r = BgzfReader::new(file, threads).map_err(crate::bgzf::start_error)?;
     let hdr = AlnHeader::read_bam(&mut r).map_err(|msg| IoError::Detect {
         path: name.to_string(),
         msg: format!("{name}: {msg}"),
@@ -250,7 +250,7 @@ fn longest_reference(data: &Path, name: &str, threads: NonZeroUsize) -> Result<u
         path: name.to_string(),
         source,
     })?;
-    let mut r = MultithreadedReader::with_worker_count(threads, file);
+    let mut r = BgzfReader::new(file, threads).map_err(crate::bgzf::start_error)?;
     let hdr = AlnHeader::read_bam(&mut r).map_err(|msg| IoError::Detect {
         path: name.to_string(),
         msg: format!("{name}: {msg}"),

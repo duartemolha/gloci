@@ -116,10 +116,9 @@ pub fn open_input_from(
         Compression::Bgzf if opts.threads.get() == 1 => {
             Box::new(noodles_bgzf::io::Reader::new(chained))
         }
-        Compression::Bgzf => Box::new(noodles_bgzf::io::MultithreadedReader::with_worker_count(
-            opts.threads,
-            chained,
-        )),
+        Compression::Bgzf => Box::new(
+            crate::bgzf::Reader::new(chained, opts.threads).map_err(crate::bgzf::start_error)?,
+        ),
     };
     let peek = read_up_to(&mut decoded, PEEK).map_err(read_err)?;
     let format = match opts.format {

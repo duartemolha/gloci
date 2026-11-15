@@ -1,24 +1,28 @@
-//! BGZF writing on workers that sleep while they wait (design §8.3, stage 1).
+//! BGZF reading and writing on workers that sleep while they wait (design §8.3, stage 1).
 //!
 //! [`Writer`] cuts what is written to it into blocks on the calling thread, has each block
 //! compressed on a worker of a [`Pool`], and writes the blocks to its sink in order, on the
-//! calling thread again.
+//! calling thread again. [`Reader`] reads the stored blocks of its source on the calling
+//! thread, has each inflated on a worker, and hands their data out in order.
 //!
-//! It does what `noodles_bgzf::io::MultithreadedWriter` does, and leans on noodles for it:
-//! the compressed stream is the same byte for byte at every worker count, with the same
-//! block size and each block compressed by noodles' single-threaded writer. What differs is
-//! how the threads wait: noodles' writer runs a rayon pool and crossbeam channels, which
-//! wait by yielding the CPU ([`crate::handoff`] has the cost).
+//! Both do what `noodles_bgzf::io::MultithreadedWriter` and `MultithreadedReader` do, and
+//! lean on noodles for it. The compressed stream is the same byte for byte at every worker
+//! count: the same block size, and each block compressed by noodles' single-block writer.
+//! A block is checked and inflated by noodles' single-threaded reader, so a bad block fails
+//! with noodles' error. What differs is how the threads wait: noodles' pair run a rayon pool
+//! and crossbeam channels each, which wait by yielding the CPU ([`crate::handoff`] has the
+//! cost).
 
 use crate::error::IoError;
 use crate::handoff::Pool;
 use crate::input::BGZF_EOF;
+use noodles_bgzf::VirtualPosition;
 use noodles_bgzf::io::writer::{Builder as BlockBuilder, CompressionLevel};
-use std::io::{self, Write};
+use std::io::{self, BufRead, BufReader, Cursor, Read, Write};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-/// The error of a writer whose worker threads cannot be started.
+/// The error of a reader or writer whose worker threads cannot be started.
 pub(crate) fn start_error(e: io::Error) -> IoError {
     IoError::Internal(format!("cannot start a worker thread: {e}"))
 }
@@ -219,6 +223,189 @@ impl<W: Write> Drop for Writer<W> {
         if self.sink.is_some() {
             let _ = self.finish();
         }
+    }
+}
+
+/// The most a block inflates to.
+const MAX_ISIZE: usize = 1 << 16;
+/// A block's BGZF header, which ends with the block's size, and the gzip trailer after its
+/// data.
+const HEADER: usize = 18;
+const TRAILER: usize = 8;
+/// How much of the source is read at a time.
+const SOURCE_BUF: usize = 256 << 10;
+
+/// A stored block to inflate, and a buffer to inflate it into.
+type Inflate = (Vec<u8>, Vec<u8>);
+/// The data of a block, and the block as it was stored.
+type Inflated = (Vec<u8>, Vec<u8>);
+/// noodles' reader over one stored block at a time.
+type BlockReader = noodles_bgzf::io::Reader<Cursor<Vec<u8>>>;
+
+/// The next block of `src` as it is stored, in `stored`; false at the end of the stream.
+///
+/// This is noodles' frame reader (private there), error for error: a stream that ends
+/// inside the 18-byte header ends there without an error, a block too small to hold a
+/// header and a trailer is an invalid frame size, and one that ends early fails to fill its
+/// buffer. The header's other fields are checked where the block is inflated.
+fn read_stored(src: &mut impl Read, stored: &mut Vec<u8>) -> io::Result<bool> {
+    stored.resize(HEADER, 0);
+    match src.read_exact(stored) {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(false),
+        Err(e) => return Err(e),
+    }
+    let size = usize::from(u16::from_le_bytes([stored[16], stored[17]])) + 1;
+    if size < HEADER + TRAILER {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid frame size",
+        ));
+    }
+    stored.resize(size, 0);
+    src.read_exact(&mut stored[HEADER..])?;
+    Ok(true)
+}
+
+/// The data of one stored block: its header, sizes and checksum checked and its data
+/// inflated by noodles' single-threaded reader, as its multithreaded one does.
+fn inflate(reader: &mut BlockReader, (stored, mut data): Inflate) -> io::Result<Inflated> {
+    *reader.get_mut() = Cursor::new(stored);
+    // noodles inflates straight into a buffer that can hold any block.
+    data.resize(MAX_ISIZE, 0);
+    let n = reader.read(&mut data)?;
+    data.truncate(n);
+    Ok((data, std::mem::take(reader.get_mut()).into_inner()))
+}
+
+/// A BGZF reader whose blocks are inflated on worker threads.
+///
+/// - Blocks without data are skipped, and the stream ends where its source ends.
+/// - An error is reported in its place in the stream, after the data of the blocks before
+///   it. After a block that fails the reader goes on with the next one; after a source that
+///   fails, or a block whose size cannot be read, the stream has ended.
+/// - [`Reader::virtual_position`] is where the next byte comes from: the block's offset in
+///   the file and the offset within its data, or the start of the next block once a block
+///   is read to its end.
+/// - At most twice the worker count of blocks are read ahead of the one being handed out.
+pub(crate) struct Reader<R> {
+    src: BufReader<R>,
+    pool: Pool<Inflate, Inflated>,
+    /// The blocks that may be in flight.
+    cap: u64,
+    /// No more blocks are read from the source: it has ended, or failed.
+    ended: bool,
+    /// What ended the source early, reported once the blocks before it are read.
+    failed: Option<io::Error>,
+    /// The current block's data, and how much of it is read.
+    data: Vec<u8>,
+    at: usize,
+    /// Where the current block starts in the file, and its stored size: the block after it
+    /// starts where it ends.
+    block_at: u64,
+    block_size: u64,
+    /// Buffers of blocks that have been read, to read and inflate into again.
+    spare: Vec<(Vec<u8>, Vec<u8>)>,
+}
+
+impl<R: Read> Reader<R> {
+    /// A reader of `src` with `workers` inflating threads.
+    pub fn new(src: R, workers: NonZeroUsize) -> io::Result<Self> {
+        let readers = (0..workers.get())
+            .map(|_| BlockReader::new(Cursor::new(Vec::new())))
+            .collect();
+        Ok(Reader {
+            src: BufReader::with_capacity(SOURCE_BUF, src),
+            pool: Pool::new("bgzf-inflate", readers, inflate)?,
+            cap: 2 * workers.get() as u64,
+            ended: false,
+            failed: None,
+            data: Vec::with_capacity(MAX_ISIZE),
+            at: 0,
+            block_at: 0,
+            block_size: 0,
+            spare: Vec::new(),
+        })
+    }
+
+    /// Where the next byte read comes from, as a BGZF virtual position.
+    pub fn virtual_position(&self) -> VirtualPosition {
+        let (block, within) = if self.at < self.data.len() {
+            (self.block_at, self.at as u16)
+        } else {
+            (self.block_at + self.block_size, 0)
+        };
+        VirtualPosition::try_from((block, within)).expect("a BGZF file is smaller than 256 TiB")
+    }
+
+    /// Read stored blocks from the source and queue them, up to the bound.
+    fn read_ahead(&mut self) {
+        while !self.ended && self.pool.in_flight() < self.cap {
+            // Buffers are made here, at their full size, and come back: the workers
+            // allocate nothing for a block.
+            let (mut stored, data) = self.spare.pop().unwrap_or_else(|| {
+                (
+                    Vec::with_capacity(MAX_STORED),
+                    Vec::with_capacity(MAX_ISIZE),
+                )
+            });
+            match read_stored(&mut self.src, &mut stored) {
+                Ok(true) => self.pool.submit((stored, data)),
+                Ok(false) => self.ended = true,
+                Err(e) => {
+                    self.ended = true;
+                    self.failed = Some(e);
+                }
+            }
+        }
+    }
+
+    /// Make the next block that holds data the current one. At the end of the stream there
+    /// is no data left, and the position stays after the last block.
+    fn next_block(&mut self) -> io::Result<()> {
+        loop {
+            self.read_ahead();
+            let Some(inflated) = self.pool.take() else {
+                if let Some(e) = self.failed.take() {
+                    return Err(e);
+                }
+                self.data.clear();
+                self.at = 0;
+                return Ok(());
+            };
+            let (data, stored) = inflated?;
+            self.block_at += self.block_size;
+            self.block_size = stored.len() as u64;
+            let read = std::mem::replace(&mut self.data, data);
+            self.at = 0;
+            self.spare.push((stored, read));
+            if !self.data.is_empty() {
+                return Ok(());
+            }
+        }
+    }
+}
+
+impl<R: Read> Read for Reader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let data = self.fill_buf()?;
+        let n = data.len().min(buf.len());
+        buf[..n].copy_from_slice(&data[..n]);
+        self.consume(n);
+        Ok(n)
+    }
+}
+
+impl<R: Read> BufRead for Reader<R> {
+    fn fill_buf(&mut self) -> io::Result<&[u8]> {
+        if self.at >= self.data.len() {
+            self.next_block()?;
+        }
+        Ok(&self.data[self.at..])
+    }
+
+    fn consume(&mut self, amt: usize) {
+        self.at = (self.at + amt).min(self.data.len());
     }
 }
 
@@ -472,5 +659,366 @@ are {:?}, noodles writes {:?}",
         }
         w.finish().unwrap();
         assert_eq!(sink.bytes().len(), 60 * stored + BGZF_EOF.len());
+    }
+
+    /// What a reader under test and noodles' multithreaded reader have in common.
+    trait Positioned: BufRead {
+        fn at(&self) -> u64;
+    }
+
+    impl<R: Read> Positioned for Reader<R> {
+        fn at(&self) -> u64 {
+            u64::from(self.virtual_position())
+        }
+    }
+
+    impl<R: Read + Send + 'static> Positioned for noodles_bgzf::io::MultithreadedReader<R> {
+        fn at(&self) -> u64 {
+            u64::from(self.virtual_position())
+        }
+    }
+
+    /// What one read gave: the bytes or the error, and the virtual position after it.
+    #[derive(Debug, PartialEq)]
+    struct Step {
+        read: Result<Vec<u8>, (io::ErrorKind, String)>,
+        at: u64,
+    }
+
+    /// Read `r` to its end with a fixed mix of calls (lines, small and large reads, a
+    /// buffer consumed in part), going on after an error for as long as `after_error`
+    /// allows, and return every step.
+    fn trace(r: &mut dyn Positioned, after_error: usize) -> Vec<Step> {
+        let mut steps = vec![Step {
+            read: Ok(Vec::new()),
+            at: r.at(),
+        }];
+        let (mut ends, mut errors) = (0, 0);
+        for i in 0usize.. {
+            let mut got = Vec::new();
+            let read = match i % 5 {
+                0 => r.read_until(b'\n', &mut got).map(drop),
+                1 => {
+                    got.resize(100_000, 0);
+                    r.read(&mut got).map(|n| got.truncate(n))
+                }
+                2 => {
+                    got.resize(7, 0);
+                    r.read(&mut got).map(|n| got.truncate(n))
+                }
+                3 => r.fill_buf().map(|b| b.len() / 3).map(|n| {
+                    got.extend_from_slice(&r.fill_buf().unwrap()[..n]);
+                    r.consume(n);
+                }),
+                _ => {
+                    got.resize(70_000, 0);
+                    let mut n = 0;
+                    let read = loop {
+                        match r.read(&mut got[n..]) {
+                            Ok(0) => break Ok(()),
+                            Ok(k) => n += k,
+                            Err(e) => break Err(e),
+                        }
+                        if n == got.len() {
+                            break Ok(());
+                        }
+                    };
+                    got.truncate(n);
+                    read
+                }
+            };
+            let failed = read.is_err();
+            let empty = got.is_empty();
+            steps.push(Step {
+                read: read.map(|()| got).map_err(|e| (e.kind(), e.to_string())),
+                at: r.at(),
+            });
+            errors += usize::from(failed);
+            // A read that gives nothing is the end unless it is the third kind, which takes
+            // a third of what is buffered: see the end twice in a row to be sure.
+            ends = if empty && !failed { ends + 1 } else { 0 };
+            if ends == 6 || errors > after_error {
+                break;
+            }
+        }
+        steps
+    }
+
+    /// The traces of noodles' multithreaded reader and of ours at several worker counts.
+    fn assert_reads_like_noodles(name: &str, bgzf: &[u8]) -> Vec<Step> {
+        let mut theirs = noodles_bgzf::io::MultithreadedReader::with_worker_count(
+            workers(2),
+            Cursor::new(bgzf.to_vec()),
+        );
+        let want = trace(&mut theirs, 3);
+        for n in [1, 2, 3, 8] {
+            let mut r = Reader::new(bgzf, workers(n)).unwrap();
+            let got = trace(&mut r, 3);
+            if let Some(i) = (0..got.len().max(want.len())).find(|&i| got.get(i) != want.get(i)) {
+                let brief = |s: Option<&Step>| {
+                    s.map(|s| (s.read.as_ref().map(Vec::len).map_err(Clone::clone), s.at))
+                };
+                panic!(
+                    "{name}, {n} workers: step {i} is {:?}, noodles gives {:?}",
+                    brief(got.get(i)),
+                    brief(want.get(i))
+                );
+            }
+        }
+        want
+    }
+
+    fn noodles_block(data: &[u8]) -> Vec<u8> {
+        let mut w = noodles_bgzf::io::Writer::new(Vec::new());
+        w.write_all(data).unwrap();
+        w.flush().unwrap();
+        w.into_inner()
+    }
+
+    /// Lines of text as BGZF blocks of several sizes, with blocks that hold no data among
+    /// them (the end-of-file block of a file that another was appended to).
+    fn stream() -> (Vec<u8>, Vec<u8>) {
+        let mut text = Vec::new();
+        for i in 0..40_000u32 {
+            text.extend_from_slice(
+                format!("chr{}\t{}\t{}\n", i % 23, i * 7, i * 7 + 50).as_bytes(),
+            );
+        }
+        let text = [text, self::text(150_000, 21)].concat();
+        let mut bgzf = Vec::new();
+        let mut rest = &text[..];
+        for (i, size) in [1usize, 65_495, 0, 30_000, 65_280, 17, 0, 0, 65_495, 4_000]
+            .iter()
+            .cycle()
+            .enumerate()
+        {
+            if rest.is_empty() {
+                break;
+            }
+            if *size == 0 {
+                bgzf.extend_from_slice(&BGZF_EOF);
+                continue;
+            }
+            let n = (size + i % 3).min(rest.len()).min(BLOCK_DATA);
+            bgzf.extend_from_slice(&noodles_block(&rest[..n]));
+            rest = &rest[n..];
+        }
+        (text, bgzf)
+    }
+
+    /// The data, and the virtual position after every read, are those of noodles'
+    /// multithreaded reader, whatever the worker count and however the stream is read.
+    #[test]
+    fn reads_what_the_noodles_multithreaded_reader_reads() {
+        let (text, mut bgzf) = stream();
+        for end in [&b""[..], &BGZF_EOF[..]] {
+            bgzf.extend_from_slice(end);
+            let steps = assert_reads_like_noodles("a stream of blocks", &bgzf);
+            let read: Vec<u8> = steps.into_iter().flat_map(|s| s.read.unwrap()).collect();
+            assert!(read == text, "the data read is not the data written");
+            let mut all = Vec::new();
+            let mut r = Reader::new(&bgzf[..], workers(4)).unwrap();
+            r.read_to_end(&mut all).unwrap();
+            assert!(all == text);
+            assert_eq!(
+                r.virtual_position(),
+                VirtualPosition::try_from((bgzf.len() as u64, 0)).unwrap()
+            );
+        }
+        for (name, bgzf) in [
+            ("an empty stream", Vec::new()),
+            ("only the end-of-file block", BGZF_EOF.to_vec()),
+            ("one short block", noodles_block(b"chr1\t1\t2\n")),
+        ] {
+            assert_reads_like_noodles(name, &bgzf);
+        }
+    }
+
+    /// Where the blocks of `bgzf` start.
+    fn starts(bgzf: &[u8]) -> Vec<usize> {
+        blocks(bgzf)
+            .iter()
+            .scan(0, |at, b| {
+                *at += b.0;
+                Some(*at - b.0)
+            })
+            .collect()
+    }
+
+    /// Streams that are not sound BGZF fail as noodles' multithreaded reader fails on them:
+    /// the same data before the error, the same error, and the same reads after it.
+    #[test]
+    fn bad_streams_fail_as_the_noodles_multithreaded_reader_fails() {
+        let (_, mut good) = stream();
+        good.extend_from_slice(&BGZF_EOF);
+        let starts = starts(&good);
+        // A block in the middle that holds data, and what follows it.
+        let k = 9;
+        let (b, next) = (starts[k], starts[k + 1]);
+        assert!(next - b > 1_000);
+        let patched = |at: usize, bytes: &[u8]| {
+            let mut bad = good.clone();
+            bad[at..at + bytes.len()].copy_from_slice(bytes);
+            bad
+        };
+        let flipped = |at: usize| patched(at, &[!good[at]]);
+        let gz = {
+            let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+            e.write_all(&text(200_000, 2)).unwrap();
+            e.finish().unwrap()
+        };
+        // The kind and the text of the first error; a text of "" stands for libdeflate's own.
+        type FirstError = Option<(io::ErrorKind, &'static str)>;
+        let cases: Vec<(&str, Vec<u8>, FirstError)> = vec![
+            (
+                "cut inside a block's data",
+                good[..b + 500].to_vec(),
+                Some((io::ErrorKind::UnexpectedEof, "failed to fill whole buffer")),
+            ),
+            ("cut inside a block's header", good[..b + 5].to_vec(), None),
+            ("cut between two blocks", good[..b].to_vec(), None),
+            (
+                "cut inside the last block's trailer",
+                good[..good.len() - BGZF_EOF.len() - 3].to_vec(),
+                Some((io::ErrorKind::UnexpectedEof, "failed to fill whole buffer")),
+            ),
+            (
+                "a header that does not start as gzip",
+                patched(b, b"XX"),
+                Some((io::ErrorKind::InvalidData, "invalid BGZF header")),
+            ),
+            (
+                "a header without the BGZF field",
+                patched(b + 12, b"XY"),
+                Some((io::ErrorKind::InvalidData, "invalid BGZF header")),
+            ),
+            (
+                "a wrong checksum",
+                flipped(next - 8),
+                Some((io::ErrorKind::InvalidData, "block data checksum mismatch")),
+            ),
+            (
+                "an inflated size past 64 KiB",
+                patched(next - 4, &70_000u32.to_le_bytes()),
+                Some((io::ErrorKind::InvalidData, "invalid BGZF ISIZE")),
+            ),
+            (
+                "an inflated size that is too small",
+                patched(next - 4, &100u32.to_le_bytes()),
+                Some((io::ErrorKind::InvalidData, "")),
+            ),
+            (
+                "an inflated size that is too large",
+                patched(next - 4, &65_536u32.to_le_bytes()),
+                Some((io::ErrorKind::InvalidData, "block data checksum mismatch")),
+            ),
+            (
+                "a block size too small for a block",
+                patched(b + 16, &10u16.to_le_bytes()),
+                Some((io::ErrorKind::InvalidData, "invalid frame size")),
+            ),
+            (
+                "a block size one short of a header and a trailer",
+                patched(b + 16, &24u16.to_le_bytes()),
+                Some((io::ErrorKind::InvalidData, "invalid frame size")),
+            ),
+            (
+                "a block size of a header and a trailer",
+                patched(b + 16, &25u16.to_le_bytes()),
+                Some((io::ErrorKind::InvalidData, "")),
+            ),
+            (
+                "a block size that ends inside the block",
+                patched(b + 16, &((next - b - 300) as u16).to_le_bytes()),
+                Some((io::ErrorKind::InvalidData, "invalid BGZF ISIZE")),
+            ),
+            (
+                "data that is not a deflate stream",
+                patched(b + 18, &[0xff; 64]),
+                Some((io::ErrorKind::InvalidData, "")),
+            ),
+            (
+                "plain gzip after BGZF blocks",
+                [&good[..b], &gz[..]].concat(),
+                Some((io::ErrorKind::InvalidData, "invalid BGZF header")),
+            ),
+            (
+                "text after the end-of-file block",
+                [&good[..], &text(200_000, 4)[..]].concat(),
+                Some((io::ErrorKind::InvalidData, "invalid BGZF header")),
+            ),
+        ];
+        for (name, bad, first_error) in cases {
+            let steps = assert_reads_like_noodles(name, &bad);
+            let failed = steps.iter().find_map(|s| s.read.as_ref().err());
+            let failed = failed.map(|(kind, msg)| match first_error {
+                Some((_, "")) => (*kind, ""),
+                _ => (*kind, msg.as_str()),
+            });
+            assert_eq!(failed, first_error, "{name}");
+        }
+    }
+
+    /// A source that fails is reported after the blocks read before it failed, and then the
+    /// stream has ended.
+    #[test]
+    fn a_source_that_fails_is_reported_in_its_place() {
+        struct Failing<'a>(&'a [u8]);
+        impl Read for Failing<'_> {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                if self.0.is_empty() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::BrokenPipe,
+                        "the source failed",
+                    ));
+                }
+                self.0.read(buf)
+            }
+        }
+        let (text, bgzf) = stream();
+        // The source fails 40 bytes into a block that is larger than that.
+        let sizes = blocks(&bgzf);
+        let k = (20..).find(|&k| sizes[k].0 > 1_000).unwrap();
+        let cut = starts(&bgzf)[k] + 40;
+        let whole: usize = sizes[..k].iter().map(|b| b.1).sum();
+        for n in [1, 4] {
+            let mut r = Reader::new(Failing(&bgzf[..cut]), workers(n)).unwrap();
+            let mut read = Vec::new();
+            let e = r.read_to_end(&mut read).unwrap_err();
+            assert_eq!(
+                (e.kind(), e.to_string().as_str()),
+                (io::ErrorKind::BrokenPipe, "the source failed")
+            );
+            assert!(read == text[..whole]);
+            assert_eq!(r.read(&mut [0; 10]).unwrap(), 0);
+        }
+    }
+
+    /// The reader takes from its source what its workers and its buffer hold, not the whole
+    /// stream, however little of the data is read.
+    #[test]
+    fn the_source_is_read_a_bounded_way_ahead() {
+        struct Counting<'a>(&'a [u8], Arc<Mutex<usize>>);
+        impl Read for Counting<'_> {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                let n = self.0.read(buf)?;
+                *self.1.lock().unwrap() += n;
+                Ok(n)
+            }
+        }
+        let bgzf = noodles(&text(200 * BLOCK_DATA, 13), 1, 1, 1 << 20, &[]);
+        let stored = blocks(&bgzf)[0].0;
+        let taken = Arc::new(Mutex::new(0));
+        let mut r = Reader::new(Counting(&bgzf, taken.clone()), workers(2)).unwrap();
+        for block in 1..=20 {
+            r.read_exact(&mut vec![0; BLOCK_DATA]).unwrap();
+            // The blocks read, the 2 x 2 in flight, and one buffer of the source.
+            let most = (block + 4) * (stored + 64) + SOURCE_BUF;
+            let taken = *taken.lock().unwrap();
+            assert!(
+                taken <= most,
+                "after {block} blocks, {taken} bytes of the source are read"
+            );
+        }
     }
 }

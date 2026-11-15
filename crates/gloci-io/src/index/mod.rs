@@ -13,6 +13,7 @@
 use crate::atomic::AtomicFile;
 use crate::bcf::{self, BcfDicts, Decoder, read_bcf_header};
 use crate::bed::Bed;
+use crate::bgzf::Reader as BgzfReader;
 use crate::detect::{Compression, Format, detect_compression};
 use crate::diag::{Diagnostics, InvalidPolicy};
 use crate::error::{IoError, Loc, UsageError};
@@ -28,7 +29,6 @@ use gloci_core::{
     ChromId, ChromTable, Interval, RegionSet, Strand, VcfSpan, parse_coord, thousands,
 };
 use noodles_bgzf::VirtualPosition;
-use noodles_bgzf::io::MultithreadedReader;
 use noodles_core::Position;
 use noodles_csi::BinningIndex;
 use noodles_csi::binning_index::index::ReferenceSequence;

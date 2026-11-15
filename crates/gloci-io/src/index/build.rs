@@ -176,7 +176,7 @@ contig dictionary, even when each contig is contiguous (bcftools index is less s
     }
 
     /// Text formats; returns the line skip count.
-    fn text(&mut self, r: &mut MultithreadedReader<File>, format: Format) -> Result<u32, IoError> {
+    fn text(&mut self, r: &mut BgzfReader<File>, format: Format) -> Result<u32, IoError> {
         let mut parser = match self.tsv {
             Some(cols) => Parser::Tsv(TsvKind::new(cols)),
             None => Parser::text(format, VcfSpan::Ref),
@@ -233,7 +233,7 @@ contig dictionary, even when each contig is contiguous (bcftools index is less s
     }
 
     /// BCF; returns the reference count (the contig dictionary size).
-    fn bcf(&mut self, r: &mut MultithreadedReader<File>) -> Result<usize, IoError> {
+    fn bcf(&mut self, r: &mut BgzfReader<File>) -> Result<usize, IoError> {
         let h = read_bcf_header(r).map_err(|msg| IoError::Detect {
             msg: format!("{}: {msg}", self.name),
             path: self.name.to_string(),
@@ -298,7 +298,7 @@ pub(super) fn scan(
         path: name.to_string(),
         source,
     })?;
-    let mut r = MultithreadedReader::with_worker_count(threads, file);
+    let mut r = BgzfReader::new(file, threads).map_err(crate::bgzf::start_error)?;
     let binary = format == Format::Bcf;
     let mut sc = Scanner {
         name,
