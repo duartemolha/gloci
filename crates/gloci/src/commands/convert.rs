@@ -319,7 +319,7 @@ for both, or two files"
 /// What `convert --bam` reads: features, or BEDPE pairs.
 enum BamInput {
     Features(Box<dyn RecordReader>),
-    Pairs(BedpeReader),
+    Pairs(Box<BedpeReader>),
 }
 
 /// `convert --bam` (D167): BED, GFF or VCF features, or BEDPE pairs, as BAM records.
@@ -380,7 +380,7 @@ write two records per pair (bedtools bedpetobam), or --format bed to read it as 
     };
     // Open and check the input before the output is created.
     let input = if pairs {
-        BamInput::Pairs(BedpeReader::open(&a.file, &ro)?)
+        BamInput::Pairs(Box::new(BedpeReader::open(&a.file, &ro)?))
     } else {
         let r = open_reader(&a.file, &ro)?;
         match r.format() {
@@ -425,7 +425,7 @@ write two records per pair (bedtools bedpetobam), or --format bed to read it as 
             features_to_bam(r, &mut chroms, &header, &source, &o, w.as_mut()).map_err(named)?
         }
         BamInput::Pairs(r) => {
-            bedpe_to_bam(r, &mut chroms, &header, &source, o.mapq, w.as_mut()).map_err(named)?
+            bedpe_to_bam(*r, &mut chroms, &header, &source, o.mapq, w.as_mut()).map_err(named)?
         }
     };
     w.finish().map_err(named)?;

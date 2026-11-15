@@ -309,7 +309,7 @@ have a name column (column 7)"
                 };
                 line.start(name, flag, place(k), q, &cigar[k]);
                 line.end(place(k), place(o), tlen);
-                line.write(header, w, &fail)?;
+                line.write(header, w, fail)?;
                 n += 1;
             }
         }
