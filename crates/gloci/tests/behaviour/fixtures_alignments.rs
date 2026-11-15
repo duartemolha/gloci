@@ -136,6 +136,7 @@ impl P3a {
         let mut c: Vec<(String, Vec<String>)> = vec![
             ("convert".into(), v(&["convert", input])),
             ("convert --bed12".into(), v(&["convert", input, "--bed12"])),
+            ("convert --fastq".into(), v(&["convert", input, "--fastq"])),
             ("view".into(), v(&["view", "-O", "sam", input])),
             (
                 "view --min-mapq".into(),

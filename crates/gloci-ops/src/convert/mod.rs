@@ -9,6 +9,7 @@
 
 mod align;
 mod align_bedpe;
+mod align_fastq;
 mod bed12;
 mod gff;
 mod psl;
@@ -17,6 +18,7 @@ mod vcf;
 mod wig;
 
 pub use align_bedpe::{BedpeOptions, BedpeSummary, alignments_to_bedpe};
+pub use align_fastq::{FastqOptions, FastqSink, FastqSummary, alignments_to_fastq};
 
 use gloci_core::{ChromId, ChromTable, Strand, VariantKind, VcfSpan};
 use gloci_io::{Format, IoError, RecordReader, RecordWriter, UsageError};

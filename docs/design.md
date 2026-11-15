@@ -47,7 +47,7 @@ A single, fast, correct Rust command-line tool that replaces **bedtools**, **bed
 - Variant calling, left-alignment or normalization against a reference, annotation (VEP-like), imputation and phasing.
 - Becoming a general replacement for bcftools or samtools. Merging samples across VCFs (`vcf-merge`) is not planned for v1.
 - The bedops **Starch** format, and legacy genotype export formats (IMPUTE, BEAGLE, LDhat, PLINK ped/tped). **[my call]**
-- bedtools' BAM-specific utilities: `bamtofastq`, `bedtobam`, `bedpetobam`, `tag`, `multicov`. **[my call]** `igv` and `links` are built on the owner's request of 2026-11-15 (D169, D170). **[owner, 2026-11-15]**
+- bedtools' BAM-specific utilities: `bedtobam`, `bedpetobam`, `tag`, `multicov`. **[my call]** `igv`, `links` and `bamtofastq` are built on the owner's request of 2026-11-15 (D169, D170; `bamtofastq` as `gloci convert --fastq`, D166). **[owner, 2026-11-15]**
 - Native Windows. WSL works. **[my call]**
 - A stable public Rust library API in v1. The crates are internal; the stable, versioned API is the Python one from P2 (Section 8.5). **[my call, revised: Python bindings moved to goals]**
 
@@ -871,7 +871,8 @@ The user-facing version of this guide lives in `docs/migration.md` (later part o
 | `pairtobed`, `pairtopair` | `pair-intersect`, `pair-pair` (P3) |
 | `igv -i F [-path D -sess S -sort K -clps -name -slop N -img T]` | `gloci igv F [--path D --session S --sort K --collapse --name --slop N --image T]` (D169 **[owner, 2026-11-15]**) |
 | `links -i F [-base U -org O -db B]` | `gloci links F [--base U --org O --db B]` (D170 **[owner, 2026-11-15]**) |
-| `multicov`, `tag`, `bamtofastq`, `bedtobam`, `bedpetobam`, `expand`, `split`, `summary`, `overlap` | not planned (see non-goals; `overlap` → `--mode pairs --overlap-bases`) |
+| `bamtofastq` | `convert --fastq` (D166 **[owner, 2026-11-15]**) |
+| `multicov`, `tag`, `bedtobam`, `bedpetobam`, `expand`, `split`, `summary`, `overlap` | not planned (see non-goals; `overlap` → `--mode pairs --overlap-bases`) |
 
 ### samtools **[P3a, owner addition]**
 

@@ -29,6 +29,12 @@ const SEQ_CODE: [u8; 256] = {
     t
 };
 
+/// The letter BAM stores for the base letter `b` (`seq_nt16_str` of `seq_nt16_table`): the
+/// IUPAC letter in upper case, `N` for anything else.
+pub(crate) fn bam_base(b: u8) -> u8 {
+    b"=ACMGRSVTWYHKDBN"[usize::from(SEQ_CODE[usize::from(b)])]
+}
+
 /// What htslib does when it reads a SAM record whose place or CIGAR make no sense as mapped.
 pub(crate) const ZERO_POS: u8 = 1;
 pub(crate) const NO_CIGAR: u8 = 2;

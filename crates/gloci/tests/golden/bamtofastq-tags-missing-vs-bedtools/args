@@ -1,0 +1,1 @@
+convert input.bam --fastq -o /dev/null --fastq2 /dev/null --tags

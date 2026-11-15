@@ -50,6 +50,7 @@ fn p3a_determinism_matrix() {
     for name in [
         "convert",
         "convert --bed12",
+        "convert --fastq",
         "coverage",
         "genomecov",
         "genomecov bg",
@@ -187,6 +188,7 @@ fn p3a_broken_pipe_matrix() {
     for (kind, input) in [("bam", &big_bam), ("sam", &big_sam)] {
         for (name, a) in [
             ("convert", v(&["convert", input])),
+            ("convert --fastq", v(&["convert", input, "--fastq"])),
             ("view", v(&["view", "-O", "sam", input])),
             ("view bam", v(&["view", "-O", "bam", input])),
             ("intersect A", v(&["intersect", "-a", input, "-b", &chroms])),
@@ -324,6 +326,7 @@ fn p3a_empty_inputs_matrix() {
                 vec!["convert", input],
                 vec!["convert", input, "--bed12"],
                 vec!["convert", input, "--blocks"],
+                vec!["convert", input, "--fastq"],
                 vec!["intersect", "-a", &bed, "-b", input],
                 vec!["intersect", "-a", &bed, "-b", input, "--mode", "pairs"],
                 vec!["intersect", "-a", &empty_bed, "-b", input],
@@ -556,6 +559,11 @@ fn p3a_failure_matrix_bad_inputs() {
         };
         let cmds: Vec<(&str, Vec<&str>, Sink)> = vec![
             ("convert", vec!["convert", "{IN}"], Sink::File("bed")),
+            (
+                "convert --fastq",
+                vec!["convert", "{IN}", "--fastq"],
+                Sink::File("fq"),
+            ),
             ("view", vec!["view", "{IN}"], Sink::File("sam")),
             ("view bam", vec!["view", "{IN}"], Sink::File("bam")),
             (
@@ -770,6 +778,7 @@ fn p3a_failure_matrix_missing_index() {
                 vec!["coverage", "-a", fx.bed.as_str(), "-b", "{IN}"],
                 vec!["genomecov", "{IN}"],
                 vec!["convert", "{IN}"],
+                vec!["convert", "{IN}", "--fastq"],
             ] {
                 let run = |input: &String| {
                     let mut a: Vec<String> = tpl.iter().map(|x| x.replace("{IN}", input)).collect();
@@ -864,6 +873,12 @@ fn p3a_failure_matrix_missing_output_dir() {
             vec!["convert", "{IN}"],
             &fx.bam,
             Sink::File("bed"),
+        ),
+        (
+            "convert --fastq",
+            vec!["convert", "{IN}", "--fastq"],
+            &fx.bam,
+            Sink::File("fq"),
         ),
         ("view", vec!["view", "{IN}"], &fx.bam, Sink::File("sam")),
         ("view bam", vec!["view", "{IN}"], &fx.sam, Sink::File("bam")),
@@ -960,6 +975,12 @@ fn p3a_failure_matrix_missing_output_dir() {
             vec!["convert", "{IN}"],
             &fx.cram,
             Sink::File("bed"),
+        ),
+        (
+            "cram convert --fastq",
+            vec!["convert", "{IN}", "--fastq"],
+            &fx.cram,
+            Sink::File("fq"),
         ),
         (
             "cram view",

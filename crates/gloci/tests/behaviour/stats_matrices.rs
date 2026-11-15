@@ -348,6 +348,7 @@ fn p3b_empty_inputs_matrix() {
     // a record-less alignment file gives no pairs
     for t in ["1", "8"] {
         assert!(stdout_with(&["convert", "--bedpe", &sam], t).is_empty());
+        assert!(stdout_with(&["convert", "--fastq", &sam], t).is_empty());
     }
 
     // header-only VCF in every flavour: the commands keep the header and write no records
@@ -933,6 +934,11 @@ fn p3b_failure_matrix() {
             "convert --bedpe",
             vec!["convert", "--bedpe", &big_sam],
             Sink::File("bedpe"),
+        ),
+        (
+            "convert --fastq",
+            vec!["convert", "--fastq", &big_sam],
+            Sink::File("fq"),
         ),
         ("vcf split", vec!["vcf", "split", "{IN}"], Sink::File("vcf")),
         (

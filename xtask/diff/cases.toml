@@ -7998,6 +7998,108 @@ gloci = "gloci convert input.bam --bedpe"
 reference = "bedtools bamtobed -i input.bam -bedpe"
 compare = "exact"
 expected_difference = "#bamtobed-past-reference-end"
+
+# convert --fastq (bamtofastq, D166). bedtools without -fq2 writes every read twice, so the
+# parity case removes the second copy of each record (the reads of the input are all different)
+# and the difference case keeps it.
+[[case]]
+name = "bamtofastq-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/fastq-reads.bam" }
+gloci = "gloci convert input.bam --fastq"
+reference = "bedtools bamtofastq -i input.bam -fq a.fq && paste - - - - < a.fq | awk '!seen[$0]++' | tr '\\t' '\\n'"
+compare = "exact"
+
+[[case]]
+name = "bamtofastq-sam-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/fastq-reads.sam" }
+gloci = "gloci convert input.sam --fastq"
+reference = "samtools view -b --no-PG -o d.bam input.sam && bedtools bamtofastq -i d.bam -fq a.fq && paste - - - - < a.fq | awk '!seen[$0]++' | tr '\\t' '\\n'"
+compare = "exact"
+
+[[case]]
+name = "bamtofastq-twice-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/fastq-reads.bam" }
+gloci = "gloci convert input.bam --fastq"
+reference = "bedtools bamtofastq -i input.bam -fq /dev/stdout"
+compare = "exact"
+expected_difference = "#bamtofastq-single-twice"
+
+# With -fq2, bedtools writes READ1 to the first file and READ2 to the second. Both go to stdout
+# here, which interleaves them (bedtools' own tip) and lets one golden hold both files.
+[[case]]
+name = "bamtofastq-fq2-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/fastq-pairs.bam" }
+gloci = "gloci convert input.bam --fastq -o /dev/stdout --fastq2 /dev/stdout"
+reference = "bedtools bamtofastq -i input.bam -fq /dev/stdout -fq2 /dev/stdout"
+compare = "exact"
+
+[[case]]
+name = "bamtofastq-fq2-sam-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/fastq-pairs.sam" }
+gloci = "gloci convert input.sam --fastq -o /dev/stdout --fastq2 /dev/stdout"
+reference = "samtools view -b --no-PG -o d.bam input.sam && bedtools bamtofastq -i d.bam -fq /dev/stdout -fq2 /dev/stdout"
+compare = "exact"
+
+# Two files, written atomically: live only.
+[[case]]
+name = "bamtofastq-fq2-files-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/fastq-pairs.bam" }
+gloci = "gloci convert input.bam --fastq -o a.fq --fastq2 b.fq && cat a.fq b.fq"
+reference = "bedtools bamtofastq -i input.bam -fq a.fq -fq2 b.fq && cat a.fq b.fq"
+compare = "exact"
+
+[[case]]
+name = "bamtofastq-tags-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/fastq-tags.bam" }
+gloci = "gloci convert input.bam --fastq -o /dev/stdout --fastq2 /dev/stdout --tags"
+reference = "bedtools bamtofastq -i input.bam -fq /dev/stdout -fq2 /dev/stdout -tags"
+compare = "exact"
+
+# bedtools drops the first pair after an orphan, gloci writes it.
+[[case]]
+name = "bamtofastq-tags-orphan-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/fastq-tags-orphan.bam" }
+gloci = "gloci convert input.bam --fastq -o /dev/stdout --fastq2 /dev/stdout --tags"
+reference = "bedtools bamtofastq -i input.bam -fq /dev/stdout -fq2 /dev/stdout -tags"
+compare = "exact"
+expected_difference = "#bamtofastq-tags-orphan"
+
+# bedtools writes an empty read when the first record is not paired, gloci skips the record.
+[[case]]
+name = "bamtofastq-first-unpaired-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/fastq-first-unpaired.bam" }
+gloci = "gloci convert input.bam --fastq -o /dev/stdout --fastq2 /dev/stdout"
+reference = "bedtools bamtofastq -i input.bam -fq /dev/stdout -fq2 /dev/stdout"
+compare = "exact"
+expected_difference = "#bamtofastq-first-unpaired"
+
+# A name with three records: bedtools picks two, gloci stops (exit 1).
+[[case]]
+name = "bamtofastq-three-records-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/fastq-three.bam" }
+gloci = "gloci convert input.bam --fastq -o /dev/null --fastq2 /dev/null"
+reference = "bedtools bamtofastq -i input.bam -fq /dev/null -fq2 /dev/null"
+compare = "exit-status"
+expected_difference = "#bamtofastq-three-records"
+
+# A coordinate sorted file with -fq2: bedtools writes whatever the adjacent records give, gloci
+# stops (exit 2).
+[[case]]
+name = "bamtofastq-coordinate-sorted-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/cigars.bam" }
+gloci = "gloci convert input.bam --fastq -o /dev/null --fastq2 /dev/null"
+reference = "bedtools bamtofastq -i input.bam -fq /dev/null -fq2 /dev/null"
+compare = "exit-status"
+expected_difference = "#bamtofastq-coordinate-sorted"
+
+# -tags on records without R2 and Q2: bedtools writes the second end empty, gloci stops (exit 1).
+[[case]]
+name = "bamtofastq-tags-missing-vs-bedtools"
+input = { file = "xtask/diff/inputs/aln/fastq-notags.bam" }
+gloci = "gloci convert input.bam --fastq -o /dev/null --fastq2 /dev/null --tags"
+reference = "bedtools bamtofastq -i input.bam -fq /dev/null -fq2 /dev/null -tags"
+compare = "exit-status"
+expected_difference = "#bamtofastq-tags-missing"
 # faidx (D131)
 # faidx (D131). ref.fa has lines of 60 and lower-case runs. chr2:1000-1300 ends past
 # chr2 (cut), chr2:60000-60100 starts past it (header only).

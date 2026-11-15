@@ -381,6 +381,24 @@ the flag should include 4 (unmapped), or the record needs a reference and positi
         Cow::Borrowed(&self.raw[tags_at - l_seq..tags_at])
     }
 
+    /// Append the bases of the read as letters (nothing for SEQ `*`).
+    pub fn seq_into(&self, out: &mut Vec<u8>) {
+        let l_seq = self.seq_len();
+        let tags_at = self.raw.len() - self.tags.len();
+        let seq = &self.raw[tags_at - l_seq - l_seq.div_ceil(2)..tags_at - l_seq];
+        out.extend((0..l_seq).map(|i| {
+            let code = (seq[i / 2] >> if i % 2 == 0 { 4 } else { 0 }) & 0xf;
+            b"=ACMGRSVTWYHKDBN"[usize::from(code)]
+        }));
+    }
+
+    /// The value of a `Z` string aux field, without its NUL; `None` when the record has no
+    /// such field or it has another type.
+    pub fn str_tag(&self, tag: [u8; 2]) -> Option<&'a [u8]> {
+        let (_, ty, v) = tags(self.tags).map_while(Result::ok).find(|t| t.0 == tag)?;
+        (ty == b'Z').then(|| &v[..v.len() - 1])
+    }
+
     pub fn name(&self) -> &'a [u8] {
         self.name
     }
@@ -682,6 +700,8 @@ impl<'a> AlnRef<'a> {
     delegate!(mate_pos() -> Option<u64>);
     delegate!(seq_len() -> usize);
     delegate!(quals() -> Cow<'a, [u8]>);
+    delegate!(seq_into(out: &mut Vec<u8>) -> ());
+    delegate!(str_tag(tag: [u8; 2]) -> Option<&'a [u8]>);
     delegate!(strand() -> Strand);
     delegate!(int_tag(tag: [u8; 2]) -> Option<i64>);
     delegate!(tag_type(tag: [u8; 2]) -> Option<u8>);

@@ -2018,6 +2018,93 @@ error, exit 2).
   `bamtobed-ends-bed12-splitd-vs-bedtools` and `bamtobed-ends-split-vs-bedtools` (must
   differ); `bamtobed-ends-vs-bedtools` (BED6, matches).
 
+## `convert --fastq` writes each read once {#bamtofastq-single-twice}
+
+- **gloci:** `convert x.bam --fastq` writes every record of the input once, in input order,
+  under its own name.
+- **Old behaviour:** `bedtools bamtofastq -i x.bam -fq out.fq` (no `-fq2`) writes every
+  record twice: the copies are next to each other in a large file (`big0, big0, big1, big1`),
+  and in a small one the second copies can come after a run of the first (`a a b c d b c d`
+  for four records), so the output is not a repeat of the file. bedtools opens the BAM twice
+  in that mode.
+- **Reason:** a FASTQ with every read twice is not what anyone asked for, and the order
+  depends on the BGZF block layout, so it cannot be reproduced.
+- **Pinned by:** `bamtofastq-twice-vs-bedtools` (must differ). `bamtofastq-vs-bedtools` and
+  `bamtofastq-sam-vs-bedtools` match bedtools once its second copies are removed (`awk
+  '!seen[$0]++'` over the records, whose reads all differ); they pin which records are written
+  (secondary, supplementary, unmapped, QC-fail and duplicate reads included), the names (no
+  `/1` or `/2`), the reverse complement with IUPAC codes and reversed qualities, a missing
+  QUAL (`!` for each base) and a missing SEQ (an empty read), and that SAM text gives what
+  its BAM gives (lower case bases become upper case).
+
+## `convert --fastq --fastq2` does not write an empty read for an unpaired first record {#bamtofastq-first-unpaired}
+
+- **gloci:** a record that starts a name group and is not paired (flag `0x1` unset) is a
+  group of its own: it has no mate, is skipped and counted in the warning about names with
+  one record.
+- **Old behaviour:** `bedtools bamtofastq -fq2` does not keep an unpaired record when it is
+  the first record of the file. At the next name it writes the empty group it holds as an
+  empty read to both files (`@/1`, an empty line, `+`, an empty line, and `@/2` likewise),
+  and then carries on.
+- **Reason:** an empty read with no name is never wanted, and it breaks the FASTQ of every
+  tool downstream.
+- **Pinned by:** `bamtofastq-first-unpaired-vs-bedtools` (must differ).
+
+## `convert --fastq --fastq2` refuses a name with more than two records {#bamtofastq-three-records}
+
+- **gloci:** a name with more than two records that are next to each other (the first record
+  of a name, and each later one marked paired) is an error naming the read and the fix:
+  `--exclude-flags 0x900` drops the secondary and supplementary alignments, which are the usual
+  third record. Two records of a name that are not a READ1 and a READ2 (flags `0x40` and
+  `0x80`) are skipped and counted in a warning, as bedtools skips them.
+- **Old behaviour:** `bedtools bamtofastq -fq2` takes the first record and the first record
+  of the other mate, whatever else the name has, so a supplementary alignment that sorts
+  first, or a hard-clipped one that is taken as the mate's read, writes a truncated read
+  silently.
+- **Reason:** which of three records is the read cannot be told from the name, and a
+  truncated read in a FASTQ is not noticed until the alignment is wrong.
+- **Pinned by:** `bamtofastq-three-records-vs-bedtools` (must differ: exit status 1, not 0).
+  `bamtofastq-fq2-vs-bedtools` matches bedtools byte for byte on READ2 before READ1, both
+  mates unmapped, QC-fail and duplicate pairs, secondary pairs, a missing QUAL or SEQ, an
+  orphan, two READ1, an unpaired read, an unpaired record between the mates, and an orphan
+  last in the file.
+
+## `convert --fastq --fastq2` needs input sorted by name {#bamtofastq-coordinate-sorted}
+
+- **gloci:** an input whose `@HD` line says `SO:coordinate` is exit 2, naming the file and
+  suggesting `gloci sort -n`. The same rule as `convert --bedpe`.
+- **Old behaviour:** `bedtools bamtofastq -fq2` reads a coordinate-sorted file as it is: the
+  mates are rarely next to each other, so most reads are skipped with a warning, silently
+  for the rest of the pipeline, and exit status 0.
+- **Reason:** the output would be a small fraction of the reads, in no useful pairing.
+- **Pinned by:** `bamtofastq-coordinate-sorted-vs-bedtools` (must differ: exit status 2, not 0).
+
+## `convert --fastq --tags` needs the R2 and Q2 tags, and keeps the pair after an orphan {#bamtofastq-tags-missing}
+
+- **gloci:** `--tags` (with `--fastq2`) writes each pair from its first record, taking the second
+  end from its `R2` (bases) and `Q2` (qualities) string tags as they are. A pair whose first
+  record has no `R2` or no `Q2` string tag is an error naming the read. A record of a name that
+  is not followed by another record of the same name is skipped and counted in a warning, and
+  the next pair is written. `--tags` without `--fastq2` is a usage error.
+- **Old behaviour:** `bedtools bamtofastq -tags` writes an empty second end for a pair with no
+  tags, ignores `-tags` when `-fq2` is missing (it writes every read twice, as above), and, after a
+  record whose name differs from the next one's, takes the next two records as the pair that
+  resynchronises it and writes nothing for them: the first pair after every orphan is lost
+  (`#bamtofastq-tags-orphan`).
+- **Reason:** an empty read, or a pair that is lost without a word, corrupts the FASTQ.
+- **Pinned by:** `bamtofastq-tags-missing-vs-bedtools` (must differ: exit status 1, not 0).
+  `bamtofastq-tags-vs-bedtools` matches bedtools byte for byte on the first mate first and
+  second, reverse-strand mates, two unpaired records of a name, and an orphan last.
+
+## `convert --fastq --tags` writes the pair that follows an orphan {#bamtofastq-tags-orphan}
+
+- **gloci:** see [`--tags` needs the R2 and Q2 tags](#bamtofastq-tags-missing): every pair of
+  adjacent records of a name is written.
+- **Old behaviour:** `bedtools bamtofastq -tags` loses the first pair after a record with no
+  mate (an orphan, `t0` then `t1`, `t2`, `t3` writes `t2` and `t3` only).
+- **Reason:** as above.
+- **Pinned by:** `bamtofastq-tags-orphan-vs-bedtools` (must differ).
+
 ## `convert` and `genomecov` of a read with no reference bases: one base {#bamtobed-no-reference-ops}
 
 - **gloci:** a mapped read whose CIGAR has no `M D N = X` operation (`10S5I`) is the one

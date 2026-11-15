@@ -56,3 +56,18 @@ samtools view -C -@ 0 --no-PG --output-fmt-option version=3.0 --output-fmt-optio
 # pairs-pastend.sam (D156): on a 1000 base chr1, e1's READ1 straddles the end (990-1000 once cut)
 # and e2's READ1 (no NM tag) starts at the end, so it is an absent end.
 samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o pairs-pastend.bam pairs-pastend.sam
+# fastq-*.sam (D166, convert --fastq): hand-written. fastq-reads: every kind of record once
+# (reverse strand with IUPAC bases and mixed qualities, unmapped, secondary, a hard-clipped
+# supplementary, QC fail, duplicate, QUAL and SEQ missing, a lower-case SAM read, a name that
+# ends in /1, two pairs) with no two records alike. fastq-pairs: name-sorted pairs for --fastq2
+# (READ2 before READ1, both unmapped, QC fail and duplicate, secondary, QUAL or SEQ missing)
+# and the groups bedtools skips (an orphan, two READ1, an unpaired read, an unpaired record
+# between mates, an orphan last). fastq-first-unpaired starts with an unpaired read,
+# fastq-three has a name with three records, fastq-tags has R2 and Q2 on every record and
+# fastq-tags-orphan an orphan first.
+for set in fastq-reads fastq-pairs fastq-first-unpaired fastq-three fastq-tags fastq-tags-orphan fastq-notags; do
+    samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o "$set.bam" "$set.sam"
+done
+# fastq-pairs.noref.cram: the CRAM of fastq-pairs.sam.
+samtools view -C -@ 0 --no-PG --output-fmt-option version=3.0 --output-fmt-option no_ref=1 \
+    -o fastq-pairs.noref.cram fastq-pairs.sam

@@ -267,6 +267,22 @@ impl<'a> SamAln<'a> {
         Cow::Owned(self.qual.iter().map(|q| q.wrapping_sub(33)).collect())
     }
 
+    /// Append the bases of the read as BAM stores them (upper case IUPAC letters, `N` for any
+    /// other character); nothing for SEQ `*`.
+    pub fn seq_into(&self, out: &mut Vec<u8>) {
+        out.extend(self.seq.iter().map(|&b| super::encode::bam_base(b)));
+    }
+
+    /// The value of a `Z` optional field; `None` when the record has no such field or it has
+    /// another type.
+    pub fn str_tag(&self, tag: [u8; 2]) -> Option<&'a [u8]> {
+        let tags: &'a [u8] = self.tags;
+        tags.split(|&b| b == b'\t')
+            .find(|f| f.len() > 4 && f[..2] == tag && f[2] == b':' && f[4] == b':')
+            .filter(|f| f[3] == b'Z')
+            .map(|f| &f[5..])
+    }
+
     pub fn name(&self) -> &'a [u8] {
         self.name
     }

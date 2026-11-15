@@ -28,6 +28,8 @@ pub enum OutFormat {
     Fasta,
     /// BEDPE output (D146): written like TSV; `.gz` is BGZF.
     Bedpe,
+    /// FASTQ output (`.fq`, `.fastq`; `.gz` is BGZF).
+    Fastq,
 }
 
 impl OutFormat {
@@ -45,6 +47,7 @@ impl OutFormat {
             OutFormat::Sam => "SAM",
             OutFormat::Fasta => "FASTA",
             OutFormat::Bedpe => "BEDPE",
+            OutFormat::Fastq => "FASTQ",
         }
     }
 
@@ -57,7 +60,11 @@ impl OutFormat {
             OutFormat::Gff3 => Some(Format::Gff3),
             OutFormat::Gtf => Some(Format::Gtf),
             OutFormat::Bam => Some(Format::Bam),
-            OutFormat::Tsv | OutFormat::Sam | OutFormat::Fasta | OutFormat::Bedpe => None,
+            OutFormat::Tsv
+            | OutFormat::Sam
+            | OutFormat::Fasta
+            | OutFormat::Bedpe
+            | OutFormat::Fastq => None,
         }
     }
 
@@ -103,7 +110,7 @@ pub struct OutputOptions {
 
 const ACCEPTED: &str = ".bed, .bed.gz, .bedgraph, .bedgraph.gz, .vcf, .vcf.gz, .bcf, \
 .tsv, .tsv.gz, .gff, .gff.gz, .gff3, .gff3.gz, .gtf, .gtf.gz, .bam, .sam, .fa, .fa.gz, \
-.fasta, .fasta.gz, .fna, .fna.gz, .bedpe, .bedpe.gz";
+.fasta, .fasta.gz, .fna, .fna.gz, .bedpe, .bedpe.gz, .fq, .fq.gz, .fastq, .fastq.gz";
 
 /// `(suffix without dot, format, bgzf)`, matched case-insensitively.
 fn lookup(s: &str) -> Option<(OutFormat, bool)> {
@@ -128,6 +135,8 @@ fn lookup(s: &str) -> Option<(OutFormat, bool)> {
         "fa.gz" | "fasta.gz" | "fna.gz" => (Fasta, true),
         "bedpe" => (Bedpe, false),
         "bedpe.gz" => (Bedpe, true),
+        "fq" | "fastq" => (Fastq, false),
+        "fq.gz" | "fastq.gz" => (Fastq, true),
         _ => return None,
     })
 }
@@ -395,6 +404,13 @@ ones; write -o FILE.bedpe.gz and then run: gloci index -s 1 -b 2 -e 3 --zero-bas
                     " (BEDPE is indexed once it is BGZF, a .bedpe.gz name)"
                 }
             ))
+            .into());
+        }
+        if f == OutFormat::Fastq {
+            return Err(UsageError(
+                "--write-index cannot index FASTQ output, as a FASTQ file has no coordinates"
+                    .into(),
+            )
             .into());
         }
         if f == OutFormat::Sam {

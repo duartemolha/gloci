@@ -1,4 +1,4 @@
-//! `gloci convert`: VCF/BCF, GFF3/GTF and BED12 to BED.
+//! `gloci convert`: VCF/BCF, GFF3/GTF and BED12 to BED, and alignments to BED, BEDPE or FASTQ.
 use super::user_span;
 use crate::Ctx;
 use crate::cli::ConvertArgs;
@@ -9,9 +9,10 @@ use gloci_io::{
     open_record_writer, open_tsv_writer, parse_output_spec, refuse_binary_to_tty,
 };
 use gloci_ops::convert::{
-    BedpeOptions, ConvertOptions, alignments_to_bedpe, check_convert, convert,
+    BedpeOptions, ConvertOptions, FastqOptions, FastqSink, alignments_to_bedpe,
+    alignments_to_fastq, check_convert, convert,
 };
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Write};
 
 pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
     let spec = parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref())?;
@@ -43,8 +44,12 @@ pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
         bedpe: a.bedpe,
         mate1_first: a.mate1_first,
     };
+    // One output mode per run: each takes the input as alignments and writes its own format.
     if a.bedpe {
         return run_bedpe(ctx, a, &o, &spec, score_tag);
+    }
+    if a.fastq {
+        return run_fastq(ctx, a, &spec);
     }
     let to = spec.format.unwrap_or(OutFormat::Bed);
     if !matches!(to, OutFormat::Bed | OutFormat::BedGraph | OutFormat::Tsv) {
@@ -64,7 +69,7 @@ pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
         to,
         spec.bgzf,
     )?;
-    let ro = reader_options(ctx, a, score_tag)?;
+    let ro = reader_options(ctx, a, score_tag, false)?;
     // Open and check the input before the output is created.
     let (input, empty) = open_reader_noting_empty(&a.file, &ro)?;
     gloci_io::warn_unused_reference(a.align.reference.as_deref(), input.format() == Format::Cram);
@@ -111,13 +116,14 @@ fn reader_options(
     ctx: &Ctx,
     a: &ConvertArgs,
     score_tag: Option<[u8; 2]>,
+    full_records: bool,
 ) -> anyhow::Result<ReaderOptions> {
     Ok(ReaderOptions {
         // `convert` reads alignments, PSL and RepeatMasker too (D100).
         accept: gloci_io::Accept {
             alignments: Some(gloci_io::AlignOptions {
                 score_tag,
-                ..a.align.options(false)?
+                ..a.align.options(full_records)?
             }),
             convert_only: true,
         },
@@ -158,7 +164,7 @@ fn run_bedpe(
         to,
         spec.bgzf,
     )?;
-    let ro = reader_options(ctx, a, score_tag)?;
+    let ro = reader_options(ctx, a, score_tag, false)?;
     // Open and check the input before the output is created.
     let src = open_aln_source(&a.file, &ro).map_err(|e| match e {
         IoError::Detect { path, msg } if msg.ends_with("is empty: it has no records") => {
@@ -200,4 +206,107 @@ or drop --write-index"
         }
         e => e,
     }
+}
+
+/// Where `convert --fastq` writes: one output (the reads, or both ends interleaved), or the
+/// first ends in `first` and the second ends in `second`.
+struct Fastq {
+    first: gloci_io::Output,
+    second: Option<gloci_io::Output>,
+}
+
+impl FastqSink for Fastq {
+    fn first(&mut self, record: &[u8]) -> std::io::Result<()> {
+        self.first.write_all(record)
+    }
+    fn second(&mut self, record: &[u8]) -> std::io::Result<()> {
+        match &mut self.second {
+            Some(b) => b.write_all(record),
+            None => self.first.write_all(record),
+        }
+    }
+}
+
+/// `convert --fastq` (D166): the reads of alignments as FASTQ, in pairs with `--fastq2`.
+fn run_fastq(ctx: &Ctx, a: &ConvertArgs, spec: &gloci_io::OutputSpec) -> anyhow::Result<()> {
+    let spec2 = match &a.fastq2 {
+        None => None,
+        Some(p) => Some(parse_output_spec(Some(p), None)?),
+    };
+    for (s, flag) in [(Some(spec), "-o"), (spec2.as_ref(), "--fastq2")] {
+        if let Some(to) = s.and_then(|s| s.format)
+            && to != OutFormat::Fastq
+        {
+            return Err(UsageError(format!(
+                "convert --fastq writes FASTQ, not {} (given with {flag}): pick an output ending \
+in .fq, .fq.gz, .fastq or .fastq.gz (or -O fq)",
+                to.name()
+            ))
+            .into());
+        }
+    }
+    // Both ends go to one output when both name it: stdout, or the same file.
+    let shared = spec2
+        .as_ref()
+        .is_some_and(|s2| s2.path == spec.path && s2.bgzf == spec.bgzf);
+    if let Some(s2) = &spec2
+        && s2.path == spec.path
+        && !shared
+    {
+        return Err(UsageError(
+            "-o and --fastq2 name the same file with different compression; use the same ending \
+for both, or two files"
+                .into(),
+        )
+        .into());
+    }
+    let oo = OutputOptions {
+        threads: ctx.threads,
+        level: a.out.compression_level,
+        write_index: a.out.write_index,
+    };
+    for s in std::iter::once(spec).chain(spec2.as_ref()) {
+        refuse_binary_to_tty(
+            s.path.is_none() && std::io::stdout().is_terminal(),
+            OutFormat::Fastq,
+            s.bgzf,
+        )?;
+    }
+    let ro = reader_options(ctx, a, None, true)?;
+    // Open and check the input before the output is created.
+    let src = open_aln_source(&a.file, &ro).map_err(|e| match e {
+        IoError::Detect { path, msg } if msg.ends_with("is empty: it has no records") => {
+            IoError::empty_input(&path)
+        }
+        e => e,
+    })?;
+    gloci_io::warn_unused_reference(a.align.reference.as_deref(), src.format() == Format::Cram);
+    let name_of = |s: &gloci_io::OutputSpec| {
+        s.path.as_ref().map_or_else(
+            || "<stdout>".to_string(),
+            |p| gloci_io::memio::display_name(&p.to_string_lossy()),
+        )
+    };
+    let open = |s: &gloci_io::OutputSpec| {
+        open_output(s, OutFormat::Fastq, &oo).map_err(|e| e.with_output_name(&name_of(s)))
+    };
+    let dest = name_of(spec);
+    let first = open(spec)?;
+    let second = match &spec2 {
+        Some(s2) if !shared => Some(open(s2)?),
+        _ => None,
+    };
+    let mut sink = Fastq { first, second };
+    let o = FastqOptions {
+        paired: spec2.is_some(),
+        tags: a.tags,
+    };
+    alignments_to_fastq(src, &o, &mut sink).map_err(|e| e.with_output_name(&dest))?;
+    sink.first.finish().map_err(|e| e.with_output_name(&dest))?;
+    if let (Some(second), Some(s2)) = (sink.second, &spec2) {
+        second
+            .finish()
+            .map_err(|e| e.with_output_name(&name_of(s2)))?;
+    }
+    Ok(())
 }

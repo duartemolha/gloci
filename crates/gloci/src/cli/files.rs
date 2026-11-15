@@ -41,19 +41,20 @@ impl From<KindArg> for gloci_core::VariantKind {
     }
 }
 
-/// Convert VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out, BED12 or BAM/CRAM/SAM to BED (bedops
-/// convert2bed, vcf2bed, gff2bed, gtf2bed; bedtools bed12tobed6, bamtobed).
+/// Convert VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out, BED12 or BAM/CRAM/SAM to BED, or
+/// BAM/CRAM/SAM to FASTQ (bedops convert2bed, vcf2bed, gff2bed, gtf2bed; bedtools bed12tobed6,
+/// bamtobed, bamtofastq).
 #[derive(Args)]
 #[command(
-    about = "Convert VCF, GFF, WIG, PSL, BAM and more to BED (convert2bed)",
+    about = "Convert VCF, BAM, GFF to BED/FASTQ (convert2bed, bamtofastq)",
     long_about
 )]
 #[command(after_long_help = "\
 Examples:
   gloci convert calls.vcf.gz -o calls.bed
-  gloci convert transcripts.bed --blocks -o exons.bed
   gloci convert reads.bam --bed12 --score-tag NM --min-mapq 30
   gloci convert reads.byname.bam --bedpe -o pairs.bedpe
+  gloci convert reads.byname.bam --fastq -o r1.fq.gz --fastq2 r2.fq.gz
 
 VCF and BCF:
 VCF/BCF gives one row per record: chrom, start, end, ID, REF, ALT, QUAL, FILTER, with the \
@@ -104,6 +105,23 @@ mapped ends (--score-tag NM is bedtools -ed). A name with one mate is not writte
 counted in a warning. The output is .bedpe (or .bedpe.gz) and feeds pair-intersect and \
 pair-pair; --bedpe cannot be used with --bed12, --blocks, --cigar, --color or \
 --split-deletions.
+
+FASTQ from alignments:
+--fastq (bedtools bamtofastq) writes the reads as FASTQ instead of BED: every record, in \
+input order, with secondary, supplementary, unmapped, QC-fail and duplicate reads \
+included (--exclude-flags 0x900 drops the first two), under its own name with no /1 or /2. \
+A read on the reverse strand is written reverse-complemented with its qualities reversed; \
+a missing QUAL is `!` for every base and a missing SEQ is an empty read. The output is \
+.fq or .fastq, with .gz for BGZF, or plain text on stdout. --fastq2 FILE writes the second \
+mates there (bedtools -fq2) and needs the input sorted by name (gloci sort -n; a \
+coordinate sorted file is exit 2): the records of a name that are next to each other are \
+the pair, READ1 goes to -o as NAME/1 and READ2 to FILE as NAME/2, in either order in the \
+input. A name with one record, or two that are not a READ1 and a READ2, is skipped and \
+counted in a warning; a name with more than two records is an error (drop the secondary \
+and supplementary alignments with --exclude-flags 0x900). With -o and --fastq2 both on \
+stdout, or both the same file, the ends are interleaved. --tags (bedtools -tags) takes \
+the second end from the R2 and Q2 tags of the first record of each pair, as they are \
+(--fastq2 is needed). --fastq cannot be used with the options of the BED outputs.
 
 BED12:
 BED12 with --blocks gives one BED6 row per block; a line that is not valid BED12 (fewer \
@@ -161,6 +179,21 @@ pub struct ConvertArgs {
     /// that sorts first there (bedtools bamtobed -mate1).
     #[arg(long, requires = "bedpe")]
     pub mate1_first: bool,
+    /// BAM, CRAM, SAM: write the reads as FASTQ instead of BED, to -o or stdout
+    /// (bedtools bamtofastq).
+    #[arg(long, conflicts_with_all = [
+        "split_alleles", "types", "feature", "name_attr", "blocks", "bed12", "color",
+        "score_tag", "cigar", "split_deletions", "bedpe", "mate1_first",
+    ])]
+    pub fastq: bool,
+    /// With --fastq: write the second mate of each pair to FASTQ and the first to -o;
+    /// the input must be sorted by name (bedtools -fq2).
+    #[arg(long, value_name = "FASTQ", requires = "fastq")]
+    pub fastq2: Option<PathBuf>,
+    /// With --fastq2: take the second end from the R2 and Q2 tags of the first record of
+    /// each pair (bedtools -tags).
+    #[arg(long, requires = "fastq2")]
+    pub tags: bool,
     #[command(flatten)]
     pub align: AlignArgs,
     #[command(flatten)]

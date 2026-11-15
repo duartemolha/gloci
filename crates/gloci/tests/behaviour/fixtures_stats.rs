@@ -328,6 +328,31 @@ impl P3b {
             "convert --bedpe fixture bam",
             sv(&["convert", "--bedpe", &p3b_xtask("aln/pairs.bam")]),
         );
+        add(
+            "convert --fastq fixture pairs",
+            sv(&[
+                "convert",
+                "--fastq",
+                &p3b_xtask("aln/fastq-pairs.bam"),
+                "-o",
+                "/dev/stdout",
+                "--fastq2",
+                "/dev/stdout",
+            ]),
+        );
+        add(
+            "convert --fastq --tags fixture",
+            sv(&[
+                "convert",
+                "--fastq",
+                "--tags",
+                &p3b_xtask("aln/fastq-tags.bam"),
+                "-o",
+                "/dev/stdout",
+                "--fastq2",
+                "/dev/stdout",
+            ]),
+        );
         add("vcf split", sv(&["vcf", "split", &self.multi]));
         add(
             "vcf split --types",

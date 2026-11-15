@@ -1262,6 +1262,9 @@ class Pipeline:
         split_deletions: bool = False,
         bedpe: bool = False,
         mate1_first: bool = False,
+        fastq: bool = False,
+        fastq2: str | int | float | os.PathLike[str] | None = None,
+        tags: bool = False,
         min_mapq: str | int | float | os.PathLike[str] | None = None,
         require_flags: str | int | float | os.PathLike[str] | None = None,
         exclude_flags: str | int | float | os.PathLike[str] | None = None,
@@ -1271,7 +1274,7 @@ class Pipeline:
         chrom_map: Source | None = None,
         skip_invalid: bool = False,
     ) -> Pipeline:
-        """Convert VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out, BED12 or BAM/CRAM/SAM to BED (bedops convert2bed, vcf2bed, gff2bed, gtf2bed; bedtools bed12tobed6, bamtobed)
+        """Convert VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out, BED12 or BAM/CRAM/SAM to BED, or BAM/CRAM/SAM to FASTQ (bedops convert2bed, vcf2bed, gff2bed, gtf2bed; bedtools bed12tobed6, bamtobed, bamtofastq)
 
         Args:
             split_alleles: VCF/BCF: one row per ALT, with that ALT's footprint
@@ -1286,6 +1289,9 @@ class Pipeline:
             split_deletions: BAM, CRAM, SAM: also cut blocks at deletions (bedtools bamtobed -splitD); implies --blocks unless --bed12 is given
             bedpe: BAM, CRAM, SAM sorted by name: write BEDPE pairs of READ1 and READ2 instead of BED (bedtools bamtobed -bedpe)
             mate1_first: With --bedpe: keep READ1 as the first end instead of putting the end that sorts first there (bedtools bamtobed -mate1)
+            fastq: BAM, CRAM, SAM: write the reads as FASTQ instead of BED, to -o or stdout (bedtools bamtofastq)
+            fastq2: With --fastq: write the second mate of each pair to FASTQ and the first to -o; the input must be sorted by name (bedtools -fq2)
+            tags: With --fastq2: take the second end from the R2 and Q2 tags of the first record of each pair (bedtools -tags)
             min_mapq: Skip alignments with a mapping quality below N (BAM, CRAM and SAM input)
             require_flags: Keep only alignments that have all of these flags: a number (0x2 or 2) or names such as paired,proper_pair (as samtools view -f)
             exclude_flags: Drop alignments that have any of these flags: a number or names such as unmap,secondary,dup (as samtools view -F)

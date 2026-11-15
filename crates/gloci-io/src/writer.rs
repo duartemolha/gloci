@@ -79,6 +79,7 @@ pub fn family_mismatch(records: Format, to: OutFormat) -> UsageError {
         OutFormat::Sam => ".sam",
         OutFormat::Fasta => ".fa, .fasta or .fna (with .gz for BGZF)",
         OutFormat::Bedpe => ".bedpe or .bedpe.gz",
+        OutFormat::Fastq => ".fq, .fq.gz, .fastq or .fastq.gz",
     };
     UsageError(format!(
         "the input is {} but the output format is {}; this command writes records in their own \
@@ -101,13 +102,17 @@ fn family_name(f: OutFormat) -> &'static str {
         OutFormat::Sam => "SAM",
         OutFormat::Fasta => "FASTA",
         OutFormat::Bedpe => "BEDPE",
+        OutFormat::Fastq => "FASTQ",
     }
 }
 
-/// The record writers here write text and BCF; alignment and FASTA output
+/// The record writers here write text and BCF; alignment, FASTA and FASTQ output
 /// has its own writers.
 fn check_text_family(to: OutFormat) -> Result<(), UsageError> {
-    if matches!(to, OutFormat::Bam | OutFormat::Sam | OutFormat::Fasta) {
+    if matches!(
+        to,
+        OutFormat::Bam | OutFormat::Sam | OutFormat::Fasta | OutFormat::Fastq
+    ) {
         return Err(UsageError(format!(
             "{} output is written by the commands that produce it (sort, view, getfasta, ...), \
 not by this one; use a text output name such as .bed",
