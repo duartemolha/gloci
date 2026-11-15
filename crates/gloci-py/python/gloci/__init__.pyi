@@ -1265,6 +1265,10 @@ class Pipeline:
         fastq: bool = False,
         fastq2: str | int | float | os.PathLike[str] | None = None,
         tags: bool = False,
+        bam: bool = False,
+        genome: Source | None = None,
+        g: Source | None = None,
+        mapq: str | int | float | os.PathLike[str] | None = None,
         min_mapq: str | int | float | os.PathLike[str] | None = None,
         require_flags: str | int | float | os.PathLike[str] | None = None,
         exclude_flags: str | int | float | os.PathLike[str] | None = None,
@@ -1274,7 +1278,7 @@ class Pipeline:
         chrom_map: Source | None = None,
         skip_invalid: bool = False,
     ) -> Pipeline:
-        """Convert VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out, BED12 or BAM/CRAM/SAM to BED, or BAM/CRAM/SAM to FASTQ (bedops convert2bed, vcf2bed, gff2bed, gtf2bed; bedtools bed12tobed6, bamtobed, bamtofastq)
+        """Convert VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out, BED12 or BAM/CRAM/SAM to BED, BAM/CRAM/SAM to FASTQ, or BED, GFF, VCF and BEDPE to BAM (bedops convert2bed, vcf2bed, gff2bed, gtf2bed; bedtools bed12tobed6, bamtobed, bamtofastq, bedtobam, bedpetobam)
 
         Args:
             split_alleles: VCF/BCF: one row per ALT, with that ALT's footprint
@@ -1282,7 +1286,7 @@ class Pipeline:
             feature: GFF3/GTF: keep this column-3 type (repeatable or comma-separated)
             name_attr: GFF3/GTF: the attribute for the name column (default ID for GFF3, gene_id for GTF)
             blocks: BED12, BAM, CRAM, SAM: write one BED6 row per block (for alignments the segments between N operations, as bedtools bamtobed -split)
-            bed12: BAM, CRAM, SAM: write one BED12 row per read, its blocks cut at N (bedtools bamtobed -bed12)
+            bed12: BAM, CRAM, SAM: write one BED12 row per read, its blocks cut at N (bedtools bamtobed -bed12); with --bam: read BED12 blocks as M and the gaps as N (bedtools bedtobam -bed12)
             color: BAM, CRAM, SAM with --bed12: the itemRgb column, as R,G,B
             score_tag: BAM, CRAM, SAM: take the score column from this integer tag (NM, AS, ...) instead of the MAPQ; every read needs it (bedtools bamtobed -tag, -ed is NM)
             cigar: BAM, CRAM, SAM: append the CIGAR as a seventh column (BED6 only)
@@ -1292,6 +1296,10 @@ class Pipeline:
             fastq: BAM, CRAM, SAM: write the reads as FASTQ instead of BED, to -o or stdout (bedtools bamtofastq)
             fastq2: With --fastq: write the second mate of each pair to FASTQ and the first to -o; the input must be sorted by name (bedtools -fq2)
             tags: With --fastq2: take the second end from the R2 and Q2 tags of the first record of each pair (bedtools -tags)
+            bam: BED, GFF, VCF, or BEDPE with --format bedpe: write the records as BAM instead of BED, to -o or stdout (bedtools bedtobam, bedpetobam); needs -g
+            genome: With --bam: the references of the BAM header, in their order: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            g: alias of genome
+            mapq: With --bam: the MAPQ of every record, 0 to 255 (default 255; bedtools -mapq)
             min_mapq: Skip alignments with a mapping quality below N (BAM, CRAM and SAM input)
             require_flags: Keep only alignments that have all of these flags: a number (0x2 or 2) or names such as paired,proper_pair (as samtools view -f)
             exclude_flags: Drop alignments that have any of these flags: a number or names such as unmap,secondary,dup (as samtools view -F)

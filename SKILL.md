@@ -59,8 +59,8 @@ description: Use gloci for genomic interval and variant operations (sorting, ind
   `gloci shift genes.bed --by 100 -g hg38` · `gloci shift genes.bed --by -50 -g hg38`
 - `gloci windows` (experimental): Cut chromosomes or intervals into windows (bedtools makewindows, bedops --chop)
   `gloci windows -g hg38 -w 1000000 -o bins.bed` · `gloci windows -g genome.txt -w 1000 --step 500`
-- `gloci convert` (experimental): Convert VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out, BED12 or BAM/CRAM/SAM to BED, or BAM/CRAM/SAM to FASTQ (bedops convert2bed, vcf2bed, gff2bed, gtf2bed; bedtools bed12tobed6, bamtobed, bamtofastq)
-  `gloci convert calls.vcf.gz -o calls.bed` · `gloci convert reads.bam --bed12 --score-tag NM --min-mapq 30`
+- `gloci convert` (experimental): Convert VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out, BED12 or BAM/CRAM/SAM to BED, BAM/CRAM/SAM to FASTQ, or BED, GFF, VCF and BEDPE to BAM (bedops convert2bed, vcf2bed, gff2bed, gtf2bed; bedtools bed12tobed6, bamtobed, bamtofastq, bedtobam, bedpetobam)
+  `gloci convert calls.vcf.gz -o calls.bed` · `gloci convert reads.byname.bam --bedpe -o pairs.bedpe`
 - `gloci getfasta` (experimental): Write the sequence under each interval (bedtools getfasta)
   `gloci getfasta --fasta ref.fa genes.bed` · `gloci getfasta --fasta ref.fa genes.bed12 --split -s --name-only -o transcripts.fa`
 - `gloci nuc` (experimental): Base composition of the sequence under each interval (bedtools nuc)
