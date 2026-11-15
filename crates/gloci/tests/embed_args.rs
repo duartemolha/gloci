@@ -1161,7 +1161,30 @@ fn file_arguments_are_known() {
         (&["vcf", "stats"], "out_prefix"),
         (&["vcf", "filter"], "samples"),
         (&["vcf", "popgen"], "fst_window_size"),
+        (&["vcf", "popgen"], "ld_window_bp"),
+        (&["vcf", "popgen"], "min_r2"),
+        (&["vcf", "popgen"], "max_mem"),
     ] {
         assert!(!takes(path, name), "{path:?} {name}");
+    }
+    // The LD statistics are switches; their window and memory take a value.
+    let popgen = spec(&["vcf", "popgen"]);
+    for name in [
+        "geno_r2",
+        "hap_r2",
+        "interchrom_geno_r2",
+        "interchrom_hap_r2",
+    ] {
+        assert!(!popgen.arg(name).unwrap().takes_value, "{name}");
+    }
+    for name in [
+        "ld_window",
+        "ld_window_bp",
+        "ld_window_min",
+        "ld_window_bp_min",
+        "min_r2",
+        "max_mem",
+    ] {
+        assert!(popgen.arg(name).unwrap().takes_value, "{name}");
     }
 }
