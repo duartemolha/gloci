@@ -2775,7 +2775,7 @@ def vcf_popgen(
     t: str | int | float | os.PathLike[str] | None = None,
     skip_invalid: bool = False,
 ) -> list[pathlib.Path]:
-    """Pi, Tajima's D, Fst, LD and relatedness (vcftools popgen)
+    """Pi, Tajima's D, Fst, LD and relatedness (vcftools)
 
     Args:
         src: Any source: a path, a file object, an iterable of lines or tuples, an Arrow table, or a Pipeline.

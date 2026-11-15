@@ -568,7 +568,7 @@ pub struct VcfStatsArgs {
 
 // The "at least one statistic" rule is `check_popgen_request`'s, not a clap
 // group: its message lists every flag.
-/// Pi, Tajima's D, Fst, LD and relatedness (vcftools popgen)
+/// Pi, Tajima's D, Fst, LD and relatedness (vcftools)
 ///
 /// Nucleotide diversity per site (--site-pi) and in windows (--window-pi), Tajima's D in bins
 /// (--tajima-d), Weir and Cockerham's Fst between populations (--fst-pop, per site, in windows
