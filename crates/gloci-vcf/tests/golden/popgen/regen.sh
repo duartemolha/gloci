@@ -27,3 +27,33 @@ run popgen.indv --indv s2 --indv s3
 rm -f *.log
 sed -i "s/-nan/nan/g" *.sites.pi *.windowed.pi *.Tajima.D
 '
+
+# Weir and Cockerham Fst (--weir-fst-pop) on fst.vcf and missingpop.vcf, with
+# the populations of pop1.txt and pop2.txt (and pop3.txt for p3). A run's
+# files are PREFIX.weir.fst, or PREFIX.windowed.weir.fst with a window, with
+# PREFIX = fst[.p3][.dp5][.w100|.w100s50] (--minDP 5; --fst-window-size 100,
+# with --fst-window-step 50) or missingpop[.w100]. vcftools writes no summary
+# file: it prints the mean and the weighted estimate in its log (on stderr),
+# kept here as PREFIX.weir.fst.log for the check of gloci's
+# PREFIX.weir.fst.summary.
+docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/work" gloci-diff:p0 sh -c '
+cd /work
+fst() { # VCF PREFIX [vcftools options]
+  f=$1; p=$2; shift 2
+  vcftools --vcf $f "$@" --out $p >$p.err 2>&1
+  grep "Fst estimate:" $p.err > $p.weir.fst.log
+  rm -f $p.err
+}
+P2="--weir-fst-pop pop1.txt --weir-fst-pop pop2.txt"
+P3="$P2 --weir-fst-pop pop3.txt"
+fst fst.vcf fst $P2
+fst fst.vcf fst.p3 $P3
+fst fst.vcf fst.dp5 $P2 --minDP 5
+fst fst.vcf fst.w100 $P2 --fst-window-size 100
+fst fst.vcf fst.w100s50 $P2 --fst-window-size 100 --fst-window-step 50
+fst fst.vcf fst.p3.w100s50 $P3 --fst-window-size 100 --fst-window-step 50
+fst fst.vcf fst.dp5.w100s50 $P2 --minDP 5 --fst-window-size 100 --fst-window-step 50
+fst missingpop.vcf missingpop $P2
+fst missingpop.vcf missingpop.w100 $P2 --fst-window-size 100
+sed -i "s/-nan/nan/g" *.weir.fst *.weir.fst.log
+'
