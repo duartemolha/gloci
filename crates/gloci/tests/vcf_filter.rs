@@ -547,3 +547,23 @@ fn usage_error_precedes_list_file_errors() {
         .code(2)
         .stderr(contains("--max-missing"));
 }
+
+/// `--phased-only` reads a sample without GT as unphased, as vcftools
+/// `--phased` does: chr1:20 has no GT in FORMAT and n2's column at chr1:40
+/// stops before it, so both go; a lone `.` (chr1:60) has no phase and stays.
+#[test]
+fn phased_only_drops_a_sample_without_gt() {
+    let vcf =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../gloci-vcf/tests/golden/popgen/nogt.vcf");
+    let out = stdout_of(&["vcf", "filter", &s(&vcf), "--phased-only"]);
+    let kept: Vec<String> = records_of(&out)
+        .iter()
+        .map(|r| r.split('\t').take(2).collect::<Vec<_>>().join(":"))
+        .collect();
+    assert_eq!(
+        kept,
+        [
+            "chr1:10", "chr1:30", "chr1:50", "chr1:60", "chr2:5", "chr2:15"
+        ]
+    );
+}

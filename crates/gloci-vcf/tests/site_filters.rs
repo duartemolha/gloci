@@ -496,6 +496,22 @@ fn phased_only_judges_no_calls_by_separator() {
         &lines,
     );
     assert_eq!(kept, vec![10, 30, 50]);
+    // A sample without GT is unphased, as vcftools reads it (`./.`): a
+    // FORMAT without GT, or a column that stops before it. A lone `.` is a
+    // haploid no-call, which has no phase.
+    let lines = vec![
+        "1\t60\t.\tA\tC\t.\t.\t.\tDP\t9\t9\t9".to_string(),
+        "1\t70\t.\tA\tC\t.\t.\t.\tDP:GT\t9:0|1\t9\t9:1|1".to_string(),
+        "1\t80\t.\tA\tC\t.\t.\t.\tGT:DP\t0|1:9\t.\t1|1:9".to_string(),
+    ];
+    let kept = stats_kept(
+        &SiteFilters {
+            phased_only: true,
+            ..Default::default()
+        },
+        &lines,
+    );
+    assert_eq!(kept, vec![80]);
 }
 
 #[test]

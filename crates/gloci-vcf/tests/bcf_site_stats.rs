@@ -293,6 +293,39 @@ fn counts_end_of_vector_mixed_ploidy() {
     }
 }
 
+/// A sample without a genotype is unphased, as vcftools reads it (`./.`),
+/// in a record of phased genotypes, whole words of them or not, and in a
+/// record without GT.
+#[test]
+fn a_sample_without_gt_is_unphased() {
+    for ty in [INT8, INT16, INT32] {
+        let e = missing(ty) + 1;
+        for at in 0..9 {
+            let mut v = [2, 3].repeat(9);
+            v[2 * at] = e;
+            v[2 * at + 1] = e;
+            let s = counts(&gt_record(ty, 2, &v), None, 2).unwrap();
+            assert!(!s.all_phased, "{ty} sample {at}");
+            assert_eq!(s.missing, 1);
+            // Left out of the selection, it is not read.
+            let mut keep = [true; 9];
+            keep[at] = false;
+            assert!(
+                counts(&gt_record(ty, 2, &v), Some(&keep), 2)
+                    .unwrap()
+                    .all_phased
+            );
+        }
+    }
+    assert!(!counts(&record(3, &[]), None, 2).unwrap().all_phased);
+    // A lone `.` is a haploid no-call, which has no phase.
+    assert!(
+        counts(&gt_record(INT8, 1, &[2, 0, 4]), None, 2)
+            .unwrap()
+            .all_phased
+    );
+}
+
 #[test]
 fn counts_unphased_and_phased() {
     let phased = [2, 3, 4, 5, 2, 5, 4, 3, 2, 3];

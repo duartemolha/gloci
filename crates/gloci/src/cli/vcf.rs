@@ -347,8 +347,9 @@ pub struct VcfSelectArgs {
     #[arg(long, value_name = "N")]
     pub thin: Option<u64>,
     /// Keep only sites where every genotype of ploidy 2 or more is written
-    /// phased (`|`), called or not: `.|.` counts as phased, `./.` does not
-    /// (as vcftools --phased).
+    /// phased (`|`), called or not, and every selected sample has a GT:
+    /// `.|.` counts as phased, `./.` and a sample without GT do not (as
+    /// vcftools --phased).
     #[arg(long)]
     pub phased_only: bool,
 
@@ -632,11 +633,12 @@ LD:
   in (i, j) order. --geno-r2 gives the squared correlation of the genotypes' REF allele counts
   (2, 1, 0) over the samples called at both sites (N_INDV); a missing, half-called, haploid or
   masked genotype is left out. --hap-r2 gives r2, Lewontin's D and D' of the haplotypes called at
-  both (N_CHR) and uses only sites where every selected genotype is phased (./. is not, .|. is);
-  a haploid genotype is one haplotype and .|1 its called one. A site --hap-r2 does not use takes
-  no place in --ld-window, and the other statistics still use it. --interchrom-geno-r2 and
-  --interchrom-hap-r2 write every pair of sites on different chromosomes, in input order, at the
-  end. --min-r2 above 0 leaves out the pairs with a smaller r2 or none (nan), in all four files.
+  both (N_CHR) and uses only sites where every selected genotype is phased (./. and a sample
+  without GT are not, .|. is); a haploid genotype is one haplotype and .|1 its called one. A
+  site --hap-r2 does not use takes no place in --ld-window, and the other statistics still use
+  it. --interchrom-geno-r2 and --interchrom-hap-r2 write every pair of sites on different
+  chromosomes, in input order, at the end. --min-r2 above 0 leaves out the pairs with a smaller
+  r2 or none (nan), in all four files.
 
 Memory:
   The LD statistics hold sites in memory: --geno-r2 and --hap-r2 the sites of one pair window

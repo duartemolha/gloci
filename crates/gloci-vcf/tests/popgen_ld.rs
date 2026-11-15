@@ -500,6 +500,15 @@ fn ld_genotype_rules() {
         pairs(&run(&mut hap(3, LdWindow::default()), &lines, &DP5)),
         [(1, 3)]
     );
+    // A sample without GT is unphased too (vcftools reads it as `./.`): a
+    // FORMAT without GT, or a column that stops before it.
+    let lines = vec![
+        record("1", 1, "G", &["0|1", "1|1", "0|0"]),
+        "1\t2\t.\tA\tG\t.\t.\t.\tDP\t9\t9\t9".to_string(),
+        "1\t3\t.\tA\tG\t.\t.\t.\tDP:GT\t9:0|1\t9\t9:1|1".to_string(),
+        record("1", 4, "G", &["1|1", "0|1", "0|1"]),
+    ];
+    assert_eq!(pairs(&run(&mut hap(3, one), &lines, &NO_MASK)), [(1, 4)]);
 
     // A genotype of ploidy above two at a biallelic site stops both, as in
     // vcftools; at a multi-allelic site LD does not read it.

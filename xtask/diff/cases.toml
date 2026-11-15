@@ -2236,6 +2236,15 @@ gloci = "gloci vcf filter input.vcf --samples s1,s3"
 reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --indv s1 --indv s3"
 compare = "vcf-records"
 
+# A sample without GT is unphased (vcftools reads it as ./.): chr1:20 has no
+# GT in FORMAT and n2's column at chr1:40 stops before it.
+[[case]]
+name = "vcf-filter-phased-no-gt-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/nogt.vcf" }
+gloci = "gloci vcf filter input.vcf --phased-only"
+reference = "vcftools --vcf input.vcf --recode --recode-INFO-all --stdout --phased"
+compare = "vcf-records"
+
 [[case]]
 name = "vcf-filter-phased-vs-vcftools"
 input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
@@ -3983,6 +3992,20 @@ name = "vcf-popgen-hap-r2-vs-vcftools"
 input = { file = "crates/gloci-vcf/tests/golden/popgen/phased.vcf" }
 gloci = "gloci vcf popgen input.vcf --out-prefix o --hap-r2 && cat o.hap.ld"
 reference = "vcftools --vcf input.vcf --hap-r2 --out o >/dev/null 2>&1 && cat o.hap.ld | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-hap-r2-no-gt-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/nogt.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --hap-r2 && cat o.hap.ld"
+reference = "vcftools --vcf input.vcf --hap-r2 --out o >/dev/null 2>&1 && cat o.hap.ld | sed 's/-nan/nan/g'"
+compare = "exact"
+
+[[case]]
+name = "vcf-popgen-hap-r2-no-gt-window-vs-vcftools"
+input = { file = "crates/gloci-vcf/tests/golden/popgen/nogt.vcf" }
+gloci = "gloci vcf popgen input.vcf --out-prefix o --hap-r2 --ld-window 1 && cat o.hap.ld"
+reference = "vcftools --vcf input.vcf --hap-r2 --ld-window 1 --out o >/dev/null 2>&1 && cat o.hap.ld | sed 's/-nan/nan/g'"
 compare = "exact"
 
 [[case]]

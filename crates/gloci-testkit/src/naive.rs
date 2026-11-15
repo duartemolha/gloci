@@ -1510,7 +1510,8 @@ pub struct NaiveSiteCounts {
     /// Fully called two-allele genotypes of a site with two alleles, as
     /// (0/0, 0/1, 1/1); `None` for any other number of alleles.
     pub diploid: Option<(u64, u64, u64)>,
-    /// No genotype of two or more alleles has a `/`.
+    /// No genotype of two or more alleles has a `/`, and every sample has
+    /// a GT (vcftools reads a missing one as `./.`).
     pub all_phased: bool,
 }
 
@@ -1572,8 +1573,9 @@ pub fn naive_site_counts(
         haploid: written.iter().any(|g| g.len() == 1),
         polyploid: written.iter().any(|g| g.len() > 2),
         diploid,
-        all_phased: written
-            .iter()
-            .all(|g| g.len() < 2 || g[1..].iter().all(|(_, bar)| *bar)),
+        all_phased: no_gt == 0
+            && written
+                .iter()
+                .all(|g| g.len() < 2 || g[1..].iter().all(|(_, bar)| *bar)),
     })
 }

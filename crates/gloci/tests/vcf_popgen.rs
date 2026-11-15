@@ -831,7 +831,7 @@ fn popgen_polyploid_stops_like_vcftools() {
 
 /// The LD runs of regen.sh: the golden's prefix, the fixture, gloci's flags
 /// and the file's extension.
-const LD_RUNS: [(&str, &str, &[&str], &str); 17] = [
+const LD_RUNS: [(&str, &str, &[&str], &str); 19] = [
     ("ld", "ld.vcf", &["--geno-r2"], "geno.ld"),
     (
         "ld.w2",
@@ -928,6 +928,13 @@ const LD_RUNS: [(&str, &str, &[&str], &str); 17] = [
         "phased.vcf",
         &["--interchrom-hap-r2"],
         "interchrom.hap.ld",
+    ),
+    ("nogt", "nogt.vcf", &["--hap-r2"], "hap.ld"),
+    (
+        "nogt.w1",
+        "nogt.vcf",
+        &["--hap-r2", "--ld-window", "1"],
+        "hap.ld",
     ),
 ];
 

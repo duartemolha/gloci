@@ -23,7 +23,8 @@ pub(crate) struct GtCounts {
     pub missing_alleles: u64,
     pub haploid: bool,
     pub polyploid: bool,
-    /// A genotype of two or more alleles has a `/`.
+    /// A genotype of two or more alleles has a `/`, or a sample has no
+    /// genotype (vcftools reads it as `./.`).
     pub unphased: bool,
     /// Fully called two-allele genotypes by the sum of their allele indices:
     /// 0, 1, and 2 or more (0/0, 0/1 and 1/1 where the site has two alleles).
@@ -79,7 +80,9 @@ fn count_sample<const W: usize>(sample: &[u8], calls: &mut [u64], c: &mut GtCoun
     }
     c.samples += 1;
     if ploidy == 0 {
-        // No genotype: a missing sample that stands for two missing alleles.
+        // No genotype: a missing sample that stands for two missing alleles,
+        // unphased as `./.` is.
+        c.unphased = true;
         c.missing += 1;
         c.data_alleles += 2;
         c.missing_alleles += 2;

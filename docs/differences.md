@@ -1133,7 +1133,8 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   `--min-mac`/`--max-mac`, and `--min-mean-dp`/`--max-mean-dp` drop a site with
   no FORMAT/DP. `--hwe` keeps a site it cannot test. `--phased-only` reads each
   genotype's separators, called or not, as vcftools does: a site of `./.`
-  no-calls is unphased and dropped, one of `.|.` is kept.
+  no-calls is unphased and dropped, one of `.|.` is kept, and a sample without
+  GT is unphased (vcftools reads it as `./.`).
 - **Old behaviour:** `vcftools --maf 0.1` 0.1.16 keeps such a site, while its
   `--max-maf` drops it. `bcftools view -q 0.1:minor` 1.21 drops it, as gloci
   does.
@@ -1884,8 +1885,9 @@ comparison of `crates/gloci/tests/vcf_popgen.rs` with the committed vcftools
   haploid or masked genotype is left out of the pair. A pair with no such sample,
   or whose site does not vary among them, is `nan`.
 - `--hap-r2` uses a site only when every selected genotype is phased, read
-  before masking: `./.` is unphased and `.|.` phased, and a masked `0/1` still
-  leaves the site out. A haploid genotype is one haplotype and `.|1` its called
+  before masking: `./.` is unphased and `.|.` phased, a sample without GT is
+  unphased (vcftools reads it as `./.`), and a masked `0/1` still leaves the
+  site out. A haploid genotype is one haplotype and `.|1` its called
   one. When one site does not vary, D is 0 and r² and D′ are `nan`.
 - The pairs of `--geno-r2` and `--hap-r2` are counted among the sites each
   uses, so multi-allelic sites, ALT `.` sites and (for `--hap-r2`) unphased sites

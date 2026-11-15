@@ -93,3 +93,14 @@ r2 phased.vcf phased.r2 --hap-r2 --min-r2 0.2
 r2 phased.vcf phased --interchrom-hap-r2
 sed -i "s/-nan/nan/g" *.geno.ld *.hap.ld
 '
+
+# A sample without GT on nogt.vcf (phased otherwise): vcftools reads it as
+# ./., unphased, so --hap-r2 leaves out chr1:20, whose FORMAT has no GT, and
+# chr1:40, where n2's column has none. PREFIX.hap.ld with PREFIX = nogt or
+# nogt.w1 (--ld-window 1).
+docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/work" gloci-diff:p0 sh -c '
+cd /work
+vcftools --vcf nogt.vcf --hap-r2 --out nogt >/dev/null 2>&1
+vcftools --vcf nogt.vcf --hap-r2 --ld-window 1 --out nogt.w1 >/dev/null 2>&1
+sed -i "s/-nan/nan/g" nogt.hap.ld nogt.w1.hap.ld
+'

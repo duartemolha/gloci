@@ -77,7 +77,8 @@ pub struct SiteStats {
     /// site is biallelic, in which case `--hwe` passes it.
     pub hwe_counts: Option<(u64, u64, u64)>,
     /// False if any genotype of ploidy 2 or more, called or not, is written
-    /// unphased (a `/` separator).
+    /// unphased (a `/` separator), or a selected sample has no GT (vcftools
+    /// reads it as `./.`).
     pub all_phased: bool,
 }
 
@@ -239,12 +240,12 @@ pub fn site_stats_into(
         s.samples += 1;
         src.sample(i, f)?;
         // Phasing is read from the separators, called or not (vcftools
-        // --phased): `.|.` is phased, `./.` is not. Masking keeps them.
-        if let Some(g) = &f.gt
-            && g.alleles.len() >= 2
-            && !g.phased
-        {
-            s.all_phased = false;
+        // --phased): `.|.` is phased, `./.` is not, and neither is a sample
+        // without GT, which vcftools reads as `./.`. Masking keeps them.
+        match &f.gt {
+            Some(g) if g.alleles.len() >= 2 && !g.phased => s.all_phased = false,
+            None => s.all_phased = false,
+            Some(_) => {}
         }
         if mask.masks(f) {
             masked[i] = true;
