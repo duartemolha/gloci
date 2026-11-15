@@ -129,8 +129,9 @@ pub struct ChromMapArg {
 /// `cmd` and its subcommands, with the shared help of `--chrom-order` and `--chrom-map`,
 /// which names `-g`, said without it on a command that has no `-g`. A command whose help for
 /// them is its own keeps it.
+/// (The genome option is found by its long name: `vcf merge` has a hidden `-g/--gvcf`.)
 pub fn help_without_g(cmd: clap::Command) -> clap::Command {
-    let has_g = cmd.get_arguments().any(|a| a.get_short() == Some('g'));
+    let has_g = cmd.get_arguments().any(|a| a.get_long() == Some("genome"));
     let cmd = if has_g {
         cmd
     } else {

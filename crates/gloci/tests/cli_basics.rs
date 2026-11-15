@@ -363,7 +363,7 @@ fn chrom_order_help_names_what_takes_precedence() {
     let mut seen = 0;
     for path in all_paths() {
         let cmd = at_path(&path);
-        let has_g = cmd.get_arguments().any(|a| a.get_short() == Some('g'));
+        let has_g = cmd.get_arguments().any(|a| a.get_long() == Some("genome"));
         let Some(arg) = cmd
             .get_arguments()
             .find(|a| a.get_long() == Some("chrom-order"))
@@ -399,7 +399,10 @@ fn option_help_names_g_only_where_the_command_has_it() {
     assert!(names_g("Order checks, -g and the output") && !names_g("--genome or -gz"));
     for path in all_paths() {
         let cmd = at_path(&path);
-        if cmd.get_arguments().any(|a| a.get_short() == Some('g')) {
+        if cmd
+            .get_arguments()
+            .any(|a| a.get_short() == Some('g') && !a.is_hide_set())
+        {
             continue;
         }
         for a in cmd.get_arguments() {
@@ -413,4 +416,21 @@ fn option_help_names_g_only_where_the_command_has_it() {
             }
         }
     }
+}
+
+/// `vcf merge` has a hidden `-g/--gvcf` that is not the genome option, so its help words the
+/// order options as a command without `-g`.
+#[test]
+fn vcf_merge_help_has_the_no_g_wording() {
+    let out = gloci_cmd()
+        .args(["vcf", "merge", "--help"])
+        .output()
+        .unwrap();
+    let help = String::from_utf8(out.stdout).unwrap();
+    let flat = help.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        flat.contains("when no input header lists contigs"),
+        "{help}"
+    );
+    assert!(!flat.contains("neither -g"), "{help}");
 }
