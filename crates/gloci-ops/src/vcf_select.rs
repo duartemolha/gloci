@@ -8,6 +8,7 @@
 
 use crate::view::{ViewOptions, open_view, select_stream};
 use gloci_core::{ChromOrder, ChromTable, VcfSpan};
+use gloci_io::handoff::{Driving, Present, Sequenced};
 use gloci_io::{
     BcfDicts, Format, Header, IoError, Loc, OrderGuard, ReaderOptions, RecordBatch, RecordMeta,
     RecordReader, UsageError, VcfHeader, next_batch_size,
@@ -18,10 +19,8 @@ use gloci_vcf::{
     SiteStats, SiteView, TallyWants, Thinner, bcf_genotypes_with, parse_expr, select_samples,
     site_stats, text_genotypes_with,
 };
-use std::collections::{BTreeMap, VecDeque};
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Condvar, Mutex, MutexGuard};
 
 /// A `--include` or `--exclude` expression (decision D71).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -694,133 +693,16 @@ struct Done {
     err: Option<IoError>,
 }
 
+impl Sequenced for Done {
+    fn seq(&self) -> u64 {
+        self.job.seq
+    }
+}
+
 /// Where the driver and the workers of a parallel run meet: the batches to
-/// work on, and the batches done.
-///
-/// Whoever waits here sleeps on a condition variable until it is woken. A
-/// channel's blocking calls first retry around `sched_yield`, and on Linux a
-/// yield on a CPU that another thread wants gives up a whole scheduler
-/// slice (milliseconds): with more runnable threads than cores every
-/// hand-off of a batch then costs a slice or more, on the workers and on
-/// the driver.
-struct Handoff {
-    state: Mutex<HandoffState>,
-    /// A job was queued, or the hand-off closed.
-    job_ready: Condvar,
-    /// A batch came back, or a worker left.
-    done_ready: Condvar,
-}
-
-struct HandoffState {
-    jobs: VecDeque<Job>,
-    done: BTreeMap<u64, Done>,
-    /// Workers still running.
-    workers: usize,
-    /// The driver takes no more batches.
-    closed: bool,
-}
-
-impl Handoff {
-    fn new(workers: usize) -> Handoff {
-        Handoff {
-            state: Mutex::new(HandoffState {
-                jobs: VecDeque::new(),
-                done: BTreeMap::new(),
-                workers,
-                closed: false,
-            }),
-            job_ready: Condvar::new(),
-            done_ready: Condvar::new(),
-        }
-    }
-
-    /// The state. Nothing panics while holding the lock (a worker's panic is
-    /// caught around its batch), so a poisoned lock still holds a sound state.
-    fn lock(&self) -> MutexGuard<'_, HandoffState> {
-        self.state.lock().unwrap_or_else(|e| e.into_inner())
-    }
-
-    /// Queue `job` for a worker. False, and the job is dropped, when no
-    /// worker is left to take it.
-    fn send(&self, job: Job) -> bool {
-        let mut s = self.lock();
-        if s.workers == 0 {
-            return false;
-        }
-        s.jobs.push_back(job);
-        drop(s);
-        self.job_ready.notify_one();
-        true
-    }
-
-    /// A worker's next job, waiting for one; `None` once the driver has
-    /// closed the hand-off.
-    fn next_job(&self) -> Option<Job> {
-        let mut s = self.lock();
-        loop {
-            if s.closed {
-                return None;
-            }
-            if let Some(job) = s.jobs.pop_front() {
-                return Some(job);
-            }
-            s = self.job_ready.wait(s).unwrap_or_else(|e| e.into_inner());
-        }
-    }
-
-    /// A worker hands a batch back.
-    fn finish(&self, done: Done) {
-        self.lock().done.insert(done.job.seq, done);
-        self.done_ready.notify_one();
-    }
-
-    /// Batch `seq`, waiting for it; `None` when it is not back and no worker
-    /// is left to bring it.
-    fn take(&self, seq: u64) -> Option<Done> {
-        let mut s = self.lock();
-        loop {
-            if let Some(done) = s.done.remove(&seq) {
-                return Some(done);
-            }
-            if s.workers == 0 {
-                return None;
-            }
-            s = self.done_ready.wait(s).unwrap_or_else(|e| e.into_inner());
-        }
-    }
-
-    /// The driver is done: waiting workers leave, busy ones after their batch.
-    fn close(&self) {
-        self.lock().closed = true;
-        self.job_ready.notify_all();
-    }
-}
-
-/// The driver's end of the hand-off: dropped when the driver leaves, with
-/// its result or unwinding from a panic in the sink, so that the workers are
-/// told to stop and the scope that waits for them can end.
-struct Driving<'a> {
-    handoff: &'a Handoff,
-    abort: &'a AtomicBool,
-}
-
-impl Drop for Driving<'_> {
-    fn drop(&mut self) {
-        self.abort.store(true, Ordering::Relaxed);
-        self.handoff.close();
-    }
-}
-
-/// A worker's presence at the hand-off: dropped when the worker returns,
-/// however it returns, so the driver never waits for a worker that is gone.
-struct Present<'a>(&'a Handoff);
-
-impl Drop for Present<'_> {
-    fn drop(&mut self) {
-        self.0.lock().workers -= 1;
-        self.0.done_ready.notify_one();
-    }
-}
+/// work on, and the batches done. Whoever waits there sleeps until it is
+/// woken ([`gloci_io::handoff`]).
+type Handoff = gloci_io::handoff::Handoff<Job, Done>;
 
 fn work_batch(spec: &Spec<'_>, core: &mut Core, mut job: Job, flight: &AtomicUsize) -> Done {
     let mut err = None;

@@ -22,6 +22,7 @@ pub mod fields;
 pub mod fuzz_bodies;
 pub mod genome;
 pub mod gff;
+pub mod handoff;
 pub mod index;
 pub mod input;
 pub mod memio;
