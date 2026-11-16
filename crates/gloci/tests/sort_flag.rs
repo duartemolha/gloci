@@ -121,7 +121,7 @@ fn sort_flag_on_sorted_input_changes_nothing() {
 }
 
 /// 330k shuffled BED lines (about 9 MB): with `--max-mem 16M` the in-memory
-/// chunk (record bytes plus 40 bytes of index per record) fills up, so the
+/// chunk (record bytes plus 32 bytes of index per record) fills up, so the
 /// sorter spills at least once.
 fn spill_bed() -> String {
     let mut s = String::with_capacity(10 << 20);

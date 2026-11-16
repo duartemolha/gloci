@@ -190,8 +190,8 @@ impl Sorter {
         Ok(())
     }
 
-    /// Add one BAM record (no `block_size`) of an alignment sort ([`Order::Aln`]); the input
-    /// sequence number is the last tie. A record too short for its fixed fields is an error.
+    /// Add one BAM record (no `block_size`) of an alignment sort ([`Order::Aln`]); input order
+    /// is the last tie. A record too short for its fixed fields is an error.
     pub fn push_raw(&mut self, raw: &[u8]) -> Result<(), IoError> {
         if !matches!(self.order, Order::Aln(_)) {
             return Err(IoError::Internal(

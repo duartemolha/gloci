@@ -4,6 +4,7 @@
 use super::order::{M_COORD, M_FULL, M_INTERVAL, M_NAME, M_NAME_BYTES, Order, name_cmp_raw};
 use rayon::slice::ParallelSliceMut;
 use std::cmp::Ordering;
+use std::collections::TryReserveError;
 
 /// Sort entry of one record; its bytes are `arena[off..off + len]`. Records are appended to
 /// the arena in input order, so `(off, len)` is the input order within a chunk: it is the
@@ -41,7 +42,10 @@ const JUMP_AT: usize = 4 << 20;
 /// memory. The split at the jump comes from the records of the first few
 /// MiB: when later records are much longer or shorter, one vector fills
 /// first and the chunk spills before the budget is used, which changes
-/// neither the output nor the bound. A vector is only moved to a larger
+/// neither the output nor the bound, only the number of runs. When the
+/// skewed split still used three quarters of the budget, [`Chunk::clear`]
+/// keeps it for the following chunks, so they each spill at about that
+/// share (at most a third more runs); below that it plans afresh. A vector is only moved to a larger
 /// allocation while its old copy, the copied part of the new one and the
 /// other vector together fit in the budget. During the jump the virtual size
 /// can transiently reach about `budget + JUMP_AT` (the old copy plus the new
@@ -125,21 +129,15 @@ impl Chunk {
 
     fn plan(&mut self, len: usize) -> bool {
         let b = self.budget;
-        let (cap_a, cap_e) = (self.arena.capacity(), self.entries.capacity());
-        let need_a = self.arena.len() + len;
-        let need_e = self.entries.len() + 1;
-        let min_a = need_a.max(cap_a);
-        let min_e = need_e.max(cap_e);
-        let min_total = min_a.saturating_add(min_e.saturating_mul(ENTRY_BYTES));
+        let min_total = self.min_total(len);
         if min_total > b {
             return false;
         }
-        let held = self.held();
         // The smallest `b / 2^j` that holds the record and at least doubles
         // what is held now.
         let floor = min_total
             .max(FIRST_TARGET)
-            .max(held.saturating_mul(2))
+            .max(self.held().saturating_mul(2))
             .min(b);
         let mut target = b;
         while target / 2 >= floor {
@@ -149,10 +147,42 @@ impl Chunk {
         // budget: the freed intermediate allocations would otherwise pile up
         // in the allocator (they are not returned to the OS promptly) and
         // push the peak RSS well past what the records need. The untouched
-        // part of the allocation costs no resident memory.
-        if target > JUMP_AT.min(b / 16) {
-            target = b;
+        // part of the allocation costs no resident memory, but it is
+        // reserved: where the address space is limited (`ulimit -v`, SGE
+        // `h_vmem`) or overcommit is strict the reservation can fail, and
+        // the chunk then keeps doubling, and spills when that fails too.
+        if target > JUMP_AT.min(b / 16)
+            && let Ok(fits) = self.reserve(len, b)
+        {
+            return fits;
         }
+        self.reserve(len, target).unwrap_or(false)
+    }
+
+    /// The bytes the chunk must hold to take one more record of `len` bytes: what it holds,
+    /// or what it uses plus the record, whichever is more, for each vector.
+    fn min_total(&self, len: usize) -> usize {
+        let min_a = (self.arena.len() + len).max(self.arena.capacity());
+        let min_e = (self.entries.len() + 1).max(self.entries.capacity());
+        min_a.saturating_add(min_e.saturating_mul(ENTRY_BYTES))
+    }
+
+    /// Grow the vectors to about `target` bytes (at least what they must hold), split by the
+    /// mix of record lengths so far. `Ok(false)` when that does not fit the budget, `Err` when
+    /// an allocation fails; a vector grown before the failure keeps its capacity, which is
+    /// within the budget.
+    fn reserve(&mut self, len: usize, target: usize) -> Result<bool, TryReserveError> {
+        let b = self.budget;
+        let (cap_a, cap_e) = (self.arena.capacity(), self.entries.capacity());
+        let need_a = self.arena.len() + len;
+        let need_e = self.entries.len() + 1;
+        let min_a = need_a.max(cap_a);
+        let min_e = need_e.max(cap_e);
+        let min_total = self.min_total(len);
+        if min_total > b {
+            return Ok(false);
+        }
+        let target = target.max(min_total);
         // Split the target by the mix of record bytes to entries so far.
         let per_rec = need_a / need_e;
         let recs = target / (per_rec + ENTRY_BYTES);
@@ -165,26 +195,27 @@ impl Chunk {
             let room = (target - min_total) as u128;
             let extra_a = (want_a - min_a) as u128;
             let extra_e = ((want_e - min_e) * ENTRY_BYTES) as u128;
-            let give_a = (room * extra_a / (extra_a + extra_e)) as usize;
+            let give_a = (room * extra_a / (extra_a + extra_e).max(1)) as usize;
             let give_e = (room as usize - give_a) / ENTRY_BYTES;
             (min_a + give_a, min_e + give_e)
         };
         // While a vector is copied into its new allocation, its old copy is
         // held too.
+        let held = self.held();
         let grow_a = new_a > cap_a;
         let grow_e = new_e > cap_e;
         if (grow_a && held.saturating_add(cap_a) > b)
             || (grow_e && held.saturating_add(cap_e * ENTRY_BYTES) > b)
         {
-            return false;
+            return Ok(false);
         }
         if grow_a {
-            self.arena.reserve_exact(new_a - self.arena.len());
+            self.arena.try_reserve_exact(new_a - self.arena.len())?;
         }
         if grow_e {
-            self.entries.reserve_exact(new_e - self.entries.len());
+            self.entries.try_reserve_exact(new_e - self.entries.len())?;
         }
-        true
+        Ok(true)
     }
 
     /// Empty the chunk for the next one, keeping its capacity unless it
@@ -208,10 +239,10 @@ impl Chunk {
     }
 
     /// Sort by `(rank[chrom], key, end, tiebreak)` for intervals, by `(tid, key)` for
-    /// coordinate order, or by name and flag rank, with input order (`(off, len)`) last. The
-    /// order is total: two records with the same `(off, len)` are both empty and so equal in
-    /// every key and byte, so an unstable or parallel sort gives the same output for any
-    /// thread count.
+    /// coordinate order, or by name and flag rank, with input order (`(off, len)`) last. Two
+    /// records with the same `(off, len)` are both empty (readers never make one), so whichever
+    /// order the keys leave them in, the output bytes are the same: an unstable or parallel
+    /// sort gives the same output for any thread count.
     pub fn sort(&mut self, ranks: &[u32], order: Order, parallel: bool) {
         let arena = &self.arena;
         let entries = &mut self.entries;
@@ -375,6 +406,19 @@ mod tests {
             "held {}",
             c.held()
         );
+    }
+
+    /// A budget the address space cannot hold (as under `ulimit -v` or strict overcommit) makes
+    /// the jump's reservation fail: the chunk keeps doubling instead of aborting.
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn an_unreservable_budget_falls_back_to_doubling() {
+        let mut c = Chunk::new(usize::MAX / 4);
+        let raw = [b'a'; 100];
+        for _ in 0..(3 * JUMP_AT / (raw.len() + ENTRY_BYTES)) {
+            assert!(c.try_push(0, 0, 0, &raw));
+        }
+        assert!(c.held() <= 8 * JUMP_AT, "held {}", c.held());
     }
 
     #[test]
