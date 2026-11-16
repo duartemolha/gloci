@@ -41,7 +41,11 @@ crossbeam-channel = "0.5"
 lz4_flex = "0.14"
 tempfile = "3.27"
 ctrlc = { version = "3.5", features = ["termination"] }
-mimalloc = "0.1"
+# no_thp: mimalloc otherwise asks Linux for transparent huge pages for its whole arena, so
+# every touched 2 MiB is resident. Without it peak memory falls by half or more (merge of
+# 1.67M exons 26 -> 11 MiB, 8-thread BGZF intersect 258 -> 119 MiB, 8-thread vcf filter
+# 83 -> 32 MiB) at the same speed (docs/design.md, Allocator).
+mimalloc = { version = "0.1", features = ["no_thp"] }
 thiserror = "2"
 anyhow = "1"
 log = "0.4"

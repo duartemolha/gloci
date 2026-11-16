@@ -696,7 +696,7 @@ Output must be byte-identical for every thread count (Section 6.4).
 | Deflate | `libdeflater` | much faster than zlib for BGZF blocks |
 | Threads | a mutex and condition variables (`gloci-io`'s `Handoff` and `Pool`) for the BGZF pools and the `vcf` selection stage; `crossbeam-channel` and `rayon` elsewhere (amended 2026-11-14) | bounded queues give back-pressure and bounded memory; waiters that sleep instead of yielding the CPU (item 6 of Section 8.3) |
 | Bytes and numbers | `memchr`, `atoi`/hand-rolled, `itoa`, `ryu` | |
-| Allocator | `mimalloc` | |
+| Allocator | `mimalloc` | Built with `no_thp` **[owner request, 2026-11-16]**: by default mimalloc asks Linux for transparent huge pages for its whole arena, so every 2 MiB it touches is resident; without them peak memory falls by half or more (the merge of 1.67 million exons 26 → 11 MiB, an 8-thread BGZF intersect 258 → 119 MiB, an 8-thread `vcf filter` of the 1000 Genomes chr20 BCF 83 → 32 MiB) at the same speed (median of 11 interleaved `sort` runs 0.34 s either way). They also cost stalls while the kernel compacts memory to find 2 MiB pages (`sort` once spent 0.76 s of system time where it needs 0.07). |
 | Errors | `thiserror` (libs), `anyhow` (CLI) | |
 | Testing | `proptest`, `cargo-fuzz`, `insta` (snapshots), `criterion` + `hyperfine` | |
 
