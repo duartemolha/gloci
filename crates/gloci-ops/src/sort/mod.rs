@@ -2,10 +2,11 @@
 //! (spec §7.4, D13, D24).
 //!
 //! Records are ordered by `(chromosome rank, key, end, tiebreak)`. The
-//! tiebreak is the global input sequence number ([`Tie::InputOrder`], a
-//! stable sort) or the raw bytes and then the sequence number
-//! ([`Tie::FullLine`], `--full-key`). Sequence numbers are unique, so the
-//! order is total and the output is the same for every thread count.
+//! tiebreak is input order ([`Tie::InputOrder`], a stable sort) or the raw
+//! bytes and then input order ([`Tie::FullLine`], `--full-key`). Input order
+//! is a record's offset in its chunk, and in a spilled run the chunk's byte
+//! position plus that offset; it is total, so the output is the same for
+//! every thread count.
 //!
 //! Records are copied into an in-memory chunk bounded by `max_mem`. If the
 //! whole input fits in one chunk it is sorted and written without touching
@@ -13,7 +14,7 @@
 //! the runs are merged up to 128 at a time, in cascading passes when there
 //! are more (D24).
 //!
-//! Memory: the chunk (record bytes plus a 40-byte entry per record) stays
+//! Memory: the chunk (record bytes plus a 32-byte entry per record) stays
 //! within `max_mem`, except that a single record larger than `max_mem` is
 //! sorted in a chunk of its own. The chunk is freed before merging. Each run
 //! open in a merge holds its current record, so the fan-in drops below 128
@@ -113,7 +114,11 @@ pub struct Sorter {
     parallel: bool,
     budget: usize,
     chunk: Chunk,
-    seq: u64,
+    /// The input-order tiebreak of the current chunk's first record in the runs it spills:
+    /// the record bytes of every earlier chunk plus one per chunk. A spilled record's tiebreak
+    /// is this plus its arena offset, so tiebreaks rise in input order across runs and the
+    /// runs of different chunks never share one (a run's own records are never compared).
+    spill_base: u64,
     max_rec: usize,
     spills: u32,
     runs: Vec<Run>,
@@ -142,7 +147,7 @@ impl Sorter {
             parallel: cfg.threads.get() > 1,
             budget,
             chunk: Chunk::new(budget),
-            seq: 0,
+            spill_base: 0,
             max_rec: 0,
             spills: 0,
             runs: Vec::new(),
@@ -171,17 +176,16 @@ impl Sorter {
             self.max_rec = self.max_rec.max(raw.len());
             let chrom = m.chrom.0;
             let (key, end) = keys(m);
-            if !self.chunk.try_push(chrom, key, end, self.seq, raw) {
+            if !self.chunk.try_push(chrom, key, end, raw) {
                 self.spill_chunk(&chroms.ranks())?;
                 // Never drop a record silently.
-                if !self.chunk.try_push(chrom, key, end, self.seq, raw) {
+                if !self.chunk.try_push(chrom, key, end, raw) {
                     return Err(IoError::Internal(format!(
                         "an empty sort chunk rejected a record of {} bytes",
                         raw.len()
                     )));
                 }
             }
-            self.seq += 1;
         }
         Ok(())
     }
@@ -208,16 +212,15 @@ impl Sorter {
         } else {
             (0, 0)
         };
-        if !self.chunk.try_push(chrom, key, 0, self.seq, raw) {
+        if !self.chunk.try_push(chrom, key, 0, raw) {
             self.spill_chunk(&[])?;
-            if !self.chunk.try_push(chrom, key, 0, self.seq, raw) {
+            if !self.chunk.try_push(chrom, key, 0, raw) {
                 return Err(IoError::Internal(format!(
                     "an empty sort chunk rejected a record of {} bytes",
                     raw.len()
                 )));
             }
         }
-        self.seq += 1;
         Ok(())
     }
 
@@ -232,12 +235,13 @@ impl Sorter {
                 chrom: e.chrom,
                 key: e.key,
                 end: e.end,
-                seq: e.seq,
+                seq: self.spill_base + e.off as u64,
             };
             w.write(&h, self.chunk.raw(e))?;
         }
         self.runs.push(w.finish()?);
         self.spills += 1;
+        self.spill_base += self.chunk.arena.len() as u64 + 1;
         self.chunk.clear();
         Ok(())
     }

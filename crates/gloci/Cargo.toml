@@ -27,6 +27,7 @@ crossbeam-channel.workspace = true
 log.workspace = true
 rayon.workspace = true
 mimalloc.workspace = true
+libmimalloc-sys.workspace = true
 
 [dev-dependencies]
 gloci-ops = { workspace = true, features = ["test-hooks"] }

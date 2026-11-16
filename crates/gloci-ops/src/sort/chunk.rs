@@ -5,13 +5,13 @@ use super::order::{M_COORD, M_FULL, M_INTERVAL, M_NAME, M_NAME_BYTES, Order, nam
 use rayon::slice::ParallelSliceMut;
 use std::cmp::Ordering;
 
-/// Sort entry of one record; its bytes are `arena[off..off + len]`.
+/// Sort entry of one record; its bytes are `arena[off..off + len]`. Records are appended to
+/// the arena in input order, so `(off, len)` is the input order within a chunk: it is the
+/// stable tiebreak, and no sequence number is stored (32 bytes, not 40).
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Entry {
     pub key: u64,
     pub end: u64,
-    /// Global input sequence number (the stable tiebreak).
-    pub seq: u64,
     pub off: usize,
     pub chrom: u32,
     pub len: u32,
@@ -22,21 +22,31 @@ pub(crate) const ENTRY_BYTES: usize = std::mem::size_of::<Entry>();
 /// The size a chunk first grows to (or the budget, if smaller).
 const FIRST_TARGET: usize = 64 << 10;
 
+/// Past this size (or `budget / 16`, if smaller) a chunk grows straight to the whole budget.
+const JUMP_AT: usize = 4 << 20;
+
 /// Records accumulated until the budget is reached, then sorted.
 ///
 /// The capacity held by `arena` and `entries` together never exceeds the
 /// budget, except for a single record larger than the budget, which gets a
 /// chunk of its own. Growth goes through targets `budget / 2^j`, split
 /// between the two vectors by the mix of record lengths seen so far; once
-/// the next target would exceed `budget / 16` it jumps straight to the full
-/// budget, so freed intermediate allocations stay small (at most about
-/// `budget / 8` in total) instead of piling up in the allocator. A vector is
-/// only moved to a larger allocation while its old copy, the copied part of
-/// the new one and the other vector together fit in the budget. During the
-/// jump the virtual size can transiently reach about `budget + budget / 16`
-/// (the old copy plus the new allocation), while resident memory stays
-/// within the budget because the new allocation is only touched as records
-/// arrive.
+/// the next target would exceed [`JUMP_AT`] (4 MiB, or `budget / 16` if that
+/// is smaller) it jumps straight to the full budget. Every step copies the
+/// vectors into new allocations and frees the old ones, which the allocator
+/// keeps resident for a while (mimalloc for up to its purge delay), so the
+/// freed allocations stay below about `2 * JUMP_AT` in total whatever the
+/// budget; with the jump at `budget / 16` they reached `budget / 8` (256 MiB
+/// at the default 2G) and doubled the peak memory of a sort that fits in
+/// memory. The split at the jump comes from the records of the first few
+/// MiB: when later records are much longer or shorter, one vector fills
+/// first and the chunk spills before the budget is used, which changes
+/// neither the output nor the bound. A vector is only moved to a larger
+/// allocation while its old copy, the copied part of the new one and the
+/// other vector together fit in the budget. During the jump the virtual size
+/// can transiently reach about `budget + JUMP_AT` (the old copy plus the new
+/// allocation), while resident memory stays within the budget because the
+/// new allocation is only touched as records arrive.
 ///
 /// Whether a record fits depends only on the budget and the records pushed
 /// so far, never on the thread count.
@@ -73,7 +83,7 @@ impl Chunk {
     /// Append a record; returns false (appending nothing) when the chunk is
     /// full. An empty chunk accepts any record.
     #[inline]
-    pub fn try_push(&mut self, chrom: u32, key: u64, end: u64, seq: u64, raw: &[u8]) -> bool {
+    pub fn try_push(&mut self, chrom: u32, key: u64, end: u64, raw: &[u8]) -> bool {
         let fits = self.arena.capacity() - self.arena.len() >= raw.len()
             && self.entries.len() < self.entries.capacity();
         if !fits && !self.grow(raw.len()) {
@@ -84,7 +94,6 @@ impl Chunk {
         self.entries.push(Entry {
             key,
             end,
-            seq,
             off,
             chrom,
             len: raw.len() as u32,
@@ -136,12 +145,12 @@ impl Chunk {
         while target / 2 >= floor {
             target /= 2;
         }
-        // Past 1/16 of the budget, go straight to the whole budget: the
-        // freed intermediate allocations would otherwise pile up in the
-        // allocator (they are not returned to the OS promptly) and push
-        // the peak RSS well past the budget. The untouched part of the
-        // allocation costs no resident memory.
-        if target > b / 16 {
+        // Past JUMP_AT (or 1/16 of the budget), go straight to the whole
+        // budget: the freed intermediate allocations would otherwise pile up
+        // in the allocator (they are not returned to the OS promptly) and
+        // push the peak RSS well past what the records need. The untouched
+        // part of the allocation costs no resident memory.
+        if target > JUMP_AT.min(b / 16) {
             target = b;
         }
         // Split the target by the mix of record bytes to entries so far.
@@ -199,33 +208,44 @@ impl Chunk {
     }
 
     /// Sort by `(rank[chrom], key, end, tiebreak)` for intervals, by `(tid, key)` for
-    /// coordinate order, or by name and flag rank. The order is total (sequence numbers are
-    /// unique), so an unstable or parallel sort gives the same result for any thread count.
+    /// coordinate order, or by name and flag rank, with input order (`(off, len)`) last. The
+    /// order is total: two records with the same `(off, len)` are both empty and so equal in
+    /// every key and byte, so an unstable or parallel sort gives the same output for any
+    /// thread count.
     pub fn sort(&mut self, ranks: &[u32], order: Order, parallel: bool) {
         let arena = &self.arena;
         let entries = &mut self.entries;
         let raw = |e: &Entry| &arena[e.off..e.off + e.len as usize];
         match order.mode() {
             M_INTERVAL => sort_by(entries, parallel, |a, b| {
-                cmp_pos(ranks, a, b).then(a.seq.cmp(&b.seq))
+                cmp_pos(ranks, a, b).then(input_order(a, b))
             }),
             M_FULL => sort_by(entries, parallel, |a, b| {
                 cmp_pos(ranks, a, b)
                     .then_with(|| raw(a).cmp(raw(b)))
-                    .then(a.seq.cmp(&b.seq))
+                    .then(input_order(a, b))
             }),
             M_COORD => sort_by(entries, parallel, |a, b| {
-                (a.chrom, a.key, a.seq).cmp(&(b.chrom, b.key, b.seq))
+                (a.chrom, a.key)
+                    .cmp(&(b.chrom, b.key))
+                    .then(input_order(a, b))
             }),
             mode => {
                 let natural = mode == M_NAME;
                 debug_assert!(natural || mode == M_NAME_BYTES);
                 sort_by(entries, parallel, |a, b| {
-                    name_cmp_raw(raw(a), raw(b), natural).then(a.seq.cmp(&b.seq))
+                    name_cmp_raw(raw(a), raw(b), natural).then(input_order(a, b))
                 })
             }
         }
     }
+}
+
+/// Input order within a chunk: records are appended in input order, so an earlier record has
+/// a smaller offset, or the same offset and a length of 0.
+#[inline]
+fn input_order(a: &Entry, b: &Entry) -> Ordering {
+    (a.off, a.len).cmp(&(b.off, b.len))
 }
 
 #[inline]
@@ -255,7 +275,7 @@ mod tests {
     fn fill(c: &mut Chunk, len: usize) -> usize {
         let raw = vec![b'a'; len];
         let mut n = 0;
-        while c.try_push(0, n as u64, 0, n as u64, &raw) {
+        while c.try_push(0, n as u64, 0, &raw) {
             n += 1;
             let oversized = n == 1 && len + ENTRY_BYTES > c.budget;
             assert!(
@@ -308,26 +328,59 @@ mod tests {
     #[test]
     fn oversized_record_gets_its_own_chunk() {
         let mut c = Chunk::new(1 << 10);
-        assert!(c.try_push(0, 0, 0, 0, &[b'a'; 10]));
-        assert!(!c.try_push(0, 0, 0, 1, &[b'b'; 4 << 10]));
+        assert!(c.try_push(0, 0, 0, &[b'a'; 10]));
+        assert!(!c.try_push(0, 0, 0, &[b'b'; 4 << 10]));
         c.clear();
-        assert!(c.try_push(0, 0, 0, 1, &[b'b'; 4 << 10]));
-        assert!(!c.try_push(0, 0, 0, 2, &[b'c'; 1]));
+        assert!(c.try_push(0, 0, 0, &[b'b'; 4 << 10]));
+        assert!(!c.try_push(0, 0, 0, &[b'c'; 1]));
         c.clear();
         assert!(c.held() <= 1 << 10);
-        assert!(c.try_push(0, 0, 0, 2, &[b'c'; 1]));
+        assert!(c.try_push(0, 0, 0, &[b'c'; 1]));
     }
 
     #[test]
     #[cfg(target_pointer_width = "64")]
-    fn entry_is_40_bytes() {
-        assert_eq!(ENTRY_BYTES, 40);
+    fn entry_is_32_bytes() {
+        assert_eq!(ENTRY_BYTES, 32);
+    }
+
+    /// Growth jumps to the whole budget once the records pass `JUMP_AT`, whatever the budget,
+    /// so the allocations it frees on the way stay below about `2 * JUMP_AT`.
+    #[test]
+    fn growth_jumps_to_the_budget_after_jump_at() {
+        let budget = 1 << 30;
+        let mut c = Chunk::new(budget);
+        let raw = [b'a'; 100];
+        let per_rec = raw.len() + ENTRY_BYTES;
+        let (mut freed, mut pushed) = (0, 0);
+        // Before the jump a chunk holds at most twice what it holds after the last doubling,
+        // so holding more than 4 * JUMP_AT means it has jumped.
+        while c.held() <= 4 * JUMP_AT {
+            let before = (c.arena.capacity(), c.entries.capacity() * ENTRY_BYTES);
+            assert!(c.try_push(0, 0, 0, &raw));
+            pushed += per_rec;
+            let after = (c.arena.capacity(), c.entries.capacity() * ENTRY_BYTES);
+            if after.0 != before.0 {
+                freed += before.0;
+            }
+            if after.1 != before.1 {
+                freed += before.1;
+            }
+            assert!(pushed <= 2 * JUMP_AT, "no jump after {pushed} bytes");
+        }
+        assert!(freed <= 2 * JUMP_AT, "{freed} bytes freed on the way");
+        // The split rounds down to whole records of the mix seen so far.
+        assert!(
+            c.held() + per_rec > budget && c.held() <= budget,
+            "held {}",
+            c.held()
+        );
     }
 
     #[test]
     fn zero_budget_holds_one_record_per_chunk() {
         let mut c = Chunk::new(0);
-        assert!(c.try_push(0, 0, 0, 0, b"x"));
-        assert!(!c.try_push(0, 0, 0, 1, b"y"));
+        assert!(c.try_push(0, 0, 0, b"x"));
+        assert!(!c.try_push(0, 0, 0, b"y"));
     }
 }

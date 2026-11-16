@@ -46,6 +46,8 @@ ctrlc = { version = "3.5", features = ["termination"] }
 # 1.67M exons 26 -> 11 MiB, 8-thread BGZF intersect 258 -> 119 MiB, 8-thread vcf filter
 # 83 -> 32 MiB) at the same speed (docs/design.md, Allocator).
 mimalloc = { version = "0.1", features = ["no_thp"] }
+# extended: mi_option_set, for the purge delay the binary sets at startup (crates/gloci/src/main.rs).
+libmimalloc-sys = { version = "0.1.49", features = ["extended"] }
 thiserror = "2"
 anyhow = "1"
 log = "0.4"

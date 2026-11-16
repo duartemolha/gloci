@@ -245,8 +245,8 @@ proptest! {
         // so merges cascade), and one record per chunk (fan-in 2).
         let (out, stats) = sort_text(bed_text(&recs), cfg(256, Tie::InputOrder, Dedup::All));
         prop_assert_eq!(lines_of(&out), want.clone());
-        // The shortest line is 15 bytes, so at most 4 records fit in 256 bytes.
-        prop_assert!(recs.len() <= 4 || stats.spills >= 2);
+        // The shortest line is 15 bytes and an entry 32, so at most 5 records fit in 256 bytes.
+        prop_assert!(recs.len() <= 5 || stats.spills >= 2);
         prop_assert_eq!(sort_lines(&recs, cfg(0, Tie::InputOrder, Dedup::All)), want);
     }
 
