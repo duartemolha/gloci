@@ -44,12 +44,15 @@ its options and examples.
 
 ## Performance
 
-Seconds, median of 5 runs (one run for the VCF row, see below), on real data: GENCODE v46
-exons (1.67 million intervals), ENCODE cCREs (2.35 million), an ENCODE CTCF
-ChIP-seq BAM and CRAM (7.6 million reads) and the 1000 Genomes chr20 panel
-(BCF). One thread unless noted. The other tools are bedtools 2.31.1, bedops
-2.4.41 (sort-bed in the sort row), samtools and bcftools 1.21 and vcftools
-0.1.16.
+Each cell is the wall time in seconds, then the peak memory in MiB: `0.35 / 260`
+is 0.35 seconds and 260 MiB. The time is the median of 5 runs (one run for the
+VCF row, see below). The memory is the peak resident set size of one more run,
+from GNU `time`; for a pipeline it is the largest process, not the sum. The data
+is real: GENCODE v46 exons (1.67 million intervals), ENCODE cCREs (2.35
+million), an ENCODE CTCF ChIP-seq BAM and CRAM (7.6 million reads) and the 1000
+Genomes chr20 panel (BCF). One thread unless noted. The other tools are bedtools
+2.31.1, bedops 2.4.41 (sort-bed in the sort row), samtools and bcftools 1.21 and
+vcftools 0.1.16.
 
 The commands of a row give the same result, which the benchmark runner now
 checks before it times them. Where the tools answer different questions there
@@ -57,31 +60,33 @@ is a row for each form, with gloci doing that same work.
 
 | Task | gloci | bedtools | bedops | other |
 |---|---:|---:|---:|---|
-| sort exons | 0.36 | 1.64 | 0.92 | GNU sort 1.69 |
-| merge exons | 0.20 | 0.39 | 0.36 | |
-| intersect cCREs with exons | 0.40 | 1.15 | 0.92 | |
-| the same, BGZF inputs, 8 threads | 0.27 | 1.42 | 1.16 | |
-| subtract cCREs from exons, each exon cut | 0.63 | 2.21 | | |
-| the same on merged exons (`bedops -d`) | 0.48 | | 0.87 | |
-| closest exons to each CTCF peak, ties kept | 0.23 | 0.58 | | |
-| one nearest exon on each side (`closest-features`) | 0.21 | | 0.41 | |
-| coverage of cCREs by exons | 1.10 | 2.61 | | |
-| genomecov of exons | 0.29 | 14.40 | | |
-| partition of three files at every boundary | 0.62 | | 1.38 | |
-| the same with equal neighbours joined (`multiinter`) | 0.95 | 4.55 | | |
-| map CTCF signal onto cCREs | 9.77 | 19.76 | 39.87 | |
-| flagstat, BAM | 1.48 | | | samtools 1.53 |
-| flagstat, CRAM | 0.24 | | | samtools 0.46 |
-| bedcov of CTCF peaks, BAM | 4.08 | | | samtools 4.46 |
-| depth, BAM | 20.6 | | | samtools 24.3 |
-| depth, CRAM | 27.8 | | | samtools 23.2 |
-| vcf filter, BCF to compressed VCF, 8 threads | 27.0 | | | bcftools 38.8, vcftools 504 |
+| sort exons | 0.35 / 260 | 1.64 / 669 | 0.92 / 92 | GNU sort 1.69 / 133 |
+| merge exons | 0.20 / 20 | 0.39 / 4.9 | 0.36 / 5.5 | |
+| intersect cCREs with exons | 0.40 / 36 | 1.15 / 37 | 0.92 / 5.5 | |
+| the same, BGZF inputs, 8 threads | 0.27 / 288 | 1.42 / 39 | 1.16 / 5.5 | |
+| subtract cCREs from exons, each exon cut | 0.63 / 38 | 2.21 / 21 | | |
+| the same on merged exons (`bedops -d`) | 0.48 / 44 | | 0.87 / 5.5 | |
+| closest exons to each CTCF peak, ties kept | 0.23 / 28 | 0.58 / 6.4 | | |
+| one nearest exon on each side (`closest-features`) | 0.21 / 28 | | 0.41 / 5.2 | |
+| coverage of cCREs by exons | 1.10 / 39 | 2.61 / 101 | | |
+| genomecov of exons | 0.29 / 22 | 14.40 / 1,903 | | |
+| partition of three files at every boundary | 0.62 / 28 | | 1.38 / 5.5 | |
+| the same with equal neighbours joined (`multiinter`) | 0.95 / 28 | 4.55 / 4.1 | | |
+| map CTCF signal onto cCREs | 9.76 / 32 | 19.76 / 37 | 39.87 / 11 | |
+| flagstat, BAM | 1.48 / 18 | | | samtools 1.53 / 2.9 |
+| flagstat, CRAM | 0.24 / 43 | | | samtools 0.46 / 7.8 |
+| bedcov of CTCF peaks, BAM | 4.08 / 58 | | | samtools 4.46 / 14 |
+| depth, BAM | 20.6 / 20 | | | samtools 24.3 / 2.8 |
+| depth, CRAM | 27.8 / 67 | | | samtools 23.2 / 7.6 |
+| vcf filter, BCF to compressed VCF, 8 threads | 27.0 / 91 | | | bcftools 38.8 / 15, vcftools 504 / 5.6 |
 
 The VCF row was timed again on 15 November 2026, once per command on an
 otherwise idle machine, after gloci's genotype counting was rewritten: gloci
 took 27.0 seconds at 8 threads, 29.0 at 4 and 47.1 at 1 (67 to 70 seconds of
 user CPU at every thread count); bcftools took 38.8 seconds at 8 threads,
-including the start of its container. The vcftools figure is from 13 November.
+including the start of its container; gloci held 91 MiB at 8 threads. The
+vcftools time and the bcftools and vcftools memory are from the run of the same
+commands on 13 November (the 15 November run timed bcftools only).
 
 Where gloci is slower. `depth` on a CRAM costs gloci 16.9 seconds of CPU
 against 9.5 for samtools, which decodes only the fields `depth` reads; both
@@ -90,10 +95,12 @@ against 9.5 for samtools, which decodes only the fields `depth` reads; both
 In the BGZF row bedtools has one thread, and bedops, which cannot read BGZF, is
 timed with the decompression of both inputs to files.
 
-Memory: gloci holds 18 to 67 MiB in the single-thread rows, 260 MiB for
-`sort` (which keeps the file), 288 MiB for the 8-thread intersect and 91 MiB
-for the VCF filter at 8 threads. bedops and samtools stream with 3 to 14 MiB;
-`bedtools genomecov` holds 1.9 GiB.
+Memory: bedops and samtools stream, holding 2.8 to 14 MiB (sort-bed, which sorts
+in memory, holds 92). gloci holds more: 18 to 67 MiB in the single-thread rows
+other than `sort`, 260 MiB for `sort` (which keeps the file), 288 MiB for the
+8-thread intersect and 91 MiB for the 8-thread VCF filter. bedtools holds the
+most where it loads a whole file: 669 MiB for `sort` and 1.9 GiB for
+`genomecov`.
 
 These numbers are indicative. They were measured on 13 November 2026 on a
 4-core aarch64 machine (WSL2, 11 GiB), where long runs vary: the `depth` rows
