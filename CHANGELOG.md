@@ -56,6 +56,7 @@ the minor version).
 
 ### Fixed
 
+- `gloci index -h` names BAM: its summary leads with `.bai`/`.csi` for a BAM, and its `FILE` argument, which listed only BGZF text, FASTA and CRAM files, now lists every kind it indexes. Indexing a BAM was already there; the help hid it (issue #1).
 - `vcf merge --help` words `--chrom-order` and `--chrom-map` as a command without `-g` does; it said "neither -g nor the header ..." because its hidden `-g/--gvcf` was taken for the genome option.
 - BCF records are written as VCF text the way htslib writes them, byte for byte as bcftools 1.21 prints them: strings as stored (a `,`, `;`, `=` or `%` in a value is no longer percent-encoded, so `SOURCE=novelins,gatksv` stays that), numbers in htslib's notation (`8.08575e-05`, not `0.0000808575`), and a genotype with an allele index of 63 or more is written where it was an error. This is every command that reads BCF and writes text (`view -O vcf`, `vcf filter`, `vcf split`, `vcf norm`, `getfasta`, the Python records). On the 1000 Genomes chr20 panel the 370,398 records `vcf filter` keeps are identical to bcftools', and rendering them takes a tenth of the time.
 - `coverage` writes its fractions and mean depth as bedtools does: seven decimals of a 32-bit quotient (`0.4347826`, where it wrote `0.43478260869565216`), and six decimals of a 64-bit one in the report of several `-b` files (`bedtools annotate`). The counts were already equal; now the bytes are.

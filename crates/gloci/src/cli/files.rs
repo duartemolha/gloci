@@ -538,20 +538,21 @@ Examples:
     },
 }
 
-/// Build a .tbi/.csi index for a sorted BGZF file, a .bai/.csi for a BAM, a .crai for a CRAM, or a
-/// .fai for a FASTA (tabix, samtools index).
+/// Build a .bai/.csi index for a BAM, a .crai for a CRAM, a .tbi/.csi for a sorted BGZF file, or a
+/// .fai for a FASTA (samtools index, tabix).
 ///
 /// A coordinate-sorted BAM gets PATH.bai, or PATH.csi with --csi or when a reference is longer than
-/// 2^29; samtools and gloci read each other's indexes. SAM text has no index: write BAM with gloci
-/// view x.sam -o x.bam.
+/// 2^29; samtools and gloci read each other's indexes. An unsorted BAM is refused: gloci sort x.bam
+/// -o sorted.bam --write-index sorts and indexes in one step. SAM text has no index: write BAM with
+/// gloci view x.sam -o x.bam.
 ///
 /// Plain gzip is refused: recompress with bgzip.
 #[derive(Args)]
-#[command(about = "Index a BGZF file, BAM, CRAM or FASTA (tabix, samtools index)")]
+#[command(about = "Index a BAM, CRAM, FASTA or BGZF file (samtools index, tabix)")]
 #[command(after_long_help = "\
 Examples:
-  gloci index calls.vcf.gz
   gloci index sorted.bam
+  gloci index calls.vcf.gz
   gloci index reads.cram
   gloci index scores.tsv.gz -s 1 -b 2 -e 3 --zero-based
 
@@ -575,8 +576,9 @@ starting with --comment (default #) and the first --skip-lines lines are not ind
 are recorded in the index. Chromosomes must be contiguous and sorted by begin. The index \
 is a .tbi, or a .csi when an end passes 2^29.")]
 pub struct IndexArgs {
-    /// Sorted, BGZF-compressed BED/GFF/VCF/BCF file to index, a FASTA file (.fai, .gzi), or
-    /// a CRAM file (.crai).
+    /// File to index: a coordinate-sorted BAM (.bai or .csi), a CRAM (.crai), a FASTA (.fai, and
+    /// .gzi when BGZF), or a sorted BGZF-compressed BED/GFF/VCF/BCF or tab-separated file (.tbi or
+    /// .csi).
     pub file: PathBuf,
     /// Sequence (chromosome) column, numbered from 1. Selects TSV mode; needs -b.
     #[arg(short = 's', long, value_name = "N")]

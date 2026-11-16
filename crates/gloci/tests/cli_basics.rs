@@ -336,6 +336,26 @@ fn index_help_does_not_claim_maskfasta_needs_an_index() {
     assert!(!help.contains("nuc, maskfasta"), "{help}");
 }
 
+/// `gloci index -h` (the short help) names BAM in its summary and in the FILE argument, which
+/// once listed only BGZF text, FASTA and CRAM files (GitHub issue #1).
+#[test]
+fn index_short_help_names_bam() {
+    let help = gloci::command()
+        .find_subcommand_mut("index")
+        .unwrap()
+        .render_help()
+        .to_string();
+    let help = help.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        help.starts_with("Index a BAM, CRAM, FASTA or BGZF file"),
+        "{help}"
+    );
+    assert!(
+        help.contains("a coordinate-sorted BAM (.bai or .csi)"),
+        "{help}"
+    );
+}
+
 /// merge's help says its output is BED regions whatever the input, and its VCF example says so.
 #[test]
 fn merge_help_says_the_output_is_regions_whatever_the_input() {

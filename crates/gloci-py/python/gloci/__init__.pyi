@@ -2867,7 +2867,7 @@ def index(
     t: str | int | float | os.PathLike[str] | None = None,
     reference: Source | None = None,
 ) -> list[pathlib.Path]:
-    """Build a .tbi/.csi index for a sorted BGZF file, a .bai/.csi for a BAM, a .crai for a CRAM, or a .fai for a FASTA (tabix, samtools index)
+    """Build a .bai/.csi index for a BAM, a .crai for a CRAM, a .tbi/.csi for a sorted BGZF file, or a .fai for a FASTA (samtools index, tabix)
 
     Args:
         path: The file to index: a path (an index is of a file, so no other source will do).

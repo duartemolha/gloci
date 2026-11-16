@@ -29,8 +29,8 @@ description: Use gloci for genomic interval and variant operations (sorting, ind
   `gloci genomes list` · `gloci genomes list | grep -i sapiens`
 - `gloci genomes show`: Print one built-in genome as name and length, tab-separated
   `gloci genomes show hg38` · `gloci genomes show GRCh38 > GRCh38.genome`
-- `gloci index`: Build a .tbi/.csi index for a sorted BGZF file, a .bai/.csi for a BAM, a .crai for a CRAM, or a .fai for a FASTA (tabix, samtools index)
-  `gloci index calls.vcf.gz` · `gloci index sorted.bam`
+- `gloci index`: Build a .bai/.csi index for a BAM, a .crai for a CRAM, a .tbi/.csi for a sorted BGZF file, or a .fai for a FASTA (samtools index, tabix)
+  `gloci index sorted.bam` · `gloci index calls.vcf.gz`
 - `gloci sort`: Sort BED/bedGraph/GFF/VCF/BCF files, or BAM/SAM/CRAM alignments, with bounded memory (bedtools sort, samtools sort)
   `gloci sort reads.bam -o reads.sorted.bam --write-index -t 8` · `gloci sort peaks.bed > peaks.sorted.bed`
 - `gloci view`: Print the records in regions, stream or recompress a file, convert VCF to BCF and back, or print only the header (samtools view)
