@@ -259,8 +259,8 @@ or an existing .fai, .genome, .dict, VCF/BCF or BAM file"
     match built {
         Some(b) => Ok((b.genome(), OrderSource::BuiltinGenome(b.id.to_string()))),
         None => Err(IoError::Usage(UsageError(format!(
-            "{}; -g takes a built-in genome ({}; {LIST_HINT}) or an existing .fai, .genome, \
-.dict, VCF/BCF or BAM file",
+            "{}; -g takes a built-in genome or an existing .fai, .genome, .dict, VCF/BCF or BAM \
+file; built-in genomes: {}; {LIST_HINT}",
             unknown_lead(arg),
             builtin_ids()
         )))),

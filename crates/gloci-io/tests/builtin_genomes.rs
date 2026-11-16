@@ -165,10 +165,12 @@ fn resolution() {
     ));
     let e = resolve_genome("hg37").unwrap_err().to_string();
     assert!(e.contains("did you mean") && (e.contains("hg38") || e.contains("hg19")));
-    assert!(e.contains("-g takes a built-in genome (hg19, hg38,"), "{e}");
+    assert!(e.contains("built-in genomes: hg19, hg38,"), "{e}");
     assert!(e.contains("gloci genomes list"), "{e}");
     assert!(
-        e.contains(".fai, .genome, .dict, VCF/BCF or BAM file"),
+        e.contains(
+            "-g takes a built-in genome or an existing .fai, .genome, .dict, VCF/BCF or BAM file"
+        ),
         "{e}"
     );
     assert!(resolve_genome("./hg38").is_err()); // path form, no such file

@@ -270,7 +270,7 @@ gloci ships chromosome names and sizes for common assemblies, so `-g hg38` works
 | `--write-index` | write `.tbi`/`.csi` next to the output |
 | `--compression-level N` | BGZF level (default 6) |
 | `-t, --threads N` | default: `available_parallelism()`, which honours cgroups and CPU affinity (so SLURM allocations); env `GLOCI_THREADS` |
-| `-g, --genome NAME\|FILE` | chromosome sizes and order: a built-in genome name (`hg38`, `GRCh38`, `mm39` …, see `gloci genomes`) or a file (`.fai`, `.genome`, `.dict`, VCF/BCF/BAM header) The one exception is `groupby`, where `-g COLS` names the group columns, as in bedtools groupby; `groupby` takes no genome. **[owner, 2026-11-10: keep this exception]** |
+| `-g, --genome NAME\|FILE` | chromosome sizes and order: a built-in genome name (`hg38`, `GRCh38`, `mm39` …, see `gloci genomes list`) or a file (`.fai`, `.genome`, `.dict`, VCF/BCF/BAM header) The one exception is `groupby`, where `-g COLS` names the group columns, as in bedtools groupby; `groupby` takes no genome. **[owner, 2026-11-10: keep this exception]** |
 | `--chrom-order karyotype\|lex` | chromosome order when neither `-g` nor the header of a VCF/BCF or alignment input sets one (Section 4.5), default `lex` |
 | `--vcf-span allele\|ref` | variant footprint rule (Section 4.2), default `allele` |
 | `--unsorted` | process unsorted input in its own order via the in-memory index; results follow A's order (Section 4.5) |

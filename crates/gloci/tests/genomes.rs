@@ -109,12 +109,12 @@ fn an_unknown_genome_points_at_the_list() {
         .args(["sort", &w("h.bed", "chr1\t1\t2\n"), "-g", "human"])
         .assert()
         .code(2)
-        .stderr(contains("-g takes a built-in genome (hg19, hg38,"))
+        .stderr(contains("built-in genomes: hg19, hg38,"))
         .stderr(contains(
             "gloci genomes list shows their species and assemblies",
         ))
         .stderr(contains(
-            "or an existing .fai, .genome, .dict, VCF/BCF or BAM file",
+            "-g takes a built-in genome or an existing .fai, .genome, .dict, VCF/BCF or BAM file",
         ));
     gloci()
         .args(["genomes", "show", "hg37"])
