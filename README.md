@@ -32,6 +32,7 @@ work today.
 ## Example
 
 ```sh
+gloci genomes list
 gloci genomes show hg38 > hg38.genome
 gloci sort peaks.bed -g hg38 > peaks.sorted.bed
 gloci sort reads.bam -o reads.sorted.bam --write-index

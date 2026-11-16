@@ -5,7 +5,7 @@ use std::io::Write;
 pub fn run(args: &GenomesArgs) -> anyhow::Result<()> {
     let mut out = std::io::BufWriter::new(std::io::stdout().lock());
     match &args.action {
-        None => {
+        None | Some(GenomesAction::List) => {
             for b in builtin_genomes() {
                 writeln!(
                     out,

@@ -385,7 +385,7 @@ pub struct GenomecovArgs {
     pub file: String,
     /// Chromosome order and sizes (required unless the input is BAM, CRAM or SAM,
     /// which gives its header's): a built-in genome such as hg38 (see gloci
-    /// genomes), or a .fai, .genome or .dict file.
+    /// genomes list), or a .fai, .genome or .dict file.
     #[arg(short, long, value_name = "NAME|FILE")]
     pub genome: Option<String>,
     /// Write the histogram of depths (the default).
@@ -671,7 +671,7 @@ Examples:
 #[command(group(clap::ArgGroup::new("split").required(true).multiple(false).args(["size", "count"])))]
 pub struct WindowsArgs {
     /// Cut every chromosome of a built-in genome such as hg38 (see gloci
-    /// genomes), or a .fai, .genome or .dict file with lengths.
+    /// genomes list), or a .fai, .genome or .dict file with lengths.
     #[arg(short, long, value_name = "NAME|FILE")]
     pub genome: Option<String>,
     /// Cut the footprint of every record of FILE (`-` for stdin).

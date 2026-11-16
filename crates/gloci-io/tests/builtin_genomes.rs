@@ -165,7 +165,12 @@ fn resolution() {
     ));
     let e = resolve_genome("hg37").unwrap_err().to_string();
     assert!(e.contains("did you mean") && (e.contains("hg38") || e.contains("hg19")));
-    assert!(e.contains("built-in genomes:") && e.contains(".fai/.genome/.dict"));
+    assert!(e.contains("-g takes a built-in genome (hg19, hg38,"), "{e}");
+    assert!(e.contains("gloci genomes list"), "{e}");
+    assert!(
+        e.contains(".fai, .genome, .dict, VCF/BCF or BAM file"),
+        "{e}"
+    );
     assert!(resolve_genome("./hg38").is_err()); // path form, no such file
     let d = tempfile::tempdir().unwrap();
     let f = fixtures::write(d.path(), "hg38", b"chrA\t10\n");

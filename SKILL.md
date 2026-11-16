@@ -24,7 +24,9 @@ description: Use gloci for genomic interval and variant operations (sorting, ind
 `gloci <command> --help` prints every option, rule and example of a command. Read it before the first use of a command, and do not guess a flag from the tool being replaced: many differ. The names in brackets are the tools a command replaces. Commands marked *experimental* are tested against those tools, but their options and output may still change between releases; the others are the stable core.
 
 - `gloci genomes`: List the built-in genomes that -g accepts, or print one
-  `gloci genomes` · `gloci genomes show hg38`
+  `gloci genomes list` · `gloci genomes show hg38`
+- `gloci genomes list`: List the built-in genomes, one tab-separated line each
+  `gloci genomes list` · `gloci genomes list | grep -i sapiens`
 - `gloci genomes show`: Print one built-in genome as name and length, tab-separated
   `gloci genomes show hg38` · `gloci genomes show GRCh38 > GRCh38.genome`
 - `gloci index`: Build a .tbi/.csi index for a sorted BGZF file, a .bai/.csi for a BAM, a .crai for a CRAM, or a .fai for a FASTA (tabix, samtools index)

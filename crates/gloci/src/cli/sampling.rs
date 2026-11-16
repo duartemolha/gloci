@@ -154,8 +154,9 @@ pub struct FisherArgs {
     /// (alignments are read as intervals, as `intersect` reads them).
     #[arg(long, value_name = "FMT")]
     pub b_format: Option<String>,
-    /// Genome with chromosome lengths: a built-in genome such as hg38 (see gloci genomes), or a
-    /// .genome, .fai, .dict, VCF/BCF or BAM header file. Its lengths add up to the genome size.
+    /// Genome with chromosome lengths: a built-in genome such as hg38 (see gloci genomes list),
+    /// or a .genome, .fai, .dict, VCF/BCF or BAM header file. Its lengths add up to the genome
+    /// size.
     #[arg(short, long, value_name = "NAME|FILE", required = true)]
     pub genome: String,
     /// Merge overlapping and bookended intervals of each input before counting (bedtools -m).
@@ -473,7 +474,7 @@ Examples:
   gloci random -g genome.txt -l 1000 -n 1000 --seed 7 | gloci sort -g genome.txt - > sorted.bed
   gloci random -g hg38 -n 10000 --seed 1 -o a.bed && gloci shift a.bed --by 5 -g hg38")]
 pub struct RandomArgs {
-    /// Chromosomes and lengths: a built-in genome such as hg38 (see gloci genomes), or a
+    /// Chromosomes and lengths: a built-in genome such as hg38 (see gloci genomes list), or a
     /// .genome, .fai or .dict file.
     #[arg(short, long, value_name = "NAME|FILE", required = true)]
     pub genome: String,
@@ -529,7 +530,7 @@ pub struct ShuffleArgs {
     /// Input file (`-` for stdin).
     #[arg(value_name = "FILE")]
     pub file: String,
-    /// Chromosomes and lengths: a built-in genome such as hg38 (see gloci genomes), or a
+    /// Chromosomes and lengths: a built-in genome such as hg38 (see gloci genomes list), or a
     /// .genome, .fai or .dict file.
     #[arg(short, long, value_name = "NAME|FILE", required = true)]
     pub genome: String,

@@ -67,7 +67,7 @@ pub struct ThreadArgs {
 #[derive(Args, Debug, Clone)]
 pub struct GenomeArg {
     /// Chromosome order and sizes: a built-in genome such as hg38 (see
-    /// gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file.
+    /// gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file.
     #[arg(short, long, value_name = "NAME|FILE")]
     pub genome: Option<String>,
 }

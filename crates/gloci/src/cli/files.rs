@@ -221,7 +221,8 @@ pub struct ConvertArgs {
     ])]
     pub bam: bool,
     /// With --bam: the references of the BAM header, in their order: a built-in genome
-    /// such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file.
+    /// such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header
+    /// file.
     #[arg(short, long, value_name = "NAME|FILE", requires = "bam")]
     pub genome: Option<String>,
     /// With --bam: the MAPQ of every record, 0 to 255 (default 255; bedtools -mapq).
@@ -492,16 +493,13 @@ pub struct SortArgs {
 
 /// List the built-in genomes that -g accepts, or print one.
 ///
-/// Without a subcommand, prints one line per built-in genome with the
-/// columns id, species, assembly, naming (ucsc or ensembl), sequences
-/// and total_bp, separated by tabs. The lengths come from UCSC
-/// chrom.sizes files and from the Ensembl core databases; the sources
-/// are recorded in crates/gloci-io/data/genomes/SOURCES.toml in the
-/// source tree.
+/// gloci genomes list prints one line per built-in genome, and gloci
+/// genomes with no subcommand prints the same list. gloci genomes show
+/// NAME prints one genome as a .genome file.
 #[derive(Args)]
 #[command(after_long_help = "\
 Examples:
-  gloci genomes
+  gloci genomes list
   gloci genomes show hg38
   gloci sort peaks.bed -g hg38 > peaks.sorted.bed")]
 #[command(args_conflicts_with_subcommands = true)]
@@ -512,6 +510,19 @@ pub struct GenomesArgs {
 
 #[derive(Subcommand)]
 pub enum GenomesAction {
+    /// List the built-in genomes, one tab-separated line each.
+    ///
+    /// The columns are id, species, assembly, naming (ucsc or ensembl),
+    /// sequences and total_bp, with no header line. The ids are what -g and
+    /// gloci genomes show take. The lengths come from UCSC chrom.sizes files
+    /// and from the Ensembl core databases; the sources are recorded in
+    /// crates/gloci-io/data/genomes/SOURCES.toml in the source tree.
+    #[command(after_long_help = "\
+Examples:
+  gloci genomes list
+  gloci genomes list | grep -i sapiens
+  gloci genomes list | cut -f1")]
+    List,
     /// Print one built-in genome as name and length, tab-separated.
     ///
     /// The chromosomes come in the order -g uses for sorting. The output is
@@ -522,7 +533,7 @@ Examples:
   gloci genomes show GRCh38 > GRCh38.genome
   gloci genomes show mm39 | cut -f1")]
     Show {
-        /// Genome id (case-insensitive), as listed by gloci genomes.
+        /// Genome id (case-insensitive), as listed by gloci genomes list.
         name: String,
     },
 }

@@ -70,7 +70,7 @@ to get the reference order.
 
 bedtools needs a chrom-sizes file (`-g human.hg38.genome`). gloci has the common
 assemblies built in, so `-g hg38` replaces it: `gloci sort x.bed -g hg38`. Files
-still work, and a file named like a built-in wins (with a warning). `gloci genomes`
+still work, and a file named like a built-in wins (with a warning). `gloci genomes list`
 lists the built-ins (UCSC names such as `hg38` and `mm39`, Ensembl names such as
 `GRCh38` and `GRCm39`) and `gloci genomes show hg38` prints one as a `.genome`
 file. Yeast (`-g sacCer3`) comes in chromosome order, I to XVI.

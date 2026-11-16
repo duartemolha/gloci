@@ -1,5 +1,6 @@
 mod common;
 use common::*;
+use predicates::prelude::*;
 use predicates::str::contains;
 
 const IDS: [&str; 19] = [
@@ -69,6 +70,57 @@ fn genomes_command() {
         .assert()
         .code(2)
         .stderr(contains("did you mean"));
+}
+
+/// `gloci genomes list` is the listing, shown under Commands in `gloci genomes --help`;
+/// `gloci genomes` alone still prints it.
+#[test]
+fn genomes_list_is_the_listing() {
+    let listed = stdout_of(["genomes", "list"]);
+    assert_eq!(listed, stdout_of(["genomes"]));
+    assert_eq!(listed.lines().count(), IDS.len());
+    for (line, id) in listed.lines().zip(IDS) {
+        assert_eq!(line.split('\t').next(), Some(id));
+        assert_eq!(line.split('\t').count(), 6, "{line}");
+    }
+    let help = stdout_of(["genomes", "--help"]);
+    assert!(
+        help.lines().any(|l| l.trim_start().starts_with("list ")),
+        "{help}"
+    );
+    gloci().args(["genomes", "list", "hg38"]).assert().code(2);
+}
+
+/// An unknown name says where the list is. `genomes show` takes only an id, so its message
+/// offers no file; `-g` also takes files and says so.
+#[test]
+fn an_unknown_genome_points_at_the_list() {
+    gloci()
+        .args(["genomes", "show", "human"])
+        .assert()
+        .code(2)
+        .stderr(contains("unknown genome \"human\""))
+        .stderr(contains("built-in genomes: hg19, hg38,"))
+        .stderr(contains(
+            "gloci genomes list shows their species and assemblies",
+        ))
+        .stderr(contains(".fai").not());
+    gloci()
+        .args(["sort", &w("h.bed", "chr1\t1\t2\n"), "-g", "human"])
+        .assert()
+        .code(2)
+        .stderr(contains("-g takes a built-in genome (hg19, hg38,"))
+        .stderr(contains(
+            "gloci genomes list shows their species and assemblies",
+        ))
+        .stderr(contains(
+            "or an existing .fai, .genome, .dict, VCF/BCF or BAM file",
+        ));
+    gloci()
+        .args(["genomes", "show", "hg37"])
+        .assert()
+        .code(2)
+        .stderr(contains("unknown genome \"hg37\" (did you mean"));
 }
 
 #[test]

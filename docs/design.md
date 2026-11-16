@@ -238,7 +238,7 @@ Further rules:
 
 gloci ships chromosome names and sizes for common assemblies, so `-g hg38` works without a file. Passing a file still works.
 
-- **How `-g` resolves.** A value containing `/`, or naming an existing file, is a file. Otherwise it is looked up as a built-in name (case-insensitive). An unknown name is an error listing the built-ins, with a "did you mean" suggestion.
+- **How `-g` resolves.** A value containing `/`, or naming an existing file, is a file. Otherwise it is looked up as a built-in name (case-insensitive). An unknown name is an error listing the built-ins, with a "did you mean" suggestion, that points at `gloci genomes list` for their species and assemblies; `-g`'s error also names the file forms, `gloci genomes show`'s does not, since `show` takes only a built-in id. **[owner request, 2026-11-16]**
 - **Naming styles are separate entries**, because names must match exactly (Section 4.5):
   - UCSC ids use `chr`-prefixed names.
   - GRC/Ensembl ids use the Ensembl names (`1 … 22, X, Y, MT`).
@@ -257,7 +257,7 @@ gloci ships chromosome names and sizes for common assemblies, so `-g hg38` works
   - UCSC entries contain every sequence in the UCSC table, including alts, randoms and unplaced contigs, each with its real length.
   - Ensembl-named entries use Ensembl's primary assembly: chromosomes plus unlocalized and unplaced contigs, with LRG regions excluded. They leave out haplotype and patch regions, because Ensembl stores those as N-padded copies the length of a whole chromosome. Those copies would distort genome-wide operations such as `complement -g` or `windows -g`. A file that uses such contigs can pass a `.fai` instead. **[revised 2026-11-07]**
 - **The data is compiled into the binary** (a few hundred KB), so installing and building need no network. A maintainer script refreshes it.
-- **`gloci genomes`** lists the built-ins: id, species, assembly, naming style, sequence count and total length. `gloci genomes show NAME` prints one as a 2-column `.genome` file.
+- **`gloci genomes list`** lists the built-ins: id, species, assembly, naming style, sequence count and total length, tab-separated with no header line. `gloci genomes` alone prints the same list; `list` is there so the listing shows under Commands in `gloci genomes --help` and has a page in the command reference **[owner request, 2026-11-16]**. `gloci genomes show NAME` prints one as a 2-column `.genome` file.
 
 ## 6. CLI conventions
 
@@ -495,7 +495,7 @@ How the old commands map onto `partition`:
 - Also handles format conversion (`-O vcf.gz|bcf|...`), `--header-only` and `--no-header`.
 - **`view` on alignments (BAM, SAM, CRAM)** **[D116]** converts BAM↔SAM and CRAM→BAM/SAM (as `-O` or the `-o` extension say; the input's format by default, BAM for CRAM) and writes every record, unmapped reads included (D120), with an `@PG` line added. `--header-only`, `--no-header` (SAM output only) and the read filters apply. Regions are read through the index (`.bai`, `.csi`, `.crai`) or by scanning, with a warning, and select by Section 4.3 on the D101 span; a placed unmapped read spans `[pos, pos+1)`, as samtools finds it. The `.bai` and `.crai` answers for a region past a reference's `LN` differ as samtools' do. It is not `samtools view`: there is no `-b`, `-h`, `-c` or `-L`. **[D116]**
 
-**`gloci genomes [show NAME]`** — P0. Lists the built-in genomes, or prints one as a `.genome` file (Section 5.3).
+**`gloci genomes [list | show NAME]`** — P0. Lists the built-in genomes, or prints one as a `.genome` file (Section 5.3). `list` was added on 2026-11-16; `gloci genomes` alone still lists.
 
 **`gloci check FILE...`** — P0.
 

@@ -147,7 +147,7 @@ pass -g with a built-in genome such as hg38 or a .fai file",
         .into()),
         _ => Err(UsageError(
             "-g is required unless the input is BAM, CRAM or SAM: give a built-in genome such as \
-hg38 (see gloci genomes), or a .fai, .genome or .dict file"
+hg38 (see gloci genomes list), or a .fai, .genome or .dict file"
                 .into(),
         )
         .into()),

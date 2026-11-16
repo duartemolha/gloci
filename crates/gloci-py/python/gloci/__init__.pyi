@@ -256,7 +256,7 @@ class Pipeline:
             sort: Sort the inputs first, for inputs that are unsorted or too large to sort in memory (external sort bounded by --max-mem). The sorted records are written to a temporary file in --tmp-dir and read back, so besides the spill runs (about the size of the input, compressed) the directory needs one uncompressed sorted copy: allow roughly twice the input size. Everything is removed afterwards
             max_mem: Memory budget for --sort, in binary units (K, M, G, T); at least 16M
             tmp_dir: Directory for temporary files: --sort's, and the spills of per-chromosome runs on indexed and plain files; ignored when nothing spills. It must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
-            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
             chrom_order: Chromosome order when neither -g nor the header of a VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
@@ -346,7 +346,7 @@ class Pipeline:
             sort: Sort the inputs first, for inputs that are unsorted or too large to sort in memory (external sort bounded by --max-mem). The sorted records are written to a temporary file in --tmp-dir and read back, so besides the spill runs (about the size of the input, compressed) the directory needs one uncompressed sorted copy: allow roughly twice the input size. Everything is removed afterwards
             max_mem: Memory budget for --sort, in binary units (K, M, G, T); at least 16M
             tmp_dir: Directory for temporary files: --sort's, and the spills of per-chromosome runs on indexed and plain files; ignored when nothing spills. It must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
-            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
             chrom_order: Chromosome order when neither -g nor the header of a VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
@@ -420,7 +420,7 @@ class Pipeline:
             sort: Sort the inputs first, for inputs that are unsorted or too large to sort in memory (external sort bounded by --max-mem). The sorted records are written to a temporary file in --tmp-dir and read back, so besides the spill runs (about the size of the input, compressed) the directory needs one uncompressed sorted copy: allow roughly twice the input size. Everything is removed afterwards
             max_mem: Memory budget for --sort, in binary units (K, M, G, T); at least 16M
             tmp_dir: Directory for temporary files: --sort's, and the spills of per-chromosome runs on indexed and plain files; ignored when nothing spills. It must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
-            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
             chrom_order: Chromosome order when neither -g nor the header of a VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
@@ -514,7 +514,7 @@ class Pipeline:
             sort: Sort the inputs first, for inputs that are unsorted or too large to sort in memory (external sort bounded by --max-mem). The sorted records are written to a temporary file in --tmp-dir and read back, so besides the spill runs (about the size of the input, compressed) the directory needs one uncompressed sorted copy: allow roughly twice the input size. Everything is removed afterwards
             max_mem: Memory budget for --sort, in binary units (K, M, G, T); at least 16M
             tmp_dir: Directory for temporary files: --sort's, and the spills of per-chromosome runs on indexed and plain files; ignored when nothing spills. It must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
-            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
             chrom_order: Chromosome order when neither -g nor the header of a VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
@@ -604,7 +604,7 @@ class Pipeline:
             sort: Sort the inputs first, for inputs that are unsorted or too large to sort in memory (external sort bounded by --max-mem). The sorted records are written to a temporary file in --tmp-dir and read back, so besides the spill runs (about the size of the input, compressed) the directory needs one uncompressed sorted copy: allow roughly twice the input size. Everything is removed afterwards
             max_mem: Memory budget for --sort, in binary units (K, M, G, T); at least 16M
             tmp_dir: Directory for temporary files: --sort's, and the spills of per-chromosome runs on indexed and plain files; ignored when nothing spills. It must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
-            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
             chrom_order: Chromosome order when neither -g nor the header of a VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
@@ -780,7 +780,7 @@ class Pipeline:
             sort: Sort the inputs first, for inputs that are unsorted or too large to sort in memory (external sort bounded by --max-mem). The sorted records are written to a temporary file in --tmp-dir and read back, so besides the spill runs (about the size of the input, compressed) the directory needs one uncompressed sorted copy: allow roughly twice the input size. Everything is removed afterwards
             max_mem: Memory budget for --sort, in binary units (K, M, G, T); at least 16M
             tmp_dir: Directory for temporary files: --sort's, and the spills of per-chromosome runs on indexed and plain files; ignored when nothing spills. It must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
-            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
             chrom_order: Chromosome order when neither -g nor the header of a VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
@@ -835,7 +835,7 @@ class Pipeline:
             a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
             b: B: the file to compare A with (`-` for stdin)
             b_format: B's format, overriding detection: bed, bedgraph, gff, vcf or bcf; bam, cram or sam (alignments are read as intervals, as `intersect` reads them)
-            genome: Genome with chromosome lengths: a built-in genome such as hg38 (see gloci genomes), or a .genome, .fai, .dict, VCF/BCF or BAM header file. Its lengths add up to the genome size
+            genome: Genome with chromosome lengths: a built-in genome such as hg38 (see gloci genomes list), or a .genome, .fai, .dict, VCF/BCF or BAM header file. Its lengths add up to the genome size
             g: alias of genome
             merge_overlaps: Merge overlapping and bookended intervals of each input before counting (bedtools -m)
             m: alias of merge_overlaps
@@ -900,7 +900,7 @@ class Pipeline:
             max_mem: Memory budget for --sort, in binary units (K, M, G, T); at least 16M
             tmp_dir: Directory for temporary files: --sort's, and the spills of per-chromosome runs on indexed and plain files; ignored when nothing spills. It must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
             unsorted: Accept inputs in any order and keep A's order in the output; every -b file is held in memory. Cannot be combined with --sort
-            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
             chrom_order: Chromosome order when neither -g nor the header of a VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
@@ -948,7 +948,7 @@ class Pipeline:
             c: alias of column
             empty: Value for an aggregation with no values
             delim: Separator for collapse and distinct lists
-            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
             chrom_order: Chromosome order when neither -g nor the header of a VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
@@ -994,7 +994,7 @@ class Pipeline:
             no_membership: Write coordinates only (BED3)
             bedgraph: Inputs are bedGraphs: write one value column per file
             empty: With --bedgraph: the value of a file that does not cover a segment (default 0); also writes the segments no file covers
-            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
             chrom_order: Chromosome order when neither -g nor the header of a VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
@@ -1024,7 +1024,7 @@ class Pipeline:
         """Write the bases no feature covers (bedtools complement, bedops -c)
 
         Args:
-            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
             chrom_order: Chromosome order when neither -g nor the header of a VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
@@ -1063,7 +1063,7 @@ class Pipeline:
         """Sort BED/bedGraph/GFF/VCF/BCF files, or BAM/SAM/CRAM alignments, with bounded memory (bedtools sort, samtools sort)
 
         Args:
-            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
             chrom_order: Chromosome order when neither -g nor the header of a VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
             format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
@@ -1230,7 +1230,7 @@ class Pipeline:
             regions_file: Read regions from FILE (BED: 0-based, half-open); see --region
             inclusive_points: A point on the edge of a region overlaps it
             assume_sorted: Find regions in an uncompressed BED file without an index by binary search, like bedextract. Fast, but it trusts that the file is sorted (in -g or --chrom-order order) and checks only the chromosome block it reads; on an unsorted file the answer can be incomplete
-            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
             chrom_order: Chromosome order when neither -g nor the header of a VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
             header_only: Write only the header lines
@@ -1297,7 +1297,7 @@ class Pipeline:
             fastq2: With --fastq: write the second mate of each pair to FASTQ and the first to -o; the input must be sorted by name (bedtools -fq2)
             tags: With --fastq2: take the second end from the R2 and Q2 tags of the first record of each pair (bedtools -tags)
             bam: BED, GFF, VCF, or BEDPE with --format bedpe: write the records as BAM instead of BED, to -o or stdout (bedtools bedtobam, bedpetobam); needs -g
-            genome: With --bam: the references of the BAM header, in their order: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            genome: With --bam: the references of the BAM header, in their order: a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
             mapq: With --bam: the MAPQ of every record, 0 to 255 (default 255; bedtools -mapq)
             min_mapq: Skip alignments with a mapping quality below N (BAM, CRAM and SAM input)
@@ -1336,7 +1336,7 @@ class Pipeline:
             right: Pad the right side by N
             s: Swap --left and --right for minus-strand records
             pct: Read each amount as a fraction of the feature length (0.5 or 50%, floored) instead of bases
-            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
             format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
             header: Keep header lines in the output
@@ -1370,7 +1370,7 @@ class Pipeline:
             right: Pad the right side by N
             s: Swap --left and --right for minus-strand records
             pct: Read each amount as a fraction of the feature length (0.5 or 50%, floored) instead of bases
-            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
             format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
             header: Keep header lines in the output
@@ -1398,7 +1398,7 @@ class Pipeline:
             by: Bases to move each feature by; negative moves toward the start of the chromosome (with --pct, a signed fraction of the feature length)
             s: Negate the shift for minus-strand records (unknown strand counts as +)
             pct: Read --by as a fraction of the feature length (0.5, -25%, floored) instead of bases
-            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
             format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
             header: Keep header lines in the output
@@ -1433,7 +1433,7 @@ class Pipeline:
             d: alias of max_gap
             strand: Cluster each strand separately
             s: alias of strand
-            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
             chrom_order: Chromosome order when neither -g nor the header of a VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
@@ -1465,7 +1465,7 @@ class Pipeline:
         """Give every record its distance to the previous record (bedtools spacing)
 
         Args:
-            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
             chrom_order: Chromosome order when neither -g nor the header of a VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
@@ -1533,7 +1533,7 @@ class Pipeline:
         """Depth of coverage of a genome by the features of a BED file or the reads of a BAM (bedtools genomecov -i and -ibam)
 
         Args:
-            genome: Chromosome order and sizes (required unless the input is BAM, CRAM or SAM, which gives its header's): a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome or .dict file
+            genome: Chromosome order and sizes (required unless the input is BAM, CRAM or SAM, which gives its header's): a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome or .dict file
             g: alias of genome
             hist: Write the histogram of depths (the default)
             bedgraph: Write runs of equal depth above zero as bedGraph
@@ -1980,7 +1980,7 @@ class Pipeline:
         """Move every record to a random place in the genome (bedtools shuffle)
 
         Args:
-            genome: Chromosomes and lengths: a built-in genome such as hg38 (see gloci genomes), or a .genome, .fai or .dict file
+            genome: Chromosomes and lengths: a built-in genome such as hg38 (see gloci genomes list), or a .genome, .fai or .dict file
             g: alias of genome
             include: Keep records inside these regions (BED, GFF or VCF; default: the whole genome)
             exclude: Keep records off these regions (BED, GFF or VCF)
@@ -2239,7 +2239,7 @@ class Pipeline:
         """Cut chromosomes or intervals into windows (bedtools makewindows, bedops --chop)
 
         Args:
-            genome: Cut every chromosome of a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome or .dict file with lengths
+            genome: Cut every chromosome of a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome or .dict file with lengths
             g: alias of genome
             size: Window size in bases
             w: alias of size
@@ -2693,7 +2693,7 @@ def vcf_compare(
         discordance_matrix: Write PREFIX.diff.discordance_matrix: genotype of B (rows) by genotype of A (columns), 0/0, 0/1, 1/1 and ./. (vcftools --diff-discordance-matrix)
         diff_discordance_matrix: alias of discordance_matrix
         vcf_span: Which footprint a VCF record covers, which only matters for --region; the default ref accepts symbolic ALTs without INFO/END
-        genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+        genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file
         g: alias of genome
         chrom_order: Chromosome order when neither -g nor the header of a VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
         chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
@@ -2907,7 +2907,7 @@ def windows(
     """Cut chromosomes or intervals into windows (bedtools makewindows, bedops --chop)
 
     Args:
-        genome: Cut every chromosome of a built-in genome such as hg38 (see gloci genomes), or a .fai, .genome or .dict file with lengths
+        genome: Cut every chromosome of a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome or .dict file with lengths
         g: alias of genome
         size: Window size in bases
         w: alias of size
@@ -2937,7 +2937,7 @@ def random(
     """Random intervals placed uniformly over a genome (bedtools random)
 
     Args:
-        genome: Chromosomes and lengths: a built-in genome such as hg38 (see gloci genomes), or a .genome, .fai or .dict file
+        genome: Chromosomes and lengths: a built-in genome such as hg38 (see gloci genomes list), or a .genome, .fai or .dict file
         g: alias of genome
         length: Length of each interval in bases
         l: alias of length

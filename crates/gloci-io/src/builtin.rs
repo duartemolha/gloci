@@ -196,16 +196,30 @@ fn closest(name: &str) -> Option<&'static str> {
         .map(|(_, id)| id)
 }
 
-/// The usage error for a `-g` value that is neither a file nor a built-in.
+/// The usage error for `gloci genomes show` with a name that is not a built-in id. A `-g`
+/// value gets its own message from [`resolve_genome`], which also names the file forms.
 pub fn unknown_genome(arg: &str) -> IoError {
-    let ids: Vec<&str> = GENOMES.iter().map(|g| g.id).collect();
+    IoError::Usage(UsageError(format!(
+        "{}; built-in genomes: {}; {LIST_HINT}",
+        unknown_lead(arg),
+        builtin_ids()
+    )))
+}
+
+/// Where to read about the built-ins, for the messages that list their ids.
+const LIST_HINT: &str = "gloci genomes list shows their species and assemblies";
+
+/// `unknown genome "X"`, with a suggestion when one id is close.
+fn unknown_lead(arg: &str) -> String {
     let hint = closest(arg)
         .map(|c| format!(" (did you mean {c}?)"))
         .unwrap_or_default();
-    IoError::Usage(UsageError(format!(
-        "unknown genome \"{arg}\"; built-in genomes: {}{hint}; or pass a .fai/.genome/.dict file",
-        ids.join(", ")
-    )))
+    format!("unknown genome \"{arg}\"{hint}")
+}
+
+/// Every built-in id, comma-separated, in the order gloci genomes list prints them.
+fn builtin_ids() -> String {
+    GENOMES.iter().map(|g| g.id).collect::<Vec<_>>().join(", ")
 }
 
 /// Does a `-g` value look like a path rather than a genome id: it has a path
@@ -229,7 +243,7 @@ pub fn resolve_genome(arg: &str) -> Result<(Genome, OrderSource), IoError> {
     let built = builtin(arg);
     if looks_like_path(arg) && !path.exists() {
         return Err(IoError::Usage(UsageError(format!(
-            "no such file: {arg}; -g takes a built-in genome (gloci genomes lists them) \
+            "no such file: {arg}; -g takes a built-in genome (gloci genomes list shows them) \
 or an existing .fai, .genome, .dict, VCF/BCF or BAM file"
         ))));
     }
@@ -244,6 +258,11 @@ or an existing .fai, .genome, .dict, VCF/BCF or BAM file"
     }
     match built {
         Some(b) => Ok((b.genome(), OrderSource::BuiltinGenome(b.id.to_string()))),
-        None => Err(unknown_genome(arg)),
+        None => Err(IoError::Usage(UsageError(format!(
+            "{}; -g takes a built-in genome ({}; {LIST_HINT}) or an existing .fai, .genome, \
+.dict, VCF/BCF or BAM file",
+            unknown_lead(arg),
+            builtin_ids()
+        )))),
     }
 }
