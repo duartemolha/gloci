@@ -838,3 +838,109 @@ fn eval_query_does_not_allocate_once_warm() {
         );
     }
 }
+
+#[test]
+fn site_only_expressions_agree_with_eval() {
+    let (v, h) = main_vcf();
+    let golden = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/golden/expr_query_bcftools.tsv"
+    ))
+    .unwrap();
+    let mut seen = 0;
+    for row in golden.lines() {
+        let f: Vec<&str> = row.split('\t').collect();
+        let e = parse_expr(f[0], &h).unwrap();
+        let outside = f[0].replace("N_PASS(GT=\"het\")", "N");
+        if outside.contains("GT") || outside.contains("FMT/") {
+            continue; // a per-sample term
+        }
+        seen += 1;
+        let exclude = f[1] == "e";
+        let mut sc = EvalScratch::default();
+        let mut masked = Vec::new();
+        let mut pass = Vec::new();
+        for line in records(&v) {
+            let site = SiteView::from_text(line.as_bytes(), span_of(line)).unwrap();
+            let g = text_genotypes(line.as_bytes()).unwrap();
+            let st = site_stats(
+                &g,
+                None,
+                &MaskRules::default(),
+                n_alleles(site.alts),
+                &mut masked,
+            )
+            .unwrap();
+            let holds = e.eval(&site, Some(&g), Some(&st), &mut sc).unwrap();
+            let r = e
+                .eval_query(exclude, &site, Some(&g), Some(&st), &mut sc, &mut pass)
+                .unwrap();
+            let want = if holds != exclude {
+                QueryPass::All
+            } else {
+                QueryPass::Drop
+            };
+            assert_eq!(r, want, "{} at {}", f[0], site.pos);
+        }
+    }
+    assert!(seen >= 3, "{seen} site-only rows");
+}
+
+#[test]
+fn skipped_operands_are_not_read() {
+    // QUAL=10 fails first; the unreadable INFO/DP and the GT operand are never read.
+    let vcf = "##fileformat=VCFv4.2\n##contig=<ID=1,length=1000>\n\
+##INFO=<ID=DP,Number=1,Type=Integer,Description=\"d\">\n\
+##FORMAT=<ID=GT,Number=1,Type=String,Description=\"g\">\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n1\t10\t.\tA\tC\t10\t.\tDP=abc\tGT\t0/1\n";
+    let h = header_of(vcf);
+    for ex in [
+        "QUAL>30 && INFO/DP>5",
+        "QUAL>30 && (INFO/DP>5 || GT=\"het\")",
+    ] {
+        let e = parse_expr(ex, &h).unwrap();
+        assert_eq!(
+            run_query(&e, false, vcf, None, MaskRules::default(), false),
+            "",
+            "{ex}"
+        );
+        assert_eq!(
+            run_query(&e, true, vcf, None, MaskRules::default(), false),
+            "10:s1",
+            "{ex}"
+        );
+    }
+}
+
+/// bcftools 1.21 on a record with no selected sample (no sample columns, or
+/// `-s ^s1,s2,s3`): a site value that holds still makes the mixed expression
+/// hold, and a sample comparison alone never does.
+#[test]
+fn zero_samples_follow_bcftools() {
+    let sites = "##fileformat=VCFv4.2\n##contig=<ID=1,length=1000>\n\
+##FORMAT=<ID=GT,Number=1,Type=String,Description=\"g\">\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+1\t10\t.\tA\tC\t50\t.\t.\n1\t20\t.\tA\tC\t5\t.\t.\n";
+    let h = header_of(sites);
+    let rules = MaskRules::default;
+    let run = |ex: &str, exclude: bool| {
+        let e = parse_expr(ex, &h).unwrap();
+        run_query(&e, exclude, sites, None, rules(), false)
+    };
+    // bcftools query -i / -e (POS of printed records, no samples to print)
+    assert_eq!(run("QUAL>8 || GT=\"het\"", false), "10:");
+    assert_eq!(run("QUAL>8 || GT=\"het\"", true), "20:");
+    assert_eq!(run("GT=\"het\"", false), "");
+    assert_eq!(run("GT=\"het\"", true), "10: 20:");
+    assert_eq!(run("QUAL>8 && GT=\"het\"", false), "");
+    assert_eq!(run("QUAL>8 && GT=\"het\"", true), "10: 20:");
+    assert_eq!(run("QUAL<8 || GT=\"het\"", false), "20:");
+    assert_eq!(run("QUAL<8 || GT=\"het\"", true), "10:");
+    // main.vcf with -s ^s1,s2,s3
+    let none = [false; 3];
+    let k = Some(&none[..]);
+    assert_eq!(q("GT=\"het\"", false, k, rules()), "");
+    assert_eq!(q("GT=\"het\"", true, k, rules()), "10: 20: 30: 40:");
+    assert_eq!(q("QUAL>8 || GT=\"het\"", false, k, rules()), "10: 30:");
+    assert_eq!(q("QUAL>8", false, k, rules()), "10: 30:");
+}
