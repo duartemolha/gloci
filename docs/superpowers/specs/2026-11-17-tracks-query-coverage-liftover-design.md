@@ -53,7 +53,7 @@ reference tool may be used (below).
 | bigWig/bigBed | The `bigtools` crate (0.5.8, MIT; the owner accepted it on its licence, 2026-11-17; deps tokio, futures, serde, bincode, crossbeam, libdeflater: all MIT or Apache-2.0), with its `read` and `write` features only (no `remote`, no `cli`) | Writing our own reader and writer: several thousand lines for a fiddly format (B+ tree, R-tree index, zoom levels), no gain in behaviour. Skipping the format: the owner would only skip it if it needed UCSC, which it does not |
 | `vcf query` | A new `gloci vcf query` subcommand on the shared selection stage (D157) | Extending `vcf extract` with a format string: `extract` writes fixed tables and matrices; two output models in one command would confuse both |
 | Coverage QC | New options on `gloci depth` (`--summary`; `--by`, `--thresholds`, `--out-prefix`) | A new command: these are summaries of the depth `depth` already computes, and `coverage` is taken by bedtools coverage (stable core) |
-| Liftover | **CrossMap's behaviour** (owner, 2026-11-17: in the owner's experience CrossMap lifts coordinates better), on the `chainfile` crate (0.5.0, Apache-2.0/MIT, St. Jude Rust Labs, maintained, MSRV 1.91 like gloci; deps omics, rust-lapper, flate2, regex, nonempty: permissive) for reading chains and finding every chain segment an interval touches. Every case is checked against CrossMap itself in the comparison image | UCSC `liftOver`'s whole-record rules: the owner prefers CrossMap's results, and with UCSC's tools ruled out there would be no reference to check them against. Depending on a Rust port of CrossMap: `crussmap` is unmaintained since 2023, `fast-crossmap` is a month old with a handful of downloads. Wrapping CrossMap: a Python dependency, GPL |
+| Liftover | **CrossMap's behaviour** (owner, 2026-11-17: in the owner's experience CrossMap lifts coordinates better), with gloci's own chain reader and the `rust-lapper` crate (2.0, MIT) for finding every chain segment an interval touches. (The `chainfile` crate was picked first; planning found it rejects both free chain sources as published, Ensembl's and T2T's, and holds about 180 bytes per aligned block, so gloci reads the simple chain format itself, 2026-11-17.) Every case is checked against CrossMap itself in the comparison image | UCSC `liftOver`'s whole-record rules: the owner prefers CrossMap's results, and with UCSC's tools ruled out there would be no reference to check them against. Depending on a Rust port of CrossMap: `crussmap` is unmaintained since 2023, `fast-crossmap` is a month old with a handful of downloads. Wrapping CrossMap: a Python dependency, GPL |
 
 ## Feature 1: bigWig and bigBed
 
@@ -230,8 +230,8 @@ add.
   with an anchor and a golden case. Output formatting quirks that carry no meaning
   (CrossMap's extra annotation columns) follow gloci's conventions and are documented
   too.
-- `chainfile`'s `liftover::Machine` finds the chain segments an interval touches;
-  gloci's own code applies CrossMap's rules to them, per format.
+- gloci's chain reader indexes the aligned blocks per source chromosome; gloci's
+  own code applies CrossMap's rules to the segments an interval touches, per format.
 - **Output order** is input order (as CrossMap writes), with target chromosome names
   from the chain. The help says to pipe the output through `gloci sort`. Without
   `--unmapped`, the unmapped records are counted in a warning, never dropped
