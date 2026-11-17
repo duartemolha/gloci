@@ -6,6 +6,7 @@ use crate::vcf_select::{
 };
 use gloci_io::{IoError, Loc};
 use gloci_vcf::{QueryFormat, RewritePlan, SampleCols};
+use std::collections::HashMap;
 use std::io::Write;
 use std::num::NonZeroUsize;
 
@@ -37,19 +38,20 @@ fn write_err(source: std::io::Error) -> IoError {
 }
 
 /// Positions in `kept` in the order the samples print: the order `--samples` gave
-/// them, else `0..kept.len()` (D172).
+/// them (a name excluded or repeated is skipped), else `0..kept.len()` (D172).
 fn print_order(sel: &VcfSelect, names: &[Vec<u8>], kept: &[usize]) -> Vec<usize> {
-    let Some(given) = sel
-        .include_samples
-        .as_ref()
-        .filter(|_| sel.exclude_samples.is_empty())
-    else {
+    let Some(given) = sel.include_samples.as_ref() else {
         return (0..kept.len()).collect();
     };
+    let mut at: HashMap<&[u8], usize> = HashMap::with_capacity(kept.len());
+    for (pos, &h) in kept.iter().enumerate() {
+        at.entry(names[h].as_slice()).or_insert(pos);
+    }
+    let mut seen = vec![false; kept.len()];
     let mut order = Vec::with_capacity(kept.len());
     for name in given {
-        if let Some(pos) = kept.iter().position(|&h| names[h] == name.as_bytes())
-            && !order.contains(&pos)
+        if let Some(&pos) = at.get(name.as_bytes())
+            && !std::mem::replace(&mut seen[pos], true)
         {
             order.push(pos);
         }

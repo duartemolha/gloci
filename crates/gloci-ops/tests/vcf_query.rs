@@ -167,6 +167,15 @@ fn query_prints_samples_in_the_order_given() {
         let got = query(&vcf, by_include, "%POS[,%SAMPLE]\n", false, threads).unwrap();
         assert_eq!(got.lines().count(), 4);
         assert!(got.lines().all(|l| l.ends_with(",s3,s1")), "{got}");
+        let by_include = VcfSelect {
+            include_samples: names(&["s3", "s1"]),
+            ..VcfSelect::default()
+        };
+        let got = query(&vcf, by_include, "%POS[,%SAMPLE]\n", true, threads).unwrap();
+        assert_eq!(
+            got.lines().next().unwrap(),
+            "#[1]POS,[2]s3:SAMPLE,[3]s1:SAMPLE"
+        );
         let by_exclude = VcfSelect {
             exclude_samples: vec!["s2".into()],
             ..VcfSelect::default()
@@ -237,4 +246,33 @@ fn query_error_names_the_record() {
         }
         e => panic!("{e:?}"),
     }
+}
+
+#[test]
+fn query_keeps_the_given_order_with_exclusions_and_repeats() {
+    let dir = tempfile::tempdir().unwrap();
+    let vcf = main_vcf(dir.path());
+    let run = |inc: &[&str], exc: &[&str]| {
+        let select = VcfSelect {
+            include_samples: names(inc),
+            exclude_samples: exc.iter().map(|s| s.to_string()).collect(),
+            ..VcfSelect::default()
+        };
+        query(&vcf, select, "%POS[,%SAMPLE]\n", false, Some(4)).unwrap()
+    };
+    assert!(
+        run(&["s3", "s1"], &["s1"])
+            .lines()
+            .all(|l| l.ends_with(",s3") && !l.contains("s1"))
+    );
+    assert!(
+        run(&["s3", "s2", "s1"], &["s2"])
+            .lines()
+            .all(|l| l.ends_with(",s3,s1"))
+    );
+    assert!(
+        run(&["s3", "s1", "s3"], &[])
+            .lines()
+            .all(|l| l.ends_with(",s3,s1"))
+    );
 }
