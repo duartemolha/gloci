@@ -17,14 +17,18 @@ fn diff_image_pins_crossmap_without_ucsc() {
     ] {
         assert!(text.contains(needle), "Dockerfile lacks `{needle}`");
     }
-    // The guard line in the Dockerfile itself greps for "ucsc", so look only at non-comment words
-    // that name a package: no package or tool line may mention it.
+    // The build-time guard line (`micromamba list ... | grep -qi ucsc`) must be there: it also
+    // catches transitive dependencies, which this text check cannot see. Only that exact line may
+    // name the word; no other non-comment line may.
+    const GUARD: &str = "&& ! micromamba list -n base | grep -qi ucsc";
+    assert!(
+        text.lines().any(|l| l.trim() == GUARD),
+        "Dockerfile lacks its build-time guard line `{GUARD}`"
+    );
     let lower = text.to_lowercase();
     let hits: Vec<&str> = lower
         .lines()
-        .filter(|l| {
-            l.contains("ucsc") && !l.trim_start().starts_with('#') && !l.contains("grep -qi ucsc")
-        })
+        .filter(|l| l.contains("ucsc") && !l.trim_start().starts_with('#') && l.trim() != GUARD)
         .collect();
     assert!(hits.is_empty(), "UCSC named in the Dockerfile: {hits:?}");
 }
