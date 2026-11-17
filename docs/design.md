@@ -611,6 +611,12 @@ Definitions:
 - `--format KEYS --layout wide|long` writes per-sample values.
 - `--genotype-matrix 012` writes `.012`, `.indv` and `.pos` files.
 
+**`gloci vcf query IN -f FORMAT`** — built on the owner's request of 2026-11-17 (D172). Replaces `bcftools query`.
+
+- bcftools 1.21's format language for the common fields; anything else is a usage error naming it.
+- Every selection option runs through the shared stage, where `--include`/`--exclude` that read genotypes pick samples as well as records, as bcftools query does, while the other `vcf` commands keep or drop whole records (D71).
+- Differences are in `docs/differences.md` (`#vcf-query-values` to `#vcf-query-format-strict`).
+
 **`gloci vcf concat FILES...`** — P2. Replaces `vcf-concat`.
 
 - Checks that samples, headers and order are compatible.

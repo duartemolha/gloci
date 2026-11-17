@@ -1444,6 +1444,41 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
   site), plus `allele_beyond_alt_errors_or_is_skipped_and_vcftools_writes_1` and `genotype_matrix_matches_vcftools_files` in
   `crates/gloci/tests/vcf_extract.rs`.
 
+## `vcf query` copies %INFO and %LINE as written {#vcf-query-values}
+
+- **gloci:** for VCF input the two whole columns are the record's text (with `--samples` and masks applied, as `vcf filter` writes it); single values (`%QUAL`, typed tags) are re-printed as bcftools prints them, and BCF input prints both columns as bcftools does.
+- **Old behaviour:** bcftools reads every record into binary form, so `AF=0.600000` comes out `0.6` and QUAL `50.0` `50` in `%INFO` and `%LINE`.
+- **Reason:** these fields give the record back, and gloci keeps records as written (as [`vcf filter` keeps values as written](#vcf-filter-values)).
+- **Pinned by:** `vcf-query-info-values-vs-bcftools` and `vcf-query-line-values-vs-bcftools`.
+
+## `vcf query`: a subscript past the end is missing {#vcf-query-index-past-end}
+
+- **gloci:** `%DP{1}` on `DP=10` prints `.`.
+- **Old behaviour:** bcftools 1.21 prints the value for any subscript of a one-value Integer or Float INFO tag (`10`; `%AC{1}` on `AC=1` is `1`), though not for a String or a FORMAT tag.
+- **Reason:** the value has no element N (as [the filter expressions](#expr-index-past-end)).
+- **Pinned by:** `vcf-query-index-past-end-vs-bcftools`.
+
+## `vcf query -H` names %INFO {#vcf-query-header-info}
+
+- **gloci:** the column is `[N]INFO`.
+- **Old behaviour:** bcftools 1.21 writes `[N](null)`.
+- **Reason:** the column holds the INFO field, and a name is more useful than a null pointer.
+- **Pinned by:** `vcf-query-header-info-vs-bcftools`.
+
+## `vcf query --samples`: whole-header subscripts {#vcf-query-samples}
+
+- **gloci:** `GT[0]` in `--include` is the header's first sample, as for the other `vcf` commands. Samples print in the order `--samples` gives, as bcftools prints them: that is not a difference.
+- **Old behaviour:** with `-s`, bcftools query numbers the selected samples, in the order given.
+- **Reason:** one numbering for every `vcf` command (D71).
+- **Pinned by:** `vcf-query-samples-subscript-vs-bcftools`.
+
+## `vcf query` refuses formats bcftools reads loosely {#vcf-query-format-strict}
+
+- **gloci:** an unknown escape (`\x`), a `]` without `[`, a `[` inside `[ ]`, a `{` after a field that is not `{N}` or a subscript on a field that takes none (`%POS{1}`), `%LINE` inside `[ ]`, and `-H` with `%LINE` are usage errors naming the construct and its column.
+- **Old behaviour:** bcftools prints `x` for `\x`, drops the `]`, ignores the inner `[`, prints the `{` as text (`%POS{1}` gives `10{1}`), and exits 255 (`cannot write to standard output`) for `-H` with `%LINE`.
+- **Reason:** each is almost always a typo, and printing it would give a quiet wrong column.
+- **Pinned by:** `vcf-query-unknown-escape-vs-bcftools`, `vcf-query-stray-bracket-vs-bcftools` and `vcf-query-subscript-on-fixed-vs-bcftools`.
+
 ## `vcf stats --singletons` names a carrier that masking left {#vcf-stats-singletons-masked}
 
 - **gloci:** with genotype masking (`--min-gq`, `--min-dp`, `--max-dp`,

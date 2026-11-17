@@ -275,7 +275,7 @@ fn query_out_of_range_integers_print_missing_and_warn_once_per_tag() {
     assert_eq!(
         out,
         "5\t.\t1,.,3\t.\n6\t2147483647\t2147483647\t2147483647\n7\t.\t.,4\t.\n\
-         8\t.\t.,.\t.\n9\t.\t7\t.\n"
+         8\t.\t.,.\t.\n9\t.\t7\t.\n10\t.\t.,.,5\t.\n"
     );
     let err = String::from_utf8(o.get_output().stderr.clone()).unwrap();
     for tag in [

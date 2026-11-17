@@ -177,8 +177,10 @@ fn write_field(
                     )
                 })?;
                 if let Some(n) = range {
-                    warned
-                        .out_of_range(&format!("FORMAT/{}", String::from_utf8_lossy(&tag.name)), n);
+                    warned.out_of_range(
+                        &format!("FORMAT/{}", String::from_utf8_lossy(&tag.name)),
+                        &n,
+                    );
                 }
             }
         }
@@ -226,7 +228,7 @@ fn write_info_tag(
                 )
             })?;
             if let Some(n) = range {
-                warned.out_of_range(&format!("INFO/{}", String::from_utf8_lossy(&tag.name)), n);
+                warned.out_of_range(&format!("INFO/{}", String::from_utf8_lossy(&tag.name)), &n);
             }
             Ok(())
         }

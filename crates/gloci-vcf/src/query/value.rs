@@ -26,12 +26,12 @@ impl PartialEq for Warned {
 
 impl Warned {
     /// Warn that `what` (`INFO/I`) holds `value`, the first time for that tag.
-    pub(super) fn out_of_range(&self, what: &str, value: i64) {
+    pub(super) fn out_of_range(&self, what: &str, value: &str) {
         let first = self
             .0
             .lock()
-            .map(|mut set| set.insert(what.to_string()))
-            .unwrap_or(false);
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(what.to_string());
         if first {
             log::warn!(
                 "vcf query: {what} value {value} is outside the 32-bit range of VCF integers; \
@@ -49,7 +49,7 @@ pub(super) fn write_typed(
     ty: TagType,
     sub: Option<usize>,
     out: &mut Vec<u8>,
-) -> Result<Option<i64>, String> {
+) -> Result<Option<String>, String> {
     let mut range = None;
     match sub {
         Some(n) => match value.split(|&b| b == b',').nth(n) {
@@ -72,7 +72,7 @@ fn write_element(
     e: &[u8],
     ty: TagType,
     out: &mut Vec<u8>,
-    range: &mut Option<i64>,
+    range: &mut Option<String>,
 ) -> Result<(), String> {
     if e.is_empty() || e == b"." {
         out.push(b'.');
@@ -81,21 +81,33 @@ fn write_element(
     let bad = || String::from_utf8_lossy(e).into_owned();
     match ty {
         TagType::Integer => {
-            let n: i64 = std::str::from_utf8(e)
-                .ok()
-                .and_then(|t| t.parse().ok())
-                .ok_or_else(bad)?;
-            if (INT_MIN..=INT_MAX).contains(&n) {
-                out.extend_from_slice(itoa::Buffer::new().format(n).as_bytes());
-            } else {
-                range.get_or_insert(n);
-                out.push(b'.');
+            let text = std::str::from_utf8(e).map_err(|_| bad())?;
+            match text.parse::<i64>() {
+                Ok(n) if (INT_MIN..=INT_MAX).contains(&n) => {
+                    out.extend_from_slice(itoa::Buffer::new().format(n).as_bytes());
+                }
+                // Beyond i64 is out of range too, when it is digits (bcftools: missing).
+                Ok(_) => {
+                    range.get_or_insert_with(|| text.to_string());
+                    out.push(b'.');
+                }
+                Err(_) if is_integer_text(e) => {
+                    range.get_or_insert_with(|| text.to_string());
+                    out.push(b'.');
+                }
+                Err(_) => return Err(bad()),
             }
         }
         TagType::Float => write_float(e, out).ok_or_else(bad)?,
         TagType::String | TagType::Flag => out.extend_from_slice(e),
     }
     Ok(())
+}
+
+/// An optional sign and at least one digit, nothing else.
+fn is_integer_text(e: &[u8]) -> bool {
+    let digits = e.strip_prefix(b"-").or(e.strip_prefix(b"+")).unwrap_or(e);
+    !digits.is_empty() && digits.iter().all(u8::is_ascii_digit)
 }
 
 /// A float as `TextToBcf` stores it and bcftools prints it: read as 32 bits, written by `kputd`.

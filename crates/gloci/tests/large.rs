@@ -1809,6 +1809,20 @@ fn vcf_parallel_2gib_vcf_streams() {
         rss_run(&format!("vcf filter -t {t} large"), &args, ceiling);
         let args = args_of(&["vcf", "extract", "--info", "DP", "-t", t], &[v]);
         rss_run(&format!("vcf extract -t {t} large"), &args, ceiling);
+        let args = args_of(
+            &[
+                "vcf",
+                "query",
+                "-f",
+                "%CHROM\\t%POS[\\t%GT]\\n",
+                "--include",
+                "GT=\"het\"",
+                "-t",
+                t,
+            ],
+            &[s],
+        );
+        rss_run(&format!("vcf query -t {t} large"), &args, ceiling);
         let d = tempdir();
         let prefix = d.path().join("st");
         let mut args = args_of(&["vcf", "stats", "-t", t, "--out-prefix"], &[&prefix]);
