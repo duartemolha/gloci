@@ -33,6 +33,8 @@ rust-lapper.workspace = true
 ctrlc.workspace = true
 log.workspace = true
 tempfile.workspace = true
+bigtools.workspace = true
+tokio.workspace = true
 
 [dev-dependencies]
 gloci-testkit.workspace = true

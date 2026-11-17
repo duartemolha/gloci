@@ -42,6 +42,9 @@ rayon = "1.12"
 crossbeam-channel = "0.5"
 lz4_flex = "0.14"
 tempfile = "3.27"
+# bigWig and bigBed (D171). `read` and `write` only: no `remote`, no `cli`.
+bigtools = { version = "=0.5.8", default-features = false, features = ["read", "write"] }
+tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-thread"] }
 ctrlc = { version = "3.5", features = ["termination"] }
 # no_thp: mimalloc otherwise asks Linux for transparent huge pages for its whole arena, so
 # every touched 2 MiB is resident. Without it peak memory falls by half or more (merge of
