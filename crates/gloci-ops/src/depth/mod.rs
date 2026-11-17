@@ -9,6 +9,7 @@ mod ring;
 mod rows;
 #[cfg(test)]
 pub(crate) mod test_sink;
+mod waiting;
 
 pub use coverage::{CoverageOptions, CoverageSummary, coverage_summary};
 pub use mates::MateTable;

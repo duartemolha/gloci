@@ -2,10 +2,9 @@
 //! read that the first read's aligned segments already cover are not counted again. The table
 //! holds reads whose mate is still ahead, as [`MateTable`](super::MateTable) does for D139.
 
+use super::waiting::Waiting;
 use gloci_core::Interval;
 use gloci_io::AlnRef;
-use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap};
 
 const FLAG_PROPER_PAIR: u16 = 0x2;
 const FLAG_SUPPLEMENTARY: u16 = 0x800;
@@ -45,13 +44,9 @@ pub fn aligned_segments(r: &AlnRef<'_>, pos: u64, end: u64, out: &mut Vec<Interv
 }
 
 /// mosdepth 0.3.10's pairs (D173): reads waiting for their mate, with their aligned segments.
-/// A min-heap on the mate position drops entries nobody can claim any more; an entry taken or
-/// replaced leaves a stale heap item, skipped when it surfaces.
 #[derive(Default)]
 pub struct PairTable {
-    pending: HashMap<Box<[u8]>, (u64, Vec<Interval>)>,
-    by_mpos: BinaryHeap<Reverse<(u64, Box<[u8]>)>>,
-    peak: usize,
+    waiting: Waiting<Vec<Interval>>,
 }
 
 impl PairTable {
@@ -82,56 +77,38 @@ impl PairTable {
         };
         if let Some(mpos) = mpos
             && end > mpos
-            && (pos < mpos || (pos == mpos && !self.pending.contains_key(r.name())))
+            && (pos < mpos || (pos == mpos && !self.waiting.contains(r.name())))
         {
             let mut segments = Vec::new();
             aligned_segments(r, pos, end, &mut segments);
-            let name: Box<[u8]> = r.name().into();
-            self.by_mpos.push(Reverse((mpos, name.clone())));
-            self.pending.insert(name, (mpos, segments));
-            self.peak = self.peak.max(self.pending.len());
-        } else if let Some((_, segments)) = self.pending.remove(r.name()) {
+            self.waiting.hold(r.name(), mpos, segments);
+        } else if let Some(segments) = self.waiting.take(r.name()) {
             *out = segments;
         }
     }
 
     /// Drop the entries whose mate position is below `pos`.
     pub fn advance(&mut self, pos: u64) {
-        while let Some(Reverse((mpos, _))) = self.by_mpos.peek() {
-            if *mpos >= pos {
-                break;
-            }
-            let Some(Reverse((mpos, name))) = self.by_mpos.pop() else {
-                break;
-            };
-            // A later read of the same name may have been held with its own mate position.
-            if self.pending.get(&name).is_some_and(|&(m, _)| m == mpos) {
-                self.pending.remove(&name);
-            }
-        }
-        if self.pending.is_empty() {
-            self.by_mpos.clear();
-        }
+        self.waiting.advance(pos);
     }
 
     /// Forget everything: a new reference starts.
     pub fn reset(&mut self) {
-        self.pending.clear();
-        self.by_mpos.clear();
+        self.waiting.reset();
     }
 
     /// Reads waiting for a mate.
     pub fn len(&self) -> usize {
-        self.pending.len()
+        self.waiting.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.pending.is_empty()
+        self.waiting.is_empty()
     }
 
     /// The most reads that waited at once.
     pub fn peak(&self) -> usize {
-        self.peak
+        self.waiting.peak()
     }
 }
 
@@ -325,11 +302,81 @@ mod tests {
     #[test]
     fn stale_pair_entry_is_dropped() {
         // mosdepth keeps the entry of `s` to the chromosome's end, so the secondary alignment
-        // at 301 takes it and loses [150,300) of depth; gloci dropped it at `o`.
+        // at 301 takes it and, with its bases beyond the entry's, adds depth over [150,300)
+        // where gloci's drop at `o` leaves it as read.
         let rec = fixture_runs("mosdepth-stale.bam", 1540);
         assert_eq!(
             runs_of(&rec, 0),
             "0-100:0 100-130:1 130-140:2 140-150:1 150-300:0 300-350:1 350-1000:0"
+        );
+        // The same, with the secondary overlapping the held segments [100,150): kept to the
+        // end, the entry would hide its bases at [140,150) (depth 1 there, mosdepth's).
+        let text = pair_sam(&[
+            "s 99 c1 101 50M = 121",
+            "s 1171 c1 121 50M = 101",
+            "o 0 c1 131 10M * 0",
+            "s 355 c1 141 50M = 101",
+        ]);
+        let rec = sam_runs(&text, 1540);
+        assert_eq!(
+            runs_of(&rec, 0),
+            "0-100:0 100-130:1 130-150:2 150-190:1 190-1000:0"
+        );
+    }
+
+    /// A SAM of two references (c1, c2; LN 1000) and `reads` (`name flag ref pos cigar mate-ref
+    /// mate-pos`, positions 1-based).
+    fn pair_sam(reads: &[&str]) -> String {
+        let mut text =
+            String::from("@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:c1\tLN:1000\n@SQ\tSN:c2\tLN:1000\n");
+        for r in reads {
+            let p: Vec<&str> = r.split(' ').collect();
+            text.push_str(&format!(
+                "{}\t{}\t{}\t{}\t60\t{}\t{}\t{}\t0\t*\t*\n",
+                p[0], p[1], p[2], p[3], p[4], p[5], p[6]
+            ));
+        }
+        text
+    }
+
+    fn sam_runs(text: &str, exclude_flags: u16) -> Recorder {
+        let (_, rec) = run_sources(
+            vec![sam_source(text, &ro())],
+            &["test.sam".to_string()],
+            &opts(AllPositions::AllRefs),
+            mosdepth_mode(exclude_flags),
+            &ro(),
+            |_| Ok(Recorder::default()),
+        )
+        .unwrap();
+        rec
+    }
+
+    #[test]
+    fn supplementary_reads_take_no_part_in_the_pair() {
+        // The supplementary of `p` at 121 neither takes the held entry nor is held: `p`'s
+        // second mate still finds the entry and counts only from 150.
+        let text = pair_sam(&[
+            "p 99 c1 101 50M = 131",
+            "p 2147 c1 121 20M = 101",
+            "p 147 c1 131 50M = 101",
+        ]);
+        let rec = sam_runs(&text, 1796);
+        assert_eq!(
+            runs_of(&rec, 0),
+            "0-100:0 100-120:1 120-140:2 140-180:1 180-1000:0"
+        );
+    }
+
+    #[test]
+    fn a_mate_on_another_reference_is_not_waited_for() {
+        // `a`'s mate is on c2 at 121, inside `a`'s span on c1: nothing is held, so the second
+        // c1 read of the name counts in full.
+        let text = pair_sam(&["a 99 c1 101 50M c2 121", "a 147 c1 121 20M c2 121"]);
+        let rec = sam_runs(&text, 1796);
+        assert_eq!(
+            runs_of(&rec, 0),
+            "0-100:0 100-120:1 120-140:2 140-150:1 150-1000:0"
         );
     }
 

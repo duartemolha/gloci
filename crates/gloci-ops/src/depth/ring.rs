@@ -35,7 +35,7 @@ fn count_range(counts: &mut [u32], lo: u64, hi: u64) {
 }
 
 /// Call `f` with each run of `[lo, hi)` that lies outside `except` (sorted, disjoint).
-fn for_each_gap(lo: u64, hi: u64, except: &[Interval], f: &mut dyn FnMut(u64, u64)) {
+fn for_each_gap(lo: u64, hi: u64, except: &[Interval], mut f: impl FnMut(u64, u64)) {
     let mut at = lo;
     for iv in &except[except.partition_point(|iv| iv.end <= lo)..] {
         if iv.start >= hi {
@@ -186,7 +186,7 @@ impl DepthRing {
             let hi = rpos.saturating_add(n).min(span.end);
             match op {
                 b'M' | b'=' | b'X' => {
-                    for_each_gap(lo, hi, except, &mut |a, b| {
+                    for_each_gap(lo, hi, except, |a, b| {
                         if ungated {
                             count_range(counts, a, b);
                         } else {
@@ -203,13 +203,13 @@ impl DepthRing {
                 }
                 b'D' => {
                     if rules.deletions && gate(q) {
-                        for_each_gap(lo, hi, except, &mut |a, b| count_range(counts, a, b));
+                        for_each_gap(lo, hi, except, |a, b| count_range(counts, a, b));
                     }
                     rpos = rpos.saturating_add(n);
                 }
                 b'N' => {
                     if rules.ref_skips {
-                        for_each_gap(lo, hi, except, &mut |a, b| count_range(counts, a, b));
+                        for_each_gap(lo, hi, except, |a, b| count_range(counts, a, b));
                     }
                     rpos = rpos.saturating_add(n);
                 }
