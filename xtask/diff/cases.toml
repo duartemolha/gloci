@@ -12151,3 +12151,12 @@ gloci = "gloci view input.bw"
 reference = "cat float32.bedgraph"
 compare = "exact"
 expected_difference = "#bigwig-float32"
+
+[[case]]
+name = "bigbed-user-autosql-vs-pybigwig"
+input = { file = "xtask/diff/inputs/bigwig/peaks6.bb" }
+aux = ["xtask/diff/inputs/bigwig/bbi_dump.py"]
+# peaks.bed converted with --autosql peaks6.as (typed columns): the records read back by pyBigWig.
+gloci = "gloci view input.bb"
+reference = "python3 -I bbi_dump.py --lex input.bb"
+compare = "exact"

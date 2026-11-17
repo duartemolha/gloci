@@ -730,7 +730,7 @@ fn convert_autosql_option() {
             "--autosql",
             &s(&five),
         ],
-        &["5", "8"],
+        &["declares 5 fields", "8 columns"],
     );
     // A bad autoSql is a usage error naming its file; nothing is left behind.
     let bad = plain_file(d.path(), "bad.as", "table bed\n(\n  nonsense\n)");
@@ -817,12 +817,12 @@ fn convert_track_option_conflicts() {
     fail_with(
         2,
         &["convert", &input("peaks.bed"), "--blocks", "-o", &x("x.bb")],
-        &["--blocks"],
+        &["--blocks does not apply to a bigBed output"],
     );
     fail_with(
         2,
         &["convert", &bg, "--bam", "-g", "hg38", "-o", &x("x.bw")],
-        &["--bam"],
+        &["--bam chooses another output format"],
     );
     fail_with(
         2,
@@ -835,7 +835,7 @@ fn convert_track_option_conflicts() {
             "-o",
             &x("x.bw"),
         ],
-        &["--write-index"],
+        &["--write-index does not apply", "carries its own index"],
     );
     fail_with(
         2,
@@ -850,7 +850,10 @@ fn convert_track_option_conflicts() {
     fail_with(
         2,
         &["convert", &s(&vcf), "-g", &gen_, "-o", &x("v.bw")],
-        &["bedGraph", "WIG", "bigWig"],
+        &[
+            "a bigWig from bedGraph, a 4-column BED, WIG or bigWig",
+            "not from VCF",
+        ],
     );
     let typed = plain_file(
         d.path(),
@@ -976,6 +979,7 @@ fn golden_round_trips() {
         ("bigwig-written-by-gloci-vs-pybigwig", "signal.bedgraph"),
         ("bigbed-written-by-gloci-vs-pybigwig", "peaks.bed"),
         ("bigbed12-written-by-gloci-vs-pybigwig", "genes12.bed"),
+        ("bigbed-user-autosql-vs-pybigwig", "peaks.bed"),
     ] {
         let expected = std::fs::read_to_string(
             root.join("crates/gloci/tests/golden")
@@ -985,4 +989,155 @@ fn golden_round_trips() {
         .unwrap();
         assert_eq!(expected, text(source), "{case}");
     }
+}
+
+#[test]
+fn skip_invalid_warns_for_a_bigwig_output() {
+    let d = tempdir();
+    let f = plain_file(
+        d.path(),
+        "s.bedgraph",
+        "chr1\t0\t10\t1\nchr1\tx\t30\t2\nchr1\t40\t50\t3\n",
+    );
+    let bw = s(&d.path().join("s.bw"));
+    gloci()
+        .args([
+            "convert",
+            "--skip-invalid",
+            &s(&f),
+            "-g",
+            &input("signal.genome"),
+            "-o",
+            &bw,
+        ])
+        .assert()
+        .success()
+        .stderr(contains("skipped 1 invalid"));
+    assert_eq!(out(&["view", &bw]), "chr1\t0\t10\t1\nchr1\t40\t50\t3\n");
+}
+
+#[test]
+fn skip_invalid_never_hides_a_writer_refusal() {
+    let d = tempdir();
+    let f = plain_file(d.path(), "z.bedgraph", "chr1\t0\t10\t1\nchr1\t20\t20\t2\n");
+    fail_with(
+        1,
+        &[
+            "convert",
+            "--skip-invalid",
+            &s(&f),
+            "-g",
+            &input("signal.genome"),
+            "-o",
+            &s(&d.path().join("z.bw")),
+        ],
+        &["line 2", "zero-length"],
+    );
+    assert_eq!(names(d.path()), vec!["z.bedgraph"]);
+}
+
+#[test]
+fn reference_with_a_track_output_warns() {
+    let d = tempdir();
+    let fa = plain_file(d.path(), "r.fa", ">chr1\nACGT\n");
+    gloci()
+        .args([
+            "convert",
+            &input("signal.bedgraph"),
+            "-g",
+            &input("signal.genome"),
+            "--reference",
+            &s(&fa),
+            "-o",
+            &s(&d.path().join("r.bw")),
+        ])
+        .assert()
+        .success()
+        .stderr(contains("is not used: no input is CRAM"));
+}
+
+#[test]
+fn the_first_bad_line_is_the_one_reported() {
+    let d = tempdir();
+    let g = plain_file(d.path(), "g.genome", "chr1\t100\nchr2\t100\n");
+    // Line 2 is past its chromosome; line 4 returns to chr1 after chr2.
+    let f = plain_file(
+        d.path(),
+        "o.bedgraph",
+        "chr1\t0\t10\t1\nchr1\t90\t200\t1\nchr2\t0\t10\t1\nchr1\t50\t60\t1\n",
+    );
+    fail_with(
+        1,
+        &[
+            "convert",
+            &s(&f),
+            "-g",
+            &s(&g),
+            "-o",
+            &s(&d.path().join("o.bw")),
+        ],
+        &["line 2", "past the end"],
+    );
+}
+
+#[test]
+fn chrom_map_renames_the_header_sizes() {
+    let d = tempdir();
+    let bw = s(&d.path().join("c.bw"));
+    convert_ok(&[
+        &input("signal.bedgraph"),
+        "-g",
+        &input("signal.genome"),
+        "-o",
+        &bw,
+    ]);
+    let map = plain_file(d.path(), "map.tsv", "chr1\tone\nchr10\tten\nchr2\ttwo\n");
+    let out_bw = d.path().join("m.bw");
+    convert_ok(&[&bw, "--chrom-map", &s(&map), "-o", &s(&out_bw)]);
+    let mut sizes = gloci_io::bbi_chrom_sizes(&s(&out_bw)).unwrap();
+    sizes.sort();
+    assert_eq!(
+        sizes,
+        vec![
+            (b"one".to_vec(), 40000),
+            (b"ten".to_vec(), 6000),
+            (b"two".to_vec(), 2000)
+        ]
+    );
+    assert!(out(&["view", &s(&out_bw)]).starts_with("one\t0\t7\t-2.5\n"));
+}
+
+#[test]
+fn bigbed_to_bigbed_keeps_the_input_autosql() {
+    let d = tempdir();
+    let sql = "table sig\n\"signals\"\n(\n    string chrom; \"c\"\n    uint chromStart; \"s\"\n    uint chromEnd; \"e\"\n    string name; \"n\"\n    uint score; \"sc\"\n    char[1] strand; \"st\"\n    float signal; \"sg\"\n    string tag; \"t\"\n)\n";
+    let as_file = plain_file(d.path(), "sig.as", sql);
+    let a = d.path().join("a.bb");
+    convert_ok(&[
+        &input("peaks.bed"),
+        "-g",
+        &input("peaks.genome"),
+        "--autosql",
+        &s(&as_file),
+        "-o",
+        &s(&a),
+    ]);
+    let b = d.path().join("b.bb");
+    convert_ok(&[&s(&a), "-o", &s(&b)]);
+    let mut r = bigtools::BigBedRead::open_file(&b).unwrap();
+    assert_eq!(r.autosql().unwrap().unwrap(), sql);
+    assert_eq!(out(&["view", &s(&b)]), text("peaks.bed"));
+    // An explicit --autosql replaces it.
+    let other = sql.replace("signal", "sigval");
+    let o_file = plain_file(d.path(), "o.as", &other);
+    let c = d.path().join("c.bb");
+    convert_ok(&[&s(&a), "--autosql", &s(&o_file), "-o", &s(&c)]);
+    let mut r = bigtools::BigBedRead::open_file(&c).unwrap();
+    assert_eq!(r.autosql().unwrap().unwrap(), other);
+}
+
+#[test]
+fn the_committed_user_autosql_bigbed_stores_its_autosql() {
+    let mut r = bigtools::BigBedRead::open_file(inputs().join("peaks6.bb")).unwrap();
+    assert_eq!(r.autosql().unwrap().unwrap(), text("peaks6.as"));
 }

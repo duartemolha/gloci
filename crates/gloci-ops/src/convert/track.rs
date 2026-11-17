@@ -55,8 +55,10 @@ pub fn convert_to_track(
     loop {
         batch.clear();
         let more = input.read_batch(chroms, &mut batch, max)?;
-        guard.check(chroms, &batch)?;
+        // Each record is checked for order and then pushed, so the first bad line is the one
+        // reported, whether the order or the writer refuses it.
         for (i, m) in batch.recs.iter().enumerate() {
+            guard.check_range(chroms, &batch, i..i + 1)?;
             match w.push(batch.raw(i)) {
                 Ok(()) => {}
                 Err(PushError::Writer(e)) => return Err(e),
@@ -73,8 +75,10 @@ pub fn convert_to_track(
                 }
             }
         }
+        guard.settle(chroms, &batch, batch.recs.len());
         max = next_batch_size(&batch, max);
         if !more {
+            crate::skipped::log_reader(input.as_ref());
             return Ok(());
         }
     }

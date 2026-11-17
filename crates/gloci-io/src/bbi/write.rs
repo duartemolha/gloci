@@ -771,4 +771,57 @@ mod tests {
         assert!(matches!(w.finish(), Err(IoError::Internal(_))));
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
     }
+
+    /// `finish_file` on a crafted temp file: `head` magic, 40 bytes of body, `tail` magic.
+    fn finish_crafted(
+        kind: BbiKind,
+        head: [u8; 4],
+        tail: &[u8],
+        standard: Option<usize>,
+    ) -> (Result<(), IoError>, Vec<u8>) {
+        let dir = tempfile::tempdir().unwrap();
+        let af = AtomicFile::create(&dir.path().join("c.out")).unwrap();
+        let mut bytes = head.to_vec();
+        bytes.extend_from_slice(&[0u8; 40]);
+        bytes.extend_from_slice(tail);
+        std::fs::write(af.temp_path(), &bytes).unwrap();
+        let r = finish_file(&af, kind, standard, "c.out");
+        let after = std::fs::read(af.temp_path()).unwrap();
+        (r, after)
+    }
+
+    #[test]
+    fn a_complete_little_endian_bigwig_is_accepted() {
+        let m = BIGWIG_MAGIC.to_le_bytes();
+        let (r, _) = finish_crafted(BbiKind::BigWig, m, &m, None);
+        r.unwrap();
+    }
+
+    #[test]
+    fn a_tail_cut_by_one_byte_is_incomplete() {
+        let m = BIGWIG_MAGIC.to_le_bytes();
+        let (r, _) = finish_crafted(BbiKind::BigWig, m, &m[..3], None);
+        match r {
+            Err(IoError::Detect { msg, .. }) => {
+                assert!(msg.contains("c.out is incomplete"), "{msg}");
+                assert!(msg.contains("free disk space"), "{msg}");
+            }
+            other => panic!("expected the incomplete error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_big_endian_bigbed_gets_a_big_endian_field_count() {
+        let m = BIGBED_MAGIC.to_be_bytes();
+        let (r, after) = finish_crafted(BbiKind::BigBed, m, &m, Some(6));
+        r.unwrap();
+        assert_eq!(u16::from_be_bytes([after[34], after[35]]), 6);
+    }
+
+    #[test]
+    fn a_bigwig_magic_under_a_bigbed_writer_is_refused() {
+        let m = BIGWIG_MAGIC.to_le_bytes();
+        let (r, _) = finish_crafted(BbiKind::BigBed, m, &m, Some(3));
+        assert!(matches!(r, Err(IoError::Detect { .. })), "{r:?}");
+    }
 }

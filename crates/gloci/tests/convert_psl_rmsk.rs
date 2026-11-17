@@ -98,7 +98,8 @@ fn psl_malformed_line_names_the_line() {
         .arg("--skip-invalid")
         .assert()
         .success()
-        .stdout(PSL_BED);
+        .stdout(PSL_BED)
+        .stderr(contains("skipped 1 invalid"));
 }
 
 #[test]

@@ -161,10 +161,28 @@ fn run_track(
         BbiKind::BigWig => "bigWig",
         BbiKind::BigBed => "bigBed",
     };
+    if a.out.write_index {
+        return Err(UsageError(format!(
+            "--write-index does not apply to a {out} output: a bigWig or bigBed carries its own \
+index; drop --write-index"
+        ))
+        .into());
+    }
     for (set, flag) in [
         (a.bam, "--bam"),
         (a.fastq, "--fastq"),
         (a.bedpe, "--bedpe"),
+        (a.fastq2.is_some(), "--fastq2"),
+    ] {
+        if set {
+            return Err(UsageError(format!(
+                "{flag} chooses another output format than the {out} that -o names; drop {flag}, \
+or name an output it writes"
+            ))
+            .into());
+        }
+    }
+    for (set, flag) in [
         (a.split_alleles, "--split-alleles"),
         (!a.types.is_empty(), "--types"),
         (!a.feature.is_empty(), "--feature"),
@@ -176,15 +194,13 @@ fn run_track(
         (a.cigar, "--cigar"),
         (a.split_deletions, "--split-deletions"),
         (a.mate1_first, "--mate1-first"),
-        (a.fastq2.is_some(), "--fastq2"),
         (a.tags, "--tags"),
         (a.mapq.is_some(), "--mapq"),
-        (a.out.write_index, "--write-index"),
     ] {
         if set {
             return Err(UsageError(format!(
-                "{flag} cannot be used with a {out} output: a {out} holds records as they are \
-(a bigWig or bigBed carries its own index, so --write-index does not apply either); drop {flag}"
+                "{flag} does not apply to a {out} output: a {out} holds the records as they are; \
+drop {flag}"
             ))
             .into());
         }
@@ -194,13 +210,14 @@ fn run_track(
         Some(p) => Some(std::fs::read_to_string(p).map_err(|e| {
             UsageError(format!(
                 "cannot read the --autosql file {}: {e}; check the --autosql path",
-                p.display()
+                gloci_io::memio::display_name(&p.to_string_lossy())
             ))
         })?),
     };
     let ro = reader_options(ctx, a, score_tag, false)?;
     // Open and check the input before the output is created.
     let (input, empty) = open_reader_noting_empty(&a.file, &ro)?;
+    gloci_io::warn_unused_reference(a.align.reference.as_deref(), input.format() == Format::Cram);
     check_track_input(input.format(), kind).map_err(|e| {
         if empty {
             IoError::empty_input(input.name())
@@ -240,6 +257,19 @@ hg38, or a .genome, .fai or .dict file); only a bigWig or bigBed input brings it
             .into());
         }
     };
+    // A bigBed converted to a bigBed keeps its autoSql, unless --autosql replaces it.
+    let (autosql, autosql_name) = match (autosql, input.format()) {
+        (None, Format::BigBed) if kind == BbiKind::BigBed => (
+            gloci_io::bbi_autosql(&a.file),
+            format!("the autoSql of {}", a.file),
+        ),
+        (text, _) => (
+            text,
+            a.autosql.as_ref().map_or_else(String::new, |p| {
+                gloci_io::memio::display_name(&p.to_string_lossy())
+            }),
+        ),
+    };
     let dest = spec.path.as_ref().map_or_else(
         || "<stdout>".to_string(),
         |p| gloci_io::memio::display_name(&p.to_string_lossy()),
@@ -251,10 +281,7 @@ hg38, or a .genome, .fai or .dict file); only a bigWig or bigBed input brings it
             sizes,
             threads: ctx.threads,
             autosql,
-            autosql_name: a
-                .autosql
-                .as_ref()
-                .map_or_else(String::new, |p| p.display().to_string()),
+            autosql_name,
         },
     )
     .map_err(|e| e.with_output_name(&dest))?;
