@@ -3896,3 +3896,10 @@ cases (must match).
 - **Reason:** an unstranded feature still has blocks to lift, and one record must not stop
   a run.
 - **Pinned by:** `liftover-bed12-unknown-strand-vs-crossmap` (exit status: must differ).
+
+## `liftover` keeps a GFF strand of `.` {#liftover-gff-unknown-strand}
+
+- **gloci:** a GFF3 or GTF feature whose strand is `.` is lifted and the strand is written as `.`.
+- **Old behaviour:** CrossMap `gff` writes `+` or `-` for it, whichever the chain's direction gives.
+- **Reason:** an unstranded feature stays unstranded; a strand invented by the chain would be wrong.
+- **Pinned by:** `liftover-gff-unknown-strand-vs-crossmap` (must differ).

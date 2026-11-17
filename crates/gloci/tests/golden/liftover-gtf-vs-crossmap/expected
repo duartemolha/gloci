@@ -1,0 +1,2 @@
+chr1	gloci	exon	1121	1180	.	+	.	gene_id "a"; transcript_id "a.1";
+chr2	gloci	CDS	3941	3980	.	+	0	gene_id "b"; transcript_id "b.1";

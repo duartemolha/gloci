@@ -2,6 +2,7 @@
 //! 0.7.4's rules (D174).
 
 mod bed;
+mod gff;
 mod names;
 
 pub use names::{ChromStyle, source_name, target_name};
@@ -155,8 +156,10 @@ fn refuse(format: Format) -> UsageError {
                 .to_string()
         }
         Format::Bedpe => "BEDPE liftover is not supported".to_string(),
-        Format::Gff3 | Format::Gtf => "GFF/GTF liftover is not supported yet".to_string(),
-        f => format!("liftover works on BED and bedGraph input, not {}", f.name()),
+        f => format!(
+            "liftover works on BED, bedGraph, GFF and GTF input, not {}",
+            f.name()
+        ),
     })
 }
 
@@ -171,8 +174,18 @@ pub fn liftover(
     mut unmapped: Option<&mut dyn RecordWriter>,
 ) -> Result<LiftoverCounts, IoError> {
     let format = input.format();
-    if !matches!(format, Format::Bed | Format::BedGraph) {
+    if !matches!(
+        format,
+        Format::Bed | Format::BedGraph | Format::Gff3 | Format::Gtf
+    ) {
         return Err(refuse(format).into());
+    }
+    let is_gff = matches!(format, Format::Gff3 | Format::Gtf);
+    if is_gff && o.ignore_blocks {
+        return Err(UsageError(
+            "--ignore-blocks applies to BED12 records, not GFF or GTF features".into(),
+        )
+        .into());
     }
     let mut counts = LiftoverCounts::default();
     // Per input chromosome: its chain source, its name and whether it starts with `chr`.
@@ -200,6 +213,31 @@ pub fn liftover(
                     chr: name.starts_with("chr"),
                 }
             });
+            if is_gff {
+                match gff::lift(
+                    raw,
+                    m.span,
+                    chain,
+                    from.src.as_ref(),
+                    &mut styler,
+                    from.chr,
+                    &mut pieces,
+                    &mut buf,
+                ) {
+                    gff::Lift::Written { partial } => {
+                        out.write_record(&buf).map_err(|e| write_err("output", e))?;
+                        counts.written += 1;
+                        if partial {
+                            counts.shortened += 1;
+                            leave_unmapped(&mut counts, &mut unmapped, Unmapped::Partial, raw)?;
+                        }
+                    }
+                    gff::Lift::Unmapped(why) => {
+                        leave_unmapped(&mut counts, &mut unmapped, why, raw)?;
+                    }
+                }
+                continue;
+            }
             if format == Format::Bed
                 && !o.ignore_blocks
                 && raw.split(|&b| b == b'\t').nth(11).is_some()

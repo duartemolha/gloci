@@ -407,3 +407,36 @@ fn invalid_blocks_name_the_line() {
         .success()
         .stderr(contains("skipped 1 invalid record in bad.bed").and(contains("line 1")));
 }
+
+/// The help's example shape: a GTF in, a GTF on stdout.
+#[test]
+fn gtf_lifts_to_stdout_as_the_help_shows() {
+    let d = with(&["toy.gtf", "toy.chain"]);
+    gloci()
+        .current_dir(d.path())
+        .args(["liftover", "toy.gtf", "--chain", "toy.chain"])
+        .assert()
+        .success()
+        .stdout(
+            "chr1\tgloci\texon\t1121\t1180\t.\t+\t.\tgene_id \"a\"; transcript_id \"a.1\";\n\
+             chr2\tgloci\tCDS\t3941\t3980\t.\t+\t0\tgene_id \"b\"; transcript_id \"b.1\";\n",
+        )
+        .stderr(contains("1 of 3 records did not lift"));
+}
+
+#[test]
+fn ignore_blocks_on_gff_exits_2() {
+    let d = with(&["toy.gff", "toy.chain"]);
+    gloci()
+        .current_dir(d.path())
+        .args([
+            "liftover",
+            "toy.gff",
+            "--chain",
+            "toy.chain",
+            "--ignore-blocks",
+        ])
+        .assert()
+        .code(2)
+        .stderr(contains("--ignore-blocks"));
+}

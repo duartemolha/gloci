@@ -11920,3 +11920,44 @@ gloci = "gloci liftover input.bed --chain toy.chain"
 reference = "CrossMap bed toy.chain input.bed o.bed >/dev/null 2>&1"
 compare = "exit-status"
 expected_difference = "#liftover-invalid-lines"
+
+[[case]]
+name = "liftover-gff-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy.gff" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.gff --chain toy.chain"
+reference = "CrossMap gff toy.chain input.gff o.gff >/dev/null 2>&1 && cat o.gff"
+compare = "exact"
+
+[[case]]
+name = "liftover-gff-unmapped-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy.gff" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.gff --chain toy.chain -o /dev/null --unmapped -"
+reference = "CrossMap gff toy.chain input.gff o.gff >/dev/null 2>&1 && cat o.gff.*.unmap"
+compare = "exact"
+
+[[case]]
+name = "liftover-gtf-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy.gtf" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.gtf --chain toy.chain"
+reference = "CrossMap gff toy.chain input.gtf o.gtf >/dev/null 2>&1 && cat o.gtf"
+compare = "exact"
+
+[[case]]
+name = "liftover-gtf-unmapped-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy.gtf" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.gtf --chain toy.chain -o /dev/null --unmapped -"
+reference = "CrossMap gff toy.chain input.gtf o.gtf >/dev/null 2>&1 && cat o.gtf.*.unmap"
+compare = "exact"
+
+[[case]]
+name = "liftover-gff-unknown-strand-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-gff-dot.gff" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.gff --chain toy.chain"
+reference = "CrossMap gff toy.chain input.gff o.gff >/dev/null 2>&1 && cat o.gff"
+compare = "exact"
+expected_difference = "#liftover-gff-unknown-strand"

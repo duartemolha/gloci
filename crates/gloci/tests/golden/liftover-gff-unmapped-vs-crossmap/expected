@@ -1,0 +1,6 @@
+chr1	src	exon	151	250	5	-	0	ID=g2;Note=across a target gap
+chr1	src	exon	51	150	.	+	.	ID=g3
+chr1	src	exon	311	340	.	+	.	ID=g6
+chr1	src	exon	421	440	.	+	.	ID=g7
+chr1	src	exon	121	130	.	?	.	ID=g8
+chrZ	src	exon	11	20	.	+	.	ID=g11

@@ -8,6 +8,7 @@ use gloci_ops::liftover::{
     ChromStyle, LiftoverCounts, LiftoverOptions, Unmapped, liftover, source_name, target_name,
 };
 use gloci_testkit::mem::mem_reader;
+use std::collections::BTreeMap;
 use std::io;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
@@ -348,14 +349,86 @@ fn refused(name: &str, text: &str, format: Option<Format>) -> String {
 }
 
 #[test]
-fn wig_and_gff_are_refused() {
+fn wig_is_refused() {
     let wig = refused("x.wig", "variableStep chrom=chr1\n121 1\n", None);
     assert!(
         wig.contains("WIG liftover") && wig.contains("gloci convert"),
         "{wig}"
     );
-    let gff = refused("x.gff", "chr1\tsrc\tgene\t121\t180\t.\t+\t.\tID=g\n", None);
-    assert!(gff.contains("GFF/GTF liftover"), "{gff}");
+}
+
+#[test]
+fn ignore_blocks_on_gff_is_a_usage_error() {
+    let o = LiftoverOptions {
+        ignore_blocks: true,
+        ..Default::default()
+    };
+    let e = run_with(&chain(), "x.gff", &fixture("toy.gff"), &o, false).unwrap_err();
+    assert!(
+        matches!(e, IoError::Usage(_)) && e.to_string().contains("--ignore-blocks"),
+        "{e}"
+    );
+}
+
+const TOY_GFF_OUT: &str = "chr1\tsrc\tgene\t1121\t1180\t.\t+\t.\tID=g1
+chr1\tsrc\texon\t1101\t1150\t.\t+\t.\tID=g3
+chr2\tsrc\texon\t3941\t3980\t.\t-\t.\tID=g4
+chr2\tsrc\texon\t3941\t3980\t.\t+\t.\tID=g5
+chr1\tsrc\texon\t1151\t1150\t.\t+\t.\tID=g9
+chr5\tsrc\texon\t511\t520\t.\t+\t.\tID=g10
+";
+
+#[test]
+fn gff_lifts_as_crossmap() {
+    let (out, un, counts) = run("toy.gff", &fixture("toy.gff"), &LiftoverOptions::default());
+    assert_eq!(out, lines(TOY_GFF_OUT));
+    let ids: Vec<&str> = un
+        .iter()
+        .map(|l| l.split("ID=").nth(1).unwrap().split(';').next().unwrap())
+        .collect();
+    assert_eq!(ids, ["g2", "g3", "g6", "g7", "g8", "g11"]);
+    assert!(un[0].starts_with("chr1\tsrc\texon\t151\t250\t5\t-\t0\tID=g2;"));
+    let want: BTreeMap<Unmapped, u64> = [
+        (Unmapped::SeveralPieces, 2),
+        (Unmapped::Partial, 1),
+        (Unmapped::OffChain, 2),
+        (Unmapped::Strand, 1),
+    ]
+    .into();
+    assert_eq!(counts.unmapped, want);
+    assert_eq!(counts.shortened, 1);
+    assert_eq!(counts.written, 6);
+    assert!(!out.iter().chain(&un).any(|l| l.starts_with("##")));
+}
+
+#[test]
+fn gtf_lifts_as_crossmap() {
+    let (out, un, _) = run("toy.gtf", &fixture("toy.gtf"), &LiftoverOptions::default());
+    assert_eq!(
+        out,
+        [
+            "chr1\tgloci\texon\t1121\t1180\t.\t+\t.\tgene_id \"a\"; transcript_id \"a.1\";",
+            "chr2\tgloci\tCDS\t3941\t3980\t.\t+\t0\tgene_id \"b\"; transcript_id \"b.1\";",
+        ]
+    );
+    assert_eq!(un.len(), 1);
+    assert!(un[0].contains("gene_id \"c\""));
+}
+
+#[test]
+fn gff_unknown_strand_stays_unknown() {
+    let (out, _, _) = run(
+        "toy-gff-dot.gff",
+        &fixture("toy-gff-dot.gff"),
+        &LiftoverOptions::default(),
+    );
+    assert_eq!(
+        out,
+        [
+            "chr1\tsrc\texon\t1121\t1180\t.\t.\t.\tID=d1",
+            "chr2\tsrc\texon\t3941\t3980\t.\t.\t.\tID=d2",
+        ]
+    );
 }
 
 fn bed12(

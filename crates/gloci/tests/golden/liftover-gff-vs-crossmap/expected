@@ -1,0 +1,6 @@
+chr1	src	gene	1121	1180	.	+	.	ID=g1
+chr1	src	exon	1101	1150	.	+	.	ID=g3
+chr2	src	exon	3941	3980	.	-	.	ID=g4
+chr2	src	exon	3941	3980	.	+	.	ID=g5
+chr1	src	exon	1151	1150	.	+	.	ID=g9
+chr5	src	exon	511	520	.	+	.	ID=g10

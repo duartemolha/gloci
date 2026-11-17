@@ -1,4 +1,4 @@
-//! `gloci liftover`: move BED and bedGraph records to another assembly through a chain, by
+//! `gloci liftover`: move BED, bedGraph, GFF and GTF records to another assembly through a chain, by
 //! CrossMap's rules (D174).
 use crate::Ctx;
 use crate::cli::LiftoverArgs;

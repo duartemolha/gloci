@@ -857,7 +857,7 @@ pub struct LinksArgs {
 
 /// Move intervals to another assembly with a chain (CrossMap)
 ///
-/// Lifts BED and bedGraph records through a chain file by the rules of CrossMap (its `bed`,
+/// Lifts BED, bedGraph, GFF3 and GTF records through a chain file by the rules of CrossMap (its `bed`,
 /// `gff` and `region` modes), not those of UCSC `liftOver`, whose rules it does not follow. A
 /// record that crosses a gap in the chain is split into one record per aligned piece. Records
 /// that do not lift are written as read to --unmapped, or counted in a warning. The output is
@@ -872,7 +872,7 @@ Examples:
   gloci liftover genes.gtf --chain GRCh37_to_GRCh38.chain.gz | gloci sort - -o genes.b38.gtf
   gloci liftover cnv.bed --chain chm13v2-grch38.chain --chrom-style long -o cnv.hg38.bed")]
 pub struct LiftoverArgs {
-    /// Input BED or bedGraph (`-` for stdin).
+    /// Input BED, bedGraph, GFF3 or GTF (`-` for stdin).
     #[arg(value_name = "FILE")]
     pub file: String,
     /// The chain file to lift through: plain, gzip or BGZF (`-` for stdin).
@@ -894,7 +894,7 @@ pub struct LiftoverArgs {
     pub chrom_style: String,
     /// Lift a BED12 record by columns 1 to 3 only, as any other BED record, leaving blocks and
     /// thick range as read (CrossMap `--naive-bed-parsing`). Without it, each block is lifted
-    /// and must fall in one piece.
+    /// and must fall in one piece. Not for GFF or GTF.
     #[arg(long)]
     pub ignore_blocks: bool,
     #[command(flatten)]
