@@ -1,0 +1,13 @@
+# targets for the mosdepth cases
+track name=targets
+browser position chr1:1-100
+chr4	5000	5001	deep	0	+
+chr1	700	800	v
+chr1	100	180	p	extra
+chr1	500	550
+chr1	200	260	q
+chr1	200	210	q-head
+chr1	650	650	point
+chrZ	1	10	nowhere
+chr3	0	200	empty3
+chr2	0	300	dups2

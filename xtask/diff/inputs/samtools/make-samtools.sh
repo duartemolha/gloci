@@ -272,3 +272,7 @@ samtools index -@ 0 mosdepth.bam
 } > mosdepth-stale.sam
 samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o mosdepth-stale.bam mosdepth-stale.sam
 samtools index -@ 0 mosdepth-stale.bam
+
+# mosdepth.bed and mosdepth-blank.bed are hand-written (not generated here): the --by FILE
+# targets of the mosdepth cases, with comment, track, browser, blank and CRLF lines, a name-less
+# line, same-start regions, an empty region, and a chromosome the header lacks.

@@ -4,6 +4,7 @@
 
 pub mod coverage;
 mod mates;
+pub mod mosdepth;
 mod pairs;
 mod ring;
 mod rows;
@@ -13,6 +14,7 @@ mod waiting;
 
 pub use coverage::{CoverageOptions, CoverageSummary, coverage_summary};
 pub use mates::MateTable;
+pub use mosdepth::{By, MosdepthOptions, MosdepthSummary, mosdepth_files};
 pub use pairs::{PairTable, aligned_segments};
 pub use ring::{CountRules, DepthRing};
 
