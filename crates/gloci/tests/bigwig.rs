@@ -1141,3 +1141,158 @@ fn the_committed_user_autosql_bigbed_stores_its_autosql() {
     let mut r = bigtools::BigBedRead::open_file(inputs().join("peaks6.bb")).unwrap();
     assert_eq!(r.autosql().unwrap().unwrap(), text("peaks6.as"));
 }
+
+// ---- genomecov to bigWig ----
+
+/// `gloci genomecov ARGS` stdout, sorted the way a bigWig lists its chromosomes.
+fn sorted_genomecov(args: &[&str]) -> String {
+    let text = out(&[&["genomecov"], args].concat());
+    let mut lines: Vec<(&str, u64, &str)> = text
+        .lines()
+        .map(|l| {
+            let mut f = l.splitn(3, '\t');
+            let chrom = f.next().unwrap();
+            let start = f.next().unwrap().parse().unwrap();
+            (chrom, start, l)
+        })
+        .collect();
+    lines.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+    lines.iter().map(|l| format!("{}\n", l.2)).collect()
+}
+
+fn genomecov_inputs() -> (String, String, String) {
+    let i = diff_inputs();
+    (
+        s(&i.join("gc-a.bed")),
+        s(&i.join("gc.genome")),
+        s(&i.join("aln/cigars-bases.bam")),
+    )
+}
+
+#[test]
+fn genomecov_bga_to_bigwig_matches_bedgraph() {
+    let d = tempdir();
+    let (bed, genome, bam) = genomecov_inputs();
+    let bw = s(&d.path().join("g.bw"));
+    gloci()
+        .args(["genomecov", &bed, "-g", &genome, "--bga", "-o", &bw])
+        .assert()
+        .success();
+    assert_eq!(
+        out(&["view", &bw]),
+        sorted_genomecov(&[&bed, "-g", &genome, "--bga"])
+    );
+    let bw2 = s(&d.path().join("b.bw"));
+    gloci()
+        .args(["genomecov", &bam, "--bga", "-o", &bw2])
+        .assert()
+        .success();
+    assert_eq!(out(&["view", &bw2]), sorted_genomecov(&[&bam, "--bga"]));
+}
+
+#[test]
+fn genomecov_bedgraph_to_bigwig() {
+    let d = tempdir();
+    let (bed, genome, bam) = genomecov_inputs();
+    for (n, extra) in [("a", vec![]), ("b", vec!["--scale", "0.5"])] {
+        for (input, g) in [(&bed, vec!["-g", genome.as_str()]), (&bam, vec![])] {
+            let bw = s(&d.path().join(format!("{n}-{}.bw", g.len())));
+            let mut args = vec!["genomecov", input.as_str()];
+            args.extend(&g);
+            args.push("--bedgraph");
+            args.extend(&extra);
+            let mut with_out = args.clone();
+            with_out.extend(["-o", &bw]);
+            gloci().args(&with_out).assert().success();
+            assert_eq!(
+                out(&["view", &bw]),
+                sorted_genomecov(&args[1..]),
+                "{args:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn genomecov_bigwig_needs_a_bedgraph_mode() {
+    let d = tempdir();
+    let (bed, genome, _) = genomecov_inputs();
+    let x = |n: &str| s(&d.path().join(n));
+    let base = ["genomecov", bed.as_str(), "-g", genome.as_str()];
+    let run = |extra: &[&str], needles: &[&str]| {
+        let mut a: Vec<&str> = base.to_vec();
+        a.extend(extra);
+        fail_with(2, &a, needles);
+    };
+    run(&["-o", &x("x.bw")], &["--bedgraph", "--bga"]);
+    run(&["--per-base", "-o", &x("x.bw")], &["--bedgraph", "--bga"]);
+    run(&["--bga", "-o", &x("x.bb")], &["bigBed"]);
+    run(
+        &["--bga", "-o", &x("x.bw"), "--write-index"],
+        &["--write-index"],
+    );
+    assert!(names(d.path()).is_empty());
+}
+
+#[test]
+fn genomecov_bigwig_threads() {
+    let d = tempdir();
+    let bam = s(&diff_inputs().join("aln/cigars-bases.bam"));
+    let at = |t: &str| {
+        let bw = d.path().join(format!("t{t}.bw"));
+        gloci()
+            .args(["genomecov", &bam, "--bga", "-t", t, "-o", &s(&bw)])
+            .assert()
+            .success();
+        std::fs::read(bw).unwrap()
+    };
+    assert_eq!(at("1"), at("8"));
+}
+
+#[test]
+fn genomecov_empty_bedgraph_to_bigwig_is_an_error() {
+    let d = tempdir();
+    let (_, genome, _) = genomecov_inputs();
+    let empty = plain_file(d.path(), "empty.bed", "");
+    let bw = s(&d.path().join("x.bw"));
+    fail_with(
+        1,
+        &[
+            "genomecov",
+            &s(&empty),
+            "-g",
+            &genome,
+            "--bedgraph",
+            "-o",
+            &bw,
+        ],
+        &["no records"],
+    );
+    assert_eq!(names(d.path()), vec!["empty.bed"]);
+}
+
+#[test]
+fn genomecov_refused_bigwig_record_is_a_data_error() {
+    let d = tempdir();
+    let (bed, genome, _) = genomecov_inputs();
+    let bw = s(&d.path().join("x.bw"));
+    let a = gloci()
+        .args([
+            "genomecov",
+            &bed,
+            "-g",
+            &genome,
+            "--bedgraph",
+            "--scale",
+            "1e39",
+            "-o",
+            &bw,
+        ])
+        .assert()
+        .code(1)
+        .stderr(contains("record 1 of the output"))
+        .stderr(contains("32-bit float"));
+    let err = String::from_utf8_lossy(&a.get_output().stderr).into_owned();
+    assert!(!err.contains("free disk space"), "{err}");
+    assert!(!Path::new(&bw).exists());
+}

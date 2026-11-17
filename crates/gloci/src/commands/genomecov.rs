@@ -4,8 +4,9 @@ use crate::Ctx;
 use crate::cli::GenomecovArgs;
 use gloci_core::{Genome, Strand};
 use gloci_io::{
-    Format, Header, OutFormat, OutputOptions, TsvHeader, UsageError, WriterOptions, open_output,
-    open_record_writer, open_tsv_writer, parse_output_spec, refuse_binary_to_tty, resolve_genome,
+    BbiKind, BbiSizes, BbiWriteOptions, BbiWriter, Format, Header, OutFormat, OutputOptions,
+    TsvHeader, UsageError, WriterOptions, bbi_output_refusal, open_output, open_record_writer,
+    open_tsv_writer, parse_track_output_spec, refuse_binary_to_tty, resolve_genome,
 };
 use gloci_ops::genomecov::{
     ChunkRun, GenomecovMode, GenomecovOptions, Piece, genomecov_files, validate,
@@ -43,7 +44,10 @@ pub fn run(ctx: &Ctx, a: &GenomecovArgs) -> anyhow::Result<()> {
         max_depth: a.max_depth,
     };
     validate(&o)?;
-    let spec = parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref())?;
+    let spec = parse_track_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref())?;
+    if spec.format == Some(OutFormat::BigBed) {
+        return Err(UsageError(bbi_output_refusal(OutFormat::BigBed)).into());
+    }
     let files = [a.file.clone()];
     // Reads are slim: genomecov never writes one (D115).
     let input = InputArgs {
@@ -68,7 +72,7 @@ pub fn run(ctx: &Ctx, a: &GenomecovArgs) -> anyhow::Result<()> {
     let format = format.get().unwrap_or(reader.format());
     gloci_io::warn_unused_reference(a.align.reference.as_deref(), format == Format::Cram);
     gloci_io::warn_unused_read_filters(input.alignments.as_ref(), format.is_alignment());
-    let genome = genome_of(a.genome.as_deref(), reader.as_ref())?;
+    let (genome, source) = genome_of(a.genome.as_deref(), reader.as_ref())?;
     // An indexed BAM runs per chromosome; `--sort` streams the sorted copy.
     let chunked = (!a.sort.sort && a.file != "-").then(|| -> anyhow::Result<ChunkRun> {
         Ok(ChunkRun {
@@ -96,18 +100,54 @@ pub fn run(ctx: &Ctx, a: &GenomecovArgs) -> anyhow::Result<()> {
         || "<stdout>".to_string(),
         |p| gloci_io::memio::display_name(&p.to_string_lossy()),
     );
-    let out = open_output(&spec, to, &oo)?;
-    let mut w = if to == OutFormat::Tsv {
-        open_tsv_writer(out, Format::Bed, &[], TsvHeader::None, oo.write_index)
+    let mut w: Box<dyn gloci_io::RecordWriter> = if to == OutFormat::BigWig {
+        // A bigWig holds the --bedgraph or --bga rows (D171).
+        if !matches!(o.mode, GenomecovMode::BedGraph | GenomecovMode::BedGraphAll) {
+            return Err(UsageError(
+                "a bigWig output holds coverage as bedGraph: add --bedgraph or --bga, or write \
+the other modes as text (-o cov.txt)"
+                    .into(),
+            )
+            .into());
+        }
+        if oo.write_index {
+            return Err(UsageError(
+                "--write-index does not apply to a bigWig output: a bigWig carries its own \
+index; drop --write-index"
+                    .into(),
+            )
+            .into());
+        }
+        Box::new(
+            BbiWriter::create(
+                &spec,
+                BbiWriteOptions {
+                    kind: BbiKind::BigWig,
+                    sizes: BbiSizes {
+                        genome: genome.clone(),
+                        source,
+                    },
+                    threads: ctx.threads,
+                    autosql: None,
+                    autosql_name: String::new(),
+                },
+            )
+            .map_err(|e| e.with_output_name(&dest))?,
+        )
     } else {
-        let wo = WriterOptions {
-            write_header: false,
-            command_line: Some(ctx.command_line.clone()),
-            version: ctx.version,
-        };
-        open_record_writer(out, Format::Bed, to, &Header::None, &wo)
-    }
-    .map_err(|e| e.with_output_name(&dest))?;
+        let out = open_output(&spec, to, &oo)?;
+        if to == OutFormat::Tsv {
+            open_tsv_writer(out, Format::Bed, &[], TsvHeader::None, oo.write_index)
+        } else {
+            let wo = WriterOptions {
+                write_header: false,
+                command_line: Some(ctx.command_line.clone()),
+                version: ctx.version,
+            };
+            open_record_writer(out, Format::Bed, to, &Header::None, &wo)
+        }
+        .map_err(|e| e.with_output_name(&dest))?
+    };
     genomecov_files(
         reader,
         chunked.as_ref(),
@@ -125,19 +165,23 @@ pub fn run(ctx: &Ctx, a: &GenomecovArgs) -> anyhow::Result<()> {
 }
 
 /// The genome to cover: `-g`, else the lengths in an alignment's header.
-fn genome_of(arg: Option<&str>, reader: &dyn gloci_io::RecordReader) -> anyhow::Result<Genome> {
+fn genome_of(
+    arg: Option<&str>,
+    reader: &dyn gloci_io::RecordReader,
+) -> anyhow::Result<(Genome, String)> {
     if let Some(g) = arg {
-        return Ok(resolve_genome(g)?.0);
+        return Ok((resolve_genome(g)?.0, format!("-g {g}")));
     }
     match reader.header() {
         Header::Alignment(h) if !h.refs.is_empty() => {
-            Genome::new(h.refs.iter().map(|(n, l)| (n.clone(), Some(*l))).collect()).map_err(|e| {
+            let genome = Genome::new(h.refs.iter().map(|(n, l)| (n.clone(), Some(*l))).collect())
+                .map_err(|e| {
                 UsageError(format!(
                     "{}: the header's references do not make a genome: {e}",
                     reader.name()
                 ))
-                .into()
-            })
+            })?;
+            Ok((genome, format!("the header of {}", reader.name())))
         }
         Header::Alignment(_) => Err(UsageError(format!(
             "{} has no @SQ lines, so there are no chromosome lengths; \

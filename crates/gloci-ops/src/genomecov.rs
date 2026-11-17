@@ -199,13 +199,7 @@ impl<'a> Cov<'a> {
     }
 
     fn emit(&mut self) -> Result<(), IoError> {
-        let r = self
-            .w
-            .write_record(&self.row)
-            .map_err(|source| IoError::Write {
-                path: "output".into(),
-                source,
-            });
+        let r = self.w.write_record(&self.row).map_err(write_error);
         self.row.clear();
         r
     }
@@ -452,6 +446,22 @@ check that -g matches the genome build of the input",
 }
 
 /// The `genome` rows of the histogram, from the bases per depth over all chromosomes.
+/// A failed `write_record`. A writer that refuses a record (a bigWig writer: a value outside
+/// float32, a record past its chromosome) says so with `InvalidData`: that is the data's fault,
+/// not the disk's, so it stays a data error naming the record.
+fn write_error(source: std::io::Error) -> IoError {
+    if source.kind() == std::io::ErrorKind::InvalidData {
+        return IoError::Detect {
+            path: "output".into(),
+            msg: source.to_string(),
+        };
+    }
+    IoError::Write {
+        path: "output".into(),
+        source,
+    }
+}
+
 fn write_genome_rows(
     w: &mut dyn RecordWriter,
     bins: &BTreeMap<u64, u64>,
@@ -469,10 +479,7 @@ fn write_genome_rows(
             format_fraction(b, total_len)
         )
         .expect("vec write");
-        w.write_record(&row).map_err(|source| IoError::Write {
-            path: "output".into(),
-            source,
-        })?;
+        w.write_record(&row).map_err(write_error)?;
     }
     Ok(())
 }

@@ -348,13 +348,14 @@ Examples:
   gloci genomecov peaks.bed -g hg38
   gloci genomecov reads.bed -g hg38 --bedgraph --scale 0.000001 -o cov.bedgraph
   gloci genomecov exons12.bed -g hg38 --split --per-base
-  gloci genomecov reads.bam --bga --split
+  gloci genomecov reads.bam --bga --split -o cov.bw
 
 Output:
 --bedgraph writes runs of equal depth above zero, --bga also the zero-depth runs, \
 --per-base one row per base: chrom, 1-based position, depth. --scale X multiplies the \
 depths of the last three (six significant digits, as bedtools); --max-depth N puts every \
-depth of N or more into the bin N of --hist.
+depth of N or more into the bin N of --hist. -o FILE.bw writes --bedgraph or --bga as \
+bigWig, with the chromosome sizes of -g or of the BAM header (D171).
 
 Selecting features:
 --strand + or - counts only features on that strand (BED needs column 6; a feature with \

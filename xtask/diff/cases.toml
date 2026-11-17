@@ -2976,6 +2976,15 @@ reference = "bedtools genomecov -i input.bed -g gc.genome -bga"
 compare = "exact"
 
 [[case]]
+name = "genomecov-bga-bigwig-vs-bedtools"
+input = { file = "xtask/diff/inputs/gc-a.bed" }
+aux = ["xtask/diff/inputs/gc.genome", "xtask/diff/inputs/bigwig/bbi_dump.py"]
+# gloci writes bigWig; pyBigWig reads it back in the file's order, which is the genome's.
+gloci = "gloci genomecov input.bed -g gc.genome --bga -o g.bw && python3 -I bbi_dump.py g.bw"
+reference = "bedtools genomecov -i input.bed -g gc.genome -bga"
+compare = "exact"
+
+[[case]]
 name = "genomecov-per-base-vs-bedtools"
 input = { file = "xtask/diff/inputs/gc-a.bed" }
 aux = ["xtask/diff/inputs/gc.genome"]

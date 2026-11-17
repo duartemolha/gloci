@@ -327,6 +327,7 @@ behaviour](#samtools-behaviour) after the tables.
 | `wigToBigWig in.wig chrom.sizes out.bw` | `gloci convert in.wig -g chrom.sizes -o out.bw` |
 | `bedToBigBed [-as=x.as] in.bed chrom.sizes out.bb` | `gloci convert in.bed -g chrom.sizes -o out.bb [--autosql x.as]` (bedN+M is found from the first record; no `-type`) |
 | `bigWigToBedGraph -chrom=chr1 -start=0 -end=1000 in.bw out` | `gloci view in.bw chr1:1-1000` (records clipped to the region; several regions and `--regions-file` work too) |
+| `bedtools genomecov -ibam x.bam -bga \| bedGraphToBigWig - chrom.sizes cov.bw` | `gloci genomecov x.bam --bga -o cov.bw` (sizes from the BAM header, or `-g`; `--bedgraph` too) |
 
 bigWig and bigBed are experimental input formats (D171): gloci reads them from a file only, never from standard input, through the file's own index.
 
