@@ -3,10 +3,10 @@
 
 use super::mates::MateTable;
 use super::ring::{CountRules, DepthRing};
-use super::{AllPositions, DepthOptions};
+use super::{AllPositions, DepthOptions, ModeRules};
 use gloci_core::Interval;
 use gloci_io::{AlnHeader, AlnRef, AlnSource, Diagnostics, IoError, Loc, OrderError, aln_view};
-use std::io;
+use std::io::{self, Write};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -15,14 +15,70 @@ const FLAG_UNMAPPED: u16 = 0x4;
 /// a chunk passes through it without being copied again.
 const FLUSH_AT: usize = 1 << 20;
 
+/// Where a depth run's positions go: `depth`'s rows (`Emitter`), the `--summary` table, or
+/// mosdepth's files. Positions arrive in `@SQ` order, then position order, each at most once.
+pub(crate) trait DepthSink {
+    /// The depths at `pos` (0-based) of reference `rid`, one per input in input order.
+    fn position(&mut self, rid: usize, pos: u64, depths: &[u32]) -> io::Result<()>;
+    /// Positions `[a, b)` of `rid`, where every input's depth is 0.
+    fn zeros(&mut self, rid: usize, a: u64, b: u64) -> io::Result<()>;
+    /// Every position of `rid` that this run gives has been given.
+    fn reference_done(&mut self, _rid: usize) -> io::Result<()> {
+        Ok(())
+    }
+    /// A record of input `input` on `rid` that passed every filter (reader, plan filter, read
+    /// length), whether or not it covers a base. `span` is its D101 span cut at `LN`, or `None`
+    /// when it is unmapped or the cut span is empty.
+    fn read(&mut self, _input: usize, _rid: usize, _a: &AlnRef<'_>, _span: Option<Interval>) {}
+    /// A record placed on `rid` (reference and position set), before the plan's filter.
+    fn placed(&mut self, _rid: usize) {}
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// How a read's length is taken for `--min-read-length`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // `CigarQuery` is chosen by the coverage modes
+pub(crate) enum ReadLength {
+    /// D137, `depth -l`: `l_seq` less the soft clips at the ends.
+    SeqLessClips,
+    /// The CIGAR's query length (`M I S = X`), as `samtools coverage -l`.
+    CigarQuery,
+}
+
+/// What is done about the bases of a pair's two reads that overlap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MateRule {
+    Off,
+    /// D139: the second read is clipped at the end of its mate.
+    ClipAtMateEnd,
+}
+
+/// Records dropped before anything else sees them, once the sink has been told they were placed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ReadFilter {
+    pub exclude_flags: u16,
+    pub min_mapq: u8,
+}
+
+impl ReadFilter {
+    /// No excluded bit set and MAPQ at least the minimum.
+    pub(crate) fn passes(&self, a: &AlnRef<'_>) -> bool {
+        a.flag() & self.exclude_flags == 0 && a.mapq() >= self.min_mapq
+    }
+}
+
 /// What a run of rows is computed from: the options as `depth` normalises them, the
 /// references, and the regions merged per reference.
 pub(crate) struct Plan<'a> {
     pub rules: CountRules,
     pub min_read_length: u64,
     pub all: AllPositions,
-    /// Count each base of an overlapping mate pair once (D139).
-    pub skip_mates: bool,
+    pub read_length: ReadLength,
+    /// What to do about an overlapping mate pair (D139).
+    pub mates: MateRule,
+    pub filter: Option<ReadFilter>,
     pub refs: &'a [(Vec<u8>, u64)],
     /// The union of the regions on each reference, sorted, disjoint and cut at `LN`.
     pub regions: Option<Vec<Vec<Interval>>>,
@@ -33,6 +89,7 @@ pub(crate) struct Plan<'a> {
 impl<'a> Plan<'a> {
     pub(crate) fn new(
         o: &DepthOptions,
+        mode: ModeRules,
         refs: &'a [(Vec<u8>, u64)],
         warned_past: &'a AtomicBool,
     ) -> Plan<'a> {
@@ -78,7 +135,13 @@ impl<'a> Plan<'a> {
             rules: o.rules,
             min_read_length: o.min_read_length,
             all,
-            skip_mates: o.skip_mate_overlap,
+            read_length: mode.read_length,
+            mates: if o.skip_mate_overlap {
+                MateRule::ClipAtMateEnd
+            } else {
+                MateRule::Off
+            },
+            filter: mode.filter,
             refs,
             regions,
             warned_past,
@@ -88,7 +151,10 @@ impl<'a> Plan<'a> {
 
 /// Formats rows into a buffer and hands it on every [`FLUSH_AT`] bytes.
 pub(crate) struct Emitter<'a> {
-    sink: &'a mut dyn FnMut(&[u8]) -> io::Result<()>,
+    out: &'a mut dyn Write,
+    hdr: Arc<AlnHeader>,
+    /// Depth columns per row: one per input.
+    columns: usize,
     buf: Vec<u8>,
     pub rows: u64,
     /// `CHROM\tPOS` of the row last started.
@@ -96,26 +162,33 @@ pub(crate) struct Emitter<'a> {
 }
 
 impl<'a> Emitter<'a> {
-    pub(crate) fn new(sink: &'a mut dyn FnMut(&[u8]) -> io::Result<()>) -> Emitter<'a> {
+    pub(crate) fn new(out: &'a mut dyn Write, hdr: &Arc<AlnHeader>, columns: usize) -> Emitter<'a> {
         Emitter {
-            sink,
+            out,
+            hdr: hdr.clone(),
+            columns,
             buf: Vec::with_capacity(FLUSH_AT + 4096),
             rows: 0,
             head: RowHead::default(),
         }
     }
 
-    pub(crate) fn flush(&mut self) -> io::Result<()> {
+    /// Text that comes before the first row.
+    pub(crate) fn preface(&mut self, text: &[u8]) {
+        self.buf.extend_from_slice(text);
+    }
+
+    fn hand_on(&mut self) -> io::Result<()> {
         if !self.buf.is_empty() {
-            (self.sink)(&self.buf)?;
+            self.out.write_all(&self.buf)?;
             self.buf.clear();
         }
         Ok(())
     }
 
-    /// Start the row of the 1-based position `pos1` on the reference `rid`, called `name`.
-    fn row_start(&mut self, rid: usize, name: &[u8], pos1: u64) {
-        self.head.to(rid, name, pos1);
+    /// Start the row of the 1-based position `pos1` on the reference `rid`.
+    fn row_start(&mut self, rid: usize, pos1: u64) {
+        self.head.to(rid, &self.hdr.refs[rid].0, pos1);
         self.buf.extend_from_slice(&self.head.text);
     }
 
@@ -138,34 +211,40 @@ impl<'a> Emitter<'a> {
         self.buf.push(b'\n');
         self.rows += 1;
         if self.buf.len() >= FLUSH_AT {
-            self.flush()?;
+            self.hand_on()?;
         }
         Ok(())
     }
+}
 
-    /// The rows of the positions `[a, b)` of the reference `rid`, called `name`, where every
-    /// one of `columns` depths is 0.
-    fn zero_rows(
-        &mut self,
-        rid: usize,
-        name: &[u8],
-        a: u64,
-        b: u64,
-        columns: usize,
-    ) -> io::Result<()> {
+impl DepthSink for Emitter<'_> {
+    fn position(&mut self, rid: usize, pos: u64, depths: &[u32]) -> io::Result<()> {
+        self.row_start(rid, pos + 1);
+        for &d in depths {
+            self.column(d);
+        }
+        self.row_end()
+    }
+
+    /// The rows of the positions `[a, b)` of `rid`, where every column is 0.
+    fn zeros(&mut self, rid: usize, a: u64, b: u64) -> io::Result<()> {
         for p in a..b {
-            self.head.to(rid, name, p + 1);
+            self.head.to(rid, &self.hdr.refs[rid].0, p + 1);
             self.buf.extend_from_slice(&self.head.text);
-            for _ in 0..columns {
+            for _ in 0..self.columns {
                 self.buf.extend_from_slice(b"\t0");
             }
             self.buf.push(b'\n');
             if self.buf.len() >= FLUSH_AT {
-                self.flush()?;
+                self.hand_on()?;
             }
         }
         self.rows += b.saturating_sub(a);
         Ok(())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.hand_on()
     }
 }
 
@@ -301,7 +380,12 @@ impl Input {
     }
 
     /// Read to the next record that counts.
-    fn advance(&mut self, plan: &Plan<'_>) -> Result<(), IoError> {
+    fn advance<S: DepthSink>(
+        &mut self,
+        k: usize,
+        plan: &Plan<'_>,
+        sink: &mut S,
+    ) -> Result<(), IoError> {
         self.cur = None;
         let Some(src) = self.src.as_mut() else {
             return Ok(());
@@ -337,20 +421,29 @@ impl Input {
                 .into());
             }
             self.last = Some((rid, pos, rec));
-            if plan.min_read_length > 0 && read_length(&a) < plan.min_read_length {
+            sink.placed(rid);
+            if let Some(f) = &plan.filter
+                && !f.passes(&a)
+            {
                 continue;
             }
-            let ref_len = self.hdr.refs[rid].1;
-            let span = if a.flag() & FLAG_UNMAPPED != 0 {
-                Interval {
-                    start: pos,
-                    end: pos + 1,
+            if plan.min_read_length > 0 {
+                let len = match plan.read_length {
+                    ReadLength::SeqLessClips => read_length(&a),
+                    ReadLength::CigarQuery => query_length(&a),
+                };
+                if len < plan.min_read_length {
+                    continue;
                 }
+            }
+            let ref_len = self.hdr.refs[rid].1;
+            let unmapped = a.flag() & FLAG_UNMAPPED != 0;
+            let cut = if unmapped {
+                None
             } else {
                 match a.span(ref_len) {
-                    Some((iv, false)) => iv,
-                    Some((iv, true)) => {
-                        if !plan.warned_past.swap(true, Ordering::Relaxed) {
+                    Some((iv, past)) => {
+                        if past && !plan.warned_past.swap(true, Ordering::Relaxed) {
                             log::warn!(
                                 "{}: a read ends past the end of its reference ({} has LN {}); \
 depth counts only the bases up to LN, where samtools prints rows beyond it (this warning is given once)",
@@ -359,14 +452,21 @@ depth counts only the bases up to LN, where samtools prints rows beyond it (this
                                 ref_len
                             );
                         }
-                        iv
+                        (iv.start < iv.end).then_some(iv)
                     }
-                    None => continue,
+                    None => None,
                 }
             };
-            if span.start >= span.end {
-                continue;
-            }
+            sink.read(k, rid, &a, cut);
+            let span = if unmapped {
+                Interval {
+                    start: pos,
+                    end: pos + 1,
+                }
+            } else {
+                let Some(iv) = cut else { continue };
+                iv
+            };
             self.cur = Some(Cur { rid, pos, span });
             return Ok(());
         }
@@ -387,7 +487,7 @@ depth counts only the bases up to LN, where samtools prints rows beyond it (this
         } else {
             // Consume or store first, then drop what no later read can claim, so a mate at
             // exactly `mpos` finds its entry.
-            let clip = if plan.skip_mates {
+            let clip = if plan.mates == MateRule::ClipAtMateEnd {
                 let clip = self.mates.clip_for(&a, c.pos, c.span.end);
                 self.mates.advance(c.pos);
                 clip
@@ -441,15 +541,26 @@ fn read_length(a: &AlnRef<'_>) -> u64 {
     len
 }
 
-/// The rows of the references `first..end`, from `inputs`' records (which belong to those
-/// references), written to `em`. Returns the largest ring any input held and the most reads
+/// The query length `samtools coverage -l` compares: the CIGAR's `M I S = X`.
+fn query_length(a: &AlnRef<'_>) -> u64 {
+    let mut n = 0u64;
+    a.for_each_op(&mut |op, len| {
+        if matches!(op, b'M' | b'I' | b'S' | b'=' | b'X') {
+            n += u64::from(len);
+        }
+    });
+    n
+}
+
+/// The positions of the references `first..end`, from `inputs`' records (which belong to those
+/// references), given to `sink`. Returns the largest ring any input held and the most reads
 /// any input's mate table held at once.
-pub(crate) fn run_group(
+pub(crate) fn run_group<S: DepthSink>(
     inputs: &mut [Input],
     first: usize,
     end: usize,
     plan: &Plan<'_>,
-    em: &mut Emitter<'_>,
+    sink: &mut S,
 ) -> Result<(usize, usize), IoError> {
     let write = |e: io::Error| IoError::Write {
         path: "output".into(),
@@ -457,13 +568,17 @@ pub(crate) fn run_group(
     };
     let mut max_ring = 0usize;
     let mut max_mates = 0usize;
-    for i in inputs.iter_mut() {
-        i.advance(plan)?;
+    let mut printer = Printer {
+        plan,
+        sink,
+        depths: vec![0; inputs.len()],
+    };
+    for (k, i) in inputs.iter_mut().enumerate() {
+        i.advance(k, plan, printer.sink)?;
     }
     let mut cur_ref: Option<usize> = None;
     // The first position of `cur_ref` not yet printed.
     let mut next = 0u64;
-    let mut printer = Printer { plan, em };
     loop {
         // The input with the smallest (reference, position); the lower index wins ties.
         let mut pick: Option<(usize, Cur)> = None;
@@ -480,10 +595,12 @@ pub(crate) fn run_group(
                 printer
                     .pending(inputs, r, next, plan.refs[r].1)
                     .map_err(write)?;
+                printer.sink.reference_done(r).map_err(write)?;
             }
             if plan.all == AllPositions::AllRefs {
                 for r in cur_ref.map_or(first, |r| r + 1)..c.rid {
                     printer.whole(inputs, r).map_err(write)?;
+                    printer.sink.reference_done(r).map_err(write)?;
                 }
             }
             cur_ref = Some(c.rid);
@@ -498,28 +615,32 @@ pub(crate) fn run_group(
         inputs[k].add_current(plan)?;
         max_ring = max_ring.max(inputs[k].ring.capacity());
         max_mates = max_mates.max(inputs[k].mates.peak());
-        inputs[k].advance(plan)?;
+        inputs[k].advance(k, plan, printer.sink)?;
     }
     if let Some(r) = cur_ref {
         printer
             .pending(inputs, r, next, plan.refs[r].1)
             .map_err(write)?;
+        printer.sink.reference_done(r).map_err(write)?;
     }
     if plan.all == AllPositions::AllRefs {
         for r in cur_ref.map_or(first, |r| r + 1)..end {
             printer.whole(inputs, r).map_err(write)?;
+            printer.sink.reference_done(r).map_err(write)?;
         }
     }
-    printer.em.flush().map_err(write)?;
+    printer.sink.flush().map_err(write)?;
     Ok((max_ring, max_mates))
 }
 
-struct Printer<'p, 'a, 'e> {
+struct Printer<'p, 's, S: DepthSink> {
     plan: &'p Plan<'p>,
-    em: &'e mut Emitter<'a>,
+    sink: &'s mut S,
+    /// One depth per input, for the position being given.
+    depths: Vec<u32>,
 }
 
-impl Printer<'_, '_, '_> {
+impl<S: DepthSink> Printer<'_, '_, S> {
     /// A whole reference no read of the run is on.
     fn whole(&mut self, inputs: &mut [Input], rid: usize) -> io::Result<()> {
         for i in inputs.iter_mut() {
@@ -564,7 +685,6 @@ impl Printer<'_, '_, '_> {
     }
 
     fn positions(&mut self, inputs: &mut [Input], rid: usize, a: u64, b: u64) -> io::Result<()> {
-        let name = &self.plan.refs[rid].0;
         // At and past every input's covered end, every depth is 0.
         let covered = inputs
             .iter()
@@ -573,13 +693,15 @@ impl Printer<'_, '_, '_> {
             .unwrap_or(0)
             .clamp(a, b);
         for p in a..covered {
-            self.em.row_start(rid, name, p + 1);
-            for i in inputs.iter_mut() {
-                self.em.column(i.ring.take(p));
+            for (d, i) in self.depths.iter_mut().zip(inputs.iter_mut()) {
+                *d = i.ring.take(p);
             }
-            self.em.row_end()?;
+            self.sink.position(rid, p, &self.depths)?;
         }
-        self.em.zero_rows(rid, name, covered, b, inputs.len())
+        if covered < b {
+            self.sink.zeros(rid, covered, b)?;
+        }
+        Ok(())
     }
 }
 
@@ -606,5 +728,159 @@ mod tests {
         h.to(0, b"chr1", u64::MAX - 1);
         h.to(0, b"chr1", u64::MAX);
         assert_eq!(h.text, format!("chr1\t{}", u64::MAX).as_bytes());
+    }
+}
+
+#[cfg(test)]
+mod sink_tests {
+    use super::super::test_sink::{Event, Recorder, sam_source};
+    use super::super::{AllPositions, DepthOptions, ModeRules, run_sources};
+    use super::{ReadFilter, ReadLength};
+    use crate::depth::CountRules;
+    use gloci_core::{Interval, VcfSpan};
+    use gloci_io::{Accept, AlignOptions, InvalidPolicy, ReaderOptions};
+    use std::num::NonZeroUsize;
+
+    fn ro() -> ReaderOptions {
+        ReaderOptions {
+            accept: Accept {
+                alignments: Some(AlignOptions {
+                    exclude_flags: 0,
+                    ..AlignOptions::default()
+                }),
+                ..Accept::default()
+            },
+            chrom_map: None,
+            threads: NonZeroUsize::MIN,
+            format: None,
+            vcf_span: VcfSpan::Ref,
+            invalid: InvalidPolicy::Fail,
+        }
+    }
+
+    fn opts(all: AllPositions, min_read_length: u64) -> DepthOptions {
+        DepthOptions {
+            rules: CountRules::default(),
+            min_read_length,
+            all,
+            regions: None,
+            skip_mate_overlap: false,
+            column_names: false,
+        }
+    }
+
+    /// A SAM of `refs` (name, LN) and `reads` (name flag ref pos mapq cigar).
+    fn sam(refs: &[(&str, u64)], reads: &[&str]) -> String {
+        let mut t = String::from("@HD\tVN:1.6\tSO:coordinate\n");
+        for (n, l) in refs {
+            t.push_str(&format!("@SQ\tSN:{n}\tLN:{l}\n"));
+        }
+        for r in reads {
+            let f: Vec<&str> = r.split(' ').collect();
+            t.push_str(&format!(
+                "{}\t{}\t{}\t{}\t{}\t{}\t*\t0\t0\t*\t*\n",
+                f[0], f[1], f[2], f[3], f[4], f[5]
+            ));
+        }
+        t
+    }
+
+    fn run(text: &str, o: &DepthOptions, mode: ModeRules) -> Recorder {
+        let src = sam_source(text, &ro());
+        let (_, rec) = run_sources(vec![src], &["test.sam".to_string()], o, mode, &ro(), |_| {
+            Ok(Recorder::default())
+        })
+        .unwrap();
+        rec
+    }
+
+    #[test]
+    fn sink_gets_every_position_once_in_order() {
+        let text = sam(
+            &[("c1", 20), ("c2", 5), ("c3", 8)],
+            &["r1 0 c1 3 60 3M2D2M", "r2 0 c1 4 60 4M", "r3 0 c3 2 60 2M"],
+        );
+        let rec = run(&text, &opts(AllPositions::AllRefs, 0), ModeRules::depth());
+        // Every position once, in order: the runs tile each reference from 0 to LN.
+        let mut expect_next = (0usize, 0u64);
+        for &(rid, a, b, _) in &rec.runs {
+            assert_eq!((rid, a), expect_next, "runs: {:?}", rec.runs);
+            expect_next = if b == [20, 5, 8][rid] {
+                (rid + 1, 0)
+            } else {
+                (rid, b)
+            };
+        }
+        assert_eq!(expect_next, (3, 0), "runs: {:?}", rec.runs);
+        let got: Vec<u32> = (2..9).map(|p| rec.depth_at(0, p)).collect();
+        assert_eq!(got, [1, 2, 2, 1, 1, 1, 1]);
+        let done: Vec<usize> = rec
+            .events
+            .iter()
+            .filter_map(|e| {
+                if let Event::Done(r) = e {
+                    Some(*r)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(done, [0, 1, 2]);
+        // Each reference's done comes after its last run.
+        for (rid, &n) in rec.runs_at_done.iter().enumerate() {
+            assert_eq!(rec.runs[n - 1].0, rid);
+            assert_eq!(rec.runs[n - 1].2, [20, 5, 8][rid]);
+        }
+    }
+
+    #[test]
+    fn read_hook_sees_each_passing_record() {
+        let refs = [("c1", 100), ("c2", 50)];
+        let reads = |text: &str, len: u64, mode: ModeRules| {
+            let rec = run(text, &opts(AllPositions::Covered, len), mode);
+            rec.events
+                .into_iter()
+                .filter_map(|e| match e {
+                    Event::Read { name, span, .. } => Some((name, span)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let iv = |start, end| Some(Interval { start, end });
+        let t = sam(&refs, &["m 0 c1 3 60 45M", "u 4 c1 7 0 *"]);
+        assert_eq!(
+            reads(&t, 0, ModeRules::depth()),
+            [("m".to_string(), iv(2, 47)), ("u".to_string(), None)]
+        );
+        let t = sam(&refs, &["long 0 c1 1 60 30S30M30S", "noseq 0 c1 1 60 50M"]);
+        let coverage = ModeRules {
+            read_length: ReadLength::CigarQuery,
+            filter: None,
+        };
+        assert_eq!(reads(&t, 60, coverage), [("long".to_string(), iv(0, 30))]);
+        assert_eq!(reads(&t, 60, ModeRules::depth()), []);
+    }
+
+    #[test]
+    fn placed_hook_runs_before_the_plan_filter() {
+        let text = sam(
+            &[("c1", 100), ("c2", 50)],
+            &["d 1024 c2 1 60 5M", "q 0 c2 3 5 5M"],
+        );
+        let mode = ModeRules {
+            read_length: ReadLength::SeqLessClips,
+            filter: Some(ReadFilter {
+                exclude_flags: 0x400,
+                min_mapq: 20,
+            }),
+        };
+        let rec = run(&text, &opts(AllPositions::Covered, 0), mode);
+        let placed = rec
+            .events
+            .iter()
+            .filter(|e| **e == Event::Placed(1))
+            .count();
+        assert_eq!(placed, 2);
+        assert!(!rec.events.iter().any(|e| matches!(e, Event::Read { .. })));
     }
 }

@@ -5,6 +5,8 @@
 mod mates;
 mod ring;
 mod rows;
+#[cfg(test)]
+pub(crate) mod test_sink;
 
 pub use mates::MateTable;
 pub use ring::{CountRules, DepthRing};
@@ -15,7 +17,7 @@ use gloci_io::{
     AlnHeader, AlnSource, IoError, ReaderOptions, UsageError, open_aln_source, regions_source_from,
 };
 pub(crate) use rows::log_diagnostics;
-use rows::{Emitter, Input, Plan, run_group};
+use rows::{DepthSink, Emitter, Input, Plan, ReadFilter, ReadLength, run_group};
 use std::collections::HashSet;
 use std::io::{self, Write};
 use std::num::NonZeroUsize;
@@ -172,18 +174,65 @@ pub fn depth(
     depth_sources(opened, paths, o, &ro, out)
 }
 
+/// What a mode sets on the plan beyond [`DepthOptions`]. `ModeRules::depth()` is `depth`'s own.
+#[derive(Clone, Copy)]
+pub(crate) struct ModeRules {
+    pub read_length: ReadLength,
+    pub filter: Option<ReadFilter>,
+}
+
+impl ModeRules {
+    /// `depth`: read lengths as D137 takes them, no filter beyond the reader's.
+    pub(crate) fn depth() -> ModeRules {
+        ModeRules {
+            read_length: ReadLength::SeqLessClips,
+            filter: None,
+        }
+    }
+}
+
 /// `samtools depth` over `opened`, the inputs [`open_depth_inputs`] opened from `paths`, written
 /// to `out`. Rows come in `@SQ` order. The inputs are read as one merged stream at every thread
 /// count (D138): threads go to BGZF and CRAM decoding, so the output and the diagnostics never
 /// depend on them. With regions, a regular file with an index is read through it; anything
 /// else is scanned from where it stands.
 pub fn depth_sources(
-    mut opened: Vec<Box<dyn AlnSource>>,
+    opened: Vec<Box<dyn AlnSource>>,
     paths: &[String],
     o: &DepthOptions,
     ro: &ReaderOptions,
     out: &mut dyn Write,
 ) -> Result<DepthSummary, IoError> {
+    let (mut summary, em) = run_sources(opened, paths, o, ModeRules::depth(), ro, |hdr| {
+        let mut em = Emitter::new(out, hdr, paths.len());
+        if o.column_names {
+            let mut line = b"#CHROM\tPOS".to_vec();
+            for p in paths {
+                line.push(b'\t');
+                line.extend_from_slice(p.as_bytes());
+            }
+            line.push(b'\n');
+            em.preface(&line);
+        }
+        Ok(em)
+    })?;
+    summary.rows = em.rows;
+    drop(em);
+    out.flush().map_err(write_err)?;
+    Ok(summary)
+}
+
+/// Check the inputs' headers (D126), reopen them through the regions when `o.regions` is set (as
+/// `depth_sources` does), build the sink from the shared header, run every reference and log the
+/// diagnostics. Returns the summary (its `rows` left 0) and the sink.
+pub(crate) fn run_sources<S: DepthSink>(
+    mut opened: Vec<Box<dyn AlnSource>>,
+    paths: &[String],
+    o: &DepthOptions,
+    mode: ModeRules,
+    ro: &ReaderOptions,
+    make_sink: impl FnOnce(&Arc<AlnHeader>) -> Result<S, IoError>,
+) -> Result<(DepthSummary, S), IoError> {
     if opened.is_empty() || opened.len() != paths.len() {
         return Err(UsageError("depth needs at least one input file".into()).into());
     }
@@ -192,7 +241,7 @@ pub fn depth_sources(
     check_same_references(&names, &headers)?;
     let hdr = headers[0].clone();
     let warned_past = AtomicBool::new(false);
-    let plan = Plan::new(o, &hdr.refs, &warned_past);
+    let plan = Plan::new(o, mode, &hdr.refs, &warned_past);
     // One stream. Regions come through the indexes where there are some, else by scanning;
     // a reopened input gets its share of `ro.threads`, as `open_depth_inputs` gives.
     if let Some(regions) = &o.regions {
@@ -204,31 +253,17 @@ pub fn depth_sources(
             .map(|(s, p)| regions_source_from(s, p, regions, &ro))
             .collect::<Result<_, _>>()?;
     }
-
-    if o.column_names {
-        let mut line = b"#CHROM\tPOS".to_vec();
-        for p in paths {
-            line.push(b'\t');
-            line.extend_from_slice(p.as_bytes());
-        }
-        line.push(b'\n');
-        out.write_all(&line).map_err(write_err)?;
-    }
-
+    let mut sink = make_sink(&hdr)?;
     let mut inputs: Vec<Input> = opened
         .into_iter()
         .zip(&names)
         .map(|(s, n)| Input::new(Some(s), n, hdr.clone()))
         .collect();
     let mut summary = DepthSummary::default();
-    let mut write = |b: &[u8]| out.write_all(b);
-    let mut em = Emitter::new(&mut write);
     (summary.max_ring, summary.max_pending_mates) =
-        run_group(&mut inputs, 0, hdr.refs.len(), &plan, &mut em)?;
-    summary.rows = em.rows;
+        run_group(&mut inputs, 0, hdr.refs.len(), &plan, &mut sink)?;
     for i in &inputs {
         log_diagnostics(&i.name, &i.diagnostics());
     }
-    out.flush().map_err(write_err)?;
-    Ok(summary)
+    Ok((summary, sink))
 }
