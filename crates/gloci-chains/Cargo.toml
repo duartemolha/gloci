@@ -1,0 +1,13 @@
+[package]
+name = "gloci-chains"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Built-in human chain files for gloci liftover: GRCh37 and GRCh38 from Ensembl (no restrictions). Internal crate, no stable API."
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dev-dependencies]
+sha2.workspace = true
+toml.workspace = true

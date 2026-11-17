@@ -14,6 +14,8 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
 
 [dependencies]
 gloci-core.workspace = true
+gloci-chains.workspace = true
+gloci-chains-t2t.workspace = true
 noodles-bgzf.workspace = true
 noodles-core.workspace = true
 noodles-csi.workspace = true

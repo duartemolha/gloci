@@ -1,0 +1,21 @@
+# Provenance of the built-in chain files in this directory (D174, R13). Each .gz is the published
+# file as downloaded; sha256 is the hash of the committed .gz. licence is the publisher's own
+# statement, found at `licence_page`. naming is how the chain's source names its chromosomes.
+
+[[chain]]
+id = "GRCh37-to-GRCh38"
+url = "https://ftp.ensembl.org/pub/assembly_mapping/homo_sapiens/GRCh37_to_GRCh38.chain.gz"
+retrieved = "2026-11-17"
+sha256 = "351de3cd4a01d9fcffd38881981767b697090d2eba876740891b96d5c546b100"
+licence = "Ensembl: no restrictions"
+licence_page = "https://www.ensembl.org/info/about/legal/disclaimer.html (\"Ensembl imposes no restrictions on access to, or use of, the data provided\")"
+naming = "1 and chr1 (Ensembl lists both)"
+
+[[chain]]
+id = "GRCh38-to-GRCh37"
+url = "https://ftp.ensembl.org/pub/assembly_mapping/homo_sapiens/GRCh38_to_GRCh37.chain.gz"
+retrieved = "2026-11-17"
+sha256 = "6bee5bfdd6defc0fb2bd388ef51819c32bbfae1d3e7a3345aa5ebbdc3dd492b1"
+licence = "Ensembl: no restrictions"
+licence_page = "https://www.ensembl.org/info/about/legal/disclaimer.html (\"Ensembl imposes no restrictions on access to, or use of, the data provided\")"
+naming = "1 and chr1 (Ensembl lists both)"

@@ -95,7 +95,7 @@ pub fn run(ctx: &Ctx, a: &LiftoverArgs) -> anyhow::Result<()> {
     if let Some(u) = &uspec {
         check_outputs(&spec, u)?;
     }
-    let chain = ChainIndex::load(&a.chain)?;
+    let chain = ChainIndex::resolve(&a.chain)?;
     let ro = ReaderOptions {
         accept: gloci_io::Accept::default(),
         chrom_map: a.chrom_map.load()?,

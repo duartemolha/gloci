@@ -479,3 +479,118 @@ fn min_ratio_range() {
             .stderr(contains("--min-ratio"));
     }
 }
+
+// Built-in chains (D174, R13).
+
+#[test]
+fn builtin_chain_equals_the_file() {
+    // The golden was made from a slice of Ensembl's chain; the built-in one is the full file.
+    let golden = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/golden/liftover-ensembl-bed-vs-crossmap/expected");
+    gloci()
+        .args([
+            "liftover",
+            &fixture("grch37-21-22.bed"),
+            "--chain",
+            "grch37-to-grch38",
+        ])
+        .assert()
+        .success()
+        .stdout(read(&golden));
+}
+
+#[test]
+fn unknown_builtin_suggests() {
+    gloci()
+        .args([
+            "liftover",
+            &fixture("grch37-21-22.bed"),
+            "--chain",
+            "GRCh37-to-GRCh39",
+        ])
+        .assert()
+        .code(2)
+        .stderr(contains("did you mean GRCh37-to-GRCh38").and(contains("CHM13v2-to-GRCh37")));
+}
+
+#[test]
+fn hg19_chrm_is_refused() {
+    let d = tempdir();
+    let bed = plain_file(
+        d.path(),
+        "m.bed",
+        "chrM\t100\t200\tx\nchr21\t9411300\t9411400\ty\n",
+    );
+    gloci()
+        .args([
+            "liftover",
+            bed.to_str().unwrap(),
+            "--chain",
+            "GRCh37-to-GRCh38",
+        ])
+        .args([
+            "--unmapped",
+            "-",
+            "-o",
+            d.path().join("o.bed").to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout("chrM\t100\t200\tx\n")
+        .stderr(contains("hg19's chrM is not GRCh37's MT"));
+    assert_eq!(read(&d.path().join("o.bed")).lines().count(), 1);
+}
+
+#[test]
+fn hg19_chrm_warning_comes_once() {
+    let d = tempdir();
+    let bed = plain_file(
+        d.path(),
+        "m.bed",
+        "chrM\t100\t200\nchrM\t300\t400\nchrM\t500\t600\n",
+    );
+    let out = gloci()
+        .args([
+            "liftover",
+            bed.to_str().unwrap(),
+            "--chain",
+            "GRCh37-to-GRCh38",
+        ])
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(err.matches("hg19's chrM").count(), 1, "{err}");
+}
+
+#[test]
+fn grch38_chrm_keeps_its_name() {
+    let d = tempdir();
+    let bed = plain_file(d.path(), "m.bed", "chrM\t100\t200\n");
+    gloci()
+        .args([
+            "liftover",
+            bed.to_str().unwrap(),
+            "--chain",
+            "GRCh38-to-GRCh37",
+        ])
+        .assert()
+        .success()
+        .stdout(predicates::str::starts_with("chrM\t"))
+        .stderr(contains("hg19's chrM").not());
+}
+
+#[test]
+fn a_file_named_like_a_builtin_is_the_file() {
+    let d = with(&["toy.bed", "toy.chain"]);
+    std::fs::copy(
+        d.path().join("toy.chain"),
+        d.path().join("GRCh37-to-GRCh38"),
+    )
+    .unwrap();
+    gloci()
+        .current_dir(d.path())
+        .args(["liftover", "toy.bed", "--chain", "GRCh37-to-GRCh38"])
+        .assert()
+        .success()
+        .stdout(TOY_BED_OUT);
+}

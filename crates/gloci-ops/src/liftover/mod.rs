@@ -5,7 +5,7 @@ mod bed;
 mod gff;
 mod names;
 
-pub use names::{ChromStyle, source_name, target_name};
+pub use names::{ChromStyle, refused_chrm, source_name, target_name};
 
 use gloci_core::{ChromTable, Interval};
 use gloci_io::{
@@ -117,7 +117,11 @@ impl Styler {
     fn name(&mut self, chain: &ChainIndex, id: u32, chr: bool) -> &str {
         let style = self.style;
         self.names[id as usize * 2 + usize::from(chr)].get_or_insert_with(|| {
-            target_name(style, if chr { "chr" } else { "" }, &chain.chain(id).target)
+            let target = &chain.chain(id).target;
+            if names::mt_target(chain, style, chr, target) {
+                return "chrM".to_string();
+            }
+            target_name(style, if chr { "chr" } else { "" }, target)
         })
     }
 
@@ -217,6 +221,12 @@ pub fn liftover(
             }
             let from = sources[id].get_or_insert_with(|| {
                 let name = String::from_utf8_lossy(chroms.name(m.chrom)).into_owned();
+                if refused_chrm(chain, &name) {
+                    log::warn!(
+                        "{name} is not lifted: hg19's chrM is not GRCh37's MT, so the built-in \
+GRCh37-to-GRCh38 chain leaves it unmapped"
+                    );
+                }
                 Input {
                     src: source_name(chain, &name),
                     chr: name.starts_with("chr"),

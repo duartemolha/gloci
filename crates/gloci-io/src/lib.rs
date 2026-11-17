@@ -13,6 +13,7 @@ pub mod bgzf_copy;
 pub mod builtin;
 pub mod cancel;
 pub mod chain;
+mod chain_builtin;
 pub mod chrom_map;
 pub mod convert;
 pub mod detect;
@@ -68,7 +69,8 @@ pub use builtin::{
     BuiltinGenome, Naming, builtin, builtin_alias, builtin_genomes, edit_distance, resolve_genome,
     unknown_genome,
 };
-pub use chain::{ChainIndex, ChainInfo, Segment, SourceRef};
+pub use chain::{ChainIndex, ChainInfo, MtRule, Segment, SourceRef};
+pub use chain_builtin::builtin_chain_ids;
 pub use chrom_map::ChromMap;
 pub use convert::{BcfText, HeaderMode, TextToBcf, convert_variants};
 pub use detect::{Compression, Format, detect_compression, detect_format};

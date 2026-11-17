@@ -1,0 +1,39 @@
+# Provenance of the built-in chain files in this directory (D174, R13). Each .gz is gzip -9 of the
+# published file; sha256 is the hash of the committed .gz. licence is the publisher's own
+# statement, found at `licence_page`. naming is how the chain's source names its chromosomes.
+
+[[chain]]
+id = "GRCh38-to-CHM13v2"
+url = "https://s3-us-west-2.amazonaws.com/human-pangenomics/T2T/CHM13/assemblies/chain/v1_nflo/grch38-chm13v2.chain"
+retrieved = "2026-11-17"
+sha256 = "5b30e6f0fe5c825cc30d77963b7df7b37b2727f2084a80032fc28f5a5063c88d"
+licence = "CC0"
+licence_page = "https://github.com/marbl/CHM13#data-reuse-and-license (\"All data is released to the public domain (CC0)\")"
+naming = "chr1"
+
+[[chain]]
+id = "CHM13v2-to-GRCh38"
+url = "https://s3-us-west-2.amazonaws.com/human-pangenomics/T2T/CHM13/assemblies/chain/v1_nflo/chm13v2-grch38.chain"
+retrieved = "2026-11-17"
+sha256 = "9c8108ea92b914827e16e32e000cc1a9410eb06a6d2231a8a8f297ee4debe6ac"
+licence = "CC0"
+licence_page = "https://github.com/marbl/CHM13#data-reuse-and-license (\"All data is released to the public domain (CC0)\")"
+naming = "chr1"
+
+[[chain]]
+id = "GRCh37-to-CHM13v2"
+url = "https://s3-us-west-2.amazonaws.com/human-pangenomics/T2T/CHM13/assemblies/chain/v1_nflo/hg19-chm13v2.chain"
+retrieved = "2026-11-17"
+sha256 = "0e876665abec010eb4c0c853a9bbaefc9667c7b9d2600b6112d7901890b08bd4"
+licence = "CC0"
+licence_page = "https://github.com/marbl/CHM13#data-reuse-and-license (\"All data is released to the public domain (CC0)\")"
+naming = "chr1"
+
+[[chain]]
+id = "CHM13v2-to-GRCh37"
+url = "https://s3-us-west-2.amazonaws.com/human-pangenomics/T2T/CHM13/assemblies/chain/v1_nflo/chm13v2-hg19.chain"
+retrieved = "2026-11-17"
+sha256 = "c98730e73c19a30b4bea2b877ad20a52d6002e233bc2dda587e3e38b28e02411"
+licence = "CC0"
+licence_page = "https://github.com/marbl/CHM13#data-reuse-and-license (\"All data is released to the public domain (CC0)\")"
+naming = "chr1"

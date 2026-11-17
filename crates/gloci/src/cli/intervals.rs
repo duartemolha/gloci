@@ -861,21 +861,24 @@ pub struct LinksArgs {
 /// `gff` and `region` modes), not those of UCSC `liftOver`, whose rules it does not follow. A
 /// record that crosses a gap in the chain is split into one record per aligned piece. Records
 /// that do not lift are written as read to --unmapped, or counted in a warning. The output is
-/// in input order, so pipe it through `gloci sort` when the target needs sorting. CHAIN may be
-/// plain, gzip or BGZF text. Ensembl's and the T2T consortium's chains are free to use; a UCSC
-/// chain file brings UCSC's licence (non-commercial use only) with it.
+/// in input order, so pipe it through `gloci sort` when the target needs sorting. CHAIN is a file
+/// (plain, gzip or BGZF text) or a built-in id: GRCh37-to-GRCh38, GRCh38-to-GRCh37,
+/// GRCh38-to-CHM13v2, CHM13v2-to-GRCh38, GRCh37-to-CHM13v2 or CHM13v2-to-GRCh37. Ensembl's and the
+/// T2T consortium's chains are free to use; a UCSC chain file brings UCSC's licence
+/// (non-commercial use only) with it.
 #[derive(Args)]
 #[command(about = "Move intervals to another assembly with a chain (CrossMap)")]
 #[command(after_long_help = "\
 Examples:
-  gloci liftover peaks.bed --chain GRCh37_to_GRCh38.chain.gz -o peaks.b38.bed --unmapped peaks.unmapped.bed
+  gloci liftover peaks.bed --chain GRCh37-to-GRCh38 -o peaks.b38.bed --unmapped peaks.unmapped.bed
   gloci liftover genes.gtf --chain GRCh37_to_GRCh38.chain.gz | gloci sort - -o genes.b38.gtf
-  gloci liftover cnv.bed --chain chm13v2-grch38.chain --chrom-style long -o cnv.hg38.bed")]
+  gloci liftover cnv.bed --chain CHM13v2-to-GRCh38 --chrom-style long -o cnv.hg38.bed")]
 pub struct LiftoverArgs {
     /// Input BED, bedGraph, GFF3 or GTF (`-` for stdin).
     #[arg(value_name = "FILE")]
     pub file: String,
-    /// The chain file to lift through: plain, gzip or BGZF (`-` for stdin).
+    /// The chain to lift through: a file (plain, gzip or BGZF; `-` for stdin) or a built-in id, such
+    /// as GRCh37-to-GRCh38.
     #[arg(long, value_name = "CHAIN", required = true)]
     pub chain: String,
     /// Write the records that did not lift to FILE, as read, in the input's format whatever the

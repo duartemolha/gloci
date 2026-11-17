@@ -3,8 +3,10 @@
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
-const PUBLISHED: [&str; 6] = [
+const PUBLISHED: [&str; 8] = [
     "gloci-core",
+    "gloci-chains",
+    "gloci-chains-t2t",
     "gloci-io",
     "gloci-engine",
     "gloci-vcf",

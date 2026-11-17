@@ -2280,7 +2280,7 @@ class Pipeline:
         """Move intervals to another assembly with a chain (CrossMap)
 
         Args:
-            chain: The chain file to lift through: plain, gzip or BGZF (`-` for stdin)
+            chain: The chain to lift through: a file (plain, gzip or BGZF; `-` for stdin) or a built-in id, such as GRCh37-to-GRCh38
             unmapped: Write the records that did not lift to FILE, as read, in the input's format whatever the file's name (CrossMap `--unmap-file`; `.gz` compresses it; `-` is stdout when -o names a file)
             chrom_style: How the target chromosomes are named (CrossMap `--chromid a|s|l|n`): as-input follows the input's `chr` prefix, short removes `chr`, long adds it, chain keeps the chain's name
             ignore_blocks: Lift a BED12 record by columns 1 to 3 only, as any other BED record, leaving blocks and thick range as read (CrossMap `--naive-bed-parsing`). Without it, each block is lifted and must fall in one piece. Not for GFF or GTF

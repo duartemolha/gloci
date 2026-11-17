@@ -148,7 +148,7 @@ description: Use gloci for genomic interval and variant operations (sorting, ind
 - `gloci tag` (experimental): Tag each alignment with the features it overlaps, as bedtools tag does
   `gloci tag reads.bam -b genes.bed --labels genes -o tagged.bam` · `gloci tag reads.bam -b exons.bed introns.bed --labels exon,intron -s -O sam`
 - `gloci liftover` (experimental): Move intervals to another assembly with a chain (CrossMap)
-  `gloci liftover peaks.bed --chain GRCh37_to_GRCh38.chain.gz -o peaks.b38.bed --unmapped peaks.unmapped.bed` · `gloci liftover genes.gtf --chain GRCh37_to_GRCh38.chain.gz | gloci sort - -o genes.b38.gtf`
+  `gloci liftover peaks.bed --chain GRCh37-to-GRCh38 -o peaks.b38.bed --unmapped peaks.unmapped.bed` · `gloci liftover genes.gtf --chain GRCh37_to_GRCh38.chain.gz | gloci sort - -o genes.b38.gtf`
 
 ## Where the details are
 

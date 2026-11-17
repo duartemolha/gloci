@@ -46,8 +46,23 @@ struct Block {
     chain: u32,
 }
 
+/// How liftover treats the mitochondrial chromosome for a chain (D174, R13).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MtRule {
+    /// Names as they are in the chain: `chrM` finds no `M` and is never sent to `MT` (R4).
+    #[default]
+    Plain,
+    /// A built-in chain whose source is GRCh38 or CHM13v2, where `MT` is hg38's `chrM`: `chrM`
+    /// finds `MT`, and a target `MT` is written back as `chrM`.
+    ChrM,
+    /// The built-in GRCh37-to-GRCh38 chain: hg19's `chrM` is not GRCh37's `MT`, so `chrM` and
+    /// `M` stay unmapped.
+    Hg19,
+}
+
 /// The aligned blocks of a chain file, one interval index per source chromosome.
 pub struct ChainIndex {
+    pub(crate) mt: MtRule,
     names: HashMap<String, usize>,
     lappers: Vec<Lapper<u64, Block>>,
     chains: Vec<ChainInfo>,
@@ -140,6 +155,11 @@ impl ChainIndex {
 
     pub fn blocks(&self) -> usize {
         self.blocks
+    }
+
+    /// How the mitochondrial chromosome is treated; only a built-in chain changes it.
+    pub fn mt_rule(&self) -> MtRule {
+        self.mt
     }
 }
 
@@ -341,6 +361,7 @@ fn build<R: BufRead>(name: &str, mut r: R) -> Result<ChainIndex, IoError> {
     }
     let lappers = lists.into_iter().map(Lapper::new).collect();
     Ok(ChainIndex {
+        mt: MtRule::Plain,
         names,
         lappers,
         chains,
