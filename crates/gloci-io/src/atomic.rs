@@ -197,8 +197,9 @@ fn panic_message(info: &std::panic::PanicHookInfo<'_>) -> String {
 }
 
 /// Installs SIGINT/SIGTERM/SIGHUP handling (cleanup, exit 130) and a panic hook
-/// that cleans up, reports an internal error and exits with status 1 (the
-/// release profile aborts on panic, which would otherwise end in SIGABRT).
+/// that cleans up, reports an internal error (once, however many threads panic)
+/// and exits with status 1 (the release profile aborts on panic, which would
+/// otherwise end in SIGABRT).
 /// Safe to call more than once.
 pub fn install_cleanup_handlers() {
     INSTALL.call_once(|| {
@@ -206,7 +207,12 @@ pub fn install_cleanup_handlers() {
             cleanup_and_exit(130);
         });
         std::panic::set_hook(Box::new(|info| {
-            let _ = writeln!(io::stderr(), "{}", panic_line(&panic_message(info)));
+            // Several threads can panic together (bigtools' runtime workers when its temporary
+            // files fail): the first prints its line, the others wait for it, and all exit.
+            static REPORT: Once = Once::new();
+            REPORT.call_once(|| {
+                let _ = writeln!(io::stderr(), "{}", panic_line(&panic_message(info)));
+            });
             cleanup_and_exit(1);
         }));
     });
