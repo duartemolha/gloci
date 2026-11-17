@@ -95,8 +95,8 @@ pub use naming::{
     nary_naming_warning, unknown_chrom_err,
 };
 pub use output::{
-    OutFormat, Output, OutputOptions, OutputSpec, check_level, open_output, open_raw_output,
-    parse_output_spec, plain_text_output_spec, refuse_binary_to_tty,
+    OutFormat, Output, OutputOptions, OutputSpec, check_level, input_family_output_spec,
+    open_output, open_raw_output, parse_output_spec, plain_text_output_spec, refuse_binary_to_tty,
 };
 pub use record::{
     Header, Opened, ReaderOptions, RecordBatch, RecordMeta, RecordReader, check_map_against_index,

@@ -180,6 +180,23 @@ fn is_mem(p: &Path) -> bool {
     p.to_str().is_some_and(crate::memio::is_mem_path)
 }
 
+/// The spec of an output that is written in its input's format family whatever its name: the
+/// extension never picks the format, and only `.gz` or `.bgz` compresses it (BGZF).
+pub fn input_family_output_spec(output: Option<&Path>) -> OutputSpec {
+    let (path, direct) = output_target(output);
+    let bgzf = !direct
+        && path.is_some_and(|p| {
+            p.extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("gz") || e.eq_ignore_ascii_case("bgz"))
+        });
+    OutputSpec {
+        path: path.map(Path::to_path_buf),
+        format: None,
+        bgzf,
+        direct,
+    }
+}
+
 /// The spec of an output that holds plain text whatever its name (`view --count`): no format
 /// is read from the extension, and nothing is compressed.
 pub fn plain_text_output_spec(output: Option<&Path>) -> OutputSpec {

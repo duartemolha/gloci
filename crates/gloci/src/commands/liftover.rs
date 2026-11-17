@@ -5,7 +5,7 @@ use crate::cli::LiftoverArgs;
 use gloci_core::ChromTable;
 use gloci_io::{
     ChainIndex, Format, InvalidPolicy, IoError, OutputOptions, OutputSpec, ReaderOptions,
-    UsageError, WriterOptions, open_reader, parse_output_spec,
+    UsageError, WriterOptions, input_family_output_spec, open_reader, parse_output_spec,
 };
 use gloci_ops::liftover::{ChromStyle, LiftoverCounts, LiftoverOptions, liftover};
 use gloci_ops::{ReportOutput, open_report};
@@ -20,7 +20,8 @@ fn style(s: &str) -> ChromStyle {
     }
 }
 
-/// The same file, spelt two ways: by name, or by where it is (or would be) on disk.
+/// The same file, spelt two ways: by name, through a link (same device and inode), or by where
+/// it is (or would be) on disk.
 fn same_file(a: &Path, b: &Path) -> bool {
     let real = |p: &Path| {
         let name = p.file_name()?.to_owned();
@@ -30,6 +31,16 @@ fn same_file(a: &Path, b: &Path) -> bool {
         };
         Some(dir.canonicalize().ok()?.join(name))
     };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let (Ok(x), Ok(y)) = (std::fs::metadata(a), std::fs::metadata(b))
+            && x.dev() == y.dev()
+            && x.ino() == y.ino()
+        {
+            return true;
+        }
+    }
     a == b || (real(a).is_some() && real(a) == real(b))
 }
 
@@ -70,10 +81,10 @@ fn name_write(e: IoError, mapped: &str, unmapped: &str) -> IoError {
 
 pub fn run(ctx: &Ctx, a: &LiftoverArgs) -> anyhow::Result<()> {
     let spec = parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref())?;
-    let uspec = match &a.unmapped {
-        Some(p) => Some(parse_output_spec(Some(p), None)?),
-        None => None,
-    };
+    let uspec = a
+        .unmapped
+        .as_ref()
+        .map(|p| input_family_output_spec(Some(p)));
     if let Some(u) = &uspec {
         check_outputs(&spec, u)?;
     }

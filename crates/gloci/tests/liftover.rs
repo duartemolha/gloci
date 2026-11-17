@@ -303,3 +303,79 @@ fn help_names_crossmap_and_the_ucsc_licence() {
                 .and(contains("gloci sort")),
         );
 }
+
+#[test]
+fn unmapped_takes_any_name() {
+    let d = with(&["toy.bed", "toy.chain"]);
+    for name in ["m.bed.unmap", "u.txt", "noext"] {
+        gloci()
+            .current_dir(d.path())
+            .args([
+                "liftover",
+                "toy.bed",
+                "--chain",
+                "toy.chain",
+                "-o",
+                "m.bed",
+                "--unmapped",
+                name,
+            ])
+            .assert()
+            .success();
+        assert_eq!(read(&d.path().join(name)), TOY_BED_UNMAPPED, "{name}");
+    }
+    assert_eq!(read(&d.path().join("m.bed")), TOY_BED_OUT);
+}
+
+#[test]
+fn unmapped_gz_is_bgzf() {
+    let d = with(&["toy.bed", "toy.chain"]);
+    gloci()
+        .current_dir(d.path())
+        .args([
+            "liftover",
+            "toy.bed",
+            "--chain",
+            "toy.chain",
+            "-o",
+            "m.bed",
+            "--unmapped",
+            "u.unmap.gz",
+        ])
+        .assert()
+        .success();
+    let raw = std::fs::read(d.path().join("u.unmap.gz")).unwrap();
+    assert_eq!(raw[..4], [0x1f, 0x8b, 0x08, 0x04]);
+    let text = gloci()
+        .args(["view", "-"])
+        .write_stdin(raw)
+        .output()
+        .unwrap();
+    // Read back through gloci itself: a BGZF BED of the unmapped records.
+    assert_eq!(String::from_utf8_lossy(&text.stdout), TOY_BED_UNMAPPED);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_link_to_the_output_is_the_same_file() {
+    let d = with(&["toy.bed", "toy.chain"]);
+    std::fs::write(d.path().join("x.bed"), "").unwrap();
+    std::os::unix::fs::symlink("x.bed", d.path().join("y.bed")).unwrap();
+    std::fs::hard_link(d.path().join("x.bed"), d.path().join("z.bed")).unwrap();
+    for other in ["y.bed", "z.bed"] {
+        gloci()
+            .current_dir(d.path())
+            .args([
+                "liftover",
+                "toy.bed",
+                "--chain",
+                "toy.chain",
+                "-o",
+                "x.bed",
+                "--unmapped",
+                other,
+            ])
+            .assert()
+            .code(2);
+    }
+}

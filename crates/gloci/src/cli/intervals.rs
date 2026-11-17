@@ -878,8 +878,9 @@ pub struct LiftoverArgs {
     /// The chain file to lift through: plain, gzip or BGZF (`-` for stdin).
     #[arg(long, value_name = "CHAIN", required = true)]
     pub chain: String,
-    /// Write the records that did not lift, as read, to FILE (CrossMap `--unmap-file`; `-` is
-    /// stdout when -o names a file; .gz compresses).
+    /// Write the records that did not lift to FILE, as read, in the input's format whatever the
+    /// file's name (CrossMap `--unmap-file`; `.gz` compresses it; `-` is stdout when -o names a
+    /// file).
     #[arg(long, value_name = "FILE")]
     pub unmapped: Option<PathBuf>,
     /// How the target chromosomes are named (CrossMap `--chromid a|s|l|n`): as-input follows

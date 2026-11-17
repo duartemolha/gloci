@@ -2278,7 +2278,7 @@ class Pipeline:
 
         Args:
             chain: The chain file to lift through: plain, gzip or BGZF (`-` for stdin)
-            unmapped: Write the records that did not lift, as read, to FILE (CrossMap `--unmap-file`; `-` is stdout when -o names a file; .gz compresses)
+            unmapped: Write the records that did not lift to FILE, as read, in the input's format whatever the file's name (CrossMap `--unmap-file`; `.gz` compresses it; `-` is stdout when -o names a file)
             chrom_style: How the target chromosomes are named (CrossMap `--chromid a|s|l|n`): as-input follows the input's `chr` prefix, short removes `chr`, long adds it, chain keeps the chain's name
             format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
             header: Keep header lines in the output
