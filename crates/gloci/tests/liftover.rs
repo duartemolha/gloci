@@ -131,6 +131,44 @@ fn both_outputs_on_stdout_is_a_usage_error() {
         .stderr(contains("--unmapped").and(contains("-o")));
 }
 
+/// `--unmapped` is an output: with the input on stdin, `--unmapped -` is stdout (`-o` names a
+/// file), not a second use of standard input.
+#[test]
+fn stdin_input_with_unmapped_on_stdout() {
+    let d = with(&["toy.bed", "toy.chain"]);
+    gloci()
+        .current_dir(d.path())
+        .args([
+            "liftover",
+            "-",
+            "--chain",
+            "toy.chain",
+            "-o",
+            "m.bed",
+            "--unmapped",
+            "-",
+        ])
+        .write_stdin(read(&d.path().join("toy.bed")))
+        .assert()
+        .success()
+        .stdout(TOY_BED_UNMAPPED);
+    assert_eq!(read(&d.path().join("m.bed")), TOY_BED_OUT);
+}
+
+/// A chain on standard input, gzip-compressed, lifts as the file does.
+#[test]
+fn chain_on_stdin() {
+    let d = with(&["toy.bed", "toy.chain"]);
+    let gz = gloci_testkit::fixtures::gzip(&std::fs::read(d.path().join("toy.chain")).unwrap());
+    gloci()
+        .current_dir(d.path())
+        .args(["liftover", "toy.bed", "--chain", "-"])
+        .write_stdin(gz)
+        .assert()
+        .success()
+        .stdout(TOY_BED_OUT);
+}
+
 #[test]
 fn same_path_for_both_outputs_is_a_usage_error() {
     let d = with(&["toy.bed", "toy.chain"]);

@@ -36,10 +36,12 @@ fn mt_rule(c: &BuiltinChain) -> MtRule {
 }
 
 impl ChainIndex {
-    /// Read the chain `arg` names. A value with a `/` in it, or one that names an existing file,
-    /// is a file (`-` is stdin); otherwise it is a built-in chain id, ignoring case (D33's rule).
+    /// Read the chain `arg` names. A value with a `/` in it, or one that names an existing file
+    /// (a directory does not count), is a file; so are `-` (stdin) and a host's in-memory source
+    /// (D84). Otherwise it is a built-in chain id, ignoring case (D33's rule).
     pub fn resolve(arg: &str) -> Result<ChainIndex, IoError> {
-        if arg == "-" || arg.contains('/') || Path::new(arg).is_file() {
+        let is_file = Path::new(arg).metadata().is_ok_and(|m| !m.is_dir());
+        if arg == "-" || crate::memio::is_mem_path(arg) || arg.contains('/') || is_file {
             return Self::load(arg);
         }
         let Some(c) = all().find(|c| c.id.eq_ignore_ascii_case(arg)) else {

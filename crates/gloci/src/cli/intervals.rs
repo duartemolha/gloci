@@ -881,10 +881,10 @@ pub struct LiftoverArgs {
     /// as GRCh37-to-GRCh38.
     #[arg(long, value_name = "CHAIN", required = true)]
     pub chain: String,
-    /// Write the records that did not lift to FILE, as read, in the input's format whatever the
-    /// file's name (CrossMap `--unmap-file`; `.gz` compresses it; `-` is stdout when -o names a
-    /// file).
-    #[arg(long, value_name = "FILE")]
+    /// Write the records that did not lift to OUT, as read, in the input's format whatever the
+    /// file's name (CrossMap `--unmap-file`; `.gz` or `.bgz` makes it BGZF; `-` is stdout when -o
+    /// names a file).
+    #[arg(long, value_name = "OUT")]
     pub unmapped: Option<PathBuf>,
     /// How the target chromosomes are named (CrossMap `--chromid a|s|l|n`): as-input follows
     /// the input's `chr` prefix, short removes `chr`, long adds it, chain keeps the chain's name.

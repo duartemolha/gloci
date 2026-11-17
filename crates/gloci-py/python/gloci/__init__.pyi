@@ -2267,7 +2267,7 @@ class Pipeline:
         self,
         *,
         chain: Source,
-        unmapped: Source | None = None,
+        unmapped: str | int | float | os.PathLike[str] | None = None,
         chrom_style: Literal["as-input", "short", "long", "chain"] | None = None,
         ignore_blocks: bool = False,
         merge_segments: bool = False,
@@ -2281,7 +2281,7 @@ class Pipeline:
 
         Args:
             chain: The chain to lift through: a file (plain, gzip or BGZF; `-` for stdin) or a built-in id, such as GRCh37-to-GRCh38
-            unmapped: Write the records that did not lift to FILE, as read, in the input's format whatever the file's name (CrossMap `--unmap-file`; `.gz` compresses it; `-` is stdout when -o names a file)
+            unmapped: Write the records that did not lift to OUT, as read, in the input's format whatever the file's name (CrossMap `--unmap-file`; `.gz` or `.bgz` makes it BGZF; `-` is stdout when -o names a file)
             chrom_style: How the target chromosomes are named (CrossMap `--chromid a|s|l|n`): as-input follows the input's `chr` prefix, short removes `chr`, long adds it, chain keeps the chain's name
             ignore_blocks: Lift a BED12 record by columns 1 to 3 only, as any other BED record, leaving blocks and thick range as read (CrossMap `--naive-bed-parsing`). Without it, each block is lifted and must fall in one piece. Not for GFF or GTF
             merge_segments: Write a record that crosses chain gaps as one record from its first piece's start to its last piece's end, when enough of it maps (CrossMap `region`). Pieces on different chromosomes or strands leave it unmapped. Not for GFF or GTF, nor BED12 without --ignore-blocks

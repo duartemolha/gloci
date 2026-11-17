@@ -50,6 +50,21 @@ fn every_step_and_function_is_in_the_stub() {
     ] {
         assert!(!step.contains(reserved), "merge() has {reserved}");
     }
+    // An output beside -o is a path, never a Source: liftover's unmapped records, like
+    // convert's second FASTQ.
+    for (step, kw) in [("liftover", "unmapped"), ("convert", "fastq2")] {
+        let sig = text
+            .split(&format!("    def {step}("))
+            .nth(1)
+            .and_then(|s| s.split(") ->").next())
+            .unwrap_or_else(|| panic!("{step} in the stub"));
+        assert!(
+            sig.contains(&format!(
+                "        {kw}: str | int | float | os.PathLike[str] | None = None,"
+            )),
+            "{step}({kw}=) is not typed as an output path"
+        );
+    }
     assert!(text.contains("Source: TypeAlias ="), "the Source alias");
     assert!(text.contains("-> pyarrow.Table"), "to_arrow's type");
 }

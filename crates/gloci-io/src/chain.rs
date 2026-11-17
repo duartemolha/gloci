@@ -84,10 +84,11 @@ struct Open {
 type Sizes = HashMap<String, (u64, u64)>;
 
 impl ChainIndex {
-    /// Read the chain file at `path` (`-` is stdin): plain, gzip or BGZF, told by magic bytes.
+    /// Read the chain file at `path` (`-` is stdin, and an in-memory source is read once, D84):
+    /// plain, gzip or BGZF, told by magic bytes. Errors call it by its display name.
     pub fn load(path: &str) -> Result<ChainIndex, IoError> {
         let raw = crate::input::open_raw(path)?;
-        Self::from_reader(path, BufReader::new(raw))
+        Self::from_reader(&crate::memio::display_name(path), BufReader::new(raw))
     }
 
     /// Read chain text held in memory (plain, gzip or BGZF); `name` is what errors call it.

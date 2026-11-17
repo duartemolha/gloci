@@ -866,6 +866,41 @@ fn execute_equals_p3_goldens() {
     }
 }
 
+/// A host may pass the chain as an in-memory source (D84, D88), plain or gzip: it is read as
+/// a file, never looked up as a built-in id (D174, R13).
+#[test]
+fn liftover_reads_an_in_memory_chain() {
+    let dir = golden_dir("liftover-bed-vs-crossmap");
+    let expected = std::fs::read(dir.join("expected")).unwrap();
+    let text = std::fs::read(dir.join("toy.chain")).unwrap();
+    for (what, bytes) in [
+        ("plain", text.clone()),
+        ("gzip", gloci_testkit::fixtures::gzip(&text)),
+    ] {
+        let chain = Registered::input("<chain>", Box::new(Cursor::new(bytes)));
+        let sink = Shared::default();
+        let out = Registered::output("<output>", Box::new(sink.clone()));
+        let bed = dir.join("input.bed");
+        let argv = os(&[
+            "liftover",
+            bed.to_str().unwrap(),
+            "--chain",
+            chain.name(),
+            "-o",
+            out.name(),
+        ]);
+        assert!(
+            run(&argv).unwrap_or_else(|e| panic!("{what}: {e:#}")),
+            "{what}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&sink.bytes()),
+            String::from_utf8_lossy(&expected),
+            "{what}"
+        );
+    }
+}
+
 #[test]
 fn registered_names_are_discarded_on_drop() {
     let r = Registered::input("<list>", Box::new(Cursor::new(b"x".to_vec())));
@@ -1160,6 +1195,7 @@ fn file_arguments_are_known() {
         (&["reheader"], "header"),
         (&["shuffle"], "exclude"),
         (&["vcf", "popgen"], "fst_pop"),
+        (&["liftover"], "chain"),
     ] {
         assert!(takes(path, name), "{path:?} {name}");
     }
@@ -1179,6 +1215,9 @@ fn file_arguments_are_known() {
         (&["vcf", "popgen"], "ld_window_bp"),
         (&["vcf", "popgen"], "min_r2"),
         (&["vcf", "popgen"], "max_mem"),
+        // An output beside -o, like convert --fastq2.
+        (&["liftover"], "unmapped"),
+        (&["convert"], "fastq2"),
     ] {
         assert!(!takes(path, name), "{path:?} {name}");
     }
