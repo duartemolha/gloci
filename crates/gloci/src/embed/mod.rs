@@ -282,6 +282,7 @@ pub fn thread_and_tmp(command: &Commands) -> (Option<NonZeroUsize>, Option<PathB
         Commands::Igv(a) => (a.threads.threads, None),
         Commands::Links(a) => (a.threads.threads, None),
         Commands::Tag(a) => (a.threads.threads, None),
+        Commands::Liftover(a) => (a.threads.threads, None),
         Commands::Vcf(a) => match &a.command {
             cli::VcfCommand::Filter(f) => (f.threads.threads, None),
             cli::VcfCommand::Extract(e) => (e.threads.threads, e.tmp_dir.tmp_dir.clone()),

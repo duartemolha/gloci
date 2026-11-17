@@ -2263,6 +2263,30 @@ class Pipeline:
 
         CLI: gloci tag
         """
+    def liftover(
+        self,
+        *,
+        chain: Source,
+        unmapped: Source | None = None,
+        chrom_style: Literal["as-input", "short", "long", "chain"] | None = None,
+        format: str | int | float | os.PathLike[str] | None = None,
+        header: bool = False,
+        skip_invalid: bool = False,
+        chrom_map: Source | None = None,
+    ) -> Pipeline:
+        """Move intervals to another assembly with a chain (CrossMap)
+
+        Args:
+            chain: The chain file to lift through: plain, gzip or BGZF (`-` for stdin)
+            unmapped: Write the records that did not lift, as read, to FILE (CrossMap `--unmap-file`; `-` is stdout when -o names a file; .gz compresses)
+            chrom_style: How the target chromosomes are named (CrossMap `--chromid a|s|l|n`): as-input follows the input's `chr` prefix, short removes `chr`, long adds it, chain keeps the chain's name
+            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
+            header: Keep header lines in the output
+            skip_invalid: Skip invalid records with a warning instead of failing
+            chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks and the output see the new names
+
+        CLI: gloci liftover
+        """
     def igv(
         self,
         *,

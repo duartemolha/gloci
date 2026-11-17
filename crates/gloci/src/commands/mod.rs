@@ -21,6 +21,7 @@ pub mod idxstats;
 pub mod igv;
 pub mod index;
 pub mod intersect;
+pub mod liftover;
 pub mod links;
 pub mod map;
 pub mod maskfasta;

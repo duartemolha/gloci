@@ -213,6 +213,7 @@ fn long_summary_names_every_tool_of_the_short_one() {
         "bedtobam",
         "bedpetobam",
         "vcf-concat",
+        "CrossMap",
     ];
     let mut missing = Vec::new();
     for path in all_paths() {

@@ -11715,3 +11715,139 @@ gloci = "gloci depth input.bam --by mosdepth-blank.bed --out-prefix o && cat o.m
 reference = "samtools index input.bam && mosdepth -n --by mosdepth-blank.bed o input.bam && cat o.mosdepth.global.dist.txt o.mosdepth.region.dist.txt o.mosdepth.summary.txt && zcat o.regions.bed.gz"
 compare = "exact"
 expected_difference = "#mosdepth-bed-blank-line"
+
+# liftover (D174) vs CrossMap 0.7.4
+
+[[case]]
+name = "liftover-bed-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain"
+reference = "CrossMap bed toy.chain input.bed o.bed >/dev/null 2>&1 && cat o.bed"
+compare = "exact"
+
+[[case]]
+name = "liftover-bed-unmapped-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain -o /dev/null --unmapped -"
+reference = "CrossMap bed toy.chain input.bed o.bed >/dev/null 2>&1 && sed 's/\\tUnmap$//' o.bed.unmap"
+compare = "exact"
+
+[[case]]
+name = "liftover-bed-unmapped-reason-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain -o /dev/null --unmapped -"
+reference = "CrossMap bed toy.chain input.bed o.bed >/dev/null 2>&1 && cat o.bed.unmap"
+compare = "exact"
+expected_difference = "#liftover-unmapped-file"
+
+[[case]]
+name = "liftover-bedgraph-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy.bedGraph" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bedGraph --chain toy.chain"
+reference = "CrossMap bed toy.chain input.bedGraph o.bed >/dev/null 2>&1 && cat o.bed"
+compare = "exact"
+
+[[case]]
+name = "liftover-bedgraph-unmapped-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy.bedGraph" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bedGraph --chain toy.chain -o /dev/null --unmapped -"
+reference = "CrossMap bed toy.chain input.bedGraph o.bed >/dev/null 2>&1 && sed 's/\\tUnmap$//' o.bed.unmap"
+compare = "exact"
+
+[[case]]
+name = "liftover-bedgraph-vs-crossmap-wig"
+input = { file = "xtask/diff/inputs/liftover/toy.bedGraph" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bedGraph --chain toy.chain"
+reference = "CrossMap wig toy.chain input.bedGraph w >/dev/null 2>&1 && cat w.sorted.bgr"
+compare = "exact"
+expected_difference = "#liftover-bedgraph"
+
+[[case]]
+name = "liftover-chrom-style-as-input-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-names.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain --chrom-style as-input"
+reference = "CrossMap bed --chromid a toy.chain input.bed o.bed >/dev/null 2>&1 && cat o.bed"
+compare = "exact"
+
+[[case]]
+name = "liftover-chrom-style-short-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-names.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain --chrom-style short"
+reference = "CrossMap bed --chromid s toy.chain input.bed o.bed >/dev/null 2>&1 && cat o.bed"
+compare = "exact"
+
+[[case]]
+name = "liftover-chrom-style-long-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-names.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain --chrom-style long"
+reference = "CrossMap bed --chromid l toy.chain input.bed o.bed >/dev/null 2>&1 && cat o.bed"
+compare = "exact"
+
+[[case]]
+name = "liftover-chrom-style-chain-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-names.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain --chrom-style chain"
+reference = "CrossMap bed --chromid n toy.chain input.bed o.bed >/dev/null 2>&1 && cat o.bed"
+compare = "exact"
+
+[[case]]
+name = "liftover-strand-column-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-strand.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain"
+reference = "CrossMap bed toy.chain input.bed o.bed >/dev/null 2>&1 && cat o.bed"
+compare = "exact"
+expected_difference = "#liftover-strand-column"
+
+[[case]]
+name = "liftover-bed-spaces-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-spaces.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain"
+reference = "CrossMap bed toy.chain input.bed o.bed >/dev/null 2>&1 && cat o.bed"
+compare = "exact"
+expected_difference = "#liftover-bed-fields"
+
+[[case]]
+name = "liftover-invalid-line-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-invalid.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain"
+reference = "CrossMap bed toy.chain input.bed o.bed >/dev/null 2>&1 && cat o.bed"
+compare = "exit-status"
+expected_difference = "#liftover-invalid-lines"
+
+[[case]]
+name = "liftover-skip-invalid-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-invalid.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain --skip-invalid"
+reference = "CrossMap bed toy.chain input.bed o.bed >/dev/null 2>&1 && cat o.bed"
+compare = "exact"
+
+[[case]]
+name = "liftover-chain-checks-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy.bed" }
+aux = ["xtask/diff/inputs/liftover/bad-end.chain"]
+gloci = "gloci liftover input.bed --chain bad-end.chain"
+reference = "CrossMap bed bad-end.chain input.bed o.bed >/dev/null 2>&1"
+compare = "exit-status"
+expected_difference = "#liftover-chain-checks"
+
+[[case]]
+name = "liftover-chain-minus-source-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy.bed" }
+aux = ["xtask/diff/inputs/liftover/minus-source.chain"]
+gloci = "gloci liftover input.bed --chain minus-source.chain"
+reference = "CrossMap bed minus-source.chain input.bed o.bed >/dev/null 2>&1"
+compare = "exit-status"

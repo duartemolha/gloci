@@ -17,6 +17,7 @@ use std::path::Path;
 const NEEDS: &[(&str, &[&str])] = &[
     ("convert", &["--bam"]),
     ("flank", &["--both", "1"]),
+    ("liftover", &["--chain", "x.chain"]),
     ("map", &["-c", "5:sum"]),
     ("random", &["-l", "10", "-n", "1"]),
     ("sample", &["--count", "1"]),

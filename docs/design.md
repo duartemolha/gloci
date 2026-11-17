@@ -48,6 +48,7 @@ A single, fast, correct Rust command-line tool that replaces **bedtools**, **bed
 - Becoming a general replacement for bcftools or samtools. Merging samples across VCFs (`vcf-merge`) was not planned for v1; it is built as `vcf merge` (bcftools `merge`), one of the owner's VCF additions to P3b (Section 10). **[owner, 2026-11-11]**
 - The bedops **Starch** format, and legacy genotype export formats (IMPUTE, BEAGLE, LDhat, PLINK ped/tped). **[my call]**
 - bedtools' BAM-specific utilities were a non-goal **[my call]**, reversed on the owner's request of 2026-11-15: `igv`, `links`, `bamtofastq`, `bedtobam`, `bedpetobam` and `tag` are built (D165 is their scope; D169, D170; `bamtofastq` as `gloci convert --fastq`, D166; `bedtobam` and `bedpetobam` as `gloci convert --bam`, D167; `tag`, D168). **[owner, 2026-11-15]** `multicov` is `gloci bedcov X.bed A.bam B.bam --read-count`.
+- VCF liftover (CrossMap `vcf`) is not in this release; it needs REF checks against the target FASTA and comes later as its own design **[owner default, 2026-11-17]**.
 - Native Windows. WSL works. **[my call]**
 - A stable public Rust library API in v1. The crates are internal; the stable, versioned API is the Python one from P2 (Section 8.5). **[my call, revised: Python bindings moved to goals]**
 
@@ -220,6 +221,7 @@ Further rules:
 | BAM, CRAM, SAM | as intervals (alignment spans or blocks) for `intersect`, `coverage`, `genomecov` and `convert`; every record for `view`, `index`, `sort` and `cat` (`cat`: BAM only) | 3 |
 | FASTA + `.fai` | for `getfasta`, `maskfasta`, `nuc` | 3 |
 | PSL, RepeatMasker `.out` | convert only | 3 |
+| Chain files | for liftover --chain only: plain, gzip or BGZF; whitespace and ids as published (D174) | after P3 |
 
 - **Format detection** uses content and magic bytes: the BGZF/gzip header, `BCF\2`, `##fileformat=VCF`, `##gff-version`, and BED column shape. File extensions are not used. `--format` / `--a-format` / `--b-format` override detection. **[D100, D114]** The alignment and sequence formats are detected by content too: BAM is a BGZF stream that decompresses to `BAM\1`; CRAM is `CRAM` with major version 2 or 3 (4 is an error); SAM is an `@HD`/`@SQ`/`@RG`/`@PG`/`@CO` line followed by a TAB, or at least 11 tab fields whose fields 2, 4, 5, 8 and 9 are integers; FASTA starts with `>`, after any blank lines (as samtools skips them); PSL and RepeatMasker are recognised by their header or their column shape. `--format` adds `bam`, `cram`, `sam`, `psl` and `rmsk`. Only `intersect`, `coverage`, `genomecov`, `convert`, `view`, `index`, `sort`, `cat` and, **[D125]**, `idxstats`, `flagstat`, `check`, `reheader`, `head`, `samples`, `depth` and `bedcov` read alignments; any other command exits 2 naming them and suggesting `gloci convert x.bam -o x.bed` (and, in `merge`, `gloci sort -m`). PSL and RepeatMasker are read by `convert` only, and FASTA is never an interval input.
 - **Compression:** gzip and BGZF are read transparently. Plain gzip is read single-threaded, because it can't be split. The docs recommend bgzip.
@@ -418,6 +420,13 @@ How the old commands map onto `partition`:
 | `groupby` | bedtools groupby | P2 | `-g COLS -c COL:OP` over consecutive equal keys |
 | `genomecov` | bedtools genomecov | P2 (BED), P3 (BAM, CRAM, SAM) | `--bedgraph`, `--bga`, `--hist` (default), `--per-base`, `--scale X`, `--strand +/-`, `--split`, `--split-deletions`, `--5p/--3p`, `--max-depth N`, `--sort` |
 | `sample`, `random`, `shuffle` | bedtools | P3 | `--seed` required for reproducibility; `shuffle --exclude/--include BED` |
+| `liftover` | CrossMap `bed`, `gff`, `region`; UCSC `liftOver` | after P3 (D174) | `--chain`, `--unmapped`, `--chrom-style`; input order out |
+
+**`liftover`** **[D174]**
+
+- A record is lifted through the aligned blocks of a chain, by CrossMap's rules, not UCSC `liftOver`'s: a record that crosses a chain gap is split into one record per piece (R5), and a record that loses bases to a gap is written shortened. The command warns once about both, as CrossMap does neither aloud.
+- Records that do not lift go to `--unmapped` as read, or are counted by reason in one warning (R6). The output is in input order and may be unsorted, so pipe it through `gloci sort`.
+- The chain is held in memory as an interval index per source chromosome (R1); records stream.
 
 **`genomecov` on alignments (BAM, CRAM, SAM)** **[D117]**
 

@@ -854,3 +854,53 @@ pub struct LinksArgs {
     #[arg(short, long, value_name = "FILE")]
     pub output: Option<PathBuf>,
 }
+
+/// Move intervals to another assembly with a chain (CrossMap)
+///
+/// Lifts BED and bedGraph records through a chain file by the rules of CrossMap (its `bed`,
+/// `gff` and `region` modes), not those of UCSC `liftOver`, whose rules it does not follow. A
+/// record that crosses a gap in the chain is split into one record per aligned piece. Records
+/// that do not lift are written as read to --unmapped, or counted in a warning. The output is
+/// in input order, so pipe it through `gloci sort` when the target needs sorting. CHAIN may be
+/// plain, gzip or BGZF text. Ensembl's and the T2T consortium's chains are free to use; a UCSC
+/// chain file brings UCSC's licence (non-commercial use only) with it.
+#[derive(Args)]
+#[command(about = "Move intervals to another assembly with a chain (CrossMap)")]
+#[command(after_long_help = "\
+Examples:
+  gloci liftover peaks.bed --chain GRCh37_to_GRCh38.chain.gz -o peaks.b38.bed --unmapped peaks.unmapped.bed
+  gloci liftover genes.gtf --chain GRCh37_to_GRCh38.chain.gz | gloci sort - -o genes.b38.gtf
+  gloci liftover cnv.bed --chain chm13v2-grch38.chain --chrom-style long -o cnv.hg38.bed")]
+pub struct LiftoverArgs {
+    /// Input BED or bedGraph (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    /// The chain file to lift through: plain, gzip or BGZF (`-` for stdin).
+    #[arg(long, value_name = "CHAIN", required = true)]
+    pub chain: String,
+    /// Write the records that did not lift, as read, to FILE (CrossMap `--unmap-file`; `-` is
+    /// stdout when -o names a file; .gz compresses).
+    #[arg(long, value_name = "FILE")]
+    pub unmapped: Option<PathBuf>,
+    /// How the target chromosomes are named (CrossMap `--chromid a|s|l|n`): as-input follows
+    /// the input's `chr` prefix, short removes `chr`, long adds it, chain keeps the chain's name.
+    #[arg(
+        long,
+        value_name = "STYLE",
+        default_value = "as-input",
+        value_parser = ["as-input", "short", "long", "chain"]
+    )]
+    pub chrom_style: String,
+    #[command(flatten)]
+    pub format: FormatArg,
+    #[command(flatten)]
+    pub header: HeaderArg,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub out: OutputArgs,
+}

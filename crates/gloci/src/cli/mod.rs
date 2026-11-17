@@ -135,6 +135,8 @@ pub enum Commands {
     Links(LinksArgs),
     #[command(before_help = EXPERIMENTAL)]
     Tag(TagArgs),
+    #[command(before_help = EXPERIMENTAL)]
+    Liftover(LiftoverArgs),
 }
 
 /// The groups of the commands outside the stable core, in the order `gloci --help` lists them:
@@ -159,6 +161,7 @@ pub const EXPERIMENTAL_GROUPS: &[(&str, &[&str])] = &[
             "convert",
             "igv",
             "links",
+            "liftover",
         ],
     ),
     (

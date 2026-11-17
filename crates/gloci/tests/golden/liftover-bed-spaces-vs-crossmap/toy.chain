@@ -1,0 +1,33 @@
+# Hand-built chain for gloci liftover tests (D174): whitespace, ids and strands vary as in published chains.
+chain 1000 chr1 1000 + 100 600 chr1 2000 + 1100 1600 1
+100	0	50
+100 50 0
+250
+
+chain	900	chr1	1000	+	700	900	chr2	5000	-	1000	1200	2
+80	20	20
+100
+
+chain 500 chr1 1000 + 400 500 chr3 3000 + 0 100 3
+100
+
+chain 500 chr1 1000 + 400 450 chr4 1000 + 10 60 3
+50
+
+chain 100 5 1000 + 0 100 5 1000 + 500 600
+100
+
+chain 100 chrB 1000 + 0 100 chrT 5000 + 1000 1100 6
+100
+
+chain 100 chrB 1000 + 200 300 chrT 5000 + 1500 1600 7
+100
+
+chain 100 chrB 1000 + 400 500 chrT 5000 + 1200 1300 8
+100
+
+chain 100 chrC 1000 + 0 100 chrU 1000 + 0 100 9
+100
+
+chain 100 chrC 1000 + 100 200 chrU 1000 - 100 200 10
+100

@@ -1,0 +1,1 @@
+liftover input.bed --chain minus-source.chain

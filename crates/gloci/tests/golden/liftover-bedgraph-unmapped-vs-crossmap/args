@@ -1,0 +1,1 @@
+liftover input.bedGraph --chain toy.chain -o /dev/null --unmapped -

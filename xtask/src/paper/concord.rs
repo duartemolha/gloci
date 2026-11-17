@@ -40,6 +40,10 @@ pub const CSV_HEADER: &str = "case,command,reference_tool,dataset,mode,n_gloci,n
 /// Commands of docs/migration.md without a concordance case, and why.
 pub const NO_CONCORDANCE_CASE: &[(&str, &str)] = &[
     (
+        "liftover",
+        "needs a chain file, which no paper dataset provides; covered by diff cases against CrossMap only",
+    ),
+    (
         "index",
         "writes a binary index, not records; covered by diff cases only (tabix, samtools and bcftools interop)",
     ),

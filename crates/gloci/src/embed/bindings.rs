@@ -189,6 +189,7 @@ pub const BINDINGS: &[Binding] = &[
     one(&["head"], "head"),
     one(&["bedcov"], "bedcov"),
     one(&["tag"], "tag"),
+    one(&["liftover"], "liftover"),
     // An IGV batch script and an HTML page: text, not records.
     one(&["igv"], "igv").shaped(Shape::Table, &[]),
     one(&["links"], "links").shaped(Shape::Table, &[]),

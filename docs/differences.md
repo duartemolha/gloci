@@ -3794,3 +3794,69 @@ cases (must match).
   information, and its values are inconsistent.
 - **Pinned by:** the cargo test `usage_errors` and `depth-files-threshold-zero-vs-mosdepth`
   (exit status: must differ).
+
+## `liftover --unmapped` writes the records as read {#liftover-unmapped-file}
+
+- **gloci:** the records that did not lift are written exactly as read, to the file
+  named by `--unmapped`, and nowhere else. Without it they are counted in one warning.
+- **Old behaviour:** `CrossMap bed` and `CrossMap region` append a reason column
+  (`Unmap`, `Fail`, ...) to every unmapped record and always write `OUT.unmap` next to the
+  output.
+- **Reason:** the unmapped file is then the input's format and can be lifted again through
+  another chain; a file nobody asked for is a surprise.
+- **Pinned by:** `liftover-bed-unmapped-reason-vs-crossmap` (must differ);
+  `liftover-bed-unmapped-vs-crossmap` pins the records themselves.
+
+## `liftover` reads the strand from column 6 only {#liftover-strand-column}
+
+- **gloci:** a BED record's strand is column 6, when it is exactly `+` or `-`; only that
+  column is rewritten.
+- **Old behaviour:** CrossMap takes the rightmost field equal to `+` or `-` as the strand
+  and rewrites every field that equals `+` or `-`, so a name or score column of `+` is
+  changed too.
+- **Reason:** a column is a strand because of where it is, not because of what it holds.
+- **Pinned by:** `liftover-strand-column-vs-crossmap` (must differ).
+
+## `liftover` splits BED lines on tabs and keeps every column {#liftover-bed-fields}
+
+- **gloci:** columns are split on tabs only and written back byte for byte, so spaces
+  inside a field stay and columns 13 and up are kept.
+- **Old behaviour:** CrossMap splits on any whitespace and rejoins with tabs, so a name
+  with a space becomes two columns. It also drops records of 13 to 19 or 21 and more
+  columns without a trace, and cuts one of 20 columns to 12.
+- **Reason:** BED is tab-separated; a lift must not change what it does not move.
+- **Pinned by:** `liftover-bed-spaces-vs-crossmap` and, for the extra columns,
+  `liftover-bed-extra-columns-vs-crossmap` (both must differ).
+
+## `liftover` of bedGraph is `CrossMap bed`, not `CrossMap wig` {#liftover-bedgraph}
+
+- **gloci:** a bedGraph record is lifted like a BED record: one output record per aligned
+  piece, with its value, in input order. Pipe through `gloci sort` for a sorted track.
+- **Old behaviour:** `CrossMap wig` drops a record that splits across a chain gap
+  without a word, sorts its output, and sums values where records overlap.
+- **Reason:** dropping data silently is the worst way to lose it; the sum of overlapping
+  values is a different operation from moving records.
+- **Pinned by:** `liftover-bedgraph-vs-crossmap-wig` (must differ);
+  `liftover-bedgraph-vs-crossmap` pins the same input against `CrossMap bed`.
+
+## `liftover` stops at an invalid line {#liftover-invalid-lines}
+
+- **gloci:** an invalid BED line (an end before its start, say) is exit 1 naming the file
+  and line, and no output is left behind. `--skip-invalid` skips such lines and counts
+  them in a warning.
+- **Old behaviour:** CrossMap writes the line with a reason to the unmapped file and
+  exits 0.
+- **Reason:** a corrupt input should not give a clean exit status.
+- **Pinned by:** `liftover-invalid-line-vs-crossmap` (exit status: must differ);
+  `liftover-skip-invalid-vs-crossmap` pins the records lifted under `--skip-invalid`.
+
+## `liftover` refuses a malformed chain file {#liftover-chain-checks}
+
+- **gloci:** a chain whose blocks do not reach its header's end, that gives one
+  chromosome two sizes, that ends inside a chain and so on is exit 1 naming
+  `CHAIN line N`. A chain whose source strand is `-` is refused by both tools.
+- **Old behaviour:** CrossMap maps with such a chain without a word, and the result
+  depends on which blocks it happened to read.
+- **Reason:** a chain that contradicts itself cannot give a trustworthy lift.
+- **Pinned by:** `liftover-chain-checks-vs-crossmap` (exit status: must differ);
+  `liftover-chain-minus-source-vs-crossmap` pins the case both refuse.

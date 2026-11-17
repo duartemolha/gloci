@@ -303,6 +303,17 @@ behaviour](#samtools-behaviour) after the tables.
 | `vcf-merge` | `gloci vcf merge A B ...` (see the bcftools `merge` row above) |
 | `--plink*`, `--IMPUTE`, `--BEAGLE-*`, `--ldhat*` | not planned |
 
+### Chain files (CrossMap, UCSC liftOver)
+
+| CrossMap, liftOver | gloci |
+|---|---|
+| `CrossMap bed CHAIN in.bed out.bed` | `gloci liftover in.bed --chain CHAIN -o out.bed --unmapped out.bed.unmap` (CrossMap's rules; the unmapped file holds the records as read, with no reason column and only when asked, [differences.md#liftover-unmapped-file](differences.md#liftover-unmapped-file); columns split on tabs, [differences.md#liftover-bed-fields](differences.md#liftover-bed-fields); the strand is column 6, [differences.md#liftover-strand-column](differences.md#liftover-strand-column); an invalid line is exit 1, [differences.md#liftover-invalid-lines](differences.md#liftover-invalid-lines); a malformed chain is exit 1, [differences.md#liftover-chain-checks](differences.md#liftover-chain-checks); the output is in input order, so pipe it through `gloci sort -`) |
+| `--chromid a\|s\|l\|n` | `--chrom-style as-input\|short\|long\|chain` |
+| `--unmap-file F` | `--unmapped F` |
+| `CrossMap wig CHAIN x.bedGraph out` | `gloci liftover x.bedGraph --chain CHAIN \| gloci sort -` (a record that splits is kept, not dropped, and overlapping values are not summed, [differences.md#liftover-bedgraph](differences.md#liftover-bedgraph)) |
+| `liftOver in.bed CHAIN out.bed unmapped.bed` | `gloci liftover` follows CrossMap's rules instead: records are split at chain gaps; there is no `-minMatch` or `-multiple`, and no `#Deleted in new` lines. A UCSC chain file brings UCSC's licence (non-commercial use only) with it; Ensembl's and the T2T consortium's chains are free to use |
+| CrossMap `vcf`, `gvcf`, `bam`, `maf`, `bigwig` | not available in this release |
+
 ### Filter expressions (bcftools `-i` / `-e`)
 
 `bcftools view -i EXPR` is `gloci vcf filter FILE --include EXPR`, and

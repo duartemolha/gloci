@@ -183,11 +183,11 @@ fn walk(cmd: &clap::Command, path: &mut Vec<String>, out: &mut Vec<CommandSpec>)
 
 /// The value names (clap's placeholders) of the arguments whose values are files to read, besides
 /// any name holding `FILE` (`FILE`, `FILES`, `NAME|FILE`): the inputs named by what they hold
-/// (`IN`, `ALN`, `BED`, `FASTA`, `REF`, `SRC`, `HEADER`) and `vcf compare`'s `A` and `B`. Clap's
+/// (`IN`, `ALN`, `BED`, `FASTA`, `REF`, `SRC`, `HEADER`, `CHAIN`) and `vcf compare`'s `A` and `B`. Clap's
 /// value types cannot tell: many file arguments are text (`-b`), and `--tmp-dir` and
 /// `--out-prefix` are paths that are not read.
 pub const FILE_VALUE_NAMES: &[&str] = &[
-    "IN", "ALN", "A", "B", "BED", "FASTA", "REF", "SRC", "HEADER",
+    "IN", "ALN", "A", "B", "BED", "FASTA", "REF", "SRC", "HEADER", "CHAIN",
 ];
 
 fn names_a_file(name: &str) -> bool {
