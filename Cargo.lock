@@ -922,6 +922,7 @@ dependencies = [
  "noodles-tabix",
  "noodles-vcf",
  "proptest",
+ "rust-lapper",
  "tempfile",
  "thiserror",
  "toml",

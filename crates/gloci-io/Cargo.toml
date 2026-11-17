@@ -27,6 +27,7 @@ noodles-fasta.workspace = true
 flate2.workspace = true
 thiserror.workspace = true
 memchr.workspace = true
+rust-lapper.workspace = true
 ctrlc.workspace = true
 log.workspace = true
 tempfile.workspace = true
