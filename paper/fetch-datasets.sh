@@ -25,7 +25,6 @@
 #   bedtk=1.1
 #   coreutils=9.12
 #   gawk=5.3.1
-#   ucsc-bigwigtobedgraph=469
 #   time=1.9-0.2
 set -eu
 command -v bash >/dev/null 2>&1 || { echo "fetch-datasets.sh needs bash (for pipefail)" >&2; exit 1; }
@@ -116,10 +115,10 @@ export IN="$CACHE/ccre.bed"
 derive 'ccre.bed.gz' '558e3ef6f06253d939c699f973989a6a6d9498cc8d83166ccfc6273a00dd744c' 'bgzip -c "$IN" > "$OUT" && tabix -p bed "$OUT"' ''
 export IN="$CACHE/exons.bed"
 derive 'exons.bed.gz' '63f807c0cba04db8e5ab0a0c761f8f58a0e6933432e43e5b3b26558217f01724' 'bgzip -c "$IN" > "$OUT" && tabix -p bed "$OUT"' ''
-export IN="$CACHE/ENCFF979PWH.bigWig"
-derive 'ctcf-fc.bedgraph' '1477693dbaff846a203295fd29d1115e507589296e0aba4661ade690c3e6cb1a' 'bigWigToBedGraph "$IN" /dev/stdout | sort -k1,1 -k2,2n -s > "$OUT"' 'ctcf-fc.bed5'
+export IN="$CACHE/ENCFF979PWH.bigWig" IN2="$ROOT/target/release/gloci"
+derive 'ctcf-fc.bedgraph' '11bf90211107bda84eed99f30ef29177f792830e7877909bf2420cb4e9abcdaf' '"$IN2" convert "$IN" | sort -k1,1 -k2,2n -s > "$OUT"' 'ctcf-fc.bed5'
 export IN="$CACHE/ctcf-fc.bedgraph"
-derive 'ctcf-fc.bed5' '62258b45a53c1cd22ba58b67b9c21886b006d3090904c4b0f35643cdf7dfc55c' 'gawk -v OFS='\''\t'\'' '\''{print $1,$2,$3,".",$4}'\'' "$IN" > "$OUT"' ''
+derive 'ctcf-fc.bed5' '9fb50cd5cd59aa5d69599c7dd6dd0522eb734046855c28601ee5678b11896657' 'gawk -v OFS='\''\t'\'' '\''{print $1,$2,$3,".",$4}'\'' "$IN" > "$OUT"' ''
 export IN="$CACHE/1kGP_high_coverage_Illumina.chr20.filtered.SNV_INDEL_SV_phased_panel.vcf.gz"
 derive '1kg-chr20.bcf' '5041e7f9cd6cc55025ce0fd1b9d174c12851e503717df869c5a43e04771c9835' 'bcftools view --no-version -Ob -o "$OUT" "$IN" && bcftools index "$OUT"' ''
 export IN="$CACHE/1kGP_high_coverage_Illumina.chr20.filtered.SNV_INDEL_SV_phased_panel.vcf.gz"

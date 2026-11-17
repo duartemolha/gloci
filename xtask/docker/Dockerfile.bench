@@ -25,7 +25,6 @@ RUN micromamba install -y -n base -c conda-forge -c bioconda \
         bedtk=1.1 \
         coreutils=9.12 \
         gawk=5.3.1 \
-        ucsc-bigwigtobedgraph=469 \
     && micromamba clean --all --yes
 
 # vcfkit (yardstick for `vcf filter`): its own step and its own environment. It
@@ -117,7 +116,7 @@ USER mambauser
 # satisfy a later step (as vcfkit's Python 3.6 does in base) fails the build here,
 # not the first benchmark. A tool from an optional step is checked when it
 # is there (vk only has to start: its own environment cannot touch these).
-# bigWigToBedGraph prints no version; Debian's time and the cargo yardsticks are
+# Debian's time and the cargo yardsticks are
 # installed at their exact version or not at all.
 RUN set -eu; PATH="/opt/conda/bin:$PATH"; \
     pin() { \

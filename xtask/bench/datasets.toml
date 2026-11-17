@@ -149,17 +149,18 @@ command = "bgzip -c {in} > {out} && tabix -p bed {out}"
 sha256 = "63f807c0cba04db8e5ab0a0c761f8f58a0e6933432e43e5b3b26558217f01724"
 
 [[derived]]
+# gloci reads the ENCODE bigWig itself (D171); build it first with cargo build --release.
 name = "ctcf-fc.bedgraph"
-from = ["encode-ctcf-k562-fc"]
-command = "bigWigToBedGraph {in} /dev/stdout | sort -k1,1 -k2,2n -s > {out}"
-sha256 = "1477693dbaff846a203295fd29d1115e507589296e0aba4661ade690c3e6cb1a"
+from = ["encode-ctcf-k562-fc", "repo:target/release/gloci"]
+command = "{in2} convert {in} | sort -k1,1 -k2,2n -s > {out}"
+sha256 = "11bf90211107bda84eed99f30ef29177f792830e7877909bf2420cb4e9abcdaf"
 
 # The signal as five-column BED (the value in column 5), which bedmap reads.
 [[derived]]
 name = "ctcf-fc.bed5"
 from = ["ctcf-fc.bedgraph"]
 command = '''gawk -v OFS='\t' '{print $1,$2,$3,".",$4}' {in} > {out}'''
-sha256 = "62258b45a53c1cd22ba58b67b9c21886b006d3090904c4b0f35643cdf7dfc55c"
+sha256 = "9fb50cd5cd59aa5d69599c7dd6dd0522eb734046855c28601ee5678b11896657"
 
 [[derived]]
 name = "1kg-chr20.bcf"

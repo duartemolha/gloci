@@ -152,9 +152,41 @@ fn bench_and_diff_images_pin_same_reference_tools() {
     assert_eq!(bench.len(), 6, "Dockerfile.bench pins: {bench:?}");
     assert_eq!(bench, diff, "the two images must pin the same versions");
     let b = read("xtask/docker/Dockerfile.bench");
-    for tool in ["gawk=", "time=", "ucsc-bigwigtobedgraph="] {
+    for tool in ["gawk=", "time="] {
         assert!(b.contains(tool), "Dockerfile.bench must pin {tool}");
     }
+}
+
+#[test]
+fn no_image_installs_ucsc_tools() {
+    for f in ["xtask/docker/Dockerfile", "xtask/docker/Dockerfile.bench"] {
+        let text = read(f);
+        for banned in ["ucsc-", "bigWigToBedGraph"] {
+            assert!(!text.contains(banned), "{f} must not contain {banned}");
+        }
+    }
+}
+
+#[test]
+fn datasets_build_the_ctcf_bedgraph_with_gloci() {
+    let cat = load_catalog().unwrap();
+    let d = cat
+        .derived
+        .iter()
+        .find(|d| d.name == "ctcf-fc.bedgraph")
+        .expect("ctcf-fc.bedgraph is derived");
+    assert!(
+        d.from
+            .iter()
+            .any(|f| f.contains("repo:target/release/gloci")),
+        "from: {:?}",
+        d.from
+    );
+    assert!(
+        d.command.starts_with("{in2} convert {in}"),
+        "command: {}",
+        d.command
+    );
 }
 
 #[test]

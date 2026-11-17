@@ -802,6 +802,57 @@ fn genomecov_2gib_bed_streams() {
     }
 }
 
+/// Peak RSS ceiling of the bigWig and bigBed writers (D171): the larger of 256 MiB and
+/// twice the largest figure measured on 0.5 GB of real input (42 MiB).
+const TRACK_RSS_CEILING: u64 = 256 << 20;
+
+#[test]
+#[ignore = "nightly: generates large file"]
+fn track_writes_stay_flat() {
+    let a = big_bed_a();
+    let dir = tempfile::tempdir().unwrap();
+    // 4,000,000,000 bases each: below the 32-bit limit, past any generated position.
+    let genome = dir.path().join("track.genome");
+    let mut t = String::new();
+    for c in lex_chroms(22) {
+        t.push_str(&format!("chr{c}\t4000000000\n"));
+    }
+    std::fs::write(&genome, t).unwrap();
+    let bb = dir.path().join("x.bb");
+    let rss = rss_of(
+        "convert to bigBed large",
+        &[
+            "convert".as_ref(),
+            a.as_os_str(),
+            "-g".as_ref(),
+            genome.as_os_str(),
+            "-o".as_ref(),
+            bb.as_os_str(),
+        ],
+    );
+    assert!(
+        rss <= TRACK_RSS_CEILING,
+        "convert to bigBed: peak RSS {rss} bytes exceeds 256 MiB"
+    );
+    let bw = dir.path().join("x.bw");
+    let rss = rss_of(
+        "genomecov --bga to bigWig large",
+        &[
+            "genomecov".as_ref(),
+            a.as_os_str(),
+            "-g".as_ref(),
+            genome.as_os_str(),
+            "--bga".as_ref(),
+            "-o".as_ref(),
+            bw.as_os_str(),
+        ],
+    );
+    assert!(
+        rss <= TRACK_RSS_CEILING,
+        "genomecov to bigWig: peak RSS {rss} bytes exceeds 256 MiB"
+    );
+}
+
 #[test]
 #[ignore = "nightly: generates large file"]
 fn cluster_2gib_bed_streams() {
