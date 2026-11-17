@@ -203,8 +203,13 @@ add.
 ## Feature 4: `gloci liftover`
 
 - `gloci liftover FILE --chain CHAIN [-o OUT] [--unmapped FILE] [options]`. `CHAIN`
-  is a chain file, plain or gzip/BGZF; the user supplies it (UCSC and Ensembl both
-  publish them as free data). Nothing is downloaded and no chain is built in.
+  is a chain file, plain or gzip/BGZF, that the user supplies. Nothing is downloaded.
+  Ensembl's chains carry no restrictions and the T2T consortium's are public domain
+  (CC0); UCSC's chain files are licensed for non-commercial use only (their README
+  requires a commercial licence for any other use), so gloci never bundles or tests
+  with them, and the help and migration guide tell users that a UCSC chain brings
+  UCSC's licence with it. Whether some free human chains are built in is the owner's
+  call (pending, 2026-11-17).
 - Inputs in this release: BED (3 to 12 columns), bedGraph and GFF/GTF. Every other
   column is carried unchanged. **VCF liftover is out of scope** for this release
   (owner default, 2026-11-17): it needs REF checks against the target FASTA, REF/ALT
