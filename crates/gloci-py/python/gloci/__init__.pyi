@@ -221,7 +221,7 @@ class Pipeline:
             a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments
             b: B: one or more files to relate A to, in the order given (-b x y or -b x -b y)
             names: Labels for the B files, comma-separated, one per -b (default: the file basenames)
-            b_format: B's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
+            b_format: B's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments
             mode: What to report: any, none, pairs, clip or count
             overlap_bases: With --mode pairs: add the number of shared bases to each row
             keep_unmatched: With --mode pairs: also write each A without a hit, with placeholder B columns
@@ -317,7 +317,7 @@ class Pipeline:
             a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments
             b: B: one or more files to relate A to, in the order given (-b x y or -b x -b y)
             names: Labels for the B files, comma-separated, one per -b (default: the file basenames)
-            b_format: B's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
+            b_format: B's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments
             whole: Drop an A that has any counting B instead of cutting it
             sum_overlaps: Drop an A when the bases shared with all B (strand rule only) reach -f of A; takes only -f
             match: What makes a hit count: overlap, or overlap plus a shared ALT allele (alleles; VCF/BCF inputs only). With alleles, an A is dropped only for a B with the same position, REF and ALT; one shared ALT drops a multi-allelic A whole
@@ -399,7 +399,7 @@ class Pipeline:
             a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments
             b: B: one or more files to relate A to, in the order given (-b x y or -b x -b y)
             names: Labels for the B files, comma-separated, one per -b (default: the file basenames)
-            b_format: B's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
+            b_format: B's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments
             k: Report the N nearest B (and their ties)
             ties: Among B tied at the N-th distance: keep all, the first or the last
             distance: Add the distance as the last column (-1 with no candidate)
@@ -483,7 +483,7 @@ class Pipeline:
             a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments
             b: B: one or more files to relate A to, in the order given (-b x y or -b x -b y)
             names: Labels for the B files, comma-separated, one per -b (default: the file basenames)
-            b_format: B's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
+            b_format: B's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments
             column: Aggregate a column of the overlapping B, such as 5:mean or 0:count (repeatable; commas also separate)
             c: alias of column
             skip_unmatched: Drop an A with no overlapping B instead of writing it
@@ -575,7 +575,7 @@ class Pipeline:
             a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments
             b: B: one or more files to relate A to, in the order given (-b x y or -b x -b y)
             names: Labels for the B files, comma-separated, one per -b (default: the file basenames)
-            b_format: B's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
+            b_format: B's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments
             hist: One row per depth present in A, then `all` rows with the totals
             per_base: One row per base of A: its 1-based offset and depth
             mean: The mean depth over A
@@ -643,7 +643,7 @@ class Pipeline:
 
         Args:
             b: B: the BED, GFF or VCF file the ends are tested against (`-` for stdin)
-            b_format: B's format, overriding detection: bed, bedgraph, gff, vcf or bcf (B does not read alignments; convert them to BED first)
+            b_format: B's format, overriding detection: bed, bedgraph, gff, vcf, bcf, bigwig or bigbed (from a file) (B does not read alignments; convert them to BED first)
             type: What to report: either, neither, both, xor, notboth, ispan, ospan, notispan or notospan
             min_frac_a: Minimum fraction of A covered, e.g. 0.5 or 50% (4.3: fractions)
             f: alias of min_frac_a
@@ -762,7 +762,7 @@ class Pipeline:
         Args:
             a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments
             b: B: the file to compare A with (`-` for stdin)
-            b_format: B's format, overriding detection: bed, bedgraph, gff, vcf or bcf; bam, cram or sam (alignments are read as intervals, as `intersect` reads them)
+            b_format: B's format, overriding detection: bed, bedgraph, gff, vcf, bcf, bigwig or bigbed (from a file); bam, cram or sam (alignments are read as intervals, as `intersect` reads them)
             min_frac_a: Minimum fraction of a merged A interval covered, e.g. 0.5 or 50% (4.3: fractions)
             f: alias of min_frac_a
             min_frac_b: Minimum fraction of a merged B interval covered, e.g. 0.5 or 50% (4.3: fractions)
@@ -834,7 +834,7 @@ class Pipeline:
         Args:
             a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments
             b: B: the file to compare A with (`-` for stdin)
-            b_format: B's format, overriding detection: bed, bedgraph, gff, vcf or bcf; bam, cram or sam (alignments are read as intervals, as `intersect` reads them)
+            b_format: B's format, overriding detection: bed, bedgraph, gff, vcf, bcf, bigwig or bigbed (from a file); bam, cram or sam (alignments are read as intervals, as `intersect` reads them)
             genome: Genome with chromosome lengths: a built-in genome such as hg38 (see gloci genomes list), or a .genome, .fai, .dict, VCF/BCF or BAM header file. Its lengths add up to the genome size
             g: alias of genome
             merge_overlaps: Merge overlapping and bookended intervals of each input before counting (bedtools -m)
@@ -894,7 +894,7 @@ class Pipeline:
         Args:
             a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments
             b: B: the file to compare A with (`-` for stdin)
-            b_format: B's format, overriding detection: bed, bedgraph, gff, vcf or bcf; bam, cram or sam (alignments are read as intervals, as `intersect` reads them)
+            b_format: B's format, overriding detection: bed, bedgraph, gff, vcf, bcf, bigwig or bigbed (from a file); bam, cram or sam (alignments are read as intervals, as `intersect` reads them)
             detail: Print each A record with its relative distance (%.3f) appended, instead of the summary
             sort: Sort the inputs first, for inputs that are unsorted or too large to sort in memory (external sort bounded by --max-mem). The sorted records are written to a temporary file in --tmp-dir and read back, so besides the spill runs (about the size of the input, compressed) the directory needs one uncompressed sorted copy: allow roughly twice the input size. Everything is removed afterwards
             max_mem: Memory budget for --sort, in binary units (K, M, G, T); at least 16M

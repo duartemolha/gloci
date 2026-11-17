@@ -55,6 +55,15 @@ pub fn bbi_format(head: &[u8]) -> Option<Format> {
 }
 
 impl Format {
+    /// Formats whose records are located by number, not by line: BCF, BAM, CRAM, bigWig and
+    /// bigBed.
+    pub fn is_binary(self) -> bool {
+        matches!(
+            self,
+            Format::Bcf | Format::Bam | Format::Cram | Format::BigWig | Format::BigBed
+        )
+    }
+
     /// bigWig and bigBed: read only from a file, through the file's own index.
     pub fn is_bbi(self) -> bool {
         matches!(self, Format::BigWig | Format::BigBed)

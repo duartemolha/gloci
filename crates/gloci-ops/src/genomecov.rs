@@ -150,6 +150,17 @@ pub fn format_g6(x: f64) -> String {
     }
 }
 
+impl Cov<'_> {
+    /// Where record number `n` of the input is: a line of text, or a record of a binary file.
+    fn loc(&self, n: u64) -> Loc {
+        if self.format.is_binary() {
+            Loc::Record(n)
+        } else {
+            Loc::Line(n)
+        }
+    }
+}
+
 struct Cov<'a> {
     o: &'a GenomecovOptions,
     genome: &'a Genome,
@@ -341,7 +352,7 @@ impl<'a> Cov<'a> {
                 Err(msg) => {
                     return Err(IoError::Parse {
                         path: path.to_string(),
-                        loc: Loc::Line(m.loc),
+                        loc: self.loc(m.loc),
                         msg: format!("invalid BED12 blocks: {msg}"),
                     });
                 }
@@ -377,7 +388,7 @@ impl<'a> Cov<'a> {
             if bed && m.strand == Strand::Unknown && raw.split(|&b| b == b'\t').nth(5).is_none() {
                 return Err(IoError::Parse {
                     path: path.to_string(),
-                    loc: Loc::Line(m.loc),
+                    loc: self.loc(m.loc),
                     msg: "--strand needs the strand in column 6 but this record has fewer \
 than 6 columns; add the strand column or drop --strand"
                         .into(),
@@ -417,7 +428,7 @@ check that -g matches the genome build of the input",
             }
             return Err(IoError::Parse {
                 path: path.to_string(),
-                loc: Loc::Line(m.loc),
+                loc: self.loc(m.loc),
                 msg,
             });
         }

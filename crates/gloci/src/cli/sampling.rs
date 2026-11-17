@@ -71,7 +71,7 @@ pub struct JaccardArgs {
     /// B: the file to compare A with (`-` for stdin).
     #[arg(short = 'b', long = "b", value_name = "FILE", required = true)]
     pub b: String,
-    /// B's format, overriding detection: bed, bedgraph, gff, vcf or bcf; bam, cram or sam
+    /// B's format, overriding detection: bed, bedgraph, gff, vcf, bcf, bigwig or bigbed (from a file); bam, cram or sam
     /// (alignments are read as intervals, as `intersect` reads them).
     #[arg(long, value_name = "FMT")]
     pub b_format: Option<String>,
@@ -150,7 +150,7 @@ pub struct FisherArgs {
     /// B: the file to compare A with (`-` for stdin).
     #[arg(short = 'b', long = "b", value_name = "FILE", required = true)]
     pub b: String,
-    /// B's format, overriding detection: bed, bedgraph, gff, vcf or bcf; bam, cram or sam
+    /// B's format, overriding detection: bed, bedgraph, gff, vcf, bcf, bigwig or bigbed (from a file); bam, cram or sam
     /// (alignments are read as intervals, as `intersect` reads them).
     #[arg(long, value_name = "FMT")]
     pub b_format: Option<String>,
@@ -270,7 +270,7 @@ pub struct PairIntersectArgs {
     /// B: the BED, GFF or VCF file the ends are tested against (`-` for stdin).
     #[arg(short = 'b', long = "b", value_name = "FILE", required = true)]
     pub b: String,
-    /// B's format, overriding detection: bed, bedgraph, gff, vcf or bcf (B does not read
+    /// B's format, overriding detection: bed, bedgraph, gff, vcf, bcf, bigwig or bigbed (from a file) (B does not read
     /// alignments; convert them to BED first).
     #[arg(long, value_name = "FMT")]
     pub b_format: Option<String>,
@@ -392,7 +392,7 @@ pub struct ReldistArgs {
     /// B: the file to compare A with (`-` for stdin).
     #[arg(short = 'b', long = "b", value_name = "FILE", required = true)]
     pub b: String,
-    /// B's format, overriding detection: bed, bedgraph, gff, vcf or bcf; bam, cram or sam
+    /// B's format, overriding detection: bed, bedgraph, gff, vcf, bcf, bigwig or bigbed (from a file); bam, cram or sam
     /// (alignments are read as intervals, as `intersect` reads them).
     #[arg(long, value_name = "FMT")]
     pub b_format: Option<String>,

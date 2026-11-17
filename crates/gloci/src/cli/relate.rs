@@ -684,7 +684,8 @@ pub struct BArgs {
     #[arg(long, value_name = "A,B,...", value_delimiter = ',')]
     pub names: Option<Vec<String>>,
     /// B's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or
-    /// bcf; bam, cram or sam where the command reads alignments.
+    /// bcf; bigwig or bigbed (from a file); bam, cram or sam where the
+    /// command reads alignments.
     #[arg(long, value_name = "FMT")]
     pub b_format: Option<String>,
 }

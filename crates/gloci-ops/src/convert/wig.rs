@@ -1,4 +1,5 @@
-//! WIG to bedGraph: one row per WIG data line (D63), values as written.
+//! WIG, bigWig and bigBed: one row per record of the reader (D63, D171), already bedGraph or
+//! BED text, values as written.
 
 use super::Sink;
 use gloci_core::ChromTable;
@@ -15,7 +16,7 @@ pub(super) fn convert(
         batch.clear();
         let more = input.read_batch(chroms, &mut batch, max)?;
         for (i, m) in batch.recs.iter().enumerate() {
-            // The reader's records are already `chrom start end value`.
+            // The reader's records are already `chrom start end value` (bigBed: the BED line).
             sink.row(m.chrom, m.key, m.span.start, batch.raw(i))?;
         }
         max = next_batch_size(&batch, max);

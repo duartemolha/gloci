@@ -177,6 +177,10 @@ not from standard input, a pipe or memory; save it to a file first",
 impl Input {
     /// Whether the input has no bytes after decompression ([`IoError::empty_input`]).
     pub fn is_empty(&mut self) -> Result<bool, IoError> {
+        // A bigWig or bigBed is read by its own reader, not through `reader`, which is empty.
+        if self.format.is_bbi() {
+            return Ok(false);
+        }
         loop {
             match self.reader.fill_buf() {
                 Ok(b) => return Ok(b.is_empty()),

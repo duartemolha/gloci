@@ -16,3 +16,24 @@ fn bbi_magic_both_byte_orders() {
     assert_eq!(Format::BigWig.name(), "bigWig");
     assert_eq!("bigbed".parse::<Format>(), Ok(Format::BigBed));
 }
+
+#[test]
+fn chrom_sizes_in_the_files_stored_order() {
+    let bw = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../xtask/diff/inputs/bigwig/pybigwig.bw");
+    let sizes = gloci_io::bbi_chrom_sizes(bw.to_str().unwrap()).unwrap();
+    let shown: Vec<(String, u64)> = sizes
+        .into_iter()
+        .map(|(n, l)| (String::from_utf8(n).unwrap(), l))
+        .collect();
+    println!("{shown:?}");
+    assert_eq!(
+        shown,
+        [
+            ("chr1".to_string(), 5000),
+            ("chr2".to_string(), 3000),
+            ("chr10".to_string(), 2000),
+            ("chrM".to_string(), 100),
+        ]
+    );
+}

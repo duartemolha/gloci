@@ -556,7 +556,7 @@ pub(super) fn build_index_with(
         .into());
     }
     if format.is_bbi() {
-        return Err(super::query::bbi_unindexed(&name).into());
+        return Err(crate::bbi::bbi_unindexed(&name, format).into());
     }
     if tsv.is_none() && format == Format::Bam {
         return super::bam::build_bam_index(data, final_data_path, false, threads);

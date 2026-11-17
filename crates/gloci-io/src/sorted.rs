@@ -167,7 +167,7 @@ impl OrderGuard {
     pub fn new(name: &str, format: Format) -> OrderGuard {
         OrderGuard {
             name: name.to_string(),
-            binary: matches!(format, Format::Bcf | Format::Bam | Format::Cram),
+            binary: format.is_binary(),
             alignment: format.is_alignment().then_some(SortOrder::Unknown),
             checker: OrderChecker::new(),
             prev_loc: 0,

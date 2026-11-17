@@ -825,6 +825,9 @@ pub fn quick_check(path: &str, o: &ReaderOptions, q: &QuickOptions) -> CheckRepo
                     .map_err(|e| format!("cannot read {path}: {e}"))?;
                 f.seek(SeekFrom::Start(0))
                     .map_err(|e| format!("cannot read {path}: {e}"))?;
+                if gloci_io::bbi_format(&magic[..n]).is_some() {
+                    return quick_bbi(path, o);
+                }
                 if &magic[..n] == b"CRAM" {
                     if o.chrom_map.is_some() {
                         return Err(CHROM_MAP_NOT_FOR_ALIGNMENTS.to_string());
@@ -877,6 +880,19 @@ fn quick_ok(name: &str, format: Format, compression: Compression) -> CheckReport
         usage: None,
         quick: true,
     }
+}
+
+/// A bigWig or bigBed: its header and chromosome list open, and its first record reads.
+fn quick_bbi(path: &str, o: &ReaderOptions) -> Result<(Format, Compression), String> {
+    let mut o = o.clone();
+    o.invalid = InvalidPolicy::Fail;
+    let mut reader = gloci_io::open_reader(path, &o).map_err(|e| e.to_string())?;
+    let mut chroms = gloci_core::ChromTable::lexicographic();
+    let mut batch = gloci_io::RecordBatch::default();
+    reader
+        .read_batch(&mut chroms, &mut batch, 1)
+        .map_err(|e| e.to_string())?;
+    Ok((reader.format(), Compression::None))
 }
 
 /// A BGZF file must end with the 28-byte end-of-file block, then it is opened.

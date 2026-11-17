@@ -77,17 +77,13 @@ pub(crate) struct BbiReader {
     count: u64,
 }
 
-fn what(format: Format) -> &'static str {
-    format.name()
-}
-
 /// The error for a file that is not (or no longer) a valid bbi file.
 fn invalid(path: &str, format: Format, detail: &str) -> IoError {
     IoError::Detect {
         path: path.to_string(),
         msg: format!(
             "{path} is not a valid {} file (it may be truncated): {detail}",
-            what(format)
+            format.name()
         ),
     }
 }
@@ -98,41 +94,44 @@ fn not_this_format(path: &str, format: Format) -> IoError {
         msg: format!(
             "{path} is not a {} file (it does not start with the {} magic number); \
 check the file or drop --format",
-            what(format),
-            what(format)
+            format.name(),
+            format.name()
         ),
     }
+}
+
+/// Up to the first 4 bytes of `f`.
+fn read_magic(f: &mut File, path: &str) -> Result<Vec<u8>, IoError> {
+    let mut head = [0u8; 4];
+    let mut n = 0;
+    while n < 4 {
+        match f.read(&mut head[n..]) {
+            Ok(0) => break,
+            Ok(k) => n += k,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(source) => {
+                return Err(IoError::Read {
+                    path: path.to_string(),
+                    source,
+                });
+            }
+        }
+    }
+    Ok(head[..n].to_vec())
 }
 
 /// Open `path` as `format`, checking the magic number first.
 fn open_source(path: &str, format: Format) -> Result<Source, IoError> {
     let _note = panic_note(format!(
         "{path} is not a valid {} file (it may be truncated)",
-        what(format)
+        format.name()
     ));
     let mut f = File::open(path).map_err(|source| IoError::Open {
         path: path.to_string(),
         source,
     })?;
-    let mut head = [0u8; 4];
-    let got = {
-        let mut n = 0;
-        while n < 4 {
-            match f.read(&mut head[n..]) {
-                Ok(0) => break,
-                Ok(k) => n += k,
-                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(source) => {
-                    return Err(IoError::Read {
-                        path: path.to_string(),
-                        source,
-                    });
-                }
-            }
-        }
-        n
-    };
-    if bbi_format(&head[..got]) != Some(format) {
+    let head = read_magic(&mut f, path)?;
+    if bbi_format(&head) != Some(format) {
         return Err(not_this_format(path, format));
     }
     // The readers read the header from the current position.
@@ -162,18 +161,12 @@ fn source_chroms(source: &Source) -> Vec<(String, u32)> {
 /// The chromosomes a bigWig or bigBed declares, as (file's own name, length), in its
 /// chromosome list's order.
 pub fn bbi_chrom_sizes(path: &str) -> Result<Vec<(Vec<u8>, u64)>, IoError> {
-    let mut head = [0u8; 4];
-    let got = {
-        let mut f = File::open(path).map_err(|source| IoError::Open {
-            path: path.to_string(),
-            source,
-        })?;
-        f.read(&mut head).map_err(|source| IoError::Read {
-            path: path.to_string(),
-            source,
-        })?
-    };
-    let format = bbi_format(&head[..got]).ok_or_else(|| IoError::Detect {
+    let mut f = File::open(path).map_err(|source| IoError::Open {
+        path: path.to_string(),
+        source,
+    })?;
+    let head = read_magic(&mut f, path)?;
+    let format = bbi_format(&head).ok_or_else(|| IoError::Detect {
         path: path.to_string(),
         msg: format!("{path} is not a bigWig or bigBed file"),
     })?;
@@ -277,7 +270,7 @@ impl RecordReader for BbiReader {
         let _note = panic_note(format!(
             "{} is not a valid {} file (it may be truncated)",
             self.path,
-            what(self.format)
+            self.format.name()
         ));
         if self.queue.is_none() {
             self.queue = Some(self.order(chroms));

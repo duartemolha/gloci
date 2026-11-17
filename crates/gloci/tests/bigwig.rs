@@ -305,3 +305,83 @@ fn golden_expected_is_the_hand_written_listing() {
     let expected = std::fs::read_to_string(golden.join("expected")).unwrap();
     assert_eq!(expected, listing);
 }
+
+#[test]
+fn option_checks_and_alignment_commands_refuse_bbi_by_usage_error() {
+    let d = tempdir();
+    let k = s(&k_file(d.path()));
+    for flag in ["--blocks", "--split-alleles", "--bed12"] {
+        gloci()
+            .args(["convert", &k, flag])
+            .assert()
+            .code(2)
+            .stderr(predicates::str::contains("is empty").not());
+    }
+    gloci()
+        .args(["flagstat", &k])
+        .assert()
+        .code(2)
+        .stderr(contains("bigWig"))
+        .stderr(predicates::str::contains("is empty").not());
+}
+
+#[test]
+fn check_quick_reads_bbi() {
+    let d = tempdir();
+    let k = k_file(d.path());
+    let b = b_file(d.path());
+    for f in [&k, &b] {
+        gloci().args(["check", "--quick", &s(f)]).assert().success();
+    }
+    let bytes = std::fs::read(&k).unwrap();
+    let cut = d.path().join("cut.bw");
+    std::fs::write(&cut, &bytes[..bytes.len() / 2]).unwrap();
+    gloci()
+        .args(["check", "--quick", &s(&cut)])
+        .assert()
+        .code(1)
+        .stdout(contains("truncated").or(contains("not a valid")))
+        .stderr(predicates::str::contains("internal error").not());
+}
+
+#[test]
+fn errors_locate_bbi_records_by_record() {
+    let d = tempdir();
+    let k = s(&k_file(d.path()));
+    let g = plain_file(
+        d.path(),
+        "small.genome",
+        "chr1\t150\nchr2\t1000\nchr10\t1000\n",
+    );
+    gloci()
+        .args(["genomecov", &k, "-g", &s(&g)])
+        .assert()
+        .failure()
+        .stderr(contains("record "))
+        .stderr(predicates::str::contains("line ").not());
+}
+
+#[test]
+fn truncated_bigbed_and_format_override_and_missing_chromosome() {
+    let d = tempdir();
+    let b = b_file(d.path());
+    gloci()
+        .args(["view", "--format", "bigbed", &s(&b)])
+        .assert()
+        .success();
+    let bytes = std::fs::read(&b).unwrap();
+    let cut = d.path().join("cut.bb");
+    std::fs::write(&cut, &bytes[..40]).unwrap();
+    gloci()
+        .args(["view", &s(&cut)])
+        .assert()
+        .code(1)
+        .stderr(contains("not a valid bigBed"));
+    let k = s(&k_file(d.path()));
+    let g = plain_file(d.path(), "no10.genome", "chr1\t1000\nchr2\t1000\n");
+    gloci()
+        .args(["view", "-g", &s(&g), &k])
+        .assert()
+        .code(1)
+        .stderr(contains("chr10"));
+}

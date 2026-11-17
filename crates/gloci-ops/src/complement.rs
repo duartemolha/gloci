@@ -9,7 +9,7 @@
 use crate::skipped::{Skipped, log_skipped};
 use gloci_core::{ChromId, ChromTable, Genome};
 use gloci_engine::kmerge_with;
-use gloci_io::{Format, IoError, Loc, RecordMeta, RecordReader, RecordWriter, UsageError};
+use gloci_io::{IoError, Loc, RecordMeta, RecordReader, RecordWriter, UsageError};
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
@@ -187,7 +187,7 @@ fn complement_impl(
     let mut c = Comp {
         genome,
         names: names.clone(),
-        binary: inputs.iter().map(|r| r.format() == Format::Bcf).collect(),
+        binary: inputs.iter().map(|r| r.format().is_binary()).collect(),
         w,
         heap: BinaryHeap::new(),
         chrom: None,

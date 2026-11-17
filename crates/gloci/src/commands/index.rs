@@ -27,12 +27,7 @@ first (gloci view - -o x.bed.gz), then run: gloci index x.bed.gz"
         std::io::Read::read_exact(&mut f, &mut head).ok()?;
         gloci_io::bbi_format(&head)
     }) {
-        return Err(UsageError(format!(
-            "{} is {}, which carries its own index; gloci reads it directly",
-            args.file.display(),
-            format.name()
-        ))
-        .into());
+        return Err(gloci_io::bbi_unindexed(&args.file.display().to_string(), format).into());
     }
     let csi_only = |what: &str| {
         UsageError(format!(
