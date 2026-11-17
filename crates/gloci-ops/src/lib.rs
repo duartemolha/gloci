@@ -24,6 +24,7 @@ pub mod groupby;
 pub mod head;
 pub mod idxstats;
 pub mod intersect;
+pub mod liftover;
 pub mod map;
 pub mod maskfasta;
 pub mod merge;

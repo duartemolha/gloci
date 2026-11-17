@@ -938,6 +938,7 @@ dependencies = [
  "gloci-io",
  "gloci-testkit",
  "gloci-vcf",
+ "itoa",
  "libm",
  "log",
  "lz4_flex",
