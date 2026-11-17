@@ -536,7 +536,6 @@ fn staged_csi_unsorted_stages_nothing() {
         .err()
         .expect("an unsorted file has no index");
     assert!(err.to_string().contains("o.thresholds.bed.gz"), "{err}");
-    StagedSet::default().publish().unwrap();
     assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
     assert!(no_tmp_files(dir.path()));
 }
@@ -557,4 +556,41 @@ fn staged_csi_is_thread_independent() {
         ));
     }
     assert_eq!(files[0], files[1]);
+}
+
+#[test]
+fn staged_stale_removal_is_best_effort() {
+    let _s = serial();
+    // A missing stale path is fine.
+    let dir = tempfile::tempdir().unwrap();
+    let mut set = staged_csi(dir.path(), THRESHOLDS, 1).unwrap();
+    set.remove_on_publish(dir.path().join("never-existed"));
+    set.publish().unwrap();
+    // One that cannot be removed (a non-empty directory) only warns: the files are published.
+    let dir = tempfile::tempdir().unwrap();
+    let mut set = staged_csi(dir.path(), THRESHOLDS, 1).unwrap();
+    let stuck = dir.path().join("stuck");
+    fs::create_dir(&stuck).unwrap();
+    fs::write(stuck.join("x"), b"x").unwrap();
+    set.remove_on_publish(stuck.clone());
+    let published = set.publish().unwrap();
+    assert_eq!(published.len(), 2);
+    assert!(published.iter().all(|p| p.exists()));
+    assert!(stuck.join("x").exists());
+}
+
+#[test]
+fn staged_outputs_are_recorded_despite_a_stuck_stale_path() {
+    use gloci_io::cancel::{RunGuard, RunToken};
+    let _s = serial();
+    let dir = tempfile::tempdir().unwrap();
+    let run = RunToken::recording();
+    let _g = RunGuard::enter(&run);
+    let mut set = staged_csi(dir.path(), THRESHOLDS, 1).unwrap();
+    let stuck = dir.path().join("stuck");
+    fs::create_dir(&stuck).unwrap();
+    fs::write(stuck.join("x"), b"x").unwrap();
+    set.remove_on_publish(stuck);
+    set.publish().unwrap();
+    assert_eq!(run.outputs().len(), 2);
 }

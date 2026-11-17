@@ -87,20 +87,16 @@ remove or rename it, or choose another output name"
         for (_, backup) in &backups {
             let _ = std::fs::remove_file(backup);
         }
+        for (run, path) in records {
+            run.record_output(&path);
+        }
+        // The set is published: removing what it made stale is best-effort.
         for path in &self.stale {
             match std::fs::remove_file(path) {
                 Ok(()) => {}
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-                Err(source) => {
-                    return Err(IoError::Write {
-                        path: path.display().to_string(),
-                        source,
-                    });
-                }
+                Err(e) => log::warn!("could not remove stale index {}: {e}", path.display()),
             }
-        }
-        for (run, path) in records {
-            run.record_output(&path);
         }
         Ok(done)
     }
