@@ -222,4 +222,4 @@ sha256 = "2f669c78b6b56ee317fc9142a8a7a4be45f263f861828b01c715bffe6d300f9d"
 name = "hg38.lex.genome"
 from = ["repo:crates/gloci-io/data/genomes/hg38.genome"]
 command = "sort -k1,1 {in} > {out}"
-sha256 = "f0114a219fb57b6c3948c075a8ff9d0b87aa461b5a753f4e9aa749e7ad7a994d"
+sha256 = "4a26e5b1c8b72ffdb78a29bc17ac8430c80259c295d5e6e1065e8c990507a330"

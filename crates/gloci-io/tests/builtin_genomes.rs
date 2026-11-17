@@ -21,6 +21,7 @@ fn known_lengths() {
         ("hg38", "chr1", 248956422),
         ("hg38", "chrX", 156040895),
         ("hg38", "chrM", 16569),
+        ("hg38", "chrEBV", 171823),
         ("hg19", "chr1", 249250621),
         ("hg19", "chrM", 16571),
         ("GRCh37", "1", 249250621),
@@ -188,8 +189,8 @@ fn resolution() {
 #[test]
 fn totals_and_counts() {
     let b = builtin("hg38").unwrap();
-    assert_eq!(b.len(), 455);
-    assert_eq!(b.total_length(), 3209286105);
+    assert_eq!(b.len(), 456);
+    assert_eq!(b.total_length(), 3209457928);
     assert_eq!(b.genome().len(), b.len());
 }
 

@@ -25,6 +25,39 @@ fn stdout_of<const N: usize>(args: [&str; N]) -> String {
     String::from_utf8(out).unwrap()
 }
 
+/// hg38 has chrEBV (171,823 bp), as GRCh38 analysis-set files such as ENCODE's do.
+#[test]
+fn hg38_has_chrebv() {
+    gloci()
+        .args(["check", &w("ebv.bed", "chrEBV\t100\t200\n"), "-g", "hg38"])
+        .assert()
+        .success();
+    gloci()
+        .args([
+            "check",
+            &w("past.bed", "chrEBV\t171800\t171900\n"),
+            "-g",
+            "hg38",
+        ])
+        .assert()
+        .code(1)
+        .stdout(contains("past the end of chrEBV (length 171823)"))
+        .stdout(contains("built-in genome hg38"));
+    let d = tempdir();
+    gloci()
+        .args([
+            "convert",
+            &w("past.bed", "chrEBV\t171800\t171900\n"),
+            "-g",
+            "hg38",
+        ])
+        .arg("-o")
+        .arg(d.path().join("x.bb"))
+        .assert()
+        .code(1)
+        .stderr(contains("chromosome chrEBV (171823 bases, from -g hg38)"));
+}
+
 #[test]
 fn sort_with_builtin_genome() {
     gloci()
@@ -59,7 +92,7 @@ fn genomes_command() {
     let hg38 = out.lines().find(|l| l.starts_with("hg38")).unwrap();
     let cols: Vec<_> = hg38.split_whitespace().collect();
     assert_eq!(cols[0], "hg38");
-    assert!(hg38.contains("ucsc") && hg38.contains("455") && hg38.contains("3209286105"));
+    assert!(hg38.contains("ucsc") && hg38.contains("456") && hg38.contains("3209457928"));
     assert!(
         stdout_of(["genomes", "show", "hg38"])
             .starts_with("chr1\t248956422\nchr2\t242193529\nchr3\t198295559\n")

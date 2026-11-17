@@ -132,7 +132,7 @@ derive 'ctcf-k562.cram' 'd65a67fb0f98abc76b3c7de888056c28cda4f4cde717f9c4d3e8930
 export IN="$CACHE/ENCFF769AUF.bed.gz" IN2="$CACHE/ctcf-k562.bam"
 derive 'ctcf-peaks.bed' '2f669c78b6b56ee317fc9142a8a7a4be45f263f861828b01c715bffe6d300f9d' 'zcat "$IN" | cut -f1-6 | sort -k1,1 -k2,2n -s > "$OUT" && missing=$(comm -23 <(cut -f1 "$OUT" | sort -u) <(samtools view -H "$IN2" | gawk -F'\''\t'\'' '\''$1=="@SQ"{sub("SN:","",$2);print $2}'\'' | sort)) && [ -z "$missing" ] || { echo "contigs of the CTCF peaks that are not @SQ of the BAM: $missing" >&2; false; }' ''
 export IN="$ROOT/crates/gloci-io/data/genomes/hg38.genome"
-derive 'hg38.lex.genome' 'f0114a219fb57b6c3948c075a8ff9d0b87aa461b5a753f4e9aa749e7ad7a994d' 'sort -k1,1 "$IN" > "$OUT"' ''
+derive 'hg38.lex.genome' '4a26e5b1c8b72ffdb78a29bc17ac8430c80259c295d5e6e1065e8c990507a330' 'sort -k1,1 "$IN" > "$OUT"' ''
 
 if [ "$NUNPINNED" -gt 0 ]; then
   echo "$NUNPINNED derived inputs UNVERIFIED (no sha256 in datasets.toml):$UNPINNED" >&2

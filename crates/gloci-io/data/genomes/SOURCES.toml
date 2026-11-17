@@ -6,7 +6,10 @@
 # contigs; no haplotypes or patches, which carry the non_ref attribute) comes
 # from seq_region, seq_region_attrib, attrib_type and coord_system (LRG regions
 # left out), and sha256 is the hash of those four .txt.gz files concatenated
-# in that order.
+# in that order. extra lists sequences the source lacks, added on request, each
+# with its source: a refresh adds them in their karyotype place (sequences and
+# total_length count them; sha256 stays the source's), skips one the source has
+# with the same length and refuses one it has with another length.
 
 [[genome]]
 id = "hg19"
@@ -23,8 +26,13 @@ format = "chrom-sizes"
 url = "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.chrom.sizes"
 retrieved = "2026-11-07"
 sha256 = "e1d9152418038457a959e949d99c9caf7ae3e4f87cfbb4ffe7d8b9a54ba1202b"
-sequences = 455
-total_length = 3209286105
+sequences = 456
+total_length = 3209457928
+
+[[genome.extra]]
+name = "chrEBV"
+length = 171823
+source = "Epstein-Barr virus, NC_007605.1: the GRCh38 analysis set's decoy, carried by ENCODE's and GATK's GRCh38 files; UCSC's hg38 table lacks it (owner, 2026-11-17)"
 
 [[genome]]
 id = "hs1"

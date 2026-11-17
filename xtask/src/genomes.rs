@@ -46,6 +46,17 @@ pub struct Entry {
     pub sequences: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub total_length: Option<u64>,
+    /// Sequences the source lacks, added on request.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extra: Vec<Extra>,
+}
+
+/// A sequence a genome's source lacks, added on request, with where it comes from.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Extra {
+    pub name: String,
+    pub length: u64,
+    pub source: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -62,7 +73,10 @@ const MANIFEST_HEADER: &str = "\
 # contigs; no haplotypes or patches, which carry the non_ref attribute) comes
 # from seq_region, seq_region_attrib, attrib_type and coord_system (LRG regions
 # left out), and sha256 is the hash of those four .txt.gz files concatenated
-# in that order.
+# in that order. extra lists sequences the source lacks, added on request, each
+# with its source: a refresh adds them in their karyotype place (sequences and
+# total_length count them; sha256 stays the source's), skips one the source has
+# with the same length and refuses one it has with another length.
 
 ";
 
@@ -237,6 +251,34 @@ fn download(e: &Entry) -> Result<(String, String)> {
     }
 }
 
+/// The two-column text `raw` with the sequences of `extra` it lacks appended: one it has with
+/// the same length is skipped, one it has with another length is an error.
+pub fn add_extras(raw: &str, extra: &[Extra]) -> Result<String> {
+    let have: HashMap<&str, &str> = raw
+        .lines()
+        .filter_map(|l| {
+            let mut c = l.split_whitespace();
+            Some((c.next()?, c.next()?))
+        })
+        .collect();
+    let mut out = raw.to_string();
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
+    }
+    for x in extra {
+        match have.get(x.name.as_str()) {
+            None => out.push_str(&format!("{}\t{}\n", x.name, x.length)),
+            Some(len) if *len == x.length.to_string() => {}
+            Some(len) => bail!(
+                "extra sequence {} is {} long, but the source has it at {len}",
+                x.name,
+                x.length
+            ),
+        }
+    }
+    Ok(out)
+}
+
 /// Days since 1970-01-01 to a civil `YYYY-MM-DD` date.
 pub fn civil_date(days: i64) -> String {
     let z = days + 719_468;
@@ -284,6 +326,7 @@ pub fn run(args: &Args) -> Result<bool> {
         }
         eprintln!("{}: {}", e.id, e.url);
         let (raw, sha) = download(e)?;
+        let raw = add_extras(&raw, &e.extra).with_context(|| e.id.clone())?;
         let rows = normalize(&raw, e.order.as_deref() == Some("reference"))
             .with_context(|| e.id.clone())?;
         write_atomic(&args.dir.join(format!("{}.genome", e.id)), &render(&rows))?;
@@ -376,6 +419,78 @@ mod tests {
         let at = "2\t6\tx\n4\t6\t\n4\t16\t1\n";
         let ty = "6\ttoplevel\tTop Level\n16\tnon_ref\tNon Reference\n";
         assert_eq!(ensembl_primary(sr, at, ty, cs).unwrap(), "I\t100\n");
+    }
+
+    fn extra(name: &str, length: u64) -> Extra {
+        Extra {
+            name: name.into(),
+            length,
+            source: "test".into(),
+        }
+    }
+
+    #[test]
+    fn extras_join_in_karyotype_order() {
+        let raw = "chrUn_1\t1\nchr2\t2\nchrM\t3\nchr1\t9";
+        let rows = normalize(&add_extras(raw, &[extra("chrEBV", 5)]).unwrap(), false).unwrap();
+        assert_eq!(names(&rows), ["chr1", "chr2", "chrM", "chrEBV", "chrUn_1"]);
+        assert_eq!(rows[3].1, 5);
+    }
+
+    #[test]
+    fn an_extra_the_source_has_is_kept_once() {
+        let raw = "chr1\t9\nchrEBV\t5\n";
+        assert_eq!(add_extras(raw, &[extra("chrEBV", 5)]).unwrap(), raw);
+    }
+
+    #[test]
+    fn an_extra_with_another_length_is_an_error() {
+        let e = add_extras("chr1\t9\nchrEBV\t6\n", &[extra("chrEBV", 5)]).unwrap_err();
+        assert!(e.to_string().contains("chrEBV is 5 long"), "{e}");
+    }
+
+    fn data_dir() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join(DEFAULT_DIR)
+    }
+
+    /// The committed manifest is in the form a refresh writes, so its fields (the extras too)
+    /// survive a refresh.
+    #[test]
+    fn the_manifest_round_trips() {
+        let path = data_dir().join("SOURCES.toml");
+        let text = std::fs::read_to_string(&path).unwrap();
+        let m: Manifest = toml::from_str(&text).unwrap();
+        assert_eq!(
+            format!("{MANIFEST_HEADER}{}", toml::to_string(&m).unwrap()),
+            text
+        );
+    }
+
+    /// hg38.genome is UCSC's table (as committed, without the extras) plus SOURCES.toml's
+    /// extras, normalized as a refresh would, and the manifest counts them.
+    #[test]
+    fn hg38_is_ucscs_table_plus_its_extras() {
+        let dir = data_dir();
+        let m: Manifest =
+            toml::from_str(&std::fs::read_to_string(dir.join("SOURCES.toml")).unwrap()).unwrap();
+        let e = by_id(&m)["hg38"];
+        assert_eq!(names_of_extras(e), ["chrEBV"]);
+        let committed = std::fs::read_to_string(dir.join("hg38.genome")).unwrap();
+        let ucsc: String = committed
+            .lines()
+            .filter(|l| !l.starts_with("chrEBV\t"))
+            .map(|l| format!("{l}\n"))
+            .collect();
+        let rows = normalize(&add_extras(&ucsc, &e.extra).unwrap(), false).unwrap();
+        assert_eq!(render(&rows), committed);
+        assert_eq!(e.sequences, Some(rows.len() as u64));
+        assert_eq!(e.total_length, Some(rows.iter().map(|r| r.1).sum()));
+    }
+
+    fn names_of_extras(e: &Entry) -> Vec<&str> {
+        e.extra.iter().map(|x| x.name.as_str()).collect()
     }
 
     #[test]
