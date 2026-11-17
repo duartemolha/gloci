@@ -14,6 +14,7 @@ mod hwe;
 pub mod merge;
 mod norm;
 pub mod popgen;
+pub mod query;
 mod split;
 pub mod srsort;
 mod stats;
@@ -35,6 +36,7 @@ pub use gt::{
 };
 pub use hwe::{HweTails, hwe_p, hwe_tails};
 pub use norm::{CheckRef, Dedup, Normalizer, Reference, RmDup, Verdict, clean_reference_bases};
+pub use query::{Query, QueryFormat};
 pub use split::{Outcome as SplitOutcome, SplitTypes, Splitter};
 pub use stats::{
     FilterSummary, Freq, GenoDepth, Hardy, Heterozygosity, IndelHist, MaskRules, MissingSample,
