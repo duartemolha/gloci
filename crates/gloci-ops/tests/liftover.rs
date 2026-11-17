@@ -356,3 +356,126 @@ fn wig_and_gff_are_refused() {
     let gff = refused("x.gff", "chr1\tsrc\tgene\t121\t180\t.\t+\t.\tID=g\n", None);
     assert!(gff.contains("GFF/GTF liftover"), "{gff}");
 }
+
+fn bed12(
+    name: &str,
+    text: &str,
+    o: &LiftoverOptions,
+) -> (Vec<String>, Vec<String>, LiftoverCounts) {
+    run(name, text, o)
+}
+
+fn named<'a>(recs: &'a [String], name: &str) -> Vec<&'a String> {
+    recs.iter()
+        .filter(|l| l.split('\t').nth(3) == Some(name))
+        .collect()
+}
+
+#[test]
+fn bed12_lifts_as_crossmap() {
+    let bed = fixture("toy-bed12.bed");
+    let (out, un, counts) = bed12("toy-bed12.bed", &bed, &LiftoverOptions::default());
+    assert_eq!(
+        out,
+        lines(
+            "chr1\t1120\t1580\tt1\t0\t+\t1130\t1560\t0\t3\t60,60,60\t0,150,400
+chr2\t3950\t4000\tt3\t0\t+\t3960\t3990\t0\t1\t50\t0
+chr1\t1120\t1180\tt7\t0\t+\t1120\t1180\t0\t1\t60\t0
+chr1\t1150\t1150\tt8\t0\t+\t1150\t1150\t0\t1\t0\t0
+chr1\t1120\t1580\tt10\t0\t+\t1580\t1580\t0\t3\t60,60,60\t0,150,400
+chrT\t1010\t1550\tt11\t0\t+\t1020\t1540\t0\t2\t40,40\t0,500"
+        )
+    );
+    let want: Vec<String> = bed
+        .lines()
+        .filter(|l| ["t2", "t4", "t5", "t6", "t9"].contains(&l.split('\t').nth(3).unwrap()))
+        .map(str::to_string)
+        .collect();
+    assert_eq!(un, want);
+    assert_eq!(
+        counts.unmapped,
+        [
+            (Unmapped::BadBlocks, 1),
+            (Unmapped::BlockSplit, 3),
+            (Unmapped::BlocksApart, 1)
+        ]
+        .into()
+    );
+}
+
+#[test]
+fn bed12_thick_ends_follow_their_blocks() {
+    let bed = fixture("toy-bed12-thick.bed");
+    let (out, _, _) = bed12("toy-bed12-thick.bed", &bed, &LiftoverOptions::default());
+    assert_eq!(
+        out,
+        lines(
+            "chr1\t1120\t1580\tk1\t0\t+\t1280\t1560\t0\t3\t60,60,60\t0,150,400
+chr2\t3950\t4000\tk2\t0\t-\t3960\t3995\t0\t1\t50\t0
+chr1\t1120\t1330\tk3\t0\t+\t1120\t1120\t0\t2\t60,60\t0,150"
+        )
+    );
+}
+
+#[test]
+fn bed12_thick_in_an_intron_keeps_crossmap_offsets() {
+    let text = "chr1\t120\t580\ti1\t0\t+\t200\t560\t0\t3\t60,60,60,\t0,100,400,\n";
+    let (out, _, _) = bed12("i.bed", text, &LiftoverOptions::default());
+    let f: Vec<&str> = out[0].split('\t').collect();
+    assert_eq!((f[6], f[7]), ("1200", "1560"), "{}", out[0]);
+}
+
+#[test]
+fn bed12_blocks_out_of_order_do_not_lift() {
+    let bed = fixture("toy-bed12-order.bed");
+    let (out, un, counts) = bed12("o.bed", &bed, &LiftoverOptions::default());
+    assert!(out.is_empty(), "{out:?}");
+    assert_eq!(un, lines(bed.trim_end()));
+    assert_eq!(counts.unmapped, [(Unmapped::BadBlocks, 1)].into());
+}
+
+#[test]
+fn bed12_unknown_strand_lifts_as_plus() {
+    let bed = fixture("toy-bed12-dot.bed");
+    let (out, _, _) = bed12("u.bed", &bed, &LiftoverOptions::default());
+    assert_eq!(
+        out,
+        lines("chr1\t1120\t1580\tu1\t0\t.\t1130\t1560\t0\t3\t60,60,60\t0,150,400")
+    );
+}
+
+#[test]
+fn bed12_extra_columns_are_kept() {
+    let bed = fixture("toy-bed-extra.bed");
+    let (out, _, _) = bed12("e.bed", &bed, &LiftoverOptions::default());
+    assert_eq!(
+        out,
+        lines(
+            "chr1\t1120\t1580\te1\t0\t+\t1130\t1560\t0\t3\t60,60,60\t0,150,400\tx1\tx2\tx3\tx4\tx5\tx6\tx7\tx8
+chr1\t1120\t1580\te2\t0\t+\t1130\t1560\t0\t3\t60,60,60\t0,150,400\textra"
+        )
+    );
+}
+
+#[test]
+fn ignore_blocks_lifts_columns_1_to_3_only() {
+    let bed = fixture("toy-bed12.bed");
+    let o = LiftoverOptions {
+        ignore_blocks: true,
+        ..Default::default()
+    };
+    let (out, _, _) = bed12("toy-bed12.bed", &bed, &o);
+    assert_eq!(out.len(), 31);
+    assert_eq!(
+        out[0],
+        "chr1\t1120\t1200\tt1\t0\t+\t130\t560\t0\t3\t60,60,60,\t0,100,400,"
+    );
+    assert_eq!(
+        named(&out, "t3"),
+        ["chr2\t3950\t4000\tt3\t0\t+\t710\t740\t0\t1\t50,\t0,"]
+    );
+    assert_eq!(
+        out.last().unwrap(),
+        "chrT\t1500\t1550\tt11\t0\t+\t20\t240\t0\t2\t40,40\t0,200"
+    );
+}

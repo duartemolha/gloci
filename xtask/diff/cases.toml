@@ -11851,3 +11851,63 @@ aux = ["xtask/diff/inputs/liftover/minus-source.chain"]
 gloci = "gloci liftover input.bed --chain minus-source.chain"
 reference = "CrossMap bed minus-source.chain input.bed o.bed >/dev/null 2>&1"
 compare = "exit-status"
+
+[[case]]
+name = "liftover-bed12-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-bed12.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain"
+reference = "CrossMap bed toy.chain input.bed o.bed >/dev/null 2>&1 && cat o.bed"
+compare = "exact"
+
+[[case]]
+name = "liftover-bed12-unmapped-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-bed12.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain -o /dev/null --unmapped -"
+reference = "CrossMap bed toy.chain input.bed o.bed >/dev/null 2>&1 && cat o.bed.unmap"
+compare = "exact"
+
+[[case]]
+name = "liftover-bed12-thick-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-bed12-thick.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain"
+reference = "CrossMap bed toy.chain input.bed o.bed >/dev/null 2>&1 && cat o.bed"
+compare = "exact"
+expected_difference = "#liftover-bed12-thick"
+
+[[case]]
+name = "liftover-bed12-order-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-bed12-order.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain"
+reference = "CrossMap bed toy.chain input.bed o.bed >/dev/null 2>&1 && cat o.bed"
+compare = "exact"
+expected_difference = "#liftover-bed12-block-order"
+
+[[case]]
+name = "liftover-bed12-unknown-strand-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-bed12-dot.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain"
+reference = "CrossMap bed toy.chain input.bed o.bed >/dev/null 2>&1"
+compare = "exit-status"
+expected_difference = "#liftover-bed12-unknown-strand"
+
+[[case]]
+name = "liftover-bed-extra-columns-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-bed-extra.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain"
+reference = "CrossMap bed toy.chain input.bed o.bed >/dev/null 2>&1 && cat o.bed"
+compare = "exact"
+expected_difference = "#liftover-bed-fields"
+
+[[case]]
+name = "liftover-ignore-blocks-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-bed12.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain --ignore-blocks"
+reference = "CrossMap bed --naive-bed-parsing toy.chain input.bed o.bed >/dev/null 2>&1 && cat o.bed"
+compare = "exact"

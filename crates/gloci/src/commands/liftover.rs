@@ -138,6 +138,7 @@ pub fn run(ctx: &Ctx, a: &LiftoverArgs) -> anyhow::Result<()> {
     let o = LiftoverOptions {
         chrom_style: style(&a.chrom_style),
         skip_invalid: a.invalid.skip_invalid,
+        ignore_blocks: a.ignore_blocks,
     };
     // Records are written in input order, so the table only gives names ids.
     let mut chroms = ChromTable::first_appearance();
@@ -182,7 +183,11 @@ block covers (CrossMap does both without a word)",
         );
     }
     if counts.invalid > 0 {
-        log::warn!("{} invalid records were skipped", counts.invalid);
+        let n = counts.invalid;
+        log::warn!(
+            "{n} record{} skipped as invalid",
+            if n == 1 { " was" } else { "s were" }
+        );
     }
     log::info!(
         "{} chains, {} blocks from {}",

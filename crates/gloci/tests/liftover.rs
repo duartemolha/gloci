@@ -379,3 +379,31 @@ fn a_link_to_the_output_is_the_same_file() {
             .code(2);
     }
 }
+
+#[test]
+fn invalid_blocks_name_the_line() {
+    let d = with(&["toy.chain"]);
+    std::fs::write(
+        d.path().join("bad.bed"),
+        "chr1\t120\t580\tx\t0\t+\t130\t560\t0\t2\t60,60,60,\t0,100,400,\n",
+    )
+    .unwrap();
+    gloci()
+        .current_dir(d.path())
+        .args(["liftover", "bad.bed", "--chain", "toy.chain"])
+        .assert()
+        .code(1)
+        .stderr(contains("line 1").and(contains("--ignore-blocks")));
+    gloci()
+        .current_dir(d.path())
+        .args([
+            "liftover",
+            "bad.bed",
+            "--chain",
+            "toy.chain",
+            "--skip-invalid",
+        ])
+        .assert()
+        .success()
+        .stderr(contains("1 record"));
+}

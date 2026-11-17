@@ -1,6 +1,8 @@
 //! The BED interval path (D174, R5): one output record per piece. bedGraph takes it too.
 
-use gloci_io::Segment;
+use super::{Styler, Unmapped};
+use gloci_core::Interval;
+use gloci_io::{ChainIndex, Segment, SourceRef, bed12_blocks};
 
 /// Write `raw` as the record of one piece into `buf` (cleared first): columns 1-3 become `name`
 /// and the piece's target interval; column 6, when exactly `+` or `-`, is flipped by a reverse
@@ -23,4 +25,146 @@ pub(crate) fn rewrite_piece(raw: &[u8], name: &str, seg: &Segment, buf: &mut Vec
             _ => buf.extend_from_slice(f),
         }
     }
+}
+
+/// What became of a BED12 record on the block path.
+pub(crate) enum Lift {
+    /// Written into the buffer; `shortened` when a block lost bases no chain block covers.
+    Written {
+        shortened: bool,
+    },
+    Unmapped(Unmapped),
+}
+
+/// Scratch space the block path reuses from record to record.
+#[derive(Default)]
+pub(crate) struct BlockScratch {
+    pieces: Vec<Segment>,
+    one: Vec<Segment>,
+}
+
+/// The first block `i` for which `hit(src)` holds, else the first for which `edge(src)` does.
+fn first_block(
+    pieces: &[Segment],
+    hit: impl Fn(&Interval) -> bool,
+    edge: impl Fn(&Interval) -> bool,
+) -> Option<usize> {
+    pieces
+        .iter()
+        .position(|p| hit(&p.source))
+        .or_else(|| pieces.iter().position(|p| edge(&p.source)))
+}
+
+fn number(raw: &[u8], col: usize, what: &str) -> Result<u64, String> {
+    let f = raw.split(|&b| b == b'\t').nth(col).unwrap_or_default();
+    std::str::from_utf8(f)
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(|| format!("{what} is not a non-negative integer"))
+}
+
+fn join_numbers(buf: &mut Vec<u8>, values: impl Iterator<Item = u64>) {
+    let mut itoa = itoa::Buffer::new();
+    for (i, v) in values.enumerate() {
+        if i > 0 {
+            buf.push(b',');
+        }
+        buf.extend_from_slice(itoa.format(v).as_bytes());
+    }
+}
+
+/// Lift one record of 12 or more columns block by block (D174, R8) into `buf`. An `Err` is an
+/// invalid line: its blocks or thick range cannot be read.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn lift_blocks(
+    raw: &[u8],
+    span: Interval,
+    chain: &ChainIndex,
+    src: Option<&SourceRef>,
+    styler: &mut Styler,
+    chr: bool,
+    scratch: &mut BlockScratch,
+    buf: &mut Vec<u8>,
+) -> Result<Lift, String> {
+    let blocks = bed12_blocks(raw)?.ok_or("fewer than 12 columns")?;
+    let thick_start = number(raw, 6, "thickStart")?;
+    let thick_end = number(raw, 7, "thickEnd")?;
+    let minus = raw.split(|&b| b == b'\t').nth(5) == Some(b"-");
+
+    let BlockScratch { pieces, one } = scratch;
+    pieces.clear();
+    let mut shortened = false;
+    for b in &blocks {
+        let Some(src) = src else {
+            return Ok(Lift::Unmapped(Unmapped::BlockSplit));
+        };
+        chain.segments(src, *b, one);
+        let [p] = one.as_slice() else {
+            return Ok(Lift::Unmapped(Unmapped::BlockSplit));
+        };
+        shortened |= p.source.len() < b.len();
+        pieces.push(*p);
+    }
+    let first = pieces[0];
+    for p in pieces.iter() {
+        let same_name =
+            p.chain == first.chain || styler.same_name(chain, first.chain, p.chain, chr);
+        if !same_name || (p.reverse == minus) != (first.reverse == minus) {
+            return Ok(Lift::Unmapped(Unmapped::BlocksApart));
+        }
+    }
+
+    let cs = first.target.start;
+    let ce = pieces[pieces.len() - 1].target.end;
+    let found = |i: Option<usize>| i.map(|i| &pieces[i]);
+    let ts_block = found(first_block(
+        pieces,
+        |s| s.start <= thick_start && thick_start < s.end,
+        |s| thick_start == s.end,
+    ));
+    let te_block = found(first_block(
+        pieces,
+        |s| s.start < thick_end && thick_end <= s.end,
+        |s| thick_end == s.start,
+    ));
+    let fwd = |p: &Segment, x: u64| (p.target.start + (x - p.source.start)) as i64;
+    let mirror = |p: &Segment, x: u64| (p.target.end - (x - p.source.start)) as i64;
+    let mapped = match (ts_block, te_block) {
+        (Some(s), Some(e)) if !first.reverse => Some((fwd(s, thick_start), fwd(e, thick_end))),
+        (Some(s), Some(e)) => Some((mirror(e, thick_end), mirror(s, thick_start))),
+        _ => None,
+    };
+    let (ts, te) = mapped.unwrap_or((
+        cs as i64 + (thick_start as i64 - span.start as i64),
+        ce as i64 - (span.end as i64 - thick_end as i64),
+    ));
+    let ascending = pieces
+        .windows(2)
+        .all(|w| w[0].target.end <= w[1].target.start);
+    if cs > ce || ts > te || (cs as i64) > ts || te > ce as i64 || !ascending {
+        return Ok(Lift::Unmapped(Unmapped::BadBlocks));
+    }
+
+    buf.clear();
+    let mut itoa = itoa::Buffer::new();
+    let name = styler.name(chain, first.chain, chr);
+    for (i, f) in raw.split(|&b| b == b'\t').enumerate() {
+        if i > 0 {
+            buf.push(b'\t');
+        }
+        match i {
+            0 => buf.extend_from_slice(name.as_bytes()),
+            1 => buf.extend_from_slice(itoa.format(cs).as_bytes()),
+            2 => buf.extend_from_slice(itoa.format(ce).as_bytes()),
+            5 if f == b"+" || f == b"-" => {
+                buf.push(if first.reverse == minus { b'+' } else { b'-' });
+            }
+            6 => buf.extend_from_slice(itoa.format(ts).as_bytes()),
+            7 => buf.extend_from_slice(itoa.format(te).as_bytes()),
+            10 => join_numbers(buf, pieces.iter().map(|p| p.target.len())),
+            11 => join_numbers(buf, pieces.iter().map(|p| p.target.start - cs)),
+            _ => buf.extend_from_slice(f),
+        }
+    }
+    Ok(Lift::Written { shortened })
 }

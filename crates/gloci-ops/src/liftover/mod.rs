@@ -8,7 +8,7 @@ pub use names::{ChromStyle, source_name, target_name};
 
 use gloci_core::{ChromTable, Interval};
 use gloci_io::{
-    ChainIndex, Format, IoError, RecordBatch, RecordReader, RecordWriter, Segment, SourceRef,
+    ChainIndex, Format, IoError, Loc, RecordBatch, RecordReader, RecordWriter, Segment, SourceRef,
     UsageError, next_batch_size,
 };
 use std::collections::BTreeMap;
@@ -18,6 +18,9 @@ pub struct LiftoverOptions {
     pub chrom_style: ChromStyle,
     /// Skip records the op finds invalid and count them (D174, R6).
     pub skip_invalid: bool,
+    /// Lift BED12 records by columns 1 to 3 only, like any other BED record (CrossMap
+    /// `--naive-bed-parsing`; D174, R8).
+    pub ignore_blocks: bool,
 }
 
 /// Why a record is left unmapped (D174, R5 to R10).
@@ -91,6 +94,35 @@ struct Input {
     chr: bool,
 }
 
+/// The styled target name per (chain, input starts with `chr`), built once.
+struct Styler {
+    style: ChromStyle,
+    names: Vec<Option<String>>,
+}
+
+impl Styler {
+    fn new(style: ChromStyle, chain: &ChainIndex) -> Styler {
+        Styler {
+            style,
+            names: vec![None; chain.chains() * 2],
+        }
+    }
+
+    fn name(&mut self, chain: &ChainIndex, id: u32, chr: bool) -> &str {
+        let style = self.style;
+        self.names[id as usize * 2 + usize::from(chr)].get_or_insert_with(|| {
+            target_name(style, if chr { "chr" } else { "" }, &chain.chain(id).target)
+        })
+    }
+
+    fn same_name(&mut self, chain: &ChainIndex, a: u32, b: u32, chr: bool) -> bool {
+        self.name(chain, a, chr);
+        self.name(chain, b, chr);
+        let at = |id: u32| &self.names[id as usize * 2 + usize::from(chr)];
+        at(a) == at(b)
+    }
+}
+
 fn write_err(path: &str, source: std::io::Error) -> IoError {
     IoError::Write {
         path: path.into(),
@@ -128,8 +160,8 @@ pub fn liftover(
     let mut counts = LiftoverCounts::default();
     // Per input chromosome: its chain source, its name and whether it starts with `chr`.
     let mut sources: Vec<Option<Input>> = Vec::new();
-    // The styled target name per (chain, input starts with `chr`).
-    let mut styled: Vec<Option<String>> = vec![None; chain.chains() * 2];
+    let mut styler = Styler::new(o.chrom_style, chain);
+    let mut scratch = bed::BlockScratch::default();
     let mut pieces: Vec<Segment> = Vec::new();
     let mut buf = Vec::new();
     let mut batch = RecordBatch::default();
@@ -151,6 +183,44 @@ pub fn liftover(
                     chr: name.starts_with("chr"),
                 }
             });
+            if format == Format::Bed
+                && !o.ignore_blocks
+                && raw.iter().filter(|&&b| b == b'\t').count() >= 11
+            {
+                let lifted = bed::lift_blocks(
+                    raw,
+                    m.span,
+                    chain,
+                    from.src.as_ref(),
+                    &mut styler,
+                    from.chr,
+                    &mut scratch,
+                    &mut buf,
+                );
+                match lifted {
+                    Ok(bed::Lift::Written { shortened }) => {
+                        out.write_record(&buf).map_err(|e| write_err("output", e))?;
+                        counts.written += 1;
+                        counts.shortened += u64::from(shortened);
+                    }
+                    Ok(bed::Lift::Unmapped(why)) => {
+                        *counts.unmapped.entry(why).or_default() += 1;
+                        if let Some(u) = unmapped.as_deref_mut() {
+                            u.write_record(raw)
+                                .map_err(|e| write_err("unmapped output", e))?;
+                        }
+                    }
+                    Err(_) if o.skip_invalid => counts.invalid += 1,
+                    Err(msg) => {
+                        return Err(IoError::Parse {
+                            path: input.name().to_string(),
+                            loc: Loc::Line(m.loc),
+                            msg: format!("{msg}; use --ignore-blocks to lift columns 1 to 3 only"),
+                        });
+                    }
+                }
+                continue;
+            }
             pieces.clear();
             if let Some(src) = &from.src {
                 chain.segments(
@@ -171,11 +241,7 @@ pub fn liftover(
                 continue;
             }
             for seg in &pieces {
-                let slot = &mut styled[seg.chain as usize * 2 + usize::from(from.chr)];
-                let target = slot.get_or_insert_with(|| {
-                    let input = if from.chr { "chr" } else { "" };
-                    target_name(o.chrom_style, input, &chain.chain(seg.chain).target)
-                });
+                let target = styler.name(chain, seg.chain, from.chr);
                 bed::rewrite_piece(raw, target, seg, &mut buf);
                 out.write_record(&buf).map_err(|e| write_err("output", e))?;
             }

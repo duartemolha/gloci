@@ -892,6 +892,11 @@ pub struct LiftoverArgs {
         value_parser = ["as-input", "short", "long", "chain"]
     )]
     pub chrom_style: String,
+    /// Lift a BED12 record by columns 1 to 3 only, as any other BED record, leaving blocks and
+    /// thick range as read (CrossMap `--naive-bed-parsing`). Without it, each block is lifted
+    /// and must fall in one piece.
+    #[arg(long)]
+    pub ignore_blocks: bool,
     #[command(flatten)]
     pub format: FormatArg,
     #[command(flatten)]

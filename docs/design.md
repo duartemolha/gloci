@@ -420,12 +420,13 @@ How the old commands map onto `partition`:
 | `groupby` | bedtools groupby | P2 | `-g COLS -c COL:OP` over consecutive equal keys |
 | `genomecov` | bedtools genomecov | P2 (BED), P3 (BAM, CRAM, SAM) | `--bedgraph`, `--bga`, `--hist` (default), `--per-base`, `--scale X`, `--strand +/-`, `--split`, `--split-deletions`, `--5p/--3p`, `--max-depth N`, `--sort` |
 | `sample`, `random`, `shuffle` | bedtools | P3 | `--seed` required for reproducibility; `shuffle --exclude/--include BED` |
-| `liftover` | CrossMap `bed`, `gff`, `region`; UCSC `liftOver` | after P3 (D174) | `--chain`, `--unmapped`, `--chrom-style`; input order out |
+| `liftover` | CrossMap `bed`, `gff`, `region`; UCSC `liftOver` | after P3 (D174) | `--chain`, `--unmapped`, `--chrom-style`, `--ignore-blocks`; input order out |
 
 **`liftover`** **[D174]**
 
 - A record is lifted through the aligned blocks of a chain, by CrossMap's rules, not UCSC `liftOver`'s: a record that crosses a chain gap is split into one record per piece (R5), and a record that loses bases to a gap is written shortened. The command warns once about both, as CrossMap does neither aloud.
 - Records that do not lift go to `--unmapped` as read, or are counted by reason in one warning (R6). The output is in input order and may be unsorted, so pipe it through `gloci sort`.
+- A BED record of 12 or more columns is lifted block by block (R8): each block needs one piece, the blocks are rebuilt in input order and the thick ends follow their blocks; `--ignore-blocks` lifts columns 1 to 3 only (CrossMap `--naive-bed-parsing`).
 - The chain is held in memory as an interval index per source chromosome (R1); records stream.
 
 **`genomecov` on alignments (BAM, CRAM, SAM)** **[D117]**

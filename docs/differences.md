@@ -3824,6 +3824,9 @@ cases (must match).
 - **Old behaviour:** CrossMap splits on any whitespace and rejoins with tabs, so a name
   with a space becomes two columns. It also drops records of 13 to 19 or 21 and more
   columns without a trace, and cuts one of 20 columns to 12.
+- **BED12:** columns 13 and up are kept on the block path too (columns 4, 5 and 9 as
+  well); CrossMap writes a 20-column BED12 cut to 12 columns, and drops one of 13 to 19 or
+  21 and more.
 - **Reason:** BED is tab-separated; a lift must not change what it does not move.
 - **Pinned by:** `liftover-bed-spaces-vs-crossmap` and, for the extra columns,
   `liftover-bed-extra-columns-vs-crossmap` (both must differ).
@@ -3860,3 +3863,30 @@ cases (must match).
 - **Reason:** a chain that contradicts itself cannot give a trustworthy lift.
 - **Pinned by:** `liftover-chain-checks-vs-crossmap` (exit status: must differ);
   `liftover-chain-minus-source-vs-crossmap` pins the case both refuse.
+
+## `liftover` maps BED12 thick ends through their blocks {#liftover-bed12-thick}
+
+- **gloci:** thickStart and thickEnd are moved through the piece of the block they lie in,
+  so they stay where they were in the feature. An end that lies in no block keeps
+  CrossMap's offsets from chromStart and chromEnd.
+- **Old behaviour:** CrossMap keeps the offsets of both thick ends from chromStart and
+  chromEnd, which is wrong once an intron changes length or the chain reverses the feature.
+- **Reason:** a thick range that no longer covers the same bases breaks the gene model.
+- **Pinned by:** `liftover-bed12-thick-vs-crossmap` (must differ).
+
+## `liftover` leaves a BED12 record with unsorted blocks unmapped {#liftover-bed12-block-order}
+
+- **gloci:** a record whose lifted blocks are not ascending, or overlap, is unmapped.
+- **Old behaviour:** CrossMap writes the record, an invalid BED12 whose blocks run out of
+  order.
+- **Reason:** most tools reject such a record, and the error surfaces far from its cause.
+- **Pinned by:** `liftover-bed12-order-vs-crossmap` (must differ).
+
+## `liftover` keeps a BED12 strand of `.` {#liftover-bed12-unknown-strand}
+
+- **gloci:** a BED12 record whose strand is neither `+` nor `-` is lifted as `+` and the
+  strand is written as read.
+- **Old behaviour:** CrossMap stops with an exception (exit 1).
+- **Reason:** an unstranded feature still has blocks to lift, and one record must not stop
+  a run.
+- **Pinned by:** `liftover-bed12-unknown-strand-vs-crossmap` (exit status: must differ).
