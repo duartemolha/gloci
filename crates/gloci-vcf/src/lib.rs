@@ -36,7 +36,7 @@ pub use gt::{
 };
 pub use hwe::{HweTails, hwe_p, hwe_tails};
 pub use norm::{CheckRef, Dedup, Normalizer, Reference, RmDup, Verdict, clean_reference_bases};
-pub use query::{Query, QueryFormat};
+pub use query::{Query, QueryFormat, SampleCols};
 pub use split::{Outcome as SplitOutcome, SplitTypes, Splitter};
 pub use stats::{
     FilterSummary, Freq, GenoDepth, Hardy, Heterozygosity, IndelHist, MaskRules, MissingSample,

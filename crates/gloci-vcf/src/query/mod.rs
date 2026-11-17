@@ -2,8 +2,11 @@
 //! `query -f`, parsed on its own (`parse`) and then bound to a header's fields
 //! and declared tags (`resolve`).
 
+mod header;
 mod parse;
+mod render;
 mod resolve;
+mod value;
 
 use gloci_io::{UsageError, VcfHeader};
 
@@ -86,4 +89,17 @@ pub enum TagType {
     Float,
     String,
     Flag,
+}
+
+/// The sample columns of a line given to [`Query::write_record`].
+pub struct SampleCols<'a> {
+    /// Header index of each sample column of the line, in column order (ascending).
+    pub kept: &'a [usize],
+    /// Positions in `kept`, in the order the samples print inside `[ ]` and in the -H line:
+    /// the order `--samples`/`--samples-file` gave, else `0..kept.len()`.
+    pub order: &'a [usize],
+    /// Every sample name of the header.
+    pub names: &'a [Vec<u8>],
+    /// Which header samples print inside `[ ]`, by header index; `None`: every kept sample.
+    pub pass: Option<&'a [bool]>,
 }

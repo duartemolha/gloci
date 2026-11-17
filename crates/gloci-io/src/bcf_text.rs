@@ -44,7 +44,7 @@ const MALFORMED: &str = "malformed BCF record";
 
 /// htslib's `kputd`: a number as C's `%g` writes it (six significant digits, no trailing
 /// zeros), computed as htslib computes it so that the last digit agrees.
-pub(crate) fn kputd(d: f64, out: &mut Vec<u8>) {
+pub fn kputd(d: f64, out: &mut Vec<u8>) {
     if d == 0.0 {
         out.extend_from_slice(if d.is_sign_negative() { b"-0" } else { b"0" });
         return;

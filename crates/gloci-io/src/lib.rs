@@ -60,6 +60,7 @@ pub use atomic::{
 };
 pub use bcf::{BcfDicts, check_record as check_bcf_record, read_bcf_header, write_bcf_header};
 pub use bcf_encode::encode_gt;
+pub use bcf_text::kputd;
 pub use bed::{bed12_blocks, is_bed_record_line};
 pub use bedpe::{BedpeBatch, BedpeEnd, BedpeMeta, BedpeReader, bedpe_name};
 pub use builtin::{

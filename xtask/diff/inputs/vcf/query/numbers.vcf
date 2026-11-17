@@ -1,0 +1,10 @@
+##fileformat=VCFv4.2
+##contig=<ID=1>
+##INFO=<ID=I,Number=1,Type=Integer,Description="x">
+##INFO=<ID=F,Number=.,Type=Float,Description="x">
+##FORMAT=<ID=GL,Number=G,Type=Float,Description="x">
+##FORMAT=<ID=FI,Number=1,Type=Integer,Description="x">
+##FORMAT=<ID=FF,Number=1,Type=Float,Description="x">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	s1
+1	5	.	A	C	3.14159265	.	I=007;F=2.50,-0.0,nan	GL:FI:FF	-0.10,-2.000,-30.5:012:0.1000001
+1	6	.	A	C	0	.	I=-5;F=.	GL:FI:FF	.,.,.:.:.
