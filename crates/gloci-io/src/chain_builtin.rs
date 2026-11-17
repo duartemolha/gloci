@@ -43,10 +43,19 @@ impl ChainIndex {
     /// (D84). Otherwise it is a built-in chain id, ignoring case (D33's rule).
     pub fn resolve(arg: &str) -> Result<ChainIndex, IoError> {
         let is_file = Path::new(arg).metadata().is_ok_and(|m| !m.is_dir());
+        let builtin = all().find(|c| c.id.eq_ignore_ascii_case(arg));
         if arg == "-" || crate::memio::is_mem_path(arg) || arg.contains('/') || is_file {
+            if let (true, Some(c)) = (is_file && !arg.contains('/'), builtin) {
+                log::warn!(
+                    "--chain {arg} names a file in the current directory, so it is used instead of \
+the built-in chain {}; to get the built-in chain, rename or move that file; to use the file, pass \
+its path, e.g. --chain ./{arg}",
+                    c.id
+                );
+            }
             return Self::load(arg);
         }
-        let Some(c) = all().find(|c| c.id.eq_ignore_ascii_case(arg)) else {
+        let Some(c) = builtin else {
             let hint = closest(arg)
                 .map(|c| format!(" (did you mean {c}?)"))
                 .unwrap_or_default();

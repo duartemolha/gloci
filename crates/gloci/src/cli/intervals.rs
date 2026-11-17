@@ -897,13 +897,14 @@ pub struct LiftoverArgs {
     pub chrom_style: String,
     /// Lift a BED12 record by columns 1 to 3 only, as any other BED record, leaving blocks and
     /// thick range as read (CrossMap `--naive-bed-parsing`). Without it, each block is lifted
-    /// and must fall in one piece. Not for GFF or GTF.
+    /// and must fall in one piece, so a record of several blocks on a `-` chain is unmapped, as
+    /// in CrossMap. Not for GFF or GTF.
     #[arg(long)]
     pub ignore_blocks: bool,
     /// Write a record that crosses chain gaps as one record from its first piece's start to its
     /// last piece's end, when enough of it maps (CrossMap `region`). Pieces on different
-    /// chromosomes or strands leave it unmapped. Not for GFF or GTF, nor BED12 without
-    /// --ignore-blocks.
+    /// chromosomes or strands leave it unmapped. For BED and bedGraph; not for GFF or GTF, nor
+    /// BED12 without --ignore-blocks.
     #[arg(long)]
     pub merge_segments: bool,
     /// The fraction of a record that must map for --merge-segments to merge it, from 0 to 1

@@ -130,7 +130,8 @@ fn toy_counts() -> LiftoverCounts {
         split: 8,
         shortened: 6,
         invalid: 0,
-        first_invalid: None,
+        missing_chroms: 2,
+        missing: vec!["chrZ".into(), "chrM".into()],
         unmapped: [(Unmapped::OffChain, 7)].into(),
     }
 }
@@ -157,7 +158,7 @@ fn bed_lifts_as_crossmap() {
 #[test]
 fn unmapped_without_writer_is_counted() {
     let bed = fixture("toy.bed");
-    let (out, un, counts) = run_with(
+    let (out, _, counts) = run_with(
         &chain(),
         "toy.bed",
         &bed,
@@ -165,8 +166,8 @@ fn unmapped_without_writer_is_counted() {
         false,
     )
     .unwrap();
+    // With no unmapped writer the op still counts what did not lift, as with one.
     assert_eq!(out, lines(TOY_BED_OUT));
-    assert!(un.is_empty());
     assert_eq!(counts, toy_counts());
 }
 
@@ -514,6 +515,31 @@ fn bed12_blocks_out_of_order_do_not_lift() {
     assert_eq!(counts.unmapped, [(Unmapped::BadBlocks, 1)].into());
 }
 
+/// The other half of gloci's block check (D174, R8, `#liftover-bed12-block-order`): blocks that
+/// come out ascending but overlapping do not lift. Two chains put the record's two blocks,
+/// `[40,90)` and `[200,240)`, on `[1040,1090)` and `[1050,1090)`.
+#[test]
+fn bed12_blocks_that_overlap_do_not_lift() {
+    let c = ChainIndex::parse(
+        "o.chain",
+        b"chain 100 chrQ 1000 + 0 100 chrR 5000 + 1000 1100 1\n100\n\n\
+chain 100 chrQ 1000 + 200 300 chrR 5000 + 1050 1150 2\n100\n",
+    )
+    .unwrap();
+    let text = "chrQ\t40\t240\to\t0\t+\t40\t240\t0\t2\t50,40\t0,160\n";
+    let (out, un, counts) = run_with(&c, "o.bed", text, &LiftoverOptions::default(), true).unwrap();
+    assert!(out.is_empty(), "{out:?}");
+    assert_eq!(un, lines(text));
+    assert_eq!(counts.unmapped, [(Unmapped::BadBlocks, 1)].into());
+    // With --ignore-blocks the same record lifts as two pieces.
+    let o = LiftoverOptions {
+        ignore_blocks: true,
+        ..Default::default()
+    };
+    let (out, _, _) = run_with(&c, "o.bed", text, &o, true).unwrap();
+    assert_eq!(out.len(), 2, "{out:?}");
+}
+
 #[test]
 fn bed12_unknown_strand_lifts_as_plus() {
     let bed = fixture("toy-bed12-dot.bed");
@@ -655,6 +681,49 @@ chr1\t1160\t1290\tm11"
     let expect: BTreeMap<Unmapped, u64> =
         [(Unmapped::OffChain, 1), (Unmapped::CrossChroms, 3)].into();
     assert_eq!(counts.unmapped, expect);
+}
+
+/// `--merge-segments` merges bedGraph records as BED ones, the value column kept (D174, R10).
+#[test]
+fn merge_segments_works_on_bedgraph() {
+    let (out, un, counts) = run_mapped(
+        &chain(),
+        "m.bedGraph",
+        "chr1\t150\t250\t2\nchr1\t280\t380\t7\n",
+        &merge(0.85),
+        true,
+        None,
+        Some(Format::BedGraph),
+    )
+    .unwrap();
+    // 150-250 maps whole across a target gap; 280-380 maps 50 of 100 bases, below 0.85.
+    assert_eq!(out, ["chr1\t1150\t1300\t2"]);
+    assert_eq!(un, ["chr1\t280\t380\t7"]);
+    assert_eq!(counts.unmapped, [(Unmapped::LowRatio, 1)].into());
+}
+
+/// The format and option checks run before any record or output (D174, R3, R9, R10).
+#[test]
+fn check_refuses_before_reading() {
+    use gloci_ops::liftover::check;
+    let gff_with = |o: LiftoverOptions| check(Format::Gff3, &o).unwrap_err().0;
+    assert!(
+        check(Format::Vcf, &LiftoverOptions::default())
+            .unwrap_err()
+            .0
+            .contains("VCF liftover")
+    );
+    assert!(
+        gff_with(LiftoverOptions {
+            ignore_blocks: true,
+            ..Default::default()
+        })
+        .contains("--ignore-blocks")
+    );
+    assert!(gff_with(merge(0.5)).contains("--merge-segments"));
+    for f in [Format::Bed, Format::BedGraph, Format::Gff3, Format::Gtf] {
+        assert!(check(f, &LiftoverOptions::default()).is_ok(), "{f:?}");
+    }
 }
 
 #[test]

@@ -1,0 +1,6 @@
+##gff-version 3
+chr1	src	gene	121	180	.	+	.	ID=v1
+chr1	src	exon	abc	130	.	+	.	ID=v2
+chr1	src	exon	141	150	.	+
+chr1	src	exon	0	150	.	+	.	ID=v4
+chr1	src	exon	141	150	.	+	.	ID=v5

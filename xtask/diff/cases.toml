@@ -11962,6 +11962,26 @@ reference = "CrossMap gff toy.chain input.gff o.gff >/dev/null 2>&1 && cat o.gff
 compare = "exact"
 expected_difference = "#liftover-gff-unknown-strand"
 
+# A GFF line whose start or end is not a number, that has fewer than 9 columns or whose start is
+# 0: CrossMap skips, lifts or shortens it and exits 0; gloci stops (#liftover-invalid-lines).
+[[case]]
+name = "liftover-gff-invalid-line-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-gff-invalid.gff" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.gff --chain toy.chain"
+reference = "CrossMap gff toy.chain input.gff o.gff >/dev/null 2>&1"
+compare = "exit-status"
+expected_difference = "#liftover-invalid-lines"
+
+# A GFF start after its end stops both tools (CrossMap with an exception).
+[[case]]
+name = "liftover-gff-start-after-end-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-gff-start-after-end.gff" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.gff --chain toy.chain"
+reference = "CrossMap gff toy.chain input.gff o.gff >/dev/null 2>&1"
+compare = "exit-status"
+
 [[case]]
 name = "liftover-merge-vs-crossmap"
 input = { file = "xtask/diff/inputs/liftover/toy-merge.bed" }

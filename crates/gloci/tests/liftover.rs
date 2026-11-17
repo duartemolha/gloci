@@ -91,8 +91,11 @@ fn liftover_writes_mapped_and_unmapped() {
         ])
         .assert()
         .success()
-        .stderr(contains("8 records were split").and(contains("6 lost bases")))
-        .stderr(contains("did not lift").not());
+        .stderr(
+            contains("8 records were split at chain gaps, one output record per piece; 6 records have bases that no chain block covers, and those bases were not lifted")
+                .and(contains("2 input chromosomes are not in the chain toy.chain, so their records are unmapped: chrZ, chrM")),
+        )
+        .stderr(contains("did not lift").not().and(contains("CrossMap").not()));
     assert_eq!(read(&d.path().join("m.bed")), TOY_BED_OUT);
     assert_eq!(read(&d.path().join("u.bed")), TOY_BED_UNMAPPED);
 }
@@ -197,11 +200,13 @@ fn vcf_input_is_refused() {
         "a.vcf",
         "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nchr1\t130\t.\tA\tC\t.\t.\t.\n",
     );
+    // Refused before any output is opened: nothing reaches stdout (not even the VCF header).
     gloci()
         .current_dir(d.path())
         .args(["liftover", "a.vcf", "--chain", "toy.chain"])
         .assert()
         .code(2)
+        .stdout("")
         .stderr(contains("VCF liftover"));
 }
 
@@ -528,7 +533,85 @@ fn invalid_blocks_name_the_line() {
         ])
         .assert()
         .success()
-        .stderr(contains("skipped 1 invalid record in bad.bed").and(contains("line 1")));
+        .stderr(contains(
+            "skipped 1 invalid records in bad.bed; first 1:\n  line 1: ",
+        ));
+}
+
+/// Under --skip-invalid one input gives one skip warning: the BED12 lines liftover finds
+/// invalid join those the reader skipped, in line order, under one total.
+#[test]
+fn skipped_lines_are_one_warning() {
+    let d = with(&["toy.chain"]);
+    std::fs::write(
+        d.path().join("bad.bed"),
+        "chr1\t120\t580\tx\t0\t+\t130\t560\t0\t2\t60,60,60,\t0,100,400,\n\
+chr1\t130\t120\ty\nchr1\t120\t180\tz\n\
+chr1\t120\t580\tw\t0\t+\t130\t560\t0\t2\t60,60,60,\t0,100,400,\n",
+    )
+    .unwrap();
+    let out = gloci()
+        .current_dir(d.path())
+        .args([
+            "liftover",
+            "bad.bed",
+            "--chain",
+            "toy.chain",
+            "--skip-invalid",
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "chr1\t1120\t1180\tz\n"
+    );
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(err.matches("skipped").count(), 1, "{err}");
+    let at = |s: &str| err.find(s).unwrap_or_else(|| panic!("{s:?} not in {err}"));
+    assert!(at("skipped 3 invalid records in bad.bed; first 3:") < at("\n  line 1: "));
+    assert!(at("\n  line 1: ") < at("\n  line 2: ") && at("\n  line 2: ") < at("\n  line 4: "));
+}
+
+/// The warnings agree in number, leave out the parts that are zero and separate thousands.
+#[test]
+fn warnings_count_in_words() {
+    let d = with(&["toy.chain"]);
+    let warn = |name: &str, text: &str| {
+        plain_file(d.path(), name, text);
+        let out = gloci()
+            .current_dir(d.path())
+            .args(["liftover", name, "--chain", "toy.chain"])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{name}");
+        String::from_utf8_lossy(&out.stderr).into_owned()
+    };
+    // Split and partly off the chain; split only.
+    let e = warn("r3.bed", "chr1\t280\t380\tr3\n");
+    assert!(
+        e.contains("warning: 1 record was split at chain gaps, one output record per piece; 1 record has bases that no chain block covers, and those bases were not lifted\n"),
+        "{e}"
+    );
+    let e = warn("r2.bed", "chr1\t150\t250\tr2\n");
+    assert!(
+        e.contains("warning: 1 record was split at chain gaps, one output record per piece\n"),
+        "{e}"
+    );
+    // Thousands, and a chromosome the chain lacks.
+    let e = warn("z.bed", &"chrZ\t1\t2\n".repeat(1200));
+    assert!(
+        e.contains("1 input chromosome is not in the chain toy.chain, so its records are unmapped: chrZ (")
+            && e.contains("1,200 of 1,200 records did not lift: 1,200 on no chain; write them with --unmapped FILE"),
+        "{e}"
+    );
+    // At most five names.
+    let many: String = (1..=7).map(|i| format!("c{i}\t1\t2\n")).collect();
+    let e = warn("c.bed", &many);
+    assert!(
+        e.contains("7 input chromosomes are not in the chain toy.chain, so their records are unmapped: c1, c2, c3, c4, c5, and 2 more (check"),
+        "{e}"
+    );
 }
 
 /// The help's example shape: a GTF in, a GTF on stdout.
@@ -558,9 +641,11 @@ fn ignore_blocks_on_gff_exits_2() {
             "--chain",
             "toy.chain",
             "--ignore-blocks",
+            "--header",
         ])
         .assert()
         .code(2)
+        .stdout("")
         .stderr(contains("--ignore-blocks"));
 }
 
@@ -663,7 +748,8 @@ fn hg19_chrm_is_refused() {
         .stderr(
             contains("chrM is not lifted: hg19's chrM is not GRCh37's MT")
                 .and(contains("M is not lifted: it is taken as hg19's chrM"))
-                .and(contains("--chrom-map")),
+                .and(contains("--chrom-map"))
+                .and(contains("not in the chain").not()),
         );
     assert_eq!(read(&d.path().join("o.bed")).lines().count(), 1);
 }
@@ -752,5 +838,29 @@ fn a_file_named_like_a_builtin_is_the_file() {
         .args(["liftover", "toy.bed", "--chain", "GRCh37-to-GRCh38"])
         .assert()
         .success()
-        .stdout(TOY_BED_OUT);
+        .stdout(TOY_BED_OUT)
+        .stderr(contains(
+            "--chain GRCh37-to-GRCh38 names a file in the current directory, so it is used \
+instead of the built-in chain GRCh37-to-GRCh38",
+        ));
+    // A path to it says which is meant, so it brings no warning.
+    gloci()
+        .current_dir(d.path())
+        .args(["liftover", "toy.bed", "--chain", "./GRCh37-to-GRCh38"])
+        .assert()
+        .success()
+        .stdout(TOY_BED_OUT)
+        .stderr(contains("built-in chain").not());
+}
+
+#[test]
+fn an_empty_chain_names_no_line() {
+    let d = with(&["toy.bed"]);
+    std::fs::write(d.path().join("empty.chain"), "# nothing\n").unwrap();
+    gloci()
+        .current_dir(d.path())
+        .args(["liftover", "toy.bed", "--chain", "empty.chain"])
+        .assert()
+        .code(1)
+        .stderr(contains("empty.chain: no chain in the file").and(contains("line 0").not()));
 }

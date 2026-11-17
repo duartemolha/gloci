@@ -9,8 +9,8 @@ pub use names::{ChromStyle, refused_chrm, source_name, target_name};
 
 use gloci_core::{ChromTable, Interval};
 use gloci_io::{
-    ChainIndex, Format, IoError, Loc, RecordBatch, RecordReader, RecordWriter, Segment, SourceRef,
-    UsageError, next_batch_size,
+    ChainIndex, Diagnostics, Format, IoError, Loc, RecordBatch, RecordReader, RecordWriter,
+    Segment, SourceRef, UsageError, next_batch_size,
 };
 use std::collections::BTreeMap;
 
@@ -60,6 +60,9 @@ impl Unmapped {
     }
 }
 
+/// How many input chromosomes the chain lacks that [`LiftoverCounts::missing`] names.
+pub const MISSING_NAMED: usize = 5;
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LiftoverCounts {
     pub records: u64,
@@ -68,10 +71,12 @@ pub struct LiftoverCounts {
     pub split: u64,
     /// Records whose pieces' source union is shorter than the record (never a zero-length one).
     pub shortened: u64,
-    /// Records skipped by the op under `skip_invalid`.
+    /// Records skipped by the op under `skip_invalid` (reported with the reader's skips).
     pub invalid: u64,
-    /// The first skipped invalid record: its line and why.
-    pub first_invalid: Option<(u64, String)>,
+    /// Input chromosomes the chain has no source for (not counting a refused `chrM`, R13).
+    pub missing_chroms: u64,
+    /// The first [`MISSING_NAMED`] of them, in the order met.
+    pub missing: Vec<String>,
     pub unmapped: BTreeMap<Unmapped, u64>,
 }
 
@@ -166,6 +171,29 @@ fn refuse(format: Format) -> UsageError {
     })
 }
 
+/// Refuse an input format liftover does not read, or an option it does not take, before any
+/// output is opened (D174, R3, R9, R10); [`liftover`] checks again.
+pub fn check(format: Format, o: &LiftoverOptions) -> Result<(), UsageError> {
+    if !matches!(
+        format,
+        Format::Bed | Format::BedGraph | Format::Gff3 | Format::Gtf
+    ) {
+        return Err(refuse(format));
+    }
+    let is_gff = matches!(format, Format::Gff3 | Format::Gtf);
+    if is_gff && o.ignore_blocks {
+        return Err(UsageError(
+            "--ignore-blocks applies to BED12 records, not GFF or GTF features".into(),
+        ));
+    }
+    if o.merge.is_some() && is_gff {
+        return Err(UsageError(
+            "--merge-segments applies to BED and bedGraph records, not GFF or GTF features".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// Lift every record of `input` through `chain`, writing mapped records to `out` and, as read,
 /// unmapped ones to `unmapped` (D174).
 pub fn liftover(
@@ -177,26 +205,11 @@ pub fn liftover(
     mut unmapped: Option<&mut dyn RecordWriter>,
 ) -> Result<LiftoverCounts, IoError> {
     let format = input.format();
-    if !matches!(
-        format,
-        Format::Bed | Format::BedGraph | Format::Gff3 | Format::Gtf
-    ) {
-        return Err(refuse(format).into());
-    }
+    check(format, o)?;
     let is_gff = matches!(format, Format::Gff3 | Format::Gtf);
-    if is_gff && o.ignore_blocks {
-        return Err(UsageError(
-            "--ignore-blocks applies to BED12 records, not GFF or GTF features".into(),
-        )
-        .into());
-    }
-    if o.merge.is_some() && is_gff {
-        return Err(UsageError(
-            "--merge-segments applies to BED and bedGraph records, not GFF or GTF features".into(),
-        )
-        .into());
-    }
     let mut counts = LiftoverCounts::default();
+    // The BED12 lines found invalid here, reported with the reader's (R6, R8).
+    let mut faults = Diagnostics::default();
     // Per input chromosome: its chain source, its name and whether it starts with `chr`.
     let mut sources: Vec<Option<Input>> = Vec::new();
     let mut styler = Styler::new(o.chrom_style, chain);
@@ -217,7 +230,15 @@ pub fn liftover(
             }
             let from = sources[id].get_or_insert_with(|| {
                 let name = String::from_utf8_lossy(chroms.name(m.chrom)).into_owned();
-                if refused_chrm(chain, &name) {
+                let src = source_name(chain, &name);
+                let refused = refused_chrm(chain, &name);
+                if src.is_none() && !refused {
+                    counts.missing_chroms += 1;
+                    if counts.missing.len() < MISSING_NAMED {
+                        counts.missing.push(name.clone());
+                    }
+                }
+                if refused {
                     let why = if name.starts_with("chr") {
                         "hg19's chrM is not GRCh37's MT"
                     } else {
@@ -229,7 +250,7 @@ leaves its records unmapped; if it is GRCh37's MT (the rCRS), rename it to MT wi
                     );
                 }
                 Input {
-                    src: source_name(chain, &name),
+                    src,
                     chr: name.starts_with("chr"),
                 }
             });
@@ -292,7 +313,7 @@ the BED12 blocks wrong; add --ignore-blocks to merge BED12 records as plain inte
                     }
                     Err(msg) if o.skip_invalid => {
                         counts.invalid += 1;
-                        counts.first_invalid.get_or_insert((m.loc, msg));
+                        faults.record(m.loc, &msg);
                     }
                     Err(msg) => {
                         return Err(IoError::Parse {
@@ -356,7 +377,12 @@ the BED12 blocks wrong; add --ignore-blocks to merge BED12 records as plain inte
         }
         max = next_batch_size(&batch, max);
         if !more {
-            crate::skipped::log_reader(input.as_ref());
+            // One warning for the input: its reader's skips and the op's, in line order.
+            let mut skipped = input.diagnostics().clone();
+            skipped.merge_by_line(faults);
+            if let Some(s) = skipped.summary(input.name()) {
+                log::warn!("{s}");
+            }
             return Ok(counts);
         }
     }

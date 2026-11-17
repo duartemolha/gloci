@@ -3,11 +3,12 @@
 use crate::Ctx;
 use crate::cli::LiftoverArgs;
 use gloci_core::ChromTable;
+use gloci_core::thousands;
 use gloci_io::{
     ChainIndex, Format, InvalidPolicy, IoError, OutputOptions, OutputSpec, ReaderOptions,
     StagedSet, UsageError, WriterOptions, input_family_output_spec, open_reader, parse_output_spec,
 };
-use gloci_ops::liftover::{ChromStyle, LiftoverCounts, LiftoverOptions, liftover};
+use gloci_ops::liftover::{ChromStyle, LiftoverCounts, LiftoverOptions, check, liftover};
 use gloci_ops::{ReportOutput, open_report};
 use std::path::Path;
 
@@ -62,9 +63,74 @@ fn check_outputs(mapped: &OutputSpec, unmapped: &OutputSpec) -> Result<(), Usage
 fn reasons(c: &LiftoverCounts) -> String {
     c.unmapped
         .iter()
-        .map(|(why, n)| format!("{n} {}", why.describe()))
+        .map(|(why, n)| format!("{} {}", thousands(*n), why.describe()))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+/// `n` and the noun, singular or plural: "1 record", "1,200 records".
+fn count(n: u64, one: &str, many: &str) -> String {
+    format!("{} {}", thousands(n), if n == 1 { one } else { many })
+}
+
+/// The warnings of a run (D174, R6), each `None` when it has nothing to say: the input
+/// chromosomes the chain lacks, the records that did not lift (`unmapped`: the name of the
+/// unmapped output, when there is one; then it is a note for `-v`, not a warning), and the
+/// records split or partly off the chain.
+fn summaries(c: &LiftoverCounts, chain: &str, unmapped: Option<&str>) -> [Option<String>; 3] {
+    let missing = (c.missing_chroms > 0).then(|| {
+        let n = c.missing_chroms;
+        let mut names = c.missing.clone();
+        if n > names.len() as u64 {
+            names.push(format!("and {} more", thousands(n - names.len() as u64)));
+        }
+        let (verb, whose) = if n == 1 {
+            ("is", "its")
+        } else {
+            ("are", "their")
+        };
+        format!(
+            "{} {verb} not in the chain {chain}, so {whose} records are unmapped: {} (check that \
+the chain's source assembly and chromosome names match the input's, or rename them with \
+--chrom-map)",
+            count(n, "input chromosome", "input chromosomes"),
+            names.join(", ")
+        )
+    });
+    let n = c.unmapped_total();
+    let did_not_lift = (n > 0).then(|| {
+        let of = format!(
+            "{} of {}",
+            thousands(n),
+            count(c.records, "record", "records")
+        );
+        match unmapped {
+            Some(file) => format!(
+                "{of} did not lift and {} in {file}: {}",
+                if n == 1 { "is" } else { "are" },
+                reasons(c)
+            ),
+            None => format!(
+                "{of} did not lift: {}; write them with --unmapped FILE",
+                reasons(c)
+            ),
+        }
+    });
+    let mut parts = Vec::new();
+    if c.split > 0 {
+        parts.push(format!(
+            "{} split at chain gaps, one output record per piece",
+            count(c.split, "record was", "records were")
+        ));
+    }
+    if c.shortened > 0 {
+        parts.push(format!(
+            "{} bases that no chain block covers, and those bases were not lifted",
+            count(c.shortened, "record has", "records have")
+        ));
+    }
+    let pieces = (!parts.is_empty()).then(|| parts.join("; "));
+    [missing, did_not_lift, pieces]
 }
 
 /// Name the output a write error came from (the core labels them `output` and
@@ -112,6 +178,15 @@ pub fn run(ctx: &Ctx, a: &LiftoverArgs) -> anyhow::Result<()> {
         },
     };
     let reader = open_reader(&a.file, &ro)?;
+    let o = LiftoverOptions {
+        chrom_style: style(&a.chrom_style),
+        skip_invalid: a.invalid.skip_invalid,
+        ignore_blocks: a.ignore_blocks,
+        merge: a.merge_segments.then_some(a.min_ratio),
+    };
+    // A format or option liftover refuses is refused before an output is opened, so nothing
+    // (not even a header) reaches stdout.
+    check(reader.format(), &o)?;
     let oo = OutputOptions {
         threads: ctx.threads,
         level: a.out.compression_level,
@@ -142,12 +217,6 @@ pub fn run(ctx: &Ctx, a: &LiftoverArgs) -> anyhow::Result<()> {
         super::dest_name(&spec),
         uspec.as_ref().map_or_else(String::new, super::dest_name),
     );
-    let o = LiftoverOptions {
-        chrom_style: style(&a.chrom_style),
-        skip_invalid: a.invalid.skip_invalid,
-        ignore_blocks: a.ignore_blocks,
-        merge: a.merge_segments.then_some(a.min_ratio),
-    };
     // Records are written in input order, so the table only gives names ids.
     let mut chroms = ChromTable::first_appearance();
     let counts = liftover(
@@ -171,38 +240,22 @@ pub fn run(ctx: &Ctx, a: &LiftoverArgs) -> anyhow::Result<()> {
     }
     staged.publish()?;
 
-    let n = counts.unmapped_total();
-    if n > 0 {
-        if uspec.is_some() {
-            log::info!(
-                "{n} of {} records did not lift and are in {unmapped_name}: {}",
-                counts.records,
-                reasons(&counts)
-            );
-        } else {
-            log::warn!(
-                "{n} of {} records did not lift: {}; write them with --unmapped FILE",
-                counts.records,
-                reasons(&counts)
-            );
-        }
+    // The skipped lines were reported by the op, in the reader's warning.
+    let [missing, did_not_lift, pieces] = summaries(
+        &counts,
+        &a.chain,
+        uspec.is_some().then_some(unmapped_name.as_str()),
+    );
+    if let Some(m) = missing {
+        log::warn!("{m}");
     }
-    if counts.split + counts.shortened > 0 {
-        log::warn!(
-            "{} records were split into several records at chain gaps and {} lost bases no chain \
-block covers (CrossMap does both without a word)",
-            counts.split,
-            counts.shortened
-        );
+    match did_not_lift {
+        Some(m) if uspec.is_some() => log::info!("{m}"),
+        Some(m) => log::warn!("{m}"),
+        None => {}
     }
-    if counts.invalid > 0 {
-        let n = counts.invalid;
-        let (line, why) = counts.first_invalid.clone().unwrap_or_default();
-        log::warn!(
-            "skipped {n} invalid record{} in {}; first line {line}: {why}",
-            if n == 1 { "" } else { "s" },
-            a.file
-        );
+    if let Some(m) = pieces {
+        log::warn!("{m}");
     }
     log::info!(
         "{} chains, {} blocks from {}",

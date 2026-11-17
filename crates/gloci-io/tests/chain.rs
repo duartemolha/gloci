@@ -232,7 +232,11 @@ fn bad_chains_name_the_line() {
             3,
             vec!["line 1"],
         ),
-        ("# only\n# comments\n".into(), 0, vec!["no chain"]),
+        (
+            "# only\n# comments\n".into(),
+            0,
+            vec!["c.chain: no chain in the file"],
+        ),
         (format!("{h}60 10 10\n"), 2, vec!["ends inside"]),
     ];
     for (text, line, needles) in cases {
@@ -251,6 +255,8 @@ fn bad_chains_name_the_line() {
                 err.contains(&format!("c.chain line {line}")),
                 "{err:?} lacks line {line} for {text:?}"
             );
+        } else {
+            assert!(!err.contains("line"), "{err:?} names a line for {text:?}");
         }
     }
 }

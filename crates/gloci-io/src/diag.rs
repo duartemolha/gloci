@@ -98,6 +98,30 @@ impl Diagnostics {
         self.examples.extend(other.examples.into_iter().take(room));
     }
 
+    /// As [`Diagnostics::absorb`], but with the examples in line order when both sides recorded
+    /// all of theirs by line, so the first 10 are the first 10 of the file: for the records an
+    /// op finds invalid itself joining those its reader skipped (liftover's BED12 blocks, D174).
+    pub fn merge_by_line(&mut self, mut other: Diagnostics) {
+        let by_line = |d: &Diagnostics| d.lines.len() == d.examples.len();
+        if !by_line(self) || !by_line(&other) {
+            return self.absorb(other);
+        }
+        let mut lines: Vec<(u64, String)> = std::mem::take(&mut self.lines)
+            .into_iter()
+            .chain(std::mem::take(&mut other.lines))
+            .map(|(_, line, msg)| (line, msg))
+            .collect();
+        lines.sort_by_key(|(line, _)| *line);
+        lines.truncate(MAX_EXAMPLES);
+        self.examples.clear();
+        other.examples.clear();
+        self.absorb(other);
+        for (i, (line, msg)) in lines.into_iter().enumerate() {
+            self.examples.push(format!("{}: {msg}", Loc::Line(line)));
+            self.lines.push((i, line, msg));
+        }
+    }
+
     pub fn record_at(&mut self, loc: Loc, msg: &str) {
         self.record_place(&loc.to_string(), msg);
     }
@@ -166,6 +190,38 @@ impl Diagnostics {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn merge_by_line_keeps_line_order() {
+        let mut reader = Diagnostics::default();
+        reader.record(2, "a");
+        reader.record(9, "b");
+        let mut op = Diagnostics::default();
+        op.record(4, "x");
+        reader.merge_by_line(op);
+        assert_eq!(reader.skipped, 3);
+        assert_eq!(reader.examples, ["line 2: a", "line 4: x", "line 9: b"]);
+        // Still renumbered by shift_lines.
+        reader.shift_lines(10);
+        assert_eq!(reader.examples, ["line 12: a", "line 14: x", "line 19: b"]);
+        // The first 10 of both, in order.
+        let (mut a, mut b) = (Diagnostics::default(), Diagnostics::default());
+        for i in 0..12 {
+            a.record(2 * i + 1, "odd");
+            b.record(2 * i + 2, "even");
+        }
+        a.merge_by_line(b);
+        assert_eq!(a.skipped, 24);
+        assert_eq!(a.examples.len(), 10);
+        assert_eq!(a.examples[9], "line 10: even");
+        // An example placed otherwise than by line: appended, as absorb does.
+        let mut c = Diagnostics::default();
+        c.record_place("record at BGZF offset 1:2", "bad");
+        let mut d = Diagnostics::default();
+        d.record(1, "y");
+        c.merge_by_line(d);
+        assert_eq!(c.examples, ["record at BGZF offset 1:2: bad", "line 1: y"]);
+    }
 
     #[test]
     fn shift_and_absorb() {

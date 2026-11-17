@@ -356,7 +356,10 @@ fn build<R: BufRead>(name: &str, mut r: R) -> Result<ChainIndex, IoError> {
         ));
     }
     if chains.is_empty() {
-        return Err(err(0, "no chain in the file".into()));
+        return Err(IoError::Detect {
+            path: name.to_string(),
+            msg: format!("{name}: no chain in the file"),
+        });
     }
     let lappers = lists.into_iter().map(Lapper::new).collect();
     Ok(ChainIndex {

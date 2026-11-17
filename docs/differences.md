@@ -3798,7 +3798,9 @@ cases (must match).
 ## `liftover --unmapped` writes the records as read {#liftover-unmapped-file}
 
 - **gloci:** the records that did not lift are written exactly as read, to the file
-  named by `--unmapped`, and nowhere else. Without it they are counted in one warning.
+  named by `--unmapped`, and nowhere else, except a GFF3 or GTF feature only partly on a
+  chain, which is also written shortened to the output, as CrossMap does. Without
+  `--unmapped` they are counted in one warning.
 - **Old behaviour:** `CrossMap bed` and `CrossMap region` append a reason column
   (`Unmap`, `Fail`, ...) to every unmapped record and always write `OUT.unmap` next to the
   output.
@@ -3843,20 +3845,27 @@ cases (must match).
 
 - **gloci:** an invalid BED line (an end before its start, say) is exit 1 naming the file
   and line, and no output is left behind. `--skip-invalid` skips such lines and counts
-  them in a warning. A BED12 line is invalid too when its blockCount disagrees with the
+  them in one warning with the input's other skipped lines. A BED12 line is invalid too
+  when its blockCount disagrees with the
   block lists, its first block does not start at offset 0, its last block does not end
   at chromEnd, or its blocks are unsorted or overlap, or a thickStart or thickEnd is not
   a plain non-negative number or lies outside chromStart and chromEnd (CrossMap leaves
   such a record unmapped, without a reason); the message suggests `--ignore-blocks`.
+  A GFF3 or GTF line is invalid when it has fewer than 9 columns, its start or end is not
+  a whole number, its start is 0 or its start is after its end.
 - **Old behaviour:** CrossMap writes the line with a reason to the unmapped file and
   exits 0. For the four BED12 faults above it does not even do that: it lifts the line as
-  read and writes whatever blocks result.
+  read and writes whatever blocks result. `CrossMap gff` writes a GFF line whose start or
+  end is not a number to the unmapped file, lifts a line of fewer columns as it is and a
+  start of 0 as a feature only partly on the chain, and exits 0; a start after the end
+  stops it with an exception (exit 1, as gloci), with the features before it written.
 - **Reason:** a corrupt input should not give a clean exit status, and a malformed BED12
   line should not give blocks that look right and are not.
-- **Pinned by:** `liftover-invalid-line-vs-crossmap` and, for a BED12 blockCount that
-  disagrees with its lists, `liftover-bed12-invalid-vs-crossmap` (both exit status: must
-  differ);
-  `liftover-skip-invalid-vs-crossmap` pins the records lifted under `--skip-invalid`.
+- **Pinned by:** `liftover-invalid-line-vs-crossmap`, for a BED12 blockCount that
+  disagrees with its lists `liftover-bed12-invalid-vs-crossmap`, and for GFF
+  `liftover-gff-invalid-line-vs-crossmap` (all exit status: must differ);
+  `liftover-skip-invalid-vs-crossmap` pins the records lifted under `--skip-invalid`, and
+  `liftover-gff-start-after-end-vs-crossmap` the GFF line both tools stop at.
 
 ## `liftover` refuses a malformed chain file {#liftover-chain-checks}
 
@@ -3908,8 +3917,9 @@ cases (must match).
 
 - **gloci:** `--merge-segments [--min-ratio F]` writes a record cut into several pieces as one
   record from the first start to the last end, when at least F (default 0.85) of it maps and the
-  pieces share a chromosome and a mapped strand. It writes no `map_ratio=` column, sets column 6
-  to the mapped strand, and leaves a record with pieces on both strands unmapped. A zero-length
+  pieces share a chromosome and a mapped strand; BED and bedGraph records alike. It writes no
+  `map_ratio=` column, sets column 6, when it is `+` or `-`, to the mapped strand, and leaves a
+  record with pieces on both strands unmapped. A zero-length
   record is lifted like any other, and a BED record of 12 or more columns without
   `--ignore-blocks` is exit 2. GFF and GTF input is exit 2.
 - **Old behaviour:** CrossMap `region` appends `map_ratio=R` to every merged record, keeps the
