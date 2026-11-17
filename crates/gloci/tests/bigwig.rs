@@ -1,0 +1,307 @@
+//! bigWig and bigBed input (D171): read through the file's own index, in the command's
+//! chromosome order.
+mod common;
+use common::*;
+use predicates::prelude::*;
+use predicates::str::contains;
+use std::collections::HashMap;
+use std::fs::File;
+use std::path::{Path, PathBuf};
+
+use bigtools::bed::bedparser::BedValueError;
+use bigtools::beddata::BedParserStreamingIterator;
+use bigtools::{BedEntry, BigBedWrite, BigWigWrite, InputSortType, Value};
+
+fn runtime() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+}
+
+fn size_map(sizes: &[(&str, u32)]) -> HashMap<String, u32> {
+    sizes.iter().map(|(c, n)| (c.to_string(), *n)).collect()
+}
+
+/// A bigWig written by bigtools directly (not gloci), records in the order given.
+fn bigtools_bigwig(path: &Path, sizes: &[(&str, u32)], recs: &[(&str, u32, u32, f32)]) {
+    let mut w = BigWigWrite::new(File::create(path).unwrap(), size_map(sizes));
+    w.options.input_sort_type = InputSortType::START;
+    let items: Vec<Result<(String, Value), BedValueError>> = recs
+        .iter()
+        .map(|&(c, start, end, value)| Ok((c.to_string(), Value { start, end, value })))
+        .collect();
+    w.write(
+        BedParserStreamingIterator::wrap_iter(items.into_iter(), true),
+        runtime(),
+    )
+    .unwrap();
+}
+
+fn bigtools_bigbed(path: &Path, sizes: &[(&str, u32)], recs: &[(&str, u32, u32, &str)]) {
+    let mut w = BigBedWrite::new(File::create(path).unwrap(), size_map(sizes));
+    w.options.input_sort_type = InputSortType::START;
+    let items: Vec<Result<(String, BedEntry), BedValueError>> = recs
+        .iter()
+        .map(|&(c, start, end, rest)| {
+            Ok((
+                c.to_string(),
+                BedEntry {
+                    start,
+                    end,
+                    rest: rest.to_string(),
+                },
+            ))
+        })
+        .collect();
+    w.write(
+        BedParserStreamingIterator::wrap_iter(items.into_iter(), true),
+        runtime(),
+    )
+    .unwrap();
+}
+
+fn s(p: &Path) -> String {
+    p.to_string_lossy().into_owned()
+}
+
+fn k_file(dir: &Path) -> PathBuf {
+    let p = dir.join("k.bw");
+    bigtools_bigwig(
+        &p,
+        &[("chr1", 1000), ("chr2", 1000), ("chr10", 1000)],
+        &[
+            ("chr2", 0, 10, 0.1),
+            ("chr2", 10, 20, 5.0),
+            ("chr10", 5, 6, 1.0f32 / 3.0),
+            ("chr1", 100, 200, -2.5),
+            ("chr1", 300, 301, 1e-7),
+        ],
+    );
+    p
+}
+
+fn b_file(dir: &Path) -> PathBuf {
+    let p = dir.join("b.bb");
+    bigtools_bigbed(
+        &p,
+        &[("chr1", 1000)],
+        &[
+            ("chr1", 10, 20, "a\t0\t+"),
+            ("chr1", 15, 40, "b\t5\t-"),
+            ("chr1", 500, 900, "c\t9\t."),
+        ],
+    );
+    p
+}
+
+fn out(args: &[&str]) -> String {
+    let o = gloci().args(args).assert().success();
+    String::from_utf8(o.get_output().stdout.clone()).unwrap()
+}
+
+/// The chromosomes of `text`'s rows, each once, in order of appearance.
+fn blocks(text: &str) -> Vec<&str> {
+    let mut v: Vec<&str> = Vec::new();
+    for l in text.lines() {
+        let c = l.split('\t').next().unwrap();
+        if v.last() != Some(&c) {
+            v.push(c);
+        }
+    }
+    v
+}
+
+const K_LEX: &str = "chr1\t100\t200\t-2.5\n\
+chr1\t300\t301\t0.0000001\n\
+chr10\t5\t6\t0.33333334\n\
+chr2\t0\t10\t0.1\n\
+chr2\t10\t20\t5\n";
+
+#[test]
+fn reads_bigwig_in_lex_order() {
+    let d = tempdir();
+    let k = k_file(d.path());
+    assert_eq!(out(&["view", &s(&k)]), K_LEX);
+}
+
+#[test]
+fn reads_in_the_commands_order() {
+    let d = tempdir();
+    let k = s(&k_file(d.path()));
+    let karyo = out(&["view", "--chrom-order", "karyotype", &k]);
+    assert_eq!(blocks(&karyo), ["chr1", "chr2", "chr10"]);
+    let g = plain_file(
+        d.path(),
+        "order.genome",
+        "chr10\t1000\nchr2\t1000\nchr1\t1000\n",
+    );
+    let by_g = out(&["view", "-g", &s(&g), &k]);
+    assert_eq!(blocks(&by_g), ["chr10", "chr2", "chr1"]);
+    let conv = out(&["convert", &k]);
+    assert_eq!(blocks(&conv), ["chr2", "chr10", "chr1"]);
+    assert_eq!(
+        conv,
+        "chr2\t0\t10\t0.1\nchr2\t10\t20\t5\nchr10\t5\t6\t0.33333334\n\
+chr1\t100\t200\t-2.5\nchr1\t300\t301\t0.0000001\n"
+    );
+}
+
+#[test]
+fn map_reads_a_bigwig_b_in_lex_order() {
+    let d = tempdir();
+    let k = s(&k_file(d.path()));
+    let a = plain_file(
+        d.path(),
+        "a.bed",
+        "chr1\t0\t1000\nchr10\t0\t1000\nchr2\t0\t1000\n",
+    );
+    let text = out(&["map", "-a", &s(&a), "-b", &k, "-c", "4:count"]);
+    let last: Vec<&str> = text
+        .lines()
+        .map(|l| l.rsplit('\t').next().unwrap())
+        .collect();
+    assert_eq!(last, ["2", "1", "2"], "{text}");
+}
+
+#[test]
+fn empty_chromosomes_and_g_without_them() {
+    let d = tempdir();
+    let g3 = plain_file(
+        d.path(),
+        "g3.genome",
+        "chr1\t5000\nchr2\t3000\nchr10\t2000\n",
+    );
+    let bw =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../xtask/diff/inputs/bigwig/pybigwig.bw");
+    let text = out(&["view", "-g", &s(&g3), &s(&bw)]);
+    assert_eq!(text.lines().count(), 9);
+    assert_eq!(blocks(&text), ["chr1", "chr2", "chr10"]);
+}
+
+#[test]
+fn bigbed_records_are_bed_lines() {
+    let d = tempdir();
+    let b = s(&b_file(d.path()));
+    let want = "chr1\t10\t20\ta\t0\t+\nchr1\t15\t40\tb\t5\t-\nchr1\t500\t900\tc\t9\t.\n";
+    assert_eq!(out(&["view", &b]), want);
+    let q = plain_file(d.path(), "q.bed", "chr1\t0\t1000\tq\t0\t+\n");
+    assert_eq!(
+        out(&["intersect", "-a", &b, "-b", &s(&q), "-s"]),
+        "chr1\t10\t20\ta\t0\t+\n"
+    );
+    assert_eq!(out(&["convert", &b]), want);
+}
+
+#[test]
+fn chrom_map_renames_bigwig_chromosomes() {
+    let d = tempdir();
+    let k = s(&k_file(d.path()));
+    let m = plain_file(d.path(), "map.tsv", "chr1\t1\nchr2\t2\nchr10\t10\n");
+    let text = out(&["view", "--chrom-map", &s(&m), &k]);
+    assert_eq!(blocks(&text), ["1", "10", "2"]);
+}
+
+#[test]
+fn bigwig_must_come_from_a_file() {
+    let d = tempdir();
+    let k = k_file(d.path());
+    gloci()
+        .args(["view", "-"])
+        .write_stdin(std::fs::read(&k).unwrap())
+        .assert()
+        .code(2)
+        .stderr(contains("bigWig"))
+        .stderr(contains("file"));
+    gloci()
+        .args(["view", "/dev/stdin"])
+        .pipe_stdin(&k)
+        .unwrap()
+        .assert()
+        .code(2)
+        .stderr(contains("bigWig"))
+        .stderr(contains("file"));
+}
+
+#[test]
+fn format_override() {
+    let d = tempdir();
+    let k = s(&k_file(d.path()));
+    let a = plain_file(d.path(), "a.bed", "chr1\t1\t2\n");
+    let a = s(&a);
+    gloci()
+        .args(["view", "--format", "bigwig", &a])
+        .assert()
+        .failure()
+        .stderr(contains(&a))
+        .stderr(contains("not a bigWig"));
+    gloci()
+        .args(["view", "--format", "bigbed", &k])
+        .assert()
+        .failure()
+        .stderr(contains("not a bigBed"));
+    gloci()
+        .args(["view", "--format", "bigwig", &k])
+        .assert()
+        .success();
+}
+
+#[test]
+fn truncated_or_corrupt_bigwig_is_a_data_error() {
+    let d = tempdir();
+    let p = d.path().join("big.bw");
+    let recs: Vec<(&str, u32, u32, f32)> = (0..3000u32)
+        .map(|i| ("chr1", i * 10, i * 10 + 5, i as f32))
+        .collect();
+    bigtools_bigwig(&p, &[("chr1", 100_000)], &recs);
+    let bytes = std::fs::read(&p).unwrap();
+    for len in [bytes.len() / 2, 40] {
+        let t = d.path().join(format!("cut{len}.bw"));
+        std::fs::write(&t, &bytes[..len]).unwrap();
+        let t = s(&t);
+        gloci()
+            .args(["view", &t])
+            .assert()
+            .code(1)
+            .stderr(contains(&t))
+            .stderr(contains("truncated"))
+            .stderr(predicates::str::contains("internal error").not());
+    }
+    let mut bad = bytes.clone();
+    bad[1024..1088].fill(0xFF);
+    let c = d.path().join("bad.bw");
+    std::fs::write(&c, &bad).unwrap();
+    gloci()
+        .args(["view", &s(&c)])
+        .assert()
+        .code(1)
+        .stderr(predicates::str::contains("internal error").not());
+}
+
+#[test]
+fn index_refuses_bigwig() {
+    let d = tempdir();
+    let k = s(&k_file(d.path()));
+    gloci()
+        .args(["index", &k])
+        .assert()
+        .code(2)
+        .stderr(contains("own index"));
+}
+
+#[test]
+fn reading_does_not_depend_on_threads() {
+    let d = tempdir();
+    let k = s(&k_file(d.path()));
+    assert_eq!(out(&["view", "-t", "1", &k]), out(&["view", "-t", "8", &k]));
+}
+
+#[test]
+fn golden_expected_is_the_hand_written_listing() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let listing =
+        std::fs::read_to_string(root.join("xtask/diff/inputs/bigwig/pybigwig.lex.bedgraph"))
+            .unwrap();
+    let golden = root.join("crates/gloci/tests/golden/bigwig-view-pybigwig-file-vs-pybigwig");
+    let expected = std::fs::read_to_string(golden.join("expected")).unwrap();
+    assert_eq!(expected, listing);
+}

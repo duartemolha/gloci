@@ -763,6 +763,13 @@ fn text_renamer(format: Format, o: &ReaderOptions) -> Option<Renamer> {
 }
 
 /// WIG lines are not BED, so an index next to a WIG file cannot be used.
+/// A bigWig or bigBed has its own index (D171): `gloci index` and tabix/CSI do not apply.
+pub(super) fn bbi_unindexed(name: &str) -> UsageError {
+    UsageError(format!(
+        "{name} is a bigWig or bigBed file, which carries its own index; gloci reads it directly"
+    ))
+}
+
 fn wig_unindexed(name: &str) -> IoError {
     UsageError(format!(
         "{name} is WIG, which cannot be read through an index; convert it with \
@@ -977,6 +984,9 @@ impl IndexedFile {
         let name = path.display().to_string();
         if format == Format::Cram {
             return IndexedFile::open_cram(path, header, o);
+        }
+        if format.is_bbi() {
+            return Err(bbi_unindexed(&name).into());
         }
         check_bgzf(path, &name)?;
         let info = find_index(path).ok_or_else(|| {

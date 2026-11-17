@@ -117,6 +117,8 @@ fn what(format: Format) -> &'static str {
         Format::Gff3 | Format::Gtf => "GFF3/GTF",
         Format::Bed | Format::BedGraph => "BED",
         Format::Wig => "WIG",
+        Format::BigWig => "bigWig",
+        Format::BigBed => "bigBed",
         Format::Bam
         | Format::Cram
         | Format::Sam
@@ -128,7 +130,7 @@ fn what(format: Format) -> &'static str {
 }
 
 /// What `convert` does for each input, for usage errors.
-const SUMMARY: &str = "convert turns VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out, BAM/CRAM/SAM or (with --blocks) BED12 into BED";
+const SUMMARY: &str = "convert turns VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out, BAM/CRAM/SAM or (with --blocks) BED12 into BED, and bigWig to bedGraph, bigBed to BED";
 
 impl ConvertOptions {
     fn check(&self, format: Format) -> Result<(), UsageError> {
@@ -270,7 +272,7 @@ pub fn convert(
         Format::Vcf | Format::Bcf => vcf::convert(input, chroms, o, &mut sink),
         Format::Gff3 | Format::Gtf => gff::convert(input, chroms, o, &mut sink),
         Format::Bed => bed12::convert(input, chroms, &mut sink),
-        Format::Wig => wig::convert(input, chroms, &mut sink),
+        Format::Wig | Format::BigWig | Format::BigBed => wig::convert(input, chroms, &mut sink),
         Format::BedGraph => unreachable!("rejected by check"),
     }
 }

@@ -382,7 +382,9 @@ fn text_header(format: Format, tsv: Option<&TsvColumns>, s: &Scanned) -> Option<
         (Format::Bcf, _) => return None,
         // Refused before indexing (`build_index_with`).
         (Format::Bam | Format::Cram | Format::Sam | Format::Fasta, _) => return None,
-        (Format::Psl | Format::Rmsk | Format::Bedpe, _) => return None,
+        (Format::Psl | Format::Rmsk | Format::Bedpe | Format::BigWig | Format::BigBed, _) => {
+            return None;
+        }
     };
     let mut names = ReferenceSequenceNames::default();
     for n in &s.names {
@@ -552,6 +554,9 @@ pub(super) fn build_index_with(
 `gloci convert {name}`, which writes bedGraph, and index that"
         ))
         .into());
+    }
+    if format.is_bbi() {
+        return Err(super::query::bbi_unindexed(&name).into());
     }
     if tsv.is_none() && format == Format::Bam {
         return super::bam::build_bam_index(data, final_data_path, false, threads);

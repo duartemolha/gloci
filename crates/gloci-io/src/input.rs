@@ -1,5 +1,5 @@
-use crate::detect::{Compression, Format, detect_compression, detect_format};
-use crate::error::IoError;
+use crate::detect::{Compression, Format, bbi_format, detect_compression, detect_format};
+use crate::error::{IoError, UsageError};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Cursor, Read, Seek, SeekFrom};
 use std::num::NonZeroUsize;
@@ -69,6 +69,23 @@ pub fn open_input(path: &str, opts: &InputOptions) -> Result<Input, IoError> {
             source,
         };
         let head = read_up_to(&mut f, 18).map_err(read_err)?;
+        // bigWig and bigBed (D171) are read through their own index, by the reader, which opens
+        // the file itself; a descriptor path is not a file it can reopen.
+        let bbi = match opts.format {
+            Some(f) if f.is_bbi() => Some(f),
+            Some(_) => None,
+            None => bbi_format(&head),
+        };
+        if let Some(format) = bbi
+            && is_regular_file(path)
+        {
+            return Ok(Input {
+                name: path.to_string(),
+                format,
+                compression: Compression::None,
+                reader: Box::new(std::io::empty()),
+            });
+        }
         if detect_compression(&head) == Compression::Bgzf {
             let len = meta.len();
             let ok = len >= 28 && {
@@ -116,6 +133,18 @@ pub fn open_input_from(
     // Every source fails once the host cancels the run (D91).
     let mut src: Box<dyn Read + Send> = Box::new(crate::cancel::CancelRead::new(src));
     let raw = read_up_to(&mut src, PEEK).map_err(read_err)?;
+    let bbi = match opts.format {
+        Some(f) if f.is_bbi() => Some(f),
+        Some(_) => None,
+        None => bbi_format(&raw),
+    };
+    if let Some(format) = bbi {
+        return Err(IoError::Usage(UsageError(format!(
+            "{name} is {}, which gloci reads through its own index and so only from a file, \
+not from standard input, a pipe or memory; save it to a file first",
+            format.name()
+        ))));
+    }
     let compression = detect_compression(&raw);
     let chained = Cursor::new(raw).chain(src);
     let mut decoded: Box<dyn Read + Send> = match compression {

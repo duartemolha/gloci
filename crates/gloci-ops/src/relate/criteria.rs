@@ -20,9 +20,11 @@ enum BlockSource {
 impl BlockSource {
     fn of(r: &dyn RecordReader, split_deletions: bool) -> BlockSource {
         match r.format() {
-            Format::Bed | Format::BedGraph | Format::Wig => BlockSource::Bed12 {
-                name: r.name().to_string(),
-            },
+            Format::Bed | Format::BedGraph | Format::Wig | Format::BigWig | Format::BigBed => {
+                BlockSource::Bed12 {
+                    name: r.name().to_string(),
+                }
+            }
             f if f.is_alignment() => AlnBlocks::for_reader(r, split_deletions)
                 .map_or(BlockSource::Span, BlockSource::Alignment),
             _ => BlockSource::Span,

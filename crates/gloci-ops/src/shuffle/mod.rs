@@ -151,7 +151,13 @@ pub(crate) fn warn_unplaceable(summary: &ShuffleSummary, listed: &[String]) {
 /// The refusal for an input that is not intervals.
 fn refuse_format(name: &str, f: Format) -> Result<(), UsageError> {
     match f {
-        Format::Bed | Format::BedGraph | Format::Gff3 | Format::Gtf | Format::Wig => Ok(()),
+        Format::Bed
+        | Format::BedGraph
+        | Format::Gff3
+        | Format::Gtf
+        | Format::Wig
+        | Format::BigWig
+        | Format::BigBed => Ok(()),
         Format::Vcf | Format::Bcf => Err(UsageError(format!(
             "{name} is {}; shuffle moves intervals, and a variant cannot be moved without \
 changing its REF; convert it to intervals first: gloci convert {name} -o x.bed",

@@ -353,6 +353,7 @@ fn dispatch_raw(input: Input, o: &ReaderOptions) -> Result<Box<dyn RecordReader>
                 o.accept.alignments.clone().unwrap_or_default(),
             )?))
         }
+        Format::BigWig | Format::BigBed => crate::bbi::open_bbi(&input.name, input.format, o),
         // `gate` has returned an error for each of these.
         Format::Bam | Format::Cram | Format::Sam | Format::Fasta | Format::Bedpe => {
             Err(IoError::Detect {

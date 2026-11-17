@@ -317,6 +317,15 @@ behaviour](#samtools-behaviour) after the tables.
 | `liftOver in.bed CHAIN out.bed unmapped.bed` | `gloci liftover` follows CrossMap's rules instead: records are split at chain gaps; there is no `-minMatch` or `-multiple`, and no `#Deleted in new` lines. A UCSC chain file brings UCSC's licence (non-commercial use only) with it; Ensembl's and the T2T consortium's chains are free to use, and six human ones are built in: `--chain GRCh37-to-GRCh38` needs no file (`gloci liftover --help` lists the ids; hg19's `chrM` is not lifted through the GRCh37 chain, which has GRCh37's `MT`) |
 | CrossMap `vcf`, `gvcf`, `bam`, `maf`, `bigwig` | not available in this release |
 
+### bigWig and bigBed tools
+
+| Tool | gloci |
+|---|---|
+| `bigWigToBedGraph in.bw out.bedGraph` | `gloci convert in.bw -o out.bedgraph` (rows in the file's own chromosome order; `gloci view in.bw` gives lexicographic order, `--chrom-order karyotype` gives karyotype order) |
+| `bigBedToBed in.bb out.bed` | `gloci convert in.bb -o out.bed` |
+
+bigWig and bigBed are experimental input formats (D171): gloci reads them from a file only, never from standard input, through the file's own index.
+
 ### Filter expressions (bcftools `-i` / `-e`)
 
 `bcftools view -i EXPR` is `gloci vcf filter FILE --include EXPR`, and

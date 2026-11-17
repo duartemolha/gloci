@@ -258,8 +258,8 @@ pub struct HeaderArg {
 #[derive(Args, Debug, Clone)]
 pub struct FormatArg {
     /// Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf
-    /// or bcf; bam, cram or sam where the command reads alignments; psl or
-    /// rmsk for convert.
+    /// or bcf; bigwig or bigbed (from a file); bam, cram or sam where the
+    /// command reads alignments; psl or rmsk for convert.
     #[arg(long, value_name = "FMT")]
     pub format: Option<String>,
 }
@@ -276,7 +276,8 @@ pub struct AArg {
     #[arg(short = 'a', long = "a", value_name = "FILE", required = true)]
     pub a: String,
     /// A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or
-    /// bcf; bam, cram or sam where the command reads alignments.
+    /// bcf; bigwig or bigbed (from a file); bam, cram or sam where the
+    /// command reads alignments.
     #[arg(long, value_name = "FMT")]
     pub a_format: Option<String>,
 }

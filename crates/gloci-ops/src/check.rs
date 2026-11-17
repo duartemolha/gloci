@@ -88,6 +88,8 @@ fn format_name(f: Format) -> &'static str {
         Format::Bed => "BED",
         Format::BedGraph => "BEDGRAPH",
         Format::Wig => "WIG",
+        Format::BigWig => "BIGWIG",
+        Format::BigBed => "BIGBED",
         Format::Vcf => "VCF",
         Format::Bcf => "BCF",
         Format::Gff3 => "GFF3",

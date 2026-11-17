@@ -276,7 +276,7 @@ pub(crate) fn b_width(
         (Format::Bam | Format::Cram | Format::Sam, _) => 6,
         // Refused at input (the gate); a BED-width default keeps this total.
         (Format::Fasta | Format::Psl | Format::Rmsk | Format::Bedpe, _) => 3,
-        (Format::Bed | Format::BedGraph | Format::Wig, _) => {
+        (Format::Bed | Format::BedGraph | Format::Wig | Format::BigWig | Format::BigBed, _) => {
             let b0 = inputs.b.remove(0);
             let (b0, columns) = peek_first(b0, chroms)?;
             inputs.b.insert(0, b0);

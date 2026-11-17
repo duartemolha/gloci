@@ -487,7 +487,10 @@ fn sweep(
 ) -> Result<Swept, Box<(IoError, Diagnostics)>> {
     let path = input.name().to_string();
     let format = input.format();
-    let bed = matches!(format, Format::Bed | Format::BedGraph | Format::Wig);
+    let bed = matches!(
+        format,
+        Format::Bed | Format::BedGraph | Format::Wig | Format::BigWig | Format::BigBed
+    );
     let blocks = if o.split || o.split_deletions {
         AlnBlocks::for_reader(input.as_ref(), o.split_deletions)
     } else {

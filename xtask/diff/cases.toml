@@ -12098,4 +12098,12 @@ input = { file = "xtask/diff/inputs/liftover/grch37-21-22.bedGraph" }
 aux = ["xtask/diff/inputs/liftover/ensembl-grch37-to-grch38.21-22.chain"]
 gloci = "gloci liftover input.bedGraph --chain ensembl-grch37-to-grch38.21-22.chain"
 reference = "CrossMap bed ensembl-grch37-to-grch38.21-22.chain input.bedGraph o.bed >/dev/null 2>&1 && cat o.bed"
+
+[[case]]
+name = "bigwig-view-pybigwig-file-vs-pybigwig"
+input = { file = "xtask/diff/inputs/bigwig/pybigwig.bw" }
+aux = ["xtask/diff/inputs/bigwig/bbi_dump.py"]
+# A file pyBigWig wrote, with bedGraph, variableStep and fixedStep sections, in header (karyotype) order.
+gloci = "gloci view input.bw"
+reference = "python3 -I bbi_dump.py --lex input.bw"
 compare = "exact"

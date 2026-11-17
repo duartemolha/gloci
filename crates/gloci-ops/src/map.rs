@@ -42,6 +42,8 @@ fn format_name(f: Format) -> &'static str {
         Format::Bed => "BED",
         Format::BedGraph => "bedGraph",
         Format::Wig => "WIG",
+        Format::BigWig => "bigWig",
+        Format::BigBed => "bigBed",
         Format::Vcf => "VCF",
         Format::Bcf => "BCF",
         Format::Gff3 => "GFF3",
@@ -59,7 +61,7 @@ fn format_name(f: Format) -> &'static str {
 fn family(f: Format) -> u8 {
     match f {
         Format::Vcf | Format::Bcf => 0,
-        Format::Bed | Format::BedGraph | Format::Wig => 1,
+        Format::Bed | Format::BedGraph | Format::Wig | Format::BigWig | Format::BigBed => 1,
         Format::Gff3 | Format::Gtf => 2,
         // Refused at input (the gate) before a map can compare families.
         Format::Bam

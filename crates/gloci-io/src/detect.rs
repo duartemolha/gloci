@@ -30,9 +30,36 @@ pub enum Format {
     /// BEDPE (D146): paired ends; never detected, chosen with `--format bedpe`
     /// and read by `pair-intersect`, `pair-pair` and `shuffle --format bedpe`.
     Bedpe,
+    /// bigWig (D171): read through its own index, as bedGraph records; only from a file.
+    BigWig,
+    /// bigBed (D171): read through its own index, as BED records; only from a file.
+    BigBed,
+}
+
+/// The first four bytes of a bigWig, in the writer's byte order.
+pub const BIGWIG_MAGIC: u32 = 0x888F_FC26;
+/// The first four bytes of a bigBed, in the writer's byte order.
+pub const BIGBED_MAGIC: u32 = 0x8789_F2EB;
+
+/// The bbi format whose magic number, in either byte order, starts `head`.
+pub fn bbi_format(head: &[u8]) -> Option<Format> {
+    let word: [u8; 4] = head.get(..4)?.try_into().ok()?;
+    let (le, be) = (u32::from_le_bytes(word), u32::from_be_bytes(word));
+    if le == BIGWIG_MAGIC || be == BIGWIG_MAGIC {
+        Some(Format::BigWig)
+    } else if le == BIGBED_MAGIC || be == BIGBED_MAGIC {
+        Some(Format::BigBed)
+    } else {
+        None
+    }
 }
 
 impl Format {
+    /// bigWig and bigBed: read only from a file, through the file's own index.
+    pub fn is_bbi(self) -> bool {
+        matches!(self, Format::BigWig | Format::BigBed)
+    }
+
     /// Alignment records (BAM, CRAM, SAM): read only by the commands that take alignments.
     pub fn is_alignment(self) -> bool {
         matches!(self, Format::Bam | Format::Cram | Format::Sam)
@@ -60,6 +87,8 @@ impl Format {
             Format::Psl => "PSL",
             Format::Rmsk => "RepeatMasker",
             Format::Bedpe => "BEDPE",
+            Format::BigWig => "bigWig",
+            Format::BigBed => "bigBed",
         }
     }
 }
@@ -81,9 +110,11 @@ impl FromStr for Format {
             "psl" => Ok(Format::Psl),
             "rmsk" => Ok(Format::Rmsk),
             "bedpe" => Ok(Format::Bedpe),
+            "bigwig" => Ok(Format::BigWig),
+            "bigbed" => Ok(Format::BigBed),
             _ => Err(format!(
                 "unknown format '{s}'; expected bed, bedgraph, wig, vcf, bcf, gff, gff3, gtf, \
-bam, cram, sam, psl, rmsk or bedpe"
+bam, cram, sam, psl, rmsk, bedpe, bigwig or bigbed"
             )),
         }
     }

@@ -67,9 +67,12 @@ give distinct labels with --names"
         }
     }
     if o.bedgraph
-        && let Some(f) = formats
-            .iter()
-            .find(|f| !matches!(f, Format::Bed | Format::BedGraph | Format::Wig))
+        && let Some(f) = formats.iter().find(|f| {
+            !matches!(
+                f,
+                Format::Bed | Format::BedGraph | Format::Wig | Format::BigWig | Format::BigBed
+            )
+        })
     {
         return Err(UsageError(format!(
             "--bedgraph needs bedGraph inputs (chrom, start, end, value) but one is {}; \

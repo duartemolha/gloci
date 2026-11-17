@@ -265,7 +265,9 @@ and its lines are not BED"
             | Format::Fasta
             | Format::Psl
             | Format::Rmsk
-            | Format::Bedpe => {
+            | Format::Bedpe
+            | Format::BigWig
+            | Format::BigBed => {
                 unreachable!(
                     "{} is never a text-indexed format: `IndexedFile::open` and `build_index_with` \
 refuse it before a parser is chosen",

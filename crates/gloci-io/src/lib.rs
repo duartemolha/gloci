@@ -2,6 +2,7 @@
 
 pub mod align;
 pub mod atomic;
+pub mod bbi;
 pub mod bcf;
 pub mod bcf_encode;
 mod bcf_fields;
@@ -60,6 +61,7 @@ pub use atomic::{
     create_file_in_temp_dir, create_temp_dir_in, create_temp_file, install_cleanup_handlers,
     internal_error_line,
 };
+pub use bbi::bbi_chrom_sizes;
 pub use bcf::{BcfDicts, check_record as check_bcf_record, read_bcf_header, write_bcf_header};
 pub use bcf_encode::encode_gt;
 pub use bcf_text::kputd;
@@ -73,7 +75,9 @@ pub use chain::{ChainIndex, ChainInfo, MtRule, Segment, SourceRef};
 pub use chain_builtin::builtin_chain_ids;
 pub use chrom_map::ChromMap;
 pub use convert::{BcfText, HeaderMode, TextToBcf, convert_variants};
-pub use detect::{Compression, Format, detect_compression, detect_format};
+pub use detect::{
+    BIGBED_MAGIC, BIGWIG_MAGIC, Compression, Format, bbi_format, detect_compression, detect_format,
+};
 pub use diag::{Diagnostics, InvalidPolicy};
 pub use error::{GateKind, IoError, Loc, OrderError, SORTED_INPUTS, UsageError};
 pub use fasta::{

@@ -218,7 +218,7 @@ class Pipeline:
         """Report the records of A that overlap, or do not overlap, records of B (bedtools intersect)
 
         Args:
-            a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
+            a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments
             b: B: one or more files to relate A to, in the order given (-b x y or -b x -b y)
             names: Labels for the B files, comma-separated, one per -b (default: the file basenames)
             b_format: B's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
@@ -314,7 +314,7 @@ class Pipeline:
         """Remove from A the bases covered by B (bedtools subtract, bedops -d)
 
         Args:
-            a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
+            a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments
             b: B: one or more files to relate A to, in the order given (-b x y or -b x -b y)
             names: Labels for the B files, comma-separated, one per -b (default: the file basenames)
             b_format: B's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
@@ -396,7 +396,7 @@ class Pipeline:
         """Find the nearest B to each A (bedtools closest, bedops closest-features)
 
         Args:
-            a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
+            a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments
             b: B: one or more files to relate A to, in the order given (-b x y or -b x -b y)
             names: Labels for the B files, comma-separated, one per -b (default: the file basenames)
             b_format: B's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
@@ -480,7 +480,7 @@ class Pipeline:
         """Aggregate columns of the B records over each A (bedtools map, bedops bedmap)
 
         Args:
-            a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
+            a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments
             b: B: one or more files to relate A to, in the order given (-b x y or -b x -b y)
             names: Labels for the B files, comma-separated, one per -b (default: the file basenames)
             b_format: B's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
@@ -572,7 +572,7 @@ class Pipeline:
         """How much of each A the B records cover (bedtools coverage and annotate)
 
         Args:
-            a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
+            a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments
             b: B: one or more files to relate A to, in the order given (-b x y or -b x -b y)
             names: Labels for the B files, comma-separated, one per -b (default: the file basenames)
             b_format: B's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
@@ -760,7 +760,7 @@ class Pipeline:
         """The Jaccard similarity of two interval sets (bedtools jaccard)
 
         Args:
-            a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
+            a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments
             b: B: the file to compare A with (`-` for stdin)
             b_format: B's format, overriding detection: bed, bedgraph, gff, vcf or bcf; bam, cram or sam (alignments are read as intervals, as `intersect` reads them)
             min_frac_a: Minimum fraction of a merged A interval covered, e.g. 0.5 or 50% (4.3: fractions)
@@ -832,7 +832,7 @@ class Pipeline:
         """Fisher's exact test of the overlap of two interval sets (bedtools fisher)
 
         Args:
-            a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
+            a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments
             b: B: the file to compare A with (`-` for stdin)
             b_format: B's format, overriding detection: bed, bedgraph, gff, vcf or bcf; bam, cram or sam (alignments are read as intervals, as `intersect` reads them)
             genome: Genome with chromosome lengths: a built-in genome such as hg38 (see gloci genomes list), or a .genome, .fai, .dict, VCF/BCF or BAM header file. Its lengths add up to the genome size
@@ -892,7 +892,7 @@ class Pipeline:
         """The relative distance of A midpoints to B midpoints (bedtools reldist)
 
         Args:
-            a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments
+            a_format: A's format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments
             b: B: the file to compare A with (`-` for stdin)
             b_format: B's format, overriding detection: bed, bedgraph, gff, vcf or bcf; bam, cram or sam (alignments are read as intervals, as `intersect` reads them)
             detail: Print each A record with its relative distance (%.3f) appended, instead of the summary
@@ -953,7 +953,7 @@ class Pipeline:
             chrom_order: Chromosome order when neither -g nor the header of a VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
-            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
+            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments; psl or rmsk for convert
             skip_invalid: Skip invalid records with a warning instead of failing
             sort: Sort the inputs first, for inputs that are unsorted or too large to sort in memory (external sort bounded by --max-mem). The sorted records are written to a temporary file in --tmp-dir and read back, so besides the spill runs (about the size of the input, compressed) the directory needs one uncompressed sorted copy: allow roughly twice the input size (BAM and CRAM inputs are written as BAM; a SAM input as plain SAM, several times larger). Everything is removed afterwards
             max_mem: Memory budget for --sort, in binary units (K, M, G, T); at least 16M
@@ -999,7 +999,7 @@ class Pipeline:
             chrom_order: Chromosome order when neither -g nor the header of a VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
-            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
+            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments; psl or rmsk for convert
             skip_invalid: Skip invalid records with a warning instead of failing
             sort: Sort the inputs first, for inputs that are unsorted or too large to sort in memory (external sort bounded by --max-mem). The sorted records are written to a temporary file in --tmp-dir and read back, so besides the spill runs (about the size of the input, compressed) the directory needs one uncompressed sorted copy: allow roughly twice the input size (BAM and CRAM inputs are written as BAM; a SAM input as plain SAM, several times larger). Everything is removed afterwards
             max_mem: Memory budget for --sort, in binary units (K, M, G, T); at least 16M
@@ -1029,7 +1029,7 @@ class Pipeline:
             chrom_order: Chromosome order when neither -g nor the header of a VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
-            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
+            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments; psl or rmsk for convert
             skip_invalid: Skip invalid records with a warning instead of failing
             sort: Sort the inputs first, for inputs that are unsorted or too large to sort in memory (external sort bounded by --max-mem). The sorted records are written to a temporary file in --tmp-dir and read back, so besides the spill runs (about the size of the input, compressed) the directory needs one uncompressed sorted copy: allow roughly twice the input size (BAM and CRAM inputs are written as BAM; a SAM input as plain SAM, several times larger). Everything is removed afterwards
             max_mem: Memory budget for --sort, in binary units (K, M, G, T); at least 16M
@@ -1066,7 +1066,7 @@ class Pipeline:
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
             chrom_order: Chromosome order when neither -g nor the header of a VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
-            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
+            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments; psl or rmsk for convert
             max_mem: Memory budget for sorting, in binary units (K, M, G, T); at least 16M
             tmp_dir: Directory for temporary spill files; it must exist and be writable (default: $GLOCI_TMPDIR if set and non-empty, else the system temp dir)
             full_key: Break ties on the whole record instead of keeping input order
@@ -1240,7 +1240,7 @@ class Pipeline:
             count: Write the number of records that would be written (regions and read filters applied), as one line, instead of the records; as samtools view -c. Without regions, a CRAM decodes only the flags and MAPQ, as samtools does
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
-            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
+            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments; psl or rmsk for convert
             skip_invalid: Skip invalid records with a warning instead of failing
             min_mapq: Skip alignments with a mapping quality below N (BAM, CRAM and SAM input)
             require_flags: Keep only alignments that have all of these flags: a number (0x2 or 2) or names such as paired,proper_pair (as samtools view -f)
@@ -1306,7 +1306,7 @@ class Pipeline:
             require_flags: Keep only alignments that have all of these flags: a number (0x2 or 2) or names such as paired,proper_pair (as samtools view -f)
             exclude_flags: Drop alignments that have any of these flags: a number or names such as unmap,secondary,dup (as samtools view -F)
             reference: The FASTA a CRAM input was made with (bedtools --cram-ref), with its .fai (and .gzi when BGZF). Not needed for a CRAM written without a reference
-            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
+            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments; psl or rmsk for convert
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
             skip_invalid: Skip invalid records with a warning instead of failing
@@ -1340,7 +1340,7 @@ class Pipeline:
             pct: Read each amount as a fraction of the feature length (0.5 or 50%, floored) instead of bases
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
-            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
+            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments; psl or rmsk for convert
             header: Keep header lines in the output
             skip_invalid: Skip invalid records with a warning instead of failing
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
@@ -1374,7 +1374,7 @@ class Pipeline:
             pct: Read each amount as a fraction of the feature length (0.5 or 50%, floored) instead of bases
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
-            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
+            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments; psl or rmsk for convert
             header: Keep header lines in the output
             skip_invalid: Skip invalid records with a warning instead of failing
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
@@ -1402,7 +1402,7 @@ class Pipeline:
             pct: Read --by as a fraction of the feature length (0.5, -25%, floored) instead of bases
             genome: Chromosome order and sizes: a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
-            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
+            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments; psl or rmsk for convert
             header: Keep header lines in the output
             skip_invalid: Skip invalid records with a warning instead of failing
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
@@ -1440,7 +1440,7 @@ class Pipeline:
             chrom_order: Chromosome order when neither -g nor the header of a VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
-            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
+            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments; psl or rmsk for convert
             header: Keep header lines in the output
             skip_invalid: Skip invalid records with a warning instead of failing
             sort: Sort the inputs first, for inputs that are unsorted or too large to sort in memory (external sort bounded by --max-mem). The sorted records are written to a temporary file in --tmp-dir and read back, so besides the spill runs (about the size of the input, compressed) the directory needs one uncompressed sorted copy: allow roughly twice the input size (BAM and CRAM inputs are written as BAM; a SAM input as plain SAM, several times larger). Everything is removed afterwards
@@ -1472,7 +1472,7 @@ class Pipeline:
             chrom_order: Chromosome order when neither -g nor the header of a VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
-            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
+            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments; psl or rmsk for convert
             header: Keep header lines in the output
             skip_invalid: Skip invalid records with a warning instead of failing
             sort: Sort the inputs first, for inputs that are unsorted or too large to sort in memory (external sort bounded by --max-mem). The sorted records are written to a temporary file in --tmp-dir and read back, so besides the spill runs (about the size of the input, compressed) the directory needs one uncompressed sorted copy: allow roughly twice the input size (BAM and CRAM inputs are written as BAM; a SAM input as plain SAM, several times larger). Everything is removed afterwards
@@ -1553,7 +1553,7 @@ class Pipeline:
             chrom_order: Chromosome order when neither -g nor the header of a VCF/BCF or alignment input sets one: lex (byte order, as sort -k1,1, sort-bed and bedtools sort; the default) or karyotype (chr1..chr22, chrX, chrY, chrM)
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
-            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
+            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments; psl or rmsk for convert
             skip_invalid: Skip invalid records with a warning instead of failing
             sort: Sort the inputs first, for inputs that are unsorted or too large to sort in memory (external sort bounded by --max-mem). The sorted records are written to a temporary file in --tmp-dir and read back, so besides the spill runs (about the size of the input, compressed) the directory needs one uncompressed sorted copy: allow roughly twice the input size (BAM and CRAM inputs are written as BAM; a SAM input as plain SAM, several times larger). Everything is removed afterwards
             max_mem: Memory budget for --sort, in binary units (K, M, G, T); at least 16M
@@ -1664,7 +1664,7 @@ class Pipeline:
             keep_info: Keep only these INFO keys in output records and header
             drop_info: Remove these INFO keys from output records and header
             recalc_ac: Recalculate INFO/AC, AN and AF after sample selection and masking
-            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
+            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments; psl or rmsk for convert
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks and the output see the new names
             skip_invalid: Skip invalid records with a warning instead of failing
@@ -2004,7 +2004,7 @@ class Pipeline:
             tab: Write `header TAB sequence` lines
             bed_out: Write each input record, TAB, the sequence
             rna: Write U for the complement of A (reverse-complemented sequences only)
-            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
+            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments; psl or rmsk for convert
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks and the output see the new names
             skip_invalid: Skip invalid records with a warning instead of failing
@@ -2036,7 +2036,7 @@ class Pipeline:
             pattern: Add a column counting this pattern (overlapping matches)
             ignore_case: Match --pattern without regard to case
             C: alias of ignore_case
-            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
+            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments; psl or rmsk for convert
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks and the output see the new names
             skip_invalid: Skip invalid records with a warning instead of failing
@@ -2062,7 +2062,7 @@ class Pipeline:
             n: alias of count
             strand: Sample only the records on this strand (+ or -)
             seed: Seed for the random stream, so a run can be reproduced (default: a fresh seed, which is printed as a warning)
-            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
+            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments; psl or rmsk for convert
             header: Keep header lines in the output
             skip_invalid: Skip invalid records with a warning instead of failing
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks and the output see the new names
@@ -2100,7 +2100,7 @@ class Pipeline:
             max_tries: Draws per record before it counts as unplaceable (--no-overlapping, and BEDPE --exclude)
             skip_unplaceable: Drop records that have no place, with a warning, instead of failing
             seed: Seed for the random stream, so a run can be reproduced (default: a fresh seed, which is printed as a warning)
-            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
+            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments; psl or rmsk for convert
             header: Keep header lines in the output
             skip_invalid: Skip invalid records with a warning instead of failing
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
@@ -2315,7 +2315,7 @@ class Pipeline:
             name: Put the name of each record in its image's file name
             slop: Bases to show on each side of the feature (the image file name ends _slopN)
             image: The image type
-            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
+            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments; psl or rmsk for convert
 
         CLI: gloci igv
         """
@@ -2333,7 +2333,7 @@ class Pipeline:
             base: The browser's address; the links add /cgi-bin/hgTracks
             org: The organism
             db: The genome build
-            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
+            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments; psl or rmsk for convert
 
         CLI: gloci links
         """
@@ -2388,7 +2388,7 @@ class Pipeline:
             n: alias of count
             reverse: Number the windows from the end of the interval
             id_column: Append the 1-based window number of each source interval
-            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
+            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments; psl or rmsk for convert
             vcf_span: Which footprint a VCF record covers: the allele span or the REF span
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
             skip_invalid: Skip invalid records with a warning instead of failing
@@ -3114,7 +3114,7 @@ def windows(
         n: alias of count
         reverse: Number the windows from the end of the interval
         id_column: Append the 1-based window number of each source interval
-        format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
+        format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments; psl or rmsk for convert
         vcf_span: Which footprint a VCF record covers: the allele span or the REF span
         chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
         skip_invalid: Skip invalid records with a warning instead of failing
