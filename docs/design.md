@@ -526,6 +526,7 @@ How the old commands map onto `partition`:
 - **`head`** **[D134]**: all header lines, no records by default. A BAM with no `@SQ` text gets synthesised `@SQ` lines (samtools 1.21 prints nothing). A VCF header is printed as stored, with no PASS line. Text formats are read in batches of up to 16384 records (a fixed record batch).
 - **`samples`, `flags`** **[D135, D136]**: FLAGS is a decimal, `0x` hex or comma-separated names; a leading-zero decimal and trailing text are usage errors. §6.1's `--column-names` is per command.
 - **`depth`, `bedcov`** **[D137–D140]**: exclude `UNMAP,SECONDARY,QCFAIL,DUP` by default (D102). `depth` reads its inputs as one merged stream at every `-t`; threads decode BGZF/CRAM (D138). `--skip-mate-overlap` is samtools `-s`. A `bedcov` region of zero length counts no reads, as samtools 1.21 does. `chr:-E` is `chr:1-E` (D131, §4.1).
+- **`depth --summary`, `depth --out-prefix`** **[D173, owner 2026-11-17]**: samtools coverage's table, and mosdepth 0.3.10's files under their names; both stream on the depth core, and the files are published together with CSI indexes.
 - **CRAM 2.x** is refused by name and version wherever the prelude is read (`#cram-limits`).
 
 ### 7.5 Sequence (P3)
@@ -772,6 +773,7 @@ Reference machine: 8-core x86_64, NVMe, 32 GB RAM. Baselines: bedtools 2.31.x, b
 | `vcf stats` (several statistics in one pass) | P2 | vcftools, one run per statistic; yardsticks bcftools `stats`, PLINK 2, VariantFlow |
 | Python library | P2 | pybedtools; yardsticks polars-bio, PyRanges v1, bioframe |
 | BAM/CRAM `coverage`/`genomecov` | P3 | bedtools; yardstick mosdepth |
+| `depth --summary`, `depth --by` | P3c | samtools coverage; mosdepth (binding) |
 | Unsorted-mode interval index (internal) | P1 | coitrees (preferred) against superintervals, a cgranges-style tree and rust-lapper |
 
 - **External datasets:** the datasets of the published interval-query benchmark (bioRxiv 2025.02.19.639167, which found AIList, bedtk and granges consistently fastest). This lets gloci's results be compared with published numbers.
@@ -903,6 +905,8 @@ The user-facing version of this guide lives in `docs/migration.md` (later part o
 | `quickcheck [-u -v]` | `check --quick [--unaligned --list-failed]` |
 | `view -c`, `view -L BED` | `view --count`, `view --regions-file BED` |
 | `depth [-a -aa -J -q -Q -l -g -G -s -r -b -H]`, `bedcov [-Q -g -G -j -d -c -H]` | `depth`, `bedcov` (long flags, see the migration guide); bedtools `multicov` is `bedcov --read-count` |
+| `coverage [-r -q -Q -l --rf --ff]` | `depth --summary [--region --min-mapq --min-baseq --min-read-length --require-flags --exclude-flags]` (D173 **[owner, 2026-11-17]**) |
+| mosdepth `[-n] [-b BED\|SIZE] [-T 1,10,20] [-Q -F] PREFIX FILE` (a binding comparison) | `depth --out-prefix PREFIX [--by BED\|SIZE] [--thresholds 1,10,20] [--min-mapq --exclude-flags] FILE` (D173 **[owner, 2026-11-17]**) |
 
 ### bedops
 

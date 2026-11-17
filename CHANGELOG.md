@@ -36,6 +36,7 @@ the minor version).
 - `docs/differences.md` records that `bedtools genomecov` adds its `genome` rows up in 32 bits, so they wrap for a genome of more than 2^32 bases; gloci's do not (`#genomecov-genome-total`, pinned by a differential case).
 - Fuzzing: `cram_reader` and `fasta_index` targets; the nightly job runs every target (it left out `sam_reader` and `bedpe_reader`) for 180 s each.
 - `gloci vcf query calls.vcf.gz -f '%CHROM\t%POS[\t%GT]\n'` prints each record's fields in a format of your own, as `bcftools query -f` does: the common fields, per-sample `[ ]` blocks, `{N}` subscripts, `-H`, every `vcf` selection option, and bcftools' rule for sample-level filters (`--include 'GT="alt"' -f '[%SAMPLE\n]'` lists the carriers). Values print as bcftools 1.21 prints them apart from the documented differences, and a construct outside the supported subset is an error that names it. Experimental.
+- `gloci depth --summary` prints samtools coverage's per-reference table, and `gloci depth --out-prefix P --by BED|SIZE [--thresholds 1,10,20]` writes mosdepth's global and region distributions, summary, `regions.bed.gz` and `thresholds.bed.gz` (with `.csi`) under mosdepth's names, so MultiQC reads them unchanged. The Python library has `depth(summary=True)` and `gloci.depth_files(src, out=PREFIX, by=...)`.
 
 ### Changed
 

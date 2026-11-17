@@ -887,6 +887,31 @@ samtools = "samtools depth {in} > {out}"
 [[case.same]]
 tools = ["gloci", "gloci-t8", "samtools"]
 
+[[case]]
+name = "depth-summary-bam-50M"
+setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
+input = "bam"
+targets = ["gloci <= samtools"]
+[case.commands]
+gloci = "{gloci} depth -t 1 --summary {in} > {out}"
+samtools = "samtools coverage {in} > {out}"
+
+[[case.same]]
+tools = ["gloci", "samtools"]
+
+[[case]]
+name = "depth-by-bam-50M"
+setup = "sam --records 50000000 --read-len 100 --depth 30 --chroms 24 --spliced-frac 0.1 --seed 1"
+input = "bam-indexed"
+targets = ["gloci-t4 <= mosdepth-t4"]
+[case.commands]
+gloci = "{gloci} depth -t 1 --by 500 --thresholds 1,10,20 --out-prefix {out}.g1 {in} && cat {out}.g1.mosdepth.summary.txt {out}.g1.mosdepth.global.dist.txt > {out}"
+gloci-t4 = "{gloci} depth -t 4 --by 500 --thresholds 1,10,20 --out-prefix {out}.g {in} && cat {out}.g.mosdepth.summary.txt {out}.g.mosdepth.global.dist.txt > {out}"
+mosdepth-t4 = "mosdepth -t 4 -n --by 500 -T 1,10,20 {out}.m {in} && cat {out}.m.mosdepth.summary.txt {out}.m.mosdepth.global.dist.txt > {out}"
+
+[[case.same]]
+tools = ["gloci", "gloci-t4", "mosdepth-t4"]
+
 
 # in_b = every 30th window of `gloci windows` over the reference, in windows
 # sized for about 10,000 targets (a 100 kb window gives 55 on this genome).

@@ -83,6 +83,7 @@ def functions() -> None:
     gloci.vcf_extract_matrix("a.vcf", out="m")
     gloci.vcf_compare("a.vcf", gloci.open("b.vcf"), out="cmp", site_discordance=True)
     gloci.vcf_popgen("a.vcf", out="pg", fst_pop=["p1.txt", "p2.txt"], relatedness=True)
+    gloci.depth_files("a.bam", out="d", by="500")
     gloci.index(pathlib.Path("a.bed.gz"))
     _ = written
 

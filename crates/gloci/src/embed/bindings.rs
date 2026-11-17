@@ -143,7 +143,7 @@ pub const BINDINGS: &[Binding] = &[
     nary(&["vcf", "merge"], "vcf_merge"),
     nary(&["cat"], "cat"),
     // chrom, position, depth: a position is not a BED start, nor a depth an end.
-    nary(&["depth"], "depth").shaped(Shape::Table, &[]),
+    nary(&["depth"], "depth").shaped(Shape::Table, &[("summary", Shape::HeaderLine)]),
     nary(&["samples"], "samples").shaped(Shape::Table, &[]),
     // one input
     // --count: the number of records.
@@ -211,6 +211,7 @@ pub const MODULE_FUNCTIONS: &[(&[&str], &str)] = &[
     (&["vcf", "extract"], "vcf_extract_matrix"),
     (&["vcf", "compare"], "vcf_compare"),
     (&["vcf", "popgen"], "vcf_popgen"),
+    (&["depth"], "depth_files"),
     (&["index"], "index"),
     (&["windows"], "windows"),
     (&["random"], "random"),

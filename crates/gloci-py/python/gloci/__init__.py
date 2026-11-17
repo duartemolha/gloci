@@ -13,6 +13,7 @@ Arrow table (`to_arrow_stream()`, `to_arrow()`, `to_polars()`, `to_pandas()`).
 """
 
 from ._functions import (
+    depth_files,
     index,
     random,
     vcf_compare,
@@ -38,6 +39,7 @@ __all__ = [
     "UnsortedError",
     "UsageError",
     "__version__",
+    "depth_files",
     "index",
     "open",
     "random",

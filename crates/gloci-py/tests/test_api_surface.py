@@ -86,6 +86,7 @@ def test_runtime_functions_match_stub() -> None:
         "windows",
         "random",
         "vcf_stats",
+        "depth_files",
         "vcf_extract_matrix",
         "vcf_compare",
         "vcf_popgen",

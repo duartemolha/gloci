@@ -620,13 +620,13 @@ fn every_cli_command_is_bound_or_excluded() {
         unplaced.is_empty(),
         "place these commands (bindings.rs): {unplaced:?}"
     );
-    // Exactly windows and vcf extract are both a step and a module function.
+    // Exactly depth, windows and vcf extract are both a step and a module function.
     let both: Vec<String> = embed::BINDINGS
         .iter()
         .filter(|b| embed::module_function(b.path).is_some())
         .map(|b| b.path.join(" "))
         .collect();
-    assert_eq!(both, ["vcf extract", "windows"]);
+    assert_eq!(both, ["depth", "vcf extract", "windows"]);
     // Every entry names a real command, once.
     let leaves = clap_leaves();
     let real = |p: &[&str]| {
@@ -1097,6 +1097,21 @@ written to files, not to a pipeline"
     .unwrap();
     assert_eq!(strs(&a), ["--genotype-matrix", "012"]);
     assert!(argv_of(ve, &[("info", val("DP"))]).is_ok());
+}
+
+#[test]
+fn the_depth_step_leaves_the_files_to_its_function() {
+    let d = &["depth"][..];
+    let e = argv_of(d, &[("out_prefix", val("x"))]).unwrap_err();
+    assert_eq!(
+        e,
+        "out_prefix is set by depth_files(src, out=...): mosdepth's files are written to disk, \
+not to a pipeline"
+    );
+    // The module function takes them.
+    let a = kwargs_to_argv_as(spec(d), &kw(&[("by", val("100"))]), Role::Function).unwrap();
+    assert_eq!(strs(&a), ["--by", "100"]);
+    assert!(argv_of(d, &[("summary", KwValue::Flag(true))]).is_ok());
 }
 
 #[test]

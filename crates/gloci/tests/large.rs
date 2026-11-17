@@ -2340,6 +2340,47 @@ fn depth_skip_mate_overlap_2gb_pairs_streams() {
 
 #[test]
 #[ignore = "nightly: generates a 2 GB BAM"]
+fn depth_summary_2gb_bam_streams() {
+    p3c_rss_ceiling(
+        "depth --summary",
+        &[
+            "depth".as_ref(),
+            big_sorted_bam().as_os_str(),
+            "--summary".as_ref(),
+        ],
+        true,
+    );
+}
+
+#[test]
+#[ignore = "nightly: generates 2 GB of pairs"]
+fn depth_by_2gb_pairs_streams() {
+    let d = tempdir();
+    let prefix = d.path().join("m");
+    let targets = big_targets();
+    for (what, by) in [
+        ("depth --by 500", std::ffi::OsString::from("500")),
+        ("depth --by BED", targets.as_os_str().to_owned()),
+    ] {
+        p3c_rss_ceiling(
+            what,
+            &[
+                "depth".as_ref(),
+                big_pairs_bam().as_os_str(),
+                "--by".as_ref(),
+                by.as_os_str(),
+                "--thresholds".as_ref(),
+                "1,10,20".as_ref(),
+                "--out-prefix".as_ref(),
+                prefix.as_os_str(),
+            ],
+            true,
+        );
+    }
+}
+
+#[test]
+#[ignore = "nightly: generates a 2 GB BAM"]
 fn bedcov_10k_targets_2gb_bam_streams() {
     let bed = big_targets();
     p3c_rss_ceiling(

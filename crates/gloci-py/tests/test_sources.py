@@ -750,6 +750,36 @@ def test_module_functions_report_what_the_run_wrote(here: Path) -> None:
     assert gloci.index("a.bed.gz") == [Path("a.bed.gz.tbi")]
 
 
+MEANS_SAM = (
+    "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:c\tLN:400\n"
+    "r1\t0\tc\t1\t60\t11M\t*\t0\t0\t*\t*\n"
+    "r2\t0\tc\t201\t60\t25M\t*\t0\t0\t*\t*\n"
+)
+
+
+def test_depth_files_match_the_cli(here: Path, cli) -> None:
+    for d in ("in", "py"):
+        (here / d).mkdir()
+    sam = str(here / "in" / "m.sam")
+    Path(sam).write_text(MEANS_SAM)
+    want = cli_files(cli, here, ["depth", "--out-prefix", "m", "--by", "200", sam], "c9")
+    got = gloci.depth_files(sam, out=here / "py" / "m", by="200")
+    assert [p.name for p in got] == [
+        "m.mosdepth.global.dist.txt",
+        "m.mosdepth.region.dist.txt",
+        "m.mosdepth.summary.txt",
+        "m.regions.bed.gz",
+        "m.regions.bed.gz.csi",
+    ]
+    assert written(got, here / "py") == want
+    # The step takes the samtools coverage table, and leaves mosdepth's files to the function.
+    table = cli(["depth", "--summary", sam], here)
+    assert table.returncode == 0, table.stderr
+    assert gloci.open(sam).depth(summary=True).to_bytes() == table.stdout
+    with pytest.raises(gloci.UsageError, match="set by depth_files"):
+        gloci.open(sam).depth(by="200")
+
+
 def test_cli_quotes_what_only_looks_like_a_placeholder(ab: Path, bash) -> None:
     # I2: a placeholder is known by where it came from, never by its text.
     evil = "<(gloci view x; touch pwned)"

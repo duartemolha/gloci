@@ -1155,9 +1155,6 @@ class Pipeline:
         reference: Source | None = None,
         skip_mate_overlap: bool = False,
         summary: bool = False,
-        out_prefix: str | int | float | os.PathLike[str] | None = None,
-        by: str | int | float | os.PathLike[str] | None = None,
-        thresholds: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         region: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         regions_file: Source | None = None,
         chrom_map: Source | None = None,
@@ -1178,9 +1175,6 @@ class Pipeline:
             reference: The FASTA a CRAM input was made with, with its .fai. Not needed for a CRAM written without a reference
             skip_mate_overlap: Count each base of an overlapping mate pair once, per input: a read whose mate was already seen starts counting where the mate ends (samtools -s). Reads with an unknown mate position are never held, so unlike samtools a later alignment with the same name is not clipped by a stale entry
             summary: Print one row per reference instead of one per position, as samtools coverage: reads, covered bases, mean depth, mean base and mapping quality. With --region, one row for that region
-            out_prefix: Write mosdepth's coverage files for the one FILE: P.mosdepth.global.dist.txt, P.mosdepth.summary.txt and, with --by, P.mosdepth.region.dist.txt and P.regions.bed.gz
-            by: With --out-prefix, the regions of the region files: a BED file (a fourth column names the region), or a window size in bases
-            thresholds: With --by, also write P.thresholds.bed.gz: for each region, the bases covered by at least N reads, for each N (each at least 1)
             region: Restrict to a region such as chr1:1,000-2,000 (repeatable)
             regions_file: Read regions from FILE (BED: 0-based, half-open); see --region
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks and the output see the new names
@@ -2964,6 +2958,64 @@ def vcf_popgen(
         skip_invalid: Skip invalid records with a warning instead of failing
 
     CLI: gloci vcf popgen
+    """
+
+def depth_files(
+    src: Source,
+    *,
+    out: str | os.PathLike[str],
+    all_positions: bool = False,
+    all_references: bool = False,
+    count_deletions: bool = False,
+    min_baseq: str | int | float | os.PathLike[str] | None = None,
+    min_read_length: str | int | float | os.PathLike[str] | None = None,
+    min_mapq: str | int | float | os.PathLike[str] | None = None,
+    require_flags: str | int | float | os.PathLike[str] | None = None,
+    exclude_flags: str | int | float | os.PathLike[str] | None = None,
+    reference: Source | None = None,
+    skip_mate_overlap: bool = False,
+    summary: bool = False,
+    by: str | int | float | os.PathLike[str] | None = None,
+    thresholds: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+    region: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+    regions_file: Source | None = None,
+    chrom_map: Source | None = None,
+    column_names: bool = False,
+    skip_invalid: bool = False,
+    threads: str | int | float | os.PathLike[str] | None = None,
+    t: str | int | float | os.PathLike[str] | None = None,
+    output: str | int | float | os.PathLike[str] | None = None,
+    o: str | int | float | os.PathLike[str] | None = None,
+) -> list[pathlib.Path]:
+    """Depth of coverage of alignments at each position (samtools depth), as a table per reference (samtools coverage), or as mosdepth's coverage files (mosdepth)
+
+    Args:
+        src: Any source: a path, a file object, an iterable of lines or tuples, an Arrow table, or a Pipeline.
+        out: The prefix of the files written (`--out-prefix`); the files are returned, sorted.
+        all_positions: Also print every position of each reference that has a passing read (samtools -a)
+        all_references: Also print every position of every reference, reads or not (samtools -aa)
+        count_deletions: Count deleted bases (D), each gated by the quality of the next base in the read
+        min_baseq: Count a base only when its quality is at least N. A missing quality (QUAL *) passes, and so does every base of a read with SEQ * (samtools reads the bytes after the CIGAR as qualities there)
+        min_read_length: Skip reads shorter than N bases (SEQ length less soft clips at the two ends)
+        min_mapq: Skip reads with mapping quality below N
+        require_flags: Keep only reads that have all of these flags: a number (0x2) or names such as paired,proper_pair
+        exclude_flags: Drop reads that have any of these flags: a number or names. As for the other commands, but this command's default is UNMAP,SECONDARY,QCFAIL,DUP (samtools depth's), where theirs is none; 0 counts every read
+        reference: The FASTA a CRAM input was made with, with its .fai. Not needed for a CRAM written without a reference
+        skip_mate_overlap: Count each base of an overlapping mate pair once, per input: a read whose mate was already seen starts counting where the mate ends (samtools -s). Reads with an unknown mate position are never held, so unlike samtools a later alignment with the same name is not clipped by a stale entry
+        summary: Print one row per reference instead of one per position, as samtools coverage: reads, covered bases, mean depth, mean base and mapping quality. With --region, one row for that region
+        by: With --out-prefix, the regions of the region files: a BED file (a fourth column names the region), or a window size in bases
+        thresholds: With --by, also write P.thresholds.bed.gz: for each region, the bases covered by at least N reads, for each N (each at least 1)
+        region: Restrict to a region such as chr1:1,000-2,000 (repeatable)
+        regions_file: Read regions from FILE (BED: 0-based, half-open); see --region
+        chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks and the output see the new names
+        column_names: Write a line of column names, starting with #, before the first row
+        skip_invalid: Skip invalid records with a warning instead of failing
+        threads: Number of threads (default: all available cores)
+        t: alias of threads
+        output: Write the rows to FILE instead of stdout
+        o: alias of output
+
+    CLI: gloci depth
     """
 
 def index(

@@ -34,6 +34,7 @@ __all__ = [
     "vcf_extract_matrix",
     "vcf_popgen",
     "vcf_stats",
+    "depth_files",
     "windows",
 ]
 
@@ -100,6 +101,12 @@ def vcf_stats(src: object, *, out: str | os.PathLike[str], **kwargs: Any) -> lis
     # The docstring is made from the command's spec (below).
     kw = _with_prefix("vcf_stats()", out, kwargs)
     return _run("vcf_stats", [classify_source(src, "vcf_stats()")], kw)
+
+
+def depth_files(src: object, *, out: str | os.PathLike[str], **kwargs: Any) -> list[pathlib.Path]:
+    # The docstring is made from the command's spec (below).
+    kw = _with_prefix("depth_files()", out, kwargs)
+    return _run("depth_files", [classify_source(src, "depth_files()")], kw)
 
 
 def vcf_extract_matrix(

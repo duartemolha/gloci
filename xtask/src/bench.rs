@@ -2532,9 +2532,12 @@ mod tests {
                 args.join(" "),
                 String::from_utf8_lossy(&r.stderr)
             );
-            // The index case rewrites the input's index; the others write out.
+            // The index case rewrites the input's index; `depth --out-prefix` writes mosdepth's
+            // files (the case's shell line then joins two of them into out); the others write out.
             let wrote = if c.name.starts_with("index-") {
                 std::fs::metadata(format!("{}.bai", inputs.in_a.display()))
+            } else if let Some(i) = args.iter().position(|a| a == "--out-prefix") {
+                std::fs::metadata(format!("{}.mosdepth.summary.txt", args[i + 1]))
             } else {
                 std::fs::metadata(&out)
             };
@@ -2547,7 +2550,7 @@ mod tests {
             checked += 1;
         }
         assert_eq!(
-            checked, 24,
+            checked, 26,
             "alignment and samtools-essentials cases and convert-bedpe run"
         );
     }

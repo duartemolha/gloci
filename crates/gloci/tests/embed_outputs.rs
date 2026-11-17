@@ -240,7 +240,7 @@ fn the_marked_steps() {
             "stats jaccard: HeaderRow",
             "stats fisher: HeaderRow",
             "stats reldist: HeaderRow (detail: Records)",
-            "depth: Table",
+            "depth: Table (summary: HeaderLine)",
             "samples: Table",
             "view: Records (count: Table)",
             "groupby: Records (header: HeaderLine)",

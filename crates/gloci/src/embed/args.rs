@@ -65,6 +65,24 @@ pub const RESERVED_ON_STEP_OF: &[(&[&str], &str, &str)] = &[
         "genotype_matrix is set by vcf_extract_matrix(path, genotype_matrix=...): the matrix is \
 written to files, not to a pipeline",
     ),
+    (
+        &["depth"],
+        "out_prefix",
+        "out_prefix is set by depth_files(src, out=...): mosdepth's files are written to disk, not to a \
+pipeline",
+    ),
+    (
+        &["depth"],
+        "by",
+        "by is set by depth_files(src, out=...): mosdepth's files are written to disk, not to a \
+pipeline",
+    ),
+    (
+        &["depth"],
+        "thresholds",
+        "thresholds is set by depth_files(src, out=...): mosdepth's files are written to disk, not to a \
+pipeline",
+    ),
     // The step's inputs are its sources, not a list file.
     (
         &["vcf", "merge"],
