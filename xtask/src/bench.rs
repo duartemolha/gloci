@@ -430,6 +430,15 @@ pub fn record_sha256(text: &str, name: &str, hex: &str) -> Result<String> {
     Ok(out.join("\n") + "\n")
 }
 
+/// The input of `d` that is a build product of this machine (`repo:target/...`, such as the
+/// gloci binary), which only the host can run.
+fn host_build(d: &Derived) -> Option<&str> {
+    d.from
+        .iter()
+        .find(|f| f.starts_with("repo:target/"))
+        .map(String::as_str)
+}
+
 /// Build the derived input `d` (and what it needs) in `cache_dir`.
 ///
 /// The command runs with `LC_ALL=C` under `bash -o pipefail`, in `image`
@@ -445,6 +454,14 @@ pub fn ensure_derived(
 ) -> Result<PathBuf> {
     std::fs::create_dir_all(cache_dir)?;
     let out = cache_dir.join(&d.name);
+    if let (Some(img), Some(built), false) = (image, host_build(d), out.exists()) {
+        bail!(
+            "derived input {} runs {built}, built on this machine, which need not run inside the \
+image {img} (its C library can differ); derive it on the host with --no-docker, after cargo \
+build --release",
+            d.name
+        );
+    }
     let mut inputs = Vec::new();
     for f in &d.from {
         if let Some(dep) = cat.derived.iter().find(|x| x.name == *f) {
@@ -1983,6 +2000,29 @@ pub fn gloci_words(cmd: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_derived_input_run_by_a_host_build_refuses_the_image() {
+        let text =
+            std::fs::read_to_string(workspace_root().join("xtask/bench/datasets.toml")).unwrap();
+        let cat = Catalog::parse(&text).unwrap();
+        let ctcf = cat
+            .derived
+            .iter()
+            .find(|d| d.name == "ctcf-fc.bedgraph")
+            .unwrap();
+        assert_eq!(host_build(ctcf), Some("repo:target/release/gloci"));
+        let dir = tempfile::tempdir().unwrap();
+        let e = ensure_derived(&cat, ctcf, dir.path(), Some("bench-image"), false).unwrap_err();
+        assert!(e.to_string().contains("--no-docker"), "{e}");
+        assert!(!dir.path().join("ctcf-fc.bedgraph").exists());
+        let other = cat
+            .derived
+            .iter()
+            .find(|d| d.name == "exons.bed.gz")
+            .unwrap();
+        assert_eq!(host_build(other), None);
+    }
 
     #[test]
     fn digests() {

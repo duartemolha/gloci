@@ -413,6 +413,23 @@ fn region_read_clips_bigwig_records() {
     assert_eq!(String::from_utf8_lossy(&a.get_output().stdout), CLIPPED);
 }
 
+/// A relation's --region clips a bigWig A to the region, where BED A records stay whole.
+#[test]
+fn relation_region_clips_a_bigwig_a() {
+    let d = tempdir();
+    let bw = d.path().join("a.bw");
+    bigtools_bigwig(
+        &bw,
+        &[("chr1", 1000)],
+        &[("chr1", 0, 7, 1.5), ("chr1", 10, 17, 2.0)],
+    );
+    let bed = plain_file(d.path(), "a.bed", "chr1\t0\t7\t1.5\nchr1\t10\t17\t2\n");
+    let b = s(&plain_file(d.path(), "b.bed", "chr1\t0\t100\n"));
+    let run = |a: &Path| out(&["intersect", "-a", &s(a), "-b", &b, "--region", "chr1:4-12"]);
+    assert_eq!(run(&bw), "chr1\t3\t7\t1.5\nchr1\t10\t12\t2\n");
+    assert_eq!(run(&bed), "chr1\t0\t7\t1.5\nchr1\t10\t17\t2\n");
+}
+
 #[test]
 fn bigwig_record_spanning_two_regions_gives_two_pieces() {
     let d = tempdir();
@@ -1353,7 +1370,8 @@ fn genomecov_refused_bigwig_record_is_a_data_error() {
         .stderr(contains("32-bit float"));
     let err = String::from_utf8_lossy(&a.get_output().stderr).into_owned();
     assert!(!err.contains("free disk space"), "{err}");
-    assert!(!Path::new(&bw).exists());
+    // No output and no temporary file.
+    assert!(names(d.path()).is_empty(), "{:?}", names(d.path()));
 }
 
 #[test]

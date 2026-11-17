@@ -26,7 +26,6 @@ fn chrom_sizes_in_the_files_stored_order() {
         .into_iter()
         .map(|(n, l)| (String::from_utf8(n).unwrap(), l))
         .collect();
-    println!("{shown:?}");
     assert_eq!(
         shown,
         [

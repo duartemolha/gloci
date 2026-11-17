@@ -263,7 +263,7 @@ class Pipeline:
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
             header: Keep header lines in the output
             skip_invalid: Skip invalid records with a warning instead of failing
-            region: Restrict A to a region such as chr1:1,000-2,000 (repeatable). Only A is restricted, to the records that overlap a region (a point on the edge with --inclusive-points); B is read in full, so an A record reaching out of a region still meets B there.
+            region: Restrict A to a region such as chr1:1,000-2,000 (repeatable). Only A is restricted, to the records that overlap a region (a point on the edge with --inclusive-points); B is read in full, so a BED or bigBed A record reaching out of a region, which is kept whole, still meets B there. A bigWig A is clipped to the region: its signal over the region.
 
         CLI: gloci intersect
         """
@@ -353,7 +353,7 @@ class Pipeline:
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
             header: Keep header lines in the output
             skip_invalid: Skip invalid records with a warning instead of failing
-            region: Restrict A to a region such as chr1:1,000-2,000 (repeatable). Only A is restricted, to the records that overlap a region (a point on the edge with --inclusive-points); B is read in full, so an A record reaching out of a region still meets B there.
+            region: Restrict A to a region such as chr1:1,000-2,000 (repeatable). Only A is restricted, to the records that overlap a region (a point on the edge with --inclusive-points); B is read in full, so a BED or bigBed A record reaching out of a region, which is kept whole, still meets B there. A bigWig A is clipped to the region: its signal over the region.
 
         CLI: gloci subtract
         """
@@ -427,7 +427,7 @@ class Pipeline:
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
             header: Keep header lines in the output
             skip_invalid: Skip invalid records with a warning instead of failing
-            region: Restrict A to a region such as chr1:1,000-2,000 (repeatable). Only A is restricted, to the records that overlap a region (a point on the edge with --inclusive-points); B is read in full, so an A record reaching out of a region still meets B there.
+            region: Restrict A to a region such as chr1:1,000-2,000 (repeatable). Only A is restricted, to the records that overlap a region (a point on the edge with --inclusive-points); B is read in full, so a BED or bigBed A record reaching out of a region, which is kept whole, still meets B there. A bigWig A is clipped to the region: its signal over the region.
 
         CLI: gloci closest
         """
@@ -521,7 +521,7 @@ class Pipeline:
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
             header: Keep header lines in the output
             skip_invalid: Skip invalid records with a warning instead of failing
-            region: Restrict A to a region such as chr1:1,000-2,000 (repeatable). Only A is restricted, to the records that overlap a region (a point on the edge with --inclusive-points); B is read in full, so an A record reaching out of a region still meets B there.
+            region: Restrict A to a region such as chr1:1,000-2,000 (repeatable). Only A is restricted, to the records that overlap a region (a point on the edge with --inclusive-points); B is read in full, so a BED or bigBed A record reaching out of a region, which is kept whole, still meets B there. A bigWig A is clipped to the region: its signal over the region.
 
         CLI: gloci map
         """
@@ -611,7 +611,7 @@ class Pipeline:
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks, -g and the output all see the new names; -g itself is never renamed
             header: Keep header lines in the output
             skip_invalid: Skip invalid records with a warning instead of failing
-            region: Restrict A to a region such as chr1:1,000-2,000 (repeatable). Only A is restricted, to the records that overlap a region (a point on the edge with --inclusive-points); B is read in full, so an A record reaching out of a region still meets B there.
+            region: Restrict A to a region such as chr1:1,000-2,000 (repeatable). Only A is restricted, to the records that overlap a region (a point on the edge with --inclusive-points); B is read in full, so a BED or bigBed A record reaching out of a region, which is kept whole, still meets B there. A bigWig A is clipped to the region: its signal over the region.
 
         CLI: gloci coverage
         """

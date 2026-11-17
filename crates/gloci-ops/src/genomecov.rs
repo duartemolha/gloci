@@ -445,7 +445,6 @@ check that -g matches the genome build of the input",
     }
 }
 
-/// The `genome` rows of the histogram, from the bases per depth over all chromosomes.
 /// A failed `write_record`. A writer that refuses a record (a bigWig writer: a value outside
 /// float32, a record past its chromosome) says so with `InvalidData`: that is the data's fault,
 /// not the disk's, so it stays a data error naming the record. A writer that stopped with its
@@ -470,6 +469,7 @@ fn write_error(source: std::io::Error) -> IoError {
     }
 }
 
+/// The `genome` rows of the histogram, from the bases per depth over all chromosomes.
 fn write_genome_rows(
     w: &mut dyn RecordWriter,
     bins: &BTreeMap<u64, u64>,

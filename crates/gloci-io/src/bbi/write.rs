@@ -105,8 +105,9 @@ pub fn bbi_output_refusal(f: OutFormat) -> String {
 bigBed); write BED here (-o x.bed) and convert it with gloci convert x.bed -g GENOME -o x.bb"
             .to_string(),
         OutFormat::BigWig => {
-            "bigWig output is written only by gloci convert (from bedGraph, WIG or \
-bigWig) and gloci genomecov --bedgraph or --bga; write bedGraph here (-o x.bedgraph) and convert it"
+            "bigWig output is written only by gloci convert (from bedGraph, a 4-column \
+BED, WIG or bigWig) and gloci genomecov --bedgraph or --bga; write bedGraph here (-o x.bedgraph) \
+and convert it"
                 .to_string()
         }
         other => unreachable!(
@@ -691,6 +692,8 @@ impl Drop for BbiWriter {
 }
 
 impl crate::writer::RecordWriter for BbiWriter {
+    /// `io::ErrorKind::InvalidData` means a refused record, a data error (exit 1) naming it:
+    /// callers rely on that kind. Any other kind carries the writer's own `IoError`.
     fn write_record(&mut self, raw: &[u8]) -> std::io::Result<()> {
         self.push(raw).map_err(|e| match e {
             PushError::Record(m) => std::io::Error::new(

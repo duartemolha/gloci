@@ -153,9 +153,12 @@ A .bw or .bigwig output is a bigWig from bedGraph, a 4-column BED, WIG or bigWig
 must be a regular file; the chromosome sizes come from -g, else from the bigWig or bigBed \
 being converted. Each chromosome's records must be together and sorted by start (gloci \
 sort); a bigWig takes no overlaps and stores 32-bit floats. The first record sets a \
-bigBed's columns; --autosql FILE must agree, and a bigBed input keeps its own autoSql. A \
-record past its chromosome or on one -g lacks, an empty input and --write-index are \
-errors; the file is written whole or not at all.
+bigBed's columns; --autosql FILE must agree, and its leading fields that are BED's by name \
+and type are the standard columns; a bigBed input keeps its own autoSql and standard \
+columns. A record past its chromosome or on one -g lacks, an empty input and --write-index \
+are errors; --skip-invalid skips lines that do not parse, never a record the writer refuses \
+(a value NA or nan, an overlap). The file is checked, then renamed into place: written whole \
+or not at all.
 
 Order and output:
 The input is converted in its own order and needs no sorting. A conversion whose output \

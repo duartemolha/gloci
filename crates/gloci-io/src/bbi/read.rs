@@ -335,8 +335,9 @@ impl BbiReader {
         self.begin(walk)
     }
 
-    /// Open the query of `walk`'s current range. A bigBed query is widened by one base, so
-    /// that a record at a point is found; the records are filtered by §4.3 afterwards.
+    /// Open the query of `walk`'s current range. bigtools returns the records that touch it,
+    /// both ends included (a point at either end too), so bigBed records are filtered by §4.3
+    /// afterwards.
     fn begin(&mut self, walk: Walk) -> Result<(), IoError> {
         let (lo, hi) = match walk.ranges.get(walk.at) {
             None => (0, u32::MAX),
@@ -355,7 +356,7 @@ impl BbiReader {
                 .get_interval_move(&walk.file_name, lo, hi)
                 .map(Cursor::Wig),
             Source::Bed(r) => r
-                .get_interval_move(&walk.file_name, lo, hi.saturating_add(1))
+                .get_interval_move(&walk.file_name, lo, hi)
                 .map(Cursor::Bed),
         }
         .map_err(|e| invalid(&path, format, &e.to_string()))?;

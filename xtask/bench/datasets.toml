@@ -149,7 +149,8 @@ command = "bgzip -c {in} > {out} && tabix -p bed {out}"
 sha256 = "63f807c0cba04db8e5ab0a0c761f8f58a0e6933432e43e5b3b26558217f01724"
 
 [[derived]]
-# gloci reads the ENCODE bigWig itself (D171); build it first with cargo build --release.
+# gloci reads the ENCODE bigWig itself (D171): build it first with cargo build --release. A
+# binary built on the host need not run in the bench image, so derive this one with --no-docker.
 name = "ctcf-fc.bedgraph"
 from = ["encode-ctcf-k562-fc", "repo:target/release/gloci"]
 command = "{in2} convert {in} | sort -k1,1 -k2,2n -s > {out}"

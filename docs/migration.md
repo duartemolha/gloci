@@ -325,8 +325,10 @@ behaviour](#samtools-behaviour) after the tables.
 | `bigBedToBed in.bb out.bed` | `gloci convert in.bb -o out.bed` |
 | `bedGraphToBigWig in.bedGraph chrom.sizes out.bw` | `gloci convert in.bedgraph -g chrom.sizes -o out.bw` (any chromosome order with each chromosome contiguous; a 4-column BED without a track line is a bedGraph; values are stored as 32-bit floats, see [differences.md#bigwig-float32](differences.md#bigwig-float32)) |
 | `wigToBigWig in.wig chrom.sizes out.bw` | `gloci convert in.wig -g chrom.sizes -o out.bw` |
-| `bedToBigBed [-as=x.as] in.bed chrom.sizes out.bb` | `gloci convert in.bed -g chrom.sizes -o out.bb [--autosql x.as]` (bedN+M is found from the first record; no `-type`) |
+| `bedToBigBed [-as=x.as] in.bed chrom.sizes out.bb` | `gloci convert in.bed -g chrom.sizes -o out.bb [--autosql x.as]` (no `-type`: the standard columns are the autoSql's leading fields that are BED's by name and type, else found from the first record) |
+| `bedToBigBed` of a `bigBedToBed` output, with the same `-as` | `gloci convert in.bb -o out.bb` (the bigBed keeps its autoSql and its definedFieldCount unless `--autosql` replaces them; sizes from its header) |
 | `bigWigToBedGraph -chrom=chr1 -start=0 -end=1000 in.bw out` | `gloci view in.bw chr1:1-1000` (records clipped to the region; several regions and `--regions-file` work too) |
+| `bigBedToBed -chrom=chr1 -start=0 -end=1000 in.bb out` | `gloci view in.bb chr1:1-1000` (whole records that overlap the region, each once; several regions and `--regions-file` work too) |
 | `bedtools genomecov -ibam x.bam -bga \| bedGraphToBigWig - chrom.sizes cov.bw` | `gloci genomecov x.bam --bga -o cov.bw` (sizes from the BAM header, or `-g`; `--bedgraph` too) |
 | `bigWigAverageOverBed in.bw in.bed out.tab` | `gloci map -a in.bed -b in.bw -c 4:wsum -c 0:bases_uniq -c 4:wmean --empty 0` (the columns sum, covered and mean follow A's; size is `end - start` and mean0 is `sum / size`; A keeps its order and all its columns) |
 

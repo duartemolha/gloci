@@ -666,7 +666,7 @@ pub struct MapArgs {
 
 /// `--region` help in a relation command, where only A is restricted
 /// (applied with `mut_arg` on each relation command's args).
-const RELATION_REGION_HELP: &str = "Restrict A to a region such as chr1:1,000-2,000 (repeatable). Only A is restricted, to the records that overlap a region (a point on the edge with --inclusive-points); B is read in full, so an A record reaching out of a region still meets B there.";
+const RELATION_REGION_HELP: &str = "Restrict A to a region such as chr1:1,000-2,000 (repeatable). Only A is restricted, to the records that overlap a region (a point on the edge with --inclusive-points); B is read in full, so a BED or bigBed A record reaching out of a region, which is kept whole, still meets B there. A bigWig A is clipped to the region: its signal over the region.";
 
 /// The B inputs of a relation command.
 #[derive(Args, Debug, Clone)]
