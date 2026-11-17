@@ -135,8 +135,8 @@ description: Use gloci for genomic interval and variant operations (sorting, ind
   `gloci head reads.bam` · `gloci head reads.bam --headers 0 --records 5`
 - `gloci samples` (experimental): List the samples of the read groups of BAM, CRAM or SAM files (samtools samples)
   `gloci samples cohort.bam` · `gloci samples a.bam b.cram --show-index --column-names`
-- `gloci depth` (experimental): Depth of coverage of alignments at each position (samtools depth), or as a table per reference (samtools coverage)
-  `gloci depth sample.bam --skip-mate-overlap -o depth.tsv` · `gloci depth a.bam b.bam --column-names --min-mapq 20 --min-baseq 20`
+- `gloci depth` (experimental): Depth of coverage of alignments at each position (samtools depth), as a table per reference (samtools coverage), or as mosdepth's coverage files (mosdepth)
+  `gloci depth sample.bam --skip-mate-overlap -o depth.tsv` · `gloci depth sample.bam --by targets.bed --thresholds 1,10,20 --out-prefix sample`
 - `gloci bedcov` (experimental): Depth of coverage summed over each BED region (samtools bedcov)
   `gloci bedcov targets.bed sample.bam` · `gloci bedcov targets.bed a.bam b.bam --bases-at-depth 10 --read-count --column-names`
 - `gloci reheader` (experimental): Replace the header of a BAM or CRAM file without decoding its records (samtools reheader)

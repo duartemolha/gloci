@@ -221,6 +221,14 @@ behaviour](#samtools-behaviour) after the tables.
 | `samtools view -H FILE \| sed ... \| samtools reheader -c`, `samtools reheader -c CMD IN.bam` | `gloci view --header-only IN.bam \| sed ... \| gloci reheader - IN.bam -o OUT.bam` (`-c CMD` is not available; the pipe is its replacement) |
 | `samtools markdup`, `fixmate`, `calmd`, `mpileup`, `consensus`, `stats`, `ampliconclip`, `fqidx`, `faidx --fastq` / `-f`, `-X` / `--fai-idx` / `--gzi-idx`, `depth -f` and `--incl-flags` / `-d` / `-m`, `bedcov --max-depth`, `samples -F` | not planned (for `samples -F`, repeat `--match-reference`; the other options have no counterpart) |
 
+### mosdepth
+
+| mosdepth | gloci |
+|---|---|
+| `mosdepth -n [--by BED\|N] [-T N,...] [-Q N] [-F N] [-t N] P in.bam` | `gloci depth in.bam --out-prefix P [--by BED\|N] [--thresholds N,...] [--min-mapq N] [--exclude-flags F] [-t N]` (the same files under the same names, byte for byte; `-F 1796` is the default, as `--exclude-flags UNMAP,SECONDARY,QCFAIL,DUP`; the input needs no index and may be CRAM or SAM; each `.bed.gz` has a `.csi`. Output differs only where [differences.md#mosdepth-contained-mate](differences.md#mosdepth-contained-mate), [differences.md#mosdepth-mate-table](differences.md#mosdepth-mate-table), [differences.md#mosdepth-past-reference-end](differences.md#mosdepth-past-reference-end), [differences.md#mosdepth-bed-blank-line](differences.md#mosdepth-bed-blank-line), [differences.md#mosdepth-csi-preset](differences.md#mosdepth-csi-preset) and [differences.md#mosdepth-thresholds-zero](differences.md#mosdepth-thresholds-zero) say) |
+| mosdepth's per-base file (`P.per-base.bed.gz`) | `gloci depth in.bam --all-references` (one row per position), or runs with `gloci genomecov in.bam --bga --split-deletions --exclude-flags UNMAP,SECONDARY,QCFAIL,DUP` (without mosdepth's mate correction) |
+| `--quantize`, `--use-median`, `--fast-mode`, `--chrom`, `--read-groups`, `--include-flag`, `--min-frag-len`, `--max-frag-len`, `MOSDEPTH_PRECISION` | not available |
+
 ### bedops
 
 | bedops | gloci |

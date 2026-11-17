@@ -185,19 +185,19 @@ pub struct SamplesArgs {
     pub output: Option<PathBuf>,
 }
 
-/// Depth of coverage of alignments at each position (samtools depth), or as a table per reference
-/// (samtools coverage).
+/// Depth of coverage of alignments at each position (samtools depth), as a table per reference
+/// (samtools coverage), or as mosdepth's coverage files (mosdepth).
 ///
 /// Reads BAM, CRAM or SAM files (CRAM needs --reference) in coordinate order and prints "chrom,
 /// 1-based position, depth" for each position covered by a passing read in any input, with one depth
 /// column per input in the order given, references in @SQ order. Inputs must have identical @SQ lists
 /// (exit 1, naming the first difference; samtools compares reference ids unchecked).
 #[derive(Args)]
-#[command(about = "Depth of alignments (samtools depth, coverage)")]
+#[command(about = "Depth of alignments (samtools depth, coverage, mosdepth)")]
 #[command(after_long_help = "\
 Examples:
   gloci depth sample.bam --skip-mate-overlap -o depth.tsv
-  gloci depth a.bam b.bam --column-names --min-mapq 20 --min-baseq 20
+  gloci depth sample.bam --by targets.bed --thresholds 1,10,20 --out-prefix sample
   gloci depth sample.bam --region chr1:100,000-200,000 --all-positions
   gloci depth sample.bam --summary
 
@@ -225,6 +225,17 @@ Summary:
 covbases coverage meandepth meanbaseq meanmapq. Several FILEs give one table. References no \
 counted read reaches come last. Here --min-read-length counts soft clips (the CIGAR's M, I, S, \
 = and X), and D and N bases never count. --region gives the one row of that window.
+
+Coverage files (--out-prefix P):
+Writes mosdepth's files for one FILE: P.mosdepth.global.dist.txt and P.mosdepth.summary.txt, \
+and with --by also P.mosdepth.region.dist.txt and P.regions.bed.gz (each region's mean depth), \
+with --thresholds also P.thresholds.bed.gz (bases at least N deep per region); the .bed.gz \
+files are BGZF with a .csi. --by BED keeps a fourth column as the region's name; --by SIZE \
+makes windows of that many bases. The defaults are mosdepth's: the same --exclude-flags and \
+--min-mapq as here (--min-baseq, --min-read-length, --require-flags and --region are not \
+available). The bases both mates of a proper pair cover count once, by mosdepth's rule, without \
+--skip-mate-overlap. Memory follows the longest read and the BED, not the reference; -t never \
+changes the files.
 
 Reads and mates:
 A read past the end of its reference is cut there with one warning, where samtools prints \
@@ -294,6 +305,26 @@ pub struct DepthArgs {
         ]
     )]
     pub summary: bool,
+    /// Write mosdepth's coverage files for the one FILE: P.mosdepth.global.dist.txt,
+    /// P.mosdepth.summary.txt and, with --by, P.mosdepth.region.dist.txt and P.regions.bed.gz.
+    #[arg(
+        long,
+        value_name = "P",
+        conflicts_with_all = [
+            "summary", "output", "all_positions", "all_references", "count_deletions",
+            "skip_mate_overlap", "column_names", "region", "regions_file", "min_baseq",
+            "min_read_length", "require_flags"
+        ]
+    )]
+    pub out_prefix: Option<PathBuf>,
+    /// With --out-prefix, the regions of the region files: a BED file (a fourth column names the
+    /// region), or a window size in bases.
+    #[arg(long, value_name = "BED|SIZE", requires = "out_prefix")]
+    pub by: Option<String>,
+    /// With --by, also write P.thresholds.bed.gz: for each region, the bases covered by at least N
+    /// reads, for each N (each at least 1).
+    #[arg(long, value_name = "N,...", requires = "by", value_delimiter = ',')]
+    pub thresholds: Vec<u32>,
     #[command(flatten)]
     pub region: RegionArgs,
     #[command(flatten)]

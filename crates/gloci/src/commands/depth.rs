@@ -7,13 +7,16 @@ use gloci_io::{
     open_output, parse_flags,
 };
 use gloci_ops::depth::{
-    AllPositions, CountRules, CoverageOptions, DepthOptions, coverage_summary, depth_regions,
-    depth_sources, open_depth_inputs,
+    AllPositions, By, CountRules, CoverageOptions, DepthOptions, MosdepthOptions, coverage_summary,
+    depth_regions, depth_sources, mosdepth_files, open_depth_inputs,
 };
 
 pub fn run(ctx: &Ctx, a: &DepthArgs) -> anyhow::Result<()> {
     let flags =
         |name: &str, v: &str| parse_flags(v).map_err(|e| UsageError(format!("{name}: {e}")));
+    if let Some(prefix) = &a.out_prefix {
+        return run_files(ctx, a, prefix, flags);
+    }
     let align = AlignOptions {
         min_mapq: a.min_mapq,
         require_flags: match &a.require_flags {
@@ -139,5 +142,74 @@ fn run_summary(
     let mut out = open_output(spec, OutFormat::Tsv, &oo)?;
     coverage_summary(inputs, &a.files, &o, ro, &mut out).map_err(|e| e.with_output_name(&dest))?;
     out.finish()?;
+    Ok(())
+}
+
+/// `--out-prefix`: mosdepth's files. The reader filters nothing: the depth core applies
+/// `--exclude-flags` and `--min-mapq` after it notes each record's reference (D173).
+fn run_files(
+    ctx: &Ctx,
+    a: &DepthArgs,
+    prefix: &std::path::Path,
+    flags: impl Fn(&str, &str) -> Result<u16, UsageError>,
+) -> anyhow::Result<()> {
+    if a.files.len() != 1 {
+        return Err(
+            UsageError("--out-prefix writes the files of one FILE, as mosdepth".into()).into(),
+        );
+    }
+    let by = match a.by.as_deref() {
+        None => By::Nothing,
+        Some(s) if !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) => {
+            By::Windows(s.parse().map_err(|_| {
+                UsageError(format!("--by {s}: a window size that large is not a size"))
+            })?)
+        }
+        Some(s) => By::Bed(s.to_string()),
+    };
+    if a.thresholds.contains(&0) {
+        return Err(UsageError(
+            "--thresholds 0: every base has depth at least 0; use 1 or more".into(),
+        )
+        .into());
+    }
+    let mut thresholds = a.thresholds.clone();
+    thresholds.sort_unstable();
+    let o = MosdepthOptions {
+        prefix: prefix.to_path_buf(),
+        by,
+        thresholds,
+        exclude_flags: flags("--exclude-flags", &a.exclude_flags)?,
+        min_mapq: a.min_mapq,
+    };
+    let ro = ReaderOptions {
+        accept: Accept {
+            alignments: Some(AlignOptions {
+                min_mapq: 0,
+                require_flags: 0,
+                exclude_flags: 0,
+                full_records: false,
+                reference: a.reference.clone(),
+                score_tag: None,
+            }),
+            ..Accept::default()
+        },
+        chrom_map: a.chrom_map.load()?,
+        threads: ctx.threads,
+        format: None,
+        vcf_span: gloci_core::VcfSpan::default(),
+        invalid: if a.invalid.skip_invalid {
+            InvalidPolicy::Skip
+        } else {
+            InvalidPolicy::Fail
+        },
+    };
+    let mut inputs = open_depth_inputs(&a.files, &ro, ctx.threads)?;
+    let oo = OutputOptions {
+        threads: ctx.threads,
+        level: 6,
+        write_index: false,
+    };
+    mosdepth_files(inputs.remove(0), &a.files[0], &o, &ro, &oo)?;
     Ok(())
 }

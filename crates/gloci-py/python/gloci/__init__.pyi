@@ -1155,13 +1155,16 @@ class Pipeline:
         reference: Source | None = None,
         skip_mate_overlap: bool = False,
         summary: bool = False,
+        out_prefix: str | int | float | os.PathLike[str] | None = None,
+        by: str | int | float | os.PathLike[str] | None = None,
+        thresholds: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         region: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         regions_file: Source | None = None,
         chrom_map: Source | None = None,
         column_names: bool = False,
         skip_invalid: bool = False,
     ) -> Pipeline:
-        """Depth of coverage of alignments at each position (samtools depth), or as a table per reference (samtools coverage)
+        """Depth of coverage of alignments at each position (samtools depth), as a table per reference (samtools coverage), or as mosdepth's coverage files (mosdepth)
 
         Args:
             all_positions: Also print every position of each reference that has a passing read (samtools -a)
@@ -1175,6 +1178,9 @@ class Pipeline:
             reference: The FASTA a CRAM input was made with, with its .fai. Not needed for a CRAM written without a reference
             skip_mate_overlap: Count each base of an overlapping mate pair once, per input: a read whose mate was already seen starts counting where the mate ends (samtools -s). Reads with an unknown mate position are never held, so unlike samtools a later alignment with the same name is not clipped by a stale entry
             summary: Print one row per reference instead of one per position, as samtools coverage: reads, covered bases, mean depth, mean base and mapping quality. With --region, one row for that region
+            out_prefix: Write mosdepth's coverage files for the one FILE: P.mosdepth.global.dist.txt, P.mosdepth.summary.txt and, with --by, P.mosdepth.region.dist.txt and P.regions.bed.gz
+            by: With --out-prefix, the regions of the region files: a BED file (a fourth column names the region), or a window size in bases
+            thresholds: With --by, also write P.thresholds.bed.gz: for each region, the bases covered by at least N reads, for each N (each at least 1)
             region: Restrict to a region such as chr1:1,000-2,000 (repeatable)
             regions_file: Read regions from FILE (BED: 0-based, half-open); see --region
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks and the output see the new names

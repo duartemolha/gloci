@@ -204,6 +204,7 @@ fn long_summary_names_every_tool_of_the_short_one() {
         "bedtools",
         "bedops",
         "samtools",
+        "mosdepth",
         "bcftools",
         "vcftools",
         "tabix",

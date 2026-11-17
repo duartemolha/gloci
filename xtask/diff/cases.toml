@@ -11629,3 +11629,62 @@ gloci = "gloci depth input.bam --summary --region chrZ:1-10"
 reference = "samtools coverage -r chrZ:1-10 input.bam"
 compare = "exit-status"
 expected_difference = "#samtools-exit-codes"
+
+# depth --out-prefix (D173) vs mosdepth 0.3.10
+# gloci writes mosdepth's files; both sides print the dist, summary and region files (and the thresholds).
+# The committed mosdepth outputs of crates/gloci/tests/depth_files.rs cover the rest of the matrix.
+
+[[case]]
+name = "depth-files-window-vs-mosdepth"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --by 100 --out-prefix o && cat o.mosdepth.global.dist.txt o.mosdepth.region.dist.txt o.mosdepth.summary.txt && zcat o.regions.bed.gz"
+reference = "samtools index input.bam && mosdepth -n --by 100 o input.bam && cat o.mosdepth.global.dist.txt o.mosdepth.region.dist.txt o.mosdepth.summary.txt && zcat o.regions.bed.gz"
+compare = "exact"
+
+[[case]]
+name = "depth-files-targets-thresholds-vs-mosdepth"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+aux = ["xtask/diff/inputs/samtools/targets.bed"]
+gloci = "gloci depth input.bam --by targets.bed --thresholds 1,2,10 --out-prefix o && cat o.mosdepth.global.dist.txt o.mosdepth.region.dist.txt o.mosdepth.summary.txt && zcat o.regions.bed.gz && zcat o.thresholds.bed.gz"
+reference = "samtools index input.bam && mosdepth -n --by targets.bed -T 1,2,10 o input.bam && cat o.mosdepth.global.dist.txt o.mosdepth.region.dist.txt o.mosdepth.summary.txt && zcat o.regions.bed.gz && zcat o.thresholds.bed.gz"
+compare = "exact"
+
+[[case]]
+name = "depth-files-pairs-bed-vs-mosdepth"
+input = { file = "xtask/diff/inputs/samtools/mosdepth.bam" }
+aux = ["xtask/diff/inputs/samtools/mosdepth.bed"]
+gloci = "gloci depth input.bam --min-mapq 20 --by mosdepth.bed --out-prefix o && cat o.mosdepth.global.dist.txt o.mosdepth.region.dist.txt o.mosdepth.summary.txt && zcat o.regions.bed.gz"
+reference = "samtools index input.bam && mosdepth -n -Q 20 --by mosdepth.bed o input.bam && cat o.mosdepth.global.dist.txt o.mosdepth.region.dist.txt o.mosdepth.summary.txt && zcat o.regions.bed.gz"
+compare = "exact"
+
+[[case]]
+name = "depth-files-contained-mate-vs-mosdepth"
+input = { file = "xtask/diff/inputs/samtools/mates.bam" }
+gloci = "gloci depth input.bam --by 100 --out-prefix o && cat o.mosdepth.global.dist.txt o.mosdepth.region.dist.txt o.mosdepth.summary.txt && zcat o.regions.bed.gz"
+reference = "samtools index input.bam && mosdepth -n --by 100 o input.bam && cat o.mosdepth.global.dist.txt o.mosdepth.region.dist.txt o.mosdepth.summary.txt && zcat o.regions.bed.gz"
+compare = "exact"
+expected_difference = "#mosdepth-contained-mate"
+
+[[case]]
+name = "depth-files-past-end-vs-mosdepth"
+input = { file = "xtask/diff/inputs/samtools/depth-pastend.bam" }
+gloci = "gloci depth input.bam --by 100 --out-prefix o && cat o.mosdepth.global.dist.txt o.mosdepth.region.dist.txt o.mosdepth.summary.txt && zcat o.regions.bed.gz"
+reference = "samtools index input.bam && mosdepth -n --by 100 o input.bam && cat o.mosdepth.global.dist.txt o.mosdepth.region.dist.txt o.mosdepth.summary.txt && zcat o.regions.bed.gz"
+compare = "exit-status"
+expected_difference = "#mosdepth-past-reference-end"
+
+[[case]]
+name = "depth-files-csi-preset-vs-mosdepth"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --by 100 --out-prefix o && cat o.mosdepth.global.dist.txt o.mosdepth.region.dist.txt o.mosdepth.summary.txt && zcat o.regions.bed.gz && tabix o.regions.bed.gz chr1:1-100"
+reference = "samtools index input.bam && mosdepth -n --by 100 o input.bam && cat o.mosdepth.global.dist.txt o.mosdepth.region.dist.txt o.mosdepth.summary.txt && zcat o.regions.bed.gz && tabix o.regions.bed.gz chr1:1-100"
+compare = "exact"
+expected_difference = "#mosdepth-csi-preset"
+
+[[case]]
+name = "depth-files-threshold-zero-vs-mosdepth"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --by 100 --thresholds 0 --out-prefix o"
+reference = "samtools index input.bam && mosdepth -n --by 100 -T 0 o input.bam"
+compare = "exit-status"
+expected_difference = "#mosdepth-thresholds-zero"

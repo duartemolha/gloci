@@ -1,0 +1,7 @@
+#chrom	start	end	region	1X	2X	10X
+chr1	5	30	unknown	20	11	0
+chr1	20	45	unknown	14	5	0
+chr1	95	130	unknown	0	0	0
+chr1	170	180	unknown	0	0	0
+chr1	460	480	unknown	0	0	0
+chr3	10	20	unknown	0	0	0

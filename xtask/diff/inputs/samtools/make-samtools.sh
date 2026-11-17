@@ -276,3 +276,12 @@ samtools index -@ 0 mosdepth-stale.bam
 # mosdepth.bed and mosdepth-blank.bed are hand-written (not generated here): the --by FILE
 # targets of the mosdepth cases, with comment, track, browser, blank and CRLF lines, a name-less
 # line, same-start regions, an empty region, and a chromosome the header lacks.
+
+# mosdepth-means.sam: windows of 200 whose exact means end in 5 at the third decimal (11/200, 25/200);
+# mosdepth's base-by-base sum prints 0.05 and 0.13.
+{
+  printf '@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:c\tLN:400\n'
+  printf 'r1\t0\tc\t1\t60\t11M\t*\t0\t0\t*\t*\nr2\t0\tc\t201\t60\t25M\t*\t0\t0\t*\t*\n'
+} > mosdepth-means.sam
+samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o mosdepth-means.bam mosdepth-means.sam
+samtools index -@ 0 mosdepth-means.bam

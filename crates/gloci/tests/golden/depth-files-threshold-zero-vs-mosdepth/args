@@ -1,0 +1,1 @@
+depth input.bam --by 100 --thresholds 0 --out-prefix o

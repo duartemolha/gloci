@@ -1,0 +1,10 @@
+chr1	3	0.02
+chr1	2	0.12
+chr1	1	0.38
+chr1	0	1.00
+chr2	1	0.20
+chr2	0	1.00
+total	3	0.01
+total	2	0.07
+total	1	0.31
+total	0	1.00

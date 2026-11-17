@@ -1,0 +1,10 @@
+#chrom	start	end	region	1X	2X
+chr1	100	180	p	80	0
+chr1	200	260	q	60	0
+chr1	200	210	q-head	10	0
+chr1	500	550	unknown	50	0
+chr1	650	650	point	0	0
+chr1	700	800	v	70	20
+chr2	0	300	dups2	0	0
+chr3	0	200	empty3	0	0
+chr4	5000	5001	deep	1	1

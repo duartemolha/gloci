@@ -3707,3 +3707,79 @@ cases (must match).
 - **Reason:** one meaning for the option across the commands; `--rf` with one
   flag, which is the common use, gives the same result.
 - **Pinned by:** `depth-summary-require-any-vs-samtools` (must differ).
+
+## `depth --out-prefix` counts a mate that lies inside its pair's first read {#mosdepth-contained-mate}
+
+- **gloci:** a read of a proper pair whose mate was held does not count the bases the
+  held segments cover, and counts the rest, whatever the two CIGARs are.
+- **Old behaviour:** for two one-operation CIGARs mosdepth takes a shortcut and
+  subtracts everything up to the first mate's end, even when the second mate ends
+  before it. The bases of the first mate beyond the second mate's end are lost,
+  and a window there reports `0.00` (a pair of 200M and 50M that starts at 401
+  gives mosdepth `0.00` for the window 500-600 where the first read still covers
+  it).
+- **Reason:** the depth at a base is the number of reads (pairs count once) that
+  cover it; the shortcut undercounts it.
+- **Pinned by:** `files_match_mosdepth` (case `mates-contained`, which pins gloci's
+  files in `tests/mosdepth/mates-contained/gloci`) and `depth-files-contained-mate-vs-mosdepth`
+  (must differ).
+
+## `depth --out-prefix` forgets a waiting mate once the reads are past it {#mosdepth-mate-table}
+
+- **gloci:** a waiting mate is dropped as soon as a read starts past its mate
+  position, and at a reference change, so the table of waiting mates grows with
+  the depth only.
+- **Old behaviour:** mosdepth keeps its entries to the end of the chromosome. A later
+  alignment of the same name that passes the filter (a secondary one, with `-F 1540`)
+  takes the stale entry and is clipped by a mate that is no longer near it. On
+  `mosdepth-stale.bam` the windows 100-200 and 200-300 read `1.10` and `1.00` in
+  mosdepth, and `0.60` and `0.00` in gloci.
+- **Reason:** a table that keeps every unmatched name is as large as the reads of
+  a chromosome, which breaks the flat-memory rule (D138), and the stale match is
+  a wrong answer.
+- **Pinned by:** `files_match_mosdepth` (case `stale-pair-entry`; gloci's files are
+  in `tests/mosdepth/stale-pair-entry/gloci`).
+
+## `depth --out-prefix` cuts a read at the end of its reference {#mosdepth-past-reference-end}
+
+- **gloci:** a read that ends past `LN` is cut there, with one warning, and the run
+  succeeds.
+- **Old behaviour:** mosdepth stops with `index 309 not in 0 .. 300 [IndexDefect]`
+  (exit 1) and leaves a truncated `regions.bed.gz`.
+- **Reason:** the same as for `depth` itself (D137); a crash helps nobody.
+- **Pinned by:** the cargo test `past_reference_end_is_cut_with_one_warning` and
+  `depth-files-past-end-vs-mosdepth` (exit status: must differ).
+
+## `depth --out-prefix --by FILE` skips a blank line {#mosdepth-bed-blank-line}
+
+- **gloci:** a blank line of the BED is skipped, as comment, `track` and `browser`
+  lines are, and the regions after it are used.
+- **Old behaviour:** mosdepth stops reading the BED at the first blank line: the
+  regions after it are silently left out.
+- **Reason:** the regions of a BED file are all of its lines; stopping early gives
+  a table that looks complete.
+- **Pinned by:** `files_match_mosdepth` (case `bed-blank-line`; gloci's files are in
+  `tests/mosdepth/bed-blank-line/gloci`).
+
+## The `.csi` of `depth --out-prefix` has the BED preset {#mosdepth-csi-preset}
+
+- **gloci:** `regions.bed.gz.csi` and `thresholds.bed.gz.csi` are CSI indexes with
+  min_shift 14 and the BED preset (0-based start), as `gloci index` writes them, so
+  `tabix FILE.bed.gz chr1:1-100` returns the rows that overlap bases 1 to 100.
+- **Old behaviour:** mosdepth writes a `.csi` with the generic 1-based preset, so
+  tabix reads the 0-based starts as 1-based and also returns the row that starts at
+  100 (`chr1 100 200 0.03` in `depth.bam --by 100`).
+- **Reason:** the file is a BED, and the index must say so.
+- **Pinned by:** the cargo test `files_have_a_csi_with_the_bed_preset` and
+  `depth-files-csi-preset-vs-mosdepth` (must differ).
+
+## `depth --thresholds 0` is a usage error {#mosdepth-thresholds-zero}
+
+- **gloci:** a threshold of 0 exits 2 before any file is written.
+- **Old behaviour:** `mosdepth -T 0` counts the bases at depth 0 or more
+  (every base) on references that have records, and writes 0 on references with none,
+  so the `0X` column is not a count of anything.
+- **Reason:** every base has depth at least 0, so the column carries no
+  information, and its values are inconsistent.
+- **Pinned by:** the cargo test `usage_errors` and `depth-files-threshold-zero-vs-mosdepth`
+  (exit status: must differ).
