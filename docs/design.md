@@ -503,7 +503,7 @@ How the old commands map onto `partition`:
 
 **`gloci view FILE [REGION...]`** — P0. Replaces bedops `bedextract`, `tabix` region queries, and vcftools `--recode` as a pure format conversion.
 
-- Region queries use the index if one exists.
+- Region queries use the index if one exists. A bigWig or bigBed is always read through its own index: bigWig records are clipped to each region, bigBed records are whole and kept once when they overlap a region under Section 4.3. **[D171]**
 - On **uncompressed** BED without an index, gloci scans the file and checks its order, so an unsorted file is an error and never a wrong answer. With `--assume-sorted`, regions are found by binary search on the file instead, like bedextract. This is fast, but it checks only the chromosome block it reads, so it trusts the user that the file is sorted. Indexing (`gloci sort … -o x.bed.gz --write-index`) gives both speed and safety. **[you: correctness first; revised 2026-11-07]**
 - Also handles format conversion (`-O vcf.gz|bcf|...`), `--header-only` and `--no-header`.
 - **`view` on alignments (BAM, SAM, CRAM)** **[D116]** converts BAM↔SAM and CRAM→BAM/SAM (as `-O` or the `-o` extension say; the input's format by default, BAM for CRAM) and writes every record, unmapped reads included (D120), with an `@PG` line added. `--header-only`, `--no-header` (SAM output only) and the read filters apply. Regions are read through the index (`.bai`, `.csi`, `.crai`) or by scanning, with a warning, and select by Section 4.3 on the D101 span; a placed unmapped read spans `[pos, pos+1)`, as samtools finds it. The `.bai` and `.crai` answers for a region past a reference's `LN` differ as samtools' do. It is not `samtools view`: there is no `-b`, `-h`, `-c` or `-L`. **[D116]**

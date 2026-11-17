@@ -12107,3 +12107,12 @@ aux = ["xtask/diff/inputs/bigwig/bbi_dump.py"]
 gloci = "gloci view input.bw"
 reference = "python3 -I bbi_dump.py --lex input.bw"
 compare = "exact"
+
+[[case]]
+name = "bigwig-region-vs-pybigwig"
+input = { file = "xtask/diff/inputs/bigwig/pybigwig.bw" }
+aux = ["xtask/diff/inputs/bigwig/bbi_dump.py"]
+# chr1 [50,150) cuts two bedGraph records; chr2 [11,31) cuts variableStep records at both ends.
+gloci = "gloci view input.bw chr1:51-150 chr2:12-31"
+reference = "python3 -I bbi_dump.py --region chr1:51-150 --region chr2:12-31 input.bw"
+compare = "exact"

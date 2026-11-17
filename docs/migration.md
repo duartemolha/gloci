@@ -323,6 +323,7 @@ behaviour](#samtools-behaviour) after the tables.
 |---|---|
 | `bigWigToBedGraph in.bw out.bedGraph` | `gloci convert in.bw -o out.bedgraph` (rows in the file's own chromosome order; `gloci view in.bw` gives lexicographic order, `--chrom-order karyotype` gives karyotype order) |
 | `bigBedToBed in.bb out.bed` | `gloci convert in.bb -o out.bed` |
+| `bigWigToBedGraph -chrom=chr1 -start=0 -end=1000 in.bw out` | `gloci view in.bw chr1:1-1000` (records clipped to the region; several regions and `--regions-file` work too) |
 
 bigWig and bigBed are experimental input formats (D171): gloci reads them from a file only, never from standard input, through the file's own index.
 

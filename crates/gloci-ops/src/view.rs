@@ -20,9 +20,9 @@ use gloci_io::{
     InvalidPolicy, IoError, Opened, OrderGuard, OutFormat, OutputOptions, OutputSpec,
     ReaderOptions, RecordBatch, RecordMeta, RecordReader, UsageError, WriterOptions,
     alignment_query_span, aln_ref, check_family, chrom_table_lenient, convert_variants, find_index,
-    index_reference_names, next_batch_size, open_headerless_writer, open_output, open_reader,
-    open_reader_or_alignments, open_record_writer, open_region_reader, refuse_binary_to_tty,
-    resolve_genome,
+    index_reference_names, next_batch_size, open_bbi_regions, open_headerless_writer, open_output,
+    open_reader, open_reader_or_alignments, open_record_writer, open_region_reader,
+    refuse_binary_to_tty, resolve_genome,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::IsTerminal;
@@ -236,8 +236,8 @@ fn resolve_regions(
     opts: &ViewOptions,
     ro: &ReaderOptions,
     genome: Option<(&OrderSource, &Genome)>,
-    file: Option<&Path>,
-    index: Option<&IndexInfo>,
+    indexed: Option<(&Path, &IndexInfo)>,
+    bbi_names: Option<Vec<Vec<u8>>>,
 ) -> Result<Wanted, IoError> {
     // The chromosomes the file can have, when that is known before reading
     // it, and what to name in warnings about the others.
@@ -246,7 +246,7 @@ fn resolve_regions(
     // The list is complete when an index or a genome gives it; a VCF header
     // may omit contigs that records use, which htslib accepts.
     let mut complete = genome.is_some();
-    if let (Some(p), Some(info)) = (file, index) {
+    if let Some((p, info)) = indexed {
         // The index lists the file's own names; regions use the renamed ones.
         let map = ro.chrom_map.as_deref();
         known.extend(
@@ -254,6 +254,12 @@ fn resolve_regions(
                 .into_iter()
                 .map(|n| map.map_or(n.clone(), |m| m.rename(&n).to_vec())),
         );
+        known_in = Some(name.to_string());
+        complete = true;
+    }
+    if let Some(names) = bbi_names {
+        // A bigWig or bigBed lists its own chromosomes; regions use the renamed ones.
+        known.extend(names);
         known_in = Some(name.to_string());
         complete = true;
     }
@@ -349,15 +355,41 @@ fn select(
         None => None,
     };
 
+    // A bigWig or bigBed is read through its own index (D171).
+    let bbi_file = file.filter(|_| format.is_bbi());
+    let bbi_names = match bbi_file {
+        Some(p) => {
+            let map = ro.chrom_map.as_deref();
+            let names = gloci_io::bbi_chrom_sizes(&p.to_string_lossy())?;
+            Some(
+                names
+                    .into_iter()
+                    .map(|(n, _)| map.map_or(n.clone(), |m| m.rename(&n).to_vec()))
+                    .collect(),
+            )
+        }
+        None => None,
+    };
+
     let Wanted {
         wanted,
         sets,
         complete,
-    } = resolve_regions(&name, &header, opts, ro, genome, file, index.as_ref())?;
+    } = resolve_regions(
+        &name,
+        &header,
+        opts,
+        ro,
+        genome,
+        file.zip(index.as_ref()),
+        bbi_names,
+    )?;
 
     let mut warn_unseen = false;
     let src = if wanted.is_empty() {
         Src::Empty
+    } else if let Some(p) = bbi_file {
+        Src::Indexed(open_bbi_regions(p, &wanted, ro, opts.inclusive_points)?)
     } else if let (Some(p), Some(_)) = (file, &index) {
         Src::Indexed(open_region_reader(p, &wanted, ro, opts.inclusive_points)?)
     } else if let Some(p) = file.filter(|_| {

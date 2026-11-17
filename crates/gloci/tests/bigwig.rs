@@ -385,3 +385,146 @@ fn truncated_bigbed_and_format_override_and_missing_chromosome() {
         .code(1)
         .stderr(contains("chr10"));
 }
+
+fn two_record_bigwig(dir: &Path) -> String {
+    let p = dir.join("r.bw");
+    bigtools_bigwig(
+        &p,
+        &[("chr1", 1000)],
+        &[("chr1", 0, 100, 1.5), ("chr1", 100, 200, 0.25)],
+    );
+    s(&p)
+}
+
+const CLIPPED: &str = "chr1\t50\t100\t1.5\nchr1\t100\t150\t0.25\n";
+
+/// stderr must never carry the advice for a text file.
+fn no_text_advice(a: assert_cmd::assert::Assert) -> assert_cmd::assert::Assert {
+    a.stderr(predicates::str::contains("scanning the whole file").not())
+        .stderr(predicates::str::contains("gloci sort").not())
+}
+
+#[test]
+fn region_read_clips_bigwig_records() {
+    let d = tempdir();
+    let r = two_record_bigwig(d.path());
+    let a = gloci().args(["view", &r, "chr1:51-150"]).assert().success();
+    let a = no_text_advice(a);
+    assert_eq!(String::from_utf8_lossy(&a.get_output().stdout), CLIPPED);
+}
+
+#[test]
+fn bigwig_record_spanning_two_regions_gives_two_pieces() {
+    let d = tempdir();
+    let p = d.path().join("s.bw");
+    bigtools_bigwig(&p, &[("chr1", 1000)], &[("chr1", 0, 100, 1.5)]);
+    assert_eq!(
+        out(&["view", &s(&p), "chr1:11-20", "chr1:31-40"]),
+        "chr1\t10\t20\t1.5\nchr1\t30\t40\t1.5\n"
+    );
+}
+
+#[test]
+fn bigbed_region_returns_whole_records_once() {
+    let d = tempdir();
+    let p = d.path().join("w.bb");
+    bigtools_bigbed(&p, &[("chr1", 5000)], &[("chr1", 10, 2000, "big")]);
+    let a = gloci()
+        .args(["view", &s(&p), "chr1:21-30", "chr1:1001-1010"])
+        .assert()
+        .success();
+    let a = no_text_advice(a);
+    assert_eq!(
+        String::from_utf8_lossy(&a.get_output().stdout),
+        "chr1\t10\t2000\tbig\n"
+    );
+}
+
+#[test]
+fn bigbed_region_excludes_bookended() {
+    let d = tempdir();
+    let p = d.path().join("x.bb");
+    bigtools_bigbed(&p, &[("chr1", 5000)], &[("chr1", 0, 10, "x")]);
+    assert_eq!(out(&["view", &s(&p), "chr1:11-20"]), "");
+}
+
+#[test]
+fn regions_file_reads_bigwig() {
+    let d = tempdir();
+    let r = two_record_bigwig(d.path());
+    let reg = plain_file(d.path(), "reg.bed", "chr1\t50\t150\n");
+    let a = gloci()
+        .args(["view", "--regions-file", &s(&reg), &r])
+        .assert()
+        .success();
+    let a = no_text_advice(a);
+    assert_eq!(String::from_utf8_lossy(&a.get_output().stdout), CLIPPED);
+}
+
+#[test]
+fn region_on_a_missing_chromosome_warns() {
+    let d = tempdir();
+    let r = two_record_bigwig(d.path());
+    let a = gloci().args(["view", &r, "chrZ:1-10"]).assert().success();
+    let a = no_text_advice(a)
+        .stderr(contains("chrZ"))
+        .stderr(contains("r.bw"));
+    assert!(a.get_output().stdout.is_empty());
+}
+
+#[test]
+fn region_names_go_through_the_chrom_map() {
+    let d = tempdir();
+    let r = two_record_bigwig(d.path());
+    let m = plain_file(d.path(), "map.tsv", "chr1\t1\n");
+    assert_eq!(
+        out(&["view", "--chrom-map", &s(&m), &r, "1:51-150"]),
+        CLIPPED.replace("chr1", "1")
+    );
+}
+
+/// A bigBed whose only record is the point `chr1 50 50 "p"`. bigtools' writer does not
+/// finish on a zero-length record, so it writes `[50, 51)` uncompressed and the stored end is
+/// patched down to 50.
+fn point_bigbed(path: &Path) {
+    let mut w = BigBedWrite::new(File::create(path).unwrap(), size_map(&[("chr1", 5000)]));
+    w.options.input_sort_type = InputSortType::START;
+    w.options.compress = false;
+    let items: Vec<Result<(String, BedEntry), BedValueError>> = vec![Ok((
+        "chr1".to_string(),
+        BedEntry {
+            start: 50,
+            end: 51,
+            rest: "p".to_string(),
+        },
+    ))];
+    w.write(
+        BedParserStreamingIterator::wrap_iter(items.into_iter(), true),
+        runtime(),
+    )
+    .unwrap();
+    let mut bytes = std::fs::read(path).unwrap();
+    let pat: Vec<u8> = [0u32, 50, 51]
+        .iter()
+        .flat_map(|v| v.to_le_bytes())
+        .collect();
+    let at = bytes
+        .windows(pat.len())
+        .position(|w| w == pat)
+        .expect("the record is stored uncompressed");
+    bytes[at + 8..at + 12].copy_from_slice(&50u32.to_le_bytes());
+    std::fs::write(path, bytes).unwrap();
+}
+
+#[test]
+fn bigbed_region_points() {
+    let d = tempdir();
+    let p = d.path().join("p.bb");
+    point_bigbed(&p);
+    assert_eq!(out(&["view", &s(&p)]), "chr1\t50\t50\tp\n");
+    assert_eq!(out(&["view", &s(&p), "chr1:1-50"]), "");
+    assert_eq!(
+        out(&["view", "--inclusive-points", &s(&p), "chr1:1-50"]),
+        "chr1\t50\t50\tp\n"
+    );
+}

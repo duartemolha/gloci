@@ -14,11 +14,12 @@ use crate::record::{Header, ReaderOptions, RecordBatch, RecordMeta, RecordReader
 use bigtools::{
     BBIReadError, BedEntry, BigBedIntervalIter, BigBedRead, BigWigIntervalIter, BigWigRead, Value,
 };
-use gloci_core::{ChromId, ChromTable, Interval, Strand};
+use gloci_core::{ChromId, ChromTable, Interval, Strand, overlaps};
 use std::cmp::Ordering;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
+use std::path::Path;
 use std::sync::Arc;
 
 /// A bbi file that is open and between chromosomes.
@@ -57,8 +58,13 @@ impl Cursor {
 /// The chromosome being walked: the file's name for it, the name records carry, and its id
 /// once its first record has been seen (a chromosome with no records is never interned).
 struct Walk {
+    file_name: String,
     out_name: Vec<u8>,
     id: Option<ChromId>,
+    /// The merged regions to read, ascending; empty for the whole chromosome.
+    ranges: Vec<Interval>,
+    /// The range being read.
+    at: usize,
 }
 
 pub(crate) struct BbiReader {
@@ -75,6 +81,9 @@ pub(crate) struct BbiReader {
     cursor: Option<(Cursor, Walk)>,
     /// Records yielded so far.
     count: u64,
+    /// Region reads: the merged regions by the file's chromosome name.
+    plan: Option<HashMap<String, Vec<Interval>>>,
+    inclusive: bool,
 }
 
 /// The error for a file that is not (or no longer) a valid bbi file.
@@ -182,12 +191,16 @@ pub(crate) fn open_bbi(
     format: Format,
     o: &ReaderOptions,
 ) -> Result<Box<dyn RecordReader>, IoError> {
+    Ok(Box::new(new_reader(path, format, o)?))
+}
+
+fn new_reader(path: &str, format: Format, o: &ReaderOptions) -> Result<BbiReader, IoError> {
     let source = open_source(path, format)?;
     let chroms: Vec<String> = source_chroms(&source).into_iter().map(|(n, _)| n).collect();
     if let Some(map) = &o.chrom_map {
         map.check_file_names(path, chroms.iter().map(|c| c.as_bytes()))?;
     }
-    Ok(Box::new(BbiReader {
+    Ok(BbiReader {
         path: path.to_string(),
         format,
         renamer: o.chrom_map.clone(),
@@ -198,7 +211,70 @@ pub(crate) fn open_bbi(
         source: Some(source),
         cursor: None,
         count: 0,
-    }))
+        plan: None,
+        inclusive: false,
+    })
+}
+
+/// Sort `ivs` and merge those that overlap or touch (D10).
+fn merge_ranges(mut ivs: Vec<Interval>) -> Vec<Interval> {
+    ivs.sort_unstable();
+    let mut out: Vec<Interval> = Vec::new();
+    for iv in ivs {
+        match out.last_mut() {
+            Some(last) if iv.start <= last.end => last.end = last.end.max(iv.end),
+            _ => out.push(iv),
+        }
+    }
+    out
+}
+
+/// The records of the bigWig or bigBed at `path` within `regions` (named as records are after
+/// --chrom-map), read through its index: bigWig rows clipped to each region, bigBed rows whole
+/// and once, by spec §4.3 with `inclusive_points`; chromosomes in the order of the table
+/// read_batch gets (D171).
+pub fn open_bbi_regions(
+    path: &Path,
+    regions: &[(Vec<u8>, Interval)],
+    o: &ReaderOptions,
+    inclusive_points: bool,
+) -> Result<Box<dyn RecordReader>, IoError> {
+    let name = path.display().to_string();
+    let mut f = File::open(path).map_err(|source| IoError::Open {
+        path: name.clone(),
+        source,
+    })?;
+    let head = read_magic(&mut f, &name)?;
+    let format = o
+        .format
+        .filter(|f| f.is_bbi())
+        .or_else(|| bbi_format(&head))
+        .ok_or_else(|| IoError::Detect {
+            path: name.clone(),
+            msg: format!("{name} is not a bigWig or bigBed file"),
+        })?;
+    drop(f);
+    let mut reader = new_reader(&name, format, o)?;
+    let mut plan: HashMap<String, Vec<Interval>> = HashMap::new();
+    for (chrom, iv) in regions {
+        let file_name = match &o.chrom_map {
+            Some(m) => m.file_name(chrom),
+            None => Some(&chrom[..]),
+        };
+        let Some(file_name) = file_name.and_then(|n| std::str::from_utf8(n).ok()) else {
+            continue;
+        };
+        if reader.chroms.iter().any(|c| c == file_name) {
+            plan.entry(file_name.to_string()).or_default().push(*iv);
+        }
+    }
+    reader.plan = Some(
+        plan.into_iter()
+            .map(|(c, ivs)| (c, merge_ranges(ivs)))
+            .collect(),
+    );
+    reader.inclusive = inclusive_points;
+    Ok(Box::new(reader))
 }
 
 impl BbiReader {
@@ -221,24 +297,53 @@ impl BbiReader {
             .into_iter()
             .chain(rest)
             .map(|(_, c)| c.clone())
+            .filter(|c| self.plan.as_ref().is_none_or(|p| p.contains_key(c)))
             .collect()
     }
 
-    /// Start walking `file_name`.
+    /// Start walking `file_name`: the whole chromosome, or its merged regions.
     fn start(&mut self, file_name: &str) -> Result<(), IoError> {
-        let path = self.path.clone();
-        let format = self.format;
-        let cursor = match self
+        let ranges = self
+            .plan
+            .as_ref()
+            .and_then(|p| p.get(file_name))
+            .cloned()
+            .unwrap_or_default();
+        let walk = Walk {
+            file_name: file_name.to_string(),
+            out_name: self.renamed(file_name),
+            id: None,
+            ranges,
+            at: 0,
+        };
+        self.begin(walk)
+    }
+
+    /// Open the query of `walk`'s current range. A bigBed query is widened by one base, so
+    /// that a record at a point is found; the records are filtered by §4.3 afterwards.
+    fn begin(&mut self, walk: Walk) -> Result<(), IoError> {
+        let (lo, hi) = match walk.ranges.get(walk.at) {
+            None => (0, u32::MAX),
+            Some(r) => (
+                u32::try_from(r.start).unwrap_or(u32::MAX),
+                u32::try_from(r.end).unwrap_or(u32::MAX),
+            ),
+        };
+        let (path, format) = (self.path.clone(), self.format);
+        let source = self
             .source
             .take()
-            .expect("source is held between chromosomes")
-        {
-            Source::Wig(r) => r.get_interval_move(file_name, 0, u32::MAX).map(Cursor::Wig),
-            Source::Bed(r) => r.get_interval_move(file_name, 0, u32::MAX).map(Cursor::Bed),
+            .expect("source is held between chromosomes");
+        let cursor = match source {
+            Source::Wig(r) => r
+                .get_interval_move(&walk.file_name, lo, hi)
+                .map(Cursor::Wig),
+            Source::Bed(r) => r
+                .get_interval_move(&walk.file_name, lo, hi.saturating_add(1))
+                .map(Cursor::Bed),
         }
         .map_err(|e| invalid(&path, format, &e.to_string()))?;
-        let out_name = self.renamed(file_name);
-        self.cursor = Some((cursor, Walk { out_name, id: None }));
+        self.cursor = Some((cursor, walk));
         Ok(())
     }
 }
@@ -285,8 +390,12 @@ impl RecordReader for BbiReader {
             }
             let (cursor, walk) = self.cursor.as_mut().expect("cursor was just set");
             let Some(item) = cursor.next() else {
-                let (cursor, _) = self.cursor.take().expect("cursor is set");
+                let (cursor, mut walk) = self.cursor.take().expect("cursor is set");
                 self.source = Some(cursor.finish());
+                walk.at += 1;
+                if walk.at < walk.ranges.len() {
+                    self.begin(walk)?;
+                }
                 continue;
             };
             let item = item.map_err(|e| invalid(&self.path, self.format, &e.to_string()))?;
@@ -300,6 +409,27 @@ impl RecordReader for BbiReader {
                     self.format,
                     &format!("a record ends ({end}) before it starts ({start})"),
                 ));
+            }
+            if let Some(range) = walk.ranges.get(walk.at) {
+                let span = Interval {
+                    start: u64::from(start),
+                    end: u64::from(end),
+                };
+                // A bigBed record is whole: kept when it overlaps this region and did not
+                // already overlap the one before, which gave it.
+                let keep = match &item {
+                    Item::Wig(_) => start < end,
+                    Item::Bed(_) => {
+                        overlaps(span, *range, self.inclusive)
+                            && !walk
+                                .at
+                                .checked_sub(1)
+                                .is_some_and(|i| overlaps(span, walk.ranges[i], self.inclusive))
+                    }
+                };
+                if !keep {
+                    continue;
+                }
             }
             let id = match walk.id {
                 Some(id) => id,

@@ -2,7 +2,7 @@
 
 mod read;
 
-pub use read::bbi_chrom_sizes;
+pub use read::{bbi_chrom_sizes, open_bbi_regions};
 
 /// The refusal of `gloci index` and of tabix/CSI reads for a bigWig or bigBed, which carries
 /// its own index (D171).

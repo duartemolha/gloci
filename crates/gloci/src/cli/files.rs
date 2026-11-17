@@ -353,7 +353,9 @@ through a .tbi/.csi index when the file has one, and otherwise by scanning the w
 with a warning. Either way the order of every record read is checked, so an unsorted file \
 is an error, never a wrong answer. With --assume-sorted, an uncompressed BED file without \
 an index is binary-searched instead (like bedextract); that trusts the file to be sorted. \
-Index the file (gloci sort FILE -o FILE.gz --write-index) for speed and checking both.")]
+Index the file (gloci sort FILE -o FILE.gz --write-index) for speed and checking both. \
+A bigWig or bigBed (experimental) is read through its own index: bigWig records are \
+clipped to each region, bigBed records are whole (D171).")]
 pub struct ViewArgs {
     /// Input file (`-` for stdin).
     #[arg(value_name = "FILE")]
