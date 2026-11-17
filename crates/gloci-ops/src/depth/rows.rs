@@ -238,8 +238,10 @@ impl DepthSink for Emitter<'_> {
 
     /// The rows of the positions `[a, b)` of `rid`, where every column is 0.
     fn zeros(&mut self, rid: usize, a: u64, b: u64) -> io::Result<()> {
+        let hdr = Arc::clone(&self.hdr);
+        let name = &hdr.refs[rid].0;
         for p in a..b {
-            self.head.to(rid, &self.hdr.refs[rid].0, p + 1);
+            self.head.to(rid, name, p + 1);
             self.buf.extend_from_slice(&self.head.text);
             for _ in 0..self.columns {
                 self.buf.extend_from_slice(b"\t0");

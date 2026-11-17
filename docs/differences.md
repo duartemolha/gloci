@@ -3735,10 +3735,20 @@ cases (must match).
   `mosdepth-stale.bam` the windows 100-200 and 200-300 read `1.10` and `1.00` in
   mosdepth, and `0.60` and `0.00` in gloci.
 - **Reason:** a table that keeps every unmatched name is as large as the reads of
-  a chromosome, which breaks the flat-memory rule (D138), and the stale match is
-  a wrong answer.
+  a chromosome, which breaks the anti-goal of memory that grows with file size in
+  streaming operations (docs/design.md §2), and the stale match is a wrong answer.
 - **Pinned by:** `files_match_mosdepth` (case `stale-pair-entry`; gloci's files are
-  in `tests/mosdepth/stale-pair-entry/gloci`).
+  in `tests/mosdepth/stale-pair-entry/gloci`) and
+  `depth-files-stale-pair-vs-mosdepth` (must differ).
+
+## `depth --by` with a BED region past the end of its reference {#mosdepth-bed-past-end}
+
+- **gloci:** a BED region that ends past `LN` is exit 1, naming the file, the line
+  and `LN`, before any output file is opened.
+- **Old behaviour:** mosdepth 0.3.10 dies with `value out of range: … [RangeDefect]`.
+- **Reason:** no silent or partial output.
+- **Pinned by:** the cargo test `bed_region_past_end_publishes_nothing` (there is no
+  live case: mosdepth's crash leaves nothing to compare).
 
 ## `depth --out-prefix` cuts a read at the end of its reference {#mosdepth-past-reference-end}
 
@@ -3759,7 +3769,8 @@ cases (must match).
 - **Reason:** the regions of a BED file are all of its lines; stopping early gives
   a table that looks complete.
 - **Pinned by:** `files_match_mosdepth` (case `bed-blank-line`; gloci's files are in
-  `tests/mosdepth/bed-blank-line/gloci`).
+  `tests/mosdepth/bed-blank-line/gloci`) and
+  `depth-files-bed-blank-line-vs-mosdepth` (must differ).
 
 ## The `.csi` of `depth --out-prefix` has the BED preset {#mosdepth-csi-preset}
 

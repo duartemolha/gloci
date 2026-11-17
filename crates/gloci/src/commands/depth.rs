@@ -160,6 +160,9 @@ fn run_files(
     }
     let by = match a.by.as_deref() {
         None => By::Nothing,
+        Some("") => {
+            return Err(UsageError("--by needs a BED file or a window size".into()).into());
+        }
         Some(s) if !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) => {
             By::Windows(s.parse().map_err(|_| {
                 UsageError(format!("--by {s}: a window size that large is not a size"))
@@ -210,6 +213,8 @@ fn run_files(
         level: 6,
         write_index: false,
     };
-    mosdepth_files(inputs.remove(0), &a.files[0], &o, &ro, &oo)?;
+    let dest = format!("{}.mosdepth.*", prefix.display());
+    mosdepth_files(inputs.remove(0), &a.files[0], &o, &ro, &oo)
+        .map_err(|e| e.with_output_name(&dest))?;
     Ok(())
 }

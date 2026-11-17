@@ -303,6 +303,7 @@ fn usage_errors() {
     let cases: Vec<Vec<&str>> = vec![
         vec![&bam, &bam, "--by", "100", "--out-prefix"],
         vec![&bam, "--by", "0", "--out-prefix"],
+        vec![&bam, "--by", "", "--out-prefix"],
         vec![&bam, "--by", "100", "--thresholds", "0", "--out-prefix"],
         vec![&bam, "--thresholds", "1", "--out-prefix"],
         vec![&bam, "--by", "100"],
