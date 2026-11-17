@@ -12021,3 +12021,61 @@ gloci = "gloci liftover input.bed --chain toy.chain --merge-segments"
 reference = "CrossMap region toy.chain input.bed o.bed >/dev/null 2>&1"
 compare = "exit-status"
 expected_difference = "#liftover-merge-segments"
+
+# Real data (D174 R12): chromosomes 21 and 22 of Ensembl's GRCh37-to-GRCh38 chain.
+
+[[case]]
+name = "liftover-ensembl-bed-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/grch37-21-22.bed" }
+aux = ["xtask/diff/inputs/liftover/ensembl-grch37-to-grch38.21-22.chain"]
+gloci = "gloci liftover input.bed --chain ensembl-grch37-to-grch38.21-22.chain"
+reference = "CrossMap bed ensembl-grch37-to-grch38.21-22.chain input.bed o.bed >/dev/null 2>&1 && cat o.bed"
+compare = "exact"
+
+[[case]]
+name = "liftover-ensembl-bed-unmapped-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/grch37-21-22.bed" }
+aux = ["xtask/diff/inputs/liftover/ensembl-grch37-to-grch38.21-22.chain"]
+gloci = "gloci liftover input.bed --chain ensembl-grch37-to-grch38.21-22.chain -o /dev/null --unmapped -"
+reference = "CrossMap bed ensembl-grch37-to-grch38.21-22.chain input.bed o.bed >/dev/null 2>&1 && sed 's/\\tUnmap$//' o.bed.unmap"
+compare = "exact"
+
+[[case]]
+name = "liftover-ensembl-chr-names-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/grch37-chr21-22.bed" }
+aux = ["xtask/diff/inputs/liftover/ensembl-grch37-to-grch38.21-22.chain"]
+gloci = "gloci liftover input.bed --chain ensembl-grch37-to-grch38.21-22.chain"
+reference = "CrossMap bed ensembl-grch37-to-grch38.21-22.chain input.bed o.bed >/dev/null 2>&1 && cat o.bed"
+compare = "exact"
+
+[[case]]
+name = "liftover-ensembl-bed12-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/grch37-21-22-bed12.bed" }
+aux = ["xtask/diff/inputs/liftover/ensembl-grch37-to-grch38.21-22.chain"]
+gloci = "gloci liftover input.bed --chain ensembl-grch37-to-grch38.21-22.chain"
+reference = "CrossMap bed ensembl-grch37-to-grch38.21-22.chain input.bed o.bed >/dev/null 2>&1 && cat o.bed"
+compare = "exact"
+
+[[case]]
+name = "liftover-ensembl-bed12-unmapped-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/grch37-21-22-bed12.bed" }
+aux = ["xtask/diff/inputs/liftover/ensembl-grch37-to-grch38.21-22.chain"]
+gloci = "gloci liftover input.bed --chain ensembl-grch37-to-grch38.21-22.chain -o /dev/null --unmapped -"
+reference = "CrossMap bed ensembl-grch37-to-grch38.21-22.chain input.bed o.bed >/dev/null 2>&1 && cat o.bed.unmap"
+compare = "exact"
+
+[[case]]
+name = "liftover-ensembl-gtf-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/grch37-21-22.gtf" }
+aux = ["xtask/diff/inputs/liftover/ensembl-grch37-to-grch38.21-22.chain"]
+gloci = "gloci liftover input.gtf --chain ensembl-grch37-to-grch38.21-22.chain"
+reference = "CrossMap gff ensembl-grch37-to-grch38.21-22.chain input.gtf o.gtf >/dev/null 2>&1 && cat o.gtf"
+compare = "exact"
+
+[[case]]
+name = "liftover-ensembl-bedgraph-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/grch37-21-22.bedGraph" }
+aux = ["xtask/diff/inputs/liftover/ensembl-grch37-to-grch38.21-22.chain"]
+gloci = "gloci liftover input.bedGraph --chain ensembl-grch37-to-grch38.21-22.chain"
+reference = "CrossMap bed ensembl-grch37-to-grch38.21-22.chain input.bedGraph o.bed >/dev/null 2>&1 && cat o.bed"
+compare = "exact"
