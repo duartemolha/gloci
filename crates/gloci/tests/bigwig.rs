@@ -465,6 +465,57 @@ fn bigbed_region_excludes_bookended() {
     assert_eq!(out(&["view", &s(&p), "chr1:11-20"]), "");
 }
 
+/// A record whose end passes the records after it in its section (an enclosing feature) is
+/// found by a region read past their ends, through gloci's reader of a gloci-written bigBed.
+#[test]
+fn view_finds_an_enclosing_bigbed_record() {
+    let d = tempdir();
+    let g = s(&plain_file(d.path(), "g.genome", "chr1\t200000\n"));
+    let small = plain_file(
+        d.path(),
+        "small.bed",
+        "chr1\t0\t1000\touter\nchr1\t100\t200\ta\nchr1\t500\t600\tb\n",
+    );
+    let bb = s(&d.path().join("small.bb"));
+    convert_ok(&[&s(&small), "-g", &g, "-o", &bb]);
+    assert!(out(&["view", &bb, "chr1:501-600"]).contains("chr1\t0\t1000\touter\n"));
+    assert_eq!(
+        out(&["view", &bb, "chr1:701-800"]),
+        "chr1\t0\t1000\touter\n"
+    );
+    // 3,001 records: three sections, the first holding the enclosing record.
+    let mut text = String::from("chr1\t0\t100000\touter\n");
+    for i in 0..3000u64 {
+        text.push_str(&format!("chr1\t{}\t{}\tn{i}\n", 10 + i * 20, 15 + i * 20));
+    }
+    let nested = plain_file(d.path(), "nested.bed", &text);
+    let bb = s(&d.path().join("nested.bb"));
+    convert_ok(&[&s(&nested), "-g", &g, "-o", &bb]);
+    assert_eq!(
+        out(&["view", &bb, "chr1:80001-80100"]),
+        "chr1\t0\t100000\touter\n"
+    );
+    assert_eq!(out(&["view", &bb]), text);
+    // A region read through --regions-file and a relation's --region find it too.
+    let regions = s(&plain_file(d.path(), "r.bed", "chr1\t80000\t80100\n"));
+    assert_eq!(
+        out(&["view", &bb, "--regions-file", &regions]),
+        "chr1\t0\t100000\touter\n"
+    );
+    assert_eq!(
+        out(&[
+            "intersect",
+            "-a",
+            &bb,
+            "-b",
+            &regions,
+            "--region",
+            "chr1:80001-80100"
+        ]),
+        "chr1\t0\t100000\touter\n"
+    );
+}
+
 #[test]
 fn regions_file_reads_bigwig() {
     let d = tempdir();
@@ -1216,6 +1267,31 @@ fn bigbed_to_bigbed_keeps_the_defined_field_count() {
 fn the_committed_user_autosql_bigbed_stores_its_autosql() {
     let mut r = bigtools::BigBedRead::open_file(inputs().join("peaks6.bb")).unwrap();
     assert_eq!(r.autosql().unwrap().unwrap(), text("peaks6.as"));
+}
+
+/// The pyBigWig case's nested.bb is what gloci writes from nested.bed, and its golden holds
+/// the enclosing record that only a corrected index finds.
+#[test]
+fn the_committed_nested_bigbed_is_gloci_s_and_its_golden_finds_outer() {
+    let d = tempdir();
+    let bb = d.path().join("n.bb");
+    convert_ok(&[
+        &input("nested.bed"),
+        "-g",
+        &input("peaks.genome"),
+        "-o",
+        &s(&bb),
+    ]);
+    assert_eq!(
+        std::fs::read(&bb).unwrap(),
+        std::fs::read(inputs().join("nested.bb")).unwrap()
+    );
+    let golden = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/golden/bigbed-enclosing-record-region-vs-pybigwig/expected");
+    assert_eq!(
+        std::fs::read_to_string(golden).unwrap(),
+        "chr1\t0\t1000\touter\n"
+    );
 }
 
 // ---- genomecov to bigWig ----

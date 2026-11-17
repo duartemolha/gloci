@@ -12171,6 +12171,17 @@ reference = "python3 -I bbi_dump.py --lex input.bb"
 compare = "exact"
 
 [[case]]
+name = "bigbed-enclosing-record-region-vs-pybigwig"
+input = { file = "xtask/diff/inputs/bigwig/nested.bb" }
+aux = ["xtask/diff/inputs/bigwig/bbi_dump.py"]
+# nested.bed (outer 0-1000 holding a and b) written by gloci. Only outer overlaps the region,
+# past the last record's end; bigtools alone would index the section to 600 and readers would
+# skip it (D171): pyBigWig reads it through the corrected index.
+gloci = "gloci view input.bb chr1:701-800"
+reference = "python3 -I bbi_dump.py --region chr1:701-800 input.bb"
+compare = "exact"
+
+[[case]]
 name = "map-bigwig-wsum-vs-bedtools-per-base"
 input = { file = "xtask/diff/inputs/bigwig/signal.bw" }
 aux = ["xtask/diff/inputs/bigwig/signal.bedgraph", "xtask/diff/inputs/bigwig/regions.bed"]

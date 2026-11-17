@@ -10,6 +10,13 @@
 //!   region in order and fill it exactly;
 //! - every block decompresses and agrees with its index entry;
 //! - the full-data blocks hold as many records as were written.
+//!
+//! The same pass finds the index ends to correct. bigtools 0.5.8 gives a bigBed section, and
+//! so its index entry and the nodes above it, the end of its last record rather than its
+//! largest end, so a region read after that end skips a record that encloses the ones after
+//! it (a gene around shorter genes). The pass computes each block's largest end, and each
+//! node's as the largest of its children's, and returns the index entries whose end differs
+//! as [`EndPatch`]es, which the writer applies before the rename.
 
 use super::write::BbiKind;
 use crate::detect::{BIGBED_MAGIC, BIGWIG_MAGIC};
@@ -33,12 +40,24 @@ const CIR_NODE_ITEM: usize = 24;
 const WIG_SECTION_HEADER: usize = 24;
 const ZOOM_RECORD: usize = 32;
 
-/// What the check went through, for the log.
+/// What the check went through, and the index ends to correct.
 #[derive(Debug)]
 pub(crate) struct Checked {
     pub sections: u64,
     pub zoom_levels: usize,
+    pub patches: Vec<EndPatch>,
 }
+
+/// An index end to rewrite: endChromIx then endBase, as two 32-bit numbers at `at`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct EndPatch {
+    pub at: u64,
+    pub chrom: u32,
+    pub end: u32,
+}
+
+/// A position as an index orders ends: chromosome id, then base.
+type End = (u32, u32);
 
 /// Checks the bigWig or bigBed at `path` (see the module docs), which must hold `records`
 /// records. The error says what is wrong with it.
@@ -105,19 +124,30 @@ pub(crate) fn check_written(path: &Path, kind: BbiKind, records: u64) -> Result<
     };
     let mut inflate = Inflater::new(uncompress_buf);
     let mut items = 0u64;
+    let mut patches = Vec::new();
     let start = full_data + 8;
     let sections = walk_index(
         &mut r,
         full_index,
         "the full-data index",
         (start, region_end(start, &parts)),
+        &mut patches,
         |r, leaf| {
             leaf.check_chrom(&chroms)?;
             let block = inflate.load(r, leaf, "a full-data block")?;
-            items += block_records(kind, block, leaf, little)?;
-            Ok(())
+            let (n, end) = block_records(kind, block, leaf, little)?;
+            items += n;
+            Ok(end)
         },
     )?;
+    // gloci refuses overlapping bigWig records, so a bigWig's ends ascend and every index end
+    // is already its largest: a correction would mean a damaged index.
+    if kind == BbiKind::BigWig && !patches.is_empty() {
+        return Err(format!(
+            "its full-data index ends at byte {} do not match its sections",
+            thousands(patches[0].at)
+        ));
+    }
     if items != records {
         return Err(format!(
             "its blocks hold {} records, but {} were written",
@@ -136,6 +166,8 @@ pub(crate) fn check_written(path: &Path, kind: BbiKind, records: u64) -> Result<
             thousands(count)
         ));
     }
+    // bigtools builds zoom records as tiles of ascending, non-overlapping spans, so their
+    // index ends are already the largest; the same walk would correct them if they were not.
     for (level, &(data, index)) in zooms.iter().enumerate() {
         let block = format!("a block of zoom level {}", level + 1);
         walk_index(
@@ -143,6 +175,7 @@ pub(crate) fn check_written(path: &Path, kind: BbiKind, records: u64) -> Result<
             index,
             &format!("the index of zoom level {}", level + 1),
             (data, region_end(data, &parts)),
+            &mut patches,
             |r, leaf| {
                 leaf.check_chrom(&chroms)?;
                 let b = inflate.load(r, leaf, &block)?;
@@ -150,9 +183,19 @@ pub(crate) fn check_written(path: &Path, kind: BbiKind, records: u64) -> Result<
             },
         )?;
     }
+    for p in &patches {
+        if chroms.get(&p.chrom).is_none_or(|&len| p.end > len) {
+            return Err(format!(
+                "a block ends at {} on chromosome id {}, past its chromosome",
+                thousands(u64::from(p.end)),
+                p.chrom
+            ));
+        }
+    }
     Ok(Checked {
         sections,
         zoom_levels: zooms.len(),
+        patches,
     })
 }
 
@@ -365,14 +408,25 @@ impl Leaf {
     }
 }
 
+/// Where an R-tree walk stands: the next block's offset, the blocks and nodes seen.
+struct Walk {
+    next: u64,
+    end: u64,
+    blocks: u64,
+    nodes: u64,
+}
+
 /// Visits the blocks of the R-tree index at `at` in order, checking that they fill `region`
-/// (`[start, end)`) exactly and in order; returns how many there are.
+/// (`[start, end)`) exactly and in order; returns how many there are. `visit` returns a
+/// block's largest end; every index entry, node and header whose end is not the largest of
+/// what it covers gets an [`EndPatch`].
 fn walk_index(
     r: &mut Reader,
     at: u64,
     what: &str,
     region: (u64, u64),
-    mut visit: impl FnMut(&mut Reader, &Leaf) -> Result<(), String>,
+    patches: &mut Vec<EndPatch>,
+    mut visit: impl FnMut(&mut Reader, &Leaf) -> Result<End, String>,
 ) -> Result<u64, String> {
     let little = r.little;
     let h = r.read(at, CIR_TREE_HEADER, what)?;
@@ -385,39 +439,110 @@ fn walk_index(
     }
     f.skip(4);
     let count = f.u64();
+    f.skip(8);
+    let stored = (f.u32(), f.u32());
     let (start, end) = region;
-    // Where the next block must start.
-    let mut next = start;
-    let mut blocks = 0u64;
-    let mut nodes = 0u64;
-    let mut stack = vec![at + CIR_TREE_HEADER as u64];
-    let mut leaves = Vec::new();
-    while let Some(node) = stack.pop() {
-        nodes += 1;
-        if too_many_nodes(nodes, r.len) {
-            return Err(format!("{what} loops"));
+    let mut w = Walk {
+        next: start,
+        end,
+        blocks: 0,
+        nodes: 0,
+    };
+    let root = walk_node(
+        r,
+        at + CIR_TREE_HEADER as u64,
+        what,
+        0,
+        &mut w,
+        patches,
+        &mut visit,
+    )?;
+    // The header repeats the root's bounds.
+    if let Some(e) = root
+        && e != stored
+    {
+        patches.push(EndPatch {
+            at: at + 24,
+            chrom: e.0,
+            end: e.1,
+        });
+    }
+    if w.blocks != count {
+        return Err(format!(
+            "{what} lists {} blocks, but its header says {}",
+            thousands(w.blocks),
+            thousands(count)
+        ));
+    }
+    if w.next != end {
+        return Err(format!(
+            "{what}'s blocks end at byte {}, but its data runs to byte {}",
+            thousands(w.next),
+            thousands(end)
+        ));
+    }
+    Ok(w.blocks)
+}
+
+/// The deepest an R-tree goes: 256 entries a node make 32 levels far more than any file.
+const MAX_DEPTH: usize = 32;
+
+/// Walks the R-tree node at `node` and what is below it, in order; returns the largest end
+/// under it (`None` for an empty node).
+fn walk_node<F>(
+    r: &mut Reader,
+    node: u64,
+    what: &str,
+    depth: usize,
+    w: &mut Walk,
+    patches: &mut Vec<EndPatch>,
+    visit: &mut F,
+) -> Result<Option<End>, String>
+where
+    F: FnMut(&mut Reader, &Leaf) -> Result<End, String>,
+{
+    w.nodes += 1;
+    if depth > MAX_DEPTH || too_many_nodes(w.nodes, r.len) {
+        return Err(format!("{what} loops"));
+    }
+    let little = r.little;
+    let h = r.read(node, 4, what)?;
+    let is_leaf = h[0] == 1;
+    let n = usize::from(Fields::new(&h[2..], little).u16());
+    let items = node + 4;
+    let mut largest: Option<End> = None;
+    if !is_leaf {
+        let body = r.read(items, n * CIR_NODE_ITEM, what)?;
+        let children: Vec<(End, u64)> = body
+            .as_chunks::<CIR_NODE_ITEM>()
+            .0
+            .iter()
+            .map(|e| {
+                let mut f = Fields::new(e, little);
+                f.skip(8);
+                ((f.u32(), f.u32()), f.u64())
+            })
+            .collect();
+        for (i, (stored, child)) in children.into_iter().enumerate() {
+            let e = walk_node(r, child, what, depth + 1, w, patches, visit)?
+                .ok_or_else(|| format!("{what} has an empty node at byte {}", thousands(child)))?;
+            if e != stored {
+                patches.push(EndPatch {
+                    at: items + (i * CIR_NODE_ITEM) as u64 + 8,
+                    chrom: e.0,
+                    end: e.1,
+                });
+            }
+            largest = largest.max(Some(e));
         }
-        let h = r.read(node, 4, what)?;
-        let is_leaf = h[0] == 1;
-        let n = usize::from(Fields::new(&h[2..], little).u16());
-        if !is_leaf {
-            let body = r.read(node + 4, n * CIR_NODE_ITEM, what)?;
-            let children: Vec<u64> = body
-                .as_chunks::<CIR_NODE_ITEM>()
-                .0
-                .iter()
-                .map(|e| {
-                    let mut f = Fields::new(e, little);
-                    f.skip(16);
-                    f.u64()
-                })
-                .collect();
-            stack.extend(children.into_iter().rev());
-            continue;
-        }
-        let body = r.read(node + 4, n * CIR_LEAF_ITEM, what)?;
-        leaves.clear();
-        leaves.extend(body.as_chunks::<CIR_LEAF_ITEM>().0.iter().map(|e| {
+        return Ok(largest);
+    }
+    let body = r.read(items, n * CIR_LEAF_ITEM, what)?;
+    let leaves: Vec<Leaf> = body
+        .as_chunks::<CIR_LEAF_ITEM>()
+        .0
+        .iter()
+        .map(|e| {
             let mut f = Fields::new(e, little);
             Leaf {
                 chrom: f.u32(),
@@ -427,45 +552,39 @@ fn walk_index(
                 offset: f.u64(),
                 size: f.u64(),
             }
-        }));
-        for leaf in &leaves {
-            if leaf.offset != next {
+        })
+        .collect();
+    for (i, leaf) in leaves.iter().enumerate() {
+        if leaf.offset != w.next {
+            return Err(format!(
+                "{what} has a block {}, where the block before it ends at byte {}: blocks are \
+missing or out of place",
+                leaf.describe(),
+                thousands(w.next)
+            ));
+        }
+        match leaf.offset.checked_add(leaf.size) {
+            Some(e) if leaf.size > 0 && e <= w.end => w.next = e,
+            _ => {
                 return Err(format!(
-                    "{what} has a block {}, where the block before it ends at byte {}: blocks \
-are missing or out of place",
+                    "{what} has a block {} that reaches past the end of its data, at byte {}",
                     leaf.describe(),
-                    thousands(next)
+                    thousands(w.end)
                 ));
             }
-            match leaf.offset.checked_add(leaf.size) {
-                Some(e) if leaf.size > 0 && e <= end => next = e,
-                _ => {
-                    return Err(format!(
-                        "{what} has a block {} that reaches past the end of its data, at byte {}",
-                        leaf.describe(),
-                        thousands(end)
-                    ));
-                }
-            }
-            visit(r, leaf)?;
-            blocks += 1;
         }
+        let e = visit(r, leaf)?;
+        if e != (leaf.end_chrom, leaf.end) {
+            patches.push(EndPatch {
+                at: items + (i * CIR_LEAF_ITEM) as u64 + 8,
+                chrom: e.0,
+                end: e.1,
+            });
+        }
+        largest = largest.max(Some(e));
+        w.blocks += 1;
     }
-    if blocks != count {
-        return Err(format!(
-            "{what} lists {} blocks, but its header says {}",
-            thousands(blocks),
-            thousands(count)
-        ));
-    }
-    if next != end {
-        return Err(format!(
-            "{what}'s blocks end at byte {}, but its data runs to byte {}",
-            thousands(next),
-            thousands(end)
-        ));
-    }
-    Ok(blocks)
+    Ok(largest)
 }
 
 /// Reads blocks and inflates them, in buffers kept from one block to the next.
@@ -516,8 +635,9 @@ impl Inflater {
     }
 }
 
-/// The records a full-data block holds, checked against its index entry.
-fn block_records(kind: BbiKind, b: &[u8], leaf: &Leaf, little: bool) -> Result<u64, String> {
+/// The records a full-data block holds, checked against its index entry, and their largest
+/// end.
+fn block_records(kind: BbiKind, b: &[u8], leaf: &Leaf, little: bool) -> Result<(u64, End), String> {
     let bad = |why: String| format!("the full-data block {} {why}", leaf.describe());
     match kind {
         BbiKind::BigWig => {
@@ -550,7 +670,8 @@ index says id {} {}-{}",
                     WIG_SECTION_HEADER + n * item
                 )));
             }
-            Ok(n as u64)
+            // The section's records do not overlap, so the last one's end is the largest.
+            Ok((n as u64, (chrom, end)))
         }
         BbiKind::BigBed => {
             let mut at = 0;
@@ -559,6 +680,7 @@ index says id {} {}-{}",
             // the index entry repeats.
             let mut first = None;
             let mut last = (0, 0);
+            let mut largest = (0, 0);
             while at < b.len() {
                 if b.len() - at < 12 {
                     return Err(bad("ends inside a record".into()));
@@ -567,6 +689,7 @@ index says id {} {}-{}",
                 let (chrom, start, end) = (f.u32(), f.u32(), f.u32());
                 first.get_or_insert((chrom, start));
                 last = (chrom, end);
+                largest = largest.max((chrom, end));
                 let rest = memchr::memchr(0, &b[at + 12..])
                     .ok_or_else(|| bad("ends inside a record".into()))?;
                 at += 12 + rest + 1;
@@ -575,7 +698,9 @@ index says id {} {}-{}",
             let Some(first) = first else {
                 return Err(bad("holds no records".into()));
             };
-            if (first, last) != ((leaf.chrom, leaf.start), (leaf.end_chrom, leaf.end)) {
+            // bigtools ends the entry at the last record; once corrected, at the largest end.
+            let entry_end = (leaf.end_chrom, leaf.end);
+            if first != (leaf.chrom, leaf.start) || (last != entry_end && largest != entry_end) {
                 return Err(bad(format!(
                     "holds records from chromosome id {} {} to id {} {}, where the index says \
 id {} {} to id {} {}",
@@ -589,13 +714,14 @@ id {} {} to id {} {}",
                     leaf.end
                 )));
             }
-            Ok(n)
+            Ok((n, largest))
         }
     }
 }
 
-/// A zoom block holds whole zoom records, from its index entry's start to its end.
-fn check_zoom_block(b: &[u8], leaf: &Leaf, little: bool) -> Result<(), String> {
+/// A zoom block holds whole zoom records, from its index entry's start to its end; their
+/// largest end.
+fn check_zoom_block(b: &[u8], leaf: &Leaf, little: bool) -> Result<End, String> {
     if b.is_empty() || !b.len().is_multiple_of(ZOOM_RECORD) {
         return Err(format!(
             "the zoom block {} is {} bytes, not whole {ZOOM_RECORD}-byte records",
@@ -614,7 +740,14 @@ fn check_zoom_block(b: &[u8], leaf: &Leaf, little: bool) -> Result<(), String> {
             leaf.describe()
         ));
     }
-    Ok(())
+    let mut largest = (0, 0);
+    for rec in b.as_chunks::<ZOOM_RECORD>().0 {
+        let mut f = Fields::new(rec, little);
+        let c = f.u32();
+        f.skip(4);
+        largest = largest.max((c, f.u32()));
+    }
+    Ok(largest)
 }
 
 #[cfg(test)]
@@ -622,6 +755,7 @@ mod tests {
     use super::*;
     use crate::bbi::{BbiSizes, BbiWriteOptions, BbiWriter};
     use gloci_core::Genome;
+    use std::collections::HashMap;
     use std::num::NonZeroUsize;
 
     const RECORDS: u64 = 3010;
@@ -791,6 +925,99 @@ mod tests {
         let size = u64_at(&b, last + 24);
         put_u64(&mut b, last + 24, size + 8);
         refused(&b, BbiKind::BigBed, "the index of zoom level 1");
+    }
+
+    #[test]
+    fn written_files_need_no_index_correction() {
+        for kind in [BbiKind::BigWig, BbiKind::BigBed] {
+            let c = check(&written(kind), kind, RECORDS).unwrap();
+            assert!(c.patches.is_empty(), "{kind:?}: {:?}", c.patches);
+        }
+    }
+
+    /// A bigBed as bigtools alone writes it, with 4 records a section and 4 entries a node,
+    /// so that the index has leaf nodes under a root: an enclosing record and 40 inside it.
+    fn raw_nested_bigbed(path: &Path) {
+        use bigtools::bed::bedparser::BedValueError;
+        use bigtools::beddata::BedParserStreamingIterator;
+        use bigtools::{BedEntry, BigBedWrite, InputSortType};
+        let entry = |start, end, rest: &str| {
+            Ok::<_, BedValueError>((
+                "chr1".to_string(),
+                BedEntry {
+                    start,
+                    end,
+                    rest: rest.to_string(),
+                },
+            ))
+        };
+        let mut items = vec![entry(0, 100_000, "outer")];
+        items.extend((0..40u32).map(|i| entry(10 + i * 20, 15 + i * 20, "n")));
+        let sizes = HashMap::from([("chr1".to_string(), 200_000u32)]);
+        let mut w = BigBedWrite::new(File::create(path).unwrap(), sizes);
+        w.options.input_sort_type = InputSortType::START;
+        w.options.items_per_slot = 4;
+        w.options.block_size = 4;
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        w.write(
+            BedParserStreamingIterator::wrap_iter(items.into_iter(), true),
+            rt,
+        )
+        .unwrap();
+    }
+
+    /// The records a region read through bigtools' index returns.
+    fn region(path: &Path, start: u32, end: u32) -> Vec<String> {
+        let mut r = bigtools::BigBedRead::open_file(path).unwrap();
+        r.get_interval("chr1", start, end)
+            .unwrap()
+            .map(|e| e.unwrap().rest)
+            .collect()
+    }
+
+    #[test]
+    fn nested_bigbed_index_ends_are_corrected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("n.bb");
+        raw_nested_bigbed(&path);
+        // bigtools' index ends the first section at its last record, 55: a read past the
+        // nested records misses the enclosing one.
+        assert!(region(&path, 80_000, 80_100).is_empty());
+        let c = check_written(&path, BbiKind::BigBed, 41).unwrap();
+        let b = std::fs::read(&path).unwrap();
+        let index = u64_at(&b, 24);
+        let root = index + CIR_TREE_HEADER as u64;
+        assert_eq!(b[root as usize], 0, "the root is a node above leaves");
+        let first_child = u64_at(&b, root as usize + 4 + 16);
+        let outer = EndPatch {
+            chrom: 0,
+            end: 100_000,
+            at: 0,
+        };
+        let at = |at| EndPatch { at, ..outer };
+        // The first leaf entry, its node's entry in the root, and the tree header.
+        assert!(
+            c.patches.contains(&at(first_child + 4 + 8)),
+            "{:?}",
+            c.patches
+        );
+        assert!(c.patches.contains(&at(root + 4 + 8)), "{:?}", c.patches);
+        assert!(c.patches.contains(&at(index + 24)), "{:?}", c.patches);
+        let mut f = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        for p in &c.patches {
+            super::super::write::write_index_end(&mut f, true, p).unwrap();
+        }
+        drop(f);
+        assert_eq!(region(&path, 80_000, 80_100), ["outer"]);
+        assert_eq!(region(&path, 10, 16), ["outer", "n"]);
+        let again = check_written(&path, BbiKind::BigBed, 41).unwrap();
+        assert!(again.patches.is_empty(), "{:?}", again.patches);
     }
 
     #[test]

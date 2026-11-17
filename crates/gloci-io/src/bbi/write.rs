@@ -14,7 +14,8 @@
 //! chromosome with records, and loses some of their errors. So `create` raises the soft
 //! open-file limit to the hard one and checks that `$TMPDIR` takes a file, a stopped or
 //! panicking bigtools is reported with those likely causes, and the file is checked before it
-//! is renamed into place: a short or inconsistent file is never kept (D171).
+//! is renamed into place: a short or inconsistent file is never kept (D171). The same pass
+//! corrects the bigBed index ends bigtools leaves at each section's last record.
 
 use super::autosql::{
     BedLayout, autosql_field_count, autosql_standard_columns, bed_autosql, bed_layout,
@@ -904,11 +905,18 @@ fn finish_file(
         )
     })?;
     log::debug!(
-        "checked {dest} before renaming it into place: {} sections, {} zoom levels, in {:.2?}",
+        "checked {dest} before renaming it into place: {} sections, {} zoom levels, {} index \
+ends corrected, in {:.2?}",
         checked.sections,
         checked.zoom_levels,
+        checked.patches.len(),
         t.elapsed()
     );
+    // bigtools ends a bigBed section's index entry at its last record, not its largest end:
+    // each entry, node and tree header gets the largest end of what it covers.
+    for p in &checked.patches {
+        write_index_end(&mut f, little, p).map_err(write_err)?;
+    }
     if let Some(standard) = standard {
         write_defined_field_count(&mut f, little, standard).map_err(write_err)?;
     }
@@ -937,6 +945,26 @@ fn byte_order(f: &mut File, kind: BbiKind) -> Option<bool> {
     f.seek(SeekFrom::Start(len - 4)).ok()?;
     f.read_exact(&mut tail).ok()?;
     (tail == head).then_some(little)
+}
+
+/// Writes an index end (endChromIx, endBase) in the file's byte order.
+pub(super) fn write_index_end(
+    f: &mut File,
+    little: bool,
+    p: &check::EndPatch,
+) -> std::io::Result<()> {
+    let num = |n: u32| {
+        if little {
+            n.to_le_bytes()
+        } else {
+            n.to_be_bytes()
+        }
+    };
+    let mut b = [0u8; 8];
+    b[..4].copy_from_slice(&num(p.chrom));
+    b[4..].copy_from_slice(&num(p.end));
+    f.seek(SeekFrom::Start(p.at))?;
+    f.write_all(&b)
 }
 
 /// Writes `standard` into the header's definedFieldCount (bytes 34-35) in the file's byte order.
