@@ -1,6 +1,8 @@
 //! `convert`: VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker and BED12 to BED (replaces bedops
 //! `convert2bed`, `vcf2bed`, `gff2bed`, `gtf2bed` and bedtools
-//! `bed12tobed6`), and features and BEDPE pairs to BAM (bedtools `bedtobam`, `bedpetobam`).
+//! `bed12tobed6`), features and BEDPE pairs to BAM (bedtools `bedtobam`, `bedpetobam`), and
+//! bedGraph, WIG and bigWig to bigWig and BED to bigBed (`bedGraphToBigWig`, `wigToBigWig`,
+//! `bedToBigBed`; D171).
 //!
 //! Records are converted in input order and the input needs no sorting. Only
 //! the conversion itself can break the order of the output (an allele
@@ -15,12 +17,14 @@ mod gff;
 mod psl;
 mod rmsk;
 mod to_bam;
+mod track;
 mod vcf;
 mod wig;
 
 pub use align_bedpe::{BedpeOptions, BedpeSummary, alignments_to_bedpe};
 pub use align_fastq::{FastqOptions, FastqSink, FastqSummary, alignments_to_fastq};
 pub use to_bam::{BamOptions, bam_header, bedpe_to_bam, features_to_bam};
+pub use track::{check_track_input, convert_to_track};
 
 use gloci_core::{ChromId, ChromTable, Strand, VariantKind, VcfSpan};
 use gloci_io::{Format, IoError, RecordReader, RecordWriter, UsageError};

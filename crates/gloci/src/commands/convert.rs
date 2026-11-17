@@ -1,39 +1,42 @@
-//! `gloci convert`: VCF/BCF, GFF3/GTF and BED12 to BED, alignments to BED, BEDPE or FASTQ, and
-//! features or BEDPE pairs to BAM.
+//! `gloci convert`: VCF/BCF, GFF3/GTF and BED12 to BED, alignments to BED, BEDPE or FASTQ,
+//! features or BEDPE pairs to BAM, and bedGraph, WIG, BED and bigWig to bigWig and bigBed.
 use super::user_span;
 use crate::Ctx;
 use crate::cli::ConvertArgs;
-use gloci_core::{ChromTable, VariantKind};
+use gloci_core::{ChromTable, Genome, VariantKind};
 use gloci_io::{
-    BedpeReader, Format, GateKind, Header, InvalidPolicy, IoError, OutFormat, OutputOptions,
-    ReaderOptions, RecordReader, TsvHeader, UsageError, WriterOptions, open_alignment_writer,
-    open_aln_source, open_output, open_reader, open_reader_noting_empty, open_record_writer,
-    open_tsv_writer, parse_output_spec, refuse_binary_to_tty, resolve_genome,
+    BbiKind, BbiSizes, BbiWriteOptions, BbiWriter, BedpeReader, Format, GateKind, Header,
+    InvalidPolicy, IoError, OutFormat, OutputOptions, ReaderOptions, RecordReader, TsvHeader,
+    UsageError, WriterOptions, open_alignment_writer, open_aln_source, open_output, open_reader,
+    open_reader_noting_empty, open_record_writer, open_tsv_writer, parse_output_spec,
+    parse_track_output_spec, refuse_binary_to_tty, resolve_genome,
 };
 use gloci_ops::convert::{
     BamOptions, BedpeOptions, ConvertOptions, FastqOptions, FastqSink, alignments_to_bedpe,
-    alignments_to_fastq, bam_header, bedpe_to_bam, check_convert, convert, features_to_bam,
+    alignments_to_fastq, bam_header, bedpe_to_bam, check_convert, check_track_input, convert,
+    convert_to_track, features_to_bam,
 };
 use std::io::{IsTerminal, Write};
 
 pub fn run(ctx: &Ctx, a: &ConvertArgs) -> anyhow::Result<()> {
-    let spec = match parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref()) {
-        Ok(spec) => spec,
-        // gloci writes no CRAM; for features, the alignments convert can write are --bam's.
-        Err(e) if !(a.bam || a.fastq || a.bedpe) && names_cram(a) => {
-            return Err(match input_format(ctx, a) {
-                Some(f) if is_feature(f) => UsageError(format!(
-                    "gloci does not write CRAM; to write the features of {} as alignments, add \
+    let spec =
+        match parse_track_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref()) {
+            Ok(spec) => spec,
+            // gloci writes no CRAM; for features, the alignments convert can write are --bam's.
+            Err(e) if !(a.bam || a.fastq || a.bedpe) && names_cram(a) => {
+                return Err(match input_format(ctx, a) {
+                    Some(f) if is_feature(f) => UsageError(format!(
+                        "gloci does not write CRAM; to write the features of {} as alignments, add \
 --bam -g GENOME and name the output .bam (bedtools bedtobam), then convert it with `samtools \
 view -C -T ref.fa`",
-                    if a.file == "-" { "stdin" } else { &a.file }
-                )),
-                _ => e,
+                        if a.file == "-" { "stdin" } else { &a.file }
+                    )),
+                    _ => e,
+                }
+                .into());
             }
-            .into());
-        }
-        Err(e) => return Err(e.into()),
-    };
+            Err(e) => return Err(e.into()),
+        };
     let score_tag = match a.score_tag.as_deref() {
         None => None,
         Some(t) => match t.as_bytes() {
@@ -62,6 +65,28 @@ view -C -T ref.fa`",
         bedpe: a.bedpe,
         mate1_first: a.mate1_first,
     };
+    let track = match spec.format {
+        Some(OutFormat::BigWig) => Some(BbiKind::BigWig),
+        Some(OutFormat::BigBed) => Some(BbiKind::BigBed),
+        _ => None,
+    };
+    if a.autosql.is_some() && track != Some(BbiKind::BigBed) {
+        return Err(UsageError(
+            "--autosql describes the columns of a bigBed: name the output .bb or .bigbed (or -O bigbed)"
+                .into(),
+        )
+        .into());
+    }
+    if a.genome.is_some() && !a.bam && track.is_none() {
+        return Err(UsageError(
+            "-g applies with --bam, or for a bigWig or bigBed output (-o x.bw or -o x.bb); drop it, or add one of them"
+                .into(),
+        )
+        .into());
+    }
+    if let Some(kind) = track {
+        return run_track(ctx, a, &spec, kind, score_tag);
+    }
     // One output mode per run: each takes the input as alignments and writes its own format.
     if a.bedpe {
         return run_bedpe(ctx, a, &o, &spec, score_tag);
@@ -120,6 +145,122 @@ view -C -T ref.fa`",
     let named = |e: IoError| unsortable(e.with_output_name(&dest), a.out.output.is_some());
     convert(input, &mut chroms, &o, w.as_mut()).map_err(named)?;
     w.finish().map_err(named)?;
+    Ok(())
+}
+
+/// `convert` to a bigWig or bigBed (D171): bedGraph, a 4-column BED, WIG or bigWig, or BED or
+/// bigBed, with the chromosome sizes of `-g` or of the bigWig or bigBed being converted.
+fn run_track(
+    ctx: &Ctx,
+    a: &ConvertArgs,
+    spec: &gloci_io::OutputSpec,
+    kind: BbiKind,
+    score_tag: Option<[u8; 2]>,
+) -> anyhow::Result<()> {
+    let out = match kind {
+        BbiKind::BigWig => "bigWig",
+        BbiKind::BigBed => "bigBed",
+    };
+    for (set, flag) in [
+        (a.bam, "--bam"),
+        (a.fastq, "--fastq"),
+        (a.bedpe, "--bedpe"),
+        (a.split_alleles, "--split-alleles"),
+        (!a.types.is_empty(), "--types"),
+        (!a.feature.is_empty(), "--feature"),
+        (a.name_attr.is_some(), "--name-attr"),
+        (a.blocks, "--blocks"),
+        (a.bed12, "--bed12"),
+        (a.color.is_some(), "--color"),
+        (score_tag.is_some(), "--score-tag"),
+        (a.cigar, "--cigar"),
+        (a.split_deletions, "--split-deletions"),
+        (a.mate1_first, "--mate1-first"),
+        (a.fastq2.is_some(), "--fastq2"),
+        (a.tags, "--tags"),
+        (a.mapq.is_some(), "--mapq"),
+        (a.out.write_index, "--write-index"),
+    ] {
+        if set {
+            return Err(UsageError(format!(
+                "{flag} cannot be used with a {out} output: a {out} holds records as they are \
+(a bigWig or bigBed carries its own index, so --write-index does not apply either); drop {flag}"
+            ))
+            .into());
+        }
+    }
+    let autosql = match &a.autosql {
+        None => None,
+        Some(p) => Some(std::fs::read_to_string(p).map_err(|e| {
+            UsageError(format!(
+                "cannot read the --autosql file {}: {e}; check the --autosql path",
+                p.display()
+            ))
+        })?),
+    };
+    let ro = reader_options(ctx, a, score_tag, false)?;
+    // Open and check the input before the output is created.
+    let (input, empty) = open_reader_noting_empty(&a.file, &ro)?;
+    check_track_input(input.format(), kind).map_err(|e| {
+        if empty {
+            IoError::empty_input(input.name())
+        } else {
+            e.into()
+        }
+    })?;
+    let sizes = match a.genome.as_deref() {
+        Some(g) => BbiSizes {
+            genome: resolve_genome(g)?.0,
+            source: format!("-g {g}"),
+        },
+        None if matches!(input.format(), Format::BigWig | Format::BigBed) => {
+            let map = ro.chrom_map.as_deref();
+            let entries = gloci_io::bbi_chrom_sizes(&a.file)?
+                .into_iter()
+                .map(|(name, len)| {
+                    let name = map.map_or(name.clone(), |m| m.rename(&name).to_vec());
+                    (name, Some(len))
+                })
+                .collect();
+            BbiSizes {
+                genome: Genome::new(entries).map_err(|e| {
+                    UsageError(format!(
+                        "the chromosome list of {} cannot be used as sizes: {e}",
+                        a.file
+                    ))
+                })?,
+                source: format!("the header of {}", a.file),
+            }
+        }
+        None => {
+            return Err(UsageError(format!(
+                "a {out} needs the chromosome sizes: add -g GENOME (a built-in genome such as \
+hg38, or a .genome, .fai or .dict file); only a bigWig or bigBed input brings its own"
+            ))
+            .into());
+        }
+    };
+    let dest = spec.path.as_ref().map_or_else(
+        || "<stdout>".to_string(),
+        |p| gloci_io::memio::display_name(&p.to_string_lossy()),
+    );
+    let mut w = BbiWriter::create(
+        spec,
+        BbiWriteOptions {
+            kind,
+            sizes,
+            threads: ctx.threads,
+            autosql,
+            autosql_name: a
+                .autosql
+                .as_ref()
+                .map_or_else(String::new, |p| p.display().to_string()),
+        },
+    )
+    .map_err(|e| e.with_output_name(&dest))?;
+    let mut chroms = ChromTable::first_appearance();
+    convert_to_track(input, &mut chroms, &mut w).map_err(|e| e.with_output_name(&dest))?;
+    w.finish().map_err(|e| e.with_output_name(&dest))?;
     Ok(())
 }
 

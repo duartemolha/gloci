@@ -42,17 +42,19 @@ impl From<KindArg> for gloci_core::VariantKind {
 }
 
 /// Convert VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out, BED12 or BAM/CRAM/SAM to BED,
-/// BAM/CRAM/SAM to FASTQ, or BED, GFF, VCF and BEDPE to BAM (bedops convert2bed, vcf2bed,
-/// gff2bed, gtf2bed; bedtools bed12tobed6, bamtobed, bamtofastq, bedtobam, bedpetobam).
+/// BAM/CRAM/SAM to FASTQ, BED, GFF, VCF and BEDPE to BAM, bedGraph, WIG or bigWig to bigWig and
+/// BED to bigBed (bedGraphToBigWig, wigToBigWig, bedToBigBed), bigWig and bigBed to bedGraph and
+/// BED (bigWigToBedGraph, bigBedToBed) (bedops convert2bed, vcf2bed, gff2bed, gtf2bed; bedtools
+/// bed12tobed6, bamtobed, bamtofastq, bedtobam, bedpetobam).
 #[derive(Args)]
 #[command(
-    about = "Convert to BED/FASTQ/BAM (convert2bed, bedtobam, bedpetobam)",
+    about = "Convert to BED/FASTQ/BAM/bigWig/bigBed (convert2bed, bedtobam)",
     long_about
 )]
 #[command(after_long_help = "\
 Examples:
   gloci convert calls.vcf.gz -o calls.bed
-  gloci convert reads.byname.bam --bedpe -o pairs.bedpe
+  gloci convert cov.bedgraph -g hg38 -o cov.bw
   gloci convert reads.byname.bam --fastq -o r1.fq.gz --fastq2 r2.fq.gz
   gloci convert peaks.bed --bam -g hg38 -o peaks.bam
 
@@ -145,6 +147,15 @@ BED12 with --blocks gives one BED6 row per block; a line that is not valid BED12
 than 12 columns, block counts that disagree, blocks out of order, a last block not ending \
 at chromEnd) is an error, also with --skip-invalid.
 
+bigWig and bigBed:
+A .bw or .bigwig output is a bigWig from bedGraph, a 4-column BED, WIG or bigWig; a .bb or \
+.bigbed output is a bigBed from BED or bigBed (-O bigwig|bigbed names it too). The output \
+must be a regular file, and the chromosome sizes come from -g, else from the bigWig or \
+bigBed being converted. Each chromosome's records must be together and sorted by start \
+(gloci sort); a bigWig takes no overlaps and stores 32-bit floats; a bigBed's columns are \
+fixed by its first record, or by --autosql FILE. A record past its chromosome or on one -g \
+lacks, an empty input and --write-index are errors; the file is written whole or not at all.
+
 Order and output:
 The input is converted in its own order and needs no sorting. A conversion whose output \
 goes out of order (allele footprints can start after their record) prints one warning; \
@@ -220,11 +231,15 @@ pub struct ConvertArgs {
         "require_flags", "exclude_flags", "reference", "vcf_span",
     ])]
     pub bam: bool,
-    /// With --bam: the references of the BAM header, in their order: a built-in genome
+    /// With --bam, or for a bigWig or bigBed output: the references of the BAM header, or the
+    /// chromosome sizes, in their order: a built-in genome
     /// such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header
     /// file.
-    #[arg(short, long, value_name = "NAME|FILE", requires = "bam")]
+    #[arg(short, long, value_name = "NAME|FILE")]
     pub genome: Option<String>,
+    /// bigBed output: the autoSql describing the columns, stored as given (bedToBigBed -as).
+    #[arg(long, value_name = "FILE")]
+    pub autosql: Option<PathBuf>,
     /// With --bam: the MAPQ of every record, 0 to 255 (default 255; bedtools -mapq).
     #[arg(long, value_name = "N", requires = "bam")]
     pub mapq: Option<u8>,

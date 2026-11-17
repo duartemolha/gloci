@@ -1270,6 +1270,7 @@ class Pipeline:
         bam: bool = False,
         genome: Source | None = None,
         g: Source | None = None,
+        autosql: Source | None = None,
         mapq: str | int | float | os.PathLike[str] | None = None,
         min_mapq: str | int | float | os.PathLike[str] | None = None,
         require_flags: str | int | float | os.PathLike[str] | None = None,
@@ -1280,7 +1281,7 @@ class Pipeline:
         chrom_map: Source | None = None,
         skip_invalid: bool = False,
     ) -> Pipeline:
-        """Convert VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out, BED12 or BAM/CRAM/SAM to BED, BAM/CRAM/SAM to FASTQ, or BED, GFF, VCF and BEDPE to BAM (bedops convert2bed, vcf2bed, gff2bed, gtf2bed; bedtools bed12tobed6, bamtobed, bamtofastq, bedtobam, bedpetobam)
+        """Convert VCF/BCF, GFF3/GTF, WIG, PSL, RepeatMasker .out, BED12 or BAM/CRAM/SAM to BED, BAM/CRAM/SAM to FASTQ, BED, GFF, VCF and BEDPE to BAM, bedGraph, WIG or bigWig to bigWig and BED to bigBed (bedGraphToBigWig, wigToBigWig, bedToBigBed), bigWig and bigBed to bedGraph and BED (bigWigToBedGraph, bigBedToBed) (bedops convert2bed, vcf2bed, gff2bed, gtf2bed; bedtools bed12tobed6, bamtobed, bamtofastq, bedtobam, bedpetobam)
 
         Args:
             split_alleles: VCF/BCF: one row per ALT, with that ALT's footprint
@@ -1299,8 +1300,9 @@ class Pipeline:
             fastq2: With --fastq: write the second mate of each pair to FASTQ and the first to -o; the input must be sorted by name (bedtools -fq2)
             tags: With --fastq2: take the second end from the R2 and Q2 tags of the first record of each pair (bedtools -tags)
             bam: BED, GFF, VCF, or BEDPE with --format bedpe: write the records as BAM instead of BED, to -o or stdout (bedtools bedtobam, bedpetobam); needs -g
-            genome: With --bam: the references of the BAM header, in their order: a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file
+            genome: With --bam, or for a bigWig or bigBed output: the references of the BAM header, or the chromosome sizes, in their order: a built-in genome such as hg38 (see gloci genomes list), or a .fai, .genome, .dict, VCF/BCF or BAM header file
             g: alias of genome
+            autosql: bigBed output: the autoSql describing the columns, stored as given (bedToBigBed -as)
             mapq: With --bam: the MAPQ of every record, 0 to 255 (default 255; bedtools -mapq)
             min_mapq: Skip alignments with a mapping quality below N (BAM, CRAM and SAM input)
             require_flags: Keep only alignments that have all of these flags: a number (0x2 or 2) or names such as paired,proper_pair (as samtools view -f)

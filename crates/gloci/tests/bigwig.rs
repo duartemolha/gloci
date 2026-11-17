@@ -538,3 +538,451 @@ fn zero_length_region_on_a_bigwig_yields_nothing() {
     let reg = plain_file(d.path(), "zero.bed", "chr1\t50\t50\n");
     assert_eq!(out(&["view", "--regions-file", &s(&reg), &r]), "");
 }
+
+// ---- convert to and from bigWig and bigBed ----
+
+fn inputs() -> PathBuf {
+    diff_inputs().join("bigwig")
+}
+
+fn input(name: &str) -> String {
+    s(&inputs().join(name))
+}
+
+fn text(name: &str) -> String {
+    std::fs::read_to_string(inputs().join(name)).unwrap()
+}
+
+fn convert_ok(args: &[&str]) {
+    gloci().arg("convert").args(args).assert().success();
+}
+
+/// The files `dir` holds, by name.
+fn names(dir: &Path) -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    v.sort();
+    v
+}
+
+fn fail_with(code: i32, args: &[&str], needles: &[&str]) {
+    let mut a = gloci().args(args).assert().code(code);
+    for n in needles {
+        a = a.stderr(contains(*n));
+    }
+}
+
+#[test]
+fn convert_bedgraph_to_bigwig_and_back() {
+    let d = tempdir();
+    let bw = s(&d.path().join("t.bw"));
+    convert_ok(&[
+        &input("signal.bedgraph"),
+        "-g",
+        &input("signal.genome"),
+        "-o",
+        &bw,
+    ]);
+    assert_eq!(out(&["view", &bw]), text("signal.bedgraph"));
+    let back = d.path().join("t.bedgraph");
+    convert_ok(&[&bw, "-o", &s(&back)]);
+    assert_eq!(
+        std::fs::read_to_string(&back).unwrap(),
+        text("signal.bedgraph")
+    );
+}
+
+#[test]
+fn convert_wig_to_bigwig() {
+    let d = tempdir();
+    let wig = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/wig-golden");
+    let genome = plain_file(d.path(), "g.genome", "chr1\t1000\nchr2\t1000\n");
+    let bw = s(&d.path().join("w.bw"));
+    convert_ok(&[&s(&wig.join("input.wig")), "-g", &s(&genome), "-o", &bw]);
+    let expected = std::fs::read_to_string(wig.join("expected.bedgraph")).unwrap();
+    // `view` lists chromosomes lexicographically.
+    let mut rows: Vec<&str> = expected.lines().collect();
+    rows.sort_by_key(|l| l.split('\t').next().unwrap().to_string());
+    let want: String = rows.iter().map(|l| format!("{l}\n")).collect();
+    assert_eq!(out(&["view", &bw]), want);
+}
+
+#[test]
+fn convert_bedgraph_detected_as_bed() {
+    let d = tempdir();
+    let g = plain_file(d.path(), "g.genome", "chr1\t1000\n");
+    let four = plain_file(d.path(), "four.bed", "chr1\t0\t10\t1.5\nchr1\t20\t30\t2\n");
+    let bw = s(&d.path().join("a.bw"));
+    convert_ok(&[&s(&four), "-g", &s(&g), "-o", &bw]);
+    assert_eq!(out(&["view", &bw]), "chr1\t0\t10\t1.5\nchr1\t20\t30\t2\n");
+    let name = plain_file(d.path(), "name.bed", "chr1\t0\t10\tgeneA\n");
+    fail_with(
+        1,
+        &[
+            "convert",
+            &s(&name),
+            "-g",
+            &s(&g),
+            "-o",
+            &s(&d.path().join("b.bw")),
+        ],
+        &["line 1", "not a number"],
+    );
+    let six = plain_file(d.path(), "six.bed", "chr1\t0\t10\tn\t5\t+\n");
+    fail_with(
+        1,
+        &[
+            "convert",
+            &s(&six),
+            "-g",
+            &s(&g),
+            "-o",
+            &s(&d.path().join("c.bw")),
+        ],
+        &["4 columns"],
+    );
+}
+
+#[test]
+fn convert_bigwig_to_bigwig_keeps_its_sizes() {
+    let d = tempdir();
+    let t = s(&d.path().join("t.bw"));
+    let u = s(&d.path().join("u.bw"));
+    convert_ok(&[
+        &input("signal.bedgraph"),
+        "-g",
+        &input("signal.genome"),
+        "-o",
+        &t,
+    ]);
+    convert_ok(&[&t, "-o", &u]);
+    let lens = |p: &str| {
+        let mut v = gloci_io::bbi_chrom_sizes(p).unwrap();
+        v.sort();
+        v
+    };
+    assert_eq!(lens(&u), lens(&t));
+    assert_eq!(
+        lens(&u),
+        vec![
+            (b"chr1".to_vec(), 40000),
+            (b"chr10".to_vec(), 6000),
+            (b"chr2".to_vec(), 2000)
+        ]
+    );
+    assert_eq!(out(&["view", &u]), text("signal.bedgraph"));
+}
+
+#[test]
+fn convert_bed_to_bigbed_and_back() {
+    let d = tempdir();
+    for (bed, genome) in [
+        ("peaks.bed", "peaks.genome"),
+        ("genes12.bed", "peaks.genome"),
+    ] {
+        let bb = s(&d.path().join(format!("{bed}.bb")));
+        convert_ok(&[&input(bed), "-g", &input(genome), "-o", &bb]);
+        assert_eq!(out(&["view", &bb]), text(bed), "{bed} through view");
+        let back = d.path().join(format!("{bed}.back"));
+        convert_ok(&[&bb, "-o", &format!("{}.bed", s(&back))]);
+        assert_eq!(
+            std::fs::read_to_string(format!("{}.bed", s(&back))).unwrap(),
+            text(bed),
+            "{bed} through convert"
+        );
+    }
+}
+
+#[test]
+fn convert_autosql_option() {
+    let d = tempdir();
+    let as8 = "table peak\n\"my peaks\"\n(\n    string chrom; \"c\"\n    uint chromStart; \"s\"\n    uint chromEnd; \"e\"\n    string name; \"n\"\n    uint score; \"sc\"\n    char[1] strand; \"st\"\n    float signal; \"sg\"\n    string f1; \"x\"\n)\n";
+    let as_file = plain_file(d.path(), "my.as", as8);
+    let bb = d.path().join("a.bb");
+    convert_ok(&[
+        &input("peaks.bed"),
+        "-g",
+        &input("peaks.genome"),
+        "-o",
+        &s(&bb),
+        "--autosql",
+        &s(&as_file),
+    ]);
+    let mut r = bigtools::BigBedRead::open_file(&bb).unwrap();
+    assert_eq!(r.autosql().unwrap().unwrap(), as8);
+    assert_eq!(out(&["view", &s(&bb)]), text("peaks.bed"));
+    let five = plain_file(
+        d.path(),
+        "five.as",
+        "table t\n\"t\"\n(\n    string chrom; \"c\"\n    uint chromStart; \"s\"\n    uint chromEnd; \"e\"\n    string name; \"n\"\n    uint score; \"sc\"\n)\n",
+    );
+    fail_with(
+        1,
+        &[
+            "convert",
+            &input("peaks.bed"),
+            "-g",
+            &input("peaks.genome"),
+            "-o",
+            &s(&d.path().join("b.bb")),
+            "--autosql",
+            &s(&five),
+        ],
+        &["5", "8"],
+    );
+    // A bad autoSql is a usage error naming its file; nothing is left behind.
+    let bad = plain_file(d.path(), "bad.as", "table bed\n(\n  nonsense\n)");
+    let before = names(d.path());
+    fail_with(
+        2,
+        &[
+            "convert",
+            &input("peaks.bed"),
+            "-g",
+            &input("peaks.genome"),
+            "-o",
+            &s(&d.path().join("c.bb")),
+            "--autosql",
+            &s(&bad),
+        ],
+        &["bad.as"],
+    );
+    assert_eq!(names(d.path()), before);
+    fail_with(
+        2,
+        &[
+            "convert",
+            &input("signal.bedgraph"),
+            "-g",
+            &input("signal.genome"),
+            "-o",
+            &s(&d.path().join("x.bw")),
+            "--autosql",
+            &s(&as_file),
+        ],
+        &["--autosql"],
+    );
+}
+
+#[test]
+fn convert_to_bigwig_needs_sizes() {
+    let d = tempdir();
+    fail_with(
+        2,
+        &[
+            "convert",
+            &input("signal.bedgraph"),
+            "-o",
+            &s(&d.path().join("x.bw")),
+        ],
+        &["-g"],
+    );
+}
+
+#[test]
+fn convert_errors_name_the_input_line() {
+    let d = tempdir();
+    let g = plain_file(d.path(), "g.genome", "chr1\t1000\nchr2\t1000\n");
+    let run = |name: &str, body: &str, needles: &[&str]| {
+        let f = plain_file(d.path(), name, body);
+        let o = s(&d.path().join(format!("{name}.bw")));
+        fail_with(1, &["convert", &s(&f), "-g", &s(&g), "-o", &o], needles);
+        assert!(!Path::new(&o).exists());
+    };
+    run(
+        "overlap.bedgraph",
+        "chr1\t0\t10\t1\nchr1\t20\t30\t2\nchr1\t25\t40\t3\n",
+        &["line 3", "overlap"],
+    );
+    run(
+        "split.bedgraph",
+        "chr1\t0\t10\t1\nchr2\t0\t10\t1\nchr1\t20\t30\t3\n",
+        &["gloci sort"],
+    );
+    run(
+        "missing.bedgraph",
+        "chr1\t0\t10\t1\nchrZ\t0\t10\t1\n",
+        &["chrZ", "-g", "line 2"],
+    );
+}
+
+#[test]
+fn convert_track_option_conflicts() {
+    let d = tempdir();
+    let bg = input("signal.bedgraph");
+    let gen_ = input("signal.genome");
+    let x = |n: &str| s(&d.path().join(n));
+    fail_with(
+        2,
+        &["convert", &input("peaks.bed"), "--blocks", "-o", &x("x.bb")],
+        &["--blocks"],
+    );
+    fail_with(
+        2,
+        &["convert", &bg, "--bam", "-g", "hg38", "-o", &x("x.bw")],
+        &["--bam"],
+    );
+    fail_with(
+        2,
+        &[
+            "convert",
+            &bg,
+            "-g",
+            &gen_,
+            "--write-index",
+            "-o",
+            &x("x.bw"),
+        ],
+        &["--write-index"],
+    );
+    fail_with(
+        2,
+        &["convert", &bg, "-g", "hg38", "-o", &x("x.bed")],
+        &["-g", "--bam", "bigWig"],
+    );
+    let vcf = plain_file(
+        d.path(),
+        "v.vcf",
+        "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=1000>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nchr1\t5\t.\tA\tC\t.\t.\t.\n",
+    );
+    fail_with(
+        2,
+        &["convert", &s(&vcf), "-g", &gen_, "-o", &x("v.bw")],
+        &["bedGraph", "WIG", "bigWig"],
+    );
+    let typed = plain_file(
+        d.path(),
+        "typed.bedgraph",
+        "track type=bedGraph\nchr1\t0\t10\t1\n",
+    );
+    fail_with(
+        2,
+        &["convert", &s(&typed), "-g", &gen_, "-o", &x("t.bb")],
+        &["bedGraph"],
+    );
+    assert_eq!(names(d.path()), vec!["typed.bedgraph", "v.vcf"]);
+}
+
+#[test]
+fn other_commands_refuse_bigwig_output() {
+    let d = tempdir();
+    fail_with(
+        2,
+        &[
+            "sort",
+            &input("signal.bedgraph"),
+            "-o",
+            &s(&d.path().join("y.bw")),
+        ],
+        &["gloci convert"],
+    );
+    fail_with(
+        2,
+        &[
+            "view",
+            &input("peaks.bed"),
+            "-o",
+            &s(&d.path().join("y.bb")),
+        ],
+        &["gloci convert"],
+    );
+}
+
+#[test]
+fn bigwig_output_must_be_a_file() {
+    fail_with(
+        2,
+        &[
+            "convert",
+            &input("signal.bedgraph"),
+            "-g",
+            &input("signal.genome"),
+            "-O",
+            "bigwig",
+        ],
+        &["regular file"],
+    );
+}
+
+#[test]
+fn convert_threads_do_not_change_the_file() {
+    let d = tempdir();
+    for (src, genome, ext) in [
+        ("signal.bedgraph", "signal.genome", "bw"),
+        ("peaks.bed", "peaks.genome", "bb"),
+    ] {
+        let mut files = Vec::new();
+        for t in ["1", "2", "8"] {
+            let o = d.path().join(format!("t{t}.{ext}"));
+            convert_ok(&[&input(src), "-g", &input(genome), "-t", t, "-o", &s(&o)]);
+            files.push(std::fs::read(&o).unwrap());
+        }
+        assert_eq!(files[0], files[1], "{src}: -t 1 and -t 2 differ");
+        assert_eq!(files[0], files[2], "{src}: -t 1 and -t 8 differ");
+    }
+}
+
+#[test]
+fn failed_convert_leaves_nothing() {
+    let d = tempdir();
+    let mut body = String::new();
+    for i in 0..2999u64 {
+        body.push_str(&format!("chr1\t{}\t{}\t1\n", i * 2, i * 2 + 1));
+    }
+    // Line 3,000 overlaps line 2,999.
+    body.push_str(&format!("chr1\t{}\t{}\t1\n", 2998 * 2, 2998 * 2 + 5));
+    let f = plain_file(d.path(), "long.bedgraph", &body);
+    let g = plain_file(d.path(), "g.genome", "chr1\t100000\n");
+    fail_with(
+        1,
+        &[
+            "convert",
+            &s(&f),
+            "-g",
+            &s(&g),
+            "-o",
+            &s(&d.path().join("x.bw")),
+        ],
+        &["line 3,000", "overlap"],
+    );
+    assert_eq!(names(d.path()), vec!["g.genome", "long.bedgraph"]);
+}
+
+#[test]
+fn empty_input_to_bigwig_is_an_error() {
+    let d = tempdir();
+    let f = plain_file(d.path(), "empty.bedgraph", "");
+    fail_with(
+        1,
+        &[
+            "convert",
+            &s(&f),
+            "-g",
+            &input("signal.genome"),
+            "-o",
+            &s(&d.path().join("e.bw")),
+        ],
+        &["no records"],
+    );
+    assert_eq!(names(d.path()), vec!["empty.bedgraph"]);
+}
+
+#[test]
+fn golden_round_trips() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for (case, source) in [
+        ("bigwig-written-by-gloci-vs-pybigwig", "signal.bedgraph"),
+        ("bigbed-written-by-gloci-vs-pybigwig", "peaks.bed"),
+        ("bigbed12-written-by-gloci-vs-pybigwig", "genes12.bed"),
+    ] {
+        let expected = std::fs::read_to_string(
+            root.join("crates/gloci/tests/golden")
+                .join(case)
+                .join("expected"),
+        )
+        .unwrap();
+        assert_eq!(expected, text(source), "{case}");
+    }
+}

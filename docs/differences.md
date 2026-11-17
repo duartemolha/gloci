@@ -3932,3 +3932,10 @@ cases (must match).
 - **Pinned by:** `liftover-merge-ratio-column-vs-crossmap`, `liftover-merge-strand-vs-crossmap`,
   `liftover-merge-point-vs-crossmap` (exit status) and `liftover-merge-bed12-vs-crossmap` (exit
   status), each of which must differ.
+
+## bigWig stores 32-bit floats {#bigwig-float32}
+
+- **gloci:** a bigWig value is the nearest 32-bit float to the number written, printed back as the shortest decimal that reads as that float (`0.123456789` → `0.12345679`; `16777217` → `16777216`; `1e-50`, too small for a 32-bit float, → `0`). A value whose nearest float is infinite (`1e39`) or that is not finite is an error naming the line.
+- **Old behaviour:** the bedGraph keeps the text as written.
+- **Reason:** the bigWig/bigBed format paper (doi:10.1093/bioinformatics/btq351) stores values as 32-bit floats, so every writer rounds. Refusing inexact values would refuse most real signal files.
+- **Pinned by:** `bigwig-float32-vs-input` and `value_outside_float32_is_an_error`.

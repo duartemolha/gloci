@@ -12116,3 +12116,38 @@ aux = ["xtask/diff/inputs/bigwig/bbi_dump.py"]
 gloci = "gloci view input.bw chr1:51-150 chr2:12-31"
 reference = "python3 -I bbi_dump.py --region chr1:51-150 --region chr2:12-31 input.bw"
 compare = "exact"
+
+[[case]]
+name = "bigwig-written-by-gloci-vs-pybigwig"
+input = { file = "xtask/diff/inputs/bigwig/signal.bw" }
+aux = ["xtask/diff/inputs/bigwig/bbi_dump.py"]
+# gloci's bigWig (3,000 records on chr1: several sections and zoom levels) read back by pyBigWig.
+gloci = "gloci view input.bw"
+reference = "python3 -I bbi_dump.py --lex input.bw"
+compare = "exact"
+
+[[case]]
+name = "bigbed-written-by-gloci-vs-pybigwig"
+input = { file = "xtask/diff/inputs/bigwig/peaks.bb" }
+aux = ["xtask/diff/inputs/bigwig/bbi_dump.py"]
+gloci = "gloci view input.bb"
+reference = "python3 -I bbi_dump.py --lex input.bb"
+compare = "exact"
+
+[[case]]
+name = "bigbed12-written-by-gloci-vs-pybigwig"
+input = { file = "xtask/diff/inputs/bigwig/genes12.bb" }
+aux = ["xtask/diff/inputs/bigwig/bbi_dump.py"]
+gloci = "gloci view input.bb"
+reference = "python3 -I bbi_dump.py --lex input.bb"
+compare = "exact"
+
+[[case]]
+name = "bigwig-float32-vs-input"
+input = { file = "xtask/diff/inputs/bigwig/float32.bw" }
+aux = ["xtask/diff/inputs/bigwig/float32.bedgraph"]
+# bigWig holds 32-bit floats: the values read back are the nearest ones, not the text written.
+gloci = "gloci view input.bw"
+reference = "cat float32.bedgraph"
+compare = "exact"
+expected_difference = "#bigwig-float32"

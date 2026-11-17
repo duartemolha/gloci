@@ -636,3 +636,13 @@ def test_track_and_browser_lines_are_not_rows(here: Path) -> None:
     assert lines[:2] == ["track name=x", "browser position chr1:1-100"]
     assert [r.line for r in p] == lines[2:]
     assert p.count() == len(lines) - 2
+
+
+def test_bigwig_save_and_open(tmp_path: Path) -> None:
+    # A bigWig is a file: save() on a convert() step writes one, a path source reads one.
+    signal = REPO / "xtask" / "diff" / "inputs" / "bigwig" / "signal.bedgraph"
+    genome = REPO / "xtask" / "diff" / "inputs" / "bigwig" / "signal.genome"
+    gloci.open(str(signal)).convert(genome=str(genome)).save(tmp_path / "x.bw")
+    assert gloci.open(str(tmp_path / "x.bw")).to_bytes() == signal.read_bytes()
+    with open(tmp_path / "x.bw", "rb") as f, pytest.raises(gloci.UsageError, match="bigWig"):
+        gloci.open(f).to_bytes()
