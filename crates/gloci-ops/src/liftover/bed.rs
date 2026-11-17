@@ -1,7 +1,7 @@
 //! The BED interval path (D174, R5): one output record per piece. bedGraph takes it too.
 
 use super::{Styler, Unmapped};
-use gloci_core::Interval;
+use gloci_core::{Interval, parse_coord};
 use gloci_io::{ChainIndex, Segment, SourceRef, bed12_blocks};
 
 /// Write `raw` as the record of one piece into `buf` (cleared first): columns 1-3 become `name`
@@ -57,10 +57,7 @@ fn first_block(
 
 fn number(raw: &[u8], col: usize, what: &str) -> Result<u64, String> {
     let f = raw.split(|&b| b == b'\t').nth(col).unwrap_or_default();
-    std::str::from_utf8(f)
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .ok_or_else(|| format!("{what} is not a non-negative integer"))
+    parse_coord(f).map_err(|e| format!("{what}: {e}"))
 }
 
 fn join_numbers(buf: &mut Vec<u8>, values: impl Iterator<Item = u64>) {
@@ -94,16 +91,28 @@ pub(crate) fn lift_blocks(
     let BlockScratch { pieces, one } = scratch;
     pieces.clear();
     let mut shortened = false;
+    // A chromosome the chain lacks, or no block on any chain, is an off-chain record; a
+    // block that is not in exactly one piece, with another on a chain, is a split one.
+    let Some(src) = src else {
+        return Ok(Lift::Unmapped(Unmapped::OffChain));
+    };
+    let (mut any, mut split) = (false, false);
     for b in &blocks {
-        let Some(src) = src else {
-            return Ok(Lift::Unmapped(Unmapped::BlockSplit));
-        };
         chain.segments(src, *b, one);
-        let [p] = one.as_slice() else {
-            return Ok(Lift::Unmapped(Unmapped::BlockSplit));
-        };
-        shortened |= p.source.len() < b.len();
-        pieces.push(*p);
+        any |= !one.is_empty();
+        match one.as_slice() {
+            [p] => {
+                shortened |= p.source.len() < b.len();
+                pieces.push(*p);
+            }
+            _ => split = true,
+        }
+    }
+    if !any {
+        return Ok(Lift::Unmapped(Unmapped::OffChain));
+    }
+    if split {
+        return Ok(Lift::Unmapped(Unmapped::BlockSplit));
     }
     let first = pieces[0];
     for p in pieces.iter() {
@@ -160,6 +169,7 @@ pub(crate) fn lift_blocks(
                 buf.push(if first.reverse == minus { b'+' } else { b'-' });
             }
             6 => buf.extend_from_slice(itoa.format(ts).as_bytes()),
+            9 => buf.extend_from_slice(itoa.format(pieces.len()).as_bytes()),
             7 => buf.extend_from_slice(itoa.format(te).as_bytes()),
             10 => join_numbers(buf, pieces.iter().map(|p| p.target.len())),
             11 => join_numbers(buf, pieces.iter().map(|p| p.target.start - cs)),

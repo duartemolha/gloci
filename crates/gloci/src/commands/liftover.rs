@@ -184,9 +184,11 @@ block covers (CrossMap does both without a word)",
     }
     if counts.invalid > 0 {
         let n = counts.invalid;
+        let (line, why) = counts.first_invalid.clone().unwrap_or_default();
         log::warn!(
-            "{n} record{} skipped as invalid",
-            if n == 1 { " was" } else { "s were" }
+            "skipped {n} invalid record{} in {}; first line {line}: {why}",
+            if n == 1 { "" } else { "s" },
+            a.file
         );
     }
     log::info!(

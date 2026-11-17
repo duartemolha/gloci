@@ -405,5 +405,5 @@ fn invalid_blocks_name_the_line() {
         ])
         .assert()
         .success()
-        .stderr(contains("1 record"));
+        .stderr(contains("skipped 1 invalid record in bad.bed").and(contains("line 1")));
 }

@@ -3820,13 +3820,10 @@ cases (must match).
 ## `liftover` splits BED lines on tabs and keeps every column {#liftover-bed-fields}
 
 - **gloci:** columns are split on tabs only and written back byte for byte, so spaces
-  inside a field stay and columns 13 and up are kept.
+  inside a field stay and columns 13 and up are kept, on the BED12 block path too.
 - **Old behaviour:** CrossMap splits on any whitespace and rejoins with tabs, so a name
   with a space becomes two columns. It also drops records of 13 to 19 or 21 and more
   columns without a trace, and cuts one of 20 columns to 12.
-- **BED12:** columns 13 and up are kept on the block path too (columns 4, 5 and 9 as
-  well); CrossMap writes a 20-column BED12 cut to 12 columns, and drops one of 13 to 19 or
-  21 and more.
 - **Reason:** BED is tab-separated; a lift must not change what it does not move.
 - **Pinned by:** `liftover-bed-spaces-vs-crossmap` and, for the extra columns,
   `liftover-bed-extra-columns-vs-crossmap` (both must differ).
@@ -3846,11 +3843,18 @@ cases (must match).
 
 - **gloci:** an invalid BED line (an end before its start, say) is exit 1 naming the file
   and line, and no output is left behind. `--skip-invalid` skips such lines and counts
-  them in a warning.
+  them in a warning. A BED12 line is invalid too when its blockCount disagrees with the
+  block lists, its first block does not start at offset 0, its last block does not end
+  at chromEnd, or its blocks are unsorted or overlap; the message suggests
+  `--ignore-blocks`.
 - **Old behaviour:** CrossMap writes the line with a reason to the unmapped file and
-  exits 0.
-- **Reason:** a corrupt input should not give a clean exit status.
-- **Pinned by:** `liftover-invalid-line-vs-crossmap` (exit status: must differ);
+  exits 0. For the four BED12 faults above it does not even do that: it lifts the line as
+  read and writes whatever blocks result.
+- **Reason:** a corrupt input should not give a clean exit status, and a malformed BED12
+  line should not give blocks that look right and are not.
+- **Pinned by:** `liftover-invalid-line-vs-crossmap` and, for a BED12 blockCount that
+  disagrees with its lists, `liftover-bed12-invalid-vs-crossmap` (both exit status: must
+  differ);
   `liftover-skip-invalid-vs-crossmap` pins the records lifted under `--skip-invalid`.
 
 ## `liftover` refuses a malformed chain file {#liftover-chain-checks}
@@ -3867,8 +3871,9 @@ cases (must match).
 ## `liftover` maps BED12 thick ends through their blocks {#liftover-bed12-thick}
 
 - **gloci:** thickStart and thickEnd are moved through the piece of the block they lie in,
-  so they stay where they were in the feature. An end that lies in no block keeps
-  CrossMap's offsets from chromStart and chromEnd.
+  so they stay where they were in the feature. When either end lies in no piece (an
+  intron, or a part of a block that no chain block covers), both keep CrossMap's offsets
+  from chromStart and chromEnd.
 - **Old behaviour:** CrossMap keeps the offsets of both thick ends from chromStart and
   chromEnd, which is wrong once an intron changes length or the chain reverses the feature.
 - **Reason:** a thick range that no longer covers the same bases breaks the gene model.

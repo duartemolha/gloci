@@ -11911,3 +11911,12 @@ aux = ["xtask/diff/inputs/liftover/toy.chain"]
 gloci = "gloci liftover input.bed --chain toy.chain --ignore-blocks"
 reference = "CrossMap bed --naive-bed-parsing toy.chain input.bed o.bed >/dev/null 2>&1 && cat o.bed"
 compare = "exact"
+
+[[case]]
+name = "liftover-bed12-invalid-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-bed12-invalid.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain"
+reference = "CrossMap bed toy.chain input.bed o.bed >/dev/null 2>&1"
+compare = "exit-status"
+expected_difference = "#liftover-invalid-lines"

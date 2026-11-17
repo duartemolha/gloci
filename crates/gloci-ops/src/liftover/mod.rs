@@ -66,6 +66,8 @@ pub struct LiftoverCounts {
     pub shortened: u64,
     /// Records skipped by the op under `skip_invalid`.
     pub invalid: u64,
+    /// The first skipped invalid record: its line and why.
+    pub first_invalid: Option<(u64, String)>,
     pub unmapped: BTreeMap<Unmapped, u64>,
 }
 
@@ -121,6 +123,21 @@ impl Styler {
         let at = |id: u32| &self.names[id as usize * 2 + usize::from(chr)];
         at(a) == at(b)
     }
+}
+
+/// Count a record that did not lift and, when asked, write it as read.
+fn leave_unmapped(
+    counts: &mut LiftoverCounts,
+    unmapped: &mut Option<&mut dyn RecordWriter>,
+    why: Unmapped,
+    raw: &[u8],
+) -> Result<(), IoError> {
+    *counts.unmapped.entry(why).or_default() += 1;
+    if let Some(u) = unmapped.as_deref_mut() {
+        u.write_record(raw)
+            .map_err(|e| write_err("unmapped output", e))?;
+    }
+    Ok(())
 }
 
 fn write_err(path: &str, source: std::io::Error) -> IoError {
@@ -185,7 +202,7 @@ pub fn liftover(
             });
             if format == Format::Bed
                 && !o.ignore_blocks
-                && raw.iter().filter(|&&b| b == b'\t').count() >= 11
+                && raw.split(|&b| b == b'\t').nth(11).is_some()
             {
                 let lifted = bed::lift_blocks(
                     raw,
@@ -204,13 +221,12 @@ pub fn liftover(
                         counts.shortened += u64::from(shortened);
                     }
                     Ok(bed::Lift::Unmapped(why)) => {
-                        *counts.unmapped.entry(why).or_default() += 1;
-                        if let Some(u) = unmapped.as_deref_mut() {
-                            u.write_record(raw)
-                                .map_err(|e| write_err("unmapped output", e))?;
-                        }
+                        leave_unmapped(&mut counts, &mut unmapped, why, raw)?;
                     }
-                    Err(_) if o.skip_invalid => counts.invalid += 1,
+                    Err(msg) if o.skip_invalid => {
+                        counts.invalid += 1;
+                        counts.first_invalid.get_or_insert((m.loc, msg));
+                    }
                     Err(msg) => {
                         return Err(IoError::Parse {
                             path: input.name().to_string(),
@@ -233,11 +249,7 @@ pub fn liftover(
                 );
             }
             if pieces.is_empty() {
-                *counts.unmapped.entry(Unmapped::OffChain).or_default() += 1;
-                if let Some(u) = unmapped.as_deref_mut() {
-                    u.write_record(raw)
-                        .map_err(|e| write_err("unmapped output", e))?;
-                }
+                leave_unmapped(&mut counts, &mut unmapped, Unmapped::OffChain, raw)?;
                 continue;
             }
             for seg in &pieces {

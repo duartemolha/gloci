@@ -129,6 +129,7 @@ fn toy_counts() -> LiftoverCounts {
         split: 8,
         shortened: 6,
         invalid: 0,
+        first_invalid: None,
         unmapped: [(Unmapped::OffChain, 7)].into(),
     }
 }
@@ -419,10 +420,16 @@ chr1\t1120\t1330\tk3\t0\t+\t1120\t1120\t0\t2\t60,60\t0,150"
 
 #[test]
 fn bed12_thick_in_an_intron_keeps_crossmap_offsets() {
-    let text = "chr1\t120\t580\ti1\t0\t+\t200\t560\t0\t3\t60,60,60,\t0,100,400,\n";
+    let text = "chr1\t120\t580\ti1\t0\t+\t200\t560\t0\t3\t60,60,60,\t0,100,400,\n\
+chr1\t120\t580\tf1\t0\t+\t200\t250\t0\t3\t60,60,60,\t0,100,400,\n";
     let (out, _, _) = bed12("i.bed", text, &LiftoverOptions::default());
-    let f: Vec<&str> = out[0].split('\t').collect();
-    assert_eq!((f[6], f[7]), ("1200", "1560"), "{}", out[0]);
+    let thick = |l: &String| {
+        let f: Vec<&str> = l.split('\t').collect();
+        (f[6].to_string(), f[7].to_string())
+    };
+    // thickStart 200 lies in an intron, so both ends keep CrossMap's offsets.
+    assert_eq!(thick(&out[0]), ("1200".into(), "1560".into()), "{}", out[0]);
+    assert_eq!(thick(&out[1]), ("1200".into(), "1250".into()), "{}", out[1]);
 }
 
 #[test]
@@ -478,4 +485,29 @@ fn ignore_blocks_lifts_columns_1_to_3_only() {
         out.last().unwrap(),
         "chrT\t1500\t1550\tt11\t0\t+\t20\t240\t0\t2\t40,40\t0,200"
     );
+}
+
+#[test]
+fn bed12_on_an_unknown_chromosome_is_off_chain() {
+    let text = "chrZ\t120\t580\tz\t0\t+\t130\t560\t0\t3\t60,60,60,\t0,100,400,\n";
+    let (out, un, counts) = bed12("z.bed", text, &LiftoverOptions::default());
+    assert!(out.is_empty());
+    assert_eq!(un, lines(text.trim_end()));
+    assert_eq!(counts.unmapped, [(Unmapped::OffChain, 1)].into());
+}
+
+#[test]
+fn bed12_with_no_block_on_a_chain_is_off_chain() {
+    // chr1 has no chain block in 0-100 or 600-690.
+    let text = "chr1\t10\t690\tg\t0\t+\t10\t690\t0\t2\t20,20,\t0,660,\n";
+    let (out, _, counts) = bed12("g.bed", text, &LiftoverOptions::default());
+    assert!(out.is_empty());
+    assert_eq!(counts.unmapped, [(Unmapped::OffChain, 1)].into());
+}
+
+#[test]
+fn bed12_block_count_is_written_as_a_number() {
+    let text = "chr1\t120\t580\tc\t0\t+\t130\t560\t0\t03\t60,60,60,\t0,100,400,\n";
+    let (out, _, _) = bed12("c.bed", text, &LiftoverOptions::default());
+    assert_eq!(out[0].split('\t').nth(9), Some("3"), "{}", out[0]);
 }
