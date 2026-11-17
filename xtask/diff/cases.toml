@@ -11684,6 +11684,14 @@ compare = "exact"
 expected_difference = "#mosdepth-csi-preset"
 
 [[case]]
+name = "depth-files-bed-past-end-vs-mosdepth"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "printf 'chr1\\t0\\t1000000\\n' > p.bed && gloci depth input.bam --by p.bed --out-prefix o"
+reference = "printf 'chr1\\t0\\t1000000\\n' > p.bed && samtools index input.bam && mosdepth -n --by p.bed o input.bam"
+compare = "exit-status"
+expected_difference = "#mosdepth-bed-past-end"
+
+[[case]]
 name = "depth-files-threshold-zero-vs-mosdepth"
 input = { file = "xtask/diff/inputs/samtools/depth.bam" }
 gloci = "gloci depth input.bam --by 100 --thresholds 0 --out-prefix o"
