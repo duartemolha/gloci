@@ -5,6 +5,7 @@
 //! Every later record must have the same column count and valid standard columns.
 
 use crate::bed12_blocks;
+use bigtools::bed::autosql::parse::ParseError;
 
 /// The sizes a BED prefix can have.
 const STANDARD_SIZES: [usize; 7] = [3, 4, 5, 6, 8, 9, 12];
@@ -152,9 +153,34 @@ pub fn bed_autosql(layout: &BedLayout) -> String {
 /// The number of fields an autoSql text declares, by bigtools' parser.
 pub fn autosql_field_count(text: &str) -> Result<usize, String> {
     let mut declarations = bigtools::bed::autosql::parse::parse_autosql(text)
-        .map_err(|e| format!("the autoSql does not parse: {e:?}"))?;
+        .map_err(|e| format!("the autoSql does not parse: {}", describe(&e)))?;
     declarations
         .pop()
         .map(|d| d.fields.len())
         .ok_or_else(|| "the autoSql declares no table".to_string())
+}
+
+/// bigtools' `ParseError` in words (it has no `Display`).
+fn describe(e: &ParseError) -> String {
+    match e {
+        ParseError::InvalidDeclareType(s) => {
+            format!("invalid declaration type '{s}' (expected table, simple or object)")
+        }
+        ParseError::InvalidDeclareName(s) => format!("invalid declaration name '{s}'"),
+        ParseError::InvalidDeclareBrackets(s) => {
+            format!("the declaration's brackets are wrong, at '{s}'")
+        }
+        ParseError::InvalidFieldSizeClose(s) => {
+            format!("a field's size bracket is not closed, at '{s}'")
+        }
+        ParseError::InvalidFieldCommentSeparater(s) => {
+            format!("a field's comment is not separated by a semicolon, at '{s}'")
+        }
+        ParseError::InvalidFieldValuesBrackets(s) => {
+            format!("a field's values brackets are wrong, at '{s}'")
+        }
+        ParseError::InvalidIndexSizeBrackets(s) => {
+            format!("an index size bracket is wrong, at '{s}'")
+        }
+    }
 }

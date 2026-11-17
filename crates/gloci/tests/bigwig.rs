@@ -528,3 +528,13 @@ fn bigbed_region_points() {
         "chr1\t50\t50\tp\n"
     );
 }
+
+#[test]
+fn zero_length_region_on_a_bigwig_yields_nothing() {
+    let d = tempdir();
+    let r = two_record_bigwig(d.path());
+    // `chr1:5-5` is the one base 5, not a zero-length region.
+    assert_eq!(out(&["view", &r, "chr1:5-5"]), "chr1\t4\t5\t1.5\n");
+    let reg = plain_file(d.path(), "zero.bed", "chr1\t50\t50\n");
+    assert_eq!(out(&["view", "--regions-file", &s(&reg), &r]), "");
+}

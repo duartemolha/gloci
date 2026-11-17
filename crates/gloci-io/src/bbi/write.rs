@@ -12,7 +12,7 @@
 
 use super::autosql::{BedLayout, autosql_field_count, bed_autosql, bed_layout, check_bed_line};
 use crate::atomic::AtomicFile;
-use crate::detect::BIGBED_MAGIC;
+use crate::detect::{BIGBED_MAGIC, BIGWIG_MAGIC};
 use crate::error::{IoError, UsageError};
 use crate::output::{OutFormat, OutputSpec};
 use bigtools::bed::bedparser::BedValueError;
@@ -58,7 +58,10 @@ pub struct BbiWriteOptions {
     pub kind: BbiKind,
     pub sizes: BbiSizes,
     pub threads: NonZeroUsize,
+    /// bigBed: the autoSql text to store, as given.
     pub autosql: Option<String>,
+    /// Names the autoSql in errors ("bad.as", or the option that gave it).
+    pub autosql_name: String,
 }
 
 #[derive(Debug)]
@@ -86,9 +89,15 @@ pub fn bbi_output_refusal(f: OutFormat) -> String {
         OutFormat::BigBed => "bigBed output is written only by gloci convert (from BED or \
 bigBed); write BED here (-o x.bed) and convert it with gloci convert x.bed -g GENOME -o x.bb"
             .to_string(),
-        _ => "bigWig output is written only by gloci convert (from bedGraph, WIG or bigWig) and \
-gloci genomecov --bedgraph or --bga; write bedGraph here (-o x.bedgraph) and convert it"
-            .to_string(),
+        OutFormat::BigWig => {
+            "bigWig output is written only by gloci convert (from bedGraph, WIG or \
+bigWig) and gloci genomecov --bedgraph or --bga; write bedGraph here (-o x.bedgraph) and convert it"
+                .to_string()
+        }
+        other => unreachable!(
+            "bbi_output_refusal is for bigWig and bigBed, not {}",
+            other.name()
+        ),
     }
 }
 
@@ -149,8 +158,12 @@ pub struct BbiWriter {
     source: String,
     threads: NonZeroUsize,
     autosql: Option<String>,
+    /// The field count of the given autoSql, parsed by `create`.
+    autosql_fields: Option<usize>,
     layout: Option<BedLayout>,
     worker: Option<Worker>,
+    /// The writer thread stopped with an error: nothing more is accepted.
+    failed: bool,
     wig: Vec<(String, Value)>,
     bed: Vec<(String, BedEntry)>,
     records: u64,
@@ -158,13 +171,6 @@ pub struct BbiWriter {
     done: HashSet<String>,
     /// A record that covers at least one base has been accepted.
     covers_a_base: bool,
-}
-
-fn is_mem(spec: &OutputSpec) -> bool {
-    spec.path
-        .as_ref()
-        .and_then(|p| p.to_str())
-        .is_some_and(crate::memio::is_mem_path)
 }
 
 impl BbiWriter {
@@ -175,15 +181,15 @@ impl BbiWriter {
             BbiKind::BigBed => OutFormat::BigBed,
         };
         if spec.format != Some(want) {
-            return Err(UsageError(format!(
-                "internal error: a {} writer was given the output format {}",
+            return Err(IoError::Internal(format!(
+                "a {} writer was given the output format {}",
                 o.kind.name(),
                 spec.format.map_or("none", OutFormat::name)
-            ))
-            .into());
+            )));
         }
         let path: PathBuf = match &spec.path {
-            Some(p) if !spec.direct && !is_mem(spec) => p.clone(),
+            // An in-memory sink is always `direct`.
+            Some(p) if !spec.direct => p.clone(),
             _ => {
                 return Err(UsageError(format!(
                     "{} output must be a regular file (-o FILE.{}): it is written under a \
@@ -198,6 +204,14 @@ take it",
                 ))
                 .into());
             }
+        };
+        // Parse the autoSql before the output exists: a bad one is the user's usage error.
+        let autosql_fields = match &o.autosql {
+            Some(text) => Some(
+                autosql_field_count(text)
+                    .map_err(|m| UsageError(format!("{}: {m}", o.autosql_name)))?,
+            ),
+            None => None,
         };
         let dest = path.display().to_string();
         let af = AtomicFile::create(&path).map_err(|source| IoError::Create {
@@ -215,8 +229,10 @@ take it",
             source: o.sizes.source,
             threads: o.threads,
             autosql: o.autosql,
+            autosql_fields,
             layout: None,
             worker: None,
+            failed: false,
             wig: Vec::new(),
             bed: Vec::new(),
             records: 0,
@@ -226,8 +242,20 @@ take it",
         })
     }
 
-    /// One bedGraph (BigWig) or BED (BigBed) line, no newline.
+    /// One bedGraph (BigWig) or BED (BigBed) line, no newline. After a `Writer` error nothing
+    /// more is accepted: every later call returns an error and starts no writer.
     pub fn push(&mut self, raw: &[u8]) -> Result<(), PushError> {
+        if self.failed {
+            return Err(PushError::Writer(already_failed()));
+        }
+        let r = self.push_checked(raw);
+        if matches!(r, Err(PushError::Writer(_))) {
+            self.failed = true;
+        }
+        r
+    }
+
+    fn push_checked(&mut self, raw: &[u8]) -> Result<(), PushError> {
         let line = std::str::from_utf8(raw).map_err(|e| {
             PushError::Record(format!(
                 "the record is not valid UTF-8 (at byte {}); a bigWig or bigBed holds text in \
@@ -238,6 +266,7 @@ UTF-8",
         let rec = PushError::Record;
         let f: Vec<&str> = line.split('\t').collect();
         let mut value = 0.0f32;
+        let mut first_layout = None;
         match self.kind {
             BbiKind::BigWig => {
                 if f.len() != 4 {
@@ -254,17 +283,17 @@ has {}",
                     check_bed_line(raw, layout).map_err(rec)?;
                 } else {
                     let layout = bed_layout(raw).map_err(rec)?;
-                    if let Some(text) = &self.autosql {
-                        let n = autosql_field_count(text).map_err(rec)?;
-                        if n != layout.columns {
-                            return Err(rec(format!(
-                                "the autoSql declares {n} fields, but the records have {} \
+                    if let Some(n) = self.autosql_fields
+                        && n != layout.columns
+                    {
+                        return Err(rec(format!(
+                            "the autoSql declares {n} fields, but the records have {} \
 columns; they must agree",
-                                layout.columns
-                            )));
-                        }
+                            layout.columns
+                        )));
                     }
-                    self.layout = Some(layout);
+                    // Kept only once the whole record is accepted.
+                    first_layout = Some(layout);
                 }
             }
         }
@@ -366,6 +395,9 @@ most 65,535"
         }
         // Checked above: both positions fit 32 bits, as the chromosome's length does.
         let (start, end) = (start as u32, end as u32);
+        if first_layout.is_some() {
+            self.layout = first_layout;
+        }
         if self.worker.is_none() {
             self.start_worker()?;
         }
@@ -476,6 +508,7 @@ most 65,535"
             return Ok(());
         }
         let worker = self.worker.take().expect("worker started");
+        self.failed = true;
         Err(PushError::Writer(match join(worker, &self.dest) {
             Err(e) => e,
             Ok(()) => IoError::Internal("the bigWig/bigBed writer stopped early".into()),
@@ -484,6 +517,9 @@ most 65,535"
 
     /// Ends the input, joins the writer, fixes definedFieldCount (bigBed), renames into place.
     pub fn finish(mut self) -> Result<(), IoError> {
+        if self.failed {
+            return Err(already_failed());
+        }
         if self.records == 0 {
             return Err(IoError::Detect {
                 path: self.dest.clone(),
@@ -514,12 +550,9 @@ end); the writer needs at least one record that covers a base",
         let worker = self.worker.take().expect("worker started");
         join(worker, &self.dest)?;
         let af = self.af.take().expect("file present until finish");
-        if let Some(layout) = self.layout {
-            set_defined_field_count(&af, layout.standard).map_err(|source| IoError::Write {
-                path: self.dest.clone(),
-                source,
-            })?;
-        }
+        // bigtools writes the trailing magic last, inside a buffer whose flush errors on drop
+        // are swallowed: a file without it is incomplete.
+        finish_file(&af, self.kind, self.layout.map(|l| l.standard), &self.dest)?;
         af.commit().map_err(|source| IoError::Write {
             path: self.dest.clone(),
             source,
@@ -607,23 +640,135 @@ fn parse_value(s: &str) -> Result<f32, String> {
     }
 }
 
-/// Writes the number of standard columns into the header's definedFieldCount (bytes 34-35),
-/// in the byte order the magic at the start of the file shows.
-fn set_defined_field_count(af: &AtomicFile, standard: usize) -> std::io::Result<()> {
-    // The temp file is open for writing only: reopen it to read the magic.
+/// Checks the finished temp file ends with its magic number, and for a bigBed writes the
+/// number of standard columns into the header's definedFieldCount (bytes 34-35), in the byte
+/// order the magic at the start of the file shows.
+fn finish_file(
+    af: &AtomicFile,
+    kind: BbiKind,
+    standard: Option<usize>,
+    dest: &str,
+) -> Result<(), IoError> {
+    let write_err = |source| IoError::Write {
+        path: dest.to_string(),
+        source,
+    };
+    let incomplete = || IoError::Detect {
+        path: dest.to_string(),
+        msg: format!(
+            "{dest} is incomplete (it does not end with the {} magic number); check free disk \
+space",
+            kind.name()
+        ),
+    };
+    // The temp file is open for writing only: reopen it to read.
     let mut f = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
-        .open(af.temp_path())?;
-    let mut magic = [0u8; 4];
-    f.read_exact(&mut magic)?;
-    let little = u32::from_le_bytes(magic) == BIGBED_MAGIC;
-    let n = u16::try_from(standard).unwrap_or(12);
-    f.seek(SeekFrom::Start(34))?;
-    f.write_all(&if little {
-        n.to_le_bytes()
-    } else {
-        n.to_be_bytes()
-    })?;
-    f.flush()
+        .open(af.temp_path())
+        .map_err(write_err)?;
+    let magic = match kind {
+        BbiKind::BigWig => BIGWIG_MAGIC,
+        BbiKind::BigBed => BIGBED_MAGIC,
+    };
+    let mut head = [0u8; 4];
+    if f.read_exact(&mut head).is_err() {
+        return Err(incomplete());
+    }
+    let little = u32::from_le_bytes(head) == magic;
+    if !little && u32::from_be_bytes(head) != magic {
+        return Err(incomplete());
+    }
+    let len = f.seek(SeekFrom::End(0)).map_err(write_err)?;
+    let mut tail = [0u8; 4];
+    if len < 8
+        || f.seek(SeekFrom::Start(len - 4)).is_err()
+        || f.read_exact(&mut tail).is_err()
+        || tail != head
+    {
+        return Err(incomplete());
+    }
+    if let Some(standard) = standard {
+        let n = u16::try_from(standard).unwrap_or(12);
+        f.seek(SeekFrom::Start(34)).map_err(write_err)?;
+        f.write_all(&if little {
+            n.to_le_bytes()
+        } else {
+            n.to_be_bytes()
+        })
+        .map_err(write_err)?;
+    }
+    f.flush().map_err(write_err)
+}
+
+fn already_failed() -> IoError {
+    IoError::Internal(
+        "the bigWig/bigBed writer already failed; no more records are accepted".into(),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gloci_core::Genome;
+
+    fn writer(dir: &std::path::Path) -> BbiWriter {
+        let genome = Genome::new(vec![(b"chr1".to_vec(), Some(1_000_000))]).unwrap();
+        let spec = crate::output::parse_track_output_spec(Some(&dir.join("p.bw")), None).unwrap();
+        BbiWriter::create(
+            &spec,
+            BbiWriteOptions {
+                kind: BbiKind::BigWig,
+                sizes: BbiSizes {
+                    genome,
+                    source: "-g test".into(),
+                },
+                threads: NonZeroUsize::new(1).unwrap(),
+                autosql: None,
+                autosql_name: "autosql".into(),
+            },
+        )
+        .unwrap()
+    }
+
+    /// After a writer error, `push` and `finish` return an error and never start a second
+    /// writer on the temp file or panic.
+    #[test]
+    fn a_failed_writer_is_poisoned() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut w = writer(dir.path());
+        w.push(b"chr1\t0\t1\t1").unwrap();
+        // Replace the running writer with one that has already stopped with an error.
+        let real = w.worker.take().unwrap();
+        if let Worker::Wig(tx, _) = &real {
+            let _ = tx.send(Msg::Abort);
+        }
+        let _ = join(real, &w.dest);
+        let (tx, rx) = bounded(QUEUE);
+        drop(rx);
+        let handle =
+            std::thread::spawn(|| Err(BBIProcessError::IoError(std::io::Error::other("boom"))));
+        w.worker = Some(Worker::Wig(tx, handle));
+        let mut got = None;
+        for i in 1..=BATCH as u64 + 1 {
+            if let Err(e) = w.push(format!("chr1\t{}\t{}\t1", i * 2, i * 2 + 1).as_bytes()) {
+                got = Some(e);
+                break;
+            }
+        }
+        match got {
+            Some(PushError::Writer(IoError::Write { source, .. })) => {
+                assert_eq!(source.to_string(), "boom")
+            }
+            other => panic!("expected the writer's error, got {other:?}"),
+        }
+        assert!(w.worker.is_none());
+        assert!(matches!(
+            w.push(b"chr1\t900000\t900001\t1"),
+            Err(PushError::Writer(IoError::Internal(_)))
+        ));
+        assert!(w.worker.is_none(), "no second writer was started");
+        assert!(matches!(w.finish(), Err(IoError::Internal(_))));
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
 }

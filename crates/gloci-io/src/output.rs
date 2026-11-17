@@ -119,6 +119,18 @@ const ACCEPTED: &str = ".bed, .bed.gz, .bedgraph, .bedgraph.gz, .vcf, .vcf.gz, .
 .tsv, .tsv.gz, .gff, .gff.gz, .gff3, .gff3.gz, .gtf, .gtf.gz, .bam, .sam, .fa, .fa.gz, \
 .fasta, .fasta.gz, .fna, .fna.gz, .bedpe, .bedpe.gz, .fq, .fq.gz, .fastq, .fastq.gz";
 
+/// What a command that writes bigWig and bigBed (`convert`, `genomecov`) accepts besides.
+const ACCEPTED_BBI: &str = ", .bw, .bigwig, .bb, .bigbed";
+
+/// The extensions an error names: the bigWig and bigBed ones only for the commands that write them.
+fn accepted(allow_bbi: bool) -> String {
+    if allow_bbi {
+        format!("{ACCEPTED}{ACCEPTED_BBI}")
+    } else {
+        ACCEPTED.to_string()
+    }
+}
+
 /// `(suffix without dot, format, bgzf)`, matched case-insensitively.
 fn lookup(s: &str) -> Option<(OutFormat, bool)> {
     use OutFormat::*;
@@ -263,7 +275,8 @@ fn parse_spec(
             let key = s.trim_start_matches('.').to_ascii_lowercase();
             Some(lookup(&key).ok_or_else(|| {
                 UsageError(format!(
-                    "unknown output format '{s}' for --output-format; use one of: {ACCEPTED}"
+                    "unknown output format '{s}' for --output-format; use one of: {}",
+                    accepted(allow_bbi)
                 ))
             })?)
         }
@@ -276,8 +289,9 @@ fn parse_spec(
             None if from_o.is_some() || direct => None,
             None => {
                 return Err(UsageError(format!(
-                    "cannot tell the output format from '{}'; use an extension from: {ACCEPTED}, or pass -O",
-                    p.display()
+                    "cannot tell the output format from '{}'; use an extension from: {}, or pass -O",
+                    p.display(),
+                    accepted(allow_bbi)
                 )));
             }
         },

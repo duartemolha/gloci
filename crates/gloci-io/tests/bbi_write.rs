@@ -31,6 +31,7 @@ fn options(kind: BbiKind, sizes: &[(&str, u64)], threads: usize) -> BbiWriteOpti
         },
         threads: NonZeroUsize::new(threads).unwrap(),
         autosql: None,
+        autosql_name: "autosql".into(),
     }
 }
 
@@ -532,4 +533,124 @@ fn bigbed_zero_length_refused_at_zero_and_at_the_chromosome_end() {
 fn tiny_chromosomes_finish() {
     guarded_write(BbiKind::BigWig, &[("chr1", 10)], &["chr1\t1\t3\t1"]);
     guarded_write(BbiKind::BigBed, &[("chr1", 10)], &["chr1\t1\t3\tx"]);
+}
+
+#[test]
+fn bad_autosql_is_a_usage_error_naming_the_file_and_leaves_no_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut o = options(BbiKind::BigBed, SIZES, 1);
+    o.autosql = Some("table bed\n(\n  nonsense\n)".into());
+    o.autosql_name = "bad.as".into();
+    match BbiWriter::create(&spec(&dir.path().join("b.bb")), o) {
+        Err(IoError::Usage(u)) => {
+            assert!(u.0.starts_with("bad.as: "), "{}", u.0);
+            assert!(!u.0.contains("Invalid"), "Display form, not Debug: {}", u.0);
+        }
+        other => panic!("expected a usage error, got {:?}", other.map(|_| ())),
+    }
+    assert_eq!(temp_files(dir.path()), Vec::<String>::new());
+    assert!(!dir.path().join("b.bb").exists());
+}
+
+#[test]
+fn a_refused_first_bigbed_record_does_not_set_the_layout() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut w = writer(&dir.path().join("l.bb"), BbiKind::BigBed, SIZES, 1);
+    // Eight columns on a chromosome the sizes lack: refused.
+    assert!(matches!(
+        w.push(b"nochr\t0\t10\tn\t5\t+\t1.5\tx"),
+        Err(PushError::Record(_))
+    ));
+    // The layout is still open: three columns are accepted.
+    w.push(b"chr1\t0\t10").unwrap();
+    w.finish().unwrap();
+}
+
+#[test]
+fn a_user_autosql_is_stored_as_given() {
+    let dir = tempfile::tempdir().unwrap();
+    let text = "table peak\n\"my peaks\"\n(\n    string chrom; \"c\"\n    uint chromStart; \"s\"\n    uint chromEnd; \"e\"\n    string name; \"n\"\n    uint score; \"sc\"\n)\n";
+    let mut o = options(BbiKind::BigBed, SIZES, 2);
+    o.autosql = Some(text.into());
+    let out = dir.path().join("u.bb");
+    let mut w = BbiWriter::create(&spec(&out), o).unwrap();
+    w.push(b"chr1\t0\t10\tn\t5").unwrap();
+    w.finish().unwrap();
+    let mut r = BigBedRead::open_file(&out).unwrap();
+    assert_eq!(r.autosql().unwrap().unwrap(), text);
+    let bytes = std::fs::read(&out).unwrap();
+    assert_eq!(u16::from_le_bytes([bytes[34], bytes[35]]), 5);
+}
+
+#[test]
+fn drop_after_batches_were_sent_removes_the_temp_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("big.bw");
+    let sizes = [("chr1", 1_000_000u64)];
+    let mut w = writer(&out, BbiKind::BigWig, &sizes, 2);
+    // More than QUEUE batches of 4,096: the writer thread has been fed and is mid-write.
+    for i in 0..(4096 * 4 + 100) {
+        w.push(format!("chr1\t{}\t{}\t1", i * 2, i * 2 + 1).as_bytes())
+            .unwrap();
+    }
+    drop(w);
+    assert!(!out.exists());
+    assert_eq!(temp_files(dir.path()), Vec::<String>::new());
+}
+
+#[test]
+fn bytes_do_not_depend_on_threads_across_batches() {
+    let dir = tempfile::tempdir().unwrap();
+    let sizes = [("chr1", 200_000u64), ("chr2", 200_000), ("chr10", 200_000)];
+    let mut lines = Vec::new();
+    for (c, n) in [("chr1", 8000u64), ("chr2", 7000), ("chr10", 5000)] {
+        for i in 0..n {
+            lines.push(format!(
+                "{c}\t{}\t{}\t{}",
+                i * 4,
+                i * 4 + 3,
+                (i % 23) as f32 * 0.5
+            ));
+        }
+    }
+    assert_eq!(lines.len(), 20_000);
+    for kind in [BbiKind::BigWig, BbiKind::BigBed] {
+        let ext = if kind == BbiKind::BigWig { "bw" } else { "bb" };
+        let lines: Vec<String> = if kind == BbiKind::BigBed {
+            lines
+                .iter()
+                .map(|l| l.rsplit_once('\t').unwrap().0.to_string() + "\tname")
+                .collect()
+        } else {
+            lines.clone()
+        };
+        let mut files = Vec::new();
+        for t in [1, 2, 8] {
+            let p = dir.path().join(format!("t{t}.{ext}"));
+            write_all(&p, kind, &sizes, t, &lines);
+            files.push(std::fs::read(&p).unwrap());
+        }
+        assert_eq!(files[0], files[1], "{ext}: -t 1 and -t 2 differ");
+        assert_eq!(files[0], files[2], "{ext}: -t 1 and -t 8 differ");
+    }
+}
+
+#[test]
+fn only_the_track_commands_list_bbi_extensions() {
+    let plain = parse_output_spec(Some(Path::new("x.zzz")), None)
+        .unwrap_err()
+        .0;
+    assert!(
+        !plain.contains(".bw") && !plain.contains(".bigbed"),
+        "{plain}"
+    );
+    let track = parse_track_output_spec(Some(Path::new("x.zzz")), None)
+        .unwrap_err()
+        .0;
+    assert!(
+        track.contains(".bw") && track.contains(".bigbed"),
+        "{track}"
+    );
+    let flag = parse_track_output_spec(None, Some("zzz")).unwrap_err().0;
+    assert!(flag.contains(".bb"), "{flag}");
 }
