@@ -168,6 +168,7 @@ pub fn coverage_summary(
     let mode = ModeRules {
         read_length: ReadLength::CigarQuery,
         filter: None,
+        shared_bases: false,
     };
     let (DepthSummary { max_ring, .. }, sink) = run_sources(opened, paths, &d, mode, ro, |hdr| {
         let window = match &o.region {

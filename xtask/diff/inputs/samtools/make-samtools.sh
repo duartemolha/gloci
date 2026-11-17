@@ -259,3 +259,16 @@ EOF
 } > mosdepth.sam
 samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o mosdepth.bam mosdepth.sam
 samtools index -@ 0 mosdepth.bam
+
+# mosdepth-stale.sam: s waits for its mate (mpos 121), whose record is a duplicate; o starts past 121;
+# a secondary alignment of s (355) at 301. With -F 1540 mosdepth lets the secondary take the stale
+# entry and adds depth over [150,300); gloci dropped the entry at o (#mosdepth-mate-table).
+{
+  printf '@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:1000\n'
+  printf 's\t99\tchr1\t101\t60\t50M\t=\t121\t70\t*\t*\n'
+  printf 's\t1171\tchr1\t121\t60\t50M\t=\t101\t-70\t*\t*\n'
+  printf 'o\t0\tchr1\t131\t60\t10M\t*\t0\t0\t*\t*\n'
+  printf 's\t355\tchr1\t301\t60\t50M\t=\t101\t0\t*\t*\n'
+} > mosdepth-stale.sam
+samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o mosdepth-stale.bam mosdepth-stale.sam
+samtools index -@ 0 mosdepth-stale.bam

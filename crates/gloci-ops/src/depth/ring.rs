@@ -34,6 +34,23 @@ fn count_range(counts: &mut [u32], lo: u64, hi: u64) {
     }
 }
 
+/// Call `f` with each run of `[lo, hi)` that lies outside `except` (sorted, disjoint).
+fn for_each_gap(lo: u64, hi: u64, except: &[Interval], f: &mut dyn FnMut(u64, u64)) {
+    let mut at = lo;
+    for iv in &except[except.partition_point(|iv| iv.end <= lo)..] {
+        if iv.start >= hi {
+            break;
+        }
+        if at < iv.start {
+            f(at, iv.start);
+        }
+        at = at.max(iv.end);
+    }
+    if at < hi {
+        f(at, hi);
+    }
+}
+
 /// The counts of one input's reads, from `base` to `covered_end`. A position at or past
 /// `covered_end` has no read over it, and so depth 0.
 #[derive(Debug, Default)]
@@ -125,6 +142,28 @@ impl DepthRing {
     ///   none), as for the part of a read that overlaps its mate. It does not shrink the span:
     ///   `covered_end` grows to `span.end` and the positions in `span` still print.
     pub fn add(&mut self, r: &AlnRef<'_>, span: Interval, rules: &CountRules, clip: u64) {
+        self.add_inner(r, span, rules, clip, &[]);
+    }
+
+    /// As `add`, but bases at positions inside any of `except` (sorted, disjoint) are not counted.
+    pub fn add_except(
+        &mut self,
+        r: &AlnRef<'_>,
+        span: Interval,
+        rules: &CountRules,
+        except: &[Interval],
+    ) {
+        self.add_inner(r, span, rules, 0, except);
+    }
+
+    fn add_inner(
+        &mut self,
+        r: &AlnRef<'_>,
+        span: Interval,
+        rules: &CountRules,
+        clip: u64,
+        except: &[Interval],
+    ) {
         self.cover(span);
         let mask = self.counts.len() - 1;
 
@@ -147,28 +186,30 @@ impl DepthRing {
             let hi = rpos.saturating_add(n).min(span.end);
             match op {
                 b'M' | b'=' | b'X' => {
-                    if ungated {
-                        count_range(counts, lo, hi);
-                    } else {
-                        for p in lo..hi {
-                            if gate(q + (p - rpos) as usize) {
-                                let s = &mut counts[(p as usize) & mask];
-                                *s = s.saturating_add(1);
+                    for_each_gap(lo, hi, except, &mut |a, b| {
+                        if ungated {
+                            count_range(counts, a, b);
+                        } else {
+                            for p in a..b {
+                                if gate(q + (p - rpos) as usize) {
+                                    let s = &mut counts[(p as usize) & mask];
+                                    *s = s.saturating_add(1);
+                                }
                             }
                         }
-                    }
+                    });
                     q += n as usize;
                     rpos = rpos.saturating_add(n);
                 }
                 b'D' => {
                     if rules.deletions && gate(q) {
-                        count_range(counts, lo, hi);
+                        for_each_gap(lo, hi, except, &mut |a, b| count_range(counts, a, b));
                     }
                     rpos = rpos.saturating_add(n);
                 }
                 b'N' => {
                     if rules.ref_skips {
-                        count_range(counts, lo, hi);
+                        for_each_gap(lo, hi, except, &mut |a, b| count_range(counts, a, b));
                     }
                     rpos = rpos.saturating_add(n);
                 }

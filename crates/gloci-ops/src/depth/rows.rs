@@ -2,6 +2,7 @@
 //! (D138). One run reads one record stream per input, merged by `(reference, position)`.
 
 use super::mates::MateTable;
+use super::pairs::PairTable;
 use super::ring::{CountRules, DepthRing};
 use super::{AllPositions, DepthOptions, ModeRules};
 use gloci_core::Interval;
@@ -57,6 +58,9 @@ pub(crate) enum MateRule {
     Off,
     /// D139: the second read is clipped at the end of its mate.
     ClipAtMateEnd,
+    /// D173, mosdepth's: the second read of a proper pair does not count the positions the
+    /// first read's aligned segments cover.
+    SharedBases,
 }
 
 /// Records dropped before anything else sees them, once the sink has been told they were placed.
@@ -140,7 +144,9 @@ impl<'a> Plan<'a> {
             min_read_length: o.min_read_length,
             all,
             read_length: mode.read_length,
-            mates: if o.skip_mate_overlap {
+            mates: if mode.shared_bases {
+                MateRule::SharedBases
+            } else if o.skip_mate_overlap {
                 MateRule::ClipAtMateEnd
             } else {
                 MateRule::Off
@@ -347,6 +353,10 @@ pub(crate) struct Input {
     pub(crate) ring: DepthRing,
     /// Reads waiting for their mate (`--skip-mate-overlap`).
     mates: MateTable,
+    /// Proper pairs waiting for their mate (mosdepth's rule).
+    pairs: PairTable,
+    /// The segments the current read shares with its mate.
+    shared: Vec<Interval>,
     cur: Option<Cur>,
     /// Reference, position and record number of the last record read, for the order check.
     last: Option<(usize, u64, u64)>,
@@ -362,6 +372,8 @@ impl Input {
             buf: Vec::new(),
             ring: DepthRing::new(),
             mates: MateTable::new(),
+            pairs: PairTable::new(),
+            shared: Vec::new(),
             cur: None,
             last: None,
         }
@@ -491,14 +503,20 @@ depth counts only the bases up to LN, where samtools prints rows beyond it (this
         } else {
             // Consume or store first, then drop what no later read can claim, so a mate at
             // exactly `mpos` finds its entry.
-            let clip = if plan.mates == MateRule::ClipAtMateEnd {
-                let clip = self.mates.clip_for(&a, c.pos, c.span.end);
-                self.mates.advance(c.pos);
-                clip
-            } else {
-                0
-            };
-            self.ring.add(&a, c.span, &plan.rules, clip);
+            match plan.mates {
+                MateRule::SharedBases => {
+                    self.pairs
+                        .shared_with_mate(&a, c.pos, c.span.end, &mut self.shared);
+                    self.pairs.advance(c.pos);
+                    self.ring.add_except(&a, c.span, &plan.rules, &self.shared);
+                }
+                MateRule::ClipAtMateEnd => {
+                    let clip = self.mates.clip_for(&a, c.pos, c.span.end);
+                    self.mates.advance(c.pos);
+                    self.ring.add(&a, c.span, &plan.rules, clip);
+                }
+                MateRule::Off => self.ring.add(&a, c.span, &plan.rules, 0),
+            }
         }
         Ok(())
     }
@@ -612,13 +630,16 @@ pub(crate) fn run_group<S: DepthSink>(
             for i in inputs.iter_mut() {
                 i.ring.reset();
                 i.mates.reset();
+                i.pairs.reset();
             }
         }
         printer.pending(inputs, c.rid, next, c.pos).map_err(write)?;
         next = next.max(c.pos);
         inputs[k].add_current(plan)?;
         max_ring = max_ring.max(inputs[k].ring.capacity());
-        max_mates = max_mates.max(inputs[k].mates.peak());
+        max_mates = max_mates
+            .max(inputs[k].mates.peak())
+            .max(inputs[k].pairs.peak());
         inputs[k].advance(k, plan, printer.sink)?;
     }
     if let Some(r) = cur_ref {
@@ -860,6 +881,7 @@ mod sink_tests {
         let coverage = ModeRules {
             read_length: ReadLength::CigarQuery,
             filter: None,
+            shared_bases: false,
         };
         assert_eq!(reads(&t, 60, coverage), [("long".to_string(), iv(0, 30))]);
         assert_eq!(reads(&t, 60, ModeRules::depth()), []);
@@ -894,6 +916,7 @@ mod sink_tests {
                 exclude_flags: 0x400,
                 min_mapq: 20,
             }),
+            shared_bases: false,
         };
         let rec = run(&text, &opts(AllPositions::Covered, 0), mode);
         let placed = rec

@@ -4,6 +4,7 @@
 
 pub mod coverage;
 mod mates;
+mod pairs;
 mod ring;
 mod rows;
 #[cfg(test)]
@@ -11,6 +12,7 @@ pub(crate) mod test_sink;
 
 pub use coverage::{CoverageOptions, CoverageSummary, coverage_summary};
 pub use mates::MateTable;
+pub use pairs::{PairTable, aligned_segments};
 pub use ring::{CountRules, DepthRing};
 
 use crate::aln_merge::threads_per_reader;
@@ -60,7 +62,8 @@ pub struct DepthSummary {
     pub rows: u64,
     /// The most counters (not bytes) any input's ring held at once.
     pub max_ring: usize,
-    /// The most reads any input's mate table held at once (`--skip-mate-overlap`).
+    /// The most reads any input's mate table held at once (`--skip-mate-overlap`, or mosdepth's
+    /// pairs, D173).
     pub max_pending_mates: usize,
 }
 
@@ -181,6 +184,9 @@ pub fn depth(
 pub(crate) struct ModeRules {
     pub read_length: ReadLength,
     pub filter: Option<ReadFilter>,
+    /// mosdepth's mate rule (D173): the second read of a proper pair does not count the bases
+    /// its mate's aligned segments cover.
+    pub shared_bases: bool,
 }
 
 impl ModeRules {
@@ -189,6 +195,7 @@ impl ModeRules {
         ModeRules {
             read_length: ReadLength::SeqLessClips,
             filter: None,
+            shared_bases: false,
         }
     }
 }
