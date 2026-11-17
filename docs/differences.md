@@ -3845,8 +3845,9 @@ cases (must match).
   and line, and no output is left behind. `--skip-invalid` skips such lines and counts
   them in a warning. A BED12 line is invalid too when its blockCount disagrees with the
   block lists, its first block does not start at offset 0, its last block does not end
-  at chromEnd, or its blocks are unsorted or overlap; the message suggests
-  `--ignore-blocks`.
+  at chromEnd, or its blocks are unsorted or overlap, or a thickStart or thickEnd is not
+  a plain non-negative number or lies outside chromStart and chromEnd (CrossMap leaves
+  such a record unmapped, without a reason); the message suggests `--ignore-blocks`.
 - **Old behaviour:** CrossMap writes the line with a reason to the unmapped file and
   exits 0. For the four BED12 faults above it does not even do that: it lifts the line as
   read and writes whatever blocks result.

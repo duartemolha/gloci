@@ -511,3 +511,26 @@ fn bed12_block_count_is_written_as_a_number() {
     let (out, _, _) = bed12("c.bed", text, &LiftoverOptions::default());
     assert_eq!(out[0].split('\t').nth(9), Some("3"), "{}", out[0]);
 }
+
+#[test]
+fn bed12_bad_thick_values_are_invalid_lines_not_panics() {
+    for thick in [
+        "+5",
+        "-5",
+        "99999999999999999999",
+        "9223372036854775808",
+        "581",
+    ] {
+        let text = format!("chr1\t120\t580\tb\t0\t+\t{thick}\t560\t0\t3\t60,60,60,\t0,100,400,\n");
+        let end = format!("chr1\t120\t580\tb\t0\t+\t130\t{thick}\t0\t3\t60,60,60,\t0,100,400,\n");
+        for t in [text, end] {
+            match run_with(&chain(), "b.bed", &t, &LiftoverOptions::default(), false) {
+                Err(IoError::Parse { msg, loc, .. }) => {
+                    assert_eq!(loc, gloci_io::Loc::Line(1));
+                    assert!(msg.contains("thick"), "{thick}: {msg}");
+                }
+                other => panic!("{thick}: {:?}", other.map(|r| r.0)),
+            }
+        }
+    }
+}

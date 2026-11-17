@@ -86,6 +86,14 @@ pub(crate) fn lift_blocks(
     let blocks = bed12_blocks(raw)?.ok_or("fewer than 12 columns")?;
     let thick_start = number(raw, 6, "thickStart")?;
     let thick_end = number(raw, 7, "thickEnd")?;
+    for (what, v) in [("thickStart", thick_start), ("thickEnd", thick_end)] {
+        if v < span.start || v > span.end {
+            return Err(format!(
+                "{what} {v} lies outside chromStart {} and chromEnd {}",
+                span.start, span.end
+            ));
+        }
+    }
     let minus = raw.split(|&b| b == b'\t').nth(5) == Some(b"-");
 
     let BlockScratch { pieces, one } = scratch;
@@ -136,21 +144,21 @@ pub(crate) fn lift_blocks(
         |s| s.start < thick_end && thick_end <= s.end,
         |s| thick_end == s.start,
     ));
-    let fwd = |p: &Segment, x: u64| (p.target.start + (x - p.source.start)) as i64;
-    let mirror = |p: &Segment, x: u64| (p.target.end - (x - p.source.start)) as i64;
+    let fwd = |p: &Segment, x: u64| i128::from(p.target.start) + i128::from(x - p.source.start);
+    let mirror = |p: &Segment, x: u64| i128::from(p.target.end) - i128::from(x - p.source.start);
     let mapped = match (ts_block, te_block) {
         (Some(s), Some(e)) if !first.reverse => Some((fwd(s, thick_start), fwd(e, thick_end))),
         (Some(s), Some(e)) => Some((mirror(e, thick_end), mirror(s, thick_start))),
         _ => None,
     };
     let (ts, te) = mapped.unwrap_or((
-        cs as i64 + (thick_start as i64 - span.start as i64),
-        ce as i64 - (span.end as i64 - thick_end as i64),
+        i128::from(cs) + i128::from(thick_start) - i128::from(span.start),
+        i128::from(ce) - (i128::from(span.end) - i128::from(thick_end)),
     ));
     let ascending = pieces
         .windows(2)
         .all(|w| w[0].target.end <= w[1].target.start);
-    if cs > ce || ts > te || (cs as i64) > ts || te > ce as i64 || !ascending {
+    if cs > ce || ts > te || i128::from(cs) > ts || te > i128::from(ce) || !ascending {
         return Ok(Lift::Unmapped(Unmapped::BadBlocks));
     }
 
