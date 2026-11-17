@@ -1,0 +1,1 @@
+vcf query input.vcf --include 'QUAL<8 || GT="het"' -f '%POS[\t%SAMPLE=%GT]\n'

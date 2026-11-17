@@ -1,0 +1,1 @@
+vcf query input.vcf -H -f '%CHROM %POS %INFO/DP %DB{0} [ %GT %DP{0}]\n'

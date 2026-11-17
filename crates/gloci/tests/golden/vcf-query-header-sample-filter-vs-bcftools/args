@@ -1,0 +1,1 @@
+vcf query input.vcf -H --include 'GT="alt"' -f '%POS[\t%SAMPLE=%GT]\n'

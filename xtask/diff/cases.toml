@@ -11059,3 +11059,285 @@ gloci = "gloci tag input.bam -b calls.vcf --labels V -O sam"
 reference = "bedtools tag -i input.bam -files calls.vcf -labels V"
 compare = "exit-status"
 expected_difference = "#tag-feature-formats"
+
+# vcf query (D172)
+
+[[case]]
+name = "vcf-query-fixed-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/split/multi.vcf" }
+gloci = "gloci vcf query input.vcf -f '%CHROM\\t%POS\\t%POS0\\t%END\\t%END0\\t%ID\\t%REF\\t%ALT\\t%FIRST_ALT\\t%QUAL\\t%FILTER\\t%TYPE\\n'"
+reference = "bcftools query -f '%CHROM\\t%POS\\t%POS0\\t%END\\t%END0\\t%ID\\t%REF\\t%ALT\\t%FIRST_ALT\\t%QUAL\\t%FILTER\\t%TYPE\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-fixed-symbolic-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf -f '%CHROM\\t%POS\\t%POS0\\t%END\\t%END0\\t%ID\\t%REF\\t%ALT\\t%FIRST_ALT\\t%QUAL\\t%FILTER\\t%TYPE\\n'"
+reference = "bcftools query -f '%CHROM\\t%POS\\t%POS0\\t%END\\t%END0\\t%ID\\t%REF\\t%ALT\\t%FIRST_ALT\\t%QUAL\\t%FILTER\\t%TYPE\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-symbolic-no-end-vs-bcftools"
+input = { file = "xtask/diff/inputs/symbolic-no-end.vcf" }
+gloci = "gloci vcf query input.vcf -f '%CHROM\\t%POS\\t%END\\t%TYPE\\n'"
+reference = "bcftools query -f '%CHROM\\t%POS\\t%END\\t%TYPE\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-types-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/query/types.vcf" }
+gloci = "gloci vcf query input.vcf -f '%POS\\t%TYPE\\t%FIRST_ALT\\t%ALT{1}\\t%END\\n'"
+reference = "bcftools query -f '%POS\\t%TYPE\\t%FIRST_ALT\\t%ALT{1}\\t%END\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-info-tags-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/split/multi.vcf" }
+gloci = "gloci vcf query input.vcf -f '%INFO/DP\\t%DB\\t%AC\\t%AF\\t%RC\\t%GC\\t%XS\\n'"
+reference = "bcftools query -f '%INFO/DP\\t%DB\\t%AC\\t%AF\\t%RC\\t%GC\\t%XS\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-info-subscripts-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/split/multi.vcf" }
+gloci = "gloci vcf query input.vcf -f '%RC{0}\\t%RC{3}\\t%XS{1}\\t%XS{5}\\t%DB{0}\\t%DB{1}\\t%GC{9}\\t%AF{1}\\t%ALT{1}\\t%ALT{5}\\n'"
+reference = "bcftools query -f '%RC{0}\\t%RC{3}\\t%XS{1}\\t%XS{5}\\t%DB{0}\\t%DB{1}\\t%GC{9}\\t%AF{1}\\t%ALT{1}\\t%ALT{5}\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-format-vectors-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/split/multi.vcf" }
+gloci = "gloci vcf query input.vcf -f '%POS[\\t%SAMPLE=%GT:%AD:%PL:%GL:%AQ:%DP]\\n'"
+reference = "bcftools query -f '%POS[\\t%SAMPLE=%GT:%AD:%PL:%GL:%AQ:%DP]\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-format-subscripts-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/split/multi.vcf" }
+gloci = "gloci vcf query input.vcf -f '%POS[\\t%AD{0}:%AD{1}:%PL{2}]\\n'"
+reference = "bcftools query -f '%POS[\\t%AD{0}:%AD{1}:%PL{2}]\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-tgt-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/split/multi.vcf" }
+gloci = "gloci vcf query input.vcf -f '%POS[\\t%TGT]\\n'"
+reference = "bcftools query -f '%POS[\\t%TGT]\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-haploid-vs-bcftools"
+input = { file = "xtask/diff/inputs/extract-haploid.vcf" }
+gloci = "gloci vcf query input.vcf -f '%POS[\\t%GT\\t%TGT]\\n'"
+reference = "bcftools query -f '%POS[\\t%GT\\t%TGT]\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-mixed-ploidy-vs-bcftools"
+input = { file = "xtask/diff/inputs/mixed-ploidy-missing.vcf" }
+gloci = "gloci vcf query input.vcf -f '%POS[\\t%GT\\t%TGT]\\n'"
+reference = "bcftools query -f '%POS[\\t%GT\\t%TGT]\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-numbers-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/query/numbers.vcf" }
+gloci = "gloci vcf query input.vcf -f '%POS\\t%QUAL\\t%I\\t%F[\\t%GL:%FI:%FF]\\n'"
+reference = "bcftools query -f '%POS\\t%QUAL\\t%I\\t%F[\\t%GL:%FI:%FF]\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-float-info-vs-bcftools"
+input = { file = "xtask/diff/inputs/filter-float-text.vcf" }
+gloci = "gloci vcf query input.vcf -f '%CHROM\\t%POS\\t%QUAL\\t%AF\\t%AF_afr\\n'"
+reference = "bcftools query -f '%CHROM\\t%POS\\t%QUAL\\t%AF\\t%AF_afr\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-long-vs-bcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf query input.vcf -f '[%CHROM\\t%POS\\t%SAMPLE\\t%GT\\t%DP\\n]'"
+reference = "bcftools query -f '[%CHROM\\t%POS\\t%SAMPLE\\t%GT\\t%DP\\n]' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-site-in-block-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf -f '%POS[\\t%SAMPLE:%QUAL:%DP:%INFO/DP]\\n'"
+reference = "bcftools query -f '%POS[\\t%SAMPLE:%QUAL:%DP:%INFO/DP]\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-escapes-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf -f 'a\\\\b\\t%POS\\n'"
+reference = "bcftools query -f 'a\\\\b\\t%POS\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-no-newline-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf -f '%POS[\\t%GT]'"
+reference = "bcftools query -f '%POS[\\t%GT]' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-line-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf -f '%LINE'"
+reference = "bcftools query -f '%LINE' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-line-samples-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf --samples s2 -f '%LINE'"
+reference = "bcftools query -s s2 -f '%LINE' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-bcf-vs-bcftools"
+input = { file = "xtask/diff/inputs/bcf-text.bcf" }
+gloci = "gloci vcf query input.bcf -f '%CHROM\\t%POS\\t%REF\\t%ALT\\t%QUAL\\t%INFO[\\t%GT]\\n'"
+reference = "bcftools query -f '%CHROM\\t%POS\\t%REF\\t%ALT\\t%QUAL\\t%INFO[\\t%GT]\\n' input.bcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-header-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf -H -f '%CHROM %POS %INFO/DP %DB{0} [ %GT %DP{0}]\\n'"
+reference = "bcftools query -H -f '%CHROM %POS %INFO/DP %DB{0} [ %GT %DP{0}]\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-header-block-newline-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf -H -f '%POS\\t[%SAMPLE\\t%GT\\n]'"
+reference = "bcftools query -H -f '%POS\\t[%SAMPLE\\t%GT\\n]' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-header-no-newline-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf -H -f '[%SAMPLE\\t%GT]'"
+reference = "bcftools query -H -f '[%SAMPLE\\t%GT]' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-include-alt-carriers-vs-bcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf query input.vcf --include 'GT=\"alt\"' -f '[%SAMPLE\\n]'"
+reference = "bcftools query -i 'GT=\"alt\"' -f '[%SAMPLE\\n]' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-include-het-vs-bcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf query input.vcf --include 'GT=\"het\"' -f '%POS[\\t%SAMPLE=%GT]\\n'"
+reference = "bcftools query -i 'GT=\"het\"' -f '%POS[\\t%SAMPLE=%GT]\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-exclude-alt-vs-bcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf query input.vcf --exclude 'GT=\"alt\"' -f '%POS[\\t%SAMPLE=%GT]\\n'"
+reference = "bcftools query -e 'GT=\"alt\"' -f '%POS[\\t%SAMPLE=%GT]\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-exclude-het-sites-vs-bcftools"
+input = { file = "xtask/diff/inputs/filter-cohort.vcf" }
+gloci = "gloci vcf query input.vcf --exclude 'GT=\"het\"' -f '%POS\\n'"
+reference = "bcftools query -e 'GT=\"het\"' -f '%POS\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-include-and-site-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf --include 'QUAL>8 && GT=\"het\"' -f '%POS[\\t%SAMPLE=%GT]\\n'"
+reference = "bcftools query -i 'QUAL>8 && GT=\"het\"' -f '%POS[\\t%SAMPLE=%GT]\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-include-or-site-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf --include 'QUAL<8 || GT=\"het\"' -f '%POS[\\t%SAMPLE=%GT]\\n'"
+reference = "bcftools query -i 'QUAL<8 || GT=\"het\"' -f '%POS[\\t%SAMPLE=%GT]\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-include-and-samples-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf --include 'GT=\"het\" && FMT/DP>20' -f '%POS[\\t%SAMPLE=%GT:%DP]\\n'"
+reference = "bcftools query -i 'GT=\"het\" && FMT/DP>20' -f '%POS[\\t%SAMPLE=%GT:%DP]\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-include-or-samples-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf --include 'GT=\"het\" || FMT/DP>20' -f '%POS[\\t%SAMPLE=%GT:%DP]\\n'"
+reference = "bcftools query -i 'GT=\"het\" || FMT/DP>20' -f '%POS[\\t%SAMPLE=%GT:%DP]\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-exclude-nested-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf --exclude '(QUAL<8 || GT=\"het\") && FMT/GQ>=36' -f '%POS[\\t%SAMPLE=%GT:%GQ]\\n'"
+reference = "bcftools query -e '(QUAL<8 || GT=\"het\") && FMT/GQ>=36' -f '%POS[\\t%SAMPLE=%GT:%GQ]\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-include-npass-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf --include 'N_PASS(GT=\"het\")>=1' -f '%POS[\\t%SAMPLE]\\n'"
+reference = "bcftools query -i 'N_PASS(GT=\"het\")>=1' -f '%POS[\\t%SAMPLE]\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-include-subscript-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf --include 'GT[2]=\"alt\"' -f '%POS[\\t%SAMPLE]\\n'"
+reference = "bcftools query -i 'GT[2]=\"alt\"' -f '%POS[\\t%SAMPLE]\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-header-sample-filter-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf -H --include 'GT=\"alt\"' -f '%POS[\\t%SAMPLE=%GT]\\n'"
+reference = "bcftools query -H -i 'GT=\"alt\"' -f '%POS[\\t%SAMPLE=%GT]\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-header-site-filter-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf -H --include 'QUAL>5' -f '%POS[\\t%SAMPLE=%GT]\\n'"
+reference = "bcftools query -H -i 'QUAL>5' -f '%POS[\\t%SAMPLE=%GT]\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-samples-filter-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf --samples s2,s3 --include 'GT=\"het\"' -f '%POS[\\t%SAMPLE=%GT]\\n'"
+reference = "bcftools query -s s2,s3 -i 'GT=\"het\"' -f '%POS[\\t%SAMPLE=%GT]\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-samples-order-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf --samples s3,s1 -f '%POS[\\t%SAMPLE=%GT]\\n'"
+reference = "bcftools query -s s3,s1 -f '%POS[\\t%SAMPLE=%GT]\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-samples-order-header-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf -H --samples s3,s1 -f '%POS[\\t%GT]\\n'"
+reference = "bcftools query -H -s s3,s1 -f '%POS[\\t%GT]\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-empty-info-elements-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/query/empty-elements.vcf" }
+gloci = "gloci vcf query input.vcf -f '%POS\\t%I\\t%F\\t%J\\t%F{1}\\t%J{1}\\n'"
+reference = "bcftools query -f '%POS\\t%I\\t%F\\t%J\\t%F{1}\\t%J{1}\\n' input.vcf"
+compare = "exact"

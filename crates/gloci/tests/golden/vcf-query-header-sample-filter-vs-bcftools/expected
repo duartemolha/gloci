@@ -1,0 +1,4 @@
+#[1]POS	[2]SAMPLE=[3]GT	[4]SAMPLE=[5]GT	[6]SAMPLE=[7]GT
+10	s1=0/1	s3=1/1
+20	s2=0|1	s3=1
+40	s1=0/1	s2=1/1

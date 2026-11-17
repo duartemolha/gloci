@@ -1,0 +1,1 @@
+vcf query input.vcf -f '%INFO/DP\t%DB\t%AC\t%AF\t%RC\t%GC\t%XS\n'

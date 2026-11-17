@@ -1,0 +1,1 @@
+vcf query input.vcf -f '%CHROM\t%POS\t%POS0\t%END\t%END0\t%ID\t%REF\t%ALT\t%FIRST_ALT\t%QUAL\t%FILTER\t%TYPE\n'

@@ -1781,6 +1781,114 @@ class Pipeline:
 
         CLI: gloci vcf extract
         """
+    def vcf_query(
+        self,
+        *,
+        exclude_samples: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+        exclude_samples_file: Source | None = None,
+        min_gq: str | int | float | os.PathLike[str] | None = None,
+        min_dp: str | int | float | os.PathLike[str] | None = None,
+        max_dp: str | int | float | os.PathLike[str] | None = None,
+        mask_filtered_genotypes: bool = False,
+        region: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+        regions_file: Source | None = None,
+        exclude_regions_file: Source | None = None,
+        chrom: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+        exclude_chrom: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+        positions: Source | None = None,
+        exclude_positions: Source | None = None,
+        ids: Source | None = None,
+        exclude_ids: Source | None = None,
+        types: Literal["snv", "mnv", "ins", "del", "indel", "sv", "ref", "other"] | Sequence[Literal["snv", "mnv", "ins", "del", "indel", "sv", "ref", "other"]] | None = None,
+        exclude_types: Literal["snv", "mnv", "ins", "del", "indel", "sv", "ref", "other"] | Sequence[Literal["snv", "mnv", "ins", "del", "indel", "sv", "ref", "other"]] | None = None,
+        min_alleles: str | int | float | os.PathLike[str] | None = None,
+        max_alleles: str | int | float | os.PathLike[str] | None = None,
+        biallelic: bool = False,
+        min_qual: str | int | float | os.PathLike[str] | None = None,
+        pass_only: bool = False,
+        keep_filter: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+        remove_filter: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+        require_info: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+        exclude_info: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+        include: str | int | float | os.PathLike[str] | None = None,
+        exclude: str | int | float | os.PathLike[str] | None = None,
+        min_maf: str | int | float | os.PathLike[str] | None = None,
+        max_maf: str | int | float | os.PathLike[str] | None = None,
+        min_mac: str | int | float | os.PathLike[str] | None = None,
+        max_mac: str | int | float | os.PathLike[str] | None = None,
+        max_missing: str | int | float | os.PathLike[str] | None = None,
+        max_missing_count: str | int | float | os.PathLike[str] | None = None,
+        min_mean_dp: str | int | float | os.PathLike[str] | None = None,
+        max_mean_dp: str | int | float | os.PathLike[str] | None = None,
+        hwe: str | int | float | os.PathLike[str] | None = None,
+        thin: str | int | float | os.PathLike[str] | None = None,
+        phased_only: bool = False,
+        inclusive_points: bool = False,
+        format: str | int | float | os.PathLike[str] | None = None,
+        f: str | int | float | os.PathLike[str] | None = None,
+        print_header: bool = False,
+        H: bool = False,
+        vcf_span: Literal["allele", "ref"] | None = None,
+        chrom_map: Source | None = None,
+        skip_invalid: bool = False,
+        samples: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
+        samples_file: Source | None = None,
+    ) -> Pipeline:
+        """Print fields of each VCF/BCF record in a format of your own (bcftools query)
+
+        Args:
+            exclude_samples: Remove these sample names (repeatable or comma-separated)
+            exclude_samples_file: File containing sample names to remove, one per line
+            min_gq: Mask genotypes with FORMAT/GQ below N
+            min_dp: Mask genotypes with FORMAT/DP below N
+            max_dp: Mask genotypes with FORMAT/DP above N
+            mask_filtered_genotypes: Mask genotypes whose FORMAT/FT is not PASS, . or absent
+            region: Restrict to a region such as chr1:1,000-2,000 (repeatable)
+            regions_file: Read regions from FILE (BED: 0-based, half-open); see --region
+            exclude_regions_file: Exclude records whose footprint overlaps a region in FILE (BED)
+            chrom: Keep records on these chromosomes (repeatable or comma-separated)
+            exclude_chrom: Remove records on these chromosomes (repeatable or comma-separated)
+            positions: Keep records matching (chrom, POS) in FILE
+            exclude_positions: Remove records matching (chrom, POS) in FILE
+            ids: Keep records whose ID matches a name in FILE
+            exclude_ids: Remove records whose ID matches a name in FILE
+            types: Keep records of these variant types (snv, mnv, ins, del, indel, sv, ref, other)
+            exclude_types: Remove records of these variant types
+            min_alleles: Minimum number of listed alleles (REF + ALTs)
+            max_alleles: Maximum number of listed alleles (REF + ALTs)
+            biallelic: Restrict to biallelic sites (equivalent to --min-alleles 2 --max-alleles 2)
+            min_qual: Minimum QUAL score
+            pass_only: Keep only records whose FILTER is PASS or
+            keep_filter: Keep records containing any of these FILTER tags
+            remove_filter: Remove records containing any of these FILTER tags
+            require_info: Keep only records that define this INFO tag
+            exclude_info: Remove records that define this INFO tag
+            include: Keep records for which the bcftools-style EXPR holds, e.g. 'QUAL>30 && INFO/DP>10 && N_PASS(GT="het")>=2'. FORMAT fields are limited to GT, DP and GQ. With --samples it sees only the selected samples (bcftools view -s -i sees all of them), and a sample masked by --min-gq and friends reads as missing in it, though the output keeps its values
+            exclude: Remove records for which the bcftools-style EXPR holds (same grammar as --include)
+            min_maf: Minimum minor allele frequency among called genotypes [0, 1]
+            max_maf: Maximum minor allele frequency among called genotypes [0, 1]
+            min_mac: Minimum minor allele count among called genotypes
+            max_mac: Maximum minor allele count among called genotypes
+            max_missing: Maximum fraction of missing genotypes [0, 1]
+            max_missing_count: Maximum count of missing genotypes across samples
+            min_mean_dp: Minimum mean read depth across samples with depth
+            max_mean_dp: Maximum mean read depth across samples with depth
+            hwe: Hardy-Weinberg p-value threshold (exact test on biallelic diploid sites)
+            thin: Minimum distance between kept sites in bp (first wins; each chromosome's records must be together, by position, in any chromosome order)
+            phased_only: Keep only sites where every genotype of ploidy 2 or more is written phased (`|`), called or not, and every selected sample has a GT: `.|.` counts as phased, `./.` and a sample without GT do not (as vcftools --phased)
+            inclusive_points: A point on a region's edge overlaps it
+            format: The format: %FIELD, [ ... ] once per sample, \\t \\n \\\\ (see Fields below)
+            f: alias of format
+            print_header: Write bcftools' header line first (`#[1]CHROM [2]POS ...`)
+            H: alias of print_header
+            vcf_span: Which footprint a VCF record covers, which only matters for --region; the default ref accepts symbolic ALTs without INFO/END
+            chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks and the output see the new names
+            skip_invalid: Skip invalid records with a warning instead of failing
+            samples: Keep only these sample names (repeatable or comma-separated). They print in the order given here, as bcftools query prints them.
+            samples_file: File containing sample names to keep, one per line (printed in the order of the file, as with --samples).
+
+        CLI: gloci vcf query
+        """
     def vcf_split(
         self,
         *,

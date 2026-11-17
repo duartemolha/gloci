@@ -1,0 +1,1 @@
+vcf query input.vcf --exclude '(QUAL<8 || GT="het") && FMT/GQ>=36' -f '%POS[\t%SAMPLE=%GT:%GQ]\n'

@@ -3,21 +3,24 @@
 use crate::Ctx;
 use crate::cli::{
     ChromMapArg, CompareMatchArg, ExtractLayout, InvalidArg, VcfCompareArgs, VcfConcatArgs,
-    VcfExtractArgs, VcfFilterArgs, VcfPopgenArgs, VcfSelectArgs, VcfSpan, VcfSpanArg, VcfStatsArgs,
+    VcfExtractArgs, VcfFilterArgs, VcfPopgenArgs, VcfQueryArgs, VcfSelectArgs, VcfSpan, VcfSpanArg,
+    VcfStatsArgs,
 };
 use gloci_core::{Interval, RegionSet};
 use gloci_io::{
     Format, InvalidPolicy, OutFormat, OutputOptions, OutputSpec, ReaderOptions, UsageError,
-    WriterOptions, open_output, open_record_writer, parse_output_spec, refuse_binary_to_tty,
+    WriterOptions, open_output, open_record_writer, parse_output_spec, plain_text_output_spec,
+    refuse_binary_to_tty,
 };
 use gloci_ops::{
-    ExtractMode, ExtractOptions, FilterExpr, MIN_MAX_MEM, StatsOptions, StatsRequest,
+    ExtractMode, ExtractOptions, FilterExpr, MIN_MAX_MEM, QueryOptions, StatsOptions, StatsRequest,
     VcfFilterOptions, VcfSelect, check_keys, check_tmp_dir, extract_matrix, extract_table,
     open_selected, open_vcf_filter, read_regions_file, validate_thresholds, vcf_filter_file,
-    vcf_filter_output, vcf_header, vcf_stats,
+    vcf_filter_output, vcf_header, vcf_query, vcf_stats,
 };
 use gloci_vcf::{
-    MaskRules, RewritePlan, SiteFilters, VcfType, read_ids, read_positions, read_samples,
+    MaskRules, QueryFormat, RewritePlan, SiteFilters, VcfType, read_ids, read_positions,
+    read_samples,
 };
 use std::collections::{HashMap, HashSet};
 use std::io::IsTerminal;
@@ -416,6 +419,64 @@ or use -o FILE for a table"
     let mut out = open_output(&spec, OutFormat::Tsv, &oo)?;
     extract_table(input, &options, &mut out).map_err(|e| e.with_output_name(&dest))?;
     out.finish()?;
+    Ok(())
+}
+
+/// `vcf query` writes text whatever the input: a name ending in `.gz` or `.bgz` is
+/// BGZF-compressed and a binary format's name is refused (D172).
+fn query_output_spec(output: Option<&std::path::Path>) -> Result<OutputSpec, UsageError> {
+    if let Some(ext) = output
+        .and_then(std::path::Path::extension)
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        && matches!(ext.as_str(), "bam" | "bcf" | "cram")
+    {
+        return Err(UsageError(format!(
+            "vcf query writes text; -o *.{ext} names a binary format (use .txt, .tsv or \
+             another text name; add .gz to compress)"
+        )));
+    }
+    let mut spec = plain_text_output_spec(output);
+    spec.bgzf = output.is_some_and(super::compressed_name);
+    Ok(spec)
+}
+
+pub fn run_query(ctx: &Ctx, a: &VcfQueryArgs) -> anyhow::Result<()> {
+    // A bad format is a usage error before any file is opened.
+    let format = QueryFormat::parse(&a.format)?;
+    let spec = query_output_spec(a.output.as_deref())?;
+    let (select, ro) = select_from_args(&a.select, || {
+        reader_options(
+            ctx,
+            &a.chrom_map,
+            None,
+            &VcfSpanArg {
+                vcf_span: a.vcf_span,
+            },
+            &a.invalid,
+        )
+    })?;
+    let options = QueryOptions {
+        select,
+        threads: Some(split_threads(ctx.threads).1),
+        format,
+        print_header: a.print_header,
+    };
+    let input = open_selected(&a.file, &ro, &options.select)?;
+    vcf_header("vcf query", input.reader())?;
+    let oo = OutputOptions {
+        threads: ctx.threads,
+        level: 6,
+        write_index: false,
+    };
+    let dest = super::dest_name(&spec);
+    let mut out = open_output(&spec, OutFormat::Tsv, &oo)?;
+    let summary = vcf_query(input, &options, &mut out).map_err(|e| e.with_output_name(&dest))?;
+    out.finish()?;
+    log::info!(
+        "vcf query: {} of {} records printed",
+        summary.sites_out,
+        summary.records_in
+    );
     Ok(())
 }
 

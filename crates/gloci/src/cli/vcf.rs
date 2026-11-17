@@ -7,7 +7,7 @@ use super::vcf_edit::{VcfAnnotateArgs, VcfConcatArgs, VcfMergeArgs, VcfNormArgs,
 use clap::{Args, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
-/// VCF and BCF operations: filter, extract, stats, concat, split, norm, annotate, merge, compare
+/// VCF and BCF operations: filter, extract, query, stats, concat, split, norm, annotate, merge, compare
 /// and popgen (bcftools and vcftools equivalents).
 #[derive(Args, Debug, Clone)]
 #[command(
@@ -30,6 +30,8 @@ pub enum VcfCommand {
     Filter(Box<VcfFilterArgs>),
     #[command(before_help = EXPERIMENTAL)]
     Extract(VcfExtractArgs),
+    #[command(before_help = EXPERIMENTAL)]
+    Query(Box<VcfQueryArgs>),
     #[command(before_help = EXPERIMENTAL)]
     Stats(VcfStatsArgs),
     #[command(before_help = EXPERIMENTAL)]
@@ -362,6 +364,66 @@ pub enum GenotypeMatrix {
     /// Non-reference allele counts, vcftools' --012 files.
     #[value(name = "012")]
     Zero12,
+}
+
+/// Print fields of each VCF/BCF record in a format of your own (bcftools query).
+///
+/// bcftools 1.21 query's language: `%FIELD` prints a field of the record, `[ ... ]` repeats its
+/// content once per sample, and `\t`, `\n` and `\\` are the only escapes; a format holding no
+/// newline gets one at its end. `--include`/`--exclude` read per sample here: a comparison of
+/// GT, FMT/DP or FMT/GQ decides which samples print, anything else decides the record. The
+/// samples print in the order --samples gives them.
+#[derive(Args, Debug, Clone)]
+#[command(
+    about = "Print fields with a format string (bcftools query)",
+    long_about
+)]
+#[command(
+    mut_arg("samples", |a| a.help(
+        "Keep only these sample names (repeatable or comma-separated). They print in the \
+         order given here, as bcftools query prints them."
+    )),
+    mut_arg("samples_file", |a| a.help(
+        "File containing sample names to keep, one per line (printed in the order of the \
+         file, as with --samples)."
+    ))
+)]
+#[command(after_long_help = "\
+Examples:
+  gloci vcf query calls.vcf.gz -f '%CHROM\\t%POS\\t%REF\\t%ALT[\\t%GT]\\n'
+  gloci vcf query calls.bcf -H -f '%CHROM\\t%POS\\t%INFO/DP\\t%AF{0}\\n' --region chr1:1-1000000
+  gloci vcf query calls.vcf.gz --include 'GT=\"alt\"' -f '[%CHROM\\t%POS\\t%SAMPLE\\t%GT\\n]'
+
+Fields:
+%CHROM %POS %POS0 %END %END0 %ID %REF %ALT %ALT{N} %FIRST_ALT %QUAL %FILTER %TYPE, %INFO (the
+column), %INFO/TAG and %TAG (an INFO tag), %TAG{N} (its value N, from 0) and %LINE (the record).
+Inside [ ]: %SAMPLE, %GT, %TGT (GT as bases) and FORMAT tags with {N}; site fields print there
+once per sample. Anything else is a usage error that names it.")]
+pub struct VcfQueryArgs {
+    /// Input VCF or BCF file (`-` for stdin).
+    #[arg(value_name = "FILE")]
+    pub file: String,
+    #[command(flatten)]
+    pub select: VcfSelectArgs,
+    /// The format: %FIELD, [ ... ] once per sample, \t \n \\ (see Fields below).
+    #[arg(short = 'f', long = "format", value_name = "FORMAT", required = true)]
+    pub format: String,
+    /// Write bcftools' header line first (`#[1]CHROM [2]POS ...`).
+    #[arg(short = 'H', long)]
+    pub print_header: bool,
+    /// Write to FILE instead of stdout; a name ending in .gz or .bgz is BGZF-compressed.
+    #[arg(short, long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
+    /// Which footprint a VCF record covers, which only matters for --region; the default ref
+    /// accepts symbolic ALTs without INFO/END.
+    #[arg(long, value_enum, default_value = "ref", value_name = "MODE")]
+    pub vcf_span: VcfSpan,
+    #[command(flatten)]
+    pub chrom_map: ChromMapArg,
+    #[command(flatten)]
+    pub threads: ThreadArgs,
+    #[command(flatten)]
+    pub invalid: InvalidArg,
 }
 
 /// How `vcf extract --format` lays out the values.

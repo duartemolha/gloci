@@ -1,0 +1,1 @@
+vcf query input.vcf -H -f '%POS\t[%SAMPLE\t%GT\n]'

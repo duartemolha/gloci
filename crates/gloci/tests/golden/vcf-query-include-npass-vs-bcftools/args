@@ -1,0 +1,1 @@
+vcf query input.vcf --include 'N_PASS(GT="het")>=1' -f '%POS[\t%SAMPLE]\n'

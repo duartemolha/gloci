@@ -1,0 +1,1 @@
+vcf query input.vcf --include 'GT="alt"' -f '[%SAMPLE\n]'

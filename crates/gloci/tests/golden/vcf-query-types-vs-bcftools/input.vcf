@@ -1,0 +1,8 @@
+##fileformat=VCFv4.2
+##contig=<ID=1>
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+1	5	.	A	A[1:10[	.	.	.
+1	6	.	A	]1:10]A,C	.	.	.
+1	7	.	A	<NON_REF>	.	.	.
+1	8	.	AC	A,ACC,TG,TC	.	.	.
+1	9	.	A	X	.	.	.

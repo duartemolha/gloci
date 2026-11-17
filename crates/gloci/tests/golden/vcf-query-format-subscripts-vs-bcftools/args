@@ -1,0 +1,1 @@
+vcf query input.vcf -f '%POS[\t%AD{0}:%AD{1}:%PL{2}]\n'

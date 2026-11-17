@@ -1,0 +1,1 @@
+vcf query input.vcf --include 'GT="het" || FMT/DP>20' -f '%POS[\t%SAMPLE=%GT:%DP]\n'

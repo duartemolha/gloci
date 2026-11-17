@@ -257,6 +257,7 @@ pub(crate) fn dispatch(cli: &Cli, ctx: &Ctx) -> (anyhow::Result<()>, bool) {
         Commands::Vcf(a) => match &a.command {
             cli::VcfCommand::Filter(f) => commands::vcf::run_filter(ctx, f),
             cli::VcfCommand::Extract(e) => commands::vcf::run_extract(ctx, e),
+            cli::VcfCommand::Query(q) => commands::vcf::run_query(ctx, q),
             cli::VcfCommand::Stats(e) => commands::vcf::run_stats(ctx, e),
             cli::VcfCommand::Concat(c) => commands::vcf::run_concat(ctx, c),
             cli::VcfCommand::Split(c) => commands::vcf_split::run(ctx, c),

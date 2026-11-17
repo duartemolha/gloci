@@ -1,0 +1,1 @@
+vcf query input.vcf -f '%POS\t%I\t%F\t%J\t%F{1}\t%J{1}\n'

@@ -285,6 +285,7 @@ pub fn thread_and_tmp(command: &Commands) -> (Option<NonZeroUsize>, Option<PathB
         Commands::Vcf(a) => match &a.command {
             cli::VcfCommand::Filter(f) => (f.threads.threads, None),
             cli::VcfCommand::Extract(e) => (e.threads.threads, e.tmp_dir.tmp_dir.clone()),
+            cli::VcfCommand::Query(q) => (q.threads.threads, None),
             cli::VcfCommand::Stats(e) => (e.threads.threads, None),
             cli::VcfCommand::Concat(c) => (c.threads.threads, None),
             cli::VcfCommand::Split(c) => (c.threads.threads, None),

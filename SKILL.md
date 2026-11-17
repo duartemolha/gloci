@@ -79,12 +79,14 @@ description: Use gloci for genomic interval and variant operations (sorting, ind
   `gloci groupby scores.bed -g 1,2 -c 5:sum -c 5:mean` · `gloci groupby calls.tsv -g 1 -c 4:collapse -c 5:count_distinct`
 - `gloci maskfasta` (experimental): Mask bases of a FASTA under intervals, streaming it (bedtools maskfasta)
   `gloci maskfasta --fasta hg38.fa -b repeats.bed -o hg38.masked.fa` · `gloci maskfasta --fasta hg38.fa.gz -b rmsk.bed segdups.bed --soft -o soft.fa.gz --write-index`
-- `gloci vcf` (experimental): VCF and BCF operations: filter, extract, stats, concat, split, norm, annotate, merge, compare and popgen (bcftools and vcftools equivalents)
+- `gloci vcf` (experimental): VCF and BCF operations: filter, extract, query, stats, concat, split, norm, annotate, merge, compare and popgen (bcftools and vcftools equivalents)
   `gloci vcf filter cohort.bcf --pass-only --min-qual 30 -o filtered.bcf` · `gloci vcf filter input.vcf --samples s1,s2 --min-dp 10 --recalc-ac -o out.vcf`
 - `gloci vcf filter` (experimental): Filter VCF/BCF files with the selection pipeline (bcftools view, vcftools)
   `gloci vcf filter cohort.bcf --pass-only --min-qual 30 --min-maf 0.01 --max-missing 0.1 -o filtered.bcf` · `gloci vcf filter input.vcf --samples s1,s2 --min-dp 10 --recalc-ac -o out.vcf`
 - `gloci vcf extract` (experimental): Extract INFO or FORMAT values as a table, or the 012 genotype matrix (vcftools --012)
   `gloci vcf extract cohort.vcf.gz --info DP,AF -o info.tsv` · `gloci vcf extract cohort.bcf --format GT,DP --layout long --samples s1,s2`
+- `gloci vcf query` (experimental): Print fields of each VCF/BCF record in a format of your own (bcftools query)
+  `gloci vcf query calls.vcf.gz -f '%CHROM\t%POS\t%REF\t%ALT[\t%GT]\n'` · `gloci vcf query calls.bcf -H -f '%CHROM\t%POS\t%INFO/DP\t%AF{0}\n' --region chr1:1-1000000`
 - `gloci vcf stats` (experimental): Compute statistics in one pass: per-site, per-sample and whole-file, written as PREFIX.<ext> in vcftools' formats, plus a summary
   `gloci vcf stats cohort.vcf.gz --out-prefix qc --freq --missing-indv --het --summary` · `gloci vcf stats cohort.bcf --out-prefix qc --depth --site-mean-depth --min-dp 8 --samples s1,s2`
 - `gloci vcf concat` (experimental): Write VCF/BCF files one after another (bcftools concat, vcf-concat)

@@ -1,0 +1,1 @@
+vcf query input.vcf -f '%RC{0}\t%RC{3}\t%XS{1}\t%XS{5}\t%DB{0}\t%DB{1}\t%GC{9}\t%AF{1}\t%ALT{1}\t%ALT{5}\n'

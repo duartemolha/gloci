@@ -1,0 +1,1 @@
+vcf query input.vcf -H --include 'QUAL>5' -f '%POS[\t%SAMPLE=%GT]\n'

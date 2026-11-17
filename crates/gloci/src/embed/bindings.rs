@@ -164,6 +164,9 @@ pub const BINDINGS: &[Binding] = &[
     ),
     one(&["vcf", "filter"], "vcf_filter"),
     one(&["vcf", "extract"], "vcf_extract").shaped(Shape::HeaderRow, &[]),
+    // A format of the user's own, not records: a table, headed only under `print_header`.
+    one(&["vcf", "query"], "vcf_query")
+        .shaped(Shape::Table, &[("print_header", Shape::HeaderLine)]),
     one(&["vcf", "split"], "vcf_split"),
     one(&["vcf", "norm"], "vcf_norm"),
     one(&["vcf", "annotate"], "vcf_annotate"),

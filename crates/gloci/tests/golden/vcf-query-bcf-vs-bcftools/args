@@ -1,0 +1,1 @@
+vcf query input.bcf -f '%CHROM\t%POS\t%REF\t%ALT\t%QUAL\t%INFO[\t%GT]\n'

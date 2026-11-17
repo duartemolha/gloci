@@ -246,6 +246,7 @@ fn the_marked_steps() {
             "groupby: Records (header: HeaderLine)",
             "genomecov: Table (bedgraph: Records, bga: Records)",
             "vcf extract: HeaderRow",
+            "vcf query: Table (print_header: HeaderLine)",
             "getfasta: Records (tab: Table)",
             "flagstat: Table",
             "idxstats: Table",

@@ -1,0 +1,5 @@
+#[1]s1:SAMPLE	[2]s1:GT[3]s2:SAMPLE	[4]s2:GT[5]s3:SAMPLE	[6]s3:GT
+s1	0/1s2	0/0s3	1/1
+s1	./.s2	0|1s3	1
+s1	0/0s2	0/0s3	./.
+s1	0/1s2	1/1s3	./1

@@ -1,0 +1,1 @@
+vcf query input.vcf -H --samples s3,s1 -f '%POS[\t%GT]\n'
