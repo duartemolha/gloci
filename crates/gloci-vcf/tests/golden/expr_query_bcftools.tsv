@@ -1,0 +1,40 @@
+GT="het"	i	10:s1 20:s2 40:s1
+GT="het"	e	10:s2,s3 20:s1,s3 30:s1,s2,s3 40:s2,s3
+GT="alt"	i	10:s1,s3 20:s2,s3 40:s1,s2
+GT="alt"	e	10:s2 20:s1 30:s1,s2,s3 40:s3
+GT="mis"	i	20:s1 30:s3 40:s3
+GT="mis"	e	10:s1,s2,s3 20:s2,s3 30:s1,s2 40:s1,s2
+GT!="mis"	i	10:s1,s2,s3 20:s2,s3 30:s1,s2 40:s1,s2
+GT!="mis"	e	20:s1 30:s3 40:s3
+GT="0/1"	i	10:s1 40:s1
+GT="0/1"	e	10:s2,s3 20:s1,s2,s3 30:s1,s2,s3 40:s2,s3
+FMT/DP>20	i	10:s1,s3
+FMT/DP>20	e	10:s2 20:s1,s2,s3 30:s1,s2,s3 40:s1,s2,s3
+FMT/GQ<36	i	10:s2 30:s1
+FMT/GQ<36	e	10:s1,s3 20:s1,s2,s3 30:s2,s3 40:s1,s2,s3
+GT[2]="alt"	i	10:s3 20:s3
+GT[2]="alt"	e	10:s1,s2 20:s1,s2 30:s1,s2,s3 40:s1,s2,s3
+GT="het" && FMT/DP>20	i	10:s1,s3
+GT="het" && FMT/DP>20	e	10:s2 20:s1,s2,s3 30:s1,s2,s3 40:s1,s2,s3
+GT="het" || FMT/DP>20	i	10:s1,s2,s3 20:s1,s2,s3 40:s1,s2,s3
+GT="het" || FMT/DP>20	e	30:s1,s2,s3
+QUAL>8 && GT="het"	i	10:s1
+QUAL>8 && GT="het"	e	10:s2,s3 20:s1,s2,s3 30:s1,s2,s3 40:s1,s2,s3
+QUAL<8 || GT="het"	i	10:s1 20:s2 40:s1,s2,s3
+QUAL<8 || GT="het"	e	10:s2,s3 20:s1,s3 30:s1,s2,s3
+(QUAL>100 && GT="het") || FMT/DP>20	i	10:s1,s2,s3
+(QUAL>100 && GT="het") || FMT/DP>20	e	20:s1,s2,s3 30:s1,s2,s3 40:s1,s2,s3
+(QUAL<8 || GT="het") && FMT/GQ>=36	i	10:s1,s3
+(QUAL<8 || GT="het") && FMT/GQ>=36	e	10:s2 20:s1,s2,s3 30:s1,s2,s3 40:s1,s2,s3
+(FMT/DP>100 || GT="mis") && FMT/GQ>=36	i	30:s1,s2,s3
+(FMT/DP>100 || GT="mis") && FMT/GQ>=36	e	10:s1,s2,s3 20:s1,s2,s3 40:s1,s2,s3
+N_PASS(GT="het")>=1	i	10:s1,s2,s3 20:s1,s2,s3 40:s1,s2,s3
+N_PASS(GT="het")>=1	e	30:s1,s2,s3
+MAF>0.4	i	10:s1,s2,s3
+MAF>0.4	e	20:s1,s2,s3 30:s1,s2,s3 40:s1,s2,s3
+QUAL>8	i	10:s1,s2,s3 30:s1,s2,s3
+QUAL>8	e	20:s1,s2,s3 40:s1,s2,s3
+GT="het" && N_PASS(FMT/DP>20)>1	i	10:s1
+GT="het" && N_PASS(FMT/DP>20)>1	e	10:s2,s3 20:s1,s2,s3 30:s1,s2,s3 40:s1,s2,s3
+FMT/GQ>=36 || FMT/DP>=30	i	10:s1,s2,s3 30:s1,s2,s3
+FMT/GQ>=36 || FMT/DP>=30	e	20:s1,s2,s3 40:s1,s2,s3

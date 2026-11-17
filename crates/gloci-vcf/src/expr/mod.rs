@@ -13,6 +13,7 @@
 mod eval;
 mod lexer;
 mod parser;
+mod samples;
 
 use crate::filter::SiteView;
 use crate::gt::{GenotypeSource, SampleFields};
@@ -21,6 +22,17 @@ use gloci_io::{UsageError, VcfHeader};
 use lexer::Op;
 
 pub use eval::MaskedGenotypes;
+
+/// What `vcf query` does with a record under its filter (D172).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QueryPass {
+    /// The record does not print.
+    Drop,
+    /// The record prints with every selected sample.
+    All,
+    /// The record prints; `pass[i]` marks the header samples that print (unselected ones are false).
+    Samples,
+}
 
 /// A parsed filter expression.
 #[derive(Debug)]
@@ -125,6 +137,8 @@ pub struct EvalScratch {
     gt_text: Vec<u8>,
     /// Samples considered by `FMT/` fields and `N_PASS` (`None` = all).
     keep: Option<Vec<bool>>,
+    /// Free per-sample masks for [`Expr::eval_query`].
+    masks: Vec<Vec<bool>>,
 }
 
 impl EvalScratch {
@@ -189,5 +203,28 @@ impl Expr {
             );
         }
         eval::eval(&self.root, site, gt, stats, scratch)
+    }
+
+    /// bcftools query's record rule (D172): `exclude` is `--exclude`. `pass` is resized to the
+    /// record's sample count when the result is per sample. Same inputs as [`Expr::eval`];
+    /// no allocation once `scratch` and `pass` have grown.
+    pub fn eval_query(
+        &self,
+        exclude: bool,
+        site: &SiteView,
+        gt: Option<&dyn GenotypeSource>,
+        stats: Option<&SiteStats>,
+        scratch: &mut EvalScratch,
+        pass: &mut Vec<bool>,
+    ) -> Result<QueryPass, String> {
+        if self.needs_info && !site.info_has_values {
+            return Err(
+                "the expression reads INFO values but this BCF record view carries \
+                 INFO keys only; build the view with BcfSite::with_info_values() \
+                 (check Expr::needs_info_values()); this is a bug, please report it"
+                    .to_string(),
+            );
+        }
+        samples::eval_query(&self.root, exclude, site, gt, stats, scratch, pass)
     }
 }

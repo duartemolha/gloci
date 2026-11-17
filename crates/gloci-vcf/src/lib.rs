@@ -20,7 +20,7 @@ pub mod srsort;
 mod stats;
 
 pub use bcf_fmt::{BcfGenotypes, bcf_genotypes, bcf_genotypes_with};
-pub use expr::{EvalScratch, Expr, MaskedGenotypes, parse as parse_expr};
+pub use expr::{EvalScratch, Expr, MaskedGenotypes, QueryPass, parse as parse_expr};
 pub use extract::{
     GtError, InfoKey, InfoKind, declared_keys, format_cell, format_declared, format_index,
     genotype_012, info_cell, info_kind, split_columns,

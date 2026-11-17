@@ -654,3 +654,187 @@ fn difference_negated_bare_comparison_parses() {
     // bcftools 1.21: `!POS=10` is "Could not parse the expression".
     assert_eq!(hits("!POS=10 && POS<30"), vec![20]);
 }
+
+// ---- vcf query's per-sample rule (D172) -----------------------------------
+
+use gloci_vcf::QueryPass;
+
+/// `eval_query` over `vcf`, as the TSV writes it: `POS:SAMPLES` per printed
+/// record, space separated (`All` is every selected sample).
+fn run_query(
+    e: &Expr,
+    exclude: bool,
+    vcf: &str,
+    keep: Option<&[bool]>,
+    rules: MaskRules,
+    bcf: bool,
+) -> String {
+    let h = header_of(vcf);
+    let names: Vec<String> = h
+        .samples
+        .iter()
+        .map(|s| String::from_utf8_lossy(s).into_owned())
+        .collect();
+    let (dicts, raws) = to_bcf(vcf);
+    let mut scratch = EvalScratch::default();
+    scratch.set_selection(keep);
+    let mut masked = Vec::new();
+    let mut bs = BcfSite::with_info_values();
+    let mut pass = Vec::new();
+    let mut out = Vec::new();
+    for (n, line) in records(vcf).into_iter().enumerate() {
+        let (site, g): (SiteView, Box<dyn GenotypeSource>) = if bcf {
+            (
+                bs.view(&raws[n], &dicts, span_of(line)).unwrap(),
+                Box::new(bcf_genotypes(&raws[n], &dicts).unwrap()),
+            )
+        } else {
+            (
+                SiteView::from_text(line.as_bytes(), span_of(line)).unwrap(),
+                Box::new(text_genotypes(line.as_bytes()).unwrap()),
+            )
+        };
+        let stats = site_stats(&*g, keep, &rules, n_alleles(site.alts), &mut masked).unwrap();
+        let mg = MaskedGenotypes {
+            inner: &*g,
+            masked: &masked,
+        };
+        let r = e
+            .eval_query(
+                exclude,
+                &site,
+                Some(&mg),
+                Some(&stats),
+                &mut scratch,
+                &mut pass,
+            )
+            .unwrap();
+        let sel = |i: usize| keep.is_none_or(|k| k[i]);
+        let who: Vec<&str> = match r {
+            QueryPass::Drop => continue,
+            QueryPass::All => (0..names.len())
+                .filter(|&i| sel(i))
+                .map(|i| &*names[i])
+                .collect(),
+            QueryPass::Samples => {
+                assert_eq!(pass.len(), names.len());
+                (0..names.len())
+                    .filter(|&i| pass[i])
+                    .map(|i| &*names[i])
+                    .collect()
+            }
+        };
+        out.push(format!("{}:{}", site.pos, who.join(",")));
+    }
+    out.join(" ")
+}
+
+fn q(expr: &str, exclude: bool, keep: Option<&[bool]>, rules: MaskRules) -> String {
+    let (v, h) = main_vcf();
+    run_query(
+        &parse_expr(expr, &h).unwrap(),
+        exclude,
+        &v,
+        keep,
+        rules,
+        false,
+    )
+}
+
+#[test]
+fn query_rule_matches_bcftools_on_text_and_bcf() {
+    let (v, h) = main_vcf();
+    let golden = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/golden/expr_query_bcftools.tsv"
+    ))
+    .unwrap();
+    let mut rows = 0;
+    for row in golden.lines() {
+        let f: Vec<&str> = row.split('\t').collect();
+        let e = parse_expr(f[0], &h).unwrap();
+        for bcf in [false, true] {
+            let got = run_query(&e, f[1] == "e", &v, None, MaskRules::default(), bcf);
+            assert_eq!(got, f[2], "{} -{} (bcf={bcf})", f[0], f[1]);
+        }
+        rows += 1;
+    }
+    assert!(rows >= 40, "{rows} rows");
+}
+
+#[test]
+fn not_flips_each_selected_sample() {
+    let d = MaskRules::default;
+    assert_eq!(
+        q("!(GT=\"het\")", false, None, d()),
+        "10:s2,s3 20:s1,s3 30:s1,s2,s3 40:s2,s3"
+    );
+    assert_eq!(q("!(QUAL>8)", false, None, d()), "20:s1,s2,s3 40:s1,s2,s3");
+}
+
+#[test]
+fn only_selected_samples_pass() {
+    let keep = [false, true, true];
+    let k = Some(&keep[..]);
+    let d = MaskRules::default;
+    assert_eq!(q("GT=\"het\"", false, k, d()), "20:s2");
+    assert_eq!(q("GT[0]=\"het\"", false, k, d()), "");
+    assert_eq!(
+        q("GT=\"het\" || QUAL>8", false, k, d()),
+        "10:s2,s3 20:s2 30:s2,s3"
+    );
+    assert_eq!(
+        q("GT=\"het\"", true, k, d()),
+        "10:s2,s3 20:s3 30:s2,s3 40:s2,s3"
+    );
+}
+
+#[test]
+fn masked_samples_read_missing() {
+    let rules = MaskRules {
+        min_dp: Some(20),
+        ..Default::default()
+    };
+    assert_eq!(q("GT=\"het\"", false, None, rules), "10:s1 40:s1");
+}
+
+#[test]
+fn eval_query_does_not_allocate_once_warm() {
+    let (v, h) = main_vcf();
+    let e = parse_expr("GT=\"het\" && FMT/DP>5 || (QUAL<8 && GT=\"alt\")", &h).unwrap();
+    let mut sc = EvalScratch::default();
+    let mut masked = Vec::new();
+    let mut pass = Vec::new();
+    let mut prepared = Vec::new();
+    for line in records(&v) {
+        let site = SiteView::from_text(line.as_bytes(), span_of(line)).unwrap();
+        let g = text_genotypes(line.as_bytes()).unwrap();
+        let stats = site_stats(
+            &g,
+            None,
+            &MaskRules::default(),
+            n_alleles(site.alts),
+            &mut masked,
+        )
+        .unwrap();
+        prepared.push((site, g, stats));
+    }
+    for exclude in [false, true] {
+        for (s, g, st) in &prepared {
+            e.eval_query(exclude, s, Some(g), Some(st), &mut sc, &mut pass)
+                .unwrap();
+        }
+        let before = ALLOCS.with(Cell::get);
+        for _ in 0..50 {
+            for (s, g, st) in &prepared {
+                e.eval_query(exclude, s, Some(g), Some(st), &mut sc, &mut pass)
+                    .unwrap();
+            }
+        }
+        assert_eq!(
+            ALLOCS.with(Cell::get),
+            before,
+            "eval_query allocated (exclude={exclude})"
+        );
+    }
+}

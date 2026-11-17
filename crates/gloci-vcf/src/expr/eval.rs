@@ -49,13 +49,13 @@ enum Val<'a> {
     Miss,
 }
 
-struct Cx<'a, 'b> {
-    site: &'a SiteView<'a>,
-    gt: Option<&'a dyn GenotypeSource>,
-    stats: Option<&'a SiteStats>,
-    scratch: &'b mut EvalScratch,
+pub(super) struct Cx<'a, 'b> {
+    pub(super) site: &'a SiteView<'a>,
+    pub(super) gt: Option<&'a dyn GenotypeSource>,
+    pub(super) stats: Option<&'a SiteStats>,
+    pub(super) scratch: &'b mut EvalScratch,
     /// Inside `N_PASS`: the sample whose fields are loaded in `scratch`.
-    sample: Option<usize>,
+    pub(super) sample: Option<usize>,
 }
 
 pub(super) fn eval(
@@ -75,7 +75,7 @@ pub(super) fn eval(
     node_holds(node, &mut cx)
 }
 
-fn node_holds(node: &Node, cx: &mut Cx) -> Result<bool, String> {
+pub(super) fn node_holds(node: &Node, cx: &mut Cx) -> Result<bool, String> {
     match node {
         Node::Or(v) => {
             for n in v {
@@ -112,21 +112,10 @@ fn compare(field: &Field, op: Op, rhs: &Rhs, cx: &mut Cx) -> Result<bool, String
             let m = type_matches(cx.site, *k);
             Ok(m == (op == Op::Eq))
         }
-        (Field::Gt(sub), Rhs::GtKw(mask)) => {
-            let want_in = op == Op::Eq;
-            let mut hit = false;
-            each_sample(cx, *sub, &mut |_, f| {
-                let class = f.gt.as_ref().map_or(MIS, gt_class);
-                hit = (class & mask != 0) == want_in;
-                hit
-            })?;
-            Ok(hit)
-        }
         (Field::Gt(sub), _) => {
             let mut hit = false;
             each_sample(cx, *sub, &mut |buf, f| {
-                render_gt(f.gt.as_ref(), buf);
-                hit = test(Val::Str(buf), op, rhs);
+                hit = sample_passes(field, op, rhs, buf, f);
                 hit
             })?;
             Ok(hit)
@@ -139,6 +128,31 @@ fn compare(field: &Field, op: Op, rhs: &Rhs, cx: &mut Cx) -> Result<bool, String
             })?;
             Ok(hit)
         }
+    }
+}
+
+/// The per-sample test of a `GT`, `FMT/DP` or `FMT/GQ` comparison on one
+/// sample's fields; `buf` is a text buffer. Both `--include` rules (D71's
+/// any-sample test and `vcf query`'s per-sample passes, D172) call it.
+pub(super) fn sample_passes(
+    field: &Field,
+    op: Op,
+    rhs: &Rhs,
+    buf: &mut Vec<u8>,
+    f: &SampleFields,
+) -> bool {
+    match (field, rhs) {
+        (Field::Gt(_), Rhs::GtKw(mask)) => {
+            let class = f.gt.as_ref().map_or(MIS, gt_class);
+            (class & mask != 0) == (op == Op::Eq)
+        }
+        (Field::Gt(_), _) => {
+            render_gt(f.gt.as_ref(), buf);
+            test(Val::Str(buf), op, rhs)
+        }
+        (Field::FmtDp(_), _) => test(f.dp.map_or(Val::Miss, |n| Val::Num(f64::from(n))), op, rhs),
+        (Field::FmtGq(_), _) => test(f.gq.map_or(Val::Miss, |n| Val::Num(f64::from(n))), op, rhs),
+        _ => false,
     }
 }
 
@@ -233,7 +247,7 @@ fn render_gt(g: Option<&Genotype>, out: &mut Vec<u8>) {
     }
 }
 
-fn need_gt<'a>(cx: &Cx<'a, '_>) -> Result<&'a dyn GenotypeSource, String> {
+pub(super) fn need_gt<'a>(cx: &Cx<'a, '_>) -> Result<&'a dyn GenotypeSource, String> {
     cx.gt.ok_or_else(|| {
         "the expression reads genotypes (FMT/, GT or N_PASS) but none were supplied; \
          this is a bug, please report it"
