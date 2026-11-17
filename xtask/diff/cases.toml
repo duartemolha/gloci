@@ -11633,6 +11633,8 @@ expected_difference = "#samtools-exit-codes"
 # depth --out-prefix (D173) vs mosdepth 0.3.10
 # gloci writes mosdepth's files; both sides print the dist, summary and region files (and the thresholds).
 # The committed mosdepth outputs of crates/gloci/tests/depth_files.rs cover the rest of the matrix.
+# These cases need mosdepth 0.3.10 in the comparison image: rebuild it after the Dockerfile change
+# (docker build -t gloci-diff:p0 -f xtask/docker/Dockerfile xtask/docker), or pass --image.
 
 [[case]]
 name = "depth-files-window-vs-mosdepth"
@@ -11688,3 +11690,20 @@ gloci = "gloci depth input.bam --by 100 --thresholds 0 --out-prefix o"
 reference = "samtools index input.bam && mosdepth -n --by 100 -T 0 o input.bam"
 compare = "exit-status"
 expected_difference = "#mosdepth-thresholds-zero"
+
+[[case]]
+name = "depth-files-stale-pair-vs-mosdepth"
+input = { file = "xtask/diff/inputs/samtools/mosdepth-stale.bam" }
+gloci = "gloci depth input.bam --exclude-flags UNMAP,QCFAIL,DUP --by 100 --out-prefix o && cat o.mosdepth.global.dist.txt o.mosdepth.region.dist.txt o.mosdepth.summary.txt && zcat o.regions.bed.gz"
+reference = "samtools index input.bam && mosdepth -n -F 1540 --by 100 o input.bam && cat o.mosdepth.global.dist.txt o.mosdepth.region.dist.txt o.mosdepth.summary.txt && zcat o.regions.bed.gz"
+compare = "exact"
+expected_difference = "#mosdepth-mate-table"
+
+[[case]]
+name = "depth-files-bed-blank-line-vs-mosdepth"
+input = { file = "xtask/diff/inputs/samtools/mosdepth.bam" }
+aux = ["xtask/diff/inputs/samtools/mosdepth-blank.bed"]
+gloci = "gloci depth input.bam --by mosdepth-blank.bed --out-prefix o && cat o.mosdepth.global.dist.txt o.mosdepth.region.dist.txt o.mosdepth.summary.txt && zcat o.regions.bed.gz"
+reference = "samtools index input.bam && mosdepth -n --by mosdepth-blank.bed o input.bam && cat o.mosdepth.global.dist.txt o.mosdepth.region.dist.txt o.mosdepth.summary.txt && zcat o.regions.bed.gz"
+compare = "exact"
+expected_difference = "#mosdepth-bed-blank-line"

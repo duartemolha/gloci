@@ -314,6 +314,11 @@ fn usage_errors() {
         vec![&bam, "--summary", "--out-prefix"],
         vec![&bam, "--skip-mate-overlap", "--out-prefix"],
         vec![&bam, "--all-positions", "--out-prefix"],
+        vec![&bam, "--all-references", "--out-prefix"],
+        vec![&bam, "--count-deletions", "--out-prefix"],
+        vec![&bam, "--column-names", "--out-prefix"],
+        vec![&bam, "--regions-file", "x.bed", "--out-prefix"],
+        vec![&bam, "--exclude-flags", "BOGUS", "--out-prefix"],
     ];
     for args in cases {
         let tmp = tempdir();
