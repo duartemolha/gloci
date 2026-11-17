@@ -50,7 +50,7 @@ reference tool may be used (below).
 
 | Feature | Picked | Rejected and why |
 |---|---|---|
-| bigWig/bigBed | The `bigtools` crate (0.5.8, MIT; the owner accepted it on its licence, 2026-11-17; deps tokio, futures, serde, bincode, crossbeam, libdeflater: all MIT or Apache-2.0), with its `read` and `write` features only (no `remote`, no `cli`) | Writing our own reader and writer: several thousand lines for a fiddly format (B+ tree, R-tree index, zoom levels), no gain in behaviour. Skipping the format: the owner would only skip it if it needed UCSC, which it does not |
+| bigWig/bigBed | The `bigtools` crate (0.5.8, MIT; the owner accepted it on its licence, 2026-11-17, and accepted MPL-2.0 for its one non-permissive dependency, `index_list`; deps tokio, futures, serde, bincode, crossbeam, libdeflater: all MIT or Apache-2.0), with its `read` and `write` features only (no `remote`, no `cli`) | Writing our own reader and writer: several thousand lines for a fiddly format (B+ tree, R-tree index, zoom levels), no gain in behaviour. Skipping the format: the owner would only skip it if it needed UCSC, which it does not |
 | `vcf query` | A new `gloci vcf query` subcommand on the shared selection stage (D157) | Extending `vcf extract` with a format string: `extract` writes fixed tables and matrices; two output models in one command would confuse both |
 | Coverage QC | New options on `gloci depth` (`--summary`; `--by`, `--thresholds`, `--out-prefix`) | A new command: these are summaries of the depth `depth` already computes, and `coverage` is taken by bedtools coverage (stable core) |
 | Liftover | **CrossMap's behaviour** (owner, 2026-11-17: in the owner's experience CrossMap lifts coordinates better), with gloci's own chain reader and the `rust-lapper` crate (2.0, MIT) for finding every chain segment an interval touches. (The `chainfile` crate was picked first; planning found it rejects both free chain sources as published, Ensembl's and T2T's, and holds about 180 bytes per aligned block, so gloci reads the simple chain format itself, 2026-11-17.) Every case is checked against CrossMap itself in the comparison image | UCSC `liftOver`'s whole-record rules: the owner prefers CrossMap's results, and with UCSC's tools ruled out there would be no reference to check them against. Depending on a Rust port of CrossMap: `crussmap` is unmaintained since 2023, `fast-crossmap` is a month old with a handful of downloads. Wrapping CrossMap: a Python dependency, GPL |
@@ -208,8 +208,10 @@ add.
   (CC0); UCSC's chain files are licensed for non-commercial use only (their README
   requires a commercial licence for any other use), so gloci never bundles or tests
   with them, and the help and migration guide tell users that a UCSC chain brings
-  UCSC's licence with it. Whether some free human chains are built in is the owner's
-  call (pending, 2026-11-17).
+  UCSC's licence with it. Built in (owner, 2026-11-17): all three free human sets,
+  GRCh37↔GRCh38 (Ensembl) and GRCh38↔T2T-CHM13v2 and GRCh37↔T2T-CHM13v2 (T2T, CC0).
+  No mouse chain: no freely licensed GRCm38↔GRCm39 chain exists (Ensembl and NCBI
+  publish none; UCSC's is non-commercial); the other species have one assembly each.
 - Inputs in this release: BED (3 to 12 columns), bedGraph and GFF/GTF. Every other
   column is carried unchanged. **VCF liftover is out of scope** for this release
   (owner default, 2026-11-17): it needs REF checks against the target FASTA, REF/ALT

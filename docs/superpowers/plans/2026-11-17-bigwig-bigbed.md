@@ -32,7 +32,7 @@
   | unicode-ident (build-time, proc-macros only; already in the tree) | (MIT OR Apache-2.0) AND Unicode-3.0 |
   | **index_list 0.2.17** (a non-optional bigtools dependency) | **MPL-2.0: not permissive** |
 
-  `index_list` is replaced by a workspace crate of gloci's own (MIT) through `[patch.crates-io]` until the owner decides (D171, Task 1). The check, run after every dependency change, must print nothing: `cargo tree --workspace -e normal --prefix none --format '{l} {p}' | grep -E 'MPL|GPL'`.
+  **Owner decision, 2026-11-17: MPL-2.0 is accepted for `index_list`** (option A: commercial use stays free; distributors point to its source, covered by the third-party licences file planned before the first release). So Task 1 skips the replacement crate (its Steps 4–7) and the licence check expects exactly one non-permissive line, `index_list`'s MPL-2.0.   `index_list` is replaced by a workspace crate of gloci's own (MIT) through `[patch.crates-io]` until the owner decides (D171, Task 1). The check, run after every dependency change, must print nothing: `cargo tree --workspace -e normal --prefix none --format '{l} {p}' | grep -E 'MPL|GPL'`.
 - **Test-only tools** may have other open licences if they never ship. Here: pyBigWig 0.3.29 (MIT) in the comparison image.
 - **Toolchain:** `rust-toolchain.toml` pins 1.100.0; MSRV 1.91, so no std API newer than 1.91. `cargo clippy --workspace --all-targets -- -D warnings` and `cargo fmt --all -- --check` pass after every task.
 - **Help rules** (`crates/gloci/tests/cli_basics.rs`):
