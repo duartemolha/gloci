@@ -1,8 +1,11 @@
 //! bigWig and bigBed (D171), read through each file's own index.
 
+pub mod autosql;
 mod read;
+mod write;
 
 pub use read::{bbi_chrom_sizes, open_bbi_regions};
+pub use write::{BbiKind, BbiSizes, BbiWriteOptions, BbiWriter, PushError, bbi_output_refusal};
 
 /// The refusal of `gloci index` and of tabix/CSI reads for a bigWig or bigBed, which carries
 /// its own index (D171).

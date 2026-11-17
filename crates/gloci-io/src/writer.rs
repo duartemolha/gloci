@@ -46,6 +46,9 @@ pub struct WriterOptions {
 /// files have no track line, so detection calls them BED. Format conversion
 /// is not a writer's job (D18).
 pub fn check_family(records: Format, to: OutFormat) -> Result<(), UsageError> {
+    if matches!(to, OutFormat::BigWig | OutFormat::BigBed) {
+        return Err(UsageError(crate::bbi::bbi_output_refusal(to)));
+    }
     if records.is_alignment() {
         // BAM, CRAM and SAM records are written as BAM or SAM, whichever is asked (D104).
         return match to {
@@ -86,6 +89,7 @@ pub fn family_mismatch(records: Format, to: OutFormat) -> UsageError {
         OutFormat::Fasta => ".fa, .fasta or .fna (with .gz for BGZF)",
         OutFormat::Bedpe => ".bedpe or .bedpe.gz",
         OutFormat::Fastq => ".fq, .fq.gz, .fastq or .fastq.gz",
+        OutFormat::BigWig | OutFormat::BigBed => "a text name such as .bed",
     };
     UsageError(format!(
         "the input is {} but the output format is {}; this command writes records in their own \
@@ -109,6 +113,8 @@ fn family_name(f: OutFormat) -> &'static str {
         OutFormat::Fasta => "FASTA",
         OutFormat::Bedpe => "BEDPE",
         OutFormat::Fastq => "FASTQ",
+        OutFormat::BigWig => "bigWig",
+        OutFormat::BigBed => "bigBed",
     }
 }
 

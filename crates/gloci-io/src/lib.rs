@@ -61,7 +61,10 @@ pub use atomic::{
     create_file_in_temp_dir, create_temp_dir_in, create_temp_file, install_cleanup_handlers,
     internal_error_line,
 };
-pub use bbi::{bbi_chrom_sizes, bbi_unindexed, open_bbi_regions};
+pub use bbi::{
+    BbiKind, BbiSizes, BbiWriteOptions, BbiWriter, PushError, bbi_chrom_sizes, bbi_output_refusal,
+    bbi_unindexed, open_bbi_regions,
+};
 pub use bcf::{BcfDicts, check_record as check_bcf_record, read_bcf_header, write_bcf_header};
 pub use bcf_encode::encode_gt;
 pub use bcf_text::kputd;
@@ -102,7 +105,8 @@ pub use naming::{
 };
 pub use output::{
     OutFormat, Output, OutputOptions, OutputSpec, check_level, input_family_output_spec,
-    open_output, open_raw_output, parse_output_spec, plain_text_output_spec, refuse_binary_to_tty,
+    open_output, open_raw_output, parse_output_spec, parse_track_output_spec,
+    plain_text_output_spec, refuse_binary_to_tty,
 };
 pub use record::{
     Header, Opened, ReaderOptions, RecordBatch, RecordMeta, RecordReader, check_map_against_index,

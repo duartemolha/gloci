@@ -1035,6 +1035,7 @@ name = "gloci-io"
 version = "0.1.0"
 dependencies = [
  "bigtools",
+ "crossbeam-channel",
  "ctrlc",
  "flate2",
  "gloci-chains",

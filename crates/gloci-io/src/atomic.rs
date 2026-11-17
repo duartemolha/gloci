@@ -265,6 +265,12 @@ impl AtomicFile {
         &self.tmp
     }
 
+    /// A second handle on the temp file, which shares its position, for a writer that takes
+    /// ownership of the file it is given and drops it (bigtools).
+    pub fn try_clone_file(&self) -> io::Result<File> {
+        self.file.as_ref().expect("file open").try_clone()
+    }
+
     /// Renames the temp file onto the destination, and records the destination as an output of
     /// the run. The data is not forced to disk first (no `fsync`): the rename keeps a failed or
     /// interrupted run from leaving a partial file, which is the promise (spec §5.2), while

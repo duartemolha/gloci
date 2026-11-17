@@ -29,6 +29,10 @@ pub enum OutFormat {
     Bedpe,
     /// FASTQ output (`.fq`, `.fastq`; `.gz` is BGZF).
     Fastq,
+    /// bigWig output (D171): written by `convert` and `genomecov` only.
+    BigWig,
+    /// bigBed output (D171): written by `convert` only.
+    BigBed,
 }
 
 impl OutFormat {
@@ -47,6 +51,8 @@ impl OutFormat {
             OutFormat::Fasta => "FASTA",
             OutFormat::Bedpe => "BEDPE",
             OutFormat::Fastq => "FASTQ",
+            OutFormat::BigWig => "bigWig",
+            OutFormat::BigBed => "bigBed",
         }
     }
 
@@ -63,7 +69,9 @@ impl OutFormat {
             | OutFormat::Sam
             | OutFormat::Fasta
             | OutFormat::Bedpe
-            | OutFormat::Fastq => None,
+            | OutFormat::Fastq
+            | OutFormat::BigWig
+            | OutFormat::BigBed => None,
         }
     }
 
@@ -136,6 +144,8 @@ fn lookup(s: &str) -> Option<(OutFormat, bool)> {
         "bedpe.gz" => (Bedpe, true),
         "fq" | "fastq" => (Fastq, false),
         "fq.gz" | "fastq.gz" => (Fastq, true),
+        "bw" | "bigwig" => (BigWig, false),
+        "bb" | "bigbed" => (BigBed, false),
         _ => return None,
     })
 }
@@ -213,6 +223,23 @@ pub fn parse_output_spec(
     output: Option<&Path>,
     output_format: Option<&str>,
 ) -> Result<OutputSpec, UsageError> {
+    parse_spec(output, output_format, false)
+}
+
+/// As [`parse_output_spec`], also accepting `.bw`, `.bigwig`, `.bb`, `.bigbed` and
+/// `-O bigwig|bigbed`: for `convert` and `genomecov`, the commands that write them (D171).
+pub fn parse_track_output_spec(
+    output: Option<&Path>,
+    output_format: Option<&str>,
+) -> Result<OutputSpec, UsageError> {
+    parse_spec(output, output_format, true)
+}
+
+fn parse_spec(
+    output: Option<&Path>,
+    output_format: Option<&str>,
+    allow_bbi: bool,
+) -> Result<OutputSpec, UsageError> {
     // "-" and /dev/stdout mean stdout. (Opening /dev/stdout again would
     // restart at offset 0 of a file the shell redirected to.)
     let (path, direct) = output_target(output);
@@ -255,6 +282,13 @@ pub fn parse_output_spec(
             }
         },
     };
+    if !allow_bbi {
+        for (f, _) in [from_ext, from_o].into_iter().flatten() {
+            if matches!(f, OutFormat::BigWig | OutFormat::BigBed) {
+                return Err(UsageError(crate::bbi::bbi_output_refusal(f)));
+            }
+        }
+    }
     let (format, bgzf) = match (from_ext, from_o) {
         (Some(a), Some(b)) if a != b => {
             let matching = path.and_then(extension_key).unwrap_or_default();
@@ -394,6 +428,9 @@ fn open_output_as(
     opts: &OutputOptions,
     raw: bool,
 ) -> Result<Output, IoError> {
+    if matches!(f, OutFormat::BigWig | OutFormat::BigBed) {
+        return Err(UsageError(crate::bbi::bbi_output_refusal(f)).into());
+    }
     // A raw output holds BGZF blocks it did not make: it is binary, but not compressed here.
     let bgzf = !raw && (spec.bgzf || matches!(f, OutFormat::Bcf | OutFormat::Bam));
     let level = CompressionLevel::try_from(check_level(opts.level)?)
