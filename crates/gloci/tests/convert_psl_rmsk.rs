@@ -153,6 +153,16 @@ fn rmsk_malformed_line_names_the_line() {
     let zero = RMSK_ROWS.replace("10001", "0");
     let f = plain_file(dir.path(), "zero.out", &zero);
     convert(&f).failure().code(1).stderr(contains("line 1"));
+    // --skip-invalid drops the short line, says so, and keeps the good row.
+    let f = plain_file(dir.path(), "skip.out", &bad);
+    gloci()
+        .arg("convert")
+        .arg(&f)
+        .arg("--skip-invalid")
+        .assert()
+        .success()
+        .stdout(RMSK_BED)
+        .stderr(contains("skipped 1 invalid"));
 }
 
 #[test]

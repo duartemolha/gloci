@@ -314,6 +314,9 @@ have a name column (column 7)"
             }
         }
         if !more {
+            if let Some(s) = input.diagnostics().summary(&path) {
+                log::warn!("{s}");
+            }
             return Ok(n);
         }
     }

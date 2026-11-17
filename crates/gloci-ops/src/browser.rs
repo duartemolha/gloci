@@ -170,6 +170,8 @@ must have the same number of columns"
             each(&f, m.loc)?;
         }
         if !more {
+            // The one place the skipped count of igv, links and convert --bam is said.
+            crate::skipped::log_reader(input.as_ref());
             return Ok(());
         }
     }
