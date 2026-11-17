@@ -10,14 +10,14 @@ use crate::view::{ViewOptions, open_view, select_stream};
 use gloci_core::{ChromOrder, ChromTable, VcfSpan};
 use gloci_io::handoff::{Driving, Present, Sequenced};
 use gloci_io::{
-    BcfDicts, Format, Header, IoError, Loc, OrderGuard, ReaderOptions, RecordBatch, RecordMeta,
-    RecordReader, UsageError, VcfHeader, next_batch_size,
+    BcfDicts, BcfText, Format, Header, IoError, Loc, OrderGuard, ReaderOptions, RecordBatch,
+    RecordMeta, RecordReader, UsageError, VcfHeader, next_batch_size,
 };
 use gloci_vcf::{
     BcfSite, EvalScratch, Expr, GenotypeSource, GtFields, MaskRules, MaskedGenotypes,
-    PackedGenotypes, RecordSlot, RewritePlan, SampleCache, SampleFields, SampleTally, SiteFilters,
-    SiteStats, SiteView, TallyWants, Thinner, bcf_genotypes_with, parse_expr, select_samples,
-    site_stats, text_genotypes_with,
+    PackedGenotypes, QueryPass, RecordSlot, RewritePlan, SampleCache, SampleFields, SampleTally,
+    SiteFilters, SiteStats, SiteView, TallyWants, Thinner, bcf_genotypes_with, parse_expr,
+    rewrite_text, select_samples, site_stats, text_genotypes_with,
 };
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -218,6 +218,9 @@ pub struct Hit<'a> {
     pub masked: &'a [bool],
     genotypes: Option<&'a dyn GenotypeSource>,
     called: &'a [u64],
+    /// With `SelectStage::filter_samples`: the header samples that pass a per-sample filter
+    /// (D172); `None`: every selected sample.
+    pub sample_pass: Option<&'a [bool]>,
 }
 
 impl Hit<'_> {
@@ -235,6 +238,56 @@ impl Hit<'_> {
     /// bug in the caller), the same on one thread and on many.
     pub fn genotypes(&self) -> Option<&dyn GenotypeSource> {
         self.genotypes
+    }
+}
+
+/// The records of a stage as VCF text with the selection's sample choice and
+/// masking applied: a BCF record is rendered by the converter `view -O vcf`
+/// uses, so VCF and BCF input give identical lines.
+pub(crate) struct Lines {
+    bcf: Option<BcfText>,
+    plan: RewritePlan,
+    rewritten: Vec<u8>,
+}
+
+impl Lines {
+    pub(crate) fn for_stage(stage: &SelectStage<'_>) -> Result<Lines, IoError> {
+        Ok(Lines {
+            bcf: if stage.input_is_bcf() {
+                Some(BcfText::for_header(stage.name(), stage.header())?)
+            } else {
+                None
+            },
+            plan: stage.plan().clone(),
+            rewritten: Vec::new(),
+        })
+    }
+
+    pub(crate) fn line<'b>(&'b mut self, name: &str, hit: &Hit<'b>) -> Result<&'b [u8], IoError> {
+        let text: &[u8] = match self.bcf.as_mut() {
+            Some(b) => b.render(hit.raw, hit.rec_no)?,
+            None => hit.raw,
+        };
+        if self.plan.is_passthrough() {
+            return Ok(text);
+        }
+        self.rewritten.clear();
+        rewrite_text(text, &self.plan, hit.masked, hit.stats, &mut self.rewritten).map_err(
+            |msg| IoError::Parse {
+                path: name.to_string(),
+                loc: Loc::Record(hit.rec_no),
+                msg,
+            },
+        )?;
+        Ok(&self.rewritten)
+    }
+}
+
+/// Header indices of the samples a stage keeps, in header order.
+pub(crate) fn kept_indices(stage: &SelectStage<'_>) -> Vec<usize> {
+    match &stage.plan().selection {
+        Some(sel) => (0..sel.keep.len()).filter(|&i| sel.keep[i]).collect(),
+        None => (0..stage.header().samples.len()).collect(),
     }
 }
 
@@ -261,6 +314,8 @@ struct Spec<'a> {
     share_decoded: bool,
     fields: GtFields,
     tally: Option<TallySpec>,
+    /// Evaluate the expression with bcftools query's rule (D172).
+    filter_samples: bool,
 }
 
 /// Per-sample counters the workers keep (see [`SelectStage::enable_tally`]).
@@ -278,12 +333,16 @@ struct Core {
     masked_buf: Vec<bool>,
     decoded: SampleCache,
     fields_buf: SampleFields,
+    /// The per-sample passes of the last record (see [`Passed::per_sample`]).
+    sample_buf: Vec<bool>,
 }
 
 /// A record the selection kept, before thinning.
 struct Passed {
     stats: Option<SiteStats>,
     pos: u64,
+    /// The record's per-sample passes are in `Core::sample_buf`.
+    per_sample: bool,
 }
 
 impl Core {
@@ -303,6 +362,7 @@ impl Core {
             masked_buf: Vec::new(),
             decoded: SampleCache::default(),
             fields_buf: SampleFields::default(),
+            sample_buf: Vec::new(),
         })
     }
 
@@ -333,6 +393,7 @@ impl Core {
             return Ok(None);
         }
 
+        let mut per_sample = false;
         // 2. Stats filters, masking and the expression
         let stats = if spec.need_stats {
             let keep = spec.plan.selection.as_ref().map(|s| s.keep.as_slice());
@@ -415,16 +476,31 @@ impl Core {
                     inner: gt,
                     masked: &self.masked_buf,
                 };
-                let hold = e
-                    .eval(
-                        &view,
-                        e.needs_genotypes().then_some(&mg as &dyn GenotypeSource),
-                        e.needs_stats().then_some(&st),
-                        &mut self.scratch,
-                    )
-                    .map_err(parse_err)?;
-                if hold == spec.exclude {
-                    return Ok(None);
+                let gt_arg = e.needs_genotypes().then_some(&mg as &dyn GenotypeSource);
+                let st_arg = e.needs_stats().then_some(&st);
+                if spec.filter_samples {
+                    match e
+                        .eval_query(
+                            spec.exclude,
+                            &view,
+                            gt_arg,
+                            st_arg,
+                            &mut self.scratch,
+                            &mut self.sample_buf,
+                        )
+                        .map_err(parse_err)?
+                    {
+                        QueryPass::Drop => return Ok(None),
+                        QueryPass::All => {}
+                        QueryPass::Samples => per_sample = true,
+                    }
+                } else {
+                    let hold = e
+                        .eval(&view, gt_arg, st_arg, &mut self.scratch)
+                        .map_err(parse_err)?;
+                    if hold == spec.exclude {
+                        return Ok(None);
+                    }
                 }
             }
             Some(st)
@@ -448,6 +524,7 @@ impl Core {
         Ok(Some(Passed {
             stats,
             pos: view.pos,
+            per_sample,
         }))
     }
 }
@@ -520,6 +597,7 @@ impl<'a> SelectStage<'a> {
             share_decoded: false,
             fields: GtFields::ALL,
             tally: None,
+            filter_samples: false,
         };
         let core = Core::new(&spec)?;
         Ok(SelectStage {
@@ -530,6 +608,16 @@ impl<'a> SelectStage<'a> {
             threads: NonZeroUsize::MIN,
             tally: SampleTally::default(),
         })
+    }
+
+    /// Evaluate --include/--exclude with bcftools query's rule (D172) instead of D71's.
+    pub fn filter_samples(&mut self) {
+        self.spec.filter_samples = true;
+    }
+
+    /// Whether --include/--exclude reads genotypes (`Expr::needs_genotypes`).
+    pub fn expr_reads_samples(&self) -> bool {
+        self.core.expr.as_ref().is_some_and(Expr::needs_genotypes)
     }
 
     /// Keep each decoded sample for the record's consumers (see
@@ -658,6 +746,8 @@ struct HitRec {
     slot: Option<RecordSlot>,
     /// The record's `--het` bitset in `Hits::called`.
     called: std::ops::Range<usize>,
+    /// The record's per-sample passes in `Hits::sample_pass`.
+    sample_pass: Option<std::ops::Range<usize>>,
 }
 
 /// The passing records of one batch.
@@ -667,6 +757,7 @@ struct Hits {
     masks: Vec<bool>,
     packed: PackedGenotypes,
     called: Vec<u64>,
+    sample_pass: Vec<bool>,
     /// This batch's per-sample counters.
     tally: SampleTally,
 }
@@ -677,6 +768,7 @@ impl Hits {
         self.masks.clear();
         self.packed.clear();
         self.called.clear();
+        self.sample_pass.clear();
         self.tally.clear();
     }
 }
@@ -773,6 +865,11 @@ fn work_batch(spec: &Spec<'_>, core: &mut Core, mut job: Job, flight: &AtomicUsi
                 }
             }
         }
+        let sample_pass = passed.per_sample.then(|| {
+            let start = hits.sample_pass.len();
+            hits.sample_pass.extend_from_slice(&core.sample_buf);
+            start..hits.sample_pass.len()
+        });
         hits.recs.push(HitRec {
             idx: i,
             pos: passed.pos,
@@ -780,6 +877,7 @@ fn work_batch(spec: &Spec<'_>, core: &mut Core, mut job: Job, flight: &AtomicUsi
             masks: mask_start..hits.masks.len(),
             slot,
             called: called_start..hits.called.len(),
+            sample_pass,
         });
     }
     let held = job.hits.packed.n_samples_held();
@@ -949,6 +1047,7 @@ where
                 genotypes: (stage.spec.share_decoded && p.stats.is_some())
                     .then_some(&shared as &dyn GenotypeSource),
                 called: &[],
+                sample_pass: p.per_sample.then_some(stage.core.sample_buf.as_slice()),
             })?;
         }
         if let Some(e) = ended {
@@ -1078,6 +1177,7 @@ where
                         masked: &job.hits.masks[h.masks.clone()],
                         genotypes: packed.as_ref().map(|p| p as &dyn GenotypeSource),
                         called: &job.hits.called[h.called.clone()],
+                        sample_pass: h.sample_pass.clone().map(|r| &job.hits.sample_pass[r]),
                     })?;
                 }
                 if spec.tally.is_some() {

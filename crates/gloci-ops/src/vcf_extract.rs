@@ -1,11 +1,11 @@
 //! `gloci vcf extract`: INFO and FORMAT tables and the 012 genotype matrix
 //! (decision D73). The records pass the shared selection stage first.
 
-use crate::vcf_select::{SelectStage, SelectedInput, VcfSelect, run_selection};
-use gloci_io::{BcfText, IoError, Loc, UsageError, create_file_in_temp_dir, create_temp_dir_in};
+use crate::vcf_select::{Lines, SelectStage, SelectedInput, VcfSelect, run_selection};
+use gloci_io::{IoError, Loc, UsageError, create_file_in_temp_dir, create_temp_dir_in};
 use gloci_vcf::{
     InfoKey, RewritePlan, declared_keys, format_cell, format_declared, format_index, genotype_012,
-    info_cell, info_kind, rewrite_text, split_columns,
+    info_cell, info_kind, split_columns,
 };
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::num::NonZeroUsize;
@@ -77,52 +77,6 @@ pub fn check_keys(flag: &str, keys: &[String]) -> Result<(), IoError> {
         }
     }
     Ok(())
-}
-
-/// The records of a stage as VCF text with the selection's sample choice and
-/// masking applied: a BCF record is rendered by the converter `view -O vcf`
-/// uses, so VCF and BCF input give identical lines.
-struct Lines {
-    bcf: Option<BcfText>,
-    plan: RewritePlan,
-    rewritten: Vec<u8>,
-}
-
-impl Lines {
-    fn for_stage(stage: &SelectStage<'_>) -> Result<Lines, IoError> {
-        Ok(Lines {
-            bcf: if stage.input_is_bcf() {
-                Some(BcfText::for_header(stage.name(), stage.header())?)
-            } else {
-                None
-            },
-            plan: stage.plan().clone(),
-            rewritten: Vec::new(),
-        })
-    }
-
-    fn line<'b>(
-        &'b mut self,
-        name: &str,
-        hit: &crate::vcf_select::Hit<'b>,
-    ) -> Result<&'b [u8], IoError> {
-        let text: &[u8] = match self.bcf.as_mut() {
-            Some(b) => b.render(hit.raw, hit.rec_no)?,
-            None => hit.raw,
-        };
-        if self.plan.is_passthrough() {
-            return Ok(text);
-        }
-        self.rewritten.clear();
-        rewrite_text(text, &self.plan, hit.masked, hit.stats, &mut self.rewritten).map_err(
-            |msg| IoError::Parse {
-                path: name.to_string(),
-                loc: Loc::Record(hit.rec_no),
-                msg,
-            },
-        )?;
-        Ok(&self.rewritten)
-    }
 }
 
 fn kept_samples(stage: &SelectStage<'_>) -> Vec<Vec<u8>> {
