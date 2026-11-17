@@ -620,6 +620,11 @@ impl<'a> SelectStage<'a> {
         self.core.expr.as_ref().is_some_and(Expr::needs_genotypes)
     }
 
+    /// The first sample subscript of --include/--exclude (`GT[0]`), if any.
+    pub fn expr_sample_subscript(&self) -> Option<String> {
+        self.core.expr.as_ref().and_then(Expr::sample_subscript)
+    }
+
     /// Keep each decoded sample for the record's consumers (see
     /// [`Hit::genotypes`]), so a later stage reads the sample from the
     /// selection instead of parsing it again. `fields` names the optional

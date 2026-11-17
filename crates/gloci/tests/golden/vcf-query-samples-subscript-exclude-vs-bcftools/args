@@ -1,0 +1,1 @@
+vcf query input.vcf --samples s2,s3 --exclude 'GT[0]="het"' -f '%POS[\t%SAMPLE=%GT]\n'

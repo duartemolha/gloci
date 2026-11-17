@@ -11386,8 +11386,30 @@ name = "vcf-query-samples-subscript-vs-bcftools"
 input = { file = "xtask/diff/inputs/expr-format.vcf" }
 gloci = "gloci vcf query input.vcf --samples s2,s3 --include 'GT[0]=\"het\"' -f '%POS[\\t%SAMPLE=%GT]\\n'"
 reference = "bcftools query -s s2,s3 -i 'GT[0]=\"het\"' -f '%POS[\\t%SAMPLE=%GT]\\n' input.vcf"
-compare = "exact"
+compare = "exit-status"
 expected_difference = "#vcf-query-samples"
+
+[[case]]
+name = "vcf-query-samples-subscript-exclude-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf --samples s2,s3 --exclude 'GT[0]=\"het\"' -f '%POS[\\t%SAMPLE=%GT]\\n'"
+reference = "bcftools query -s s2,s3 -e 'GT[0]=\"het\"' -f '%POS[\\t%SAMPLE=%GT]\\n' input.vcf"
+compare = "exit-status"
+expected_difference = "#vcf-query-samples"
+
+[[case]]
+name = "vcf-query-samples-repeated-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf --samples s3,s1,s3 -f '%POS[\\t%SAMPLE=%GT]\\n'"
+reference = "bcftools query -s s3,s1,s3 -f '%POS[\\t%SAMPLE=%GT]\\n' input.vcf"
+compare = "exact"
+
+[[case]]
+name = "vcf-query-samples-order-filter-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf --samples s3,s1 --include 'GT=\"alt\"' -f '%POS[\\t%SAMPLE=%GT]\\n'"
+reference = "bcftools query -s s3,s1 -i 'GT=\"alt\"' -f '%POS[\\t%SAMPLE=%GT]\\n' input.vcf"
+compare = "exact"
 
 [[case]]
 name = "vcf-query-unknown-escape-vs-bcftools"
@@ -11412,3 +11434,36 @@ gloci = "gloci vcf query input.vcf -f '%POS{1}\\n'"
 reference = "bcftools query -f '%POS{1}\\n' input.vcf"
 compare = "exit-status"
 expected_difference = "#vcf-query-format-strict"
+
+[[case]]
+name = "vcf-query-nested-bracket-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf -f '[[%GT]]\\n'"
+reference = "bcftools query -f '[[%GT]]\\n' input.vcf"
+compare = "exit-status"
+expected_difference = "#vcf-query-format-strict"
+
+[[case]]
+name = "vcf-query-line-in-block-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf -f '[%LINE]'"
+reference = "bcftools query -f '[%LINE]' input.vcf"
+compare = "exit-status"
+expected_difference = "#vcf-query-format-strict"
+
+[[case]]
+name = "vcf-query-subscript-garbage-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf -f '%POS{x}\\n'"
+reference = "bcftools query -f '%POS{x}\\n' input.vcf"
+compare = "exit-status"
+expected_difference = "#vcf-query-format-strict"
+
+[[case]]
+name = "vcf-query-header-line-vs-bcftools"
+input = { file = "xtask/diff/inputs/expr-format.vcf" }
+gloci = "gloci vcf query input.vcf -H -f '%LINE'"
+reference = "bcftools query -H -f '%LINE' input.vcf"
+compare = "exit-status"
+expected_difference = "#vcf-query-format-strict"
+

@@ -172,6 +172,12 @@ impl Expr {
         self.needs_genotypes
     }
 
+    /// The first sample subscript in the expression (`GT[0]`, `FMT/DP[1]`), as written
+    /// without the `[N]` spelling of the source: the field and its 0-based index.
+    pub fn sample_subscript(&self) -> Option<String> {
+        node_subscript(&self.root)
+    }
+
     /// Does evaluation read `stats` (`MAF`, `AC`, `AN`, `F_MISSING`,
     /// `N_MISSING`)? `N_SAMPLES` uses `stats` when given.
     pub fn needs_stats(&self) -> bool {
@@ -226,5 +232,23 @@ impl Expr {
             );
         }
         samples::eval_query(&self.root, exclude, site, gt, stats, scratch, pass)
+    }
+}
+
+fn field_subscript(f: &Field) -> Option<String> {
+    match f {
+        Field::Gt(Some(n)) => Some(format!("GT[{n}]")),
+        Field::FmtDp(Some(n)) => Some(format!("FMT/DP[{n}]")),
+        Field::FmtGq(Some(n)) => Some(format!("FMT/GQ[{n}]")),
+        Field::NPass(inner) => node_subscript(inner),
+        _ => None,
+    }
+}
+
+fn node_subscript(n: &Node) -> Option<String> {
+    match n {
+        Node::Or(v) | Node::And(v) => v.iter().find_map(node_subscript),
+        Node::Not(b) => node_subscript(b),
+        Node::Cmp { field, .. } | Node::Truthy(field) => field_subscript(field),
     }
 }

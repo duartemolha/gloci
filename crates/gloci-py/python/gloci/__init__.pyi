@@ -1810,8 +1810,6 @@ class Pipeline:
         remove_filter: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         require_info: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         exclude_info: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
-        include: str | int | float | os.PathLike[str] | None = None,
-        exclude: str | int | float | os.PathLike[str] | None = None,
         min_maf: str | int | float | os.PathLike[str] | None = None,
         max_maf: str | int | float | os.PathLike[str] | None = None,
         min_mac: str | int | float | os.PathLike[str] | None = None,
@@ -1833,6 +1831,8 @@ class Pipeline:
         skip_invalid: bool = False,
         samples: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         samples_file: Source | None = None,
+        include: str | int | float | os.PathLike[str] | None = None,
+        exclude: str | int | float | os.PathLike[str] | None = None,
     ) -> Pipeline:
         """Print fields of each VCF/BCF record in a format of your own (bcftools query)
 
@@ -1863,8 +1863,6 @@ class Pipeline:
             remove_filter: Remove records containing any of these FILTER tags
             require_info: Keep only records that define this INFO tag
             exclude_info: Remove records that define this INFO tag
-            include: Keep records for which the bcftools-style EXPR holds, e.g. 'QUAL>30 && INFO/DP>10 && N_PASS(GT="het")>=2'. FORMAT fields are limited to GT, DP and GQ. With --samples it sees only the selected samples (bcftools view -s -i sees all of them), and a sample masked by --min-gq and friends reads as missing in it, though the output keeps its values
-            exclude: Remove records for which the bcftools-style EXPR holds (same grammar as --include)
             min_maf: Minimum minor allele frequency among called genotypes [0, 1]
             max_maf: Maximum minor allele frequency among called genotypes [0, 1]
             min_mac: Minimum minor allele count among called genotypes
@@ -1877,7 +1875,7 @@ class Pipeline:
             thin: Minimum distance between kept sites in bp (first wins; each chromosome's records must be together, by position, in any chromosome order)
             phased_only: Keep only sites where every genotype of ploidy 2 or more is written phased (`|`), called or not, and every selected sample has a GT: `.|.` counts as phased, `./.` and a sample without GT do not (as vcftools --phased)
             inclusive_points: A point on a region's edge overlaps it
-            format: The format: %FIELD, [ ... ] once per sample, \\t \\n \\\\ (see Fields below)
+            format: The format: %FIELD, [ ... ] once per sample, \\t \\n \\\\ (see the Fields section of the long help)
             f: alias of format
             print_header: Write bcftools' header line first (`#[1]CHROM [2]POS ...`)
             H: alias of print_header
@@ -1886,6 +1884,8 @@ class Pipeline:
             skip_invalid: Skip invalid records with a warning instead of failing
             samples: Keep only these sample names (repeatable or comma-separated). They print in the order given here, as bcftools query prints them.
             samples_file: File containing sample names to keep, one per line (printed in the order of the file, as with --samples).
+            include: Keep records for which the bcftools-style EXPR holds, with bcftools query's rule: a comparison of GT, FMT/DP or FMT/GQ decides which samples print inside [ ], anything else decides the record. Not with a sample subscript (GT[0]) when a sample option is given.
+            exclude: Remove records for which the bcftools-style EXPR holds (same grammar and per-sample rule as --include).
 
         CLI: gloci vcf query
         """

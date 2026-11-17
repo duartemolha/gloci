@@ -132,8 +132,9 @@ fn compare(field: &Field, op: Op, rhs: &Rhs, cx: &mut Cx) -> Result<bool, String
 }
 
 /// The per-sample test of a `GT`, `FMT/DP` or `FMT/GQ` comparison on one
-/// sample's fields; `buf` is a text buffer. Both `--include` rules (D71's
-/// any-sample test and `vcf query`'s per-sample passes, D172) call it.
+/// sample's fields; `buf` is a text buffer. D71's any-sample test of a `GT` comparison and
+/// `vcf query`'s per-sample passes (D172) call it; D71's `FMT/DP` and `FMT/GQ` tests go
+/// through `visit`.
 pub(super) fn sample_passes(
     field: &Field,
     op: Op,

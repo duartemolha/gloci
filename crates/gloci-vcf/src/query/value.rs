@@ -12,7 +12,7 @@ use crate::srsort::{VCF_BND, VCF_INDEL, VCF_MNP, VCF_OTHER, VCF_OVERLAP, VCF_SNP
 const INT_MIN: i64 = -2_147_483_640;
 const INT_MAX: i64 = 2_147_483_647;
 
-/// The tags already warned about in one run, shared by the clones of a query (the workers),
+/// The tags already warned about in one run, shared by the clones of a query (rendering runs on the sink thread only),
 /// so an out-of-range Integer warns once per tag (D172). Queries compare equal whatever
 /// they have warned about.
 #[derive(Clone, Debug, Default)]

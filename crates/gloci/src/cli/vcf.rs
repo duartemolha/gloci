@@ -386,6 +386,16 @@ pub enum GenotypeMatrix {
     mut_arg("samples_file", |a| a.help(
         "File containing sample names to keep, one per line (printed in the order of the \
          file, as with --samples)."
+    )),
+    mut_arg("include", |a| a.help(
+        "Keep records for which the bcftools-style EXPR holds, with bcftools query's rule: \
+         a comparison of GT, FMT/DP or FMT/GQ decides which samples print inside [ ], anything \
+         else decides the record. Not with a sample subscript (GT[0]) when a sample option is \
+         given."
+    )),
+    mut_arg("exclude", |a| a.help(
+        "Remove records for which the bcftools-style EXPR holds (same grammar and per-sample \
+         rule as --include)."
     ))
 )]
 #[command(after_long_help = "\
@@ -405,7 +415,7 @@ pub struct VcfQueryArgs {
     pub file: String,
     #[command(flatten)]
     pub select: VcfSelectArgs,
-    /// The format: %FIELD, [ ... ] once per sample, \t \n \\ (see Fields below).
+    /// The format: %FIELD, [ ... ] once per sample, \t \n \\ (see the Fields section of the long help).
     #[arg(short = 'f', long = "format", value_name = "FORMAT", required = true)]
     pub format: String,
     /// Write bcftools' header line first (`#[1]CHROM [2]POS ...`).

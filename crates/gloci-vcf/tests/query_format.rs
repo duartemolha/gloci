@@ -139,6 +139,7 @@ fn syntax_errors_name_the_construct_and_column() {
         ("[%GT", &["missing ]", "column 1"]),
         ("%AF{1", &["{N}", "column 4"]),
         ("%AC{-1}", &["{N}", "column 4"]),
+        ("%AC{99999999999999999999999}", &["too large", "column 4"]),
     ];
     for (fmt, wants) in cases {
         let e = syntax_err(fmt);
@@ -162,8 +163,9 @@ fn misplaced_and_unknown_fields_are_usage_errors() {
         ("%XX", &["XX", "not declared"]),
         ("%INFO/XX", &["INFO/XX", "not declared"]),
         ("[%IUPACGT]", &["IUPACGT"]),
-        ("%POS{1}", &["POS takes no subscript"]),
-        ("[%GT{0}]", &["GT takes no subscript"]),
+        ("%POS{1}", &["%POS takes no subscript"]),
+        ("[%GT{0}]", &["%GT takes no subscript"]),
+        ("%INFO/", &["%INFO/ needs a tag name"]),
     ];
     for (fmt, wants) in cases {
         let e = name_err(fmt);

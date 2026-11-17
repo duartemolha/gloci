@@ -751,6 +751,15 @@ gloci = "{gloci} vcf concat {in_a} {in_b} -O vcf | bgzip -@ 2 -l 1 -c > {out}"
 reference = "bcftools concat --no-version {in_a} {in_b} | bgzip -@ 2 -l 1 -c > {out}"
 compare = "vcf-records"
 
+[[case]]
+name = "vcf-query-1kg-vs-bcftools"
+command = "vcf query"
+reference_tool = "bcftools"
+inputs = { a = "1kg-30x-chr20" }
+gloci = '''{gloci} vcf query {in_a} -f '%CHROM\t%POS\t%REF\t%ALT[\t%GT]\n' > {out}'''
+reference = '''bcftools query -f '%CHROM\t%POS\t%REF\t%ALT[\t%GT]\n' {in_a} > {out}'''
+compare = "exact"
+
 # ---- samtools: the CTCF K562 BAM and peaks ----
 
 # The header and the first 100,000 reads, as SAM.

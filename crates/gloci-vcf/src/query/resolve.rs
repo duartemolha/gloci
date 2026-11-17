@@ -90,7 +90,7 @@ impl Cx<'_> {
         let plain = |f: Field| -> Result<Field, UsageError> {
             match spec.sub {
                 None => Ok(f),
-                Some(_) => Err(self.fail(&format!("{name} takes no subscript"), spec.col)),
+                Some(_) => Err(self.fail(&format!("%{name} takes no subscript"), spec.col)),
             }
         };
         let in_block_only = |f: Field| -> Result<Field, UsageError> {
@@ -150,6 +150,9 @@ impl Cx<'_> {
             list.iter().find(|(n, _)| n == tag.as_bytes()).map(|p| p.1)
         };
         if let Some(tag) = name.strip_prefix("INFO/") {
+            if tag.is_empty() {
+                return Err(self.fail("%INFO/ needs a tag name", spec.col));
+            }
             return match find(&self.decl.info, tag) {
                 Some(ty) => Ok(Field::InfoTag(make(tag, ty))),
                 None => Err(self.fail(

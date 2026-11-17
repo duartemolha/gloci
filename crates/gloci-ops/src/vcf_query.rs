@@ -4,7 +4,7 @@
 use crate::vcf_select::{
     Lines, SelectStage, SelectedInput, VcfSelect, kept_indices, run_selection,
 };
-use gloci_io::{IoError, Loc};
+use gloci_io::{IoError, Loc, UsageError};
 use gloci_vcf::{QueryFormat, RewritePlan, SampleCols};
 use std::collections::HashMap;
 use std::io::Write;
@@ -38,7 +38,7 @@ fn write_err(source: std::io::Error) -> IoError {
 }
 
 /// Positions in `kept` in the order the samples print: the order `--samples` gave
-/// them (a name excluded or repeated is skipped), else `0..kept.len()` (D172).
+/// them (a name excluded is skipped, a name given twice prints twice), else `0..kept.len()` (D172).
 fn print_order(sel: &VcfSelect, names: &[Vec<u8>], kept: &[usize]) -> Vec<usize> {
     let Some(given) = sel.include_samples.as_ref() else {
         return (0..kept.len()).collect();
@@ -47,12 +47,9 @@ fn print_order(sel: &VcfSelect, names: &[Vec<u8>], kept: &[usize]) -> Vec<usize>
     for (pos, &h) in kept.iter().enumerate() {
         at.entry(names[h].as_slice()).or_insert(pos);
     }
-    let mut seen = vec![false; kept.len()];
-    let mut order = Vec::with_capacity(kept.len());
+    let mut order = Vec::with_capacity(given.len());
     for name in given {
-        if let Some(&pos) = at.get(name.as_bytes())
-            && !std::mem::replace(&mut seen[pos], true)
-        {
+        if let Some(&pos) = at.get(name.as_bytes()) {
             order.push(pos);
         }
     }
@@ -70,6 +67,12 @@ pub fn vcf_query(
     let base = RewritePlan::default();
     let (reader, mut chroms) = input.into_parts();
     let mut stage = SelectStage::new(COMMAND, reader.as_ref(), &o.select, &base, false)?;
+    let sample_option = o.select.include_samples.is_some() || !o.select.exclude_samples.is_empty();
+    if sample_option && let Some(sub) = stage.expr_sample_subscript() {
+        return Err(IoError::Usage(UsageError(format!(
+            "{COMMAND}: {sub} in --include/--exclude numbers the samples of the header, where bcftools numbers the selected ones; drop the subscript or the sample option"
+        ))));
+    }
     stage.set_threads(o.threads.unwrap_or(NonZeroUsize::MIN));
     stage.filter_samples();
     let name = stage.name().to_string();

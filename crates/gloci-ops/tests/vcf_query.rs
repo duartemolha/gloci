@@ -280,6 +280,31 @@ fn query_keeps_the_given_order_with_exclusions_and_repeats() {
     assert!(
         run(&["s3", "s1", "s3"], &[])
             .lines()
-            .all(|l| l.ends_with(",s3,s1"))
+            .all(|l| l.ends_with(",s3,s1,s3"))
     );
+}
+
+#[test]
+fn a_sample_subscript_with_a_sample_option_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let vcf = main_vcf(dir.path());
+    for exclude in [false, true] {
+        let select = VcfSelect {
+            include_samples: names(&["s2", "s3"]),
+            expr: expr(r#"GT[0]="het""#, exclude),
+            ..VcfSelect::default()
+        };
+        let err = query(&vcf, select, "%POS\n", false, None).unwrap_err();
+        assert!(matches!(err, IoError::Usage(_)), "{err}");
+        assert!(
+            err.to_string().contains("GT[0] in --include/--exclude"),
+            "{err}"
+        );
+    }
+    // Without a sample option the numbering agrees with bcftools.
+    let select = VcfSelect {
+        expr: expr(r#"GT[0]="het""#, false),
+        ..VcfSelect::default()
+    };
+    query(&vcf, select, "%POS\n", false, None).unwrap();
 }

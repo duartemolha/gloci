@@ -26,6 +26,7 @@ const NEEDS: &[(&str, &[&str])] = &[
     ("vcf compare", &["--out-prefix", "o"]),
     ("vcf extract", &["--info", "DP"]),
     ("vcf popgen", &["--out-prefix", "o"]),
+    ("vcf query", &["-f", "%POS"]),
     ("vcf stats", &["--out-prefix", "o", "--freq"]),
     ("windows", &["-w", "10"]),
 ];

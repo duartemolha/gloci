@@ -138,15 +138,18 @@ fn parse_field(src: &str, chars: &[char], pos: &mut usize) -> Result<Spec, Usage
             i += 1;
         }
         let digits: String = chars[*pos + 1..i].iter().collect();
-        let value = if chars.get(i) == Some(&'}') && !digits.is_empty() {
-            digits.parse::<usize>().ok()
-        } else {
-            None
-        };
-        match value {
-            Some(n) => {
+        let closed = chars.get(i) == Some(&'}') && !digits.is_empty();
+        match closed.then(|| digits.parse::<usize>()) {
+            Some(Ok(n)) => {
                 sub = Some(n);
                 *pos = i + 1;
+            }
+            Some(Err(_)) => {
+                return Err(err(
+                    src,
+                    &format!("%{name}{{{digits}}}: the subscript is too large"),
+                    brace,
+                ));
             }
             None => {
                 return Err(err(

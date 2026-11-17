@@ -1467,17 +1467,17 @@ Each section gives the gloci behaviour, the old behaviour and the reason.
 
 ## `vcf query --samples`: whole-header subscripts {#vcf-query-samples}
 
-- **gloci:** `GT[0]` in `--include` is the header's first sample, as for the other `vcf` commands. Samples print in the order `--samples` gives, as bcftools prints them: that is not a difference.
-- **Old behaviour:** with `-s`, bcftools query numbers the selected samples, in the order given.
-- **Reason:** one numbering for every `vcf` command (D71).
-- **Pinned by:** `vcf-query-samples-subscript-vs-bcftools`.
+- **gloci:** a sample subscript (`GT[0]`, `FMT/DP[1]`) in `--include` or `--exclude` together with `--samples`, `--samples-file`, `--exclude-samples` or `--exclude-samples-file` is a usage error (exit 2) naming the subscript. Without a sample option the numbering is the header's, which is bcftools' too. Samples print in the order `--samples` gives (a name given twice prints twice), as bcftools prints them: that is not a difference.
+- **Old behaviour:** with `-s`, bcftools query numbers the selected samples, in the order given, and runs the expression.
+- **Reason:** the other `vcf` commands number the header's samples (D71), so the same expression would select other samples; a refusal is safer than a quiet wrong column.
+- **Pinned by:** `vcf-query-samples-subscript-vs-bcftools` and `vcf-query-samples-subscript-exclude-vs-bcftools` (must differ); `vcf-query-samples-repeated-vs-bcftools` and `vcf-query-samples-order-filter-vs-bcftools` (must match).
 
 ## `vcf query` refuses formats bcftools reads loosely {#vcf-query-format-strict}
 
 - **gloci:** an unknown escape (`\x`), a `]` without `[`, a `[` inside `[ ]`, a `{` after a field that is not `{N}` or a subscript on a field that takes none (`%POS{1}`), `%LINE` inside `[ ]`, and `-H` with `%LINE` are usage errors naming the construct and its column.
-- **Old behaviour:** bcftools prints `x` for `\x`, drops the `]`, ignores the inner `[`, prints the `{` as text (`%POS{1}` gives `10{1}`), and exits 255 (`cannot write to standard output`) for `-H` with `%LINE`.
+- **Old behaviour:** bcftools prints `x` for `\x`, drops the `]`, ignores the inner `[`, prints the `{` as text (`%POS{1}` gives `10{1}`, `%POS{x}` gives `10{x}`), prints the record once per sample with no separator for `%LINE` inside `[ ]` (three samples give three copies run together), and exits 255 (`cannot write to standard output`) for `-H` with `%LINE`.
 - **Reason:** each is almost always a typo, and printing it would give a quiet wrong column.
-- **Pinned by:** `vcf-query-unknown-escape-vs-bcftools`, `vcf-query-stray-bracket-vs-bcftools` and `vcf-query-subscript-on-fixed-vs-bcftools`.
+- **Pinned by:** `vcf-query-unknown-escape-vs-bcftools`, `vcf-query-stray-bracket-vs-bcftools`, `vcf-query-subscript-on-fixed-vs-bcftools`, `vcf-query-nested-bracket-vs-bcftools`, `vcf-query-line-in-block-vs-bcftools`, `vcf-query-subscript-garbage-vs-bcftools` and `vcf-query-header-line-vs-bcftools` (all must differ).
 
 ## `vcf stats --singletons` names a carrier that masking left {#vcf-stats-singletons-masked}
 
