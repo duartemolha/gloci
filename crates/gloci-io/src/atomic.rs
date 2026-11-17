@@ -265,8 +265,13 @@ impl AtomicFile {
         &self.tmp
     }
 
-    /// Flushes and renames the temp file onto the destination, and records the destination as
-    /// an output of the run.
+    /// Renames the temp file onto the destination, and records the destination as an output of
+    /// the run. The data is not forced to disk first (no `fsync`): the rename keeps a failed or
+    /// interrupted run from leaving a partial file, which is the promise (spec §5.2), while
+    /// surviving an OS crash or power loss just after the run is the file system's business, as
+    /// for samtools, bcftools and bedtools. The flush added up to 0.7 s to `sort -o` of 58 MB on
+    /// a laptop disk (0.56 to 1.18 s with it, 0.35 to 0.60 s without), and costs a server round
+    /// trip on NFS or Lustre.
     pub fn commit(self) -> io::Result<()> {
         let (run, dest) = self.commit_unrecorded()?;
         run.record_output(&dest);
@@ -277,7 +282,6 @@ impl AtomicFile {
     /// records its files once all of them are in place. Returns what to record it with.
     pub(crate) fn commit_unrecorded(mut self) -> io::Result<(crate::cancel::Watch, PathBuf)> {
         let file = self.file.take().expect("file present until commit");
-        file.sync_all()?;
         drop(file);
         fs::rename(&self.tmp, &self.dest)?;
         unregister(&self.tmp);

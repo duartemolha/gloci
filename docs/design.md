@@ -230,7 +230,7 @@ Further rules:
 - The default output is stdout, or `-o PATH`.
 - **Format and compression** come from the `-o` extension (`.bed`, `.bed.gz`, `.vcf`, `.vcf.gz`, `.bcf`, `.tsv`, `.tsv.gz`, `.bedgraph.gz`), or from `-O FMT` for stdout. `.gz` output is always **BGZF**, so it can be indexed.
 - `--write-index` creates `.tbi`. It switches to `.csi` automatically for chromosomes over 512 Mbp and always uses `.csi` for BCF.
-- **Atomic file output:** gloci writes to `PATH.tmp-XXXX` and renames on success. On failure the temp file is removed and no partial file is left behind. **[my call]**
+- **Atomic file output:** gloci writes to `PATH.tmp-XXXX` and renames on success. On failure the temp file is removed and no partial file is left behind. **[my call]** The temp file is not forced to disk before the rename (no `fsync`) **[owner request, 2026-11-17]**: the rename is what keeps a failed or interrupted run from leaving a partial file, and surviving an OS crash or power loss just after the run is left to the file system, as samtools, bcftools and bedtools leave it. The flush added up to 0.7 s to `sort -o` of the 58 MB GENCODE exons on a laptop disk (0.56 to 1.18 s with it, 0.35 to 0.60 s without, alternating runs) and costs a server round trip on NFS or Lustre.
 
 ---
 
