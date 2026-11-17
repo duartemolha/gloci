@@ -12169,3 +12169,13 @@ aux = ["xtask/diff/inputs/bigwig/bbi_dump.py"]
 gloci = "gloci view input.bb"
 reference = "python3 -I bbi_dump.py --lex input.bb"
 compare = "exact"
+
+[[case]]
+name = "map-bigwig-wsum-vs-bedtools-per-base"
+input = { file = "xtask/diff/inputs/bigwig/signal.bw" }
+aux = ["xtask/diff/inputs/bigwig/signal.bedgraph", "xtask/diff/inputs/bigwig/regions.bed"]
+# One base per row makes bedtools' sum, count and mean the weighted sum, covered bases and weighted mean.
+# bedtools map has no -null, so its `.` for a region without signal becomes 0, as --empty 0 writes.
+gloci = "gloci map -a regions.bed -b input.bw -c 4:wsum -c 0:bases_uniq -c 4:wmean --empty 0"
+reference = '''awk 'BEGIN{OFS="\t"}{for(i=$2;i<$3;i++) print $1,i,i+1,$4}' signal.bedgraph > pb.bed && bedtools map -a regions.bed -b pb.bed -c 4,4,4 -o sum,count,mean -prec 17 | awk 'BEGIN{OFS="\t"}{for(i=5;i<=NF;i++) if($i==".") $i=0; print}' '''
+compare = "numeric"

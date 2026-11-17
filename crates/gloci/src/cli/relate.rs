@@ -564,11 +564,13 @@ Examples:
 Operations:
 Ops: count count_distinct sum mean median min max stdev var stdev_pop var_pop collapse \
 distinct distinct_sorted first last bases indicator cv mad quantile:Q tmean:LO-HI wmean \
-mode antimode bases_uniq frac_a frac_b min_record max_record records (COL 0 also works \
+wsum mode antimode bases_uniq frac_a frac_b min_record max_record records (COL 0 also works \
 with bases_uniq, frac_a, frac_b and records; records ignores COL). cv is the sample stdev \
 over the mean; mad the unscaled median absolute deviation; quantile is type 7 and tmean \
 the mean of the values whose rank fraction is within LO-HI (a lone value is kept); wmean \
-weights by overlapping bases; ties of mode and antimode go to the bytewise smallest value, \
+weights by overlapping bases; wsum is the sum of value times overlapping bases (over a bigWig, \
+-c 4:wsum -c 0:bases_uniq -c 4:wmean --empty 0 gives bigWigAverageOverBed's sum, covered \
+and mean); ties of mode and antimode go to the bytewise smallest value, \
 as in bedtools; bases_uniq counts overlapped bases once; frac_a is bases_uniq over A's \
 length and frac_b the summed overlap over the summed B length (--empty when the length is \
 0); records copies whole B records, tabs shown as |, and does not escape --delim where it \

@@ -13,7 +13,7 @@ use std::path::PathBuf;
 /// exactly as in its first line, followed by one column per -c COL:OP, with the ops of map (count,
 /// count_distinct, sum, mean, median, min, max, stdev, var, stdev_pop, var_pop, collapse, distinct,
 /// distinct_sorted, first, last, indicator, cv, mad, quantile:Q, tmean:LO-HI, mode, antimode); the
-/// ops that need a second input (wmean, records, min_record, max_record, frac_*, bases_uniq, bases)
+/// ops that need a second input (wmean, wsum, records, min_record, max_record, frac_*, bases_uniq, bases)
 /// are for map.
 #[derive(Args)]
 #[command(about = "Aggregate columns over runs of equal keys (bedtools groupby)")]

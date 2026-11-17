@@ -1296,3 +1296,23 @@ fn genomecov_refused_bigwig_record_is_a_data_error() {
     assert!(!err.contains("free disk space"), "{err}");
     assert!(!Path::new(&bw).exists());
 }
+
+#[test]
+fn map_over_bigwig_gives_bigwigaverageoverbed_columns() {
+    let d = tempdir();
+    let bw = d.path().join("r.bw");
+    bigtools_bigwig(
+        &bw,
+        &[("chr1", 1000)],
+        &[("chr1", 0, 100, 1.5), ("chr1", 100, 200, 0.25)],
+    );
+    let a = d.path().join("a.bed");
+    std::fs::write(&a, "chr1\t50\t150\tx\nchr1\t500\t600\ty\n").unwrap();
+    gloci()
+        .args(["map", "-a", &s(&a), "-b", &s(&bw)])
+        .args(["-c", "4:wsum", "-c", "0:bases_uniq", "-c", "4:wmean"])
+        .args(["--empty", "0"])
+        .assert()
+        .success()
+        .stdout("chr1\t50\t150\tx\t87.5\t100\t0.875\nchr1\t500\t600\ty\t0\t0\t0\n");
+}

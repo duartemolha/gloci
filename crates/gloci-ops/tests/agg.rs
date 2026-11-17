@@ -68,6 +68,7 @@ fn parse_errors() {
         ("5:tmean", "tmean needs a range LO-HI"),
         ("5:mad:3", "mad takes no argument"),
         ("0:cv", "column 0"),
+        ("0:wsum", "column 0"),
         ("0:min_record", "column 0"),
     ] {
         let e = parse_aggs(&[s(spec)]).unwrap_err().0;
@@ -79,6 +80,7 @@ fn parse_errors() {
 fn two_input_ops_are_refused_without_a_second_input() {
     for op in [
         "wmean",
+        "wsum",
         "records",
         "min_record",
         "max_record",
@@ -436,6 +438,17 @@ fn run_hits(spec: &str, hits: &[(&str, HitInfo<'_>)]) -> String {
         .strip_prefix('\t')
         .unwrap()
         .to_string()
+}
+
+#[test]
+fn wsum_multiplies_values_by_overlapping_bases() {
+    let (s1, s2, s3) = ([iv(0, 10)], [iv(10, 40)], [iv(0, 3)]);
+    let hits = [("10", hit(10, 100, 10, &s1)), ("20", hit(30, 100, 30, &s2))];
+    assert_eq!(run_hits("5:wsum", &hits), "700");
+    assert_eq!(run_hits("5:wsum", &[("0.5", hit(3, 100, 3, &s3))]), "1.5");
+    let none = [("10", hit(0, 100, 5, &[])), ("20", hit(0, 100, 5, &[]))];
+    assert_eq!(run_hits("5:wsum", &none), "0");
+    assert_eq!(run_hits("5:wsum", &[]), ".");
 }
 
 #[test]

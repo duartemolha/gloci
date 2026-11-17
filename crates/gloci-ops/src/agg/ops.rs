@@ -133,7 +133,7 @@ struct Numeric {
     mean: f64,
     m2: f64,
     vals: Vec<f64>,
-    /// Sum of weights and of weight * value (`wmean`).
+    /// Sum of weights and of weight * value (`wmean`, `wsum`).
     wsum: f64,
     wxsum: f64,
 }
@@ -289,6 +289,7 @@ impl State {
             | Op::Quantile
             | Op::Tmean
             | Op::WMean
+            | Op::WSum
             | Op::Median
             | Op::Min
             | Op::Max
@@ -703,6 +704,12 @@ fn finish_numeric(agg: &ResolvedAgg, n: &mut Numeric, empty: &str, out: &mut Vec
                 return none(out);
             }
             fmt_f64(kept.iter().sum::<f64>() / kept.len() as f64, out);
+        }
+        Op::WSum => {
+            if n.n == 0 {
+                return none(out);
+            }
+            fmt_f64(n.wxsum, out);
         }
         Op::WMean => {
             if n.wsum == 0.0 {

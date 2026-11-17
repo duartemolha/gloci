@@ -1,0 +1,1 @@
+map -a regions.bed -b input.bw -c 4:wsum -c 0:bases_uniq -c 4:wmean --empty 0

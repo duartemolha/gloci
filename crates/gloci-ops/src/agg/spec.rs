@@ -30,6 +30,8 @@ pub enum Op {
     /// `tmean:LO-HI` (argument in [`OpArg::Range`]).
     Tmean,
     WMean,
+    /// Sum of value times overlapping bases.
+    WSum,
     Mode,
     AntiMode,
     BasesUniq,
@@ -48,6 +50,7 @@ impl Op {
             self,
             Op::Bases
                 | Op::WMean
+                | Op::WSum
                 | Op::BasesUniq
                 | Op::FracA
                 | Op::FracB
@@ -61,7 +64,7 @@ impl Op {
     pub fn needs_overlap(self) -> bool {
         matches!(
             self,
-            Op::Bases | Op::WMean | Op::BasesUniq | Op::FracA | Op::FracB
+            Op::Bases | Op::WMean | Op::WSum | Op::BasesUniq | Op::FracA | Op::FracB
         )
     }
 }
@@ -118,6 +121,7 @@ fn parse_op(name: &str) -> Option<Op> {
         "quantile" => Op::Quantile,
         "tmean" => Op::Tmean,
         "wmean" => Op::WMean,
+        "wsum" => Op::WSum,
         "mode" => Op::Mode,
         "antimode" => Op::AntiMode,
         "bases_uniq" => Op::BasesUniq,
@@ -146,7 +150,7 @@ fn parse_one(item: &str) -> Result<AggSpec, UsageError> {
         return Err(UsageError(format!(
             "-c {item}: expected COL:OP (for example 5:mean); \
              ops: count count_distinct sum mean median min max stdev var stdev_pop var_pop collapse \
-             distinct distinct_sorted first last bases indicator cv mad quantile:Q tmean:LO-HI wmean mode \
+             distinct distinct_sorted first last bases indicator cv mad quantile:Q tmean:LO-HI wmean wsum mode \
              antimode bases_uniq frac_a frac_b min_record max_record records"
         )));
     };
@@ -159,7 +163,7 @@ fn parse_one(item: &str) -> Result<AggSpec, UsageError> {
         return Err(UsageError(format!(
             "-c {item}: unknown op `{op_name}`; ops: count count_distinct sum mean \
              median min max stdev var stdev_pop var_pop collapse distinct distinct_sorted first last \
-             bases indicator cv mad quantile:Q tmean:LO-HI wmean mode antimode bases_uniq frac_a \
+             bases indicator cv mad quantile:Q tmean:LO-HI wmean wsum mode antimode bases_uniq frac_a \
              frac_b min_record max_record records"
         )));
     };

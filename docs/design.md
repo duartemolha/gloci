@@ -304,7 +304,7 @@ gloci ships chromosome names and sizes for common assemblies, so `-g hg38` works
   - `count`, `count_distinct`
   - `sum`, `mean`, `median`, `min`, `max`
   - `stdev`, `var` (sample), `stdev_pop`, `var_pop`, `cv`, `mad`
-  - `quantile:Q`, `tmean:LO-HI`, `wmean` (weighted by overlapping bases)
+  - `quantile:Q`, `tmean:LO-HI`, `wmean` (weighted by overlapping bases), `wsum` (value × overlapping bases)
   - `mode`, `antimode`, `first`, `last`
   - `collapse`, `distinct`, `distinct_sorted`
   - `bases` (overlapping bases), `bases_uniq`, `frac_a`, `frac_b`
