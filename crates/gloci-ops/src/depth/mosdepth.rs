@@ -9,8 +9,8 @@ use gloci_core::ChromTable;
 use gloci_core::cfmt::{write_fixed, write_u64};
 use gloci_io::{
     AlnHeader, AlnSource, Format, InvalidPolicy, IoError, Loc, OutFormat, OutputOptions,
-    OutputSpec, ReaderOptions, RecordBatch, StagedSet, field, next_batch_size, open_output,
-    open_reader, plain_text_output_spec,
+    OutputSpec, ReaderOptions, RecordBatch, StagedSet, UsageError, field, next_batch_size,
+    open_output, open_reader, plain_text_output_spec,
 };
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -405,6 +405,12 @@ impl<'w> Tables<'w> {
         thresholds: Vec<u32>,
         t: Targets<'w>,
     ) -> io::Result<Tables<'w>> {
+        if matches!(regions, Regions::Windows(0)) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "--by 0: a window must be at least 1 base",
+            ));
+        }
         let mut threshold_rows = t.thresholds.map(Buf::new);
         if let Some(b) = &mut threshold_rows {
             b.buf.extend_from_slice(b"#chrom\tstart\tend\tregion");
@@ -622,14 +628,20 @@ fn finish_window(
     count: &mut u64,
 ) -> io::Result<()> {
     let mean = win.mean;
-    if let Some(b) = rows.0 {
+    if let Some(b) = rows.0.as_mut() {
         region_row(&mut b.buf, chrom, win.start, win.end, None, mean);
     }
-    if let Some(b) = rows.1 {
+    if let Some(b) = rows.1.as_mut() {
         threshold_row(&mut b.buf, chrom, win.start, win.end, None, &win.counts);
     }
     bump(region_hist, (mean.round() as usize).min(WINDOW_MEAN_CAP), 1);
     *count += 1;
+    if let Some(b) = rows.0 {
+        b.spill()?;
+    }
+    if let Some(b) = rows.1 {
+        b.spill()?;
+    }
     win.mean = 0.0;
     win.counts.iter_mut().for_each(|c| *c = 0);
     debug_assert_eq!(win.counts.len(), thresholds.len());
@@ -739,6 +751,9 @@ pub fn mosdepth_files(
     oo: &OutputOptions,
 ) -> Result<MosdepthSummary, IoError> {
     let hdr = src.header().clone();
+    if o.by == By::Windows(0) {
+        return Err(UsageError("--by 0: a window must be at least 1 base".into()).into());
+    }
     let regions = match &o.by {
         By::Nothing => Regions::None,
         By::Windows(size) => Regions::Windows(*size),
@@ -1032,6 +1047,15 @@ mod tests {
                 .find(|l| l.starts_with(&line(d)))
                 .unwrap()
         };
+        let lines: Vec<&str> = o
+            .region_dist
+            .lines()
+            .filter(|l| l.starts_with("c\t"))
+            .collect();
+        // 511, then 300 down to 0.
+        assert_eq!(lines.len(), 1 + 301);
+        assert!(find(300).ends_with("0.33"));
+        assert!(!o.region_dist.contains("c\t400\t"));
         assert_eq!(find(511), "c\t511\t0.33");
         assert_eq!(find(2), "c\t2\t0.33");
         assert_eq!(find(1), "c\t1\t0.67");
@@ -1244,5 +1268,71 @@ mod tests {
         assert!(summary.starts_with("chrom\tlength\tbases\tmean\tmin\tmax\nchr1\t1000\t"));
         assert!(summary.contains("\ntotal_region\t"), "{summary}");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn row_buffers_spill_within_one_long_run() {
+        // One zero run over 200,000 one-base windows must not gather its rows.
+        let hdr = header(&[("c", 200_000)]);
+        let (mut g, mut s, mut rd, mut r, mut t) =
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let targets = Targets {
+            global_dist: &mut g,
+            summary: &mut s,
+            region_dist: Some(&mut rd),
+            regions: Some(&mut r),
+            thresholds: Some(&mut t),
+        };
+        let mut tb = Tables::new(&hdr, Regions::Windows(1), vec![1], targets).unwrap();
+        tb.zeros(0, 0, 200_000).unwrap();
+        let held = |b: &Option<Buf<'_>>| b.as_ref().unwrap().buf.len();
+        assert!(
+            held(&tb.region_rows) < SPILL_AT + 64,
+            "{}",
+            held(&tb.region_rows)
+        );
+        assert!(held(&tb.threshold_rows) < SPILL_AT + 64);
+        tb.reference_done(0).unwrap();
+        tb.finish().unwrap();
+        drop(tb);
+        let rows = String::from_utf8(r).unwrap();
+        assert_eq!(rows.lines().count(), 200_000);
+        assert!(rows.starts_with("c\t0\t1\t0.00\nc\t1\t2\t0.00\n"));
+        assert!(rows.ends_with("c\t199999\t200000\t0.00\n"));
+    }
+
+    #[test]
+    fn a_window_of_zero_is_refused() {
+        let hdr = header(&[("c", 10)]);
+        let (mut g, mut s) = (Vec::new(), Vec::new());
+        let targets = Targets {
+            global_dist: &mut g,
+            summary: &mut s,
+            region_dist: None,
+            regions: None,
+            thresholds: None,
+        };
+        let e = Tables::new(&hdr, Regions::Windows(0), vec![], targets)
+            .err()
+            .unwrap();
+        assert!(e.to_string().contains("--by 0"), "{e}");
+        let bam = input("mosdepth.bam");
+        let o = MosdepthOptions {
+            prefix: std::env::temp_dir().join("gloci-never-written"),
+            by: By::Windows(0),
+            thresholds: vec![],
+            exclude_flags: 1796,
+            min_mapq: 0,
+        };
+        let oo = OutputOptions {
+            threads: NonZeroUsize::MIN,
+            level: 6,
+            write_index: false,
+        };
+        let src = open_aln_source(&bam, &ro()).unwrap();
+        let e = mosdepth_files(src, &bam, &o, &ro(), &oo)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("a window must be at least 1 base"), "{e}");
     }
 }
