@@ -197,7 +197,7 @@ D79–D98, from the plan "Decisions this plan adds" table.
 
 <a id="d81"></a>**D81** **One version** across the crates, the Python package, the conda packages, the tag and `--version`. <ul><li>Semver; before 1.0, a breaking change bumps the minor.</li><li>The first release is **0.2.0**.</li><li>`CHANGELOG.md` uses the Keep a Changelog format, and the release notes are the version's section.</li></ul>
 
-<a id="d82"></a>**D82** **crates.io:** publish core, io, engine, vcf, ops and `gloci`, so `cargo install gloci` works. <ul><li>The internal crates say "no stable API" (§2).</li><li>The genome tables move into `crates/gloci-io/data/genomes/`. Today `builtin.rs` includes a path outside the package, which breaks `cargo publish` and the sdist.</li></ul>
+<a id="d82"></a>**D82** **crates.io:** publish core, chains, chains-t2t, io, engine, vcf, ops and `gloci`, in that (dependency) order, so `cargo install gloci` works. <ul><li>The internal crates say "no stable API" (§2).</li><li>`gloci-chains` and `gloci-chains-t2t` hold the built-in liftover chains that gloci-io compiles in (D174, R13); the CI publish dry run and the release loop list them before gloci-io (amended 2026-11-17).</li><li>The genome tables move into `crates/gloci-io/data/genomes/`. Today `builtin.rs` includes a path outside the package, which breaks `cargo publish` and the sdist.</li></ul>
 
 <a id="d83"></a>**D83** **Python reuses the CLI wiring** through `gloci::embed`. Defaults, validation and messages are then identical, instead of being re-implemented and drifting. gloci-py holds no command logic.
 

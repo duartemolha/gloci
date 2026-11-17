@@ -246,3 +246,36 @@ fn every_workflow_action_is_pinned() {
     }
     assert!(seen > 0, "no `uses:` lines found; the scan is broken");
 }
+
+/// The CI publish dry run and the release loop name every published crate, in dependency order,
+/// so a crate added to `PUBLISHED` cannot be left out of either (D82).
+#[test]
+fn workflows_publish_every_published_crate_in_order() {
+    let root = xtask::diff::workspace_root();
+    let read = |f: &str| std::fs::read_to_string(root.join(".github/workflows").join(f)).unwrap();
+    let ci = read("ci.yml");
+    let dry_run = ci
+        .lines()
+        .find(|l| l.contains("cargo publish --dry-run"))
+        .expect("ci.yml has a publish dry run");
+    let flags: Vec<&str> = dry_run
+        .split_whitespace()
+        .skip_while(|w| *w != "-p")
+        .collect::<Vec<_>>()
+        .chunks(2)
+        .map(|c| {
+            assert_eq!(c[0], "-p", "ci.yml: {dry_run}");
+            c[1]
+        })
+        .collect();
+    assert_eq!(flags, PUBLISHED, "ci.yml's publish dry run");
+    let release = read("release.yml");
+    let looped: Vec<&str> = release
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("for crate in "))
+        .and_then(|l| l.strip_suffix("; do"))
+        .expect("release.yml has a publish loop")
+        .split_whitespace()
+        .collect();
+    assert_eq!(looped, PUBLISHED, "release.yml's publish loop");
+}

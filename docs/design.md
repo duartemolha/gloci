@@ -656,8 +656,10 @@ Definitions:
 ```
 crates/
   gloci-core     Interval, Strand, ChromId interning, genome/order, overlap & footprint rules (Section 4)
+  gloci-chains   the built-in Ensembl GRCh37/GRCh38 liftover chains, as data (D174, R13)
+  gloci-chains-t2t  the built-in T2T-CHM13v2 liftover chains, as data (split off for crates.io's size limit)
   gloci-io       format detection; BGZF (parallel, libdeflate); BED/bedGraph/GFF parsers;
-               VCF/BCF reader+writer; tbi/csi read+write; atomic writer
+               VCF/BCF reader+writer; tbi/csi read+write; atomic writer; chain files
   gloci-engine   sorted k-way sweep, active set, unsorted-mode interval index,
                per-chromosome parallel driver, ordered output
   gloci-ops      one module per command, as library functions over record streams

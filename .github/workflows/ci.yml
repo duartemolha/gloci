@@ -67,7 +67,7 @@ jobs:
         with:
           toolchain: "1.100.0"
       - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
-      - run: cargo publish --dry-run --locked -p gloci-core -p gloci-io -p gloci-engine -p gloci-vcf -p gloci-ops -p gloci
+      - run: cargo publish --dry-run --locked -p gloci-core -p gloci-chains -p gloci-chains-t2t -p gloci-io -p gloci-engine -p gloci-vcf -p gloci-ops -p gloci
 
   # rust-toolchain.toml pins a newer Rust, so the check names the toolchain with +.
   msrv:
