@@ -4,7 +4,7 @@ gloci aims to produce the same output as the tools it replaces. Where it
 deliberately does not, the difference is listed here with the reason. Nothing
 else may differ: the differential harness (`cargo xtask diff`) runs gloci and
 pinned reference tools (bedtools 2.31.1, bedops 2.4.41, vcftools 0.1.16,
-htslib 1.21, bcftools 1.21, GNU coreutils) on the same inputs, and
+htslib 1.21, bcftools 1.21, GNU coreutils, CrossMap 0.7.4) on the same inputs, and
 `crates/gloci/tests/golden/` holds the reference outputs, which every
 `cargo test` checks without Docker.
 

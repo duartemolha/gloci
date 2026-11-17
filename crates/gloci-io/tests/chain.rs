@@ -254,3 +254,22 @@ fn bad_chains_name_the_line() {
         }
     }
 }
+
+#[test]
+fn every_fixture_chain_loads() {
+    let dir = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../xtask/diff/inputs/liftover/"
+    );
+    ChainIndex::load(&format!("{dir}toy.chain")).unwrap();
+    for (file, line, needle) in [
+        ("bad-end.chain", "line 1", "650"),
+        ("minus-source.chain", "line 1", "source strand"),
+    ] {
+        let msg = ChainIndex::load(&format!("{dir}{file}"))
+            .err()
+            .unwrap_or_else(|| panic!("{file} must not load"))
+            .to_string();
+        assert!(msg.contains(line) && msg.contains(needle), "{file}: {msg}");
+    }
+}
