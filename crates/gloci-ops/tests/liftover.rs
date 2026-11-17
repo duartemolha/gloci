@@ -1,9 +1,11 @@
 //! Liftover of BED and bedGraph by CrossMap 0.7.4's rules (D174, R2, R4 to R6).
 
 use gloci_core::{ChromOrder, VcfSpan};
-use gloci_io::{ChainIndex, InvalidPolicy, IoError, ReaderOptions, RecordWriter, chrom_table_for};
+use gloci_io::{
+    ChainIndex, Format, InvalidPolicy, IoError, ReaderOptions, RecordWriter, chrom_table_for,
+};
 use gloci_ops::liftover::{
-    ChromStyle, LiftoverCounts, LiftoverOptions, Unmapped, liftover, target_name,
+    ChromStyle, LiftoverCounts, LiftoverOptions, Unmapped, liftover, source_name, target_name,
 };
 use gloci_testkit::mem::mem_reader;
 use std::io;
@@ -41,11 +43,23 @@ fn run_with(
     o: &LiftoverOptions,
     want_unmapped: bool,
 ) -> Result<(Vec<String>, Vec<String>, LiftoverCounts), IoError> {
+    run_mapped(chain, name, text, o, want_unmapped, None, None)
+}
+
+fn run_mapped(
+    chain: &ChainIndex,
+    name: &str,
+    text: &str,
+    o: &LiftoverOptions,
+    want_unmapped: bool,
+    chrom_map: Option<std::sync::Arc<gloci_io::ChromMap>>,
+    format: Option<Format>,
+) -> Result<(Vec<String>, Vec<String>, LiftoverCounts), IoError> {
     let ro = ReaderOptions {
         accept: gloci_io::Accept::default(),
-        chrom_map: None,
+        chrom_map,
         threads: NonZeroUsize::MIN,
-        format: None,
+        format,
         vcf_span: VcfSpan::Allele,
         invalid: InvalidPolicy::Fail,
     };
@@ -264,4 +278,81 @@ fn other_formats_are_refused() {
         Err(IoError::Usage(e)) => assert!(e.0.contains("VCF liftover"), "{}", e.0),
         other => panic!("{:?}", other.map(|_| ())),
     }
+}
+
+#[test]
+fn chrom_map_renames_before_the_lookup() {
+    let map = gloci_io::ChromMap::parse("map.tsv", b"contig7\tchr1\n").unwrap();
+    let (out, un, _) = run_mapped(
+        &chain(),
+        "m.bed",
+        "contig7\t120\t180\ta\ncontig8\t120\t180\tb\n",
+        &LiftoverOptions::default(),
+        true,
+        Some(std::sync::Arc::new(map)),
+        None,
+    )
+    .unwrap();
+    // The renamed input (`chr1`) styles the target as-input: `chr1`, not `1`.
+    assert_eq!(out, ["chr1\t1120\t1180\ta"]);
+    assert_eq!(un, ["contig8\t120\t180\tb"]);
+}
+
+#[test]
+fn source_lookup_removes_every_chr() {
+    let c = ChainIndex::parse(
+        "un.chain",
+        b"chain 100 Un_7 1000 + 0 100 chrUn_chr7 1000 + 0 100 1\n100\n",
+    )
+    .unwrap();
+    assert!(source_name(&c, "chrUn_chr7").is_some());
+    assert!(source_name(&c, "Un_7").is_some());
+    assert!(source_name(&c, "chrUn_7").is_some());
+    assert!(source_name(&c, "Un_chr7").is_some());
+    assert!(source_name(&c, "chrUn_8").is_none());
+}
+
+#[test]
+fn describe_reads_after_a_count() {
+    use Unmapped::*;
+    let want = [
+        (OffChain, "on no chain"),
+        (BlockSplit, "with a block not in exactly one piece"),
+        (
+            BlocksApart,
+            "with blocks on different chromosomes or strands",
+        ),
+        (
+            BadBlocks,
+            "with blocks or a thick range that do not fit after lifting",
+        ),
+        (SeveralPieces, "in several pieces"),
+        (Partial, "only partly on a chain (also written, shortened)"),
+        (Strand, "with a strand other than +, - or ."),
+        (LowRatio, "with a mapped fraction below --min-ratio"),
+        (CrossChroms, "with pieces on different chromosomes"),
+        (MixedStrands, "with pieces on different strands"),
+    ];
+    for (u, text) in want {
+        assert_eq!(u.describe(), text);
+    }
+}
+
+fn refused(name: &str, text: &str, format: Option<Format>) -> String {
+    let o = LiftoverOptions::default();
+    match run_mapped(&chain(), name, text, &o, false, None, format) {
+        Err(IoError::Usage(e)) => e.0,
+        other => panic!("{name}: {:?}", other.map(|_| ())),
+    }
+}
+
+#[test]
+fn wig_and_gff_are_refused() {
+    let wig = refused("x.wig", "variableStep chrom=chr1\n121 1\n", None);
+    assert!(
+        wig.contains("WIG liftover") && wig.contains("gloci convert"),
+        "{wig}"
+    );
+    let gff = refused("x.gff", "chr1\tsrc\tgene\t121\t180\t.\t+\t.\tID=g\n", None);
+    assert!(gff.contains("GFF/GTF liftover"), "{gff}");
 }

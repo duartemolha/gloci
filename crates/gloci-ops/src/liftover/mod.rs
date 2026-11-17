@@ -36,18 +36,19 @@ pub enum Unmapped {
 }
 
 impl Unmapped {
+    /// A predicate that reads after a count: "7 on no chain".
     pub fn describe(self) -> &'static str {
         match self {
             Unmapped::OffChain => "on no chain",
-            Unmapped::BlockSplit => "a block in several pieces",
-            Unmapped::BlocksApart => "blocks on different chromosomes or strands",
-            Unmapped::BadBlocks => "blocks that come out unsorted or overlapping",
-            Unmapped::SeveralPieces => "a feature in several pieces",
-            Unmapped::Partial => "a feature only partly on a chain",
-            Unmapped::Strand => "a strand that cannot be mapped",
-            Unmapped::LowRatio => "too little of it on the chain",
-            Unmapped::CrossChroms => "pieces on different chromosomes",
-            Unmapped::MixedStrands => "pieces on different strands",
+            Unmapped::BlockSplit => "with a block not in exactly one piece",
+            Unmapped::BlocksApart => "with blocks on different chromosomes or strands",
+            Unmapped::BadBlocks => "with blocks or a thick range that do not fit after lifting",
+            Unmapped::SeveralPieces => "in several pieces",
+            Unmapped::Partial => "only partly on a chain (also written, shortened)",
+            Unmapped::Strand => "with a strand other than +, - or .",
+            Unmapped::LowRatio => "with a mapped fraction below --min-ratio",
+            Unmapped::CrossChroms => "with pieces on different chromosomes",
+            Unmapped::MixedStrands => "with pieces on different strands",
         }
     }
 }
@@ -71,7 +72,7 @@ impl LiftoverCounts {
     }
 }
 
-/// The bases of `iv` that some piece covers (pieces are sorted by source start).
+/// The bases of the record that some piece covers (pieces are sorted by source start).
 fn covered(pieces: &[Segment]) -> u64 {
     let (mut total, mut reach) = (0, 0);
     for p in pieces {
@@ -84,6 +85,19 @@ fn covered(pieces: &[Segment]) -> u64 {
     total
 }
 
+/// An input chromosome as the record loop needs it.
+struct Input {
+    src: Option<SourceRef>,
+    chr: bool,
+}
+
+fn write_err(path: &str, source: std::io::Error) -> IoError {
+    IoError::Write {
+        path: path.into(),
+        source,
+    }
+}
+
 fn refuse(format: Format) -> UsageError {
     UsageError(match format {
         Format::Vcf | Format::Bcf => "VCF liftover is not supported yet (CrossMap vcf)".to_string(),
@@ -93,7 +107,7 @@ fn refuse(format: Format) -> UsageError {
         }
         Format::Bedpe => "BEDPE liftover is not supported".to_string(),
         Format::Gff3 | Format::Gtf => "GFF/GTF liftover is not supported yet".to_string(),
-        f => format!("liftover works on BED and bedGraph input, not {f:?}"),
+        f => format!("liftover works on BED and bedGraph input, not {}", f.name()),
     })
 }
 
@@ -111,12 +125,11 @@ pub fn liftover(
     if !matches!(format, Format::Bed | Format::BedGraph) {
         return Err(refuse(format).into());
     }
-    let write_err = |source| IoError::Write {
-        path: "output".into(),
-        source,
-    };
     let mut counts = LiftoverCounts::default();
-    let mut sources: Vec<Option<Option<SourceRef>>> = Vec::new();
+    // Per input chromosome: its chain source, its name and whether it starts with `chr`.
+    let mut sources: Vec<Option<Input>> = Vec::new();
+    // The styled target name per (chain, input starts with `chr`).
+    let mut styled: Vec<Option<String>> = vec![None; chain.chains() * 2];
     let mut pieces: Vec<Segment> = Vec::new();
     let mut buf = Vec::new();
     let mut batch = RecordBatch::default();
@@ -129,12 +142,17 @@ pub fn liftover(
             counts.records += 1;
             let id = m.chrom.0 as usize;
             if sources.len() <= id {
-                sources.resize(id + 1, None);
+                sources.resize_with(id + 1, || None);
             }
-            let name = String::from_utf8_lossy(chroms.name(m.chrom));
-            let src = sources[id].get_or_insert_with(|| source_name(chain, &name));
+            let from = sources[id].get_or_insert_with(|| {
+                let name = String::from_utf8_lossy(chroms.name(m.chrom)).into_owned();
+                Input {
+                    src: source_name(chain, &name),
+                    chr: name.starts_with("chr"),
+                }
+            });
             pieces.clear();
-            if let Some(src) = src {
+            if let Some(src) = &from.src {
                 chain.segments(
                     src,
                     Interval {
@@ -147,14 +165,19 @@ pub fn liftover(
             if pieces.is_empty() {
                 *counts.unmapped.entry(Unmapped::OffChain).or_default() += 1;
                 if let Some(u) = unmapped.as_deref_mut() {
-                    u.write_record(raw).map_err(write_err)?;
+                    u.write_record(raw)
+                        .map_err(|e| write_err("unmapped output", e))?;
                 }
                 continue;
             }
             for seg in &pieces {
-                let target = target_name(o.chrom_style, &name, &chain.chain(seg.chain).target);
-                bed::rewrite_piece(raw, &target, seg, &mut buf);
-                out.write_record(&buf).map_err(write_err)?;
+                let slot = &mut styled[seg.chain as usize * 2 + usize::from(from.chr)];
+                let target = slot.get_or_insert_with(|| {
+                    let input = if from.chr { "chr" } else { "" };
+                    target_name(o.chrom_style, input, &chain.chain(seg.chain).target)
+                });
+                bed::rewrite_piece(raw, target, seg, &mut buf);
+                out.write_record(&buf).map_err(|e| write_err("output", e))?;
             }
             counts.written += pieces.len() as u64;
             if pieces.len() > 1 {
