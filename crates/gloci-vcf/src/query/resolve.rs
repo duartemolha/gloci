@@ -45,7 +45,10 @@ pub(super) fn resolve(
     if !has_newline(&pieces) {
         pieces.push(Piece::Text(b"\n".to_vec()));
     }
-    Ok(Query { pieces })
+    Ok(Query {
+        pieces,
+        warned: Default::default(),
+    })
 }
 
 fn has_newline(pieces: &[Piece]) -> bool {

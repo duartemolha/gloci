@@ -38,6 +38,7 @@ impl QueryFormat {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Query {
     pub pieces: Vec<Piece>,
+    pub(crate) warned: value::Warned,
 }
 
 /// One part of a format.

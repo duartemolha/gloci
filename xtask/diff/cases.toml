@@ -11341,3 +11341,10 @@ input = { file = "xtask/diff/inputs/vcf/query/empty-elements.vcf" }
 gloci = "gloci vcf query input.vcf -f '%POS\\t%I\\t%F\\t%J\\t%F{1}\\t%J{1}\\n'"
 reference = "bcftools query -f '%POS\\t%I\\t%F\\t%J\\t%F{1}\\t%J{1}\\n' input.vcf"
 compare = "exact"
+
+[[case]]
+name = "vcf-query-int-range-vs-bcftools"
+input = { file = "xtask/diff/inputs/vcf/query/int-range.vcf" }
+gloci = "gloci vcf query input.vcf -f '%POS\\t%I\\t%L[\\t%FI]\\n'"
+reference = "bcftools query -f '%POS\\t%I\\t%L[\\t%FI]\\n' input.vcf"
+compare = "exact"

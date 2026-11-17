@@ -50,6 +50,12 @@ fn query_vcf_and_bcf_agree() {
             "numbers",
             "\\t%I\\t%F[\\t%GL:%FI:%FF]\\n",
         ),
+        // Integers at and just outside the 32-bit range (D172).
+        (
+            "vcf/query/int-range.vcf",
+            "int-range",
+            "\\t%I\\t%L[\\t%FI]\\n",
+        ),
     ];
     for (rel, name, tail) in cases {
         let vcf = s(&diff_inputs().join(rel));
@@ -256,4 +262,28 @@ fn query_threads_do_not_change_the_output() {
     assert!(!one.is_empty());
     assert_eq!(one, run("2"));
     assert_eq!(one, run("8"));
+}
+
+#[test]
+fn query_out_of_range_integers_print_missing_and_warn_once_per_tag() {
+    let input = s(&diff_inputs().join("vcf/query/int-range.vcf"));
+    let o = gloci()
+        .args(["vcf", "query", &input, "-f", "%POS\\t%I\\t%L[\\t%FI]\\n"])
+        .assert()
+        .success();
+    let out = String::from_utf8(o.get_output().stdout.clone()).unwrap();
+    assert_eq!(
+        out,
+        "5\t.\t1,.,3\t.\n6\t2147483647\t2147483647\t2147483647\n7\t.\t.,4\t.\n\
+         8\t.\t.,.\t.\n9\t.\t7\t.\n"
+    );
+    let err = String::from_utf8(o.get_output().stderr.clone()).unwrap();
+    for tag in [
+        "INFO/I value 2147483648",
+        "INFO/L value 2147483648",
+        "FORMAT/FI value 2147483648",
+    ] {
+        assert_eq!(err.matches(tag).count(), 1, "{tag} in {err}");
+    }
+    assert!(err.contains("outside the 32-bit range of VCF integers; printed as missing"));
 }

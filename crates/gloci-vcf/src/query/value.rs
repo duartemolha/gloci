@@ -1,21 +1,59 @@
 //! Typed values, `%TYPE`, `%END` and `%TGT` (D172).
 
 use gloci_io::kputd;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 
 use super::TagType;
 use crate::srsort::{VCF_BND, VCF_INDEL, VCF_MNP, VCF_OTHER, VCF_OVERLAP, VCF_SNP, alt_type};
 
+/// The Integer range VCF and BCF hold: htslib keeps the 8 values above `i32::MIN` for
+/// missing and vector end and others it reserves; bcftools reads a value outside as missing.
+const INT_MIN: i64 = -2_147_483_640;
+const INT_MAX: i64 = 2_147_483_647;
+
+/// The tags already warned about in one run, shared by the clones of a query (the workers),
+/// so an out-of-range Integer warns once per tag (D172). Queries compare equal whatever
+/// they have warned about.
+#[derive(Clone, Debug, Default)]
+pub struct Warned(Arc<Mutex<HashSet<String>>>);
+
+impl PartialEq for Warned {
+    fn eq(&self, _: &Warned) -> bool {
+        true
+    }
+}
+
+impl Warned {
+    /// Warn that `what` (`INFO/I`) holds `value`, the first time for that tag.
+    pub(super) fn out_of_range(&self, what: &str, value: i64) {
+        let first = self
+            .0
+            .lock()
+            .map(|mut set| set.insert(what.to_string()))
+            .unwrap_or(false);
+        if first {
+            log::warn!(
+                "vcf query: {what} value {value} is outside the 32-bit range of VCF integers; \
+                 printed as missing (further values of this tag are not reported)"
+            );
+        }
+    }
+}
+
 /// A comma-separated value as the typed tag `ty` prints it, or the subscript `sub`
-/// of it (`.` past the end). Err is the element that does not read as the type.
+/// of it (`.` past the end). Err is the element that does not read as the type; Ok is the
+/// first Integer element outside the range VCF holds (printed as missing), if any.
 pub(super) fn write_typed(
     value: &[u8],
     ty: TagType,
     sub: Option<usize>,
     out: &mut Vec<u8>,
-) -> Result<(), String> {
+) -> Result<Option<i64>, String> {
+    let mut range = None;
     match sub {
         Some(n) => match value.split(|&b| b == b',').nth(n) {
-            Some(e) => write_element(e, ty, out)?,
+            Some(e) => write_element(e, ty, out, &mut range)?,
             None => out.push(b'.'),
         },
         None => {
@@ -23,14 +61,19 @@ pub(super) fn write_typed(
                 if i > 0 {
                     out.push(b',');
                 }
-                write_element(e, ty, out)?;
+                write_element(e, ty, out, &mut range)?;
             }
         }
     }
-    Ok(())
+    Ok(range)
 }
 
-fn write_element(e: &[u8], ty: TagType, out: &mut Vec<u8>) -> Result<(), String> {
+fn write_element(
+    e: &[u8],
+    ty: TagType,
+    out: &mut Vec<u8>,
+    range: &mut Option<i64>,
+) -> Result<(), String> {
     if e.is_empty() || e == b"." {
         out.push(b'.');
         return Ok(());
@@ -42,7 +85,12 @@ fn write_element(e: &[u8], ty: TagType, out: &mut Vec<u8>) -> Result<(), String>
                 .ok()
                 .and_then(|t| t.parse().ok())
                 .ok_or_else(bad)?;
-            out.extend_from_slice(itoa::Buffer::new().format(n).as_bytes());
+            if (INT_MIN..=INT_MAX).contains(&n) {
+                out.extend_from_slice(itoa::Buffer::new().format(n).as_bytes());
+            } else {
+                range.get_or_insert(n);
+                out.push(b'.');
+            }
         }
         TagType::Float => write_float(e, out).ok_or_else(bad)?,
         TagType::String | TagType::Flag => out.extend_from_slice(e),

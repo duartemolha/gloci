@@ -1,6 +1,6 @@
 //! Writing one record of a resolved query (D172).
 
-use super::value::{end_of, write_float, write_tgt, write_typed, write_types};
+use super::value::{Warned, end_of, write_float, write_tgt, write_typed, write_types};
 use super::{Field, Piece, Query, SampleCols, Tag, TagType};
 use crate::{format_cell, format_index, split_columns};
 
@@ -42,8 +42,8 @@ impl Query {
         for piece in pieces {
             match piece {
                 Piece::Text(t) => out.extend_from_slice(t),
-                Piece::Field(f) => write_field(f, line, cols, None, out)?,
-                Piece::Block(inner) => write_block(inner, line, cols, samples, out)?,
+                Piece::Field(f) => write_field(f, line, cols, None, &self.warned, out)?,
+                Piece::Block(inner) => write_block(inner, line, cols, samples, &self.warned, out)?,
             }
         }
         Ok(())
@@ -55,6 +55,7 @@ fn write_block(
     line: &[u8],
     cols: &[&[u8]],
     samples: &SampleCols<'_>,
+    warned: &Warned,
     out: &mut Vec<u8>,
 ) -> Result<(), String> {
     let format = cols.get(8).copied().unwrap_or(b".");
@@ -83,7 +84,7 @@ fn write_block(
                         cell,
                         key,
                     };
-                    write_field(f, line, cols, Some(&sample), out)?;
+                    write_field(f, line, cols, Some(&sample), warned, out)?;
                 }
                 // A block never nests (the syntax refuses it).
                 Piece::Block(_) => {}
@@ -114,6 +115,7 @@ fn write_field(
     line: &[u8],
     cols: &[&[u8]],
     sample: Option<&Sample<'_>>,
+    warned: &Warned,
     out: &mut Vec<u8>,
 ) -> Result<(), String> {
     match f {
@@ -147,7 +149,7 @@ fn write_field(
         Field::Filter => out.extend_from_slice(cols[6]),
         Field::Type => write_types(cols[3], cols[4], out),
         Field::Info => out.extend_from_slice(cols[7]),
-        Field::InfoTag(tag) => write_info_tag(tag, cols[7], out)?,
+        Field::InfoTag(tag) => write_info_tag(tag, cols[7], warned, out)?,
         Field::Line => out.extend_from_slice(line),
         Field::Sample => out.extend_from_slice(sample.map_or(b".", |s| s.name)),
         Field::Gt => out.extend_from_slice(sample.map_or(b".", |s| format_cell(s.cell, s.key))),
@@ -166,7 +168,7 @@ fn write_field(
         Field::FormatTag(tag) => {
             if let Some(s) = sample {
                 let value = format_cell(s.cell, s.key);
-                write_typed(value, tag.ty, tag.sub, out).map_err(|bad| {
+                let range = write_typed(value, tag.ty, tag.sub, out).map_err(|bad| {
                     format!(
                         "FORMAT/{} value \"{bad}\" of sample {} is not {}",
                         String::from_utf8_lossy(&tag.name),
@@ -174,6 +176,10 @@ fn write_field(
                         article(tag.ty)
                     )
                 })?;
+                if let Some(n) = range {
+                    warned
+                        .out_of_range(&format!("FORMAT/{}", String::from_utf8_lossy(&tag.name)), n);
+                }
             }
         }
     }
@@ -187,7 +193,12 @@ fn article(ty: TagType) -> &'static str {
     }
 }
 
-fn write_info_tag(tag: &Tag, info: &[u8], out: &mut Vec<u8>) -> Result<(), String> {
+fn write_info_tag(
+    tag: &Tag,
+    info: &[u8],
+    warned: &Warned,
+    out: &mut Vec<u8>,
+) -> Result<(), String> {
     let mut found: Option<Option<&[u8]>> = None;
     if info != b"." {
         for item in info.split(|&b| b == b';') {
@@ -206,13 +217,19 @@ fn write_info_tag(tag: &Tag, info: &[u8], out: &mut Vec<u8>) -> Result<(), Strin
         return Ok(());
     }
     match found {
-        Some(Some(v)) => write_typed(v, tag.ty, tag.sub, out).map_err(|bad| {
-            format!(
-                "INFO/{} value \"{bad}\" is not {}",
-                String::from_utf8_lossy(&tag.name),
-                article(tag.ty)
-            )
-        }),
+        Some(Some(v)) => {
+            let range = write_typed(v, tag.ty, tag.sub, out).map_err(|bad| {
+                format!(
+                    "INFO/{} value \"{bad}\" is not {}",
+                    String::from_utf8_lossy(&tag.name),
+                    article(tag.ty)
+                )
+            })?;
+            if let Some(n) = range {
+                warned.out_of_range(&format!("INFO/{}", String::from_utf8_lossy(&tag.name)), n);
+            }
+            Ok(())
+        }
         _ => {
             out.push(b'.');
             Ok(())

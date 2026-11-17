@@ -9,7 +9,14 @@ use gloci_vcf::QueryFormat;
 use std::num::NonZeroUsize;
 use std::path::Path;
 
-const MAIN: &str = include_str!("../../gloci-vcf/tests/golden/expr/main.vcf");
+/// The shared expression fixture, read at run time: a crate's `include_str!` may not leave it.
+fn main_text() -> String {
+    std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../gloci-vcf/tests/golden/expr/main.vcf"
+    ))
+    .unwrap()
+}
 
 fn ro() -> ReaderOptions {
     ReaderOptions {
@@ -53,7 +60,7 @@ fn query(
 }
 
 fn main_vcf(dir: &Path) -> std::path::PathBuf {
-    gloci_testkit::fixtures::write(dir, "main.vcf", MAIN.as_bytes())
+    gloci_testkit::fixtures::write(dir, "main.vcf", main_text().as_bytes())
 }
 
 #[test]

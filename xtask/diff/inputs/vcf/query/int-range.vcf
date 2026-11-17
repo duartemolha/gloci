@@ -1,0 +1,12 @@
+##fileformat=VCFv4.2
+##contig=<ID=1>
+##INFO=<ID=I,Number=1,Type=Integer,Description="x">
+##INFO=<ID=L,Number=.,Type=Integer,Description="x">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="x">
+##FORMAT=<ID=FI,Number=1,Type=Integer,Description="x">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	s1
+1	5	.	A	C	.	.	I=2147483648;L=1,2147483648,3	GT:FI	0/1:2147483648
+1	6	.	A	C	.	.	I=2147483647;L=2147483647	GT:FI	0/1:2147483647
+1	7	.	A	C	.	.	I=-2147483649;L=-2147483649,4	GT:FI	0/1:-2147483649
+1	8	.	A	C	.	.	I=-2147483648;L=-2147483648,-2147483647	GT:FI	0/1:-2147483648
+1	9	.	A	C	.	.	I=-2147483647;L=7	GT:FI	0/1:-2147483647
