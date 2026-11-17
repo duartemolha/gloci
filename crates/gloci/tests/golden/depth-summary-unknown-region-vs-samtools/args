@@ -1,0 +1,1 @@
+depth input.bam --summary --region chrZ:1-10

@@ -1,0 +1,1 @@
+depth input.bam --summary --min-read-length 50

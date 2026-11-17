@@ -1154,13 +1154,14 @@ class Pipeline:
         exclude_flags: str | int | float | os.PathLike[str] | None = None,
         reference: Source | None = None,
         skip_mate_overlap: bool = False,
+        summary: bool = False,
         region: str | int | float | os.PathLike[str] | Sequence[str | int | float | os.PathLike[str]] | None = None,
         regions_file: Source | None = None,
         chrom_map: Source | None = None,
         column_names: bool = False,
         skip_invalid: bool = False,
     ) -> Pipeline:
-        """Depth of coverage of alignments at each position (samtools depth)
+        """Depth of coverage of alignments at each position (samtools depth), or as a table per reference (samtools coverage)
 
         Args:
             all_positions: Also print every position of each reference that has a passing read (samtools -a)
@@ -1173,6 +1174,7 @@ class Pipeline:
             exclude_flags: Drop reads that have any of these flags: a number or names. As for the other commands, but this command's default is UNMAP,SECONDARY,QCFAIL,DUP (samtools depth's), where theirs is none; 0 counts every read
             reference: The FASTA a CRAM input was made with, with its .fai. Not needed for a CRAM written without a reference
             skip_mate_overlap: Count each base of an overlapping mate pair once, per input: a read whose mate was already seen starts counting where the mate ends (samtools -s). Reads with an unknown mate position are never held, so unlike samtools a later alignment with the same name is not clipped by a stale entry
+            summary: Print one row per reference instead of one per position, as samtools coverage: reads, covered bases, mean depth, mean base and mapping quality. With --region, one row for that region
             region: Restrict to a region such as chr1:1,000-2,000 (repeatable)
             regions_file: Read regions from FILE (BED: 0-based, half-open); see --region
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks and the output see the new names

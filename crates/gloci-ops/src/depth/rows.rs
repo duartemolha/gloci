@@ -17,6 +17,11 @@ const FLUSH_AT: usize = 1 << 20;
 
 /// Where a depth run's positions go: `depth`'s rows (`Emitter`), the `--summary` table, or
 /// mosdepth's files. Positions arrive in `@SQ` order, then position order, each at most once.
+///
+/// `read` and `placed` run one record ahead of the positions, so a record on reference N+1 can
+/// arrive before `reference_done(N)` and before N's last positions (and, with several inputs,
+/// before another input's positions): key per-reference state by the record's reference id,
+/// never by "the current reference".
 pub(crate) trait DepthSink {
     /// The depths at `pos` (0-based) of reference `rid`, one per input in input order.
     fn position(&mut self, rid: usize, pos: u64, depths: &[u32]) -> io::Result<()>;
@@ -39,7 +44,6 @@ pub(crate) trait DepthSink {
 
 /// How a read's length is taken for `--min-read-length`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)] // `CigarQuery` is chosen by the coverage modes
 pub(crate) enum ReadLength {
     /// D137, `depth -l`: `l_seq` less the soft clips at the ends.
     SeqLessClips,
@@ -859,6 +863,23 @@ mod sink_tests {
         };
         assert_eq!(reads(&t, 60, coverage), [("long".to_string(), iv(0, 30))]);
         assert_eq!(reads(&t, 60, ModeRules::depth()), []);
+    }
+
+    #[test]
+    fn read_hook_sees_mapped_reads_with_an_empty_span() {
+        // `a` is mapped with CIGAR `*`; `b` starts at LN + 1 (0-based LN), so the cut at LN
+        // leaves nothing. Neither covers a base, and both are still reads.
+        let text = sam(&[("c1", 100)], &["a 0 c1 3 60 *", "b 0 c1 101 60 5M"]);
+        let rec = run(&text, &opts(AllPositions::Covered, 0), ModeRules::depth());
+        let reads: Vec<_> = rec
+            .events
+            .iter()
+            .filter_map(|e| match e {
+                Event::Read { name, span, .. } => Some((name.as_str(), *span)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(reads, [("a", None), ("b", None)]);
     }
 
     #[test]

@@ -3302,8 +3302,8 @@ cases (must match).
   `--list-failed` writes only the failing paths to stdout and the problems to
   stderr.
 - **Pinned by:** `flags-bad-name-vs-samtools`,
-  `check-quick-noeof-exit-vs-samtools` and `check-quick-nosq-exit-vs-samtools` (exit
-  status: must differ).
+  `check-quick-noeof-exit-vs-samtools`, `check-quick-nosq-exit-vs-samtools` and
+  `depth-summary-unknown-region-vs-samtools` (exit status: must differ).
 
 ## `flags` refuses a leading zero and trailing text {#flags-leading-zero}
 
@@ -3685,3 +3685,25 @@ cases (must match).
   bedtools gives a symbolic allele; the name, score and strand bedtools makes up are not in the
   file. Converting the VCF to BED first makes the features explicit.
 - **Pinned by:** `tag-vcf-features-vs-bedtools` (exit status: must differ).
+
+## `depth --summary` reads CRAM base qualities {#coverage-cram-baseq}
+
+- **gloci:** `depth --summary` decodes a CRAM file's base qualities, so its
+  `meanbaseq` is their mean.
+- **Old behaviour:** `samtools coverage` asks htslib to skip the QUAL column of
+  a CRAM file unless `-Q` is given, so every base has a missing quality and
+  `meanbaseq` prints 255.
+- **Reason:** a mean of 255 says nothing about the file; the qualities are in it
+  and decoding them costs little.
+- **Pinned by:** `depth-summary-cram-vs-samtools` (must differ) and the cargo
+  test `summary_cram_reads_qualities`, which checks gloci's side.
+
+## `depth --summary --require-flags` needs all of the flags {#coverage-require-flags}
+
+- **gloci:** `--require-flags` keeps a read that has all of the flags, as it
+  does in every gloci command (D102).
+- **Old behaviour:** `samtools coverage --rf` keeps a read that has any of the
+  flags.
+- **Reason:** one meaning for the option across the commands; `--rf` with one
+  flag, which is the common use, gives the same result.
+- **Pinned by:** `depth-summary-require-any-vs-samtools` (must differ).

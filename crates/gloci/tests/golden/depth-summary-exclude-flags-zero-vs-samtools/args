@@ -1,0 +1,1 @@
+depth input.bam --summary --exclude-flags 0

@@ -2,12 +2,14 @@
 //! (D137, D138). The counting rules live in [`DepthRing`], one per input; the rows in
 //! `rows.rs`. The inputs are one merged stream at every thread count; threads decode.
 
+pub mod coverage;
 mod mates;
 mod ring;
 mod rows;
 #[cfg(test)]
 pub(crate) mod test_sink;
 
+pub use coverage::{CoverageOptions, CoverageSummary, coverage_summary};
 pub use mates::MateTable;
 pub use ring::{CountRules, DepthRing};
 

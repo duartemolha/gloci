@@ -217,3 +217,45 @@ samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o new-header.bam new-
 # is inside them, chr1 250 260 and chr1 255 258 overlap each other and r_mapq10 (a read must
 # count once), chr1 700 701 is the placed unmapped read, and chr2 55 56 is inside both chr2 reads.
 # Nothing here needs building.
+
+# mosdepth.sam: overlapping proper pairs for mosdepth's mate rule, and references with no reads or
+# only filtered reads (the depth --summary and --out-prefix cases). chr1: p partial overlap; x MAPQ 0;
+# q both mates at 201, the second longer; r a deletion inside the overlap; s an intron inside it;
+# t soft clips and an insertion; u an overlapping pair without PROPER_PAIR; v a pair and a
+# supplementary (2147); w a proper pair with its mate on chr2; z the second mate MAPQ 5; y1-y4 dup,
+# secondary, qcfail, placed unmapped. chr2: a duplicate and a placed unmapped read only. chr3: none.
+# chr4: 320 one-base reads at 5001 and two reads overlapping by 10 (distribution skips above 300).
+{
+  printf '@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:1000\n@SQ\tSN:chr2\tLN:300\n@SQ\tSN:chr3\tLN:200\n@SQ\tSN:chr4\tLN:20000\n'
+  sed 's/ \{1,\}/\t/g' <<'EOF'
+p 99 chr1 101 60 50M = 131 80 * *
+x 0 chr1 110 0 30M * 0 0 * *
+p 147 chr1 131 60 50M = 101 -80 * *
+q 99 chr1 201 60 40M = 201 60 * *
+q 147 chr1 201 60 60M = 201 -60 * *
+r 99 chr1 301 60 20M10D20M = 321 60 * *
+r 147 chr1 321 60 40M = 301 -60 * *
+s 99 chr1 401 60 10M50N10M = 411 70 * *
+s 147 chr1 411 60 60M = 401 -70 * *
+t 99 chr1 501 60 5S20M2I20M = 521 50 * *
+t 147 chr1 521 60 30M5S = 501 -50 * *
+u 97 chr1 601 60 30M = 611 40 * *
+u 145 chr1 611 60 30M = 601 -40 * *
+v 99 chr1 701 60 50M = 721 70 * *
+v 147 chr1 721 60 50M = 701 -70 * *
+v 2147 chr1 731 60 20M = 701 0 * *
+w 99 chr1 801 60 40M chr2 101 0 * *
+z 99 chr1 851 60 40M = 871 60 * *
+z 147 chr1 871 5 40M = 851 -60 * *
+y1 1024 chr1 901 60 20M * 0 0 * *
+y2 256 chr1 905 60 20M * 0 0 * *
+y3 512 chr1 910 60 20M * 0 0 * *
+y4 4 chr1 920 0 * * 0 0 * *
+d1 1024 chr2 50 60 20M * 0 0 * *
+d2 4 chr2 80 0 * * 0 0 * *
+EOF
+  for i in $(seq 1 320); do printf 'deep%03d\t0\tchr4\t5001\t60\t1M\t*\t0\t0\t*\t*\n' "$i"; done
+  printf 'w1\t0\tchr4\t6001\t60\t20M\t*\t0\t0\t*\t*\nw2\t0\tchr4\t6011\t60\t20M\t*\t0\t0\t*\t*\n'
+} > mosdepth.sam
+samtools view -b -@ 0 --output-fmt-option level=6 --no-PG -o mosdepth.bam mosdepth.sam
+samtools index -@ 0 mosdepth.bam

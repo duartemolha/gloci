@@ -185,20 +185,21 @@ pub struct SamplesArgs {
     pub output: Option<PathBuf>,
 }
 
-/// Depth of coverage of alignments at each position (samtools depth).
+/// Depth of coverage of alignments at each position (samtools depth), or as a table per reference
+/// (samtools coverage).
 ///
 /// Reads BAM, CRAM or SAM files (CRAM needs --reference) in coordinate order and prints "chrom,
 /// 1-based position, depth" for each position covered by a passing read in any input, with one depth
 /// column per input in the order given, references in @SQ order. Inputs must have identical @SQ lists
 /// (exit 1, naming the first difference; samtools compares reference ids unchecked).
 #[derive(Args)]
-#[command(about = "Depth of alignments at each position (samtools depth)")]
+#[command(about = "Depth of alignments (samtools depth, coverage)")]
 #[command(after_long_help = "\
 Examples:
   gloci depth sample.bam --skip-mate-overlap -o depth.tsv
   gloci depth a.bam b.bam --column-names --min-mapq 20 --min-baseq 20
   gloci depth sample.bam --region chr1:100,000-200,000 --all-positions
-  gloci depth sample.bam --regions-file targets.bed --count-deletions
+  gloci depth sample.bam --summary
 
 Counting:
 A read counts when none of --exclude-flags is set (default UNMAP,SECONDARY,QCFAIL,DUP: \
@@ -218,6 +219,12 @@ Positions and regions:
 index when there is one (else the input is scanned, with a warning); with regions, the \
 --all-* options print every position in them. --column-names writes \"#CHROM POS\" and the \
 paths first.
+
+Summary:
+--summary prints one row per reference, as samtools coverage: #rname startpos endpos numreads \
+covbases coverage meandepth meanbaseq meanmapq. Several FILEs give one table. References no \
+counted read reaches come last. Here --min-read-length counts soft clips (the CIGAR's M, I, S, \
+= and X), and D and N bases never count. --region gives the one row of that window.
 
 Reads and mates:
 A read past the end of its reference is cut there with one warning, where samtools prints \
@@ -276,6 +283,17 @@ pub struct DepthArgs {
     /// clipped by a stale entry.
     #[arg(long)]
     pub skip_mate_overlap: bool,
+    /// Print one row per reference instead of one per position, as samtools coverage: reads,
+    /// covered bases, mean depth, mean base and mapping quality. With --region, one row for that
+    /// region.
+    #[arg(
+        long,
+        conflicts_with_all = [
+            "all_positions", "all_references", "count_deletions", "skip_mate_overlap",
+            "column_names", "regions_file"
+        ]
+    )]
+    pub summary: bool,
     #[command(flatten)]
     pub region: RegionArgs,
     #[command(flatten)]

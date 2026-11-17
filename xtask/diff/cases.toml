@@ -11467,3 +11467,165 @@ reference = "bcftools query -H -f '%LINE' input.vcf"
 compare = "exit-status"
 expected_difference = "#vcf-query-format-strict"
 
+
+# depth --summary (D173) vs samtools coverage 1.21. mosdepth.bam has chr2 with only filtered reads
+# and an empty chr3 (uncovered references come last); depth.bam's chr1 has the soft clips, the
+# deletion and the QUAL * read; depth-noseq.bam has SEQ * reads (no base quality). The index of the
+# region cases is `input.bai`. depth.cram has no reference inside it: samtools prints 255 as the
+# mean base quality there unless -Q is given (#coverage-cram-baseq).
+
+[[case]]
+name = "depth-summary-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --summary"
+reference = "samtools coverage input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-summary-mates-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/mates.bam" }
+gloci = "gloci depth input.bam --summary"
+reference = "samtools coverage input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-summary-order-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/mosdepth.bam" }
+gloci = "gloci depth input.bam --summary"
+reference = "samtools coverage input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-summary-exclude-flags-zero-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/mosdepth.bam" }
+gloci = "gloci depth input.bam --summary --exclude-flags 0"
+reference = "samtools coverage --ff 0 input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-summary-two-files-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+aux = ["xtask/diff/inputs/samtools/depth2.bam"]
+gloci = "gloci depth input.bam depth2.bam --summary"
+reference = "samtools coverage input.bam depth2.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-summary-sam-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.sam" }
+gloci = "gloci depth input.sam --summary"
+reference = "samtools coverage input.sam"
+compare = "exact"
+
+[[case]]
+name = "depth-summary-region-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+aux = ["xtask/diff/inputs/samtools/depth-idx/input.bai"]
+gloci = "gloci depth input.bam --summary --region chr1:100-200"
+reference = "samtools coverage -r chr1:100-200 input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-summary-region-whole-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+aux = ["xtask/diff/inputs/samtools/depth-idx/input.bai"]
+gloci = "gloci depth input.bam --summary --region chr3"
+reference = "samtools coverage -r chr3 input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-summary-region-open-end-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+aux = ["xtask/diff/inputs/samtools/depth-idx/input.bai"]
+gloci = "gloci depth input.bam --summary --region chr1:450"
+reference = "samtools coverage -r chr1:450 input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-summary-region-past-end-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+aux = ["xtask/diff/inputs/samtools/depth-idx/input.bai"]
+gloci = "gloci depth input.bam --summary --region chr1:600-700"
+reference = "samtools coverage -r chr1:600-700 input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-summary-min-read-length-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --summary --min-read-length 50"
+reference = "samtools coverage -l 50 input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-summary-noseq-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth-noseq.bam" }
+gloci = "gloci depth input.bam --summary"
+reference = "samtools coverage input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-summary-noseq-min-read-length-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth-noseq.bam" }
+gloci = "gloci depth input.bam --summary --min-read-length 50"
+reference = "samtools coverage -l 50 input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-summary-mapq-baseq-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --summary --min-mapq 30 --min-baseq 30"
+reference = "samtools coverage -q 30 -Q 30 input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-summary-require-flags-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --summary --require-flags PROPER_PAIR"
+reference = "samtools coverage --rf PROPER_PAIR input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-summary-pastend-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth-pastend.bam" }
+gloci = "gloci depth input.bam --summary"
+reference = "samtools coverage input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-summary-empty-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/empty.bam" }
+gloci = "gloci depth input.bam --summary"
+reference = "samtools coverage input.bam"
+compare = "exact"
+
+[[case]]
+name = "depth-summary-cram-min-baseq-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.cram" }
+gloci = "gloci depth input.cram --summary --min-baseq 1"
+reference = "samtools coverage -Q 1 input.cram"
+compare = "exact"
+
+[[case]]
+name = "depth-summary-cram-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.cram" }
+gloci = "gloci depth input.cram --summary"
+reference = "samtools coverage input.cram"
+compare = "exact"
+expected_difference = "#coverage-cram-baseq"
+
+[[case]]
+name = "depth-summary-require-any-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+gloci = "gloci depth input.bam --summary --require-flags PAIRED,SUPPLEMENTARY"
+reference = "samtools coverage --rf PAIRED,SUPPLEMENTARY input.bam"
+compare = "exact"
+expected_difference = "#coverage-require-flags"
+
+[[case]]
+name = "depth-summary-unknown-region-vs-samtools"
+input = { file = "xtask/diff/inputs/samtools/depth.bam" }
+aux = ["xtask/diff/inputs/samtools/depth-idx/input.bai"]
+gloci = "gloci depth input.bam --summary --region chrZ:1-10"
+reference = "samtools coverage -r chrZ:1-10 input.bam"
+compare = "exit-status"
+expected_difference = "#samtools-exit-codes"

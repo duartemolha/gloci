@@ -1,12 +1,14 @@
 //! `gloci depth`: depth of coverage of alignments at each position (D137, D138).
 use crate::Ctx;
 use crate::cli::DepthArgs;
+use gloci_core::{Interval, Region};
 use gloci_io::{
     Accept, AlignOptions, InvalidPolicy, OutFormat, OutputOptions, ReaderOptions, UsageError,
     open_output, parse_flags,
 };
 use gloci_ops::depth::{
-    AllPositions, CountRules, DepthOptions, depth_regions, depth_sources, open_depth_inputs,
+    AllPositions, CountRules, CoverageOptions, DepthOptions, coverage_summary, depth_regions,
+    depth_sources, open_depth_inputs,
 };
 
 pub fn run(ctx: &Ctx, a: &DepthArgs) -> anyhow::Result<()> {
@@ -41,6 +43,9 @@ pub fn run(ctx: &Ctx, a: &DepthArgs) -> anyhow::Result<()> {
     };
     // Each input is opened once: the regions are checked against the first one's header.
     let inputs = open_depth_inputs(&a.files, &ro, ctx.threads)?;
+    if a.summary {
+        return run_summary(ctx, a, &spec, &ro, inputs);
+    }
     let regions = depth_regions(
         inputs[0].header(),
         inputs[0].name(),
@@ -80,6 +85,59 @@ pub fn run(ctx: &Ctx, a: &DepthArgs) -> anyhow::Result<()> {
     let dest = super::dest_name(&spec);
     let mut out = open_output(&spec, OutFormat::Tsv, &oo)?;
     depth_sources(inputs, &a.files, &o, &ro, &mut out).map_err(|e| e.with_output_name(&dest))?;
+    out.finish()?;
+    Ok(())
+}
+
+/// `--summary`: samtools coverage's table, for the one `--region` if there is one.
+fn run_summary(
+    ctx: &Ctx,
+    a: &DepthArgs,
+    spec: &gloci_io::OutputSpec,
+    ro: &ReaderOptions,
+    inputs: Vec<Box<dyn gloci_io::AlnSource>>,
+) -> anyhow::Result<()> {
+    if a.region.region.len() > 1 {
+        return Err(
+            UsageError("--summary takes one --region, as samtools coverage -r".into()).into(),
+        );
+    }
+    let region = match a.region.region.first() {
+        None => None,
+        Some(s) => {
+            let hdr = inputs[0].header();
+            let known: std::collections::HashSet<&[u8]> =
+                hdr.refs.iter().map(|(n, _)| &n[..]).collect();
+            let r =
+                Region::parse(s, |n| known.contains(n)).map_err(|e| UsageError(e.to_string()))?;
+            let Some((_, ln)) = hdr.refs.iter().find(|(n, _)| *n == r.chrom) else {
+                return Err(UsageError(format!(
+                    "--region {s}: {} has no reference {}",
+                    inputs[0].name(),
+                    String::from_utf8_lossy(&r.chrom)
+                ))
+                .into());
+            };
+            let window = Interval {
+                start: r.start,
+                end: r.end.unwrap_or(*ln),
+            };
+            Some((r.chrom, window))
+        }
+    };
+    let o = CoverageOptions {
+        min_baseq: a.min_baseq,
+        min_read_length: a.min_read_length,
+        region,
+    };
+    let oo = OutputOptions {
+        threads: ctx.threads,
+        level: 6,
+        write_index: false,
+    };
+    let dest = super::dest_name(spec);
+    let mut out = open_output(spec, OutFormat::Tsv, &oo)?;
+    coverage_summary(inputs, &a.files, &o, ro, &mut out).map_err(|e| e.with_output_name(&dest))?;
     out.finish()?;
     Ok(())
 }
