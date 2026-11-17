@@ -53,7 +53,7 @@ reference tool may be used (below).
 | bigWig/bigBed | The `bigtools` crate (0.5.8, MIT; the owner accepted it on its licence, 2026-11-17; deps tokio, futures, serde, bincode, crossbeam, libdeflater: all MIT or Apache-2.0), with its `read` and `write` features only (no `remote`, no `cli`) | Writing our own reader and writer: several thousand lines for a fiddly format (B+ tree, R-tree index, zoom levels), no gain in behaviour. Skipping the format: the owner would only skip it if it needed UCSC, which it does not |
 | `vcf query` | A new `gloci vcf query` subcommand on the shared selection stage (D157) | Extending `vcf extract` with a format string: `extract` writes fixed tables and matrices; two output models in one command would confuse both |
 | Coverage QC | New options on `gloci depth` (`--summary`; `--by`, `--thresholds`, `--out-prefix`) | A new command: these are summaries of the depth `depth` already computes, and `coverage` is taken by bedtools coverage (stable core) |
-| Liftover | Our own chain mapper with whole-record rules (UCSC `liftOver`'s documented behaviour: a record maps whole or goes to the unmapped file) | CrossMap-style splitting of a record across chain gaps: less familiar, and it silently changes record counts. Wrapping CrossMap: a Python dependency, GPL |
+| Liftover | **CrossMap's behaviour** (owner, 2026-11-17: in the owner's experience CrossMap lifts coordinates better), on the `chainfile` crate (0.5.0, Apache-2.0/MIT, St. Jude Rust Labs, maintained, MSRV 1.91 like gloci; deps omics, rust-lapper, flate2, regex, nonempty: permissive) for reading chains and finding every chain segment an interval touches. Every case is checked against CrossMap itself in the comparison image | UCSC `liftOver`'s whole-record rules: the owner prefers CrossMap's results, and with UCSC's tools ruled out there would be no reference to check them against. Depending on a Rust port of CrossMap: `crussmap` is unmaintained since 2023, `fast-crossmap` is a month old with a handful of downloads. Wrapping CrossMap: a Python dependency, GPL |
 
 ## Feature 1: bigWig and bigBed
 
@@ -202,50 +202,47 @@ add.
 
 ## Feature 4: `gloci liftover`
 
-- `gloci liftover FILE --chain CHAIN [-o OUT] [--unmapped FILE] [--min-match FRAC]
-  [--multiple]`. `CHAIN` is a chain file, plain or gzip/BGZF; the user supplies it
-  (UCSC and Ensembl both publish them as free data). Nothing is downloaded and no
-  chain is built in.
+- `gloci liftover FILE --chain CHAIN [-o OUT] [--unmapped FILE] [options]`. `CHAIN`
+  is a chain file, plain or gzip/BGZF; the user supplies it (UCSC and Ensembl both
+  publish them as free data). Nothing is downloaded and no chain is built in.
 - Inputs in this release: BED (3 to 12 columns), bedGraph and GFF/GTF. Every other
   column is carried unchanged. **VCF liftover is out of scope** for this release
   (owner default, 2026-11-17): it needs REF checks against the target FASTA, REF/ALT
-  swaps and INFO decisions, and comes later as its own design.
-- **Mapping rules: whole records.** For each chain whose source span overlaps the
-  record, count the record's bases that fall in the chain's aligned blocks. A chain
-  whose share of the record's bases reaches `--min-match` (default 0.95) is a
-  candidate; the record's target interval runs from the target position of its first
-  aligned base to that of its last, plus one. A record with no candidate goes to the
-  unmapped file with the reason as a comment line before it: `#Deleted in new` (no
-  chain overlaps it), `#Partially deleted in new` (none reaches `--min-match`),
-  `#Duplicated in new` (more than one candidate, without `--multiple`; with it, every
-  candidate is written). These are `liftOver`'s documented reasons, so scripts that
-  read its unmapped files read gloci's.
-- **Strand.** A chain onto the target's reverse strand maps the interval onto the
-  reverse coordinates and flips the strand column (BED column 6, GFF column 7; `.`
-  stays `.`).
-- **BED12.** Each block is mapped; the record maps when its span maps by the rules
-  above and every block lands in the same chain; `thickStart`/`thickEnd` are mapped
-  the same way. The exact block rules are the builder's to settle and record in D174,
-  with fixtures.
-- **Zero-length records** (insertion points) map when their position lies inside an
-  aligned block.
-- **Output order** is input order, with target chromosome names from the chain. The
-  output is often unsorted; the help says to pipe it through `gloci sort`. The
-  command never claims sorted output.
-- Without `--unmapped` the unmapped records are counted in a warning (how many, and
-  how many per reason), never dropped silently.
-- Memory: the chain's blocks, indexed by source chromosome (hg19 to hg38 is a few MB);
-  records stream.
+  swaps and INFO decisions, and comes later as its own design (CrossMap's `vcf` mode
+  is its reference).
+- **Mapping rules: CrossMap's** (owner, 2026-11-17), version pinned in the
+  comparison image (the current bioconda CrossMap). For each input format, gloci
+  writes the records CrossMap writes for the same input and chain: the same mapped
+  intervals (including how a record that touches several chain segments, or several
+  chains, is split, merged or failed), the same strand handling on reverse-strand
+  chains, the same BED12 and GFF treatment, and the same records in the unmapped
+  output. Learn every rule by running CrossMap on targeted fixtures and record them in
+  D174; options that change CrossMap's results get gloci flags (named for what they
+  do, with CrossMap's flag given in the help and the migration guide).
+- **Where CrossMap's behaviour would be a silent wrong answer** (for example a record
+  dropped without trace, or output that claims an order it does not have), gloci
+  differs, says so in a warning or the unmapped output, and documents the difference
+  with an anchor and a golden case. Output formatting quirks that carry no meaning
+  (CrossMap's extra annotation columns) follow gloci's conventions and are documented
+  too.
+- `chainfile`'s `liftover::Machine` finds the chain segments an interval touches;
+  gloci's own code applies CrossMap's rules to them, per format.
+- **Output order** is input order (as CrossMap writes), with target chromosome names
+  from the chain. The help says to pipe the output through `gloci sort`. Without
+  `--unmapped`, the unmapped records are counted in a warning, never dropped
+  silently.
+- Memory: the chain's segments, indexed by source chromosome (hg19 to hg38 is a few
+  MB); records stream.
 
 ### Checking
 
-No UCSC `liftOver`. Hand-built chain fixtures, each case's expected output written by
-hand: gaps, `--min-match` on both sides of the threshold, duplicates with and without
-`--multiple`, reverse-strand chains, BED12, points. Real-data cases with Ensembl's
-GRCh37-to-GRCh38 chain (free data) against CrossMap, which runs only in the
-comparison image: the two must agree on every record that falls whole inside one
-aligned block; where CrossMap splits a record and gloci does not, the difference is
-documented (`#liftover-whole-records`).
+CrossMap runs only in the comparison image (GPL, never shipped). Golden cases from
+hand-built chain fixtures that exercise every rule (gaps, segments of several chains,
+reverse strand, BED12, GFF, points, records off every chain) and real-data cases with
+Ensembl's GRCh37-to-GRCh38 chain (free data), each compared with CrossMap's output
+record for record; every intentional difference has an anchor in
+`docs/differences.md` (for example `#liftover-unmapped-reasons`) and an
+`expected_difference` case.
 
 ## Common to all four
 
