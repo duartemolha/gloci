@@ -324,6 +324,8 @@ pub struct Output {
     cancel: crate::cancel::Watch,
     /// The input whose records this output holds in their order ([`Output::set_index_input`]).
     index_input: Option<String>,
+    /// Workers for compression and for indexing.
+    threads: NonZeroUsize,
 }
 
 /// What `--write-index` builds at `finish`.
@@ -512,6 +514,7 @@ gloci view FILE -o x.bam --write-index"
         index,
         cancel: crate::cancel::Watch::current(),
         index_input: None,
+        threads: opts.threads,
     })
 }
 
@@ -705,6 +708,42 @@ impl Output {
         if let Some(dest) = self.dest {
             set.push(af, dest);
         }
+        Ok(())
+    }
+}
+
+impl Output {
+    /// Finish a BGZF file output and stage it, and its CSI index as `PATH.csi`, in `set`; both are
+    /// published by `set.publish()`, which also removes a `PATH.tbi` left from earlier data. An
+    /// output that is not a regular BGZF file is an internal error. An unsorted file is the error
+    /// `unindexable_output` gives, and nothing is staged.
+    pub fn finish_staged_with_csi(
+        self,
+        format: Format,
+        set: &mut StagedSet,
+    ) -> Result<(), IoError> {
+        let name = self.dest_name();
+        let werr = |source| IoError::Write {
+            path: name.clone(),
+            source,
+        };
+        let (Sink::FileBgzf(mut w), Some(dest)) = (self.sink, self.dest) else {
+            return Err(IoError::Internal(
+                "finish_staged_with_csi needs a BGZF file output".into(),
+            ));
+        };
+        let af = {
+            let inner = w.finish().map_err(werr)?;
+            inner.into_inner().map_err(|e| werr(e.into_error()))?
+        };
+        let bytes = crate::index::build_csi_index(af.temp_path(), &dest, format, self.threads)
+            .map_err(|e| unindexable_output(e, &dest, self.index_input.as_deref(), false))?;
+        let csi = crate::index::index_path(&dest, crate::index::IndexKind::Csi);
+        let tbi = crate::index::index_path(&dest, crate::index::IndexKind::Tbi);
+        let staged_csi = crate::index::stage_index(&csi, &bytes)?;
+        set.push(af, dest);
+        set.push(staged_csi, csi);
+        set.remove_on_publish(tbi);
         Ok(())
     }
 }

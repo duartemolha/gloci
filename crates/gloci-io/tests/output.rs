@@ -442,3 +442,119 @@ fn a_format_clash_names_the_matching_output_format() {
     let err = parse_output_spec(Some(Path::new("Out.BED")), Some("tsv")).unwrap_err();
     assert!(err.0.contains("pass -O bed to match"), "{}", err.0);
 }
+
+const THRESHOLDS: &[u8] = b"#chrom\tstart\tend\tregion\t1X\nchr1\t0\t100\tunknown\t5\n\
+chr1\t100\t200\tunknown\t0\nchr2\t0\t50\tunknown\t1\n";
+
+fn staged_csi(dir: &Path, data: &[u8], threads: usize) -> Result<StagedSet, IoError> {
+    let spec = OutputSpec {
+        path: Some(dir.join("o.thresholds.bed.gz")),
+        format: Some(OutFormat::Bed),
+        bgzf: true,
+        direct: false,
+    };
+    let mut out = open_output(&spec, OutFormat::Bed, &opts(threads, false)).unwrap();
+    out.write_all(data).unwrap();
+    let mut set = StagedSet::default();
+    out.finish_staged_with_csi(Format::Bed, &mut set)?;
+    Ok(set)
+}
+
+fn gunzip(bytes: &[u8]) -> Vec<u8> {
+    let mut got = Vec::new();
+    std::io::Read::read_to_end(&mut flate2::read::MultiGzDecoder::new(bytes), &mut got).unwrap();
+    got
+}
+
+#[test]
+fn staged_bgzf_gets_a_csi() {
+    let _s = serial();
+    let dir = tempfile::tempdir().unwrap();
+    let set = staged_csi(dir.path(), THRESHOLDS, 2).unwrap();
+    let dest = dir.path().join("o.thresholds.bed.gz");
+    let csi = dir.path().join("o.thresholds.bed.gz.csi");
+    assert!(!dest.exists() && !csi.exists());
+    set.publish().unwrap();
+    assert!(dest.exists() && csi.exists());
+    let idx = gunzip(&fs::read(&csi).unwrap());
+    assert_eq!(&idx[..4], b"CSI\x01");
+    assert_eq!(u32::from_le_bytes(idx[4..8].try_into().unwrap()), 14);
+    assert!(u32::from_le_bytes(idx[8..12].try_into().unwrap()) >= 5);
+    // l_aux, then the tabix meta: format, columns 1, 2, 3, meta '#'.
+    assert_eq!(u32::from_le_bytes(idx[16..20].try_into().unwrap()), 0x10000);
+    for (i, want) in [1u32, 2, 3, u32::from(b'#')].into_iter().enumerate() {
+        let at = 20 + 4 * i;
+        assert_eq!(
+            u32::from_le_bytes(idx[at..at + 4].try_into().unwrap()),
+            want
+        );
+    }
+    let ro = gloci_io::ReaderOptions {
+        accept: gloci_io::Accept::default(),
+        chrom_map: None,
+        threads: NonZeroUsize::MIN,
+        format: None,
+        vcf_span: gloci_core::VcfSpan::Allele,
+        invalid: InvalidPolicy::Fail,
+    };
+    let regions = [(
+        b"chr1".to_vec(),
+        gloci_core::Interval { start: 0, end: 100 },
+    )];
+    let mut r = open_region_reader(&dest, &regions, &ro, false).unwrap();
+    let mut chroms = gloci_core::ChromTable::first_appearance();
+    let mut batch = RecordBatch::default();
+    let mut got = Vec::new();
+    while {
+        batch.clear();
+        let more = r.read_batch(&mut chroms, &mut batch, 8).unwrap();
+        for i in 0..batch.len() {
+            got.push(String::from_utf8(batch.raw(i).to_vec()).unwrap());
+        }
+        more
+    } {}
+    assert_eq!(got, ["chr1\t0\t100\tunknown\t5"]);
+}
+
+#[test]
+fn staged_csi_removes_a_stale_tbi() {
+    let _s = serial();
+    let dir = tempfile::tempdir().unwrap();
+    let tbi = dir.path().join("o.thresholds.bed.gz.tbi");
+    fs::write(&tbi, b"old").unwrap();
+    let set = staged_csi(dir.path(), THRESHOLDS, 1).unwrap();
+    assert!(tbi.exists(), "removed only at publish");
+    set.publish().unwrap();
+    assert!(!tbi.exists());
+}
+
+#[test]
+fn staged_csi_unsorted_stages_nothing() {
+    let _s = serial();
+    let dir = tempfile::tempdir().unwrap();
+    let err = staged_csi(dir.path(), b"chr1\t100\t200\nchr1\t0\t100\n", 1)
+        .err()
+        .expect("an unsorted file has no index");
+    assert!(err.to_string().contains("o.thresholds.bed.gz"), "{err}");
+    StagedSet::default().publish().unwrap();
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+    assert!(no_tmp_files(dir.path()));
+}
+
+#[test]
+fn staged_csi_is_thread_independent() {
+    let _s = serial();
+    let mut files = Vec::new();
+    for t in [1, 4] {
+        let dir = tempfile::tempdir().unwrap();
+        staged_csi(dir.path(), THRESHOLDS, t)
+            .unwrap()
+            .publish()
+            .unwrap();
+        files.push((
+            fs::read(dir.path().join("o.thresholds.bed.gz")).unwrap(),
+            fs::read(dir.path().join("o.thresholds.bed.gz.csi")).unwrap(),
+        ));
+    }
+    assert_eq!(files[0], files[1]);
+}

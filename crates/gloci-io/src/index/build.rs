@@ -619,6 +619,42 @@ write_fasta_index",
     Ok((kind, bytes))
 }
 
+/// The CSI index of the finished BGZF file `data` (min_shift 14, the smallest depth of at least 5
+/// that covers its largest end, the tabix meta of `format`), whatever its coordinates; messages
+/// name `final_data_path`. BCF's branch of `build_index_with`, for any text format.
+pub(crate) fn build_csi_index(
+    data: &Path,
+    final_data_path: &Path,
+    format: Format,
+    threads: NonZeroUsize,
+) -> Result<Vec<u8>, IoError> {
+    let name = final_data_path.display().to_string();
+    check_bgzf(data, &name)?;
+    let p = pass::<BinnedIndex>(data, &name, format, None, threads, TBI_DEPTH)?;
+    let p = match p.index {
+        Some(_) => p,
+        None => {
+            let depth = csi_depth(p.scanned.max_end);
+            pass::<BinnedIndex>(data, &name, format, None, threads, depth)?
+        }
+    };
+    let index = match p.index {
+        Some(index) => with_htslib_loffsets(index, &p.linear),
+        None => {
+            return Err(IoError::Detect {
+                path: name.clone(),
+                msg: format!("{name} changed while it was being indexed; run the command again"),
+            });
+        }
+    };
+    csi_bytes(&index).map_err(|source| IoError::Write {
+        path: index_path(final_data_path, IndexKind::Csi)
+            .display()
+            .to_string(),
+        source,
+    })
+}
+
 /// Write index `bytes` to a temp file next to `path`; publish it with
 /// [`AtomicFile::commit`].
 pub(crate) fn stage_index(path: &Path, bytes: &[u8]) -> Result<AtomicFile, IoError> {

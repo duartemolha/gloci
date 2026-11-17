@@ -369,7 +369,7 @@ use build::check_bgzf;
 pub use build::write_index;
 #[cfg(test)]
 use build::{Entry, Linear, bin_start, csi_depth, scan};
-pub(crate) use build::{build_index, remove_indexes, stage_index};
+pub(crate) use build::{build_csi_index, build_index, remove_indexes, stage_index};
 pub use crai::{CraiEntry, CramIndex, crai_path, find_crai, write_crai};
 #[cfg(test)]
 use query::Plan;

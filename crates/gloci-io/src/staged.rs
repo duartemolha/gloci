@@ -11,12 +11,19 @@ use std::path::PathBuf;
 #[derive(Default)]
 pub struct StagedSet {
     files: Vec<(AtomicFile, PathBuf)>,
+    /// Paths to remove once every staged file is in place.
+    stale: Vec<PathBuf>,
 }
 
 impl StagedSet {
     /// Stage `file` to be renamed onto `dest` by [`StagedSet::publish`].
     pub fn push(&mut self, file: AtomicFile, dest: PathBuf) {
         self.files.push((file, dest));
+    }
+
+    /// Remove `path`, if it exists, once every staged file is in place.
+    pub fn remove_on_publish(&mut self, path: PathBuf) {
+        self.stale.push(path);
     }
 
     /// Rename every staged file onto its destination. A destination that
@@ -79,6 +86,18 @@ remove or rename it, or choose another output name"
         }
         for (_, backup) in &backups {
             let _ = std::fs::remove_file(backup);
+        }
+        for path in &self.stale {
+            match std::fs::remove_file(path) {
+                Ok(()) => {}
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(source) => {
+                    return Err(IoError::Write {
+                        path: path.display().to_string(),
+                        source,
+                    });
+                }
+            }
         }
         for (run, path) in records {
             run.record_output(&path);
@@ -184,6 +203,7 @@ mod tests {
         std::fs::remove_file(second.0.temp_path()).unwrap();
         let err = StagedSet {
             files: vec![first, second],
+            ..Default::default()
         }
         .publish()
         .unwrap_err();
@@ -241,6 +261,7 @@ mod tests {
         std::fs::remove_file(second.0.temp_path()).unwrap();
         StagedSet {
             files: vec![first, second],
+            ..Default::default()
         }
         .publish()
         .unwrap_err();
@@ -292,6 +313,7 @@ mod tests {
                 staged(d.path(), "a.012", "1"),
                 staged(d.path(), "a.012.pos", "2"),
             ],
+            ..Default::default()
         };
         ok.publish().unwrap();
         assert_eq!(
@@ -304,6 +326,7 @@ mod tests {
         std::fs::remove_file(second.0.temp_path()).unwrap();
         StagedSet {
             files: vec![first, second],
+            ..Default::default()
         }
         .publish()
         .unwrap_err();
