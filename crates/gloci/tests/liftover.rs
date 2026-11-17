@@ -238,6 +238,91 @@ fn failed_run_leaves_no_outputs() {
     assert!(!d.path().join("u.bed").exists());
 }
 
+/// The two outputs are published together (D174, R6): an unmapped output that fails at its
+/// finish, here an unsorted one under --write-index, leaves neither output nor any index.
+#[test]
+fn failed_unmapped_finish_leaves_no_outputs() {
+    let d = with(&["toy.chain"]);
+    // The off-chain records come out unsorted; the one mapped record is sorted.
+    bgzf_file(
+        d.path(),
+        "in.bed.gz",
+        "chr1\t650\t660\ta\nchr1\t120\t180\tb\nchr1\t50\t60\tc\n",
+    );
+    gloci()
+        .current_dir(d.path())
+        .args([
+            "liftover",
+            "in.bed.gz",
+            "--chain",
+            "toy.chain",
+            "-o",
+            "m.bed.gz",
+            "--unmapped",
+            "u.bed.gz",
+            "--write-index",
+        ])
+        .assert()
+        .code(1)
+        .stderr(contains("u.bed.gz is not sorted"));
+    for f in [
+        "m.bed.gz",
+        "m.bed.gz.tbi",
+        "m.bed.gz.csi",
+        "u.bed.gz",
+        "u.bed.gz.tbi",
+    ] {
+        assert!(!d.path().join(f).exists(), "{f} was left behind");
+    }
+    // Sorted, both outputs are published with their indexes.
+    bgzf_file(
+        d.path(),
+        "in.bed.gz",
+        "chr1\t50\t60\ta\nchr1\t120\t180\tb\nchr1\t650\t660\tc\n",
+    );
+    gloci()
+        .current_dir(d.path())
+        .args([
+            "liftover",
+            "in.bed.gz",
+            "--chain",
+            "toy.chain",
+            "-o",
+            "m.bed.gz",
+            "--unmapped",
+            "u.bed.gz",
+            "--write-index",
+        ])
+        .assert()
+        .success();
+    for f in ["m.bed.gz", "m.bed.gz.tbi", "u.bed.gz", "u.bed.gz.tbi"] {
+        assert!(d.path().join(f).exists(), "{f} is missing");
+    }
+}
+
+/// A write error on the unmapped output leaves no mapped output either.
+#[cfg(target_os = "linux")]
+#[test]
+fn unmapped_on_a_full_disk_leaves_no_output() {
+    let d = with(&["toy.bed", "toy.chain"]);
+    gloci()
+        .current_dir(d.path())
+        .args([
+            "liftover",
+            "toy.bed",
+            "--chain",
+            "toy.chain",
+            "-o",
+            "m.bed",
+            "--unmapped",
+            "/dev/full",
+        ])
+        .assert()
+        .code(1)
+        .stderr(contains("/dev/full"));
+    assert!(!d.path().join("m.bed").exists());
+}
+
 #[test]
 fn skip_invalid_lifts_the_rest() {
     let d = with(&["toy-invalid.bed", "toy.chain"]);

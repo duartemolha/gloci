@@ -19,6 +19,12 @@ pub trait RecordWriter {
     }
     /// Flush and publish the output (BGZF EOF block, index, atomic rename).
     fn finish(self: Box<Self>) -> Result<(), IoError>;
+    /// Finish like [`RecordWriter::finish`], but stage a file output and its index in `set`, so
+    /// that several outputs are published together by [`crate::StagedSet::publish`]
+    /// ([`Output::finish_staged`]). A writer that cannot stage finishes as usual.
+    fn finish_staged(self: Box<Self>, _set: &mut crate::StagedSet) -> Result<(), IoError> {
+        self.finish()
+    }
     /// True when the writer accepts framed BCF records.
     fn is_bcf(&self) -> bool {
         false
@@ -134,6 +140,9 @@ impl RecordWriter for TextWriter {
     fn finish(self: Box<Self>) -> Result<(), IoError> {
         self.out.finish()
     }
+    fn finish_staged(self: Box<Self>, set: &mut crate::StagedSet) -> Result<(), IoError> {
+        self.out.finish_staged(set)
+    }
 }
 
 struct BcfWriter {
@@ -146,6 +155,9 @@ impl RecordWriter for BcfWriter {
     }
     fn finish(self: Box<Self>) -> Result<(), IoError> {
         self.out.finish()
+    }
+    fn finish_staged(self: Box<Self>, set: &mut crate::StagedSet) -> Result<(), IoError> {
+        self.out.finish_staged(set)
     }
     fn is_bcf(&self) -> bool {
         true

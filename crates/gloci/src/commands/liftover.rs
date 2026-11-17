@@ -5,7 +5,7 @@ use crate::cli::LiftoverArgs;
 use gloci_core::ChromTable;
 use gloci_io::{
     ChainIndex, Format, InvalidPolicy, IoError, OutputOptions, OutputSpec, ReaderOptions,
-    UsageError, WriterOptions, input_family_output_spec, open_reader, parse_output_spec,
+    StagedSet, UsageError, WriterOptions, input_family_output_spec, open_reader, parse_output_spec,
 };
 use gloci_ops::liftover::{ChromStyle, LiftoverCounts, LiftoverOptions, liftover};
 use gloci_ops::{ReportOutput, open_report};
@@ -160,11 +160,16 @@ pub fn run(ctx: &Ctx, a: &LiftoverArgs) -> anyhow::Result<()> {
             .map(|w| w.as_mut() as &mut dyn gloci_io::RecordWriter),
     )
     .map_err(|e| name_write(e, &mapped_name, &unmapped_name))?;
-    out.finish()
-        .map_err(|e| name_write(e, &mapped_name, &unmapped_name))?;
+    // The two outputs, and their indexes, are published together: a failure in finishing
+    // either leaves neither in place, and the previous ones as they were (D174, R6).
+    let mut staged = StagedSet::default();
+    out.finish_staged(&mut staged)
+        .map_err(|e| e.with_output_name(&mapped_name))?;
     if let Some(u) = un {
-        u.finish().map_err(|e| e.with_output_name(&unmapped_name))?;
+        u.finish_staged(&mut staged)
+            .map_err(|e| e.with_output_name(&unmapped_name))?;
     }
+    staged.publish()?;
 
     let n = counts.unmapped_total();
     if n > 0 {

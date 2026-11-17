@@ -703,10 +703,15 @@ impl Output {
 impl Output {
     /// Finish the stream like [`Output::finish`], but hand a regular file to
     /// `set` instead of renaming it into place, so that several outputs can be
-    /// published together by [`StagedSet::publish`]. Outputs that are not
-    /// regular files, and outputs with an index, are finished as usual.
+    /// published together by [`StagedSet::publish`]. A `--write-index` index
+    /// (TBI or CSI, built and so checked here) is staged after its data, and
+    /// the data's other indexes are removed at publish (D19). Outputs that are
+    /// not regular files, and FASTA outputs (`.fai`, `.gzi`), are finished as
+    /// usual.
     pub fn finish_staged(self, set: &mut StagedSet) -> Result<(), IoError> {
-        if self.wants_index() || !matches!(self.sink, Sink::FilePlain(_) | Sink::FileBgzf(_)) {
+        if matches!(self.index, IndexPlan::Fasta(_) | IndexPlan::TsvPending(_))
+            || !matches!(self.sink, Sink::FilePlain(_) | Sink::FileBgzf(_))
+        {
             return self.finish();
         }
         let name = self.dest_name();
@@ -722,8 +727,40 @@ impl Output {
             }
             _ => return Err(IoError::Internal("finish_staged on a stream".into())),
         };
-        if let Some(dest) = self.dest {
-            set.push(af, dest);
+        let Some(dest) = self.dest else {
+            return Ok(());
+        };
+        let input = self.index_input.as_deref();
+        let built = match &self.index {
+            IndexPlan::Format(format, threads) => Some(
+                crate::index::build_index(af.temp_path(), &dest, *format, *threads)
+                    .map_err(|e| unindexable_output(e, &dest, input, false))?,
+            ),
+            IndexPlan::Tsv(cols, threads) => Some(
+                crate::index::build_tsv_index(af.temp_path(), &dest, cols, *threads)
+                    .map_err(|e| unindexable_output(e, &dest, input, true))?,
+            ),
+            _ => None,
+        };
+        let index = match built {
+            Some((kind, bytes)) => {
+                let path = crate::index::index_path(&dest, kind);
+                Some((crate::index::stage_index(&path, &bytes)?, path))
+            }
+            None => None,
+        };
+        for stale in crate::index::all_index_paths(&dest) {
+            if index.as_ref().is_none_or(|(_, p)| *p != stale) {
+                set.remove_on_publish(stale);
+            }
+        }
+        if self.drop_fasta_index {
+            set.remove_on_publish(crate::fasta::fai_path(&dest));
+            set.remove_on_publish(crate::fasta::gzi_path(&dest));
+        }
+        set.push(af, dest);
+        if let Some((file, path)) = index {
+            set.push(file, path);
         }
         Ok(())
     }

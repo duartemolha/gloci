@@ -594,3 +594,43 @@ fn staged_outputs_are_recorded_despite_a_stuck_stale_path() {
     set.publish().unwrap();
     assert_eq!(run.outputs().len(), 2);
 }
+
+/// `finish_staged` on an output with `--write-index` stages the index with the data, so a set
+/// publishes both or neither; the index of the other kind goes at publish (D19).
+#[test]
+fn staged_output_with_write_index_stages_its_index() {
+    let _s = serial();
+    let dir = tempfile::tempdir().unwrap();
+    let dest = dir.path().join("o.bed.gz");
+    let (tbi, csi) = (
+        dir.path().join("o.bed.gz.tbi"),
+        dir.path().join("o.bed.gz.csi"),
+    );
+    fs::write(&csi, b"old").unwrap();
+    let stage = |data: &[u8]| -> Result<StagedSet, IoError> {
+        let spec = OutputSpec {
+            path: Some(dest.clone()),
+            format: Some(OutFormat::Bed),
+            bgzf: true,
+            direct: false,
+        };
+        let mut out = open_output(&spec, OutFormat::Bed, &opts(1, true)).unwrap();
+        out.write_all(data).unwrap();
+        let mut set = StagedSet::default();
+        out.finish_staged(&mut set)?;
+        Ok(set)
+    };
+    // Unsorted: no index, nothing staged, nothing published.
+    let err = stage(b"chr1\t100\t200\nchr1\t0\t100\n")
+        .err()
+        .expect("an unsorted file has no index");
+    assert!(err.to_string().contains("o.bed.gz is not sorted"), "{err}");
+    assert!(!dest.exists() && !tbi.exists() && csi.exists());
+    assert!(no_tmp_files(dir.path()));
+    // Sorted: staged, then published with its index; the old CSI goes.
+    let set = stage(b"chr1\t0\t100\nchr1\t100\t200\n").unwrap();
+    assert!(!dest.exists() && !tbi.exists(), "published only by the set");
+    set.publish().unwrap();
+    assert!(dest.exists() && tbi.exists() && !csi.exists());
+    assert!(no_tmp_files(dir.path()));
+}
