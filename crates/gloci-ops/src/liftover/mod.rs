@@ -22,6 +22,9 @@ pub struct LiftoverOptions {
     /// Lift BED12 records by columns 1 to 3 only, like any other BED record (CrossMap
     /// `--naive-bed-parsing`; D174, R8).
     pub ignore_blocks: bool,
+    /// Merge a record's pieces into one record when at least this fraction of it maps (CrossMap
+    /// `region -r`; D174, R10).
+    pub merge: Option<f64>,
 }
 
 /// Why a record is left unmapped (D174, R5 to R10).
@@ -187,6 +190,12 @@ pub fn liftover(
         )
         .into());
     }
+    if o.merge.is_some() && is_gff {
+        return Err(UsageError(
+            "--merge-segments applies to BED and bedGraph records, not GFF or GTF features".into(),
+        )
+        .into());
+    }
     let mut counts = LiftoverCounts::default();
     // Per input chromosome: its chain source, its name and whether it starts with `chr`.
     let mut sources: Vec<Option<Input>> = Vec::new();
@@ -238,10 +247,19 @@ pub fn liftover(
                 }
                 continue;
             }
-            if format == Format::Bed
+            let blocky = format == Format::Bed
                 && !o.ignore_blocks
-                && raw.split(|&b| b == b'\t').nth(11).is_some()
-            {
+                && raw.split(|&b| b == b'\t').nth(11).is_some();
+            if blocky && o.merge.is_some() {
+                return Err(UsageError(format!(
+                    "{}: line {}: --merge-segments moves columns 1 to 3 only and would leave \
+the BED12 blocks wrong; add --ignore-blocks to merge BED12 records as plain intervals",
+                    input.name(),
+                    m.loc
+                ))
+                .into());
+            }
+            if blocky {
                 let lifted = bed::lift_blocks(
                     raw,
                     m.span,
@@ -288,6 +306,28 @@ pub fn liftover(
             }
             if pieces.is_empty() {
                 leave_unmapped(&mut counts, &mut unmapped, Unmapped::OffChain, raw)?;
+                continue;
+            }
+            if let (Some(min_ratio), true) = (o.merge, pieces.len() > 1) {
+                match bed::merge_pieces(
+                    &pieces,
+                    m.span.len(),
+                    min_ratio,
+                    chain,
+                    &mut styler,
+                    from.chr,
+                ) {
+                    Err(why) => leave_unmapped(&mut counts, &mut unmapped, why, raw)?,
+                    Ok(seg) => {
+                        let target = styler.name(chain, seg.chain, from.chr);
+                        bed::rewrite_piece(raw, target, &seg, &mut buf);
+                        out.write_record(&buf).map_err(|e| write_err("output", e))?;
+                        counts.written += 1;
+                        if m.span.len() > 0 && covered(&pieces) < m.span.len() {
+                            counts.shortened += 1;
+                        }
+                    }
+                }
                 continue;
             }
             for seg in &pieces {

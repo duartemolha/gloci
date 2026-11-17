@@ -897,6 +897,22 @@ pub struct LiftoverArgs {
     /// and must fall in one piece. Not for GFF or GTF.
     #[arg(long)]
     pub ignore_blocks: bool,
+    /// Write a record that crosses chain gaps as one record from its first piece's start to its
+    /// last piece's end, when enough of it maps (CrossMap `region`). Pieces on different
+    /// chromosomes or strands leave it unmapped. Not for GFF or GTF, nor BED12 without
+    /// --ignore-blocks.
+    #[arg(long)]
+    pub merge_segments: bool,
+    /// The fraction of a record that must map for --merge-segments to merge it, from 0 to 1
+    /// (CrossMap `region -r`).
+    #[arg(
+        long,
+        value_name = "FRAC",
+        default_value_t = 0.85,
+        requires = "merge_segments",
+        allow_negative_numbers = true
+    )]
+    pub min_ratio: f64,
     #[command(flatten)]
     pub format: FormatArg,
     #[command(flatten)]

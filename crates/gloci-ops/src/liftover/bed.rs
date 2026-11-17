@@ -27,6 +27,42 @@ pub(crate) fn rewrite_piece(raw: &[u8], name: &str, seg: &Segment, buf: &mut Vec
     }
 }
 
+/// The one piece that stands for a record cut into several (D174, R10): CrossMap `region`'s
+/// merge. The pieces must cover `min_ratio` of the record, share a target chromosome and a mapped
+/// strand; the result spans the first start to the last end.
+pub(crate) fn merge_pieces(
+    pieces: &[Segment],
+    len: u64,
+    min_ratio: f64,
+    chain: &ChainIndex,
+    styler: &mut Styler,
+    chr: bool,
+) -> Result<Segment, Unmapped> {
+    let mapped: u64 = pieces.iter().map(|p| p.source.len()).sum();
+    let ratio = if len == 0 {
+        1.0
+    } else {
+        mapped as f64 / len as f64
+    };
+    if ratio < min_ratio {
+        return Err(Unmapped::LowRatio);
+    }
+    let first = pieces[0];
+    if pieces
+        .iter()
+        .any(|p| p.chain != first.chain && !styler.same_name(chain, first.chain, p.chain, chr))
+    {
+        return Err(Unmapped::CrossChroms);
+    }
+    if pieces.iter().any(|p| p.reverse != first.reverse) {
+        return Err(Unmapped::MixedStrands);
+    }
+    let mut merged = first;
+    merged.target.start = pieces.iter().map(|p| p.target.start).min().unwrap_or(0);
+    merged.target.end = pieces.iter().map(|p| p.target.end).max().unwrap_or(0);
+    Ok(merged)
+}
+
 /// What became of a BED12 record on the block path.
 pub(crate) enum Lift {
     /// Written into the buffer; `shortened` when a block lost bases no chain block covers.

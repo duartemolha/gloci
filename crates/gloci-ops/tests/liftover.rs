@@ -607,3 +607,91 @@ fn bed12_bad_thick_values_are_invalid_lines_not_panics() {
         }
     }
 }
+
+fn merge(ratio: f64) -> LiftoverOptions {
+    LiftoverOptions {
+        merge: Some(ratio),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn merge_segments_as_crossmap_region() {
+    let text = fixture("toy-merge.bed");
+    let (out, un, counts) = run("toy-merge.bed", &text, &merge(0.85));
+    assert_eq!(
+        out,
+        lines(
+            "chr1\t1120\t1180\tm1\t0\t+
+chr1\t1150\t1300\tm2\t0\t+
+chr1\t1100\t1150\tm5\t0\t+
+chr2\t3940\t3980\tm6\t0\t-
+chr1\t1150\t1150\tm8\t0\t+
+chr1\t1160\t1290\tm11"
+        )
+    );
+    let want: Vec<&str> = text
+        .lines()
+        .filter(|l| {
+            ["m3", "m4", "m7", "m9", "m10"]
+                .iter()
+                .any(|n| l.split('\t').nth(3) == Some(n))
+        })
+        .collect();
+    assert_eq!(un, want);
+    let expect: BTreeMap<Unmapped, u64> = [
+        (Unmapped::LowRatio, 3),
+        (Unmapped::OffChain, 1),
+        (Unmapped::CrossChroms, 1),
+    ]
+    .into();
+    assert_eq!(counts.unmapped, expect);
+
+    let (out, un, counts) = run("toy-merge.bed", &text, &merge(0.5));
+    let at = out.iter().position(|l| l.contains("\tm2\t")).unwrap();
+    assert_eq!(out[at + 1], "chr1\t1330\t1380\tm3\t0\t+");
+    let names: Vec<&str> = un.iter().map(|l| l.split('\t').nth(3).unwrap()).collect();
+    assert_eq!(names, ["m4", "m7", "m9", "m10"]);
+    let expect: BTreeMap<Unmapped, u64> =
+        [(Unmapped::OffChain, 1), (Unmapped::CrossChroms, 3)].into();
+    assert_eq!(counts.unmapped, expect);
+}
+
+#[test]
+fn merge_sets_the_strand_and_refuses_mixed_strands() {
+    let text = fixture("toy-merge-strand.bed");
+    let (out, un, counts) = run("toy-merge-strand.bed", &text, &merge(0.5));
+    assert_eq!(out, ["chr2\t3880\t3940\ts1\t0\t+"]);
+    assert_eq!(un, ["chrC\t50\t150\ts2\t0\t+"]);
+    assert_eq!(counts.unmapped, [(Unmapped::MixedStrands, 1)].into());
+}
+
+#[test]
+fn merge_zero_length_record() {
+    let text = fixture("toy-merge-point.bed");
+    let (out, un, counts) = run("toy-merge-point.bed", &text, &merge(0.85));
+    assert!(out.is_empty(), "{out:?}");
+    assert_eq!(un.len(), 1);
+    assert_eq!(counts.unmapped, [(Unmapped::CrossChroms, 1)].into());
+}
+
+#[test]
+fn merge_refuses_bed12_without_ignore_blocks() {
+    let text = fixture("toy-bed12.bed");
+    let e = run_with(&chain(), "toy-bed12.bed", &text, &merge(0.85), false).unwrap_err();
+    assert!(
+        matches!(e, IoError::Usage(_)) && e.to_string().contains("--ignore-blocks"),
+        "{e}"
+    );
+    let o = LiftoverOptions {
+        ignore_blocks: true,
+        ..merge(0.85)
+    };
+    run_with(&chain(), "toy-bed12.bed", &text, &o, false).unwrap();
+}
+
+#[test]
+fn merge_refuses_gff() {
+    let e = run_with(&chain(), "x.gff", &fixture("toy.gff"), &merge(0.85), false).unwrap_err();
+    assert!(matches!(e, IoError::Usage(_)), "{e}");
+}

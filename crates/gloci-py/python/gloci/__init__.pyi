@@ -2270,6 +2270,8 @@ class Pipeline:
         unmapped: Source | None = None,
         chrom_style: Literal["as-input", "short", "long", "chain"] | None = None,
         ignore_blocks: bool = False,
+        merge_segments: bool = False,
+        min_ratio: str | int | float | os.PathLike[str] | None = None,
         format: str | int | float | os.PathLike[str] | None = None,
         header: bool = False,
         skip_invalid: bool = False,
@@ -2282,6 +2284,8 @@ class Pipeline:
             unmapped: Write the records that did not lift to FILE, as read, in the input's format whatever the file's name (CrossMap `--unmap-file`; `.gz` compresses it; `-` is stdout when -o names a file)
             chrom_style: How the target chromosomes are named (CrossMap `--chromid a|s|l|n`): as-input follows the input's `chr` prefix, short removes `chr`, long adds it, chain keeps the chain's name
             ignore_blocks: Lift a BED12 record by columns 1 to 3 only, as any other BED record, leaving blocks and thick range as read (CrossMap `--naive-bed-parsing`). Without it, each block is lifted and must fall in one piece. Not for GFF or GTF
+            merge_segments: Write a record that crosses chain gaps as one record from its first piece's start to its last piece's end, when enough of it maps (CrossMap `region`). Pieces on different chromosomes or strands leave it unmapped. Not for GFF or GTF, nor BED12 without --ignore-blocks
+            min_ratio: The fraction of a record that must map for --merge-segments to merge it, from 0 to 1 (CrossMap `region -r`)
             format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
             header: Keep header lines in the output
             skip_invalid: Skip invalid records with a warning instead of failing

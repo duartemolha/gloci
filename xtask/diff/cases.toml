@@ -11961,3 +11961,63 @@ gloci = "gloci liftover input.gff --chain toy.chain"
 reference = "CrossMap gff toy.chain input.gff o.gff >/dev/null 2>&1 && cat o.gff"
 compare = "exact"
 expected_difference = "#liftover-gff-unknown-strand"
+
+[[case]]
+name = "liftover-merge-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-merge.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain --merge-segments"
+reference = "CrossMap region toy.chain input.bed o.bed >/dev/null 2>&1 && sed 's/\\tmap_ratio=[0-9.]*$//' o.bed"
+compare = "exact"
+
+[[case]]
+name = "liftover-merge-ratio-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-merge.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain --merge-segments --min-ratio 0.5"
+reference = "CrossMap region toy.chain input.bed o.bed -r 0.5 >/dev/null 2>&1 && sed 's/\\tmap_ratio=[0-9.]*$//' o.bed"
+compare = "exact"
+
+[[case]]
+name = "liftover-merge-unmapped-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-merge.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain --merge-segments -o /dev/null --unmapped -"
+reference = "CrossMap region toy.chain input.bed o.bed >/dev/null 2>&1 && sed -E 's/\\tFail\\t(Unmap|CrossChroms|map_ratio=[0-9.]+)$//' o.bed.unmap"
+compare = "exact"
+
+[[case]]
+name = "liftover-merge-ratio-column-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-merge.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain --merge-segments"
+reference = "CrossMap region toy.chain input.bed o.bed >/dev/null 2>&1 && cat o.bed"
+compare = "exact"
+expected_difference = "#liftover-merge-segments"
+
+[[case]]
+name = "liftover-merge-strand-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-merge-strand.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain --merge-segments --min-ratio 0.5"
+reference = "CrossMap region toy.chain input.bed o.bed -r 0.5 >/dev/null 2>&1 && sed 's/\\tmap_ratio=[0-9.]*$//' o.bed"
+compare = "exact"
+expected_difference = "#liftover-merge-segments"
+
+[[case]]
+name = "liftover-merge-point-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-merge-point.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain --merge-segments"
+reference = "CrossMap region toy.chain input.bed o.bed >/dev/null 2>&1"
+compare = "exit-status"
+expected_difference = "#liftover-merge-segments"
+
+[[case]]
+name = "liftover-merge-bed12-vs-crossmap"
+input = { file = "xtask/diff/inputs/liftover/toy-bed12.bed" }
+aux = ["xtask/diff/inputs/liftover/toy.chain"]
+gloci = "gloci liftover input.bed --chain toy.chain --merge-segments"
+reference = "CrossMap region toy.chain input.bed o.bed >/dev/null 2>&1"
+compare = "exit-status"
+expected_difference = "#liftover-merge-segments"

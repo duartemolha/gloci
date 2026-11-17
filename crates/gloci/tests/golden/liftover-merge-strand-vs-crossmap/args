@@ -1,0 +1,1 @@
+liftover input.bed --chain toy.chain --merge-segments --min-ratio 0.5

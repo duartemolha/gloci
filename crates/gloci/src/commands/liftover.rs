@@ -80,6 +80,13 @@ fn name_write(e: IoError, mapped: &str, unmapped: &str) -> IoError {
 }
 
 pub fn run(ctx: &Ctx, a: &LiftoverArgs) -> anyhow::Result<()> {
+    if !(0.0..=1.0).contains(&a.min_ratio) {
+        return Err(UsageError(format!(
+            "--min-ratio must be a number from 0 to 1, not {}",
+            a.min_ratio
+        ))
+        .into());
+    }
     let spec = parse_output_spec(a.out.output.as_deref(), a.out.output_format.as_deref())?;
     let uspec = a
         .unmapped
@@ -139,6 +146,7 @@ pub fn run(ctx: &Ctx, a: &LiftoverArgs) -> anyhow::Result<()> {
         chrom_style: style(&a.chrom_style),
         skip_invalid: a.invalid.skip_invalid,
         ignore_blocks: a.ignore_blocks,
+        merge: a.merge_segments.then_some(a.min_ratio),
     };
     // Records are written in input order, so the table only gives names ids.
     let mut chroms = ChromTable::first_appearance();

@@ -440,3 +440,42 @@ fn ignore_blocks_on_gff_exits_2() {
         .code(2)
         .stderr(contains("--ignore-blocks"));
 }
+
+#[test]
+fn min_ratio_needs_merge_segments() {
+    let d = with(&["toy.bed", "toy.chain"]);
+    gloci()
+        .current_dir(d.path())
+        .args([
+            "liftover",
+            "toy.bed",
+            "--chain",
+            "toy.chain",
+            "--min-ratio",
+            "0.5",
+        ])
+        .assert()
+        .code(2)
+        .stderr(contains("--merge-segments"));
+}
+
+#[test]
+fn min_ratio_range() {
+    let d = with(&["toy.bed", "toy.chain"]);
+    for r in ["1.5", "-0.1", "nan"] {
+        gloci()
+            .current_dir(d.path())
+            .args([
+                "liftover",
+                "toy.bed",
+                "--chain",
+                "toy.chain",
+                "--merge-segments",
+                "--min-ratio",
+                r,
+            ])
+            .assert()
+            .code(2)
+            .stderr(contains("--min-ratio"));
+    }
+}

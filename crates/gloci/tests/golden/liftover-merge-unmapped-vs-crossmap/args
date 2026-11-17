@@ -1,0 +1,1 @@
+liftover input.bed --chain toy.chain --merge-segments -o /dev/null --unmapped -

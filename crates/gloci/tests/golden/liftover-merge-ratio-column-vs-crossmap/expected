@@ -1,0 +1,6 @@
+chr1	1120	1180	m1	0	+	map_ratio=1.0000
+chr1	1150	1300	m2	0	+	map_ratio=1.0000
+chr1	1100	1150	m5	0	+	map_ratio=1.0000
+chr2	3940	3980	m6	0	-	map_ratio=1.0000
+chr1	1150	1150	m8	0	+	map_ratio=1.0000
+chr1	1160	1290	m11	map_ratio=1.0000

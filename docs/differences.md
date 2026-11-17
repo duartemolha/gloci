@@ -3903,3 +3903,22 @@ cases (must match).
 - **Old behaviour:** CrossMap `gff` writes `+` or `-` for it, whichever the chain's direction gives.
 - **Reason:** an unstranded feature stays unstranded; a strand invented by the chain would be wrong.
 - **Pinned by:** `liftover-gff-unknown-strand-vs-crossmap` (must differ).
+
+## `liftover --merge-segments` differs from CrossMap `region` {#liftover-merge-segments}
+
+- **gloci:** `--merge-segments [--min-ratio F]` writes a record cut into several pieces as one
+  record from the first start to the last end, when at least F (default 0.85) of it maps and the
+  pieces share a chromosome and a mapped strand. It writes no `map_ratio=` column, sets column 6
+  to the mapped strand, and leaves a record with pieces on both strands unmapped. A zero-length
+  record is lifted like any other, and a BED record of 12 or more columns without
+  `--ignore-blocks` is exit 2. GFF and GTF input is exit 2.
+- **Old behaviour:** CrossMap `region` appends `map_ratio=R` to every merged record, keeps the
+  input's strand in column 6 whatever the chain does, and merges pieces on both strands. A
+  zero-length record raises ZeroDivisionError (exit 1). A BED12 record has columns 1 to 3 moved
+  and its blocks left as read, which makes them wrong.
+- **Reason:** a ratio column breaks BED parsers, a strand that ignores the chain is wrong on a
+  `-` chain, a merge across strands spans bases that are not contiguous, one point must not stop
+  a run, and a BED12 record with unmoved blocks is invalid.
+- **Pinned by:** `liftover-merge-ratio-column-vs-crossmap`, `liftover-merge-strand-vs-crossmap`,
+  `liftover-merge-point-vs-crossmap` (exit status) and `liftover-merge-bed12-vs-crossmap` (exit
+  status), each of which must differ.
