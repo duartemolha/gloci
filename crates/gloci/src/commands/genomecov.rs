@@ -130,6 +130,7 @@ index; drop --write-index"
                     threads: ctx.threads,
                     autosql: None,
                     autosql_name: String::new(),
+                    defined_field_count: None,
                 },
             )
             .map_err(|e| e.with_output_name(&dest))?,

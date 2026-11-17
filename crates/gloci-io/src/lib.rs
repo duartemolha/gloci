@@ -62,7 +62,7 @@ pub use atomic::{
     internal_error_line,
 };
 pub use bbi::{
-    BbiKind, BbiSizes, BbiWriteOptions, BbiWriter, PushError, bbi_autosql, bbi_chrom_sizes,
+    BbiKind, BbiSizes, BbiWriteOptions, BbiWriter, PushError, bbi_bed_columns, bbi_chrom_sizes,
     bbi_output_refusal, bbi_unindexed, open_bbi_regions,
 };
 pub use bcf::{BcfDicts, check_record as check_bcf_record, read_bcf_header, write_bcf_header};

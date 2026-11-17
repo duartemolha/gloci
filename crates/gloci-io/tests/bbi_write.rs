@@ -3,7 +3,9 @@
 
 use bigtools::{BigBedRead, BigWigRead, Value};
 use gloci_core::Genome;
-use gloci_io::bbi::autosql::{autosql_field_count, bed_autosql, bed_layout};
+use gloci_io::bbi::autosql::{
+    autosql_field_count, autosql_standard_columns, bed_autosql, bed_layout,
+};
 use gloci_io::{
     BbiKind, BbiSizes, BbiWriteOptions, BbiWriter, IoError, OutFormat, OutputSpec, PushError,
     parse_output_spec, parse_track_output_spec,
@@ -32,6 +34,7 @@ fn options(kind: BbiKind, sizes: &[(&str, u64)], threads: usize) -> BbiWriteOpti
         threads: NonZeroUsize::new(threads).unwrap(),
         autosql: None,
         autosql_name: "autosql".into(),
+        defined_field_count: None,
     }
 }
 
@@ -426,6 +429,167 @@ fn bigbed_given_autosql_must_match() {
     match w.push(b"chr1\t0\t10\tn\t5\t+\t1.5\tx") {
         Err(PushError::Record(m)) => assert!(m.contains('5') && m.contains('8'), "{m}"),
         other => panic!("{other:?}"),
+    }
+}
+
+/// An autoSql table of `fields` (`type name` each).
+fn table(fields: &[&str]) -> String {
+    let mut t = String::from("table t\n\"t\"\n(\n");
+    for f in fields {
+        t.push_str(&format!("    {f}; \"x\"\n"));
+    }
+    t.push_str(")\n");
+    t
+}
+
+const BED6: [&str; 6] = [
+    "string chrom",
+    "uint chromStart",
+    "uint chromEnd",
+    "string name",
+    "uint score",
+    "char[1] strand",
+];
+
+#[test]
+fn autosql_standard_columns_go_by_name_and_type() {
+    let with = |extra: &[&str]| {
+        let mut f = BED6.to_vec();
+        f.extend(extra);
+        autosql_standard_columns(&table(&f)).unwrap()
+    };
+    assert_eq!(with(&["uint readsA", "uint readsB", "uint replicates"]), 6);
+    assert_eq!(with(&["float signalValue", "float pValue"]), 6);
+    assert_eq!(
+        with(&["uint thickStart", "uint thickEnd", "uint itemRgb"]),
+        9
+    );
+    assert_eq!(
+        with(&[
+            "uint thickStart",
+            "uint thickEnd",
+            "uint reserved",
+            "int blockCount",
+            "int[blockCount] blockSizes",
+            "int[blockCount] chromStarts"
+        ]),
+        12
+    );
+    assert_eq!(
+        with(&[
+            "uint thickStart",
+            "uint thickEnd",
+            "uint itemRgb",
+            "int blockCount",
+            "int[blockCount] blockSizes",
+            "int[blockCount] blockStarts",
+            "string more"
+        ]),
+        12
+    );
+    // thickStart without thickEnd: BED has no 7-column prefix.
+    assert_eq!(with(&["uint thickStart", "uint other"]), 6);
+    // blockCount without its lists: rounded down to 9.
+    assert_eq!(
+        with(&[
+            "uint thickStart",
+            "uint thickEnd",
+            "uint itemRgb",
+            "int blockCount"
+        ]),
+        9
+    );
+    // The type must match too.
+    assert_eq!(with(&["string thickStart", "uint thickEnd"]), 6);
+    let fields = [
+        "string chrom",
+        "uint chromStart",
+        "uint chromEnd",
+        "string name",
+        "float score",
+    ];
+    assert_eq!(autosql_standard_columns(&table(&fields)).unwrap(), 4);
+    let fields = [
+        "string chrom",
+        "uint chromStart",
+        "uint chromEnd",
+        "string name",
+        "uint score",
+        "string strand",
+    ];
+    assert_eq!(autosql_standard_columns(&table(&fields)).unwrap(), 5);
+    // The first three columns are chrom, chromStart and chromEnd whatever their names.
+    let fields = ["string chr", "uint start", "uint end", "string name"];
+    assert_eq!(autosql_standard_columns(&table(&fields)).unwrap(), 4);
+}
+
+/// The definedFieldCount of the bigBed at `path`.
+fn defined_field_count(path: &Path) -> u16 {
+    BigBedRead::open_file(path)
+        .unwrap()
+        .info()
+        .header
+        .defined_field_count
+}
+
+#[test]
+fn the_given_autosql_sets_the_standard_columns() {
+    let dir = tempfile::tempdir().unwrap();
+    // Integer extras would pass as thickStart, thickEnd and itemRgb.
+    let line = b"chr1\t0\t10\tn\t5\t+\t12\t30\t2";
+    let mut extra = BED6.to_vec();
+    extra.extend(["uint readsA", "uint readsB", "uint replicates"]);
+    let mut o = options(BbiKind::BigBed, SIZES, 1);
+    o.autosql = Some(table(&extra));
+    let out = dir.path().join("a.bb");
+    let mut w = BbiWriter::create(&spec(&out), o).unwrap();
+    w.push(line).unwrap();
+    // Later records need only BED6: column 9 is no colour, columns 7 and 8 no thick part.
+    w.push(b"chr1\t20\t30\tn\t5\t+\t12\t30\tx,y").unwrap();
+    w.push(b"chr1\t20\t30\tn\t5\t+\t40\t2\t300").unwrap();
+    w.finish().unwrap();
+    assert_eq!(defined_field_count(&out), 6);
+    // Without the autoSql the first record decides: 9.
+    let plain = dir.path().join("p.bb");
+    write_all(
+        &plain,
+        BbiKind::BigBed,
+        SIZES,
+        1,
+        &[String::from_utf8(line.to_vec()).unwrap()],
+    );
+    assert_eq!(defined_field_count(&plain), 9);
+}
+
+#[test]
+fn records_must_have_the_standard_columns_the_autosql_declares() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut fields = BED6.to_vec();
+    fields.extend(["uint thickStart", "uint thickEnd"]);
+    let mut o = options(BbiKind::BigBed, SIZES, 1);
+    o.autosql = Some(table(&fields));
+    o.autosql_name = "my.as".into();
+    let mut w = BbiWriter::create(&spec(&dir.path().join("d.bb")), o).unwrap();
+    match w.push(b"chr1\t0\t10\tn\t5\t+\t1.5\tx") {
+        Err(PushError::Record(m)) => {
+            assert!(m.contains("thickStart '1.5'"), "{m}");
+            assert!(m.contains("my.as declares the first 8 columns"), "{m}");
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_kept_defined_field_count_is_capped_at_the_first_record() {
+    let dir = tempfile::tempdir().unwrap();
+    for (kept, want) in [(6, 6), (12, 9), (7, 6)] {
+        let mut o = options(BbiKind::BigBed, SIZES, 1);
+        o.defined_field_count = Some(kept);
+        let out = dir.path().join(format!("k{kept}.bb"));
+        let mut w = BbiWriter::create(&spec(&out), o).unwrap();
+        w.push(b"chr1\t0\t10\tn\t5\t+\t12\t30\t2").unwrap();
+        w.finish().unwrap();
+        assert_eq!(defined_field_count(&out), want, "kept {kept}");
     }
 }
 

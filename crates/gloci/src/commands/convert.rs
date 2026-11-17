@@ -257,17 +257,23 @@ hg38, or a .genome, .fai or .dict file); only a bigWig or bigBed input brings it
             .into());
         }
     };
-    // A bigBed converted to a bigBed keeps its autoSql, unless --autosql replaces it.
-    let (autosql, autosql_name) = match (autosql, input.format()) {
-        (None, Format::BigBed) if kind == BbiKind::BigBed => (
-            gloci_io::bbi_autosql(&a.file),
-            format!("the autoSql of {}", a.file),
-        ),
+    // A bigBed converted to a bigBed keeps its autoSql and its definedFieldCount, unless
+    // --autosql replaces them (D171).
+    let (autosql, autosql_name, defined_field_count) = match (autosql, input.format()) {
+        (None, Format::BigBed) if kind == BbiKind::BigBed => {
+            let (text, defined) = gloci_io::bbi_bed_columns(&a.file)?;
+            (
+                text,
+                format!("the autoSql of {}", a.file),
+                (defined >= 3).then_some(usize::from(defined)),
+            )
+        }
         (text, _) => (
             text,
             a.autosql.as_ref().map_or_else(String::new, |p| {
                 gloci_io::memio::display_name(&p.to_string_lossy())
             }),
+            None,
         ),
     };
     let dest = spec.path.as_ref().map_or_else(
@@ -282,6 +288,7 @@ hg38, or a .genome, .fai or .dict file); only a bigWig or bigBed input brings it
             threads: ctx.threads,
             autosql,
             autosql_name,
+            defined_field_count,
         },
     )
     .map_err(|e| e.with_output_name(&dest))?;

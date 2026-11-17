@@ -651,6 +651,7 @@ mod tests {
                 threads: NonZeroUsize::new(1).unwrap(),
                 autosql: None,
                 autosql_name: String::new(),
+                defined_field_count: None,
             },
         )
         .unwrap();

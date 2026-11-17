@@ -16,7 +16,10 @@
 //! panicking bigtools is reported with those likely causes, and the file is checked before it
 //! is renamed into place: a short or inconsistent file is never kept (D171).
 
-use super::autosql::{BedLayout, autosql_field_count, bed_autosql, bed_layout, check_bed_line};
+use super::autosql::{
+    BedLayout, autosql_field_count, autosql_standard_columns, bed_autosql, bed_layout,
+    check_bed_line, standard_size,
+};
 use super::check;
 use crate::atomic::{AtomicFile, panic_note, set_thread_panic_note};
 use crate::detect::{BIGBED_MAGIC, BIGWIG_MAGIC};
@@ -71,6 +74,9 @@ pub struct BbiWriteOptions {
     pub autosql: Option<String>,
     /// Names the autoSql in errors ("bad.as", or the option that gave it).
     pub autosql_name: String,
+    /// bigBed: the definedFieldCount to keep, a bigBed input's, instead of the one the autoSql
+    /// or the first record gives; capped at the standard columns the first record has (D171).
+    pub defined_field_count: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -152,6 +158,15 @@ enum Worker {
     Bed(Sender<Msg<BedEntry>>, JoinHandle<WorkerResult>),
 }
 
+/// Where a bigBed's standard-column count comes from, when not from its first record.
+#[derive(Clone, Copy, Debug)]
+enum Standard {
+    /// A bigBed input's definedFieldCount: at most the first record's standard columns.
+    Kept(usize),
+    /// The given autoSql's: the first record's columns must be valid up to it.
+    Declared(usize),
+}
+
 /// The checks and bookkeeping of the chromosome being written.
 struct Cursor {
     chrom: String,
@@ -167,8 +182,12 @@ pub struct BbiWriter {
     source: String,
     threads: NonZeroUsize,
     autosql: Option<String>,
+    autosql_name: String,
     /// The field count of the given autoSql, parsed by `create`.
     autosql_fields: Option<usize>,
+    /// How many leading columns are standard BED columns, when not the first record's own:
+    /// kept from a bigBed input, or declared by the autoSql.
+    standard: Option<Standard>,
     layout: Option<BedLayout>,
     worker: Option<Worker>,
     /// The writer thread stopped with an error: nothing more is accepted.
@@ -215,12 +234,18 @@ take it",
             }
         };
         // Parse the autoSql before the output exists: a bad one is the user's usage error.
-        let autosql_fields = match &o.autosql {
-            Some(text) => Some(
-                autosql_field_count(text)
-                    .map_err(|m| UsageError(format!("{}: {m}", o.autosql_name)))?,
+        let usage = |m| UsageError(format!("{}: {m}", o.autosql_name));
+        let (autosql_fields, declared) = match &o.autosql {
+            Some(text) => (
+                Some(autosql_field_count(text).map_err(usage)?),
+                Some(autosql_standard_columns(text).map_err(usage)?),
             ),
-            None => None,
+            None => (None, None),
+        };
+        let standard = match (o.defined_field_count, declared) {
+            (Some(n), _) => Some(Standard::Kept(n)),
+            (None, Some(n)) => Some(Standard::Declared(n)),
+            (None, None) => None,
         };
         let dest = path.display().to_string();
         raise_open_file_limit();
@@ -240,7 +265,9 @@ take it",
             source: o.sizes.source,
             threads: o.threads,
             autosql: o.autosql,
+            autosql_name: o.autosql_name,
             autosql_fields,
+            standard,
             layout: None,
             worker: None,
             failed: false,
@@ -293,7 +320,7 @@ has {}",
                 if let Some(layout) = &self.layout {
                     check_bed_line(raw, layout).map_err(rec)?;
                 } else {
-                    let layout = bed_layout(raw).map_err(rec)?;
+                    let mut layout = bed_layout(raw).map_err(rec)?;
                     if let Some(n) = self.autosql_fields
                         && n != layout.columns
                     {
@@ -302,6 +329,22 @@ has {}",
 columns; they must agree",
                             layout.columns
                         )));
+                    }
+                    match self.standard {
+                        None => {}
+                        Some(Standard::Kept(n)) => {
+                            layout.standard = standard_size(n.min(layout.standard));
+                        }
+                        Some(Standard::Declared(n)) => {
+                            layout.standard = standard_size(n.min(layout.columns));
+                            check_bed_line(raw, &layout).map_err(|e| {
+                                rec(format!(
+                                    "{e}, but {} declares the first {} columns as BED's \
+standard ones",
+                                    self.autosql_name, layout.standard
+                                ))
+                            })?;
+                        }
                     }
                     // Kept only once the whole record is accepted.
                     first_layout = Some(layout);
@@ -929,6 +972,7 @@ mod tests {
                 threads: NonZeroUsize::new(1).unwrap(),
                 autosql: None,
                 autosql_name: "autosql".into(),
+                defined_field_count: None,
             },
         )
         .unwrap()

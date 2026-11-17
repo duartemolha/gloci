@@ -5,7 +5,7 @@ mod check;
 mod read;
 mod write;
 
-pub use read::{bbi_chrom_sizes, open_bbi_regions};
+pub use read::{bbi_bed_columns, bbi_chrom_sizes, open_bbi_regions};
 pub use write::{BbiKind, BbiSizes, BbiWriteOptions, BbiWriter, PushError, bbi_output_refusal};
 
 /// The refusal of `gloci index` and of tabix/CSI reads for a bigWig or bigBed, which carries
@@ -17,13 +17,3 @@ pub fn bbi_unindexed(name: &str, format: crate::Format) -> crate::UsageError {
     ))
 }
 pub(crate) use read::open_bbi;
-
-/// The autoSql text stored in the bigBed at `path`, as written; `None` when the file has none
-/// or cannot be read (the reader reports an unreadable file itself).
-pub fn bbi_autosql(path: &str) -> Option<String> {
-    bigtools::BigBedRead::open_file(path)
-        .ok()?
-        .autosql()
-        .ok()
-        .flatten()
-}

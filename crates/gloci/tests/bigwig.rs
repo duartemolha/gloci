@@ -1136,6 +1136,65 @@ fn bigbed_to_bigbed_keeps_the_input_autosql() {
     assert_eq!(r.autosql().unwrap().unwrap(), other);
 }
 
+/// The definedFieldCount of the bigBed at `path`.
+fn defined_field_count(path: &Path) -> u16 {
+    bigtools::BigBedRead::open_file(path)
+        .unwrap()
+        .info()
+        .header
+        .defined_field_count
+}
+
+/// A BED6+3 whose extra columns are integers, which would pass as thickStart, thickEnd and
+/// itemRgb.
+const BED6_PLUS_3: &str =
+    "chr1\t100\t200\tp1\t500\t+\t12\t30\t2\nchr1\t150\t400\tp2\t0\t-\t7\t9\t3\n";
+
+#[test]
+fn the_autosql_decides_the_defined_field_count() {
+    let d = tempdir();
+    let bed = plain_file(d.path(), "reads.bed", BED6_PLUS_3);
+    let sql = "table reads\n\"BED6 plus read counts\"\n(\n    string chrom; \"c\"\n    uint chromStart; \"s\"\n    uint chromEnd; \"e\"\n    string name; \"n\"\n    uint score; \"sc\"\n    char[1] strand; \"st\"\n    uint readsA; \"a\"\n    uint readsB; \"b\"\n    uint replicates; \"r\"\n)\n";
+    let as_file = plain_file(d.path(), "reads.as", sql);
+    let bb = d.path().join("r.bb");
+    convert_ok(&[
+        &s(&bed),
+        "-g",
+        &input("peaks.genome"),
+        "--autosql",
+        &s(&as_file),
+        "-o",
+        &s(&bb),
+    ]);
+    assert_eq!(defined_field_count(&bb), 6);
+    assert_eq!(out(&["view", &s(&bb)]), BED6_PLUS_3);
+    // Without --autosql the first record decides.
+    let plain = d.path().join("p.bb");
+    convert_ok(&[&s(&bed), "-g", &input("peaks.genome"), "-o", &s(&plain)]);
+    assert_eq!(defined_field_count(&plain), 9);
+}
+
+#[test]
+fn bigbed_to_bigbed_keeps_the_defined_field_count() {
+    let d = tempdir();
+    let bed = plain_file(d.path(), "reads.bed", BED6_PLUS_3);
+    let nine = d.path().join("nine.bb");
+    convert_ok(&[&s(&bed), "-g", &input("peaks.genome"), "-o", &s(&nine)]);
+    assert_eq!(defined_field_count(&nine), 9);
+    // The same file with definedFieldCount 6, as a writer told it is BED6+3 writes it; its
+    // autoSql still names columns 7 to 9 thickStart, thickEnd and itemRgb.
+    let mut bytes = std::fs::read(&nine).unwrap();
+    bytes[34..36].copy_from_slice(&6u16.to_le_bytes());
+    let six = d.path().join("six.bb");
+    std::fs::write(&six, bytes).unwrap();
+    for (src, want) in [(&six, 6), (&nine, 9)] {
+        let copy = d.path().join(format!("copy{want}.bb"));
+        convert_ok(&[&s(src), "-o", &s(&copy)]);
+        assert_eq!(defined_field_count(&copy), want, "{}", s(src));
+        assert_eq!(out(&["view", &s(&copy)]), BED6_PLUS_3);
+    }
+}
+
 #[test]
 fn the_committed_user_autosql_bigbed_stores_its_autosql() {
     let mut r = bigtools::BigBedRead::open_file(inputs().join("peaks6.bb")).unwrap();

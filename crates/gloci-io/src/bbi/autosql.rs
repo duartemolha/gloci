@@ -2,10 +2,12 @@
 //!
 //! The first record decides the layout: its standard BED columns are the longest prefix of
 //! size 3, 4, 5, 6, 8, 9 or 12 whose fields are valid, and any further columns are extra.
-//! Every later record must have the same column count and valid standard columns.
+//! Every later record must have the same column count and valid standard columns. An autoSql
+//! given with `--autosql`, or a bigBed input's definedFieldCount, says instead how many of the
+//! columns are standard (D171).
 
 use crate::bed12_blocks;
-use bigtools::bed::autosql::parse::ParseError;
+use bigtools::bed::autosql::parse::{Field, FieldType, ParseError};
 
 /// The sizes a BED prefix can have.
 const STANDARD_SIZES: [usize; 7] = [3, 4, 5, 6, 8, 9, 12];
@@ -150,14 +152,89 @@ pub fn bed_autosql(layout: &BedLayout) -> String {
     out
 }
 
-/// The number of fields an autoSql text declares, by bigtools' parser.
-pub fn autosql_field_count(text: &str) -> Result<usize, String> {
+/// The fields of the table an autoSql text declares, by bigtools' parser.
+fn autosql_fields(text: &str) -> Result<Vec<Field>, String> {
     let mut declarations = bigtools::bed::autosql::parse::parse_autosql(text)
         .map_err(|e| format!("the autoSql does not parse: {}", describe(&e)))?;
     declarations
         .pop()
-        .map(|d| d.fields.len())
+        .map(|d| d.fields)
         .ok_or_else(|| "the autoSql declares no table".to_string())
+}
+
+/// The number of fields an autoSql text declares, by bigtools' parser.
+pub fn autosql_field_count(text: &str) -> Result<usize, String> {
+    autosql_fields(text).map(|f| f.len())
+}
+
+/// The largest size a BED prefix can have that is at most `n` (at least 3).
+pub fn standard_size(n: usize) -> usize {
+    STANDARD_SIZES
+        .into_iter()
+        .rev()
+        .find(|&s| s <= n)
+        .unwrap_or(3)
+}
+
+/// The kind of value a standard BED field holds, as an autoSql types it.
+#[derive(Clone, Copy)]
+enum Kind {
+    Text,
+    Int,
+    Char1,
+    IntList,
+}
+
+/// The standard BED fields after chrom, chromStart and chromEnd, in order: the names each may
+/// have, and its kind.
+const BED_FIELDS: [(&[&str], Kind); 9] = [
+    (&["name"], Kind::Text),
+    (&["score"], Kind::Int),
+    (&["strand"], Kind::Char1),
+    (&["thickStart"], Kind::Int),
+    (&["thickEnd"], Kind::Int),
+    (&["itemRgb", "reserved"], Kind::Int),
+    (&["blockCount"], Kind::Int),
+    (&["blockSizes"], Kind::IntList),
+    (&["chromStarts", "blockStarts"], Kind::IntList),
+];
+
+fn is_bed_field(f: &Field, names: &[&str], kind: Kind) -> bool {
+    let int = matches!(
+        f.field_type,
+        FieldType::Int
+            | FieldType::Uint
+            | FieldType::Short
+            | FieldType::Ushort
+            | FieldType::Byte
+            | FieldType::Ubyte
+    );
+    let typed = match kind {
+        Kind::Text => {
+            matches!(f.field_type, FieldType::String | FieldType::Lstring) && f.field_size.is_none()
+        }
+        Kind::Int => int && f.field_size.is_none(),
+        Kind::Char1 => {
+            matches!(f.field_type, FieldType::Char) && f.field_size.as_deref() == Some("1")
+        }
+        Kind::IntList => int && f.field_size.is_some(),
+    };
+    typed && names.contains(&f.name.as_str())
+}
+
+/// How many of the leading fields of an autoSql are standard BED columns, by name and type in
+/// BED's order: the first three always (every bigBed record starts with chrom, chromStart and
+/// chromEnd, whatever the autoSql calls them), then as long as the fields match, rounded down
+/// to a size BED has.
+pub fn autosql_standard_columns(text: &str) -> Result<usize, String> {
+    let fields = autosql_fields(text)?;
+    let matched = fields
+        .iter()
+        .skip(3)
+        .zip(BED_FIELDS)
+        .take_while(|(f, (names, kind))| is_bed_field(f, names, *kind))
+        .count();
+    Ok(standard_size(3 + matched))
 }
 
 /// bigtools' `ParseError` in words (it has no `Display`).

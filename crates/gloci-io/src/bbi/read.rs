@@ -186,6 +186,22 @@ pub fn bbi_chrom_sizes(path: &str) -> Result<Vec<(Vec<u8>, u64)>, IoError> {
         .collect())
 }
 
+/// What the bigBed at `path` says about its columns: its autoSql text as written (`None` when
+/// it has none) and its header's definedFieldCount. Read as the reader reads, so a bad file is
+/// the reader's error, never a message from bigtools or a panic.
+pub fn bbi_bed_columns(path: &str) -> Result<(Option<String>, u16), IoError> {
+    let Source::Bed(mut r) = open_source(path, Format::BigBed)? else {
+        unreachable!("open_source opens a bigBed as one");
+    };
+    let _note = panic_note(format!(
+        "{path} is not a valid bigBed file (it may be truncated)"
+    ));
+    let autosql = r
+        .autosql()
+        .map_err(|e| invalid(path, Format::BigBed, &e.to_string()))?;
+    Ok((autosql, r.info().header.defined_field_count))
+}
+
 pub(crate) fn open_bbi(
     path: &str,
     format: Format,
