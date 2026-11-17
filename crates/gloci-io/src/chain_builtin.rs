@@ -27,10 +27,12 @@ fn closest(name: &str) -> Option<&'static str> {
         .map(|(_, id)| id)
 }
 
+/// Only GRCh37-to-GRCh38 refuses a mitochondrial name. Every other built-in chain names it as a
+/// chain file does: GRCh38-to-GRCh37 writes GRCh37's `MT` as `chrMT` for a `chr` input, never as
+/// hg19's `chrM`, and the T2T chains have no mitochondrial chain (R13).
 fn mt_rule(c: &BuiltinChain) -> MtRule {
     match (c.from, c.to) {
         ("GRCh37", "GRCh38") => MtRule::Hg19,
-        ("GRCh38" | "CHM13v2", _) => MtRule::ChrM,
         _ => MtRule::Plain,
     }
 }
@@ -81,9 +83,9 @@ mod tests {
     fn rules_follow_the_source_assembly() {
         let rule = |id: &str| ChainIndex::resolve(id).unwrap().mt_rule();
         assert_eq!(rule("GRCh37-to-GRCh38"), MtRule::Hg19);
-        assert_eq!(rule("GRCh38-to-GRCh37"), MtRule::ChrM);
-        assert_eq!(rule("CHM13v2-to-GRCh38"), MtRule::ChrM);
-        assert_eq!(rule("GRCh37-to-CHM13v2"), MtRule::Plain);
+        for id in ["GRCh38-to-GRCh37", "CHM13v2-to-GRCh38", "GRCh37-to-CHM13v2"] {
+            assert_eq!(rule(id), MtRule::Plain, "{id}");
+        }
     }
 
     #[test]

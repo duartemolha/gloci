@@ -23,8 +23,7 @@ pub fn refused_chrm(chain: &ChainIndex, chrom: &str) -> bool {
 }
 
 /// The chain's source chromosome for an input name: as written, then with every `chr` removed,
-/// then with `chr` prepended (R4). `chrM` finds no `M`, and is never sent to `MT`, except by a
-/// built-in chain whose source is GRCh38 or CHM13v2, where it finds `MT` (R13).
+/// then with `chr` prepended (R4). `chrM` finds no `M`, and is never sent to `MT` (R4, R13).
 pub fn source_name(chain: &ChainIndex, chrom: &str) -> Option<SourceRef> {
     if refused_chrm(chain, chrom) {
         return None;
@@ -33,11 +32,6 @@ pub fn source_name(chain: &ChainIndex, chrom: &str) -> Option<SourceRef> {
         .source(chrom)
         .or_else(|| chain.source(&chrom.replace("chr", "")))
         .or_else(|| chain.source(&format!("chr{chrom}")))
-        .or_else(|| {
-            (chain.mt_rule() == MtRule::ChrM && chrom == "chrM")
-                .then(|| chain.source("MT"))
-                .flatten()
-        })
 }
 
 fn long(name: &str) -> String {
@@ -64,15 +58,4 @@ pub fn target_name(style: ChromStyle, input: &str, target: &str) -> String {
         ChromStyle::Long => long(target),
         ChromStyle::Chain => target.to_string(),
     }
-}
-
-/// A built-in chain's own target name for the mitochondrial chromosome: GRCh38's `MT` is hg38's
-/// `chrM`, so `as-input` writes it back as `chrM` for an input with a `chr` prefix (R13).
-pub(super) fn mt_target(
-    chain: &ChainIndex,
-    style: ChromStyle,
-    input_chr: bool,
-    target: &str,
-) -> bool {
-    chain.mt_rule() == MtRule::ChrM && style == ChromStyle::AsInput && input_chr && target == "MT"
 }

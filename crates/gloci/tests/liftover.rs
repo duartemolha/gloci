@@ -557,7 +557,7 @@ fn hg19_chrm_is_refused() {
     let bed = plain_file(
         d.path(),
         "m.bed",
-        "chrM\t100\t200\tx\nchr21\t9411300\t9411400\ty\n",
+        "chrM\t100\t200\tx\nchr21\t9411300\t9411400\ty\nM\t100\t200\tz\n",
     );
     gloci()
         .args([
@@ -574,9 +574,33 @@ fn hg19_chrm_is_refused() {
         ])
         .assert()
         .success()
-        .stdout("chrM\t100\t200\tx\n")
-        .stderr(contains("hg19's chrM is not GRCh37's MT"));
+        .stdout("chrM\t100\t200\tx\nM\t100\t200\tz\n")
+        .stderr(
+            contains("chrM is not lifted: hg19's chrM is not GRCh37's MT")
+                .and(contains("M is not lifted: it is taken as hg19's chrM"))
+                .and(contains("--chrom-map")),
+        );
     assert_eq!(read(&d.path().join("o.bed")).lines().count(), 1);
+}
+
+/// The refusal's hint works: an rCRS `chrM` renamed to `MT` with --chrom-map lifts.
+#[test]
+fn hg19_chrm_renamed_to_mt_lifts() {
+    let d = tempdir();
+    let bed = plain_file(d.path(), "m.bed", "chrM\t100\t200\tx\n");
+    let map = plain_file(d.path(), "map.tsv", "chrM\tMT\n");
+    gloci()
+        .args([
+            "liftover",
+            bed.to_str().unwrap(),
+            "--chain",
+            "GRCh37-to-GRCh38",
+        ])
+        .args(["--chrom-map", map.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout("MT\t100\t200\tx\n")
+        .stderr(contains("hg19's chrM").not());
 }
 
 #[test]
@@ -600,21 +624,34 @@ fn hg19_chrm_warning_comes_once() {
     assert_eq!(err.matches("hg19's chrM").count(), 1, "{err}");
 }
 
+/// GRCh37's MT (the rCRS) is never written as hg19's chrM, another sequence: a `chr` input
+/// gets `chrMT` through the built-in GRCh38-to-GRCh37 chain, as through the same chain given
+/// as a file and as through CrossMap (D174, R13).
 #[test]
-fn grch38_chrm_keeps_its_name() {
+fn grch38_to_grch37_writes_mt_as_chrmt() {
     let d = tempdir();
-    let bed = plain_file(d.path(), "m.bed", "chrM\t100\t200\n");
-    gloci()
-        .args([
-            "liftover",
-            bed.to_str().unwrap(),
-            "--chain",
-            "GRCh38-to-GRCh37",
-        ])
-        .assert()
-        .success()
-        .stdout(predicates::str::starts_with("chrM\t"))
-        .stderr(contains("hg19's chrM").not());
+    let bed = plain_file(d.path(), "m.bed", "chrM\t100\t200\tx\t0\t+\n");
+    let lift = |chain: &str| {
+        let out = gloci()
+            .args(["liftover", bed.to_str().unwrap(), "--chain", chain])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{chain}");
+        let err = String::from_utf8_lossy(&out.stderr).into_owned();
+        assert!(!err.contains("hg19's chrM"), "{chain}: {err}");
+        out.stdout
+    };
+    let file = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../gloci-chains/data/GRCh38-to-GRCh37.chain.gz")
+        .display()
+        .to_string();
+    let builtin = lift("GRCh38-to-GRCh37");
+    assert!(
+        builtin.starts_with(b"chrMT\t"),
+        "{}",
+        String::from_utf8_lossy(&builtin)
+    );
+    assert_eq!(builtin, lift(&file));
 }
 
 #[test]

@@ -117,11 +117,7 @@ impl Styler {
     fn name(&mut self, chain: &ChainIndex, id: u32, chr: bool) -> &str {
         let style = self.style;
         self.names[id as usize * 2 + usize::from(chr)].get_or_insert_with(|| {
-            let target = &chain.chain(id).target;
-            if names::mt_target(chain, style, chr, target) {
-                return "chrM".to_string();
-            }
-            target_name(style, if chr { "chr" } else { "" }, target)
+            target_name(style, if chr { "chr" } else { "" }, &chain.chain(id).target)
         })
     }
 
@@ -222,9 +218,14 @@ pub fn liftover(
             let from = sources[id].get_or_insert_with(|| {
                 let name = String::from_utf8_lossy(chroms.name(m.chrom)).into_owned();
                 if refused_chrm(chain, &name) {
+                    let why = if name.starts_with("chr") {
+                        "hg19's chrM is not GRCh37's MT"
+                    } else {
+                        "it is taken as hg19's chrM, which is not GRCh37's MT"
+                    };
                     log::warn!(
-                        "{name} is not lifted: hg19's chrM is not GRCh37's MT, so the built-in \
-GRCh37-to-GRCh38 chain leaves it unmapped"
+                        "{name} is not lifted: {why}, so the built-in GRCh37-to-GRCh38 chain \
+leaves its records unmapped; if it is GRCh37's MT (the rCRS), rename it to MT with --chrom-map"
                     );
                 }
                 Input {

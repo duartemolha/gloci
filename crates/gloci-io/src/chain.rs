@@ -49,12 +49,10 @@ struct Block {
 /// How liftover treats the mitochondrial chromosome for a chain (D174, R13).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MtRule {
-    /// Names as they are in the chain: `chrM` finds no `M` and is never sent to `MT` (R4).
+    /// Names as they are in the chain: `chrM` finds no `M` and is never sent to `MT` (R4), and
+    /// a target `MT` is styled like any other name (`chrMT` for a `chr` input under `as-input`).
     #[default]
     Plain,
-    /// A built-in chain whose source is GRCh38 or CHM13v2, where `MT` is hg38's `chrM`: `chrM`
-    /// finds `MT`, and a target `MT` is written back as `chrM`.
-    ChrM,
     /// The built-in GRCh37-to-GRCh38 chain: hg19's `chrM` is not GRCh37's `MT`, so `chrM` and
     /// `M` stay unmapped.
     Hg19,
