@@ -4,14 +4,21 @@
 //! the start of a bigBed record against its chromosome, nothing about a bigWig's overlaps
 //! reaching the file, and a chromosome count it stores in 16 bits. A refused record names
 //! why; the caller names where it came from. The file is written under a temporary name and
-//! renamed into place by [`BbiWriter::finish`].
+//! renamed into place by [`BbiWriter::finish`], once [`super::check`] has read it back.
 //!
 //! bigtools runs on its own thread, fed batches of records through a bounded channel, so
 //! memory stays flat in the input size. Its sections reach the file in input order whatever
 //! the thread count, so the bytes do not depend on `--threads`.
+//!
+//! bigtools spools each chromosome to temporary files in `$TMPDIR`, about 10 open at once per
+//! chromosome with records, and loses some of their errors. So `create` raises the soft
+//! open-file limit to the hard one and checks that `$TMPDIR` takes a file, a stopped or
+//! panicking bigtools is reported with those likely causes, and the file is checked before it
+//! is renamed into place: a short or inconsistent file is never kept (D171).
 
 use super::autosql::{BedLayout, autosql_field_count, bed_autosql, bed_layout, check_bed_line};
-use crate::atomic::AtomicFile;
+use super::check;
+use crate::atomic::{AtomicFile, panic_note, set_thread_panic_note};
 use crate::detect::{BIGBED_MAGIC, BIGWIG_MAGIC};
 use crate::error::{IoError, UsageError};
 use crate::output::{OutFormat, OutputSpec};
@@ -21,10 +28,12 @@ use bigtools::{BBIProcessError, BedEntry, BigBedWrite, BigWigWrite, InputSortTyp
 use crossbeam_channel::{Receiver, Sender, bounded};
 use gloci_core::Genome;
 use std::collections::{HashMap, HashSet};
+use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::thread::JoinHandle;
+use std::time::Instant;
 
 /// Records per message to the writer thread.
 const BATCH: usize = 4096;
@@ -40,7 +49,7 @@ pub enum BbiKind {
 }
 
 impl BbiKind {
-    fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             BbiKind::BigWig => "bigWig",
             BbiKind::BigBed => "bigBed",
@@ -214,6 +223,8 @@ take it",
             None => None,
         };
         let dest = path.display().to_string();
+        raise_open_file_limit();
+        check_temp_dir(&dest)?;
         let af = AtomicFile::create(&path).map_err(|source| IoError::Create {
             path: dest.clone(),
             source,
@@ -437,11 +448,20 @@ most 65,535"
             .expect("file present until finish")
             .try_clone_file()
             .map_err(werr)?;
+        // A panic in bigtools (its temporary files failing, mostly) is reported with the likely
+        // causes, on its runtime's threads as on this one, instead of as gloci's internal error.
+        let note = unfinished(
+            &self.dest,
+            &format!("the {} writer stopped", self.kind.name()),
+        )
+        .to_string();
         let runtime = if self.threads.get() == 1 {
             tokio::runtime::Builder::new_current_thread().build()
         } else {
+            let note = note.clone();
             tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(self.threads.get())
+                .on_thread_start(move || set_thread_panic_note(note.clone()))
                 .build()
         }
         .map_err(werr)?;
@@ -464,6 +484,7 @@ most 65,535"
             BbiKind::BigWig => {
                 let (tx, rx) = bounded(QUEUE);
                 let handle = spawn(Box::new(move || {
+                    let _note = panic_note(note);
                     let feed = Feed {
                         rx,
                         cur: Vec::new().into_iter(),
@@ -482,6 +503,7 @@ most 65,535"
                 let text = self.autosql.clone().unwrap_or_else(|| bed_autosql(&layout));
                 let (tx, rx) = bounded(QUEUE);
                 let handle = spawn(Box::new(move || {
+                    let _note = panic_note(note);
                     let feed = Feed {
                         rx,
                         cur: Vec::new().into_iter(),
@@ -509,13 +531,22 @@ most 65,535"
         }
         let worker = self.worker.take().expect("worker started");
         self.failed = true;
-        Err(PushError::Writer(match join(worker, &self.dest) {
-            Err(e) => e,
-            Ok(()) => IoError::Internal("the bigWig/bigBed writer stopped early".into()),
-        }))
+        Err(PushError::Writer(
+            match join(worker, self.kind, &self.dest) {
+                Err(e) => e,
+                Ok(()) => unfinished(
+                    &self.dest,
+                    &format!(
+                        "the {} writer stopped before its input ended",
+                        self.kind.name()
+                    ),
+                ),
+            },
+        ))
     }
 
-    /// Ends the input, joins the writer, fixes definedFieldCount (bigBed), renames into place.
+    /// Ends the input, joins the writer, checks the file and fixes definedFieldCount (bigBed),
+    /// renames into place.
     pub fn finish(mut self) -> Result<(), IoError> {
         if self.failed {
             return Err(already_failed());
@@ -548,11 +579,15 @@ end); the writer needs at least one record that covers a base",
             });
         }
         let worker = self.worker.take().expect("worker started");
-        join(worker, &self.dest)?;
+        join(worker, self.kind, &self.dest)?;
         let af = self.af.take().expect("file present until finish");
-        // bigtools writes the trailing magic last, inside a buffer whose flush errors on drop
-        // are swallowed: a file without it is incomplete.
-        finish_file(&af, self.kind, self.layout.map(|l| l.standard), &self.dest)?;
+        finish_file(
+            &af,
+            self.kind,
+            self.layout.map(|l| l.standard),
+            self.records,
+            &self.dest,
+        )?;
         af.commit().map_err(|source| IoError::Write {
             path: self.dest.clone(),
             source,
@@ -560,8 +595,9 @@ end); the writer needs at least one record that covers a base",
     }
 }
 
-/// Ends the input of a worker and waits for it.
-fn join(worker: Worker, dest: &str) -> Result<(), IoError> {
+/// Ends the input of a worker and waits for it. Its I/O errors and its panics (when a panic
+/// unwinds rather than ending the process) name the likely causes.
+fn join(worker: Worker, kind: BbiKind, dest: &str) -> Result<(), IoError> {
     let handle = match worker {
         Worker::Wig(tx, h) => {
             drop(tx);
@@ -574,14 +610,22 @@ fn join(worker: Worker, dest: &str) -> Result<(), IoError> {
     };
     match handle.join() {
         Ok(Ok(())) => Ok(()),
-        Ok(Err(BBIProcessError::IoError(source))) => Err(IoError::Write {
-            path: dest.to_string(),
-            source,
-        }),
+        Ok(Err(BBIProcessError::IoError(source))) => {
+            Err(unfinished(dest, &format!("bigtools failed: {source}")))
+        }
+        // gloci checks every record first, so bigtools refusing one is gloci's bug.
         Ok(Err(e)) => Err(IoError::Internal(format!("bigtools: {e}"))),
-        Err(_) => Err(IoError::Internal(
-            "the bigWig/bigBed writer panicked".into(),
-        )),
+        Err(payload) => {
+            let why = payload
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "a panic with no message".into());
+            Err(unfinished(
+                dest,
+                &format!("the {} writer stopped ({why})", kind.name()),
+            ))
+        }
     }
 }
 
@@ -599,7 +643,7 @@ impl Drop for BbiWriter {
                 let _ = tx.send(Msg::Abort);
             }
         }
-        let _ = join(worker, &self.dest);
+        let _ = join(worker, self.kind, &self.dest);
     }
 }
 
@@ -640,26 +684,151 @@ fn parse_value(s: &str) -> Result<f32, String> {
     }
 }
 
-/// Checks the finished temp file ends with its magic number, and for a bigBed writes the
-/// number of standard columns into the header's definedFieldCount (bytes 34-35), in the byte
-/// order the magic at the start of the file shows.
+/// The error of a write bigtools could not finish: `what` went wrong, then the likely causes.
+fn unfinished(dest: &str, what: &str) -> IoError {
+    IoError::Detect {
+        path: dest.to_string(),
+        msg: format!("cannot write {dest}: {what}; {}", resources_hint()),
+    }
+}
+
+/// The likely causes of a write bigtools could not finish: its temporary files.
+fn resources_hint() -> String {
+    #[cfg(unix)]
+    let limit = match open_file_limits() {
+        Some((soft, hard)) => format!(
+            "ulimit -n: soft {}, hard {}",
+            limit_text(soft),
+            limit_text(hard)
+        ),
+        None => "ulimit -n".to_string(),
+    };
+    #[cfg(not(unix))]
+    let limit = "the system's limit".to_string();
+    format!(
+        "bigtools keeps about 10 temporary files open per chromosome, in $TMPDIR ({}): check the \
+open-file limit ({limit}) and free disk space in $TMPDIR and for the output",
+        std::env::temp_dir().display()
+    )
+}
+
+/// bigtools creates its temporary files in `$TMPDIR`: one that cannot take a file fails here,
+/// naming it, before anything is written.
+fn check_temp_dir(dest: &str) -> Result<(), IoError> {
+    tempfile::tempfile().map(drop).map_err(|e| IoError::Detect {
+        path: dest.to_string(),
+        msg: format!(
+            "cannot write {dest}: bigtools writes its temporary files to $TMPDIR ({}), and none \
+can be created there ({e}); set TMPDIR to a writable directory with free disk space",
+            std::env::temp_dir().display()
+        ),
+    })
+}
+
+/// The soft and hard open-file limits.
+#[cfg(unix)]
+fn open_file_limits() -> Option<(libc::rlim_t, libc::rlim_t)> {
+    let mut lim = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: getrlimit only writes the struct it is given.
+    let ok = unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) } == 0;
+    ok.then_some((lim.rlim_cur, lim.rlim_max))
+}
+
+#[cfg(unix)]
+fn limit_text(n: libc::rlim_t) -> String {
+    if n == libc::RLIM_INFINITY {
+        "unlimited".into()
+    } else {
+        n.to_string()
+    }
+}
+
+/// Raises the soft open-file limit to the hard one, once per process: bigtools keeps about 10
+/// temporary files open per chromosome with records while it writes (D171).
+fn raise_open_file_limit() {
+    #[cfg(unix)]
+    {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            let Some((soft, hard)) = open_file_limits() else {
+                return;
+            };
+            if soft >= hard {
+                return;
+            }
+            let set = |n| {
+                let lim = libc::rlimit {
+                    rlim_cur: n,
+                    rlim_max: hard,
+                };
+                // SAFETY: setrlimit only reads the struct it is given.
+                unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &lim) == 0 }
+            };
+            match raise_soft_limit(soft, hard, set) {
+                Some(n) => log::debug!(
+                    "raised the open-file limit from {soft} to {n} (hard limit {}) for the \
+bigWig/bigBed writer",
+                    limit_text(hard)
+                ),
+                None => log::debug!(
+                    "cannot raise the open-file limit above {soft} (hard limit {})",
+                    limit_text(hard)
+                ),
+            }
+        });
+    }
+}
+
+/// The largest soft limit above `soft`, at most `hard`, that `set` accepts, and the one in
+/// force when it returns; `None` when it accepts none. macOS refuses an unlimited hard limit
+/// as the soft one, so `OPEN_MAX` is tried next, then a search between the largest value
+/// accepted and the smallest refused.
+#[cfg(unix)]
+fn raise_soft_limit(
+    soft: libc::rlim_t,
+    hard: libc::rlim_t,
+    mut set: impl FnMut(libc::rlim_t) -> bool,
+) -> Option<libc::rlim_t> {
+    /// macOS's `OPEN_MAX`.
+    const OPEN_MAX: libc::rlim_t = 10_240;
+    if set(hard) {
+        return Some(hard);
+    }
+    let (mut lo, mut hi) = (soft, hard);
+    if lo < OPEN_MAX && OPEN_MAX < hi {
+        if set(OPEN_MAX) {
+            lo = OPEN_MAX;
+        } else {
+            hi = OPEN_MAX;
+        }
+    }
+    while hi - lo > 1 {
+        let mid = lo + (hi - lo) / 2;
+        if set(mid) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    (lo > soft).then_some(lo)
+}
+
+/// Checks the finished temp file before the rename: the magic number at both ends, then its
+/// structure and record count ([`check`]). For a bigBed, then writes the number of standard
+/// columns into the header's definedFieldCount.
 fn finish_file(
     af: &AtomicFile,
     kind: BbiKind,
     standard: Option<usize>,
+    records: u64,
     dest: &str,
 ) -> Result<(), IoError> {
     let write_err = |source| IoError::Write {
         path: dest.to_string(),
         source,
-    };
-    let incomplete = || IoError::Detect {
-        path: dest.to_string(),
-        msg: format!(
-            "{dest} is incomplete (it does not end with the {} magic number); check free disk \
-space",
-            kind.name()
-        ),
     };
     // The temp file is open for writing only: reopen it to read.
     let mut f = std::fs::OpenOptions::new()
@@ -667,38 +836,72 @@ space",
         .write(true)
         .open(af.temp_path())
         .map_err(write_err)?;
+    // bigtools writes the trailing magic last, inside a buffer whose flush errors on drop are
+    // swallowed: a file without it is incomplete.
+    let little = byte_order(&mut f, kind).ok_or_else(|| {
+        unfinished(
+            dest,
+            &format!(
+                "{dest} is incomplete (it does not end with the {} magic number)",
+                kind.name()
+            ),
+        )
+    })?;
+    let t = Instant::now();
+    let checked = check::check_written(af.temp_path(), kind, records).map_err(|why| {
+        unfinished(
+            dest,
+            &format!(
+                "the {} bigtools wrote is incomplete or inconsistent, so it was not kept: {why}",
+                kind.name()
+            ),
+        )
+    })?;
+    log::debug!(
+        "checked {dest} before renaming it into place: {} sections, {} zoom levels, in {:.2?}",
+        checked.sections,
+        checked.zoom_levels,
+        t.elapsed()
+    );
+    if let Some(standard) = standard {
+        write_defined_field_count(&mut f, little, standard).map_err(write_err)?;
+    }
+    f.flush().map_err(write_err)
+}
+
+/// Whether `f` is little-endian, by the magic number at its start, which must also end it;
+/// `None` when either is missing.
+fn byte_order(f: &mut File, kind: BbiKind) -> Option<bool> {
     let magic = match kind {
         BbiKind::BigWig => BIGWIG_MAGIC,
         BbiKind::BigBed => BIGBED_MAGIC,
     };
     let mut head = [0u8; 4];
-    if f.read_exact(&mut head).is_err() {
-        return Err(incomplete());
-    }
+    f.seek(SeekFrom::Start(0)).ok()?;
+    f.read_exact(&mut head).ok()?;
     let little = u32::from_le_bytes(head) == magic;
     if !little && u32::from_be_bytes(head) != magic {
-        return Err(incomplete());
+        return None;
     }
-    let len = f.seek(SeekFrom::End(0)).map_err(write_err)?;
+    let len = f.seek(SeekFrom::End(0)).ok()?;
     let mut tail = [0u8; 4];
-    if len < 8
-        || f.seek(SeekFrom::Start(len - 4)).is_err()
-        || f.read_exact(&mut tail).is_err()
-        || tail != head
-    {
-        return Err(incomplete());
+    if len < 8 {
+        return None;
     }
-    if let Some(standard) = standard {
-        let n = u16::try_from(standard).unwrap_or(12);
-        f.seek(SeekFrom::Start(34)).map_err(write_err)?;
-        f.write_all(&if little {
-            n.to_le_bytes()
-        } else {
-            n.to_be_bytes()
-        })
-        .map_err(write_err)?;
-    }
-    f.flush().map_err(write_err)
+    f.seek(SeekFrom::Start(len - 4)).ok()?;
+    f.read_exact(&mut tail).ok()?;
+    (tail == head).then_some(little)
+}
+
+/// Writes `standard` into the header's definedFieldCount (bytes 34-35) in the file's byte order.
+fn write_defined_field_count(f: &mut File, little: bool, standard: usize) -> std::io::Result<()> {
+    let n = u16::try_from(standard).unwrap_or(12);
+    f.seek(SeekFrom::Start(34))?;
+    f.write_all(&if little {
+        n.to_le_bytes()
+    } else {
+        n.to_be_bytes()
+    })
 }
 
 fn already_failed() -> IoError {
@@ -743,7 +946,7 @@ mod tests {
         if let Worker::Wig(tx, _) = &real {
             let _ = tx.send(Msg::Abort);
         }
-        let _ = join(real, &w.dest);
+        let _ = join(real, w.kind, &w.dest);
         let (tx, rx) = bounded(QUEUE);
         drop(rx);
         let handle =
@@ -757,8 +960,9 @@ mod tests {
             }
         }
         match got {
-            Some(PushError::Writer(IoError::Write { source, .. })) => {
-                assert_eq!(source.to_string(), "boom")
+            Some(PushError::Writer(IoError::Detect { msg, .. })) => {
+                assert!(msg.contains("bigtools failed: boom"), "{msg}");
+                assert!(msg.contains("ulimit -n"), "{msg}");
             }
             other => panic!("expected the writer's error, got {other:?}"),
         }
@@ -772,39 +976,39 @@ mod tests {
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
     }
 
-    /// `finish_file` on a crafted temp file: `head` magic, 40 bytes of body, `tail` magic.
-    fn finish_crafted(
-        kind: BbiKind,
-        head: [u8; 4],
-        tail: &[u8],
-        standard: Option<usize>,
-    ) -> (Result<(), IoError>, Vec<u8>) {
+    /// A crafted temp file: `head` magic, 40 bytes of body, `tail` magic.
+    fn crafted(head: [u8; 4], tail: &[u8]) -> (tempfile::TempDir, AtomicFile) {
         let dir = tempfile::tempdir().unwrap();
         let af = AtomicFile::create(&dir.path().join("c.out")).unwrap();
         let mut bytes = head.to_vec();
         bytes.extend_from_slice(&[0u8; 40]);
         bytes.extend_from_slice(tail);
         std::fs::write(af.temp_path(), &bytes).unwrap();
-        let r = finish_file(&af, kind, standard, "c.out");
-        let after = std::fs::read(af.temp_path()).unwrap();
-        (r, after)
+        (dir, af)
+    }
+
+    fn order_of(kind: BbiKind, head: [u8; 4], tail: &[u8]) -> Option<bool> {
+        let (_dir, af) = crafted(head, tail);
+        byte_order(&mut File::open(af.temp_path()).unwrap(), kind)
     }
 
     #[test]
     fn a_complete_little_endian_bigwig_is_accepted() {
         let m = BIGWIG_MAGIC.to_le_bytes();
-        let (r, _) = finish_crafted(BbiKind::BigWig, m, &m, None);
-        r.unwrap();
+        assert_eq!(order_of(BbiKind::BigWig, m, &m), Some(true));
     }
 
     #[test]
     fn a_tail_cut_by_one_byte_is_incomplete() {
         let m = BIGWIG_MAGIC.to_le_bytes();
-        let (r, _) = finish_crafted(BbiKind::BigWig, m, &m[..3], None);
-        match r {
+        assert_eq!(order_of(BbiKind::BigWig, m, &m[..3]), None);
+        let (_dir, af) = crafted(m, &m[..3]);
+        match finish_file(&af, BbiKind::BigWig, None, 1, "c.out") {
             Err(IoError::Detect { msg, .. }) => {
                 assert!(msg.contains("c.out is incomplete"), "{msg}");
                 assert!(msg.contains("free disk space"), "{msg}");
+                assert!(msg.contains("ulimit -n"), "{msg}");
+                assert!(msg.contains("$TMPDIR"), "{msg}");
             }
             other => panic!("expected the incomplete error, got {other:?}"),
         }
@@ -813,15 +1017,94 @@ mod tests {
     #[test]
     fn a_big_endian_bigbed_gets_a_big_endian_field_count() {
         let m = BIGBED_MAGIC.to_be_bytes();
-        let (r, after) = finish_crafted(BbiKind::BigBed, m, &m, Some(6));
-        r.unwrap();
+        assert_eq!(order_of(BbiKind::BigBed, m, &m), Some(false));
+        let (_dir, af) = crafted(m, &m);
+        let mut f = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(af.temp_path())
+            .unwrap();
+        write_defined_field_count(&mut f, false, 6).unwrap();
+        let after = std::fs::read(af.temp_path()).unwrap();
         assert_eq!(u16::from_be_bytes([after[34], after[35]]), 6);
     }
 
     #[test]
     fn a_bigwig_magic_under_a_bigbed_writer_is_refused() {
         let m = BIGWIG_MAGIC.to_le_bytes();
-        let (r, _) = finish_crafted(BbiKind::BigBed, m, &m, Some(3));
-        assert!(matches!(r, Err(IoError::Detect { .. })), "{r:?}");
+        assert_eq!(order_of(BbiKind::BigBed, m, &m), None);
+    }
+
+    /// A crafted file passes the magic check but not the structure check, and is not kept.
+    #[test]
+    fn a_file_with_only_its_magic_numbers_is_not_kept() {
+        let m = BIGWIG_MAGIC.to_le_bytes();
+        let (dir, af) = crafted(m, &m);
+        match finish_file(&af, BbiKind::BigWig, None, 1, "c.out") {
+            Err(IoError::Detect { msg, .. }) => {
+                assert!(msg.contains("incomplete or inconsistent"), "{msg}");
+                assert!(msg.contains("ulimit -n"), "{msg}");
+            }
+            other => panic!("expected the check's error, got {other:?}"),
+        }
+        drop(af);
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    /// The soft limit `raise_soft_limit` settles on, and the one `set` left in force.
+    #[cfg(unix)]
+    fn raised(
+        soft: libc::rlim_t,
+        hard: libc::rlim_t,
+        cap: libc::rlim_t,
+    ) -> (Option<libc::rlim_t>, libc::rlim_t) {
+        let mut now = soft;
+        let got = raise_soft_limit(soft, hard, |n| {
+            let ok = n <= cap;
+            if ok {
+                now = n;
+            }
+            ok
+        });
+        (got, now)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_soft_open_file_limit_is_raised_as_far_as_allowed() {
+        // Linux: the hard limit is accepted.
+        assert_eq!(raised(1024, 4096, 4096), (Some(4096), 4096));
+        // macOS: an unlimited hard limit is refused; OPEN_MAX, then the largest accepted.
+        assert_eq!(
+            raised(256, libc::RLIM_INFINITY, 10_240),
+            (Some(10_240), 10_240)
+        );
+        assert_eq!(
+            raised(256, libc::RLIM_INFINITY, 245_760),
+            (Some(245_760), 245_760)
+        );
+        assert_eq!(raised(256, libc::RLIM_INFINITY, 5000), (Some(5000), 5000));
+        // Nothing above the soft limit is accepted.
+        assert_eq!(raised(256, 4096, 256), (None, 256));
+    }
+
+    #[test]
+    fn a_panicking_writer_names_the_likely_causes() {
+        let (tx, rx) = bounded(QUEUE);
+        drop(rx);
+        let handle = std::thread::spawn(|| -> WorkerResult { panic!("Couldn't send section.") });
+        match join(Worker::Wig(tx, handle), BbiKind::BigWig, "x.bw") {
+            Err(IoError::Detect { msg, .. }) => {
+                assert!(
+                    msg.starts_with("cannot write x.bw: the bigWig writer stopped"),
+                    "{msg}"
+                );
+                assert!(msg.contains("Couldn't send section."), "{msg}");
+                assert!(msg.contains("ulimit -n"), "{msg}");
+                assert!(msg.contains("$TMPDIR"), "{msg}");
+                assert!(!msg.contains("internal error"), "{msg}");
+            }
+            other => panic!("expected the writer's error, got {other:?}"),
+        }
     }
 }

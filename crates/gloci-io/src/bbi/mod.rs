@@ -1,6 +1,7 @@
 //! bigWig and bigBed (D171), read through each file's own index.
 
 pub mod autosql;
+mod check;
 mod read;
 mod write;
 

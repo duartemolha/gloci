@@ -149,6 +149,16 @@ pub(crate) fn panic_note(note: String) -> PanicNote {
     PanicNote { prev }
 }
 
+/// Sets this thread's panic note for the rest of its life: for a thread a library starts for
+/// its own work (bigtools' runtime workers), which runs nothing else.
+pub(crate) fn set_thread_panic_note(note: String) {
+    PANIC_NOTE.with(|n| {
+        if let Ok(mut n) = n.try_borrow_mut() {
+            *n = Some(note);
+        }
+    });
+}
+
 /// Restores the note before it on drop.
 pub(crate) struct PanicNote {
     prev: Option<String>,

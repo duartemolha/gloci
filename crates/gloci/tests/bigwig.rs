@@ -1316,3 +1316,181 @@ fn map_over_bigwig_gives_bigwigaverageoverbed_columns() {
         .success()
         .stdout("chr1\t50\t150\tx\t87.5\t100\t0.875\nchr1\t500\t600\ty\t0\t0\t0\n");
 }
+
+// ---- the writer's temporary files: the open-file limit and $TMPDIR (D171) ----
+
+/// `text`'s rows sorted by chromosome then start, as `view` lists a bigWig.
+fn lex_sorted(text: &str) -> String {
+    let mut rows: Vec<(&str, u64, &str)> = text
+        .lines()
+        .map(|l| {
+            let mut f = l.splitn(3, '\t');
+            let chrom = f.next().unwrap();
+            (chrom, f.next().unwrap().parse().unwrap(), l)
+        })
+        .collect();
+    rows.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+    rows.iter().map(|r| format!("{}\n", r.2)).collect()
+}
+
+/// A genome of one 100 Mb chromosome, which gives every chromosome 10 zoom levels and so about
+/// 11 temporary files in bigtools, and `n` scaffolds of 1 kb; a bedGraph and a BED with two
+/// records on each chromosome. Returns the genome, the bedGraph and the BED.
+fn scaffolds(dir: &Path, n: usize) -> (String, String, String) {
+    let mut genome = String::from("big\t100000000\n");
+    let mut bg = String::from("big\t0\t10\t1\nbig\t20\t30\t2\n");
+    for i in 0..n {
+        genome.push_str(&format!("s{i}\t1000\n"));
+        bg.push_str(&format!("s{i}\t0\t10\t{i}\ns{i}\t500\t600\t0.5\n"));
+    }
+    let bed: String = bg
+        .lines()
+        .map(|l| format!("{}\n", l.rsplit_once('\t').unwrap().0))
+        .collect();
+    (
+        s(&plain_file(dir, "g.genome", &genome)),
+        s(&plain_file(dir, "in.bedgraph", &bg)),
+        s(&plain_file(dir, "in.bed", &bed)),
+    )
+}
+
+/// `gloci ARGS` run by `sh` after `limits` (`ulimit` commands); `None` when the shell cannot
+/// set them here, which the caller reports as a skip.
+#[cfg(unix)]
+fn under_limits(limits: &str, args: &[&str]) -> Option<std::process::Output> {
+    let out = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!("{limits} || exit 77; exec \"$0\" \"$@\""))
+        .arg(assert_cmd::cargo::cargo_bin("gloci"))
+        .args(args)
+        .output()
+        .unwrap();
+    if out.status.code() == Some(77) {
+        eprintln!("skipped: sh cannot run `{limits}` here");
+        return None;
+    }
+    Some(out)
+}
+
+/// The temporary files left in `dir`.
+fn temp_files_in(dir: &Path) -> Vec<String> {
+    names(dir)
+        .into_iter()
+        .filter(|n| n.contains(".tmp-"))
+        .collect()
+}
+
+/// With the hard limit at 256 gloci cannot raise it, and bigtools needs about 4,400 files: each
+/// run either writes a file that reads back whole or exits 1 naming the limit, never exit 0
+/// with a bad file (as bigtools alone gives), and leaves no temporary file.
+#[cfg(unix)]
+#[test]
+fn a_hard_open_file_limit_never_gives_a_corrupt_file() {
+    let d = tempdir();
+    let (g, bg, bed) = scaffolds(d.path(), 400);
+    let want_bg = lex_sorted(&std::fs::read_to_string(&bg).unwrap());
+    let want_bed = lex_sorted(&std::fs::read_to_string(&bed).unwrap());
+    let want_cov = sorted_genomecov(&[&bed, "-g", &g, "--bga"]);
+    let runs: [(&str, Vec<&str>, &String, &str); 4] = [
+        (
+            "convert -t 1",
+            vec!["convert", &bg, "-g", &g, "-t", "1"],
+            &want_bg,
+            "bw",
+        ),
+        (
+            "convert -t 4",
+            vec!["convert", &bg, "-g", &g, "-t", "4"],
+            &want_bg,
+            "bw",
+        ),
+        (
+            "convert to bigBed",
+            vec!["convert", &bed, "-g", &g],
+            &want_bed,
+            "bb",
+        ),
+        (
+            "genomecov --bga",
+            vec!["genomecov", &bed, "-g", &g, "--bga"],
+            &want_cov,
+            "bw",
+        ),
+    ];
+    for (i, (name, args, want, ext)) in runs.into_iter().enumerate() {
+        let bw = d.path().join(format!("r{i}.{ext}"));
+        let mut args = args;
+        let bw_s = s(&bw);
+        args.extend(["-o", &bw_s]);
+        let Some(o) = under_limits("ulimit -n 256", &args) else {
+            return;
+        };
+        let err = String::from_utf8_lossy(&o.stderr);
+        match o.status.code() {
+            Some(0) => assert_eq!(&out(&["view", &bw_s]), want, "{name}"),
+            Some(1) => {
+                assert!(
+                    err.contains("ulimit -n: soft 256, hard 256"),
+                    "{name}: {err}"
+                );
+                assert!(err.contains("$TMPDIR"), "{name}: {err}");
+                assert!(!err.contains("internal error"), "{name}: {err}");
+                assert!(!bw.exists(), "{name}");
+            }
+            other => panic!("{name}: exit {other:?}: {err}"),
+        }
+        assert!(temp_files_in(d.path()).is_empty(), "{name}");
+    }
+}
+
+/// A soft limit of 256 under a hard one of 4,096: gloci raises the soft limit, and the file,
+/// which needs about 1,100 open files, is written whole.
+#[cfg(unix)]
+#[test]
+fn a_low_soft_open_file_limit_is_raised() {
+    let d = tempdir();
+    let (g, bg, _) = scaffolds(d.path(), 100);
+    let want = lex_sorted(&std::fs::read_to_string(&bg).unwrap());
+    for t in ["1", "4"] {
+        let bw = s(&d.path().join(format!("t{t}.bw")));
+        let Some(o) = under_limits(
+            "ulimit -S -n 256 && ulimit -H -n 4096",
+            &["-vv", "convert", &bg, "-g", &g, "-t", t, "-o", &bw],
+        ) else {
+            return;
+        };
+        let err = String::from_utf8_lossy(&o.stderr);
+        assert!(o.status.success(), "-t {t}: {err}");
+        assert!(
+            err.contains("raised the open-file limit from 256 to 4096"),
+            "-t {t}: {err}"
+        );
+        assert_eq!(out(&["view", &bw]), want, "-t {t}");
+    }
+    assert!(temp_files_in(d.path()).is_empty());
+}
+
+/// A `$TMPDIR` that does not exist is exit 1 naming it, before any output is created.
+#[cfg(unix)]
+#[test]
+fn a_missing_tmpdir_is_an_error_naming_it() {
+    let d = tempdir();
+    let (g, bg, bed) = scaffolds(d.path(), 3);
+    let missing = s(&d.path().join("no-such-dir"));
+    let bw = s(&d.path().join("x.bw"));
+    for args in [
+        vec!["convert", &bg, "-g", &g, "-o", &bw],
+        vec!["genomecov", &bed, "-g", &g, "--bga", "-o", &bw],
+    ] {
+        let a = gloci()
+            .env("TMPDIR", &missing)
+            .args(&args)
+            .assert()
+            .code(1)
+            .stderr(contains(format!("$TMPDIR ({missing})")))
+            .stderr(contains("set TMPDIR"));
+        let err = String::from_utf8_lossy(&a.get_output().stderr).into_owned();
+        assert!(!err.contains("internal error"), "{err}");
+        assert_eq!(names(d.path()), vec!["g.genome", "in.bed", "in.bedgraph"]);
+    }
+}

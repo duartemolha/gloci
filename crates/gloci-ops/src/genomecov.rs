@@ -448,7 +448,9 @@ check that -g matches the genome build of the input",
 /// The `genome` rows of the histogram, from the bases per depth over all chromosomes.
 /// A failed `write_record`. A writer that refuses a record (a bigWig writer: a value outside
 /// float32, a record past its chromosome) says so with `InvalidData`: that is the data's fault,
-/// not the disk's, so it stays a data error naming the record.
+/// not the disk's, so it stays a data error naming the record. A writer that stopped with its
+/// own error (a bigWig writer whose temporary files failed) names the output and the likely
+/// causes itself, so that error is returned as it is.
 fn write_error(source: std::io::Error) -> IoError {
     if source.kind() == std::io::ErrorKind::InvalidData {
         return IoError::Detect {
@@ -456,9 +458,15 @@ fn write_error(source: std::io::Error) -> IoError {
             msg: source.to_string(),
         };
     }
-    IoError::Write {
-        path: "output".into(),
-        source,
+    if !source.get_ref().is_some_and(|e| e.is::<IoError>()) {
+        return IoError::Write {
+            path: "output".into(),
+            source,
+        };
+    }
+    match source.into_inner().map(|e| e.downcast::<IoError>()) {
+        Some(Ok(e)) => *e,
+        _ => unreachable!("the error was checked to hold an IoError"),
     }
 }
 
@@ -784,7 +792,26 @@ pub fn genomecov_files(
 
 #[cfg(test)]
 mod tests {
-    use super::{format_fraction, format_g6};
+    use super::{format_fraction, format_g6, write_error};
+    use gloci_io::IoError;
+
+    #[test]
+    fn a_writer_error_inside_an_io_error_comes_back_as_it_is() {
+        let inner = IoError::Detect {
+            path: "x.bw".into(),
+            msg: "cannot write x.bw: the bigWig writer stopped".into(),
+        };
+        match write_error(std::io::Error::other(inner)) {
+            IoError::Detect { msg, .. } => {
+                assert_eq!(msg, "cannot write x.bw: the bigWig writer stopped")
+            }
+            other => panic!("expected the writer's own error, got {other:?}"),
+        }
+        assert!(matches!(
+            write_error(std::io::Error::other("disk full")),
+            IoError::Write { .. }
+        ));
+    }
 
     #[test]
     fn fractions_divide_in_single_precision_like_bedtools() {

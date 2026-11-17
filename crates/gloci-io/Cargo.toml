@@ -37,6 +37,10 @@ bigtools.workspace = true
 tokio.workspace = true
 crossbeam-channel.workspace = true
 
+# The bigWig/bigBed writer raises the soft open-file limit (D171).
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
 [dev-dependencies]
 gloci-testkit.workspace = true
 proptest.workspace = true
