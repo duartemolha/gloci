@@ -469,7 +469,15 @@ build --release",
         } else if let Some(ds) = cat.datasets.iter().find(|x| x.name == *f) {
             ensure_dataset(ds, cache_dir)?;
         }
-        inputs.push(input_path(cat, f, cache_dir)?);
+        let path = input_path(cat, f, cache_dir)?;
+        if f.starts_with("repo:target/") && !out.exists() && !path.exists() {
+            bail!(
+                "derived input {} needs {}, which is not built: build it first with `cargo build --release -p gloci`",
+                d.name,
+                path.display()
+            );
+        }
+        inputs.push(path);
     }
     let sidecar = |ext: &str| cache_dir.join(format!("{}.{ext}", d.name));
     let complete = out.exists()

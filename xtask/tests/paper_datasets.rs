@@ -59,6 +59,13 @@ fn derived_commands_reference_known_inputs() {
         assert!(!d.from.is_empty(), "{}: no inputs", d.name);
         for f in &d.from {
             match f.strip_prefix("repo:") {
+                // A build product of the host (the gloci binary) is made by `cargo build
+                // --release`, which CI's test run does not do: it must be a known one.
+                Some(p) if p.starts_with("target/") => assert_eq!(
+                    p, "target/release/gloci",
+                    "{}: {p} is not a known build product",
+                    d.name
+                ),
                 Some(p) => assert!(
                     workspace_root().join(p).exists(),
                     "{}: repo file {p} is missing",
