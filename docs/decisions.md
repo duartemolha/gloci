@@ -1,6 +1,6 @@
 # gloci design decisions
 
-Every numbered design decision the project made while gloci was built, in numeric order, D1 to D164. A decision
+Every numbered design decision the project made while gloci was built, in numeric order, D1 to D174. A decision
 records a point the design specification ([`design.md`](design.md)) left open or got wrong, what was chosen, and
 usually why. The source cites them by number in comments and tests (`D37`, `(D37)`, `D37/D38`), and the text
 sometimes cites a section of the specification as `spec §4.3`.
