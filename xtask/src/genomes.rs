@@ -468,25 +468,28 @@ mod tests {
         );
     }
 
-    /// hg38.genome is UCSC's table (as committed, without the extras) plus SOURCES.toml's
-    /// extras, normalized as a refresh would, and the manifest counts them.
+    /// hg38.genome and GRCh38.genome are their sources' tables (as committed, without the
+    /// extras) plus SOURCES.toml's extras, normalized as a refresh would, and the manifest
+    /// counts them.
     #[test]
-    fn hg38_is_ucscs_table_plus_its_extras() {
+    fn genomes_with_extras_are_their_source_plus_the_extras() {
         let dir = data_dir();
         let m: Manifest =
             toml::from_str(&std::fs::read_to_string(dir.join("SOURCES.toml")).unwrap()).unwrap();
-        let e = by_id(&m)["hg38"];
-        assert_eq!(names_of_extras(e), ["chrEBV"]);
-        let committed = std::fs::read_to_string(dir.join("hg38.genome")).unwrap();
-        let ucsc: String = committed
-            .lines()
-            .filter(|l| !l.starts_with("chrEBV\t"))
-            .map(|l| format!("{l}\n"))
-            .collect();
-        let rows = normalize(&add_extras(&ucsc, &e.extra).unwrap(), false).unwrap();
-        assert_eq!(render(&rows), committed);
-        assert_eq!(e.sequences, Some(rows.len() as u64));
-        assert_eq!(e.total_length, Some(rows.iter().map(|r| r.1).sum()));
+        for (id, extra_name) in [("hg38", "chrEBV"), ("GRCh38", "EBV")] {
+            let e = by_id(&m)[id];
+            assert_eq!(names_of_extras(e), [extra_name], "{id}");
+            let committed = std::fs::read_to_string(dir.join(format!("{id}.genome"))).unwrap();
+            let source: String = committed
+                .lines()
+                .filter(|l| !l.starts_with(&format!("{extra_name}\t")))
+                .map(|l| format!("{l}\n"))
+                .collect();
+            let rows = normalize(&add_extras(&source, &e.extra).unwrap(), false).unwrap();
+            assert_eq!(render(&rows), committed, "{id}");
+            assert_eq!(e.sequences, Some(rows.len() as u64), "{id}");
+            assert_eq!(e.total_length, Some(rows.iter().map(|r| r.1).sum()), "{id}");
+        }
     }
 
     fn names_of_extras(e: &Entry) -> Vec<&str> {

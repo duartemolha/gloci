@@ -58,8 +58,13 @@ format = "ensembl-core"
 url = "https://ftp.ensembl.org/pub/release-112/mysql/homo_sapiens_core_112_38/"
 retrieved = "2026-11-07"
 sha256 = "f177074f0765fcc3785afc1cdc0b196373c1ae829a11c6abf03bfeb8a3450f4f"
-sequences = 194
-total_length = 3099750718
+sequences = 195
+total_length = 3099922541
+
+[[genome.extra]]
+name = "EBV"
+length = 171823
+source = "Epstein-Barr virus, NC_007605.1: the Ensembl-style name of the GRCh38 analysis set's chrEBV (owner, 2026-11-18)"
 
 [[genome]]
 id = "mm10"

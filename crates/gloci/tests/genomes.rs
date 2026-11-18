@@ -58,6 +58,25 @@ fn hg38_has_chrebv() {
         .stderr(contains("chromosome chrEBV (171823 bases, from -g hg38)"));
 }
 
+/// GRCh38 (Ensembl naming) has EBV (171,823 bp), as hg38 has chrEBV.
+#[test]
+fn grch38_has_ebv() {
+    gloci()
+        .args(["check", &w("ebv.bed", "EBV\t100\t200\n"), "-g", "GRCh38"])
+        .assert()
+        .success();
+    gloci()
+        .args([
+            "check",
+            &w("past.bed", "EBV\t171800\t171900\n"),
+            "-g",
+            "GRCh38",
+        ])
+        .assert()
+        .code(1)
+        .stdout(contains("past the end of EBV (length 171823)"));
+}
+
 #[test]
 fn sort_with_builtin_genome() {
     gloci()
