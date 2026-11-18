@@ -2288,7 +2288,7 @@ class Pipeline:
             ignore_blocks: Lift a BED12 record by columns 1 to 3 only, as any other BED record, leaving blocks and thick range as read (CrossMap `--naive-bed-parsing`). Without it, each block is lifted and must fall in one piece, so a record of several blocks on a `-` chain is unmapped, as in CrossMap. Not for GFF or GTF
             merge_segments: Write a record that crosses chain gaps as one record from its first piece's start to its last piece's end, when enough of it maps (CrossMap `region`). Pieces on different chromosomes or strands leave it unmapped. For BED and bedGraph; not for GFF or GTF, nor BED12 without --ignore-blocks
             min_ratio: The fraction of a record that must map for --merge-segments to merge it, from 0 to 1 (CrossMap `region -r`)
-            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bam, cram or sam where the command reads alignments; psl or rmsk for convert
+            format: Input format, overriding detection: bed, bedgraph, wig, gff, gtf, vcf or bcf; bigwig or bigbed (from a file); bam, cram or sam where the command reads alignments; psl or rmsk for convert
             header: Keep header lines in the output
             skip_invalid: Skip invalid records with a warning instead of failing
             chrom_map: Rename chromosomes on input with a two-column table (old name, new name; tab-separated, `#` comments allowed). Unlisted names are kept. A file that has both an old name and its new name is refused. Order checks and the output see the new names
