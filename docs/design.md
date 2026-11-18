@@ -465,7 +465,7 @@ How the old commands map onto `partition`:
 **`gloci sort` for alignments** (one BAM, SAM or CRAM, or stdin) follows samtools 1.21 `bam_sort.c`. **[D121]**
 
 - **Coordinate order** (the default): reference in header order with unplaced reads last, then position, then the reverse-strand bit, then input order.
-- **`-n`** sorts by read name in samtools' natural order (digit runs compare as numbers after leading zeros, so `r2` precedes `r10` and `r01` equals `r1`), and **`-N`** by plain byte order (`--by-name`, `--by-name-bytes`). In both, ties go READ1 before READ2 and primary before supplementary before secondary, then input order. `-n` and `-N` are the owner's flags, an exception to one flag, one meaning: `windows -n COUNT` keeps its own meaning, as `groupby -g` does. **[owner exception]**
+- **`-n`** sorts by read name in samtools' natural order (digit runs compare as numbers after leading zeros, so `r2` precedes `r10` and `r01` equals `r1`), and **`-N`** by plain byte order (`--by-name`, `--by-name-bytes`). In both, ties go READ1 before READ2 and primary before supplementary before secondary, then input order. `-n` and `-N` are the owner's flags, an exception to one flag, one meaning: `windows -n COUNT` keeps its own meaning, as `groupby -g` does. **[owner exception]** `--include`/`--exclude` are a third such exception: a BED in `shuffle` and `fisher`, an expression in the `vcf` commands, and no command has both **[owner, 2026-11-18, D142]**.
 - **`@HD`:** `SO` is set (`coordinate`, or `queryname` with `SS:queryname:natural` for `-n` and `SS:queryname:lexicographical` for `-N`); a coordinate sort removes `SS`; `GO` is removed; with no `@HD`, `@HD VN:1.6 SO:…` is written first. gloci adds an `@PG` line (`ID:gloci`, with a suffix when taken).
 - **Output format** follows the input's: SAM for SAM, BAM for BAM and CRAM (CRAM is never written); `-o` and `-O` override. samtools always writes BAM. **[D121]**
 - Every record is kept, unmapped reads included. `--write-index` works on coordinate-ordered BAM output only (`.bai`, or `.csi` for long references). `--check` checks the chosen order. `-g`, `--full-key`, `--unique` and `--duplicates` are usage errors with alignments: the order is the header's.
@@ -578,7 +578,7 @@ All VCF commands share one **selection pipeline**, applied in this fixed, docume
    - **Missingness:** `--max-missing FRAC` (fraction of missing genotypes; see migration note), `--max-missing-count N`.
    - **Depth:** `--min-mean-dp X`, `--max-mean-dp X`.
    - **Other:** `--hwe P`, `--thin N` (keep sites at least N bp apart, first wins), `--phased-only`.
-   - **Expressions (P2):** `--include EXPR` / `--exclude EXPR`, in an expression language modelled on bcftools so users already know it. Example: `QUAL>30 && INFO/DP>10 && GT="het"`.
+   - **Expressions (P2):** `--include EXPR` / `--exclude EXPR`, in an expression language modelled on bcftools so users already know it. Example: `QUAL>30 && INFO/DP>10 && GT="het"`. `--include`/`--exclude` take a BED in `shuffle` and `fisher` (§7.3); the owner accepted the two meanings, as no command has both **[owner, 2026-11-18, D142]**.
 
 Definitions:
 
