@@ -35,6 +35,7 @@ fn options(kind: BbiKind, sizes: &[(&str, u64)], threads: usize) -> BbiWriteOpti
         autosql: None,
         autosql_name: "autosql".into(),
         defined_field_count: None,
+        autosql_inherited: false,
     }
 }
 

@@ -259,23 +259,26 @@ hg38, or a .genome, .fai or .dict file); only a bigWig or bigBed input brings it
     };
     // A bigBed converted to a bigBed keeps its autoSql and its definedFieldCount, unless
     // --autosql replaces them (D171).
-    let (autosql, autosql_name, defined_field_count) = match (autosql, input.format()) {
-        (None, Format::BigBed) if kind == BbiKind::BigBed => {
-            let (text, defined) = gloci_io::bbi_bed_columns(&a.file)?;
-            (
+    let (autosql, autosql_name, defined_field_count, autosql_inherited) =
+        match (autosql, input.format()) {
+            (None, Format::BigBed) if kind == BbiKind::BigBed => {
+                let (text, defined) = gloci_io::bbi_bed_columns(&a.file)?;
+                (
+                    text,
+                    format!("the autoSql of {}", a.file),
+                    (defined >= 3).then_some(usize::from(defined)),
+                    true,
+                )
+            }
+            (text, _) => (
                 text,
-                format!("the autoSql of {}", a.file),
-                (defined >= 3).then_some(usize::from(defined)),
-            )
-        }
-        (text, _) => (
-            text,
-            a.autosql.as_ref().map_or_else(String::new, |p| {
-                gloci_io::memio::display_name(&p.to_string_lossy())
-            }),
-            None,
-        ),
-    };
+                a.autosql.as_ref().map_or_else(String::new, |p| {
+                    gloci_io::memio::display_name(&p.to_string_lossy())
+                }),
+                None,
+                false,
+            ),
+        };
     let dest = spec.path.as_ref().map_or_else(
         || "<stdout>".to_string(),
         |p| gloci_io::memio::display_name(&p.to_string_lossy()),
@@ -289,6 +292,7 @@ hg38, or a .genome, .fai or .dict file); only a bigWig or bigBed input brings it
             autosql,
             autosql_name,
             defined_field_count,
+            autosql_inherited,
         },
     )
     .map_err(|e| e.with_output_name(&dest))?;

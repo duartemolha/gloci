@@ -786,6 +786,7 @@ mod tests {
                 autosql: None,
                 autosql_name: String::new(),
                 defined_field_count: None,
+                autosql_inherited: false,
             },
         )
         .unwrap();

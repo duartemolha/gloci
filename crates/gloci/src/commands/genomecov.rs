@@ -131,6 +131,7 @@ index; drop --write-index"
                     autosql: None,
                     autosql_name: String::new(),
                     defined_field_count: None,
+                    autosql_inherited: false,
                 },
             )
             .map_err(|e| e.with_output_name(&dest))?,

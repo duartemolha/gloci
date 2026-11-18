@@ -78,6 +78,9 @@ pub struct BbiWriteOptions {
     /// bigBed: the definedFieldCount to keep, a bigBed input's, instead of the one the autoSql
     /// or the first record gives; capped at the standard columns the first record has (D171).
     pub defined_field_count: Option<usize>,
+    /// The autoSql is a bigBed input's, not the user's: when its field count differs from the
+    /// records' column count, warn and generate one instead of refusing (D171).
+    pub autosql_inherited: bool,
 }
 
 #[derive(Debug)]
@@ -187,6 +190,7 @@ pub struct BbiWriter {
     autosql_name: String,
     /// The field count of the given autoSql, parsed by `create`.
     autosql_fields: Option<usize>,
+    autosql_inherited: bool,
     /// How many leading columns are standard BED columns, when not the first record's own:
     /// kept from a bigBed input, or declared by the autoSql.
     standard: Option<Standard>,
@@ -269,6 +273,7 @@ take it",
             autosql: o.autosql,
             autosql_name: o.autosql_name,
             autosql_fields,
+            autosql_inherited: o.autosql_inherited,
             standard,
             layout: None,
             worker: None,
@@ -323,6 +328,20 @@ has {}",
                     check_bed_line(raw, layout).map_err(rec)?;
                 } else {
                     let mut layout = bed_layout(raw).map_err(rec)?;
+                    if let Some(n) = self.autosql_fields
+                        && n != layout.columns
+                        && self.autosql_inherited
+                    {
+                        log::warn!(
+                            "{} declares {n} fields, but its records have {} columns; the \
+generated autoSql is used",
+                            self.autosql_name,
+                            layout.columns
+                        );
+                        self.autosql = None;
+                        self.autosql_fields = None;
+                        self.standard = None;
+                    }
                     if let Some(n) = self.autosql_fields
                         && n != layout.columns
                     {
@@ -1004,6 +1023,7 @@ mod tests {
                 autosql: None,
                 autosql_name: "autosql".into(),
                 defined_field_count: None,
+                autosql_inherited: false,
             },
         )
         .unwrap()

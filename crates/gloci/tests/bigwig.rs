@@ -1647,3 +1647,69 @@ fn a_missing_tmpdir_is_an_error_naming_it() {
         assert_eq!(names(d.path()), vec!["g.genome", "in.bed", "in.bedgraph"]);
     }
 }
+
+#[test]
+fn a_bigbed_autosql_with_the_wrong_field_count_is_replaced_with_a_warning() {
+    let d = tempdir();
+    // A BED6 bigBed whose stored autoSql has 6 fields; the text is then patched in place to a
+    // 3-field one of the same length, as bigtools' own CLI stores a BED3 autoSql for wider
+    // records (gloci itself refuses an --autosql whose field count differs from the columns).
+    let bed = plain_file(
+        d.path(),
+        "six.bed",
+        "chr1\t100\t200\tp1\t500\t+\nchr1\t150\t400\tp2\t0\t-\n",
+    );
+    let six_as = "table six\n\"PAD\"\n(\n    string chrom; \"c\"\n    uint chromStart; \"s\"\n    uint chromEnd; \"e\"\n    string name; \"n\"\n    uint score; \"sc\"\n    char[1] strand; \"st\"\n)\n";
+    let three_as = "table six\n\"PAD\"\n(\n    string chrom; \"c\"\n    uint chromStart; \"s\"\n    uint chromEnd; \"e\"\n)\n";
+    let pad = six_as.len() - three_as.len();
+    let three_as = three_as.replace("PAD", &"x".repeat(3 + pad));
+    let six_as = six_as.replace("PAD", "xxx");
+    assert_eq!(six_as.len(), three_as.len());
+    let as_file = plain_file(d.path(), "six.as", &six_as);
+    let good = d.path().join("good.bb");
+    convert_ok(&[
+        &s(&bed),
+        "-g",
+        &input("peaks.genome"),
+        "--autosql",
+        &s(&as_file),
+        "-o",
+        &s(&good),
+    ]);
+    let mut bytes = std::fs::read(&good).unwrap();
+    let at = bytes
+        .windows(six_as.len())
+        .position(|w| w == six_as.as_bytes())
+        .expect("the autoSql is stored as text");
+    bytes[at..at + six_as.len()].copy_from_slice(three_as.as_bytes());
+    let bad = d.path().join("bad.bb");
+    std::fs::write(&bad, bytes).unwrap();
+    assert_eq!(
+        bigtools::BigBedRead::open_file(&bad)
+            .unwrap()
+            .autosql()
+            .unwrap()
+            .unwrap(),
+        three_as
+    );
+    let copy = d.path().join("copy.bb");
+    gloci()
+        .arg("convert")
+        .args([&s(&bad), "-o", &s(&copy)])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains(format!(
+            "the autoSql of {} declares 3 fields, but its records have 6 columns; the generated \
+autoSql is used",
+            s(&bad)
+        )));
+    let mut r = bigtools::BigBedRead::open_file(&copy).unwrap();
+    let sql = r.autosql().unwrap().unwrap();
+    assert_eq!(sql.matches(';').count(), 6, "{sql}");
+    assert!(sql.starts_with("table bed\n"), "{sql}");
+    assert_eq!(out(&["view", &s(&copy)]), text_of(&bed));
+}
+
+fn text_of(p: &Path) -> String {
+    std::fs::read_to_string(p).unwrap()
+}

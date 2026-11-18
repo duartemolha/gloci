@@ -155,7 +155,8 @@ being converted. Each chromosome's records must be together and sorted by start 
 sort); a bigWig takes no overlaps and stores 32-bit floats. The first record sets a \
 bigBed's columns; --autosql FILE must agree, and its leading fields that are BED's by name \
 and type are the standard columns; a bigBed input keeps its own autoSql and standard \
-columns. A record past its chromosome or on one -g lacks, an empty input and --write-index \
+columns when the autoSql's field count equals the records' columns (else a warning, and a \
+generated autoSql). A record past its chromosome or on one -g lacks, an empty input and --write-index \
 are errors; --skip-invalid skips lines that do not parse, never a record the writer refuses \
 (a value NA or nan, an overlap). The file is checked, then renamed into place: written whole \
 or not at all.
