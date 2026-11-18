@@ -59,6 +59,42 @@ bedops = "bedops -e 1 {in_a} {in_b} > {out}"
 [[case.same]]
 tools = ["gloci", "bedtools", "bedops"]
 
+# The interval-query benchmark's own datasets (Schäfer and Yang 2025, Zenodo
+# 14880992; simdata-segmeter in datasets.toml), at the main size of 100,000
+# reference intervals. The overlap query reports the query intervals that
+# overlap the reference set, as the paper's basic query does. `perfect` queries
+# repeat every reference interval; `mult` ones (the complex set) are long and span several.
+
+[[case]]
+name = "overlap-simdata-basic"
+label = "overlap query, interval-query benchmark (basic, 100K)"
+table = "intervals"
+threads = 1
+inputs = { a = "simdata-query-perfect.bed", b = "simdata-ref.bed" }
+targets = ["gloci <= 0.5 * bedtools", "gloci <= bedops"]
+[case.commands]
+gloci = "{gloci} intersect --chrom-order lex --mode any -t 1 -a {in_a} -b {in_b} > {out}"
+bedtools = "bedtools intersect -u -sorted -a {in_a} -b {in_b} > {out}"
+bedops = "bedops -e 1 {in_a} {in_b} > {out}"
+
+[[case.same]]
+tools = ["gloci", "bedtools", "bedops"]
+
+[[case]]
+name = "overlap-simdata-complex"
+label = "overlap query, interval-query benchmark (complex, 100K)"
+table = "intervals"
+threads = 1
+inputs = { a = "simdata-query-mult.bed", b = "simdata-ref.bed" }
+targets = ["gloci <= 0.5 * bedtools", "gloci <= bedops"]
+[case.commands]
+gloci = "{gloci} intersect --chrom-order lex --mode any -t 1 -a {in_a} -b {in_b} > {out}"
+bedtools = "bedtools intersect -u -sorted -a {in_a} -b {in_b} > {out}"
+bedops = "bedops -e 1 {in_a} {in_b} > {out}"
+
+[[case.same]]
+tools = ["gloci", "bedtools", "bedops"]
+
 # §9.1: BGZF inputs, 8 threads.
 
 [[case]]

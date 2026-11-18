@@ -31,7 +31,7 @@ command -v bash >/dev/null 2>&1 || { echo "fetch-datasets.sh needs bash (for pip
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 CACHE=${GLOCI_BENCH_CACHE:-$ROOT/target/bench-data/cache}
 ONLY=${1:-}
-KNOWN=' 1kg-30x-chr20 gencode-v46-gtf encode-ccre-v4 encode-ctcf-k562-peaks encode-ctcf-k562-fc gnomad-v4.1-exomes-chr22 encode-ctcf-k562-bam exons-unsorted.bed exons.bed ccre.bed ccre.bed.gz exons.bed.gz ctcf-fc.bedgraph ctcf-fc.bed5 1kg-chr20.bcf 1kg-chr20.p1.vcf.gz 1kg-chr20.p2.vcf.gz ctcf-k562.bam ctcf-k562.cram ctcf-peaks.bed hg38.lex.genome '
+KNOWN=' 1kg-30x-chr20 gencode-v46-gtf encode-ccre-v4 encode-ctcf-k562-peaks encode-ctcf-k562-fc gnomad-v4.1-exomes-chr22 encode-ctcf-k562-bam simdata-segmeter exons-unsorted.bed exons.bed ccre.bed ccre.bed.gz exons.bed.gz ctcf-fc.bedgraph ctcf-fc.bed5 1kg-chr20.bcf 1kg-chr20.p1.vcf.gz 1kg-chr20.p2.vcf.gz ctcf-k562.bam ctcf-k562.cram ctcf-peaks.bed hg38.lex.genome simdata-ref.bed simdata-query-perfect.bed simdata-query-mult.bed '
 if [ -n "$ONLY" ]; then
   case "$KNOWN" in *" $ONLY "*) ;; *) echo "unknown dataset or derived input: $ONLY" >&2; exit 2 ;; esac
 fi
@@ -104,6 +104,7 @@ fetch 'encode-ctcf-k562-peaks' 'https://www.encodeproject.org/files/ENCFF769AUF/
 fetch 'encode-ctcf-k562-fc' 'https://www.encodeproject.org/files/ENCFF979PWH/@@download/ENCFF979PWH.bigWig' 'ENCFF979PWH.bigWig' '4a1da9d7819bc622c27cd60950d28abb' 'ctcf-fc.bedgraph ctcf-fc.bed5'
 fetch 'gnomad-v4.1-exomes-chr22' 'https://storage.googleapis.com/gcp-public-data--gnomad/release/4.1/vcf/exomes/gnomad.exomes.v4.1.sites.chr22.vcf.bgz' 'gnomad.exomes.v4.1.sites.chr22.vcf.bgz' 'dcf191563e69054a71bd4dc77862799a' ''
 fetch 'encode-ctcf-k562-bam' 'https://www.encodeproject.org/files/ENCFF834MPG/@@download/ENCFF834MPG.bam' 'ENCFF834MPG.bam' '22477d07776b89e20b0458ed873306d4' 'ctcf-k562.bam ctcf-k562.cram ctcf-peaks.bed'
+fetch 'simdata-segmeter' 'https://zenodo.org/records/14880992/files/simdata.tar.gz' 'simdata.tar.gz' '75b3c767def3813aa790d01e9ae9239a' 'simdata-ref.bed simdata-query-perfect.bed simdata-query-mult.bed'
 
 export IN="$CACHE/gencode.v46.annotation.gtf.gz"
 derive 'exons-unsorted.bed' '915ed366960cbd4ec72a1f3ee54d48c9b3e29c72b924bf12eba148ec87c1dd69' 'zcat "$IN" | gawk -F'\''\t'\'' -v OFS='\''\t'\'' '\''$3=="exon"{match($9,/gene_name "[^"]+"/);print $1,$4-1,$5,substr($9,RSTART+11,RLENGTH-12),0,$7}'\'' > "$OUT"' 'exons.bed exons.bed.gz'
@@ -133,6 +134,12 @@ export IN="$CACHE/ENCFF769AUF.bed.gz" IN2="$CACHE/ctcf-k562.bam"
 derive 'ctcf-peaks.bed' '2f669c78b6b56ee317fc9142a8a7a4be45f263f861828b01c715bffe6d300f9d' 'zcat "$IN" | cut -f1-6 | sort -k1,1 -k2,2n -s > "$OUT" && missing=$(comm -23 <(cut -f1 "$OUT" | sort -u) <(samtools view -H "$IN2" | gawk -F'\''\t'\'' '\''$1=="@SQ"{sub("SN:","",$2);print $2}'\'' | sort)) && [ -z "$missing" ] || { echo "contigs of the CTCF peaks that are not @SQ of the BAM: $missing" >&2; false; }' ''
 export IN="$ROOT/crates/gloci-io/data/genomes/hg38.genome"
 derive 'hg38.lex.genome' '4a26e5b1c8b72ffdb78a29bc17ac8430c80259c295d5e6e1065e8c990507a330' 'sort -k1,1 "$IN" > "$OUT"' ''
+export IN="$CACHE/simdata.tar.gz"
+derive 'simdata-ref.bed' '87f4dc725ba38363d967a7cbafaf2aa795fddf1a12e0b316cfbfcf849dbff2a1' 'tar -xzOf "$IN" simdata/sim/sim_001/BED/ref/100K_sorted.bed | sort -k1,1 -k2,2n -k3,3n -s > "$OUT"' ''
+export IN="$CACHE/simdata.tar.gz"
+derive 'simdata-query-perfect.bed' 'be82ec5f51c02ab29a042fd74e61bfc562fda39b02606784b878f7d512cd6ab4' 'tar -xzOf "$IN" simdata/sim/sim_001/BED/basic/query/perfect/100K_sorted.bed | sort -k1,1 -k2,2n -k3,3n -s > "$OUT"' ''
+export IN="$CACHE/simdata.tar.gz"
+derive 'simdata-query-mult.bed' '6d76f99696ec49e7e0716e7495fa40d544fa071851e1147d7fd596273f849c3c' 'tar -xzOf "$IN" simdata/sim/sim_001/BED/complex/query/mult/100K_50bin.bed | sort -k1,1 -k2,2n -k3,3n -s > "$OUT"' ''
 
 if [ "$NUNPINNED" -gt 0 ]; then
   echo "$NUNPINNED derived inputs UNVERIFIED (no sha256 in datasets.toml):$UNPINNED" >&2

@@ -793,7 +793,7 @@ Reference machine: 8-core x86_64, NVMe, 32 GB RAM. Baselines: bedtools 2.31.x, b
 | `depth --summary`, `depth --by` | P3c | samtools coverage; mosdepth (binding) |
 | Unsorted-mode interval index (internal) | P1 | coitrees (preferred) against superintervals, a cgranges-style tree and rust-lapper |
 
-- **External datasets:** the datasets of the published interval-query benchmark (bioRxiv 2025.02.19.639167, which found AIList, bedtk and granges consistently fastest). This lets gloci's results be compared with published numbers.
+- **External datasets:** the simulated datasets of the published interval-query benchmark (Schäfer and Yang, *Briefings in Bioinformatics* 2025, doi:10.1093/bib/bbaf379; preprint bioRxiv 2025.02.19.639167, which found AIList, bedtk and granges consistently fastest). They are the paper's Zenodo record (doi:10.5281/zenodo.14880992, CC BY 4.0, made by segmeter), fetched at benchmark time by `cargo xtask paper fetch` and never shipped, so gloci's numbers can be compared with the paper's. The paper cases `overlap-simdata-basic` and `overlap-simdata-complex` run the overlap query on its 100,000-interval reference set **[owner, 2026-11-18]**.
 - Results are stored per release so regressions show up.
 
 ### 9.3 Testing

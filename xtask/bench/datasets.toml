@@ -13,10 +13,14 @@
 # be pinned when this was written). Regenerate the script with
 # `cargo xtask paper fetch-script` after any edit.
 #
-# bioRxiv 2025.02.19.639167 (§9.2, deferred by D53): the preprint's data
-# statement names no downloadable input set, so it is not pinned. Its
-# comparisons run on the public datasets below. Revisit if the authors
-# publish their inputs.
+# The interval-query benchmark (§9.2, D53): Schäfer and Yang, "A comprehensive
+# benchmark of tools for efficient genomic interval querying", Briefings in
+# Bioinformatics (2025), doi:10.1093/bib/bbaf379 (preprint bioRxiv
+# 2025.02.19.639167). Its simulated datasets are the Zenodo record
+# doi:10.5281/zenodo.14880992, produced by segmeter (MIT,
+# https://github.com/ylab-hi/segmeter) and licensed CC BY 4.0. The data is
+# downloaded at benchmark time and never shipped with gloci. The dataset is
+# pinned below (simdata-segmeter).
 #
 # coitrees: the coitrees benchmark data (Ensembl annotations against RNA-Seq
 # alignments) has no public download: the repository has no releases and its
@@ -103,6 +107,29 @@ description = "CTCF ChIP-seq alignments, K562 replicate 1, GRCh38 (BAM)"
 release = "ENCSR000AKO"
 url = "https://www.encodeproject.org/files/ENCFF834MPG/@@download/ENCFF834MPG.bam"
 md5 = "22477d07776b89e20b0458ed873306d4"
+paper = true
+
+[[dataset]]
+# The simulated datasets of "A comprehensive benchmark of tools for efficient
+# genomic interval querying" (Schäfer and Yang, Briefings in Bioinformatics
+# 2025, doi:10.1093/bib/bbaf379), Zenodo record 14880992, file simdata.tar.gz,
+# 216,326,292 bytes, CC BY 4.0, made by segmeter (MIT,
+# https://github.com/ylab-hi/segmeter) with its defaults. Layout:
+# simdata/sim/sim_001/BED/{ref,basic,complex}. ref/ holds the reference sets
+# (10 to 100K intervals, the `_sorted` copies in byte order), basic/query/ten
+# relation kinds (perfect, contained, enclosed, 5p-partial, ...) of query sets,
+# complex/query/mult/ the multi-overlap queries, and basic/truth, complex/truth
+# the overlapping pairs. The tarball carries macOS AppleDouble files (`._*`),
+# which the derived inputs below ignore.
+# Checksum source: the md5 on the Zenodo record; a download on 2026-11-18
+# matched it, and its sha256 was
+# e8e4bcd69ef4d25bc3eaf595b33156a1141e679b12f819e97021ca04d9d10d40.
+name = "simdata-segmeter"
+description = "Interval-query benchmark simulated datasets (segmeter; Schäfer and Yang 2025, CC BY 4.0)"
+release = "doi:10.5281/zenodo.14880992"
+url = "https://zenodo.org/records/14880992/files/simdata.tar.gz"
+md5 = "75b3c767def3813aa790d01e9ae9239a"
+unpack = false
 paper = true
 
 # ---- derived inputs (D95) ----
@@ -223,3 +250,25 @@ name = "hg38.lex.genome"
 from = ["repo:crates/gloci-io/data/genomes/hg38.genome"]
 command = "sort -k1,1 {in} > {out}"
 sha256 = "4a26e5b1c8b72ffdb78a29bc17ac8430c80259c295d5e6e1065e8c990507a330"
+
+# The interval-query benchmark at its main size (100,000 intervals), read from the
+# tarball with tar so that the 800 MB of unpacked files are never written. Its
+# `_sorted` files are in byte order already, the sort makes that certain.
+[[derived]]
+name = "simdata-ref.bed"
+from = ["simdata-segmeter"]
+command = "tar -xzOf {in} simdata/sim/sim_001/BED/ref/100K_sorted.bed | sort -k1,1 -k2,2n -k3,3n -s > {out}"
+sha256 = "87f4dc725ba38363d967a7cbafaf2aa795fddf1a12e0b316cfbfcf849dbff2a1"
+
+[[derived]]
+name = "simdata-query-perfect.bed"
+from = ["simdata-segmeter"]
+command = "tar -xzOf {in} simdata/sim/sim_001/BED/basic/query/perfect/100K_sorted.bed | sort -k1,1 -k2,2n -k3,3n -s > {out}"
+sha256 = "be82ec5f51c02ab29a042fd74e61bfc562fda39b02606784b878f7d512cd6ab4"
+
+[[derived]]
+# The multi-overlap queries (complex/): the 50 bin set, which has no sorted copy.
+name = "simdata-query-mult.bed"
+from = ["simdata-segmeter"]
+command = "tar -xzOf {in} simdata/sim/sim_001/BED/complex/query/mult/100K_50bin.bed | sort -k1,1 -k2,2n -k3,3n -s > {out}"
+sha256 = "6d76f99696ec49e7e0716e7495fa40d544fa071851e1147d7fd596273f849c3c"

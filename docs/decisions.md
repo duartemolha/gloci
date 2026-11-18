@@ -131,7 +131,7 @@ D34–D60, from the plan "Decisions this plan adds" table.
 
 <a id="d52"></a>**D52** `--region`/`--regions-file` exist on `view` (P0) and `vcf filter`. On the relation commands they are deferred to P2.
 
-<a id="d53"></a>**D53** The mdBook and the bioRxiv external benchmark datasets are deferred to P2.
+<a id="d53"></a>**D53** The mdBook and the bioRxiv external benchmark datasets are deferred to P2. The external datasets are now pinned: the published paper's Zenodo record (doi:10.5281/zenodo.14880992, `simdata-segmeter`) is fetched by `paper fetch`, and two overlap cases use it **[owner, 2026-11-18]**.
 
 <a id="d54"></a>**D54** Strand comes from BED column 6 when the line has at least 6 columns and the value is `+`, `-` or `.`, and from GFF/GTF column 7. Anything else, and all VCF/BCF records, is unknown. `-s`/`-S` warn once per input that has unknown-strand records.
 
