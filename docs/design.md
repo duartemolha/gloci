@@ -421,7 +421,7 @@ How the old commands map onto `partition`:
 | `spacing` | bedtools spacing | P2 | appends the distance to the previous feature |
 | `groupby` | bedtools groupby | P2 | `-g COLS -c COL:OP` over consecutive equal keys |
 | `genomecov` | bedtools genomecov | P2 (BED), P3 (BAM, CRAM, SAM) | `--bedgraph`, `--bga`, `--hist` (default), `--per-base`, `--scale X`, `--strand +/-`, `--split`, `--split-deletions`, `--5p/--3p`, `--max-depth N`, `--sort` |
-| `sample`, `random`, `shuffle` | bedtools | P3 | `--seed` required for reproducibility; `shuffle --exclude/--include BED` |
+| `sample`, `random`, `shuffle` | bedtools | P3 | `--seed N` makes the output reproducible (without it a fresh seed is used and printed); `shuffle --exclude/--include BED` |
 | `liftover` | CrossMap `bed`, `gff`, `region`; UCSC `liftOver` | after P3 (D174) | `--chain`, `--unmapped`, `--chrom-style`, `--ignore-blocks`, `--merge-segments`, `--min-ratio`; input order out |
 
 **`liftover`** **[D174]**
