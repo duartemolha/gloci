@@ -11,8 +11,8 @@ A push of a `v*` tag runs `.github/workflows/release.yml`:
 1. `cargo xtask release-check --tag <tag>` requires that the tag is `v<workspace version>`, that
    `CHANGELOG.md` has a section for the version, that `CITATION.cff` carries it, and that `LICENSE` exists.
 2. Static musl archives for Linux x86_64 and aarch64 and a macOS arm64 archive, each with the man pages,
-   shell completions, `SKILL.md`, `docs/migration.md`, `docs/differences.md`, `CHANGELOG.md` and the
-   licence.
+   shell completions, `SKILL.md`, `docs/migration.md`, `docs/differences.md`, `CHANGELOG.md`, the
+   licence and `THIRD-PARTY-LICENSES`.
 3. abi3 wheels (manylinux2014 x86_64 and aarch64, macOS arm64) and an sdist, each smoke-tested on its
    platform (the wheels on the oldest and newest supported CPython).
 4. The GitHub Release: the archives, wheels, `SHA256SUMS`, the notes from the `CHANGELOG.md` section, and
@@ -58,6 +58,16 @@ The oldest supported Rust is `rust-version` in the workspace `Cargo.toml`. The `
 `cargo check --workspace --locked` with it, the `sdist-smoke` job in `release.yml` builds the sdist with it,
 and the README and the install page name it. Raising it means editing all of these together; the same test
 checks that they agree.
+
+## THIRD-PARTY-LICENSES
+
+`THIRD-PARTY-LICENSES` at the repository root holds the notices of the crates compiled into the `gloci`
+binary and the Python extension. It is generated, not edited: `cargo xtask licenses` rewrites it from
+`Cargo.lock` (D80), and CI runs `cargo xtask licenses --check` (after `cargo fetch --locked`), which fails
+when the file is out of date. Regenerate it and commit the result whenever a dependency changes. The
+release workflow copies it into every archive next to `LICENSE`, and `crates/gloci-py/pyproject.toml` lists
+it in `license-files` so the wheels and the sdist carry it. A new dependency whose package has no licence
+file needs the standard text of its licence in `xtask/licenses/`, or the command stops and says which.
 
 ## First-release steps
 

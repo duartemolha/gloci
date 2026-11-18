@@ -30,6 +30,11 @@ jobs:
         if: matrix.os == 'ubuntu-24.04'
         run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color -ignore SC2086
       - run: cargo fmt --check
+      - name: THIRD-PARTY-LICENSES is current
+        if: matrix.os == 'ubuntu-24.04'
+        run: |
+          cargo fetch --locked
+          cargo xtask licenses --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       # Every test binary runs even after one fails, so a run shows all the failures of a platform.
       - run: cargo test --workspace --no-fail-fast

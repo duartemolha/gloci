@@ -121,6 +121,32 @@ fn every_published_crate_ships_the_licence() {
     }
 }
 
+/// Every release archive and the Python wheel carry the notices of the crates compiled in (D80).
+#[test]
+fn every_archive_ships_the_third_party_licences() {
+    let root = xtask::diff::workspace_root();
+    let text = std::fs::read_to_string(root.join("THIRD-PARTY-LICENSES")).unwrap();
+    assert!(text.starts_with("THIRD-PARTY-LICENSES: "));
+    assert!(text.contains("cargo xtask licenses"));
+    let release = std::fs::read_to_string(root.join(".github/workflows/release.yml")).unwrap();
+    assert!(
+        release.contains("cp THIRD-PARTY-LICENSES \"dist/${STAGE}/\""),
+        "the archive step must copy THIRD-PARTY-LICENSES next to LICENSE"
+    );
+    let ci = std::fs::read_to_string(root.join(".github/workflows/ci.yml")).unwrap();
+    assert!(
+        ci.contains("cargo xtask licenses --check"),
+        "CI must check THIRD-PARTY-LICENSES"
+    );
+    let py = root.join("crates/gloci-py");
+    let pyproject = std::fs::read_to_string(py.join("pyproject.toml")).unwrap();
+    assert!(pyproject.contains("license-files = [\"LICENSE\", \"THIRD-PARTY-LICENSES\"]"));
+    assert!(
+        std::fs::read(py.join("THIRD-PARTY-LICENSES")).unwrap() == text.as_bytes(),
+        "crates/gloci-py/THIRD-PARTY-LICENSES must be the root file (a symlink)"
+    );
+}
+
 #[test]
 fn licence_file_matches_metadata() {
     let root = xtask::diff::workspace_root();

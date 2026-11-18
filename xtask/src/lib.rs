@@ -5,6 +5,7 @@ pub mod conda;
 pub mod diff;
 pub mod docs;
 pub mod genomes;
+pub mod licenses;
 pub mod paper;
 pub mod pystub;
 pub mod release;

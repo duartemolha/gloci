@@ -985,5 +985,5 @@ The user-facing version of this guide lives in `docs/migration.md` (later part o
 
 ## 13. Open questions (non-blocking)
 
-- **License, and public open source or internal.** The licence is MIT (confirmed). The copyright holder (the LICENSE names Duarte Molha) is still the owner's call and should be settled before the first public release.
+- **License, and public open source or internal.** The licence is MIT (confirmed). The copyright holder is Duarte Molha, as the LICENSE names **[owner, 2026-11-18]**.
 - **Which commands the team uses most.** The answer may reorder P1 and P2, but it doesn't change the design.

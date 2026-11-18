@@ -30,6 +30,12 @@ enum Task {
         #[arg(long, value_name = "DIR", default_value = "docs/book/src")]
         src: PathBuf,
     },
+    /// Write THIRD-PARTY-LICENSES, the licences of the crates compiled into gloci
+    Licenses {
+        /// Compare the committed file with a fresh one and exit 1 if they differ
+        #[arg(long)]
+        check: bool,
+    },
     /// Generate the Python type stub from the command specs (crates/gloci-py/python/gloci/__init__.pyi)
     Pystub {
         /// The stub file to write
@@ -432,6 +438,9 @@ fn run(cli: Cli) -> Result<bool> {
                 eprintln!("book: {p}");
             }
             return Ok(problems.is_empty());
+        }
+        Task::Licenses { check } => {
+            return xtask::licenses::run(&xtask::diff::workspace_root(), check);
         }
         Task::Pystub { out } => {
             let out = if out.is_absolute() {

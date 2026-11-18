@@ -109,6 +109,8 @@ jobs:
           for f in LICENSE*; do
             if [ -f "$f" ]; then cp "$f" "dist/${STAGE}/"; fi
           done
+          # The notices of the crates compiled into the binary (cargo xtask licenses).
+          cp THIRD-PARTY-LICENSES "dist/${STAGE}/"
           tar -C dist -czf "dist/${STAGE}.tar.gz" "${STAGE}"
       - name: Upload release archive
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
