@@ -34,10 +34,12 @@ RUN micromamba install -y -n base -c conda-forge -c bioconda \
 # benchmark starts it directly, with no `micromamba run` start-up in the timings.
 # Where the install fails (no build of its dependencies for the architecture)
 # the failure is reported here and the bench runner then skips the yardstick.
-RUN micromamba create -y -n vcfkit -c conda-forge -c bioconda vcfkit=0.2.8 \
+# Python is pinned: the recipe allows any Python, and the solver came to pick
+# 2.7, on which vk stops at its first f-string (a SyntaxError).
+RUN micromamba create -y -n vcfkit -c conda-forge -c bioconda vcfkit=0.2.8 python=3.6 \
     && ln -s /opt/conda/envs/vcfkit/bin/vk /opt/conda/bin/vk \
     && micromamba clean --all --yes \
-    || echo "skipped: vcfkit not installed (micromamba create -n vcfkit vcfkit=0.2.8 failed); its benchmark columns will be empty"
+    || echo "skipped: vcfkit not installed (micromamba create -n vcfkit vcfkit=0.2.8 python=3.6 failed); its benchmark columns will be empty"
 
 # plink2 (yardstick for `vcf stats`): its own step, because the bioconda
 # package is not built for every architecture. A failure is reported here and
