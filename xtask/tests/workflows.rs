@@ -620,6 +620,9 @@ fn nightly_builds_and_installs_the_bioconda_recipes() {
         "-c conda-forge -c bioconda",
         "--override-channels",
         "conda build",
+        // the variant config that defines c_stdlib for `{{ stdlib('c') }}`
+        "conda-forge-pinning",
+        "-m \"$out/build-env/conda_build_config.yaml\"",
         "gloci --version",
         "gloci.__version__",
     ] {

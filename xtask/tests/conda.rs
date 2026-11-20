@@ -70,14 +70,7 @@ fn render_all_writes_both_recipes_and_their_files() {
         None,
     )
     .unwrap();
-    for f in [
-        "gloci/meta.yaml",
-        "gloci/build.sh",
-        "gloci/test/a.bed",
-        "gloci/test/b.bed",
-        "gloci/test/expected.bed",
-        "py-gloci/meta.yaml",
-    ] {
+    for f in ["gloci/meta.yaml", "gloci/build.sh", "py-gloci/meta.yaml"] {
         assert!(out.path().join(f).is_file(), "{f} missing");
     }
     let m = fs::read_to_string(out.path().join("gloci/meta.yaml")).unwrap();
@@ -103,6 +96,8 @@ fn cli_recipe_has_no_run_requirements() {
     let build = req.join("\n");
     for need in [
         "{{ compiler('c') }}",
+        // bioconda's lint compiler_needs_stdlib_c
+        "{{ stdlib('c') }}",
         "{{ compiler('rust') }}",
         "cargo-bundle-licenses",
     ] {
@@ -117,7 +112,7 @@ fn cli_recipe_has_no_run_requirements() {
     for cmd in [
         "gloci --version",
         "gloci genomes show hg38",
-        "gloci intersect -a a.bed -b b.bed | cmp - expected.bed",
+        "gloci intersect -a a.bed -b b.bed | cmp - a.bed",
         "gloci.1",
         "bash-completion/completions/gloci",
         "site-functions/_gloci",
@@ -186,19 +181,15 @@ fn py_recipe_installs_no_cli() {
 }
 
 #[test]
-fn recipe_test_files_exist() {
-    let d = recipes().join("gloci/test");
-    for f in ["a.bed", "b.bed", "expected.bed"] {
-        let p = d.join(f);
-        assert!(p.is_file(), "{}", p.display());
-        assert!(!fs::read_to_string(&p).unwrap().is_empty(), "{f} is empty");
-    }
-    // The recipe lists them as test files, so conda copies them next to the test commands.
+fn recipe_files_exist() {
+    // The test needs no files: bioconda's container test (mulled-build) runs the commands
+    // without them, so the recipe writes its inputs in the command itself.
     let t = cli();
-    assert!(t.contains("files:"), "{t}");
-    for f in ["test/a.bed", "test/b.bed", "test/expected.bed"] {
-        assert!(t.contains(f), "{f} not listed\n{t}");
-    }
+    assert!(
+        !t.lines().any(|l| l.trim_start().starts_with("files:")),
+        "{t}"
+    );
+    assert!(!recipes().join("gloci/test").exists());
     for r in ["gloci/meta.yaml", "gloci/build.sh", "py-gloci/meta.yaml"] {
         assert!(recipes().join(r).is_file(), "{r}");
     }

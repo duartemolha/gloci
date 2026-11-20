@@ -15,12 +15,14 @@ mkdir -p "$HOME" "$out/bld"
 export CARGO_BUILD_JOBS=2 CPU_COUNT=2
 
 conda config --set channel_priority strict
-conda create -y -p "$out/build-env" -c conda-forge -c bioconda --override-channels --strict-channel-priority conda-build
+# conda-forge-pinning brings the variant config bioconda builds with: it defines c_stdlib and
+# c_stdlib_version, which the recipes' `{{ stdlib('c') }}` needs.
+conda create -y -p "$out/build-env" -c conda-forge -c bioconda --override-channels --strict-channel-priority conda-build conda-forge-pinning
 # conda-build lives in its own environment; use that environment's conda from here on.
 export PATH="$out/build-env/bin:$PATH"
 
 for r in gloci py-gloci; do
-  conda build -c conda-forge -c bioconda --override-channels --output-folder "$out/bld" "$recipes/$r"
+  conda build -m "$out/build-env/conda_build_config.yaml" -c conda-forge -c bioconda --override-channels --output-folder "$out/bld" "$recipes/$r"
 done
 
 # Both packages in one fresh environment; the local packages win over the channels.
