@@ -20,7 +20,7 @@ reference tool. A difference that shows only where the reference tool runs on a
 particular platform (its C library or CPU) is pinned there: the case names those
 architectures in `expected_difference_arch` and must match on the others. Most
 cases run on every `cargo test` from committed reference outputs; the few marked
-"live only" need Docker and run nightly (`cargo xtask diff`). The commit history
+"live only" need Docker and run in the nightly workflow (`cargo xtask diff`). The commit history
 of `crates/gloci/tests/golden/` shows every change in a reference tool's output.
 
 BAM output is compared without its compression and without the header lines that record

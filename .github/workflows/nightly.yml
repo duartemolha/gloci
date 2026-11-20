@@ -1,7 +1,7 @@
 name: nightly
+# Runs only when dispatched (D175): from the Actions tab or `gh workflow run nightly.yml`.
+# "nightly" still names the tier of slow tests it runs.
 on:
-  schedule:
-    - cron: "17 3 * * *"
   workflow_dispatch:
 
 env:

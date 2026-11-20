@@ -70,14 +70,20 @@ jobs:
           toolchain: "1.100.0"
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
-      - name: Install cargo-zigbuild (Linux)
+      # Each Linux runner has its target's architecture, so musl-gcc builds natively, as
+      # ci.yml's musl job does. zig 0.13's clang cannot compile libdeflate's aarch64 CRC code
+      # ("Cannot select: intrinsic %llvm.aarch64.crypto.eor3u").
+      - name: Install musl-tools (Linux)
         if: runner.os == 'Linux'
-        run: |
-          pip3 install --break-system-packages ziglang==0.13.0.post1
-          cargo install --locked cargo-zigbuild --version 0.19.7
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
       - name: Build release binary (Linux musl)
         if: runner.os == 'Linux'
-        run: cargo zigbuild --release --locked --target "${{ matrix.target }}" -p gloci
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          # The C dependencies (libdeflate, mimalloc) compile against musl.
+          export "CC_${TARGET//-/_}=musl-gcc"
+          cargo build --release --locked --target "$TARGET" -p gloci
       - name: Build release binary (macOS)
         if: runner.os == 'macOS'
         run: cargo build --release --locked --target "${{ matrix.target }}" -p gloci

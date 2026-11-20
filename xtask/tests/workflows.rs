@@ -474,9 +474,10 @@ fn python_workflow_tests_polars_without_pyarrow() {
 fn nightly_runs_the_large_python_tests() {
     let root = xtask::diff::workspace_root();
     let y = fs::read_to_string(root.join(".github/workflows/nightly.yml")).unwrap();
+    // D175: dispatched by hand, never on a schedule.
     assert!(
-        y.contains("  schedule:\n"),
-        "nightly.yml runs on a schedule"
+        y.contains("  workflow_dispatch:\n") && !y.contains("schedule:"),
+        "nightly.yml runs only when dispatched"
     );
     let job = job_body(&y, "python-large");
     assert_pinned_like_the_others("nightly.yml", job);
