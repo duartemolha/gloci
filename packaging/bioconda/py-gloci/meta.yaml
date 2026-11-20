@@ -4,13 +4,15 @@ package:
   name: py-gloci
   version: {{ version }}
 
-# The sdist attached to the GitHub Release (PyPI publishing is off by default).
+# The sdist attached to the GitHub Release (the same file as on PyPI).
 source:
   url: https://github.com/duartemolha/gloci/releases/download/v{{ version }}/gloci-{{ version }}.tar.gz
   sha256: @SHA256@
 
 build:
   number: 0
+  run_exports:
+    - {{ pin_subpackage('py-gloci', max_pin="x.x") }}
 
 requirements:
   build:
@@ -47,3 +49,6 @@ about:
 extra:
   recipe-maintainers:
     - duartemolha
+  additional-platforms:
+    - linux-aarch64
+    - osx-arm64
