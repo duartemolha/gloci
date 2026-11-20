@@ -11683,6 +11683,8 @@ gloci = "gloci depth input.bam --by 100 --out-prefix o && cat o.mosdepth.global.
 reference = "samtools index input.bam && mosdepth -n --by 100 o input.bam && cat o.mosdepth.global.dist.txt o.mosdepth.region.dist.txt o.mosdepth.summary.txt && zcat o.regions.bed.gz"
 compare = "exit-status"
 expected_difference = "#mosdepth-past-reference-end"
+# Only mosdepth's aarch64 build checks the index and stops; its x86_64 builds exit 0.
+expected_difference_arch = ["aarch64"]
 
 [[case]]
 name = "depth-files-csi-preset-vs-mosdepth"
@@ -11695,8 +11697,9 @@ expected_difference = "#mosdepth-csi-preset"
 [[case]]
 name = "depth-files-bed-past-end-vs-mosdepth"
 input = { file = "xtask/diff/inputs/samtools/depth.bam" }
-gloci = "printf 'chr1\\t0\\t1000000\\n' > p.bed && gloci depth input.bam --by p.bed --out-prefix o"
-reference = "printf 'chr1\\t0\\t1000000\\n' > p.bed && samtools index input.bam && mosdepth -n --by p.bed o input.bam"
+# chr1 is 500 bases: mosdepth reports the region (exit 0), gloci refuses it (exit 1).
+gloci = "printf 'chr1\\t0\\t600\\n' > p.bed && gloci depth input.bam --by p.bed --out-prefix o"
+reference = "printf 'chr1\\t0\\t600\\n' > p.bed && samtools index input.bam && mosdepth -n --by p.bed o input.bam"
 compare = "exit-status"
 expected_difference = "#mosdepth-bed-past-end"
 

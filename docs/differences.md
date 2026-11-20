@@ -3745,20 +3745,24 @@ cases (must match).
 
 - **gloci:** a BED region that ends past `LN` is exit 1, naming the file, the line
   and `LN`, before any output file is opened.
-- **Old behaviour:** mosdepth 0.3.10 dies with `value out of range: … [RangeDefect]`.
+- **Old behaviour:** mosdepth 0.3.10 reports a region a little past `LN` and counts the
+  bases past it as depth 0 (`chr1 0 600` on a 500-base chr1: mean 0.43 where the 500 real
+  bases give 0.52), exit 0. A region far past it (`chr1 0 1000000`) stops on htslib's
+  CSI range check (exit 1) and leaves partial output files.
 - **Reason:** no silent or partial output.
-- **Pinned by:** the cargo test `bed_region_past_end_publishes_nothing` (there is no
-  live case: mosdepth's crash leaves nothing to compare).
+- **Pinned by:** the cargo test `bed_region_past_end_publishes_nothing` and
+  `depth-files-bed-past-end-vs-mosdepth` (exit status: must differ).
 
 ## `depth --out-prefix` cuts a read at the end of its reference {#mosdepth-past-reference-end}
 
 - **gloci:** a read that ends past `LN` is cut there, with one warning, and the run
   succeeds.
-- **Old behaviour:** mosdepth stops with `index 309 not in 0 .. 300 [IndexDefect]`
-  (exit 1) and leaves a truncated `regions.bed.gz`.
+- **Old behaviour:** mosdepth 0.3.10's aarch64 build stops with
+  `index 309 not in 0 .. 300 [IndexDefect]` (exit 1) and leaves a truncated
+  `regions.bed.gz`; its x86_64 builds do not check the index and exit 0.
 - **Reason:** the same as for `depth` itself (D137); a crash helps nobody.
 - **Pinned by:** the cargo test `past_reference_end_is_cut_with_one_warning` and
-  `depth-files-past-end-vs-mosdepth` (exit status: must differ).
+  `depth-files-past-end-vs-mosdepth` (exit status: must differ on aarch64).
 
 ## `depth --out-prefix --by FILE` skips a blank line {#mosdepth-bed-blank-line}
 
