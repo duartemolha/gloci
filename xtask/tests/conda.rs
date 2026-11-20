@@ -178,6 +178,8 @@ fn py_recipe_installs_no_cli() {
         "{t}"
     );
     assert!(!t.contains("run_exports") || t.contains("python"), "{t}");
+    // Like the release, no Intel macOS build of the library.
+    assert!(t.contains("skip: true  # [osx and x86_64]"), "{t}");
 }
 
 #[test]
