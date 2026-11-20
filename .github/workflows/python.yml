@@ -100,7 +100,7 @@ jobs:
       - name: pytest
         run: pytest crates/gloci-py/tests -m "not large"
 
-  # The lowest versions of the extras (pyproject.toml: pyarrow 15, polars 1.5, pandas 2.2) run the
+  # The lowest versions of the extras (pyproject.toml: pyarrow 23.0.1, polars 1.5, pandas 2.2) run the
   # same tests as the newest ones. pandas 2.2 has no Python 3.13 wheels, so this is Python 3.11.
   floors:
     name: pytest (lowest pyarrow, polars and pandas)

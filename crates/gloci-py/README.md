@@ -250,9 +250,9 @@ print(table.schema.names)
   them only where their types are installed (polars ships them; `pandas-stubs` and
   `pyarrow-stubs` do for the others): without those, `to_pandas()` and `to_arrow()` are `Any`
   to mypy.
-- pyarrow, polars and pandas are optional: `gloci[arrow]` (pyarrow 15 or later), `gloci[polars]`
+- pyarrow, polars and pandas are optional: `gloci[arrow]` (pyarrow 23.0.1 or later), `gloci[polars]`
   (polars 1.5 or later alone; no pyarrow needed) or `gloci[pandas]` (pandas 2.2 or later, whose
-  DataFrames speak the Arrow stream interface, and pyarrow 15 or later). Without the one a method needs, it raises `ImportError` naming the extra.
+  DataFrames speak the Arrow stream interface, and pyarrow 23.0.1 or later). Without the one a method needs, it raises `ImportError` naming the extra.
 
 ## Errors
 
