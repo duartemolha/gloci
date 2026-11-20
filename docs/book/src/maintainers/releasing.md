@@ -1,8 +1,8 @@
 # Releasing
 
 This page is for the maintainers. It records how a release is cut and which first-release steps are
-left to the repository owner. Nothing here has been done yet: no package has been published, no Pages site
-deployed, and no release workflow run on GitHub.
+left to the repository owner. The first release is 0.1.0 (D81). It goes to the GitHub Release, PyPI,
+crates.io, `ghcr.io` and this site on GitHub Pages; bioconda and Zenodo come later.
 
 ## What a release does
 
@@ -31,7 +31,7 @@ nothing, whatever `dry_run` says.
 
 ## Release checklist
 
-1. Bump the version (see [First-release steps](#first-release-steps) for the first one) in the workspace
+1. Bump the version (the first release, 0.1.0, needed no bump) in the workspace
    `Cargo.toml`, the crate dependencies' `version` fields, `CITATION.cff` and the two bioconda recipes'
    `{% set version = ... %}` lines (`packaging/bioconda/gloci/meta.yaml` and `py-gloci/meta.yaml`). The
    Python package takes its version from Cargo, so it needs no edit of its own. Move the
@@ -80,26 +80,28 @@ These steps are the owner's. The project has deferred them on purpose; each is a
 - [ ] **crates.io token.** Add the repository secret `CARGO_REGISTRY_TOKEN`, a crates.io API token that may
   publish the workspace crates. crates.io rate-limits new crates (HTTP 429): if the publish job stops on
   one, re-run it. Each crate already on crates.io is skipped, so the re-run completes the publish.
-- [ ] **Repository variables.** Set `GLOCI_PUBLISH_PYPI=true`, `GLOCI_PUBLISH_CRATES=true`,
+- [x] **Repository variables.** Set `GLOCI_PUBLISH_PYPI=true`, `GLOCI_PUBLISH_CRATES=true`,
   `GLOCI_PUBLISH_GHCR=true` and `GLOCI_PUBLISH_PAGES=true` when the matching channel should go live. Each job also needs a real tag push
   and a `LICENSE` file.
-- [ ] **Dry run.** Dispatch the release workflow once with `dry_run` set (it is the default) and check that
+- [x] **Dry run.** Dispatch the release workflow once with `dry_run` set (it is the default) and check that
   every build and smoke test passes before the first tag.
-- [ ] **Bioconda recipe check.** Dispatch the nightly workflow once and check its `conda-recipe` job: it builds
+- [x] **Bioconda recipe check.** Dispatch the nightly workflow once and check its `conda-recipe` job: it builds
   both recipes (`gloci` and `py-gloci`) and installs them into a fresh environment.
 - [ ] **Bioconda submission.** After a tagged release, take `conda-recipes.tar.gz` from the Release and open a
   pull request against `bioconda-recipes` with the `gloci` and `py-gloci` recipes.
 - [ ] **Zenodo.** Create the Zenodo record for the release (with the paper's evidence bundle, from
   `cargo xtask paper bundle`) and put its DOI in `CITATION.cff`.
-- [ ] **Pages.** In the repository settings, enable GitHub Pages with the source "GitHub Actions", then set
-  `GLOCI_PUBLISH_PAGES=true`. The docs workflow deploys this site on the next `v*` tag; until the variable is
+- [x] **Pages.** In the repository settings, enable GitHub Pages with the source "GitHub Actions", add a
+  tag rule `v*` to the `github-pages` environment's deployment branches and tags (by default it accepts only
+  the default branch, so a tag's deploy would be refused), then set `GLOCI_PUBLISH_PAGES=true`. The docs workflow deploys this site on the next `v*` tag; until the variable is
   set the deploy job is skipped, so the first tag does not fail on a disabled Pages site.
 - [ ] **Paper benchmarks.** Run the paper benchmarks (`cargo xtask paper fetch`, then `cargo xtask paper run`)
   on the 8-core x86_64 reference machine. CI never downloads the paper datasets.
 - [ ] **Quiet-box performance.** Re-measure the performance numbers (`cargo xtask bench`) on a quiet box
   before the release, not on a shared machine.
-- [ ] **Version 0.2.0.** Bump the version to 0.2.0 at the release (D81): workspace `Cargo.toml`, crate
-  dependency versions, `CITATION.cff`, the changelog section and the bioconda recipes' version.
+- [x] **Version 0.1.0.** The first release keeps the version the workspace has carried since P0 (D81,
+  owner 2026-11-20; it was planned as 0.2.0 until then). Its changelog section and the `CITATION.cff`
+  date are set on the day of the tag.
 
-Until the owner has done the relevant steps, the [install page](../install.md) lists crates.io, PyPI,
-bioconda and `ghcr.io` only under "Once published".
+The [install page](../install.md) lists crates.io, PyPI and `ghcr.io` as live from 0.1.0, and bioconda
+under "Once published" until its recipes are accepted.

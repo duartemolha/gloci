@@ -1,7 +1,7 @@
 # Install
 
-This page lists what works today first, and then, under [Once published](#once-published), the
-channels that will exist after the first public release.
+This page lists the channels that work today first, and then, under [Once published](#once-published),
+the one that is still to come.
 
 ## From a GitHub Release archive
 
@@ -48,13 +48,20 @@ cargo install --git https://github.com/duartemolha/gloci gloci
 
 This builds the `gloci` binary from the repository's default branch. Add `--tag v<VERSION>` for a release.
 
+## Package registries
+
+From the first release (0.1.0) on, each tagged release is published to these registries too:
+
+- crates.io: `cargo install gloci` (Rust 1.91 or newer; it builds the binary from source).
+- PyPI: `pip install gloci`, the same wheels as the GitHub Release. See [gloci for Python](python.md).
+- A container image on GitHub Container Registry, a `FROM scratch` image holding the static binary:
+  `docker run --rm -v "$PWD:/data" -w /data ghcr.io/duartemolha/gloci:<tag> --version`.
+
 ## Once published
 
-The channels below are not published yet. The commands are what they will be; until the first public
-release they do not work, and nothing here has been uploaded to any of these registries.
+Bioconda is not published yet. The commands below are what they will be; they do not work until the
+recipes are accepted into bioconda.
 
-- crates.io: `cargo install gloci`
-- PyPI: `pip install gloci`
 - Bioconda, the command line tool and the Python library:
 
   ```sh
@@ -62,7 +69,4 @@ release they do not work, and nothing here has been uploaded to any of these reg
   conda install -c conda-forge -c bioconda py-gloci
   ```
 
-- A container image on GitHub Container Registry, a `FROM scratch` image holding the static binary:
-  `docker run --rm -v "$PWD:/data" -w /data ghcr.io/duartemolha/gloci:<tag> --version`.
-
-The [release checklist](maintainers/releasing.md) lists what has to happen before each of them goes live.
+The [release checklist](maintainers/releasing.md) lists what has to happen before it goes live.

@@ -7,6 +7,19 @@ the minor version).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-20
+
+The first public release.
+
+- Interval engine: half-open u64 coordinates, sorted-stream sweeps and an index for random access, with output byte-identical at every `--threads`.
+- Interval commands with bedtools parity: intersect, merge, subtract, closest, coverage, genomecov, map, groupby, cluster, spacing, window, slop, flank and more, checked against pinned bedtools output through committed golden files.
+- BED, GFF, VCF and BCF reading and writing, with bgzip and tabix (TBI and CSI) indexes, and built-in genome files.
+- A single static binary (musl on Linux, plus macOS arm64) with man pages, shell completions and an agent usage guide (`SKILL.md`).
+- A differential test harness (`cargo xtask diff`), a benchmark suite (`cargo xtask bench`) and synthetic data generators (`cargo xtask gen`).
+
+The sections below list what changed after the internal preview of 2026-11-08, which was never
+published.
+
 ### Added
 
 - `gloci liftover peaks.bed --chain GRCh37_to_GRCh38.chain.gz -o peaks.b38.bed --unmapped peaks.unmapped.bed` moves BED and bedGraph records to another assembly by CrossMap 0.7.4's rules (D174), checked record for record against CrossMap: a record is split at chain gaps, records that do not lift are written as read to `--unmapped` or counted by reason in a warning, a warning names the input chromosomes the chain lacks, so a naming mismatch is never silent, `--chrom-style` names the target chromosomes (CrossMap's `--chromid`), and the chain may be plain, gzip or BGZF. The output is in input order, so pipe it through `gloci sort`. It is a step of the Python library, `liftover()`. A BED12 record is lifted block by block, with its thick ends following their blocks, and is unmapped when a block does not lift in one piece; `--ignore-blocks` lifts columns 1 to 3 only, as CrossMap's `--naive-bed-parsing` does. GFF3 and GTF features lift by CrossMap `gff`'s rules (one piece each; a feature only partly on a chain is written shortened and also to the unmapped output; a strand `.` is kept). `--merge-segments [--min-ratio F]` writes a record cut at chain gaps as one record, as CrossMap `region -r F` does, without its `map_ratio=` column. VCF liftover is not in this release. Six human chains are built in, so `--chain GRCh37-to-GRCh38` works without a file: GRCh37 and GRCh38 both ways from Ensembl (no restrictions), and GRCh38 and GRCh37 to and from T2T-CHM13v2 from the T2T consortium (CC0); mitochondrial names are written as with the chain file (GRCh37's `MT` is `chrMT` for a `chr` input, never hg19's `chrM`), and `GRCh37-to-GRCh38` leaves `chrM` and `M` unmapped with a warning, because hg19's `chrM` is not GRCh37's `MT`. Experimental.
@@ -80,11 +93,3 @@ the minor version).
 - Messages that sent users the wrong way, and a misread `-g` BAM: a region such as `{chr1}x` is reported as unexpected text after the `}`, where it was called an unterminated `{`; an `INFO/SVLEN` whose end passes the largest coordinate is "too large", where it was "not an integer" (and lost its minus sign); errors in a `-g` genome file with blank lines before its first line name the right line, and header errors in a `-g` VCF no longer claim line 1; `--write-index` on a command whose output is not sorted (`slop -s`) says the output was not written and to pipe it through `gloci sort`, where it said to sort the file it had not written; `view` with regions on a pipe or a `/dev/fd` path (`<(...)`) scans it as it scans stdin, where it suggested writing `/dev/fd/63.gz`. A `-g` BAM whose reference name is stored without its closing NUL keeps the name's last letter, as htslib does, where gloci dropped it.
 - A usage message that names the long option now says `--output-format` where it said `-O`.
 - A command given `-` (standard input) for two of its inputs, such as `gloci intersect -a - -b - < a.bed`, stops with a usage error (exit 2) that names both (`standard input is given for both -a and -b; give one of them as a file`) before it reads or writes anything. It read standard input for the first input and found the second empty, so it wrote a wrong answer (often nothing) and exited 0; `subtract`, `closest`, `coverage`, `merge - -`, `sort - -`, `view - --regions-file -` and every other command with two inputs did the same. `vcf compare` and `tag`, which refused it already, now say so in the same words. `-` given once works as before, and each run of the in-process API and the Python library is checked on its own.
-
-## [0.1.0] - 2026-11-08
-
-- Interval engine: half-open u64 coordinates, sorted-stream sweeps and an index for random access, with output byte-identical at every `--threads`.
-- Interval commands with bedtools parity: intersect, merge, subtract, closest, coverage, genomecov, map, groupby, cluster, spacing, window, slop, flank and more, checked against pinned bedtools output through committed golden files.
-- BED, GFF, VCF and BCF reading and writing, with bgzip and tabix (TBI and CSI) indexes, and built-in genome files.
-- A single static binary (musl on Linux, plus macOS arm64) with man pages, shell completions and an agent usage guide (`SKILL.md`).
-- A differential test harness (`cargo xtask diff`), a benchmark suite (`cargo xtask bench`) and synthetic data generators (`cargo xtask gen`).

@@ -273,17 +273,21 @@ fn install_page_names_every_channel() {
     ] {
         assert!(page.contains(needle), "install.md lacks {needle:?}");
     }
-    // The channels that are not live come after a heading that says so.
+    // The channels that are not live come after a heading that says so; the live ones come before it.
     let (live, later) = page
         .split_once("## Once published")
         .expect("install.md needs a `## Once published` section");
-    for needle in [
-        "cargo install gloci",
-        "pip install gloci",
-        "conda install -c conda-forge -c bioconda gloci",
-        "py-gloci",
-        "ghcr.io/",
-    ] {
+    for needle in ["cargo install gloci", "pip install gloci", "ghcr.io/"] {
+        assert!(
+            live.contains(needle),
+            "install.md lacks the live channel {needle:?}"
+        );
+        assert!(
+            !later.contains(needle),
+            "{needle:?} is live, so it belongs before the once-published section"
+        );
+    }
+    for needle in ["conda install -c conda-forge -c bioconda gloci", "py-gloci"] {
         assert!(
             later.contains(needle),
             "the once-published section lacks {needle:?}"
@@ -295,7 +299,7 @@ fn install_page_names_every_channel() {
     }
     assert!(
         later.contains("not published"),
-        "the section must say nothing is published yet"
+        "the section must say bioconda is not published yet"
     );
 }
 
@@ -316,7 +320,7 @@ fn releasing_page_lists_the_owner_steps() {
         "Pages",
         "8-core",
         "quiet",
-        "0.2.0",
+        "Version 0.1.0",
     ] {
         assert!(page.contains(needle), "releasing.md lacks {needle:?}");
     }

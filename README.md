@@ -13,6 +13,8 @@ essentials are there too: `flags`, `idxstats`, `flagstat`, `head`, `samples`,
 `depth`, `bedcov`, `reheader`, `view --count`, and `check` (`check --quick` is
 `samtools quickcheck`).
 
+Documentation: <https://duartemolha.github.io/gloci/>
+
 ## Install
 
 From a GitHub Release: download the archive for your platform from the
@@ -25,9 +27,15 @@ From source, with a Rust toolchain (1.91 or newer):
 cargo install --git https://github.com/duartemolha/gloci gloci
 ```
 
-Not yet published: gloci is not on crates.io, PyPI or bioconda yet, so
-`cargo install gloci`, `pip install gloci` and `conda install gloci` do not
-work today.
+From crates.io or PyPI:
+
+```sh
+cargo install gloci   # the command line tool, built from source
+pip install gloci     # the Python library
+```
+
+gloci is not on bioconda yet, so `conda install gloci` does not work today.
+A container image is at `ghcr.io/duartemolha/gloci`.
 
 ## Example
 
