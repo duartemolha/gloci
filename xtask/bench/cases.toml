@@ -75,7 +75,7 @@ bedops = "bedops -m {in} > {out}"
 gia = "gia merge -i {in} > {out}"
 bedder = "bedder merge -i {in} > {out}"
 granges = "granges merge {in} > {out}"
-bedtk = "bedtk cov {in} > {out}"
+bedtk = "bedtk merge {in} > {out}"
 grit-genomics = "grit merge -i {in} > {out}"
 
 [[case.same]]
@@ -116,7 +116,7 @@ bedops = "closest-features --dist {in_a} {in_b} > {out}"
 gia = "gia closest -a {in_a} -b {in_b} > {out}"
 bedder = "bedder closest -a {in_a} -b {in_b} > {out}"
 granges = "granges nearest -a {in_a} -b {in_b} > {out}"
-bedtk = "bedtk closest {in_a} {in_b} > {out}"
+# bedtk 1.1 has no closest command.
 grit-genomics = "grit closest -a {in_a} -b {in_b} > {out}"
 
 [[case.same]]
@@ -138,7 +138,7 @@ bedops = "bedmap --echo --sum --delim '\\t' {in_a} {in_b} > {out}"
 gia = "gia map -a {in_a} -b {in_b} > {out}"
 bedder = "bedder map -a {in_a} -b {in_b} > {out}"
 granges = "granges map -a {in_a} -b {in_b} > {out}"
-bedtk = "bedtk map {in_a} {in_b} > {out}"
+# bedtk 1.1 has no map command.
 grit-genomics = "grit map -a {in_a} -b {in_b} > {out}"
 
 [[case.same]]
