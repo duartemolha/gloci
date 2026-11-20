@@ -183,6 +183,13 @@ def build(d: Path) -> Fixtures:
     bed = ["\t".join(map(str, r)) for r in _bed(rng, 3000)]
     fx.kinds["bed"] = fx.text_kind("a.bed", [], bed)
     (d / "b.bed").write_text("".join("\t".join(map(str, r)) + "\n" for r in _bed(rng, 1500)))
+    # liftover's chain: chr1 gains 500 bases at 50,000 and chr2 loses 200 at 40,000, so some
+    # records are split or unmapped; chr3 lifts unchanged
+    (d / "lift.chain").write_text(
+        "chain 1000 chr1 100000 + 0 100000 chr1 100500 + 0 100500 1\n50000 0 500\n50000\n\n"
+        "chain 1000 chr2 80000 + 0 80000 chr2 79800 + 0 79800 2\n40000 200 0\n39800\n\n"
+        "chain 1000 chr3 60000 + 0 60000 chr3 60000 + 0 60000 3\n60000\n\n"
+    )
 
     pairs = []
     for r in _bed(rng, 1000):
@@ -331,6 +338,7 @@ MATRIX: dict[str, Step] = {
     "igv": step("bed"),
     "links": step("bed"),
     "tag": step("bam", b="b.bed", labels="b"),
+    "liftover": step("bed", chain="lift.chain"),
 }
 
 _EMPTY_FASTA = "an empty FASTA is a DataError (it has no records), on the command line too"
@@ -369,6 +377,7 @@ EXEMPT: dict[tuple[str, str], str] = {
     ("head", "unsorted"): _ANY_ORDER,
     ("igv", "unsorted"): _ANY_ORDER,
     ("links", "unsorted"): _ANY_ORDER,
+    ("liftover", "unsorted"): "lifts record by record and writes the input's order (CrossMap)",
     ("vcf_filter", "unsorted"): _ANY_ORDER,
     ("vcf_extract", "unsorted"): _ANY_ORDER,
     ("vcf_query", "unsorted"): _ANY_ORDER,
